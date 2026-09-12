@@ -5,7 +5,7 @@ import { basename, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { baseModelFor } from './models.js'
 import { chromePreflight, findModelDir, modelComponentRoots } from './chrome-model.js'
-import { toChatCompletions } from './chrome-wire.js'
+import { outputLanguage, toChatCompletions } from './chrome-wire.js'
 
 // Re-exported so callers keep one entry point for the provider.
 export { chromePreflight, findModelDir } from './chrome-model.js'
@@ -403,12 +403,14 @@ const READY_POLL_MS = 500
 // copy of them.
 export async function waitUntilReady(tab, debug) {
   const deadline = Date.now() + READY_TIMEOUT_MS
+  const language = outputLanguage()
   let last = 'unknown'
   while (Date.now() < deadline) {
-    last = await tab.evaluate(async () => {
+    last = await tab.evaluate(async (lang) => {
       if (typeof LanguageModel === 'undefined') return 'no-binding'
       try {
         const probe = await LanguageModel.create({
+          expectedOutputs: [{ type: 'text', languages: [lang] }],
           // Watched, not policed. `downloadprogress` also fires while Chrome
           // prepares weights it ALREADY has, so treating a sub-complete event
           // as a network fetch aborted every legitimate warm-up — which is
@@ -427,7 +429,7 @@ export async function waitUntilReady(tab, debug) {
       } catch (err) {
         return `${err.name}: ${err.message}`
       }
-    })
+    }, language)
     if (last === 'ready') {
       if (debug) console.debug('[chrome] model warm')
       return

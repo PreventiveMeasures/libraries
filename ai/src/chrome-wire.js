@@ -16,6 +16,12 @@ import { parseArgs } from './wire-formats.js'
 // calls chat() is built around. So tools ride `responseConstraint`
 // (AIPromptAPIStructuredOutput), which IS documented: the model is held to a
 // JSON object carrying either prose or a list of calls.
+// Chrome warns on any request that does not name one, and it warns per
+// SESSION — so the readiness probe in chrome.js needs it as much as a turn
+// does, which is why the warning survived being added to the turn alone.
+// Accepts de, en, es, fr, ja.
+export const outputLanguage = () => process.env.CHROME_OUTPUT_LANGUAGE || 'en'
+
 export function toolConstraint(tools) {
   return {
     type: 'object',
@@ -121,7 +127,7 @@ export const CHROME_SHAPE = {
       // Part of the request rather than a launch setting: it changes what the
       // model produces, so a cached turn should record which language it was
       // asked for.
-      language: process.env.CHROME_OUTPUT_LANGUAGE || 'en',
+      language: outputLanguage(),
       initialPrompts: [{ role: 'system', content: system }, ...messages.slice(0, -1)],
       prompt: messages.at(-1).content,
       ...(tools ? { responseConstraint: toolConstraint(tools) } : null),
