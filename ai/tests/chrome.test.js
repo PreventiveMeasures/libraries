@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
-import { chromePreflight, findModelDir, turnInPage, waitUntilReady } from '../src/chrome.js'
+import { chromePreflight, findModelDir, removeProfileDir, turnInPage, waitUntilReady } from '../src/chrome.js'
 import { CHROME_SHAPE, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome-wire.js'
 import { baseModelFor, calculateCost, getMaxTokens } from '../src/models.js'
 import { setProvider } from '../src/providers.js'
@@ -224,6 +224,29 @@ describe('chrome tool schema helpers', () => {
 })
 
 describe('chrome scratch-profile cleanup', () => {
+  it('refuses to recursively delete anything that is not a scratch profile', () => {
+    // The guard exists because the blast radius is not a temp directory: a
+    // profile holds a symlink to the user's model store, so a wrong path is
+    // gigabytes of somebody else's data. Every recursive delete in the
+    // provider goes through here.
+    const outsider = mkdtempSync(join(tmpdir(), 'not-ours-'))
+    writeFileSync(join(outsider, 'keep.txt'), 'still here')
+    assert.throws(() => removeProfileDir(outsider), /not one of our scratch profiles/u)
+    assert.equal(readFileSync(join(outsider, 'keep.txt'), 'utf8'), 'still here')
+    rmSync(outsider, { recursive: true, force: true })
+
+    for (const bad of ['', '/', '/tmp', undefined, null]) {
+      assert.throws(() => removeProfileDir(bad), /not one of our scratch profiles/u, `should refuse ${bad}`)
+    }
+  })
+
+  it('removes a directory that IS one of ours', () => {
+    const ours = mkdtempSync(join(tmpdir(), 'ai-chrome-'))
+    writeFileSync(join(ours, 'Local State'), '{}')
+    removeProfileDir(ours)
+    assert.equal(existsSync(ours), false)
+  })
+
   // The provider removes its scratch profile, and that profile contains a
   // symlink to the user's multi-gigabyte model directory. This asserts the
   // platform behaviour the cleanup leans on: a recursive delete unlinks a

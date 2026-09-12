@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, join, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { baseModelFor } from './models.js'
 import { toChatCompletions } from './chrome-wire.js'
@@ -231,9 +231,25 @@ const PROFILE_PREFIX = 'ai-chrome-'
 // age, never by trying to guess whether another process still holds one.
 const STALE_MS = 6 * 60 * 60 * 1000
 
+// The single place this file deletes anything recursively.
+//
+// Every path handed here is built by mkdtemp from PROFILE_PREFIX, so the
+// check can only fail if something upstream has gone wrong — which is
+// precisely when a recursive delete must not run. The blast radius if it ever
+// did is not a temp directory: these profiles contain a symlink to the user's
+// model store, so a wrong path plus a wrong follow is gigabytes of somebody
+// else's data.
+export function removeProfileDir(dir) {
+  assert.ok(
+    typeof dir === 'string' && dir.includes(`${sep}${PROFILE_PREFIX}`),
+    `refusing to recursively delete a path that is not one of our scratch profiles: ${dir}`,
+  )
+  rmSync(dir, { recursive: true, force: true })
+}
+
 function dropProfile(dir) {
   profiles.delete(dir)
-  try { rmSync(dir, { recursive: true, force: true }) } catch { /* it is a temp dir */ }
+  try { removeProfileDir(dir) } catch { /* already gone, or not ours to touch */ }
 }
 
 // Best effort, on launch: clear what earlier runs left behind, including the
@@ -245,7 +261,7 @@ function sweepStaleProfiles() {
   for (const name of dirs) {
     const dir = join(tmpdir(), name)
     if (profiles.has(dir)) continue
-    try { if (now - statSync(dir).mtimeMs > STALE_MS) rmSync(dir, { recursive: true, force: true }) } catch { /* in use, or gone */ }
+    try { if (now - statSync(dir).mtimeMs > STALE_MS) removeProfileDir(dir) } catch { /* in use, or gone */ }
   }
 }
 
@@ -258,7 +274,7 @@ function installExitCleanup() {
   exitHookInstalled = true
   process.on('exit', () => {
     for (const dir of profiles) {
-      try { rmSync(dir, { recursive: true, force: true }) } catch { /* exiting anyway */ }
+      try { removeProfileDir(dir) } catch { /* exiting anyway */ }
     }
   })
 }
