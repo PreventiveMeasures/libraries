@@ -38,6 +38,10 @@ import { parseArgs } from './wire-formats.js'
 // assumed. file:// is potentially trustworthy and does expose it, so the page
 // is file:///dev/null, the same trick @exodus/test uses to reach crypto.subtle.
 
+// Playwright's two software-GL defaults. Both have to go for Chrome to reach
+// a real GPU; see the launch below for why that is not optional.
+const SOFTWARE_GL = ['--enable-unsafe-swiftshader', '--use-angle=swiftshader-webgl']
+
 const MODEL_COMPONENT = 'OptGuideOnDeviceModel'
 
 // Where Chrome keeps its user data, and so the component tree inside it.
@@ -161,7 +165,19 @@ async function launch(baseModel, debug) {
   const browser = await chromium.launchPersistentContext(profile, {
     ...chromeTarget(),
     headless: process.env.CHROME_HEADLESS !== '0',
+    // Playwright forces a software rasterizer so rendering is deterministic
+    // across machines. That is fatal here: every on-device model Chrome ships
+    // is GPU-tier ("GPU (highest quality)" in chrome://on-device-internals),
+    // so under SwiftShader the on_device_model service never starts at all —
+    // availability() reads `unavailable`, create() says "the service is not
+    // running", and no eligibility reason is even recorded, because nothing
+    // got far enough to weigh one.
+    ignoreDefaultArgs: SOFTWARE_GL,
     args: [
+      // --use-angle is re-added outside the ignorable set, so it has to be
+      // overridden rather than dropped. The last occurrence of a switch is the
+      // one Chrome reads, and `default` hands the backend choice back to it.
+      '--use-angle=default',
       // Name the borrowed directory outright. Besides pointing at the
       // weights, this waives the base-model version check Chrome would apply
       // to a profile that has never registered a component of its own.
