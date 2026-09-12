@@ -242,7 +242,15 @@ async function launch(baseModel, debug) {
     tab.on('pageerror', (err) => console.error(`[chrome] ${err}`))
   }
   await tab.goto(blankPage(profile))
-  await waitUntilReady(tab, debug)
+  // Close the browser if the model never arrives. Without this, a failed
+  // launch leaves its window open and the next attempt opens another beside
+  // it — two windows, one of them abandoned.
+  try {
+    await waitUntilReady(tab, debug)
+  } catch (err) {
+    await browser.close().catch(() => {})
+    throw err
+  }
   return { browser, tab }
 }
 
@@ -273,16 +281,22 @@ async function waitUntilReady(tab, debug) {
       if (debug) console.debug(`[chrome] model ready after ${((READY_TIMEOUT_MS - (deadline - Date.now())) / 1000).toFixed(1)}s`)
       return
     }
-    // Chrome offering to fetch means this profile cannot see the weights we
-    // grafted in. Refuse rather than let it pull its own multi-gigabyte copy
-    // — that is the whole point of this provider.
-    if (last === 'downloadable' || last === 'downloading') {
-      throw new Error(`Chrome wants to download its own copy of the model (availability: ${last}). The borrowed weights are not visible to this profile; check CHROME_MODEL_DIR.`)
-    }
+    // `downloadable` is not a verdict here either. Registration takes on the
+    // order of ten seconds, and until Chrome has scanned the component that is
+    // already grafted in, it reports the model as something it would have to
+    // fetch. Treating that as fatal failed the first turn in ~5s, well before
+    // the component was ever looked at. Waiting costs nothing: a download only
+    // starts on create(), which is not called until this returns.
     if (last === 'no-binding') throw new Error('LanguageModel is not exposed — this is not a branded Chrome')
     await new Promise((resolve) => { setTimeout(resolve, READY_POLL_MS) })
   }
-  throw new Error(`On-device model still "${last}" after ${READY_TIMEOUT_MS / 1000}s. Open chrome://on-device-internals in a normal Chrome and confirm a model is listed under Model Status.`)
+  // Only now is the last reading meaningful, so say which it was: a stuck
+  // `downloadable` means the borrowed weights never became visible to this
+  // profile, which is a different problem from a model that will not load.
+  const hint = last === 'downloadable' || last === 'downloading'
+    ? 'The borrowed weights never became visible to this profile — check CHROME_MODEL_DIR. Chrome was not allowed to fetch its own copy.'
+    : 'Open chrome://on-device-internals in a normal Chrome and confirm a model is listed under Model Status.'
+  throw new Error(`On-device model still "${last}" after ${READY_TIMEOUT_MS / 1000}s. ${hint}`)
 }
 /* eslint-enable no-undef */
 
@@ -290,11 +304,14 @@ async function waitUntilReady(tab, debug) {
 // state behind on the browser side — each creates and destroys its own
 // LanguageModel session.
 function ensureSession(baseModel, debug) {
-  // Retried once, the way @exodus/test retries its launchers: a cold start
-  // occasionally times out and the second attempt reliably does not.
   const key = baseModel ?? ''
   if (!sessions.has(key)) {
-    sessions.set(key, launch(baseModel, debug).catch(() => launch(baseModel, debug)))
+    // A failure must not be cached. Left in the map, a rejected promise is
+    // handed to every later turn, which is why one bad launch failed the
+    // rest of a run in under a millisecond each.
+    const pending = launch(baseModel, debug)
+    pending.catch(() => sessions.delete(key))
+    sessions.set(key, pending)
   }
   return sessions.get(key)
 }
