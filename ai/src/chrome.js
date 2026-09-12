@@ -304,29 +304,70 @@ async function openBrowser(profile, modelDir, debug) {
 // scraper written against a page I cannot run here is not something to fail
 // requests on. On its own page so the turn's tab is left alone.
 /* eslint-disable no-undef */
+// What Chrome actually loaded, as opposed to which directory we pointed it
+// at. Those are different questions, and the difference is not academic:
+// asking for three different rows currently produces indistinguishable runs,
+// so the override may not steer the base model at all.
+//
+// chrome://on-device-internals answers it under Broker State, in real tables
+// rather than prose — Models is Name / Folder Size / Weights Path / Backend
+// Type, Use Cases is Name / Requested / Unavailable Reason. Parsed as tables
+// for that reason: a regex over the page text cannot say which column a value
+// came from, and reading the wrong column is how this went wrong before.
+//
+// Reported, never enforced, and only under --debug: a scraper written against
+// a page that cannot be exercised here is not something to fail requests on.
 async function reportLoadedModel(browser) {
   let page
   try {
     page = await browser.newPage()
     await page.goto('chrome://on-device-internals')
     await page.waitForTimeout(3000)
-    const text = await page.evaluate(() => {
-      const out = []
-      const walk = (root) => {
-        const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-        while (w.nextNode()) { const t = w.currentNode.nodeValue.trim(); if (t && t.length < 120) out.push(t) }
-        for (const el of root.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot)
-      }
-      walk(document)
-      return out
-    })
-    const interesting = text.filter((t) => /nano|gemma|v3|E4B|2b|Model Name|Backend|performance class|weights/iu.test(t))
-    console.debug(`[chrome] on-device-internals: ${interesting.slice(0, 12).join(' | ') || '(nothing matched)'}`)
+    const tables = await page.evaluate(readInternalsTables)
+    for (const name of ['Models', 'Use Cases', 'Assets']) {
+      const rows = tables[name] ?? []
+      // Row 0 is the header, so anything less is a table with no content.
+      if (rows.length < 2) continue
+      for (const row of rows.slice(1)) console.debug(`[chrome] ${name}: ${row.join(' | ')}`)
+    }
+    const log = (tables['Event Logs'] ?? []).slice(1).filter((r) => /model|load/iu.test(r.join(' ')))
+    for (const row of log.slice(-4)) console.debug(`[chrome] log: ${row.at(-1)}`)
   } catch (err) {
     console.debug(`[chrome] could not read on-device-internals: ${err.message}`)
   } finally {
     await page?.close().catch(() => {})
   }
+}
+
+// Runs in the page. Every <table> on it, keyed by the <h2> that introduces
+// it, reached through the shadow roots the WebUI is built from.
+function readInternalsTables() {
+  const roots = []
+  const collect = (root) => {
+    roots.push(root)
+    for (const el of root.querySelectorAll('*')) if (el.shadowRoot) collect(el.shadowRoot)
+  }
+  collect(document)
+  // The <h2> that introduces a table is a previous sibling of the table or of
+  // one of its ancestors, so walk outwards until one turns up.
+  const headingFor = (table) => {
+    for (let node = table; node; node = node.parentElement) {
+      for (let sib = node.previousElementSibling; sib; sib = sib.previousElementSibling) {
+        const h = sib.tagName === 'H2' ? sib : sib.querySelector?.('h2')
+        if (h) return h.textContent.trim()
+      }
+    }
+    return 'unnamed'
+  }
+  const rowsOf = (table) => [...table.querySelectorAll('tr')]
+    .map((tr) => [...tr.querySelectorAll('th,td')].map((cell) => cell.textContent.trim()))
+    .filter((cells) => cells.length > 0)
+
+  const out = {}
+  for (const root of roots) {
+    for (const table of root.querySelectorAll('table')) out[headingFor(table)] = rowsOf(table)
+  }
+  return out
 }
 /* eslint-enable no-undef */
 
