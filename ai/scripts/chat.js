@@ -31,8 +31,11 @@ positional argument, or piped in on stdin.
   -h, --help            show this message
 
   scripts/chat.js -m chrome/nano_v3 "What is the capital of France?"
-  scripts/chat.js -m chrome/gemma4_2b --tools "What is 21 plus 21?"
+  scripts/chat.js -m chrome/nano_v3 --tools "What is 21 plus 21?"
   git diff | scripts/chat.js -s "Review this diff." -m anthropic/claude-opus-5
+
+The chrome/gemma4_* rows need AI_CHROME_GEMMA4=1. Chrome picks the Gemma size
+itself and will download one it does not have, so they are off by default.
 `
 
 // Which adapter serves a namespace. Everything unlisted goes to OpenRouter,
@@ -128,7 +131,14 @@ async function main(argv) {
   const provider = values.provider ?? PROVIDER_FOR[model.split('/')[0]] ?? 'openrouter'
   try { setProvider(provider) } catch (err) { return fail(`chat.js: ${err.message}\n`) }
 
-  await run({ model, provider, userContent, values, think })
+  // Same reason --think is resolved above rather than left to the wire: a
+  // provider that refuses the request — no browser, no weights, a row gated
+  // behind an opt-in — throws from inside chat(), and without this the script
+  // exits on a stack trace pointing into chrome-model.js instead of saying
+  // what the caller has to change.
+  try {
+    await run({ model, provider, userContent, values, think })
+  } catch (err) { return fail(`chat.js: ${err.message}\n`) }
 }
 
 async function run({ model, provider, userContent, values, think }) {

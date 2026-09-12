@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
-import { chromePreflight, findModelDir, isScratchProfile, localStateFor, removeProfileDir, turnInPage, waitUntilReady } from '../src/chrome.js'
+import { assertModelAllowed, chromePreflight, findModelDir, isScratchProfile, localStateFor, removeProfileDir, turnInPage, waitUntilReady } from '../src/chrome.js'
 import { identifiesAs } from '../src/chrome-model.js'
 import { CHROME_SHAPE, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome-wire.js'
 import { baseModelFor, calculateCost, getMaxTokens, modelVersionFor, specNamesFor } from '../src/models.js'
@@ -60,25 +60,57 @@ describe('chrome foundational model version', () => {
     assert.equal(modelVersionFor(baseModelFor('chrome/gemma4_4b')), 'v4')
   })
 
-  it('asks for Gemma 4 through the flag, and only on the gemma rows', () => {
+  // The opt-in is read at call time, so each case sets it and puts it back.
+  const withOptIn = (value, fn) => {
+    const before = process.env.AI_CHROME_GEMMA4
+    if (value === undefined) delete process.env.AI_CHROME_GEMMA4
+    else process.env.AI_CHROME_GEMMA4 = value
+    try { fn() } finally {
+      if (before === undefined) delete process.env.AI_CHROME_GEMMA4
+      else process.env.AI_CHROME_GEMMA4 = before
+    }
+  }
+
+  it('does not ask for Gemma 4 unless allowed to', () => {
+    // Asking is what starts the download: the flag also turns on the manifest
+    // broker, which fetched a 6.1 GB gemma4_12b onto a profile that already
+    // had the 2b and 4b weights linked in. So the default state of the flag
+    // is absent, and the row refuses rather than quietly answering as nano.
+    withOptIn(undefined, () => {
+      assert.deepEqual(localStateFor(baseModelFor('chrome/gemma4_2b')).browser.enabled_labs_experiments, [])
+      assert.throws(() => assertModelAllowed(baseModelFor('chrome/gemma4_2b')), /AI_CHROME_GEMMA4/u)
+      assert.throws(() => assertModelAllowed(baseModelFor('chrome/gemma4_4b')), /6\.1 GB/u)
+      // nano is untouched by any of this — it is what Chrome runs anyway.
+      assert.doesNotThrow(() => assertModelAllowed(baseModelFor('chrome/nano_v3')))
+    })
+    // Only the exact opt-in counts; a stray truthy value is not consent.
+    withOptIn('yes', () => {
+      assert.throws(() => assertModelAllowed(baseModelFor('chrome/gemma4_2b')), /AI_CHROME_GEMMA4/u)
+    })
+  })
+
+  it('asks for Gemma 4 through the flag once allowed, and only on the gemma rows', () => {
     // The pref Chrome reads is browser.enabled_labs_experiments, and the one
     // thing it will not do is complain: at the top level, or misspelled, the
     // flag is simply never applied and every row quietly answers as nano.
     // Verified against the browser rather than assumed — the flag offers only
     // Default and Enabled, so @1 is Enabled, and chrome://version shows it
     // reaching the command line as AIApiFoundationalModel:model_version/v4.
-    const gemma = localStateFor(baseModelFor('chrome/gemma4_2b'))
-    assert.deepEqual(gemma.browser.enabled_labs_experiments, ['gemma4-for-built-in-ai@1'])
-    assert.deepEqual(
-      localStateFor(baseModelFor('chrome/gemma4_4b')).browser.enabled_labs_experiments,
-      ['gemma4-for-built-in-ai@1'],
-    )
-    // v3 is what Chrome does with no flag at all, so asking for it is not a
-    // different flag — it is the absence of one.
-    assert.deepEqual(localStateFor(baseModelFor('chrome/nano_v3')).browser.enabled_labs_experiments, [])
-    // And the toggle that makes chrome://on-device-internals readable, which
-    // is how the loaded model gets reported back under --debug.
-    assert.equal(gemma.internal_only_uis_enabled, true)
+    withOptIn('1', () => {
+      const gemma = localStateFor(baseModelFor('chrome/gemma4_2b'))
+      assert.deepEqual(gemma.browser.enabled_labs_experiments, ['gemma4-for-built-in-ai@1'])
+      assert.deepEqual(
+        localStateFor(baseModelFor('chrome/gemma4_4b')).browser.enabled_labs_experiments,
+        ['gemma4-for-built-in-ai@1'],
+      )
+      // v3 is what Chrome does with no flag at all, so asking for it is not a
+      // different flag — it is the absence of one.
+      assert.deepEqual(localStateFor(baseModelFor('chrome/nano_v3')).browser.enabled_labs_experiments, [])
+      assert.doesNotThrow(() => assertModelAllowed(baseModelFor('chrome/gemma4_2b')))
+      // And the toggle that makes chrome://on-device-internals readable, which
+      // is how the loaded model gets reported back under --debug.
+      assert.equal(gemma.internal_only_uis_enabled, true)
+    })
   })
 
   it('cannot tell the two gemma sizes apart, and says so', () => {

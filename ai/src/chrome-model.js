@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { specNamesFor } from './models.js'
+import { modelVersionFor, specNamesFor } from './models.js'
 
 // Where the on-device weights are, which is a separate question from how the
 // browser is driven — see chrome.js for that.
@@ -180,4 +180,84 @@ export function chromePreflight() {
     findModelDir(),
     `No on-device model found under ${MODEL_COMPONENTS[0]}. Open Chrome, visit chrome://on-device-internals and let it download the model, then retry — this provider will not download a second copy. Set CHROME_MODEL_DIR to point at an existing one.`,
   )
+}
+
+
+// Which model a profile ends up running, which the weights on disk do not
+// decide on their own.
+//
+// Switching Chrome to Gemma 4 is a chrome://flags choice, not a command-line
+// feature list — so it is set the way the flags page sets it, by writing the
+// choice into Local State and letting Chrome expand it. The expansion is
+// version-dependent, which is the whole reason not to hand-roll it: read back
+// off chrome://version, the same flag gives
+//
+//   153 stable  AIApiFoundationalModel:model_version/v4,
+//               OnDeviceModelLitertLmBackend, OptimizationGuideManifestBroker
+//   155 dev     AIApiFoundationalModel:model_version/v4,
+//               OptimizationGuideManifestBroker
+//
+// because by 155 LiteRT-LM is the default runtime and has no flag left to
+// turn on. Writing 153's list literally would have force-enabled, on 155, a
+// feature that no longer exists there.
+//
+// "@1" is the first non-default option; this flag offers only Default and
+// Enabled, so that is Enabled.
+const GEMMA4_FLAG = 'gemma4-for-built-in-ai@1'
+
+// Off unless asked for, because asking Chrome for Gemma 4 is not free: the
+// flag also turns on OptimizationGuideManifestBroker, and the broker then
+// goes and gets whichever Gemma it decides the machine should run. Observed
+// on a profile that already had gemma4-2b-it and gemma-4-E4B-it linked in:
+//
+//   Assets: gemma4_12b_component | 2026.1.3.1000 | Foreground Installing
+//           | 38.0 MB / 6.1 GB | None
+//
+// — a six-gigabyte download, restarted on every launch, for a size neither
+// present nor selectable. That is the opposite of this provider's one
+// promise, so the rows that need the flag are gated rather than the download
+// merely discouraged. --disable-component-update, which playwright passes
+// and which does cut component registrations from 20 to 1, does not stop it:
+// the broker is not that subsystem.
+function gemma4Allowed() {
+  return process.env.AI_CHROME_GEMMA4 === '1'
+}
+
+// v3 is Gemini Nano and needs nothing: it is what Chrome does anyway.
+function labExperimentsFor(baseModel) {
+  return modelVersionFor(baseModel) === 'v4' && gemma4Allowed() ? [GEMMA4_FLAG] : []
+}
+
+// Refusing beats quietly answering as nano. Without the flag a gemma row
+// still launches and still replies — from Gemini Nano, under a gemma name —
+// which is the mislabelling the modelVersion work existed to end, so the row
+// has to fail instead of degrade.
+export function assertModelAllowed(baseModel) {
+  if (modelVersionFor(baseModel) !== 'v4' || gemma4Allowed()) return
+  throw new Error(
+    `${baseModel} needs Chrome's "Gemma 4 for Built-in AI" flag, which also lets Chrome fetch a ` +
+    'Gemma of its own choosing — a 6.1 GB gemma4_12b download in the one run measured, on a ' +
+    'profile that already had the 2b and 4b weights. Chrome picks the size itself, so this ' +
+    'cannot be pointed at what you already have. Set AI_CHROME_GEMMA4=1 to allow it anyway, or ' +
+    'use chrome/nano_v3, which runs from the weights already on disk.',
+  )
+}
+
+// The prefs a scratch profile starts with. Split out because none of it
+// announces a mistake: an unknown key, or a known one at the wrong nesting
+// depth, is not an error Chrome reports — it is a flag that quietly never
+// applies. `enabled_labs_experiments` in particular has to sit under
+// `browser`, and a test can say so.
+export function localStateFor(baseModel) {
+  return {
+    // chrome://on-device-internals is behind a master toggle, backed by this
+    // one pref. Seeding it costs nothing and is the only way to ask the
+    // browser which model it actually loaded — which is not the same question
+    // as which directory we pointed it at.
+    internal_only_uis_enabled: true,
+    // Without this the gemma components read "Not Installed" however many
+    // directories are linked in: their install state is a pref, not a file.
+    ...optimizationGuidePrefs(),
+    browser: { enabled_labs_experiments: labExperimentsFor(baseModel) },
+  }
 }

@@ -3,12 +3,12 @@ import { mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync 
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { baseModelFor, modelVersionFor } from './models.js'
-import { chromePreflight, findModelDir, graftableRoots, optimizationGuidePrefs } from './chrome-model.js'
+import { baseModelFor } from './models.js'
+import { assertModelAllowed, chromePreflight, findModelDir, graftableRoots, localStateFor } from './chrome-model.js'
 import { outputLanguage, toChatCompletions } from './chrome-wire.js'
 
 // Re-exported so callers keep one entry point for the provider.
-export { chromePreflight, findModelDir } from './chrome-model.js'
+export { assertModelAllowed, chromePreflight, findModelDir, localStateFor } from './chrome-model.js'
 
 // The one provider that isn't an endpoint: Chrome's built-in Prompt API
 // (developer.chrome.com/docs/ai/prompt-api), reached over CDP with
@@ -77,49 +77,6 @@ const ENABLED_FEATURES = [
   'CDPScreenshotNewSurface',
   'OptimizationGuideOnDeviceModel:on_device_model_bypass_perf_requirement/true',
 ]
-
-// Switching Chrome to Gemma 4 is a chrome://flags choice, not a command-line
-// feature list — so it is set the way the flags page sets it, by writing the
-// choice into Local State and letting Chrome expand it. The expansion is
-// version-dependent, which is the whole reason not to hand-roll it: read back
-// off chrome://version, the same flag gives
-//
-//   153 stable  AIApiFoundationalModel:model_version/v4,
-//               OnDeviceModelLitertLmBackend, OptimizationGuideManifestBroker
-//   155 dev     AIApiFoundationalModel:model_version/v4,
-//               OptimizationGuideManifestBroker
-//
-// because by 155 LiteRT-LM is the default runtime and has no flag left to
-// turn on. Writing 153's list literally would have force-enabled, on 155, a
-// feature that no longer exists there.
-//
-// "@1" is the first non-default option; this flag offers only Default and
-// Enabled, so that is Enabled.
-const GEMMA4_FLAG = 'gemma4-for-built-in-ai@1'
-
-// v3 is Gemini Nano and needs nothing: it is what Chrome does anyway.
-function labExperimentsFor(baseModel) {
-  return modelVersionFor(baseModel) === 'v4' ? [GEMMA4_FLAG] : []
-}
-
-// The prefs a scratch profile starts with. Split out because none of it
-// announces a mistake: an unknown key, or a known one at the wrong nesting
-// depth, is not an error Chrome reports — it is a flag that quietly never
-// applies. `enabled_labs_experiments` in particular has to sit under
-// `browser`, and a test can say so.
-export function localStateFor(baseModel) {
-  return {
-    // chrome://on-device-internals is behind a master toggle, backed by this
-    // one pref. Seeding it costs nothing and is the only way to ask the
-    // browser which model it actually loaded — which is not the same question
-    // as which directory we pointed it at.
-    internal_only_uis_enabled: true,
-    // Without this the gemma components read "Not Installed" however many
-    // directories are linked in: their install state is a pref, not a file.
-    ...optimizationGuidePrefs(),
-    browser: { enabled_labs_experiments: labExperimentsFor(baseModel) },
-  }
-}
 
 // Playwright's two software-GL defaults. Both have to go for Chrome to reach
 // a real GPU; see the launch below for why that is not optional.
@@ -243,6 +200,7 @@ function installExitCleanup() {
 const sessions = new Map()
 
 async function launch(baseModel, debug) {
+  assertModelAllowed(baseModel)
   const modelDir = findModelDir(baseModel)
   chromePreflight()
   // A persistent context rather than launch(): the profile has to exist
