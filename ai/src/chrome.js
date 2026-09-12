@@ -329,19 +329,29 @@ export async function turnInPage(req) {
     return { error: { message: `on-device model not ready (availability: ${availability})` } }
   }
   let ses
+  const createStarted = performance.now()
+  let createdAt = 0
   try {
     ses = await LanguageModel.create({ initialPrompts: req.initialPrompts })
+    createdAt = performance.now() - createStarted
   } catch (err) {
     return { error: { message: `create failed: ${err.name}: ${err.message}` } }
   }
   const before = ses.contextUsage ?? 0
   try {
     const options = req.responseConstraint ? { responseConstraint: req.responseConstraint } : undefined
+    const started = performance.now()
     const text = await ses.prompt(req.prompt, options)
     return {
       text,
       usage: { prompt_tokens: before, completion_tokens: Math.max((ses.contextUsage ?? 0) - before, 0) },
       contextWindow: ses.contextWindow ?? null,
+      // Split out, because "slow" on this provider has two very different
+      // causes: create() pays to load several gigabytes into the GPU the
+      // first time the service touches them, prompt() is the actual
+      // generation. One is amortised across a run, the other is not.
+      createMs: Math.round(createdAt),
+      promptMs: Math.round(performance.now() - started),
     }
   } catch (err) {
     return { error: { message: `${err.name}: ${err.message}` } }
@@ -429,14 +439,23 @@ export function toChatCompletions(result, constrained) {
     // own tokenizer's view of the context, and the registry prices these rows
     // at zero because the compute was paid for when the machine was bought.
     usage: result.usage,
-    chrome: { contextWindow: result.contextWindow },
+    chrome: { contextWindow: result.contextWindow, createMs: result.createMs, promptMs: result.promptMs },
   }
 }
 
 export async function sendChromeTurn(model, body, { debug, label } = {}) {
+  const launched = Date.now()
   const { tab } = await ensureSession(baseModelFor(model), debug)
+  const startup = Date.now() - launched
   if (debug && label) console.debug(`[debug] ${label}`)
-  return toChatCompletions(await tab.evaluate(turnInPage, body), Boolean(body.responseConstraint))
+  const result = await tab.evaluate(turnInPage, body)
+  if (debug) {
+    // Attribute the wait. A cold run pays for browser startup, component
+    // registration and the first load of the weights; a warm one pays for
+    // none of those, and only the last number is the model actually working.
+    console.debug(`[chrome] startup=${startup}ms create=${result.createMs ?? '-'}ms prompt=${result.promptMs ?? '-'}ms`)
+  }
+  return toChatCompletions(result, Boolean(body.responseConstraint))
 }
 
 // The wire format. Messages are `{ role, content }` with string content:
