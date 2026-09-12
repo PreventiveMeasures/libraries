@@ -18,6 +18,7 @@
     "src/cache-scan.js",
     "src/cache.js",
     "src/chat.js",
+    "src/chrome-model.js",
     "src/chrome-wire.js",
     "src/chrome.js",
     "src/fetch.js",

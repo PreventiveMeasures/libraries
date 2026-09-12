@@ -4,8 +4,9 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { chromePreflight, findModelDir, removeProfileDir, turnInPage, waitUntilReady } from '../src/chrome.js'
+import { identifiesAs } from '../src/chrome-model.js'
 import { CHROME_SHAPE, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome-wire.js'
-import { baseModelFor, calculateCost, getMaxTokens } from '../src/models.js'
+import { baseModelFor, calculateCost, getMaxTokens, specNamesFor } from '../src/models.js'
 import { setProvider } from '../src/providers.js'
 
 // The chrome provider, minus the model. Everything the adapter decides —
@@ -44,6 +45,51 @@ describe('chrome registry rows', () => {
 
   it('are recognised rows, so getMaxTokens does not fall back', () => {
     assert.equal(getMaxTokens('chrome/nano_v3'), 4096)
+  })
+})
+
+describe('chrome model identification', () => {
+  const withManifest = (specName) => {
+    const dir = mkdtempSync(join(tmpdir(), 'ai-chrome-test-manifest-'))
+    writeFileSync(join(dir, 'manifest.json'), JSON.stringify({
+      manifest_version: 2, name: 'Optimization Guide On Device Model', version: '2025.1.1.1000',
+      BaseModelSpec: { name: specName, version: '2025.01.01.0000', supported_performance_hints: [2, 1] },
+    }))
+    return dir
+  }
+
+  it('matches the manifest name Chrome actually writes, not the registry id', (t) => {
+    // The internals page calls it nano_v3_gpu_high_tier_model; the manifest
+    // calls it v3Nano. Comparing those as strings rejected a working model.
+    const dir = withManifest('v3Nano')
+    t.after(() => rmSync(dir, { recursive: true, force: true }))
+    assert.ok(identifiesAs(dir, specNamesFor('nano_v3')))
+  })
+
+  it('keeps the two gemma rows apart', (t) => {
+    // The names share no shape — gemma4-2b-it against gemma-4-E4B-it — so
+    // anything loose enough to relate one to `gemma4` relates both, and
+    // picking the wrong one silently is the bug this check prevents.
+    const twoB = withManifest('gemma4-2b-it')
+    const fourB = withManifest('gemma-4-E4B-it')
+    t.after(() => { for (const d of [twoB, fourB]) rmSync(d, { recursive: true, force: true }) })
+    assert.ok(identifiesAs(twoB, specNamesFor('gemma4')), 'gemma4 should match the 2b manifest')
+    assert.ok(identifiesAs(fourB, specNamesFor('gemma4_4b')), 'gemma4_4b should match the E4B manifest')
+    assert.equal(identifiesAs(fourB, specNamesFor('gemma4')), false, 'gemma4 must NOT match the 4b model')
+    assert.equal(identifiesAs(twoB, specNamesFor('gemma4_4b')), false, 'gemma4_4b must NOT match the 2b model')
+    assert.equal(identifiesAs(twoB, specNamesFor('nano_v3')), false)
+  })
+
+  it('ignores case and punctuation drift, but not a different model', (t) => {
+    const dir = withManifest('Gemma4_2B_IT')
+    t.after(() => rmSync(dir, { recursive: true, force: true }))
+    assert.ok(identifiesAs(dir, specNamesFor('gemma4')))
+  })
+
+  it('refuses a directory with no manifest rather than guessing', (t) => {
+    const dir = mkdtempSync(join(tmpdir(), 'ai-chrome-test-bare-'))
+    t.after(() => rmSync(dir, { recursive: true, force: true }))
+    assert.equal(identifiesAs(dir, specNamesFor('nano_v3')), false)
   })
 })
 

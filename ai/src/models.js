@@ -84,9 +84,17 @@ const MODELS = new Map([
   // budget, and the Prompt API accepts no output cap at all, so the adapter
   // sends none; what actually binds is the session's context window, which
   // Chrome reports back on every response.
-  ['chrome/nano_v3', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'nano_v3' }],
-  ['chrome/gemma4', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4' }],
-  ['chrome/gemma4_4b', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_4b' }],
+  // `specNames` is what the component MANIFEST calls the model, which is not
+  // what chrome://on-device-internals calls it and not what the id above is
+  // derived from: the internals page lists the variant
+  // (nano_v3_gpu_high_tier_model), the manifest declares a BaseModelSpec
+  // (v3Nano). The two do not match as strings, and the gemma names do not
+  // even share a shape with each other, so the mapping is recorded rather
+  // than guessed. A Chrome that renames one fails with the name it found,
+  // which makes the fix a one-line edit here.
+  ['chrome/nano_v3', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'nano_v3', specNames: ['v3Nano'] }],
+  ['chrome/gemma4', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4', specNames: ['gemma4-2b-it'] }],
+  ['chrome/gemma4_4b', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_4b', specNames: ['gemma-4-E4B-it'] }],
   // Free models — may log/store/use your data
   ['openai/gpt-oss-120b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['openai/gpt-oss-20b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
@@ -286,6 +294,15 @@ export function wireModelFor(model) {
 // adapter a model is not one of Chrome's.
 export function baseModelFor(model) {
   return MODELS.get(resolveModel(model))?.baseModel
+}
+
+// The manifest BaseModelSpec names a local row will accept, keyed by the base
+// model rather than the registry id so the adapter can look one up from what
+// it already carries.
+const SPEC_NAMES = new Map([...MODELS.values()].filter((r) => r.baseModel).map((r) => [r.baseModel, r.specNames ?? []]))
+
+export function specNamesFor(baseModel) {
+  return SPEC_NAMES.get(baseModel) ?? []
 }
 
 export function reasoningModeFor(model) {

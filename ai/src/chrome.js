@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
-import { homedir, tmpdir } from 'node:os'
+import { mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { baseModelFor } from './models.js'
+import { chromePreflight, findModelDir, modelComponentRoots } from './chrome-model.js'
 import { toChatCompletions } from './chrome-wire.js'
+
+// Re-exported so callers keep one entry point for the provider.
+export { chromePreflight, findModelDir } from './chrome-model.js'
 
 // The one provider that isn't an endpoint: Chrome's built-in Prompt API
 // (developer.chrome.com/docs/ai/prompt-api), reached over CDP with
@@ -74,103 +78,6 @@ const ENABLED_FEATURES = [
 // a real GPU; see the launch below for why that is not optional.
 const SOFTWARE_GL = ['--enable-unsafe-swiftshader', '--use-angle=swiftshader-webgl']
 
-// Two stores, different shapes: nano_v3 lives under the first, gemma4 and
-// gemma4_4b under the second, keyed by a content hash above the version.
-const MODEL_COMPONENTS = ['OptGuideOnDeviceModel', 'OptGuideManifestModel']
-const MODEL_COMPONENT = MODEL_COMPONENTS[0]
-
-// Where Chrome keeps its user data, and so the component tree inside it.
-// Only consulted to FIND already-downloaded weights — which Chrome runs is
-// playwright's business, via the channel below.
-const USER_DATA_DIRS = {
-  darwin: [
-    `${homedir()}/Library/Application Support/Google/Chrome`,
-    `${homedir()}/Library/Application Support/Google/Chrome Canary`,
-  ],
-  linux: [`${homedir()}/.config/google-chrome`, `${homedir()}/.config/google-chrome-unstable`],
-  win32: [
-    `${process.env.LOCALAPPDATA}\\Google\\Chrome\\User Data`,
-    `${process.env.LOCALAPPDATA}\\Google\\Chrome SxS\\User Data`,
-  ],
-}
-
-// The component root — one subdirectory per installed version. Wanted whole
-// rather than just the version: the root is what gets grafted into the
-// scratch profile, a version inside it is what gets named on the command line.
-// Numeric, not lexicographic. Component versions are dotted numbers, and a
-// string sort puts 2025.8.8 after 2025.8.11 — so "newest" quietly selected an
-// OLDER build whenever a minor number crossed ten.
-function compareVersions(a, b) {
-  const pa = a.split('.').map(Number)
-  const pb = b.split('.').map(Number)
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const d = (pa[i] || 0) - (pb[i] || 0)
-    if (d !== 0) return d
-  }
-  return 0
-}
-
-// Every component root that exists, not the first. A stale or empty stable
-// root used to hide a Canary install that actually had the weights.
-function modelComponentRoots() {
-  const roots = []
-  for (const dir of USER_DATA_DIRS[process.platform] ?? []) {
-    for (const component of MODEL_COMPONENTS) {
-      const root = join(dir, component)
-      if (existsSync(root)) roots.push(root)
-    }
-  }
-  return roots
-}
-
-// Directories holding weights, across both component layouts:
-// OptGuideOnDeviceModel/<version>/ is flat, while OptGuideManifestModel nests
-// a content hash above the version. A superseded version's directory is left
-// behind and an interrupted install leaves one with no weights at all, so the
-// file is the test rather than the directory.
-function candidateModelDirs(root, depth = 2) {
-  const found = []
-  let entries = []
-  try { entries = readdirSync(root, { withFileTypes: true }) } catch { return found }
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue
-    const dir = join(root, entry.name)
-    if (existsSync(join(dir, 'weights.bin'))) found.push({ dir, version: entry.name })
-    else if (depth > 1) found.push(...candidateModelDirs(dir, depth - 1))
-  }
-  return found
-}
-
-// Which base model a directory holds, read off the component manifest, which
-// carries the BaseModelSpec name. Absent or unreadable means unknown, not no.
-function manifestNames(dir, baseModel) {
-  const manifest = join(dir, 'manifest.json')
-  if (!existsSync(manifest)) return false
-  try { return readFileSync(manifest, 'utf8').includes(baseModel) } catch { return false }
-}
-
-// Weights for a base model spec, or the newest installed when none is named.
-//
-// A named spec that cannot be identified is an error rather than a fallback.
-// Falling back looked harmless and was not: the turn would be labelled and
-// CACHED as chrome/gemma4 while nano_v3 actually answered it — a wrong answer
-// filed under a name that gets trusted later.
-export function findModelDir(baseModel) {
-  const override = process.env.CHROME_MODEL_DIR
-  if (override) {
-    // Checked here so a typo fails at setProvider rather than after a
-    // two-minute wait for a model that was never going to load.
-    assert.ok(existsSync(join(override, 'weights.bin')), `CHROME_MODEL_DIR has no weights.bin: ${override}`)
-    return override
-  }
-  const all = modelComponentRoots().flatMap((root) => candidateModelDirs(root))
-  if (all.length === 0) return undefined
-  all.sort((a, b) => compareVersions(a.version, b.version))
-  if (!baseModel) return all.at(-1).dir
-  const matches = all.filter(({ dir }) => manifestNames(dir, baseModel))
-  if (matches.length > 0) return matches.at(-1).dir
-  throw new Error(`No installed on-device model identifies as "${baseModel}". Chrome has: ${all.map((m) => m.dir).join(', ')}. Set CHROME_MODEL_DIR to name one explicitly.`)
-}
 
 // Which Chrome, in playwright's terms. A path wins when one is given;
 // otherwise the channel names an installed branded build — 'chrome',
@@ -181,18 +88,6 @@ export function chromeTarget() {
   return { channel: process.env.CHROME_CHANNEL || 'chrome' }
 }
 
-// Fail at setProvider, the way a missing API key does, rather than on the
-// first turn. Only the weights are checked here: which Chrome to run resolves
-// at launch, and playwright's own error names the path it expected, which
-// beats anything guessed here. The message names the fix, because needing to
-// have opened Chrome once and let it fetch the model is not something a
-// caller can be expected to infer from "unavailable".
-export function chromePreflight() {
-  assert.ok(
-    findModelDir(),
-    `No on-device model found under ${MODEL_COMPONENT}. Open Chrome, visit chrome://on-device-internals and let it download the model, then retry — this provider will not download a second copy. Set CHROME_MODEL_DIR to point at an existing one.`,
-  )
-}
 
 // A secure origin with no server behind it. /dev/null is not a thing on
 // Windows, so there the scratch profile gets an empty page written into it.
