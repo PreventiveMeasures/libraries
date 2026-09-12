@@ -44,6 +44,18 @@ describe('chrome registry rows', () => {
     assert.equal(baseModelFor('anthropic/claude-opus-5'), undefined)
   })
 
+  it('record the manifest names Chrome writes, which share no shape', () => {
+    // Recorded rather than derived: v3Nano, gemma4-2b-it and gemma-4-E4B-it
+    // have no common rule, and anything loose enough to relate gemma4_2b to
+    // gemma4-2b-it also relates it to gemma-4-E4B-it.
+    assert.deepEqual(specNamesFor('nano_v3'), ['v3Nano'])
+    assert.deepEqual(specNamesFor('gemma4_2b'), ['gemma4-2b-it'])
+    assert.deepEqual(specNamesFor('gemma4_4b'), ['gemma-4-E4B-it'])
+    // The 12B row needs none. Its manifest declares no spec, and the component
+    // name it declares instead is a template of the row's own id.
+    assert.deepEqual(specNamesFor('gemma4_12b'), [])
+  })
+
   it('are recognised rows, so getMaxTokens does not fall back', () => {
     assert.equal(getMaxTokens('chrome/nano_v3'), 4096)
   })
@@ -147,7 +159,7 @@ describe('chrome model identification', () => {
     // calls it v3Nano. Comparing those as strings rejected a working model.
     const dir = withManifest('v3Nano')
     t.after(() => rmSync(dir, { recursive: true, force: true }))
-    assert.ok(identifiesAs(dir, specNamesFor('nano_v3')))
+    assert.ok(identifiesAs(dir, 'nano_v3'))
   })
 
   it('keeps the two gemma rows apart', (t) => {
@@ -157,44 +169,59 @@ describe('chrome model identification', () => {
     const twoB = withManifest('gemma4-2b-it')
     const fourB = withManifest('gemma-4-E4B-it')
     t.after(() => { for (const d of [twoB, fourB]) rmSync(d, { recursive: true, force: true }) })
-    assert.ok(identifiesAs(twoB, specNamesFor('gemma4_2b')), 'gemma4_2b should match the 2b manifest')
-    assert.ok(identifiesAs(fourB, specNamesFor('gemma4_4b')), 'gemma4_4b should match the E4B manifest')
-    assert.equal(identifiesAs(fourB, specNamesFor('gemma4_2b')), false, 'gemma4_2b must NOT match the 4b model')
-    assert.equal(identifiesAs(twoB, specNamesFor('gemma4_4b')), false, 'gemma4_4b must NOT match the 2b model')
-    assert.equal(identifiesAs(twoB, specNamesFor('nano_v3')), false)
+    assert.ok(identifiesAs(twoB, 'gemma4_2b'), 'gemma4_2b should match the 2b manifest')
+    assert.ok(identifiesAs(fourB, 'gemma4_4b'), 'gemma4_4b should match the E4B manifest')
+    assert.equal(identifiesAs(fourB, 'gemma4_2b'), false, 'gemma4_2b must NOT match the 4b model')
+    assert.equal(identifiesAs(twoB, 'gemma4_4b'), false, 'gemma4_4b must NOT match the 2b model')
+    assert.equal(identifiesAs(twoB, 'nano_v3'), false)
   })
 
-  it('falls back to the component name when there is no BaseModelSpec', (t) => {
+  it('derives the component name from the row id when there is no BaseModelSpec', (t) => {
     // The 12B manifest is the odd one out: no BaseModelSpec at all, identity
     // in the top-level name.
     //
     //   { "name": "Optimization Guide On-Device Gemma4 12B Model",
     //     "version": "2026.1.3.1000" }
+    //
+    // Lowercased with spaces made underscores that is
+    // optimization_guide_on-device_gemma4_12b_model, which is the row's own id
+    // in a template — so nothing is transcribed and a future size needs no
+    // edit.
     const twelveB = withManifest(null, 'Optimization Guide On-Device Gemma4 12B Model')
     // And the generic name the spec-carrying manifests use up there, which the
     // fallback must not turn into a match for anything.
     const generic = withManifest('gemma4-2b-it')
     t.after(() => { for (const d of [twelveB, generic]) rmSync(d, { recursive: true, force: true }) })
-    assert.ok(identifiesAs(twelveB, specNamesFor('gemma4_12b')), 'the 12B row should match its manifest')
-    assert.equal(identifiesAs(twelveB, specNamesFor('gemma4_2b')), false, '2b must not match the 12B model')
-    assert.equal(identifiesAs(twelveB, specNamesFor('gemma4_4b')), false, '4b must not match the 12B model')
+    assert.ok(identifiesAs(twelveB, 'gemma4_12b'), 'the 12B row should match its manifest')
+    assert.equal(identifiesAs(twelveB, 'gemma4_2b'), false, '2b must not match the 12B model')
+    assert.equal(identifiesAs(twelveB, 'gemma4_4b'), false, '4b must not match the 12B model')
     // The generic top-level name is never consulted here, because the spec
     // beneath it wins — otherwise every spec-carrying manifest would collapse
     // onto one identity.
-    assert.equal(identifiesAs(generic, specNamesFor('gemma4_12b')), false, '12b must not match a 2b manifest')
-    assert.ok(identifiesAs(generic, specNamesFor('gemma4_2b')))
+    assert.equal(identifiesAs(generic, 'gemma4_12b'), false, '12b must not match a 2b manifest')
+    assert.ok(identifiesAs(generic, 'gemma4_2b'))
+  })
+
+  it('would match a size Chrome has not shipped yet', (t) => {
+    // The point of deriving the name: a hypothetical gemma4_27b needs a
+    // registry row and nothing else. Its manifest would identify itself the
+    // same way, and a transcribed title could not have anticipated it.
+    const dir = withManifest(null, 'Optimization Guide On-Device Gemma4 27B Model')
+    t.after(() => rmSync(dir, { recursive: true, force: true }))
+    assert.ok(identifiesAs(dir, 'gemma4_27b'))
+    assert.equal(identifiesAs(dir, 'gemma4_12b'), false)
   })
 
   it('ignores case and punctuation drift, but not a different model', (t) => {
     const dir = withManifest('Gemma4_2B_IT')
     t.after(() => rmSync(dir, { recursive: true, force: true }))
-    assert.ok(identifiesAs(dir, specNamesFor('gemma4_2b')))
+    assert.ok(identifiesAs(dir, 'gemma4_2b'))
   })
 
   it('refuses a directory with no manifest rather than guessing', (t) => {
     const dir = mkdtempSync(join(tmpdir(), 'ai-chrome-test-bare-'))
     t.after(() => rmSync(dir, { recursive: true, force: true }))
-    assert.equal(identifiesAs(dir, specNamesFor('nano_v3')), false)
+    assert.equal(identifiesAs(dir, 'nano_v3'), false)
   })
 })
 

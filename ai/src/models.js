@@ -104,12 +104,14 @@ const MODELS = new Map([
   // Chrome picks between them itself, so all three gemma rows ask for the same
   // thing and differ only in which weights they expect to find.
   //
-  // The 12B manifest carries no BaseModelSpec — its identity is the top-level
-  // component name, which is why that row's spec reads like a title.
+  // The 12B manifest carries no BaseModelSpec at all. Its identity is the
+  // top-level component name, and that name is a template of the row's own id
+  // — "Optimization Guide On-Device Gemma4 12B Model" — so it needs no
+  // specNames; see componentNameFor in chrome-model.js.
   ['chrome/nano_v3', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'nano_v3', specNames: ['v3Nano'], modelVersion: 'v3' }],
   ['chrome/gemma4_2b', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_2b', specNames: ['gemma4-2b-it'], modelVersion: 'v4' }],
   ['chrome/gemma4_4b', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_4b', specNames: ['gemma-4-E4B-it'], modelVersion: 'v4' }],
-  ['chrome/gemma4_12b', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_12b', specNames: ['Optimization Guide On-Device Gemma4 12B Model'], modelVersion: 'v4' }],
+  ['chrome/gemma4_12b', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_12b', modelVersion: 'v4' }],
   // Free models — may log/store/use your data
   ['openai/gpt-oss-120b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['openai/gpt-oss-20b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],

@@ -148,10 +148,34 @@ export function declaredSpec(dir) {
   } catch { return null }
 }
 
-export function identifiesAs(dir, specNames) {
+// The other half, for manifests that declare no spec: the component name
+// itself is a template, so it can be derived from the row's id rather than
+// transcribed. "Optimization Guide On-Device Gemma4 12B Model" lowercased
+// with its spaces made underscores is
+//
+//   optimization_guide_on-device_gemma4_12b_model
+//
+// which is `optimization_guide_on-device_${baseModel}_model` for a baseModel
+// of gemma4_12b. A future size drops in with no edit here. Note the hyphen:
+// the generic name the spec-carrying manifests use up top is "On Device", not
+// "On-Device", so it normalizes to optimization_guide_on_device_model and
+// cannot be mistaken for a row.
+function normalizeComponentName(name) {
+  return String(name).toLowerCase().replaceAll(/\s+/gu, '_')
+}
+
+function componentNameFor(baseModel) {
+  return `optimization_guide_on-device_${baseModel}_model`
+}
+
+export function identifiesAs(dir, baseModel) {
   const declared = declaredSpec(dir)
   if (!declared) return false
-  return specNames.some((name) => normalizeSpec(name) === normalizeSpec(declared))
+  // The spec wins wherever there is one, so a manifest that carries both is
+  // never reduced to its generic top-level name.
+  const specNames = specNamesFor(baseModel)
+  if (specNames.some((name) => normalizeSpec(name) === normalizeSpec(declared))) return true
+  return normalizeComponentName(declared) === componentNameFor(baseModel)
 }
 
 // Weights for a base model spec, or the newest installed when none is named.
@@ -172,11 +196,11 @@ export function findModelDir(baseModel) {
   if (all.length === 0) return undefined
   all.sort((a, b) => compareVersions(a.version, b.version))
   if (!baseModel) return all.at(-1).dir
-  const specNames = specNamesFor(baseModel)
-  const matches = all.filter(({ dir }) => identifiesAs(dir, specNames))
+  const matches = all.filter(({ dir }) => identifiesAs(dir, baseModel))
   if (matches.length > 0) return matches.at(-1).dir
+  const wanted = [...specNamesFor(baseModel), componentNameFor(baseModel)]
   throw new Error(
-    `No installed on-device model declares itself as ${specNames.map((n) => `"${n}"`).join(' or ') || `"${baseModel}"`}. ` +
+    `No installed on-device model declares itself as ${wanted.map((n) => `"${n}"`).join(' or ')}. ` +
     `Found: ${all.map((m) => `${declaredSpec(m.dir) ?? 'unnamed'} at ${m.dir}`).join('; ')}. ` +
     'Add the name to specNames in models.js, or set CHROME_MODEL_DIR.',
   )
