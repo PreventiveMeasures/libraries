@@ -326,15 +326,20 @@ describe('chrome request body', () => {
     assert.throws(() => build([{ role: 'user', content: 'hi' }], { effort: 'high' }), /no thinking mode/u)
   })
 
-  it('concatenates a prefix and suffix — nothing local caches across requests', () => {
-    assert.deepEqual(
-      CHROME_SHAPE.buildInitialUserMessage('chrome/gemma4_2b', 'prefix', 'suffix'),
-      { role: 'user', content: 'prefixsuffix' },
-    )
-    assert.deepEqual(
-      CHROME_SHAPE.buildInitialUserMessage('chrome/gemma4_2b', 'prefix'),
-      { role: 'user', content: 'prefix' },
-    )
+  it('concatenates the blocks — nothing local caches across requests', () => {
+    const initial = (userContent) => CHROME_SHAPE.buildInitialUserMessage('chrome/gemma4_2b', userContent)
+    // A list, which is what chat() passes now. Concatenating with `+` gave
+    // 'prefix,suffix' here: an array stringifies with commas, so the old
+    // two-argument form put a comma into the prompt the moment a caller
+    // split its user content.
+    assert.deepEqual(initial(['prefix', 'suffix']), { role: 'user', content: 'prefixsuffix' })
+    assert.deepEqual(initial(['A', 'B', 'C']), { role: 'user', content: 'ABC' })
+    // The plain string, which has to keep working unchanged.
+    assert.deepEqual(initial('prefix'), { role: 'user', content: 'prefix' })
+    // Joined on '' like every other adapter, because that is what the cache
+    // key is built from — a separator here would file a split request under a
+    // key its own unsplit result never produces.
+    assert.deepEqual(initial(['a', '']), { role: 'user', content: 'a' })
   })
 })
 

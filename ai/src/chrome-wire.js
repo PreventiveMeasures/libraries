@@ -1,3 +1,4 @@
+import { flattenUserContent } from './prompt-cache.js'
 import { parseArgs } from './wire-formats.js'
 
 // The `chrome` provider's wire format: what goes to the browser, and what
@@ -135,9 +136,12 @@ export const CHROME_SHAPE = {
   },
 
   // Nothing to mark up: the model is local and holds no cross-request cache,
-  // so a prefix/suffix split buys nothing and the two simply concatenate.
-  buildInitialUserMessage(model, userContent, userContentSuffix) {
-    return { role: 'user', content: userContent + (userContentSuffix ?? '') }
+  // so wherever the caller drew the boundary buys nothing here and the blocks
+  // simply concatenate. flattenUserContent rather than a join of our own —
+  // it joins on '', which is what the cache key is built from, so a split
+  // request resumes under the key its unsplit result is cached at.
+  buildInitialUserMessage(model, userContent) {
+    return { role: 'user', content: flattenUserContent(userContent) }
   },
 
   checkResponse(json) {
