@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { chromePreflight, findModelDir, removeProfileDir, turnInPage, waitUntilReady } from '../src/chrome.js'
@@ -238,6 +238,13 @@ describe('chrome scratch-profile cleanup', () => {
     for (const bad of ['', '/', '/tmp', undefined, null]) {
       assert.throws(() => removeProfileDir(bad), /not one of our scratch profiles/u, `should refuse ${bad}`)
     }
+
+    // Anchored to the temp dir, so the prefix appearing elsewhere in a path
+    // is not enough — and neither is the temp root itself.
+    assert.throws(() => removeProfileDir(join(homedir(), 'ai-chrome-elsewhere')), /not one of our scratch profiles/u)
+    assert.throws(() => removeProfileDir(join(tmpdir(), 'nested', 'ai-chrome-x')), /not one of our scratch profiles/u)
+    assert.throws(() => removeProfileDir(tmpdir()), /not one of our scratch profiles/u)
+    assert.throws(() => removeProfileDir(join(tmpdir(), 'ai-chrome-')), /not one of our scratch profiles/u)
   })
 
   it('removes a directory that IS one of ours', () => {

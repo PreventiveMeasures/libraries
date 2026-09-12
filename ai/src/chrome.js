@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { basename, join, sep } from 'node:path'
+import { basename, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { baseModelFor } from './models.js'
 import { toChatCompletions } from './chrome-wire.js'
@@ -240,9 +240,15 @@ const STALE_MS = 6 * 60 * 60 * 1000
 // model store, so a wrong path plus a wrong follow is gigabytes of somebody
 // else's data.
 export function removeProfileDir(dir) {
+  // Not "contains" — starts with. Every profile is built by mkdtemp from
+  // exactly this prefix, so anchoring to it rules out a path that merely has
+  // ai-chrome- somewhere inside, and rules out anything outside the temp dir
+  // whatever it is called. Recomputed per call rather than cached, so it
+  // still matches how the path was built if TMPDIR moves under us.
+  const root = join(tmpdir(), PROFILE_PREFIX)
   assert.ok(
-    typeof dir === 'string' && dir.includes(`${sep}${PROFILE_PREFIX}`),
-    `refusing to recursively delete a path that is not one of our scratch profiles: ${dir}`,
+    typeof dir === 'string' && dir.startsWith(root) && dir.length > root.length,
+    `refusing to recursively delete a path that is not one of our scratch profiles (expected ${root}*): ${dir}`,
   )
   rmSync(dir, { recursive: true, force: true })
 }
