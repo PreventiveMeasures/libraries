@@ -7,7 +7,7 @@ import { specNamesFor } from './models.js'
 // Where the on-device weights are, which is a separate question from how the
 // browser is driven — see chrome.js for that.
 
-// Two stores, different shapes: nano_v3 lives under the first, gemma4 and
+// Two stores, different shapes: nano_v3 lives under the first, gemma4_2b and
 // gemma4_4b under the second, keyed by a content hash above the version.
 export const MODEL_COMPONENTS = ['OptGuideOnDeviceModel', 'OptGuideManifestModel']
 
@@ -83,7 +83,7 @@ function candidateModelDirs(root, depth = 2) {
 //
 // Nor is the difference a rule that can be computed: the three specs in the
 // wild are "v3Nano", "gemma4-2b-it" and "gemma-4-E4B-it", which share no
-// shape. Anything loose enough to relate gemma4 to gemma4-2b-it also relates
+// shape. Anything loose enough to relate gemma4_2b to gemma4-2b-it also relates
 // it to gemma-4-E4B-it, and quietly picking the wrong one is the bug this
 // check exists to prevent. So the accepted names live on the registry row and
 // are compared here, ignoring case and punctuation only.
@@ -109,7 +109,7 @@ export function identifiesAs(dir, specNames) {
 //
 // A named spec that cannot be identified is an error rather than a fallback.
 // Falling back looked harmless and was not: the turn would be labelled and
-// CACHED as chrome/gemma4 while nano_v3 actually answered it — a wrong answer
+// CACHED as chrome/gemma4_2b while nano_v3 actually answered it — a wrong answer
 // filed under a name that gets trusted later.
 export function findModelDir(baseModel) {
   const override = process.env.CHROME_MODEL_DIR

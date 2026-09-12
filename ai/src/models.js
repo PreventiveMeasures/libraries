@@ -93,7 +93,7 @@ const MODELS = new Map([
   // than guessed. A Chrome that renames one fails with the name it found,
   // which makes the fix a one-line edit here.
   ['chrome/nano_v3', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'nano_v3', specNames: ['v3Nano'] }],
-  ['chrome/gemma4', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4', specNames: ['gemma4-2b-it'] }],
+  ['chrome/gemma4_2b', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_2b', specNames: ['gemma4-2b-it'] }],
   ['chrome/gemma4_4b', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_4b', specNames: ['gemma-4-E4B-it'] }],
   // Free models — may log/store/use your data
   ['openai/gpt-oss-120b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
@@ -289,7 +289,7 @@ export function wireModelFor(model) {
   return MODELS.get(resolveModel(model))?.wireModel ?? model
 }
 
-// The on-device base model spec a local row expects — `nano_v3`, `gemma4`,
+// The on-device base model spec a local row expects — `nano_v3`, `gemma4_2b`,
 // `gemma4_4b`. Undefined for every hosted row, which is what tells the
 // adapter a model is not one of Chrome's.
 export function baseModelFor(model) {
