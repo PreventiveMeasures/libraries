@@ -185,6 +185,19 @@ async function launch(baseModel, debug) {
       // The eligibility gate, which reads "unavailable" on plenty of hardware
       // that runs the model perfectly well once past it.
       '--enable-features=OptimizationGuideOnDeviceModel:on_device_model_bypass_perf_requirement/true',
+      // The gate that actually stops a scratch profile. Eligibility needs a
+      // device performance class, and a profile that has never computed one
+      // runs a GPU benchmark to get it — chrome://on-device-internals sits on
+      // "Device performance class: Loading..." while it does. availability()
+      // answers `unavailable` throughout, so a turn issued at launch loses a
+      // race it never announces. Forcing the class skips the benchmark.
+      //
+      // The value is an INTEGER, not a name: Chrome parses it with
+      // StringToInt and a name silently becomes kUnknown, which is
+      // indistinguishable from not passing the switch at all. 6 is VeryHigh
+      // (0 Unknown, 1 Error, 2 VeryLow, 3 Low, 4 Medium, 5 High, 6 VeryHigh);
+      // the numbering is fixed by the UMA enum, not by declaration order.
+      `--optimization-guide-performance-class=${process.env.CHROME_PERFORMANCE_CLASS || '6'}`,
       ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
     ],
   })
