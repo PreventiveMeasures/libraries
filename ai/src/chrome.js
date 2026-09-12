@@ -209,8 +209,49 @@ async function launch(baseModel, debug) {
     tab.on('pageerror', (err) => console.error(`[chrome] ${err}`))
   }
   await tab.goto(blankPage(profile))
+  await waitUntilReady(tab, debug)
   return { browser, tab }
 }
+
+// How long a cold profile gets to become ready. Registration is not
+// instant — the component updater has to run before Chrome will admit to
+// having a model, and that is seconds, not milliseconds.
+const READY_TIMEOUT_MS = 120_000
+const READY_POLL_MS = 500
+
+// The bug that cost four wrong fixes: a fresh profile answers `unavailable`
+// to everything until the on-device model component finishes registering,
+// and asking once at launch loses that race by two orders of magnitude —
+// milliseconds against the ten-plus seconds registration actually takes.
+// chrome://on-device-internals shows the same state as "Device performance
+// class: Loading...". `unavailable` is not a verdict here, it is "not yet".
+//
+// So wait for a real answer instead of taking the first one. A profile that
+// genuinely cannot serve the model still ends up here, and still fails —
+// just with a message that says how long it waited.
+/* eslint-disable no-undef */
+async function waitUntilReady(tab, debug) {
+  const deadline = Date.now() + READY_TIMEOUT_MS
+  let last = 'unknown'
+  while (Date.now() < deadline) {
+    last = await tab.evaluate(async () =>
+      (typeof LanguageModel === 'undefined' ? 'no-binding' : await LanguageModel.availability().catch((e) => `ERR ${e.message}`)))
+    if (last === 'available') {
+      if (debug) console.debug(`[chrome] model ready after ${((READY_TIMEOUT_MS - (deadline - Date.now())) / 1000).toFixed(1)}s`)
+      return
+    }
+    // Chrome offering to fetch means this profile cannot see the weights we
+    // grafted in. Refuse rather than let it pull its own multi-gigabyte copy
+    // — that is the whole point of this provider.
+    if (last === 'downloadable' || last === 'downloading') {
+      throw new Error(`Chrome wants to download its own copy of the model (availability: ${last}). The borrowed weights are not visible to this profile; check CHROME_MODEL_DIR.`)
+    }
+    if (last === 'no-binding') throw new Error('LanguageModel is not exposed — this is not a branded Chrome')
+    await new Promise((resolve) => { setTimeout(resolve, READY_POLL_MS) })
+  }
+  throw new Error(`On-device model still "${last}" after ${READY_TIMEOUT_MS / 1000}s. Open chrome://on-device-internals in a normal Chrome and confirm a model is listed under Model Status.`)
+}
+/* eslint-enable no-undef */
 
 // Reused across turns: a launch costs about a second, and no turn leaves
 // state behind on the browser side — each creates and destroys its own
