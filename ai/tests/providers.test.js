@@ -543,18 +543,21 @@ describe('buildInitialUserMessage', () => {
   const GPT = 'openai/gpt-5.5'
   const GPT56 = 'openai/gpt-5.6-sol'
 
-  it('anthropic: no suffix → role:user with plain string content', () => {
+  it('anthropic: nothing to split → role:user with plain string content', () => {
     withProvider('anthropic', 'ANTHROPIC_API_KEY', () => {
-      assert.deepEqual(buildInitialUserMessage(CLAUDE, 'hello', undefined), { role: 'user', content: 'hello' })
-      assert.deepEqual(buildInitialUserMessage(CLAUDE, 'hello', ''), { role: 'user', content: 'hello' })
+      assert.deepEqual(buildInitialUserMessage(CLAUDE, 'hello'), { role: 'user', content: 'hello' })
+      assert.deepEqual(buildInitialUserMessage(CLAUDE, ['hello']), { role: 'user', content: 'hello' })
+      // An empty block is no boundary — and Anthropic 400s on one.
+      assert.deepEqual(buildInitialUserMessage(CLAUDE, ['hello', '']), { role: 'user', content: 'hello' })
+      assert.deepEqual(buildInitialUserMessage(CLAUDE, ['', 'hello']), { role: 'user', content: 'hello' })
     })
   })
 
-  it('anthropic: with suffix → splits into two text blocks, prefix gets cache_control', () => {
+  it('anthropic: two blocks → the first gets cache_control', () => {
     // Lets isolate-mode share a single cache entry for the prefix
     // across multiple per-export variants.
     withProvider('anthropic', 'ANTHROPIC_API_KEY', () => {
-      const out = buildInitialUserMessage(CLAUDE, 'PREFIX', 'SUFFIX')
+      const out = buildInitialUserMessage(CLAUDE, ['PREFIX', 'SUFFIX'])
       assert.equal(out.role, 'user')
       assert.deepEqual(out.content, [
         { type: 'text', text: 'PREFIX', cache_control: { type: 'ephemeral' } },
@@ -563,10 +566,27 @@ describe('buildInitialUserMessage', () => {
     })
   })
 
+  it('more than two blocks → ONE marker, immediately before the last', () => {
+    // The last block is the part that varies, so the shared part ends on the
+    // one before it. Earlier blocks stay separate but unmarked: a second
+    // breakpoint would write a second entry for a prefix the first already
+    // covers, at a write premium each.
+    withProvider('anthropic', 'ANTHROPIC_API_KEY', () => {
+      assert.deepEqual(buildInitialUserMessage(CLAUDE, ['A', 'B', 'C']).content, [
+        { type: 'text', text: 'A' },
+        { type: 'text', text: 'B', cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: 'C' },
+      ])
+      const four = buildInitialUserMessage(CLAUDE, ['A', 'B', 'C', 'D']).content
+      assert.deepEqual(four.map((b) => Boolean(b.cache_control)), [false, false, true, false])
+    })
+  })
+
   it('openai (Responses): concats below gpt-5.6, which caches server-side via the input fingerprint', () => {
     withProvider('openai', 'OPENAI_API_KEY', () => {
-      assert.deepEqual(buildInitialUserMessage(GPT, 'hello', undefined), { role: 'user', content: 'hello' })
-      assert.deepEqual(buildInitialUserMessage(GPT, 'PRE', 'SUF'), { role: 'user', content: 'PRESUF' })
+      assert.deepEqual(buildInitialUserMessage(GPT, 'hello'), { role: 'user', content: 'hello' })
+      assert.deepEqual(buildInitialUserMessage(GPT, ['PRE', 'SUF']), { role: 'user', content: 'PRESUF' })
+      assert.deepEqual(buildInitialUserMessage(GPT, ['A', 'B', 'C']), { role: 'user', content: 'ABC' })
     })
   })
 
@@ -575,18 +595,18 @@ describe('buildInitialUserMessage', () => {
     // earlier models use, so an unmarked isolate prefix would never be read
     // back. Responses names the block input_text, chat-completions text.
     withProvider('openai', 'OPENAI_API_KEY', () => {
-      assert.deepEqual(buildInitialUserMessage(GPT56, 'PRE', 'SUF').content, [
+      assert.deepEqual(buildInitialUserMessage(GPT56, ['PRE', 'SUF']).content, [
         { type: 'input_text', text: 'PRE', prompt_cache_breakpoint: { mode: 'explicit' } },
         { type: 'input_text', text: 'SUF' },
       ])
     })
     withProvider('openrouter', 'OPENROUTER_API_KEY', () => {
-      assert.deepEqual(buildInitialUserMessage(GPT56, 'PRE', 'SUF').content, [
+      assert.deepEqual(buildInitialUserMessage(GPT56, ['PRE', 'SUF']).content, [
         { type: 'text', text: 'PRE', prompt_cache_breakpoint: { mode: 'explicit' } },
         { type: 'text', text: 'SUF' },
       ])
       // The bare alias resolves to a 5.6 row, so it is marked too.
-      assert.deepEqual(buildInitialUserMessage('openai/gpt-5.6', 'PRE', 'SUF').content[0].prompt_cache_breakpoint, { mode: 'explicit' })
+      assert.deepEqual(buildInitialUserMessage('openai/gpt-5.6', ['PRE', 'SUF']).content[0].prompt_cache_breakpoint, { mode: 'explicit' })
     })
   })
 
@@ -605,8 +625,9 @@ describe('buildInitialUserMessage', () => {
     for (const [name, env, models] of routes) {
       withProvider(name, env, () => {
         for (const model of models) {
-          assert.equal(flatten(buildInitialUserMessage(model, 'PRE', 'SUF').content), 'PRESUF', `${name} ${model}`)
-          assert.equal(flatten(buildInitialUserMessage(model, 'ONLY', undefined).content), 'ONLY', `${name} ${model} (no suffix)`)
+          assert.equal(flatten(buildInitialUserMessage(model, ['PRE', 'SUF']).content), 'PRESUF', `${name} ${model}`)
+          assert.equal(flatten(buildInitialUserMessage(model, ['A', 'B', 'C']).content), 'ABC', `${name} ${model} (three blocks)`)
+          assert.equal(flatten(buildInitialUserMessage(model, 'ONLY').content), 'ONLY', `${name} ${model} (one string)`)
         }
       })
     }
@@ -618,7 +639,7 @@ describe('buildInitialUserMessage', () => {
     for (const [name, env] of [['openai', 'OPENAI_API_KEY'], ['openrouter', 'OPENROUTER_API_KEY']]) {
       withProvider(name, env, () => {
         for (const model of [GPT, 'openai/gpt-5.4', 'openai/gpt-5.4-pro', 'openai/gpt-5.3-codex', 'openai/gpt-4o-mini']) {
-          assert.deepEqual(buildInitialUserMessage(model, 'PRE', 'SUF'), { role: 'user', content: 'PRESUF' }, `${name} ${model}`)
+          assert.deepEqual(buildInitialUserMessage(model, ['PRE', 'SUF']), { role: 'user', content: 'PRESUF' }, `${name} ${model}`)
         }
       })
     }
@@ -628,20 +649,20 @@ describe('buildInitialUserMessage', () => {
     withProvider('openrouter', 'OPENROUTER_API_KEY', () => {
       // Same split the Anthropic adapter makes, so isolate-mode variants
       // share one cache entry for the prefix on this route too.
-      assert.deepEqual(buildInitialUserMessage(CLAUDE, 'PRE', 'SUF').content, [
+      assert.deepEqual(buildInitialUserMessage(CLAUDE, ['PRE', 'SUF']).content, [
         { type: 'text', text: 'PRE', cache_control: { type: 'ephemeral' } },
         { type: 'text', text: 'SUF' },
       ])
-      assert.deepEqual(buildInitialUserMessage('qwen/qwen3-coder:free', 'PRE', 'SUF').content, [
+      assert.deepEqual(buildInitialUserMessage('qwen/qwen3-coder:free', ['PRE', 'SUF']).content, [
         { type: 'text', text: 'PRE', cache_control: { type: 'ephemeral' } },
         { type: 'text', text: 'SUF' },
       ])
       // Routes that cache on their own side gain nothing from an unmarked
       // two-block message, so they keep the concat.
-      assert.deepEqual(buildInitialUserMessage(GPT, 'PRE', 'SUF'), { role: 'user', content: 'PRESUF' })
-      assert.deepEqual(buildInitialUserMessage('moonshotai/kimi-k3', 'PRE', 'SUF'), { role: 'user', content: 'PRESUF' })
-      // No suffix — nothing to split, on any route.
-      assert.deepEqual(buildInitialUserMessage(CLAUDE, 'only', undefined), { role: 'user', content: 'only' })
+      assert.deepEqual(buildInitialUserMessage(GPT, ['PRE', 'SUF']), { role: 'user', content: 'PRESUF' })
+      assert.deepEqual(buildInitialUserMessage('moonshotai/kimi-k3', ['PRE', 'SUF']), { role: 'user', content: 'PRESUF' })
+      // One block — nothing to split, on any route.
+      assert.deepEqual(buildInitialUserMessage(CLAUDE, 'only'), { role: 'user', content: 'only' })
     })
   })
 })
@@ -700,7 +721,7 @@ describe('conversation caching — one rule, both ways to reach the model', () =
     // the old rolling window used to evict on turn 2 of a tool loop.
     for (const [provider, env] of [['anthropic', 'ANTHROPIC_API_KEY'], ['openrouter', 'OPENROUTER_API_KEY']]) {
       withProvider(provider, env, () => {
-        assert.deepEqual(buildInitialUserMessage(CLAUDE, 'SHARED', 'VARIANT').content, [
+        assert.deepEqual(buildInitialUserMessage(CLAUDE, ['SHARED', 'VARIANT']).content, [
           { type: 'text', text: 'SHARED', cache_control: { type: 'ephemeral' } },
           { type: 'text', text: 'VARIANT' },
         ], provider)
@@ -913,7 +934,7 @@ describe('moonshot adapter — Kimi K3 on Moonshot direct', () => {
 
   it('concats the initial user message and never marks a cache breakpoint', () => {
     withMoonshot(() => {
-      assert.deepEqual(buildInitialUserMessage(MODEL, 'prefix', 'suffix'), { role: 'user', content: 'prefixsuffix' })
+      assert.deepEqual(buildInitialUserMessage(MODEL, ['prefix', 'suffix']), { role: 'user', content: 'prefixsuffix' })
       const body = buildRequestBody(MODEL, 1000, 'sys', [{ role: 'user', content: 'hi' }], { turn: 3, tools: [{ name: 't' }] })
       assert.equal(body.cache_control, undefined, 'Moonshot caches server-side')
       assert.equal(body.messages[0].content, 'sys')
@@ -1118,7 +1139,7 @@ describe('gateway — Anthropic and OpenAI natively, everything else like openro
         mod.setProvider(provider)
         return CHAT_ROUTES.map((model) => JSON.stringify([
           mod.buildRequestBody(model, 1000, 'sys', messages, { turn: 1, think: true }),
-          mod.buildInitialUserMessage(model, 'PRE', 'SUF'),
+          mod.buildInitialUserMessage(model, ['PRE', 'SUF']),
           mod.buildRequestUrl(model).replace('https://gw.example', '').replace('https://openrouter.ai/api', ''),
         ]))
       }

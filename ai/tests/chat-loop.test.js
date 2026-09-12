@@ -121,14 +121,21 @@ suite('chat: the `partial` option', () => {
     assert.deepEqual(saved[0].results, ['probed /'])
   })
 
-  it('keys the partial on the whole user message, suffix included', async () => {
+  it('keys the partial on the whole user message, every block joined', async () => {
     // A request that splits its message into a cached prefix and a
-    // per-request tail is still cached under the two joined, so the partial
-    // has to land on the same key the final result will.
+    // per-request tail is still cached under the blocks joined, so the
+    // partial has to land on the same key the final result will.
     const cacheOpts = opts('_test-chat-partial-split')
-    await run('prefix-', { userContentSuffix: 'suffix', partial: cacheOpts })
+    const sentBefore = requests.length
+    await run(['pre', 'fix-', 'suffix'], { partial: cacheOpts })
+    assert.equal(await getPartial('pre', cacheOpts), null)
     assert.equal(await getPartial('prefix-', cacheOpts), null)
     assert.equal((await getPartial('prefix-suffix', cacheOpts)).length, 2)
+    // And the model was asked the joined message: this route reads no cache
+    // marker, so the blocks concatenate rather than going out split. The key
+    // above and the content here are the same string either way, which is the
+    // property that lets a split request resume under an unsplit one's entry.
+    assert.equal(requests[sentBefore].messages.at(-1).content, 'prefix-suffix')
   })
 
   it('writes nothing when the caller passes no cache options', async () => {

@@ -88,13 +88,30 @@ function prefixMarker(model) {
   return null
 }
 
-// Mirrors the Anthropic adapter's split: with a suffix present, the prefix
-// goes as a separately-cached block so multiple variants that differ only in
-// their tail share one cache entry for everything before it. Routes that
-// read no marker concatenate instead — a
-// two-block user message with nothing on it buys nothing, since automatic
-// caching matches the token prefix and a block boundary is not a cache
-// boundary anywhere.
+// The whole user message as one string, which is what the routes that read no
+// marker send and what the cache key is hashed over. `''` is the only join
+// that can be used: cache-scan.js reads a stored request back into its key by
+// flattening block content the same way, so any separator would put a
+// re-scanned entry under a key its own request no longer produces.
+export const flattenUserContent = (userContent) => (Array.isArray(userContent) ? userContent.join('') : userContent)
+
+// `userContent` is one string, or a list of blocks whose LAST one is the part
+// that varies. The marker goes immediately before it — everything up to there
+// is the shared part, so variants that differ only in their tail read one
+// cache entry for the whole preamble instead of each writing its own. That is
+// the case this grew from: a preamble many per-export variants share, and the
+// per-variant tail.
+//
+// Only ever one marker, however long the list. Blocks ahead of the shared
+// part's end stay separate blocks and go out unmarked, because a second
+// breakpoint would buy a second entry for a prefix the first already covers,
+// at a write premium each. Where the boundary goes is the one thing this
+// cannot guess, and the caller has already answered it by choosing which
+// block to put last.
+//
+// Routes that read no marker concatenate instead. An unmarked multi-block
+// user message buys nothing, since automatic caching matches the token prefix
+// and a block boundary is not a cache boundary anywhere.
 //
 // gpt-5.6 is the case that makes this matter beyond Anthropic: it anchors
 // cache reads to breakpoints instead of the 128-token strides earlier OpenAI
@@ -109,29 +126,31 @@ function prefixMarker(model) {
 // Chat-completions names its text blocks `text`, Responses names them
 // `input_text`; the split and the marker are the same decision either way, so
 // the two exported shapes differ only in that name.
-function splitInitialUserMessage(model, userContent, userContentSuffix, textType) {
-  if (!userContentSuffix) return { role: 'user', content: userContent }
+function splitInitialUserMessage(model, userContent, textType) {
+  // An empty block is not a cache boundary, it is a 400 on Anthropic — and
+  // dropping it keeps `(content, '')` meaning what it always did, a message
+  // with nothing to split.
+  const blocks = (Array.isArray(userContent) ? userContent : [userContent]).filter(Boolean)
+  if (blocks.length < 2) return { role: 'user', content: blocks.join('') }
   const marker = prefixMarker(model)
-  if (!marker) return { role: 'user', content: userContent + userContentSuffix }
-  return { role: 'user', content: [
-    { type: textType, text: userContent, ...marker },
-    { type: textType, text: userContentSuffix },
-  ] }
+  if (!marker) return { role: 'user', content: blocks.join('') }
+  const shared = blocks.length - 2 // the block the shared part ends on
+  return { role: 'user', content: blocks.map((text, i) => (i === shared ? { type: textType, text, ...marker } : { type: textType, text })) }
 }
 
-export function chatCompletionsInitialUserMessage(model, userContent, userContentSuffix) {
-  return splitInitialUserMessage(model, userContent, userContentSuffix, 'text')
+export function chatCompletionsInitialUserMessage(model, userContent) {
+  return splitInitialUserMessage(model, userContent, 'text')
 }
 
 // Anthropic's Messages API names its blocks `text` too, so this is the same
 // shape the gateway sends — which is the point: one place decides where the
 // prefix ends, and the adapter it is reached through only picks the spelling.
-export function anthropicInitialUserMessage(model, userContent, userContentSuffix) {
-  return splitInitialUserMessage(model, userContent, userContentSuffix, 'text')
+export function anthropicInitialUserMessage(model, userContent) {
+  return splitInitialUserMessage(model, userContent, 'text')
 }
 
-export function responsesInitialUserMessage(model, userContent, userContentSuffix) {
-  return splitInitialUserMessage(model, userContent, userContentSuffix, 'input_text')
+export function responsesInitialUserMessage(model, userContent) {
+  return splitInitialUserMessage(model, userContent, 'input_text')
 }
 
 // Whether this request has a conversation worth caching: only the turns after

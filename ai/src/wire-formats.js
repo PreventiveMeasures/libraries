@@ -102,12 +102,12 @@ export function anthropicShape(modelId) {
       })
     },
 
-    // When a suffix is present, send the prefix as a separately-cached
-    // text block so multiple variants that share it read a single cache
-    // entry for everything before the per-request tail. Same rule the
-    // gateway route applies — see prompt-cache.js.
-    buildInitialUserMessage(model, userContent, userContentSuffix) {
-      return anthropicInitialUserMessage(model, userContent, userContentSuffix)
+    // Given blocks, mark the one before the last so multiple variants that
+    // share everything ahead of the per-request tail read a single cache
+    // entry for it. Same rule the gateway route applies — see
+    // prompt-cache.js.
+    buildInitialUserMessage(model, userContent) {
+      return anthropicInitialUserMessage(model, userContent)
     },
 
   }
