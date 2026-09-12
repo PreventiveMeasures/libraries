@@ -2,7 +2,7 @@ import http from 'node:http'
 import assert from 'node:assert/strict'
 import { after, before, describe, it } from 'node:test'
 
-import { RETRIES, fetchJSON, isTransientHttpFailure, parseRetryAfter, retryDelayMs, setFetchRetries } from '../src/fetch.js'
+import { RETRIES, fetchJSON, isTransientHttpFailure, parseRetryAfter, retryDelayMs, setFetchRetries, setRetrySleep } from '../src/fetch.js'
 
 // The body a kimi-k3 run dies on, verbatim. It arrives under two statuses
 // — a 400 as often as a 429 — which is the whole reason the classifier
@@ -148,6 +148,7 @@ describe('fetchJSON retries', () => {
   let handler
   let requests
   const errors = []
+  const waits = []
   const originalError = console.error
 
   before(async () => {
@@ -155,36 +156,45 @@ describe('fetchJSON retries', () => {
     await new Promise((resolve) => { server.listen(0, '127.0.0.1', resolve) })
     url = `http://127.0.0.1:${server.address().port}/`
     console.error = (text) => { errors.push(text) }
+    // The backoff is recorded rather than slept. Every case below used to
+    // pay its waits for real, which cost this file ~15s — the whole
+    // suite's runtime — and bought a weaker assertion than this one: the
+    // clock can only say a wait was at LEAST so long, while the number
+    // the loop asked for is the thing the backoff is. The waits are the
+    // only thing stubbed; the socket, the statuses and the loop are real.
+    setRetrySleep((ms) => { waits.push(ms) })
   })
 
   after(async () => {
+    setRetrySleep()
+    setFetchRetries()
     console.error = originalError
     await new Promise((resolve) => { server.close(resolve) })
   })
 
-  // Every case pays real backoff, so they are kept to the smallest budget
-  // that still shows the behaviour rather than the 31s the default spends.
   const call = async (h, retries) => {
     requests = 0
     errors.length = 0
+    waits.length = 0
     handler = h
     setFetchRetries(retries)
     const err = await fetchJSON(url, { method: 'POST', body: '{}' }).then(() => null, (e) => e)
-    return { err, requests, errors }
+    return { err, requests, errors, waits }
   }
 
   it('spends the --retries budget on a transient failure, and floors a Retry-After of zero', async () => {
     // `Retry-After: 0` is legal and clamps to no wait at all; returned
     // verbatim the whole budget went in milliseconds. Flooring it at
-    // BASE_DELAY makes the elapsed time the proof that it was honoured.
-    const started = Date.now()
-    const { err, requests: n } = await call((i, res) => {
+    // BASE_DELAY is what the four waits below say — and they say it
+    // exactly, where the elapsed >= 4000ms this replaced would have
+    // passed just as happily on four waits of a second and a half.
+    const { err, requests: n, waits: slept } = await call((i, res) => {
       res.writeHead(429, { 'retry-after': '0' })
       res.end('slow down')
     }, 4)
     assert.equal(n, 5) // the attempt plus four re-asks
     assert.equal(err.status, 429)
-    assert.ok(Date.now() - started >= 4000, `${Date.now() - started}ms`)
+    assert.deepEqual(slept, [1000, 1000, 1000, 1000])
   })
 
   it('keeps the status of a 5xx whose body read is cut mid-stream', async () => {
@@ -192,7 +202,7 @@ describe('fetchJSON retries', () => {
     // list, so a gateway dropping the socket after its headers rejected
     // before the error existed and the 503 arrived as a bare transport
     // failure — losing the very budget it was the reason for.
-    const { err, requests: n } = await call((i, res) => {
+    const { err, requests: n, waits: slept } = await call((i, res) => {
       res.writeHead(503, { 'content-length': '500' })
       res.flushHeaders()
       res.write('partial')
@@ -200,19 +210,29 @@ describe('fetchJSON retries', () => {
     }, 1)
     assert.equal(n, RETRIES + 1) // --retries below the flat budget is floored by it
     assert.equal(err.status, 503)
+    // Classified transient, so it backs off rather than taking the flat
+    // second: the pair doubles, jitter and all.
+    assert.equal(slept.length, RETRIES)
+    assert.ok(slept[0] >= 1000 && slept[0] < 1250, `${slept[0]}ms`)
+    assert.ok(slept[1] >= 2000 && slept[1] < 2500, `${slept[1]}ms`)
   })
 
   it('does not let a transient prelude spend another class\'s budget', async () => {
     // Two failure classes, one counter: the 503 used to consume the two
     // tries the parse error is entitled to, and the SyntaxError was
     // rethrown with none of its own left.
-    const { err, requests: n } = await call((i, res) => {
+    const { err, requests: n, waits: slept } = await call((i, res) => {
       if (i === 1) { res.writeHead(503); res.end('down'); return }
       res.writeHead(200, { 'content-type': 'application/json' })
       res.end('<html>not json</html>')
     }, 1)
     assert.ok(err instanceof SyntaxError, `${err}`)
     assert.equal(n, 4) // the 503 and its re-ask, then the parse error and its own two
+    // And the two classes pace differently: the 503 backs off, the parse
+    // error keeps the flat second, so the waits also show the counters
+    // were never shared.
+    assert.ok(slept[0] >= 1000 && slept[0] < 1250, `${slept[0]}ms`)
+    assert.deepEqual(slept.slice(1), [1000, 1000])
   })
 
   it('keeps the whole response body out of the retry line, and off the error', async () => {
@@ -235,7 +255,8 @@ describe('fetchJSON retries', () => {
     // parsePositiveInt returns undefined for a flag that was never set;
     // stored unguarded that made the budget NaN and `used < NaN` false —
     // zero retries, not the RETRIES floor the comment promises.
-    const { requests: n } = await call((i, res) => { res.writeHead(503); res.end('down') }, undefined)
+    const { requests: n, waits: slept } = await call((i, res) => { res.writeHead(503); res.end('down') }, undefined)
     assert.equal(n, RETRIES + 1)
+    assert.equal(slept.length, RETRIES)
   })
 })

@@ -1,7 +1,7 @@
 /* eslint-disable max-lines-per-function */
 import assert from 'node:assert/strict'
 import { createHash, randomBytes } from 'node:crypto'
-import { after, describe, it } from 'node:test'
+import { after, before, describe, it } from 'node:test'
 
 import { readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -13,10 +13,19 @@ import { listCacheEntries, rehashCache } from '../src/cache-scan.js'
 // Somewhere of this run's own. The layer has no default — the caller says
 // where entries live — and these tests write real files.
 const CACHE_DIR = join(tmpdir(), `ai-cache-test-${process.pid}`)
-setCacheDir(CACHE_DIR)
 after(async () => { await rm(CACHE_DIR, { recursive: true, force: true }) })
 
-describe('buildCacheOpts', () => {
+// The cache root is one global for the whole process, and `--test-isolation=none`
+// gives every test file the same process: all of their top levels run before
+// any suite does, so a module-scope setCacheDir would leave whichever file
+// was imported LAST holding the directory for everyone. Claiming it per
+// suite is what keeps these tests reading their own.
+const suite = (name, body) => describe(name, () => {
+  before(() => setCacheDir(CACHE_DIR))
+  body()
+})
+
+suite('buildCacheOpts', () => {
   it('renames useThink/useEffort to think/effort to match cache.js consumers', () => {
     assert.deepEqual(
       buildCacheOpts('validator', { model: 'm', systemPrompt: 's', useThink: true, useEffort: 'high' }),
@@ -71,7 +80,7 @@ function uniqueCacheOpts(extra = {}) {
   }
 }
 
-describe('partial cache (getPartial / setPartial / clearPartial)', () => {
+suite('partial cache (getPartial / setPartial / clearPartial)', () => {
   it('returns null when no partial exists for the key', async () => {
     const opts = uniqueCacheOpts()
     assert.equal(await getPartial('user-content-A', opts), null)
@@ -142,7 +151,7 @@ describe('partial cache (getPartial / setPartial / clearPartial)', () => {
 // them — but a segment that is only dots is a path move, not a directory.
 // A caller that gives each of its own users a cache root of their own
 // would have `..` put one user's entries where every user's are.
-describe('model name as a cache directory', () => {
+suite('model name as a cache directory', () => {
   const opts = (model) => ({ type: 'security', model, systemPrompt: 'p' })
 
   it('refuses a name that traverses out of the cache root', async () => {
@@ -160,7 +169,7 @@ describe('model name as a cache directory', () => {
   })
 })
 
-describe('bundleId cache keying', () => {
+suite('bundleId cache keying', () => {
   it('varies the key for identical userContent (so the model message can drop the hash)', async () => {
     const base = uniqueCacheOpts()
     const history = [{ request: {}, response: { content: [] }, toolCalls: [], results: [] }]
@@ -179,7 +188,7 @@ describe('bundleId cache keying', () => {
 // string length in JSON.stringify) by dropping thinking-block signatures
 // from all but the last 10 top-level entries. These cover the two pieces of
 // that recovery: the failure gate and the signature-stripping transform.
-describe('isMaxStringLengthError', () => {
+suite('isMaxStringLengthError', () => {
   it('is true only for the V8 max-string-length RangeError (a failed stringify)', () => {
     // The actual error JSON.stringify throws when a value overflows V8's
     // ~512MB string cap — the only failure the partial-cache recovery acts on.
@@ -195,7 +204,7 @@ describe('isMaxStringLengthError', () => {
   })
 })
 
-describe('stripThinkingSignatures', () => {
+suite('stripThinkingSignatures', () => {
   // Thinking-block signatures live in BOTH the replayed request messages and
   // the raw response (and the stored pre-turn `messages` snapshot), so they
   // accumulate across turns. `n` tags each entry so they stay distinguishable.
@@ -250,9 +259,9 @@ describe('stripThinkingSignatures', () => {
 
   it('does not mutate the input history (live messages share these blocks by reference)', () => {
     const history = [entry(0), entry(1)]
-    const before = JSON.stringify(history)
+    const snapshot = JSON.stringify(history)
     stripThinkingSignatures(history, 1) // strips entry 0
-    assert.equal(JSON.stringify(history), before)
+    assert.equal(JSON.stringify(history), snapshot)
     assert.deepEqual(sigs(history[0]).toSorted(), ['MSG_0', 'REQ_0', 'RESP_0'])
   })
 
@@ -284,7 +293,7 @@ describe('stripThinkingSignatures', () => {
   })
 })
 
-describe('dropRequestsAfterFirst', () => {
+suite('dropRequestsAfterFirst', () => {
   const mk = (n) => ({ request: { tag: `req ${n}` }, response: { content: [] }, messages: [{ role: 'user', content: `m${n}` }], toolCalls: [], results: [], provider: 'anthropic' })
 
   it('keeps only the first entry\'s request and nulls the rest', () => {
@@ -304,9 +313,9 @@ describe('dropRequestsAfterFirst', () => {
 
   it('does not mutate the input; first entry passes by reference, others are fresh copies', () => {
     const history = [mk(0), mk(1)]
-    const before = JSON.stringify(history)
+    const snapshot = JSON.stringify(history)
     const out = dropRequestsAfterFirst(history)
-    assert.equal(JSON.stringify(history), before)         // input untouched
+    assert.equal(JSON.stringify(history), snapshot)       // input untouched
     assert.equal(out[0], history[0])                      // first entry passed through
     assert.notEqual(out[1], history[1])                   // others are shallow copies
     assert.deepEqual(history[1].request, { tag: 'req 1' }) // original request object intact
@@ -325,7 +334,7 @@ describe('dropRequestsAfterFirst', () => {
 // live run each phantom miss re-spends a model request and rewrites the
 // entry, so warm runs loaded different cache files and hit/miss totals
 // wobbled. ENOENT stays a quiet miss; everything else must surface.
-describe('cache read failures', () => {
+suite('cache read failures', () => {
   const opts = { type: 'read-fail', model: 'm', systemPrompt: 'sys', think: false, effort: undefined }
 
   it('treats a non-ENOENT read failure as a loud miss, not a silent one', async (t) => {
@@ -353,7 +362,7 @@ describe('cache read failures', () => {
   })
 })
 
-describe('atomic entry writes', () => {
+suite('atomic entry writes', () => {
   const opts = { type: 'atomic', model: 'm', systemPrompt: 'sys', think: false, effort: undefined }
 
   it('leaves no temp files behind and round-trips the entry', async () => {
@@ -373,7 +382,7 @@ describe('atomic entry writes', () => {
 // Rejected responses are kept for a person to read and never for the
 // pipeline: nothing loads `.invalid.json`, the directory scanners skip it,
 // and a valid entry at the same key clears it.
-describe('setInvalid / .invalid.json', () => {
+suite('setInvalid / .invalid.json', () => {
   const HISTORY = [{ request: { messages: [{ role: 'user', content: 'hi' }] }, response: { content: [{ type: 'text', text: 'half an ans' }] }, toolCalls: [], results: [] }]
   const invalidPath = (opts, userContent) => join(
     CACHE_DIR,
@@ -447,11 +456,11 @@ describe('setInvalid / .invalid.json', () => {
     // served as a real cached result by every later run.
     const opts = uniqueCacheOpts({ model: 'test/rehash-guard-1.0' })
     await setInvalid('inv-H', HISTORY, opts, { reason: 'malformed', text: 'x' })
-    const before = await readFile(invalidPath(opts, 'inv-H'), 'utf8')
+    const snapshot = await readFile(invalidPath(opts, 'inv-H'), 'utf8')
     const result = await rehashCache(opts.model)
     assert.equal(result.scanned, 0, 'the dump must not even be scanned')
     assert.equal(result.renamed, 0)
-    assert.equal(await readFile(invalidPath(opts, 'inv-H'), 'utf8'), before)
+    assert.equal(await readFile(invalidPath(opts, 'inv-H'), 'utf8'), snapshot)
   })
 
   it('is invisible to the cache-entry scanner', async () => {
@@ -467,7 +476,7 @@ describe('setInvalid / .invalid.json', () => {
   })
 })
 
-describe('setCacheDir', () => {
+suite('setCacheDir', () => {
   // There is no default, on purpose: a layer that guessed would put a run's
   // entries somewhere nobody chose, and every entry the last run wrote
   // would read as a miss — which no test seeding its own entries would
@@ -483,17 +492,17 @@ describe('setCacheDir', () => {
   })
 })
 
-describe('getCached: validate', () => {
+suite('getCached: validate', () => {
   const HISTORY = [{ request: { messages: [{ role: 'user', content: 'hi' }] }, response: { content: [] }, toolCalls: [], results: [] }]
 
   // `validate` answers two questions at once, and both are tested here: is
   // this entry usable, and — because a lookup that asks is a request of the
   // run — does it count as a hit or a miss.
   const hits = async (fn) => {
-    const before = getCacheStats()
+    const start = getCacheStats()
     await fn()
     const now = getCacheStats()
-    return { hits: now.hits - before.hits, misses: now.misses - before.misses }
+    return { hits: now.hits - start.hits, misses: now.misses - start.misses }
   }
 
   it('returns what `validate` made of the entry, and counts a hit', async () => {

@@ -1,0 +1,32 @@
+{
+  "name": "@preventive/libraries",
+  "private": true,
+  "description": "Workspace root: the packages live one directory down, this file only drives them",
+  "type": "module",
+  "license": "MIT",
+  "author": {
+    "name": "Nikita Skovoroda",
+    "email": "chalkerx@gmail.com",
+    "url": "https://github.com/ChALkeR"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PreventiveMeasures/libraries.git"
+  },
+  "bugs": {
+    "url": "https://github.com/PreventiveMeasures/libraries/issues"
+  },
+  "homepage": "https://github.com/PreventiveMeasures/libraries",
+  "engines": {
+    "node": ">=24.14.0"
+  },
+  "scripts": {
+    "lint": "node --run lint:js",
+    "lint:js": "oxlint -c .oxlintrc.json ./ai/",
+    "test": "pnpm -r run test"
+  },
+  "devDependencies": {
+    "oxlint": "^1.63.0"
+  },
+  "packageManager": "pnpm@10.33.4+sha512.1c67b3b359b2d408119ba1ed289f34b8fc3c6873412bec6fd264fbdc82489e510fcbecb9ce9d22dae7f3b76269d8441046014bdca53b9979cd7a561ad631b800"
+}

@@ -6,6 +6,12 @@ settings:
 
 importers:
 
+  .:
+    devDependencies:
+      oxlint:
+        specifier: ^1.63.0
+        version: 1.82.0
+
   ai:
     dependencies:
       '@chalker/queue':
@@ -14,10 +20,6 @@ importers:
       undici:
         specifier: ^8.0.3
         version: 8.10.2
-    devDependencies:
-      oxlint:
-        specifier: ^1.63.0
-        version: 1.82.0
 
 packages:
 
