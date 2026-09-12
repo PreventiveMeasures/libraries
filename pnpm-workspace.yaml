@@ -1,0 +1,18 @@
+allowBuilds:
+  esbuild: false
+
+autoInstallPeers: false
+
+enableGlobalVirtualStore: false
+
+linkWorkspacePackages: true
+
+lockfileIncludeTarballUrl: true
+
+minimumReleaseAgeExclude:
+  - "@chalker/*"
+  - "@preventive/*"
+  - "@rray/*"
+
+packages:
+  - "ai"

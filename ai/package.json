@@ -1,0 +1,61 @@
+{
+  "name": "@preventive/ai",
+  "version": "0.0.0",
+  "description": "Generic AI client",
+  "type": "module",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "src/cache-history.js",
+    "src/cache-scan.js",
+    "src/cache.js",
+    "src/chat.js",
+    "src/fetch.js",
+    "src/models.js",
+    "src/prefix-gate.js",
+    "src/prompt-cache.js",
+    "src/providers.js",
+    "src/task-budget.js",
+    "src/wire-formats.js"
+  ],
+  "engines": {
+    "node": ">=24.14.0"
+  },
+  "scripts": {
+    "lint": "node --run lint:js",
+    "lint:js": "oxlint -c .oxlintrc.json ./index.js ./src ./tests",
+    "test": "node --test ./tests/*.test.js"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Nikita Skovoroda",
+    "email": "chalkerx@gmail.com",
+    "url": "https://github.com/ChALkeR"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PreventiveMeasures/libraries.git"
+  },
+  "bugs": {
+    "url": "https://github.com/PreventiveMeasures/libraries/issues"
+  },
+  "homepage": "https://github.com/PreventiveMeasures/libraries/tree/main/ai",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "oxlint": "^1.63.0"
+  },
+  "dependencies": {
+    "@chalker/queue": "^1.0.1",
+    "undici": "^8.0.3"
+  }
+}
