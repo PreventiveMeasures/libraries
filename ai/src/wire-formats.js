@@ -95,7 +95,8 @@ export function anthropicShape(modelId) {
     },
 
     appendToolResults(messages, json, toolCalls, results) {
-      messages.push({ role: 'assistant', content: json.content }, {
+      messages.push({ role: 'assistant', content: json.content })
+      messages.push({
         role: 'user',
         content: toolCalls.map((tc, i) => ({ type: 'tool_result', tool_use_id: tc.id, content: results[i] })),
       })
