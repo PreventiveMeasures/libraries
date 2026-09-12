@@ -4,7 +4,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { chromePreflight, findModelDir, isScratchProfile, launchArgs, localStateFor, removeProfileDir, turnInPage, waitUntilReady } from '../src/chrome.js'
-import { graftPlanIn, identifiesAs } from '../src/chrome-model.js'
+import { graftPlanIn, identifiesAs, portablePrefs } from '../src/chrome-model.js'
 import { CHROME_SHAPE, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome-wire.js'
 import { baseModelFor, calculateCost, getMaxTokens, modelVersionFor, specNamesFor } from '../src/models.js'
 import { setProvider } from '../src/providers.js'
@@ -161,6 +161,51 @@ describe('chrome missing model', () => {
     assert.match(err.message, /will not download/u)
     // And the escape hatch for a model Chrome merely renamed.
     assert.match(err.message, /specNames/u)
+  })
+})
+
+describe('chrome inherited prefs', () => {
+  // Roughly what a real profile holds: the device's own measurements, plus
+  // claims about which components are installed.
+  const REAL = {
+    on_device: { last_version: '153.0.8010.36', performance_class: 6, model_crash_count: 0 },
+    model_store_metadata: { 'some-model': { version: '2026.1.3.1000' } },
+    model_execution: { manifest_asset_ledger: { gemma4_12b_component: { state: 'ready' } } },
+    model_cache_key_mapping: { a: 'b' },
+  }
+
+  it('carries the device measurements across', () => {
+    // Worth having: the cached performance class is what lets the scratch
+    // profile skip the GPU benchmark, and it is true of the machine whatever
+    // is linked in.
+    assert.deepEqual(portablePrefs(REAL), { optimization_guide: { on_device: REAL.on_device } })
+  })
+
+  it('leaves every claim about installed components behind', () => {
+    // The bug this exists to prevent: Chrome believes the ledger over the
+    // disk. Copied whole into a profile that links ONE model, every other
+    // component reads installed-but-missing and the broker fetches it — a
+    // nano launch installing gemma4, a gemma4 launch installing nano_v3.
+    const kept = portablePrefs(REAL).optimization_guide
+    for (const key of ['model_store_metadata', 'model_execution', 'model_cache_key_mapping']) {
+      assert.equal(key in kept, false, `${key} should not cross into a scratch profile`)
+    }
+  })
+
+  it('drops a key it has never seen rather than assuming it is safe', () => {
+    // An allowlist, so a Chrome that adds a new ledger does not quietly start
+    // carrying it. This is the assertion that fails if someone spreads the
+    // source object back in.
+    assert.deepEqual(portablePrefs({ ...REAL, some_future_ledger: { x: 1 } }).optimization_guide, {
+      on_device: REAL.on_device,
+    })
+  })
+
+  it('returns nothing at all rather than an empty subtree', () => {
+    // localStateFor spreads this, so {} has to mean "add no key" — an
+    // optimization_guide: {} would be a claim of its own.
+    assert.deepEqual(portablePrefs(undefined), {})
+    assert.deepEqual(portablePrefs({ model_store_metadata: {} }), {})
   })
 })
 

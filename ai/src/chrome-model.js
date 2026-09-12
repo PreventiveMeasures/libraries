@@ -73,19 +73,40 @@ export function graftPlanIn(userDataDir, modelDir) {
   return plan
 }
 
-// Chrome records manifest-model installs in PREFS, not only on disk. A
-// scratch profile with the directories symlinked in still reports every gemma
-// component "Not Installed 0%" under Broker State > Assets, because the
-// ledger that says otherwise lives in Local State. Copying just the
-// optimization_guide subtree carries that across without dragging the rest of
-// somebody's browser state along with it.
+// What the scratch profile inherits from the real one, and — the part that
+// matters — what it must not.
+//
+// `on_device` is the device describing itself: the cached performance class,
+// the GPU id it was measured on, the crash count. Portable, because it is
+// true of the machine however many models are linked in.
+//
+// Everything else under optimization_guide is a claim about which components
+// are INSTALLED, and Chrome believes those claims over the disk. Carrying
+// them wholesale into a profile that links one model made the browser see
+// every other component as installed-but-missing, and it did what anyone
+// would: fetched them. Nano launches began installing gemma4, gemma4 launches
+// began installing nano_v3 — symmetric, because the ledger named both and the
+// profile held one.
+//
+// So an allowlist, not a copy. An unrecognised key is a claim we have not
+// reasoned about, and the safe default for one of those is to leave it behind.
+const PORTABLE_PREFS = ['on_device']
+
 export function optimizationGuidePrefs() {
   const dir = activeUserDataDir()
   if (!dir) return {}
   try {
-    const state = JSON.parse(readFileSync(join(dir, 'Local State'), 'utf8'))
-    return state?.optimization_guide ? { optimization_guide: state.optimization_guide } : {}
+    return portablePrefs(JSON.parse(readFileSync(join(dir, 'Local State'), 'utf8'))?.optimization_guide)
   } catch { return {} }
+}
+
+// The filter itself, separated from reading the file, so what survives it can
+// be stated against a subtree written by hand rather than against whichever
+// Chrome the machine running the tests happens to have.
+export function portablePrefs(guide) {
+  if (!guide) return {}
+  const kept = Object.fromEntries(PORTABLE_PREFS.filter((key) => key in guide).map((key) => [key, guide[key]]))
+  return Object.keys(kept).length > 0 ? { optimization_guide: kept } : {}
 }
 
 // The component root — one subdirectory per installed version. Wanted whole
