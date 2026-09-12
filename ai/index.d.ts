@@ -118,10 +118,12 @@ interface ChatOptions {
   model: string
   maxTokens: number
   systemPrompt: string
-  userContent: string
-  // Split out of `userContent` when the prefix is worth caching across
-  // several variants that differ only in this tail.
-  userContentSuffix?: string | undefined
+  // One string, or a list of blocks whose LAST one is the part that varies.
+  // On routes that read a cache marker, one is placed immediately before that
+  // block, so variants sharing a preamble read one entry for it instead of
+  // each writing its own. The cache key is the blocks joined, so how a
+  // message is split never changes what it is keyed on.
+  userContent: string | string[]
   think?: boolean | undefined
   effort?: string | undefined
   // Both or neither: a tool the caller can't answer is a caller error.

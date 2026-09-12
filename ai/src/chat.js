@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { setPartial } from './cache.js'
 import { addUsage, calculateCost, emptyUsage } from './models.js'
 import { claimPrefix, prefixKey } from './prefix-gate.js'
+import { flattenUserContent } from './prompt-cache.js'
 import {
   appendToolResults, buildInitialUserMessage, extractResponseText, extractToolCalls,
   normalizeOneUsage, providerStamp,
@@ -51,7 +52,7 @@ export function normalizeUsage(data) {
 // completed turn, which is what leaves such a history behind — a long tool
 // session killed at turn 20 resumes there instead of paying for 20 turns
 // again. Passing neither is a conversation that starts and ends in one go.
-export async function chat({ model, maxTokens, systemPrompt, userContent, userContentSuffix, think = false, effort, tools, handleToolCall, maxToolTurns = DEFAULT_MAX_TOOL_TURNS, initialHistory, partial, debug, debugRequests, label, taskBudget = 'never' }) {
+export async function chat({ model, maxTokens, systemPrompt, userContent, think = false, effort, tools, handleToolCall, maxToolTurns = DEFAULT_MAX_TOOL_TURNS, initialHistory, partial, debug, debugRequests, label, taskBudget = 'never' }) {
   assert.ok(Boolean(tools) === Boolean(handleToolCall), 'tools and handleToolCall must be both provided or both omitted')
   const totalUsage = emptyUsage()
   const history = []
@@ -62,9 +63,9 @@ export async function chat({ model, maxTokens, systemPrompt, userContent, userCo
   const { always: taskBudgetAlways, onError: taskBudgetOnError } = resolveTaskBudget(model, taskBudget)
 
   // What the entry is keyed on: the whole user message, so a request that
-  // sent its prefix and tail as separate blocks still resumes under the key
-  // its final result will be cached at.
-  const keyContent = userContent + (userContentSuffix ?? '')
+  // sent its shared part and tail as separate blocks still resumes under the
+  // key its final result will be cached at.
+  const keyContent = flattenUserContent(userContent)
   // Per-turn partial writes are best-effort resilience: a disk error
   // (permissions, ENOSPC) must not abort a conversation in progress, so log
   // and carry on — the final write still gets its chance. setPartial
@@ -111,7 +112,7 @@ export async function chat({ model, maxTokens, systemPrompt, userContent, userCo
     messages = [...last.messages]
     appendToolResults(messages, last.response, last.toolCalls, last.results)
   } else {
-    messages = [buildInitialUserMessage(model, userContent, userContentSuffix)]
+    messages = [buildInitialUserMessage(model, userContent)]
   }
 
   const gateKey = prefixKey(model, tools, systemPrompt)

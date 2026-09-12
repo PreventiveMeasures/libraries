@@ -3,7 +3,7 @@ import { effortsFor, reasoningModeFor, wireModelFor } from './models.js'
 import { anthropicAuthHeader, anthropicShape, stripNamespace, toAnthropicModel, truncationError } from './wire-formats.js'
 
 export { isMaxTokensTruncation } from './wire-formats.js'
-import { cachesConversation, chatCompletionsInitialUserMessage, chatCompletionsSystemMessage, isAnthropicRoute, isOpenAIRoute, responsesInitialUserMessage } from './prompt-cache.js'
+import { cachesConversation, chatCompletionsInitialUserMessage, chatCompletionsSystemMessage, flattenUserContent, isAnthropicRoute, isOpenAIRoute, responsesInitialUserMessage } from './prompt-cache.js'
 
 // Chat-completions function-tool shape (nested `function: {...}` wrapper),
 // shared by every OpenAI-style chat backend — OpenRouter and Moonshot.
@@ -54,12 +54,12 @@ function resolveEffort({ think, effort, model }) {
 
 // The initial-message shape for a provider that caches on its own side, so
 // there's nothing for us to mark up: OpenAI Responses fingerprints the input
-// and Moonshot caches context automatically. For both the prefix/suffix split
-// buys nothing — concat and let the server do it. The gateway adapter spreads
+// and Moonshot caches context automatically. For both a block split buys
+// nothing — concat and let the server do it. The gateway adapter spreads
 // this in for the routes it can't mark, then overrides it for the ones it can.
 const SERVER_SIDE_CACHING = {
-  buildInitialUserMessage(model, userContent, userContentSuffix) {
-    return { role: 'user', content: userContent + (userContentSuffix ?? '') }
+  buildInitialUserMessage(model, userContent) {
+    return { role: 'user', content: flattenUserContent(userContent) }
   },
 }
 
@@ -142,8 +142,8 @@ function openaiResponsesShape(modelId) {
     // Responses carries the same split as the gateway route, in its own block
     // naming. Only gpt-5.6 and later read the marker; everything else here
     // falls through to a concatenated string.
-    buildInitialUserMessage(model, userContent, userContentSuffix) {
-      return responsesInitialUserMessage(model, userContent, userContentSuffix)
+    buildInitialUserMessage(model, userContent) {
+      return responsesInitialUserMessage(model, userContent)
     },
   }
 }
@@ -292,8 +292,8 @@ const CHAT_COMPLETIONS_SHAPE = {
   // on, after the system message built in buildRequestBody above. The
   // concatenating version from chatCompletionsBase stays right for every
   // route that reads no breakpoint.
-  buildInitialUserMessage(model, userContent, userContentSuffix) {
-    return chatCompletionsInitialUserMessage(model, userContent, userContentSuffix)
+  buildInitialUserMessage(model, userContent) {
+    return chatCompletionsInitialUserMessage(model, userContent)
   },
 }
 
@@ -463,13 +463,13 @@ export function appendToolResults(messages, json, toolCalls, results) {
   return provider.appendToolResults(messages, json, toolCalls, results)
 }
 
-// Build the initial user message in the format the active provider
-// prefers. When `userContentSuffix` is non-empty AND the provider's
-// adapter knows how, the prefix and suffix are split into separate
-// content blocks so the prefix can be reused across multiple variants
-// that share it without re-tokenizing each time.
-export function buildInitialUserMessage(model, userContent, userContentSuffix) {
-  return provider.buildInitialUserMessage(model, userContent, userContentSuffix)
+// Build the initial user message in the format the active provider prefers.
+// When `userContent` is a list of blocks AND the provider's adapter knows
+// how, a cache marker closes the block before the last one, so everything
+// ahead of that per-request tail can be reused across the variants that
+// share it without re-tokenizing each time.
+export function buildInitialUserMessage(model, userContent) {
+  return provider.buildInitialUserMessage(model, userContent)
 }
 
 export function normalizeOneUsage(data) {
