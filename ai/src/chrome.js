@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { baseModelFor } from './models.js'
-import { chromePreflight, findModelDir, modelComponentRoots } from './chrome-model.js'
+import { chromePreflight, findModelDir, graftableRoots, optimizationGuidePrefs } from './chrome-model.js'
 import { outputLanguage, toChatCompletions } from './chrome-wire.js'
 
 // Re-exported so callers keep one entry point for the provider.
@@ -212,7 +212,12 @@ async function launch(baseModel, debug) {
   // one pref. Seeding it costs nothing and is the only way to ask the browser
   // which model it actually loaded — which is not the same question as which
   // directory we pointed it at.
-  writeFileSync(join(profile, 'Local State'), JSON.stringify({ internal_only_uis_enabled: true }))
+  writeFileSync(join(profile, 'Local State'), JSON.stringify({
+    internal_only_uis_enabled: true,
+    // Without this the gemma components read "Not Installed" however many
+    // directories are linked in: their install state is a pref, not a file.
+    ...optimizationGuidePrefs(),
+  }))
   // Everything from here on can throw — a missing peer dependency, a browser
   // that will not start, a page that will not navigate — and every one of
   // those used to leave the profile behind, because only the readiness wait
@@ -232,7 +237,7 @@ async function openBrowser(profile, modelDir, debug) {
   // that looks complete never starts a download. Best effort on each root:
   // the switch alone suffices, and a filesystem that refuses a link should
   // not take the provider down with it.
-  for (const root of modelComponentRoots()) {
+  for (const root of graftableRoots()) {
     try { symlinkSync(root, join(profile, basename(root)), 'junction') } catch { /* the switch covers us */ }
   }
   const { chromium } = await loadPlaywright()

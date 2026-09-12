@@ -11,6 +11,10 @@ import { specNamesFor } from './models.js'
 // gemma4_4b under the second, keyed by a content hash above the version.
 export const MODEL_COMPONENTS = ['OptGuideOnDeviceModel', 'OptGuideManifestModel']
 
+// Grafted into the scratch profile but never searched for weights: this one
+// records which manifest models exist rather than holding any.
+export const GRAFTED_COMPONENTS = [...MODEL_COMPONENTS, 'OptimizationGuideModelsManifest']
+
 // Where Chrome keeps its user data, and so the component tree inside it.
 // Only consulted to FIND already-downloaded weights — which Chrome runs is
 // playwright's business, via the channel below.
@@ -24,6 +28,38 @@ const USER_DATA_DIRS = {
     `${process.env.LOCALAPPDATA}\\Google\\Chrome\\User Data`,
     `${process.env.LOCALAPPDATA}\\Google\\Chrome SxS\\User Data`,
   ],
+}
+
+// The user data dir the weights came from, so state can be seeded from the
+// same profile that owns them.
+export function activeUserDataDir() {
+  for (const dir of USER_DATA_DIRS[process.platform] ?? []) {
+    if (MODEL_COMPONENTS.some((component) => existsSync(join(dir, component)))) return dir
+  }
+  return undefined
+}
+
+// Everything worth linking into a scratch profile, including the manifest
+// component that is not a weights store.
+export function graftableRoots() {
+  const dir = activeUserDataDir()
+  if (!dir) return []
+  return GRAFTED_COMPONENTS.map((component) => join(dir, component)).filter((root) => existsSync(root))
+}
+
+// Chrome records manifest-model installs in PREFS, not only on disk. A
+// scratch profile with the directories symlinked in still reports every gemma
+// component "Not Installed 0%" under Broker State > Assets, because the
+// ledger that says otherwise lives in Local State. Copying just the
+// optimization_guide subtree carries that across without dragging the rest of
+// somebody's browser state along with it.
+export function optimizationGuidePrefs() {
+  const dir = activeUserDataDir()
+  if (!dir) return {}
+  try {
+    const state = JSON.parse(readFileSync(join(dir, 'Local State'), 'utf8'))
+    return state?.optimization_guide ? { optimization_guide: state.optimization_guide } : {}
+  } catch { return {} }
 }
 
 // The component root — one subdirectory per installed version. Wanted whole
