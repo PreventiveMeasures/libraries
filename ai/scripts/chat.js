@@ -9,7 +9,7 @@ import process from 'node:process'
 import { parseArgs, styleText } from 'node:util'
 import {
   DEFAULT_MODEL, KNOWN_MODELS, calculateCost, chat, closeProvider, getMaxTokens,
-  isRecognizedModel, resolveModel, setProvider,
+  isRecognizedModel, resolveModel, resolveThinkEffort, setProvider,
 } from '../index.js'
 
 const USAGE = `Usage: scripts/chat.js [options] <prompt>
@@ -25,11 +25,13 @@ positional argument, or piped in on stdin.
       --think           enable thinking
       --effort <level>  low, medium, high, xhigh, max, manual
       --max-tokens <n>  output cap (default: the model's registry value)
+      --tools           offer the demo tools below and report what gets called
       --debug           per-turn timings, token usage and cost
       --list            print the models the registry knows, then exit
   -h, --help            show this message
 
   scripts/chat.js -m chrome/nano_v3 "What is the capital of France?"
+  scripts/chat.js -m chrome/gemma4_2b --tools "What is 21 plus 21?"
   git diff | scripts/chat.js -s "Review this diff." -m anthropic/claude-opus-5
 `
 
@@ -40,6 +42,37 @@ const PROVIDER_FOR = {
   chrome: 'chrome',
   moonshotai: 'moonshot',
   openai: 'openai',
+}
+
+// Two tools with obviously checkable answers, so "did it really call one" is
+// not a matter of reading the prose and hoping. `add` in particular is
+// verifiable from the result alone.
+const DEMO_TOOLS = [
+  {
+    name: 'add',
+    description: 'Add two numbers and return the sum.',
+    input_schema: {
+      type: 'object',
+      properties: { a: { type: 'number' }, b: { type: 'number' } },
+      required: ['a', 'b'],
+    },
+  },
+  {
+    name: 'get_weather',
+    description: 'Get the current weather for a city.',
+    input_schema: {
+      type: 'object',
+      properties: { city: { type: 'string' } },
+      required: ['city'],
+    },
+  },
+]
+
+function runTool({ name, args, argsError }) {
+  if (argsError) return `error: ${argsError}`
+  if (name === 'add') return String(Number(args.a) + Number(args.b))
+  if (name === 'get_weather') return `18C, clear in ${args.city}`
+  return `error: no such tool ${name}`
 }
 
 const fail = (message) => { process.stderr.write(message); process.exit(2) }
@@ -65,6 +98,7 @@ async function main(argv) {
         provider: { type: 'string', short: 'p' },
         system: { type: 'string', short: 's' },
         think: { type: 'boolean' },
+        tools: { type: 'boolean' },
       },
     })
   } catch (err) { return fail(`chat.js: ${err.message}\n\n${USAGE}`) }
@@ -82,25 +116,46 @@ async function main(argv) {
   const userContent = positionals.join(' ').trim() || readStdin().trim()
   if (!userContent) fail(`chat.js: no prompt given\n\n${USAGE}`)
 
+  // What the layer provides for exactly this: a model that cannot reason
+  // refuses --think here, with one wording shared by every caller. Skipping
+  // it let the request reach buildRequestBody, which throws from inside
+  // issueTurn and escapes chat() as a stack trace rather than a message —
+  // and on a chrome row, which has no thinking mode at all, that is the
+  // normal path rather than an edge case.
+  let think
+  try { think = resolveThinkEffort(model, values.think, values.effort) } catch (err) { return fail(`chat.js: ${err.message}\n`) }
+
   const provider = values.provider ?? PROVIDER_FOR[model.split('/')[0]] ?? 'openrouter'
   try { setProvider(provider) } catch (err) { return fail(`chat.js: ${err.message}\n`) }
 
-  await run({ model, provider, userContent, values })
+  await run({ model, provider, userContent, values, think })
 }
 
-async function run({ model, provider, userContent, values }) {
+async function run({ model, provider, userContent, values, think }) {
   const started = Date.now()
   try {
+    const calls = []
+    const tools = values.tools ? DEMO_TOOLS : undefined
     const { text, error, usage } = await chat({
       model,
       maxTokens: values['max-tokens'] ? Number(values['max-tokens']) : getMaxTokens(model),
       systemPrompt: values.system ?? 'You are a helpful assistant.',
       userContent,
-      think: Boolean(values.think),
-      effort: values.effort,
+      tools,
+      // chat() requires the pair, so the handler is only wired up alongside.
+      handleToolCall: tools
+        ? (call) => { const result = runTool(call); calls.push({ ...call, result }); return result }
+        : undefined,
+      // The resolved pair, not the raw flags: the cache key and the request
+      // then agree on what was actually asked for.
+      think: think.useThink,
+      effort: think.useEffort,
       debug: Boolean(values.debug),
       label: 'chat.js',
     })
+    // Before the answer, because whether a tool ran at all is the question
+    // --tools exists to settle, and an empty list is a real result.
+    if (values.tools) reportTools(calls)
     if (error) fail(`chat.js: ${error}\n`)
     process.stdout.write(text.endsWith('\n') ? text : text + '\n')
     if (values.debug) report({ model, provider, usage, elapsed: Date.now() - started })
@@ -108,6 +163,17 @@ async function run({ model, provider, userContent, values }) {
     // Always. The chrome provider holds a browser open, and without this the
     // process never exits — which is the whole reason closeProvider exists.
     await closeProvider()
+  }
+}
+
+function reportTools(calls) {
+  if (calls.length === 0) {
+    process.stderr.write(styleText('dim', 'no tool was called') + '\n')
+    return
+  }
+  for (const { name, args, argsError, result } of calls) {
+    const asked = argsError ?? JSON.stringify(args)
+    process.stderr.write(styleText('dim', `tool ${name}(${asked}) -> ${result}`) + '\n')
   }
 }
 
