@@ -208,6 +208,11 @@ async function launch(baseModel, debug) {
   installExitCleanup()
   const profile = mkdtempSync(join(tmpdir(), PROFILE_PREFIX))
   profiles.add(profile)
+  // chrome://on-device-internals is behind a master toggle, backed by this
+  // one pref. Seeding it costs nothing and is the only way to ask the browser
+  // which model it actually loaded — which is not the same question as which
+  // directory we pointed it at.
+  writeFileSync(join(profile, 'Local State'), JSON.stringify({ internal_only_uis_enabled: true }))
   // Everything from here on can throw — a missing peer dependency, a browser
   // that will not start, a page that will not navigate — and every one of
   // those used to leave the profile behind, because only the readiness wait
@@ -284,12 +289,46 @@ async function openBrowser(profile, modelDir, debug) {
   // it — two windows, one of them abandoned.
   try {
     await waitUntilReady(tab, debug)
+    if (debug) await reportLoadedModel(browser)
   } catch (err) {
     await browser.close().catch(() => {})
     throw err
   }
   return { browser, tab, profile }
 }
+
+// What Chrome actually loaded, as opposed to what we asked for. Those are
+// different questions: the override names a directory, and whether it steers
+// the BASE model is unproven — the only consumer of that switch findable in
+// Chromium steers adaptation models. Reported rather than enforced, because a
+// scraper written against a page I cannot run here is not something to fail
+// requests on. On its own page so the turn's tab is left alone.
+/* eslint-disable no-undef */
+async function reportLoadedModel(browser) {
+  let page
+  try {
+    page = await browser.newPage()
+    await page.goto('chrome://on-device-internals')
+    await page.waitForTimeout(3000)
+    const text = await page.evaluate(() => {
+      const out = []
+      const walk = (root) => {
+        const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+        while (w.nextNode()) { const t = w.currentNode.nodeValue.trim(); if (t && t.length < 120) out.push(t) }
+        for (const el of root.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot)
+      }
+      walk(document)
+      return out
+    })
+    const interesting = text.filter((t) => /nano|gemma|v3|E4B|2b|Model Name|Backend|performance class|weights/iu.test(t))
+    console.debug(`[chrome] on-device-internals: ${interesting.slice(0, 12).join(' | ') || '(nothing matched)'}`)
+  } catch (err) {
+    console.debug(`[chrome] could not read on-device-internals: ${err.message}`)
+  } finally {
+    await page?.close().catch(() => {})
+  }
+}
+/* eslint-enable no-undef */
 
 // How long a cold profile gets to become ready. Registration is not
 // instant — the component updater has to run before Chrome will admit to
