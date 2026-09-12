@@ -208,7 +208,7 @@ async function launch(baseModel, debug) {
   installExitCleanup()
   const profile = mkdtempSync(join(tmpdir(), PROFILE_PREFIX))
   profiles.add(profile)
-  writeFileSync(join(profile, 'Local State'), JSON.stringify(localStateFor(baseModel)))
+  writeFileSync(join(profile, 'Local State'), JSON.stringify(localStateFor(baseModel, modelDir)))
   // Everything from here on can throw — a missing peer dependency, a browser
   // that will not start, a page that will not navigate — and every one of
   // those used to leave the profile behind, because only the readiness wait

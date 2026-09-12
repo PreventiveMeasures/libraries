@@ -4,7 +4,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { chromePreflight, findModelDir, isScratchProfile, launchArgs, localStateFor, removeProfileDir, turnInPage, waitUntilReady } from '../src/chrome.js'
-import { graftPlanIn, identifiesAs } from '../src/chrome-model.js'
+import { graftPlanIn, identifiesAs, portableGuide } from '../src/chrome-model.js'
 import { CHROME_SHAPE, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome-wire.js'
 import { baseModelFor, calculateCost, getMaxTokens, modelVersionFor, specNamesFor } from '../src/models.js'
 import { setProvider } from '../src/providers.js'
@@ -164,6 +164,62 @@ describe('chrome missing model', () => {
   })
 })
 
+describe('chrome inherited prefs', () => {
+  // The subtree's shape for a profile holding all four models, with stand-in
+  // hashes and versions. The ledger keys are the content hash a manifest
+  // model sits under, and requested_version is its version directory.
+  const LEDGER = {
+    'hash4b': { asset_id: 'gemma4_4b_component', requested_version: '2026.1.2.1000' },
+    'hash12b': { asset_id: 'gemma4_12b_component', requested_version: '2026.1.3.1000' },
+    'hashnano': { asset_id: 'nano_v3_gpu_component', requested_version: '2025.1.1.1000' },
+    'hash2b': { asset_id: 'gemma4_component', requested_version: '2026.1.1.1000' },
+  }
+  const GUIDE = {
+    on_device: { performance_class: 5, last_version: '<chrome-version>' },
+    model_store_metadata: { 2: {} },
+    model_execution: { last_usage_by_feature: { prompt_api: '1343' }, manifest_asset_ledger: LEDGER },
+  }
+  const assets = (guide) => Object.values(guide.optimization_guide.model_execution.manifest_asset_ledger)
+    .map((e) => e.asset_id).sort()
+
+  it('keeps only the entry for the model being launched', () => {
+    // Every entry is a standing REQUEST, not a record of an install. Four of
+    // them against a profile that links one model is three fetches: a nano
+    // launch pulling gemma4, a gemma4 launch pulling nano_v3.
+    assert.deepEqual(assets(portableGuide(GUIDE, '/udd/OptGuideManifestModel/hash2b/2026.1.1.1000')), ['gemma4_component'])
+    // Nano's store has no hash in the path, so the version directory is what
+    // names its entry.
+    assert.deepEqual(assets(portableGuide(GUIDE, '/udd/OptGuideOnDeviceModel/2025.1.1.1000')), ['nano_v3_gpu_component'])
+    assert.deepEqual(assets(portableGuide(GUIDE, '/udd/OptGuideManifestModel/hash4b/2026.1.2.1000')), ['gemma4_4b_component'])
+  })
+
+  it('leaves the rest of the subtree alone', () => {
+    // Emptying the ledger was tried and broke every model: the entry for the
+    // model we DO link is what makes the browser load it. Only the other
+    // entries go, and nothing outside the ledger is touched.
+    const kept = portableGuide(GUIDE, '/udd/OptGuideOnDeviceModel/2025.1.1.1000').optimization_guide
+    assert.deepEqual(kept.on_device, GUIDE.on_device)
+    assert.deepEqual(kept.model_store_metadata, GUIDE.model_store_metadata)
+    assert.deepEqual(kept.model_execution.last_usage_by_feature, GUIDE.model_execution.last_usage_by_feature)
+  })
+
+  it('leaves the ledger whole when it cannot find our entry', () => {
+    // An unrecognised layout, or a CHROME_MODEL_DIR from elsewhere, should
+    // cost the old nuisance rather than the empty ledger that stops
+    // everything loading.
+    assert.equal(assets(portableGuide(GUIDE, '/tmp/borrowed/weights')).length, 4)
+    assert.equal(assets(portableGuide(GUIDE, undefined)).length, 4)
+  })
+
+  it('does not invent a subtree that was not there', () => {
+    // localStateFor spreads this, so {} has to mean "add no key".
+    assert.deepEqual(portableGuide(undefined, '/udd/x'), {})
+    // And a profile with no ledger at all passes through untouched.
+    assert.deepEqual(portableGuide({ on_device: { performance_class: 5 } }, '/udd/x'),
+      { optimization_guide: { on_device: { performance_class: 5 } } })
+  })
+})
+
 describe('chrome launch switches', () => {
   const args = launchArgs('/models/nano')
 
@@ -239,7 +295,7 @@ describe('chrome model identification', () => {
     // in the top-level name.
     //
     //   { "name": "Optimization Guide On-Device Gemma4 12B Model",
-    //     "version": "2026.1.3.1000" }
+    //     "version": "<version>" }
     //
     // Lowercased with spaces made underscores that is
     // optimization_guide_on-device_gemma4_12b_model, which is the row's own id

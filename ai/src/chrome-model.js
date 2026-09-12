@@ -79,13 +79,62 @@ export function graftPlanIn(userDataDir, modelDir) {
 // ledger that says otherwise lives in Local State. Copying just the
 // optimization_guide subtree carries that across without dragging the rest of
 // somebody's browser state along with it.
-export function optimizationGuidePrefs() {
+//
+// One entry in it needs narrowing, though. The ledger is a REQUEST list, not
+// an install record — every entry says `requested_version`:
+//
+//   "manifest_asset_ledger": {
+//     "<hash>": { "asset_id": "nano_v3_gpu_component",  "requested_version": "<version>" },
+//     "<hash>": { "asset_id": "gemma4_component",       "requested_version": "<version>" },
+//     "<hash>": { "asset_id": "gemma4_4b_component",    "requested_version": "<version>" },
+//     "<hash>": { "asset_id": "gemma4_12b_component",   "requested_version": "<version>" }
+//   }
+//
+// Copied whole into a profile that links one model, that is four standing
+// requests against one present file, and Chrome honours the other three: a
+// nano launch fetching gemma4, a gemma4 launch fetching nano_v3.
+//
+// Dropping the ledger outright is not the fix — that was tried and broke
+// every model, because the entry for the model we DO link is what makes the
+// browser go and load it. Keep that one, drop the rest.
+export function optimizationGuidePrefs(modelDir) {
   const dir = activeUserDataDir()
   if (!dir) return {}
   try {
-    const state = JSON.parse(readFileSync(join(dir, 'Local State'), 'utf8'))
-    return state?.optimization_guide ? { optimization_guide: state.optimization_guide } : {}
+    return portableGuide(JSON.parse(readFileSync(join(dir, 'Local State'), 'utf8'))?.optimization_guide, modelDir)
   } catch { return {} }
+}
+
+// The keys of the ledger are the content hash a manifest model sits under,
+// and `requested_version` is its version directory — so the linked model's
+// own path names its entry, under either layout:
+//
+//   OptGuideManifestModel/<hash>/<version>   both halves match
+//   OptGuideOnDeviceModel/<version>          the version matches
+//
+// If no entry matches, the ledger is left alone. An unrecognised layout, or a
+// CHROME_MODEL_DIR from somewhere else, should cost the old nuisance rather
+// than the empty ledger that stops everything loading.
+function prunedLedger(ledger, modelDir) {
+  if (!ledger || !modelDir) return ledger
+  const parts = new Set(modelDir.split(/[/\\]/u))
+  const mine = Object.entries(ledger).filter(([hash, entry]) => parts.has(hash) || parts.has(entry?.requested_version))
+  return mine.length > 0 ? Object.fromEntries(mine) : ledger
+}
+
+// Separated from reading the file so what survives can be stated against a
+// subtree written by hand rather than against whichever Chrome the machine
+// running the tests happens to have.
+export function portableGuide(guide, modelDir) {
+  if (!guide) return {}
+  const ledger = guide.model_execution?.manifest_asset_ledger
+  if (!ledger) return { optimization_guide: guide }
+  return {
+    optimization_guide: {
+      ...guide,
+      model_execution: { ...guide.model_execution, manifest_asset_ledger: prunedLedger(ledger, modelDir) },
+    },
+  }
 }
 
 // The component root — one subdirectory per installed version. Wanted whole
@@ -161,7 +210,7 @@ function normalizeSpec(name) {
 // its identity in the top-level name instead:
 //
 //   { "name": "Optimization Guide On-Device Gemma4 12B Model",
-//     "version": "2026.1.3.1000" }
+//     "version": "<version>" }
 //
 // So the spec wins where it exists and the name stands in where it does not.
 // The generic name is distinct enough from the 12B one after normalising
@@ -299,7 +348,7 @@ function labExperimentsFor(baseModel) {
 // depth, is not an error Chrome reports — it is a flag that quietly never
 // applies. `enabled_labs_experiments` in particular has to sit under
 // `browser`, and a test can say so.
-export function localStateFor(baseModel) {
+export function localStateFor(baseModel, modelDir) {
   return {
     // chrome://on-device-internals is behind a master toggle, backed by this
     // one pref. Seeding it costs nothing and is the only way to ask the
@@ -308,7 +357,9 @@ export function localStateFor(baseModel) {
     internal_only_uis_enabled: true,
     // Without this the gemma components read "Not Installed" however many
     // directories are linked in: their install state is a pref, not a file.
-    ...optimizationGuidePrefs(),
+    // Narrowed to the model being launched — see above for what the other
+    // entries cost.
+    ...optimizationGuidePrefs(modelDir),
     browser: { enabled_labs_experiments: labExperimentsFor(baseModel) },
   }
 }
