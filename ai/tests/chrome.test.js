@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
-import { chromePreflight, findModelDir, isScratchProfile, removeProfileDir, turnInPage, waitUntilReady } from '../src/chrome.js'
+import { chromePreflight, findModelDir, isScratchProfile, localStateFor, removeProfileDir, turnInPage, waitUntilReady } from '../src/chrome.js'
 import { identifiesAs } from '../src/chrome-model.js'
 import { CHROME_SHAPE, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome-wire.js'
 import { baseModelFor, calculateCost, getMaxTokens, modelVersionFor, specNamesFor } from '../src/models.js'
@@ -58,6 +58,27 @@ describe('chrome foundational model version', () => {
     assert.equal(modelVersionFor(baseModelFor('chrome/nano_v3')), 'v3')
     assert.equal(modelVersionFor(baseModelFor('chrome/gemma4_2b')), 'v4')
     assert.equal(modelVersionFor(baseModelFor('chrome/gemma4_4b')), 'v4')
+  })
+
+  it('asks for Gemma 4 through the flag, and only on the gemma rows', () => {
+    // The pref Chrome reads is browser.enabled_labs_experiments, and the one
+    // thing it will not do is complain: at the top level, or misspelled, the
+    // flag is simply never applied and every row quietly answers as nano.
+    // Verified against the browser rather than assumed — the flag offers only
+    // Default and Enabled, so @1 is Enabled, and chrome://version shows it
+    // reaching the command line as AIApiFoundationalModel:model_version/v4.
+    const gemma = localStateFor(baseModelFor('chrome/gemma4_2b'))
+    assert.deepEqual(gemma.browser.enabled_labs_experiments, ['gemma4-for-built-in-ai@1'])
+    assert.deepEqual(
+      localStateFor(baseModelFor('chrome/gemma4_4b')).browser.enabled_labs_experiments,
+      ['gemma4-for-built-in-ai@1'],
+    )
+    // v3 is what Chrome does with no flag at all, so asking for it is not a
+    // different flag — it is the absence of one.
+    assert.deepEqual(localStateFor(baseModelFor('chrome/nano_v3')).browser.enabled_labs_experiments, [])
+    // And the toggle that makes chrome://on-device-internals readable, which
+    // is how the loaded model gets reported back under --debug.
+    assert.equal(gemma.internal_only_uis_enabled, true)
   })
 
   it('cannot tell the two gemma sizes apart, and says so', () => {

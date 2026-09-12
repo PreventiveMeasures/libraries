@@ -80,19 +80,45 @@ const ENABLED_FEATURES = [
 
 // Switching Chrome to Gemma 4 is a chrome://flags choice, not a command-line
 // feature list — so it is set the way the flags page sets it, by writing the
-// choice into Local State. Chrome then expands it itself, which matters
-// because the expansion is version-dependent: on 153 the flag turns on
-// AIApiFoundationalModel:model_version/v4, OptimizationGuideManifestBroker
-// AND OnDeviceModelLitertLmBackend, while on 155 it leaves the last one out.
-// Hand-rolling --enable-features would have pinned one browser's answer onto
-// every other.
+// choice into Local State and letting Chrome expand it. The expansion is
+// version-dependent, which is the whole reason not to hand-roll it: read back
+// off chrome://version, the same flag gives
 //
-// "@1" is the first non-default option, which for this flag is Enabled.
+//   153 stable  AIApiFoundationalModel:model_version/v4,
+//               OnDeviceModelLitertLmBackend, OptimizationGuideManifestBroker
+//   155 dev     AIApiFoundationalModel:model_version/v4,
+//               OptimizationGuideManifestBroker
+//
+// because by 155 LiteRT-LM is the default runtime and has no flag left to
+// turn on. Writing 153's list literally would have force-enabled, on 155, a
+// feature that no longer exists there.
+//
+// "@1" is the first non-default option; this flag offers only Default and
+// Enabled, so that is Enabled.
 const GEMMA4_FLAG = 'gemma4-for-built-in-ai@1'
 
 // v3 is Gemini Nano and needs nothing: it is what Chrome does anyway.
 function labExperimentsFor(baseModel) {
   return modelVersionFor(baseModel) === 'v4' ? [GEMMA4_FLAG] : []
+}
+
+// The prefs a scratch profile starts with. Split out because none of it
+// announces a mistake: an unknown key, or a known one at the wrong nesting
+// depth, is not an error Chrome reports — it is a flag that quietly never
+// applies. `enabled_labs_experiments` in particular has to sit under
+// `browser`, and a test can say so.
+export function localStateFor(baseModel) {
+  return {
+    // chrome://on-device-internals is behind a master toggle, backed by this
+    // one pref. Seeding it costs nothing and is the only way to ask the
+    // browser which model it actually loaded — which is not the same question
+    // as which directory we pointed it at.
+    internal_only_uis_enabled: true,
+    // Without this the gemma components read "Not Installed" however many
+    // directories are linked in: their install state is a pref, not a file.
+    ...optimizationGuidePrefs(),
+    browser: { enabled_labs_experiments: labExperimentsFor(baseModel) },
+  }
 }
 
 // Playwright's two software-GL defaults. Both have to go for Chrome to reach
@@ -225,17 +251,7 @@ async function launch(baseModel, debug) {
   installExitCleanup()
   const profile = mkdtempSync(join(tmpdir(), PROFILE_PREFIX))
   profiles.add(profile)
-  // chrome://on-device-internals is behind a master toggle, backed by this
-  // one pref. Seeding it costs nothing and is the only way to ask the browser
-  // which model it actually loaded — which is not the same question as which
-  // directory we pointed it at.
-  writeFileSync(join(profile, 'Local State'), JSON.stringify({
-    internal_only_uis_enabled: true,
-    // Without this the gemma components read "Not Installed" however many
-    // directories are linked in: their install state is a pref, not a file.
-    ...optimizationGuidePrefs(),
-    browser: { enabled_labs_experiments: labExperimentsFor(baseModel) },
-  }))
+  writeFileSync(join(profile, 'Local State'), JSON.stringify(localStateFor(baseModel)))
   // Everything from here on can throw — a missing peer dependency, a browser
   // that will not start, a page that will not navigate — and every one of
   // those used to leave the profile behind, because only the readiness wait
