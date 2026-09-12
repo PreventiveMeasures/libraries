@@ -280,7 +280,7 @@ async function openBrowser(profile, modelDir, debug) {
   // Page-side failures are otherwise silent: evaluate returns the value and
   // says nothing about what the model logged on the way.
   if (debug) {
-    tab.on('console', (msg) => console.debug(`[chrome] ${msg.text()}`))
+    tab.on('console', (msg) => { if (!isBoilerplate(msg.text())) console.debug(`[chrome] ${msg.text()}`) })
     tab.on('pageerror', (err) => console.error(`[chrome] ${err}`))
   }
   await tab.goto(blankPage(profile))
@@ -435,6 +435,19 @@ export async function closeChrome() {
   await Promise.all(open.map(shut))
 }
 
+// Chrome greets every page that touches the Prompt API with a banner about
+// submitting feedback. It says nothing about this run and is printed once per
+// launch, so it only makes --debug harder to read. Filtered by content rather
+// than by suppressing console output wholesale — a real message from the page
+// is exactly what --debug is for.
+//
+// The missing-output-language warning is deliberately NOT filtered: it should
+// no longer appear now that a language is sent, and if it does, that is worth
+// seeing rather than hiding.
+const BOILERPLATE = /uses Chrome's Built-In AI features/u
+
+const isBoilerplate = (text) => BOILERPLATE.test(text)
+
 // Runs inside the page. Serialized across, so it closes over nothing and
 // takes everything as one argument.
 //
@@ -457,7 +470,13 @@ export async function turnInPage(req) {
   const createStarted = performance.now()
   let createdAt = 0
   try {
-    ses = await LanguageModel.create({ initialPrompts: req.initialPrompts })
+    ses = await LanguageModel.create({
+      initialPrompts: req.initialPrompts,
+      // Chrome warns on every request without this: "An output language
+      // should be specified to ensure optimal output quality and properly
+      // attest to output safety." It accepts de, en, es, fr, ja.
+      expectedOutputs: [{ type: 'text', languages: [req.language] }],
+    })
     createdAt = performance.now() - createStarted
   } catch (err) {
     return { error: { message: `create failed: ${err.name}: ${err.message}` } }

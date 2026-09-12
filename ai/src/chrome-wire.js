@@ -118,6 +118,10 @@ export const CHROME_SHAPE = {
     // max_tokens — so `maxTokens` is deliberately unused.
     return {
       model,
+      // Part of the request rather than a launch setting: it changes what the
+      // model produces, so a cached turn should record which language it was
+      // asked for.
+      language: process.env.CHROME_OUTPUT_LANGUAGE || 'en',
       initialPrompts: [{ role: 'system', content: system }, ...messages.slice(0, -1)],
       prompt: messages.at(-1).content,
       ...(tools ? { responseConstraint: toolConstraint(tools) } : null),
