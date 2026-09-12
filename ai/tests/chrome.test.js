@@ -76,7 +76,8 @@ describe('chrome request body', () => {
 
   it('constrains the answer and describes the tools when there are', () => {
     const body = build([{ role: 'user', content: 'hi' }], { tools: TOOLS })
-    assert.deepEqual(body.responseConstraint.properties.tool_calls.items.properties.name.enum, ['read_file', 'list_dir'])
+    const branches = body.responseConstraint.properties.tool_calls.items.anyOf
+    assert.deepEqual(branches.map((b) => b.properties.name.enum[0]), ['read_file', 'list_dir'])
     // The constraint says what shape to answer in; only the prompt can say
     // what the tools actually do.
     assert.match(body.initialPrompts[0].content, /be terse/u)
@@ -196,8 +197,24 @@ describe('chrome tool-result threading', () => {
 describe('chrome tool schema helpers', () => {
   it('holds the model to the tools that exist', () => {
     const schema = toolConstraint(TOOLS)
-    assert.deepEqual(schema.properties.tool_calls.items.required, ['name', 'arguments'])
-    assert.deepEqual(schema.properties.tool_calls.items.properties.name.enum, ['read_file', 'list_dir'])
+    const branches = schema.properties.tool_calls.items.anyOf
+    assert.deepEqual(branches.map((b) => b.properties.name.enum[0]), ['read_file', 'list_dir'])
+    for (const branch of branches) assert.deepEqual(branch.required, ['name', 'arguments'])
+  })
+
+  it('binds each tool to its OWN argument schema', () => {
+    // One shared `arguments: { type: 'object' }` accepted anything, and
+    // chat() hands calls to the caller's handler without revalidating — so a
+    // call missing a required field reached a real tool.
+    const [readFile, listDir] = toolConstraint(TOOLS).properties.tool_calls.items.anyOf
+    assert.deepEqual(readFile.properties.arguments, TOOLS[0].input_schema)
+    assert.deepEqual(listDir.properties.arguments, TOOLS[1].input_schema)
+  })
+
+  it('cannot be satisfied by an empty object', () => {
+    // `{}` used to validate, and became a successful turn with no text and no
+    // tool calls — a silent dead end rather than an answer.
+    assert.deepEqual(toolConstraint(TOOLS).required, ['text', 'tool_calls'])
   })
 
   it('describes every tool it allows', () => {
@@ -299,7 +316,7 @@ describe('chrome page round-trip', async () => {
   })
 
   it('passes the constraint through and shapes tool calls out of the answer', { skip }, async () => {
-    await page.evaluate(STUB('JSON.stringify({ tool_calls: [{ name: options.responseConstraint.properties.tool_calls.items.properties.name.enum[0], arguments: {} }] })'))
+    await page.evaluate(STUB('JSON.stringify({ text: "", tool_calls: [{ name: options.responseConstraint.properties.tool_calls.items.anyOf[0].properties.name.enum[0], arguments: {} }] })'))
     const body = CHROME_SHAPE.buildRequestBody('chrome/gemma4', 4096, 'sys', [{ role: 'user', content: 'go' }], { tools: TOOLS })
     const json = toChatCompletions(await page.evaluate(turnInPage, body), true)
     assert.deepEqual(CHROME_SHAPE.extractToolCalls(json), [{ id: 'call_0', name: 'read_file', args: {} }])

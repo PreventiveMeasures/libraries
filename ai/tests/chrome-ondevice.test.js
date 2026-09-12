@@ -34,7 +34,7 @@ describe('chrome on-device, against the real model', async () => {
 
   it('answers a prompt', { skip, timeout: TIMEOUT }, async () => {
     const { text, error, usage } = await chat({
-      model: 'chrome/gemma4',
+      model: 'chrome/nano_v3',
       maxTokens: 4096,
       systemPrompt: 'You are terse. Answer in one word.',
       userContent: 'What is the capital of France?',
@@ -45,7 +45,7 @@ describe('chrome on-device, against the real model', async () => {
     // Chrome's own tokenizer, read off contextUsage — there is no output
     // count to report, so that half is a delta rather than a measurement.
     assert.ok(usage.input > 0, 'expected the context to have been measured')
-    assert.equal(calculateCost('chrome/gemma4', usage), 0, 'on-device compute is not billed')
+    assert.equal(calculateCost('chrome/nano_v3', usage), 0, 'on-device compute is not billed')
   })
 
   it('serves a turn without the network', { skip, timeout: TIMEOUT }, async () => {
@@ -53,7 +53,7 @@ describe('chrome on-device, against the real model', async () => {
     // nothing leaves the machine to use them. A turn that needed the network
     // would hang or fail rather than answer.
     const { text, error } = await chat({
-      model: 'chrome/gemma4',
+      model: 'chrome/nano_v3',
       maxTokens: 4096,
       systemPrompt: 'Reply with exactly: ok',
       userContent: 'Go.',
@@ -69,8 +69,8 @@ describe('chrome on-device, against the real model', async () => {
       input_schema: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] },
     }]
     const seen = []
-    const { error } = await chat({
-      model: 'chrome/gemma4',
+    const { text, error } = await chat({
+      model: 'chrome/nano_v3',
       maxTokens: 4096,
       systemPrompt: 'Use the tools you are given.',
       userContent: 'What is the weather in Paris? Use the tool.',
@@ -79,14 +79,19 @@ describe('chrome on-device, against the real model', async () => {
       maxToolTurns: 3,
     })
     assert.equal(error, undefined, `chat() reported: ${error}`)
-    // A small model may reasonably decline to call anything, so the count is
-    // not asserted. What must hold is that whatever it DID emit was
-    // well-formed and named a real tool: the constraint is enforced by the
-    // decoder, so malformed output here is a bug rather than a bad roll.
+    // The turn has to have gone somewhere. Permitting zero calls AND saying
+    // nothing about the text made every assertion below vacuous — a provider
+    // that silently produced an empty answer passed. A small model may
+    // reasonably decline to call a tool, but it may not do neither.
+    assert.ok(seen.length > 0 || text?.trim(), 'expected either a tool call or an answer, got neither')
+    // Whatever it did emit must be well formed and name a real tool: the
+    // constraint is decoder-enforced, so a violation here is a bug in the
+    // schema rather than a bad roll.
     for (const call of seen) {
       assert.equal(call.argsError, undefined, `malformed args: ${call.argsError}`)
       assert.equal(call.name, 'get_weather')
       assert.equal(typeof call.args, 'object')
+      assert.equal(typeof call.args.city, 'string', 'the per-tool schema requires a city')
     }
   })
 })

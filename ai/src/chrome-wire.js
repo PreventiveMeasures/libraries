@@ -23,16 +23,29 @@ export function toolConstraint(tools) {
       text: { type: 'string', description: 'A reply to the user, when no tool is needed.' },
       tool_calls: {
         type: 'array',
+        // One branch per tool, each binding a name to THAT tool's argument
+        // schema. A single shared `arguments: { type: 'object' }` accepted
+        // anything: chat() hands tool calls straight to the caller's handler
+        // without revalidating, so missing or mistyped fields reached real
+        // tools. Every other adapter sends the schema with the tool; this is
+        // how the constraint carries the same guarantee.
         items: {
-          type: 'object',
-          properties: {
-            name: { type: 'string', enum: tools.map((tool) => tool.name) },
-            arguments: { type: 'object', description: 'Arguments matching that tool\'s input schema.' },
-          },
-          required: ['name', 'arguments'],
+          anyOf: tools.map((tool) => ({
+            type: 'object',
+            properties: {
+              name: { type: 'string', enum: [tool.name] },
+              arguments: tool.input_schema ?? { type: 'object' },
+            },
+            required: ['name', 'arguments'],
+          })),
         },
       },
     },
+    // Both, always. With neither required, `{}` satisfied the constraint and
+    // became a successful turn carrying no text and no calls — a silent
+    // dead end rather than an answer. The prompt already asks for an empty
+    // string or an empty array on the branch not taken.
+    required: ['text', 'tool_calls'],
   }
 }
 

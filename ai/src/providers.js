@@ -420,6 +420,11 @@ export function setProvider(name) {
 // crash, the same way a connection pool reopens.
 export async function closeProvider() {
   await provider?.close?.()
+  // Not only the provider selected right now. A caller that ran chrome, then
+  // switched to a hosted provider with setProvider(), still has a browser
+  // holding the event loop open, and calling the documented cleanup would
+  // have missed it entirely.
+  await closeChrome()
 }
 
 // Identifies the wire format a history entry was written under, for

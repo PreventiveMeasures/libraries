@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { baseModelFor } from './models.js'
 import { toChatCompletions } from './chrome-wire.js'
@@ -74,7 +74,10 @@ const ENABLED_FEATURES = [
 // a real GPU; see the launch below for why that is not optional.
 const SOFTWARE_GL = ['--enable-unsafe-swiftshader', '--use-angle=swiftshader-webgl']
 
-const MODEL_COMPONENT = 'OptGuideOnDeviceModel'
+// Two stores, different shapes: nano_v3 lives under the first, gemma4 and
+// gemma4_4b under the second, keyed by a content hash above the version.
+const MODEL_COMPONENTS = ['OptGuideOnDeviceModel', 'OptGuideManifestModel']
+const MODEL_COMPONENT = MODEL_COMPONENTS[0]
 
 // Where Chrome keeps its user data, and so the component tree inside it.
 // Only consulted to FIND already-downloaded weights — which Chrome runs is
@@ -94,38 +97,79 @@ const USER_DATA_DIRS = {
 // The component root — one subdirectory per installed version. Wanted whole
 // rather than just the version: the root is what gets grafted into the
 // scratch profile, a version inside it is what gets named on the command line.
-function modelComponentRoot() {
-  for (const dir of USER_DATA_DIRS[process.platform] ?? []) {
-    const root = join(dir, MODEL_COMPONENT)
-    if (existsSync(root)) return root
+// Numeric, not lexicographic. Component versions are dotted numbers, and a
+// string sort puts 2025.8.8 after 2025.8.11 — so "newest" quietly selected an
+// OLDER build whenever a minor number crossed ten.
+function compareVersions(a, b) {
+  const pa = a.split('.').map(Number)
+  const pb = b.split('.').map(Number)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0)
+    if (d !== 0) return d
   }
-  return undefined
+  return 0
 }
 
-// Weights for a base model spec, or for whatever is installed when none is
-// named. Chrome leaves a superseded version's directory behind, and an
-// interrupted install leaves one that never had a weights.bin at all, so the
-// file is the test rather than the directory, and the newest survivor wins.
-//
-// Matching a spec is best-effort: which base model a component holds is not
-// something Chrome documents a file for, so the version's manifest is scanned
-// for the name and a miss falls back to the newest weights present. Being
-// wrong here costs an unexpected model rather than a download — the id is a
-// cache key and a directory hint, never a guarantee (see models.js).
-export function findModelDir(baseModel) {
-  if (process.env.CHROME_MODEL_DIR) return process.env.CHROME_MODEL_DIR
-  const root = modelComponentRoot()
-  if (!root) return undefined
-  const versions = readdirSync(root).filter((v) => existsSync(join(root, v, 'weights.bin'))).sort()
-  if (versions.length === 0) return undefined
-  const named = baseModel && versions.findLast((v) => manifestNames(join(root, v), baseModel))
-  return join(root, named || versions.at(-1))
+// Every component root that exists, not the first. A stale or empty stable
+// root used to hide a Canary install that actually had the weights.
+function modelComponentRoots() {
+  const roots = []
+  for (const dir of USER_DATA_DIRS[process.platform] ?? []) {
+    for (const component of MODEL_COMPONENTS) {
+      const root = join(dir, component)
+      if (existsSync(root)) roots.push(root)
+    }
+  }
+  return roots
 }
 
+// Directories holding weights, across both component layouts:
+// OptGuideOnDeviceModel/<version>/ is flat, while OptGuideManifestModel nests
+// a content hash above the version. A superseded version's directory is left
+// behind and an interrupted install leaves one with no weights at all, so the
+// file is the test rather than the directory.
+function candidateModelDirs(root, depth = 2) {
+  const found = []
+  let entries = []
+  try { entries = readdirSync(root, { withFileTypes: true }) } catch { return found }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const dir = join(root, entry.name)
+    if (existsSync(join(dir, 'weights.bin'))) found.push({ dir, version: entry.name })
+    else if (depth > 1) found.push(...candidateModelDirs(dir, depth - 1))
+  }
+  return found
+}
+
+// Which base model a directory holds, read off the component manifest, which
+// carries the BaseModelSpec name. Absent or unreadable means unknown, not no.
 function manifestNames(dir, baseModel) {
   const manifest = join(dir, 'manifest.json')
   if (!existsSync(manifest)) return false
   try { return readFileSync(manifest, 'utf8').includes(baseModel) } catch { return false }
+}
+
+// Weights for a base model spec, or the newest installed when none is named.
+//
+// A named spec that cannot be identified is an error rather than a fallback.
+// Falling back looked harmless and was not: the turn would be labelled and
+// CACHED as chrome/gemma4 while nano_v3 actually answered it — a wrong answer
+// filed under a name that gets trusted later.
+export function findModelDir(baseModel) {
+  const override = process.env.CHROME_MODEL_DIR
+  if (override) {
+    // Checked here so a typo fails at setProvider rather than after a
+    // two-minute wait for a model that was never going to load.
+    assert.ok(existsSync(join(override, 'weights.bin')), `CHROME_MODEL_DIR has no weights.bin: ${override}`)
+    return override
+  }
+  const all = modelComponentRoots().flatMap((root) => candidateModelDirs(root))
+  if (all.length === 0) return undefined
+  all.sort((a, b) => compareVersions(a.version, b.version))
+  if (!baseModel) return all.at(-1).dir
+  const matches = all.filter(({ dir }) => manifestNames(dir, baseModel))
+  if (matches.length > 0) return matches.at(-1).dir
+  throw new Error(`No installed on-device model identifies as "${baseModel}". Chrome has: ${all.map((m) => m.dir).join(', ')}. Set CHROME_MODEL_DIR to name one explicitly.`)
 }
 
 // Which Chrome, in playwright's terms. A path wins when one is given;
@@ -234,14 +278,27 @@ async function launch(baseModel, debug) {
   installExitCleanup()
   const profile = mkdtempSync(join(tmpdir(), PROFILE_PREFIX))
   profiles.add(profile)
-  const root = modelComponentRoot()
+  // Everything from here on can throw — a missing peer dependency, a browser
+  // that will not start, a page that will not navigate — and every one of
+  // those used to leave the profile behind, because only the readiness wait
+  // was wrapped. The sweep deliberately skips young directories, so those
+  // strays survived until they aged out.
+  try {
+    return await openBrowser(profile, modelDir, debug)
+  } catch (err) {
+    dropProfile(profile)
+    throw err
+  }
+}
+
+async function openBrowser(profile, modelDir, debug) {
   // The override switch below is what Chrome reads to load the model, but the
-  // component installer is what decides whether anything is MISSING, and a
-  // profile that looks complete never starts a download. Best effort: the
-  // switch alone is enough on its own, and a filesystem that refuses the link
-  // should not take the provider down with it.
-  if (root) {
-    try { symlinkSync(root, join(profile, MODEL_COMPONENT), 'junction') } catch { /* the switch covers us */ }
+  // component installer decides whether anything is MISSING, and a profile
+  // that looks complete never starts a download. Best effort on each root:
+  // the switch alone suffices, and a filesystem that refuses a link should
+  // not take the provider down with it.
+  for (const root of modelComponentRoots()) {
+    try { symlinkSync(root, join(profile, basename(root)), 'junction') } catch { /* the switch covers us */ }
   }
   const { chromium } = await loadPlaywright()
   const browser = await chromium.launchPersistentContext(profile, {
@@ -299,7 +356,6 @@ async function launch(baseModel, debug) {
     await waitUntilReady(tab, debug)
   } catch (err) {
     await browser.close().catch(() => {})
-    dropProfile(profile)
     throw err
   }
   return { browser, tab, profile }
@@ -416,11 +472,18 @@ export async function turnInPage(req) {
   const before = ses.contextUsage ?? 0
   try {
     const options = req.responseConstraint ? { responseConstraint: req.responseConstraint } : undefined
+    // The prompt itself is INPUT. Measuring it separately keeps it out of the
+    // completion count: the post-prompt delta covers the prompt, any
+    // constraint context and the generated text all together, so charging the
+    // whole delta to output overstated generation by the size of the request.
+    let promptTokens = 0
+    try { promptTokens = await ses.measureContextUsage(req.prompt, options) ?? 0 } catch { promptTokens = 0 }
     const started = performance.now()
     const text = await ses.prompt(req.prompt, options)
+    const delta = Math.max((ses.contextUsage ?? 0) - before, 0)
     return {
       text,
-      usage: { prompt_tokens: before, completion_tokens: Math.max((ses.contextUsage ?? 0) - before, 0) },
+      usage: { prompt_tokens: before + promptTokens, completion_tokens: Math.max(delta - promptTokens, 0) },
       contextWindow: ses.contextWindow ?? null,
       // Split out, because "slow" on this provider has two very different
       // causes: create() pays to load several gigabytes into the GPU the
@@ -438,8 +501,14 @@ export async function turnInPage(req) {
 /* eslint-enable no-undef */
 
 export async function sendChromeTurn(model, body, { debug, label } = {}) {
+  const baseModel = baseModelFor(model)
+  // Undefined means the registry has no chrome/* row for this id, so there is
+  // no way to know which local weights were meant. Launching anyway served
+  // whatever happened to be installed — an anthropic/* id, or a typo, would
+  // quietly get an answer from a different model entirely.
+  assert.ok(baseModel, `Provider \`chrome\` cannot serve ${model}. Use one of the chrome/* models.`)
   const launched = Date.now()
-  const { tab } = await ensureSession(baseModelFor(model), debug)
+  const { tab } = await ensureSession(baseModel, debug)
   const startup = Date.now() - launched
   if (debug && label) console.debug(`[debug] ${label}`)
   const result = await tab.evaluate(turnInPage, body)
