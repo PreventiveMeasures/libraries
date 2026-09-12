@@ -378,32 +378,54 @@ const READY_POLL_MS = 500
 // genuinely cannot serve the model still ends up here, and still fails —
 // just with a message that says how long it waited.
 /* eslint-disable no-undef */
-async function waitUntilReady(tab, debug) {
+// Warm the model, by asking for a session rather than by waiting to be told
+// one is possible.
+//
+// Polling availability() here was a deadlock: in a cold profile it answers
+// `unavailable` until the model has been loaded, and nothing loads it except
+// create(). So the wait blocked on a state only the call it was gating could
+// produce. Running `await LanguageModel.create()` by hand in devtools broke
+// the deadlock and made every subsequent turn work, which is exactly the
+// shape of that bug.
+//
+// So: attempt a throwaway session, retry while the service is still coming
+// up, and abort the moment a real download starts — a session is free when
+// the weights are already here, and this provider must never pay for its own
+// copy of them.
+export async function waitUntilReady(tab, debug) {
   const deadline = Date.now() + READY_TIMEOUT_MS
   let last = 'unknown'
   while (Date.now() < deadline) {
-    last = await tab.evaluate(async () =>
-      (typeof LanguageModel === 'undefined' ? 'no-binding' : await LanguageModel.availability().catch((e) => `ERR ${e.message}`)))
-    if (last === 'available') {
-      if (debug) console.debug(`[chrome] model ready after ${((READY_TIMEOUT_MS - (deadline - Date.now())) / 1000).toFixed(1)}s`)
+    last = await tab.evaluate(async () => {
+      if (typeof LanguageModel === 'undefined') return 'no-binding'
+      const controller = new AbortController()
+      let downloading = false
+      try {
+        const probe = await LanguageModel.create({
+          signal: controller.signal,
+          monitor: (m) => m.addEventListener('downloadprogress', (e) => {
+            // Anything short of complete means Chrome started fetching its
+            // own copy. Stop it rather than let it run to four gigabytes.
+            if (e.loaded < 1) { downloading = true; controller.abort() }
+          }),
+        })
+        probe.destroy()
+        return 'ready'
+      } catch (err) {
+        return downloading ? 'downloading' : `${err.name}: ${err.message}`
+      }
+    })
+    if (last === 'ready') {
+      if (debug) console.debug('[chrome] model warm')
       return
     }
-    // `downloadable` is not a verdict here either. Registration takes on the
-    // order of ten seconds, and until Chrome has scanned the component that is
-    // already grafted in, it reports the model as something it would have to
-    // fetch. Treating that as fatal failed the first turn in ~5s, well before
-    // the component was ever looked at. Waiting costs nothing: a download only
-    // starts on create(), which is not called until this returns.
     if (last === 'no-binding') throw new Error('LanguageModel is not exposed — this is not a branded Chrome')
+    if (last === 'downloading') {
+      throw new Error('Chrome started downloading its own copy of the model, which this provider does not allow. The borrowed weights are not visible to the scratch profile; set CHROME_MODEL_DIR.')
+    }
     await new Promise((resolve) => { setTimeout(resolve, READY_POLL_MS) })
   }
-  // Only now is the last reading meaningful, so say which it was: a stuck
-  // `downloadable` means the borrowed weights never became visible to this
-  // profile, which is a different problem from a model that will not load.
-  const hint = last === 'downloadable' || last === 'downloading'
-    ? 'The borrowed weights never became visible to this profile — check CHROME_MODEL_DIR. Chrome was not allowed to fetch its own copy.'
-    : 'Open chrome://on-device-internals in a normal Chrome and confirm a model is listed under Model Status.'
-  throw new Error(`On-device model still "${last}" after ${READY_TIMEOUT_MS / 1000}s. ${hint}`)
+  throw new Error(`On-device model never became usable within ${READY_TIMEOUT_MS / 1000}s. Last attempt: ${last}`)
 }
 /* eslint-enable no-undef */
 
@@ -452,14 +474,11 @@ export async function turnInPage(req) {
   if (typeof LanguageModel === 'undefined') {
     return { error: { message: 'LanguageModel is not exposed — this is not a branded Chrome' } }
   }
-  const availability = await LanguageModel.availability()
-  // Anything but `available` means the weights are not resident. Refuse
-  // rather than wait: component updates are off, so `downloadable` can only
-  // resolve by Chrome fetching its own copy — the one outcome this provider
-  // exists to prevent.
-  if (availability !== 'available') {
-    return { error: { message: `on-device model not ready (availability: ${availability})` } }
-  }
+  // No availability() gate here. It reports `unavailable` for a model that is
+  // merely unloaded, and waitUntilReady has already proved a session can be
+  // had — re-checking would refuse turns the browser is perfectly able to
+  // serve. A create() that genuinely cannot work still fails below, with the
+  // browser's own reason instead of a one-word status.
   let ses
   const createStarted = performance.now()
   let createdAt = 0

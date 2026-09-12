@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
-import { chromePreflight, findModelDir, turnInPage } from '../src/chrome.js'
+import { chromePreflight, findModelDir, turnInPage, waitUntilReady } from '../src/chrome.js'
 import { CHROME_SHAPE, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome-wire.js'
 import { baseModelFor, calculateCost, getMaxTokens } from '../src/models.js'
 import { setProvider } from '../src/providers.js'
@@ -322,10 +322,33 @@ describe('chrome page round-trip', async () => {
     assert.deepEqual(CHROME_SHAPE.extractToolCalls(json), [{ id: 'call_0', name: 'read_file', args: {} }])
   })
 
-  it('refuses when the weights are not resident instead of waiting for a download', { skip }, async () => {
-    await page.evaluate(`globalThis.LanguageModel = { availability: async () => 'downloadable' }`)
-    const result = await page.evaluate(turnInPage, { initialPrompts: [], prompt: 'x' })
-    assert.match(result.error.message, /not ready \(availability: downloadable\)/u)
+  it('warms the model by asking for a session, not by waiting on availability', { skip }, async () => {
+    // The deadlock this replaced: availability() answers `unavailable` for a
+    // model that is merely unloaded, and only create() loads one — so waiting
+    // for `available` before calling create() waits forever.
+    await page.evaluate(`
+      globalThis.__creates = 0
+      globalThis.LanguageModel = {
+        availability: async () => 'unavailable',
+        create: async () => { globalThis.__creates++; return { destroy() {} } },
+      }`)
+    await waitUntilReady(page, false)
+    assert.equal(await page.evaluate(() => globalThis.__creates), 1, 'should have asked for a session')
+  })
+
+  it('aborts rather than let Chrome download its own copy of the weights', { skip }, async () => {
+    // A download here would be several gigabytes the user already has.
+    await page.evaluate(`
+      globalThis.LanguageModel = {
+        availability: async () => 'downloadable',
+        create: async ({ monitor, signal }) => {
+          const target = new EventTarget()
+          monitor(target)
+          target.dispatchEvent(Object.assign(new Event('downloadprogress'), { loaded: 0.01 }))
+          throw Object.assign(new Error('aborted'), { name: 'AbortError' })
+        },
+      }`)
+    await assert.rejects(() => waitUntilReady(page, false), /started downloading its own copy/u)
   })
 
   it('reports a Chromium with no Prompt API as such', { skip }, async () => {
