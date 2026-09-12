@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
-import {
-  CHROME_SHAPE, chromePreflight, findModelDir, toChatCompletions, toolConstraint, toolInstructions, turnInPage,
-} from '../src/chrome.js'
+import { chromePreflight, findModelDir, turnInPage } from '../src/chrome.js'
+import { CHROME_SHAPE, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome-wire.js'
 import { baseModelFor, calculateCost, getMaxTokens } from '../src/models.js'
 import { setProvider } from '../src/providers.js'
 
@@ -204,6 +203,30 @@ describe('chrome tool schema helpers', () => {
   it('describes every tool it allows', () => {
     const text = toolInstructions(TOOLS)
     for (const tool of TOOLS) assert.match(text, new RegExp(tool.name, 'u'))
+  })
+})
+
+describe('chrome scratch-profile cleanup', () => {
+  // The provider removes its scratch profile, and that profile contains a
+  // symlink to the user's multi-gigabyte model directory. This asserts the
+  // platform behaviour the cleanup leans on: a recursive delete unlinks a
+  // symlink rather than following it. If that ever stopped holding, the
+  // provider would delete weights that are not its own, silently.
+  it('deletes the profile without following the symlink into the model', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ai-chrome-test-root-'))
+    const model = join(root, 'model')
+    mkdirSync(model)
+    writeFileSync(join(model, 'weights.bin'), 'the user\'s copy')
+
+    const profile = join(root, 'profile')
+    mkdirSync(profile)
+    symlinkSync(model, join(profile, 'OptGuideOnDeviceModel'))
+
+    rmSync(profile, { recursive: true, force: true })
+
+    assert.equal(existsSync(profile), false, 'the scratch profile should be gone')
+    assert.equal(readFileSync(join(model, 'weights.bin'), 'utf8'), 'the user\'s copy')
+    rmSync(root, { recursive: true, force: true })
   })
 })
 

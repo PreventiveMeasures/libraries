@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { CHROME_SHAPE, chromePreflight, closeChrome, sendChromeTurn } from './chrome.js'
+import { chromePreflight, closeChrome, sendChromeTurn } from './chrome.js'
+import { CHROME_SHAPE } from './chrome-wire.js'
 import { fetchJSON } from './fetch.js'
 import { effortsFor, reasoningModeFor, wireModelFor } from './models.js'
 import { anthropicAuthHeader, anthropicShape, parseArgs, stripNamespace, toAnthropicModel, truncationError } from './wire-formats.js'
