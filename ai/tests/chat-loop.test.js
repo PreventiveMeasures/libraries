@@ -3,7 +3,7 @@ import { createServer } from 'node:http'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { after, describe, it } from 'node:test'
+import { after, before, describe, it } from 'node:test'
 
 // Drives the real loop against a local chat-completions server: a turn that
 // calls a tool, then one that answers. Everything below the request — the
@@ -42,17 +42,40 @@ const server = createServer((req, res) => {
 })
 await new Promise((resolve) => { server.listen(0, '127.0.0.1', resolve) })
 
-process.env.OPENROUTER_API_URL = `http://127.0.0.1:${server.address().port}`
+const URL_BASE = `http://127.0.0.1:${server.address().port}`
+process.env.OPENROUTER_API_URL = URL_BASE
 process.env.OPENROUTER_API_KEY = 'test-key'
 const { chat } = await import('../src/chat.js')
 const { buildCacheOpts, getPartial, setCacheDir } = await import('../src/cache.js')
-setCacheDir(CACHE_DIR)
-const { setProvider } = await import('../src/providers.js')
-setProvider('openrouter')
+const { getProvider, setProvider } = await import('../src/providers.js')
 
 after(async () => {
   server.close()
   await rm(CACHE_DIR, { recursive: true, force: true })
+})
+
+// The cache root and the selected provider are both process-wide, and
+// `--test-isolation=none` puts every test file in one process: all of their
+// top levels run before any suite does, so setting either at module scope
+// would leave whichever file was imported LAST holding it. Each suite
+// claims both for itself instead.
+//
+// The assertion is the important half. providers.js reads OPENROUTER_API_URL
+// once, when it is evaluated — the dynamic imports above are why that
+// happens after the server has a port — and a file that pulled providers.js
+// in EARLIER would leave this suite pointed at the real openrouter.ai with
+// nothing but a network error to say so. Checked rather than assumed,
+// because the failure mode is a test posting to a live API.
+const suite = (name, body) => describe(name, () => {
+  before(() => {
+    setCacheDir(CACHE_DIR)
+    setProvider('openrouter')
+    assert.ok(
+      getProvider().url.startsWith(URL_BASE),
+      `adapter points at ${getProvider().url}, not this suite's server — providers.js was evaluated before it was listening`,
+    )
+  })
+  body()
 })
 
 const MODEL = 'test/chat-loop-1.0'
@@ -68,14 +91,14 @@ function run(userContent, extra = {}) {
   })
 }
 
-describe('chat: the tool loop', () => {
+suite('chat: the tool loop', () => {
   it('runs a turn per response until the model stops calling tools', async () => {
-    const before = requests.length
+    const sentBefore = requests.length
     const result = await run('loop-A')
     assert.equal(result.text, 'done')
     assert.equal(result.error, undefined)
     assert.equal(result.history.length, 2)
-    assert.equal(requests.length - before, 2)
+    assert.equal(requests.length - sentBefore, 2)
     // The tool's answer is threaded into the second request, so the model
     // sees what it asked for.
     assert.equal(result.history[0].results[0], 'probed /')
@@ -86,7 +109,7 @@ describe('chat: the tool loop', () => {
   })
 })
 
-describe('chat: the `partial` option', () => {
+suite('chat: the `partial` option', () => {
   it('writes the running history after every turn, under the caller\'s cache options', async () => {
     const cacheOpts = opts('_test-chat-partial')
     const result = await run('loop-B', { partial: cacheOpts })

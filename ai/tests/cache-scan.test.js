@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto'
 import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { after, describe, it } from 'node:test'
+import { after, before, describe, it } from 'node:test'
 
 import { setCache, setCacheDir } from '../src/cache.js'
 import { listCacheEntries, rehashCache } from '../src/cache-scan.js'
@@ -12,8 +12,17 @@ import { listCacheEntries, rehashCache } from '../src/cache-scan.js'
 // Somewhere of this run's own: the layer has no default, and a scan that
 // walked a real cache would count whatever it found there.
 const CACHE_DIR = join(tmpdir(), `ai-cache-scan-test-${process.pid}`)
-setCacheDir(CACHE_DIR)
 after(() => rmSync(CACHE_DIR, { recursive: true, force: true }))
+
+// The cache root is one global for the whole process, and `--test-isolation=none`
+// gives every test file the same process: all of their top levels run before
+// any suite does, so a module-scope setCacheDir would leave whichever file
+// was imported LAST holding the directory for everyone. Claiming it per
+// suite is what keeps these tests reading their own.
+const suite = (name, body) => describe(name, () => {
+  before(() => setCacheDir(CACHE_DIR))
+  body()
+})
 
 // Per-test isolation: every test computes a unique `userContent` so its
 // hashed cache key doesn't collide with a neighbouring test's.
@@ -28,7 +37,7 @@ function uniqueCacheOpts(extra = {}) {
   }
 }
 
-describe('listCacheEntries', () => {
+suite('listCacheEntries', () => {
   const model = 'test/model-1.0'
   const systemPrompt = 'list test prompt'
   const req = (userContent) => [{ request: { messages: [{ role: 'user', content: userContent }] }, response: {} }]
@@ -86,7 +95,7 @@ describe('listCacheEntries', () => {
   })
 })
 
-describe('rehashCache: skipType', () => {
+suite('rehashCache: skipType', () => {
   // Entries whose key folds in a bundleId can't be recomputed from the
   // stored request alone, so the caller names the types that do it and the
   // scan leaves them alone. What it is handed is the TYPE, not the
