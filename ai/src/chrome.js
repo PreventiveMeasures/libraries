@@ -289,7 +289,6 @@ async function openBrowser(profile, modelDir, debug) {
   // it — two windows, one of them abandoned.
   try {
     await waitUntilReady(tab, debug)
-    if (debug) await reportLoadedModel(browser)
   } catch (err) {
     await browser.close().catch(() => {})
     throw err
@@ -561,10 +560,18 @@ export async function sendChromeTurn(model, body, { debug, label } = {}) {
   // quietly get an answer from a different model entirely.
   assert.ok(baseModel, `Provider \`chrome\` cannot serve ${model}. Use one of the chrome/* models.`)
   const launched = Date.now()
-  const { tab } = await ensureSession(baseModel, debug)
+  const session = await ensureSession(baseModel, debug)
+  const { tab } = session
   const startup = Date.now() - launched
   if (debug && label) console.debug(`[debug] ${label}`)
   const result = await tab.evaluate(turnInPage, body)
+  // After the turn, not before it: Use Cases and the event log only say what
+  // was requested once something has requested it, and reading them at launch
+  // showed empty tables. Once per browser, so a tool loop does not repeat it.
+  if (debug && !session.reported) {
+    session.reported = true
+    await reportLoadedModel(session.browser)
+  }
   if (debug) {
     // Attribute the wait. A cold run pays for browser startup, component
     // registration and the first load of the weights; a warm one pays for
