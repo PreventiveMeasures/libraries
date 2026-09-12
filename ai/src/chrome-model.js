@@ -73,31 +73,35 @@ export function graftPlanIn(userDataDir, modelDir) {
   return plan
 }
 
-// What a scratch profile inherits from the real one, built by SELECTING the
-// few things it needs rather than by copying the subtree and deleting from it.
-// Everything under optimization_guide is a claim, and the ones that matter are
-// claims about what has been asked for:
+// What a scratch profile inherits from the real one: one entry of one map,
+// named rather than arrived at by deleting the rest. Nothing else is read, so
+// a subtree nobody has reasoned about cannot come along by being overlooked
+// when Chrome starts writing a new one.
 //
-//   on_device                              the machine describing itself —
-//                                          cached performance class, the GPU it
-//                                          was measured on, the crash count
-//   model_execution.manifest_asset_ledger  one entry per component the profile
-//                                          has REQUESTED, each with an asset_id
-//                                          and a requested_version
+// `optimization_guide.model_execution.manifest_asset_ledger` holds a standing
+// REQUEST per component — an asset_id and a requested_version — and the entry
+// for the linked model is what makes the browser go and load it. Only that
+// entry travels, because the entries name models: carried whole, the others
+// have Chrome fetch components it cannot find, which is a nano launch pulling
+// gemma4 and a gemma4 launch pulling nano_v3. The entry itself is passed
+// through, so a field Chrome adds to it still arrives.
 //
-// The ledger is narrowed to the model being launched. Carried whole into a
-// profile that links one model, it has Chrome go and fetch every component it
-// cannot find — a nano launch pulling gemma4, a gemma4 launch pulling nano_v3.
+// What used to travel and does not, each established by a profile that
+// answers rather than by argument:
 //
-// Emptying it is not the fix: dropping the subtree wholesale was tried and
-// broke every model, because the entry for the model we DO link is the request
-// that makes the browser load it.
-//
-// last_usage_by_feature — a timestamp per use case the real profile has
-// exercised — does not travel at all. Carried over, it was what listed
-// prompt_api_gemma4, _gemma4_4b and _gemma4_12b as Pending Assets on a nano
-// launch: three use cases claimed against assets that are not linked. A
-// scratch profile has exercised nothing, so it has nothing to declare.
+//   on_device               the cached performance class and the GPU it was
+//                           measured on. Every launch already passes
+//                           --optimization-guide-performance-class, and a
+//                           profile inheriting nothing still records the
+//                           forced class — then confirmed against the real
+//                           model, which answers without it.
+//   last_usage_by_feature   a timestamp per use case the real profile has
+//                           exercised, which listed every other use case as
+//                           Pending Assets. A scratch profile has exercised
+//                           nothing, so it declares nothing.
+//   everything else         the model store metadata, the cache key mapping,
+//                           the prediction model fetcher state, and an id
+//                           identifying the browser it came from.
 export function optimizationGuidePrefs(modelDir) {
   const dir = activeUserDataDir()
   if (!dir) return {}
@@ -112,29 +116,25 @@ export function optimizationGuidePrefs(modelDir) {
 //
 //   OptGuideManifestModel/<hash>/<version>   both halves match
 //   OptGuideOnDeviceModel/<version>          the version matches
-//
-// When nothing matches, the whole ledger is taken. That is the one place this
-// does not select: an unrecognised layout or a CHROME_MODEL_DIR from elsewhere
-// should cost the old nuisance rather than the empty ledger that stops
-// everything loading.
-function selectLedger(ledger, modelDir) {
-  if (!ledger || !modelDir) return ledger
+function findLedgerEntry(ledger, modelDir) {
+  if (!ledger || !modelDir) return undefined
   const parts = new Set(modelDir.split(/[/\\]/u))
-  const mine = Object.entries(ledger).filter(([hash, entry]) => parts.has(hash) || parts.has(entry?.requested_version))
-  return mine.length > 0 ? Object.fromEntries(mine) : ledger
+  return Object.entries(ledger).find(([hash, entry]) => parts.has(hash) || parts.has(entry?.requested_version))
 }
 
 // Separated from reading the file so what is selected can be stated against a
 // subtree written by hand rather than against whichever Chrome the machine
 // running the tests happens to have.
+//
+// No ledger entry found means no ledger. That case is a CHROME_MODEL_DIR
+// outside the component tree, where graftPlan links nothing either and the
+// execution override names the directory outright — and where carrying the
+// real profile's ledger would claim components this profile does not have,
+// which is the fetch it exists to prevent.
 export function portableGuide(guide, modelDir) {
-  if (!guide) return {}
-  const ledger = selectLedger(guide.model_execution?.manifest_asset_ledger, modelDir)
-  const selected = {
-    ...(guide.on_device ? { on_device: guide.on_device } : {}),
-    ...(ledger ? { model_execution: { manifest_asset_ledger: ledger } } : {}),
-  }
-  return Object.keys(selected).length > 0 ? { optimization_guide: selected } : {}
+  const found = findLedgerEntry(guide?.model_execution?.manifest_asset_ledger, modelDir)
+  if (!found) return {}
+  return { optimization_guide: { model_execution: { manifest_asset_ledger: { [found[0]]: found[1] } } } }
 }
 
 
