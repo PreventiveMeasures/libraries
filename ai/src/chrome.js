@@ -38,6 +38,38 @@ import { parseArgs } from './wire-formats.js'
 // assumed. file:// is potentially trustworthy and does expose it, so the page
 // is file:///dev/null, the same trick @exodus/test uses to reach crypto.subtle.
 
+// Playwright disables a set of Chrome features for test determinism, and one
+// of them is fatal here: `OptimizationHints`, which its source annotates
+// "Prevents downloading optimization hints on startup." That feature is the
+// optimization guide, and the on-device model hangs off the same keyed
+// service — with it off, the model service never starts, availability()
+// answers `unavailable` forever, and chrome://on-device-internals sits on
+// "Device performance class: Loading...". Removing this one entry is what
+// makes the class resolve (to "High" on a capable machine).
+//
+// It cannot be undone with --enable-features: Chromium's FeatureList gives
+// disable precedence over enable, so the only fix is to not disable it. Our
+// own --disable-features wins because Chrome reads the last occurrence of a
+// switch and playwright does no merging — it just appends its list, and ours
+// comes after.
+//
+// This mirrors playwright 1.63's list minus that one entry. Drift is benign:
+// a newer playwright disabling something new simply means we do not inherit
+// it, and nothing here needs any of them.
+const DISABLED_FEATURES = [
+  'AvoidUnnecessaryBeforeUnloadCheckSync', 'DestroyProfileOnBrowserClose', 'DialMediaRouteProvider',
+  'GlobalMediaControls', 'HttpsUpgrades', 'LensOverlay', 'MediaRouter', 'PaintHolding',
+  'ThirdPartyStoragePartitioning', 'BlockOriginHeaderModificationOnRedirect', 'Translate',
+  'AutoDeElevate', 'msForceBrowserSignIn', 'msEdgeUpdateLaunchServicesPreferredVersion',
+]
+
+// Overriding --enable-features the same way would silently drop playwright's
+// own entry, so carry it along rather than clobbering it.
+const ENABLED_FEATURES = [
+  'CDPScreenshotNewSurface',
+  'OptimizationGuideOnDeviceModel:on_device_model_bypass_perf_requirement/true',
+]
+
 // Playwright's two software-GL defaults. Both have to go for Chrome to reach
 // a real GPU; see the launch below for why that is not optional.
 const SOFTWARE_GL = ['--enable-unsafe-swiftshader', '--use-angle=swiftshader-webgl']
@@ -182,9 +214,10 @@ async function launch(baseModel, debug) {
       // weights, this waives the base-model version check Chrome would apply
       // to a profile that has never registered a component of its own.
       `--optimization-guide-ondevice-model-execution-override=${modelDir}`,
-      // The eligibility gate, which reads "unavailable" on plenty of hardware
-      // that runs the model perfectly well once past it.
-      '--enable-features=OptimizationGuideOnDeviceModel:on_device_model_bypass_perf_requirement/true',
+      // Both lists replace playwright's; see DISABLED_FEATURES for why the
+      // disable side is not optional.
+      `--disable-features=${DISABLED_FEATURES.join(',')}`,
+      `--enable-features=${ENABLED_FEATURES.join(',')}`,
       // The gate that actually stops a scratch profile. Eligibility needs a
       // device performance class, and a profile that has never computed one
       // runs a GPU benchmark to get it — chrome://on-device-internals sits on
