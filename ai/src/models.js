@@ -92,9 +92,20 @@ const MODELS = new Map([
   // even share a shape with each other, so the mapping is recorded rather
   // than guessed. A Chrome that renames one fails with the name it found,
   // which makes the fix a one-line edit here.
-  ['chrome/nano_v3', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'nano_v3', specNames: ['v3Nano'] }],
-  ['chrome/gemma4_2b', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_2b', specNames: ['gemma4-2b-it'] }],
-  ['chrome/gemma4_4b', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_4b', specNames: ['gemma-4-E4B-it'] }],
+  //
+  // `modelVersion` is what actually switches which model answers. Chrome
+  // selects it by a feature param — AIApiFoundationalModel:model_version —
+  // not by the weights directory, which is why pointing the execution
+  // override at a gemma directory changed nothing. v3 is Gemini Nano and
+  // the default; v4 is Gemma 4.
+  //
+  // The SIZE within v4 is not selectable: Broker State lists prompt_api_gemma4,
+  // prompt_api_gemma4_4b and prompt_api_gemma4_12b as separate use cases and
+  // Chrome picks between them itself, so both rows below ask for the same
+  // thing and differ only in which weights they expect to find.
+  ['chrome/nano_v3', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'nano_v3', specNames: ['v3Nano'], modelVersion: 'v3' }],
+  ['chrome/gemma4_2b', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_2b', specNames: ['gemma4-2b-it'], modelVersion: 'v4' }],
+  ['chrome/gemma4_4b', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_4b', specNames: ['gemma-4-E4B-it'], modelVersion: 'v4' }],
   // Free models — may log/store/use your data
   ['openai/gpt-oss-120b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['openai/gpt-oss-20b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
@@ -303,6 +314,14 @@ const SPEC_NAMES = new Map([...MODELS.values()].filter((r) => r.baseModel).map((
 
 export function specNamesFor(baseModel) {
   return SPEC_NAMES.get(baseModel) ?? []
+}
+
+// Which foundational model version a local row asks Chrome for — see the
+// rows above. Keyed by base model, like the spec names.
+const MODEL_VERSIONS = new Map([...MODELS.values()].filter((r) => r.baseModel).map((r) => [r.baseModel, r.modelVersion]))
+
+export function modelVersionFor(baseModel) {
+  return MODEL_VERSIONS.get(baseModel)
 }
 
 export function reasoningModeFor(model) {

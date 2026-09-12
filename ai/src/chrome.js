@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync 
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { baseModelFor } from './models.js'
+import { baseModelFor, modelVersionFor } from './models.js'
 import { chromePreflight, findModelDir, graftableRoots, optimizationGuidePrefs } from './chrome-model.js'
 import { outputLanguage, toChatCompletions } from './chrome-wire.js'
 
@@ -77,6 +77,23 @@ const ENABLED_FEATURES = [
   'CDPScreenshotNewSurface',
   'OptimizationGuideOnDeviceModel:on_device_model_bypass_perf_requirement/true',
 ]
+
+// Switching Chrome to Gemma 4 is a chrome://flags choice, not a command-line
+// feature list — so it is set the way the flags page sets it, by writing the
+// choice into Local State. Chrome then expands it itself, which matters
+// because the expansion is version-dependent: on 153 the flag turns on
+// AIApiFoundationalModel:model_version/v4, OptimizationGuideManifestBroker
+// AND OnDeviceModelLitertLmBackend, while on 155 it leaves the last one out.
+// Hand-rolling --enable-features would have pinned one browser's answer onto
+// every other.
+//
+// "@1" is the first non-default option, which for this flag is Enabled.
+const GEMMA4_FLAG = 'gemma4-for-built-in-ai@1'
+
+// v3 is Gemini Nano and needs nothing: it is what Chrome does anyway.
+function labExperimentsFor(baseModel) {
+  return modelVersionFor(baseModel) === 'v4' ? [GEMMA4_FLAG] : []
+}
 
 // Playwright's two software-GL defaults. Both have to go for Chrome to reach
 // a real GPU; see the launch below for why that is not optional.
@@ -217,6 +234,7 @@ async function launch(baseModel, debug) {
     // Without this the gemma components read "Not Installed" however many
     // directories are linked in: their install state is a pref, not a file.
     ...optimizationGuidePrefs(),
+    browser: { enabled_labs_experiments: labExperimentsFor(baseModel) },
   }))
   // Everything from here on can throw — a missing peer dependency, a browser
   // that will not start, a page that will not navigate — and every one of

@@ -6,7 +6,7 @@ import { after, describe, it } from 'node:test'
 import { chromePreflight, findModelDir, isScratchProfile, removeProfileDir, turnInPage, waitUntilReady } from '../src/chrome.js'
 import { identifiesAs } from '../src/chrome-model.js'
 import { CHROME_SHAPE, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome-wire.js'
-import { baseModelFor, calculateCost, getMaxTokens, specNamesFor } from '../src/models.js'
+import { baseModelFor, calculateCost, getMaxTokens, modelVersionFor, specNamesFor } from '../src/models.js'
 import { setProvider } from '../src/providers.js'
 
 // The chrome provider, minus the model. Everything the adapter decides —
@@ -45,6 +45,30 @@ describe('chrome registry rows', () => {
 
   it('are recognised rows, so getMaxTokens does not fall back', () => {
     assert.equal(getMaxTokens('chrome/nano_v3'), 4096)
+  })
+})
+
+describe('chrome foundational model version', () => {
+  it('asks for v4 on the gemma rows and v3 on nano', () => {
+    // This — not the weights directory — is what actually switches which
+    // model answers. Pointing the execution override at a gemma directory
+    // changed nothing at all; Chrome selects by
+    // AIApiFoundationalModel:model_version, set through the
+    // gemma4-for-built-in-ai flag.
+    assert.equal(modelVersionFor(baseModelFor('chrome/nano_v3')), 'v3')
+    assert.equal(modelVersionFor(baseModelFor('chrome/gemma4_2b')), 'v4')
+    assert.equal(modelVersionFor(baseModelFor('chrome/gemma4_4b')), 'v4')
+  })
+
+  it('cannot tell the two gemma sizes apart, and says so', () => {
+    // Both rows ask Chrome for the same thing. Chrome chooses between
+    // prompt_api_gemma4 / _4b / _12b itself, so the size is its call, and a
+    // row promising one specific size would be promising what it cannot
+    // deliver.
+    assert.equal(
+      modelVersionFor(baseModelFor('chrome/gemma4_2b')),
+      modelVersionFor(baseModelFor('chrome/gemma4_4b')),
+    )
   })
 })
 
