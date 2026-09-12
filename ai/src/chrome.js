@@ -305,12 +305,6 @@ async function openBrowser(profile, modelDir, debug) {
     // got far enough to weigh one.
     ignoreDefaultArgs: SOFTWARE_GL,
     args: launchArgs(modelDir),
-    // Nothing this provider does needs the network. The page it opens is
-    // file:///dev/null and the model is on disk, so anything reaching for a
-    // socket is something going wrong, and it should fail rather than
-    // succeed quietly. Set on the context, so every page it opens inherits
-    // it — including the internals tab the debug readout uses.
-    offline: true,
   })
   const tab = await browser.newPage()
   // Page-side failures are otherwise silent: evaluate returns the value and
