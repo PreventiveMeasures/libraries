@@ -29,7 +29,7 @@ function fakeModelDir() {
 
 describe('chrome registry rows', () => {
   it('cost nothing — the compute was already paid for', () => {
-    for (const model of ['chrome/nano_v3', 'chrome/gemma4_2b', 'chrome/gemma4_4b']) {
+    for (const model of ['chrome/nano_v3', 'chrome/gemma4_2b', 'chrome/gemma4_4b', 'chrome/gemma4_12b']) {
       const usage = { input: 1e6, output: 1e6, cacheRead: 1e6, cacheWrite5m: 0, cacheWrite1h: 0 }
       assert.equal(calculateCost(model, usage), 0, model)
     }
@@ -39,6 +39,7 @@ describe('chrome registry rows', () => {
     assert.equal(baseModelFor('chrome/nano_v3'), 'nano_v3')
     assert.equal(baseModelFor('chrome/gemma4_2b'), 'gemma4_2b')
     assert.equal(baseModelFor('chrome/gemma4_4b'), 'gemma4_4b')
+    assert.equal(baseModelFor('chrome/gemma4_12b'), 'gemma4_12b')
     // Undefined is what tells the adapter a row is not one of Chrome's.
     assert.equal(baseModelFor('anthropic/claude-opus-5'), undefined)
   })
@@ -58,6 +59,7 @@ describe('chrome foundational model version', () => {
     assert.equal(modelVersionFor(baseModelFor('chrome/nano_v3')), 'v3')
     assert.equal(modelVersionFor(baseModelFor('chrome/gemma4_2b')), 'v4')
     assert.equal(modelVersionFor(baseModelFor('chrome/gemma4_4b')), 'v4')
+    assert.equal(modelVersionFor(baseModelFor('chrome/gemma4_12b')), 'v4')
   })
 
   it('asks for Gemma 4 through the flag, and only on the gemma rows', () => {
@@ -81,15 +83,14 @@ describe('chrome foundational model version', () => {
     assert.equal(gemma.internal_only_uis_enabled, true)
   })
 
-  it('cannot tell the two gemma sizes apart, and says so', () => {
-    // Both rows ask Chrome for the same thing. Chrome chooses between
+  it('cannot tell the gemma sizes apart, and says so', () => {
+    // All three rows ask Chrome for the same thing. Chrome chooses between
     // prompt_api_gemma4 / _4b / _12b itself, so the size is its call, and a
     // row promising one specific size would be promising what it cannot
     // deliver.
-    assert.equal(
-      modelVersionFor(baseModelFor('chrome/gemma4_2b')),
-      modelVersionFor(baseModelFor('chrome/gemma4_4b')),
-    )
+    const asked = ['chrome/gemma4_2b', 'chrome/gemma4_4b', 'chrome/gemma4_12b']
+      .map((model) => modelVersionFor(baseModelFor(model)))
+    assert.deepEqual(asked, ['v4', 'v4', 'v4'])
   })
 })
 
@@ -130,11 +131,13 @@ describe('chrome launch switches', () => {
 })
 
 describe('chrome model identification', () => {
-  const withManifest = (specName) => {
+  const withManifest = (specName, componentName = 'Optimization Guide On Device Model') => {
     const dir = mkdtempSync(join(tmpdir(), 'ai-chrome-test-manifest-'))
     writeFileSync(join(dir, 'manifest.json'), JSON.stringify({
-      manifest_version: 2, name: 'Optimization Guide On Device Model', version: '2025.1.1.1000',
-      BaseModelSpec: { name: specName, version: '2025.01.01.0000', supported_performance_hints: [2, 1] },
+      manifest_version: 2, name: componentName, version: '2025.1.1.1000',
+      // Omitted entirely when there is no spec — which is how the 12B
+      // manifest arrives, not a BaseModelSpec with a missing name.
+      ...(specName ? { BaseModelSpec: { name: specName, version: '2025.01.01.0000', supported_performance_hints: [2, 1] } } : {}),
     }))
     return dir
   }
@@ -159,6 +162,27 @@ describe('chrome model identification', () => {
     assert.equal(identifiesAs(fourB, specNamesFor('gemma4_2b')), false, 'gemma4_2b must NOT match the 4b model')
     assert.equal(identifiesAs(twoB, specNamesFor('gemma4_4b')), false, 'gemma4_4b must NOT match the 2b model')
     assert.equal(identifiesAs(twoB, specNamesFor('nano_v3')), false)
+  })
+
+  it('falls back to the component name when there is no BaseModelSpec', (t) => {
+    // The 12B manifest is the odd one out: no BaseModelSpec at all, identity
+    // in the top-level name.
+    //
+    //   { "name": "Optimization Guide On-Device Gemma4 12B Model",
+    //     "version": "2026.1.3.1000" }
+    const twelveB = withManifest(null, 'Optimization Guide On-Device Gemma4 12B Model')
+    // And the generic name the spec-carrying manifests use up there, which the
+    // fallback must not turn into a match for anything.
+    const generic = withManifest('gemma4-2b-it')
+    t.after(() => { for (const d of [twelveB, generic]) rmSync(d, { recursive: true, force: true }) })
+    assert.ok(identifiesAs(twelveB, specNamesFor('gemma4_12b')), 'the 12B row should match its manifest')
+    assert.equal(identifiesAs(twelveB, specNamesFor('gemma4_2b')), false, '2b must not match the 12B model')
+    assert.equal(identifiesAs(twelveB, specNamesFor('gemma4_4b')), false, '4b must not match the 12B model')
+    // The generic top-level name is never consulted here, because the spec
+    // beneath it wins — otherwise every spec-carrying manifest would collapse
+    // onto one identity.
+    assert.equal(identifiesAs(generic, specNamesFor('gemma4_12b')), false, '12b must not match a 2b manifest')
+    assert.ok(identifiesAs(generic, specNamesFor('gemma4_2b')))
   })
 
   it('ignores case and punctuation drift, but not a different model', (t) => {

@@ -101,11 +101,15 @@ const MODELS = new Map([
   //
   // The SIZE within v4 is not selectable: Broker State lists prompt_api_gemma4,
   // prompt_api_gemma4_4b and prompt_api_gemma4_12b as separate use cases and
-  // Chrome picks between them itself, so both rows below ask for the same
+  // Chrome picks between them itself, so all three gemma rows ask for the same
   // thing and differ only in which weights they expect to find.
+  //
+  // The 12B manifest carries no BaseModelSpec — its identity is the top-level
+  // component name, which is why that row's spec reads like a title.
   ['chrome/nano_v3', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'nano_v3', specNames: ['v3Nano'], modelVersion: 'v3' }],
   ['chrome/gemma4_2b', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_2b', specNames: ['gemma4-2b-it'], modelVersion: 'v4' }],
   ['chrome/gemma4_4b', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_4b', specNames: ['gemma-4-E4B-it'], modelVersion: 'v4' }],
+  ['chrome/gemma4_12b', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_12b', specNames: ['Optimization Guide On-Device Gemma4 12B Model'], modelVersion: 'v4' }],
   // Free models — may log/store/use your data
   ['openai/gpt-oss-120b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['openai/gpt-oss-20b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],

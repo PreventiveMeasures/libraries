@@ -7,8 +7,8 @@ import { modelVersionFor, specNamesFor } from './models.js'
 // Where the on-device weights are, which is a separate question from how the
 // browser is driven — see chrome.js for that.
 
-// Two stores, different shapes: nano_v3 lives under the first, gemma4_2b and
-// gemma4_4b under the second, keyed by a content hash above the version.
+// Two stores, different shapes: nano_v3 lives under the first, the gemma
+// models under the second, keyed by a content hash above the version.
 export const MODEL_COMPONENTS = ['OptGuideOnDeviceModel', 'OptGuideManifestModel']
 
 // Grafted into the scratch profile but never searched for weights: this one
@@ -128,10 +128,23 @@ function normalizeSpec(name) {
 }
 
 // The manifest's declared name, when there is one to read.
+//
+// Not every manifest has a BaseModelSpec. The three that do give the generic
+// component name "Optimization Guide On Device Model" at the top level and the
+// real identity underneath; the 12B one has no BaseModelSpec at all and puts
+// its identity in the top-level name instead:
+//
+//   { "name": "Optimization Guide On-Device Gemma4 12B Model",
+//     "version": "2026.1.3.1000" }
+//
+// So the spec wins where it exists and the name stands in where it does not.
+// The generic name is distinct enough from the 12B one after normalising
+// (…ondevicemodel against …ondevicegemma412bmodel) that the fallback cannot
+// make a spec-carrying manifest match a row it should not.
 export function declaredSpec(dir) {
   try {
     const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'))
-    return manifest?.BaseModelSpec?.name ?? null
+    return manifest?.BaseModelSpec?.name ?? manifest?.name ?? null
   } catch { return null }
 }
 
