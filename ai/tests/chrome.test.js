@@ -166,56 +166,84 @@ describe('chrome missing model', () => {
 
 describe('chrome inherited prefs', () => {
   // The subtree's shape for a profile holding all four models, with stand-in
-  // hashes and versions. The ledger keys are the content hash a manifest
-  // model sits under, and requested_version is its version directory.
-  const LEDGER = {
-    'hash4b': { asset_id: 'gemma4_4b_component', requested_version: '2026.1.2.1000' },
-    'hash12b': { asset_id: 'gemma4_12b_component', requested_version: '2026.1.3.1000' },
-    'hashnano': { asset_id: 'nano_v3_gpu_component', requested_version: '2025.1.1.1000' },
-    'hash2b': { asset_id: 'gemma4_component', requested_version: '2026.1.1.1000' },
-  }
+  // hashes and versions. Ledger keys are the content hash a manifest model
+  // sits under; requested_version is its version directory.
   const GUIDE = {
     on_device: { performance_class: 5, last_version: '<chrome-version>' },
+    model_cache_key_mapping: { a: 'b' },
+    model_quality_logging_client_id: 'an id nobody needs a copy of',
     model_store_metadata: { 2: {} },
-    model_execution: { last_usage_by_feature: { prompt_api: '1343' }, manifest_asset_ledger: LEDGER },
+    predictionmodelfetcher: { last_fetch_attempt: '1' },
+    model_execution: {
+      last_usage_by_feature: {
+        prompt_api: '1', prompt_api_gemma4: '2', prompt_api_gemma4_12b: '3',
+        prompt_api_gemma4_4b: '4', summarizer_api: '5', writing_assistance_api: '6',
+      },
+      manifest_asset_ledger: {
+        hashnano: { asset_id: 'nano_v3_gpu_component', requested_version: '2025.1.1.1000' },
+        hash2b: { asset_id: 'gemma4_component', requested_version: '2026.1.1.1000' },
+        hash4b: { asset_id: 'gemma4_4b_component', requested_version: '2026.1.2.1000' },
+        hash12b: { asset_id: 'gemma4_12b_component', requested_version: '2026.1.3.1000' },
+      },
+    },
   }
-  const assets = (guide) => Object.values(guide.optimization_guide.model_execution.manifest_asset_ledger)
-    .map((e) => e.asset_id).sort()
+  const DIRS = {
+    nano: '/udd/OptGuideOnDeviceModel/2025.1.1.1000',
+    twoB: '/udd/OptGuideManifestModel/hash2b/2026.1.1.1000',
+    fourB: '/udd/OptGuideManifestModel/hash4b/2026.1.2.1000',
+  }
+  const execution = (dir) => portableGuide(GUIDE, dir).optimization_guide.model_execution
+  const assets = (dir) => Object.values(execution(dir).manifest_asset_ledger).map((e) => e.asset_id).sort()
+  const useCases = (dir) => Object.keys(execution(dir).last_usage_by_feature).sort()
 
-  it('keeps only the entry for the model being launched', () => {
-    // Every entry is a standing REQUEST, not a record of an install. Four of
-    // them against a profile that links one model is three fetches: a nano
-    // launch pulling gemma4, a gemma4 launch pulling nano_v3.
-    assert.deepEqual(assets(portableGuide(GUIDE, '/udd/OptGuideManifestModel/hash2b/2026.1.1.1000')), ['gemma4_component'])
-    // Nano's store has no hash in the path, so the version directory is what
-    // names its entry.
-    assert.deepEqual(assets(portableGuide(GUIDE, '/udd/OptGuideOnDeviceModel/2025.1.1.1000')), ['nano_v3_gpu_component'])
-    assert.deepEqual(assets(portableGuide(GUIDE, '/udd/OptGuideManifestModel/hash4b/2026.1.2.1000')), ['gemma4_4b_component'])
+  it('requests the one component the launch links', () => {
+    // Every ledger entry is a standing REQUEST, not a record of an install.
+    // Four of them against a profile that links one model is three fetches:
+    // a nano launch pulling gemma4, a gemma4 launch pulling nano_v3.
+    assert.deepEqual(assets(DIRS.nano), ['nano_v3_gpu_component'])
+    assert.deepEqual(assets(DIRS.twoB), ['gemma4_component'])
+    // Nano's store has no hash in the path, so the version names its entry.
+    assert.deepEqual(assets(DIRS.fourB), ['gemma4_4b_component'])
   })
 
-  it('leaves the rest of the subtree alone', () => {
-    // Emptying the ledger was tried and broke every model: the entry for the
-    // model we DO link is what makes the browser load it. Only the other
-    // entries go, and nothing outside the ledger is touched.
-    const kept = portableGuide(GUIDE, '/udd/OptGuideOnDeviceModel/2025.1.1.1000').optimization_guide
-    assert.deepEqual(kept.on_device, GUIDE.on_device)
-    assert.deepEqual(kept.model_store_metadata, GUIDE.model_store_metadata)
-    assert.deepEqual(kept.model_execution.last_usage_by_feature, GUIDE.model_execution.last_usage_by_feature)
+  it('claims the use case that component answers for, and no other', () => {
+    // The other three read "Pending Assets" in Broker State otherwise: assets
+    // the profile has asked for and cannot find. The names line up with the
+    // asset ids, so the variant is derived rather than tabulated.
+    assert.deepEqual(useCases(DIRS.twoB), ['prompt_api', 'prompt_api_gemma4'])
+    assert.deepEqual(useCases(DIRS.fourB), ['prompt_api', 'prompt_api_gemma4_4b'])
+    // nano has no variant use case at all, only the base one.
+    assert.deepEqual(useCases(DIRS.nano), ['prompt_api'])
   })
 
-  it('leaves the ledger whole when it cannot find our entry', () => {
-    // An unrecognised layout, or a CHROME_MODEL_DIR from elsewhere, should
-    // cost the old nuisance rather than the empty ledger that stops
-    // everything loading.
-    assert.equal(assets(portableGuide(GUIDE, '/tmp/borrowed/weights')).length, 4)
-    assert.equal(assets(portableGuide(GUIDE, undefined)).length, 4)
+  it('selects what it needs rather than subtracting what it does not', () => {
+    // Anything not named here is a claim nobody has reasoned about, so it does
+    // not travel — a Chrome that adds a new ledger cannot quietly start being
+    // carried, and neither can an id identifying somebody's browser.
+    assert.deepEqual(Object.keys(portableGuide(GUIDE, DIRS.nano).optimization_guide).sort(),
+      ['model_execution', 'on_device'])
+    assert.deepEqual(Object.keys(execution(DIRS.nano)).sort(),
+      ['last_usage_by_feature', 'manifest_asset_ledger'])
+    // The device's own measurements travel whole: the cached performance class
+    // is what lets the scratch profile skip the GPU benchmark.
+    assert.deepEqual(portableGuide(GUIDE, DIRS.nano).optimization_guide.on_device, GUIDE.on_device)
+  })
+
+  it('keeps the ledger whole when it cannot find our entry', () => {
+    // The one place this does not select. An unrecognised layout, or a
+    // CHROME_MODEL_DIR from elsewhere, should cost the old nuisance rather
+    // than the empty ledger that stops everything loading — which is what
+    // dropping the subtree wholesale did.
+    assert.equal(assets('/tmp/borrowed/weights').length, 4)
+    assert.equal(assets(undefined).length, 4)
   })
 
   it('does not invent a subtree that was not there', () => {
     // localStateFor spreads this, so {} has to mean "add no key".
-    assert.deepEqual(portableGuide(undefined, '/udd/x'), {})
-    // And a profile with no ledger at all passes through untouched.
-    assert.deepEqual(portableGuide({ on_device: { performance_class: 5 } }, '/udd/x'),
+    assert.deepEqual(portableGuide(undefined, DIRS.nano), {})
+    assert.deepEqual(portableGuide({}, DIRS.nano), {})
+    // And a profile with only device state yields only device state.
+    assert.deepEqual(portableGuide({ on_device: { performance_class: 5 } }, DIRS.nano),
       { optimization_guide: { on_device: { performance_class: 5 } } })
   })
 })

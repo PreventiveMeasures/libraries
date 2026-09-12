@@ -73,30 +73,29 @@ export function graftPlanIn(userDataDir, modelDir) {
   return plan
 }
 
-// Chrome records manifest-model installs in PREFS, not only on disk. A
-// scratch profile with the directories symlinked in still reports every gemma
-// component "Not Installed 0%" under Broker State > Assets, because the
-// ledger that says otherwise lives in Local State. Copying just the
-// optimization_guide subtree carries that across without dragging the rest of
-// somebody's browser state along with it.
+// What a scratch profile inherits from the real one, built by SELECTING the
+// few things it needs rather than by copying the subtree and deleting from it.
+// Everything under optimization_guide is a claim, and the ones that matter are
+// claims about what has been asked for:
 //
-// One entry in it needs narrowing, though. The ledger is a REQUEST list, not
-// an install record — every entry says `requested_version`:
+//   on_device                              the machine describing itself —
+//                                          cached performance class, the GPU it
+//                                          was measured on, the crash count
+//   model_execution.manifest_asset_ledger  one entry per component the profile
+//                                          has REQUESTED, each with an asset_id
+//                                          and a requested_version
+//   model_execution.last_usage_by_feature  one entry per use case the profile
+//                                          has exercised — prompt_api,
+//                                          prompt_api_gemma4, and so on
 //
-//   "manifest_asset_ledger": {
-//     "<hash>": { "asset_id": "nano_v3_gpu_component",  "requested_version": "<version>" },
-//     "<hash>": { "asset_id": "gemma4_component",       "requested_version": "<version>" },
-//     "<hash>": { "asset_id": "gemma4_4b_component",    "requested_version": "<version>" },
-//     "<hash>": { "asset_id": "gemma4_12b_component",   "requested_version": "<version>" }
-//   }
+// Both maps get narrowed to the model being launched, because both are read as
+// standing requests. Carried whole into a profile that links one model, the
+// ledger has Chrome fetch the components it cannot find, and the usage map has
+// it list every other use case as Pending Assets.
 //
-// Copied whole into a profile that links one model, that is four standing
-// requests against one present file, and Chrome honours the other three: a
-// nano launch fetching gemma4, a gemma4 launch fetching nano_v3.
-//
-// Dropping the ledger outright is not the fix — that was tried and broke
-// every model, because the entry for the model we DO link is what makes the
-// browser go and load it. Keep that one, drop the rest.
+// Emptying either is not the fix — dropping the subtree wholesale was tried and
+// broke every model, because the entry for the model we DO link is the request
+// that makes the browser load it.
 export function optimizationGuidePrefs(modelDir) {
   const dir = activeUserDataDir()
   if (!dir) return {}
@@ -105,37 +104,67 @@ export function optimizationGuidePrefs(modelDir) {
   } catch { return {} }
 }
 
-// The keys of the ledger are the content hash a manifest model sits under,
-// and `requested_version` is its version directory — so the linked model's
-// own path names its entry, under either layout:
+// The ledger is keyed by the content hash a manifest model sits under, and
+// `requested_version` is its version directory — so the linked model's own
+// path names its entry, under either layout:
 //
 //   OptGuideManifestModel/<hash>/<version>   both halves match
 //   OptGuideOnDeviceModel/<version>          the version matches
 //
-// If no entry matches, the ledger is left alone. An unrecognised layout, or a
-// CHROME_MODEL_DIR from somewhere else, should cost the old nuisance rather
-// than the empty ledger that stops everything loading.
-function prunedLedger(ledger, modelDir) {
+// When nothing matches, the whole ledger is taken. That is the one place this
+// does not select: an unrecognised layout or a CHROME_MODEL_DIR from elsewhere
+// should cost the old nuisance rather than the empty ledger that stops
+// everything loading.
+function selectLedger(ledger, modelDir) {
   if (!ledger || !modelDir) return ledger
   const parts = new Set(modelDir.split(/[/\\]/u))
   const mine = Object.entries(ledger).filter(([hash, entry]) => parts.has(hash) || parts.has(entry?.requested_version))
   return mine.length > 0 ? Object.fromEntries(mine) : ledger
 }
 
-// Separated from reading the file so what survives can be stated against a
+// Which use case the selected component answers for. The asset ids and the use
+// case names line up — gemma4_component against prompt_api_gemma4,
+// gemma4_4b_component against prompt_api_gemma4_4b — so the name is derived
+// rather than tabulated. nano is the exception that needs no entry of its own:
+// it has no variant use case, only the base prompt_api, and a derived name that
+// is not in the map says exactly that.
+function useCaseFor(usage, ledger) {
+  const assetId = Object.values(ledger ?? {})[0]?.asset_id
+  if (!assetId) return undefined
+  const derived = `prompt_api_${assetId.replace(/_component$/u, '')}`
+  return derived in usage ? derived : undefined
+}
+
+// prompt_api is the feature itself and comes along whatever runs; the variant
+// use case comes along when the model has one. Every other entry — the other
+// sizes, and the summarizer and writing assistance features this provider does
+// not serve — is left behind, since each is a request for assets that are not
+// linked.
+function selectUsage(usage, ledger) {
+  if (!usage) return undefined
+  const mine = useCaseFor(usage, ledger)
+  const wanted = ['prompt_api', mine].filter((name) => name && name in usage)
+  return wanted.length > 0 ? Object.fromEntries(wanted.map((name) => [name, usage[name]])) : undefined
+}
+
+// Separated from reading the file so what is selected can be stated against a
 // subtree written by hand rather than against whichever Chrome the machine
 // running the tests happens to have.
 export function portableGuide(guide, modelDir) {
   if (!guide) return {}
-  const ledger = guide.model_execution?.manifest_asset_ledger
-  if (!ledger) return { optimization_guide: guide }
-  return {
-    optimization_guide: {
-      ...guide,
-      model_execution: { ...guide.model_execution, manifest_asset_ledger: prunedLedger(ledger, modelDir) },
-    },
+  const ledger = selectLedger(guide.model_execution?.manifest_asset_ledger, modelDir)
+  const usage = selectUsage(guide.model_execution?.last_usage_by_feature, ledger)
+  const execution = {
+    ...(ledger ? { manifest_asset_ledger: ledger } : {}),
+    ...(usage ? { last_usage_by_feature: usage } : {}),
   }
+  const selected = {
+    ...(guide.on_device ? { on_device: guide.on_device } : {}),
+    ...(Object.keys(execution).length > 0 ? { model_execution: execution } : {}),
+  }
+  return Object.keys(selected).length > 0 ? { optimization_guide: selected } : {}
 }
+
 
 // The component root — one subdirectory per installed version. Wanted whole
 // rather than just the version: the root is what gets grafted into the
