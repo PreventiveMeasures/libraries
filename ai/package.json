@@ -12,12 +12,13 @@
     }
   },
   "files": [
-    "index.js",
     "index.d.ts",
+    "index.js",
     "src/cache-history.js",
     "src/cache-scan.js",
     "src/cache.js",
     "src/chat.js",
+    "src/chrome.js",
     "src/fetch.js",
     "src/models.js",
     "src/prefix-gate.js",
@@ -52,5 +53,16 @@
   "dependencies": {
     "@chalker/queue": "^1.0.1",
     "undici": "^8.0.3"
+  },
+  "peerDependencies": {
+    "playwright-core": "^1.58.2"
+  },
+  "peerDependenciesMeta": {
+    "playwright-core": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "playwright-core": "^1.58.2"
   }
 }

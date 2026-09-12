@@ -68,6 +68,25 @@ const MODELS = new Map([
   // documented `max_completion_tokens` default rather than its 1,048,576
   // ceiling — the cap is an output budget, not a context length.
   ['moonshotai/kimi-k3', { input: 3, output: 15, maxTokens: 131_072, canThink: true, noThink: 'unsupported', efforts: ['low', 'high', 'max'] }],
+  // Chrome's built-in on-device models, served by the browser rather than by
+  // an API — see chrome.js. Zero at every rate: the weights are already on the
+  // machine, and the compute was paid for when the machine was bought. NOT
+  // `free`, which in this table means a hosted model that may log and train on
+  // what it is sent — the opposite of what these are.
+  //
+  // `baseModel` is the on-device base model spec the row expects Chrome to
+  // hold. The Prompt API exposes no model selector — a page gets whatever
+  // Chrome has installed — so the id does two other jobs instead: it keys the
+  // response cache apart, and it picks which weights directory the adapter
+  // names on Chrome's command line.
+  //
+  // `maxTokens` is advisory. Everywhere else in this table it is an output
+  // budget, and the Prompt API accepts no output cap at all, so the adapter
+  // sends none; what actually binds is the session's context window, which
+  // Chrome reports back on every response.
+  ['chrome/nano_v3', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'nano_v3' }],
+  ['chrome/gemma4', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4' }],
+  ['chrome/gemma4_4b', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_4b' }],
   // Free models — may log/store/use your data
   ['openai/gpt-oss-120b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['openai/gpt-oss-20b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
@@ -260,6 +279,13 @@ export function effortsFor(model) {
 // even though they share a price and a token rate.
 export function wireModelFor(model) {
   return MODELS.get(resolveModel(model))?.wireModel ?? model
+}
+
+// The on-device base model spec a local row expects — `nano_v3`, `gemma4`,
+// `gemma4_4b`. Undefined for every hosted row, which is what tells the
+// adapter a model is not one of Chrome's.
+export function baseModelFor(model) {
+  return MODELS.get(resolveModel(model))?.baseModel
 }
 
 export function reasoningModeFor(model) {

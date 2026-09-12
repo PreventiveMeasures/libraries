@@ -18,6 +18,16 @@ export const isMaxTokensTruncation = (error) => typeof error === 'string' && err
 // field. Centralised so the body builder and the extra-headers method
 // can't drift.
 const TASK_BUDGET_BETA = 'task-budgets-2026-03-13'
+// JSON-parse a model-supplied tool-call args string. A malformed string is
+// a model hallucination, not our bug — surface it via `argsError` instead
+// of throwing so the caller's retry loop can handle it gracefully. Shared:
+// every adapter that carries tool args as a string parses them this way.
+export function parseArgs(raw, name) {
+  try { return { args: JSON.parse(raw) } } catch (err) {
+    return { argsError: `Tool call ${name}: malformed JSON args (${err.message})` }
+  }
+}
+
 export function stripNamespace(model, prefix) {
   return model.startsWith(prefix) ? model.slice(prefix.length) : model
 }

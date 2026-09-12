@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
+import { CHROME_SHAPE, chromePreflight, closeChrome, sendChromeTurn } from './chrome.js'
+import { fetchJSON } from './fetch.js'
 import { effortsFor, reasoningModeFor, wireModelFor } from './models.js'
-import { anthropicAuthHeader, anthropicShape, stripNamespace, toAnthropicModel, truncationError } from './wire-formats.js'
+import { anthropicAuthHeader, anthropicShape, parseArgs, stripNamespace, toAnthropicModel, truncationError } from './wire-formats.js'
 
 export { isMaxTokensTruncation } from './wire-formats.js'
 import { cachesConversation, chatCompletionsInitialUserMessage, chatCompletionsSystemMessage, flattenUserContent, isAnthropicRoute, isOpenAIRoute, responsesInitialUserMessage } from './prompt-cache.js'
@@ -15,15 +17,6 @@ function toChatCompletionsTool(tool) {
 // (no nested `function: {...}` wrapper as in chat completions).
 function toOpenAIResponsesTool(tool) {
   return { type: 'function', name: tool.name, description: tool.description, parameters: tool.input_schema }
-}
-
-// JSON-parse a model-supplied tool-call args string. A malformed string is
-// a model hallucination, not our bug — surface it via `argsError` instead
-// of throwing so the caller's retry loop can handle it gracefully.
-function parseArgs(raw, name) {
-  try { return { args: JSON.parse(raw) } } catch (err) {
-    return { argsError: `Tool call ${name}: malformed JSON args (${err.message})` }
-  }
 }
 
 // Resolve the effort level a non-Anthropic request carries, or undefined for
@@ -348,6 +341,19 @@ const ADAPTERS = {
     apiKeyEnv: 'AI_GATEWAY_API_KEY',
   }),
 
+  // Chrome's built-in on-device model — the one adapter with no endpoint and
+  // no key. `local: true` is what tells setProvider to check for a browser
+  // and resident weights instead of a URL and a key, and what routes
+  // sendRequest through the browser instead of through fetchJSON. Everything
+  // about reaching it lives in chrome.js.
+  chrome: {
+    local: true,
+    preflight: chromePreflight,
+    send: sendChromeTurn,
+    close: closeChrome,
+    ...CHROME_SHAPE,
+  },
+
   // Moonshot's own platform (platform.kimi.ai / api.moonshot.ai), the
   // direct route to Kimi K3. OpenAI-compatible chat completions, so the
   // whole response side is shared — see chatCompletionsBase.
@@ -387,12 +393,32 @@ let provider
 export function setProvider(name) {
   assert.ok(Object.hasOwn(ADAPTERS, name), `Unknown provider: ${name}. Use: ${Object.keys(ADAPTERS).join(', ')}`)
   const adapter = ADAPTERS[name]
+  // A local provider has neither a key nor a URL to check — the model is on
+  // this machine — so it vets its own preconditions instead. Either way the
+  // run fails HERE, at selection, rather than on the first turn.
+  if (adapter.local) {
+    adapter.preflight()
+    provider = { ...adapter, name, apiKeyValue: null }
+    return
+  }
   const key = adapter.apiKey()
   assert.ok(key, `Missing API key for ${name}`)
   // Only a gateway entry can be missing one, and only when its origin env var
   // is unset — every other adapter hardcodes its endpoint.
   assert.ok(adapter.url, `Missing API URL for ${name}. Set ${adapter.apiUrlEnv}.`)
   provider = { ...adapter, name, apiKeyValue: key }
+}
+
+// Release whatever the active provider is holding open. Only the local one
+// holds anything — a browser process, which keeps the event loop alive until
+// it is closed — so for every other provider this is a no-op, and a caller
+// can end a run with it unconditionally.
+//
+// Releases the resource without deselecting the provider: a caller that
+// closes and then issues another request gets a fresh browser rather than a
+// crash, the same way a connection pool reopens.
+export async function closeProvider() {
+  await provider?.close?.()
 }
 
 // Identifies the wire format a history entry was written under, for
@@ -440,6 +466,17 @@ export function buildRequestHeaders(opts = {}) {
 // wire format; per-model for a gateway, which speaks two.
 export function buildRequestUrl(model) {
   return provider.urlFor?.(model) ?? provider.url
+}
+
+// Where a turn actually goes. Every adapter but one posts JSON to an
+// endpoint; the local one runs the turn in a browser it owns. Which of those
+// happens is the adapter's to say rather than the caller's, so the choice
+// lives here beside the rest of the dispatch surface and issueTurn stays one
+// code path.
+export function sendRequest(model, body, { taskBudget = false, debug, label } = {}) {
+  if (provider.send) return provider.send(model, body, { debug, label })
+  const headers = buildRequestHeaders({ taskBudget, model })
+  return fetchJSON(buildRequestUrl(model), { method: 'POST', headers, body: JSON.stringify(body) }, { debug, label })
 }
 
 export function checkResponse(json) {

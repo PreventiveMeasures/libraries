@@ -1,6 +1,5 @@
-import { fetchJSON } from './fetch.js'
 import { canTaskBudget } from './models.js'
-import { buildRequestBody, buildRequestHeaders, buildRequestUrl, checkResponse, isMaxTokensTruncation } from './providers.js'
+import { buildRequestBody, checkResponse, isMaxTokensTruncation, sendRequest } from './providers.js'
 
 // Resolve the user-facing --task-budget mode into the two flags
 // issueTurn consumes: `always` is what every request goes out with;
@@ -24,8 +23,9 @@ export function resolveTaskBudget(model, mode) {
 export async function issueTurn({ model, maxTokens, systemPrompt, messages, think, effort, tools, label, turn, taskBudgetAlways, taskBudgetOnError, debug }) {
   const send = async (useTaskBudget, suffix) => {
     const req = buildRequestBody(model, maxTokens, systemPrompt, messages, { think, effort, tools, taskBudget: useTaskBudget, turn })
-    const headers = buildRequestHeaders({ taskBudget: useTaskBudget, model })
-    const res = await fetchJSON(buildRequestUrl(model), { method: 'POST', headers, body: JSON.stringify(req) }, { debug, label: `${label} (turn ${turn}${suffix})` })
+    // Not fetchJSON directly: one provider serves its turns out of a browser
+    // rather than over HTTP, and which it is belongs to the adapter.
+    const res = await sendRequest(model, req, { taskBudget: useTaskBudget, debug, label: `${label} (turn ${turn}${suffix})` })
     return { request: req, response: res }
   }
 
