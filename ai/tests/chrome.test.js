@@ -194,7 +194,6 @@ describe('chrome inherited prefs', () => {
   }
   const execution = (dir) => portableGuide(GUIDE, dir).optimization_guide.model_execution
   const assets = (dir) => Object.values(execution(dir).manifest_asset_ledger).map((e) => e.asset_id).sort()
-  const useCases = (dir) => Object.keys(execution(dir).last_usage_by_feature).sort()
 
   it('requests the one component the launch links', () => {
     // Every ledger entry is a standing REQUEST, not a record of an install.
@@ -206,14 +205,15 @@ describe('chrome inherited prefs', () => {
     assert.deepEqual(assets(DIRS.fourB), ['gemma4_4b_component'])
   })
 
-  it('claims the use case that component answers for, and no other', () => {
-    // The other three read "Pending Assets" in Broker State otherwise: assets
-    // the profile has asked for and cannot find. The names line up with the
-    // asset ids, so the variant is derived rather than tabulated.
-    assert.deepEqual(useCases(DIRS.twoB), ['prompt_api', 'prompt_api_gemma4'])
-    assert.deepEqual(useCases(DIRS.fourB), ['prompt_api', 'prompt_api_gemma4_4b'])
-    // nano has no variant use case at all, only the base one.
-    assert.deepEqual(useCases(DIRS.nano), ['prompt_api'])
+  it('claims no use cases at all', () => {
+    // last_usage_by_feature is a timestamp per use case the REAL profile has
+    // exercised. Carried over, it listed prompt_api_gemma4, _gemma4_4b and
+    // _gemma4_12b as Pending Assets on a nano launch — three use cases claimed
+    // against assets that are not linked. A scratch profile has exercised
+    // nothing, so it declares nothing.
+    for (const dir of Object.values(DIRS)) {
+      assert.deepEqual(Object.keys(execution(dir)), ['manifest_asset_ledger'])
+    }
   })
 
   it('selects what it needs rather than subtracting what it does not', () => {
@@ -222,8 +222,7 @@ describe('chrome inherited prefs', () => {
     // carried, and neither can an id identifying somebody's browser.
     assert.deepEqual(Object.keys(portableGuide(GUIDE, DIRS.nano).optimization_guide).sort(),
       ['model_execution', 'on_device'])
-    assert.deepEqual(Object.keys(execution(DIRS.nano)).sort(),
-      ['last_usage_by_feature', 'manifest_asset_ledger'])
+    assert.deepEqual(Object.keys(execution(DIRS.nano)), ['manifest_asset_ledger'])
     // The device's own measurements travel whole: the cached performance class
     // is what lets the scratch profile skip the GPU benchmark.
     assert.deepEqual(portableGuide(GUIDE, DIRS.nano).optimization_guide.on_device, GUIDE.on_device)

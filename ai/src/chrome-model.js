@@ -84,18 +84,20 @@ export function graftPlanIn(userDataDir, modelDir) {
 //   model_execution.manifest_asset_ledger  one entry per component the profile
 //                                          has REQUESTED, each with an asset_id
 //                                          and a requested_version
-//   model_execution.last_usage_by_feature  one entry per use case the profile
-//                                          has exercised — prompt_api,
-//                                          prompt_api_gemma4, and so on
 //
-// Both maps get narrowed to the model being launched, because both are read as
-// standing requests. Carried whole into a profile that links one model, the
-// ledger has Chrome fetch the components it cannot find, and the usage map has
-// it list every other use case as Pending Assets.
+// The ledger is narrowed to the model being launched. Carried whole into a
+// profile that links one model, it has Chrome go and fetch every component it
+// cannot find — a nano launch pulling gemma4, a gemma4 launch pulling nano_v3.
 //
-// Emptying either is not the fix — dropping the subtree wholesale was tried and
+// Emptying it is not the fix: dropping the subtree wholesale was tried and
 // broke every model, because the entry for the model we DO link is the request
 // that makes the browser load it.
+//
+// last_usage_by_feature — a timestamp per use case the real profile has
+// exercised — does not travel at all. Carried over, it was what listed
+// prompt_api_gemma4, _gemma4_4b and _gemma4_12b as Pending Assets on a nano
+// launch: three use cases claimed against assets that are not linked. A
+// scratch profile has exercised nothing, so it has nothing to declare.
 export function optimizationGuidePrefs(modelDir) {
   const dir = activeUserDataDir()
   if (!dir) return {}
@@ -122,45 +124,15 @@ function selectLedger(ledger, modelDir) {
   return mine.length > 0 ? Object.fromEntries(mine) : ledger
 }
 
-// Which use case the selected component answers for. The asset ids and the use
-// case names line up — gemma4_component against prompt_api_gemma4,
-// gemma4_4b_component against prompt_api_gemma4_4b — so the name is derived
-// rather than tabulated. nano is the exception that needs no entry of its own:
-// it has no variant use case, only the base prompt_api, and a derived name that
-// is not in the map says exactly that.
-function useCaseFor(usage, ledger) {
-  const assetId = Object.values(ledger ?? {})[0]?.asset_id
-  if (!assetId) return undefined
-  const derived = `prompt_api_${assetId.replace(/_component$/u, '')}`
-  return derived in usage ? derived : undefined
-}
-
-// prompt_api is the feature itself and comes along whatever runs; the variant
-// use case comes along when the model has one. Every other entry — the other
-// sizes, and the summarizer and writing assistance features this provider does
-// not serve — is left behind, since each is a request for assets that are not
-// linked.
-function selectUsage(usage, ledger) {
-  if (!usage) return undefined
-  const mine = useCaseFor(usage, ledger)
-  const wanted = ['prompt_api', mine].filter((name) => name && name in usage)
-  return wanted.length > 0 ? Object.fromEntries(wanted.map((name) => [name, usage[name]])) : undefined
-}
-
 // Separated from reading the file so what is selected can be stated against a
 // subtree written by hand rather than against whichever Chrome the machine
 // running the tests happens to have.
 export function portableGuide(guide, modelDir) {
   if (!guide) return {}
   const ledger = selectLedger(guide.model_execution?.manifest_asset_ledger, modelDir)
-  const usage = selectUsage(guide.model_execution?.last_usage_by_feature, ledger)
-  const execution = {
-    ...(ledger ? { manifest_asset_ledger: ledger } : {}),
-    ...(usage ? { last_usage_by_feature: usage } : {}),
-  }
   const selected = {
     ...(guide.on_device ? { on_device: guide.on_device } : {}),
-    ...(Object.keys(execution).length > 0 ? { model_execution: execution } : {}),
+    ...(ledger ? { model_execution: { manifest_asset_ledger: ledger } } : {}),
   }
   return Object.keys(selected).length > 0 ? { optimization_guide: selected } : {}
 }
