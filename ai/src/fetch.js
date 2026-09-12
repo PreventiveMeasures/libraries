@@ -13,20 +13,6 @@ export const RETRIES = 2
 
 const delay = (ms) => new Promise((resolve) => { setTimeout(resolve, ms) })
 
-// The wait between attempts, behind a seam. Production never replaces it;
-// the retry tests do, because what is worth asserting about a backoff is
-// the number of milliseconds the loop ASKED for, and paying them proves
-// less than reading them does — elapsed wall-clock can only ever say "at
-// least". Sleeping them for real cost this suite fifteen seconds, nearly
-// all of its runtime. Internal: index.js does not re-export it, and the
-// `exports` map in package.json does not expose this file, so the seam is
-// reachable from tests/ and from nowhere a consumer can stand.
-let sleep = delay
-
-export function setRetrySleep(fn = delay) {
-  sleep = fn
-}
-
 // Global cap on in-flight model requests. The file-level queue in runner.js
 // orders work so cache-adjacent requests stay close together, but it can't
 // cap fan-out inside a single slot (e.g. isolate mode fires one request per
@@ -212,7 +198,7 @@ export async function fetchJSON(url, options, { debug, label } = {}) {
           used[kind] = attempt + 1
           const wait = transient ? retryDelayMs(attempt, err.retryAfter) : BASE_DELAY
           console.error(`[retry ${attempt + 1}/${budget} in ${(wait / 1000).toFixed(1)}s] ${retryReason(err)}`)
-          await sleep(wait)
+          await delay(wait)
           continue
         }
         throw err
