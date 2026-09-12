@@ -6,6 +6,8 @@ settings:
 
 importers:
 
+  .: {}
+
   ai:
     dependencies:
       '@chalker/queue':

@@ -31,7 +31,7 @@
   },
   "scripts": {
     "lint": "node --run lint:js",
-    "lint:js": "oxlint -c .oxlintrc.json ./index.js ./src ./tests",
+    "lint:js": "oxlint -c ../.oxlintrc.json ./index.js ./src ./tests",
     "test": "node --test --test-isolation=none ./tests/*.test.js"
   },
   "license": "MIT",
