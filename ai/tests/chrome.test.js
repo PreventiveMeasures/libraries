@@ -4,7 +4,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { chromePreflight, findModelDir, isScratchProfile, launchArgs, localStateFor, removeProfileDir, turnInPage, waitUntilReady } from '../src/chrome.js'
-import { identifiesAs } from '../src/chrome-model.js'
+import { graftPlanIn, identifiesAs } from '../src/chrome-model.js'
 import { CHROME_SHAPE, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome-wire.js'
 import { baseModelFor, calculateCost, getMaxTokens, modelVersionFor, specNamesFor } from '../src/models.js'
 import { setProvider } from '../src/providers.js'
@@ -106,16 +106,74 @@ describe('chrome foundational model version', () => {
   })
 })
 
+describe('chrome profile graft', () => {
+  // Stated against paths, not against whichever Chrome this machine has, so
+  // it runs on CI too. The ledger is absent from a made-up user data dir,
+  // which leaves exactly the model entries under test.
+  const UDD = '/udd'
+  const plan = (modelDir) => graftPlanIn(UDD, modelDir)
+
+  it('links the one requested model, not every installed one', () => {
+    // Linking the component roots whole put all four models in front of the
+    // browser. The requested one is known at launch, so nothing else needs to
+    // be visible — and with only a leaf linked, the parent directories inside
+    // the profile are real, so nothing Chrome writes beside it can reach the
+    // user's own component tree.
+    assert.deepEqual(plan('/udd/OptGuideManifestModel/abc123/2026.1.2.1000'), [
+      { from: '/udd/OptGuideManifestModel/abc123/2026.1.2.1000', rel: 'OptGuideManifestModel/abc123/2026.1.2.1000' },
+    ])
+  })
+
+  it('mirrors the path rather than flattening it', () => {
+    // The two stores nest differently and Chrome reads the shape, so a link
+    // has to land where the original sat: one level down for nano, two for
+    // the gemma models, which key a content hash above the version.
+    assert.deepEqual(plan('/udd/OptGuideOnDeviceModel/2025.1.1.1000').at(-1).rel, 'OptGuideOnDeviceModel/2025.1.1.1000')
+    assert.deepEqual(plan('/udd/OptGuideManifestModel/h/2026.1.3.1000').at(-1).rel, 'OptGuideManifestModel/h/2026.1.3.1000')
+  })
+
+  it('skips a model dir that has no place inside the profile', () => {
+    // CHROME_MODEL_DIR can point anywhere. There is no position to mirror,
+    // and the override switch names it outright, so it is not linked rather
+    // than linked somewhere invented — in particular never at a rel that
+    // climbs out of the profile.
+    assert.deepEqual(plan('/tmp/some/borrowed/weights'), [])
+    assert.deepEqual(plan('/udd/../elsewhere/weights'), [])
+  })
+
+  it('links nothing at all when there is no Chrome to borrow from', () => {
+    assert.deepEqual(graftPlanIn(undefined, '/udd/OptGuideOnDeviceModel/1'), [])
+    assert.deepEqual(plan(undefined), [])
+  })
+})
+
+describe('chrome missing model', () => {
+  it('sends the caller to chrome://on-device-internals rather than downloading', (t) => {
+    // The provider does not download, and neither may the browser it
+    // launches, so a model Chrome has not got is a stop with somewhere to go.
+    const dir = mkdtempSync(join(tmpdir(), 'ai-chrome-test-missing-'))
+    t.after(() => { rmSync(dir, { recursive: true, force: true }); delete process.env.CHROME_MODEL_DIR })
+    let err
+    try { findModelDir('gemma4_12b') } catch (e) { err = e }
+    // A machine that happens to HAVE a 12b installed proves nothing here.
+    if (!err) { t.skip('this machine has the model'); return }
+    assert.match(err.message, /chrome:\/\/on-device-internals/u)
+    assert.match(err.message, /will not download/u)
+    // And the escape hatch for a model Chrome merely renamed.
+    assert.match(err.message, /specNames/u)
+  })
+})
+
 describe('chrome launch switches', () => {
   const args = launchArgs('/models/nano')
 
   it('never lets the browser fetch a model', () => {
-    // Asking for Gemma 4 turns on the manifest broker, which fetched a 6.1 GB
-    // gemma4_12b — through the grafted symlinks into the user's real component
-    // directories, not into the scratch profile that asked. Downloading is the
-    // one thing this provider exists not to do, so the component updater is
-    // pointed at an address that cannot answer. Port 1 is on Chrome's
-    // restricted list: the attempt dies as ERR_UNSAFE_PORT without a socket.
+    // Asking for Gemma 4 turns on the manifest broker, which started a 6.1 GB
+    // foreground install of a gemma4_12b the profile did not have, over again
+    // on every launch. Downloading is the one thing this provider exists not
+    // to do, so the component updater is pointed at an address that cannot
+    // answer. Port 1 is on Chrome's restricted list: the attempt dies as
+    // ERR_UNSAFE_PORT without a socket.
     const guard = args.find((a) => a.startsWith('--component-updater='))
     assert.ok(guard, 'expected the component updater to be redirected')
     assert.match(guard, /url-source=http:\/\/127\.0\.0\.1:1\//u)

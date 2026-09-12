@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join, relative } from 'node:path'
 import { modelVersionFor, specNamesFor } from './models.js'
 
 // Where the on-device weights are, which is a separate question from how the
@@ -12,8 +12,9 @@ import { modelVersionFor, specNamesFor } from './models.js'
 export const MODEL_COMPONENTS = ['OptGuideOnDeviceModel', 'OptGuideManifestModel']
 
 // Grafted into the scratch profile but never searched for weights: this one
-// records which manifest models exist rather than holding any.
-export const GRAFTED_COMPONENTS = [...MODEL_COMPONENTS, 'OptimizationGuideModelsManifest']
+// records which manifest models exist rather than holding any. Small, and not
+// a model, so it goes across whole.
+const LEDGER_COMPONENT = 'OptimizationGuideModelsManifest'
 
 // Where Chrome keeps its user data, and so the component tree inside it.
 // Only consulted to FIND already-downloaded weights — which Chrome runs is
@@ -39,12 +40,37 @@ export function activeUserDataDir() {
   return undefined
 }
 
-// Everything worth linking into a scratch profile, including the manifest
-// component that is not a weights store.
-export function graftableRoots() {
-  const dir = activeUserDataDir()
-  if (!dir) return []
-  return GRAFTED_COMPONENTS.map((component) => join(dir, component)).filter((root) => existsSync(root))
+// What to link into a scratch profile, as {from, rel} pairs: `from` is the
+// real path, `rel` is where it goes relative to the profile root.
+//
+// Only the ONE model that was asked for. Linking the component roots whole
+// put every installed model in front of the browser, which is both more than
+// the run needs and more than it should be offered — the requested model is
+// known here, so nothing else has to be visible. The paths are mirrored
+// rather than flattened, since the two stores nest differently
+// (OptGuideOnDeviceModel/<version> against
+// OptGuideManifestModel/<hash>/<version>) and Chrome reads the shape.
+//
+// The ledger goes across whole: it is a record of which manifest models
+// exist, not a model, and there is nothing in it to narrow.
+export function graftPlan(modelDir) {
+  return graftPlanIn(activeUserDataDir(), modelDir)
+}
+
+// The decision, separated from finding the profile it applies to, so it can be
+// stated against paths rather than against whichever Chrome the machine
+// running the tests happens to have.
+export function graftPlanIn(userDataDir, modelDir) {
+  if (!userDataDir) return []
+  const plan = []
+  const ledger = join(userDataDir, LEDGER_COMPONENT)
+  if (existsSync(ledger)) plan.push({ from: ledger, rel: LEDGER_COMPONENT })
+  // A CHROME_MODEL_DIR pointing outside the user data dir has no position
+  // inside the profile to mirror; the override switch names it outright and
+  // is enough on its own.
+  const rel = modelDir ? relative(userDataDir, modelDir) : ''
+  if (rel && !rel.startsWith('..') && !isAbsolute(rel)) plan.push({ from: modelDir, rel })
+  return plan
 }
 
 // Chrome records manifest-model installs in PREFS, not only on disk. A
@@ -193,16 +219,37 @@ export function findModelDir(baseModel) {
     return override
   }
   const all = modelComponentRoots().flatMap((root) => candidateModelDirs(root))
-  if (all.length === 0) return undefined
+  // The unnamed call is a "is there anything at all" probe — chromePreflight
+  // and the on-device tests both use it that way — so it answers rather than
+  // throws.
+  if (!baseModel) return all.length > 0 ? all.sort((a, b) => compareVersions(a.version, b.version)).at(-1).dir : undefined
   all.sort((a, b) => compareVersions(a.version, b.version))
-  if (!baseModel) return all.at(-1).dir
   const matches = all.filter(({ dir }) => identifiesAs(dir, baseModel))
   if (matches.length > 0) return matches.at(-1).dir
+  throw new Error(missingModelMessage(baseModel, all))
+}
+
+// Asking for a model Chrome does not have is a stop, not something to work
+// around: the provider does not download, and the browser it launches cannot
+// either. So the message says where the model does come from.
+//
+// The list of what IS installed distinguishes the two ways to get here. If
+// nothing resembles the request, it was never downloaded. If something does,
+// Chrome has renamed it and the fix is a one-line edit rather than a
+// multi-gigabyte fetch — which is why the spec names live on the registry row
+// in the first place.
+function missingModelMessage(baseModel, all) {
   const wanted = [...specNamesFor(baseModel), componentNameFor(baseModel)]
-  throw new Error(
-    `No installed on-device model declares itself as ${wanted.map((n) => `"${n}"`).join(' or ')}. ` +
-    `Found: ${all.map((m) => `${declaredSpec(m.dir) ?? 'unnamed'} at ${m.dir}`).join('; ')}. ` +
-    'Add the name to specNames in models.js, or set CHROME_MODEL_DIR.',
+  const found = all.length > 0
+    ? all.map((m) => `${declaredSpec(m.dir) ?? 'unnamed'} at ${m.dir}`).join('; ')
+    : 'nothing'
+  return (
+    `Chrome has no on-device model for ${baseModel}. Open Chrome, go to chrome://on-device-internals, ` +
+    'and request it there — this provider reuses what Chrome has downloaded and will not download a ' +
+    `copy of its own. Installed instead: ${found}. ` +
+    `If one of those IS ${baseModel}, Chrome has renamed it: the expected names are ` +
+    `${wanted.map((n) => `"${n}"`).join(' or ')}, so add the new one to specNames in models.js, ` +
+    'or point CHROME_MODEL_DIR at the directory.'
   )
 }
 

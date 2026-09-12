@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { baseModelFor } from './models.js'
-import { chromePreflight, findModelDir, graftableRoots, localStateFor } from './chrome-model.js'
+import { chromePreflight, findModelDir, graftPlan, localStateFor } from './chrome-model.js'
 import { outputLanguage, toChatCompletions } from './chrome-wire.js'
 
 // Re-exported so callers keep one entry point for the provider.
@@ -282,11 +282,15 @@ export function launchArgs(modelDir) {
 async function openBrowser(profile, modelDir, debug) {
   // The override switch below is what Chrome reads to load the model, but the
   // component installer decides whether anything is MISSING, and a profile
-  // that looks complete never starts a download. Best effort on each root:
-  // the switch alone suffices, and a filesystem that refuses a link should
-  // not take the provider down with it.
-  for (const root of graftableRoots()) {
-    try { symlinkSync(root, join(profile, basename(root)), 'junction') } catch { /* the switch covers us */ }
+  // that looks complete never starts a download. Only the requested model is
+  // linked, at the same depth it sits in the real profile. Best effort on
+  // each: the switch alone suffices, and a filesystem that refuses a link
+  // should not take the provider down with it.
+  for (const { from, rel } of graftPlan(modelDir)) {
+    try {
+      mkdirSync(join(profile, dirname(rel)), { recursive: true })
+      symlinkSync(from, join(profile, rel), 'junction')
+    } catch { /* the switch covers us */ }
   }
   const { chromium } = await loadPlaywright()
   const browser = await chromium.launchPersistentContext(profile, {
