@@ -134,16 +134,25 @@ const STALE_MS = 6 * 60 * 60 * 1000
 // did is not a temp directory: these profiles contain a symlink to the user's
 // model store, so a wrong path plus a wrong follow is gigabytes of somebody
 // else's data.
-export function removeProfileDir(dir) {
-  // Not "contains" — starts with. Every profile is built by mkdtemp from
-  // exactly this prefix, so anchoring to it rules out a path that merely has
-  // ai-chrome- somewhere inside, and rules out anything outside the temp dir
-  // whatever it is called. Recomputed per call rather than cached, so it
-  // still matches how the path was built if TMPDIR moves under us.
+// The decision, separated from the act so it can be tested without calling
+// anything that deletes. Checking the guard by asking removeProfileDir to
+// refuse '' or '/' means a regressed guard deletes the cwd or the root during
+// the very test meant to catch it.
+//
+// Not "contains" — starts with. Every profile is built by mkdtemp from
+// exactly this prefix, so anchoring to it rules out a path that merely has
+// ai-chrome- somewhere inside, and rules out anything outside the temp dir
+// whatever it is called. Recomputed per call rather than cached, so it still
+// matches how the path was built if TMPDIR moves under us.
+export function isScratchProfile(dir) {
   const root = join(tmpdir(), PROFILE_PREFIX)
+  return typeof dir === 'string' && dir.startsWith(root) && dir.length > root.length
+}
+
+export function removeProfileDir(dir) {
   assert.ok(
-    typeof dir === 'string' && dir.startsWith(root) && dir.length > root.length,
-    `refusing to recursively delete a path that is not one of our scratch profiles (expected ${root}*): ${dir}`,
+    isScratchProfile(dir),
+    `refusing to recursively delete a path that is not one of our scratch profiles (expected ${join(tmpdir(), PROFILE_PREFIX)}*): ${dir}`,
   )
   rmSync(dir, { recursive: true, force: true })
 }

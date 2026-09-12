@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
-import { chromePreflight, findModelDir, removeProfileDir, turnInPage, waitUntilReady } from '../src/chrome.js'
+import { chromePreflight, findModelDir, isScratchProfile, removeProfileDir, turnInPage, waitUntilReady } from '../src/chrome.js'
 import { identifiesAs } from '../src/chrome-model.js'
 import { CHROME_SHAPE, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome-wire.js'
 import { baseModelFor, calculateCost, getMaxTokens, specNamesFor } from '../src/models.js'
@@ -270,37 +270,17 @@ describe('chrome tool schema helpers', () => {
 })
 
 describe('chrome scratch-profile cleanup', () => {
-  it('refuses to recursively delete anything that is not a scratch profile', () => {
-    // The guard exists because the blast radius is not a temp directory: a
-    // profile holds a symlink to the user's model store, so a wrong path is
-    // gigabytes of somebody else's data. Every recursive delete in the
-    // provider goes through here.
-    const outsider = mkdtempSync(join(tmpdir(), 'not-ours-'))
-    writeFileSync(join(outsider, 'keep.txt'), 'still here')
-    assert.throws(() => removeProfileDir(outsider), /not one of our scratch profiles/u)
-    assert.equal(readFileSync(join(outsider, 'keep.txt'), 'utf8'), 'still here')
-    rmSync(outsider, { recursive: true, force: true })
-
-    // Every path below is either empty or one that does not exist, so this
-    // test cannot destroy anything even if the guard it checks regresses.
-    // Real directories are deliberately absent: asserting that '/' or the
-    // temp root is refused would, the day the guard broke, delete them —
-    // a test whose failure mode is the disaster it exists to prevent.
-    for (const bad of ['', undefined, null]) {
-      assert.throws(() => removeProfileDir(bad), /not one of our scratch profiles/u, `should refuse ${bad}`)
+  it('recognises only its own scratch profiles', () => {
+    // The predicate, not the delete. Asking removeProfileDir to refuse ''
+    // or '/' would, the day the guard regressed, delete the cwd or the root
+    // from inside the test written to catch that — so nothing here calls a
+    // function that can remove a file.
+    for (const bad of ['', undefined, null, 0, {}, [], '/', '/tmp', tmpdir(),
+      join(tmpdir(), 'ai-chrome-'), join(tmpdir(), 'nested', 'ai-chrome-x'),
+      join(homedir(), 'ai-chrome-elsewhere')]) {
+      assert.equal(isScratchProfile(bad), false, `should not accept ${JSON.stringify(bad)}`)
     }
-
-    // Anchored to the temp dir, so the prefix appearing elsewhere in a path
-    // is not enough, and neither is the bare prefix with no mkdtemp suffix.
-    const nonexistent = [
-      join(homedir(), 'ai-chrome-elsewhere-does-not-exist'),
-      join(tmpdir(), 'nested-does-not-exist', 'ai-chrome-x'),
-      join(tmpdir(), 'ai-chrome-'),
-    ]
-    for (const path of nonexistent) {
-      assert.equal(existsSync(path), false, `fixture must not exist: ${path}`)
-      assert.throws(() => removeProfileDir(path), /not one of our scratch profiles/u)
-    }
+    assert.equal(isScratchProfile(join(tmpdir(), 'ai-chrome-abc123')), true)
   })
 
   it('removes a directory that IS one of ours', () => {
