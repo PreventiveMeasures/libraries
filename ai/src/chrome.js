@@ -315,21 +315,25 @@ export async function waitUntilReady(tab, debug) {
   while (Date.now() < deadline) {
     last = await tab.evaluate(async () => {
       if (typeof LanguageModel === 'undefined') return 'no-binding'
-      const controller = new AbortController()
-      let downloading = false
       try {
         const probe = await LanguageModel.create({
-          signal: controller.signal,
+          // Watched, not policed. `downloadprogress` also fires while Chrome
+          // prepares weights it ALREADY has, so treating a sub-complete event
+          // as a network fetch aborted every legitimate warm-up — which is
+          // what it did, about ten seconds into every run.
+          //
+          // Nothing is needed here to prevent a download anyway:
+          // --disable-component-update, which playwright passes and this
+          // launch keeps, is what actually stops Chrome fetching its own
+          // copy. A guard in the page was never the thing holding that line.
           monitor: (m) => m.addEventListener('downloadprogress', (e) => {
-            // Anything short of complete means Chrome started fetching its
-            // own copy. Stop it rather than let it run to four gigabytes.
-            if (e.loaded < 1) { downloading = true; controller.abort() }
+            globalThis.__aiChromeProgress = e.loaded
           }),
         })
         probe.destroy()
         return 'ready'
       } catch (err) {
-        return downloading ? 'downloading' : `${err.name}: ${err.message}`
+        return `${err.name}: ${err.message}`
       }
     })
     if (last === 'ready') {
@@ -337,8 +341,9 @@ export async function waitUntilReady(tab, debug) {
       return
     }
     if (last === 'no-binding') throw new Error('LanguageModel is not exposed — this is not a branded Chrome')
-    if (last === 'downloading') {
-      throw new Error('Chrome started downloading its own copy of the model, which this provider does not allow. The borrowed weights are not visible to the scratch profile; set CHROME_MODEL_DIR.')
+    if (debug) {
+      const loaded = await tab.evaluate(() => globalThis.__aiChromeProgress)
+      console.debug(`[chrome] warming: ${last}${loaded === undefined ? '' : ` (progress ${(loaded * 100).toFixed(0)}%)`}`)
     }
     await new Promise((resolve) => { setTimeout(resolve, READY_POLL_MS) })
   }

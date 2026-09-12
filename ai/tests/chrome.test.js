@@ -412,19 +412,24 @@ describe('chrome page round-trip', async () => {
     assert.equal(await page.evaluate(() => globalThis.__creates), 1, 'should have asked for a session')
   })
 
-  it('aborts rather than let Chrome download its own copy of the weights', { skip }, async () => {
-    // A download here would be several gigabytes the user already has.
+  it('does not mistake load progress for a download', { skip }, async () => {
+    // `downloadprogress` fires while Chrome prepares weights it already has.
+    // Treating a sub-complete event as a network fetch aborted every warm-up
+    // roughly ten seconds in; --disable-component-update is what actually
+    // prevents a download, not anything in the page.
     await page.evaluate(`
       globalThis.LanguageModel = {
-        availability: async () => 'downloadable',
-        create: async ({ monitor, signal }) => {
+        availability: async () => 'unavailable',
+        create: async ({ monitor }) => {
           const target = new EventTarget()
           monitor(target)
-          target.dispatchEvent(Object.assign(new Event('downloadprogress'), { loaded: 0.01 }))
-          throw Object.assign(new Error('aborted'), { name: 'AbortError' })
+          for (const loaded of [0, 0.5, 1]) {
+            target.dispatchEvent(Object.assign(new Event('downloadprogress'), { loaded }))
+          }
+          return { destroy() {} }
         },
       }`)
-    await assert.rejects(() => waitUntilReady(page, false), /started downloading its own copy/u)
+    await assert.doesNotReject(() => waitUntilReady(page, false))
   })
 
   it('reports a Chromium with no Prompt API as such', { skip }, async () => {
