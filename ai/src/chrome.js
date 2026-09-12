@@ -25,7 +25,11 @@ export { chromePreflight, findModelDir } from './chrome-model.js'
 // undefined under --enable-blink-features=AIPromptAPI, --enable-features=
 // AIPromptAPI and --enable-experimental-web-platform-features alike, while
 // Summarizer, Translator and LanguageDetector are all present. Branded Chrome
-// only; Chrome for Testing counts, which is the CI-friendly way to get one.
+// only, and NOT Chrome for Testing: it exposes the binding, but
+// #if BUILDFLAG(CHROME_FOR_TESTING) pins the device performance class to
+// kGpuBlocked, so it can only ever reach the CPU backend — a separate model
+// build most machines do not have. There is no CI-friendly way to get this;
+// see chrome-ondevice.test.js, which skips on CI for that reason.
 //
 // Two constraints shape the rest.
 //
