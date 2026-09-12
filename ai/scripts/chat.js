@@ -33,9 +33,6 @@ positional argument, or piped in on stdin.
   scripts/chat.js -m chrome/nano_v3 "What is the capital of France?"
   scripts/chat.js -m chrome/nano_v3 --tools "What is 21 plus 21?"
   git diff | scripts/chat.js -s "Review this diff." -m anthropic/claude-opus-5
-
-The chrome/gemma4_* rows need AI_CHROME_GEMMA4=1. Chrome picks the Gemma size
-itself and will download one it does not have, so they are off by default.
 `
 
 // Which adapter serves a namespace. Everything unlisted goes to OpenRouter,

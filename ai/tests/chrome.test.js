@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
-import { assertModelAllowed, chromePreflight, findModelDir, isScratchProfile, localStateFor, removeProfileDir, turnInPage, waitUntilReady } from '../src/chrome.js'
+import { chromePreflight, findModelDir, isScratchProfile, launchArgs, localStateFor, removeProfileDir, turnInPage, waitUntilReady } from '../src/chrome.js'
 import { identifiesAs } from '../src/chrome-model.js'
 import { CHROME_SHAPE, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome-wire.js'
 import { baseModelFor, calculateCost, getMaxTokens, modelVersionFor, specNamesFor } from '../src/models.js'
@@ -60,57 +60,25 @@ describe('chrome foundational model version', () => {
     assert.equal(modelVersionFor(baseModelFor('chrome/gemma4_4b')), 'v4')
   })
 
-  // The opt-in is read at call time, so each case sets it and puts it back.
-  const withOptIn = (value, fn) => {
-    const before = process.env.AI_CHROME_GEMMA4
-    if (value === undefined) delete process.env.AI_CHROME_GEMMA4
-    else process.env.AI_CHROME_GEMMA4 = value
-    try { fn() } finally {
-      if (before === undefined) delete process.env.AI_CHROME_GEMMA4
-      else process.env.AI_CHROME_GEMMA4 = before
-    }
-  }
-
-  it('does not ask for Gemma 4 unless allowed to', () => {
-    // Asking is what starts the download: the flag also turns on the manifest
-    // broker, which fetched a 6.1 GB gemma4_12b onto a profile that already
-    // had the 2b and 4b weights linked in. So the default state of the flag
-    // is absent, and the row refuses rather than quietly answering as nano.
-    withOptIn(undefined, () => {
-      assert.deepEqual(localStateFor(baseModelFor('chrome/gemma4_2b')).browser.enabled_labs_experiments, [])
-      assert.throws(() => assertModelAllowed(baseModelFor('chrome/gemma4_2b')), /AI_CHROME_GEMMA4/u)
-      assert.throws(() => assertModelAllowed(baseModelFor('chrome/gemma4_4b')), /6\.1 GB/u)
-      // nano is untouched by any of this — it is what Chrome runs anyway.
-      assert.doesNotThrow(() => assertModelAllowed(baseModelFor('chrome/nano_v3')))
-    })
-    // Only the exact opt-in counts; a stray truthy value is not consent.
-    withOptIn('yes', () => {
-      assert.throws(() => assertModelAllowed(baseModelFor('chrome/gemma4_2b')), /AI_CHROME_GEMMA4/u)
-    })
-  })
-
-  it('asks for Gemma 4 through the flag once allowed, and only on the gemma rows', () => {
+  it('asks for Gemma 4 through the flag, and only on the gemma rows', () => {
     // The pref Chrome reads is browser.enabled_labs_experiments, and the one
     // thing it will not do is complain: at the top level, or misspelled, the
     // flag is simply never applied and every row quietly answers as nano.
     // Verified against the browser rather than assumed — the flag offers only
     // Default and Enabled, so @1 is Enabled, and chrome://version shows it
     // reaching the command line as AIApiFoundationalModel:model_version/v4.
-    withOptIn('1', () => {
-      const gemma = localStateFor(baseModelFor('chrome/gemma4_2b'))
-      assert.deepEqual(gemma.browser.enabled_labs_experiments, ['gemma4-for-built-in-ai@1'])
-      assert.deepEqual(
-        localStateFor(baseModelFor('chrome/gemma4_4b')).browser.enabled_labs_experiments,
-        ['gemma4-for-built-in-ai@1'],
-      )
-      // v3 is what Chrome does with no flag at all, so asking for it is not a
-      // different flag — it is the absence of one.
-      assert.deepEqual(localStateFor(baseModelFor('chrome/nano_v3')).browser.enabled_labs_experiments, [])
-      assert.doesNotThrow(() => assertModelAllowed(baseModelFor('chrome/gemma4_2b')))
-      // And the toggle that makes chrome://on-device-internals readable, which
-      // is how the loaded model gets reported back under --debug.
-      assert.equal(gemma.internal_only_uis_enabled, true)
-    })
+    const gemma = localStateFor(baseModelFor('chrome/gemma4_2b'))
+    assert.deepEqual(gemma.browser.enabled_labs_experiments, ['gemma4-for-built-in-ai@1'])
+    assert.deepEqual(
+      localStateFor(baseModelFor('chrome/gemma4_4b')).browser.enabled_labs_experiments,
+      ['gemma4-for-built-in-ai@1'],
+    )
+    // v3 is what Chrome does with no flag at all, so asking for it is not a
+    // different flag — it is the absence of one.
+    assert.deepEqual(localStateFor(baseModelFor('chrome/nano_v3')).browser.enabled_labs_experiments, [])
+    // And the toggle that makes chrome://on-device-internals readable, which
+    // is how the loaded model gets reported back under --debug.
+    assert.equal(gemma.internal_only_uis_enabled, true)
   })
 
   it('cannot tell the two gemma sizes apart, and says so', () => {
@@ -122,6 +90,42 @@ describe('chrome foundational model version', () => {
       modelVersionFor(baseModelFor('chrome/gemma4_2b')),
       modelVersionFor(baseModelFor('chrome/gemma4_4b')),
     )
+  })
+})
+
+describe('chrome launch switches', () => {
+  const args = launchArgs('/models/nano')
+
+  it('never lets the browser fetch a model', () => {
+    // Asking for Gemma 4 turns on the manifest broker, which fetched a 6.1 GB
+    // gemma4_12b — through the grafted symlinks into the user's real component
+    // directories, not into the scratch profile that asked. Downloading is the
+    // one thing this provider exists not to do, so the component updater is
+    // pointed at an address that cannot answer. Port 1 is on Chrome's
+    // restricted list: the attempt dies as ERR_UNSAFE_PORT without a socket.
+    const guard = args.find((a) => a.startsWith('--component-updater='))
+    assert.ok(guard, 'expected the component updater to be redirected')
+    assert.match(guard, /url-source=http:\/\/127\.0\.0\.1:1\//u)
+  })
+
+  it('keeps OptimizationHints enabled', () => {
+    // The single entry whose removal from playwright's list took four wrong
+    // diagnoses to find: with it disabled, availability() reads `unavailable`
+    // and no eligibility reason is recorded. --enable-features cannot undo it,
+    // since disable wins, so the whole list has to be re-sent without it.
+    const disabled = args.find((a) => a.startsWith('--disable-features='))
+    assert.ok(disabled, 'expected a disable list')
+    assert.doesNotMatch(disabled, /OptimizationHints/u)
+    // Still playwright's list otherwise, or the launch loses their defaults.
+    assert.match(disabled, /DestroyProfileOnBrowserClose/u)
+  })
+
+  it('points at the borrowed weights and skips the benchmark', () => {
+    assert.ok(args.includes('--optimization-guide-ondevice-model-execution-override=/models/nano'))
+    // An INTEGER: Chrome parses it with StringToInt, so a name becomes
+    // kUnknown and reads exactly like not passing the switch at all.
+    const perf = args.find((a) => a.startsWith('--optimization-guide-performance-class='))
+    assert.match(perf, /=\d+$/u)
   })
 })
 

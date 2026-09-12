@@ -4,11 +4,11 @@ import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { baseModelFor } from './models.js'
-import { assertModelAllowed, chromePreflight, findModelDir, graftableRoots, localStateFor } from './chrome-model.js'
+import { chromePreflight, findModelDir, graftableRoots, localStateFor } from './chrome-model.js'
 import { outputLanguage, toChatCompletions } from './chrome-wire.js'
 
 // Re-exported so callers keep one entry point for the provider.
-export { assertModelAllowed, chromePreflight, findModelDir, localStateFor } from './chrome-model.js'
+export { chromePreflight, findModelDir, localStateFor } from './chrome-model.js'
 
 // The one provider that isn't an endpoint: Chrome's built-in Prompt API
 // (developer.chrome.com/docs/ai/prompt-api), reached over CDP with
@@ -200,7 +200,6 @@ function installExitCleanup() {
 const sessions = new Map()
 
 async function launch(baseModel, debug) {
-  assertModelAllowed(baseModel)
   const modelDir = findModelDir(baseModel)
   chromePreflight()
   // A persistent context rather than launch(): the profile has to exist
@@ -223,6 +222,63 @@ async function launch(baseModel, debug) {
   }
 }
 
+// The switch list, out here rather than inline, because every entry is a
+// fix for something that failed silently and a test can hold each one in
+// place. Order matters only for --use-angle and the feature lists, which
+// deliberately come after playwright's.
+export function launchArgs(modelDir) {
+  return [
+    // --use-angle is re-added outside the ignorable set, so it has to be
+    // overridden rather than dropped. The last occurrence of a switch is the
+    // one Chrome reads, and `default` hands the backend choice back to it.
+    '--use-angle=default',
+    // Name the borrowed directory outright. Besides pointing at the
+    // weights, this waives the base-model version check Chrome would apply
+    // to a profile that has never registered a component of its own.
+    `--optimization-guide-ondevice-model-execution-override=${modelDir}`,
+    // Both lists replace playwright's; see DISABLED_FEATURES for why the
+    // disable side is not optional.
+    `--disable-features=${DISABLED_FEATURES.join(',')}`,
+    `--enable-features=${ENABLED_FEATURES.join(',')}`,
+    // The gate that actually stops a scratch profile. Eligibility needs a
+    // device performance class, and a profile that has never computed one
+    // runs a GPU benchmark to get it — chrome://on-device-internals sits on
+    // "Device performance class: Loading..." while it does. availability()
+    // answers `unavailable` throughout, so a turn issued at launch loses a
+    // race it never announces. Forcing the class skips the benchmark.
+    //
+    // The value is an INTEGER, not a name: Chrome parses it with
+    // StringToInt and a name silently becomes kUnknown, which is
+    // indistinguishable from not passing the switch at all. 6 is VeryHigh
+    // (0 Unknown, 1 Error, 2 VeryLow, 3 Low, 4 Medium, 5 High, 6 VeryHigh);
+    // the numbering is fixed by the UMA enum, not by declaration order.
+    `--optimization-guide-performance-class=${process.env.CHROME_PERFORMANCE_CLASS || '6'}`,
+    // Never fetch a model. Asking for Gemma 4 also turns on the manifest
+    // broker, and the broker will go and get whichever Gemma it decides the
+    // machine should run — a 6.1 GB gemma4_12b, in the run that caught this,
+    // written through the grafted symlinks into the user's REAL component
+    // directories rather than into the scratch profile that asked for it.
+    //
+    // --disable-component-update does not cover it: playwright passes that
+    // already, and while dropping it takes component registrations from 1 to
+    // 20, the broker registers its assets itself at runtime. What does cover
+    // it is the configurator, which every component fetch goes through
+    // whoever registered it. Read off --log-net-log, overriding url-source
+    // sends the update requests to the named address (3 of them) and none to
+    // Google. Port 1 is on Chrome's restricted list, so the attempt dies
+    // locally as ERR_UNSAFE_PORT — no socket, no DNS, no proxy.
+    //
+    // Weights already on disk are unaffected: they are loaded from the
+    // override directory above, not fetched. A model that is genuinely
+    // missing stays missing, which is this provider's whole promise —
+    // chromePreflight says as much, and points at Chrome itself for getting
+    // one.
+    '--component-updater=url-source=http://127.0.0.1:1/no-downloads',
+    ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
+  ]
+}
+
+
 async function openBrowser(profile, modelDir, debug) {
   // The override switch below is what Chrome reads to load the model, but the
   // component installer decides whether anything is MISSING, and a profile
@@ -244,34 +300,7 @@ async function openBrowser(profile, modelDir, debug) {
     // running", and no eligibility reason is even recorded, because nothing
     // got far enough to weigh one.
     ignoreDefaultArgs: SOFTWARE_GL,
-    args: [
-      // --use-angle is re-added outside the ignorable set, so it has to be
-      // overridden rather than dropped. The last occurrence of a switch is the
-      // one Chrome reads, and `default` hands the backend choice back to it.
-      '--use-angle=default',
-      // Name the borrowed directory outright. Besides pointing at the
-      // weights, this waives the base-model version check Chrome would apply
-      // to a profile that has never registered a component of its own.
-      `--optimization-guide-ondevice-model-execution-override=${modelDir}`,
-      // Both lists replace playwright's; see DISABLED_FEATURES for why the
-      // disable side is not optional.
-      `--disable-features=${DISABLED_FEATURES.join(',')}`,
-      `--enable-features=${ENABLED_FEATURES.join(',')}`,
-      // The gate that actually stops a scratch profile. Eligibility needs a
-      // device performance class, and a profile that has never computed one
-      // runs a GPU benchmark to get it — chrome://on-device-internals sits on
-      // "Device performance class: Loading..." while it does. availability()
-      // answers `unavailable` throughout, so a turn issued at launch loses a
-      // race it never announces. Forcing the class skips the benchmark.
-      //
-      // The value is an INTEGER, not a name: Chrome parses it with
-      // StringToInt and a name silently becomes kUnknown, which is
-      // indistinguishable from not passing the switch at all. 6 is VeryHigh
-      // (0 Unknown, 1 Error, 2 VeryLow, 3 Low, 4 Medium, 5 High, 6 VeryHigh);
-      // the numbering is fixed by the UMA enum, not by declaration order.
-      `--optimization-guide-performance-class=${process.env.CHROME_PERFORMANCE_CLASS || '6'}`,
-      ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
-    ],
+    args: launchArgs(modelDir),
   })
   const tab = await browser.newPage()
   // Page-side failures are otherwise silent: evaluate returns the value and

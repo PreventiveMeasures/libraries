@@ -205,42 +205,9 @@ export function chromePreflight() {
 // Enabled, so that is Enabled.
 const GEMMA4_FLAG = 'gemma4-for-built-in-ai@1'
 
-// Off unless asked for, because asking Chrome for Gemma 4 is not free: the
-// flag also turns on OptimizationGuideManifestBroker, and the broker then
-// goes and gets whichever Gemma it decides the machine should run. Observed
-// on a profile that already had gemma4-2b-it and gemma-4-E4B-it linked in:
-//
-//   Assets: gemma4_12b_component | 2026.1.3.1000 | Foreground Installing
-//           | 38.0 MB / 6.1 GB | None
-//
-// — a six-gigabyte download, restarted on every launch, for a size neither
-// present nor selectable. That is the opposite of this provider's one
-// promise, so the rows that need the flag are gated rather than the download
-// merely discouraged. --disable-component-update, which playwright passes
-// and which does cut component registrations from 20 to 1, does not stop it:
-// the broker is not that subsystem.
-function gemma4Allowed() {
-  return process.env.AI_CHROME_GEMMA4 === '1'
-}
-
 // v3 is Gemini Nano and needs nothing: it is what Chrome does anyway.
 function labExperimentsFor(baseModel) {
-  return modelVersionFor(baseModel) === 'v4' && gemma4Allowed() ? [GEMMA4_FLAG] : []
-}
-
-// Refusing beats quietly answering as nano. Without the flag a gemma row
-// still launches and still replies — from Gemini Nano, under a gemma name —
-// which is the mislabelling the modelVersion work existed to end, so the row
-// has to fail instead of degrade.
-export function assertModelAllowed(baseModel) {
-  if (modelVersionFor(baseModel) !== 'v4' || gemma4Allowed()) return
-  throw new Error(
-    `${baseModel} needs Chrome's "Gemma 4 for Built-in AI" flag, which also lets Chrome fetch a ` +
-    'Gemma of its own choosing — a 6.1 GB gemma4_12b download in the one run measured, on a ' +
-    'profile that already had the 2b and 4b weights. Chrome picks the size itself, so this ' +
-    'cannot be pointed at what you already have. Set AI_CHROME_GEMMA4=1 to allow it anyway, or ' +
-    'use chrome/nano_v3, which runs from the weights already on disk.',
-  )
+  return modelVersionFor(baseModel) === 'v4' ? [GEMMA4_FLAG] : []
 }
 
 // The prefs a scratch profile starts with. Split out because none of it
