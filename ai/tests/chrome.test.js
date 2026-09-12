@@ -281,16 +281,26 @@ describe('chrome scratch-profile cleanup', () => {
     assert.equal(readFileSync(join(outsider, 'keep.txt'), 'utf8'), 'still here')
     rmSync(outsider, { recursive: true, force: true })
 
-    for (const bad of ['', '/', '/tmp', undefined, null]) {
+    // Every path below is either empty or one that does not exist, so this
+    // test cannot destroy anything even if the guard it checks regresses.
+    // Real directories are deliberately absent: asserting that '/' or the
+    // temp root is refused would, the day the guard broke, delete them —
+    // a test whose failure mode is the disaster it exists to prevent.
+    for (const bad of ['', undefined, null]) {
       assert.throws(() => removeProfileDir(bad), /not one of our scratch profiles/u, `should refuse ${bad}`)
     }
 
     // Anchored to the temp dir, so the prefix appearing elsewhere in a path
-    // is not enough — and neither is the temp root itself.
-    assert.throws(() => removeProfileDir(join(homedir(), 'ai-chrome-elsewhere')), /not one of our scratch profiles/u)
-    assert.throws(() => removeProfileDir(join(tmpdir(), 'nested', 'ai-chrome-x')), /not one of our scratch profiles/u)
-    assert.throws(() => removeProfileDir(tmpdir()), /not one of our scratch profiles/u)
-    assert.throws(() => removeProfileDir(join(tmpdir(), 'ai-chrome-')), /not one of our scratch profiles/u)
+    // is not enough, and neither is the bare prefix with no mkdtemp suffix.
+    const nonexistent = [
+      join(homedir(), 'ai-chrome-elsewhere-does-not-exist'),
+      join(tmpdir(), 'nested-does-not-exist', 'ai-chrome-x'),
+      join(tmpdir(), 'ai-chrome-'),
+    ]
+    for (const path of nonexistent) {
+      assert.equal(existsSync(path), false, `fixture must not exist: ${path}`)
+      assert.throws(() => removeProfileDir(path), /not one of our scratch profiles/u)
+    }
   })
 
   it('removes a directory that IS one of ours', () => {
