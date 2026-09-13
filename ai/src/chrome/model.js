@@ -4,8 +4,9 @@ import { homedir } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
 import { specNamesFor } from '../models.js'
 
-// Where the on-device weights are, which is a separate question from how the
-// browser is driven — see index.js for that.
+// Where the on-device weights are; index.js drives the browser. Chrome keeps
+// them under the USER DATA DIR (component_updater's DIR_COMPONENT_USER) rather
+// than the profile inside it, so a scratch profile sees none of them.
 
 // Two stores, different shapes: nano_v3 lives under the first, the gemma
 // models under the second, keyed by a content hash above the version.
@@ -52,12 +53,9 @@ function activeUserDataDir(modelDir) {
     roots.find((dir) => MODEL_COMPONENTS.some((component) => existsSync(join(dir, component))))
 }
 
-// What to link into a scratch profile, as {from, rel} pairs: `from` is the
-// real path, `rel` where it goes relative to the profile root.
-//
-// Only the ONE model asked for, so nothing else is in front of the browser.
-// Paths are mirrored rather than flattened, since the two stores nest
-// differently and Chrome reads the shape.
+// What to link into a scratch profile, as {from, rel} pairs. Only the ONE
+// model asked for, so nothing else is in front of the browser, and mirrored
+// rather than flattened, since Chrome reads the shape each store nests in.
 export function graftPlan(modelDir) {
   return graftPlanIn(activeUserDataDir(modelDir), modelDir)
 }
@@ -75,16 +73,10 @@ export function graftPlanIn(userDataDir, modelDir) {
   return plan
 }
 
-// What a scratch profile inherits from the real one: one entry of one map,
-// named rather than arrived at by deleting the rest, so nothing unexamined
-// comes along.
-//
-// `optimization_guide.model_execution.manifest_asset_ledger` holds a standing
-// REQUEST per component — an asset_id and a requested_version — and the entry
-// for the linked model is what makes the browser load it. Only that entry
-// travels: the others name models this profile does not have, and Chrome goes
-// and fetches them. The entry itself is passed through, so a field Chrome
-// adds to it still arrives.
+// All a scratch profile inherits, named rather than arrived at by deleting the
+// rest. Each manifest_asset_ledger entry is a standing REQUEST, and the one for
+// the linked model is what makes the browser load it — carry the others and
+// Chrome fetches models this profile does not have.
 function optimizationGuidePrefs(modelDir) {
   const dir = activeUserDataDir(modelDir)
   if (!dir) return {}
@@ -93,19 +85,10 @@ function optimizationGuidePrefs(modelDir) {
   } catch { return {} }
 }
 
-// The ledger is keyed by the content hash a manifest model sits under, and
-// `requested_version` is its version directory — so the linked model's own
-// path names its entry, under either layout:
-//
-//   OptGuideManifestModel/<hash>/<version>   the hash, which is the component
-//   OptGuideOnDeviceModel/<version>          the version, all the flat layout
-//                                            carries
-//
-// In that order, because the halves are not equally identifying: versions are
-// dates and two components can share one, while the hash is the component.
-// An order rather than a requirement — `requested_version` may point past
-// what is installed, and demanding both would then match nothing, leaving a
-// profile that asks for no model at all.
+// The linked model's own path names its ledger entry: the hash it sits under
+// (OptGuideManifestModel/<hash>/<version>), or the version the flat layout
+// stops at. Hash first, since versions are dates two components can share, but
+// an order and not a requirement — a request may point past what is here.
 function findLedgerEntry(ledger, modelDir) {
   if (!ledger || !modelDir) return undefined
   const parts = new Set(modelDir.split(/[/\\]/u))
@@ -148,10 +131,8 @@ function modelComponentRoots() {
   return roots
 }
 
-// Directories holding weights, across both layouts: OptGuideOnDeviceModel is
-// flat, OptGuideManifestModel nests a hash above the version. A superseded or
-// interrupted install leaves a directory with no weights in it, so the file
-// decides rather than the directory.
+// Directories holding weights, across both layouts. A superseded or
+// interrupted install leaves one with no weights in it, so the file decides.
 function candidateModelDirs(root, depth = 2) {
   const found = []
   let entries = []
@@ -165,32 +146,18 @@ function candidateModelDirs(root, depth = 2) {
   return found
 }
 
-// The same model carries three names and no two match: Google publishes
-// gemma-4-E2B-it, which the registry rows follow; Chrome lists a deployment
-// variant, gemma4_gpu_high_tier_model, which baseModel follows; and the
-// component manifest declares a BaseModelSpec, gemma4-2b-it, which is what a
-// directory says about itself.
-//
-// Nor is the difference computable — the specs in the wild are
-// "v3Nano", "gemma4-2b-it" and "gemma-4-E4B-it", and anything loose enough to
-// relate gemma4_2b to gemma4-2b-it also relates it to gemma-4-E4B-it. So the
-// accepted names live on the registry row, compared here ignoring case and
-// punctuation only.
+// The same model carries three names and no two match: gemma-4-E2B-it as
+// published, gemma4_gpu_high_tier_model in Chrome, gemma4-2b-it in the
+// manifest. Nor is it computable — anything relating gemma4_2b to gemma4-2b-it
+// relates it to gemma-4-E4B-it too — so the row carries the names to accept.
 function normalizeSpec(name) {
   return String(name).toLowerCase().replaceAll(/[^a-z0-9]+/gu, '')
 }
 
-// Not every manifest has a BaseModelSpec. Those that do carry the generic
-// "Optimization Guide On Device Model" at the top level and the real identity
-// underneath; the 12B one has no spec and puts its identity in the top-level
-// name instead:
-//
-//   { "name": "Optimization Guide On-Device Gemma4 12B Model",
-//     "version": "<version>" }
-//
-// So the spec wins where it exists and the name stands in where it does not.
-// Normalised, the generic name (…ondevicemodel) stays distinct from the 12B
-// one (…ondevicegemma412bmodel), so the fallback cannot cross-match.
+// Not every manifest has a BaseModelSpec: those that do carry a generic
+// top-level name and the identity underneath, while the 12B one puts its
+// identity in that name instead. So the spec wins where it exists and the name
+// stands in where it does not; normalised, the two cannot cross-match.
 function declaredSpec(dir) {
   try {
     const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'))
@@ -198,9 +165,9 @@ function declaredSpec(dir) {
   } catch { return null }
 }
 
-// That top-level name is a template, so it is derived rather than
-// transcribed: normalised, "Optimization Guide On-Device Gemma4 12B Model" is
-// this for a baseModel of gemma4_12b, and a future size needs no edit here.
+// That name is a template, so it is derived rather than transcribed:
+// normalised, "Optimization Guide On-Device Gemma4 12B Model" is this for a
+// baseModel of gemma4_12b, and a future size needs no edit here.
 function componentNameFor(baseModel) {
   return `optimization_guide_on-device_${baseModel}_model`
 }
@@ -217,10 +184,9 @@ export function identifiesAs(dir, baseModel) {
   return acceptedNames(baseModel).some((name) => normalizeSpec(name) === normalizeSpec(declared))
 }
 
-// Weights for a base model spec, or the newest installed when none is named.
-// A named spec that cannot be identified is an error rather than a fallback:
-// the turn would be labelled and CACHED under a row that another model
-// answered.
+// Weights for a base model spec, or the newest installed when none is named. A
+// named spec that cannot be identified is an error rather than a fallback: the
+// turn would be labelled and CACHED under a row another model answered.
 export function findModelDir(baseModel) {
   const override = process.env.CHROME_MODEL_DIR
   if (override) {
@@ -239,11 +205,10 @@ export function findModelDir(baseModel) {
   throw new Error(missingModelMessage(baseModel, all))
 }
 
-// A model Chrome does not have is a stop: this provider does not download and
-// the browser it launches cannot either, so the message says where one comes
-// from. Listing what IS installed separates the two ways to get here —
-// nothing resembling the request means it was never downloaded, something
-// resembling it means Chrome renamed it, which is a one-line edit.
+// A model Chrome does not have is a stop, so the message says where one comes
+// from. Listing what IS installed separates the two ways to get here: nothing
+// resembling the request was never downloaded, something resembling it has
+// been renamed, which is a one-line edit.
 function missingModelMessage(baseModel, all) {
   const wanted = acceptedNames(baseModel)
   const found = all.length > 0
@@ -273,14 +238,10 @@ export function chromePreflight() {
 // The prefs a scratch profile starts with. Nothing here announces a mistake:
 // an unknown key, or a known one at the wrong depth, is not an error Chrome
 // reports but a pref that quietly never applies.
-//
-// Which Gemma answers is NOT decided here — that rides a feature param; see
-// enabledFeatures in index.js.
 export function localStateFor(modelDir) {
   return {
-    // Unlocks chrome://on-device-internals, which under CHROME_HEADLESS=0 is
-    // where to see what the browser actually loaded — a different question
-    // from which directory it was pointed at.
+    // Unlocks chrome://on-device-internals, where a CHROME_HEADLESS=0 run can
+    // see what the browser loaded rather than what it was pointed at.
     internal_only_uis_enabled: true,
     // Without this the gemma components read "Not Installed" however many
     // directories are linked in: install state is a pref, not a file.

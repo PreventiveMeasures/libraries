@@ -2,19 +2,16 @@ import { modelVersionFor } from '../models.js'
 import { chatCompletionsBase } from '../wire-formats.js'
 
 // What goes to the browser and what comes back — index.js is the transport,
-// this is the shape. Chat-completions, so normalizeOneUsage reads its usage,
-// the cache stores it like any other turn, and a partial history written here
-// reads back like one from any other provider.
+// this is the shape. Chat-completions, so the usage, the cache and a partial
+// history read back like any other provider's.
 
 // Chrome warns per SESSION on a request that names no output language, so the
 // readiness probe needs this as much as a turn does. Accepts de, en, es, fr, ja.
 export const outputLanguage = () => process.env.CHROME_OUTPUT_LANGUAGE || 'en'
 
-// Chrome's Prompt API documents no function calling: `AIPromptAPIToolUse` is
-// unreleased, and its shape runs the tool inside the page, which cannot
-// produce the caller-run calls chat() is built around. So tools ride
-// `responseConstraint` (AIPromptAPIStructuredOutput) — the model is held to a
-// JSON object carrying prose, a list of calls, or both.
+// Chrome's Prompt API documents no function calling, and unreleased
+// `AIPromptAPIToolUse` runs the tool inside the page rather than in the caller.
+// So tools ride `responseConstraint`: prose, a list of calls, or both.
 
 export function toolConstraint(tools) {
   return {
@@ -23,10 +20,9 @@ export function toolConstraint(tools) {
       text: { type: 'string', description: 'A reply to the user, when no tool is needed.' },
       tool_calls: {
         type: 'array',
-        // One branch per tool, each binding a name to THAT tool's schema.
-        // chat() hands calls straight to the caller's handler without
-        // revalidating, so a shared `arguments: { type: 'object' }` would let
-        // missing or mistyped fields reach real tools.
+        // One branch per tool, each binding a name to THAT tool's schema:
+        // chat() hands calls straight to the caller's handler, so a shared
+        // `arguments: { type: 'object' }` reaches real tools unchecked.
         items: {
           anyOf: tools.map((tool) => ({
             type: 'object',
@@ -40,8 +36,7 @@ export function toolConstraint(tools) {
       },
     },
     // Both, always: with neither required, `{}` satisfies the constraint and
-    // becomes a successful turn carrying no text and no calls. The prompt
-    // asks for an empty string or array on the branch not taken.
+    // becomes a turn carrying no text and no calls.
     required: ['text', 'tool_calls'],
   }
 }
@@ -102,10 +97,9 @@ export function toChatCompletions(result, constrained) {
 // why appendToolResults folds results into a user turn rather than using the
 // `tool` role a chat-completions backend would take.
 export const CHROME_SHAPE = {
-  // The response side is the shared chat-completions parsing, which is why
-  // toChatCompletions emits that envelope. Its truncation branch never fires,
-  // since the Prompt API accepts no output cap; `maxTokens` names the
-  // registry field a caller would change if one ever did.
+  // The shared chat-completions parsing, which is why toChatCompletions emits
+  // that envelope. Its truncation branch never fires — no output cap exists to
+  // hit — and `maxTokens` names the field a caller would change if one did.
   ...chatCompletionsBase('maxTokens'),
 
   buildRequestBody(model, maxTokens, systemPrompt, messages, { think = false, effort, tools } = {}) {
@@ -138,14 +132,13 @@ export const CHROME_SHAPE = {
 
 
 // A create() that fails after the model warmed up is a variant this machine
-// will not run: the weights are linked and the browser is willing, but the
-// size the row asks for is more than it can load. Chrome says only "The
-// device is unable to create a session to run the model. Please check the
-// result of availability() first", naming neither the row nor the variant.
+// will not run. Chrome says only "The device is unable to create a session to
+// run the model. Please check the result of availability() first", naming
+// neither the row nor the variant.
 export function explainCreateFailure(error, model, baseModel) {
   // That failure and no other: every create() failure carries an availability
-  // reading, so gating on one would rewrite an oversized history, or a
-  // language Chrome will not emit, as a model too large for the machine.
+  // reading, so gating on one would rewrite an oversized history as a model
+  // too large for the machine.
   if (error.name !== 'InvalidStateError') return
   const version = modelVersionFor(baseModel)
   const useCase = version && version !== 'v3' ? ` (model_version/${version})` : ''
