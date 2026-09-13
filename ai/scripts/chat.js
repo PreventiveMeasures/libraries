@@ -9,8 +9,8 @@ import process from 'node:process'
 import { createInterface } from 'node:readline/promises'
 import { parseArgs, styleText } from 'node:util'
 import {
-  DEFAULT_MODEL, KNOWN_MODELS, calculateCost, chat, closeProvider, getMaxTokens,
-  isRecognizedModel, resolveModel, resolveThinkEffort, setProvider,
+  DEFAULT_MODEL, KNOWN_MODELS, chat, closeProvider, getMaxTokens,
+  isRecognizedModel, resolveModel, resolveThinkEffort, setProvider, turnCost,
 } from '../index.js'
 
 const USAGE = `Usage: scripts/chat.js [options] [prompt]
@@ -20,8 +20,10 @@ positional argument, or piped in on stdin.
 
   -m, --model <id>      model to use (default: ${DEFAULT_MODEL})
   -p, --provider <name> anthropic, openai, openrouter, gateway, chrome,
-                        moonshot. Inferred from the model's namespace when
-                        omitted, so chrome/gemini-nano-v3 picks chrome.
+                        moonshot, ollama. Inferred from the model's namespace
+                        when omitted, so chrome/gemini-nano-v3 picks chrome —
+                        but a local build shares its namespace with the
+                        hosted model, so ollama has to be named.
   -s, --system <text>   system prompt
       --think           enable thinking
       --effort <level>  low, medium, high, xhigh, max, manual
@@ -37,6 +39,7 @@ positional argument, or piped in on stdin.
   scripts/chat.js -m chrome/gemini-nano-v3 "What is the capital of France?"
   scripts/chat.js -m chrome/gemini-nano-v3 --tools "What is 21 plus 21?"
   scripts/chat.js -m chrome/gemini-nano-v3 --repl
+  scripts/chat.js -p ollama -m google/gemma-4-26b-a4b-it-q4_k_m "Hello?"
   git diff | scripts/chat.js -s "Review this diff." -m anthropic/claude-opus-5
 `
 
@@ -248,7 +251,7 @@ function reportTools(calls) {
 }
 
 function report({ model, provider, usage, elapsed }) {
-  const cost = usage.cost > 0 ? usage.cost : (calculateCost(model, usage) ?? 0)
+  const cost = usage.cost > 0 ? usage.cost : (turnCost(model, usage) ?? 0)
   const line = [
     `${provider}:${model}`,
     `${(elapsed / 1000).toFixed(1)}s`,

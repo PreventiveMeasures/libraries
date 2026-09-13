@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { EFFORT_LEVELS, KNOWN_MODELS, TASK_BUDGET_MODELS, TASK_BUDGET_MODES, calculateCost, canAdaptive, canDisableThink, canEffort, canTaskBudget, canThink, effortsFor, emptyUsage, getMaxTokens, isRecognizedModel, needsExplicitNoThink, normalizeThinkEffort, readsCacheBreakpoint, reasoningModeFor, resolveModel, resolveThinkEffort, unknownModelMessage, validateModel, wireModelFor } from '../src/models.js'
+import { EFFORT_LEVELS, KNOWN_MODELS, TASK_BUDGET_MODELS, TASK_BUDGET_MODES, calculateCost, canAdaptive, canDisableThink, canEffort, canTaskBudget, canThink, effortsFor, emptyUsage, getMaxTokens, isRecognizedModel, needsExplicitNoThink, normalizeThinkEffort, ollamaModels, ollamaTagFor, readsCacheBreakpoint, reasoningModeFor, resolveModel, resolveThinkEffort, unknownModelMessage, validateModel, wireModelFor } from '../src/models.js'
 
 describe('canThink / canEffort', () => {
   it('canThink: false on a model without a thinking capability', () => {
@@ -265,6 +265,46 @@ describe('claude fable 5.1', () => {
   })
 })
 
+// Both nemotron pairs are the same shape: a paid route and a free one that
+// may log what it is sent, thinking on both, and no effort ladder claimed for
+// either — OpenRouter reports reasoning_effort on neither, and an unnarrowed
+// row passes whatever the caller asks rather than rejecting a level the model
+// may well take.
+describe('nemotron paid/free pairs', () => {
+  const PAIRS = [
+    ['nvidia/nemotron-3-ultra-550b-a55b', 0.625, 3.125],
+    ['nvidia/nemotron-3.5-lightning', 0.08, 0.2],
+    ['nvidia/nemotron-3-super-120b-a12b', 0.1, 0.5],
+  ]
+
+  for (const [paid, input, output] of PAIRS) {
+    const free = `${paid}:free`
+
+    it(`${paid}: registers the paid rate, and the free route at nothing`, () => {
+      const million = { ...emptyUsage(), input: 1_000_000, output: 1_000_000 }
+      assert.equal(calculateCost(paid, million), input + output)
+      assert.equal(calculateCost(free, million), 0)
+      assert.equal(getMaxTokens(paid), 128 * 1024)
+      for (const model of [paid, free]) assert.ok(KNOWN_MODELS.includes(model), model)
+    })
+
+    it(`${paid}: thinks on both routes, with no effort ladder claimed`, () => {
+      for (const model of [paid, free]) {
+        assert.equal(canThink(model), true, model)
+        assert.equal(effortsFor(model), undefined, model)
+        assert.deepEqual(normalizeThinkEffort(model, true), { useThink: true, useEffort: 'high' }, model)
+      }
+    })
+
+    it(`${paid}: gates the free route behind --free, and the paid one against it`, () => {
+      assert.doesNotThrow(() => validateModel(paid))
+      assert.throws(() => validateModel(paid, { free: true }), /is not free/u)
+      assert.doesNotThrow(() => validateModel(free, { free: true }))
+      assert.throws(() => validateModel(free), /requires --free/u)
+    })
+  }
+})
+
 describe('satellite tables name real registry rows', () => {
   // TASK_BUDGET_MODELS is keyed by model id and maintained by hand beside
   // the registry, so a typo — the hyphenated wire form, say — is silent:
@@ -274,6 +314,83 @@ describe('satellite tables name real registry rows', () => {
   for (const id of TASK_BUDGET_MODELS) {
     it(`TASK_BUDGET_MODELS: ${id}`, () => assert.ok(KNOWN_MODELS.includes(id), id))
   }
+
+  // Same hazard, and worse: an id here that no row answers to would send the
+  // adapter looking up a tag it can never find, so the provider refuses a
+  // model the table says it serves.
+  for (const id of ollamaModels()) {
+    it(`OLLAMA_TAGS: ${id}`, () => assert.ok(KNOWN_MODELS.includes(id), id))
+  }
+})
+
+describe('ollama tags — one local build per row', () => {
+  const entries = ollamaModels().map((id) => [id, ollamaTagFor(id)])
+
+  it('has entries to check', () => {
+    assert.ok(entries.length > 5, `expected a mapping, found ${entries.length}`)
+  })
+
+  it('names a distinct tag per row', () => {
+    // Two rows on one tag would be two ids for one set of weights, which is
+    // the confusion the per-precision ids exist to end.
+    const tags = entries.map(([, tag]) => tag)
+    assert.equal(new Set(tags).size, tags.length, tags.join(', '))
+  })
+
+  // Ascending, so `.indexOf` ranks them, and an `mtp-` build sits just under
+  // the plain one it shadows. Each pair is listed longest first, so the
+  // `.find` below never reads `-mtp-q8_0` as `-q8_0`.
+  const PRECISION = ['qat', 'mtp-q4_K_M', 'q4_K_M', 'mtp-q8_0', 'q8_0', 'mtp-bf16', 'bf16']
+
+  // A tag is a family and one build of it — `qwen3.6:35b-a3b` and `mtp-q8_0`.
+  function partsOf(tag) {
+    const quant = PRECISION.find((build) => tag.endsWith(`-${build}`))
+    return { family: quant ? tag.slice(0, -(quant.length + 1)) : tag, quant }
+  }
+
+  // Which build an id claims, if it claims one. Nothing here is keyed to a
+  // family's own spelling: gemma names its sizes `12b-it` and qwen `35b-a3b`,
+  // and the rule is the same for both.
+  const buildIn = (id) => PRECISION.find((build) => id.endsWith(`-${build.toLowerCase()}`))
+
+  for (const [id, tag] of entries) {
+    it(`${id} -> ${tag}`, () => {
+      const { quant } = partsOf(tag)
+      assert.ok(quant, `unranked build in ${tag} — add it to PRECISION`)
+      // An id that names a build must name the one the tag actually serves.
+      // One that names none is its family's bare id, pinned just below.
+      const named = buildIn(id)
+      if (named) assert.equal(named, quant, `${id} vs ${tag}`)
+    })
+  }
+
+  // A bare id stands in for a hosted route, and none of the routes mapped
+  // here runs below 8 bits — so whichever build a family's bare id takes, it
+  // is never a 4-bit one, and never the `-mtp-` repackaging of anything.
+  // Which of the top builds it takes is what the family is served at: bf16
+  // for gemma-4, q8_0 for qwen, whose endpoints are fp8.
+  const FLOOR = 'q8_0'
+  for (const family of new Set(entries.map(([, tag]) => partsOf(tag).family))) {
+    it(`${family}: exactly one bare id, and never a 4-bit build`, () => {
+      const mine = entries.filter(([, tag]) => partsOf(tag).family === family)
+      const bare = mine.filter(([id]) => !buildIn(id))
+      assert.equal(bare.length, 1, `expected one bare id for ${family}, found ${bare.map(([id]) => id).join(', ') || 'none'}`)
+      const { quant } = partsOf(bare[0][1])
+      assert.ok(PRECISION.indexOf(quant) >= PRECISION.indexOf(FLOOR), `${bare[0][0]} takes ${quant}, below ${FLOOR}`)
+    })
+  }
+
+  it('leaves the local-only builds unpriced, rather than calling them free', () => {
+    // Nobody sells these, so the table has no rate to give — and a zero would
+    // be a claim that goes wrong the day one is listed. What a local run
+    // costs is the provider's answer, not the table's.
+    const million = { ...emptyUsage(), input: 1_000_000, output: 1_000_000 }
+    for (const [local] of entries.filter(([id]) => buildIn(id))) {
+      assert.equal(calculateCost(local, million), null, local)
+    }
+    // And the bare ids keep the hosted rate they are sold at.
+    assert.ok(calculateCost('google/gemma-4-26b-a4b-it', million) > 0)
+  })
 })
 
 describe('gpt-6 astra', () => {
@@ -300,27 +417,58 @@ describe('gpt-6 astra', () => {
   })
 })
 
-describe('gpt-6 astra pro', () => {
-  const PRO = 'openai/gpt-6-astra-pro'
-  const ASTRA = 'openai/gpt-6-astra'
+// Two different things are called "pro" here. One is a MODE on another
+// model — same weights and same rate, just more tokens spent thinking — so
+// the row names its base as the wire model and 'pro' as the mode. The other
+// is a model of its own at its own rate, and is simply a row.
+describe('openai pro rows', () => {
+  const MODES = [
+    ['openai/gpt-6-astra-pro', 'openai/gpt-6-astra'],
+    ['openai/gpt-5.6-sol-pro', 'openai/gpt-5.6-sol'],
+    ['openai/gpt-5.6-terra-pro', 'openai/gpt-5.6-terra'],
+    ['openai/gpt-5.6-luna-pro', 'openai/gpt-5.6-luna'],
+  ]
+  const OWN_MODEL = ['openai/gpt-5.5-pro', 'openai/gpt-5.4-pro']
+  const million = () => ({ ...emptyUsage(), input: 1_000_000, output: 1_000_000, cacheRead: 1_000_000 })
 
-  it('is its own row, priced like astra — pro spends more tokens, not more per token', () => {
-    const usage = { ...emptyUsage(), input: 1_000_000, output: 1_000_000, cacheRead: 1_000_000 }
-    assert.equal(calculateCost(PRO, usage), calculateCost(ASTRA, usage))
-    assert.equal(getMaxTokens(PRO), 128_000)
-    // A row of its own, not an alias: the two answer differently, so they
-    // must not share a cache dir.
-    assert.equal(resolveModel(PRO), PRO)
-    assert.ok(KNOWN_MODELS.includes(PRO))
-  })
+  for (const [pro, base] of MODES) {
+    it(`${pro}: priced like ${base} — pro spends more tokens, not more per token`, () => {
+      assert.equal(calculateCost(pro, million()), calculateCost(base, million()))
+      assert.equal(getMaxTokens(pro), getMaxTokens(base))
+      // A row of its own, not an alias: the two answer differently, so they
+      // must not share a cache dir.
+      assert.equal(resolveModel(pro), pro)
+      assert.ok(KNOWN_MODELS.includes(pro))
+    })
 
-  it('names astra as its wire model and pro as its reasoning mode', () => {
-    assert.equal(wireModelFor(PRO), ASTRA)
-    assert.equal(reasoningModeFor(PRO), 'pro')
-  })
+    it(`${pro}: refuses --no-think, since pro mode has no off switch`, () => {
+      // providers.js emits reasoning.mode whenever the row names one, think
+      // or not. Without this the flag is waved through and the caller is
+      // billed pro-mode reasoning on a run they asked to be non-thinking.
+      assert.equal(canDisableThink(pro), false)
+    })
+
+    it(`${pro}: names ${base} as its wire model and pro as its mode`, () => {
+      assert.equal(wireModelFor(pro), base)
+      assert.equal(reasoningModeFor(pro), 'pro')
+      // And the base is not itself a mode of anything.
+      assert.equal(wireModelFor(base), base)
+      assert.equal(reasoningModeFor(base), undefined)
+    })
+  }
+
+  for (const pro of OWN_MODEL) {
+    it(`${pro}: a model of its own rather than a mode`, () => {
+      assert.equal(wireModelFor(pro), pro)
+      assert.equal(reasoningModeFor(pro), undefined)
+      // Priced far above the row it is named after, which is the thing that
+      // says it is a different model rather than the same one thinking harder.
+      assert.ok(calculateCost(pro, million()) > calculateCost(pro.replace('-pro', ''), million()), pro)
+    })
+  }
 
   it('leaves every other row its own wire model, with no mode', () => {
-    for (const model of [ASTRA, 'openai/gpt-5.6-sol', 'anthropic/claude-opus-5', 'nobody/nothing']) {
+    for (const model of ['anthropic/claude-opus-5', 'openai/gpt-4.1-mini', 'nobody/nothing']) {
       assert.equal(wireModelFor(model), model, model)
       assert.equal(reasoningModeFor(model), undefined, model)
     }

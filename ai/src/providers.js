@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { CHROME_SHAPE, chromePreflight, closeChrome, sendChromeTurn } from './chrome/index.js'
 import { fetchJSON } from './fetch.js'
-import { effortsFor, reasoningModeFor, wireModelFor } from './models.js'
+import { ollamaOrigin, resolveOllamaTag } from './ollama.js'
+import { calculateCost, effortsFor, ollamaModels, ollamaTagFor, reasoningModeFor, wireModelFor } from './models.js'
 import { anthropicAuthHeader, anthropicShape, chatCompletionsBase, parseArgs, stripNamespace, toAnthropicModel, truncationError } from './wire-formats.js'
 
 export { isMaxTokensTruncation } from './wire-formats.js'
@@ -296,12 +297,64 @@ const ADAPTERS = {
     apiKeyEnv: 'AI_GATEWAY_API_KEY',
   }),
 
-  // Chrome's built-in on-device model — the one adapter with no endpoint and
-  // no key. Its own `preflight` checks for a browser and resident weights in
+  // Ollama's OpenAI-compatible endpoint, serving models already pulled onto
+  // this machine. Local and keyless: OLLAMA_API_KEY exists only for one
+  // reached through a proxy that wants auth.
+  ollama: {
+    // Not CHAT_COMPLETIONS_SHAPE: that one marks a reusable prefix for the
+    // routes whose vendors read one, and a local server reads none. Several
+    // rows here are qwen/*, which would otherwise be sent Anthropic's
+    // cache_control blocks by an endpoint that has no prompt cache at all.
+    ...chatCompletionsBase('max_completion_tokens'),
+    // The rows it serves are hosted models too, and priced as such. Nothing
+    // leaves the machine here, so the table's rate is the wrong answer.
+    runsLocally: true,
+    // Resolved per request rather than at module load, so this and the tag
+    // probe in src/ollama.js always agree on which server is being asked.
+    urlFor: () => `${ollamaOrigin()}/v1/chat/completions`,
+    apiUrlEnv: 'OLLAMA_API_URL',
+    apiKey: () => process.env.OLLAMA_API_KEY,
+    // Omitted rather than sent empty: a local server rejects nothing, but a
+    // proxy in front of one can reject a Bearer with no token after it.
+    authHeader: (key) => (key ? { Authorization: `Bearer ${key}` } : {}),
+    // The default preflight demands a key, which no local server has, so
+    // selection would fail on exactly the machines this is for. Nothing else
+    // is checkable here: whether the tag is pulled is a question only the
+    // server can answer, and it answers it on the first turn.
+    preflight: () => process.env.OLLAMA_API_KEY ?? null,
+
+    // Ollama addresses a model by tag and keeps one per precision, so what
+    // goes on the wire is never the registry id.
+    buildRequestBody(model, maxTokens, systemPrompt, messages, { think = false, effort, tools } = {}) {
+      const tag = ollamaTagFor(model)
+      assert.ok(tag, `Provider \`ollama\` has no local build for ${model}. Use one of: ${ollamaModels().join(', ')}`)
+      const body = {
+        model: tag,
+        max_completion_tokens: maxTokens,
+        messages: [{ role: 'system', content: systemPrompt }, ...messages],
+      }
+      if (tools) body.tools = tools.map(toChatCompletionsTool)
+      const level = resolveEffort({ think, effort, model })
+      if (level) body.reasoning_effort = level
+      return body
+    },
+
+    // Some tags have a twin that is the same model with speculative decoding
+    // switched on, and taking it needs the server asked which it has. That is
+    // a question buildRequestBody cannot ask, being synchronous and offline.
+    async finalizeBody(body) {
+      const tag = await resolveOllamaTag(body.model)
+      return tag === body.model ? body : { ...body, model: tag }
+    },
+  },
+
+  // Chrome's built-in on-device model — the one adapter with no endpoint at
+  // all, and like ollama above, no key. Its own `preflight` checks for a browser and resident weights in
   // place of a URL and a key, and `send` is what routes a turn through the
   // browser instead of fetchJSON. Everything about reaching it is in
   // src/chrome/, behind its index.js.
   chrome: {
+    runsLocally: true,
     preflight: chromePreflight,
     send: sendChromeTurn,
     close: closeChrome,
@@ -384,6 +437,16 @@ export async function closeProvider() {
   await Promise.all(Object.values(ADAPTERS).map((adapter) => adapter.close?.()))
 }
 
+// What a turn cost. The price table prices the MODEL, so it cannot answer
+// this alone: an adapter running the weights on this machine charges nothing,
+// whatever the table says the hosted route would have cost. Off one, an
+// unpriced row stays null — unknown is not free, and the caller says what to
+// show for it.
+export function turnCost(model, usage) {
+  if (provider?.runsLocally) return 0
+  return calculateCost(model, usage)
+}
+
 // Identifies the wire format a history entry was written under, for
 // isResumableHistory. A provider that speaks one format is just its name; a
 // gateway appends the route, so a partial written over chat-completions is
@@ -436,10 +499,13 @@ export function buildRequestUrl(model) {
 // happens is the adapter's to say rather than the caller's, so the choice
 // lives here beside the rest of the dispatch surface and issueTurn stays one
 // code path.
-export function sendRequest(model, body, { taskBudget = false, debug, label } = {}) {
-  if (provider.send) return provider.send(model, body, { debug, label })
+export async function sendRequest(model, body, { taskBudget = false, debug, label } = {}) {
+  if (provider.send) return await provider.send(model, body, { debug, label })
   const headers = buildRequestHeaders({ taskBudget, model })
-  return fetchJSON(buildRequestUrl(model), { method: 'POST', headers, body: JSON.stringify(body) }, { debug, label })
+  // One last look at the body, for an adapter that has to ask the endpoint
+  // something before it can finish one. Everyone else sends what they built.
+  const sent = provider.finalizeBody ? await provider.finalizeBody(body) : body
+  return await fetchJSON(buildRequestUrl(model), { method: 'POST', headers, body: JSON.stringify(sent) }, { debug, label })
 }
 
 export function checkResponse(json) {

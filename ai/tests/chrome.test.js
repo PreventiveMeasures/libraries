@@ -11,7 +11,7 @@ import { CHROME_SHAPE, explainCreateFailure, toChatCompletions, toolConstraint, 
 import { sendChromeTurn, trackTurn } from '../src/chrome/index.js'
 import { claimProfile, dropProfile } from '../src/chrome/profile.js'
 import { baseModelFor, calculateCost, getMaxTokens, modelVersionFor, specNamesFor } from '../src/models.js'
-import { setProvider } from '../src/providers.js'
+import { setProvider, turnCost } from '../src/providers.js'
 
 // The chrome provider, minus the model. Everything the adapter decides —
 // what goes to the browser, what comes back, what that costs — is settled in
@@ -40,11 +40,29 @@ function scratchProfile() {
   return mkdtempSync(join(profileRoot(), 'chrome-'))
 }
 
+// chrome selects without a key — its preflight checks weights, not auth — so
+// turnCost can be asked what a local run costs.
+function withChrome(fn) {
+  const previous = process.env.CHROME_MODEL_DIR
+  process.env.CHROME_MODEL_DIR = fakeModelDir()
+  try {
+    setProvider('chrome')
+    fn()
+  } finally {
+    if (previous === undefined) delete process.env.CHROME_MODEL_DIR
+    else process.env.CHROME_MODEL_DIR = previous
+  }
+}
+
 describe('chrome registry rows', () => {
-  it('cost nothing — the compute was already paid for', () => {
+  it('carry no price, and cost nothing to run — the compute was already paid for', () => {
+    // Unpriced rather than priced at zero: nobody sells these, so the table
+    // has no rate to state. That a run costs nothing is the provider's
+    // answer, and turnCost is where it is given.
+    const usage = { input: 1e6, output: 1e6, cacheRead: 1e6, cacheWrite5m: 0, cacheWrite1h: 0 }
     for (const model of ['chrome/gemini-nano-v3', 'chrome/gemma-4-e2b-it', 'chrome/gemma-4-e4b-it', 'chrome/gemma-4-12b-it']) {
-      const usage = { input: 1e6, output: 1e6, cacheRead: 1e6, cacheWrite5m: 0, cacheWrite1h: 0 }
-      assert.equal(calculateCost(model, usage), 0, model)
+      assert.equal(calculateCost(model, usage), null, model)
+      withChrome(() => assert.equal(turnCost(model, usage), 0, model))
     }
   })
 

@@ -41,12 +41,22 @@ const MODELS = new Map([
   ['anthropic/claude-opus-4.7', { input: 5, output: 25, maxTokens: 128_000, canThink: 'adaptive' }],
   ['anthropic/claude-opus-4.6', { input: 5, output: 25, maxTokens: 128_000, canThink: 'adaptive' }],
   ['anthropic/claude-opus-4.5', { input: 5, output: 25, maxTokens: 64 * 1024, canThink: true }],
+  // Two unrelated things wear `-pro` here. A row carrying wireModel is an
+  // OPENROUTER ALIAS for reasoning.mode=pro on the model it names: same
+  // weights, same rate, more tokens spent. A row without one — gpt-5.5-pro,
+  // gpt-5.4-pro — is an OPENAI MODEL NAME, priced six times its namesake
+  // because it is a different model. Adding a new `-pro` means deciding
+  // which, and the rate says it: same as its base, or not.
   ['openai/gpt-6-astra', { input: 10, output: 50, maxTokens: 128_000, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
   ['openai/gpt-6-astra-pro', { input: 10, output: 50, maxTokens: 128_000, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true, wireModel: 'openai/gpt-6-astra', reasoningMode: 'pro' }],
   ['openai/gpt-5.6-sol', { input: 5, output: 30, maxTokens: 128_000, canThink: true, efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
+  ['openai/gpt-5.6-sol-pro', { input: 5, output: 30, maxTokens: 128_000, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true, wireModel: 'openai/gpt-5.6-sol', reasoningMode: 'pro' }],
   ['openai/gpt-5.6-terra', { input: 2.5, output: 15, maxTokens: 128_000, canThink: true, efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
+  ['openai/gpt-5.6-terra-pro', { input: 2.5, output: 15, maxTokens: 128_000, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true, wireModel: 'openai/gpt-5.6-terra', reasoningMode: 'pro' }],
   ['openai/gpt-5.6-luna', { input: 1, output: 6, maxTokens: 128_000, canThink: true, efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
+  ['openai/gpt-5.6-luna-pro', { input: 1, output: 6, maxTokens: 128_000, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true, wireModel: 'openai/gpt-5.6-luna', reasoningMode: 'pro' }],
   ['openai/gpt-5.5', { input: 2.5, output: 15, maxTokens: 128 * 1024, canThink: true, efforts: EFFORTS_THROUGH_XHIGH }],
+  ['openai/gpt-5.5-pro', { input: 30, output: 180, maxTokens: 128 * 1024, canThink: true, efforts: EFFORTS_THROUGH_XHIGH }],
   ['openai/gpt-5.4', { input: 2.5, output: 15, maxTokens: 128 * 1024, canThink: true, efforts: EFFORTS_THROUGH_XHIGH }],
   ['openai/gpt-5.4-nano', { input: 0.2, output: 1.25, maxTokens: 128 * 1024, canThink: true, efforts: EFFORTS_THROUGH_XHIGH }],
   ['openai/gpt-5.4-mini', { input: 0.75, output: 4.5, maxTokens: 128 * 1024, canThink: true, efforts: EFFORTS_THROUGH_XHIGH }],
@@ -59,23 +69,63 @@ const MODELS = new Map([
   ['google/gemma-4-26b-a4b-it', { input: 0.13, output: 0.4, maxTokens: 128 * 1024, canThink: true }],
   ['google/gemini-3.1-flash-lite-preview', { input: 0.25, output: 1.5, maxTokens: 64 * 1024 }],
   ['google/gemini-3.1-pro-preview', { input: 2, output: 12, maxTokens: 64 * 1024 }],
-  ['nvidia/nemotron-3-super-120b-a12b', { input: 0.1, output: 0.5, maxTokens: 128 * 1024 }],
+  ['nvidia/nemotron-3-super-120b-a12b', { input: 0.1, output: 0.5, maxTokens: 128 * 1024, canThink: true }],
+  ['nvidia/nemotron-3-ultra-550b-a55b', { input: 0.625, output: 3.125, maxTokens: 128 * 1024, canThink: true }],
+  ['nvidia/nemotron-3.5-lightning', { input: 0.08, output: 0.2, maxTokens: 128 * 1024, canThink: true }],
+  ['qwen/qwen3.6-27b', { input: 0.3, output: 2, maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.6-35b-a3b', { input: 0.1, output: 0.9, maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.8-27b', { input: 0.214, output: 2.55, maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.8-2.4t-a95b', { input: 2, output: 6, maxTokens: 64 * 1024, canThink: true }],
   // Kimi K3 (1M context) at Moonshot's list rate. OpenRouter resells it a
   // little cheaper but reports its own per-request cost, which wins over this
   // table, so one row serves both routes. `maxTokens` is the output default.
   ['moonshotai/kimi-k3', { input: 3, output: 15, maxTokens: 131_072, canThink: true, noThink: 'unsupported', efforts: ['low', 'high', 'max'] }],
-  // Chrome's built-in on-device models — served by the browser, so zero at
-  // every rate (not `free`, which means a hosted model that may train on what
-  // it is sent). `baseModel`/`specNames`/`modelVersion`/`component` are
-  // Chrome's own spellings, read in src/chrome/.
-  ['chrome/gemini-nano-v3', { input: 0, output: 0, maxTokens: 4096, baseModel: 'nano_v3', specNames: ['v3Nano'], modelVersion: 'v3', component: 'nano_v3_gpu_component' }],
-  ['chrome/gemma-4-e2b-it', { input: 0, output: 0, maxTokens: 4096, baseModel: 'gemma4_2b', specNames: ['gemma4-2b-it'], modelVersion: 'v4', component: 'gemma4_component' }],
-  ['chrome/gemma-4-e4b-it', { input: 0, output: 0, maxTokens: 4096, baseModel: 'gemma4_4b', specNames: ['gemma-4-E4B-it'], modelVersion: 'v4_4b', component: 'gemma4_4b_component' }],
-  ['chrome/gemma-4-12b-it', { input: 0, output: 0, maxTokens: 4096, baseModel: 'gemma4_12b', modelVersion: 'v4_12b', component: 'gemma4_12b_component' }],
+  // Chrome's built-in on-device models. Unpriced like every other local row:
+  // nobody sells them, and the provider says a local run costs nothing.
+  // `baseModel`/`specNames`/`modelVersion`/`component` are Chrome's own
+  // spellings, read in src/chrome/.
+  ['chrome/gemini-nano-v3', { maxTokens: 4096, baseModel: 'nano_v3', specNames: ['v3Nano'], modelVersion: 'v3', component: 'nano_v3_gpu_component' }],
+  ['chrome/gemma-4-e2b-it', { maxTokens: 4096, baseModel: 'gemma4_2b', specNames: ['gemma4-2b-it'], modelVersion: 'v4', component: 'gemma4_component' }],
+  ['chrome/gemma-4-e4b-it', { maxTokens: 4096, baseModel: 'gemma4_4b', specNames: ['gemma-4-E4B-it'], modelVersion: 'v4_4b', component: 'gemma4_4b_component' }],
+  ['chrome/gemma-4-12b-it', { maxTokens: 4096, baseModel: 'gemma4_12b', modelVersion: 'v4_12b', component: 'gemma4_12b_component' }],
+  // Local builds Ollama serves. No price: nobody sells them today, and a
+  // zero would quietly become wrong the day one of them is listed. One id per
+  // build, because the weights differ and so do the answers.
+  ['google/gemma-4-e2b-it', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-e2b-it-q8_0', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-e2b-it-q4_k_m', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-e2b-it-qat', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-e4b-it', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-e4b-it-q8_0', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-e4b-it-q4_k_m', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-e4b-it-qat', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-12b-it', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-12b-it-q8_0', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-12b-it-q4_k_m', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-12b-it-qat', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-26b-a4b-it-q8_0', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-26b-a4b-it-q4_k_m', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-26b-a4b-it-mtp-q4_k_m', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-26b-a4b-it-qat', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-31b-it-q8_0', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-31b-it-q4_k_m', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-31b-it-qat', { maxTokens: 128 * 1024, canThink: true }],
+  ['qwen/qwen3.6-27b-bf16', { maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.6-27b-q4_k_m', { maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.6-35b-a3b-bf16', { maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.6-35b-a3b-q4_k_m', { maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.8-27b-bf16', { maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.8-27b-q4_k_m', { maxTokens: 64 * 1024, canThink: true }],
+  ['nvidia/nemotron-3.5-lightning-q8_0', { maxTokens: 128 * 1024, canThink: true }],
+  ['nvidia/nemotron-3.5-lightning-q4_k_m', { maxTokens: 128 * 1024, canThink: true }],
+  ['nvidia/nemotron-3-super-120b-a12b-q8_0', { maxTokens: 128 * 1024, canThink: true }],
+  ['nvidia/nemotron-3-super-120b-a12b-q4_k_m', { maxTokens: 128 * 1024, canThink: true }],
   // Free models — may log/store/use your data
   ['openai/gpt-oss-120b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['openai/gpt-oss-20b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
-  ['nvidia/nemotron-3-super-120b-a12b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
+  ['nvidia/nemotron-3-super-120b-a12b:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, free: true }],
+  ['nvidia/nemotron-3-ultra-550b-a55b:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, free: true }],
+  ['nvidia/nemotron-3.5-lightning:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, free: true }],
   ['qwen/qwen3-coder:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['qwen/qwen3.6-plus:free', { input: 0, output: 0, maxTokens: 64 * 1024, free: true }],
   ['google/gemma-4-31b-it:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, free: true }],
@@ -292,6 +342,96 @@ export function componentFor(baseModel) {
   return BY_BASE_MODEL.get(baseModel)?.component
 }
 
+// Which local build answers a row on Ollama. Separate from the table above
+// because it is Ollama's naming, not the model's: a hosted row and a local
+// one are the same model, and only the tag differs.
+//
+// A bare id is the hosted model, so on Ollama it maps to the build closest to
+// what the hosted route actually runs — which is not the same answer per
+// family. Gemma-4 is served bf16, so a bare gemma id takes bf16 and the two
+// match. Every qwen endpoint that names a quantization serves fp8, and no
+// GGUF build is fp8 — q8_0 is int8 with a scale per block, the same width in
+// a different number system — so a bare qwen id takes q8_0 as the closest
+// thing that runs anywhere, and is near rather than equal to its hosted
+// route. Every other build is its own id, since a 4-bit answer is not an
+// 8-bit one and a run should not have to guess which it got.
+//
+// Tag names are Ollama's own and not always literal — several `-bf16` tags
+// hold F16. Ours follow the tag, since the tag is what gets pulled.
+const OLLAMA_TAGS = new Map([
+  ['google/gemma-4-e2b-it', 'gemma4:e2b-it-bf16'], // 10GB
+  ['google/gemma-4-e2b-it-q8_0', 'gemma4:e2b-it-q8_0'], // 8.1GB
+  ['google/gemma-4-e2b-it-q4_k_m', ['gemma4:e2b-it-q4_K_M', 'gemma4:e2b']], // 7.2GB
+  ['google/gemma-4-e2b-it-qat', 'gemma4:e2b-it-qat'], // 4.3GB
+  ['google/gemma-4-e4b-it', 'gemma4:e4b-it-bf16'], // 16GB
+  ['google/gemma-4-e4b-it-q8_0', 'gemma4:e4b-it-q8_0'], // 12GB
+  ['google/gemma-4-e4b-it-q4_k_m', ['gemma4:e4b-it-q4_K_M', 'gemma4:e4b']], // 9.6GB
+  ['google/gemma-4-e4b-it-qat', 'gemma4:e4b-it-qat'], // 6.1GB
+  ['google/gemma-4-12b-it', 'gemma4:12b-it-bf16'], // 24GB
+  ['google/gemma-4-12b-it-q8_0', 'gemma4:12b-it-q8_0'], // 13GB
+  ['google/gemma-4-12b-it-q4_k_m', ['gemma4:12b-it-q4_K_M', 'gemma4:12b']], // 7.6GB
+  ['google/gemma-4-12b-it-qat', 'gemma4:12b-it-qat'], // 7.2GB
+  ['google/gemma-4-26b-a4b-it', 'gemma4:26b-a4b-it-bf16'], // 52GB
+  ['google/gemma-4-26b-a4b-it-q8_0', 'gemma4:26b-a4b-it-q8_0'], // 28GB
+  ['google/gemma-4-26b-a4b-it-q4_k_m', 'gemma4:26b-a4b-it-q4_K_M'], // 18GB, worse than -mtp: 4-bit attention where that is 8-bit
+  ['google/gemma-4-26b-a4b-it-mtp-q4_k_m', ['gemma4:26b-a4b-it-mtp-q4_K_M', 'gemma4:26b']], // 19GB
+  ['google/gemma-4-26b-a4b-it-qat', 'gemma4:26b-a4b-it-qat'], // 16GB
+  ['google/gemma-4-31b-it', 'gemma4:31b-it-bf16'], // 63GB
+  ['google/gemma-4-31b-it-q8_0', 'gemma4:31b-it-q8_0'], // 34GB
+  ['google/gemma-4-31b-it-q4_k_m', ['gemma4:31b-it-q4_K_M', 'gemma4:31b']], // 20GB
+  ['google/gemma-4-31b-it-qat', 'gemma4:31b-it-qat'], // 19GB
+  ['qwen/qwen3.6-27b', ['qwen3.6:27b-q8_0', 'qwen3.6:27b-mtp-q8_0']], // 30GB
+  ['qwen/qwen3.6-27b-bf16', ['qwen3.6:27b-bf16', 'qwen3.6:27b-mtp-bf16']], // 56GB
+  ['qwen/qwen3.6-27b-q4_k_m', ['qwen3.6:27b-q4_K_M', 'qwen3.6:27b-mtp-q4_K_M', 'qwen3.6:27b']], // 17GB
+  ['qwen/qwen3.6-35b-a3b', ['qwen3.6:35b-a3b-q8_0', 'qwen3.6:35b-a3b-mtp-q8_0']], // 39GB
+  ['qwen/qwen3.6-35b-a3b-bf16', ['qwen3.6:35b-a3b-bf16', 'qwen3.6:35b-a3b-mtp-bf16']], // 71GB
+  ['qwen/qwen3.6-35b-a3b-q4_k_m', ['qwen3.6:35b-a3b-q4_K_M', 'qwen3.6:35b-a3b-mtp-q4_K_M', 'qwen3.6:35b-a3b']], // 24GB
+  ['qwen/qwen3.8-27b', ['qwen3.8:27b-q8_0', 'qwen3.8:27b-mtp-q8_0']], // 30GB
+  ['qwen/qwen3.8-27b-bf16', ['qwen3.8:27b-bf16', 'qwen3.8:27b-mtp-bf16']], // 56GB
+  ['qwen/qwen3.8-27b-q4_k_m', ['qwen3.8:27b-q4_K_M', 'qwen3.8:27b-mtp-q4_K_M', 'qwen3.8:27b']], // 18GB
+  ['nvidia/nemotron-3.5-lightning', 'nemotron-3.5-lightning:30b-a3b-bf16'], // 66GB
+  ['nvidia/nemotron-3.5-lightning-q8_0', 'nemotron-3.5-lightning:30b-a3b-q8_0'], // 35GB
+  ['nvidia/nemotron-3.5-lightning-q4_k_m', ['nemotron-3.5-lightning:30b-a3b-q4_K_M', 'nemotron-3.5-lightning:30b-a3b', 'nemotron-3.5-lightning:30b']], // 25GB
+  // Hosted one each at fp8 and bf16, so no majority to match: bf16 is the
+  // reference, and never worse than the route it stands in for.
+  ['nvidia/nemotron-3-super-120b-a12b', 'nemotron-3-super:120b-a12b-bf16'], // 247GB
+  ['nvidia/nemotron-3-super-120b-a12b-q8_0', 'nemotron-3-super:120b-a12b-q8_0'], // 132GB
+  ['nvidia/nemotron-3-super-120b-a12b-q4_k_m', ['nemotron-3-super:120b-a12b-q4_K_M', 'nemotron-3-super:120b-a12b', 'nemotron-3-super:120b']], // 87GB
+])
+
+// Undefined for a model Ollama has no mapping for, which is what tells the
+// adapter to refuse rather than post a registry id no local server knows.
+// A row names one tag, or several when the same build is published under
+// more than one name. The first is the one the id claims.
+const namesOf = (entry) => (Array.isArray(entry) ? entry : [entry])
+
+export function ollamaTagFor(model) {
+  const entry = OLLAMA_TAGS.get(resolveModel(model))
+  return entry && namesOf(entry)[0]
+}
+
+// Every name for a row's build, most-canonical first: the tag its id claims,
+// then any that ARE that tag. A `-mtp-` twin is the same weights with
+// speculative decoding switched on; a shorter tag is the same manifest under
+// the name most people actually pull, since `ollama pull gemma4:e4b` leaves
+// nothing named gemma4:e4b-it-q4_K_M on the machine. Listing them together is
+// the claim that they answer alike, which is what lets them share one id and
+// one cache entry.
+//
+// `:latest` is deliberately absent everywhere. Every tag here can be
+// re-pointed at a new build, but that one is re-pointed across model SIZES —
+// gemma4:latest is e4b today — so trusting it would eventually serve a
+// different model rather than a different build.
+const BY_TAG = new Map([...OLLAMA_TAGS.values()].map((names) => [namesOf(names)[0], namesOf(names)]))
+
+export function ollamaEquivalents(tag) {
+  return BY_TAG.get(tag) ?? [tag]
+}
+
+export function ollamaModels() {
+  return [...OLLAMA_TAGS.keys()]
+}
+
 export function reasoningModeFor(model) {
   return MODELS.get(resolveModel(model))?.reasoningMode
 }
@@ -377,6 +517,10 @@ export function addUsage(total, usage) {
 export function calculateCost(model, usage) {
   const prices = MODELS.get(model)
   if (!prices) return null
+  // A row the table knows without knowing a rate: a local build nobody sells.
+  // Null rather than zero, which would be a claim, and the wrong one as soon
+  // as somebody lists it.
+  if (prices.input == null || prices.output == null) return null
   const inputCost = (usage.input * prices.input) / 1_000_000
   // Branch instead of resolving one rate up front: folding `input * 0.10`
   // first rounds differently from multiplying the tokens through, moving

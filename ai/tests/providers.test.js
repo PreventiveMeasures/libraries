@@ -2,17 +2,19 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { calculateCost } from '../src/models.js'
+import { calculateCost, emptyUsage } from '../src/models.js'
 import {
   appendToolResults,
   buildInitialUserMessage,
   buildRequestBody,
   buildRequestHeaders,
+  buildRequestUrl,
   checkResponse,
   extractResponseText,
   extractToolCalls,
   normalizeOneUsage,
   setProvider,
+  turnCost,
 } from '../src/providers.js'
 
 // `setProvider` reads `process.env.<PROVIDER>_API_KEY` and asserts it is
@@ -1200,6 +1202,129 @@ describe('gateway — Anthropic and OpenAI natively, everything else like openro
       assert.equal(body.system, undefined)
       assert.equal(mod.buildRequestHeaders({ model: CLAUDE }).Authorization, 'Bearer k')
     })
+  })
+})
+
+describe('ollama adapter — local builds, addressed by tag', () => {
+  const MODEL = 'google/gemma-4-31b-it'
+  const messages = [{ role: 'user', content: 'hi' }]
+
+  // Unlike every other adapter, this one must select with NO key: a local
+  // server has no auth, so a helper that supplies a dummy one would test the
+  // opposite of the case that matters.
+  function withOllama(fn) {
+    const previous = process.env.OLLAMA_API_KEY
+    delete process.env.OLLAMA_API_KEY
+    try {
+      setProvider('ollama')
+      fn()
+    } finally {
+      if (previous !== undefined) process.env.OLLAMA_API_KEY = previous
+    }
+  }
+
+  it('selects with no key, and sends no Authorization header', () => {
+    withOllama(() => {
+      const headers = buildRequestHeaders({ model: 'google/gemma-4-26b-a4b-it' })
+      assert.equal(headers.Authorization, undefined)
+      assert.equal(headers['Content-Type'], 'application/json')
+    })
+  })
+
+  it('puts the local tag on the wire, not the registry id', () => {
+    withOllama(() => {
+      // The whole point of the mapping: the id names the model, the tag names
+      // the build, and only the server needs the second.
+      assert.equal(buildRequestBody('google/gemma-4-26b-a4b-it', 1000, 'sys', messages).model, 'gemma4:26b-a4b-it-bf16')
+      assert.equal(buildRequestBody('google/gemma-4-26b-a4b-it-mtp-q4_k_m', 1000, 'sys', messages).model, 'gemma4:26b-a4b-it-mtp-q4_K_M')
+      assert.equal(buildRequestBody('google/gemma-4-31b-it', 1000, 'sys', messages).model, 'gemma4:31b-it-bf16')
+    })
+  })
+
+  it('keeps the rest of the chat-completions body it shares with openrouter', () => {
+    withOllama(() => {
+      const body = buildRequestBody('google/gemma-4-31b-it', 1000, 'sys', messages, { think: true })
+      assert.equal(body.max_completion_tokens, 1000)
+      assert.deepEqual(body.messages[0], { role: 'system', content: 'sys' })
+      assert.deepEqual(body.messages[1], messages[0])
+      assert.equal(body.reasoning_effort, 'high')
+    })
+  })
+
+  it('sends a plain system message for a qwen row, which reads no breakpoint here', () => {
+    withOllama(() => {
+      // readsExplicitBreakpoint keys on the `qwen/` namespace, which the local
+      // builds share with the hosted rows — so the shared chat-completions
+      // shape would post Anthropic's cache_control blocks to a server that has
+      // no prompt cache and does not know the dialect.
+      const body = buildRequestBody('qwen/qwen3.6-27b-q4_k_m', 1000, 'sys', messages)
+      assert.deepEqual(body.messages[0], { role: 'system', content: 'sys' })
+      assert.equal(JSON.stringify(body).includes('cache_control'), false, JSON.stringify(body))
+    })
+  })
+
+  it('refuses a model it has no local build for, naming the ones it has', () => {
+    withOllama(() => {
+      // Rather than posting a registry id no Ollama server has ever heard of
+      // and reporting whatever 404 comes back.
+      assert.throws(
+        () => buildRequestBody('anthropic/claude-opus-5', 1000, 'sys', messages),
+        /no local build for anthropic\/claude-opus-5\. Use one of: .*google\/gemma-4-12b-it/u,
+      )
+    })
+  })
+
+  it('charges nothing, including for the rows that are sold hosted', () => {
+    withOllama(() => {
+      const million = { ...emptyUsage(), input: 1_000_000, output: 1_000_000 }
+      // The weights never left the machine, so the hosted rate on this row is
+      // the wrong answer however the table prices it.
+      assert.ok(calculateCost('google/gemma-4-26b-a4b-it', million) > 0)
+      assert.equal(turnCost('google/gemma-4-26b-a4b-it', million), 0)
+      // And an unpriced local build reads as nothing rather than unknown.
+      assert.equal(calculateCost('google/gemma-4-31b-it-q8_0', million), null)
+      assert.equal(turnCost('google/gemma-4-31b-it-q8_0', million), 0)
+    })
+  })
+
+  it('leaves a hosted provider priced by the table', () => {
+    withProvider('openrouter', 'OPENROUTER_API_KEY', () => {
+      const million = { ...emptyUsage(), input: 1_000_000, output: 1_000_000 }
+      assert.equal(turnCost('google/gemma-4-26b-a4b-it', million), calculateCost('google/gemma-4-26b-a4b-it', million))
+      // Unknown stays unknown off a local provider — not silently free.
+      assert.equal(turnCost('google/gemma-4-31b-it-q8_0', million), null)
+    })
+  })
+
+  it('defaults to a local server, and follows OLLAMA_API_URL elsewhere', () => {
+    withOllama(() => {
+      assert.equal(buildRequestUrl(MODEL), 'http://127.0.0.1:11434/v1/chat/completions')
+    })
+  })
+
+  it('resolves that URL per request, so the turn and the tag probe agree', () => {
+    // The other adapters read their origin once, at module load. This one
+    // cannot: src/ollama.js reads OLLAMA_API_URL when it probes, so a URL
+    // frozen at import would have the probe asking one server what it has
+    // and the turn posting the answer to another.
+    withOllama(() => {
+      const previous = process.env.OLLAMA_API_URL
+      process.env.OLLAMA_API_URL = 'http://box.local:11434'
+      try {
+        assert.equal(buildRequestUrl(MODEL), 'http://box.local:11434/v1/chat/completions')
+      } finally {
+        if (previous === undefined) delete process.env.OLLAMA_API_URL
+        else process.env.OLLAMA_API_URL = previous
+      }
+    })
+  })
+
+  it('sends a Bearer only when one is configured, for an Ollama behind a proxy', async () => {
+    const headers = await withProvidersEnv({ OLLAMA_API_KEY: 'proxy-token' }, (mod) => {
+      mod.setProvider('ollama')
+      return mod.buildRequestHeaders({ model: 'google/gemma-4-31b-it' })
+    })
+    assert.equal(headers.Authorization, 'Bearer proxy-token')
   })
 })
 

@@ -46,6 +46,26 @@ function specifiersOf(source) {
   return [...source.matchAll(SPECIFIER_RE)].map((m) => m.groups.spec)
 }
 
+// Everything the package can reach at run time has to be IN the package.
+// src/ollama.js was absent from `files` for a whole PR: providers.js imports
+// it unconditionally, so an install would have failed on every provider, and
+// the boundary checks below all read the filesystem rather than the manifest.
+describe('ai/ ships every module it imports', () => {
+  const manifest = JSON.parse(readFileSync(new URL('package.json', AI_DIR), 'utf8'))
+  const shipped = new Set(manifest.files)
+
+  it('lists a plausible set of files', () => {
+    assert.ok(shipped.size > 5, `expected a files allowlist, found ${shipped.size}`)
+  })
+
+  for (const file of files) {
+    const name = file.href.slice(AI_DIR.href.length)
+    it(`files includes ${name}`, () => {
+      assert.ok(shipped.has(name), `${name} is in src/ but not in package.json files`)
+    })
+  }
+})
+
 describe('ai/ is self-contained', () => {
   it('has files to check, including the nested ones', () => {
     // A typo'd directory or an extension this stopped matching would make
