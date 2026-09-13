@@ -93,25 +93,37 @@ const MODELS = new Map([
   // than guessed. A Chrome that renames one fails with the name it found,
   // which makes the fix a one-line edit here.
   //
-  // `modelVersion` is what actually switches which model answers. Chrome
-  // selects it by a feature param — AIApiFoundationalModel:model_version —
-  // not by the weights directory, which is why pointing the execution
-  // override at a gemma directory changed nothing. v3 is Gemini Nano and
-  // the default; v4 is Gemma 4.
+  // The ids follow Gemma's own naming — gemma-4-<size>-it, as published — and
+  // deliberately not Chrome's, which is idiosyncratic in three different ways
+  // at once: the manifest spec says gemma4-2b-it for what Google ships as
+  // gemma-4-E2B-it, gemma-4-E4B-it for the next size up, and nothing at all
+  // for the 12B. `-it` is the instruction-tuned checkpoint, which is the only
+  // kind a chat API can use; the E is "effective" parameters, a smaller
+  // operational count than the total because per-layer embeddings are only
+  // used for lookups.
   //
-  // The SIZE within v4 is not selectable: Broker State lists prompt_api_gemma4,
-  // prompt_api_gemma4_4b and prompt_api_gemma4_12b as separate use cases and
-  // Chrome picks between them itself, so all three gemma rows ask for the same
-  // thing and differ only in which weights they expect to find.
+  // `baseModel` stays in Chrome's spelling, because it is not decoration: it
+  // is what findModelDir searches for and, for the 12B, what the component
+  // name is derived from — see componentNameFor in chrome-model.js.
   //
-  // The 12B manifest carries no BaseModelSpec at all. Its identity is the
-  // top-level component name, and that name is a template of the row's own id
-  // — "Optimization Guide On-Device Gemma4 12B Model" — so it needs no
-  // specNames; see componentNameFor in chrome-model.js.
+  // `modelVersion` is what actually switches which model answers, and it is
+  // not a version. Chrome's manifest carries
+  //
+  //   PromptApiFeatureConfig {
+  //     default_use_case: "prompt_api"
+  //     experimental_use_cases: { "v4":     "prompt_api_gemma4"
+  //                               "v4_4b":  "prompt_api_gemma4_4b"
+  //                               "v4_12b": "prompt_api_gemma4_12b" }
+  //   }
+  //
+  // and AIApiFoundationalModel:model_version is a KEY into that map. The
+  // weights directory has no say — pointing the execution override at a gemma
+  // directory changed nothing — and neither does chrome://flags, which can
+  // only ever say v4. nano wants the default use case and names no key.
   ['chrome/nano_v3', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'nano_v3', specNames: ['v3Nano'], modelVersion: 'v3' }],
-  ['chrome/gemma4_2b', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_2b', specNames: ['gemma4-2b-it'], modelVersion: 'v4' }],
-  ['chrome/gemma4_4b', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_4b', specNames: ['gemma-4-E4B-it'], modelVersion: 'v4_4b' }],
-  ['chrome/gemma4_12b', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_12b', modelVersion: 'v4_12b' }],
+  ['chrome/gemma-4-e2b-it', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_2b', specNames: ['gemma4-2b-it'], modelVersion: 'v4' }],
+  ['chrome/gemma-4-e4b-it', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_4b', specNames: ['gemma-4-E4B-it'], modelVersion: 'v4_4b' }],
+  ['chrome/gemma-4-12b-it', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_12b', modelVersion: 'v4_12b' }],
   // Free models — may log/store/use your data
   ['openai/gpt-oss-120b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['openai/gpt-oss-20b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],

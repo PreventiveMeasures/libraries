@@ -258,7 +258,7 @@ export function identifiesAs(dir, baseModel) {
 //
 // A named spec that cannot be identified is an error rather than a fallback.
 // Falling back looked harmless and was not: the turn would be labelled and
-// CACHED as chrome/gemma4_2b while nano_v3 actually answered it — a wrong answer
+// CACHED as chrome/gemma-4-e2b-it while nano_v3 actually answered it — a wrong answer
 // filed under a name that gets trusted later.
 export function findModelDir(baseModel) {
   const override = process.env.CHROME_MODEL_DIR

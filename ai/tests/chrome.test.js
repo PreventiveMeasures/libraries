@@ -29,7 +29,7 @@ function fakeModelDir() {
 
 describe('chrome registry rows', () => {
   it('cost nothing — the compute was already paid for', () => {
-    for (const model of ['chrome/nano_v3', 'chrome/gemma4_2b', 'chrome/gemma4_4b', 'chrome/gemma4_12b']) {
+    for (const model of ['chrome/nano_v3', 'chrome/gemma-4-e2b-it', 'chrome/gemma-4-e4b-it', 'chrome/gemma-4-12b-it']) {
       const usage = { input: 1e6, output: 1e6, cacheRead: 1e6, cacheWrite5m: 0, cacheWrite1h: 0 }
       assert.equal(calculateCost(model, usage), 0, model)
     }
@@ -37,9 +37,9 @@ describe('chrome registry rows', () => {
 
   it('name the base model spec the row expects Chrome to hold', () => {
     assert.equal(baseModelFor('chrome/nano_v3'), 'nano_v3')
-    assert.equal(baseModelFor('chrome/gemma4_2b'), 'gemma4_2b')
-    assert.equal(baseModelFor('chrome/gemma4_4b'), 'gemma4_4b')
-    assert.equal(baseModelFor('chrome/gemma4_12b'), 'gemma4_12b')
+    assert.equal(baseModelFor('chrome/gemma-4-e2b-it'), 'gemma4_2b')
+    assert.equal(baseModelFor('chrome/gemma-4-e4b-it'), 'gemma4_4b')
+    assert.equal(baseModelFor('chrome/gemma-4-12b-it'), 'gemma4_12b')
     // Undefined is what tells the adapter a row is not one of Chrome's.
     assert.equal(baseModelFor('anthropic/claude-opus-5'), undefined)
   })
@@ -79,9 +79,9 @@ describe('chrome foundational model version', () => {
     // row picks its own size. nano wants the default use case and so names no
     // key of its own.
     assert.equal(modelVersionFor(baseModelFor('chrome/nano_v3')), 'v3')
-    assert.equal(modelVersionFor(baseModelFor('chrome/gemma4_2b')), 'v4')
-    assert.equal(modelVersionFor(baseModelFor('chrome/gemma4_4b')), 'v4_4b')
-    assert.equal(modelVersionFor(baseModelFor('chrome/gemma4_12b')), 'v4_12b')
+    assert.equal(modelVersionFor(baseModelFor('chrome/gemma-4-e2b-it')), 'v4')
+    assert.equal(modelVersionFor(baseModelFor('chrome/gemma-4-e4b-it')), 'v4_4b')
+    assert.equal(modelVersionFor(baseModelFor('chrome/gemma-4-12b-it')), 'v4_12b')
   })
 
   it('tells the gemma sizes apart, which the flag could not', () => {
@@ -89,16 +89,16 @@ describe('chrome foundational model version', () => {
     // so every gemma row asked for the 2b use case however its weights were
     // linked: Broker State showed prompt_api_gemma4 Requested and pending
     // while prompt_api_gemma4_4b sat there available and unasked-for.
-    const keys = ['chrome/gemma4_2b', 'chrome/gemma4_4b', 'chrome/gemma4_12b']
+    const keys = ['chrome/gemma-4-e2b-it', 'chrome/gemma-4-e4b-it', 'chrome/gemma-4-12b-it']
       .map((model) => modelVersionFor(baseModelFor(model)))
     assert.equal(new Set(keys).size, keys.length, `expected distinct keys, got ${keys.join(', ')}`)
   })
 
   it('puts the key on the command line, and only for a gemma row', () => {
-    assert.match(features('chrome/gemma4_4b'), /AIApiFoundationalModel:model_version\/v4_4b(,|$)/u)
-    assert.match(features('chrome/gemma4_12b'), /AIApiFoundationalModel:model_version\/v4_12b(,|$)/u)
+    assert.match(features('chrome/gemma-4-e4b-it'), /AIApiFoundationalModel:model_version\/v4_4b(,|$)/u)
+    assert.match(features('chrome/gemma-4-12b-it'), /AIApiFoundationalModel:model_version\/v4_12b(,|$)/u)
     // The broker rides along, since the variant use cases are its business.
-    assert.match(features('chrome/gemma4_2b'), /OptimizationGuideManifestBroker/u)
+    assert.match(features('chrome/gemma-4-e2b-it'), /OptimizationGuideManifestBroker/u)
     // nano is what Chrome does anyway and asks for none of it.
     assert.doesNotMatch(features('chrome/nano_v3'), /AIApiFoundationalModel|ManifestBroker/u)
   })
@@ -373,7 +373,7 @@ describe('chrome model identification', () => {
 })
 
 describe('chrome request body', () => {
-  const build = (messages, opts) => CHROME_SHAPE.buildRequestBody('chrome/gemma4_2b', 4096, 'be terse', messages, opts)
+  const build = (messages, opts) => CHROME_SHAPE.buildRequestBody('chrome/gemma-4-e2b-it', 4096, 'be terse', messages, opts)
 
   it('splits history from the turn being asked', () => {
     const body = build([
@@ -416,7 +416,7 @@ describe('chrome request body', () => {
   })
 
   it('concatenates the blocks — nothing local caches across requests', () => {
-    const initial = (userContent) => CHROME_SHAPE.buildInitialUserMessage('chrome/gemma4_2b', userContent)
+    const initial = (userContent) => CHROME_SHAPE.buildInitialUserMessage('chrome/gemma-4-e2b-it', userContent)
     // A list, which is what chat() passes now. Concatenating with `+` gave
     // 'prefix,suffix' here: an array stringifies with commas, so the old
     // two-argument form put a comma into the prompt the moment a caller
@@ -517,7 +517,7 @@ describe('chrome tool-result threading', () => {
     const messages = [{ role: 'user', content: 'go' }]
     const json = toChatCompletions({ text: JSON.stringify({ tool_calls: [{ name: 'list_dir', arguments: {} }] }) }, true)
     CHROME_SHAPE.appendToolResults(messages, json, CHROME_SHAPE.extractToolCalls(json), ['a.js\nb.js'])
-    const body = CHROME_SHAPE.buildRequestBody('chrome/gemma4_2b', 4096, 'sys', messages, { tools: TOOLS })
+    const body = CHROME_SHAPE.buildRequestBody('chrome/gemma-4-e2b-it', 4096, 'sys', messages, { tools: TOOLS })
     assert.equal(body.initialPrompts.length, 3)
     assert.match(body.prompt, /a\.js/u)
     assert.ok(body.responseConstraint)
@@ -667,7 +667,7 @@ describe('chrome page round-trip', async () => {
 
   it('passes the constraint through and shapes tool calls out of the answer', { skip }, async () => {
     await page.evaluate(STUB('JSON.stringify({ text: "", tool_calls: [{ name: options.responseConstraint.properties.tool_calls.items.anyOf[0].properties.name.enum[0], arguments: {} }] })'))
-    const body = CHROME_SHAPE.buildRequestBody('chrome/gemma4_2b', 4096, 'sys', [{ role: 'user', content: 'go' }], { tools: TOOLS })
+    const body = CHROME_SHAPE.buildRequestBody('chrome/gemma-4-e2b-it', 4096, 'sys', [{ role: 'user', content: 'go' }], { tools: TOOLS })
     const json = toChatCompletions(await page.evaluate(turnInPage, body), true)
     assert.deepEqual(CHROME_SHAPE.extractToolCalls(json), [{ id: 'call_0', name: 'read_file', args: {} }])
   })
