@@ -3,9 +3,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
-import { IGNORED_DEFAULT_ARGS, chromePreflight, closeChrome, findModelDir, isScratchProfile, launchArgs, localStateFor, openTab, pruneProfileRoot, removeProfileDir, runTurn, sweepStaleProfiles, turnInPage, waitUntilReady } from '../src/chrome/index.js'
+import { IGNORED_DEFAULT_ARGS, chromePreflight, closeChrome, findModelDir, isScratchProfile, launchArgs, localStateFor, openTab, pruneProfileRoot, removeProfileDir, sweepStaleProfiles, turnInPage, waitUntilReady } from '../src/chrome/index.js'
 import { graftPlanIn, identifiesAs, portableGuide, rootOwning } from '../src/chrome/model.js'
 import { CHROME_SHAPE, explainCreateFailure, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome/wire.js'
+import { sendChromeTurn, trackTurn } from '../src/chrome/index.js'
 import { baseModelFor, calculateCost, getMaxTokens, modelVersionFor, specNamesFor } from '../src/models.js'
 import { setProvider } from '../src/providers.js'
 
@@ -28,8 +29,9 @@ function fakeModelDir() {
 }
 
 // Where the provider puts its scratch profiles, and one shaped the same way.
+// Spelled out rather than imported, so a wrong root is a failure here.
 // A function, because os.tmpdir() reads the environment on every call.
-const profileRoot = () => join(tmpdir(), 'preventive-ai')
+const profileRoot = () => join(tmpdir(), `preventive-ai${process.getuid ? `-${process.getuid()}` : ''}`)
 function scratchProfile() {
   mkdirSync(profileRoot(), { recursive: true })
   return mkdtempSync(join(profileRoot(), 'chrome-'))
@@ -723,14 +725,81 @@ describe('chrome launch failure', () => {
   })
 })
 
+describe('chrome idle close', () => {
+  // Its own temp dir: the observable end of closeChrome with nothing open is
+  // that it takes the shared directory, so that is what says it ran.
+  const sandbox = mkdtempSync(join(tmpdir(), 'ai-chrome-test-idle-'))
+  const restore = {}
+  before(() => {
+    for (const key of ['TMPDIR', 'TMP', 'TEMP']) {
+      restore[key] = process.env[key]
+      process.env[key] = sandbox
+    }
+    restore.CHROME_IDLE_MS = process.env.CHROME_IDLE_MS
+    process.env.CHROME_IDLE_MS = '20'
+  })
+  after(() => {
+    for (const [key, value] of Object.entries(restore)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+    rmSync(sandbox, { recursive: true, force: true })
+  })
+
+  const settle = (ms) => new Promise((resolve) => { setTimeout(resolve, ms) })
+
+  it('closes the browser once nothing has asked for a turn', async () => {
+    mkdirSync(profileRoot(), { recursive: true })
+    await trackTurn(() => Promise.resolve({ text: 'ok' }))
+    assert.equal(existsSync(profileRoot()), true, 'closed before the idle window was up')
+    await settle(120)
+    assert.equal(existsSync(profileRoot()), false, 'should have closed itself')
+  })
+
+  it('does not close while turns keep arriving', async () => {
+    mkdirSync(profileRoot(), { recursive: true })
+    for (let i = 0; i < 4; i++) {
+      await trackTurn(() => Promise.resolve({ text: 'ok' }))
+      await settle(10)
+    }
+    assert.equal(existsSync(profileRoot()), true, 'a turn should push the close back')
+    await settle(120)
+    assert.equal(existsSync(profileRoot()), false)
+  })
+
+  it('leaves a turn that outlasts the window alone', async () => {
+    mkdirSync(profileRoot(), { recursive: true })
+    await trackTurn(() => Promise.resolve({ text: 'ok' }))
+    let answer
+    const slow = trackTurn(() => new Promise((resolve) => { answer = resolve }))
+    await settle(120)
+    assert.equal(existsSync(profileRoot()), true, 'closed under a turn still in flight')
+    answer({ text: 'ok' })
+    await slow
+    await settle(120)
+    assert.equal(existsSync(profileRoot()), false, 'and closes once that one is done')
+  })
+
+  it('counts the launch as pending, not only the turn in the page', async (t) => {
+    // A cold launch takes longer than the window, so it has to hold the close
+    // off too. Pointed at weights that are not there, so this fails inside the
+    // launch — which still arms the close only because the launch is tracked.
+    t.after(() => { delete process.env.CHROME_MODEL_DIR })
+    process.env.CHROME_MODEL_DIR = join(sandbox, 'no-weights-here')
+    mkdirSync(profileRoot(), { recursive: true })
+    await assert.rejects(sendChromeTurn('chrome/gemini-nano-v3', {}), /CHROME_MODEL_DIR/u)
+    await settle(120)
+    assert.equal(existsSync(profileRoot()), false, 'a launch that failed should still arm the close')
+  })
+})
+
 describe('chrome close while a turn is in flight', () => {
   it('waits for the turn instead of closing the browser under it', async () => {
     // Parallel callers share a browser, and each closes the provider when its
     // own turn returns. Closing on the first one to finish is what left the
     // rest with "Target page, context or browser has been closed".
     let answer
-    const tab = { evaluate: () => new Promise((resolve) => { answer = resolve }) }
-    const turn = runTurn(tab, {})
+    const turn = trackTurn(() => new Promise((resolve) => { answer = resolve }))
 
     let closed = false
     const closing = closeChrome().then(() => { closed = true; return closed })
@@ -882,7 +951,7 @@ describe('chrome scratch-profile cleanup', () => {
 
     const profile = join(root, 'profile')
     mkdirSync(profile)
-    symlinkSync(model, join(profile, 'OptGuideOnDeviceModel'))
+    symlinkSync(model, join(profile, 'OptGuideOnDeviceModel'), 'junction')
 
     rmSync(profile, { recursive: true, force: true })
 

@@ -94,7 +94,11 @@ const profiles = new Set()
 // One directory of our own inside the temp dir, so the sweep reads it rather
 // than everything the machine has put there. Recomputed per call, so it
 // follows TMPDIR.
-const PROFILE_ROOT = 'preventive-ai'
+//
+// Per user, because the temp dir is not always: a shared /tmp takes the mode
+// of whichever account created the root first, and every other account then
+// gets EACCES trying to make a profile inside it.
+const PROFILE_ROOT = `preventive-ai${process.getuid ? `-${process.getuid()}` : ''}`
 const PROFILE_PREFIX = 'chrome-'
 const profileRoot = () => join(tmpdir(), PROFILE_ROOT)
 
@@ -184,7 +188,7 @@ async function launch(baseModel, debug) {
   // before Chrome starts so the component tree can be grafted into it.
   sweepStaleProfiles()
   installExitCleanup()
-  mkdirSync(profileRoot(), { recursive: true })
+  mkdirSync(profileRoot(), { recursive: true, mode: 0o700 })
   const profile = mkdtempSync(join(profileRoot(), PROFILE_PREFIX))
   profiles.add(profile)
   // Before anything slow, so a concurrent sweep can already see an owner.
@@ -317,12 +321,36 @@ export async function waitUntilReady(tab, debug) {
 // closing on the first caller to finish takes the tab out from under the rest
 // — page.evaluate then fails with "Target page, context or browser has been
 // closed", which is what parallel callers were seeing.
+// Everything a close has to wait for: the turn in the page, and the launch a
+// turn is still waiting on. Nothing closes while this has anything in it.
 const turns = new Set()
 
-export function runTurn(tab, body) {
-  const turn = tab.evaluate(turnInPage, body)
+// How long the browser sits with nothing in flight or pending before closing
+// itself. A caller that never reaches closeProvider stops paying for one, and
+// node can exit, which an open browser otherwise prevents. Read per arm, so a
+// caller can set its own — 0 keeps the browser until closeProvider says so.
+const idleMs = () => Number(process.env.CHROME_IDLE_MS ?? 10_000)
+
+let idleClose
+function armIdleClose() {
+  clearTimeout(idleClose)
+  const ms = idleMs()
+  if (!(ms > 0)) return
+  // unref'd, so the timer is never itself what keeps the process alive.
+  idleClose = setTimeout(() => {
+    if (turns.size === 0) closeChrome().catch(() => {})
+  }, ms)
+  idleClose.unref?.()
+}
+
+export function trackTurn(work) {
+  clearTimeout(idleClose)
+  const turn = Promise.resolve().then(work)
   turns.add(turn)
-  return turn.finally(() => turns.delete(turn))
+  return turn.finally(() => {
+    turns.delete(turn)
+    if (turns.size === 0) armIdleClose()
+  })
 }
 
 // Reused across turns: no turn leaves state behind on the browser side, since
@@ -339,6 +367,7 @@ function ensureSession(baseModel, debug) {
 }
 
 export async function closeChrome() {
+  clearTimeout(idleClose)
   // Close when idle, not on demand: a caller finishing its turn while another
   // is still mid-flight would otherwise close that one's browser. A turn
   // started during the drain keeps it going, which is the same promise.
@@ -432,17 +461,21 @@ export async function sendChromeTurn(model, body, { debug, label } = {}) {
   // local weights were meant is unknowable. Launching anyway would answer an
   // anthropic/* id, or a typo, with whatever happens to be installed.
   assert.ok(baseModel, `Provider \`chrome\` cannot serve ${model}. Use one of the chrome/* models.`)
-  const launched = Date.now()
-  const session = await ensureSession(baseModel, debug)
-  const { tab } = session
-  const startup = Date.now() - launched
-  if (debug && label) console.debug(`[debug] ${label}`)
-  const result = await runTurn(tab, body)
-  if (result.error?.availability) explainCreateFailure(result.error, model, baseModel)
-  if (debug) {
-    // A cold run pays for browser startup, component registration and the
-    // first load of the weights; only the last number is the model working.
-    console.debug(`[chrome] startup=${startup}ms create=${result.createMs ?? '-'}ms prompt=${result.promptMs ?? '-'}ms`)
-  }
-  return toChatCompletions(result, Boolean(body.responseConstraint))
+  // The launch counts as pending too: a cold one takes longer than the idle
+  // window, so a browser that had just come up would close before its first
+  // turn reached it.
+  return await trackTurn(async () => {
+    const launched = Date.now()
+    const { tab } = await ensureSession(baseModel, debug)
+    const startup = Date.now() - launched
+    if (debug && label) console.debug(`[debug] ${label}`)
+    const result = await tab.evaluate(turnInPage, body)
+    if (result.error?.availability) explainCreateFailure(result.error, model, baseModel)
+    if (debug) {
+      // A cold run pays for browser startup, component registration and the
+      // first load of the weights; only the last number is the model working.
+      console.debug(`[chrome] startup=${startup}ms create=${result.createMs ?? '-'}ms prompt=${result.promptMs ?? '-'}ms`)
+    }
+    return toChatCompletions(result, Boolean(body.responseConstraint))
+  })
 }

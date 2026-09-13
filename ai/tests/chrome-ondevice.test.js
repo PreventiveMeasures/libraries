@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { after, describe, it } from 'node:test'
 import { chat } from '../src/chat.js'
-import { findModelDir } from '../src/chrome/index.js'
+import { chromeTarget, findModelDir } from '../src/chrome/index.js'
 import { calculateCost } from '../src/models.js'
 import { closeProvider, setProvider } from '../src/providers.js'
 
@@ -17,10 +17,18 @@ import { closeProvider, setProvider } from '../src/providers.js'
 // gigabytes to get one.
 async function whyNot() {
   if (process.env.CI) return 'CI: no on-device model, and not worth downloading one'
-  try { await import('playwright-core') } catch { return 'playwright-core is not installed (optional peer)' }
-  if (!findModelDir()) return 'Chrome has no on-device model downloaded'
-  // Also the browser check: setProvider runs the preflight, and a machine
-  // with weights but no Chrome to run them in fails here with the reason.
+  let chromium
+  try { ({ chromium } = await import('playwright-core')) } catch { return 'playwright-core is not installed (optional peer)' }
+  // The row these tests actually ask for. The unnamed probe answers for any
+  // installed model, so a machine holding only gemma weights got past it and
+  // then failed on a nano_v3 turn it was never going to serve.
+  try { findModelDir(BASE_MODEL) } catch (err) { return err.message }
+  // And a browser to run it in, which the preflight does not check: it reads
+  // the weights off disk and says nothing about Chrome being installed.
+  try {
+    const probe = await chromium.launch({ ...chromeTarget(), args: process.platform === 'linux' ? ['--no-sandbox'] : [] })
+    await probe.close()
+  } catch (err) { return `no branded Chrome to run the model in: ${err.message}` }
   try { setProvider('chrome') } catch (err) { return err.message }
   return false
 }
@@ -28,13 +36,17 @@ async function whyNot() {
 // Slow by nature: a cold browser, then a first load of the weights.
 const TIMEOUT = 180_000
 
+// Every test here asks for this row, so it is what the skip check looks for.
+const MODEL = 'chrome/gemini-nano-v3'
+const BASE_MODEL = 'nano_v3'
+
 describe('chrome on-device, against the real model', async () => {
   const skip = await whyNot()
   after(async () => { await closeProvider() })
 
   it('answers a prompt', { skip, timeout: TIMEOUT }, async () => {
     const { text, error, usage } = await chat({
-      model: 'chrome/gemini-nano-v3',
+      model: MODEL,
       maxTokens: 4096,
       systemPrompt: 'You are terse. Answer in one word.',
       userContent: 'What is the capital of France?',
@@ -45,22 +57,14 @@ describe('chrome on-device, against the real model', async () => {
     // Chrome's own tokenizer, read off contextUsage — there is no output
     // count to report, so that half is a delta rather than a measurement.
     assert.ok(usage.input > 0, 'expected the context to have been measured')
-    assert.equal(calculateCost('chrome/gemini-nano-v3', usage), 0, 'on-device compute is not billed')
+    assert.equal(calculateCost(MODEL, usage), 0, 'on-device compute is not billed')
   })
 
-  it('serves a turn without the network', { skip, timeout: TIMEOUT }, async () => {
-    // The whole point of the provider: the weights are already here, and
-    // nothing leaves the machine to use them. A turn that needed the network
-    // would hang or fail rather than answer.
-    const { text, error } = await chat({
-      model: 'chrome/gemini-nano-v3',
-      maxTokens: 4096,
-      systemPrompt: 'Reply with exactly: ok',
-      userContent: 'Go.',
-    })
-    assert.equal(error, undefined, `chat() reported: ${error}`)
-    assert.ok(text.length > 0)
-  })
+  // No test here claims to prove the turn took no network: this suite drives
+  // chat() and never sees the page, so it could only assert that an answer
+  // came back — which a turn that quietly fetched something would satisfy
+  // too. What keeps the network out is `offline` on the context and the
+  // component-updater override, and chrome.test.js asserts both are passed.
 
   it('drives a tool call through the response constraint', { skip, timeout: TIMEOUT }, async () => {
     const tools = [{
@@ -70,7 +74,7 @@ describe('chrome on-device, against the real model', async () => {
     }]
     const seen = []
     const { text, error } = await chat({
-      model: 'chrome/gemini-nano-v3',
+      model: MODEL,
       maxTokens: 4096,
       systemPrompt: 'Use the tools you are given.',
       userContent: 'What is the weather in Paris? Use the tool.',
