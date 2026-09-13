@@ -341,40 +341,41 @@ export function componentFor(baseModel) {
 // Tag names are Ollama's own and not always literal — several `-bf16` tags
 // hold F16. Ours follow the tag, since the tag is what gets pulled.
 const OLLAMA_TAGS = new Map([
-  ['google/gemma-4-12b-it', 'gemma4:12b-it-bf16'],
-  ['google/gemma-4-12b-it-q8_0', 'gemma4:12b-it-q8_0'],
-  ['google/gemma-4-12b-it-q4_k_m', 'gemma4:12b-it-q4_K_M'],
-  ['google/gemma-4-12b-it-qat', 'gemma4:12b-it-qat'],
-  ['google/gemma-4-26b-a4b-it', 'gemma4:26b-a4b-it-bf16'],
-  ['google/gemma-4-26b-a4b-it-q8_0', 'gemma4:26b-a4b-it-q8_0'],
-  ['google/gemma-4-26b-a4b-it-q4_k_m', 'gemma4:26b-a4b-it-q4_K_M'],
-  ['google/gemma-4-26b-a4b-it-mtp-q4_k_m', 'gemma4:26b-a4b-it-mtp-q4_K_M'], // byte-identical manifest to the default `gemma4:26b`
-  ['google/gemma-4-26b-a4b-it-qat', 'gemma4:26b-a4b-it-qat'],
-  ['google/gemma-4-31b-it', 'gemma4:31b-it-bf16'],
-  ['google/gemma-4-31b-it-q8_0', 'gemma4:31b-it-q8_0'],
-  ['google/gemma-4-31b-it-q4_k_m', 'gemma4:31b-it-q4_K_M'],
-  ['google/gemma-4-31b-it-qat', 'gemma4:31b-it-qat'],
-  ['qwen/qwen3.6-27b', 'qwen3.6:27b-q8_0'],
-  ['qwen/qwen3.6-27b-bf16', 'qwen3.6:27b-bf16'],
-  ['qwen/qwen3.6-27b-q4_k_m', 'qwen3.6:27b-q4_K_M'],
+  ['google/gemma-4-12b-it', 'gemma4:12b-it-bf16'], // 24GB
+  ['google/gemma-4-12b-it-q8_0', 'gemma4:12b-it-q8_0'], // 13GB
+  ['google/gemma-4-12b-it-q4_k_m', 'gemma4:12b-it-q4_K_M'], // 7.6GB
+  ['google/gemma-4-12b-it-qat', 'gemma4:12b-it-qat'], // 7.2GB
+  ['google/gemma-4-26b-a4b-it', 'gemma4:26b-a4b-it-bf16'], // 52GB
+  ['google/gemma-4-26b-a4b-it-q8_0', 'gemma4:26b-a4b-it-q8_0'], // 28GB
+  ['google/gemma-4-26b-a4b-it-q4_k_m', 'gemma4:26b-a4b-it-q4_K_M'], // 18GB
+  // Byte-identical manifest to the default `gemma4:26b`.
+  ['google/gemma-4-26b-a4b-it-mtp-q4_k_m', 'gemma4:26b-a4b-it-mtp-q4_K_M'], // 19GB
+  ['google/gemma-4-26b-a4b-it-qat', 'gemma4:26b-a4b-it-qat'], // 16GB
+  ['google/gemma-4-31b-it', 'gemma4:31b-it-bf16'], // 63GB
+  ['google/gemma-4-31b-it-q8_0', 'gemma4:31b-it-q8_0'], // 34GB
+  ['google/gemma-4-31b-it-q4_k_m', 'gemma4:31b-it-q4_K_M'], // 20GB
+  ['google/gemma-4-31b-it-qat', 'gemma4:31b-it-qat'], // 19GB
+  ['qwen/qwen3.6-27b', 'qwen3.6:27b-q8_0'], // 30GB
+  ['qwen/qwen3.6-27b-bf16', 'qwen3.6:27b-bf16'], // 56GB
+  ['qwen/qwen3.6-27b-q4_k_m', 'qwen3.6:27b-q4_K_M'], // 17GB
   // Distinct artifacts, though not for one reason: at 27b the vision weights
   // are only split out of the model file (+0.016% all told), while 35b-a3b
   // carries 609MB more than its plain build.
-  ['qwen/qwen3.6-27b-mtp-bf16', 'qwen3.6:27b-mtp-bf16'],
-  ['qwen/qwen3.6-27b-mtp-q8_0', 'qwen3.6:27b-mtp-q8_0'],
-  ['qwen/qwen3.6-27b-mtp-q4_k_m', 'qwen3.6:27b-mtp-q4_K_M'],
-  ['qwen/qwen3.6-35b-a3b', 'qwen3.6:35b-a3b-q8_0'],
-  ['qwen/qwen3.6-35b-a3b-bf16', 'qwen3.6:35b-a3b-bf16'],
-  ['qwen/qwen3.6-35b-a3b-q4_k_m', 'qwen3.6:35b-a3b-q4_K_M'],
-  ['qwen/qwen3.6-35b-a3b-mtp-bf16', 'qwen3.6:35b-a3b-mtp-bf16'],
-  ['qwen/qwen3.6-35b-a3b-mtp-q8_0', 'qwen3.6:35b-a3b-mtp-q8_0'],
-  ['qwen/qwen3.6-35b-a3b-mtp-q4_k_m', 'qwen3.6:35b-a3b-mtp-q4_K_M'],
+  ['qwen/qwen3.6-27b-mtp-bf16', 'qwen3.6:27b-mtp-bf16'], // 56GB
+  ['qwen/qwen3.6-27b-mtp-q8_0', 'qwen3.6:27b-mtp-q8_0'], // 30GB
+  ['qwen/qwen3.6-27b-mtp-q4_k_m', 'qwen3.6:27b-mtp-q4_K_M'], // 18GB
+  ['qwen/qwen3.6-35b-a3b', 'qwen3.6:35b-a3b-q8_0'], // 39GB
+  ['qwen/qwen3.6-35b-a3b-bf16', 'qwen3.6:35b-a3b-bf16'], // 71GB
+  ['qwen/qwen3.6-35b-a3b-q4_k_m', 'qwen3.6:35b-a3b-q4_K_M'], // 24GB
+  ['qwen/qwen3.6-35b-a3b-mtp-bf16', 'qwen3.6:35b-a3b-mtp-bf16'], // 72GB
+  ['qwen/qwen3.6-35b-a3b-mtp-q8_0', 'qwen3.6:35b-a3b-mtp-q8_0'], // 39GB
+  ['qwen/qwen3.6-35b-a3b-mtp-q4_k_m', 'qwen3.6:35b-a3b-mtp-q4_K_M'], // 23GB
   // qwen3.8 publishes `-mtp-` tags too, but there they are the same model and
   // projector blobs with `draft_num_predict` set, so they are a run-time
   // setting rather than a build and get no id of their own.
-  ['qwen/qwen3.8-27b', 'qwen3.8:27b-q8_0'],
-  ['qwen/qwen3.8-27b-bf16', 'qwen3.8:27b-bf16'],
-  ['qwen/qwen3.8-27b-q4_k_m', 'qwen3.8:27b-q4_K_M'],
+  ['qwen/qwen3.8-27b', 'qwen3.8:27b-q8_0'], // 30GB
+  ['qwen/qwen3.8-27b-bf16', 'qwen3.8:27b-bf16'], // 56GB
+  ['qwen/qwen3.8-27b-q4_k_m', 'qwen3.8:27b-q4_K_M'], // 18GB
 ])
 
 // Undefined for a model Ollama has no mapping for, which is what tells the
