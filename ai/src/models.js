@@ -60,14 +60,18 @@ const MODELS = new Map([
   ['google/gemini-3.1-flash-lite-preview', { input: 0.25, output: 1.5, maxTokens: 64 * 1024 }],
   ['google/gemini-3.1-pro-preview', { input: 2, output: 12, maxTokens: 64 * 1024 }],
   ['nvidia/nemotron-3-super-120b-a12b', { input: 0.1, output: 0.5, maxTokens: 128 * 1024 }],
-  // Kimi K3 (1M context). Priced at Moonshot's list rate ($3 / $15 per Mtok,
-  // cache hits at 0.1x — exactly calculateCost's cacheRead multiplier).
-  // OpenRouter resells the same model slightly cheaper ($2.90 / $14) but
-  // reports its own per-request cost, which wins over this table wherever
-  // it's present, so one row serves both routes. `maxTokens` is Moonshot's
-  // documented `max_completion_tokens` default rather than its 1,048,576
-  // ceiling — the cap is an output budget, not a context length.
+  // Kimi K3 (1M context) at Moonshot's list rate. OpenRouter resells it a
+  // little cheaper but reports its own per-request cost, which wins over this
+  // table, so one row serves both routes. `maxTokens` is the output default.
   ['moonshotai/kimi-k3', { input: 3, output: 15, maxTokens: 131_072, canThink: true, noThink: 'unsupported', efforts: ['low', 'high', 'max'] }],
+  // Chrome's built-in on-device models — served by the browser, so zero at
+  // every rate (not `free`, which means a hosted model that may train on what
+  // it is sent). `baseModel`/`specNames`/`modelVersion`/`component` are
+  // Chrome's own spellings, read in src/chrome/.
+  ['chrome/gemini-nano-v3', { input: 0, output: 0, maxTokens: 4096, baseModel: 'nano_v3', specNames: ['v3Nano'], modelVersion: 'v3', component: 'nano_v3_gpu_component' }],
+  ['chrome/gemma-4-e2b-it', { input: 0, output: 0, maxTokens: 4096, baseModel: 'gemma4_2b', specNames: ['gemma4-2b-it'], modelVersion: 'v4', component: 'gemma4_component' }],
+  ['chrome/gemma-4-e4b-it', { input: 0, output: 0, maxTokens: 4096, baseModel: 'gemma4_4b', specNames: ['gemma-4-E4B-it'], modelVersion: 'v4_4b', component: 'gemma4_4b_component' }],
+  ['chrome/gemma-4-12b-it', { input: 0, output: 0, maxTokens: 4096, baseModel: 'gemma4_12b', modelVersion: 'v4_12b', component: 'gemma4_12b_component' }],
   // Free models — may log/store/use your data
   ['openai/gpt-oss-120b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['openai/gpt-oss-20b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
@@ -260,6 +264,30 @@ export function effortsFor(model) {
 // even though they share a price and a token rate.
 export function wireModelFor(model) {
   return MODELS.get(resolveModel(model))?.wireModel ?? model
+}
+
+// Undefined for every hosted row, which is what tells the adapter a model is
+// not one of Chrome's.
+export function baseModelFor(model) {
+  return MODELS.get(resolveModel(model))?.baseModel
+}
+
+// Keyed by base model rather than registry id, so the adapter can look one up
+// from what it already carries.
+const BY_BASE_MODEL = new Map([...MODELS.values()].filter((r) => r.baseModel).map((r) => [r.baseModel, r]))
+
+export function specNamesFor(baseModel) {
+  return BY_BASE_MODEL.get(baseModel)?.specNames ?? []
+}
+
+export function modelVersionFor(baseModel) {
+  return BY_BASE_MODEL.get(baseModel)?.modelVersion
+}
+
+// What Chrome calls the row's weights where it records having them: the
+// asset_id of its entry in the manifest ledger.
+export function componentFor(baseModel) {
+  return BY_BASE_MODEL.get(baseModel)?.component
 }
 
 export function reasoningModeFor(model) {

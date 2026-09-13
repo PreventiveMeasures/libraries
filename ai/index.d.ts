@@ -162,8 +162,13 @@ export declare function normalizeUsage(data: unknown): Usage | null
 // format wrote it.
 //
 // Throws on an unknown provider name, a missing API key, or a gateway with
-// no configured URL.
+// no configured URL. `chrome` is the local one: no key and no URL, but it
+// throws here too when Chrome has no on-device model downloaded to borrow.
 export declare function setProvider(name: string): void
+// Release what the active provider holds open. A no-op for every provider
+// but `chrome`, whose browser keeps the event loop alive until it is closed,
+// so a caller can end a run with this unconditionally.
+export declare function closeProvider(): Promise<void>
 // Names the wire format a history entry was written under, so a partial is
 // never replayed into a request the other format's shapes can't fill.
 export declare function providerStamp(model: string): string | undefined

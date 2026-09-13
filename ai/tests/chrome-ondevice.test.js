@@ -1,0 +1,101 @@
+import assert from 'node:assert/strict'
+import { after, describe, it } from 'node:test'
+import { chat } from '../src/chat.js'
+import { chromeTarget, findModelDir } from '../src/chrome/index.js'
+import { calculateCost } from '../src/models.js'
+import { closeProvider, setProvider } from '../src/providers.js'
+
+// The only test here that asks a real model a real question. Everything it
+// needs is a property of the MACHINE rather than of the code — a branded
+// Chrome, weights already downloaded into it, and hardware Chrome is willing
+// to run them on — so it skips rather than fails wherever any of that is
+// missing. chrome.test.js covers the adapter itself, with a stub standing in
+// for the model, and stays hermetic.
+//
+// Skipped on CI unconditionally. A runner has no on-device model, and the one
+// failure mode worth refusing outright is a CI box deciding to download four
+// gigabytes to get one.
+async function whyNot() {
+  if (process.env.CI) return 'CI: no on-device model, and not worth downloading one'
+  let chromium
+  try { ({ chromium } = await import('playwright-core')) } catch { return 'playwright-core is not installed (optional peer)' }
+  // The row these tests actually ask for. The unnamed probe answers for any
+  // installed model, so a machine holding only gemma weights got past it and
+  // then failed on a nano_v3 turn it was never going to serve.
+  try { findModelDir(BASE_MODEL) } catch (err) { return err.message }
+  // And a browser to run it in, which the preflight does not check: it reads
+  // the weights off disk and says nothing about Chrome being installed.
+  try {
+    const probe = await chromium.launch({ ...chromeTarget(), args: process.platform === 'linux' ? ['--no-sandbox'] : [] })
+    await probe.close()
+  } catch (err) { return `no branded Chrome to run the model in: ${err.message}` }
+  try { setProvider('chrome') } catch (err) { return err.message }
+  return false
+}
+
+// Slow by nature: a cold browser, then a first load of the weights.
+const TIMEOUT = 180_000
+
+// Every test here asks for this row, so it is what the skip check looks for.
+const MODEL = 'chrome/gemini-nano-v3'
+const BASE_MODEL = 'nano_v3'
+
+describe('chrome on-device, against the real model', async () => {
+  const skip = await whyNot()
+  after(async () => { await closeProvider() })
+
+  it('answers a prompt', { skip, timeout: TIMEOUT }, async () => {
+    const { text, error, usage } = await chat({
+      model: MODEL,
+      maxTokens: 4096,
+      systemPrompt: 'You are terse. Answer in one word.',
+      userContent: 'What is the capital of France?',
+    })
+    assert.equal(error, undefined, `chat() reported: ${error}`)
+    assert.ok(text?.trim(), 'expected some text back')
+    assert.match(text, /paris/iu)
+    // Chrome's own tokenizer, read off contextUsage — there is no output
+    // count to report, so that half is a delta rather than a measurement.
+    assert.ok(usage.input > 0, 'expected the context to have been measured')
+    assert.equal(calculateCost(MODEL, usage), 0, 'on-device compute is not billed')
+  })
+
+  // No test here claims to prove the turn took no network: this suite drives
+  // chat() and never sees the page, so it could only assert that an answer
+  // came back — which a turn that quietly fetched something would satisfy
+  // too. What keeps the network out is `offline` on the context and the
+  // component-updater override, and chrome.test.js asserts both are passed.
+
+  it('drives a tool call through the response constraint', { skip, timeout: TIMEOUT }, async () => {
+    const tools = [{
+      name: 'get_weather',
+      description: 'Get the current weather for a city.',
+      input_schema: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] },
+    }]
+    const seen = []
+    const { text, error } = await chat({
+      model: MODEL,
+      maxTokens: 4096,
+      systemPrompt: 'Use the tools you are given.',
+      userContent: 'What is the weather in Paris? Use the tool.',
+      tools,
+      handleToolCall: (call) => { seen.push(call); return '18C, clear' },
+      maxToolTurns: 3,
+    })
+    assert.equal(error, undefined, `chat() reported: ${error}`)
+    // The turn has to have gone somewhere. Permitting zero calls AND saying
+    // nothing about the text made every assertion below vacuous — a provider
+    // that silently produced an empty answer passed. A small model may
+    // reasonably decline to call a tool, but it may not do neither.
+    assert.ok(seen.length > 0 || text?.trim(), 'expected either a tool call or an answer, got neither')
+    // Whatever it did emit must be well formed and name a real tool: the
+    // constraint is decoder-enforced, so a violation here is a bug in the
+    // schema rather than a bad roll.
+    for (const call of seen) {
+      assert.equal(call.argsError, undefined, `malformed args: ${call.argsError}`)
+      assert.equal(call.name, 'get_weather')
+      assert.equal(typeof call.args, 'object')
+      assert.equal(typeof call.args.city, 'string', 'the per-tool schema requires a city')
+    }
+  })
+})

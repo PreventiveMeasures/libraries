@@ -25,8 +25,10 @@ export { chat, isResumableHistory, logTurnCost, normalizeUsage } from './src/cha
 
 // Which provider the requests go to, and the two pieces of its response
 // shape a caller has to see: what a stored turn's text was, and which wire
-// format wrote it.
-export { setProvider, providerStamp, extractResponseText } from './src/providers.js'
+// format wrote it. `closeProvider` releases whatever the active one holds
+// open — only `chrome` holds anything, a browser, but a caller ending a run
+// can call it without knowing which provider it picked.
+export { setProvider, closeProvider, providerStamp, extractResponseText } from './src/providers.js'
 
 // The transport under those requests: how many are in flight at once, and
 // how often a transient upstream failure is re-asked.
