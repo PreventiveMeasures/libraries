@@ -18,10 +18,10 @@ export {
   resolveThinkEffort, unknownModelMessage, validateModel,
 } from './src/models.js'
 
-// One conversation, end to end: `ask()` issues the turns and hands tool
-// calls back to the caller, `isResumableHistory` says whether a cached
-// partial can be replayed into it, and the two helpers read what it cost.
-export { ask, isResumableHistory, logTurnCost, normalizeUsage } from './src/chat.js'
+// One conversation, end to end: `ask()` issues the turns, hands tool calls
+// back to the caller, and resumes a partial one left behind by an
+// interrupted run; the two helpers read what it cost.
+export { ask, logTurnCost, normalizeUsage } from './src/chat.js'
 
 // Which provider the requests go to, and the two pieces of its response
 // shape a caller has to see: what a stored turn's text was, and which wire
@@ -40,8 +40,8 @@ export { RETRIES, setFetchConcurrency, setFetchRetries } from './src/fetch.js'
 // kept for a person to read...
 export {
   buildCacheOpts, cacheDir, cacheKey, clearPartial, getCacheStats, getCached,
-  getPartial, invalidResponseError, recordCacheHit, recordCacheMiss, setCache,
-  setCacheDir, setInvalid, setPartial, setUniqueRerun,
+  invalidResponseError, recordCacheHit, recordCacheMiss, setCache, setCacheDir,
+  setInvalid, setPartial, setUniqueRerun,
 } from './src/cache.js'
 // ...and the two scans that walk what it has accumulated.
 export { listCacheEntries, rehashCache } from './src/cache-scan.js'

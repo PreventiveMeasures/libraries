@@ -304,6 +304,20 @@ export async function getPartial(userContent, opts) {
   return Array.isArray(json) ? json : null
 }
 
+const taken = new Set()
+
+// One process resumes a given partial once. The run that takes it goes on
+// to overwrite it turn by turn, so a caller that asks the same thing again —
+// retrying after an answer it rejected — must start fresh instead of being
+// handed back the answer it just threw away.
+export async function takePartial(userContent, opts) {
+  const { subdir, key } = resolveCachePaths(userContent, opts)
+  const id = `${subdir}/${key}`
+  if (taken.has(id)) return null
+  taken.add(id)
+  return await getPartial(userContent, opts)
+}
+
 export async function setPartial(userContent, history, opts) {
   const { dir, key } = resolveCachePaths(userContent, opts)
   await mkdir(dir, { recursive: true })
