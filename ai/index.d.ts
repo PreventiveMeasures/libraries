@@ -95,6 +95,7 @@ export declare const TASK_BUDGET_MODES: readonly string[]
 export declare function addUsage(total: Usage, usage: Usage | null | undefined): void
 export declare function calculateCost(model: string, usage: Usage): number | null
 export declare function canDisableThink(model: unknown): boolean
+export declare function canEffort(model: unknown): boolean
 export declare function canTaskBudget(model: unknown): boolean
 export declare function canThink(model: unknown): boolean
 export declare function effortsFor(model: unknown): readonly string[] | undefined

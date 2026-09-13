@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
+import * as ai from '../index.js'
+
 import { EFFORT_LEVELS, KNOWN_MODELS, TASK_BUDGET_MODELS, TASK_BUDGET_MODES, calculateCost, canAdaptive, canDisableThink, canEffort, canTaskBudget, canThink, effortsFor, emptyUsage, getMaxTokens, isRecognizedModel, needsExplicitNoThink, normalizeThinkEffort, ollamaModels, ollamaTagFor, readsCacheBreakpoint, reasoningModeFor, resolveModel, resolveThinkEffort, unknownModelMessage, validateModel, wireModelFor } from '../src/models.js'
 
 describe('canThink / canEffort', () => {
@@ -33,6 +35,17 @@ describe('canThink / canEffort', () => {
   it('canEffort: false on any model without a thinking capability', () => {
     assert.equal(canEffort('anthropic/claude-3.5-haiku'), false)
     assert.equal(canEffort('openai/gpt-4o-mini'), false)
+  })
+})
+
+describe('canEffort on the package entry', () => {
+  it('is re-exported from index.js, the one door into the layer', () => {
+    assert.equal(ai.canEffort, canEffort)
+  })
+
+  it('answers for an id of any type, as the `unknown` in its declared type says', () => {
+    assert.equal(ai.canEffort(undefined), false)
+    assert.equal(ai.canEffort(123), false)
   })
 })
 
