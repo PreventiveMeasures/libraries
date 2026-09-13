@@ -13,9 +13,9 @@
 // asked to do, and the usage arithmetic that goes with the price table.
 export {
   DEFAULT_MODEL, EFFORT_LEVELS, KNOWN_MODELS, TASK_BUDGET_MODELS, TASK_BUDGET_MODES,
-  addUsage, calculateCost, canDisableThink, canTaskBudget, canThink, effortsFor,
-  emptyUsage, getMaxTokens, isRecognizedModel, normalizeThinkEffort, resolveModel,
-  resolveThinkEffort, unknownModelMessage, validateModel,
+  addUsage, calculateCost, canDisableThink, canEffort, canTaskBudget, canThink,
+  effortsFor, emptyUsage, getMaxTokens, isRecognizedModel, normalizeThinkEffort,
+  resolveModel, resolveThinkEffort, unknownModelMessage, validateModel,
 } from './src/models.js'
 
 // One conversation, end to end: `ask()` issues the turns, hands tool calls
