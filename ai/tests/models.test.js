@@ -425,6 +425,58 @@ describe('Kimi K3 (moonshotai/kimi-k3)', () => {
   })
 })
 
+describe('Gemma 4 (google/gemma-4-31b-it, google/gemma-4-26b-a4b-it)', () => {
+  const PAID = ['google/gemma-4-31b-it', 'google/gemma-4-26b-a4b-it']
+  const FREE = ['google/gemma-4-31b-it:free', 'google/gemma-4-26b-a4b-it:free']
+  const ALL = [...PAID, ...FREE]
+
+  it('registers all four rows, paid tier and free endpoint alike', () => {
+    for (const model of ALL) {
+      assert.ok(KNOWN_MODELS.includes(model), model)
+      assert.equal(isRecognizedModel(model), true, model)
+    }
+  })
+
+  it('caps output at 128k on every row — the free endpoint serves the same weights', () => {
+    for (const model of ALL) assert.equal(getMaxTokens(model), 128 * 1024, model)
+  })
+
+  it('prices the paid rows per Mtok in + out, and charges nothing for the free ones', () => {
+    const usage = { ...emptyUsage(), input: 1_000_000, output: 1_000_000 }
+    assert.equal(calculateCost('google/gemma-4-31b-it', usage), 0.14 + 0.4)
+    assert.equal(calculateCost('google/gemma-4-26b-a4b-it', usage), 0.13 + 0.4)
+    for (const model of FREE) assert.equal(calculateCost(model, usage), 0, model)
+  })
+
+  it('thinks and reads an effort knob on the free rows too', () => {
+    for (const model of ALL) {
+      assert.equal(canThink(model), true, model)
+      assert.equal(canEffort(model), true, model)
+      assert.equal(canAdaptive(model), false, model)
+      assert.deepEqual(normalizeThinkEffort(model, true), { useThink: true, useEffort: 'high' })
+    }
+  })
+
+  it('takes the full effort ladder — no gemma row narrows it', () => {
+    for (const model of ALL) assert.equal(effortsFor(model), undefined, model)
+  })
+
+  it('gates each row on --free in the direction its price says', () => {
+    for (const model of PAID) {
+      assert.doesNotThrow(() => validateModel(model))
+      assert.throws(() => validateModel(model, { free: true }), /is not free/u)
+    }
+    for (const model of FREE) {
+      assert.doesNotThrow(() => validateModel(model, { free: true }))
+      assert.throws(() => validateModel(model), /requires --free flag/u)
+    }
+  })
+
+  it('does not accept the Anthropic task-budgets beta', () => {
+    for (const model of ALL) assert.equal(canTaskBudget(model), false, model)
+  })
+})
+
 describe('effortsFor / EFFORT_LEVELS', () => {
   // Every model that narrows, so the subset/'manual' checks below can't drift
   // past a row added later.
