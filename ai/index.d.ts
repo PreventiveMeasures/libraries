@@ -111,9 +111,9 @@ export declare function unknownModelMessage(model: unknown, flag: string): strin
 // with the `free` flag.
 export declare function validateModel(model: string, opts?: { free?: boolean | undefined }): void
 
-// One conversation, end to end: `ask()` issues the turns and hands tool
-// calls back to the caller, `isResumableHistory` says whether a cached
-// partial can be replayed into it, and the two helpers read what it cost.
+// One conversation, end to end: `ask()` issues the turns, hands tool calls
+// back to the caller, and resumes a partial one left behind by an
+// interrupted run; the two helpers read what it cost.
 interface AskOptions {
   model: string
   maxTokens: number
@@ -130,10 +130,14 @@ interface AskOptions {
   tools?: Tool[] | undefined
   handleToolCall?: ((call: ToolCall) => string | Promise<string>) | undefined
   maxToolTurns?: number | undefined
-  // Surviving an interruption: a partial run to pick up from, and the cache
-  // options to keep writing one under after every turn.
-  initialHistory?: HistoryEntry[] | null | undefined
+  // Surviving an interruption, both halves of it: the cache options a
+  // running history is written under after every turn, and the partial this
+  // call looks for before its first request. One process resumes a given
+  // partial once, so a retry of a rejected answer starts fresh.
   partial?: CacheOpts | undefined
+  // The turns being resumed, `[]` on a fresh run, before the first request
+  // goes out — for a caller whose tools carry state those turns rebuild.
+  onStart?: ((history: HistoryEntry[]) => void | Promise<void>) | undefined
   debug?: boolean | undefined
   debugRequests?: boolean | undefined
   label?: string | undefined
@@ -151,7 +155,6 @@ interface AskResult {
 }
 
 export declare function ask(options: AskOptions): Promise<AskResult>
-export declare function isResumableHistory(history: unknown, opts?: { provider?: string | undefined }): boolean
 export declare function logTurnCost(label: string, model: string, usage: Usage, pass?: string | undefined): void
 // Sums a stored history, or reads a single stored response. Null when
 // nothing in it carried usage.
@@ -183,9 +186,9 @@ export declare function setFetchConcurrency(limit: number): void
 export declare function setFetchRetries(n: unknown): void
 
 // The response cache on disk: where it lives, how an entry is addressed,
-// and the reads and writes over it — final entries, resumable partials,
-// rejected responses kept for a person to read, and the two scans that walk
-// what has accumulated.
+// and the reads and writes over it — final entries, rejected responses kept
+// for a person to read, the retiring of one no run should pick up again,
+// and the two scans that walk what has accumulated.
 //
 // The directory is the caller's to set, and there is no default: every
 // other call here throws until setCacheDir has been given one.
@@ -203,7 +206,10 @@ export declare function cacheKey(systemPrompt: string, userContent: string, opts
   effort?: string | undefined
   bundleId?: string | undefined
 }): string
-export declare function clearPartial(userContent: string, opts: CacheOpts): Promise<void>
+// Takes the entry at this key out of service, for a caller holding an answer no later run should
+// serve or resume onto — one that failed its format check, say. The answer goes; its turn history
+// moves to `.invalid.json`, over any dump already there, where a person can still read it.
+export declare function invalidateCacheEntry(userContent: string, opts: CacheOpts): Promise<void>
 // Monotonic for the process lifetime: snapshot and diff for a per-run window.
 export declare function getCacheStats(): { hits: number, misses: number }
 // `json` is the stored turn history, `key` the entry's on-disk basename,
@@ -221,7 +227,6 @@ export declare function getCached<T>(userContent: string | string[], opts: Cache
   validate: (entry: CacheEntry) => T | Promise<T>
 }): Promise<(CacheEntry & { value: Awaited<T> }) | null>
 export declare function getCached(userContent: string | string[], opts: CacheOpts): Promise<CacheEntry | null>
-export declare function getPartial(userContent: string, opts: CacheOpts): Promise<HistoryEntry[] | null>
 // Keeps the rejected response for inspection, then hands back the Error to
 // throw — for a call site that gives up rather than returns.
 export declare function invalidResponseError(error: string, userContent: string, history: HistoryEntry[], opts: CacheOpts): Promise<Error>
@@ -242,7 +247,6 @@ export declare function rehashCache(model: string, opts?: {
 export declare function setCache(userContent: string, result: string, history: HistoryEntry[], opts: CacheOpts): Promise<string>
 // Diagnostic only, and never throws: a failed write warns and returns.
 export declare function setInvalid(userContent: string, history: HistoryEntry[], opts: CacheOpts, info: { reason: string, text?: string | undefined }): Promise<void>
-export declare function setPartial(userContent: string, history: HistoryEntry[], opts: CacheOpts): Promise<void>
 // Folds an extra key into every cache key for this process, so a run can be
 // repeated without reading what the last one wrote.
 export declare function setUniqueRerun(key: string): void

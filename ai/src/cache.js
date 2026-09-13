@@ -304,6 +304,20 @@ export async function getPartial(userContent, opts) {
   return Array.isArray(json) ? json : null
 }
 
+const taken = new Set()
+
+// One process resumes a given partial once. The run that takes it goes on
+// to overwrite it turn by turn, so a caller that asks the same thing again —
+// retrying after an answer it rejected — must start fresh instead of being
+// handed back the answer it just threw away.
+export async function takePartial(userContent, opts) {
+  const { subdir, key } = resolveCachePaths(userContent, opts)
+  const id = `${subdir}/${key}`
+  if (taken.has(id)) return null
+  taken.add(id)
+  return await getPartial(userContent, opts)
+}
+
 export async function setPartial(userContent, history, opts) {
   const { dir, key } = resolveCachePaths(userContent, opts)
   await mkdir(dir, { recursive: true })
@@ -374,14 +388,20 @@ export async function invalidResponseError(error, userContent, history, opts) {
   return new Error(error)
 }
 
-// Delete the partial `.json`. Used when a chat finishes in a state
-// we don't want to resume from (format-validation failure with no
-// `.md` written), so the next run doesn't reload a bad conversation.
-export async function clearPartial(userContent, opts) {
+const ignoreMissing = (err) => { if (err.code !== 'ENOENT') throw err }
+
+// Take the entry at one key out of service without throwing away what it held: the answer goes,
+// and the turn history moves to `.invalid.json`, which nothing reads back and a person still can.
+// For a caller that will not stand behind what it got — a response that failed its format check,
+// say — so no later run serves it or resumes onto it. What lands there is the bare history, not
+// the `{ reason, history }` setInvalid writes: a rename costs one syscall whatever the history
+// weighs, and one too big to re-serialise is exactly the kind that gets rejected.
+export async function invalidateCacheEntry(userContent, opts) {
   const { dir, key } = resolveCachePaths(userContent, opts)
-  try {
-    await unlink(join(dir, `${key}.json`))
-  } catch (err) {
-    if (err.code !== 'ENOENT') throw err
-  }
+  // `.md` first: it is the entry's existence marker, which is why setCache writes it last. Removing
+  // it first holds the same invariant if only one of the two calls lands.
+  await unlink(join(dir, `${key}.md`)).catch(ignoreMissing)
+  // Over whatever dump was already there, the newer evidence being the more useful. Atomic, so no
+  // reader sees the history under both names, or neither.
+  await rename(join(dir, `${key}.json`), join(dir, `${key}${INVALID_SUFFIX}`)).catch(ignoreMissing)
 }

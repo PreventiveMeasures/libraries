@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { setPartial } from './cache.js'
+import { invalidateCacheEntry, setPartial, takePartial } from './cache.js'
 import { addUsage, emptyUsage } from './models.js'
 import { claimPrefix, prefixKey } from './prefix-gate.js'
 import { flattenUserContent } from './prompt-cache.js'
@@ -45,14 +45,16 @@ export function normalizeUsage(data) {
 // a per-call budget have to enforce that separately. The "Max tool call
 // turns reached" exit message matches the variable's semantics.
 //
-// The two halves of surviving an interruption. `initialHistory` (optional)
-// primes the loop from a cached partial: usage / texts / messages are
-// reconstructed and the loop picks up at turn N. `partial` (optional) is
-// the cache options to write the running history under after every
-// completed turn, which is what leaves such a history behind — a long tool
-// session killed at turn 20 resumes there instead of paying for 20 turns
-// again. Passing neither is a conversation that starts and ends in one go.
-export async function ask({ model, maxTokens, systemPrompt, userContent, think = false, effort, tools, handleToolCall, maxToolTurns = DEFAULT_MAX_TOOL_TURNS, initialHistory, partial, debug, debugRequests, label, taskBudget = 'never', ...rest }) {
+// `partial` (optional) is both halves of surviving an interruption: the
+// cache options the running history is written under after every completed
+// turn, and the place this call looks before issuing its first request. A
+// long tool session killed at turn 20 picks up there instead of paying for
+// 20 turns again. Without it a conversation starts and ends in one go.
+//
+// `onStart` (optional) is handed the turns being resumed — `[]` on a fresh
+// run — before the first request goes out, for a caller whose tools carry
+// state those turns have to rebuild.
+export async function ask({ model, maxTokens, systemPrompt, userContent, think = false, effort, tools, handleToolCall, maxToolTurns = DEFAULT_MAX_TOOL_TURNS, partial, onStart, debug, debugRequests, label, taskBudget = 'never', ...rest }) {
   assert.ok(!('userContentSuffix' in rest), 'userContentSuffix is gone — pass userContent as [preamble, suffix] instead')
   assert.ok(Boolean(tools) === Boolean(handleToolCall), 'tools and handleToolCall must be both provided or both omitted')
   const totalUsage = emptyUsage()
@@ -80,27 +82,29 @@ export async function ask({ model, maxTokens, systemPrompt, userContent, think =
     }
   }
 
+  const previous = await resumeFrom(keyContent, partial, stamp, { debug, label })
+  await onStart?.(previous ?? [])
+
   let messages
-  // Replay the cached turns when a partial history is supplied: history
-  // and texts are repopulated, and `messages` is rebuilt from the last
-  // entry's snapshot. Note we deliberately do NOT add cached-entry
-  // usage into `totalUsage` — those tokens were paid in the prior
-  // (interrupted) invocation and are already reflected in that run's
-  // cost line; counting them here would inflate the "new" cost
-  // reported for this invocation. The `messages` snapshot is stored
-  // per-entry (not reconstructed from request.messages) because
-  // requests are provider-shaped (OpenAI Responses uses
-  // `request.input`; OpenRouter prepends its own system message);
-  // isResumableHistory's provider check already gated us into a
-  // matching shape. Tail `appendToolResults` is only applied when
-  // the last entry actually had tool calls — a terminal-turn entry
-  // has nothing to append.
-  if (isResumableHistory(initialHistory, { provider: stamp })) {
-    for (const entry of initialHistory) {
+  // Replay the cached turns: history and texts are repopulated, and
+  // `messages` is rebuilt from the last entry's snapshot. Note we
+  // deliberately do NOT add cached-entry usage into `totalUsage` —
+  // those tokens were paid in the prior (interrupted) invocation and
+  // are already reflected in that run's cost line; counting them here
+  // would inflate the "new" cost reported for this invocation. The
+  // `messages` snapshot is stored per-entry (not reconstructed from
+  // request.messages) because requests are provider-shaped (OpenAI
+  // Responses uses `request.input`; OpenRouter prepends its own system
+  // message); the provider check in resumeFrom already gated us into a
+  // matching shape. Tail `appendToolResults` is only applied when the
+  // last entry actually had tool calls — a terminal-turn entry has
+  // nothing to append.
+  if (previous) {
+    for (const entry of previous) {
       history.push(entry)
       texts.push(extractResponseText(entry.response))
     }
-    const last = initialHistory.at(-1)
+    const last = previous.at(-1)
     // Last cached turn produced no tool calls — the previous run had
     // already issued its final assistant message and would have
     // returned at this point. Short-circuit to avoid a redundant API
@@ -167,12 +171,30 @@ export async function ask({ model, maxTokens, systemPrompt, userContent, think =
   return { text: null, error: 'Max tool call turns reached', usage: totalUsage, history }
 }
 
+// The partial this run picks up from, or null for a fresh start. Reading it
+// here rather than taking one from the caller keeps the shape check, the
+// provider check and the disposal of a bad one in one place, where no caller
+// can skip them.
+async function resumeFrom(keyContent, partial, stamp, { debug, label }) {
+  if (!partial) return null
+  const history = await takePartial(keyContent, partial)
+  if (!history) return null
+  if (!isResumableHistory(history, { provider: stamp })) {
+    if (debug) console.warn(`[chat] partial for ${label} is malformed or cross-provider; starting fresh`)
+    // Out of service, so the next process doesn't load it under a wrong shape too.
+    await invalidateCacheEntry(keyContent, partial)
+    return null
+  }
+  if (debug) console.debug(`[chat] resuming ${label} from ${history.length} cached turn(s)`)
+  return history
+}
+
 // Validate a cached partial history is safe to replay. Resume needs
 // every entry to be an object with both a `response` (extractResponseText
 // reads it) and a `messages` array (the pre-turn snapshot chat
 // rebuilds the loop state from). One bad entry invalidates the whole
-// partial — the caller clears the cache and starts fresh rather than
-// risking a mid-replay crash.
+// partial — resumeFrom invalidates it and starts fresh rather than risking
+// a mid-replay crash.
 //
 // `provider` (optional): require every entry's `provider` stamp to
 // match. `messages` content blocks are adapter-shaped (Anthropic's
