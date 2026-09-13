@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
-import { modelVersionFor, specNamesFor } from './models.js'
+import { specNamesFor } from './models.js'
 
 // Where the on-device weights are, which is a separate question from how the
 // browser is driven — see chrome.js for that.
@@ -317,39 +317,15 @@ export function chromePreflight() {
 }
 
 
-// Which model a profile ends up running, which the weights on disk do not
-// decide on their own.
-//
-// Switching Chrome to Gemma 4 is a chrome://flags choice, not a command-line
-// feature list — so it is set the way the flags page sets it, by writing the
-// choice into Local State and letting Chrome expand it. The expansion is
-// version-dependent, which is the whole reason not to hand-roll it: read back
-// off chrome://version, the same flag gives
-//
-//   153 stable  AIApiFoundationalModel:model_version/v4,
-//               OnDeviceModelLitertLmBackend, OptimizationGuideManifestBroker
-//   155 dev     AIApiFoundationalModel:model_version/v4,
-//               OptimizationGuideManifestBroker
-//
-// because by 155 LiteRT-LM is the default runtime and has no flag left to
-// turn on. Writing 153's list literally would have force-enabled, on 155, a
-// feature that no longer exists there.
-//
-// "@1" is the first non-default option; this flag offers only Default and
-// Enabled, so that is Enabled.
-const GEMMA4_FLAG = 'gemma4-for-built-in-ai@1'
-
-// v3 is Gemini Nano and needs nothing: it is what Chrome does anyway.
-function labExperimentsFor(baseModel) {
-  return modelVersionFor(baseModel) === 'v4' ? [GEMMA4_FLAG] : []
-}
-
 // The prefs a scratch profile starts with. Split out because none of it
 // announces a mistake: an unknown key, or a known one at the wrong nesting
-// depth, is not an error Chrome reports — it is a flag that quietly never
-// applies. `enabled_labs_experiments` in particular has to sit under
-// `browser`, and a test can say so.
-export function localStateFor(baseModel, modelDir) {
+// depth, is not an error Chrome reports — it is a pref that quietly never
+// applies, and a test can say what the shape should be.
+//
+// Which Gemma answers is NOT decided here. It rides a feature param on the
+// command line; see enabledFeatures in chrome.js for why the chrome://flags
+// entry cannot express it.
+export function localStateFor(modelDir) {
   return {
     // chrome://on-device-internals is behind a master toggle, backed by this
     // one pref. Seeding it costs nothing and is the only way to ask the
@@ -361,6 +337,5 @@ export function localStateFor(baseModel, modelDir) {
     // Narrowed to the model being launched — see above for what the other
     // entries cost.
     ...optimizationGuidePrefs(modelDir),
-    browser: { enabled_labs_experiments: labExperimentsFor(baseModel) },
   }
 }

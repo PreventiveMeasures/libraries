@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
-import { chromePreflight, findModelDir, isScratchProfile, launchArgs, localStateFor, removeProfileDir, turnInPage, waitUntilReady } from '../src/chrome.js'
+import { IGNORED_DEFAULT_ARGS, chromePreflight, findModelDir, isScratchProfile, launchArgs, localStateFor, removeProfileDir, turnInPage, waitUntilReady } from '../src/chrome.js'
 import { graftPlanIn, identifiesAs, portableGuide } from '../src/chrome-model.js'
 import { CHROME_SHAPE, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome-wire.js'
 import { baseModelFor, calculateCost, getMaxTokens, modelVersionFor, specNamesFor } from '../src/models.js'
@@ -62,47 +62,56 @@ describe('chrome registry rows', () => {
 })
 
 describe('chrome foundational model version', () => {
-  it('asks for v4 on the gemma rows and v3 on nano', () => {
-    // This — not the weights directory — is what actually switches which
-    // model answers. Pointing the execution override at a gemma directory
-    // changed nothing at all; Chrome selects by
-    // AIApiFoundationalModel:model_version, set through the
-    // gemma4-for-built-in-ai flag.
+  const features = (model) => launchArgs('/models/x', baseModelFor(model))
+    .find((arg) => arg.startsWith('--enable-features='))
+
+  it('names the map key that picks each variant', () => {
+    // Not a version number — a KEY into the manifest's experimental_use_cases:
+    //
+    //   PromptApiFeatureConfig {
+    //     default_use_case: "prompt_api"
+    //     experimental_use_cases: { "v4":     "prompt_api_gemma4"
+    //                               "v4_4b":  "prompt_api_gemma4_4b"
+    //                               "v4_12b": "prompt_api_gemma4_12b" }
+    //   }
+    //
+    // AIApiFoundationalModel:model_version carries that key, which is how a
+    // row picks its own size. nano wants the default use case and so names no
+    // key of its own.
     assert.equal(modelVersionFor(baseModelFor('chrome/nano_v3')), 'v3')
     assert.equal(modelVersionFor(baseModelFor('chrome/gemma4_2b')), 'v4')
-    assert.equal(modelVersionFor(baseModelFor('chrome/gemma4_4b')), 'v4')
-    assert.equal(modelVersionFor(baseModelFor('chrome/gemma4_12b')), 'v4')
+    assert.equal(modelVersionFor(baseModelFor('chrome/gemma4_4b')), 'v4_4b')
+    assert.equal(modelVersionFor(baseModelFor('chrome/gemma4_12b')), 'v4_12b')
   })
 
-  it('asks for Gemma 4 through the flag, and only on the gemma rows', () => {
-    // The pref Chrome reads is browser.enabled_labs_experiments, and the one
-    // thing it will not do is complain: at the top level, or misspelled, the
-    // flag is simply never applied and every row quietly answers as nano.
-    // Verified against the browser rather than assumed — the flag offers only
-    // Default and Enabled, so @1 is Enabled, and chrome://version shows it
-    // reaching the command line as AIApiFoundationalModel:model_version/v4.
-    const gemma = localStateFor(baseModelFor('chrome/gemma4_2b'))
-    assert.deepEqual(gemma.browser.enabled_labs_experiments, ['gemma4-for-built-in-ai@1'])
-    assert.deepEqual(
-      localStateFor(baseModelFor('chrome/gemma4_4b')).browser.enabled_labs_experiments,
-      ['gemma4-for-built-in-ai@1'],
-    )
-    // v3 is what Chrome does with no flag at all, so asking for it is not a
-    // different flag — it is the absence of one.
-    assert.deepEqual(localStateFor(baseModelFor('chrome/nano_v3')).browser.enabled_labs_experiments, [])
-    // And the toggle that makes chrome://on-device-internals readable, which
-    // is how the loaded model gets reported back under --debug.
-    assert.equal(gemma.internal_only_uis_enabled, true)
-  })
-
-  it('cannot tell the gemma sizes apart, and says so', () => {
-    // All three rows ask Chrome for the same thing. Chrome chooses between
-    // prompt_api_gemma4 / _4b / _12b itself, so the size is its call, and a
-    // row promising one specific size would be promising what it cannot
-    // deliver.
-    const asked = ['chrome/gemma4_2b', 'chrome/gemma4_4b', 'chrome/gemma4_12b']
+  it('tells the gemma sizes apart, which the flag could not', () => {
+    // chrome://flags/#gemma4-for-built-in-ai hard-codes model_version to v4,
+    // so every gemma row asked for the 2b use case however its weights were
+    // linked: Broker State showed prompt_api_gemma4 Requested and pending
+    // while prompt_api_gemma4_4b sat there available and unasked-for.
+    const keys = ['chrome/gemma4_2b', 'chrome/gemma4_4b', 'chrome/gemma4_12b']
       .map((model) => modelVersionFor(baseModelFor(model)))
-    assert.deepEqual(asked, ['v4', 'v4', 'v4'])
+    assert.equal(new Set(keys).size, keys.length, `expected distinct keys, got ${keys.join(', ')}`)
+  })
+
+  it('puts the key on the command line, and only for a gemma row', () => {
+    assert.match(features('chrome/gemma4_4b'), /AIApiFoundationalModel:model_version\/v4_4b(,|$)/u)
+    assert.match(features('chrome/gemma4_12b'), /AIApiFoundationalModel:model_version\/v4_12b(,|$)/u)
+    // The broker rides along, since the variant use cases are its business.
+    assert.match(features('chrome/gemma4_2b'), /OptimizationGuideManifestBroker/u)
+    // nano is what Chrome does anyway and asks for none of it.
+    assert.doesNotMatch(features('chrome/nano_v3'), /AIApiFoundationalModel|ManifestBroker/u)
+  })
+
+  it("drops playwright's own --enable-features rather than merging with it", () => {
+    // Playwright appends its copy AFTER ours and Chrome reads the last
+    // occurrence, so leaving it in discarded everything we added — measured on
+    // chrome://version, which showed its value alone and none of ours.
+    // ignoreDefaultArgs matches by exact string, so the whole switch is spelled
+    // out; a playwright that changes it silently stops being filtered.
+    assert.ok(IGNORED_DEFAULT_ARGS.includes('--enable-features=CDPScreenshotNewSurface'))
+    // And ours has to carry their feature, or dropping theirs loses it.
+    assert.match(features('chrome/nano_v3'), /CDPScreenshotNewSurface/u)
   })
 })
 
@@ -224,6 +233,16 @@ describe('chrome inherited prefs', () => {
     // profile does not have, which is the fetch all of this exists to stop.
     assert.deepEqual(portableGuide(GUIDE, '/tmp/borrowed/weights'), {})
     assert.deepEqual(portableGuide(GUIDE, undefined), {})
+  })
+
+  it('writes the internals toggle and nothing about which model to run', () => {
+    // localStateFor is the file the launch actually writes. Which Gemma
+    // answers used to be decided here, as a chrome://flags choice under
+    // browser.enabled_labs_experiments; it is a command-line feature param
+    // now, because the flag could only ever say v4.
+    const state = localStateFor(DIRS.nano)
+    assert.equal(state.internal_only_uis_enabled, true)
+    assert.equal('browser' in state, false)
   })
 
   it('does not invent a subtree that was not there', () => {

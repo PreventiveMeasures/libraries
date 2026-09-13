@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, wri
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { baseModelFor } from './models.js'
+import { baseModelFor, modelVersionFor } from './models.js'
 import { chromePreflight, findModelDir, graftPlan, localStateFor } from './chrome-model.js'
 import { outputLanguage, toChatCompletions } from './chrome-wire.js'
 
@@ -71,16 +71,64 @@ const DISABLED_FEATURES = [
   'AutoDeElevate', 'msForceBrowserSignIn', 'msEdgeUpdateLaunchServicesPreferredVersion',
 ]
 
-// Overriding --enable-features the same way would silently drop playwright's
-// own entry, so carry it along rather than clobbering it.
+// The enable side needs the opposite treatment, and this is the reverse of
+// what the disable side above does. Playwright appends its own
+// --enable-features AFTER ours, and since Chrome reads the last occurrence,
+// leaving it in place silently discarded every feature we added — measured:
+// chrome://version showed --enable-features=CDPScreenshotNewSurface alone.
+// So theirs is dropped from the defaults and ours carries their entry.
+//
+// ignoreDefaultArgs matches by exact string (`indexOf(arg) === -1`), which is
+// why the whole switch is spelled out rather than its name. If playwright
+// ever changes that string the filter stops matching, our additions go back
+// to being dropped, and the gemma rows revert to Chrome's default variant —
+// a degradation rather than a crash, and the one below is what would catch it.
+const PLAYWRIGHT_ENABLE_FEATURES = '--enable-features=CDPScreenshotNewSurface'
+
 const ENABLED_FEATURES = [
   'CDPScreenshotNewSurface',
   'OptimizationGuideOnDeviceModel:on_device_model_bypass_perf_requirement/true',
 ]
 
+// Which Gemma answers, and the reason this is a feature param rather than the
+// chrome://flags entry it looks like it should be.
+//
+// The Prompt API does not ask for a model, it asks for a USE CASE, and the
+// manifest Google delivers says which:
+//
+//   PromptApiFeatureConfig {
+//     default_use_case: "prompt_api"
+//     experimental_use_cases: { "v4":    "prompt_api_gemma4"
+//                               "v4_4b": "prompt_api_gemma4_4b"
+//                               "v4_12b":"prompt_api_gemma4_12b" }
+//   }
+//
+// AIApiFoundationalModel:model_version is a KEY into that map. The flag hard
+// codes it to v4, which is why a 4b launch had prompt_api_gemma4 "Requested"
+// and pending while prompt_api_gemma4_4b sat there available and unasked for.
+// Passing the param directly picks the variant; the flag cannot.
+//
+// So the flag's other two features are passed alongside rather than through
+// it. Read off chrome://version, 153 expands the flag to exactly these plus
+// model_version, and 155 to these minus the LiteRT-LM backend, which is the
+// default runtime there and has no flag left. Naming a feature Chrome does
+// not know is ignored, so the one list serves both.
+const GEMMA4_FEATURES = ['OptimizationGuideManifestBroker', 'OnDeviceModelLitertLmBackend']
+
+function enabledFeatures(baseModel) {
+  const version = modelVersionFor(baseModel)
+  // v3 is Gemini Nano, which answers the default use case and needs none of
+  // this: it is what Chrome does anyway.
+  if (!version || version === 'v3') return ENABLED_FEATURES
+  return [...ENABLED_FEATURES, `AIApiFoundationalModel:model_version/${version}`, ...GEMMA4_FEATURES]
+}
+
 // Playwright's two software-GL defaults. Both have to go for Chrome to reach
 // a real GPU; see the launch below for why that is not optional.
 const SOFTWARE_GL = ['--enable-unsafe-swiftshader', '--use-angle=swiftshader-webgl']
+
+// Everything of playwright's the launch drops, so a test can state it.
+export const IGNORED_DEFAULT_ARGS = [...SOFTWARE_GL, PLAYWRIGHT_ENABLE_FEATURES]
 
 
 // Which Chrome, in playwright's terms. A path wins when one is given;
@@ -208,14 +256,14 @@ async function launch(baseModel, debug) {
   installExitCleanup()
   const profile = mkdtempSync(join(tmpdir(), PROFILE_PREFIX))
   profiles.add(profile)
-  writeFileSync(join(profile, 'Local State'), JSON.stringify(localStateFor(baseModel, modelDir)))
+  writeFileSync(join(profile, 'Local State'), JSON.stringify(localStateFor(modelDir)))
   // Everything from here on can throw — a missing peer dependency, a browser
   // that will not start, a page that will not navigate — and every one of
   // those used to leave the profile behind, because only the readiness wait
   // was wrapped. The sweep deliberately skips young directories, so those
   // strays survived until they aged out.
   try {
-    return await openBrowser(profile, modelDir, debug)
+    return await openBrowser(profile, modelDir, baseModel, debug)
   } catch (err) {
     dropProfile(profile)
     throw err
@@ -226,7 +274,7 @@ async function launch(baseModel, debug) {
 // fix for something that failed silently and a test can hold each one in
 // place. Order matters only for --use-angle and the feature lists, which
 // deliberately come after playwright's.
-export function launchArgs(modelDir) {
+export function launchArgs(modelDir, baseModel) {
   return [
     // --use-angle is re-added outside the ignorable set, so it has to be
     // overridden rather than dropped. The last occurrence of a switch is the
@@ -239,7 +287,7 @@ export function launchArgs(modelDir) {
     // Both lists replace playwright's; see DISABLED_FEATURES for why the
     // disable side is not optional.
     `--disable-features=${DISABLED_FEATURES.join(',')}`,
-    `--enable-features=${ENABLED_FEATURES.join(',')}`,
+    `--enable-features=${enabledFeatures(baseModel).join(',')}`,
     // The gate that actually stops a scratch profile. Eligibility needs a
     // device performance class, and a profile that has never computed one
     // runs a GPU benchmark to get it — chrome://on-device-internals sits on
@@ -279,7 +327,7 @@ export function launchArgs(modelDir) {
 }
 
 
-async function openBrowser(profile, modelDir, debug) {
+async function openBrowser(profile, modelDir, baseModel, debug) {
   // The override switch below is what Chrome reads to load the model, but the
   // component installer decides whether anything is MISSING, and a profile
   // that looks complete never starts a download. Only the requested model is
@@ -303,8 +351,8 @@ async function openBrowser(profile, modelDir, debug) {
     // availability() reads `unavailable`, create() says "the service is not
     // running", and no eligibility reason is even recorded, because nothing
     // got far enough to weigh one.
-    ignoreDefaultArgs: SOFTWARE_GL,
-    args: launchArgs(modelDir),
+    ignoreDefaultArgs: IGNORED_DEFAULT_ARGS,
+    args: launchArgs(modelDir, baseModel),
   })
   const tab = await browser.newPage()
   // Page-side failures are otherwise silent: evaluate returns the value and

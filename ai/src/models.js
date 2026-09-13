@@ -110,8 +110,8 @@ const MODELS = new Map([
   // specNames; see componentNameFor in chrome-model.js.
   ['chrome/nano_v3', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'nano_v3', specNames: ['v3Nano'], modelVersion: 'v3' }],
   ['chrome/gemma4_2b', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_2b', specNames: ['gemma4-2b-it'], modelVersion: 'v4' }],
-  ['chrome/gemma4_4b', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_4b', specNames: ['gemma-4-E4B-it'], modelVersion: 'v4' }],
-  ['chrome/gemma4_12b', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_12b', modelVersion: 'v4' }],
+  ['chrome/gemma4_4b', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_4b', specNames: ['gemma-4-E4B-it'], modelVersion: 'v4_4b' }],
+  ['chrome/gemma4_12b', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_12b', modelVersion: 'v4_12b' }],
   // Free models — may log/store/use your data
   ['openai/gpt-oss-120b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['openai/gpt-oss-20b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
