@@ -18,7 +18,7 @@ import { chatCompletionsBase } from '../wire-formats.js'
 // (AIPromptAPIStructuredOutput), which IS documented: the model is held to a
 // JSON object carrying either prose or a list of calls.
 // Chrome warns on any request that does not name one, and it warns per
-// SESSION — so the readiness probe in chrome.js needs it as much as a turn
+// SESSION — so the readiness probe in index.js needs it as much as a turn
 // does, which is why the warning survived being added to the turn alone.
 // Accepts de, en, es, fr, ja.
 export const outputLanguage = () => process.env.CHROME_OUTPUT_LANGUAGE || 'en'
@@ -147,9 +147,12 @@ export const CHROME_SHAPE = {
 
   appendToolResults(messages, json, toolCalls, results) {
     // The assistant's turn goes back as the JSON it produced, so the model
-    // sees the calls it made rather than an empty turn.
+    // sees the calls it made rather than an empty turn — and the text it said
+    // alongside them, which the constraint requires and a turn carrying both
+    // prose and calls would otherwise lose on the way to the next one.
     const calls = toolCalls.map((tc) => ({ name: tc.name, arguments: tc.args }))
-    messages.push({ role: 'assistant', content: JSON.stringify({ tool_calls: calls }) })
+    const text = json?.choices?.[0]?.message?.content ?? ''
+    messages.push({ role: 'assistant', content: JSON.stringify({ text, tool_calls: calls }) })
     const rendered = toolCalls.map((tc, i) => `${tc.name} -> ${results[i]}`).join('\n\n')
     messages.push({ role: 'user', content: `Tool results:\n${rendered}` })
   },
@@ -164,6 +167,12 @@ export const CHROME_SHAPE = {
 // variant — and following that advice is its own surprise, because on the
 // 12B failure that prompted this, availability() answered `available`.
 export function explainCreateFailure(error, model, baseModel) {
+  // That failure and no other. Every create() failure comes back carrying an
+  // availability reading — it is read in the catch, not by the caller — so
+  // gating on one rewrote an oversized history, or a language Chrome will not
+  // emit, as a model too large for the machine, and told the caller nothing
+  // was missing when something was.
+  if (error.name !== 'InvalidStateError') return
   const version = modelVersionFor(baseModel)
   const useCase = version && version !== 'v3' ? ` (model_version/${version})` : ''
   // Whether the advice Chrome gives actually explains anything.

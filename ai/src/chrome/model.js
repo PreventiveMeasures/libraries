@@ -5,7 +5,7 @@ import { isAbsolute, join, relative } from 'node:path'
 import { specNamesFor } from '../models.js'
 
 // Where the on-device weights are, which is a separate question from how the
-// browser is driven — see chrome.js for that.
+// browser is driven — see index.js for that.
 
 // Two stores, different shapes: nano_v3 lives under the first, the gemma
 // models under the second, keyed by a content hash above the version.
@@ -31,13 +31,36 @@ const USER_DATA_DIRS = {
   ],
 }
 
-// The user data dir the weights came from, so state can be seeded from the
-// same profile that owns them.
-function activeUserDataDir() {
-  for (const dir of USER_DATA_DIRS[process.platform] ?? []) {
-    if (MODEL_COMPONENTS.some((component) => existsSync(join(dir, component)))) return dir
-  }
-  return undefined
+// Whether a path sits inside a root, and where. Every use of `relative` here
+// asks the same two questions, and `..` is the whole answer to the first.
+function positionIn(root, dir) {
+  if (!root || !dir) return undefined
+  const rel = relative(root, dir)
+  return rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : undefined
+}
+
+// Which candidate root a model directory belongs to. Separated from the list
+// of roots so the choice can be stated against paths rather than against
+// whichever Chromes the machine running the tests happens to have.
+export function rootOwning(roots, modelDir) {
+  return (roots ?? []).find((root) => positionIn(root, modelDir))
+}
+
+// The user data dir the weights came from, so state is seeded from the
+// profile that owns them.
+//
+// The root that HOLDS the model, not the first root holding any component:
+// discovery searches every channel, so with nano_v3 under stable and the
+// requested gemma under Canary, first-match answered stable — whose tree does
+// not contain the model. Nothing was linked, and the ledger was read from a
+// profile that had never requested it.
+function activeUserDataDir(modelDir) {
+  const roots = USER_DATA_DIRS[process.platform] ?? []
+  // No owner means a CHROME_MODEL_DIR outside every root. There is no
+  // position to mirror then, and the execution override names the directory
+  // outright, so any root that has components will do for the rest.
+  return rootOwning(roots, modelDir) ??
+    roots.find((dir) => MODEL_COMPONENTS.some((component) => existsSync(join(dir, component))))
 }
 
 // What to link into a scratch profile, as {from, rel} pairs: `from` is the
@@ -54,7 +77,7 @@ function activeUserDataDir() {
 // The ledger goes across whole: it is a record of which manifest models
 // exist, not a model, and there is nothing in it to narrow.
 export function graftPlan(modelDir) {
-  return graftPlanIn(activeUserDataDir(), modelDir)
+  return graftPlanIn(activeUserDataDir(modelDir), modelDir)
 }
 
 // The decision, separated from finding the profile it applies to, so it can be
@@ -68,8 +91,8 @@ export function graftPlanIn(userDataDir, modelDir) {
   // A CHROME_MODEL_DIR pointing outside the user data dir has no position
   // inside the profile to mirror; the override switch names it outright and
   // is enough on its own.
-  const rel = modelDir ? relative(userDataDir, modelDir) : ''
-  if (rel && !rel.startsWith('..') && !isAbsolute(rel)) plan.push({ from: modelDir, rel })
+  const rel = positionIn(userDataDir, modelDir)
+  if (rel) plan.push({ from: modelDir, rel })
   return plan
 }
 
@@ -103,7 +126,7 @@ export function graftPlanIn(userDataDir, modelDir) {
 //                           the prediction model fetcher state, and an id
 //                           identifying the browser it came from.
 function optimizationGuidePrefs(modelDir) {
-  const dir = activeUserDataDir()
+  const dir = activeUserDataDir(modelDir)
   if (!dir) return {}
   try {
     return portableGuide(JSON.parse(readFileSync(join(dir, 'Local State'), 'utf8'))?.optimization_guide, modelDir)
@@ -114,12 +137,22 @@ function optimizationGuidePrefs(modelDir) {
 // `requested_version` is its version directory — so the linked model's own
 // path names its entry, under either layout:
 //
-//   OptGuideManifestModel/<hash>/<version>   both halves match
-//   OptGuideOnDeviceModel/<version>          the version matches
+//   OptGuideManifestModel/<hash>/<version>   the hash, which is the component
+//   OptGuideOnDeviceModel/<version>          the version, all the flat layout
+//                                            carries
+//
+// In that order, because the two halves are not equally identifying. Versions
+// are dates and two components can share one, so a match on the version alone
+// used to be able to name a different model entirely; the hash cannot. It is
+// still only an order and not a requirement — `requested_version` is a
+// request, free to point past what is installed, and demanding both would
+// then find nothing and hand the browser a profile that never asks for its
+// model.
 function findLedgerEntry(ledger, modelDir) {
   if (!ledger || !modelDir) return undefined
   const parts = new Set(modelDir.split(/[/\\]/u))
-  return Object.entries(ledger).find(([hash, entry]) => parts.has(hash) || parts.has(entry?.requested_version))
+  const entries = Object.entries(ledger)
+  return entries.find(([hash]) => parts.has(hash)) ?? entries.find(([, entry]) => parts.has(entry?.requested_version))
 }
 
 // Separated from reading the file so what is selected can be stated against a

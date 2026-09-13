@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { baseModelFor, modelVersionFor } from '../models.js'
+import { reportLoadedModel } from './internals.js'
 import { findModelDir, graftPlan, localStateFor } from './model.js'
 import { explainCreateFailure, outputLanguage, toChatCompletions } from './wire.js'
 
@@ -176,9 +177,15 @@ async function loadPlaywright() {
 const profiles = new Set()
 
 const PROFILE_PREFIX = 'ai-chrome-'
-// Old enough that a concurrent run cannot own it. Profiles are only swept on
-// age, never by trying to guess whether another process still holds one.
+// Old enough that a profile made moments ago, before its owner marker was
+// written, cannot be mistaken for one left behind. Age is only half the
+// question — see ownerAlive for the half it cannot answer.
 const STALE_MS = 6 * 60 * 60 * 1000
+
+// Written into each scratch profile, so another process sweeping the temp dir
+// can tell a profile still in use from one left behind. Chrome ignores files
+// it does not know at the profile root.
+const OWNER_FILE = 'ai-chrome-owner.pid'
 
 // The single place this file deletes anything recursively.
 //
@@ -216,16 +223,38 @@ function dropProfile(dir) {
   try { removeProfileDir(dir) } catch { /* already gone, or not ours to touch */ }
 }
 
+// Whether the process that made a profile is still running. Age cannot answer
+// that: a session is meant to be reused and has no lifetime, while the
+// profile ROOT's mtime stops moving as soon as Chrome settles into writing
+// inside it — so a second process sweeping on age alone would eventually
+// delete a first one's live profile out from under it. The pid is written at
+// creation; EPERM means someone else's process by that number exists, which
+// is still a reason to leave the directory alone.
+function ownerAlive(dir) {
+  let pid
+  try { pid = Number(readFileSync(join(dir, OWNER_FILE), 'utf8')) } catch { return false }
+  if (!Number.isInteger(pid) || pid <= 0) return false
+  try { process.kill(pid, 0); return true } catch (err) { return err.code === 'EPERM' }
+}
+
 // Best effort, on launch: clear what earlier runs left behind, including the
 // ones this bug already produced.
-function sweepStaleProfiles() {
+//
+// Both conditions, and each covers what the other cannot. Liveness alone
+// would delete a profile made moments ago by a process that has not written
+// its marker yet; age alone deletes profiles that are still in use. A
+// directory with no marker is from a build before this and can only be judged
+// by age.
+export function sweepStaleProfiles() {
   const now = Date.now()
   let dirs = []
   try { dirs = readdirSync(tmpdir()).filter((n) => n.startsWith(PROFILE_PREFIX)) } catch { return }
   for (const name of dirs) {
     const dir = join(tmpdir(), name)
     if (profiles.has(dir)) continue
-    try { if (now - statSync(dir).mtimeMs > STALE_MS) removeProfileDir(dir) } catch { /* in use, or gone */ }
+    try {
+      if (now - statSync(dir).mtimeMs > STALE_MS && !ownerAlive(dir)) removeProfileDir(dir)
+    } catch { /* in use, or gone */ }
   }
 }
 
@@ -260,6 +289,8 @@ async function launch(baseModel, debug) {
   installExitCleanup()
   const profile = mkdtempSync(join(tmpdir(), PROFILE_PREFIX))
   profiles.add(profile)
+  // Before anything slow, so a concurrent sweep can already see an owner.
+  writeFileSync(join(profile, OWNER_FILE), String(process.pid))
   writeFileSync(join(profile, 'Local State'), JSON.stringify(localStateFor(modelDir)))
   // Everything from here on can throw — a missing peer dependency, a browser
   // that will not start, a page that will not navigate — and every one of
@@ -389,80 +420,6 @@ async function openBrowser(profile, modelDir, baseModel, debug) {
   }
   return { browser, tab, profile }
 }
-
-/* eslint-disable no-undef */
-// What Chrome actually loaded, as opposed to which directory we pointed it
-// at. Those are different questions: the execution override names a
-// directory and does not steer the base model — model_version does, and this
-// is where that shows.
-//
-// chrome://on-device-internals answers it under Broker State, in real tables
-// rather than prose — Models is Name / Folder Size / Weights Path / Backend
-// Type, Use Cases is Name / Requested / Unavailable Reason. Parsed as tables
-// for that reason: a regex over the page text cannot say which column a value
-// came from, and reading the wrong column is how this went wrong before.
-//
-// Reported, never enforced, and only under --debug: a scraper written against
-// a page that cannot be exercised here is not something to fail requests on.
-async function reportLoadedModel(browser) {
-  let page
-  try {
-    page = await browser.newPage()
-    await page.goto('chrome://on-device-internals')
-    // Wait for the WebUI to render rather than for a fixed three seconds.
-    // This is awaited inline on the first turn, so a flat sleep put its whole
-    // duration in front of the answer the caller is waiting for; the tables
-    // are usually there in a fraction of it. The timeout keeps the old
-    // ceiling, and a page that never renders falls through to the catch.
-    await page.waitForFunction(() => document.querySelectorAll('table tr').length > 1, { timeout: 3000 })
-      .catch(() => {})
-    const tables = await page.evaluate(readInternalsTables)
-    for (const name of ['Models', 'Use Cases', 'Assets']) {
-      const rows = tables[name] ?? []
-      // Row 0 is the header, so anything less is a table with no content.
-      if (rows.length < 2) continue
-      for (const row of rows.slice(1)) console.debug(`[chrome] ${name}: ${row.join(' | ')}`)
-    }
-    const log = (tables['Event Logs'] ?? []).slice(1).filter((r) => /model|load/iu.test(r.join(' ')))
-    for (const row of log.slice(-4)) console.debug(`[chrome] log: ${row.at(-1)}`)
-  } catch (err) {
-    console.debug(`[chrome] could not read on-device-internals: ${err.message}`)
-  } finally {
-    await page?.close().catch(() => {})
-  }
-}
-
-// Runs in the page. Every <table> on it, keyed by the <h2> that introduces
-// it, reached through the shadow roots the WebUI is built from.
-function readInternalsTables() {
-  const roots = []
-  const collect = (root) => {
-    roots.push(root)
-    for (const el of root.querySelectorAll('*')) if (el.shadowRoot) collect(el.shadowRoot)
-  }
-  collect(document)
-  // The <h2> that introduces a table is a previous sibling of the table or of
-  // one of its ancestors, so walk outwards until one turns up.
-  const headingFor = (table) => {
-    for (let node = table; node; node = node.parentElement) {
-      for (let sib = node.previousElementSibling; sib; sib = sib.previousElementSibling) {
-        const h = sib.tagName === 'H2' ? sib : sib.querySelector?.('h2')
-        if (h) return h.textContent.trim()
-      }
-    }
-    return 'unnamed'
-  }
-  const rowsOf = (table) => [...table.querySelectorAll('tr')]
-    .map((tr) => [...tr.querySelectorAll('th,td')].map((cell) => cell.textContent.trim()))
-    .filter((cells) => cells.length > 0)
-
-  const out = {}
-  for (const root of roots) {
-    for (const table of root.querySelectorAll('table')) out[headingFor(table)] = rowsOf(table)
-  }
-  return out
-}
-/* eslint-enable no-undef */
 
 // How long a cold profile gets to become ready. Registration is not
 // instant — the component updater has to run before Chrome will admit to
@@ -610,7 +567,7 @@ export async function turnInPage(req) {
     const availability = await LanguageModel
       .availability({ expectedOutputs: [{ type: 'text', languages: [req.language] }] })
       .catch((e) => `unreadable (${e.name})`)
-    return { error: { message: `create failed: ${err.name}: ${err.message}`, availability } }
+    return { error: { name: err.name, message: `create failed: ${err.name}: ${err.message}`, availability } }
   }
   const before = ses.contextUsage ?? 0
   try {

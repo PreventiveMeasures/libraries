@@ -163,7 +163,10 @@ async function run({ model, provider, userContent, values, think }) {
     // Before the answer, because whether a tool ran at all is the question
     // --tools exists to settle, and an empty list is a real result.
     if (values.tools) reportTools(calls)
-    if (error) fail(`chat.js: ${error}\n`)
+    // Thrown rather than failed: fail() exits the process on the spot, which
+    // skips the finally below and leaves the browser it was there to close
+    // running. main() catches this and prints it with the same wording.
+    if (error) throw new Error(error)
     process.stdout.write(text.endsWith('\n') ? text : text + '\n')
     if (values.debug) report({ model, provider, usage, elapsed: Date.now() - started })
   } finally {

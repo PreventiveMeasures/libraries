@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
-import { IGNORED_DEFAULT_ARGS, chromePreflight, findModelDir, isScratchProfile, launchArgs, localStateFor, removeProfileDir, turnInPage, waitUntilReady } from '../src/chrome/index.js'
-import { graftPlanIn, identifiesAs, portableGuide } from '../src/chrome/model.js'
+import { IGNORED_DEFAULT_ARGS, chromePreflight, findModelDir, isScratchProfile, launchArgs, localStateFor, removeProfileDir, sweepStaleProfiles, turnInPage, waitUntilReady } from '../src/chrome/index.js'
+import { readTablesWhenReady } from '../src/chrome/internals.js'
+import { graftPlanIn, identifiesAs, portableGuide, rootOwning } from '../src/chrome/model.js'
 import { CHROME_SHAPE, explainCreateFailure, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome/wire.js'
 import { baseModelFor, calculateCost, getMaxTokens, modelVersionFor, specNamesFor } from '../src/models.js'
 import { setProvider } from '../src/providers.js'
@@ -150,6 +151,24 @@ describe('chrome profile graft', () => {
     assert.deepEqual(plan('/udd/../elsewhere/weights'), [])
   })
 
+  it('grafts from the root that HOLDS the model, not the first Chrome installed', () => {
+    // Two different questions the moment a second channel is installed, and
+    // they were being answered by two different rules: discovery searches
+    // every root, while the graft took the first root holding any component.
+    // Nano under stable and the requested gemma under Canary answered stable
+    // — whose tree does not contain the model, so nothing was linked and the
+    // prefs came from a profile that had never asked for it.
+    const roots = ['/udd', '/udd-canary']
+    assert.equal(rootOwning(roots, '/udd-canary/OptGuideManifestModel/h/2026.1.1.1000'), '/udd-canary')
+    assert.equal(rootOwning(roots, '/udd/OptGuideOnDeviceModel/2025.1.1.1000'), '/udd')
+    // A shared prefix is not containment, or the canary weights would be
+    // grafted as if they sat in stable's tree.
+    assert.equal(rootOwning(['/udd'], '/udd-canary/OptGuideOnDeviceModel/1'), undefined)
+    // And a CHROME_MODEL_DIR outside every root has no owner at all.
+    assert.equal(rootOwning(roots, '/tmp/borrowed/weights'), undefined)
+    assert.equal(rootOwning(roots, undefined), undefined)
+  })
+
   it('links nothing at all when there is no Chrome to borrow from', () => {
     assert.deepEqual(graftPlanIn(undefined, '/udd/OptGuideOnDeviceModel/1'), [])
     assert.deepEqual(plan(undefined), [])
@@ -226,6 +245,33 @@ describe('chrome inherited prefs', () => {
     })
   })
 
+  it('takes the entry the hash names when another component requests the same version', () => {
+    // Versions are dates, and two components can be requesting the same one.
+    // Matching either half accepted whichever entry came first, so a profile
+    // linking one model could be handed the standing request for another.
+    const shared = {
+      hashother: { asset_id: 'some_other_component', requested_version: '2026.1.1.1000' },
+      hash2b: { asset_id: 'gemma4_component', requested_version: '2026.1.1.1000' },
+    }
+    const guide = { model_execution: { manifest_asset_ledger: shared } }
+    assert.deepEqual(
+      portableGuide(guide, DIRS.twoB).optimization_guide.model_execution.manifest_asset_ledger,
+      { hash2b: shared.hash2b },
+    )
+  })
+
+  it('still finds the entry when the request has moved past what is installed', () => {
+    // requested_version is a REQUEST, free to name a version this profile has
+    // not got yet. Demanding that it match the directory too would find
+    // nothing here — and a profile that asks for no model does not load one.
+    const ahead = { hash2b: { asset_id: 'gemma4_component', requested_version: '2026.9.9.9999' } }
+    const guide = { model_execution: { manifest_asset_ledger: ahead } }
+    assert.deepEqual(
+      portableGuide(guide, DIRS.twoB).optimization_guide.model_execution.manifest_asset_ledger,
+      { hash2b: ahead.hash2b },
+    )
+  })
+
   it('inherits nothing when it cannot identify the launched component', () => {
     // A CHROME_MODEL_DIR outside the component tree. graftPlan links nothing
     // there either, and the execution override names the directory outright —
@@ -259,9 +305,13 @@ describe('chrome create failure', () => {
   // which names neither the row nor the variant, and hands the caller an
   // instruction instead of an answer.
   const chromeSays = 'create failed: InvalidStateError: The device is unable to create a session to run the model.'
+  // The page hands the name back beside the message, because the message is
+  // the only place it appeared and every create failure carries an
+  // availability reading — see the last test here.
+  const refused = () => ({ name: 'InvalidStateError', message: chromeSays, availability: 'available' })
 
   it('names the row, the variant, and keeps the browser\'s own reason', () => {
-    const error = { message: chromeSays, availability: 'available' }
+    const error = refused()
     explainCreateFailure(error, 'chrome/gemma-4-12b-it', 'gemma4_12b')
     assert.match(error.message, /chrome\/gemma-4-12b-it/u)
     assert.match(error.message, /model_version\/v4_12b/u)
@@ -280,14 +330,14 @@ describe('chrome create failure', () => {
     // availability() first", and availability() answers `available`. Repeating
     // that advice would send the reader in a circle, so the contradiction is
     // stated instead.
-    const error = { message: chromeSays, availability: 'available' }
+    const error = refused()
     explainCreateFailure(error, 'chrome/gemma-4-12b-it', 'gemma4_12b')
     assert.match(error.message, /does not explain this/u)
     assert.match(error.message, /too\s+large for this device/u)
   })
 
   it('says the plain thing when availability agrees with the failure', () => {
-    const error = { message: chromeSays, availability: 'unavailable' }
+    const error = { ...refused(), availability: 'unavailable' }
     explainCreateFailure(error, 'chrome/gemma-4-12b-it', 'gemma4_12b')
     assert.match(error.message, /will not run the variant/u)
     assert.doesNotMatch(error.message, /does not explain this/u)
@@ -295,10 +345,22 @@ describe('chrome create failure', () => {
 
   it('does not invent a use case for the row that has none', () => {
     // nano answers the default use case, so there is no model_version to cite.
-    const error = { message: chromeSays, availability: 'unavailable' }
+    const error = { ...refused(), availability: 'unavailable' }
     explainCreateFailure(error, 'chrome/gemini-nano-v3', 'nano_v3')
     assert.doesNotMatch(error.message, /model_version/u)
     assert.match(error.message, /chrome\/gemini-nano-v3/u)
+  })
+
+  it('leaves a create failure that is NOT the device refusal exactly as Chrome reported it', () => {
+    // The catch in the page reads availability() for every create failure, so
+    // the reading is not what makes one of them a device refusal. An
+    // oversized history came back through here too, and was answered with a
+    // story about a model too large for the machine and an assurance that
+    // nothing was missing.
+    const message = 'create failed: QuotaExceededError: The input is too large.'
+    const error = { name: 'QuotaExceededError', message, availability: 'available' }
+    explainCreateFailure(error, 'chrome/gemma-4-e2b-it', 'gemma4_2b')
+    assert.equal(error.message, message)
   })
 })
 
@@ -562,6 +624,23 @@ describe('chrome tool-result threading', () => {
     assert.match(messages[2].content, /contents of a\.js/u)
   })
 
+  it('replays what the model SAID alongside the calls it made', () => {
+    // The constraint requires both halves, so a turn can carry prose and
+    // calls together. Reconstructing only the calls dropped the prose before
+    // the next turn ever saw it.
+    const messages = [{ role: 'user', content: 'go' }]
+    const raw = JSON.stringify({
+      text: 'Reading it now.',
+      tool_calls: [{ name: 'read_file', arguments: { path: 'a.js' } }],
+    })
+    const json = toChatCompletions({ text: raw }, true)
+    CHROME_SHAPE.appendToolResults(messages, json, CHROME_SHAPE.extractToolCalls(json), ['contents of a.js'])
+
+    const replayed = JSON.parse(messages[1].content)
+    assert.equal(replayed.text, 'Reading it now.')
+    assert.deepEqual(replayed.tool_calls, [{ name: 'read_file', arguments: { path: 'a.js' } }])
+  })
+
   it('threads a second turn back into a well-formed body', () => {
     const messages = [{ role: 'user', content: 'go' }]
     const json = toChatCompletions({ text: JSON.stringify({ tool_calls: [{ name: 'list_dir', arguments: {} }] }) }, true)
@@ -602,6 +681,47 @@ describe('chrome tool schema helpers', () => {
   })
 })
 
+describe('chrome internals reporting', () => {
+  // A stub page, because the WebUI this reads cannot be rendered here: each
+  // evaluate() hands back the next scripted answer, and records the page
+  // function it was asked to run.
+  const pageReturning = (...answers) => {
+    const asked = []
+    return {
+      asked,
+      evaluate(fn) { asked.push(fn); return Promise.resolve(answers.length > 1 ? answers.shift() : answers[0]) },
+    }
+  }
+
+  it('stops as soon as a table has rows in it', async () => {
+    // Row 0 is the header, so a table that has rendered empty is not ready.
+    const full = { Models: [['Name', 'Backend'], ['gemma', 'GPU']] }
+    const page = pageReturning({}, { Models: [['Name', 'Backend']] }, full)
+    assert.deepEqual(await readTablesWhenReady(page, { timeoutMs: 2000, pollMs: 1 }), full)
+    assert.equal(page.asked.length, 3)
+  })
+
+  it('gives up on its own ceiling rather than playwright\'s default', async () => {
+    // waitForFunction takes its options THIRD, so the three-second timeout
+    // was landing as a page argument nothing read and the wait ran on to
+    // playwright's default — in front of the answer a --debug caller is
+    // waiting for.
+    const page = pageReturning({})
+    const started = Date.now()
+    assert.deepEqual(await readTablesWhenReady(page, { timeoutMs: 30, pollMs: 5 }), {})
+    assert.ok(Date.now() - started < 2000, 'waited past its own ceiling')
+  })
+
+  it('asks the traversal that knows where the tables are', async () => {
+    // They live in the WebUI's shadow roots, so a light-DOM predicate could
+    // only ever be false: the wait ran out every time and the scrape went
+    // ahead regardless, which is why nothing looked broken.
+    const page = pageReturning({})
+    await readTablesWhenReady(page, { timeoutMs: 1, pollMs: 1 })
+    assert.match(page.asked[0].toString(), /shadowRoot/u)
+  })
+})
+
 describe('chrome scratch-profile cleanup', () => {
   it('recognises only its own scratch profiles', () => {
     // The predicate, not the delete. Asking removeProfileDir to refuse ''
@@ -614,6 +734,62 @@ describe('chrome scratch-profile cleanup', () => {
       assert.equal(isScratchProfile(bad), false, `should not accept ${JSON.stringify(bad)}`)
     }
     assert.equal(isScratchProfile(join(tmpdir(), 'ai-chrome-abc123')), true)
+  })
+
+  // The sweep runs on launch and deletes other processes' leftovers, so what
+  // it spares matters as much as what it takes. Real directories under the
+  // real temp dir, since it reads mtimes and pids off the filesystem.
+  describe('the stale sweep', () => {
+    const AGED = new Date(Date.now() - 7 * 60 * 60 * 1000)
+    const aged = (owner) => {
+      const dir = mkdtempSync(join(tmpdir(), 'ai-chrome-'))
+      if (owner !== undefined) writeFileSync(join(dir, 'ai-chrome-owner.pid'), String(owner))
+      utimesSync(dir, AGED, AGED)
+      return dir
+    }
+    // A pid no process can have, so "not running" is a fact rather than a
+    // guess about what else is on the machine.
+    const deadPid = () => [4_194_305, 999_999, 99_999].find((pid) => {
+      try { process.kill(pid, 0); return false } catch (err) { return err.code === 'ESRCH' }
+    })
+
+    it('leaves a profile alone while the process that made it is still running', (t) => {
+      // Age does not mean abandoned: a session is meant to be reused, and the
+      // profile ROOT's mtime stops moving as soon as Chrome settles into
+      // writing inside it. On age alone, the next run deleted a live profile
+      // out from under the first.
+      const live = aged(process.pid)
+      t.after(() => rmSync(live, { recursive: true, force: true }))
+      sweepStaleProfiles()
+      assert.equal(existsSync(live), true)
+    })
+
+    it('takes one whose owner is gone', (t) => {
+      const pid = deadPid()
+      // Only if the machine somehow has all three running; plain `assert`
+      // calls are not what t.plan counts, so the skip stands on its own.
+      if (pid === undefined) return t.skip('every candidate pid is in use')
+      const abandoned = aged(pid)
+      t.after(() => rmSync(abandoned, { recursive: true, force: true }))
+      sweepStaleProfiles()
+      assert.equal(existsSync(abandoned), false)
+    })
+
+    it('takes an aged profile from before the marker existed', (t) => {
+      const old = aged(undefined)
+      t.after(() => rmSync(old, { recursive: true, force: true }))
+      sweepStaleProfiles()
+      assert.equal(existsSync(old), false)
+    })
+
+    it('leaves a young profile alone, marker or not', (t) => {
+      // The other half of why both conditions are needed: a profile made
+      // moments ago has not written its marker yet, and reads as ownerless.
+      const fresh = mkdtempSync(join(tmpdir(), 'ai-chrome-'))
+      t.after(() => rmSync(fresh, { recursive: true, force: true }))
+      sweepStaleProfiles()
+      assert.equal(existsSync(fresh), true)
+    })
   })
 
   it('removes a directory that IS one of ours', () => {
