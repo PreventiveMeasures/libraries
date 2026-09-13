@@ -355,6 +355,18 @@ async function openBrowser(profile, modelDir, baseModel, debug) {
     // got far enough to weigh one.
     ignoreDefaultArgs: IGNORED_DEFAULT_ARGS,
     args: launchArgs(modelDir, baseModel),
+    // Nothing here needs the network. The page is file:///dev/null and the
+    // model is on disk, so a socket is a symptom rather than a feature, and
+    // it should fail rather than succeed quietly. Set on the context, so
+    // every page inherits it — including the internals tab the debug readout
+    // opens.
+    //
+    // Measured against a local listener that answers: one request through
+    // without this, none with it, and the file:// page, the LanguageModel
+    // binding and a second chrome:// tab all unaffected. It does NOT cover
+    // the component updater, which is a browser-process fetch — that is what
+    // --component-updater=url-source is for, in launchArgs.
+    offline: true,
   })
   const tab = await browser.newPage()
   // Page-side failures are otherwise silent: evaluate returns the value and
