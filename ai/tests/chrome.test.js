@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
-import { IGNORED_DEFAULT_ARGS, chromePreflight, findModelDir, isScratchProfile, launchArgs, localStateFor, openTab, pruneProfileRoot, removeProfileDir, sweepStaleProfiles, turnInPage, waitUntilReady } from '../src/chrome/index.js'
+import { IGNORED_DEFAULT_ARGS, chromePreflight, closeChrome, findModelDir, isScratchProfile, launchArgs, localStateFor, openTab, pruneProfileRoot, removeProfileDir, runTurn, sweepStaleProfiles, turnInPage, waitUntilReady } from '../src/chrome/index.js'
 import { graftPlanIn, identifiesAs, portableGuide, rootOwning } from '../src/chrome/model.js'
 import { CHROME_SHAPE, explainCreateFailure, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome/wire.js'
 import { baseModelFor, calculateCost, getMaxTokens, modelVersionFor, specNamesFor } from '../src/models.js'
@@ -723,6 +723,27 @@ describe('chrome launch failure', () => {
   })
 })
 
+describe('chrome close while a turn is in flight', () => {
+  it('waits for the turn instead of closing the browser under it', async () => {
+    // Parallel callers share a browser, and each closes the provider when its
+    // own turn returns. Closing on the first one to finish is what left the
+    // rest with "Target page, context or browser has been closed".
+    let answer
+    const tab = { evaluate: () => new Promise((resolve) => { answer = resolve }) }
+    const turn = runTurn(tab, {})
+
+    let closed = false
+    const closing = closeChrome().then(() => { closed = true; return closed })
+    await new Promise(setImmediate)
+    assert.equal(closed, false, 'closed while a turn was still in flight')
+
+    answer({ text: 'done' })
+    await turn
+    await closing
+    assert.equal(closed, true)
+  })
+})
+
 describe('chrome scratch-profile cleanup', () => {
   it('recognises only its own scratch profiles', () => {
     // The predicate, not the delete. Asking removeProfileDir to refuse ''
@@ -937,6 +958,34 @@ describe('chrome page round-trip', async () => {
     assert.equal(result.text, 'saw 2 prompts, asked: b')
     assert.equal(result.contextWindow, 8192)
     assert.equal(result.usage.prompt_tokens, 20)
+  })
+
+  it('runs two turns at once in the one tab', { skip, timeout: 20_000 }, async () => {
+    // One browser and one tab serve every turn on a row, so turns have to be
+    // able to overlap. Neither prompt here resolves until BOTH have started,
+    // so a tab that ran them one after the other deadlocks rather than
+    // passing slowly.
+    await page.evaluate(`
+      globalThis.__started = 0
+      globalThis.__both = new Promise((resolve) => { globalThis.__release = resolve })
+      globalThis.LanguageModel = {
+        availability: async () => 'available',
+        create: async () => ({
+          contextUsage: 0,
+          contextWindow: 8192,
+          prompt: async (text) => {
+            if (++globalThis.__started === 2) globalThis.__release()
+            await globalThis.__both
+            return \`answered \${text}\`
+          },
+          destroy() {},
+        }),
+      }`)
+    const turn = (prompt) => page.evaluate(turnInPage, { initialPrompts: [], prompt })
+    assert.deepEqual(
+      (await Promise.all([turn('a'), turn('b')])).map((r) => r.text),
+      ['answered a', 'answered b'],
+    )
   })
 
   it('passes the constraint through and shapes tool calls out of the answer', { skip }, async () => {

@@ -313,6 +313,18 @@ export async function waitUntilReady(tab, debug) {
 }
 /* eslint-enable no-undef */
 
+// Turns in flight. One browser and one tab serve every turn on a row, so
+// closing on the first caller to finish takes the tab out from under the rest
+// — page.evaluate then fails with "Target page, context or browser has been
+// closed", which is what parallel callers were seeing.
+const turns = new Set()
+
+export function runTurn(tab, body) {
+  const turn = tab.evaluate(turnInPage, body)
+  turns.add(turn)
+  return turn.finally(() => turns.delete(turn))
+}
+
 // Reused across turns: no turn leaves state behind on the browser side, since
 // each creates and destroys its own LanguageModel session.
 function ensureSession(baseModel, debug) {
@@ -327,6 +339,10 @@ function ensureSession(baseModel, debug) {
 }
 
 export async function closeChrome() {
+  // Close when idle, not on demand: a caller finishing its turn while another
+  // is still mid-flight would otherwise close that one's browser. A turn
+  // started during the drain keeps it going, which is the same promise.
+  while (turns.size > 0) await Promise.allSettled([...turns])
   const open = [...sessions.values()]
   sessions.clear()
   const shut = async (pending) => {
@@ -421,7 +437,7 @@ export async function sendChromeTurn(model, body, { debug, label } = {}) {
   const { tab } = session
   const startup = Date.now() - launched
   if (debug && label) console.debug(`[debug] ${label}`)
-  const result = await tab.evaluate(turnInPage, body)
+  const result = await runTurn(tab, body)
   if (result.error?.availability) explainCreateFailure(result.error, model, baseModel)
   if (debug) {
     // A cold run pays for browser startup, component registration and the
