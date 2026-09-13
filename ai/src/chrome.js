@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { baseModelFor, modelVersionFor } from './models.js'
-import { chromePreflight, findModelDir, graftPlan, localStateFor } from './chrome-model.js'
-import { outputLanguage, toChatCompletions } from './chrome-wire.js'
+import { findModelDir, graftPlan, localStateFor } from './chrome-model.js'
+import { explainCreateFailure, outputLanguage, toChatCompletions } from './chrome-wire.js'
 
 // Re-exported so callers keep one entry point for the provider.
 export { chromePreflight, findModelDir, localStateFor } from './chrome-model.js'
@@ -248,8 +248,10 @@ function installExitCleanup() {
 const sessions = new Map()
 
 async function launch(baseModel, debug) {
+  // Throws when the row's weights are not installed, naming what is — so
+  // there is nothing left for chromePreflight to check here. It still runs at
+  // setProvider, where no model is named yet.
   const modelDir = findModelDir(baseModel)
-  chromePreflight()
   // A persistent context rather than launch(): the profile has to exist
   // before Chrome starts so the component tree can be grafted into it.
   sweepStaleProfiles()
@@ -374,17 +376,11 @@ async function openBrowser(profile, modelDir, baseModel, debug) {
   return { browser, tab, profile }
 }
 
-// What Chrome actually loaded, as opposed to what we asked for. Those are
-// different questions: the override names a directory, and whether it steers
-// the BASE model is unproven — the only consumer of that switch findable in
-// Chromium steers adaptation models. Reported rather than enforced, because a
-// scraper written against a page I cannot run here is not something to fail
-// requests on. On its own page so the turn's tab is left alone.
 /* eslint-disable no-undef */
 // What Chrome actually loaded, as opposed to which directory we pointed it
-// at. Those are different questions, and the difference is not academic:
-// asking for three different rows currently produces indistinguishable runs,
-// so the override may not steer the base model at all.
+// at. Those are different questions: the execution override names a
+// directory and does not steer the base model — model_version does, and this
+// is where that shows.
 //
 // chrome://on-device-internals answers it under Broker State, in real tables
 // rather than prose — Models is Name / Folder Size / Weights Path / Backend
@@ -399,7 +395,13 @@ async function reportLoadedModel(browser) {
   try {
     page = await browser.newPage()
     await page.goto('chrome://on-device-internals')
-    await page.waitForTimeout(3000)
+    // Wait for the WebUI to render rather than for a fixed three seconds.
+    // This is awaited inline on the first turn, so a flat sleep put its whole
+    // duration in front of the answer the caller is waiting for; the tables
+    // are usually there in a fraction of it. The timeout keeps the old
+    // ceiling, and a page that never renders falls through to the catch.
+    await page.waitForFunction(() => document.querySelectorAll('table tr').length > 1, { timeout: 3000 })
+      .catch(() => {})
     const tables = await page.evaluate(readInternalsTables)
     for (const name of ['Models', 'Use Cases', 'Assets']) {
       const rows = tables[name] ?? []
@@ -475,10 +477,10 @@ const READY_POLL_MS = 500
 // the deadlock and made every subsequent turn work, which is exactly the
 // shape of that bug.
 //
-// So: attempt a throwaway session, retry while the service is still coming
-// up, and abort the moment a real download starts — a session is free when
-// the weights are already here, and this provider must never pay for its own
-// copy of them.
+// So: attempt a throwaway session and retry while the service is still coming
+// up. Nothing here guards against a download — an earlier version aborted on
+// `downloadprogress` and killed every legitimate warm-up, because that event
+// fires while Chrome prepares weights it already has. See the body.
 export async function waitUntilReady(tab, debug) {
   const deadline = Date.now() + READY_TIMEOUT_MS
   const language = outputLanguage()
@@ -527,23 +529,20 @@ export async function waitUntilReady(tab, debug) {
 // state behind on the browser side — each creates and destroys its own
 // LanguageModel session.
 function ensureSession(baseModel, debug) {
-  const key = baseModel ?? ''
-  if (!sessions.has(key)) {
+  if (!sessions.has(baseModel)) {
     // A failure must not be cached. Left in the map, a rejected promise is
     // handed to every later turn, which is why one bad launch failed the
     // rest of a run in under a millisecond each.
     const pending = launch(baseModel, debug)
-    pending.catch(() => sessions.delete(key))
-    sessions.set(key, pending)
+    pending.catch(() => sessions.delete(baseModel))
+    sessions.set(baseModel, pending)
   }
-  return sessions.get(key)
+  return sessions.get(baseModel)
 }
 
 export async function closeChrome() {
   const open = [...sessions.values()]
   sessions.clear()
-  // A launch that failed already rejected to its caller; settling it again
-  // here would surface the same error a second time as an unhandled one.
   const shut = async (pending) => {
     // A launch that rejected already surfaced to its caller; settling it again
     // here would raise the same error a second time, unhandled.
@@ -599,7 +598,13 @@ export async function turnInPage(req) {
     })
     createdAt = performance.now() - createStarted
   } catch (err) {
-    return { error: { message: `create failed: ${err.name}: ${err.message}` } }
+    // Chrome's own message for the interesting failure ends "Please check the
+    // result of availability() first", so do that and report the answer
+    // rather than passing the instruction on to the caller. `unavailable`
+    // here means this device will not run the variant that was asked for —
+    // it is not the merely-unloaded state waitUntilReady already cleared.
+    const availability = await LanguageModel.availability().catch((e) => `unreadable (${e.name})`)
+    return { error: { message: `create failed: ${err.name}: ${err.message}`, availability } }
   }
   const before = ses.contextUsage ?? 0
   try {
@@ -632,6 +637,7 @@ export async function turnInPage(req) {
 }
 /* eslint-enable no-undef */
 
+
 export async function sendChromeTurn(model, body, { debug, label } = {}) {
   const baseModel = baseModelFor(model)
   // Undefined means the registry has no chrome/* row for this id, so there is
@@ -645,6 +651,7 @@ export async function sendChromeTurn(model, body, { debug, label } = {}) {
   const startup = Date.now() - launched
   if (debug && label) console.debug(`[debug] ${label}`)
   const result = await tab.evaluate(turnInPage, body)
+  if (result.error?.availability) explainCreateFailure(result.error, model, baseModel)
   // After the turn, not before it: Use Cases and the event log only say what
   // was requested once something has requested it, and reading them at launch
   // showed empty tables. Once per browser, so a tool loop does not repeat it.

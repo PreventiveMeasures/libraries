@@ -79,10 +79,10 @@ const MODELS = new Map([
   // component manifest declares (identifiesAs), `modelVersion` picks which
   // use case answers (enabledFeatures in chrome.js). `maxTokens` is advisory
   // — the Prompt API takes no output cap, the context window binds instead.
-  ['chrome/gemini-nano-v3', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'nano_v3', specNames: ['v3Nano'], modelVersion: 'v3' }],
-  ['chrome/gemma-4-e2b-it', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_2b', specNames: ['gemma4-2b-it'], modelVersion: 'v4' }],
-  ['chrome/gemma-4-e4b-it', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_4b', specNames: ['gemma-4-E4B-it'], modelVersion: 'v4_4b' }],
-  ['chrome/gemma-4-12b-it', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_12b', modelVersion: 'v4_12b' }],
+  ['chrome/gemini-nano-v3', { input: 0, output: 0, maxTokens: 4096, baseModel: 'nano_v3', specNames: ['v3Nano'], modelVersion: 'v3' }],
+  ['chrome/gemma-4-e2b-it', { input: 0, output: 0, maxTokens: 4096, baseModel: 'gemma4_2b', specNames: ['gemma4-2b-it'], modelVersion: 'v4' }],
+  ['chrome/gemma-4-e4b-it', { input: 0, output: 0, maxTokens: 4096, baseModel: 'gemma4_4b', specNames: ['gemma-4-E4B-it'], modelVersion: 'v4_4b' }],
+  ['chrome/gemma-4-12b-it', { input: 0, output: 0, maxTokens: 4096, baseModel: 'gemma4_12b', modelVersion: 'v4_12b' }],
   // Free models — may log/store/use your data
   ['openai/gpt-oss-120b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['openai/gpt-oss-20b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
@@ -285,16 +285,14 @@ export function baseModelFor(model) {
 
 // Keyed by base model rather than registry id, so the adapter can look one up
 // from what it already carries.
-const SPEC_NAMES = new Map([...MODELS.values()].filter((r) => r.baseModel).map((r) => [r.baseModel, r.specNames ?? []]))
+const BY_BASE_MODEL = new Map([...MODELS.values()].filter((r) => r.baseModel).map((r) => [r.baseModel, r]))
 
 export function specNamesFor(baseModel) {
-  return SPEC_NAMES.get(baseModel) ?? []
+  return BY_BASE_MODEL.get(baseModel)?.specNames ?? []
 }
 
-const MODEL_VERSIONS = new Map([...MODELS.values()].filter((r) => r.baseModel).map((r) => [r.baseModel, r.modelVersion]))
-
 export function modelVersionFor(baseModel) {
-  return MODEL_VERSIONS.get(baseModel)
+  return BY_BASE_MODEL.get(baseModel)?.modelVersion
 }
 
 export function reasoningModeFor(model) {

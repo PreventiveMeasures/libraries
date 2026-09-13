@@ -9,7 +9,7 @@ import { specNamesFor } from './models.js'
 
 // Two stores, different shapes: nano_v3 lives under the first, the gemma
 // models under the second, keyed by a content hash above the version.
-export const MODEL_COMPONENTS = ['OptGuideOnDeviceModel', 'OptGuideManifestModel']
+const MODEL_COMPONENTS = ['OptGuideOnDeviceModel', 'OptGuideManifestModel']
 
 // Grafted into the scratch profile but never searched for weights: this one
 // records which manifest models exist rather than holding any. Small, and not
@@ -33,7 +33,7 @@ const USER_DATA_DIRS = {
 
 // The user data dir the weights came from, so state can be seeded from the
 // same profile that owns them.
-export function activeUserDataDir() {
+function activeUserDataDir() {
   for (const dir of USER_DATA_DIRS[process.platform] ?? []) {
     if (MODEL_COMPONENTS.some((component) => existsSync(join(dir, component)))) return dir
   }
@@ -102,7 +102,7 @@ export function graftPlanIn(userDataDir, modelDir) {
 //   everything else         the model store metadata, the cache key mapping,
 //                           the prediction model fetcher state, and an id
 //                           identifying the browser it came from.
-export function optimizationGuidePrefs(modelDir) {
+function optimizationGuidePrefs(modelDir) {
   const dir = activeUserDataDir()
   if (!dir) return {}
   try {
@@ -156,7 +156,7 @@ function compareVersions(a, b) {
 
 // Every component root that exists, not the first. A stale or empty stable
 // root used to hide a Canary install that actually had the weights.
-export function modelComponentRoots() {
+function modelComponentRoots() {
   const roots = []
   for (const dir of USER_DATA_DIRS[process.platform] ?? []) {
     for (const component of MODEL_COMPONENTS) {
@@ -219,41 +219,35 @@ function normalizeSpec(name) {
 // The generic name is distinct enough from the 12B one after normalising
 // (…ondevicemodel against …ondevicegemma412bmodel) that the fallback cannot
 // make a spec-carrying manifest match a row it should not.
-export function declaredSpec(dir) {
+function declaredSpec(dir) {
   try {
     const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'))
     return manifest?.BaseModelSpec?.name ?? manifest?.name ?? null
   } catch { return null }
 }
 
-// The other half, for manifests that declare no spec: the component name
-// itself is a template, so it can be derived from the row's id rather than
-// transcribed. "Optimization Guide On-Device Gemma4 12B Model" lowercased
-// with its spaces made underscores is
-//
-//   optimization_guide_on-device_gemma4_12b_model
-//
-// which is `optimization_guide_on-device_${baseModel}_model` for a baseModel
-// of gemma4_12b. A future size drops in with no edit here. Note the hyphen:
-// the generic name the spec-carrying manifests use up top is "On Device", not
-// "On-Device", so it normalizes to optimization_guide_on_device_model and
-// cannot be mistaken for a row.
-function normalizeComponentName(name) {
-  return String(name).toLowerCase().replaceAll(/\s+/gu, '_')
-}
-
+// The other half, for manifests that declare no spec: the component name is a
+// template, so it can be derived from the row's id rather than transcribed.
+// "Optimization Guide On-Device Gemma4 12B Model" is
+// `optimization_guide_on-device_${baseModel}_model` for a baseModel of
+// gemma4_12b, once both are normalised, and a future size drops in with no
+// edit here. What separates it from the generic name the spec-carrying
+// manifests use — "Optimization Guide On Device Model" — is the size segment
+// in the middle, not the hyphen, which normalising discards from both.
 function componentNameFor(baseModel) {
   return `optimization_guide_on-device_${baseModel}_model`
+}
+
+// Every name a row will answer to: what its manifest may declare as a spec,
+// and the component name it would carry if it declares none.
+function acceptedNames(baseModel) {
+  return [...specNamesFor(baseModel), componentNameFor(baseModel)]
 }
 
 export function identifiesAs(dir, baseModel) {
   const declared = declaredSpec(dir)
   if (!declared) return false
-  // The spec wins wherever there is one, so a manifest that carries both is
-  // never reduced to its generic top-level name.
-  const specNames = specNamesFor(baseModel)
-  if (specNames.some((name) => normalizeSpec(name) === normalizeSpec(declared))) return true
-  return normalizeComponentName(declared) === componentNameFor(baseModel)
+  return acceptedNames(baseModel).some((name) => normalizeSpec(name) === normalizeSpec(declared))
 }
 
 // Weights for a base model spec, or the newest installed when none is named.
@@ -291,7 +285,7 @@ export function findModelDir(baseModel) {
 // multi-gigabyte fetch — which is why the spec names live on the registry row
 // in the first place.
 function missingModelMessage(baseModel, all) {
-  const wanted = [...specNamesFor(baseModel), componentNameFor(baseModel)]
+  const wanted = acceptedNames(baseModel)
   const found = all.length > 0
     ? all.map((m) => `${declaredSpec(m.dir) ?? 'unnamed'} at ${m.dir}`).join('; ')
     : 'nothing'

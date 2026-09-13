@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { IGNORED_DEFAULT_ARGS, chromePreflight, findModelDir, isScratchProfile, launchArgs, localStateFor, removeProfileDir, turnInPage, waitUntilReady } from '../src/chrome.js'
 import { graftPlanIn, identifiesAs, portableGuide } from '../src/chrome-model.js'
-import { CHROME_SHAPE, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome-wire.js'
+import { CHROME_SHAPE, explainCreateFailure, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome-wire.js'
 import { baseModelFor, calculateCost, getMaxTokens, modelVersionFor, specNamesFor } from '../src/models.js'
 import { setProvider } from '../src/providers.js'
 
@@ -250,6 +250,55 @@ describe('chrome inherited prefs', () => {
     assert.deepEqual(portableGuide(undefined, DIRS.nano), {})
     assert.deepEqual(portableGuide({}, DIRS.nano), {})
     assert.deepEqual(portableGuide({ on_device: { performance_class: 5 } }, DIRS.nano), {})
+  })
+})
+
+describe('chrome create failure', () => {
+  // What Chrome says on its own is "The device is unable to create a session
+  // to run the model. Please check the result of availability() first." —
+  // which names neither the row nor the variant, and hands the caller an
+  // instruction instead of an answer.
+  const chromeSays = 'create failed: InvalidStateError: The device is unable to create a session to run the model.'
+
+  it('names the row, the variant, and keeps the browser\'s own reason', () => {
+    const error = { message: chromeSays, availability: 'available' }
+    explainCreateFailure(error, 'chrome/gemma-4-12b-it', 'gemma4_12b')
+    assert.match(error.message, /chrome\/gemma-4-12b-it/u)
+    assert.match(error.message, /model_version\/v4_12b/u)
+    // Chrome's text is kept rather than replaced — it is the only part that
+    // improves if Chrome ever starts explaining itself.
+    assert.match(error.message, /unable to create a session/u)
+    // And the weights are not the problem: this failure comes after a warm-up
+    // that proved a session can be had, so pointing at a missing model would
+    // send the reader after the wrong thing.
+    assert.match(error.message, /weights are linked and nothing is missing/u)
+    assert.match(error.message, /chrome:\/\/on-device-internals/u)
+  })
+
+  it('says so when availability contradicts the failure', () => {
+    // The case that prompted this: Chrome's message ends "check the result of
+    // availability() first", and availability() answers `available`. Repeating
+    // that advice would send the reader in a circle, so the contradiction is
+    // stated instead.
+    const error = { message: chromeSays, availability: 'available' }
+    explainCreateFailure(error, 'chrome/gemma-4-12b-it', 'gemma4_12b')
+    assert.match(error.message, /does not explain this/u)
+    assert.match(error.message, /too\s+large for this device/u)
+  })
+
+  it('says the plain thing when availability agrees with the failure', () => {
+    const error = { message: chromeSays, availability: 'unavailable' }
+    explainCreateFailure(error, 'chrome/gemma-4-12b-it', 'gemma4_12b')
+    assert.match(error.message, /will not run the variant/u)
+    assert.doesNotMatch(error.message, /does not explain this/u)
+  })
+
+  it('does not invent a use case for the row that has none', () => {
+    // nano answers the default use case, so there is no model_version to cite.
+    const error = { message: chromeSays, availability: 'unavailable' }
+    explainCreateFailure(error, 'chrome/gemini-nano-v3', 'nano_v3')
+    assert.doesNotMatch(error.message, /model_version/u)
+    assert.match(error.message, /chrome\/gemini-nano-v3/u)
   })
 })
 

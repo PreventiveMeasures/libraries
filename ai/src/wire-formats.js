@@ -1,5 +1,5 @@
 import { canAdaptive, canTaskBudget, needsExplicitNoThink } from './models.js'
-import { ANTHROPIC_SYSTEM_CACHE, anthropicInitialUserMessage, cachesConversation } from './prompt-cache.js'
+import { ANTHROPIC_SYSTEM_CACHE, anthropicInitialUserMessage, cachesConversation, flattenUserContent } from './prompt-cache.js'
 
 // Wire formats the adapters are assembled from, kept out of providers.js so
 // that file stays the provider registry and dispatch surface. The Anthropic
@@ -123,3 +123,51 @@ export function anthropicShape(modelId) {
   }
 }
 
+
+// The initial-message shape for a provider that caches on its own side, so
+// there's nothing for us to mark up: OpenAI Responses fingerprints the input
+// and Moonshot caches context automatically. For both a block split buys
+// nothing — concat and let the server do it. The gateway adapter spreads
+// this in for the routes it can't mark, then overrides it for the ones it can,
+// and the on-device adapter takes it because a local model caches nothing
+// across requests at all.
+export const SERVER_SIDE_CACHING = {
+  buildInitialUserMessage(model, userContent) {
+    return { role: 'user', content: flattenUserContent(userContent) }
+  },
+}
+
+// Wire-format pieces shared by the OpenAI-style chat-completions backends
+// (OpenRouter, Moonshot). Only the endpoint, the auth header, and the
+// request body differ between them — response parsing and message threading
+// are identical — so both adapters spread this in and override just the
+// parts that are genuinely their own. `maxTokensField` names the request
+// field that adapter caps output with, so a truncation message points at a
+// field actually present in the body it sent.
+export function chatCompletionsBase(maxTokensField) {
+  return {
+    checkResponse(json) {
+      if (json.error) return `API error: ${json.error.message ?? 'unknown'}`
+      if (json.choices?.[0]?.finish_reason === 'length') return truncationError(maxTokensField)
+      return null
+    },
+
+    extractResponseText(json) {
+      return json.choices?.[0]?.message?.content ?? ''
+    },
+
+    extractToolCalls(json) {
+      const calls = json.choices?.[0]?.message?.tool_calls ?? []
+      return calls.map((tc) => ({ id: tc.id, name: tc.function.name, ...parseArgs(tc.function.arguments, tc.function.name) }))
+    },
+
+    appendToolResults(messages, json, toolCalls, results) {
+      messages.push(json.choices[0].message)
+      for (let i = 0; i < toolCalls.length; i++) {
+        messages.push({ role: 'tool', tool_call_id: toolCalls[i].id, content: results[i] })
+      }
+    },
+
+    ...SERVER_SIDE_CACHING,
+  }
+}

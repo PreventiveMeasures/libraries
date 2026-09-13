@@ -1,5 +1,5 @@
-import { flattenUserContent } from './prompt-cache.js'
-import { parseArgs } from './wire-formats.js'
+import { modelVersionFor } from './models.js'
+import { chatCompletionsBase } from './wire-formats.js'
 
 // The `chrome` provider's wire format: what goes to the browser, and what
 // comes back. Kept apart from chrome.js for the same reason wire-formats.js
@@ -117,6 +117,16 @@ export function toChatCompletions(result, constrained) {
 // which is why appendToolResults folds results into a user turn rather than
 // using the `tool` role a chat-completions backend would take.
 export const CHROME_SHAPE = {
+  // The response side is the shared chat-completions one, which is the whole
+  // point of toChatCompletions emitting that envelope: checkResponse,
+  // extractResponseText and extractToolCalls are the same parsing every
+  // hosted chat-completions adapter uses, and were duplicated here until it
+  // moved somewhere both could import. The truncation branch it carries never
+  // fires — the Prompt API accepts no output cap, so nothing this file emits
+  // has finish_reason 'length' — and `maxTokens` names the registry field a
+  // caller would have to change if one ever did.
+  ...chatCompletionsBase('maxTokens'),
+
   buildRequestBody(model, maxTokens, systemPrompt, messages, { think = false, effort, tools } = {}) {
     if (think || effort) throw new Error('Chrome\'s on-device model has no thinking mode')
     const system = tools ? `${systemPrompt}\n\n${toolInstructions(tools)}` : systemPrompt
@@ -135,29 +145,6 @@ export const CHROME_SHAPE = {
     }
   },
 
-  // Nothing to mark up: the model is local and holds no cross-request cache,
-  // so wherever the caller drew the boundary buys nothing here and the blocks
-  // simply concatenate. flattenUserContent rather than a join of our own —
-  // it joins on '', which is what the cache key is built from, so a split
-  // request resumes under the key its unsplit result is cached at.
-  buildInitialUserMessage(model, userContent) {
-    return { role: 'user', content: flattenUserContent(userContent) }
-  },
-
-  checkResponse(json) {
-    if (json.error) return `API error: ${json.error.message ?? 'unknown'}`
-    return null
-  },
-
-  extractResponseText(json) {
-    return json.choices?.[0]?.message?.content ?? ''
-  },
-
-  extractToolCalls(json) {
-    const calls = json.choices?.[0]?.message?.tool_calls ?? []
-    return calls.map((c) => ({ id: c.id, name: c.function.name, ...parseArgs(c.function.arguments, c.function.name) }))
-  },
-
   appendToolResults(messages, json, toolCalls, results) {
     // The assistant's turn goes back as the JSON it produced, so the model
     // sees the calls it made rather than an empty turn.
@@ -166,4 +153,28 @@ export const CHROME_SHAPE = {
     const rendered = toolCalls.map((tc, i) => `${tc.name} -> ${results[i]}`).join('\n\n')
     messages.push({ role: 'user', content: `Tool results:\n${rendered}` })
   },
+}
+
+
+// A create() that fails after the model warmed up is a variant this machine
+// will not run: the weights are linked and the browser is willing, but the
+// size the row asks for is more than it can load. Chrome says only "The
+// device is unable to create a session to run the model. Please check the
+// result of availability() first", which names neither the row nor the
+// variant — and following that advice is its own surprise, because on the
+// 12B failure that prompted this, availability() answered `available`.
+export function explainCreateFailure(error, model, baseModel) {
+  const version = modelVersionFor(baseModel)
+  const useCase = version && version !== 'v3' ? ` (model_version/${version})` : ''
+  // Whether the advice Chrome gives actually explains anything.
+  const verdict = error.availability === 'available'
+    ? 'availability() reports "available", so the check Chrome suggests does not explain this: ' +
+      'the variant is advertised as usable and then refuses to start, which is what a size too ' +
+      'large for this device looks like'
+    : `availability() reports "${error.availability}", so this device will not run the variant`
+  error.message =
+    `${model} could not start a session${useCase}. ` +
+    `Chrome said: ${error.message.replace(/\.$/u, '')}. ` +
+    `${verdict}. The weights are linked and nothing is missing — read Broker State > Use Cases ` +
+    'in chrome://on-device-internals for the reason, or use a smaller row.'
 }

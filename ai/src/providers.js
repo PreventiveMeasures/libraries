@@ -3,10 +3,10 @@ import { chromePreflight, closeChrome, sendChromeTurn } from './chrome.js'
 import { CHROME_SHAPE } from './chrome-wire.js'
 import { fetchJSON } from './fetch.js'
 import { effortsFor, reasoningModeFor, wireModelFor } from './models.js'
-import { anthropicAuthHeader, anthropicShape, parseArgs, stripNamespace, toAnthropicModel, truncationError } from './wire-formats.js'
+import { anthropicAuthHeader, anthropicShape, chatCompletionsBase, parseArgs, stripNamespace, toAnthropicModel, truncationError } from './wire-formats.js'
 
 export { isMaxTokensTruncation } from './wire-formats.js'
-import { cachesConversation, chatCompletionsInitialUserMessage, chatCompletionsSystemMessage, flattenUserContent, isAnthropicRoute, isOpenAIRoute, responsesInitialUserMessage } from './prompt-cache.js'
+import { cachesConversation, chatCompletionsInitialUserMessage, chatCompletionsSystemMessage, isAnthropicRoute, isOpenAIRoute, responsesInitialUserMessage } from './prompt-cache.js'
 
 // Chat-completions function-tool shape (nested `function: {...}` wrapper),
 // shared by every OpenAI-style chat backend — OpenRouter and Moonshot.
@@ -44,17 +44,6 @@ function resolveEffort({ think, effort, model }) {
     throw new Error(`Effort "${level}" is not supported by this model. Use: ${allowed.join(', ')}`)
   }
   return level
-}
-
-// The initial-message shape for a provider that caches on its own side, so
-// there's nothing for us to mark up: OpenAI Responses fingerprints the input
-// and Moonshot caches context automatically. For both a block split buys
-// nothing — concat and let the server do it. The gateway adapter spreads
-// this in for the routes it can't mark, then overrides it for the ones it can.
-const SERVER_SIDE_CACHING = {
-  buildInitialUserMessage(model, userContent) {
-    return { role: 'user', content: flattenUserContent(userContent) }
-  },
 }
 
 // The OpenAI Responses wire format, parameterised by how the route names
@@ -151,40 +140,6 @@ const OPENAI_RESPONSES_SHAPE = openaiResponsesShape((model) => stripNamespace(wi
 // handled identically either way, so only the positive markers matter.
 const isResponsesResponse = (json) => Array.isArray(json?.output) || typeof json?.status === 'string'
 
-// Wire-format pieces shared by the OpenAI-style chat-completions backends
-// (OpenRouter, Moonshot). Only the endpoint, the auth header, and the
-// request body differ between them — response parsing and message threading
-// are identical — so both adapters spread this in and override just the
-// parts that are genuinely their own. `maxTokensField` names the request
-// field that adapter caps output with, so a truncation message points at a
-// field actually present in the body it sent.
-function chatCompletionsBase(maxTokensField) {
-  return {
-    checkResponse(json) {
-      if (json.error) return `API error: ${json.error.message ?? 'unknown'}`
-      if (json.choices?.[0]?.finish_reason === 'length') return truncationError(maxTokensField)
-      return null
-    },
-
-    extractResponseText(json) {
-      return json.choices?.[0]?.message?.content ?? ''
-    },
-
-    extractToolCalls(json) {
-      const calls = json.choices?.[0]?.message?.tool_calls ?? []
-      return calls.map((tc) => ({ id: tc.id, name: tc.function.name, ...parseArgs(tc.function.arguments, tc.function.name) }))
-    },
-
-    appendToolResults(messages, json, toolCalls, results) {
-      messages.push(json.choices[0].message)
-      for (let i = 0; i < toolCalls.length; i++) {
-        messages.push({ role: 'tool', tool_call_id: toolCalls[i].id, content: results[i] })
-      }
-    },
-
-    ...SERVER_SIDE_CACHING,
-  }
-}
 
 // Which wire format a response came back in. The two are self-identifying —
 // Messages replies carry a `content` block array (or `type: 'error'`),
@@ -343,12 +298,11 @@ const ADAPTERS = {
   }),
 
   // Chrome's built-in on-device model — the one adapter with no endpoint and
-  // no key. `local: true` is what tells setProvider to check for a browser
-  // and resident weights instead of a URL and a key, and what routes
-  // sendRequest through the browser instead of through fetchJSON. Everything
-  // about reaching it lives in chrome.js.
+  // no key. Its own `preflight` checks for a browser and resident weights in
+  // place of a URL and a key, and `send` is what routes a turn through the
+  // browser instead of fetchJSON. Everything about reaching it is in
+  // chrome.js.
   chrome: {
-    local: true,
     preflight: chromePreflight,
     send: sendChromeTurn,
     close: closeChrome,
@@ -391,40 +345,44 @@ const ADAPTERS = {
 
 let provider
 
-export function setProvider(name) {
-  assert.ok(Object.hasOwn(ADAPTERS, name), `Unknown provider: ${name}. Use: ${Object.keys(ADAPTERS).join(', ')}`)
-  const adapter = ADAPTERS[name]
-  // A local provider has neither a key nor a URL to check — the model is on
-  // this machine — so it vets its own preconditions instead. Either way the
-  // run fails HERE, at selection, rather than on the first turn.
-  if (adapter.local) {
-    adapter.preflight()
-    provider = { ...adapter, name, apiKeyValue: null }
-    return
-  }
+// What every adapter with an endpoint has to have before a run starts: a key,
+// and a URL to send it to. The default preflight, so selection has one shape.
+function httpPreflight(name, adapter) {
   const key = adapter.apiKey()
   assert.ok(key, `Missing API key for ${name}`)
   // Only a gateway entry can be missing one, and only when its origin env var
   // is unset — every other adapter hardcodes its endpoint.
   assert.ok(adapter.url, `Missing API URL for ${name}. Set ${adapter.apiUrlEnv}.`)
-  provider = { ...adapter, name, apiKeyValue: key }
+  return key
 }
 
-// Release whatever the active provider is holding open. Only the local one
-// holds anything — a browser process, which keeps the event loop alive until
-// it is closed — so for every other provider this is a no-op, and a caller
-// can end a run with it unconditionally.
+// Whatever an adapter needs true before the first turn, checked HERE at
+// selection rather than on that turn. An endpoint adapter needs a key and a
+// URL; the on-device one needs a browser and resident weights and returns no
+// key, so it supplies its own preflight instead of being special-cased here.
+export function setProvider(name) {
+  assert.ok(Object.hasOwn(ADAPTERS, name), `Unknown provider: ${name}. Use: ${Object.keys(ADAPTERS).join(', ')}`)
+  const adapter = ADAPTERS[name]
+  const apiKeyValue = (adapter.preflight ?? httpPreflight)(name, adapter) ?? null
+  provider = { ...adapter, name, apiKeyValue }
+}
+
+// Release whatever any adapter is holding open. Today only `chrome` holds
+// anything — a browser process, which keeps the event loop alive until it is
+// closed — so for every other provider this is a no-op and a caller can end a
+// run with it unconditionally.
+//
+// EVERY adapter, not the selected one. A caller that ran chrome and then
+// switched to a hosted provider still has a browser holding the loop open,
+// and closing only `provider` would miss it. Asking each adapter rather than
+// naming chrome here keeps that fix from having to be repeated the next time
+// something holds a resource.
 //
 // Releases the resource without deselecting the provider: a caller that
 // closes and then issues another request gets a fresh browser rather than a
 // crash, the same way a connection pool reopens.
 export async function closeProvider() {
-  await provider?.close?.()
-  // Not only the provider selected right now. A caller that ran chrome, then
-  // switched to a hosted provider with setProvider(), still has a browser
-  // holding the event loop open, and calling the documented cleanup would
-  // have missed it entirely.
-  await closeChrome()
+  await Promise.all(Object.values(ADAPTERS).map((adapter) => adapter.close?.()))
 }
 
 // Identifies the wire format a history entry was written under, for
