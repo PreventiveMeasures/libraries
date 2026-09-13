@@ -78,6 +78,8 @@ const MODELS = new Map([
   ['nvidia/nemotron-3-super-120b-a12b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['qwen/qwen3-coder:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['qwen/qwen3.6-plus:free', { input: 0, output: 0, maxTokens: 64 * 1024, free: true }],
+  ['google/gemma-4-31b-it:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, free: true }],
+  ['google/gemma-4-26b-a4b-it:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, free: true }],
   ['google/gemma-3-27b-it:free', { input: 0, output: 0, maxTokens: 8192, free: true }],
 ])
 
