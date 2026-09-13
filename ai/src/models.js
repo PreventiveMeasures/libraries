@@ -337,6 +337,9 @@ export function componentFor(baseModel) {
 // thing that runs anywhere, and is near rather than equal to its hosted
 // route. Every other build is its own id, since a 4-bit answer is not an
 // 8-bit one and a run should not have to guess which it got.
+//
+// Tag names are Ollama's own and not always literal — several `-bf16` tags
+// hold F16. Ours follow the tag, since the tag is what gets pulled.
 const OLLAMA_TAGS = new Map([
   ['google/gemma-4-12b-it', 'gemma4:12b-it-bf16'],
   ['google/gemma-4-12b-it-q8_0', 'gemma4:12b-it-q8_0'],
@@ -354,8 +357,9 @@ const OLLAMA_TAGS = new Map([
   ['qwen/qwen3.6-27b', 'qwen3.6:27b-q8_0'],
   ['qwen/qwen3.6-27b-bf16', 'qwen3.6:27b-bf16'],
   ['qwen/qwen3.6-27b-q4_k_m', 'qwen3.6:27b-q4_K_M'],
-  // Not the same weights as the plain builds beside them: smaller, and
-  // carrying a vision projector those do not.
+  // Distinct artifacts, though not for one reason: at 27b the vision weights
+  // are only split out of the model file (+0.016% all told), while 35b-a3b
+  // carries 609MB more than its plain build.
   ['qwen/qwen3.6-27b-mtp-bf16', 'qwen3.6:27b-mtp-bf16'],
   ['qwen/qwen3.6-27b-mtp-q8_0', 'qwen3.6:27b-mtp-q8_0'],
   ['qwen/qwen3.6-27b-mtp-q4_k_m', 'qwen3.6:27b-mtp-q4_K_M'],
