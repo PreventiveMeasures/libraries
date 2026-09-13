@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, rmdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -129,33 +129,45 @@ async function loadPlaywright() {
 // delete unlinks the link rather than following it.
 const profiles = new Set()
 
-const PROFILE_PREFIX = 'ai-chrome-'
+// One directory of our own inside the temp dir, so the sweep reads it rather
+// than everything the machine has put there. Recomputed per call, so it
+// follows TMPDIR.
+const PROFILE_ROOT = 'preventive-ai'
+const PROFILE_PREFIX = 'chrome-'
+const profileRoot = () => join(tmpdir(), PROFILE_ROOT)
+
 // Old enough that a profile made moments ago, before its owner marker was
 // written, cannot be mistaken for one left behind.
 const STALE_MS = 6 * 60 * 60 * 1000
 
 // Lets another process sweeping the temp dir tell a profile in use from one
 // left behind. Chrome ignores files it does not know at the profile root.
-const OWNER_FILE = 'ai-chrome-owner.pid'
+const OWNER_FILE = 'owner.pid'
 
 // The guard on the single place this file deletes anything recursively. A
 // profile holds a symlink into the user's model store, so a wrong path here
 // is gigabytes of somebody else's data.
 //
 // starts-with, not contains: every profile is built by mkdtemp from exactly
-// this prefix, which rules out a path that merely has ai-chrome- somewhere
-// inside it. Recomputed per call, so it follows TMPDIR.
+// this prefix inside exactly that directory, which rules out a path that
+// merely has the name somewhere inside it.
 export function isScratchProfile(dir) {
-  const root = join(tmpdir(), PROFILE_PREFIX)
+  const root = join(profileRoot(), PROFILE_PREFIX)
   return typeof dir === 'string' && dir.startsWith(root) && dir.length > root.length
 }
 
 export function removeProfileDir(dir) {
   assert.ok(
     isScratchProfile(dir),
-    `refusing to recursively delete a path that is not one of our scratch profiles (expected ${join(tmpdir(), PROFILE_PREFIX)}*): ${dir}`,
+    `refusing to recursively delete a path that is not one of our scratch profiles (expected ${join(profileRoot(), PROFILE_PREFIX)}*): ${dir}`,
   )
   rmSync(dir, { recursive: true, force: true })
+}
+
+// Take the shared directory too, once it is empty. Non-recursive, so a
+// profile still in it — this process's or another's — is ENOTEMPTY and stays.
+export function pruneProfileRoot() {
+  try { rmdirSync(profileRoot()) } catch { /* still in use, or already gone */ }
 }
 
 function dropProfile(dir) {
@@ -180,9 +192,9 @@ function ownerAlive(dir) {
 export function sweepStaleProfiles() {
   const now = Date.now()
   let dirs = []
-  try { dirs = readdirSync(tmpdir()).filter((n) => n.startsWith(PROFILE_PREFIX)) } catch { return }
+  try { dirs = readdirSync(profileRoot()).filter((n) => n.startsWith(PROFILE_PREFIX)) } catch { return }
   for (const name of dirs) {
-    const dir = join(tmpdir(), name)
+    const dir = join(profileRoot(), name)
     if (profiles.has(dir)) continue
     try {
       if (now - statSync(dir).mtimeMs > STALE_MS && !ownerAlive(dir)) removeProfileDir(dir)
@@ -200,6 +212,7 @@ function installExitCleanup() {
     for (const dir of profiles) {
       try { removeProfileDir(dir) } catch { /* exiting anyway */ }
     }
+    pruneProfileRoot()
   })
 }
 
@@ -214,7 +227,8 @@ async function launch(baseModel, debug) {
   // before Chrome starts so the component tree can be grafted into it.
   sweepStaleProfiles()
   installExitCleanup()
-  const profile = mkdtempSync(join(tmpdir(), PROFILE_PREFIX))
+  mkdirSync(profileRoot(), { recursive: true })
+  const profile = mkdtempSync(join(profileRoot(), PROFILE_PREFIX))
   profiles.add(profile)
   // Before anything slow, so a concurrent sweep can already see an owner.
   writeFileSync(join(profile, OWNER_FILE), String(process.pid))
@@ -383,6 +397,7 @@ export async function closeChrome() {
     dropProfile(live.profile)
   }
   await Promise.all(open.map(shut))
+  pruneProfileRoot()
 }
 
 // Chrome greets every page that touches the Prompt API with a feedback

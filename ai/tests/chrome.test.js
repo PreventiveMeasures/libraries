@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { after, describe, it } from 'node:test'
-import { IGNORED_DEFAULT_ARGS, chromePreflight, findModelDir, isScratchProfile, launchArgs, localStateFor, removeProfileDir, sweepStaleProfiles, turnInPage, waitUntilReady } from '../src/chrome/index.js'
+import { after, before, describe, it } from 'node:test'
+import { IGNORED_DEFAULT_ARGS, chromePreflight, findModelDir, isScratchProfile, launchArgs, localStateFor, pruneProfileRoot, removeProfileDir, sweepStaleProfiles, turnInPage, waitUntilReady } from '../src/chrome/index.js'
 import { graftPlanIn, identifiesAs, portableGuide, rootOwning } from '../src/chrome/model.js'
 import { CHROME_SHAPE, explainCreateFailure, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome/wire.js'
 import { baseModelFor, calculateCost, getMaxTokens, modelVersionFor, specNamesFor } from '../src/models.js'
@@ -25,6 +25,14 @@ function fakeModelDir() {
   const dir = mkdtempSync(join(tmpdir(), 'ai-chrome-test-'))
   writeFileSync(join(dir, 'weights.bin'), '')
   return dir
+}
+
+// Where the provider puts its scratch profiles, and one shaped the same way.
+// A function, because os.tmpdir() reads the environment on every call.
+const profileRoot = () => join(tmpdir(), 'preventive-ai')
+function scratchProfile() {
+  mkdirSync(profileRoot(), { recursive: true })
+  return mkdtempSync(join(profileRoot(), 'chrome-'))
 }
 
 describe('chrome registry rows', () => {
@@ -687,11 +695,14 @@ describe('chrome scratch-profile cleanup', () => {
     // from inside the test written to catch that — so nothing here calls a
     // function that can remove a file.
     for (const bad of ['', undefined, null, 0, {}, [], '/', '/tmp', tmpdir(),
-      join(tmpdir(), 'ai-chrome-'), join(tmpdir(), 'nested', 'ai-chrome-x'),
-      join(homedir(), 'ai-chrome-elsewhere')]) {
+      profileRoot(), join(profileRoot(), 'chrome-'), join(profileRoot(), 'notaprofile'),
+      // Inside the temp dir but not inside ours, and inside a directory that
+      // merely starts the same way.
+      join(tmpdir(), 'chrome-abc123'), join(`${profileRoot()}-elsewhere`, 'chrome-abc123'),
+      join(homedir(), 'preventive-ai', 'chrome-abc123')]) {
       assert.equal(isScratchProfile(bad), false, `should not accept ${JSON.stringify(bad)}`)
     }
-    assert.equal(isScratchProfile(join(tmpdir(), 'ai-chrome-abc123')), true)
+    assert.equal(isScratchProfile(join(profileRoot(), 'chrome-abc123')), true)
   })
 
   // The sweep runs on launch and deletes other processes' leftovers, so what
@@ -700,8 +711,8 @@ describe('chrome scratch-profile cleanup', () => {
   describe('the stale sweep', () => {
     const AGED = new Date(Date.now() - 7 * 60 * 60 * 1000)
     const aged = (owner) => {
-      const dir = mkdtempSync(join(tmpdir(), 'ai-chrome-'))
-      if (owner !== undefined) writeFileSync(join(dir, 'ai-chrome-owner.pid'), String(owner))
+      const dir = scratchProfile()
+      if (owner !== undefined) writeFileSync(join(dir, 'owner.pid'), String(owner))
       utimesSync(dir, AGED, AGED)
       return dir
     }
@@ -743,18 +754,63 @@ describe('chrome scratch-profile cleanup', () => {
     it('leaves a young profile alone, marker or not', (t) => {
       // The other half of why both conditions are needed: a profile made
       // moments ago has not written its marker yet, and reads as ownerless.
-      const fresh = mkdtempSync(join(tmpdir(), 'ai-chrome-'))
+      const fresh = scratchProfile()
       t.after(() => rmSync(fresh, { recursive: true, force: true }))
       sweepStaleProfiles()
       assert.equal(existsSync(fresh), true)
     })
+
+    it('reads only our own directory, so an unrelated temp dir is never a candidate', (t) => {
+      // The whole reason profiles moved under one root: the sweep used to
+      // readdir the temp dir itself, where everything on the machine lives.
+      const bystander = mkdtempSync(join(tmpdir(), 'chrome-'))
+      utimesSync(bystander, AGED, AGED)
+      t.after(() => rmSync(bystander, { recursive: true, force: true }))
+      sweepStaleProfiles()
+      assert.equal(existsSync(bystander), true)
+    })
   })
 
   it('removes a directory that IS one of ours', () => {
-    const ours = mkdtempSync(join(tmpdir(), 'ai-chrome-'))
+    const ours = scratchProfile()
     writeFileSync(join(ours, 'Local State'), '{}')
     removeProfileDir(ours)
     assert.equal(existsSync(ours), false)
+  })
+
+  describe('the shared directory', () => {
+    // Pointed at a temp dir of its own, so what is or is not left in the
+    // shared directory is this test's doing rather than the machine's.
+    const sandbox = mkdtempSync(join(tmpdir(), 'ai-chrome-test-tmp-'))
+    const restore = {}
+    before(() => {
+      for (const key of ['TMPDIR', 'TMP', 'TEMP']) {
+        restore[key] = process.env[key]
+        process.env[key] = sandbox
+      }
+    })
+    after(() => {
+      for (const [key, value] of Object.entries(restore)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+      rmSync(sandbox, { recursive: true, force: true })
+    })
+
+    it('goes once the last profile is out of it', () => {
+      const ours = scratchProfile()
+      removeProfileDir(ours)
+      pruneProfileRoot()
+      assert.equal(existsSync(profileRoot()), false)
+    })
+
+    it('stays while anything is still in it', (t) => {
+      const other = scratchProfile()
+      t.after(() => rmSync(other, { recursive: true, force: true }))
+      pruneProfileRoot()
+      assert.equal(existsSync(other), true, 'a live profile should not be taken')
+      assert.equal(existsSync(profileRoot()), true)
+    })
   })
 
   // The provider removes its scratch profile, and that profile contains a
