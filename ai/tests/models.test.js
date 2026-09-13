@@ -274,6 +274,7 @@ describe('nemotron paid/free pairs', () => {
   const PAIRS = [
     ['nvidia/nemotron-3-ultra-550b-a55b', 0.625, 3.125],
     ['nvidia/nemotron-3.5-lightning', 0.08, 0.2],
+    ['nvidia/nemotron-3-super-120b-a12b', 0.1, 0.5],
   ]
 
   for (const [paid, input, output] of PAIRS) {

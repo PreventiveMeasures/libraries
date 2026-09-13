@@ -59,7 +59,7 @@ const MODELS = new Map([
   ['google/gemma-4-26b-a4b-it', { input: 0.13, output: 0.4, maxTokens: 128 * 1024, canThink: true }],
   ['google/gemini-3.1-flash-lite-preview', { input: 0.25, output: 1.5, maxTokens: 64 * 1024 }],
   ['google/gemini-3.1-pro-preview', { input: 2, output: 12, maxTokens: 64 * 1024 }],
-  ['nvidia/nemotron-3-super-120b-a12b', { input: 0.1, output: 0.5, maxTokens: 128 * 1024 }],
+  ['nvidia/nemotron-3-super-120b-a12b', { input: 0.1, output: 0.5, maxTokens: 128 * 1024, canThink: true }],
   ['nvidia/nemotron-3-ultra-550b-a55b', { input: 0.625, output: 3.125, maxTokens: 128 * 1024, canThink: true }],
   ['nvidia/nemotron-3.5-lightning', { input: 0.08, output: 0.2, maxTokens: 128 * 1024, canThink: true }],
   ['qwen/qwen3.6-27b', { input: 0.3, output: 2, maxTokens: 64 * 1024, canThink: true }],
@@ -100,10 +100,12 @@ const MODELS = new Map([
   ['qwen/qwen3.8-27b-q4_k_m', { maxTokens: 64 * 1024, canThink: true }],
   ['nvidia/nemotron-3.5-lightning-q8_0', { maxTokens: 128 * 1024, canThink: true }],
   ['nvidia/nemotron-3.5-lightning-q4_k_m', { maxTokens: 128 * 1024, canThink: true }],
+  ['nvidia/nemotron-3-super-120b-a12b-q8_0', { maxTokens: 128 * 1024, canThink: true }],
+  ['nvidia/nemotron-3-super-120b-a12b-q4_k_m', { maxTokens: 128 * 1024, canThink: true }],
   // Free models — may log/store/use your data
   ['openai/gpt-oss-120b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['openai/gpt-oss-20b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
-  ['nvidia/nemotron-3-super-120b-a12b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
+  ['nvidia/nemotron-3-super-120b-a12b:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, free: true }],
   ['nvidia/nemotron-3-ultra-550b-a55b:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, free: true }],
   ['nvidia/nemotron-3.5-lightning:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, free: true }],
   ['qwen/qwen3-coder:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
@@ -364,6 +366,11 @@ const OLLAMA_TAGS = new Map([
   ['nvidia/nemotron-3.5-lightning', 'nemotron-3.5-lightning:30b-a3b-bf16'], // 66GB
   ['nvidia/nemotron-3.5-lightning-q8_0', 'nemotron-3.5-lightning:30b-a3b-q8_0'], // 35GB
   ['nvidia/nemotron-3.5-lightning-q4_k_m', 'nemotron-3.5-lightning:30b-a3b-q4_K_M'], // 25GB
+  // Hosted one each at fp8 and bf16, so no majority to match: bf16 is the
+  // reference, and never worse than the route it stands in for.
+  ['nvidia/nemotron-3-super-120b-a12b', 'nemotron-3-super:120b-a12b-bf16'], // 247GB
+  ['nvidia/nemotron-3-super-120b-a12b-q8_0', 'nemotron-3-super:120b-a12b-q8_0'], // 132GB
+  ['nvidia/nemotron-3-super-120b-a12b-q4_k_m', 'nemotron-3-super:120b-a12b-q4_K_M'], // 87GB
 ])
 
 // Undefined for a model Ollama has no mapping for, which is what tells the
