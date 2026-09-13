@@ -187,7 +187,7 @@ export declare function setFetchRetries(n: unknown): void
 
 // The response cache on disk: where it lives, how an entry is addressed,
 // and the reads and writes over it — final entries, rejected responses kept
-// for a person to read, the deletion of one no run should pick up again,
+// for a person to read, the retiring of one no run should pick up again,
 // and the two scans that walk what has accumulated.
 //
 // The directory is the caller's to set, and there is no default: every
@@ -206,10 +206,10 @@ export declare function cacheKey(systemPrompt: string, userContent: string, opts
   effort?: string | undefined
   bundleId?: string | undefined
 }): string
-// Removes the answer and the turn history stored at this key, for a caller holding one no later
-// run should read back or resume onto — one that failed its format check, say. The `.invalid.json`
-// a rejected response leaves behind is a note for a person, and stays.
-export declare function deleteCacheEntry(userContent: string, opts: CacheOpts): Promise<void>
+// Takes the entry at this key out of service, for a caller holding an answer no later run should
+// serve or resume onto — one that failed its format check, say. The answer goes; its turn history
+// moves to `.invalid.json`, over any dump already there, where a person can still read it.
+export declare function invalidateCacheEntry(userContent: string, opts: CacheOpts): Promise<void>
 // Monotonic for the process lifetime: snapshot and diff for a per-run window.
 export declare function getCacheStats(): { hits: number, misses: number }
 // `json` is the stored turn history, `key` the entry's on-disk basename,

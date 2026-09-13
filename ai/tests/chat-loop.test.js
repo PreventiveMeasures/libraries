@@ -223,7 +223,18 @@ suite('chat: resuming a partial', () => {
     assert.deepEqual(saved.map((e) => e.provider), [providerStamp(MODEL), providerStamp(MODEL)])
   })
 
-  it('clears the one it rejected, rather than leaving it for the next process', async () => {
+  it('does not look at all without the option, whatever is on disk', async () => {
+    // `partial` is the whole opt-in. Reading a key the caller never named would hand this run
+    // turns from some other run over the same content, and charge nothing to say so.
+    const cacheOpts = opts('_test-chat-no-partial-read')
+    await setPartial('resume-F', [toolTurn('resume-F')], cacheOpts)
+    const sentBefore = requests.length
+    const result = await run('resume-F')
+    assert.equal(requests.length - sentBefore, 2)
+    assert.equal(result.history.length, 2)
+  })
+
+  it('takes the one it rejected out of service, not leaving it for the next process', async () => {
     // maxToolTurns: 0 so this run writes no partial of its own, and what is
     // left on disk is whatever the rejection did with the alien one. The run
     // above overwrites it either way, which is why that case cannot say.

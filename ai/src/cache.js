@@ -388,19 +388,20 @@ export async function invalidResponseError(error, userContent, history, opts) {
   return new Error(error)
 }
 
-// Delete what is stored at one key: the answer, and the turn history beside it. For a caller that
-// will not stand behind what it got — a response that failed its format check, say — so no later
-// run reads it back or resumes onto it. The record a rejected response leaves under
-// `.invalid.json` is a note for a person rather than part of the entry, and stays.
-export async function deleteCacheEntry(userContent, opts) {
+const ignoreMissing = (err) => { if (err.code !== 'ENOENT') throw err }
+
+// Take the entry at one key out of service without throwing away what it held: the answer goes,
+// and the turn history moves to `.invalid.json`, which nothing reads back and a person still can.
+// For a caller that will not stand behind what it got — a response that failed its format check,
+// say — so no later run serves it or resumes onto it. What lands there is the bare history, not
+// the `{ reason, history }` setInvalid writes: a rename costs one syscall whatever the history
+// weighs, and one too big to re-serialise is exactly the kind that gets rejected.
+export async function invalidateCacheEntry(userContent, opts) {
   const { dir, key } = resolveCachePaths(userContent, opts)
   // `.md` first: it is the entry's existence marker, which is why setCache writes it last. Removing
-  // it first holds the same invariant if only one of the two unlinks lands.
-  for (const name of [`${key}.md`, `${key}.json`]) {
-    try {
-      await unlink(join(dir, name))
-    } catch (err) {
-      if (err.code !== 'ENOENT') throw err
-    }
-  }
+  // it first holds the same invariant if only one of the two calls lands.
+  await unlink(join(dir, `${key}.md`)).catch(ignoreMissing)
+  // Over whatever dump was already there, the newer evidence being the more useful. Atomic, so no
+  // reader sees the history under both names, or neither.
+  await rename(join(dir, `${key}.json`), join(dir, `${key}${INVALID_SUFFIX}`)).catch(ignoreMissing)
 }

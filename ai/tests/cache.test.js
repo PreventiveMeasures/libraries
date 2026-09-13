@@ -3,11 +3,11 @@ import assert from 'node:assert/strict'
 import { createHash, randomBytes } from 'node:crypto'
 import { after, before, describe, it } from 'node:test'
 
-import { readFile, rm } from 'node:fs/promises'
+import { mkdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { buildCacheOpts, cacheDir, cacheKey, deleteCacheEntry, dropRequestsAfterFirst, getCacheStats, getCached, getPartial, isInvalidEntry, isMaxStringLengthError, setCache, setCacheDir, setInvalid, setPartial, stripThinkingSignatures } from '../src/cache.js'
+import { buildCacheOpts, cacheDir, cacheKey, dropRequestsAfterFirst, getCacheStats, getCached, getPartial, invalidateCacheEntry, isInvalidEntry, isMaxStringLengthError, setCache, setCacheDir, setInvalid, setPartial, stripThinkingSignatures } from '../src/cache.js'
 import { listCacheEntries, rehashCache } from '../src/cache-scan.js'
 
 // Somewhere of this run's own. The layer has no default — the caller says
@@ -80,7 +80,17 @@ function uniqueCacheOpts(extra = {}) {
   }
 }
 
-suite('partial cache (getPartial / setPartial / deleteCacheEntry)', () => {
+// One of an entry's files on disk. Built from the same parts resolveCachePaths uses, so a change
+// to the layout fails here rather than quietly looking in the wrong place.
+const entryPath = (opts, userContent, suffix) => join(
+  CACHE_DIR,
+  opts.model.replaceAll('/', '-'),
+  `${opts.type}-${createHash('sha256').update(opts.systemPrompt).digest('hex').slice(0, 8)}`,
+  `${cacheKey(opts.systemPrompt, userContent, opts)}${suffix}`,
+)
+const invalidPath = (opts, userContent) => entryPath(opts, userContent, '.invalid.json')
+
+suite('partial cache (getPartial / setPartial / invalidateCacheEntry)', () => {
   it('returns null when no partial exists for the key', async () => {
     const opts = uniqueCacheOpts()
     assert.equal(await getPartial('user-content-A', opts), null)
@@ -92,7 +102,7 @@ suite('partial cache (getPartial / setPartial / deleteCacheEntry)', () => {
     await setPartial('user-content-B', history, opts)
     const got = await getPartial('user-content-B', opts)
     assert.deepEqual(got, history)
-    await deleteCacheEntry('user-content-B', opts)
+    await invalidateCacheEntry('user-content-B', opts)
   })
 
   it('setPartial persists only the first entry\'s request across a multi-turn history', async () => {
@@ -107,30 +117,46 @@ suite('partial cache (getPartial / setPartial / deleteCacheEntry)', () => {
     assert.equal(got[1].request, null)
     assert.equal(got[2].request, null)
     assert.deepEqual(got[1].messages, [{ role: 'user', content: 'm1' }]) // other fields intact
-    await deleteCacheEntry('user-content-F', opts)
+    await invalidateCacheEntry('user-content-F', opts)
   })
 
-  it('returns null after deleteCacheEntry removes the file', async () => {
+  it('returns null after invalidateCacheEntry moves the file aside', async () => {
     const opts = uniqueCacheOpts()
     await setPartial('user-content-C', [{ request: {}, response: {} }], opts)
-    await deleteCacheEntry('user-content-C', opts)
+    await invalidateCacheEntry('user-content-C', opts)
     assert.equal(await getPartial('user-content-C', opts), null)
   })
 
-  it('deleteCacheEntry is a no-op when nothing is stored at the key', async () => {
+  it('invalidateCacheEntry is a no-op when nothing is stored at the key', async () => {
     const opts = uniqueCacheOpts()
-    await deleteCacheEntry('user-content-D', opts)  // should not throw
+    await invalidateCacheEntry('user-content-D', opts)  // should not throw
     assert.equal(await getPartial('user-content-D', opts), null)
   })
 
-  it('takes the final entry with it, not only the partial', async () => {
-    // Wider than the clearPartial it replaces: a caller that will not stand behind an answer wants
-    // it out of the final cache too, or the next run reads back the one it rejected.
+  it('takes the final answer out of service, and keeps the history it was built from', async () => {
+    // Wider than the partial-clearing it replaces: a caller that will not stand behind an answer
+    // needs it out of the final cache too, or the next run reads back the one it rejected. What
+    // the run actually did is the evidence, so that moves aside instead of going with it.
     const opts = uniqueCacheOpts()
     await setCache('user-content-G', 'final result text', [{ request: {}, response: {} }], opts)
-    await deleteCacheEntry('user-content-G', opts)
+    await invalidateCacheEntry('user-content-G', opts)
     assert.equal(await getCached('user-content-G', opts), null)
     assert.equal(await getPartial('user-content-G', opts), null)
+    const parked = JSON.parse(await readFile(invalidPath(opts, 'user-content-G'), 'utf8'))
+    assert.equal(parked.length, 1)
+  })
+
+  it('reports a failure that is not simply the file being absent', async () => {
+    // Swallowing an EACCES would leave an answer the caller believes it retired still being served,
+    // with nothing anywhere saying so. A directory in the answer's place is the same shape of
+    // problem and the one a test can arrange.
+    const opts = uniqueCacheOpts()
+    await setCache('user-content-H', 'final result text', [{ request: {}, response: {} }], opts)
+    const md = entryPath(opts, 'user-content-H', '.md')
+    await rm(md)
+    await mkdir(md)
+    await assert.rejects(() => invalidateCacheEntry('user-content-H', opts))
+    await rm(md, { recursive: true })
   })
 
   it('a final cache hit (with .md) suppresses the partial — getCached path wins', async () => {
@@ -190,7 +216,7 @@ suite('bundleId cache keying', () => {
     assert.equal(await getPartial('same-content', base), null)
     // Matching bundleId → hit.
     assert.deepEqual(await getPartial('same-content', { ...base, bundleId: 'bundle-A' }), history)
-    await deleteCacheEntry('same-content', { ...base, bundleId: 'bundle-A' })
+    await invalidateCacheEntry('same-content', { ...base, bundleId: 'bundle-A' })
   })
 })
 
@@ -354,7 +380,6 @@ suite('cache read failures', () => {
     // read fails with EISDIR (a stand-in for any non-absence failure).
     const userContent = `dir-in-place ${randomBytes(8).toString('hex')}`
     const key = await setCache(userContent, 'cached text', [], opts)
-    const { mkdir } = await import('node:fs/promises')
     const promptHash = (await import('node:crypto')).createHash('sha256').update('sys').digest('hex').slice(0, 8)
     const mdPath = join(CACHE_DIR, 'm', `read-fail-${promptHash}`, `${key}.md`)
     await rm(mdPath)
@@ -394,12 +419,6 @@ suite('atomic entry writes', () => {
 // and a valid entry at the same key clears it.
 suite('setInvalid / .invalid.json', () => {
   const HISTORY = [{ request: { messages: [{ role: 'user', content: 'hi' }] }, response: { content: [{ type: 'text', text: 'half an ans' }] }, toolCalls: [], results: [] }]
-  const invalidPath = (opts, userContent) => join(
-    CACHE_DIR,
-    opts.model.replaceAll('/', '-'),
-    `${opts.type}-${createHash('sha256').update(opts.systemPrompt).digest('hex').slice(0, 8)}`,
-    `${cacheKey(opts.systemPrompt, userContent, opts)}.invalid.json`,
-  )
 
   it('writes the history under .invalid.json, with the reason that rejected it', async () => {
     const opts = uniqueCacheOpts()
@@ -419,15 +438,18 @@ suite('setInvalid / .invalid.json', () => {
     assert.equal(await getPartial('inv-B', opts), null)
   })
 
-  it('outlives the entry beside it being deleted', async () => {
-    // It is a note for a person, not part of what the cache serves, and the reason an answer was
-    // thrown away is worth more once the answer itself is gone.
+  it('gives way to a later invalidation at the same key', async () => {
+    // A rename cannot merge, and the newer artefact is the more useful one. What lands is the
+    // bare history, not this suite's { reason, history }: the two shapes share the suffix, and
+    // nothing but a person ever reads either.
     const opts = uniqueCacheOpts()
-    await setCache('inv-D', 'final result text', HISTORY, opts)
     await setInvalid('inv-D', HISTORY, opts, { reason: 'malformed', text: 'not json' })
-    await deleteCacheEntry('inv-D', opts)
-    assert.equal(await getCached('inv-D', opts), null)
-    assert.equal(JSON.parse(await readFile(invalidPath(opts, 'inv-D'), 'utf8')).reason, 'malformed')
+    await setPartial('inv-D', HISTORY, opts)
+    await invalidateCacheEntry('inv-D', opts)
+    const parked = JSON.parse(await readFile(invalidPath(opts, 'inv-D'), 'utf8'))
+    const shape = JSON.stringify(parked).slice(0, 40)
+    assert.ok(Array.isArray(parked), `expected a history, got ${shape}`)
+    assert.equal(await getPartial('inv-D', opts), null)
   })
 
   it('overwrites the previous dump for the same key', async () => {
