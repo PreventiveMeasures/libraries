@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
-import { IGNORED_DEFAULT_ARGS, chromePreflight, findModelDir, isScratchProfile, launchArgs, localStateFor, pruneProfileRoot, removeProfileDir, sweepStaleProfiles, turnInPage, waitUntilReady } from '../src/chrome/index.js'
+import { IGNORED_DEFAULT_ARGS, chromePreflight, findModelDir, isScratchProfile, launchArgs, localStateFor, openTab, pruneProfileRoot, removeProfileDir, sweepStaleProfiles, turnInPage, waitUntilReady } from '../src/chrome/index.js'
 import { graftPlanIn, identifiesAs, portableGuide, rootOwning } from '../src/chrome/model.js'
 import { CHROME_SHAPE, explainCreateFailure, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome/wire.js'
 import { baseModelFor, calculateCost, getMaxTokens, modelVersionFor, specNamesFor } from '../src/models.js'
@@ -685,6 +685,41 @@ describe('chrome tool schema helpers', () => {
   it('describes every tool it allows', () => {
     const text = toolInstructions(TOOLS)
     for (const tool of TOOLS) assert.match(text, new RegExp(tool.name, 'u'))
+  })
+})
+
+describe('chrome launch failure', () => {
+  // A browser that fails at a chosen step, and says whether it was closed.
+  const browserFailingAt = (step) => {
+    const state = { closed: false }
+    const tab = {
+      on() {},
+      goto: () => (step === 'goto' ? Promise.reject(new Error('goto failed')) : Promise.resolve()),
+      // What waitUntilReady evaluates in the page.
+      evaluate: () => Promise.resolve(step === 'ready' ? 'NotSupportedError: no' : 'ready'),
+    }
+    return {
+      state,
+      newPage: () => (step === 'newPage' ? Promise.reject(new Error('newPage failed')) : Promise.resolve(tab)),
+      close: () => { state.closed = true; return Promise.resolve() },
+    }
+  }
+
+  for (const step of ['newPage', 'goto', 'ready']) {
+    it(`closes the browser when ${step} fails`, async () => {
+      // Nothing else can: the rejected launch is dropped from the session map,
+      // so closeProvider() never sees this browser, and an open Chrome holds
+      // the process open.
+      const browser = browserFailingAt(step)
+      await assert.rejects(openTab(browser, tmpdir(), false))
+      assert.equal(browser.state.closed, true)
+    })
+  }
+
+  it('leaves the browser open when the tab comes up', async () => {
+    const browser = browserFailingAt(undefined)
+    assert.ok(await openTab(browser, tmpdir(), false))
+    assert.equal(browser.state.closed, false)
   })
 })
 

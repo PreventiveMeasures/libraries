@@ -255,22 +255,27 @@ async function openBrowser(profile, modelDir, baseModel, debug) {
     // browser-process fetch — see --component-updater in launchArgs.
     offline: true,
   })
-  const tab = await browser.newPage()
-  // evaluate() hands back the value and nothing the page logged on the way.
-  if (debug) {
-    tab.on('console', (msg) => { if (!isBoilerplate(msg.text())) console.debug(`[chrome] ${msg.text()}`) })
-    tab.on('pageerror', (err) => console.error(`[chrome] ${err}`))
-  }
-  await tab.goto(blankPage(profile))
-  // Otherwise a failed launch leaves its window open, and the next attempt
-  // opens another beside it.
+  return { browser, tab: await openTab(browser, profile, debug), profile }
+}
+
+// Everything between a browser existing and a turn being possible, all of it
+// inside the close: a launch that rejects is dropped from `sessions`, so
+// anything left open is unreachable, holds a window, and keeps node alive.
+export async function openTab(browser, profile, debug) {
   try {
+    const tab = await browser.newPage()
+    // evaluate() hands back the value and nothing the page logged on the way.
+    if (debug) {
+      tab.on('console', (msg) => { if (!isBoilerplate(msg.text())) console.debug(`[chrome] ${msg.text()}`) })
+      tab.on('pageerror', (err) => console.error(`[chrome] ${err}`))
+    }
+    await tab.goto(blankPage(profile))
     await waitUntilReady(tab, debug)
+    return tab
   } catch (err) {
     await browser.close().catch(() => {})
     throw err
   }
-  return { browser, tab, profile }
 }
 
 // A cold profile has to register the component before Chrome will admit to

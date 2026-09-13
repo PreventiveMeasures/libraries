@@ -16,16 +16,26 @@ const MODEL_COMPONENTS = ['OptGuideOnDeviceModel', 'OptGuideManifestModel']
 // models exist rather than holding any.
 const LEDGER_COMPONENT = 'OptimizationGuideModelsManifest'
 
-// Where Chrome keeps its user data, and so the component tree inside it. Only
-// consulted to FIND resident weights; which Chrome runs is playwright's.
+// Where Chrome keeps its user data, and so the component tree inside it. Every
+// channel chromeTarget() accepts, since each keeps its own: dev is
+// google-chrome-unstable on Linux, canary is Chrome SxS on Windows and has no
+// Linux build. Only consulted to FIND weights; which Chrome runs is playwright's.
 const USER_DATA_DIRS = {
   darwin: [
     `${homedir()}/Library/Application Support/Google/Chrome`,
+    `${homedir()}/Library/Application Support/Google/Chrome Beta`,
+    `${homedir()}/Library/Application Support/Google/Chrome Dev`,
     `${homedir()}/Library/Application Support/Google/Chrome Canary`,
   ],
-  linux: [`${homedir()}/.config/google-chrome`, `${homedir()}/.config/google-chrome-unstable`],
+  linux: [
+    `${homedir()}/.config/google-chrome`,
+    `${homedir()}/.config/google-chrome-beta`,
+    `${homedir()}/.config/google-chrome-unstable`,
+  ],
   win32: [
     `${process.env.LOCALAPPDATA}\\Google\\Chrome\\User Data`,
+    `${process.env.LOCALAPPDATA}\\Google\\Chrome Beta\\User Data`,
+    `${process.env.LOCALAPPDATA}\\Google\\Chrome Dev\\User Data`,
     `${process.env.LOCALAPPDATA}\\Google\\Chrome SxS\\User Data`,
   ],
 }
