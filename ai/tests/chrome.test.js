@@ -735,24 +735,40 @@ describe('chrome page round-trip', async () => {
     assert.equal(await page.evaluate(() => globalThis.__creates), 1, 'should have asked for a session')
   })
 
-  it('does not mistake load progress for a download', { skip }, async () => {
-    // `downloadprogress` fires while Chrome prepares weights it already has.
-    // Treating a sub-complete event as a network fetch aborted every warm-up
-    // roughly ten seconds in; --disable-component-update is what actually
-    // prevents a download, not anything in the page.
+  it('watches no download, because there is never one to watch', { skip }, async () => {
+    // This provider only ever runs weights Chrome already has, so it registers
+    // no `monitor` — and an earlier version that did aborted every legitimate
+    // warm-up about ten seconds in, because `downloadprogress` also fires
+    // while Chrome prepares weights it already has.
     await page.evaluate(`
+      globalThis.__sawMonitor = null
       globalThis.LanguageModel = {
         availability: async () => 'unavailable',
-        create: async ({ monitor }) => {
-          const target = new EventTarget()
-          monitor(target)
-          for (const loaded of [0, 0.5, 1]) {
-            target.dispatchEvent(Object.assign(new Event('downloadprogress'), { loaded }))
-          }
+        create: async (options) => {
+          globalThis.__sawMonitor = Object.hasOwn(options, 'monitor')
           return { destroy() {} }
         },
       }`)
     await assert.doesNotReject(() => waitUntilReady(page, false))
+    assert.equal(await page.evaluate(() => globalThis.__sawMonitor), false)
+  })
+
+  it('asks once and waits, rather than polling', { skip }, async () => {
+    // create() does not return until the model is loaded or it fails, so the
+    // retry loop this replaced never got to retry: every observed run resolved
+    // on the first attempt, just slowly.
+    await page.evaluate(`
+      globalThis.__creates = 0
+      globalThis.LanguageModel = {
+        availability: async () => 'unavailable',
+        create: async () => {
+          globalThis.__creates++
+          await new Promise((r) => setTimeout(r, 150))
+          return { destroy() {} }
+        },
+      }`)
+    await waitUntilReady(page, false)
+    assert.equal(await page.evaluate(() => globalThis.__creates), 1)
   })
 
   it('reports a Chromium with no Prompt API as such', { skip }, async () => {

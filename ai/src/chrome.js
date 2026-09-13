@@ -466,7 +466,6 @@ function readInternalsTables() {
 // instant — the component updater has to run before Chrome will admit to
 // having a model, and that is seconds, not milliseconds.
 const READY_TIMEOUT_MS = 120_000
-const READY_POLL_MS = 500
 
 // The bug that cost four wrong fixes: a fresh profile answers `unavailable`
 // to everything until the on-device model component finishes registering,
@@ -489,51 +488,38 @@ const READY_POLL_MS = 500
 // the deadlock and made every subsequent turn work, which is exactly the
 // shape of that bug.
 //
-// So: attempt a throwaway session and retry while the service is still coming
-// up. Nothing here guards against a download — an earlier version aborted on
-// `downloadprogress` and killed every legitimate warm-up, because that event
-// fires while Chrome prepares weights it already has. See the body.
+// So: create one throwaway session and let it block. It was a retry loop
+// until the retries were observed never to happen — create() does not return
+// until the model is loaded or it fails, so a second attempt had nothing left
+// to wait for. Nothing here guards against a download either: this provider
+// only ever runs models Chrome has already fetched, and an earlier version
+// that aborted on `downloadprogress` killed every legitimate warm-up, because
+// that event fires while Chrome prepares weights it already has.
 export async function waitUntilReady(tab, debug) {
-  const deadline = Date.now() + READY_TIMEOUT_MS
-  const language = outputLanguage()
-  let last = 'unknown'
-  while (Date.now() < deadline) {
-    last = await tab.evaluate(async (lang) => {
-      if (typeof LanguageModel === 'undefined') return 'no-binding'
-      try {
-        const probe = await LanguageModel.create({
-          expectedOutputs: [{ type: 'text', languages: [lang] }],
-          // Watched, not policed. `downloadprogress` also fires while Chrome
-          // prepares weights it ALREADY has, so treating a sub-complete event
-          // as a network fetch aborted every legitimate warm-up — which is
-          // what it did, about ten seconds into every run.
-          //
-          // Nothing is needed here to prevent a download anyway:
-          // --disable-component-update, which playwright passes and this
-          // launch keeps, is what actually stops Chrome fetching its own
-          // copy. A guard in the page was never the thing holding that line.
-          monitor: (m) => m.addEventListener('downloadprogress', (e) => {
-            globalThis.__aiChromeProgress = e.loaded
-          }),
-        })
-        probe.destroy()
-        return 'ready'
-      } catch (err) {
-        return `${err.name}: ${err.message}`
-      }
-    }, language)
-    if (last === 'ready') {
-      if (debug) console.debug('[chrome] model warm')
-      return
+  const outcome = await tab.evaluate(async ({ lang, timeoutMs }) => {
+    if (typeof LanguageModel === 'undefined') return 'no-binding'
+    // Bounded here rather than by the caller, because there is nothing to
+    // poll: create() does not return until the model is loaded or it fails.
+    const expired = new Promise((resolve) => { setTimeout(() => resolve('timeout'), timeoutMs) })
+    try {
+      const probe = await Promise.race([
+        LanguageModel.create({ expectedOutputs: [{ type: 'text', languages: [lang] }] }),
+        expired,
+      ])
+      if (probe === 'timeout') return 'timeout'
+      probe.destroy()
+      return 'ready'
+    } catch (err) {
+      return `${err.name}: ${err.message}`
     }
-    if (last === 'no-binding') throw new Error('LanguageModel is not exposed — this is not a branded Chrome')
-    if (debug) {
-      const loaded = await tab.evaluate(() => globalThis.__aiChromeProgress)
-      console.debug(`[chrome] warming: ${last}${loaded === undefined ? '' : ` (progress ${(loaded * 100).toFixed(0)}%)`}`)
-    }
-    await new Promise((resolve) => { setTimeout(resolve, READY_POLL_MS) })
+  }, { lang: outputLanguage(), timeoutMs: READY_TIMEOUT_MS })
+  if (outcome === 'ready') {
+    if (debug) console.debug('[chrome] model warm')
+    return
   }
-  throw new Error(`On-device model never became usable within ${READY_TIMEOUT_MS / 1000}s. Last attempt: ${last}`)
+  if (outcome === 'no-binding') throw new Error('LanguageModel is not exposed — this is not a branded Chrome')
+  if (outcome === 'timeout') throw new Error(`On-device model never became usable within ${READY_TIMEOUT_MS / 1000}s`)
+  throw new Error(`On-device model could not start: ${outcome}`)
 }
 /* eslint-enable no-undef */
 
@@ -615,7 +601,13 @@ export async function turnInPage(req) {
     // rather than passing the instruction on to the caller. `unavailable`
     // here means this device will not run the variant that was asked for —
     // it is not the merely-unloaded state waitUntilReady already cleared.
-    const availability = await LanguageModel.availability().catch((e) => `unreadable (${e.name})`)
+    // The same expectedOutputs the create above carried. Without it Chrome logs
+    // "No output language was specified in a LanguageModel API request" —
+    // reproduced against a bare availability() call, and silenced by passing
+    // it, which is the only reason this repeats the option.
+    const availability = await LanguageModel
+      .availability({ expectedOutputs: [{ type: 'text', languages: [req.language] }] })
+      .catch((e) => `unreadable (${e.name})`)
     return { error: { message: `create failed: ${err.name}: ${err.message}`, availability } }
   }
   const before = ses.contextUsage ?? 0
