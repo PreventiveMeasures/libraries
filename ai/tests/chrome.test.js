@@ -4,7 +4,6 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { IGNORED_DEFAULT_ARGS, chromePreflight, findModelDir, isScratchProfile, launchArgs, localStateFor, removeProfileDir, sweepStaleProfiles, turnInPage, waitUntilReady } from '../src/chrome/index.js'
-import { readTablesWhenReady } from '../src/chrome/internals.js'
 import { graftPlanIn, identifiesAs, portableGuide, rootOwning } from '../src/chrome/model.js'
 import { CHROME_SHAPE, explainCreateFailure, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome/wire.js'
 import { baseModelFor, calculateCost, getMaxTokens, modelVersionFor, specNamesFor } from '../src/models.js'
@@ -678,47 +677,6 @@ describe('chrome tool schema helpers', () => {
   it('describes every tool it allows', () => {
     const text = toolInstructions(TOOLS)
     for (const tool of TOOLS) assert.match(text, new RegExp(tool.name, 'u'))
-  })
-})
-
-describe('chrome internals reporting', () => {
-  // A stub page, because the WebUI this reads cannot be rendered here: each
-  // evaluate() hands back the next scripted answer, and records the page
-  // function it was asked to run.
-  const pageReturning = (...answers) => {
-    const asked = []
-    return {
-      asked,
-      evaluate(fn) { asked.push(fn); return Promise.resolve(answers.length > 1 ? answers.shift() : answers[0]) },
-    }
-  }
-
-  it('stops as soon as a table has rows in it', async () => {
-    // Row 0 is the header, so a table that has rendered empty is not ready.
-    const full = { Models: [['Name', 'Backend'], ['gemma', 'GPU']] }
-    const page = pageReturning({}, { Models: [['Name', 'Backend']] }, full)
-    assert.deepEqual(await readTablesWhenReady(page, { timeoutMs: 2000, pollMs: 1 }), full)
-    assert.equal(page.asked.length, 3)
-  })
-
-  it('gives up on its own ceiling rather than playwright\'s default', async () => {
-    // waitForFunction takes its options THIRD, so the three-second timeout
-    // was landing as a page argument nothing read and the wait ran on to
-    // playwright's default — in front of the answer a --debug caller is
-    // waiting for.
-    const page = pageReturning({})
-    const started = Date.now()
-    assert.deepEqual(await readTablesWhenReady(page, { timeoutMs: 30, pollMs: 5 }), {})
-    assert.ok(Date.now() - started < 2000, 'waited past its own ceiling')
-  })
-
-  it('asks the traversal that knows where the tables are', async () => {
-    // They live in the WebUI's shadow roots, so a light-DOM predicate could
-    // only ever be false: the wait ran out every time and the scrape went
-    // ahead regardless, which is why nothing looked broken.
-    const page = pageReturning({})
-    await readTablesWhenReady(page, { timeoutMs: 1, pollMs: 1 })
-    assert.match(page.asked[0].toString(), /shadowRoot/u)
   })
 })
 

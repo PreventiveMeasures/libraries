@@ -19,7 +19,6 @@
     "src/cache.js",
     "src/chat.js",
     "src/chrome/index.js",
-    "src/chrome/internals.js",
     "src/chrome/model.js",
     "src/chrome/wire.js",
     "src/fetch.js",

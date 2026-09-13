@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { baseModelFor, modelVersionFor } from '../models.js'
-import { reportLoadedModel } from './internals.js'
 import { findModelDir, graftPlan, localStateFor } from './model.js'
 import { explainCreateFailure, outputLanguage, toChatCompletions } from './wire.js'
 
@@ -391,8 +390,7 @@ async function openBrowser(profile, modelDir, baseModel, debug) {
     // Nothing here needs the network. The page is file:///dev/null and the
     // model is on disk, so a socket is a symptom rather than a feature, and
     // it should fail rather than succeed quietly. Set on the context, so
-    // every page inherits it — including the internals tab the debug readout
-    // opens.
+    // every page it opens inherits it.
     //
     // Measured against a local listener that answers: one request through
     // without this, none with it, and the file:// page, the LanguageModel
@@ -615,13 +613,6 @@ export async function sendChromeTurn(model, body, { debug, label } = {}) {
   if (debug && label) console.debug(`[debug] ${label}`)
   const result = await tab.evaluate(turnInPage, body)
   if (result.error?.availability) explainCreateFailure(result.error, model, baseModel)
-  // After the turn, not before it: Use Cases and the event log only say what
-  // was requested once something has requested it, and reading them at launch
-  // showed empty tables. Once per browser, so a tool loop does not repeat it.
-  if (debug && !session.reported) {
-    session.reported = true
-    await reportLoadedModel(session.browser)
-  }
   if (debug) {
     // Attribute the wait. A cold run pays for browser startup, component
     // registration and the first load of the weights; a warm one pays for
