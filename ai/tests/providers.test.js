@@ -720,7 +720,7 @@ describe('conversation caching — one rule, both ways to reach the model', () =
     ])
     // …and the isolate prefix has to be marked at the end of the SHARED part,
     // which is not where auto-placement would put it. This is the breakpoint
-    // the old rolling window used to evict on turn 2 of a tool loop.
+    // a rolling window evicts on turn 2 of a tool loop.
     for (const [provider, env] of [['anthropic', 'ANTHROPIC_API_KEY'], ['openrouter', 'OPENROUTER_API_KEY']]) {
       withProvider(provider, env, () => {
         assert.deepEqual(buildInitialUserMessage(CLAUDE, ['SHARED', 'VARIANT']).content, [

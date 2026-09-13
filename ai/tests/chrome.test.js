@@ -328,9 +328,9 @@ describe('chrome inherited prefs', () => {
 
   it('writes the internals toggle and nothing about which model to run', () => {
     // localStateFor is the file the launch actually writes. Which Gemma
-    // answers used to be decided here, as a chrome://flags choice under
-    // browser.enabled_labs_experiments; it is a command-line feature param
-    // now, because the flag could only ever say v4.
+    // answers is not decided here: it is a command-line feature param,
+    // because the chrome://flags choice under enabled_labs_experiments
+    // could only ever say v4.
     const state = localStateFor(DIRS.nano)
     assert.equal(state.internal_only_uis_enabled, true)
     assert.equal('browser' in state, false)
@@ -754,7 +754,7 @@ describe('chrome tool schema helpers', () => {
   })
 
   it('cannot be satisfied by an empty object', () => {
-    // `{}` used to validate, and became a successful turn with no text and no
+    // `{}` validating would become a successful turn with no text and no
     // tool calls — a silent dead end rather than an answer.
     assert.deepEqual(toolConstraint(TOOLS).required, ['text', 'tool_calls'])
   })
@@ -1059,8 +1059,8 @@ describe('chrome scratch-profile cleanup', () => {
 
     it('takes a profile of any age once its owner is gone', (t) => {
       // A marker whose process no longer exists settles it: nobody is coming
-      // back for that directory, so it does not have to age out first — which
-      // is how a Ctrl+C leftover used to sit around for six hours.
+      // back for that directory, so it does not have to age out first —
+      // otherwise a Ctrl+C leftover sits around for six hours.
       const pid = deadPid()
       if (pid === undefined) return t.skip('every candidate pid is in use')
       const abandoned = scratchProfile()
@@ -1080,8 +1080,8 @@ describe('chrome scratch-profile cleanup', () => {
     })
 
     it('reads only our own directory, so an unrelated temp dir is never a candidate', (t) => {
-      // The whole reason profiles moved under one root: the sweep used to
-      // readdir the temp dir itself, where everything on the machine lives.
+      // The whole reason profiles live under one root: a sweep that readdirs
+      // the temp dir itself walks everything on the machine.
       const bystander = mkdtempSync(join(tmpdir(), 'chrome-'))
       utimesSync(bystander, AGED, AGED)
       t.after(() => rmSync(bystander, { recursive: true, force: true }))
@@ -1273,15 +1273,15 @@ describe('chrome page round-trip', async () => {
       }`)
     const result = await page.evaluate(turnInPage, { initialPrompts: [], prompt: 'x' })
     assert.equal(result.text, 'answered')
-    // One session, and the turn's own: a load this slow used to be paid twice.
+    // One session, and the turn's own: a load this slow must not be paid twice.
     assert.equal(await page.evaluate(() => globalThis.__creates), 1)
   })
 
   it('watches no download, because there is never one to watch', { skip }, async () => {
     // This provider only ever runs weights Chrome already has, so it registers
-    // no `monitor` — and an earlier version that did aborted every legitimate
-    // load about ten seconds in, because `downloadprogress` also fires while
-    // Chrome prepares weights it already has.
+    // no `monitor` — one that did would abort every legitimate load about ten
+    // seconds in, because `downloadprogress` also fires while Chrome prepares
+    // weights it already has.
     await page.evaluate(`
       globalThis.__sawMonitor = null
       globalThis.LanguageModel = {

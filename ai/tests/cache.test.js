@@ -364,12 +364,12 @@ suite('dropRequestsAfterFirst', () => {
   })
 })
 
-// The cache loader used to swallow EVERY read error into the same `null`
-// as a missing file — fabricating a miss out of any transient failure
-// (fd pressure, a busy volume): invisible at --concurrency 1, and in a
-// live run each phantom miss re-spends a model request and rewrites the
-// entry, so warm runs loaded different cache files and hit/miss totals
-// wobbled. ENOENT stays a quiet miss; everything else must surface.
+// Swallowing EVERY read error into the same `null` as a missing file
+// fabricates a miss out of any transient failure (fd pressure, a busy
+// volume): invisible at --concurrency 1, and in a live run each phantom
+// miss re-spends a model request and rewrites the entry, so warm runs
+// load different cache files and hit/miss totals wobble. ENOENT stays a
+// quiet miss; everything else must surface.
 suite('cache read failures', () => {
   const opts = { type: 'read-fail', model: 'm', systemPrompt: 'sys', think: false, effort: undefined }
 

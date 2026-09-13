@@ -112,14 +112,14 @@ export async function runTypeMigrations(type, model, systemPrompt) {
 // Worth a few retries before giving up.
 const TRANSIENT_READ_ERRORS = new Set(['EMFILE', 'ENFILE', 'EAGAIN', 'EBUSY', 'ETIMEDOUT'])
 
-// A missing file (ENOENT) is the ONE read failure that means "not cached". Everything else used to
-// be swallowed into the same `null`, which fabricated a cache miss out of any transient read
-// failure — invisible at --concurrency 1, and in a live run each phantom miss silently re-spends a
-// model request and overwrites the entry with a fresh response, so consecutive warm runs loaded
-// different cache files and reported different hit/miss totals. Now: ENOENT stays a quiet null,
-// transient errors retry with backoff, and anything else (or exhausted retries) warns with the
-// errno and path before degrading to a miss — so a run that fabricates misses names its reason
-// instead of hiding it.
+// A missing file (ENOENT) is the ONE read failure that means "not cached", and the only one that
+// may be swallowed into a `null`. Folding the rest in with it fabricates a cache miss out of any
+// transient read failure — invisible at --concurrency 1, and in a live run each phantom miss
+// silently re-spends a model request and overwrites the entry with a fresh response, so
+// consecutive warm runs load different cache files and report different hit/miss totals. So:
+// ENOENT stays a quiet null, transient errors retry with backoff, and anything else (or exhausted
+// retries) warns with the errno and path before degrading to a miss — a run that fabricates misses
+// names its reason instead of hiding it.
 async function tryRead(path) {
   for (let attempt = 0; ; attempt++) {
     try {

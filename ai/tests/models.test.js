@@ -129,9 +129,9 @@ describe('resolveThinkEffort', () => {
   })
 
   it('names the model as unknown when there is no row for it', () => {
-    // The bug this replaced: an id with no row drops think and effort
-    // exactly as a registered non-reasoning model does, so a typo used to
-    // come back as a sentence about the model's capabilities.
+    // An id with no row drops think and effort exactly as a registered
+    // non-reasoning model does, so without this branch a typo comes back
+    // as a sentence about the model's capabilities.
     assert.throws(() => resolveThinkEffort('foo/bar', false, 'high'), /^Error: Unknown model foo\/bar — .* --effort cannot be applied/u)
     assert.throws(() => resolveThinkEffort('foo/bar', true), /^Error: Unknown model foo\/bar — .* --think cannot be applied/u)
   })

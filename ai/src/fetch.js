@@ -25,9 +25,9 @@ export function setFetchConcurrency(limit) {
 }
 
 // How many times a TRANSIENT upstream failure is re-asked. Everything else keeps the flat RETRIES
-// budget it always had — see fetchJSON. Narrowed at startup, like the concurrency above. A caller's
-// own default lives with the flag that sets it rather than being copied here, so a caller that
-// never calls the setter keeps RETRIES instead of inheriting a second, drifting copy of the number.
+// budget — see fetchJSON. Narrowed at startup, like the concurrency above. A caller's own default
+// lives with the flag that sets it rather than being copied here, so a caller that never calls the
+// setter keeps RETRIES instead of inheriting a second, drifting copy of the number.
 let transientRetries = RETRIES
 
 export function setFetchRetries(n) {
@@ -95,10 +95,10 @@ export function parseRetryAfter(value, now = Date.now()) {
   return clamp(at - now)
 }
 
-// Exponential and jittered: 1s, 2s, 4s, 8s, 16s, then capped. The flat second this replaced retried
-// into the same wall three times in three seconds — and, because a whole concurrency window is
-// usually rejected together, retried in lockstep, which is the shape an overloaded upstream least
-// wants to see. The jitter spreads that window out.
+// Exponential and jittered: 1s, 2s, 4s, 8s, 16s, then capped. A flat delay retries into the same
+// wall three times in three seconds — and, because a whole concurrency window is usually rejected
+// together, retries in lockstep, which is the shape an overloaded upstream least wants to see. The
+// jitter spreads that window out.
 const BASE_DELAY = 1000
 const MAX_DELAY = 30_000
 const JITTER = 0.25
@@ -170,8 +170,7 @@ export async function fetchJSON(url, options, { debug, label } = {}) {
       } catch (err) {
         // A transient upstream failure gets the `--retries` budget and backs off; everything else —
         // a malformed request, a bad key, a dropped socket — keeps the flat second and the two
-        // tries it always had. Never FEWER than RETRIES either way, so no failure is retried less
-        // than it used to be, whatever `--retries` says.
+        // tries RETRIES gives it. Never FEWER than RETRIES either way, whatever `--retries` says.
         const transient = err instanceof UpstreamError && isTransientHttpFailure(err.status, err.body)
         const kind = transient ? 'transient' : 'other'
         const attempt = used[kind]
