@@ -5,8 +5,8 @@ import { chatCompletionsBase } from '../wire-formats.js'
 // this is the shape. Chat-completions, so the usage, the cache and a partial
 // history read back like any other provider's.
 
-// Chrome warns per SESSION on a request that names no output language, so the
-// readiness probe needs this as much as a turn does. Accepts de, en, es, fr, ja.
+// Chrome warns per SESSION on a request that names no output language.
+// Accepts de, en, es, fr, ja.
 export const outputLanguage = () => process.env.CHROME_OUTPUT_LANGUAGE || 'en'
 
 // Chrome's Prompt API documents no function calling, and unreleased
@@ -135,10 +135,9 @@ export const CHROME_SHAPE = {
 }
 
 
-// A create() that fails after the model warmed up is a variant this machine
-// will not run. Chrome says only "The device is unable to create a session to
-// run the model. Please check the result of availability() first", naming
-// neither the row nor the variant.
+// Chrome says only "The device is unable to create a session to run the model.
+// Please check the result of availability() first" — neither the row nor the
+// variant, and a check the page has already made.
 export function explainCreateFailure(error, model, baseModel) {
   // That failure and no other: every create() failure carries an availability
   // reading, so gating on one would rewrite an oversized history as a model
@@ -146,15 +145,15 @@ export function explainCreateFailure(error, model, baseModel) {
   if (error.name !== 'InvalidStateError') return
   const version = modelVersionFor(baseModel)
   const useCase = version && version !== 'v3' ? ` (model_version/${version})` : ''
-  // Whether the advice Chrome gives explains anything.
+  // Raised both for a session Chrome declines and for a service that dies
+  // starting one; only the second leaves a "Session crashed" behind.
   const verdict = error.availability === 'available'
-    ? 'availability() reports "available", so the check Chrome suggests does not explain this: ' +
-      'the variant is advertised as usable and then refuses to start, which is what a size too ' +
-      'large for this device looks like'
+    ? 'availability() reports "available", so nothing is missing — what failed is running the ' +
+      'weights, which is what a model too large for this device looks like'
     : `availability() reports "${error.availability}", so this device will not run the variant`
   error.message =
     `${model} could not start a session${useCase}. ` +
     `Chrome said: ${error.message.replace(/\.$/u, '')}. ` +
-    `${verdict}. The weights are linked and nothing is missing — read Broker State > Use Cases ` +
-    'in chrome://on-device-internals for the reason, or use a smaller row.'
+    `${verdict}. The event log in chrome://on-device-internals names the reason ` +
+    '(CHROME_HEADLESS=0 to reach it), or use a smaller row.'
 }

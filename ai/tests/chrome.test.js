@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
-import { IGNORED_DEFAULT_ARGS, chromePreflight, closeChrome, findModelDir, isScratchProfile, launchArgs, launchOptions, localStateFor, openTab, pruneProfileRoot, removeProfileDir, sweepStaleProfiles, turnInPage, waitUntilReady } from '../src/chrome/index.js'
+import { IGNORED_DEFAULT_ARGS, chromePreflight, closeChrome, findModelDir, isScratchProfile, launchArgs, launchOptions, localStateFor, openTab, pruneProfileRoot, removeProfileDir, sweepStaleProfiles, turnInPage, turnRequest } from '../src/chrome/index.js'
 import { graftPlanIn, identifiesAs, portableGuide, rootOwning } from '../src/chrome/model.js'
 import { CHROME_SHAPE, explainCreateFailure, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome/wire.js'
 import { sendChromeTurn, trackTurn } from '../src/chrome/index.js'
@@ -198,7 +198,7 @@ describe('chrome missing model', () => {
     // A machine that happens to HAVE a 12b installed proves nothing here.
     if (!err) { t.skip('this machine has the model'); return }
     assert.match(err.message, /chrome:\/\/on-device-internals/u)
-    assert.match(err.message, /will not download/u)
+    assert.match(err.message, /Installed instead/u)
     // And the escape hatch for a model Chrome merely renamed.
     assert.match(err.message, /specNames/u)
   })
@@ -345,21 +345,19 @@ describe('chrome create failure', () => {
     // Chrome's text is kept rather than replaced — it is the only part that
     // improves if Chrome ever starts explaining itself.
     assert.match(error.message, /unable to create a session/u)
-    // And the weights are not the problem: this failure comes after a warm-up
-    // that proved a session can be had, so pointing at a missing model would
-    // send the reader after the wrong thing.
-    assert.match(error.message, /weights are linked and nothing is missing/u)
+    // Not a missing model: availability() found it, so saying otherwise
+    // sends the reader after the wrong thing.
+    assert.match(error.message, /nothing is missing/u)
     assert.match(error.message, /chrome:\/\/on-device-internals/u)
   })
 
   it('says so when availability contradicts the failure', () => {
-    // The case that prompted this: Chrome's message ends "check the result of
-    // availability() first", and availability() answers `available`. Repeating
-    // that advice would send the reader in a circle, so the contradiction is
-    // stated instead.
+    // Chrome's message ends "check the result of availability() first", and
+    // availability() answers `available`. Repeating that advice sends the
+    // reader in a circle, so what is left to have failed is named instead.
     const error = refused()
     explainCreateFailure(error, 'chrome/gemma-4-12b-it', 'gemma4_12b')
-    assert.match(error.message, /does not explain this/u)
+    assert.match(error.message, /running the weights/u)
     assert.match(error.message, /too\s+large for this device/u)
   })
 
@@ -367,7 +365,7 @@ describe('chrome create failure', () => {
     const error = { ...refused(), availability: 'unavailable' }
     explainCreateFailure(error, 'chrome/gemma-4-12b-it', 'gemma4_12b')
     assert.match(error.message, /will not run the variant/u)
-    assert.doesNotMatch(error.message, /does not explain this/u)
+    assert.doesNotMatch(error.message, /nothing is missing/u)
   })
 
   it('does not invent a use case for the row that has none', () => {
@@ -388,6 +386,19 @@ describe('chrome create failure', () => {
     const error = { name: 'QuotaExceededError', message, availability: 'available' }
     explainCreateFailure(error, 'chrome/gemma-4-e2b-it', 'gemma4_2b')
     assert.equal(error.message, message)
+  })
+})
+
+describe('chrome turn request', () => {
+  it('carries a bound on create into the page, alongside the body', () => {
+    // page.evaluate() has none of its own, so this is all that stands between
+    // a model that never comes up and a caller that waits for the browser.
+    const body = CHROME_SHAPE.buildRequestBody('chrome/gemma-4-e2b-it', 4096, 'sys', [{ role: 'user', content: 'go' }])
+    const req = turnRequest(body)
+    assert.ok(req.createTimeoutMs > 0, `expected a create bound, got ${req.createTimeoutMs}`)
+    assert.equal(req.prompt, body.prompt)
+    // The caller's body is theirs: it is the cache's view of the request.
+    assert.equal(Object.hasOwn(body, 'createTimeoutMs'), false)
   })
 })
 
@@ -743,8 +754,6 @@ describe('chrome launch failure', () => {
     const tab = {
       on() {},
       goto: () => (step === 'goto' ? Promise.reject(new Error('goto failed')) : Promise.resolve()),
-      // What waitUntilReady evaluates in the page.
-      evaluate: () => Promise.resolve(step === 'ready' ? 'NotSupportedError: no' : 'ready'),
     }
     return {
       state,
@@ -753,7 +762,7 @@ describe('chrome launch failure', () => {
     }
   }
 
-  for (const step of ['newPage', 'goto', 'ready']) {
+  for (const step of ['newPage', 'goto']) {
     it(`closes the browser when ${step} fails`, async () => {
       // Nothing else can: the rejected launch is dropped from the session map,
       // so closeProvider() never sees this browser, and an open Chrome holds
@@ -1136,7 +1145,7 @@ describe('chrome preflight', () => {
     // model this is the real path; on one with a model, CHROME_MODEL_DIR
     // below proves the other half.
     if (findModelDir()) return t.skip('this machine has an on-device model installed')
-    assert.throws(() => chromePreflight(), /will not download a second copy/u)
+    assert.throws(() => chromePreflight(), /No on-device model found/u)
   })
 
   it('accepts a model dir it is pointed at, and selects the provider', (t) => {
@@ -1231,54 +1240,62 @@ describe('chrome page round-trip', async () => {
     assert.deepEqual(CHROME_SHAPE.extractToolCalls(json), [{ id: 'call_0', name: 'read_file', args: {} }])
   })
 
-  it('warms the model by asking for a session, not by waiting on availability', { skip }, async () => {
-    // The deadlock this replaced: availability() answers `unavailable` for a
-    // model that is merely unloaded, and only create() loads one — so waiting
-    // for `available` before calling create() waits forever.
-    await page.evaluate(`
-      globalThis.__creates = 0
-      globalThis.LanguageModel = {
-        availability: async () => 'unavailable',
-        create: async () => { globalThis.__creates++; return { destroy() {} } },
-      }`)
-    await waitUntilReady(page, false)
-    assert.equal(await page.evaluate(() => globalThis.__creates), 1, 'should have asked for a session')
-  })
-
-  it('watches no download, because there is never one to watch', { skip }, async () => {
-    // This provider only ever runs weights Chrome already has, so it registers
-    // no `monitor` — and an earlier version that did aborted every legitimate
-    // warm-up about ten seconds in, because `downloadprogress` also fires
-    // while Chrome prepares weights it already has.
-    await page.evaluate(`
-      globalThis.__sawMonitor = null
-      globalThis.LanguageModel = {
-        availability: async () => 'unavailable',
-        create: async (options) => {
-          globalThis.__sawMonitor = Object.hasOwn(options, 'monitor')
-          return { destroy() {} }
-        },
-      }`)
-    await assert.doesNotReject(() => waitUntilReady(page, false))
-    assert.equal(await page.evaluate(() => globalThis.__sawMonitor), false)
-  })
-
-  it('asks once and waits, rather than polling', { skip }, async () => {
-    // create() does not return until the model is loaded or it fails, so the
-    // retry loop this replaced never got to retry: every observed run resolved
-    // on the first attempt, just slowly.
+  it('serves a turn while availability() still says unavailable', { skip }, async () => {
+    // Why there is no availability() gate: it answers `unavailable` for a
+    // model that is merely unloaded, and only create() loads one.
     await page.evaluate(`
       globalThis.__creates = 0
       globalThis.LanguageModel = {
         availability: async () => 'unavailable',
         create: async () => {
           globalThis.__creates++
-          await new Promise((r) => setTimeout(r, 150))
-          return { destroy() {} }
+          await new Promise((r) => setTimeout(r, 50))
+          return { prompt: async () => 'answered', destroy() {} }
         },
       }`)
-    await waitUntilReady(page, false)
+    const result = await page.evaluate(turnInPage, { initialPrompts: [], prompt: 'x' })
+    assert.equal(result.text, 'answered')
+    // One session, and the turn's own: a load this slow used to be paid twice.
     assert.equal(await page.evaluate(() => globalThis.__creates), 1)
+  })
+
+  it('watches no download, because there is never one to watch', { skip }, async () => {
+    // This provider only ever runs weights Chrome already has, so it registers
+    // no `monitor` — and an earlier version that did aborted every legitimate
+    // load about ten seconds in, because `downloadprogress` also fires while
+    // Chrome prepares weights it already has.
+    await page.evaluate(`
+      globalThis.__sawMonitor = null
+      globalThis.LanguageModel = {
+        availability: async () => 'unavailable',
+        create: async (options) => {
+          globalThis.__sawMonitor = Object.hasOwn(options, 'monitor')
+          return { prompt: async () => 'ok', destroy() {} }
+        },
+      }`)
+    await page.evaluate(turnInPage, { initialPrompts: [], prompt: 'x' })
+    assert.equal(await page.evaluate(() => globalThis.__sawMonitor), false)
+  })
+
+  it('gives up on a create that never settles, and drops the session it was owed', { skip, timeout: 10_000 }, async () => {
+    // Without this the caller waits as long as the browser lives, and the
+    // session that arrives late has nothing left holding it.
+    await page.evaluate(`
+      globalThis.__destroyed = false
+      globalThis.__settle = null
+      globalThis.LanguageModel = {
+        availability: async () => 'available',
+        create: () => new Promise((resolve) => {
+          globalThis.__settle = () => resolve({ destroy() { globalThis.__destroyed = true } })
+        }),
+      }`)
+    const result = await page.evaluate(turnInPage, { initialPrompts: [], prompt: 'x', createTimeoutMs: 50 })
+    assert.match(result.error.message, /never settled within 0\.05s/u)
+    assert.equal(await page.evaluate(async () => {
+      globalThis.__settle()
+      await new Promise((r) => { setTimeout(r, 0) })
+      return globalThis.__destroyed
+    }), true, 'the session that arrived late should have been destroyed')
   })
 
   it('reports a Chromium with no Prompt API as such', { skip }, async () => {
