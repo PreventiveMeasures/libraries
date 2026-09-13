@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
-import { chromePreflight, closeChrome, sendChromeTurn } from './chrome.js'
-import { CHROME_SHAPE } from './chrome-wire.js'
+import { CHROME_SHAPE, chromePreflight, closeChrome, sendChromeTurn } from './chrome/index.js'
 import { fetchJSON } from './fetch.js'
 import { effortsFor, reasoningModeFor, wireModelFor } from './models.js'
 import { anthropicAuthHeader, anthropicShape, chatCompletionsBase, parseArgs, stripNamespace, toAnthropicModel, truncationError } from './wire-formats.js'
@@ -301,7 +300,7 @@ const ADAPTERS = {
   // no key. Its own `preflight` checks for a browser and resident weights in
   // place of a URL and a key, and `send` is what routes a turn through the
   // browser instead of fetchJSON. Everything about reaching it is in
-  // chrome.js.
+  // src/chrome/, behind its index.js.
   chrome: {
     preflight: chromePreflight,
     send: sendChromeTurn,

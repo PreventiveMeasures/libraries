@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
+import { sep } from 'node:path'
 import { describe, it } from 'node:test'
 
 // `ai/` is the model layer — the registry, the provider adapters and the
@@ -23,10 +24,16 @@ const sourced = (name) => name.endsWith('.js') || name.endsWith('.d.ts')
 // The front door plus the modules behind it. `tests/` is deliberately left
 // out: these files are inside the layer either way, and a test may reach for
 // node:test and whatever else it needs to drive one.
+//
+// Recursive, because src/ has subdirectories — and a flat read is how three
+// modules quietly stopped being checked the moment they moved into one.
 const files = [
   new URL('index.js', AI_DIR),
   new URL('index.d.ts', AI_DIR),
-  ...readdirSync(SRC_DIR).filter(sourced).map((name) => new URL(name, SRC_DIR)),
+  ...readdirSync(SRC_DIR, { recursive: true })
+    .map((name) => name.split(sep).join('/'))
+    .filter(sourced)
+    .map((name) => new URL(name, SRC_DIR)),
 ]
 
 // Every way a module specifier can be written: static import/export-from,
@@ -40,10 +47,14 @@ function specifiersOf(source) {
 }
 
 describe('ai/ is self-contained', () => {
-  it('has files to check', () => {
+  it('has files to check, including the nested ones', () => {
     // A typo'd directory or an extension this stopped matching would make
     // every assertion below vacuously pass.
     assert.ok(files.length > 5, `expected the ai/ modules, found ${files.length}`)
+    // And a subdirectory has to be reached, or the check silently shrinks to
+    // whatever happens to sit at the top of src/.
+    const names = files.map((file) => file.href.slice(AI_DIR.href.length))
+    assert.ok(names.some((name) => name.split('/').length > 2), `expected a nested module, found ${names.join(', ')}`)
   })
 
   for (const file of files) {

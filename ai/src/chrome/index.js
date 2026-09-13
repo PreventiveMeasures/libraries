@@ -3,12 +3,14 @@ import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, wri
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { baseModelFor, modelVersionFor } from './models.js'
-import { findModelDir, graftPlan, localStateFor } from './chrome-model.js'
-import { explainCreateFailure, outputLanguage, toChatCompletions } from './chrome-wire.js'
+import { baseModelFor, modelVersionFor } from '../models.js'
+import { findModelDir, graftPlan, localStateFor } from './model.js'
+import { explainCreateFailure, outputLanguage, toChatCompletions } from './wire.js'
 
-// Re-exported so callers keep one entry point for the provider.
-export { chromePreflight, findModelDir, localStateFor } from './chrome-model.js'
+// Re-exported so callers keep one entry point for the provider: providers.js
+// wires the adapter from this file alone, never from the modules behind it.
+export { chromePreflight, findModelDir, localStateFor } from './model.js'
+export { CHROME_SHAPE } from './wire.js'
 
 // The one provider that isn't an endpoint: Chrome's built-in Prompt API
 // (developer.chrome.com/docs/ai/prompt-api), reached over CDP with

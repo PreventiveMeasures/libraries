@@ -1,5 +1,5 @@
-import { modelVersionFor } from './models.js'
-import { chatCompletionsBase } from './wire-formats.js'
+import { modelVersionFor } from '../models.js'
+import { chatCompletionsBase } from '../wire-formats.js'
 
 // The `chrome` provider's wire format: what goes to the browser, and what
 // comes back. Kept apart from chrome.js for the same reason wire-formats.js

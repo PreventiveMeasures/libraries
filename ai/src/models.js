@@ -60,25 +60,14 @@ const MODELS = new Map([
   ['google/gemini-3.1-flash-lite-preview', { input: 0.25, output: 1.5, maxTokens: 64 * 1024 }],
   ['google/gemini-3.1-pro-preview', { input: 2, output: 12, maxTokens: 64 * 1024 }],
   ['nvidia/nemotron-3-super-120b-a12b', { input: 0.1, output: 0.5, maxTokens: 128 * 1024 }],
-  // Kimi K3 (1M context). Priced at Moonshot's list rate ($3 / $15 per Mtok,
-  // cache hits at 0.1x — exactly calculateCost's cacheRead multiplier).
-  // OpenRouter resells the same model slightly cheaper ($2.90 / $14) but
-  // reports its own per-request cost, which wins over this table wherever
-  // it's present, so one row serves both routes. `maxTokens` is Moonshot's
-  // documented `max_completion_tokens` default rather than its 1,048,576
-  // ceiling — the cap is an output budget, not a context length.
+  // Kimi K3 (1M context) at Moonshot's list rate. OpenRouter resells it a
+  // little cheaper but reports its own per-request cost, which wins over this
+  // table, so one row serves both routes. `maxTokens` is the output default.
   ['moonshotai/kimi-k3', { input: 3, output: 15, maxTokens: 131_072, canThink: true, noThink: 'unsupported', efforts: ['low', 'high', 'max'] }],
-  // Chrome's built-in on-device models, served by the browser rather than an
-  // API — see chrome.js. Zero at every rate: the weights are already on the
-  // machine and the compute was paid for with it. NOT `free`, which in this
-  // table means a hosted model that may log and train on what it is sent.
-  //
-  // Ids follow Gemma's published checkpoint names. The other three fields are
-  // Chrome's own spellings, each explained where it is used: `baseModel`
-  // finds the weights (chrome-model.js), `specNames` matches what the
-  // component manifest declares (identifiesAs), `modelVersion` picks which
-  // use case answers (enabledFeatures in chrome.js). `maxTokens` is advisory
-  // — the Prompt API takes no output cap, the context window binds instead.
+  // Chrome's built-in on-device models — served by the browser, so zero at
+  // every rate (not `free`, which means a hosted model that may train on what
+  // it is sent). `baseModel`/`specNames`/`modelVersion` are Chrome's spellings,
+  // read in src/chrome/.
   ['chrome/gemini-nano-v3', { input: 0, output: 0, maxTokens: 4096, baseModel: 'nano_v3', specNames: ['v3Nano'], modelVersion: 'v3' }],
   ['chrome/gemma-4-e2b-it', { input: 0, output: 0, maxTokens: 4096, baseModel: 'gemma4_2b', specNames: ['gemma4-2b-it'], modelVersion: 'v4' }],
   ['chrome/gemma-4-e4b-it', { input: 0, output: 0, maxTokens: 4096, baseModel: 'gemma4_4b', specNames: ['gemma-4-E4B-it'], modelVersion: 'v4_4b' }],

@@ -131,7 +131,7 @@ async function main(argv) {
   // Same reason --think is resolved above rather than left to the wire: a
   // provider that refuses the request — no browser, no weights, a row gated
   // behind an opt-in — throws from inside chat(), and without this the script
-  // exits on a stack trace pointing into chrome-model.js instead of saying
+  // exits on a stack trace pointing into chrome/model.js instead of saying
   // what the caller has to change.
   try {
     await run({ model, provider, userContent, values, think })

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
-import { specNamesFor } from './models.js'
+import { specNamesFor } from '../models.js'
 
 // Where the on-device weights are, which is a separate question from how the
 // browser is driven — see chrome.js for that.
