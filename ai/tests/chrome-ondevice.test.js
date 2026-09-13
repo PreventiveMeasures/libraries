@@ -34,7 +34,7 @@ describe('chrome on-device, against the real model', async () => {
 
   it('answers a prompt', { skip, timeout: TIMEOUT }, async () => {
     const { text, error, usage } = await chat({
-      model: 'chrome/gemini-nano',
+      model: 'chrome/gemini-nano-v3',
       maxTokens: 4096,
       systemPrompt: 'You are terse. Answer in one word.',
       userContent: 'What is the capital of France?',
@@ -45,7 +45,7 @@ describe('chrome on-device, against the real model', async () => {
     // Chrome's own tokenizer, read off contextUsage — there is no output
     // count to report, so that half is a delta rather than a measurement.
     assert.ok(usage.input > 0, 'expected the context to have been measured')
-    assert.equal(calculateCost('chrome/gemini-nano', usage), 0, 'on-device compute is not billed')
+    assert.equal(calculateCost('chrome/gemini-nano-v3', usage), 0, 'on-device compute is not billed')
   })
 
   it('serves a turn without the network', { skip, timeout: TIMEOUT }, async () => {
@@ -53,7 +53,7 @@ describe('chrome on-device, against the real model', async () => {
     // nothing leaves the machine to use them. A turn that needed the network
     // would hang or fail rather than answer.
     const { text, error } = await chat({
-      model: 'chrome/gemini-nano',
+      model: 'chrome/gemini-nano-v3',
       maxTokens: 4096,
       systemPrompt: 'Reply with exactly: ok',
       userContent: 'Go.',
@@ -70,7 +70,7 @@ describe('chrome on-device, against the real model', async () => {
     }]
     const seen = []
     const { text, error } = await chat({
-      model: 'chrome/gemini-nano',
+      model: 'chrome/gemini-nano-v3',
       maxTokens: 4096,
       systemPrompt: 'Use the tools you are given.',
       userContent: 'What is the weather in Paris? Use the tool.',
