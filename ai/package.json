@@ -20,6 +20,7 @@
     "src/chat.js",
     "src/chrome/index.js",
     "src/chrome/model.js",
+    "src/chrome/profile.js",
     "src/chrome/wire.js",
     "src/fetch.js",
     "src/models.js",

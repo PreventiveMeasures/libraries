@@ -66,12 +66,12 @@ const MODELS = new Map([
   ['moonshotai/kimi-k3', { input: 3, output: 15, maxTokens: 131_072, canThink: true, noThink: 'unsupported', efforts: ['low', 'high', 'max'] }],
   // Chrome's built-in on-device models — served by the browser, so zero at
   // every rate (not `free`, which means a hosted model that may train on what
-  // it is sent). `baseModel`/`specNames`/`modelVersion` are Chrome's spellings,
-  // read in src/chrome/.
-  ['chrome/gemini-nano-v3', { input: 0, output: 0, maxTokens: 4096, baseModel: 'nano_v3', specNames: ['v3Nano'], modelVersion: 'v3' }],
-  ['chrome/gemma-4-e2b-it', { input: 0, output: 0, maxTokens: 4096, baseModel: 'gemma4_2b', specNames: ['gemma4-2b-it'], modelVersion: 'v4' }],
-  ['chrome/gemma-4-e4b-it', { input: 0, output: 0, maxTokens: 4096, baseModel: 'gemma4_4b', specNames: ['gemma-4-E4B-it'], modelVersion: 'v4_4b' }],
-  ['chrome/gemma-4-12b-it', { input: 0, output: 0, maxTokens: 4096, baseModel: 'gemma4_12b', modelVersion: 'v4_12b' }],
+  // it is sent). `baseModel`/`specNames`/`modelVersion`/`component` are
+  // Chrome's own spellings, read in src/chrome/.
+  ['chrome/gemini-nano-v3', { input: 0, output: 0, maxTokens: 4096, baseModel: 'nano_v3', specNames: ['v3Nano'], modelVersion: 'v3', component: 'nano_v3_gpu_component' }],
+  ['chrome/gemma-4-e2b-it', { input: 0, output: 0, maxTokens: 4096, baseModel: 'gemma4_2b', specNames: ['gemma4-2b-it'], modelVersion: 'v4', component: 'gemma4_component' }],
+  ['chrome/gemma-4-e4b-it', { input: 0, output: 0, maxTokens: 4096, baseModel: 'gemma4_4b', specNames: ['gemma-4-E4B-it'], modelVersion: 'v4_4b', component: 'gemma4_4b_component' }],
+  ['chrome/gemma-4-12b-it', { input: 0, output: 0, maxTokens: 4096, baseModel: 'gemma4_12b', modelVersion: 'v4_12b', component: 'gemma4_12b_component' }],
   // Free models — may log/store/use your data
   ['openai/gpt-oss-120b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['openai/gpt-oss-20b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
@@ -282,6 +282,12 @@ export function specNamesFor(baseModel) {
 
 export function modelVersionFor(baseModel) {
   return BY_BASE_MODEL.get(baseModel)?.modelVersion
+}
+
+// What Chrome calls the row's weights where it records having them: the
+// asset_id of its entry in the manifest ledger.
+export function componentFor(baseModel) {
+  return BY_BASE_MODEL.get(baseModel)?.component
 }
 
 export function reasoningModeFor(model) {

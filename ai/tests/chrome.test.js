@@ -4,10 +4,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
-import { IGNORED_DEFAULT_ARGS, chromePreflight, closeChrome, findModelDir, isScratchProfile, launchArgs, localStateFor, openTab, pruneProfileRoot, removeProfileDir, sweepStaleProfiles, turnInPage, waitUntilReady } from '../src/chrome/index.js'
+import { IGNORED_DEFAULT_ARGS, chromePreflight, closeChrome, findModelDir, isScratchProfile, launchArgs, launchOptions, localStateFor, openTab, pruneProfileRoot, removeProfileDir, sweepStaleProfiles, turnInPage, waitUntilReady } from '../src/chrome/index.js'
 import { graftPlanIn, identifiesAs, portableGuide, rootOwning } from '../src/chrome/model.js'
 import { CHROME_SHAPE, explainCreateFailure, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome/wire.js'
 import { sendChromeTurn, trackTurn } from '../src/chrome/index.js'
+import { claimProfile, dropProfile } from '../src/chrome/profile.js'
 import { baseModelFor, calculateCost, getMaxTokens, modelVersionFor, specNamesFor } from '../src/models.js'
 import { setProvider } from '../src/providers.js'
 
@@ -270,6 +271,21 @@ describe('chrome inherited prefs', () => {
     )
   })
 
+  it('takes the entry the row names when a version is all the path carries', () => {
+    // The flat store has no hash in its path, so a version two components
+    // share would otherwise be the only thing to go on — and whichever came
+    // first would win. The row names the component outright.
+    const shared = {
+      hashother: { asset_id: 'some_other_component', requested_version: '2025.1.1.1000' },
+      hashnano: { asset_id: 'nano_v3_gpu_component', requested_version: '2025.1.1.1000' },
+    }
+    const guide = { model_execution: { manifest_asset_ledger: shared } }
+    assert.deepEqual(
+      portableGuide(guide, DIRS.nano, 'nano_v3').optimization_guide.model_execution.manifest_asset_ledger,
+      { hashnano: shared.hashnano },
+    )
+  })
+
   it('still finds the entry when the request has moved past what is installed', () => {
     // requested_version is a REQUEST, free to name a version this profile has
     // not got yet. Demanding that it match the directory too would find
@@ -407,6 +423,26 @@ describe('chrome launch switches', () => {
     // kUnknown and reads exactly like not passing the switch at all.
     const perf = args.find((a) => a.startsWith('--optimization-guide-performance-class='))
     assert.match(perf, /=\d+$/u)
+  })
+})
+
+describe('chrome launch options', () => {
+  const options = () => launchOptions('/some/model/dir', 'nano_v3')
+
+  it('opens the context offline', () => {
+    // Half of the no-network guarantee; --component-updater is the other half
+    // and covers what a context option cannot.
+    assert.equal(options().offline, true)
+  })
+
+  it('keeps the process sandbox on, and lets a caller with nowhere to put it opt out', (t) => {
+    // Playwright's default is off, which for a page running someone's model
+    // puts a renderer compromise in the caller's own account.
+    assert.equal(options().chromiumSandbox, true)
+    assert.ok(!launchArgs('/some/model/dir', 'nano_v3').some((arg) => arg.includes('no-sandbox')))
+    t.after(() => { delete process.env.CHROME_SANDBOX })
+    process.env.CHROME_SANDBOX = '0'
+    assert.equal(options().chromiumSandbox, false)
   })
 })
 
@@ -731,6 +767,19 @@ describe('chrome exit cleanup', () => {
   // the handler is wired to the signal rather than merely correct.
   const skip = process.platform === 'win32' ? 'signals are a POSIX thing' : false
 
+  it('hands the process back once no profile of ours is left in it', () => {
+    // Owning a process's signals for the rest of its life is not a library's
+    // to do: while a profile exists there is something to clean up, and after
+    // that the application's own handlers are the only ones that should run.
+    const listening = () => process.listenerCount('SIGINT')
+    const outside = listening()
+    const profile = claimProfile('/nowhere')
+    assert.ok(listening() > outside, 'should listen while a profile of ours exists')
+    dropProfile(profile)
+    assert.equal(listening(), outside, 'should have stopped listening')
+    assert.equal(existsSync(profile), false)
+  })
+
   it('takes its profile with it when a signal ends the process', { skip, timeout: 30_000 }, (t) => {
     const out = join(mkdtempSync(join(tmpdir(), 'ai-chrome-test-signal-')), 'profile-path')
     t.after(() => rmSync(dirname(out), { recursive: true, force: true }))
@@ -748,8 +797,10 @@ describe('chrome exit cleanup', () => {
     const profile = readFileSync(out, 'utf8')
     assert.match(profile, /chrome-/u, `expected a profile path, got ${profile}`)
     assert.equal(existsSync(profile), false, 'the profile should have gone with the process')
-    // 128 + SIGINT, the shell's own convention.
-    assert.equal(child.status, 130, child.stderr)
+    // Killed by the signal, not exited with a code: the handler hands SIGINT
+    // back once it has cleaned up, so the process ends the way it would have
+    // with nothing listening at all.
+    assert.equal(child.signal, 'SIGINT', child.stderr)
   })
 })
 
@@ -855,6 +906,9 @@ describe('chrome scratch-profile cleanup', () => {
       join(homedir(), 'preventive-ai', 'chrome-abc123')]) {
       assert.equal(isScratchProfile(bad), false, `should not accept ${JSON.stringify(bad)}`)
     }
+    // A prefix test on the raw string accepts this, and rmSync resolves it.
+    assert.equal(isScratchProfile(join(profileRoot(), 'chrome-abc123', '..', '..', 'elsewhere')), false)
+    assert.equal(isScratchProfile(join(profileRoot(), 'chrome-abc123', 'nested')), false)
     assert.equal(isScratchProfile(join(profileRoot(), 'chrome-abc123')), true)
   })
 

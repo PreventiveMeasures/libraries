@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
-import { specNamesFor } from '../models.js'
+import { componentFor, specNamesFor } from '../models.js'
 
 // Where the on-device weights are; index.js drives the browser. Chrome keeps
 // them under the USER DATA DIR (component_updater's DIR_COMPONENT_USER) rather
@@ -87,30 +87,35 @@ export function graftPlanIn(userDataDir, modelDir) {
 // rest. Each manifest_asset_ledger entry is a standing REQUEST, and the one for
 // the linked model is what makes the browser load it — carry the others and
 // Chrome fetches models this profile does not have.
-function optimizationGuidePrefs(modelDir) {
+function optimizationGuidePrefs(modelDir, baseModel) {
   const dir = activeUserDataDir(modelDir)
   if (!dir) return {}
   try {
-    return portableGuide(JSON.parse(readFileSync(join(dir, 'Local State'), 'utf8'))?.optimization_guide, modelDir)
+    return portableGuide(JSON.parse(readFileSync(join(dir, 'Local State'), 'utf8'))?.optimization_guide, modelDir, baseModel)
   } catch { return {} }
 }
 
-// The linked model's own path names its ledger entry: the hash it sits under
-// (OptGuideManifestModel/<hash>/<version>), or the version the flat layout
-// stops at. Hash first, since versions are dates two components can share, but
-// an order and not a requirement — a request may point past what is here.
-function findLedgerEntry(ledger, modelDir) {
+// Which ledger entry is the launched model's, in the order the three answers
+// can be trusted: the row's component id, then the hash the path sits under
+// (OptGuideManifestModel/<hash>/<version>), then the version a flat path
+// stops at — weakest, since versions are dates two components can share.
+// Each only if the one before found nothing, so a renamed id or a request
+// pointing past what is installed costs precision rather than the entry.
+function findLedgerEntry(ledger, modelDir, baseModel) {
   if (!ledger || !modelDir) return undefined
   const parts = new Set(modelDir.split(/[/\\]/u))
+  const component = componentFor(baseModel)
   const entries = Object.entries(ledger)
-  return entries.find(([hash]) => parts.has(hash)) ?? entries.find(([, entry]) => parts.has(entry?.requested_version))
+  return entries.find(([, entry]) => component && entry?.asset_id === component) ??
+    entries.find(([hash]) => parts.has(hash)) ??
+    entries.find(([, entry]) => parts.has(entry?.requested_version))
 }
 
 // No ledger entry found means no ledger: that is a CHROME_MODEL_DIR outside
 // the component tree, where the real profile's ledger would claim components
 // this one does not have — the fetch all of this exists to prevent.
-export function portableGuide(guide, modelDir) {
-  const found = findLedgerEntry(guide?.model_execution?.manifest_asset_ledger, modelDir)
+export function portableGuide(guide, modelDir, baseModel) {
+  const found = findLedgerEntry(guide?.model_execution?.manifest_asset_ledger, modelDir, baseModel)
   if (!found) return {}
   return { optimization_guide: { model_execution: { manifest_asset_ledger: { [found[0]]: found[1] } } } }
 }
@@ -248,13 +253,13 @@ export function chromePreflight() {
 // The prefs a scratch profile starts with. Nothing here announces a mistake:
 // an unknown key, or a known one at the wrong depth, is not an error Chrome
 // reports but a pref that quietly never applies.
-export function localStateFor(modelDir) {
+export function localStateFor(modelDir, baseModel) {
   return {
     // Unlocks chrome://on-device-internals, where a CHROME_HEADLESS=0 run can
     // see what the browser loaded rather than what it was pointed at.
     internal_only_uis_enabled: true,
     // Without this the gemma components read "Not Installed" however many
     // directories are linked in: install state is a pref, not a file.
-    ...optimizationGuidePrefs(modelDir),
+    ...optimizationGuidePrefs(modelDir, baseModel),
   }
 }

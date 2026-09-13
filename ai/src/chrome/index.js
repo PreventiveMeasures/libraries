@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, rmdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
-import { constants, tmpdir } from 'node:os'
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { baseModelFor, modelVersionFor } from '../models.js'
-import { findModelDir, graftPlan, localStateFor } from './model.js'
+import { findModelDir, graftPlan } from './model.js'
+import { claimProfile, dropProfile, pruneProfileRoot } from './profile.js'
 import { explainCreateFailure, outputLanguage, toChatCompletions } from './wire.js'
 
 // One entry point for the provider: providers.js wires the adapter from here.
 export { chromePreflight, findModelDir, localStateFor } from './model.js'
+export { claimProfile, isScratchProfile, pruneProfileRoot, removeProfileDir, sweepStaleProfiles } from './profile.js'
 export { CHROME_SHAPE } from './wire.js'
 
 // Chrome's built-in Prompt API (developer.chrome.com/docs/ai/prompt-api) over
@@ -86,143 +87,18 @@ async function loadPlaywright() {
   }
 }
 
-// Scratch profiles, so they can be removed again. Removing one never touches
-// the model: the component tree inside it is a SYMLINK, and a recursive
-// delete unlinks the link rather than following it.
-const profiles = new Set()
-
-// One directory of our own inside the temp dir, so the sweep reads it rather
-// than everything the machine has put there. Recomputed per call, so it
-// follows TMPDIR.
-//
-// Per user, because the temp dir is not always: a shared /tmp takes the mode
-// of whichever account created the root first, and every other account then
-// gets EACCES trying to make a profile inside it.
-const PROFILE_ROOT = `preventive-ai${process.getuid ? `-${process.getuid()}` : ''}`
-const PROFILE_PREFIX = 'chrome-'
-const profileRoot = () => join(tmpdir(), PROFILE_ROOT)
-
-// Old enough that a profile made moments ago, before its owner marker was
-// written, cannot be mistaken for one left behind.
-const STALE_MS = 6 * 60 * 60 * 1000
-
-// Lets another process sweeping the temp dir tell a profile in use from one
-// left behind. Chrome ignores files it does not know at the profile root.
-const OWNER_FILE = 'owner.pid'
-
-// The guard on the single place this file deletes recursively: a profile holds
-// a symlink into the user's model store. starts-with, so a path that merely
-// has the name somewhere inside it is not one of ours.
-export function isScratchProfile(dir) {
-  const root = join(profileRoot(), PROFILE_PREFIX)
-  return typeof dir === 'string' && dir.startsWith(root) && dir.length > root.length
-}
-
-export function removeProfileDir(dir) {
-  assert.ok(
-    isScratchProfile(dir),
-    `refusing to recursively delete a path that is not one of our scratch profiles (expected ${join(profileRoot(), PROFILE_PREFIX)}*): ${dir}`,
-  )
-  rmSync(dir, { recursive: true, force: true })
-}
-
-// Take the shared directory too, once it is empty. Non-recursive, so a
-// profile still in it — this process's or another's — is ENOTEMPTY and stays.
-export function pruneProfileRoot() {
-  try { rmdirSync(profileRoot()) } catch { /* still in use, or already gone */ }
-}
-
-function dropProfile(dir) {
-  profiles.delete(dir)
-  try { removeProfileDir(dir) } catch { /* already gone, or not ours to touch */ }
-}
-
-// Whether the process that made a profile is still running: 'alive', 'dead',
-// or 'unknown' where there is no marker to read. EPERM means a process by
-// that number exists and is someone else's, which is still alive.
-function owner(dir) {
-  let pid
-  try { pid = Number(readFileSync(join(dir, OWNER_FILE), 'utf8')) } catch { return 'unknown' }
-  if (!Number.isInteger(pid) || pid <= 0) return 'unknown'
-  try { process.kill(pid, 0); return 'alive' } catch (err) { return err.code === 'EPERM' ? 'alive' : 'dead' }
-}
-
-// Best effort, on launch: clear what earlier runs left behind. A marker whose
-// process is gone settles it outright — that profile is nobody's, however
-// recent. Age only decides for a directory with no marker to go on, which is
-// also the one made moments ago by a process still writing it.
-export function sweepStaleProfiles() {
-  const now = Date.now()
-  let dirs = []
-  try { dirs = readdirSync(profileRoot()).filter((n) => n.startsWith(PROFILE_PREFIX)) } catch { return }
-  for (const name of dirs) {
-    const dir = join(profileRoot(), name)
-    if (profiles.has(dir)) continue
-    try {
-      const state = owner(dir)
-      if (state === 'alive') continue
-      if (state === 'dead' || now - statSync(dir).mtimeMs > STALE_MS) removeProfileDir(dir)
-    } catch { /* in use, or gone */ }
-  }
-}
-
-// rmSync is synchronous, which is what makes cleanup possible at all from
-// here: an exit hook cannot await anything. Left in `profiles` rather than
-// taken out of it, so the second pass below still knows what to look at.
-function removeAllProfiles() {
-  for (const dir of profiles) {
-    try { removeProfileDir(dir) } catch { /* exiting anyway */ }
-  }
-  pruneProfileRoot()
-}
-
-// A crash, or a bare `node script.js`, never reaches closeProvider.
-const EXIT_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP']
-let exitHookInstalled = false
-function installExitCleanup() {
-  if (exitHookInstalled) return
-  exitHookInstalled = true
-  process.on('exit', removeAllProfiles)
-  // Ctrl+C does not reach that handler on its own: with nothing listening,
-  // the default disposition terminates the process and no 'exit' is emitted,
-  // which is how a profile survived one. Listening suppresses that, so this
-  // has to end the process itself — 128 + n, the shell's own way of saying
-  // which signal did it. Twice over, because Chrome takes the same Ctrl+C
-  // and can write its profile back out while it goes: once here, and once
-  // more from the 'exit' this triggers, by which time it is gone.
-  for (const signal of EXIT_SIGNALS) {
-    process.on(signal, () => {
-      removeAllProfiles()
-      process.exit(128 + (constants.signals[signal] ?? 0))
-    })
-  }
-}
 
 // One browser per base model: the weights directory is named on the command
 // line, so two rows backed by different weights cannot share one.
 const sessions = new Map()
 
-// A profile for a browser to be pointed at, and everything that has to be
-// true before one is: the strays cleared, an exit that takes this one with
-// it, and the state Chrome reads at startup already in place.
-export function claimProfile(modelDir) {
-  sweepStaleProfiles()
-  installExitCleanup()
-  mkdirSync(profileRoot(), { recursive: true, mode: 0o700 })
-  const profile = mkdtempSync(join(profileRoot(), PROFILE_PREFIX))
-  profiles.add(profile)
-  // Before anything slow, so a concurrent sweep can already see an owner.
-  writeFileSync(join(profile, OWNER_FILE), String(process.pid))
-  writeFileSync(join(profile, 'Local State'), JSON.stringify(localStateFor(modelDir)))
-  return profile
-}
 
 async function launch(baseModel, debug) {
   // Throws when the row's weights are not installed, naming what is.
   const modelDir = findModelDir(baseModel)
   // A persistent context rather than launch(): the profile has to exist
   // before Chrome starts so the component tree can be grafted into it.
-  const profile = claimProfile(modelDir)
+  const profile = claimProfile(modelDir, baseModel)
   // Everything below can throw — a missing peer, a browser that will not
   // start, a page that will not navigate — and the profile goes with it.
   try {
@@ -258,8 +134,30 @@ export function launchArgs(modelDir, baseModel) {
     // --disable-component-update misses it — it registers at runtime — but
     // every fetch goes through the configurator, and port 1 is restricted.
     '--component-updater=url-source=http://127.0.0.1:1/no-downloads',
-    ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
   ]
+}
+
+// What the browser is launched with, out here for the same reason the switch
+// list is: a guarantee nothing asserts is a guarantee until someone edits it.
+export function launchOptions(modelDir, baseModel) {
+  return {
+    ...chromeTarget(),
+    headless: process.env.CHROME_HEADLESS !== '0',
+    // Playwright forces a software rasterizer. Every on-device model Chrome
+    // ships is GPU-tier, so under SwiftShader the model service never starts:
+    // create() answers "the service is not running".
+    ignoreDefaultArgs: IGNORED_DEFAULT_ARGS,
+    args: launchArgs(modelDir, baseModel),
+    // Playwright turns the process sandbox OFF by default, which lands a
+    // renderer compromise in the caller's own account. On, unless there is
+    // nowhere to put it — as root, or in a container without user namespaces,
+    // Chrome refuses to start and CHROME_SANDBOX=0 is the way out.
+    chromiumSandbox: process.env.CHROME_SANDBOX !== '0',
+    // Nothing here needs the network: a file:// page and a model on disk, so a
+    // socket is a symptom. Does NOT cover the component updater, which is a
+    // browser-process fetch — see --component-updater in launchArgs.
+    offline: true,
+  }
 }
 
 
@@ -274,19 +172,7 @@ async function openBrowser(profile, modelDir, baseModel, debug) {
     } catch { /* the switch covers us */ }
   }
   const { chromium } = await loadPlaywright()
-  const browser = await chromium.launchPersistentContext(profile, {
-    ...chromeTarget(),
-    headless: process.env.CHROME_HEADLESS !== '0',
-    // Playwright forces a software rasterizer. Every on-device model Chrome
-    // ships is GPU-tier, so under SwiftShader the model service never starts:
-    // create() answers "the service is not running".
-    ignoreDefaultArgs: IGNORED_DEFAULT_ARGS,
-    args: launchArgs(modelDir, baseModel),
-    // Nothing here needs the network: a file:// page and a model on disk, so a
-    // socket is a symptom. Does NOT cover the component updater, which is a
-    // browser-process fetch — see --component-updater in launchArgs.
-    offline: true,
-  })
+  const browser = await chromium.launchPersistentContext(profile, launchOptions(modelDir, baseModel))
   return { browser, tab: await openTab(browser, profile, debug), profile }
 }
 
@@ -345,12 +231,9 @@ export async function waitUntilReady(tab, debug) {
 }
 /* eslint-enable no-undef */
 
-// Turns in flight. One browser and one tab serve every turn on a row, so
-// closing on the first caller to finish takes the tab out from under the rest
-// — page.evaluate then fails with "Target page, context or browser has been
-// closed", which is what parallel callers were seeing.
 // Everything a close has to wait for: the turn in the page, and the launch a
-// turn is still waiting on. Nothing closes while this has anything in it.
+// turn is still waiting on. One browser and one tab serve a whole row, so
+// closing on the first caller to finish takes the tab from under the rest.
 const turns = new Set()
 
 // How long the browser sits with nothing in flight or pending before closing
