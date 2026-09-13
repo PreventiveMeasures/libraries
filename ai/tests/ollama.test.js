@@ -60,22 +60,36 @@ describe('ollama alternatives — the same model under another tag', () => {
     // A key no row maps to could never fire, and would read as coverage the
     // provider does not have.
     const used = new Set(ollamaModels().map((id) => ollamaTagFor(id)))
-    for (const [tag, alternative] of ollamaAlternatives()) {
+    for (const [tag, alternatives] of ollamaAlternatives()) {
       assert.ok(used.has(tag), `${tag} is an alternative for a tag nothing maps to`)
-      assert.ok(!used.has(alternative), `${alternative} is both an alternative and a mapped tag`)
-      // Substituting is a claim that the two answer the same. The only
-      // builds that earn it are the speculative-decoding twins.
-      assert.equal(alternative, tag.replace(/^([^:]+:.*?)((?:-bf16|-q8_0|-q4_K_M))$/u, '$1-mtp$2'), tag)
+      assert.ok(alternatives.length > 0, `${tag} has an empty alternative list`)
+      for (const alternative of alternatives) {
+        assert.ok(!used.has(alternative), `${alternative} is both an alternative and a mapped tag`)
+        assert.equal(alternative.split(':')[0], tag.split(':')[0], `${alternative} is not in ${tag}'s library`)
+        // Re-pointed across model sizes, so trusting it would eventually
+        // serve something else entirely.
+        assert.notEqual(alternative.split(':')[1], 'latest', alternative)
+        // Substituting is a claim that the two answer the same, and only two
+        // shapes earn it: the speculative-decoding twin, or a shorter name
+        // for the same manifest.
+        const twin = tag.replace(/-((?:bf16|q8_0|q4_K_M))$/u, '-mtp-$1')
+        assert.ok(
+          alternative === twin || tag.startsWith(alternative),
+          `${alternative} is neither ${tag}'s twin nor a shorter name for it`,
+        )
+      }
     }
   })
 
-  it('leaves gemma-4 26B alone, whose -mtp- build is a different model', () => {
+  it('never offers gemma-4 26B\'s -mtp- build as a substitute', () => {
     // It has 8-bit attention where the plain build has 4-bit, so it answers
-    // differently and holds an id — and a cache entry — of its own.
-    for (const id of ollamaModels().filter((m) => m.startsWith('google/'))) {
-      assert.equal(ollamaAlternativeFor(ollamaTagFor(id)), undefined, id)
-    }
+    // differently and holds an id — and a cache entry — of its own. The plain
+    // build takes no substitute, and nothing anywhere substitutes to the mtp.
+    assert.deepEqual(ollamaAlternativeFor('gemma4:26b-a4b-it-q4_K_M'), [])
     assert.ok(ollamaModels().includes('google/gemma-4-26b-a4b-it-mtp-q4_k_m'))
+    for (const [tag, alternatives] of ollamaAlternatives()) {
+      assert.ok(!alternatives.includes('gemma4:26b-a4b-it-mtp-q4_K_M'), tag)
+    }
   })
 
   it('takes the alternative only when it is installed', () => {
@@ -84,6 +98,20 @@ describe('ollama alternatives — the same model under another tag', () => {
     assert.equal(preferredTag(PLAIN, new Set()), PLAIN)
     // A tag with no alternative is returned whatever the server has.
     assert.equal(preferredTag('gemma4:31b-it-bf16', new Set(['gemma4:31b-it-bf16'])), 'gemma4:31b-it-bf16')
+  })
+
+  it('tries every alternative, not just the first', () => {
+    // The list exists because a build can be installed under more than one
+    // name: qwen's twin, and the short tag most people actually pull. Only
+    // checking the head would leave whoever ran `ollama pull qwen3.6:27b`
+    // being told the server has no such model.
+    const CANON = 'qwen3.6:27b-q4_K_M'
+    const [twin, short] = ollamaAlternativeFor(CANON)
+    assert.ok(twin && short, `expected two alternatives, got ${ollamaAlternativeFor(CANON).join(', ')}`)
+    assert.equal(preferredTag(CANON, new Set([short])), short)
+    assert.equal(preferredTag(CANON, new Set([twin])), twin)
+    // Order decides when both are there.
+    assert.equal(preferredTag(CANON, new Set([twin, short])), twin)
   })
 
   it('reads what the server reports installed', async () => {

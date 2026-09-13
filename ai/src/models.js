@@ -374,7 +374,7 @@ const OLLAMA_TAGS = new Map([
   ['google/gemma-4-26b-a4b-it', 'gemma4:26b-a4b-it-bf16'], // 52GB
   ['google/gemma-4-26b-a4b-it-q8_0', 'gemma4:26b-a4b-it-q8_0'], // 28GB
   ['google/gemma-4-26b-a4b-it-q4_k_m', 'gemma4:26b-a4b-it-q4_K_M'], // 18GB, worse than -mtp: 4-bit attention where that is 8-bit
-  ['google/gemma-4-26b-a4b-it-mtp-q4_k_m', 'gemma4:26b-a4b-it-mtp-q4_K_M'], // 19GB, byte-identical to gemma4:26b
+  ['google/gemma-4-26b-a4b-it-mtp-q4_k_m', 'gemma4:26b-a4b-it-mtp-q4_K_M'], // 19GB, identical to gemma4:26b
   ['google/gemma-4-26b-a4b-it-qat', 'gemma4:26b-a4b-it-qat'], // 16GB
   ['google/gemma-4-31b-it', 'gemma4:31b-it-bf16'], // 63GB
   ['google/gemma-4-31b-it-q8_0', 'gemma4:31b-it-q8_0'], // 34GB
@@ -405,27 +405,40 @@ export function ollamaTagFor(model) {
   return OLLAMA_TAGS.get(resolveModel(model))
 }
 
-// Tags that ARE the tag they stand in for, preferred when the server has one.
-// Qwen ships an `-mtp-` twin of every build: the same weights with the
-// multi-token-prediction head switched on, which is speculative decoding and
-// so answers identically, faster. Substituting rather than naming them keeps
-// one id and one cache entry for what is one model — which is exactly why
-// gemma-4 26B's `-mtp-` build is absent here. That one is a different
-// quantization mix, gives different answers, and has an id of its own.
+// Other tags that ARE the tag they stand in for, tried in order and taken
+// when the server has one. Two kinds, and both are claims that the answers
+// are the same, since a substitution shares the caller's id and cache entry.
+//
+// A `-mtp-` twin is the same weights with speculative decoding switched on.
+// A shorter tag is the same manifest under the name most people actually
+// pull: `ollama pull gemma4:e4b` leaves nothing named gemma4:e4b-it-q4_K_M
+// on the machine, and without this a turn asks for a build the server has
+// under another name and is told it has no such model.
+//
+// `:latest` is deliberately absent. Every tag here can be re-pointed at a new
+// build, but that one is re-pointed across model SIZES — gemma4:latest is e4b
+// today — so trusting it would eventually serve a different model entirely.
 const OLLAMA_ALTERNATIVES = new Map([
-  ['qwen3.6:27b-bf16', 'qwen3.6:27b-mtp-bf16'],
-  ['qwen3.6:27b-q8_0', 'qwen3.6:27b-mtp-q8_0'],
-  ['qwen3.6:27b-q4_K_M', 'qwen3.6:27b-mtp-q4_K_M'],
-  ['qwen3.6:35b-a3b-bf16', 'qwen3.6:35b-a3b-mtp-bf16'],
-  ['qwen3.6:35b-a3b-q8_0', 'qwen3.6:35b-a3b-mtp-q8_0'],
-  ['qwen3.6:35b-a3b-q4_K_M', 'qwen3.6:35b-a3b-mtp-q4_K_M'],
-  ['qwen3.8:27b-bf16', 'qwen3.8:27b-mtp-bf16'],
-  ['qwen3.8:27b-q8_0', 'qwen3.8:27b-mtp-q8_0'],
-  ['qwen3.8:27b-q4_K_M', 'qwen3.8:27b-mtp-q4_K_M'],
+  ['qwen3.6:27b-bf16', ['qwen3.6:27b-mtp-bf16']],
+  ['qwen3.6:27b-q8_0', ['qwen3.6:27b-mtp-q8_0']],
+  ['qwen3.6:27b-q4_K_M', ['qwen3.6:27b-mtp-q4_K_M', 'qwen3.6:27b']],
+  ['qwen3.6:35b-a3b-bf16', ['qwen3.6:35b-a3b-mtp-bf16']],
+  ['qwen3.6:35b-a3b-q8_0', ['qwen3.6:35b-a3b-mtp-q8_0']],
+  ['qwen3.6:35b-a3b-q4_K_M', ['qwen3.6:35b-a3b-mtp-q4_K_M', 'qwen3.6:35b-a3b']],
+  ['qwen3.8:27b-bf16', ['qwen3.8:27b-mtp-bf16']],
+  ['qwen3.8:27b-q8_0', ['qwen3.8:27b-mtp-q8_0']],
+  ['qwen3.8:27b-q4_K_M', ['qwen3.8:27b-mtp-q4_K_M', 'qwen3.8:27b']],
+  ['gemma4:e2b-it-q4_K_M', ['gemma4:e2b']],
+  ['gemma4:e4b-it-q4_K_M', ['gemma4:e4b']],
+  ['gemma4:12b-it-q4_K_M', ['gemma4:12b']],
+  ['gemma4:26b-a4b-it-mtp-q4_K_M', ['gemma4:26b']],
+  ['gemma4:31b-it-q4_K_M', ['gemma4:31b']],
+  ['nemotron-3.5-lightning:30b-a3b-q4_K_M', ['nemotron-3.5-lightning:30b-a3b', 'nemotron-3.5-lightning:30b']],
+  ['nemotron-3-super:120b-a12b-q4_K_M', ['nemotron-3-super:120b-a12b', 'nemotron-3-super:120b']],
 ])
 
 export function ollamaAlternativeFor(tag) {
-  return OLLAMA_ALTERNATIVES.get(tag)
+  return OLLAMA_ALTERNATIVES.get(tag) ?? []
 }
 
 export function ollamaAlternatives() {

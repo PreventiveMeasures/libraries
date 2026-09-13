@@ -45,8 +45,7 @@ export async function installedTags(origin = ollamaOrigin()) {
 // without a server: an alternative is taken only when it is installed, and
 // the tag asked for is always a valid answer.
 export function preferredTag(tag, installed) {
-  const alternative = ollamaAlternativeFor(tag)
-  return alternative && installed.has(alternative) ? alternative : tag
+  return ollamaAlternativeFor(tag).find((name) => installed.has(name)) ?? tag
 }
 
 export async function resolveOllamaTag(tag) {
