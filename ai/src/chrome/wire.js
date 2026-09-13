@@ -104,7 +104,11 @@ export const CHROME_SHAPE = {
 
   buildRequestBody(model, maxTokens, systemPrompt, messages, { think = false, effort, tools } = {}) {
     if (think || effort) throw new Error('Chrome\'s on-device model has no thinking mode')
-    const system = tools ? `${systemPrompt}\n\n${toolInstructions(tools)}` : systemPrompt
+    // An empty array is not a tool call waiting to happen: it would put an
+    // `anyOf: []` on the constraint, which nothing can satisfy, and turn a
+    // request that wanted no tools into a refusal.
+    const offered = tools?.length ? tools : undefined
+    const system = offered ? `${systemPrompt}\n\n${toolInstructions(offered)}` : systemPrompt
     // The last message is the turn being asked, everything before it is
     // history. `maxTokens` is unused: the Prompt API has no output cap.
     return {
@@ -114,7 +118,7 @@ export const CHROME_SHAPE = {
       language: outputLanguage(),
       initialPrompts: [{ role: 'system', content: system }, ...messages.slice(0, -1)],
       prompt: messages.at(-1).content,
-      ...(tools ? { responseConstraint: toolConstraint(tools) } : null),
+      ...(offered ? { responseConstraint: toolConstraint(offered) } : null),
     }
   },
 

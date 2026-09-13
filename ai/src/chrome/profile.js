@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, rmdirSync, statSync, writeFileSync } from 'node:fs'
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, rmdirSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { localStateFor } from './model.js'
@@ -115,7 +115,10 @@ const EXIT_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP']
 function onSignal(signal) {
   removeAllProfiles()
   removeExitCleanup()
-  process.kill(process.pid, signal)
+  // Only with nothing left listening. An application's own handler already
+  // had this signal; sending it again would run that a second time. With ours
+  // gone and no other, re-sending is what restores the default.
+  if (process.listenerCount(signal) === 0) process.kill(process.pid, signal)
 }
 
 const signalHandlers = new Map(EXIT_SIGNALS.map((signal) => [signal, () => onSignal(signal)]))
@@ -135,14 +138,31 @@ function removeExitCleanup() {
   for (const [signal, handler] of signalHandlers) process.removeListener(signal, handler)
 }
 
+// The root, once it is certainly ours. The mode on mkdir only lands when this
+// creates the directory, and the name is predictable: in a shared temp dir
+// another account can get there first, with one it can write to or a symlink
+// pointing at something else of ours. Refused rather than repaired — it is
+// not ours to chmod, and the profile inside links to a real model store.
+function ourProfileRoot() {
+  const root = profileRoot()
+  mkdirSync(root, { recursive: true, mode: 0o700 })
+  const stats = lstatSync(root)
+  assert.ok(stats.isDirectory(), `refusing a scratch root that is not a directory: ${root}`)
+  // Neither ownership nor mode means anything on Windows, where the temp dir
+  // is the account's own to begin with.
+  if (!process.getuid) return root
+  assert.ok(stats.uid === process.getuid(), `refusing a scratch root owned by another user: ${root}`)
+  assert.ok((stats.mode & 0o077) === 0, `refusing a scratch root that others can read or write: ${root}`)
+  return root
+}
+
 // A profile for a browser to be pointed at, and everything that has to be
 // true before one is: the strays cleared, an exit that takes this one with
 // it, and the state Chrome reads at startup already in place.
 export function claimProfile(modelDir, baseModel) {
   sweepStaleProfiles()
   installExitCleanup()
-  mkdirSync(profileRoot(), { recursive: true, mode: 0o700 })
-  const profile = mkdtempSync(join(profileRoot(), PROFILE_PREFIX))
+  const profile = mkdtempSync(join(ourProfileRoot(), PROFILE_PREFIX))
   profiles.add(profile)
   // Before anything slow, so a concurrent sweep can already see an owner.
   writeFileSync(join(profile, OWNER_FILE), String(process.pid))

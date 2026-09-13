@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import { chmodSync } from 'node:fs'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -552,6 +553,14 @@ describe('chrome request body', () => {
     assert.equal(body.max_completion_tokens, undefined)
   })
 
+  it('treats an empty tool list as no tools at all', () => {
+    // `anyOf: []` is a constraint nothing can satisfy, so a request that
+    // wanted no tools came back a Prompt API failure.
+    const body = CHROME_SHAPE.buildRequestBody('chrome/gemma-4-e2b-it', 4096, 'sys', [{ role: 'user', content: 'go' }], { tools: [] })
+    assert.equal(body.responseConstraint, undefined)
+    assert.equal(body.initialPrompts[0].content, 'sys')
+  })
+
   it('carries no constraint when there are no tools', () => {
     assert.equal(build([{ role: 'user', content: 'hi' }]).responseConstraint, undefined)
   })
@@ -778,6 +787,69 @@ describe('chrome exit cleanup', () => {
     dropProfile(profile)
     assert.equal(listening(), outside, 'should have stopped listening')
     assert.equal(existsSync(profile), false)
+  })
+
+  it('does not hand the signal back to a process that is already handling it', { skip, timeout: 30_000 }, (t) => {
+    // Re-sending is only how the default gets restored. An application's own
+    // handler already had the original, and would run its shutdown twice.
+    const out = join(mkdtempSync(join(tmpdir(), 'ai-chrome-test-signal-')), 'report')
+    t.after(() => rmSync(dirname(out), { recursive: true, force: true }))
+    const child = spawnSync(process.execPath, ['--input-type=module', '--eval', `
+      import { appendFileSync, writeFileSync } from 'node:fs'
+      import { claimProfile } from ${JSON.stringify(new URL('../src/chrome/index.js', import.meta.url).href)}
+      writeFileSync(process.env.PROFILE_OUT, claimProfile('/nowhere'))
+      let seen = 0
+      process.on('SIGINT', () => {
+        appendFileSync(process.env.PROFILE_OUT, \`\nseen \${++seen}\`)
+        // Long enough for a second delivery to land if one is coming.
+        if (seen === 1) setTimeout(() => process.exit(0), 300)
+      })
+      process.kill(process.pid, 'SIGINT')
+      setInterval(() => {}, 1000)
+    `], { encoding: 'utf8', timeout: 20_000, env: { ...process.env, PROFILE_OUT: out } })
+
+    const report = readFileSync(out, 'utf8')
+    assert.equal(report.match(/seen /gu)?.length, 1, `the application handler ran more than once: ${report}`)
+    assert.equal(existsSync(report.split('\n')[0]), false, 'the profile should still have gone')
+    assert.equal(child.status, 0, child.stderr)
+  })
+
+  it('refuses a scratch root it does not own outright', (t) => {
+    // /tmp is world-writable and the name is predictable, so another account
+    // can get there first. mkdir's mode only lands when it creates the
+    // directory, and one already there is trusted otherwise.
+    if (!process.getuid) return t.skip('ownership and mode are POSIX')
+    const sandbox = mkdtempSync(join(tmpdir(), 'ai-chrome-test-root-'))
+    const restore = {}
+    t.after(() => {
+      for (const [key, value] of Object.entries(restore)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+      rmSync(sandbox, { recursive: true, force: true })
+    })
+    for (const key of ['TMPDIR', 'TMP', 'TEMP']) {
+      restore[key] = process.env[key]
+      process.env[key] = sandbox
+    }
+
+    // A symlink where the root should be: mkdir -p follows it without
+    // complaint, and every profile after would land wherever it points.
+    const elsewhere = join(sandbox, 'elsewhere')
+    mkdirSync(elsewhere)
+    symlinkSync(elsewhere, profileRoot(), 'junction')
+    assert.throws(() => claimProfile('/nowhere'), /not a directory/u)
+    rmSync(profileRoot(), { force: true })
+
+    mkdirSync(profileRoot(), { recursive: true })
+    chmodSync(profileRoot(), 0o777)
+    assert.throws(() => claimProfile('/nowhere'), /others can read or write/u)
+
+    // And the same root, put right, is accepted.
+    chmodSync(profileRoot(), 0o700)
+    const profile = claimProfile('/nowhere')
+    assert.equal(existsSync(profile), true)
+    dropProfile(profile)
   })
 
   it('takes its profile with it when a signal ends the process', { skip, timeout: 30_000 }, (t) => {
