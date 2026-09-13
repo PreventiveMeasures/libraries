@@ -417,27 +417,51 @@ describe('gpt-6 astra', () => {
   })
 })
 
-describe('gpt-6 astra pro', () => {
-  const PRO = 'openai/gpt-6-astra-pro'
-  const ASTRA = 'openai/gpt-6-astra'
+// Two different things are called "pro" here. One is a MODE on another
+// model — same weights and same rate, just more tokens spent thinking — so
+// the row names its base as the wire model and 'pro' as the mode. The other
+// is a model of its own at its own rate, and is simply a row.
+describe('openai pro rows', () => {
+  const MODES = [
+    ['openai/gpt-6-astra-pro', 'openai/gpt-6-astra'],
+    ['openai/gpt-5.6-sol-pro', 'openai/gpt-5.6-sol'],
+    ['openai/gpt-5.6-terra-pro', 'openai/gpt-5.6-terra'],
+    ['openai/gpt-5.6-luna-pro', 'openai/gpt-5.6-luna'],
+  ]
+  const OWN_MODEL = ['openai/gpt-5.5-pro', 'openai/gpt-5.4-pro']
+  const million = () => ({ ...emptyUsage(), input: 1_000_000, output: 1_000_000, cacheRead: 1_000_000 })
 
-  it('is its own row, priced like astra — pro spends more tokens, not more per token', () => {
-    const usage = { ...emptyUsage(), input: 1_000_000, output: 1_000_000, cacheRead: 1_000_000 }
-    assert.equal(calculateCost(PRO, usage), calculateCost(ASTRA, usage))
-    assert.equal(getMaxTokens(PRO), 128_000)
-    // A row of its own, not an alias: the two answer differently, so they
-    // must not share a cache dir.
-    assert.equal(resolveModel(PRO), PRO)
-    assert.ok(KNOWN_MODELS.includes(PRO))
-  })
+  for (const [pro, base] of MODES) {
+    it(`${pro}: priced like ${base} — pro spends more tokens, not more per token`, () => {
+      assert.equal(calculateCost(pro, million()), calculateCost(base, million()))
+      assert.equal(getMaxTokens(pro), getMaxTokens(base))
+      // A row of its own, not an alias: the two answer differently, so they
+      // must not share a cache dir.
+      assert.equal(resolveModel(pro), pro)
+      assert.ok(KNOWN_MODELS.includes(pro))
+    })
 
-  it('names astra as its wire model and pro as its reasoning mode', () => {
-    assert.equal(wireModelFor(PRO), ASTRA)
-    assert.equal(reasoningModeFor(PRO), 'pro')
-  })
+    it(`${pro}: names ${base} as its wire model and pro as its mode`, () => {
+      assert.equal(wireModelFor(pro), base)
+      assert.equal(reasoningModeFor(pro), 'pro')
+      // And the base is not itself a mode of anything.
+      assert.equal(wireModelFor(base), base)
+      assert.equal(reasoningModeFor(base), undefined)
+    })
+  }
+
+  for (const pro of OWN_MODEL) {
+    it(`${pro}: a model of its own rather than a mode`, () => {
+      assert.equal(wireModelFor(pro), pro)
+      assert.equal(reasoningModeFor(pro), undefined)
+      // Priced far above the row it is named after, which is the thing that
+      // says it is a different model rather than the same one thinking harder.
+      assert.ok(calculateCost(pro, million()) > calculateCost(pro.replace('-pro', ''), million()), pro)
+    })
+  }
 
   it('leaves every other row its own wire model, with no mode', () => {
-    for (const model of [ASTRA, 'openai/gpt-5.6-sol', 'anthropic/claude-opus-5', 'nobody/nothing']) {
+    for (const model of ['anthropic/claude-opus-5', 'openai/gpt-4.1-mini', 'nobody/nothing']) {
       assert.equal(wireModelFor(model), model, model)
       assert.equal(reasoningModeFor(model), undefined, model)
     }
