@@ -8,6 +8,7 @@ import {
   buildInitialUserMessage,
   buildRequestBody,
   buildRequestHeaders,
+  buildRequestUrl,
   checkResponse,
   extractResponseText,
   extractToolCalls,
@@ -1205,6 +1206,7 @@ describe('gateway — Anthropic and OpenAI natively, everything else like openro
 })
 
 describe('ollama adapter — local builds, addressed by tag', () => {
+  const MODEL = 'google/gemma-4-31b-it'
   const messages = [{ role: 'user', content: 'hi' }]
 
   // Unlike every other adapter, this one must select with NO key: a local
@@ -1249,13 +1251,25 @@ describe('ollama adapter — local builds, addressed by tag', () => {
     })
   })
 
+  it('sends a plain system message for a qwen row, which reads no breakpoint here', () => {
+    withOllama(() => {
+      // readsExplicitBreakpoint keys on the `qwen/` namespace, which the local
+      // builds share with the hosted rows — so the shared chat-completions
+      // shape would post Anthropic's cache_control blocks to a server that has
+      // no prompt cache and does not know the dialect.
+      const body = buildRequestBody('qwen/qwen3.6-27b-q4_k_m', 1000, 'sys', messages)
+      assert.deepEqual(body.messages[0], { role: 'system', content: 'sys' })
+      assert.equal(JSON.stringify(body).includes('cache_control'), false, JSON.stringify(body))
+    })
+  })
+
   it('refuses a model it has no local build for, naming the ones it has', () => {
     withOllama(() => {
       // Rather than posting a registry id no Ollama server has ever heard of
       // and reporting whatever 404 comes back.
       assert.throws(
         () => buildRequestBody('anthropic/claude-opus-5', 1000, 'sys', messages),
-        /no local build for anthropic\/claude-opus-5. Use one of: google\/gemma-4-12b-it/u,
+        /no local build for anthropic\/claude-opus-5\. Use one of: .*google\/gemma-4-12b-it/u,
       )
     })
   })
@@ -1282,21 +1296,27 @@ describe('ollama adapter — local builds, addressed by tag', () => {
     })
   })
 
-  it('defaults to a local server, and follows OLLAMA_API_URL elsewhere', async () => {
-    assert.equal(
-      await withProvidersEnv({ OLLAMA_API_URL: undefined }, (mod) => {
-        mod.setProvider('ollama')
-        return mod.getProvider().url
-      }),
-      'http://127.0.0.1:11434/v1/chat/completions',
-    )
-    assert.equal(
-      await withProvidersEnv({ OLLAMA_API_URL: 'http://box.local:11434' }, (mod) => {
-        mod.setProvider('ollama')
-        return mod.getProvider().url
-      }),
-      'http://box.local:11434/v1/chat/completions',
-    )
+  it('defaults to a local server, and follows OLLAMA_API_URL elsewhere', () => {
+    withOllama(() => {
+      assert.equal(buildRequestUrl(MODEL), 'http://127.0.0.1:11434/v1/chat/completions')
+    })
+  })
+
+  it('resolves that URL per request, so the turn and the tag probe agree', () => {
+    // The other adapters read their origin once, at module load. This one
+    // cannot: src/ollama.js reads OLLAMA_API_URL when it probes, so a URL
+    // frozen at import would have the probe asking one server what it has
+    // and the turn posting the answer to another.
+    withOllama(() => {
+      const previous = process.env.OLLAMA_API_URL
+      process.env.OLLAMA_API_URL = 'http://box.local:11434'
+      try {
+        assert.equal(buildRequestUrl(MODEL), 'http://box.local:11434/v1/chat/completions')
+      } finally {
+        if (previous === undefined) delete process.env.OLLAMA_API_URL
+        else process.env.OLLAMA_API_URL = previous
+      }
+    })
   })
 
   it('sends a Bearer only when one is configured, for an Ollama behind a proxy', async () => {

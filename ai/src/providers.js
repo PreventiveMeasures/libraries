@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { CHROME_SHAPE, chromePreflight, closeChrome, sendChromeTurn } from './chrome/index.js'
 import { fetchJSON } from './fetch.js'
-import { resolveOllamaTag } from './ollama.js'
+import { ollamaOrigin, resolveOllamaTag } from './ollama.js'
 import { calculateCost, effortsFor, ollamaModels, ollamaTagFor, reasoningModeFor, wireModelFor } from './models.js'
 import { anthropicAuthHeader, anthropicShape, chatCompletionsBase, parseArgs, stripNamespace, toAnthropicModel, truncationError } from './wire-formats.js'
 
@@ -301,13 +301,17 @@ const ADAPTERS = {
   // this machine. Local and keyless: OLLAMA_API_KEY exists only for one
   // reached through a proxy that wants auth.
   ollama: {
-    ...CHAT_COMPLETIONS_SHAPE,
+    // Not CHAT_COMPLETIONS_SHAPE: that one marks a reusable prefix for the
+    // routes whose vendors read one, and a local server reads none. Several
+    // rows here are qwen/*, which would otherwise be sent Anthropic's
+    // cache_control blocks by an endpoint that has no prompt cache at all.
+    ...chatCompletionsBase('max_completion_tokens'),
     // The rows it serves are hosted models too, and priced as such. Nothing
     // leaves the machine here, so the table's rate is the wrong answer.
     runsLocally: true,
-    // Same origin/path split as OPENAI_API_URL and OPENROUTER_API_URL, so
-    // one variable moves the whole endpoint — a remote Ollama, or a tunnel.
-    url: (process.env.OLLAMA_API_URL || 'http://127.0.0.1:11434') + '/v1/chat/completions',
+    // Resolved per request rather than at module load, so this and the tag
+    // probe in src/ollama.js always agree on which server is being asked.
+    urlFor: () => `${ollamaOrigin()}/v1/chat/completions`,
     apiUrlEnv: 'OLLAMA_API_URL',
     apiKey: () => process.env.OLLAMA_API_KEY,
     // Omitted rather than sent empty: a local server rejects nothing, but a
@@ -320,13 +324,19 @@ const ADAPTERS = {
     preflight: () => process.env.OLLAMA_API_KEY ?? null,
 
     // Ollama addresses a model by tag and keeps one per precision, so what
-    // goes on the wire is never the registry id. Everything else about the
-    // body is the shared chat-completions shape, which is why only the name
-    // is replaced here.
-    buildRequestBody(model, ...rest) {
+    // goes on the wire is never the registry id.
+    buildRequestBody(model, maxTokens, systemPrompt, messages, { think = false, effort, tools } = {}) {
       const tag = ollamaTagFor(model)
       assert.ok(tag, `Provider \`ollama\` has no local build for ${model}. Use one of: ${ollamaModels().join(', ')}`)
-      return { ...CHAT_COMPLETIONS_SHAPE.buildRequestBody(model, ...rest), model: tag }
+      const body = {
+        model: tag,
+        max_completion_tokens: maxTokens,
+        messages: [{ role: 'system', content: systemPrompt }, ...messages],
+      }
+      if (tools) body.tools = tools.map(toChatCompletionsTool)
+      const level = resolveEffort({ think, effort, model })
+      if (level) body.reasoning_effort = level
+      return body
     },
 
     // Some tags have a twin that is the same model with speculative decoding

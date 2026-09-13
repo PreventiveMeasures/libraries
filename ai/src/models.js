@@ -50,11 +50,11 @@ const MODELS = new Map([
   ['openai/gpt-6-astra', { input: 10, output: 50, maxTokens: 128_000, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
   ['openai/gpt-6-astra-pro', { input: 10, output: 50, maxTokens: 128_000, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true, wireModel: 'openai/gpt-6-astra', reasoningMode: 'pro' }],
   ['openai/gpt-5.6-sol', { input: 5, output: 30, maxTokens: 128_000, canThink: true, efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
-  ['openai/gpt-5.6-sol-pro', { input: 5, output: 30, maxTokens: 128_000, canThink: true, efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true, wireModel: 'openai/gpt-5.6-sol', reasoningMode: 'pro' }],
+  ['openai/gpt-5.6-sol-pro', { input: 5, output: 30, maxTokens: 128_000, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true, wireModel: 'openai/gpt-5.6-sol', reasoningMode: 'pro' }],
   ['openai/gpt-5.6-terra', { input: 2.5, output: 15, maxTokens: 128_000, canThink: true, efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
-  ['openai/gpt-5.6-terra-pro', { input: 2.5, output: 15, maxTokens: 128_000, canThink: true, efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true, wireModel: 'openai/gpt-5.6-terra', reasoningMode: 'pro' }],
+  ['openai/gpt-5.6-terra-pro', { input: 2.5, output: 15, maxTokens: 128_000, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true, wireModel: 'openai/gpt-5.6-terra', reasoningMode: 'pro' }],
   ['openai/gpt-5.6-luna', { input: 1, output: 6, maxTokens: 128_000, canThink: true, efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
-  ['openai/gpt-5.6-luna-pro', { input: 1, output: 6, maxTokens: 128_000, canThink: true, efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true, wireModel: 'openai/gpt-5.6-luna', reasoningMode: 'pro' }],
+  ['openai/gpt-5.6-luna-pro', { input: 1, output: 6, maxTokens: 128_000, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true, wireModel: 'openai/gpt-5.6-luna', reasoningMode: 'pro' }],
   ['openai/gpt-5.5', { input: 2.5, output: 15, maxTokens: 128 * 1024, canThink: true, efforts: EFFORTS_THROUGH_XHIGH }],
   ['openai/gpt-5.5-pro', { input: 30, output: 180, maxTokens: 128 * 1024, canThink: true, efforts: EFFORTS_THROUGH_XHIGH }],
   ['openai/gpt-5.4', { input: 2.5, output: 15, maxTokens: 128 * 1024, canThink: true, efforts: EFFORTS_THROUGH_XHIGH }],
@@ -80,17 +80,25 @@ const MODELS = new Map([
   // little cheaper but reports its own per-request cost, which wins over this
   // table, so one row serves both routes. `maxTokens` is the output default.
   ['moonshotai/kimi-k3', { input: 3, output: 15, maxTokens: 131_072, canThink: true, noThink: 'unsupported', efforts: ['low', 'high', 'max'] }],
-  // Chrome's built-in on-device models — served by the browser, so zero at
-  // every rate (not `free`, which means a hosted model that may train on what
-  // it is sent). `baseModel`/`specNames`/`modelVersion`/`component` are
-  // Chrome's own spellings, read in src/chrome/.
-  ['chrome/gemini-nano-v3', { input: 0, output: 0, maxTokens: 4096, baseModel: 'nano_v3', specNames: ['v3Nano'], modelVersion: 'v3', component: 'nano_v3_gpu_component' }],
-  ['chrome/gemma-4-e2b-it', { input: 0, output: 0, maxTokens: 4096, baseModel: 'gemma4_2b', specNames: ['gemma4-2b-it'], modelVersion: 'v4', component: 'gemma4_component' }],
-  ['chrome/gemma-4-e4b-it', { input: 0, output: 0, maxTokens: 4096, baseModel: 'gemma4_4b', specNames: ['gemma-4-E4B-it'], modelVersion: 'v4_4b', component: 'gemma4_4b_component' }],
-  ['chrome/gemma-4-12b-it', { input: 0, output: 0, maxTokens: 4096, baseModel: 'gemma4_12b', modelVersion: 'v4_12b', component: 'gemma4_12b_component' }],
+  // Chrome's built-in on-device models. Unpriced like every other local row:
+  // nobody sells them, and the provider says a local run costs nothing.
+  // `baseModel`/`specNames`/`modelVersion`/`component` are Chrome's own
+  // spellings, read in src/chrome/.
+  ['chrome/gemini-nano-v3', { maxTokens: 4096, baseModel: 'nano_v3', specNames: ['v3Nano'], modelVersion: 'v3', component: 'nano_v3_gpu_component' }],
+  ['chrome/gemma-4-e2b-it', { maxTokens: 4096, baseModel: 'gemma4_2b', specNames: ['gemma4-2b-it'], modelVersion: 'v4', component: 'gemma4_component' }],
+  ['chrome/gemma-4-e4b-it', { maxTokens: 4096, baseModel: 'gemma4_4b', specNames: ['gemma-4-E4B-it'], modelVersion: 'v4_4b', component: 'gemma4_4b_component' }],
+  ['chrome/gemma-4-12b-it', { maxTokens: 4096, baseModel: 'gemma4_12b', modelVersion: 'v4_12b', component: 'gemma4_12b_component' }],
   // Local builds Ollama serves. No price: nobody sells them today, and a
   // zero would quietly become wrong the day one of them is listed. One id per
   // build, because the weights differ and so do the answers.
+  ['google/gemma-4-e2b-it', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-e2b-it-q8_0', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-e2b-it-q4_k_m', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-e2b-it-qat', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-e4b-it', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-e4b-it-q8_0', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-e4b-it-q4_k_m', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-e4b-it-qat', { maxTokens: 128 * 1024, canThink: true }],
   ['google/gemma-4-12b-it', { maxTokens: 128 * 1024, canThink: true }],
   ['google/gemma-4-12b-it-q8_0', { maxTokens: 128 * 1024, canThink: true }],
   ['google/gemma-4-12b-it-q4_k_m', { maxTokens: 128 * 1024, canThink: true }],
@@ -351,9 +359,17 @@ export function componentFor(baseModel) {
 // Tag names are Ollama's own and not always literal — several `-bf16` tags
 // hold F16. Ours follow the tag, since the tag is what gets pulled.
 const OLLAMA_TAGS = new Map([
+  ['google/gemma-4-e2b-it', 'gemma4:e2b-it-bf16'], // 10GB
+  ['google/gemma-4-e2b-it-q8_0', 'gemma4:e2b-it-q8_0'], // 8.1GB
+  ['google/gemma-4-e2b-it-q4_k_m', 'gemma4:e2b-it-q4_K_M'], // 7.2GB, identical to gemma4:e2b
+  ['google/gemma-4-e2b-it-qat', 'gemma4:e2b-it-qat'], // 4.3GB
+  ['google/gemma-4-e4b-it', 'gemma4:e4b-it-bf16'], // 16GB
+  ['google/gemma-4-e4b-it-q8_0', 'gemma4:e4b-it-q8_0'], // 12GB
+  ['google/gemma-4-e4b-it-q4_k_m', 'gemma4:e4b-it-q4_K_M'], // 9.6GB, identical to gemma4:e4b
+  ['google/gemma-4-e4b-it-qat', 'gemma4:e4b-it-qat'], // 6.1GB
   ['google/gemma-4-12b-it', 'gemma4:12b-it-bf16'], // 24GB
   ['google/gemma-4-12b-it-q8_0', 'gemma4:12b-it-q8_0'], // 13GB
-  ['google/gemma-4-12b-it-q4_k_m', 'gemma4:12b-it-q4_K_M'], // 7.6GB
+  ['google/gemma-4-12b-it-q4_k_m', 'gemma4:12b-it-q4_K_M'], // 7.6GB, identical to gemma4:12b
   ['google/gemma-4-12b-it-qat', 'gemma4:12b-it-qat'], // 7.2GB
   ['google/gemma-4-26b-a4b-it', 'gemma4:26b-a4b-it-bf16'], // 52GB
   ['google/gemma-4-26b-a4b-it-q8_0', 'gemma4:26b-a4b-it-q8_0'], // 28GB

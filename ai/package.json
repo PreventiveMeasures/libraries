@@ -24,6 +24,7 @@
     "src/chrome/wire.js",
     "src/fetch.js",
     "src/models.js",
+    "src/ollama.js",
     "src/prefix-gate.js",
     "src/prompt-cache.js",
     "src/providers.js",

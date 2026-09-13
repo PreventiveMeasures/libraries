@@ -9,8 +9,8 @@ import process from 'node:process'
 import { createInterface } from 'node:readline/promises'
 import { parseArgs, styleText } from 'node:util'
 import {
-  DEFAULT_MODEL, KNOWN_MODELS, calculateCost, chat, closeProvider, getMaxTokens,
-  isRecognizedModel, resolveModel, resolveThinkEffort, setProvider,
+  DEFAULT_MODEL, KNOWN_MODELS, chat, closeProvider, getMaxTokens,
+  isRecognizedModel, resolveModel, resolveThinkEffort, setProvider, turnCost,
 } from '../index.js'
 
 const USAGE = `Usage: scripts/chat.js [options] [prompt]
@@ -251,7 +251,7 @@ function reportTools(calls) {
 }
 
 function report({ model, provider, usage, elapsed }) {
-  const cost = usage.cost > 0 ? usage.cost : (calculateCost(model, usage) ?? 0)
+  const cost = usage.cost > 0 ? usage.cost : (turnCost(model, usage) ?? 0)
   const line = [
     `${provider}:${model}`,
     `${(elapsed / 1000).toFixed(1)}s`,

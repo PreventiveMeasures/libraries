@@ -441,6 +441,13 @@ describe('openai pro rows', () => {
       assert.ok(KNOWN_MODELS.includes(pro))
     })
 
+    it(`${pro}: refuses --no-think, since pro mode has no off switch`, () => {
+      // providers.js emits reasoning.mode whenever the row names one, think
+      // or not. Without this the flag is waved through and the caller is
+      // billed pro-mode reasoning on a run they asked to be non-thinking.
+      assert.equal(canDisableThink(pro), false)
+    })
+
     it(`${pro}: names ${base} as its wire model and pro as its mode`, () => {
       assert.equal(wireModelFor(pro), base)
       assert.equal(reasoningModeFor(pro), 'pro')

@@ -28,7 +28,7 @@ export { chat, isResumableHistory, logTurnCost, normalizeUsage } from './src/cha
 // format wrote it. `closeProvider` releases whatever the active one holds
 // open — only `chrome` holds anything, a browser, but a caller ending a run
 // can call it without knowing which provider it picked.
-export { setProvider, closeProvider, providerStamp, extractResponseText } from './src/providers.js'
+export { setProvider, closeProvider, providerStamp, extractResponseText, turnCost } from './src/providers.js'
 
 // The transport under those requests: how many are in flight at once, and
 // how often a transient upstream failure is re-asked.
