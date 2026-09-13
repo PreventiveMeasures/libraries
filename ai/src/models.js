@@ -61,6 +61,7 @@ const MODELS = new Map([
   ['google/gemini-3.1-pro-preview', { input: 2, output: 12, maxTokens: 64 * 1024 }],
   ['nvidia/nemotron-3-super-120b-a12b', { input: 0.1, output: 0.5, maxTokens: 128 * 1024 }],
   ['nvidia/nemotron-3-ultra-550b-a55b', { input: 0.625, output: 3.125, maxTokens: 128 * 1024, canThink: true }],
+  ['nvidia/nemotron-3.5-lightning', { input: 0.08, output: 0.2, maxTokens: 128 * 1024, canThink: true }],
   ['qwen/qwen3.6-27b', { input: 0.3, output: 2, maxTokens: 64 * 1024, canThink: true }],
   ['qwen/qwen3.6-35b-a3b', { input: 0.1, output: 0.9, maxTokens: 64 * 1024, canThink: true }],
   ['qwen/qwen3.8-27b', { input: 0.214, output: 2.55, maxTokens: 64 * 1024, canThink: true }],
@@ -97,11 +98,14 @@ const MODELS = new Map([
   ['qwen/qwen3.6-35b-a3b-q4_k_m', { maxTokens: 64 * 1024, canThink: true }],
   ['qwen/qwen3.8-27b-bf16', { maxTokens: 64 * 1024, canThink: true }],
   ['qwen/qwen3.8-27b-q4_k_m', { maxTokens: 64 * 1024, canThink: true }],
+  ['nvidia/nemotron-3.5-lightning-q8_0', { maxTokens: 128 * 1024, canThink: true }],
+  ['nvidia/nemotron-3.5-lightning-q4_k_m', { maxTokens: 128 * 1024, canThink: true }],
   // Free models — may log/store/use your data
   ['openai/gpt-oss-120b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['openai/gpt-oss-20b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['nvidia/nemotron-3-super-120b-a12b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['nvidia/nemotron-3-ultra-550b-a55b:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, free: true }],
+  ['nvidia/nemotron-3.5-lightning:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, free: true }],
   ['qwen/qwen3-coder:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['qwen/qwen3.6-plus:free', { input: 0, output: 0, maxTokens: 64 * 1024, free: true }],
   ['google/gemma-4-31b-it:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, free: true }],
@@ -357,6 +361,9 @@ const OLLAMA_TAGS = new Map([
   ['qwen/qwen3.8-27b', 'qwen3.8:27b-q8_0'], // 30GB
   ['qwen/qwen3.8-27b-bf16', 'qwen3.8:27b-bf16'], // 56GB
   ['qwen/qwen3.8-27b-q4_k_m', 'qwen3.8:27b-q4_K_M'], // 18GB
+  ['nvidia/nemotron-3.5-lightning', 'nemotron-3.5-lightning:30b-a3b-bf16'], // 66GB
+  ['nvidia/nemotron-3.5-lightning-q8_0', 'nemotron-3.5-lightning:30b-a3b-q8_0'], // 35GB
+  ['nvidia/nemotron-3.5-lightning-q4_k_m', 'nemotron-3.5-lightning:30b-a3b-q4_K_M'], // 25GB
 ])
 
 // Undefined for a model Ollama has no mapping for, which is what tells the

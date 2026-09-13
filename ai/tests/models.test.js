@@ -265,37 +265,43 @@ describe('claude fable 5.1', () => {
   })
 })
 
-describe('nemotron 3 ultra', () => {
-  const ULTRA = 'nvidia/nemotron-3-ultra-550b-a55b'
-  const FREE = `${ULTRA}:free`
+// Both nemotron pairs are the same shape: a paid route and a free one that
+// may log what it is sent, thinking on both, and no effort ladder claimed for
+// either — OpenRouter reports reasoning_effort on neither, and an unnarrowed
+// row passes whatever the caller asks rather than rejecting a level the model
+// may well take.
+describe('nemotron paid/free pairs', () => {
+  const PAIRS = [
+    ['nvidia/nemotron-3-ultra-550b-a55b', 0.625, 3.125],
+    ['nvidia/nemotron-3.5-lightning', 0.08, 0.2],
+  ]
 
-  it('registers the paid rate, and the free route at nothing', () => {
-    const million = { ...emptyUsage(), input: 1_000_000, output: 1_000_000 }
-    assert.equal(calculateCost(ULTRA, million), 0.625 + 3.125)
-    assert.equal(calculateCost(FREE, million), 0)
-    assert.equal(getMaxTokens(ULTRA), 128 * 1024)
-    for (const model of [ULTRA, FREE]) assert.ok(KNOWN_MODELS.includes(model), model)
-  })
+  for (const [paid, input, output] of PAIRS) {
+    const free = `${paid}:free`
 
-  it('thinks on both routes, with no effort ladder claimed for either', () => {
-    // OpenRouter reports reasoning on both and reasoning_effort on the paid
-    // route only, so neither row narrows the levels: an unnarrowed row passes
-    // whatever the caller asks for rather than rejecting a level it may take.
-    for (const model of [ULTRA, FREE]) {
-      assert.equal(canThink(model), true, model)
-      assert.equal(effortsFor(model), undefined, model)
-      assert.deepEqual(normalizeThinkEffort(model, true), { useThink: true, useEffort: 'high' }, model)
-    }
-  })
+    it(`${paid}: registers the paid rate, and the free route at nothing`, () => {
+      const million = { ...emptyUsage(), input: 1_000_000, output: 1_000_000 }
+      assert.equal(calculateCost(paid, million), input + output)
+      assert.equal(calculateCost(free, million), 0)
+      assert.equal(getMaxTokens(paid), 128 * 1024)
+      for (const model of [paid, free]) assert.ok(KNOWN_MODELS.includes(model), model)
+    })
 
-  it('gates the free route behind --free, and the paid one against it', () => {
-    // They differ by more than price: a free route may log and train on what
-    // it is sent, which is what the flag exists to make deliberate.
-    assert.doesNotThrow(() => validateModel(ULTRA))
-    assert.throws(() => validateModel(ULTRA, { free: true }), /is not free/u)
-    assert.doesNotThrow(() => validateModel(FREE, { free: true }))
-    assert.throws(() => validateModel(FREE), /requires --free/u)
-  })
+    it(`${paid}: thinks on both routes, with no effort ladder claimed`, () => {
+      for (const model of [paid, free]) {
+        assert.equal(canThink(model), true, model)
+        assert.equal(effortsFor(model), undefined, model)
+        assert.deepEqual(normalizeThinkEffort(model, true), { useThink: true, useEffort: 'high' }, model)
+      }
+    })
+
+    it(`${paid}: gates the free route behind --free, and the paid one against it`, () => {
+      assert.doesNotThrow(() => validateModel(paid))
+      assert.throws(() => validateModel(paid, { free: true }), /is not free/u)
+      assert.doesNotThrow(() => validateModel(free, { free: true }))
+      assert.throws(() => validateModel(free), /requires --free/u)
+    })
+  }
 })
 
 describe('satellite tables name real registry rows', () => {
