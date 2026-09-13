@@ -195,14 +195,11 @@ export async function openTab(browser, profile, debug) {
   }
 }
 
-// A cold profile registers the component and loads the weights inside the
-// first create(), which is tens of seconds. Handed to the page rather than
-// written there because page.evaluate() has no timeout of its own, so an
-// unbounded create hangs the caller for as long as the browser lives.
+// page.evaluate() has no timeout of its own, so the bound travels to the page
+// with the request.
 const CREATE_TIMEOUT_MS = 120_000
 
-// What the page is asked for, out here so the bound is something a test can
-// read: dropped, it is production alone that goes back to waiting forever.
+// Out here so a test can read the bound production sends.
 export function turnRequest(body) {
   return { ...body, createTimeoutMs: CREATE_TIMEOUT_MS }
 }
@@ -295,23 +292,20 @@ export async function turnInPage(req) {
   const createStarted = performance.now()
   let createdAt = 0
   try {
-    // The first create of a run also loads the model, so this is where a cold
-    // profile spends its tens of seconds — and where one that never comes up
-    // would otherwise wait forever.
+    // The first create of a run is the load, and so the tens of seconds.
     const creating = LanguageModel.create({
       initialPrompts: req.initialPrompts,
       // Without this Chrome warns "An output language should be specified to
       // ensure optimal output quality and properly attest to output safety."
       expectedOutputs: [{ type: 'text', languages: [req.language] }],
     })
-    // Unbounded without one, which is how a caller driving this against a
-    // stub gets the race out of the way.
+    // Unbounded without one, so a stub need not supply it.
     const expired = new Promise((resolve) => {
       if (req.createTimeoutMs > 0) setTimeout(() => resolve('timeout'), req.createTimeoutMs)
     })
     const created = await Promise.race([creating, expired])
     if (created === 'timeout') {
-      // Still running, and a session nothing holds is one nothing can destroy.
+      // A session nothing holds is one nothing can destroy.
       creating.then((late) => late.destroy(), () => {})
       return { error: { message: `create never settled within ${req.createTimeoutMs / 1000}s` } }
     }
@@ -372,9 +366,7 @@ export async function sendChromeTurn(model, body, { debug, label } = {}) {
     const result = await tab.evaluate(turnInPage, turnRequest(body))
     if (result.error?.availability) explainCreateFailure(result.error, model, baseModel)
     if (debug) {
-      // The first turn of a run registers the component and loads the weights
-      // inside create, which is why it dwarfs every later one; prompt is the
-      // only number that is the model working.
+      // The first turn pays the load inside create; prompt is the model working.
       console.debug(`[chrome] create=${result.createMs ?? '-'}ms prompt=${result.promptMs ?? '-'}ms`)
     }
     return toChatCompletions(result, Boolean(body.responseConstraint))

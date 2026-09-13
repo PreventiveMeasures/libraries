@@ -230,11 +230,10 @@ function missingModelMessage(baseModel, all) {
     ? all.map((m) => `${declaredSpec(m.dir) ?? 'unnamed'} at ${m.dir}`).join('; ')
     : 'nothing'
   return (
-    `Chrome has no on-device model for ${baseModel}. Open Chrome, go to chrome://on-device-internals, ` +
-    'and request it there — this provider reuses what Chrome has downloaded and will not download a ' +
-    `copy of its own. Installed instead: ${found}. ` +
-    `If one of those IS ${baseModel}, Chrome has renamed it: the expected names are ` +
-    `${wanted.map((n) => `"${n}"`).join(' or ')}, so add the new one to specNames in models.js, ` +
+    `Chrome has no on-device model for ${baseModel}. Open chrome://on-device-internals in Chrome ` +
+    `and request it there. Installed instead: ${found}. ` +
+    `If one of those IS ${baseModel}, it has been renamed: expected ` +
+    `${wanted.map((n) => `"${n}"`).join(' or ')} — add the new name to specNames in models.js, ` +
     'or point CHROME_MODEL_DIR at the directory.'
   )
 }
@@ -245,7 +244,7 @@ function missingModelMessage(baseModel, all) {
 export function chromePreflight() {
   assert.ok(
     findModelDir(),
-    `No on-device model found under ${MODEL_COMPONENTS[0]}. Open Chrome, visit chrome://on-device-internals and let it download the model, then retry — this provider will not download a second copy. Set CHROME_MODEL_DIR to point at an existing one.`,
+    'No on-device model found. Open chrome://on-device-internals in Chrome and download the model, or set CHROME_MODEL_DIR to an existing one.',
   )
 }
 

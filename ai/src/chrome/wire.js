@@ -136,8 +136,8 @@ export const CHROME_SHAPE = {
 
 
 // Chrome says only "The device is unable to create a session to run the model.
-// Please check the result of availability() first", naming neither the row nor
-// the variant, and suggesting a check that has already been made.
+// Please check the result of availability() first" — neither the row nor the
+// variant, and a check the page has already made.
 export function explainCreateFailure(error, model, baseModel) {
   // That failure and no other: every create() failure carries an availability
   // reading, so gating on one would rewrite an oversized history as a model
@@ -145,17 +145,15 @@ export function explainCreateFailure(error, model, baseModel) {
   if (error.name !== 'InvalidStateError') return
   const version = modelVersionFor(baseModel)
   const useCase = version && version !== 'v3' ? ` (model_version/${version})` : ''
-  // Chrome raises this one both for a session it declines to start and for a
-  // model service that died starting it, so the message names both rather than
-  // picking. Only the second leaves a "Session crashed" behind.
+  // Raised both for a session Chrome declines and for a service that dies
+  // starting one; only the second leaves a "Session crashed" behind.
   const verdict = error.availability === 'available'
-    ? 'availability() reports "available", so nothing is missing: the weights are linked and the ' +
-      'variant is advertised as usable. What failed is running them — either the service refused ' +
-      'the session or it crashed loading it, which is what a model too large for this device does'
+    ? 'availability() reports "available", so nothing is missing — what failed is running the ' +
+      'weights, which is what a model too large for this device looks like'
     : `availability() reports "${error.availability}", so this device will not run the variant`
   error.message =
     `${model} could not start a session${useCase}. ` +
     `Chrome said: ${error.message.replace(/\.$/u, '')}. ` +
-    `${verdict}. Relaunch with CHROME_HEADLESS=0 and read the event log in ` +
-    'chrome://on-device-internals, which names the reason, or use a smaller row.'
+    `${verdict}. The event log in chrome://on-device-internals names the reason ` +
+    '(CHROME_HEADLESS=0 to reach it), or use a smaller row.'
 }

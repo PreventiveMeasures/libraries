@@ -198,7 +198,7 @@ describe('chrome missing model', () => {
     // A machine that happens to HAVE a 12b installed proves nothing here.
     if (!err) { t.skip('this machine has the model'); return }
     assert.match(err.message, /chrome:\/\/on-device-internals/u)
-    assert.match(err.message, /will not download/u)
+    assert.match(err.message, /Installed instead/u)
     // And the escape hatch for a model Chrome merely renamed.
     assert.match(err.message, /specNames/u)
   })
@@ -345,22 +345,19 @@ describe('chrome create failure', () => {
     // Chrome's text is kept rather than replaced — it is the only part that
     // improves if Chrome ever starts explaining itself.
     assert.match(error.message, /unable to create a session/u)
-    // And the weights are not the problem: availability() found them, so
-    // pointing at a missing model sends the reader after the wrong thing.
-    assert.match(error.message, /weights are linked/u)
+    // Not a missing model: availability() found it, so saying otherwise
+    // sends the reader after the wrong thing.
+    assert.match(error.message, /nothing is missing/u)
     assert.match(error.message, /chrome:\/\/on-device-internals/u)
   })
 
   it('says so when availability contradicts the failure', () => {
-    // The case that prompted this: Chrome's message ends "check the result of
-    // availability() first", and availability() answers `available`. Repeating
-    // that advice would send the reader in a circle, so what is left to have
-    // failed is named instead — and Chrome raises this same error whether the
-    // service refused the session or died starting it.
+    // Chrome's message ends "check the result of availability() first", and
+    // availability() answers `available`. Repeating that advice sends the
+    // reader in a circle, so what is left to have failed is named instead.
     const error = refused()
     explainCreateFailure(error, 'chrome/gemma-4-12b-it', 'gemma4_12b')
-    assert.match(error.message, /What failed is running them/u)
-    assert.match(error.message, /crashed loading it/u)
+    assert.match(error.message, /running the weights/u)
     assert.match(error.message, /too\s+large for this device/u)
   })
 
@@ -368,7 +365,7 @@ describe('chrome create failure', () => {
     const error = { ...refused(), availability: 'unavailable' }
     explainCreateFailure(error, 'chrome/gemma-4-12b-it', 'gemma4_12b')
     assert.match(error.message, /will not run the variant/u)
-    assert.doesNotMatch(error.message, /What failed is running them/u)
+    assert.doesNotMatch(error.message, /nothing is missing/u)
   })
 
   it('does not invent a use case for the row that has none', () => {
@@ -394,9 +391,8 @@ describe('chrome create failure', () => {
 
 describe('chrome turn request', () => {
   it('carries a bound on create into the page, alongside the body', () => {
-    // page.evaluate() has none of its own, so this is the only thing between
-    // a model that never comes up and a caller that waits for the browser's
-    // whole lifetime.
+    // page.evaluate() has none of its own, so this is all that stands between
+    // a model that never comes up and a caller that waits for the browser.
     const body = CHROME_SHAPE.buildRequestBody('chrome/gemma-4-e2b-it', 4096, 'sys', [{ role: 'user', content: 'go' }])
     const req = turnRequest(body)
     assert.ok(req.createTimeoutMs > 0, `expected a create bound, got ${req.createTimeoutMs}`)
@@ -1149,7 +1145,7 @@ describe('chrome preflight', () => {
     // model this is the real path; on one with a model, CHROME_MODEL_DIR
     // below proves the other half.
     if (findModelDir()) return t.skip('this machine has an on-device model installed')
-    assert.throws(() => chromePreflight(), /will not download a second copy/u)
+    assert.throws(() => chromePreflight(), /No on-device model found/u)
   })
 
   it('accepts a model dir it is pointed at, and selects the provider', (t) => {
@@ -1245,8 +1241,7 @@ describe('chrome page round-trip', async () => {
   })
 
   it('serves a turn while availability() still says unavailable', { skip }, async () => {
-    // The deadlock a warm-up probe was once added to break, and the reason
-    // there is no availability() gate here: it answers `unavailable` for a
+    // Why there is no availability() gate: it answers `unavailable` for a
     // model that is merely unloaded, and only create() loads one.
     await page.evaluate(`
       globalThis.__creates = 0
@@ -1283,9 +1278,8 @@ describe('chrome page round-trip', async () => {
   })
 
   it('gives up on a create that never settles, and drops the session it was owed', { skip, timeout: 10_000 }, async () => {
-    // page.evaluate() has no timeout of its own, so without this the caller
-    // waits as long as the browser lives. The late session is destroyed
-    // because nothing else holds a reference with which to do it.
+    // Without this the caller waits as long as the browser lives, and the
+    // session that arrives late has nothing left holding it.
     await page.evaluate(`
       globalThis.__destroyed = false
       globalThis.__settle = null
