@@ -388,14 +388,19 @@ export async function invalidResponseError(error, userContent, history, opts) {
   return new Error(error)
 }
 
-// Delete the partial `.json`. Used when a chat finishes in a state
-// we don't want to resume from (format-validation failure with no
-// `.md` written), so the next run doesn't reload a bad conversation.
-export async function clearPartial(userContent, opts) {
+// Delete what is stored at one key: the answer, and the turn history beside it. For a caller that
+// will not stand behind what it got — a response that failed its format check, say — so no later
+// run reads it back or resumes onto it. The record a rejected response leaves under
+// `.invalid.json` is a note for a person rather than part of the entry, and stays.
+export async function deleteCacheEntry(userContent, opts) {
   const { dir, key } = resolveCachePaths(userContent, opts)
-  try {
-    await unlink(join(dir, `${key}.json`))
-  } catch (err) {
-    if (err.code !== 'ENOENT') throw err
+  // `.md` first: it is the entry's existence marker, which is why setCache writes it last. Removing
+  // it first holds the same invariant if only one of the two unlinks lands.
+  for (const name of [`${key}.md`, `${key}.json`]) {
+    try {
+      await unlink(join(dir, name))
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err
+    }
   }
 }

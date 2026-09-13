@@ -7,7 +7,7 @@ import { readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { buildCacheOpts, cacheDir, cacheKey, clearPartial, dropRequestsAfterFirst, getCacheStats, getCached, getPartial, isInvalidEntry, isMaxStringLengthError, setCache, setCacheDir, setInvalid, setPartial, stripThinkingSignatures } from '../src/cache.js'
+import { buildCacheOpts, cacheDir, cacheKey, deleteCacheEntry, dropRequestsAfterFirst, getCacheStats, getCached, getPartial, isInvalidEntry, isMaxStringLengthError, setCache, setCacheDir, setInvalid, setPartial, stripThinkingSignatures } from '../src/cache.js'
 import { listCacheEntries, rehashCache } from '../src/cache-scan.js'
 
 // Somewhere of this run's own. The layer has no default — the caller says
@@ -80,7 +80,7 @@ function uniqueCacheOpts(extra = {}) {
   }
 }
 
-suite('partial cache (getPartial / setPartial / clearPartial)', () => {
+suite('partial cache (getPartial / setPartial / deleteCacheEntry)', () => {
   it('returns null when no partial exists for the key', async () => {
     const opts = uniqueCacheOpts()
     assert.equal(await getPartial('user-content-A', opts), null)
@@ -92,7 +92,7 @@ suite('partial cache (getPartial / setPartial / clearPartial)', () => {
     await setPartial('user-content-B', history, opts)
     const got = await getPartial('user-content-B', opts)
     assert.deepEqual(got, history)
-    await clearPartial('user-content-B', opts)
+    await deleteCacheEntry('user-content-B', opts)
   })
 
   it('setPartial persists only the first entry\'s request across a multi-turn history', async () => {
@@ -107,20 +107,30 @@ suite('partial cache (getPartial / setPartial / clearPartial)', () => {
     assert.equal(got[1].request, null)
     assert.equal(got[2].request, null)
     assert.deepEqual(got[1].messages, [{ role: 'user', content: 'm1' }]) // other fields intact
-    await clearPartial('user-content-F', opts)
+    await deleteCacheEntry('user-content-F', opts)
   })
 
-  it('returns null after clearPartial removes the file', async () => {
+  it('returns null after deleteCacheEntry removes the file', async () => {
     const opts = uniqueCacheOpts()
     await setPartial('user-content-C', [{ request: {}, response: {} }], opts)
-    await clearPartial('user-content-C', opts)
+    await deleteCacheEntry('user-content-C', opts)
     assert.equal(await getPartial('user-content-C', opts), null)
   })
 
-  it('clearPartial is a no-op when the file is already absent', async () => {
+  it('deleteCacheEntry is a no-op when nothing is stored at the key', async () => {
     const opts = uniqueCacheOpts()
-    await clearPartial('user-content-D', opts)  // should not throw
+    await deleteCacheEntry('user-content-D', opts)  // should not throw
     assert.equal(await getPartial('user-content-D', opts), null)
+  })
+
+  it('takes the final entry with it, not only the partial', async () => {
+    // Wider than the clearPartial it replaces: a caller that will not stand behind an answer wants
+    // it out of the final cache too, or the next run reads back the one it rejected.
+    const opts = uniqueCacheOpts()
+    await setCache('user-content-G', 'final result text', [{ request: {}, response: {} }], opts)
+    await deleteCacheEntry('user-content-G', opts)
+    assert.equal(await getCached('user-content-G', opts), null)
+    assert.equal(await getPartial('user-content-G', opts), null)
   })
 
   it('a final cache hit (with .md) suppresses the partial — getCached path wins', async () => {
@@ -180,7 +190,7 @@ suite('bundleId cache keying', () => {
     assert.equal(await getPartial('same-content', base), null)
     // Matching bundleId → hit.
     assert.deepEqual(await getPartial('same-content', { ...base, bundleId: 'bundle-A' }), history)
-    await clearPartial('same-content', { ...base, bundleId: 'bundle-A' })
+    await deleteCacheEntry('same-content', { ...base, bundleId: 'bundle-A' })
   })
 })
 
@@ -407,6 +417,17 @@ suite('setInvalid / .invalid.json', () => {
     assert.equal(await getCached('inv-B', opts), null)
     // Nor as a resumable partial: that reads `<key>.json`, not this.
     assert.equal(await getPartial('inv-B', opts), null)
+  })
+
+  it('outlives the entry beside it being deleted', async () => {
+    // It is a note for a person, not part of what the cache serves, and the reason an answer was
+    // thrown away is worth more once the answer itself is gone.
+    const opts = uniqueCacheOpts()
+    await setCache('inv-D', 'final result text', HISTORY, opts)
+    await setInvalid('inv-D', HISTORY, opts, { reason: 'malformed', text: 'not json' })
+    await deleteCacheEntry('inv-D', opts)
+    assert.equal(await getCached('inv-D', opts), null)
+    assert.equal(JSON.parse(await readFile(invalidPath(opts, 'inv-D'), 'utf8')).reason, 'malformed')
   })
 
   it('overwrites the previous dump for the same key', async () => {

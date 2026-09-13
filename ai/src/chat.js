@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { clearPartial, setPartial, takePartial } from './cache.js'
+import { deleteCacheEntry, setPartial, takePartial } from './cache.js'
 import { addUsage, emptyUsage } from './models.js'
 import { claimPrefix, prefixKey } from './prefix-gate.js'
 import { flattenUserContent } from './prompt-cache.js'
@@ -181,8 +181,8 @@ async function resumeFrom(keyContent, partial, stamp, { debug, label }) {
   if (!history) return null
   if (!isResumableHistory(history, { provider: stamp })) {
     if (debug) console.warn(`[chat] partial for ${label} is malformed or cross-provider; starting fresh`)
-    // Cleared, so the next process doesn't load it under a wrong shape too.
-    await clearPartial(keyContent, partial)
+    // Deleted, so the next process doesn't load it under a wrong shape too.
+    await deleteCacheEntry(keyContent, partial)
     return null
   }
   if (debug) console.debug(`[chat] resuming ${label} from ${history.length} cached turn(s)`)
@@ -193,7 +193,7 @@ async function resumeFrom(keyContent, partial, stamp, { debug, label }) {
 // every entry to be an object with both a `response` (extractResponseText
 // reads it) and a `messages` array (the pre-turn snapshot chat
 // rebuilds the loop state from). One bad entry invalidates the whole
-// partial — resumeFrom clears it and starts fresh rather than risking
+// partial — resumeFrom deletes it and starts fresh rather than risking
 // a mid-replay crash.
 //
 // `provider` (optional): require every entry's `provider` stamp to
