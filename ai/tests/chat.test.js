@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { isResumableHistory } from '../src/chat.js'
+import { ask, isResumableHistory } from '../src/chat.js'
 
 describe('isResumableHistory', () => {
   it('accepts a well-formed history with response + messages on every entry', () => {
@@ -103,5 +103,14 @@ describe('isResumableHistory', () => {
     assert.equal(isResumableHistory(legacy, { provider: 'anthropic' }), false)
     // But with no expected provider supplied, shape alone is enough.
     assert.equal(isResumableHistory(legacy), true)
+  })
+})
+
+describe('ask: options that no longer exist', () => {
+  it('refuses userContentSuffix rather than silently dropping the tail', async () => {
+    await assert.rejects(
+      () => ask({ model: 'anthropic/claude-opus-4.5', maxTokens: 10, systemPrompt: 's', userContent: 'u', userContentSuffix: 'tail' }),
+      /userContentSuffix is gone/u,
+    )
   })
 })

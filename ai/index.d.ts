@@ -215,7 +215,8 @@ export declare function getCacheStats(): { hits: number, misses: number }
 // returned comes back as `value`. Without it nothing is counted.
 //
 // `userContent` may be a list of candidate keys, tried in order: still one
-// request, counted once.
+// request, counted once. The opposite of what a list means to ask(), which
+// joins its blocks into one key — so join them before looking one up here.
 export declare function getCached<T>(userContent: string | string[], opts: CacheOpts, options: {
   validate: (entry: CacheEntry) => T | Promise<T>
 }): Promise<(CacheEntry & { value: Awaited<T> }) | null>

@@ -67,6 +67,8 @@ function anthropicRequestKey(req, model) {
 // round-trips exactly through cacheKey(). Returns null for shapes that
 // don't carry a user message.
 function requestUserContent(req) {
+  // Chrome's Prompt API body: history in `initialPrompts`, the asked turn here.
+  if (typeof req?.prompt === 'string') return req.prompt
   const list = Array.isArray(req?.messages) ? req.messages : (Array.isArray(req?.input) ? req.input : null)
   if (!list) return null
   const user = list.find((m) => m && m.role === 'user')

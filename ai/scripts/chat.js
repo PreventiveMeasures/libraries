@@ -138,10 +138,11 @@ async function main(argv) {
 
   const provider = values.provider ?? PROVIDER_FOR[model.split('/')[0]] ?? 'openrouter'
   // A session is not an idle browser: ten seconds of thinking about what to
-  // type would put a cold start in front of the next line. A minute, rather
-  // than never, so a session left open still lets go. The caller's own
-  // setting still wins.
-  if (values.repl) process.env.CHROME_IDLE_MS ??= '60000'
+  // type would put a cold start in front of the next line, and a tool handler
+  // runs between turns with the same timer counting. A minute, rather than
+  // never, so a session left open still lets go. The caller's own setting
+  // still wins.
+  if (values.repl || values.tools) process.env.CHROME_IDLE_MS ??= '60000'
   try { setProvider(provider) } catch (err) { return fail(`chat.js: ${err.message}\n`) }
 
   // Same reason --think is resolved above rather than left to the wire: a
