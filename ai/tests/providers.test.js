@@ -1203,6 +1203,88 @@ describe('gateway — Anthropic and OpenAI natively, everything else like openro
   })
 })
 
+describe('ollama adapter — local builds, addressed by tag', () => {
+  const messages = [{ role: 'user', content: 'hi' }]
+
+  // Unlike every other adapter, this one must select with NO key: a local
+  // server has no auth, so a helper that supplies a dummy one would test the
+  // opposite of the case that matters.
+  function withOllama(fn) {
+    const previous = process.env.OLLAMA_API_KEY
+    delete process.env.OLLAMA_API_KEY
+    try {
+      setProvider('ollama')
+      fn()
+    } finally {
+      if (previous !== undefined) process.env.OLLAMA_API_KEY = previous
+    }
+  }
+
+  it('selects with no key, and sends no Authorization header', () => {
+    withOllama(() => {
+      const headers = buildRequestHeaders({ model: 'google/gemma-4-26b-a4b-it' })
+      assert.equal(headers.Authorization, undefined)
+      assert.equal(headers['Content-Type'], 'application/json')
+    })
+  })
+
+  it('puts the local tag on the wire, not the registry id', () => {
+    withOllama(() => {
+      // The whole point of the mapping: the id names the model, the tag names
+      // the build, and only the server needs the second.
+      assert.equal(buildRequestBody('google/gemma-4-26b-a4b-it', 1000, 'sys', messages).model, 'gemma4:26b-a4b-it-bf16')
+      assert.equal(buildRequestBody('google/gemma-4-26b-a4b-it-mtp-q4_k_m', 1000, 'sys', messages).model, 'gemma4:26b-a4b-it-mtp-q4_K_M')
+      assert.equal(buildRequestBody('google/gemma-4-31b-it', 1000, 'sys', messages).model, 'gemma4:31b-it-bf16')
+    })
+  })
+
+  it('keeps the rest of the chat-completions body it shares with openrouter', () => {
+    withOllama(() => {
+      const body = buildRequestBody('google/gemma-4-31b-it', 1000, 'sys', messages, { think: true })
+      assert.equal(body.max_completion_tokens, 1000)
+      assert.deepEqual(body.messages[0], { role: 'system', content: 'sys' })
+      assert.deepEqual(body.messages[1], messages[0])
+      assert.equal(body.reasoning_effort, 'high')
+    })
+  })
+
+  it('refuses a model it has no local build for, naming the ones it has', () => {
+    withOllama(() => {
+      // Rather than posting a registry id no Ollama server has ever heard of
+      // and reporting whatever 404 comes back.
+      assert.throws(
+        () => buildRequestBody('anthropic/claude-opus-5', 1000, 'sys', messages),
+        /no local build for anthropic\/claude-opus-5. Use one of: google\/gemma-4-12b-it/u,
+      )
+    })
+  })
+
+  it('defaults to a local server, and follows OLLAMA_API_URL elsewhere', async () => {
+    assert.equal(
+      await withProvidersEnv({ OLLAMA_API_URL: undefined }, (mod) => {
+        mod.setProvider('ollama')
+        return mod.getProvider().url
+      }),
+      'http://127.0.0.1:11434/v1/chat/completions',
+    )
+    assert.equal(
+      await withProvidersEnv({ OLLAMA_API_URL: 'http://box.local:11434' }, (mod) => {
+        mod.setProvider('ollama')
+        return mod.getProvider().url
+      }),
+      'http://box.local:11434/v1/chat/completions',
+    )
+  })
+
+  it('sends a Bearer only when one is configured, for an Ollama behind a proxy', async () => {
+    const headers = await withProvidersEnv({ OLLAMA_API_KEY: 'proxy-token' }, (mod) => {
+      mod.setProvider('ollama')
+      return mod.buildRequestHeaders({ model: 'google/gemma-4-31b-it' })
+    })
+    assert.equal(headers.Authorization, 'Bearer proxy-token')
+  })
+})
+
 describe('base URL overrides — pointing an adapter at a gateway', () => {
   const urlFor = (provider, env) => withProvidersEnv(env, (mod) => {
     mod.setProvider(provider)

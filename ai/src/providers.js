@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { CHROME_SHAPE, chromePreflight, closeChrome, sendChromeTurn } from './chrome/index.js'
 import { fetchJSON } from './fetch.js'
-import { effortsFor, reasoningModeFor, wireModelFor } from './models.js'
+import { effortsFor, ollamaModels, ollamaTagFor, reasoningModeFor, wireModelFor } from './models.js'
 import { anthropicAuthHeader, anthropicShape, chatCompletionsBase, parseArgs, stripNamespace, toAnthropicModel, truncationError } from './wire-formats.js'
 
 export { isMaxTokensTruncation } from './wire-formats.js'
@@ -296,8 +296,38 @@ const ADAPTERS = {
     apiKeyEnv: 'AI_GATEWAY_API_KEY',
   }),
 
-  // Chrome's built-in on-device model — the one adapter with no endpoint and
-  // no key. Its own `preflight` checks for a browser and resident weights in
+  // Ollama's OpenAI-compatible endpoint, serving models already pulled onto
+  // this machine. Local and keyless: OLLAMA_API_KEY exists only for one
+  // reached through a proxy that wants auth.
+  ollama: {
+    ...CHAT_COMPLETIONS_SHAPE,
+    // Same origin/path split as OPENAI_API_URL and OPENROUTER_API_URL, so
+    // one variable moves the whole endpoint — a remote Ollama, or a tunnel.
+    url: (process.env.OLLAMA_API_URL || 'http://127.0.0.1:11434') + '/v1/chat/completions',
+    apiUrlEnv: 'OLLAMA_API_URL',
+    apiKey: () => process.env.OLLAMA_API_KEY,
+    // Omitted rather than sent empty: a local server rejects nothing, but a
+    // proxy in front of one can reject a Bearer with no token after it.
+    authHeader: (key) => (key ? { Authorization: `Bearer ${key}` } : {}),
+    // The default preflight demands a key, which no local server has, so
+    // selection would fail on exactly the machines this is for. Nothing else
+    // is checkable here: whether the tag is pulled is a question only the
+    // server can answer, and it answers it on the first turn.
+    preflight: () => process.env.OLLAMA_API_KEY ?? null,
+
+    // Ollama addresses a model by tag and keeps one per precision, so what
+    // goes on the wire is never the registry id. Everything else about the
+    // body is the shared chat-completions shape, which is why only the name
+    // is replaced here.
+    buildRequestBody(model, ...rest) {
+      const tag = ollamaTagFor(model)
+      assert.ok(tag, `Provider \`ollama\` has no local build for ${model}. Use one of: ${ollamaModels().join(', ')}`)
+      return { ...CHAT_COMPLETIONS_SHAPE.buildRequestBody(model, ...rest), model: tag }
+    },
+  },
+
+  // Chrome's built-in on-device model — the one adapter with no endpoint at
+  // all, and like ollama above, no key. Its own `preflight` checks for a browser and resident weights in
   // place of a URL and a key, and `send` is what routes a turn through the
   // browser instead of fetchJSON. Everything about reaching it is in
   // src/chrome/, behind its index.js.

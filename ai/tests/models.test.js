@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { EFFORT_LEVELS, KNOWN_MODELS, TASK_BUDGET_MODELS, TASK_BUDGET_MODES, calculateCost, canAdaptive, canDisableThink, canEffort, canTaskBudget, canThink, effortsFor, emptyUsage, getMaxTokens, isRecognizedModel, needsExplicitNoThink, normalizeThinkEffort, readsCacheBreakpoint, reasoningModeFor, resolveModel, resolveThinkEffort, unknownModelMessage, validateModel, wireModelFor } from '../src/models.js'
+import { EFFORT_LEVELS, KNOWN_MODELS, TASK_BUDGET_MODELS, TASK_BUDGET_MODES, calculateCost, canAdaptive, canDisableThink, canEffort, canTaskBudget, canThink, effortsFor, emptyUsage, getMaxTokens, isRecognizedModel, needsExplicitNoThink, normalizeThinkEffort, ollamaModels, ollamaTagFor, readsCacheBreakpoint, reasoningModeFor, resolveModel, resolveThinkEffort, unknownModelMessage, validateModel, wireModelFor } from '../src/models.js'
 
 describe('canThink / canEffort', () => {
   it('canThink: false on a model without a thinking capability', () => {
@@ -274,6 +274,50 @@ describe('satellite tables name real registry rows', () => {
   for (const id of TASK_BUDGET_MODELS) {
     it(`TASK_BUDGET_MODELS: ${id}`, () => assert.ok(KNOWN_MODELS.includes(id), id))
   }
+
+  // Same hazard, and worse: an id here that no row answers to would send the
+  // adapter looking up a tag it can never find, so the provider refuses a
+  // model the table says it serves.
+  for (const id of ollamaModels()) {
+    it(`OLLAMA_TAGS: ${id}`, () => assert.ok(KNOWN_MODELS.includes(id), id))
+  }
+})
+
+describe('ollama tags — one local build per row', () => {
+  const entries = ollamaModels().map((id) => [id, ollamaTagFor(id)])
+
+  it('has entries to check', () => {
+    assert.ok(entries.length > 5, `expected a mapping, found ${entries.length}`)
+  })
+
+  it('names a distinct tag per row', () => {
+    // Two rows on one tag would be two ids for one set of weights, which is
+    // the confusion the per-precision ids exist to end.
+    const tags = entries.map(([, tag]) => tag)
+    assert.equal(new Set(tags).size, tags.length, tags.join(', '))
+  })
+
+  // The naming rule, both directions at once: the bare `-it` id is the bf16
+  // build and nothing else is, so a plain id always gets the reference
+  // precision and a quantized build always says so in its own name.
+  for (const [id, tag] of entries) {
+    it(`${id} -> ${tag}`, () => {
+      assert.ok(tag.startsWith('gemma4:'), tag)
+      assert.ok(tag.includes('-it-'), `no quantization in ${tag}`)
+      const quant = tag.slice(tag.lastIndexOf('-it-') + 4)
+      assert.equal(id.endsWith('-it'), quant === 'bf16', `${id} vs ${quant}`)
+      if (quant !== 'bf16') assert.ok(id.endsWith(`-${quant.toLowerCase()}`), `${id} vs ${quant}`)
+    })
+  }
+
+  it('prices the local-only builds at nothing', () => {
+    // The bare `-it` ids are hosted rows too and keep their hosted price —
+    // running one through ollama reports what it would have cost hosted.
+    const million = { ...emptyUsage(), input: 1_000_000, output: 1_000_000 }
+    for (const [local] of entries.filter(([id]) => !id.endsWith('-it'))) {
+      assert.equal(calculateCost(local, million), 0, local)
+    }
+  })
 })
 
 describe('gpt-6 astra', () => {
