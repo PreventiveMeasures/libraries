@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { describe, it } from 'node:test'
 
-import { ollamaAlternativeFor, ollamaAlternatives, ollamaModels, ollamaTagFor } from '../src/models.js'
+import { ollamaEquivalents, ollamaModels, ollamaTagFor } from '../src/models.js'
 import { forgetInstalledTags, installedTags, preferredTag, resolveOllamaTag } from '../src/ollama.js'
 
 // A stand-in Ollama, listing whatever the case wants installed. A real socket
@@ -56,39 +56,38 @@ describe('ollama alternatives — the same model under another tag', () => {
   const PLAIN = 'qwen3.6:35b-a3b-bf16'
   const TWIN = 'qwen3.6:35b-a3b-mtp-bf16'
 
-  it('every alternative stands in for a tag the map actually uses', () => {
-    // A key no row maps to could never fire, and would read as coverage the
-    // provider does not have.
-    const used = new Set(ollamaModels().map((id) => ollamaTagFor(id)))
-    for (const [tag, alternatives] of ollamaAlternatives()) {
-      assert.ok(used.has(tag), `${tag} is an alternative for a tag nothing maps to`)
-      assert.ok(alternatives.length > 0, `${tag} has an empty alternative list`)
-      for (const alternative of alternatives) {
-        assert.ok(!used.has(alternative), `${alternative} is both an alternative and a mapped tag`)
-        assert.equal(alternative.split(':')[0], tag.split(':')[0], `${alternative} is not in ${tag}'s library`)
+  // Every name a row lists after its own is a claim that the two answer
+  // alike, since a substitution shares the caller's id and cache entry.
+  const rows = () => ollamaModels().map((id) => ollamaEquivalents(ollamaTagFor(id)))
+
+  it('lists only names that are the same build under another name', () => {
+    const own = new Set(ollamaModels().map((id) => ollamaTagFor(id)))
+    for (const [tag, ...others] of rows()) {
+      for (const other of others) {
+        assert.ok(!own.has(other), `${other} is both an alias and some row's own tag`)
+        assert.equal(other.split(':')[0], tag.split(':')[0], `${other} is not in ${tag}'s library`)
         // Re-pointed across model sizes, so trusting it would eventually
         // serve something else entirely.
-        assert.notEqual(alternative.split(':')[1], 'latest', alternative)
-        // Substituting is a claim that the two answer the same, and only two
-        // shapes earn it: the speculative-decoding twin, or a shorter name
-        // for the same manifest.
+        assert.notEqual(other.split(':')[1], 'latest', other)
+        // Only two shapes earn it: the speculative-decoding twin, or a
+        // shorter name for the same manifest.
         const twin = tag.replace(/-((?:bf16|q8_0|q4_K_M))$/u, '-mtp-$1')
-        assert.ok(
-          alternative === twin || tag.startsWith(alternative),
-          `${alternative} is neither ${tag}'s twin nor a shorter name for it`,
-        )
+        assert.ok(other === twin || tag.startsWith(other), `${other} is neither ${tag}'s twin nor a shorter name for it`)
       }
     }
   })
 
+  it('has rows with more than one name, or the mechanism is untested', () => {
+    assert.ok(rows().filter((names) => names.length > 1).length > 5, 'expected several rows with aliases')
+  })
+
   it('never offers gemma-4 26B\'s -mtp- build as a substitute', () => {
     // It has 8-bit attention where the plain build has 4-bit, so it answers
-    // differently and holds an id — and a cache entry — of its own. The plain
-    // build takes no substitute, and nothing anywhere substitutes to the mtp.
-    assert.deepEqual(ollamaAlternativeFor('gemma4:26b-a4b-it-q4_K_M'), [])
+    // differently and holds an id — and a cache entry — of its own.
+    assert.deepEqual(ollamaEquivalents('gemma4:26b-a4b-it-q4_K_M'), ['gemma4:26b-a4b-it-q4_K_M'])
     assert.ok(ollamaModels().includes('google/gemma-4-26b-a4b-it-mtp-q4_k_m'))
-    for (const [tag, alternatives] of ollamaAlternatives()) {
-      assert.ok(!alternatives.includes('gemma4:26b-a4b-it-mtp-q4_K_M'), tag)
+    for (const [tag, ...others] of rows()) {
+      assert.ok(!others.includes('gemma4:26b-a4b-it-mtp-q4_K_M'), tag)
     }
   })
 
@@ -106,8 +105,8 @@ describe('ollama alternatives — the same model under another tag', () => {
     // checking the head would leave whoever ran `ollama pull qwen3.6:27b`
     // being told the server has no such model.
     const CANON = 'qwen3.6:27b-q4_K_M'
-    const [twin, short] = ollamaAlternativeFor(CANON)
-    assert.ok(twin && short, `expected two alternatives, got ${ollamaAlternativeFor(CANON).join(', ')}`)
+    const [, twin, short] = ollamaEquivalents(CANON)
+    assert.ok(twin && short, `expected two aliases, got ${ollamaEquivalents(CANON).join(', ')}`)
     assert.equal(preferredTag(CANON, new Set([short])), short)
     assert.equal(preferredTag(CANON, new Set([twin])), twin)
     // Order decides when both are there.

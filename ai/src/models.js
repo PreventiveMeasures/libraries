@@ -361,88 +361,71 @@ export function componentFor(baseModel) {
 const OLLAMA_TAGS = new Map([
   ['google/gemma-4-e2b-it', 'gemma4:e2b-it-bf16'], // 10GB
   ['google/gemma-4-e2b-it-q8_0', 'gemma4:e2b-it-q8_0'], // 8.1GB
-  ['google/gemma-4-e2b-it-q4_k_m', 'gemma4:e2b-it-q4_K_M'], // 7.2GB, identical to gemma4:e2b
+  ['google/gemma-4-e2b-it-q4_k_m', ['gemma4:e2b-it-q4_K_M', 'gemma4:e2b']], // 7.2GB
   ['google/gemma-4-e2b-it-qat', 'gemma4:e2b-it-qat'], // 4.3GB
   ['google/gemma-4-e4b-it', 'gemma4:e4b-it-bf16'], // 16GB
   ['google/gemma-4-e4b-it-q8_0', 'gemma4:e4b-it-q8_0'], // 12GB
-  ['google/gemma-4-e4b-it-q4_k_m', 'gemma4:e4b-it-q4_K_M'], // 9.6GB, identical to gemma4:e4b
+  ['google/gemma-4-e4b-it-q4_k_m', ['gemma4:e4b-it-q4_K_M', 'gemma4:e4b']], // 9.6GB
   ['google/gemma-4-e4b-it-qat', 'gemma4:e4b-it-qat'], // 6.1GB
   ['google/gemma-4-12b-it', 'gemma4:12b-it-bf16'], // 24GB
   ['google/gemma-4-12b-it-q8_0', 'gemma4:12b-it-q8_0'], // 13GB
-  ['google/gemma-4-12b-it-q4_k_m', 'gemma4:12b-it-q4_K_M'], // 7.6GB, identical to gemma4:12b
+  ['google/gemma-4-12b-it-q4_k_m', ['gemma4:12b-it-q4_K_M', 'gemma4:12b']], // 7.6GB
   ['google/gemma-4-12b-it-qat', 'gemma4:12b-it-qat'], // 7.2GB
   ['google/gemma-4-26b-a4b-it', 'gemma4:26b-a4b-it-bf16'], // 52GB
   ['google/gemma-4-26b-a4b-it-q8_0', 'gemma4:26b-a4b-it-q8_0'], // 28GB
   ['google/gemma-4-26b-a4b-it-q4_k_m', 'gemma4:26b-a4b-it-q4_K_M'], // 18GB, worse than -mtp: 4-bit attention where that is 8-bit
-  ['google/gemma-4-26b-a4b-it-mtp-q4_k_m', 'gemma4:26b-a4b-it-mtp-q4_K_M'], // 19GB, identical to gemma4:26b
+  ['google/gemma-4-26b-a4b-it-mtp-q4_k_m', ['gemma4:26b-a4b-it-mtp-q4_K_M', 'gemma4:26b']], // 19GB
   ['google/gemma-4-26b-a4b-it-qat', 'gemma4:26b-a4b-it-qat'], // 16GB
   ['google/gemma-4-31b-it', 'gemma4:31b-it-bf16'], // 63GB
   ['google/gemma-4-31b-it-q8_0', 'gemma4:31b-it-q8_0'], // 34GB
-  ['google/gemma-4-31b-it-q4_k_m', 'gemma4:31b-it-q4_K_M'], // 20GB
+  ['google/gemma-4-31b-it-q4_k_m', ['gemma4:31b-it-q4_K_M', 'gemma4:31b']], // 20GB
   ['google/gemma-4-31b-it-qat', 'gemma4:31b-it-qat'], // 19GB
-  ['qwen/qwen3.6-27b', 'qwen3.6:27b-q8_0'], // 30GB
-  ['qwen/qwen3.6-27b-bf16', 'qwen3.6:27b-bf16'], // 56GB
-  ['qwen/qwen3.6-27b-q4_k_m', 'qwen3.6:27b-q4_K_M'], // 17GB
-  ['qwen/qwen3.6-35b-a3b', 'qwen3.6:35b-a3b-q8_0'], // 39GB
-  ['qwen/qwen3.6-35b-a3b-bf16', 'qwen3.6:35b-a3b-bf16'], // 71GB
-  ['qwen/qwen3.6-35b-a3b-q4_k_m', 'qwen3.6:35b-a3b-q4_K_M'], // 24GB
-  ['qwen/qwen3.8-27b', 'qwen3.8:27b-q8_0'], // 30GB
-  ['qwen/qwen3.8-27b-bf16', 'qwen3.8:27b-bf16'], // 56GB
-  ['qwen/qwen3.8-27b-q4_k_m', 'qwen3.8:27b-q4_K_M'], // 18GB
+  ['qwen/qwen3.6-27b', ['qwen3.6:27b-q8_0', 'qwen3.6:27b-mtp-q8_0']], // 30GB
+  ['qwen/qwen3.6-27b-bf16', ['qwen3.6:27b-bf16', 'qwen3.6:27b-mtp-bf16']], // 56GB
+  ['qwen/qwen3.6-27b-q4_k_m', ['qwen3.6:27b-q4_K_M', 'qwen3.6:27b-mtp-q4_K_M', 'qwen3.6:27b']], // 17GB
+  ['qwen/qwen3.6-35b-a3b', ['qwen3.6:35b-a3b-q8_0', 'qwen3.6:35b-a3b-mtp-q8_0']], // 39GB
+  ['qwen/qwen3.6-35b-a3b-bf16', ['qwen3.6:35b-a3b-bf16', 'qwen3.6:35b-a3b-mtp-bf16']], // 71GB
+  ['qwen/qwen3.6-35b-a3b-q4_k_m', ['qwen3.6:35b-a3b-q4_K_M', 'qwen3.6:35b-a3b-mtp-q4_K_M', 'qwen3.6:35b-a3b']], // 24GB
+  ['qwen/qwen3.8-27b', ['qwen3.8:27b-q8_0', 'qwen3.8:27b-mtp-q8_0']], // 30GB
+  ['qwen/qwen3.8-27b-bf16', ['qwen3.8:27b-bf16', 'qwen3.8:27b-mtp-bf16']], // 56GB
+  ['qwen/qwen3.8-27b-q4_k_m', ['qwen3.8:27b-q4_K_M', 'qwen3.8:27b-mtp-q4_K_M', 'qwen3.8:27b']], // 18GB
   ['nvidia/nemotron-3.5-lightning', 'nemotron-3.5-lightning:30b-a3b-bf16'], // 66GB
   ['nvidia/nemotron-3.5-lightning-q8_0', 'nemotron-3.5-lightning:30b-a3b-q8_0'], // 35GB
-  ['nvidia/nemotron-3.5-lightning-q4_k_m', 'nemotron-3.5-lightning:30b-a3b-q4_K_M'], // 25GB
+  ['nvidia/nemotron-3.5-lightning-q4_k_m', ['nemotron-3.5-lightning:30b-a3b-q4_K_M', 'nemotron-3.5-lightning:30b-a3b', 'nemotron-3.5-lightning:30b']], // 25GB
   // Hosted one each at fp8 and bf16, so no majority to match: bf16 is the
   // reference, and never worse than the route it stands in for.
   ['nvidia/nemotron-3-super-120b-a12b', 'nemotron-3-super:120b-a12b-bf16'], // 247GB
   ['nvidia/nemotron-3-super-120b-a12b-q8_0', 'nemotron-3-super:120b-a12b-q8_0'], // 132GB
-  ['nvidia/nemotron-3-super-120b-a12b-q4_k_m', 'nemotron-3-super:120b-a12b-q4_K_M'], // 87GB
+  ['nvidia/nemotron-3-super-120b-a12b-q4_k_m', ['nemotron-3-super:120b-a12b-q4_K_M', 'nemotron-3-super:120b-a12b', 'nemotron-3-super:120b']], // 87GB
 ])
 
 // Undefined for a model Ollama has no mapping for, which is what tells the
 // adapter to refuse rather than post a registry id no local server knows.
+// A row names one tag, or several when the same build is published under
+// more than one name. The first is the one the id claims.
+const namesOf = (entry) => (Array.isArray(entry) ? entry : [entry])
+
 export function ollamaTagFor(model) {
-  return OLLAMA_TAGS.get(resolveModel(model))
+  const entry = OLLAMA_TAGS.get(resolveModel(model))
+  return entry && namesOf(entry)[0]
 }
 
-// Other tags that ARE the tag they stand in for, tried in order and taken
-// when the server has one. Two kinds, and both are claims that the answers
-// are the same, since a substitution shares the caller's id and cache entry.
+// Every name for a row's build, most-canonical first: the tag its id claims,
+// then any that ARE that tag. A `-mtp-` twin is the same weights with
+// speculative decoding switched on; a shorter tag is the same manifest under
+// the name most people actually pull, since `ollama pull gemma4:e4b` leaves
+// nothing named gemma4:e4b-it-q4_K_M on the machine. Listing them together is
+// the claim that they answer alike, which is what lets them share one id and
+// one cache entry.
 //
-// A `-mtp-` twin is the same weights with speculative decoding switched on.
-// A shorter tag is the same manifest under the name most people actually
-// pull: `ollama pull gemma4:e4b` leaves nothing named gemma4:e4b-it-q4_K_M
-// on the machine, and without this a turn asks for a build the server has
-// under another name and is told it has no such model.
-//
-// `:latest` is deliberately absent. Every tag here can be re-pointed at a new
-// build, but that one is re-pointed across model SIZES — gemma4:latest is e4b
-// today — so trusting it would eventually serve a different model entirely.
-const OLLAMA_ALTERNATIVES = new Map([
-  ['qwen3.6:27b-bf16', ['qwen3.6:27b-mtp-bf16']],
-  ['qwen3.6:27b-q8_0', ['qwen3.6:27b-mtp-q8_0']],
-  ['qwen3.6:27b-q4_K_M', ['qwen3.6:27b-mtp-q4_K_M', 'qwen3.6:27b']],
-  ['qwen3.6:35b-a3b-bf16', ['qwen3.6:35b-a3b-mtp-bf16']],
-  ['qwen3.6:35b-a3b-q8_0', ['qwen3.6:35b-a3b-mtp-q8_0']],
-  ['qwen3.6:35b-a3b-q4_K_M', ['qwen3.6:35b-a3b-mtp-q4_K_M', 'qwen3.6:35b-a3b']],
-  ['qwen3.8:27b-bf16', ['qwen3.8:27b-mtp-bf16']],
-  ['qwen3.8:27b-q8_0', ['qwen3.8:27b-mtp-q8_0']],
-  ['qwen3.8:27b-q4_K_M', ['qwen3.8:27b-mtp-q4_K_M', 'qwen3.8:27b']],
-  ['gemma4:e2b-it-q4_K_M', ['gemma4:e2b']],
-  ['gemma4:e4b-it-q4_K_M', ['gemma4:e4b']],
-  ['gemma4:12b-it-q4_K_M', ['gemma4:12b']],
-  ['gemma4:26b-a4b-it-mtp-q4_K_M', ['gemma4:26b']],
-  ['gemma4:31b-it-q4_K_M', ['gemma4:31b']],
-  ['nemotron-3.5-lightning:30b-a3b-q4_K_M', ['nemotron-3.5-lightning:30b-a3b', 'nemotron-3.5-lightning:30b']],
-  ['nemotron-3-super:120b-a12b-q4_K_M', ['nemotron-3-super:120b-a12b', 'nemotron-3-super:120b']],
-])
+// `:latest` is deliberately absent everywhere. Every tag here can be
+// re-pointed at a new build, but that one is re-pointed across model SIZES —
+// gemma4:latest is e4b today — so trusting it would eventually serve a
+// different model rather than a different build.
+const BY_TAG = new Map([...OLLAMA_TAGS.values()].map((names) => [namesOf(names)[0], namesOf(names)]))
 
-export function ollamaAlternativeFor(tag) {
-  return OLLAMA_ALTERNATIVES.get(tag) ?? []
-}
-
-export function ollamaAlternatives() {
-  return [...OLLAMA_ALTERNATIVES]
+export function ollamaEquivalents(tag) {
+  return BY_TAG.get(tag) ?? [tag]
 }
 
 export function ollamaModels() {

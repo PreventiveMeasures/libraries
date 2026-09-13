@@ -1,4 +1,4 @@
-import { ollamaAlternativeFor } from './models.js'
+import { ollamaEquivalents } from './models.js'
 
 // Asking the local server what it has, so a turn can be served by a better
 // build of the model it asked for. providers.js is the adapter; this is the
@@ -45,7 +45,10 @@ export async function installedTags(origin = ollamaOrigin()) {
 // without a server: an alternative is taken only when it is installed, and
 // the tag asked for is always a valid answer.
 export function preferredTag(tag, installed) {
-  return ollamaAlternativeFor(tag).find((name) => installed.has(name)) ?? tag
+  // The row's own tag is what gets posted when nothing better is there; the
+  // rest are the same build under another name, taken when the server has one.
+  const [canonical, ...others] = ollamaEquivalents(tag)
+  return others.find((name) => installed.has(name)) ?? canonical
 }
 
 export async function resolveOllamaTag(tag) {
