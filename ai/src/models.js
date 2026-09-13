@@ -60,6 +60,7 @@ const MODELS = new Map([
   ['google/gemini-3.1-flash-lite-preview', { input: 0.25, output: 1.5, maxTokens: 64 * 1024 }],
   ['google/gemini-3.1-pro-preview', { input: 2, output: 12, maxTokens: 64 * 1024 }],
   ['nvidia/nemotron-3-super-120b-a12b', { input: 0.1, output: 0.5, maxTokens: 128 * 1024 }],
+  ['nvidia/nemotron-3-ultra-550b-a55b', { input: 0.625, output: 3.125, maxTokens: 128 * 1024, canThink: true }],
   ['qwen/qwen3.6-27b', { input: 0.3, output: 2, maxTokens: 64 * 1024, canThink: true }],
   ['qwen/qwen3.6-35b-a3b', { input: 0.1, output: 0.9, maxTokens: 64 * 1024, canThink: true }],
   ['qwen/qwen3.8-27b', { input: 0.214, output: 2.55, maxTokens: 64 * 1024, canThink: true }],
@@ -90,22 +91,23 @@ const MODELS = new Map([
   ['google/gemma-4-31b-it-q8_0', { maxTokens: 128 * 1024, canThink: true }],
   ['google/gemma-4-31b-it-q4_k_m', { maxTokens: 128 * 1024, canThink: true }],
   ['google/gemma-4-31b-it-qat', { maxTokens: 128 * 1024, canThink: true }],
-  ['qwen/qwen3.6-27b-q8_0', { maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.6-27b-bf16', { maxTokens: 64 * 1024, canThink: true }],
   ['qwen/qwen3.6-27b-q4_k_m', { maxTokens: 64 * 1024, canThink: true }],
   ['qwen/qwen3.6-27b-mtp-bf16', { maxTokens: 64 * 1024, canThink: true }],
   ['qwen/qwen3.6-27b-mtp-q8_0', { maxTokens: 64 * 1024, canThink: true }],
   ['qwen/qwen3.6-27b-mtp-q4_k_m', { maxTokens: 64 * 1024, canThink: true }],
-  ['qwen/qwen3.6-35b-a3b-q8_0', { maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.6-35b-a3b-bf16', { maxTokens: 64 * 1024, canThink: true }],
   ['qwen/qwen3.6-35b-a3b-q4_k_m', { maxTokens: 64 * 1024, canThink: true }],
   ['qwen/qwen3.6-35b-a3b-mtp-bf16', { maxTokens: 64 * 1024, canThink: true }],
   ['qwen/qwen3.6-35b-a3b-mtp-q8_0', { maxTokens: 64 * 1024, canThink: true }],
   ['qwen/qwen3.6-35b-a3b-mtp-q4_k_m', { maxTokens: 64 * 1024, canThink: true }],
-  ['qwen/qwen3.8-27b-q8_0', { maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.8-27b-bf16', { maxTokens: 64 * 1024, canThink: true }],
   ['qwen/qwen3.8-27b-q4_k_m', { maxTokens: 64 * 1024, canThink: true }],
   // Free models — may log/store/use your data
   ['openai/gpt-oss-120b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['openai/gpt-oss-20b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['nvidia/nemotron-3-super-120b-a12b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
+  ['nvidia/nemotron-3-ultra-550b-a55b:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, free: true }],
   ['qwen/qwen3-coder:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['qwen/qwen3.6-plus:free', { input: 0, output: 0, maxTokens: 64 * 1024, free: true }],
   ['google/gemma-4-31b-it:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, free: true }],
@@ -326,12 +328,15 @@ export function componentFor(baseModel) {
 // because it is Ollama's naming, not the model's: a hosted row and a local
 // one are the same model, and only the tag differs.
 //
-// A bare id is the hosted model, so on Ollama it maps to whichever build
-// matches it best: the highest precision published, which is bf16 for every
-// gemma-4 today. Switching provider on one id then changes where the turn
-// runs and not which weights run it. Every lesser build is its own id
-// instead, since a 4-bit answer is not the bf16 answer and a run should not
-// have to guess which it got.
+// A bare id is the hosted model, so on Ollama it maps to the build closest to
+// what the hosted route actually runs — which is not the same answer per
+// family. Gemma-4 is served bf16, so a bare gemma id takes bf16 and the two
+// match. Every qwen endpoint that names a quantization serves fp8, and no
+// GGUF build is fp8 — q8_0 is int8 with a scale per block, the same width in
+// a different number system — so a bare qwen id takes q8_0 as the closest
+// thing that runs anywhere, and is near rather than equal to its hosted
+// route. Every other build is its own id, since a 4-bit answer is not an
+// 8-bit one and a run should not have to guess which it got.
 const OLLAMA_TAGS = new Map([
   ['google/gemma-4-12b-it', 'gemma4:12b-it-bf16'],
   ['google/gemma-4-12b-it-q8_0', 'gemma4:12b-it-q8_0'],
@@ -346,16 +351,16 @@ const OLLAMA_TAGS = new Map([
   ['google/gemma-4-31b-it-q8_0', 'gemma4:31b-it-q8_0'],
   ['google/gemma-4-31b-it-q4_k_m', 'gemma4:31b-it-q4_K_M'],
   ['google/gemma-4-31b-it-qat', 'gemma4:31b-it-qat'],
-  ['qwen/qwen3.6-27b', 'qwen3.6:27b-bf16'],
-  ['qwen/qwen3.6-27b-q8_0', 'qwen3.6:27b-q8_0'],
+  ['qwen/qwen3.6-27b', 'qwen3.6:27b-q8_0'],
+  ['qwen/qwen3.6-27b-bf16', 'qwen3.6:27b-bf16'],
   ['qwen/qwen3.6-27b-q4_k_m', 'qwen3.6:27b-q4_K_M'],
   // Not the same weights as the plain builds beside them: smaller, and
   // carrying a vision projector those do not.
   ['qwen/qwen3.6-27b-mtp-bf16', 'qwen3.6:27b-mtp-bf16'],
   ['qwen/qwen3.6-27b-mtp-q8_0', 'qwen3.6:27b-mtp-q8_0'],
   ['qwen/qwen3.6-27b-mtp-q4_k_m', 'qwen3.6:27b-mtp-q4_K_M'],
-  ['qwen/qwen3.6-35b-a3b', 'qwen3.6:35b-a3b-bf16'],
-  ['qwen/qwen3.6-35b-a3b-q8_0', 'qwen3.6:35b-a3b-q8_0'],
+  ['qwen/qwen3.6-35b-a3b', 'qwen3.6:35b-a3b-q8_0'],
+  ['qwen/qwen3.6-35b-a3b-bf16', 'qwen3.6:35b-a3b-bf16'],
   ['qwen/qwen3.6-35b-a3b-q4_k_m', 'qwen3.6:35b-a3b-q4_K_M'],
   ['qwen/qwen3.6-35b-a3b-mtp-bf16', 'qwen3.6:35b-a3b-mtp-bf16'],
   ['qwen/qwen3.6-35b-a3b-mtp-q8_0', 'qwen3.6:35b-a3b-mtp-q8_0'],
@@ -363,8 +368,8 @@ const OLLAMA_TAGS = new Map([
   // qwen3.8 publishes `-mtp-` tags too, but there they are the same model and
   // projector blobs with `draft_num_predict` set, so they are a run-time
   // setting rather than a build and get no id of their own.
-  ['qwen/qwen3.8-27b', 'qwen3.8:27b-bf16'],
-  ['qwen/qwen3.8-27b-q8_0', 'qwen3.8:27b-q8_0'],
+  ['qwen/qwen3.8-27b', 'qwen3.8:27b-q8_0'],
+  ['qwen/qwen3.8-27b-bf16', 'qwen3.8:27b-bf16'],
   ['qwen/qwen3.8-27b-q4_k_m', 'qwen3.8:27b-q4_K_M'],
 ])
 

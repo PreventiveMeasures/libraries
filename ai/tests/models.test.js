@@ -265,6 +265,39 @@ describe('claude fable 5.1', () => {
   })
 })
 
+describe('nemotron 3 ultra', () => {
+  const ULTRA = 'nvidia/nemotron-3-ultra-550b-a55b'
+  const FREE = `${ULTRA}:free`
+
+  it('registers the paid rate, and the free route at nothing', () => {
+    const million = { ...emptyUsage(), input: 1_000_000, output: 1_000_000 }
+    assert.equal(calculateCost(ULTRA, million), 0.625 + 3.125)
+    assert.equal(calculateCost(FREE, million), 0)
+    assert.equal(getMaxTokens(ULTRA), 128 * 1024)
+    for (const model of [ULTRA, FREE]) assert.ok(KNOWN_MODELS.includes(model), model)
+  })
+
+  it('thinks on both routes, with no effort ladder claimed for either', () => {
+    // OpenRouter reports reasoning on both and reasoning_effort on the paid
+    // route only, so neither row narrows the levels: an unnarrowed row passes
+    // whatever the caller asks for rather than rejecting a level it may take.
+    for (const model of [ULTRA, FREE]) {
+      assert.equal(canThink(model), true, model)
+      assert.equal(effortsFor(model), undefined, model)
+      assert.deepEqual(normalizeThinkEffort(model, true), { useThink: true, useEffort: 'high' }, model)
+    }
+  })
+
+  it('gates the free route behind --free, and the paid one against it', () => {
+    // They differ by more than price: a free route may log and train on what
+    // it is sent, which is what the flag exists to make deliberate.
+    assert.doesNotThrow(() => validateModel(ULTRA))
+    assert.throws(() => validateModel(ULTRA, { free: true }), /is not free/u)
+    assert.doesNotThrow(() => validateModel(FREE, { free: true }))
+    assert.throws(() => validateModel(FREE), /requires --free/u)
+  })
+})
+
 describe('satellite tables name real registry rows', () => {
   // TASK_BUDGET_MODELS is keyed by model id and maintained by hand beside
   // the registry, so a typo — the hyphenated wire form, say — is silent:
@@ -324,18 +357,19 @@ describe('ollama tags — one local build per row', () => {
     })
   }
 
-  // The rule that decides the bare id: it is the hosted model, so it takes
-  // the closest local stand-in — the best build published for that family.
+  // A bare id stands in for a hosted route, and none of the routes mapped
+  // here runs below 8 bits — so whichever build a family's bare id takes, it
+  // is never a 4-bit one, and never the `-mtp-` repackaging of anything.
+  // Which of the top builds it takes is what the family is served at: bf16
+  // for gemma-4, q8_0 for qwen, whose endpoints are fp8.
+  const FLOOR = 'q8_0'
   for (const family of new Set(entries.map(([, tag]) => partsOf(tag).family))) {
-    it(`${family}: the bare id takes the highest precision published`, () => {
+    it(`${family}: exactly one bare id, and never a 4-bit build`, () => {
       const mine = entries.filter(([, tag]) => partsOf(tag).family === family)
-      const best = mine
-        .map(([, tag]) => partsOf(tag).quant)
-        .sort((a, b) => PRECISION.indexOf(a) - PRECISION.indexOf(b))
-        .at(-1)
       const bare = mine.filter(([id]) => !buildIn(id))
       assert.equal(bare.length, 1, `expected one bare id for ${family}, found ${bare.map(([id]) => id).join(', ') || 'none'}`)
-      assert.equal(partsOf(bare[0][1]).quant, best, `${bare[0][0]} should take ${best}`)
+      const { quant } = partsOf(bare[0][1])
+      assert.ok(PRECISION.indexOf(quant) >= PRECISION.indexOf(FLOOR), `${bare[0][0]} takes ${quant}, below ${FLOOR}`)
     })
   }
 
