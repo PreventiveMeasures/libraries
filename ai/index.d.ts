@@ -186,9 +186,9 @@ export declare function setFetchConcurrency(limit: number): void
 export declare function setFetchRetries(n: unknown): void
 
 // The response cache on disk: where it lives, how an entry is addressed,
-// and the reads and writes over it — final entries, resumable partials,
-// rejected responses kept for a person to read, and the two scans that walk
-// what has accumulated.
+// and the reads and writes over it — final entries, rejected responses kept
+// for a person to read, the discarding of a partial no run should pick up,
+// and the two scans that walk what has accumulated.
 //
 // The directory is the caller's to set, and there is no default: every
 // other call here throws until setCacheDir has been given one.
@@ -206,6 +206,9 @@ export declare function cacheKey(systemPrompt: string, userContent: string, opts
   effort?: string | undefined
   bundleId?: string | undefined
 }): string
+// ask() writes a partial per turn and reads it back itself. This throws one
+// away, for a caller holding an answer no later run should resume onto — one
+// that failed its format check, say.
 export declare function clearPartial(userContent: string, opts: CacheOpts): Promise<void>
 // Monotonic for the process lifetime: snapshot and diff for a per-run window.
 export declare function getCacheStats(): { hits: number, misses: number }
@@ -244,7 +247,6 @@ export declare function rehashCache(model: string, opts?: {
 export declare function setCache(userContent: string, result: string, history: HistoryEntry[], opts: CacheOpts): Promise<string>
 // Diagnostic only, and never throws: a failed write warns and returns.
 export declare function setInvalid(userContent: string, history: HistoryEntry[], opts: CacheOpts, info: { reason: string, text?: string | undefined }): Promise<void>
-export declare function setPartial(userContent: string, history: HistoryEntry[], opts: CacheOpts): Promise<void>
 // Folds an extra key into every cache key for this process, so a run can be
 // repeated without reading what the last one wrote.
 export declare function setUniqueRerun(key: string): void

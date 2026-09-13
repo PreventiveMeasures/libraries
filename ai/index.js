@@ -36,12 +36,12 @@ export { RETRIES, setFetchConcurrency, setFetchRetries } from './src/fetch.js'
 
 // The response cache on disk: where it lives — which the caller sets,
 // there being no default — how an entry is addressed, and the reads and
-// writes over it: final entries, resumable partials, rejected responses
-// kept for a person to read...
+// writes over it: final entries, rejected responses kept for a person to
+// read, and the discarding of a partial no run should pick up...
 export {
   buildCacheOpts, cacheDir, cacheKey, clearPartial, getCacheStats, getCached,
   invalidResponseError, recordCacheHit, recordCacheMiss, setCache, setCacheDir,
-  setInvalid, setPartial, setUniqueRerun,
+  setInvalid, setUniqueRerun,
 } from './src/cache.js'
 // ...and the two scans that walk what it has accumulated.
 export { listCacheEntries, rehashCache } from './src/cache-scan.js'
