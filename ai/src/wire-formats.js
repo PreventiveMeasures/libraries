@@ -1,27 +1,24 @@
 import { canAdaptive, canTaskBudget, needsExplicitNoThink } from './models.js'
 import { ANTHROPIC_SYSTEM_CACHE, anthropicInitialUserMessage, cachesConversation, flattenUserContent } from './prompt-cache.js'
 
-// Wire formats the adapters are assembled from, kept out of providers.js so
-// that file stays the provider registry and dispatch surface. The Anthropic
-// Messages format lives here because two adapters build it — the direct one
-// and a gateway routing an anthropic/* model — and the truncation contract
-// lives here because every format reports it the same way.
+// Wire formats the adapters are assembled from, kept out of providers.js so that file stays the
+// provider registry and dispatch surface. The Anthropic Messages format lives here because two
+// adapters build it — the direct one and a gateway routing an anthropic/* model — and the
+// truncation contract lives here because every format reports it the same way.
 
-// Truncation error shape shared by every adapter: same sentence, differing
-// only in the output-cap field that adapter actually sent. task-budget.js
-// gates its error-mode retry on the shape rather than one exact wording, so
-// renaming an adapter's cap field can't silently disable that retry.
+// Truncation error shape shared by every adapter: same sentence, differing only in the output-cap
+// field that adapter actually sent. task-budget.js gates its error-mode retry on the shape rather
+// than one exact wording, so renaming an adapter's cap field can't silently disable that retry.
 const TRUNCATION_PREFIX = 'Response truncated: hit '
 export const truncationError = (maxTokensField) => `${TRUNCATION_PREFIX}${maxTokensField} limit`
 export const isMaxTokensTruncation = (error) => typeof error === 'string' && error.startsWith(TRUNCATION_PREFIX)
-// `anthropic-beta` value gating the `output_config.task_budget` body
-// field. Centralised so the body builder and the extra-headers method
-// can't drift.
+// `anthropic-beta` value gating the `output_config.task_budget` body field. Centralised so the body
+// builder and the extra-headers method can't drift.
 const TASK_BUDGET_BETA = 'task-budgets-2026-03-13'
-// JSON-parse a model-supplied tool-call args string. A malformed string is
-// a model hallucination, not our bug — surface it via `argsError` instead
-// of throwing so the caller's retry loop can handle it gracefully. Shared:
-// every adapter that carries tool args as a string parses them this way.
+// JSON-parse a model-supplied tool-call args string. A malformed string is a model hallucination,
+// not our bug — surface it via `argsError` instead of throwing so the caller's retry loop can
+// handle it gracefully. Shared: every adapter that carries tool args as a string parses them this
+// way.
 export function parseArgs(raw, name) {
   try { return { args: JSON.parse(raw) } } catch (err) {
     return { argsError: `Tool call ${name}: malformed JSON args (${err.message})` }
@@ -36,14 +33,14 @@ export function stripNamespace(model, prefix) {
 export function toAnthropicModel(model) {
   return stripNamespace(model, 'anthropic/').replaceAll(/(\d+)\.(\d+)/gu, '$1-$2')
 }
-// The Anthropic Messages wire format — body, headers and parsing — shared by
-// the direct adapter and by a gateway routing an anthropic/* model. Only the
-// endpoint differs between them, so nothing here may assume api.anthropic.com.
+// The Anthropic Messages wire format — body, headers and parsing — shared by the direct adapter and
+// by a gateway routing an anthropic/* model. Only the endpoint differs between them, so nothing
+// here may assume api.anthropic.com.
 export const anthropicAuthHeader = (key) => ({ 'x-api-key': key, 'anthropic-version': '2023-06-01' })
 
-// `modelId` maps the registry id onto whatever the endpoint expects.
-// api.anthropic.com takes the bare hyphenated name; a gateway matches on the
-// namespaced id the operator configured, so it passes the id through.
+// `modelId` maps the registry id onto whatever the endpoint expects. api.anthropic.com takes the
+// bare hyphenated name; a gateway matches on the namespaced id the operator configured, so it
+// passes the id through.
 export function anthropicShape(modelId) {
   return {
     buildRequestBody(model, maxTokens, systemPrompt, messages, { think = false, effort, tools, taskBudget = false, turn = 0 } = {}) {
@@ -51,9 +48,9 @@ export function anthropicShape(modelId) {
       const systemContent = [{ type: 'text', text: systemPrompt, cache_control: ANTHROPIC_SYSTEM_CACHE }]
       const body = { model: modelId(model), max_tokens: maxTokens, system: systemContent, messages: [...messages] }
       if (tools) body.tools = tools
-      // The conversation tail, at the default 5-minute TTL. One rule for both
-      // routes that reach this code — direct and gateway — so the same model
-      // caches the same way whichever way it is reached.
+      // The conversation tail, at the default 5-minute TTL. One rule for both routes that reach
+      // this code — direct and gateway — so the same model caches the same way whichever way it is
+      // reached.
       if (cachesConversation({ turn })) body.cache_control = { type: 'ephemeral' }
       if (think) {
         if (canAdaptive(model) && effort !== 'manual') {
@@ -66,16 +63,14 @@ export function anthropicShape(modelId) {
       } else if (effort) {
         throw new Error('Thinking not enabled')
       } else if (needsExplicitNoThink(model)) {
-        // Safe to send with no effort set: the disabled form 400s only at
-        // xhigh / max, and this branch is reached only when `effort` is unset.
+        // Safe to send with no effort set: the disabled form 400s only at xhigh / max, and this
+        // branch is reached only when `effort` is unset.
         body.thinking = { type: 'disabled' }
       }
-      // task-budgets-2026-03-13 beta, gated by canTaskBudget. `output_config` may
-      // already carry an `effort` from the adaptive-thinking branch above;
-      // merge so both can coexist (the docs example sets them together).
-      // The matching `anthropic-beta` header is added separately by
-      // extraHeaders so callers that only build the body (tests) don't
-      // need to touch headers.
+      // task-budgets-2026-03-13 beta, gated by canTaskBudget. `output_config` may already carry an
+      // `effort` from the adaptive-thinking branch above; merge so both can coexist (the docs
+      // example sets them together). The matching `anthropic-beta` header is added separately by
+      // extraHeaders so callers that only build the body (tests) don't need to touch headers.
       if (taskBudget) {
         if (!canTaskBudget(model)) throw new Error(`Model ${model} does not support task_budget`)
         body.output_config = { ...body.output_config, task_budget: { type: 'tokens', total: maxTokens } }
@@ -112,10 +107,9 @@ export function anthropicShape(modelId) {
       })
     },
 
-    // Given blocks, mark the one before the last so multiple variants that
-    // share everything ahead of the per-request tail read a single cache
-    // entry for it. Same rule the gateway route applies — see
-    // prompt-cache.js.
+    // Given blocks, mark the one before the last so multiple variants that share everything ahead
+    // of the per-request tail read a single cache entry for it. Same rule the gateway route applies
+    // — see prompt-cache.js.
     buildInitialUserMessage(model, userContent) {
       return anthropicInitialUserMessage(model, userContent)
     },
@@ -124,26 +118,22 @@ export function anthropicShape(modelId) {
 }
 
 
-// The initial-message shape for a provider that caches on its own side, so
-// there's nothing for us to mark up: OpenAI Responses fingerprints the input
-// and Moonshot caches context automatically. For both a block split buys
-// nothing — concat and let the server do it. The gateway adapter spreads
-// this in for the routes it can't mark, then overrides it for the ones it can,
-// and the on-device adapter takes it because a local model caches nothing
-// across requests at all.
+// The initial-message shape for a provider that caches on its own side, so there's nothing for us
+// to mark up: OpenAI Responses fingerprints the input and Moonshot caches context automatically.
+// For both a block split buys nothing — concat and let the server do it. The gateway adapter
+// spreads this in for the routes it can't mark, then overrides it for the ones it can, and the
+// on-device adapter takes it because a local model caches nothing across requests at all.
 export const SERVER_SIDE_CACHING = {
   buildInitialUserMessage(model, userContent) {
     return { role: 'user', content: flattenUserContent(userContent) }
   },
 }
 
-// Wire-format pieces shared by the OpenAI-style chat-completions backends
-// (OpenRouter, Moonshot). Only the endpoint, the auth header, and the
-// request body differ between them — response parsing and message threading
-// are identical — so both adapters spread this in and override just the
-// parts that are genuinely their own. `maxTokensField` names the request
-// field that adapter caps output with, so a truncation message points at a
-// field actually present in the body it sent.
+// Wire-format pieces shared by the OpenAI-style chat-completions backends (OpenRouter, Moonshot).
+// Only the endpoint, the auth header, and the request body differ between them — response parsing
+// and message threading are identical — so both adapters spread this in and override just the parts
+// that are genuinely their own. `maxTokensField` names the request field that adapter caps output
+// with, so a truncation message points at a field actually present in the body it sent.
 export function chatCompletionsBase(maxTokensField) {
   return {
     checkResponse(json) {
