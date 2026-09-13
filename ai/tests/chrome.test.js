@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
 import { IGNORED_DEFAULT_ARGS, chromePreflight, closeChrome, findModelDir, isScratchProfile, launchArgs, localStateFor, openTab, pruneProfileRoot, removeProfileDir, sweepStaleProfiles, turnInPage, waitUntilReady } from '../src/chrome/index.js'
 import { graftPlanIn, identifiesAs, portableGuide, rootOwning } from '../src/chrome/model.js'
@@ -725,6 +726,33 @@ describe('chrome launch failure', () => {
   })
 })
 
+describe('chrome exit cleanup', () => {
+  // Ctrl+C for real, in a process of its own: nothing else can say whether
+  // the handler is wired to the signal rather than merely correct.
+  const skip = process.platform === 'win32' ? 'signals are a POSIX thing' : false
+
+  it('takes its profile with it when a signal ends the process', { skip, timeout: 30_000 }, (t) => {
+    const out = join(mkdtempSync(join(tmpdir(), 'ai-chrome-test-signal-')), 'profile-path')
+    t.after(() => rmSync(dirname(out), { recursive: true, force: true }))
+    const child = spawnSync(process.execPath, ['--input-type=module', '--eval', `
+      import { writeFileSync } from 'node:fs'
+      import { claimProfile } from ${JSON.stringify(new URL('../src/chrome/index.js', import.meta.url).href)}
+      // The path goes to a file rather than stdout: process.exit can drop a
+      // pipe write, and this has to be readable after the process is gone.
+      writeFileSync(process.env.PROFILE_OUT, claimProfile('/nowhere'))
+      process.kill(process.pid, 'SIGINT')
+      setInterval(() => {}, 1000)
+    `], { encoding: 'utf8', timeout: 20_000, env: { ...process.env, PROFILE_OUT: out } })
+
+    assert.equal(child.error, undefined, `child failed: ${child.error?.message}`)
+    const profile = readFileSync(out, 'utf8')
+    assert.match(profile, /chrome-/u, `expected a profile path, got ${profile}`)
+    assert.equal(existsSync(profile), false, 'the profile should have gone with the process')
+    // 128 + SIGINT, the shell's own convention.
+    assert.equal(child.status, 130, child.stderr)
+  })
+})
+
 describe('chrome idle close', () => {
   // Its own temp dir: the observable end of closeChrome with nothing open is
   // that it takes the shared directory, so that is what says it ran.
@@ -874,6 +902,19 @@ describe('chrome scratch-profile cleanup', () => {
       t.after(() => rmSync(old, { recursive: true, force: true }))
       sweepStaleProfiles()
       assert.equal(existsSync(old), false)
+    })
+
+    it('takes a profile of any age once its owner is gone', (t) => {
+      // A marker whose process no longer exists settles it: nobody is coming
+      // back for that directory, so it does not have to age out first — which
+      // is how a Ctrl+C leftover used to sit around for six hours.
+      const pid = deadPid()
+      if (pid === undefined) return t.skip('every candidate pid is in use')
+      const abandoned = scratchProfile()
+      writeFileSync(join(abandoned, 'owner.pid'), String(pid))
+      t.after(() => rmSync(abandoned, { recursive: true, force: true }))
+      sweepStaleProfiles()
+      assert.equal(existsSync(abandoned), false)
     })
 
     it('leaves a young profile alone, marker or not', (t) => {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, rmdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { constants, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { baseModelFor, modelVersionFor } from '../models.js'
@@ -137,19 +137,20 @@ function dropProfile(dir) {
   try { removeProfileDir(dir) } catch { /* already gone, or not ours to touch */ }
 }
 
-// A profile's own mtime stops moving once Chrome is writing inside it, so age
-// alone cannot tell a live one from an abandoned one. EPERM means the pid
-// exists and is someone else's, which is still a reason to leave it alone.
-function ownerAlive(dir) {
+// Whether the process that made a profile is still running: 'alive', 'dead',
+// or 'unknown' where there is no marker to read. EPERM means a process by
+// that number exists and is someone else's, which is still alive.
+function owner(dir) {
   let pid
-  try { pid = Number(readFileSync(join(dir, OWNER_FILE), 'utf8')) } catch { return false }
-  if (!Number.isInteger(pid) || pid <= 0) return false
-  try { process.kill(pid, 0); return true } catch (err) { return err.code === 'EPERM' }
+  try { pid = Number(readFileSync(join(dir, OWNER_FILE), 'utf8')) } catch { return 'unknown' }
+  if (!Number.isInteger(pid) || pid <= 0) return 'unknown'
+  try { process.kill(pid, 0); return 'alive' } catch (err) { return err.code === 'EPERM' ? 'alive' : 'dead' }
 }
 
-// Best effort, on launch: clear what earlier runs left behind. Both
-// conditions are needed — liveness alone takes a profile whose owner has not
-// written its marker yet, age alone takes profiles still in use.
+// Best effort, on launch: clear what earlier runs left behind. A marker whose
+// process is gone settles it outright — that profile is nobody's, however
+// recent. Age only decides for a directory with no marker to go on, which is
+// also the one made moments ago by a process still writing it.
 export function sweepStaleProfiles() {
   const now = Date.now()
   let dirs = []
@@ -158,34 +159,53 @@ export function sweepStaleProfiles() {
     const dir = join(profileRoot(), name)
     if (profiles.has(dir)) continue
     try {
-      if (now - statSync(dir).mtimeMs > STALE_MS && !ownerAlive(dir)) removeProfileDir(dir)
+      const state = owner(dir)
+      if (state === 'alive') continue
+      if (state === 'dead' || now - statSync(dir).mtimeMs > STALE_MS) removeProfileDir(dir)
     } catch { /* in use, or gone */ }
   }
 }
 
-// A crash, or a bare `node script.js`, never reaches closeProvider. rmSync is
-// synchronous, so an exit hook can still finish the job.
+// rmSync is synchronous, which is what makes cleanup possible at all from
+// here: an exit hook cannot await anything. Left in `profiles` rather than
+// taken out of it, so the second pass below still knows what to look at.
+function removeAllProfiles() {
+  for (const dir of profiles) {
+    try { removeProfileDir(dir) } catch { /* exiting anyway */ }
+  }
+  pruneProfileRoot()
+}
+
+// A crash, or a bare `node script.js`, never reaches closeProvider.
+const EXIT_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP']
 let exitHookInstalled = false
 function installExitCleanup() {
   if (exitHookInstalled) return
   exitHookInstalled = true
-  process.on('exit', () => {
-    for (const dir of profiles) {
-      try { removeProfileDir(dir) } catch { /* exiting anyway */ }
-    }
-    pruneProfileRoot()
-  })
+  process.on('exit', removeAllProfiles)
+  // Ctrl+C does not reach that handler on its own: with nothing listening,
+  // the default disposition terminates the process and no 'exit' is emitted,
+  // which is how a profile survived one. Listening suppresses that, so this
+  // has to end the process itself — 128 + n, the shell's own way of saying
+  // which signal did it. Twice over, because Chrome takes the same Ctrl+C
+  // and can write its profile back out while it goes: once here, and once
+  // more from the 'exit' this triggers, by which time it is gone.
+  for (const signal of EXIT_SIGNALS) {
+    process.on(signal, () => {
+      removeAllProfiles()
+      process.exit(128 + (constants.signals[signal] ?? 0))
+    })
+  }
 }
 
 // One browser per base model: the weights directory is named on the command
 // line, so two rows backed by different weights cannot share one.
 const sessions = new Map()
 
-async function launch(baseModel, debug) {
-  // Throws when the row's weights are not installed, naming what is.
-  const modelDir = findModelDir(baseModel)
-  // A persistent context rather than launch(): the profile has to exist
-  // before Chrome starts so the component tree can be grafted into it.
+// A profile for a browser to be pointed at, and everything that has to be
+// true before one is: the strays cleared, an exit that takes this one with
+// it, and the state Chrome reads at startup already in place.
+export function claimProfile(modelDir) {
   sweepStaleProfiles()
   installExitCleanup()
   mkdirSync(profileRoot(), { recursive: true, mode: 0o700 })
@@ -194,9 +214,17 @@ async function launch(baseModel, debug) {
   // Before anything slow, so a concurrent sweep can already see an owner.
   writeFileSync(join(profile, OWNER_FILE), String(process.pid))
   writeFileSync(join(profile, 'Local State'), JSON.stringify(localStateFor(modelDir)))
+  return profile
+}
+
+async function launch(baseModel, debug) {
+  // Throws when the row's weights are not installed, naming what is.
+  const modelDir = findModelDir(baseModel)
+  // A persistent context rather than launch(): the profile has to exist
+  // before Chrome starts so the component tree can be grafted into it.
+  const profile = claimProfile(modelDir)
   // Everything below can throw — a missing peer, a browser that will not
-  // start, a page that will not navigate — and the profile goes with it. The
-  // sweep skips young directories, so a stray would sit there until it ages.
+  // start, a page that will not navigate — and the profile goes with it.
   try {
     return await openBrowser(profile, modelDir, baseModel, debug)
   } catch (err) {

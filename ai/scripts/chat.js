@@ -6,13 +6,14 @@
 
 import { readFileSync } from 'node:fs'
 import process from 'node:process'
+import { createInterface } from 'node:readline/promises'
 import { parseArgs, styleText } from 'node:util'
 import {
   DEFAULT_MODEL, KNOWN_MODELS, calculateCost, chat, closeProvider, getMaxTokens,
   isRecognizedModel, resolveModel, resolveThinkEffort, setProvider,
 } from '../index.js'
 
-const USAGE = `Usage: scripts/chat.js [options] <prompt>
+const USAGE = `Usage: scripts/chat.js [options] [prompt]
 
 Sends one prompt through chat() and prints the reply. The prompt may be a
 positional argument, or piped in on stdin.
@@ -26,12 +27,16 @@ positional argument, or piped in on stdin.
       --effort <level>  low, medium, high, xhigh, max, manual
       --max-tokens <n>  output cap (default: the model's registry value)
       --tools           offer the demo tools below and report what gets called
+      --repl            read prompts a line at a time until EOF or Ctrl+C.
+                        Each line is its own request — no history is carried
+                        from one to the next — over one browser or connection
       --debug           per-turn timings, token usage and cost
       --list            print the models the registry knows, then exit
   -h, --help            show this message
 
   scripts/chat.js -m chrome/gemini-nano-v3 "What is the capital of France?"
   scripts/chat.js -m chrome/gemini-nano-v3 --tools "What is 21 plus 21?"
+  scripts/chat.js -m chrome/gemini-nano-v3 --repl
   git diff | scripts/chat.js -s "Review this diff." -m anthropic/claude-opus-5
 `
 
@@ -96,6 +101,7 @@ async function main(argv) {
         'max-tokens': { type: 'string' },
         model: { type: 'string', short: 'm' },
         provider: { type: 'string', short: 'p' },
+        repl: { type: 'boolean' },
         system: { type: 'string', short: 's' },
         think: { type: 'boolean' },
         tools: { type: 'boolean' },
@@ -113,8 +119,10 @@ async function main(argv) {
   // spelling's.
   if (!isRecognizedModel(model)) fail(`chat.js: unknown model ${model}. --list shows what the registry knows.\n`)
 
-  const userContent = positionals.join(' ').trim() || readStdin().trim()
-  if (!userContent) fail(`chat.js: no prompt given\n\n${USAGE}`)
+  // --repl reads its prompts from stdin itself, one request per line, so
+  // there is nothing to drain here and nothing to insist on.
+  const userContent = positionals.join(' ').trim() || (values.repl ? '' : readStdin().trim())
+  if (!userContent && !values.repl) fail(`chat.js: no prompt given\n\n${USAGE}`)
 
   // What the layer provides for exactly this: a model that cannot reason
   // refuses --think here, with one wording shared by every caller. Skipping
@@ -126,6 +134,11 @@ async function main(argv) {
   try { think = resolveThinkEffort(model, values.think, values.effort) } catch (err) { return fail(`chat.js: ${err.message}\n`) }
 
   const provider = values.provider ?? PROVIDER_FOR[model.split('/')[0]] ?? 'openrouter'
+  // A session is not an idle browser: ten seconds of thinking about what to
+  // type would put a cold start in front of the next line. A minute, rather
+  // than never, so a session left open still lets go. The caller's own
+  // setting still wins.
+  if (values.repl) process.env.CHROME_IDLE_MS ??= '60000'
   try { setProvider(provider) } catch (err) { return fail(`chat.js: ${err.message}\n`) }
 
   // Same reason --think is resolved above rather than left to the wire: a
@@ -139,40 +152,87 @@ async function main(argv) {
 }
 
 async function run({ model, provider, userContent, values, think }) {
-  const started = Date.now()
   try {
-    const calls = []
-    const tools = values.tools ? DEMO_TOOLS : undefined
-    const { text, error, usage } = await chat({
-      model,
-      maxTokens: values['max-tokens'] ? Number(values['max-tokens']) : getMaxTokens(model),
-      systemPrompt: values.system ?? 'You are a helpful assistant.',
-      userContent,
-      tools,
-      // chat() requires the pair, so the handler is only wired up alongside.
-      handleToolCall: tools
-        ? (call) => { const result = runTool(call); calls.push({ ...call, result }); return result }
-        : undefined,
-      // The resolved pair, not the raw flags: the cache key and the request
-      // then agree on what was actually asked for.
-      think: think.useThink,
-      effort: think.useEffort,
-      debug: Boolean(values.debug),
-      label: 'chat.js',
-    })
-    // Before the answer, because whether a tool ran at all is the question
-    // --tools exists to settle, and an empty list is a real result.
-    if (values.tools) reportTools(calls)
-    // Thrown rather than failed: fail() exits the process on the spot, which
-    // skips the finally below and leaves the browser it was there to close
-    // running. main() catches this and prints it with the same wording.
-    if (error) throw new Error(error)
-    process.stdout.write(text.endsWith('\n') ? text : text + '\n')
-    if (values.debug) report({ model, provider, usage, elapsed: Date.now() - started })
+    if (values.repl) await repl({ model, provider, userContent, values, think })
+    else await turn({ model, provider, userContent, values, think })
   } finally {
     // Always. The chrome provider holds a browser open, and without this the
     // process never exits — which is the whole reason closeProvider exists.
     await closeProvider()
+  }
+}
+
+// One request. Nothing is carried between calls: the model, the system prompt
+// and the flags are the same each time, the prompt is not, and the provider
+// underneath keeps whatever it opened.
+async function turn({ model, provider, userContent, values, think }) {
+  const started = Date.now()
+  const calls = []
+  const tools = values.tools ? DEMO_TOOLS : undefined
+  const { text, error, usage } = await chat({
+    model,
+    maxTokens: values['max-tokens'] ? Number(values['max-tokens']) : getMaxTokens(model),
+    systemPrompt: values.system ?? 'You are a helpful assistant.',
+    userContent,
+    tools,
+    // chat() requires the pair, so the handler is only wired up alongside.
+    handleToolCall: tools
+      ? (call) => { const result = runTool(call); calls.push({ ...call, result }); return result }
+      : undefined,
+    // The resolved pair, not the raw flags: the cache key and the request
+    // then agree on what was actually asked for.
+    think: think.useThink,
+    effort: think.useEffort,
+    debug: Boolean(values.debug),
+    label: 'chat.js',
+  })
+  // Before the answer, because whether a tool ran at all is the question
+  // --tools exists to settle, and an empty list is a real result.
+  if (values.tools) reportTools(calls)
+  // Thrown rather than failed: fail() exits the process on the spot, which
+  // skips the cleanup in run() and leaves the browser it was there to close
+  // running. main() catches this and prints it with the same wording.
+  if (error) throw new Error(error)
+  process.stdout.write(text.endsWith('\n') ? text : text + '\n')
+  if (values.debug) report({ model, provider, usage, elapsed: Date.now() - started })
+}
+
+// A line at a time, each line its own request. The point is the provider
+// underneath: one browser, or one connection, answering all of them.
+async function repl(options) {
+  // Prompts and echo to stderr, answers to stdout, so a piped run reads as
+  // the answers alone.
+  const rl = createInterface({ input: process.stdin, output: process.stderr, prompt: '> ' })
+  // Ctrl+C ends the session rather than the process, so the provider is
+  // closed on the way out rather than left to an exit hook.
+  rl.on('SIGINT', () => rl.close())
+  // Piped input reaches EOF while the first turn is still running, so the
+  // interface is closed by the time one returns — and prompting a closed one
+  // throws rather than doing nothing, which ended the session at the line
+  // after the first. The lines already read still arrive.
+  const prompt = () => { if (!rl.closed) rl.prompt() }
+  // Taken before the first turn is awaited, for the same reason: asking a
+  // closed interface for its iterator never resolves, and a for-await asks
+  // for one only when it reaches the loop. Lines read before EOF still come
+  // through this one.
+  const lines = rl[Symbol.asyncIterator]()
+  if (options.userContent) await answer(options, options.userContent)
+  prompt()
+  for (let line = await lines.next(); !line.done; line = await lines.next()) {
+    if (line.value.trim()) await answer(options, line.value.trim())
+    prompt()
+  }
+  rl.close()
+}
+
+// A failed turn ends the turn, not the session: a refused request, a model
+// that would not answer, or a provider error is the next thing to try
+// something else about.
+async function answer(options, userContent) {
+  try {
+    await turn({ ...options, userContent })
+  } catch (err) {
+    process.stderr.write(`chat.js: ${err.message}\n`)
   }
 }
 
