@@ -7,7 +7,7 @@ import { EFFORT_LEVELS, KNOWN_MODELS, TASK_BUDGET_MODELS, TASK_BUDGET_MODES, cal
 
 describe('canThink / canEffort', () => {
   it('canThink: false on a model without a thinking capability', () => {
-    assert.equal(canThink('anthropic/claude-3.5-haiku'), false)
+    assert.equal(canThink('anthropic/claude-3-haiku'), false)
   })
 
   it('canThink: true on a model marked canThink: true', () => {
@@ -33,7 +33,7 @@ describe('canThink / canEffort', () => {
   })
 
   it('canEffort: false on any model without a thinking capability', () => {
-    assert.equal(canEffort('anthropic/claude-3.5-haiku'), false)
+    assert.equal(canEffort('anthropic/claude-3-haiku'), false)
     assert.equal(canEffort('openai/gpt-4o-mini'), false)
   })
 })
@@ -59,7 +59,7 @@ describe('normalizeThinkEffort', () => {
     // Callers like ai.js layer their own assertion on top
     // (`useThink !== Boolean(think) ? throw`); this helper just resolves
     // the values that will actually hit the wire.
-    assert.deepEqual(normalizeThinkEffort('anthropic/claude-3.5-haiku', true), { useThink: false, useEffort: undefined })
+    assert.deepEqual(normalizeThinkEffort('anthropic/claude-3-haiku', true), { useThink: false, useEffort: undefined })
   })
 
   it('think=true on non-adaptive Anthropic: think=true, effort=undefined (no effort knob)', () => {
@@ -287,7 +287,7 @@ describe('nemotron paid/free pairs', () => {
   const PAIRS = [
     ['nvidia/nemotron-3-ultra-550b-a55b', 0.625, 3.125],
     ['nvidia/nemotron-3.5-lightning', 0.08, 0.2],
-    ['nvidia/nemotron-3-super-120b-a12b', 0.1, 0.5],
+    ['nvidia/nemotron-3-super-120b-a12b', 0.085, 0.4],
   ]
 
   for (const [paid, input, output] of PAIRS) {
@@ -325,6 +325,24 @@ describe('gemini flash', () => {
     for (const m of ['google/gemini-3.8-flash', 'google/gemini-3.1-flash-lite-preview', 'google/gemini-3.1-pro-preview']) {
       assert.equal(canThink(m), true, m)
     }
+  })
+})
+
+describe('cache-read overrides (rows that are not 0.10x of input)', () => {
+  const read = (model) => calculateCost(model, { ...emptyUsage(), cacheRead: 1_000_000 })
+
+  it('bills gpt-4.1-mini and gpt-4o-mini at their published cached-input rates', () => {
+    // OpenAI prices cached input per model, not as one multiple of input:
+    // 0.25x on gpt-4.1-mini, 0.5x on gpt-4o-mini. The 0.10x default would
+    // bill a cache-heavy run at a fraction of what OpenAI charges.
+    assert.equal(read('openai/gpt-4.1-mini'), 0.1)
+    assert.equal(read('openai/gpt-4o-mini'), 0.075)
+  })
+
+  it('leaves the families that really are 0.10x on the multiplier', () => {
+    assert.equal(read('openai/gpt-5.6-luna'), 0.02)
+    assert.equal(read('openai/gpt-5.5'), 0.5)
+    assert.equal(read('anthropic/claude-sonnet-5'), 0.2)
   })
 })
 
@@ -520,9 +538,9 @@ describe('newer OpenAI models (gpt-5.6 Sol / Terra / Luna)', () => {
 
   it('prices each tier per the published rates (per Mtok in + out)', () => {
     const usage = { ...emptyUsage(), input: 1_000_000, output: 1_000_000 }
-    assert.equal(calculateCost('openai/gpt-5.6-sol', usage), 5 + 30)
-    assert.equal(calculateCost('openai/gpt-5.6-terra', usage), 2.5 + 15)
-    assert.equal(calculateCost('openai/gpt-5.6-luna', usage), 1 + 6)
+    assert.equal(calculateCost('openai/gpt-5.6-sol', usage), 4 + 20)
+    assert.equal(calculateCost('openai/gpt-5.6-terra', usage), 2 + 12)
+    assert.equal(calculateCost('openai/gpt-5.6-luna', usage), 0.2 + 1.2)
   })
 })
 
@@ -557,7 +575,7 @@ describe('resolveModel (alias canonicalization)', () => {
     const usage = { ...emptyUsage(), input: 1_000_000, output: 1_000_000 }
     assert.equal(calculateCost('openai/gpt-5.6', usage), null)
     assert.equal(getMaxTokens(resolveModel('openai/gpt-5.6')), 128_000)
-    assert.equal(calculateCost(resolveModel('openai/gpt-5.6'), usage), 5 + 30)
+    assert.equal(calculateCost(resolveModel('openai/gpt-5.6'), usage), 4 + 20)
   })
 })
 
