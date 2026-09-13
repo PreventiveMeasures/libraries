@@ -421,8 +421,7 @@ export function turnCost(model, usage) {
 // chat-completions is never replayed into a Messages body. Entries stamped by an older version
 // carry the bare name and simply stop matching, which starts the run fresh.
 export function providerStamp(model) {
-  // Undefined before setProvider, mirroring the getProvider()?.name this replaced: callers gate on
-  // a falsy stamp rather than a thrown TypeError.
+  // Undefined before setProvider: callers gate on a falsy stamp rather than a thrown TypeError.
   if (!provider) return undefined
   const route = provider.wireRoute?.(model)
   return route ? `${provider.name}:${route}` : provider.name

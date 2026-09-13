@@ -25,8 +25,8 @@ const sourced = (name) => name.endsWith('.js') || name.endsWith('.d.ts')
 // out: these files are inside the layer either way, and a test may reach for
 // node:test and whatever else it needs to drive one.
 //
-// Recursive, because src/ has subdirectories — and a flat read is how three
-// modules quietly stopped being checked the moment they moved into one.
+// Recursive, because src/ has subdirectories — a flat read silently stops
+// checking any module that moves into one.
 const files = [
   new URL('index.js', AI_DIR),
   new URL('index.d.ts', AI_DIR),

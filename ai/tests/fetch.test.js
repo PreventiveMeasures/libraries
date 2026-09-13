@@ -56,8 +56,8 @@ describe('parseRetryAfter', () => {
   it('reads the origin\'s value out of a duplicated header', () => {
     // Two Retry-After headers (an origin and a proxy in front of it) reach
     // undici comma-joined. `5, 10` is neither a number nor a date, so it
-    // used to fall through to Date.parse — which reads it as 2001-05-10,
-    // i.e. a wait of zero out of a server asking for five seconds.
+    // falling through to Date.parse reads it as 2001-05-10, i.e. a wait of
+    // zero out of a server asking for five seconds.
     assert.equal(parseRetryAfter('5, 10', NOW), 5000)
     assert.equal(parseRetryAfter('10, 5', NOW), 10_000)
   })
@@ -132,9 +132,9 @@ describe('retryDelayMs', () => {
 })
 
 describe('the retry budgets', () => {
-  it('keeps the baseline every non-transient failure has always had', () => {
+  it('keeps the baseline every non-transient failure gets', () => {
     // --retries governs the transient class only, and is floored by this:
-    // no failure retries less than it used to, whatever the flag says.
+    // no failure retries fewer times than this, whatever the flag says.
     assert.equal(RETRIES, 2)
   })
 })
@@ -242,8 +242,8 @@ describe('fetchJSON retries', () => {
     // `Retry-After: 0` is legal and clamps to no wait at all; returned
     // verbatim the whole budget went in milliseconds. Flooring it at
     // BASE_DELAY is what the four waits below say — and they say it
-    // exactly, where the elapsed >= 4000ms this replaced would have
-    // passed just as happily on four waits of a second and a half.
+    // exactly, where an `elapsed >= 4000ms` assertion would pass just as
+    // happily on four waits of a second and a half.
     const { err, requests: n, waits: slept } = await call(t, (i, res) => {
       res.writeHead(429, { 'retry-after': '0' })
       res.end('slow down')
@@ -254,10 +254,10 @@ describe('fetchJSON retries', () => {
   })
 
   it('keeps the status of a 5xx whose body read is cut mid-stream', async (t) => {
-    // The read used to sit inside the `new UpstreamError(...)` argument
-    // list, so a gateway dropping the socket after its headers rejected
-    // before the error existed and the 503 arrived as a bare transport
-    // failure — losing the very budget it was the reason for.
+    // With the read inside the `new UpstreamError(...)` argument list, a
+    // gateway dropping the socket after its headers rejects before the
+    // error exists and the 503 arrives as a bare transport failure —
+    // losing the very budget it is the reason for.
     const { err, requests: n, waits: slept } = await call(t, (i, res) => {
       res.writeHead(503, { 'content-length': '500' })
       res.flushHeaders()
@@ -275,9 +275,9 @@ describe('fetchJSON retries', () => {
   })
 
   it('does not let a transient prelude spend another class\'s budget', async (t) => {
-    // Two failure classes, one counter: the 503 used to consume the two
-    // tries the parse error is entitled to, and the SyntaxError was
-    // rethrown with none of its own left.
+    // Two failure classes, one counter: a shared counter lets the 503
+    // consume the two tries the parse error is entitled to, leaving the
+    // SyntaxError rethrown with none of its own.
     const { err, requests: n, waits: slept } = await call(t, (i, res) => {
       if (i === 1) { res.writeHead(503); res.end('down'); return }
       res.writeHead(200, { 'content-type': 'application/json' })
@@ -297,7 +297,7 @@ describe('fetchJSON retries', () => {
     // per-attempt line carrying an echoed request body evicts the fatal
     // error that explains why the run died. And `Fatal: …` inspects the
     // thrown error itself: enumerable status/body would print that body a
-    // second time, where the plain Error this replaced printed it once.
+    // second time, where a plain Error prints it once.
     const body = 'x'.repeat(5000)
     const { err, errors: logged } = await call(t, (i, res) => { res.writeHead(400); res.end(body) }, 1)
     assert.ok(logged.length > 0)

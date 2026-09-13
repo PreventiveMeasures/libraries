@@ -25,8 +25,6 @@ const MODELS = new Map([
   ['anthropic/claude-fable-5', { input: 10, output: 50, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported' }],
   ['anthropic/claude-haiku-4.5', { input: 1, output: 5, maxTokens: 64_000, canThink: true }],
   ['anthropic/claude-3-haiku', { input: 0.25, output: 1.25, maxTokens: 4096 }],
-  // 2 / 10 was Sonnet 5's introductory rate through 2026-08-31; Anthropic then made it the standard
-  // price and cancelled the rise to 3 / 15, which this row had been carrying in advance.
   ['anthropic/claude-sonnet-5', { input: 2, output: 10, maxTokens: 128_000, canThink: 'adaptive' }],
   ['anthropic/claude-sonnet-4.6', { input: 3, output: 15, maxTokens: 128_000, canThink: 'adaptive' }],
   ['anthropic/claude-sonnet-4.5', { input: 3, output: 15, maxTokens: 64 * 1024, canThink: true }],
@@ -240,8 +238,8 @@ export function canDisableThink(model) {
 // per-request so a global `--task-budget=always` against a mixed-model run silently no-ops on
 // unsupported passes instead of 400ing the API.
 //
-// Exported because a caller's --help text renders it. Three comments used to spell the membership
-// out in prose instead, and all three were wrong about sonnet 5 for months.
+// Exported because a caller's --help text renders it — one set to read, rather than prose about
+// the membership that has to be kept in step with this table.
 //
 // Fable 5.1 is here on the strength of the docs listing it, which hedge the entry pending launch.
 // Unlike the fallback registry's unverified row, a wrong guess here is not free: this gate is what
@@ -446,7 +444,7 @@ export function normalizeThinkEffort(model, think, effort) {
 //
 // The unknown-model branch is why that wording is worth centralising: for an id with no row,
 // normalizeThinkEffort drops think and effort exactly as it does for a registered model that
-// genuinely cannot reason, so a mistyped --model used to surface as
+// genuinely cannot reason, so without it a mistyped --model surfaces as
 // `--effort is not supported by model or --think is not enabled` — a sentence that sends you
 // reading a model's capabilities instead of the id you typed.
 export function resolveThinkEffort(model, think, effort) {
