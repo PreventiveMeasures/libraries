@@ -72,24 +72,20 @@ const MODELS = new Map([
   ['chrome/gemma-4-e2b-it', { input: 0, output: 0, maxTokens: 4096, baseModel: 'gemma4_2b', specNames: ['gemma4-2b-it'], modelVersion: 'v4', component: 'gemma4_component' }],
   ['chrome/gemma-4-e4b-it', { input: 0, output: 0, maxTokens: 4096, baseModel: 'gemma4_4b', specNames: ['gemma-4-E4B-it'], modelVersion: 'v4_4b', component: 'gemma4_4b_component' }],
   ['chrome/gemma-4-12b-it', { input: 0, output: 0, maxTokens: 4096, baseModel: 'gemma4_12b', modelVersion: 'v4_12b', component: 'gemma4_12b_component' }],
-  // Local GGUF builds Ollama serves, zero at every rate for the reason the
-  // chrome rows are. One id per precision, because the weights differ and so
-  // do the answers: the plain google/* ids above are the bf16 reference, and
-  // everything below says in its own name which quantization answered.
-  ['google/gemma-4-12b-it', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true }],
-  ['google/gemma-4-12b-it-q8_0', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true }],
-  ['google/gemma-4-12b-it-q4_k_m', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true }],
-  ['google/gemma-4-12b-it-qat', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true }],
-  ['google/gemma-4-26b-a4b-it-q8_0', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true }],
-  ['google/gemma-4-26b-a4b-it-q4_k_m', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true }],
-  // Ollama's default `gemma4:26b`: the same q4_K_M weights with the
-  // multi-token-prediction head split out as a draft model, which no other
-  // size in the family ships.
-  ['google/gemma-4-26b-a4b-it-mtp-q4_k_m', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true }],
-  ['google/gemma-4-26b-a4b-it-qat', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true }],
-  ['google/gemma-4-31b-it-q8_0', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true }],
-  ['google/gemma-4-31b-it-q4_k_m', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true }],
-  ['google/gemma-4-31b-it-qat', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true }],
+  // Local builds Ollama serves. No price: nobody sells them today, and a
+  // zero would quietly become wrong the day one of them is listed. One id per
+  // build, because the weights differ and so do the answers.
+  ['google/gemma-4-12b-it', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-12b-it-q8_0', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-12b-it-q4_k_m', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-12b-it-qat', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-26b-a4b-it-q8_0', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-26b-a4b-it-q4_k_m', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-26b-a4b-it-mtp-q4_k_m', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-26b-a4b-it-qat', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-31b-it-q8_0', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-31b-it-q4_k_m', { maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemma-4-31b-it-qat', { maxTokens: 128 * 1024, canThink: true }],
   // Free models — may log/store/use your data
   ['openai/gpt-oss-120b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['openai/gpt-oss-20b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
@@ -314,11 +310,12 @@ export function componentFor(baseModel) {
 // because it is Ollama's naming, not the model's: a hosted row and a local
 // one are the same model, and only the tag differs.
 //
-// The plain id maps to the bf16 build — the precision the hosted providers
-// serve, so switching provider on one id changes where the turn runs and not
-// which weights run it. Every quantized build is its own id instead, since a
-// 4-bit answer is not the bf16 answer and a run should not have to guess
-// which it got.
+// A bare id is the hosted model, so on Ollama it maps to whichever build
+// matches it best: the highest precision published, which is bf16 for every
+// gemma-4 today. Switching provider on one id then changes where the turn
+// runs and not which weights run it. Every lesser build is its own id
+// instead, since a 4-bit answer is not the bf16 answer and a run should not
+// have to guess which it got.
 const OLLAMA_TAGS = new Map([
   ['google/gemma-4-12b-it', 'gemma4:12b-it-bf16'],
   ['google/gemma-4-12b-it-q8_0', 'gemma4:12b-it-q8_0'],
@@ -430,6 +427,10 @@ export function addUsage(total, usage) {
 export function calculateCost(model, usage) {
   const prices = MODELS.get(model)
   if (!prices) return null
+  // A row the table knows without knowing a rate: a local build nobody sells.
+  // Null rather than zero, which would be a claim, and the wrong one as soon
+  // as somebody lists it.
+  if (prices.input == null || prices.output == null) return null
   const inputCost = (usage.input * prices.input) / 1_000_000
   // Branch instead of resolving one rate up front: folding `input * 0.10`
   // first rounds differently from multiplying the tokens through, moving

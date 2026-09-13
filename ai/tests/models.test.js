@@ -297,26 +297,56 @@ describe('ollama tags — one local build per row', () => {
     assert.equal(new Set(tags).size, tags.length, tags.join(', '))
   })
 
-  // The naming rule, both directions at once: the bare `-it` id is the bf16
-  // build and nothing else is, so a plain id always gets the reference
-  // precision and a quantized build always says so in its own name.
+  // Ascending, so `.indexOf` ranks them. A build type missing from this list
+  // fails the tests below rather than sorting as the worst one silently.
+  const PRECISION = ['qat', 'mtp-q4_K_M', 'q4_K_M', 'q8_0', 'bf16']
+
+  // `gemma4:26b-a4b-it-mtp-q4_K_M` splits into the size it serves and the
+  // build of it, which is what the id has to agree with.
+  function partsOf(tag) {
+    const body = tag.slice('gemma4:'.length)
+    const at = body.lastIndexOf('-it-')
+    return { size: body.slice(0, at), quant: body.slice(at + 4) }
+  }
+
+  // A lesser build always says so in its own name, so a run can never be
+  // mistaken about which weights answered.
   for (const [id, tag] of entries) {
     it(`${id} -> ${tag}`, () => {
       assert.ok(tag.startsWith('gemma4:'), tag)
-      assert.ok(tag.includes('-it-'), `no quantization in ${tag}`)
-      const quant = tag.slice(tag.lastIndexOf('-it-') + 4)
-      assert.equal(id.endsWith('-it'), quant === 'bf16', `${id} vs ${quant}`)
-      if (quant !== 'bf16') assert.ok(id.endsWith(`-${quant.toLowerCase()}`), `${id} vs ${quant}`)
+      assert.ok(tag.includes('-it-'), `no build named in ${tag}`)
+      const { quant } = partsOf(tag)
+      assert.ok(PRECISION.includes(quant), `unranked build ${quant} — add it to PRECISION`)
+      if (!id.endsWith('-it')) assert.ok(id.endsWith(`-${quant.toLowerCase()}`), `${id} vs ${quant}`)
     })
   }
 
-  it('prices the local-only builds at nothing', () => {
-    // The bare `-it` ids are hosted rows too and keep their hosted price —
-    // running one through ollama reports what it would have cost hosted.
+  // The other direction, and the rule that decides it: a bare id is the
+  // hosted model, so it takes the closest local stand-in — the best build
+  // published for that size, whatever that turns out to be.
+  for (const size of new Set(entries.map(([, tag]) => partsOf(tag).size))) {
+    it(`${size}: the bare id takes the highest precision published`, () => {
+      const forSize = entries.filter(([, tag]) => partsOf(tag).size === size)
+      const best = forSize
+        .map(([, tag]) => partsOf(tag).quant)
+        .sort((a, b) => PRECISION.indexOf(a) - PRECISION.indexOf(b))
+        .at(-1)
+      const bare = forSize.filter(([id]) => id.endsWith('-it'))
+      assert.equal(bare.length, 1, `expected one bare id for ${size}, found ${bare.length}`)
+      assert.equal(partsOf(bare[0][1]).quant, best, `${bare[0][0]} should take ${best}`)
+    })
+  }
+
+  it('leaves the local-only builds unpriced, rather than calling them free', () => {
+    // Nobody sells these, so the table has no rate to give — and a zero would
+    // be a claim that goes wrong the day one is listed. What a local run
+    // costs is the provider's answer, not the table's.
     const million = { ...emptyUsage(), input: 1_000_000, output: 1_000_000 }
     for (const [local] of entries.filter(([id]) => !id.endsWith('-it'))) {
-      assert.equal(calculateCost(local, million), 0, local)
+      assert.equal(calculateCost(local, million), null, local)
     }
+    // And the bare ids keep the hosted rate they are sold at.
+    assert.ok(calculateCost('google/gemma-4-26b-a4b-it', million) > 0)
   })
 })
 

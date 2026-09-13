@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
 
 import { setPartial } from './cache.js'
-import { addUsage, calculateCost, emptyUsage } from './models.js'
+import { addUsage, emptyUsage } from './models.js'
 import { claimPrefix, prefixKey } from './prefix-gate.js'
 import { flattenUserContent } from './prompt-cache.js'
 import {
   appendToolResults, buildInitialUserMessage, extractResponseText, extractToolCalls,
-  normalizeOneUsage, providerStamp,
+  normalizeOneUsage, providerStamp, turnCost,
 } from './providers.js'
 import { issueTurn, resolveTaskBudget } from './task-budget.js'
 
@@ -209,7 +209,7 @@ export function isResumableHistory(history, { provider } = {}) {
 // tokens for …` — so several passes over the same `label` stay legible
 // apart from each other and from the plain `[debug] Tokens for …`.
 export function logTurnCost(label, model, usage, pass) {
-  const cost = usage.cost > 0 ? usage.cost : (calculateCost(model, usage) ?? 0)
+  const cost = usage.cost > 0 ? usage.cost : (turnCost(model, usage) ?? 0)
   const what = pass ? `${pass} tokens` : 'Tokens'
   console.debug(`[debug] ${what} for ${label}: input=${usage.input} output=${usage.output} cacheRead=${usage.cacheRead} cacheWrite5m=${usage.cacheWrite5m} cacheWrite1h=${usage.cacheWrite1h} cost=$${cost.toFixed(4)}`)
 }

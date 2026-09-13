@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { CHROME_SHAPE, chromePreflight, closeChrome, sendChromeTurn } from './chrome/index.js'
 import { fetchJSON } from './fetch.js'
-import { effortsFor, ollamaModels, ollamaTagFor, reasoningModeFor, wireModelFor } from './models.js'
+import { calculateCost, effortsFor, ollamaModels, ollamaTagFor, reasoningModeFor, wireModelFor } from './models.js'
 import { anthropicAuthHeader, anthropicShape, chatCompletionsBase, parseArgs, stripNamespace, toAnthropicModel, truncationError } from './wire-formats.js'
 
 export { isMaxTokensTruncation } from './wire-formats.js'
@@ -301,6 +301,9 @@ const ADAPTERS = {
   // reached through a proxy that wants auth.
   ollama: {
     ...CHAT_COMPLETIONS_SHAPE,
+    // The rows it serves are hosted models too, and priced as such. Nothing
+    // leaves the machine here, so the table's rate is the wrong answer.
+    runsLocally: true,
     // Same origin/path split as OPENAI_API_URL and OPENROUTER_API_URL, so
     // one variable moves the whole endpoint — a remote Ollama, or a tunnel.
     url: (process.env.OLLAMA_API_URL || 'http://127.0.0.1:11434') + '/v1/chat/completions',
@@ -332,6 +335,7 @@ const ADAPTERS = {
   // browser instead of fetchJSON. Everything about reaching it is in
   // src/chrome/, behind its index.js.
   chrome: {
+    runsLocally: true,
     preflight: chromePreflight,
     send: sendChromeTurn,
     close: closeChrome,
@@ -412,6 +416,16 @@ export function setProvider(name) {
 // crash, the same way a connection pool reopens.
 export async function closeProvider() {
   await Promise.all(Object.values(ADAPTERS).map((adapter) => adapter.close?.()))
+}
+
+// What a turn cost. The price table prices the MODEL, so it cannot answer
+// this alone: an adapter running the weights on this machine charges nothing,
+// whatever the table says the hosted route would have cost. Off one, an
+// unpriced row stays null — unknown is not free, and the caller says what to
+// show for it.
+export function turnCost(model, usage) {
+  if (provider?.runsLocally) return 0
+  return calculateCost(model, usage)
 }
 
 // Identifies the wire format a history entry was written under, for

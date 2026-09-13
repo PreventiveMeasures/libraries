@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { calculateCost } from '../src/models.js'
+import { calculateCost, emptyUsage } from '../src/models.js'
 import {
   appendToolResults,
   buildInitialUserMessage,
@@ -13,6 +13,7 @@ import {
   extractToolCalls,
   normalizeOneUsage,
   setProvider,
+  turnCost,
 } from '../src/providers.js'
 
 // `setProvider` reads `process.env.<PROVIDER>_API_KEY` and asserts it is
@@ -1256,6 +1257,28 @@ describe('ollama adapter — local builds, addressed by tag', () => {
         () => buildRequestBody('anthropic/claude-opus-5', 1000, 'sys', messages),
         /no local build for anthropic\/claude-opus-5. Use one of: google\/gemma-4-12b-it/u,
       )
+    })
+  })
+
+  it('charges nothing, including for the rows that are sold hosted', () => {
+    withOllama(() => {
+      const million = { ...emptyUsage(), input: 1_000_000, output: 1_000_000 }
+      // The weights never left the machine, so the hosted rate on this row is
+      // the wrong answer however the table prices it.
+      assert.ok(calculateCost('google/gemma-4-26b-a4b-it', million) > 0)
+      assert.equal(turnCost('google/gemma-4-26b-a4b-it', million), 0)
+      // And an unpriced local build reads as nothing rather than unknown.
+      assert.equal(calculateCost('google/gemma-4-31b-it-q8_0', million), null)
+      assert.equal(turnCost('google/gemma-4-31b-it-q8_0', million), 0)
+    })
+  })
+
+  it('leaves a hosted provider priced by the table', () => {
+    withProvider('openrouter', 'OPENROUTER_API_KEY', () => {
+      const million = { ...emptyUsage(), input: 1_000_000, output: 1_000_000 }
+      assert.equal(turnCost('google/gemma-4-26b-a4b-it', million), calculateCost('google/gemma-4-26b-a4b-it', million))
+      // Unknown stays unknown off a local provider — not silently free.
+      assert.equal(turnCost('google/gemma-4-31b-it-q8_0', million), null)
     })
   })
 
