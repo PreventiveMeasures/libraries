@@ -7,65 +7,40 @@ import { baseModelFor, modelVersionFor } from '../models.js'
 import { findModelDir, graftPlan, localStateFor } from './model.js'
 import { explainCreateFailure, outputLanguage, toChatCompletions } from './wire.js'
 
-// Re-exported so callers keep one entry point for the provider: providers.js
-// wires the adapter from this file alone, never from the modules behind it.
+// One entry point for the provider: providers.js wires the adapter from here.
 export { chromePreflight, findModelDir, localStateFor } from './model.js'
 export { CHROME_SHAPE } from './wire.js'
 
-// The one provider that isn't an endpoint: Chrome's built-in Prompt API
-// (developer.chrome.com/docs/ai/prompt-api), reached over CDP with
-// playwright-core. No key, no URL, no network — the model is already on the
-// machine, inside a browser the user has installed.
+// Chrome's built-in Prompt API (developer.chrome.com/docs/ai/prompt-api),
+// driven over CDP by playwright-core. No key, no URL, no network. Zero
+// dependencies, no bundled browsers, and `channel: 'chrome'` resolves the
+// branded Chrome already installed.
 //
-// playwright-core rather than puppeteer-core: zero dependencies against six
-// (23 packages transitively, 30 MB against 14 MB). `-core` ships no browsers,
-// and `channel: 'chrome'` points it at the branded Chrome already installed,
-// so nothing is downloaded to reach a model that is already here.
-//
-// Chromium will not do. Open-source builds compile the Prompt API in but
-// expose no binding — verified against 141, where `LanguageModel` is
-// undefined under --enable-blink-features=AIPromptAPI, --enable-features=
-// AIPromptAPI and --enable-experimental-web-platform-features alike, while
-// Summarizer, Translator and LanguageDetector are all present. Branded Chrome
-// only, and NOT Chrome for Testing: it exposes the binding, but
-// #if BUILDFLAG(CHROME_FOR_TESTING) pins the device performance class to
-// kGpuBlocked, so it can only ever reach the CPU backend — a separate model
-// build most machines do not have. There is no CI-friendly way to get this;
-// see chrome-ondevice.test.js, which skips on CI for that reason.
+// Branded Chrome only. Chromium builds compile the API in but expose no
+// binding under any flag, and Chrome for Testing exposes it while pinning the
+// device performance class to kGpuBlocked (#if BUILDFLAG(CHROME_FOR_TESTING)),
+// leaving only a CPU backend most machines do not have.
 //
 // Two constraints shape the rest.
 //
-// The weights are never ours to download. Chrome keeps its on-device model
-// under the USER DATA DIR (component_updater's DIR_COMPONENT_USER), not under
-// the profile inside it, so a scratch --user-data-dir sees nothing and pulls
-// its own ~4 GB copy. We borrow the copy already there, and leave
-// --disable-component-update (playwright sets it) in place, which turns
-// "please don't re-download" into "cannot": with no resident model a request
-// fails loudly instead of quietly costing four gigabytes.
+// The weights are never ours to download. Chrome keeps the model under the
+// USER DATA DIR (component_updater's DIR_COMPONENT_USER) rather than the
+// profile inside it, so a scratch --user-data-dir sees nothing and pulls its
+// own ~4 GB copy. This borrows the resident one.
 //
-// No server. `LanguageModel` is gated on a secure context, and about:blank
-// and data: URLs are opaque origins where it is simply absent — measured, not
-// assumed. file:// is potentially trustworthy and does expose it, so the page
-// is file:///dev/null, the same trick @exodus/test uses to reach crypto.subtle.
+// No server. `LanguageModel` needs a secure context, and about:blank and
+// data: URLs are opaque origins where it is absent. file:// is potentially
+// trustworthy, so the page is file:///dev/null.
 
-// Playwright disables a set of Chrome features for test determinism, and one
-// of them is fatal here: `OptimizationHints`, which its source annotates
-// "Prevents downloading optimization hints on startup." That feature is the
-// optimization guide, and the on-device model hangs off the same keyed
-// service — with it off, the model service never starts, availability()
-// answers `unavailable` forever, and chrome://on-device-internals sits on
-// "Device performance class: Loading...". Removing this one entry is what
-// makes the class resolve (to "High" on a capable machine).
+// Playwright's own disabled-feature list, minus `OptimizationHints`
+// ("Prevents downloading optimization hints on startup"). The on-device model
+// hangs off that same keyed service: with it off the model service never
+// starts and availability() answers `unavailable` forever. --enable-features
+// cannot undo it, since FeatureList gives disable precedence, so the list is
+// re-sent without that entry — Chrome reads the last occurrence of a switch,
+// and playwright appends rather than merges.
 //
-// It cannot be undone with --enable-features: Chromium's FeatureList gives
-// disable precedence over enable, so the only fix is to not disable it. Our
-// own --disable-features wins because Chrome reads the last occurrence of a
-// switch and playwright does no merging — it just appends its list, and ours
-// comes after.
-//
-// This mirrors playwright 1.63's list minus that one entry. Drift is benign:
-// a newer playwright disabling something new simply means we do not inherit
-// it, and nothing here needs any of them.
+// Mirrors playwright 1.63. Drift is benign: nothing here needs any of them.
 const DISABLED_FEATURES = [
   'AvoidUnnecessaryBeforeUnloadCheckSync', 'DestroyProfileOnBrowserClose', 'DialMediaRouteProvider',
   'GlobalMediaControls', 'HttpsUpgrades', 'LensOverlay', 'MediaRouter', 'PaintHolding',
@@ -73,18 +48,14 @@ const DISABLED_FEATURES = [
   'AutoDeElevate', 'msForceBrowserSignIn', 'msEdgeUpdateLaunchServicesPreferredVersion',
 ]
 
-// The enable side needs the opposite treatment, and this is the reverse of
-// what the disable side above does. Playwright appends its own
-// --enable-features AFTER ours, and since Chrome reads the last occurrence,
-// leaving it in place silently discarded every feature we added — measured:
-// chrome://version showed --enable-features=CDPScreenshotNewSurface alone.
-// So theirs is dropped from the defaults and ours carries their entry.
+// The enable side takes the opposite treatment. Playwright appends its
+// --enable-features AFTER ours, so leaving it in place discards everything we
+// add: theirs is dropped and ours carries their entry.
 //
-// ignoreDefaultArgs matches by exact string (`indexOf(arg) === -1`), which is
-// why the whole switch is spelled out rather than its name. If playwright
-// ever changes that string the filter stops matching, our additions go back
-// to being dropped, and the gemma rows revert to Chrome's default variant —
-// a degradation rather than a crash, and the one below is what would catch it.
+// ignoreDefaultArgs matches by exact string (`indexOf(arg) === -1`), hence the
+// whole switch rather than its name. Should playwright change that string,
+// the filter stops matching and the gemma rows silently revert to Chrome's
+// default variant.
 const PLAYWRIGHT_ENABLE_FEATURES = '--enable-features=CDPScreenshotNewSurface'
 
 const ENABLED_FEATURES = [
@@ -92,11 +63,8 @@ const ENABLED_FEATURES = [
   'OptimizationGuideOnDeviceModel:on_device_model_bypass_perf_requirement/true',
 ]
 
-// Which Gemma answers, and the reason this is a feature param rather than the
-// chrome://flags entry it looks like it should be.
-//
-// The Prompt API does not ask for a model, it asks for a USE CASE, and the
-// manifest Google delivers says which:
+// Which Gemma answers. The Prompt API does not ask for a model, it asks for a
+// USE CASE, and the manifest Google delivers maps them:
 //
 //   PromptApiFeatureConfig {
 //     default_use_case: "prompt_api"
@@ -105,38 +73,30 @@ const ENABLED_FEATURES = [
 //                               "v4_12b":"prompt_api_gemma4_12b" }
 //   }
 //
-// AIApiFoundationalModel:model_version is a KEY into that map. The flag hard
-// codes it to v4, which is why a 4b launch had prompt_api_gemma4 "Requested"
-// and pending while prompt_api_gemma4_4b sat there available and unasked for.
-// Passing the param directly picks the variant; the flag cannot.
-//
-// So the flag's other two features are passed alongside rather than through
-// it. Read off chrome://version, 153 expands the flag to exactly these plus
-// model_version, and 155 to these minus the LiteRT-LM backend, which is the
-// default runtime there and has no flag left. Naming a feature Chrome does
-// not know is ignored, so the one list serves both.
+// AIApiFoundationalModel:model_version is a KEY into that map, so the param
+// picks the variant. chrome://flags/#gemma4-for-built-in-ai cannot: it hard
+// codes v4. The two features the flag also enables are therefore passed
+// alongside it — 153 expands the flag to exactly these plus model_version,
+// 155 to these minus the LiteRT-LM backend, its default runtime there. A
+// feature name Chrome does not know is ignored, so one list serves both.
 const GEMMA4_FEATURES = ['OptimizationGuideManifestBroker', 'OnDeviceModelLitertLmBackend']
 
 function enabledFeatures(baseModel) {
   const version = modelVersionFor(baseModel)
-  // v3 is Gemini Nano, which answers the default use case and needs none of
-  // this: it is what Chrome does anyway.
+  // v3 is Gemini Nano: the default use case, which needs none of this.
   if (!version || version === 'v3') return ENABLED_FEATURES
   return [...ENABLED_FEATURES, `AIApiFoundationalModel:model_version/${version}`, ...GEMMA4_FEATURES]
 }
 
-// Playwright's two software-GL defaults. Both have to go for Chrome to reach
-// a real GPU; see the launch below for why that is not optional.
+// Playwright's software-GL defaults. Both have to go for Chrome to reach a
+// real GPU; see launchPersistentContext for why that is not optional.
 const SOFTWARE_GL = ['--enable-unsafe-swiftshader', '--use-angle=swiftshader-webgl']
 
-// Everything of playwright's the launch drops, so a test can state it.
 export const IGNORED_DEFAULT_ARGS = [...SOFTWARE_GL, PLAYWRIGHT_ENABLE_FEATURES]
 
 
-// Which Chrome, in playwright's terms. A path wins when one is given;
-// otherwise the channel names an installed branded build — 'chrome',
-// 'chrome-beta', 'chrome-dev', 'chrome-canary' — and playwright resolves it,
-// reporting the path it looked at when there is nothing there.
+// CHROME_CHANNEL takes playwright's channel names: chrome, chrome-beta,
+// chrome-dev, chrome-canary.
 export function chromeTarget() {
   if (process.env.CHROME_PATH) return { executablePath: process.env.CHROME_PATH }
   return { channel: process.env.CHROME_CHANNEL || 'chrome' }
@@ -144,7 +104,7 @@ export function chromeTarget() {
 
 
 // A secure origin with no server behind it. /dev/null is not a thing on
-// Windows, so there the scratch profile gets an empty page written into it.
+// Windows, so there the scratch profile gets an empty page of its own.
 function blankPage(profile) {
   if (process.platform !== 'win32') return 'file:///dev/null'
   const page = join(profile, 'blank.html')
@@ -152,10 +112,9 @@ function blankPage(profile) {
   return pathToFileURL(page).href
 }
 
-// An optional peer, loaded on demand: a caller on the hosted providers never
-// pays for a browser driver it will not use, and only ever meets this the
-// first time it selects `chrome`. The bare module-not-found that would
-// otherwise surface names neither the package nor the reason it is wanted.
+// An optional peer, loaded on demand, so a caller on the hosted providers
+// never pays for a browser driver it will not use. The bare module-not-found
+// names neither the package nor the reason it is wanted.
 async function loadPlaywright() {
   try {
     return await import('playwright-core')
@@ -165,45 +124,27 @@ async function loadPlaywright() {
   }
 }
 
-// Scratch profiles, so they can be removed again. A leaked one is not huge on
-// its own, but a launch leaves one every run and a failing launch used to
-// leave two, which is how a tmp dir fills with ai-chrome-* directories.
-//
-// Removing one never touches the model: the component tree inside it is a
-// SYMLINK, and a recursive delete unlinks the link rather than following it.
-// Verified, because getting this wrong deletes several gigabytes belonging to
-// the user rather than to us.
+// Scratch profiles, so they can be removed again. Removing one never touches
+// the model: the component tree inside it is a SYMLINK, and a recursive
+// delete unlinks the link rather than following it.
 const profiles = new Set()
 
 const PROFILE_PREFIX = 'ai-chrome-'
 // Old enough that a profile made moments ago, before its owner marker was
-// written, cannot be mistaken for one left behind. Age is only half the
-// question — see ownerAlive for the half it cannot answer.
+// written, cannot be mistaken for one left behind.
 const STALE_MS = 6 * 60 * 60 * 1000
 
-// Written into each scratch profile, so another process sweeping the temp dir
-// can tell a profile still in use from one left behind. Chrome ignores files
-// it does not know at the profile root.
+// Lets another process sweeping the temp dir tell a profile in use from one
+// left behind. Chrome ignores files it does not know at the profile root.
 const OWNER_FILE = 'ai-chrome-owner.pid'
 
-// The single place this file deletes anything recursively.
+// The guard on the single place this file deletes anything recursively. A
+// profile holds a symlink into the user's model store, so a wrong path here
+// is gigabytes of somebody else's data.
 //
-// Every path handed here is built by mkdtemp from PROFILE_PREFIX, so the
-// check can only fail if something upstream has gone wrong — which is
-// precisely when a recursive delete must not run. The blast radius if it ever
-// did is not a temp directory: these profiles contain a symlink to the user's
-// model store, so a wrong path plus a wrong follow is gigabytes of somebody
-// else's data.
-// The decision, separated from the act so it can be tested without calling
-// anything that deletes. Checking the guard by asking removeProfileDir to
-// refuse '' or '/' means a regressed guard deletes the cwd or the root during
-// the very test meant to catch it.
-//
-// Not "contains" — starts with. Every profile is built by mkdtemp from
-// exactly this prefix, so anchoring to it rules out a path that merely has
-// ai-chrome- somewhere inside, and rules out anything outside the temp dir
-// whatever it is called. Recomputed per call rather than cached, so it still
-// matches how the path was built if TMPDIR moves under us.
+// starts-with, not contains: every profile is built by mkdtemp from exactly
+// this prefix, which rules out a path that merely has ai-chrome- somewhere
+// inside it. Recomputed per call, so it follows TMPDIR.
 export function isScratchProfile(dir) {
   const root = join(tmpdir(), PROFILE_PREFIX)
   return typeof dir === 'string' && dir.startsWith(root) && dir.length > root.length
@@ -222,13 +163,10 @@ function dropProfile(dir) {
   try { removeProfileDir(dir) } catch { /* already gone, or not ours to touch */ }
 }
 
-// Whether the process that made a profile is still running. Age cannot answer
-// that: a session is meant to be reused and has no lifetime, while the
-// profile ROOT's mtime stops moving as soon as Chrome settles into writing
-// inside it — so a second process sweeping on age alone would eventually
-// delete a first one's live profile out from under it. The pid is written at
-// creation; EPERM means someone else's process by that number exists, which
-// is still a reason to leave the directory alone.
+// A session has no lifetime, and the profile ROOT's mtime stops moving once
+// Chrome is writing inside it, so age alone cannot tell a live profile from
+// an abandoned one. EPERM means a process by that number exists and belongs
+// to someone else — still a reason to leave the directory alone.
 function ownerAlive(dir) {
   let pid
   try { pid = Number(readFileSync(join(dir, OWNER_FILE), 'utf8')) } catch { return false }
@@ -236,14 +174,9 @@ function ownerAlive(dir) {
   try { process.kill(pid, 0); return true } catch (err) { return err.code === 'EPERM' }
 }
 
-// Best effort, on launch: clear what earlier runs left behind, including the
-// ones this bug already produced.
-//
-// Both conditions, and each covers what the other cannot. Liveness alone
-// would delete a profile made moments ago by a process that has not written
-// its marker yet; age alone deletes profiles that are still in use. A
-// directory with no marker is from a build before this and can only be judged
-// by age.
+// Best effort, on launch: clear what earlier runs left behind. Both
+// conditions are needed — liveness alone takes a profile whose owner has not
+// written its marker yet, age alone takes profiles still in use.
 export function sweepStaleProfiles() {
   const now = Date.now()
   let dirs = []
@@ -257,9 +190,8 @@ export function sweepStaleProfiles() {
   }
 }
 
-// A caller that never reaches closeProvider — a crash, a bare `node script.js`
-// — would otherwise leak its profile. rmSync is synchronous, so an exit hook
-// can still finish the job.
+// A crash, or a bare `node script.js`, never reaches closeProvider. rmSync is
+// synchronous, so an exit hook can still finish the job.
 let exitHookInstalled = false
 function installExitCleanup() {
   if (exitHookInstalled) return
@@ -271,16 +203,12 @@ function installExitCleanup() {
   })
 }
 
-// One browser per base model, not one per process: the weights directory is
-// named on the command line, so two rows backed by different weights cannot
-// share a browser. In the common case only one is ever used and only one is
-// ever launched.
+// One browser per base model: the weights directory is named on the command
+// line, so two rows backed by different weights cannot share one.
 const sessions = new Map()
 
 async function launch(baseModel, debug) {
-  // Throws when the row's weights are not installed, naming what is — so
-  // there is nothing left for chromePreflight to check here. It still runs at
-  // setProvider, where no model is named yet.
+  // Throws when the row's weights are not installed, naming what is.
   const modelDir = findModelDir(baseModel)
   // A persistent context rather than launch(): the profile has to exist
   // before Chrome starts so the component tree can be grafted into it.
@@ -291,11 +219,9 @@ async function launch(baseModel, debug) {
   // Before anything slow, so a concurrent sweep can already see an owner.
   writeFileSync(join(profile, OWNER_FILE), String(process.pid))
   writeFileSync(join(profile, 'Local State'), JSON.stringify(localStateFor(modelDir)))
-  // Everything from here on can throw — a missing peer dependency, a browser
-  // that will not start, a page that will not navigate — and every one of
-  // those used to leave the profile behind, because only the readiness wait
-  // was wrapped. The sweep deliberately skips young directories, so those
-  // strays survived until they aged out.
+  // Everything below can throw — a missing peer, a browser that will not
+  // start, a page that will not navigate — and the profile goes with it. The
+  // sweep skips young directories, so a stray would sit there until it ages.
   try {
     return await openBrowser(profile, modelDir, baseModel, debug)
   } catch (err) {
@@ -304,57 +230,44 @@ async function launch(baseModel, debug) {
   }
 }
 
-// The switch list, out here rather than inline, because every entry is a
-// fix for something that failed silently and a test can hold each one in
-// place. Order matters only for --use-angle and the feature lists, which
+// Order matters only for --use-angle and the two feature lists, which
 // deliberately come after playwright's.
 export function launchArgs(modelDir, baseModel) {
   return [
-    // --use-angle is re-added outside the ignorable set, so it has to be
-    // overridden rather than dropped. The last occurrence of a switch is the
-    // one Chrome reads, and `default` hands the backend choice back to it.
+    // Playwright re-adds --use-angle outside the ignorable set, so it has to
+    // be overridden rather than dropped; `default` hands the backend choice
+    // back to Chrome.
     '--use-angle=default',
-    // Name the borrowed directory outright. Besides pointing at the
-    // weights, this waives the base-model version check Chrome would apply
-    // to a profile that has never registered a component of its own.
+    // Besides naming the borrowed weights, this waives the base-model version
+    // check Chrome applies to a profile that has registered no component of
+    // its own.
     `--optimization-guide-ondevice-model-execution-override=${modelDir}`,
-    // Both lists replace playwright's; see DISABLED_FEATURES for why the
-    // disable side is not optional.
+    // Both lists replace playwright's.
     `--disable-features=${DISABLED_FEATURES.join(',')}`,
     `--enable-features=${enabledFeatures(baseModel).join(',')}`,
-    // The gate that actually stops a scratch profile. Eligibility needs a
-    // device performance class, and a profile that has never computed one
-    // runs a GPU benchmark to get it — chrome://on-device-internals sits on
-    // "Device performance class: Loading..." while it does. availability()
-    // answers `unavailable` throughout, so a turn issued at launch loses a
-    // race it never announces. Forcing the class skips the benchmark.
+    // Eligibility needs a device performance class, and a profile without one
+    // runs a GPU benchmark to get it while availability() answers
+    // `unavailable`. Forcing the class skips the benchmark.
     //
-    // The value is an INTEGER, not a name: Chrome parses it with
-    // StringToInt and a name silently becomes kUnknown, which is
-    // indistinguishable from not passing the switch at all. 6 is VeryHigh
-    // (0 Unknown, 1 Error, 2 VeryLow, 3 Low, 4 Medium, 5 High, 6 VeryHigh);
-    // the numbering is fixed by the UMA enum, not by declaration order.
+    // The value is an INTEGER: Chrome parses it with StringToInt, and a name
+    // becomes kUnknown, indistinguishable from not passing the switch. 6 is
+    // VeryHigh (0 Unknown, 1 Error, 2 VeryLow, 3 Low, 4 Medium, 5 High,
+    // 6 VeryHigh), numbered by the UMA enum rather than declaration order.
     `--optimization-guide-performance-class=${process.env.CHROME_PERFORMANCE_CLASS || '6'}`,
-    // Never fetch a model. Asking for Gemma 4 also turns on the manifest
-    // broker, and the broker will go and get whichever Gemma it decides the
-    // machine should run — a 6.1 GB gemma4_12b, in the run that caught this,
-    // written through the grafted symlinks into the user's REAL component
-    // directories rather than into the scratch profile that asked for it.
+    // Never fetch a model. Asking for Gemma 4 turns on the manifest broker,
+    // which will go and get whichever Gemma it decides the machine should
+    // run — gigabytes, written through the grafted symlinks into the user's
+    // REAL component directories.
     //
-    // --disable-component-update does not cover it: playwright passes that
-    // already, and while dropping it takes component registrations from 1 to
-    // 20, the broker registers its assets itself at runtime. What does cover
-    // it is the configurator, which every component fetch goes through
-    // whoever registered it. Read off --log-net-log, overriding url-source
-    // sends the update requests to the named address (3 of them) and none to
-    // Google. Port 1 is on Chrome's restricted list, so the attempt dies
-    // locally as ERR_UNSAFE_PORT — no socket, no DNS, no proxy.
+    // --disable-component-update does not cover that: playwright passes it
+    // already, and the broker registers its assets at runtime. The
+    // configurator does, since every component fetch goes through it whoever
+    // registered the component. Port 1 is on Chrome's restricted list, so an
+    // attempt dies locally as ERR_UNSAFE_PORT — no socket, no DNS, no proxy.
     //
-    // Weights already on disk are unaffected: they are loaded from the
-    // override directory above, not fetched. A model that is genuinely
-    // missing stays missing, which is this provider's whole promise —
-    // chromePreflight says as much, and points at Chrome itself for getting
-    // one.
+    // Resident weights are unaffected: they load from the override directory
+    // above rather than being fetched. A model that is genuinely missing
+    // stays missing, which chromePreflight says outright.
     '--component-updater=url-source=http://127.0.0.1:1/no-downloads',
     ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
   ]
@@ -362,12 +275,10 @@ export function launchArgs(modelDir, baseModel) {
 
 
 async function openBrowser(profile, modelDir, baseModel, debug) {
-  // The override switch below is what Chrome reads to load the model, but the
+  // The override switch is what Chrome reads to load the model, but the
   // component installer decides whether anything is MISSING, and a profile
-  // that looks complete never starts a download. Only the requested model is
-  // linked, at the same depth it sits in the real profile. Best effort on
-  // each: the switch alone suffices, and a filesystem that refuses a link
-  // should not take the provider down with it.
+  // that looks complete starts no download. Best effort: the switch alone
+  // suffices, so a filesystem that refuses a link is not fatal.
   for (const { from, rel } of graftPlan(modelDir)) {
     try {
       mkdirSync(join(profile, dirname(rel)), { recursive: true })
@@ -378,38 +289,28 @@ async function openBrowser(profile, modelDir, baseModel, debug) {
   const browser = await chromium.launchPersistentContext(profile, {
     ...chromeTarget(),
     headless: process.env.CHROME_HEADLESS !== '0',
-    // Playwright forces a software rasterizer so rendering is deterministic
-    // across machines. That is fatal here: every on-device model Chrome ships
-    // is GPU-tier ("GPU (highest quality)" in chrome://on-device-internals),
-    // so under SwiftShader the on_device_model service never starts at all —
-    // availability() reads `unavailable`, create() says "the service is not
-    // running", and no eligibility reason is even recorded, because nothing
-    // got far enough to weigh one.
+    // Playwright forces a software rasterizer for deterministic rendering.
+    // Every on-device model Chrome ships is GPU-tier, so under SwiftShader the
+    // on_device_model service never starts: availability() reads
+    // `unavailable` and create() says "the service is not running".
     ignoreDefaultArgs: IGNORED_DEFAULT_ARGS,
     args: launchArgs(modelDir, baseModel),
-    // Nothing here needs the network. The page is file:///dev/null and the
-    // model is on disk, so a socket is a symptom rather than a feature, and
-    // it should fail rather than succeed quietly. Set on the context, so
-    // every page it opens inherits it.
-    //
-    // Measured against a local listener that answers: one request through
-    // without this, none with it, and the file:// page, the LanguageModel
-    // binding and a second chrome:// tab all unaffected. It does NOT cover
-    // the component updater, which is a browser-process fetch — that is what
-    // --component-updater=url-source is for, in launchArgs.
+    // Nothing here needs the network: the page is file:///dev/null and the
+    // model is on disk, so a socket is a symptom and should fail rather than
+    // succeed quietly. On the context, so every page inherits it. Does NOT
+    // cover the component updater, which is a browser-process fetch — that is
+    // what --component-updater=url-source is for, in launchArgs.
     offline: true,
   })
   const tab = await browser.newPage()
-  // Page-side failures are otherwise silent: evaluate returns the value and
-  // says nothing about what the model logged on the way.
+  // evaluate() hands back the value and nothing the page logged on the way.
   if (debug) {
     tab.on('console', (msg) => { if (!isBoilerplate(msg.text())) console.debug(`[chrome] ${msg.text()}`) })
     tab.on('pageerror', (err) => console.error(`[chrome] ${err}`))
   }
   await tab.goto(blankPage(profile))
-  // Close the browser if the model never arrives. Without this, a failed
-  // launch leaves its window open and the next attempt opens another beside
-  // it — two windows, one of them abandoned.
+  // Otherwise a failed launch leaves its window open, and the next attempt
+  // opens another beside it.
   try {
     await waitUntilReady(tab, debug)
   } catch (err) {
@@ -419,44 +320,21 @@ async function openBrowser(profile, modelDir, baseModel, debug) {
   return { browser, tab, profile }
 }
 
-// How long a cold profile gets to become ready. Registration is not
-// instant — the component updater has to run before Chrome will admit to
-// having a model, and that is seconds, not milliseconds.
+// A cold profile has to register the component before Chrome will admit to
+// having a model, and that is tens of seconds.
 const READY_TIMEOUT_MS = 120_000
 
-// The bug that cost four wrong fixes: a fresh profile answers `unavailable`
-// to everything until the on-device model component finishes registering,
-// and asking once at launch loses that race by two orders of magnitude —
-// milliseconds against the ten-plus seconds registration actually takes.
-// chrome://on-device-internals shows the same state as "Device performance
-// class: Loading...". `unavailable` is not a verdict here, it is "not yet".
-//
-// So wait for a real answer instead of taking the first one. A profile that
-// genuinely cannot serve the model still ends up here, and still fails —
-// just with a message that says how long it waited.
 /* eslint-disable no-undef */
-// Warm the model, by asking for a session rather than by waiting to be told
-// one is possible.
-//
-// Polling availability() here was a deadlock: in a cold profile it answers
-// `unavailable` until the model has been loaded, and nothing loads it except
-// create(). So the wait blocked on a state only the call it was gating could
-// produce. Running `await LanguageModel.create()` by hand in devtools broke
-// the deadlock and made every subsequent turn work, which is exactly the
-// shape of that bug.
-//
-// So: create one throwaway session and let it block. It was a retry loop
-// until the retries were observed never to happen — create() does not return
-// until the model is loaded or it fails, so a second attempt had nothing left
-// to wait for. Nothing here guards against a download either: this provider
-// only ever runs models Chrome has already fetched, and an earlier version
-// that aborted on `downloadprogress` killed every legitimate warm-up, because
-// that event fires while Chrome prepares weights it already has.
+// Warm the model by asking for a session, which is the only thing that loads
+// it. availability() cannot be polled here: in a cold profile it answers
+// `unavailable` until the model is loaded, so the wait would block on a state
+// only the call it gates can produce. One throwaway session is the whole
+// wait, since create() does not return until the model is loaded or it
+// fails.
 export async function waitUntilReady(tab, debug) {
   const outcome = await tab.evaluate(async ({ lang, timeoutMs }) => {
     if (typeof LanguageModel === 'undefined') return 'no-binding'
-    // Bounded here rather than by the caller, because there is nothing to
-    // poll: create() does not return until the model is loaded or it fails.
+    // Bounded in the page, beside the call it bounds.
     const expired = new Promise((resolve) => { setTimeout(() => resolve('timeout'), timeoutMs) })
     try {
       const probe = await Promise.race([
@@ -480,14 +358,12 @@ export async function waitUntilReady(tab, debug) {
 }
 /* eslint-enable no-undef */
 
-// Reused across turns: a launch costs about a second, and no turn leaves
-// state behind on the browser side — each creates and destroys its own
-// LanguageModel session.
+// Reused across turns: no turn leaves state behind on the browser side, since
+// each creates and destroys its own LanguageModel session.
 function ensureSession(baseModel, debug) {
   if (!sessions.has(baseModel)) {
-    // A failure must not be cached. Left in the map, a rejected promise is
-    // handed to every later turn, which is why one bad launch failed the
-    // rest of a run in under a millisecond each.
+    // A rejected promise left in the map would be handed to every later turn,
+    // failing the rest of the run instantly.
     const pending = launch(baseModel, debug)
     pending.catch(() => sessions.delete(baseModel))
     sessions.set(baseModel, pending)
@@ -499,8 +375,8 @@ export async function closeChrome() {
   const open = [...sessions.values()]
   sessions.clear()
   const shut = async (pending) => {
-    // A launch that rejected already surfaced to its caller; settling it again
-    // here would raise the same error a second time, unhandled.
+    // A launch that rejected already surfaced to its caller; raising it again
+    // here would go unhandled.
     const live = await pending.catch(() => null)
     if (!live) return
     await live.browser.close().catch(() => {})
@@ -509,59 +385,44 @@ export async function closeChrome() {
   await Promise.all(open.map(shut))
 }
 
-// Chrome greets every page that touches the Prompt API with a banner about
-// submitting feedback. It says nothing about this run and is printed once per
-// launch, so it only makes --debug harder to read. Filtered by content rather
-// than by suppressing console output wholesale — a real message from the page
-// is exactly what --debug is for.
-//
-// The missing-output-language warning is deliberately NOT filtered: it should
-// no longer appear now that a language is sent, and if it does, that is worth
-// seeing rather than hiding.
+// Chrome greets every page that touches the Prompt API with a feedback
+// banner. Filtered by content rather than by silencing the console, since a
+// real message from the page is what --debug is for.
 const BOILERPLATE = /uses Chrome's Built-In AI features/u
 
 const isBoilerplate = (text) => BOILERPLATE.test(text)
 
-// Runs inside the page. Serialized across, so it closes over nothing and
-// takes everything as one argument.
-//
-// Exported as a seam: this half runs where `LanguageModel` lives, so the only
-// way to exercise it without a downloaded model is to hand it to a page that
-// has a stub in place of one. Internal — index.js does not re-export it and
-// package.json's `exports` map does not expose this file, so the seam is
-// reachable from tests/ and nowhere a consumer can stand.
+// Runs inside the page: serialized across, so it closes over nothing and
+// takes everything as one argument. Exported so it can be run against a page
+// holding a stub in place of `LanguageModel`; package.json's `exports` map
+// does not expose this file, so that seam reaches no consumer.
 /* eslint-disable no-undef */
 export async function turnInPage(req) {
   if (typeof LanguageModel === 'undefined') {
     return { error: { message: 'LanguageModel is not exposed — this is not a branded Chrome' } }
   }
-  // No availability() gate here. It reports `unavailable` for a model that is
-  // merely unloaded, and waitUntilReady has already proved a session can be
-  // had — re-checking would refuse turns the browser is perfectly able to
-  // serve. A create() that genuinely cannot work still fails below, with the
-  // browser's own reason instead of a one-word status.
+  // No availability() gate: it reports `unavailable` for a model that is
+  // merely unloaded, which would refuse turns the browser can serve. A
+  // create() that cannot work fails below with the browser's own reason.
   let ses
   const createStarted = performance.now()
   let createdAt = 0
   try {
     ses = await LanguageModel.create({
       initialPrompts: req.initialPrompts,
-      // Chrome warns on every request without this: "An output language
-      // should be specified to ensure optimal output quality and properly
-      // attest to output safety." It accepts de, en, es, fr, ja.
+      // Without this Chrome warns "An output language should be specified to
+      // ensure optimal output quality and properly attest to output safety."
       expectedOutputs: [{ type: 'text', languages: [req.language] }],
     })
     createdAt = performance.now() - createStarted
   } catch (err) {
-    // Chrome's own message for the interesting failure ends "Please check the
+    // Chrome's message for the interesting failure ends "Please check the
     // result of availability() first", so do that and report the answer
-    // rather than passing the instruction on to the caller. `unavailable`
-    // here means this device will not run the variant that was asked for —
-    // it is not the merely-unloaded state waitUntilReady already cleared.
-    // The same expectedOutputs the create above carried. Without it Chrome logs
-    // "No output language was specified in a LanguageModel API request" —
-    // reproduced against a bare availability() call, and silenced by passing
-    // it, which is the only reason this repeats the option.
+    // rather than passing the instruction on. `unavailable` here means the
+    // device will not run the variant asked for, not the merely-unloaded
+    // state waitUntilReady has already cleared. The option is repeated
+    // because a bare availability() logs "No output language was specified in
+    // a LanguageModel API request".
     const availability = await LanguageModel
       .availability({ expectedOutputs: [{ type: 'text', languages: [req.language] }] })
       .catch((e) => `unreadable (${e.name})`)
@@ -570,10 +431,9 @@ export async function turnInPage(req) {
   const before = ses.contextUsage ?? 0
   try {
     const options = req.responseConstraint ? { responseConstraint: req.responseConstraint } : undefined
-    // The prompt itself is INPUT. Measuring it separately keeps it out of the
-    // completion count: the post-prompt delta covers the prompt, any
-    // constraint context and the generated text all together, so charging the
-    // whole delta to output overstated generation by the size of the request.
+    // The prompt itself is INPUT, and the post-prompt delta covers prompt,
+    // constraint context and generated text together, so measuring it
+    // separately is what keeps it out of the completion count.
     let promptTokens = 0
     try { promptTokens = await ses.measureContextUsage(req.prompt, options) ?? 0 } catch { promptTokens = 0 }
     const started = performance.now()
@@ -583,10 +443,9 @@ export async function turnInPage(req) {
       text,
       usage: { prompt_tokens: before + promptTokens, completion_tokens: Math.max(delta - promptTokens, 0) },
       contextWindow: ses.contextWindow ?? null,
-      // Split out, because "slow" on this provider has two very different
-      // causes: create() pays to load several gigabytes into the GPU the
-      // first time the service touches them, prompt() is the actual
-      // generation. One is amortised across a run, the other is not.
+      // "Slow" here has two causes: create() pays to load gigabytes into the
+      // GPU the first time, prompt() is the generation. One is amortised
+      // across a run, the other is not.
       createMs: Math.round(createdAt),
       promptMs: Math.round(performance.now() - started),
     }
@@ -601,10 +460,9 @@ export async function turnInPage(req) {
 
 export async function sendChromeTurn(model, body, { debug, label } = {}) {
   const baseModel = baseModelFor(model)
-  // Undefined means the registry has no chrome/* row for this id, so there is
-  // no way to know which local weights were meant. Launching anyway served
-  // whatever happened to be installed — an anthropic/* id, or a typo, would
-  // quietly get an answer from a different model entirely.
+  // Undefined means the registry has no chrome/* row for this id, so which
+  // local weights were meant is unknowable. Launching anyway would answer an
+  // anthropic/* id, or a typo, with whatever happens to be installed.
   assert.ok(baseModel, `Provider \`chrome\` cannot serve ${model}. Use one of the chrome/* models.`)
   const launched = Date.now()
   const session = await ensureSession(baseModel, debug)
@@ -614,9 +472,8 @@ export async function sendChromeTurn(model, body, { debug, label } = {}) {
   const result = await tab.evaluate(turnInPage, body)
   if (result.error?.availability) explainCreateFailure(result.error, model, baseModel)
   if (debug) {
-    // Attribute the wait. A cold run pays for browser startup, component
-    // registration and the first load of the weights; a warm one pays for
-    // none of those, and only the last number is the model actually working.
+    // A cold run pays for browser startup, component registration and the
+    // first load of the weights; only the last number is the model working.
     console.debug(`[chrome] startup=${startup}ms create=${result.createMs ?? '-'}ms prompt=${result.promptMs ?? '-'}ms`)
   }
   return toChatCompletions(result, Boolean(body.responseConstraint))
