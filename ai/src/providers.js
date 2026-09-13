@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { CHROME_SHAPE, chromePreflight, closeChrome, sendChromeTurn } from './chrome/index.js'
 import { fetchJSON } from './fetch.js'
+import { resolveOllamaTag } from './ollama.js'
 import { calculateCost, effortsFor, ollamaModels, ollamaTagFor, reasoningModeFor, wireModelFor } from './models.js'
 import { anthropicAuthHeader, anthropicShape, chatCompletionsBase, parseArgs, stripNamespace, toAnthropicModel, truncationError } from './wire-formats.js'
 
@@ -327,6 +328,14 @@ const ADAPTERS = {
       assert.ok(tag, `Provider \`ollama\` has no local build for ${model}. Use one of: ${ollamaModels().join(', ')}`)
       return { ...CHAT_COMPLETIONS_SHAPE.buildRequestBody(model, ...rest), model: tag }
     },
+
+    // Some tags have a twin that is the same model with speculative decoding
+    // switched on, and taking it needs the server asked which it has. That is
+    // a question buildRequestBody cannot ask, being synchronous and offline.
+    async finalizeBody(body) {
+      const tag = await resolveOllamaTag(body.model)
+      return tag === body.model ? body : { ...body, model: tag }
+    },
   },
 
   // Chrome's built-in on-device model — the one adapter with no endpoint at
@@ -480,10 +489,13 @@ export function buildRequestUrl(model) {
 // happens is the adapter's to say rather than the caller's, so the choice
 // lives here beside the rest of the dispatch surface and issueTurn stays one
 // code path.
-export function sendRequest(model, body, { taskBudget = false, debug, label } = {}) {
-  if (provider.send) return provider.send(model, body, { debug, label })
+export async function sendRequest(model, body, { taskBudget = false, debug, label } = {}) {
+  if (provider.send) return await provider.send(model, body, { debug, label })
   const headers = buildRequestHeaders({ taskBudget, model })
-  return fetchJSON(buildRequestUrl(model), { method: 'POST', headers, body: JSON.stringify(body) }, { debug, label })
+  // One last look at the body, for an adapter that has to ask the endpoint
+  // something before it can finish one. Everyone else sends what they built.
+  const sent = provider.finalizeBody ? await provider.finalizeBody(body) : body
+  return await fetchJSON(buildRequestUrl(model), { method: 'POST', headers, body: JSON.stringify(sent) }, { debug, label })
 }
 
 export function checkResponse(json) {

@@ -93,14 +93,8 @@ const MODELS = new Map([
   ['google/gemma-4-31b-it-qat', { maxTokens: 128 * 1024, canThink: true }],
   ['qwen/qwen3.6-27b-bf16', { maxTokens: 64 * 1024, canThink: true }],
   ['qwen/qwen3.6-27b-q4_k_m', { maxTokens: 64 * 1024, canThink: true }],
-  ['qwen/qwen3.6-27b-mtp-bf16', { maxTokens: 64 * 1024, canThink: true }],
-  ['qwen/qwen3.6-27b-mtp-q8_0', { maxTokens: 64 * 1024, canThink: true }],
-  ['qwen/qwen3.6-27b-mtp-q4_k_m', { maxTokens: 64 * 1024, canThink: true }],
   ['qwen/qwen3.6-35b-a3b-bf16', { maxTokens: 64 * 1024, canThink: true }],
   ['qwen/qwen3.6-35b-a3b-q4_k_m', { maxTokens: 64 * 1024, canThink: true }],
-  ['qwen/qwen3.6-35b-a3b-mtp-bf16', { maxTokens: 64 * 1024, canThink: true }],
-  ['qwen/qwen3.6-35b-a3b-mtp-q8_0', { maxTokens: 64 * 1024, canThink: true }],
-  ['qwen/qwen3.6-35b-a3b-mtp-q4_k_m', { maxTokens: 64 * 1024, canThink: true }],
   ['qwen/qwen3.8-27b-bf16', { maxTokens: 64 * 1024, canThink: true }],
   ['qwen/qwen3.8-27b-q4_k_m', { maxTokens: 64 * 1024, canThink: true }],
   // Free models — may log/store/use your data
@@ -357,21 +351,9 @@ const OLLAMA_TAGS = new Map([
   ['qwen/qwen3.6-27b', 'qwen3.6:27b-q8_0'], // 30GB
   ['qwen/qwen3.6-27b-bf16', 'qwen3.6:27b-bf16'], // 56GB
   ['qwen/qwen3.6-27b-q4_k_m', 'qwen3.6:27b-q4_K_M'], // 17GB
-  // Distinct artifacts, though not for one reason: at 27b the vision weights
-  // are only split out of the model file (+0.016% all told), while 35b-a3b
-  // carries 609MB more than its plain build.
-  ['qwen/qwen3.6-27b-mtp-bf16', 'qwen3.6:27b-mtp-bf16'], // 56GB
-  ['qwen/qwen3.6-27b-mtp-q8_0', 'qwen3.6:27b-mtp-q8_0'], // 30GB
-  ['qwen/qwen3.6-27b-mtp-q4_k_m', 'qwen3.6:27b-mtp-q4_K_M'], // 18GB
   ['qwen/qwen3.6-35b-a3b', 'qwen3.6:35b-a3b-q8_0'], // 39GB
   ['qwen/qwen3.6-35b-a3b-bf16', 'qwen3.6:35b-a3b-bf16'], // 71GB
   ['qwen/qwen3.6-35b-a3b-q4_k_m', 'qwen3.6:35b-a3b-q4_K_M'], // 24GB
-  ['qwen/qwen3.6-35b-a3b-mtp-bf16', 'qwen3.6:35b-a3b-mtp-bf16'], // 72GB
-  ['qwen/qwen3.6-35b-a3b-mtp-q8_0', 'qwen3.6:35b-a3b-mtp-q8_0'], // 39GB
-  ['qwen/qwen3.6-35b-a3b-mtp-q4_k_m', 'qwen3.6:35b-a3b-mtp-q4_K_M'], // 23GB
-  // qwen3.8 publishes `-mtp-` tags too, but there they are the same model and
-  // projector blobs with `draft_num_predict` set, so they are a run-time
-  // setting rather than a build and get no id of their own.
   ['qwen/qwen3.8-27b', 'qwen3.8:27b-q8_0'], // 30GB
   ['qwen/qwen3.8-27b-bf16', 'qwen3.8:27b-bf16'], // 56GB
   ['qwen/qwen3.8-27b-q4_k_m', 'qwen3.8:27b-q4_K_M'], // 18GB
@@ -381,6 +363,33 @@ const OLLAMA_TAGS = new Map([
 // adapter to refuse rather than post a registry id no local server knows.
 export function ollamaTagFor(model) {
   return OLLAMA_TAGS.get(resolveModel(model))
+}
+
+// Tags that ARE the tag they stand in for, preferred when the server has one.
+// Qwen ships an `-mtp-` twin of every build: the same weights with the
+// multi-token-prediction head switched on, which is speculative decoding and
+// so answers identically, faster. Substituting rather than naming them keeps
+// one id and one cache entry for what is one model — which is exactly why
+// gemma-4 26B's `-mtp-` build is absent here. That one is a different
+// quantization mix, gives different answers, and has an id of its own.
+const OLLAMA_ALTERNATIVES = new Map([
+  ['qwen3.6:27b-bf16', 'qwen3.6:27b-mtp-bf16'],
+  ['qwen3.6:27b-q8_0', 'qwen3.6:27b-mtp-q8_0'],
+  ['qwen3.6:27b-q4_K_M', 'qwen3.6:27b-mtp-q4_K_M'],
+  ['qwen3.6:35b-a3b-bf16', 'qwen3.6:35b-a3b-mtp-bf16'],
+  ['qwen3.6:35b-a3b-q8_0', 'qwen3.6:35b-a3b-mtp-q8_0'],
+  ['qwen3.6:35b-a3b-q4_K_M', 'qwen3.6:35b-a3b-mtp-q4_K_M'],
+  ['qwen3.8:27b-bf16', 'qwen3.8:27b-mtp-bf16'],
+  ['qwen3.8:27b-q8_0', 'qwen3.8:27b-mtp-q8_0'],
+  ['qwen3.8:27b-q4_K_M', 'qwen3.8:27b-mtp-q4_K_M'],
+])
+
+export function ollamaAlternativeFor(tag) {
+  return OLLAMA_ALTERNATIVES.get(tag)
+}
+
+export function ollamaAlternatives() {
+  return [...OLLAMA_ALTERNATIVES]
 }
 
 export function ollamaModels() {
