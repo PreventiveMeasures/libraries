@@ -348,7 +348,9 @@ const OLLAMA_TAGS = new Map([
   ['google/gemma-4-26b-a4b-it', 'gemma4:26b-a4b-it-bf16'], // 52GB
   ['google/gemma-4-26b-a4b-it-q8_0', 'gemma4:26b-a4b-it-q8_0'], // 28GB
   ['google/gemma-4-26b-a4b-it-q4_k_m', 'gemma4:26b-a4b-it-q4_K_M'], // 18GB
-  // Byte-identical manifest to the default `gemma4:26b`.
+  // The default `gemma4:26b`, byte-identical. Same Q4_K_M label as the row
+  // above and 1GB more, but a different mix: attention is Q8_0 here and
+  // Q4_K there, so the row above is the one to skip.
   ['google/gemma-4-26b-a4b-it-mtp-q4_k_m', 'gemma4:26b-a4b-it-mtp-q4_K_M'], // 19GB
   ['google/gemma-4-26b-a4b-it-qat', 'gemma4:26b-a4b-it-qat'], // 16GB
   ['google/gemma-4-31b-it', 'gemma4:31b-it-bf16'], // 63GB
