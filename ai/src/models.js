@@ -60,6 +60,10 @@ const MODELS = new Map([
   ['google/gemini-3.1-flash-lite-preview', { input: 0.25, output: 1.5, maxTokens: 64 * 1024 }],
   ['google/gemini-3.1-pro-preview', { input: 2, output: 12, maxTokens: 64 * 1024 }],
   ['nvidia/nemotron-3-super-120b-a12b', { input: 0.1, output: 0.5, maxTokens: 128 * 1024 }],
+  ['qwen/qwen3.6-27b', { input: 0.3, output: 2, maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.6-35b-a3b', { input: 0.1, output: 0.9, maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.8-27b', { input: 0.214, output: 2.55, maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.8-2.4t-a95b', { input: 2, output: 6, maxTokens: 64 * 1024, canThink: true }],
   // Kimi K3 (1M context) at Moonshot's list rate. OpenRouter resells it a
   // little cheaper but reports its own per-request cost, which wins over this
   // table, so one row serves both routes. `maxTokens` is the output default.
@@ -86,6 +90,18 @@ const MODELS = new Map([
   ['google/gemma-4-31b-it-q8_0', { maxTokens: 128 * 1024, canThink: true }],
   ['google/gemma-4-31b-it-q4_k_m', { maxTokens: 128 * 1024, canThink: true }],
   ['google/gemma-4-31b-it-qat', { maxTokens: 128 * 1024, canThink: true }],
+  ['qwen/qwen3.6-27b-q8_0', { maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.6-27b-q4_k_m', { maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.6-27b-mtp-bf16', { maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.6-27b-mtp-q8_0', { maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.6-27b-mtp-q4_k_m', { maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.6-35b-a3b-q8_0', { maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.6-35b-a3b-q4_k_m', { maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.6-35b-a3b-mtp-bf16', { maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.6-35b-a3b-mtp-q8_0', { maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.6-35b-a3b-mtp-q4_k_m', { maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.8-27b-q8_0', { maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.8-27b-q4_k_m', { maxTokens: 64 * 1024, canThink: true }],
   // Free models — may log/store/use your data
   ['openai/gpt-oss-120b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['openai/gpt-oss-20b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
@@ -330,6 +346,26 @@ const OLLAMA_TAGS = new Map([
   ['google/gemma-4-31b-it-q8_0', 'gemma4:31b-it-q8_0'],
   ['google/gemma-4-31b-it-q4_k_m', 'gemma4:31b-it-q4_K_M'],
   ['google/gemma-4-31b-it-qat', 'gemma4:31b-it-qat'],
+  ['qwen/qwen3.6-27b', 'qwen3.6:27b-bf16'],
+  ['qwen/qwen3.6-27b-q8_0', 'qwen3.6:27b-q8_0'],
+  ['qwen/qwen3.6-27b-q4_k_m', 'qwen3.6:27b-q4_K_M'],
+  // Not the same weights as the plain builds beside them: smaller, and
+  // carrying a vision projector those do not.
+  ['qwen/qwen3.6-27b-mtp-bf16', 'qwen3.6:27b-mtp-bf16'],
+  ['qwen/qwen3.6-27b-mtp-q8_0', 'qwen3.6:27b-mtp-q8_0'],
+  ['qwen/qwen3.6-27b-mtp-q4_k_m', 'qwen3.6:27b-mtp-q4_K_M'],
+  ['qwen/qwen3.6-35b-a3b', 'qwen3.6:35b-a3b-bf16'],
+  ['qwen/qwen3.6-35b-a3b-q8_0', 'qwen3.6:35b-a3b-q8_0'],
+  ['qwen/qwen3.6-35b-a3b-q4_k_m', 'qwen3.6:35b-a3b-q4_K_M'],
+  ['qwen/qwen3.6-35b-a3b-mtp-bf16', 'qwen3.6:35b-a3b-mtp-bf16'],
+  ['qwen/qwen3.6-35b-a3b-mtp-q8_0', 'qwen3.6:35b-a3b-mtp-q8_0'],
+  ['qwen/qwen3.6-35b-a3b-mtp-q4_k_m', 'qwen3.6:35b-a3b-mtp-q4_K_M'],
+  // qwen3.8 publishes `-mtp-` tags too, but there they are the same model and
+  // projector blobs with `draft_num_predict` set, so they are a run-time
+  // setting rather than a build and get no id of their own.
+  ['qwen/qwen3.8-27b', 'qwen3.8:27b-bf16'],
+  ['qwen/qwen3.8-27b-q8_0', 'qwen3.8:27b-q8_0'],
+  ['qwen/qwen3.8-27b-q4_k_m', 'qwen3.8:27b-q4_K_M'],
 ])
 
 // Undefined for a model Ollama has no mapping for, which is what tells the

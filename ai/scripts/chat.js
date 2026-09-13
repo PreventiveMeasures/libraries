@@ -22,8 +22,8 @@ positional argument, or piped in on stdin.
   -p, --provider <name> anthropic, openai, openrouter, gateway, chrome,
                         moonshot, ollama. Inferred from the model's namespace
                         when omitted, so chrome/gemini-nano-v3 picks chrome —
-                        but a local build shares the google/ namespace with
-                        the hosted one, so ollama has to be named.
+                        but a local build shares its namespace with the
+                        hosted model, so ollama has to be named.
   -s, --system <text>   system prompt
       --think           enable thinking
       --effort <level>  low, medium, high, xhigh, max, manual

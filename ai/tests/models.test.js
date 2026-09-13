@@ -297,42 +297,44 @@ describe('ollama tags — one local build per row', () => {
     assert.equal(new Set(tags).size, tags.length, tags.join(', '))
   })
 
-  // Ascending, so `.indexOf` ranks them. A build type missing from this list
-  // fails the tests below rather than sorting as the worst one silently.
-  const PRECISION = ['qat', 'mtp-q4_K_M', 'q4_K_M', 'q8_0', 'bf16']
+  // Ascending, so `.indexOf` ranks them, and an `mtp-` build sits just under
+  // the plain one it shadows. Each pair is listed longest first, so the
+  // `.find` below never reads `-mtp-q8_0` as `-q8_0`.
+  const PRECISION = ['qat', 'mtp-q4_K_M', 'q4_K_M', 'mtp-q8_0', 'q8_0', 'mtp-bf16', 'bf16']
 
-  // `gemma4:26b-a4b-it-mtp-q4_K_M` splits into the size it serves and the
-  // build of it, which is what the id has to agree with.
+  // A tag is a family and one build of it — `qwen3.6:35b-a3b` and `mtp-q8_0`.
   function partsOf(tag) {
-    const body = tag.slice('gemma4:'.length)
-    const at = body.lastIndexOf('-it-')
-    return { size: body.slice(0, at), quant: body.slice(at + 4) }
+    const quant = PRECISION.find((build) => tag.endsWith(`-${build}`))
+    return { family: quant ? tag.slice(0, -(quant.length + 1)) : tag, quant }
   }
 
-  // A lesser build always says so in its own name, so a run can never be
-  // mistaken about which weights answered.
+  // Which build an id claims, if it claims one. Nothing here is keyed to a
+  // family's own spelling: gemma names its sizes `12b-it` and qwen `35b-a3b`,
+  // and the rule is the same for both.
+  const buildIn = (id) => PRECISION.find((build) => id.endsWith(`-${build.toLowerCase()}`))
+
   for (const [id, tag] of entries) {
     it(`${id} -> ${tag}`, () => {
-      assert.ok(tag.startsWith('gemma4:'), tag)
-      assert.ok(tag.includes('-it-'), `no build named in ${tag}`)
       const { quant } = partsOf(tag)
-      assert.ok(PRECISION.includes(quant), `unranked build ${quant} — add it to PRECISION`)
-      if (!id.endsWith('-it')) assert.ok(id.endsWith(`-${quant.toLowerCase()}`), `${id} vs ${quant}`)
+      assert.ok(quant, `unranked build in ${tag} — add it to PRECISION`)
+      // An id that names a build must name the one the tag actually serves.
+      // One that names none is its family's bare id, pinned just below.
+      const named = buildIn(id)
+      if (named) assert.equal(named, quant, `${id} vs ${tag}`)
     })
   }
 
-  // The other direction, and the rule that decides it: a bare id is the
-  // hosted model, so it takes the closest local stand-in — the best build
-  // published for that size, whatever that turns out to be.
-  for (const size of new Set(entries.map(([, tag]) => partsOf(tag).size))) {
-    it(`${size}: the bare id takes the highest precision published`, () => {
-      const forSize = entries.filter(([, tag]) => partsOf(tag).size === size)
-      const best = forSize
+  // The rule that decides the bare id: it is the hosted model, so it takes
+  // the closest local stand-in — the best build published for that family.
+  for (const family of new Set(entries.map(([, tag]) => partsOf(tag).family))) {
+    it(`${family}: the bare id takes the highest precision published`, () => {
+      const mine = entries.filter(([, tag]) => partsOf(tag).family === family)
+      const best = mine
         .map(([, tag]) => partsOf(tag).quant)
         .sort((a, b) => PRECISION.indexOf(a) - PRECISION.indexOf(b))
         .at(-1)
-      const bare = forSize.filter(([id]) => id.endsWith('-it'))
-      assert.equal(bare.length, 1, `expected one bare id for ${size}, found ${bare.length}`)
+      const bare = mine.filter(([id]) => !buildIn(id))
+      assert.equal(bare.length, 1, `expected one bare id for ${family}, found ${bare.map(([id]) => id).join(', ') || 'none'}`)
       assert.equal(partsOf(bare[0][1]).quant, best, `${bare[0][0]} should take ${best}`)
     })
   }
@@ -342,7 +344,7 @@ describe('ollama tags — one local build per row', () => {
     // be a claim that goes wrong the day one is listed. What a local run
     // costs is the provider's answer, not the table's.
     const million = { ...emptyUsage(), input: 1_000_000, output: 1_000_000 }
-    for (const [local] of entries.filter(([id]) => !id.endsWith('-it'))) {
+    for (const [local] of entries.filter(([id]) => buildIn(id))) {
       assert.equal(calculateCost(local, million), null, local)
     }
     // And the bare ids keep the hosted rate they are sold at.
