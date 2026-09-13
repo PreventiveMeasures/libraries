@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url'
 import { baseModelFor, modelVersionFor } from '../models.js'
 import { findModelDir, graftPlan } from './model.js'
 import { claimProfile, dropProfile, pruneProfileRoot } from './profile.js'
-import { explainCreateFailure, outputLanguage, toChatCompletions } from './wire.js'
+import { explainCreateFailure, toChatCompletions } from './wire.js'
 
 // One entry point for the provider: providers.js wires the adapter from here.
 export { chromePreflight, findModelDir, localStateFor } from './model.js'
@@ -188,7 +188,6 @@ export async function openTab(browser, profile, debug) {
       tab.on('pageerror', (err) => console.error(`[chrome] ${err}`))
     }
     await tab.goto(blankPage(profile))
-    await waitUntilReady(tab, debug)
     return tab
   } catch (err) {
     await browser.close().catch(() => {})
@@ -196,40 +195,17 @@ export async function openTab(browser, profile, debug) {
   }
 }
 
-// A cold profile has to register the component before Chrome will admit to
-// having a model, and that is tens of seconds.
-const READY_TIMEOUT_MS = 120_000
+// A cold profile registers the component and loads the weights inside the
+// first create(), which is tens of seconds. Handed to the page rather than
+// written there because page.evaluate() has no timeout of its own, so an
+// unbounded create hangs the caller for as long as the browser lives.
+const CREATE_TIMEOUT_MS = 120_000
 
-/* eslint-disable no-undef */
-// Warm the model by asking for a session, the only thing that loads it.
-// availability() cannot be polled: it answers `unavailable` until the model is
-// loaded, so the wait would block on what the call it gates would produce.
-export async function waitUntilReady(tab, debug) {
-  const outcome = await tab.evaluate(async ({ lang, timeoutMs }) => {
-    if (typeof LanguageModel === 'undefined') return 'no-binding'
-    // Bounded in the page, beside the call it bounds.
-    const expired = new Promise((resolve) => { setTimeout(() => resolve('timeout'), timeoutMs) })
-    try {
-      const probe = await Promise.race([
-        LanguageModel.create({ expectedOutputs: [{ type: 'text', languages: [lang] }] }),
-        expired,
-      ])
-      if (probe === 'timeout') return 'timeout'
-      probe.destroy()
-      return 'ready'
-    } catch (err) {
-      return `${err.name}: ${err.message}`
-    }
-  }, { lang: outputLanguage(), timeoutMs: READY_TIMEOUT_MS })
-  if (outcome === 'ready') {
-    if (debug) console.debug('[chrome] model warm')
-    return
-  }
-  if (outcome === 'no-binding') throw new Error('LanguageModel is not exposed — this is not a branded Chrome')
-  if (outcome === 'timeout') throw new Error(`On-device model never became usable within ${READY_TIMEOUT_MS / 1000}s`)
-  throw new Error(`On-device model could not start: ${outcome}`)
+// What the page is asked for, out here so the bound is something a test can
+// read: dropped, it is production alone that goes back to waiting forever.
+export function turnRequest(body) {
+  return { ...body, createTimeoutMs: CREATE_TIMEOUT_MS }
 }
-/* eslint-enable no-undef */
 
 // Everything a close has to wait for: the turn in the page, and the launch a
 // turn is still waiting on. One browser and one tab serve a whole row, so
@@ -319,12 +295,27 @@ export async function turnInPage(req) {
   const createStarted = performance.now()
   let createdAt = 0
   try {
-    ses = await LanguageModel.create({
+    // The first create of a run also loads the model, so this is where a cold
+    // profile spends its tens of seconds — and where one that never comes up
+    // would otherwise wait forever.
+    const creating = LanguageModel.create({
       initialPrompts: req.initialPrompts,
       // Without this Chrome warns "An output language should be specified to
       // ensure optimal output quality and properly attest to output safety."
       expectedOutputs: [{ type: 'text', languages: [req.language] }],
     })
+    // Unbounded without one, which is how a caller driving this against a
+    // stub gets the race out of the way.
+    const expired = new Promise((resolve) => {
+      if (req.createTimeoutMs > 0) setTimeout(() => resolve('timeout'), req.createTimeoutMs)
+    })
+    const created = await Promise.race([creating, expired])
+    if (created === 'timeout') {
+      // Still running, and a session nothing holds is one nothing can destroy.
+      creating.then((late) => late.destroy(), () => {})
+      return { error: { message: `create never settled within ${req.createTimeoutMs / 1000}s` } }
+    }
+    ses = created
     createdAt = performance.now() - createStarted
   } catch (err) {
     // Chrome's message for the interesting failure ends "Please check the
@@ -376,16 +367,15 @@ export async function sendChromeTurn(model, body, { debug, label } = {}) {
   // window, so a browser that had just come up would close before its first
   // turn reached it.
   return await trackTurn(async () => {
-    const launched = Date.now()
     const { tab } = await ensureSession(baseModel, debug)
-    const startup = Date.now() - launched
     if (debug && label) console.debug(`[debug] ${label}`)
-    const result = await tab.evaluate(turnInPage, body)
+    const result = await tab.evaluate(turnInPage, turnRequest(body))
     if (result.error?.availability) explainCreateFailure(result.error, model, baseModel)
     if (debug) {
-      // A cold run pays for browser startup, component registration and the
-      // first load of the weights; only the last number is the model working.
-      console.debug(`[chrome] startup=${startup}ms create=${result.createMs ?? '-'}ms prompt=${result.promptMs ?? '-'}ms`)
+      // The first turn of a run registers the component and loads the weights
+      // inside create, which is why it dwarfs every later one; prompt is the
+      // only number that is the model working.
+      console.debug(`[chrome] create=${result.createMs ?? '-'}ms prompt=${result.promptMs ?? '-'}ms`)
     }
     return toChatCompletions(result, Boolean(body.responseConstraint))
   })
