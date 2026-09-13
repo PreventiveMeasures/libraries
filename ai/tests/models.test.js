@@ -305,6 +305,16 @@ describe('nemotron paid/free pairs', () => {
   }
 })
 
+describe('gemini flash', () => {
+  it('registers 3.8 flash, and lets all three gemini rows think', () => {
+    const million = { ...emptyUsage(), input: 1_000_000, output: 1_000_000 }
+    assert.equal(calculateCost('google/gemini-3.8-flash', million), 0.75 + 3.75)
+    for (const m of ['google/gemini-3.8-flash', 'google/gemini-3.1-flash-lite-preview', 'google/gemini-3.1-pro-preview']) {
+      assert.equal(canThink(m), true, m)
+    }
+  })
+})
+
 describe('satellite tables name real registry rows', () => {
   // TASK_BUDGET_MODELS is keyed by model id and maintained by hand beside
   // the registry, so a typo — the hyphenated wire form, say — is silent:

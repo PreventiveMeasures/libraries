@@ -9,13 +9,13 @@ import process from 'node:process'
 import { createInterface } from 'node:readline/promises'
 import { parseArgs, styleText } from 'node:util'
 import {
-  DEFAULT_MODEL, KNOWN_MODELS, chat, closeProvider, getMaxTokens,
+  DEFAULT_MODEL, KNOWN_MODELS, ask, closeProvider, getMaxTokens,
   isRecognizedModel, resolveModel, resolveThinkEffort, setProvider, turnCost,
 } from '../index.js'
 
 const USAGE = `Usage: scripts/chat.js [options] [prompt]
 
-Sends one prompt through chat() and prints the reply. The prompt may be a
+Sends one prompt through ask() and prints the reply. The prompt may be a
 positional argument, or piped in on stdin.
 
   -m, --model <id>      model to use (default: ${DEFAULT_MODEL})
@@ -130,7 +130,7 @@ async function main(argv) {
   // What the layer provides for exactly this: a model that cannot reason
   // refuses --think here, with one wording shared by every caller. Skipping
   // it let the request reach buildRequestBody, which throws from inside
-  // issueTurn and escapes chat() as a stack trace rather than a message —
+  // issueTurn and escapes ask() as a stack trace rather than a message —
   // and on a chrome row, which has no thinking mode at all, that is the
   // normal path rather than an edge case.
   let think
@@ -138,15 +138,16 @@ async function main(argv) {
 
   const provider = values.provider ?? PROVIDER_FOR[model.split('/')[0]] ?? 'openrouter'
   // A session is not an idle browser: ten seconds of thinking about what to
-  // type would put a cold start in front of the next line. A minute, rather
-  // than never, so a session left open still lets go. The caller's own
-  // setting still wins.
-  if (values.repl) process.env.CHROME_IDLE_MS ??= '60000'
+  // type would put a cold start in front of the next line, and a tool handler
+  // runs between turns with the same timer counting. A minute, rather than
+  // never, so a session left open still lets go. The caller's own setting
+  // still wins.
+  if (values.repl || values.tools) process.env.CHROME_IDLE_MS ??= '60000'
   try { setProvider(provider) } catch (err) { return fail(`chat.js: ${err.message}\n`) }
 
   // Same reason --think is resolved above rather than left to the wire: a
   // provider that refuses the request — no browser, no weights, a row gated
-  // behind an opt-in — throws from inside chat(), and without this the script
+  // behind an opt-in — throws from inside ask(), and without this the script
   // exits on a stack trace pointing into chrome/model.js instead of saying
   // what the caller has to change.
   try {
@@ -172,13 +173,13 @@ async function turn({ model, provider, userContent, values, think }) {
   const started = Date.now()
   const calls = []
   const tools = values.tools ? DEMO_TOOLS : undefined
-  const { text, error, usage } = await chat({
+  const { text, error, usage } = await ask({
     model,
     maxTokens: values['max-tokens'] ? Number(values['max-tokens']) : getMaxTokens(model),
     systemPrompt: values.system ?? 'You are a helpful assistant.',
     userContent,
     tools,
-    // chat() requires the pair, so the handler is only wired up alongside.
+    // ask() requires the pair, so the handler is only wired up alongside.
     handleToolCall: tools
       ? (call) => { const result = runTool(call); calls.push({ ...call, result }); return result }
       : undefined,

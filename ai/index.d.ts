@@ -111,10 +111,10 @@ export declare function unknownModelMessage(model: unknown, flag: string): strin
 // with the `free` flag.
 export declare function validateModel(model: string, opts?: { free?: boolean | undefined }): void
 
-// One conversation, end to end: `chat()` issues the turns and hands tool
+// One conversation, end to end: `ask()` issues the turns and hands tool
 // calls back to the caller, `isResumableHistory` says whether a cached
 // partial can be replayed into it, and the two helpers read what it cost.
-interface ChatOptions {
+interface AskOptions {
   model: string
   maxTokens: number
   systemPrompt: string
@@ -143,14 +143,14 @@ interface ChatOptions {
 // `text` is null exactly when `error` is set — a failed request, malformed
 // tool args, or the turn cap. `usage` and `history` are whole either way,
 // so the caller can account for and cache what it did spend.
-interface ChatResult {
+interface AskResult {
   text: string | null
   error?: string | undefined
   usage: Usage
   history: HistoryEntry[]
 }
 
-export declare function chat(options: ChatOptions): Promise<ChatResult>
+export declare function ask(options: AskOptions): Promise<AskResult>
 export declare function isResumableHistory(history: unknown, opts?: { provider?: string | undefined }): boolean
 export declare function logTurnCost(label: string, model: string, usage: Usage, pass?: string | undefined): void
 // Sums a stored history, or reads a single stored response. Null when
@@ -215,7 +215,8 @@ export declare function getCacheStats(): { hits: number, misses: number }
 // returned comes back as `value`. Without it nothing is counted.
 //
 // `userContent` may be a list of candidate keys, tried in order: still one
-// request, counted once.
+// request, counted once. The opposite of what a list means to ask(), which
+// joins its blocks into one key — so join them before looking one up here.
 export declare function getCached<T>(userContent: string | string[], opts: CacheOpts, options: {
   validate: (entry: CacheEntry) => T | Promise<T>
 }): Promise<(CacheEntry & { value: Awaited<T> }) | null>

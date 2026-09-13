@@ -18,10 +18,10 @@ export {
   resolveThinkEffort, unknownModelMessage, validateModel,
 } from './src/models.js'
 
-// One conversation, end to end: `chat()` issues the turns and hands tool
+// One conversation, end to end: `ask()` issues the turns and hands tool
 // calls back to the caller, `isResumableHistory` says whether a cached
 // partial can be replayed into it, and the two helpers read what it cost.
-export { chat, isResumableHistory, logTurnCost, normalizeUsage } from './src/chat.js'
+export { ask, isResumableHistory, logTurnCost, normalizeUsage } from './src/chat.js'
 
 // Which provider the requests go to, and the two pieces of its response
 // shape a caller has to see: what a stored turn's text was, and which wire

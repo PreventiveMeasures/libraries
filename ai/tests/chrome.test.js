@@ -612,7 +612,7 @@ describe('chrome request body', () => {
 
   it('concatenates the blocks — nothing local caches across requests', () => {
     const initial = (userContent) => CHROME_SHAPE.buildInitialUserMessage('chrome/gemma-4-e2b-it', userContent)
-    // A list, which is what chat() passes now. Concatenating with `+` gave
+    // A list, which is what ask() passes now. Concatenating with `+` gave
     // 'prefix,suffix' here: an array stringifies with commas, so the old
     // two-argument form put a comma into the prompt the moment a caller
     // split its user content.
@@ -680,7 +680,7 @@ describe('chrome response shaping', () => {
   })
 
   it('reports malformed tool ARGS through argsError, the way every adapter does', () => {
-    // The constraint parsed, but the args inside it did not — chat() ends the
+    // The constraint parsed, but the args inside it did not — ask() ends the
     // turn on argsError rather than throwing.
     const json = {
       choices: [{ message: { role: 'assistant', content: '', tool_calls: [{ id: 'call_0', type: 'function', function: { name: 'read_file', arguments: '{oops' } }] } }],
@@ -746,7 +746,7 @@ describe('chrome tool schema helpers', () => {
 
   it('binds each tool to its OWN argument schema', () => {
     // One shared `arguments: { type: 'object' }` accepted anything, and
-    // chat() hands calls to the caller's handler without revalidating — so a
+    // ask() hands calls to the caller's handler without revalidating — so a
     // call missing a required field reached a real tool.
     const [readFile, listDir] = toolConstraint(TOOLS).properties.tool_calls.items.anyOf
     assert.deepEqual(readFile.properties.arguments, TOOLS[0].input_schema)

@@ -57,6 +57,20 @@ suite('listCacheEntries', () => {
     assert.equal(entries[0].userContent, uc)
   })
 
+  it('recovers userContent from a chrome request, which names neither messages nor input', async () => {
+    const type = `_test-chrome-${randomBytes(8).toString('hex')}`
+    const opts = { type, model, systemPrompt, think: false, effort: undefined }
+    const uc = 'what a chrome turn asked'
+    const chromeReq = [{
+      request: { model: 'chrome/gemini-nano-v3', language: 'en', initialPrompts: [{ role: 'system', content: systemPrompt }], prompt: uc },
+      response: {},
+    }]
+    await setCache(uc, 'result md', chromeReq, opts)
+    const entries = await listCacheEntries(type, model, systemPrompt, { think: false, effort: undefined })
+    assert.equal(entries.length, 1)
+    assert.equal(entries[0].userContent, uc)
+  })
+
   it('recovers userContent from json[0] of a multi-turn entry, even though request[1..] are nulled', async () => {
     // serializeHistory keeps only the first turn's request; the key-recovery
     // reader must still recover userContent from json[0] across a real

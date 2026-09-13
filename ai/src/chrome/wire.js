@@ -21,7 +21,7 @@ export function toolConstraint(tools) {
       tool_calls: {
         type: 'array',
         // One branch per tool, each binding a name to THAT tool's schema:
-        // chat() hands calls straight to the caller's handler, so a shared
+        // ask() hands calls straight to the caller's handler, so a shared
         // `arguments: { type: 'object' }` reaches real tools unchecked.
         items: {
           anyOf: tools.map((tool) => ({

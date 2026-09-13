@@ -66,7 +66,7 @@ export function dropRequestsAfterFirst(history) {
 // removed from every top-level entry EXCEPT the last `keepLast` — they live
 // in both the replayed request messages and the raw response, and both are
 // dropped. The kept tail is the slice a resume actually replays to the API
-// (chat rebuilds from the last entry's snapshot + response), so its
+// (ask() rebuilds from the last entry's snapshot + response), so its
 // signatures must survive or Anthropic rejects the replayed thinking blocks;
 // keeping 10 rather than just the final entry is a safety margin. Stripped
 // entries are deep-cloned via a JSON round-trip, so the live in-memory

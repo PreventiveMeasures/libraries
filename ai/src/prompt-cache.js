@@ -169,7 +169,7 @@ export function responsesInitialUserMessage(model, userContent) {
 // tool calls ends the loop — so this writes exactly when a conversation has
 // continued, and never on the one-shots that dominate. A cache entry holding
 // two request/response pairs with no tools in sight is not a counterexample:
-// that is a caller's format retry, and a retry calls chat() again, so the
+// that is a caller's format retry, and a retry calls ask() again, so the
 // second attempt is a fresh conversation starting at turn 0
 // whose history is concatenated onto the first. It re-sends a byte-identical
 // prefix, which is the one case a turn-0 write would be read back verbatim —

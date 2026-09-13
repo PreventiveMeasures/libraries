@@ -92,7 +92,7 @@ describe('extractToolCalls — openai (Responses)', () => {
 
   it('surfaces argsError on malformed JSON args instead of throwing', () => {
     // Pre-fix this would crash the entire run. The argsError field lets
-    // chat() converts it into the standard `error` channel.
+    // ask() converts it into the standard `error` channel.
     withProvider('openai', 'OPENAI_API_KEY', () => {
       const json = {
         output: [
