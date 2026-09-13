@@ -79,7 +79,7 @@ const MODELS = new Map([
   // component manifest declares (identifiesAs), `modelVersion` picks which
   // use case answers (enabledFeatures in chrome.js). `maxTokens` is advisory
   // — the Prompt API takes no output cap, the context window binds instead.
-  ['chrome/nano_v3', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'nano_v3', specNames: ['v3Nano'], modelVersion: 'v3' }],
+  ['chrome/gemini-nano', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'nano_v3', specNames: ['v3Nano'], modelVersion: 'v3' }],
   ['chrome/gemma-4-e2b-it', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_2b', specNames: ['gemma4-2b-it'], modelVersion: 'v4' }],
   ['chrome/gemma-4-e4b-it', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_4b', specNames: ['gemma-4-E4B-it'], modelVersion: 'v4_4b' }],
   ['chrome/gemma-4-12b-it', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_12b', modelVersion: 'v4_12b' }],

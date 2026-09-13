@@ -29,14 +29,14 @@ function fakeModelDir() {
 
 describe('chrome registry rows', () => {
   it('cost nothing — the compute was already paid for', () => {
-    for (const model of ['chrome/nano_v3', 'chrome/gemma-4-e2b-it', 'chrome/gemma-4-e4b-it', 'chrome/gemma-4-12b-it']) {
+    for (const model of ['chrome/gemini-nano', 'chrome/gemma-4-e2b-it', 'chrome/gemma-4-e4b-it', 'chrome/gemma-4-12b-it']) {
       const usage = { input: 1e6, output: 1e6, cacheRead: 1e6, cacheWrite5m: 0, cacheWrite1h: 0 }
       assert.equal(calculateCost(model, usage), 0, model)
     }
   })
 
   it('name the base model spec the row expects Chrome to hold', () => {
-    assert.equal(baseModelFor('chrome/nano_v3'), 'nano_v3')
+    assert.equal(baseModelFor('chrome/gemini-nano'), 'nano_v3')
     assert.equal(baseModelFor('chrome/gemma-4-e2b-it'), 'gemma4_2b')
     assert.equal(baseModelFor('chrome/gemma-4-e4b-it'), 'gemma4_4b')
     assert.equal(baseModelFor('chrome/gemma-4-12b-it'), 'gemma4_12b')
@@ -57,7 +57,7 @@ describe('chrome registry rows', () => {
   })
 
   it('are recognised rows, so getMaxTokens does not fall back', () => {
-    assert.equal(getMaxTokens('chrome/nano_v3'), 4096)
+    assert.equal(getMaxTokens('chrome/gemini-nano'), 4096)
   })
 })
 
@@ -78,7 +78,7 @@ describe('chrome foundational model version', () => {
     // AIApiFoundationalModel:model_version carries that key, which is how a
     // row picks its own size. nano wants the default use case and so names no
     // key of its own.
-    assert.equal(modelVersionFor(baseModelFor('chrome/nano_v3')), 'v3')
+    assert.equal(modelVersionFor(baseModelFor('chrome/gemini-nano')), 'v3')
     assert.equal(modelVersionFor(baseModelFor('chrome/gemma-4-e2b-it')), 'v4')
     assert.equal(modelVersionFor(baseModelFor('chrome/gemma-4-e4b-it')), 'v4_4b')
     assert.equal(modelVersionFor(baseModelFor('chrome/gemma-4-12b-it')), 'v4_12b')
@@ -100,7 +100,7 @@ describe('chrome foundational model version', () => {
     // The broker rides along, since the variant use cases are its business.
     assert.match(features('chrome/gemma-4-e2b-it'), /OptimizationGuideManifestBroker/u)
     // nano is what Chrome does anyway and asks for none of it.
-    assert.doesNotMatch(features('chrome/nano_v3'), /AIApiFoundationalModel|ManifestBroker/u)
+    assert.doesNotMatch(features('chrome/gemini-nano'), /AIApiFoundationalModel|ManifestBroker/u)
   })
 
   it("drops playwright's own --enable-features rather than merging with it", () => {
@@ -111,7 +111,7 @@ describe('chrome foundational model version', () => {
     // out; a playwright that changes it silently stops being filtered.
     assert.ok(IGNORED_DEFAULT_ARGS.includes('--enable-features=CDPScreenshotNewSurface'))
     // And ours has to carry their feature, or dropping theirs loses it.
-    assert.match(features('chrome/nano_v3'), /CDPScreenshotNewSurface/u)
+    assert.match(features('chrome/gemini-nano'), /CDPScreenshotNewSurface/u)
   })
 })
 

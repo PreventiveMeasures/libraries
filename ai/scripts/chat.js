@@ -20,7 +20,7 @@ positional argument, or piped in on stdin.
   -m, --model <id>      model to use (default: ${DEFAULT_MODEL})
   -p, --provider <name> anthropic, openai, openrouter, gateway, chrome,
                         moonshot. Inferred from the model's namespace when
-                        omitted, so chrome/nano_v3 picks chrome.
+                        omitted, so chrome/gemini-nano picks chrome.
   -s, --system <text>   system prompt
       --think           enable thinking
       --effort <level>  low, medium, high, xhigh, max, manual
@@ -30,8 +30,8 @@ positional argument, or piped in on stdin.
       --list            print the models the registry knows, then exit
   -h, --help            show this message
 
-  scripts/chat.js -m chrome/nano_v3 "What is the capital of France?"
-  scripts/chat.js -m chrome/nano_v3 --tools "What is 21 plus 21?"
+  scripts/chat.js -m chrome/gemini-nano "What is the capital of France?"
+  scripts/chat.js -m chrome/gemini-nano --tools "What is 21 plus 21?"
   git diff | scripts/chat.js -s "Review this diff." -m anthropic/claude-opus-5
 `
 
