@@ -68,58 +68,17 @@ const MODELS = new Map([
   // documented `max_completion_tokens` default rather than its 1,048,576
   // ceiling — the cap is an output budget, not a context length.
   ['moonshotai/kimi-k3', { input: 3, output: 15, maxTokens: 131_072, canThink: true, noThink: 'unsupported', efforts: ['low', 'high', 'max'] }],
-  // Chrome's built-in on-device models, served by the browser rather than by
-  // an API — see chrome.js. Zero at every rate: the weights are already on the
-  // machine, and the compute was paid for when the machine was bought. NOT
-  // `free`, which in this table means a hosted model that may log and train on
-  // what it is sent — the opposite of what these are.
+  // Chrome's built-in on-device models, served by the browser rather than an
+  // API — see chrome.js. Zero at every rate: the weights are already on the
+  // machine and the compute was paid for with it. NOT `free`, which in this
+  // table means a hosted model that may log and train on what it is sent.
   //
-  // `baseModel` is the on-device base model spec the row expects Chrome to
-  // hold. The Prompt API exposes no model selector — a page gets whatever
-  // Chrome has installed — so the id does two other jobs instead: it keys the
-  // response cache apart, and it picks which weights directory the adapter
-  // names on Chrome's command line.
-  //
-  // `maxTokens` is advisory. Everywhere else in this table it is an output
-  // budget, and the Prompt API accepts no output cap at all, so the adapter
-  // sends none; what actually binds is the session's context window, which
-  // Chrome reports back on every response.
-  // `specNames` is what the component MANIFEST calls the model, which is not
-  // what chrome://on-device-internals calls it and not what the id above is
-  // derived from: the internals page lists the variant
-  // (nano_v3_gpu_high_tier_model), the manifest declares a BaseModelSpec
-  // (v3Nano). The two do not match as strings, and the gemma names do not
-  // even share a shape with each other, so the mapping is recorded rather
-  // than guessed. A Chrome that renames one fails with the name it found,
-  // which makes the fix a one-line edit here.
-  //
-  // The ids follow Gemma's own naming — gemma-4-<size>-it, as published — and
-  // deliberately not Chrome's, which is idiosyncratic in three different ways
-  // at once: the manifest spec says gemma4-2b-it for what Google ships as
-  // gemma-4-E2B-it, gemma-4-E4B-it for the next size up, and nothing at all
-  // for the 12B. `-it` is the instruction-tuned checkpoint, which is the only
-  // kind a chat API can use; the E is "effective" parameters, a smaller
-  // operational count than the total because per-layer embeddings are only
-  // used for lookups.
-  //
-  // `baseModel` stays in Chrome's spelling, because it is not decoration: it
-  // is what findModelDir searches for and, for the 12B, what the component
-  // name is derived from — see componentNameFor in chrome-model.js.
-  //
-  // `modelVersion` is what actually switches which model answers, and it is
-  // not a version. Chrome's manifest carries
-  //
-  //   PromptApiFeatureConfig {
-  //     default_use_case: "prompt_api"
-  //     experimental_use_cases: { "v4":     "prompt_api_gemma4"
-  //                               "v4_4b":  "prompt_api_gemma4_4b"
-  //                               "v4_12b": "prompt_api_gemma4_12b" }
-  //   }
-  //
-  // and AIApiFoundationalModel:model_version is a KEY into that map. The
-  // weights directory has no say — pointing the execution override at a gemma
-  // directory changed nothing — and neither does chrome://flags, which can
-  // only ever say v4. nano wants the default use case and names no key.
+  // Ids follow Gemma's published checkpoint names. The other three fields are
+  // Chrome's own spellings, each explained where it is used: `baseModel`
+  // finds the weights (chrome-model.js), `specNames` matches what the
+  // component manifest declares (identifiesAs), `modelVersion` picks which
+  // use case answers (enabledFeatures in chrome.js). `maxTokens` is advisory
+  // — the Prompt API takes no output cap, the context window binds instead.
   ['chrome/nano_v3', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'nano_v3', specNames: ['v3Nano'], modelVersion: 'v3' }],
   ['chrome/gemma-4-e2b-it', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_2b', specNames: ['gemma4-2b-it'], modelVersion: 'v4' }],
   ['chrome/gemma-4-e4b-it', { input: 0, output: 0, maxTokens: 4096, local: true, baseModel: 'gemma4_4b', specNames: ['gemma-4-E4B-it'], modelVersion: 'v4_4b' }],
@@ -318,24 +277,20 @@ export function wireModelFor(model) {
   return MODELS.get(resolveModel(model))?.wireModel ?? model
 }
 
-// The on-device base model spec a local row expects — `nano_v3`, `gemma4_2b`,
-// `gemma4_4b`. Undefined for every hosted row, which is what tells the
-// adapter a model is not one of Chrome's.
+// Undefined for every hosted row, which is what tells the adapter a model is
+// not one of Chrome's.
 export function baseModelFor(model) {
   return MODELS.get(resolveModel(model))?.baseModel
 }
 
-// The manifest BaseModelSpec names a local row will accept, keyed by the base
-// model rather than the registry id so the adapter can look one up from what
-// it already carries.
+// Keyed by base model rather than registry id, so the adapter can look one up
+// from what it already carries.
 const SPEC_NAMES = new Map([...MODELS.values()].filter((r) => r.baseModel).map((r) => [r.baseModel, r.specNames ?? []]))
 
 export function specNamesFor(baseModel) {
   return SPEC_NAMES.get(baseModel) ?? []
 }
 
-// Which foundational model version a local row asks Chrome for — see the
-// rows above. Keyed by base model, like the spec names.
 const MODEL_VERSIONS = new Map([...MODELS.values()].filter((r) => r.baseModel).map((r) => [r.baseModel, r.modelVersion]))
 
 export function modelVersionFor(baseModel) {

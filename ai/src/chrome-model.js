@@ -187,18 +187,20 @@ function candidateModelDirs(root, depth = 2) {
 
 // Whether a directory holds the model a row asked for.
 //
-// Chrome names the same model two ways: chrome://on-device-internals lists
-// the variant (nano_v3_gpu_high_tier_model, which the registry ids come
-// from), while the component manifest declares a BaseModelSpec — "v3Nano".
-// Those do not match as strings, which is how a strict check rejected a
-// working nano_v3.
+// The same model has three names, and no two of them match. Google publishes
+// gemma-4-E2B-it, which the registry rows follow; chrome://on-device-internals
+// lists a deployment variant, gemma4_gpu_high_tier_model, which baseModel
+// follows; and the component manifest declares a BaseModelSpec, gemma4-2b-it,
+// which is what a directory on disk actually says about itself. Comparing the
+// first two as strings is how a strict check once rejected a working nano_v3,
+// whose spec is "v3Nano".
 //
-// Nor is the difference a rule that can be computed: the three specs in the
-// wild are "v3Nano", "gemma4-2b-it" and "gemma-4-E4B-it", which share no
-// shape. Anything loose enough to relate gemma4_2b to gemma4-2b-it also relates
-// it to gemma-4-E4B-it, and quietly picking the wrong one is the bug this
-// check exists to prevent. So the accepted names live on the registry row and
-// are compared here, ignoring case and punctuation only.
+// Nor is the difference computable. The specs in the wild are "v3Nano",
+// "gemma4-2b-it" and "gemma-4-E4B-it": anything loose enough to relate
+// gemma4_2b to gemma4-2b-it also relates it to gemma-4-E4B-it, and quietly
+// picking the wrong one is the bug this check exists to prevent. So the
+// accepted names live on the registry row and are compared here, ignoring
+// case and punctuation only.
 function normalizeSpec(name) {
   return String(name).toLowerCase().replaceAll(/[^a-z0-9]+/gu, '')
 }
