@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { after, describe, it } from 'node:test'
-import { chat } from '../src/chat.js'
+import { ask } from '../src/chat.js'
 import { chromeTarget, findModelDir } from '../src/chrome/index.js'
 import { calculateCost } from '../src/models.js'
 import { closeProvider, setProvider } from '../src/providers.js'
@@ -45,13 +45,13 @@ describe('chrome on-device, against the real model', async () => {
   after(async () => { await closeProvider() })
 
   it('answers a prompt', { skip, timeout: TIMEOUT }, async () => {
-    const { text, error, usage } = await chat({
+    const { text, error, usage } = await ask({
       model: MODEL,
       maxTokens: 4096,
       systemPrompt: 'You are terse. Answer in one word.',
       userContent: 'What is the capital of France?',
     })
-    assert.equal(error, undefined, `chat() reported: ${error}`)
+    assert.equal(error, undefined, `ask() reported: ${error}`)
     assert.ok(text?.trim(), 'expected some text back')
     assert.match(text, /paris/iu)
     // Chrome's own tokenizer, read off contextUsage — there is no output
@@ -61,7 +61,7 @@ describe('chrome on-device, against the real model', async () => {
   })
 
   // No test here claims to prove the turn took no network: this suite drives
-  // chat() and never sees the page, so it could only assert that an answer
+  // ask() and never sees the page, so it could only assert that an answer
   // came back — which a turn that quietly fetched something would satisfy
   // too. What keeps the network out is `offline` on the context and the
   // component-updater override, and chrome.test.js asserts both are passed.
@@ -73,7 +73,7 @@ describe('chrome on-device, against the real model', async () => {
       input_schema: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] },
     }]
     const seen = []
-    const { text, error } = await chat({
+    const { text, error } = await ask({
       model: MODEL,
       maxTokens: 4096,
       systemPrompt: 'Use the tools you are given.',
@@ -82,7 +82,7 @@ describe('chrome on-device, against the real model', async () => {
       handleToolCall: (call) => { seen.push(call); return '18C, clear' },
       maxToolTurns: 3,
     })
-    assert.equal(error, undefined, `chat() reported: ${error}`)
+    assert.equal(error, undefined, `ask() reported: ${error}`)
     // The turn has to have gone somewhere. Permitting zero calls AND saying
     // nothing about the text made every assertion below vacuous — a provider
     // that silently produced an empty answer passed. A small model may

@@ -52,7 +52,7 @@ export function normalizeUsage(data) {
 // completed turn, which is what leaves such a history behind — a long tool
 // session killed at turn 20 resumes there instead of paying for 20 turns
 // again. Passing neither is a conversation that starts and ends in one go.
-export async function chat({ model, maxTokens, systemPrompt, userContent, think = false, effort, tools, handleToolCall, maxToolTurns = DEFAULT_MAX_TOOL_TURNS, initialHistory, partial, debug, debugRequests, label, taskBudget = 'never' }) {
+export async function ask({ model, maxTokens, systemPrompt, userContent, think = false, effort, tools, handleToolCall, maxToolTurns = DEFAULT_MAX_TOOL_TURNS, initialHistory, partial, debug, debugRequests, label, taskBudget = 'never' }) {
   assert.ok(Boolean(tools) === Boolean(handleToolCall), 'tools and handleToolCall must be both provided or both omitted')
   const totalUsage = emptyUsage()
   const history = []

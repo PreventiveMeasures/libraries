@@ -8,7 +8,7 @@ import { after, before, describe, it } from 'node:test'
 // Drives the real loop against a local chat-completions server: a turn that
 // calls a tool, then one that answers. Everything below the request — the
 // adapter, the transport, the cache — is the real thing, which is the point:
-// `partial` is a write chat() makes on its own now, and a version that
+// `partial` is a write ask() makes on its own now, and a version that
 // quietly ignored the option would look exactly like a passing suite if the
 // loop were stubbed out.
 //
@@ -45,7 +45,7 @@ await new Promise((resolve) => { server.listen(0, '127.0.0.1', resolve) })
 const URL_BASE = `http://127.0.0.1:${server.address().port}`
 process.env.OPENROUTER_API_URL = URL_BASE
 process.env.OPENROUTER_API_KEY = 'test-key'
-const { chat } = await import('../src/chat.js')
+const { ask } = await import('../src/chat.js')
 const { buildCacheOpts, getPartial, setCacheDir } = await import('../src/cache.js')
 const { getProvider, setProvider } = await import('../src/providers.js')
 
@@ -83,7 +83,7 @@ const opts = (type) => buildCacheOpts(type, { model: MODEL, systemPrompt: 'sys',
 
 function run(userContent, extra = {}) {
   queued = [TOOL_CALL]
-  return chat({
+  return ask({
     model: MODEL, maxTokens: 1024, systemPrompt: 'sys', userContent,
     tools: [{ name: 'probe', description: 'probe', input_schema: { type: 'object' } }],
     handleToolCall: (call) => `probed ${call.args.path}`,
