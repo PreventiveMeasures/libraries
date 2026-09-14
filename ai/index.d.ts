@@ -257,10 +257,15 @@ export declare function listCacheEntries(type: string, model: string, systemProm
 // including when the provider that wrote the file is not the one currently
 // set. A file that holds no history is left alone and reported `skipped`.
 //
-// The requests are kept where the conversation cannot be known without them:
-// no seed snapshot on entry 0 to replay from, or a turn that called nothing
-// or went unanswered before the last one. In an old log the tool answers
-// live only inside the next request, and nothing rebuilds a request.
+// Throws, too, on a turn before the last recording tool calls and a
+// different number of answers: what came back is then nowhere but inside
+// the next entry's request, which no writer here produces.
+//
+// The requests are kept where the conversation cannot be known without
+// them: entry 0 holding no seed snapshot to replay from (an empty one is
+// none), or a turn in the middle that called nothing, which is where one
+// conversation ended and the next one's opening went unrecorded anywhere
+// else. Nothing rebuilds a request, so those files keep every one.
 //
 // `selectProvider` is handed the stamp the entries carry, after the parse and
 // before the replay, for a caller walking a directory more than one provider
