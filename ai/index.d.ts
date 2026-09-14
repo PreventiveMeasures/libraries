@@ -202,11 +202,13 @@ export declare function buildCacheOpts(type: string, resolved: {
   useEffort?: string | undefined
   bundleId?: string | undefined
 }): CacheOpts
+// Async because the digest under it is Web Crypto's, which is the one SHA-256 both Node and a
+// browser have without an import; nothing about hashing itself needs to be awaited.
 export declare function cacheKey(systemPrompt: string, userContent: string, opts?: {
   think?: boolean | undefined
   effort?: string | undefined
   bundleId?: string | undefined
-}): string
+}): Promise<string>
 // Takes the entry at this key out of service, for a caller holding an answer no later run should
 // serve or resume onto — one that failed its format check, say. The answer goes; its turn history
 // moves to `.invalid.json`, over any dump already there, where a person can still read it.

@@ -5,13 +5,13 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
-import { IGNORED_DEFAULT_ARGS, chromePreflight, closeChrome, findModelDir, isScratchProfile, launchArgs, launchOptions, localStateFor, openTab, pruneProfileRoot, removeProfileDir, sweepStaleProfiles, turnInPage, turnRequest } from '../src/chrome/index.js'
-import { graftPlanIn, identifiesAs, portableGuide, rootOwning } from '../src/chrome/model.js'
+import { CHROME_ADAPTER, IGNORED_DEFAULT_ARGS, closeChrome, launchArgs, launchOptions, openTab, turnInPage, turnRequest } from '../src/chrome/index.js'
+import { chromePreflight, findModelDir, graftPlanIn, identifiesAs, localStateFor, portableGuide, rootOwning } from '../src/chrome/model.js'
 import { CHROME_SHAPE, explainCreateFailure, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome/wire.js'
 import { sendChromeTurn, trackTurn } from '../src/chrome/index.js'
-import { claimProfile, dropProfile } from '../src/chrome/profile.js'
+import { claimProfile, dropProfile, isScratchProfile, pruneProfileRoot, removeProfileDir, sweepStaleProfiles } from '../src/chrome/profile.js'
 import { baseModelFor, calculateCost, getMaxTokens, modelVersionFor, specNamesFor } from '../src/models.js'
-import { setProvider, turnCost } from '../src/providers.js'
+import { getProvider, providerStamp, setProvider, turnCost } from '../src/providers.js'
 
 // The chrome provider, minus the model. Everything the adapter decides —
 // what goes to the browser, what comes back, what that costs — is settled in
@@ -823,7 +823,7 @@ describe('chrome exit cleanup', () => {
     t.after(() => rmSync(dirname(out), { recursive: true, force: true }))
     const child = spawnSync(process.execPath, ['--input-type=module', '--eval', `
       import { appendFileSync, writeFileSync } from 'node:fs'
-      import { claimProfile } from ${JSON.stringify(new URL('../src/chrome/index.js', import.meta.url).href)}
+      import { claimProfile } from ${JSON.stringify(new URL('../src/chrome/profile.js', import.meta.url).href)}
       writeFileSync(process.env.PROFILE_OUT, claimProfile('/nowhere'))
       let seen = 0
       process.on('SIGINT', () => {
@@ -884,7 +884,7 @@ describe('chrome exit cleanup', () => {
     t.after(() => rmSync(dirname(out), { recursive: true, force: true }))
     const child = spawnSync(process.execPath, ['--input-type=module', '--eval', `
       import { writeFileSync } from 'node:fs'
-      import { claimProfile } from ${JSON.stringify(new URL('../src/chrome/index.js', import.meta.url).href)}
+      import { claimProfile } from ${JSON.stringify(new URL('../src/chrome/profile.js', import.meta.url).href)}
       // The path goes to a file rather than stdout: process.exit can drop a
       // pipe write, and this has to be readable after the process is gone.
       writeFileSync(process.env.PROFILE_OUT, claimProfile('/nowhere'))
@@ -1152,6 +1152,31 @@ describe('chrome scratch-profile cleanup', () => {
     assert.equal(existsSync(profile), false, 'the scratch profile should be gone')
     assert.equal(readFileSync(join(model, 'weights.bin'), 'utf8'), 'the user\'s copy')
     rmSync(root, { recursive: true, force: true })
+  })
+})
+
+// One object, rather than four pieces providers.js assembles itself — which is what lets
+// chrome/browser.js stand in for the whole directory. See browser.test.js for that half.
+describe('CHROME_ADAPTER', () => {
+  it('carries the four provider entries wired to this directory', () => {
+    assert.equal(CHROME_ADAPTER.runsLocally, true)
+    assert.equal(CHROME_ADAPTER.preflight, chromePreflight)
+    assert.equal(CHROME_ADAPTER.send, sendChromeTurn)
+    assert.equal(CHROME_ADAPTER.close, closeChrome)
+  })
+
+  it('spreads the wire format in, so a turn can be built and a response read', () => {
+    for (const method of Object.keys(CHROME_SHAPE)) {
+      assert.equal(CHROME_ADAPTER[method], CHROME_SHAPE[method], method)
+    }
+  })
+
+  it('is the entry providers.js registers under `chrome`', () => {
+    // setProvider runs the adapter's own preflight, and nothing else vouches for it.
+    withChrome(() => {
+      assert.equal(providerStamp(), 'chrome')
+      assert.equal(getProvider().send, CHROME_ADAPTER.send)
+    })
   })
 })
 

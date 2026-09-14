@@ -1,16 +1,16 @@
-import assert from 'node:assert/strict'
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { env } from '#env'
+import { assert } from '#assert'
 import { baseModelFor, modelVersionFor } from '../models.js'
-import { findModelDir, graftPlan } from './model.js'
+import { chromePreflight, findModelDir, graftPlan } from './model.js'
 import { claimProfile, dropProfile, pruneProfileRoot } from './profile.js'
-import { explainCreateFailure, toChatCompletions } from './wire.js'
+import { CHROME_SHAPE, explainCreateFailure, toChatCompletions } from './wire.js'
 
-// One entry point for the provider: providers.js wires the adapter from here.
-export { chromePreflight, findModelDir, localStateFor } from './model.js'
-export { claimProfile, isScratchProfile, pruneProfileRoot, removeProfileDir, sweepStaleProfiles } from './profile.js'
-export { CHROME_SHAPE } from './wire.js'
+// One entry point for the provider: CHROME_ADAPTER at the foot of this file, which providers.js takes
+// whole. model.js, profile.js and wire.js are not re-exported — a caller that wants one reaches for
+// it by name.
 
 // Chrome's built-in Prompt API (developer.chrome.com/docs/ai/prompt-api) over CDP, via
 // playwright-core. Branded Chrome only: Chromium exposes no binding under any flag, and Chrome for
@@ -58,8 +58,8 @@ export const IGNORED_DEFAULT_ARGS = [...SOFTWARE_GL, PLAYWRIGHT_ENABLE_FEATURES]
 
 // CHROME_CHANNEL takes playwright's channel names: chrome, chrome-beta, chrome-dev, chrome-canary.
 export function chromeTarget() {
-  if (process.env.CHROME_PATH) return { executablePath: process.env.CHROME_PATH }
-  return { channel: process.env.CHROME_CHANNEL || 'chrome' }
+  if (env('CHROME_PATH')) return { executablePath: env('CHROME_PATH') }
+  return { channel: env('CHROME_CHANNEL') || 'chrome' }
 }
 
 
@@ -123,7 +123,7 @@ export function launchArgs(modelDir, baseModel) {
     // Eligibility needs a performance class, and a profile without one runs a GPU benchmark for it
     // while availability() answers `unavailable`. An INTEGER: a name parses to kUnknown. 6 is
     // VeryHigh (0 Unknown, 1 Error, 2 VeryLow, 3 Low, 4 Medium, 5 High, 6 VeryHigh).
-    `--optimization-guide-performance-class=${process.env.CHROME_PERFORMANCE_CLASS || '6'}`,
+    `--optimization-guide-performance-class=${env('CHROME_PERFORMANCE_CLASS') || '6'}`,
     // Never fetch a model: the manifest broker would pull gigabytes through the grafted symlinks
     // into the user's REAL component tree. --disable-component-update misses it — it registers at
     // runtime — but every fetch goes through the configurator, and port 1 is restricted.
@@ -136,7 +136,7 @@ export function launchArgs(modelDir, baseModel) {
 export function launchOptions(modelDir, baseModel) {
   return {
     ...chromeTarget(),
-    headless: process.env.CHROME_HEADLESS !== '0',
+    headless: env('CHROME_HEADLESS') !== '0',
     // Playwright forces a software rasterizer. Every on-device model Chrome ships is GPU-tier, so
     // under SwiftShader the model service never starts: create() answers "the service is not
     // running".
@@ -145,7 +145,7 @@ export function launchOptions(modelDir, baseModel) {
     // Playwright turns the process sandbox OFF by default, which lands a renderer compromise in the
     // caller's own account. On, unless there is nowhere to put it — as root, or in a container
     // without user namespaces, Chrome refuses to start and CHROME_SANDBOX=0 is the way out.
-    chromiumSandbox: process.env.CHROME_SANDBOX !== '0',
+    chromiumSandbox: env('CHROME_SANDBOX') !== '0',
     // Nothing here needs the network: a file:// page and a model on disk, so a socket is a symptom.
     // Does NOT cover the component updater, which is a browser-process fetch — see
     // --component-updater in launchArgs.
@@ -205,7 +205,7 @@ const turns = new Set()
 // never reaches closeProvider stops paying for one, and node can exit, which an open browser
 // otherwise prevents. Read per arm, so a caller can set its own — 0 keeps the browser until
 // closeProvider says so.
-const idleMs = () => Number(process.env.CHROME_IDLE_MS ?? 10_000)
+const idleMs = () => Number(env('CHROME_IDLE_MS') ?? 10_000)
 
 let idleClose
 function armIdleClose() {
@@ -346,7 +346,7 @@ export async function sendChromeTurn(model, body, { debug, label } = {}) {
   // Undefined means the registry has no chrome/* row for this id, so which local weights were meant
   // is unknowable. Launching anyway would answer an anthropic/* id, or a typo, with whatever
   // happens to be installed.
-  assert.ok(baseModel, `Provider \`chrome\` cannot serve ${model}. Use one of the chrome/* models.`)
+  assert(baseModel, `Provider \`chrome\` cannot serve ${model}. Use one of the chrome/* models.`)
   // The launch counts as pending too: a cold one takes longer than the idle window, so a browser
   // that had just come up would close before its first turn reached it.
   return await trackTurn(async () => {
@@ -360,4 +360,13 @@ export async function sendChromeTurn(model, body, { debug, label } = {}) {
     }
     return toChatCompletions(result, Boolean(body.responseConstraint))
   })
+}
+
+
+export const CHROME_ADAPTER = {
+  runsLocally: true,
+  preflight: chromePreflight,
+  send: sendChromeTurn,
+  close: closeChrome,
+  ...CHROME_SHAPE,
 }

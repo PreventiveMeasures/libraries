@@ -1,10 +1,8 @@
-import assert from 'node:assert/strict'
-import { readFile, readdir, rename } from 'node:fs/promises'
-import { join } from 'node:path'
-
 import { Queue } from '@chalker/queue'
 
+import { assert } from '#assert'
 import { cacheDir, cacheKey, isInvalidEntry, modelSubdir, readCachedJSON, runTypeMigrations } from './cache.js'
+import { join, move, moveIfExists, readDirOrEmpty, readText } from '#fs'
 import { canAdaptive } from './models.js'
 
 // The two scans that walk what a cache has accumulated, rather than addressing one entry: listing a
@@ -69,22 +67,6 @@ function requestUserContent(req) {
   return flattenContent(user.content)
 }
 
-async function readDirOrEmpty(path) {
-  try {
-    return await readdir(path, { withFileTypes: true })
-  } catch {
-    return []
-  }
-}
-
-async function renameIfExists(from, to) {
-  try {
-    await rename(from, to)
-  } catch (err) {
-    if (err.code !== 'ENOENT') throw err
-  }
-}
-
 // Enumerate cached request/response entries for one request config (type + model + systemPrompt +
 // think/effort), returning each entry's on-disk key alongside the userContent recovered from its
 // stored request. Only entries whose stored key reproduces from their own userContent under the
@@ -102,7 +84,7 @@ async function renameIfExists(from, to) {
 // nondeterministic; callers that care re-sort it.
 export async function listCacheEntries(type, model, systemPrompt, { think = false, effort, concurrency = 20 } = {}) {
   await runTypeMigrations(type, model, systemPrompt)
-  const dir = join(cacheDir(), modelSubdir(type, model, systemPrompt))
+  const dir = join(cacheDir(), await modelSubdir(type, model, systemPrompt))
   const dirents = await readDirOrEmpty(dir)
   const queue = new Queue(concurrency)
   const out = []
@@ -121,7 +103,7 @@ export async function listCacheEntries(type, model, systemPrompt, { think = fals
       const firstTurn = Array.isArray(json) ? json[0] : json
       const userContent = requestUserContent(firstTurn?.request ?? firstTurn)
       if (userContent === null) return
-      if (cacheKey(systemPrompt, userContent, { think, effort }) !== key) return
+      if (await cacheKey(systemPrompt, userContent, { think, effort }) !== key) return
       out.push({ key, userContent })
     } finally {
       queue.release()
@@ -141,7 +123,7 @@ export async function listCacheEntries(type, model, systemPrompt, { think = fals
 // from the stored request — has to say so.
 export async function rehashCache(model, { skipType = () => false } = {}) {
   const safeModel = model.replaceAll('/', '-')
-  assert.ok(/^[a-zA-Z0-9._:-]+$/u.test(safeModel), `Invalid model name: ${model}`)
+  assert(/^[a-zA-Z0-9._:-]+$/u.test(safeModel), `Invalid model name: ${model}`)
   const modelDir = join(cacheDir(), safeModel)
 
   const result = { scanned: 0, renamed: 0, unchanged: 0, skipped: 0, errors: 0 }
@@ -161,7 +143,7 @@ export async function rehashCache(model, { skipType = () => false } = {}) {
       const jsonPath = join(dir, `${oldKey}.json`)
       let parsed
       try {
-        parsed = JSON.parse(await readFile(jsonPath, 'utf8'))
+        parsed = JSON.parse(await readText(jsonPath))
       } catch (err) {
         console.warn(`[rehash] ${jsonPath}: failed to parse (${err.message})`)
         result.errors += 1
@@ -178,7 +160,7 @@ export async function rehashCache(model, { skipType = () => false } = {}) {
         continue
       }
 
-      const newKey = cacheKey(keyInput.systemPrompt, keyInput.userContent, {
+      const newKey = await cacheKey(keyInput.systemPrompt, keyInput.userContent, {
         think: keyInput.think, effort: keyInput.effort,
       })
       if (newKey === oldKey) {
@@ -187,8 +169,8 @@ export async function rehashCache(model, { skipType = () => false } = {}) {
       }
 
       try {
-        await rename(jsonPath, join(dir, `${newKey}.json`))
-        await renameIfExists(join(dir, `${oldKey}.md`), join(dir, `${newKey}.md`))
+        await move(jsonPath, join(dir, `${newKey}.json`))
+        await moveIfExists(join(dir, `${oldKey}.md`), join(dir, `${newKey}.md`))
         result.renamed += 1
         console.log(`[rehash] ${dir}: ${oldKey} -> ${newKey}`)
       } catch (err) {

@@ -11,18 +11,49 @@
       "default": "./index.js"
     }
   },
+  "imports": {
+    "#assert": {
+      "browser": "./src/assert.browser.js",
+      "default": "./src/assert.js"
+    },
+    "#chrome": {
+      "browser": "./src/chrome/browser.js",
+      "default": "./src/chrome/index.js"
+    },
+    "#env": {
+      "browser": "./src/env.browser.js",
+      "default": "./src/env.js"
+    },
+    "#fetch": {
+      "browser": "./src/fetch.browser.js",
+      "default": "./src/fetch.js"
+    },
+    "#fs": {
+      "browser": "./src/fs.browser.js",
+      "default": "./src/fs.js"
+    }
+  },
   "files": [
     "index.d.ts",
     "index.js",
+    "src/assert.browser.js",
+    "src/assert.js",
     "src/cache-history.js",
     "src/cache-scan.js",
     "src/cache.js",
     "src/chat.js",
+    "src/chrome/browser.js",
     "src/chrome/index.js",
     "src/chrome/model.js",
     "src/chrome/profile.js",
     "src/chrome/wire.js",
+    "src/env.browser.js",
+    "src/env.js",
+    "src/fetch-json.js",
+    "src/fetch.browser.js",
     "src/fetch.js",
+    "src/fs.browser.js",
+    "src/fs.js",
     "src/models.js",
     "src/ollama.js",
     "src/prefix-gate.js",

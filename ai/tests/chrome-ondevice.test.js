@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { after, describe, it } from 'node:test'
 import { ask } from '../src/chat.js'
-import { chromeTarget, findModelDir } from '../src/chrome/index.js'
+import { chromeTarget } from '../src/chrome/index.js'
+import { findModelDir } from '../src/chrome/model.js'
 import { calculateCost } from '../src/models.js'
 import { closeProvider, setProvider } from '../src/providers.js'
 

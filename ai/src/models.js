@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict'
+import { assert } from '#assert'
 
 const DEFAULT_MAX_TOKENS = 64 * 1024
 
@@ -187,13 +187,13 @@ export function unknownModelMessage(model, flag) {
 }
 
 export function validateModel(model, { free = false } = {}) {
-  assert.ok(!BLOCKED.has(model), `Model ${model} is not supported. Use claude-opus-4.5 or newer.`)
+  assert(!BLOCKED.has(model), `Model ${model} is not supported. Use claude-opus-4.5 or newer.`)
   const info = MODELS.get(model)
   const isFree = info ? info.free : model.endsWith(':free')
   if (free) {
-    assert.ok(isFree, `Model ${model} is not free. Use a :free model with --free.`)
+    assert(isFree, `Model ${model} is not free. Use a :free model with --free.`)
   } else {
-    assert.ok(!isFree, `Model ${model} requires --free flag.`)
+    assert(!isFree, `Model ${model} requires --free flag.`)
   }
 }
 

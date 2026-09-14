@@ -82,13 +82,15 @@ function uniqueCacheOpts(extra = {}) {
 
 // One of an entry's files on disk. Built from the same parts resolveCachePaths uses, so a change
 // to the layout fails here rather than quietly looking in the wrong place.
-const entryPath = (opts, userContent, suffix) => join(
+// createHash on purpose, against cacheKey's Web Crypto digest: if the two ever stop agreeing, every
+// key in every cache that already exists is orphaned, and this is where that shows up.
+const entryPath = async (opts, userContent, suffix) => join(
   CACHE_DIR,
   opts.model.replaceAll('/', '-'),
   `${opts.type}-${createHash('sha256').update(opts.systemPrompt).digest('hex').slice(0, 8)}`,
-  `${cacheKey(opts.systemPrompt, userContent, opts)}${suffix}`,
+  `${await cacheKey(opts.systemPrompt, userContent, opts)}${suffix}`,
 )
-const invalidPath = (opts, userContent) => entryPath(opts, userContent, '.invalid.json')
+const invalidPath = async (opts, userContent) => await entryPath(opts, userContent, '.invalid.json')
 
 suite('partial cache (getPartial / setPartial / invalidateCacheEntry)', () => {
   it('returns null when no partial exists for the key', async () => {
@@ -142,7 +144,7 @@ suite('partial cache (getPartial / setPartial / invalidateCacheEntry)', () => {
     await invalidateCacheEntry('user-content-G', opts)
     assert.equal(await getCached('user-content-G', opts), null)
     assert.equal(await getPartial('user-content-G', opts), null)
-    const parked = JSON.parse(await readFile(invalidPath(opts, 'user-content-G'), 'utf8'))
+    const parked = JSON.parse(await readFile(await invalidPath(opts, 'user-content-G'), 'utf8'))
     assert.equal(parked.length, 1)
   })
 
@@ -152,7 +154,7 @@ suite('partial cache (getPartial / setPartial / invalidateCacheEntry)', () => {
     // problem and the one a test can arrange.
     const opts = uniqueCacheOpts()
     await setCache('user-content-H', 'final result text', [{ request: {}, response: {} }], opts)
-    const md = entryPath(opts, 'user-content-H', '.md')
+    const md = await entryPath(opts, 'user-content-H', '.md')
     await rm(md)
     await mkdir(md)
     await assert.rejects(() => invalidateCacheEntry('user-content-H', opts))
@@ -423,7 +425,7 @@ suite('setInvalid / .invalid.json', () => {
   it('writes the history under .invalid.json, with the reason that rejected it', async () => {
     const opts = uniqueCacheOpts()
     await setInvalid('inv-A', HISTORY, opts, { reason: 'Response truncated: hit max_tokens limit', text: null })
-    const dump = JSON.parse(await readFile(invalidPath(opts, 'inv-A'), 'utf8'))
+    const dump = JSON.parse(await readFile(await invalidPath(opts, 'inv-A'), 'utf8'))
     assert.equal(dump.reason, 'Response truncated: hit max_tokens limit')
     // The raw provider response — the partial answer included — is what
     // makes the dump worth keeping.
@@ -446,7 +448,7 @@ suite('setInvalid / .invalid.json', () => {
     await setInvalid('inv-D', HISTORY, opts, { reason: 'malformed', text: 'not json' })
     await setPartial('inv-D', HISTORY, opts)
     await invalidateCacheEntry('inv-D', opts)
-    const parked = JSON.parse(await readFile(invalidPath(opts, 'inv-D'), 'utf8'))
+    const parked = JSON.parse(await readFile(await invalidPath(opts, 'inv-D'), 'utf8'))
     const shape = JSON.stringify(parked).slice(0, 40)
     assert.ok(Array.isArray(parked), `expected a history, got ${shape}`)
     assert.equal(await getPartial('inv-D', opts), null)
@@ -456,7 +458,7 @@ suite('setInvalid / .invalid.json', () => {
     const opts = uniqueCacheOpts()
     await setInvalid('inv-C', HISTORY, opts, { reason: 'first failure', text: 'a' })
     await setInvalid('inv-C', HISTORY, opts, { reason: 'second failure', text: 'b' })
-    const dump = JSON.parse(await readFile(invalidPath(opts, 'inv-C'), 'utf8'))
+    const dump = JSON.parse(await readFile(await invalidPath(opts, 'inv-C'), 'utf8'))
     assert.equal(dump.reason, 'second failure')
   })
 
@@ -466,9 +468,9 @@ suite('setInvalid / .invalid.json', () => {
     // (truncation, transport) and the history is exactly what we want.
     const opts = uniqueCacheOpts()
     await setInvalid('inv-D', HISTORY, opts, { reason: 'Empty response', text: '' })
-    await assert.rejects(readFile(invalidPath(opts, 'inv-D'), 'utf8'), { code: 'ENOENT' })
+    await assert.rejects(readFile(await invalidPath(opts, 'inv-D'), 'utf8'), { code: 'ENOENT' })
     await setInvalid('inv-D', HISTORY, opts, { reason: 'Empty response', text: '   \n ' })
-    await assert.rejects(readFile(invalidPath(opts, 'inv-D'), 'utf8'), { code: 'ENOENT' })
+    await assert.rejects(readFile(await invalidPath(opts, 'inv-D'), 'utf8'), { code: 'ENOENT' })
   })
 
   it('is deleted when a valid entry lands on the same key', async () => {
@@ -477,7 +479,7 @@ suite('setInvalid / .invalid.json', () => {
     await setCache('inv-E', 'a good response', HISTORY, opts)
     // The key's last word is a usable response, so the stale failure
     // record is gone rather than sitting beside it.
-    await assert.rejects(readFile(invalidPath(opts, 'inv-E'), 'utf8'), { code: 'ENOENT' })
+    await assert.rejects(readFile(await invalidPath(opts, 'inv-E'), 'utf8'), { code: 'ENOENT' })
     assert.equal((await getCached('inv-E', opts)).text, 'a good response')
   })
 
@@ -499,11 +501,11 @@ suite('setInvalid / .invalid.json', () => {
     // served as a real cached result by every later run.
     const opts = uniqueCacheOpts({ model: 'test/rehash-guard-1.0' })
     await setInvalid('inv-H', HISTORY, opts, { reason: 'malformed', text: 'x' })
-    const snapshot = await readFile(invalidPath(opts, 'inv-H'), 'utf8')
+    const snapshot = await readFile(await invalidPath(opts, 'inv-H'), 'utf8')
     const result = await rehashCache(opts.model)
     assert.equal(result.scanned, 0, 'the dump must not even be scanned')
     assert.equal(result.renamed, 0)
-    assert.equal(await readFile(invalidPath(opts, 'inv-H'), 'utf8'), snapshot)
+    assert.equal(await readFile(await invalidPath(opts, 'inv-H'), 'utf8'), snapshot)
   })
 
   it('is invisible to the cache-entry scanner', async () => {

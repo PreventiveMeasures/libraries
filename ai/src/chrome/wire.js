@@ -1,3 +1,4 @@
+import { env } from '#env'
 import { modelVersionFor } from '../models.js'
 import { chatCompletionsBase } from '../wire-formats.js'
 
@@ -6,7 +7,7 @@ import { chatCompletionsBase } from '../wire-formats.js'
 // provider's.
 
 // Chrome warns per SESSION on a request that names no output language. Accepts de, en, es, fr, ja.
-export const outputLanguage = () => process.env.CHROME_OUTPUT_LANGUAGE || 'en'
+export const outputLanguage = () => env('CHROME_OUTPUT_LANGUAGE') || 'en'
 
 // Chrome's Prompt API documents no function calling, and unreleased `AIPromptAPIToolUse` runs the
 // tool inside the page rather than in the caller. So tools ride `responseConstraint`: prose, a list

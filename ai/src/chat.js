@@ -1,5 +1,4 @@
-import assert from 'node:assert/strict'
-
+import { assert } from '#assert'
 import { invalidateCacheEntry, setPartial, takePartial } from './cache.js'
 import { addUsage, emptyUsage } from './models.js'
 import { claimPrefix, prefixKey } from './prefix-gate.js'
@@ -51,8 +50,8 @@ export function normalizeUsage(data) {
 // `onStart` (optional) is handed the turns being resumed — `[]` on a fresh run — before the first
 // request goes out, for a caller whose tools carry state those turns have to rebuild.
 export async function ask({ model, maxTokens, systemPrompt, userContent, think = false, effort, tools, handleToolCall, maxToolTurns = DEFAULT_MAX_TOOL_TURNS, partial, onStart, debug, debugRequests, label, taskBudget = 'never', ...rest }) {
-  assert.ok(!('userContentSuffix' in rest), 'userContentSuffix is gone — pass userContent as [preamble, suffix] instead')
-  assert.ok(Boolean(tools) === Boolean(handleToolCall), 'tools and handleToolCall must be both provided or both omitted')
+  assert(!('userContentSuffix' in rest), 'userContentSuffix is gone — pass userContent as [preamble, suffix] instead')
+  assert(Boolean(tools) === Boolean(handleToolCall), 'tools and handleToolCall must be both provided or both omitted')
   const totalUsage = emptyUsage()
   const history = []
   const texts = []
