@@ -48,7 +48,7 @@ function importedNames() {
 
 describe('the browser/Node module pairs are declared and shipped', () => {
   it('declares a pair for each swapped module', () => {
-    assert.deepEqual(specifiers.toSorted(), ['#chrome', '#env', '#fetch'])
+    assert.deepEqual(specifiers.toSorted(), ['#chrome', '#env', '#fetch', '#fs'])
   })
 
   for (const spec of specifiers) {

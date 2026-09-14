@@ -23,6 +23,10 @@
     "#fetch": {
       "browser": "./src/fetch.browser.js",
       "default": "./src/fetch.js"
+    },
+    "#fs": {
+      "browser": "./src/fs.browser.js",
+      "default": "./src/fs.js"
     }
   },
   "files": [
@@ -42,6 +46,7 @@
     "src/fetch-json.js",
     "src/fetch.browser.js",
     "src/fetch.js",
+    "src/fs.browser.js",
     "src/fs.js",
     "src/models.js",
     "src/ollama.js",

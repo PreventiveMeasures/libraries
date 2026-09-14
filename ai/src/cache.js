@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { serializeHistory, serializeInvalid } from './cache-history.js'
-import { ensureDir, join, move, moveIfExists, readTextOrNull, removeBestEffort, removeIfExists, writeAtomic } from './fs.js'
+import { ensureDir, join, move, moveIfExists, readTextOrNull, removeBestEffort, removeIfExists, writeAtomic } from '#fs'
 
 // Where entries live, which is the caller's to decide and nobody else's: this layer has no idea
 // what the host is, what it calls its cache, or where a deployment wants one. So there is no

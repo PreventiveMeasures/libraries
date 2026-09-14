@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { Queue } from '@chalker/queue'
 
 import { cacheDir, cacheKey, isInvalidEntry, modelSubdir, readCachedJSON, runTypeMigrations } from './cache.js'
-import { join, move, moveIfExists, readDirOrEmpty, readText } from './fs.js'
+import { join, move, moveIfExists, readDirOrEmpty, readText } from '#fs'
 import { canAdaptive } from './models.js'
 
 // The two scans that walk what a cache has accumulated, rather than addressing one entry: listing a
