@@ -1,7 +1,7 @@
-import assert from 'node:assert/strict'
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, rmdirSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
+import { assert } from '#assert'
 import { localStateFor } from './model.js'
 
 // The scratch profile a browser is pointed at: where it goes, what it starts with, and making sure
@@ -43,7 +43,7 @@ export function isScratchProfile(dir) {
 }
 
 export function removeProfileDir(dir) {
-  assert.ok(
+  assert(
     isScratchProfile(dir),
     `refusing to recursively delete a path that is not one of our scratch profiles (expected ${join(profileRoot(), PROFILE_PREFIX)}*): ${dir}`,
   )
@@ -143,12 +143,12 @@ function ourProfileRoot() {
   const root = profileRoot()
   mkdirSync(root, { recursive: true, mode: 0o700 })
   const stats = lstatSync(root)
-  assert.ok(stats.isDirectory(), `refusing a scratch root that is not a directory: ${root}`)
+  assert(stats.isDirectory(), `refusing a scratch root that is not a directory: ${root}`)
   // Neither ownership nor mode means anything on Windows, where the temp dir is the account's own
   // to begin with.
   if (!process.getuid) return root
-  assert.ok(stats.uid === process.getuid(), `refusing a scratch root owned by another user: ${root}`)
-  assert.ok((stats.mode & 0o077) === 0, `refusing a scratch root that others can read or write: ${root}`)
+  assert(stats.uid === process.getuid(), `refusing a scratch root owned by another user: ${root}`)
+  assert((stats.mode & 0o077) === 0, `refusing a scratch root that others can read or write: ${root}`)
   return root
 }
 

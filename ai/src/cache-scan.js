@@ -1,7 +1,6 @@
-import assert from 'node:assert/strict'
-
 import { Queue } from '@chalker/queue'
 
+import { assert } from '#assert'
 import { cacheDir, cacheKey, isInvalidEntry, modelSubdir, readCachedJSON, runTypeMigrations } from './cache.js'
 import { join, move, moveIfExists, readDirOrEmpty, readText } from '#fs'
 import { canAdaptive } from './models.js'
@@ -124,7 +123,7 @@ export async function listCacheEntries(type, model, systemPrompt, { think = fals
 // from the stored request — has to say so.
 export async function rehashCache(model, { skipType = () => false } = {}) {
   const safeModel = model.replaceAll('/', '-')
-  assert.ok(/^[a-zA-Z0-9._:-]+$/u.test(safeModel), `Invalid model name: ${model}`)
+  assert(/^[a-zA-Z0-9._:-]+$/u.test(safeModel), `Invalid model name: ${model}`)
   const modelDir = join(cacheDir(), safeModel)
 
   const result = { scanned: 0, renamed: 0, unchanged: 0, skipped: 0, errors: 0 }

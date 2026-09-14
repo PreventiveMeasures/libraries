@@ -1,5 +1,4 @@
-import assert from 'node:assert/strict'
-
+import { assert } from '#assert'
 import { serializeHistory, serializeInvalid } from './cache-history.js'
 import { ensureDir, join, move, moveIfExists, readTextOrNull, removeBestEffort, removeIfExists, writeAtomic } from '#fs'
 
@@ -14,12 +13,12 @@ import { ensureDir, join, move, moveIfExists, readTextOrNull, removeBestEffort, 
 let root
 
 export function setCacheDir(dir) {
-  assert.ok(typeof dir === 'string' && dir.length > 0, 'setCacheDir: expected a directory path')
+  assert(typeof dir === 'string' && dir.length > 0, 'setCacheDir: expected a directory path')
   root = dir
 }
 
 export function cacheDir() {
-  assert.ok(root, 'Cache directory is not set — call setCacheDir() before using the cache')
+  assert(root, 'Cache directory is not set — call setCacheDir() before using the cache')
   return root
 }
 
@@ -82,13 +81,13 @@ async function sha256(data) {
 
 export async function modelSubdir(type, model, systemPrompt) {
   const safeModel = model.replaceAll('/', '-')
-  assert.ok(/^[a-zA-Z0-9._:-]+$/u.test(safeModel), `Invalid model name: ${model}`)
+  assert(/^[a-zA-Z0-9._:-]+$/u.test(safeModel), `Invalid model name: ${model}`)
   // `.` and `..` clear the charset above — dots are legitimate inside a name — but as a whole
   // segment they are not a directory, they are a move. `..` would put this run's cache one level
   // ABOVE the cache root it was given, which for the server means outside the per-token directory
   // that isolates one caller's cache from another's. `/` is already folded to `-` above, so these
   // two are the only segments that can traverse.
-  assert.ok(safeModel !== '.' && safeModel !== '..', `Invalid model name: ${model}`)
+  assert(safeModel !== '.' && safeModel !== '..', `Invalid model name: ${model}`)
   const promptHash = (await sha256(systemPrompt)).slice(0, 8)
   return join(safeModel, `${type}-${promptHash}`)
 }

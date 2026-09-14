@@ -48,7 +48,7 @@ function importedNames() {
 
 describe('the browser/Node module pairs are declared and shipped', () => {
   it('declares a pair for each swapped module', () => {
-    assert.deepEqual(specifiers.toSorted(), ['#chrome', '#env', '#fetch', '#fs'])
+    assert.deepEqual(specifiers.toSorted(), ['#assert', '#chrome', '#env', '#fetch', '#fs'])
   })
 
   for (const spec of specifiers) {
@@ -106,6 +106,68 @@ describe('the browser halves reach for nothing a page lacks', () => {
       assert.doesNotMatch(source, NODE_ONLY, `${target} names a Node-only global`)
     })
   }
+})
+
+// The invariant the pairs above exist to produce, asserted over the whole graph rather than per
+// module: walk what a browser build actually loads — relative imports followed, `#` specifiers taken
+// through their browser half — and nothing in it may reach for Node.
+//
+// Per-file checks cannot see this. A `node:` import three modules down a chain of relative imports
+// breaks a bundle just as thoroughly as one in a browser half, and the module that adds it will look
+// entirely reasonable on its own.
+const ANY_SPECIFIER = /(?:\bfrom|\bimport)\s*\(?\s*['"](?<spec>[^'"]+)['"]/gu
+
+function browserGraph() {
+  const seen = new Set()
+  const bare = new Map()
+  const queue = ['index.js']
+  while (queue.length > 0) {
+    const name = queue.pop()
+    if (seen.has(name)) continue
+    seen.add(name)
+    const file = new URL(name, AI_DIR)
+    for (const m of readFileSync(file, 'utf8').matchAll(ANY_SPECIFIER)) {
+      const spec = m.groups.spec
+      if (spec.startsWith('#')) {
+        queue.push(manifest.imports[spec].browser.replace(/^\.\//u, ''))
+      } else if (spec.startsWith('.')) {
+        queue.push(new URL(spec, file).href.slice(AI_DIR.href.length))
+      } else {
+        if (!bare.has(spec)) bare.set(spec, new Set())
+        bare.get(spec).add(name)
+      }
+    }
+  }
+  return { seen, bare }
+}
+
+describe('what a browser build loads needs nothing from Node', () => {
+  const { seen, bare } = browserGraph()
+
+  it('reaches the layer through the front door, browser halves included', () => {
+    assert.ok(seen.size > 10, `expected the layer's module graph, walked ${seen.size}`)
+    for (const spec of specifiers) {
+      const half = manifest.imports[spec].browser.replace(/^\.\//u, '')
+      assert.ok(seen.has(half), `${half} is a browser half but the walk never reached it`)
+    }
+  })
+
+  it('imports no node: builtin anywhere in that graph', () => {
+    const builtins = [...bare.keys()].filter((spec) => spec.startsWith('node:'))
+    const where = builtins.map((spec) => `${spec} (${[...bare.get(spec)].join(', ')})`)
+    assert.deepEqual(builtins, [], `a browser build cannot load these: ${where.join('; ')}`)
+  })
+
+  it('names no Node-only global anywhere in that graph', () => {
+    const offenders = [...seen].filter((name) => NODE_ONLY.test(withoutComments(readFileSync(new URL(name, AI_DIR), 'utf8'))))
+    assert.deepEqual(offenders, [], `these name a Node-only global: ${offenders.join(', ')}`)
+  })
+
+  it('depends only on packages that are themselves portable', () => {
+    // Every remaining bare specifier is an npm package a bundler has to resolve. @chalker/queue is
+    // portable ESM with no dependencies; a new name here is a claim that needs checking, not a detail.
+    assert.deepEqual([...bare.keys()].toSorted(), ['@chalker/queue'])
+  })
 })
 
 describe('#env', () => {

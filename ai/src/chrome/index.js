@@ -1,8 +1,8 @@
-import assert from 'node:assert/strict'
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { env } from '#env'
+import { assert } from '#assert'
 import { baseModelFor, modelVersionFor } from '../models.js'
 import { chromePreflight, findModelDir, graftPlan } from './model.js'
 import { claimProfile, dropProfile, pruneProfileRoot } from './profile.js'
@@ -349,7 +349,7 @@ export async function sendChromeTurn(model, body, { debug, label } = {}) {
   // Undefined means the registry has no chrome/* row for this id, so which local weights were meant
   // is unknowable. Launching anyway would answer an anthropic/* id, or a typo, with whatever
   // happens to be installed.
-  assert.ok(baseModel, `Provider \`chrome\` cannot serve ${model}. Use one of the chrome/* models.`)
+  assert(baseModel, `Provider \`chrome\` cannot serve ${model}. Use one of the chrome/* models.`)
   // The launch counts as pending too: a cold one takes longer than the idle window, so a browser
   // that had just come up would close before its first turn reached it.
   return await trackTurn(async () => {

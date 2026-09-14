@@ -12,6 +12,10 @@
     }
   },
   "imports": {
+    "#assert": {
+      "browser": "./src/assert.browser.js",
+      "default": "./src/assert.js"
+    },
     "#chrome": {
       "browser": "./src/chrome/browser.js",
       "default": "./src/chrome/index.js"
@@ -32,6 +36,8 @@
   "files": [
     "index.d.ts",
     "index.js",
+    "src/assert.browser.js",
+    "src/assert.js",
     "src/cache-history.js",
     "src/cache-scan.js",
     "src/cache.js",

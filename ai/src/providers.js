@@ -1,6 +1,6 @@
-import assert from 'node:assert/strict'
 import { CHROME_ADAPTER } from '#chrome'
 import { env } from '#env'
+import { assert } from '#assert'
 import { fetchJSON } from './fetch-json.js'
 import { ollamaOrigin, resolveOllamaTag } from './ollama.js'
 import { calculateCost, effortsFor, ollamaModels, ollamaTagFor, reasoningModeFor, wireModelFor } from './models.js'
@@ -304,7 +304,7 @@ const ADAPTERS = {
     // never the registry id.
     buildRequestBody(model, maxTokens, systemPrompt, messages, { think = false, effort, tools } = {}) {
       const tag = ollamaTagFor(model)
-      assert.ok(tag, `Provider \`ollama\` has no local build for ${model}. Use one of: ${ollamaModels().join(', ')}`)
+      assert(tag, `Provider \`ollama\` has no local build for ${model}. Use one of: ${ollamaModels().join(', ')}`)
       const body = {
         model: tag,
         max_completion_tokens: maxTokens,
@@ -370,10 +370,10 @@ let provider
 // to. The default preflight, so selection has one shape.
 function httpPreflight(name, adapter) {
   const key = adapter.apiKey()
-  assert.ok(key, `Missing API key for ${name}`)
+  assert(key, `Missing API key for ${name}`)
   // Only a gateway entry can be missing one, and only when its origin env var is unset — every
   // other adapter hardcodes its endpoint.
-  assert.ok(adapter.url, `Missing API URL for ${name}. Set ${adapter.apiUrlEnv}.`)
+  assert(adapter.url, `Missing API URL for ${name}. Set ${adapter.apiUrlEnv}.`)
   return key
 }
 
@@ -382,7 +382,7 @@ function httpPreflight(name, adapter) {
 // resident weights and returns no key, so it supplies its own preflight instead of being
 // special-cased here.
 export function setProvider(name) {
-  assert.ok(Object.hasOwn(ADAPTERS, name), `Unknown provider: ${name}. Use: ${Object.keys(ADAPTERS).join(', ')}`)
+  assert(Object.hasOwn(ADAPTERS, name), `Unknown provider: ${name}. Use: ${Object.keys(ADAPTERS).join(', ')}`)
   const adapter = ADAPTERS[name]
   const apiKeyValue = (adapter.preflight ?? httpPreflight)(name, adapter) ?? null
   provider = { ...adapter, name, apiKeyValue }

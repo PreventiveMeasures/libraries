@@ -1,8 +1,8 @@
-import assert from 'node:assert/strict'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
 import { env } from '#env'
+import { assert } from '#assert'
 import { componentFor, specNamesFor } from '../models.js'
 
 // Where the on-device weights are; index.js drives the browser. Chrome keeps them under the USER
@@ -204,7 +204,7 @@ export function findModelDir(baseModel) {
   if (override) {
     // Checked here so a typo fails at setProvider rather than after the two-minute wait for a model
     // that was never going to load.
-    assert.ok(existsSync(join(override, 'weights.bin')), `CHROME_MODEL_DIR has no weights.bin: ${override}`)
+    assert(existsSync(join(override, 'weights.bin')), `CHROME_MODEL_DIR has no weights.bin: ${override}`)
     return override
   }
   const all = modelComponentRoots().flatMap((root) => candidateModelDirs(root))
@@ -237,7 +237,7 @@ function missingModelMessage(baseModel, all) {
 // weights: which Chrome to run resolves at launch, where playwright's own error names the path it
 // expected.
 export function chromePreflight() {
-  assert.ok(
+  assert(
     findModelDir(),
     'No on-device model found. Open chrome://on-device-internals in Chrome and download the model, or set CHROME_MODEL_DIR to an existing one.',
   )
