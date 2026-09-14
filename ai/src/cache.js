@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict'
-import { createHash } from 'node:crypto'
-import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
-import { setTimeout as sleep } from 'node:timers/promises'
-
 
 import { serializeHistory, serializeInvalid } from './cache-history.js'
+import { ensureDir, join, move, moveIfExists, readTextOrNull, removeBestEffort, removeIfExists, writeAtomic } from './fs.js'
 
 // Where entries live, which is the caller's to decide and nobody else's: this layer has no idea
 // what the host is, what it calls its cache, or where a deployment wants one. So there is no
@@ -61,11 +57,30 @@ export function getCacheStats() {
   return { ...cacheStats }
 }
 
-function sha256(data) {
-  return createHash('sha256').update(data).digest('hex')
+// Web Crypto, which is the one SHA-256 a browser and Node both already have — node:crypto's
+// createHash does not exist in a page, and shipping a JS implementation of SHA-256 to recompute what
+// the platform computes natively is 40KB to be slower.
+//
+// Byte-identical to `createHash('sha256').update(str).digest('hex')`: TextEncoder emits the same
+// UTF-8 bytes createHash's default string encoding does. That is the invariant that matters most
+// here — every key and every prompt-hash subdirectory in every cache that already exists was written
+// by the old call, and a digest that differed by one byte would orphan all of them at once.
+//
+// The cost of the swap is that it is async, SHA-256 being reached only through the promise-returning
+// `subtle.digest`. Which is why cacheKey, modelSubdir and resolveCachePaths are async — nothing about
+// hashing needs to be. Per entry addressed it is one microtask in front of a disk read, so it
+// disappears into the I/O it precedes; a caller hashing in a tight loop would notice.
+//
+// One browser caveat, no concern under Node: `crypto.subtle` is secure-context only. A page served
+// over plain http has `crypto` and no `subtle` on it, and the cache is unusable there.
+const utf8 = new TextEncoder()
+
+async function sha256(data) {
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', utf8.encode(data))
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-export function modelSubdir(type, model, systemPrompt) {
+export async function modelSubdir(type, model, systemPrompt) {
   const safeModel = model.replaceAll('/', '-')
   assert.ok(/^[a-zA-Z0-9._:-]+$/u.test(safeModel), `Invalid model name: ${model}`)
   // `.` and `..` clear the charset above — dots are legitimate inside a name — but as a whole
@@ -74,7 +89,7 @@ export function modelSubdir(type, model, systemPrompt) {
   // that isolates one caller's cache from another's. `/` is already folded to `-` above, so these
   // two are the only segments that can traverse.
   assert.ok(safeModel !== '.' && safeModel !== '..', `Invalid model name: ${model}`)
-  const promptHash = sha256(systemPrompt).slice(0, 8)
+  const promptHash = (await sha256(systemPrompt)).slice(0, 8)
   return join(safeModel, `${type}-${promptHash}`)
 }
 
@@ -84,13 +99,12 @@ export function modelSubdir(type, model, systemPrompt) {
 // failure surface. Compatibility data, not a rule about any one caller: a `new -> old` row here is
 // what keeps a rename from orphaning a cache.
 async function migrateTypeRename(oldType, newType, model, systemPrompt) {
-  const oldDir = join(cacheDir(), modelSubdir(oldType, model, systemPrompt))
-  const newDir = join(cacheDir(), modelSubdir(newType, model, systemPrompt))
+  const oldDir = join(cacheDir(), await modelSubdir(oldType, model, systemPrompt))
+  const newDir = join(cacheDir(), await modelSubdir(newType, model, systemPrompt))
   try {
-    await rename(oldDir, newDir)
+    if (!await moveIfExists(oldDir, newDir)) return
     console.log(`[cache] migrated ${oldType} -> ${newType}`)
   } catch (err) {
-    if (err.code === 'ENOENT') return
     throw new Error(`Cache migration ${oldDir} -> ${newDir} failed: ${err.message}`, { cause: err })
   }
 }
@@ -107,33 +121,23 @@ export async function runTypeMigrations(type, model, systemPrompt) {
   if (previous) await migrateTypeRename(previous, type, model, systemPrompt)
 }
 
-// Read errors that come from pressure, not absence — parallel lookups can hit fd exhaustion or a
-// busy/slow volume, and at concurrency 1 the same read would simply have succeeded a moment later.
-// Worth a few retries before giving up.
-const TRANSIENT_READ_ERRORS = new Set(['EMFILE', 'ENFILE', 'EAGAIN', 'EBUSY', 'ETIMEDOUT'])
-
-// A missing file (ENOENT) is the ONE read failure that means "not cached", and the only one that
-// may be swallowed into a `null`. Folding the rest in with it fabricates a cache miss out of any
-// transient read failure — invisible at --concurrency 1, and in a live run each phantom miss
-// silently re-spends a model request and overwrites the entry with a fresh response, so
-// consecutive warm runs load different cache files and report different hit/miss totals. So:
-// ENOENT stays a quiet null, transient errors retry with backoff, and anything else (or exhausted
-// retries) warns with the errno and path before degrading to a miss — a run that fabricates misses
-// names its reason instead of hiding it.
+// An absent file is "not cached", and it is the only read failure that may become one silently:
+// readTextOrNull answers null for a file that is missing or empty, retries the errnos that mean
+// pressure rather than absence, and throws everything else at this function. Folding that throw in
+// with the null would fabricate a cache miss out of any read failure — invisible at --concurrency 1,
+// and in a live run each phantom miss silently re-spends a model request and overwrites the entry
+// with a fresh response, so consecutive warm runs load different cache files and report different
+// hit/miss totals.
+//
+// Degrading to a miss is still the right answer — a run should not die because one entry would not
+// read — so what this adds is the announcement: the errno and the path, before the miss. A run that
+// fabricates misses names its reason instead of hiding it.
 async function tryRead(path) {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      // We don't expect and don't load empty files, those can be failed writes or failed responses
-      return await readFile(path, 'utf8') || null
-    } catch (err) {
-      if (err.code === 'ENOENT') return null
-      if (TRANSIENT_READ_ERRORS.has(err.code) && attempt < 4) {
-        await sleep(10 * 2 ** attempt)
-        continue
-      }
-      console.warn(`[cache] read failed (${err.code ?? err.message}) for ${path} — treating as a miss`)
-      return null
-    }
+  try {
+    return await readTextOrNull(path)
+  } catch (err) {
+    console.warn(`[cache] read failed (${err.code ?? err.message}) for ${path} — treating as a miss`)
+    return null
   }
 }
 
@@ -152,7 +156,7 @@ export function buildCacheOpts(type, { model, systemPrompt, useThink, useEffort,
   return opts
 }
 
-export function cacheKey(systemPrompt, userContent, { think = false, effort, bundleId } = {}) {
+export async function cacheKey(systemPrompt, userContent, { think = false, effort, bundleId } = {}) {
   const info = { systemPrompt, userContent }
   if (think) info.think = true
   if (effort) info.effort = effort
@@ -161,7 +165,7 @@ export function cacheKey(systemPrompt, userContent, { think = false, effort, bun
   // keep their entries.
   if (bundleId !== undefined) info.bundleId = bundleId
   if (uniqueRerun) info.uniqueRerun = uniqueRerun
-  return sha256(JSON.stringify(info))
+  return await sha256(JSON.stringify(info))
 }
 
 export async function readCachedJSON(dir, key) {
@@ -176,14 +180,14 @@ export async function readCachedJSON(dir, key) {
 
 // Resolve `(dir, key)` from a userContent + cacheOpts pair. `subdir` is returned alongside because
 // the legacy-fallback path in getCached needs to compose `<root>/old/<subdir>/<key>.md` directly.
-function resolveCachePaths(userContent, { type, model, systemPrompt, think, effort, bundleId }) {
-  const subdir = modelSubdir(type, model, systemPrompt)
-  const key = cacheKey(systemPrompt, userContent, { think, effort, bundleId })
+async function resolveCachePaths(userContent, { type, model, systemPrompt, think, effort, bundleId }) {
+  const subdir = await modelSubdir(type, model, systemPrompt)
+  const key = await cacheKey(systemPrompt, userContent, { think, effort, bundleId })
   return { subdir, dir: join(cacheDir(), subdir), key }
 }
 
 async function readEntry(userContent, opts) {
-  const { subdir, dir, key } = resolveCachePaths(userContent, opts)
+  const { subdir, dir, key } = await resolveCachePaths(userContent, opts)
   const mdPath = join(dir, `${key}.md`)
 
   const fromMd = await tryRead(mdPath)
@@ -193,8 +197,8 @@ async function readEntry(userContent, opts) {
   const legacyPath = join(cacheDir(), 'old', subdir, `${key}.md`)
   const result = await tryRead(legacyPath)
   if (result) {
-    await mkdir(dir, { recursive: true })
-    await rename(legacyPath, mdPath)
+    await ensureDir(dir)
+    await move(legacyPath, mdPath)
     return { userContent, text: result, json: null, key }
   }
 
@@ -237,25 +241,13 @@ export async function getCached(userContent, opts, { validate } = {}) {
 // Returns the entry's cache key (the on-disk basename), mirroring the `key` getCached stamps on a
 // hit — so a caller can name the entry it just wrote, so a caller that later scans the cache can
 // recognise its own requests by exact key — fresh writes as well as hits).
-// Atomic entry write: plain writeFile truncates then streams, so a killed process — or two
-// concurrent writers landing on one key — could leave a torn file that a later run happily LOADS as
-// the cached result (a truncated `.md` still reads as text). Write to a per-process temp name in
-// the same directory and rename into place: readers see either the old complete entry or the new
-// complete entry, never a partial.
-let tmpSeq = 0
-async function writeAtomic(path, data) {
-  const tmp = `${path}.${process.pid}.${++tmpSeq}.tmp`
-  await writeFile(tmp, data)
-  await rename(tmp, path)
-}
-
 export async function setCache(userContent, result, history, opts) {
   // Serialise (same slimming + overflow recovery as the partial) before touching disk, so an
   // unrecoverable overflow throws before we write a dangling `.md` — preserving the all-or-nothing
   // behaviour from when the caller stringified the history itself.
   const json = serializeHistory(history)
-  const { dir, key } = resolveCachePaths(userContent, opts)
-  await mkdir(dir, { recursive: true })
+  const { dir, key } = await resolveCachePaths(userContent, opts)
+  await ensureDir(dir)
   // `.json` before `.md`: the `.md` is the entry's existence marker (getCached and getPartial both
   // gate on it), so it must land last — otherwise a crash between the two writes leaves an `.md`
   // whose companion history is missing or stale.
@@ -264,7 +256,7 @@ export async function setCache(userContent, result, history, opts) {
   // This key's last word is now a usable response, so the failure record beside it is stale — and a
   // stale one is worse than none, since it invites debugging something already fixed. Best-effort:
   // the entry above is written and valid either way.
-  await unlink(join(dir, `${key}${INVALID_SUFFIX}`)).catch(() => {})
+  await removeBestEffort(join(dir, `${key}${INVALID_SUFFIX}`))
   return key
 }
 
@@ -273,7 +265,7 @@ export async function setCache(userContent, result, history, opts) {
 // `setCache` writes both `.md` and `.json` and naturally supersedes any partial that lives under
 // the same key — no separate finalise step needed.
 export async function getPartial(userContent, opts) {
-  const { dir, key } = resolveCachePaths(userContent, opts)
+  const { dir, key } = await resolveCachePaths(userContent, opts)
   // A `.md` companion means the cache is final — defer to getCached.
   if (await tryRead(join(dir, `${key}.md`))) return null
   const json = await readCachedJSON(dir, key)
@@ -286,7 +278,7 @@ const taken = new Set()
 // turn, so a caller that asks the same thing again — retrying after an answer it rejected — must
 // start fresh instead of being handed back the answer it just threw away.
 export async function takePartial(userContent, opts) {
-  const { subdir, key } = resolveCachePaths(userContent, opts)
+  const { subdir, key } = await resolveCachePaths(userContent, opts)
   const id = `${subdir}/${key}`
   if (taken.has(id)) return null
   taken.add(id)
@@ -294,8 +286,8 @@ export async function takePartial(userContent, opts) {
 }
 
 export async function setPartial(userContent, history, opts) {
-  const { dir, key } = resolveCachePaths(userContent, opts)
-  await mkdir(dir, { recursive: true })
+  const { dir, key } = await resolveCachePaths(userContent, opts)
+  await ensureDir(dir)
   await writeAtomic(join(dir, `${key}.json`), serializeHistory(history))
 }
 
@@ -334,11 +326,11 @@ export function isInvalidEntry(fileName) {
 let announcedInvalid = false
 export async function setInvalid(userContent, history, opts, { reason, text }) {
   if (typeof text === 'string' && text.trim() === '') return
-  const { dir, key } = resolveCachePaths(userContent, opts)
+  const { dir, key } = await resolveCachePaths(userContent, opts)
   const path = join(dir, `${key}${INVALID_SUFFIX}`)
   try {
     const json = serializeInvalid(reason, history)
-    await mkdir(dir, { recursive: true })
+    await ensureDir(dir)
     await writeAtomic(path, json)
     // Once per process: a line per rejection would double the warning the pass already printed, and
     // what the operator needs is to learn the convention exists, not to be told again for every
@@ -357,8 +349,6 @@ export async function invalidResponseError(error, userContent, history, opts) {
   return new Error(error)
 }
 
-const ignoreMissing = (err) => { if (err.code !== 'ENOENT') throw err }
-
 // Take the entry at one key out of service without throwing away what it held: the answer goes, and
 // the turn history moves to `.invalid.json`, which nothing reads back and a person still can. For a
 // caller that will not stand behind what it got — a response that failed its format check, say — so
@@ -366,11 +356,11 @@ const ignoreMissing = (err) => { if (err.code !== 'ENOENT') throw err }
 // `{ reason, history }` setInvalid writes: a rename costs one syscall whatever the history weighs,
 // and one too big to re-serialise is exactly the kind that gets rejected.
 export async function invalidateCacheEntry(userContent, opts) {
-  const { dir, key } = resolveCachePaths(userContent, opts)
+  const { dir, key } = await resolveCachePaths(userContent, opts)
   // `.md` first: it is the entry's existence marker, which is why setCache writes it last. Removing
   // it first holds the same invariant if only one of the two calls lands.
-  await unlink(join(dir, `${key}.md`)).catch(ignoreMissing)
+  await removeIfExists(join(dir, `${key}.md`))
   // Over whatever dump was already there, the newer evidence being the more useful. Atomic, so no
   // reader sees the history under both names, or neither.
-  await rename(join(dir, `${key}.json`), join(dir, `${key}${INVALID_SUFFIX}`)).catch(ignoreMissing)
+  await moveIfExists(join(dir, `${key}.json`), join(dir, `${key}${INVALID_SUFFIX}`))
 }

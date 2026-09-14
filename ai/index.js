@@ -32,7 +32,7 @@ export { setProvider, closeProvider, providerStamp, extractResponseText, turnCos
 
 // The transport under those requests: how many are in flight at once, and
 // how often a transient upstream failure is re-asked.
-export { RETRIES, setFetchConcurrency, setFetchRetries } from './src/fetch.js'
+export { RETRIES, setFetchConcurrency, setFetchRetries } from './src/fetch-json.js'
 
 // The response cache on disk: where it lives — which the caller sets,
 // there being no default — how an entry is addressed, and the reads and

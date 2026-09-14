@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
+import { env } from '#env'
 import { componentFor, specNamesFor } from '../models.js'
 
 // Where the on-device weights are; index.js drives the browser. Chrome keeps them under the USER
@@ -33,10 +34,10 @@ const USER_DATA_DIRS = {
     `${homedir()}/.config/google-chrome-unstable`,
   ],
   win32: [
-    `${process.env.LOCALAPPDATA}\\Google\\Chrome\\User Data`,
-    `${process.env.LOCALAPPDATA}\\Google\\Chrome Beta\\User Data`,
-    `${process.env.LOCALAPPDATA}\\Google\\Chrome Dev\\User Data`,
-    `${process.env.LOCALAPPDATA}\\Google\\Chrome SxS\\User Data`,
+    `${env('LOCALAPPDATA')}\\Google\\Chrome\\User Data`,
+    `${env('LOCALAPPDATA')}\\Google\\Chrome Beta\\User Data`,
+    `${env('LOCALAPPDATA')}\\Google\\Chrome Dev\\User Data`,
+    `${env('LOCALAPPDATA')}\\Google\\Chrome SxS\\User Data`,
   ],
 }
 
@@ -199,7 +200,7 @@ export function identifiesAs(dir, baseModel) {
 // cannot be identified is an error rather than a fallback: the turn would be labelled and CACHED
 // under a row another model answered.
 export function findModelDir(baseModel) {
-  const override = process.env.CHROME_MODEL_DIR
+  const override = env('CHROME_MODEL_DIR')
   if (override) {
     // Checked here so a typo fails at setProvider rather than after the two-minute wait for a model
     // that was never going to load.

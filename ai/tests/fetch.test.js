@@ -2,7 +2,7 @@ import http from 'node:http'
 import assert from 'node:assert/strict'
 import { after, before, describe, it } from 'node:test'
 
-import { RETRIES, fetchJSON, isTransientHttpFailure, parseRetryAfter, retryDelayMs, setFetchRetries } from '../src/fetch.js'
+import { RETRIES, fetchJSON, isTransientHttpFailure, parseRetryAfter, retryDelayMs, setFetchRetries } from '../src/fetch-json.js'
 
 // The body a kimi-k3 run dies on, verbatim. It arrives under two statuses
 // — a 400 as often as a 429 — which is the whole reason the classifier

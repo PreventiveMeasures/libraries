@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
-import { CHROME_SHAPE, chromePreflight, closeChrome, sendChromeTurn } from './chrome/index.js'
-import { fetchJSON } from './fetch.js'
+import { CHROME_ADAPTER } from '#chrome'
+import { env } from '#env'
+import { fetchJSON } from './fetch-json.js'
 import { ollamaOrigin, resolveOllamaTag } from './ollama.js'
 import { calculateCost, effortsFor, ollamaModels, ollamaTagFor, reasoningModeFor, wireModelFor } from './models.js'
 import { anthropicAuthHeader, anthropicShape, chatCompletionsBase, parseArgs, stripNamespace, toAnthropicModel, truncationError } from './wire-formats.js'
@@ -179,7 +180,7 @@ function gatewayAdapter({ origin, apiUrlEnv, apiKeyEnv }) {
     // virtual keys on Authorization. Sending one would 401 against the other, and neither rejects
     // the spare.
     authHeader: (key, model) => ({ Authorization: `Bearer ${key}`, ...(routesMessages(model) ? anthropicAuthHeader(key) : null) }),
-    apiKey: () => process.env[apiKeyEnv],
+    apiKey: () => env(apiKeyEnv),
     // Names the wire format in the resumable-history stamp: one provider name covers three shapes
     // here, so the name alone can't tell a partial written on one route apart from another.
     wireRoute: (model) => (routesMessages(model) ? 'messages' : routesResponses(model) ? 'responses' : 'chat'),
@@ -235,7 +236,7 @@ const ADAPTERS = {
   anthropic: {
     url: 'https://api.anthropic.com/v1/messages',
     authHeader: anthropicAuthHeader,
-    apiKey: () => process.env.ANTHROPIC_API_KEY,
+    apiKey: () => env('ANTHROPIC_API_KEY'),
     ...anthropicShape(toAnthropicModel),
   },
 
@@ -245,9 +246,9 @@ const ADAPTERS = {
     // what OpenAI's migration guide points new integrations at.
     // OPENAI_API_URL replaces the origin, same split as OPENROUTER_API_URL: the variable holds
     // everything before `/v1`, so one gateway serves both adapters as e.g. http://localhost:4000.
-    url: (process.env.OPENAI_API_URL || 'https://api.openai.com') + '/v1/responses',
+    url: (env('OPENAI_API_URL') || 'https://api.openai.com') + '/v1/responses',
     authHeader: (key) => ({ Authorization: `Bearer ${key}` }),
-    apiKey: () => process.env.OPENAI_API_KEY,
+    apiKey: () => env('OPENAI_API_KEY'),
 
     // The direct route resolves the registry id to a bare model name the API must know, and
     // `wireModelFor` is what turns a row served as a mode on another model (astra pro) into that
@@ -261,17 +262,17 @@ const ADAPTERS = {
   openrouter: {
     ...CHAT_COMPLETIONS_SHAPE,
     // See OPENAI_API_URL above for the origin/path split these two share.
-    url: (process.env.OPENROUTER_API_URL || 'https://openrouter.ai/api') + '/v1/chat/completions',
+    url: (env('OPENROUTER_API_URL') || 'https://openrouter.ai/api') + '/v1/chat/completions',
     apiUrlEnv: 'OPENROUTER_API_URL',
     authHeader: (key) => ({ Authorization: `Bearer ${key}` }),
-    apiKey: () => process.env.OPENROUTER_API_KEY,
+    apiKey: () => env('OPENROUTER_API_KEY'),
   },
 
   // The same wire format pointed at a gateway of your own — LiteLLM, Portkey, a self-hosted proxy.
   // No default origin: AI_GATEWAY_API_URL names it, and setProvider refuses the provider until it
   // does.
   gateway: gatewayAdapter({
-    origin: process.env.AI_GATEWAY_API_URL,
+    origin: env('AI_GATEWAY_API_URL'),
     apiUrlEnv: 'AI_GATEWAY_API_URL',
     apiKeyEnv: 'AI_GATEWAY_API_KEY',
   }),
@@ -290,14 +291,14 @@ const ADAPTERS = {
     // always agree on which server is being asked.
     urlFor: () => `${ollamaOrigin()}/v1/chat/completions`,
     apiUrlEnv: 'OLLAMA_API_URL',
-    apiKey: () => process.env.OLLAMA_API_KEY,
+    apiKey: () => env('OLLAMA_API_KEY'),
     // Omitted rather than sent empty: a local server rejects nothing, but a proxy in front of one
     // can reject a Bearer with no token after it.
     authHeader: (key) => (key ? { Authorization: `Bearer ${key}` } : {}),
     // The default preflight demands a key, which no local server has, so selection would fail on
     // exactly the machines this is for. Nothing else is checkable here: whether the tag is pulled
     // is a question only the server can answer, and it answers it on the first turn.
-    preflight: () => process.env.OLLAMA_API_KEY ?? null,
+    preflight: () => env('OLLAMA_API_KEY') ?? null,
 
     // Ollama addresses a model by tag and keeps one per precision, so what goes on the wire is
     // never the registry id.
@@ -326,15 +327,10 @@ const ADAPTERS = {
 
   // Chrome's built-in on-device model — the one adapter with no endpoint at all, and like ollama
   // above, no key. Its own `preflight` checks for a browser and resident weights in place of a URL
-  // and a key, and `send` is what routes a turn through the browser instead of fetchJSON.
-  // Everything about reaching it is in src/chrome/, behind its index.js.
-  chrome: {
-    runsLocally: true,
-    preflight: chromePreflight,
-    send: sendChromeTurn,
-    close: closeChrome,
-    ...CHROME_SHAPE,
-  },
+  // and a key, and `send` routes a turn through the browser instead of fetchJSON. Taken whole from
+  // src/chrome/ rather than assembled here: everything about reaching that model, including which
+  // parts of it a browser build can keep, is that directory's to decide.
+  chrome: CHROME_ADAPTER,
 
   // Moonshot's own platform (platform.kimi.ai / api.moonshot.ai), the direct route to Kimi K3.
   // OpenAI-compatible chat completions, so the whole response side is shared — see
@@ -343,7 +339,7 @@ const ADAPTERS = {
     ...chatCompletionsBase('max_completion_tokens'),
     url: 'https://api.moonshot.ai/v1/chat/completions',
     authHeader: (key) => ({ Authorization: `Bearer ${key}` }),
-    apiKey: () => process.env.MOONSHOT_API_KEY,
+    apiKey: () => env('MOONSHOT_API_KEY'),
 
     buildRequestBody(model, maxTokens, systemPrompt, messages, { think = false, effort, tools } = {}) {
       // Same shared system-message rule as the OpenRouter body above, keyed on the namespaced id

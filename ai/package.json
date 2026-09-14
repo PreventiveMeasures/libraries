@@ -11,6 +11,20 @@
       "default": "./index.js"
     }
   },
+  "imports": {
+    "#chrome": {
+      "browser": "./src/chrome/browser.js",
+      "default": "./src/chrome/index.js"
+    },
+    "#env": {
+      "browser": "./src/env.browser.js",
+      "default": "./src/env.js"
+    },
+    "#fetch": {
+      "browser": "./src/fetch.browser.js",
+      "default": "./src/fetch.js"
+    }
+  },
   "files": [
     "index.d.ts",
     "index.js",
@@ -18,11 +32,17 @@
     "src/cache-scan.js",
     "src/cache.js",
     "src/chat.js",
+    "src/chrome/browser.js",
     "src/chrome/index.js",
     "src/chrome/model.js",
     "src/chrome/profile.js",
     "src/chrome/wire.js",
+    "src/env.browser.js",
+    "src/env.js",
+    "src/fetch-json.js",
+    "src/fetch.browser.js",
     "src/fetch.js",
+    "src/fs.js",
     "src/models.js",
     "src/ollama.js",
     "src/prefix-gate.js",

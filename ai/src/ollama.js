@@ -1,3 +1,4 @@
+import { env } from '#env'
 import { ollamaEquivalents } from './models.js'
 
 // Asking the local server what it has, so a turn can be served by a better build of the model it
@@ -7,7 +8,7 @@ import { ollamaEquivalents } from './models.js'
 // Read per call rather than at module load, so the cache below stays keyed to the origin actually
 // asked rather than the one that happened to be set first.
 export function ollamaOrigin() {
-  return process.env.OLLAMA_API_URL || 'http://127.0.0.1:11434'
+  return env('OLLAMA_API_URL') || 'http://127.0.0.1:11434'
 }
 
 // Short: a turn is waiting on this, and every answer it could give is optional. A server too slow
