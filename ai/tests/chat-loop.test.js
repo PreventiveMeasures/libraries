@@ -619,6 +619,24 @@ suite('normalizeCacheFile', () => {
     assert.equal(await readFile(await entryPath('walk-D', cacheOpts), 'utf8'), raw)
   })
 
+  it('leaves an old log of plain request/response pairs alone', async () => {
+    // What this layer wrote before an entry carried its turn: every request logged, and the tool
+    // results present ONLY as tool_result blocks inside the later ones. serializeHistory nulls
+    // every request past the first and nothing proves that safe — so the gate has to keep these
+    // out, or normalizing one would take the answers with it and leave a conversation that cannot
+    // be continued or read back.
+    const pairs = [
+      { request: { model: MODEL, messages: [{ role: 'user', content: 'q' }] }, response: TOOL_CALL },
+      {
+        request: { model: MODEL, messages: [{ role: 'user', content: 'q' }, { role: 'tool', tool_call_id: 'call-1', content: 'the only copy' }] },
+        response: ANSWER,
+      },
+    ]
+    const { path, raw } = await writeRaw('norm-I', opts('_test-normalize-pairs'), pairs)
+    assert.equal((await normalizeCacheFile(path)).status, 'skipped')
+    assert.equal(await readFile(path, 'utf8'), raw)
+  })
+
   it('hands the entries\' provider stamp over before replaying anything', async () => {
     // A directory can hold files more than one provider wrote, and the replay builds whatever
     // shapes the adapter that is set builds. The caller is told which one, once, per file.
