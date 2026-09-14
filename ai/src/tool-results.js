@@ -14,11 +14,21 @@ function isPlainData(value) {
   return proto === Object.prototype || proto === Array.prototype
 }
 
-const isScalar = (value) => value === null || ['boolean', 'number', 'string'].includes(typeof value)
+// What JSON carries as itself. `Number.isFinite` rather than `typeof === 'number'`: JSON has no
+// spelling for NaN or either Infinity and renders all three `null`, which is the same silent loss a
+// Map or a Date is refused for one line below — a tool averaging over an empty set or dividing by a
+// zero denominator would otherwise hand the model `null` with nothing saying the number was lost,
+// and the cache would keep the `null` as the answer.
+const SCALARS = new Set(['boolean', 'string'])
+const isScalar = (value) => value === null
+  || SCALARS.has(typeof value)
+  || (typeof value === 'number' && Number.isFinite(value))
 
 function nameOf(value) {
   if (value === null) return 'null'
   if (value === undefined) return 'undefined'
+  // NaN / Infinity / -Infinity name themselves; `Number` would say nothing about what is wrong.
+  if (typeof value === 'number' && !Number.isFinite(value)) return String(value)
   return Object.getPrototypeOf(value)?.constructor?.name ?? 'an object with no prototype'
 }
 
@@ -32,14 +42,24 @@ function assertPlainData(value, what) {
 // model as `{"rows":{}}`, a Date as its ISO string, a key holding undefined not at all. The walk
 // rides JSON.stringify's own traversal, which is also what turns a cycle into a thrown TypeError
 // rather than a hang, and `this[key]` is the value before any toJSON hook rewrote it — which is
-// how a Date is still a Date here. The string it builds is thrown away; what reaches the wire is
-// built by toWireResult, possibly in another process, off the copy the cache kept.
+// how a Date is still a Date here.
+//
+// Returns the JSON it built rather than dropping it. The caller needs that string anyway — parsed
+// back, it is the snapshot the entry stores, which is what keeps the cached answer a value of this
+// turn alone instead of a reference into whatever the handler still holds. A string answer is its
+// own JSON and comes straight back.
 export function assertToolResult(value, what) {
-  if (typeof value === 'string') return
+  if (typeof value === 'string') return value
   assertPlainData(value, what)
-  JSON.stringify(value, function node(key, encoded) {
+  return JSON.stringify(value, function node(key, encoded) {
     const raw = this[key]
-    assert(isPlainData(raw) || isScalar(raw), `${what} holds ${nameOf(raw)} at \`${key}\`, which JSON does not carry whole`)
+    // Tested before the message is built rather than handed to `assert` as its second argument:
+    // that argument is evaluated at every node whether or not it is needed, so a large result paid
+    // for a template concat and a nameOf() prototype walk per key to describe a failure it did not
+    // have.
+    if (!isPlainData(raw) && !isScalar(raw)) {
+      assert(false, `${what} holds ${nameOf(raw)} at \`${key}\`, which JSON does not carry whole`)
+    }
     return encoded
   })
 }
@@ -48,8 +68,18 @@ export function assertToolResult(value, what) {
 // layer and not the wire. A value off disk went through JSON.parse and is plain by construction,
 // which is why the deep check is not repeated here; this is the conversion, plus a backstop for a
 // stored value written before that check existed.
+//
+// Which is why a scalar passes here and not in assertToolResult: a build before that check let a
+// handler return a number, or nothing at all, and those are on disk as `42` and `null`. Refusing
+// them here refuses to REPLAY a partial that has already been paid for — resumeFrom reads the throw
+// as an unusable history, retires it, and the conversation is bought again — while `42` on the wire
+// is what those builds sent anyway. The live path never reaches this leniency: assertToolResult has
+// already judged the value the handler just returned.
 export function toWireResult(result) {
   if (typeof result === 'string') return result
-  assertPlainData(result, 'A tool result')
+  assert(
+    isPlainData(result) || isScalar(result),
+    `A stored tool result must be a string, plain data (an object or an array) or a scalar, got ${nameOf(result)}`,
+  )
   return JSON.stringify(result)
 }

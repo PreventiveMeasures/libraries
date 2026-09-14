@@ -4,6 +4,7 @@ import { byteLength, join, readDirOrEmpty, readText, writeAtomic } from '#fs'
 import { isInvalidEntry } from './cache.js'
 import { serializeHistory } from './cache-history.js'
 import { appendTurn, isStoredHistory } from './chat.js'
+import { getProvider } from './providers.js'
 
 // Bringing stored histories into the shape the writers use now. Its own module because it is the
 // one thing in the cache that reaches for the conversation loop: proving a dropped snapshot is
@@ -13,13 +14,19 @@ import { appendTurn, isStoredHistory } from './chat.js'
 // Both sides of every comparison here came out of JSON.parse, or out of an adapter building on
 // what did, so this covers every value either can hold — and does it without node:util, which a
 // browser build has no half for.
+//
+// `Object.hasOwn` rather than `key in b`: JSON.parse turns a `"__proto__"` key into an OWN data
+// property, so it reaches Object.keys on the left — while on the right `'__proto__' in b` is true
+// for every object and reads back Object.prototype, which has no keys and so matches an empty
+// object. That made `{ __proto__: {}, x: 1 }` and `{ x: 1, y: 2 }` compare equal, in the predicate
+// that decides whether a snapshot may be deleted.
 function sameJson(a, b) {
   if (a === b) return true
   if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false
   if (Array.isArray(a) !== Array.isArray(b)) return false
   const keys = Object.keys(a)
   if (keys.length !== Object.keys(b).length) return false
-  return keys.every((key) => key in b && sameJson(a[key], b[key]))
+  return keys.every((key) => Object.hasOwn(b, key) && sameJson(a[key], b[key]))
 }
 
 // Rewrite one stored history in the form serializeHistory writes now: entry 0 keeps its request
@@ -36,7 +43,14 @@ function sameJson(a, b) {
 // replay runs through whichever adapter is set, and under the wrong one it builds the wrong
 // shapes. It is called once per file at most, so the parse happens once — these are the files that
 // grew with the square of a session, and reading one twice to learn one string is the most
-// expensive thing here.
+// expensive thing here. Whether it is passed or not, the adapter that is set has to be the one the
+// entries name: asserted here rather than left to the comparison to notice, which it only does for
+// a provider pair whose shapes differ.
+//
+// Reads and writes without a lock, so it should not be pointed at a cache a run is still writing:
+// setPartial rewrites `<key>.json` after every turn, and a turn that lands between the read here
+// and the rename below would be reverted. The file is re-read and compared before the rename, so
+// such a turn costs the file its migration rather than its content.
 //
 // Returns what it did and what it cost: `skipped` for a file that holds no history, `unchanged`
 // for one already in this form, `normalized` otherwise.
@@ -59,29 +73,59 @@ export async function normalizeCacheFile(path, { selectProvider } = {}) {
   // Only when there is a snapshot to prove, which is also the only time an adapter is needed: a
   // file already in this form, or one that never held snapshots, is rewritten without asking for
   // one — so a second run over the same directory needs no key for a provider it will not use.
-  if (history.slice(1).some((entry) => Array.isArray(entry.messages))) {
+  // `!= null` rather than Array.isArray: a snapshot in any other shape is still a record this file
+  // is the only copy of, and gating on "is it an array" would drop it without looking at it at all.
+  if (history.slice(1).some((entry) => entry.messages != null)) {
     await selectProvider?.(history[0].provider)
+    // Named here rather than left to the comparison to notice. Without it a caller of the package
+    // that never called setProvider gets a bare `Cannot read properties of undefined` per file,
+    // which normalizeCache swallows into an `error` naming no cause; and two providers that share a
+    // wire format — openrouter and moonshot both speak chat-completions — build identical shapes,
+    // so the comparison cannot tell them apart and the refusal index.d.ts documents never happens.
+    // A file carrying no stamp predates them and has only the comparison to rely on, as before.
+    const current = getProvider()
+    assert(current, `${path}: no provider is selected, and the replay needs the adapter that wrote this file`)
+    const wrote = history[0].provider?.split(':')[0]
+    assert(
+      wrote === undefined || wrote === current.name,
+      `${path}: written under provider ${history[0].provider}, but ${current.name} is the one set now`,
+    )
     assert(Array.isArray(history[0].messages), `${path}: entry 0 carries no snapshot to replay the others from`)
     const rebuilt = JSON.parse(slim)
     // One walk for the whole file, not one rebuild per entry: `messages` grows a turn at a time,
-    // and each snapshot is compared against the state the walk is standing in. Only the part no
-    // earlier entry has already vouched for is compared, since a prefix that matched once matches
-    // still — which is what keeps a 200-turn file linear in both the replay and the comparison.
+    // and each snapshot is compared against the state the walk is standing in.
+    //
+    // Compared whole, not from where an earlier entry left off. Skipping the part some earlier
+    // snapshot already matched would have been linear rather than quadratic, but it vouches for the
+    // wrong array: what matched was entry i-1's snapshot, and entry i's is a different record off
+    // disk whose prefix nothing has looked at. A snapshot that disagrees there — at the same total
+    // length — would be deleted as reproducible when it is exactly the opposite. The cost is not
+    // the one it looks like either: the files this exists for carry every prior message in every
+    // snapshot, so reading and parsing one is already quadratic in its turns, and comparing all of
+    // what was read is the same order as having read it.
     const messages = [...rebuilt[0].messages]
-    let vouched = messages.length
     for (let i = 1; i < rebuilt.length; i++) {
       appendTurn(messages, rebuilt[i - 1])
       const stored = history[i].messages
-      if (!Array.isArray(stored)) continue
+      // Already nothing, so nothing to lose. Anything else has to be an array the replay reproduces
+      // — a snapshot in another shape is a record only this file holds, and no replay can vouch for
+      // a shape no writer produces.
+      if (stored == null) continue
       assert(
-        stored.length === messages.length && sameJson(stored.slice(vouched), messages.slice(vouched)),
+        Array.isArray(stored) && sameJson(stored, messages),
         `${path}: entry ${i}'s snapshot is not what replaying the new file produces, so dropping it `
-        + `would lose something. Written under provider ${history[0].provider}; is that the one set now?`,
+        + `would lose something. Either it records something the turns do not account for — a history `
+        + `concatenated from more than one ask() opens again mid-file — or it is not an array at all.`,
       )
-      vouched = messages.length
     }
   }
 
+  // Nothing held this file between the read and here, and the read is separated from the write by a
+  // parse, a replay and a comparison — long enough for a live run's setPartial (or setCache) to have
+  // written a further turn under the same key, which the rename would silently revert. Both writes
+  // are atomic, so the loss would leave no trace at all: re-read and refuse rather than overwrite
+  // what was not the text we proved.
+  assert(await readText(path) === raw, `${path}: changed while it was being normalized — left alone`)
   await writeAtomic(path, slim)
   return { status: 'normalized', before: size, after: byteLength(slim) }
 }
@@ -90,12 +134,17 @@ export async function normalizeCacheFile(path, { selectProvider } = {}) {
 // per model, one per request type and system prompt — so the walk recurses rather than listing.
 // `<key>.json` is a stored history; `<key>.invalid.json` is a rejected response kept for a person
 // to read, which nothing replays and nothing here should touch.
+//
+// `isFile()`, as both scans in cache-scan.js require: a Dirent describes the link, not its target,
+// so a symlink named `<key>.json` is neither a directory nor a file here — and rewriting one
+// through writeAtomic renames a fresh file over the link, destroying it and leaving whatever it
+// pointed at behind, unmigrated. A fifo or device node under the tree would hang the read.
 async function* historyFiles(dir) {
   const entries = (await readDirOrEmpty(dir)).toSorted((a, b) => (a.name < b.name ? -1 : 1))
   for (const entry of entries) {
     const path = join(dir, entry.name)
     if (entry.isDirectory()) yield* historyFiles(path)
-    else if (entry.name.endsWith('.json') && !isInvalidEntry(entry.name)) yield path
+    else if (entry.isFile() && entry.name.endsWith('.json') && !isInvalidEntry(entry.name)) yield path
   }
 }
 

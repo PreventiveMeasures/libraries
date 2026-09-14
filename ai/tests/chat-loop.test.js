@@ -115,6 +115,18 @@ suite('chat: the tool loop', () => {
 
 suite('chat: a tool that answers with plain data', () => {
   const LISTING = { files: ['a.js', 'b.js'], truncated: false }
+  // A second tool call, asking for a different path, so a two-round conversation can tell the two
+  // turns' answers apart.
+  const TOOL_CALL_B = {
+    ...TOOL_CALL,
+    choices: [{
+      ...TOOL_CALL.choices[0],
+      message: {
+        ...TOOL_CALL.choices[0].message,
+        tool_calls: [{ id: 'call-2', type: 'function', function: { name: 'probe', arguments: '{"path":"/b"}' } }],
+      },
+    }],
+  }
 
   // The same conversation run() drives, with the handler answering something other than a string.
   const runWith = (userContent, result, extra = {}) => run(userContent, { handleToolCall: () => result, ...extra })
@@ -152,7 +164,12 @@ suite('chat: a tool that answers with plain data', () => {
     // `{ rows: new Map() }` is the natural way to answer with a row set, and the top-level check
     // waves it through: JSON.stringify renders it `{"rows":{}}` and the model is handed an empty
     // object as the tool's answer, with nothing anywhere saying so.
-    for (const [i, bad] of [{ rows: new Map() }, { ts: new Date(0) }, { a: undefined }, [[new Set()]]].entries()) {
+    // NaN and either Infinity belong on this list for the same reason: JSON has no spelling for
+    // them and renders all three `null`, so an average over an empty set or a rate with a zero
+    // denominator reaches the model as `null` with nothing saying the number was lost — and the
+    // cache keeps that `null` as the tool's answer.
+    for (const [i, bad] of [{ rows: new Map() }, { ts: new Date(0) }, { a: undefined }, [[new Set()]],
+      { avg: NaN }, { rate: Infinity }, [-Infinity]].entries()) {
       await assert.rejects(() => runWith(`plain-N-${i}`, bad), /which JSON does not carry whole/u)
     }
   })
@@ -172,6 +189,24 @@ suite('chat: a tool that answers with plain data', () => {
     await setPartial('plain-E', [turn], cacheOpts)
     await run('plain-E', { partial: cacheOpts }, [])
     assert.equal(requests.at(-1).messages.find((m) => m.role === 'tool').content, JSON.stringify(LISTING))
+  })
+
+  it('keeps each turn\'s answer as it was answered, though the handler reuses one object', async () => {
+    // Answering with structure makes this reachable and a string never did: the entry is
+    // re-serialised by every later savePartial, so holding the handler's object by reference let
+    // turn 2 rewrite turn 1's recorded answer to its own. What was cached was then a conversation
+    // the model was never shown, and a resume would replay it.
+    const cacheOpts = opts('_test-chat-plain-reused')
+    const scratch = { path: null }
+    const result = await run('plain-M', {
+      handleToolCall: (call) => { scratch.path = call.args.path; return scratch },
+      partial: cacheOpts,
+    }, [TOOL_CALL, TOOL_CALL_B, ANSWER])
+    // What the wire was given, turn by turn — and what each entry says it was given.
+    assert.deepEqual(requests.at(-1).messages.filter((m) => m.role === 'tool').map((m) => m.content),
+      ['{"path":"/"}', '{"path":"/b"}'])
+    assert.deepEqual(result.history.map((e) => e.toolResults), [[{ path: '/' }], [{ path: '/b' }], []])
+    assert.deepEqual((await getPartial('plain-M', cacheOpts)).map((e) => e.toolResults), [[{ path: '/' }], [{ path: '/b' }], []])
   })
 })
 
@@ -267,16 +302,32 @@ suite('chat: resuming a partial', () => {
   })
 
   it('starts fresh from a partial the adapters cannot replay, instead of failing on it forever', async () => {
-    // isResumableHistory judges shape, not every value a turn holds, so a partial from a build
-    // that let a bad result through still gets this far. Throwing here would throw identically in
-    // every later process, so it is treated like any other unusable partial.
+    // isResumableHistory judges shape, not every value a turn holds, so a partial whose response
+    // the adapter cannot read still gets this far. Throwing here would throw identically in every
+    // later process, so it is treated like any other unusable partial.
     const cacheOpts = opts('_test-chat-unreplayable')
-    await setPartial('resume-X', [{ ...toolTurn('resume-X'), toolResults: [42] }], cacheOpts)
+    await setPartial('resume-X', [{ ...toolTurn('resume-X'), response: { nothing: 'the adapter can index' } }], cacheOpts)
     const sentBefore = requests.length
     const result = await run('resume-X', { partial: cacheOpts })
     assert.equal(requests.length - sentBefore, 2) // the whole conversation, from the top
     assert.equal(result.history.length, 2)
     assert.deepEqual(result.history[0].toolResults, ['probed /'])
+  })
+
+  it('replays a scalar result a build before the check wrote, rather than throwing the partial away', async () => {
+    // `handleToolCall` returned whatever it liked until assertToolResult landed, so a number — or a
+    // handler that forgot to return, stored as null — is on someone's disk. Refusing one HERE
+    // refuses to replay a conversation that has already been paid for: resumeFrom reads the throw
+    // as an unusable history and retires it. The wire sees what those builds sent.
+    for (const [i, stored] of [42, null].entries()) {
+      const cacheOpts = opts(`_test-chat-legacy-scalar-${i}`)
+      await setPartial(`resume-S${i}`, [{ ...toolTurn(`resume-S${i}`), toolResults: [stored] }], cacheOpts)
+      const sentBefore = requests.length
+      const result = await run(`resume-S${i}`, { partial: cacheOpts }, [])
+      assert.equal(requests.length - sentBefore, 1) // resumed, not re-run from the top
+      assert.equal(result.history.length, 2)
+      assert.equal(requests.at(-1).messages.find((m) => m.role === 'tool').content, JSON.stringify(stored))
+    }
   })
 
   it('reads a partial that still calls the field `results`', async () => {
@@ -455,11 +506,47 @@ suite('normalizeCacheFile', () => {
     // The rewrite spreads `{ request: null, messages: null }` over every element past the first,
     // so anything else array-shaped under a cache root — a config, an export — comes back mangled
     // and reported as a success. It is one directory argument away from someone's data.
-    for (const [i, body] of [['alpha', 'beta'], [1, 2, 3], [{ id: 1, request: { keep: 'me' } }, { id: 2 }]].entries()) {
+    //
+    // The last two are the ones that matter: an object `response` on every element is the shape of
+    // every HTTP recording and request/response fixture there is, so gating on that alone let them
+    // through — and with no `messages` anywhere, the replay that would have caught it never ran.
+    // A history is what setCache writes: a response, the calls that turn issued, and their answers.
+    const foreign = [
+      ['alpha', 'beta'],
+      [1, 2, 3],
+      [{ id: 1, request: { keep: 'me' } }, { id: 2 }],
+      [{ request: { url: '/a' }, response: { status: 200 } }, { request: { url: '/b', body: 'irreplaceable' }, response: { status: 201 } }],
+      [{ name: 'create', request: { body: { title: 'x' } }, response: { id: 1 } }, { name: 'update', request: { body: { title: 'y' } }, response: { id: 1 } }],
+    ]
+    for (const [i, body] of foreign.entries()) {
       const { path, raw } = await writeRaw(`norm-E-${i}`, opts(`_test-normalize-foreign-${i}`), body)
       assert.equal((await normalizeCacheFile(path)).status, 'skipped')
       assert.equal(await readFile(path, 'utf8'), raw)
     }
+  })
+
+  it('refuses a snapshot that disagrees in its opening, not just in what the last turn added', async () => {
+    // Comparing each snapshot only from where an earlier one left off vouches for the wrong array:
+    // what matched was the PREVIOUS entry's record, and this one is a separate array off disk. With
+    // the same total length and the same tail, a different opening question went unexamined and was
+    // deleted — the one thing replaying instead of deleting the field exists to make impossible.
+    const cacheOpts = opts('_test-normalize-prefix')
+    const history = fat('norm-P', ['/0', '/1', '/2'])
+    history[2].messages[0] = { role: 'user', content: 'an entirely different opening question' }
+    const { path, raw } = await writeRaw('norm-P', cacheOpts, history)
+    await assert.rejects(() => normalizeCacheFile(path), /entry 2's snapshot is not what replaying/u)
+    assert.equal(await readFile(path, 'utf8'), raw)
+  })
+
+  it('refuses a snapshot stored in some other shape rather than dropping it unlooked-at', async () => {
+    // Gating the whole proof on "is it an array" skipped the verification for exactly the entries
+    // whose record nothing else holds. Anything present has to be reproduced or kept.
+    const cacheOpts = opts('_test-normalize-odd-shape')
+    const history = fat('norm-Q', ['/0', '/1'])
+    history[1].messages = { role: 'user', content: 'the only record of this' }
+    const { path, raw } = await writeRaw('norm-Q', cacheOpts, history)
+    await assert.rejects(() => normalizeCacheFile(path), /entry 1's snapshot is not what replaying/u)
+    assert.equal(await readFile(path, 'utf8'), raw)
   })
 
   it('migrates a history that still calls its results `results`', async () => {
@@ -476,18 +563,23 @@ suite('normalizeCacheFile', () => {
   })
 
   it('refuses to rewrite a file under an adapter other than the one that wrote it', async () => {
-    // The promise the whole selectProvider machinery exists to keep. It holds because a different
-    // adapter builds different message shapes and the comparison then fails — emergent, not
-    // asserted, until here.
+    // The promise the whole selectProvider machinery exists to keep. Asserted against the stamp
+    // rather than left to the comparison to notice: two providers that share a wire format build
+    // identical shapes, so for those the comparison cannot tell them apart at all.
     const cacheOpts = opts('_test-normalize-wrong-provider')
     const { path, raw } = await writeRaw('norm-H', cacheOpts, fat('norm-H', ['/0', '/1']))
+    const hadKey = process.env.ANTHROPIC_API_KEY
     process.env.ANTHROPIC_API_KEY ??= 'test-key'
     try {
       setProvider('anthropic')
-      await assert.rejects(() => normalizeCacheFile(path), /is not what replaying the new file produces/u)
+      await assert.rejects(() => normalizeCacheFile(path), /written under provider openrouter, but anthropic is the one set now/u)
       assert.equal(await readFile(path, 'utf8'), raw)
     } finally {
       setProvider('openrouter')
+      // Restored: the suite runs with --test-isolation=none, so a key left behind here is a key
+      // every later file sees.
+      if (hadKey === undefined) delete process.env.ANTHROPIC_API_KEY
+      else process.env.ANTHROPIC_API_KEY = hadKey
     }
   })
 
