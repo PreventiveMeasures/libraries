@@ -56,22 +56,10 @@ export function getCacheStats() {
   return { ...cacheStats }
 }
 
-// Web Crypto, which is the one SHA-256 a browser and Node both already have — node:crypto's
-// createHash does not exist in a page, and shipping a JS implementation of SHA-256 to recompute what
-// the platform computes natively is 40KB to be slower.
-//
-// Byte-identical to `createHash('sha256').update(str).digest('hex')`: TextEncoder emits the same
-// UTF-8 bytes createHash's default string encoding does. That is the invariant that matters most
-// here — every key and every prompt-hash subdirectory in every cache that already exists was written
-// by the old call, and a digest that differed by one byte would orphan all of them at once.
-//
-// The cost of the swap is that it is async, SHA-256 being reached only through the promise-returning
-// `subtle.digest`. Which is why cacheKey, modelSubdir and resolveCachePaths are async — nothing about
-// hashing needs to be. Per entry addressed it is one microtask in front of a disk read, so it
-// disappears into the I/O it precedes; a caller hashing in a tight loop would notice.
-//
-// One browser caveat, no concern under Node: `crypto.subtle` is secure-context only. A page served
-// over plain http has `crypto` and no `subtle` on it, and the cache is unusable there.
+// Web Crypto, which a page has and node:crypto is not. Byte-identical to
+// `createHash('sha256').update(str).digest('hex')`, so every key in every existing cache still
+// resolves — one byte's difference would orphan all of them. Async only because `subtle.digest` is,
+// which is what makes cacheKey, modelSubdir and resolveCachePaths async too.
 const utf8 = new TextEncoder()
 
 async function sha256(data) {
@@ -120,17 +108,9 @@ export async function runTypeMigrations(type, model, systemPrompt) {
   if (previous) await migrateTypeRename(previous, type, model, systemPrompt)
 }
 
-// An absent file is "not cached", and it is the only read failure that may become one silently:
-// readTextOrNull answers null for a file that is missing or empty, retries the errnos that mean
-// pressure rather than absence, and throws everything else at this function. Folding that throw in
-// with the null would fabricate a cache miss out of any read failure — invisible at --concurrency 1,
-// and in a live run each phantom miss silently re-spends a model request and overwrites the entry
-// with a fresh response, so consecutive warm runs load different cache files and report different
-// hit/miss totals.
-//
-// Degrading to a miss is still the right answer — a run should not die because one entry would not
-// read — so what this adds is the announcement: the errno and the path, before the miss. A run that
-// fabricates misses names its reason instead of hiding it.
+// Degrading an unreadable entry to a miss is right — a run should not die over one — but silently is
+// not: each phantom miss re-spends a model request and overwrites the entry, so consecutive warm runs
+// report different hit/miss totals. Hence the warning before the null.
 async function tryRead(path) {
   try {
     return await readTextOrNull(path)

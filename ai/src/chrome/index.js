@@ -8,12 +8,9 @@ import { chromePreflight, findModelDir, graftPlan } from './model.js'
 import { claimProfile, dropProfile, pruneProfileRoot } from './profile.js'
 import { CHROME_SHAPE, explainCreateFailure, toChatCompletions } from './wire.js'
 
-// One entry point for the provider: CHROME_ADAPTER at the foot of this file is the whole of it, and
-// providers.js takes that object rather than assembling one out of parts. Which is what lets
-// browser.js stand in for this file by exporting the same single name — see the `#chrome` condition
-// in package.json. The modules behind this one (model.js, profile.js, wire.js) are not re-exported:
-// a caller that wants one of those reaches for it by name, so this surface says what the directory
-// is FOR rather than listing what it contains.
+// One entry point for the provider: CHROME_ADAPTER at the foot of this file, which providers.js takes
+// whole. model.js, profile.js and wire.js are not re-exported — a caller that wants one reaches for
+// it by name.
 
 // Chrome's built-in Prompt API (developer.chrome.com/docs/ai/prompt-api) over CDP, via
 // playwright-core. Branded Chrome only: Chromium exposes no binding under any flag, and Chrome for
@@ -366,11 +363,6 @@ export async function sendChromeTurn(model, body, { debug, label } = {}) {
 }
 
 
-// The provider, assembled. `runsLocally` is what stops turnCost pricing a local turn off the hosted
-// price table, `preflight` stands in for the URL-and-key check every endpoint adapter takes, `send`
-// routes the turn through the browser instead of fetchJSON, and `close` releases the browser a run
-// left open. CHROME_SHAPE carries the wire format — body in, response out — which is the half a
-// browser build can keep.
 export const CHROME_ADAPTER = {
   runsLocally: true,
   preflight: chromePreflight,

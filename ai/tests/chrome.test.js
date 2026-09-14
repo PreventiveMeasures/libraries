@@ -1155,9 +1155,8 @@ describe('chrome scratch-profile cleanup', () => {
   })
 })
 
-// What providers.js takes from this directory: one object, rather than four pieces it assembles
-// itself. Which is also what lets chrome/browser.js stand in for the whole of chrome/ by exporting
-// the same name — see browser.test.js for that half.
+// One object, rather than four pieces providers.js assembles itself — which is what lets
+// chrome/browser.js stand in for the whole directory. See browser.test.js for that half.
 describe('CHROME_ADAPTER', () => {
   it('carries the four provider entries wired to this directory', () => {
     assert.equal(CHROME_ADAPTER.runsLocally, true)
@@ -1173,8 +1172,7 @@ describe('CHROME_ADAPTER', () => {
   })
 
   it('is the entry providers.js registers under `chrome`', () => {
-    // Selected by name, which is the one thing that would break if the table stopped taking this
-    // object: setProvider runs the adapter's own preflight and nothing else vouches for it.
+    // setProvider runs the adapter's own preflight, and nothing else vouches for it.
     withChrome(() => {
       assert.equal(providerStamp(), 'chrome')
       assert.equal(getProvider().send, CHROME_ADAPTER.send)

@@ -1,21 +1,14 @@
-// The fake below mirrors an API whose every method returns a promise, including the ones that have
-// nothing to await — which is the whole point of a faithful fake, and what the module under test
-// calls `.catch()` on.
+// The fake mirrors an API whose every method returns a promise, including the ones with nothing to
+// await — which is what the module under test calls `.catch()` on.
 /* eslint-disable require-await */
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, describe, it } from 'node:test'
 
 import { cacheKey } from '../src/cache.js'
 
-// The OPFS half of #fs, driven over an in-memory Origin Private File System. Worth a fake rather
-// than left to a browser: this module is what stands between the cache and the only writable storage
-// a page has, the two differ in every mechanic (handles not paths, DOMExceptions not errnos, a move
-// that may not exist), and none of it is exercised by a suite that runs under Node.
-//
-// The fake answers the shape OPFS specifies, not the one this module happens to call: a NotFoundError
-// for anything absent, `entries()` yielding [name, handle], a writable that only lands on close(). It
-// is built in both flavours engines actually ship — with FileSystemHandle.move() and without — so the
-// fallback paths are run rather than assumed.
+// The OPFS half of #fs, over an in-memory Origin Private File System. The fake answers the shape OPFS
+// specifies rather than the one this module happens to call, and comes in both flavours engines ship —
+// with FileSystemHandle.move() and without — so the fallback paths run rather than being assumed.
 
 class NotFound extends Error {
   constructor(name) {
@@ -24,8 +17,7 @@ class NotFound extends Error {
   }
 }
 
-// A file handle. `createWritable` stages into a buffer and commits on close, which is the behaviour
-// writeAtomic leans on where there is no move().
+// `createWritable` stages and commits on close, which is what writeAtomic leans on without move().
 function fileHandle(dir, name, withMove) {
   const handle = {
     kind: 'file',
@@ -86,9 +78,8 @@ function directory(withMove) {
   return dir
 }
 
-// Loaded once and re-pointed per test: the module reads navigator.storage per call, and its one piece
-// of state — whether this engine has move() — is probed on first write, so each flavour needs its own
-// module instance. import() with a query gets one.
+// `canMove` is probed on first write, so each flavour needs its own module instance; import() with a
+// query gets one.
 async function loadFs(withMove) {
   const root = directory(withMove)
   const previous = globalThis.navigator
@@ -197,8 +188,8 @@ for (const withMove of [true, false]) {
     })
 
     it('addresses an entry the way the cache does, key and all', async () => {
-      // The real key, hashed by cache.js, under the real layout — the two halves of #fs have to agree
-      // on where an entry lives or a cache written by one is invisible to the other.
+      // The two halves of #fs have to agree on where an entry lives, or a cache written by one is
+      // invisible to the other.
       const key = await cacheKey('a system prompt', 'some user content')
       const dir = fs.join('/cache', 'gpt-6', 'solidity-1a2b3c4d')
       await fs.writeAtomic(fs.join(dir, `${key}.json`), '[]')

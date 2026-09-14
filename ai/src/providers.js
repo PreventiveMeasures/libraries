@@ -326,10 +326,9 @@ const ADAPTERS = {
   },
 
   // Chrome's built-in on-device model — the one adapter with no endpoint at all, and like ollama
-  // above, no key. Its own `preflight` checks for a browser and resident weights in place of a URL
-  // and a key, and `send` routes a turn through the browser instead of fetchJSON. Taken whole from
-  // src/chrome/ rather than assembled here: everything about reaching that model, including which
-  // parts of it a browser build can keep, is that directory's to decide.
+  // above, no key. Its `preflight` checks for a browser and resident weights in place of a URL and a
+  // key, and `send` routes a turn through the browser instead of fetchJSON. Taken whole from
+  // src/chrome/, which owns everything about reaching that model.
   chrome: CHROME_ADAPTER,
 
   // Moonshot's own platform (platform.kimi.ai / api.moonshot.ai), the direct route to Kimi K3.

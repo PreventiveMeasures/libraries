@@ -3,16 +3,10 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { sep } from 'node:path'
 import { describe, it } from 'node:test'
 
-// The three modules that exist twice: once for Node, once for a page, chosen by the `browser`
-// condition on a `#` subpath import. What makes that work is not the files themselves but the
-// agreement between them — same names exported, same specifier, both shipped — and none of it is
-// visible at a call site, which imports `#env` and gets whichever one the build resolved.
-//
-// So this file checks the seam rather than the implementations: that the pairs are declared, that
-// both halves are in the package, that everything a caller imports through a `#` specifier is
-// exported by BOTH halves, and that the browser halves touch nothing a page does not have. A
-// mismatch is otherwise invisible until a bundle is loaded in a browser, which is not where this
-// repo's tests run.
+// The modules that exist twice, once for Node and once for a page. What makes that work is the
+// agreement between the halves — same names exported, both shipped — and a mismatch is invisible until
+// a bundle is loaded in a browser, which is not where these tests run. So this checks the seam rather
+// than the implementations.
 const AI_DIR = new URL('../', import.meta.url)
 const manifest = JSON.parse(readFileSync(new URL('package.json', AI_DIR), 'utf8'))
 const shipped = new Set(manifest.files)
@@ -72,7 +66,7 @@ describe('the browser/Node module pairs are declared and shipped', () => {
 describe('both halves export what callers import through the specifier', () => {
   for (const [spec, names] of importedNames()) {
     it(`${spec} is imported for ${[...names].join(', ') || 'nothing'}`, () => {
-      // A specifier nothing imports is dead wiring; the point of the pair is the call sites.
+      // A specifier nothing imports is dead wiring.
       assert.ok(names.size > 0, `${spec} is declared but imported nowhere`)
     })
 
@@ -87,8 +81,7 @@ describe('both halves export what callers import through the specifier', () => {
   }
 })
 
-// What makes a browser half a browser half. Comments are stripped first: these files EXPLAIN that
-// `process` is absent and why, and a scan that reads prose as code would forbid saying so.
+// Comments stripped first, so a file may still discuss `process` in prose.
 const withoutComments = (source) => source.replaceAll(/^\s*\/\/.*$/gmu, '')
 
 const NODE_ONLY = /\b(?:process|Buffer|__dirname|__filename|require)\b/u
@@ -108,13 +101,9 @@ describe('the browser halves reach for nothing a page lacks', () => {
   }
 })
 
-// The invariant the pairs above exist to produce, asserted over the whole graph rather than per
-// module: walk what a browser build actually loads — relative imports followed, `#` specifiers taken
-// through their browser half — and nothing in it may reach for Node.
-//
-// Per-file checks cannot see this. A `node:` import three modules down a chain of relative imports
-// breaks a bundle just as thoroughly as one in a browser half, and the module that adds it will look
-// entirely reasonable on its own.
+// The invariant the pairs exist to produce, over the whole graph rather than per module: a `node:`
+// import three modules down a chain of relative ones breaks a bundle just as thoroughly as one in a
+// browser half, and the module that adds it will look reasonable on its own.
 const ANY_SPECIFIER = /(?:\bfrom|\bimport)\s*\(?\s*['"](?<spec>[^'"]+)['"]/gu
 
 function browserGraph() {
@@ -235,8 +224,8 @@ describe('#chrome', () => {
     // Prices a turn at zero either way: whatever answers in a page, it is not billed per token.
     assert.equal(CHROME_ADAPTER.runsLocally, true)
     for (const method of ['preflight', 'send']) {
-      assert.throws(() => CHROME_ADAPTER[method](), /not available in a browser build yet/u, method)
-      assert.throws(() => CHROME_ADAPTER[method](), /LanguageModel/u, method)
+      assert.throws(() => CHROME_ADAPTER[method](), /not available in a browser build/u, method)
+      assert.throws(() => CHROME_ADAPTER[method](), /hosted provider, or ollama/u, method)
     }
   })
 
