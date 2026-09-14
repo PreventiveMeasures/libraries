@@ -45,6 +45,8 @@ export {
 } from './src/cache.js'
 // ...and the two scans that walk what it has accumulated.
 export { listCacheEntries, rehashCache } from './src/cache-scan.js'
+// ...and the rewrite that brings stored histories into the shape written now.
+export { normalizeCache, normalizeCacheFile } from './src/cache-normalize.js'
 
 // Turning a conversation into the JSON an entry stores, for a caller that
 // writes one itself rather than through setCache.

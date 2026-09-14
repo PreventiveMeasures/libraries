@@ -87,6 +87,12 @@ function tmpNameFor(name) {
   return `${name}.${++tmpSeq}-${unique}.tmp`
 }
 
+// What `text` weighs once written. TextEncoder has no length-only mode, so this copies the string
+// to count it — Node's half does not, and no caller asks for it more than once per file.
+export function byteLength(text) {
+  return new TextEncoder().encode(text).length
+}
+
 export async function writeAtomic(path, data) {
   const { dir, name } = await placeOf(path, true)
   if (canMove === false) {

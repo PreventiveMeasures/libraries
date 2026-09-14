@@ -3,6 +3,7 @@ import { env } from '#env'
 import { assert } from '#assert'
 import { fetchJSON } from './fetch-json.js'
 import { ollamaOrigin, resolveOllamaTag } from './ollama.js'
+import { toWireResult } from './tool-results.js'
 import { calculateCost, effortsFor, ollamaModels, ollamaTagFor, reasoningModeFor, wireModelFor } from './models.js'
 import { anthropicAuthHeader, anthropicShape, chatCompletionsBase, parseArgs, stripNamespace, toAnthropicModel, truncationError } from './wire-formats.js'
 
@@ -482,8 +483,11 @@ export function extractToolCalls(json) {
   return provider.extractToolCalls(json)
 }
 
+// Tool results reach the wire as strings — see toWireResult, which is where one becomes a string.
+// Idempotent over a round trip through the cache: the replay stringifies what JSON.parse gave
+// back, which is the same text the live turn sent.
 export function appendToolResults(messages, json, toolCalls, results) {
-  return provider.appendToolResults(messages, json, toolCalls, results)
+  return provider.appendToolResults(messages, json, toolCalls, (results ?? []).map(toWireResult))
 }
 
 // Build the initial user message in the format the active provider prefers. When `userContent` is a
