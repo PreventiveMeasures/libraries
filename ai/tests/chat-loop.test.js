@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { rm } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
 
 // Drives the real loop against a local chat-completions server: a turn that
@@ -46,9 +46,10 @@ const URL_BASE = `http://127.0.0.1:${server.address().port}`
 process.env.OPENROUTER_API_URL = URL_BASE
 process.env.OPENROUTER_API_KEY = 'test-key'
 const { ask } = await import('../src/chat.js')
-const { buildCacheOpts, getPartial, setCacheDir, setPartial } = await import('../src/cache.js')
-const { getProvider, providerStamp, setProvider } = await import('../src/providers.js')
+const { buildCacheOpts, cacheDir, cacheKey, getPartial, modelSubdir, setCacheDir, setPartial } = await import('../src/cache.js')
+const { normalizeCache, normalizeCacheFile } = await import('../src/cache-normalize.js')
 const { calculateCost } = await import('../src/models.js')
+const { appendToolResults, getProvider, providerStamp, setProvider } = await import('../src/providers.js')
 
 after(async () => {
   server.close()
@@ -105,11 +106,73 @@ suite('chat: the tool loop', () => {
     assert.equal(requests.length - sentBefore, 2)
     // The tool's answer is threaded into the second request, so the model
     // sees what it asked for.
-    assert.equal(result.history[0].results[0], 'probed /')
+    assert.equal(result.history[0].toolResults[0], 'probed /')
     assert.ok(JSON.stringify(requests.at(-1).messages).includes('probed /'))
     // Both turns' tokens are counted, not just the last.
     assert.equal(result.usage.input, 30)
     assert.equal(result.usage.output, 6)
+  })
+})
+
+suite('chat: a tool that answers with plain data', () => {
+  const LISTING = { files: ['a.js', 'b.js'], truncated: false }
+
+  // The same conversation run() drives, with the handler answering something other than a string.
+  const runWith = (userContent, result, extra = {}) => run(userContent, { handleToolCall: () => result, ...extra })
+
+  it('sends it as JSON and keeps it as structure', async () => {
+    const cacheOpts = opts('_test-chat-plain-data')
+    const result = await runWith('plain-A', LISTING, { partial: cacheOpts })
+    // The wire takes a string, and this is the one it takes.
+    const sent = requests.at(-1).messages.find((m) => m.role === 'tool')
+    assert.equal(sent.content, JSON.stringify(LISTING))
+    // The cache takes the object — escaped inside a string it would be far worse to read, and the
+    // replay stringifies it back to the same bytes.
+    assert.deepEqual(result.history[0].toolResults, [LISTING])
+    assert.deepEqual((await getPartial('plain-A', cacheOpts))[0].toolResults, [LISTING])
+  })
+
+  it('sends an array the same way, and a string untouched', async () => {
+    await runWith('plain-B', ['one', 'two'])
+    assert.equal(requests.at(-1).messages.find((m) => m.role === 'tool').content, '["one","two"]')
+    await runWith('plain-C', 'just a string')
+    assert.equal(requests.at(-1).messages.find((m) => m.role === 'tool').content, 'just a string')
+  })
+
+  it('refuses anything else, rather than sending a body no format has a field for', async () => {
+    // A Map or a class instance has a shape JSON.stringify silently loses, so converting it is not
+    // this layer's call to make — and passing it through buys an upstream error about a body the
+    // provider could not read, or on chrome an `[object Object]` handed to the model as an answer.
+    const rejected = [new Map([['a', 1]]), new Date(0), 42, undefined, null, Object.create(null)]
+    for (const [i, bad] of rejected.entries()) {
+      await assert.rejects(() => runWith(`plain-D-${i}`, bad), /must be a string or plain data/u)
+    }
+  })
+
+  it('refuses one nested inside plain data too, which is the same loss one level down', async () => {
+    // `{ rows: new Map() }` is the natural way to answer with a row set, and the top-level check
+    // waves it through: JSON.stringify renders it `{"rows":{}}` and the model is handed an empty
+    // object as the tool's answer, with nothing anywhere saying so.
+    for (const [i, bad] of [{ rows: new Map() }, { ts: new Date(0) }, { a: undefined }, [[new Set()]]].entries()) {
+      await assert.rejects(() => runWith(`plain-N-${i}`, bad), /which JSON does not carry whole/u)
+    }
+  })
+
+  it('writes nothing when it refuses one, rather than leaving it for the next run to read', async () => {
+    // The check runs where the result is produced, not at the wire — two statements and a disk
+    // write later. Persisted first, a refused answer passes the resume gate on shape and throws
+    // again out of the replay, in this process and every one after it.
+    const cacheOpts = opts('_test-chat-plain-refused')
+    await assert.rejects(() => runWith('plain-R', 42, { partial: cacheOpts }), /must be a string or plain data/u)
+    assert.equal(await getPartial('plain-R', cacheOpts), null)
+  })
+
+  it('replays a stored object as the same JSON the live turn sent', async () => {
+    const cacheOpts = opts('_test-chat-plain-data-resume')
+    const turn = { ...toolTurn('plain-E'), toolResults: [LISTING] }
+    await setPartial('plain-E', [turn], cacheOpts)
+    await run('plain-E', { partial: cacheOpts }, [])
+    assert.equal(requests.at(-1).messages.find((m) => m.role === 'tool').content, JSON.stringify(LISTING))
   })
 })
 
@@ -122,7 +185,7 @@ suite('chat: the `partial` option', () => {
     const saved = await getPartial('loop-B', cacheOpts)
     assert.equal(saved.length, 2)
     assert.deepEqual(saved.at(-1).toolCalls, result.history.at(-1).toolCalls)
-    assert.deepEqual(saved[0].results, ['probed /'])
+    assert.deepEqual(saved[0].toolResults, ['probed /'])
   })
 
   it('keys the partial on the whole user message, every block joined', async () => {
@@ -153,12 +216,12 @@ suite('chat: the `partial` option', () => {
 // stamped with the wire format that wrote it. Built here rather than by
 // running a conversation and killing it, so a case can say exactly what
 // state it is picking up from.
-const toolTurn = (content) => ({
+const toolTurn = (content, path = '/') => ({
   request: { model: MODEL, messages: [{ role: 'user', content }] },
   response: TOOL_CALL,
   messages: [{ role: 'user', content }],
-  toolCalls: [{ id: 'call-1', name: 'probe', args: { path: '/' } }],
-  results: ['probed /'],
+  toolCalls: [{ id: 'call-1', name: 'probe', args: { path } }],
+  toolResults: [`probed ${path}`],
   provider: providerStamp(MODEL),
 })
 const answerTurn = (content) => ({
@@ -166,7 +229,7 @@ const answerTurn = (content) => ({
   response: ANSWER,
   messages: [{ role: 'user', content }],
   toolCalls: [],
-  results: [],
+  toolResults: [],
   provider: providerStamp(MODEL),
 })
 
@@ -186,6 +249,48 @@ suite('chat: resuming a partial', () => {
     // And the resumed turn's tokens are not re-counted — this run pays for
     // what it sent, which is what the caller's cost line reports.
     assert.equal(result.usage.input, 20)
+  })
+
+  it('replays every stored turn, though only the first one\'s snapshot was kept', async () => {
+    // setPartial keeps entry 0's `messages` and nulls the rest, so what goes back to the model is
+    // rebuilt by walking the turns. Two rounds, because one would be rebuilt correctly by a
+    // version that replayed only the last entry.
+    const cacheOpts = opts('_test-chat-resume-multi')
+    await setPartial('resume-G', [toolTurn('resume-G', '/0'), toolTurn('resume-G', '/1')], cacheOpts)
+    const sentBefore = requests.length
+    const result = await run('resume-G', { partial: cacheOpts }, [])
+    assert.equal(requests.length - sentBefore, 1)
+    assert.equal(result.history.length, 3)
+    // Seed, then an assistant turn and its tool result per round, in the order they happened.
+    const sent = requests.at(-1).messages
+    assert.deepEqual(sent.map((m) => m.role), ['system', 'user', 'assistant', 'tool', 'assistant', 'tool'])
+    assert.deepEqual(sent.filter((m) => m.role === 'tool').map((m) => m.content), ['probed /0', 'probed /1'])
+  })
+
+  it('starts fresh from a partial the adapters cannot replay, instead of failing on it forever', async () => {
+    // isResumableHistory judges shape, not every value a turn holds, so a partial from a build
+    // that let a bad result through still gets this far. Throwing here would throw identically in
+    // every later process, so it is treated like any other unusable partial.
+    const cacheOpts = opts('_test-chat-unreplayable')
+    await setPartial('resume-X', [{ ...toolTurn('resume-X'), toolResults: [42] }], cacheOpts)
+    const sentBefore = requests.length
+    const result = await run('resume-X', { partial: cacheOpts })
+    assert.equal(requests.length - sentBefore, 2) // the whole conversation, from the top
+    assert.equal(result.history.length, 2)
+    assert.deepEqual(result.history[0].toolResults, ['probed /'])
+  })
+
+  it('reads a partial that still calls the field `results`', async () => {
+    // The name changed once it had a `toolCalls` sibling to be confused with. A run interrupted
+    // before that landed is still on someone's disk, and is still worth picking up.
+    const cacheOpts = opts('_test-chat-resume-legacy')
+    const { toolResults, ...legacy } = toolTurn('resume-H')
+    await setPartial('resume-H', [{ ...legacy, results: toolResults }], cacheOpts)
+    const sentBefore = requests.length
+    const result = await run('resume-H', { partial: cacheOpts }, [])
+    assert.equal(requests.length - sentBefore, 1)
+    assert.equal(result.history.length, 2)
+    assert.ok(JSON.stringify(requests.at(-1).messages).includes('probed /'))
   })
 
   it('returns the answer of a run killed after its last turn, without asking again', async () => {
@@ -259,7 +364,7 @@ suite('chat: the `onStart` option', () => {
       // against it. Unawaited, the request below would already have landed.
       onStart: async (history) => {
         await new Promise((resolve) => { setTimeout(resolve, 25) })
-        atStart = { results: history.map((e) => e.results), sent: requests.length - sentBefore }
+        atStart = { results: history.map((e) => e.toolResults), sent: requests.length - sentBefore }
       },
     }, [])
     assert.deepEqual(atStart, { results: [['probed /']], sent: 0 })
@@ -269,6 +374,167 @@ suite('chat: the `onStart` option', () => {
     const seen = []
     await run('start-B', { onStart: (history) => seen.push(history) })
     assert.deepEqual(seen, [[]])
+  })
+})
+
+// Where an entry's history lives, built from the layer's own helpers so a change to the layout
+// cannot leave these looking in the wrong place.
+const entryPath = async (userContent, o) => join(cacheDir(), await modelSubdir(o.type, o.model, o.systemPrompt), `${await cacheKey(o.systemPrompt, userContent, o)}.json`)
+
+// A history as it was written before the snapshots came out: the same turns toolTurn builds, each
+// carrying its own copy of every message ahead of it. Grown through appendToolResults, so the
+// snapshots are the real thing and not a guess at what the loop records. `field` names where the
+// results go, since a file old enough to hold snapshots is old enough to predate the rename.
+function fat(content, paths, field = 'toolResults') {
+  const messages = [{ role: 'user', content }]
+  return paths.map((path) => {
+    const { toolResults, ...turn } = toolTurn(content, path)
+    const entry = { ...turn, messages: [...messages], [field]: toolResults }
+    appendToolResults(messages, entry.response, entry.toolCalls, toolResults)
+    return entry
+  })
+}
+
+async function writeRaw(userContent, cacheOpts, history) {
+  const path = await entryPath(userContent, cacheOpts)
+  await mkdir(dirname(path), { recursive: true })
+  const raw = JSON.stringify(history, undefined, 2)
+  await writeFile(path, raw)
+  return { path, raw }
+}
+
+suite('normalizeCacheFile', () => {
+  it('drops the snapshots and resumes to exactly the messages they recorded', async () => {
+    const cacheOpts = opts('_test-normalize')
+    const history = fat('norm-A', ['/0', '/1', '/2', '/3', '/4', '/5'])
+    const { path, raw } = await writeRaw('norm-A', cacheOpts, history)
+
+    const done = await normalizeCacheFile(path)
+    assert.equal(done.status, 'normalized')
+    assert.equal(done.before, raw.length)
+    assert.ok(done.after < done.before / 2, `${done.after} of ${done.before}`)
+    const slim = await getPartial('norm-A', cacheOpts)
+    assert.ok(Array.isArray(slim[0].messages))
+    assert.ok(slim.slice(1).every((e) => e.messages === null), 'every snapshot but the seed is gone')
+    // And the request the same way. Entry 0's is the only thing that can recompute this entry's
+    // cache key, so a run over a whole cache dropping it would be unrecoverable.
+    assert.deepEqual(slim[0].request, history[0].request)
+    assert.ok(slim.slice(1).every((e) => e.request === null), 'every request but the first is gone')
+
+    // What the file said the run held, before its say-so was thrown away: the last entry's own
+    // snapshot with its round appended. The resumed request has to be that, message for message.
+    const last = history.at(-1)
+    const recorded = [...last.messages]
+    appendToolResults(recorded, last.response, last.toolCalls, last.toolResults)
+    const result = await run('norm-A', { partial: cacheOpts }, [])
+    assert.equal(result.history.length, history.length + 1)
+    assert.deepEqual(requests.at(-1).messages.slice(1), recorded) // slice: the adapter's own system message
+  })
+
+  it('refuses a snapshot the turns do not account for, and leaves the file alone', async () => {
+    // The assertion is the whole point of doing this rather than deleting the field: a snapshot
+    // that is not reproducible is one the run would come back different without.
+    const cacheOpts = opts('_test-normalize-bad')
+    const history = fat('norm-B', ['/0', '/1'])
+    history[1].messages.push({ role: 'user', content: 'a message no turn accounts for' })
+    const { path, raw } = await writeRaw('norm-B', cacheOpts, history)
+    await assert.rejects(() => normalizeCacheFile(path), /entry 1's snapshot is not what replaying/u)
+    assert.equal(await readFile(path, 'utf8'), raw)
+  })
+
+  it('leaves a history already in this form alone, and skips what is not one', async () => {
+    const cacheOpts = opts('_test-normalize-idempotent')
+    await setPartial('norm-C', fat('norm-C', ['/0', '/1']), cacheOpts)
+    const path = await entryPath('norm-C', cacheOpts)
+    assert.equal((await normalizeCacheFile(path)).status, 'unchanged')
+
+    const { path: notOne } = await writeRaw('norm-D', opts('_test-normalize-other'), { reason: 'rejected' })
+    assert.equal((await normalizeCacheFile(notOne)).status, 'skipped')
+  })
+
+  it('does not touch a JSON array that is not a history', async () => {
+    // The rewrite spreads `{ request: null, messages: null }` over every element past the first,
+    // so anything else array-shaped under a cache root — a config, an export — comes back mangled
+    // and reported as a success. It is one directory argument away from someone's data.
+    for (const [i, body] of [['alpha', 'beta'], [1, 2, 3], [{ id: 1, request: { keep: 'me' } }, { id: 2 }]].entries()) {
+      const { path, raw } = await writeRaw(`norm-E-${i}`, opts(`_test-normalize-foreign-${i}`), body)
+      assert.equal((await normalizeCacheFile(path)).status, 'skipped')
+      assert.equal(await readFile(path, 'utf8'), raw)
+    }
+  })
+
+  it('migrates a history that still calls its results `results`', async () => {
+    // Which is every history old enough to carry per-turn snapshots: the field was renamed after
+    // they came out. The replay reaches them through the same fallback a resume does, and without
+    // it every file this tool exists for would be refused rather than shrunk.
+    const cacheOpts = opts('_test-normalize-legacy')
+    const history = fat('norm-G', ['/0', '/1', '/2'], 'results')
+    const { path } = await writeRaw('norm-G', cacheOpts, history)
+    assert.equal((await normalizeCacheFile(path)).status, 'normalized')
+    const slim = await getPartial('norm-G', cacheOpts)
+    assert.deepEqual(slim.map((e) => e.results), history.map((e) => e.results))
+    assert.ok(slim.slice(1).every((e) => e.messages === null))
+  })
+
+  it('refuses to rewrite a file under an adapter other than the one that wrote it', async () => {
+    // The promise the whole selectProvider machinery exists to keep. It holds because a different
+    // adapter builds different message shapes and the comparison then fails — emergent, not
+    // asserted, until here.
+    const cacheOpts = opts('_test-normalize-wrong-provider')
+    const { path, raw } = await writeRaw('norm-H', cacheOpts, fat('norm-H', ['/0', '/1']))
+    process.env.ANTHROPIC_API_KEY ??= 'test-key'
+    try {
+      setProvider('anthropic')
+      await assert.rejects(() => normalizeCacheFile(path), /is not what replaying the new file produces/u)
+      assert.equal(await readFile(path, 'utf8'), raw)
+    } finally {
+      setProvider('openrouter')
+    }
+  })
+
+  it('walks a directory, leaving what is not a history and what is already slim', async () => {
+    // The half a caller of the package needs to migrate its own cache, and the half the script no
+    // longer has to re-derive: which files are histories, and what happened to each.
+    const cacheOpts = opts('_test-normalize-walk')
+    await writeRaw('walk-A', cacheOpts, fat('walk-A', ['/0', '/1']))
+    await writeRaw('walk-B', cacheOpts, ['not', 'a history'])
+    await setPartial('walk-C', fat('walk-C', ['/0']), cacheOpts)
+    const keys = Object.fromEntries(await Promise.all(
+      ['A', 'B', 'C'].map(async (n) => [n, await cacheKey('sys', `walk-${n}`, cacheOpts)]),
+    ))
+    const seen = new Map()
+    for await (const { path, status, error } of normalizeCache(cacheDir())) {
+      for (const [name, key] of Object.entries(keys)) if (path.includes(key)) seen.set(name, error ?? status)
+    }
+    assert.deepEqual([...seen.entries()].sort(), [['A', 'normalized'], ['B', 'skipped'], ['C', 'unchanged']])
+  })
+
+  it('yields a file it could not rewrite rather than stopping the walk', async () => {
+    const cacheOpts = opts('_test-normalize-walk-bad')
+    const history = fat('walk-D', ['/0', '/1'])
+    history[1].messages.push({ role: 'user', content: 'a message no turn accounts for' })
+    const { raw } = await writeRaw('walk-D', cacheOpts, history)
+    await writeRaw('walk-E', cacheOpts, fat('walk-E', ['/0', '/1']))
+    const [keyD, keyE] = await Promise.all([cacheKey('sys', 'walk-D', cacheOpts), cacheKey('sys', 'walk-E', cacheOpts)])
+    const results = []
+    for await (const result of normalizeCache(cacheDir())) {
+      if (result.path.includes(keyD)) results.push(['D', result.error?.message])
+      if (result.path.includes(keyE)) results.push(['E', result.status])
+    }
+    assert.equal(results.length, 2)
+    assert.match(results.find(([n]) => n === 'D')[1], /entry 1's snapshot is not what replaying/u)
+    assert.equal(results.find(([n]) => n === 'E')[1], 'normalized')
+    assert.equal(await readFile(await entryPath('walk-D', cacheOpts), 'utf8'), raw)
+  })
+
+  it('hands the entries\' provider stamp over before replaying anything', async () => {
+    // A directory can hold files more than one provider wrote, and the replay builds whatever
+    // shapes the adapter that is set builds. The caller is told which one, once, per file.
+    const cacheOpts = opts('_test-normalize-stamp')
+    const { path } = await writeRaw('norm-F', cacheOpts, fat('norm-F', ['/0', '/1']))
+    const seen = []
+    await normalizeCacheFile(path, { selectProvider: (stamp) => seen.push(stamp) })
+    assert.deepEqual(seen, [providerStamp(MODEL)])
   })
 })
 

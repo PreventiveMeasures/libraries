@@ -7,7 +7,7 @@ import { mkdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { buildCacheOpts, cacheDir, cacheKey, dropRequestsAfterFirst, getCacheStats, getCached, getPartial, invalidateCacheEntry, isInvalidEntry, isMaxStringLengthError, setCache, setCacheDir, setInvalid, setPartial, stripThinkingSignatures } from '../src/cache.js'
+import { buildCacheOpts, cacheDir, cacheKey, getCacheStats, getCached, getPartial, invalidateCacheEntry, isInvalidEntry, nullAfterFirst, setCache, setCacheDir, setInvalid, setPartial } from '../src/cache.js'
 import { listCacheEntries, rehashCache } from '../src/cache-scan.js'
 
 // Somewhere of this run's own. The layer has no default — the caller says
@@ -107,18 +107,22 @@ suite('partial cache (getPartial / setPartial / invalidateCacheEntry)', () => {
     await invalidateCacheEntry('user-content-B', opts)
   })
 
-  it('setPartial persists only the first entry\'s request across a multi-turn history', async () => {
-    // serializeHistory drops every request but the first (dead weight: nothing
-    // reads them back on resume). Verify it via the on-disk round-trip.
+  it('setPartial persists only the first entry\'s request and snapshot across a multi-turn history', async () => {
+    // serializeHistory drops every request but the first and every snapshot but the first: nothing
+    // reads the requests back, and a resume replays the turns onto entry 0's snapshot rather than
+    // reading a recorded copy of the same thing. Verify it via the on-disk round-trip.
     const opts = uniqueCacheOpts()
     const mk = (n) => ({ request: { messages: [{ role: 'user', content: `req ${n}` }] }, response: { content: [] }, messages: [{ role: 'user', content: `m${n}` }], toolCalls: [], results: [] })
     const history = [mk(0), mk(1), mk(2)]
     await setPartial('user-content-F', history, opts)
     const got = await getPartial('user-content-F', opts)
     assert.deepEqual(got[0].request, { messages: [{ role: 'user', content: 'req 0' }] }) // first kept
+    assert.deepEqual(got[0].messages, [{ role: 'user', content: 'm0' }])                 // and its seed
     assert.equal(got[1].request, null)
     assert.equal(got[2].request, null)
-    assert.deepEqual(got[1].messages, [{ role: 'user', content: 'm1' }]) // other fields intact
+    assert.equal(got[1].messages, null)
+    assert.equal(got[2].messages, null)
+    assert.deepEqual(got[1].response, { content: [] }) // other fields intact
     await invalidateCacheEntry('user-content-F', opts)
   })
 
@@ -170,7 +174,7 @@ suite('partial cache (getPartial / setPartial / invalidateCacheEntry)', () => {
     assert.equal(await getPartial('user-content-E', opts), null)
   })
 
-  it('setCache slims the final .json the same way — only the first entry keeps its request', async () => {
+  it('setCache slims the final .json the same way — only the first entry keeps its request and seed', async () => {
     const opts = uniqueCacheOpts()
     const mk = (n) => ({ request: { messages: [{ role: 'user', content: `req ${n}` }] }, response: { content: [] }, messages: [{ role: 'user', content: `m${n}` }], toolCalls: [], results: [] })
     await setCache('user-content-G', 'final md', [mk(0), mk(1), mk(2)], opts)
@@ -179,7 +183,8 @@ suite('partial cache (getPartial / setPartial / invalidateCacheEntry)', () => {
     assert.deepEqual(hit.json[0].request, { messages: [{ role: 'user', content: 'req 0' }] }) // first kept (cache-key recovery)
     assert.equal(hit.json[1].request, null)
     assert.equal(hit.json[2].request, null)
-    assert.deepEqual(hit.json[1].messages, [{ role: 'user', content: 'm1' }]) // other fields intact
+    assert.equal(hit.json[1].messages, null)
+    assert.deepEqual(hit.json[1].response, { content: [] }) // other fields intact
   })
 })
 
@@ -222,156 +227,44 @@ suite('bundleId cache keying', () => {
   })
 })
 
-// setPartial recovers an oversized history (one that overflows V8's max
-// string length in JSON.stringify) by dropping thinking-block signatures
-// from all but the last 10 top-level entries. These cover the two pieces of
-// that recovery: the failure gate and the signature-stripping transform.
-suite('isMaxStringLengthError', () => {
-  it('is true only for the V8 max-string-length RangeError (a failed stringify)', () => {
-    // The actual error JSON.stringify throws when a value overflows V8's
-    // ~512MB string cap — the only failure the partial-cache recovery acts on.
-    assert.equal(isMaxStringLengthError(new RangeError('Invalid string length')), true)
-  })
+suite('nullAfterFirst', () => {
+  const mk = (n) => ({ request: { tag: `req ${n}` }, response: { content: [] }, messages: [{ role: 'user', content: `m${n}` }], toolCalls: [], toolResults: [], provider: 'anthropic' })
 
-  it('is false for other failures (a disk error is not recoverable by dropping data)', () => {
-    const enospc = Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' })
-    assert.equal(isMaxStringLengthError(enospc), false)
-    assert.equal(isMaxStringLengthError(new RangeError('Maximum call stack size exceeded')), false)
-    assert.equal(isMaxStringLengthError(new TypeError('Converting circular structure to JSON')), false)
-    assert.equal(isMaxStringLengthError(undefined), false)
-  })
-})
-
-suite('stripThinkingSignatures', () => {
-  // Thinking-block signatures live in BOTH the replayed request messages and
-  // the raw response (and the stored pre-turn `messages` snapshot), so they
-  // accumulate across turns. `n` tags each entry so they stay distinguishable.
-  const entry = (n) => ({
-    request: { messages: [
-      { role: 'user', content: 'analyze' },
-      { role: 'assistant', content: [{ type: 'thinking', thinking: `req ${n}`, signature: `REQ_${n}` }, { type: 'text', text: `t${n}` }] },
-    ] },
-    response: { content: [{ type: 'thinking', thinking: `resp ${n}`, signature: `RESP_${n}` }, { type: 'text', text: `t${n}` }] },
-    messages: [{ role: 'assistant', content: [{ type: 'thinking', thinking: `m ${n}`, signature: `MSG_${n}` }] }],
-    toolCalls: [{ id: `t${n}`, name: 'terminal', args: { command: 'ls' } }],
-    results: ['{}'],
-  })
-
-  // Every `signature` field value reachable from a value, recursively.
-  const sigs = (value, out = []) => {
-    if (Array.isArray(value)) value.forEach((v) => sigs(v, out))
-    else if (value && typeof value === 'object') {
-      for (const [k, v] of Object.entries(value)) {
-        if (k === 'signature') out.push(v)
-        else sigs(v, out)
-      }
-    }
-    return out
-  }
-
-  it('strips signatures from request AND response of every entry but the last 10', () => {
-    const history = Array.from({ length: 13 }, (_, i) => entry(i))
-    const out = stripThinkingSignatures(history, 10)
-    // First 3 (13 - 10) entries: no signatures anywhere (request, response, messages)...
-    for (let i = 0; i < 3; i++) {
-      assert.deepEqual(sigs(out[i]), [], `entry ${i} should have no signatures`)
-      // ...while the rest of the thinking block (and surrounding text) survives.
-      assert.equal(out[i].response.content[0].thinking, `resp ${i}`)
-      assert.equal(out[i].response.content[1].text, `t${i}`)
-      assert.equal(out[i].request.messages[1].content[0].thinking, `req ${i}`)
-    }
-    // Last 10 entries: signatures intact in request, response, and messages.
-    for (let i = 3; i < 13; i++) {
-      assert.deepEqual(sigs(out[i]).toSorted(), [`MSG_${i}`, `REQ_${i}`, `RESP_${i}`])
-    }
-  })
-
-  it('leaves the last 10 entries untouched — same object reference, not a clone', () => {
-    const history = Array.from({ length: 12 }, (_, i) => entry(i))
-    const out = stripThinkingSignatures(history, 10)
-    for (let i = 0; i < 12; i++) {
-      if (i < 2) assert.notEqual(out[i], history[i]) // stripped → fresh clone
-      else assert.equal(out[i], history[i])          // kept → identical reference
-    }
-  })
-
-  it('does not mutate the input history (live messages share these blocks by reference)', () => {
-    const history = [entry(0), entry(1)]
-    const snapshot = JSON.stringify(history)
-    stripThinkingSignatures(history, 1) // strips entry 0
-    assert.equal(JSON.stringify(history), snapshot)
-    assert.deepEqual(sigs(history[0]).toSorted(), ['MSG_0', 'REQ_0', 'RESP_0'])
-  })
-
-  it('strips nothing when the history is no longer than keepLast', () => {
-    const exactly10 = Array.from({ length: 10 }, (_, i) => entry(i))
-    const out = stripThinkingSignatures(exactly10, 10)
-    for (let i = 0; i < 10; i++) assert.equal(out[i], exactly10[i]) // all kept by reference
-    const short = [entry(0), entry(1), entry(2)]
-    assert.deepEqual(stripThinkingSignatures(short, 10), short)
-  })
-
-  it('defaults to keeping the last 10 entries', () => {
-    const history = Array.from({ length: 11 }, (_, i) => entry(i))
-    const out = stripThinkingSignatures(history) // no keepLast arg
-    assert.deepEqual(sigs(out[0]), [])            // only entry 0 is stripped
-    assert.notEqual(out[0], history[0])
-    for (let i = 1; i < 11; i++) assert.equal(out[i], history[i])
-  })
-
-  it('only touches thinking-block signatures, not same-named fields elsewhere', () => {
-    // A `signature` key on something that is not a `type: 'thinking'` block
-    // (here a tool-call arg) must survive the strip.
-    const e = entry(0)
-    e.toolCalls[0].args = { command: 'grep', signature: 'fn(x: string): void' }
-    const [out] = stripThinkingSignatures([e], 0) // keepLast 0 → strip the only entry
-    assert.equal(out.toolCalls[0].args.signature, 'fn(x: string): void')
-    assert.deepEqual(sigs(out.request), [])  // thinking-block signatures gone
-    assert.deepEqual(sigs(out.response), [])
-  })
-})
-
-suite('dropRequestsAfterFirst', () => {
-  const mk = (n) => ({ request: { tag: `req ${n}` }, response: { content: [] }, messages: [{ role: 'user', content: `m${n}` }], toolCalls: [], results: [], provider: 'anthropic' })
-
-  it('keeps only the first entry\'s request and nulls the rest', () => {
-    const out = dropRequestsAfterFirst([mk(0), mk(1), mk(2)])
+  it('keeps the first entry\'s named fields and nulls them on the rest', () => {
+    // Entry 0's request is the only one read back (cache-key recovery), and its snapshot is the
+    // seed a resume replays onto. Every later copy of either is what the turns around it already
+    // say, and storing one per turn is what grew the file with the square of the session's length.
+    const out = nullAfterFirst([mk(0), mk(1), mk(2)], 'request', 'messages')
     assert.deepEqual(out[0].request, { tag: 'req 0' })
-    assert.equal(out[1].request, null)
-    assert.equal(out[2].request, null)
+    assert.deepEqual(out[0].messages, [{ role: 'user', content: 'm0' }])
+    assert.deepEqual(out.slice(1).map((e) => [e.request, e.messages]), [[null, null], [null, null]])
   })
 
-  it('preserves every other field on the nulled entries', () => {
-    const out = dropRequestsAfterFirst([mk(0), mk(1)])
-    assert.deepEqual(out[1].response, { content: [] })
+  it('touches only the fields it is given', () => {
+    const out = nullAfterFirst([mk(0), mk(1)], 'request')
+    assert.equal(out[1].request, null)
     assert.deepEqual(out[1].messages, [{ role: 'user', content: 'm1' }])
-    assert.deepEqual(out[1].toolCalls, [])
+    assert.deepEqual(out[1].response, { content: [] })
     assert.equal(out[1].provider, 'anthropic')
   })
 
   it('does not mutate the input; first entry passes by reference, others are fresh copies', () => {
     const history = [mk(0), mk(1)]
     const snapshot = JSON.stringify(history)
-    const out = dropRequestsAfterFirst(history)
+    const out = nullAfterFirst(history, 'request', 'messages')
     assert.equal(JSON.stringify(history), snapshot)       // input untouched
     assert.equal(out[0], history[0])                      // first entry passed through
     assert.notEqual(out[1], history[1])                   // others are shallow copies
-    assert.deepEqual(history[1].request, { tag: 'req 1' }) // original request object intact
+    assert.deepEqual(history[1].request, { tag: 'req 1' }) // original objects intact
   })
 
-  it('keeps the request on a single-entry history; empty stays empty', () => {
+  it('keeps everything on a single-entry history; empty stays empty', () => {
     const one = [mk(0)]
-    assert.deepEqual(dropRequestsAfterFirst(one), one)
-    assert.deepEqual(dropRequestsAfterFirst([]), [])
+    assert.deepEqual(nullAfterFirst(one, 'request', 'messages'), one)
+    assert.deepEqual(nullAfterFirst([], 'request'), [])
   })
 })
 
-// Swallowing EVERY read error into the same `null` as a missing file
-// fabricates a miss out of any transient failure (fd pressure, a busy
-// volume): invisible at --concurrency 1, and in a live run each phantom
-// miss re-spends a model request and rewrites the entry, so warm runs
-// load different cache files and hit/miss totals wobble. ENOENT stays a
-// quiet miss; everything else must surface.
 suite('cache read failures', () => {
   const opts = { type: 'read-fail', model: 'm', systemPrompt: 'sys', think: false, effort: undefined }
 

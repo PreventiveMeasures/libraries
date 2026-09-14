@@ -59,6 +59,11 @@ export async function move(from, to) {
   await rename(from, to)
 }
 
+// What `text` weighs once written, for a caller reporting a size rather than a character count.
+export function byteLength(text) {
+  return Buffer.byteLength(text, 'utf8')
+}
+
 export async function moveIfExists(from, to) {
   try {
     await rename(from, to)
