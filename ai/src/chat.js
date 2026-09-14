@@ -264,12 +264,19 @@ export function isResumableHistory(history, { provider } = {}) {
 }
 
 // A stored history, as against whatever else a `.json` under a cache root might be — a config, a
-// fixture, an export. Every entry an object carrying a response OBJECT and the two arrays a turn is
-// made of: the calls it issued, and the answers to them under either name. A response alone is too
-// weak to gate a rewrite on — normalizeCacheFile spreads `request: null, messages: null` over every
-// element past the first, so any unrelated array of objects that happens to carry a `response` key
-// would come back mangled and be reported as a success. The three together are still the weakest
-// thing every reader of a history needs, and narrow enough that nothing else passes.
+// fixture, an export, or a log this layer itself wrote long enough ago. Every entry an object
+// carrying a response OBJECT and the two arrays a turn is made of: the calls it issued, and the
+// answers to them under either name.
+//
+// A response alone is too weak to gate a rewrite on, and the reason is `request` rather than
+// `messages`. serializeHistory nulls both past the first entry, but only the snapshots are proved
+// reproducible before they go — a request is not derivable from anything else in the entry, so
+// dropping one is only safe where nothing needs it, which holds for a history this layer writes
+// (resume reads no requests, and cache-key recovery reads entry 0's) and holds for nothing else.
+// The oldest logs here were plain `[{ request, response }, ...]` pairs whose tool results exist
+// ONLY as tool_result blocks inside each later request — null those and the conversation cannot be
+// continued or even read back. Requiring `toolCalls` and `toolResults` is what keeps them, and any
+// foreign array of `{ request, response }` records, out of the rewrite entirely.
 export function isStoredHistory(history) {
   return Array.isArray(history) && history.length > 0 && history.every(
     (entry) => entry !== null && typeof entry === 'object' && !Array.isArray(entry)
