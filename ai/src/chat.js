@@ -104,7 +104,12 @@ export async function ask({ model, maxTokens, systemPrompt, userContent, think =
   const messages = resumed?.messages ?? [buildInitialUserMessage(model, userContent)]
 
   const gateKey = prefixKey(model, tools, systemPrompt)
-  for (let turn = history.length; turn < maxToolTurns; turn++) {
+  // Which turn this call opens on, held apart from `history.length` because that grows by one per
+  // completed turn — so `turn === history.length` stayed true for every iteration, and the gate
+  // below said "head turn only" while claiming on all of them. Harmless (a claim after the head has
+  // replied awaits a settled promise and hands back a no-op), but it read as a condition.
+  const firstTurn = history.length
+  for (let turn = firstTurn; turn < maxToolTurns; turn++) {
     // Snapshot the pre-turn messages array before buildRequestBody — appendToolResults mutates it
     // in place, so a post-hoc capture would leak the next turn's state into this entry.
     const preMessages = [...messages]
@@ -112,7 +117,7 @@ export async function ask({ model, maxTokens, systemPrompt, userContent, think =
     // the cache entry it writes instead of racing to write their own. Released the moment the reply
     // lands, not held for the rest of the chain — later turns of this conversation are sequential
     // and extend a prefix nobody else shares.
-    const release = turn === history.length ? await claimPrefix(gateKey) : null
+    const release = turn === firstTurn ? await claimPrefix(gateKey) : null
     const { request, response, error, failedAttemptResponse } = await issueTurn({
       model, maxTokens, systemPrompt, messages, think, effort, tools, label, turn,
       taskBudgetAlways, taskBudgetOnError, debug,
@@ -139,12 +144,21 @@ export async function ask({ model, maxTokens, systemPrompt, userContent, think =
     }
 
     if (debugRequests && toolCalls.length > 0) console.log(`[debug] ${label} calling tool: ${JSON.stringify(toolCalls)}`)
-    const toolResults = toolCalls.length > 0 && handleToolCall ? await Promise.all(toolCalls.map((tc) => handleToolCall(tc))) : []
-    // Judged here rather than at the wire, which is two statements and one disk write too late:
-    // an answer the adapters cannot carry would be in the partial before anything looked at it,
-    // and every later run would read it back and fail on it. Named, too — the wire knows the
-    // value and nothing else about it.
-    toolResults.forEach((result, i) => assertToolResult(result, `The result of tool ${toolCalls[i].name}`))
+    const answers = toolCalls.length > 0 && handleToolCall ? await Promise.all(toolCalls.map((tc) => handleToolCall(tc))) : []
+    // Judged here rather than at the wire, which is two statements and one disk write too late: an
+    // answer the adapters cannot carry would be in the partial before anything looked at it, and
+    // every later run would read it back and fail on it. Named, too — the wire knows the value and
+    // nothing else about it.
+    //
+    // And what the entry keeps is the JSON that check built, parsed back, rather than the object
+    // itself. Now that an answer can be structure, a handler is free to hand back one object it
+    // refills per call — a scratch record, a reused buffer — and storing the reference would let
+    // every later savePartial re-serialise every earlier turn's answer to its latest contents,
+    // caching a conversation the model was never shown. A string answer is already a value.
+    const toolResults = answers.map((answer, i) => {
+      const json = assertToolResult(answer, `The result of tool ${toolCalls[i].name}`)
+      return typeof answer === 'string' ? answer : JSON.parse(json)
+    })
     history.push({ request, response, messages: preMessages, toolCalls, toolResults, provider: stamp })
     await savePartial()
 
@@ -161,16 +175,31 @@ export async function ask({ model, maxTokens, systemPrompt, userContent, think =
 // written under the old name still resumes.
 const toolResultsOf = (entry) => entry.toolResults ?? entry.results
 
-// The messages array a run held after `upTo` of its turns — entry 0's seed plus what each of those
-// turns appended. Every appendToolResults is a pure function of the turn it is given, so this
-// reproduces exactly the array the run held, which is why no snapshot of it is stored past the
-// seed. Not rebuilt from the requests instead: those are provider-shaped (OpenAI Responses uses
+// The messages array a run held after all of its turns — entry 0's seed plus what each of them
+// appended. Every appendToolResults is a pure function of the turn it is given, so this reproduces
+// exactly the array the run held, which is why no snapshot of it is stored past the seed. Not
+// rebuilt from the requests instead: those are provider-shaped (OpenAI Responses uses
 // `request.input`; OpenRouter prepends its own system message) and dropped after the first anyway.
 // Replaying under another provider's adapter would build the wrong shapes, which is what the stamp
 // check in resumeFrom — and the assertion in normalizeCacheFile — is for.
-export function replayMessages(history, upTo = history.length) {
+//
+// A file that still carries the last turn's own snapshot is resumed from THAT, as it always was.
+// The two agree for anything a writer produces, but not for what the overflow recovery that used to
+// live in cache-history.js left behind: it stripped thinking-block signatures from the early
+// entries' responses while keeping the last ten snapshots whole, precisely because resume read only
+// the last one. Replaying those responses rebuilds the same turns with the signatures gone, which
+// Anthropic rejects — and unlike a malformed partial it does not throw, so the run pays for the
+// refused request before anything notices. Where the record exists it is the better one; the walk
+// is for the files that no longer have it.
+function replayMessages(history) {
+  const last = history.at(-1)
+  if (Array.isArray(last.messages)) {
+    const messages = [...last.messages]
+    appendTurn(messages, last)
+    return messages
+  }
   const messages = [...history[0].messages]
-  for (let i = 0; i < upTo; i++) appendTurn(messages, history[i])
+  for (const entry of history) appendTurn(messages, entry)
   return messages
 }
 
@@ -245,13 +274,17 @@ export function isResumableHistory(history, { provider } = {}) {
 }
 
 // A stored history, as against whatever else a `.json` under a cache root might be — a config, a
-// fixture, an export. Every entry an object carrying a response object: the field the replay reads,
-// and the one no unrelated file happens to have on every element. The weakest thing every reader
-// of a history needs, which is why the normalizer gates on it before rewriting a file.
+// fixture, an export. Every entry an object carrying a response OBJECT and the two arrays a turn is
+// made of: the calls it issued, and the answers to them under either name. A response alone is too
+// weak to gate a rewrite on — normalizeCacheFile spreads `request: null, messages: null` over every
+// element past the first, so any unrelated array of objects that happens to carry a `response` key
+// would come back mangled and be reported as a success. The three together are still the weakest
+// thing every reader of a history needs, and narrow enough that nothing else passes.
 export function isStoredHistory(history) {
   return Array.isArray(history) && history.length > 0 && history.every(
     (entry) => entry !== null && typeof entry === 'object' && !Array.isArray(entry)
-      && entry.response !== null && typeof entry.response === 'object',
+      && entry.response !== null && typeof entry.response === 'object' && !Array.isArray(entry.response)
+      && Array.isArray(entry.toolCalls) && Array.isArray(toolResultsOf(entry)),
   )
 }
 

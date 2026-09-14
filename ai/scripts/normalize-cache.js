@@ -24,6 +24,10 @@ wrote it — read from the entries themselves. That provider has to be one this 
 which for most means its API key in the environment; files whose provider cannot be selected are
 left alone and counted.
 
+Rewrites each file in place, with no lock and no backup. Point it at a cache nothing is writing: a
+run with \`partial\` enabled rewrites its entry after every turn, and one that lands between the
+read and the rewrite is refused rather than reverted — the file is left alone and counted.
+
       --provider <name>  use this provider for every file, whatever the entries
                          say. For a cache whose stamps predate them.
   -q, --quiet            only the summary and what it could not do
@@ -39,6 +43,11 @@ class Unselectable extends Error {}
 const say = (line) => process.stdout.write(`${line}\n`)
 // Everything the summary does not account for goes to stderr, so a piped report stays a report.
 const warn = (line) => process.stderr.write(`${line}\n`)
+// styleText decides whether to colour by asking process.stdout unless told otherwise, and every
+// styled string below this line is written to stderr. The two redirect independently, so asking the
+// wrong one writes escape codes into a `2> report.txt` whenever a terminal is still on stdout, and
+// strips them from the warnings a person is watching whenever stdout is the thing redirected.
+const mark = (colour, text) => styleText(colour, text, { stream: process.stderr })
 const kb = (n) => (n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`)
 
 // Which adapter each file's own stamp asks for. The failures are held per name so that a provider
@@ -53,7 +62,7 @@ function providerPicker(override) {
     if (!name) {
       if (!warnedUnstamped) {
         warnedUnstamped = true
-        warn(`${styleText('yellow', 'skip')} entries with no provider stamp — pass --provider to say which wrote them`)
+        warn(`${mark('yellow', 'skip')} entries with no provider stamp — pass --provider to say which wrote them`)
       }
       throw new Unselectable('the entries name no provider')
     }
@@ -64,7 +73,7 @@ function providerPicker(override) {
       current = name
     } catch (err) {
       unusable.set(name, err.message)
-      warn(`${styleText('yellow', 'skip')} provider ${name}: ${err.message}`)
+      warn(`${mark('yellow', 'skip')} provider ${name}: ${err.message}`)
       throw new Unselectable(err.message)
     }
   }
@@ -96,7 +105,10 @@ async function main(argv) {
   // a cache of nothing needed nothing.
   const dir = positionals[0]
   try {
-    (await opendir(dir)).close()
+    // Awaited: `close()` returns a promise, and dropping it leaves the handle open until it settles
+    // and a rejection from it unhandled — which on this Node is a process-level crash, mid-walk,
+    // with a stack pointing nowhere near here.
+    await (await opendir(dir)).close()
   } catch (err) {
     process.stderr.write(`normalize-cache.js: cannot read ${dir}: ${err.message}\n`)
     return 1
@@ -104,21 +116,19 @@ async function main(argv) {
 
   const totals = { normalized: 0, unchanged: 0, skipped: 0, unselectable: 0, failed: 0, before: 0, after: 0 }
   const selectProvider = providerPicker(values.provider)
-  {
-    for await (const { path, status, before, after, error } of normalizeCache(dir, { selectProvider })) {
-      if (error instanceof Unselectable) {
-        totals.unselectable += 1
-      } else if (error) {
-        totals.failed += 1
-        // The layer names the file in what it asserts; anything else — a read error, a write error
-        // — arrives bare, and the path is the first thing an operator needs.
-        warn(`${styleText('red', 'keep')} ${error.message.includes(path) ? error.message : `${path}: ${error.message}`}`)
-      } else {
-        totals[status] += 1
-        totals.before += before
-        totals.after += after
-        if (status === 'normalized' && !values.quiet) say(`${styleText('green', 'ok')}   ${path}: ${kb(before)} -> ${kb(after)}`)
-      }
+  for await (const { path, status, before, after, error } of normalizeCache(dir, { selectProvider })) {
+    if (error instanceof Unselectable) {
+      totals.unselectable += 1
+    } else if (error) {
+      totals.failed += 1
+      // The layer names the file in what it asserts; anything else — a read error, a write error —
+      // arrives bare, and the path is the first thing an operator needs.
+      warn(`${mark('red', 'keep')} ${error.message.includes(path) ? error.message : `${path}: ${error.message}`}`)
+    } else {
+      totals[status] += 1
+      totals.before += before
+      totals.after += after
+      if (status === 'normalized' && !values.quiet) say(`${styleText('green', 'ok')}   ${path}: ${kb(before)} -> ${kb(after)}`)
     }
   }
 
