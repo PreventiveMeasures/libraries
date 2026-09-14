@@ -253,14 +253,32 @@ export function isResumableHistory(history, { provider } = {}) {
   if (!isStoredHistory(history)) return false
   if (provider !== undefined && !history.every((e) => e.provider === provider)) return false
   if (!Array.isArray(history[0].messages) || history[0].messages.length === 0) return false
-  const answered = (e) => {
-    const rs = toolResultsOf(e)
-    return Array.isArray(e.toolCalls) && Array.isArray(rs) && e.toolCalls.length === rs.length
-  }
-  if (!history.slice(0, -1).every((e) => answered(e) && e.toolCalls.length > 0)) return false
+  if (!isUnbrokenHistory(history)) return false
   const last = history.at(-1)
   if (last.error) return false
   return !(last.toolCalls?.length > 0) || answered(last)
+}
+
+// Whether a turn's calls all came back: both arrays are there and they line up. An unanswered call
+// has its answer nowhere in the entry that made it — the only copy is the tool_result block inside
+// the NEXT entry's request.
+const answered = (entry) => {
+  const results = toolResultsOf(entry)
+  return Array.isArray(entry.toolCalls) && Array.isArray(results) && entry.toolCalls.length === results.length
+}
+
+// Whether ONE conversation runs unbroken from entry 0 to the end of the file: every turn but the
+// last issued at least one tool call and recorded an answer to each of them. That is the condition
+// under which the messages array at any point is rebuildable from entry 0's seed plus the turns —
+// what resume replays, and what has to hold before a request may be dropped.
+//
+// Both halves guard the same loss, which is why the normalizer asks this and not just "does it
+// resume". A turn whose calls went unanswered has those answers recorded only inside the following
+// request; a turn that called nothing is where a conversation ENDED, so one in the middle means the
+// file holds another after it, whose opening question no later entry repeats. Either way the
+// request is the sole record and nulling it is not a slimming.
+export function isUnbrokenHistory(history) {
+  return history.slice(0, -1).every((entry) => answered(entry) && entry.toolCalls.length > 0)
 }
 
 // A stored history, as against whatever else a `.json` under a cache root might be — a config, a
@@ -276,7 +294,8 @@ export function isResumableHistory(history, { provider } = {}) {
 // The oldest logs here were plain `[{ request, response }, ...]` pairs whose tool results exist
 // ONLY as tool_result blocks inside each later request — null those and the conversation cannot be
 // continued or even read back. Requiring `toolCalls` and `toolResults` is what keeps them, and any
-// foreign array of `{ request, response }` records, out of the rewrite entirely.
+// foreign array of `{ request, response }` records, out of the rewrite entirely — and what the two
+// arrays SAY is isUnbrokenHistory's half of the same question.
 export function isStoredHistory(history) {
   return Array.isArray(history) && history.length > 0 && history.every(
     (entry) => entry !== null && typeof entry === 'object' && !Array.isArray(entry)

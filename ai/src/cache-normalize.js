@@ -3,7 +3,7 @@ import { byteLength, join, readDirOrEmpty, readText, writeAtomic } from '#fs'
 
 import { isInvalidEntry } from './cache.js'
 import { serializeHistory } from './cache-history.js'
-import { appendTurn, isStoredHistory } from './chat.js'
+import { appendTurn, isStoredHistory, isUnbrokenHistory } from './chat.js'
 import { getProvider } from './providers.js'
 
 // Bringing stored histories into the shape the writers use now. Its own module because it is the
@@ -29,14 +29,27 @@ function sameJson(a, b) {
   return keys.every((key) => Object.hasOwn(b, key) && sameJson(a[key], b[key]))
 }
 
-// Rewrite one stored history in the form serializeHistory writes now: entry 0 keeps its request
-// and its `messages` snapshot, every later entry keeps neither. For files written before the
-// snapshots came out — the ones that grew with the square of the session — since nothing rewrites
-// an entry that is never asked for again.
+// The answers were `results` until they grew a `toolCalls` sibling to be confused with. Both names
+// still read (see chat.js), and this is what takes a file off the old one, so the fallback stays
+// something only an unmigrated file pays for.
+//
+// An entry that somehow carries both is left as it is: the reader takes `toolResults`, and renaming
+// would mean dropping the other array — a loss, not a slimming.
+function renameResults(entry) {
+  if (entry.results === undefined || entry.toolResults != null) return entry
+  const { results, ...rest } = entry
+  return { ...rest, toolResults: results }
+}
+
+// Rewrite one stored history in the form the writers use now: the answers under `toolResults`,
+// entry 0 keeping its request and its `messages` snapshot, every later entry keeping neither. For
+// files written before the snapshots came out — the ones that grew with the square of the session
+// — since nothing rewrites an entry that is never asked for again.
 //
 // Nothing is dropped on trust. The slim text is produced first and read back, and every snapshot
 // it no longer holds is rebuilt from THAT — not from the history in hand — and compared to what
-// the old file recorded. A file that does not come back identical throws untouched.
+// the old file recorded. A file that does not come back identical throws untouched. The requests
+// are held to a different test, since nothing rebuilds one: see the gate below.
 //
 // `selectProvider` (optional) is handed the stamp the entries carry, before the replay and only
 // when there is one, for a caller normalizing a directory written by more than one provider: the
@@ -52,22 +65,36 @@ function sameJson(a, b) {
 // and the rename below would be reverted. The file is re-read and compared before the rename, so
 // such a turn costs the file its migration rather than its content.
 //
-// Returns what it did and what it cost: `skipped` for a file that holds no history, `unchanged`
-// for one already in this form, `normalized` otherwise.
-export async function normalizeCacheFile(path, { selectProvider } = {}) {
+// `dryRun` runs the whole thing — the rewrite, the read-back, the proof — and does not write. What
+// it reports is what a real run would have done, refusals included.
+//
+// Returns what it did and what it cost: `skipped` for a file that holds no history, `unchanged` for
+// one already in this form, `normalized` otherwise.
+export async function normalizeCacheFile(path, { dryRun, selectProvider } = {}) {
   const raw = await readText(path)
   // Bytes, not UTF-16 units: the caller reports these as a size on disk.
   const size = byteLength(raw)
   const same = (status) => ({ status, before: size, after: size })
-  let history
+  let parsed
   try {
-    history = JSON.parse(raw)
+    parsed = JSON.parse(raw)
   } catch {
     return same('skipped')
   }
-  if (!isStoredHistory(history)) return same('skipped')
+  if (!isStoredHistory(parsed)) return same('skipped')
+  const history = parsed.map(renameResults)
 
-  const slim = serializeHistory(history)
+  // The two things this drops are recoverable for different reasons, and they are decided apart. A
+  // snapshot is proved below, against a replay of the turns. A request is not — nothing rebuilds
+  // one — so it may only go where nothing needs it, and what needs a request is the conversation
+  // inside it. That conversation is known WITHOUT the request when entry 0 carries the seed to
+  // replay from and one unbroken run of answered turns leads from there to the end of the file.
+  // Short of that the requests are the sole record of how the messages got where they did — the
+  // oldest logs here kept every tool answer only as a tool_result block inside the next one — and
+  // the file keeps them all, its snapshots still going if they prove out.
+  const keepRequests = !Array.isArray(history[0].messages) || !isUnbrokenHistory(history)
+
+  const slim = serializeHistory(history, { keepRequests })
   if (slim === raw) return same('unchanged')
 
   // Only when there is a snapshot to prove, which is also the only time an adapter is needed: a
@@ -125,8 +152,10 @@ export async function normalizeCacheFile(path, { selectProvider } = {}) {
   // written a further turn under the same key, which the rename would silently revert. Both writes
   // are atomic, so the loss would leave no trace at all: re-read and refuse rather than overwrite
   // what was not the text we proved.
-  assert(await readText(path) === raw, `${path}: changed while it was being normalized — left alone`)
-  await writeAtomic(path, slim)
+  if (!dryRun) {
+    assert(await readText(path) === raw, `${path}: changed while it was being normalized — left alone`)
+    await writeAtomic(path, slim)
+  }
   return { status: 'normalized', before: size, after: byteLength(slim) }
 }
 
@@ -153,10 +182,10 @@ async function* historyFiles(dir) {
 // single unreadable file is no reason to stop migrating the rest. Here rather than in a script so
 // that a caller of the package can migrate its own cache without re-deriving the walk and the
 // rule for which files are histories.
-export async function* normalizeCache(dir, { selectProvider } = {}) {
+export async function* normalizeCache(dir, { dryRun, selectProvider } = {}) {
   for await (const path of historyFiles(dir)) {
     try {
-      yield { path, ...await normalizeCacheFile(path, { selectProvider }) }
+      yield { path, ...await normalizeCacheFile(path, { dryRun, selectProvider }) }
     } catch (error) {
       yield { path, error }
     }

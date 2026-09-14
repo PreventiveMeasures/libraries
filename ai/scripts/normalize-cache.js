@@ -4,7 +4,8 @@
 // before that landed carry one snapshot per turn, each holding every message ahead of it, so a long
 // tool session left a file that grew with the square of its length. Nothing rewrites an entry that
 // is never asked for again, which is what this is for.
-// Not part of the published package; run it as `scripts/normalize-cache.js <dir>`.
+// Not part of the published package; run it as `scripts/normalize-cache.js <dir>`, or with
+// `--dry-run` first to see what it would come to.
 
 import { opendir } from 'node:fs/promises'
 import process from 'node:process'
@@ -28,6 +29,8 @@ Rewrites each file in place, with no lock and no backup. Point it at a cache not
 run with \`partial\` enabled rewrites its entry after every turn, and one that lands between the
 read and the rewrite is refused rather than reverted — the file is left alone and counted.
 
+  -n, --dry-run          do everything but the write, and report what a real
+                         run would have done
       --provider <name>  use this provider for every file, whatever the entries
                          say. For a cache whose stamps predate them.
   -q, --quiet            only the summary and what it could not do
@@ -85,6 +88,7 @@ async function main(argv) {
     ({ values, positionals } = parseArgs({
       args: argv,
       options: {
+        'dry-run': { type: 'boolean', short: 'n' },
         provider: { type: 'string' },
         quiet: { type: 'boolean', short: 'q' },
         help: { type: 'boolean', short: 'h' },
@@ -114,9 +118,10 @@ async function main(argv) {
     return 1
   }
 
+  const dryRun = values['dry-run']
   const totals = { normalized: 0, unchanged: 0, skipped: 0, unselectable: 0, failed: 0, before: 0, after: 0 }
   const selectProvider = providerPicker(values.provider)
-  for await (const { path, status, before, after, error } of normalizeCache(dir, { selectProvider })) {
+  for await (const { path, status, before, after, error } of normalizeCache(dir, { dryRun, selectProvider })) {
     if (error instanceof Unselectable) {
       totals.unselectable += 1
     } else if (error) {
@@ -128,15 +133,20 @@ async function main(argv) {
       totals[status] += 1
       totals.before += before
       totals.after += after
-      if (status === 'normalized' && !values.quiet) say(`${styleText('green', 'ok')}   ${path}: ${kb(before)} -> ${kb(after)}`)
+      if (status === 'normalized' && !values.quiet) {
+        const label = dryRun ? styleText('cyan', 'dry') : styleText('green', 'ok ')
+        say(`${label}  ${path}: ${kb(before)} -> ${kb(after)}`)
+      }
     }
   }
 
   const saved = totals.before - totals.after
   say(
-    `\n${totals.normalized} normalized, ${totals.unchanged} already slim, ${totals.skipped} not a history, `
+    `\n${totals.normalized} ${dryRun ? 'to normalize' : 'normalized'}, ${totals.unchanged} already slim, `
+    + `${totals.skipped} not a history, `
     + `${totals.unselectable} whose provider could not be selected, ${totals.failed} left alone\n`
-    + `${kb(totals.before)} -> ${kb(totals.after)}${saved > 0 ? ` (${kb(saved)} back)` : ''}`,
+    + `${kb(totals.before)} -> ${kb(totals.after)}${saved > 0 ? ` (${kb(saved)} back)` : ''}`
+    + `${dryRun ? ' — nothing was written' : ''}`,
   )
   // Either count means the run did not finish the job, for a reason worth reading.
   return totals.failed + totals.unselectable > 0 ? 1 : 0
