@@ -446,6 +446,25 @@ function fat(content, paths, field = 'toolResults') {
   })
 }
 
+// A history whose tool answers were never recorded in the entry that called for them: the only
+// copy of what came back is the tool_result block inside the NEXT entry's request. Entry 0 carries
+// the seed a replay would start from, as every writer here has; `snapshots` gives the later entry
+// the per-turn `messages` an older one also kept.
+function unanswered(content, snapshots = false) {
+  const opened = [{ role: 'user', content }]
+  const replied = [...opened, { role: 'tool', tool_call_id: 'call-1', content: 'the only copy' }]
+  return [
+    {
+      request: { model: MODEL, messages: opened }, response: TOOL_CALL, messages: opened,
+      toolCalls: [{ id: 'call-1', name: 'probe', args: { path: '/' } }], toolResults: [], provider: providerStamp(MODEL),
+    },
+    {
+      request: { model: MODEL, messages: replied }, response: ANSWER, ...(snapshots ? { messages: replied } : {}),
+      toolCalls: [], toolResults: [], provider: providerStamp(MODEL),
+    },
+  ]
+}
+
 async function writeRaw(userContent, cacheOpts, history) {
   const path = await entryPath(userContent, cacheOpts)
   await mkdir(dirname(path), { recursive: true })
@@ -553,14 +572,29 @@ suite('normalizeCacheFile', () => {
   it('migrates a history that still calls its results `results`', async () => {
     // Which is every history old enough to carry per-turn snapshots: the field was renamed after
     // they came out. The replay reaches them through the same fallback a resume does, and without
-    // it every file this tool exists for would be refused rather than shrunk.
+    // it every file this tool exists for would be refused rather than shrunk. Rewritten under the
+    // name in use now, so the fallback stays something only an unmigrated file pays for.
     const cacheOpts = opts('_test-normalize-legacy')
     const history = fat('norm-G', ['/0', '/1', '/2'], 'results')
     const { path } = await writeRaw('norm-G', cacheOpts, history)
     assert.equal((await normalizeCacheFile(path)).status, 'normalized')
     const slim = await getPartial('norm-G', cacheOpts)
-    assert.deepEqual(slim.map((e) => e.results), history.map((e) => e.results))
+    assert.deepEqual(slim.map((e) => e.toolResults), history.map((e) => e.results))
+    assert.ok(slim.every((e) => e.results === undefined), 'and comes back off the old name')
     assert.ok(slim.slice(1).every((e) => e.messages === null))
+  })
+
+  it('leaves an entry carrying both names alone, rather than renaming one over the other', async () => {
+    // Nothing writes both, and the reader takes `toolResults` — so renaming here would mean
+    // dropping the other array, which is a loss and not a slimming.
+    const cacheOpts = opts('_test-normalize-both-names')
+    const history = fat('norm-H', ['/0', '/1'])
+    history[1].results = ['what some other writer called it']
+    const { path } = await writeRaw('norm-H', cacheOpts, history)
+    assert.equal((await normalizeCacheFile(path)).status, 'normalized')
+    const slim = await getPartial('norm-H', cacheOpts)
+    assert.deepEqual(slim[1].results, ['what some other writer called it'])
+    assert.deepEqual(slim[1].toolResults, history[1].toolResults)
   })
 
   it('refuses to rewrite a file under an adapter other than the one that wrote it', async () => {
@@ -635,6 +669,81 @@ suite('normalizeCacheFile', () => {
     const { path, raw } = await writeRaw('norm-I', opts('_test-normalize-pairs'), pairs)
     assert.equal((await normalizeCacheFile(path)).status, 'skipped')
     assert.equal(await readFile(path, 'utf8'), raw)
+  })
+
+  it('keeps every request of a history whose tool answers are recorded nowhere else', async () => {
+    // Both arrays are there, so the gate that holds the plain pairs above out lets this one in —
+    // but entry 0's call was never answered IN entry 0, and what came back exists only as the
+    // tool_result block inside entry 1's request. Nulling that is the same loss one shape further
+    // in: what is left cannot be continued, and cannot even be read back.
+    const { path, raw } = await writeRaw('norm-J', opts('_test-normalize-unanswered'), unanswered('norm-J'))
+    assert.equal((await normalizeCacheFile(path)).status, 'unchanged')
+    assert.equal(await readFile(path, 'utf8'), raw)
+  })
+
+  it('refuses that same history when its snapshots say what its turns do not', async () => {
+    // With the per-turn snapshots the oldest files carry. Entry 1's records the answer entry 0
+    // never recorded, so the replay comes back a message short of it — the file contradicting
+    // itself, which is worth a throw rather than a quiet rewrite that keeps the requests.
+    const { path, raw } = await writeRaw('norm-K', opts('_test-normalize-unanswered-fat'), unanswered('norm-K', true))
+    await assert.rejects(() => normalizeCacheFile(path), /entry 1's snapshot is not what replaying/u)
+    assert.equal(await readFile(path, 'utf8'), raw)
+  })
+
+  it('drops the snapshots but keeps the requests where a turn in the middle ended a conversation', async () => {
+    // A file holding more than one ask(). Entry 1 called nothing, which is where a conversation
+    // stops, so entry 2 opens with a question only its own request records. The snapshots still
+    // replay — they were built by the same walk — so those go; the requests stay.
+    const cacheOpts = opts('_test-normalize-two-runs')
+    const messages = [{ role: 'user', content: 'norm-L' }]
+    const turn = (response, toolCalls, toolResults) => {
+      const entry = {
+        request: { model: MODEL, messages: [...messages] }, response, messages: [...messages],
+        toolCalls, toolResults, provider: providerStamp(MODEL),
+      }
+      appendToolResults(messages, response, toolCalls, toolResults)
+      return entry
+    }
+    const call = [{ id: 'call-1', name: 'probe', args: { path: '/' } }]
+    const history = [turn(TOOL_CALL, call, ['probed /']), turn(ANSWER, [], []), turn(TOOL_CALL, call, ['probed /2'])]
+    const { path } = await writeRaw('norm-L', cacheOpts, history)
+
+    assert.equal((await normalizeCacheFile(path)).status, 'normalized')
+    const slim = await getPartial('norm-L', cacheOpts)
+    assert.ok(slim.slice(1).every((e) => e.messages === null), 'the snapshots are gone')
+    assert.deepEqual(slim.map((e) => e.request), history.map((e) => e.request), 'and every request is still there')
+  })
+
+  it('keeps the requests of a history with no snapshot to replay from', async () => {
+    // Nothing records how this conversation opened, so the walk has nowhere to start and the
+    // requests are the only account of the messages there is. Nothing to prove and nothing to drop.
+    const cacheOpts = opts('_test-normalize-seedless')
+    const history = fat('norm-M', ['/0', '/1'])
+    for (const entry of history) delete entry.messages
+    const { path, raw } = await writeRaw('norm-M', cacheOpts, history)
+    assert.equal((await normalizeCacheFile(path)).status, 'unchanged')
+    assert.equal(await readFile(path, 'utf8'), raw)
+  })
+
+  it('refuses a history whose snapshots start on an entry that is not the first', async () => {
+    // The same thing with something to prove: snapshots to drop and no seed to replay them from.
+    const cacheOpts = opts('_test-normalize-late-seed')
+    const history = fat('norm-N', ['/0', '/1'])
+    delete history[0].messages
+    const { path, raw } = await writeRaw('norm-N', cacheOpts, history)
+    await assert.rejects(() => normalizeCacheFile(path), /entry 0 carries no snapshot/u)
+    assert.equal(await readFile(path, 'utf8'), raw)
+  })
+
+  it('reports what a run would do without writing, under dryRun', async () => {
+    const cacheOpts = opts('_test-normalize-dry')
+    const { path, raw } = await writeRaw('norm-O', cacheOpts, fat('norm-O', ['/0', '/1', '/2']))
+    const dry = await normalizeCacheFile(path, { dryRun: true })
+    assert.equal(dry.status, 'normalized')
+    assert.ok(dry.after < dry.before, `${dry.after} of ${dry.before}`)
+    assert.equal(await readFile(path, 'utf8'), raw)
+    // The numbers are the real run's, not an estimate of them.
+    assert.deepEqual(await normalizeCacheFile(path), dry)
   })
 
   it('hands the entries\' provider stamp over before replaying anything', async () => {

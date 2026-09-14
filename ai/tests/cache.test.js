@@ -248,6 +248,17 @@ suite('nullAfterFirst', () => {
     assert.equal(out[1].provider, 'anthropic')
   })
 
+  it('leaves a field the entry does not have absent, rather than adding a null', () => {
+    // Nulling what is already nothing makes the entry bigger. Normalizing an old cache file runs
+    // this over histories this layer did not write, and one that never carried snapshots would
+    // come back a key per entry heavier than it went in.
+    const noSnapshot = mk(1)
+    delete noSnapshot.messages
+    const out = nullAfterFirst([mk(0), noSnapshot], 'request', 'messages')
+    assert.equal(out[1].request, null)
+    assert.ok(!('messages' in out[1]), 'no key was invented')
+  })
+
   it('does not mutate the input; first entry passes by reference, others are fresh copies', () => {
     const history = [mk(0), mk(1)]
     const snapshot = JSON.stringify(history)
