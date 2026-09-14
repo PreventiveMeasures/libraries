@@ -3,7 +3,7 @@ import { byteLength, join, readDirOrEmpty, readText, writeAtomic } from '#fs'
 
 import { isInvalidEntry } from './cache.js'
 import { serializeHistory } from './cache-history.js'
-import { appendTurn, isStoredHistory, isUnbrokenHistory } from './chat.js'
+import { appendTurn, isAnsweredTurn, isStoredHistory, isUnbrokenHistory } from './chat.js'
 import { getProvider } from './providers.js'
 
 // Bringing stored histories into the shape the writers use now. Its own module because it is the
@@ -84,15 +84,41 @@ export async function normalizeCacheFile(path, { dryRun, selectProvider } = {}) 
   if (!isStoredHistory(parsed)) return same('skipped')
   const history = parsed.map(renameResults)
 
+  // A turn may record no calls and no answers, and the last one may still be waiting on its answers
+  // — chat stores an entry the moment a model's tool arguments come back malformed. What no writer
+  // produces is a turn in the middle holding calls and a different number of answers: the file
+  // disagrees with itself, and what came back is nowhere in the turns, so the tool_result block
+  // inside the next entry's request is the only copy of it. Loud rather than quietly left alone,
+  // because it is not a shape to migrate around — something wrote it, or something ate half of it.
+  // (Entries with no turn arrays AT ALL are another matter: isStoredHistory does not take the file
+  // for a history, and it is left as it is.)
+  const mismatch = history.slice(0, -1).findIndex((entry) => !isAnsweredTurn(entry))
+  if (mismatch !== -1) {
+    const entry = history[mismatch]
+    assert(
+      false,
+      `${path}: entry ${mismatch} recorded ${entry.toolCalls.length} tool call(s) and `
+      + `${entry.toolResults.length} answer(s) to them. What came back is not in the turns at all — the `
+      + `only copy is the tool_result block inside entry ${mismatch + 1}'s request.`,
+    )
+  }
+
   // The two things this drops are recoverable for different reasons, and they are decided apart. A
   // snapshot is proved below, against a replay of the turns. A request is not — nothing rebuilds
   // one — so it may only go where nothing needs it, and what needs a request is the conversation
-  // inside it. That conversation is known WITHOUT the request when entry 0 carries the seed to
-  // replay from and one unbroken run of answered turns leads from there to the end of the file.
-  // Short of that the requests are the sole record of how the messages got where they did — the
-  // oldest logs here kept every tool answer only as a tool_result block inside the next one — and
-  // the file keeps them all, its snapshots still going if they prove out.
-  const keepRequests = !Array.isArray(history[0].messages) || !isUnbrokenHistory(history)
+  // inside it. That conversation is known WITHOUT the request when entry 0 carries a seed to replay
+  // from and one unbroken run of turns leads from there to the end of the file. Short of that the
+  // requests are the sole record of how the messages got where they did — the oldest logs here kept
+  // every tool answer only as a tool_result block inside the next one — and the file keeps them all,
+  // its snapshots still going if they prove out.
+  //
+  // An EMPTY seed is no seed: the walk would start from a conversation with no question in it, and
+  // the opening the requests embed would be gone with them. The answered half of isUnbrokenHistory
+  // is already settled above, so what it decides here is the other one — a turn in the middle that
+  // called nothing is where a conversation ended, and the next entry opens one no later entry
+  // records.
+  const seeded = Array.isArray(history[0].messages) && history[0].messages.length > 0
+  const keepRequests = !seeded || !isUnbrokenHistory(history)
 
   const slim = serializeHistory(history, { keepRequests })
   if (slim === raw) return same('unchanged')

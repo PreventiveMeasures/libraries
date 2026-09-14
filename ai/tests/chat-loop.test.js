@@ -671,22 +671,29 @@ suite('normalizeCacheFile', () => {
     assert.equal(await readFile(path, 'utf8'), raw)
   })
 
-  it('keeps every request of a history whose tool answers are recorded nowhere else', async () => {
+  it('refuses a history recording a call it holds no answer to, with or without its snapshots', async () => {
     // Both arrays are there, so the gate that holds the plain pairs above out lets this one in —
     // but entry 0's call was never answered IN entry 0, and what came back exists only as the
-    // tool_result block inside entry 1's request. Nulling that is the same loss one shape further
-    // in: what is left cannot be continued, and cannot even be read back.
-    const { path, raw } = await writeRaw('norm-J', opts('_test-normalize-unanswered'), unanswered('norm-J'))
-    assert.equal((await normalizeCacheFile(path)).status, 'unchanged')
-    assert.equal(await readFile(path, 'utf8'), raw)
+    // tool_result block inside entry 1's request. Nothing writes that: an entry is stored with the
+    // answers to its calls, or with no calls at all. Refused rather than migrated around, whether
+    // or not the file carries the per-turn snapshots that would also have caught it.
+    for (const [i, history] of [unanswered('norm-J'), unanswered('norm-K', true)].entries()) {
+      const { path, raw } = await writeRaw(`norm-J${i}`, opts(`_test-normalize-unanswered-${i}`), history)
+      await assert.rejects(() => normalizeCacheFile(path), /entry 0 recorded 1 tool call\(s\) and 0 answer\(s\)/u)
+      assert.equal(await readFile(path, 'utf8'), raw)
+    }
   })
 
-  it('refuses that same history when its snapshots say what its turns do not', async () => {
-    // With the per-turn snapshots the oldest files carry. Entry 1's records the answer entry 0
-    // never recorded, so the replay comes back a message short of it — the file contradicting
-    // itself, which is worth a throw rather than a quiet rewrite that keeps the requests.
-    const { path, raw } = await writeRaw('norm-K', opts('_test-normalize-unanswered-fat'), unanswered('norm-K', true))
-    await assert.rejects(() => normalizeCacheFile(path), /entry 1's snapshot is not what replaying/u)
+  it('keeps the requests of a history whose seed snapshot is empty', async () => {
+    // An empty seed is no seed: the walk would start from a conversation with no question in it,
+    // and the question is in entry 0's request — the one thing kept — in the provider's shape
+    // rather than as messages. Everything after it would rebuild to an opening that never happened.
+    const cacheOpts = opts('_test-normalize-empty-seed')
+    const history = fat('norm-P', ['/0', '/1'])
+    history[0].messages = []
+    for (const entry of history.slice(1)) delete entry.messages
+    const { path, raw } = await writeRaw('norm-P', cacheOpts, history)
+    assert.equal((await normalizeCacheFile(path)).status, 'unchanged')
     assert.equal(await readFile(path, 'utf8'), raw)
   })
 

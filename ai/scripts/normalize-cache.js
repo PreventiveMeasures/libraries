@@ -18,7 +18,8 @@ const USAGE = `Usage: scripts/normalize-cache.js [options] <cache-dir>
 Rewrites every stored history under <cache-dir>, dropping the per-turn message snapshots that a
 resume rebuilds anyway. Nothing is written until the slim text has been read back and shown to
 replay to exactly the messages the old file recorded, so a file that would lose something is
-reported and left alone.
+reported and left alone. A history whose requests are the only record of how its messages got
+where they did keeps every one of them, and is slimmed only of what replays.
 
 The replay runs through a provider's adapter, so each file is normalized under the provider that
 wrote it — read from the entries themselves. That provider has to be one this process can select,

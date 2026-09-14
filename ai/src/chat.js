@@ -266,13 +266,13 @@ export function isResumableHistory(history, { provider } = {}) {
   if (!isUnbrokenHistory(history)) return false
   const last = history.at(-1)
   if (last.error) return false
-  return !(last.toolCalls?.length > 0) || answered(last)
+  return !(last.toolCalls?.length > 0) || isAnsweredTurn(last)
 }
 
 // Whether a turn's calls all came back: both arrays are there and they line up. An unanswered call
 // has its answer nowhere in the entry that made it — the only copy is the tool_result block inside
-// the NEXT entry's request.
-const answered = (entry) => {
+// the NEXT entry's request, which is why normalizeCacheFile refuses a file holding one.
+export function isAnsweredTurn(entry) {
   const results = toolResultsOf(entry)
   return Array.isArray(entry.toolCalls) && Array.isArray(results) && entry.toolCalls.length === results.length
 }
@@ -288,7 +288,7 @@ const answered = (entry) => {
 // file holds another after it, whose opening question no later entry repeats. Either way the
 // request is the sole record and nulling it is not a slimming.
 export function isUnbrokenHistory(history) {
-  return history.slice(0, -1).every((entry) => answered(entry) && entry.toolCalls.length > 0)
+  return history.slice(0, -1).every((entry) => isAnsweredTurn(entry) && entry.toolCalls.length > 0)
 }
 
 // A stored history, as against whatever else a `.json` under a cache root might be — a config, a
