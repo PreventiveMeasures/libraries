@@ -14,12 +14,13 @@
 // back out (self-contained.test.js enforces it), and nothing that assumes
 // a filesystem, a terminal or a locale of its own.
 
-// A file's text becomes the records diff compares, and `lineKey` says when
-// two of them count as the same line: the whitespace and case options, as
-// the string a line reduces to under them. What a caller does to a file
-// before any of that — deciding it is binary, normalising its terminators —
-// is the caller's, and was never diff's.
-export { lineKey, splitRecords } from './src/compare.js'
+// A file's text becomes the records diff compares, and `lineComparisonKey`
+// turns diff's comparison options into the one thing the search knows about
+// them: the string a line reduces to, equal for two lines that count as the
+// same line. What a caller does to a file before any of that — deciding it
+// is binary, normalising its terminators — is the caller's, and was never
+// diff's.
+export { lineComparisonKey, splitRecords } from './src/compare.js'
 
 // The search itself. `diffLines` returns a change set — blocks of the first
 // file replaced by blocks of the second — and never returns one that does

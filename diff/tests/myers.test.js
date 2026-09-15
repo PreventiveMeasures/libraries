@@ -3,7 +3,7 @@ import { describe, it } from 'node:test'
 import { hrtime } from 'node:process'
 import { DiffError, diffLines, sameLines, verifyChangeSet } from '../src/myers.js'
 import { applyChangeSet } from '../src/apply.js'
-import { lineKey, splitRecords } from '../src/compare.js'
+import { lineComparisonKey, splitRecords } from '../src/compare.js'
 import { formatContext, formatNormal, formatUnified } from '../src/format.js'
 
 // The change set is the thing under test here, not its rendering: every
@@ -59,7 +59,7 @@ describe('diffLines returns a shortest change set that reconstructs the second i
   })
 
   it('compares under a key and verifies under the same key', () => {
-    const key = lineKey({ ignoreCase: true, whitespace: 'all' })
+    const key = lineComparisonKey({ ignoreCase: true, whitespace: 'all' })
     const a = splitRecords('Hello World\nsame\n'), b = splitRecords('hello   world\nsame\n')
     assert.deepEqual(diffLines(a, b, { key }), [])
     assert.ok(sameLines(a, b, key))

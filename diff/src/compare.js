@@ -13,8 +13,12 @@ const TRAILING_SPACE = /[ \t\n\v\f\r]+$/u
 // Case folding in the C locale reaches ASCII and stops.
 const fold = (text) => text.replace(/[A-Z]/gu, (c) => c.toLowerCase())
 
-// null means identity: compare records as they are.
-export function lineKey({ ignoreCase = false, whitespace = 'none' } = {}) {
+// diff's comparison options, as the function that carries them out: -i, and
+// -w / -b / -Z as 'all' / 'change' / 'trailing'. Two lines are the same line
+// when what this returns of them is the same string, so it is the whole of
+// what those options mean and the only thing the search knows about them.
+// null for the options that ask for nothing: compare records as they are.
+export function lineComparisonKey({ ignoreCase = false, whitespace = 'none' } = {}) {
   let key = null
   if (whitespace === 'all') key = (line) => line.replace(SPACE, '')
   // A run of blanks reads as one space, unless it runs to the end of the line.
