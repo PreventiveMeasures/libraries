@@ -16,3 +16,4 @@ minimumReleaseAgeExclude:
 
 packages:
   - "ai"
+  - "diff"
