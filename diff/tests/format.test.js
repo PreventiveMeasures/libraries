@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { splitRecords } from '../src/compare.js'
-import { formatContext, formatNormal, formatUnified } from '../src/format.js'
+import { FormatError, formatContext, formatNormal, formatUnified } from '../src/format.js'
 import { functionLine } from '../src/hunks.js'
 import { diffLines, verifyChangeSet } from '../src/myers.js'
 import { parseDiff } from '../src/parse.js'
@@ -32,6 +32,25 @@ for (const recording of RECORDINGS) {
   if (seen && JSON.stringify(seen.blocks) !== JSON.stringify(blocks)) disagreements.push(`${recording.command} and ${seen.command}`)
   gnuChangeSets.set(pairOf(recording), { blocks, command: recording.command })
 }
+
+// Every rendering below runs through that check on its way out, so the
+// corpus is checking it as much as it is checking the bytes. It cannot be
+// tripped from outside: with a correct formatter, any change set that can be
+// rendered at all renders to something that reads back as itself. Breaking a
+// formatter is what trips it — an off-by-one in a range line reads back as
+// `block 1 reads back somewhere else`, and a context line taken from the
+// wrong place as `a kept line is not the line it stands for`.
+describe('what is printed is read back before it is returned', () => {
+  it('has an error of its own to throw', () => {
+    assert.ok(new FormatError('x') instanceof Error)
+    assert.equal(new FormatError('x').name, 'FormatError')
+  })
+  it('passes an empty change set through, having nothing to print', () => {
+    const a = splitRecords('a\n')
+    assert.equal(formatNormal(a, a, []), '')
+    assert.equal(formatUnified(a, a, [], { context: 3, header: '--- x\n+++ y\n', fn: null }), '--- x\n+++ y\n')
+  })
+})
 
 describe('the corpus is a corpus', () => {
   it('holds a fair number of cases in every style', () => {

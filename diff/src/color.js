@@ -11,9 +11,7 @@
 // that just ran. Each marker is one a real diff emits and ordinary text does
 // not, so a source file full of `+` bullets or `---` rules stays plain.
 
-const UNIFIED_HUNK = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/u
-const CONTEXT_FENCE = /^\*{15}$/u
-const NORMAL_COMMAND = /^\d+(?:,\d+)?[acd]\d+(?:,\d+)?$/u
+import { CONTEXT_FENCE, NORMAL_COMMAND, UNIFIED_HUNK } from './markers.js'
 
 // Longest prefix first, so `---` is read as a file header rather than a
 // removed line, and `+++` before `+`.

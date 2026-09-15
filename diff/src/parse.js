@@ -10,6 +10,7 @@
 // diff is the only place those exist.
 
 import { splitRecords } from './compare.js'
+import { CONTEXT_FENCE, CONTEXT_NEW, CONTEXT_OLD, NORMAL_COMMAND, UNIFIED_HUNK } from './markers.js'
 
 export class PatchError extends Error {
   constructor(detail, line) {
@@ -18,12 +19,6 @@ export class PatchError extends Error {
     this.line = line
   }
 }
-
-const UNIFIED_HUNK = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: ?(.*?))?\n?$/u
-const CONTEXT_FENCE = /^\*{15,}(?: (.*?))?\n?$/u
-const CONTEXT_OLD = /^\*{3} (\d+)(?:,(\d+))? \*{4}\n?$/u
-const CONTEXT_NEW = /^--- (\d+)(?:,(\d+))? ----\n?$/u
-const NORMAL_COMMAND = /^(\d+)(?:,(\d+))?([acd])(\d+)(?:,(\d+))?[ \t]*\r?\n?$/u
 
 // A range prints its start as the line before it when it covers nothing,
 // which `,0` marks; otherwise as the first line it covers, counting from one.

@@ -65,6 +65,11 @@ export class DiffError extends Error {
   constructor(detail: string)
 }
 
+// Each of these reads its own output back before returning it, and throws
+// FormatError when the text does not describe the change set it was given.
+export class FormatError extends Error {
+  constructor(detail: string)
+}
 export function formatNormal(a: string[], b: string[], blocks: Block[]): string
 export function formatUnified(a: string[], b: string[], blocks: Block[], options: FormatOptions): string
 export function formatContext(a: string[], b: string[], blocks: Block[], options: FormatOptions): string

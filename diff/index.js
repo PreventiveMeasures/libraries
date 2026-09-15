@@ -40,7 +40,12 @@ export { DiffError, diffLines, sameLines, verifyChangeSet } from './src/myers.js
 // against recorded diff output in the tests, so a patch reader that takes
 // one takes these. The header lines are the caller's to build — they are
 // what names the two files — and `fn` supplies the `-p` function name.
-export { formatContext, formatNormal, formatUnified } from './src/format.js'
+//
+// Each of them reads what it printed back before returning it, and throws
+// `FormatError` if it does not say what the change set says. That is the
+// same bargain the search makes: a guarantee on the data, paid for in one
+// linear pass.
+export { FormatError, formatContext, formatNormal, formatUnified } from './src/format.js'
 
 // What the two context styles are assembled from, for a caller that wants
 // the hunks rather than the text: `groupHunks` is the split into hunks,
