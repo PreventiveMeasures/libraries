@@ -85,6 +85,14 @@
         "max-lines": "off",
         "max-classes-per-file": "off"
       }
+    },
+    {
+      "files": [
+        "**/*.d.ts"
+      ],
+      "rules": {
+        "max-classes-per-file": "off"
+      }
     }
   ]
 }

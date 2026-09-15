@@ -65,6 +65,11 @@ export class DiffError extends Error {
   constructor(detail: string)
 }
 
+// Each of these reads its own output back before returning it, and throws
+// FormatError when the text does not describe the change set it was given.
+export class FormatError extends Error {
+  constructor(detail: string)
+}
 export function formatNormal(a: string[], b: string[], blocks: Block[]): string
 export function formatUnified(a: string[], b: string[], blocks: Block[], options: FormatOptions): string
 export function formatContext(a: string[], b: string[], blocks: Block[], options: FormatOptions): string
@@ -80,3 +85,46 @@ export function functionLine(
 ): string | null
 
 export function quoteHeaderName(name: string, options?: { byteLocale?: boolean }): string
+
+// One line of a hunk as the diff writes it: kept, removed or added.
+export interface HunkLine {
+  tag: ' ' | '-' | '+'
+  text: string
+}
+
+// A hunk as it stands in the diff, its lines in the order they are printed
+// and its starting lines counting from zero. `fn` is the -p function name.
+// Distinct from `Hunk`, which is what `groupHunks` builds for printing.
+export interface PatchHunk {
+  oldStart: number
+  newStart: number
+  fn: string | null
+  lines: HunkLine[]
+}
+
+// A block read out of a diff also holds the lines it names, since the diff
+// is the only place they exist.
+export interface ParsedBlock extends Block {
+  remove: string[]
+  insert: string[]
+}
+
+// One file's worth of diff. `old` and `new` are the names its header gave,
+// null when it carried none.
+export interface ParsedFile {
+  old: string | null
+  new: string | null
+  style: 'unified' | 'context' | 'normal'
+  hunks: PatchHunk[]
+  blocks: ParsedBlock[]
+}
+
+export function parseDiff(text: string): ParsedFile[]
+export class PatchError extends Error {
+  constructor(detail: string, line?: number)
+  line: number | undefined
+}
+
+// `b` supplies each block's replacement lines; a block that carries its own
+// (one read out of a diff) uses those, and then `b` is not needed.
+export function applyChangeSet(a: string[], blocks: Block[] | ParsedBlock[], b?: string[] | null): string[]

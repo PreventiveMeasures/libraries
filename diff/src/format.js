@@ -3,8 +3,56 @@
 // on, and the rules below are those formats, so the same change set gives
 // the same bytes as any other implementation; that the change set is the
 // right one is what myers.js guarantees.
+//
+// What is printed is then read back before it is returned, and has to say
+// what it was given. That is the counterpart of the guarantee myers.js makes
+// on the change set, and the hole it leaves: a change set can be right and
+// the text describing it wrong, and nothing but a reader would ever notice.
 
 import { groupHunks } from './hunks.js'
+import { parseDiff } from './parse.js'
+
+export class FormatError extends Error {
+  constructor(detail) {
+    super(`the rendered diff does not say what the change set says (${detail})`)
+    this.name = 'FormatError'
+  }
+}
+
+// Read back, and held to the change set and to the two files. Every line
+// printed is one of their lines: a context or removed line is the first
+// file's, an added line the second's — which is true whatever comparison
+// was in force, so this holds under the whitespace and case options too,
+// where the two files' "equal" lines differ in text and rebuilding the
+// second file from the diff would not give it back.
+//
+// Only the hunks are read. The label lines are the caller's to write, and a
+// file named something that reads like a hunk header would otherwise fail a
+// rendering that is perfectly correct.
+function verifyRendering(a, b, blocks, body) {
+  if (blocks.length === 0) {
+    if (body !== '') throw new FormatError('there was nothing to print, and something was printed')
+    return
+  }
+  let files
+  try { files = parseDiff(body) } catch (e) { throw new FormatError(`it does not read back (${e.message})`) }
+  if (files.length !== 1) throw new FormatError(`${files.length} files read back, not one`)
+  const read = files[0].blocks
+  if (read.length !== blocks.length) throw new FormatError(`${read.length} blocks read back, not ${blocks.length}`)
+  for (const [i, got] of read.entries()) {
+    const want = blocks[i]
+    if (got.a0 !== want.a0 || got.a1 !== want.a1 || got.b0 !== want.b0 || got.b1 !== want.b1) throw new FormatError(`block ${i + 1} reads back somewhere else`)
+  }
+  for (const hunk of files[0].hunks) {
+    let ai = hunk.oldStart, bi = hunk.newStart
+    for (const { tag, text } of hunk.lines) {
+      const want = tag === '+' ? b[bi] : a[ai]
+      if (text !== want) throw new FormatError(`a ${tag === '+' ? 'added' : tag === '-' ? 'removed' : 'kept'} line is not the line it stands for`)
+      if (tag !== '+') ai++
+      if (tag !== '-') bi++
+    }
+  }
+}
 
 // A line is printed as it is stored, terminator included; one without a
 // terminator can only be a file's last, and says so on the next line.
@@ -25,6 +73,7 @@ export function formatNormal(a, b, blocks) {
     if (letter === 'c') out += '---\n'
     for (let i = b0; i < b1; i++) out += printLine('> ', b[i])
   }
+  verifyRendering(a, b, blocks, out)
   return out
 }
 
@@ -50,6 +99,7 @@ export function formatUnified(a, b, blocks, { context, header, fn }) {
     }
     for (; ai < hunk.a1; ai++, bi++) out += printLine(' ', a[ai])
   }
+  verifyRendering(a, b, blocks, out.slice(header.length))
   return out
 }
 
@@ -71,6 +121,7 @@ export function formatContext(a, b, blocks, { context, header, fn }) {
     out += `--- ${contextRange(hunk.b0, hunk.b1)} ----\n`
     if (hunk.blocks.some((block) => block.b0 < block.b1)) out += contextSide(b, hunk.b0, hunk.b1, hunk.blocks, 'b')
   }
+  verifyRendering(a, b, blocks, out.slice(header.length))
   return out
 }
 

@@ -48,6 +48,18 @@ describe('a diff is recognised by its own markers', () => {
     ])
   })
 
+  it('recognises a diff made with -p, which names the function on the hunk', () => {
+    // The context fence carries the name after its stars, and the unified
+    // hunk header after its second `@@`. A marker anchored to the bare form
+    // of either leaves the whole diff unpainted.
+    const context = '*** a\n--- b\n*************** int main() {\n*** 1 ****\n! x\n--- 1 ----\n! y\n'
+    assert.equal(diffFormat(context), 'context')
+    assert.deepEqual(styled(context).slice(2, 5), [['*************** int main() {', 'cyan'], ['*** 1 ****', 'cyan'], ['! x', 'yellow']])
+    const unified = '--- a\n+++ b\n@@ -1,2 +1,2 @@ int main() {\n-x\n+y\n'
+    assert.equal(diffFormat(unified), 'unified')
+    assert.deepEqual(styled(unified).slice(2, 5), [['@@ -1,2 +1,2 @@ int main() {', 'cyan'], ['-x', 'red'], ['+y', 'green']])
+  })
+
   it('marks a missing newline apart from the line it follows', () => {
     assert.deepEqual(styled('@@ -1 +1 @@\n-a\n\\ No newline at end of file\n+a\n').at(-2), ['+a', 'green'])
     assert.deepEqual(styled('@@ -1 +1 @@\n-a\n\\ No newline at end of file\n+a\n')[2], ['\\ No newline at end of file', 'gray'])
