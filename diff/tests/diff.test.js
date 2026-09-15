@@ -10,7 +10,7 @@ import { FILES, RECORDINGS } from './fixtures/gnu-diff.js'
 describe('one call produces what the parts produce', () => {
   for (const recording of RECORDINGS) {
     // The -p cases need a name for each hunk, which is the caller's to
-    // choose; that `fn` reaches the formatter is checked on its own below.
+    // choose; that `hunkLabel` reaches the formatter is checked on its own below.
     if (recording.showFunction) continue
     it(recording.command, () => {
       const header = recording.format === 'normal' ? '' : recording.stdout.split('\n').slice(0, 2).join('\n') + '\n'
@@ -29,8 +29,8 @@ describe('what it does with the options', () => {
     const out = diff('x\n', 'y\n', { header: '--- "sp ace"\t2026\n+++ other\n' })
     assert.ok(out.startsWith('--- "sp ace"\t2026\n+++ other\n'), out)
   })
-  it('passes fn through to name a hunk', () => {
-    assert.match(diff('a\nb\n', 'a\nX\n', { fn: () => 'in here' }), /^@@ -1,2 \+1,2 @@ in here\n/u)
+  it('passes hunkLabel through to name a hunk', () => {
+    assert.match(diff('a\nb\n', 'a\nX\n', { hunkLabel: () => 'in here' }), /^@@ -1,2 \+1,2 @@ in here\n/u)
   })
   it('carries the comparison options to the search', () => {
     assert.equal(diff('A  b\n', 'a b\n', { ignoreCase: true, whitespace: 'all' }), '')

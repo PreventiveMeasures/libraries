@@ -15,9 +15,9 @@
 // a filesystem, a terminal or a locale of its own.
 
 // Two files in, the diff between them out. What a caller wanting the text
-// and not the parts needs, and the only call it needs; `header` and `fn` go
-// straight to the formatter, so nothing below is out of its reach but the
-// change set itself.
+// and not the parts needs, and the only call it needs; `header` and
+// `hunkLabel` go straight to the formatter, so nothing below is out of its
+// reach but the change set itself.
 export { diff } from './src/diff.js'
 
 // A file's text becomes the records diff compares: one line each, its
@@ -45,8 +45,9 @@ export { DiffError, diffLines } from './src/myers.js'
 
 // A change set rendered in diff's three output styles. The bytes are held
 // against recorded diff output in the tests, so a patch reader that takes
-// one takes these. The header lines are the caller's to build — they are
-// what names the two files — and `fn` supplies the `-p` function name.
+// one takes these. Two headers are the caller's to build: `header`, the two
+// label lines naming the files, and `hunkLabel`, what each hunk's own header
+// line carries after its ranges.
 //
 // Each of them reads what it printed back before returning it, and throws
 // `FormatError` if it does not say what the change set says. That is the

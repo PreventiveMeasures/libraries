@@ -16,9 +16,9 @@ const positions = (blocks) => blocks.map(({ a0, a1, b0, b1 }) => [a0, a1, b0, b1
 
 const STYLES = [
   ['normal', (a, b, bl) => formatNormal(a, b, bl)],
-  ['unified', (a, b, bl) => formatUnified(a, b, bl, { context: 3, header: '--- x\n+++ y\n', fn: null })],
-  ['unified, no context', (a, b, bl) => formatUnified(a, b, bl, { context: 0, header: '--- x\n+++ y\n', fn: null })],
-  ['context', (a, b, bl) => formatContext(a, b, bl, { context: 3, header: '*** x\n--- y\n', fn: null })],
+  ['unified', (a, b, bl) => formatUnified(a, b, bl, { context: 3, header: '--- x\n+++ y\n', hunkLabel: null })],
+  ['unified, no context', (a, b, bl) => formatUnified(a, b, bl, { context: 0, header: '--- x\n+++ y\n', hunkLabel: null })],
+  ['context', (a, b, bl) => formatContext(a, b, bl, { context: 3, header: '*** x\n--- y\n', hunkLabel: null })],
 ]
 
 describe('what is printed is read back', () => {

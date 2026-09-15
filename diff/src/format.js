@@ -105,13 +105,15 @@ function unifiedRange(start, end) {
   return end === start + 1 ? `${start + 1}` : `${start + 1},${end - start}`
 }
 
-// `header` is the two label lines, already built; `fn(index)` names the
-// function a hunk starting at that line falls in, or null.
-export function formatUnified(a, b, blocks, { context, header, fn }) {
+// Two headers, at two scales: `header` is the pair of label lines the whole
+// diff opens with, already built, and `hunkLabel(index)` is what each hunk's
+// own header line carries after it — under -p, the function the hunk starts
+// inside. null for no label, and for every hunk if omitted.
+export function formatUnified(a, b, blocks, { context, header, hunkLabel }) {
   let out = header
   for (const hunk of groupHunks(blocks, context, a.length, b.length)) {
-    const name = fn ? fn(hunk.a0) : null
-    out += `@@ -${unifiedRange(hunk.a0, hunk.a1)} +${unifiedRange(hunk.b0, hunk.b1)} @@${name === null ? '' : ' ' + name}\n`
+    const label = hunkLabel ? hunkLabel(hunk.a0) : null
+    out += `@@ -${unifiedRange(hunk.a0, hunk.a1)} +${unifiedRange(hunk.b0, hunk.b1)} @@${label === null ? '' : ' ' + label}\n`
     let ai = hunk.a0, bi = hunk.b0
     for (const { a0, a1, b1 } of hunk.blocks) {
       for (; ai < a0; ai++, bi++) out += printLine(' ', a[ai])
@@ -131,11 +133,11 @@ function contextRange(start, end) {
   return end === start + 1 ? `${start + 1}` : `${start + 1},${end}`
 }
 
-export function formatContext(a, b, blocks, { context, header, fn }) {
+export function formatContext(a, b, blocks, { context, header, hunkLabel }) {
   let out = header
   for (const hunk of groupHunks(blocks, context, a.length, b.length)) {
-    const name = fn ? fn(hunk.a0) : null
-    out += `***************${name === null ? '' : ' ' + name}\n`
+    const label = hunkLabel ? hunkLabel(hunk.a0) : null
+    out += `***************${label === null ? '' : ' ' + label}\n`
     out += `*** ${contextRange(hunk.a0, hunk.a1)} ****\n`
     // A side with no changes of its own prints only its range line.
     if (hunk.blocks.some((block) => block.a0 < block.a1)) out += contextSide(a, hunk.a0, hunk.a1, hunk.blocks, 'a')
