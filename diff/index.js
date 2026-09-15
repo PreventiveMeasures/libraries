@@ -16,7 +16,7 @@
 
 // A file's text becomes the records diff compares, and `lineKey` says when
 // two of them count as the same line — the whitespace and case options,
-// expressed as the string GNU would have hashed. The other two are the
+// expressed as the string a line reduces to. The other two are the
 // decisions taken before the split: whether the file is binary at all, and
 // `--strip-trailing-cr`, which edits the text so the output shows it too.
 export { isBinary, lineKey, splitRecords, stripTrailingCr } from './src/compare.js'
@@ -29,9 +29,10 @@ export { isBinary, lineKey, splitRecords, stripTrailingCr } from './src/compare.
 // without a search.
 export { DiffError, diffLines, sameLines, verifyChangeSet } from './src/myers.js'
 
-// A change set rendered in diff's three output styles, byte for byte as GNU
-// renders it. The header lines are the caller's to build — they are what
-// names the two files — and `fn` supplies the `-p` function name.
+// A change set rendered in diff's three output styles. The bytes are held
+// against recorded diff output in the tests, so a patch reader that takes
+// one takes these. The header lines are the caller's to build — they are
+// what names the two files — and `fn` supplies the `-p` function name.
 export { formatContext, formatNormal, formatUnified } from './src/format.js'
 
 // What the two context styles are assembled from, for a caller that wants

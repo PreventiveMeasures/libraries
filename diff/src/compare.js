@@ -1,16 +1,16 @@
-// How diff decides two lines are the same. GNU hashes each line under the
-// active options (io.c find_and_hash_each_line); the key here is the string
-// that hash would see, so equal keys are exactly GNU's equal lines. Records
+// How diff decides two lines are the same. Each line reduces to a key under
+// the options in force, and two lines are the same line when their keys are
+// equal — which is the whole of what the comparison options mean. Records
 // keep their terminator: a last line without one is a different line from a
 // complete one, except under the whitespace options, where the newline is
 // whitespace like any other.
 
-// C-locale isspace: the newline is one of them.
+// The blanks of the C locale, the newline among them.
 const SPACE = /[ \t\n\v\f\r]/gu
 const SPACE_RUN = /[ \t\n\v\f\r]+/gu
 const TRAILING_SPACE = /[ \t\n\v\f\r]+$/u
 
-// C-locale tolower folds ASCII only.
+// Case folding in the C locale reaches ASCII and stops.
 const fold = (text) => text.replace(/[A-Z]/gu, (c) => c.toLowerCase())
 
 // null means identity: compare records as they are.
@@ -37,9 +37,10 @@ export function splitRecords(text) {
 }
 
 // --strip-trailing-cr edits the text before it is split, so the output
-// shows the stripped lines too, as GNU's does.
+// shows the stripped lines too rather than the ones that were read.
 export const stripTrailingCr = (text) => text.replace(/\r\n/gu, '\n')
 
-// GNU looks for a NUL in the first block it reads; a file this size is read
-// whole, so the whole file is what is looked at.
+// A NUL byte marks the input binary. diff decides that from the first block
+// it reads; text handed over as a string arrives whole, so the whole of it
+// is what is looked at.
 export const isBinary = (text) => text.includes('\0')

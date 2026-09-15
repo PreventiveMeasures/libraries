@@ -1,11 +1,11 @@
-// diff's headers name files the way quotearg's C style does: a name with
+// diff's headers name files in the style of a C string literal: a name with
 // nothing awkward in it is printed bare; one with a space, a quote, a
 // backslash or a control character is double-quoted with C escapes, and in
 // a byte locale every byte past ASCII is an octal escape too.
 //
-// Which locale is in force is the caller's to know: `byteLocale` is what
-// GNU decides from LC_ALL / LC_CTYPE / LANG naming C or POSIX, and says
-// that a character past ASCII is bytes rather than a character.
+// Which locale is in force is the caller's to know: `byteLocale` says there
+// are no characters past ASCII, only bytes, and is what LC_ALL, LC_CTYPE or
+// LANG naming C or POSIX comes to.
 const NAMED = new Map([['', 'a'], ['\b', 'b'], ['\f', 'f'], ['\n', 'n'], ['\r', 'r'], ['\t', 't'], ['\v', 'v'], ['"', '"'], ['\\', '\\']])
 
 // Unpaired surrogates have no UTF-8 of their own; TextEncoder writes the

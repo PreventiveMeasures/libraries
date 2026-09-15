@@ -1,7 +1,7 @@
 // From a change set to what the context formats print: hunks, each a run of
-// changes close enough to share context lines. GNU merges two changes into
-// one hunk when the unchanged lines between them number at most twice the
-// context (context.c find_hunk), so their context lines would touch.
+// changes close enough to share context lines. Two changes belong to one
+// hunk when the unchanged lines between them number at most twice the
+// context — exactly when their context lines would touch or overlap.
 
 export function groupHunks(blocks, context, aLength, bLength) {
   const hunks = []
@@ -21,8 +21,8 @@ export function groupHunks(blocks, context, aLength, bLength) {
 }
 
 // -p: the last line before the hunk that looks like the start of a
-// function, as GNU's default `^[[:alpha:]$_]` sees it, cut to 40 bytes with
-// trailing blanks dropped (context.c find_function, print_context_function).
+// function, which by default means one beginning `[[:alpha:]$_]`, cut to 40
+// bytes with trailing blanks dropped.
 const FUNCTION_START = /^[A-Za-z$_]/u
 
 // The cut is by bytes, so a caller that carries its own UTF-8 pair — one

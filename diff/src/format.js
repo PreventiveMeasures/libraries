@@ -1,6 +1,8 @@
-// The three output styles, rendered from a change set the way GNU's
-// normal.c and context.c render theirs. Given the same change set, the
-// bytes are the same; the change set itself is what myers.js guarantees.
+// The three output styles — normal, unified and context — rendered from a
+// change set. The formats are the ones every diff and patch already agree
+// on, and the rules below are those formats, so the same change set gives
+// the same bytes as any other implementation; that the change set is the
+// right one is what myers.js guarantees.
 
 import { groupHunks } from './hunks.js'
 
@@ -9,7 +11,7 @@ import { groupHunks } from './hunks.js'
 const NO_NEWLINE = '\n\\ No newline at end of file\n'
 const printLine = (prefix, line) => prefix + line + (line.endsWith('\n') ? '' : NO_NEWLINE)
 
-// normal.c: `3c3`, `5a6,7`, `8,9d9`; an empty range prints the line before it.
+// `3c3`, `5a6,7`, `8,9d9`; an empty range prints the line before it.
 function normalRange(start, end) {
   return end > start + 1 ? `${start + 1},${end}` : `${end > start ? start + 1 : start}`
 }
@@ -26,8 +28,8 @@ export function formatNormal(a, b, blocks) {
   return out
 }
 
-// context.c print_unidiff_number_range: one line prints bare, an empty
-// range prints the line before it with `,0`.
+// A unified range: one line prints bare, an empty range prints the line
+// before it with `,0`.
 function unifiedRange(start, end) {
   if (end <= start) return `${start},0`
   return end === start + 1 ? `${start + 1}` : `${start + 1},${end - start}`
@@ -51,8 +53,8 @@ export function formatUnified(a, b, blocks, { context, header, fn }) {
   return out
 }
 
-// context.c print_context_number_range: first,last inclusive; a single
-// line bare; an empty range as the line before it.
+// A context range is first,last inclusive; a single line prints bare, an
+// empty range as the line before it.
 function contextRange(start, end) {
   if (end <= start) return `${start}`
   return end === start + 1 ? `${start + 1}` : `${start + 1},${end}`

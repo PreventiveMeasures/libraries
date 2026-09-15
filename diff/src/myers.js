@@ -1,8 +1,10 @@
-// The linear-space Myers difference algorithm, as GNU diff runs it: a
-// middle snake found by searching forward from the start and backward from
-// the end at once, then the two halves either side of it, so the work is
-// O((N+M)·D) in time and O(N+M) in space. Lines are interned to integers
-// first, so the inner loops compare numbers, never strings.
+// Myers' difference algorithm in its linear-space variation, as published
+// (Eugene W. Myers, "An O(ND) Difference Algorithm and Its Variations",
+// Algorithmica 1, 1986): a middle snake found by searching forward from the
+// start and backward from the end at once, then the two halves either side
+// of it, so the work is O((N+M)·D) in time and O(N+M) in space. Lines are
+// interned to integers first, so the inner loops compare numbers, never
+// strings.
 //
 // What comes out is a change set: blocks of `a` replaced by blocks of `b`.
 // Before any caller sees it, the change set is replayed against `a` and the
@@ -10,10 +12,10 @@
 // is never returned, whatever the search did — the guarantee is on the data,
 // not on how it was found.
 
-// GNU's cutoff: past this many edit steps in one subproblem, split at the
-// furthest point reached rather than keep searching for the minimum. The
-// result is still a valid change set, just not always the shortest one.
-// `--minimal` turns it off.
+// The heuristic cutoff every practical implementation carries: past this
+// many edit steps in one subproblem, split at the furthest point reached
+// rather than keep searching for the minimum. The result is still a valid
+// change set, just not always the shortest one. `--minimal` turns it off.
 function costLimit(total) {
   let limit = 1
   for (let i = total; i !== 0; i >>= 2) limit <<= 1
@@ -77,10 +79,10 @@ function compareSequences(A, B, changedA, changedB, minimal) {
   }
 }
 
-// GNU diffseq.h's diag(): a point on some shortest path (or, past the cost
-// limit, the furthest point either search has reached) splitting the
-// problem in two. Diagonals are absolute, as in GNU, so subproblems need no
-// coordinate shift.
+// The middle snake: a point on some shortest path — or, past the cost
+// limit, the furthest point either search has reached — splitting the
+// problem in two. Diagonals are numbered absolutely rather than per
+// subproblem, so a subproblem needs no coordinate shift.
 function middleSnake(search, xoff, xlim, yoff, ylim, findMinimal, part) {
   const { A, B, fd, bd, base, limit } = search
   const dmax = xlim - yoff, dmin = xoff - ylim
