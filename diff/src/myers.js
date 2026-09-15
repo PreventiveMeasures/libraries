@@ -12,6 +12,8 @@
 // is never returned, whatever the search did — the guarantee is on the data,
 // not on how it was found.
 
+import { slideRuns } from './slide.js'
+
 // The heuristic cutoff every practical implementation carries: past this
 // many edit steps in one subproblem, split at the furthest point reached
 // rather than keep searching for the minimum. The result is still a valid
@@ -24,11 +26,21 @@ function costLimit(total) {
 
 // `key` maps a line to what it is compared by (case folded, whitespace
 // squeezed, …); lines with equal keys are equal. Identity when omitted.
-export function diffLines(a, b, { key = null, minimal = false } = {}) {
+// `slide` settles a run that could sit in more than one place (slide.js).
+// It is what diff does for the output styles that print context lines, and
+// not what it does for the normal style, which prints the placement the
+// search itself reached — so the two styles describe different change sets
+// wherever a run is free to move, and a caller rendering normal output asks
+// for `slide: false`.
+export function diffLines(a, b, { key = null, minimal = false, slide = true } = {}) {
   const { A, B } = intern(a, b, key)
   const changedA = new Uint8Array(A.length)
   const changedB = new Uint8Array(B.length)
   compareSequences(A, B, changedA, changedB, minimal)
+  if (slide) {
+    slideRuns(A, changedA, changedB)
+    slideRuns(B, changedB, changedA)
+  }
   const blocks = collectBlocks(changedA, changedB)
   verifyChangeSet(a, b, blocks, key)
   return blocks

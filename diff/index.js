@@ -27,6 +27,13 @@ export { isBinary, lineKey, splitRecords, stripTrailingCr } from './src/compare.
 // so a change set from anywhere else can be held to the same bar, and
 // `DiffError` is what both throw. `sameLines` answers "are these equal"
 // without a search.
+//
+// Where a run of changed lines could sit in more than one place and mean the
+// same edit, it is settled at one of them rather than left wherever the
+// search happened to stop, so the same edit always prints the same way. That
+// is what diff does for the styles that print context lines and not what it
+// does for the normal style, so the two describe different change sets
+// wherever a run is free to move: `slide: false` asks for the other one.
 export { DiffError, diffLines, sameLines, verifyChangeSet } from './src/myers.js'
 
 // A change set rendered in diff's three output styles. The bytes are held

@@ -24,7 +24,8 @@
     "src/format.js",
     "src/hunks.js",
     "src/myers.js",
-    "src/quote.js"
+    "src/quote.js",
+    "src/slide.js"
   ],
   "engines": {
     "node": ">=24.14.0"
