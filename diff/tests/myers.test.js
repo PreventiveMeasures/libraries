@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { hrtime } from 'node:process'
 import { DiffError, diffLines, sameLines, verifyChangeSet } from '../src/myers.js'
+import { applyChangeSet } from '../src/apply.js'
 import { lineKey, splitRecords } from '../src/compare.js'
 import { formatContext, formatNormal, formatUnified } from '../src/format.js'
 
@@ -33,19 +34,6 @@ function lcsLength(a, b) {
 
 const editCount = (blocks) => blocks.reduce((n, { a0, a1, b0, b1 }) => n + (a1 - a0) + (b1 - b0), 0)
 
-// What patch would do with the change set: keep what is between the
-// blocks, take each block's replacement from b.
-function replay(a, b, blocks) {
-  const out = []
-  let ai = 0
-  for (const { a0, a1, b0, b1 } of blocks) {
-    out.push(...a.slice(ai, a0), ...b.slice(b0, b1))
-    ai = a1
-  }
-  out.push(...a.slice(ai))
-  return out
-}
-
 describe('diffLines returns a shortest change set that reconstructs the second input', () => {
   it('on thousands of small random inputs, with and without --minimal', () => {
     const next = random(20260914)
@@ -54,7 +42,7 @@ describe('diffLines returns a shortest change set that reconstructs the second i
       const draw = () => Array.from({ length: Math.floor(next() * 14) }, () => String.fromCodePoint(97 + Math.floor(next() * alphabet)) + '\n')
       const a = draw(), b = draw()
       const blocks = diffLines(a, b, { minimal: next() < 0.5 })
-      assert.deepEqual(replay(a, b, blocks), b, `round ${round}: ${JSON.stringify([a.join(''), b.join('')])}`)
+      assert.deepEqual(applyChangeSet(a, blocks, b), b, `round ${round}: ${JSON.stringify([a.join(''), b.join('')])}`)
       assert.equal(editCount(blocks), a.length + b.length - 2 * lcsLength(a, b), `round ${round}: not minimal`)
       for (let i = 1; i < blocks.length; i++) assert.ok(blocks[i].a0 > blocks[i - 1].a1 || blocks[i].b0 > blocks[i - 1].b1, `round ${round}: adjacent blocks were not merged`)
     }
@@ -87,9 +75,9 @@ describe('diffLines returns a shortest change set that reconstructs the second i
     const a = Array.from({ length: 3000 }, () => `${Math.floor(next() * 100000)}\n`)
     const b = Array.from({ length: 3000 }, () => `${Math.floor(next() * 100000)}\n`)
     const blocks = diffLines(a, b)
-    assert.deepEqual(replay(a, b, blocks), b)
+    assert.deepEqual(applyChangeSet(a, blocks, b), b)
     const minimal = diffLines(a, b, { minimal: true })
-    assert.deepEqual(replay(a, b, minimal), b)
+    assert.deepEqual(applyChangeSet(a, minimal, b), b)
     assert.ok(editCount(minimal) <= editCount(blocks))
   })
 })
@@ -143,7 +131,7 @@ describe('the search stays fast', () => {
     const a = Array.from({ length: 200000 }, (_, i) => `line ${i}\n`)
     const b = a.map((line, i) => i % 97 === 0 ? `changed ${i}\n` : line)
     b.splice(50000, 0, 'inserted\n')
-    budget('200k lines', () => assert.deepEqual(replay(a, b, diffLines(a, b)), b), 3000)
+    budget('200k lines', () => assert.deepEqual(applyChangeSet(a, diffLines(a, b), b), b), 3000)
   })
   it('twenty thousand lines sharing nothing', () => {
     const a = Array.from({ length: 20000 }, (_, i) => `left ${i}\n`)
@@ -153,6 +141,6 @@ describe('the search stays fast', () => {
   it('fifty thousand lines over a small alphabet', () => {
     const a = Array.from({ length: 50000 }, (_, i) => `${i % 7}\n`)
     const b = Array.from({ length: 50000 }, (_, i) => `${(i * 3) % 7}\n`)
-    budget('small alphabet', () => assert.deepEqual(replay(a, b, diffLines(a, b)), b), 3000)
+    budget('small alphabet', () => assert.deepEqual(applyChangeSet(a, diffLines(a, b), b), b), 3000)
   })
 })

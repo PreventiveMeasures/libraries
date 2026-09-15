@@ -50,3 +50,16 @@ export { functionLine, groupHunks } from './src/hunks.js'
 // A file name as a header prints it: bare when it can be, C-quoted when it
 // cannot.
 export { quoteHeaderName } from './src/quote.js'
+
+// The other direction. `parseDiff` reads a diff back into the files it names
+// and, for each, the hunks it is written in and the change set they
+// describe; `PatchError` is what it throws at something it cannot read.
+// Every style this package prints, it reads.
+export { PatchError, parseDiff } from './src/parse.js'
+
+// A change set carried out: the lines between the blocks kept, each block's
+// replacement put where its old lines were. Positions are exact — locating a
+// hunk in a file that has moved on is patch's problem, and not this. The
+// replacement comes from `b`, or from the block itself when it was read out
+// of a diff and carries its own.
+export { applyChangeSet } from './src/apply.js'
