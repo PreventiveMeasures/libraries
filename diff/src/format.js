@@ -9,7 +9,6 @@
 // on the change set, and the hole it leaves: a change set can be right and
 // the text describing it wrong, and nothing but a reader would ever notice.
 
-import { groupHunks } from './hunks.js'
 import { parseDiff } from './parse.js'
 
 export class FormatError extends Error {
@@ -52,6 +51,28 @@ function verifyRendering(a, b, blocks, body) {
       if (tag !== '-') bi++
     }
   }
+}
+
+// From a change set to what the context formats print: hunks, each a run of
+// changes close enough to share context lines. Two changes belong to one
+// hunk when the unchanged lines between them number at most twice the
+// context — exactly when their context lines would touch or overlap.
+
+export function groupHunks(blocks, context, aLength, bLength) {
+  const hunks = []
+  let i = 0
+  while (i < blocks.length) {
+    let j = i
+    while (j + 1 < blocks.length && blocks[j + 1].a0 - blocks[j].a1 <= 2 * context) j++
+    const first = blocks[i], last = blocks[j]
+    hunks.push({
+      blocks: blocks.slice(i, j + 1),
+      a0: Math.max(0, first.a0 - context), a1: Math.min(aLength, last.a1 + context),
+      b0: Math.max(0, first.b0 - context), b1: Math.min(bLength, last.b1 + context),
+    })
+    i = j + 1
+  }
+  return hunks
 }
 
 // A line is printed as it is stored, terminator included; one without a

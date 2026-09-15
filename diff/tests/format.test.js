@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { splitRecords } from '../src/compare.js'
 import { FormatError, formatContext, formatNormal, formatUnified } from '../src/format.js'
-import { functionLine } from '../src/hunks.js'
 import { diffLines, verifyChangeSet } from '../src/myers.js'
 import { parseDiff } from '../src/parse.js'
 import { FILES, RECORDINGS } from './fixtures/gnu-diff.js'
@@ -15,6 +14,26 @@ import { FILES, RECORDINGS } from './fixtures/gnu-diff.js'
 // The recordings are read back with the package's own parser, which is the
 // other half of the same claim: if writing and reading disagree, the pair
 // that a style recorded twice will not read back the same way twice.
+
+// -p names each hunk after the last line before it that looks like the start
+// of a function. That is diff's heuristic, not the formatters' — they take a
+// callback and ask — so it lives here, with the caller, and stands as the
+// worked example of writing one.
+const utf8 = new TextEncoder()
+const FUNCTION_START = /^[A-Za-z$_]/u
+const isBlank = (byte) => byte === 32 || (byte >= 9 && byte <= 13)
+
+function functionLine(lines, before) {
+  for (let i = before - 1; i >= 0; i--) {
+    if (!FUNCTION_START.test(lines[i])) continue
+    // Cut to 40 bytes, then drop the blanks the cut left at the end.
+    const bytes = utf8.encode(lines[i].replace(/\n$/u, ''))
+    let end = Math.min(40, bytes.length)
+    while (end > 0 && isBlank(bytes[end - 1])) end--
+    return new TextDecoder().decode(bytes.subarray(0, end))
+  }
+  return null
+}
 
 const pairOf = (recording) => recording.names.join(' ')
 const recordsOf = (recording) => recording.names.map((name) => splitRecords(FILES[name]))

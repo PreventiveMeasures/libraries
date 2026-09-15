@@ -35,12 +35,3 @@ export function splitRecords(text) {
   }
   return records
 }
-
-// --strip-trailing-cr edits the text before it is split, so the output
-// shows the stripped lines too rather than the ones that were read.
-export const stripTrailingCr = (text) => text.replace(/\r\n/gu, '\n')
-
-// A NUL byte marks the input binary. diff decides that from the first block
-// it reads; text handed over as a string arrives whole, so the whole of it
-// is what is looked at.
-export const isBinary = (text) => text.includes('\0')

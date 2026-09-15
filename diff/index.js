@@ -15,18 +15,19 @@
 // a filesystem, a terminal or a locale of its own.
 
 // A file's text becomes the records diff compares, and `lineKey` says when
-// two of them count as the same line — the whitespace and case options,
-// expressed as the string a line reduces to. The other two are the
-// decisions taken before the split: whether the file is binary at all, and
-// `--strip-trailing-cr`, which edits the text so the output shows it too.
-export { isBinary, lineKey, splitRecords, stripTrailingCr } from './src/compare.js'
+// two of them count as the same line: the whitespace and case options, as
+// the string a line reduces to under them. What a caller does to a file
+// before any of that — deciding it is binary, normalising its terminators —
+// is the caller's, and was never diff's.
+export { lineKey, splitRecords } from './src/compare.js'
 
 // The search itself. `diffLines` returns a change set — blocks of the first
 // file replaced by blocks of the second — and never returns one that does
-// not reconstruct the second file: `verifyChangeSet` is that check, exported
-// so a change set from anywhere else can be held to the same bar, and
-// `DiffError` is what both throw. `sameLines` answers "are these equal"
-// without a search.
+// not reconstruct the second file; that check is the package's guarantee
+// rather than part of its surface, so it stays behind this file, and
+// `DiffError` is what it throws. `sameLines` answers "are these equal"
+// without a search, which the search cannot do as cheaply: it interns every
+// line before it trims the common ends.
 //
 // Where a run of changed lines could sit in more than one place and mean the
 // same edit, it is settled at one of them rather than left wherever the
@@ -34,7 +35,7 @@ export { isBinary, lineKey, splitRecords, stripTrailingCr } from './src/compare.
 // is what diff does for the styles that print context lines and not what it
 // does for the normal style, so the two describe different change sets
 // wherever a run is free to move: `slide: false` asks for the other one.
-export { DiffError, diffLines, sameLines, verifyChangeSet } from './src/myers.js'
+export { DiffError, diffLines, sameLines } from './src/myers.js'
 
 // A change set rendered in diff's three output styles. The bytes are held
 // against recorded diff output in the tests, so a patch reader that takes
@@ -46,11 +47,6 @@ export { DiffError, diffLines, sameLines, verifyChangeSet } from './src/myers.js
 // same bargain the search makes: a guarantee on the data, paid for in one
 // linear pass.
 export { FormatError, formatContext, formatNormal, formatUnified } from './src/format.js'
-
-// What the two context styles are assembled from, for a caller that wants
-// the hunks rather than the text: `groupHunks` is the split into hunks,
-// `functionLine` the `-p` name a hunk falls under.
-export { functionLine, groupHunks } from './src/hunks.js'
 
 // A file name as a header prints it: bare when it can be, C-quoted when it
 // cannot.

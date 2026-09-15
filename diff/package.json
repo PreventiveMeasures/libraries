@@ -23,7 +23,6 @@
     "src/color.js",
     "src/compare.js",
     "src/format.js",
-    "src/hunks.js",
     "src/markers.js",
     "src/myers.js",
     "src/parse.js",
