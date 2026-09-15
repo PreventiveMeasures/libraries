@@ -59,10 +59,11 @@ export interface CompareOptions {
 // The whole of producing a diff, in one call. Empty when the two files
 // compare the same. `label` names each hunk the way -p does; the two label
 // lines a diff opens with are the caller's to write in front of the result.
+// 'brief' is -q: whether they differ at all, without searching for how.
 // `minimal` turns off the search's cutoff, `slide` the settling of a run
 // that could sit in more than one place.
 export function diff(a: string, b: string, options?: CompareOptions & {
-  format?: 'unified' | 'context' | 'normal'
+  format?: 'unified' | 'context' | 'normal' | 'brief'
   context?: number
   label?: ((index: number) => string | null) | null
   minimal?: boolean

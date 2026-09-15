@@ -46,6 +46,34 @@ describe('what it does with the options', () => {
   })
 })
 
+describe('brief answers whether they differ, and stops there', () => {
+  it('says nothing when they are the same', () => {
+    assert.equal(diff('a\nb\n', 'a\nb\n', { format: 'brief' }), '')
+    assert.equal(diff('', '', { format: 'brief' }), '')
+  })
+  it('says so when they are not', () => {
+    assert.equal(diff('a\nb\n', 'a\nX\n', { format: 'brief' }), 'Files differ\n')
+    assert.equal(diff('', 'a\n', { format: 'brief' }), 'Files differ\n')
+  })
+  it('names no files, having never been told any', () => {
+    // Which two they were is the caller's to say, as the label lines are.
+    assert.equal(diff('a\n', 'b\n', { format: 'brief' }), 'Files differ\n')
+  })
+  it('answers under the comparison, not under the bytes', () => {
+    assert.equal(diff('A  b\n', 'a b\n', { format: 'brief', ignoreCase: true, whitespace: 'all' }), '')
+    assert.equal(diff('A  b\n', 'a c\n', { format: 'brief', ignoreCase: true, whitespace: 'all' }), 'Files differ\n')
+    // And a trailing-newline difference is a difference, as it is to a diff.
+    assert.equal(diff('a\n', 'a', { format: 'brief' }), 'Files differ\n')
+  })
+  it('agrees with what the other formats print', () => {
+    for (const [a, b] of [['x\n', 'x\n'], ['x\n', 'y\n'], ['', 'a\n'], ['a\nb\n', 'a\n'], ['x\n', 'x']]) {
+      const differs = diff(a, b, { format: 'brief' }) !== ''
+      assert.equal(differs, diff(a, b) !== '', JSON.stringify([a, b]))
+      assert.equal(differs, diff(a, b, { format: 'normal' }) !== '', JSON.stringify([a, b]))
+    }
+  })
+})
+
 describe('two files the comparison calls the same', () => {
   it('are no diff at all, not an empty one under a header', () => {
     assert.equal(diff('a\nb\n', 'a\nb\n'), '')
