@@ -105,26 +105,26 @@ describe('rendering a change set is GNU rendering, for every style', () => {
   const blocks = diffLines(a, b)
   it('normal', () => assert.equal(formatNormal(a, b, blocks), '3c3\n< c\n---\n> X\n9c9\n< i\n---\n> Y\n'))
   it('unified merges hunks whose context would touch, and not otherwise', () => {
-    assert.equal(formatUnified(a, b, blocks, { context: 3, header: '', hunkLabel: null }), '@@ -1,10 +1,10 @@\n a\n b\n-c\n+X\n d\n e\n f\n g\n h\n-i\n+Y\n j\n')
-    assert.equal(formatUnified(a, b, blocks, { context: 1, header: '', hunkLabel: null }), '@@ -2,3 +2,3 @@\n b\n-c\n+X\n d\n@@ -8,3 +8,3 @@\n h\n-i\n+Y\n j\n')
-    assert.equal(formatUnified(a, b, blocks, { context: 0, header: '', hunkLabel: null }), '@@ -3 +3 @@\n-c\n+X\n@@ -9 +9 @@\n-i\n+Y\n')
+    assert.equal(formatUnified(a, b, blocks, { context: 3 }), '@@ -1,10 +1,10 @@\n a\n b\n-c\n+X\n d\n e\n f\n g\n h\n-i\n+Y\n j\n')
+    assert.equal(formatUnified(a, b, blocks, { context: 1 }), '@@ -2,3 +2,3 @@\n b\n-c\n+X\n d\n@@ -8,3 +8,3 @@\n h\n-i\n+Y\n j\n')
+    assert.equal(formatUnified(a, b, blocks, { context: 0 }), '@@ -3 +3 @@\n-c\n+X\n@@ -9 +9 @@\n-i\n+Y\n')
   })
   it('context marks a change with ! and leaves out a side with nothing of its own', () => {
     const ins = splitRecords('a\nb\nc\nNEW\nd\ne\nf\ng\nh\ni\nj\n')
-    assert.equal(formatContext(a, ins, diffLines(a, ins), { context: 3, header: '', hunkLabel: null }), '***************\n*** 1,6 ****\n--- 1,7 ----\n  a\n  b\n  c\n+ NEW\n  d\n  e\n  f\n')
-    assert.equal(formatContext(a, b, blocks, { context: 1, header: '', hunkLabel: null }), '***************\n*** 2,4 ****\n  b\n! c\n  d\n--- 2,4 ----\n  b\n! X\n  d\n***************\n*** 8,10 ****\n  h\n! i\n  j\n--- 8,10 ----\n  h\n! Y\n  j\n')
+    assert.equal(formatContext(a, ins, diffLines(a, ins), { context: 3 }), '***************\n*** 1,6 ****\n--- 1,7 ----\n  a\n  b\n  c\n+ NEW\n  d\n  e\n  f\n')
+    assert.equal(formatContext(a, b, blocks, { context: 1 }), '***************\n*** 2,4 ****\n  b\n! c\n  d\n--- 2,4 ----\n  b\n! X\n  d\n***************\n*** 8,10 ****\n  h\n! i\n  j\n--- 8,10 ----\n  h\n! Y\n  j\n')
   })
   it('says when a last line has no newline', () => {
     const x = splitRecords('a\n'), y = splitRecords('a')
     assert.equal(formatNormal(x, y, diffLines(x, y)), '1c1\n< a\n---\n> a\n\\ No newline at end of file\n')
-    assert.equal(formatUnified(y, x, diffLines(y, x), { context: 3, header: '', hunkLabel: null }), '@@ -1 +1 @@\n-a\n\\ No newline at end of file\n+a\n')
+    assert.equal(formatUnified(y, x, diffLines(y, x), { context: 3 }), '@@ -1 +1 @@\n-a\n\\ No newline at end of file\n+a\n')
   })
 })
 
 describe('the search stays fast', () => {
-  const budget = (label, hunkLabel, ms) => {
+  const budget = (label, run, ms) => {
     const started = hrtime.bigint()
-    hunkLabel()
+    run()
     const took = Number(hrtime.bigint() - started) / 1e6
     assert.ok(took < ms, `${label}: took ${took.toFixed(0)}ms, budget ${ms}ms`)
   }

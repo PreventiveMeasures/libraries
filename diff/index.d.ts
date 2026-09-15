@@ -28,12 +28,12 @@ export interface CompareOptions {
 
 // `context` is the number of unchanged lines around a hunk, `header` the
 // label lines the output opens with (already built, terminator included),
-// and `hunkLabel` the -p function name for a hunk starting at a given line, or
+// and `label` the -p function name for a hunk starting at a given line, or
 // null for no names at all.
 export interface FormatOptions {
   context: number
   header: string
-  hunkLabel: ((index: number) => string | null) | null
+  label: ((index: number) => string | null) | null
 }
 
 export function splitRecords(text: string): string[]
@@ -51,15 +51,13 @@ export class DiffError extends Error {
 export class FormatError extends Error {
   constructor(detail: string)
 }
-// The whole of producing a diff in one call. `header` is the two label lines
-// it opens with and `hunkLabel` what each hunk's header carries after its
-// ranges; both go to the formatter as given. Empty when the two compare the
-// same.
+// The whole of producing a diff in one call. Empty when the two files
+// compare the same; the label lines a diff opens with are the caller's to
+// write in front of what comes back.
 export function diff(a: string, b: string, options?: CompareOptions & {
   format?: 'unified' | 'context' | 'normal'
   context?: number
-  header?: string
-  hunkLabel?: ((index: number) => string | null) | null
+  label?: ((index: number) => string | null) | null
   minimal?: boolean
   slide?: boolean
 }): string
@@ -76,12 +74,12 @@ export interface HunkLine {
 }
 
 // A hunk as it stands in the diff, its lines in the order they are printed
-// and its starting lines counting from zero. `hunkLabel` is what its header
+// and its starting lines counting from zero. `label` is what its header
 // line carried after the ranges — under -p, the function it starts inside.
 export interface PatchHunk {
   oldStart: number
   newStart: number
-  hunkLabel: string | null
+  label: string | null
   lines: HunkLine[]
 }
 

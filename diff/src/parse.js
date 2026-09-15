@@ -100,7 +100,7 @@ function parseUnified(lines, at) {
   if (!head) return null
   const oldCount = head[2] === undefined ? 1 : Number(head[2])
   const newCount = head[4] === undefined ? 1 : Number(head[4])
-  const hunk = { oldStart: rangeStart(head[1], oldCount), newStart: rangeStart(head[3], newCount), hunkLabel: head[5] || null, lines: [] }
+  const hunk = { oldStart: rangeStart(head[1], oldCount), newStart: rangeStart(head[3], newCount), label: head[5] || null, lines: [] }
   let fresh = 0, i = at + 1, old = 0
   for (; old < oldCount || fresh < newCount; i++) {
     const raw = lines[i]
@@ -125,7 +125,7 @@ function parseNormal(lines, at) {
   const oldCount = letter === 'a' ? 0 : Number(e1 ?? s1) - Number(s1) + 1
   const newCount = letter === 'd' ? 0 : Number(e2 ?? s2) - Number(s2) + 1
   if (oldCount < 0 || newCount < 0) throw new PatchError('a change command counts backwards', at)
-  const hunk = { oldStart: letter === 'a' ? Number(s1) : Number(s1) - 1, newStart: letter === 'd' ? Number(s2) : Number(s2) - 1, hunkLabel: null, lines: [] }
+  const hunk = { oldStart: letter === 'a' ? Number(s1) : Number(s1) - 1, newStart: letter === 'd' ? Number(s2) : Number(s2) - 1, label: null, lines: [] }
   let i = at + 1
   const side = (count, mark, tag) => {
     for (let n = 0; n < count; n++, i++) {
@@ -167,7 +167,7 @@ function parseContext(lines, at) {
   const rhs = fresh.lines.length === 0 ? old.lines.filter((l) => l.tag === ' ') : fresh.lines
   const oldStart = contextStart(oldHead, lhs.length)
   const newStart = contextStart(newHead, rhs.length)
-  return { hunk: { oldStart, newStart, hunkLabel: fence[1] || null, lines: interleave(lhs, rhs) }, next: fresh.next }
+  return { hunk: { oldStart, newStart, label: fence[1] || null, lines: interleave(lhs, rhs) }, next: fresh.next }
 }
 
 // `*** 3,5 ****` is first and last inclusive and `*** 3 ****` one line, but

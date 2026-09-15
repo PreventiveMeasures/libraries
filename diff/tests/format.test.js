@@ -67,7 +67,7 @@ describe('what is printed is read back before it is returned', () => {
   it('passes an empty change set through, having nothing to print', () => {
     const a = splitRecords('a\n')
     assert.equal(formatNormal(a, a, []), '')
-    assert.equal(formatUnified(a, a, [], { context: 3, header: '--- x\n+++ y\n', hunkLabel: null }), '--- x\n+++ y\n')
+    assert.equal(formatUnified(a, a, [], { context: 3 }), '')
   })
 })
 
@@ -107,12 +107,12 @@ describe('rendering GNU\'s change set is GNU\'s rendering, byte for byte', () =>
         assert.equal(formatNormal(a, b, blocks), recording.stdout)
         return
       }
-      // The two label lines are the caller's to build; the rest is the
-      // formatter's, so the recording's own header goes back in.
+      // The two label lines are the caller's, written in front of what the
+      // formatter returns, so the recording's own go back there.
       const header = recording.stdout.split('\n').slice(0, 2).join('\n') + '\n'
-      const hunkLabel = recording.showFunction ? (index) => functionLine(a, index) : null
+      const label = recording.showFunction ? (index) => functionLine(a, index) : null
       const format = recording.format === 'unified' ? formatUnified : formatContext
-      assert.equal(format(a, b, blocks, { context: recording.context, header, hunkLabel }), recording.stdout)
+      assert.equal(header + format(a, b, blocks, { context: recording.context, label }), recording.stdout)
     })
   }
 })
