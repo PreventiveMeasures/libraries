@@ -49,10 +49,6 @@ export { DiffError, diffLines, sameLines } from './src/myers.js'
 // linear pass.
 export { FormatError, formatContext, formatNormal, formatUnified } from './src/format.js'
 
-// A file name as a header prints it: bare when it can be, C-quoted when it
-// cannot.
-export { quoteHeaderName } from './src/quote.js'
-
 // The other direction. `parseDiff` reads a diff back into the files it names
 // and, for each, the hunks it is written in and the change set they
 // describe; `PatchError` is what it throws at something it cannot read.

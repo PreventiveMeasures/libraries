@@ -61,7 +61,6 @@ export function formatNormal(a: string[], b: string[], blocks: Block[]): string
 export function formatUnified(a: string[], b: string[], blocks: Block[], options: FormatOptions): string
 export function formatContext(a: string[], b: string[], blocks: Block[], options: FormatOptions): string
 
-export function quoteHeaderName(name: string, options?: { byteLocale?: boolean }): string
 
 // One line of a hunk as the diff writes it: kept, removed or added.
 export interface HunkLine {

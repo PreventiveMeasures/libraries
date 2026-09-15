@@ -26,7 +26,6 @@
     "src/markers.js",
     "src/myers.js",
     "src/parse.js",
-    "src/quote.js",
     "src/slide.js"
   ],
   "engines": {
