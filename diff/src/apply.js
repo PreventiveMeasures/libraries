@@ -19,11 +19,21 @@ export function applyChangeSet(a, blocks, b = null) {
   for (const { a0, a1, b0, b1, insert } of blocks) {
     if (a0 < ai || a1 < a0 || a1 > a.length) throw new DiffError('a block is out of order or out of range')
     for (; ai < a0; ai++) out.push(a[ai])
-    const replacement = insert ?? b?.slice(b0, b1)
-    if (replacement === undefined) throw new DiffError('a block has no replacement lines, and no second file to take them from')
-    out.push(...replacement)
+    out.push(...replacement({ b0, b1, insert }, b))
     ai = a1
   }
   for (; ai < a.length; ai++) out.push(a[ai])
   return out
+}
+
+// What a block puts in: the lines it carries, when it was read out of a
+// diff, and otherwise the second file's. A block naming a range the second
+// file does not have comes from somewhere this package cannot vouch for, so
+// it is refused — `slice` would quietly clip it and hand back a plausible
+// wrong answer instead.
+function replacement({ b0, b1, insert }, b) {
+  if (insert !== undefined) return insert
+  if (b === null) throw new DiffError('a block has no replacement lines, and no second file to take them from')
+  if (!(b0 >= 0 && b1 >= b0 && b1 <= b.length)) throw new DiffError('a block is out of order or out of range')
+  return b.slice(b0, b1)
 }

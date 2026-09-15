@@ -39,9 +39,11 @@ const manifest = JSON.parse(readFileSync(new URL('package.json', DIFF_DIR), 'utf
 // but a boundary check that only covers today's syntax is one refactor from
 // being decorative). A template literal is read only after `import(` or
 // `require(`, because prose quotes a module name in backticks — this file's
-// own comments do — and `from \`b\`` in a sentence is not an import.
-const SPECIFIER_RE = /(?:\bfrom|\bimport|\brequire)\s*\(?\s*(?<quote>['"])(?<spec>[^'"]+)\k<quote>/gu
-const TEMPLATE_RE = /(?:\bimport|\brequire)\s*\(\s*`(?<spec>[^`$]+)`/gu
+// own comments do — and `from \`b\`` in a sentence is not an import. A
+// specifier never spans lines either, which is what keeps a string literal
+// ending in the word `from` from swallowing the one after it.
+const SPECIFIER_RE = /(?:\bfrom|\bimport|\brequire)\s*\(?\s*(?<quote>['"])(?<spec>[^'"\n]+)\k<quote>/gu
+const TEMPLATE_RE = /(?:\bimport|\brequire)\s*\(\s*`(?<spec>[^`$\n]+)`/gu
 
 const specifiersOf = (source) => [SPECIFIER_RE, TEMPLATE_RE].flatMap((re) => [...source.matchAll(re)].map((m) => m.groups.spec))
 

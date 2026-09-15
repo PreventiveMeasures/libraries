@@ -47,8 +47,7 @@ export function parseDiff(text) {
     const header = fileHeader(line, starred)
     starred = line.startsWith('***************') ? false : line.startsWith('*** ')
     if (header) {
-      if (header.slot === 'old' && names.old !== null && files.length === 0) names = { old: null, new: null }
-      names = { ...names, [header.slot]: header.name }
+      names = header.names ?? { ...names, [header.slot]: header.name }
       i++
       continue
     }
@@ -70,8 +69,11 @@ export function parseDiff(text) {
 // `--- a`/`+++ b` above a unified diff, `*** a`/`--- b` above a context one,
 // and the `diff --git a/x b/y` line some patches carry instead.
 function fileHeader(line, starred) {
-  const git = /^diff --git a\/(\S+) b\/(\S+)\n?$/u.exec(line)
-  if (git) return { slot: 'old', name: git[1], both: git[2] }
+  // A git header names both files at once, and names them the way the
+  // `---`/`+++` pair below it would, prefixes and all: stripping those is
+  // -p's job and -p is the applier's, not the reader's.
+  const git = /^diff --git (\S+) (\S+)\n?$/u.exec(line)
+  if (git) return { names: { old: git[1], new: git[2] } }
   if (CONTEXT_OLD.test(line) || CONTEXT_NEW.test(line)) return null
   const m = /^(\*\*\* |--- |\+\+\+ )(.*?)(?:\t.*)?\n?$/u.exec(line)
   if (!m) return null

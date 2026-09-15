@@ -121,7 +121,13 @@ describe('the header names the files, when it is there to', () => {
   })
   it('reads a git header', () => {
     const [file] = parseDiff('diff --git a/src/x.js b/src/x.js\n--- a/src/x.js\n+++ b/src/x.js\n@@ -1 +1 @@\n-a\n+b\n')
-    assert.equal(file.new, 'b/src/x.js')
+    assert.deepEqual([file.old, file.new], ['a/src/x.js', 'b/src/x.js'])
+  })
+  it('reads a git header that names both files on its own', () => {
+    // Some patches carry no `---`/`+++` pair at all, and the git line is the
+    // only thing that names the second file.
+    const [file] = parseDiff('diff --git a/old.txt b/new.txt\n@@ -1 +1 @@\n-a\n+b\n')
+    assert.deepEqual([file.old, file.new], ['a/old.txt', 'b/new.txt'])
   })
   it('leaves them null for a normal diff, which carries none', () => {
     const [file] = parseDiff('1c1\n< a\n---\n> b\n')
@@ -179,5 +185,12 @@ describe('applying a change set', () => {
   it('refuses blocks out of order or out of range', () => {
     assert.throws(() => applyChangeSet(a, [{ a0: 2, a1: 3, b0: 0, b1: 0 }, { a0: 0, a1: 1, b0: 0, b1: 0 }], b), DiffError)
     assert.throws(() => applyChangeSet(a, [{ a0: 0, a1: 9, b0: 0, b1: 0 }], b), DiffError)
+  })
+  it('refuses a replacement range the second file does not have', () => {
+    // `slice` clips a range past the end and empties a reversed one, either
+    // way handing back a plausible wrong answer rather than failing.
+    for (const range of [{ b0: 1, b1: 99 }, { b0: 2, b1: 1 }, { b0: -1, b1: 1 }]) {
+      assert.throws(() => applyChangeSet(a, [{ a0: 1, a1: 2, ...range }], b), DiffError, JSON.stringify(range))
+    }
   })
 })
