@@ -3,6 +3,7 @@ import { env } from '#env'
 import { assert } from '#assert'
 import { fetchJSON } from './fetch-json.js'
 import { ollamaOrigin, resolveOllamaTag } from './ollama.js'
+import { toWireResult } from './tool-results.js'
 import { calculateCost, effortsFor, ollamaModels, ollamaTagFor, reasoningModeFor, wireModelFor } from './models.js'
 import { anthropicAuthHeader, anthropicShape, chatCompletionsBase, parseArgs, stripNamespace, toAnthropicModel, truncationError } from './wire-formats.js'
 
@@ -482,8 +483,20 @@ export function extractToolCalls(json) {
   return provider.extractToolCalls(json)
 }
 
+// Tool results reach the wire as strings — see toWireResult, which is where one becomes a string.
+// Idempotent over a round trip through the cache: the replay stringifies what JSON.parse gave
+// back, which is the same text the live turn sent.
+//
+// Both arguments are required to be what they say. A missing `results` used to become `[]`, which
+// every adapter then indexed past the end: the model was handed a tool round with no answers in it
+// and nothing reported a thing — the same silent loss tool-results.js exists to refuse, one layer
+// below it. And a `provider` nobody selected read as a bare `Cannot read properties of undefined`,
+// which normalizeCache (a public entry point whose provider option is optional) swallows into an
+// error naming no cause.
 export function appendToolResults(messages, json, toolCalls, results) {
-  return provider.appendToolResults(messages, json, toolCalls, results)
+  assert(provider, 'No provider is selected — call setProvider() before replaying or issuing a turn')
+  assert(Array.isArray(results), `Tool results must be an array, one per call, got ${typeof results}`)
+  return provider.appendToolResults(messages, json, toolCalls, results.map(toWireResult))
 }
 
 // Build the initial user message in the format the active provider prefers. When `userContent` is a

@@ -39,6 +39,7 @@
     "src/assert.browser.js",
     "src/assert.js",
     "src/cache-history.js",
+    "src/cache-normalize.js",
     "src/cache-scan.js",
     "src/cache.js",
     "src/chat.js",
@@ -60,6 +61,7 @@
     "src/prompt-cache.js",
     "src/providers.js",
     "src/task-budget.js",
+    "src/tool-results.js",
     "src/wire-formats.js"
   ],
   "engines": {
