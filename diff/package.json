@@ -1,6 +1,6 @@
 {
   "name": "@preventive/diff",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "diff/patch library",
   "type": "module",
   "main": "./index.js",
