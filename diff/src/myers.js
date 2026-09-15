@@ -12,6 +12,8 @@
 // is never returned, whatever the search did — the guarantee is on the data,
 // not on how it was found.
 
+import { slideRuns } from './slide.js'
+
 // The heuristic cutoff every practical implementation carries: past this
 // many edit steps in one subproblem, split at the furthest point reached
 // rather than keep searching for the minimum. The result is still a valid
@@ -29,6 +31,10 @@ export function diffLines(a, b, { key = null, minimal = false } = {}) {
   const changedA = new Uint8Array(A.length)
   const changedB = new Uint8Array(B.length)
   compareSequences(A, B, changedA, changedB, minimal)
+  // Where the search left a run free to sit in more than one place, settle
+  // it, so the same edit is always described the same way.
+  slideRuns(A, changedA, changedB)
+  slideRuns(B, changedB, changedA)
   const blocks = collectBlocks(changedA, changedB)
   verifyChangeSet(a, b, blocks, key)
   return blocks
