@@ -60,8 +60,10 @@ export interface CompareOptions {
 // compare the same. `label` names each hunk the way -p does; the two label
 // lines a diff opens with are the caller's to write in front of the result.
 // 'brief' is -q: whether they differ at all, without searching for how.
-// `minimal` turns off the search's cutoff, `slide` the settling of a run
-// that could sit in more than one place.
+// `minimal` turns off the search's cutoff. `slide` settles a run that could
+// sit in more than one place, and defaults to what diff does: on where
+// context lines are printed, off for 'normal' and for a context format asked
+// for none, which is why `diff` and `-U0` agree and `-u` does not.
 export function diff(a: string, b: string, options?: CompareOptions & {
   format?: 'unified' | 'context' | 'normal' | 'brief'
   context?: number

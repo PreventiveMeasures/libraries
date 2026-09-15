@@ -46,6 +46,30 @@ describe('what it does with the options', () => {
   })
 })
 
+// diff settles a run that could sit in more than one place only where it
+// prints context lines for it to sit among, so its normal output and its -u
+// output describe different change sets — and -U0, printing no context,
+// agrees with normal rather than with -u. These are the strings GNU diff
+// 3.10 prints for one pair where a run is free: two trailing blank lines,
+// one of which goes.
+describe('a free run is settled where diff settles it, and not otherwise', () => {
+  const a = '\na\n\n\n', b = 'a\n\n'
+  for (const [name, options, expected] of [
+    ['normal prints no context, so it takes the search\'s placement', { format: 'normal' }, '1d0\n< \n3d1\n< \n'],
+    ['-U0 prints none either, and agrees with normal', { context: 0 }, '@@ -1 +0,0 @@\n-\n@@ -3 +1,0 @@\n-\n'],
+    ['-C0 likewise', { format: 'context', context: 0 }, '***************\n*** 1 ****\n- \n--- 0 ----\n***************\n*** 3 ****\n- \n--- 1 ----\n'],
+    ['-U1 prints one, and settles', { context: 1 }, '@@ -1,4 +1,2 @@\n-\n a\n \n-\n'],
+    ['-u settles', {}, '@@ -1,4 +1,2 @@\n-\n a\n \n-\n'],
+    ['-c settles', { format: 'context' }, '***************\n*** 1,4 ****\n- \n  a\n  \n- \n--- 1,2 ----\n'],
+  ]) {
+    it(name, () => assert.equal(diff(a, b, options), expected))
+  }
+  it('takes an explicit slide over the default, either way', () => {
+    assert.equal(diff(a, b, { format: 'normal', slide: true }), '1d0\n< \n4d2\n< \n')
+    assert.equal(diff(a, b, { slide: false }), '@@ -1,4 +1,2 @@\n-\n a\n-\n \n')
+  })
+})
+
 describe('brief answers whether they differ, and stops there', () => {
   it('says nothing when they are the same', () => {
     assert.equal(diff('a\nb\n', 'a\nb\n', { format: 'brief' }), '')

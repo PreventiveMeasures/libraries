@@ -35,7 +35,14 @@ function brief(a, b, compare) {
 export function diff(a, b, { format = 'unified', context = 3, label = null, ...compare } = {}) {
   if (format === 'brief') return brief(a, b, compare)
   const from = splitRecords(a), to = splitRecords(b)
-  const blocks = diffLines(from, to, compare)
+  // A run of changes that could sit in more than one place is settled only
+  // where there are context lines for it to sit among. diff does the same:
+  // the normal format prints none and takes the placement the search
+  // reached, and a context format asked for no context takes it too, which
+  // is why `diff` and `-U0` agree with each other and not with `-u`. An
+  // explicit `slide` is the caller's word and wins.
+  const { slide = format !== 'normal' && context > 0, ...comparison } = compare
+  const blocks = diffLines(from, to, { ...comparison, slide })
   // Two files the comparison calls the same have no diff.
   if (blocks.length === 0) return ''
   if (format === 'normal') return formatNormal(from, to, blocks)
