@@ -39,11 +39,15 @@ function costLimit(total) {
 export function diffLines(a, b, { ignoreCase = false, whitespace = 'none', minimal = false, slide = true } = {}) {
   const key = lineComparisonKey({ ignoreCase, whitespace })
   // Two files that are the same have no change set, and finding that out
-  // should not cost a pass of interning. The search does trim what the two
-  // share at each end, but not before every line has been through the map,
-  // so the cheap answer is taken here rather than left for a caller to know
-  // to ask for.
-  if (sameLines(a, b, key)) return []
+  // should not cost a pass of interning: the search trims what the two share
+  // at each end, but not before every line has been through the map.
+  //
+  // Only worth asking when the comparison is free, though. Under -i or the
+  // whitespace options this scan puts each line through the same work
+  // interning would, so two files that differ late would pay for it twice.
+  // Those go straight to the search, where the trim finds the same thing
+  // once the lines are numbers.
+  if (key === null && sameLines(a, b, null)) return []
   const { A, B } = intern(a, b, key)
   const changedA = new Uint8Array(A.length)
   const changedB = new Uint8Array(B.length)
