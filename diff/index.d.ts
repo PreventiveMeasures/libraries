@@ -51,6 +51,17 @@ export class DiffError extends Error {
 export class FormatError extends Error {
   constructor(detail: string)
 }
+// The whole of producing a diff in one call: `header` and `fn` are the
+// formatter's, passed through. Empty string when the two compare the same.
+export function diff(a: string, b: string, options?: CompareOptions & {
+  format?: 'unified' | 'context' | 'normal'
+  context?: number
+  header?: string
+  fn?: ((index: number) => string | null) | null
+  minimal?: boolean
+  slide?: boolean
+}): string
+
 export function formatNormal(a: string[], b: string[], blocks: Block[]): string
 export function formatUnified(a: string[], b: string[], blocks: Block[], options: FormatOptions): string
 export function formatContext(a: string[], b: string[], blocks: Block[], options: FormatOptions): string
@@ -83,7 +94,7 @@ export interface ParsedBlock extends Block {
 export interface ParsedFile {
   old: string | null
   new: string | null
-  style: 'unified' | 'context' | 'normal'
+  format: 'unified' | 'context' | 'normal'
   hunks: PatchHunk[]
   blocks: ParsedBlock[]
 }

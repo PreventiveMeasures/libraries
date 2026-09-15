@@ -14,6 +14,12 @@
 // back out (self-contained.test.js enforces it), and nothing that assumes
 // a filesystem, a terminal or a locale of its own.
 
+// Two files in, the diff between them out. What a caller wanting the text
+// and not the parts needs, and the only call it needs; `header` and `fn` go
+// straight to the formatter, so nothing below is out of its reach but the
+// change set itself.
+export { diff } from './src/diff.js'
+
 // A file's text becomes the records diff compares: one line each, its
 // terminator kept, because a last line without one is a different line from
 // a complete one and that is the whole of how a diff says so. What a caller

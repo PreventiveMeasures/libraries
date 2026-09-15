@@ -87,9 +87,9 @@ describe('what is printed is read back, on thousands of diffs', () => {
   }
 })
 
-describe("diff's own output reads back the same, whatever style it is in", () => {
+describe("diff's own output reads back the same, whatever format it is in", () => {
   // The same recordings format.test.js renders against, read the other way:
-  // every style a pair was recorded in has to yield that pair's change set.
+  // every format a pair was recorded in has to yield that pair's change set.
   const byPair = new Map()
   for (const recording of RECORDINGS) {
     const [a, b] = recording.names.map((name) => splitRecords(FILES[name]))
@@ -97,7 +97,7 @@ describe("diff's own output reads back the same, whatever style it is in", () =>
       const files = parseDiff(recording.stdout)
       assert.equal(files.length, 1)
       const { blocks } = files[0]
-      assert.equal(files[0].style, recording.style)
+      assert.equal(files[0].format, recording.format)
       assert.deepEqual(applyChangeSet(a, blocks), b, 'the lines the diff carries rebuild the second file')
       const seen = byPair.get(recording.names.join(' '))
       if (seen) assert.deepEqual(positions(blocks), seen, `differs from what ${recording.command} read back`)
@@ -109,11 +109,11 @@ describe("diff's own output reads back the same, whatever style it is in", () =>
 describe('the header names the files, when it is there to', () => {
   it('reads a unified header', () => {
     const [file] = parseDiff('--- old.txt\n+++ new.txt\n@@ -1 +1 @@\n-a\n+b\n')
-    assert.deepEqual([file.old, file.new, file.style], ['old.txt', 'new.txt', 'unified'])
+    assert.deepEqual([file.old, file.new, file.format], ['old.txt', 'new.txt', 'unified'])
   })
   it('reads a context header, and does not take the range lines for it', () => {
     const [file] = parseDiff('*** old.txt\n--- new.txt\n***************\n*** 1 ****\n! a\n--- 1 ----\n! b\n')
-    assert.deepEqual([file.old, file.new, file.style], ['old.txt', 'new.txt', 'context'])
+    assert.deepEqual([file.old, file.new, file.format], ['old.txt', 'new.txt', 'context'])
   })
   it('drops a trailing timestamp, which is not part of the name', () => {
     const [file] = parseDiff('--- old.txt\t2026-09-15 00:00:00\n+++ new.txt\t2026-09-15 00:00:01\n@@ -1 +1 @@\n-a\n+b\n')
@@ -131,7 +131,7 @@ describe('the header names the files, when it is there to', () => {
   })
   it('leaves them null for a normal diff, which carries none', () => {
     const [file] = parseDiff('1c1\n< a\n---\n> b\n')
-    assert.deepEqual([file.old, file.new, file.style], [null, null, 'normal'])
+    assert.deepEqual([file.old, file.new, file.format], [null, null, 'normal'])
   })
   it('reads a patch that covers several files', () => {
     const files = parseDiff('--- a1\n+++ b1\n@@ -1 +1 @@\n-a\n+b\n--- a2\n+++ b2\n@@ -1 +1 @@\n-c\n+d\n')

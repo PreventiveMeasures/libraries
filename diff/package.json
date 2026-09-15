@@ -22,6 +22,7 @@
     "src/color.d.ts",
     "src/color.js",
     "src/compare.js",
+    "src/diff.js",
     "src/format.js",
     "src/markers.js",
     "src/myers.js",

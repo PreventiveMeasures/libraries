@@ -46,16 +46,16 @@ export function parseDiff(text) {
       i++
       continue
     }
-    const style = UNIFIED_HUNK.test(line) ? 'unified' : CONTEXT_FENCE.test(line) ? 'context' : NORMAL_COMMAND.test(line) ? 'normal' : null
-    if (style === null) { i++; continue }
+    const format = UNIFIED_HUNK.test(line) ? 'unified' : CONTEXT_FENCE.test(line) ? 'context' : NORMAL_COMMAND.test(line) ? 'normal' : null
+    if (format === null) { i++; continue }
     const hunks = []
-    const read = READERS[style]
+    const read = READERS[format]
     for (let hunk = read(lines, i); hunk !== null; hunk = read(lines, i)) {
       hunks.push(hunk.hunk)
       i = hunk.next
       if (i >= lines.length || fileHeader(lines[i], false)) break
     }
-    files.push({ old: names.old, new: names.new, style, hunks, blocks: blocksOf(hunks) })
+    files.push({ old: names.old, new: names.new, format, hunks, blocks: blocksOf(hunks) })
     names = { old: null, new: null }
   }
   return files
