@@ -1,0 +1,52 @@
+{
+  "name": "@preventive/diff",
+  "version": "0.0.0",
+  "description": "GNU-compatible line diff: the change set, and the three output styles",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./color.js": {
+      "types": "./src/color.d.ts",
+      "default": "./src/color.js"
+    }
+  },
+  "files": [
+    "index.d.ts",
+    "index.js",
+    "src/color.d.ts",
+    "src/color.js",
+    "src/compare.js",
+    "src/format.js",
+    "src/hunks.js",
+    "src/myers.js",
+    "src/quote.js"
+  ],
+  "engines": {
+    "node": ">=24.14.0"
+  },
+  "scripts": {
+    "test": "node --test --test-isolation=none ./tests/*.test.js"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Nikita Skovoroda",
+    "email": "chalkerx@gmail.com",
+    "url": "https://github.com/ChALkeR"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PreventiveMeasures/libraries.git"
+  },
+  "bugs": {
+    "url": "https://github.com/PreventiveMeasures/libraries/issues"
+  },
+  "homepage": "https://github.com/PreventiveMeasures/libraries/tree/main/diff",
+  "publishConfig": {
+    "access": "public"
+  }
+}

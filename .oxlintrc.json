@@ -77,7 +77,8 @@
   "overrides": [
     {
       "files": [
-        "ai/tests/**"
+        "ai/tests/**",
+        "diff/tests/**"
       ],
       "rules": {
         "max-lines-per-function": "off",
