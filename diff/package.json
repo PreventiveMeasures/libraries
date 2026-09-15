@@ -1,7 +1,7 @@
 {
   "name": "@preventive/diff",
   "version": "0.0.0",
-  "description": "GNU-compatible line diff: the change set, and the three output styles",
+  "description": "diff/patch library",
   "type": "module",
   "main": "./index.js",
   "types": "./index.d.ts",
