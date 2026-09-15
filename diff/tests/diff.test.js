@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { applyChangeSet } from '../src/apply.js'
 import { diff } from '../src/diff.js'
+import { parseDiff } from '../src/parse.js'
 import { FILES, RECORDINGS } from './fixtures/gnu-diff.js'
 
 // The one call, held to the same recordings the pieces are: whatever the
@@ -50,4 +52,24 @@ describe('two files the comparison calls the same', () => {
     assert.equal(diff('', ''), '')
     assert.equal(diff('a  b\n', 'a b\n', { whitespace: 'all' }), '')
   })
+})
+
+// The three public calls are one circle: what diff says of two files, read
+// back and carried out over the first, is the second.
+describe('a diff describes what it takes to get from one file to the other', () => {
+  for (const [name, a, b] of [
+    ['a change, a deletion and an insertion', 'one\ntwo\nthree\nfour\n', 'one\nTWO\nfour\nfive\n'],
+    ['a file that starts empty', '', 'added\n'],
+    ['a file that ends empty', 'gone\n', ''],
+    ['a last line that loses its terminator', 'x\n', 'x'],
+    ['a last line that gains one', 'x', 'x\n'],
+    ['blank lines around the change', 'a\n\n\nb\n', 'a\n\nc\n\nb\n'],
+  ]) {
+    for (const format of ['unified', 'context', 'normal']) {
+      it(`${name}, in ${format}`, () => {
+        const text = diff(a, b, { format })
+        assert.equal(applyChangeSet(a, parseDiff(text)[0].blocks), b)
+      })
+    }
+  }
 })

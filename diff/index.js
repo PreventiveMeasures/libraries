@@ -14,56 +14,24 @@
 // back out (self-contained.test.js enforces it), and nothing that assumes
 // a filesystem, a terminal or a locale of its own.
 
-// Two files in, the diff between them out. What a caller wanting the text
-// and not the parts needs, and the only call it needs; `label` goes
-// straight to the formatter, so nothing below is out of its reach but the
-// change set itself.
+// Two files in, the diff between them out — the one call for the thing this
+// package is named after. `label` names each hunk the way -p does, if a
+// caller wants that; the two label lines a diff opens with are the caller's
+// to write in front of what comes back, which is what lets everything
+// returned here be read back.
 export { diff } from './src/diff.js'
 
-// A file's text becomes the records diff compares: one line each, its
-// terminator kept, because a last line without one is a different line from
-// a complete one and that is the whole of how a diff says so. What a caller
-// does to a file before that — deciding it is binary, normalising its
-// terminators — is the caller's, and was never diff's.
-export { splitRecords } from './src/compare.js'
-
-// The search itself. `diffLines` returns a change set — blocks of the first
-// file replaced by blocks of the second — and never returns one that does
-// not reconstruct the second file; that check is the package's guarantee
-// rather than part of its surface, so it stays behind this file, and
-// `DiffError` is what it throws. Two files that are the same come back as an
-// empty change set without the search being run at all, so asking is cheap
-// and there is nothing separate to ask.
-//
-// Where a run of changed lines could sit in more than one place and mean the
-// same edit, it is settled at one of them rather than left wherever the
-// search happened to stop, so the same edit always prints the same way. That
-// is what diff does for the styles that print context lines and not what it
-// does for the normal style, so the two describe different change sets
-// wherever a run is free to move: `slide: false` asks for the other one.
-export { DiffError, diffLines } from './src/myers.js'
-
-// A change set rendered in diff's three output styles. The bytes are held
-// against recorded diff output in the tests, so a patch reader that takes
-// one takes these. What they return is hunks and nothing else: the two label
-// lines naming the files are the caller's to write in front, which is what
-// keeps everything returned here readable back.
-//
-// Each of them reads what it printed back before returning it, and throws
-// `FormatError` if it does not say what the change set says. That is the
-// same bargain the search makes: a guarantee on the data, paid for in one
-// linear pass.
-export { FormatError, formatContext, formatNormal, formatUnified } from './src/format.js'
-
-// The other direction. `parseDiff` reads a diff back into the files it names
-// and, for each, the hunks it is written in and the change set they
-// describe; `PatchError` is what it throws at something it cannot read.
-// Every style this package prints, it reads.
-export { PatchError, parseDiff } from './src/parse.js'
-
-// A change set carried out: the lines between the blocks kept, each block's
-// replacement put where its old lines were. Positions are exact — locating a
-// hunk in a file that has moved on is patch's problem, and not this. The
-// replacement comes from `b`, or from the block itself when it was read out
-// of a diff and carries its own.
+// The other direction. `parseDiff` reads a diff — any of the three formats,
+// at any width — into the files it names and, for each, the hunks it is
+// written in and the change set they describe. `applyChangeSet` carries one
+// of those out over a file, which is what the diff was a description of.
+export { parseDiff } from './src/parse.js'
 export { applyChangeSet } from './src/apply.js'
+
+// What each half throws when it cannot do its job: the search, when its
+// change set would not rebuild the second file; the formatters, when what
+// they printed does not say what they were given; the reader, when a diff
+// cannot be read. None should happen, and each says which promise broke.
+export { DiffError } from './src/myers.js'
+export { FormatError } from './src/format.js'
+export { PatchError } from './src/parse.js'

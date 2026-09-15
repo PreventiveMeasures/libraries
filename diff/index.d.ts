@@ -9,14 +9,44 @@
 // so a change to an exported signature belongs in the same commit as the
 // change here.
 
-// One block of a change set: `a[a0..a1)` is replaced by `b[b0..b1)`. Either
-// side may be empty — an insertion or a deletion — never both, and the
-// blocks of a change set are disjoint and in order.
+// One block of a change set: `a[a0..a1)` is replaced by `b[b0..b1)`, counting
+// lines from zero. Either side may be empty — an insertion or a deletion —
+// never both, and the blocks of a change set are disjoint and in order. A
+// block read out of a diff also holds the lines it names, since a diff is
+// the only place those exist.
 export interface Block {
   a0: number
   a1: number
   b0: number
   b1: number
+  remove: string[]
+  insert: string[]
+}
+
+// One line of a hunk as the diff writes it: kept, removed or added.
+export interface HunkLine {
+  tag: ' ' | '-' | '+'
+  text: string
+}
+
+// A hunk as it stands in the diff, its lines in the order they are printed
+// and its starting lines counting from zero. `label` is what its header line
+// carried after the ranges — under -p, the function it starts inside.
+export interface Hunk {
+  oldStart: number
+  newStart: number
+  label: string | null
+  lines: HunkLine[]
+}
+
+// One file's worth of diff. `old` and `new` are the names its header gave,
+// null when it carried none.
+export interface ParsedFile {
+  old: string | null
+  new: string | null
+  format: 'unified' | 'context' | 'normal'
+  hunks: Hunk[]
+  blocks: Block[]
 }
 
 // How two lines are compared. `whitespace` is diff's four settings: 'none',
@@ -26,34 +56,11 @@ export interface CompareOptions {
   whitespace?: 'none' | 'all' | 'change' | 'trailing'
 }
 
-// `context` is the number of unchanged lines around a hunk, `header` the
-// label lines the output opens with (already built, terminator included),
-// and `label` the -p function name for a hunk starting at a given line, or
-// null for no names at all.
-export interface FormatOptions {
-  context: number
-  header: string
-  label: ((index: number) => string | null) | null
-}
-
-export function splitRecords(text: string): string[]
-
-// `slide` settles a run of changed lines that could sit in more than one
-// place. It is what diff does for the styles that print context lines, and
-// not what it does for the normal style; default true.
-export function diffLines(a: string[], b: string[], options?: CompareOptions & { minimal?: boolean, slide?: boolean }): Block[]
-export class DiffError extends Error {
-  constructor(detail: string)
-}
-
-// Each of these reads its own output back before returning it, and throws
-// FormatError when the text does not describe the change set it was given.
-export class FormatError extends Error {
-  constructor(detail: string)
-}
-// The whole of producing a diff in one call. Empty when the two files
-// compare the same; the label lines a diff opens with are the caller's to
-// write in front of what comes back.
+// The whole of producing a diff, in one call. Empty when the two files
+// compare the same. `label` names each hunk the way -p does; the two label
+// lines a diff opens with are the caller's to write in front of the result.
+// `minimal` turns off the search's cutoff, `slide` the settling of a run
+// that could sit in more than one place.
 export function diff(a: string, b: string, options?: CompareOptions & {
   format?: 'unified' | 'context' | 'normal'
   context?: number
@@ -62,50 +69,25 @@ export function diff(a: string, b: string, options?: CompareOptions & {
   slide?: boolean
 }): string
 
-export function formatNormal(a: string[], b: string[], blocks: Block[]): string
-export function formatUnified(a: string[], b: string[], blocks: Block[], options: FormatOptions): string
-export function formatContext(a: string[], b: string[], blocks: Block[], options: FormatOptions): string
-
-
-// One line of a hunk as the diff writes it: kept, removed or added.
-export interface HunkLine {
-  tag: ' ' | '-' | '+'
-  text: string
-}
-
-// A hunk as it stands in the diff, its lines in the order they are printed
-// and its starting lines counting from zero. `label` is what its header
-// line carried after the ranges — under -p, the function it starts inside.
-export interface PatchHunk {
-  oldStart: number
-  newStart: number
-  label: string | null
-  lines: HunkLine[]
-}
-
-// A block read out of a diff also holds the lines it names, since the diff
-// is the only place they exist.
-export interface ParsedBlock extends Block {
-  remove: string[]
-  insert: string[]
-}
-
-// One file's worth of diff. `old` and `new` are the names its header gave,
-// null when it carried none.
-export interface ParsedFile {
-  old: string | null
-  new: string | null
-  format: 'unified' | 'context' | 'normal'
-  hunks: PatchHunk[]
-  blocks: ParsedBlock[]
-}
-
+// A diff read back into the files it names and what it says about each.
 export function parseDiff(text: string): ParsedFile[]
+
+// A change set carried out over the file it was computed against. The blocks
+// carry the lines they insert, which is what a diff records.
+export function applyChangeSet(text: string, blocks: Block[]): string
+
+// Thrown when the search's change set would not rebuild the second file.
+export class DiffError extends Error {
+  constructor(detail: string)
+}
+
+// Thrown when what a formatter printed does not say what it was given.
+export class FormatError extends Error {
+  constructor(detail: string)
+}
+
+// Thrown at a diff that cannot be read; `line` counts from zero.
 export class PatchError extends Error {
   constructor(detail: string, line?: number)
   line: number | undefined
 }
-
-// `b` supplies each block's replacement lines; a block that carries its own
-// (one read out of a diff) uses those, and then `b` is not needed.
-export function applyChangeSet(a: string[], blocks: Block[] | ParsedBlock[], b?: string[] | null): string[]
