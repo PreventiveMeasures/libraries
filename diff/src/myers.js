@@ -26,15 +26,21 @@ function costLimit(total) {
 
 // `key` maps a line to what it is compared by (case folded, whitespace
 // squeezed, …); lines with equal keys are equal. Identity when omitted.
-export function diffLines(a, b, { key = null, minimal = false } = {}) {
+// `slide` settles a run that could sit in more than one place (slide.js).
+// It is what diff does for the output styles that print context lines, and
+// not what it does for the normal style, which prints the placement the
+// search itself reached — so the two styles describe different change sets
+// wherever a run is free to move, and a caller rendering normal output asks
+// for `slide: false`.
+export function diffLines(a, b, { key = null, minimal = false, slide = true } = {}) {
   const { A, B } = intern(a, b, key)
   const changedA = new Uint8Array(A.length)
   const changedB = new Uint8Array(B.length)
   compareSequences(A, B, changedA, changedB, minimal)
-  // Where the search left a run free to sit in more than one place, settle
-  // it, so the same edit is always described the same way.
-  slideRuns(A, changedA, changedB)
-  slideRuns(B, changedB, changedA)
+  if (slide) {
+    slideRuns(A, changedA, changedB)
+    slideRuns(B, changedB, changedA)
+  }
   const blocks = collectBlocks(changedA, changedB)
   verifyChangeSet(a, b, blocks, key)
   return blocks

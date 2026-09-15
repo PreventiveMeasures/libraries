@@ -54,7 +54,10 @@ export function lineKey(options?: CompareOptions): LineKey
 export function splitRecords(text: string): string[]
 export function stripTrailingCr(text: string): string
 
-export function diffLines(a: string[], b: string[], options?: { key?: LineKey, minimal?: boolean }): Block[]
+// `slide` settles a run of changed lines that could sit in more than one
+// place. It is what diff does for the styles that print context lines, and
+// not what it does for the normal style; default true.
+export function diffLines(a: string[], b: string[], options?: { key?: LineKey, minimal?: boolean, slide?: boolean }): Block[]
 export function sameLines(a: string[], b: string[], key?: LineKey): boolean
 // Throws DiffError unless applying `blocks` to `a` yields `b`.
 export function verifyChangeSet(a: string[], b: string[], blocks: Block[], key?: LineKey): void

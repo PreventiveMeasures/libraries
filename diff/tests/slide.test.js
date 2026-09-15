@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { splitRecords } from '../src/compare.js'
-import { formatNormal } from '../src/format.js'
+import { formatNormal, formatUnified } from '../src/format.js'
 import { diffLines } from '../src/myers.js'
 import { slideRuns } from '../src/slide.js'
 
@@ -80,6 +80,33 @@ describe('a run of changes is placed where GNU places it', () => {
       assert.equal(formatNormal(x, y, diffLines(x, y)), expected)
     })
   }
+})
+
+// diff itself only settles runs for the styles that print context lines, so
+// its normal output and its `-u` output describe different change sets
+// wherever a run is free to move. Neither is wrong and both are reproduced,
+// from the same pair, by asking for the placement the style calls for.
+describe('the placement each output style calls for', () => {
+  // Blank lines are ordinary lines to diff, and because they repeat they are
+  // where a free run turns up most in real code: here either of the two
+  // trailing blanks can go.
+  const a = splitRecords('\na\n\n\n'), b = splitRecords('a\n\n')
+  it('normal prints the placement the search reached', () => {
+    assert.equal(formatNormal(a, b, diffLines(a, b, { slide: false })), '1d0\n< \n3d1\n< \n')
+  })
+  it('unified prints the settled one', () => {
+    assert.equal(formatUnified(a, b, diffLines(a, b), { context: 3, header: '', fn: null }), '@@ -1,4 +1,2 @@\n-\n a\n \n-\n')
+  })
+  it('settling is the default, since the context styles are what a diff is read in', () => {
+    assert.deepEqual(diffLines(a, b), diffLines(a, b, { slide: true }))
+    assert.notDeepEqual(diffLines(a, b), diffLines(a, b, { slide: false }))
+  })
+  it('leaves a run that was never free alone either way', () => {
+    // Both blanks have to go, so there is nothing to settle.
+    const x = splitRecords('\na\n\n'), y = splitRecords('a\n')
+    assert.deepEqual(diffLines(x, y, { slide: false }), diffLines(x, y))
+    assert.equal(formatNormal(x, y, diffLines(x, y)), '1d0\n< \n3d1\n< \n')
+  })
 })
 
 // A small seeded generator (a 32-bit LCG), so a failing case can be replayed.
