@@ -26,10 +26,6 @@ export interface CompareOptions {
   whitespace?: 'none' | 'all' | 'change' | 'trailing'
 }
 
-// What a line is compared by — the string two lines share when they count as
-// the same line. null is identity: compare records as they are.
-export type LineComparisonKey = ((line: string) => string) | null
-
 // `context` is the number of unchanged lines around a hunk, `header` the
 // label lines the output opens with (already built, terminator included),
 // and `fn` the -p function name for a hunk starting at a given line, or
@@ -40,14 +36,12 @@ export interface FormatOptions {
   fn: ((index: number) => string | null) | null
 }
 
-export function lineComparisonKey(options?: CompareOptions): LineComparisonKey
 export function splitRecords(text: string): string[]
 
 // `slide` settles a run of changed lines that could sit in more than one
 // place. It is what diff does for the styles that print context lines, and
 // not what it does for the normal style; default true.
-export function diffLines(a: string[], b: string[], options?: { key?: LineComparisonKey, minimal?: boolean, slide?: boolean }): Block[]
-export function sameLines(a: string[], b: string[], key?: LineComparisonKey): boolean
+export function diffLines(a: string[], b: string[], options?: CompareOptions & { minimal?: boolean, slide?: boolean }): Block[]
 export class DiffError extends Error {
   constructor(detail: string)
 }

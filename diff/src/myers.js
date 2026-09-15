@@ -12,6 +12,7 @@
 // is never returned, whatever the search did — the guarantee is on the data,
 // not on how it was found.
 
+import { lineComparisonKey } from './compare.js'
 import { slideRuns } from './slide.js'
 
 // The heuristic cutoff every practical implementation carries: past this
@@ -24,15 +25,25 @@ function costLimit(total) {
   return Math.max(256, limit)
 }
 
-// `key` maps a line to what it is compared by (case folded, whitespace
-// squeezed, …); lines with equal keys are equal. Identity when omitted.
+// `ignoreCase` and `whitespace` are diff's comparison options — -i, and
+// -w / -b / -Z as 'all' / 'change' / 'trailing' — which decide when two
+// lines count as the same line. What they come to is a function mapping a
+// line to the string it is compared by, and that stays inside: a caller
+// says what it wants compared, not how to compare it.
 // `slide` settles a run that could sit in more than one place (slide.js).
 // It is what diff does for the output styles that print context lines, and
 // not what it does for the normal style, which prints the placement the
 // search itself reached — so the two styles describe different change sets
 // wherever a run is free to move, and a caller rendering normal output asks
 // for `slide: false`.
-export function diffLines(a, b, { key = null, minimal = false, slide = true } = {}) {
+export function diffLines(a, b, { ignoreCase = false, whitespace = 'none', minimal = false, slide = true } = {}) {
+  const key = lineComparisonKey({ ignoreCase, whitespace })
+  // Two files that are the same have no change set, and finding that out
+  // should not cost a pass of interning. The search does trim what the two
+  // share at each end, but not before every line has been through the map,
+  // so the cheap answer is taken here rather than left for a caller to know
+  // to ask for.
+  if (sameLines(a, b, key)) return []
   const { A, B } = intern(a, b, key)
   const changedA = new Uint8Array(A.length)
   const changedB = new Uint8Array(B.length)
@@ -47,6 +58,8 @@ export function diffLines(a, b, { key = null, minimal = false, slide = true } = 
 }
 
 // Whether two line arrays are equal under the comparison, without a search.
+// Not exported: `diffLines` asks it first, so a caller gets the cheap answer
+// by calling the one function, which is where that belongs.
 export function sameLines(a, b, key = null) {
   if (a.length !== b.length) return false
   const equal = key ? (x, y) => key(x) === key(y) : (x, y) => x === y

@@ -59,13 +59,14 @@ describe('diffLines returns a shortest change set that reconstructs the second i
   })
 
   it('compares under a key and verifies under the same key', () => {
-    const key = lineComparisonKey({ ignoreCase: true, whitespace: 'all' })
+    const loose = { ignoreCase: true, whitespace: 'all' }
+    const key = lineComparisonKey(loose)
     const a = splitRecords('Hello World\nsame\n'), b = splitRecords('hello   world\nsame\n')
-    assert.deepEqual(diffLines(a, b, { key }), [])
+    assert.deepEqual(diffLines(a, b, loose), [])
     assert.ok(sameLines(a, b, key))
     assert.ok(!sameLines(a, b))
     const c = splitRecords('hello world\nchanged\n')
-    assert.deepEqual(diffLines(a, c, { key }), [{ a0: 1, a1: 2, b0: 1, b1: 2 }])
+    assert.deepEqual(diffLines(a, c, loose), [{ a0: 1, a1: 2, b0: 1, b1: 2 }])
   })
 
   it('past the cost limit still returns a change set that reconstructs the input', () => {

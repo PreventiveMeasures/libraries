@@ -14,21 +14,20 @@
 // back out (self-contained.test.js enforces it), and nothing that assumes
 // a filesystem, a terminal or a locale of its own.
 
-// A file's text becomes the records diff compares, and `lineComparisonKey`
-// turns diff's comparison options into the one thing the search knows about
-// them: the string a line reduces to, equal for two lines that count as the
-// same line. What a caller does to a file before any of that — deciding it
-// is binary, normalising its terminators — is the caller's, and was never
-// diff's.
-export { lineComparisonKey, splitRecords } from './src/compare.js'
+// A file's text becomes the records diff compares: one line each, its
+// terminator kept, because a last line without one is a different line from
+// a complete one and that is the whole of how a diff says so. What a caller
+// does to a file before that — deciding it is binary, normalising its
+// terminators — is the caller's, and was never diff's.
+export { splitRecords } from './src/compare.js'
 
 // The search itself. `diffLines` returns a change set — blocks of the first
 // file replaced by blocks of the second — and never returns one that does
 // not reconstruct the second file; that check is the package's guarantee
 // rather than part of its surface, so it stays behind this file, and
-// `DiffError` is what it throws. `sameLines` answers "are these equal"
-// without a search, which the search cannot do as cheaply: it interns every
-// line before it trims the common ends.
+// `DiffError` is what it throws. Two files that are the same come back as an
+// empty change set without the search being run at all, so asking is cheap
+// and there is nothing separate to ask.
 //
 // Where a run of changed lines could sit in more than one place and mean the
 // same edit, it is settled at one of them rather than left wherever the
@@ -36,7 +35,7 @@ export { lineComparisonKey, splitRecords } from './src/compare.js'
 // is what diff does for the styles that print context lines and not what it
 // does for the normal style, so the two describe different change sets
 // wherever a run is free to move: `slide: false` asks for the other one.
-export { DiffError, diffLines, sameLines } from './src/myers.js'
+export { DiffError, diffLines } from './src/myers.js'
 
 // A change set rendered in diff's three output styles. The bytes are held
 // against recorded diff output in the tests, so a patch reader that takes
