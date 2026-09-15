@@ -11,9 +11,10 @@
 // the search points into the second file, so `b` supplies them; one read out
 // of a diff carries its own, since the diff is the only place they exist.
 
+import { splitRecords } from './compare.js'
 import { DiffError } from './myers.js'
 
-export function applyChangeSet(a, blocks, b = null) {
+export function applyRecords(a, blocks, b = null) {
   const out = []
   let ai = 0
   for (const { a0, a1, b0, b1, insert } of blocks) {
@@ -37,3 +38,9 @@ function replacement({ b0, b1, insert }, b) {
   if (!(b0 >= 0 && b1 >= b0 && b1 <= b.length)) throw new DiffError('a block is out of order or out of range')
   return b.slice(b0, b1)
 }
+
+// The same over text, which is what a caller holds: a file and a change set
+// read out of a diff, and the file that diff turns it into. Blocks from
+// `parseDiff` carry the lines they insert, so there is no second file to
+// pass and none to ask for.
+export const applyChangeSet = (text, blocks) => applyRecords(splitRecords(text), blocks).join('')

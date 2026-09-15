@@ -14,57 +14,24 @@
 // back out (self-contained.test.js enforces it), and nothing that assumes
 // a filesystem, a terminal or a locale of its own.
 
-// A file's text becomes the records diff compares, and `lineKey` says when
-// two of them count as the same line — the whitespace and case options,
-// expressed as the string a line reduces to. The other two are the
-// decisions taken before the split: whether the file is binary at all, and
-// `--strip-trailing-cr`, which edits the text so the output shows it too.
-export { isBinary, lineKey, splitRecords, stripTrailingCr } from './src/compare.js'
+// Two files in, the diff between them out — the one call for the thing this
+// package is named after. `label` names each hunk the way -p does, if a
+// caller wants that; the two label lines a diff opens with are the caller's
+// to write in front of what comes back, which is what lets everything
+// returned here be read back.
+export { diff } from './src/diff.js'
 
-// The search itself. `diffLines` returns a change set — blocks of the first
-// file replaced by blocks of the second — and never returns one that does
-// not reconstruct the second file: `verifyChangeSet` is that check, exported
-// so a change set from anywhere else can be held to the same bar, and
-// `DiffError` is what both throw. `sameLines` answers "are these equal"
-// without a search.
-//
-// Where a run of changed lines could sit in more than one place and mean the
-// same edit, it is settled at one of them rather than left wherever the
-// search happened to stop, so the same edit always prints the same way. That
-// is what diff does for the styles that print context lines and not what it
-// does for the normal style, so the two describe different change sets
-// wherever a run is free to move: `slide: false` asks for the other one.
-export { DiffError, diffLines, sameLines, verifyChangeSet } from './src/myers.js'
-
-// A change set rendered in diff's three output styles. The bytes are held
-// against recorded diff output in the tests, so a patch reader that takes
-// one takes these. The header lines are the caller's to build — they are
-// what names the two files — and `fn` supplies the `-p` function name.
-//
-// Each of them reads what it printed back before returning it, and throws
-// `FormatError` if it does not say what the change set says. That is the
-// same bargain the search makes: a guarantee on the data, paid for in one
-// linear pass.
-export { FormatError, formatContext, formatNormal, formatUnified } from './src/format.js'
-
-// What the two context styles are assembled from, for a caller that wants
-// the hunks rather than the text: `groupHunks` is the split into hunks,
-// `functionLine` the `-p` name a hunk falls under.
-export { functionLine, groupHunks } from './src/hunks.js'
-
-// A file name as a header prints it: bare when it can be, C-quoted when it
-// cannot.
-export { quoteHeaderName } from './src/quote.js'
-
-// The other direction. `parseDiff` reads a diff back into the files it names
-// and, for each, the hunks it is written in and the change set they
-// describe; `PatchError` is what it throws at something it cannot read.
-// Every style this package prints, it reads.
-export { PatchError, parseDiff } from './src/parse.js'
-
-// A change set carried out: the lines between the blocks kept, each block's
-// replacement put where its old lines were. Positions are exact — locating a
-// hunk in a file that has moved on is patch's problem, and not this. The
-// replacement comes from `b`, or from the block itself when it was read out
-// of a diff and carries its own.
+// The other direction. `parseDiff` reads a diff — any of the three formats,
+// at any width — into the files it names and, for each, the hunks it is
+// written in and the change set they describe. `applyChangeSet` carries one
+// of those out over a file, which is what the diff was a description of.
+export { parseDiff } from './src/parse.js'
 export { applyChangeSet } from './src/apply.js'
+
+// What each half throws when it cannot do its job: the search, when its
+// change set would not rebuild the second file; the formatters, when what
+// they printed does not say what they were given; the reader, when a diff
+// cannot be read. None should happen, and each says which promise broke.
+export { DiffError } from './src/myers.js'
+export { FormatError } from './src/format.js'
+export { PatchError } from './src/parse.js'

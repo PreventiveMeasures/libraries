@@ -95,7 +95,7 @@ describe('the placement each output style calls for', () => {
     assert.equal(formatNormal(a, b, diffLines(a, b, { slide: false })), '1d0\n< \n3d1\n< \n')
   })
   it('unified prints the settled one', () => {
-    assert.equal(formatUnified(a, b, diffLines(a, b), { context: 3, header: '', fn: null }), '@@ -1,4 +1,2 @@\n-\n a\n \n-\n')
+    assert.equal(formatUnified(a, b, diffLines(a, b), { context: 3 }), '@@ -1,4 +1,2 @@\n-\n a\n \n-\n')
   })
   it('settling is the default, since the context styles are what a diff is read in', () => {
     assert.deepEqual(diffLines(a, b), diffLines(a, b, { slide: true }))

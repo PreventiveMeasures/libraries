@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { applyChangeSet } from '../src/apply.js'
+import { applyRecords } from '../src/apply.js'
 import { splitRecords } from '../src/compare.js'
 import { formatContext, formatNormal, formatUnified } from '../src/format.js'
 import { DiffError, diffLines } from '../src/myers.js'
@@ -16,9 +16,9 @@ const positions = (blocks) => blocks.map(({ a0, a1, b0, b1 }) => [a0, a1, b0, b1
 
 const STYLES = [
   ['normal', (a, b, bl) => formatNormal(a, b, bl)],
-  ['unified', (a, b, bl) => formatUnified(a, b, bl, { context: 3, header: '--- x\n+++ y\n', fn: null })],
-  ['unified, no context', (a, b, bl) => formatUnified(a, b, bl, { context: 0, header: '--- x\n+++ y\n', fn: null })],
-  ['context', (a, b, bl) => formatContext(a, b, bl, { context: 3, header: '*** x\n--- y\n', fn: null })],
+  ['unified', (a, b, bl) => formatUnified(a, b, bl, { context: 3, header: '--- x\n+++ y\n', label: null })],
+  ['unified, no context', (a, b, bl) => formatUnified(a, b, bl, { context: 0, header: '--- x\n+++ y\n', label: null })],
+  ['context', (a, b, bl) => formatContext(a, b, bl, { context: 3, header: '*** x\n--- y\n', label: null })],
 ]
 
 describe('what is printed is read back', () => {
@@ -29,7 +29,7 @@ describe('what is printed is read back', () => {
       const blocks = diffLines(a, b)
       const [file] = parseDiff(render(a, b, blocks))
       assert.deepEqual(positions(file.blocks), positions(blocks))
-      assert.deepEqual(applyChangeSet(a, file.blocks), b, 'the lines the diff carries rebuild the second file')
+      assert.deepEqual(applyRecords(a, file.blocks), b, 'the lines the diff carries rebuild the second file')
     })
   }
 
@@ -39,7 +39,7 @@ describe('what is printed is read back', () => {
         const blocks = diffLines(a, b)
         const [file] = parseDiff(render(a, b, blocks))
         assert.deepEqual(positions(file.blocks), positions(blocks), name)
-        assert.deepEqual(applyChangeSet(a, file.blocks), b, name)
+        assert.deepEqual(applyRecords(a, file.blocks), b, name)
       }
     }
   })
@@ -79,7 +79,7 @@ describe('what is printed is read back, on thousands of diffs', () => {
         const files = parseDiff(text)
         assert.equal(files.length, 1, replay)
         assert.deepEqual(positions(files[0].blocks), positions(blocks), replay)
-        assert.deepEqual(applyChangeSet(a, files[0].blocks), b, replay)
+        assert.deepEqual(applyRecords(a, files[0].blocks), b, replay)
         checked++
       }
       assert.ok(checked > 1000, `only ${checked} of the rounds had a change to print`)
@@ -87,9 +87,9 @@ describe('what is printed is read back, on thousands of diffs', () => {
   }
 })
 
-describe("diff's own output reads back the same, whatever style it is in", () => {
+describe("diff's own output reads back the same, whatever format it is in", () => {
   // The same recordings format.test.js renders against, read the other way:
-  // every style a pair was recorded in has to yield that pair's change set.
+  // every format a pair was recorded in has to yield that pair's change set.
   const byPair = new Map()
   for (const recording of RECORDINGS) {
     const [a, b] = recording.names.map((name) => splitRecords(FILES[name]))
@@ -97,8 +97,8 @@ describe("diff's own output reads back the same, whatever style it is in", () =>
       const files = parseDiff(recording.stdout)
       assert.equal(files.length, 1)
       const { blocks } = files[0]
-      assert.equal(files[0].style, recording.style)
-      assert.deepEqual(applyChangeSet(a, blocks), b, 'the lines the diff carries rebuild the second file')
+      assert.equal(files[0].format, recording.format)
+      assert.deepEqual(applyRecords(a, blocks), b, 'the lines the diff carries rebuild the second file')
       const seen = byPair.get(recording.names.join(' '))
       if (seen) assert.deepEqual(positions(blocks), seen, `differs from what ${recording.command} read back`)
       byPair.set(recording.names.join(' '), positions(blocks))
@@ -109,11 +109,11 @@ describe("diff's own output reads back the same, whatever style it is in", () =>
 describe('the header names the files, when it is there to', () => {
   it('reads a unified header', () => {
     const [file] = parseDiff('--- old.txt\n+++ new.txt\n@@ -1 +1 @@\n-a\n+b\n')
-    assert.deepEqual([file.old, file.new, file.style], ['old.txt', 'new.txt', 'unified'])
+    assert.deepEqual([file.old, file.new, file.format], ['old.txt', 'new.txt', 'unified'])
   })
   it('reads a context header, and does not take the range lines for it', () => {
     const [file] = parseDiff('*** old.txt\n--- new.txt\n***************\n*** 1 ****\n! a\n--- 1 ----\n! b\n')
-    assert.deepEqual([file.old, file.new, file.style], ['old.txt', 'new.txt', 'context'])
+    assert.deepEqual([file.old, file.new, file.format], ['old.txt', 'new.txt', 'context'])
   })
   it('drops a trailing timestamp, which is not part of the name', () => {
     const [file] = parseDiff('--- old.txt\t2026-09-15 00:00:00\n+++ new.txt\t2026-09-15 00:00:01\n@@ -1 +1 @@\n-a\n+b\n')
@@ -131,7 +131,7 @@ describe('the header names the files, when it is there to', () => {
   })
   it('leaves them null for a normal diff, which carries none', () => {
     const [file] = parseDiff('1c1\n< a\n---\n> b\n')
-    assert.deepEqual([file.old, file.new, file.style], [null, null, 'normal'])
+    assert.deepEqual([file.old, file.new, file.format], [null, null, 'normal'])
   })
   it('reads a patch that covers several files', () => {
     const files = parseDiff('--- a1\n+++ b1\n@@ -1 +1 @@\n-a\n+b\n--- a2\n+++ b2\n@@ -1 +1 @@\n-c\n+d\n')
@@ -171,26 +171,26 @@ describe('what cannot be read is refused, and says where', () => {
 describe('applying a change set', () => {
   const a = splitRecords('a\nb\nc\n'), b = splitRecords('a\nX\nc\n')
   it('takes the replacement from the second file', () => {
-    assert.deepEqual(applyChangeSet(a, diffLines(a, b), b), b)
+    assert.deepEqual(applyRecords(a, diffLines(a, b), b), b)
   })
   it('takes it from the block when the block carries its own', () => {
-    assert.deepEqual(applyChangeSet(a, parseDiff('2c2\n< b\n---\n> X\n')[0].blocks), b)
+    assert.deepEqual(applyRecords(a, parseDiff('2c2\n< b\n---\n> X\n')[0].blocks), b)
   })
   it('is the identity on an empty change set', () => {
-    assert.deepEqual(applyChangeSet(a, [], b), a)
+    assert.deepEqual(applyRecords(a, [], b), a)
   })
   it('refuses a block it cannot fill', () => {
-    assert.throws(() => applyChangeSet(a, [{ a0: 1, a1: 2, b0: 1, b1: 2 }]), DiffError)
+    assert.throws(() => applyRecords(a, [{ a0: 1, a1: 2, b0: 1, b1: 2 }]), DiffError)
   })
   it('refuses blocks out of order or out of range', () => {
-    assert.throws(() => applyChangeSet(a, [{ a0: 2, a1: 3, b0: 0, b1: 0 }, { a0: 0, a1: 1, b0: 0, b1: 0 }], b), DiffError)
-    assert.throws(() => applyChangeSet(a, [{ a0: 0, a1: 9, b0: 0, b1: 0 }], b), DiffError)
+    assert.throws(() => applyRecords(a, [{ a0: 2, a1: 3, b0: 0, b1: 0 }, { a0: 0, a1: 1, b0: 0, b1: 0 }], b), DiffError)
+    assert.throws(() => applyRecords(a, [{ a0: 0, a1: 9, b0: 0, b1: 0 }], b), DiffError)
   })
   it('refuses a replacement range the second file does not have', () => {
     // `slice` clips a range past the end and empties a reversed one, either
     // way handing back a plausible wrong answer rather than failing.
     for (const range of [{ b0: 1, b1: 99 }, { b0: 2, b1: 1 }, { b0: -1, b1: 1 }]) {
-      assert.throws(() => applyChangeSet(a, [{ a0: 1, a1: 2, ...range }], b), DiffError, JSON.stringify(range))
+      assert.throws(() => applyRecords(a, [{ a0: 1, a1: 2, ...range }], b), DiffError, JSON.stringify(range))
     }
   })
 })

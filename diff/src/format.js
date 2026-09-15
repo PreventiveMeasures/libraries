@@ -9,7 +9,6 @@
 // on the change set, and the hole it leaves: a change set can be right and
 // the text describing it wrong, and nothing but a reader would ever notice.
 
-import { groupHunks } from './hunks.js'
 import { parseDiff } from './parse.js'
 
 export class FormatError extends Error {
@@ -25,10 +24,7 @@ export class FormatError extends Error {
 // was in force, so this holds under the whitespace and case options too,
 // where the two files' "equal" lines differ in text and rebuilding the
 // second file from the diff would not give it back.
-//
-// Only the hunks are read. The label lines are the caller's to write, and a
-// file named something that reads like a hunk header would otherwise fail a
-// rendering that is perfectly correct.
+
 function verifyRendering(a, b, blocks, body) {
   if (blocks.length === 0) {
     if (body !== '') throw new FormatError('there was nothing to print, and something was printed')
@@ -52,6 +48,28 @@ function verifyRendering(a, b, blocks, body) {
       if (tag !== '-') bi++
     }
   }
+}
+
+// From a change set to what the context formats print: hunks, each a run of
+// changes close enough to share context lines. Two changes belong to one
+// hunk when the unchanged lines between them number at most twice the
+// context — exactly when their context lines would touch or overlap.
+
+export function groupHunks(blocks, context, aLength, bLength) {
+  const hunks = []
+  let i = 0
+  while (i < blocks.length) {
+    let j = i
+    while (j + 1 < blocks.length && blocks[j + 1].a0 - blocks[j].a1 <= 2 * context) j++
+    const first = blocks[i], last = blocks[j]
+    hunks.push({
+      blocks: blocks.slice(i, j + 1),
+      a0: Math.max(0, first.a0 - context), a1: Math.min(aLength, last.a1 + context),
+      b0: Math.max(0, first.b0 - context), b1: Math.min(bLength, last.b1 + context),
+    })
+    i = j + 1
+  }
+  return hunks
 }
 
 // A line is printed as it is stored, terminator included; one without a
@@ -84,13 +102,17 @@ function unifiedRange(start, end) {
   return end === start + 1 ? `${start + 1}` : `${start + 1},${end - start}`
 }
 
-// `header` is the two label lines, already built; `fn(index)` names the
-// function a hunk starting at that line falls in, or null.
-export function formatUnified(a, b, blocks, { context, header, fn }) {
-  let out = header
+// `label(index)` is what each hunk's own header line carries after its
+// ranges — under -p, the function the hunk starts inside — or null for none.
+// The two label lines a whole diff opens with are not taken here: they are a
+// constant the caller writes in front of this, and accepting them would mean
+// handing back bytes this cannot vouch for, since a label reading like diff
+// content would ride through the check below untouched.
+export function formatUnified(a, b, blocks, { context, label = null }) {
+  let out = ''
   for (const hunk of groupHunks(blocks, context, a.length, b.length)) {
-    const name = fn ? fn(hunk.a0) : null
-    out += `@@ -${unifiedRange(hunk.a0, hunk.a1)} +${unifiedRange(hunk.b0, hunk.b1)} @@${name === null ? '' : ' ' + name}\n`
+    const named = label ? label(hunk.a0) : null
+    out += `@@ -${unifiedRange(hunk.a0, hunk.a1)} +${unifiedRange(hunk.b0, hunk.b1)} @@${named === null ? '' : ' ' + named}\n`
     let ai = hunk.a0, bi = hunk.b0
     for (const { a0, a1, b1 } of hunk.blocks) {
       for (; ai < a0; ai++, bi++) out += printLine(' ', a[ai])
@@ -99,7 +121,7 @@ export function formatUnified(a, b, blocks, { context, header, fn }) {
     }
     for (; ai < hunk.a1; ai++, bi++) out += printLine(' ', a[ai])
   }
-  verifyRendering(a, b, blocks, out.slice(header.length))
+  verifyRendering(a, b, blocks, out)
   return out
 }
 
@@ -110,18 +132,18 @@ function contextRange(start, end) {
   return end === start + 1 ? `${start + 1}` : `${start + 1},${end}`
 }
 
-export function formatContext(a, b, blocks, { context, header, fn }) {
-  let out = header
+export function formatContext(a, b, blocks, { context, label = null }) {
+  let out = ''
   for (const hunk of groupHunks(blocks, context, a.length, b.length)) {
-    const name = fn ? fn(hunk.a0) : null
-    out += `***************${name === null ? '' : ' ' + name}\n`
+    const named = label ? label(hunk.a0) : null
+    out += `***************${named === null ? '' : ' ' + named}\n`
     out += `*** ${contextRange(hunk.a0, hunk.a1)} ****\n`
     // A side with no changes of its own prints only its range line.
     if (hunk.blocks.some((block) => block.a0 < block.a1)) out += contextSide(a, hunk.a0, hunk.a1, hunk.blocks, 'a')
     out += `--- ${contextRange(hunk.b0, hunk.b1)} ----\n`
     if (hunk.blocks.some((block) => block.b0 < block.b1)) out += contextSide(b, hunk.b0, hunk.b1, hunk.blocks, 'b')
   }
-  verifyRendering(a, b, blocks, out.slice(header.length))
+  verifyRendering(a, b, blocks, out)
   return out
 }
 

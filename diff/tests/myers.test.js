@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { hrtime } from 'node:process'
 import { DiffError, diffLines, sameLines, verifyChangeSet } from '../src/myers.js'
-import { applyChangeSet } from '../src/apply.js'
-import { lineKey, splitRecords } from '../src/compare.js'
+import { applyRecords } from '../src/apply.js'
+import { lineComparisonKey, splitRecords } from '../src/compare.js'
 import { formatContext, formatNormal, formatUnified } from '../src/format.js'
 
 // The change set is the thing under test here, not its rendering: every
@@ -42,7 +42,7 @@ describe('diffLines returns a shortest change set that reconstructs the second i
       const draw = () => Array.from({ length: Math.floor(next() * 14) }, () => String.fromCodePoint(97 + Math.floor(next() * alphabet)) + '\n')
       const a = draw(), b = draw()
       const blocks = diffLines(a, b, { minimal: next() < 0.5 })
-      assert.deepEqual(applyChangeSet(a, blocks, b), b, `round ${round}: ${JSON.stringify([a.join(''), b.join('')])}`)
+      assert.deepEqual(applyRecords(a, blocks, b), b, `round ${round}: ${JSON.stringify([a.join(''), b.join('')])}`)
       assert.equal(editCount(blocks), a.length + b.length - 2 * lcsLength(a, b), `round ${round}: not minimal`)
       for (let i = 1; i < blocks.length; i++) assert.ok(blocks[i].a0 > blocks[i - 1].a1 || blocks[i].b0 > blocks[i - 1].b1, `round ${round}: adjacent blocks were not merged`)
     }
@@ -59,13 +59,14 @@ describe('diffLines returns a shortest change set that reconstructs the second i
   })
 
   it('compares under a key and verifies under the same key', () => {
-    const key = lineKey({ ignoreCase: true, whitespace: 'all' })
+    const loose = { ignoreCase: true, whitespace: 'all' }
+    const key = lineComparisonKey(loose)
     const a = splitRecords('Hello World\nsame\n'), b = splitRecords('hello   world\nsame\n')
-    assert.deepEqual(diffLines(a, b, { key }), [])
+    assert.deepEqual(diffLines(a, b, loose), [])
     assert.ok(sameLines(a, b, key))
     assert.ok(!sameLines(a, b))
     const c = splitRecords('hello world\nchanged\n')
-    assert.deepEqual(diffLines(a, c, { key }), [{ a0: 1, a1: 2, b0: 1, b1: 2 }])
+    assert.deepEqual(diffLines(a, c, loose), [{ a0: 1, a1: 2, b0: 1, b1: 2 }])
   })
 
   it('past the cost limit still returns a change set that reconstructs the input', () => {
@@ -75,9 +76,9 @@ describe('diffLines returns a shortest change set that reconstructs the second i
     const a = Array.from({ length: 3000 }, () => `${Math.floor(next() * 100000)}\n`)
     const b = Array.from({ length: 3000 }, () => `${Math.floor(next() * 100000)}\n`)
     const blocks = diffLines(a, b)
-    assert.deepEqual(applyChangeSet(a, blocks, b), b)
+    assert.deepEqual(applyRecords(a, blocks, b), b)
     const minimal = diffLines(a, b, { minimal: true })
-    assert.deepEqual(applyChangeSet(a, minimal, b), b)
+    assert.deepEqual(applyRecords(a, minimal, b), b)
     assert.ok(editCount(minimal) <= editCount(blocks))
   })
 })
@@ -104,26 +105,26 @@ describe('rendering a change set is GNU rendering, for every style', () => {
   const blocks = diffLines(a, b)
   it('normal', () => assert.equal(formatNormal(a, b, blocks), '3c3\n< c\n---\n> X\n9c9\n< i\n---\n> Y\n'))
   it('unified merges hunks whose context would touch, and not otherwise', () => {
-    assert.equal(formatUnified(a, b, blocks, { context: 3, header: '', fn: null }), '@@ -1,10 +1,10 @@\n a\n b\n-c\n+X\n d\n e\n f\n g\n h\n-i\n+Y\n j\n')
-    assert.equal(formatUnified(a, b, blocks, { context: 1, header: '', fn: null }), '@@ -2,3 +2,3 @@\n b\n-c\n+X\n d\n@@ -8,3 +8,3 @@\n h\n-i\n+Y\n j\n')
-    assert.equal(formatUnified(a, b, blocks, { context: 0, header: '', fn: null }), '@@ -3 +3 @@\n-c\n+X\n@@ -9 +9 @@\n-i\n+Y\n')
+    assert.equal(formatUnified(a, b, blocks, { context: 3 }), '@@ -1,10 +1,10 @@\n a\n b\n-c\n+X\n d\n e\n f\n g\n h\n-i\n+Y\n j\n')
+    assert.equal(formatUnified(a, b, blocks, { context: 1 }), '@@ -2,3 +2,3 @@\n b\n-c\n+X\n d\n@@ -8,3 +8,3 @@\n h\n-i\n+Y\n j\n')
+    assert.equal(formatUnified(a, b, blocks, { context: 0 }), '@@ -3 +3 @@\n-c\n+X\n@@ -9 +9 @@\n-i\n+Y\n')
   })
   it('context marks a change with ! and leaves out a side with nothing of its own', () => {
     const ins = splitRecords('a\nb\nc\nNEW\nd\ne\nf\ng\nh\ni\nj\n')
-    assert.equal(formatContext(a, ins, diffLines(a, ins), { context: 3, header: '', fn: null }), '***************\n*** 1,6 ****\n--- 1,7 ----\n  a\n  b\n  c\n+ NEW\n  d\n  e\n  f\n')
-    assert.equal(formatContext(a, b, blocks, { context: 1, header: '', fn: null }), '***************\n*** 2,4 ****\n  b\n! c\n  d\n--- 2,4 ----\n  b\n! X\n  d\n***************\n*** 8,10 ****\n  h\n! i\n  j\n--- 8,10 ----\n  h\n! Y\n  j\n')
+    assert.equal(formatContext(a, ins, diffLines(a, ins), { context: 3 }), '***************\n*** 1,6 ****\n--- 1,7 ----\n  a\n  b\n  c\n+ NEW\n  d\n  e\n  f\n')
+    assert.equal(formatContext(a, b, blocks, { context: 1 }), '***************\n*** 2,4 ****\n  b\n! c\n  d\n--- 2,4 ----\n  b\n! X\n  d\n***************\n*** 8,10 ****\n  h\n! i\n  j\n--- 8,10 ----\n  h\n! Y\n  j\n')
   })
   it('says when a last line has no newline', () => {
     const x = splitRecords('a\n'), y = splitRecords('a')
     assert.equal(formatNormal(x, y, diffLines(x, y)), '1c1\n< a\n---\n> a\n\\ No newline at end of file\n')
-    assert.equal(formatUnified(y, x, diffLines(y, x), { context: 3, header: '', fn: null }), '@@ -1 +1 @@\n-a\n\\ No newline at end of file\n+a\n')
+    assert.equal(formatUnified(y, x, diffLines(y, x), { context: 3 }), '@@ -1 +1 @@\n-a\n\\ No newline at end of file\n+a\n')
   })
 })
 
 describe('the search stays fast', () => {
-  const budget = (label, fn, ms) => {
+  const budget = (label, run, ms) => {
     const started = hrtime.bigint()
-    fn()
+    run()
     const took = Number(hrtime.bigint() - started) / 1e6
     assert.ok(took < ms, `${label}: took ${took.toFixed(0)}ms, budget ${ms}ms`)
   }
@@ -131,7 +132,7 @@ describe('the search stays fast', () => {
     const a = Array.from({ length: 200000 }, (_, i) => `line ${i}\n`)
     const b = a.map((line, i) => i % 97 === 0 ? `changed ${i}\n` : line)
     b.splice(50000, 0, 'inserted\n')
-    budget('200k lines', () => assert.deepEqual(applyChangeSet(a, diffLines(a, b), b), b), 3000)
+    budget('200k lines', () => assert.deepEqual(applyRecords(a, diffLines(a, b), b), b), 3000)
   })
   it('twenty thousand lines sharing nothing', () => {
     const a = Array.from({ length: 20000 }, (_, i) => `left ${i}\n`)
@@ -141,6 +142,6 @@ describe('the search stays fast', () => {
   it('fifty thousand lines over a small alphabet', () => {
     const a = Array.from({ length: 50000 }, (_, i) => `${i % 7}\n`)
     const b = Array.from({ length: 50000 }, (_, i) => `${(i * 3) % 7}\n`)
-    budget('small alphabet', () => assert.deepEqual(applyChangeSet(a, diffLines(a, b), b), b), 3000)
+    budget('small alphabet', () => assert.deepEqual(applyRecords(a, diffLines(a, b), b), b), 3000)
   })
 })
