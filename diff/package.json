@@ -43,7 +43,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/PreventiveMeasures/libraries.git"
+    "url": "https://github.com/PreventiveMeasures/libraries.git",
+    "directory": "diff"
   },
   "bugs": {
     "url": "https://github.com/PreventiveMeasures/libraries/issues"
