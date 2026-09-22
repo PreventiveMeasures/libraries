@@ -100,11 +100,12 @@ function readCentral(r, at) {
 }
 
 // The local header checked against the central entry; returns where the
-// entry's bytes end and notes where its data starts. The two records have
+// entry's bytes end, which has to be `boundary`, the next record's start,
+// and notes where its data starts. The two records have
 // to agree on everything both carry — flags included, since a descriptor
 // bit set in one and not the other is read two ways by two readers — and
 // the local sizes and CRC may be 0 only where a descriptor carries them.
-function readLocal(r, entry) {
+function readLocal(r, entry, boundary) {
   const at = entry.offset
   if (r.u32(at) !== LOCAL) throw new ArchiveError('no local header where the central directory points', at)
   const nameLength = r.u16(at + 26)
@@ -122,10 +123,12 @@ function readLocal(r, entry) {
   let end = entry.dataAt + entry.csize
   if (described) {
     // The descriptor may start with its signature or not, and a CRC can be
-    // that very value, so both layouts are tried against the record.
+    // that very value, so both layouts are tried against the record; where
+    // both fit (every word the signature), the one reaching the boundary is it.
     const matches = (from) => r.u32(from) === entry.crc && r.u32(from + 4) === entry.csize && r.u32(from + 8) === entry.usize
-    if (matches(end)) end += 12
-    else if (r.u32(end) === DESCRIPTOR && matches(end + 4)) end += 16
+    const signed = r.u32(end) === DESCRIPTOR && matches(end + 4)
+    if (matches(end) && !(signed && end + 16 === boundary)) end += 12
+    else if (signed) end += 16
     else throw new ArchiveError('the data descriptor disagrees with the central directory', end)
   }
   return end
@@ -183,9 +186,10 @@ export async function unzip(bytes) {
   }
   if (pos !== end) throw new ArchiveError('the central directory does not hold what the end record counts', pos)
   let expected = 0
-  for (const entry of entries.toSorted((a, b) => a.offset - b.offset)) {
+  const sorted = entries.toSorted((a, b) => a.offset - b.offset)
+  for (const [i, entry] of sorted.entries()) {
     if (entry.offset !== expected) throw new ArchiveError(entry.offset > expected ? 'bytes belong to no entry' : 'two entries overlap', expected)
-    expected = readLocal(r, entry)
+    expected = readLocal(r, entry, sorted[i + 1]?.offset ?? start)
   }
   if (expected !== start) throw new ArchiveError('bytes belong to no entry', expected)
   const names = new Names(true)

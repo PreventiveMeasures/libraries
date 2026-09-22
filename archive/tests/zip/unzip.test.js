@@ -96,6 +96,19 @@ describe('what it reads', () => {
       assert.deepEqual(e.data, data)
     }
   })
+  // The one big one: 0x08074b50 bytes, zeros but for four chosen at the end
+  // so the CRC-32 is 0x08074b50 too, make a descriptor of four identical
+  // words in the signed layout, which fits either reading.
+  it('a data descriptor of four identical words, told apart by where the next record starts', async () => {
+    const data = new Uint8Array(0x08074b50)
+    data.set([0x83, 0x7c, 0x5e, 0x45], data.length - 4)
+    assert.equal(crc32(data), 0x08074b50)
+    for (const words of [3, 4]) {
+      const descriptor = record(Array.from({ length: words }, () => [4, 0x08074b50]))
+      const [e] = await unzip(archive([entry('a', data, { flags: 8, localCrc: 0, localCsize: 0, localUsize: 0, descriptor })]))
+      assert.equal(e.data.length, data.length)
+    }
+  })
   it('a directory by its name alone, as Java writes one with no attributes at all', async () => {
     const [d] = await unzip(archive([entry('d/', new Uint8Array(0), { madeBy: 20, attributes: 0 })]))
     assert.deepEqual([d.name, d.type, d.mode], ['d', 'directory', 0o755])
@@ -170,6 +183,7 @@ describe('what it refuses', () => {
     ['a name that is not UTF-8', () => archive([entry('x', utf8('x'), { rawName: Uint8Array.from([0xff]) })]), /entry name is not valid UTF-8/u],
     ['an absolute name', () => archive([entry('/a', utf8('x'))]), /entry name "\/a" is absolute/u],
     ['a name on a Windows drive', () => archive([entry('C:/a', utf8('x'))]), /entry name "C:\/a" starts with a drive letter/u],
+    ['a name on a Windows drive behind a dot segment', () => archive([entry('./C:/a', utf8('x'))]), /entry name "\.\/C:\/a" starts with a drive letter/u],
     ['a symlink to a Windows drive', () => archive([entry('l', utf8('C:/x'), { attributes: 0o120777 * 0x10000 })]), /symlink target of "l" "C:\/x" starts with a drive letter/u],
     ['a name that climbs out', () => archive([entry('../a', utf8('x'))]), /has a \.\. segment/u],
     ['a name with a backslash', () => archive([entry('a\\b', utf8('x'))]), /control or formatting character, or a backslash/u],

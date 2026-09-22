@@ -28,7 +28,9 @@ function checkText(path, what) {
   if (path === '') throw new ArchiveError(`${what} is empty`)
   if (hasUnsafe(path, true)) throw new ArchiveError(`${what} ${quote(path)} holds a control or formatting character, or a backslash`)
   if (path.startsWith('/')) throw new ArchiveError(`${what} ${quote(path)} is absolute`)
-  if (/^[a-zA-Z]:/u.test(path)) throw new ArchiveError(`${what} ${quote(path)} starts with a drive letter`)
+  // Once `.` segments are dropped, `./C:x` is `C:x`, so the first segment
+  // that is not one is what a drive letter is looked for on.
+  if (/^[a-zA-Z]:/u.test(path.split('/').find((segment) => segment !== '.') ?? '')) throw new ArchiveError(`${what} ${quote(path)} starts with a drive letter`)
   if (utf8Length(path) > PATH_MAX) throw new ArchiveError(`${what} ${quote(path)} is longer than ${PATH_MAX} bytes`)
   for (const segment of path.split('/')) {
     if (utf8Length(segment) > NAME_MAX) throw new ArchiveError(`${what} ${quote(path)} has a segment longer than ${NAME_MAX} bytes`)

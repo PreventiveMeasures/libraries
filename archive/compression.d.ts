@@ -27,6 +27,7 @@ export class ArchiveError extends Error {
 // caller that wants it as gzip does; `limited` is true when the output
 // bound stopped it rather than the data; `cause` is the platform's error.
 export class CompressionError extends ArchiveError {
+  constructor(detail: string, options: { bytes: Uint8Array; limited?: boolean; cause?: unknown })
   bytes: Uint8Array
   limited: boolean
   cause: unknown
