@@ -3,21 +3,31 @@
   "version": "0.0.0",
   "description": "In-memory filesystem: an inode tree with POSIX path resolution, built from a path map or tar entries",
   "type": "module",
-  "main": "./index.js",
-  "types": "./index.d.ts",
+  "main": "./vfs.js",
+  "types": "./vfs.d.ts",
   "exports": {
     ".": {
-      "types": "./index.d.ts",
-      "default": "./index.js"
+      "types": "./vfs.d.ts",
+      "default": "./vfs.js"
+    },
+    "./vfs.js": {
+      "types": "./vfs.d.ts",
+      "default": "./vfs.js"
+    },
+    "./path.js": {
+      "types": "./path.d.ts",
+      "default": "./path.js"
     }
   },
   "files": [
-    "index.d.ts",
-    "index.js",
+    "path.d.ts",
+    "path.js",
     "src/entries.js",
     "src/error.js",
     "src/path.js",
-    "src/vfs.js"
+    "src/vfs.js",
+    "vfs.d.ts",
+    "vfs.js"
   ],
   "engines": {
     "node": ">=24.14.0"

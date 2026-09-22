@@ -1,4 +1,4 @@
-// Hand-written against index.js; a change to either belongs with the other.
+// Hand-written against vfs.js; a change to either belongs with the other.
 
 export type NodeType = 'file' | 'directory' | 'symlink'
 
@@ -59,9 +59,10 @@ export function createVfs(sources?: Sources): Vfs
 export function vfsFromEntries(entries: Iterable<EntryInput>): Vfs
 
 // Paths resolve from `/`, component by component, following links as the
-// kernel does; a relative path is one under `/`. Every method throws a
-// VfsError with the POSIX code for what went wrong. Bytes returned are the
-// file's own and must not be written into; bytes given are copied.
+// kernel does; a relative path is one under `/`, and nothing is folded by
+// spelling. Every method throws a VfsError with the POSIX code for what
+// went wrong. Bytes returned are the file's own and must not be written
+// into; bytes given are copied.
 export class Vfs {
   constructor()
   stat(path: string): Stat
@@ -97,11 +98,3 @@ export class VfsError extends Error {
   code: string
   path: string
 }
-
-// Lexical helpers: none consults a filesystem. `join` folds nothing, so
-// what it returns still resolves through links correctly.
-export function normalize(path: string): string
-export function join(base: string, path: string): string
-export function dirname(path: string): string
-export function basename(path: string): string
-export function compareNames(a: string, b: string): number

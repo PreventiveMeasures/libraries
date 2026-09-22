@@ -4,13 +4,14 @@
 // component: a link on the way is replaced by its target as read from the
 // directory the link sits in, `..` steps up the real path, and forty links
 // in one resolution is a loop. A relative path is resolved from `/`; a caller
-// with a working directory joins it on first (see path.js). Nothing here
+// with a working directory puts it in front, `${cwd}/${path}`, and never
+// folds the two, so every component is checked where it stands. Nothing here
 // reads a clock: `mtime` is what a caller set, in whole seconds, and 0 until
 // then. A file's bytes are returned as they are stored, never copied, and
 // stored as a copy of what was written: hold them, do not write into them.
 
 import { VfsError } from './error.js'
-import { basename, compareNames, join } from './path.js'
+import { basename, compareNames, segments } from './path.js'
 
 const LINK_LIMIT = 40
 const NONE = new Uint8Array()
@@ -45,7 +46,7 @@ export class Vfs {
     if (path.includes('\0')) throw new VfsError('EINVAL', path)
     if (path === '') throw new VfsError('ENOENT', path)
     const trailing = path.endsWith('/')
-    const rest = path.split('/').filter(Boolean).toReversed()
+    const rest = segments(path).toReversed()
     const chain = [{ name: '', node: this.#root }]
     let budget = LINK_LIMIT
     while (rest.length > 0) {
@@ -64,7 +65,7 @@ export class Vfs {
       if (node.type === 'symlink' && (!last || follow)) {
         if (budget-- === 0) throw new VfsError('ELOOP', path)
         if (node.target.startsWith('/')) chain.length = 1
-        const parts = node.target.split('/').filter(Boolean)
+        const parts = segments(node.target)
         if (node.target.endsWith('/')) parts.push('.')
         for (let i = parts.length - 1; i >= 0; i--) rest.push(parts[i])
         continue
@@ -247,7 +248,7 @@ export class Vfs {
       if (entry.node.type !== 'directory') continue
       const names = [...entry.node.entries.keys()].sort(compareNames)
       for (let i = names.length - 1; i >= 0; i--) {
-        stack.push({ path: join(entry.path, names[i]), node: entry.node.entries.get(names[i]), depth: entry.depth + 1 })
+        stack.push({ path: child(entry.path, names[i]), node: entry.node.entries.get(names[i]), depth: entry.depth + 1 })
       }
     }
   }
@@ -274,6 +275,7 @@ export class Vfs {
   }
 }
 
+const child = (dir, name) => (dir === '/' ? `/${name}` : `${dir}/${name}`)
 const pathOf = (chain, name) => `/${[...chain.slice(1).map((step) => step.name), name].filter(Boolean).join('/')}`
 
 const statOf = (node) => ({

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { Vfs, VfsError, createVfs } from '../index.js'
+import { Vfs, VfsError, createVfs } from '../vfs.js'
 
 const fails = (fn, code, path) => assert.throws(fn, { name: 'VfsError', code, ...(path === undefined ? {} : { path }) })
 

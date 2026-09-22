@@ -15,21 +15,19 @@ import { describe, it } from 'node:test'
 const PKG_DIR = new URL('../', import.meta.url)
 const SRC_DIR = new URL('src/', PKG_DIR)
 
-const sourced = (name) => name.endsWith('.js') || name.endsWith('.d.ts')
+const manifest = JSON.parse(readFileSync(new URL('package.json', PKG_DIR), 'utf8'))
 
-// The front doors plus the modules behind them. `tests/` is deliberately
-// left out: those files are inside the package either way, and a test may
-// reach for node:test and whatever else it needs to drive one.
+// The front doors are what the manifest exports; the modules behind them are
+// src/. `tests/` is deliberately left out: those files are inside the package
+// either way, and a test may reach for node:test and whatever else it needs.
+const doors = [...new Set(Object.values(manifest.exports).flatMap((target) => Object.values(target)))]
 const files = [
-  new URL('index.js', PKG_DIR),
-  new URL('index.d.ts', PKG_DIR),
+  ...doors.map((door) => new URL(door, PKG_DIR)),
   ...readdirSync(SRC_DIR, { recursive: true })
     .map((name) => name.split(sep).join('/'))
-    .filter(sourced)
+    .filter((name) => name.endsWith('.js') || name.endsWith('.d.ts'))
     .map((name) => new URL(name, SRC_DIR)),
 ]
-
-const manifest = JSON.parse(readFileSync(new URL('package.json', PKG_DIR), 'utf8'))
 
 // Every way a module specifier can be written: static import/export-from,
 // dynamic import(), and CJS require(). A template literal is read only after
@@ -43,7 +41,8 @@ describe('vfs/ ships every module it has', () => {
   const shipped = new Set(manifest.files)
 
   it('lists a plausible set of files', () => {
-    assert.ok(shipped.size >= 5, `expected a files allowlist, found ${shipped.size}`)
+    assert.ok(shipped.size >= 6, `expected a files allowlist, found ${shipped.size}`)
+    assert.ok(doors.length >= 4, `expected the entry points and their typings, found ${doors.length}`)
   })
 
   for (const file of files) {
@@ -65,7 +64,7 @@ describe('vfs/ ships every module it has', () => {
 
 describe('vfs/ imports nothing at all from outside', () => {
   it('has files to check', () => {
-    assert.ok(files.length >= 5, `expected the vfs/ modules, found ${files.length}`)
+    assert.ok(files.length >= 8, `expected the vfs/ modules, found ${files.length}`)
   })
 
   it('declares no dependencies', () => {
