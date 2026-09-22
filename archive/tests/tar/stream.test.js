@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { pack, packStream, unpack, unpackStream } from '../../tar.js'
-import { concat } from '../../src/tar/header.js'
+import { concat } from '../../src/bytes.js'
 import { RECORDINGS, bytesOf } from './fixtures/gnu-tar.js'
 import { assertBytes, entriesOf, readable, utf8 } from '../helpers.js'
 

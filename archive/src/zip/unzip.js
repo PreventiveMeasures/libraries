@@ -8,8 +8,10 @@
 // encryption, any method but stored and deflate, several disks — is refused.
 
 import { crc32 } from '@exodus/bytes/crc.js'
-import { CENTRAL, DEFAULT_MODE, EMPTY, END, LOCAL, TYPE_BITS, TYPE_MASK, fromDos, inflate, view } from './bytes.js'
+import { EMPTY, sameBytes } from '../bytes.js'
+import { DEFAULT_MODE } from '../entry.js'
 import { ArchiveError, located } from '../error.js'
+import { CENTRAL, END, LOCAL, TYPE_BITS, TYPE_MASK, fromDos, inflate, view } from './format.js'
 import { Names, cleanNames } from '../names.js'
 import { decodeUtf8, quote } from '../text.js'
 
@@ -21,8 +23,6 @@ const TIMESTAMP_EXTRA = 0x5455
 const ENCRYPTED = 1
 const DESCRIBED = 8 // sizes and CRC follow the data, and may be 0 in the local header
 const DOS_DIRECTORY = 0x10
-
-const sameBytes = (a, b) => a.length === b.length && a.every((byte, i) => byte === b[i])
 
 // Bounds-checked little-endian reads over the archive.
 function reader(bytes) {

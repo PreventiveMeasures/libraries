@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { BLOCK, EMPTY, decodeHeader, encodeHeader, fitsOctal, octalMax, readNumber, writeNumber } from '../../src/tar/header.js'
+import { EMPTY } from '../../src/bytes.js'
+import { BLOCK, decodeHeader, encodeHeader, fitsOctal, octalMax, readNumber, writeNumber } from '../../src/tar/header.js'
 import { encodePax } from '../../src/tar/pax.js'
 import { assertBytes, utf8 } from '../helpers.js'
 

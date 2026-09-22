@@ -2,8 +2,8 @@
 // in decimal counting the whole line, its own digits included.
 
 import { utf8fromString } from '@exodus/bytes/utf8.js'
+import { concat } from '../bytes.js'
 import { ArchiveError } from '../error.js'
-import { concat } from './header.js'
 import { decodeUtf8, hasUnsafe, quote } from '../text.js'
 
 function record(keyword, value) {

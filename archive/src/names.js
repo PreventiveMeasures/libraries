@@ -13,6 +13,7 @@
 // Collisions a filesystem might add — case, Unicode normalisation — are
 // the filesystem's, not the archive's, and are not looked for.
 
+import { sameBytes } from './bytes.js'
 import { ArchiveError } from './error.js'
 import { hasUnsafe, quote, utf8Length } from './text.js'
 
@@ -74,7 +75,6 @@ export function cleanNames(path, type, target) {
 }
 
 const FIELDS = ['type', 'mode', 'uid', 'gid', 'mtime', 'uname', 'gname', 'linkname', 'devmajor', 'devminor']
-const sameBytes = (a, b) => a.length === b.length && a.every((byte, i) => byte === b[i])
 
 // Each name seen is an entry, a directory entry, or a directory implied by
 // an entry inside it; an implied directory may still be named as one. An

@@ -3,8 +3,10 @@
 // delete=ctime`. Where GNU would cut or substitute — a name too long for
 // ustar, a number out of range — this refuses instead.
 
+import { EMPTY, concat, isAscii } from '../bytes.js'
+import { DEFAULT_MODE, checkEntry, wireName } from '../entry.js'
 import { ArchiveError } from '../error.js'
-import { BLOCK, EMPTY, NAME_SIZE, OWNER_SIZE, PREFIX_SIZE, concat, encodeHeader, fitsOctal, isDevice, isFile, octalMax } from './header.js'
+import { BLOCK, NAME_SIZE, OWNER_SIZE, PREFIX_SIZE, encodeHeader, fitsOctal, isDevice, octalMax } from './header.js'
 import { Names, cleanNames } from '../names.js'
 import { encodePax } from './pax.js'
 import { encodeUtf8, hasUnsafe, quote } from '../text.js'
@@ -23,11 +25,8 @@ const LONGNAME = 0x4c
 const LONGLINK = 0x4b
 const PAX = 0x78
 
-const DEFAULT_MODE = { directory: 0o755, symlink: 0o777 }
 const FORMATS = new Set(['gnu', 'ustar', 'pax'])
 const SLASH = 0x2f
-
-const isAscii = (raw) => raw.every((byte) => byte < 0x80)
 
 function integer(value, what, signed = false) {
   if (!Number.isSafeInteger(value) || (!signed && value < 0)) throw new ArchiveError(`${what} ${String(value)} is not ${signed ? 'an integer' : 'a non-negative integer'}`)
@@ -41,27 +40,15 @@ function ownerName(value, what) {
 }
 
 function normalize(entry) {
-  if (entry === null || typeof entry !== 'object') throw new ArchiveError('an entry is not an object')
-  const type = entry.type ?? 'file'
-  if (!Object.hasOwn(TYPEFLAG, type)) throw new ArchiveError(`entry type ${quote(String(type))} is not one this package writes`)
-  const { name } = entry
-  if (typeof name !== 'string') throw new ArchiveError('entry name is not a string')
-  const data = entry.data ?? EMPTY
-  if (!(data instanceof Uint8Array)) throw new ArchiveError(`data of ${quote(name)} is not a Uint8Array`)
-  if (data.length !== 0 && !isFile(type)) throw new ArchiveError(`a ${type} cannot carry data (${quote(name)})`)
-  const linkname = entry.linkname ?? ''
-  if (typeof linkname !== 'string') throw new ArchiveError(`link target of ${quote(name)} is not a string`)
-  if (linkname !== '' && type !== 'link' && type !== 'symlink') throw new ArchiveError(`a ${type} cannot have a link target (${quote(name)})`)
+  const checked = checkEntry(entry, TYPEFLAG)
+  const { name, type } = checked
   const devmajor = integer(entry.devmajor ?? 0, 'devmajor')
   const devminor = integer(entry.devminor ?? 0, 'devminor')
   if ((devmajor !== 0 || devminor !== 0) && !isDevice(type)) throw new ArchiveError(`a ${type} cannot have device numbers (${quote(name)})`)
   const mode = integer(entry.mode ?? DEFAULT_MODE[type] ?? 0o644, 'mode')
   if (mode > 0o7777) throw new ArchiveError(`mode ${mode.toString(8)} has bits beyond the permission bits`)
   return {
-    name,
-    type,
-    data,
-    linkname,
+    ...checked,
     mode,
     uid: integer(entry.uid ?? 0, 'uid'),
     gid: integer(entry.gid ?? 0, 'gid'),
@@ -120,7 +107,7 @@ function encodeEntry(e, format) {
   const gnu = format === 'gnu'
   const pax = []
   const chunks = []
-  const wire = e.type === 'directory' ? `${e.name}/` : e.name
+  const wire = wireName(e)
   let name = encodeUtf8(wire, 'entry name')
   let prefix = EMPTY
   let link = encodeUtf8(e.linkname, `link target of ${quote(e.name)}`)

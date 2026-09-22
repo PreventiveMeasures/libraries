@@ -4,8 +4,10 @@
 // An entry's data views the chunk it arrived in where one chunk held it
 // whole, and is a copy otherwise.
 
+import { EMPTY, concat } from '../bytes.js'
+import { isFile } from '../entry.js'
 import { ArchiveError, located } from '../error.js'
-import { BLOCK, EMPTY, concat, decodeHeader, isDevice, isFile, isZeroBlock, untilNul } from './header.js'
+import { BLOCK, decodeHeader, isDevice, isZeroBlock, untilNul } from './header.js'
 import { Names, cleanNames } from '../names.js'
 import { decodePax } from './pax.js'
 import { decodeUtf8, hasUnsafe, quote } from '../text.js'
@@ -163,7 +165,10 @@ class Unpacker {
     const rawName = longname ?? record('path') ?? this.#headerName(header, at)
     const rawTarget = longlink ?? record('linkpath') ?? decodeUtf8(header.linkname, 'link target', at)
     const { name, linkname } = located(() => cleanNames(rawName, type, rawTarget), at)
-    const number = (key, parse = paxNumber) => (record(key) === undefined ? header[key] : parse(record(key), key, at))
+    const number = (key, parse = paxNumber) => {
+      const value = record(key)
+      return value === undefined ? header[key] : parse(value, key, at)
+    }
     const size = number('size')
     if (size !== 0 && !isFile(type)) throw new ArchiveError(`a ${type} entry has a size`, at)
     if (linkname !== '' && type !== 'link' && type !== 'symlink') throw new ArchiveError(`a ${type} entry has a link target`, at)

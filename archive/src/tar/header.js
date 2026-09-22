@@ -3,12 +3,11 @@
 // a long name at 100 bytes wherever the real name went, and that is not
 // always a whole character, so only the field that counts gets decoded.
 
+import { EMPTY } from '../bytes.js'
 import { ArchiveError } from '../error.js'
 
 export const BLOCK = 512
-export const EMPTY = new Uint8Array(0)
 
-export const isFile = (type) => type === 'file' || type === 'contiguous-file'
 export const isDevice = (type) => type === 'character-device' || type === 'block-device'
 
 export const NAME_SIZE = 100
@@ -143,14 +142,4 @@ export function decodeHeader(block, at) {
     devmajor: device ? readNumber(block, DEVMAJOR, 8, 'devmajor', at) : 0,
     devminor: device ? readNumber(block, DEVMINOR, 8, 'devminor', at) : 0,
   }
-}
-
-export function concat(chunks) {
-  const out = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.length, 0))
-  let at = 0
-  for (const chunk of chunks) {
-    out.set(chunk, at)
-    at += chunk.length
-  }
-  return out
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { ArchiveError, unzip, zip } from '../../zip.js'
-import { view } from '../../src/zip/bytes.js'
+import { view } from '../../src/zip/format.js'
 import { readable, utf8 } from '../helpers.js'
 
 // zip() is held to reading back as what it was given, to the layout a zip

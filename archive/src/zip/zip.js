@@ -4,8 +4,10 @@
 // exact UTC mtime, and each file deflated only where that made it smaller.
 
 import { crc32 } from '@exodus/bytes/crc.js'
-import { CENTRAL, DEFAULT_MODE, EMPTY, END, LOCAL, TYPE_BITS, concat, deflate, record, toDos } from './bytes.js'
+import { concat, isAscii } from '../bytes.js'
+import { DEFAULT_MODE, checkEntry, wireName } from '../entry.js'
 import { ArchiveError } from '../error.js'
+import { CENTRAL, END, LOCAL, TYPE_BITS, deflate, record, toDos } from './format.js'
 import { Names, cleanNames } from '../names.js'
 import { encodeUtf8, quote } from '../text.js'
 
@@ -17,31 +19,16 @@ const DOS_EPOCH = 315532800 // 1980-01-01T00:00:00Z, the earliest DOS time
 const LAST_STAMP = 0x7fffffff // the extended timestamp is a signed 32-bit time
 const MAX32 = 0xffffffff
 
-const isAscii = (raw) => raw.every((byte) => byte < 0x80)
-
 function integer(value, what, min, max) {
   if (!Number.isSafeInteger(value) || value < min || value > max) throw new ArchiveError(`${what} ${String(value)} is not an integer from ${min} to ${max}`)
   return value
 }
 
 function normalize(entry) {
-  if (entry === null || typeof entry !== 'object') throw new ArchiveError('an entry is not an object')
-  const type = entry.type ?? 'file'
-  if (!Object.hasOwn(TYPE_BITS, type)) throw new ArchiveError(`entry type ${quote(String(type))} is not one this package writes`)
-  const { name } = entry
-  if (typeof name !== 'string') throw new ArchiveError('entry name is not a string')
-  const data = entry.data ?? EMPTY
-  if (!(data instanceof Uint8Array)) throw new ArchiveError(`data of ${quote(name)} is not a Uint8Array`)
-  if (data.length !== 0 && type !== 'file') throw new ArchiveError(`a ${type} cannot carry data (${quote(name)})`)
-  const linkname = entry.linkname ?? ''
-  if (typeof linkname !== 'string') throw new ArchiveError(`link target of ${quote(name)} is not a string`)
-  if (linkname !== '' && type !== 'symlink') throw new ArchiveError(`a ${type} cannot have a link target (${quote(name)})`)
+  const checked = checkEntry(entry, TYPE_BITS)
   return {
-    name,
-    type,
-    data,
-    linkname,
-    mode: integer(entry.mode ?? DEFAULT_MODE[type], 'mode', 0, 0o7777),
+    ...checked,
+    mode: integer(entry.mode ?? DEFAULT_MODE[checked.type], 'mode', 0, 0o7777),
     mtime: integer(entry.mtime ?? DOS_EPOCH, 'mtime', DOS_EPOCH, LAST_STAMP),
   }
 }
@@ -61,7 +48,7 @@ export async function zip(entries, { method = 'deflate' } = {}) {
     const e = { ...entry, ...cleanNames(entry.name, entry.type, entry.linkname) }
     names.add(e)
     if (++count > 0xffff) throw new ArchiveError('more than 65535 entries would need zip64')
-    const name = encodeUtf8(e.type === 'directory' ? `${e.name}/` : e.name, 'entry name')
+    const name = encodeUtf8(wireName(e), 'entry name')
     const body = e.type === 'symlink' ? encodeUtf8(e.linkname, 'symlink target') : e.data
     let stored = body
     let compression = 0
