@@ -13,6 +13,7 @@ import { parseInline, readKey, setKey } from './scalar.js'
 const MAX_DEPTH = 64
 
 export function parseYaml(text) {
+  if (typeof text !== 'string') throw new TypeError('parseYaml expects a string')
   const doc = { lines: splitLines(text), at: 0 }
   const first = peek(doc)
   if (first === undefined) throw new YamlError('empty document')
@@ -43,6 +44,8 @@ function peek(doc) {
 const isEntry = (line) => /^-(?: |$)/u.test(line.text)
 const isBlockScalar = (rest) => /^[|>]/u.test(rest)
 const MARKER = /^(?:---|\.\.\.)(?: |$)|^%/u
+// The indicator, its spaces, and a comment when that is all that follows.
+const COMPACT = /^[-:] *(?:#.*)?/u
 
 function parseNode(doc, indent, depth) {
   const line = peek(doc)
@@ -95,17 +98,22 @@ function parseSequence(doc, indent, depth) {
   return list
 }
 
+// What follows `key: `, `- ` or `: `: a block scalar, a node on the line, or,
+// when nothing does, the deeper block below.
 function parseValue(doc, rest, indent, depth, owner) {
-  if (rest === '') return parseNested(doc, indent, depth, owner)
   if (isBlockScalar(rest)) return readLiteral(doc, rest, indent, owner)
-  return parseInline(rest, owner.number)
+  if (rest !== '') return parseInline(rest, owner.number)
+  const next = peek(doc)
+  if (next?.indent === indent && isEntry(next)) throw new YamlError('a sequence under a key must be indented', next.number)
+  if (next === undefined || next.indent <= indent) throw new YamlError('missing value', owner.number)
+  return parseNode(doc, next.indent, depth + 1)
 }
 
 // After `- ` or `: ` a node may begin mid-line, with its further entries at
 // that column below (`- a: 1` then `  b: 2`), so the line is reread as though
 // it started at that column.
 function parseCompact(doc, line, indent, depth) {
-  const spaces = /^[-:] */u.exec(line.text)[0].length
+  const spaces = COMPACT.exec(line.text)[0].length
   const rest = line.text.slice(spaces)
   if (rest === '' || isBlockScalar(rest)) {
     doc.at++
@@ -113,13 +121,6 @@ function parseCompact(doc, line, indent, depth) {
   }
   doc.lines[doc.at] = { ...line, indent: line.indent + spaces, text: rest }
   return parseNode(doc, line.indent + spaces, depth + 1)
-}
-
-function parseNested(doc, indent, depth, owner) {
-  const next = peek(doc)
-  if (next?.indent === indent && isEntry(next)) throw new YamlError('a sequence under a key must be indented', next.number)
-  if (next === undefined || next.indent <= indent) throw new YamlError('missing value', owner.number)
-  return parseNode(doc, next.indent, depth + 1)
 }
 
 // `|` with an optional indentation digit and chomping indicator: `-` drops
@@ -135,6 +136,8 @@ function readLiteral(doc, header, indent, owner) {
     if (line.text !== '' && line.indent < inner) throw new YamlError('bad indentation in the block scalar', line.number)
     return `${' '.repeat(Math.max(line.indent - inner, 0))}${line.text}\n`
   }).join('')
-  const body = text.replace(/\n+$/u, '')
+  let end = text.length
+  while (end > 0 && text[end - 1] === '\n') end--
+  const body = text.slice(0, end)
   return m[2] === '+' ? text : m[2] === '-' ? body : body && `${body}\n`
 }

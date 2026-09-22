@@ -50,7 +50,11 @@ const TYPED = /^(?:~|null|true|false|\.nan|[+-]?(?:\.inf|0[box][\d_a-f]+|(?:\d[\
 
 function resolve(text, src) {
   if (text in KNOWN) return KNOWN[text]
-  if (NUMBER.test(text)) return Number(text)
+  if (NUMBER.test(text)) {
+    const number = Number(text)
+    if (!Number.isFinite(number)) throw new YamlError(`number out of range ${text}`, src.line)
+    return number
+  }
   if (TYPED.test(text)) throw new YamlError(`ambiguous scalar ${text}, quote it`, src.line)
   return text
 }
@@ -74,14 +78,14 @@ function readScalar(src, context) {
 
 export function setKey(map, key, value, line) {
   if (typeof key !== 'string') throw new YamlError('keys must be strings', line)
-  if (key in map) throw new YamlError(`duplicate key ${key}`, line)
+  if (key in map) throw new YamlError(`duplicate key ${JSON.stringify(key)}`, line)
   map[key] = value
 }
 
 const SPACES = / */uy
 const COMMA = /, */uy
 const PAIR = /: +/uy
-const KEY_END = /:(?: +|$)/uy
+const KEY_END = /:(?: +(?:#.*)?|$)/uy
 const LINE_END = /(?: +#.*| *)$/uy
 
 function readFlow(src, closer, item) {
@@ -120,8 +124,8 @@ export function parseInline(text, line) {
   return value
 }
 
-// `key: rest` or `key:` at the start of a line; null when the line is not a
-// mapping entry.
+// `key: rest` or `key:` at the start of a line, a comment after the colon
+// counting as nothing; null when the line is not a mapping entry.
 export function readKey(text, line) {
   const src = { text, pos: 0, line }
   const key = matchScalar(src, 'block')

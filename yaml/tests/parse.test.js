@@ -110,6 +110,9 @@ describe('the shapes pnpm writes', () => {
     assert.deepEqual(parse('- a # c\n- b #c\n'), ['a', 'b'])
     assert.deepEqual(parse('a: 1#c\nb: a#b#c\n'), { a: '1#c', b: 'a#b#c' })
     assert.deepEqual(parse('a: 1\n# trailing comment\n\n'), { a: 1 })
+    assert.deepEqual(parse('a: # c\n  b: 1\nd: # e\n  - x\n'), { a: { b: 1 }, d: ['x'] })
+    assert.deepEqual(parse('- # c\n  a: 1\n- #c\n  - b\n- c\n'), [{ a: 1 }, ['b'], 'c'])
+    assert.deepEqual(parse('? k\n: # c\n  a: 1\n'), { k: { a: 1 } })
   })
 
   it('CRLF line endings', () => {
@@ -204,14 +207,18 @@ describe('what it refuses', () => {
     ['a: {b:1}', /expected ": " after the key/u, 0],
     ['a: {b}', /expected ": " after the key/u, 0],
     ['a: {1: x}', /keys must be strings/u, 0],
-    ['a: {b: 1, b: 2}', /duplicate key b/u, 0],
+    ['a: {b: 1, b: 2}', /duplicate key "b"/u, 0],
     ['a: {? b: 1}', /expected a scalar, found "\? b: 1\}"/u, 0],
     ['a: {b: 1 c: 2}', /expected "," or "\}", found ": 2\}"/u, 0],
     ['a: [1', /expected "," or "\]", found the end of the line/u, 0],
     // Mapping structure.
-    ['a: 1\na: 2', /duplicate key a at line 2/u, 1],
+    ['a: 1\na: 2', /duplicate key "a" at line 2/u, 1],
+    ['"\\u001B": 1\n"\\u001B": 2', /^duplicate key "\\u001b" at line 2$/u, 1],
     ['a:', /missing value at line 1/u, 0],
     ['a:\nb: 1', /missing value at line 1/u, 0],
+    ['a: # a comment is not a value', /missing value at line 1/u, 0],
+    ['- # nor here', /missing value at line 1/u, 0],
+    ['? a\n: # nor here', /missing value at line 2/u, 1],
     ['a:\n- 1', /a sequence under a key must be indented/u, 1],
     ['a: b: c', /unexpected ": c" after the value/u, 0],
     ['a : 1', /unexpected " : 1" after the value/u, 0],
@@ -225,7 +232,6 @@ describe('what it refuses', () => {
     ['a: - b', /expected a scalar, found "- b"/u, 0],
     ['a: ? b', /expected a scalar, found "\? b"/u, 0],
     ['a: : b', /expected a scalar, found ": b"/u, 0],
-    ['a: # comment, then a block\n  b: 1', /expected a scalar, found "# comment/u, 0],
     // Explicit keys need their `: ` line, and keys of any kind must be strings.
     ['? a', /expected ": " below the explicit key at line 1/u, 0],
     ['? a\nb: 1', /expected ": " below the explicit key at line 2/u, 1],
@@ -240,6 +246,8 @@ describe('what it refuses', () => {
     ...['~', 'Null', 'NULL', 'True', 'TRUE', 'False', '0x1F', '0o17', '0b101', '1_000', '.5', '1.', '+1', '01', '00', '.inf', '-.Inf', '+.INF', '.nan', '.NaN', '1_0.5', '-0x1'].map((v) => [`a: ${v}`, new RegExp(`^ambiguous scalar ${v.replace(/[.+]/gu, '\\$&')}, quote it at line 1$`, 'u'), 0]),
     ['- 0x1F', /ambiguous scalar 0x1F/u, 0],
     ['a: [~]', /ambiguous scalar ~/u, 0],
+    ['a: 1e999', /number out of range 1e999/u, 0],
+    ['a: -1e999', /number out of range -1e999/u, 0],
     // Control characters, tabs and byte order marks, wherever they are.
     ['a:\n\tb: 1', /control character/u, 1],
     ['a: b\tc', /control character/u, 0],
