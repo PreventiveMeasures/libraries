@@ -47,13 +47,14 @@ function bounded(limit) {
   })
 }
 
-// The stream is made here, so a format the runtime lacks rejects as
-// everything else does.
+// The stream is made here, so a format the runtime lacks rejects with the
+// platform's own error, as a bad argument rather than bad data.
 async function through(bytes, Stream, format, limit, verb) {
   if (!(bytes instanceof Uint8Array)) throw new ArchiveError('the data is not a Uint8Array')
+  const transform = new Stream(format)
   const chunks = []
   try {
-    for await (const chunk of chunksOf(new Blob([bytes]).stream().pipeThrough(new Stream(format)).pipeThrough(bounded(limit)))) chunks.push(chunk)
+    for await (const chunk of chunksOf(new Blob([bytes]).stream().pipeThrough(transform).pipeThrough(bounded(limit)))) chunks.push(chunk)
   } catch (cause) {
     const limited = cause instanceof RangeError
     throw new CompressionError(limited ? `the data ${verb}es past ${limit} bytes` : `the data does not ${verb}`, { bytes: concat(chunks), limited, cause })
