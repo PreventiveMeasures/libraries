@@ -62,6 +62,8 @@ describe('what it refuses', () => {
     [[{ name: 'a', linkname: 'b' }], /a file cannot have a link target/u],
     [[{ name: 'l', type: 'symlink' }], /symlink target of "l" is empty/u],
     [[{ name: 'l', type: 'symlink', linkname: '../x' }], /points outside the archive/u],
+    [[{ name: 'a\uD800' }], /entry name is not well-formed Unicode/u],
+    [[{ name: 'l', type: 'symlink', linkname: 'x\uDC00' }], /link target of "l" is not well-formed Unicode/u],
     [[{ name: 'a', mode: 0o100644 }], /mode 33188 is not an integer from 0 to 4095/u],
     [[{ name: 'a', mtime: 315532799 }], /mtime 315532799 is not an integer from 315532800 to 2147483647/u],
     [[{ name: 'a', mtime: 0x80000000 }], /mtime 2147483648 is not an integer/u],
@@ -69,7 +71,7 @@ describe('what it refuses', () => {
     [[{ name: 'a/' }], /ends in a slash but is not a directory/u],
     [[{ name: '/a' }], /is absolute/u],
     [[{ name: '../a' }], /has a \.\. segment/u],
-    [[{ name: 'a\\b' }], /control character or a backslash/u],
+    [[{ name: 'a\\b' }], /control or formatting character, or a backslash/u],
     [[{ name: 'a' }, { name: 'a', data: utf8('x') }], /duplicate entry "a" differs in data/u],
     [[{ name: 'a' }, { name: 'a/b' }], /"a\/b" is inside "a", which is not a directory/u],
   ]

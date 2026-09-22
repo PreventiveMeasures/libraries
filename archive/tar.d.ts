@@ -67,7 +67,9 @@ export interface PackOptions {
 
 // Both refuse a name that repeats as a different entry — anything but
 // the same fields and the same bytes again — an entry inside something
-// that is not a directory, and a hard link to no earlier entry.
+// that is not a directory, a symlink whose target climbs out of the
+// archive or passes through anything but a directory, and a hard link to
+// no earlier entry.
 export function pack(entries: Iterable<EntryInput>, options?: PackOptions): Uint8Array
 export function unpack(bytes: Uint8Array): Entry[]
 

@@ -9,7 +9,7 @@ import { ArchiveError } from '../error.js'
 import { BLOCK, NAME_SIZE, OWNER_SIZE, PREFIX_SIZE, encodeHeader, fitsOctal, isDevice, octalMax } from './header.js'
 import { Names, cleanNames } from '../names.js'
 import { encodePax } from './pax.js'
-import { encodeUtf8, hasUnsafe, quote } from '../text.js'
+import { checkString, encodeUtf8, hasUnsafe, quote } from '../text.js'
 
 const TYPEFLAG = {
   file: 0x30,
@@ -34,8 +34,8 @@ function integer(value, what, signed = false) {
 }
 
 function ownerName(value, what) {
-  if (typeof value !== 'string') throw new ArchiveError(`${what} is not a string`)
-  if (hasUnsafe(value, false)) throw new ArchiveError(`${what} ${quote(value)} holds a control character`)
+  checkString(value, what)
+  if (hasUnsafe(value, false)) throw new ArchiveError(`${what} ${quote(value)} holds a control or formatting character`)
   return value
 }
 

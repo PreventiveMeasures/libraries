@@ -174,7 +174,7 @@ class Unpacker {
     if (linkname !== '' && type !== 'link' && type !== 'symlink') throw new ArchiveError(`a ${type} entry has a link target`, at)
     const owner = (key) => {
       const value = record(key) ?? decodeUtf8(header[key], key, at)
-      if (hasUnsafe(value, false)) throw new ArchiveError(`${key} ${quote(value)} holds a control character`, at)
+      if (hasUnsafe(value, false)) throw new ArchiveError(`${key} ${quote(value)} holds a control or formatting character`, at)
       return value
     }
     const entry = {

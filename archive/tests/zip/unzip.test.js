@@ -158,11 +158,13 @@ describe('what it refuses', () => {
     ['a name on a Windows drive', () => archive([entry('C:/a', utf8('x'))]), /entry name "C:\/a" starts with a drive letter/u],
     ['a symlink to a Windows drive', () => archive([entry('l', utf8('C:/x'), { attributes: 0o120777 * 0x10000 })]), /symlink target of "l" "C:\/x" starts with a drive letter/u],
     ['a name that climbs out', () => archive([entry('../a', utf8('x'))]), /has a \.\. segment/u],
-    ['a name with a backslash', () => archive([entry('a\\b', utf8('x'))]), /control character or a backslash/u],
+    ['a name with a backslash', () => archive([entry('a\\b', utf8('x'))]), /control or formatting character, or a backslash/u],
     ['a name twice as a different entry', () => archive([x(), entry('a', utf8('y'))]), /duplicate entry "a" differs in data/u],
     ['an entry inside a file', () => archive([x(), entry('a/b', utf8('y'))]), /"a\/b" is inside "a", which is not a directory/u],
     ['an invalid DOS time', () => archive([entry('a', utf8('x'), { date: (40 << 9) | (13 << 5) | 1 })]), /an entry has an invalid DOS time/u],
     ['an extra field past its room', () => archive([entry('a', utf8('x'), { extra: record([[2, 0x5455], [2, 9], [1, 1]]) })]), /an extra field runs past its room/u],
+    ['an extended timestamp cut short', () => archive([entry('a', utf8('x'), { extra: record([[2, 0x5455], [2, 1], [1, 1]]) })]), /an extended timestamp is cut short/u],
+    ['a DOS time that is no time, under an extended timestamp', () => archive([entry('a', utf8('x'), { extra: ut(T), time: 0xffff })]), /an entry has an invalid DOS time/u],
   ]
   for (const [what, bytes, message] of refused) {
     it(`refuses ${what}`, async () => {

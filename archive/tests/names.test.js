@@ -16,6 +16,10 @@ describe('a name is a clean relative path', () => {
     assert.equal(cleanPath('d/', 'name', true), 'd')
     assert.equal(cleanPath('./d/./', 'name', true), 'd')
   })
+  it('lands every spelling of a path on one name', () => {
+    for (const spelling of ['a/b', './a/b', 'a/./b', './a/./b/.', 'a/b/.']) assert.equal(cleanPath(spelling, 'name'), 'a/b')
+    for (const spelling of ['d', 'd/', './d', 'd/.', 'd/./', './d/./']) assert.equal(cleanPath(spelling, 'name', true), 'd')
+  })
   it('names the archive root ., for a directory only', () => {
     assert.equal(cleanPath('.', 'name', true), '.')
     assert.equal(cleanPath('./', 'name', true), '.')
@@ -37,10 +41,13 @@ describe('a name is a clean relative path', () => {
     ['a/../b', /has a \.\. segment/u],
     ['..', /has a \.\. segment/u],
     ['./..', /has a \.\. segment/u],
-    ['a\\b', /control character or a backslash/u],
-    ['a\nb', /control character or a backslash/u],
-    ['a\u0000', /control character or a backslash/u],
-    ['a\u007F', /control character or a backslash/u],
+    ['a\\b', /control or formatting character, or a backslash/u],
+    ['a\nb', /control or formatting character, or a backslash/u],
+    ['a\u0000', /control or formatting character, or a backslash/u],
+    ['a\u007F', /control or formatting character, or a backslash/u],
+    ['a\u202Eb', /control or formatting character, or a backslash/u],
+    ['a\u2066b', /control or formatting character, or a backslash/u],
+    ['a\u2028b', /control or formatting character, or a backslash/u],
   ]
   for (const [name, message] of refused) {
     it(`refuses ${JSON.stringify(name)}`, () => {
@@ -53,8 +60,8 @@ describe('a name is a clean relative path', () => {
     assert.throws(() => checkSymlinkTarget('l', '\uDC00'), /symlink target of "l" is not well-formed Unicode/u)
   })
   it('refuses C1 controls as it does C0 ones', () => {
-    assert.throws(() => cleanPath('a\u0085b', 'name'), /control character/u)
-    assert.throws(() => cleanPath('a\u009Bb', 'name'), /control character/u)
+    assert.throws(() => cleanPath('a\u0085b', 'name'), /control or formatting character/u)
+    assert.throws(() => cleanPath('a\u009Bb', 'name'), /control or formatting character/u)
     cleanPath('a\u00A0b', 'name')
   })
   it('refuses what no filesystem takes: a segment over 255 bytes, a path over 4096', () => {
@@ -76,6 +83,13 @@ describe('a symlink target stays inside the archive', () => {
   for (const [name, target] of fine) {
     it(`${name} -> ${target}`, () => checkSymlinkTarget(name, target))
   }
+  it('hands back the paths the walk goes through', () => {
+    assert.deepEqual(checkSymlinkTarget('l', 'x'), [])
+    assert.deepEqual(checkSymlinkTarget('a/l', '../b/c/d'), ['b', 'b/c'])
+    assert.deepEqual(checkSymlinkTarget('l', 'a/./b//c/..'), ['a', 'a/b', 'a/b/c'])
+    assert.deepEqual(checkSymlinkTarget('a/b/l', '../../x/y'), ['a', 'x'])
+    assert.deepEqual(checkSymlinkTarget('a/b/l', '../c'), ['a'])
+  })
   const refused = [
     ['l', '../x', /points outside the archive/u],
     ['a/l', '../../x', /points outside the archive/u],
@@ -84,7 +98,7 @@ describe('a symlink target stays inside the archive', () => {
     ['l', 'C:/x', /starts with a drive letter/u],
     ['l', 'C:x', /starts with a drive letter/u],
     ['l', '', /is empty/u],
-    ['l', 'a\\b', /control character or a backslash/u],
+    ['l', 'a\\b', /control or formatting character, or a backslash/u],
     ['l', 42, /is not a string/u],
   ]
   for (const [name, target, message] of refused) {
@@ -127,13 +141,26 @@ describe('the names seen so far', () => {
     after(entry('a/b')).add(entry('a', 'directory'))
   })
   it('refuses a file named like the directory of an earlier entry', () => {
-    assert.throws(() => after(entry('a/b')).add(entry('a')), /"a" holds an earlier entry, so it cannot be a file/u)
+    assert.throws(() => after(entry('a/b')).add(entry('a')), /"a" is already a directory, so it cannot be a file/u)
     assert.throws(() => after(entry('a/b')).add(entry('a', 'symlink', 'x')), /cannot be a symlink/u)
   })
   it('refuses an entry inside something that is not a directory', () => {
     assert.throws(() => after(entry('a')).add(entry('a/b')), /"a\/b" is inside "a", which is not a directory/u)
     assert.throws(() => after(entry('a', 'symlink', 'elsewhere')).add(entry('a/b')), /is inside "a", which is not a directory/u)
     assert.throws(() => after(entry('a', 'fifo')).add(entry('a/b/c', 'directory')), /is inside "a"/u)
+  })
+  it('refuses a symlink target that walks through anything but a directory, whichever comes first', () => {
+    // d/s is the archive root, so d/s/.. would be its parent.
+    assert.throws(() => after(entry('d/s', 'symlink', '..')).add(entry('l', 'symlink', 'd/s/..')), /the target of symlink "l" passes through "d\/s", which is not a directory/u)
+    assert.throws(() => after(entry('l', 'symlink', 'd/s/../x')).add(entry('d/s', 'symlink', '..')), /"d\/s" is already a directory, so it cannot be a symlink/u)
+    assert.throws(() => after(entry('f')).add(entry('l', 'symlink', 'f/..')), /passes through "f", which is not a directory/u)
+    assert.throws(() => after().add(entry('l', 'symlink', 'l/x')), /passes through "l", which is not a directory/u)
+    assert.throws(() => after(entry('l', 'symlink', 'a/x')).add(entry('a')), /"a" is already a directory, so it cannot be a file/u)
+  })
+  it('lets a symlink point at another, or walk up through its own directories', () => {
+    after(entry('a', 'symlink', 'b')).add(entry('l', 'symlink', 'a'))
+    after(entry('d/s', 'symlink', '..')).add(entry('d/l', 'symlink', '../d/s'))
+    after(entry('l', 'symlink', 'a/x')).add(entry('a', 'directory'))
   })
   it('lets a hard link name an earlier non-directory entry', () => {
     after(entry('a')).add(entry('b', 'link', 'a'))

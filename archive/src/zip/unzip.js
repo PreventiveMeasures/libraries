@@ -88,8 +88,14 @@ function readCentral(r, at) {
   if (entry.flags & ENCRYPTED) throw new ArchiveError('an entry is encrypted', at)
   if (entry.method !== 0 && entry.method !== 8) throw new ArchiveError(`compression method ${entry.method} is not stored or deflate`, at)
   if (entry.csize === 0xffffffff || entry.usize === 0xffffffff || entry.offset === 0xffffffff) throw new ArchiveError('zip64 is not supported', at)
+  // The DOS fields have to be a time even where the extended timestamp,
+  // an exact one, is the time kept.
+  entry.mtime = fromDos(entry.date, entry.time, at)
   const stamp = extras(r.slice(at + 46 + nameLength, extraLength), at).get(TIMESTAMP_EXTRA)
-  entry.mtime = stamp !== undefined && stamp.length >= 5 && stamp[0] & 1 ? view(stamp).getInt32(1, true) : fromDos(entry.date, entry.time, at)
+  if (stamp !== undefined && stamp[0] & 1) {
+    if (stamp.length < 5) throw new ArchiveError('an extended timestamp is cut short', at)
+    entry.mtime = view(stamp).getInt32(1, true)
+  }
   return entry
 }
 

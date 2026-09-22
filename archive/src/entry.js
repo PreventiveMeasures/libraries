@@ -3,7 +3,7 @@
 
 import { EMPTY } from './bytes.js'
 import { ArchiveError } from './error.js'
-import { quote } from './text.js'
+import { checkString, quote } from './text.js'
 
 export const DEFAULT_MODE = { file: 0o644, directory: 0o755, symlink: 0o777 }
 
@@ -20,12 +20,12 @@ export function checkEntry(entry, types) {
   const type = entry.type ?? 'file'
   if (!Object.hasOwn(types, type)) throw new ArchiveError(`entry type ${quote(String(type))} is not one this package writes`)
   const { name } = entry
-  if (typeof name !== 'string') throw new ArchiveError('entry name is not a string')
+  checkString(name, 'entry name')
   const data = entry.data ?? EMPTY
   if (!(data instanceof Uint8Array)) throw new ArchiveError(`data of ${quote(name)} is not a Uint8Array`)
   if (data.length !== 0 && !isFile(type)) throw new ArchiveError(`a ${type} cannot carry data (${quote(name)})`)
   const linkname = entry.linkname ?? ''
-  if (typeof linkname !== 'string') throw new ArchiveError(`link target of ${quote(name)} is not a string`)
+  checkString(linkname, `link target of ${quote(name)}`)
   if (linkname !== '' && type !== 'link' && type !== 'symlink') throw new ArchiveError(`a ${type} cannot have a link target (${quote(name)})`)
   return { name, type, data, linkname }
 }

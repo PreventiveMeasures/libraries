@@ -46,7 +46,8 @@ export interface ZipOptions {
 
 // Both refuse a name that repeats as a different entry — anything but the
 // same fields and the same bytes again — an entry inside something that is
-// not a directory, and a symlink that points outside the archive. Neither
+// not a directory, and a symlink whose target climbs out of the archive
+// or passes through anything but a directory. Neither
 // takes or makes zip64, so an archive holds at most 65534 entries and
 // stays under 4 GiB.
 export function zip(entries: Iterable<EntryInput>, options?: ZipOptions): Promise<Uint8Array>

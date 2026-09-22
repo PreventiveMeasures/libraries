@@ -4,10 +4,11 @@
 // segment, no control character and no backslash — a separator on
 // Windows, where `..\` would get past the check on `..` — and does not
 // start with a drive letter and colon, which Windows resolves from that
-// drive rather than from the archive. A symlink target
-// may use `..`, but is followed from where the link sits and refused if it
-// climbs above the archive. Lengths are bounded by what a filesystem takes
-// at all: PATH_MAX for the whole, NAME_MAX for a segment, in bytes.
+// drive rather than from the archive. A symlink target may use `..`, but
+// is followed from where the link sits and refused if it climbs above the
+// archive or passes through anything but a directory, which is how a
+// chain of links would climb. Lengths are bounded by what a filesystem
+// takes at all: PATH_MAX for the whole, NAME_MAX for a segment, in bytes.
 //
 // A name may repeat only as the same entry again, field for field and byte
 // for byte (some npm packagers write `d/f` and `d/./f` both): two different
@@ -17,18 +18,15 @@
 
 import { sameBytes } from './bytes.js'
 import { ArchiveError } from './error.js'
-import { hasUnsafe, quote, utf8Length } from './text.js'
+import { checkString, hasUnsafe, quote, utf8Length } from './text.js'
 
 const PATH_MAX = 4096
 const NAME_MAX = 255
 
-// Well-formed first: a lone surrogate has no UTF-8, and so no length or
-// bytes for the checks below to look at.
 function checkText(path, what) {
-  if (typeof path !== 'string') throw new ArchiveError(`${what} is not a string`)
-  if (!path.isWellFormed()) throw new ArchiveError(`${what} is not well-formed Unicode`)
+  checkString(path, what)
   if (path === '') throw new ArchiveError(`${what} is empty`)
-  if (hasUnsafe(path, true)) throw new ArchiveError(`${what} ${quote(path)} holds a control character or a backslash`)
+  if (hasUnsafe(path, true)) throw new ArchiveError(`${what} ${quote(path)} holds a control or formatting character, or a backslash`)
   if (path.startsWith('/')) throw new ArchiveError(`${what} ${quote(path)} is absolute`)
   if (/^[a-zA-Z]:/u.test(path)) throw new ArchiveError(`${what} ${quote(path)} starts with a drive letter`)
   if (utf8Length(path) > PATH_MAX) throw new ArchiveError(`${what} ${quote(path)} is longer than ${PATH_MAX} bytes`)
@@ -56,16 +54,19 @@ export function cleanPath(path, what, directory = false) {
   return '.'
 }
 
+// Walks the target from the link's directory and returns the paths the
+// walk goes through on the way, which have to be directories.
 export function checkSymlinkTarget(name, target) {
   checkText(target, `symlink target of ${quote(name)}`)
-  let depth = name.split('/').length - 1
-  for (const segment of target.split('/')) {
-    if (segment === '..') {
-      if (--depth < 0) throw new ArchiveError(`symlink ${quote(name)} points outside the archive, to ${quote(target)}`)
-    } else if (segment !== '' && segment !== '.') {
-      depth++
-    }
+  const stack = name.split('/').slice(0, -1)
+  const segments = target.split('/').filter((segment) => segment !== '' && segment !== '.')
+  const through = []
+  for (const [i, segment] of segments.entries()) {
+    if (segment !== '..') stack.push(segment)
+    else if (stack.pop() === undefined) throw new ArchiveError(`symlink ${quote(name)} points outside the archive, to ${quote(target)}`)
+    if (i < segments.length - 1 && stack.length) through.push(stack.join('/'))
   }
+  return through
 }
 
 // The name and link target of an entry, cleaned and checked.
@@ -80,11 +81,14 @@ export function cleanNames(path, type, target) {
 const FIELDS = ['type', 'mode', 'uid', 'gid', 'mtime', 'uname', 'gname', 'linkname', 'devmajor', 'devminor']
 
 // Each name seen is an entry, a directory entry, or a directory implied by
-// an entry inside it; an implied directory may still be named as one. An
-// entry inside a non-directory is refused — that is the shape of a path
-// through a symlink. Whether entries are kept with their data decides what
-// a repeat can be compared with: the in-memory calls keep them, and a
-// stream keeps the fields alone and refuses what it cannot compare.
+// an entry inside it or by a symlink target walking through it; an implied
+// directory may still be named as one. An entry inside a non-directory is
+// refused — that is the shape of a path through a symlink — and so is a
+// symlink target that walks through one, in either order, so no chain of
+// links leads out of the archive. Whether entries are kept with their data
+// decides what a repeat can be compared with: the in-memory calls keep
+// them, and a stream keeps the fields alone and refuses what it cannot
+// compare.
 export class Names {
   #seen = new Map()
   #keep
@@ -108,13 +112,23 @@ export class Names {
       return
     }
     const kind = type === 'directory' ? 'directory' : 'entry'
-    if (seen !== undefined && kind !== 'directory') throw new ArchiveError(`${quote(name)} holds an earlier entry, so it cannot be a ${type}`)
+    if (seen !== undefined && kind !== 'directory') throw new ArchiveError(`${quote(name)} is already a directory, so it cannot be a ${type}`)
     for (let i = name.indexOf('/'); i !== -1; i = name.indexOf('/', i + 1)) {
       const parent = name.slice(0, i)
-      const above = this.#seen.get(parent)?.kind
-      if (above === 'entry') throw new ArchiveError(`${quote(name)} is inside ${quote(parent)}, which is not a directory`)
-      if (above === undefined) this.#seen.set(parent, { kind: 'implied' })
+      this.#directory(parent, `${quote(name)} is inside ${quote(parent)}, which is not a directory`)
     }
     this.#seen.set(name, { kind, entry: this.#keep ? entry : Object.fromEntries(FIELDS.map((field) => [field, entry[field]])) })
+    if (type === 'symlink') {
+      for (const path of checkSymlinkTarget(name, entry.linkname)) {
+        this.#directory(path, `the target of symlink ${quote(name)} passes through ${quote(path)}, which is not a directory`)
+      }
+    }
+  }
+
+  // A path is a directory if named or implied as one so far, or implied now.
+  #directory(path, refusal) {
+    const kind = this.#seen.get(path)?.kind
+    if (kind === 'entry') throw new ArchiveError(refusal)
+    if (kind === undefined) this.#seen.set(path, { kind: 'implied' })
   }
 }
