@@ -107,7 +107,7 @@ describe('the async pair', () => {
   it('refuse what the others refuse', async () => {
     await assert.rejects(collect(packStreamAsync(later([{ name: '../x' }]))), /has a \.\. segment/u)
     await assert.rejects(collect(unpackStreamAsync(later([new Uint8Array(512)]))), /ends with a lone zero block/u)
-    await assert.rejects(collect(packStreamAsync(null)), /entries are not iterable/u)
+    await assert.rejects(collect(packStreamAsync(null)), TypeError)
   })
   it('agree with unpack on what they read', async () => {
     const bytes = pack([{ name: 'a', data: utf8('x'.repeat(2000)) }, { name: 'd', type: 'directory' }])

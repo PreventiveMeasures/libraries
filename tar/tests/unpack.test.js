@@ -59,7 +59,7 @@ describe('what it refuses', () => {
   const refused = [
     ['nothing at all', () => new Uint8Array(0), /the archive is empty/u],
     ['a chunk that is not bytes', () => 'tar', /a chunk is not a Uint8Array/u],
-    ['a block that is not a header', () => new Uint8Array(1024).fill(1), /the checksum field holds no number at byte 0/u],
+    ['a block that is not a header', () => new Uint8Array(1024).fill(1), /the checksum field is not an octal number at byte 0/u],
     ['a header whose checksum is off', () => archive(broken(header())), /header checksum does not match at byte 0/u],
     ['a v7 header, whose magic is blank', () => archive(sealed(header(), (b) => b.fill(0, 257, 265))), /not in the ustar, pax or gnu format at byte 0/u],
     ['an archive cut inside its data', () => pack([{ name: 'a', data: utf8('hello') }]).subarray(0, 515), /the archive is truncated at byte 512/u],
@@ -103,7 +103,7 @@ describe('what it refuses', () => {
     ['an entry through a symlink', () => archive(header({ typeflag: 0x32, name: utf8('l'), linkname: utf8('x') }), header({ name: utf8('l/a') })), /"l\/a" is inside "l", which is not a directory at byte 512/u],
     ['a directory that ends in two slashes', () => archive(header({ typeflag: 0x35, name: utf8('d//') })), /has an empty segment/u],
     ['a symlink whose name ends in a slash', () => archive(header({ typeflag: 0x32, name: utf8('l/'), linkname: utf8('a') })), /"l\/" ends in a slash but is a symlink/u],
-    ['a device without device numbers', () => archive(header({ typeflag: 0x33, name: utf8('c') })), /the devmajor field holds no number at byte 0/u],
+    ['a device without device numbers', () => archive(header({ typeflag: 0x33, name: utf8('c') })), /the devmajor field is not an octal number at byte 0/u],
   ]
   for (const [what, bytes, message] of refused) {
     it(`refuses ${what}`, () => assert.throws(() => unpack(bytes()), message))

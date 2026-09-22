@@ -1,16 +1,8 @@
-// The typed contract for tar/index.js, hand-written because the package is
-// plain JavaScript. One file rather than a .d.ts per module: index.js IS the
-// surface, so the declarations below should read against it name for name,
-// in the same order and under the same headings.
-//
-// Keep it honest. Nothing checks these against the implementation — a
-// declaration that drifts is a silent lie to every caller that trusts it,
-// so a change to an exported signature belongs in the same commit as the
-// change here.
+// The typed contract for tar/index.js, hand-written: keep it name for name
+// with index.js, and change it in the same commit as the signature.
 
-// The entry types tar has, under the names tar-stream gave them. A 'link'
-// is a hard link to an earlier entry; a 'contiguous-file' is a file for
-// every purpose here.
+// tar's entry types under tar-stream's names. A 'link' is a hard link to
+// an earlier entry; a 'contiguous-file' is a file for every purpose here.
 export type EntryType =
   | 'file'
   | 'directory'
@@ -21,12 +13,11 @@ export type EntryType =
   | 'block-device'
   | 'contiguous-file'
 
-// An entry as read out of an archive: every field present. `name` is a
-// clean relative path with no trailing slash, `type` saying what it is;
-// `mtime` is whole seconds since the epoch; `linkname` is '' for anything
-// but a link, and the device numbers 0 for anything but a device. `data`
-// is empty for anything but a file, and where an archive arrived in one
-// piece it is a view over those bytes, not a copy.
+// An entry read out of an archive. `name` is a clean relative path with no
+// trailing slash; `mtime` is whole seconds since the epoch; `linkname` is
+// '' and the device numbers 0 where they do not apply; `data` is empty for
+// anything but a file, and a view over the archive bytes where they
+// arrived in one piece.
 export interface Entry {
   name: string
   type: EntryType
@@ -42,11 +33,9 @@ export interface Entry {
   data: Uint8Array
 }
 
-// An entry as given to be written: only the name is required. `type`
-// defaults to 'file'; a directory's name may carry a trailing slash. `mode`
-// defaults to 0o644, 0o755 for a directory, 0o777 for a symlink; owners to
-// 0 with empty names; `mtime` to 0. `data` is for files only, and
-// `linkname` — the target — is required for a symlink or a hard link.
+// An entry to write. `type` defaults to 'file'; `mode` to 0o644, 0o755 for
+// a directory, 0o777 for a symlink; owners to 0 with empty names; `mtime`
+// to 0. `linkname` is the target of a symlink or hard link.
 export interface EntryInput {
   name: string
   type?: EntryType
@@ -62,34 +51,27 @@ export interface EntryInput {
   devminor?: number
 }
 
-// GNU tar's names for the formats it writes. 'gnu' is what plain `tar`
-// writes and the default here; 'ustar' is POSIX 1988 and refuses what it
-// cannot hold; 'pax' is POSIX 2001 and holds everything.
+// GNU tar's names: 'gnu' is what plain `tar` writes and the default here,
+// 'ustar' refuses what it cannot hold, 'pax' holds everything.
 export type Format = 'gnu' | 'ustar' | 'pax'
 
-// `blocking` is tar's -b: the archive is padded with zeros to a multiple of
-// that many 512-byte blocks, 20 by default as in tar; 1 pads nothing past
-// the two zero blocks that end every archive.
+// `blocking` is tar's -b: zero padding to a multiple of that many 512-byte
+// blocks, 20 by default; 1 pads nothing past the two zero end blocks.
 export interface PackOptions {
   format?: Format
   blocking?: number
 }
 
-// Entries in, the archive out.
 export function pack(entries: Iterable<EntryInput>, options?: PackOptions): Uint8Array
-
-// The archive in, its entries out, in order.
 export function unpack(bytes: Uint8Array): Entry[]
 
-// The same two a piece at a time, as plain generators. The chunks packStream
-// yields include each entry's `data` as the very array it was given.
+// packStream yields each entry's `data` as the very array it was given.
 export function packStream(entries: Iterable<EntryInput>, options?: PackOptions): Generator<Uint8Array, void, undefined>
 export function packStreamAsync(entries: Iterable<EntryInput> | AsyncIterable<EntryInput>, options?: PackOptions): AsyncGenerator<Uint8Array, void, undefined>
 export function unpackStream(chunks: Iterable<Uint8Array>): Generator<Entry, void, undefined>
 export function unpackStreamAsync(chunks: Iterable<Uint8Array> | AsyncIterable<Uint8Array>): AsyncGenerator<Entry, void, undefined>
 
-// Thrown by either direction; `offset` counts bytes from the start of the
-// archive being read, and is unset from the writer.
+// `offset` is where in the archive the reader gave up; unset from the writer.
 export class TarError extends Error {
   constructor(detail: string, offset?: number)
   offset: number | undefined

@@ -1,26 +1,7 @@
-// Entries in, the bytes of an archive out — the same bytes GNU tar 1.35
-// writes for the same entries under `--owner=0 --group=0 --numeric-owner`
-// (owners are whatever an entry says, and nothing is looked up) and, for
-// pax, `--pax-option=delete=atime,delete=ctime` (the two times this
-// package does not model). Where GNU would write something lossy — a name
-// too long for ustar, cut and not split; a number out of a field's range,
-// substituted — this refuses instead, since a caller who asked for a
-// format asked for an archive that says what they gave it.
-//
-// The three formats are GNU's own names for them. `gnu` is what plain `tar`
-// writes: a name over 100 bytes goes in a ././@LongLink block ahead of the
-// entry, a number too big for its field goes in base 256. `ustar` is POSIX
-// 1988: a long name is split across the prefix and name fields, at the
-// last slash GNU would pick, and what cannot be split or held is refused.
-// `pax` is POSIX 2001: whatever the ustar header cannot hold — a long or
-// non-ASCII name, a big number, an owner name over 31 bytes — goes in an
-// extended header ahead of the entry, in the order GNU stores them.
-//
-// An archive is blocks of 512 bytes: a header, then the data padded out to
-// whole blocks, then two zero blocks after the last entry, and zero bytes
-// after those up to a multiple of the record size — 20 blocks unless said
-// otherwise, which is tar's default and why a one-file archive is 10240
-// bytes long.
+// Writes what GNU tar 1.35 writes for the same entries under `--owner=0
+// --group=0 --numeric-owner` and, for pax, `--pax-option=delete=atime,
+// delete=ctime`. Where GNU would cut or substitute — a name too long for
+// ustar, a number out of range — this refuses instead.
 
 import { utf8fromString } from '@exodus/bytes/utf8.js'
 import { TarError } from './error.js'
@@ -42,7 +23,6 @@ const LONGNAME = 0x4c
 const LONGLINK = 0x4b
 const PAX = 0x78
 
-// What stat() reports on Linux for a symlink, and what GNU tar records.
 const DEFAULT_MODE = { directory: 0o755, symlink: 0o777 }
 const FORMATS = new Set(['gnu', 'ustar', 'pax'])
 const SLASH = 0x2f
@@ -52,8 +32,6 @@ const isFile = (type) => type === 'file' || type === 'contiguous-file'
 const isDevice = (type) => type === 'character-device' || type === 'block-device'
 const isAscii = (raw) => raw.every((byte) => byte < 0x80)
 
-// Strict: a lone surrogate has no UTF-8, and a name with one in it has no
-// bytes an archive could carry.
 function bytes(text, what) {
   try {
     return utf8fromString(text)
@@ -73,8 +51,6 @@ function ownerName(value, what) {
   return value
 }
 
-// An entry as given, checked and with every field filled in. A directory's
-// name may carry the slash the archive will give it; nothing else may.
 function normalize(entry) {
   if (entry === null || typeof entry !== 'object') throw new TarError('an entry is not an object')
   const type = entry.type ?? 'file'
@@ -112,41 +88,33 @@ function normalize(entry) {
   }
 }
 
-// A copy in whole blocks, zero to the end. `length` may reach past the
-// bytes: a long name is followed by the NUL GNU counts in its size.
+// A copy in whole blocks; `length` may reach past `raw` to count a NUL.
 function padded(raw, length = raw.length) {
   const out = new Uint8Array(Math.ceil(length / BLOCK) * BLOCK)
   out.set(raw)
   return out
 }
 
-// A ././@LongLink block, as GNU writes one: 0644, owned by 0, dated 0, and
-// sized for the name and the NUL after it.
-function longLink(raw, typeflag) {
-  const header = encodeHeader({
-    gnu: true, name: utf8fromString('././@LongLink'), prefix: EMPTY, linkname: EMPTY, uname: EMPTY, gname: EMPTY,
-    typeflag, mode: 0o644, uid: 0, gid: 0, size: raw.length + 1, mtime: 0, devmajor: null, devminor: null,
-  })
-  return [header, padded(raw, raw.length + 1)]
-}
+// GNU's start_private_header: 0644, owned by 0, no owner names.
+const privateHeader = (name, size, mtime, typeflag, gnu) => encodeHeader({
+  gnu, name: utf8fromString(name).subarray(0, NAME_SIZE), prefix: EMPTY, linkname: EMPTY, uname: EMPTY, gname: EMPTY,
+  typeflag, mode: 0o644, uid: 0, gid: 0, size, mtime, devmajor: null, devminor: null,
+})
 
-// The pax header ahead of an entry: named `%d/PaxHeaders/%f` after the
-// entry (cut at 100 bytes like any name), 0644 and owned by 0, dated with
-// the entry's own time clamped into the field.
+// The size counts the NUL after the name.
+const longLink = (raw, typeflag) => [privateHeader('././@LongLink', raw.length + 1, 0, typeflag, true), padded(raw, raw.length + 1)]
+
+// Named `%d/PaxHeaders/%f` after the entry, dated with the entry's mtime
+// clamped into the field.
 function paxHeader(e, records) {
   const body = encodePax(records)
   const slash = e.name.lastIndexOf('/')
   const label = slash === -1 ? `./PaxHeaders/${e.name}` : `${e.name.slice(0, slash)}/PaxHeaders/${e.name.slice(slash + 1)}`
-  const header = encodeHeader({
-    gnu: false, name: utf8fromString(label).subarray(0, NAME_SIZE), prefix: EMPTY, linkname: EMPTY, uname: EMPTY, gname: EMPTY,
-    typeflag: PAX, mode: 0o644, uid: 0, gid: 0, size: body.length, mtime: e.mtime < 0 ? 0 : Math.min(e.mtime, octalMax(12)), devmajor: null, devminor: null,
-  })
-  return [header, padded(body)]
+  return [privateHeader(label, body.length, Math.max(0, Math.min(e.mtime, octalMax(12))), PAX, false), padded(body)]
 }
 
-// GNU's split_long_name: the prefix is everything up to the last slash that
-// leaves it within 155 bytes, and what follows has to fit the name field
-// and be something — a trailing slash does not count as a place to split.
+// GNU's split_long_name: the last slash within 155 bytes of prefix (a
+// trailing slash does not count), leaving 1 to 100 bytes of name.
 function splitName(raw, display) {
   const { length } = raw
   if (length > PREFIX_SIZE + NAME_SIZE + 1) throw new TarError(`name ${quote(display)} is longer than 256 bytes, which ustar cannot hold`)
@@ -160,33 +128,29 @@ function splitName(raw, display) {
   return { prefix: raw.subarray(0, i), name: raw.subarray(i + 1) }
 }
 
-// Where each part of an entry goes under a format: what precedes the
-// header (long-name blocks or a pax header), and the fields of the header
-// itself. The pax records come out in the order GNU tar stores them —
+// The chunks of one entry: long-name blocks or a pax header, the header,
+// the data and its padding. Pax records go in the order GNU stores them:
 // linkpath, path, uid, gid, size, mtime, devmajor, devminor, uname, gname.
-function layout(e, format) {
+function encodeEntry(e, format) {
   const gnu = format === 'gnu'
   const pax = []
-  const before = []
+  const chunks = []
   const wire = e.type === 'directory' ? `${e.name}/` : e.name
   let name = bytes(wire, 'entry name')
   let prefix = EMPTY
   let link = bytes(e.linkname, `link target of ${quote(e.name)}`)
   if (link.length > NAME_SIZE) {
-    if (gnu) before.push(...longLink(link, LONGLINK))
+    if (gnu) chunks.push(...longLink(link, LONGLINK))
     else if (format === 'pax') pax.push(['linkpath', e.linkname])
     else throw new TarError(`link target of ${quote(e.name)} is longer than 100 bytes, which ustar cannot hold`)
     link = link.subarray(0, NAME_SIZE)
   }
   if (format === 'pax' && (name.length > NAME_SIZE || !isAscii(name))) pax.push(['path', wire])
   if (name.length > NAME_SIZE) {
-    if (gnu) before.push(...longLink(name, LONGNAME))
+    if (gnu) chunks.push(...longLink(name, LONGNAME))
     else if (format === 'ustar') ({ prefix, name } = splitName(name, e.name))
     if (name.length > NAME_SIZE) name = name.subarray(0, NAME_SIZE)
   }
-  // A number that fits its field in octal goes there; one that does not
-  // goes in base 256 under gnu, in a pax record (with 0 in the field)
-  // under pax, and nowhere under ustar.
   const number = (what, value, size) => {
     if (gnu || fitsOctal(value, size)) return value
     if (format === 'pax') {
@@ -195,10 +159,8 @@ function layout(e, format) {
     }
     throw new TarError(`${what} ${value} of ${quote(e.name)} does not fit the ustar format`)
   }
-  // The field holds 31 bytes and a NUL. Under pax a name that is longer, or
-  // not ASCII, also goes in a record; GNU writes the record only past 32
-  // bytes and cuts a 32-byte name to 31 without one, which is the one place
-  // this deliberately does not follow it.
+  // GNU writes the pax record only past 32 bytes and cuts a 32-byte name to
+  // 31 without one; that loss is the one place this does not follow it.
   const owner = (what, text) => {
     const raw = bytes(text, what)
     if (raw.length < OWNER_SIZE && (format !== 'pax' || isAscii(raw))) return raw
@@ -218,61 +180,46 @@ function layout(e, format) {
     uname: owner('uname', e.uname),
     gname: owner('gname', e.gname),
   }
-  if (pax.length) before.push(...paxHeader(e, pax))
-  return { before, fields }
+  if (pax.length) chunks.push(...paxHeader(e, pax))
+  chunks.push(encodeHeader(fields))
+  const rest = e.data.length % BLOCK
+  if (e.data.length) chunks.push(e.data)
+  if (rest) chunks.push(ZEROS.subarray(0, BLOCK - rest))
+  return chunks
 }
 
-function settings({ format = 'gnu', blocking = 20 } = {}) {
+function packer({ format = 'gnu', blocking = 20 } = {}) {
   if (!FORMATS.has(format)) throw new TarError(`format ${quote(String(format))} is not gnu, ustar or pax`)
   if (!Number.isSafeInteger(blocking) || blocking < 1) throw new TarError('blocking is not a positive integer')
-  return { format, blocking }
-}
-
-// One archive being written: entries go in one at a time, each coming out
-// as the chunks that carry it — its data as the very array it was given,
-// not a copy — and the end comes out last.
-function packer(options) {
-  const { format, blocking } = settings(options)
   const names = new Names()
   let total = 0
-  const emit = function* emit(chunks) {
-    for (const chunk of chunks) {
-      total += chunk.length
-      yield chunk
-    }
+  const emit = (chunks) => {
+    for (const chunk of chunks) total += chunk.length
+    return chunks
   }
   return {
-    * add(entry) {
+    add(entry) {
       const e = normalize(entry)
       admit(names, e.name, e.type, e.linkname)
-      const { before, fields } = layout(e, format)
-      yield* emit(before)
-      yield* emit([encodeHeader(fields)])
-      if (e.data.length === 0) return
-      yield* emit([e.data])
-      const rest = e.data.length % BLOCK
-      if (rest) yield* emit([ZEROS.subarray(0, BLOCK - rest)])
+      return emit(encodeEntry(e, format))
     },
-    * end() {
-      yield* emit([ZEROS, ZEROS])
-      const record = blocking * BLOCK
-      const rest = total % record
-      if (rest) yield new Uint8Array(record - rest)
+    // Two zero blocks, then zeros to a multiple of the record size.
+    end() {
+      const chunks = emit([ZEROS, ZEROS])
+      const rest = total % (blocking * BLOCK)
+      if (rest) chunks.push(new Uint8Array(blocking * BLOCK - rest))
+      return chunks
     },
   }
 }
 
-const iterable = (value, asynchronous) => value != null && (typeof value[Symbol.iterator] === 'function' || (asynchronous && typeof value[Symbol.asyncIterator] === 'function'))
-
 export function* packStream(entries, options) {
-  if (!iterable(entries, false)) throw new TarError('entries are not iterable')
   const p = packer(options)
   for (const entry of entries) yield* p.add(entry)
   yield* p.end()
 }
 
 export async function* packStreamAsync(entries, options) {
-  if (!iterable(entries, true)) throw new TarError('entries are not iterable')
   const p = packer(options)
   for await (const entry of entries) yield* p.add(entry)
   yield* p.end()

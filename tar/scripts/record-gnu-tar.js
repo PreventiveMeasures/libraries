@@ -1,16 +1,12 @@
-// Records what GNU tar writes for a set of trees into
-// tests/fixtures/gnu-tar.js, which pack.test.js and unpack.test.js then
-// hold the package to, byte for byte. Run it on a Linux box with GNU tar
-// 1.35 on the PATH, as root (two of the entries are device nodes):
+// Records what GNU tar writes for the trees below into
+// tests/fixtures/gnu-tar.js. Needs Linux, GNU tar 1.35 on the PATH and
+// root (two entries are device nodes):
 //
 //     node tar/scripts/record-gnu-tar.js
 //
-// Each tree below is built in a temporary directory exactly as its entries
-// say — modes, times, links — and archived with `--no-recursion` and the
-// members named in order, so what tar writes is decided by the list here
-// and nothing else. Owners are numeric unless a case sets names; pax cases
-// drop atime and ctime, the two times this package does not model, and
-// the record blocking is 1 unless a case asks for tar's default.
+// Each tree is built in a temporary directory as its entries say and
+// archived with `--no-recursion` and the members named in order, so the
+// list here alone decides what tar writes.
 
 import { execFileSync } from 'node:child_process'
 import { chmodSync, linkSync, lutimesSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
@@ -19,8 +15,7 @@ import { dirname, join } from 'node:path'
 
 const OUT = new URL('../tests/fixtures/gnu-tar.js', import.meta.url)
 
-// 2020-01-01T00:00:00Z, and the pattern that fills the one binary file.
-const T = 1577836800
+const T = 1577836800 // 2020-01-01T00:00:00Z
 const pattern = (length) => Array.from({ length }, (_, i) => String.fromCodePoint(0x21 + (i * 7) % 94)).join('')
 
 const D150 = 'd'.repeat(150)
@@ -34,8 +29,6 @@ const TREES = {
     { name: 'empty' },
     { name: 'link', type: 'symlink', linkname: 'a.txt' },
   ],
-  // Names at and past the 100-byte field, a name ustar can split and two
-  // it cannot, a link target past the field, and names that are not ASCII.
   long: [
     { name: 'n'.repeat(100) },
     { name: 'm'.repeat(101) },
@@ -46,7 +39,6 @@ const TREES = {
     { name: 'ü.txt', data: 'x' },
     { name: 'ülink', type: 'symlink', linkname: 'ü.txt' },
   ],
-  // What ustar can hold of the tree above.
   splittable: [
     { name: 'n'.repeat(100) },
     { name: `${D150}/${F90}` },
@@ -120,7 +112,6 @@ function normalize(spec, expect) {
 function build(root, entries) {
   for (const e of entries) {
     const path = join(root, e.name)
-    // A member's directory need not be a member itself.
     mkdirSync(dirname(path), { recursive: true })
     if (e.type === 'directory') mkdirSync(path)
     else if (e.type === 'symlink') symlinkSync(e.linkname, path)
@@ -130,8 +121,7 @@ function build(root, entries) {
     else writeFileSync(path, e.data)
     if (e.type !== 'symlink' && e.type !== 'link') chmodSync(path, e.mode)
   }
-  // Times last, children before their directories: making an entry
-  // touches the directory it is made in.
+  // Children before their directories: creating an entry touches its directory.
   for (const e of entries.toReversed()) {
     if (e.type === 'symlink') lutimesSync(join(root, e.name), T, T)
     else utimesSync(join(root, e.name), T, T)
@@ -159,9 +149,7 @@ function record(c) {
   }
 }
 
-// An archive is mostly zero bytes: hex, with each run of zeros as its
-// length in brackets, is a fraction of the size of base64 and leaves the
-// header fields readable to anyone who knows their hex.
+// Hex with each run of zero bytes as its length in brackets.
 function hexWithZeroRuns(buffer) {
   let out = ''
   for (let i = 0; i < buffer.length;) {

@@ -56,11 +56,11 @@ describe('numbers', () => {
     assert.equal(readNumber(latin1('644\0\0\0\0\0'), 0, 8, 'mode', 0), 0o644)
   })
   it('refuse what is not a number', () => {
-    assert.throws(() => readNumber(latin1('        '), 0, 8, 'uid', 512), /the uid field holds no number at byte 512/u)
-    assert.throws(() => readNumber(new Uint8Array(8), 0, 8, 'uid', 0), /holds no number/u)
-    assert.throws(() => readNumber(latin1('00006x4\0'), 0, 8, 'uid', 0), /the uid field is not octal/u)
-    assert.throws(() => readNumber(latin1('0000098\0'), 0, 8, 'uid', 0), /is not octal/u)
-    assert.throws(() => readNumber(Uint8Array.from([0x81, 0, 0, 0, 0, 0, 0, 1]), 0, 8, 'uid', 0), /holds no number/u)
+    assert.throws(() => readNumber(latin1('        '), 0, 8, 'uid', 512), /the uid field is not an octal number at byte 512/u)
+    assert.throws(() => readNumber(new Uint8Array(8), 0, 8, 'uid', 0), /is not an octal number/u)
+    assert.throws(() => readNumber(latin1('00006x4\0'), 0, 8, 'uid', 0), /the uid field is not an octal number/u)
+    assert.throws(() => readNumber(latin1('0000098\0'), 0, 8, 'uid', 0), /is not an octal number/u)
+    assert.throws(() => readNumber(Uint8Array.from([0x81, 0, 0, 0, 0, 0, 0, 1]), 0, 8, 'uid', 0), /is not an octal number/u)
     const huge = new Uint8Array(12).fill(0xff)
     huge[0] = 0x80
     assert.throws(() => readNumber(huge, 0, 12, 'size', 0), /the size field is too large/u)
@@ -116,7 +116,7 @@ describe('a header', () => {
     const device = decodeHeader(encodeHeader(fields({ typeflag: 0x33, devmajor: 1, devminor: 3 })), 0)
     assert.equal(device.devmajor, 1)
     assert.equal(device.devminor, 3)
-    assert.throws(() => decodeHeader(encodeHeader(fields({ typeflag: 0x33 })), 0), /the devmajor field holds no number/u)
+    assert.throws(() => decodeHeader(encodeHeader(fields({ typeflag: 0x33 })), 0), /the devmajor field is not an octal number/u)
   })
   it('takes a name that fills its field with no NUL', () => {
     const name = utf8('n'.repeat(100))

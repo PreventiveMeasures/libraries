@@ -128,8 +128,8 @@ describe('the options', () => {
       yield { name: 'b' }
     }
     assert.equal(unpack(pack(entries())).length, 2)
-    assert.throws(() => pack({ name: 'a' }), /entries are not iterable/u)
-    assert.throws(() => pack(null), /entries are not iterable/u)
+    assert.throws(() => pack({ name: 'a' }), TypeError)
+    assert.throws(() => pack(null), TypeError)
   })
   it('fills in what an entry leaves out the way tar sees it on disk', () => {
     const [file, dir, link] = unpack(pack([{ name: 'a' }, { name: 'd', type: 'directory' }, { name: 'l', type: 'symlink', linkname: 'a' }]))

@@ -1,30 +1,16 @@
-// What a name is allowed to be, and the record of the names seen so far.
-// Both directions go through here: an entry is admitted before it is
-// written, and before it is handed out of an archive being read, under one
-// set of rules — what is refused on the way in would be refused on the way
-// out, so nothing this package writes is something it would not read.
-//
-// A name is a relative path in clean segments: no leading slash, no empty
-// segment, no `.` and no `..`, so that it names one place under whatever
-// directory the archive is unpacked into and cannot reach above it. No
-// control character, no backslash — a separator on Windows, which is where
-// `..\` would otherwise slip past the check on `..`. Nothing here is
-// normalised: `./a` is refused rather than read as `a`, because reading it
-// as something else is how two names that should be one duplicate end up
-// admitted as two.
-//
-// A symlink's target is a path of its own, and `..` in it is ordinary — a
-// link to a sibling directory goes through one — but it is followed from
-// where the link sits, and if it ever climbs above the archive it is
-// refused: that is a link to somewhere on the machine that unpacks it,
-// which no archive has business naming. A hard link names an earlier entry,
-// so it is held to the rules a name is, and then to that.
+// Name safety, applied before writing an entry and before handing one out
+// of an archive. A name is a relative path in clean segments (no leading
+// slash, no empty, `.` or `..` segment), with no control character and no
+// backslash — a separator on Windows, where `..\` would get past the check
+// on `..`. Nothing is normalised: `./a` is refused, not read as `a`. A
+// symlink may use `..`, but is followed from where it sits and refused if
+// it climbs above the archive.
 
 import { TarError } from './error.js'
 
 const quote = (text) => JSON.stringify(text)
 
-// A control character (C0 or DEL) or a backslash, anywhere in the text.
+// C0 or DEL, and a backslash if asked.
 export function hasUnsafe(text, backslash) {
   for (const char of text) {
     const code = char.codePointAt(0)
@@ -48,8 +34,6 @@ export function checkPath(path, what) {
   }
 }
 
-// Followed from the link's own directory: each `..` goes up one, and going
-// up from the top of the archive is out.
 export function checkSymlinkTarget(name, target) {
   checkText(target, `symlink target of ${quote(name)}`)
   let depth = name.split('/').length - 1
@@ -62,13 +46,10 @@ export function checkSymlinkTarget(name, target) {
   }
 }
 
-// Every name admitted so far, and what each is: an entry of its own, a
-// directory entry, or a directory that exists only because something was
-// admitted inside it. A name may be admitted once; a directory that was
-// only implied may still be admitted as the directory it is. An entry
-// inside something that is not a directory is refused — that is what a
-// symlink followed by a path through it looks like, and the standard way
-// an unpacker is walked out of its directory.
+// Each name seen is an entry, a directory entry, or a directory implied by
+// an entry inside it. An implied directory may still be admitted as one;
+// anything else twice is a duplicate. An entry inside a non-directory is
+// refused — that is the shape of a path through a symlink.
 export class Names {
   #kinds = new Map()
 
@@ -90,8 +71,6 @@ export class Names {
   }
 }
 
-// The whole check, in the order that makes the messages right: the name
-// itself, then the target if there is one, then the name against the rest.
 export function admit(names, name, type, linkname) {
   checkPath(name, 'entry name')
   if (type === 'symlink') checkSymlinkTarget(name, linkname)
