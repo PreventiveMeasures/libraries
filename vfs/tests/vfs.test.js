@@ -404,6 +404,29 @@ describe('rename', () => {
     assert.equal(fs.readText('/d/a'), 'y')
   })
 
+  it('takes no name from a spelling that ends on . or .., as nothing does', () => {
+    const fs = createVfs({ 'a/b/f': 'x', 'e': { type: 'directory' } })
+    fs.symlink('a/.', '/l')
+    for (const spelling of ['/a/.', '/a/b/..', '/a/./b/.', '/e/.']) {
+      fails(() => fs.rename(spelling, '/x'), 'EINVAL', spelling)
+      fails(() => fs.rename('/e', spelling), 'EINVAL', spelling)
+      fails(() => fs.rm(spelling, { recursive: true }), 'EINVAL', spelling)
+      fails(() => fs.rmdir(spelling), 'EINVAL', spelling)
+      fails(() => fs.rm(spelling), 'EISDIR', spelling)
+      fails(() => fs.mkdir(spelling), 'EEXIST', spelling)
+      fails(() => fs.symlink('x', spelling), 'EEXIST', spelling)
+      fails(() => fs.link('/a/b/f', spelling), 'EEXIST', spelling)
+      fails(() => fs.writeFile(spelling, ''), 'EISDIR', spelling)
+      fs.mkdir(spelling, { recursive: true })
+    }
+    fails(() => fs.rm('/a/b/f/.', { recursive: true }), 'ENOTDIR')
+    fails(() => fs.writeFile('/l', ''), 'EISDIR', '/l')
+    fails(() => fs.rm('/l/', { recursive: true }), 'ENOTDIR', '/l/')
+    fs.rm('/l')
+    fails(() => fs.rmdir('/..'), 'EBUSY', '/..')
+    assert.deepEqual([...fs.walk()].map((entry) => entry.path), ['/', '/a', '/a/b', '/a/b/f', '/e'])
+  })
+
   it('leaves two names of one inode as they are', () => {
     const fs = createVfs({ 'a': 'x' })
     fs.link('/a', '/b')

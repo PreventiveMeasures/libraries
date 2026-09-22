@@ -103,5 +103,7 @@ describe('compareNames orders by code point', () => {
     assert.ok([astral, bmp].sort()[0] === astral, 'the default sort compares UTF-16 units')
     assert.deepEqual(['b', 'a', 'ab', 'B', ''].sort(compareNames), ['', 'B', 'a', 'ab', 'b'])
     assert.equal(compareNames('same', 'same'), 0)
+    assert.throws(() => compareNames(1, 2), TypeError)
+    assert.throws(() => [null, 'a'].sort(compareNames), TypeError)
   })
 })

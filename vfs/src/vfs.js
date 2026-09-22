@@ -41,11 +41,12 @@ export class Vfs {
 
   // Where `path` leads: `dir`, the directory its last name is in; `name`; and
   // `node`, the inode there — undefined when the name is not taken, so a
-  // creation knows where to go. The last link is followed unless `follow` is
-  // false, as lstat does not; a trailing slash asserts a directory. `chain`
-  // is every directory from the root down to `dir`, `path` the canonical
-  // spelling of the result, and `mkdirs` makes the directories missing on
-  // the way, as mkdir -p does.
+  // creation knows where to go. A spelling that ends on `.` or `..` names a
+  // place and no entry, so `dir` is undefined for it as for the root. The
+  // last link is followed unless `follow` is false, as lstat does not; a
+  // trailing slash asserts a directory. `chain` is every directory from the
+  // root down to `dir`, `path` the canonical spelling of the result, and
+  // `mkdirs` makes the directories missing on the way, as mkdir -p does.
   #locate(path, { follow = true, mkdirs = false } = {}) {
     if (typeof path !== 'string') throw new TypeError(`a path must be a string, not ${typeof path}`)
     if (path.includes('\0')) throw new VfsError('EINVAL', path)
@@ -57,9 +58,9 @@ export class Vfs {
     let dir, name, node
     for (;;) {
       if (rest.length === 0) {
-        // `/` itself, or a spelling that ended on `.`, `..` or a link to a directory.
+        // `/` itself, or a spelling that ended on `.`, `..` or a link to one.
         ({ name, node } = chain.pop())
-        dir = chain.at(-1)?.node
+        dir = undefined
         break
       }
       name = rest.pop()
@@ -107,6 +108,12 @@ export class Vfs {
   #set(found, node, path) {
     checkName(found.name, path)
     found.dir.entries.set(found.name, node)
+  }
+
+  // The directory an entry is taken from, for a spelling that names one.
+  #dirOf(found, path) {
+    if (found.dir !== undefined) return found.dir
+    throw new VfsError(found.node === this.#root ? 'EBUSY' : 'EINVAL', path)
   }
 
   #is(path, type, follow) {
@@ -201,26 +208,23 @@ export class Vfs {
   rmdir(path) {
     const found = this.#found(path, false)
     if (found.node.type !== 'directory') throw new VfsError('ENOTDIR', path)
-    if (found.dir === undefined) throw new VfsError('EBUSY', path)
+    const dir = this.#dirOf(found, path)
     if (found.node.entries.size > 0) throw new VfsError('ENOTEMPTY', path)
-    found.dir.entries.delete(found.name)
+    dir.entries.delete(found.name)
   }
 
   // Removes the name, and with `recursive` everything under a directory.
   rm(path, { recursive = false } = {}) {
     const found = this.#found(path, false)
-    if (found.node.type === 'directory') {
-      if (!recursive) throw new VfsError('EISDIR', path)
-      if (found.dir === undefined) throw new VfsError('EBUSY', path)
-    }
-    found.dir.entries.delete(found.name)
+    if (found.node.type === 'directory' && !recursive) throw new VfsError('EISDIR', path)
+    this.#dirOf(found, path).entries.delete(found.name)
   }
 
   // rename(2): the name moves, replacing a file with a file or an empty
   // directory with a directory; two names of one inode leave both as they are.
   rename(from, to) {
     const source = this.#found(from, false)
-    if (source.dir === undefined) throw new VfsError('EBUSY', from)
+    const sourceDir = this.#dirOf(source, from)
     const target = this.#locate(to, { follow: false })
     if (target.dir === undefined || target.chain.some((step) => step.node === source.node)) throw new VfsError('EINVAL', to)
     if (target.trailing && source.node.type !== 'directory') throw new VfsError('ENOTDIR', to)
@@ -232,7 +236,7 @@ export class Vfs {
       } else if (source.node.type === 'directory') throw new VfsError('ENOTDIR', to)
     }
     checkName(target.name, to)
-    source.dir.entries.delete(source.name)
+    sourceDir.entries.delete(source.name)
     target.dir.entries.set(target.name, source.node)
   }
 

@@ -95,7 +95,8 @@ export function extname(path) {
 // UTF-8 byte order is code point order for well-formed text; the default
 // sort compares UTF-16 units and misorders astral characters.
 export function compareNames(a, b) {
-  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+  const shared = Math.min(string(a).length, string(b).length)
+  for (let i = 0; i < shared; i++) {
     if (a[i] !== b[i]) return a.codePointAt(i) - b.codePointAt(i)
   }
   return a.length - b.length
