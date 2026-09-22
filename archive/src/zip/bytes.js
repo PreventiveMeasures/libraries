@@ -80,22 +80,26 @@ export async function inflate(bytes, size, at) {
 
 // DOS time is two seconds and a year from 1980, in the maker's local time —
 // read and written here as UTC.
-export function toDos(mtime) {
-  const date = new Date(mtime * 1000)
+function dos(seconds) {
+  const date = new Date(seconds * 1000)
   const year = date.getUTCFullYear()
-  if (year < 1980 || year > 2107) throw new ArchiveError(`mtime ${mtime} is outside DOS time, 1980 to 2107`)
+  if (year < 1980 || year > 2107) return null
   return {
     time: (date.getUTCHours() << 11) | (date.getUTCMinutes() << 5) | (date.getUTCSeconds() >> 1),
     date: ((year - 1980) << 9) | ((date.getUTCMonth() + 1) << 5) | date.getUTCDate(),
   }
 }
 
+export function toDos(mtime) {
+  const fields = dos(mtime)
+  if (fields === null) throw new ArchiveError(`mtime ${mtime} is outside DOS time, 1980 to 2107`)
+  return fields
+}
+
+// Fields that do not come back as themselves named no date at all.
 export function fromDos(date, time, at) {
-  const fields = [1980 + (date >> 9), (date >> 5) & 15, date & 31, time >> 11, (time >> 5) & 63, (time & 31) * 2]
-  const [year, month, day, hours, minutes, seconds] = fields
-  const stamp = Date.UTC(year, month - 1, day, hours, minutes, seconds)
-  const back = new Date(stamp)
-  const same = [back.getUTCFullYear(), back.getUTCMonth() + 1, back.getUTCDate(), back.getUTCHours(), back.getUTCMinutes(), back.getUTCSeconds()]
-  if (same.some((value, i) => value !== fields[i])) throw new ArchiveError('an entry has an invalid DOS time', at)
-  return stamp / 1000
+  const seconds = Date.UTC(1980 + (date >> 9), ((date >> 5) & 15) - 1, date & 31, time >> 11, (time >> 5) & 63, (time & 31) * 2) / 1000
+  const fields = dos(seconds)
+  if (fields?.time !== time || fields.date !== date) throw new ArchiveError('an entry has an invalid DOS time', at)
+  return seconds
 }

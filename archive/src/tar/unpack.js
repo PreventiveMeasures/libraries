@@ -4,8 +4,8 @@
 // An entry's data views the chunk it arrived in where one chunk held it
 // whole, and is a copy otherwise.
 
-import { ArchiveError } from '../error.js'
-import { BLOCK, EMPTY, decodeHeader, isDevice, isFile, isZeroBlock, untilNul } from './header.js'
+import { ArchiveError, located } from '../error.js'
+import { BLOCK, EMPTY, concat, decodeHeader, isDevice, isFile, isZeroBlock, untilNul } from './header.js'
 import { Names, cleanNames } from '../names.js'
 import { decodePax } from './pax.js'
 import { decodeUtf8, hasUnsafe, quote } from '../text.js'
@@ -75,35 +75,24 @@ class Unpacker {
     throw new ArchiveError('the archive is truncated', this.#position)
   }
 
-  // The next `size` bytes, or null until they have all arrived.
+  // The next `size` bytes, or null until they have all arrived: a view
+  // when one chunk holds them, else the chunks are joined first.
   #take(size) {
     if (this.#buffered < size) return null
     if (size === 0) return EMPTY
-    let out
-    if (this.#chunks[0].length - this.#offset >= size) {
-      out = this.#chunks[0].subarray(this.#offset, this.#offset + size)
-      this.#advance(size)
-    } else {
-      out = new Uint8Array(size)
-      for (let filled = 0; filled < size;) {
-        const chunk = this.#chunks[0]
-        const count = Math.min(chunk.length - this.#offset, size - filled)
-        out.set(chunk.subarray(this.#offset, this.#offset + count), filled)
-        filled += count
-        this.#advance(count)
-      }
+    if (this.#chunks.length > 1) {
+      this.#chunks = [concat([this.#chunks[0].subarray(this.#offset), ...this.#chunks.slice(1)])]
+      this.#offset = 0
+    }
+    const out = this.#chunks[0].subarray(this.#offset, this.#offset + size)
+    this.#offset += size
+    if (this.#offset === this.#chunks[0].length) {
+      this.#chunks = []
+      this.#offset = 0
     }
     this.#buffered -= size
     this.#position += size
     return out
-  }
-
-  #advance(count) {
-    this.#offset += count
-    if (this.#offset === this.#chunks[0].length) {
-      this.#chunks.shift()
-      this.#offset = 0
-    }
   }
 
   #trailing(bytes, at) {
@@ -146,11 +135,7 @@ class Unpacker {
     const raw = body.subarray(0, size)
     if (extended === null) {
       entry.data = raw
-      try {
-        this.#names.add(entry)
-      } catch (error) {
-        throw new ArchiveError(error.message, at)
-      }
+      located(() => this.#names.add(entry), at)
       out.push(entry)
     } else if (extended === 'global') {
       this.#global = decodePax(raw, at)
@@ -178,13 +163,7 @@ class Unpacker {
     if (longlink !== null && record('linkpath') !== undefined) throw new ArchiveError('both a long link header and a pax linkpath name one entry', at)
     const rawName = longname ?? record('path') ?? this.#headerName(header, at)
     const rawTarget = longlink ?? record('linkpath') ?? decodeUtf8(header.linkname, 'link target', at)
-    let name
-    let linkname
-    try {
-      ({ name, linkname } = cleanNames(rawName, type, rawTarget))
-    } catch (error) {
-      throw new ArchiveError(error.message, at)
-    }
+    const { name, linkname } = located(() => cleanNames(rawName, type, rawTarget), at)
     const number = (key, parse = paxNumber) => (record(key) === undefined ? header[key] : parse(record(key), key, at))
     const size = number('size')
     if (size !== 0 && !isFile(type)) throw new ArchiveError(`a ${type} entry has a size`, at)

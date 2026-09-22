@@ -8,9 +8,9 @@ import { decodeUtf8, hasUnsafe, quote } from '../text.js'
 
 function record(keyword, value) {
   const body = utf8fromString(` ${keyword}=${value}\n`)
-  // The smallest total that still has as many digits as it counts.
-  let total = body.length
-  for (let next = body.length + String(total).length; next !== total; next = body.length + String(total).length) total = next
+  // The total counts its own digits, which may be one more than the body's.
+  const digits = String(body.length).length
+  const total = body.length + digits + (String(body.length + digits).length > digits ? 1 : 0)
   return concat([utf8fromString(String(total)), body])
 }
 

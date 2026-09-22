@@ -7,3 +7,13 @@ export class ArchiveError extends Error {
     this.offset = offset
   }
 }
+
+// The same error, placed: for a check that does not know where in the
+// archive it is running.
+export function located(fn, at) {
+  try {
+    return fn()
+  } catch (error) {
+    throw new ArchiveError(error.message, at)
+  }
+}

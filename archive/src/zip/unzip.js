@@ -9,7 +9,7 @@
 
 import { crc32 } from '@exodus/bytes/crc.js'
 import { CENTRAL, DEFAULT_MODE, EMPTY, END, LOCAL, TYPE_BITS, TYPE_MASK, fromDos, inflate, view } from './bytes.js'
-import { ArchiveError } from '../error.js'
+import { ArchiveError, located } from '../error.js'
 import { Names, cleanNames } from '../names.js'
 import { decodeUtf8, quote } from '../text.js'
 
@@ -148,18 +148,9 @@ async function entryOf(r, entry, names) {
   const body = method === 8 ? await inflate(r.slice(entry.dataAt, csize), usize, at) : r.slice(entry.dataAt, csize)
   if (crc32(body) !== entry.crc) throw new ArchiveError('the data does not match its CRC-32', at)
   const target = type === 'symlink' ? decodeUtf8(body, 'symlink target', at) : ''
-  let named
-  try {
-    named = cleanNames(rawName, type, target)
-  } catch (error) {
-    throw new ArchiveError(error.message, at)
-  }
+  const named = located(() => cleanNames(rawName, type, target), at)
   const out = { ...named, type, mode: mode === 0 ? DEFAULT_MODE[type] : mode & 0o7777, mtime: entry.mtime, data: type === 'file' ? body : EMPTY }
-  try {
-    names.add(out)
-  } catch (error) {
-    throw new ArchiveError(error.message, at)
-  }
+  located(() => names.add(out), at)
   return out
 }
 
