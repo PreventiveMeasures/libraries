@@ -33,6 +33,12 @@ importers:
 
   diff: {}
 
+  vfs:
+    devDependencies:
+      '@preventive/tar':
+        specifier: workspace:*
+        version: link:../tar
+
   yaml: {}
 
 packages:
