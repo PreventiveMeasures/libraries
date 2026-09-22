@@ -10,9 +10,9 @@ export { pack } from './src/tar/pack.js'
 // An archive in, its entries out, under the same rules pack() writes by.
 export { unpack } from './src/tar/unpack.js'
 
-// The same as plain generators, a chunk or an entry at a time; the Async
-// pair also take async iterables.
-export { packStream, packStreamAsync } from './src/tar/pack.js'
-export { unpackStream, unpackStreamAsync } from './src/tar/unpack.js'
+// The same a chunk or an entry at a time, as async generators over a
+// plain or an async iterable.
+export { packStream } from './src/tar/pack.js'
+export { unpackStream } from './src/tar/unpack.js'
 
 export { ArchiveError } from './src/error.js'

@@ -71,14 +71,13 @@ export interface PackOptions {
 export function pack(entries: Iterable<EntryInput>, options?: PackOptions): Uint8Array
 export function unpack(bytes: Uint8Array): Entry[]
 
-// The same a piece at a time, as plain generators. A stream keeps no
-// entry's data, so a name that repeats with the same fields is refused
-// there, and such an archive is for the in-memory call. packStream yields
-// each entry's `data` as the very array it was given.
-export function packStream(entries: Iterable<EntryInput>, options?: PackOptions): Generator<Uint8Array, void, undefined>
-export function packStreamAsync(entries: Iterable<EntryInput> | AsyncIterable<EntryInput>, options?: PackOptions): AsyncGenerator<Uint8Array, void, undefined>
-export function unpackStream(chunks: Iterable<Uint8Array>): Generator<Entry, void, undefined>
-export function unpackStreamAsync(chunks: Iterable<Uint8Array> | AsyncIterable<Uint8Array>): AsyncGenerator<Entry, void, undefined>
+// The same a piece at a time, as async generators over a plain or an
+// async iterable. A stream keeps no entry's data, so a name that repeats
+// with the same fields is refused there, and such an archive is for the
+// in-memory call. packStream yields each entry's `data` as the very array
+// it was given.
+export function packStream(entries: Iterable<EntryInput> | AsyncIterable<EntryInput>, options?: PackOptions): AsyncGenerator<Uint8Array, void, undefined>
+export function unpackStream(chunks: Iterable<Uint8Array> | AsyncIterable<Uint8Array>): AsyncGenerator<Entry, void, undefined>
 
 // `offset` is where in the archive the reader gave up; unset from the writer.
 export class ArchiveError extends Error {

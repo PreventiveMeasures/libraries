@@ -200,13 +200,7 @@ function packer({ format = 'gnu', blocking = 20 } = {}, keep = false) {
   }
 }
 
-export function* packStream(entries, options) {
-  const p = packer(options)
-  for (const entry of entries) yield* p.add(entry)
-  yield* p.end()
-}
-
-export async function* packStreamAsync(entries, options) {
+export async function* packStream(entries, options) {
   const p = packer(options)
   for await (const entry of entries) yield* p.add(entry)
   yield* p.end()

@@ -202,13 +202,7 @@ export function unpack(bytes) {
   return entries
 }
 
-export function* unpackStream(chunks) {
-  const unpacker = new Unpacker()
-  for (const chunk of chunks) yield* unpacker.push(chunk)
-  unpacker.end()
-}
-
-export async function* unpackStreamAsync(chunks) {
+export async function* unpackStream(chunks) {
   const unpacker = new Unpacker()
   for await (const chunk of chunks) yield* unpacker.push(chunk)
   unpacker.end()
