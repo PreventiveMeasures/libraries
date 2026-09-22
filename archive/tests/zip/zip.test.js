@@ -57,6 +57,7 @@ describe('what it refuses', () => {
     [[null], /an entry is not an object/u],
     [[{}], /entry name is not a string/u],
     [[{ name: 'a', type: 'fifo' }], /entry type "fifo" is not one this package writes/u],
+    [[{ name: 'a', type: { toString: () => 'directory' } }], /entry type is not a string/u],
     [[{ name: 'a', data: 'x' }], /data of "a" is not a Uint8Array/u],
     [[{ name: 'd', type: 'directory', data: utf8('x') }], /a directory cannot carry data/u],
     [[{ name: 'a', linkname: 'b' }], /a file cannot have a link target/u],

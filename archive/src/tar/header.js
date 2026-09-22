@@ -61,7 +61,10 @@ export function writeNumber(block, offset, size, value, gnu) {
 
 // Older tars wrote leading spaces, and either spaces or NULs after; a field
 // left blank (npm's packer wrote uid and gid so for years) is 0, as GNU tar,
-// libarchive and the rest read it. Only a time may be negative.
+// libarchive and the rest read it. A NUL ends the number wherever it sits, so
+// a field that opens with one is 0 however it goes on — GNU stops there, and
+// reading the digits past it instead would give a size, and so an archive,
+// that only this package sees. Only a time may be negative.
 export function readNumber(block, offset, size, what, at, signed = false) {
   const first = block[offset]
   if (first === 0x80 || first === 0xff) {
@@ -72,7 +75,7 @@ export function readNumber(block, offset, size, what, at, signed = false) {
     if (v > BigInt(Number.MAX_SAFE_INTEGER) || v < -BigInt(Number.MAX_SAFE_INTEGER)) throw new ArchiveError(`the ${what} field is too large`, at)
     return Number(v)
   }
-  const match = /^ *([0-7]*) *$/u.exec(ascii(block.subarray(offset, offset + size)).replaceAll('\0', ' '))
+  const match = /^ *([0-7]*) *$/u.exec(ascii(untilNul(block.subarray(offset, offset + size))))
   if (!match) throw new ArchiveError(`the ${what} field is not an octal number`, at)
   return match[1] === '' ? 0 : Number.parseInt(match[1], 8)
 }

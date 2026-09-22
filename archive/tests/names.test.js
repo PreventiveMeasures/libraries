@@ -169,6 +169,17 @@ describe('the names seen so far', () => {
     after(entry('a')).add(entry('b', 'link', 'a'))
     after(entry('a', 'symlink', 'x')).add(entry('b', 'link', 'a'))
   })
+  it('walks a hard link to a symlink from the link\'s own name', () => {
+    // a/b/s -> ../x lands inside the archive; the same symlink reached as h,
+    // at the root, lands outside it, and tar gives h that very target.
+    assert.throws(() => after(entry('a/b/s', 'symlink', '../x')).add(entry('h', 'link', 'a/b/s')), /symlink "h" points outside the archive, to "\.\.\/x"/u)
+    // d/s -> g/x walks through d/g, which nothing says is not a directory;
+    // reached as h it walks through g, which is a file.
+    assert.throws(() => after(entry('g'), entry('d/s', 'symlink', 'g/x')).add(entry('h', 'link', 'd/s')), /the target of hard link "h" to symlink "d\/s" passes through "g", which is not a directory/u)
+    // Safe from both places, so both names are taken.
+    after(entry('s', 'symlink', 'b')).add(entry('h', 'link', 's'))
+    after(entry('d/s', 'symlink', 'x')).add(entry('h', 'link', 'd/s'))
+  })
   it('refuses a hard link to anything else', () => {
     assert.throws(() => after().add(entry('b', 'link', 'a')), /hard link "b" targets "a", which is not an earlier non-directory entry/u)
     assert.throws(() => after(entry('a', 'directory')).add(entry('b', 'link', 'a')), /not an earlier non-directory entry/u)

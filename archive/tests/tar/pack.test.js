@@ -21,6 +21,10 @@ describe('what it refuses about an entry', () => {
     ['a', /an entry is not an object/u],
     [{}, /entry name is not a string/u],
     [{ name: 'a', type: 'socket' }, /entry type "socket" is not one this package writes/u],
+    // A key lookup would take this as a directory, and every later === would
+    // compare it as the string it is not.
+    [{ name: 'a', type: { toString: () => 'directory' } }, /entry type is not a string/u],
+    [{ name: 'a', type: 7 }, /entry type is not a string/u],
     [{ name: 'a/' }, /"a\/" ends in a slash but is not a directory/u],
     [{ name: '.' }, /"\." names the archive root but is not a directory/u],
     [{ name: 'a', data: 'text' }, /data of "a" is not a Uint8Array/u],

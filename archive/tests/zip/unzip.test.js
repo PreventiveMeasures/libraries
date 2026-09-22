@@ -60,6 +60,13 @@ function archive(entries, { gap = new Uint8Array(0), before = new Uint8Array(0),
 // The stamp is a signed 32-bit time; a negative one is written as its unsigned bits.
 const ut = (mtime) => record([[2, 0x5455], [2, 5], [1, 1], [4, mtime >>> 0]])
 
+// 0x7075: a version, the CRC-32 of the header name, and a name of its own,
+// which unzip takes over the header's where that CRC matches.
+function unicodePath(name, alias) {
+  const raw = utf8(alias)
+  return concat([record([[2, 0x7075], [2, 5 + raw.length], [1, 1], [4, crc32(utf8(name))]]), raw])
+}
+
 describe('unzip reads every recording back', () => {
   for (const recording of RECORDINGS) {
     it(recording.command, async () => {
@@ -192,6 +199,10 @@ describe('what it refuses', () => {
     ['an invalid DOS time', () => archive([entry('a', utf8('x'), { date: (40 << 9) | (13 << 5) | 1 })]), /an entry has an invalid DOS time/u],
     ['an extra field past its room', () => archive([entry('a', utf8('x'), { extra: record([[2, 0x5455], [2, 9], [1, 1]]) })]), /an extra field runs past its room/u],
     ['an extended timestamp cut short', () => archive([entry('a', utf8('x'), { extra: record([[2, 0x5455], [2, 1], [1, 1]]) })]), /an extended timestamp is cut short/u],
+    // unzip takes the name in this field over the one in the header when its
+    // CRC-32 matches that header name, so the name checked here is not the
+    // name extracted. Every name here is UTF-8 already, so it can only differ.
+    ['a second name in a Unicode path extra field', () => archive([entry('safe', utf8('x'), { extra: unicodePath('safe', '../evil') })]), /an entry carries a second name in a Unicode path extra field/u],
     ['a DOS time that is no time, under an extended timestamp', () => archive([entry('a', utf8('x'), { extra: ut(T), time: 0xffff })]), /an entry has an invalid DOS time/u],
   ]
   for (const [what, bytes, message] of refused) {

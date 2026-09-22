@@ -118,6 +118,8 @@ describe('what it refuses', () => {
     ['an owner name field with a control character', () => archive(header({ gname: utf8('a\tb') })), /gname "a\\tb" holds a control or formatting character/u],
     ['a global header that sets a size', () => archive(...pax([['size', '1']], {}, 0x67)), /a global header sets size at byte 0/u],
     ['a global header that sets a path', () => archive(...pax([['path', 'x']], {}, 0x67)), /a global header sets path/u],
+    ['a global header that makes every entry sparse', () => archive(...pax([['GNU.sparse.size', '10']], {}, 0x67)), /sparse entries are not supported at byte 0/u],
+    ['a hard link to a symlink that points out from the link', () => archive(header({ typeflag: 0x32, name: utf8('a/b/s'), linkname: utf8('../x') }), header({ typeflag: 0x31, name: utf8('h'), linkname: utf8('a/b/s') })), /symlink "h" points outside the archive/u],
   ]
   for (const [what, bytes, message] of refused) {
     it(`refuses ${what}`, () => assert.throws(() => unpack(bytes()), message))
@@ -150,6 +152,13 @@ describe('what it reads that GNU tar reads', () => {
   it('a name again as the same entry, as some packagers write d/f and d/./f', () => {
     const entries = unpack(archive(header({ name: utf8('d/f'), size: 1 }), padded(utf8('x')), header({ name: utf8('d/./f'), size: 1 }), padded(utf8('x'))))
     assert.deepEqual(entries.map((e) => [e.name, new TextDecoder().decode(e.data)]), [['d/f', 'x'], ['d/f', 'x']])
+  })
+  it('a size field that opens with a NUL as 0, so the block after it is the next header', () => {
+    // GNU ends the number at the NUL and reads b; taking the digits past it
+    // as 512 would swallow b's header as a's data, and b with it.
+    const block = sealed(header(), (b) => b.set(Uint8Array.from([0, 0, ...utf8('0000001000')]), 124))
+    const entries = unpack(archive(block, header({ name: utf8('b'), size: 1 }), padded(utf8('x'))))
+    assert.deepEqual(entries.map((e) => [e.name, e.data.length]), [['a', 0], ['b', 1]])
   })
   it('a NUL typeflag as a file', () => {
     assert.equal(unpack(archive(header({ typeflag: 0 })))[0].type, 'file')

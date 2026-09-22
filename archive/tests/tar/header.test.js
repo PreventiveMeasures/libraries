@@ -59,6 +59,14 @@ describe('numbers', () => {
     assert.equal(readNumber(new Uint8Array(8), 0, 8, 'uid', 0), 0)
     assert.equal(readNumber(latin1('        '), 0, 8, 'uid', 0), 0)
   })
+  it('end at a NUL wherever it sits, as GNU does', () => {
+    // GNU stops the number at the NUL, so a field that opens with one is 0
+    // however it goes on. Reading the digits past it would give this package
+    // a size, and so an archive, that no other reader sees.
+    assert.equal(readNumber(Uint8Array.from([0, 0, ...latin1('0000001000')]), 0, 12, 'size', 0), 0)
+    assert.equal(readNumber(latin1('  0000001000'), 0, 12, 'size', 0), 512)
+    assert.equal(readNumber(Uint8Array.from([...latin1('0006'), 0, ...latin1('044')]), 0, 8, 'mode', 0), 0o6)
+  })
   it('refuse what is not a number', () => {
     assert.throws(() => readNumber(latin1('00006x4\0'), 0, 8, 'uid', 512), /the uid field is not an octal number at byte 512/u)
     assert.throws(() => readNumber(latin1('0000098\0'), 0, 8, 'uid', 0), /is not an octal number/u)
