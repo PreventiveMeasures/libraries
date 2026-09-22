@@ -9,7 +9,8 @@
 export { zip } from './src/zip/zip.js'
 
 // An archive in, its entries out, under the same rules — and with every
-// header, size and checksum in it checked against every other.
+// header, size and checksum in it checked against every other, and the
+// sizes all together held to a limit where one is given.
 export { unzip } from './src/zip/unzip.js'
 
 export { ArchiveError } from './src/error.js'
