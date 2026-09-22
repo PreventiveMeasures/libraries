@@ -4,8 +4,9 @@
 //
 // A description is untrusted, and is read by tar's rules for a name: a
 // relative path with `.` segments and a directory's trailing slash dropped,
-// and no empty or `..` segment, control character or backslash — what a tar
-// entry may carry, so a tree built here packs back as it is. `.` names the
+// and no empty or `..` segment, no control, line separator or bidirectional
+// character, no backslash and no drive letter in front — what a tar entry
+// may carry, so a tree built here packs back as it is. `.` names the
 // root, which only a directory may. Every spelling of one path is one name,
 // and a name may repeat only as the same entry again, field for field and
 // byte for byte: `d/f` and `d/./f` both is what some packagers write, while
@@ -82,13 +83,20 @@ function place(vfs, declared, { name, type = 'file', data, mode, mtime, linkname
   }
 }
 
+// What no name may hold: a control, a line separator or a bidirectional
+// control, which break or reorder a name as shown; a backslash, a separator
+// on Windows; and, in front, a drive letter, which Windows resolves from.
+const UNSAFE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}\\]/u
+const DRIVE = /^[a-zA-Z]:/u
+
 // A name by tar's rules, as the one spelling of its path: the root is ''.
 function checkName(name, directory) {
   if (typeof name !== 'string') throw new TypeError(`a name must be a string, not ${typeof name}`)
   const parts = name.split('/')
   if (directory && parts.length > 1 && parts.at(-1) === '') parts.pop()
   const kept = parts.filter((part) => part !== '.')
-  const invalid = name.startsWith('/') || /[\p{Cc}\\]/u.test(name) || kept.some((part) => part === '' || part === '..') || (!directory && kept.length === 0)
+  const invalid = name.startsWith('/') || UNSAFE.test(name) || DRIVE.test(kept[0] ?? '')
+    || kept.some((part) => part === '' || part === '..') || (!directory && kept.length === 0)
   if (invalid) throw new VfsError('EINVAL', name)
   return kept.join('/')
 }

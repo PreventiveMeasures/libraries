@@ -117,11 +117,14 @@ describe('entries are the tree as tar would carry it', () => {
     assert.throws(() => vfsFromEntries([{ name: 5 }]), TypeError)
   })
 
-  it('refuse a name tar would: absolute, .., a backslash, a control character, an empty segment, a slash after what is not a directory', () => {
+  it('refuse a name tar would: absolute, .., a backslash, a control or bidirectional character, a drive letter, an empty segment, a slash after what is not a directory', () => {
     for (const name of ['../../etc/passwd', 'a/../b', 'a\\b', 'a\nb', 'a\0b', 'a//b', '/x', '/', 'a/', 'a/./', '.', '', './']) {
       fails(() => vfsFromEntries([{ name, data: 'x' }]), 'EINVAL', name)
     }
     for (const name of ['/d', 'd//', '', 'd\\']) fails(() => vfsFromEntries([{ name, type: 'directory' }]), 'EINVAL', name)
+    for (const code of [0x2028, 0x2029, 0x202E, 0x2066, 0x200F]) fails(() => vfsFromEntries([{ name: `a${String.fromCodePoint(code)}b`, data: 'x' }]), 'EINVAL')
+    for (const name of ['C:x', 'c:/x', './C:x']) fails(() => vfsFromEntries([{ name, data: 'x' }]), 'EINVAL', name)
+    assert.equal(vfsFromEntries([{ name: 'a/C:x', data: 'x' }]).readText('/a/C:x'), 'x', 'a drive letter is one in front alone')
     fails(() => vfsFromEntries([{ name: 'f', data: 'x' }, { name: 'l', type: 'link', linkname: '../f' }]), 'EINVAL', '../f')
     fails(() => vfsFromEntries([{ name: 'l', type: 'link' }]), 'EINVAL', '')
     fails(() => vfsFromEntries([{ name: 'd', type: 'directory' }, { name: 'l', type: 'link', linkname: 'd/' }]), 'EINVAL', 'd/')
