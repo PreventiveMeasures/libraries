@@ -80,7 +80,8 @@
         "ai/tests/**",
         "diff/tests/**",
         "tar/tests/**",
-        "yaml/tests/**"
+        "yaml/tests/**",
+        "zip/tests/**"
       ],
       "rules": {
         "max-lines-per-function": "off",

@@ -19,3 +19,4 @@ packages:
   - "diff"
   - "tar"
   - "yaml"
+  - "zip"

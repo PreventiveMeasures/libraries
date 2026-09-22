@@ -1,7 +1,7 @@
 {
-  "name": "@preventive/tar",
+  "name": "@preventive/zip",
   "version": "0.0.0",
-  "description": "Minimal strict in-memory tar, byte-for-byte what GNU tar writes",
+  "description": "Minimal strict in-memory zip on native compression streams",
   "type": "module",
   "main": "./index.js",
   "types": "./index.d.ts",
@@ -14,13 +14,12 @@
   "files": [
     "index.d.ts",
     "index.js",
+    "src/bytes.js",
     "src/error.js",
-    "src/header.js",
     "src/names.js",
-    "src/pack.js",
-    "src/pax.js",
     "src/text.js",
-    "src/unpack.js"
+    "src/unzip.js",
+    "src/zip.js"
   ],
   "engines": {
     "node": ">=24.14.0"
@@ -37,12 +36,12 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/PreventiveMeasures/libraries.git",
-    "directory": "tar"
+    "directory": "zip"
   },
   "bugs": {
     "url": "https://github.com/PreventiveMeasures/libraries/issues"
   },
-  "homepage": "https://github.com/PreventiveMeasures/libraries/tree/main/tar",
+  "homepage": "https://github.com/PreventiveMeasures/libraries/tree/main/zip",
   "publishConfig": {
     "access": "public"
   },
