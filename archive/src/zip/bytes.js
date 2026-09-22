@@ -31,44 +31,33 @@ export function record(fields) {
   return out
 }
 
-// The stream fed all of `bytes`, read back whole; reading and writing go on
-// together, since the stream would otherwise fill up and wait. Output past
-// `limit` is refused where it is, not after it has been made. The stream
-// gets its own copy of the input: a chunk handed to a stream is the
-// stream's, and `bytes` is usually a view over the caller's buffer.
-async function through(bytes, stream, limit, at) {
-  const writer = stream.writable.getWriter()
-  const writing = writer.write(bytes.slice()).then(() => writer.close())
-  writing.catch(() => {})
-  const reader = stream.readable.getReader()
+const through = (bytes, transform) => new Blob([bytes]).stream().pipeThrough(transform)
+
+export const deflate = async (bytes) => new Uint8Array(await new Response(through(bytes, new CompressionStream('deflate-raw'))).arrayBuffer())
+
+// Output past the declared size is refused where it is, not after it has
+// all been made.
+export async function inflate(bytes, size, at) {
+  const reader = through(bytes, new DecompressionStream('deflate-raw')).getReader()
   const chunks = []
   let total = 0
-  for (;;) {
-    const { value, done } = await reader.read()
-    if (done) break
-    total += value.length
-    if (total > limit) {
-      await reader.cancel()
-      throw new ArchiveError('an entry inflates to more than its declared size', at)
-    }
-    chunks.push(value)
-  }
-  await writing
-  return concat(chunks)
-}
-
-export const deflate = (bytes) => through(bytes, new CompressionStream('deflate-raw'), Infinity)
-
-export async function inflate(bytes, size, at) {
-  let out
   try {
-    out = await through(bytes, new DecompressionStream('deflate-raw'), size, at)
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      total += value.length
+      if (total > size) {
+        await reader.cancel()
+        throw new ArchiveError('an entry inflates to more than its declared size', at)
+      }
+      chunks.push(value)
+    }
   } catch (error) {
     if (error instanceof ArchiveError) throw error
     throw new ArchiveError('an entry does not inflate', at)
   }
-  if (out.length !== size) throw new ArchiveError('an entry inflates to less than its declared size', at)
-  return out
+  if (total !== size) throw new ArchiveError('an entry inflates to less than its declared size', at)
+  return concat(chunks)
 }
 
 // DOS time is two seconds and a year from 1980, in the maker's local time —
