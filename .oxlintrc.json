@@ -79,7 +79,7 @@
       "files": [
         "ai/tests/**",
         "diff/tests/**",
-        "tar/tests/**",
+        "archive/tests/**",
         "yaml/tests/**"
       ],
       "rules": {

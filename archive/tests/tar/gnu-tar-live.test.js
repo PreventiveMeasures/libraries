@@ -4,8 +4,8 @@ import { lstatSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, w
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
-import { pack } from '../index.js'
-import { assertBytes, utf8 } from './helpers.js'
+import { pack } from '../../tar.js'
+import { assertBytes, utf8 } from '../helpers.js'
 
 // The recordings say what GNU tar wrote once; this asks the GNU tar on the
 // machine, when there is one, to read what pack() writes now and to write

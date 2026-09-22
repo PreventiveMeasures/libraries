@@ -1,0 +1,68 @@
+{
+  "name": "@preventive/archive",
+  "version": "0.0.0",
+  "description": "Strict in-memory tar and zip on browser APIs",
+  "type": "module",
+  "exports": {
+    "./tar.js": {
+      "types": "./tar.d.ts",
+      "default": "./tar.js"
+    },
+    "./compression.js": {
+      "types": "./compression.d.ts",
+      "default": "./compression.js"
+    },
+    "./zip.js": {
+      "types": "./zip.d.ts",
+      "default": "./zip.js"
+    }
+  },
+  "files": [
+    "compression.d.ts",
+    "compression.js",
+    "src/bytes.js",
+    "src/compression.js",
+    "src/entry.js",
+    "src/error.js",
+    "src/names.js",
+    "src/tar/header.js",
+    "src/tar/pack.js",
+    "src/tar/pax.js",
+    "src/tar/unpack.js",
+    "src/text.js",
+    "src/zip/format.js",
+    "src/zip/unzip.js",
+    "src/zip/zip.js",
+    "tar.d.ts",
+    "tar.js",
+    "zip.d.ts",
+    "zip.js"
+  ],
+  "engines": {
+    "node": ">=24.14.0"
+  },
+  "scripts": {
+    "test": "node --test ./tests/*.test.js ./tests/tar/*.test.js ./tests/zip/*.test.js"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Nikita Skovoroda",
+    "email": "chalkerx@gmail.com",
+    "url": "https://github.com/ChALkeR"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PreventiveMeasures/libraries.git",
+    "directory": "archive"
+  },
+  "bugs": {
+    "url": "https://github.com/PreventiveMeasures/libraries/issues"
+  },
+  "homepage": "https://github.com/PreventiveMeasures/libraries/tree/main/archive",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@exodus/bytes": "^1.16.0"
+  }
+}

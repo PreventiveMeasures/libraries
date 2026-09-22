@@ -3,11 +3,13 @@
 // delete=ctime`. Where GNU would cut or substitute — a name too long for
 // ustar, a number out of range — this refuses instead.
 
-import { TarError } from './error.js'
-import { BLOCK, EMPTY, NAME_SIZE, OWNER_SIZE, PREFIX_SIZE, concat, encodeHeader, fitsOctal, octalMax } from './header.js'
-import { Names, cleanNames } from './names.js'
+import { EMPTY, concat, isAscii } from '../bytes.js'
+import { DEFAULT_MODE, checkEntry, wireName } from '../entry.js'
+import { ArchiveError } from '../error.js'
+import { BLOCK, NAME_SIZE, OWNER_SIZE, PREFIX_SIZE, encodeHeader, fitsOctal, isDevice, octalMax } from './header.js'
+import { Names, cleanNames } from '../names.js'
 import { encodePax } from './pax.js'
-import { encodeUtf8, hasUnsafe, quote } from './text.js'
+import { checkString, encodeUtf8, hasUnsafe, quote } from '../text.js'
 
 const TYPEFLAG = {
   file: 0x30,
@@ -23,47 +25,30 @@ const LONGNAME = 0x4c
 const LONGLINK = 0x4b
 const PAX = 0x78
 
-const DEFAULT_MODE = { directory: 0o755, symlink: 0o777 }
 const FORMATS = new Set(['gnu', 'ustar', 'pax'])
 const SLASH = 0x2f
 
-const isFile = (type) => type === 'file' || type === 'contiguous-file'
-const isDevice = (type) => type === 'character-device' || type === 'block-device'
-const isAscii = (raw) => raw.every((byte) => byte < 0x80)
-
 function integer(value, what, signed = false) {
-  if (!Number.isSafeInteger(value) || (!signed && value < 0)) throw new TarError(`${what} ${String(value)} is not ${signed ? 'an integer' : 'a non-negative integer'}`)
+  if (!Number.isSafeInteger(value) || (!signed && value < 0)) throw new ArchiveError(`${what} ${String(value)} is not ${signed ? 'an integer' : 'a non-negative integer'}`)
   return value
 }
 
 function ownerName(value, what) {
-  if (typeof value !== 'string') throw new TarError(`${what} is not a string`)
-  if (hasUnsafe(value, false)) throw new TarError(`${what} ${quote(value)} holds a control character`)
+  checkString(value, what)
+  if (hasUnsafe(value, false)) throw new ArchiveError(`${what} ${quote(value)} holds a control or formatting character`)
   return value
 }
 
 function normalize(entry) {
-  if (entry === null || typeof entry !== 'object') throw new TarError('an entry is not an object')
-  const type = entry.type ?? 'file'
-  if (!Object.hasOwn(TYPEFLAG, type)) throw new TarError(`entry type ${quote(String(type))} is not one this package writes`)
-  const { name } = entry
-  if (typeof name !== 'string') throw new TarError('entry name is not a string')
-  const data = entry.data ?? EMPTY
-  if (!(data instanceof Uint8Array)) throw new TarError(`data of ${quote(name)} is not a Uint8Array`)
-  if (data.length !== 0 && !isFile(type)) throw new TarError(`a ${type} cannot carry data (${quote(name)})`)
-  const linkname = entry.linkname ?? ''
-  if (typeof linkname !== 'string') throw new TarError(`link target of ${quote(name)} is not a string`)
-  if (linkname !== '' && type !== 'link' && type !== 'symlink') throw new TarError(`a ${type} cannot have a link target (${quote(name)})`)
+  const checked = checkEntry(entry, TYPEFLAG)
+  const { name, type } = checked
   const devmajor = integer(entry.devmajor ?? 0, 'devmajor')
   const devminor = integer(entry.devminor ?? 0, 'devminor')
-  if ((devmajor !== 0 || devminor !== 0) && !isDevice(type)) throw new TarError(`a ${type} cannot have device numbers (${quote(name)})`)
+  if ((devmajor !== 0 || devminor !== 0) && !isDevice(type)) throw new ArchiveError(`a ${type} cannot have device numbers (${quote(name)})`)
   const mode = integer(entry.mode ?? DEFAULT_MODE[type] ?? 0o644, 'mode')
-  if (mode > 0o7777) throw new TarError(`mode ${mode.toString(8)} has bits beyond the permission bits`)
+  if (mode > 0o7777) throw new ArchiveError(`mode ${mode.toString(8)} has bits beyond the permission bits`)
   return {
-    name,
-    type,
-    data,
-    linkname,
+    ...checked,
     mode,
     uid: integer(entry.uid ?? 0, 'uid'),
     gid: integer(entry.gid ?? 0, 'gid'),
@@ -104,14 +89,14 @@ function paxHeader(e, records) {
 // trailing slash does not count), leaving 1 to 100 bytes of name.
 function splitName(raw, display) {
   const { length } = raw
-  if (length > PREFIX_SIZE + NAME_SIZE + 1) throw new TarError(`name ${quote(display)} is longer than 256 bytes, which ustar cannot hold`)
+  if (length > PREFIX_SIZE + NAME_SIZE + 1) throw new ArchiveError(`name ${quote(display)} is longer than 256 bytes, which ustar cannot hold`)
   let limit = length
   if (limit > PREFIX_SIZE + 1) limit = PREFIX_SIZE + 1
   else if (raw[limit - 1] === SLASH) limit--
   let i = limit - 1
   while (i > 0 && raw[i] !== SLASH) i--
   const rest = length - i - 1
-  if (i === 0 || rest > NAME_SIZE || rest === 0) throw new TarError(`name ${quote(display)} cannot be split into ustar's prefix and name fields`)
+  if (i === 0 || rest > NAME_SIZE || rest === 0) throw new ArchiveError(`name ${quote(display)} cannot be split into ustar's prefix and name fields`)
   return { prefix: raw.subarray(0, i), name: raw.subarray(i + 1) }
 }
 
@@ -122,14 +107,14 @@ function encodeEntry(e, format) {
   const gnu = format === 'gnu'
   const pax = []
   const chunks = []
-  const wire = e.type === 'directory' ? `${e.name}/` : e.name
+  const wire = wireName(e)
   let name = encodeUtf8(wire, 'entry name')
   let prefix = EMPTY
   let link = encodeUtf8(e.linkname, `link target of ${quote(e.name)}`)
   if (link.length > NAME_SIZE) {
     if (gnu) chunks.push(...longLink(link, LONGLINK))
     else if (format === 'pax') pax.push(['linkpath', e.linkname])
-    else throw new TarError(`link target of ${quote(e.name)} is longer than 100 bytes, which ustar cannot hold`)
+    else throw new ArchiveError(`link target of ${quote(e.name)} is longer than 100 bytes, which ustar cannot hold`)
     link = link.subarray(0, NAME_SIZE)
   }
   if (format === 'pax' && (name.length > NAME_SIZE || !isAscii(name))) pax.push(['path', wire])
@@ -144,14 +129,14 @@ function encodeEntry(e, format) {
       pax.push([what, String(value)])
       return 0
     }
-    throw new TarError(`${what} ${value} of ${quote(e.name)} does not fit the ustar format`)
+    throw new ArchiveError(`${what} ${value} of ${quote(e.name)} does not fit the ustar format`)
   }
   // GNU writes the pax record only past 32 bytes and cuts a 32-byte name to
   // 31 without one; that loss is the one place this does not follow it.
   const owner = (what, text) => {
     const raw = encodeUtf8(text, what)
     if (raw.length < OWNER_SIZE && (format !== 'pax' || isAscii(raw))) return raw
-    if (format !== 'pax') throw new TarError(`${what} of ${quote(e.name)} is longer than 31 bytes, which the ${format} format cannot hold`)
+    if (format !== 'pax') throw new ArchiveError(`${what} of ${quote(e.name)} is longer than 31 bytes, which the ${format} format cannot hold`)
     pax.push([what, text])
     return raw.subarray(0, OWNER_SIZE - 1)
   }
@@ -178,8 +163,8 @@ function encodeEntry(e, format) {
 // `keep` holds entries for a repeat to be compared with, which only the
 // in-memory call can afford.
 function packer({ format = 'gnu', blocking = 20 } = {}, keep = false) {
-  if (!FORMATS.has(format)) throw new TarError(`format ${quote(String(format))} is not gnu, ustar or pax`)
-  if (!Number.isSafeInteger(blocking) || blocking < 1) throw new TarError('blocking is not a positive integer')
+  if (!FORMATS.has(format)) throw new ArchiveError(`format ${quote(String(format))} is not gnu, ustar or pax`)
+  if (!Number.isSafeInteger(blocking) || blocking < 1) throw new ArchiveError('blocking is not a positive integer')
   const names = new Names(keep)
   let total = 0
   const emit = (chunks) => {
@@ -202,13 +187,7 @@ function packer({ format = 'gnu', blocking = 20 } = {}, keep = false) {
   }
 }
 
-export function* packStream(entries, options) {
-  const p = packer(options)
-  for (const entry of entries) yield* p.add(entry)
-  yield* p.end()
-}
-
-export async function* packStreamAsync(entries, options) {
+export async function* packStream(entries, options) {
   const p = packer(options)
   for await (const entry of entries) yield* p.add(entry)
   yield* p.end()

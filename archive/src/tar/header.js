@@ -3,10 +3,12 @@
 // a long name at 100 bytes wherever the real name went, and that is not
 // always a whole character, so only the field that counts gets decoded.
 
-import { TarError } from './error.js'
+import { EMPTY } from '../bytes.js'
+import { ArchiveError } from '../error.js'
 
 export const BLOCK = 512
-export const EMPTY = new Uint8Array(0)
+
+export const isDevice = (type) => type === 'character-device' || type === 'block-device'
 
 export const NAME_SIZE = 100
 export const PREFIX_SIZE = 155
@@ -48,7 +50,7 @@ export function writeNumber(block, offset, size, value, gnu) {
     put(block, offset, size, latin1(value.toString(8).padStart(size - 1, '0')))
     return
   }
-  if (!gnu) throw new TarError(`${value} does not fit an octal field of ${size - 1} digits`)
+  if (!gnu) throw new ArchiveError(`${value} does not fit an octal field of ${size - 1} digits`)
   block[offset] = value < 0 ? 0xff : 0x80
   let v = BigInt.asUintN((size - 1) * 8, BigInt(value))
   for (let i = offset + size - 1; i > offset; i--) {
@@ -66,12 +68,12 @@ export function readNumber(block, offset, size, what, at, signed = false) {
     let v = 0n
     for (let i = offset + 1; i < offset + size; i++) v = (v << 8n) | BigInt(block[i])
     if (first === 0xff) v = BigInt.asIntN((size - 1) * 8, v)
-    if (v < 0n && !signed) throw new TarError(`the ${what} field is negative`, at)
-    if (v > BigInt(Number.MAX_SAFE_INTEGER) || v < -BigInt(Number.MAX_SAFE_INTEGER)) throw new TarError(`the ${what} field is too large`, at)
+    if (v < 0n && !signed) throw new ArchiveError(`the ${what} field is negative`, at)
+    if (v > BigInt(Number.MAX_SAFE_INTEGER) || v < -BigInt(Number.MAX_SAFE_INTEGER)) throw new ArchiveError(`the ${what} field is too large`, at)
     return Number(v)
   }
   const match = /^ *([0-7]*) *$/u.exec(ascii(block.subarray(offset, offset + size)).replaceAll('\0', ' '))
-  if (!match) throw new TarError(`the ${what} field is not an octal number`, at)
+  if (!match) throw new ArchiveError(`the ${what} field is not an octal number`, at)
   return match[1] === '' ? 0 : Number.parseInt(match[1], 8)
 }
 
@@ -117,10 +119,10 @@ export function encodeHeader(f) {
 }
 
 export function decodeHeader(block, at) {
-  if (checksum(block) !== readNumber(block, CHKSUM, 8, 'checksum', at)) throw new TarError('header checksum does not match', at)
+  if (checksum(block) !== readNumber(block, CHKSUM, 8, 'checksum', at)) throw new ArchiveError('header checksum does not match', at)
   const magic = ascii(block.subarray(MAGIC, MAGIC + 8))
   const gnu = magic === GNU_MAGIC
-  if (!gnu && magic !== USTAR_MAGIC) throw new TarError('header is not in the ustar, pax or gnu format', at)
+  if (!gnu && magic !== USTAR_MAGIC) throw new ArchiveError('header is not in the ustar, pax or gnu format', at)
   const typeflag = block[TYPEFLAG]
   const device = typeflag === 0x33 || typeflag === 0x34
   return {
@@ -140,14 +142,4 @@ export function decodeHeader(block, at) {
     devmajor: device ? readNumber(block, DEVMAJOR, 8, 'devmajor', at) : 0,
     devminor: device ? readNumber(block, DEVMINOR, 8, 'devminor', at) : 0,
   }
-}
-
-export function concat(chunks) {
-  const out = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.length, 0))
-  let at = 0
-  for (const chunk of chunks) {
-    out.set(chunk, at)
-    at += chunk.length
-  }
-  return out
 }

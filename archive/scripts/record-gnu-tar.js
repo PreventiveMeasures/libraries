@@ -2,7 +2,7 @@
 // tests/fixtures/gnu-tar.js. Needs Linux, GNU tar 1.35 on the PATH and
 // root (two entries are device nodes):
 //
-//     node tar/scripts/record-gnu-tar.js
+//     node archive/scripts/record-gnu-tar.js
 //
 // Each tree is built in a temporary directory as its entries say and
 // archived with `--no-recursion` and the members named in order, so the
@@ -13,7 +13,7 @@ import { chmodSync, linkSync, lutimesSync, mkdirSync, mkdtempSync, rmSync, symli
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
-const OUT = new URL('../tests/fixtures/gnu-tar.js', import.meta.url)
+const OUT = new URL('../tests/tar/fixtures/gnu-tar.js', import.meta.url)
 
 const T = 1577836800 // 2020-01-01T00:00:00Z
 const pattern = (length) => Array.from({ length }, (_, i) => String.fromCodePoint(0x21 + (i * 7) % 94)).join('')

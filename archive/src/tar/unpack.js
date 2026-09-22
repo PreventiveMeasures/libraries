@@ -4,11 +4,13 @@
 // An entry's data views the chunk it arrived in where one chunk held it
 // whole, and is a copy otherwise.
 
-import { TarError } from './error.js'
-import { BLOCK, EMPTY, decodeHeader, isZeroBlock, untilNul } from './header.js'
-import { Names, cleanNames } from './names.js'
+import { EMPTY, concat } from '../bytes.js'
+import { isFile } from '../entry.js'
+import { ArchiveError, located } from '../error.js'
+import { BLOCK, decodeHeader, isDevice, isZeroBlock, untilNul } from './header.js'
+import { Names, cleanNames } from '../names.js'
 import { decodePax } from './pax.js'
-import { decodeUtf8, hasUnsafe, quote } from './text.js'
+import { decodeUtf8, hasUnsafe, quote } from '../text.js'
 
 // NUL is the pre-POSIX regular file.
 const TYPES = new Map([
@@ -18,19 +20,16 @@ const TYPES = new Map([
 const EXTENDED = new Map([[0x78, 'pax'], [0x67, 'global'], [0x4c, 'longname'], [0x4b, 'longlink']])
 const MAX_EXTENDED = 1 << 20
 
-const isFile = (type) => type === 'file' || type === 'contiguous-file'
-const isDevice = (type) => type === 'character-device' || type === 'block-device'
-
 function paxNumber(value, what, at) {
-  if (!/^(?:0|[1-9][0-9]*)$/u.test(value) || !Number.isSafeInteger(Number(value))) throw new TarError(`pax ${what}=${quote(value)} is not a whole number this package can hold`, at)
+  if (!/^(?:0|[1-9][0-9]*)$/u.test(value) || !Number.isSafeInteger(Number(value))) throw new ArchiveError(`pax ${what}=${quote(value)} is not a whole number this package can hold`, at)
   return Number(value)
 }
 
 // Whole seconds, a fraction floored as GNU does for a format without one.
 function paxTime(value, what, at) {
-  if (!/^-?[0-9]+(?:\.[0-9]+)?$/u.test(value)) throw new TarError(`pax mtime=${quote(value)} is not a time`, at)
+  if (!/^-?[0-9]+(?:\.[0-9]+)?$/u.test(value)) throw new ArchiveError(`pax mtime=${quote(value)} is not a time`, at)
   const seconds = Math.floor(Number(value))
-  if (!Number.isSafeInteger(seconds)) throw new TarError(`pax mtime=${quote(value)} is out of range`, at)
+  if (!Number.isSafeInteger(seconds)) throw new ArchiveError(`pax mtime=${quote(value)} is out of range`, at)
   return seconds
 }
 
@@ -54,7 +53,7 @@ class Unpacker {
   }
 
   push(chunk) {
-    if (!(chunk instanceof Uint8Array)) throw new TarError('a chunk is not a Uint8Array')
+    if (!(chunk instanceof Uint8Array)) throw new ArchiveError('a chunk is not a Uint8Array')
     if (this.#done) {
       this.#trailing(chunk, this.#position)
       this.#position += chunk.length
@@ -72,44 +71,33 @@ class Unpacker {
 
   end() {
     if (this.#done) return
-    if (this.#position === 0 && this.#buffered === 0) throw new TarError('the archive is empty')
-    if (this.#awaiting === null && this.#buffered === 0) throw new TarError(this.#zeros ? 'the archive ends with a lone zero block' : 'the archive has no end marker', this.#position)
-    throw new TarError('the archive is truncated', this.#position)
+    if (this.#position === 0 && this.#buffered === 0) throw new ArchiveError('the archive is empty')
+    if (this.#awaiting === null && this.#buffered === 0) throw new ArchiveError(this.#zeros ? 'the archive ends with a lone zero block' : 'the archive has no end marker', this.#position)
+    throw new ArchiveError('the archive is truncated', this.#position)
   }
 
-  // The next `size` bytes, or null until they have all arrived.
+  // The next `size` bytes, or null until they have all arrived: a view
+  // when one chunk holds them, else the chunks are joined first.
   #take(size) {
     if (this.#buffered < size) return null
     if (size === 0) return EMPTY
-    let out
-    if (this.#chunks[0].length - this.#offset >= size) {
-      out = this.#chunks[0].subarray(this.#offset, this.#offset + size)
-      this.#advance(size)
-    } else {
-      out = new Uint8Array(size)
-      for (let filled = 0; filled < size;) {
-        const chunk = this.#chunks[0]
-        const count = Math.min(chunk.length - this.#offset, size - filled)
-        out.set(chunk.subarray(this.#offset, this.#offset + count), filled)
-        filled += count
-        this.#advance(count)
-      }
+    if (this.#chunks.length > 1) {
+      this.#chunks = [concat([this.#chunks[0].subarray(this.#offset), ...this.#chunks.slice(1)])]
+      this.#offset = 0
+    }
+    const out = this.#chunks[0].subarray(this.#offset, this.#offset + size)
+    this.#offset += size
+    if (this.#offset === this.#chunks[0].length) {
+      this.#chunks = []
+      this.#offset = 0
     }
     this.#buffered -= size
     this.#position += size
     return out
   }
 
-  #advance(count) {
-    this.#offset += count
-    if (this.#offset === this.#chunks[0].length) {
-      this.#chunks.shift()
-      this.#offset = 0
-    }
-  }
-
   #trailing(bytes, at) {
-    if (!isZeroBlock(bytes)) throw new TarError('data after the end of the archive', at)
+    if (!isZeroBlock(bytes)) throw new ArchiveError('data after the end of the archive', at)
   }
 
   // False when more bytes are needed.
@@ -118,7 +106,7 @@ class Unpacker {
     if (block === null) return false
     const at = this.#position - BLOCK
     if (isZeroBlock(block)) {
-      if (Object.values(this.#pending).some((value) => value !== null)) throw new TarError('an extended header is not followed by an entry', at)
+      if (Object.values(this.#pending).some((value) => value !== null)) throw new ArchiveError('an extended header is not followed by an entry', at)
       if (++this.#zeros === 2) {
         this.#done = true
         const after = this.#position
@@ -126,13 +114,13 @@ class Unpacker {
       }
       return true
     }
-    if (this.#zeros) throw new TarError('a lone zero block where a header should be', at)
+    if (this.#zeros) throw new ArchiveError('a lone zero block where a header should be', at)
     const header = decodeHeader(block, at)
     const extended = EXTENDED.get(header.typeflag)
     if (extended === undefined) {
       this.#awaiting = { extended: null, at, ...this.#resolve(header, at) }
     } else {
-      if (header.size > MAX_EXTENDED) throw new TarError(`a ${extended} header of ${header.size} bytes is longer than any tar writes`, at)
+      if (header.size > MAX_EXTENDED) throw new ArchiveError(`a ${extended} header of ${header.size} bytes is longer than any tar writes`, at)
       this.#awaiting = { extended, size: header.size, at, entry: null }
     }
     return true
@@ -143,24 +131,20 @@ class Unpacker {
     const whole = Math.ceil(size / BLOCK) * BLOCK
     const body = this.#take(whole)
     if (body === null) return false
-    if (!isZeroBlock(body.subarray(size))) throw new TarError('the padding after an entry is not zero', at)
+    if (!isZeroBlock(body.subarray(size))) throw new ArchiveError('the padding after an entry is not zero', at)
     this.#awaiting = null
     const raw = body.subarray(0, size)
     if (extended === null) {
       entry.data = raw
-      try {
-        this.#names.add(entry)
-      } catch (error) {
-        throw new TarError(error.message, at)
-      }
+      located(() => this.#names.add(entry), at)
       out.push(entry)
     } else if (extended === 'global') {
       this.#global = decodePax(raw, at)
       for (const key of ['path', 'linkpath', 'size']) {
-        if (this.#global.has(key)) throw new TarError(`a global header sets ${key}`, at)
+        if (this.#global.has(key)) throw new ArchiveError(`a global header sets ${key}`, at)
       }
     } else {
-      if (this.#pending[extended] !== null) throw new TarError(`two ${extended} headers ahead of one entry`, at)
+      if (this.#pending[extended] !== null) throw new ArchiveError(`two ${extended} headers ahead of one entry`, at)
       this.#pending[extended] = extended === 'pax' ? decodePax(raw, at) : decodeUtf8(untilNul(raw), `a ${extended} header`, at)
     }
     return true
@@ -170,30 +154,27 @@ class Unpacker {
   // applied: a pax record wins over the field it stands in for.
   #resolve(header, at) {
     const type = TYPES.get(header.typeflag)
-    if (type === undefined) throw new TarError(`entry type ${quote(String.fromCodePoint(header.typeflag))} is not one this package reads`, at)
+    if (type === undefined) throw new ArchiveError(`entry type ${quote(String.fromCodePoint(header.typeflag))} is not one this package reads`, at)
     const { pax, longname, longlink } = this.#pending
     this.#pending = { pax: null, longname: null, longlink: null }
     const record = (key) => pax?.get(key) ?? this.#global?.get(key)
     const keys = [...(pax?.keys() ?? []), ...(this.#global?.keys() ?? [])]
-    if (keys.some((key) => key.startsWith('GNU.sparse.'))) throw new TarError('sparse entries are not supported', at)
-    if (longname !== null && record('path') !== undefined) throw new TarError('both a long name header and a pax path name one entry', at)
-    if (longlink !== null && record('linkpath') !== undefined) throw new TarError('both a long link header and a pax linkpath name one entry', at)
+    if (keys.some((key) => key.startsWith('GNU.sparse.'))) throw new ArchiveError('sparse entries are not supported', at)
+    if (longname !== null && record('path') !== undefined) throw new ArchiveError('both a long name header and a pax path name one entry', at)
+    if (longlink !== null && record('linkpath') !== undefined) throw new ArchiveError('both a long link header and a pax linkpath name one entry', at)
     const rawName = longname ?? record('path') ?? this.#headerName(header, at)
     const rawTarget = longlink ?? record('linkpath') ?? decodeUtf8(header.linkname, 'link target', at)
-    let name
-    let linkname
-    try {
-      ({ name, linkname } = cleanNames(rawName, type, rawTarget))
-    } catch (error) {
-      throw new TarError(error.message, at)
+    const { name, linkname } = located(() => cleanNames(rawName, type, rawTarget), at)
+    const number = (key, parse = paxNumber) => {
+      const value = record(key)
+      return value === undefined ? header[key] : parse(value, key, at)
     }
-    const number = (key, parse = paxNumber) => (record(key) === undefined ? header[key] : parse(record(key), key, at))
     const size = number('size')
-    if (size !== 0 && !isFile(type)) throw new TarError(`a ${type} entry has a size`, at)
-    if (linkname !== '' && type !== 'link' && type !== 'symlink') throw new TarError(`a ${type} entry has a link target`, at)
+    if (size !== 0 && !isFile(type)) throw new ArchiveError(`a ${type} entry has a size`, at)
+    if (linkname !== '' && type !== 'link' && type !== 'symlink') throw new ArchiveError(`a ${type} entry has a link target`, at)
     const owner = (key) => {
       const value = record(key) ?? decodeUtf8(header[key], key, at)
-      if (hasUnsafe(value, false)) throw new TarError(`${key} ${quote(value)} holds a control character`, at)
+      if (hasUnsafe(value, false)) throw new ArchiveError(`${key} ${quote(value)} holds a control or formatting character`, at)
       return value
     }
     const entry = {
@@ -226,13 +207,7 @@ export function unpack(bytes) {
   return entries
 }
 
-export function* unpackStream(chunks) {
-  const unpacker = new Unpacker()
-  for (const chunk of chunks) yield* unpacker.push(chunk)
-  unpacker.end()
-}
-
-export async function* unpackStreamAsync(chunks) {
+export async function* unpackStream(chunks) {
   const unpacker = new Unpacker()
   for await (const chunk of chunks) yield* unpacker.push(chunk)
   unpacker.end()

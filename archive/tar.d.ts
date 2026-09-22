@@ -1,5 +1,5 @@
-// The typed contract for tar/index.js, hand-written: keep it name for name
-// with index.js, and change it in the same commit as the signature.
+// The typed contract for archive/tar.js, hand-written: keep it name for name
+// with tar.js, and change it in the same commit as the signature.
 
 // tar's entry types under tar-stream's names. A 'link' is a hard link to
 // an earlier entry; a 'contiguous-file' is a file for every purpose here.
@@ -67,21 +67,22 @@ export interface PackOptions {
 
 // Both refuse a name that repeats as a different entry — anything but
 // the same fields and the same bytes again — an entry inside something
-// that is not a directory, and a hard link to no earlier entry.
+// that is not a directory, a symlink whose target climbs out of the
+// archive or passes through anything but a directory, and a hard link to
+// no earlier entry.
 export function pack(entries: Iterable<EntryInput>, options?: PackOptions): Uint8Array
 export function unpack(bytes: Uint8Array): Entry[]
 
-// The same a piece at a time, as plain generators. A stream keeps no
-// entry's data, so a name that repeats with the same fields is refused
-// there, and such an archive is for the in-memory call. packStream yields
-// each entry's `data` as the very array it was given.
-export function packStream(entries: Iterable<EntryInput>, options?: PackOptions): Generator<Uint8Array, void, undefined>
-export function packStreamAsync(entries: Iterable<EntryInput> | AsyncIterable<EntryInput>, options?: PackOptions): AsyncGenerator<Uint8Array, void, undefined>
-export function unpackStream(chunks: Iterable<Uint8Array>): Generator<Entry, void, undefined>
-export function unpackStreamAsync(chunks: Iterable<Uint8Array> | AsyncIterable<Uint8Array>): AsyncGenerator<Entry, void, undefined>
+// The same a piece at a time, as async generators over a plain or an
+// async iterable. A stream keeps no entry's data, so a name that repeats
+// with the same fields is refused there, and such an archive is for the
+// in-memory call. packStream yields each entry's `data` as the very array
+// it was given.
+export function packStream(entries: Iterable<EntryInput> | AsyncIterable<EntryInput>, options?: PackOptions): AsyncGenerator<Uint8Array, void, undefined>
+export function unpackStream(chunks: Iterable<Uint8Array> | AsyncIterable<Uint8Array>): AsyncGenerator<Entry, void, undefined>
 
 // `offset` is where in the archive the reader gave up; unset from the writer.
-export class TarError extends Error {
+export class ArchiveError extends Error {
   constructor(detail: string, offset?: number)
   offset: number | undefined
 }

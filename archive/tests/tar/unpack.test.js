@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { TarError, pack, unpack } from '../index.js'
-import { BLOCK, EMPTY, concat, encodeHeader } from '../src/header.js'
-import { encodePax } from '../src/pax.js'
+import { ArchiveError, pack, unpack } from '../../tar.js'
+import { EMPTY, concat } from '../../src/bytes.js'
+import { BLOCK, encodeHeader } from '../../src/tar/header.js'
+import { encodePax } from '../../src/tar/pax.js'
 import { RECORDINGS, bytesOf } from './fixtures/gnu-tar.js'
-import { assertBytes, entriesOf, readable, utf8 } from './helpers.js'
+import { assertBytes, entriesOf, readable, utf8 } from '../helpers.js'
 
 // unpack() reads every recording back as the entries it was made from,
 // pack() then writes it again byte for byte, and everything malformed,
@@ -95,7 +96,9 @@ describe('what it refuses', () => {
     ['a pax mtime that is not a time', () => archive(...pax([['mtime', 'abc']])), /pax mtime="abc" is not a time/u],
     ['a pax path that climbs out', () => archive(...pax([['path', '../x']])), /has a \.\. segment at byte 1024/u],
     ['an absolute name', () => archive(header({ name: utf8('/x') })), /entry name "\/x" is absolute at byte 0/u],
-    ['a name with a backslash', () => archive(header({ name: utf8('a\\b') })), /control character or a backslash/u],
+    ['a name on a Windows drive', () => archive(header({ name: utf8('C:x') })), /entry name "C:x" starts with a drive letter at byte 0/u],
+    ['a name on a Windows drive behind a dot segment', () => archive(header({ name: utf8('./C:x') })), /entry name "\.\/C:x" starts with a drive letter at byte 0/u],
+    ['a name with a backslash', () => archive(header({ name: utf8('a\\b') })), /control or formatting character, or a backslash/u],
     ['a name that is not UTF-8', () => archive(header({ name: Uint8Array.from([0xff, 0x61]) })), /entry name is not valid UTF-8 at byte 0/u],
     ['a name twice as a different entry', () => archive(header(), header({ mtime: 1 })), /duplicate entry "a" differs in mtime at byte 512/u],
     ['a name twice with different data', () => archive(header({ size: 1 }), padded(utf8('x')), header({ size: 1 }), padded(utf8('y'))), /duplicate entry "a" differs in data at byte 1024/u],
@@ -111,16 +114,16 @@ describe('what it refuses', () => {
     ['a name twice once . segments are dropped, as a different entry', () => archive(header(), header({ name: utf8('./a'), mode: 0o600 })), /duplicate entry "a" differs in mode at byte 512/u],
     ['a size below zero in base 256', () => archive(header({ gnu: true, size: -1 })), /the size field is negative at byte 0/u],
     ['a uid below zero in base 256', () => archive(header({ gnu: true, uid: -1 })), /the uid field is negative at byte 0/u],
-    ['an owner name with a control character', () => archive(...pax([['uname', 'a\nb']])), /uname "a\\nb" holds a control character at byte 1024/u],
-    ['an owner name field with a control character', () => archive(header({ gname: utf8('a\tb') })), /gname "a\\tb" holds a control character/u],
+    ['an owner name with a control character', () => archive(...pax([['uname', 'a\nb']])), /uname "a\\nb" holds a control or formatting character at byte 1024/u],
+    ['an owner name field with a control character', () => archive(header({ gname: utf8('a\tb') })), /gname "a\\tb" holds a control or formatting character/u],
     ['a global header that sets a size', () => archive(...pax([['size', '1']], {}, 0x67)), /a global header sets size at byte 0/u],
     ['a global header that sets a path', () => archive(...pax([['path', 'x']], {}, 0x67)), /a global header sets path/u],
   ]
   for (const [what, bytes, message] of refused) {
     it(`refuses ${what}`, () => assert.throws(() => unpack(bytes()), message))
   }
-  it('throws TarError with the offset', () => {
-    assert.throws(() => unpack(archive(header(), header({ mtime: 1 }))), (error) => error instanceof TarError && error.offset === 512)
+  it('throws ArchiveError with the offset', () => {
+    assert.throws(() => unpack(archive(header(), header({ mtime: 1 }))), (error) => error instanceof ArchiveError && error.offset === 512)
   })
 })
 

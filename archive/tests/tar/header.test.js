@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { BLOCK, EMPTY, decodeHeader, encodeHeader, fitsOctal, octalMax, readNumber, writeNumber } from '../src/header.js'
-import { encodePax } from '../src/pax.js'
-import { assertBytes, utf8 } from './helpers.js'
+import { EMPTY } from '../../src/bytes.js'
+import { BLOCK, decodeHeader, encodeHeader, fitsOctal, octalMax, readNumber, writeNumber } from '../../src/tar/header.js'
+import { encodePax } from '../../src/tar/pax.js'
+import { assertBytes, utf8 } from '../helpers.js'
 
 // The header block on its own: how a number is written in each of its
 // forms and read back, and that a header reads back as what it was.

@@ -2,15 +2,15 @@
 // in decimal counting the whole line, its own digits included.
 
 import { utf8fromString } from '@exodus/bytes/utf8.js'
-import { TarError } from './error.js'
-import { concat } from './header.js'
-import { decodeUtf8, hasUnsafe, quote } from './text.js'
+import { concat } from '../bytes.js'
+import { ArchiveError } from '../error.js'
+import { decodeUtf8, hasUnsafe, quote } from '../text.js'
 
 function record(keyword, value) {
   const body = utf8fromString(` ${keyword}=${value}\n`)
-  // The smallest total that still has as many digits as it counts.
-  let total = body.length
-  for (let next = body.length + String(total).length; next !== total; next = body.length + String(total).length) total = next
+  // The total counts its own digits, which may be one more than the body's.
+  const digits = String(body.length).length
+  const total = body.length + digits + (String(body.length + digits).length > digits ? 1 : 0)
   return concat([utf8fromString(String(total)), body])
 }
 
@@ -22,14 +22,14 @@ export function decodePax(bytes, at) {
     let i = pos
     let length = 0
     for (; i < bytes.length && bytes[i] >= 0x30 && bytes[i] <= 0x39; i++) length = length * 10 + (bytes[i] - 0x30)
-    if (i === pos || bytes[pos] === 0x30 || bytes[i] !== 0x20) throw new TarError('a pax record does not begin with its length', at)
+    if (i === pos || bytes[pos] === 0x30 || bytes[i] !== 0x20) throw new ArchiveError('a pax record does not begin with its length', at)
     const end = pos + length
-    if (end > bytes.length || bytes[end - 1] !== 0x0a) throw new TarError('a pax record is not as long as it says', at)
+    if (end > bytes.length || bytes[end - 1] !== 0x0a) throw new ArchiveError('a pax record is not as long as it says', at)
     const equals = bytes.indexOf(0x3d, i + 1)
-    if (equals === -1 || equals >= end - 1) throw new TarError('a pax record has no keyword=value', at)
+    if (equals === -1 || equals >= end - 1) throw new ArchiveError('a pax record has no keyword=value', at)
     const keyword = decodeUtf8(bytes.subarray(i + 1, equals), 'a pax record', at)
-    if (keyword === '' || hasUnsafe(keyword, false) || keyword.includes(' ')) throw new TarError(`pax keyword ${quote(keyword)} is malformed`, at)
-    if (records.has(keyword)) throw new TarError(`pax keyword ${keyword} repeats`, at)
+    if (keyword === '' || hasUnsafe(keyword, false) || keyword.includes(' ')) throw new ArchiveError(`pax keyword ${quote(keyword)} is malformed`, at)
+    if (records.has(keyword)) throw new ArchiveError(`pax keyword ${keyword} repeats`, at)
     records.set(keyword, decodeUtf8(bytes.subarray(equals + 1, end - 1), 'a pax record', at))
     pos = end
   }
