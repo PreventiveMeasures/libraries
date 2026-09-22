@@ -1,9 +1,9 @@
 // The tar half of @preventive/archive, reached as
 // `@preventive/archive/tar.js`; the zip half is beside it, and the two
 // share only the modules at the top of src/: the name rules, the entry
-// shape, and the byte and text helpers. Inside,
-// archive/ runs on browser APIs alone, plus @exodus/bytes for hardened
-// UTF-8 and CRC-32 (self-contained.test.js enforces both).
+// shape, and the byte and text helpers. Inside, archive/ runs on browser
+// APIs alone, plus @exodus/bytes for hardened UTF-8 and CRC-32
+// (self-contained.test.js enforces both).
 
 // Entries in, one Uint8Array out: byte for byte what GNU tar writes.
 export { pack } from './src/tar/pack.js'
