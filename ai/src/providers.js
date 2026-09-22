@@ -500,24 +500,30 @@ export function normalizeOneUsage(data) {
   // Anthropic + OpenAI Responses both name the totals `input_tokens` / `output_tokens`.
   // Disambiguate cached-token reporting by checking both vendor-specific subkeys: Anthropic uses
   // `cache_creation` / `cache_read_input_tokens`; OpenAI Responses uses
-  // `input_tokens_details.cached_tokens` (no separate cache-write accounting — server-side caching
-  // is implicit and free for the caller).
+  // `input_tokens_details.cached_tokens` and `.cache_write_tokens`.
   if ('input_tokens' in u) {
     const cc = u.cache_creation
-    const cacheWrite5m = cc ? (cc.ephemeral_5m_input_tokens ?? 0) : (u.cache_creation_input_tokens ?? 0)
     const cacheWrite1h = cc?.ephemeral_1h_input_tokens ?? 0
     // The two vendors sharing this branch mean different things by the sibling `input_tokens`:
-    // Anthropic EXCLUDES cache reads from it (`cache_read_input_tokens` is a separate bucket),
-    // while OpenAI folds them in and `input_tokens_details` just details the subset. So subtract
-    // for the OpenAI spelling only — otherwise a Responses cache read is charged twice, at full
-    // price inside input_tokens and again at 0.1x as cacheRead, which on a cache-heavy turn
-    // overstates the cost several-fold with no provider-supplied `cost` to fall back on.
+    // Anthropic EXCLUDES cache reads and writes from it (each is a separate bucket), while OpenAI
+    // folds both in and `input_tokens_details` just details the subsets. So subtract for the
+    // OpenAI spelling only — otherwise a Responses cache read is charged twice, at full price
+    // inside input_tokens and again at 0.1x as cacheRead, which on a cache-heavy turn overstates
+    // the cost several-fold with no provider-supplied `cost` to fall back on.
     const anthropic = u.cache_read_input_tokens !== undefined
     const cacheRead = anthropic
       ? u.cache_read_input_tokens
       : Math.min(u.input_tokens_details?.cached_tokens ?? 0, u.input_tokens)
+    // From GPT-5.6 on, OpenAI has a single cache lifetime and bills a write to it at 1.25x input,
+    // the rate of Anthropic's 5m leg, so that is where it goes. Earlier models charge nothing extra
+    // for a write at either retention, and their rows say so with a `cacheWritePrice` of their
+    // input rate.
+    const openaiWrite = anthropic
+      ? 0
+      : Math.min(u.input_tokens_details?.cache_write_tokens ?? 0, u.input_tokens - cacheRead)
+    const cacheWrite5m = (cc ? (cc.ephemeral_5m_input_tokens ?? 0) : (u.cache_creation_input_tokens ?? 0)) + openaiWrite
     return {
-      input: anthropic ? u.input_tokens : u.input_tokens - cacheRead,
+      input: anthropic ? u.input_tokens : u.input_tokens - cacheRead - openaiWrite,
       output: u.output_tokens,
       cacheRead, cacheWrite5m, cacheWrite1h,
       cost: 0,
@@ -534,10 +540,13 @@ export function normalizeOneUsage(data) {
     // otherwise claim more cache reads than there were prompt tokens (and drive the fresh-input
     // count negative).
     const cacheRead = Math.min(u.cached_tokens ?? u.prompt_tokens_details?.cached_tokens ?? 0, u.prompt_tokens)
+    // OpenAI reports its cache writes here too, folded into prompt_tokens like the reads, and to
+    // the same 5m leg as the Responses spelling above. Capped at what the reads left over.
+    const cacheWrite = Math.min(u.prompt_tokens_details?.cache_write_tokens ?? 0, u.prompt_tokens - cacheRead)
     return {
-      input: u.prompt_tokens - cacheRead,
+      input: u.prompt_tokens - cacheRead - cacheWrite,
       output: u.completion_tokens,
-      cacheRead, cacheWrite5m: 0, cacheWrite1h: 0,
+      cacheRead, cacheWrite5m: cacheWrite, cacheWrite1h: 0,
       cost: u.cost ?? 0,
     }
   }

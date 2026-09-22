@@ -357,6 +357,32 @@ describe('cache-read overrides (rows that are not 0.10x of input)', () => {
   })
 })
 
+describe('cache-write rates', () => {
+  // OpenAI's pricing page lists a cache-write column only from GPT-5.6 on,
+  // at 1.25x input; before that, a write is billed as the input it is.
+  for (const [model, write] of [
+    ['openai/gpt-6-astra', 12.5],
+    ['openai/gpt-5.6-sol', 5],
+    ['openai/gpt-5.6-terra', 2.5],
+    ['openai/gpt-5.6-luna', 0.25],
+  ]) {
+    it(`${model}: bills a write at the published 1.25x of input`, () => {
+      assert.equal(baseRate(model, 'cacheWrite5m'), write)
+    })
+  }
+
+  for (const model of ['openai/gpt-5.5', 'openai/gpt-5.5-pro', 'openai/gpt-5.4', 'openai/gpt-5.4-nano', 'openai/gpt-5.4-mini', 'openai/gpt-5.4-pro', 'openai/gpt-5.3-codex', 'openai/gpt-4.1-mini', 'openai/gpt-4o-mini']) {
+    it(`${model}: bills a write as ordinary input, with nothing on top`, () => {
+      assert.equal(baseRate(model, 'cacheWrite5m'), baseRate(model, 'input'))
+    })
+  }
+
+  it('leaves Anthropic on its own 1.25x and 2x legs', () => {
+    assert.equal(baseRate('anthropic/claude-opus-5', 'cacheWrite5m'), 5 * 1.25)
+    assert.equal(baseRate('anthropic/claude-opus-5', 'cacheWrite1h'), 5 * 2)
+  })
+})
+
 describe('long-context tier', () => {
   const MTOK = 1_000_000
   const bill = (model, fields) => calculateCost(model, { ...emptyUsage(), ...fields })
