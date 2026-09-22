@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { ask, isResumableHistory } from '../src/chat.js'
+import { ask, isResumableHistory, normalizeUsage } from '../src/chat.js'
+import { calculateCost } from '../src/models.js'
 
 describe('isResumableHistory', () => {
   it('accepts a well-formed history with response + messages on every entry', () => {
@@ -112,5 +113,44 @@ describe('ask: options that no longer exist', () => {
       () => ask({ model: 'anthropic/claude-opus-4.5', maxTokens: 10, systemPrompt: 's', userContent: 'u', userContentSuffix: 'tail' }),
       /userContentSuffix is gone/u,
     )
+  })
+})
+
+describe('normalizeUsage: pricing a stored history', () => {
+  // Two OpenAI Responses turns, each 200k of prompt: under gpt-5.5's 272K
+  // line on its own, past it added together.
+  const MODEL = 'openai/gpt-5.5'
+  const turn = (inputTokens) => ({ response: { usage: { input_tokens: inputTokens, output_tokens: 1000 } } })
+  const history = [turn(200_000), turn(200_000)]
+
+  it('prices each turn on its own prompt, so two short requests are not billed as one long one', () => {
+    const usage = normalizeUsage(history, MODEL)
+    assert.equal(usage.input, 400_000)
+    const oneTurn = calculateCost(MODEL, normalizeUsage(history[0].response))
+    assert.equal(usage.cost, oneTurn + oneTurn)
+    // What pricing the sum would have charged: every token at the tier.
+    assert.ok(calculateCost(MODEL, usage) > usage.cost * 1.9)
+  })
+
+  it('bills a turn that is past the line at the tier, next to one that is not', () => {
+    const usage = normalizeUsage([turn(200_000), turn(300_000)], MODEL)
+    const short = (200_000 * 5 + 1000 * 30) / 1_000_000
+    const long = (300_000 * 5 * 2 + 1000 * 30 * 1.5) / 1_000_000
+    assert.equal(usage.cost.toFixed(6), (short + long).toFixed(6))
+  })
+
+  it('keeps a cost the provider reported over the price table', () => {
+    const reported = { response: { usage: { prompt_tokens: 200_000, completion_tokens: 1000, cost: 0.42 } } }
+    assert.equal(normalizeUsage([reported], MODEL).cost, 0.42)
+  })
+
+  it('leaves an unpriced model, and a call without the model, at zero for the caller to look up', () => {
+    assert.equal(normalizeUsage(history, 'made/up-model').cost, 0)
+    assert.equal(normalizeUsage(history).cost, 0)
+    assert.equal(normalizeUsage(history[0].response).cost, 0)
+  })
+
+  it('prices a single stored response too', () => {
+    assert.equal(normalizeUsage(history[0].response, MODEL).cost, calculateCost(MODEL, normalizeUsage(history[0].response)))
   })
 })

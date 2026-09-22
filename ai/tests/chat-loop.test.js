@@ -48,6 +48,7 @@ process.env.OPENROUTER_API_KEY = 'test-key'
 const { ask } = await import('../src/chat.js')
 const { buildCacheOpts, getPartial, setCacheDir, setPartial } = await import('../src/cache.js')
 const { getProvider, providerStamp, setProvider } = await import('../src/providers.js')
+const { calculateCost } = await import('../src/models.js')
 
 after(async () => {
   server.close()
@@ -268,5 +269,25 @@ suite('chat: the `onStart` option', () => {
     const seen = []
     await run('start-B', { onStart: (history) => seen.push(history) })
     assert.deepEqual(seen, [[]])
+  })
+})
+
+suite('chat: what a conversation cost', () => {
+  it('prices each request on its own prompt, not the conversation\'s sum of them', async () => {
+    // gpt-5.5 bills past 272K of prompt at a higher tier. The first turn is
+    // under that line and the second past it — and the two together would
+    // be past it too, which is the sum a caller would otherwise be pricing.
+    const sized = (response, promptTokens) => ({ ...response, usage: { prompt_tokens: promptTokens, completion_tokens: 1000, cost: 0 } })
+    const result = await run('cost-A', { model: 'openai/gpt-5.5' }, [sized(TOOL_CALL, 200_000), sized(ANSWER, 300_000)])
+    assert.equal(result.text, 'done')
+    const turn = (promptTokens) => calculateCost('openai/gpt-5.5', { input: promptTokens, output: 1000, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0, cost: 0 })
+    assert.equal(result.usage.cost, turn(200_000) + turn(300_000))
+    assert.ok(calculateCost('openai/gpt-5.5', result.usage) > result.usage.cost)
+  })
+
+  it('keeps the provider\'s own number where it sends one', async () => {
+    const reported = { ...ANSWER, usage: { prompt_tokens: 200_000, completion_tokens: 1000, cost: 0.42 } }
+    const result = await run('cost-B', { model: 'openai/gpt-5.5' }, [reported])
+    assert.equal(result.usage.cost, 0.42)
   })
 })
