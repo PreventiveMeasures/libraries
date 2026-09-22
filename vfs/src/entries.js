@@ -12,8 +12,9 @@
 // two different entries under one name would leave the winner to
 // declaration order. A link declared earlier is never followed on the way
 // to a later entry, and a hard link names an entry declared before it, for
-// the same reason tar defers making its links until the end. A flat map's
-// key is a path, and may start from `/`.
+// the same reason tar defers making its links until the end; it has no mode
+// or mtime of its own, so those it declares must be its target's. A flat
+// map's key is a path, and may start from `/`.
 
 import { VfsError } from './error.js'
 import { dirname } from './path.js'
@@ -73,6 +74,7 @@ function place(vfs, declared, { name, type = 'file', data, mode, mtime, linkname
       vfs.symlink(source, path, { mtime })
       break
     case 'link':
+      if (!fits(vfs.lstat(source), mode, mtime)) throw new VfsError('EINVAL', name)
       vfs.link(source, path)
       break
     default:
@@ -91,12 +93,16 @@ function checkName(name, directory) {
   return kept.join('/')
 }
 
+// Whether a hard link's declared mode and mtime, if any, are its target's.
+const fits = (target, mode, mtime) => (mode ?? target.mode) === target.mode && (mtime ?? target.mtime) === target.mtime
+
 // Whether a repeated name declares what is already there, field for field
-// and byte for byte; a symlink has no mode of its own.
+// and byte for byte; a symlink has no mode of its own, a hard link none but
+// its target's.
 function same(vfs, path, type, data, mode, mtime, source) {
   const stat = vfs.lstat(path)
   const kind = type === 'contiguous-file' ? 'file' : type
-  if (kind === 'link') return stat.ino === vfs.lstat(source).ino
+  if (kind === 'link') return stat.ino === vfs.lstat(source).ino && fits(stat, mode, mtime)
   if (stat.type !== kind || stat.mtime !== (mtime ?? 0)) return false
   if (kind === 'symlink') return vfs.readlink(path) === source
   if (stat.mode !== (mode ?? MODE[kind])) return false

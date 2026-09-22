@@ -157,4 +157,15 @@ describe('entries are the tree as tar would carry it', () => {
     const fs = vfsFromEntries([{ name: 'real/f', data: 'x' }, { name: 'alias', type: 'symlink', linkname: 'real' }, { name: 'real/g', data: 'y' }])
     assert.equal(fs.readText('/alias/g'), 'y', 'the link is there to be followed once the tree is built')
   })
+
+  it('give a hard link no mode or mtime of its own, and take its target under any name', () => {
+    const f = { name: 'f', data: 'x', mode: 0o600, mtime: 7 }
+    const fs = vfsFromEntries([f, { name: 'l', type: 'link', linkname: 'f', mode: 0o600, mtime: 7 }, { name: 'm', type: 'link', linkname: 'f' }, { name: 'l', type: 'link', linkname: 'm' }])
+    assert.deepEqual([...fs.entries()].filter((entry) => entry.type === 'link').map((entry) => [entry.name, entry.linkname, entry.mode, entry.mtime]), [['l', 'f', 0o600, 7], ['m', 'f', 0o600, 7]])
+    fails(() => vfsFromEntries([f, { name: 'l', type: 'link', linkname: 'f', mode: 0o644 }]), 'EINVAL', 'l')
+    fails(() => vfsFromEntries([f, { name: 'l', type: 'link', linkname: 'f', mtime: 0 }]), 'EINVAL', 'l')
+    fails(() => vfsFromEntries([f, { name: 'l', type: 'link', linkname: 'f' }, { name: 'l', type: 'link', linkname: 'f', mode: 0o644 }]), 'EEXIST', 'l')
+    fails(() => vfsFromEntries([f, { name: 'l', type: 'link', linkname: 'f' }, { name: 'l', type: 'link', linkname: 'f', mtime: 8 }]), 'EEXIST', 'l')
+    fails(() => createVfs({ 'f': 'x', 'l': { type: 'link', target: 'f', mtime: 1 } }), 'EINVAL', 'l')
+  })
 })

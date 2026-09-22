@@ -36,7 +36,8 @@ export interface Entry {
 // optional fields left out. `contiguous-file` is a file. A name follows
 // tar's rules: relative, with no empty or `..` segment, control character
 // or backslash, and a trailing slash on a directory alone; it may repeat
-// only as the same entry again.
+// only as the same entry again. A hard link's mode and mtime, if given,
+// are its target's.
 export interface EntryInput {
   name: string
   type?: NodeType | 'link' | 'contiguous-file'
