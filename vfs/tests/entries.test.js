@@ -64,6 +64,7 @@ describe('entries are the tree as tar would carry it', () => {
       'empty': { type: 'directory', mode: 0o700 },
     })
     fs.link('/README.md', '/lib/readme-again')
+    fs.link('/lib/link', '/lib/link-again')
     return fs
   }
 
@@ -77,14 +78,14 @@ describe('entries are the tree as tar would carry it', () => {
       { name: 'lib', type: 'directory', mode: 0o755, mtime: 0, linkname: '', data: new Uint8Array() },
       { name: 'lib/data.bin', type: 'file', mode: 0o644, mtime: 0, linkname: '', data: new Uint8Array([0, 255, 1]) },
       { name: 'lib/link', type: 'symlink', mode: 0o777, mtime: 50, linkname: '../README.md', data: new Uint8Array() },
+      { name: 'lib/link-again', type: 'link', mode: 0o777, mtime: 50, linkname: 'lib/link', data: new Uint8Array() },
       { name: 'lib/readme-again', type: 'link', mode: 0o644, mtime: 0, linkname: 'README.md', data: new Uint8Array() },
     ])
   })
 
   it('start where they are asked to', () => {
     const fs = tree()
-    assert.deepEqual([...fs.entries('/lib')].map((entry) => entry.name), ['.', 'data.bin', 'link', 'readme-again'])
-    assert.equal([...fs.entries('/lib')][3].type, 'file', 'the first name seen of a hard-linked file is the file')
+    assert.deepEqual([...fs.entries('/lib')].map((entry) => [entry.name, entry.type]), [['.', 'directory'], ['data.bin', 'file'], ['link', 'symlink'], ['link-again', 'link'], ['readme-again', 'file']], 'the first name seen of an inode is the inode')
     assert.deepEqual([...fs.entries('bin/tool')].map((entry) => entry.name), ['tool'])
     assert.throws(() => [...fs.entries('/missing')], { code: 'ENOENT' })
   })
@@ -94,7 +95,9 @@ describe('entries are the tree as tar would carry it', () => {
     const original = [...fs.entries()]
     assert.deepEqual([...vfsFromEntries(original).entries()], original)
     const archived = unpack(pack(fs.entries()))
-    assert.deepEqual([...vfsFromEntries(archived).entries()], original)
+    const back = vfsFromEntries(archived)
+    assert.deepEqual([...back.entries()], original)
+    assert.equal(back.lstat('/lib/link').ino, back.lstat('/lib/link-again').ino, 'a hard-linked symlink is one inode again')
   })
 
   it('take entries out of order, a directory listed again, and a file of a second spelling', () => {

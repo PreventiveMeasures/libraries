@@ -263,19 +263,18 @@ export class Vfs {
     for (const { path: at, node, depth } of this.#walk(path)) yield { path: at, type: node.type, depth }
   }
 
-  // The tree as tar entries: names relative to `path` (`.` for it), a file
-  // seen under a second name as a hard link to the first.
+  // The tree as tar entries: names relative to `path` (`.` for it), and an
+  // inode seen under a second name as a hard link to the first.
   *entries(path = '/') {
     const base = this.realpath(path)
     const named = new Map()
     for (const { path: at, node } of this.#walk(base)) {
       const name = at === base ? (node.type === 'directory' ? '.' : basename(at)) : at.slice(base === '/' ? 1 : base.length + 1)
       const entry = { name, type: node.type, mode: node.mode, mtime: node.mtime, linkname: '', data: NONE }
-      if (node.type === 'symlink') entry.linkname = node.target
-      else if (node.type === 'file') {
-        const first = named.get(node)
-        if (first === undefined) { named.set(node, name); entry.data = node.bytes } else { entry.type = 'link'; entry.linkname = first }
-      }
+      const first = named.get(node)
+      if (first !== undefined) { entry.type = 'link'; entry.linkname = first }
+      else if (node.type === 'symlink') { named.set(node, name); entry.linkname = node.target }
+      else if (node.type === 'file') { named.set(node, name); entry.data = node.bytes }
       yield entry
     }
   }

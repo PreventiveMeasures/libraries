@@ -94,7 +94,8 @@ export class Vfs {
   // Depth first from `path`, siblings in code point order, links named but
   // not crossed.
   walk(path?: string): Generator<WalkEntry, void, undefined>
-  // The same tree as tar entries, names relative to `path` and `.` for it.
+  // The same tree as tar entries, names relative to `path` and `.` for it,
+  // an inode's second name a hard link to its first.
   entries(path?: string): Generator<Entry, void, undefined>
 }
 
