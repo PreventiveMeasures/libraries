@@ -10,17 +10,15 @@ export function createVfs(sources = {}) {
   if (sources === null || typeof sources !== 'object' || Array.isArray(sources)) {
     throw new TypeError('sources must be an object or a Map of paths to contents; a list of entries goes to vfsFromEntries')
   }
-  return vfsFromEntries(sourceEntries(sources instanceof Map ? sources : Object.entries(sources)))
+  return vfsFromEntries(Array.from(sources instanceof Map ? sources : Object.entries(sources), sourceEntry))
 }
 
-function* sourceEntries(pairs) {
-  for (const [name, value] of pairs) {
-    if (typeof value === 'string' || value instanceof Uint8Array) { yield { name, type: 'file', data: value }; continue }
-    if (value === null || typeof value !== 'object' || typeof value.type !== 'string') {
-      throw new TypeError(`source ${JSON.stringify(name)} must be a string, a Uint8Array, or an object with a type`)
-    }
-    yield { name, type: value.type, data: value.data, mode: value.mode, mtime: value.mtime, linkname: value.target }
+function sourceEntry([name, value]) {
+  if (typeof value === 'string' || value instanceof Uint8Array) return { name, type: 'file', data: value }
+  if (value === null || typeof value !== 'object' || typeof value.type !== 'string') {
+    throw new TypeError(`source ${JSON.stringify(name)} must be a string, a Uint8Array, or an object with a type`)
   }
+  return { name, type: value.type, data: value.data, mode: value.mode, mtime: value.mtime, linkname: value.target }
 }
 
 // Entries are placed in order, each under the directories it needs, which
@@ -35,17 +33,16 @@ export function vfsFromEntries(entries) {
 function place(vfs, { name, type = 'file', data, mode, mtime, linkname = '' }) {
   if (typeof name !== 'string') throw new TypeError(`an entry's name must be a string, not ${typeof name}`)
   const path = normalize(`/${name}`)
-  if (path !== '/') vfs.mkdir(dirname(path), { recursive: true })
+  vfs.mkdir(dirname(path), { recursive: true })
   switch (type) {
     case 'file':
     case 'contiguous-file':
       vfs.writeFile(path, data ?? '', { mode, mtime })
       break
     case 'directory':
-      if (path === '/' || vfs.isDirectory(path)) {
-        if (mode !== undefined) vfs.chmod(path, mode)
-        if (mtime !== undefined) vfs.utimes(path, mtime)
-      } else vfs.mkdir(path, { mode, mtime })
+      vfs.mkdir(path, { recursive: true })
+      if (mode !== undefined) vfs.chmod(path, mode)
+      if (mtime !== undefined) vfs.utimes(path, mtime)
       break
     case 'symlink':
       vfs.symlink(linkname, path, { mtime })

@@ -15,6 +15,9 @@ import { basename, compareNames, segments } from './path.js'
 
 const LINK_LIMIT = 40
 const NONE = new Uint8Array()
+const FILE = { mode: 0o644, mtime: 0 }
+const DIRECTORY = { mode: 0o755, mtime: 0 }
+const SYMLINK = { mode: 0o777, mtime: 0 }
 const encoder = new TextEncoder()
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 
@@ -30,9 +33,9 @@ export class Vfs {
     this.#root = this.#directory()
   }
 
-  #file(bytes, mode, mtime) { return { ino: ++this.#inodes, type: 'file', ...meta(mode, mtime, 0o644), bytes } }
-  #directory(mode, mtime) { return { ino: ++this.#inodes, type: 'directory', ...meta(mode, mtime, 0o755), entries: new Map() } }
-  #symlink(target, mtime) { return { ino: ++this.#inodes, type: 'symlink', ...meta(undefined, mtime, 0o777), target } }
+  #file(bytes, mode, mtime) { return { ino: ++this.#inodes, type: 'file', ...meta(mode, mtime, FILE), bytes } }
+  #directory(mode, mtime) { return { ino: ++this.#inodes, type: 'directory', ...meta(mode, mtime, DIRECTORY), entries: new Map() } }
+  #symlink(target, mtime) { return { ino: ++this.#inodes, type: 'symlink', ...meta(undefined, mtime, SYMLINK), target } }
 
   // Where `path` leads: `dir`, the directory its last name is in; `name`; and
   // `node`, the inode there — undefined when the name is not taken, so a
@@ -49,18 +52,25 @@ export class Vfs {
     const rest = segments(path).toReversed()
     const chain = [{ name: '', node: this.#root }]
     let budget = LINK_LIMIT
-    while (rest.length > 0) {
-      const name = rest.pop()
+    let dir, name, node
+    for (;;) {
+      if (rest.length === 0) {
+        // `/` itself, or a spelling that ended on `.`, `..` or a link to a directory.
+        ({ name, node } = chain.pop())
+        dir = chain.at(-1)?.node
+        break
+      }
+      name = rest.pop()
       if (name === '.') continue
       if (name === '..') { if (chain.length > 1) chain.pop(); continue }
-      const here = chain.at(-1).node
+      dir = chain.at(-1).node
       const last = rest.length === 0
-      let node = here.entries.get(name)
+      node = dir.entries.get(name)
       if (node === undefined) {
-        if (last) return { dir: here, name, node, trailing, chain, path: pathOf(chain, name) }
+        if (last) break
         if (!mkdirs) throw new VfsError('ENOENT', path)
         node = this.#directory()
-        here.entries.set(name, node)
+        dir.entries.set(name, node)
       }
       if (node.type === 'symlink' && (!last || follow)) {
         if (budget-- === 0) throw new VfsError('ELOOP', path)
@@ -72,21 +82,23 @@ export class Vfs {
       }
       if (last) {
         if (trailing && node.type !== 'directory') throw new VfsError('ENOTDIR', path)
-        return { dir: here, name, node, trailing, chain, path: pathOf(chain, name) }
+        break
       }
       if (node.type !== 'directory') throw new VfsError('ENOTDIR', path)
       chain.push({ name, node })
     }
-    // `/` itself, or a spelling that ended on `.`, `..` or a link to a directory.
-    const top = chain.pop()
-    return { dir: chain.at(-1)?.node, name: top.name, node: top.node, trailing, chain, path: pathOf(chain, top.name) }
+    return { dir, name, node, trailing, chain, path: pathOf(chain, name) }
   }
 
-  #node(path, follow) {
-    const { node } = this.#locate(path, { follow })
-    if (node === undefined) throw new VfsError('ENOENT', path)
-    return node
+  // What is at `path`, which has to be there; `follow` false takes the name
+  // itself, never what a link there leads to.
+  #found(path, follow = true) {
+    const found = this.#locate(path, { follow })
+    if (found.node === undefined) throw new VfsError('ENOENT', path)
+    return found
   }
+
+  #node(path, follow) { return this.#found(path, follow).node }
 
   #is(path, type, follow) {
     try { return this.#node(path, follow).type === type } catch (error) {
@@ -100,12 +112,7 @@ export class Vfs {
   isFile(path) { return this.#is(path, 'file', true) }
   isDirectory(path) { return this.#is(path, 'directory', true) }
   isSymlink(path) { return this.#is(path, 'symlink', false) }
-
-  realpath(path) {
-    const found = this.#locate(path)
-    if (found.node === undefined) throw new VfsError('ENOENT', path)
-    return found.path
-  }
+  realpath(path) { return this.#found(path).path }
 
   readFile(path) {
     const node = this.#node(path, true)
@@ -141,10 +148,8 @@ export class Vfs {
   writeFile(path, data, { mode, mtime } = {}) {
     const bytes = encode(data, path)
     const found = this.#fileAt(path)
-    if (found.node === undefined) { found.dir.entries.set(found.name, this.#file(bytes, mode, mtime)); return }
-    found.node.bytes = bytes
-    if (mode !== undefined) found.node.mode = checkMode(mode)
-    if (mtime !== undefined) found.node.mtime = checkTime(mtime)
+    if (found.node === undefined) found.dir.entries.set(found.name, this.#file(bytes, mode, mtime))
+    else Object.assign(found.node, { bytes }, meta(mode, mtime, found.node))
   }
 
   appendFile(path, data) {
@@ -183,21 +188,10 @@ export class Vfs {
     return found
   }
 
-  // The name itself, never what a link there leads to.
-  #taken(path) {
-    const found = this.#locate(path, { follow: false })
-    if (found.node === undefined) throw new VfsError('ENOENT', path)
-    return found
-  }
-
-  unlink(path) {
-    const found = this.#taken(path)
-    if (found.node.type === 'directory') throw new VfsError('EISDIR', path)
-    found.dir.entries.delete(found.name)
-  }
+  unlink(path) { this.rm(path) }
 
   rmdir(path) {
-    const found = this.#taken(path)
+    const found = this.#found(path, false)
     if (found.node.type !== 'directory') throw new VfsError('ENOTDIR', path)
     if (found.dir === undefined) throw new VfsError('EBUSY', path)
     if (found.node.entries.size > 0) throw new VfsError('ENOTEMPTY', path)
@@ -206,7 +200,7 @@ export class Vfs {
 
   // Removes the name, and with `recursive` everything under a directory.
   rm(path, { recursive = false } = {}) {
-    const found = this.#taken(path)
+    const found = this.#found(path, false)
     if (found.node.type === 'directory') {
       if (!recursive) throw new VfsError('EISDIR', path)
       if (found.dir === undefined) throw new VfsError('EBUSY', path)
@@ -217,7 +211,7 @@ export class Vfs {
   // rename(2): the name moves, replacing a file with a file or an empty
   // directory with a directory; two names of one inode leave both as they are.
   rename(from, to) {
-    const source = this.#taken(from)
+    const source = this.#found(from, false)
     if (source.dir === undefined) throw new VfsError('EBUSY', from)
     const target = this.#locate(to, { follow: false })
     if (target.dir === undefined || target.chain.some((step) => step.node === source.node)) throw new VfsError('EINVAL', to)
@@ -239,8 +233,7 @@ export class Vfs {
   // Every inode at or under `path`, depth first, siblings in name order, a
   // link named but not crossed.
   *#walk(path) {
-    const found = this.#locate(path)
-    if (found.node === undefined) throw new VfsError('ENOENT', path)
+    const found = this.#found(path)
     const stack = [{ path: found.path, node: found.node, depth: 0 }]
     while (stack.length > 0) {
       const entry = stack.pop()
@@ -286,10 +279,10 @@ const statOf = (node) => ({
   size: node.type === 'file' ? node.bytes.length : node.type === 'symlink' ? encoder.encode(node.target).length : 0,
 })
 
-// Metadata for a new inode: what was given, checked, or the default.
-const meta = (mode, mtime, defaultMode) => ({
-  mode: mode === undefined ? defaultMode : checkMode(mode),
-  mtime: mtime === undefined ? 0 : checkTime(mtime),
+// Metadata as given and checked, or as it stands in `current`.
+const meta = (mode, mtime, current) => ({
+  mode: mode === undefined ? current.mode : checkMode(mode),
+  mtime: mtime === undefined ? current.mtime : checkTime(mtime),
 })
 
 function checkMode(mode) {
