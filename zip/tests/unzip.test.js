@@ -56,7 +56,8 @@ function archive(entries, { gap = new Uint8Array(0), before = new Uint8Array(0),
   ]), comment])
 }
 
-const ut = (mtime) => record([[2, 0x5455], [2, 5], [1, 1], [4, mtime]])
+// The stamp is a signed 32-bit time; a negative one is written as its unsigned bits.
+const ut = (mtime) => record([[2, 0x5455], [2, 5], [1, 1], [4, mtime >>> 0]])
 
 describe('unzip reads every recording back', () => {
   for (const recording of RECORDINGS) {

@@ -8,7 +8,7 @@
 // encryption, any method but stored and deflate, several disks — is refused.
 
 import { crc32 } from '@exodus/bytes/crc.js'
-import { fromDos, inflate } from './bytes.js'
+import { fromDos, inflate, view } from './bytes.js'
 import { ZipError } from './error.js'
 import { Names, cleanNames } from './names.js'
 import { decodeUtf8, quote } from './text.js'
@@ -43,7 +43,6 @@ function reader(bytes) {
     length: bytes.length,
     u16: (at) => (check(at, 2), data.getUint16(at, true)),
     u32: (at) => (check(at, 4), data.getUint32(at, true)),
-    i32: (at) => (check(at, 4), data.getInt32(at, true)),
     slice: (at, width) => (check(at, width), bytes.subarray(at, at + width)),
   }
 }
@@ -78,8 +77,9 @@ function readCentral(r, at) {
   if (r.u32(at) !== CENTRAL) throw new ZipError('no central directory entry where one is counted', at)
   const flags = r.u16(at + 8)
   const method = r.u16(at + 10)
-  const lengths = [r.u16(at + 28), r.u16(at + 30), r.u16(at + 32)]
-  const [nameLength, extraLength] = lengths
+  const nameLength = r.u16(at + 28)
+  const extraLength = r.u16(at + 30)
+  const commentLength = r.u16(at + 32)
   if (r.u16(at + 34) !== 0) throw new ZipError('the archive spans several disks', at)
   if (flags & ENCRYPTED) throw new ZipError('an entry is encrypted', at)
   if (method !== 0 && method !== 8) throw new ZipError(`compression method ${method} is not stored or deflate`, at)
@@ -94,11 +94,11 @@ function readCentral(r, at) {
     attributes: r.u32(at + 38),
     offset: r.u32(at + 42),
     name: r.slice(at + 46, nameLength),
-    next: at + 46 + lengths[0] + lengths[1] + lengths[2],
+    next: at + 46 + nameLength + extraLength + commentLength,
   }
   if (entry.csize === 0xffffffff || entry.usize === 0xffffffff || entry.offset === 0xffffffff) throw new ZipError('zip64 is not supported', at)
   const stamp = extras(r.slice(at + 46 + nameLength, extraLength), at).get(TIMESTAMP_EXTRA)
-  entry.mtime = stamp !== undefined && stamp.length >= 5 && stamp[0] & 1 ? reader(stamp).i32(1) : fromDos(r.u16(at + 14), r.u16(at + 12), at)
+  entry.mtime = stamp !== undefined && stamp.length >= 5 && stamp[0] & 1 ? view(stamp).getInt32(1, true) : fromDos(r.u16(at + 14), r.u16(at + 12), at)
   return entry
 }
 

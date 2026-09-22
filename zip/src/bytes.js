@@ -15,12 +15,14 @@ export function concat(chunks) {
 
 export const view = (bytes) => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
 
-// A record laid out as [width, value] pairs, widths 1, 2 or 4.
+// A record laid out as [width, value] pairs, widths 1, 2 or 4. A value
+// that does not fit its width is a bug upstream, not a field to truncate.
 export function record(fields) {
   const out = new Uint8Array(fields.reduce((total, [width]) => total + width, 0))
   const data = view(out)
   let at = 0
   for (const [width, value] of fields) {
+    if (!Number.isInteger(value) || value < 0 || value >= 2 ** (8 * width)) throw new RangeError(`${value} does not fit ${width} bytes`)
     if (width === 1) data.setUint8(at, value)
     else if (width === 2) data.setUint16(at, value, true)
     else data.setUint32(at, value, true)
