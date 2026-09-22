@@ -44,6 +44,10 @@ const MODELS = new Map([
   ['anthropic/claude-sonnet-4.6', { input: 3, output: 15, maxTokens: 128_000, canThink: 'adaptive' }],
   ['anthropic/claude-sonnet-4.5', { input: 3, output: 15, maxTokens: 64 * 1024, canThink: true }],
   ['anthropic/claude-sonnet-4', { input: 3, output: 15, maxTokens: 64 * 1024, canThink: true }],
+  // Thinking is always on: `disabled` and a manual `budget_tokens` both 400, which is what
+  // `noThink` and the narrowed ladder say — `manual` is the one level of the six this model has no
+  // wire form for. Cache reads are 0.05x input rather than the usual 0.10x, so the row names them.
+  ['anthropic/claude-opus-5.5', { input: 4, output: 20, cacheReadPrice: 0.2, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX }],
   ['anthropic/claude-opus-5', { input: 5, output: 25, maxTokens: 128_000, canThink: 'adaptive', noThink: 'explicit' }],
   ['anthropic/claude-opus-4.8', { input: 5, output: 25, maxTokens: 128_000, canThink: 'adaptive' }],
   ['anthropic/claude-opus-4.7', { input: 5, output: 25, maxTokens: 128_000, canThink: 'adaptive' }],
@@ -153,7 +157,7 @@ export const KNOWN_MODELS = [...MODELS.keys()]
 
 // What a caller gets when it names no model. A row of the table above, so the price, the output cap
 // and the thinking rules all resolve for it.
-export const DEFAULT_MODEL = 'anthropic/claude-opus-5'
+export const DEFAULT_MODEL = 'anthropic/claude-opus-5.5'
 
 const BLOCKED = new Set([
   'anthropic/claude-opus-4.1',
@@ -264,6 +268,7 @@ export function canDisableThink(model) {
 // through and 400s on every request instead of being refused up front. Drop the row if the beta
 // turns out not to cover it.
 export const TASK_BUDGET_MODELS = new Set([
+  'anthropic/claude-opus-5.5',
   'anthropic/claude-fable-5.1',
   'anthropic/claude-fable-5',
   'anthropic/claude-opus-5',

@@ -3,7 +3,7 @@ import { describe, it } from 'node:test'
 
 import * as ai from '../index.js'
 
-import { EFFORT_LEVELS, KNOWN_MODELS, TASK_BUDGET_MODELS, TASK_BUDGET_MODES, calculateCost, canAdaptive, canDisableThink, canEffort, canTaskBudget, canThink, effortsFor, emptyUsage, getMaxTokens, isRecognizedModel, needsExplicitNoThink, normalizeThinkEffort, ollamaModels, ollamaTagFor, readsCacheBreakpoint, reasoningModeFor, resolveModel, resolveThinkEffort, unknownModelMessage, validateModel, wireModelFor } from '../src/models.js'
+import { DEFAULT_MODEL, EFFORT_LEVELS, KNOWN_MODELS, TASK_BUDGET_MODELS, TASK_BUDGET_MODES, calculateCost, canAdaptive, canDisableThink, canEffort, canTaskBudget, canThink, effortsFor, emptyUsage, getMaxTokens, isRecognizedModel, needsExplicitNoThink, normalizeThinkEffort, ollamaModels, ollamaTagFor, readsCacheBreakpoint, reasoningModeFor, resolveModel, resolveThinkEffort, unknownModelMessage, validateModel, wireModelFor } from '../src/models.js'
 
 // What the named usage legs cost per Mtok at a model's BASE rate. A
 // million-token prompt is past the 272K long-context line on every OpenAI
@@ -227,12 +227,75 @@ describe('claude opus 5', () => {
   })
 })
 
+describe('DEFAULT_MODEL', () => {
+  it('is opus 5.5 — what Anthropic points new work at, and the cheaper of the two', () => {
+    assert.equal(DEFAULT_MODEL, 'anthropic/claude-opus-5.5')
+  })
+
+  it('is a row of the table, so a caller that names no model is priced and capped', () => {
+    // The whole point of defaulting to a registered id: an unlisted one
+    // costs nothing the table can price and takes the fallback output cap.
+    assert.ok(KNOWN_MODELS.includes(DEFAULT_MODEL))
+    assert.equal(isRecognizedModel(DEFAULT_MODEL), true)
+    assert.ok(calculateCost(DEFAULT_MODEL, { ...emptyUsage(), input: 1_000_000 }) > 0)
+    assert.equal(getMaxTokens(DEFAULT_MODEL), 128_000)
+  })
+})
+
+describe('claude opus 5.5', () => {
+  const OPUS55 = 'anthropic/claude-opus-5.5'
+  const bill = (field) => calculateCost(OPUS55, { ...emptyUsage(), [field]: 1_000_000 })
+
+  it('prices at the published $4 / $20 per Mtok, under opus 5', () => {
+    assert.equal(bill('input'), 4)
+    assert.equal(bill('output'), 20)
+    assert.equal(calculateCost('anthropic/claude-opus-5', { ...emptyUsage(), input: 1_000_000 }), 5)
+  })
+
+  it('bills cache reads at the row\'s flat $0.20 per Mtok — 0.05x input, not the usual 0.10x', () => {
+    assert.equal(bill('cacheRead'), 0.2)
+    // The default multiplier would have charged twice that.
+    assert.equal(calculateCost(OPUS55, { ...emptyUsage(), cacheRead: 1_000_000 }) * 2, 0.4)
+  })
+
+  it('still takes both cache-WRITE legs as multiples of base input', () => {
+    assert.equal(bill('cacheWrite5m'), 4 * 1.25)
+    assert.equal(bill('cacheWrite1h'), 4 * 2)
+  })
+
+  it('registers a 128,000 max_tokens', () => {
+    assert.equal(getMaxTokens(OPUS55), 128_000)
+  })
+
+  it('is adaptive-thinking capable and reads an effort knob', () => {
+    assert.equal(canThink(OPUS55), true)
+    assert.equal(canAdaptive(OPUS55), true)
+    assert.equal(canEffort(OPUS55), true)
+    assert.deepEqual(normalizeThinkEffort(OPUS55, true), { useThink: true, useEffort: 'high' })
+    assert.deepEqual(normalizeThinkEffort(OPUS55, true, 'max'), { useThink: true, useEffort: 'max' })
+  })
+
+  it('offers every effort level except manual, which it has no wire form for', () => {
+    // `manual` means a fixed budget_tokens, and that request 400s here as
+    // surely as `thinking: disabled` does.
+    assert.deepEqual(effortsFor(OPUS55), ['low', 'medium', 'high', 'xhigh', 'max'])
+    assert.equal(effortsFor(OPUS55).includes('manual'), false)
+  })
+
+  it('accepts the Anthropic task-budgets beta', () => {
+    assert.equal(canTaskBudget(OPUS55), true)
+  })
+})
+
 describe('no-think wire form', () => {
   // Fable 5 is the row worth reading twice: it thinks by default like opus
   // 5, yet needs no explicit opt-out because it accepts none — the disabled
   // form 400s at any effort, so omitting is its only legal request.
   for (const [model, needsExplicit, canDisable] of [
     ['anthropic/claude-opus-5', true, true],
+    // Opus 5.5 is opus 5 with the opt-out gone: `disabled` and a manual
+    // budget both 400, so omitting is the only legal request.
+    ['anthropic/claude-opus-5.5', false, false],
     ['anthropic/claude-fable-5', false, false],
     ['anthropic/claude-fable-5.1', false, false],
     ['anthropic/claude-opus-4.8', false, true],

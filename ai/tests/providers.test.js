@@ -469,6 +469,19 @@ describe('buildRequestBody — provider-specific shapes', () => {
     })
   })
 
+  it('opus 5.5 goes out hyphenated too, and carries no thinking field when think is off', () => {
+    withProvider('anthropic', 'ANTHROPIC_API_KEY', () => {
+      const body = buildRequestBody('anthropic/claude-opus-5.5', 1000, 'sys', messages, { think: true, effort: 'xhigh' })
+      assert.equal(body.model, 'claude-opus-5-5')
+      assert.deepEqual(body.thinking, { type: 'adaptive' })
+      assert.deepEqual(body.output_config, { effort: 'xhigh' })
+      // Opus 5 sends `{ type: 'disabled' }` here; on 5.5 that 400s, so the
+      // field is omitted and thinking stays on.
+      const off = buildRequestBody('anthropic/claude-opus-5.5', 1000, 'sys', messages, { think: false })
+      assert.equal('thinking' in off, false)
+    })
+  })
+
   it('opus 5 + think=false emits an explicit {thinking: {type: "disabled"}} — it thinks by default otherwise', () => {
     withProvider('anthropic', 'ANTHROPIC_API_KEY', () => {
       const body = buildRequestBody('anthropic/claude-opus-5', 1000, 'sys', messages)
