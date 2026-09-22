@@ -35,14 +35,15 @@ async function* chunksOf(stream) {
 }
 
 // Output past `limit` is refused where it is, not after it has all been
-// made: erroring the bound cancels the stream behind it.
+// made: erroring the bound cancels the stream behind it. A bound that is
+// no number (NaN) refuses everything, not nothing.
 function bounded(limit) {
   let total = 0
   return new TransformStream({
     transform(chunk, controller) {
       total += chunk.length
-      if (total > limit) controller.error(new RangeError(`output past ${limit} bytes`))
-      else controller.enqueue(chunk)
+      if (total <= limit) controller.enqueue(chunk)
+      else controller.error(new RangeError(`output past ${limit} bytes`))
     },
   })
 }

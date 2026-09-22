@@ -96,6 +96,14 @@ describe('the output bound', () => {
     })
     await assert.rejects(decompress(packed, 'gzip', { limit: text.length - 1 }), /decompresses past/u)
   })
+  it('takes a bound that is no number as refusing everything, not nothing', async () => {
+    const packed = await compress(text, 'gzip')
+    for (const limit of [Number.NaN, -1, undefined]) {
+      if (limit === undefined) assertBytes(await decompress(packed, 'gzip', { limit }), text)
+      else await assert.rejects(decompress(packed, 'gzip', { limit }), (error) => error instanceof CompressionError && error.limited && error.bytes.length === 0)
+    }
+    assertBytes(await decompress(await compress(new Uint8Array(0), 'gzip'), 'gzip', { limit: 0 }), new Uint8Array(0))
+  })
   it('bounds compression the same way', async () => {
     const packed = await compress(random, 'gzip')
     await assert.rejects(compress(random, 'gzip', { limit: 100 }), /the data compresses past 100 bytes/u)
