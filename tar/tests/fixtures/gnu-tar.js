@@ -1229,5 +1229,77 @@ export const RECORDINGS = [
     "blocking": 20,
     "entries": [],
     "archive": "[10240]"
+  },
+  {
+    "command": "tar --format=gnu -b 1 --no-recursion --owner=0 --group=0 --numeric-owner -cf - -- . a.txt",
+    "format": "gnu",
+    "blocking": 1,
+    "entries": [
+      {
+        "name": ".",
+        "type": "directory",
+        "mode": 493,
+        "uid": 0,
+        "gid": 0,
+        "mtime": 1577836800,
+        "uname": "",
+        "gname": "",
+        "linkname": "",
+        "devmajor": 0,
+        "devminor": 0,
+        "data": ""
+      },
+      {
+        "name": "a.txt",
+        "type": "file",
+        "mode": 420,
+        "uid": 0,
+        "gid": 0,
+        "mtime": 1577836800,
+        "uname": "",
+        "gname": "",
+        "linkname": "",
+        "devmajor": 0,
+        "devminor": 0,
+        "data": "hi"
+      }
+    ],
+    "archive": "2e2f[98]30303030373535[1]30303030303030[1]30303030303030[1]3030303030303030303030[1]3133363032373630343030[1]303036303737[1]2035[100]75737461722020[248]612e747874[95]30303030363434[1]30303030303030[1]30303030303030[1]3030303030303030303032[1]3133363032373630343030[1]303036373133[1]2030[100]75737461722020[248]6869[1534]"
+  },
+  {
+    "command": "tar --format=posix -b 1 --no-recursion --owner=0 --group=0 --numeric-owner --pax-option=delete=atime,delete=ctime -cf - -- . a.txt",
+    "format": "pax",
+    "blocking": 1,
+    "entries": [
+      {
+        "name": ".",
+        "type": "directory",
+        "mode": 493,
+        "uid": 0,
+        "gid": 0,
+        "mtime": 1577836800,
+        "uname": "",
+        "gname": "",
+        "linkname": "",
+        "devmajor": 0,
+        "devminor": 0,
+        "data": ""
+      },
+      {
+        "name": "a.txt",
+        "type": "file",
+        "mode": 420,
+        "uid": 0,
+        "gid": 0,
+        "mtime": 1577836800,
+        "uname": "",
+        "gname": "",
+        "linkname": "",
+        "devmajor": 0,
+        "devminor": 0,
+        "data": "hi"
+      }
+    ],
+    "archive": "2e2f[98]30303030373535[1]30303030303030[1]30303030303030[1]3030303030303030303030[1]3133363032373630343030[1]303036313337[1]2035[100]7573746172[1]3030[247]612e747874[95]30303030363434[1]30303030303030[1]30303030303030[1]3030303030303030303032[1]3133363032373630343030[1]303036373533[1]2030[100]7573746172[1]3030[247]6869[1534]"
   }
 ]

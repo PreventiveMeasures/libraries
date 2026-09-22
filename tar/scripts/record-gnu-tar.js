@@ -56,6 +56,8 @@ const TREES = {
     { name: 'sub/h3', type: 'link', linkname: 'h1' },
   ],
   one: [{ name: 'a.txt', data: 'hi' }],
+  // The root itself as a member, which tar writes as `./`.
+  dot: [{ name: '.', type: 'directory' }, { name: 'a.txt', data: 'hi' }],
 }
 
 const UNAME31 = 'abcdefghijklmnopqrstuvwxyzabcde'
@@ -86,6 +88,8 @@ const CASES = [
   { tree: 'one', format: 'gnu', owners: ['ünïcode', 'gröup'] },
   { tree: 'one', format: 'pax', owners: ['ünïcode', 'gröup'] },
   { tree: 'empty', format: 'gnu', blocking: 20 },
+  { tree: 'dot', format: 'gnu' },
+  { tree: 'dot', format: 'pax' },
 ]
 
 const DEFAULT_MODE = { directory: 0o755, symlink: 0o777 }
@@ -113,7 +117,9 @@ function build(root, entries) {
   for (const e of entries) {
     const path = join(root, e.name)
     mkdirSync(dirname(path), { recursive: true })
-    if (e.type === 'directory') mkdirSync(path)
+    if (e.type === 'directory') {
+      if (e.name !== '.') mkdirSync(path)
+    }
     else if (e.type === 'symlink') symlinkSync(e.linkname, path)
     else if (e.type === 'link') linkSync(join(root, e.linkname), path)
     else if (e.type === 'fifo') execFileSync('mkfifo', ['-m', '644', path])

@@ -102,7 +102,11 @@ describe('what it refuses', () => {
     ['a hard link to nothing', () => archive(header({ typeflag: 0x31, name: utf8('h'), linkname: utf8('a') })), /hard link "h" targets "a", which is not an earlier non-directory entry/u],
     ['an entry through a symlink', () => archive(header({ typeflag: 0x32, name: utf8('l'), linkname: utf8('x') }), header({ name: utf8('l/a') })), /"l\/a" is inside "l", which is not a directory at byte 512/u],
     ['a directory that ends in two slashes', () => archive(header({ typeflag: 0x35, name: utf8('d//') })), /has an empty segment/u],
-    ['a symlink whose name ends in a slash', () => archive(header({ typeflag: 0x32, name: utf8('l/'), linkname: utf8('a') })), /"l\/" ends in a slash but is a symlink/u],
+    ['a symlink whose name ends in a slash', () => archive(header({ typeflag: 0x32, name: utf8('l/'), linkname: utf8('a') })), /"l\/" ends in a slash but is not a directory/u],
+    ['a file whose name ends in a slash', () => archive(header({ name: utf8('d/') })), /"d\/" ends in a slash but is not a directory at byte 0/u],
+    ['a file named as the archive root', () => archive(header({ name: utf8('.') })), /names the archive root but is not a directory/u],
+    ['a directory with an empty segment', () => archive(header({ typeflag: 0x35, name: utf8('a//b/') })), /has an empty segment/u],
+    ['a name twice once . segments are dropped', () => archive(header(), header({ name: utf8('./a') })), /duplicate entry "a" at byte 512/u],
     ['a device without device numbers', () => archive(header({ typeflag: 0x33, name: utf8('c') })), /the devmajor field is not an octal number at byte 0/u],
     ['a size below zero in base 256', () => archive(header({ gnu: true, size: -1 })), /the size field is negative at byte 0/u],
     ['a uid below zero in base 256', () => archive(header({ gnu: true, uid: -1 })), /the uid field is negative at byte 0/u],
@@ -133,10 +137,17 @@ function sealedData() {
 }
 
 describe('what it reads that GNU tar reads', () => {
-  it('a NUL typeflag as a file, and a file ending in a slash as a directory', () => {
-    const [file, dir] = unpack(archive(header({ typeflag: 0 }), header({ name: utf8('d/') })))
-    assert.equal(file.type, 'file')
-    assert.deepEqual([dir.type, dir.name], ['directory', 'd'])
+  it('a NUL typeflag as a file', () => {
+    assert.equal(unpack(archive(header({ typeflag: 0 })))[0].type, 'file')
+  })
+  it('names with . segments and a directory slash, cleaned, and the root as .', () => {
+    const entries = unpack(archive(
+      header({ typeflag: 0x35, name: utf8('./') }),
+      header({ name: utf8('./a') }),
+      header({ typeflag: 0x35, name: utf8('./d/./') }),
+      header({ typeflag: 0x31, name: utf8('./h'), linkname: utf8('./a') }),
+    ))
+    assert.deepEqual(entries.map((e) => [e.type, e.name, e.linkname]), [['directory', '.', ''], ['file', 'a', ''], ['directory', 'd', ''], ['link', 'h', 'a']])
   })
   it('a time below zero in base 256', () => {
     assert.equal(unpack(archive(header({ gnu: true, mtime: -1 })))[0].mtime, -1)

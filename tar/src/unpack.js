@@ -167,20 +167,19 @@ class Unpacker {
     if (keys.some((key) => key.startsWith('GNU.sparse.'))) throw new TarError('sparse entries are not supported', at)
     if (longname !== null && record('path') !== undefined) throw new TarError('both a long name header and a pax path name one entry', at)
     if (longlink !== null && record('linkpath') !== undefined) throw new TarError('both a long link header and a pax linkpath name one entry', at)
-    let name = longname ?? record('path') ?? this.#headerName(header, at)
-    const linkname = longlink ?? record('linkpath') ?? decodeUtf8(header.linkname, 'link target', at)
-    // Pre-POSIX convention, which GNU honours: a file named with a trailing
-    // slash is a directory.
-    const kind = type === 'file' && name.endsWith('/') ? 'directory' : type
-    if (kind === 'directory') {
-      if (name.endsWith('/')) name = name.slice(0, -1)
-    } else if (name.endsWith('/')) {
-      throw new TarError(`${quote(name)} ends in a slash but is a ${kind}`, at)
+    const rawName = longname ?? record('path') ?? this.#headerName(header, at)
+    const rawTarget = longlink ?? record('linkpath') ?? decodeUtf8(header.linkname, 'link target', at)
+    let name
+    let linkname
+    try {
+      ({ name, linkname } = admit(this.#names, rawName, type, rawTarget))
+    } catch (error) {
+      throw new TarError(error.message, at)
     }
     const number = (key, parse = paxNumber) => (record(key) === undefined ? header[key] : parse(record(key), key, at))
     const size = number('size')
-    if (size !== 0 && !isFile(kind)) throw new TarError(`a ${kind} entry has a size`, at)
-    if (linkname !== '' && kind !== 'link' && kind !== 'symlink') throw new TarError(`a ${kind} entry has a link target`, at)
+    if (size !== 0 && !isFile(type)) throw new TarError(`a ${type} entry has a size`, at)
+    if (linkname !== '' && type !== 'link' && type !== 'symlink') throw new TarError(`a ${type} entry has a link target`, at)
     const owner = (key) => {
       const value = record(key) ?? decodeUtf8(header[key], key, at)
       if (hasUnsafe(value, false)) throw new TarError(`${key} ${quote(value)} holds a control character`, at)
@@ -188,7 +187,7 @@ class Unpacker {
     }
     const entry = {
       name,
-      type: kind,
+      type,
       mode: header.mode & 0o7777,
       uid: number('uid'),
       gid: number('gid'),
@@ -196,14 +195,9 @@ class Unpacker {
       uname: owner('uname'),
       gname: owner('gname'),
       linkname,
-      devmajor: isDevice(kind) ? number('devmajor') : 0,
-      devminor: isDevice(kind) ? number('devminor') : 0,
+      devmajor: isDevice(type) ? number('devmajor') : 0,
+      devminor: isDevice(type) ? number('devminor') : 0,
       data: EMPTY,
-    }
-    try {
-      admit(this.#names, name, kind, linkname)
-    } catch (error) {
-      throw new TarError(error.message, at)
     }
     return { entry, size }
   }

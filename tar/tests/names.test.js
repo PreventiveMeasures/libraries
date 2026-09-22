@@ -1,47 +1,65 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { Names, admit, checkPath, checkSymlinkTarget } from '../src/names.js'
+import { Names, admit, checkSymlinkTarget, cleanPath } from '../src/names.js'
 
 // The rules a name is held to, on their own: what is a clean relative
 // path, where a symlink may point, and what the record of names refuses.
 
 describe('a name is a clean relative path', () => {
-  for (const name of ['a', 'a/b', 'a.b/c-d_e', 'ü/日本', 'a b', 'a/..b', 'a/b..', '...', 'a:b']) {
-    it(`accepts ${JSON.stringify(name)}`, () => checkPath(name, 'name'))
+  for (const name of ['a', 'a/b', 'a.b/c-d_e', 'ü/日本', 'a b', 'a/..b', 'a/b..', '...', 'a:b', 'file..txt']) {
+    it(`accepts ${JSON.stringify(name)}`, () => assert.equal(cleanPath(name, 'name'), name))
   }
+  it('drops . segments, and a directory\'s trailing slash', () => {
+    assert.equal(cleanPath('./a', 'name'), 'a')
+    assert.equal(cleanPath('a/./b/.', 'name'), 'a/b')
+    assert.equal(cleanPath('d/', 'name', true), 'd')
+    assert.equal(cleanPath('./d/./', 'name', true), 'd')
+  })
+  it('names the archive root ., for a directory only', () => {
+    assert.equal(cleanPath('.', 'name', true), '.')
+    assert.equal(cleanPath('./', 'name', true), '.')
+    assert.equal(cleanPath('././', 'name', true), '.')
+    assert.throws(() => cleanPath('.', 'name'), /name "\." names the archive root but is not a directory/u)
+    assert.throws(() => cleanPath('./', 'name'), /ends in a slash but is not a directory/u)
+    assert.throws(() => cleanPath('././.', 'name'), /names the archive root but is not a directory/u)
+  })
   const refused = [
     ['', /is empty/u],
     ['/a', /is absolute/u],
-    ['a/', /empty segment/u],
+    ['/', /is absolute/u],
+    ['a/', /"a\/" ends in a slash but is not a directory/u],
     ['a//b', /empty segment/u],
-    ['./a', /has a \. segment/u],
-    ['.', /has a \. segment/u],
+    ['a/./b//c', /empty segment/u],
     ['a/../b', /has a \.\. segment/u],
     ['..', /has a \.\. segment/u],
+    ['./..', /has a \.\. segment/u],
     ['a\\b', /control character or a backslash/u],
     ['a\nb', /control character or a backslash/u],
     ['a\u0000', /control character or a backslash/u],
     ['a\u007F', /control character or a backslash/u],
   ]
   for (const [name, message] of refused) {
-    it(`refuses ${JSON.stringify(name)}`, () => assert.throws(() => checkPath(name, 'name'), message))
+    it(`refuses ${JSON.stringify(name)}`, () => {
+      assert.throws(() => cleanPath(name, 'name'), message)
+      if (name !== 'a/') assert.throws(() => cleanPath(name, 'name', true), message)
+    })
   }
   it('refuses C1 controls as it does C0 ones', () => {
-    assert.throws(() => checkPath('a\u0085b', 'name'), /control character/u)
-    assert.throws(() => checkPath('a\u009Bb', 'name'), /control character/u)
-    checkPath('a\u00A0b', 'name')
+    assert.throws(() => cleanPath('a\u0085b', 'name'), /control character/u)
+    assert.throws(() => cleanPath('a\u009Bb', 'name'), /control character/u)
+    cleanPath('a\u00A0b', 'name')
   })
   it('refuses what no filesystem takes: a segment over 255 bytes, a path over 4096', () => {
-    checkPath('x'.repeat(255), 'name')
-    assert.throws(() => checkPath('x'.repeat(256), 'name'), /has a segment longer than 255 bytes/u)
-    assert.throws(() => checkPath('ü'.repeat(128), 'name'), /has a segment longer than 255 bytes/u)
-    checkPath(Array.from({ length: 16 }, () => 'x'.repeat(255)).join('/'), 'name')
-    assert.throws(() => checkPath(Array.from({ length: 17 }, () => 'x'.repeat(255)).join('/'), 'name'), /is longer than 4096 bytes/u)
+    cleanPath('x'.repeat(255), 'name')
+    assert.throws(() => cleanPath('x'.repeat(256), 'name'), /has a segment longer than 255 bytes/u)
+    assert.throws(() => cleanPath('ü'.repeat(128), 'name'), /has a segment longer than 255 bytes/u)
+    cleanPath(Array.from({ length: 16 }, () => 'x'.repeat(255)).join('/'), 'name')
+    assert.throws(() => cleanPath(Array.from({ length: 17 }, () => 'x'.repeat(255)).join('/'), 'name'), /is longer than 4096 bytes/u)
     assert.throws(() => checkSymlinkTarget('l', 'x'.repeat(256)), /has a segment longer than 255 bytes/u)
   })
   it('names what it was checking', () => {
-    assert.throws(() => checkPath(42, 'hard link target'), /hard link target is not a string/u)
-    assert.throws(() => checkPath('/x', 'entry name'), /entry name "\/x" is absolute/u)
+    assert.throws(() => cleanPath(42, 'hard link target'), /hard link target is not a string/u)
+    assert.throws(() => cleanPath('/x', 'entry name'), /entry name "\/x" is absolute/u)
   })
 })
 
@@ -100,13 +118,16 @@ describe('the names seen so far', () => {
     assert.throws(() => after(['a/x', 'file']).add('b', 'link', 'a'), /not an earlier non-directory entry/u)
     assert.throws(() => after().add('b', 'link', 'b'), /not an earlier non-directory entry/u)
   })
-  it('admit runs every check in order', () => {
+  it('admit runs every check in order, and hands back the cleaned names', () => {
     const names = new Names()
-    admit(names, 'a', 'file', '')
+    assert.deepEqual(admit(names, './a', 'file', ''), { name: 'a', linkname: '' })
     assert.throws(() => admit(names, 'a', 'file', ''), /duplicate/u)
+    assert.throws(() => admit(names, './a/', 'directory', ''), /duplicate entry "a"/u)
     assert.throws(() => admit(names, '../b', 'file', ''), /\.\. segment/u)
     assert.throws(() => admit(names, 'l', 'symlink', '../x'), /points outside/u)
     assert.throws(() => admit(names, 'h', 'link', '/a'), /hard link target of "h" "\/a" is absolute/u)
-    admit(names, 'h', 'link', 'a')
+    assert.deepEqual(admit(names, 'h', 'link', './a'), { name: 'h', linkname: 'a' })
+    assert.deepEqual(admit(names, './', 'directory', ''), { name: '.', linkname: '' })
+    assert.throws(() => admit(names, '.', 'directory', ''), /duplicate entry "\."/u)
   })
 })

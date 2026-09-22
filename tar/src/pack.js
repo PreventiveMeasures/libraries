@@ -46,12 +46,8 @@ function normalize(entry) {
   if (entry === null || typeof entry !== 'object') throw new TarError('an entry is not an object')
   const type = entry.type ?? 'file'
   if (!Object.hasOwn(TYPEFLAG, type)) throw new TarError(`entry type ${quote(String(type))} is not one this package writes`)
-  let { name } = entry
+  const { name } = entry
   if (typeof name !== 'string') throw new TarError('entry name is not a string')
-  if (name.endsWith('/')) {
-    if (type !== 'directory') throw new TarError(`${quote(name)} ends in a slash but is a ${type}`)
-    name = name.slice(0, -1)
-  }
   const data = entry.data ?? EMPTY
   if (!(data instanceof Uint8Array)) throw new TarError(`data of ${quote(name)} is not a Uint8Array`)
   if (data.length !== 0 && !isFile(type)) throw new TarError(`a ${type} cannot carry data (${quote(name)})`)
@@ -191,8 +187,7 @@ function packer({ format = 'gnu', blocking = 20 } = {}) {
   return {
     add(entry) {
       const e = normalize(entry)
-      admit(names, e.name, e.type, e.linkname)
-      return emit(encodeEntry(e, format))
+      return emit(encodeEntry({ ...e, ...admit(names, e.name, e.type, e.linkname) }, format))
     },
     // Two zero blocks, then zeros to a multiple of the record size.
     end() {

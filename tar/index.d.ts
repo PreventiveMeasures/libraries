@@ -13,11 +13,12 @@ export type EntryType =
   | 'block-device'
   | 'contiguous-file'
 
-// An entry read out of an archive. `name` is a clean relative path with no
-// trailing slash; `mtime` is whole seconds since the epoch; `linkname` is
-// '' and the device numbers 0 where they do not apply; `data` is empty for
-// anything but a file, and a view over the archive bytes where they
-// arrived in one piece.
+// An entry read out of an archive. `name` is a relative path with `.`
+// segments and a directory's trailing slash dropped, or `.` for the
+// archive root itself, which only a directory names; `mtime` is whole
+// seconds since the epoch; `linkname` is '' and the device numbers 0
+// where they do not apply; `data` is empty for anything but a file, and
+// a view over the archive bytes where they arrived in one piece.
 export interface Entry {
   name: string
   type: EntryType
@@ -33,9 +34,11 @@ export interface Entry {
   data: Uint8Array
 }
 
-// An entry to write. `type` defaults to 'file'; `mode` to 0o644, 0o755 for
-// a directory, 0o777 for a symlink; owners to 0 with empty names; `mtime`
-// to 0. `linkname` is the target of a symlink or hard link.
+// An entry to write. `name` is cleaned as above, so `./a`, `a/./b` and
+// `dir/` are taken; only a directory may end in a slash or name the root.
+// `type` defaults to 'file'; `mode` to 0o644, 0o755 for a directory, 0o777
+// for a symlink; owners to 0 with empty names; `mtime` to 0. `linkname` is
+// the target of a symlink or hard link.
 export interface EntryInput {
   name: string
   type?: EntryType

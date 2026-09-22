@@ -1,11 +1,11 @@
 // Name safety, applied before writing an entry and before handing one out
-// of an archive. A name is a relative path in clean segments (no leading
-// slash, no empty, `.` or `..` segment), with no control character and no
-// backslash — a separator on Windows, where `..\` would get past the check
-// on `..`. Nothing is normalised: `./a` is refused, not read as `a`. A
-// symlink may use `..`, but is followed from where it sits and refused if
-// it climbs above the archive. Lengths are bounded by what a filesystem
-// takes at all: PATH_MAX for the whole, NAME_MAX for a segment, in bytes.
+// of an archive. A name is a relative path: `.` segments and a directory's
+// trailing slash are dropped, and what is left has no empty or `..`
+// segment, no control character and no backslash — a separator on
+// Windows, where `..\` would get past the check on `..`. A symlink target
+// may use `..`, but is followed from where the link sits and refused if it
+// climbs above the archive. Lengths are bounded by what a filesystem takes
+// at all: PATH_MAX for the whole, NAME_MAX for a segment, in bytes.
 
 import { TarError } from './error.js'
 import { hasUnsafe, quote, utf8Length } from './text.js'
@@ -24,12 +24,23 @@ function checkText(path, what) {
   }
 }
 
-export function checkPath(path, what) {
+// What is left of `.` or `./` is the archive root, which only a directory
+// may name; it comes back as `.`.
+export function cleanPath(path, what, directory = false) {
   checkText(path, what)
-  for (const segment of path.split('/')) {
-    if (segment === '') throw new TarError(`${what} ${quote(path)} has an empty segment`)
-    if (segment === '.' || segment === '..') throw new TarError(`${what} ${quote(path)} has a ${segment} segment`)
+  const segments = path.split('/')
+  if (segments.at(-1) === '') {
+    if (!directory) throw new TarError(`${what} ${quote(path)} ends in a slash but is not a directory`)
+    segments.pop()
   }
+  const kept = segments.filter((segment) => segment !== '.')
+  for (const segment of kept) {
+    if (segment === '') throw new TarError(`${what} ${quote(path)} has an empty segment`)
+    if (segment === '..') throw new TarError(`${what} ${quote(path)} has a .. segment`)
+  }
+  if (kept.length) return kept.join('/')
+  if (!directory) throw new TarError(`${what} ${quote(path)} names the archive root but is not a directory`)
+  return '.'
 }
 
 export function checkSymlinkTarget(name, target) {
@@ -69,9 +80,12 @@ export class Names {
   }
 }
 
-export function admit(names, name, type, linkname) {
-  checkPath(name, 'entry name')
-  if (type === 'symlink') checkSymlinkTarget(name, linkname)
-  else if (type === 'link') checkPath(linkname, `hard link target of ${quote(name)}`)
+// The name and link target as cleaned, once admitted.
+export function admit(names, path, type, target) {
+  const name = cleanPath(path, 'entry name', type === 'directory')
+  let linkname = target
+  if (type === 'symlink') checkSymlinkTarget(name, target)
+  else if (type === 'link') linkname = cleanPath(target, `hard link target of ${quote(name)}`)
   names.add(name, type, linkname)
+  return { name, linkname }
 }

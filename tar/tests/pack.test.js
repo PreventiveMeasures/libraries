@@ -21,7 +21,8 @@ describe('what it refuses about an entry', () => {
     ['a', /an entry is not an object/u],
     [{}, /entry name is not a string/u],
     [{ name: 'a', type: 'socket' }, /entry type "socket" is not one this package writes/u],
-    [{ name: 'a/' }, /"a\/" ends in a slash but is a file/u],
+    [{ name: 'a/' }, /"a\/" ends in a slash but is not a directory/u],
+    [{ name: '.' }, /"\." names the archive root but is not a directory/u],
     [{ name: 'a', data: 'text' }, /data of "a" is not a Uint8Array/u],
     [{ name: 'd', type: 'directory', data: utf8('x') }, /a directory cannot carry data \("d"\)/u],
     [{ name: 'a', linkname: 'b' }, /a file cannot have a link target \("a"\)/u],
@@ -54,7 +55,7 @@ describe('what it refuses about names', () => {
   const refused = [
     [[{ name: '/etc/passwd' }], /entry name "\/etc\/passwd" is absolute/u],
     [[{ name: '../x' }], /has a \.\. segment/u],
-    [[{ name: './x' }], /has a \. segment/u],
+    [[{ name: 'a' }, { name: './a' }], /duplicate entry "a"/u],
     [[{ name: 'a//b' }], /has an empty segment/u],
     [[{ name: 'a\\b' }], /control character or a backslash/u],
     [[{ name: 'a' }, { name: 'a' }], /duplicate entry "a"/u],
@@ -75,6 +76,11 @@ describe('what it refuses about names', () => {
   }
   it('lets a directory come after what it holds', () => {
     pack([{ name: 'a/b' }, { name: 'a', type: 'directory' }])
+  })
+  it('drops . segments and a directory slash, and names the root .', () => {
+    const entries = unpack(pack([{ name: './', type: 'directory' }, { name: './x' }, { name: 'a/./b' }, { name: 'd/', type: 'directory' }, { name: 'h', type: 'link', linkname: './x' }]))
+    assert.deepEqual(entries.map((e) => e.name), ['.', 'x', 'a/b', 'd', 'h'])
+    assert.equal(entries[4].linkname, 'x')
   })
 })
 
