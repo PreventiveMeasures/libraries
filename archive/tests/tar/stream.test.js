@@ -42,6 +42,16 @@ describe('unpackStream reads an archive however it is cut', () => {
     const bytes = pack([{ name: 'a', data: utf8('hi') }])
     assert.equal((await all(unpackStream([new Uint8Array(0), bytes, new Uint8Array(0)]))).length, 1)
   })
+  it('copies only the span a header crosses, and views the data in the chunk that brought it', async () => {
+    // Were every buffered byte joined to take a header off the boundary, the
+    // data behind it would come out of that copy and not out of `rest`.
+    const bytes = pack([{ name: 'a', data: utf8('hello') }, { name: 'b', data: utf8('x'.repeat(4000)) }])
+    const rest = bytes.subarray(100)
+    const [a, b] = await all(unpackStream([bytes.subarray(0, 100), rest]))
+    assert.equal(a.data.buffer, rest.buffer)
+    assert.equal(b.data.buffer, rest.buffer)
+    assert.deepEqual(readable([a, b]), readable(unpack(bytes)))
+  })
   it('yields each entry as soon as its bytes are in', async () => {
     const bytes = pack([{ name: 'a', data: utf8('hello') }, { name: 'b' }], { blocking: 1 })
     const chunks = split(bytes, 512)
