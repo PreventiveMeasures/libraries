@@ -93,6 +93,8 @@ export declare const KNOWN_MODELS: readonly string[]
 export declare const TASK_BUDGET_MODELS: ReadonlySet<string>
 export declare const TASK_BUDGET_MODES: readonly string[]
 export declare function addUsage(total: Usage, usage: Usage | null | undefined): void
+// Prices ONE request: a long-context tier is chosen from the prompt `usage`
+// carries, so a sum of requests is priced per request, by normalizeUsage.
 export declare function calculateCost(model: string, usage: Usage): number | null
 export declare function canDisableThink(model: unknown): boolean
 export declare function canEffort(model: unknown): boolean
@@ -158,8 +160,10 @@ interface AskResult {
 export declare function ask(options: AskOptions): Promise<AskResult>
 export declare function logTurnCost(label: string, model: string, usage: Usage, pass?: string | undefined): void
 // Sums a stored history, or reads a single stored response. Null when
-// nothing in it carried usage.
-export declare function normalizeUsage(data: unknown): Usage | null
+// nothing in it carried usage. Given the model, each response is priced
+// into `cost` as it is read — the only way to price a sum, since a
+// long-context tier is chosen per request.
+export declare function normalizeUsage(data: unknown, model?: string | undefined): Usage | null
 
 // Which provider the requests go to, and the two pieces of its response
 // shape a caller has to see: what a stored turn's text was, and which wire

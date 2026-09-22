@@ -15,7 +15,10 @@ import { issueTurn, resolveTaskBudget } from './task-budget.js'
 // text.
 const DEFAULT_MAX_TOOL_TURNS = 30
 
-export function normalizeUsage(data) {
+// `model` (optional) prices each response as it is read, into `cost` wherever the provider did not
+// report one. A sum cannot be priced afterwards: a long-context tier is chosen per request, and
+// the sum's prompt is every request's prompt added together.
+export function normalizeUsage(data, model) {
   // New format: array of { request, response } turns
   if (Array.isArray(data)) {
     const total = emptyUsage()
@@ -23,14 +26,21 @@ export function normalizeUsage(data) {
     for (const turn of data) {
       const usage = normalizeOneUsage(turn.response)
       if (usage) {
-        addUsage(total, usage)
+        addUsage(total, price(usage, model))
         found = true
       }
     }
     return found ? total : null
   }
   // Old format: single response object
-  return normalizeOneUsage(data)
+  const usage = normalizeOneUsage(data)
+  return usage && price(usage, model)
+}
+
+// Unpriced stays at zero, so a sum of them still falls through to the caller's own lookup.
+function price(usage, model) {
+  if (model !== undefined && !(usage.cost > 0)) usage.cost = turnCost(model, usage) ?? 0
+  return usage
 }
 
 // Run one conversation to completion and return `{ text, error, usage, history }`. With no `tools`
@@ -124,8 +134,8 @@ export async function ask({ model, maxTokens, systemPrompt, userContent, think =
     }).finally(() => release?.())
     // task-budget=error path: the failed attempt's tokens still got paid for, so account for both
     // responses in the running total.
-    if (failedAttemptResponse) addUsage(totalUsage, normalizeUsage(failedAttemptResponse))
-    addUsage(totalUsage, normalizeUsage(response))
+    if (failedAttemptResponse) addUsage(totalUsage, normalizeUsage(failedAttemptResponse, model))
+    addUsage(totalUsage, normalizeUsage(response, model))
 
     if (error) {
       history.push({ request, response, messages: preMessages, toolCalls: [], results: [], error, provider: stamp })
@@ -203,8 +213,9 @@ export function isResumableHistory(history, { provider } = {}) {
 }
 
 // Per-attempt cost log, for every caller that drives a conversation. OpenRouter ships its own
-// per-request cost number; everyone else relies on the local price table. `?? 0` is the
-// unknown-model fallback so logging doesn't crash when calculateCost returns null.
+// per-request cost number, and ask() prices everyone else's per request from the local table, so
+// `usage.cost` is already the answer whenever it is set. `?? 0` is the unknown-model fallback so
+// logging doesn't crash when calculateCost returns null.
 //
 // `pass` (optional) names the caller in the line — `[debug] Post-process tokens for …` — so several
 // passes over the same `label` stay legible apart from each other and from the plain
