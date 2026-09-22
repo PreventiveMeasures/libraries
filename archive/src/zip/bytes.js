@@ -33,31 +33,38 @@ export function record(fields) {
 
 const through = (bytes, transform) => new Blob([bytes]).stream().pipeThrough(transform)
 
-export const deflate = async (bytes) => new Uint8Array(await new Response(through(bytes, new CompressionStream('deflate-raw'))).arrayBuffer())
+// Every chunk of a stream in one buffer: through async iteration where the
+// platform has it, and a Response where it does not.
+async function collect(stream) {
+  if (Array.fromAsync && stream.values) {
+    const chunks = await Array.fromAsync(stream)
+    return chunks.length === 1 ? chunks[0] : concat(chunks)
+  }
+  const blob = await new Response(stream).blob()
+  return blob.bytes ? blob.bytes() : new Uint8Array(await blob.arrayBuffer())
+}
+
+export const deflate = (bytes) => collect(through(bytes, new CompressionStream('deflate-raw')))
 
 // Output past the declared size is refused where it is, not after it has
-// all been made.
+// all been made: erroring the bound cancels the decompressor behind it.
 export async function inflate(bytes, size, at) {
-  const reader = through(bytes, new DecompressionStream('deflate-raw')).getReader()
-  const chunks = []
   let total = 0
+  const bounded = new TransformStream({
+    transform(chunk, controller) {
+      total += chunk.length
+      if (total > size) controller.error(new RangeError('over the declared size'))
+      else controller.enqueue(chunk)
+    },
+  })
+  let out
   try {
-    for (;;) {
-      const { value, done } = await reader.read()
-      if (done) break
-      total += value.length
-      if (total > size) {
-        await reader.cancel()
-        throw new ArchiveError('an entry inflates to more than its declared size', at)
-      }
-      chunks.push(value)
-    }
-  } catch (error) {
-    if (error instanceof ArchiveError) throw error
-    throw new ArchiveError('an entry does not inflate', at)
+    out = await collect(through(bytes, new DecompressionStream('deflate-raw')).pipeThrough(bounded))
+  } catch {
+    throw new ArchiveError(total > size ? 'an entry inflates to more than its declared size' : 'an entry does not inflate', at)
   }
-  if (total !== size) throw new ArchiveError('an entry inflates to less than its declared size', at)
-  return concat(chunks)
+  if (out.length !== size) throw new ArchiveError('an entry inflates to less than its declared size', at)
+  return out
 }
 
 // DOS time is two seconds and a year from 1980, in the maker's local time —
