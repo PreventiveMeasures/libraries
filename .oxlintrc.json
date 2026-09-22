@@ -79,9 +79,8 @@
       "files": [
         "ai/tests/**",
         "diff/tests/**",
-        "tar/tests/**",
-        "yaml/tests/**",
-        "zip/tests/**"
+        "archive/tests/**",
+        "yaml/tests/**"
       ],
       "rules": {
         "max-lines-per-function": "off",

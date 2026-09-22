@@ -17,6 +17,5 @@ minimumReleaseAgeExclude:
 packages:
   - "ai"
   - "diff"
-  - "tar"
+  - "archive"
   - "yaml"
-  - "zip"
