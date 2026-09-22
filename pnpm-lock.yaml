@@ -35,9 +35,9 @@ importers:
 
   vfs:
     devDependencies:
-      '@preventive/tar':
+      '@preventive/archive':
         specifier: workspace:*
-        version: link:../tar
+        version: link:../archive
 
   yaml: {}
 

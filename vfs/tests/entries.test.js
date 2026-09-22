@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { pack, unpack } from '@preventive/tar'
+import { pack, unpack } from '@preventive/archive/tar.js'
 import { Vfs, createVfs, vfsFromEntries } from '../vfs.js'
 
 const bytes = (text) => new TextEncoder().encode(text)
