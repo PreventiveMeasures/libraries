@@ -5,7 +5,9 @@
 // multi-line flow collections, tabs, duplicate keys and the `<<` merge key
 // are refused, as is any plain scalar the core schema would type by a rule
 // not implemented here (`~`, `TRUE`, `0x1F`, `.inf`, ...). Mappings come back
-// with a null prototype.
+// with a null prototype. A stream of documents, each after a `---` line, is
+// what pnpm 12 writes when the project pins its package manager: that
+// manager's own lockfile first, the project's second.
 
 import { YamlError } from './error.js'
 import { parseInline, readKey, setKey } from './scalar.js'
@@ -13,10 +15,33 @@ import { parseInline, readKey, setKey } from './scalar.js'
 const MAX_DEPTH = 64
 
 export function parseYaml(text) {
+  const docs = parseYamlStream(text)
+  if (docs.length !== 1) throw new YamlError(`expected a single document, found ${docs.length}`)
+  return docs[0]
+}
+
+export function parseYamlStream(text) {
   if (typeof text !== 'string') throw new TypeError('parseYaml expects a string')
   const doc = { lines: splitLines(text), at: 0 }
+  const docs = []
+  skipMarker(doc)
+  do docs.push(parseDocument(doc)); while (skipMarker(doc))
+  return docs
+}
+
+// Steps over a `---` line when one is next, and says whether it did.
+function skipMarker(doc) {
+  peek(doc)
+  const line = doc.lines[doc.at]
+  if (line === undefined || !isMarker(line)) return false
+  if (!/^--- *$/u.test(line.text)) throw new YamlError('content on the document marker line', line.number)
+  doc.at++
+  return true
+}
+
+function parseDocument(doc) {
   const first = peek(doc)
-  if (first === undefined) throw new YamlError('empty document')
+  if (first === undefined) throw new YamlError('empty document', doc.lines[doc.at]?.number)
   if (first.indent !== 0) throw new YamlError('the document does not start at column 0', first.number)
   const value = parseNode(doc, 0, 0)
   const rest = peek(doc)
@@ -38,21 +63,27 @@ function splitLines(text) {
   })
 }
 
+const isMarker = (line) => line.indent === 0 && /^---(?: |$)/u.test(line.text)
+
+// The next line of the document with something on it: blank and comment
+// lines are skipped, and a `---` line ends the document, for the stream
+// reader alone to step over.
 function peek(doc) {
   while (doc.at < doc.lines.length && /^(?:#|$)/u.test(doc.lines[doc.at].text)) doc.at++
-  return doc.lines[doc.at]
+  const line = doc.lines[doc.at]
+  return line !== undefined && isMarker(line) ? undefined : line
 }
 
 const isEntry = (line) => /^-(?: |$)/u.test(line.text)
 const isBlockScalar = (rest) => /^[|>]/u.test(rest)
-const MARKER = /^(?:---|\.\.\.)(?: |$)|^%/u
+const MARKER = /^\.\.\.(?: |$)|^%/u
 // The indicator, its spaces, and a comment when that is all that follows.
 const COMPACT = /^[-:] *(?:#.*)?/u
 
 function parseNode(doc, indent, depth) {
   const line = peek(doc)
   if (depth > MAX_DEPTH) throw new YamlError('nested too deep', line.number)
-  if (MARKER.test(line.text)) throw new YamlError('document markers and directives are not supported', line.number)
+  if (MARKER.test(line.text)) throw new YamlError('document end markers and directives are not supported', line.number)
   if (isEntry(line)) return parseSequence(doc, indent, depth)
   if (line.text.startsWith('? ') || readKey(line.text, line.number) !== null) return parseMapping(doc, indent, depth)
   doc.at++

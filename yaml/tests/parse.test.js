@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { YamlError, parseYaml } from '../index.js'
+import { YamlError, parseYaml, parseYamlStream } from '../index.js'
 
 // Mappings come back with a null prototype, which strict deepEqual holds
 // against a literal; structuredClone gives them Object.prototype back and
@@ -151,6 +151,15 @@ describe('the shapes pnpm writes', () => {
     assert.deepEqual(parse('a:\n  b: |-\n    x\n  c: 1\nd: 2\n'), { a: { b: 'x', c: 1 }, d: 2 })
   })
 
+  it('a stream of documents, each after a `---` line', () => {
+    assert.deepEqual(parse('---\na: 1\n'), { a: 1 })
+    assert.deepEqual(structuredClone(parseYamlStream('a: 1\n')), [{ a: 1 }])
+    assert.deepEqual(structuredClone(parseYamlStream('---\na: 1\n---\n- x\n')), [{ a: 1 }, ['x']])
+    assert.deepEqual(structuredClone(parseYamlStream('# c\n\na: 1\n\n# c\n---   \n\nb:\n  c: 2\n---\n{}\n')), [{ a: 1 }, { b: { c: 2 } }, {}])
+    assert.deepEqual(parse('a: |\n  ---\n  x\nb: ---x\n'), { a: '---\nx\n', b: '---x' })
+    assert.deepEqual(parse('a:\n  - ---\n'), { a: ['---'] })
+  })
+
   it('mappings have a null prototype, so special names are keys like any other', () => {
     const map = parseYaml('__proto__:\n  polluted: 1\nconstructor: 2\ntoString: 3\nhasOwnProperty: 4\n')
     assert.equal(Object.getPrototypeOf(map), null)
@@ -179,10 +188,20 @@ describe('what it refuses', () => {
     ['{a: 1}\n\n# c\n- b', /unexpected content after the document at line 4/u, 3],
     ['a: 1\n[b]', /expected a mapping key, found "\[b\]"/u, 1],
     ['  a: 1', /column 0/u, 0],
-    // Directives and document markers.
-    ['---\na: 1', /document markers and directives/u, 0],
-    ['%YAML 1.2\n---\na: 1', /document markers and directives/u, 0],
+    // Directives, end markers, and streams where a single document is wanted.
+    ['%YAML 1.2\n---\na: 1', /document end markers and directives/u, 0],
+    ['...\n', /document end markers and directives/u, 0],
     ['a: 1\n...', /expected a mapping key, found "\.\.\."/u, 1],
+    ['a: 1\n---\nb: 2\n', /^expected a single document, found 2$/u],
+    ['---\n', /^empty document$/u],
+    ['---\n---\na: 1\n', /^empty document at line 2$/u, 1],
+    ['a: 1\n---\n', /^empty document$/u],
+    ['a: 1\n---\n# only a comment\n', /^empty document$/u],
+    ['--- a: 1\n', /content on the document marker line/u, 0],
+    ['--- # c\na: 1\n', /content on the document marker line/u, 0],
+    ['---\n  a: 1\n', /column 0/u, 1],
+    ['a:\n---\n', /missing value at line 1/u, 0],
+    ['? a\n---\n', /expected ": " below the explicit key/u, 0],
     // Anchors, aliases, tags and merges: nothing beyond plain data.
     ['a: &x 1', /expected a scalar, found "&x 1"/u, 0],
     ['a: *x', /expected a scalar, found "\*x"/u, 0],

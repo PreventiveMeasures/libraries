@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
-import { parseYaml } from '../index.js'
+import { parseYaml, parseYamlStream } from '../index.js'
 
 // The baseline: real lockfiles, one per format pnpm has written — 5.4 (pnpm
 // 7), 6.0 (pnpm 8) and 9.0 (pnpm 10) — generated from one project that
@@ -74,6 +74,29 @@ describe('a v9 lockfile, spot-checked', () => {
     const q = lock.packages['q@1.5.1'].deprecated
     assert.match(q, /^You or someone you depend on is using Q, .* Be excellent to each other\.\n\n\(For a CapTP .*captp\)$/u)
     assert.equal(q.split('\n').length, 3)
+  })
+})
+
+// pnpm 12 with a pinned package manager writes a stream of two documents: the
+// package manager's own lockfile, then the project's. The reference is what
+// js-yaml's loadAll makes of it.
+describe('the two-document stream pnpm 12 writes', () => {
+  const docs = parseYamlStream(fixture('lockfile-v12.yaml'))
+
+  it('reads what js-yaml reads', () => {
+    assert.deepEqual(structuredClone(docs), JSON.parse(fixture('lockfile-v12.json')))
+  })
+
+  it('is the package manager first and the project second', () => {
+    assert.equal(docs.length, 2)
+    assert.deepEqual(structuredClone(docs[0].importers['.'].packageManagerDependencies), { pnpm: { specifier: '12.5.1', version: '12.5.1' } })
+    assert.ok('pnpm@12.5.1' in docs[0].packages)
+    assert.equal(docs[1].lockfileVersion, '9.0')
+    assert.deepEqual(Object.keys(docs[1].importers['.'].dependencies), ['is-odd', 'q'])
+  })
+
+  it('is not a single document', () => {
+    assert.throws(() => parseYaml(fixture('lockfile-v12.yaml')), { name: 'YamlError', message: 'expected a single document, found 2' })
   })
 })
 
