@@ -505,6 +505,9 @@ describe('long-context tier', () => {
   for (const [model, input, output] of [
     ['anthropic/claude-fable-5.1', 10, 50],
     ['anthropic/claude-fable-5', 10, 50],
+    // The row a review asked to price higher past 200k: Anthropic bills
+    // it at $4 / $20 across the whole window like the rest.
+    ['anthropic/claude-opus-5.5', 4, 20],
     ['anthropic/claude-opus-5', 5, 25],
     ['anthropic/claude-opus-4.8', 5, 25],
     ['anthropic/claude-opus-4.7', 5, 25],
