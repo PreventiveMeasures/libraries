@@ -19,6 +19,8 @@ export function parseYaml(text) {
   if (first === undefined) throw new YamlError('empty document')
   if (first.indent !== 0) throw new YamlError('the document does not start at column 0', first.number)
   const value = parseNode(doc, 0, 0)
+  const rest = peek(doc)
+  if (rest !== undefined) throw new YamlError('unexpected content after the document', rest.number)
   if (typeof value !== 'object' || value === null) throw new YamlError('the document is a lone scalar, not a mapping or a sequence')
   return value
 }

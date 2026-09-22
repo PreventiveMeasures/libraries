@@ -174,7 +174,10 @@ describe('what it refuses', () => {
     // A document that is not a mapping or a sequence, or does not start at the margin.
     ['just text', /lone scalar/u],
     ['42', /lone scalar/u],
-    ['a\nb', /lone scalar/u],
+    ['a\nb', /unexpected content after the document at line 2/u, 1],
+    ['[a]\nb: 1', /unexpected content after the document at line 2/u, 1],
+    ['{a: 1}\n\n# c\n- b', /unexpected content after the document at line 4/u, 3],
+    ['a: 1\n[b]', /expected a mapping key, found "\[b\]"/u, 1],
     ['  a: 1', /column 0/u, 0],
     // Directives and document markers.
     ['---\na: 1', /document markers and directives/u, 0],
