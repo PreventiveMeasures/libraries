@@ -104,6 +104,12 @@ describe('what it refuses', () => {
     ['a directory that ends in two slashes', () => archive(header({ typeflag: 0x35, name: utf8('d//') })), /has an empty segment/u],
     ['a symlink whose name ends in a slash', () => archive(header({ typeflag: 0x32, name: utf8('l/'), linkname: utf8('a') })), /"l\/" ends in a slash but is a symlink/u],
     ['a device without device numbers', () => archive(header({ typeflag: 0x33, name: utf8('c') })), /the devmajor field is not an octal number at byte 0/u],
+    ['a size below zero in base 256', () => archive(header({ gnu: true, size: -1 })), /the size field is negative at byte 0/u],
+    ['a uid below zero in base 256', () => archive(header({ gnu: true, uid: -1 })), /the uid field is negative at byte 0/u],
+    ['an owner name with a control character', () => archive(...pax([['uname', 'a\nb']])), /uname "a\\nb" holds a control character at byte 1024/u],
+    ['an owner name field with a control character', () => archive(header({ gname: utf8('a\tb') })), /gname "a\\tb" holds a control character/u],
+    ['a global header that sets a size', () => archive(...pax([['size', '1']], {}, 0x67)), /a global header sets size at byte 0/u],
+    ['a global header that sets a path', () => archive(...pax([['path', 'x']], {}, 0x67)), /a global header sets path/u],
   ]
   for (const [what, bytes, message] of refused) {
     it(`refuses ${what}`, () => assert.throws(() => unpack(bytes()), message))
@@ -131,6 +137,9 @@ describe('what it reads that GNU tar reads', () => {
     const [file, dir] = unpack(archive(header({ typeflag: 0 }), header({ name: utf8('d/') })))
     assert.equal(file.type, 'file')
     assert.deepEqual([dir.type, dir.name], ['directory', 'd'])
+  })
+  it('a time below zero in base 256', () => {
+    assert.equal(unpack(archive(header({ gnu: true, mtime: -1 })))[0].mtime, -1)
   })
   it('a mode with the file type bits still in it, as the permission bits', () => {
     assert.equal(unpack(archive(header({ mode: 0o100644 })))[0].mode, 0o644)

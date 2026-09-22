@@ -33,7 +33,7 @@ describe('numbers', () => {
     for (const [value, size] of [[0, 8], [1, 12], [2097151, 8], [2097152, 8], [8589934591, 12], [8589934592, 12], [Number.MAX_SAFE_INTEGER, 12], [-1, 12], [-(2 ** 40), 12], [3000000, 8]]) {
       const block = new Uint8Array(size)
       writeNumber(block, 0, size, value, true)
-      assert.equal(readNumber(block, 0, size, 'field', 0), value, `${value} in ${size}`)
+      assert.equal(readNumber(block, 0, size, 'field', 0, true), value, `${value} in ${size}`)
       if (!fitsOctal(value, size)) assert.equal(block[0], value < 0 ? 0xff : 0x80)
     }
   })
@@ -117,6 +117,10 @@ describe('a header', () => {
     assert.equal(device.devmajor, 1)
     assert.equal(device.devminor, 3)
     assert.throws(() => decodeHeader(encodeHeader(fields({ typeflag: 0x33 })), 0), /the devmajor field is not an octal number/u)
+  })
+  it('refuses a field longer than its room, rather than writing over the next', () => {
+    assert.throws(() => encodeHeader(fields({ name: utf8('n'.repeat(101)) })), RangeError)
+    assert.throws(() => encodeHeader(fields({ uname: utf8('u'.repeat(32)) })), RangeError)
   })
   it('takes a name that fills its field with no NUL', () => {
     const name = utf8('n'.repeat(100))

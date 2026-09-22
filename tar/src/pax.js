@@ -36,7 +36,7 @@ export function decodePax(bytes, at) {
     const equals = bytes.indexOf(0x3d, i + 1)
     if (equals === -1 || equals >= end - 1) throw new TarError('a pax record has no keyword=value', at)
     const keyword = text(bytes.subarray(i + 1, equals), at)
-    if (keyword === '' || hasUnsafe(keyword, false) || keyword.includes(' ') || keyword.includes('=')) throw new TarError(`pax keyword ${JSON.stringify(keyword)} is malformed`, at)
+    if (keyword === '' || hasUnsafe(keyword, false) || keyword.includes(' ')) throw new TarError(`pax keyword ${JSON.stringify(keyword)} is malformed`, at)
     if (records.has(keyword)) throw new TarError(`pax keyword ${keyword} repeats`, at)
     records.set(keyword, text(bytes.subarray(equals + 1, end - 1), at))
     pos = end

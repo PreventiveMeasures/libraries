@@ -6,8 +6,7 @@
 import { TarError } from './error.js'
 
 export const BLOCK = 512
-export const ZEROS = new Uint8Array(BLOCK)
-export const EMPTY = ZEROS.subarray(0, 0)
+export const EMPTY = new Uint8Array(0)
 
 export const NAME_SIZE = 100
 export const PREFIX_SIZE = 155
@@ -35,6 +34,8 @@ const GNU_MAGIC = 'ustar  \0'
 
 const latin1 = (text) => Uint8Array.from(text, (c) => c.codePointAt(0))
 const ascii = (raw) => String.fromCodePoint(...raw)
+// Throws (RangeError) rather than overwriting the next field.
+const put = (block, offset, size, bytes) => block.subarray(offset, offset + size).set(bytes)
 
 export const octalMax = (size) => 8 ** (size - 1) - 1
 export const fitsOctal = (value, size) => value >= 0 && value <= octalMax(size)
@@ -44,7 +45,7 @@ export const fitsOctal = (value, size) => value >= 0 && value <= octalMax(size)
 // complement, over the rest of the field.
 export function writeNumber(block, offset, size, value, gnu) {
   if (fitsOctal(value, size)) {
-    block.set(latin1(value.toString(8).padStart(size - 1, '0')), offset)
+    put(block, offset, size, latin1(value.toString(8).padStart(size - 1, '0')))
     return
   }
   if (!gnu) throw new TarError(`${value} does not fit an octal field of ${size - 1} digits`)
@@ -56,13 +57,15 @@ export function writeNumber(block, offset, size, value, gnu) {
   }
 }
 
-// Older tars wrote leading spaces, and either spaces or NULs after.
-export function readNumber(block, offset, size, what, at) {
+// Older tars wrote leading spaces, and either spaces or NULs after. Only a
+// time may be negative.
+export function readNumber(block, offset, size, what, at, signed = false) {
   const first = block[offset]
   if (first === 0x80 || first === 0xff) {
     let v = 0n
     for (let i = offset + 1; i < offset + size; i++) v = (v << 8n) | BigInt(block[i])
     if (first === 0xff) v = BigInt.asIntN((size - 1) * 8, v)
+    if (v < 0n && !signed) throw new TarError(`the ${what} field is negative`, at)
     if (v > BigInt(Number.MAX_SAFE_INTEGER) || v < -BigInt(Number.MAX_SAFE_INTEGER)) throw new TarError(`the ${what} field is too large`, at)
     return Number(v)
   }
@@ -93,22 +96,22 @@ export const isZeroBlock = (block) => block.every((byte) => byte === 0)
 // GNU leaves those fields NUL for everything else.
 export function encodeHeader(f) {
   const block = new Uint8Array(BLOCK)
-  block.set(f.name, NAME)
+  put(block, NAME, NAME_SIZE, f.name)
   writeNumber(block, MODE, 8, f.mode, f.gnu)
   writeNumber(block, UID, 8, f.uid, f.gnu)
   writeNumber(block, GID, 8, f.gid, f.gnu)
   writeNumber(block, SIZE, 12, f.size, f.gnu)
   writeNumber(block, MTIME, 12, f.mtime, f.gnu)
   block[TYPEFLAG] = f.typeflag
-  block.set(f.linkname, LINKNAME)
-  block.set(latin1(f.gnu ? GNU_MAGIC : USTAR_MAGIC), MAGIC)
-  block.set(f.uname, UNAME)
-  block.set(f.gname, GNAME)
+  put(block, LINKNAME, NAME_SIZE, f.linkname)
+  put(block, MAGIC, 8, latin1(f.gnu ? GNU_MAGIC : USTAR_MAGIC))
+  put(block, UNAME, OWNER_SIZE - 1, f.uname)
+  put(block, GNAME, OWNER_SIZE - 1, f.gname)
   if (f.devmajor !== null) writeNumber(block, DEVMAJOR, 8, f.devmajor, f.gnu)
   if (f.devminor !== null) writeNumber(block, DEVMINOR, 8, f.devminor, f.gnu)
-  block.set(f.prefix, PREFIX)
+  put(block, PREFIX, PREFIX_SIZE, f.prefix)
   // The one field written as digits, NUL, space.
-  block.set(latin1(`${checksum(block).toString(8).padStart(6, '0')}\0 `), CHKSUM)
+  put(block, CHKSUM, 8, latin1(`${checksum(block).toString(8).padStart(6, '0')}\0 `))
   return block
 }
 
@@ -132,7 +135,7 @@ export function decodeHeader(block, at) {
     uid: readNumber(block, UID, 8, 'uid', at),
     gid: readNumber(block, GID, 8, 'gid', at),
     size: readNumber(block, SIZE, 12, 'size', at),
-    mtime: readNumber(block, MTIME, 12, 'mtime', at),
+    mtime: readNumber(block, MTIME, 12, 'mtime', at, true),
     devmajor: device ? readNumber(block, DEVMAJOR, 8, 'devmajor', at) : 0,
     devminor: device ? readNumber(block, DEVMINOR, 8, 'devminor', at) : 0,
   }

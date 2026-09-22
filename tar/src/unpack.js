@@ -7,7 +7,7 @@
 import { utf8toString } from '@exodus/bytes/utf8.js'
 import { TarError } from './error.js'
 import { BLOCK, EMPTY, decodeHeader, isZeroBlock, untilNul } from './header.js'
-import { Names, admit } from './names.js'
+import { Names, admit, hasUnsafe } from './names.js'
 import { decodePax } from './pax.js'
 
 // NUL is the pre-POSIX regular file.
@@ -36,7 +36,7 @@ function paxNumber(value, what, at) {
 }
 
 // Whole seconds, a fraction floored as GNU does for a format without one.
-function paxTime(value, at) {
+function paxTime(value, what, at) {
   if (!/^-?[0-9]+(?:\.[0-9]+)?$/u.test(value)) throw new TarError(`pax mtime=${value} is not a time`, at)
   const seconds = Math.floor(Number(value))
   if (!Number.isSafeInteger(seconds)) throw new TarError(`pax mtime=${value} is out of range`, at)
@@ -154,6 +154,9 @@ class Unpacker {
       out.push(entry)
     } else if (extended === 'global') {
       this.#global = decodePax(raw, at)
+      for (const key of ['path', 'linkpath', 'size']) {
+        if (this.#global.has(key)) throw new TarError(`a global header sets ${key}`, at)
+      }
     } else {
       if (this.#pending[extended] !== null) throw new TarError(`two ${extended} headers ahead of one entry`, at)
       this.#pending[extended] = extended === 'pax' ? decodePax(raw, at) : text(untilNul(raw), `a ${extended} header`, at)
@@ -183,18 +186,22 @@ class Unpacker {
     } else if (name.endsWith('/')) {
       throw new TarError(`${quote(name)} ends in a slash but is a ${kind}`, at)
     }
-    const size = record('size') === undefined ? header.size : paxNumber(record('size'), 'size', at)
+    const number = (key, parse = paxNumber) => (record(key) === undefined ? header[key] : parse(record(key), key, at))
+    const size = number('size')
     if (size !== 0 && !isFile(kind)) throw new TarError(`a ${kind} entry has a size`, at)
     if (linkname !== '' && kind !== 'link' && kind !== 'symlink') throw new TarError(`a ${kind} entry has a link target`, at)
-    const number = (key) => (record(key) === undefined ? header[key] : paxNumber(record(key), key, at))
-    const owner = (key) => record(key) ?? text(header[key], key, at)
+    const owner = (key) => {
+      const value = record(key) ?? text(header[key], key, at)
+      if (hasUnsafe(value, false)) throw new TarError(`${key} ${quote(value)} holds a control character`, at)
+      return value
+    }
     const entry = {
       name,
       type: kind,
       mode: header.mode & 0o7777,
       uid: number('uid'),
       gid: number('gid'),
-      mtime: record('mtime') === undefined ? header.mtime : paxTime(record('mtime'), at),
+      mtime: number('mtime', paxTime),
       uname: owner('uname'),
       gname: owner('gname'),
       linkname,

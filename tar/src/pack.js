@@ -5,7 +5,7 @@
 
 import { utf8fromString } from '@exodus/bytes/utf8.js'
 import { TarError } from './error.js'
-import { BLOCK, EMPTY, NAME_SIZE, OWNER_SIZE, PREFIX_SIZE, ZEROS, concat, encodeHeader, fitsOctal, octalMax } from './header.js'
+import { BLOCK, EMPTY, NAME_SIZE, OWNER_SIZE, PREFIX_SIZE, concat, encodeHeader, fitsOctal, octalMax } from './header.js'
 import { Names, admit, hasUnsafe } from './names.js'
 import { encodePax } from './pax.js'
 
@@ -184,7 +184,7 @@ function encodeEntry(e, format) {
   chunks.push(encodeHeader(fields))
   const rest = e.data.length % BLOCK
   if (e.data.length) chunks.push(e.data)
-  if (rest) chunks.push(ZEROS.subarray(0, BLOCK - rest))
+  if (rest) chunks.push(new Uint8Array(BLOCK - rest))
   return chunks
 }
 
@@ -205,10 +205,9 @@ function packer({ format = 'gnu', blocking = 20 } = {}) {
     },
     // Two zero blocks, then zeros to a multiple of the record size.
     end() {
-      const chunks = emit([ZEROS, ZEROS])
-      const rest = total % (blocking * BLOCK)
-      if (rest) chunks.push(new Uint8Array(blocking * BLOCK - rest))
-      return chunks
+      const record = blocking * BLOCK
+      const rest = (total + 2 * BLOCK) % record
+      return [new Uint8Array(2 * BLOCK + (rest ? record - rest : 0))]
     },
   }
 }
