@@ -78,7 +78,8 @@
     {
       "files": [
         "ai/tests/**",
-        "diff/tests/**"
+        "diff/tests/**",
+        "tar/tests/**"
       ],
       "rules": {
         "max-lines-per-function": "off",
