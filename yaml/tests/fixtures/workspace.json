@@ -1,0 +1,42 @@
+{
+  "allowBuilds": {
+    "esbuild": false
+  },
+  "autoInstallPeers": false,
+  "enableGlobalVirtualStore": false,
+  "linkWorkspacePackages": true,
+  "lockfileIncludeTarballUrl": true,
+  "minimumReleaseAge": 1440,
+  "minimumReleaseAgeExclude": [
+    "@chalker/*",
+    "@preventive/*",
+    "@rray/*"
+  ],
+  "packages": [
+    "ai",
+    "diff",
+    "yaml"
+  ],
+  "catalog": {
+    "react": "^19.0.0",
+    "typescript": ">=5.0.0"
+  },
+  "supportedArchitectures": {
+    "os": [
+      "current",
+      "linux"
+    ],
+    "cpu": [
+      "x64",
+      "arm64"
+    ],
+    "libc": []
+  },
+  "packageExtensions": {
+    "react-redux@1": {
+      "peerDependencies": {
+        "react-dom": "*"
+      }
+    }
+  }
+}
