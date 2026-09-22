@@ -121,13 +121,19 @@ function readLocal(r, entry) {
   entry.dataAt = at + 30 + nameLength + extraLength
   let end = entry.dataAt + entry.csize
   if (described) {
-    if (r.u32(end) === DESCRIPTOR) end += 4
-    if (r.u32(end) !== entry.crc || r.u32(end + 4) !== entry.csize || r.u32(end + 8) !== entry.usize) throw new ArchiveError('the data descriptor disagrees with the central directory', end)
-    end += 12
+    // The descriptor may start with its signature or not, and a CRC can be
+    // that very value, so both layouts are tried against the record.
+    const matches = (from) => r.u32(from) === entry.crc && r.u32(from + 4) === entry.csize && r.u32(from + 8) === entry.usize
+    if (matches(end)) end += 12
+    else if (r.u32(end) === DESCRIPTOR && matches(end + 4)) end += 16
+    else throw new ArchiveError('the data descriptor disagrees with the central directory', end)
   }
   return end
 }
 
+// A directory marker anywhere — the Unix type bits, the DOS bit — needs
+// the slash; the slash needs no marker, since Java writes no attributes at
+// all and every JAR has directories.
 function typeOf(entry, rawName, mode) {
   const format = mode & TYPE_MASK
   if (rawName.endsWith('/')) {

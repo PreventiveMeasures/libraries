@@ -86,6 +86,20 @@ describe('what it reads', () => {
       assert.equal(e.data.length, 3000)
     }
   })
+  it('a data descriptor whose CRC is the signature itself, with or without the signature ahead of it', async () => {
+    // 'sig ' and four bytes chosen so the CRC-32 comes out as 0x08074b50.
+    const data = Uint8Array.from([...utf8('sig '), 0xc5, 0xf7, 0x60, 0xdb])
+    assert.equal(crc32(data), 0x08074b50)
+    for (const signed of [false, true]) {
+      const descriptor = concat([signed ? record([[4, 0x08074b50]]) : new Uint8Array(0), record([[4, 0x08074b50], [4, data.length], [4, data.length]])])
+      const [e] = await unzip(archive([entry('a', data, { flags: 8, localCrc: 0, localCsize: 0, localUsize: 0, descriptor })]))
+      assert.deepEqual(e.data, data)
+    }
+  })
+  it('a directory by its name alone, as Java writes one with no attributes at all', async () => {
+    const [d] = await unzip(archive([entry('d/', new Uint8Array(0), { madeBy: 20, attributes: 0 })]))
+    assert.deepEqual([d.name, d.type, d.mode], ['d', 'directory', 0o755])
+  })
   it('a directory deflated to nothing, as Java writes one', async () => {
     const body = await deflate(new Uint8Array(0))
     const [d] = await unzip(archive([entry('d/', new Uint8Array(0), { body, method: 8, attributes: 0o40755 * 0x10000 + 0x10 })]))
