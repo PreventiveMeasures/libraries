@@ -36,14 +36,15 @@ function unescape(raw, src) {
       return ESCAPE[c]
     }
     const code = Number.parseInt(x ?? u ?? U, 16)
-    if (code > 0x10FFFF) throw new YamlError(`\\U${U} is beyond Unicode`, src.line)
+    if (code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF)) throw new YamlError(`${_} is not a Unicode scalar value`, src.line)
     return String.fromCodePoint(code)
   })
 }
 
 // Only the spellings JS itself prints are typed. Everything else the core
 // schema would type (`~`, `TRUE`, `0x1F`, `1_000`, `.5`, `1.`, `+1`, `01`,
-// `.inf`, ...) is refused rather than silently read as a string.
+// `.inf`, ...) is refused rather than silently read as a string, and so is
+// a number beyond 2^53, where an integer has already lost digits.
 const KNOWN = { __proto__: null, true: true, false: false, null: null }
 const NUMBER = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[Ee][+-]?\d+)?$/u
 const TYPED = /^(?:~|null|true|false|\.nan|[+-]?(?:\.inf|0[box][\d_a-f]+|(?:\d[\d_]*(?:\.[\d_]*)?|\.[\d_]+)(?:e[+-]?\d+)?))$/iu
@@ -52,7 +53,7 @@ function resolve(text, src) {
   if (text in KNOWN) return KNOWN[text]
   if (NUMBER.test(text)) {
     const number = Number(text)
-    if (!Number.isFinite(number)) throw new YamlError(`number out of range ${text}`, src.line)
+    if (Math.abs(number) > Number.MAX_SAFE_INTEGER) throw new YamlError(`number out of range ${text}`, src.line)
     return number
   }
   if (TYPED.test(text)) throw new YamlError(`ambiguous scalar ${text}, quote it`, src.line)
@@ -76,8 +77,11 @@ function readScalar(src, context) {
   return value
 }
 
+// `<<` is refused because to YAML 1.1 readers, js-yaml among them, it merges
+// another mapping in rather than naming a key.
 export function setKey(map, key, value, line) {
   if (typeof key !== 'string') throw new YamlError('keys must be strings', line)
+  if (key === '<<') throw new YamlError('merge keys are not supported', line)
   if (key in map) throw new YamlError(`duplicate key ${JSON.stringify(key)}`, line)
   map[key] = value
 }

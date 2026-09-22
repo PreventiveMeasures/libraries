@@ -100,7 +100,7 @@ describe('the shapes pnpm writes', () => {
 
   it('the types the core schema gives a plain scalar, in the spellings JS prints', () => {
     assert.deepEqual(parse('a: true\nb: false\nc: null\n'), { a: true, b: false, c: null })
-    assert.deepEqual(parse('a: 0\nb: -1\nc: 1.5\nd: 1e3\ne: 1E-2\nf: -0.5\ng: 5.4\nh: 12345678901234567890\n'), { a: 0, b: -1, c: 1.5, d: 1000, e: 0.01, f: -0.5, g: 5.4, h: 12345678901234567000 })
+    assert.deepEqual(parse('a: 0\nb: -1\nc: 1.5\nd: 1e3\ne: 1E-2\nf: -0.5\ng: 5.4\nh: 9007199254740991\n'), { a: 0, b: -1, c: 1.5, d: 1000, e: 0.01, f: -0.5, g: 5.4, h: 9007199254740991 })
     assert.deepEqual(parse("a: 'true'\nb: \"1\"\nc: 18.2.0\nd: 1.0.1\ne: 1e5x\nf: Infinity\ng: NaN\nh: yes\ni: no\nj: on\nk: off\n"), { a: 'true', b: '1', c: '18.2.0', d: '1.0.1', e: '1e5x', f: 'Infinity', g: 'NaN', h: 'yes', i: 'no', j: 'on', k: 'off' })
   })
 
@@ -248,6 +248,12 @@ describe('what it refuses', () => {
     ['a: [~]', /ambiguous scalar ~/u, 0],
     ['a: 1e999', /number out of range 1e999/u, 0],
     ['a: -1e999', /number out of range -1e999/u, 0],
+    ['a: 12345678901234567890', /number out of range 12345678901234567890/u, 0],
+    ['a: -9007199254740992', /number out of range/u, 0],
+    // The merge key means a merge to js-yaml and a key to YAML 1.2: neither is read.
+    ['<<: {a: 1}', /merge keys are not supported/u, 0],
+    ['a: {<<: b}', /merge keys are not supported/u, 0],
+    ["'<<': 1", /merge keys are not supported/u, 0],
     // Control characters, tabs and byte order marks, wherever they are.
     ['a:\n\tb: 1', /control character/u, 1],
     ['a: b\tc', /control character/u, 0],
@@ -263,7 +269,8 @@ describe('what it refuses', () => {
     ["a: 'x'y", /unexpected "y" after the value/u, 0],
     ['a: "x" y', /unexpected " y" after the value/u, 0],
     ['a: "bad \\q"', /unknown escape \\q/u, 0],
-    ['a: "\\U00110000"', /\\U00110000 is beyond Unicode/u, 0],
+    ['a: "\\U00110000"', /\\U00110000 is not a Unicode scalar value/u, 0],
+    ['a: "\\uD83D\\uDE00"', /\\uD83D is not a Unicode scalar value/u, 0],
     ['a: "\\x4"', /unknown escape \\x/u, 0],
     ['a: "x\\"', /expected a scalar/u, 0],
   ]

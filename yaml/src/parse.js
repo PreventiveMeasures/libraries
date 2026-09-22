@@ -2,10 +2,10 @@
 // flow mappings and sequences, plain and quoted scalars, `|` block scalars,
 // and js-yaml's `? key` form for keys over 1024 characters. Anchors, aliases,
 // tags, directives, document markers, `>` folded scalars, nested or
-// multi-line flow collections, tabs and duplicate keys are refused, as is any
-// plain scalar the core schema would type by a rule not implemented here
-// (`~`, `TRUE`, `0x1F`, `.inf`, ...). Mappings come back with a null
-// prototype.
+// multi-line flow collections, tabs, duplicate keys and the `<<` merge key
+// are refused, as is any plain scalar the core schema would type by a rule
+// not implemented here (`~`, `TRUE`, `0x1F`, `.inf`, ...). Mappings come back
+// with a null prototype.
 
 import { YamlError } from './error.js'
 import { parseInline, readKey, setKey } from './scalar.js'
