@@ -136,6 +136,14 @@ describe('what it reads', () => {
     const entries = await unzip(archive([entry('./d/f', utf8('x')), entry('d/./f', utf8('x'))]))
     assert.deepEqual(entries.map((e) => e.name), ['d/f', 'd/f'])
   })
+  it('entries up to the limit, stored, deflated and symlink targets alike', async () => {
+    const data = new Uint8Array(3000).fill(0x62)
+    const body = await deflate(data)
+    const bytes = archive([entry('a', utf8('x')), entry('b', data, { body, method: 8 }), entry('l', utf8('a'), { attributes: 0o120777 * 0x10000 })])
+    for (const limit of [3002, Infinity, undefined]) assert.equal((await unzip(bytes, { limit })).length, 3)
+    assert.equal((await unzip(archive([entry('d/', new Uint8Array(0), { attributes: 0o40755 * 0x10000 })]), { limit: 0 })).length, 1)
+    assert.deepEqual(await unzip(archive([]), { limit: 0 }), [])
+  })
   it('stored data as a view over the archive', async () => {
     const bytes = archive([entry('a', utf8('x'))])
     assert.equal((await unzip(bytes))[0].data.buffer, bytes.buffer)
@@ -211,6 +219,28 @@ describe('what it refuses', () => {
     await assert.rejects(unzip(archive([entry('a', data, { body: body.map((b) => b ^ 0xff), method: 8 })])), /an entry does not inflate/u)
     await assert.rejects(unzip(archive([entry('a', data, { body, method: 8, usize: 2999, localUsize: 2999 })])), /an entry inflates to more than its declared size/u)
     await assert.rejects(unzip(archive([entry('a', data, { body, method: 8, usize: 3001, localUsize: 3001 })])), /an entry inflates to less than its declared size/u)
+  })
+  it('refuses entries that come to more than the limit, at the central record that crosses it', async () => {
+    const data = new Uint8Array(3000).fill(0x62)
+    const body = await deflate(data)
+    const bytes = archive([entry('a', utf8('x')), entry('b', data, { body, method: 8 }), entry('l', utf8('a'), { attributes: 0o120777 * 0x10000 })])
+    // Three local records, then the first central record of 47 bytes.
+    const second = 32 + 31 + body.length + 32 + 47
+    await assert.rejects(unzip(bytes, { limit: 3001 }), (error) => error instanceof ArchiveError && error.message === `the entries come to more than 3001 bytes at byte ${second + 47}`)
+    await assert.rejects(unzip(bytes, { limit: 3000 }), (error) => error instanceof ArchiveError && error.offset === second)
+    await assert.rejects(unzip(bytes, { limit: 0 }), /the entries come to more than 0 bytes/u)
+  })
+  it('refuses past the limit before inflating anything', async () => {
+    // A few bytes that declare 4 GiB and would not inflate at all: the
+    // declared size is refused, and nothing gets as far as the data.
+    const bomb = entry('a', utf8('x'), { body: Uint8Array.from([0xff, 0xff]), method: 8, usize: 0xfffffffe, localUsize: 0xfffffffe })
+    await assert.rejects(unzip(archive([bomb]), { limit: 1 << 30 }), /the entries come to more than 1073741824 bytes/u)
+    await assert.rejects(unzip(archive([bomb])), /an entry does not inflate/u)
+  })
+  it('refuses a limit that is not a whole number of bytes', async () => {
+    for (const limit of [Number.NaN, -1, 1.5, -Infinity, '10', null, 10n]) {
+      await assert.rejects(unzip(archive([]), { limit }), /^ArchiveError: limit .+ is not a whole number of bytes$/u)
+    }
   })
   it('throws ArchiveError with the offset', async () => {
     // The offset of the second entry's central record: two local entries

@@ -44,6 +44,15 @@ export interface ZipOptions {
   method?: 'deflate' | 'store'
 }
 
+// `limit` bounds the entries' sizes, all of them together, in bytes —
+// stored and deflated alike, a symlink's target included. Each entry has to
+// come out at exactly the size it declares, so the sum is checked against
+// the central directory before anything is inflated, and past the limit
+// the call rejects. No limit by default.
+export interface UnzipOptions {
+  limit?: number
+}
+
 // Both refuse a name that repeats as a different entry — anything but the
 // same fields and the same bytes again — an entry inside something that is
 // not a directory, and a symlink whose target climbs out of the archive
@@ -51,7 +60,7 @@ export interface ZipOptions {
 // takes or makes zip64, so an archive holds at most 65534 entries and
 // stays under 4 GiB.
 export function zip(entries: Iterable<EntryInput>, options?: ZipOptions): Promise<Uint8Array>
-export function unzip(bytes: Uint8Array): Promise<Entry[]>
+export function unzip(bytes: Uint8Array, options?: UnzipOptions): Promise<Entry[]>
 
 // `offset` is where in the archive the reader gave up; unset from the writer.
 export class ArchiveError extends Error {
