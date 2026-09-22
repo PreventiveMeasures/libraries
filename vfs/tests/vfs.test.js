@@ -48,8 +48,12 @@ describe('files', () => {
     assert.equal(fs.stat('/a').mtime, 99)
     assert.throws(() => fs.chmod('/a', 0o10000), RangeError)
     assert.throws(() => fs.chmod('/a', -1), RangeError)
+    assert.throws(() => fs.chmod('/a'), RangeError)
     assert.throws(() => fs.utimes('/a', 1.5), RangeError)
+    assert.throws(() => fs.utimes('/a'), RangeError)
     assert.throws(() => fs.writeFile('/b', 'x', { mode: '644' }), RangeError)
+    assert.throws(() => fs.mkdir('/b', { mtime: 'now' }), RangeError)
+    assert.equal(fs.stat('/a').mode, 0o755, 'nothing changed under a refused call')
   })
 
   it('are appended to, and made by an append', () => {
@@ -61,11 +65,26 @@ describe('files', () => {
     fails(() => fs.appendFile('/d', 'x'), 'EISDIR')
   })
 
+  it('grow by appends in linear time, and leave bytes handed out earlier as they were', () => {
+    const fs = new Vfs()
+    fs.writeFile('/log', 'first\n')
+    const early = fs.readFile('/log')
+    const started = performance.now()
+    for (let i = 0; i < 100000; i++) fs.appendFile('/log', 'line\n')
+    assert.ok(performance.now() - started < 2000, 'a hundred thousand appends')
+    assert.equal(fs.stat('/log').size, 6 + 5 * 100000)
+    assert.equal(fs.readText('/log').slice(0, 16), 'first\nline\nline\n')
+    assert.deepEqual(early, new TextEncoder().encode('first\n'))
+    fs.appendFile('/log', fs.readFile('/log').subarray(0, 6))
+    assert.equal(fs.readText('/log').slice(-6), 'first\n')
+  })
+
   it('refuse text with no UTF-8, and bytes that spell no text when read as text', () => {
     const fs = new Vfs()
     fails(() => fs.writeFile('/a', 'lone \uD800 surrogate'), 'EILSEQ', '/a')
     fs.writeFile('/b', new Uint8Array([0x61, 0xFF]))
     fails(() => fs.readText('/b'), 'EILSEQ', '/b')
+    assert.throws(() => fs.readText(42), TypeError, 'a wrong type is not a decoding failure')
     assert.throws(() => fs.writeFile('/c', 42), TypeError)
     assert.throws(() => fs.writeFile('/c', null), TypeError)
     assert.throws(() => fs.writeFile('/c', new Uint16Array([1])), TypeError)
@@ -112,6 +131,20 @@ describe('directories', () => {
     fails(() => fs.mkdir('/f/g', { recursive: true }), 'ENOTDIR')
     fs.mkdir('/t/')
     assert.equal(fs.stat('/t').type, 'directory')
+    assert.throws(() => fs.mkdir(7), TypeError)
+  })
+
+  it('are not made over a link, which mkdir(2) never follows', () => {
+    const fs = createVfs({ 'd/f': 'x', todir: { type: 'symlink', target: 'd' }, dangling: { type: 'symlink', target: 'gone' } })
+    fails(() => fs.mkdir('/dangling'), 'EEXIST')
+    fails(() => fs.mkdir('/dangling', { recursive: true }), 'EEXIST')
+    assert.equal(fs.isDirectory('/gone'), false, 'nothing was made where the link leads')
+    fails(() => fs.mkdir('/todir'), 'EEXIST')
+    fails(() => fs.mkdir('/todir/'), 'EEXIST')
+    fs.mkdir('/todir', { recursive: true })
+    fs.mkdir('/todir/', { recursive: true })
+    fs.mkdir('/todir/new')
+    assert.equal(fs.isDirectory('/d/new'), true, 'a link on the way is followed')
   })
 
   it('list their names in code point order', () => {
@@ -278,6 +311,7 @@ describe('resolution', () => {
     fails(() => fs.stat(''), 'ENOENT', '')
     fails(() => fs.stat('a\0b'), 'EINVAL')
     assert.throws(() => fs.stat(null), TypeError)
+    assert.throws(() => fs.lstat(null), TypeError)
     assert.throws(() => fs.isFile(undefined), TypeError, 'a wrong type is not a missing file')
     assert.equal(fs.isFile('/nope'), false)
     assert.equal(fs.isDirectory('/nope'), false)

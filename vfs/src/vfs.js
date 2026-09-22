@@ -10,12 +10,16 @@
 // stored as a copy of what was written: hold them, do not write into them.
 
 import { VfsError } from './error.js'
-import { compareNames, join } from './path.js'
+import { basename, compareNames, join } from './path.js'
 
 const LINK_LIMIT = 40
 const NONE = new Uint8Array()
 const encoder = new TextEncoder()
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
+
+// A trailing slash asks for the directory a link leads to, even of a call
+// that would otherwise stop at the link.
+const slashed = (path) => typeof path === 'string' && path.endsWith('/')
 
 export class Vfs {
   #root
@@ -25,9 +29,9 @@ export class Vfs {
     this.#root = this.#directory()
   }
 
-  #file(bytes, mode = 0o644, mtime = 0) { return { ino: ++this.#inodes, type: 'file', mode, mtime, bytes } }
-  #directory(mode = 0o755, mtime = 0) { return { ino: ++this.#inodes, type: 'directory', mode, mtime, entries: new Map() } }
-  #symlink(target, mtime = 0) { return { ino: ++this.#inodes, type: 'symlink', mode: 0o777, mtime, target } }
+  #file(bytes, mode, mtime) { return { ino: ++this.#inodes, type: 'file', ...meta(mode, mtime, 0o644), bytes } }
+  #directory(mode, mtime) { return { ino: ++this.#inodes, type: 'directory', ...meta(mode, mtime, 0o755), entries: new Map() } }
+  #symlink(target, mtime) { return { ino: ++this.#inodes, type: 'symlink', ...meta(undefined, mtime, 0o777), target } }
 
   // Where `path` leads: `dir`, the directory its last name is in; `name`; and
   // `node`, the inode there — undefined when the name is not taken, so a
@@ -91,8 +95,7 @@ export class Vfs {
   }
 
   stat(path) { return statOf(this.#node(path, true)) }
-  // The name itself, unless a trailing slash asks for the directory behind it.
-  lstat(path) { return statOf(this.#node(path, path.endsWith('/'))) }
+  lstat(path) { return statOf(this.#node(path, slashed(path))) }
   isFile(path) { return this.#is(path, 'file', true) }
   isDirectory(path) { return this.#is(path, 'directory', true) }
   isSymlink(path) { return this.#is(path, 'symlink', false) }
@@ -110,10 +113,8 @@ export class Vfs {
   }
 
   readText(path) {
-    try { return decoder.decode(this.readFile(path)) } catch (error) {
-      if (error instanceof TypeError) throw new VfsError('EILSEQ', path)
-      throw error
-    }
+    const bytes = this.readFile(path)
+    try { return decoder.decode(bytes) } catch { throw new VfsError('EILSEQ', path) }
   }
 
   readlink(path) {
@@ -128,33 +129,42 @@ export class Vfs {
     return [...node.entries.keys()].sort(compareNames)
   }
 
-  // Creates the file or truncates it; through a link, the file the link names.
-  writeFile(path, data, { mode, mtime } = {}) {
-    const bytes = encode(data, path)
+  // Where a write lands: through a link, the file the link names.
+  #fileAt(path) {
     const found = this.#locate(path)
     if (found.trailing || found.node?.type === 'directory') throw new VfsError('EISDIR', path)
-    if (found.node === undefined) found.dir.entries.set(found.name, this.#file(bytes, checkMode(mode), checkTime(mtime)))
-    else setFile(found.node, bytes, mode, mtime)
+    return found
+  }
+
+  // Creates the file or truncates it; the inode stays, so a hard link sees it.
+  writeFile(path, data, { mode, mtime } = {}) {
+    const bytes = encode(data, path)
+    const found = this.#fileAt(path)
+    if (found.node === undefined) { found.dir.entries.set(found.name, this.#file(bytes, mode, mtime)); return }
+    found.node.bytes = bytes
+    if (mode !== undefined) found.node.mode = checkMode(mode)
+    if (mtime !== undefined) found.node.mtime = checkTime(mtime)
   }
 
   appendFile(path, data) {
     const bytes = encode(data, path)
-    const found = this.#locate(path)
-    if (found.trailing || found.node?.type === 'directory') throw new VfsError('EISDIR', path)
+    const found = this.#fileAt(path)
     if (found.node === undefined) found.dir.entries.set(found.name, this.#file(bytes))
-    else found.node.bytes = concat(found.node.bytes, bytes)
+    else found.node.bytes = append(found.node.bytes, bytes)
   }
 
+  // mkdir(2) never follows the last link, so a link there is a name taken;
+  // `recursive` is content with what a link leads to being a directory.
   mkdir(path, { recursive = false, mode, mtime } = {}) {
-    const found = this.#locate(path, { mkdirs: recursive })
-    if (found.node === undefined) found.dir.entries.set(found.name, this.#directory(checkMode(mode), checkTime(mtime)))
-    else if (!recursive || found.node.type !== 'directory') throw new VfsError('EEXIST', path)
+    const found = this.#locate(path, { follow: slashed(path), mkdirs: recursive })
+    if (found.node === undefined) found.dir.entries.set(found.name, this.#directory(mode, mtime))
+    else if (!recursive || !this.isDirectory(path)) throw new VfsError('EEXIST', path)
   }
 
   symlink(target, path, { mtime } = {}) {
     if (typeof target !== 'string' || target === '' || target.includes('\0')) throw new VfsError('EINVAL', path)
     const found = this.#newName(path)
-    found.dir.entries.set(found.name, this.#symlink(target, checkTime(mtime)))
+    found.dir.entries.set(found.name, this.#symlink(target, mtime))
   }
 
   // A hard link: the same inode under a second name.
@@ -169,6 +179,13 @@ export class Vfs {
     const found = this.#locate(path, { follow: false })
     if (found.node !== undefined) throw new VfsError('EEXIST', path)
     if (found.trailing) throw new VfsError('ENOENT', path)
+    return found
+  }
+
+  // The name itself, never what a link there leads to.
+  #taken(path) {
+    const found = this.#locate(path, { follow: false })
+    if (found.node === undefined) throw new VfsError('ENOENT', path)
     return found
   }
 
@@ -194,13 +211,6 @@ export class Vfs {
       if (found.dir === undefined) throw new VfsError('EBUSY', path)
     }
     found.dir.entries.delete(found.name)
-  }
-
-  // The name itself, never what a link there leads to.
-  #taken(path) {
-    const found = this.#locate(path, { follow: false })
-    if (found.node === undefined) throw new VfsError('ENOENT', path)
-    return found
   }
 
   // rename(2): the name moves, replacing a file with a file or an empty
@@ -249,11 +259,10 @@ export class Vfs {
   // The tree as tar entries: names relative to `path` (`.` for it), a file
   // seen under a second name as a hard link to the first.
   *entries(path = '/') {
+    const base = this.realpath(path)
     const named = new Map()
-    let base
-    for (const { path: at, node } of this.#walk(path)) {
-      base ??= at
-      const name = at === base ? (node.type === 'directory' ? '.' : at.slice(at.lastIndexOf('/') + 1)) : at.slice(base === '/' ? 1 : base.length + 1)
+    for (const { path: at, node } of this.#walk(base)) {
+      const name = at === base ? (node.type === 'directory' ? '.' : basename(at)) : at.slice(base === '/' ? 1 : base.length + 1)
       const entry = { name, type: node.type, mode: node.mode, mtime: node.mtime, linkname: '', data: NONE }
       if (node.type === 'symlink') entry.linkname = node.target
       else if (node.type === 'file') {
@@ -275,20 +284,18 @@ const statOf = (node) => ({
   size: node.type === 'file' ? node.bytes.length : node.type === 'symlink' ? encoder.encode(node.target).length : 0,
 })
 
-function setFile(node, bytes, mode, mtime) {
-  node.bytes = bytes
-  if (mode !== undefined) node.mode = checkMode(mode)
-  if (mtime !== undefined) node.mtime = checkTime(mtime)
-}
+// Metadata for a new inode: what was given, checked, or the default.
+const meta = (mode, mtime, defaultMode) => ({
+  mode: mode === undefined ? defaultMode : checkMode(mode),
+  mtime: mtime === undefined ? 0 : checkTime(mtime),
+})
 
 function checkMode(mode) {
-  if (mode === undefined) return undefined
   if (!Number.isInteger(mode) || mode < 0 || mode > 0o7777) throw new RangeError(`a mode must be an integer from 0 to 0o7777, not ${mode}`)
   return mode
 }
 
 function checkTime(mtime) {
-  if (mtime === undefined) return undefined
   if (!Number.isSafeInteger(mtime)) throw new RangeError(`an mtime must be an integer of whole seconds, not ${mtime}`)
   return mtime
 }
@@ -303,9 +310,18 @@ function encode(data, path) {
   throw new TypeError(`file contents must be a string or a Uint8Array, not ${data === null ? 'null' : typeof data}`)
 }
 
-function concat(a, b) {
-  const out = new Uint8Array(a.length + b.length)
-  out.set(a)
-  out.set(b, a.length)
-  return out
+// Appends in amortized linear time: a file that grows gets a buffer with
+// room to spare and a view over the part in use. A view handed out earlier
+// covers only its own length, which an append past its end leaves as it was.
+function append(current, more) {
+  const length = current.length + more.length
+  let bytes
+  if (current.byteOffset + length <= current.buffer.byteLength) {
+    bytes = new Uint8Array(current.buffer, current.byteOffset, length)
+  } else {
+    bytes = new Uint8Array(new ArrayBuffer(Math.max(length, current.length * 2)), 0, length)
+    bytes.set(current)
+  }
+  bytes.set(more, current.length)
+  return bytes
 }

@@ -48,6 +48,7 @@ describe('createVfs reads a flat map of paths', () => {
     assert.throws(() => createVfs({ 'a': ['x'] }), TypeError)
     assert.throws(() => createVfs(null), TypeError)
     assert.throws(() => createVfs('a'), TypeError)
+    assert.throws(() => createVfs([{ name: 'a', data: 'x' }]), TypeError, 'entries go to vfsFromEntries')
   })
 })
 

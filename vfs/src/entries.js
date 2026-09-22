@@ -7,7 +7,9 @@ import { dirname, normalize } from './path.js'
 import { Vfs } from './vfs.js'
 
 export function createVfs(sources = {}) {
-  if (sources === null || typeof sources !== 'object') throw new TypeError('sources must be an object or a Map of paths to contents')
+  if (sources === null || typeof sources !== 'object' || Array.isArray(sources)) {
+    throw new TypeError('sources must be an object or a Map of paths to contents; a list of entries goes to vfsFromEntries')
+  }
   return vfsFromEntries(sourceEntries(sources instanceof Map ? sources : Object.entries(sources)))
 }
 

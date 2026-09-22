@@ -15,7 +15,7 @@ const STRERROR = {
 // `code` is the POSIX errno name; the message is the line a shell prints.
 export class VfsError extends Error {
   constructor(code, path) {
-    super(`${path}: ${STRERROR[code]}`)
+    super(`${path}: ${STRERROR[code] ?? code}`)
     this.name = 'VfsError'
     this.code = code
     this.path = path
