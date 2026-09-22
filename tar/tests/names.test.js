@@ -45,6 +45,10 @@ describe('a name is a clean relative path', () => {
       if (name !== 'a/') assert.throws(() => cleanPath(name, 'name', true), message)
     })
   }
+  it('refuses a lone surrogate before measuring anything', () => {
+    assert.throws(() => cleanPath('a\uD800', 'name'), /name is not well-formed Unicode/u)
+    assert.throws(() => checkSymlinkTarget('l', '\uDC00'), /symlink target of "l" is not well-formed Unicode/u)
+  })
   it('refuses C1 controls as it does C0 ones', () => {
     assert.throws(() => cleanPath('a\u0085b', 'name'), /control character/u)
     assert.throws(() => cleanPath('a\u009Bb', 'name'), /control character/u)

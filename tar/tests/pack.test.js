@@ -38,7 +38,8 @@ describe('what it refuses about an entry', () => {
     [{ name: 'a', uname: 'a\nb' }, /uname "a\\nb" holds a control character/u],
     [{ name: 'a', gname: 7 }, /gname is not a string/u],
     [{ name: 'a\uD800' }, /entry name is not well-formed Unicode/u],
-    [{ name: 'l', type: 'symlink', linkname: 'x\uDC00' }, /link target of "l" is not well-formed Unicode/u],
+    [{ name: 'l', type: 'symlink', linkname: 'x\uDC00' }, /symlink target of "l" is not well-formed Unicode/u],
+    [{ name: 'h\uDBFF' }, /entry name is not well-formed Unicode/u],
   ]
   for (const [entry, message] of refused) {
     it(`refuses ${JSON.stringify(entry)}`, () => assert.throws(() => pack([entry]), message))

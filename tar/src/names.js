@@ -19,8 +19,11 @@ import { hasUnsafe, quote, utf8Length } from './text.js'
 const PATH_MAX = 4096
 const NAME_MAX = 255
 
+// Well-formed first: a lone surrogate has no UTF-8, and so no length or
+// bytes for the checks below to look at.
 function checkText(path, what) {
   if (typeof path !== 'string') throw new TarError(`${what} is not a string`)
+  if (!path.isWellFormed()) throw new TarError(`${what} is not well-formed Unicode`)
   if (path === '') throw new TarError(`${what} is empty`)
   if (hasUnsafe(path, true)) throw new TarError(`${what} ${quote(path)} holds a control character or a backslash`)
   if (path.startsWith('/')) throw new TarError(`${what} ${quote(path)} is absolute`)
