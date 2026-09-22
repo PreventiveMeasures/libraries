@@ -8,14 +8,11 @@
 // encryption, any method but stored and deflate, several disks — is refused.
 
 import { crc32 } from '@exodus/bytes/crc.js'
-import { fromDos, inflate, view } from './bytes.js'
+import { CENTRAL, DEFAULT_MODE, EMPTY, END, LOCAL, TYPE_BITS, TYPE_MASK, fromDos, inflate, view } from './bytes.js'
 import { ArchiveError } from '../error.js'
 import { Names, cleanNames } from '../names.js'
 import { decodeUtf8, quote } from '../text.js'
 
-const LOCAL = 0x04034b50
-const CENTRAL = 0x02014b50
-const END = 0x06054b50
 const DESCRIPTOR = 0x08074b50
 const ZIP64_LOCATOR = 0x07064b50
 const ZIP64_EXTRA = 0x0001
@@ -24,12 +21,6 @@ const TIMESTAMP_EXTRA = 0x5455
 const ENCRYPTED = 1
 const DESCRIBED = 8 // sizes and CRC follow the data, and may be 0 in the local header
 const DOS_DIRECTORY = 0x10
-const S_IFMT = 0o170000
-const S_IFREG = 0o100000
-const S_IFDIR = 0o40000
-const S_IFLNK = 0o120000
-const DEFAULT_MODE = { file: 0o644, directory: 0o755, symlink: 0o777 }
-const EMPTY = new Uint8Array(0)
 
 const sameBytes = (a, b) => a.length === b.length && a.every((byte, i) => byte === b[i])
 
@@ -134,16 +125,15 @@ function readLocal(r, entry) {
 }
 
 function typeOf(entry, rawName, mode) {
-  const format = mode & S_IFMT
-  const slashed = rawName.endsWith('/')
-  if (slashed) {
-    if (format !== 0 && format !== S_IFDIR) throw new ArchiveError(`${quote(rawName)} is a directory by its name but not by its mode`, entry.at)
+  const format = mode & TYPE_MASK
+  if (rawName.endsWith('/')) {
+    if (format !== 0 && format !== TYPE_BITS.directory) throw new ArchiveError(`${quote(rawName)} is a directory by its name but not by its mode`, entry.at)
     return 'directory'
   }
-  if (format === S_IFDIR) throw new ArchiveError(`${quote(rawName)} is a directory by its mode but not by its name`, entry.at)
+  if (format === TYPE_BITS.directory) throw new ArchiveError(`${quote(rawName)} is a directory by its mode but not by its name`, entry.at)
   if (entry.attributes & DOS_DIRECTORY) throw new ArchiveError(`${quote(rawName)} is a directory by its attributes but not by its name`, entry.at)
-  if (format === S_IFLNK) return 'symlink'
-  if (format === 0 || format === S_IFREG) return 'file'
+  if (format === TYPE_BITS.symlink) return 'symlink'
+  if (format === 0 || format === TYPE_BITS.file) return 'file'
   throw new ArchiveError(`the mode of ${quote(rawName)} (${mode.toString(8)}) is not one this package reads`, entry.at)
 }
 

@@ -5,7 +5,7 @@
 // whole, and is a copy otherwise.
 
 import { ArchiveError } from '../error.js'
-import { BLOCK, EMPTY, decodeHeader, isZeroBlock, untilNul } from './header.js'
+import { BLOCK, EMPTY, decodeHeader, isDevice, isFile, isZeroBlock, untilNul } from './header.js'
 import { Names, cleanNames } from '../names.js'
 import { decodePax } from './pax.js'
 import { decodeUtf8, hasUnsafe, quote } from '../text.js'
@@ -18,8 +18,6 @@ const TYPES = new Map([
 const EXTENDED = new Map([[0x78, 'pax'], [0x67, 'global'], [0x4c, 'longname'], [0x4b, 'longlink']])
 const MAX_EXTENDED = 1 << 20
 
-const isFile = (type) => type === 'file' || type === 'contiguous-file'
-const isDevice = (type) => type === 'character-device' || type === 'block-device'
 
 function paxNumber(value, what, at) {
   if (!/^(?:0|[1-9][0-9]*)$/u.test(value) || !Number.isSafeInteger(Number(value))) throw new ArchiveError(`pax ${what}=${quote(value)} is not a whole number this package can hold`, at)

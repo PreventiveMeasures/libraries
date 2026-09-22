@@ -4,15 +4,12 @@
 // exact UTC mtime, and each file deflated only where that made it smaller.
 
 import { crc32 } from '@exodus/bytes/crc.js'
-import { concat, deflate, record, toDos } from './bytes.js'
+import { CENTRAL, DEFAULT_MODE, EMPTY, END, LOCAL, TYPE_BITS, concat, deflate, record, toDos } from './bytes.js'
 import { ArchiveError } from '../error.js'
 import { Names, cleanNames } from '../names.js'
 import { encodeUtf8, quote } from '../text.js'
 
-const TYPE_BITS = { file: 0o100000, directory: 0o40000, symlink: 0o120000 }
-const DEFAULT_MODE = { file: 0o644, directory: 0o755, symlink: 0o777 }
 const METHODS = new Set(['deflate', 'store'])
-const EMPTY = new Uint8Array(0)
 
 const MADE_BY = (3 << 8) | 20 // Unix, spec 2.0
 const UTF8_NAME = 0x800
@@ -82,13 +79,13 @@ export async function zip(entries, { method = 'deflate' } = {}) {
       [2, compression === 8 ? 20 : 10], [2, isAscii(name) ? 0 : UTF8_NAME], [2, compression], [2, time], [2, date],
       [4, crc32(body)], [4, stored.length], [4, body.length], [2, name.length], [2, extra.length],
     ]
-    locals.push(record([[4, 0x04034b50], ...common]), name, extra, stored)
+    locals.push(record([[4, LOCAL], ...common]), name, extra, stored)
     const attributes = (TYPE_BITS[e.type] | e.mode) * 0x10000 + (e.type === 'directory' ? 0x10 : 0)
-    centrals.push(record([[4, 0x02014b50], [2, MADE_BY], ...common, [2, 0], [2, 0], [2, 0], [4, attributes], [4, offset]]), name, extra)
+    centrals.push(record([[4, CENTRAL], [2, MADE_BY], ...common, [2, 0], [2, 0], [2, 0], [4, attributes], [4, offset]]), name, extra)
     offset += 30 + name.length + extra.length + stored.length
   }
   const directory = concat(centrals)
   if (offset + directory.length > MAX32) throw new ArchiveError('the archive would need zip64')
-  const end = record([[4, 0x06054b50], [2, 0], [2, 0], [2, count], [2, count], [4, directory.length], [4, offset], [2, 0]])
+  const end = record([[4, END], [2, 0], [2, 0], [2, count], [2, count], [4, directory.length], [4, offset], [2, 0]])
   return concat([...locals, directory, end])
 }

@@ -8,6 +8,9 @@ import { ArchiveError } from '../error.js'
 export const BLOCK = 512
 export const EMPTY = new Uint8Array(0)
 
+export const isFile = (type) => type === 'file' || type === 'contiguous-file'
+export const isDevice = (type) => type === 'character-device' || type === 'block-device'
+
 export const NAME_SIZE = 100
 export const PREFIX_SIZE = 155
 // 32 bytes, and GNU always ends them with a NUL, so 31 is the most.

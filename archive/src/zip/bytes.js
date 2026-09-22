@@ -1,7 +1,18 @@
-// Little-endian fields, one buffer out of several, and raw deflate through
-// the platform's streams — the only compressor this package has.
+// What the zip half shares: the record signatures and mode bits, little-
+// endian fields, one buffer out of several, and raw deflate through the
+// platform's streams — the only compressor this package has.
 
 import { ArchiveError } from '../error.js'
+
+export const LOCAL = 0x04034b50
+export const CENTRAL = 0x02014b50
+export const END = 0x06054b50
+
+// The Unix file type bits, which the external attributes carry.
+export const TYPE_MASK = 0o170000
+export const TYPE_BITS = { file: 0o100000, directory: 0o40000, symlink: 0o120000 }
+export const DEFAULT_MODE = { file: 0o644, directory: 0o755, symlink: 0o777 }
+export const EMPTY = new Uint8Array(0)
 
 export function concat(chunks) {
   const out = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.length, 0))

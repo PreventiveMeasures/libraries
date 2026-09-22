@@ -4,7 +4,7 @@
 // ustar, a number out of range — this refuses instead.
 
 import { ArchiveError } from '../error.js'
-import { BLOCK, EMPTY, NAME_SIZE, OWNER_SIZE, PREFIX_SIZE, concat, encodeHeader, fitsOctal, octalMax } from './header.js'
+import { BLOCK, EMPTY, NAME_SIZE, OWNER_SIZE, PREFIX_SIZE, concat, encodeHeader, fitsOctal, isDevice, isFile, octalMax } from './header.js'
 import { Names, cleanNames } from '../names.js'
 import { encodePax } from './pax.js'
 import { encodeUtf8, hasUnsafe, quote } from '../text.js'
@@ -27,8 +27,6 @@ const DEFAULT_MODE = { directory: 0o755, symlink: 0o777 }
 const FORMATS = new Set(['gnu', 'ustar', 'pax'])
 const SLASH = 0x2f
 
-const isFile = (type) => type === 'file' || type === 'contiguous-file'
-const isDevice = (type) => type === 'character-device' || type === 'block-device'
 const isAscii = (raw) => raw.every((byte) => byte < 0x80)
 
 function integer(value, what, signed = false) {
