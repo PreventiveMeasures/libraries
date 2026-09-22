@@ -8,13 +8,20 @@
       "types": "./tar.d.ts",
       "default": "./tar.js"
     },
+    "./compression.js": {
+      "types": "./compression.d.ts",
+      "default": "./compression.js"
+    },
     "./zip.js": {
       "types": "./zip.d.ts",
       "default": "./zip.js"
     }
   },
   "files": [
+    "compression.d.ts",
+    "compression.js",
     "src/bytes.js",
+    "src/compression.js",
     "src/entry.js",
     "src/error.js",
     "src/names.js",

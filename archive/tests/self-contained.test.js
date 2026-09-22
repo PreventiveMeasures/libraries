@@ -25,6 +25,8 @@ const files = [
   new URL('tar.d.ts', ARCHIVE_DIR),
   new URL('zip.js', ARCHIVE_DIR),
   new URL('zip.d.ts', ARCHIVE_DIR),
+  new URL('compression.js', ARCHIVE_DIR),
+  new URL('compression.d.ts', ARCHIVE_DIR),
   ...readdirSync(SRC_DIR, { recursive: true })
     .map((name) => name.split(sep).join('/'))
     .filter(sourced)

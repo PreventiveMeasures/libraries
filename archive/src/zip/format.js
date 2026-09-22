@@ -1,8 +1,7 @@
 // What the zip half shares: the record signatures and mode bits, little-
-// endian fields, DOS time, and raw deflate through the platform's streams
-// — the only compressor this package has.
+// endian fields, DOS time, and raw deflate under zip's own words.
 
-import { concat } from '../bytes.js'
+import { compress, decompress } from '../compression.js'
 import { ArchiveError } from '../error.js'
 
 export const LOCAL = 0x04034b50
@@ -31,37 +30,15 @@ export function record(fields) {
   return out
 }
 
-const through = (bytes, transform) => new Blob([bytes]).stream().pipeThrough(transform)
+export const deflate = (bytes) => compress(bytes, 'deflate-raw')
 
-// Every chunk of a stream in one buffer: through async iteration where the
-// platform has it, and a Response where it does not.
-async function collect(stream) {
-  if (Array.fromAsync && stream.values) {
-    const chunks = await Array.fromAsync(stream)
-    return chunks.length === 1 ? chunks[0] : concat(chunks)
-  }
-  const blob = await new Response(stream).blob()
-  return blob.bytes ? blob.bytes() : new Uint8Array(await blob.arrayBuffer())
-}
-
-export const deflate = (bytes) => collect(through(bytes, new CompressionStream('deflate-raw')))
-
-// Output past the declared size is refused where it is, not after it has
-// all been made: erroring the bound cancels the decompressor behind it.
+// Exactly the declared size, with output past it refused where it is.
 export async function inflate(bytes, size, at) {
-  let total = 0
-  const bounded = new TransformStream({
-    transform(chunk, controller) {
-      total += chunk.length
-      if (total > size) controller.error(new RangeError('over the declared size'))
-      else controller.enqueue(chunk)
-    },
-  })
   let out
   try {
-    out = await collect(through(bytes, new DecompressionStream('deflate-raw')).pipeThrough(bounded))
-  } catch {
-    throw new ArchiveError(total > size ? 'an entry inflates to more than its declared size' : 'an entry does not inflate', at)
+    out = await decompress(bytes, 'deflate-raw', { limit: size })
+  } catch (error) {
+    throw new ArchiveError(error.limited ? 'an entry inflates to more than its declared size' : 'an entry does not inflate', at)
   }
   if (out.length !== size) throw new ArchiveError('an entry inflates to less than its declared size', at)
   return out
