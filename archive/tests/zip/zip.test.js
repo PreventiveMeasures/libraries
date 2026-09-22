@@ -85,10 +85,11 @@ describe('what it refuses', () => {
   it('throws ArchiveError without an offset', async () => {
     await assert.rejects(zip([{}]), (error) => error instanceof ArchiveError && error.offset === undefined)
   })
-  it('refuses what would need zip64', async () => {
-    const many = function* many() {
-      for (let i = 0; i <= 0xffff; i++) yield { name: `f${i}` }
+  it('stops short of the entry count a reader takes as zip64, and reads back the most it writes', async () => {
+    const named = function* named(count) {
+      for (let i = 0; i < count; i++) yield { name: `f${i}` }
     }
-    await assert.rejects(zip(many()), /more than 65535 entries would need zip64/u)
+    await assert.rejects(zip(named(0xffff)), /more than 65534 entries would need zip64/u)
+    assert.equal((await unzip(await zip(named(0xfffe)))).length, 0xfffe)
   })
 })

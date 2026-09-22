@@ -2,7 +2,9 @@
 // of an archive. A name is a relative path: `.` segments and a directory's
 // trailing slash are dropped, and what is left has no empty or `..`
 // segment, no control character and no backslash — a separator on
-// Windows, where `..\` would get past the check on `..`. A symlink target
+// Windows, where `..\` would get past the check on `..` — and does not
+// start with a drive letter and colon, which Windows resolves from that
+// drive rather than from the archive. A symlink target
 // may use `..`, but is followed from where the link sits and refused if it
 // climbs above the archive. Lengths are bounded by what a filesystem takes
 // at all: PATH_MAX for the whole, NAME_MAX for a segment, in bytes.
@@ -28,6 +30,7 @@ function checkText(path, what) {
   if (path === '') throw new ArchiveError(`${what} is empty`)
   if (hasUnsafe(path, true)) throw new ArchiveError(`${what} ${quote(path)} holds a control character or a backslash`)
   if (path.startsWith('/')) throw new ArchiveError(`${what} ${quote(path)} is absolute`)
+  if (/^[a-zA-Z]:/u.test(path)) throw new ArchiveError(`${what} ${quote(path)} starts with a drive letter`)
   if (utf8Length(path) > PATH_MAX) throw new ArchiveError(`${what} ${quote(path)} is longer than ${PATH_MAX} bytes`)
   for (const segment of path.split('/')) {
     if (utf8Length(segment) > NAME_MAX) throw new ArchiveError(`${what} ${quote(path)} has a segment longer than ${NAME_MAX} bytes`)

@@ -7,7 +7,7 @@ import { utf8 } from './helpers.js'
 // path, where a symlink may point, and what the record of names refuses.
 
 describe('a name is a clean relative path', () => {
-  for (const name of ['a', 'a/b', 'a.b/c-d_e', 'ü/日本', 'a b', 'a/..b', 'a/b..', '...', 'a:b', 'file..txt']) {
+  for (const name of ['a', 'a/b', 'a.b/c-d_e', 'ü/日本', 'a b', 'a/..b', 'a/b..', '...', 'ab:c', 'a/b:c', 'file..txt']) {
     it(`accepts ${JSON.stringify(name)}`, () => assert.equal(cleanPath(name, 'name'), name))
   }
   it('drops . segments, and a directory\'s trailing slash', () => {
@@ -28,6 +28,9 @@ describe('a name is a clean relative path', () => {
     ['', /is empty/u],
     ['/a', /is absolute/u],
     ['/', /is absolute/u],
+    ['C:/a', /starts with a drive letter/u],
+    ['c:a', /starts with a drive letter/u],
+    ['C:', /starts with a drive letter/u],
     ['a/', /"a\/" ends in a slash but is not a directory/u],
     ['a//b', /empty segment/u],
     ['a/./b//c', /empty segment/u],
@@ -78,6 +81,8 @@ describe('a symlink target stays inside the archive', () => {
     ['a/l', '../../x', /points outside the archive/u],
     ['l', 'a/../../x', /points outside the archive/u],
     ['l', '/etc/passwd', /is absolute/u],
+    ['l', 'C:/x', /starts with a drive letter/u],
+    ['l', 'C:x', /starts with a drive letter/u],
     ['l', '', /is empty/u],
     ['l', 'a\\b', /control character or a backslash/u],
     ['l', 42, /is not a string/u],

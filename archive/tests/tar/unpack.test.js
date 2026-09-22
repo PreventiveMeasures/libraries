@@ -96,6 +96,7 @@ describe('what it refuses', () => {
     ['a pax mtime that is not a time', () => archive(...pax([['mtime', 'abc']])), /pax mtime="abc" is not a time/u],
     ['a pax path that climbs out', () => archive(...pax([['path', '../x']])), /has a \.\. segment at byte 1024/u],
     ['an absolute name', () => archive(header({ name: utf8('/x') })), /entry name "\/x" is absolute at byte 0/u],
+    ['a name on a Windows drive', () => archive(header({ name: utf8('C:x') })), /entry name "C:x" starts with a drive letter at byte 0/u],
     ['a name with a backslash', () => archive(header({ name: utf8('a\\b') })), /control character or a backslash/u],
     ['a name that is not UTF-8', () => archive(header({ name: Uint8Array.from([0xff, 0x61]) })), /entry name is not valid UTF-8 at byte 0/u],
     ['a name twice as a different entry', () => archive(header(), header({ mtime: 1 })), /duplicate entry "a" differs in mtime at byte 512/u],

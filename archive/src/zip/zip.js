@@ -17,7 +17,10 @@ const MADE_BY = (3 << 8) | 20 // Unix, spec 2.0
 const UTF8_NAME = 0x800
 const DOS_EPOCH = 315532800 // 1980-01-01T00:00:00Z, the earliest DOS time
 const LAST_STAMP = 0x7fffffff // the extended timestamp is a signed 32-bit time
-const MAX32 = 0xffffffff
+// A count of 0xffff or a size or offset of 0xffffffff sends a reader to
+// zip64, so the last value short of each is the most this writes.
+const MAX_ENTRIES = 0xfffe
+const MAX_SIZE = 0xfffffffe
 
 function integer(value, what, min, max) {
   if (!Number.isSafeInteger(value) || value < min || value > max) throw new ArchiveError(`${what} ${String(value)} is not an integer from ${min} to ${max}`)
@@ -47,7 +50,7 @@ export async function zip(entries, { method = 'deflate' } = {}) {
     const entry = normalize(given)
     const e = { ...entry, ...cleanNames(entry.name, entry.type, entry.linkname) }
     names.add(e)
-    if (++count > 0xffff) throw new ArchiveError('more than 65535 entries would need zip64')
+    if (++count > MAX_ENTRIES) throw new ArchiveError(`more than ${MAX_ENTRIES} entries would need zip64`)
     const name = encodeUtf8(wireName(e), 'entry name')
     const body = e.type === 'symlink' ? encodeUtf8(e.linkname, 'symlink target') : e.data
     let stored = body
@@ -59,7 +62,7 @@ export async function zip(entries, { method = 'deflate' } = {}) {
         compression = 8
       }
     }
-    if (body.length > MAX32 || offset + stored.length > MAX32) throw new ArchiveError(`${quote(e.name)} would need zip64`)
+    if (body.length > MAX_SIZE || offset > MAX_SIZE) throw new ArchiveError(`${quote(e.name)} would need zip64`)
     const { time, date } = toDos(e.mtime)
     const extra = timestamp(e.mtime)
     const common = [
@@ -72,7 +75,7 @@ export async function zip(entries, { method = 'deflate' } = {}) {
     offset += 30 + name.length + extra.length + stored.length
   }
   const directory = concat(centrals)
-  if (offset + directory.length > MAX32) throw new ArchiveError('the archive would need zip64')
+  if (offset + directory.length > MAX_SIZE) throw new ArchiveError('the archive would need zip64')
   const end = record([[4, END], [2, 0], [2, 0], [2, count], [2, count], [4, directory.length], [4, offset], [2, 0]])
   return concat([...locals, directory, end])
 }
