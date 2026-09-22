@@ -24,7 +24,7 @@ function entry(name, data, over = {}) {
   const method = over.method ?? 0
   const extra = over.extra ?? new Uint8Array(0)
   const local = concat([record([
-    [4, 0x04034b50], [2, 10], [2, over.localFlags ?? flags], [2, over.localMethod ?? method], [2, DOS.time], [2, DOS.date],
+    [4, 0x04034b50], [2, 10], [2, over.localFlags ?? flags], [2, over.localMethod ?? method], [2, over.localTime ?? over.time ?? DOS.time], [2, over.date ?? DOS.date],
     [4, over.localCrc ?? crc], [4, over.localCsize ?? body.length], [4, over.localUsize ?? data.length], [2, rawName.length], [2, extra.length],
   ]), over.localName ?? rawName, extra, body, over.descriptor ?? new Uint8Array(0)])
   const central = (offset) => concat([record([
@@ -134,7 +134,9 @@ describe('what it refuses', () => {
     ['a zip64 size in an entry', () => archive([entry('a', utf8('x'), { usize: 0xffffffff })]), /zip64 is not supported/u],
     ['a zip64 extra field', () => archive([entry('a', utf8('x'), { extra: record([[2, 1], [2, 0]]) })]), /zip64 is not supported/u],
     ['an encrypted entry', () => archive([entry('a', utf8('x'), { flags: 1 })]), /an entry is encrypted/u],
-    ['an entry encrypted by its local header alone', () => archive([entry('a', utf8('x'), { localFlags: 1 })]), /an entry is encrypted/u],
+    ['a local header with other flags', () => archive([entry('a', utf8('x'), { localFlags: 1 })]), /the local header has different flags at byte 0/u],
+    ['a local header with a descriptor bit the central directory lacks', () => archive([entry('a', utf8('x'), { localFlags: 8, localCrc: 0, localCsize: 0, localUsize: 0, descriptor: record([[4, crc32(utf8('x'))], [4, 1], [4, 1]]) })]), /the local header has different flags/u],
+    ['a local header with another time', () => archive([entry('a', utf8('x'), { localTime: 1 })]), /the local header has a different time/u],
     ['a compression method it does not have', () => archive([entry('a', utf8('x'), { method: 12, localMethod: 12 })]), /compression method 12 is not stored or deflate/u],
     ['a local header naming another entry', () => archive([entry('a', utf8('x'), { localName: utf8('b') })]), /the local header names a different entry/u],
     ['a local header with another method', () => archive([entry('a', utf8('x'), { localMethod: 8 })]), /the local header has a different compression method/u],

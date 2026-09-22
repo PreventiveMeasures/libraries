@@ -87,6 +87,9 @@ function readCentral(r, at) {
     at,
     flags,
     method,
+    version: r.u16(at + 6),
+    time: r.u16(at + 12),
+    date: r.u16(at + 14),
     crc: r.u32(at + 16),
     csize: r.u32(at + 20),
     usize: r.u32(at + 24),
@@ -98,23 +101,26 @@ function readCentral(r, at) {
   }
   if (entry.csize === 0xffffffff || entry.usize === 0xffffffff || entry.offset === 0xffffffff) throw new ArchiveError('zip64 is not supported', at)
   const stamp = extras(r.slice(at + 46 + nameLength, extraLength), at).get(TIMESTAMP_EXTRA)
-  entry.mtime = stamp !== undefined && stamp.length >= 5 && stamp[0] & 1 ? view(stamp).getInt32(1, true) : fromDos(r.u16(at + 14), r.u16(at + 12), at)
+  entry.mtime = stamp !== undefined && stamp.length >= 5 && stamp[0] & 1 ? view(stamp).getInt32(1, true) : fromDos(entry.date, entry.time, at)
   return entry
 }
 
 // The local header checked against the central entry; returns where the
-// entry's bytes end and notes where its data starts.
+// entry's bytes end and notes where its data starts. The two records have
+// to agree on everything both carry — flags included, since a descriptor
+// bit set in one and not the other is read two ways by two readers — and
+// the local sizes and CRC may be 0 only where a descriptor carries them.
 function readLocal(r, entry) {
   const at = entry.offset
   if (r.u32(at) !== LOCAL) throw new ArchiveError('no local header where the central directory points', at)
-  const flags = r.u16(at + 6)
   const nameLength = r.u16(at + 26)
   const extraLength = r.u16(at + 28)
-  if (flags & ENCRYPTED) throw new ArchiveError('an entry is encrypted', at)
   if (!sameBytes(r.slice(at + 30, nameLength), entry.name)) throw new ArchiveError('the local header names a different entry', at)
-  if (r.u16(at + 8) !== entry.method) throw new ArchiveError('the local header has a different compression method', at)
+  for (const [field, name] of [[4, 'version'], [6, 'flags'], [8, 'method'], [10, 'time'], [12, 'date']]) {
+    if (r.u16(at + field) !== entry[name]) throw new ArchiveError(`the local header has ${name === 'flags' ? 'different flags' : `a different ${name === 'method' ? 'compression method' : name}`}`, at)
+  }
   extras(r.slice(at + 30 + nameLength, extraLength), at)
-  const described = flags & DESCRIBED
+  const described = entry.flags & DESCRIBED
   const agrees = (field, value) => r.u32(at + field) === value || (described && r.u32(at + field) === 0)
   if (!agrees(14, entry.crc) || !agrees(18, entry.csize) || !agrees(22, entry.usize)) throw new ArchiveError('the local header disagrees with the central directory', at)
   entry.dataAt = at + 30 + nameLength + extraLength

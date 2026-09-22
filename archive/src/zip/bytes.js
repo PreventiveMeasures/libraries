@@ -33,10 +33,12 @@ export function record(fields) {
 
 // The stream fed all of `bytes`, read back whole; reading and writing go on
 // together, since the stream would otherwise fill up and wait. Output past
-// `limit` is refused where it is, not after it has been made.
+// `limit` is refused where it is, not after it has been made. The stream
+// gets its own copy of the input: a chunk handed to a stream is the
+// stream's, and `bytes` is usually a view over the caller's buffer.
 async function through(bytes, stream, limit, at) {
   const writer = stream.writable.getWriter()
-  const writing = writer.write(bytes).then(() => writer.close())
+  const writing = writer.write(bytes.slice()).then(() => writer.close())
   writing.catch(() => {})
   const reader = stream.readable.getReader()
   const chunks = []
