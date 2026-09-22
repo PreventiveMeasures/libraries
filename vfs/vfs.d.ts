@@ -33,7 +33,9 @@ export interface Entry {
 }
 
 // What vfsFromEntries takes: tar's own entries, or the same with the
-// optional fields left out. `contiguous-file` is a file.
+// optional fields left out. `contiguous-file` is a file. A name follows
+// tar's rules: relative, no `..` segment or control character, a trailing
+// slash on a directory alone; it may repeat only as the same entry again.
 export interface EntryInput {
   name: string
   type?: NodeType | 'link' | 'contiguous-file'

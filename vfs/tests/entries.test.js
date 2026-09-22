@@ -4,6 +4,7 @@ import { pack, unpack } from '@preventive/tar'
 import { Vfs, createVfs, vfsFromEntries } from '../vfs.js'
 
 const bytes = (text) => new TextEncoder().encode(text)
+const fails = (fn, code, path) => assert.throws(fn, { name: 'VfsError', code, ...(path === undefined ? {} : { path }) })
 
 describe('createVfs reads a flat map of paths', () => {
   it('as files, with their parents implied, from an object or a Map', () => {
@@ -110,12 +111,48 @@ describe('entries are the tree as tar would carry it', () => {
     assert.equal(fs.stat('/').mode, 0o711)
     assert.throws(() => vfsFromEntries([{ name: 'x', type: 'fifo' }]), { code: 'EINVAL', path: 'x' })
     assert.throws(() => vfsFromEntries([{ name: 5 }]), TypeError)
-    assert.throws(() => vfsFromEntries([{ name: 'a', type: 'directory' }, { name: 'a', data: 'x' }]), { code: 'EISDIR' })
   })
 
-  it('cannot escape the root', () => {
-    const fs = vfsFromEntries([{ name: '../../etc/passwd', data: 'x' }])
-    assert.deepEqual([...fs.walk()].map((entry) => entry.path), ['/', '/etc', '/etc/passwd'])
+  it('refuse a name tar would: .., a control character, a slash after what is not a directory', () => {
+    for (const name of ['../../etc/passwd', 'a/../b', 'a\nb', 'a\0b', 'a/', '.', '', './']) {
+      fails(() => vfsFromEntries([{ name, data: 'x' }]), 'EINVAL', name)
+    }
+    fails(() => vfsFromEntries([{ name: 'f', data: 'x' }, { name: 'l', type: 'link', linkname: '../f' }]), 'EINVAL', '../f')
+    fails(() => vfsFromEntries([{ name: 'l', type: 'link' }]), 'EINVAL', '')
+    fails(() => vfsFromEntries([{ name: 'd', type: 'directory' }, { name: 'l', type: 'link', linkname: 'd/' }]), 'EINVAL', 'd/')
+    assert.throws(() => vfsFromEntries([{ name: 'l', type: 'link', linkname: 1 }]), TypeError)
+    const fs = vfsFromEntries([{ name: 'd/', type: 'directory' }, { name: './e', data: 'x' }, { name: '.', type: 'directory' }, { name: 's', type: 'symlink', linkname: '../../etc' }])
+    assert.deepEqual([...fs.walk()].map((entry) => entry.path), ['/', '/d', '/e', '/s'])
+    assert.equal(fs.readlink('/s'), '../../etc', 'a symlink target is any spelling: it cannot leave the root')
     assert.equal(new Vfs().isFile('../x'), false)
+  })
+
+  it('take a name again only as the same entry, under any spelling of it', () => {
+    const file = { data: 'x', mode: 0o600, mtime: 1 }
+    const again = vfsFromEntries([{ name: 'd/f', ...file }, { name: 'd/./f', ...file }, { name: './d//f', ...file, data: bytes('x') }, { name: 'd', type: 'directory' }, { name: 'd/', type: 'directory' }, { name: '.', type: 'directory' }, { name: '', type: 'directory' }])
+    assert.deepEqual([...again.walk()].map((entry) => entry.path), ['/', '/d', '/d/f'])
+    vfsFromEntries([{ name: 'f' }, { name: 'l', type: 'link', linkname: 'f' }, { name: './l', type: 'link', linkname: './f' }, { name: 's', type: 'symlink', linkname: 'f' }, { name: 's', type: 'symlink', linkname: 'f' }])
+    const differing = [
+      [{ name: 'f', data: 'x' }, { name: './f', data: 'y' }],
+      [{ name: 'f', data: 'x' }, { name: 'f', data: 'x', mode: 0o600 }],
+      [{ name: 'f', data: 'x' }, { name: 'f', data: 'x', mtime: 1 }],
+      [{ name: 'f', data: 'x' }, { name: 'f', type: 'symlink', linkname: 'x' }],
+      [{ name: 'd', type: 'directory' }, { name: 'd', data: 'x' }],
+      [{ name: 'd', type: 'directory' }, { name: 'd/', type: 'directory', mode: 0o700 }],
+      [{ name: 's', type: 'symlink', linkname: 'a' }, { name: 's', type: 'symlink', linkname: 'b' }],
+      [{ name: 'f' }, { name: 'g' }, { name: 'l', type: 'link', linkname: 'f' }, { name: 'l', type: 'link', linkname: 'g' }],
+    ]
+    for (const entries of differing) fails(() => vfsFromEntries(entries), 'EEXIST', entries.at(-1).name)
+  })
+
+  it('never go through a link declared earlier, and hard-link only to an entry declared earlier', () => {
+    fails(() => vfsFromEntries([{ name: 'real', type: 'directory' }, { name: 'alias', type: 'symlink', linkname: 'real' }, { name: 'alias/f', data: 'x' }]), 'ENOTDIR', 'alias/f')
+    fails(() => vfsFromEntries([{ name: 'alias', type: 'symlink', linkname: '.' }, { name: 'alias/d/f', data: 'x' }]), 'ENOTDIR', 'alias/d/f')
+    fails(() => vfsFromEntries([{ name: 'alias', type: 'symlink', linkname: 'nowhere' }, { name: 'alias/f', data: 'x' }]), 'EEXIST', '/alias')
+    fails(() => vfsFromEntries([{ name: 'real/f', data: 'x' }, { name: 'alias', type: 'symlink', linkname: 'real' }, { name: 'l', type: 'link', linkname: 'alias/f' }]), 'ENOENT', 'alias/f')
+    fails(() => vfsFromEntries([{ name: 'd/f', data: 'x' }, { name: 'l', type: 'link', linkname: 'd' }]), 'ENOENT', 'd')
+    fails(() => vfsFromEntries([{ name: 'd', type: 'directory' }, { name: 'l', type: 'link', linkname: 'd' }]), 'EPERM')
+    const fs = vfsFromEntries([{ name: 'real/f', data: 'x' }, { name: 'alias', type: 'symlink', linkname: 'real' }, { name: 'real/g', data: 'y' }])
+    assert.equal(fs.readText('/alias/g'), 'y', 'the link is there to be followed once the tree is built')
   })
 })

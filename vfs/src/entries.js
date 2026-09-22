@@ -1,10 +1,24 @@
 // A Vfs from a description of its tree, in either of two shapes: a flat map
 // of paths to contents, or tar entries — the shape `Vfs.entries()` yields,
 // so an archive unpacks into a Vfs and a Vfs packs into one.
+//
+// A description is untrusted, and is read by tar's rules for a name. A name
+// is a relative path with `.` segments and empty segments dropped, a
+// trailing slash only on a directory, and no `..` segment or control
+// character; `.` names the root, which only a directory may. Every spelling
+// of one path is one name, and a name may repeat only as the same entry
+// again, field for field and byte for byte: `d/f` and `d/./f` both is what
+// some packagers write, while two different entries under one name would
+// leave the winner to declaration order. A link declared earlier is never
+// followed on the way to a later entry, and a hard link names an entry
+// declared before it, for the same reason tar defers making its links until
+// the end.
 
 import { VfsError } from './error.js'
-import { dirname, normalize } from './path.js'
-import { Vfs } from './vfs.js'
+import { dirname, segments } from './path.js'
+import { MODE, Vfs } from './vfs.js'
+
+const encoder = new TextEncoder()
 
 export function createVfs(sources = {}) {
   if (sources === null || typeof sources !== 'object' || Array.isArray(sources)) {
@@ -22,18 +36,27 @@ function sourceEntry([name, value]) {
 }
 
 // Entries are placed in order, each under the directories it needs, which
-// are made when missing; a directory listed again keeps its entries and
-// takes the mode and mtime listed.
+// are made when missing; a directory an earlier entry implied takes the mode
+// and mtime a later entry declares for it.
 export function vfsFromEntries(entries) {
   const vfs = new Vfs()
-  for (const entry of entries) place(vfs, entry)
+  const declared = new Set()
+  for (const entry of entries) place(vfs, declared, entry)
   return vfs
 }
 
-function place(vfs, { name, type = 'file', data, mode, mtime, linkname = '' }) {
-  if (typeof name !== 'string') throw new TypeError(`an entry's name must be a string, not ${typeof name}`)
-  const path = normalize(`/${name}`)
-  vfs.mkdir(dirname(path), { recursive: true })
+function place(vfs, declared, { name, type = 'file', data, mode, mtime, linkname = '' }) {
+  const path = `/${checkName(name, type === 'directory')}`
+  const source = type === 'link' ? `/${checkName(linkname, false)}` : linkname
+  if (type === 'link' && !declared.has(source)) throw new VfsError('ENOENT', linkname)
+  if (declared.has(path)) {
+    if (same(vfs, path, type, data, mode, mtime, source)) return
+    throw new VfsError('EEXIST', name)
+  }
+  declared.add(path)
+  const parent = dirname(path)
+  vfs.mkdir(parent, { recursive: true })
+  if (vfs.realpath(parent) !== parent) throw new VfsError('ENOTDIR', name)
   switch (type) {
     case 'file':
     case 'contiguous-file':
@@ -45,12 +68,36 @@ function place(vfs, { name, type = 'file', data, mode, mtime, linkname = '' }) {
       if (mtime !== undefined) vfs.utimes(path, mtime)
       break
     case 'symlink':
-      vfs.symlink(linkname, path, { mtime })
+      vfs.symlink(source, path, { mtime })
       break
     case 'link':
-      vfs.link(`/${linkname}`, path)
+      vfs.link(source, path)
       break
     default:
       throw new VfsError('EINVAL', name)
   }
+}
+
+// A name by tar's rules, as the one spelling of its path: the root is ''.
+function checkName(name, directory) {
+  if (typeof name !== 'string') throw new TypeError(`a name must be a string, not ${typeof name}`)
+  const parts = segments(name).filter((part) => part !== '.')
+  const invalid = parts.includes('..') || /\p{Cc}/u.test(name) || (!directory && (parts.length === 0 || name.endsWith('/')))
+  if (invalid) throw new VfsError('EINVAL', name)
+  return parts.join('/')
+}
+
+// Whether a repeated name declares what is already there, field for field
+// and byte for byte; a symlink has no mode of its own.
+function same(vfs, path, type, data, mode, mtime, source) {
+  const stat = vfs.lstat(path)
+  const kind = type === 'contiguous-file' ? 'file' : type
+  if (kind === 'link') return stat.ino === vfs.lstat(source).ino
+  if (stat.type !== kind || stat.mtime !== (mtime ?? 0)) return false
+  if (kind === 'symlink') return vfs.readlink(path) === source
+  if (stat.mode !== (mode ?? MODE[kind])) return false
+  if (kind === 'directory') return true
+  const bytes = typeof data === 'string' ? encoder.encode(data) : data ?? new Uint8Array()
+  const held = vfs.readFile(path)
+  return held.length === bytes.length && held.every((byte, i) => byte === bytes[i])
 }

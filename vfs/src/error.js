@@ -10,6 +10,7 @@ const STRERROR = {
   EPERM: 'Operation not permitted',
   EBUSY: 'Device or resource busy',
   EILSEQ: 'Invalid or incomplete multibyte or wide character',
+  ENAMETOOLONG: 'File name too long',
 }
 
 // `code` is the POSIX errno name; the message is the line a shell prints.

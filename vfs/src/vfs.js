@@ -9,15 +9,17 @@
 // reads a clock: `mtime` is what a caller set, in whole seconds, and 0 until
 // then. A file's bytes are returned as they are stored, never copied, and
 // stored as a copy of what was written: hold them, do not write into them.
+// A name is what a filesystem holds: text with an encoding, of at most 255
+// bytes of UTF-8, with no `/` and no NUL.
 
 import { VfsError } from './error.js'
 import { basename, compareNames, segments } from './path.js'
 
 const LINK_LIMIT = 40
+const NAME_MAX = 255
 const NONE = new Uint8Array()
-const FILE = { mode: 0o644, mtime: 0 }
-const DIRECTORY = { mode: 0o755, mtime: 0 }
-const SYMLINK = { mode: 0o777, mtime: 0 }
+export const MODE = { file: 0o644, directory: 0o755, symlink: 0o777 }
+const fresh = (type) => ({ mode: MODE[type], mtime: 0 })
 const encoder = new TextEncoder()
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 
@@ -33,9 +35,9 @@ export class Vfs {
     this.#root = this.#directory()
   }
 
-  #file(bytes, mode, mtime) { return { ino: ++this.#inodes, type: 'file', ...meta(mode, mtime, FILE), bytes } }
-  #directory(mode, mtime) { return { ino: ++this.#inodes, type: 'directory', ...meta(mode, mtime, DIRECTORY), entries: new Map() } }
-  #symlink(target, mtime) { return { ino: ++this.#inodes, type: 'symlink', ...meta(undefined, mtime, SYMLINK), target } }
+  #file(bytes, mode, mtime) { return { ino: ++this.#inodes, type: 'file', ...meta(mode, mtime, fresh('file')), bytes } }
+  #directory(mode, mtime) { return { ino: ++this.#inodes, type: 'directory', ...meta(mode, mtime, fresh('directory')), entries: new Map() } }
+  #symlink(target, mtime) { return { ino: ++this.#inodes, type: 'symlink', ...meta(undefined, mtime, fresh('symlink')), target } }
 
   // Where `path` leads: `dir`, the directory its last name is in; `name`; and
   // `node`, the inode there — undefined when the name is not taken, so a
@@ -69,6 +71,7 @@ export class Vfs {
       if (node === undefined) {
         if (last) break
         if (!mkdirs) throw new VfsError('ENOENT', path)
+        checkName(name, path)
         node = this.#directory()
         dir.entries.set(name, node)
       }
@@ -99,6 +102,12 @@ export class Vfs {
   }
 
   #node(path, follow) { return this.#found(path, follow).node }
+
+  // Puts `node` under the name a lookup of `path` found, where a name is made.
+  #set(found, node, path) {
+    checkName(found.name, path)
+    found.dir.entries.set(found.name, node)
+  }
 
   #is(path, type, follow) {
     try { return this.#node(path, follow).type === type } catch (error) {
@@ -148,14 +157,14 @@ export class Vfs {
   writeFile(path, data, { mode, mtime } = {}) {
     const bytes = encode(data, path)
     const found = this.#fileAt(path)
-    if (found.node === undefined) found.dir.entries.set(found.name, this.#file(bytes, mode, mtime))
+    if (found.node === undefined) this.#set(found, this.#file(bytes, mode, mtime), path)
     else Object.assign(found.node, { bytes }, meta(mode, mtime, found.node))
   }
 
   appendFile(path, data) {
     const bytes = encode(data, path)
     const found = this.#fileAt(path)
-    if (found.node === undefined) found.dir.entries.set(found.name, this.#file(bytes))
+    if (found.node === undefined) this.#set(found, this.#file(bytes), path)
     else found.node.bytes = append(found.node.bytes, bytes)
   }
 
@@ -163,22 +172,21 @@ export class Vfs {
   // `recursive` is content with what a link leads to being a directory.
   mkdir(path, { recursive = false, mode, mtime } = {}) {
     const found = this.#locate(path, { follow: slashed(path), mkdirs: recursive })
-    if (found.node === undefined) found.dir.entries.set(found.name, this.#directory(mode, mtime))
+    if (found.node === undefined) this.#set(found, this.#directory(mode, mtime), path)
     else if (!recursive || !this.isDirectory(path)) throw new VfsError('EEXIST', path)
   }
 
   symlink(target, path, { mtime } = {}) {
     if (typeof target !== 'string' || target === '' || target.includes('\0')) throw new VfsError('EINVAL', path)
-    const found = this.#newName(path)
-    found.dir.entries.set(found.name, this.#symlink(target, mtime))
+    if (!target.isWellFormed()) throw new VfsError('EILSEQ', path)
+    this.#set(this.#newName(path), this.#symlink(target, mtime), path)
   }
 
   // A hard link: the same inode under a second name.
   link(existing, path) {
     const node = this.#node(existing, false)
     if (node.type === 'directory') throw new VfsError('EPERM', existing)
-    const found = this.#newName(path)
-    found.dir.entries.set(found.name, node)
+    this.#set(this.#newName(path), node, path)
   }
 
   #newName(path) {
@@ -223,6 +231,7 @@ export class Vfs {
         if (target.node.entries.size > 0) throw new VfsError('ENOTEMPTY', to)
       } else if (source.node.type === 'directory') throw new VfsError('ENOTDIR', to)
     }
+    checkName(target.name, to)
     source.dir.entries.delete(source.name)
     target.dir.entries.set(target.name, source.node)
   }
@@ -284,6 +293,13 @@ const meta = (mode, mtime, current) => ({
   mode: mode === undefined ? current.mode : checkMode(mode),
   mtime: mtime === undefined ? current.mtime : checkTime(mtime),
 })
+
+// What a name may be when it is made: text with an encoding, and at most
+// NAME_MAX bytes of it, as every filesystem bounds a name.
+function checkName(name, path) {
+  if (!name.isWellFormed()) throw new VfsError('EILSEQ', path)
+  if (encoder.encode(name).length > NAME_MAX) throw new VfsError('ENAMETOOLONG', path)
+}
 
 function checkMode(mode) {
   if (!Number.isInteger(mode) || mode < 0 || mode > 0o7777) throw new RangeError(`a mode must be an integer from 0 to 0o7777, not ${mode}`)
