@@ -5,33 +5,48 @@ import { basename, compareNames, dirname, extname, isAbsolute, join, normalize, 
 
 // The reference is node's own posix flavour, on a corpus of every spelling
 // shape that matters: empty, dots, runs of slashes, trailing slashes, `..`
-// above the root, and names made of dots. `resolve` and `relative` are
-// compared from `/`, which node reads as its working directory here.
+// above the root, and names made of dots — and on three thousand spellings
+// more, drawn from those pieces under a fixed seed, so that a failure names
+// its input and comes back on a rerun. `resolve` and `relative` are compared
+// from `/`, which node reads as its working directory here.
 const SPELLINGS = ['', '.', '..', '/', '//', '///', 'a', '/a', 'a/', '/a/', 'a//', 'a/b', 'a//b', '/a//b', '//a', '//a/b', './a', 'a/./b', 'a/../b', '../a', '/../a', 'a/../..', 'a/b/../../..', '/a/b/../..', 'a/b/', './', '../', 'a/../', '/a/../', '.a', 'a.', '..a', 'a..', '...', '.a.', 'a.b.c', 'a/b.c/d', '/a/b.c/', 'dir/.hidden', 'a.b/', '/.', '/..', 'x/..//', 'a/b//..//c/', 'b/a', 'x/.js', '.js']
+const PIECES = ['/', '/', '.', '..', 'a', 'b', '.a', 'a.', 'a.b', 'ab']
+
+function* random(count, seed) {
+  let state = seed
+  const next = (n) => { state = (state * 48271) % 2147483647; return state % n }
+  for (let i = 0; i < count; i++) {
+    let path = ''
+    for (let n = next(7); n > 0; n--) path += PIECES[next(PIECES.length)]
+    yield path
+  }
+}
+
+const RANDOM = [...random(3000, 7)]
+const CORPUS = [...SPELLINGS, ...RANDOM]
 
 describe('answers as node:path.posix does', () => {
   for (const name of ['normalize', 'dirname', 'basename', 'extname', 'isAbsolute']) {
     const ours = { normalize, dirname, basename, extname, isAbsolute }[name]
     it(name, () => {
-      for (const path of SPELLINGS) assert.equal(ours(path), posix[name](path), JSON.stringify(path))
+      for (const path of CORPUS) assert.equal(ours(path), posix[name](path), JSON.stringify(path))
     })
   }
 
   it('basename with a suffix, on a path without a trailing slash', () => {
-    for (const path of SPELLINGS.filter((spelling) => !spelling.endsWith('/'))) {
+    for (const path of CORPUS.filter((spelling) => !spelling.endsWith('/'))) {
       for (const suffix of ['.c', 'a', '.js', 'b/a']) assert.equal(basename(path, suffix), posix.basename(path, suffix), JSON.stringify([path, suffix]))
     }
   })
 
-  it('join, resolve and relative, over every pair', () => {
-    for (const a of SPELLINGS) {
-      assert.equal(resolve(a), posix.resolve('/', a), JSON.stringify(a))
-      for (const b of SPELLINGS) {
-        const pair = JSON.stringify([a, b])
-        assert.equal(join(a, b), posix.join(a, b), pair)
-        assert.equal(resolve(a, b), posix.resolve('/', a, b), pair)
-        assert.equal(relative(a, b), posix.relative(posix.resolve('/', a), posix.resolve('/', b)), pair)
-      }
+  it('join, resolve and relative, over every pair of spellings and a random pairing of the rest', () => {
+    const pairs = [...SPELLINGS.flatMap((a) => SPELLINGS.map((b) => [a, b])), ...RANDOM.map((a, i) => [a, RANDOM[(i + 1) % RANDOM.length]])]
+    for (const [a, b] of pairs) {
+      const pair = JSON.stringify([a, b])
+      assert.equal(resolve(a), posix.resolve('/', a), pair)
+      assert.equal(join(a, b), posix.join(a, b), pair)
+      assert.equal(resolve(a, b), posix.resolve('/', a, b), pair)
+      assert.equal(relative(a, b), posix.relative(posix.resolve('/', a), posix.resolve('/', b)), pair)
     }
     assert.equal(join(), '.')
     assert.equal(resolve(), '/')
@@ -92,6 +107,7 @@ describe('the shapes worth reading off', () => {
     assert.throws(() => join('a', null), TypeError)
     assert.throws(() => basename('a', 1), TypeError)
     assert.throws(() => relative('/a', undefined), TypeError)
+    assert.throws(() => resolve(undefined, '/a'), TypeError, 'an argument after the absolute one is checked too, where node stops reading')
   })
 })
 

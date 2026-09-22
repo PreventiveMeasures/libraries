@@ -40,12 +40,14 @@ export function join(...paths) {
   return parts.length === 0 ? '.' : normalize(parts.join('/'))
 }
 
-// Right to left until a spelling is absolute, or `/` when none is.
+// Right to left until a spelling is absolute, or `/` when none is. Every
+// argument is checked, not only those read: a wrong one is a bug wherever
+// it stands.
 export function resolve(...paths) {
+  const parts = paths.map((part) => string(part))
   let resolved = ''
-  for (let i = paths.length - 1; i >= 0 && !resolved.startsWith('/'); i--) {
-    const part = string(paths[i])
-    if (part !== '') resolved = resolved === '' ? part : `${part}/${resolved}`
+  for (let i = parts.length - 1; i >= 0 && !resolved.startsWith('/'); i--) {
+    if (parts[i] !== '') resolved = resolved === '' ? parts[i] : `${parts[i]}/${resolved}`
   }
   const normalized = normalize(resolved.startsWith('/') ? resolved : `/${resolved}`)
   return normalized.length > 1 && normalized.endsWith('/') ? normalized.slice(0, -1) : normalized
