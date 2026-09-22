@@ -18,7 +18,6 @@ const TYPES = new Map([
 const EXTENDED = new Map([[0x78, 'pax'], [0x67, 'global'], [0x4c, 'longname'], [0x4b, 'longlink']])
 const MAX_EXTENDED = 1 << 20
 
-
 function paxNumber(value, what, at) {
   if (!/^(?:0|[1-9][0-9]*)$/u.test(value) || !Number.isSafeInteger(Number(value))) throw new ArchiveError(`pax ${what}=${quote(value)} is not a whole number this package can hold`, at)
   return Number(value)

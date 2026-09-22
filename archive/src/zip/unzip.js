@@ -26,7 +26,7 @@ const sameBytes = (a, b) => a.length === b.length && a.every((byte, i) => byte =
 
 // Bounds-checked little-endian reads over the archive.
 function reader(bytes) {
-  const data = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const data = view(bytes)
   const check = (at, width) => {
     if (at < 0 || at + width > bytes.length) throw new ArchiveError('the archive is truncated', at)
   }
@@ -66,30 +66,27 @@ function extras(raw, at) {
 
 function readCentral(r, at) {
   if (r.u32(at) !== CENTRAL) throw new ArchiveError('no central directory entry where one is counted', at)
-  const flags = r.u16(at + 8)
-  const method = r.u16(at + 10)
   const nameLength = r.u16(at + 28)
   const extraLength = r.u16(at + 30)
-  const commentLength = r.u16(at + 32)
-  if (r.u16(at + 34) !== 0) throw new ArchiveError('the archive spans several disks', at)
-  if (flags & ENCRYPTED) throw new ArchiveError('an entry is encrypted', at)
-  if (method !== 0 && method !== 8) throw new ArchiveError(`compression method ${method} is not stored or deflate`, at)
   const entry = {
     at,
-    flags,
-    method,
+    madeBy: r.u16(at + 4),
     version: r.u16(at + 6),
+    flags: r.u16(at + 8),
+    method: r.u16(at + 10),
     time: r.u16(at + 12),
     date: r.u16(at + 14),
     crc: r.u32(at + 16),
     csize: r.u32(at + 20),
     usize: r.u32(at + 24),
-    madeBy: r.u16(at + 4),
     attributes: r.u32(at + 38),
     offset: r.u32(at + 42),
     name: r.slice(at + 46, nameLength),
-    next: at + 46 + nameLength + extraLength + commentLength,
+    next: at + 46 + nameLength + extraLength + r.u16(at + 32),
   }
+  if (r.u16(at + 34) !== 0) throw new ArchiveError('the archive spans several disks', at)
+  if (entry.flags & ENCRYPTED) throw new ArchiveError('an entry is encrypted', at)
+  if (entry.method !== 0 && entry.method !== 8) throw new ArchiveError(`compression method ${entry.method} is not stored or deflate`, at)
   if (entry.csize === 0xffffffff || entry.usize === 0xffffffff || entry.offset === 0xffffffff) throw new ArchiveError('zip64 is not supported', at)
   const stamp = extras(r.slice(at + 46 + nameLength, extraLength), at).get(TIMESTAMP_EXTRA)
   entry.mtime = stamp !== undefined && stamp.length >= 5 && stamp[0] & 1 ? view(stamp).getInt32(1, true) : fromDos(entry.date, entry.time, at)
@@ -107,8 +104,9 @@ function readLocal(r, entry) {
   const nameLength = r.u16(at + 26)
   const extraLength = r.u16(at + 28)
   if (!sameBytes(r.slice(at + 30, nameLength), entry.name)) throw new ArchiveError('the local header names a different entry', at)
-  for (const [field, name] of [[4, 'version'], [6, 'flags'], [8, 'method'], [10, 'time'], [12, 'date']]) {
-    if (r.u16(at + field) !== entry[name]) throw new ArchiveError(`the local header has ${name === 'flags' ? 'different flags' : `a different ${name === 'method' ? 'compression method' : name}`}`, at)
+  const shared = [[4, 'version', 'a different version'], [6, 'flags', 'different flags'], [8, 'method', 'a different compression method'], [10, 'time', 'a different time'], [12, 'date', 'a different date']]
+  for (const [field, key, what] of shared) {
+    if (r.u16(at + field) !== entry[key]) throw new ArchiveError(`the local header has ${what}`, at)
   }
   extras(r.slice(at + 30 + nameLength, extraLength), at)
   const described = entry.flags & DESCRIBED
@@ -141,7 +139,7 @@ async function entryOf(r, entry, names) {
   const { at, method, csize, usize } = entry
   const rawName = decodeUtf8(entry.name, 'entry name', at)
   // Only a Unix maker's attributes carry a mode.
-  const mode = entry.madeBy >> 8 === 3 ? Math.floor(entry.attributes / 0x10000) : 0
+  const mode = entry.madeBy >> 8 === 3 ? entry.attributes >>> 16 : 0
   const type = typeOf(entry, rawName, mode)
   if (type === 'directory' && usize !== 0) throw new ArchiveError(`directory ${quote(rawName)} has data`, at)
   if (method === 0 && csize !== usize) throw new ArchiveError('a stored entry has two sizes', at)

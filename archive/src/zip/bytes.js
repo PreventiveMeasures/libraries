@@ -100,6 +100,6 @@ export function toDos(mtime) {
 export function fromDos(date, time, at) {
   const seconds = Date.UTC(1980 + (date >> 9), ((date >> 5) & 15) - 1, date & 31, time >> 11, (time >> 5) & 63, (time & 31) * 2) / 1000
   const fields = dos(seconds)
-  if (fields?.time !== time || fields.date !== date) throw new ArchiveError('an entry has an invalid DOS time', at)
+  if (fields === null || fields.time !== time || fields.date !== date) throw new ArchiveError('an entry has an invalid DOS time', at)
   return seconds
 }
