@@ -26,7 +26,7 @@ describe('createVfs reads a flat map of paths', () => {
       'empty': { type: 'file' },
       'link': { type: 'symlink', target: 'file', mtime: 3 },
       'hard': { type: 'link', target: 'file' },
-      '': { type: 'directory', mode: 0o711, mtime: 4 },
+      '/': { type: 'directory', mode: 0o711, mtime: 4 },
     })
     assert.deepEqual(fs.stat('/dir'), { type: 'directory', ino: fs.stat('/dir').ino, mode: 0o700, mtime: 1, size: 0 })
     assert.deepEqual(fs.stat('/file'), { type: 'file', ino: fs.stat('/file').ino, mode: 0o600, mtime: 2, size: 1 })
@@ -43,6 +43,7 @@ describe('createVfs reads a flat map of paths', () => {
     assert.throws(() => createVfs({ 'a/b': 'x', 'a': 'now a file' }), { code: 'EISDIR' })
     assert.throws(() => createVfs({ 'a': 'x', 'b': { type: 'link', target: 'missing' } }), { code: 'ENOENT' })
     assert.throws(() => createVfs({ 'a': { type: 'fifo' } }), { code: 'EINVAL', path: 'a' })
+    for (const key of ['', '//x', 'a\\b', 'a//b', 'a/../b', 'a/']) assert.throws(() => createVfs({ [key]: 'x' }), { code: 'EINVAL', path: key.replace(/^\//u, '') }, JSON.stringify(key))
     assert.throws(() => createVfs({ 'a': 42 }), TypeError)
     assert.throws(() => createVfs({ 'a': null }), TypeError)
     assert.throws(() => createVfs({ 'a': {} }), TypeError)
@@ -113,10 +114,11 @@ describe('entries are the tree as tar would carry it', () => {
     assert.throws(() => vfsFromEntries([{ name: 5 }]), TypeError)
   })
 
-  it('refuse a name tar would: .., a control character, a slash after what is not a directory', () => {
-    for (const name of ['../../etc/passwd', 'a/../b', 'a\nb', 'a\0b', 'a/', '.', '', './']) {
+  it('refuse a name tar would: absolute, .., a backslash, a control character, an empty segment, a slash after what is not a directory', () => {
+    for (const name of ['../../etc/passwd', 'a/../b', 'a\\b', 'a\nb', 'a\0b', 'a//b', '/x', '/', 'a/', 'a/./', '.', '', './']) {
       fails(() => vfsFromEntries([{ name, data: 'x' }]), 'EINVAL', name)
     }
+    for (const name of ['/d', 'd//', '', 'd\\']) fails(() => vfsFromEntries([{ name, type: 'directory' }]), 'EINVAL', name)
     fails(() => vfsFromEntries([{ name: 'f', data: 'x' }, { name: 'l', type: 'link', linkname: '../f' }]), 'EINVAL', '../f')
     fails(() => vfsFromEntries([{ name: 'l', type: 'link' }]), 'EINVAL', '')
     fails(() => vfsFromEntries([{ name: 'd', type: 'directory' }, { name: 'l', type: 'link', linkname: 'd/' }]), 'EINVAL', 'd/')
@@ -129,7 +131,7 @@ describe('entries are the tree as tar would carry it', () => {
 
   it('take a name again only as the same entry, under any spelling of it', () => {
     const file = { data: 'x', mode: 0o600, mtime: 1 }
-    const again = vfsFromEntries([{ name: 'd/f', ...file }, { name: 'd/./f', ...file }, { name: './d//f', ...file, data: bytes('x') }, { name: 'd', type: 'directory' }, { name: 'd/', type: 'directory' }, { name: '.', type: 'directory' }, { name: '', type: 'directory' }])
+    const again = vfsFromEntries([{ name: 'd/f', ...file }, { name: 'd/./f', ...file }, { name: './d/./f', ...file, data: bytes('x') }, { name: 'd', type: 'directory' }, { name: 'd/', type: 'directory' }, { name: '.', type: 'directory' }, { name: './', type: 'directory' }, { name: 'd/.', type: 'directory' }])
     assert.deepEqual([...again.walk()].map((entry) => entry.path), ['/', '/d', '/d/f'])
     vfsFromEntries([{ name: 'f' }, { name: 'l', type: 'link', linkname: 'f' }, { name: './l', type: 'link', linkname: './f' }, { name: 's', type: 'symlink', linkname: 'f' }, { name: 's', type: 'symlink', linkname: 'f' }])
     const differing = [

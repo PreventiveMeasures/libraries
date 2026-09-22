@@ -2,20 +2,21 @@
 // of paths to contents, or tar entries — the shape `Vfs.entries()` yields,
 // so an archive unpacks into a Vfs and a Vfs packs into one.
 //
-// A description is untrusted, and is read by tar's rules for a name. A name
-// is a relative path with `.` segments and empty segments dropped, a
-// trailing slash only on a directory, and no `..` segment or control
-// character; `.` names the root, which only a directory may. Every spelling
-// of one path is one name, and a name may repeat only as the same entry
-// again, field for field and byte for byte: `d/f` and `d/./f` both is what
-// some packagers write, while two different entries under one name would
-// leave the winner to declaration order. A link declared earlier is never
-// followed on the way to a later entry, and a hard link names an entry
-// declared before it, for the same reason tar defers making its links until
-// the end.
+// A description is untrusted, and is read by tar's rules for a name: a
+// relative path with `.` segments and a directory's trailing slash dropped,
+// and no empty or `..` segment, control character or backslash — what a tar
+// entry may carry, so a tree built here packs back as it is. `.` names the
+// root, which only a directory may. Every spelling of one path is one name,
+// and a name may repeat only as the same entry again, field for field and
+// byte for byte: `d/f` and `d/./f` both is what some packagers write, while
+// two different entries under one name would leave the winner to
+// declaration order. A link declared earlier is never followed on the way
+// to a later entry, and a hard link names an entry declared before it, for
+// the same reason tar defers making its links until the end. A flat map's
+// key is a path, and may start from `/`.
 
 import { VfsError } from './error.js'
-import { dirname, segments } from './path.js'
+import { dirname } from './path.js'
 import { MODE, Vfs } from './vfs.js'
 
 const encoder = new TextEncoder()
@@ -27,7 +28,8 @@ export function createVfs(sources = {}) {
   return vfsFromEntries(Array.from(sources instanceof Map ? sources : Object.entries(sources), sourceEntry))
 }
 
-function sourceEntry([name, value]) {
+function sourceEntry([key, value]) {
+  const name = typeof key === 'string' && key.startsWith('/') ? key.slice(1) || '.' : key
   if (typeof value === 'string' || value instanceof Uint8Array) return { name, type: 'file', data: value }
   if (value === null || typeof value !== 'object' || typeof value.type !== 'string') {
     throw new TypeError(`source ${JSON.stringify(name)} must be a string, a Uint8Array, or an object with a type`)
@@ -81,10 +83,12 @@ function place(vfs, declared, { name, type = 'file', data, mode, mtime, linkname
 // A name by tar's rules, as the one spelling of its path: the root is ''.
 function checkName(name, directory) {
   if (typeof name !== 'string') throw new TypeError(`a name must be a string, not ${typeof name}`)
-  const parts = segments(name).filter((part) => part !== '.')
-  const invalid = parts.includes('..') || /\p{Cc}/u.test(name) || (!directory && (parts.length === 0 || name.endsWith('/')))
+  const parts = name.split('/')
+  if (directory && parts.length > 1 && parts.at(-1) === '') parts.pop()
+  const kept = parts.filter((part) => part !== '.')
+  const invalid = name.startsWith('/') || /[\p{Cc}\\]/u.test(name) || kept.some((part) => part === '' || part === '..') || (!directory && kept.length === 0)
   if (invalid) throw new VfsError('EINVAL', name)
-  return parts.join('/')
+  return kept.join('/')
 }
 
 // Whether a repeated name declares what is already there, field for field

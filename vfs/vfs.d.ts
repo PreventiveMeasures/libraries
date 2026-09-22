@@ -34,8 +34,9 @@ export interface Entry {
 
 // What vfsFromEntries takes: tar's own entries, or the same with the
 // optional fields left out. `contiguous-file` is a file. A name follows
-// tar's rules: relative, no `..` segment or control character, a trailing
-// slash on a directory alone; it may repeat only as the same entry again.
+// tar's rules: relative, with no empty or `..` segment, control character
+// or backslash, and a trailing slash on a directory alone; it may repeat
+// only as the same entry again.
 export interface EntryInput {
   name: string
   type?: NodeType | 'link' | 'contiguous-file'
@@ -45,7 +46,8 @@ export interface EntryInput {
   linkname?: string
 }
 
-// A source tree as a flat map: a path to what is there. Text and bytes are
+// A source tree as a flat map: a path to what is there, spelled from `/` or
+// relative to it, by the rules of an entry name otherwise. Text and bytes are
 // files; an object says what else, `target` being a symlink's target or the
 // path a hard link names. Parent directories are implied.
 export type Source =
