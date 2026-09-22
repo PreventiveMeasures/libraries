@@ -35,9 +35,39 @@ function fakeModelDir() {
 // Spelled out rather than imported, so a wrong root is a failure here.
 // A function, because os.tmpdir() reads the environment on every call.
 const profileRoot = () => join(tmpdir(), `preventive-ai${process.getuid ? `-${process.getuid()}` : ''}`)
+// The root as claimProfile makes it, mode included: one left at the default
+// 755 is a root claimProfile refuses, and mkdir on a directory already there
+// leaves its mode alone — so a test that makes the root makes it right.
+function scratchRoot() {
+  mkdirSync(profileRoot(), { recursive: true, mode: 0o700 })
+  return profileRoot()
+}
 function scratchProfile() {
-  mkdirSync(profileRoot(), { recursive: true })
-  return mkdtempSync(join(profileRoot(), 'chrome-'))
+  return mkdtempSync(join(scratchRoot(), 'chrome-'))
+}
+
+// A temp dir of the test's own, with os.tmpdir() pointed at it until the
+// function this returns is called (TMPDIR; TEMP and TMP for Windows), which
+// also puts it back and removes the dir. A child spawned meanwhile inherits
+// it. Everything that reaches the profile root runs under one: the root's
+// name is fixed, so in the real temp dir a test finds whatever an earlier run
+// or a live session left there — a root claimProfile refuses, rightly, would
+// fail tests that never made it. Called from a hook or a test, not a describe
+// body: those all run up front, before any test.
+function isolateTmpdir(prefix) {
+  const sandbox = mkdtempSync(join(tmpdir(), prefix))
+  const restore = {}
+  for (const key of ['TMPDIR', 'TMP', 'TEMP']) {
+    restore[key] = process.env[key]
+    process.env[key] = sandbox
+  }
+  return () => {
+    for (const [key, value] of Object.entries(restore)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+    rmSync(sandbox, { recursive: true, force: true })
+  }
 }
 
 // chrome selects without a key — its preflight checks weights, not auth — so
@@ -802,6 +832,9 @@ describe('chrome exit cleanup', () => {
   // Ctrl+C for real, in a process of its own: nothing else can say whether
   // the handler is wired to the signal rather than merely correct.
   const skip = process.platform === 'win32' ? 'signals are a POSIX thing' : false
+  let restore
+  before(() => { restore = isolateTmpdir('ai-chrome-test-exit-') })
+  after(() => restore())
 
   it('hands the process back once no profile of ours is left in it', () => {
     // Owning a process's signals for the rest of its life is not a library's
@@ -846,23 +879,13 @@ describe('chrome exit cleanup', () => {
     // can get there first. mkdir's mode only lands when it creates the
     // directory, and one already there is trusted otherwise.
     if (!process.getuid) return t.skip('ownership and mode are POSIX')
-    const sandbox = mkdtempSync(join(tmpdir(), 'ai-chrome-test-root-'))
-    const restore = {}
-    t.after(() => {
-      for (const [key, value] of Object.entries(restore)) {
-        if (value === undefined) delete process.env[key]
-        else process.env[key] = value
-      }
-      rmSync(sandbox, { recursive: true, force: true })
-    })
-    for (const key of ['TMPDIR', 'TMP', 'TEMP']) {
-      restore[key] = process.env[key]
-      process.env[key] = sandbox
-    }
+    // One more level down: the suite's root is already there by now, and the
+    // symlink needs the spot empty.
+    t.after(isolateTmpdir('ai-chrome-test-root-'))
 
     // A symlink where the root should be: mkdir -p follows it without
     // complaint, and every profile after would land wherever it points.
-    const elsewhere = join(sandbox, 'elsewhere')
+    const elsewhere = join(tmpdir(), 'elsewhere')
     mkdirSync(elsewhere)
     symlinkSync(elsewhere, profileRoot(), 'junction')
     assert.throws(() => claimProfile('/nowhere'), /not a directory/u)
@@ -906,28 +929,23 @@ describe('chrome exit cleanup', () => {
 describe('chrome idle close', () => {
   // Its own temp dir: the observable end of closeChrome with nothing open is
   // that it takes the shared directory, so that is what says it ran.
-  const sandbox = mkdtempSync(join(tmpdir(), 'ai-chrome-test-idle-'))
-  const restore = {}
+  let restore
+  let idleMs
   before(() => {
-    for (const key of ['TMPDIR', 'TMP', 'TEMP']) {
-      restore[key] = process.env[key]
-      process.env[key] = sandbox
-    }
-    restore.CHROME_IDLE_MS = process.env.CHROME_IDLE_MS
+    restore = isolateTmpdir('ai-chrome-test-idle-')
+    idleMs = process.env.CHROME_IDLE_MS
     process.env.CHROME_IDLE_MS = '20'
   })
   after(() => {
-    for (const [key, value] of Object.entries(restore)) {
-      if (value === undefined) delete process.env[key]
-      else process.env[key] = value
-    }
-    rmSync(sandbox, { recursive: true, force: true })
+    restore()
+    if (idleMs === undefined) delete process.env.CHROME_IDLE_MS
+    else process.env.CHROME_IDLE_MS = idleMs
   })
 
   const settle = (ms) => new Promise((resolve) => { setTimeout(resolve, ms) })
 
   it('closes the browser once nothing has asked for a turn', async () => {
-    mkdirSync(profileRoot(), { recursive: true })
+    scratchRoot()
     await trackTurn(() => Promise.resolve({ text: 'ok' }))
     assert.equal(existsSync(profileRoot()), true, 'closed before the idle window was up')
     await settle(120)
@@ -935,7 +953,7 @@ describe('chrome idle close', () => {
   })
 
   it('does not close while turns keep arriving', async () => {
-    mkdirSync(profileRoot(), { recursive: true })
+    scratchRoot()
     for (let i = 0; i < 4; i++) {
       await trackTurn(() => Promise.resolve({ text: 'ok' }))
       await settle(10)
@@ -946,7 +964,7 @@ describe('chrome idle close', () => {
   })
 
   it('leaves a turn that outlasts the window alone', async () => {
-    mkdirSync(profileRoot(), { recursive: true })
+    scratchRoot()
     await trackTurn(() => Promise.resolve({ text: 'ok' }))
     let answer
     const slow = trackTurn(() => new Promise((resolve) => { answer = resolve }))
@@ -963,8 +981,8 @@ describe('chrome idle close', () => {
     // off too. Pointed at weights that are not there, so this fails inside the
     // launch — which still arms the close only because the launch is tracked.
     t.after(() => { delete process.env.CHROME_MODEL_DIR })
-    process.env.CHROME_MODEL_DIR = join(sandbox, 'no-weights-here')
-    mkdirSync(profileRoot(), { recursive: true })
+    process.env.CHROME_MODEL_DIR = join(tmpdir(), 'no-weights-here')
+    scratchRoot()
     await assert.rejects(sendChromeTurn('chrome/gemini-nano-v3', {}), /CHROME_MODEL_DIR/u)
     await settle(120)
     assert.equal(existsSync(profileRoot()), false, 'a launch that failed should still arm the close')
@@ -972,10 +990,12 @@ describe('chrome idle close', () => {
 })
 
 describe('chrome close while a turn is in flight', () => {
-  it('waits for the turn instead of closing the browser under it', async () => {
+  it('waits for the turn instead of closing the browser under it', async (t) => {
     // Parallel callers share a browser, and each closes the provider when its
     // own turn returns. Closing on the first one to finish is what left the
     // rest with "Target page, context or browser has been closed".
+    // closeChrome ends by taking the shared directory, hence the temp dir.
+    t.after(isolateTmpdir('ai-chrome-test-close-'))
     let answer
     const turn = trackTurn(() => new Promise((resolve) => { answer = resolve }))
 
@@ -992,6 +1012,12 @@ describe('chrome close while a turn is in flight', () => {
 })
 
 describe('chrome scratch-profile cleanup', () => {
+  // Under a temp dir of this suite's own: the sweep and the delete work on the
+  // profile root, and the one they find has to be the one these tests filled.
+  let restore
+  before(() => { restore = isolateTmpdir('ai-chrome-test-sweep-') })
+  after(() => restore())
+
   it('recognises only its own scratch profiles', () => {
     // The predicate, not the delete. Asking removeProfileDir to refuse ''
     // or '/' would, the day the guard regressed, delete the cwd or the root
@@ -1012,8 +1038,8 @@ describe('chrome scratch-profile cleanup', () => {
   })
 
   // The sweep runs on launch and deletes other processes' leftovers, so what
-  // it spares matters as much as what it takes. Real directories under the
-  // real temp dir, since it reads mtimes and pids off the filesystem.
+  // it spares matters as much as what it takes. Real directories, since it
+  // reads mtimes and pids off the filesystem.
   describe('the stale sweep', () => {
     const AGED = new Date(Date.now() - 7 * 60 * 60 * 1000)
     const aged = (owner) => {
@@ -1098,23 +1124,12 @@ describe('chrome scratch-profile cleanup', () => {
   })
 
   describe('the shared directory', () => {
-    // Pointed at a temp dir of its own, so what is or is not left in the
-    // shared directory is this test's doing rather than the machine's.
-    const sandbox = mkdtempSync(join(tmpdir(), 'ai-chrome-test-tmp-'))
-    const restore = {}
-    before(() => {
-      for (const key of ['TMPDIR', 'TMP', 'TEMP']) {
-        restore[key] = process.env[key]
-        process.env[key] = sandbox
-      }
-    })
-    after(() => {
-      for (const [key, value] of Object.entries(restore)) {
-        if (value === undefined) delete process.env[key]
-        else process.env[key] = value
-      }
-      rmSync(sandbox, { recursive: true, force: true })
-    })
+    // A temp dir of its own once more, inside the suite's: what is or is not
+    // left in the shared directory is this test's doing rather than a
+    // sibling's.
+    let restoreOwn
+    before(() => { restoreOwn = isolateTmpdir('ai-chrome-test-tmp-') })
+    after(() => restoreOwn())
 
     it('goes once the last profile is out of it', () => {
       const ours = scratchProfile()
