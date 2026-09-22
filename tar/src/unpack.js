@@ -6,7 +6,7 @@
 
 import { TarError } from './error.js'
 import { BLOCK, EMPTY, decodeHeader, isZeroBlock, untilNul } from './header.js'
-import { Names, admit } from './names.js'
+import { Names, cleanNames } from './names.js'
 import { decodePax } from './pax.js'
 import { decodeUtf8, hasUnsafe, quote } from './text.js'
 
@@ -39,13 +39,19 @@ class Unpacker {
   #offset = 0
   #buffered = 0
   #position = 0
-  #names = new Names()
+  #names
   #pending = { pax: null, longname: null, longlink: null }
   #global = null
   // The header whose body is due: { extended, size, at, entry }.
   #awaiting = null
   #zeros = 0
   #done = false
+
+  // `keep` holds entries for a repeat to be compared with, which only the
+  // in-memory call can afford.
+  constructor(keep = false) {
+    this.#names = new Names(keep)
+  }
 
   push(chunk) {
     if (!(chunk instanceof Uint8Array)) throw new TarError('a chunk is not a Uint8Array')
@@ -142,6 +148,11 @@ class Unpacker {
     const raw = body.subarray(0, size)
     if (extended === null) {
       entry.data = raw
+      try {
+        this.#names.add(entry)
+      } catch (error) {
+        throw new TarError(error.message, at)
+      }
       out.push(entry)
     } else if (extended === 'global') {
       this.#global = decodePax(raw, at)
@@ -172,7 +183,7 @@ class Unpacker {
     let name
     let linkname
     try {
-      ({ name, linkname } = admit(this.#names, rawName, type, rawTarget))
+      ({ name, linkname } = cleanNames(rawName, type, rawTarget))
     } catch (error) {
       throw new TarError(error.message, at)
     }
@@ -209,7 +220,7 @@ class Unpacker {
 }
 
 export function unpack(bytes) {
-  const unpacker = new Unpacker()
+  const unpacker = new Unpacker(true)
   const entries = unpacker.push(bytes)
   unpacker.end()
   return entries

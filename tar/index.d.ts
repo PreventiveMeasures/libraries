@@ -65,10 +65,16 @@ export interface PackOptions {
   blocking?: number
 }
 
+// Both refuse a name that repeats as a different entry — anything but
+// the same fields and the same bytes again — an entry inside something
+// that is not a directory, and a hard link to no earlier entry.
 export function pack(entries: Iterable<EntryInput>, options?: PackOptions): Uint8Array
 export function unpack(bytes: Uint8Array): Entry[]
 
-// packStream yields each entry's `data` as the very array it was given.
+// The same a piece at a time, as plain generators. A stream keeps no
+// entry's data, so a name that repeats with the same fields is refused
+// there, and such an archive is for the in-memory call. packStream yields
+// each entry's `data` as the very array it was given.
 export function packStream(entries: Iterable<EntryInput>, options?: PackOptions): Generator<Uint8Array, void, undefined>
 export function packStreamAsync(entries: Iterable<EntryInput> | AsyncIterable<EntryInput>, options?: PackOptions): AsyncGenerator<Uint8Array, void, undefined>
 export function unpackStream(chunks: Iterable<Uint8Array>): Generator<Entry, void, undefined>

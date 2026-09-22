@@ -55,12 +55,13 @@ describe('what it refuses about names', () => {
   const refused = [
     [[{ name: '/etc/passwd' }], /entry name "\/etc\/passwd" is absolute/u],
     [[{ name: '../x' }], /has a \.\. segment/u],
-    [[{ name: 'a' }, { name: './a' }], /duplicate entry "a"/u],
+    [[{ name: 'a' }, { name: './a', mode: 0o600 }], /duplicate entry "a" differs in mode/u],
     [[{ name: 'a//b' }], /has an empty segment/u],
     [[{ name: 'a\\b' }], /control character or a backslash/u],
-    [[{ name: 'a' }, { name: 'a' }], /duplicate entry "a"/u],
-    [[{ name: 'd/', type: 'directory' }, { name: 'd', type: 'directory' }], /duplicate entry "d"/u],
-    [[{ name: 'd', type: 'directory' }, { name: 'd' }], /duplicate entry "d"/u],
+    [[{ name: 'a' }, { name: 'a', data: utf8('x') }], /duplicate entry "a" differs in data/u],
+    [[{ name: 'a', data: utf8('x') }, { name: 'a', data: utf8('y') }], /duplicate entry "a" differs in data/u],
+    [[{ name: 'a' }, { name: 'a', mtime: 1 }], /duplicate entry "a" differs in mtime/u],
+    [[{ name: 'd', type: 'directory' }, { name: 'd' }], /duplicate entry "d" differs in type/u],
     [[{ name: 'a' }, { name: 'a/b' }], /"a\/b" is inside "a", which is not a directory/u],
     [[{ name: 'a/b' }, { name: 'a' }], /"a" holds an earlier entry, so it cannot be a file/u],
     [[{ name: 'l', type: 'symlink', linkname: 'elsewhere' }, { name: 'l/x' }], /is inside "l", which is not a directory/u],
@@ -76,6 +77,10 @@ describe('what it refuses about names', () => {
   }
   it('lets a directory come after what it holds', () => {
     pack([{ name: 'a/b' }, { name: 'a', type: 'directory' }])
+  })
+  it('takes a name again as the same entry, and writes it again', () => {
+    const twice = unpack(pack([{ name: 'd/f', data: utf8('x') }, { name: 'd/./f', data: utf8('x') }, { name: 'd/', type: 'directory' }, { name: 'd', type: 'directory' }]))
+    assert.deepEqual(twice.map((e) => e.name), ['d/f', 'd/f', 'd', 'd'])
   })
   it('drops . segments and a directory slash, and names the root .', () => {
     const entries = unpack(pack([{ name: './', type: 'directory' }, { name: './x' }, { name: 'a/./b' }, { name: 'd/', type: 'directory' }, { name: 'h', type: 'link', linkname: './x' }]))

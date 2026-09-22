@@ -61,11 +61,16 @@ describe('unpackStream reads an archive however it is cut', () => {
     assert.equal(pulled, 5)
   })
   it('refuses what unpack refuses, when it gets there', () => {
-    const bytes = pack([{ name: 'a' }, { name: 'a' }].slice(0, 1), { blocking: 1 })
-    const twice = concat([bytes.subarray(0, 512), bytes])
+    const bytes = pack([{ name: 'a' }], { blocking: 1 })
+    const twice = concat([pack([{ name: 'a', mtime: 1 }], { blocking: 1 }).subarray(0, 512), bytes])
     const entries = unpackStream(split(twice, 512))
     assert.equal(entries.next().value.name, 'a')
-    assert.throws(() => entries.next(), /duplicate entry "a" at byte 512/u)
+    assert.throws(() => entries.next(), /duplicate entry "a" differs in mtime at byte 512/u)
+    // A stream keeps no data, so a repeat it cannot tell apart is refused
+    // there and taken by the in-memory call.
+    const same = concat([bytes.subarray(0, 512), bytes])
+    assert.throws(() => [...unpackStream([same])], /duplicate entry "a", which only the in-memory call can compare with the earlier one at byte 512/u)
+    assert.equal(unpack(same).length, 2)
     assert.throws(() => [...unpackStream([bytes.subarray(0, 512)])], /has no end marker/u)
     assert.throws(() => [...unpackStream([bytes.subarray(0, 1024)])], /ends with a lone zero block/u)
     assert.throws(() => [...unpackStream(['x'])], /a chunk is not a Uint8Array/u)
@@ -86,9 +91,11 @@ describe('packStream writes an archive a piece at a time', () => {
     assert.ok(chunks.includes(data))
   })
   it('refuses an entry when it reaches it, after what came before', () => {
-    const chunks = packStream([{ name: 'a' }, { name: 'a' }])
+    const chunks = packStream([{ name: 'a' }, { name: 'a', mode: 0o600 }])
     assert.equal(chunks.next().value.length, 512)
-    assert.throws(() => chunks.next(), /duplicate entry "a"/u)
+    assert.throws(() => chunks.next(), /duplicate entry "a" differs in mode/u)
+    assert.throws(() => [...packStream([{ name: 'a' }, { name: 'a' }])], /which only the in-memory call can compare/u)
+    assert.equal(unpack(pack([{ name: 'a' }, { name: 'a' }])).length, 2)
   })
 })
 

@@ -50,15 +50,16 @@ describe('numbers', () => {
     assert.throws(() => writeNumber(new Uint8Array(8), 0, 8, 2097152, false), /does not fit an octal field of 7 digits/u)
     assert.throws(() => writeNumber(new Uint8Array(12), 0, 12, -1, false), /does not fit/u)
   })
-  it('read back what older tars wrote', () => {
+  it('read back what older tars wrote, and a blank field as 0', () => {
     assert.equal(readNumber(latin1('   644  '), 0, 8, 'mode', 0), 0o644)
     assert.equal(readNumber(latin1('0000644 '), 0, 8, 'mode', 0), 0o644)
+    assert.equal(readNumber(latin1('000644 \0'), 0, 8, 'mode', 0), 0o644)
     assert.equal(readNumber(latin1('644\0\0\0\0\0'), 0, 8, 'mode', 0), 0o644)
+    assert.equal(readNumber(new Uint8Array(8), 0, 8, 'uid', 0), 0)
+    assert.equal(readNumber(latin1('        '), 0, 8, 'uid', 0), 0)
   })
   it('refuse what is not a number', () => {
-    assert.throws(() => readNumber(latin1('        '), 0, 8, 'uid', 512), /the uid field is not an octal number at byte 512/u)
-    assert.throws(() => readNumber(new Uint8Array(8), 0, 8, 'uid', 0), /is not an octal number/u)
-    assert.throws(() => readNumber(latin1('00006x4\0'), 0, 8, 'uid', 0), /the uid field is not an octal number/u)
+    assert.throws(() => readNumber(latin1('00006x4\0'), 0, 8, 'uid', 512), /the uid field is not an octal number at byte 512/u)
     assert.throws(() => readNumber(latin1('0000098\0'), 0, 8, 'uid', 0), /is not an octal number/u)
     assert.throws(() => readNumber(Uint8Array.from([0x81, 0, 0, 0, 0, 0, 0, 1]), 0, 8, 'uid', 0), /is not an octal number/u)
     const huge = new Uint8Array(12).fill(0xff)
@@ -111,12 +112,15 @@ describe('a header', () => {
     assertBytes(decodeHeader(encodeHeader(prefixed), 0).prefix, utf8('p'))
     assertBytes(decodeHeader(encodeHeader({ ...prefixed, gnu: true }), 0).prefix, EMPTY)
   })
-  it('reads device numbers only for a device, since the fields are NUL otherwise', () => {
-    assert.equal(decodeHeader(encodeHeader(fields()), 0).devmajor, 0)
+  it('reads device numbers for a device', () => {
     const device = decodeHeader(encodeHeader(fields({ typeflag: 0x33, devmajor: 1, devminor: 3 })), 0)
     assert.equal(device.devmajor, 1)
     assert.equal(device.devminor, 3)
-    assert.throws(() => decodeHeader(encodeHeader(fields({ typeflag: 0x33 })), 0), /the devmajor field is not an octal number/u)
+    const block = encodeHeader(fields({ typeflag: 0x33, devmajor: 1, devminor: 3 }))
+    block.set(latin1('0000x00\0'), 329)
+    block.fill(0x20, 148, 156)
+    block.set(latin1(`${block.reduce((a, b) => a + b, 0).toString(8).padStart(6, '0')}\0 `), 148)
+    assert.throws(() => decodeHeader(block, 0), /the devmajor field is not an octal number/u)
   })
   it('refuses a field longer than its room, rather than writing over the next', () => {
     assert.throws(() => encodeHeader(fields({ name: utf8('n'.repeat(101)) })), RangeError)

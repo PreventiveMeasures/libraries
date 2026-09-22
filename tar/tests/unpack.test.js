@@ -97,7 +97,9 @@ describe('what it refuses', () => {
     ['an absolute name', () => archive(header({ name: utf8('/x') })), /entry name "\/x" is absolute at byte 0/u],
     ['a name with a backslash', () => archive(header({ name: utf8('a\\b') })), /control character or a backslash/u],
     ['a name that is not UTF-8', () => archive(header({ name: Uint8Array.from([0xff, 0x61]) })), /entry name is not valid UTF-8 at byte 0/u],
-    ['a name twice', () => archive(header(), header()), /duplicate entry "a" at byte 512/u],
+    ['a name twice as a different entry', () => archive(header(), header({ mtime: 1 })), /duplicate entry "a" differs in mtime at byte 512/u],
+    ['a name twice with different data', () => archive(header({ size: 1 }), padded(utf8('x')), header({ size: 1 }), padded(utf8('y'))), /duplicate entry "a" differs in data at byte 1024/u],
+    ['a name twice as a file and a directory', () => archive(header(), header({ typeflag: 0x35, name: utf8('a/') })), /duplicate entry "a" differs in type/u],
     ['a symlink pointing out of the archive', () => archive(header({ typeflag: 0x32, name: utf8('l'), linkname: utf8('../x') })), /symlink "l" points outside the archive/u],
     ['a hard link to nothing', () => archive(header({ typeflag: 0x31, name: utf8('h'), linkname: utf8('a') })), /hard link "h" targets "a", which is not an earlier non-directory entry/u],
     ['an entry through a symlink', () => archive(header({ typeflag: 0x32, name: utf8('l'), linkname: utf8('x') }), header({ name: utf8('l/a') })), /"l\/a" is inside "l", which is not a directory at byte 512/u],
@@ -106,8 +108,7 @@ describe('what it refuses', () => {
     ['a file whose name ends in a slash', () => archive(header({ name: utf8('d/') })), /"d\/" ends in a slash but is not a directory at byte 0/u],
     ['a file named as the archive root', () => archive(header({ name: utf8('.') })), /names the archive root but is not a directory/u],
     ['a directory with an empty segment', () => archive(header({ typeflag: 0x35, name: utf8('a//b/') })), /has an empty segment/u],
-    ['a name twice once . segments are dropped', () => archive(header(), header({ name: utf8('./a') })), /duplicate entry "a" at byte 512/u],
-    ['a device without device numbers', () => archive(header({ typeflag: 0x33, name: utf8('c') })), /the devmajor field is not an octal number at byte 0/u],
+    ['a name twice once . segments are dropped, as a different entry', () => archive(header(), header({ name: utf8('./a'), mode: 0o600 })), /duplicate entry "a" differs in mode at byte 512/u],
     ['a size below zero in base 256', () => archive(header({ gnu: true, size: -1 })), /the size field is negative at byte 0/u],
     ['a uid below zero in base 256', () => archive(header({ gnu: true, uid: -1 })), /the uid field is negative at byte 0/u],
     ['an owner name with a control character', () => archive(...pax([['uname', 'a\nb']])), /uname "a\\nb" holds a control character at byte 1024/u],
@@ -119,7 +120,7 @@ describe('what it refuses', () => {
     it(`refuses ${what}`, () => assert.throws(() => unpack(bytes()), message))
   }
   it('throws TarError with the offset', () => {
-    assert.throws(() => unpack(archive(header(), header())), (error) => error instanceof TarError && error.offset === 512)
+    assert.throws(() => unpack(archive(header(), header({ mtime: 1 }))), (error) => error instanceof TarError && error.offset === 512)
   })
 })
 
@@ -137,6 +138,16 @@ function sealedData() {
 }
 
 describe('what it reads that GNU tar reads', () => {
+  it('blank numeric fields as 0, which npm wrote for uid and gid', () => {
+    const block = header({ uid: 7, gid: 7 })
+    block.fill(0, 108, 124)
+    const resealed = sealed(block, () => {})
+    assert.deepEqual([unpack(archive(resealed))[0].uid, unpack(archive(resealed))[0].gid], [0, 0])
+  })
+  it('a name again as the same entry, as some packagers write d/f and d/./f', () => {
+    const entries = unpack(archive(header({ name: utf8('d/f'), size: 1 }), padded(utf8('x')), header({ name: utf8('d/./f'), size: 1 }), padded(utf8('x'))))
+    assert.deepEqual(entries.map((e) => [e.name, new TextDecoder().decode(e.data)]), [['d/f', 'x'], ['d/f', 'x']])
+  })
   it('a NUL typeflag as a file', () => {
     assert.equal(unpack(archive(header({ typeflag: 0 })))[0].type, 'file')
   })

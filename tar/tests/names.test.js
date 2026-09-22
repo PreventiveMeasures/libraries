@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { Names, admit, checkSymlinkTarget, cleanPath } from '../src/names.js'
+import { Names, checkSymlinkTarget, cleanNames, cleanPath } from '../src/names.js'
+import { utf8 } from './helpers.js'
 
 // The rules a name is held to, on their own: what is a clean relative
 // path, where a symlink may point, and what the record of names refuses.
@@ -83,51 +84,65 @@ describe('a symlink target stays inside the archive', () => {
 })
 
 describe('the names seen so far', () => {
+  const entry = (name, type = 'file', linkname = '', over = {}) => ({
+    name, type, linkname, mode: 0o644, uid: 0, gid: 0, mtime: 0, uname: '', gname: '', devmajor: 0, devminor: 0, data: new Uint8Array(0), ...over,
+  })
   const after = (...entries) => {
-    const names = new Names()
-    for (const [name, type, linkname] of entries) names.add(name, type, linkname)
+    const names = new Names(true)
+    for (const e of entries) names.add(e)
     return names
   }
-  it('refuses a name twice', () => {
-    assert.throws(() => after(['a', 'file']).add('a', 'file'), /duplicate entry "a"/u)
-    assert.throws(() => after(['a', 'directory']).add('a', 'directory'), /duplicate entry "a"/u)
+  it('takes a name twice only as the same entry again', () => {
+    after(entry('a')).add(entry('a'))
+    after(entry('a', 'file', '', { data: utf8('x') })).add(entry('a', 'file', '', { data: utf8('x') }))
+    after(entry('d', 'directory')).add(entry('d', 'directory'))
+    after(entry('a'), entry('l', 'symlink', 'a')).add(entry('l', 'symlink', 'a'))
+    assert.throws(() => after(entry('a', 'file', '', { data: utf8('x') })).add(entry('a', 'file', '', { data: utf8('y') })), /duplicate entry "a" differs in data/u)
+    assert.throws(() => after(entry('a')).add(entry('a', 'file', '', { data: utf8('x') })), /duplicate entry "a" differs in data/u)
+    assert.throws(() => after(entry('a')).add(entry('a', 'file', '', { mtime: 1 })), /duplicate entry "a" differs in mtime/u)
+    assert.throws(() => after(entry('a')).add(entry('a', 'file', '', { mode: 0o600 })), /differs in mode/u)
+    assert.throws(() => after(entry('a')).add(entry('a', 'file', '', { uname: 'me' })), /differs in uname/u)
+    assert.throws(() => after(entry('a'), entry('l', 'symlink', 'a')).add(entry('l', 'symlink', './a')), /differs in linkname/u)
+  })
+  it('compares a repeat by its fields alone when told to keep nothing, and refuses what it cannot compare', () => {
+    const names = new Names()
+    names.add(entry('a', 'file', '', { data: utf8('x') }))
+    assert.throws(() => names.add(entry('a', 'file', '', { mtime: 1 })), /duplicate entry "a" differs in mtime/u)
+    assert.throws(() => names.add(entry('a', 'file', '', { data: utf8('x') })), /duplicate entry "a", which only the in-memory call can compare with the earlier one/u)
   })
   it('refuses a file and a directory of one name, either way round', () => {
-    assert.throws(() => after(['a', 'file']).add('a', 'directory'), /duplicate entry "a"/u)
-    assert.throws(() => after(['a', 'directory']).add('a', 'file'), /duplicate entry "a"/u)
+    assert.throws(() => after(entry('a')).add(entry('a', 'directory')), /duplicate entry "a" differs in type/u)
+    assert.throws(() => after(entry('a', 'directory')).add(entry('a')), /duplicate entry "a" differs in type/u)
   })
   it('lets a directory be named after what it already held', () => {
-    after(['a/b', 'file']).add('a', 'directory')
+    after(entry('a/b')).add(entry('a', 'directory'))
   })
   it('refuses a file named like the directory of an earlier entry', () => {
-    assert.throws(() => after(['a/b', 'file']).add('a', 'file'), /"a" holds an earlier entry, so it cannot be a file/u)
-    assert.throws(() => after(['a/b', 'file']).add('a', 'symlink', 'x'), /cannot be a symlink/u)
+    assert.throws(() => after(entry('a/b')).add(entry('a')), /"a" holds an earlier entry, so it cannot be a file/u)
+    assert.throws(() => after(entry('a/b')).add(entry('a', 'symlink', 'x')), /cannot be a symlink/u)
   })
   it('refuses an entry inside something that is not a directory', () => {
-    assert.throws(() => after(['a', 'file']).add('a/b', 'file'), /"a\/b" is inside "a", which is not a directory/u)
-    assert.throws(() => after(['a', 'symlink', 'elsewhere']).add('a/b', 'file'), /is inside "a", which is not a directory/u)
-    assert.throws(() => after(['a', 'fifo']).add('a/b/c', 'directory'), /is inside "a"/u)
+    assert.throws(() => after(entry('a')).add(entry('a/b')), /"a\/b" is inside "a", which is not a directory/u)
+    assert.throws(() => after(entry('a', 'symlink', 'elsewhere')).add(entry('a/b')), /is inside "a", which is not a directory/u)
+    assert.throws(() => after(entry('a', 'fifo')).add(entry('a/b/c', 'directory')), /is inside "a"/u)
   })
   it('lets a hard link name an earlier non-directory entry', () => {
-    after(['a', 'file']).add('b', 'link', 'a')
-    after(['a', 'symlink', 'x']).add('b', 'link', 'a')
+    after(entry('a')).add(entry('b', 'link', 'a'))
+    after(entry('a', 'symlink', 'x')).add(entry('b', 'link', 'a'))
   })
   it('refuses a hard link to anything else', () => {
-    assert.throws(() => after().add('b', 'link', 'a'), /hard link "b" targets "a", which is not an earlier non-directory entry/u)
-    assert.throws(() => after(['a', 'directory']).add('b', 'link', 'a'), /not an earlier non-directory entry/u)
-    assert.throws(() => after(['a/x', 'file']).add('b', 'link', 'a'), /not an earlier non-directory entry/u)
-    assert.throws(() => after().add('b', 'link', 'b'), /not an earlier non-directory entry/u)
+    assert.throws(() => after().add(entry('b', 'link', 'a')), /hard link "b" targets "a", which is not an earlier non-directory entry/u)
+    assert.throws(() => after(entry('a', 'directory')).add(entry('b', 'link', 'a')), /not an earlier non-directory entry/u)
+    assert.throws(() => after(entry('a/x')).add(entry('b', 'link', 'a')), /not an earlier non-directory entry/u)
+    assert.throws(() => after().add(entry('b', 'link', 'b')), /not an earlier non-directory entry/u)
   })
-  it('admit runs every check in order, and hands back the cleaned names', () => {
-    const names = new Names()
-    assert.deepEqual(admit(names, './a', 'file', ''), { name: 'a', linkname: '' })
-    assert.throws(() => admit(names, 'a', 'file', ''), /duplicate/u)
-    assert.throws(() => admit(names, './a/', 'directory', ''), /duplicate entry "a"/u)
-    assert.throws(() => admit(names, '../b', 'file', ''), /\.\. segment/u)
-    assert.throws(() => admit(names, 'l', 'symlink', '../x'), /points outside/u)
-    assert.throws(() => admit(names, 'h', 'link', '/a'), /hard link target of "h" "\/a" is absolute/u)
-    assert.deepEqual(admit(names, 'h', 'link', './a'), { name: 'h', linkname: 'a' })
-    assert.deepEqual(admit(names, './', 'directory', ''), { name: '.', linkname: '' })
-    assert.throws(() => admit(names, '.', 'directory', ''), /duplicate entry "\."/u)
+  it('cleanNames runs every check in order, and hands back the cleaned names', () => {
+    assert.deepEqual(cleanNames('./a', 'file', ''), { name: 'a', linkname: '' })
+    assert.throws(() => cleanNames('../b', 'file', ''), /\.\. segment/u)
+    assert.throws(() => cleanNames('l', 'symlink', '../x'), /points outside/u)
+    assert.throws(() => cleanNames('h', 'link', '/a'), /hard link target of "h" "\/a" is absolute/u)
+    assert.deepEqual(cleanNames('h', 'link', './a'), { name: 'h', linkname: 'a' })
+    assert.deepEqual(cleanNames('./', 'directory', ''), { name: '.', linkname: '' })
+    assert.deepEqual(cleanNames('./d/', 'directory', ''), { name: 'd', linkname: '' })
   })
 })

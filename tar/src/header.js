@@ -57,8 +57,9 @@ export function writeNumber(block, offset, size, value, gnu) {
   }
 }
 
-// Older tars wrote leading spaces, and either spaces or NULs after. Only a
-// time may be negative.
+// Older tars wrote leading spaces, and either spaces or NULs after; a field
+// left blank (npm's packer wrote uid and gid so for years) is 0, as GNU tar,
+// libarchive and the rest read it. Only a time may be negative.
 export function readNumber(block, offset, size, what, at, signed = false) {
   const first = block[offset]
   if (first === 0x80 || first === 0xff) {
@@ -69,9 +70,9 @@ export function readNumber(block, offset, size, what, at, signed = false) {
     if (v > BigInt(Number.MAX_SAFE_INTEGER) || v < -BigInt(Number.MAX_SAFE_INTEGER)) throw new TarError(`the ${what} field is too large`, at)
     return Number(v)
   }
-  const match = /^ *([0-7]+) *$/u.exec(ascii(block.subarray(offset, offset + size)).replaceAll('\0', ' '))
+  const match = /^ *([0-7]*) *$/u.exec(ascii(block.subarray(offset, offset + size)).replaceAll('\0', ' '))
   if (!match) throw new TarError(`the ${what} field is not an octal number`, at)
-  return Number.parseInt(match[1], 8)
+  return match[1] === '' ? 0 : Number.parseInt(match[1], 8)
 }
 
 export function untilNul(raw) {

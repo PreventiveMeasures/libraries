@@ -6,6 +6,12 @@
 // may use `..`, but is followed from where the link sits and refused if it
 // climbs above the archive. Lengths are bounded by what a filesystem takes
 // at all: PATH_MAX for the whole, NAME_MAX for a segment, in bytes.
+//
+// A name may repeat only as the same entry again, field for field and byte
+// for byte (some packagers write `d/f` and `d/./f` both): two different
+// entries under one name would leave the winner to extraction order.
+// Collisions a filesystem might add — case, Unicode normalisation — are
+// the filesystem's, not the archive's, and are not looked for.
 
 import { TarError } from './error.js'
 import { hasUnsafe, quote, utf8Length } from './text.js'
@@ -55,37 +61,54 @@ export function checkSymlinkTarget(name, target) {
   }
 }
 
-// Each name seen is an entry, a directory entry, or a directory implied by
-// an entry inside it. An implied directory may still be admitted as one;
-// anything else twice is a duplicate. An entry inside a non-directory is
-// refused — that is the shape of a path through a symlink.
-export class Names {
-  #kinds = new Map()
-
-  add(name, type, linkname) {
-    if (type === 'link' && this.#kinds.get(linkname) !== 'entry') {
-      throw new TarError(`hard link ${quote(name)} targets ${quote(linkname)}, which is not an earlier non-directory entry`)
-    }
-    const kind = type === 'directory' ? 'directory' : 'entry'
-    const seen = this.#kinds.get(name)
-    if (seen === 'directory' || seen === 'entry') throw new TarError(`duplicate entry ${quote(name)}`)
-    if (seen === 'implied' && kind !== 'directory') throw new TarError(`${quote(name)} holds an earlier entry, so it cannot be a ${type}`)
-    for (let i = name.indexOf('/'); i !== -1; i = name.indexOf('/', i + 1)) {
-      const parent = name.slice(0, i)
-      const above = this.#kinds.get(parent)
-      if (above === 'entry') throw new TarError(`${quote(name)} is inside ${quote(parent)}, which is not a directory`)
-      if (above === undefined) this.#kinds.set(parent, 'implied')
-    }
-    this.#kinds.set(name, kind)
-  }
-}
-
-// The name and link target as cleaned, once admitted.
-export function admit(names, path, type, target) {
+// The name and link target of an entry, cleaned and checked.
+export function cleanNames(path, type, target) {
   const name = cleanPath(path, 'entry name', type === 'directory')
   let linkname = target
   if (type === 'symlink') checkSymlinkTarget(name, target)
   else if (type === 'link') linkname = cleanPath(target, `hard link target of ${quote(name)}`)
-  names.add(name, type, linkname)
   return { name, linkname }
+}
+
+const FIELDS = ['type', 'mode', 'uid', 'gid', 'mtime', 'uname', 'gname', 'linkname', 'devmajor', 'devminor']
+const sameBytes = (a, b) => a.length === b.length && a.every((byte, i) => byte === b[i])
+
+// Each name seen is an entry, a directory entry, or a directory implied by
+// an entry inside it; an implied directory may still be named as one. An
+// entry inside a non-directory is refused — that is the shape of a path
+// through a symlink. Whether entries are kept with their data decides what
+// a repeat can be compared with: the in-memory calls keep them, and a
+// stream keeps the fields alone and refuses what it cannot compare.
+export class Names {
+  #seen = new Map()
+  #keep
+
+  constructor(keep = false) {
+    this.#keep = keep
+  }
+
+  // `entry` is cleaned, with its data.
+  add(entry) {
+    const { name, type } = entry
+    if (type === 'link' && this.#seen.get(entry.linkname)?.kind !== 'entry') {
+      throw new TarError(`hard link ${quote(name)} targets ${quote(entry.linkname)}, which is not an earlier non-directory entry`)
+    }
+    const seen = this.#seen.get(name)
+    if (seen !== undefined && seen.kind !== 'implied') {
+      const differs = FIELDS.find((field) => seen.entry[field] !== entry[field])
+      if (differs !== undefined) throw new TarError(`duplicate entry ${quote(name)} differs in ${differs}`)
+      if (seen.entry.data === undefined) throw new TarError(`duplicate entry ${quote(name)}, which only the in-memory call can compare with the earlier one`)
+      if (!sameBytes(seen.entry.data, entry.data)) throw new TarError(`duplicate entry ${quote(name)} differs in data`)
+      return
+    }
+    const kind = type === 'directory' ? 'directory' : 'entry'
+    if (seen !== undefined && kind !== 'directory') throw new TarError(`${quote(name)} holds an earlier entry, so it cannot be a ${type}`)
+    for (let i = name.indexOf('/'); i !== -1; i = name.indexOf('/', i + 1)) {
+      const parent = name.slice(0, i)
+      const above = this.#seen.get(parent)?.kind
+      if (above === 'entry') throw new TarError(`${quote(name)} is inside ${quote(parent)}, which is not a directory`)
+      if (above === undefined) this.#seen.set(parent, { kind: 'implied' })
+    }
+    this.#seen.set(name, { kind, entry: this.#keep ? entry : Object.fromEntries(FIELDS.map((field) => [field, entry[field]])) })
+  }
 }

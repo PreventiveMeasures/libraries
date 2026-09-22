@@ -5,7 +5,7 @@
 
 import { TarError } from './error.js'
 import { BLOCK, EMPTY, NAME_SIZE, OWNER_SIZE, PREFIX_SIZE, concat, encodeHeader, fitsOctal, octalMax } from './header.js'
-import { Names, admit } from './names.js'
+import { Names, cleanNames } from './names.js'
 import { encodePax } from './pax.js'
 import { encodeUtf8, hasUnsafe, quote } from './text.js'
 
@@ -175,10 +175,12 @@ function encodeEntry(e, format) {
   return chunks
 }
 
-function packer({ format = 'gnu', blocking = 20 } = {}) {
+// `keep` holds entries for a repeat to be compared with, which only the
+// in-memory call can afford.
+function packer({ format = 'gnu', blocking = 20 } = {}, keep = false) {
   if (!FORMATS.has(format)) throw new TarError(`format ${quote(String(format))} is not gnu, ustar or pax`)
   if (!Number.isSafeInteger(blocking) || blocking < 1) throw new TarError('blocking is not a positive integer')
-  const names = new Names()
+  const names = new Names(keep)
   let total = 0
   const emit = (chunks) => {
     for (const chunk of chunks) total += chunk.length
@@ -187,7 +189,9 @@ function packer({ format = 'gnu', blocking = 20 } = {}) {
   return {
     add(entry) {
       const e = normalize(entry)
-      return emit(encodeEntry({ ...e, ...admit(names, e.name, e.type, e.linkname) }, format))
+      const cleaned = { ...e, ...cleanNames(e.name, e.type, e.linkname) }
+      names.add(cleaned)
+      return emit(encodeEntry(cleaned, format))
     },
     // Two zero blocks, then zeros to a multiple of the record size.
     end() {
@@ -210,4 +214,9 @@ export async function* packStreamAsync(entries, options) {
   yield* p.end()
 }
 
-export const pack = (entries, options) => concat([...packStream(entries, options)])
+export function pack(entries, options) {
+  const p = packer(options, true)
+  const chunks = []
+  for (const entry of entries) chunks.push(...p.add(entry))
+  return concat([...chunks, ...p.end()])
+}
