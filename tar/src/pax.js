@@ -1,10 +1,10 @@
 // pax extended header records: `<length> <keyword>=<value>\n`, the length
 // in decimal counting the whole line, its own digits included.
 
-import { utf8fromString, utf8toString } from '@exodus/bytes/utf8.js'
+import { utf8fromString } from '@exodus/bytes/utf8.js'
 import { TarError } from './error.js'
 import { concat } from './header.js'
-import { hasUnsafe } from './names.js'
+import { decodeUtf8, hasUnsafe, quote } from './text.js'
 
 function record(keyword, value) {
   const body = utf8fromString(` ${keyword}=${value}\n`)
@@ -15,14 +15,6 @@ function record(keyword, value) {
 }
 
 export const encodePax = (records) => concat(records.map(([keyword, value]) => record(keyword, value)))
-
-function text(bytes, at) {
-  try {
-    return utf8toString(bytes)
-  } catch {
-    throw new TarError('a pax record is not valid UTF-8', at)
-  }
-}
 
 export function decodePax(bytes, at) {
   const records = new Map()
@@ -35,10 +27,10 @@ export function decodePax(bytes, at) {
     if (end > bytes.length || bytes[end - 1] !== 0x0a) throw new TarError('a pax record is not as long as it says', at)
     const equals = bytes.indexOf(0x3d, i + 1)
     if (equals === -1 || equals >= end - 1) throw new TarError('a pax record has no keyword=value', at)
-    const keyword = text(bytes.subarray(i + 1, equals), at)
-    if (keyword === '' || hasUnsafe(keyword, false) || keyword.includes(' ')) throw new TarError(`pax keyword ${JSON.stringify(keyword)} is malformed`, at)
+    const keyword = decodeUtf8(bytes.subarray(i + 1, equals), 'a pax record', at)
+    if (keyword === '' || hasUnsafe(keyword, false) || keyword.includes(' ')) throw new TarError(`pax keyword ${quote(keyword)} is malformed`, at)
     if (records.has(keyword)) throw new TarError(`pax keyword ${keyword} repeats`, at)
-    records.set(keyword, text(bytes.subarray(equals + 1, end - 1), at))
+    records.set(keyword, decodeUtf8(bytes.subarray(equals + 1, end - 1), 'a pax record', at))
     pos = end
   }
   return records

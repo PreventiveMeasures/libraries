@@ -4,11 +4,11 @@
 // An entry's data views the chunk it arrived in where one chunk held it
 // whole, and is a copy otherwise.
 
-import { utf8toString } from '@exodus/bytes/utf8.js'
 import { TarError } from './error.js'
 import { BLOCK, EMPTY, decodeHeader, isZeroBlock, untilNul } from './header.js'
-import { Names, admit, hasUnsafe } from './names.js'
+import { Names, admit } from './names.js'
 import { decodePax } from './pax.js'
+import { decodeUtf8, hasUnsafe, quote } from './text.js'
 
 // NUL is the pre-POSIX regular file.
 const TYPES = new Map([
@@ -18,28 +18,19 @@ const TYPES = new Map([
 const EXTENDED = new Map([[0x78, 'pax'], [0x67, 'global'], [0x4c, 'longname'], [0x4b, 'longlink']])
 const MAX_EXTENDED = 1 << 20
 
-const quote = (value) => JSON.stringify(value)
 const isFile = (type) => type === 'file' || type === 'contiguous-file'
 const isDevice = (type) => type === 'character-device' || type === 'block-device'
 
-function text(raw, what, at) {
-  try {
-    return utf8toString(raw)
-  } catch {
-    throw new TarError(`${what} is not valid UTF-8`, at)
-  }
-}
-
 function paxNumber(value, what, at) {
-  if (!/^(?:0|[1-9][0-9]*)$/u.test(value) || !Number.isSafeInteger(Number(value))) throw new TarError(`pax ${what}=${value} is not a whole number this package can hold`, at)
+  if (!/^(?:0|[1-9][0-9]*)$/u.test(value) || !Number.isSafeInteger(Number(value))) throw new TarError(`pax ${what}=${quote(value)} is not a whole number this package can hold`, at)
   return Number(value)
 }
 
 // Whole seconds, a fraction floored as GNU does for a format without one.
 function paxTime(value, what, at) {
-  if (!/^-?[0-9]+(?:\.[0-9]+)?$/u.test(value)) throw new TarError(`pax mtime=${value} is not a time`, at)
+  if (!/^-?[0-9]+(?:\.[0-9]+)?$/u.test(value)) throw new TarError(`pax mtime=${quote(value)} is not a time`, at)
   const seconds = Math.floor(Number(value))
-  if (!Number.isSafeInteger(seconds)) throw new TarError(`pax mtime=${value} is out of range`, at)
+  if (!Number.isSafeInteger(seconds)) throw new TarError(`pax mtime=${quote(value)} is out of range`, at)
   return seconds
 }
 
@@ -159,7 +150,7 @@ class Unpacker {
       }
     } else {
       if (this.#pending[extended] !== null) throw new TarError(`two ${extended} headers ahead of one entry`, at)
-      this.#pending[extended] = extended === 'pax' ? decodePax(raw, at) : text(untilNul(raw), `a ${extended} header`, at)
+      this.#pending[extended] = extended === 'pax' ? decodePax(raw, at) : decodeUtf8(untilNul(raw), `a ${extended} header`, at)
     }
     return true
   }
@@ -177,7 +168,7 @@ class Unpacker {
     if (longname !== null && record('path') !== undefined) throw new TarError('both a long name header and a pax path name one entry', at)
     if (longlink !== null && record('linkpath') !== undefined) throw new TarError('both a long link header and a pax linkpath name one entry', at)
     let name = longname ?? record('path') ?? this.#headerName(header, at)
-    const linkname = longlink ?? record('linkpath') ?? text(header.linkname, 'link target', at)
+    const linkname = longlink ?? record('linkpath') ?? decodeUtf8(header.linkname, 'link target', at)
     // Pre-POSIX convention, which GNU honours: a file named with a trailing
     // slash is a directory.
     const kind = type === 'file' && name.endsWith('/') ? 'directory' : type
@@ -191,7 +182,7 @@ class Unpacker {
     if (size !== 0 && !isFile(kind)) throw new TarError(`a ${kind} entry has a size`, at)
     if (linkname !== '' && kind !== 'link' && kind !== 'symlink') throw new TarError(`a ${kind} entry has a link target`, at)
     const owner = (key) => {
-      const value = record(key) ?? text(header[key], key, at)
+      const value = record(key) ?? decodeUtf8(header[key], key, at)
       if (hasUnsafe(value, false)) throw new TarError(`${key} ${quote(value)} holds a control character`, at)
       return value
     }
@@ -218,8 +209,8 @@ class Unpacker {
   }
 
   #headerName(header, at) {
-    const name = text(header.name, 'entry name', at)
-    return header.prefix.length ? `${text(header.prefix, 'name prefix', at)}/${name}` : name
+    const name = decodeUtf8(header.name, 'entry name', at)
+    return header.prefix.length ? `${decodeUtf8(header.prefix, 'name prefix', at)}/${name}` : name
   }
 }
 

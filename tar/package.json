@@ -19,6 +19,7 @@
     "src/names.js",
     "src/pack.js",
     "src/pax.js",
+    "src/text.js",
     "src/unpack.js"
   ],
   "engines": {

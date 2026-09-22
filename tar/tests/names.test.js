@@ -26,6 +26,19 @@ describe('a name is a clean relative path', () => {
   for (const [name, message] of refused) {
     it(`refuses ${JSON.stringify(name)}`, () => assert.throws(() => checkPath(name, 'name'), message))
   }
+  it('refuses C1 controls as it does C0 ones', () => {
+    assert.throws(() => checkPath('a\u0085b', 'name'), /control character/u)
+    assert.throws(() => checkPath('a\u009Bb', 'name'), /control character/u)
+    checkPath('a\u00A0b', 'name')
+  })
+  it('refuses what no filesystem takes: a segment over 255 bytes, a path over 4096', () => {
+    checkPath('x'.repeat(255), 'name')
+    assert.throws(() => checkPath('x'.repeat(256), 'name'), /has a segment longer than 255 bytes/u)
+    assert.throws(() => checkPath('ü'.repeat(128), 'name'), /has a segment longer than 255 bytes/u)
+    checkPath(Array.from({ length: 16 }, () => 'x'.repeat(255)).join('/'), 'name')
+    assert.throws(() => checkPath(Array.from({ length: 17 }, () => 'x'.repeat(255)).join('/'), 'name'), /is longer than 4096 bytes/u)
+    assert.throws(() => checkSymlinkTarget('l', 'x'.repeat(256)), /has a segment longer than 255 bytes/u)
+  })
   it('names what it was checking', () => {
     assert.throws(() => checkPath(42, 'hard link target'), /hard link target is not a string/u)
     assert.throws(() => checkPath('/x', 'entry name'), /entry name "\/x" is absolute/u)

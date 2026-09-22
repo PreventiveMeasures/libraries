@@ -3,11 +3,11 @@
 // delete=ctime`. Where GNU would cut or substitute — a name too long for
 // ustar, a number out of range — this refuses instead.
 
-import { utf8fromString } from '@exodus/bytes/utf8.js'
 import { TarError } from './error.js'
 import { BLOCK, EMPTY, NAME_SIZE, OWNER_SIZE, PREFIX_SIZE, concat, encodeHeader, fitsOctal, octalMax } from './header.js'
-import { Names, admit, hasUnsafe } from './names.js'
+import { Names, admit } from './names.js'
 import { encodePax } from './pax.js'
+import { encodeUtf8, hasUnsafe, quote } from './text.js'
 
 const TYPEFLAG = {
   file: 0x30,
@@ -27,18 +27,9 @@ const DEFAULT_MODE = { directory: 0o755, symlink: 0o777 }
 const FORMATS = new Set(['gnu', 'ustar', 'pax'])
 const SLASH = 0x2f
 
-const quote = (text) => JSON.stringify(text)
 const isFile = (type) => type === 'file' || type === 'contiguous-file'
 const isDevice = (type) => type === 'character-device' || type === 'block-device'
 const isAscii = (raw) => raw.every((byte) => byte < 0x80)
-
-function bytes(text, what) {
-  try {
-    return utf8fromString(text)
-  } catch {
-    throw new TarError(`${what} is not well-formed Unicode`)
-  }
-}
 
 function integer(value, what, signed = false) {
   if (!Number.isSafeInteger(value) || (!signed && value < 0)) throw new TarError(`${what} ${String(value)} is not ${signed ? 'an integer' : 'a non-negative integer'}`)
@@ -97,7 +88,7 @@ function padded(raw, length = raw.length) {
 
 // GNU's start_private_header: 0644, owned by 0, no owner names.
 const privateHeader = (name, size, mtime, typeflag, gnu) => encodeHeader({
-  gnu, name: utf8fromString(name).subarray(0, NAME_SIZE), prefix: EMPTY, linkname: EMPTY, uname: EMPTY, gname: EMPTY,
+  gnu, name: encodeUtf8(name, 'header name').subarray(0, NAME_SIZE), prefix: EMPTY, linkname: EMPTY, uname: EMPTY, gname: EMPTY,
   typeflag, mode: 0o644, uid: 0, gid: 0, size, mtime, devmajor: null, devminor: null,
 })
 
@@ -136,9 +127,9 @@ function encodeEntry(e, format) {
   const pax = []
   const chunks = []
   const wire = e.type === 'directory' ? `${e.name}/` : e.name
-  let name = bytes(wire, 'entry name')
+  let name = encodeUtf8(wire, 'entry name')
   let prefix = EMPTY
-  let link = bytes(e.linkname, `link target of ${quote(e.name)}`)
+  let link = encodeUtf8(e.linkname, `link target of ${quote(e.name)}`)
   if (link.length > NAME_SIZE) {
     if (gnu) chunks.push(...longLink(link, LONGLINK))
     else if (format === 'pax') pax.push(['linkpath', e.linkname])
@@ -162,7 +153,7 @@ function encodeEntry(e, format) {
   // GNU writes the pax record only past 32 bytes and cuts a 32-byte name to
   // 31 without one; that loss is the one place this does not follow it.
   const owner = (what, text) => {
-    const raw = bytes(text, what)
+    const raw = encodeUtf8(text, what)
     if (raw.length < OWNER_SIZE && (format !== 'pax' || isAscii(raw))) return raw
     if (format !== 'pax') throw new TarError(`${what} of ${quote(e.name)} is longer than 31 bytes, which the ${format} format cannot hold`)
     pax.push([what, text])

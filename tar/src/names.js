@@ -4,26 +4,24 @@
 // backslash — a separator on Windows, where `..\` would get past the check
 // on `..`. Nothing is normalised: `./a` is refused, not read as `a`. A
 // symlink may use `..`, but is followed from where it sits and refused if
-// it climbs above the archive.
+// it climbs above the archive. Lengths are bounded by what a filesystem
+// takes at all: PATH_MAX for the whole, NAME_MAX for a segment, in bytes.
 
 import { TarError } from './error.js'
+import { hasUnsafe, quote, utf8Length } from './text.js'
 
-const quote = (text) => JSON.stringify(text)
-
-// C0 or DEL, and a backslash if asked.
-export function hasUnsafe(text, backslash) {
-  for (const char of text) {
-    const code = char.codePointAt(0)
-    if (code < 0x20 || code === 0x7f || (backslash && code === 0x5c)) return true
-  }
-  return false
-}
+const PATH_MAX = 4096
+const NAME_MAX = 255
 
 function checkText(path, what) {
   if (typeof path !== 'string') throw new TarError(`${what} is not a string`)
   if (path === '') throw new TarError(`${what} is empty`)
   if (hasUnsafe(path, true)) throw new TarError(`${what} ${quote(path)} holds a control character or a backslash`)
   if (path.startsWith('/')) throw new TarError(`${what} ${quote(path)} is absolute`)
+  if (utf8Length(path) > PATH_MAX) throw new TarError(`${what} ${quote(path)} is longer than ${PATH_MAX} bytes`)
+  for (const segment of path.split('/')) {
+    if (utf8Length(segment) > NAME_MAX) throw new TarError(`${what} ${quote(path)} has a segment longer than ${NAME_MAX} bytes`)
+  }
 }
 
 export function checkPath(path, what) {
