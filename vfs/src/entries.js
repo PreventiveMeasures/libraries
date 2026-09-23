@@ -5,8 +5,10 @@
 // A description is untrusted, and is read by tar's rules for a name: a
 // relative path with `.` segments and a directory's trailing slash dropped,
 // and no empty or `..` segment, no control, line separator or bidirectional
-// character, no backslash and no drive letter in front — what a tar entry
-// may carry, so a tree built here packs back as it is. `.` names the
+// character, no backslash, no drive letter in front, and at most PATH_MAX
+// bytes of UTF-8 in all — what a tar entry may carry, so the names of a tree
+// built here pack back as they are. A symlink's target is any spelling the
+// Vfs takes, and tar's to judge when packing. `.` names the
 // root, which only a directory may. Every spelling of one path is one name,
 // and a name may repeat only as the same entry again, field for field and
 // byte for byte: `d/f` and `d/./f` both is what some packagers write, while
@@ -21,6 +23,7 @@ import { VfsError } from './error.js'
 import { dirname } from './path.js'
 import { MODE, Vfs } from './vfs.js'
 
+const PATH_MAX = 4096
 const encoder = new TextEncoder()
 
 export function createVfs(sources = {}) {
@@ -98,7 +101,9 @@ function checkName(name, directory) {
   const invalid = name.startsWith('/') || UNSAFE.test(name) || DRIVE.test(kept[0] ?? '')
     || kept.some((part) => part === '' || part === '..') || (!directory && kept.length === 0)
   if (invalid) throw new VfsError('EINVAL', name)
-  return kept.join('/')
+  const clean = kept.join('/')
+  if (encoder.encode(clean).length > PATH_MAX) throw new VfsError('ENAMETOOLONG', name)
+  return clean
 }
 
 // Whether a hard link's declared mode and mtime, if any, are its target's.
