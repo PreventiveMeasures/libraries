@@ -50,6 +50,7 @@ describe('a name is a clean relative path', () => {
     ['a\u202Eb', /control or formatting character, or a backslash/u],
     ['a\u2066b', /control or formatting character, or a backslash/u],
     ['a\u2028b', /control or formatting character, or a backslash/u],
+    ['a\u200Fb', /control or formatting character, or a backslash/u],
   ]
   for (const [name, message] of refused) {
     it(`refuses ${JSON.stringify(name)}`, () => {

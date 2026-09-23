@@ -26,25 +26,28 @@ import { checkString, hasUnsafe, quote, utf8Length } from './text.js'
 const PATH_MAX = 4096
 const NAME_MAX = 255
 
+// The rules every path is held to, whatever it names; hands back its
+// segments, split the once.
 function checkText(path, what) {
   checkString(path, what)
   if (path === '') throw new ArchiveError(`${what} is empty`)
   if (hasUnsafe(path, true)) throw new ArchiveError(`${what} ${quote(path)} holds a control or formatting character, or a backslash`)
   if (path.startsWith('/')) throw new ArchiveError(`${what} ${quote(path)} is absolute`)
+  const segments = path.split('/')
   // Once `.` segments are dropped, `./C:x` is `C:x`, so the first segment
   // that is not one is what a drive letter is looked for on.
-  if (/^[a-zA-Z]:/u.test(path.split('/').find((segment) => segment !== '.') ?? '')) throw new ArchiveError(`${what} ${quote(path)} starts with a drive letter`)
+  if (/^[a-zA-Z]:/u.test(segments.find((segment) => segment !== '.') ?? '')) throw new ArchiveError(`${what} ${quote(path)} starts with a drive letter`)
   if (utf8Length(path) > PATH_MAX) throw new ArchiveError(`${what} ${quote(path)} is longer than ${PATH_MAX} bytes`)
-  for (const segment of path.split('/')) {
+  for (const segment of segments) {
     if (utf8Length(segment) > NAME_MAX) throw new ArchiveError(`${what} ${quote(path)} has a segment longer than ${NAME_MAX} bytes`)
   }
+  return segments
 }
 
 // What is left of `.` or `./` is the archive root, which only a directory
 // may name; it comes back as `.`.
 export function cleanPath(path, what, directory = false) {
-  checkText(path, what)
-  const segments = path.split('/')
+  const segments = checkText(path, what)
   if (segments.at(-1) === '') {
     if (!directory) throw new ArchiveError(`${what} ${quote(path)} ends in a slash but is not a directory`)
     segments.pop()
@@ -64,8 +67,7 @@ export function cleanPath(path, what, directory = false) {
 // come back out of one. The walk is counted rather than spelled out, since
 // spelling out the path at every step of a deep one costs its depth squared.
 export function checkSymlinkTarget(name, target) {
-  checkText(target, `symlink target of ${quote(name)}`)
-  const steps = target.split('/').filter((segment) => segment !== '' && segment !== '.')
+  const steps = checkText(target, `symlink target of ${quote(name)}`).filter((segment) => segment !== '' && segment !== '.')
   let depth = name.split('/').length - 1
   for (const step of steps) {
     depth += step === '..' ? -1 : 1

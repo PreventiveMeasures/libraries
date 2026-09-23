@@ -167,16 +167,14 @@ function packer({ format = 'gnu', blocking = 20 } = {}, keep = false) {
   if (!Number.isSafeInteger(blocking) || blocking < 1) throw new ArchiveError('blocking is not a positive integer')
   const names = new Names(keep)
   let total = 0
-  const emit = (chunks) => {
-    for (const chunk of chunks) total += chunk.length
-    return chunks
-  }
   return {
     add(entry) {
       const e = normalize(entry)
       const cleaned = { ...e, ...cleanNames(e.name, e.type, e.linkname) }
       names.add(cleaned)
-      return emit(encodeEntry(cleaned, format))
+      const chunks = encodeEntry(cleaned, format)
+      for (const chunk of chunks) total += chunk.length
+      return chunks
     },
     // Two zero blocks, then zeros to a multiple of the record size.
     end() {

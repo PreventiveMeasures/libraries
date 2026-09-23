@@ -53,6 +53,9 @@ export async function zip(entries, { method = 'deflate' } = {}) {
     if (++count > MAX_ENTRIES) throw new ArchiveError(`more than ${MAX_ENTRIES} entries would need zip64`)
     const name = encodeUtf8(wireName(e), 'entry name')
     const body = e.type === 'symlink' ? encodeUtf8(e.linkname, 'symlink target') : e.data
+    // Before deflating, which is all the work an entry takes, and is only
+    // ever kept where it made the entry smaller.
+    if (body.length > MAX_SIZE || offset > MAX_SIZE) throw new ArchiveError(`${quote(e.name)} would need zip64`)
     let stored = body
     let compression = 0
     if (method === 'deflate' && e.type === 'file' && body.length) {
@@ -62,7 +65,6 @@ export async function zip(entries, { method = 'deflate' } = {}) {
         compression = 8
       }
     }
-    if (body.length > MAX_SIZE || offset > MAX_SIZE) throw new ArchiveError(`${quote(e.name)} would need zip64`)
     const { time, date } = toDos(e.mtime)
     const extra = timestamp(e.mtime)
     const common = [

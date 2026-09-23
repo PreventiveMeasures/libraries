@@ -59,6 +59,12 @@ async function through(bytes, Stream, format, limit, verb, into) {
   const transform = new Stream(format)
   const chunks = []
   let length = 0
+  // What has come out so far, as one array: handed back at the end, and
+  // with the error if the stream fails first.
+  const made = () => {
+    if (into !== undefined) return into.subarray(0, length)
+    return chunks.length === 1 ? chunks[0] : concat(chunks)
+  }
   try {
     for await (const chunk of chunksOf(new Blob([bytes]).stream().pipeThrough(transform).pipeThrough(bounded(limit)))) {
       if (into === undefined) chunks.push(chunk)
@@ -67,11 +73,9 @@ async function through(bytes, Stream, format, limit, verb, into) {
     }
   } catch (cause) {
     const limited = cause instanceof RangeError
-    const made = into === undefined ? concat(chunks) : into.subarray(0, length)
-    throw new CompressionError(limited ? `the data ${verb}es past ${limit} bytes` : `the data does not ${verb}`, { bytes: made, limited, cause })
+    throw new CompressionError(limited ? `the data ${verb}es past ${limit} bytes` : `the data does not ${verb}`, { bytes: made(), limited, cause })
   }
-  if (into !== undefined) return into.subarray(0, length)
-  return chunks.length === 1 ? chunks[0] : concat(chunks)
+  return made()
 }
 
 export const compress = (bytes, format, { limit = Infinity } = {}) => through(bytes, CompressionStream, format, limit, 'compress')
