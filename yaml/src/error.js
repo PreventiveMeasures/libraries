@@ -6,3 +6,7 @@ export class YamlError extends Error {
     this.line = line
   }
 }
+
+// A piece of the input for a message, quoted, and cut short where it runs
+// long: a line may be a megabyte, and a message is for a person to read.
+export const excerpt = (text) => (text.length > 64 ? `${JSON.stringify(text.slice(0, 64))}...` : JSON.stringify(text))

@@ -1,6 +1,6 @@
 // The subset of YAML that pnpm writes lockfiles in, plus comments: block and
 // flow mappings and sequences, plain and quoted scalars, `|` block scalars,
-// and js-yaml's `? key` form for keys over 1024 characters. Anchors, aliases,
+// and the `? key` form a key over 1024 characters needs. Anchors, aliases,
 // tags, directives, document markers, `>` folded scalars, nested or
 // multi-line flow collections, tabs, duplicate keys and the `<<` merge key
 // are refused, as is any plain scalar the core schema would type by a rule
@@ -10,7 +10,7 @@
 // pins its package manager: that manager's own lockfile first, the project's
 // second.
 
-import { YamlError } from './error.js'
+import { YamlError, excerpt } from './error.js'
 import { parseInline, readKey, setKey } from './scalar.js'
 
 const MAX_DEPTH = 64
@@ -26,8 +26,9 @@ export function parseYaml(text) {
 }
 
 export function parseYamlStream(text) {
-  if (typeof text !== 'string') throw new TypeError('parseYaml expects a string')
-  const doc = { lines: splitLines(text), at: 0 }
+  if (typeof text !== 'string') throw new TypeError('expected a string')
+  const doc = { text, pos: 0, number: -1, line: undefined }
+  advance(doc)
   const docs = []
   skipMarker(doc)
   do docs.push(parseDocument(doc)); while (skipMarker(doc))
@@ -36,19 +37,19 @@ export function parseYamlStream(text) {
 
 // Steps over a `---` line when one is next, and says whether it did.
 function skipMarker(doc) {
-  if (peek(doc) !== undefined || doc.at === doc.lines.length) return false
-  doc.at++
+  if (peek(doc) !== undefined || doc.line === undefined) return false
+  advance(doc)
   return true
 }
 
 function parseDocument(doc) {
   const first = peek(doc)
-  if (first === undefined) throw new YamlError('empty document', doc.lines[doc.at]?.number)
+  if (first === undefined) throw new YamlError('empty document', doc.line?.number)
   if (first.indent !== 0) throw new YamlError('the document does not start at column 0', first.number)
   const value = parseNode(doc, 0, 0)
   const rest = peek(doc)
   if (rest !== undefined) throw new YamlError('unexpected content after the document', rest.number)
-  if (typeof value !== 'object' || value === null) throw new YamlError('the document is a lone scalar, not a mapping or a sequence')
+  if (typeof value !== 'object' || value === null) throw new YamlError('the document is a lone scalar, not a mapping or a sequence', first.number)
   return value
 }
 
@@ -58,33 +59,40 @@ function parseDocument(doc) {
 // U+2028 and U+2029, which end a line to a YAML 1.1 reader.
 const FORBIDDEN = /[\p{Cc}\p{Cs}\uFEFF\uFFFE\uFFFF\u2028\u2029]/u
 
-function splitLines(text) {
-  const lines = text.split('\n')
-  if (lines.at(-1) === '') lines.pop()
-  return lines.map((raw, number) => {
-    const line = raw.replace(/\r$/u, '')
-    if (line.length > MAX_LINE) throw new YamlError(`line longer than ${MAX_LINE} characters`, number)
-    const char = FORBIDDEN.exec(line)?.[0]
-    if (char !== undefined) throw new YamlError(`U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')} is not allowed`, number)
-    const indent = /^ */u.exec(line)[0].length
-    return { indent, text: line.slice(indent), number }
-  })
+// Moves `doc.line` on to the next line, undefined past the last, and returns
+// it. Lines are read only as the parser gets to them, so what a text costs
+// in memory is what the document holds, not an object for each of its lines.
+function advance(doc) {
+  const { text, pos } = doc
+  doc.line = undefined
+  if (pos >= text.length) return undefined
+  let end = text.indexOf('\n', pos)
+  if (end === -1) end = text.length
+  doc.pos = end + 1
+  const number = ++doc.number
+  if (text[end - 1] === '\r') end--
+  if (end - pos > MAX_LINE) throw new YamlError(`line longer than ${MAX_LINE} characters`, number)
+  let start = pos
+  while (text[start] === ' ') start++
+  const line = text.slice(start, end)
+  const char = FORBIDDEN.exec(line)?.[0]
+  if (char !== undefined) throw new YamlError(`U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')} is not allowed`, number)
+  doc.line = { indent: start - pos, text: line, number }
+  return doc.line
 }
 
-// At column 0, a line that opens with `---` is a document marker, refused
-// with anything but spaces after it: at the start of a document js-yaml reads
-// `---x: 1` as the marker and then `x: 1`, where YAML reads the key `---x`.
-// A `...` there ends the document even where a key could be read instead,
-// and js-yaml writes keys like `... k` unquoted; that and a `%` directive are
-// refused outright.
+// At column 0 `---` is a marker, refused with anything but spaces after it,
+// since js-yaml reads `---x: 1` there as `---` then `x: 1`. `...` ends the
+// document even where a key could be read (js-yaml writes `... k` unquoted);
+// that and a `%` directive are refused outright.
 const END_OR_DIRECTIVE = /^\.\.\.(?: |$)|^%/u
 
 // The next line of the document with something on it: blank and comment
 // lines are skipped, and a `---` line ends the document, for the stream
 // reader alone to step over.
 function peek(doc) {
-  while (doc.at < doc.lines.length && /^(?:#|$)/u.test(doc.lines[doc.at].text)) doc.at++
-  const line = doc.lines[doc.at]
+  let line = doc.line
+  while (line !== undefined && (line.text === '' || line.text[0] === '#')) line = advance(doc)
   if (line?.indent !== 0) return line
   if (END_OR_DIRECTIVE.test(line.text)) throw new YamlError('document end markers and directives are not supported', line.number)
   if (!line.text.startsWith('---')) return line
@@ -102,38 +110,31 @@ function parseNode(doc, indent, depth) {
   if (depth > MAX_DEPTH) throw new YamlError('nested too deep', line.number)
   if (isEntry(line)) return parseSequence(doc, indent, depth)
   if (line.text.startsWith('? ') || readKey(line.text, line.number) !== null) return parseMapping(doc, indent, depth)
-  doc.at++
+  advance(doc)
   return parseInline(line.text, line.number)
 }
 
 // Every line at the indent is an entry; a deeper one after the last is an error.
 function parseBlock(doc, indent, entry) {
-  let line = peek(doc)
-  while (line?.indent === indent) {
-    entry(line)
-    line = peek(doc)
-  }
+  let line
+  for (line = peek(doc); line?.indent === indent; line = peek(doc)) entry(line)
   if (line !== undefined && line.indent > indent) throw new YamlError('bad indentation', line.number)
 }
 
 function parseMapping(doc, indent, depth) {
   const map = Object.create(null)
   parseBlock(doc, indent, (line) => {
-    let key, value
-    if (line.text.startsWith('? ')) {
-      doc.at++
-      key = parseInline(line.text.slice(2), line.number)
-      const next = peek(doc)
-      if (next?.indent !== indent || !/^:(?: |$)/u.test(next.text)) throw new YamlError('expected ": " below the explicit key', (next ?? line).number)
-      value = parseCompact(doc, next, indent, depth)
-    } else {
+    if (!line.text.startsWith('? ')) {
       const entry = readKey(line.text, line.number)
-      if (entry === null) throw new YamlError(`expected a mapping key, found ${JSON.stringify(line.text.slice(0, 24))}`, line.number)
-      doc.at++
-      key = entry.key
-      value = parseValue(doc, entry.rest, indent, depth, line)
+      if (entry === null) throw new YamlError(`expected a mapping key, found ${excerpt(line.text)}`, line.number)
+      advance(doc)
+      return setKey(map, entry.key, parseValue(doc, entry.rest, indent, depth, line), line.number)
     }
-    setKey(map, key, value, line.number)
+    advance(doc)
+    const key = parseInline(line.text.slice(2), line.number)
+    const next = peek(doc)
+    if (next?.indent !== indent || !/^:(?: |$)/u.test(next.text)) throw new YamlError('expected ": " below the explicit key', (next ?? line).number)
+    setKey(map, key, parseCompact(doc, next, indent, depth), line.number)
   })
   return map
 }
@@ -141,7 +142,7 @@ function parseMapping(doc, indent, depth) {
 function parseSequence(doc, indent, depth) {
   const list = []
   parseBlock(doc, indent, (line) => {
-    if (!isEntry(line)) throw new YamlError(`expected "- ", found ${JSON.stringify(line.text.slice(0, 24))}`, line.number)
+    if (!isEntry(line)) throw new YamlError(`expected "- ", found ${excerpt(line.text)}`, line.number)
     list.push(parseCompact(doc, line, indent, depth))
   })
   return list
@@ -167,37 +168,36 @@ function parseCompact(doc, line, indent, depth) {
   const spaces = COMPACT.exec(line.text)[0].length
   const rest = line.text.slice(spaces)
   if (rest === '' || isBlockScalar(rest)) {
-    doc.at++
+    advance(doc)
     return parseValue(doc, rest, indent, depth, line)
   }
-  doc.lines[doc.at] = { ...line, indent: line.indent + spaces, text: rest }
+  doc.line = { ...line, indent: line.indent + spaces, text: rest }
   return parseNode(doc, line.indent + spaces, depth + 1)
 }
 
 // `|` with an optional indentation digit and chomping indicator: `-` drops
 // every trailing line break, `+` keeps them all, neither keeps exactly one.
 // Content is every line deeper than the enclosing block, blank ones included.
-// Without the digit, its indentation is the deepest of the lines up to the
-// first that is not blank: a blank line above that one may not be deeper, and
-// blank lines alone make an empty scalar, both as YAML and js-yaml have it.
+// Without the digit, its indentation is the deepest line's up to the first
+// that is not blank, as YAML and js-yaml have it. Line breaks are counted,
+// not kept, until something follows them.
 function readLiteral(doc, header, indent, owner) {
   const m = /^\|([1-9]?)([+-]?)$/u.exec(header)
-  if (m === null) throw new YamlError(`unsupported block scalar ${JSON.stringify(header)}`, owner.number)
-  const raw = []
-  while (doc.at < doc.lines.length && (doc.lines[doc.at].text === '' || doc.lines[doc.at].indent > indent)) raw.push(doc.lines[doc.at++])
+  if (m === null) throw new YamlError(`unsupported block scalar ${excerpt(header)}`, owner.number)
   let inner = indent + Number(m[1])
-  if (m[1] === '') {
-    for (const line of raw) {
+  let known = m[1] !== ''
+  let breaks = 0
+  const parts = []
+  for (let line = doc.line; line !== undefined && (line.text === '' || line.indent > indent); line = advance(doc)) {
+    if (!known) {
       inner = Math.max(inner, line.indent)
-      if (line.text !== '') break
+      known = line.text !== ''
     }
-  }
-  const text = raw.map((line) => {
     if (line.text !== '' && line.indent < inner) throw new YamlError('bad indentation in the block scalar', line.number)
-    return `${' '.repeat(Math.max(line.indent - inner, 0))}${line.text}\n`
-  }).join('')
-  let end = text.length
-  while (end > 0 && text[end - 1] === '\n') end--
-  const body = text.slice(0, end)
-  return m[2] === '+' ? text : m[2] === '-' ? body : body && `${body}\n`
+    const content = `${' '.repeat(Math.max(line.indent - inner, 0))}${line.text}`
+    if (content !== '') parts.push('\n'.repeat(breaks), content)
+    breaks = content === '' ? breaks + 1 : 1
+  }
+  const body = parts.join('')
+  return m[2] === '+' ? body + '\n'.repeat(breaks) : m[2] === '-' ? body : body && `${body}\n`
 }

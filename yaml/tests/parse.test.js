@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import { describe, it } from 'node:test'
 import { YamlError, parseYaml, parseYamlStream } from '../index.js'
 
@@ -120,6 +121,7 @@ describe('the shapes pnpm writes', () => {
 
   it('CRLF line endings', () => {
     assert.deepEqual(parse('a: 1\r\nb:\r\n  - x\r\n  - |-\r\n    l1\r\n    l2\r\n'), { a: 1, b: ['x', 'l1\nl2'] })
+    assert.deepEqual(parse('a: |+\r\n  x\r\n\r\n  \r\nb: 1\r'), { a: 'x\n\n\n', b: 1 })
   })
 
   it("js-yaml's explicit key, for a key longer than 1024 characters", () => {
@@ -130,6 +132,13 @@ describe('the shapes pnpm writes', () => {
       packages: { [key]: { resolution: { integrity: 'x' }, engines: { node: '>=1' } }, 'short@1.0.0': { resolution: { integrity: 'y' } } },
       snapshots: { [key]: {}, s: 'scalar', t: ['a', 'b'], u: 'text' },
     })
+    // Up to 1024 characters, quotes included, a key needs no `? `; in a flow
+    // mapping it never does.
+    // Counted in UTF-16 units, as js-yaml's writer counts: 512 emoji it
+    // writes without `? `.
+    const edge = 'k'.repeat(1024)
+    const emoji = String.fromCodePoint(0x1F600).repeat(512)
+    assert.deepEqual(parse(`${edge}: 1\n'${edge.slice(2)}': 2\nl:\n  - a: {'${key}': 3}\n${emoji}: 4\n`), { [edge]: 1, [edge.slice(2)]: 2, l: [{ a: { [key]: 3 } }], [emoji]: 4 })
   })
 
   it('literal block scalars, with each chomping indicator', () => {
@@ -191,8 +200,8 @@ describe('what it refuses', () => {
     ['\n\n', /^empty document$/u],
     ['# only a comment\n', /^empty document$/u],
     // A document that is not a mapping or a sequence, or does not start at the margin.
-    ['just text', /lone scalar/u],
-    ['42', /lone scalar/u],
+    ['just text', /lone scalar/u, 0],
+    ['# c\n\n42', /lone scalar, not a mapping or a sequence at line 3$/u, 2],
     ['a\nb', /unexpected content after the document at line 2/u, 1],
     ['[a]\nb: 1', /unexpected content after the document at line 2/u, 1],
     ['{a: 1}\n\n# c\n- b', /unexpected content after the document at line 4/u, 3],
@@ -279,6 +288,13 @@ describe('what it refuses', () => {
     ['a: - b', /expected a scalar, found "- b"/u, 0],
     ['a: ? b', /expected a scalar, found "\? b"/u, 0],
     ['a: : b', /expected a scalar, found ": b"/u, 0],
+    // Past 1024 characters, quotes included, a key needs `? `: js-yaml reads
+    // one without, but a reader true to the spec does not.
+    [`${'k'.repeat(1025)}: 1`, /^a key longer than 1024 characters is written after "\? " at line 1$/u, 0],
+    [`a:\n  '${'k'.repeat(1023)}': 1`, /a key longer than 1024 characters/u, 1],
+    [`- ${'k'.repeat(1025)}: 1`, /a key longer than 1024 characters/u, 0],
+    // In UTF-16 units, as the yaml package counts: 514 characters, 1026 units.
+    [`'${String.fromCodePoint(0x1F600).repeat(512)}': 1`, /a key longer than 1024 characters/u, 0],
     // Explicit keys need their `: ` line, and keys of any kind must be strings.
     ['? a', /expected ": " below the explicit key at line 1/u, 0],
     ['? a\nb: 1', /expected ": " below the explicit key at line 2/u, 1],
@@ -292,14 +308,14 @@ describe('what it refuses', () => {
     // Plain scalars the core schema would type by a rule this parser does not
     // have, `-0`, which is 0 to js-yaml and -0 to JSON.parse, and the dates
     // and timestamps js-yaml reads as a Date.
-    ...['~', 'Null', 'NULL', 'True', 'TRUE', 'False', '0x1F', '0o17', '0b101', '1_000', '.5', '1.', '+1', '01', '00', '.inf', '-.Inf', '+.INF', '.nan', '.NaN', '1_0.5', '-0x1', '-0', '2001-12-14', '2001-12-14t21:59:43.10-05:00', '2001-12-14 21:59:43.10 -5', '2001-1-1T1:00:00Z', '2001-12-14T21:59:43Z'].map((v) => [`a: ${v}`, new RegExp(`^ambiguous scalar ${v.replace(/[.+]/gu, '\\$&')}, quote it at line 1$`, 'u'), 0]),
-    ['- 0x1F', /ambiguous scalar 0x1F/u, 0],
-    ['a: [~]', /ambiguous scalar ~/u, 0],
-    ['a: [-0]', /ambiguous scalar -0/u, 0],
-    ['2001-12-14: a', /ambiguous scalar 2001-12-14/u, 0],
-    ['a: 1e999', /number out of range 1e999/u, 0],
-    ['a: -1e999', /number out of range -1e999/u, 0],
-    ['a: 12345678901234567890', /number out of range 12345678901234567890/u, 0],
+    ...['~', 'Null', 'NULL', 'True', 'TRUE', 'False', '0x1F', '0o17', '0b101', '1_000', '.5', '1.', '+1', '01', '00', '.inf', '-.Inf', '+.INF', '.nan', '.NaN', '1_0.5', '-0x1', '-0', '2001-12-14', '2001-12-14t21:59:43.10-05:00', '2001-12-14 21:59:43.10 -5', '2001-1-1T1:00:00Z', '2001-12-14T21:59:43Z'].map((v) => [`a: ${v}`, new RegExp(`^ambiguous scalar "${v.replace(/[.+]/gu, '\\$&')}", quote it at line 1$`, 'u'), 0]),
+    ['- 0x1F', /ambiguous scalar "0x1F"/u, 0],
+    ['a: [~]', /ambiguous scalar "~"/u, 0],
+    ['a: [-0]', /ambiguous scalar "-0"/u, 0],
+    ['2001-12-14: a', /ambiguous scalar "2001-12-14"/u, 0],
+    ['a: 1e999', /number out of range "1e999"/u, 0],
+    ['a: -1e999', /number out of range "-1e999"/u, 0],
+    ['a: 12345678901234567890', /number out of range "12345678901234567890"/u, 0],
     ['a: -9007199254740992', /number out of range/u, 0],
     // The merge key means a merge to js-yaml and a key to YAML 1.2: neither is read.
     ['<<: {a: 1}', /merge keys are not supported/u, 0],
@@ -360,6 +376,13 @@ describe('what it refuses', () => {
     refuses(`a: '${'x'.repeat(2 ** 23)}'`, /^line longer than 1048576 characters at line 1$/u, 0)
   })
 
+  it('quoting at most 64 characters of the input into its message', () => {
+    refuses(`a: 0x${'1'.repeat(100)}`, /^ambiguous scalar "0x1{62}"\.\.\., quote it at line 1$/u, 0)
+    refuses(`a: 1\n'${'k'.repeat(100)}': 1\n'${'k'.repeat(100)}': 2`, /^duplicate key "k{64}"\.\.\. at line 3$/u, 2)
+    refuses(`a: |${'x'.repeat(100)}\n  y`, /^unsupported block scalar "\|x{63}"\.\.\. at line 1$/u, 0)
+    refuses(`a: 'x' ${'y'.repeat(100)}`, /^unexpected " y{63}"\.\.\. after the value at line 1$/u, 0)
+  })
+
   it('anything but a string', () => {
     assert.throws(() => parseYaml(Buffer.from('a: 1')), TypeError)
     assert.throws(() => parseYaml(), TypeError)
@@ -375,5 +398,25 @@ describe('what it refuses', () => {
       assert.equal(error.line, 1)
       assert.equal(error.message, 'expected a scalar, found "*x" at line 2')
     }
+  })
+})
+
+// Runs in a process of its own, where the heap can be held small.
+async function parseManyLines(index) {
+  const yaml = await import(index)
+  const n = 2 ** 21
+  const doc = yaml.parseYaml(`a: |+\n${'\n'.repeat(n)}b:\n${'  # c\n'.repeat(n / 2)}${'\n'.repeat(n)}  - |-\n${'    \n'.repeat(n / 4)}c: 1\n`)
+  if (doc.a !== '\n'.repeat(n) || doc.b[0] !== '' || doc.c !== 1) process.exitCode = 1
+}
+
+describe('what it costs', () => {
+  // Lines are read as the parser gets to them, and a run of blank ones inside
+  // a block scalar is counted rather than kept, so millions of lines that
+  // come to nothing cost next to nothing. An object for every line took
+  // hundreds of megabytes of this, where js-yaml takes none.
+  it('millions of blank and comment lines, in a heap of 64 MiB', () => {
+    const index = JSON.stringify(new URL('../index.js', import.meta.url).href)
+    const { status, stderr } = spawnSync(process.execPath, ['--max-old-space-size=64', '-e', `(${parseManyLines})(${index})`], { encoding: 'utf8' })
+    assert.equal(status, 0, stderr)
   })
 })

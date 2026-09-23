@@ -10,7 +10,8 @@ export interface YamlMapping {
 
 // The subset of YAML pnpm writes lockfiles in (src/parse.js lists it); a
 // YamlError at anything else, a document that is a lone scalar included, and
-// at nesting past 64 levels or a line past 2^20 characters.
+// at nesting past 64 levels, a line past 2^20 characters, or a block
+// mapping key past 1024 characters that is not written after `? `.
 // `parseYaml` reads exactly one document, with or without a leading `---`.
 // `parseYamlStream` reads every document of a stream, each after a `---`
 // line: pnpm 12 writes two when the project pins its package manager, that
