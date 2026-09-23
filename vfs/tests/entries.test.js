@@ -173,6 +173,19 @@ describe('entries are the tree as tar would carry it', () => {
     assert.equal(fs.readText('/alias/g'), 'y', 'the link is there to be followed once the tree is built')
   })
 
+  it('refuse a field the type cannot carry, rather than drop it', () => {
+    fails(() => vfsFromEntries([{ name: 'd', type: 'directory', data: 'x' }]), 'EINVAL', 'd')
+    fails(() => vfsFromEntries([{ name: 's', type: 'symlink', linkname: 'x', data: bytes('x') }]), 'EINVAL', 's')
+    fails(() => vfsFromEntries([{ name: 'f' }, { name: 'l', type: 'link', linkname: 'f', data: 'x' }]), 'EINVAL', 'l')
+    fails(() => vfsFromEntries([{ name: 'f', linkname: 'x' }]), 'EINVAL', 'f')
+    fails(() => vfsFromEntries([{ name: 'd', type: 'directory', linkname: 'x' }]), 'EINVAL', 'd')
+    fails(() => vfsFromEntries([{ name: 'd', type: 'directory' }, { name: 'd', type: 'directory', data: 'x' }]), 'EINVAL', 'd')
+    fails(() => vfsFromEntries([{ name: 'd', type: 'directory', data: 42 }]), 'EINVAL', 'd')
+    fails(() => createVfs({ f: { type: 'file', target: 'x' } }), 'EINVAL', 'f')
+    const fs = vfsFromEntries([{ name: 'd', type: 'directory', data: '' }, { name: 's', type: 'symlink', linkname: 'x', data: new Uint8Array() }, { name: 'f', linkname: '', data: null }])
+    assert.deepEqual(fs.readdir('/'), ['d', 'f', 's'], 'nothing given is nothing, as tar and entries() give it')
+  })
+
   it('give a hard link no mode or mtime of its own, and take its target under any name', () => {
     const f = { name: 'f', data: 'x', mode: 0o600, mtime: 7 }
     const fs = vfsFromEntries([f, { name: 'l', type: 'link', linkname: 'f', mode: 0o600, mtime: 7 }, { name: 'm', type: 'link', linkname: 'f' }, { name: 'l', type: 'link', linkname: 'm' }])

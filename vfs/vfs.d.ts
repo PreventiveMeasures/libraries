@@ -39,7 +39,8 @@ export interface Entry {
 // front, at most 4096 bytes in all (a directory's trailing slash counted),
 // and a trailing slash on a directory alone; it may repeat
 // only as the same entry again. A hard link's mode and mtime, if given,
-// are its target's.
+// are its target's. `data` is a file's and `linkname` a link's: either
+// given on another type is refused, not dropped.
 export interface EntryInput {
   name: string
   type?: NodeType | 'link' | 'contiguous-file'

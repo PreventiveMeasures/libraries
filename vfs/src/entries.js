@@ -17,8 +17,11 @@
 // declaration order. A link declared earlier is never followed on the way
 // to a later entry, and a hard link names an entry declared before it, for
 // the same reason tar defers making its links until the end; it has no mode
-// or mtime of its own, so those it declares must be its target's. A flat
-// map's key is a path, and may start from `/`.
+// or mtime of its own, so those it declares must be its target's. An entry
+// carries only what its type can, data for a file and a target for a link
+// of either kind: anything else given is refused rather than dropped, so a
+// tree holds every field it was declared with. A flat map's key is a path,
+// and may start from `/`.
 
 import { VfsError } from './error.js'
 import { dirname } from './path.js'
@@ -55,6 +58,8 @@ export function vfsFromEntries(entries) {
 
 function place(vfs, declared, { name, type = 'file', data, mode, mtime, linkname = '' }) {
   const path = `/${checkName(name, type === 'directory')}`
+  const file = type === 'file' || type === 'contiguous-file'
+  if ((!file && !noData(data)) || (linkname !== '' && type !== 'link' && type !== 'symlink')) throw new VfsError('EINVAL', name)
   const source = type === 'link' ? `/${checkName(linkname, false)}` : linkname
   if (type === 'link' && !declared.has(source)) throw new VfsError('ENOENT', linkname)
   if (declared.has(path)) {
@@ -92,6 +97,10 @@ function place(vfs, declared, { name, type = 'file', data, mode, mtime, linkname
 // on Windows; and, in front, a drive letter, which Windows resolves from.
 const UNSAFE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}\\]/u
 const DRIVE = /^[a-zA-Z]:/u
+
+// Whether `data` says nothing: left out, or empty text or bytes, as tar
+// and `Vfs.entries()` give it for anything but a file.
+const noData = (data) => data == null || ((typeof data === 'string' || data instanceof Uint8Array) && data.length === 0)
 
 // A name by tar's rules, as the one spelling of its path: the root is ''.
 function checkName(name, directory) {
