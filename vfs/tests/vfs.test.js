@@ -103,7 +103,7 @@ describe('files', () => {
     fails(() => fs.readFile('/d'), 'EISDIR')
     fails(() => fs.readFile('/'), 'EISDIR')
     fails(() => fs.writeFile('/d', 'x'), 'EISDIR')
-    fails(() => fs.writeFile('/d/f/', 'x'), 'ENOTDIR')
+    fails(() => fs.writeFile('/d/f/', 'x'), 'EISDIR')
     fails(() => fs.writeFile('/e/', 'x'), 'EISDIR')
     fails(() => fs.writeFile('/', 'x'), 'EISDIR')
     fails(() => fs.writeFile('/missing/f', 'x'), 'ENOENT')
@@ -156,6 +156,13 @@ describe('directories', () => {
     assert.equal(fs.isDirectory('/d/new'), true, 'a link on the way is followed')
     fs.mkdir('/todir/x/y', { recursive: true })
     assert.equal(fs.isDirectory('/d/x/y'), true, 'and what the caller spelled is made past it')
+    fs.symlink('nowhere/deep', '/deep')
+    fs.symlink('loop', '/loop')
+    for (const taken of ['/deep/', '/loop/', '/d/f/', '/todir/']) fails(() => fs.mkdir(taken), 'EEXIST', taken)
+    fails(() => fs.mkdir('/loop/x'), 'ELOOP')
+    fails(() => fs.mkdir('/deep/', { recursive: true }), 'ENOENT')
+    fails(() => fs.mkdir('/loop/', { recursive: true }), 'ELOOP')
+    fails(() => fs.mkdir('/d/f/', { recursive: true }), 'ENOTDIR')
   })
 
   it('list their names in code point order', () => {
@@ -226,6 +233,8 @@ describe('symbolic links', () => {
     assert.equal(fs.realpath('/c'), '/')
     fails(() => fs.symlink('x', '/a'), 'EEXIST')
     fails(() => fs.symlink('x', '/d/'), 'ENOENT')
+    fails(() => fs.symlink('y', '/x/'), 'EEXIST', '/x/')
+    fails(() => fs.link('/x', '/a/'), 'EEXIST', '/a/')
     fails(() => fs.symlink('x', '/missing/d'), 'ENOENT')
   })
 

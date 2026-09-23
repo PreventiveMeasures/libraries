@@ -49,8 +49,11 @@ export class Vfs {
   // `linked` whether the last name was a link's target's rather than the
   // caller's. `mkdirs` makes the directories missing on the way, as mkdir -p
   // does, but only those the caller spelled: a link leading to a missing
-  // one is a dangling link, and ENOENT.
-  #locate(path, { follow = true, mkdirs = false } = {}) {
+  // one is a dangling link, and ENOENT. `create` says the caller is about
+  // to make the last name and judges what is there itself, so a trailing
+  // slash asserts nothing of it: mkdir(2), symlink(2) and link(2) say
+  // EEXIST of any name taken, whatever it is.
+  #locate(path, { follow = true, mkdirs = false, create = false } = {}) {
     if (typeof path !== 'string') throw new TypeError(`a path must be a string, not ${typeof path}`)
     if (path.includes('\0')) throw new VfsError('EINVAL', path)
     if (path === '') throw new VfsError('ENOENT', path)
@@ -92,7 +95,7 @@ export class Vfs {
         continue
       }
       if (last) {
-        if (trailing && node.type !== 'directory') throw new VfsError('ENOTDIR', path)
+        if (trailing && !create && node.type !== 'directory') throw new VfsError('ENOTDIR', path)
         break
       }
       if (node.type !== 'directory') throw new VfsError('ENOTDIR', path)
@@ -160,10 +163,12 @@ export class Vfs {
     return [...node.entries.keys()].sort(compareNames)
   }
 
-  // Where a write lands: through a link, the file the link names.
+  // Where a write lands: through a link, the file the link names. A trailing
+  // slash asks for a directory, which open(2) neither makes nor writes.
   #fileAt(path) {
+    if (slashed(path)) throw new VfsError('EISDIR', path)
     const found = this.#locate(path)
-    if (found.trailing || found.node?.type === 'directory') throw new VfsError('EISDIR', path)
+    if (found.node?.type === 'directory') throw new VfsError('EISDIR', path)
     return found
   }
 
@@ -185,9 +190,10 @@ export class Vfs {
   // mkdir(2) never follows the last link, so a link there is a name taken;
   // `recursive` is content with what a link leads to being a directory, and
   // nothing is ever made where a dangling link points: a name its target
-  // spelled is not the caller's to make.
+  // spelled is not the caller's to make. Without `recursive`, a trailing
+  // slash changes nothing: any name taken is EEXIST, its link unfollowed.
   mkdir(path, { recursive = false, mode, mtime } = {}) {
-    const found = this.#locate(path, { follow: slashed(path), mkdirs: recursive })
+    const found = this.#locate(path, { follow: recursive && slashed(path), mkdirs: recursive, create: !recursive })
     if (found.node === undefined) {
       if (found.linked) throw new VfsError(recursive ? 'ENOENT' : 'EEXIST', path)
       this.#set(found, this.#directory(mode, mtime), path)
@@ -210,7 +216,7 @@ export class Vfs {
   }
 
   #newName(path) {
-    const found = this.#locate(path, { follow: false })
+    const found = this.#locate(path, { follow: false, create: true })
     if (found.node !== undefined) throw new VfsError('EEXIST', path)
     if (found.trailing) throw new VfsError('ENOENT', path)
     return found
