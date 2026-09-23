@@ -11,8 +11,8 @@
 // built here pack back as they are. A symlink's target is any spelling the
 // Vfs takes, and tar's to judge when packing. `.` names the
 // root, which only a directory may. Every spelling of one path is one name,
-// and a name may repeat only as the same entry again, field for field and
-// byte for byte: `d/f` and `d/./f` both is what some packagers write, while
+// and a name may repeat only as the same entry again, field for field with
+// the type as declared, and byte for byte: `d/f` and `d/./f` both is what some packagers write, while
 // two different entries under one name would leave the winner to
 // declaration order. A link declared earlier is never followed on the way
 // to a later entry, and a hard link names an entry declared before it, for
@@ -48,10 +48,12 @@ function sourceEntry([key, value]) {
 
 // Entries are placed in order, each under the directories it needs, which
 // are made when missing; a directory an earlier entry implied takes the mode
-// and mtime a later entry declares for it.
+// and mtime a later entry declares for it. `declared` holds the type each
+// name was declared with, which the tree alone cannot tell: a hard link's
+// name and its target's name are one inode there.
 export function vfsFromEntries(entries) {
   const vfs = new Vfs()
-  const declared = new Set()
+  const declared = new Map()
   for (const entry of entries) place(vfs, declared, entry)
   return vfs
 }
@@ -62,11 +64,12 @@ function place(vfs, declared, { name, type = 'file', data, mode, mtime, linkname
   if ((!file && !noData(data)) || (linkname !== '' && type !== 'link' && type !== 'symlink')) throw new VfsError('EINVAL', name)
   const source = type === 'link' ? `/${checkName(linkname, false)}` : linkname
   if (type === 'link' && !declared.has(source)) throw new VfsError('ENOENT', linkname)
-  if (declared.has(path)) {
-    if (same(vfs, path, type, data, mode, mtime, source)) return
+  const before = declared.get(path)
+  if (before !== undefined) {
+    if (before === type && same(vfs, path, type, data, mode, mtime, source)) return
     throw new VfsError('EEXIST', name)
   }
-  declared.add(path)
+  declared.set(path, type)
   const parent = dirname(path)
   vfs.mkdir(parent, { recursive: true })
   if (vfs.realpath(parent) !== parent) throw new VfsError('ENOTDIR', name)

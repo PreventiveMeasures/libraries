@@ -158,6 +158,9 @@ describe('entries are the tree as tar would carry it', () => {
       [{ name: 'd', type: 'directory' }, { name: 'd/', type: 'directory', mode: 0o700 }],
       [{ name: 's', type: 'symlink', linkname: 'a' }, { name: 's', type: 'symlink', linkname: 'b' }],
       [{ name: 's', type: 'symlink', linkname: 'a' }, { name: 's', type: 'symlink', linkname: 'a', mode: 0o755 }],
+      [{ name: 'f', data: 'x' }, { name: 'f', type: 'link', linkname: 'f' }],
+      [{ name: 'f', data: 'x' }, { name: 'g', type: 'link', linkname: 'f' }, { name: 'g', data: 'x' }],
+      [{ name: 'f', data: 'x' }, { name: 'f', type: 'contiguous-file', data: 'x' }],
       [{ name: 'f' }, { name: 'g' }, { name: 'l', type: 'link', linkname: 'f' }, { name: 'l', type: 'link', linkname: 'g' }],
     ]
     for (const entries of differing) fails(() => vfsFromEntries(entries), 'EEXIST', entries.at(-1).name)
