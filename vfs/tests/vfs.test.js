@@ -532,6 +532,9 @@ describe('names', () => {
     fails(() => fs.link('/f', `/${lone}`), 'EILSEQ')
     fails(() => fs.rename('/f', `/${lone}`), 'EILSEQ', `/${lone}`)
     fails(() => fs.writeFile(`/${long}`, ''), 'ENAMETOOLONG', `/${long}`)
+    fails(() => fs.writeFile(`/${'a'.repeat(1 << 24)}`, ''), 'ENAMETOOLONG')
+    fails(() => fs.mkdir(`/${'ü'.repeat(128)}`), 'ENAMETOOLONG')
+    fs.mkdir(`/${'ü'.repeat(127)}`)
     fails(() => fs.mkdir(`/d/${long}`, { recursive: true }), 'ENAMETOOLONG')
     fails(() => fs.rename('/f', `/${wide}`), 'ENAMETOOLONG')
     fails(() => fs.link('/f', `/${wide}`), 'ENAMETOOLONG')
@@ -541,7 +544,7 @@ describe('names', () => {
     fails(() => fs.stat(`/${long}`), 'ENOENT')
     fs.writeFile(`/${long.slice(1)}`, '')
     fs.mkdir(`/${wide.slice(2)}`)
-    assert.deepEqual(fs.readdir('/'), ['a'.repeat(255), 'd', 'f', String.fromCodePoint(0x1F600).repeat(63)])
+    assert.deepEqual(fs.readdir('/'), ['a'.repeat(255), 'd', 'f', 'ü'.repeat(127), String.fromCodePoint(0x1F600).repeat(63)])
   })
 })
 

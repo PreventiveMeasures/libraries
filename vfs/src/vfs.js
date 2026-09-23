@@ -322,7 +322,9 @@ const meta = (mode, mtime, current) => ({
 // NAME_MAX bytes of it, as every filesystem bounds a name.
 function checkName(name, path) {
   if (!name.isWellFormed()) throw new VfsError('EILSEQ', path)
-  if (encoder.encode(name).length > NAME_MAX) throw new VfsError('ENAMETOOLONG', path)
+  // A code unit is a byte of UTF-8 at least: more units than bytes allowed
+  // is over without being encoded, so a huge name costs no encoding.
+  if (name.length > NAME_MAX || encoder.encode(name).length > NAME_MAX) throw new VfsError('ENAMETOOLONG', path)
 }
 
 function checkMode(mode) {

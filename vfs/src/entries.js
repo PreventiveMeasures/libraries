@@ -109,8 +109,10 @@ const noData = (data) => data == null || ((typeof data === 'string' || data inst
 function checkName(name, directory) {
   if (typeof name !== 'string') throw new TypeError(`a name must be a string, not ${typeof name}`)
   // Bounded as spelled before it is read, as archive bounds it too, so a
-  // spelling costs no more than its length allows.
-  if (encoder.encode(name).length > PATH_MAX) throw new VfsError('ENAMETOOLONG', name)
+  // spelling costs no more than its length allows: a code unit is a byte of
+  // UTF-8 at least, so more units than bytes allowed is over without being
+  // encoded, and what is within encodes to a few kilobytes at most.
+  if (name.length > PATH_MAX || encoder.encode(name).length > PATH_MAX) throw new VfsError('ENAMETOOLONG', name)
   const parts = name.split('/')
   if (directory && parts.length > 1 && parts.at(-1) === '') parts.pop()
   const kept = parts.filter((part) => part !== '.')
