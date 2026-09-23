@@ -90,6 +90,16 @@ describe('what it refuses', () => {
     ['a pax keyword twice', () => archive(...pax(utf8('6 a=1\n6 a=2\n'))), /pax keyword a repeats/u],
     ['a pax value that is not UTF-8', () => archive(...pax(Uint8Array.from([0x36, 0x20, 0x61, 0x3d, 0xff, 0x0a]))), /a pax record is not valid UTF-8/u],
     ['a sparse file', () => archive(...pax([['GNU.sparse.size', '10']])), /sparse entries are not supported/u],
+    // libarchive reads these as a sparse file too: star's real size makes
+    // three stored bytes a hundred-byte file, Solaris' map lays out holes.
+    ['a real size from star', () => archive(...pax([['SCHILY.realsize', '100']], { size: 3 }), padded(utf8('abc'))), /sparse entries are not supported at byte 1024/u],
+    ['a map of holes from Solaris', () => archive(...pax([['SUN.holesdata', ' 0 3']], { size: 3 }), padded(utf8('abc'))), /sparse entries are not supported at byte 1024/u],
+    ['a global header with a real size from star', () => archive(...pax([['SCHILY.realsize', '100']], {}, 0x67)), /sparse entries are not supported at byte 0/u],
+    // libarchive reads the old GNU sparse fields under the gnu magic whatever
+    // the type, and follows isextended into the blocks after the header.
+    ['an old GNU sparse map on a plain file', () => archive(sealed(header({ gnu: true }), (b) => b.set(latin1('00000000000'), 386))), /header carries an old GNU sparse map or real size at byte 0/u],
+    ['an old GNU isextended flag on a plain file', () => archive(sealed(header({ gnu: true }), (b) => (b[482] = 1))), /header carries an old GNU sparse map or real size/u],
+    ['an old GNU real size on a plain file', () => archive(sealed(header({ gnu: true }), (b) => b.set(latin1('00000000144'), 483))), /header carries an old GNU sparse map or real size/u],
     ['a pax size that is not a number', () => archive(...pax([['size', '1x']])), /pax size="1x" is not a whole number this package can hold/u],
     ['a pax size below zero', () => archive(...pax([['size', '-1']])), /pax size="-1" is not a whole number/u],
     ['a pax uid too large to hold', () => archive(...pax([['uid', '99999999999999999999']])), /pax uid="99999999999999999999" is not a whole number this package can hold/u],

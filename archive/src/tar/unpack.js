@@ -22,9 +22,13 @@ const MAX_EXTENDED = 1 << 20
 
 // A sparse file is stored as a map and a body that is not the file, so
 // handing back that body under the file's name and size would be a lie.
+// libarchive reads one from star's real size and Solaris' map of holes as
+// it does from GNU's keys, so those are refused alike.
+const SPARSE_KEYS = new Set(['SCHILY.realsize', 'SUN.holesdata'])
+
 function sparse(keys, at) {
   for (const key of keys) {
-    if (key.startsWith('GNU.sparse.')) throw new ArchiveError('sparse entries are not supported', at)
+    if (key.startsWith('GNU.sparse.') || SPARSE_KEYS.has(key)) throw new ArchiveError('sparse entries are not supported', at)
   }
 }
 
