@@ -23,7 +23,7 @@
 // every field it was declared with. A flat map's key is a path, and may
 // start from `/`, as may the path a hard link in one names.
 
-import { VfsError } from './error.js'
+import { VfsError, wrongType } from './error.js'
 import { dirname } from './path.js'
 import { MODE, PATH_MAX, Vfs, checkMode, checkTime, encode, tooLong } from './vfs.js'
 
@@ -100,7 +100,7 @@ const noData = (data) => data == null || ((typeof data === 'string' || data inst
 
 // A name by tar's rules, as the one spelling of its path: the root is ''.
 function checkName(name, directory) {
-  if (typeof name !== 'string') throw new TypeError(`a name must be a string, not ${typeof name}`)
+  if (typeof name !== 'string') throw wrongType('a name', name)
   // Bounded as spelled before it is read, as archive bounds it too, and
   // counted rather than encoded, so a spelling costs no more than itself.
   if (tooLong(name, PATH_MAX)) throw new VfsError('ENAMETOOLONG', name)

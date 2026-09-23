@@ -15,7 +15,7 @@
 // hold it: a lookup reads every target on its way, forty at most, so a
 // target's length is what a lookup can be made to cost.
 
-import { VfsError } from './error.js'
+import { VfsError, wrongType } from './error.js'
 import { compareNames } from './path.js'
 
 const LINK_LIMIT = 40
@@ -56,7 +56,7 @@ export class Vfs {
   // mkdir(2), symlink(2) and link(2) say EEXIST of any name taken, whatever
   // it is.
   #locate(path, { follow = true, mkdirs = false, create = false } = {}) {
-    if (typeof path !== 'string') throw new TypeError(`a path must be a string, not ${typeof path}`)
+    if (typeof path !== 'string') throw wrongType('a path', path)
     if (path.includes('\0')) throw new VfsError('EINVAL', path)
     if (path === '') throw new VfsError('ENOENT', path)
     let trailing = path.endsWith('/')
@@ -207,7 +207,7 @@ export class Vfs {
   // A link's mode is 0o777 unless given, as Linux has it; one made elsewhere
   // may carry another, and chmod follows the link, so here is where it is set.
   symlink(target, path, { mode, mtime } = {}) {
-    if (typeof target !== 'string') throw new TypeError(`a link target must be a string, not ${target === null ? 'null' : typeof target}`)
+    if (typeof target !== 'string') throw wrongType('a link target', target)
     if (target === '' || target.includes('\0')) throw new VfsError('EINVAL', path)
     if (!target.isWellFormed()) throw new VfsError('EILSEQ', path)
     if (tooLong(target, PATH_MAX)) throw new VfsError('ENAMETOOLONG', path)
@@ -265,10 +265,8 @@ export class Vfs {
     if (target.chain.some((step) => step.node === source.node)) throw new VfsError('EINVAL', to)
     if (source.chain.some((step) => step.node === target.node)) throw new VfsError('ENOTEMPTY', to)
     if (target.node === source.node) return
-    if (target.node?.type === 'directory') {
-      if (!directory) throw new VfsError('EISDIR', to)
-      if (target.node.entries.size > 0) throw new VfsError('ENOTEMPTY', to)
-    } else if (target.node !== undefined && directory) throw new VfsError('ENOTDIR', to)
+    if (target.node !== undefined && (target.node.type === 'directory') !== directory) throw new VfsError(directory ? 'ENOTDIR' : 'EISDIR', to)
+    if (target.node?.type === 'directory' && target.node.entries.size > 0) throw new VfsError('ENOTEMPTY', to)
     sourceDir.entries.delete(source.name)
     targetDir.entries.set(target.name, source.node)
   }
@@ -328,11 +326,7 @@ function* descend(top, shape) {
 const reader = (text, target = false) => ({ text, at: skip(text, 0), dot: target && text.endsWith('/') })
 const spent = (r) => r.at === r.text.length
 const done = (r) => spent(r) && !r.dot
-function skip(text, at) {
-  let i = at
-  while (i < text.length && text.codePointAt(i) === 47) i++
-  return i
-}
+const skip = (text, at) => { let i = at; while (text[i] === '/') i++; return i }
 function next(r) {
   if (spent(r)) { r.dot = false; return '.' }
   const slash = r.text.indexOf('/', r.at)
@@ -345,13 +339,7 @@ function next(r) {
 // The canonical spelling of what a lookup found.
 const pathOf = ({ chain, name }) => `/${[...chain.slice(1).map((step) => step.name), name].filter(Boolean).join('/')}`
 
-const statOf = (node) => ({
-  type: node.type,
-  ino: node.ino,
-  mode: node.mode,
-  mtime: node.mtime,
-  size: node.type === 'file' ? node.bytes.length : node.type === 'symlink' ? node.size : 0,
-})
+const statOf = (node) => ({ type: node.type, ino: node.ino, mode: node.mode, mtime: node.mtime, size: node.bytes?.length ?? node.size ?? 0 })
 
 // Metadata as given and checked, or as it stands in `current`.
 const meta = (mode, mtime, current) => ({
@@ -398,7 +386,7 @@ export function encode(data, path) {
     return encoder.encode(data)
   }
   if (data instanceof Uint8Array) return new Uint8Array(data)
-  throw new TypeError(`file contents must be a string or a Uint8Array, not ${data === null ? 'null' : typeof data}`)
+  throw wrongType('file contents', data, 'a string or a Uint8Array')
 }
 
 // Appends in amortized linear time: a file that grows gets a buffer with
