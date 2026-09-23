@@ -20,6 +20,9 @@ const STRERROR = {
 const UNSHOWN = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]/gu
 const shown = (path) => `${path}`.replaceAll(UNSHOWN, (char) => `\\u${char.codePointAt(0).toString(16).padStart(4, '0')}`)
 
+// What a caller gets for an argument of the wrong type, named by what it is.
+export const wrongType = (what, value, expected = 'a string') => new TypeError(`${what} must be ${expected}, not ${value === null ? 'null' : typeof value}`)
+
 // `code` is the POSIX errno name; the message is the line a shell prints,
 // and `path` the path as it was given.
 export class VfsError extends Error {
