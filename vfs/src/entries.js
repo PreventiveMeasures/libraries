@@ -21,14 +21,11 @@
 // carries only what its type can, data for a file and a target for a link
 // of either kind: anything else given is refused rather than dropped, so a
 // tree holds every field it was declared with. A flat map's key is a path,
-// and may start from `/`.
+// and may start from `/`, as may the path a hard link in one names.
 
 import { VfsError } from './error.js'
 import { dirname } from './path.js'
-import { MODE, Vfs, utf8Length } from './vfs.js'
-
-const PATH_MAX = 4096
-const encoder = new TextEncoder()
+import { MODE, PATH_MAX, Vfs, checkMode, checkTime, encode, tooLong } from './vfs.js'
 
 export function createVfs(sources = {}) {
   if (sources === null || typeof sources !== 'object' || Array.isArray(sources)) {
@@ -37,20 +34,26 @@ export function createVfs(sources = {}) {
   return vfsFromEntries(Array.from(sources instanceof Map ? sources : Object.entries(sources), sourceEntry))
 }
 
+// A flat map's path as an entry's name: `/` in front is the root's.
+const unrooted = (path) => (typeof path === 'string' && path.startsWith('/') ? path.slice(1) || '.' : path)
+
 function sourceEntry([key, value]) {
-  const name = typeof key === 'string' && key.startsWith('/') ? key.slice(1) || '.' : key
+  const name = unrooted(key)
   if (typeof value === 'string' || value instanceof Uint8Array) return { name, type: 'file', data: value }
   if (value === null || typeof value !== 'object' || typeof value.type !== 'string') {
     throw new TypeError(`source ${JSON.stringify(name)} must be a string, a Uint8Array, or an object with a type`)
   }
-  return { name, type: value.type, data: value.data, mode: value.mode, mtime: value.mtime, linkname: value.target }
+  const linkname = value.type === 'link' ? unrooted(value.target) : value.target
+  return { name, type: value.type, data: value.data, mode: value.mode, mtime: value.mtime, linkname }
 }
 
 // Entries are placed in order, each under the directories it needs, which
 // are made when missing; a directory an earlier entry implied takes the mode
 // and mtime a later entry declares for it. `declared` holds the type each
 // name was declared with, which the tree alone cannot tell: a hard link's
-// name and its target's name are one inode there.
+// name and its target's name are one inode there. A mode or mtime given is
+// checked as given, whatever it is then compared with, so null is no more
+// "not given" for a repeat or a hard link than for a first declaration.
 export function vfsFromEntries(entries) {
   const vfs = new Vfs()
   const declared = new Map()
@@ -62,6 +65,8 @@ function place(vfs, declared, { name, type = 'file', data, mode, mtime, linkname
   const path = `/${checkName(name, type === 'directory')}`
   const file = type === 'file' || type === 'contiguous-file'
   if ((!file && !noData(data)) || (linkname !== '' && type !== 'link' && type !== 'symlink')) throw new VfsError('EINVAL', name)
+  if (mode !== undefined) checkMode(mode)
+  if (mtime !== undefined) checkTime(mtime)
   const source = type === 'link' ? `/${checkName(linkname, false)}` : linkname
   if (type === 'link' && !declared.has(source)) throw new VfsError('ENOENT', linkname)
   const before = declared.get(path)
@@ -110,7 +115,7 @@ function checkName(name, directory) {
   if (typeof name !== 'string') throw new TypeError(`a name must be a string, not ${typeof name}`)
   // Bounded as spelled before it is read, as archive bounds it too, and
   // counted rather than encoded, so a spelling costs no more than itself.
-  if (utf8Length(name) > PATH_MAX) throw new VfsError('ENAMETOOLONG', name)
+  if (tooLong(name, PATH_MAX)) throw new VfsError('ENAMETOOLONG', name)
   const parts = name.split('/')
   if (directory && parts.length > 1 && parts.at(-1) === '') parts.pop()
   const kept = parts.filter((part) => part !== '.')
@@ -119,7 +124,7 @@ function checkName(name, directory) {
   if (invalid) throw new VfsError('EINVAL', name)
   const clean = kept.join('/')
   // Bounded as an archive stores the name: a directory's with its slash.
-  if (utf8Length(clean) + (directory ? 1 : 0) > PATH_MAX) throw new VfsError('ENAMETOOLONG', name)
+  if (tooLong(clean, directory ? PATH_MAX - 1 : PATH_MAX)) throw new VfsError('ENAMETOOLONG', name)
   return clean
 }
 
@@ -127,15 +132,17 @@ function checkName(name, directory) {
 const fits = (target, mode, mtime) => (mode ?? target.mode) === target.mode && (mtime ?? target.mtime) === target.mtime
 
 // Whether a repeated name declares what is already there, field for field
-// and byte for byte; a hard link has no mode or mtime but its target's.
+// and byte for byte; a hard link has no mode or mtime but its target's. The
+// name was declared with this type before, so what is there is of its kind.
+// A file's data is read as writing it would, so what the first declaration
+// would refuse is refused again, not taken for bytes that look the same.
 function same(vfs, path, type, data, mode, mtime, source) {
   const stat = vfs.lstat(path)
-  const kind = type === 'contiguous-file' ? 'file' : type
-  if (kind === 'link') return stat.ino === vfs.lstat(source).ino && fits(stat, mode, mtime)
-  if (stat.type !== kind || stat.mode !== (mode ?? MODE[kind]) || stat.mtime !== (mtime ?? 0)) return false
-  if (kind === 'symlink') return vfs.readlink(path) === source
-  if (kind === 'directory') return true
-  const bytes = typeof data === 'string' ? encoder.encode(data) : data ?? new Uint8Array()
+  if (type === 'link') return stat.ino === vfs.lstat(source).ino && fits(stat, mode, mtime)
+  if (stat.mode !== (mode ?? MODE[stat.type]) || stat.mtime !== (mtime ?? 0)) return false
+  if (type === 'symlink') return vfs.readlink(path) === source
+  if (type === 'directory') return true
+  const bytes = encode(data ?? '', path)
   const held = vfs.readFile(path)
   return held.length === bytes.length && held.every((byte, i) => byte === bytes[i])
 }

@@ -212,8 +212,8 @@ describe('symbolic links', () => {
     assert.equal(fs.isSymlink('/src/app.js'), false)
     fs.symlink('é', '/utf8')
     assert.equal(fs.lstat('/utf8').size, 2, 'as long as the target in bytes')
-    fs.symlink('ü'.repeat(1 << 20), '/wide')
-    assert.equal(fs.lstat('/wide').size, 1 << 21, 'counted once, when the link is made')
+    fs.symlink('ü'.repeat(2048), '/wide')
+    assert.equal(fs.lstat('/wide').size, 4096, 'as long as PATH_MAX, and no longer')
     fs.symlink('src/app.js', '/mode', { mode: 0o755 })
     assert.equal(fs.lstat('/mode').mode, 0o755, 'a mode given is held, as a link made elsewhere may carry one')
     fs.chmod('/mode', 0o600)
@@ -239,7 +239,8 @@ describe('symbolic links', () => {
     const fs = new Vfs()
     fails(() => fs.symlink('', '/a'), 'EINVAL')
     fails(() => fs.symlink('a\0b', '/a'), 'EINVAL')
-    fails(() => fs.symlink(1, '/a'), 'EINVAL')
+    assert.throws(() => fs.symlink(1, '/a'), TypeError, 'a wrong type is not a wrong target')
+    assert.throws(() => fs.symlink(null, 42), TypeError)
     fs.writeFile('/x', '')
     fs.symlink('../../../x', '/a')
     fs.symlink('/', '/b')
@@ -351,8 +352,21 @@ describe('resolution', () => {
     const fs = createVfs({ 'a/b': 'x' })
     assert.equal(fs.stat('/'.repeat(1 << 22)).ino, 1, 'four million slashes are the root')
     assert.equal(fs.readText(`${'/'.repeat(1 << 20)}a${'/'.repeat(1 << 20)}b`), 'x')
-    fs.symlink(`${'/'.repeat(1 << 20)}a${'/'.repeat(1 << 20)}`, '/l')
+    fs.symlink(`${'/'.repeat(2000)}a${'/'.repeat(2000)}`, '/l')
     assert.equal(fs.readText('/l/b'), 'x', 'a target too')
+  })
+
+  it('bounds what a lookup reads of targets: forty of PATH_MAX at most', () => {
+    const fs = createVfs({ end: 'x' })
+    for (const target of ['a'.repeat(4097), 'ü'.repeat(2049), `${'./'.repeat(2048)}end`, 'a'.repeat(1 << 24)]) {
+      fails(() => fs.symlink(target, '/long'), 'ENAMETOOLONG', '/long')
+    }
+    assert.equal(fs.isSymlink('/long'), false)
+    let target = 'end'
+    for (let i = 0; i < 40; i++) { fs.symlink(`${'./'.repeat(2046)}${target}`, `/l${i}`); target = `l${i}` }
+    const started = performance.now()
+    for (let i = 0; i < 100; i++) assert.equal(fs.readText('/l39'), 'x')
+    assert.ok(performance.now() - started < 2000, 'a hundred lookups through forty of the longest targets')
   })
 
   it('refuses a path that is not one', () => {
@@ -500,7 +514,16 @@ describe('walk', () => {
     assert.deepEqual([...fs.walk('/b/x')], [{ path: '/b/x', type: 'directory', depth: 0 }, { path: '/b/x/deep', type: 'file', depth: 1 }])
     assert.deepEqual([...fs.walk('/a')], [{ path: '/a', type: 'file', depth: 0 }])
     assert.deepEqual([...fs.walk('l')], [...fs.walk('/b')], 'a link named as the start is what it leads to')
-    fails(() => [...fs.walk('/missing')], 'ENOENT')
+    fails(() => fs.walk('/missing'), 'ENOENT', '/missing')
+    assert.throws(() => fs.walk(42), TypeError, 'checked when called, not when first stepped')
+  })
+
+  it('starts from where the path led when it was called', () => {
+    const fs = createVfs({ 'a/x': '', 'b/y': '', 'l': { type: 'symlink', target: 'a' } })
+    const walk = fs.walk('/l')
+    fs.rm('/l')
+    fs.symlink('b', '/l')
+    assert.deepEqual([...walk].map((entry) => entry.path), ['/a', '/a/x'])
   })
 
   it('and a recursive removal survive a tree deeper than any stack', () => {

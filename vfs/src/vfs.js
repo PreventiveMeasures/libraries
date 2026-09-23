@@ -10,13 +10,17 @@
 // then. A file's bytes are returned as they are stored, never copied, and
 // stored as a copy of what was written: hold them, do not write into them.
 // A name is what a filesystem holds: text with an encoding, of at most 255
-// bytes of UTF-8, with no `/` and no NUL.
+// bytes of UTF-8, with no `/` and no NUL. A link's target is text with an
+// encoding too, of at most PATH_MAX bytes, as a filesystem and an archive
+// hold it: a lookup reads every target on its way, forty at most, so a
+// target's length is what a lookup can be made to cost.
 
 import { VfsError } from './error.js'
-import { basename, compareNames } from './path.js'
+import { compareNames } from './path.js'
 
 const LINK_LIMIT = 40
 const NAME_MAX = 255
+export const PATH_MAX = 4096
 const NONE = new Uint8Array()
 export const MODE = { file: 0o644, directory: 0o755, symlink: 0o777 }
 const fresh = (type) => ({ mode: MODE[type], mtime: 0 })
@@ -45,14 +49,14 @@ export class Vfs {
   // place and no entry, so `dir` is undefined for it as for the root. The
   // last link is followed unless `follow` is false, as lstat does not; a
   // trailing slash asserts a directory. `chain` is every directory from the
-  // root down to `dir`, `path` the canonical spelling of the result, and
-  // `linked` whether the last name was a link's target's rather than the
-  // caller's. `mkdirs` makes the directories missing on the way, as mkdir -p
-  // does, but only those the caller spelled: a link leading to a missing
-  // one is a dangling link, and ENOENT. `create` says the caller is about
-  // to make the last name and judges what is there itself, so a trailing
-  // slash asserts nothing of it: mkdir(2), symlink(2) and link(2) say
-  // EEXIST of any name taken, whatever it is.
+  // root down to `dir`, and `linked` whether the last name was a link's
+  // target's rather than the caller's. `mkdirs` makes the directories
+  // missing on the way, as mkdir -p does, but only those the caller
+  // spelled: a link leading to a missing one is a dangling link, and
+  // ENOENT. `create` says the caller is about to make the last name and
+  // judges what is there itself, so a trailing slash asserts nothing of it:
+  // mkdir(2), symlink(2) and link(2) say EEXIST of any name taken, whatever
+  // it is.
   #locate(path, { follow = true, mkdirs = false, create = false } = {}) {
     if (typeof path !== 'string') throw new TypeError(`a path must be a string, not ${typeof path}`)
     if (path.includes('\0')) throw new VfsError('EINVAL', path)
@@ -100,7 +104,7 @@ export class Vfs {
       if (node.type !== 'directory') throw new VfsError('ENOTDIR', path)
       chain.push({ name, node })
     }
-    return { dir, name, node, trailing, chain, linked, path: pathOf(chain, name) }
+    return { dir, name, node, trailing, chain, linked }
   }
 
   // What is at `path`, which has to be there; `follow` false takes the name
@@ -137,7 +141,7 @@ export class Vfs {
   isFile(path) { return this.#is(path, 'file', true) }
   isDirectory(path) { return this.#is(path, 'directory', true) }
   isSymlink(path) { return this.#is(path, 'symlink', false) }
-  realpath(path) { return this.#found(path).path }
+  realpath(path) { return pathOf(this.#found(path)) }
 
   readFile(path) {
     const node = this.#node(path, true)
@@ -188,24 +192,26 @@ export class Vfs {
     else found.node.bytes = append(found.node.bytes, bytes)
   }
 
-  // mkdir(2) never follows the last link, so a link there is a name taken;
-  // `recursive` is content with what a link leads to being a directory, and
-  // nothing is ever made where a dangling link points: a name its target
-  // spelled is not the caller's to make. Without `recursive`, a trailing
-  // slash changes nothing: any name taken is EEXIST, its link unfollowed.
+  // mkdir(2) never follows the last link, so a link there is a name taken,
+  // and a trailing slash changes nothing: any name taken is EEXIST. With
+  // `recursive` the link is followed and a directory where it leads is
+  // enough, but nothing is ever made where a dangling link points: a name
+  // its target spelled is not the caller's to make.
   mkdir(path, { recursive = false, mode, mtime } = {}) {
-    const found = this.#locate(path, { follow: recursive && slashed(path), mkdirs: recursive, create: !recursive })
+    const found = this.#locate(path, { follow: recursive, mkdirs: recursive, create: !recursive })
     if (found.node === undefined) {
-      if (found.linked) throw new VfsError(recursive ? 'ENOENT' : 'EEXIST', path)
+      if (found.linked) throw new VfsError('ENOENT', path)
       this.#set(found, this.#directory(mode, mtime), path)
-    } else if (!recursive || this.stat(path).type !== 'directory') throw new VfsError('EEXIST', path)
+    } else if (!recursive || found.node.type !== 'directory') throw new VfsError('EEXIST', path)
   }
 
   // A link's mode is 0o777 unless given, as Linux has it; one made elsewhere
   // may carry another, and chmod follows the link, so here is where it is set.
   symlink(target, path, { mode, mtime } = {}) {
-    if (typeof target !== 'string' || target === '' || target.includes('\0')) throw new VfsError('EINVAL', path)
+    if (typeof target !== 'string') throw new TypeError(`a link target must be a string, not ${target === null ? 'null' : typeof target}`)
+    if (target === '' || target.includes('\0')) throw new VfsError('EINVAL', path)
     if (!target.isWellFormed()) throw new VfsError('EILSEQ', path)
+    if (tooLong(target, PATH_MAX)) throw new VfsError('ENAMETOOLONG', path)
     this.#set(this.#newName(path), this.#symlink(target, mode, mtime), path)
   }
 
@@ -263,40 +269,53 @@ export class Vfs {
   chmod(path, mode) { this.#node(path, true).mode = checkMode(mode) }
   utimes(path, mtime) { this.#node(path, true).mtime = checkTime(mtime) }
 
-  // Every inode at or under `path`, depth first, siblings in name order, a
-  // link named but not crossed.
-  *#walk(path) {
+  // Both are resolved when called, so a wrong start throws here and not at
+  // the first step, and both start from what a link there leads to.
+  walk(path = '/') {
     const found = this.#found(path)
-    const stack = [{ path: found.path, node: found.node, depth: 0 }]
-    while (stack.length > 0) {
-      const entry = stack.pop()
-      yield entry
-      if (entry.node.type !== 'directory') continue
-      const names = [...entry.node.entries.keys()].sort(compareNames)
-      for (let i = names.length - 1; i >= 0; i--) {
-        stack.push({ path: child(entry.path, names[i]), node: entry.node.entries.get(names[i]), depth: entry.depth + 1 })
-      }
-    }
+    return walk(found.node, pathOf(found))
   }
 
-  *walk(path = '/') {
-    for (const { path: at, node, depth } of this.#walk(path)) yield { path: at, type: node.type, depth }
+  entries(path = '/') {
+    const found = this.#found(path)
+    return entries(found.node, found.node.type === 'directory' ? '.' : found.name)
   }
+}
 
-  // The tree as tar entries: names relative to `path` (`.` for it), and an
-  // inode seen under a second name as a hard link to the first.
-  *entries(path = '/') {
-    const base = this.realpath(path)
-    const named = new Map()
-    for (const { path: at, node } of this.#walk(base)) {
-      const name = at === base ? (node.type === 'directory' ? '.' : basename(at)) : at.slice(base === '/' ? 1 : base.length + 1)
-      const entry = { name, type: node.type, mode: node.mode, mtime: node.mtime, linkname: '', data: NONE }
-      const first = named.get(node)
-      if (first !== undefined) { entry.type = 'link'; entry.linkname = first }
-      else if (node.type === 'symlink') { named.set(node, name); entry.linkname = node.target }
-      else if (node.type === 'file') { named.set(node, name); entry.data = node.bytes }
-      yield entry
+// Every inode at or under `top`, depth first, siblings in name order, a
+// link named but not crossed; `name` is the way down from `top`, '' for it.
+function* descend(top) {
+  const stack = [{ name: '', node: top, depth: 0 }]
+  while (stack.length > 0) {
+    const entry = stack.pop()
+    yield entry
+    if (entry.node.type !== 'directory') continue
+    const names = [...entry.node.entries.keys()].sort(compareNames)
+    for (let i = names.length - 1; i >= 0; i--) {
+      const name = entry.name === '' ? names[i] : `${entry.name}/${names[i]}`
+      stack.push({ name, node: entry.node.entries.get(names[i]), depth: entry.depth + 1 })
     }
+  }
+}
+
+function* walk(top, base) {
+  for (const { name, node, depth } of descend(top)) {
+    yield { path: name === '' ? base : base === '/' ? `/${name}` : `${base}/${name}`, type: node.type, depth }
+  }
+}
+
+// The tree as tar entries: names relative to `top`, `first` naming `top`
+// itself, and an inode seen under a second name as a hard link to the first.
+function* entries(top, first) {
+  const named = new Map()
+  for (const { name: under, node } of descend(top)) {
+    const name = under === '' ? first : under
+    const entry = { name, type: node.type, mode: node.mode, mtime: node.mtime, linkname: '', data: NONE }
+    const earlier = named.get(node)
+    if (earlier !== undefined) { entry.type = 'link'; entry.linkname = earlier }
+    else if (node.type === 'symlink') { named.set(node, name); entry.linkname = node.target }
+    else if (node.type === 'file') { named.set(node, name); entry.data = node.bytes }
+    yield entry
   }
 }
 
@@ -320,8 +339,8 @@ function next(r) {
   return name
 }
 
-const child = (dir, name) => (dir === '/' ? `/${name}` : `${dir}/${name}`)
-const pathOf = (chain, name) => `/${[...chain.slice(1).map((step) => step.name), name].filter(Boolean).join('/')}`
+// The canonical spelling of what a lookup found.
+const pathOf = ({ chain, name }) => `/${[...chain.slice(1).map((step) => step.name), name].filter(Boolean).join('/')}`
 
 const statOf = (node) => ({
   type: node.type,
@@ -341,12 +360,12 @@ const meta = (mode, mtime, current) => ({
 // NAME_MAX bytes of it, as every filesystem bounds a name.
 function checkName(name, path) {
   if (!name.isWellFormed()) throw new VfsError('EILSEQ', path)
-  if (utf8Length(name) > NAME_MAX) throw new VfsError('ENAMETOOLONG', path)
+  if (tooLong(name, NAME_MAX)) throw new VfsError('ENAMETOOLONG', path)
 }
 
 // The UTF-8 length of text, counted rather than encoded: nothing is held
 // but the count, however long the text.
-export function utf8Length(text) {
+function utf8Length(text) {
   let length = 0
   for (const char of text) {
     const code = char.codePointAt(0)
@@ -355,18 +374,22 @@ export function utf8Length(text) {
   return length
 }
 
-function checkMode(mode) {
+// Whether text is more than `max` bytes of UTF-8. A code unit is at least
+// a byte, so text of more units than that is over without being counted.
+export const tooLong = (text, max) => text.length > max || utf8Length(text) > max
+
+export function checkMode(mode) {
   if (!Number.isInteger(mode) || mode < 0 || mode > 0o7777) throw new RangeError(`a mode must be an integer from 0 to 0o7777, not ${mode}`)
   return mode
 }
 
-function checkTime(mtime) {
+export function checkTime(mtime) {
   if (!Number.isSafeInteger(mtime)) throw new RangeError(`an mtime must be an integer of whole seconds, not ${mtime}`)
   return mtime
 }
 
 // Text is stored as its UTF-8, and only text that has one; bytes are copied.
-function encode(data, path) {
+export function encode(data, path) {
   if (typeof data === 'string') {
     if (!data.isWellFormed()) throw new VfsError('EILSEQ', path)
     return encoder.encode(data)
