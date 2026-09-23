@@ -25,7 +25,7 @@
 
 import { VfsError } from './error.js'
 import { dirname } from './path.js'
-import { MODE, Vfs } from './vfs.js'
+import { MODE, Vfs, utf8Length } from './vfs.js'
 
 const PATH_MAX = 4096
 const encoder = new TextEncoder()
@@ -108,11 +108,9 @@ const noData = (data) => data == null || ((typeof data === 'string' || data inst
 // A name by tar's rules, as the one spelling of its path: the root is ''.
 function checkName(name, directory) {
   if (typeof name !== 'string') throw new TypeError(`a name must be a string, not ${typeof name}`)
-  // Bounded as spelled before it is read, as archive bounds it too, so a
-  // spelling costs no more than its length allows: a code unit is a byte of
-  // UTF-8 at least, so more units than bytes allowed is over without being
-  // encoded, and what is within encodes to a few kilobytes at most.
-  if (name.length > PATH_MAX || encoder.encode(name).length > PATH_MAX) throw new VfsError('ENAMETOOLONG', name)
+  // Bounded as spelled before it is read, as archive bounds it too, and
+  // counted rather than encoded, so a spelling costs no more than itself.
+  if (utf8Length(name) > PATH_MAX) throw new VfsError('ENAMETOOLONG', name)
   const parts = name.split('/')
   if (directory && parts.length > 1 && parts.at(-1) === '') parts.pop()
   const kept = parts.filter((part) => part !== '.')
@@ -121,7 +119,7 @@ function checkName(name, directory) {
   if (invalid) throw new VfsError('EINVAL', name)
   const clean = kept.join('/')
   // Bounded as an archive stores the name: a directory's with its slash.
-  if (encoder.encode(directory ? `${clean}/` : clean).length > PATH_MAX) throw new VfsError('ENAMETOOLONG', name)
+  if (utf8Length(clean) + (directory ? 1 : 0) > PATH_MAX) throw new VfsError('ENAMETOOLONG', name)
   return clean
 }
 

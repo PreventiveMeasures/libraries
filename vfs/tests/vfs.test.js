@@ -212,6 +212,8 @@ describe('symbolic links', () => {
     assert.equal(fs.isSymlink('/src/app.js'), false)
     fs.symlink('é', '/utf8')
     assert.equal(fs.lstat('/utf8').size, 2, 'as long as the target in bytes')
+    fs.symlink('ü'.repeat(1 << 20), '/wide')
+    assert.equal(fs.lstat('/wide').size, 1 << 21, 'counted once, when the link is made')
     fs.symlink('src/app.js', '/mode', { mode: 0o755 })
     assert.equal(fs.lstat('/mode').mode, 0o755, 'a mode given is held, as a link made elsewhere may carry one')
     fs.chmod('/mode', 0o600)
@@ -343,6 +345,14 @@ describe('resolution', () => {
     for (let i = 0; i < 41; i++) { fs.symlink(target, `/l${i}`); target = `l${i}` }
     assert.equal(fs.readText('/l39'), 'x', 'forty links deep resolves')
     fails(() => fs.readText('/l40'), 'ELOOP')
+  })
+
+  it('reads a spelling a name at a time, however many slashes it holds', () => {
+    const fs = createVfs({ 'a/b': 'x' })
+    assert.equal(fs.stat('/'.repeat(1 << 22)).ino, 1, 'four million slashes are the root')
+    assert.equal(fs.readText(`${'/'.repeat(1 << 20)}a${'/'.repeat(1 << 20)}b`), 'x')
+    fs.symlink(`${'/'.repeat(1 << 20)}a${'/'.repeat(1 << 20)}`, '/l')
+    assert.equal(fs.readText('/l/b'), 'x', 'a target too')
   })
 
   it('refuses a path that is not one', () => {

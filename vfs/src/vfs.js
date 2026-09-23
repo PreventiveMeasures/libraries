@@ -13,7 +13,7 @@
 // bytes of UTF-8, with no `/` and no NUL.
 
 import { VfsError } from './error.js'
-import { basename, compareNames, segments } from './path.js'
+import { basename, compareNames } from './path.js'
 
 const LINK_LIMIT = 40
 const NAME_MAX = 255
@@ -37,7 +37,7 @@ export class Vfs {
 
   #file(bytes, mode, mtime) { return { ino: ++this.#inodes, type: 'file', ...meta(mode, mtime, fresh('file')), bytes } }
   #directory(mode, mtime) { return { ino: ++this.#inodes, type: 'directory', ...meta(mode, mtime, fresh('directory')), entries: new Map() } }
-  #symlink(target, mode, mtime) { return { ino: ++this.#inodes, type: 'symlink', ...meta(mode, mtime, fresh('symlink')), target } }
+  #symlink(target, mode, mtime) { return { ino: ++this.#inodes, type: 'symlink', ...meta(mode, mtime, fresh('symlink')), target, size: utf8Length(target) } }
 
   // Where `path` leads: `dir`, the directory its last name is in; `name`; and
   // `node`, the inode there — undefined when the name is not taken, so a
@@ -58,25 +58,27 @@ export class Vfs {
     if (path.includes('\0')) throw new VfsError('EINVAL', path)
     if (path === '') throw new VfsError('ENOENT', path)
     const trailing = path.endsWith('/')
-    const rest = segments(path).toReversed()
+    // The spellings being read, the caller's under any link's target: a name
+    // comes from the topmost with names left, and from a link's when there is
+    // one, so a name is never the caller's own while a target is being read.
+    const readers = [reader(path)]
     const chain = [{ name: '', node: this.#root }]
     let budget = LINK_LIMIT
-    let borrowed = 0 // how many names on top of `rest` a link's target put there
     let dir, linked, name, node
     for (;;) {
-      if (rest.length === 0) {
+      while (readers.length > 1 && done(readers.at(-1))) readers.pop()
+      if (done(readers.at(-1))) {
         // `/` itself, or a spelling that ended on `.`, `..` or a link to one.
         ({ name, node } = chain.pop())
         dir = undefined
         break
       }
-      name = rest.pop()
-      linked = borrowed > 0
-      if (linked) borrowed--
+      linked = readers.length > 1
+      name = next(readers.at(-1))
       if (name === '.') continue
       if (name === '..') { if (chain.length > 1) chain.pop(); continue }
       dir = chain.at(-1).node
-      const last = rest.length === 0
+      const last = readers.every(done)
       node = dir.entries.get(name)
       if (node === undefined) {
         if (last) break
@@ -88,10 +90,7 @@ export class Vfs {
       if (node.type === 'symlink' && (!last || follow)) {
         if (budget-- === 0) throw new VfsError('ELOOP', path)
         if (node.target.startsWith('/')) chain.length = 1
-        const parts = segments(node.target)
-        if (node.target.endsWith('/')) parts.push('.')
-        for (let i = parts.length - 1; i >= 0; i--) rest.push(parts[i])
-        borrowed += parts.length
+        readers.push(reader(node.target, true))
         continue
       }
       if (last) {
@@ -301,6 +300,26 @@ export class Vfs {
   }
 }
 
+// A spelling read a name at a time, slashes skipped, holding no more than
+// where it is. A link's target that ends in a slash reads as a final `.`,
+// so what it leads to has to be a directory, as a caller's trailing slash
+// asks.
+const reader = (text, target = false) => ({ text, at: skip(text, 0), dot: target && text.endsWith('/') })
+const done = (r) => r.at === r.text.length && !r.dot
+function skip(text, at) {
+  let i = at
+  while (i < text.length && text.codePointAt(i) === 47) i++
+  return i
+}
+function next(r) {
+  if (r.at === r.text.length) { r.dot = false; return '.' }
+  const slash = r.text.indexOf('/', r.at)
+  const end = slash === -1 ? r.text.length : slash
+  const name = r.text.slice(r.at, end)
+  r.at = skip(r.text, end)
+  return name
+}
+
 const child = (dir, name) => (dir === '/' ? `/${name}` : `${dir}/${name}`)
 const pathOf = (chain, name) => `/${[...chain.slice(1).map((step) => step.name), name].filter(Boolean).join('/')}`
 
@@ -309,7 +328,7 @@ const statOf = (node) => ({
   ino: node.ino,
   mode: node.mode,
   mtime: node.mtime,
-  size: node.type === 'file' ? node.bytes.length : node.type === 'symlink' ? encoder.encode(node.target).length : 0,
+  size: node.type === 'file' ? node.bytes.length : node.type === 'symlink' ? node.size : 0,
 })
 
 // Metadata as given and checked, or as it stands in `current`.
@@ -322,9 +341,18 @@ const meta = (mode, mtime, current) => ({
 // NAME_MAX bytes of it, as every filesystem bounds a name.
 function checkName(name, path) {
   if (!name.isWellFormed()) throw new VfsError('EILSEQ', path)
-  // A code unit is a byte of UTF-8 at least: more units than bytes allowed
-  // is over without being encoded, so a huge name costs no encoding.
-  if (name.length > NAME_MAX || encoder.encode(name).length > NAME_MAX) throw new VfsError('ENAMETOOLONG', path)
+  if (utf8Length(name) > NAME_MAX) throw new VfsError('ENAMETOOLONG', path)
+}
+
+// The UTF-8 length of text, counted rather than encoded: nothing is held
+// but the count, however long the text.
+export function utf8Length(text) {
+  let length = 0
+  for (const char of text) {
+    const code = char.codePointAt(0)
+    length += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4
+  }
+  return length
 }
 
 function checkMode(mode) {
