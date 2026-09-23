@@ -1,6 +1,6 @@
 // One line's worth of value: a scalar, or a flow collection of scalars.
 
-import { YamlError } from './error.js'
+import { YamlError, excerpt } from './error.js'
 
 // Sticky regexes read at `src.pos`; `take` moves it past the match.
 const take = (src, re) => {
@@ -57,14 +57,14 @@ function resolve(text, src) {
   if (text in KNOWN) return KNOWN[text]
   if (NUMBER.test(text) && text !== '-0') {
     const number = Number(text)
-    if (Math.abs(number) > Number.MAX_SAFE_INTEGER) throw new YamlError(`number out of range ${text}`, src.line)
+    if (Math.abs(number) > Number.MAX_SAFE_INTEGER) throw new YamlError(`number out of range ${excerpt(text)}`, src.line)
     return number
   }
-  if (TYPED.test(text) || DATE.test(text)) throw new YamlError(`ambiguous scalar ${text}, quote it`, src.line)
+  if (TYPED.test(text) || DATE.test(text)) throw new YamlError(`ambiguous scalar ${excerpt(text)}, quote it`, src.line)
   return text
 }
 
-const found = (src) => (src.pos < src.text.length ? JSON.stringify(src.text.slice(src.pos, src.pos + 24)) : 'the end of the line')
+const found = (src) => (src.pos < src.text.length ? excerpt(src.text.slice(src.pos)) : 'the end of the line')
 
 function matchScalar(src, context) {
   let m = take(src, SINGLE)
@@ -86,7 +86,7 @@ function readScalar(src, context) {
 export function setKey(map, key, value, line) {
   if (typeof key !== 'string') throw new YamlError('keys must be strings', line)
   if (key === '<<') throw new YamlError('merge keys are not supported', line)
-  if (key in map) throw new YamlError(`duplicate key ${JSON.stringify(key)}`, line)
+  if (key in map) throw new YamlError(`duplicate key ${excerpt(key)}`, line)
   map[key] = value
 }
 
@@ -133,10 +133,15 @@ export function parseInline(text, line) {
 }
 
 // `key: rest` or `key:` at the start of a line, a comment after the colon
-// counting as nothing; null when the line is not a mapping entry.
+// counting as nothing; null when the line is not a mapping entry. YAML holds
+// a key written so to 1024 characters, its quotes included: js-yaml writes a
+// longer one after `? `, and reads either, but a reader true to the spec
+// refuses the long one.
 export function readKey(text, line) {
   const src = { text, pos: 0, line }
   const key = matchScalar(src, 'block')
+  const length = src.pos
   if (key === undefined || take(src, KEY_END) === null) return null
+  if (length > 1024) throw new YamlError('a key longer than 1024 characters is written after "? "', line)
   return { key, rest: text.slice(src.pos) }
 }
