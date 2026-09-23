@@ -31,6 +31,8 @@ describe('unzipStream reads what unzip reads', () => {
       const bytes = bytesOf(recording)
       assert.deepEqual(readable(await all(unzipStream(bytes))), recording.entries)
       assert.deepEqual(readable(await all(unzipStream(new Blob([bytes])))), recording.entries)
+      const stored = (entries) => entries.map((entry) => entry.storedName)
+      assert.deepEqual(stored(await all(unzipStream(new Blob([bytes])))), stored(await unzip(bytes)))
     })
   }
   it('from a file, through fs.openAsBlob', async () => {

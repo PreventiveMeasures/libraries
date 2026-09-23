@@ -46,10 +46,13 @@ function checkText(path, what) {
 }
 
 // What is left of `.` or `./` is the archive root, which only a directory
-// may name; it comes back as `.`.
+// may name; it comes back as `.`. A path with nothing to drop comes back as
+// the very string it came in as, so the name an archive stores and the one
+// cleaned out of it are one string where they are one path.
 export function cleanPath(path, what, directory = false) {
   const segments = checkText(path, what)
-  if (segments.at(-1) === '') {
+  const slash = segments.at(-1) === ''
+  if (slash) {
     if (!directory) throw new ArchiveError(`${what} ${quote(path)} ends in a slash but is not a directory`)
     segments.pop()
   }
@@ -62,7 +65,7 @@ export function cleanPath(path, what, directory = false) {
     if (!directory) throw new ArchiveError(`${what} ${quote(path)} names the archive root but is not a directory`)
     return '.'
   }
-  const name = kept.join('/')
+  const name = slash || kept.length < segments.length ? kept.join('/') : path
   // As the archive stores it, a directory's name carries its slash: what
   // pack takes, unpack then reads.
   if (utf8Length(name) + (directory ? 1 : 0) > PATH_MAX) throw new ArchiveError(`${what} ${quote(path)} is longer than ${PATH_MAX} bytes`)

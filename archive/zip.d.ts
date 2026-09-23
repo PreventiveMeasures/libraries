@@ -14,6 +14,10 @@ export type EntryType = 'file' | 'directory' | 'symlink'
 // `linkname` is '' for anything but a symlink; `data` is empty for
 // anything but a file, and a view over the archive bytes where the entry
 // was stored and the archive is in memory rather than a Blob.
+// `storedName` is the name as the archive stores it, before any cleaning —
+// `./a` where `name` is `a`, `dir/` where it is `dir` — and passed every
+// check the cleaned one did. A symlink's target is never rewritten, only
+// checked, so `linkname` is as stored.
 export interface Entry {
   name: string
   type: EntryType
@@ -21,6 +25,7 @@ export interface Entry {
   mtime: number
   linkname: string
   data: Uint8Array
+  storedName: string
 }
 
 // An entry to write. `name` is cleaned as above, so `./a`, `a/./b` and
@@ -28,7 +33,8 @@ export interface Entry {
 // `type` defaults to 'file'; `mode` to 0o644, 0o755 for a directory, 0o777
 // for a symlink; `mtime` to 1980-01-01T00:00:00Z, the earliest DOS time,
 // and must lie between that and 2038-01-19, which the exact timestamp
-// holds. `linkname` is the target of a symlink.
+// holds. `linkname` is the target of a symlink. An entry read out is one
+// to write as it is; its stored name is not written again, its name is.
 export interface EntryInput {
   name: string
   type?: EntryType
@@ -54,13 +60,13 @@ export interface UnzipOptions {
 }
 
 // Both refuse a name that repeats as a different entry — anything but the
-// same fields and the same bytes again — an entry inside something that is
-// not a directory, and a symlink whose target climbs out of the archive
-// or passes through anything but a directory. unzip() also refuses an
-// entry carrying a Unicode path extra field, a second name that other
-// readers take over the one in the header. Neither
-// takes or makes zip64, so an archive holds at most 65534 entries and
-// stays under 4 GiB.
+// same fields and the same bytes again, however either was stored — an
+// entry inside something that is not a directory, and a symlink whose
+// target climbs out of the archive or passes through anything but a
+// directory. unzip() also refuses an entry carrying a Unicode path extra
+// field, a second name that other readers take over the one in the header.
+// Neither takes or makes zip64, so an archive holds at most 65534 entries
+// and stays under 4 GiB.
 export function zip(entries: Iterable<EntryInput>, options?: ZipOptions): Promise<Uint8Array>
 export function unzip(bytes: Uint8Array, options?: UnzipOptions): Promise<Entry[]>
 
