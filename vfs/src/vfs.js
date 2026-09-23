@@ -46,7 +46,10 @@ export class Vfs {
   // last link is followed unless `follow` is false, as lstat does not; a
   // trailing slash asserts a directory. `chain` is every directory from the
   // root down to `dir`, `path` the canonical spelling of the result, and
-  // `mkdirs` makes the directories missing on the way, as mkdir -p does.
+  // `linked` whether the last name was a link's target's rather than the
+  // caller's. `mkdirs` makes the directories missing on the way, as mkdir -p
+  // does, but only those the caller spelled: a link leading to a missing
+  // one is a dangling link, and ENOENT.
   #locate(path, { follow = true, mkdirs = false } = {}) {
     if (typeof path !== 'string') throw new TypeError(`a path must be a string, not ${typeof path}`)
     if (path.includes('\0')) throw new VfsError('EINVAL', path)
@@ -55,7 +58,8 @@ export class Vfs {
     const rest = segments(path).toReversed()
     const chain = [{ name: '', node: this.#root }]
     let budget = LINK_LIMIT
-    let dir, name, node
+    let borrowed = 0 // how many names on top of `rest` a link's target put there
+    let dir, linked, name, node
     for (;;) {
       if (rest.length === 0) {
         // `/` itself, or a spelling that ended on `.`, `..` or a link to one.
@@ -64,6 +68,8 @@ export class Vfs {
         break
       }
       name = rest.pop()
+      linked = borrowed > 0
+      if (linked) borrowed--
       if (name === '.') continue
       if (name === '..') { if (chain.length > 1) chain.pop(); continue }
       dir = chain.at(-1).node
@@ -71,7 +77,7 @@ export class Vfs {
       node = dir.entries.get(name)
       if (node === undefined) {
         if (last) break
-        if (!mkdirs) throw new VfsError('ENOENT', path)
+        if (!mkdirs || linked) throw new VfsError('ENOENT', path)
         checkName(name, path)
         node = this.#directory()
         dir.entries.set(name, node)
@@ -82,6 +88,7 @@ export class Vfs {
         const parts = segments(node.target)
         if (node.target.endsWith('/')) parts.push('.')
         for (let i = parts.length - 1; i >= 0; i--) rest.push(parts[i])
+        borrowed += parts.length
         continue
       }
       if (last) {
@@ -91,7 +98,7 @@ export class Vfs {
       if (node.type !== 'directory') throw new VfsError('ENOTDIR', path)
       chain.push({ name, node })
     }
-    return { dir, name, node, trailing, chain, path: pathOf(chain, name) }
+    return { dir, name, node, trailing, chain, linked, path: pathOf(chain, name) }
   }
 
   // What is at `path`, which has to be there; `follow` false takes the name
@@ -176,11 +183,15 @@ export class Vfs {
   }
 
   // mkdir(2) never follows the last link, so a link there is a name taken;
-  // `recursive` is content with what a link leads to being a directory.
+  // `recursive` is content with what a link leads to being a directory, and
+  // nothing is ever made where a dangling link points: a name its target
+  // spelled is not the caller's to make.
   mkdir(path, { recursive = false, mode, mtime } = {}) {
     const found = this.#locate(path, { follow: slashed(path), mkdirs: recursive })
-    if (found.node === undefined) this.#set(found, this.#directory(mode, mtime), path)
-    else if (!recursive || !this.isDirectory(path)) throw new VfsError('EEXIST', path)
+    if (found.node === undefined) {
+      if (found.linked) throw new VfsError(recursive ? 'ENOENT' : 'EEXIST', path)
+      this.#set(found, this.#directory(mode, mtime), path)
+    } else if (!recursive || this.stat(path).type !== 'directory') throw new VfsError('EEXIST', path)
   }
 
   // A link's mode is 0o777 unless given, as Linux has it; one made elsewhere
