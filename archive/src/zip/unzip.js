@@ -6,6 +6,10 @@
 // the central directory, the data has to inflate to exactly the declared
 // size and match its CRC-32, and what this package does not model — zip64,
 // encryption, any method but stored and deflate, several disks — is refused.
+// Given a limit, the sizes the entries declare may not add up to more than
+// it; since each has to come out at exactly its own, that bounds everything
+// unzip() puts out, and it is known from the central directory alone,
+// before a single byte is inflated.
 
 import { crc32 } from '@exodus/bytes/crc.js'
 import { EMPTY, sameBytes } from '../bytes.js'
@@ -173,8 +177,9 @@ async function entryOf(r, entry, names) {
   return out
 }
 
-export async function unzip(bytes) {
+export async function unzip(bytes, { limit = Infinity } = {}) {
   if (!(bytes instanceof Uint8Array)) throw new ArchiveError('the archive is not a Uint8Array')
+  if (limit !== Infinity && !(Number.isSafeInteger(limit) && limit >= 0)) throw new ArchiveError(`limit ${String(limit)} is not a whole number of bytes`)
   const r = reader(bytes)
   const end = findEnd(r)
   const count = r.u16(end + 8)
@@ -185,8 +190,11 @@ export async function unzip(bytes) {
   if (start + size !== end) throw new ArchiveError('the central directory does not end at the end record', end)
   const entries = []
   let pos = start
+  let total = 0
   for (let i = 0; i < count; i++) {
     const entry = readCentral(r, pos)
+    total += entry.usize
+    if (total > limit) throw new ArchiveError(`the entries come to more than ${limit} bytes`, pos)
     entries.push(entry)
     pos = entry.next
   }

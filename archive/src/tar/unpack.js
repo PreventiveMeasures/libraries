@@ -4,7 +4,7 @@
 // An entry's data views the chunk it arrived in where one chunk held it
 // whole, and is a copy otherwise.
 
-import { EMPTY, concat } from '../bytes.js'
+import { EMPTY } from '../bytes.js'
 import { isFile } from '../entry.js'
 import { ArchiveError, located } from '../error.js'
 import { BLOCK, decodeHeader, isDevice, isZeroBlock, untilNul } from './header.js'
@@ -85,18 +85,28 @@ class Unpacker {
   }
 
   // The next `size` bytes, or null until they have all arrived: a view
-  // when one chunk holds them, else the chunks are joined first.
+  // when one chunk holds them, else a copy of just that span out of the
+  // chunks it crosses, however much more those chunks hold.
   #take(size) {
     if (this.#buffered < size) return null
     if (size === 0) return EMPTY
-    if (this.#chunks.length > 1) {
-      this.#chunks = [concat([this.#chunks[0].subarray(this.#offset), ...this.#chunks.slice(1)])]
-      this.#offset = 0
+    let out
+    if (this.#offset + size <= this.#chunks[0].length) {
+      out = this.#chunks[0].subarray(this.#offset, this.#offset + size)
+      this.#offset += size
+    } else {
+      out = new Uint8Array(size)
+      let i = 0
+      for (let at = 0, from = this.#offset; at < size; i++, from = 0) {
+        const piece = this.#chunks[i].subarray(from, from + size - at)
+        out.set(piece, at)
+        at += piece.length
+        this.#offset = from + piece.length
+      }
+      this.#chunks = this.#chunks.slice(i - 1)
     }
-    const out = this.#chunks[0].subarray(this.#offset, this.#offset + size)
-    this.#offset += size
     if (this.#offset === this.#chunks[0].length) {
-      this.#chunks = []
+      this.#chunks.shift()
       this.#offset = 0
     }
     this.#buffered -= size

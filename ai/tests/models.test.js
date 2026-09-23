@@ -5,6 +5,17 @@ import * as ai from '../index.js'
 
 import { DEFAULT_MODEL, EFFORT_LEVELS, KNOWN_MODELS, TASK_BUDGET_MODELS, TASK_BUDGET_MODES, calculateCost, canAdaptive, canDisableThink, canEffort, canTaskBudget, canThink, effortsFor, emptyUsage, getMaxTokens, isRecognizedModel, needsExplicitNoThink, normalizeThinkEffort, ollamaModels, ollamaTagFor, readsCacheBreakpoint, reasoningModeFor, resolveModel, resolveThinkEffort, unknownModelMessage, validateModel, wireModelFor } from '../src/models.js'
 
+// What the named usage legs cost per Mtok at a model's BASE rate. A
+// million-token prompt is past the 272K long-context line on every OpenAI
+// row that has one, so the rate is read off a quarter-million tokens a leg
+// and scaled up — by a power of two, which keeps it bit-exact against the
+// published figure. Keep the prompt legs named together under the line.
+function baseRate(model, ...legs) {
+  const usage = emptyUsage()
+  for (const leg of legs) usage[leg] = 250_000
+  return calculateCost(model, usage) * 4
+}
+
 describe('canThink / canEffort', () => {
   it('canThink: false on a model without a thinking capability', () => {
     assert.equal(canThink('anthropic/claude-3-haiku'), false)
@@ -392,7 +403,7 @@ describe('gemini flash', () => {
 })
 
 describe('cache-read overrides (rows that are not 0.10x of input)', () => {
-  const read = (model) => calculateCost(model, { ...emptyUsage(), cacheRead: 1_000_000 })
+  const read = (model) => baseRate(model, 'cacheRead')
 
   it('bills gpt-4.1-mini and gpt-4o-mini at their published cached-input rates', () => {
     // OpenAI prices cached input per model, not as one multiple of input:
@@ -407,6 +418,110 @@ describe('cache-read overrides (rows that are not 0.10x of input)', () => {
     assert.equal(read('openai/gpt-5.5'), 0.5)
     assert.equal(read('anthropic/claude-sonnet-5'), 0.2)
   })
+})
+
+describe('cache-write rates', () => {
+  // OpenAI's pricing page lists a cache-write column only from GPT-5.6 on,
+  // at 1.25x input; before that, a write is billed as the input it is.
+  for (const [model, write] of [
+    ['openai/gpt-6-astra', 12.5],
+    ['openai/gpt-5.6-sol', 5],
+    ['openai/gpt-5.6-terra', 2.5],
+    ['openai/gpt-5.6-luna', 0.25],
+  ]) {
+    it(`${model}: bills a write at the published 1.25x of input`, () => {
+      assert.equal(baseRate(model, 'cacheWrite5m'), write)
+    })
+  }
+
+  for (const model of ['openai/gpt-5.5', 'openai/gpt-5.5-pro', 'openai/gpt-5.4', 'openai/gpt-5.4-nano', 'openai/gpt-5.4-mini', 'openai/gpt-5.4-pro', 'openai/gpt-5.3-codex', 'openai/gpt-4.1-mini', 'openai/gpt-4o-mini']) {
+    it(`${model}: bills a write as ordinary input, with nothing on top`, () => {
+      assert.equal(baseRate(model, 'cacheWrite5m'), baseRate(model, 'input'))
+    })
+  }
+
+  it('leaves Anthropic on its own 1.25x and 2x legs', () => {
+    assert.equal(baseRate('anthropic/claude-opus-5', 'cacheWrite5m'), 5 * 1.25)
+    assert.equal(baseRate('anthropic/claude-opus-5', 'cacheWrite1h'), 5 * 2)
+  })
+})
+
+describe('long-context tier', () => {
+  const MTOK = 1_000_000
+  const bill = (model, fields) => calculateCost(model, { ...emptyUsage(), ...fields })
+
+  // The long-context columns of OpenAI's pricing page, per Mtok: input,
+  // cached input, cache writes (null where the page lists none), output. A
+  // million tokens on any prompt leg is already past the 272K line.
+  for (const [model, input, cached, write, output] of [
+    ['openai/gpt-6-astra', 20, 2, 25, 75],
+    ['openai/gpt-6-sol', 4, 0.4, 5, 15],
+    ['openai/gpt-6-luna', 0.2, 0.02, 0.25, 0.75],
+    ['openai/gpt-5.6-sol', 8, 0.8, 10, 30],
+    ['openai/gpt-5.6-terra', 4, 0.4, 5, 18],
+    ['openai/gpt-5.6-luna', 0.4, 0.04, 0.5, 1.8],
+    ['openai/gpt-5.5', 10, 1, null, 45],
+    ['openai/gpt-5.5-pro', 60, null, null, 270],
+    ['openai/gpt-5.4', 5, 0.5, null, 22.5],
+    ['openai/gpt-5.4-pro', 60, null, null, 270],
+  ]) {
+    it(`${model}: bills the published long-context rates past 272K`, () => {
+      assert.equal(bill(model, { input: MTOK, output: MTOK }), input + output)
+      if (cached !== null) assert.equal(bill(model, { cacheRead: MTOK }), cached)
+      if (write !== null) assert.equal(bill(model, { cacheWrite5m: MTOK }), write)
+    })
+  }
+
+  it('draws the line after 272,000 prompt tokens, and then prices the whole request at the tier', () => {
+    const base = (tokens) => (tokens * 5) / MTOK
+    assert.equal(bill('openai/gpt-5.5', { input: 272_000 }), base(272_000))
+    // One token over doubles every input token, not just the one past the line.
+    assert.equal(bill('openai/gpt-5.5', { input: 272_001 }), 2 * base(272_001))
+  })
+
+  it('counts cached tokens toward the line, as OpenAI does', () => {
+    // 100k fresh at $10 and 200k cached at $1: 300k of prompt is past the
+    // line though neither leg is on its own.
+    assert.equal(bill('openai/gpt-5.5', { input: 100_000, cacheRead: 200_000 }), 1 + 0.2)
+  })
+
+  it('draws it on the prompt alone — a long answer to a short prompt stays at the base rate', () => {
+    assert.equal(bill('openai/gpt-5.5', { input: 1000, output: MTOK }), (1000 * 5) / MTOK + 30)
+  })
+
+  it('gives each openrouter pro alias its base model\'s tier, the way it shares its base rate', () => {
+    const long = { input: MTOK, output: MTOK, cacheRead: MTOK }
+    for (const base of ['openai/gpt-6-astra', 'openai/gpt-5.6-sol', 'openai/gpt-5.6-terra', 'openai/gpt-5.6-luna']) {
+      assert.equal(bill(`${base}-pro`, long), bill(base, long), base)
+    }
+  })
+
+  it('leaves the OpenAI rows without a long-context column on their base rate', () => {
+    assert.equal(bill('openai/gpt-5.4-mini', { input: MTOK, output: MTOK }), 0.75 + 4.5)
+    assert.equal(bill('openai/gpt-5.3-codex', { input: MTOK, output: MTOK }), 1.75 + 14)
+  })
+
+  // Anthropic publishes no tier: 4.6 and later bill the whole 1M window at
+  // the standard rate, which a million-token prompt pins for every one of
+  // them — the same request that bills an OpenAI row at twice its input rate.
+  for (const [model, input, output] of [
+    ['anthropic/claude-fable-5.1', 10, 50],
+    ['anthropic/claude-fable-5', 10, 50],
+    // The row a review asked to price higher past 200k: Anthropic bills
+    // it at $4 / $20 across the whole window like the rest.
+    ['anthropic/claude-opus-5.5', 4, 20],
+    ['anthropic/claude-opus-5', 5, 25],
+    ['anthropic/claude-opus-4.8', 5, 25],
+    ['anthropic/claude-opus-4.7', 5, 25],
+    ['anthropic/claude-opus-4.6', 5, 25],
+    ['anthropic/claude-sonnet-5', 2, 10],
+    ['anthropic/claude-sonnet-4.6', 3, 15],
+  ]) {
+    it(`${model}: bills a 1M-token prompt at the standard rate`, () => {
+      assert.equal(bill(model, { input: MTOK, output: MTOK }), input + output)
+      assert.equal(bill(model, { cacheWrite1h: MTOK }), input * 2)
+    })
+  }
 })
 
 describe('satellite tables name real registry rows', () => {
@@ -501,13 +616,12 @@ describe('gpt-6 astra', () => {
   const ASTRA = 'openai/gpt-6-astra'
 
   it('registers the published $10 / $50 per Mtok and a 128,000 max_tokens', () => {
-    const usage = { ...emptyUsage(), input: 1_000_000, output: 1_000_000 }
-    assert.equal(calculateCost(ASTRA, usage), 10 + 50)
+    assert.equal(baseRate(ASTRA, 'input', 'output'), 10 + 50)
     assert.equal(getMaxTokens(ASTRA), 128_000)
   })
 
   it('needs no cache-read override — $1.00 per Mtok is already 0.10x of input', () => {
-    assert.equal(calculateCost(ASTRA, { ...emptyUsage(), cacheRead: 1_000_000 }), 1)
+    assert.equal(baseRate(ASTRA, 'cacheRead'), 1)
   })
 
   it('is thinking-capable and reads an effort knob', () => {
@@ -521,6 +635,53 @@ describe('gpt-6 astra', () => {
   })
 })
 
+describe('gpt-6 sol and luna', () => {
+  const SOL = 'openai/gpt-6-sol'
+  const LUNA = 'openai/gpt-6-luna'
+
+  it('registers the published rates and a 128,000 max_tokens', () => {
+    assert.equal(baseRate(SOL, 'input', 'output'), 2 + 10)
+    assert.equal(baseRate(LUNA, 'input', 'output'), 0.1 + 0.5)
+    for (const model of [SOL, LUNA]) assert.equal(getMaxTokens(model), 128_000)
+  })
+
+  it('needs no cache override — reads are 0.10x of input and writes 1.25x', () => {
+    assert.equal(baseRate(SOL, 'cacheRead'), 0.2)
+    assert.equal(baseRate(LUNA, 'cacheRead'), 0.01)
+    assert.equal(baseRate(SOL, 'cacheWrite5m'), 2.5)
+    assert.equal(baseRate(LUNA, 'cacheWrite5m'), 0.125)
+  })
+
+  it('can turn thinking off, where astra above them cannot', () => {
+    // Both take `reasoning_effort: 'none'`; astra floors at `low`.
+    for (const model of [SOL, LUNA]) {
+      assert.equal(canDisableThink(model), true, model)
+      assert.equal(needsExplicitNoThink(model), false, model)
+    }
+    assert.equal(canDisableThink('openai/gpt-6-astra'), false)
+    // Nor on their own -pro rows: pro IS a reasoning mode, so a request
+    // that asks for pro and no thinking asks for two opposite things.
+    for (const pro of [`${SOL}-pro`, `${LUNA}-pro`]) assert.equal(canDisableThink(pro), false, pro)
+  })
+
+  it('is thinking-capable, reads an effort knob, and takes the ladder through max', () => {
+    for (const model of [SOL, LUNA]) {
+      assert.equal(canThink(model), true, model)
+      assert.equal(canEffort(model), true, model)
+      assert.deepEqual(effortsFor(model), ['low', 'medium', 'high', 'xhigh', 'max'], model)
+      assert.deepEqual(normalizeThinkEffort(model, true), { useThink: true, useEffort: 'high' })
+    }
+  })
+
+  it('reads the explicit cache breakpoint, as every gpt-5.6-and-later row does', () => {
+    for (const model of [SOL, LUNA]) assert.equal(readsCacheBreakpoint(model), true, model)
+  })
+
+  it('does not accept the Anthropic task-budgets beta', () => {
+    for (const model of [SOL, LUNA]) assert.equal(canTaskBudget(model), false, model)
+  })
+})
+
 // Two different things are called "pro" here. One is a MODE on another
 // model — same weights and same rate, just more tokens spent thinking — so
 // the row names its base as the wire model and 'pro' as the mode. The other
@@ -528,6 +689,8 @@ describe('gpt-6 astra', () => {
 describe('openai pro rows', () => {
   const MODES = [
     ['openai/gpt-6-astra-pro', 'openai/gpt-6-astra'],
+    ['openai/gpt-6-sol-pro', 'openai/gpt-6-sol'],
+    ['openai/gpt-6-luna-pro', 'openai/gpt-6-luna'],
     ['openai/gpt-5.6-sol-pro', 'openai/gpt-5.6-sol'],
     ['openai/gpt-5.6-terra-pro', 'openai/gpt-5.6-terra'],
     ['openai/gpt-5.6-luna-pro', 'openai/gpt-5.6-luna'],
@@ -600,10 +763,9 @@ describe('newer OpenAI models (gpt-5.6 Sol / Terra / Luna)', () => {
   })
 
   it('prices each tier per the published rates (per Mtok in + out)', () => {
-    const usage = { ...emptyUsage(), input: 1_000_000, output: 1_000_000 }
-    assert.equal(calculateCost('openai/gpt-5.6-sol', usage), 4 + 20)
-    assert.equal(calculateCost('openai/gpt-5.6-terra', usage), 2 + 12)
-    assert.equal(calculateCost('openai/gpt-5.6-luna', usage), 0.2 + 1.2)
+    assert.equal(baseRate('openai/gpt-5.6-sol', 'input', 'output'), 4 + 20)
+    assert.equal(baseRate('openai/gpt-5.6-terra', 'input', 'output'), 2 + 12)
+    assert.equal(baseRate('openai/gpt-5.6-luna', 'input', 'output'), 0.2 + 1.2)
   })
 })
 
@@ -638,7 +800,7 @@ describe('resolveModel (alias canonicalization)', () => {
     const usage = { ...emptyUsage(), input: 1_000_000, output: 1_000_000 }
     assert.equal(calculateCost('openai/gpt-5.6', usage), null)
     assert.equal(getMaxTokens(resolveModel('openai/gpt-5.6')), 128_000)
-    assert.equal(calculateCost(resolveModel('openai/gpt-5.6'), usage), 4 + 20)
+    assert.equal(baseRate(resolveModel('openai/gpt-5.6'), 'input', 'output'), 4 + 20)
   })
 })
 

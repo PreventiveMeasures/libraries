@@ -984,6 +984,18 @@ describe('normalizeOneUsage — chat-completions cached tokens', () => {
     assert.equal(usage.input, 0)
     assert.equal(usage.cacheRead, 100)
   })
+
+  it('carves OpenAI cache writes out of prompt_tokens too, into the 5m write leg', () => {
+    const usage = normalizeOneUsage({ usage: { prompt_tokens: 1000, completion_tokens: 10, prompt_tokens_details: { cached_tokens: 200, cache_write_tokens: 300 } } })
+    assert.deepEqual(usage, { input: 500, output: 10, cacheRead: 200, cacheWrite5m: 300, cacheWrite1h: 0, cost: 0 })
+  })
+
+  it('caps cache writes at what the reads left of the prompt', () => {
+    const usage = normalizeOneUsage({ usage: { prompt_tokens: 100, completion_tokens: 10, prompt_tokens_details: { cached_tokens: 60, cache_write_tokens: 400 } } })
+    assert.equal(usage.input, 0)
+    assert.equal(usage.cacheRead, 60)
+    assert.equal(usage.cacheWrite5m, 40)
+  })
 })
 
 describe('normalizeOneUsage — input_tokens providers report cache reads differently', () => {
@@ -1017,6 +1029,49 @@ describe('normalizeOneUsage — input_tokens providers report cache reads differ
     const usage = normalizeOneUsage({ usage: { input_tokens: 500, cache_read_input_tokens: 0, output_tokens: 10 } })
     assert.equal(usage.input, 500)
     assert.equal(usage.cacheRead, 0)
+  })
+
+  it('OpenAI Responses: cache_write_tokens is a subset of input_tokens as well, so it leaves input too', () => {
+    const usage = normalizeOneUsage({ usage: {
+      input_tokens: 2000,
+      input_tokens_details: { cached_tokens: 500, cache_write_tokens: 1200 },
+      output_tokens: 100,
+    } })
+    assert.deepEqual(usage, { input: 300, output: 100, cacheRead: 500, cacheWrite5m: 1200, cacheWrite1h: 0, cost: 0 })
+  })
+
+  it('OpenAI Responses: a zero write count, as every model before GPT-5.6 reports, leaves input whole', () => {
+    const usage = normalizeOneUsage({ usage: { input_tokens: 500, input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 }, output_tokens: 10 } })
+    assert.equal(usage.input, 500)
+    assert.equal(usage.cacheWrite5m, 0)
+  })
+
+  it('OpenAI Responses: caps cache writes at what the reads left of input_tokens', () => {
+    const usage = normalizeOneUsage({ usage: { input_tokens: 1000, input_tokens_details: { cached_tokens: 800, cache_write_tokens: 500 }, output_tokens: 10 } })
+    assert.equal(usage.input, 0)
+    assert.equal(usage.cacheWrite5m, 200)
+  })
+})
+
+describe('OpenAI cache writes, priced', () => {
+  // 250k of prompt, 200k of it written to the cache — under the 272K
+  // long-context line, so these are base rates.
+  const responses = { usage: { input_tokens: 250_000, input_tokens_details: { cached_tokens: 0, cache_write_tokens: 200_000 }, output_tokens: 0 } }
+  const chatCompletions = { usage: { prompt_tokens: 250_000, completion_tokens: 0, prompt_tokens_details: { cache_write_tokens: 200_000 } } }
+
+  it('bills a gpt-5.6-sol write at the published $5 per Mtok — 1.25x its $4 input, not 1x', () => {
+    // 50k fresh at $4 plus 200k written at $5.
+    for (const data of [responses, chatCompletions]) {
+      assert.equal(calculateCost('openai/gpt-5.6-sol', normalizeOneUsage(data)), 0.2 + 1)
+    }
+    // A write past the line takes the long-context tier like any input: $10.
+    assert.equal(calculateCost('openai/gpt-5.6-sol', { ...emptyUsage(), cacheWrite5m: 1_000_000 }), 10)
+  })
+
+  it('bills a write on a model before GPT-5.6 as ordinary input, which is all OpenAI charges there', () => {
+    const asInput = calculateCost('openai/gpt-5.5', { ...emptyUsage(), input: 250_000 })
+    assert.equal(calculateCost('openai/gpt-5.5', normalizeOneUsage(responses)), asInput)
+    assert.equal(calculateCost('openai/gpt-4o-mini', normalizeOneUsage(chatCompletions)), calculateCost('openai/gpt-4o-mini', { ...emptyUsage(), input: 250_000 }))
   })
 })
 
