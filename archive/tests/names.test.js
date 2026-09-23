@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { Names, checkSymlinkTarget, cleanNames, cleanPath } from '../src/names.js'
+import { quote } from '../src/text.js'
 import { utf8 } from './helpers.js'
 
 // The rules a name is held to, on their own: what is a clean relative
@@ -159,6 +160,20 @@ describe('the names seen so far', () => {
     assert.throws(() => after(entry('a')).add(entry('a/b')), /"a\/b" is inside "a", which is not a directory/u)
     assert.throws(() => after(entry('a', 'symlink', 'elsewhere')).add(entry('a/b')), /is inside "a", which is not a directory/u)
     assert.throws(() => after(entry('a', 'fifo')).add(entry('a/b/c', 'directory')), /is inside "a"/u)
+  })
+  it('costs a tree the length of its names, and names the parent that is not a directory at any depth', () => {
+    const names = new Names(true)
+    let path = ''
+    const t0 = performance.now()
+    for (let i = 0; i < 2047; i++) {
+      path += i === 0 ? 'a' : '/a'
+      names.add(entry(path, 'directory'))
+    }
+    names.add(entry(`${path}/f`))
+    assert.ok(performance.now() - t0 < 1000, 'two thousand nested directories took a second or more')
+    assert.throws(() => names.add(entry(`${path}/f/x`)), { message: `${quote(`${path}/f/x`)} is inside ${quote(`${path}/f`)}, which is not a directory` })
+    assert.throws(() => after(entry('f')).add(entry(`f/${'a/'.repeat(100)}x`)), /is inside "f", which is not a directory/u)
+    assert.throws(() => after(entry('d/f')).add(entry(`d/f/${'a/'.repeat(100)}x`)), /is inside "d\/f", which is not a directory/u)
   })
   it('refuses a symlink target that walks through anything but a directory, whichever comes first', () => {
     // d/s is the archive root, so d/s/.. would be its parent.
