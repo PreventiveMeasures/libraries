@@ -10,6 +10,13 @@
 // it; since each has to come out at exactly its own, that bounds everything
 // unzip() puts out, and it is known from the central directory alone,
 // before a single byte is inflated.
+//
+// One reader serves both calls. It asks for the archive a range at a time:
+// views of it when it is in memory, and reads of just those bytes when it
+// is a Blob — a File, or a file opened with fs.openAsBlob — so a stream
+// over one holds no more of it than the entry it is on. Everything about
+// the layout is checked before the first entry is handed over; what an
+// entry's own data holds is checked as it is reached.
 
 import { crc32 } from '@exodus/bytes/crc.js'
 import { EMPTY, sameBytes } from '../bytes.js'
@@ -31,26 +38,47 @@ const ENCRYPTED = 1
 const DESCRIBED = 8 // sizes and CRC follow the data, and may be 0 in the local header
 const DOS_DIRECTORY = 0x10
 
-// Bounds-checked little-endian reads over the archive.
-function reader(bytes) {
+// Bounds-checked little-endian reads over `bytes`, which sit at `base` in
+// the archive: offsets are the archive's own, and one past what was read,
+// which stops short only at the archive's end, is past its end.
+function reader(bytes, base = 0) {
   const data = view(bytes)
   const check = (at, width) => {
-    if (at < 0 || at + width > bytes.length) throw new ArchiveError('the archive is truncated', at)
+    if (at < base || at + width > base + bytes.length) throw new ArchiveError('the archive is truncated', at)
   }
   return {
-    length: bytes.length,
-    u16: (at) => (check(at, 2), data.getUint16(at, true)),
-    u32: (at) => (check(at, 4), data.getUint32(at, true)),
-    slice: (at, width) => (check(at, width), bytes.subarray(at, at + width)),
+    u16: (at) => (check(at, 2), data.getUint16(at - base, true)),
+    u32: (at) => (check(at, 4), data.getUint32(at - base, true)),
+    slice: (at, width) => (check(at, width), bytes.subarray(at - base, at - base + width)),
   }
 }
 
+// Where the archive's bytes come from, a range at a time: `read` for the
+// bytes themselves, `window` for a reader over them, cut short where the
+// archive ends. In memory, a range is a view and every window is the one
+// reader over the whole; a Blob reads each range as it is asked for.
+function sourceOf(archive) {
+  if (archive instanceof Uint8Array) {
+    const whole = reader(archive)
+    return { size: archive.length, read: (from, to) => archive.subarray(from, to), window: () => whole }
+  }
+  if (archive instanceof Blob) {
+    const read = async (from, to) => new Uint8Array(await archive.slice(from, to).arrayBuffer())
+    return { size: archive.size, read, window: async (from, to) => reader(await read(from, Math.min(to, archive.size)), from) }
+  }
+  throw new ArchiveError('the archive is not a Uint8Array or a Blob')
+}
+
 // The end record is the last 22 bytes plus its comment, and nothing after.
-function findEnd(r) {
-  for (let at = r.length - 22; at >= Math.max(0, r.length - 22 - 0xffff); at--) {
-    if (r.u32(at) === END && at + 22 + r.u16(at + 20) === r.length) {
+// Read with the 20 bytes ahead of the furthest back it can start, where a
+// zip64 locator would sit.
+async function findEnd(source) {
+  const { size } = source
+  const r = await source.window(Math.max(0, size - 22 - 0xffff - 20), size)
+  for (let at = size - 22; at >= Math.max(0, size - 22 - 0xffff); at--) {
+    if (r.u32(at) === END && at + 22 + r.u16(at + 20) === size) {
       if (at >= 20 && r.u32(at - 20) === ZIP64_LOCATOR) throw new ArchiveError('zip64 is not supported', at - 20)
-      return at
+      return { end: at, r }
     }
   }
   throw new ArchiveError('no end of central directory record')
@@ -115,17 +143,19 @@ function readCentral(r, at) {
 // to agree on everything both carry — flags included, since a descriptor
 // bit set in one and not the other is read two ways by two readers — and
 // the local sizes and CRC may be 0 only where a descriptor carries them.
-function readLocal(r, entry, boundary) {
+async function readLocal(source, entry, boundary) {
   const at = entry.offset
+  const r = await source.window(at, at + 30)
   if (r.u32(at) !== LOCAL) throw new ArchiveError('no local header where the central directory points', at)
   const nameLength = r.u16(at + 26)
   const extraLength = r.u16(at + 28)
-  if (!sameBytes(r.slice(at + 30, nameLength), entry.name)) throw new ArchiveError('the local header names a different entry', at)
+  const named = await source.window(at + 30, at + 30 + nameLength + extraLength)
+  if (!sameBytes(named.slice(at + 30, nameLength), entry.name)) throw new ArchiveError('the local header names a different entry', at)
   const shared = [[4, 'version', 'a different version'], [6, 'flags', 'different flags'], [8, 'method', 'a different compression method'], [10, 'time', 'a different time'], [12, 'date', 'a different date']]
   for (const [field, key, what] of shared) {
     if (r.u16(at + field) !== entry[key]) throw new ArchiveError(`the local header has ${what}`, at)
   }
-  extras(r.slice(at + 30 + nameLength, extraLength), at)
+  extras(named.slice(at + 30 + nameLength, extraLength), at)
   const described = entry.flags & DESCRIBED
   const agrees = (field, value) => r.u32(at + field) === value || (described && r.u32(at + field) === 0)
   if (!agrees(14, entry.crc) || !agrees(18, entry.csize) || !agrees(22, entry.usize)) throw new ArchiveError('the local header disagrees with the central directory', at)
@@ -135,8 +165,9 @@ function readLocal(r, entry, boundary) {
     // The descriptor may start with its signature or not, and a CRC can be
     // that very value, so both layouts are tried against the record; where
     // both fit (every word the signature), the one reaching the boundary is it.
-    const matches = (from) => r.u32(from) === entry.crc && r.u32(from + 4) === entry.csize && r.u32(from + 8) === entry.usize
-    const signed = r.u32(end) === DESCRIPTOR && matches(end + 4)
+    const d = await source.window(end, end + 16)
+    const matches = (from) => d.u32(from) === entry.crc && d.u32(from + 4) === entry.csize && d.u32(from + 8) === entry.usize
+    const signed = d.u32(end) === DESCRIPTOR && matches(end + 4)
     if (matches(end) && !(signed && end + 16 === boundary)) end += 12
     else if (signed) end += 16
     else throw new ArchiveError('the data descriptor disagrees with the central directory', end)
@@ -160,7 +191,7 @@ function typeOf(entry, rawName, mode) {
   throw new ArchiveError(`the mode of ${quote(rawName)} (${mode.toString(8)}) is not one this package reads`, entry.at)
 }
 
-async function entryOf(r, entry, names) {
+async function entryOf(source, entry, names) {
   const { at, method, csize, usize } = entry
   const rawName = decodeUtf8(entry.name, 'entry name', at)
   // Only a Unix maker's attributes carry a mode.
@@ -168,7 +199,11 @@ async function entryOf(r, entry, names) {
   const type = typeOf(entry, rawName, mode)
   if (type === 'directory' && usize !== 0) throw new ArchiveError(`directory ${quote(rawName)} has data`, at)
   if (method === 0 && csize !== usize) throw new ArchiveError('a stored entry has two sizes', at)
-  const body = method === 8 ? await inflate(r.slice(entry.dataAt, csize), usize, at) : r.slice(entry.dataAt, csize)
+  // A Blob can come back short if what is behind it changed since the
+  // layout was checked; the bytes checked are the bytes read, or nothing.
+  const raw = await source.read(entry.dataAt, entry.dataAt + csize)
+  if (raw.length !== csize) throw new ArchiveError('the archive is truncated', entry.dataAt)
+  const body = method === 8 ? await inflate(raw, usize, at) : raw
   if (crc32(body) !== entry.crc) throw new ArchiveError('the data does not match its CRC-32', at)
   const target = type === 'symlink' ? decodeUtf8(body, 'symlink target', at) : ''
   const named = located(() => cleanNames(rawName, type, target), at)
@@ -177,37 +212,49 @@ async function entryOf(r, entry, names) {
   return out
 }
 
-export async function unzip(bytes, { limit = Infinity } = {}) {
-  if (!(bytes instanceof Uint8Array)) throw new ArchiveError('the archive is not a Uint8Array')
+// The entries one at a time, the layout all checked before the first.
+// `keep` holds entries for a repeat to be compared with, which only the
+// in-memory call can afford.
+async function* entries(source, { limit = Infinity } = {}, keep = false) {
   if (limit !== Infinity && !(Number.isSafeInteger(limit) && limit >= 0)) throw new ArchiveError(`limit ${String(limit)} is not a whole number of bytes`)
-  const r = reader(bytes)
-  const end = findEnd(r)
+  const { end, r } = await findEnd(source)
   const count = r.u16(end + 8)
   if (r.u16(end + 4) !== 0 || r.u16(end + 6) !== 0 || count !== r.u16(end + 10)) throw new ArchiveError('the archive spans several disks', end)
   const size = r.u32(end + 12)
   const start = r.u32(end + 16)
   if (count === 0xffff || size === 0xffffffff || start === 0xffffffff) throw new ArchiveError('zip64 is not supported', end)
   if (start + size !== end) throw new ArchiveError('the central directory does not end at the end record', end)
-  const entries = []
+  // Through to the archive's end, so a record counted past the directory
+  // meets the end record, as it would in the archive, not a cut.
+  const directory = await source.window(start, source.size)
+  const list = []
   let pos = start
   let total = 0
   for (let i = 0; i < count; i++) {
-    const entry = readCentral(r, pos)
+    const entry = readCentral(directory, pos)
     total += entry.usize
     if (total > limit) throw new ArchiveError(`the entries come to more than ${limit} bytes`, pos)
-    entries.push(entry)
+    list.push(entry)
     pos = entry.next
   }
   if (pos !== end) throw new ArchiveError('the central directory does not hold what the end record counts', pos)
   let expected = 0
-  const sorted = entries.toSorted((a, b) => a.offset - b.offset)
+  const sorted = list.toSorted((a, b) => a.offset - b.offset)
   for (const [i, entry] of sorted.entries()) {
     if (entry.offset !== expected) throw new ArchiveError(entry.offset > expected ? 'bytes belong to no entry' : 'two entries overlap', expected)
-    expected = readLocal(r, entry, sorted[i + 1]?.offset ?? start)
+    expected = await readLocal(source, entry, sorted[i + 1]?.offset ?? start)
   }
   if (expected !== start) throw new ArchiveError('bytes belong to no entry', expected)
-  const names = new Names(true)
-  const out = []
-  for (const entry of entries) out.push(await entryOf(r, entry, names))
+  const names = new Names(keep)
+  for (const entry of list) yield await entryOf(source, entry, names)
+}
+
+export async function unzip(bytes, options) {
+  if (!(bytes instanceof Uint8Array)) throw new ArchiveError('the archive is not a Uint8Array')
+  const out = await Array.fromAsync(entries(sourceOf(bytes), options, true))
   return out
+}
+
+export async function* unzipStream(archive, options) {
+  yield* entries(sourceOf(archive), options)
 }

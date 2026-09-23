@@ -13,7 +13,7 @@ export type EntryType = 'file' | 'directory' | 'symlink'
 // carries an extended timestamp and DOS time read as UTC otherwise;
 // `linkname` is '' for anything but a symlink; `data` is empty for
 // anything but a file, and a view over the archive bytes where the entry
-// was stored.
+// was stored and the archive is in memory rather than a Blob.
 export interface Entry {
   name: string
   type: EntryType
@@ -63,6 +63,17 @@ export interface UnzipOptions {
 // stays under 4 GiB.
 export function zip(entries: Iterable<EntryInput>, options?: ZipOptions): Promise<Uint8Array>
 export function unzip(bytes: Uint8Array, options?: UnzipOptions): Promise<Entry[]>
+
+// The same one entry at a time, as an async generator: over the archive in
+// memory, or over a Blob — a File, or a file opened with fs.openAsBlob —
+// read a range at a time, so that no more of it is held than the entry it
+// is on, whose data is then its own rather than a view of the archive.
+// The layout is checked whole before the first entry comes out; what an
+// entry holds is checked as it is reached, so a bad one ends the stream
+// after the ones before it. A stream keeps no entry's data, so a name that
+// repeats with the same fields is refused there, and such an archive is
+// for the in-memory call.
+export function unzipStream(archive: Uint8Array | Blob, options?: UnzipOptions): AsyncGenerator<Entry, void, undefined>
 
 // `offset` is where in the archive the reader gave up; unset from the writer.
 export class ArchiveError extends Error {
