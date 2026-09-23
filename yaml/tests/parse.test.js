@@ -134,8 +134,11 @@ describe('the shapes pnpm writes', () => {
     })
     // Up to 1024 characters, quotes included, a key needs no `? `; in a flow
     // mapping it never does.
+    // Counted in UTF-16 units, as js-yaml's writer counts: 512 emoji it
+    // writes without `? `.
     const edge = 'k'.repeat(1024)
-    assert.deepEqual(parse(`${edge}: 1\n'${edge.slice(2)}': 2\nl:\n  - a: {'${key}': 3}\n`), { [edge]: 1, [edge.slice(2)]: 2, l: [{ a: { [key]: 3 } }] })
+    const emoji = String.fromCodePoint(0x1F600).repeat(512)
+    assert.deepEqual(parse(`${edge}: 1\n'${edge.slice(2)}': 2\nl:\n  - a: {'${key}': 3}\n${emoji}: 4\n`), { [edge]: 1, [edge.slice(2)]: 2, l: [{ a: { [key]: 3 } }], [emoji]: 4 })
   })
 
   it('literal block scalars, with each chomping indicator', () => {
@@ -290,6 +293,8 @@ describe('what it refuses', () => {
     [`${'k'.repeat(1025)}: 1`, /^a key longer than 1024 characters is written after "\? " at line 1$/u, 0],
     [`a:\n  '${'k'.repeat(1023)}': 1`, /a key longer than 1024 characters/u, 1],
     [`- ${'k'.repeat(1025)}: 1`, /a key longer than 1024 characters/u, 0],
+    // In UTF-16 units, as the yaml package counts: 514 characters, 1026 units.
+    [`'${String.fromCodePoint(0x1F600).repeat(512)}': 1`, /a key longer than 1024 characters/u, 0],
     // Explicit keys need their `: ` line, and keys of any kind must be strings.
     ['? a', /expected ": " below the explicit key at line 1/u, 0],
     ['? a\nb: 1', /expected ": " below the explicit key at line 2/u, 1],

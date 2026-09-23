@@ -16,10 +16,9 @@ const take = (src, re) => {
 // space counts as whitespace: tabs were refused earlier, and to YAML a
 // Unicode space is an ordinary character. A `#` can only be reached after
 // something that is not a space, so past the first character it is content.
-const PLAIN = {
-  block: /(?:[^ ?:,[\]{}#&*!|>'"%@`-]|[-?:](?=[^ ]))(?:[^ :]|:(?=[^ ])| +(?=[^ #:]|:[^ ]))*/uy,
-  flow: /(?:[^ ?:,[\]{}#&*!|>'"%@`-]|[-?:](?=[^ ,[\]{}]))(?:[^ :,[\]{}]|:(?=[^ ,[\]{}])| +(?=[^ #:,[\]{}]|:[^ ,[\]{}]))*/uy,
-}
+// `end` is what a scalar may not run into: a space, and in flow `,[]{}` too.
+const plain = (end) => new RegExp(`(?:[^ ?:,[\\]{}#&*!|>'"%@\`-]|[-?:](?=[^${end}]))(?:[^:${end}]|:(?=[^${end}])| +(?=[^#:${end}]|:[^${end}]))*`, 'uy')
+const PLAIN = { block: plain(' '), flow: plain(' ,[\\]{}') }
 const SINGLE = /'((?:[^']|'')*)'/uy
 const DOUBLE = /"((?:[^"\\]|\\.)*)"/uy
 
@@ -96,47 +95,37 @@ const PAIR = /: +/uy
 const KEY_END = /:(?: +(?:#.*)?|$)/uy
 const LINE_END = /(?: +#.*| *)$/uy
 
-function readFlow(src, closer, item) {
+// `[a, b]` or `{a: 1, b: 2}`, of scalars alone, up to `closer`.
+function readFlow(src, closer) {
+  const collection = closer === ']' ? [] : Object.create(null)
   src.pos++
   take(src, SPACES)
   if (src.text[src.pos] !== closer) {
     do {
-      item()
+      const item = readScalar(src, 'flow')
+      if (closer === ']') collection.push(item)
+      else if (take(src, PAIR) === null) throw new YamlError(`expected ": " after the key, found ${found(src)}`, src.line)
+      else setKey(collection, item, readScalar(src, 'flow'), src.line)
       take(src, SPACES)
     } while (take(src, COMMA) !== null)
   }
   if (src.text[src.pos] !== closer) throw new YamlError(`expected "," or "${closer}", found ${found(src)}`, src.line)
   src.pos++
-}
-
-function readFlowMapping(src) {
-  const map = Object.create(null)
-  readFlow(src, '}', () => {
-    const key = readScalar(src, 'flow')
-    if (take(src, PAIR) === null) throw new YamlError(`expected ": " after the key, found ${found(src)}`, src.line)
-    setKey(map, key, readScalar(src, 'flow'), src.line)
-  })
-  return map
-}
-
-function readFlowSequence(src) {
-  const list = []
-  readFlow(src, ']', () => list.push(readScalar(src, 'flow')))
-  return list
+  return collection
 }
 
 export function parseInline(text, line) {
   const src = { text, pos: 0, line }
-  const value = text.startsWith('{') ? readFlowMapping(src) : text.startsWith('[') ? readFlowSequence(src) : readScalar(src, 'block')
+  const value = text.startsWith('{') ? readFlow(src, '}') : text.startsWith('[') ? readFlow(src, ']') : readScalar(src, 'block')
   if (take(src, LINE_END) === null) throw new YamlError(`unexpected ${found(src)} after the value`, line)
   return value
 }
 
 // `key: rest` or `key:` at the start of a line, a comment after the colon
 // counting as nothing; null when the line is not a mapping entry. YAML holds
-// a key written so to 1024 characters, its quotes included: js-yaml writes a
-// longer one after `? `, and reads either, but a reader true to the spec
-// refuses the long one.
+// such a key to 1024 characters, quotes included, counted here in UTF-16
+// units: so the yaml package counts when it refuses a longer one, and so
+// js-yaml's writer counts when it puts one after `? ` instead.
 export function readKey(text, line) {
   const src = { text, pos: 0, line }
   const key = matchScalar(src, 'block')
