@@ -51,9 +51,9 @@ const TREES = {
     { name: 'cdev', type: 'character-device', devmajor: 1, devminor: 3 },
     { name: 'fifo', type: 'fifo' },
     { name: 'h1', data: 'data' },
-    { name: 'h2', type: 'link', linkname: 'h1' },
+    { name: 'h2', type: 'hardlink', linkname: 'h1' },
     { name: 'sub', type: 'directory' },
-    { name: 'sub/h3', type: 'link', linkname: 'h1' },
+    { name: 'sub/h3', type: 'hardlink', linkname: 'h1' },
   ],
   one: [{ name: 'a.txt', data: 'hi' }],
   // The root itself as a member, which tar writes as `./`.
@@ -121,11 +121,11 @@ function build(root, entries) {
       if (e.name !== '.') mkdirSync(path)
     }
     else if (e.type === 'symlink') symlinkSync(e.linkname, path)
-    else if (e.type === 'link') linkSync(join(root, e.linkname), path)
+    else if (e.type === 'hardlink') linkSync(join(root, e.linkname), path)
     else if (e.type === 'fifo') execFileSync('mkfifo', ['-m', '644', path])
     else if (e.type === 'character-device' || e.type === 'block-device') execFileSync('mknod', ['-m', '644', path, e.type[0], String(e.devmajor), String(e.devminor)])
     else writeFileSync(path, e.data)
-    if (e.type !== 'symlink' && e.type !== 'link') chmodSync(path, e.mode)
+    if (e.type !== 'symlink' && e.type !== 'hardlink') chmodSync(path, e.mode)
   }
   // Children before their directories: creating an entry touches its directory.
   for (const e of entries.toReversed()) {

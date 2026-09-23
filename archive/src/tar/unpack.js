@@ -14,7 +14,7 @@ import { decodeUtf8, hasUnsafe, quote } from '../text.js'
 
 // NUL is the pre-POSIX regular file.
 const TYPES = new Map([
-  [0x30, 'file'], [0, 'file'], [0x31, 'link'], [0x32, 'symlink'], [0x33, 'character-device'],
+  [0x30, 'file'], [0, 'file'], [0x31, 'hardlink'], [0x32, 'symlink'], [0x33, 'character-device'],
   [0x34, 'block-device'], [0x35, 'directory'], [0x36, 'fifo'], [0x37, 'contiguous-file'],
 ])
 const EXTENDED = new Map([[0x78, 'pax'], [0x67, 'global'], [0x4c, 'longname'], [0x4b, 'longlink']])
@@ -209,7 +209,7 @@ class Unpacker {
     }
     const size = number('size')
     if (size !== 0 && !isFile(type)) throw new ArchiveError(`a ${type} entry has a size`, at)
-    if (linkname !== '' && type !== 'link' && type !== 'symlink') throw new ArchiveError(`a ${type} entry has a link target`, at)
+    if (linkname !== '' && type !== 'hardlink' && type !== 'symlink') throw new ArchiveError(`a ${type} entry has a link target`, at)
     const owner = (key) => {
       const value = record(key) ?? decodeUtf8(header[key], key, at)
       if (hasUnsafe(value, false)) throw new ArchiveError(`${key} ${quote(value)} holds a control or formatting character`, at)

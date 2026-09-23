@@ -72,7 +72,7 @@ describe('what it refuses', () => {
     ['a type it does not model', () => archive(header({ typeflag: 0x53 })), /entry type "S" is not one this package reads at byte 0/u],
     ['a volume label', () => archive(header({ typeflag: 0x56 })), /entry type "V" is not one/u],
     ['a directory with a size', () => archive(header({ typeflag: 0x35, name: utf8('d/'), size: 5 }), padded(utf8('hello'))), /a directory entry has a size at byte 0/u],
-    ['a hard link with a size', () => archive(header(), header({ typeflag: 0x31, name: utf8('h'), linkname: utf8('a'), size: 1 }), ZERO), /a link entry has a size/u],
+    ['a hard link with a size', () => archive(header(), header({ typeflag: 0x31, name: utf8('h'), linkname: utf8('a'), size: 1 }), ZERO), /a hardlink entry has a size/u],
     ['a symlink without a target', () => archive(header({ typeflag: 0x32, name: utf8('l') })), /symlink target of "l" is empty at byte 0/u],
     ['a file with a link target', () => archive(header({ linkname: utf8('x') })), /a file entry has a link target/u],
     ['padding that is not zero', () => sealedData(), /the padding after an entry is not zero at byte 0/u],
@@ -181,7 +181,7 @@ describe('what it reads that GNU tar reads', () => {
       header({ typeflag: 0x35, name: utf8('./d/./') }),
       header({ typeflag: 0x31, name: utf8('./h'), linkname: utf8('./a') }),
     ))
-    assert.deepEqual(entries.map((e) => [e.type, e.name, e.linkname]), [['directory', '.', ''], ['file', 'a', ''], ['directory', 'd', ''], ['link', 'h', 'a']])
+    assert.deepEqual(entries.map((e) => [e.type, e.name, e.linkname]), [['directory', '.', ''], ['file', 'a', ''], ['directory', 'd', ''], ['hardlink', 'h', 'a']])
   })
   it('a time below zero in base 256', () => {
     assert.equal(unpack(archive(header({ gnu: true, mtime: -1 })))[0].mtime, -1)

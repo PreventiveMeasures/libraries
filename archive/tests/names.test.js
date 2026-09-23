@@ -206,7 +206,7 @@ describe('the names seen so far', () => {
     // A symlink's own directories are always that already; a hard link's are
     // not yet when its walk runs, so this is where the rule shows: f/h walks
     // y/../z from f, stands on f/y and then on f, and f is a file.
-    assert.throws(() => after(entry('f'), entry('s', 'symlink', 'y/../z')).add(entry('f/h', 'link', 's')), /the target of hard link "f\/h" to symlink "s" passes through "f", which is not a directory/u)
+    assert.throws(() => after(entry('f'), entry('s', 'symlink', 'y/../z')).add(entry('f/h', 'hardlink', 's')), /the target of hard link "f\/h" to symlink "s" passes through "f", which is not a directory/u)
   })
   it('lets a symlink point at another, or walk up through its own directories', () => {
     after(entry('a', 'symlink', 'b')).add(entry('l', 'symlink', 'a'))
@@ -214,43 +214,43 @@ describe('the names seen so far', () => {
     after(entry('l', 'symlink', 'a/x')).add(entry('a', 'directory'))
   })
   it('lets a hard link name an earlier non-directory entry', () => {
-    after(entry('a')).add(entry('b', 'link', 'a'))
-    after(entry('a', 'symlink', 'x')).add(entry('b', 'link', 'a'))
+    after(entry('a')).add(entry('b', 'hardlink', 'a'))
+    after(entry('a', 'symlink', 'x')).add(entry('b', 'hardlink', 'a'))
   })
   it('walks a hard link to a symlink from the link\'s own name', () => {
     // a/b/s -> ../x lands inside the archive; the same symlink reached as h,
     // at the root, lands outside it, and tar gives h that very target.
-    assert.throws(() => after(entry('a/b/s', 'symlink', '../x')).add(entry('h', 'link', 'a/b/s')), /symlink "h" points outside the archive, to "\.\.\/x"/u)
+    assert.throws(() => after(entry('a/b/s', 'symlink', '../x')).add(entry('h', 'hardlink', 'a/b/s')), /symlink "h" points outside the archive, to "\.\.\/x"/u)
     // d/s -> g/x walks through d/g, which nothing says is not a directory;
     // reached as h it walks through g, which is a file.
-    assert.throws(() => after(entry('g'), entry('d/s', 'symlink', 'g/x')).add(entry('h', 'link', 'd/s')), /the target of hard link "h" to symlink "d\/s" passes through "g", which is not a directory/u)
+    assert.throws(() => after(entry('g'), entry('d/s', 'symlink', 'g/x')).add(entry('h', 'hardlink', 'd/s')), /the target of hard link "h" to symlink "d\/s" passes through "g", which is not a directory/u)
     // Safe from both places, so both names are taken.
-    after(entry('s', 'symlink', 'b')).add(entry('h', 'link', 's'))
-    after(entry('d/s', 'symlink', 'x')).add(entry('h', 'link', 'd/s'))
+    after(entry('s', 'symlink', 'b')).add(entry('h', 'hardlink', 's'))
+    after(entry('d/s', 'symlink', 'x')).add(entry('h', 'hardlink', 'd/s'))
   })
   it('walks a hard link to a hard link to a symlink the same way, however long the chain', () => {
     // a/b/h is a/b/s under a second name, and h2 is it under a third, at the
     // root, where ../x lands outside.
-    const chain = [entry('a/b/s', 'symlink', '../x'), entry('a/b/h', 'link', 'a/b/s')]
-    assert.throws(() => after(...chain).add(entry('h2', 'link', 'a/b/h')), /symlink "h2" points outside the archive, to "\.\.\/x"/u)
-    assert.throws(() => after(...chain, entry('a/b/h2', 'link', 'a/b/h')).add(entry('h3', 'link', 'a/b/h2')), /symlink "h3" points outside the archive/u)
-    assert.throws(() => after(entry('g'), entry('d/s', 'symlink', 'g/x'), entry('d/h', 'link', 'd/s')).add(entry('h2', 'link', 'd/h')), /the target of hard link "h2" to symlink "d\/h" passes through "g", which is not a directory/u)
-    after(entry('s', 'symlink', 'b'), entry('h', 'link', 's')).add(entry('h2', 'link', 'h'))
+    const chain = [entry('a/b/s', 'symlink', '../x'), entry('a/b/h', 'hardlink', 'a/b/s')]
+    assert.throws(() => after(...chain).add(entry('h2', 'hardlink', 'a/b/h')), /symlink "h2" points outside the archive, to "\.\.\/x"/u)
+    assert.throws(() => after(...chain, entry('a/b/h2', 'hardlink', 'a/b/h')).add(entry('h3', 'hardlink', 'a/b/h2')), /symlink "h3" points outside the archive/u)
+    assert.throws(() => after(entry('g'), entry('d/s', 'symlink', 'g/x'), entry('d/h', 'hardlink', 'd/s')).add(entry('h2', 'hardlink', 'd/h')), /the target of hard link "h2" to symlink "d\/h" passes through "g", which is not a directory/u)
+    after(entry('s', 'symlink', 'b'), entry('h', 'hardlink', 's')).add(entry('h2', 'hardlink', 'h'))
     // A chain through a file carries no symlink along it.
-    after(entry('f'), entry('d/h', 'link', 'f')).add(entry('h2', 'link', 'd/h'))
+    after(entry('f'), entry('d/h', 'hardlink', 'f')).add(entry('h2', 'hardlink', 'd/h'))
   })
   it('refuses a hard link to anything else', () => {
-    assert.throws(() => after().add(entry('b', 'link', 'a')), /hard link "b" targets "a", which is not an earlier non-directory entry/u)
-    assert.throws(() => after(entry('a', 'directory')).add(entry('b', 'link', 'a')), /not an earlier non-directory entry/u)
-    assert.throws(() => after(entry('a/x')).add(entry('b', 'link', 'a')), /not an earlier non-directory entry/u)
-    assert.throws(() => after().add(entry('b', 'link', 'b')), /not an earlier non-directory entry/u)
+    assert.throws(() => after().add(entry('b', 'hardlink', 'a')), /hard link "b" targets "a", which is not an earlier non-directory entry/u)
+    assert.throws(() => after(entry('a', 'directory')).add(entry('b', 'hardlink', 'a')), /not an earlier non-directory entry/u)
+    assert.throws(() => after(entry('a/x')).add(entry('b', 'hardlink', 'a')), /not an earlier non-directory entry/u)
+    assert.throws(() => after().add(entry('b', 'hardlink', 'b')), /not an earlier non-directory entry/u)
   })
   it('cleanNames runs every check in order, and hands back the cleaned names', () => {
     assert.deepEqual(cleanNames('./a', 'file', ''), { name: 'a', linkname: '' })
     assert.throws(() => cleanNames('../b', 'file', ''), /\.\. segment/u)
     assert.throws(() => cleanNames('l', 'symlink', '../x'), /points outside/u)
-    assert.throws(() => cleanNames('h', 'link', '/a'), /hard link target of "h" "\/a" is absolute/u)
-    assert.deepEqual(cleanNames('h', 'link', './a'), { name: 'h', linkname: 'a' })
+    assert.throws(() => cleanNames('h', 'hardlink', '/a'), /hard link target of "h" "\/a" is absolute/u)
+    assert.deepEqual(cleanNames('h', 'hardlink', './a'), { name: 'h', linkname: 'a' })
     assert.deepEqual(cleanNames('./', 'directory', ''), { name: '.', linkname: '' })
     assert.deepEqual(cleanNames('./d/', 'directory', ''), { name: 'd', linkname: '' })
   })

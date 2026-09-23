@@ -13,7 +13,7 @@ import { checkString, encodeUtf8, hasUnsafe, quote } from '../text.js'
 
 const TYPEFLAG = {
   file: 0x30,
-  link: 0x31,
+  hardlink: 0x31,
   symlink: 0x32,
   'character-device': 0x33,
   'block-device': 0x34,

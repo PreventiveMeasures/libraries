@@ -20,12 +20,12 @@ export interface WalkEntry {
   depth: number
 }
 
-// The tar package's entry shape, as far as a Vfs holds it: `link` is a hard
-// link to an earlier entry, `linkname` the target of a link of either kind,
-// `data` the bytes of a file and empty otherwise.
+// The tar package's entry shape, as far as a Vfs holds it: a `hardlink` is
+// a second name for an earlier entry, `linkname` the target of a link of
+// either kind, `data` the bytes of a file and empty otherwise.
 export interface Entry {
   name: string
-  type: NodeType | 'link'
+  type: NodeType | 'hardlink'
   mode: number
   mtime: number
   linkname: string
@@ -45,7 +45,7 @@ export interface Entry {
 // checked as given, on a repeat and a hard link too: null is not left out.
 export interface EntryInput {
   name: string
-  type?: NodeType | 'link' | 'contiguous-file'
+  type?: NodeType | 'hardlink' | 'contiguous-file'
   data?: string | Uint8Array
   mode?: number
   mtime?: number
@@ -63,7 +63,7 @@ export type Source =
   | { type: 'file'; data?: string | Uint8Array; mode?: number; mtime?: number }
   | { type: 'directory'; mode?: number; mtime?: number }
   | { type: 'symlink'; target: string; mode?: number; mtime?: number }
-  | { type: 'link'; target: string }
+  | { type: 'hardlink'; target: string }
 export type Sources = Record<string, Source> | Map<string, Source>
 
 export function createVfs(sources?: Sources): Vfs
@@ -94,9 +94,9 @@ export class Vfs {
   // set here or not at all. The target is at most 4096 bytes of UTF-8, as
   // a filesystem and an archive hold it, or ENAMETOOLONG.
   symlink(target: string, path: string, options?: { mode?: number; mtime?: number }): void
-  // A link at `existing` is linked itself, unless a trailing slash follows
-  // it, as lstat's does; a directory is EPERM once `path` is found free.
-  link(existing: string, path: string): void
+  // A symlink at `existing` is linked itself, unless a trailing slash
+  // follows it, as lstat's does; a directory is EPERM once `path` is free.
+  hardlink(existing: string, path: string): void
   unlink(path: string): void
   rmdir(path: string): void
   rm(path: string, options?: { recursive?: boolean }): void

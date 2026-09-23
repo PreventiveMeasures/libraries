@@ -29,6 +29,6 @@ export function checkEntry(entry, types) {
   if (data.length !== 0 && !isFile(type)) throw new ArchiveError(`a ${type} cannot carry data (${quote(name)})`)
   const linkname = entry.linkname ?? ''
   checkString(linkname, `link target of ${quote(name)}`)
-  if (linkname !== '' && type !== 'link' && type !== 'symlink') throw new ArchiveError(`a ${type} cannot have a link target (${quote(name)})`)
+  if (linkname !== '' && type !== 'hardlink' && type !== 'symlink') throw new ArchiveError(`a ${type} cannot have a link target (${quote(name)})`)
   return { name, type, data, linkname }
 }
