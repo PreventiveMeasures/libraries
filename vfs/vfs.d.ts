@@ -41,7 +41,8 @@ export interface Entry {
 // and a trailing slash on a directory alone; it may repeat
 // only as the same entry again. A hard link's mode and mtime, if given,
 // are its target's. `data` is a file's and `linkname` a link's: either
-// given on another type is refused, not dropped.
+// given on another type is refused, not dropped. A mode or mtime given is
+// checked as given, on a repeat and a hard link too: null is not left out.
 export interface EntryInput {
   name: string
   type?: NodeType | 'link' | 'contiguous-file'
@@ -53,8 +54,9 @@ export interface EntryInput {
 
 // A source tree as a flat map: a path to what is there, spelled from `/` or
 // relative to it, by the rules of an entry name otherwise. Text and bytes are
-// files; an object says what else, `target` being a symlink's target or the
-// path a hard link names. Parent directories are implied.
+// files; an object says what else, `target` being a symlink's target, kept
+// as spelled, or the path a hard link names, spelled as a key is. Parent
+// directories are implied.
 export type Source =
   | string
   | Uint8Array
@@ -70,7 +72,8 @@ export function vfsFromEntries(entries: Iterable<EntryInput>): Vfs
 // Paths resolve from `/`, component by component, following links as the
 // kernel does; a relative path is one under `/`, and nothing is folded by
 // spelling. Every method throws a VfsError with the POSIX code for what
-// went wrong. Bytes returned are the file's own and must not be written
+// went wrong, and a TypeError or RangeError for an argument of the wrong
+// type or range. Bytes returned are the file's own and must not be written
 // into; bytes given are copied.
 export class Vfs {
   constructor()
@@ -88,7 +91,8 @@ export class Vfs {
   appendFile(path: string, data: string | Uint8Array): void
   mkdir(path: string, options?: { recursive?: boolean; mode?: number; mtime?: number }): void
   // A link's mode is 0o777 unless given; chmod follows the link, so it is
-  // set here or not at all.
+  // set here or not at all. The target is at most 4096 bytes of UTF-8, as
+  // a filesystem and an archive hold it, or ENAMETOOLONG.
   symlink(target: string, path: string, options?: { mode?: number; mtime?: number }): void
   link(existing: string, path: string): void
   unlink(path: string): void
@@ -97,11 +101,13 @@ export class Vfs {
   rename(from: string, to: string): void
   chmod(path: string, mode: number): void
   utimes(path: string, mtime: number): void
-  // Depth first from `path`, siblings in code point order, links named but
-  // not crossed.
+  // Depth first from what `path` leads to, siblings in code point order,
+  // links named but not crossed. `path` is resolved when this is called, so
+  // a wrong one throws here rather than on the first step.
   walk(path?: string): Generator<WalkEntry, void, undefined>
-  // The same tree as tar entries, names relative to `path` and `.` for it,
-  // an inode's second name a hard link to its first.
+  // The same tree as tar entries, names relative to `path` and `.` for it
+  // (a file's own name if it is one), an inode's second name a hard link to
+  // its first. Resolved when called, as walk is.
   entries(path?: string): Generator<Entry, void, undefined>
 }
 
