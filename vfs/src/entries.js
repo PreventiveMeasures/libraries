@@ -7,21 +7,21 @@
 // and no empty or `..` segment, no control, line separator or bidirectional
 // character, no backslash, no drive letter in front, and at most PATH_MAX
 // bytes of UTF-8 in all, as spelled and as stored with a directory's slash
-// — what a tar entry may carry, so the names of a tree
-// built here pack back as they are. A symlink's target is any spelling the
-// Vfs takes, and tar's to judge when packing. `.` names the
-// root, which only a directory may. Every spelling of one path is one name,
-// and a name may repeat only as the same entry again, field for field with
-// the type as declared, and byte for byte: `d/f` and `d/./f` both is what some packagers write, while
-// two different entries under one name would leave the winner to
-// declaration order. A link declared earlier is never followed on the way
-// to a later entry, and a hard link names an entry declared before it, for
-// the same reason tar defers making its links until the end; it has no mode
-// or mtime of its own, so those it declares must be its target's. An entry
-// carries only what its type can, data for a file and a target for a link
-// of either kind: anything else given is refused rather than dropped, so a
-// tree holds every field it was declared with. A flat map's key is a path,
-// and may start from `/`, as may the path a hard link in one names.
+// — what a tar entry may carry, so the names of a tree built here pack back
+// as they are. A symlink's target is any spelling the Vfs takes, and tar's
+// to judge when packing. `.` names the root, which only a directory may.
+// Every spelling of one path is one name, and a name may repeat only as the
+// same entry again, field for field with the type as declared, and byte for
+// byte: `d/f` and `d/./f` both is what some packagers write, while two
+// different entries under one name would leave the winner to declaration
+// order. A link declared earlier is never followed on the way to a later
+// entry, and a hard link names an entry declared before it, for the same
+// reason tar defers making its links until the end; it has no mode or mtime
+// of its own, so those it declares must be its target's. An entry carries
+// only what its type can, data for a file and a target for a link of either
+// kind: anything else given is refused rather than dropped, so a tree holds
+// every field it was declared with. A flat map's key is a path, and may
+// start from `/`, as may the path a hard link in one names.
 
 import { VfsError } from './error.js'
 import { dirname } from './path.js'
@@ -78,26 +78,14 @@ function place(vfs, declared, { name, type = 'file', data, mode, mtime, linkname
   const parent = dirname(path)
   vfs.mkdir(parent, { recursive: true })
   if (vfs.realpath(parent) !== parent) throw new VfsError('ENOTDIR', name)
-  switch (type) {
-    case 'file':
-    case 'contiguous-file':
-      vfs.writeFile(path, data ?? '', { mode, mtime })
-      break
-    case 'directory':
-      vfs.mkdir(path, { recursive: true })
-      if (mode !== undefined) vfs.chmod(path, mode)
-      if (mtime !== undefined) vfs.utimes(path, mtime)
-      break
-    case 'symlink':
-      vfs.symlink(source, path, { mode, mtime })
-      break
-    case 'link':
-      if (!fits(vfs.lstat(source), mode, mtime)) throw new VfsError('EINVAL', name)
-      vfs.link(source, path)
-      break
-    default:
-      throw new VfsError('EINVAL', name)
-  }
+  if (file) vfs.writeFile(path, data ?? '', { mode, mtime })
+  else if (type === 'symlink') vfs.symlink(source, path, { mode, mtime })
+  else if (type === 'directory') {
+    vfs.mkdir(path, { recursive: true })
+    if (mode !== undefined) vfs.chmod(path, mode)
+    if (mtime !== undefined) vfs.utimes(path, mtime)
+  } else if (type === 'link' && fits(vfs.lstat(source), mode, mtime)) vfs.link(source, path)
+  else throw new VfsError('EINVAL', name)
 }
 
 // What no name may hold: a control, a line separator or a bidirectional

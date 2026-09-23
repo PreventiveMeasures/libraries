@@ -36,7 +36,7 @@ export function normalize(path) {
 }
 
 export function join(...paths) {
-  const parts = paths.map((part) => string(part)).filter((part) => part !== '')
+  const parts = paths.filter((part) => string(part) !== '')
   return parts.length === 0 ? '.' : normalize(parts.join('/'))
 }
 
@@ -44,12 +44,9 @@ export function join(...paths) {
 // argument is checked, not only those read: a wrong one is a bug wherever
 // it stands.
 export function resolve(...paths) {
-  const parts = paths.map((part) => string(part))
-  let resolved = ''
-  for (let i = parts.length - 1; i >= 0 && !resolved.startsWith('/'); i--) {
-    if (parts[i] !== '') resolved = resolved === '' ? parts[i] : `${parts[i]}/${resolved}`
-  }
-  const normalized = normalize(resolved.startsWith('/') ? resolved : `/${resolved}`)
+  for (const part of paths) string(part)
+  const from = Math.max(paths.findLastIndex((part) => part.startsWith('/')), 0)
+  const normalized = normalize(`/${paths.slice(from).join('/')}`)
   return normalized.length > 1 && normalized.endsWith('/') ? normalized.slice(0, -1) : normalized
 }
 

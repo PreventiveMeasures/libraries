@@ -23,7 +23,6 @@ const NAME_MAX = 255
 export const PATH_MAX = 4096
 const NONE = new Uint8Array()
 export const MODE = { file: 0o644, directory: 0o755, symlink: 0o777 }
-const fresh = (type) => ({ mode: MODE[type], mtime: 0 })
 const encoder = new TextEncoder()
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 
@@ -39,9 +38,8 @@ export class Vfs {
     this.#root = this.#directory()
   }
 
-  #file(bytes, mode, mtime) { return { ino: ++this.#inodes, type: 'file', ...meta(mode, mtime, fresh('file')), bytes } }
-  #directory(mode, mtime) { return { ino: ++this.#inodes, type: 'directory', ...meta(mode, mtime, fresh('directory')), entries: new Map() } }
-  #symlink(target, mode, mtime) { return { ino: ++this.#inodes, type: 'symlink', ...meta(mode, mtime, fresh('symlink')), target, size: utf8Length(target) } }
+  #inode(type, contents, mode, mtime) { return { ino: ++this.#inodes, type, ...meta(mode, mtime, { mode: MODE[type], mtime: 0 }), ...contents } }
+  #directory(mode, mtime) { return this.#inode('directory', { entries: new Map() }, mode, mtime) }
 
   // Where `path` leads: `dir`, the directory its last name is in; `name`; and
   // `node`, the inode there — undefined when the name is not taken, so a
@@ -173,30 +171,25 @@ export class Vfs {
     return [...node.entries.keys()].sort(compareNames)
   }
 
-  // Where a write lands: through a link, the file the link names. A trailing
-  // slash, the caller's or on the target of a link followed last, asks for a
-  // directory, which open(2) neither makes nor writes: once the way there is
-  // walked, EISDIR whatever the last name holds, unfollowed.
-  #fileAt(path) {
+  // Where a write lands: through a link, the file the link names, made of
+  // the bytes if it is not there and handed to `update` if it is. A
+  // trailing slash, the caller's or on the target of a link followed last,
+  // asks for a directory, which open(2) neither makes nor writes: once the
+  // way there is walked, EISDIR whatever the last name holds, unfollowed.
+  #write(path, data, update, mode, mtime) {
+    const bytes = encode(data, path)
     const found = this.#locate(path, { follow: !slashed(path), create: true })
     if (found.trailing || found.node?.type === 'directory') throw new VfsError('EISDIR', path)
-    return found
+    if (found.node === undefined) this.#set(found, this.#inode('file', { bytes }, mode, mtime), path)
+    else update(found.node, bytes)
   }
 
   // Creates the file or truncates it; the inode stays, so a hard link sees it.
   writeFile(path, data, { mode, mtime } = {}) {
-    const bytes = encode(data, path)
-    const found = this.#fileAt(path)
-    if (found.node === undefined) this.#set(found, this.#file(bytes, mode, mtime), path)
-    else Object.assign(found.node, { bytes }, meta(mode, mtime, found.node))
+    this.#write(path, data, (node, bytes) => Object.assign(node, { bytes }, meta(mode, mtime, node)), mode, mtime)
   }
 
-  appendFile(path, data) {
-    const bytes = encode(data, path)
-    const found = this.#fileAt(path)
-    if (found.node === undefined) this.#set(found, this.#file(bytes), path)
-    else found.node.bytes = append(found.node.bytes, bytes)
-  }
+  appendFile(path, data) { this.#write(path, data, (node, bytes) => { node.bytes = append(node.bytes, bytes) }) }
 
   // mkdir(2) never follows the last link, so a link there is a name taken,
   // and a trailing slash changes nothing: any name taken is EEXIST. With
@@ -218,7 +211,7 @@ export class Vfs {
     if (target === '' || target.includes('\0')) throw new VfsError('EINVAL', path)
     if (!target.isWellFormed()) throw new VfsError('EILSEQ', path)
     if (tooLong(target, PATH_MAX)) throw new VfsError('ENAMETOOLONG', path)
-    this.#set(this.#newName(path), this.#symlink(target, mode, mtime), path)
+    this.#set(this.#newName(path), this.#inode('symlink', { target, size: utf8Length(target) }, mode, mtime), path)
   }
 
   // A hard link: the same inode under a second name. A trailing slash
@@ -268,8 +261,7 @@ export class Vfs {
     if (source.node === undefined) throw new VfsError('ENOENT', from)
     checkName(target.name, to)
     const directory = source.node.type === 'directory'
-    if (!directory && source.trailing) throw new VfsError('ENOTDIR', from)
-    if (!directory && target.trailing) throw new VfsError('ENOTDIR', to)
+    if (!directory && (source.trailing || target.trailing)) throw new VfsError('ENOTDIR', source.trailing ? from : to)
     if (target.chain.some((step) => step.node === source.node)) throw new VfsError('EINVAL', to)
     if (source.chain.some((step) => step.node === target.node)) throw new VfsError('ENOTEMPTY', to)
     if (target.node === source.node) return
@@ -284,53 +276,48 @@ export class Vfs {
   chmod(path, mode) { this.#node(path, true).mode = checkMode(mode) }
   utimes(path, mtime) { this.#node(path, true).mtime = checkTime(mtime) }
 
-  // Both are resolved when called, so a wrong start throws here and not at
-  // the first step, and both start from what a link there leads to.
+  // From what `path` leads to, resolved when called, as entries is too: a
+  // wrong start throws here and not at the first step.
   walk(path = '/') {
     const found = this.#found(path)
-    return walk(found.node, pathOf(found))
+    const base = pathOf(found)
+    const under = base === '/' ? '/' : `${base}/`
+    return descend(found.node, ({ name, node, depth }) => ({ path: name === '' ? base : under + name, type: node.type, depth }))
   }
 
+  // The tree as tar entries: names relative to `path`, `.` for it or a
+  // file's own name, and an inode seen under a second name as a hard link
+  // to the first.
   entries(path = '/') {
     const found = this.#found(path)
-    return entries(found.node, found.node.type === 'directory' ? '.' : found.name)
+    const top = found.node.type === 'directory' ? '.' : found.name
+    const named = new Map()
+    return descend(found.node, ({ name: under, node }) => {
+      const name = under === '' ? top : under
+      const entry = { name, type: node.type, mode: node.mode, mtime: node.mtime, linkname: '', data: NONE }
+      const earlier = named.get(node)
+      if (earlier !== undefined) { entry.type = 'link'; entry.linkname = earlier }
+      else if (node.type === 'symlink') { named.set(node, name); entry.linkname = node.target }
+      else if (node.type === 'file') { named.set(node, name); entry.data = node.bytes }
+      return entry
+    })
   }
 }
 
 // Every inode at or under `top`, depth first, siblings in name order, a
-// link named but not crossed; `name` is the way down from `top`, '' for it.
-function* descend(top) {
+// link named but not crossed, as `shape` has it; `name` is the way down
+// from `top`, '' for it.
+function* descend(top, shape) {
   const stack = [{ name: '', node: top, depth: 0 }]
   while (stack.length > 0) {
     const entry = stack.pop()
-    yield entry
+    yield shape(entry)
     if (entry.node.type !== 'directory') continue
     const names = [...entry.node.entries.keys()].sort(compareNames)
     for (let i = names.length - 1; i >= 0; i--) {
       const name = entry.name === '' ? names[i] : `${entry.name}/${names[i]}`
       stack.push({ name, node: entry.node.entries.get(names[i]), depth: entry.depth + 1 })
     }
-  }
-}
-
-function* walk(top, base) {
-  for (const { name, node, depth } of descend(top)) {
-    yield { path: name === '' ? base : base === '/' ? `/${name}` : `${base}/${name}`, type: node.type, depth }
-  }
-}
-
-// The tree as tar entries: names relative to `top`, `first` naming `top`
-// itself, and an inode seen under a second name as a hard link to the first.
-function* entries(top, first) {
-  const named = new Map()
-  for (const { name: under, node } of descend(top)) {
-    const name = under === '' ? first : under
-    const entry = { name, type: node.type, mode: node.mode, mtime: node.mtime, linkname: '', data: NONE }
-    const earlier = named.get(node)
-    if (earlier !== undefined) { entry.type = 'link'; entry.linkname = earlier }
-    else if (node.type === 'symlink') { named.set(node, name); entry.linkname = node.target }
-    else if (node.type === 'file') { named.set(node, name); entry.data = node.bytes }
-    yield entry
   }
 }
 
@@ -419,13 +406,9 @@ export function encode(data, path) {
 // covers only its own length, which an append past its end leaves as it was.
 function append(current, more) {
   const length = current.length + more.length
-  let bytes
-  if (current.byteOffset + length <= current.buffer.byteLength) {
-    bytes = new Uint8Array(current.buffer, current.byteOffset, length)
-  } else {
-    bytes = new Uint8Array(new ArrayBuffer(Math.max(length, current.length * 2)), 0, length)
-    bytes.set(current)
-  }
+  const room = current.byteOffset + length <= current.buffer.byteLength
+  const bytes = room ? new Uint8Array(current.buffer, current.byteOffset, length) : new Uint8Array(Math.max(length, current.length * 2)).subarray(0, length)
+  if (!room) bytes.set(current)
   bytes.set(more, current.length)
   return bytes
 }
