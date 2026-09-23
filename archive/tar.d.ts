@@ -69,9 +69,9 @@ export interface PackOptions {
 // the same fields and the same bytes again — an entry inside something
 // that is not a directory, a symlink whose target climbs out of the
 // archive or passes through anything but a directory, and a hard link to
-// no earlier entry. A hard link to a symlink is a second name for it, and
-// its target is walked again from that name, which a target safe where the
-// symlink sits need not survive.
+// no earlier entry. A hard link to a symlink, directly or down a chain of
+// hard links, is a second name for it, and its target is walked again from
+// that name, which a target safe where the symlink sits need not survive.
 export function pack(entries: Iterable<EntryInput>, options?: PackOptions): Uint8Array
 export function unpack(bytes: Uint8Array): Entry[]
 

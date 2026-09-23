@@ -7,11 +7,11 @@
 // drive rather than from the archive. A symlink target may use `..`, but
 // is followed from where the link sits and refused if it climbs above the
 // archive or passes through anything but a directory, which is how a
-// chain of links would climb. A hard link to a symlink is a second name for
-// it, and is held to the same walk from where that name sits, since a target
-// safe under `a/b/` need not be safe at the root. Lengths are bounded by what
-// a filesystem takes at all: PATH_MAX for the whole, NAME_MAX for a segment,
-// in bytes.
+// chain of links would climb. A hard link to a symlink, directly or down a
+// chain of hard links, is a second name for it, and is held to the same walk
+// from where that name sits, since a target safe under `a/b/` need not be
+// safe at the root. Lengths are bounded by what a filesystem takes at all:
+// PATH_MAX for the whole, NAME_MAX for a segment, in bytes.
 //
 // A name may repeat only as the same entry again, field for field and byte
 // for byte (some npm packagers write `d/f` and `d/./f` both): two different
@@ -105,6 +105,9 @@ export class Names {
   // `entry` is cleaned, with its data.
   add(entry) {
     const { name, type } = entry
+    // The target of the symlink this entry is, if it is one: a symlink's
+    // own, or, for a hard link, that of the entry it links to.
+    let symlink = type === 'symlink' ? entry.linkname : undefined
     if (type === 'link') {
       const target = this.#seen.get(entry.linkname)
       if (target?.kind !== 'entry') throw new ArchiveError(`hard link ${quote(name)} targets ${quote(entry.linkname)}, which is not an earlier non-directory entry`)
@@ -112,7 +115,11 @@ export class Names {
       // relative target is followed from wherever it is reached: `../x` under
       // `a/b/` stays inside, the same link at the root does not. So the
       // target is walked again from here, as if the symlink sat at this name.
-      if (target.entry.type === 'symlink') this.#symlink(name, target.entry.linkname, `hard link ${quote(name)} to symlink ${quote(entry.linkname)}`)
+      // A hard link to such a hard link is the same symlink again, so the
+      // target travels down a chain of them, rather than the chain being
+      // followed back, which would cost each new link the chain's length.
+      symlink = target.symlink
+      if (symlink !== undefined) this.#symlink(name, symlink, `hard link ${quote(name)} to symlink ${quote(entry.linkname)}`)
     }
     const seen = this.#seen.get(name)
     if (seen !== undefined && seen.kind !== 'implied') {
@@ -128,7 +135,7 @@ export class Names {
       const parent = name.slice(0, i)
       this.#directory(parent, `${quote(name)} is inside ${quote(parent)}, which is not a directory`)
     }
-    this.#seen.set(name, { kind, entry: this.#keep ? entry : Object.fromEntries(FIELDS.map((field) => [field, entry[field]])) })
+    this.#seen.set(name, { kind, symlink, entry: this.#keep ? entry : Object.fromEntries(FIELDS.map((field) => [field, entry[field]])) })
     if (type === 'symlink') this.#symlink(name, entry.linkname, `symlink ${quote(name)}`)
   }
 

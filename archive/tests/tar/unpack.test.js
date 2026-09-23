@@ -120,6 +120,7 @@ describe('what it refuses', () => {
     ['a global header that sets a path', () => archive(...pax([['path', 'x']], {}, 0x67)), /a global header sets path/u],
     ['a global header that makes every entry sparse', () => archive(...pax([['GNU.sparse.size', '10']], {}, 0x67)), /sparse entries are not supported at byte 0/u],
     ['a hard link to a symlink that points out from the link', () => archive(header({ typeflag: 0x32, name: utf8('a/b/s'), linkname: utf8('../x') }), header({ typeflag: 0x31, name: utf8('h'), linkname: utf8('a/b/s') })), /symlink "h" points outside the archive/u],
+    ['a hard link to a hard link to such a symlink', () => archive(header({ typeflag: 0x32, name: utf8('a/b/s'), linkname: utf8('../x') }), header({ typeflag: 0x31, name: utf8('a/b/h'), linkname: utf8('a/b/s') }), header({ typeflag: 0x31, name: utf8('h2'), linkname: utf8('a/b/h') })), /symlink "h2" points outside the archive, to "\.\.\/x" at byte 1024/u],
   ]
   for (const [what, bytes, message] of refused) {
     it(`refuses ${what}`, () => assert.throws(() => unpack(bytes()), message))

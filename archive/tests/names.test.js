@@ -180,6 +180,17 @@ describe('the names seen so far', () => {
     after(entry('s', 'symlink', 'b')).add(entry('h', 'link', 's'))
     after(entry('d/s', 'symlink', 'x')).add(entry('h', 'link', 'd/s'))
   })
+  it('walks a hard link to a hard link to a symlink the same way, however long the chain', () => {
+    // a/b/h is a/b/s under a second name, and h2 is it under a third, at the
+    // root, where ../x lands outside.
+    const chain = [entry('a/b/s', 'symlink', '../x'), entry('a/b/h', 'link', 'a/b/s')]
+    assert.throws(() => after(...chain).add(entry('h2', 'link', 'a/b/h')), /symlink "h2" points outside the archive, to "\.\.\/x"/u)
+    assert.throws(() => after(...chain, entry('a/b/h2', 'link', 'a/b/h')).add(entry('h3', 'link', 'a/b/h2')), /symlink "h3" points outside the archive/u)
+    assert.throws(() => after(entry('g'), entry('d/s', 'symlink', 'g/x'), entry('d/h', 'link', 'd/s')).add(entry('h2', 'link', 'd/h')), /the target of hard link "h2" to symlink "d\/h" passes through "g", which is not a directory/u)
+    after(entry('s', 'symlink', 'b'), entry('h', 'link', 's')).add(entry('h2', 'link', 'h'))
+    // A chain through a file carries no symlink along it.
+    after(entry('f'), entry('d/h', 'link', 'f')).add(entry('h2', 'link', 'd/h'))
+  })
   it('refuses a hard link to anything else', () => {
     assert.throws(() => after().add(entry('b', 'link', 'a')), /hard link "b" targets "a", which is not an earlier non-directory entry/u)
     assert.throws(() => after(entry('a', 'directory')).add(entry('b', 'link', 'a')), /not an earlier non-directory entry/u)
