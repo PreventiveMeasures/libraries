@@ -267,6 +267,24 @@ describe('symbolic links', () => {
     fails(() => fs.writeFile('/n', 'x'), 'ENOENT')
   })
 
+  it('are written through to a directory when the target ends in a slash, as open(2) has it', () => {
+    const fs = createVfs({ 'f': 'x', 'd': { type: 'directory' }, 'l': { type: 'symlink', target: 'd' } })
+    for (const [name, target] of [['tg', 'gone/'], ['tf', 'f/'], ['td', 'd/'], ['tl', 'l/'], ['self', 'self/'], ['dot', 'd/.']]) {
+      fs.symlink(target, `/${name}`)
+      fails(() => fs.writeFile(`/${name}`, 'y'), 'EISDIR', `/${name}`)
+      fails(() => fs.appendFile(`/${name}`, 'y'), 'EISDIR', `/${name}`)
+    }
+    fs.symlink('gone/x/', '/tgx')
+    fs.symlink('f/x/', '/tfx')
+    fails(() => fs.writeFile('/tgx', 'y'), 'ENOENT', '/tgx')
+    fails(() => fs.writeFile('/tfx', 'y'), 'ENOTDIR')
+    fails(() => fs.readText('/tf'), 'ENOTDIR', '/tf')
+    fails(() => fs.readText('/tg'), 'ENOENT', '/tg')
+    fails(() => fs.readText('/self'), 'ELOOP', '/self')
+    assert.equal(fs.readText('/f'), 'x')
+    assert.equal(fs.isFile('/gone'), false, 'nothing was made')
+  })
+
   it('are unlinked and renamed by name, and never followed to do it', () => {
     const fs = createVfs({ 'd/f': 'x', l: { type: 'symlink', target: 'd' }, m: { type: 'symlink', target: 'd/f' } })
     fs.rename('/m', '/n')
@@ -414,6 +432,25 @@ describe('hard links', () => {
     assert.equal(fs.lstat('/m').type, 'symlink')
     assert.equal(fs.lstat('/m').ino, fs.lstat('/l').ino)
   })
+
+  it('follow a link spelled with a trailing slash, as lstat does', () => {
+    const fs = createVfs({ 'd/f': 'x', 'f': 'y', 'todir': { type: 'symlink', target: 'd' }, 'tofile': { type: 'symlink', target: 'f' }, 'dangling': { type: 'symlink', target: 'gone' }, 'loop': { type: 'symlink', target: 'loop' } })
+    fails(() => fs.link('/todir/', '/x'), 'EPERM', '/todir/')
+    fails(() => fs.link('/tofile/', '/x'), 'ENOTDIR', '/tofile/')
+    fails(() => fs.link('/dangling/', '/x'), 'ENOENT', '/dangling/')
+    fails(() => fs.link('/loop/', '/x'), 'ELOOP', '/loop/')
+    assert.equal(fs.isSymlink('/x'), false)
+  })
+
+  it('judge the new name before what it would name, as linkat(2) does', () => {
+    const fs = createVfs({ 'd/f': 'x', 'f': 'y' })
+    fails(() => fs.link('/d', '/f'), 'EEXIST', '/f')
+    fails(() => fs.link('/d', '/gone/x'), 'ENOENT', '/gone/x')
+    fails(() => fs.link('/d', '/f/x'), 'ENOTDIR', '/f/x')
+    fails(() => fs.link('/d', '/x/'), 'ENOENT', '/x/')
+    fails(() => fs.link('/d', '/x'), 'EPERM', '/d')
+    fails(() => fs.link('/gone', '/f'), 'ENOENT', '/gone')
+  })
 })
 
 describe('removal', () => {
@@ -455,7 +492,8 @@ describe('rename', () => {
     const fs = createVfs({ 'f': 'x', 'd/a': 'y', 'e': { type: 'directory' }, 'g': 'z' })
     fails(() => fs.rename('/missing', '/x'), 'ENOENT')
     fails(() => fs.rename('/', '/x'), 'EBUSY')
-    fails(() => fs.rename('/f', '/'), 'EINVAL')
+    fails(() => fs.rename('/f', '/'), 'EBUSY')
+    fails(() => fs.rename('/f', '//'), 'EBUSY', '//')
     fails(() => fs.rename('/f', '/d'), 'EISDIR')
     fails(() => fs.rename('/d', '/f'), 'ENOTDIR')
     fails(() => fs.rename('/f', '/g/'), 'ENOTDIR')
@@ -463,8 +501,27 @@ describe('rename', () => {
     fails(() => fs.rename('/d', '/d/a/inside'), 'ENOTDIR')
     fails(() => fs.rename('/d', '/d/inside'), 'EINVAL')
     fails(() => fs.rename('/f', '/missing/x'), 'ENOENT')
+    fails(() => fs.rename('/d/a', '/d'), 'ENOTEMPTY', '/d')
+    fails(() => fs.rename('/d/a', '/'), 'EBUSY')
     assert.equal(fs.readText('/f'), 'x')
     assert.equal(fs.readText('/d/a'), 'y')
+  })
+
+  it('walks both ways before it judges either name, as Linux does', () => {
+    const fs = createVfs({ 'f': 'x', 'd/a': 'y' })
+    fails(() => fs.rename('/missing', '/f/x'), 'ENOTDIR', '/f/x')
+    fails(() => fs.rename('/missing', '/gone/x'), 'ENOENT', '/gone/x')
+    fails(() => fs.rename('/', '/gone/x'), 'ENOENT', '/gone/x')
+    fails(() => fs.rename('/f/', '/gone/x'), 'ENOENT', '/gone/x')
+    fails(() => fs.rename('/d/.', '/gone/.'), 'ENOENT', '/gone/.')
+    fails(() => fs.rename('/missing', '/d/.'), 'EINVAL', '/d/.')
+    fails(() => fs.rename('/missing', '/f/'), 'ENOENT', '/missing')
+    fails(() => fs.rename('/f/', '/x'), 'ENOTDIR', '/f/')
+    const long = 'a'.repeat(256)
+    fails(() => fs.rename('/d', `/d/${long}`), 'ENAMETOOLONG', `/d/${long}`)
+    fails(() => fs.rename('/f', `/${long}/`), 'ENAMETOOLONG', `/${long}/`)
+    fails(() => fs.rename('/missing', `/${long}`), 'ENOENT', '/missing')
+    assert.deepEqual([...fs.walk()].map((entry) => entry.path), ['/', '/d', '/d/a', '/f'])
   })
 
   it('takes no name from a spelling that ends on . or .., as nothing does', () => {
@@ -486,7 +543,15 @@ describe('rename', () => {
     fails(() => fs.writeFile('/l', ''), 'EISDIR', '/l')
     fails(() => fs.rm('/l/', { recursive: true }), 'ENOTDIR', '/l/')
     fs.rm('/l')
-    fails(() => fs.rmdir('/..'), 'EBUSY', '/..')
+    for (const root of ['/.', '/..', '/a/..', '//./']) {
+      fails(() => fs.rmdir(root), 'EINVAL', root)
+      fails(() => fs.rm(root, { recursive: true }), 'EINVAL', root)
+      fails(() => fs.rename(root, '/x'), 'EINVAL', root)
+    }
+    for (const root of ['/', '//']) {
+      fails(() => fs.rmdir(root), 'EBUSY', root)
+      fails(() => fs.rename(root, '/x'), 'EBUSY', root)
+    }
     assert.deepEqual([...fs.walk()].map((entry) => entry.path), ['/', '/a', '/a/b', '/a/b/f', '/e'])
   })
 
@@ -594,5 +659,15 @@ describe('errors', () => {
       assert.equal(error.path, '/nope')
       assert.equal(error.message, '/nope: No such file or directory')
     }
+  })
+
+  it('show a path with nothing a terminal would act on, and keep it as given', () => {
+    const fs = new Vfs()
+    const [esc, nel, separator, override] = [0x1B, 0x85, 0x2028, 0x202E].map((code) => String.fromCodePoint(code))
+    const path = `/a${esc}[2Jb${nel}c${separator}d${override}e`
+    fails(() => fs.readFile(path), 'ENOENT', path)
+    const shown = String.raw`/a\u001b[2Jb\u0085c\u2028d\u202ee`
+    assert.throws(() => fs.readFile(path), { message: `${shown}: No such file or directory` })
+    assert.equal(new VfsError('EPERM', '/plain/\u00E9').message, '/plain/\u00E9: Operation not permitted')
   })
 })

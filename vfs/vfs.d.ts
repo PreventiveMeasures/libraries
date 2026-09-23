@@ -94,6 +94,8 @@ export class Vfs {
   // set here or not at all. The target is at most 4096 bytes of UTF-8, as
   // a filesystem and an archive hold it, or ENAMETOOLONG.
   symlink(target: string, path: string, options?: { mode?: number; mtime?: number }): void
+  // A link at `existing` is linked itself, unless a trailing slash follows
+  // it, as lstat's does; a directory is EPERM once `path` is found free.
   link(existing: string, path: string): void
   unlink(path: string): void
   rmdir(path: string): void
@@ -111,6 +113,8 @@ export class Vfs {
   entries(path?: string): Generator<Entry, void, undefined>
 }
 
+// `message` is the line a shell prints, the path in it with any control,
+// line separator or bidirectional control escaped; `path` is as given.
 export class VfsError extends Error {
   constructor(code: string, path: string)
   code: string

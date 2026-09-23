@@ -142,7 +142,7 @@ function same(vfs, path, type, data, mode, mtime, source) {
   if (stat.mode !== (mode ?? MODE[stat.type]) || stat.mtime !== (mtime ?? 0)) return false
   if (type === 'symlink') return vfs.readlink(path) === source
   if (type === 'directory') return true
-  const bytes = encode(data ?? '', path)
+  const bytes = data instanceof Uint8Array ? data : encode(data ?? '', path)
   const held = vfs.readFile(path)
   return held.length === bytes.length && held.every((byte, i) => byte === bytes[i])
 }
