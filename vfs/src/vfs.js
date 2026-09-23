@@ -151,8 +151,10 @@ export class Vfs {
     try { return decoder.decode(bytes) } catch { throw new VfsError('EILSEQ', path) }
   }
 
+  // A trailing slash follows the link, as lstat's does: what is then there
+  // is no link, or is not there at all.
   readlink(path) {
-    const node = this.#node(path, false)
+    const node = this.#node(path, slashed(path))
     if (node.type !== 'symlink') throw new VfsError('EINVAL', path)
     return node.target
   }
@@ -164,11 +166,11 @@ export class Vfs {
   }
 
   // Where a write lands: through a link, the file the link names. A trailing
-  // slash asks for a directory, which open(2) neither makes nor writes.
+  // slash asks for a directory, which open(2) neither makes nor writes: once
+  // the way there is walked, EISDIR whatever the last name holds, unfollowed.
   #fileAt(path) {
-    if (slashed(path)) throw new VfsError('EISDIR', path)
-    const found = this.#locate(path)
-    if (found.node?.type === 'directory') throw new VfsError('EISDIR', path)
+    const found = this.#locate(path, { follow: !slashed(path), create: true })
+    if (found.trailing || found.node?.type === 'directory') throw new VfsError('EISDIR', path)
     return found
   }
 
