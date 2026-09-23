@@ -8,11 +8,13 @@ export function quote(text) {
   return JSON.stringify(`${text.slice(0, text.codePointAt(199) > 0xffff ? 199 : 200)}…`)
 }
 
-// A C0, DEL or C1 control (Cc is those three and nothing else); a Unicode
-// line or paragraph separator, or a bidirectional embedding, override or
-// isolate, which break or reorder a name as shown; and a backslash if asked.
-const UNSAFE = /[\p{Cc}\u2028\u2029\u202A-\u202E\u2066-\u2069]/u
-const UNSAFE_OR_BACKSLASH = /[\p{Cc}\u2028\u2029\u202A-\u202E\u2066-\u2069\\]/u
+// A C0, DEL or C1 control (Cc is those three and nothing else); a line or
+// paragraph separator (Zl, Zp: one each); and every bidirectional control
+// Unicode names — embeddings, overrides and isolates, and the three marks
+// that shift neutral characters about them unseen — since each breaks or
+// reorders a name as shown. A backslash too, if asked.
+const UNSAFE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]/u
+const UNSAFE_OR_BACKSLASH = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}\\]/u
 
 export const hasUnsafe = (text, backslash) => (backslash ? UNSAFE_OR_BACKSLASH : UNSAFE).test(text)
 

@@ -46,6 +46,11 @@ describe('hasUnsafe', () => {
       assert.equal(hasUnsafe(`a${char}b`, false), true, JSON.stringify(char))
     }
   })
+  it('flags the bidirectional marks too, which move neutral characters about them unseen', () => {
+    for (const char of ['\u061C', '\u200E', '\u200F']) {
+      assert.equal(hasUnsafe(`a${char}b`, false), true, JSON.stringify(char))
+    }
+  })
   it('flags a backslash only when asked', () => {
     assert.equal(hasUnsafe('a\\b', true), true)
     assert.equal(hasUnsafe('a\\b', false), false)
