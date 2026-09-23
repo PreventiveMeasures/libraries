@@ -25,7 +25,7 @@ describe('createVfs reads a flat map of paths', () => {
       'file': { type: 'file', data: bytes('f'), mode: 0o600, mtime: 2 },
       'empty': { type: 'file' },
       'link': { type: 'symlink', target: 'file', mtime: 3 },
-      'hard': { type: 'link', target: 'file' },
+      'hard': { type: 'hardlink', target: 'file' },
       '/': { type: 'directory', mode: 0o711, mtime: 4 },
     })
     assert.deepEqual(fs.stat('/dir'), { type: 'directory', ino: fs.stat('/dir').ino, mode: 0o700, mtime: 1, size: 0 })
@@ -38,11 +38,11 @@ describe('createVfs reads a flat map of paths', () => {
   })
 
   it('and a hard link to a path spelled as a key may be', () => {
-    const fs = createVfs({ '/d/f': 'x', '/d/l': { type: 'link', target: '/d/f' }, 'm': { type: 'link', target: 'd/f' } })
+    const fs = createVfs({ '/d/f': 'x', '/d/l': { type: 'hardlink', target: '/d/f' }, 'm': { type: 'hardlink', target: 'd/f' } })
     assert.equal(fs.stat('/d/l').ino, fs.stat('/d/f').ino)
     assert.equal(fs.stat('/m').ino, fs.stat('/d/f').ino)
-    fails(() => createVfs({ 'f': 'x', 'l': { type: 'link', target: '/' } }), 'EINVAL', '.')
-    fails(() => createVfs({ 'f': 'x', 'l': { type: 'link', target: '//f' } }), 'EINVAL', '/f')
+    fails(() => createVfs({ 'f': 'x', 'l': { type: 'hardlink', target: '/' } }), 'EINVAL', '.')
+    fails(() => createVfs({ 'f': 'x', 'l': { type: 'hardlink', target: '//f' } }), 'EINVAL', '/f')
     assert.equal(createVfs({ 'f': 'x', 's': { type: 'symlink', target: '/f' } }).readlink('/s'), '/f', 'a symlink target is a spelling, kept as it is')
   })
 
@@ -50,7 +50,7 @@ describe('createVfs reads a flat map of paths', () => {
     assert.throws(() => createVfs({ 'a': 'file', 'a/b': 'under a file' }), { code: 'EEXIST' }, 'what mkdir -p says of a file in its way')
     assert.throws(() => createVfs({ 'a': 'file', 'a/b/c': 'under a file' }), { code: 'ENOTDIR' })
     assert.throws(() => createVfs({ 'a/b': 'x', 'a': 'now a file' }), { code: 'EISDIR' })
-    assert.throws(() => createVfs({ 'a': 'x', 'b': { type: 'link', target: 'missing' } }), { code: 'ENOENT' })
+    assert.throws(() => createVfs({ 'a': 'x', 'b': { type: 'hardlink', target: 'missing' } }), { code: 'ENOENT' })
     assert.throws(() => createVfs({ 'a': { type: 'fifo' } }), { code: 'EINVAL', path: 'a' })
     for (const key of ['', '//x', 'a\\b', 'a//b', 'a/../b', 'a/']) assert.throws(() => createVfs({ [key]: 'x' }), { code: 'EINVAL', path: key.replace(/^\//u, '') }, JSON.stringify(key))
     assert.throws(() => createVfs({ 'a': 42 }), TypeError)
@@ -72,8 +72,8 @@ describe('entries are the tree as tar would carry it', () => {
       'lib/link': { type: 'symlink', target: '../README.md', mode: 0o755, mtime: 50 },
       'empty': { type: 'directory', mode: 0o700 },
     })
-    fs.link('/README.md', '/lib/readme-again')
-    fs.link('/lib/link', '/lib/link-again')
+    fs.hardlink('/README.md', '/lib/readme-again')
+    fs.hardlink('/lib/link', '/lib/link-again')
     return fs
   }
 
@@ -87,14 +87,14 @@ describe('entries are the tree as tar would carry it', () => {
       { name: 'lib', type: 'directory', mode: 0o755, mtime: 0, linkname: '', data: new Uint8Array() },
       { name: 'lib/data.bin', type: 'file', mode: 0o644, mtime: 0, linkname: '', data: new Uint8Array([0, 255, 1]) },
       { name: 'lib/link', type: 'symlink', mode: 0o755, mtime: 50, linkname: '../README.md', data: new Uint8Array() },
-      { name: 'lib/link-again', type: 'link', mode: 0o755, mtime: 50, linkname: 'lib/link', data: new Uint8Array() },
-      { name: 'lib/readme-again', type: 'link', mode: 0o644, mtime: 0, linkname: 'README.md', data: new Uint8Array() },
+      { name: 'lib/link-again', type: 'hardlink', mode: 0o755, mtime: 50, linkname: 'lib/link', data: new Uint8Array() },
+      { name: 'lib/readme-again', type: 'hardlink', mode: 0o644, mtime: 0, linkname: 'README.md', data: new Uint8Array() },
     ])
   })
 
   it('start where they are asked to', () => {
     const fs = tree()
-    assert.deepEqual([...fs.entries('/lib')].map((entry) => [entry.name, entry.type]), [['.', 'directory'], ['data.bin', 'file'], ['link', 'symlink'], ['link-again', 'link'], ['readme-again', 'file']], 'the first name seen of an inode is the inode')
+    assert.deepEqual([...fs.entries('/lib')].map((entry) => [entry.name, entry.type]), [['.', 'directory'], ['data.bin', 'file'], ['link', 'symlink'], ['link-again', 'hardlink'], ['readme-again', 'file']], 'the first name seen of an inode is the inode')
     assert.deepEqual([...fs.entries('bin/tool')].map((entry) => entry.name), ['tool'])
     fails(() => fs.entries('/missing'), 'ENOENT', '/missing')
     assert.throws(() => fs.entries(null), TypeError, 'checked when called, not when first stepped')
@@ -117,7 +117,7 @@ describe('entries are the tree as tar would carry it', () => {
       { name: 'a', type: 'directory', mode: 0o700, mtime: 9 },
       { name: './a/b/d', type: 'contiguous-file', data: bytes('cf'), mode: 0o600 },
       { name: '.', type: 'directory', mode: 0o711 },
-      { name: 'a/b/e', type: 'link', linkname: 'a/b/c' },
+      { name: 'a/b/e', type: 'hardlink', linkname: 'a/b/c' },
     ])
     assert.equal(fs.readText('/a/b/c'), 'deep')
     assert.equal(fs.readText('/a/b/e'), 'deep')
@@ -138,7 +138,7 @@ describe('entries are the tree as tar would carry it', () => {
     assert.equal(vfsFromEntries([{ name: 'a/C:x', data: 'x' }]).readText('/a/C:x'), 'x', 'a drive letter is one in front alone')
     const long = `${'a'.repeat(255)}/`.repeat(15) + 'a'.repeat(200)
     fails(() => vfsFromEntries([{ name: `${long}/${'a'.repeat(56)}`, data: 'x' }]), 'ENAMETOOLONG')
-    fails(() => vfsFromEntries([{ name: 'f', data: 'x' }, { name: 'l', type: 'link', linkname: `${long}/${'a'.repeat(56)}` }]), 'ENAMETOOLONG')
+    fails(() => vfsFromEntries([{ name: 'f', data: 'x' }, { name: 'l', type: 'hardlink', linkname: `${long}/${'a'.repeat(56)}` }]), 'ENAMETOOLONG')
     const longest = vfsFromEntries([{ name: `${long}/${'a'.repeat(55)}`, data: 'x' }])
     assert.equal(new TextEncoder().encode(`${long}/${'a'.repeat(55)}`).length, 4096)
     fails(() => vfsFromEntries([{ name: `${long}/${'a'.repeat(55)}`, type: 'directory' }]), 'ENAMETOOLONG')
@@ -151,10 +151,10 @@ describe('entries are the tree as tar would carry it', () => {
     const longestDir = vfsFromEntries([{ name: `${long}/${'a'.repeat(54)}`, type: 'directory' }])
     assert.deepEqual([...vfsFromEntries(unpack(pack(longestDir.entries()))).entries()], [...longestDir.entries()], 'a directory carries its slash, so 4095 is its longest')
     assert.deepEqual([...vfsFromEntries(unpack(pack(longest.entries()))).entries()], [...longest.entries()], 'a name of 4096 bytes is the longest, and packs')
-    fails(() => vfsFromEntries([{ name: 'f', data: 'x' }, { name: 'l', type: 'link', linkname: '../f' }]), 'EINVAL', '../f')
-    fails(() => vfsFromEntries([{ name: 'l', type: 'link' }]), 'EINVAL', '')
-    fails(() => vfsFromEntries([{ name: 'd', type: 'directory' }, { name: 'l', type: 'link', linkname: 'd/' }]), 'EINVAL', 'd/')
-    assert.throws(() => vfsFromEntries([{ name: 'l', type: 'link', linkname: 1 }]), TypeError)
+    fails(() => vfsFromEntries([{ name: 'f', data: 'x' }, { name: 'l', type: 'hardlink', linkname: '../f' }]), 'EINVAL', '../f')
+    fails(() => vfsFromEntries([{ name: 'l', type: 'hardlink' }]), 'EINVAL', '')
+    fails(() => vfsFromEntries([{ name: 'd', type: 'directory' }, { name: 'l', type: 'hardlink', linkname: 'd/' }]), 'EINVAL', 'd/')
+    assert.throws(() => vfsFromEntries([{ name: 'l', type: 'hardlink', linkname: 1 }]), TypeError)
     const fs = vfsFromEntries([{ name: 'd/', type: 'directory' }, { name: './e', data: 'x' }, { name: '.', type: 'directory' }, { name: 's', type: 'symlink', linkname: '../../etc' }])
     assert.deepEqual([...fs.walk()].map((entry) => entry.path), ['/', '/d', '/e', '/s'])
     assert.equal(fs.readlink('/s'), '../../etc', 'a symlink target is any spelling: it cannot leave the root')
@@ -165,7 +165,7 @@ describe('entries are the tree as tar would carry it', () => {
     const file = { data: 'x', mode: 0o600, mtime: 1 }
     const again = vfsFromEntries([{ name: 'd/f', ...file }, { name: 'd/./f', ...file }, { name: './d/./f', ...file, data: bytes('x') }, { name: 'd', type: 'directory' }, { name: 'd/', type: 'directory' }, { name: '.', type: 'directory' }, { name: './', type: 'directory' }, { name: 'd/.', type: 'directory' }])
     assert.deepEqual([...again.walk()].map((entry) => entry.path), ['/', '/d', '/d/f'])
-    vfsFromEntries([{ name: 'f' }, { name: 'l', type: 'link', linkname: 'f' }, { name: './l', type: 'link', linkname: './f' }, { name: 's', type: 'symlink', linkname: 'f' }, { name: 's', type: 'symlink', linkname: 'f' }])
+    vfsFromEntries([{ name: 'f' }, { name: 'l', type: 'hardlink', linkname: 'f' }, { name: './l', type: 'hardlink', linkname: './f' }, { name: 's', type: 'symlink', linkname: 'f' }, { name: 's', type: 'symlink', linkname: 'f' }])
     const differing = [
       [{ name: 'f', data: 'x' }, { name: './f', data: 'y' }],
       [{ name: 'f', data: 'x' }, { name: 'f', data: 'x', mode: 0o600 }],
@@ -175,10 +175,10 @@ describe('entries are the tree as tar would carry it', () => {
       [{ name: 'd', type: 'directory' }, { name: 'd/', type: 'directory', mode: 0o700 }],
       [{ name: 's', type: 'symlink', linkname: 'a' }, { name: 's', type: 'symlink', linkname: 'b' }],
       [{ name: 's', type: 'symlink', linkname: 'a' }, { name: 's', type: 'symlink', linkname: 'a', mode: 0o755 }],
-      [{ name: 'f', data: 'x' }, { name: 'f', type: 'link', linkname: 'f' }],
-      [{ name: 'f', data: 'x' }, { name: 'g', type: 'link', linkname: 'f' }, { name: 'g', data: 'x' }],
+      [{ name: 'f', data: 'x' }, { name: 'f', type: 'hardlink', linkname: 'f' }],
+      [{ name: 'f', data: 'x' }, { name: 'g', type: 'hardlink', linkname: 'f' }, { name: 'g', data: 'x' }],
       [{ name: 'f', data: 'x' }, { name: 'f', type: 'contiguous-file', data: 'x' }],
-      [{ name: 'f' }, { name: 'g' }, { name: 'l', type: 'link', linkname: 'f' }, { name: 'l', type: 'link', linkname: 'g' }],
+      [{ name: 'f' }, { name: 'g' }, { name: 'l', type: 'hardlink', linkname: 'f' }, { name: 'l', type: 'hardlink', linkname: 'g' }],
     ]
     for (const entries of differing) fails(() => vfsFromEntries(entries), 'EEXIST', entries.at(-1).name)
   })
@@ -191,7 +191,7 @@ describe('entries are the tree as tar would carry it', () => {
     for (const field of ['mode', 'mtime']) {
       assert.throws(() => vfsFromEntries([{ name: 'f', data: 'x', [field]: null }]), RangeError, `${field} null, first`)
       assert.throws(() => vfsFromEntries([{ name: 'f', data: 'x' }, { name: 'f', data: 'x', [field]: null }]), RangeError, `${field} null, again`)
-      assert.throws(() => vfsFromEntries([{ name: 'f', data: 'x' }, { name: 'l', type: 'link', linkname: 'f', [field]: null }]), RangeError, `${field} null, on a hard link`)
+      assert.throws(() => vfsFromEntries([{ name: 'f', data: 'x' }, { name: 'l', type: 'hardlink', linkname: 'f', [field]: null }]), RangeError, `${field} null, on a hard link`)
       assert.throws(() => vfsFromEntries([{ name: 'd', type: 'directory', [field]: '1' }]), RangeError, `${field} as text, on a directory`)
     }
   })
@@ -200,9 +200,9 @@ describe('entries are the tree as tar would carry it', () => {
     fails(() => vfsFromEntries([{ name: 'real', type: 'directory' }, { name: 'alias', type: 'symlink', linkname: 'real' }, { name: 'alias/f', data: 'x' }]), 'ENOTDIR', 'alias/f')
     fails(() => vfsFromEntries([{ name: 'alias', type: 'symlink', linkname: '.' }, { name: 'alias/d/f', data: 'x' }]), 'ENOTDIR', 'alias/d/f')
     fails(() => vfsFromEntries([{ name: 'alias', type: 'symlink', linkname: 'nowhere' }, { name: 'alias/f', data: 'x' }]), 'ENOENT', '/alias')
-    fails(() => vfsFromEntries([{ name: 'real/f', data: 'x' }, { name: 'alias', type: 'symlink', linkname: 'real' }, { name: 'l', type: 'link', linkname: 'alias/f' }]), 'ENOENT', 'alias/f')
-    fails(() => vfsFromEntries([{ name: 'd/f', data: 'x' }, { name: 'l', type: 'link', linkname: 'd' }]), 'ENOENT', 'd')
-    fails(() => vfsFromEntries([{ name: 'd', type: 'directory' }, { name: 'l', type: 'link', linkname: 'd' }]), 'EPERM')
+    fails(() => vfsFromEntries([{ name: 'real/f', data: 'x' }, { name: 'alias', type: 'symlink', linkname: 'real' }, { name: 'l', type: 'hardlink', linkname: 'alias/f' }]), 'ENOENT', 'alias/f')
+    fails(() => vfsFromEntries([{ name: 'd/f', data: 'x' }, { name: 'l', type: 'hardlink', linkname: 'd' }]), 'ENOENT', 'd')
+    fails(() => vfsFromEntries([{ name: 'd', type: 'directory' }, { name: 'l', type: 'hardlink', linkname: 'd' }]), 'EPERM')
     const fs = vfsFromEntries([{ name: 'real/f', data: 'x' }, { name: 'alias', type: 'symlink', linkname: 'real' }, { name: 'real/g', data: 'y' }])
     assert.equal(fs.readText('/alias/g'), 'y', 'the link is there to be followed once the tree is built')
   })
@@ -210,7 +210,7 @@ describe('entries are the tree as tar would carry it', () => {
   it('refuse a field the type cannot carry, rather than drop it', () => {
     fails(() => vfsFromEntries([{ name: 'd', type: 'directory', data: 'x' }]), 'EINVAL', 'd')
     fails(() => vfsFromEntries([{ name: 's', type: 'symlink', linkname: 'x', data: bytes('x') }]), 'EINVAL', 's')
-    fails(() => vfsFromEntries([{ name: 'f' }, { name: 'l', type: 'link', linkname: 'f', data: 'x' }]), 'EINVAL', 'l')
+    fails(() => vfsFromEntries([{ name: 'f' }, { name: 'l', type: 'hardlink', linkname: 'f', data: 'x' }]), 'EINVAL', 'l')
     fails(() => vfsFromEntries([{ name: 'f', linkname: 'x' }]), 'EINVAL', 'f')
     fails(() => vfsFromEntries([{ name: 'd', type: 'directory', linkname: 'x' }]), 'EINVAL', 'd')
     fails(() => vfsFromEntries([{ name: 'd', type: 'directory' }, { name: 'd', type: 'directory', data: 'x' }]), 'EINVAL', 'd')
@@ -222,12 +222,12 @@ describe('entries are the tree as tar would carry it', () => {
 
   it('give a hard link no mode or mtime of its own, and take its target under any name', () => {
     const f = { name: 'f', data: 'x', mode: 0o600, mtime: 7 }
-    const fs = vfsFromEntries([f, { name: 'l', type: 'link', linkname: 'f', mode: 0o600, mtime: 7 }, { name: 'm', type: 'link', linkname: 'f' }, { name: 'l', type: 'link', linkname: 'm' }])
-    assert.deepEqual([...fs.entries()].filter((entry) => entry.type === 'link').map((entry) => [entry.name, entry.linkname, entry.mode, entry.mtime]), [['l', 'f', 0o600, 7], ['m', 'f', 0o600, 7]])
-    fails(() => vfsFromEntries([f, { name: 'l', type: 'link', linkname: 'f', mode: 0o644 }]), 'EINVAL', 'l')
-    fails(() => vfsFromEntries([f, { name: 'l', type: 'link', linkname: 'f', mtime: 0 }]), 'EINVAL', 'l')
-    fails(() => vfsFromEntries([f, { name: 'l', type: 'link', linkname: 'f' }, { name: 'l', type: 'link', linkname: 'f', mode: 0o644 }]), 'EEXIST', 'l')
-    fails(() => vfsFromEntries([f, { name: 'l', type: 'link', linkname: 'f' }, { name: 'l', type: 'link', linkname: 'f', mtime: 8 }]), 'EEXIST', 'l')
-    fails(() => createVfs({ 'f': 'x', 'l': { type: 'link', target: 'f', mtime: 1 } }), 'EINVAL', 'l')
+    const fs = vfsFromEntries([f, { name: 'l', type: 'hardlink', linkname: 'f', mode: 0o600, mtime: 7 }, { name: 'm', type: 'hardlink', linkname: 'f' }, { name: 'l', type: 'hardlink', linkname: 'm' }])
+    assert.deepEqual([...fs.entries()].filter((entry) => entry.type === 'hardlink').map((entry) => [entry.name, entry.linkname, entry.mode, entry.mtime]), [['l', 'f', 0o600, 7], ['m', 'f', 0o600, 7]])
+    fails(() => vfsFromEntries([f, { name: 'l', type: 'hardlink', linkname: 'f', mode: 0o644 }]), 'EINVAL', 'l')
+    fails(() => vfsFromEntries([f, { name: 'l', type: 'hardlink', linkname: 'f', mtime: 0 }]), 'EINVAL', 'l')
+    fails(() => vfsFromEntries([f, { name: 'l', type: 'hardlink', linkname: 'f' }, { name: 'l', type: 'hardlink', linkname: 'f', mode: 0o644 }]), 'EEXIST', 'l')
+    fails(() => vfsFromEntries([f, { name: 'l', type: 'hardlink', linkname: 'f' }, { name: 'l', type: 'hardlink', linkname: 'f', mtime: 8 }]), 'EEXIST', 'l')
+    fails(() => createVfs({ 'f': 'x', 'l': { type: 'hardlink', target: 'f', mtime: 1 } }), 'EINVAL', 'l')
   })
 })

@@ -30,7 +30,7 @@ const ENTRIES = [
   { name: 'dir/b.bin', data: Uint8Array.from({ length: 1000 }, (_, i) => i % 251), mtime: T, mode: 0o600 },
   { name: 'dir/empty', mtime: T },
   { name: 'link', type: 'symlink', linkname: 'a.txt', mtime: T },
-  { name: 'hard', type: 'link', linkname: 'a.txt', mtime: T },
+  { name: 'hard', type: 'hardlink', linkname: 'a.txt', mtime: T },
   { name: 'ü.txt', data: utf8('x'), mtime: T },
   { name: LONGDIR, type: 'directory', mtime: T },
   { name: LONG, data: utf8('long'), mtime: T },

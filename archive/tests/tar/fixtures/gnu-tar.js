@@ -704,7 +704,7 @@ export const RECORDINGS = [
       },
       {
         "name": "h2",
-        "type": "link",
+        "type": "hardlink",
         "mode": 420,
         "uid": 0,
         "gid": 0,
@@ -732,7 +732,7 @@ export const RECORDINGS = [
       },
       {
         "name": "sub/h3",
-        "type": "link",
+        "type": "hardlink",
         "mode": 420,
         "uid": 0,
         "gid": 0,
@@ -810,7 +810,7 @@ export const RECORDINGS = [
       },
       {
         "name": "h2",
-        "type": "link",
+        "type": "hardlink",
         "mode": 420,
         "uid": 0,
         "gid": 0,
@@ -838,7 +838,7 @@ export const RECORDINGS = [
       },
       {
         "name": "sub/h3",
-        "type": "link",
+        "type": "hardlink",
         "mode": 420,
         "uid": 0,
         "gid": 0,
@@ -916,7 +916,7 @@ export const RECORDINGS = [
       },
       {
         "name": "h2",
-        "type": "link",
+        "type": "hardlink",
         "mode": 420,
         "uid": 0,
         "gid": 0,
@@ -944,7 +944,7 @@ export const RECORDINGS = [
       },
       {
         "name": "sub/h3",
-        "type": "link",
+        "type": "hardlink",
         "mode": 420,
         "uid": 0,
         "gid": 0,

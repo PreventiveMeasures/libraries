@@ -31,7 +31,7 @@ describe('what it refuses about an entry', () => {
     [{ name: 'd', type: 'directory', data: utf8('x') }, /a directory cannot carry data \("d"\)/u],
     [{ name: 'a', linkname: 'b' }, /a file cannot have a link target \("a"\)/u],
     [{ name: 'l', type: 'symlink' }, /symlink target of "l" is empty/u],
-    [{ name: 'h', type: 'link' }, /hard link target of "h" is empty/u],
+    [{ name: 'h', type: 'hardlink' }, /hard link target of "h" is empty/u],
     [{ name: 'a', devmajor: 1 }, /a file cannot have device numbers/u],
     [{ name: 'a', mode: 0o100644 }, /mode 100644 has bits beyond the permission bits/u],
     [{ name: 'a', mode: -1 }, /mode -1 is not a non-negative integer/u],
@@ -75,10 +75,10 @@ describe('what it refuses about names', () => {
     [[{ name: 'l', type: 'symlink', linkname: '../x' }], /points outside the archive/u],
     [[{ name: 'd/s', type: 'symlink', linkname: '..' }, { name: 'l', type: 'symlink', linkname: 'd/s/..' }], /passes through "d\/s", which is not a directory/u],
     [[{ name: 'l', type: 'symlink', linkname: '/x' }], /symlink target of "l" "\/x" is absolute/u],
-    [[{ name: 'h', type: 'link', linkname: 'a' }], /hard link "h" targets "a", which is not an earlier non-directory entry/u],
-    [[{ name: 'h', type: 'link', linkname: 'a' }, { name: 'a' }], /not an earlier non-directory entry/u],
-    [[{ name: 'd', type: 'directory' }, { name: 'h', type: 'link', linkname: 'd' }], /not an earlier non-directory entry/u],
-    [[{ name: 'a' }, { name: 'h', type: 'link', linkname: '../a' }], /hard link target of "h" "\.\.\/a" has a \.\. segment/u],
+    [[{ name: 'h', type: 'hardlink', linkname: 'a' }], /hard link "h" targets "a", which is not an earlier non-directory entry/u],
+    [[{ name: 'h', type: 'hardlink', linkname: 'a' }, { name: 'a' }], /not an earlier non-directory entry/u],
+    [[{ name: 'd', type: 'directory' }, { name: 'h', type: 'hardlink', linkname: 'd' }], /not an earlier non-directory entry/u],
+    [[{ name: 'a' }, { name: 'h', type: 'hardlink', linkname: '../a' }], /hard link target of "h" "\.\.\/a" has a \.\. segment/u],
   ]
   for (const [entries, message] of refused) {
     it(`refuses ${entries.map((e) => e.name).join(', ')}`, () => assert.throws(() => pack(entries), message))
@@ -109,7 +109,7 @@ describe('what it refuses about names', () => {
     assert.deepEqual(twice.map((e) => e.name), ['d/f', 'd/f', 'd', 'd'])
   })
   it('drops . segments and a directory slash, and names the root .', () => {
-    const entries = unpack(pack([{ name: './', type: 'directory' }, { name: './x' }, { name: 'a/./b' }, { name: 'd/', type: 'directory' }, { name: 'h', type: 'link', linkname: './x' }]))
+    const entries = unpack(pack([{ name: './', type: 'directory' }, { name: './x' }, { name: 'a/./b' }, { name: 'd/', type: 'directory' }, { name: 'h', type: 'hardlink', linkname: './x' }]))
     assert.deepEqual(entries.map((e) => e.name), ['.', 'x', 'a/b', 'd', 'h'])
     assert.equal(entries[4].linkname, 'x')
   })

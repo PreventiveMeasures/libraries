@@ -1,13 +1,14 @@
 // The typed contract for archive/tar.js, hand-written: keep it name for name
 // with tar.js, and change it in the same commit as the signature.
 
-// tar's entry types under tar-stream's names. A 'link' is a hard link to
-// an earlier entry; a 'contiguous-file' is a file for every purpose here.
+// tar's entry types under tar-stream's names, but for a 'hardlink', which
+// tar-stream calls a 'link': a hard link to an earlier entry. A
+// 'contiguous-file' is a file for every purpose here.
 export type EntryType =
   | 'file'
   | 'directory'
   | 'symlink'
-  | 'link'
+  | 'hardlink'
   | 'fifo'
   | 'character-device'
   | 'block-device'

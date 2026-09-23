@@ -215,9 +215,9 @@ export class Vfs {
   }
 
   // A hard link: the same inode under a second name. A trailing slash
-  // follows a link, as lstat's does, and the new name is judged before
+  // follows a symlink, as lstat's does, and the new name is judged before
   // what it would name, as linkat(2) has it.
-  link(existing, path) {
+  hardlink(existing, path) {
     const node = this.#node(existing, slashed(existing))
     const found = this.#newName(path)
     if (node.type === 'directory') throw new VfsError('EPERM', existing)
@@ -294,7 +294,7 @@ export class Vfs {
       const name = under === '' ? top : under
       const entry = { name, type: node.type, mode: node.mode, mtime: node.mtime, linkname: '', data: NONE }
       const earlier = named.get(node)
-      if (earlier !== undefined) { entry.type = 'link'; entry.linkname = earlier }
+      if (earlier !== undefined) { entry.type = 'hardlink'; entry.linkname = earlier }
       else if (node.type === 'symlink') { named.set(node, name); entry.linkname = node.target }
       else if (node.type === 'file') { named.set(node, name); entry.data = node.bytes }
       return entry

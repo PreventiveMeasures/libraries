@@ -43,7 +43,7 @@ function sourceEntry([key, value]) {
   if (value === null || typeof value !== 'object' || typeof value.type !== 'string') {
     throw new TypeError(`source ${JSON.stringify(name)} must be a string, a Uint8Array, or an object with a type`)
   }
-  const linkname = value.type === 'link' ? unrooted(value.target) : value.target
+  const linkname = value.type === 'hardlink' ? unrooted(value.target) : value.target
   return { name, type: value.type, data: value.data, mode: value.mode, mtime: value.mtime, linkname }
 }
 
@@ -64,11 +64,11 @@ export function vfsFromEntries(entries) {
 function place(vfs, declared, { name, type = 'file', data, mode, mtime, linkname = '' }) {
   const path = `/${checkName(name, type === 'directory')}`
   const file = type === 'file' || type === 'contiguous-file'
-  if ((!file && !noData(data)) || (linkname !== '' && type !== 'link' && type !== 'symlink')) throw new VfsError('EINVAL', name)
+  if ((!file && !noData(data)) || (linkname !== '' && type !== 'hardlink' && type !== 'symlink')) throw new VfsError('EINVAL', name)
   if (mode !== undefined) checkMode(mode)
   if (mtime !== undefined) checkTime(mtime)
-  const source = type === 'link' ? `/${checkName(linkname, false)}` : linkname
-  if (type === 'link' && !declared.has(source)) throw new VfsError('ENOENT', linkname)
+  const source = type === 'hardlink' ? `/${checkName(linkname, false)}` : linkname
+  if (type === 'hardlink' && !declared.has(source)) throw new VfsError('ENOENT', linkname)
   const before = declared.get(path)
   if (before !== undefined) {
     if (before === type && same(vfs, path, type, data, mode, mtime, source)) return
@@ -84,7 +84,7 @@ function place(vfs, declared, { name, type = 'file', data, mode, mtime, linkname
     vfs.mkdir(path, { recursive: true })
     if (mode !== undefined) vfs.chmod(path, mode)
     if (mtime !== undefined) vfs.utimes(path, mtime)
-  } else if (type === 'link' && fits(vfs.lstat(source), mode, mtime)) vfs.link(source, path)
+  } else if (type === 'hardlink' && fits(vfs.lstat(source), mode, mtime)) vfs.hardlink(source, path)
   else throw new VfsError('EINVAL', name)
 }
 
@@ -126,7 +126,7 @@ const fits = (target, mode, mtime) => (mode ?? target.mode) === target.mode && (
 // would refuse is refused again, not taken for bytes that look the same.
 function same(vfs, path, type, data, mode, mtime, source) {
   const stat = vfs.lstat(path)
-  if (type === 'link') return stat.ino === vfs.lstat(source).ino && fits(stat, mode, mtime)
+  if (type === 'hardlink') return stat.ino === vfs.lstat(source).ino && fits(stat, mode, mtime)
   if (stat.mode !== (mode ?? MODE[stat.type]) || stat.mtime !== (mtime ?? 0)) return false
   if (type === 'symlink') return vfs.readlink(path) === source
   if (type === 'directory') return true

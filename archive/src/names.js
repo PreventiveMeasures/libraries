@@ -91,7 +91,7 @@ export function cleanNames(path, type, target) {
   const name = cleanPath(path, 'entry name', type === 'directory')
   let linkname = target
   if (type === 'symlink') checkSymlinkTarget(name, target)
-  else if (type === 'link') linkname = cleanPath(target, `hard link target of ${quote(name)}`)
+  else if (type === 'hardlink') linkname = cleanPath(target, `hard link target of ${quote(name)}`)
   return { name, linkname }
 }
 
@@ -147,7 +147,7 @@ export class Names {
     // The target of the symlink this entry is, if it is one: a symlink's
     // own, or, for a hard link, that of the entry it links to.
     let symlink = type === 'symlink' ? entry.linkname : undefined
-    if (type === 'link') {
+    if (type === 'hardlink') {
       const target = this.#find(entry.linkname)
       if (target?.kind !== 'entry') throw new ArchiveError(`hard link ${quote(name)} targets ${quote(entry.linkname)}, which is not an earlier non-directory entry`)
       // A hard link to a symlink is a second name for that symlink, and a
