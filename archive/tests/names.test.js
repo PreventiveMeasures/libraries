@@ -73,6 +73,11 @@ describe('a name is a clean relative path', () => {
     cleanPath(Array.from({ length: 16 }, () => 'x'.repeat(255)).join('/'), 'name')
     assert.throws(() => cleanPath(Array.from({ length: 17 }, () => 'x'.repeat(255)).join('/'), 'name'), /is longer than 4096 bytes/u)
     assert.throws(() => checkSymlinkTarget('l', 'x'.repeat(256)), /has a segment longer than 255 bytes/u)
+    const longest = `${Array.from({ length: 15 }, () => 'x'.repeat(255)).join('/')}/${'x'.repeat(200)}/${'x'.repeat(55)}`
+    assert.equal(utf8(longest).length, 4096)
+    cleanPath(longest, 'name')
+    assert.throws(() => cleanPath(longest, 'name', true), /is longer than 4096 bytes/u, 'a directory is stored with its slash')
+    assert.equal(cleanPath(`${longest.slice(0, -1)}/`, 'name', true), longest.slice(0, -1))
   })
   it('names what it was checking', () => {
     assert.throws(() => cleanPath(42, 'hard link target'), /hard link target is not a string/u)

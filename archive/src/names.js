@@ -11,7 +11,8 @@
 // chain of hard links, is a second name for it, and is held to the same walk
 // from where that name sits, since a target safe under `a/b/` need not be
 // safe at the root. Lengths are bounded by what a filesystem takes at all:
-// PATH_MAX for the whole, NAME_MAX for a segment, in bytes.
+// PATH_MAX for the whole as the archive stores it, a directory's slash
+// counted, and NAME_MAX for a segment, in bytes.
 //
 // A name may repeat only as the same entry again, field for field and byte
 // for byte (some npm packagers write `d/f` and `d/./f` both): two different
@@ -54,9 +55,15 @@ export function cleanPath(path, what, directory = false) {
     if (segment === '') throw new ArchiveError(`${what} ${quote(path)} has an empty segment`)
     if (segment === '..') throw new ArchiveError(`${what} ${quote(path)} has a .. segment`)
   }
-  if (kept.length) return kept.join('/')
-  if (!directory) throw new ArchiveError(`${what} ${quote(path)} names the archive root but is not a directory`)
-  return '.'
+  if (kept.length === 0) {
+    if (!directory) throw new ArchiveError(`${what} ${quote(path)} names the archive root but is not a directory`)
+    return '.'
+  }
+  const name = kept.join('/')
+  // As the archive stores it, a directory's name carries its slash: what
+  // pack takes, unpack then reads.
+  if (utf8Length(name) + (directory ? 1 : 0) > PATH_MAX) throw new ArchiveError(`${what} ${quote(path)} is longer than ${PATH_MAX} bytes`)
+  return name
 }
 
 // Checks the target, walked from the link's directory, never climbs above
