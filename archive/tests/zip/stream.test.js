@@ -64,6 +64,16 @@ describe('unzipStream reads an entry only when it reaches it', () => {
     assert.equal(big(), 2)
     assert.equal((await entries.next()).done, true)
   })
+  it('checks the local headers without reading the data after each', async () => {
+    const data = new Uint8Array(70_000).fill(0x61)
+    const blob = new Watched([await zip(Array.from({ length: 40 }, (_, i) => ({ name: `f${i}`, data })), { method: 'store' })])
+    const entries = unzipStream(blob)
+    assert.equal((await entries.next()).value.name, 'f0')
+    // The search for the end record reaches back 64 KiB, and f0's data is
+    // read to hand it out; past those two, headers alone.
+    const read = blob.reads.reduce((sum, length) => sum + length, 0)
+    assert.ok(read < 3 * data.length, `${read} bytes read`)
+  })
   it('reads a central directory a chunk at a time, however large', async () => {
     const names = Array.from({ length: 3000 }, (_, i) => `a-rather-long-name-for-entry-${i}`)
     const bytes = await zip(names.map((name) => ({ name })))

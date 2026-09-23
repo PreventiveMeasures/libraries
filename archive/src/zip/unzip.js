@@ -71,18 +71,20 @@ function sourceOf(archive) {
 
 // A walk forward through records too small to be worth a read each: a
 // window over [at, at + width), cut short only where the archive ends,
-// and over what else the chunk it was read with holds, which is at most
-// CHUNK bytes or that one record.
+// and over what else the read it came from holds — up to CHUNK bytes past
+// `at`, and short of `stop`, so that the records after it come in the same
+// read and nothing past them is read to no purpose.
 const CHUNK = 1 << 16
 
 function walk(source) {
   let r
   let from = 0
   let to = 0
-  return async (at, width) => {
-    if (r === undefined || at < from || Math.min(at + width, source.size) > to) {
+  return async (at, width, stop = Infinity) => {
+    const need = Math.min(at + width, source.size)
+    if (r === undefined || at < from || need > to) {
       from = at
-      to = Math.min(source.size, at + Math.max(width, CHUNK))
+      to = Math.max(need, Math.min(at + CHUNK, stop, source.size))
       r = await source.window(from, to)
     }
     return r
@@ -162,17 +164,18 @@ async function readCentral(read, at) {
 
 // The local header checked against the central entry; returns where the
 // entry's bytes end, which has to be `boundary`, the next record's start,
-// and notes where its data starts. The two records have
-// to agree on everything both carry — flags included, since a descriptor
-// bit set in one and not the other is read two ways by two readers — and
-// the local sizes and CRC may be 0 only where a descriptor carries them.
-async function readLocal(read, entry, boundary) {
+// and notes where its data starts. The two records have to agree on
+// everything both carry — flags included, since a descriptor bit set in
+// one and not the other is read two ways by two readers — and the local
+// sizes and CRC may be 0 only where a descriptor carries them. `stop` is
+// as far as the header is read ahead of itself.
+async function readLocal(read, entry, boundary, stop) {
   const at = entry.offset
-  let r = await read(at, 30)
+  let r = await read(at, 30, stop)
   if (r.u32(at) !== LOCAL) throw new ArchiveError('no local header where the central directory points', at)
   const nameLength = r.u16(at + 26)
   const extraLength = r.u16(at + 28)
-  r = await read(at, 30 + nameLength + extraLength)
+  r = await read(at, 30 + nameLength + extraLength, stop)
   if (!sameBytes(r.slice(at + 30, nameLength), entry.name)) throw new ArchiveError('the local header names a different entry', at)
   const shared = [[4, 'version', 'a different version'], [6, 'flags', 'different flags'], [8, 'method', 'a different compression method'], [10, 'time', 'a different time'], [12, 'date', 'a different date']]
   for (const [field, key, what] of shared) {
@@ -188,7 +191,7 @@ async function readLocal(read, entry, boundary) {
     // The descriptor may start with its signature or not, and a CRC can be
     // that very value, so both layouts are tried against the record; where
     // both fit (every word the signature), the one reaching the boundary is it.
-    const d = await read(end, 16)
+    const d = await read(end, 16, boundary)
     const matches = (from) => d.u32(from) === entry.crc && d.u32(from + 4) === entry.csize && d.u32(from + 8) === entry.usize
     const signed = d.u32(end) === DESCRIPTOR && matches(end + 4)
     if (matches(end) && !(signed && end + 16 === boundary)) end += 12
@@ -264,10 +267,19 @@ async function* entries(source, { limit = Infinity } = {}, keep = false) {
   if (pos !== end) throw new ArchiveError('the central directory does not hold what the end record counts', pos)
   let expected = 0
   const sorted = list.toSorted((a, b) => a.offset - b.offset)
+  const boundaries = sorted.map((_, i) => sorted[i + 1]?.offset ?? start)
+  // The headers are read ahead through, but never the data between them,
+  // which is read again when its entry is reached: from each header to its
+  // own data, give or take a descriptor, by the directory's sizes, or on
+  // through the next header where it has none.
+  const stops = []
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    stops[i] = sorted[i].csize === 0 && i + 1 < sorted.length ? stops[i + 1] : boundaries[i] - sorted[i].csize
+  }
   const locals = walk(source)
   for (const [i, entry] of sorted.entries()) {
     if (entry.offset !== expected) throw new ArchiveError(entry.offset > expected ? 'bytes belong to no entry' : 'two entries overlap', expected)
-    expected = await readLocal(locals, entry, sorted[i + 1]?.offset ?? start)
+    expected = await readLocal(locals, entry, boundaries[i], stops[i])
   }
   if (expected !== start) throw new ArchiveError('bytes belong to no entry', expected)
   const names = new Names(keep)
