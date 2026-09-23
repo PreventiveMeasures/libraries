@@ -59,7 +59,7 @@ export type Source =
   | Uint8Array
   | { type: 'file'; data?: string | Uint8Array; mode?: number; mtime?: number }
   | { type: 'directory'; mode?: number; mtime?: number }
-  | { type: 'symlink'; target: string; mtime?: number }
+  | { type: 'symlink'; target: string; mode?: number; mtime?: number }
   | { type: 'link'; target: string }
 export type Sources = Record<string, Source> | Map<string, Source>
 
@@ -86,7 +86,9 @@ export class Vfs {
   writeFile(path: string, data: string | Uint8Array, options?: { mode?: number; mtime?: number }): void
   appendFile(path: string, data: string | Uint8Array): void
   mkdir(path: string, options?: { recursive?: boolean; mode?: number; mtime?: number }): void
-  symlink(target: string, path: string, options?: { mtime?: number }): void
+  // A link's mode is 0o777 unless given; chmod follows the link, so it is
+  // set here or not at all.
+  symlink(target: string, path: string, options?: { mode?: number; mtime?: number }): void
   link(existing: string, path: string): void
   unlink(path: string): void
   rmdir(path: string): void

@@ -182,6 +182,11 @@ describe('symbolic links', () => {
     assert.equal(fs.isSymlink('/src/app.js'), false)
     fs.symlink('é', '/utf8')
     assert.equal(fs.lstat('/utf8').size, 2, 'as long as the target in bytes')
+    fs.symlink('src/app.js', '/mode', { mode: 0o755 })
+    assert.equal(fs.lstat('/mode').mode, 0o755, 'a mode given is held, as a link made elsewhere may carry one')
+    fs.chmod('/mode', 0o600)
+    assert.equal(fs.lstat('/mode').mode, 0o755, 'chmod follows the link')
+    assert.equal(fs.stat('/src/app.js').mode, 0o600)
   })
 
   it('may lead nowhere', () => {

@@ -37,7 +37,7 @@ export class Vfs {
 
   #file(bytes, mode, mtime) { return { ino: ++this.#inodes, type: 'file', ...meta(mode, mtime, fresh('file')), bytes } }
   #directory(mode, mtime) { return { ino: ++this.#inodes, type: 'directory', ...meta(mode, mtime, fresh('directory')), entries: new Map() } }
-  #symlink(target, mtime) { return { ino: ++this.#inodes, type: 'symlink', ...meta(undefined, mtime, fresh('symlink')), target } }
+  #symlink(target, mode, mtime) { return { ino: ++this.#inodes, type: 'symlink', ...meta(mode, mtime, fresh('symlink')), target } }
 
   // Where `path` leads: `dir`, the directory its last name is in; `name`; and
   // `node`, the inode there — undefined when the name is not taken, so a
@@ -183,10 +183,12 @@ export class Vfs {
     else if (!recursive || !this.isDirectory(path)) throw new VfsError('EEXIST', path)
   }
 
-  symlink(target, path, { mtime } = {}) {
+  // A link's mode is 0o777 unless given, as Linux has it; one made elsewhere
+  // may carry another, and chmod follows the link, so here is where it is set.
+  symlink(target, path, { mode, mtime } = {}) {
     if (typeof target !== 'string' || target === '' || target.includes('\0')) throw new VfsError('EINVAL', path)
     if (!target.isWellFormed()) throw new VfsError('EILSEQ', path)
-    this.#set(this.#newName(path), this.#symlink(target, mtime), path)
+    this.#set(this.#newName(path), this.#symlink(target, mode, mtime), path)
   }
 
   // A hard link: the same inode under a second name.

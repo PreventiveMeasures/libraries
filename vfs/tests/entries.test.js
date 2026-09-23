@@ -60,7 +60,7 @@ describe('entries are the tree as tar would carry it', () => {
       'README.md': 'hello\n',
       'bin/tool': { type: 'file', data: bytes('#!/bin/sh\n'), mode: 0o755, mtime: 100 },
       'lib/data.bin': new Uint8Array([0, 255, 1]),
-      'lib/link': { type: 'symlink', target: '../README.md', mtime: 50 },
+      'lib/link': { type: 'symlink', target: '../README.md', mode: 0o755, mtime: 50 },
       'empty': { type: 'directory', mode: 0o700 },
     })
     fs.link('/README.md', '/lib/readme-again')
@@ -77,8 +77,8 @@ describe('entries are the tree as tar would carry it', () => {
       { name: 'empty', type: 'directory', mode: 0o700, mtime: 0, linkname: '', data: new Uint8Array() },
       { name: 'lib', type: 'directory', mode: 0o755, mtime: 0, linkname: '', data: new Uint8Array() },
       { name: 'lib/data.bin', type: 'file', mode: 0o644, mtime: 0, linkname: '', data: new Uint8Array([0, 255, 1]) },
-      { name: 'lib/link', type: 'symlink', mode: 0o777, mtime: 50, linkname: '../README.md', data: new Uint8Array() },
-      { name: 'lib/link-again', type: 'link', mode: 0o777, mtime: 50, linkname: 'lib/link', data: new Uint8Array() },
+      { name: 'lib/link', type: 'symlink', mode: 0o755, mtime: 50, linkname: '../README.md', data: new Uint8Array() },
+      { name: 'lib/link-again', type: 'link', mode: 0o755, mtime: 50, linkname: 'lib/link', data: new Uint8Array() },
       { name: 'lib/readme-again', type: 'link', mode: 0o644, mtime: 0, linkname: 'README.md', data: new Uint8Array() },
     ])
   })
@@ -157,6 +157,7 @@ describe('entries are the tree as tar would carry it', () => {
       [{ name: 'd', type: 'directory' }, { name: 'd', data: 'x' }],
       [{ name: 'd', type: 'directory' }, { name: 'd/', type: 'directory', mode: 0o700 }],
       [{ name: 's', type: 'symlink', linkname: 'a' }, { name: 's', type: 'symlink', linkname: 'b' }],
+      [{ name: 's', type: 'symlink', linkname: 'a' }, { name: 's', type: 'symlink', linkname: 'a', mode: 0o755 }],
       [{ name: 'f' }, { name: 'g' }, { name: 'l', type: 'link', linkname: 'f' }, { name: 'l', type: 'link', linkname: 'g' }],
     ]
     for (const entries of differing) fails(() => vfsFromEntries(entries), 'EEXIST', entries.at(-1).name)

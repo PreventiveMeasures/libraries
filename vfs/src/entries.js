@@ -81,7 +81,7 @@ function place(vfs, declared, { name, type = 'file', data, mode, mtime, linkname
       if (mtime !== undefined) vfs.utimes(path, mtime)
       break
     case 'symlink':
-      vfs.symlink(source, path, { mtime })
+      vfs.symlink(source, path, { mode, mtime })
       break
     case 'link':
       if (!fits(vfs.lstat(source), mode, mtime)) throw new VfsError('EINVAL', name)
@@ -121,15 +121,13 @@ function checkName(name, directory) {
 const fits = (target, mode, mtime) => (mode ?? target.mode) === target.mode && (mtime ?? target.mtime) === target.mtime
 
 // Whether a repeated name declares what is already there, field for field
-// and byte for byte; a symlink has no mode of its own, a hard link none but
-// its target's.
+// and byte for byte; a hard link has no mode or mtime but its target's.
 function same(vfs, path, type, data, mode, mtime, source) {
   const stat = vfs.lstat(path)
   const kind = type === 'contiguous-file' ? 'file' : type
   if (kind === 'link') return stat.ino === vfs.lstat(source).ino && fits(stat, mode, mtime)
-  if (stat.type !== kind || stat.mtime !== (mtime ?? 0)) return false
+  if (stat.type !== kind || stat.mode !== (mode ?? MODE[kind]) || stat.mtime !== (mtime ?? 0)) return false
   if (kind === 'symlink') return vfs.readlink(path) === source
-  if (stat.mode !== (mode ?? MODE[kind])) return false
   if (kind === 'directory') return true
   const bytes = typeof data === 'string' ? encoder.encode(data) : data ?? new Uint8Array()
   const held = vfs.readFile(path)
