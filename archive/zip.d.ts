@@ -66,8 +66,9 @@ export function unzip(bytes: Uint8Array, options?: UnzipOptions): Promise<Entry[
 
 // The same one entry at a time, as an async generator: over the archive in
 // memory, or over a Blob — a File, or a file opened with fs.openAsBlob —
-// read a range at a time, so that no more of it is held than the entry it
-// is on, whose data is then its own rather than a view of the archive.
+// read a range at a time, so that no more of it is held than the entries'
+// names and the entry it is on, whose data is then its own rather than a
+// view of the archive.
 // The layout is checked whole before the first entry comes out; what an
 // entry holds is checked as it is reached, so a bad one ends the stream
 // after the ones before it. A stream keeps no entry's data, so a name that

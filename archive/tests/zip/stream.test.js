@@ -9,7 +9,8 @@ import { RECORDINGS, bytesOf } from './fixtures/info-zip.js'
 import { readable, utf8 } from '../helpers.js'
 
 // unzipStream() says what unzip() says, over the archive in memory or a
-// Blob, and holds no more of a Blob than the entry it is on.
+// Blob, and reads no more of a Blob at a time than a chunk of its records
+// or the entry it is on.
 
 const all = (iterable) => Array.fromAsync(iterable)
 
@@ -62,6 +63,14 @@ describe('unzipStream reads an entry only when it reaches it', () => {
     assert.equal((await entries.next()).value.name, 'b')
     assert.equal(big(), 2)
     assert.equal((await entries.next()).done, true)
+  })
+  it('reads a central directory a chunk at a time, however large', async () => {
+    const names = Array.from({ length: 3000 }, (_, i) => `a-rather-long-name-for-entry-${i}`)
+    const bytes = await zip(names.map((name) => ({ name })))
+    const size = view(bytes).getUint32(bytes.length - 22 + 12, true)
+    const blob = new Watched([bytes])
+    assert.deepEqual((await all(unzipStream(blob))).map((entry) => entry.name), names)
+    assert.ok(Math.max(...blob.reads) < size)
   })
 })
 

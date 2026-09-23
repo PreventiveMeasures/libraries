@@ -14,9 +14,9 @@
 // One reader serves both calls. It asks for the archive a range at a time:
 // views of it when it is in memory, and reads of just those bytes when it
 // is a Blob — a File, or a file opened with fs.openAsBlob — so a stream
-// over one holds no more of it than the entry it is on. Everything about
-// the layout is checked before the first entry is handed over; what an
-// entry's own data holds is checked as it is reached.
+// over one holds no more of it than the entries' names and the entry it is
+// on. Everything about the layout is checked before the first entry is
+// handed over; what an entry's own data holds is checked as it is reached.
 
 import { crc32 } from '@exodus/bytes/crc.js'
 import { EMPTY, sameBytes } from '../bytes.js'
@@ -69,6 +69,26 @@ function sourceOf(archive) {
   throw new ArchiveError('the archive is not a Uint8Array or a Blob')
 }
 
+// A walk forward through records too small to be worth a read each: a
+// window over [at, at + width), cut short only where the archive ends,
+// and over what else the chunk it was read with holds, which is at most
+// CHUNK bytes or that one record.
+const CHUNK = 1 << 16
+
+function walk(source) {
+  let r
+  let from = 0
+  let to = 0
+  return async (at, width) => {
+    if (r === undefined || at < from || Math.min(at + width, source.size) > to) {
+      from = at
+      to = Math.min(source.size, at + Math.max(width, CHUNK))
+      r = await source.window(from, to)
+    }
+    return r
+  }
+}
+
 // The end record is the last 22 bytes plus its comment, and nothing after.
 // Read with the 20 bytes ahead of the furthest back it can start, where a
 // zip64 locator would sit.
@@ -102,10 +122,12 @@ function extras(raw, at) {
   return fields
 }
 
-function readCentral(r, at) {
+async function readCentral(read, at) {
+  let r = await read(at, 46)
   if (r.u32(at) !== CENTRAL) throw new ArchiveError('no central directory entry where one is counted', at)
   const nameLength = r.u16(at + 28)
   const extraLength = r.u16(at + 30)
+  r = await read(at, 46 + nameLength + extraLength)
   const entry = {
     at,
     madeBy: r.u16(at + 4),
@@ -119,7 +141,8 @@ function readCentral(r, at) {
     usize: r.u32(at + 24),
     attributes: r.u32(at + 38),
     offset: r.u32(at + 42),
-    name: r.slice(at + 46, nameLength),
+    // A copy, so that no entry holds on to the chunk it was read from.
+    name: r.slice(at + 46, nameLength).slice(),
     next: at + 46 + nameLength + extraLength + r.u16(at + 32),
   }
   if (r.u16(at + 34) !== 0) throw new ArchiveError('the archive spans several disks', at)
@@ -143,19 +166,19 @@ function readCentral(r, at) {
 // to agree on everything both carry — flags included, since a descriptor
 // bit set in one and not the other is read two ways by two readers — and
 // the local sizes and CRC may be 0 only where a descriptor carries them.
-async function readLocal(source, entry, boundary) {
+async function readLocal(read, entry, boundary) {
   const at = entry.offset
-  const r = await source.window(at, at + 30)
+  let r = await read(at, 30)
   if (r.u32(at) !== LOCAL) throw new ArchiveError('no local header where the central directory points', at)
   const nameLength = r.u16(at + 26)
   const extraLength = r.u16(at + 28)
-  const named = await source.window(at + 30, at + 30 + nameLength + extraLength)
-  if (!sameBytes(named.slice(at + 30, nameLength), entry.name)) throw new ArchiveError('the local header names a different entry', at)
+  r = await read(at, 30 + nameLength + extraLength)
+  if (!sameBytes(r.slice(at + 30, nameLength), entry.name)) throw new ArchiveError('the local header names a different entry', at)
   const shared = [[4, 'version', 'a different version'], [6, 'flags', 'different flags'], [8, 'method', 'a different compression method'], [10, 'time', 'a different time'], [12, 'date', 'a different date']]
   for (const [field, key, what] of shared) {
     if (r.u16(at + field) !== entry[key]) throw new ArchiveError(`the local header has ${what}`, at)
   }
-  extras(named.slice(at + 30 + nameLength, extraLength), at)
+  extras(r.slice(at + 30 + nameLength, extraLength), at)
   const described = entry.flags & DESCRIBED
   const agrees = (field, value) => r.u32(at + field) === value || (described && r.u32(at + field) === 0)
   if (!agrees(14, entry.crc) || !agrees(18, entry.csize) || !agrees(22, entry.usize)) throw new ArchiveError('the local header disagrees with the central directory', at)
@@ -165,7 +188,7 @@ async function readLocal(source, entry, boundary) {
     // The descriptor may start with its signature or not, and a CRC can be
     // that very value, so both layouts are tried against the record; where
     // both fit (every word the signature), the one reaching the boundary is it.
-    const d = await source.window(end, end + 16)
+    const d = await read(end, 16)
     const matches = (from) => d.u32(from) === entry.crc && d.u32(from + 4) === entry.csize && d.u32(from + 8) === entry.usize
     const signed = d.u32(end) === DESCRIPTOR && matches(end + 4)
     if (matches(end) && !(signed && end + 16 === boundary)) end += 12
@@ -224,14 +247,15 @@ async function* entries(source, { limit = Infinity } = {}, keep = false) {
   const start = r.u32(end + 16)
   if (count === 0xffff || size === 0xffffffff || start === 0xffffffff) throw new ArchiveError('zip64 is not supported', end)
   if (start + size !== end) throw new ArchiveError('the central directory does not end at the end record', end)
-  // Through to the archive's end, so a record counted past the directory
-  // meets the end record, as it would in the archive, not a cut.
-  const directory = await source.window(start, source.size)
+  // A chunk at a time, not the whole of a directory that can near 4 GiB,
+  // and cut only at the archive's end, so a record counted past the
+  // directory meets the end record, as it would in the archive.
+  const directory = walk(source)
   const list = []
   let pos = start
   let total = 0
   for (let i = 0; i < count; i++) {
-    const entry = readCentral(directory, pos)
+    const entry = await readCentral(directory, pos)
     total += entry.usize
     if (total > limit) throw new ArchiveError(`the entries come to more than ${limit} bytes`, pos)
     list.push(entry)
@@ -240,9 +264,10 @@ async function* entries(source, { limit = Infinity } = {}, keep = false) {
   if (pos !== end) throw new ArchiveError('the central directory does not hold what the end record counts', pos)
   let expected = 0
   const sorted = list.toSorted((a, b) => a.offset - b.offset)
+  const locals = walk(source)
   for (const [i, entry] of sorted.entries()) {
     if (entry.offset !== expected) throw new ArchiveError(entry.offset > expected ? 'bytes belong to no entry' : 'two entries overlap', expected)
-    expected = await readLocal(source, entry, sorted[i + 1]?.offset ?? start)
+    expected = await readLocal(locals, entry, sorted[i + 1]?.offset ?? start)
   }
   if (expected !== start) throw new ArchiveError('bytes belong to no entry', expected)
   const names = new Names(keep)
