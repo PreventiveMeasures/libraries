@@ -85,12 +85,15 @@ describe('a symlink target stays inside the archive', () => {
   for (const [name, target] of fine) {
     it(`${name} -> ${target}`, () => checkSymlinkTarget(name, target))
   }
-  it('hands back the paths the walk goes through', () => {
-    assert.deepEqual(checkSymlinkTarget('l', 'x'), [])
-    assert.deepEqual(checkSymlinkTarget('a/l', '../b/c/d'), ['b', 'b/c'])
-    assert.deepEqual(checkSymlinkTarget('l', 'a/./b//c/..'), ['a', 'a/b', 'a/b/c'])
-    assert.deepEqual(checkSymlinkTarget('a/b/l', '../../x/y'), ['a', 'x'])
-    assert.deepEqual(checkSymlinkTarget('a/b/l', '../c'), ['a'])
+  // The steps, not the paths they stand on: spelling out every path of a
+  // deep walk costs its depth squared. What each step has to find is the
+  // record of names' to say, below.
+  it('hands back the steps the walk takes, empty and . segments dropped', () => {
+    assert.deepEqual(checkSymlinkTarget('l', 'x'), ['x'])
+    assert.deepEqual(checkSymlinkTarget('a/l', '../b/c/d'), ['..', 'b', 'c', 'd'])
+    assert.deepEqual(checkSymlinkTarget('l', 'a/./b//c/..'), ['a', 'b', 'c', '..'])
+    assert.deepEqual(checkSymlinkTarget('a/b/l', '../../x/y'), ['..', '..', 'x', 'y'])
+    assert.deepEqual(checkSymlinkTarget('a/b/l', '../c'), ['..', 'c'])
   })
   const refused = [
     ['l', '../x', /points outside the archive/u],
@@ -159,6 +162,30 @@ describe('the names seen so far', () => {
     assert.throws(() => after(entry('f')).add(entry('l', 'symlink', 'f/..')), /passes through "f", which is not a directory/u)
     assert.throws(() => after().add(entry('l', 'symlink', 'l/x')), /passes through "l", which is not a directory/u)
     assert.throws(() => after(entry('l', 'symlink', 'a/x')).add(entry('a')), /"a" is already a directory, so it cannot be a file/u)
+  })
+  it('holds every path a symlink target stands on short of its end to being a directory', () => {
+    // The link, its target, the paths it walks through that are not the
+    // link's own directories, and where it ends where that is a new segment,
+    // which may be anything at all.
+    const walks = [
+      ['l', 'x', [], 'x'],
+      ['a/l', '../b/c/d', ['b', 'b/c'], 'b/c/d'],
+      ['l', 'a/./b//c/..', ['a', 'a/b', 'a/b/c'], null],
+      ['a/b/l', '../../x/y', ['x'], 'x/y'],
+      ['a/b/l', '../c', [], 'a/c'],
+    ]
+    for (const [link, target, through, end] of walks) {
+      for (const path of through) {
+        assert.throws(() => after(entry(path)).add(entry(link, 'symlink', target)), (error) => error.message === `the target of symlink ${JSON.stringify(link)} passes through ${JSON.stringify(path)}, which is not a directory`)
+      }
+      if (end !== null) after(entry(end)).add(entry(link, 'symlink', target))
+    }
+  })
+  it('holds the directory a walk comes back out into to being one too', () => {
+    // A symlink's own directories are always that already; a hard link's are
+    // not yet when its walk runs, so this is where the rule shows: f/h walks
+    // y/../z from f, stands on f/y and then on f, and f is a file.
+    assert.throws(() => after(entry('f'), entry('s', 'symlink', 'y/../z')).add(entry('f/h', 'link', 's')), /the target of hard link "f\/h" to symlink "s" passes through "f", which is not a directory/u)
   })
   it('lets a symlink point at another, or walk up through its own directories', () => {
     after(entry('a', 'symlink', 'b')).add(entry('l', 'symlink', 'a'))
