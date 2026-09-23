@@ -455,6 +455,8 @@ describe('long-context tier', () => {
   // million tokens on any prompt leg is already past the 272K line.
   for (const [model, input, cached, write, output] of [
     ['openai/gpt-6-astra', 20, 2, 25, 75],
+    ['openai/gpt-6-sol', 4, 0.4, 5, 15],
+    ['openai/gpt-6-luna', 0.2, 0.02, 0.25, 0.75],
     ['openai/gpt-5.6-sol', 8, 0.8, 10, 30],
     ['openai/gpt-5.6-terra', 4, 0.4, 5, 18],
     ['openai/gpt-5.6-luna', 0.4, 0.04, 0.5, 1.8],
@@ -633,6 +635,53 @@ describe('gpt-6 astra', () => {
   })
 })
 
+describe('gpt-6 sol and luna', () => {
+  const SOL = 'openai/gpt-6-sol'
+  const LUNA = 'openai/gpt-6-luna'
+
+  it('registers the published rates and a 128,000 max_tokens', () => {
+    assert.equal(baseRate(SOL, 'input', 'output'), 2 + 10)
+    assert.equal(baseRate(LUNA, 'input', 'output'), 0.1 + 0.5)
+    for (const model of [SOL, LUNA]) assert.equal(getMaxTokens(model), 128_000)
+  })
+
+  it('needs no cache override — reads are 0.10x of input and writes 1.25x', () => {
+    assert.equal(baseRate(SOL, 'cacheRead'), 0.2)
+    assert.equal(baseRate(LUNA, 'cacheRead'), 0.01)
+    assert.equal(baseRate(SOL, 'cacheWrite5m'), 2.5)
+    assert.equal(baseRate(LUNA, 'cacheWrite5m'), 0.125)
+  })
+
+  it('can turn thinking off, where astra above them cannot', () => {
+    // Both take `reasoning_effort: 'none'`; astra floors at `low`.
+    for (const model of [SOL, LUNA]) {
+      assert.equal(canDisableThink(model), true, model)
+      assert.equal(needsExplicitNoThink(model), false, model)
+    }
+    assert.equal(canDisableThink('openai/gpt-6-astra'), false)
+    // Nor on their own -pro rows: pro IS a reasoning mode, so a request
+    // that asks for pro and no thinking asks for two opposite things.
+    for (const pro of [`${SOL}-pro`, `${LUNA}-pro`]) assert.equal(canDisableThink(pro), false, pro)
+  })
+
+  it('is thinking-capable, reads an effort knob, and takes the ladder through max', () => {
+    for (const model of [SOL, LUNA]) {
+      assert.equal(canThink(model), true, model)
+      assert.equal(canEffort(model), true, model)
+      assert.deepEqual(effortsFor(model), ['low', 'medium', 'high', 'xhigh', 'max'], model)
+      assert.deepEqual(normalizeThinkEffort(model, true), { useThink: true, useEffort: 'high' })
+    }
+  })
+
+  it('reads the explicit cache breakpoint, as every gpt-5.6-and-later row does', () => {
+    for (const model of [SOL, LUNA]) assert.equal(readsCacheBreakpoint(model), true, model)
+  })
+
+  it('does not accept the Anthropic task-budgets beta', () => {
+    for (const model of [SOL, LUNA]) assert.equal(canTaskBudget(model), false, model)
+  })
+})
+
 // Two different things are called "pro" here. One is a MODE on another
 // model — same weights and same rate, just more tokens spent thinking — so
 // the row names its base as the wire model and 'pro' as the mode. The other
@@ -640,6 +689,8 @@ describe('gpt-6 astra', () => {
 describe('openai pro rows', () => {
   const MODES = [
     ['openai/gpt-6-astra-pro', 'openai/gpt-6-astra'],
+    ['openai/gpt-6-sol-pro', 'openai/gpt-6-sol'],
+    ['openai/gpt-6-luna-pro', 'openai/gpt-6-luna'],
     ['openai/gpt-5.6-sol-pro', 'openai/gpt-5.6-sol'],
     ['openai/gpt-5.6-terra-pro', 'openai/gpt-5.6-terra'],
     ['openai/gpt-5.6-luna-pro', 'openai/gpt-5.6-luna'],
