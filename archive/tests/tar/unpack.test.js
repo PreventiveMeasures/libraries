@@ -200,6 +200,11 @@ describe('what it reads that GNU tar reads', () => {
   it('a pax mtime with a fraction, as whole seconds toward minus infinity', () => {
     assert.equal(unpack(archive(...pax([['mtime', '1577836800.5']])))[0].mtime, 1577836800)
     assert.equal(unpack(archive(...pax([['mtime', '-1.5']])))[0].mtime, -2)
+    // GNU writes nanoseconds; so close to the next second, a double rounds
+    // up to it, and the floor has to come from the digits.
+    assert.equal(unpack(archive(...pax([['mtime', '1577836800.999999999']])))[0].mtime, 1577836800)
+    assert.equal(unpack(archive(...pax([['mtime', '-1577836800.000000001']])))[0].mtime, -1577836801)
+    assert.equal(unpack(archive(...pax([['mtime', '-1577836800.000']])))[0].mtime, -1577836800)
   })
   it('device numbers from pax records', () => {
     const [device] = unpack(archive(...pax([['devmajor', '300'], ['devminor', '4']], { typeflag: 0x34, name: utf8('b'), devmajor: 0, devminor: 0 })))

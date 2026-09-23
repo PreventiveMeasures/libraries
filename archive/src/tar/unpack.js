@@ -38,9 +38,15 @@ function paxNumber(value, what, at) {
 }
 
 // Whole seconds, a fraction floored as GNU does for a format without one.
+// Read from the digits, not through a double: near today a double steps by
+// a quarter of a microsecond, so .9999999 of a second would round up to the
+// next one before any floor saw it. Flooring moves a negative time with any
+// fraction a second earlier, and nothing else.
 function paxTime(value, what, at) {
-  if (!/^-?[0-9]+(?:\.[0-9]+)?$/u.test(value)) throw new ArchiveError(`pax ${what}=${quote(value)} is not a time`, at)
-  const seconds = Math.floor(Number(value))
+  const match = /^(-?)([0-9]+)(?:\.([0-9]+))?$/u.exec(value)
+  if (!match) throw new ArchiveError(`pax ${what}=${quote(value)} is not a time`, at)
+  const [, sign, whole, fraction = ''] = match
+  const seconds = Number(sign + whole) - (sign && /[1-9]/u.test(fraction) ? 1 : 0)
   if (!Number.isSafeInteger(seconds)) throw new ArchiveError(`pax ${what}=${quote(value)} is out of range`, at)
   return seconds
 }
