@@ -9,7 +9,7 @@ import { isFile } from '../entry.js'
 import { ArchiveError, located } from '../error.js'
 import { BLOCK, decodeHeader, isDevice, isZeroBlock, untilNul } from './header.js'
 import { Names, cleanNames } from '../names.js'
-import { decodePax } from './pax.js'
+import { Records, decodePax } from './pax.js'
 import { decodeUtf8, hasUnsafe, quote } from '../text.js'
 
 // NUL is the pre-POSIX regular file.
@@ -54,6 +54,10 @@ function paxTime(value, what, at) {
 // The extended headers waiting on the entry they describe: none, to start
 // with and once each entry has taken them.
 const nonePending = () => ({ pax: null, longname: null, longlink: null })
+
+// The records of every entry with no pax header of its own, or under no
+// global one.
+const NO_RECORDS = new Records()
 
 class Unpacker {
   #chunks = []
@@ -224,6 +228,10 @@ class Unpacker {
       devmajor: isDevice(type) ? number('devmajor') : 0,
       devminor: isDevice(type) ? number('devminor') : 0,
       data: EMPTY,
+      storedName: rawName,
+      storedLinkname: rawTarget,
+      pax: pax ?? NO_RECORDS,
+      globalPax: this.#global ?? NO_RECORDS,
     }
     return { entry, size }
   }

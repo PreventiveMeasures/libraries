@@ -16,8 +16,26 @@ function record(keyword, value) {
 
 export const encodePax = (records) => concat(records.map(([keyword, value]) => record(keyword, value)))
 
+// Records as an entry hands them out: a Map that nothing can change, since
+// every entry under the same global header shares that header's.
+const READ_ONLY = 'pax records cannot be changed'
+export class Records extends Map {
+  set() {
+    throw new TypeError(READ_ONLY)
+  }
+
+  delete() {
+    throw new TypeError(READ_ONLY)
+  }
+
+  clear() {
+    throw new TypeError(READ_ONLY)
+  }
+}
+const put = (records, keyword, value) => Map.prototype.set.call(records, keyword, value)
+
 export function decodePax(bytes, at) {
-  const records = new Map()
+  const records = new Records()
   for (let pos = 0; pos < bytes.length;) {
     let i = pos
     let length = 0
@@ -30,7 +48,7 @@ export function decodePax(bytes, at) {
     const keyword = decodeUtf8(bytes.subarray(i + 1, equals), 'a pax record', at)
     if (keyword === '' || hasUnsafe(keyword, false) || keyword.includes(' ')) throw new ArchiveError(`pax keyword ${quote(keyword)} is malformed`, at)
     if (records.has(keyword)) throw new ArchiveError(`pax keyword ${keyword} repeats`, at)
-    records.set(keyword, decodeUtf8(bytes.subarray(equals + 1, end - 1), 'a pax record', at))
+    put(records, keyword, decodeUtf8(bytes.subarray(equals + 1, end - 1), 'a pax record', at))
     pos = end
   }
   return records

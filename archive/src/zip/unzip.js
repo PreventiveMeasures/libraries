@@ -233,7 +233,7 @@ async function entryOf(source, entry, names) {
   if (crc32(body) !== entry.crc) throw new ArchiveError('the data does not match its CRC-32', at)
   const target = type === 'symlink' ? decodeUtf8(body, 'symlink target', at) : ''
   const named = located(() => cleanNames(rawName, type, target), at)
-  const out = { ...named, type, mode: mode === 0 ? DEFAULT_MODE[type] : mode & 0o7777, mtime: entry.mtime, data: type === 'file' ? body : EMPTY }
+  const out = { ...named, type, mode: mode === 0 ? DEFAULT_MODE[type] : mode & 0o7777, mtime: entry.mtime, data: type === 'file' ? body : EMPTY, storedName: rawName }
   located(() => names.add(out), at)
   return out
 }

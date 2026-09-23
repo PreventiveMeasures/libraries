@@ -230,6 +230,69 @@ describe('what it reads that GNU tar reads', () => {
   })
 })
 
+describe('what the archive stores, beside what is cleaned out of it', () => {
+  it('names and link targets as GNU tar writes them', () => {
+    for (const recording of RECORDINGS) {
+      for (const entry of unpack(bytesOf(recording))) {
+        assert.equal(entry.storedName, entry.type === 'directory' ? `${entry.name}/` : entry.name)
+        assert.equal(entry.storedLinkname, entry.linkname)
+      }
+    }
+  })
+  it('a name and a hard link target before their . segments and slash are dropped', () => {
+    const [file, dir, link, symlink] = unpack(archive(
+      header({ name: utf8('./a') }),
+      header({ name: utf8('./d/./'), typeflag: 0x35 }),
+      header({ name: utf8('d/l'), typeflag: 0x31, linkname: utf8('./a') }),
+      header({ name: utf8('s'), typeflag: 0x32, linkname: utf8('./d/../a') }),
+    ))
+    assert.deepEqual([file.name, file.storedName], ['a', './a'])
+    assert.deepEqual([dir.name, dir.storedName], ['d', './d/./'])
+    assert.deepEqual([link.linkname, link.storedName, link.storedLinkname], ['a', 'd/l', './a'])
+    // A symlink target is never rewritten, only checked.
+    assert.deepEqual([symlink.linkname, symlink.storedLinkname], ['./d/../a', './d/../a'])
+  })
+  it('a name from wherever the archive put it: a ustar prefix, a long name header, a pax path', () => {
+    const long = `./${'n'.repeat(120)}`
+    const [prefixed, named, paxed] = unpack(archive(
+      header({ prefix: utf8('./p'), name: utf8('n') }),
+      header({ typeflag: 0x4c, name: utf8('././@LongLink'), size: long.length + 1 }), padded(utf8(`${long}\0`)), header({ name: utf8('cut') }),
+      ...pax([['path', './b']], { name: utf8('cut') }),
+    ))
+    assert.deepEqual([prefixed.name, prefixed.storedName], ['p/n', './p/n'])
+    assert.deepEqual([named.name, named.storedName], [long.slice(2), long])
+    assert.deepEqual([paxed.name, paxed.storedName], ['b', './b'])
+  })
+  it('the records of an entry\'s own pax header, those it does not model included, in their order', () => {
+    const records = [['path', 'b'], ['comment', 'hi'], ['atime', '1.5'], ['SCHILY.xattr.user.x', 'y']]
+    assert.deepEqual([...unpack(archive(...pax(records)))[0].pax], records)
+  })
+  it('a global header\'s records apart from an entry\'s own, one Map for every entry under it', () => {
+    const [first, second, third] = unpack(archive(
+      ...pax([['comment', 'abc'], ['uname', 'alice']], { name: utf8('a') }, 0x67),
+      ...pax([['uname', 'bob']], { name: utf8('b') }),
+      header({ name: utf8('c') }),
+    ))
+    assert.deepEqual([...first.globalPax], [['comment', 'abc'], ['uname', 'alice']])
+    assert.deepEqual([[...first.pax], [...second.pax], [...third.pax]], [[], [['uname', 'bob']], []])
+    assert.ok(second.globalPax === first.globalPax && third.globalPax === first.globalPax)
+    assert.equal(second.uname, 'bob')
+  })
+  it('records nothing can change, shared as they are', () => {
+    const [none, own] = unpack(archive(...pax([['comment', 'g']], { name: utf8('a') }, 0x67), ...pax([['comment', 'x']], { name: utf8('b') })))
+    for (const records of [none.pax, own.pax, own.globalPax]) {
+      assert.throws(() => records.set('comment', 'y'), TypeError)
+      assert.throws(() => records.delete('comment'), TypeError)
+      assert.throws(() => records.clear(), TypeError)
+    }
+    assert.deepEqual([[...none.pax], [...own.pax], [...own.globalPax]], [[], [['comment', 'x']], [['comment', 'g']]])
+  })
+  it('a repeat that differs only in what it stores, as the same entry again', () => {
+    const entries = unpack(archive(header({ name: utf8('d/f') }), header({ name: utf8('d/./f') })))
+    assert.deepEqual(entries.map((entry) => [entry.name, entry.storedName]), [['d/f', 'd/f'], ['d/f', 'd/./f']])
+  })
+})
+
 describe('what it hands back', () => {
   it('data that views the archive where it arrived whole', () => {
     const bytes = pack([{ name: 'a', data: utf8('hello') }])

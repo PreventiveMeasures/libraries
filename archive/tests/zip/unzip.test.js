@@ -150,6 +150,20 @@ describe('what it reads', () => {
     const entries = await unzip(archive([entry('./d/f', utf8('x')), entry('d/./f', utf8('x'))]))
     assert.deepEqual(entries.map((e) => e.name), ['d/f', 'd/f'])
   })
+  it('the name the archive stores, beside the one cleaned out of it', async () => {
+    const [file, dir, link] = await unzip(archive([
+      entry('./a', utf8('x')),
+      entry('./d/./', new Uint8Array(0), { attributes: 0o40755 * 0x10000 }),
+      entry('l', utf8('./d/../a'), { attributes: 0o120777 * 0x10000 }),
+    ]))
+    assert.deepEqual([file.name, file.storedName], ['a', './a'])
+    assert.deepEqual([dir.name, dir.storedName], ['d', './d/./'])
+    // A symlink target is never rewritten, only checked, so it is as stored.
+    assert.deepEqual([link.storedName, link.linkname], ['l', './d/../a'])
+    for (const recording of RECORDINGS) {
+      for (const e of await unzip(bytesOf(recording))) assert.equal(e.storedName, e.type === 'directory' ? `${e.name}/` : e.name)
+    }
+  })
   it('entries up to the limit, stored, deflated and symlink targets alike', async () => {
     const data = new Uint8Array(3000).fill(0x62)
     const body = await deflate(data)

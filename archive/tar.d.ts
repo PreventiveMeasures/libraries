@@ -19,6 +19,19 @@ export type EntryType =
 // seconds since the epoch; `linkname` is '' and the device numbers 0
 // where they do not apply; `data` is empty for anything but a file, and
 // a view over the archive bytes where they arrived in one piece.
+//
+// Beside those, what the archive itself says. `storedName` and
+// `storedLinkname` are the name and link target as stored, before any
+// cleaning — `./a` where `name` is `a`, `dir/` where it is `dir`, a ustar
+// prefix joined on — and passed every check the cleaned ones did; only a
+// hard link's target is ever cleaned, so a symlink's is its `linkname`.
+// `pax` is the records of the entry's own pax header and `globalPax` those
+// of the global header it is under, each in the order stored, those read
+// into the fields above among them; the fields take an entry's own record
+// over the global one. A Map is shared — every entry under one global
+// header has its, every entry without a header the one empty Map — so it
+// cannot be changed. A value this package does not read is as stored,
+// unchecked, and may hold any character, a control one included.
 export interface Entry {
   name: string
   type: EntryType
@@ -32,13 +45,18 @@ export interface Entry {
   devmajor: number
   devminor: number
   data: Uint8Array
+  storedName: string
+  storedLinkname: string
+  pax: ReadonlyMap<string, string>
+  globalPax: ReadonlyMap<string, string>
 }
 
 // An entry to write. `name` is cleaned as above, so `./a`, `a/./b` and
 // `dir/` are taken; only a directory may end in a slash or name the root.
 // `type` defaults to 'file'; `mode` to 0o644, 0o755 for a directory, 0o777
 // for a symlink; owners to 0 with empty names; `mtime` to 0. `linkname` is
-// the target of a symlink or hard link.
+// the target of a symlink or hard link. An entry read out is one to write
+// as it is; what it stored is not written again, only these fields.
 export interface EntryInput {
   name: string
   type?: EntryType
@@ -65,13 +83,14 @@ export interface PackOptions {
   blocking?: number
 }
 
-// Both refuse a name that repeats as a different entry — anything but
-// the same fields and the same bytes again — an entry inside something
-// that is not a directory, a symlink whose target climbs out of the
-// archive or passes through anything but a directory, and a hard link to
-// no earlier entry. A hard link to a symlink, directly or down a chain of
-// hard links, is a second name for it, and its target is walked again from
-// that name, which a target safe where the symlink sits need not survive.
+// Both refuse a name that repeats as a different entry — anything but the
+// same fields and the same bytes again, however either was stored — an
+// entry inside something that is not a directory, a symlink whose target
+// climbs out of the archive or passes through anything but a directory, and
+// a hard link to no earlier entry. A hard link to a symlink, directly or
+// down a chain of hard links, is a second name for it, and its target is
+// walked again from that name, which a target safe where the symlink sits
+// need not survive.
 export function pack(entries: Iterable<EntryInput>, options?: PackOptions): Uint8Array
 export function unpack(bytes: Uint8Array): Entry[]
 
