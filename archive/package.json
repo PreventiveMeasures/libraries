@@ -1,6 +1,6 @@
 {
   "name": "@preventive/archive",
-  "version": "1.0.0-beta.0",
+  "version": "1.0.0-beta.1",
   "description": "Strict in-memory tar and zip on browser APIs",
   "type": "module",
   "exports": {
