@@ -49,19 +49,35 @@ function bounded(limit) {
 }
 
 // The stream is made here, so a format the runtime lacks rejects with the
-// platform's own error, as a bad argument rather than bad data.
-async function through(bytes, Stream, format, limit, verb) {
+// platform's own error, as a bad argument rather than bad data. Output is
+// gathered in the pieces the stream makes and joined at the end, or, given
+// `into`, copied into it as each piece comes and the piece let go: joining
+// holds the output twice at the end, which a caller who knows how much is
+// coming need not pay.
+async function through(bytes, Stream, format, limit, verb, into) {
   if (!(bytes instanceof Uint8Array)) throw new ArchiveError('the data is not a Uint8Array')
   const transform = new Stream(format)
   const chunks = []
+  let length = 0
   try {
-    for await (const chunk of chunksOf(new Blob([bytes]).stream().pipeThrough(transform).pipeThrough(bounded(limit)))) chunks.push(chunk)
+    for await (const chunk of chunksOf(new Blob([bytes]).stream().pipeThrough(transform).pipeThrough(bounded(limit)))) {
+      if (into === undefined) chunks.push(chunk)
+      else into.set(chunk, length)
+      length += chunk.length
+    }
   } catch (cause) {
     const limited = cause instanceof RangeError
-    throw new CompressionError(limited ? `the data ${verb}es past ${limit} bytes` : `the data does not ${verb}`, { bytes: concat(chunks), limited, cause })
+    const made = into === undefined ? concat(chunks) : into.subarray(0, length)
+    throw new CompressionError(limited ? `the data ${verb}es past ${limit} bytes` : `the data does not ${verb}`, { bytes: made, limited, cause })
   }
+  if (into !== undefined) return into.subarray(0, length)
   return chunks.length === 1 ? chunks[0] : concat(chunks)
 }
 
 export const compress = (bytes, format, { limit = Infinity } = {}) => through(bytes, CompressionStream, format, limit, 'compress')
 export const decompress = (bytes, format, { limit = Infinity } = {}) => through(bytes, DecompressionStream, format, limit, 'decompress')
+
+// Into `into`, which bounds the output, and handed back as much of it as
+// was filled. Not in the front door: the zip half's, whose entries each
+// declare their size.
+export const decompressInto = (bytes, format, into) => through(bytes, DecompressionStream, format, into.length, 'decompress', into)

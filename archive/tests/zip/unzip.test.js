@@ -116,6 +116,13 @@ describe('what it reads', () => {
       assert.equal(e.data.length, data.length)
     }
   })
+  it('an entry as compressible as deflate goes, which is under the most it can make', async () => {
+    const zeros = new Uint8Array(16 << 20)
+    const body = await deflate(zeros)
+    assert.ok(zeros.length / body.length > 1000, `a ratio of ${zeros.length / body.length}`)
+    const [e] = await unzip(archive([entry('z', zeros, { body, method: 8 })]))
+    assert.equal(e.data.length, zeros.length)
+  })
   it('a directory by its name alone, as Java writes one with no attributes at all', async () => {
     const [d] = await unzip(archive([entry('d/', new Uint8Array(0), { madeBy: 20, attributes: 0 })]))
     assert.deepEqual([d.name, d.type, d.mode], ['d', 'directory', 0o755])
@@ -224,6 +231,14 @@ describe('what it refuses', () => {
     await assert.rejects(unzip(archive([x(), entry('b', utf8('y'), { offset: 0 })])), /two entries overlap at byte 32/u)
     await assert.rejects(unzip(archive([x()]).with(0, 0)), /no local header where the central directory points at byte 0/u)
   })
+  it('refuses a size its data could not inflate to, before inflating anything', async () => {
+    // Deflate makes at most 1032 bytes of each: one past that is refused as
+    // declared; right at it, the data is read, and comes up short.
+    const body = await deflate(utf8('x'))
+    const declaring = (usize) => archive([entry('a', utf8('x'), { body, method: 8, usize, localUsize: usize })])
+    await assert.rejects(unzip(declaring(body.length * 1032 + 1)), /an entry declares more than its data can inflate to/u)
+    await assert.rejects(unzip(declaring(body.length * 1032)), /an entry inflates to less than its declared size/u)
+  })
   it('refuses deflated data that does not inflate, or inflates to another size', async () => {
     const data = new Uint8Array(3000).fill(0x62)
     const body = await deflate(data)
@@ -243,10 +258,12 @@ describe('what it refuses', () => {
   })
   it('refuses past the limit before inflating anything', async () => {
     // A few bytes that declare 4 GiB and would not inflate at all: the
-    // declared size is refused, and nothing gets as far as the data.
+    // declared size is refused, and nothing gets as far as the data. With
+    // no limit, two bytes cannot inflate to 4 GiB anyway, and that alone
+    // is refused, before room is made for it.
     const bomb = entry('a', utf8('x'), { body: Uint8Array.from([0xff, 0xff]), method: 8, usize: 0xfffffffe, localUsize: 0xfffffffe })
     await assert.rejects(unzip(archive([bomb]), { limit: 1 << 30 }), /the entries come to more than 1073741824 bytes/u)
-    await assert.rejects(unzip(archive([bomb])), /an entry does not inflate/u)
+    await assert.rejects(unzip(archive([bomb])), /an entry declares more than its data can inflate to at byte 33/u)
   })
   it('refuses a limit that is not a whole number of bytes', async () => {
     for (const limit of [Number.NaN, -1, 1.5, -Infinity, '10', null, 10n]) {
