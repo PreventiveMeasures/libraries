@@ -659,6 +659,9 @@ describe('gpt-6 sol and luna', () => {
       assert.equal(needsExplicitNoThink(model), false, model)
     }
     assert.equal(canDisableThink('openai/gpt-6-astra'), false)
+    // Nor on their own -pro rows: pro IS a reasoning mode, so a request
+    // that asks for pro and no thinking asks for two opposite things.
+    for (const pro of [`${SOL}-pro`, `${LUNA}-pro`]) assert.equal(canDisableThink(pro), false, pro)
   })
 
   it('is thinking-capable, reads an effort knob, and takes the ladder through max', () => {
@@ -686,6 +689,8 @@ describe('gpt-6 sol and luna', () => {
 describe('openai pro rows', () => {
   const MODES = [
     ['openai/gpt-6-astra-pro', 'openai/gpt-6-astra'],
+    ['openai/gpt-6-sol-pro', 'openai/gpt-6-sol'],
+    ['openai/gpt-6-luna-pro', 'openai/gpt-6-luna'],
     ['openai/gpt-5.6-sol-pro', 'openai/gpt-5.6-sol'],
     ['openai/gpt-5.6-terra-pro', 'openai/gpt-5.6-terra'],
     ['openai/gpt-5.6-luna-pro', 'openai/gpt-5.6-luna'],
