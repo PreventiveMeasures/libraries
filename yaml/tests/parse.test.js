@@ -102,6 +102,9 @@ describe('the shapes pnpm writes', () => {
     assert.deepEqual(parse('a: true\nb: false\nc: null\n'), { a: true, b: false, c: null })
     assert.deepEqual(parse('a: 0\nb: -1\nc: 1.5\nd: 1e3\ne: 1E-2\nf: -0.5\ng: 5.4\nh: 9007199254740991\n'), { a: 0, b: -1, c: 1.5, d: 1000, e: 0.01, f: -0.5, g: 5.4, h: 9007199254740991 })
     assert.deepEqual(parse("a: 'true'\nb: \"1\"\nc: 18.2.0\nd: 1.0.1\ne: 1e5x\nf: Infinity\ng: NaN\nh: yes\ni: no\nj: on\nk: off\n"), { a: 'true', b: '1', c: '18.2.0', d: '1.0.1', e: '1e5x', f: 'Infinity', g: 'NaN', h: 'yes', i: 'no', j: 'on', k: 'off' })
+    assert.ok(Object.is(parseYaml('a: -0.0').a, -0))
+    // Close to a date, but not one to js-yaml either.
+    assert.deepEqual(parse("a: 2001-1-1\nb: 2001-12-14x\nc: 20011-12-14\nd: 2001-12-14T21:59\ne: '2001-12-14'\n"), { a: '2001-1-1', b: '2001-12-14x', c: '20011-12-14', d: '2001-12-14T21:59', e: '2001-12-14' })
   })
 
   it('comments and blank lines, wherever they fall', () => {
@@ -151,6 +154,12 @@ describe('the shapes pnpm writes', () => {
     assert.deepEqual(parse('a:\n  b: |-\n    x\n  c: 1\nd: 2\n'), { a: { b: 'x', c: 1 }, d: 2 })
   })
 
+  it('literal block scalars take their indentation from blank lines too, as js-yaml does', () => {
+    assert.deepEqual(parse('a: |\n    \n  \nb: |+\n    \n\nc: |-\n   \n'), { a: '', b: '\n\n', c: '' })
+    assert.deepEqual(parse('a: |\n\n  \n  x\n'), { a: '\n\nx\n' })
+    assert.deepEqual(parse('a: |1\n   \n x\n'), { a: '  \nx\n' })
+  })
+
   it('a stream of documents, each after a `---` line', () => {
     assert.deepEqual(parse('---\na: 1\n'), { a: 1 })
     assert.deepEqual(structuredClone(parseYamlStream('a: 1\n')), [{ a: 1 }])
@@ -158,6 +167,7 @@ describe('the shapes pnpm writes', () => {
     assert.deepEqual(structuredClone(parseYamlStream('# c\n\na: 1\n\n# c\n---   \n\nb:\n  c: 2\n---\n{}\n')), [{ a: 1 }, { b: { c: 2 } }, {}])
     assert.deepEqual(parse('a: |\n  ---\n  x\nb: ---x\n'), { a: '---\nx\n', b: '---x' })
     assert.deepEqual(parse('a:\n  - ---\n'), { a: ['---'] })
+    assert.deepEqual(parse('a:\n  - ...\n  - ... x\nb: ...\n...x: 1\n'), { a: ['...', '... x'], b: '...', '...x': 1 })
   })
 
   it('mappings have a null prototype, so special names are keys like any other', () => {
@@ -191,7 +201,13 @@ describe('what it refuses', () => {
     // Directives, end markers, and streams where a single document is wanted.
     ['%YAML 1.2\n---\na: 1', /document end markers and directives/u, 0],
     ['...\n', /document end markers and directives/u, 0],
-    ['a: 1\n...', /expected a mapping key, found "\.\.\."/u, 1],
+    ['a: 1\n...', /document end markers and directives are not supported at line 2/u, 1],
+    // At column 0 `...` ends the document to js-yaml even where a key could
+    // be read, and js-yaml writes such keys unquoted.
+    ['a: 1\n... k: 2', /document end markers and directives are not supported at line 2/u, 1],
+    ['- a\n...', /document end markers and directives/u, 1],
+    ['a:\n  b: 1\n...  { k: 2', /document end markers and directives/u, 2],
+    ['a: 1\n%x: 2', /document end markers and directives/u, 1],
     ['a: 1\n---\nb: 2\n', /^expected a single document, found 2$/u],
     ['---\n', /^empty document$/u],
     ['---\n---\na: 1\n', /^empty document at line 2$/u, 1],
@@ -199,6 +215,11 @@ describe('what it refuses', () => {
     ['a: 1\n---\n# only a comment\n', /^empty document$/u],
     ['--- a: 1\n', /content on the document marker line/u, 0],
     ['--- # c\na: 1\n', /content on the document marker line/u, 0],
+    // At the start of a document js-yaml reads `---x: 1` as `---` then `x: 1`.
+    ['---x: 1\n', /content on the document marker line at line 1/u, 0],
+    ['a: 1\n---x: 2\n', /content on the document marker line at line 2/u, 1],
+    ['---\n---x: 1\n', /content on the document marker line at line 2/u, 1],
+    ['---|\n  x\n', /content on the document marker line/u, 0],
     ['---\n  a: 1\n', /column 0/u, 1],
     ['a:\n---\n', /missing value at line 1/u, 0],
     ['? a\n---\n', /expected ": " below the explicit key/u, 0],
@@ -219,6 +240,7 @@ describe('what it refuses', () => {
     ['a: |0\n  text', /unsupported block scalar/u, 0],
     ['a: |\n  x\n y', /bad indentation in the block scalar at line 3/u, 2],
     ['a: |2\n x', /bad indentation in the block scalar/u, 1],
+    ['a: |\n    \n  x', /bad indentation in the block scalar at line 3/u, 2],
     // Flow collections: one line, one level, scalars only, no trailing comma.
     ['a: {b: 1,\n  c: 2}', /expected a scalar, found the end of the line/u, 0],
     ['a: {b: {c: 1}}', /expected a scalar, found "\{c: 1\}\}"/u, 0],
@@ -242,6 +264,9 @@ describe('what it refuses', () => {
     ['- # nor here', /missing value at line 1/u, 0],
     ['? a\n: # nor here', /missing value at line 2/u, 1],
     ['a:\n- 1', /a sequence under a key must be indented/u, 1],
+    ['? a\n:\n- 1', /a sequence under a key must be indented at line 3/u, 2],
+    ['-\n- 1', /^missing value at line 1$/u, 0],
+    ['- -\n  - 1', /^missing value at line 1$/u, 0],
     ['a: b: c', /unexpected ": c" after the value/u, 0],
     ['a : 1', /unexpected " : 1" after the value/u, 0],
     ['a: 1\n  b: 2', /bad indentation at line 2/u, 1],
@@ -264,10 +289,14 @@ describe('what it refuses', () => {
     ['true: a', /keys must be strings/u, 0],
     ['null: a', /keys must be strings/u, 0],
     ['1.5: a', /keys must be strings/u, 0],
-    // Plain scalars the core schema would type by a rule this parser does not have.
-    ...['~', 'Null', 'NULL', 'True', 'TRUE', 'False', '0x1F', '0o17', '0b101', '1_000', '.5', '1.', '+1', '01', '00', '.inf', '-.Inf', '+.INF', '.nan', '.NaN', '1_0.5', '-0x1'].map((v) => [`a: ${v}`, new RegExp(`^ambiguous scalar ${v.replace(/[.+]/gu, '\\$&')}, quote it at line 1$`, 'u'), 0]),
+    // Plain scalars the core schema would type by a rule this parser does not
+    // have, `-0`, which is 0 to js-yaml and -0 to JSON.parse, and the dates
+    // and timestamps js-yaml reads as a Date.
+    ...['~', 'Null', 'NULL', 'True', 'TRUE', 'False', '0x1F', '0o17', '0b101', '1_000', '.5', '1.', '+1', '01', '00', '.inf', '-.Inf', '+.INF', '.nan', '.NaN', '1_0.5', '-0x1', '-0', '2001-12-14', '2001-12-14t21:59:43.10-05:00', '2001-12-14 21:59:43.10 -5', '2001-1-1T1:00:00Z', '2001-12-14T21:59:43Z'].map((v) => [`a: ${v}`, new RegExp(`^ambiguous scalar ${v.replace(/[.+]/gu, '\\$&')}, quote it at line 1$`, 'u'), 0]),
     ['- 0x1F', /ambiguous scalar 0x1F/u, 0],
     ['a: [~]', /ambiguous scalar ~/u, 0],
+    ['a: [-0]', /ambiguous scalar -0/u, 0],
+    ['2001-12-14: a', /ambiguous scalar 2001-12-14/u, 0],
     ['a: 1e999', /number out of range 1e999/u, 0],
     ['a: -1e999', /number out of range -1e999/u, 0],
     ['a: 12345678901234567890', /number out of range 12345678901234567890/u, 0],
@@ -276,15 +305,23 @@ describe('what it refuses', () => {
     ['<<: {a: 1}', /merge keys are not supported/u, 0],
     ['a: {<<: b}', /merge keys are not supported/u, 0],
     ["'<<': 1", /merge keys are not supported/u, 0],
-    // Control characters, tabs and byte order marks, wherever they are.
-    ['a:\n\tb: 1', /control character/u, 1],
-    ['a: b\tc', /control character/u, 0],
-    ['a: "b\tc"', /control character/u, 0],
-    ['a: |\n  x\ty', /control character/u, 1],
-    ['a: b\u0000c', /control character/u, 0],
-    ['a: b\rc', /control character/u, 0],
-    ['a: b\u0085c', /control character/u, 0],
-    ['\uFEFFa: 1', /byte order mark/u, 0],
+    // Control characters, tabs, byte order marks, lone surrogates, the two
+    // non-characters js-yaml refuses and YAML 1.1's other line breaks,
+    // wherever they are.
+    ['a:\n\tb: 1', /^U\+0009 is not allowed at line 2$/u, 1],
+    ['a: b\tc', /U\+0009/u, 0],
+    ['a: "b\tc"', /U\+0009/u, 0],
+    ['a: |\n  x\ty', /U\+0009/u, 1],
+    ['a: b\u0000c', /U\+0000/u, 0],
+    ['a: b\rc', /U\+000D/u, 0],
+    ['a: b\u0085c', /U\+0085/u, 0],
+    ['\uFEFFa: 1', /U\+FEFF/u, 0],
+    ['a: b\uD800c', /U\+D800/u, 0],
+    ['a: "b\uDE00"', /U\+DE00/u, 0],
+    ['a: \uFFFE', /U\+FFFE/u, 0],
+    ['a:\n  - |\n    \uFFFF', /U\+FFFF/u, 2],
+    ['a: b\u2028c', /U\+2028/u, 0],
+    ["a: 'b\u2029'", /U\+2029/u, 0],
     // Quoting.
     ["a: 'unterminated", /expected a scalar, found "'unterminated"/u, 0],
     ['a: "unterminated', /expected a scalar, found "\\"unterminated"/u, 0],
@@ -313,6 +350,14 @@ describe('what it refuses', () => {
     let fine = ''
     for (let i = 0; i < 60; i++) fine += `${' '.repeat(2 * i)}k${i}:\n`
     assert.equal(typeof parseYaml(`${fine}${' '.repeat(120)}v: 1\n`), 'object')
+  })
+
+  // Some 2^23 characters into a scalar V8's regex engine runs out of stack,
+  // and what it throws then is a RangeError.
+  it('a line past 2^20 characters, well short of where the regex engine gives out', () => {
+    assert.equal(parseYaml(`a: ${'x'.repeat(2 ** 20 - 3)}`).a.length, 2 ** 20 - 3)
+    refuses(`a: 1\nb: ${'x'.repeat(2 ** 20)}`, /^line longer than 1048576 characters at line 2$/u, 1)
+    refuses(`a: '${'x'.repeat(2 ** 23)}'`, /^line longer than 1048576 characters at line 1$/u, 0)
   })
 
   it('anything but a string', () => {

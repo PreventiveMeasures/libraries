@@ -14,10 +14,11 @@ const take = (src, re) => {
 // fine when not followed by a space), contains no `: ` and no ` #`, and ends
 // before trailing spaces; in a flow collection `,[]{}` end it too. Only the
 // space counts as whitespace: tabs were refused earlier, and to YAML a
-// Unicode space is an ordinary character.
+// Unicode space is an ordinary character. A `#` can only be reached after
+// something that is not a space, so past the first character it is content.
 const PLAIN = {
-  block: /(?:[^ ?:,[\]{}#&*!|>'"%@`-]|[-?:](?=[^ ]))(?:[^ :#]|:(?=[^ ])|(?<=[^ ])#| +(?=[^ #:]|:[^ ]))*/uy,
-  flow: /(?:[^ ?:,[\]{}#&*!|>'"%@`-]|[-?:](?=[^ ,[\]{}]))(?:[^ :#,[\]{}]|:(?=[^ ,[\]{}])|(?<=[^ ])#| +(?=[^ #:,[\]{}]|:[^ ,[\]{}]))*/uy,
+  block: /(?:[^ ?:,[\]{}#&*!|>'"%@`-]|[-?:](?=[^ ]))(?:[^ :]|:(?=[^ ])| +(?=[^ #:]|:[^ ]))*/uy,
+  flow: /(?:[^ ?:,[\]{}#&*!|>'"%@`-]|[-?:](?=[^ ,[\]{}]))(?:[^ :,[\]{}]|:(?=[^ ,[\]{}])| +(?=[^ #:,[\]{}]|:[^ ,[\]{}]))*/uy,
 }
 const SINGLE = /'((?:[^']|'')*)'/uy
 const DOUBLE = /"((?:[^"\\]|\\.)*)"/uy
@@ -44,19 +45,22 @@ function unescape(raw, src) {
 // Only the spellings JS itself prints are typed. Everything else the core
 // schema would type (`~`, `TRUE`, `0x1F`, `1_000`, `.5`, `1.`, `+1`, `01`,
 // `.inf`, ...) is refused rather than silently read as a string, and so is
-// a number beyond 2^53, where an integer has already lost digits.
+// a number beyond 2^53, where an integer has already lost digits. So is
+// `-0`, which is 0 to js-yaml and -0 to JSON.parse, and a date or timestamp
+// (`2001-12-14`, `2001-12-14 21:59:43.10 -5`), which js-yaml reads as a Date.
 const KNOWN = { __proto__: null, true: true, false: false, null: null }
 const NUMBER = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[Ee][+-]?\d+)?$/u
 const TYPED = /^(?:~|null|true|false|\.nan|[+-]?(?:\.inf|0[box][\d_a-f]+|(?:\d[\d_]*(?:\.[\d_]*)?|\.[\d_]+)(?:e[+-]?\d+)?))$/iu
+const DATE = /^\d{4}-(?:\d\d-\d\d|\d\d?-\d\d?(?:[Tt]| +)\d\d?:\d\d:\d\d(?:\.\d*)?(?: *(?:Z|[+-]\d\d?(?::\d\d)?))?)$/u
 
 function resolve(text, src) {
   if (text in KNOWN) return KNOWN[text]
-  if (NUMBER.test(text)) {
+  if (NUMBER.test(text) && text !== '-0') {
     const number = Number(text)
     if (Math.abs(number) > Number.MAX_SAFE_INTEGER) throw new YamlError(`number out of range ${text}`, src.line)
     return number
   }
-  if (TYPED.test(text)) throw new YamlError(`ambiguous scalar ${text}, quote it`, src.line)
+  if (TYPED.test(text) || DATE.test(text)) throw new YamlError(`ambiguous scalar ${text}, quote it`, src.line)
   return text
 }
 
