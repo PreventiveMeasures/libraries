@@ -1,7 +1,7 @@
 // What the zip half shares: the record signatures and mode bits, little-
 // endian fields, DOS time, and raw deflate under zip's own words.
 
-import { compress, decompress } from '../compression.js'
+import { compress, decompressInto } from '../compression.js'
 import { ArchiveError } from '../error.js'
 
 export const LOCAL = 0x04034b50
@@ -32,11 +32,20 @@ export function record(fields) {
 
 export const deflate = (bytes) => compress(bytes, 'deflate-raw')
 
-// Exactly the declared size, with output past it refused where it is.
+// Deflate spends at least two bits on a match, and a match is at most 258
+// bytes, so no data inflates to more than 1032 times its own size: zlib's
+// best, on zeros, is 1028.8.
+const MAX_RATIO = 1032
+
+// Exactly the declared size, made in place, with output past it refused
+// where it is. Room for all of it is made first, so a size the data could
+// not inflate to is refused before that: past it, a few bytes of archive
+// would have room made for gigabytes no valid one of their size holds.
 export async function inflate(bytes, size, at) {
+  if (size > bytes.length * MAX_RATIO) throw new ArchiveError('an entry declares more than its data can inflate to', at)
   let out
   try {
-    out = await decompress(bytes, 'deflate-raw', { limit: size })
+    out = await decompressInto(bytes, 'deflate-raw', new Uint8Array(size))
   } catch (error) {
     throw new ArchiveError(error.limited ? 'an entry inflates to more than its declared size' : 'an entry does not inflate', at)
   }
