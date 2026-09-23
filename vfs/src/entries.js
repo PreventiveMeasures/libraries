@@ -6,7 +6,8 @@
 // relative path with `.` segments and a directory's trailing slash dropped,
 // and no empty or `..` segment, no control, line separator or bidirectional
 // character, no backslash, no drive letter in front, and at most PATH_MAX
-// bytes of UTF-8 in all — what a tar entry may carry, so the names of a tree
+// bytes of UTF-8 in all, a directory's slash counted — what a tar entry may
+// carry, so the names of a tree
 // built here pack back as they are. A symlink's target is any spelling the
 // Vfs takes, and tar's to judge when packing. `.` names the
 // root, which only a directory may. Every spelling of one path is one name,
@@ -102,7 +103,8 @@ function checkName(name, directory) {
     || kept.some((part) => part === '' || part === '..') || (!directory && kept.length === 0)
   if (invalid) throw new VfsError('EINVAL', name)
   const clean = kept.join('/')
-  if (encoder.encode(clean).length > PATH_MAX) throw new VfsError('ENAMETOOLONG', name)
+  // Bounded as an archive stores the name: a directory's with its slash.
+  if (encoder.encode(directory ? `${clean}/` : clean).length > PATH_MAX) throw new VfsError('ENAMETOOLONG', name)
   return clean
 }
 
