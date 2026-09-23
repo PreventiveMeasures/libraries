@@ -16,7 +16,6 @@ const take = (src, re) => {
 // space counts as whitespace: tabs were refused earlier, and to YAML a
 // Unicode space is an ordinary character. A `#` can only be reached after
 // something that is not a space, so past the first character it is content.
-// `end` is what a scalar may not run into: a space, and in flow `,[]{}` too.
 const plain = (end) => new RegExp(`(?:[^ ?:,[\\]{}#&*!|>'"%@\`-]|[-?:](?=[^${end}]))(?:[^:${end}]|:(?=[^${end}])| +(?=[^#:${end}]|:[^${end}]))*`, 'uy')
 const PLAIN = { block: plain(' '), flow: plain(' ,[\\]{}') }
 const SINGLE = /'((?:[^']|'')*)'/uy
@@ -31,10 +30,8 @@ const ESCAPED = /\\(?:x([\dA-Fa-f]{2})|u([\dA-Fa-f]{4})|U([\dA-Fa-f]{8})|(.))/gu
 
 function unescape(raw, src) {
   return raw.replace(ESCAPED, (_, x, u, U, c) => {
-    if (c !== undefined) {
-      if (!(c in ESCAPE)) throw new YamlError(`unknown escape \\${c}`, src.line)
-      return ESCAPE[c]
-    }
+    if (c !== undefined && !(c in ESCAPE)) throw new YamlError(`unknown escape \\${c}`, src.line)
+    if (c !== undefined) return ESCAPE[c]
     const code = Number.parseInt(x ?? u ?? U, 16)
     if (code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF)) throw new YamlError(`${_} is not a Unicode scalar value`, src.line)
     return String.fromCodePoint(code)
