@@ -47,8 +47,7 @@ function parseDocument(doc) {
   if (first === undefined) throw new YamlError('empty document', doc.line?.number)
   if (first.indent !== 0) throw new YamlError('the document does not start at column 0', first.number)
   const value = parseNode(doc, 0, 0)
-  const rest = peek(doc)
-  if (rest !== undefined) throw new YamlError('unexpected content after the document', rest.number)
+  if (peek(doc) !== undefined) throw new YamlError('unexpected content after the document', doc.line.number)
   if (typeof value !== 'object' || value === null) throw new YamlError('the document is a lone scalar, not a mapping or a sequence', first.number)
   return value
 }
@@ -81,29 +80,22 @@ function advance(doc) {
   return doc.line
 }
 
-// At column 0 `---` is a marker, refused with anything but spaces after it,
-// since js-yaml reads `---x: 1` there as `---` then `x: 1`. `...` ends the
-// document even where a key could be read (js-yaml writes `... k` unquoted);
-// that and a `%` directive are refused outright.
-const END_OR_DIRECTIVE = /^\.\.\.(?: |$)|^%/u
-
 // The next line of the document with something on it: blank and comment
 // lines are skipped, and a `---` line ends the document, for the stream
-// reader alone to step over.
+// reader alone to step over. At column 0 `---` is a marker, refused with
+// anything but spaces after it, since js-yaml reads `---x: 1` there as `---`
+// then `x: 1`. `...` ends the document even where a key could be read
+// (js-yaml writes `... k` unquoted); that and a `%` directive are refused.
 function peek(doc) {
   let line = doc.line
   while (line !== undefined && (line.text === '' || line.text[0] === '#')) line = advance(doc)
-  if (line?.indent !== 0) return line
-  if (END_OR_DIRECTIVE.test(line.text)) throw new YamlError('document end markers and directives are not supported', line.number)
-  if (!line.text.startsWith('---')) return line
-  if (!/^--- *$/u.test(line.text)) throw new YamlError('content on the document marker line', line.number)
-  return undefined
+  if (line?.indent !== 0 || !/^(?:---|\.\.\.(?: |$)|%)/u.test(line.text)) return line
+  if (/^--- *$/u.test(line.text)) return undefined
+  throw new YamlError(line.text.startsWith('---') ? 'content on the document marker line' : 'document end markers and directives are not supported', line.number)
 }
 
 const isEntry = (line) => /^-(?: |$)/u.test(line.text)
 const isBlockScalar = (rest) => /^[|>]/u.test(rest)
-// The indicator, its spaces, and a comment when that is all that follows.
-const COMPACT = /^[-:] *(?:#.*)?/u
 
 function parseNode(doc, indent, depth) {
   const line = peek(doc)
@@ -118,7 +110,7 @@ function parseNode(doc, indent, depth) {
 function parseBlock(doc, indent, entry) {
   let line
   for (line = peek(doc); line?.indent === indent; line = peek(doc)) entry(line)
-  if (line !== undefined && line.indent > indent) throw new YamlError('bad indentation', line.number)
+  if (line?.indent > indent) throw new YamlError('bad indentation', line.number)
 }
 
 function parseMapping(doc, indent, depth) {
@@ -163,9 +155,10 @@ function parseValue(doc, rest, indent, depth, owner) {
 
 // After `- ` or `: ` a node may begin mid-line, with its further entries at
 // that column below (`- a: 1` then `  b: 2`), so the line is reread as though
-// it started at that column.
+// it started at that column. What is stepped over is the indicator, its
+// spaces, and a comment when that is all that follows.
 function parseCompact(doc, line, indent, depth) {
-  const spaces = COMPACT.exec(line.text)[0].length
+  const spaces = /^[-:] *(?:#.*)?/u.exec(line.text)[0].length
   const rest = line.text.slice(spaces)
   if (rest === '' || isBlockScalar(rest)) {
     advance(doc)
@@ -187,17 +180,14 @@ function readLiteral(doc, header, indent, owner) {
   let inner = indent + Number(m[1])
   let known = m[1] !== ''
   let breaks = 0
-  const parts = []
+  let body = ''
   for (let line = doc.line; line !== undefined && (line.text === '' || line.indent > indent); line = advance(doc)) {
-    if (!known) {
-      inner = Math.max(inner, line.indent)
-      known = line.text !== ''
-    }
+    if (!known) inner = Math.max(inner, line.indent)
+    known ||= line.text !== ''
     if (line.text !== '' && line.indent < inner) throw new YamlError('bad indentation in the block scalar', line.number)
     const content = `${' '.repeat(Math.max(line.indent - inner, 0))}${line.text}`
-    if (content !== '') parts.push('\n'.repeat(breaks), content)
+    if (content !== '') body += '\n'.repeat(breaks) + content
     breaks = content === '' ? breaks + 1 : 1
   }
-  const body = parts.join('')
   return m[2] === '+' ? body + '\n'.repeat(breaks) : m[2] === '-' ? body : body && `${body}\n`
 }
