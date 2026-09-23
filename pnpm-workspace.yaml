@@ -18,4 +18,5 @@ packages:
   - "ai"
   - "diff"
   - "archive"
+  - "vfs"
   - "yaml"

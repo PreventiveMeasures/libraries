@@ -33,6 +33,12 @@ importers:
 
   diff: {}
 
+  vfs:
+    devDependencies:
+      '@preventive/archive':
+        specifier: workspace:*
+        version: link:../archive
+
   yaml: {}
 
 packages:

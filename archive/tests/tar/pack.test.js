@@ -83,6 +83,24 @@ describe('what it refuses about names', () => {
   for (const [entries, message] of refused) {
     it(`refuses ${entries.map((e) => e.name).join(', ')}`, () => assert.throws(() => pack(entries), message))
   }
+  it('bounds a name as it stores it, a directory with its slash, so what it writes unpacks', () => {
+    const longest = `${Array.from({ length: 15 }, () => 'x'.repeat(255)).join('/')}/${'x'.repeat(200)}/${'x'.repeat(55)}`
+    assert.equal(unpack(pack([{ name: longest, data: utf8('x') }]))[0].name, longest)
+    assert.equal(unpack(pack([{ name: longest.slice(0, -1), type: 'directory' }]))[0].name, longest.slice(0, -1))
+    assert.throws(() => pack([{ name: longest, type: 'directory' }]), /is longer than 4096 bytes/u)
+  })
+  it('packs and unpacks a tree a thousand directories deep in a moment', () => {
+    const entries = []
+    let path = ''
+    for (let i = 0; i < 1024; i++) {
+      path += i === 0 ? 'a' : '/a'
+      entries.push({ name: path, type: 'directory' })
+    }
+    entries.push({ name: `${path}/f`, data: utf8('x') })
+    const t0 = performance.now()
+    assert.equal(unpack(pack(entries)).length, 1025)
+    assert.ok(performance.now() - t0 < 2000, 'a deep tree took seconds to pack and unpack')
+  })
   it('lets a directory come after what it holds', () => {
     pack([{ name: 'a/b' }, { name: 'a', type: 'directory' }])
   })

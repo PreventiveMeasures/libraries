@@ -1,0 +1,59 @@
+{
+  "name": "@preventive/vfs",
+  "version": "0.0.0",
+  "description": "In-memory filesystem: an inode tree with POSIX path resolution, built from a path map or tar entries",
+  "type": "module",
+  "main": "./vfs.js",
+  "types": "./vfs.d.ts",
+  "exports": {
+    ".": {
+      "types": "./vfs.d.ts",
+      "default": "./vfs.js"
+    },
+    "./vfs.js": {
+      "types": "./vfs.d.ts",
+      "default": "./vfs.js"
+    },
+    "./path.js": {
+      "types": "./path.d.ts",
+      "default": "./path.js"
+    }
+  },
+  "files": [
+    "path.d.ts",
+    "path.js",
+    "src/entries.js",
+    "src/error.js",
+    "src/path.js",
+    "src/vfs.js",
+    "vfs.d.ts",
+    "vfs.js"
+  ],
+  "engines": {
+    "node": ">=24.14.0"
+  },
+  "scripts": {
+    "test": "node --test ./tests/*.test.js"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Nikita Skovoroda",
+    "email": "chalkerx@gmail.com",
+    "url": "https://github.com/ChALkeR"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PreventiveMeasures/libraries.git",
+    "directory": "vfs"
+  },
+  "bugs": {
+    "url": "https://github.com/PreventiveMeasures/libraries/issues"
+  },
+  "homepage": "https://github.com/PreventiveMeasures/libraries/tree/main/vfs",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@preventive/archive": "workspace:*"
+  }
+}
