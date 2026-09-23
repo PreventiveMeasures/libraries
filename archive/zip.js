@@ -13,4 +13,9 @@ export { zip } from './src/zip/zip.js'
 // sizes all together held to a limit where one is given.
 export { unzip } from './src/zip/unzip.js'
 
+// The same an entry at a time, as an async generator over the archive in
+// memory or over a Blob — a File, or a file opened with fs.openAsBlob —
+// read a range at a time, so no more of it is held than the entry it is on.
+export { unzipStream } from './src/zip/unzip.js'
+
 export { ArchiveError } from './src/error.js'
