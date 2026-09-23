@@ -8,17 +8,13 @@ export function quote(text) {
   return JSON.stringify(`${text.slice(0, text.codePointAt(199) > 0xffff ? 199 : 200)}…`)
 }
 
-// A C0, DEL or C1 control; a Unicode line separator or bidirectional
-// control, which break or reorder a name as shown; and a backslash if
-// asked.
-export function hasUnsafe(text, backslash) {
-  for (const char of text) {
-    const code = char.codePointAt(0)
-    if (code < 0x20 || (code >= 0x7f && code <= 0x9f) || (backslash && code === 0x5c)) return true
-    if (code === 0x2028 || code === 0x2029 || (code >= 0x202a && code <= 0x202e) || (code >= 0x2066 && code <= 0x2069)) return true
-  }
-  return false
-}
+// A C0, DEL or C1 control (Cc is those three and nothing else); a Unicode
+// line or paragraph separator, or a bidirectional embedding, override or
+// isolate, which break or reorder a name as shown; and a backslash if asked.
+const UNSAFE = /[\p{Cc}\u2028\u2029\u202A-\u202E\u2066-\u2069]/u
+const UNSAFE_OR_BACKSLASH = /[\p{Cc}\u2028\u2029\u202A-\u202E\u2066-\u2069\\]/u
+
+export const hasUnsafe = (text, backslash) => (backslash ? UNSAFE_OR_BACKSLASH : UNSAFE).test(text)
 
 // Every string taken from a caller goes through here first: a lone
 // surrogate has no UTF-8, and so no length or bytes for any later check

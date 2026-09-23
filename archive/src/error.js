@@ -9,11 +9,13 @@ export class ArchiveError extends Error {
 }
 
 // The same error, placed: for a check that does not know where in the
-// archive it is running.
+// archive it is running. Anything but such a refusal — a bug above all —
+// goes on as it was, rather than dressed up as bad input.
 export function located(fn, at) {
   try {
     return fn()
   } catch (error) {
+    if (!(error instanceof ArchiveError) || error.offset !== undefined) throw error
     throw new ArchiveError(error.message, at)
   }
 }

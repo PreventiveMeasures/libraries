@@ -39,11 +39,15 @@ function paxNumber(value, what, at) {
 
 // Whole seconds, a fraction floored as GNU does for a format without one.
 function paxTime(value, what, at) {
-  if (!/^-?[0-9]+(?:\.[0-9]+)?$/u.test(value)) throw new ArchiveError(`pax mtime=${quote(value)} is not a time`, at)
+  if (!/^-?[0-9]+(?:\.[0-9]+)?$/u.test(value)) throw new ArchiveError(`pax ${what}=${quote(value)} is not a time`, at)
   const seconds = Math.floor(Number(value))
-  if (!Number.isSafeInteger(seconds)) throw new ArchiveError(`pax mtime=${quote(value)} is out of range`, at)
+  if (!Number.isSafeInteger(seconds)) throw new ArchiveError(`pax ${what}=${quote(value)} is out of range`, at)
   return seconds
 }
+
+// The extended headers waiting on the entry they describe: none, to start
+// with and once each entry has taken them.
+const nonePending = () => ({ pax: null, longname: null, longlink: null })
 
 class Unpacker {
   #chunks = []
@@ -51,7 +55,7 @@ class Unpacker {
   #buffered = 0
   #position = 0
   #names
-  #pending = { pax: null, longname: null, longlink: null }
+  #pending = nonePending()
   #global = null
   // The header whose body is due: { extended, size, at, entry }.
   #awaiting = null
@@ -181,7 +185,7 @@ class Unpacker {
     const type = TYPES.get(header.typeflag)
     if (type === undefined) throw new ArchiveError(`entry type ${quote(String.fromCodePoint(header.typeflag))} is not one this package reads`, at)
     const { pax, longname, longlink } = this.#pending
-    this.#pending = { pax: null, longname: null, longlink: null }
+    this.#pending = nonePending()
     const record = (key) => pax?.get(key) ?? this.#global?.get(key)
     if (pax !== null) sparse(pax.keys(), at)
     if (longname !== null && record('path') !== undefined) throw new ArchiveError('both a long name header and a pax path name one entry', at)
