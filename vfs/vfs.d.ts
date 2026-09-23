@@ -36,7 +36,8 @@ export interface Entry {
 // optional fields left out. `contiguous-file` is a file. A name follows
 // tar's rules: relative, with no empty or `..` segment, no control, line
 // separator or bidirectional character, no backslash, no drive letter in
-// front, at most 4096 bytes in all (a directory's trailing slash counted),
+// front, at most 4096 bytes as spelled and as stored (a directory's
+// trailing slash counted),
 // and a trailing slash on a directory alone; it may repeat
 // only as the same entry again. A hard link's mode and mtime, if given,
 // are its target's. `data` is a file's and `linkname` a link's: either

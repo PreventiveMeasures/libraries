@@ -6,8 +6,8 @@
 // relative path with `.` segments and a directory's trailing slash dropped,
 // and no empty or `..` segment, no control, line separator or bidirectional
 // character, no backslash, no drive letter in front, and at most PATH_MAX
-// bytes of UTF-8 in all, a directory's slash counted — what a tar entry may
-// carry, so the names of a tree
+// bytes of UTF-8 in all, as spelled and as stored with a directory's slash
+// — what a tar entry may carry, so the names of a tree
 // built here pack back as they are. A symlink's target is any spelling the
 // Vfs takes, and tar's to judge when packing. `.` names the
 // root, which only a directory may. Every spelling of one path is one name,
@@ -108,6 +108,9 @@ const noData = (data) => data == null || ((typeof data === 'string' || data inst
 // A name by tar's rules, as the one spelling of its path: the root is ''.
 function checkName(name, directory) {
   if (typeof name !== 'string') throw new TypeError(`a name must be a string, not ${typeof name}`)
+  // Bounded as spelled before it is read, as archive bounds it too, so a
+  // spelling costs no more than its length allows.
+  if (encoder.encode(name).length > PATH_MAX) throw new VfsError('ENAMETOOLONG', name)
   const parts = name.split('/')
   if (directory && parts.length > 1 && parts.at(-1) === '') parts.pop()
   const kept = parts.filter((part) => part !== '.')

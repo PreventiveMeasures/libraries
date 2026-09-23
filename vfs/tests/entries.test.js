@@ -131,6 +131,8 @@ describe('entries are the tree as tar would carry it', () => {
     const longest = vfsFromEntries([{ name: `${long}/${'a'.repeat(55)}`, data: 'x' }])
     assert.equal(new TextEncoder().encode(`${long}/${'a'.repeat(55)}`).length, 4096)
     fails(() => vfsFromEntries([{ name: `${long}/${'a'.repeat(55)}`, type: 'directory' }]), 'ENAMETOOLONG')
+    fails(() => vfsFromEntries([{ name: `${'./'.repeat(2048)}f`, data: 'x' }]), 'ENAMETOOLONG')
+    assert.equal(vfsFromEntries([{ name: `${'./'.repeat(2047)}f`, data: 'x' }]).readText('/f'), 'x', 'a spelling is bounded as spelled, before it is read')
     const longestDir = vfsFromEntries([{ name: `${long}/${'a'.repeat(54)}`, type: 'directory' }])
     assert.deepEqual([...vfsFromEntries(unpack(pack(longestDir.entries()))).entries()], [...longestDir.entries()], 'a directory carries its slash, so 4095 is its longest')
     assert.deepEqual([...vfsFromEntries(unpack(pack(longest.entries()))).entries()], [...longest.entries()], 'a name of 4096 bytes is the longest, and packs')
