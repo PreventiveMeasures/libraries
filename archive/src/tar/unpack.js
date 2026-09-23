@@ -20,6 +20,18 @@ const TYPES = new Map([
 const EXTENDED = new Map([[0x78, 'pax'], [0x67, 'global'], [0x4c, 'longname'], [0x4b, 'longlink']])
 const MAX_EXTENDED = 1 << 20
 
+// A sparse file is stored as a map and a body that is not the file, so
+// handing back that body under the file's name and size would be a lie.
+// libarchive reads one from star's real size and Solaris' map of holes as
+// it does from GNU's keys, so those are refused alike.
+const SPARSE_KEYS = new Set(['SCHILY.realsize', 'SUN.holesdata'])
+
+function sparse(keys, at) {
+  for (const key of keys) {
+    if (key.startsWith('GNU.sparse.') || SPARSE_KEYS.has(key)) throw new ArchiveError('sparse entries are not supported', at)
+  }
+}
+
 function paxNumber(value, what, at) {
   if (!/^(?:0|[1-9][0-9]*)$/u.test(value) || !Number.isSafeInteger(Number(value))) throw new ArchiveError(`pax ${what}=${quote(value)} is not a whole number this package can hold`, at)
   return Number(value)
@@ -153,6 +165,9 @@ class Unpacker {
       for (const key of ['path', 'linkpath', 'size']) {
         if (this.#global.has(key)) throw new ArchiveError(`a global header sets ${key}`, at)
       }
+      // Once, here: a global header stands until another replaces it, and
+      // re-reading its keys under every entry is work an archive can ask for.
+      sparse(this.#global.keys(), at)
     } else {
       if (this.#pending[extended] !== null) throw new ArchiveError(`two ${extended} headers ahead of one entry`, at)
       this.#pending[extended] = extended === 'pax' ? decodePax(raw, at) : decodeUtf8(untilNul(raw), `a ${extended} header`, at)
@@ -168,8 +183,7 @@ class Unpacker {
     const { pax, longname, longlink } = this.#pending
     this.#pending = { pax: null, longname: null, longlink: null }
     const record = (key) => pax?.get(key) ?? this.#global?.get(key)
-    const keys = [...(pax?.keys() ?? []), ...(this.#global?.keys() ?? [])]
-    if (keys.some((key) => key.startsWith('GNU.sparse.'))) throw new ArchiveError('sparse entries are not supported', at)
+    if (pax !== null) sparse(pax.keys(), at)
     if (longname !== null && record('path') !== undefined) throw new ArchiveError('both a long name header and a pax path name one entry', at)
     if (longlink !== null && record('linkpath') !== undefined) throw new ArchiveError('both a long link header and a pax linkpath name one entry', at)
     const rawName = longname ?? record('path') ?? this.#headerName(header, at)

@@ -85,12 +85,15 @@ describe('a symlink target stays inside the archive', () => {
   for (const [name, target] of fine) {
     it(`${name} -> ${target}`, () => checkSymlinkTarget(name, target))
   }
-  it('hands back the paths the walk goes through', () => {
-    assert.deepEqual(checkSymlinkTarget('l', 'x'), [])
-    assert.deepEqual(checkSymlinkTarget('a/l', '../b/c/d'), ['b', 'b/c'])
-    assert.deepEqual(checkSymlinkTarget('l', 'a/./b//c/..'), ['a', 'a/b', 'a/b/c'])
-    assert.deepEqual(checkSymlinkTarget('a/b/l', '../../x/y'), ['a', 'x'])
-    assert.deepEqual(checkSymlinkTarget('a/b/l', '../c'), ['a'])
+  // The steps, not the paths they stand on: spelling out every path of a
+  // deep walk costs its depth squared. What each step has to find is the
+  // record of names' to say, below.
+  it('hands back the steps the walk takes, empty and . segments dropped', () => {
+    assert.deepEqual(checkSymlinkTarget('l', 'x'), ['x'])
+    assert.deepEqual(checkSymlinkTarget('a/l', '../b/c/d'), ['..', 'b', 'c', 'd'])
+    assert.deepEqual(checkSymlinkTarget('l', 'a/./b//c/..'), ['a', 'b', 'c', '..'])
+    assert.deepEqual(checkSymlinkTarget('a/b/l', '../../x/y'), ['..', '..', 'x', 'y'])
+    assert.deepEqual(checkSymlinkTarget('a/b/l', '../c'), ['..', 'c'])
   })
   const refused = [
     ['l', '../x', /points outside the archive/u],
@@ -160,6 +163,30 @@ describe('the names seen so far', () => {
     assert.throws(() => after().add(entry('l', 'symlink', 'l/x')), /passes through "l", which is not a directory/u)
     assert.throws(() => after(entry('l', 'symlink', 'a/x')).add(entry('a')), /"a" is already a directory, so it cannot be a file/u)
   })
+  it('holds every path a symlink target stands on short of its end to being a directory', () => {
+    // The link, its target, the paths it walks through that are not the
+    // link's own directories, and where it ends where that is a new segment,
+    // which may be anything at all.
+    const walks = [
+      ['l', 'x', [], 'x'],
+      ['a/l', '../b/c/d', ['b', 'b/c'], 'b/c/d'],
+      ['l', 'a/./b//c/..', ['a', 'a/b', 'a/b/c'], null],
+      ['a/b/l', '../../x/y', ['x'], 'x/y'],
+      ['a/b/l', '../c', [], 'a/c'],
+    ]
+    for (const [link, target, through, end] of walks) {
+      for (const path of through) {
+        assert.throws(() => after(entry(path)).add(entry(link, 'symlink', target)), (error) => error.message === `the target of symlink ${JSON.stringify(link)} passes through ${JSON.stringify(path)}, which is not a directory`)
+      }
+      if (end !== null) after(entry(end)).add(entry(link, 'symlink', target))
+    }
+  })
+  it('holds the directory a walk comes back out into to being one too', () => {
+    // A symlink's own directories are always that already; a hard link's are
+    // not yet when its walk runs, so this is where the rule shows: f/h walks
+    // y/../z from f, stands on f/y and then on f, and f is a file.
+    assert.throws(() => after(entry('f'), entry('s', 'symlink', 'y/../z')).add(entry('f/h', 'link', 's')), /the target of hard link "f\/h" to symlink "s" passes through "f", which is not a directory/u)
+  })
   it('lets a symlink point at another, or walk up through its own directories', () => {
     after(entry('a', 'symlink', 'b')).add(entry('l', 'symlink', 'a'))
     after(entry('d/s', 'symlink', '..')).add(entry('d/l', 'symlink', '../d/s'))
@@ -168,6 +195,28 @@ describe('the names seen so far', () => {
   it('lets a hard link name an earlier non-directory entry', () => {
     after(entry('a')).add(entry('b', 'link', 'a'))
     after(entry('a', 'symlink', 'x')).add(entry('b', 'link', 'a'))
+  })
+  it('walks a hard link to a symlink from the link\'s own name', () => {
+    // a/b/s -> ../x lands inside the archive; the same symlink reached as h,
+    // at the root, lands outside it, and tar gives h that very target.
+    assert.throws(() => after(entry('a/b/s', 'symlink', '../x')).add(entry('h', 'link', 'a/b/s')), /symlink "h" points outside the archive, to "\.\.\/x"/u)
+    // d/s -> g/x walks through d/g, which nothing says is not a directory;
+    // reached as h it walks through g, which is a file.
+    assert.throws(() => after(entry('g'), entry('d/s', 'symlink', 'g/x')).add(entry('h', 'link', 'd/s')), /the target of hard link "h" to symlink "d\/s" passes through "g", which is not a directory/u)
+    // Safe from both places, so both names are taken.
+    after(entry('s', 'symlink', 'b')).add(entry('h', 'link', 's'))
+    after(entry('d/s', 'symlink', 'x')).add(entry('h', 'link', 'd/s'))
+  })
+  it('walks a hard link to a hard link to a symlink the same way, however long the chain', () => {
+    // a/b/h is a/b/s under a second name, and h2 is it under a third, at the
+    // root, where ../x lands outside.
+    const chain = [entry('a/b/s', 'symlink', '../x'), entry('a/b/h', 'link', 'a/b/s')]
+    assert.throws(() => after(...chain).add(entry('h2', 'link', 'a/b/h')), /symlink "h2" points outside the archive, to "\.\.\/x"/u)
+    assert.throws(() => after(...chain, entry('a/b/h2', 'link', 'a/b/h')).add(entry('h3', 'link', 'a/b/h2')), /symlink "h3" points outside the archive/u)
+    assert.throws(() => after(entry('g'), entry('d/s', 'symlink', 'g/x'), entry('d/h', 'link', 'd/s')).add(entry('h2', 'link', 'd/h')), /the target of hard link "h2" to symlink "d\/h" passes through "g", which is not a directory/u)
+    after(entry('s', 'symlink', 'b'), entry('h', 'link', 's')).add(entry('h2', 'link', 'h'))
+    // A chain through a file carries no symlink along it.
+    after(entry('f'), entry('d/h', 'link', 'f')).add(entry('h2', 'link', 'd/h'))
   })
   it('refuses a hard link to anything else', () => {
     assert.throws(() => after().add(entry('b', 'link', 'a')), /hard link "b" targets "a", which is not an earlier non-directory entry/u)

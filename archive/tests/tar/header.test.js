@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { EMPTY } from '../../src/bytes.js'
-import { BLOCK, decodeHeader, encodeHeader, fitsOctal, octalMax, readNumber, writeNumber } from '../../src/tar/header.js'
+import { BLOCK, PREFIX_SIZE, decodeHeader, encodeHeader, fitsOctal, octalMax, readNumber, writeNumber } from '../../src/tar/header.js'
 import { encodePax } from '../../src/tar/pax.js'
 import { assertBytes, utf8 } from '../helpers.js'
 
@@ -59,6 +59,14 @@ describe('numbers', () => {
     assert.equal(readNumber(new Uint8Array(8), 0, 8, 'uid', 0), 0)
     assert.equal(readNumber(latin1('        '), 0, 8, 'uid', 0), 0)
   })
+  it('end at a NUL wherever it sits, as GNU does', () => {
+    // GNU stops the number at the NUL, so a field that opens with one is 0
+    // however it goes on. Reading the digits past it would give this package
+    // a size, and so an archive, that no other reader sees.
+    assert.equal(readNumber(Uint8Array.from([0, 0, ...latin1('0000001000')]), 0, 12, 'size', 0), 0)
+    assert.equal(readNumber(latin1('  0000001000'), 0, 12, 'size', 0), 512)
+    assert.equal(readNumber(Uint8Array.from([...latin1('0006'), 0, ...latin1('044')]), 0, 8, 'mode', 0), 0o6)
+  })
   it('refuse what is not a number', () => {
     assert.throws(() => readNumber(latin1('00006x4\0'), 0, 8, 'uid', 512), /the uid field is not an octal number at byte 512/u)
     assert.throws(() => readNumber(latin1('0000098\0'), 0, 8, 'uid', 0), /is not an octal number/u)
@@ -107,6 +115,16 @@ describe('a header', () => {
     block.set(utf8(sum.toString(8).padStart(6, '0')), 148)
     block[154] = 0
     assert.throws(() => decodeHeader(block, 0), /not in the ustar, pax or gnu format/u)
+  })
+  it('takes the old GNU sparse area only as zeros, and only under the gnu magic', () => {
+    // Under ustar those bytes are the tail of the prefix, and a long one
+    // fills them; under gnu they are a sparse map and a real size.
+    const long = fields({ prefix: utf8('p'.repeat(PREFIX_SIZE)) })
+    assertBytes(decodeHeader(encodeHeader(long), 0).prefix, utf8('p'.repeat(PREFIX_SIZE)))
+    assert.throws(() => decodeHeader(encodeHeader({ ...long, gnu: true }), 512), /header carries an old GNU sparse map or real size at byte 512/u)
+    // What GNU writes there otherwise — atime, ctime, the volume offset —
+    // sits before it, and is none of this package's concern.
+    decodeHeader(encodeHeader(fields({ gnu: true, prefix: utf8('1'.repeat(386 - 345)) })), 0)
   })
   it('reads the prefix only under the ustar magic', () => {
     const prefixed = fields({ prefix: utf8('p') })

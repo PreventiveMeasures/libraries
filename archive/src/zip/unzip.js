@@ -23,6 +23,9 @@ const DESCRIPTOR = 0x08074b50
 const ZIP64_LOCATOR = 0x07064b50
 const ZIP64_EXTRA = 0x0001
 const TIMESTAMP_EXTRA = 0x5455
+// Info-ZIP's Unicode Path field: a second, UTF-8 name that unzip takes over
+// the one in the header when its CRC-32 matches that header name.
+const UNICODE_PATH_EXTRA = 0x7075
 
 const ENCRYPTED = 1
 const DESCRIBED = 8 // sizes and CRC follow the data, and may be 0 in the local header
@@ -62,6 +65,9 @@ function extras(raw, at) {
     const size = r.u16(pos + 2)
     if (pos + 4 + size > raw.length) throw new ArchiveError('an extra field runs past its room', at)
     if (id === ZIP64_EXTRA) throw new ArchiveError('zip64 is not supported', at)
+    // Every name here is UTF-8 already, so this field can only disagree with
+    // the name checked above — and unzip would extract the name it carries.
+    if (id === UNICODE_PATH_EXTRA) throw new ArchiveError('an entry carries a second name in a Unicode path extra field', at)
     if (!fields.has(id)) fields.set(id, raw.subarray(pos + 4, pos + 4 + size))
     pos += 4 + size
   }

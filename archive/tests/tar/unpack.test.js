@@ -90,6 +90,16 @@ describe('what it refuses', () => {
     ['a pax keyword twice', () => archive(...pax(utf8('6 a=1\n6 a=2\n'))), /pax keyword a repeats/u],
     ['a pax value that is not UTF-8', () => archive(...pax(Uint8Array.from([0x36, 0x20, 0x61, 0x3d, 0xff, 0x0a]))), /a pax record is not valid UTF-8/u],
     ['a sparse file', () => archive(...pax([['GNU.sparse.size', '10']])), /sparse entries are not supported/u],
+    // libarchive reads these as a sparse file too: star's real size makes
+    // three stored bytes a hundred-byte file, Solaris' map lays out holes.
+    ['a real size from star', () => archive(...pax([['SCHILY.realsize', '100']], { size: 3 }), padded(utf8('abc'))), /sparse entries are not supported at byte 1024/u],
+    ['a map of holes from Solaris', () => archive(...pax([['SUN.holesdata', ' 0 3']], { size: 3 }), padded(utf8('abc'))), /sparse entries are not supported at byte 1024/u],
+    ['a global header with a real size from star', () => archive(...pax([['SCHILY.realsize', '100']], {}, 0x67)), /sparse entries are not supported at byte 0/u],
+    // libarchive reads the old GNU sparse fields under the gnu magic whatever
+    // the type, and follows isextended into the blocks after the header.
+    ['an old GNU sparse map on a plain file', () => archive(sealed(header({ gnu: true }), (b) => b.set(latin1('00000000000'), 386))), /header carries an old GNU sparse map or real size at byte 0/u],
+    ['an old GNU isextended flag on a plain file', () => archive(sealed(header({ gnu: true }), (b) => (b[482] = 1))), /header carries an old GNU sparse map or real size/u],
+    ['an old GNU real size on a plain file', () => archive(sealed(header({ gnu: true }), (b) => b.set(latin1('00000000144'), 483))), /header carries an old GNU sparse map or real size/u],
     ['a pax size that is not a number', () => archive(...pax([['size', '1x']])), /pax size="1x" is not a whole number this package can hold/u],
     ['a pax size below zero', () => archive(...pax([['size', '-1']])), /pax size="-1" is not a whole number/u],
     ['a pax uid too large to hold', () => archive(...pax([['uid', '99999999999999999999']])), /pax uid="99999999999999999999" is not a whole number this package can hold/u],
@@ -118,6 +128,9 @@ describe('what it refuses', () => {
     ['an owner name field with a control character', () => archive(header({ gname: utf8('a\tb') })), /gname "a\\tb" holds a control or formatting character/u],
     ['a global header that sets a size', () => archive(...pax([['size', '1']], {}, 0x67)), /a global header sets size at byte 0/u],
     ['a global header that sets a path', () => archive(...pax([['path', 'x']], {}, 0x67)), /a global header sets path/u],
+    ['a global header that makes every entry sparse', () => archive(...pax([['GNU.sparse.size', '10']], {}, 0x67)), /sparse entries are not supported at byte 0/u],
+    ['a hard link to a symlink that points out from the link', () => archive(header({ typeflag: 0x32, name: utf8('a/b/s'), linkname: utf8('../x') }), header({ typeflag: 0x31, name: utf8('h'), linkname: utf8('a/b/s') })), /symlink "h" points outside the archive/u],
+    ['a hard link to a hard link to such a symlink', () => archive(header({ typeflag: 0x32, name: utf8('a/b/s'), linkname: utf8('../x') }), header({ typeflag: 0x31, name: utf8('a/b/h'), linkname: utf8('a/b/s') }), header({ typeflag: 0x31, name: utf8('h2'), linkname: utf8('a/b/h') })), /symlink "h2" points outside the archive, to "\.\.\/x" at byte 1024/u],
   ]
   for (const [what, bytes, message] of refused) {
     it(`refuses ${what}`, () => assert.throws(() => unpack(bytes()), message))
@@ -150,6 +163,13 @@ describe('what it reads that GNU tar reads', () => {
   it('a name again as the same entry, as some packagers write d/f and d/./f', () => {
     const entries = unpack(archive(header({ name: utf8('d/f'), size: 1 }), padded(utf8('x')), header({ name: utf8('d/./f'), size: 1 }), padded(utf8('x'))))
     assert.deepEqual(entries.map((e) => [e.name, new TextDecoder().decode(e.data)]), [['d/f', 'x'], ['d/f', 'x']])
+  })
+  it('a size field that opens with a NUL as 0, so the block after it is the next header', () => {
+    // GNU ends the number at the NUL and reads b; taking the digits past it
+    // as 512 would swallow b's header as a's data, and b with it.
+    const block = sealed(header(), (b) => b.set(Uint8Array.from([0, 0, ...utf8('0000001000')]), 124))
+    const entries = unpack(archive(block, header({ name: utf8('b'), size: 1 }), padded(utf8('x'))))
+    assert.deepEqual(entries.map((e) => [e.name, e.data.length]), [['a', 0], ['b', 1]])
   })
   it('a NUL typeflag as a file', () => {
     assert.equal(unpack(archive(header({ typeflag: 0 })))[0].type, 'file')

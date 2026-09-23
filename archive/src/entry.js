@@ -18,7 +18,10 @@ export const wireName = (entry) => (entry.type === 'directory' ? `${entry.name}/
 export function checkEntry(entry, types) {
   if (entry === null || typeof entry !== 'object') throw new ArchiveError('an entry is not an object')
   const type = entry.type ?? 'file'
-  if (!Object.hasOwn(types, type)) throw new ArchiveError(`entry type ${quote(String(type))} is not one this package writes`)
+  // A key lookup would take anything that stringifies to a type this package
+  // writes, and everything after compares `type` as the string it is not.
+  if (typeof type !== 'string') throw new ArchiveError('entry type is not a string')
+  if (!Object.hasOwn(types, type)) throw new ArchiveError(`entry type ${quote(type)} is not one this package writes`)
   const { name } = entry
   checkString(name, 'entry name')
   const data = entry.data ?? EMPTY

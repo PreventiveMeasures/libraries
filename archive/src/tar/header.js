@@ -30,6 +30,13 @@ const GNAME = 297
 const DEVMAJOR = 329
 const DEVMINOR = 337
 const PREFIX = 345
+// Under the gnu magic: the old GNU sparse map, its isextended flag and the
+// file's real size. libarchive reads them whatever the type flag says —
+// taking the real size as the file's, and the map and any extension blocks
+// after the header as its layout — where GNU tar and the rest read them for
+// a sparse entry alone.
+const OLD_SPARSE = 386
+const OLD_SPARSE_END = 495
 
 const USTAR_MAGIC = 'ustar\u000000' // "ustar", NUL, "00": ustar and pax
 const GNU_MAGIC = 'ustar  \0'
@@ -61,7 +68,10 @@ export function writeNumber(block, offset, size, value, gnu) {
 
 // Older tars wrote leading spaces, and either spaces or NULs after; a field
 // left blank (npm's packer wrote uid and gid so for years) is 0, as GNU tar,
-// libarchive and the rest read it. Only a time may be negative.
+// libarchive and the rest read it. A NUL ends the number wherever it sits, so
+// a field that opens with one is 0 however it goes on — GNU stops there, and
+// reading the digits past it instead would give a size, and so an archive,
+// that only this package sees. Only a time may be negative.
 export function readNumber(block, offset, size, what, at, signed = false) {
   const first = block[offset]
   if (first === 0x80 || first === 0xff) {
@@ -72,7 +82,7 @@ export function readNumber(block, offset, size, what, at, signed = false) {
     if (v > BigInt(Number.MAX_SAFE_INTEGER) || v < -BigInt(Number.MAX_SAFE_INTEGER)) throw new ArchiveError(`the ${what} field is too large`, at)
     return Number(v)
   }
-  const match = /^ *([0-7]*) *$/u.exec(ascii(block.subarray(offset, offset + size)).replaceAll('\0', ' '))
+  const match = /^ *([0-7]*) *$/u.exec(ascii(untilNul(block.subarray(offset, offset + size))))
   if (!match) throw new ArchiveError(`the ${what} field is not an octal number`, at)
   return match[1] === '' ? 0 : Number.parseInt(match[1], 8)
 }
@@ -123,6 +133,7 @@ export function decodeHeader(block, at) {
   const magic = ascii(block.subarray(MAGIC, MAGIC + 8))
   const gnu = magic === GNU_MAGIC
   if (!gnu && magic !== USTAR_MAGIC) throw new ArchiveError('header is not in the ustar, pax or gnu format', at)
+  if (gnu && !isZeroBlock(block.subarray(OLD_SPARSE, OLD_SPARSE_END))) throw new ArchiveError('header carries an old GNU sparse map or real size', at)
   const typeflag = block[TYPEFLAG]
   const device = typeflag === 0x33 || typeflag === 0x34
   return {
