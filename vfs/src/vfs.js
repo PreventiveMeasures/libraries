@@ -61,7 +61,7 @@ export class Vfs {
     if (typeof path !== 'string') throw new TypeError(`a path must be a string, not ${typeof path}`)
     if (path.includes('\0')) throw new VfsError('EINVAL', path)
     if (path === '') throw new VfsError('ENOENT', path)
-    const trailing = path.endsWith('/')
+    let trailing = path.endsWith('/')
     // The spellings being read, the caller's under any link's target: a name
     // comes from the topmost with names left, and from a link's when there is
     // one, so a name is never the caller's own while a target is being read.
@@ -84,6 +84,9 @@ export class Vfs {
       dir = chain.at(-1).node
       const last = readers.every(done)
       node = dir.entries.get(name)
+      // A target that ends in a slash puts that slash on its last name, and
+      // a maker judges that name as it would the caller's, unfollowed.
+      if (create && !last && readers.every(spent)) { trailing = true; break }
       if (node === undefined) {
         if (last) break
         if (!mkdirs || linked) throw new VfsError('ENOENT', path)
@@ -123,10 +126,12 @@ export class Vfs {
     found.dir.entries.set(found.name, node)
   }
 
-  // The directory an entry is taken from, for a spelling that names one.
+  // The directory an entry is taken from, for a spelling that names one:
+  // not the root spelled as itself, which is in use, nor a spelling that
+  // ends on `.` or `..`, wherever it leads, as POSIX has both.
   #dirOf(found, path) {
     if (found.dir !== undefined) return found.dir
-    throw new VfsError(found.node === this.#root ? 'EBUSY' : 'EINVAL', path)
+    throw new VfsError(skip(path, 0) === path.length ? 'EBUSY' : 'EINVAL', path)
   }
 
   #is(path, type, follow) {
@@ -169,8 +174,9 @@ export class Vfs {
   }
 
   // Where a write lands: through a link, the file the link names. A trailing
-  // slash asks for a directory, which open(2) neither makes nor writes: once
-  // the way there is walked, EISDIR whatever the last name holds, unfollowed.
+  // slash, the caller's or on the target of a link followed last, asks for a
+  // directory, which open(2) neither makes nor writes: once the way there is
+  // walked, EISDIR whatever the last name holds, unfollowed.
   #fileAt(path) {
     const found = this.#locate(path, { follow: !slashed(path), create: true })
     if (found.trailing || found.node?.type === 'directory') throw new VfsError('EISDIR', path)
@@ -215,11 +221,14 @@ export class Vfs {
     this.#set(this.#newName(path), this.#symlink(target, mode, mtime), path)
   }
 
-  // A hard link: the same inode under a second name.
+  // A hard link: the same inode under a second name. A trailing slash
+  // follows a link, as lstat's does, and the new name is judged before
+  // what it would name, as linkat(2) has it.
   link(existing, path) {
-    const node = this.#node(existing, false)
+    const node = this.#node(existing, slashed(existing))
+    const found = this.#newName(path)
     if (node.type === 'directory') throw new VfsError('EPERM', existing)
-    this.#set(this.#newName(path), node, path)
+    this.#set(found, node, path)
   }
 
   #newName(path) {
@@ -247,23 +256,29 @@ export class Vfs {
   }
 
   // rename(2): the name moves, replacing a file with a file or an empty
-  // directory with a directory; two names of one inode leave both as they are.
+  // directory with a directory; two names of one inode leave both as they
+  // are. Both ways are walked before either name is judged, and a name
+  // before what it holds, as Linux has it: a directory into itself is
+  // EINVAL, onto one of its own parents ENOTEMPTY.
   rename(from, to) {
-    const source = this.#found(from, false)
+    const source = this.#locate(from, { follow: false, create: true })
+    const target = this.#locate(to, { follow: false, create: true })
     const sourceDir = this.#dirOf(source, from)
-    const target = this.#locate(to, { follow: false })
-    if (target.dir === undefined || target.chain.some((step) => step.node === source.node)) throw new VfsError('EINVAL', to)
-    if (target.trailing && source.node.type !== 'directory') throw new VfsError('ENOTDIR', to)
-    if (target.node === source.node) return
-    if (target.node !== undefined) {
-      if (target.node.type === 'directory') {
-        if (source.node.type !== 'directory') throw new VfsError('EISDIR', to)
-        if (target.node.entries.size > 0) throw new VfsError('ENOTEMPTY', to)
-      } else if (source.node.type === 'directory') throw new VfsError('ENOTDIR', to)
-    }
+    const targetDir = this.#dirOf(target, to)
+    if (source.node === undefined) throw new VfsError('ENOENT', from)
     checkName(target.name, to)
+    const directory = source.node.type === 'directory'
+    if (!directory && source.trailing) throw new VfsError('ENOTDIR', from)
+    if (!directory && target.trailing) throw new VfsError('ENOTDIR', to)
+    if (target.chain.some((step) => step.node === source.node)) throw new VfsError('EINVAL', to)
+    if (source.chain.some((step) => step.node === target.node)) throw new VfsError('ENOTEMPTY', to)
+    if (target.node === source.node) return
+    if (target.node?.type === 'directory') {
+      if (!directory) throw new VfsError('EISDIR', to)
+      if (target.node.entries.size > 0) throw new VfsError('ENOTEMPTY', to)
+    } else if (target.node !== undefined && directory) throw new VfsError('ENOTDIR', to)
     sourceDir.entries.delete(source.name)
-    target.dir.entries.set(target.name, source.node)
+    targetDir.entries.set(target.name, source.node)
   }
 
   chmod(path, mode) { this.#node(path, true).mode = checkMode(mode) }
@@ -324,14 +339,15 @@ function* entries(top, first) {
 // so what it leads to has to be a directory, as a caller's trailing slash
 // asks.
 const reader = (text, target = false) => ({ text, at: skip(text, 0), dot: target && text.endsWith('/') })
-const done = (r) => r.at === r.text.length && !r.dot
+const spent = (r) => r.at === r.text.length
+const done = (r) => spent(r) && !r.dot
 function skip(text, at) {
   let i = at
   while (i < text.length && text.codePointAt(i) === 47) i++
   return i
 }
 function next(r) {
-  if (r.at === r.text.length) { r.dot = false; return '.' }
+  if (spent(r)) { r.dot = false; return '.' }
   const slash = r.text.indexOf('/', r.at)
   const end = slash === -1 ? r.text.length : slash
   const name = r.text.slice(r.at, end)

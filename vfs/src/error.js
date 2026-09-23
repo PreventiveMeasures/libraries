@@ -13,10 +13,18 @@ const STRERROR = {
   ENAMETOOLONG: 'File name too long',
 }
 
-// `code` is the POSIX errno name; the message is the line a shell prints.
+// What a path may not carry into a message as it is: a control, which a
+// terminal acts on, a line or paragraph separator, and a bidirectional
+// control, which reorders what is shown about it. Each is spelled as an
+// escape instead, as archive spells a name in its messages.
+const UNSHOWN = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]/gu
+const shown = (path) => `${path}`.replaceAll(UNSHOWN, (char) => `\\u${char.codePointAt(0).toString(16).padStart(4, '0')}`)
+
+// `code` is the POSIX errno name; the message is the line a shell prints,
+// and `path` the path as it was given.
 export class VfsError extends Error {
   constructor(code, path) {
-    super(`${path}: ${STRERROR[code] ?? code}`)
+    super(`${shown(path)}: ${STRERROR[code] ?? code}`)
     this.name = 'VfsError'
     this.code = code
     this.path = path
