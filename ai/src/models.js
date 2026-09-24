@@ -1,30 +1,37 @@
 import { assert } from '#assert'
-import { EFFORTS_THROUGH_MAX, EXTRA_MODELS, FREE_MODELS, MAIN_MODELS } from './model-table.js'
+import { EFFORTS_THROUGH_MAX, FREE_MODELS, LOCAL_MODELS, MAIN_MODELS } from './model-table.js'
 
 const DEFAULT_MAX_TOKENS = 64 * 1024
 
-const MODELS = new Map([...MAIN_MODELS, ...EXTRA_MODELS, ...FREE_MODELS])
+const MODELS = new Map([...MAIN_MODELS, ...LOCAL_MODELS, ...FREE_MODELS])
 
-// The names the price table knows, in its own order: the main list, the extras, then the free
+// The names the price table knows, in its own order: the main list, the local models, then the free
 // endpoints. Not a closed set — `--model` takes any string, and an unknown one simply costs nothing
 // the table can price — so this is what to OFFER, never what to allow. The server's console builds
 // its model suggestions from it.
 export const KNOWN_MODELS = [...MODELS.keys()]
 
-const LISTING_PROVIDERS = ['anthropic', 'openai', 'openrouter']
+const LISTING_PROVIDERS = ['anthropic', 'openai', 'openrouter', 'ollama', 'chrome', 'moonshot']
+
+// The providers that make the models they serve, and the namespace those models carry.
+const OWN_NAMESPACE = { anthropic: 'anthropic/', openai: 'openai/', moonshot: 'moonshotai/' }
 
 // The models a provider serves, each with the effort levels it takes there; every model when no
-// provider is named. OpenRouter serves the main list, and Anthropic and OpenAI its rows under their
-// own namespace, bar the few only OpenRouter still reaches. `manual` is Anthropic's alone, so no
-// other provider lists it.
+// provider is named. OpenRouter serves the main list, and Anthropic, OpenAI and Moonshot its rows
+// under their own namespace, bar the few only OpenRouter still reaches. Ollama serves the rows it
+// has a local build for and Chrome its on-device ones, each answered by the lookup its adapter
+// makes. `manual` is Anthropic's alone, so no other provider lists it.
 //
 // `free` works the way validateModel's does: the free endpoints with it, which are OpenRouter's, and
 // everything else without, so a listing is exactly what that mode accepts.
 function servedRows(provider, free) {
   if (free) return provider === undefined || provider === 'openrouter' ? FREE_MODELS : []
-  if (provider === undefined) return [...MAIN_MODELS, ...EXTRA_MODELS]
+  const rows = [...MAIN_MODELS, ...LOCAL_MODELS]
+  if (provider === undefined) return rows
   if (provider === 'openrouter') return MAIN_MODELS
-  return MAIN_MODELS.filter(([id, row]) => id.startsWith(`${provider}/`) && !row.openRouterOnly)
+  if (provider === 'ollama') return rows.filter(([id]) => ollamaTagFor(id))
+  if (provider === 'chrome') return rows.filter(([id]) => baseModelFor(id))
+  return MAIN_MODELS.filter(([id, row]) => id.startsWith(OWN_NAMESPACE[provider]) && !row.openRouterOnly)
 }
 
 export function supportedModels({ provider, free = false } = {}) {

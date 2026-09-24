@@ -1112,7 +1112,7 @@ describe('supportedModels', () => {
       assert.equal(ids(provider).some((id) => id.endsWith(':free')), false, String(provider))
       assert.deepEqual(ids(provider, true), KNOWN_MODELS.filter((id) => id.endsWith(':free')), String(provider))
     }
-    for (const provider of ['anthropic', 'openai']) assert.deepEqual(ids(provider, true), [], provider)
+    for (const provider of ['anthropic', 'openai', 'ollama', 'chrome', 'moonshot']) assert.deepEqual(ids(provider, true), [], provider)
   })
 
   it('lists only what validateModel accepts under the same flag', () => {
@@ -1157,9 +1157,26 @@ describe('supportedModels', () => {
     assert.deepEqual(effortsFor('openai/gpt-6-sol'), ['low', 'medium', 'high', 'xhigh', 'max'])
   })
 
+  it('gives ollama every row it has a local build for, hosted ids included', () => {
+    assert.deepEqual([...ids('ollama')].sort(), [...ollamaModels()].sort())
+    assert.ok(ids('ollama').includes('qwen/qwen3.6-27b'))
+    assert.deepEqual(entry('google/gemma-4-e2b-it-qat', 'ollama').efforts, ['low', 'medium', 'high', 'xhigh', 'max'])
+  })
+
+  it('gives chrome its on-device models, which take no effort', () => {
+    const chrome = ids('chrome')
+    assert.ok(chrome.length > 0)
+    assert.deepEqual(chrome, KNOWN_MODELS.filter((id) => id.startsWith('chrome/')))
+    for (const { id, efforts } of supportedModels({ provider: 'chrome' })) assert.deepEqual(efforts, [], id)
+  })
+
+  it('gives moonshot the rows under its own namespace', () => {
+    assert.deepEqual(supportedModels({ provider: 'moonshot' }), [{ id: 'moonshotai/kimi-k3', efforts: ['low', 'high', 'max'] }])
+  })
+
   it('refuses every other provider by name', () => {
-    for (const provider of ['gateway', 'moonshot', 'ollama', 'chrome', 'Anthropic', '']) {
-      assert.throws(() => supportedModels({ provider }), /Unknown provider: .*\. Use: anthropic, openai, openrouter$/u, provider)
+    for (const provider of ['gateway', 'moonshotai', 'Anthropic', '']) {
+      assert.throws(() => supportedModels({ provider }), /Unknown provider: .*\. Use: anthropic, openai, openrouter, ollama, chrome, moonshot$/u, provider)
     }
   })
 })

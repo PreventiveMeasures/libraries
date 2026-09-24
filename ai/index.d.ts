@@ -111,7 +111,7 @@ export declare function resolveModel(model: string): string
 export declare function resolveThinkEffort(model: string, think: unknown, effort?: string): { useThink: boolean, useEffort: string | undefined }
 // Every row with no provider named; the ones a provider serves with one. Free endpoints only with
 // `free`, and never without it.
-export declare function supportedModels(opts?: { provider?: 'anthropic' | 'openai' | 'openrouter' | undefined, free?: boolean | undefined }): { id: string, efforts: string[] }[]
+export declare function supportedModels(opts?: { provider?: 'anthropic' | 'openai' | 'openrouter' | 'ollama' | 'chrome' | 'moonshot' | undefined, free?: boolean | undefined }): { id: string, efforts: string[] }[]
 export declare function unknownModelMessage(model: unknown, flag: string): string
 // Throws when the model is blocked, or when its free/paid status disagrees
 // with the `free` flag.

@@ -30,7 +30,7 @@ const EFFORTS_THROUGH_XHIGH = ['low', 'medium', 'high', 'xhigh']
 const OPENAI_LONG_CONTEXT = { above: 272_000, input: 2, output: 1.5 }
 
 // Prices in dollars per million tokens. The main list is every paid model OpenRouter serves; its free
-// endpoints have a list of their own, and the extras are reached only some other way.
+// endpoints have a list of their own, and the local models run on this machine.
 export const MAIN_MODELS = [
   ['anthropic/claude-fable-5.1', { input: 10, output: 50, cacheReadPrice: 0.25, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported' }],
   ['anthropic/claude-fable-5', { input: 10, output: 50, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported' }],
@@ -104,8 +104,9 @@ export const MAIN_MODELS = [
   ['moonshotai/kimi-k3', { input: 3, output: 15, maxTokens: 131_072, canThink: true, noThink: 'unsupported', efforts: ['low', 'high', 'max'] }],
 ]
 
-// Rows OpenRouter has no endpoint for: Chrome's on-device models, and the local builds Ollama serves.
-export const EXTRA_MODELS = [
+// Models that run on this machine, which OpenRouter has no endpoint for: Chrome's on-device models,
+// and the local builds Ollama serves.
+export const LOCAL_MODELS = [
   // Chrome's built-in on-device models. Unpriced like every other local row: nobody sells them, and
   // the provider says a local run costs nothing. `baseModel`/`specNames`/`modelVersion`/`component`
   // are Chrome's own spellings, read in src/chrome/.
