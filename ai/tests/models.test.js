@@ -1002,12 +1002,16 @@ describe('deepseek v4', () => {
     assert.equal(baseRate(FLASH, 'cacheRead'), 0.006)
   })
 
-  it('thinks, can be switched off, and takes low, high or max', () => {
+  it('thinks, and can be switched off', () => {
     for (const model of [PRO, FLASH]) {
       assert.equal(canThink(model), true, model)
       assert.equal(canDisableThink(model), true, model)
-      assert.deepEqual(effortsFor(model), ['low', 'high', 'max'], model)
     }
+  })
+
+  it('takes low, high or max on flash, and high or xhigh on pro, as OpenRouter serves each id', () => {
+    assert.deepEqual(effortsFor(FLASH), ['low', 'high', 'max'])
+    assert.deepEqual(effortsFor(PRO), ['high', 'xhigh'])
   })
 })
 
