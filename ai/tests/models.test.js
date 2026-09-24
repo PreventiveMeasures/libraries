@@ -1146,6 +1146,12 @@ describe('supportedModels', () => {
     assert.deepEqual(entry('chrome/gemini-nano-v3').efforts, [])
   })
 
+  it('keeps gpt-6-astra\'s max on openrouter, which lists it for both astra rows', () => {
+    for (const id of ['openai/gpt-6-astra', 'openai/gpt-6-astra-pro']) {
+      assert.deepEqual(entry(id, 'openrouter').efforts, ['low', 'medium', 'high', 'xhigh', 'max'], id)
+    }
+  })
+
   it('keeps manual where Anthropic could serve the request, and drops it on openrouter', () => {
     assert.deepEqual(entry('anthropic/claude-opus-4.6', 'anthropic').efforts, ['low', 'medium', 'high', 'max', 'manual'])
     assert.deepEqual(entry('anthropic/claude-opus-4.6').efforts, ['low', 'medium', 'high', 'max', 'manual'])

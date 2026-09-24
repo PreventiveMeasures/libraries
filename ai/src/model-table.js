@@ -2,9 +2,9 @@
 // below it come along: OpenAI gates the high end per model — `max` is gpt-5.6 and gpt-6, `xhigh`
 // reaches back through 5.5, 5.4 and 5.3-codex.
 //
-// A ladder is the model's, not the route's, which gpt-6-astra strains: it takes `max` on the
-// Responses API (what the openai adapter speaks) but only through `xhigh` on chat completions, so
-// `--effort max` against it via openrouter or a gateway passes this check and 400s on the wire.
+// A ladder is the model's, not the route's. OpenRouter lists `max` for gpt-6-astra just as OpenAI
+// does, and the openai adapter and a gateway both send openai/ rows to the Responses API, so no
+// route here narrows a model's ladder.
 //
 // 'manual' is deliberately absent from both: it is Anthropic's fixed-budget marker rather than a
 // wire value any other provider accepts, and even there only a model that still takes
