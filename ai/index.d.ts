@@ -109,6 +109,8 @@ export declare function resolveModel(model: string): string
 // normalizeThinkEffort for a request about to go out: throws where that one
 // silently drops what the model cannot do.
 export declare function resolveThinkEffort(model: string, think: unknown, effort?: string): { useThink: boolean, useEffort: string | undefined }
+// Every row with no provider named; the ones a provider serves with one.
+export declare function supportedModels(opts?: { provider?: 'anthropic' | 'openai' | 'openrouter' | undefined }): { id: string, efforts: string[] }[]
 export declare function unknownModelMessage(model: unknown, flag: string): string
 // Throws when the model is blocked, or when its free/paid status disagrees
 // with the `free` flag.
