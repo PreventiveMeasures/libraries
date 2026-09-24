@@ -38,7 +38,6 @@ export const MAIN_MODELS = [
   ['anthropic/claude-sonnet-5', { input: 2, output: 10, maxTokens: 128_000, canThink: 'adaptive', noThink: 'explicit' }],
   ['anthropic/claude-sonnet-4.6', { input: 3, output: 15, maxTokens: 128_000, canThink: 'adaptive', efforts: ['low', 'medium', 'high', 'max', 'manual'] }],
   ['anthropic/claude-sonnet-4.5', { input: 3, output: 15, maxTokens: 64 * 1024 }],
-  ['anthropic/claude-sonnet-4', { input: 3, output: 15, maxTokens: 64 * 1024, openRouterOnly: true }],
   // Thinking is always on: `disabled` and a manual `budget_tokens` both 400. Cache reads are 0.05x
   // input rather than the usual 0.10x, so the row names them.
   ['anthropic/claude-opus-5.5', { input: 4, output: 20, cacheReadPrice: 0.2, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported' }],

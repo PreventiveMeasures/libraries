@@ -1101,7 +1101,7 @@ describe('supportedModels', () => {
 
   it('gives openrouter the main list', () => {
     const served = ids('openrouter')
-    for (const id of ['anthropic/claude-sonnet-4', 'openai/gpt-oss-120b', 'qwen/qwen3.8-max', 'moonshotai/kimi-k3']) {
+    for (const id of ['openai/gpt-oss-120b', 'qwen/qwen3.8-max', 'moonshotai/kimi-k3']) {
       assert.ok(served.includes(id), id)
     }
     for (const id of ['chrome/gemini-nano-v3', 'google/gemma-4-e2b-it', 'qwen/qwen3.6-27b-bf16']) {
@@ -1125,8 +1125,8 @@ describe('supportedModels', () => {
 
   it('gives anthropic and openai their own namespace, less what only OpenRouter still reaches', () => {
     const anthropic = ids('anthropic')
-    assert.ok(anthropic.length > 0 && anthropic.every((id) => id.startsWith('anthropic/')))
-    assert.equal(anthropic.includes('anthropic/claude-sonnet-4'), false)
+    assert.ok(anthropic.length > 0)
+    assert.deepEqual(anthropic, ids('openrouter').filter((id) => id.startsWith('anthropic/')))
     const openai = ids('openai')
     assert.ok(openai.length > 0 && openai.every((id) => id.startsWith('openai/')))
     assert.ok(openai.includes('openai/gpt-6-sol-pro'))
