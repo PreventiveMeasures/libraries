@@ -41,12 +41,12 @@ export const MAIN_MODELS = [
   ['anthropic/claude-haiku-4.5', { input: 1, output: 5, maxTokens: 64_000 }],
   ['anthropic/claude-fable-5', { input: 10, output: 50, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported' }],
   ['anthropic/claude-opus-5', { input: 5, output: 25, maxTokens: 128_000, canThink: 'adaptive', noThink: 'explicit' }],
-  ['anthropic/claude-sonnet-4.6', { input: 3, output: 15, maxTokens: 128_000, canThink: 'adaptive', efforts: ['low', 'medium', 'high', 'max', 'manual'] }],
-  ['anthropic/claude-sonnet-4.5', { input: 3, output: 15, maxTokens: 64 * 1024 }],
   ['anthropic/claude-opus-4.8', { input: 5, output: 25, maxTokens: 128_000, canThink: 'adaptive' }],
   ['anthropic/claude-opus-4.7', { input: 5, output: 25, maxTokens: 128_000, canThink: 'adaptive' }],
   ['anthropic/claude-opus-4.6', { input: 5, output: 25, maxTokens: 128_000, canThink: 'adaptive', efforts: ['low', 'medium', 'high', 'max', 'manual'] }],
+  ['anthropic/claude-sonnet-4.6', { input: 3, output: 15, maxTokens: 128_000, canThink: 'adaptive', efforts: ['low', 'medium', 'high', 'max', 'manual'] }],
   ['anthropic/claude-opus-4.5', { input: 5, output: 25, maxTokens: 64 * 1024 }],
+  ['anthropic/claude-sonnet-4.5', { input: 3, output: 15, maxTokens: 64 * 1024 }],
   // Two unrelated things wear `-pro` here. A row carrying wireModel is an OPENROUTER ALIAS for
   // reasoning.mode=pro on the model it names: same weights, same rate, more tokens spent. A row
   // without one — gpt-5.5-pro, gpt-5.4-pro — is an OPENAI MODEL NAME, priced six times its namesake
