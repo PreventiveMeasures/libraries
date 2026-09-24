@@ -15,7 +15,7 @@ export {
   DEFAULT_MODEL, EFFORT_LEVELS, KNOWN_MODELS, TASK_BUDGET_MODELS, TASK_BUDGET_MODES,
   addUsage, calculateCost, canDisableThink, canEffort, canTaskBudget, canThink,
   effortsFor, emptyUsage, getMaxTokens, isRecognizedModel, normalizeThinkEffort,
-  resolveModel, resolveThinkEffort, unknownModelMessage, validateModel,
+  resolveModel, resolveThinkEffort, supportedModels, unknownModelMessage, validateModel,
 } from './src/models.js'
 
 // One conversation, end to end: `ask()` issues the turns, hands tool calls

@@ -54,6 +54,7 @@
     "src/fetch.js",
     "src/fs.browser.js",
     "src/fs.js",
+    "src/model-table.js",
     "src/models.js",
     "src/ollama.js",
     "src/prefix-gate.js",

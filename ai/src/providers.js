@@ -3,7 +3,7 @@ import { env } from '#env'
 import { assert } from '#assert'
 import { fetchJSON } from './fetch-json.js'
 import { ollamaOrigin, resolveOllamaTag } from './ollama.js'
-import { calculateCost, effortsFor, ollamaModels, ollamaTagFor, reasoningModeFor, wireModelFor } from './models.js'
+import { calculateCost, effortsFor, needsExplicitNoThink, ollamaModels, ollamaTagFor, reasoningModeFor, wireModelFor } from './models.js'
 import { anthropicAuthHeader, anthropicShape, chatCompletionsBase, parseArgs, stripNamespace, toAnthropicModel, truncationError } from './wire-formats.js'
 
 export { isMaxTokensTruncation } from './wire-formats.js'
@@ -71,7 +71,9 @@ function openaiResponsesShape(modelId) {
         store: false,
       }
       if (tools) body.tools = tools.map(toOpenAIResponsesTool)
-      const level = resolveEffort({ think, effort, model })
+      // Thinking off on a row that reasons unless told not to: an omitted effort is the model's own
+      // default, `medium` on every such row, so `none` has to be named.
+      const level = resolveEffort({ think, effort, model }) ?? (needsExplicitNoThink(model) ? 'none' : undefined)
       // Independent knobs on one object: mode picks the standard or pro execution path, effort how
       // much reasoning happens within it. Emitted whenever the row names a mode, including with no
       // effort — a pro row is `noThink: 'unsupported'` so --no-think is refused up front, and this
@@ -266,6 +268,16 @@ const ADAPTERS = {
     apiUrlEnv: 'OPENROUTER_API_URL',
     authHeader: (key) => ({ Authorization: `Bearer ${key}` }),
     apiKey: () => env('OPENROUTER_API_KEY'),
+
+    // Thinking off on a row that reasons unless told not to. `reasoning.enabled` is OpenRouter's
+    // own switch, translated into each upstream's off form, which is also why it lives here rather
+    // than in CHAT_COMPLETIONS_SHAPE: behind a gateway of your own the upstreams are reached
+    // directly, and they share no one field that means off.
+    buildRequestBody(model, maxTokens, systemPrompt, messages, opts = {}) {
+      const body = CHAT_COMPLETIONS_SHAPE.buildRequestBody(model, maxTokens, systemPrompt, messages, opts)
+      if (!opts.think && needsExplicitNoThink(model)) body.reasoning = { enabled: false }
+      return body
+    },
   },
 
   // The same wire format pointed at a gateway of your own — LiteLLM, Portkey, a self-hosted proxy.

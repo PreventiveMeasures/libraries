@@ -3,7 +3,7 @@ import { describe, it } from 'node:test'
 
 import * as ai from '../index.js'
 
-import { DEFAULT_MODEL, EFFORT_LEVELS, KNOWN_MODELS, TASK_BUDGET_MODELS, TASK_BUDGET_MODES, calculateCost, canAdaptive, canDisableThink, canEffort, canTaskBudget, canThink, effortsFor, emptyUsage, getMaxTokens, isRecognizedModel, needsExplicitNoThink, normalizeThinkEffort, ollamaModels, ollamaTagFor, readsCacheBreakpoint, reasoningModeFor, resolveModel, resolveThinkEffort, unknownModelMessage, validateModel, wireModelFor } from '../src/models.js'
+import { DEFAULT_MODEL, EFFORT_LEVELS, KNOWN_MODELS, TASK_BUDGET_MODELS, TASK_BUDGET_MODES, calculateCost, canAdaptive, canDisableThink, canEffort, canTaskBudget, canThink, effortsFor, emptyUsage, getMaxTokens, isRecognizedModel, needsExplicitNoThink, normalizeThinkEffort, ollamaModels, ollamaTagFor, readsCacheBreakpoint, reasoningModeFor, resolveModel, resolveThinkEffort, supportedModels, unknownModelMessage, validateModel, wireModelFor } from '../src/models.js'
 
 // What the named usage legs cost per Mtok at a model's BASE rate. A
 // million-token prompt is past the 272K long-context line on every OpenAI
@@ -18,11 +18,16 @@ function baseRate(model, ...legs) {
 
 describe('canThink / canEffort', () => {
   it('canThink: false on a model without a thinking capability', () => {
-    assert.equal(canThink('anthropic/claude-3-haiku'), false)
+    assert.equal(canThink('openai/gpt-4o-mini'), false)
   })
 
-  it('canThink: true on a model marked canThink: true', () => {
+  it('canThink: true on a row that does not say otherwise', () => {
     assert.equal(canThink('anthropic/claude-sonnet-4.5'), true)
+  })
+
+  it('canThink: false on an id the registry does not carry', () => {
+    assert.equal(canThink('nobody/nothing'), false)
+    assert.equal(canThink(undefined), false)
   })
 
   it('canThink: true on an adaptive-thinking model', () => {
@@ -44,7 +49,6 @@ describe('canThink / canEffort', () => {
   })
 
   it('canEffort: false on any model without a thinking capability', () => {
-    assert.equal(canEffort('anthropic/claude-3-haiku'), false)
     assert.equal(canEffort('openai/gpt-4o-mini'), false)
   })
 })
@@ -70,7 +74,7 @@ describe('normalizeThinkEffort', () => {
     // Callers like ai.js layer their own assertion on top
     // (`useThink !== Boolean(think) ? throw`); this helper just resolves
     // the values that will actually hit the wire.
-    assert.deepEqual(normalizeThinkEffort('anthropic/claude-3-haiku', true), { useThink: false, useEffort: undefined })
+    assert.deepEqual(normalizeThinkEffort('openai/gpt-4o-mini', true), { useThink: false, useEffort: undefined })
   })
 
   it('think=true on non-adaptive Anthropic: think=true, effort=undefined (no effort knob)', () => {
@@ -155,6 +159,13 @@ describe('resolveThinkEffort', () => {
     assert.throws(() => resolveThinkEffort('anthropic/claude-sonnet-4.5', true, 'high'), /^Error: --effort is not supported by model or --think is not enabled$/u)
   })
 
+  it('refuses an effort the model does not take, naming the ones it does', () => {
+    assert.throws(() => resolveThinkEffort('anthropic/claude-opus-4.7', true, 'manual'), /^Error: --effort manual is not supported by model\. Use: low, medium, high, xhigh, max$/u)
+    assert.throws(() => resolveThinkEffort('anthropic/claude-opus-4.6', true, 'xhigh'), /^Error: --effort xhigh is not supported by model\./u)
+    assert.throws(() => resolveThinkEffort('openai/gpt-5.5-pro', true, 'low'), /^Error: --effort low is not supported by model\./u)
+    assert.deepEqual(resolveThinkEffort('anthropic/claude-opus-4.6', true, 'manual'), { useThink: true, useEffort: 'manual' })
+  })
+
   it('lets an unknown model through when nothing was asked of it', () => {
     // Unregistered ids still route through OpenRouter / a gateway; only a
     // think or effort request they cannot carry is an error.
@@ -165,7 +176,7 @@ describe('resolveThinkEffort', () => {
   it('names the flag that was refused, and where the id would be added', () => {
     assert.match(unknownModelMessage('foo/bar', '--effort high'), /Unknown model foo\/bar/u)
     assert.match(unknownModelMessage('foo/bar', '--effort high'), /--effort high cannot be applied/u)
-    assert.match(unknownModelMessage('foo/bar', '--effort high'), /MODELS in `ai\/`/u)
+    assert.match(unknownModelMessage('foo/bar', '--effort high'), /model table in `ai\/src\/model-table\.js`/u)
   })
 })
 
@@ -298,9 +309,36 @@ describe('no-think wire form', () => {
     ['anthropic/claude-opus-5.5', false, false],
     ['anthropic/claude-fable-5', false, false],
     ['anthropic/claude-fable-5.1', false, false],
+    ['anthropic/claude-sonnet-5', true, true],
     ['anthropic/claude-opus-4.8', false, true],
     ['anthropic/claude-sonnet-4.6', false, true],
-    ['openai/gpt-5.6-sol', false, true],
+    ['openai/gpt-6-sol', true, true],
+    ['openai/gpt-6-luna', true, true],
+    ['openai/gpt-5.6-sol', true, true],
+    ['openai/gpt-5.6-terra', true, true],
+    ['openai/gpt-5.6-luna', true, true],
+    ['openai/gpt-5.5', true, true],
+    ['openai/gpt-5.4', false, true],
+    ['openai/gpt-5.5-pro', false, false],
+    ['openai/gpt-5.4-pro', false, false],
+    ['openai/gpt-5.3-codex', false, false],
+    ['google/gemini-3.1-flash-lite-preview', true, true],
+    ['google/gemini-3.8-flash', false, false],
+    ['google/gemini-3.1-pro-preview', false, false],
+    ['google/gemma-4-31b-it', false, true],
+    ['nvidia/nemotron-3-super-120b-a12b', true, true],
+    ['nvidia/nemotron-3-super-120b-a12b:free', true, true],
+    ['nvidia/nemotron-3-ultra-550b-a55b', true, true],
+    ['nvidia/nemotron-3-ultra-550b-a55b:free', true, true],
+    ['qwen/qwen3.6-27b', true, true],
+    ['qwen/qwen3.6-35b-a3b', true, true],
+    ['qwen/qwen3.8-27b', true, true],
+    ['qwen/qwen3.8-2.4t-a95b', false, false],
+    ['qwen/qwen3.8-max', false, false],
+    ['deepseek/deepseek-v4-pro', true, true],
+    ['deepseek/deepseek-v4.1-flash', true, true],
+    ['x-ai/grok-4.7', false, false],
+    ['z-ai/glm-5.3', false, false],
     // Same shape as fable 5, arrived at from the other direction: K3 has no
     // opt-out on either route, so omitting the effort field is all we can do.
     ['moonshotai/kimi-k3', false, false],
@@ -353,10 +391,10 @@ describe('claude fable 5.1', () => {
 })
 
 // Both nemotron pairs are the same shape: a paid route and a free one that
-// may log what it is sent, thinking on both, and no effort ladder claimed for
-// either — OpenRouter reports reasoning_effort on neither, and an unnarrowed
-// row passes whatever the caller asks rather than rejecting a level the model
-// may well take.
+// may log what it is sent, thinking on both, and no effort ladder of their own
+// for either — OpenRouter reports reasoning_effort on neither, and a row that
+// names none takes every level through max rather than rejecting a level the
+// model may well take.
 describe('nemotron paid/free pairs', () => {
   const PAIRS = [
     ['nvidia/nemotron-3-ultra-550b-a55b', 0.625, 3.125],
@@ -375,10 +413,10 @@ describe('nemotron paid/free pairs', () => {
       for (const model of [paid, free]) assert.ok(KNOWN_MODELS.includes(model), model)
     })
 
-    it(`${paid}: thinks on both routes, with no effort ladder claimed`, () => {
+    it(`${paid}: thinks on both routes, on the default effort ladder`, () => {
       for (const model of [paid, free]) {
         assert.equal(canThink(model), true, model)
-        assert.equal(effortsFor(model), undefined, model)
+        assert.deepEqual(effortsFor(model), ['low', 'medium', 'high', 'xhigh', 'max'], model)
         assert.deepEqual(normalizeThinkEffort(model, true), { useThink: true, useEffort: 'high' }, model)
       }
     })
@@ -656,7 +694,7 @@ describe('gpt-6 sol and luna', () => {
     // Both take `reasoning_effort: 'none'`; astra floors at `low`.
     for (const model of [SOL, LUNA]) {
       assert.equal(canDisableThink(model), true, model)
-      assert.equal(needsExplicitNoThink(model), false, model)
+      assert.equal(needsExplicitNoThink(model), true, model)
     }
     assert.equal(canDisableThink('openai/gpt-6-astra'), false)
     // Nor on their own -pro rows: pro IS a reasoning mode, so a request
@@ -871,8 +909,8 @@ describe('Gemma 4 (google/gemma-4-31b-it, google/gemma-4-26b-a4b-it)', () => {
     }
   })
 
-  it('takes the full effort ladder — no gemma row narrows it', () => {
-    for (const model of ALL) assert.equal(effortsFor(model), undefined, model)
+  it('takes the default effort ladder — no gemma row narrows it', () => {
+    for (const model of ALL) assert.deepEqual(effortsFor(model), ['low', 'medium', 'high', 'xhigh', 'max'], model)
   })
 
   it('gates each row on --free in the direction its price says', () => {
@@ -946,10 +984,10 @@ describe('qwen3.8 max', () => {
     assert.equal(baseRate(MAX, 'cacheWrite5m'), 2.5)
   })
 
-  it('thinks, can be switched off, and takes the full effort ladder', () => {
+  it('always reasons, on the default effort ladder', () => {
     assert.equal(canThink(MAX), true)
-    assert.equal(canDisableThink(MAX), true)
-    assert.equal(effortsFor(MAX), undefined)
+    assert.equal(canDisableThink(MAX), false)
+    assert.deepEqual(effortsFor(MAX), ['low', 'medium', 'high', 'xhigh', 'max'])
   })
 })
 
@@ -968,12 +1006,16 @@ describe('deepseek v4', () => {
     assert.equal(baseRate(FLASH, 'cacheRead'), 0.006)
   })
 
-  it('thinks, can be switched off, and takes low, high or max', () => {
+  it('thinks, and can be switched off', () => {
     for (const model of [PRO, FLASH]) {
       assert.equal(canThink(model), true, model)
       assert.equal(canDisableThink(model), true, model)
-      assert.deepEqual(effortsFor(model), ['low', 'high', 'max'], model)
     }
+  })
+
+  it('takes low, high or max on flash, and high or xhigh on pro, as OpenRouter serves each id', () => {
+    assert.deepEqual(effortsFor(FLASH), ['low', 'high', 'max'])
+    assert.deepEqual(effortsFor(PRO), ['high', 'xhigh'])
   })
 })
 
@@ -984,9 +1026,7 @@ describe('effortsFor / EFFORT_LEVELS', () => {
     'moonshotai/kimi-k3',
     'x-ai/grok-4.7', 'z-ai/glm-5.3',
     'deepseek/deepseek-v4-pro', 'deepseek/deepseek-v4.1-flash',
-    'openai/gpt-6-astra', 'openai/gpt-6-astra-pro',
-    'openai/gpt-5.6-sol', 'openai/gpt-5.6-terra', 'openai/gpt-5.6-luna',
-    'openai/gpt-5.5',
+    'openai/gpt-5.5', 'openai/gpt-5.5-pro',
     'openai/gpt-5.4', 'openai/gpt-5.4-nano', 'openai/gpt-5.4-mini', 'openai/gpt-5.4-pro',
     'openai/gpt-5.3-codex',
   ]
@@ -1010,23 +1050,31 @@ describe('effortsFor / EFFORT_LEVELS', () => {
     }
   })
 
-  it('gates xhigh to gpt-5.6 / 5.5 / 5.4, leaving 5.3-codex capped at high', () => {
-    for (const model of ['openai/gpt-5.6-sol', 'openai/gpt-5.5', 'openai/gpt-5.4', 'openai/gpt-5.4-mini']) {
+  it('gates xhigh to gpt-5.6 / 5.5 / 5.4 and 5.3-codex', () => {
+    for (const model of ['openai/gpt-5.6-sol', 'openai/gpt-5.5', 'openai/gpt-5.4', 'openai/gpt-5.4-mini', 'openai/gpt-5.3-codex']) {
       assert.ok(effortsFor(model).includes('xhigh'), model)
     }
-    assert.deepEqual(effortsFor('openai/gpt-5.3-codex'), ['low', 'medium', 'high'])
   })
 
-  it('never offers manual — it is Anthropic\'s fixed-budget marker, not a wire value', () => {
-    for (const model of NARROWED) assert.equal(effortsFor(model).includes('manual'), false, model)
-    // Anthropic itself takes the full ladder, manual included.
-    assert.equal(effortsFor('anthropic/claude-opus-4.7'), undefined)
+  it('starts the pro models of their own at medium, as OpenAI lists them', () => {
+    for (const model of ['openai/gpt-5.5-pro', 'openai/gpt-5.4-pro']) {
+      assert.deepEqual(effortsFor(model), ['medium', 'high', 'xhigh'], model)
+    }
+  })
+
+  it('offers manual only on the two rows that still take a fixed thinking budget', () => {
+    for (const model of ['anthropic/claude-opus-4.6', 'anthropic/claude-sonnet-4.6']) {
+      assert.deepEqual(effortsFor(model), ['low', 'medium', 'high', 'max', 'manual'], model)
+    }
+    for (const model of [...NARROWED, 'openai/gpt-6-astra', 'openai/gpt-5.6-sol', 'anthropic/claude-opus-5', 'anthropic/claude-sonnet-5', 'anthropic/claude-opus-4.8', 'anthropic/claude-opus-4.7', 'anthropic/claude-fable-5.1', 'google/gemma-4-31b-it']) {
+      assert.equal(effortsFor(model).includes('manual'), false, model)
+    }
     assert.ok(EFFORT_LEVELS.includes('manual'))
   })
 
-  it('is undefined for models that take the full ladder, and for junk', () => {
-    assert.equal(effortsFor('anthropic/claude-opus-4.7'), undefined)
-    assert.equal(effortsFor('google/gemma-4-31b-it'), undefined)
+  it('gives a row that names no ladder every level through max, and is undefined only for junk', () => {
+    assert.deepEqual(effortsFor('anthropic/claude-opus-4.7'), ['low', 'medium', 'high', 'xhigh', 'max'])
+    assert.deepEqual(effortsFor('google/gemma-4-31b-it'), ['low', 'medium', 'high', 'xhigh', 'max'])
     assert.equal(effortsFor('nobody/nothing'), undefined)
     assert.equal(effortsFor(undefined), undefined)
     assert.equal(effortsFor(123), undefined)
@@ -1035,6 +1083,108 @@ describe('effortsFor / EFFORT_LEVELS', () => {
   it('every narrowed set is a subset of the ladder — a model cannot invent a level', () => {
     for (const model of NARROWED) {
       for (const level of effortsFor(model)) assert.ok(EFFORT_LEVELS.includes(level), `${model}: ${level}`)
+    }
+  })
+})
+
+describe('supportedModels', () => {
+  const ids = (provider, free) => supportedModels({ provider, free }).map((m) => m.id)
+  const entry = (id, provider) => supportedModels({ provider }).find((m) => m.id === id)
+
+  it('is re-exported from index.js', () => {
+    assert.equal(ai.supportedModels, supportedModels)
+  })
+
+  it('lists every paid row when no provider is named, in the table\'s order', () => {
+    assert.deepEqual(supportedModels().map((m) => m.id), KNOWN_MODELS.filter((id) => !id.endsWith(':free')))
+  })
+
+  it('gives openrouter the main list', () => {
+    const served = ids('openrouter')
+    for (const id of ['openai/gpt-oss-120b', 'qwen/qwen3.8-max', 'moonshotai/kimi-k3']) {
+      assert.ok(served.includes(id), id)
+    }
+    for (const id of ['chrome/gemini-nano-v3', 'google/gemma-4-e2b-it', 'qwen/qwen3.6-27b-bf16']) {
+      assert.equal(served.includes(id), false, id)
+    }
+  })
+
+  it('lists the free endpoints only when asked for them, and then nothing else', () => {
+    for (const provider of [undefined, 'openrouter']) {
+      assert.equal(ids(provider).some((id) => id.endsWith(':free')), false, String(provider))
+      assert.deepEqual(ids(provider, true), KNOWN_MODELS.filter((id) => id.endsWith(':free')), String(provider))
+    }
+    for (const provider of ['anthropic', 'openai', 'ollama', 'chrome', 'moonshot']) assert.deepEqual(ids(provider, true), [], provider)
+  })
+
+  it('lists only what validateModel accepts under the same flag', () => {
+    for (const free of [false, true]) {
+      for (const { id } of supportedModels({ free })) assert.doesNotThrow(() => validateModel(id, { free }), id)
+    }
+  })
+
+  it('gives anthropic and openai their own namespace, less what only OpenRouter still reaches', () => {
+    const anthropic = ids('anthropic')
+    assert.ok(anthropic.length > 0)
+    assert.deepEqual(anthropic, ids('openrouter').filter((id) => id.startsWith('anthropic/')))
+    const openai = ids('openai')
+    assert.ok(openai.length > 0 && openai.every((id) => id.startsWith('openai/')))
+    assert.ok(openai.includes('openai/gpt-6-sol-pro'))
+    for (const id of ['openai/gpt-oss-120b', 'openai/gpt-oss-120b:free']) assert.equal(openai.includes(id), false, id)
+  })
+
+  it('keeps each direct provider inside the main list', () => {
+    const main = ids('openrouter')
+    for (const provider of ['anthropic', 'openai']) {
+      for (const id of ids(provider)) assert.ok(main.includes(id), `${provider}: ${id}`)
+    }
+  })
+
+  it('lists each model with the effort levels it takes, and none for a model without the knob', () => {
+    assert.deepEqual(entry('moonshotai/kimi-k3').efforts, ['low', 'high', 'max'])
+    assert.deepEqual(entry('openai/gpt-6-sol', 'openai').efforts, ['low', 'medium', 'high', 'xhigh', 'max'])
+    assert.deepEqual(entry('anthropic/claude-sonnet-4.5').efforts, [])
+    assert.deepEqual(entry('openai/gpt-4o-mini').efforts, [])
+    assert.deepEqual(entry('chrome/gemini-nano-v3').efforts, [])
+  })
+
+  it('keeps gpt-6-astra\'s max on openrouter, which lists it for both astra rows', () => {
+    for (const id of ['openai/gpt-6-astra', 'openai/gpt-6-astra-pro']) {
+      assert.deepEqual(entry(id, 'openrouter').efforts, ['low', 'medium', 'high', 'xhigh', 'max'], id)
+    }
+  })
+
+  it('keeps manual where Anthropic could serve the request, and drops it on openrouter', () => {
+    assert.deepEqual(entry('anthropic/claude-opus-4.6', 'anthropic').efforts, ['low', 'medium', 'high', 'max', 'manual'])
+    assert.deepEqual(entry('anthropic/claude-opus-4.6').efforts, ['low', 'medium', 'high', 'max', 'manual'])
+    assert.deepEqual(entry('anthropic/claude-opus-4.6', 'openrouter').efforts, ['low', 'medium', 'high', 'max'])
+  })
+
+  it('hands out copies, so a caller cannot edit the ladders the registry checks against', () => {
+    entry('openai/gpt-6-sol').efforts.push('nonsense')
+    assert.deepEqual(effortsFor('openai/gpt-6-sol'), ['low', 'medium', 'high', 'xhigh', 'max'])
+  })
+
+  it('gives ollama every row it has a local build for, hosted ids included', () => {
+    assert.deepEqual([...ids('ollama')].sort(), [...ollamaModels()].sort())
+    assert.ok(ids('ollama').includes('qwen/qwen3.6-27b'))
+    assert.deepEqual(entry('google/gemma-4-e2b-it-qat', 'ollama').efforts, ['low', 'medium', 'high', 'xhigh', 'max'])
+  })
+
+  it('gives chrome its on-device models, which take no effort', () => {
+    const chrome = ids('chrome')
+    assert.ok(chrome.length > 0)
+    assert.deepEqual(chrome, KNOWN_MODELS.filter((id) => id.startsWith('chrome/')))
+    for (const { id, efforts } of supportedModels({ provider: 'chrome' })) assert.deepEqual(efforts, [], id)
+  })
+
+  it('gives moonshot the rows under its own namespace', () => {
+    assert.deepEqual(supportedModels({ provider: 'moonshot' }), [{ id: 'moonshotai/kimi-k3', efforts: ['low', 'high', 'max'] }])
+  })
+
+  it('refuses every other provider by name', () => {
+    for (const provider of ['gateway', 'moonshotai', 'Anthropic', '']) {
+      assert.throws(() => supportedModels({ provider }), /Unknown provider: .*\. Use: anthropic, openai, openrouter, ollama, chrome, moonshot$/u, provider)
     }
   })
 })
