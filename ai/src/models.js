@@ -110,11 +110,13 @@ export function getMaxTokens(model) {
   return MODELS.get(model)?.maxTokens ?? DEFAULT_MAX_TOKENS
 }
 
-// canThink entries:
-//   true        — supports extended thinking ({ type: 'enabled', budget_tokens })
+// canThink entries — a row thinks unless it says otherwise, and an id with no row does not:
+//   (absent)    — supports extended thinking ({ type: 'enabled', budget_tokens })
 //   'adaptive'  — supports adaptive thinking ({ type: 'adaptive' })
+//   false       — cannot think
 export function canThink(model) {
-  return Boolean(MODELS.get(model)?.canThink)
+  const row = MODELS.get(model)
+  return row !== undefined && row.canThink !== false
 }
 
 export function canAdaptive(model) {
@@ -339,9 +341,8 @@ export function readsCacheBreakpoint(model) {
 // 'high' / 'low' / etc. there is meaningless. Adaptive Anthropic, OpenAI Responses, OpenRouter,
 // Google, etc. all read effort verbatim.
 export function canEffort(model) {
-  const info = MODELS.get(model)
-  if (!info?.canThink) return false
-  if (model.startsWith('anthropic/') && info.canThink !== 'adaptive') return false
+  if (!canThink(model)) return false
+  if (model.startsWith('anthropic/') && !canAdaptive(model)) return false
   return true
 }
 

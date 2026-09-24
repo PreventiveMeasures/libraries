@@ -21,8 +21,13 @@ describe('canThink / canEffort', () => {
     assert.equal(canThink('anthropic/claude-3-haiku'), false)
   })
 
-  it('canThink: true on a model marked canThink: true', () => {
+  it('canThink: true on a row that does not say otherwise', () => {
     assert.equal(canThink('anthropic/claude-sonnet-4.5'), true)
+  })
+
+  it('canThink: false on an id the registry does not carry', () => {
+    assert.equal(canThink('nobody/nothing'), false)
+    assert.equal(canThink(undefined), false)
   })
 
   it('canThink: true on an adaptive-thinking model', () => {
