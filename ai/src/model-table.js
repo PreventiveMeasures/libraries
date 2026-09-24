@@ -29,8 +29,8 @@ const EFFORTS_THROUGH_XHIGH = ['low', 'medium', 'high', 'xhigh']
 // window, with nothing past it to charge more for, or has been retired from the first-party API.
 const OPENAI_LONG_CONTEXT = { above: 272_000, input: 2, output: 1.5 }
 
-// Prices in dollars per million tokens. The main list is every model OpenRouter serves; the extras
-// are reached only some other way.
+// Prices in dollars per million tokens. The main list is every paid model OpenRouter serves; its free
+// endpoints have a list of their own, and the extras are reached only some other way.
 export const MAIN_MODELS = [
   ['anthropic/claude-fable-5.1', { input: 10, output: 50, cacheReadPrice: 0.25, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported' }],
   ['anthropic/claude-fable-5', { input: 10, output: 50, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported' }],
@@ -102,22 +102,10 @@ export const MAIN_MODELS = [
   // reports its own per-request cost, which wins over this table, so one row serves both routes.
   // `maxTokens` is the output default.
   ['moonshotai/kimi-k3', { input: 3, output: 15, maxTokens: 131_072, canThink: true, noThink: 'unsupported', efforts: ['low', 'high', 'max'] }],
-  // Free models — may log/store/use your data
-  ['nvidia/nemotron-3-super-120b-a12b:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, noThink: 'explicit', free: true }],
-  ['nvidia/nemotron-3-ultra-550b-a55b:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, noThink: 'explicit', free: true }],
-  ['nvidia/nemotron-3.5-lightning:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, free: true }],
-  ['google/gemma-4-31b-it:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, free: true }],
-  ['google/gemma-4-26b-a4b-it:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, free: true }],
 ]
 
-// Rows OpenRouter has no endpoint for: free endpoints it no longer serves, Chrome's on-device
-// models, and the local builds Ollama serves.
+// Rows OpenRouter has no endpoint for: Chrome's on-device models, and the local builds Ollama serves.
 export const EXTRA_MODELS = [
-  ['openai/gpt-oss-120b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
-  ['openai/gpt-oss-20b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
-  ['qwen/qwen3-coder:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
-  ['qwen/qwen3.6-plus:free', { input: 0, output: 0, maxTokens: 64 * 1024, free: true }],
-  ['google/gemma-3-27b-it:free', { input: 0, output: 0, maxTokens: 8192, free: true }],
   // Chrome's built-in on-device models. Unpriced like every other local row: nobody sells them, and
   // the provider says a local run costs nothing. `baseModel`/`specNames`/`modelVersion`/`component`
   // are Chrome's own spellings, read in src/chrome/.
@@ -157,4 +145,18 @@ export const EXTRA_MODELS = [
   ['nvidia/nemotron-3.5-lightning-q4_k_m', { maxTokens: 128 * 1024, canThink: true }],
   ['nvidia/nemotron-3-super-120b-a12b-q8_0', { maxTokens: 128 * 1024, canThink: true }],
   ['nvidia/nemotron-3-super-120b-a12b-q4_k_m', { maxTokens: 128 * 1024, canThink: true }],
+]
+
+// OpenRouter's free endpoints — may log/store/use your data.
+export const FREE_MODELS = [
+  ['openai/gpt-oss-120b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
+  ['openai/gpt-oss-20b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
+  ['nvidia/nemotron-3-super-120b-a12b:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, noThink: 'explicit', free: true }],
+  ['nvidia/nemotron-3-ultra-550b-a55b:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, noThink: 'explicit', free: true }],
+  ['nvidia/nemotron-3.5-lightning:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, free: true }],
+  ['qwen/qwen3-coder:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
+  ['qwen/qwen3.6-plus:free', { input: 0, output: 0, maxTokens: 64 * 1024, free: true }],
+  ['google/gemma-4-31b-it:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, free: true }],
+  ['google/gemma-4-26b-a4b-it:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, free: true }],
+  ['google/gemma-3-27b-it:free', { input: 0, output: 0, maxTokens: 8192, free: true }],
 ]

@@ -1,29 +1,36 @@
 import { assert } from '#assert'
-import { EFFORTS_THROUGH_MAX, EXTRA_MODELS, MAIN_MODELS } from './model-table.js'
+import { EFFORTS_THROUGH_MAX, EXTRA_MODELS, FREE_MODELS, MAIN_MODELS } from './model-table.js'
 
 const DEFAULT_MAX_TOKENS = 64 * 1024
 
-const MODELS = new Map([...MAIN_MODELS, ...EXTRA_MODELS])
+const MODELS = new Map([...MAIN_MODELS, ...EXTRA_MODELS, ...FREE_MODELS])
 
-// The names the price table knows, in its own order (the main list, then the extras). Not a closed
-// set — `--model` takes any string, and an unknown one simply costs nothing the table can price —
-// so this is what to OFFER, never what to allow. The server's console builds its model suggestions
-// from it.
+// The names the price table knows, in its own order: the main list, the extras, then the free
+// endpoints. Not a closed set — `--model` takes any string, and an unknown one simply costs nothing
+// the table can price — so this is what to OFFER, never what to allow. The server's console builds
+// its model suggestions from it.
 export const KNOWN_MODELS = [...MODELS.keys()]
 
 const LISTING_PROVIDERS = ['anthropic', 'openai', 'openrouter']
 
-// The models a provider serves, each with the effort levels it takes there; every row when no
-// provider is named. OpenRouter serves the main list, and Anthropic and OpenAI the main rows under
-// their own namespace, bar the free endpoints and the few only OpenRouter still reaches. `manual`
-// is Anthropic's alone, so no other provider lists it.
-export function supportedModels({ provider } = {}) {
+// The models a provider serves, each with the effort levels it takes there; every model when no
+// provider is named. OpenRouter serves the main list, and Anthropic and OpenAI its rows under their
+// own namespace, bar the few only OpenRouter still reaches. `manual` is Anthropic's alone, so no
+// other provider lists it.
+//
+// `free` works the way validateModel's does: the free endpoints with it, which are OpenRouter's, and
+// everything else without, so a listing is exactly what that mode accepts.
+function servedRows(provider, free) {
+  if (free) return provider === undefined || provider === 'openrouter' ? FREE_MODELS : []
+  if (provider === undefined) return [...MAIN_MODELS, ...EXTRA_MODELS]
+  if (provider === 'openrouter') return MAIN_MODELS
+  return MAIN_MODELS.filter(([id, row]) => id.startsWith(`${provider}/`) && !row.openRouterOnly)
+}
+
+export function supportedModels({ provider, free = false } = {}) {
   assert(provider === undefined || LISTING_PROVIDERS.includes(provider), `Unknown provider: ${provider}. Use: ${LISTING_PROVIDERS.join(', ')}`)
-  const rows = provider === undefined ? [...MODELS]
-    : provider === 'openrouter' ? MAIN_MODELS
-    : MAIN_MODELS.filter(([id, row]) => id.startsWith(`${provider}/`) && !row.free && !row.openRouterOnly)
   const keepsManual = provider === undefined || provider === 'anthropic'
-  return rows.map(([id]) => ({
+  return servedRows(provider, free).map(([id]) => ({
     id,
     efforts: canEffort(id) ? effortsFor(id).filter((level) => keepsManual || level !== 'manual') : [],
   }))

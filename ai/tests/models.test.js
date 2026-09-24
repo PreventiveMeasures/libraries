@@ -1086,24 +1086,38 @@ describe('effortsFor / EFFORT_LEVELS', () => {
 })
 
 describe('supportedModels', () => {
-  const ids = (provider) => supportedModels({ provider }).map((m) => m.id)
+  const ids = (provider, free) => supportedModels({ provider, free }).map((m) => m.id)
   const entry = (id, provider) => supportedModels({ provider }).find((m) => m.id === id)
 
   it('is re-exported from index.js', () => {
     assert.equal(ai.supportedModels, supportedModels)
   })
 
-  it('lists every row when no provider is named, in the table\'s order', () => {
-    assert.deepEqual(supportedModels().map((m) => m.id), KNOWN_MODELS)
+  it('lists every paid row when no provider is named, in the table\'s order', () => {
+    assert.deepEqual(supportedModels().map((m) => m.id), KNOWN_MODELS.filter((id) => !id.endsWith(':free')))
   })
 
-  it('gives openrouter the main list: hosted rows and the free endpoints it still serves', () => {
+  it('gives openrouter the main list', () => {
     const served = ids('openrouter')
-    for (const id of ['anthropic/claude-sonnet-4', 'openai/gpt-oss-120b', 'qwen/qwen3.8-max', 'moonshotai/kimi-k3', 'google/gemma-4-31b-it:free']) {
+    for (const id of ['anthropic/claude-sonnet-4', 'openai/gpt-oss-120b', 'qwen/qwen3.8-max', 'moonshotai/kimi-k3']) {
       assert.ok(served.includes(id), id)
     }
-    for (const id of ['chrome/gemini-nano-v3', 'google/gemma-4-e2b-it', 'qwen/qwen3.6-27b-bf16', 'qwen/qwen3-coder:free']) {
+    for (const id of ['chrome/gemini-nano-v3', 'google/gemma-4-e2b-it', 'qwen/qwen3.6-27b-bf16']) {
       assert.equal(served.includes(id), false, id)
+    }
+  })
+
+  it('lists the free endpoints only when asked for them, and then nothing else', () => {
+    for (const provider of [undefined, 'openrouter']) {
+      assert.equal(ids(provider).some((id) => id.endsWith(':free')), false, String(provider))
+      assert.deepEqual(ids(provider, true), KNOWN_MODELS.filter((id) => id.endsWith(':free')), String(provider))
+    }
+    for (const provider of ['anthropic', 'openai']) assert.deepEqual(ids(provider, true), [], provider)
+  })
+
+  it('lists only what validateModel accepts under the same flag', () => {
+    for (const free of [false, true]) {
+      for (const { id } of supportedModels({ free })) assert.doesNotThrow(() => validateModel(id, { free }), id)
     }
   })
 
