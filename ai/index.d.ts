@@ -34,6 +34,11 @@ interface Tool {
   input_schema: unknown
 }
 
+// What a tool answers with. Plain data — an object or an array, nothing
+// carrying a prototype of its own — is stored in the cache as structure and
+// turned into JSON on its way to the wire, which takes only strings.
+type ToolResult = string | Record<string, unknown> | unknown[]
+
 // One tool call out of a response: `args` on success, `argsError` when the
 // model produced JSON that didn't parse. `id` is whatever the provider
 // needs back to match the result to the call.
@@ -45,14 +50,21 @@ interface ToolCall {
 }
 
 // One completed turn, as the cache stores it and as a resume replays it.
-// `request` and `response` are provider-shaped; `messages` is the pre-turn
-// snapshot the loop rebuilds its state from.
+// `request` and `response` are provider-shaped. `messages` is the pre-turn
+// snapshot; a stored history keeps only entry 0's — the seed a resume
+// replays the other turns onto — and nulls the rest, which are a copy of
+// what those turns already say. `request` is stored the same way.
 interface HistoryEntry {
   request: unknown
   response: unknown
-  messages: unknown[]
+  messages: unknown[] | null
   toolCalls: ToolCall[]
-  results: string[]
+  // What `handleToolCall` returned, one per call. Optional because an entry
+  // written before the rename carries it as `results` instead, and is still
+  // read back under that name — a history off disk may have either.
+  toolResults?: ToolResult[] | undefined
+  /** @deprecated The name `toolResults` replaced. Read, never written. */
+  results?: ToolResult[] | undefined
   provider?: string | undefined
   error?: string | undefined
 }
@@ -134,7 +146,7 @@ interface AskOptions {
   effort?: string | undefined
   // Both or neither: a tool the caller can't answer is a caller error.
   tools?: Tool[] | undefined
-  handleToolCall?: ((call: ToolCall) => string | Promise<string>) | undefined
+  handleToolCall?: ((call: ToolCall) => ToolResult | Promise<ToolResult>) | undefined
   maxToolTurns?: number | undefined
   // Surviving an interruption, both halves of it: the cache options a
   // running history is written under after every turn, and the partial this
@@ -245,6 +257,42 @@ export declare function listCacheEntries(type: string, model: string, systemProm
   effort?: string | undefined
   concurrency?: number | undefined
 }): Promise<{ key: string, userContent: string }[]>
+// Rewrites one stored history in the form written now: the answers under
+// `toolResults`, entry 0 keeping its request and its `messages` snapshot,
+// every later entry keeping neither. Throws without writing if a snapshot it
+// would drop is not exactly what replaying the turns before it produces —
+// including when the provider that wrote the file is not the one currently
+// set. A file that holds no history is left alone and reported `skipped`.
+//
+// Throws, too, on a turn before the last recording tool calls and a
+// different number of answers: what came back is then nowhere but inside
+// the next entry's request, which no writer here produces.
+//
+// The requests are kept where the conversation cannot be known without
+// them: entry 0 holding no seed snapshot to replay from (an empty one is
+// none), or a turn in the middle that called nothing, which is where one
+// conversation ended and the next one's opening went unrecorded anywhere
+// else. Nothing rebuilds a request, so those files keep every one.
+//
+// `selectProvider` is handed the stamp the entries carry, after the parse and
+// before the replay, for a caller walking a directory more than one provider
+// wrote. Throwing from it leaves the file untouched. `dryRun` does all of it
+// but the write, and reports what a real run would have done.
+export declare function normalizeCacheFile(path: string, options?: {
+  dryRun?: boolean | undefined
+  selectProvider?: ((stamp: string | undefined) => void | Promise<void>) | undefined
+}): Promise<NormalizeResult>
+// Every stored history under a directory, one result per file as it goes. A file left alone comes
+// back carrying its `error` rather than throwing, so one unreadable entry does not stop the walk.
+export declare function normalizeCache(dir: string, options?: {
+  dryRun?: boolean | undefined
+  selectProvider?: ((stamp: string | undefined) => void | Promise<void>) | undefined
+}): AsyncGenerator<(NormalizeResult & { path: string }) | { path: string, error: Error }>
+interface NormalizeResult {
+  status: 'normalized' | 'unchanged' | 'skipped'
+  before: number
+  after: number
+}
 export declare function recordCacheHit(): void
 export declare function recordCacheMiss(): void
 // `skipType` names the request types whose entries must not be touched —
@@ -262,6 +310,13 @@ export declare function setInvalid(userContent: string, history: HistoryEntry[],
 export declare function setUniqueRerun(key: string): void
 
 // Turning a conversation into the JSON an entry stores, for a caller that
-// writes one itself rather than through setCache.
-export declare function serializeHistory(history: HistoryEntry[]): string
+// writes one itself rather than through setCache. Every entry but the first
+// keeps neither its `request` nor its `messages`: nothing reads them back,
+// and one copy of the conversation-so-far per turn is what grew a file with
+// the square of its length. `keepRequests` holds the requests back from
+// that, for a history whose tool answers are recorded nowhere else — see
+// normalizeCacheFile, which is the only caller that meets one.
+export declare function serializeHistory(history: HistoryEntry[], options?: {
+  keepRequests?: boolean | undefined
+}): string
 export declare function serializeInvalid(reason: string, history: HistoryEntry[]): string

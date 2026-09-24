@@ -7,6 +7,7 @@ import {
   appendToolResults, buildInitialUserMessage, extractResponseText, extractToolCalls,
   normalizeOneUsage, providerStamp, turnCost,
 } from './providers.js'
+import { assertToolResult } from './tool-results.js'
 import { issueTurn, resolveTaskBudget } from './task-budget.js'
 
 // One conversation with a model, end to end: the first message, a turn per request, the caller's
@@ -73,9 +74,9 @@ export async function ask({ model, maxTokens, systemPrompt, userContent, think =
   // What the entry is keyed on: the whole user message, so a request that sent its shared part and
   // tail as separate blocks still resumes under the key its final result will be cached at.
   const keyContent = flattenUserContent(userContent)
-  // Per-turn partial writes are best-effort resilience: a disk error (permissions, ENOSPC) must not
-  // abort a conversation in progress, so log and carry on — the final write still gets its chance.
-  // setPartial recovers an oversized history's JSON.stringify overflow internally.
+  // Per-turn partial writes are best-effort resilience: a disk error (permissions, ENOSPC), or a
+  // history too large to serialise, must not abort a conversation in progress — so log and carry
+  // on, and the final write still gets its chance.
   const savePartial = async () => {
     if (!partial) return
     try {
@@ -85,41 +86,30 @@ export async function ask({ model, maxTokens, systemPrompt, userContent, think =
     }
   }
 
-  const previous = await resumeFrom(keyContent, partial, stamp, { debug, label })
-  await onStart?.(previous ?? [])
+  const resumed = await resumeFrom(keyContent, partial, stamp, { debug, label })
+  await onStart?.(resumed?.history ?? [])
 
-  let messages
-  // Replay the cached turns: history and texts are repopulated, and `messages` is rebuilt from the
-  // last entry's snapshot. Note we deliberately do NOT add cached-entry usage into `totalUsage` —
+  // Take on the cached turns. Note we deliberately do NOT add their usage into `totalUsage` —
   // those tokens were paid in the prior (interrupted) invocation and are already reflected in that
-  // run's cost line; counting them here would inflate the "new" cost reported for this invocation.
-  // The `messages` snapshot is stored per-entry (not reconstructed from request.messages) because
-  // requests are provider-shaped (OpenAI Responses uses `request.input`; OpenRouter prepends its
-  // own system message); the provider check in resumeFrom already gated us into a matching shape.
-  // Tail `appendToolResults` is only applied when the last entry actually had tool calls — a
-  // terminal-turn entry has nothing to append.
-  if (previous) {
-    for (const entry of previous) {
-      history.push(entry)
-      texts.push(extractResponseText(entry.response))
-    }
-    const last = previous.at(-1)
-    // Last cached turn produced no tool calls — the previous run had already issued its final
-    // assistant message and would have returned at this point. Short-circuit to avoid a redundant
-    // API round-trip (and the cost / nondeterministic re-roll that would come with it) when the
-    // partial got persisted but the final setCache write didn't make it (process killed
-    // mid-finish).
-    if (!Array.isArray(last.toolCalls) || last.toolCalls.length === 0) {
-      return { text: texts.filter(Boolean).join('\n'), usage: totalUsage, history }
-    }
-    messages = [...last.messages]
-    appendToolResults(messages, last.response, last.toolCalls, last.results)
-  } else {
-    messages = [buildInitialUserMessage(model, userContent)]
+  // run's cost line; counting them here would inflate the "new" cost reported for this one.
+  for (const entry of resumed?.history ?? []) {
+    history.push(entry)
+    texts.push(extractResponseText(entry.response))
   }
+  // No messages to send means the last cached turn called no tool: the previous run had already
+  // issued its final assistant message and would have returned at this point. Short-circuit to
+  // avoid a redundant API round-trip (and the cost / nondeterministic re-roll that would come with
+  // it) when the partial got persisted but the final setCache write didn't (killed mid-finish).
+  if (resumed && !resumed.messages) return { text: texts.filter(Boolean).join('\n'), usage: totalUsage, history }
+  const messages = resumed?.messages ?? [buildInitialUserMessage(model, userContent)]
 
   const gateKey = prefixKey(model, tools, systemPrompt)
-  for (let turn = history.length; turn < maxToolTurns; turn++) {
+  // Which turn this call opens on, held apart from `history.length` because that grows by one per
+  // completed turn — so `turn === history.length` stayed true for every iteration, and the gate
+  // below said "head turn only" while claiming on all of them. Harmless (a claim after the head has
+  // replied awaits a settled promise and hands back a no-op), but it read as a condition.
+  const firstTurn = history.length
+  for (let turn = firstTurn; turn < maxToolTurns; turn++) {
     // Snapshot the pre-turn messages array before buildRequestBody — appendToolResults mutates it
     // in place, so a post-hoc capture would leak the next turn's state into this entry.
     const preMessages = [...messages]
@@ -127,7 +117,7 @@ export async function ask({ model, maxTokens, systemPrompt, userContent, think =
     // the cache entry it writes instead of racing to write their own. Released the moment the reply
     // lands, not held for the rest of the chain — later turns of this conversation are sequential
     // and extend a prefix nobody else shares.
-    const release = turn === history.length ? await claimPrefix(gateKey) : null
+    const release = turn === firstTurn ? await claimPrefix(gateKey) : null
     const { request, response, error, failedAttemptResponse } = await issueTurn({
       model, maxTokens, systemPrompt, messages, think, effort, tools, label, turn,
       taskBudgetAlways, taskBudgetOnError, debug,
@@ -138,7 +128,7 @@ export async function ask({ model, maxTokens, systemPrompt, userContent, think =
     addUsage(totalUsage, normalizeUsage(response, model))
 
     if (error) {
-      history.push({ request, response, messages: preMessages, toolCalls: [], results: [], error, provider: stamp })
+      history.push({ request, response, messages: preMessages, toolCalls: [], toolResults: [], error, provider: stamp })
       await savePartial()
       return { text: null, error, usage: totalUsage, history }
     }
@@ -148,46 +138,114 @@ export async function ask({ model, maxTokens, systemPrompt, userContent, think =
     const toolCalls = extractToolCalls(response)
     const malformed = toolCalls.find((tc) => tc.argsError)
     if (malformed) {
-      history.push({ request, response, messages: preMessages, toolCalls, results: [], error: malformed.argsError, provider: stamp })
+      history.push({ request, response, messages: preMessages, toolCalls, toolResults: [], error: malformed.argsError, provider: stamp })
       await savePartial()
       return { text: null, error: malformed.argsError, usage: totalUsage, history }
     }
 
     if (debugRequests && toolCalls.length > 0) console.log(`[debug] ${label} calling tool: ${JSON.stringify(toolCalls)}`)
-    const results = toolCalls.length > 0 && handleToolCall ? await Promise.all(toolCalls.map((tc) => handleToolCall(tc))) : []
-    history.push({ request, response, messages: preMessages, toolCalls, results, provider: stamp })
+    const answers = toolCalls.length > 0 && handleToolCall ? await Promise.all(toolCalls.map((tc) => handleToolCall(tc))) : []
+    // Judged here rather than at the wire, which is two statements and one disk write too late: an
+    // answer the adapters cannot carry would be in the partial before anything looked at it, and
+    // every later run would read it back and fail on it. Named, too — the wire knows the value and
+    // nothing else about it.
+    //
+    // And what the entry keeps is the JSON that check built, parsed back, rather than the object
+    // itself. Now that an answer can be structure, a handler is free to hand back one object it
+    // refills per call — a scratch record, a reused buffer — and storing the reference would let
+    // every later savePartial re-serialise every earlier turn's answer to its latest contents,
+    // caching a conversation the model was never shown. A string answer is already a value.
+    const toolResults = answers.map((answer, i) => {
+      const json = assertToolResult(answer, `The result of tool ${toolCalls[i].name}`)
+      return typeof answer === 'string' ? answer : JSON.parse(json)
+    })
+    history.push({ request, response, messages: preMessages, toolCalls, toolResults, provider: stamp })
     await savePartial()
 
     if (toolCalls.length === 0 || !handleToolCall) {
       return { text: texts.filter(Boolean).join('\n'), usage: totalUsage, history }
     }
-    appendToolResults(messages, response, toolCalls, results)
+    appendToolResults(messages, response, toolCalls, toolResults)
   }
 
   return { text: null, error: 'Max tool call turns reached', usage: totalUsage, history }
 }
 
-// The partial this run picks up from, or null for a fresh start. Reading it here rather than taking
-// one from the caller keeps the shape check, the provider check and the disposal of a bad one in
-// one place, where no caller can skip them.
+// The field was `results` until it grew a `toolCalls` sibling to be confused with. A partial
+// written under the old name still resumes.
+const toolResultsOf = (entry) => entry.toolResults ?? entry.results
+
+// The messages array a run held after all of its turns — entry 0's seed plus what each of them
+// appended. Every appendToolResults is a pure function of the turn it is given, so this reproduces
+// exactly the array the run held, which is why no snapshot of it is stored past the seed. Not
+// rebuilt from the requests instead: those are provider-shaped (OpenAI Responses uses
+// `request.input`; OpenRouter prepends its own system message) and dropped after the first anyway.
+// Replaying under another provider's adapter would build the wrong shapes, which is what the stamp
+// check in resumeFrom — and the assertion in normalizeCacheFile — is for.
+//
+// A file that still carries the last turn's own snapshot is resumed from THAT, as it always was.
+// The two agree for anything a writer produces, but not for what the overflow recovery that used to
+// live in cache-history.js left behind: it stripped thinking-block signatures from the early
+// entries' responses while keeping the last ten snapshots whole, precisely because resume read only
+// the last one. Replaying those responses rebuilds the same turns with the signatures gone, which
+// Anthropic rejects — and unlike a malformed partial it does not throw, so the run pays for the
+// refused request before anything notices. Where the record exists it is the better one; the walk
+// is for the files that no longer have it.
+function replayMessages(history) {
+  const last = history.at(-1)
+  if (Array.isArray(last.messages)) {
+    const messages = [...last.messages]
+    appendTurn(messages, last)
+    return messages
+  }
+  const messages = [...history[0].messages]
+  for (const entry of history) appendTurn(messages, entry)
+  return messages
+}
+
+// One turn of that walk, for a caller stepping through a history rather than rebuilding a prefix of
+// it — which is the difference between one pass and one per entry.
+export function appendTurn(messages, entry) {
+  appendToolResults(messages, entry.response, entry.toolCalls, toolResultsOf(entry))
+}
+
+// The partial this run picks up from — its turns, and the messages array they rebuild to — or null
+// for a fresh start. Everything that decides whether a partial can be used is here, where no caller
+// can skip it, and rebuilding is part of deciding: isResumableHistory judges shape, not every value
+// a turn holds, so a result no adapter can carry gets past it and surfaces as a throw from the
+// replay. That would throw identically in every later process, which makes it the same kind of
+// unusable as a malformed one — taken out of service, and the conversation paid for again.
+//
+// A history whose last turn called nothing comes back with no `messages`: the answer is already in
+// it, no request follows, and there is nothing to rebuild.
 async function resumeFrom(keyContent, partial, stamp, { debug, label }) {
   if (!partial) return null
   const history = await takePartial(keyContent, partial)
   if (!history) return null
-  if (!isResumableHistory(history, { provider: stamp })) {
-    if (debug) console.warn(`[chat] partial for ${label} is malformed or cross-provider; starting fresh`)
-    // Out of service, so the next process doesn't load it under a wrong shape too.
+  // Out of service, so the next process doesn't load it under a wrong shape too.
+  const unusable = async (why) => {
+    if (debug) console.warn(`[chat] partial for ${label} ${why}; starting fresh`)
     await invalidateCacheEntry(keyContent, partial)
     return null
   }
+  if (!isResumableHistory(history, { provider: stamp })) return await unusable('is malformed or cross-provider')
   if (debug) console.debug(`[chat] resuming ${label} from ${history.length} cached turn(s)`)
-  return history
+  if (!(history.at(-1).toolCalls?.length > 0)) return { history }
+  try {
+    return { history, messages: replayMessages(history) }
+  } catch (err) {
+    return await unusable(`does not replay (${err.message})`)
+  }
 }
 
-// Validate a cached partial history is safe to replay. Resume needs every entry to be an object
-// with both a `response` (extractResponseText reads it) and a `messages` array (the pre-turn
-// snapshot chat rebuilds the loop state from). One bad entry invalidates the whole partial —
-// resumeFrom invalidates it and starts fresh rather than risking a mid-replay crash.
+// Validate a cached partial history is safe to replay. Every entry has to be an object with a
+// `response` (extractResponseText reads it, and the replay feeds it back to appendToolResults),
+// entry 0 has to carry a non-empty `messages` seed — the only snapshot serializeHistory keeps, and
+// now the sole record of how the conversation opened, so an empty one replays a request with no
+// question in it — and every entry before the last has to be a completed tool round, since
+// that is what the replay treats it as and a turn that called nothing is where the loop stopped.
+// One bad entry invalidates the whole partial — resumeFrom invalidates it and starts fresh rather
+// than risking a mid-replay crash.
 //
 // `provider` (optional): require every entry's `provider` stamp to match. `messages` content blocks
 // are adapter-shaped (Anthropic's `tool_use` blocks, OpenAI's tool_call arrays, etc.) so replaying
@@ -202,14 +260,58 @@ async function resumeFrom(keyContent, partial, stamp, { debug, label }) {
 // into that state would just re-surface the same failure (or, for the short-circuit path, silently
 // return empty text and mask the error).
 export function isResumableHistory(history, { provider } = {}) {
-  if (!Array.isArray(history) || history.length === 0) return false
-  if (!history.every((e) => e && typeof e === 'object' && e.response && typeof e.response === 'object' && Array.isArray(e.messages))) return false
+  if (!isStoredHistory(history)) return false
   if (provider !== undefined && !history.every((e) => e.provider === provider)) return false
+  if (!Array.isArray(history[0].messages) || history[0].messages.length === 0) return false
+  if (!isUnbrokenHistory(history)) return false
   const last = history.at(-1)
   if (last.error) return false
-  const tc = Array.isArray(last.toolCalls) ? last.toolCalls : []
-  const rs = Array.isArray(last.results) ? last.results : []
-  return tc.length === 0 || tc.length === rs.length
+  return !(last.toolCalls?.length > 0) || isAnsweredTurn(last)
+}
+
+// Whether a turn's calls all came back: both arrays are there and they line up. An unanswered call
+// has its answer nowhere in the entry that made it — the only copy is the tool_result block inside
+// the NEXT entry's request, which is why normalizeCacheFile refuses a file holding one.
+export function isAnsweredTurn(entry) {
+  const results = toolResultsOf(entry)
+  return Array.isArray(entry.toolCalls) && Array.isArray(results) && entry.toolCalls.length === results.length
+}
+
+// Whether ONE conversation runs unbroken from entry 0 to the end of the file: every turn but the
+// last issued at least one tool call and recorded an answer to each of them. That is the condition
+// under which the messages array at any point is rebuildable from entry 0's seed plus the turns —
+// what resume replays, and what has to hold before a request may be dropped.
+//
+// Both halves guard the same loss, which is why the normalizer asks this and not just "does it
+// resume". A turn whose calls went unanswered has those answers recorded only inside the following
+// request; a turn that called nothing is where a conversation ENDED, so one in the middle means the
+// file holds another after it, whose opening question no later entry repeats. Either way the
+// request is the sole record and nulling it is not a slimming.
+export function isUnbrokenHistory(history) {
+  return history.slice(0, -1).every((entry) => isAnsweredTurn(entry) && entry.toolCalls.length > 0)
+}
+
+// A stored history, as against whatever else a `.json` under a cache root might be — a config, a
+// fixture, an export, or a log this layer itself wrote long enough ago. Every entry an object
+// carrying a response OBJECT and the two arrays a turn is made of: the calls it issued, and the
+// answers to them under either name.
+//
+// A response alone is too weak to gate a rewrite on, and the reason is `request` rather than
+// `messages`. serializeHistory nulls both past the first entry, but only the snapshots are proved
+// reproducible before they go — a request is not derivable from anything else in the entry, so
+// dropping one is only safe where nothing needs it, which holds for a history this layer writes
+// (resume reads no requests, and cache-key recovery reads entry 0's) and holds for nothing else.
+// The oldest logs here were plain `[{ request, response }, ...]` pairs whose tool results exist
+// ONLY as tool_result blocks inside each later request — null those and the conversation cannot be
+// continued or even read back. Requiring `toolCalls` and `toolResults` is what keeps them, and any
+// foreign array of `{ request, response }` records, out of the rewrite entirely — and what the two
+// arrays SAY is isUnbrokenHistory's half of the same question.
+export function isStoredHistory(history) {
+  return Array.isArray(history) && history.length > 0 && history.every(
+    (entry) => entry !== null && typeof entry === 'object' && !Array.isArray(entry)
+      && entry.response !== null && typeof entry.response === 'object' && !Array.isArray(entry.response)
+      && Array.isArray(entry.toolCalls) && Array.isArray(toolResultsOf(entry)),
+  )
 }
 
 // Per-attempt cost log, for every caller that drives a conversation. OpenRouter ships its own

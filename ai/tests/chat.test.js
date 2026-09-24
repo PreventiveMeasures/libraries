@@ -5,12 +5,35 @@ import { ask, isResumableHistory, normalizeUsage } from '../src/chat.js'
 import { calculateCost } from '../src/models.js'
 
 describe('isResumableHistory', () => {
-  it('accepts a well-formed history with response + messages on every entry', () => {
+  // A completed tool round, which is what every entry but the last has to be.
+  const round = { toolCalls: [{ id: 't1', name: 'probe', args: {} }], toolResults: ['probed'] }
+
+  it('accepts a well-formed history: a seed on entry 0, a response on each, rounds in between', () => {
+    // Entry 1 carries no snapshot, which is how serializeHistory stores it — the replay rebuilds
+    // from entry 0's plus the rounds, so only that one has to be there.
     const ok = [
-      { request: {}, response: { content: [] }, messages: [{ role: 'user', content: 'hi' }], toolCalls: [], results: [] },
-      { request: {}, response: { content: [] }, messages: [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'hey' }], toolCalls: [], results: [] },
+      { request: {}, response: { content: [] }, messages: [{ role: 'user', content: 'hi' }], ...round },
+      { request: {}, response: { content: [] }, messages: null, toolCalls: [], toolResults: [] },
     ]
     assert.equal(isResumableHistory(ok), true)
+  })
+
+  it('rejects an entry before the last that called no tool', () => {
+    // The loop returns at the first turn that calls nothing, so a history cannot really hold one
+    // in the middle — and the replay would push an assistant turn answered by an empty result.
+    const bad = [
+      { request: {}, response: { content: [] }, messages: [{ role: 'user', content: 'hi' }], toolCalls: [], toolResults: [] },
+      { request: {}, response: { content: [] }, messages: null, toolCalls: [], toolResults: [] },
+    ]
+    assert.equal(isResumableHistory(bad), false)
+  })
+
+  it('rejects an entry before the last whose calls were not all answered', () => {
+    const bad = [
+      { request: {}, response: { content: [] }, messages: [{ role: 'user', content: 'hi' }], toolCalls: round.toolCalls, toolResults: [] },
+      { request: {}, response: { content: [] }, messages: null, toolCalls: [], toolResults: [] },
+    ]
+    assert.equal(isResumableHistory(bad), false)
   })
 
   it('rejects an empty history', () => {
@@ -25,18 +48,32 @@ describe('isResumableHistory', () => {
 
   it('rejects when any entry is missing `response`', () => {
     const bad = [
-      { request: {}, response: { content: [] }, messages: [], toolCalls: [], results: [] },
-      { request: {}, messages: [], toolCalls: [], results: [] }, // no response
+      { request: {}, response: { content: [] }, messages: [], ...round },
+      { request: {}, messages: [], toolCalls: [], toolResults: [] }, // no response
     ]
     assert.equal(isResumableHistory(bad), false)
   })
 
-  it('rejects when any entry is missing `messages` array', () => {
-    const bad = [
-      { request: {}, response: {}, messages: [{ role: 'user' }] },
-      { request: {}, response: {}, messages: 'not-an-array' },
+  it('rejects when entry 0 carries no `messages` seed', () => {
+    // Later entries have none by design; the first one is what the replay starts from.
+    assert.equal(isResumableHistory([{ request: {}, response: {}, messages: 'not-an-array' }]), false)
+    assert.equal(isResumableHistory([{ request: {}, response: {}, messages: null }]), false)
+  })
+
+  it('rejects an empty seed on entry 0', () => {
+    // It is the only record of how the conversation opened now — the later snapshots that used to
+    // carry a copy of it are gone — so an empty one replays a request with no question in it,
+    // which Anthropic refuses and a chat-completions route bills for.
+    assert.equal(isResumableHistory([{ request: {}, response: {}, messages: [], ...round }]), false)
+  })
+
+  it('accepts an entry that still calls its results `results`', () => {
+    // Written before the rename, and still resumable.
+    const legacy = [
+      { request: {}, response: {}, messages: [{ role: 'user' }], toolCalls: round.toolCalls, results: ['probed'] },
+      { request: {}, response: {}, messages: null, toolCalls: [], results: [] },
     ]
-    assert.equal(isResumableHistory(bad), false)
+    assert.equal(isResumableHistory(legacy), true)
   })
 
   it('rejects null / non-object entries (legacy or corrupted partials)', () => {
