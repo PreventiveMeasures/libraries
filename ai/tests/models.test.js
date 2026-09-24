@@ -891,11 +891,99 @@ describe('Gemma 4 (google/gemma-4-31b-it, google/gemma-4-26b-a4b-it)', () => {
   })
 })
 
+describe('grok 4.7', () => {
+  const GROK = 'x-ai/grok-4.7'
+  const bill = (fields) => calculateCost(GROK, { ...emptyUsage(), ...fields })
+
+  it("registers xAI's published $2 / $6 per Mtok, $0.50 cache reads and a 128k max_tokens", () => {
+    assert.equal(bill({ input: 100_000, output: 100_000 }), 0.2 + 0.6)
+    assert.equal(bill({ cacheRead: 100_000 }), 0.05)
+    assert.equal(getMaxTokens(GROK), 128 * 1024)
+  })
+
+  it('doubles every leg past 200,000 prompt tokens, on the whole request', () => {
+    assert.equal(bill({ input: 200_000 }), 0.4)
+    assert.equal(bill({ input: 200_001 }), (200_001 * 4) / 1_000_000)
+    assert.equal(bill({ input: 1_000_000, output: 1_000_000 }), 4 + 12)
+    assert.equal(bill({ cacheRead: 1_000_000 }), 1)
+  })
+
+  it('always reasons, at the four efforts xAI lists', () => {
+    assert.equal(canThink(GROK), true)
+    assert.equal(canDisableThink(GROK), false)
+    assert.deepEqual(effortsFor(GROK), ['low', 'medium', 'high', 'xhigh'])
+    assert.deepEqual(normalizeThinkEffort(GROK, true), { useThink: true, useEffort: 'high' })
+  })
+})
+
+describe('glm 5.3', () => {
+  const GLM = 'z-ai/glm-5.3'
+
+  it("registers Z.ai's published $1.40 / $4.40 per Mtok, $0.26 cache reads and a 128k max_tokens", () => {
+    assert.equal(baseRate(GLM, 'input', 'output'), 1.4 + 4.4)
+    assert.equal(baseRate(GLM, 'cacheRead'), 0.26)
+    assert.equal(getMaxTokens(GLM), 128 * 1024)
+  })
+
+  it('always reasons, at low, high or max', () => {
+    assert.equal(canThink(GLM), true)
+    assert.equal(canDisableThink(GLM), false)
+    assert.deepEqual(effortsFor(GLM), ['low', 'high', 'max'])
+    assert.deepEqual(normalizeThinkEffort(GLM, true), { useThink: true, useEffort: 'high' })
+  })
+})
+
+describe('qwen3.8 max', () => {
+  const MAX = 'qwen/qwen3.8-max'
+
+  it("registers Alibaba's published $2 / $6 per Mtok and a 128k max_tokens", () => {
+    assert.equal(baseRate(MAX, 'input', 'output'), 2 + 6)
+    assert.equal(getMaxTokens(MAX), 128 * 1024)
+  })
+
+  it("bills cache reads at $0.25, outside Alibaba's usual 10%, and writes at its 125%", () => {
+    assert.equal(baseRate(MAX, 'cacheRead'), 0.25)
+    assert.equal(baseRate(MAX, 'cacheWrite5m'), 2.5)
+  })
+
+  it('thinks, can be switched off, and takes the full effort ladder', () => {
+    assert.equal(canThink(MAX), true)
+    assert.equal(canDisableThink(MAX), true)
+    assert.equal(effortsFor(MAX), undefined)
+  })
+})
+
+describe('deepseek v4', () => {
+  const PRO = 'deepseek/deepseek-v4-pro'
+  const FLASH = 'deepseek/deepseek-v4.1-flash'
+
+  it("registers DeepSeek's published peak rates and its 384K max output", () => {
+    assert.equal(baseRate(PRO, 'input', 'output'), 1.32 + 3.96)
+    assert.equal(baseRate(FLASH, 'input', 'output'), 0.3 + 1.2)
+    for (const model of [PRO, FLASH]) assert.equal(getMaxTokens(model), 384 * 1024, model)
+  })
+
+  it('bills cache hits at the published rate, well under 0.10x of input', () => {
+    assert.equal(baseRate(PRO, 'cacheRead'), 0.044)
+    assert.equal(baseRate(FLASH, 'cacheRead'), 0.006)
+  })
+
+  it('thinks, can be switched off, and takes low, high or max', () => {
+    for (const model of [PRO, FLASH]) {
+      assert.equal(canThink(model), true, model)
+      assert.equal(canDisableThink(model), true, model)
+      assert.deepEqual(effortsFor(model), ['low', 'high', 'max'], model)
+    }
+  })
+})
+
 describe('effortsFor / EFFORT_LEVELS', () => {
   // Every model that narrows, so the subset/'manual' checks below can't drift
   // past a row added later.
   const NARROWED = [
     'moonshotai/kimi-k3',
+    'x-ai/grok-4.7', 'z-ai/glm-5.3',
+    'deepseek/deepseek-v4-pro', 'deepseek/deepseek-v4.1-flash',
     'openai/gpt-6-astra', 'openai/gpt-6-astra-pro',
     'openai/gpt-5.6-sol', 'openai/gpt-5.6-terra', 'openai/gpt-5.6-luna',
     'openai/gpt-5.5',

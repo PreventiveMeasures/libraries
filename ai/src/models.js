@@ -97,6 +97,11 @@ const MODELS = new Map([
   ['qwen/qwen3.6-35b-a3b', { input: 0.1, output: 0.9, maxTokens: 64 * 1024, canThink: true }],
   ['qwen/qwen3.8-27b', { input: 0.214, output: 2.55, maxTokens: 64 * 1024, canThink: true }],
   ['qwen/qwen3.8-2.4t-a95b', { input: 2, output: 6, maxTokens: 64 * 1024, canThink: true }],
+  ['qwen/qwen3.8-max', { input: 2, output: 6, cacheReadPrice: 0.25, maxTokens: 128 * 1024, canThink: true }],
+  ['deepseek/deepseek-v4-pro', { input: 1.32, output: 3.96, cacheReadPrice: 0.044, maxTokens: 384 * 1024, canThink: true, efforts: ['low', 'high', 'max'] }],
+  ['deepseek/deepseek-v4.1-flash', { input: 0.3, output: 1.2, cacheReadPrice: 0.006, maxTokens: 384 * 1024, canThink: true, efforts: ['low', 'high', 'max'] }],
+  ['x-ai/grok-4.7', { input: 2, output: 6, cacheReadPrice: 0.5, longContext: { above: 200_000, input: 2, output: 2 }, maxTokens: 128 * 1024, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_XHIGH }],
+  ['z-ai/glm-5.3', { input: 1.4, output: 4.4, cacheReadPrice: 0.26, maxTokens: 128 * 1024, canThink: true, noThink: 'unsupported', efforts: ['low', 'high', 'max'] }],
   // Kimi K3 (1M context) at Moonshot's list rate. OpenRouter resells it a little cheaper but
   // reports its own per-request cost, which wins over this table, so one row serves both routes.
   // `maxTokens` is the output default.
