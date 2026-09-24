@@ -18,9 +18,9 @@ const OWN_NAMESPACE = { anthropic: 'anthropic/', openai: 'openai/', moonshot: 'm
 
 // The models a provider serves, each with the effort levels it takes there; every model when no
 // provider is named. OpenRouter serves the main list, and Anthropic, OpenAI and Moonshot its rows
-// under their own namespace, bar the few only OpenRouter still reaches. Ollama serves the rows it
-// has a local build for and Chrome its on-device ones, each answered by the lookup its adapter
-// makes. `manual` is Anthropic's alone, so no other provider lists it.
+// under their own namespace, bar the few only OpenRouter still reaches. Ollama serves the rows its
+// tag table maps, in that table's order, and Chrome its on-device ones, found by the lookup its
+// adapter makes. `manual` is Anthropic's alone, so no other provider lists it.
 //
 // `free` works the way validateModel's does: the free endpoints with it, which are OpenRouter's, and
 // everything else without, so a listing is exactly what that mode accepts.
@@ -29,7 +29,7 @@ function servedRows(provider, free) {
   const rows = [...MAIN_MODELS, ...LOCAL_MODELS]
   if (provider === undefined) return rows
   if (provider === 'openrouter') return MAIN_MODELS
-  if (provider === 'ollama') return rows.filter(([id]) => ollamaTagFor(id))
+  if (provider === 'ollama') return ollamaModels().map((id) => [id, MODELS.get(id)])
   if (provider === 'chrome') return rows.filter(([id]) => baseModelFor(id))
   return MAIN_MODELS.filter(([id, row]) => id.startsWith(OWN_NAMESPACE[provider]) && !row.openRouterOnly)
 }
@@ -256,44 +256,44 @@ export function componentFor(baseModel) {
 // Tag names are Ollama's own and not always literal — several `-bf16` tags hold F16. Ours follow
 // the tag, since the tag is what gets pulled.
 const OLLAMA_TAGS = new Map([
-  ['google/gemma-4-e2b-it', 'gemma4:e2b-it-bf16'], // 10GB
-  ['google/gemma-4-e2b-it-q8_0', 'gemma4:e2b-it-q8_0'], // 8.1GB
-  ['google/gemma-4-e2b-it-q4_k_m', ['gemma4:e2b-it-q4_K_M', 'gemma4:e2b']], // 7.2GB
-  ['google/gemma-4-e2b-it-qat', 'gemma4:e2b-it-qat'], // 4.3GB
-  ['google/gemma-4-e4b-it', 'gemma4:e4b-it-bf16'], // 16GB
-  ['google/gemma-4-e4b-it-q8_0', 'gemma4:e4b-it-q8_0'], // 12GB
-  ['google/gemma-4-e4b-it-q4_k_m', ['gemma4:e4b-it-q4_K_M', 'gemma4:e4b']], // 9.6GB
-  ['google/gemma-4-e4b-it-qat', 'gemma4:e4b-it-qat'], // 6.1GB
-  ['google/gemma-4-12b-it', 'gemma4:12b-it-bf16'], // 24GB
-  ['google/gemma-4-12b-it-q8_0', 'gemma4:12b-it-q8_0'], // 13GB
-  ['google/gemma-4-12b-it-q4_k_m', ['gemma4:12b-it-q4_K_M', 'gemma4:12b']], // 7.6GB
-  ['google/gemma-4-12b-it-qat', 'gemma4:12b-it-qat'], // 7.2GB
+  ['google/gemma-4-31b-it', 'gemma4:31b-it-bf16'], // 63GB
+  ['google/gemma-4-31b-it-q8_0', 'gemma4:31b-it-q8_0'], // 34GB
+  ['google/gemma-4-31b-it-q4_k_m', ['gemma4:31b-it-q4_K_M', 'gemma4:31b']], // 20GB
+  ['google/gemma-4-31b-it-qat', 'gemma4:31b-it-qat'], // 19GB
   ['google/gemma-4-26b-a4b-it', 'gemma4:26b-a4b-it-bf16'], // 52GB
   ['google/gemma-4-26b-a4b-it-q8_0', 'gemma4:26b-a4b-it-q8_0'], // 28GB
   ['google/gemma-4-26b-a4b-it-q4_k_m', 'gemma4:26b-a4b-it-q4_K_M'], // 18GB, worse than -mtp: 4-bit attention where that is 8-bit
   ['google/gemma-4-26b-a4b-it-mtp-q4_k_m', ['gemma4:26b-a4b-it-mtp-q4_K_M', 'gemma4:26b']], // 19GB
   ['google/gemma-4-26b-a4b-it-qat', 'gemma4:26b-a4b-it-qat'], // 16GB
-  ['google/gemma-4-31b-it', 'gemma4:31b-it-bf16'], // 63GB
-  ['google/gemma-4-31b-it-q8_0', 'gemma4:31b-it-q8_0'], // 34GB
-  ['google/gemma-4-31b-it-q4_k_m', ['gemma4:31b-it-q4_K_M', 'gemma4:31b']], // 20GB
-  ['google/gemma-4-31b-it-qat', 'gemma4:31b-it-qat'], // 19GB
+  ['google/gemma-4-12b-it', 'gemma4:12b-it-bf16'], // 24GB
+  ['google/gemma-4-12b-it-q8_0', 'gemma4:12b-it-q8_0'], // 13GB
+  ['google/gemma-4-12b-it-q4_k_m', ['gemma4:12b-it-q4_K_M', 'gemma4:12b']], // 7.6GB
+  ['google/gemma-4-12b-it-qat', 'gemma4:12b-it-qat'], // 7.2GB
+  ['google/gemma-4-e4b-it', 'gemma4:e4b-it-bf16'], // 16GB
+  ['google/gemma-4-e4b-it-q8_0', 'gemma4:e4b-it-q8_0'], // 12GB
+  ['google/gemma-4-e4b-it-q4_k_m', ['gemma4:e4b-it-q4_K_M', 'gemma4:e4b']], // 9.6GB
+  ['google/gemma-4-e4b-it-qat', 'gemma4:e4b-it-qat'], // 6.1GB
+  ['google/gemma-4-e2b-it', 'gemma4:e2b-it-bf16'], // 10GB
+  ['google/gemma-4-e2b-it-q8_0', 'gemma4:e2b-it-q8_0'], // 8.1GB
+  ['google/gemma-4-e2b-it-q4_k_m', ['gemma4:e2b-it-q4_K_M', 'gemma4:e2b']], // 7.2GB
+  ['google/gemma-4-e2b-it-qat', 'gemma4:e2b-it-qat'], // 4.3GB
+  ['qwen/qwen3.8-27b', ['qwen3.8:27b-q8_0', 'qwen3.8:27b-mtp-q8_0']], // 30GB
+  ['qwen/qwen3.8-27b-bf16', ['qwen3.8:27b-bf16', 'qwen3.8:27b-mtp-bf16']], // 56GB
+  ['qwen/qwen3.8-27b-q4_k_m', ['qwen3.8:27b-q4_K_M', 'qwen3.8:27b-mtp-q4_K_M', 'qwen3.8:27b']], // 18GB
   ['qwen/qwen3.6-27b', ['qwen3.6:27b-q8_0', 'qwen3.6:27b-mtp-q8_0']], // 30GB
   ['qwen/qwen3.6-27b-bf16', ['qwen3.6:27b-bf16', 'qwen3.6:27b-mtp-bf16']], // 56GB
   ['qwen/qwen3.6-27b-q4_k_m', ['qwen3.6:27b-q4_K_M', 'qwen3.6:27b-mtp-q4_K_M', 'qwen3.6:27b']], // 17GB
   ['qwen/qwen3.6-35b-a3b', ['qwen3.6:35b-a3b-q8_0', 'qwen3.6:35b-a3b-mtp-q8_0']], // 39GB
   ['qwen/qwen3.6-35b-a3b-bf16', ['qwen3.6:35b-a3b-bf16', 'qwen3.6:35b-a3b-mtp-bf16']], // 71GB
   ['qwen/qwen3.6-35b-a3b-q4_k_m', ['qwen3.6:35b-a3b-q4_K_M', 'qwen3.6:35b-a3b-mtp-q4_K_M', 'qwen3.6:35b-a3b']], // 24GB
-  ['qwen/qwen3.8-27b', ['qwen3.8:27b-q8_0', 'qwen3.8:27b-mtp-q8_0']], // 30GB
-  ['qwen/qwen3.8-27b-bf16', ['qwen3.8:27b-bf16', 'qwen3.8:27b-mtp-bf16']], // 56GB
-  ['qwen/qwen3.8-27b-q4_k_m', ['qwen3.8:27b-q4_K_M', 'qwen3.8:27b-mtp-q4_K_M', 'qwen3.8:27b']], // 18GB
-  ['nvidia/nemotron-3.5-lightning', 'nemotron-3.5-lightning:30b-a3b-bf16'], // 66GB
-  ['nvidia/nemotron-3.5-lightning-q8_0', 'nemotron-3.5-lightning:30b-a3b-q8_0'], // 35GB
-  ['nvidia/nemotron-3.5-lightning-q4_k_m', ['nemotron-3.5-lightning:30b-a3b-q4_K_M', 'nemotron-3.5-lightning:30b-a3b', 'nemotron-3.5-lightning:30b']], // 25GB
   // Hosted one each at fp8 and bf16, so no majority to match: bf16 is the reference, and never
   // worse than the route it stands in for.
   ['nvidia/nemotron-3-super-120b-a12b', 'nemotron-3-super:120b-a12b-bf16'], // 247GB
   ['nvidia/nemotron-3-super-120b-a12b-q8_0', 'nemotron-3-super:120b-a12b-q8_0'], // 132GB
   ['nvidia/nemotron-3-super-120b-a12b-q4_k_m', ['nemotron-3-super:120b-a12b-q4_K_M', 'nemotron-3-super:120b-a12b', 'nemotron-3-super:120b']], // 87GB
+  ['nvidia/nemotron-3.5-lightning', 'nemotron-3.5-lightning:30b-a3b-bf16'], // 66GB
+  ['nvidia/nemotron-3.5-lightning-q8_0', 'nemotron-3.5-lightning:30b-a3b-q8_0'], // 35GB
+  ['nvidia/nemotron-3.5-lightning-q4_k_m', ['nemotron-3.5-lightning:30b-a3b-q4_K_M', 'nemotron-3.5-lightning:30b-a3b', 'nemotron-3.5-lightning:30b']], // 25GB
 ])
 
 // Undefined for a model Ollama has no mapping for, which is what tells the adapter to refuse rather

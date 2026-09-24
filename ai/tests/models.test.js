@@ -1166,9 +1166,23 @@ describe('supportedModels', () => {
   })
 
   it('gives ollama every row it has a local build for, hosted ids included', () => {
-    assert.deepEqual([...ids('ollama')].sort(), [...ollamaModels()].sort())
+    assert.deepEqual(ids('ollama'), ollamaModels())
     assert.ok(ids('ollama').includes('qwen/qwen3.6-27b'))
     assert.deepEqual(entry('google/gemma-4-e2b-it-qat', 'ollama').efforts, ['low', 'medium', 'high', 'xhigh', 'max'])
+  })
+
+  it('lists ollama model by model, best first, each model\'s own id ahead of its builds', () => {
+    const ollama = ids('ollama')
+    const bases = ollama.filter((id) => !ollama.some((other) => other !== id && id.startsWith(`${other}-`)))
+    assert.deepEqual(bases, [
+      'google/gemma-4-31b-it', 'google/gemma-4-26b-a4b-it', 'google/gemma-4-12b-it', 'google/gemma-4-e4b-it', 'google/gemma-4-e2b-it',
+      'qwen/qwen3.8-27b', 'qwen/qwen3.6-27b', 'qwen/qwen3.6-35b-a3b',
+      'nvidia/nemotron-3-super-120b-a12b', 'nvidia/nemotron-3.5-lightning',
+    ])
+    for (const [i, base] of bases.entries()) {
+      const next = i + 1 < bases.length ? ollama.indexOf(bases[i + 1]) : ollama.length
+      for (const id of ollama.slice(ollama.indexOf(base) + 1, next)) assert.ok(id.startsWith(`${base}-`), `${id} under ${base}`)
+    }
   })
 
   it('gives chrome its on-device models, which take no effort', () => {
