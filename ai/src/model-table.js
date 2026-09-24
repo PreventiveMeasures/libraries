@@ -35,7 +35,6 @@ export const MAIN_MODELS = [
   ['anthropic/claude-fable-5.1', { input: 10, output: 50, cacheReadPrice: 0.25, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported' }],
   ['anthropic/claude-fable-5', { input: 10, output: 50, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported' }],
   ['anthropic/claude-haiku-4.5', { input: 1, output: 5, maxTokens: 64_000 }],
-  ['anthropic/claude-3-haiku', { input: 0.25, output: 1.25, maxTokens: 4096, canThink: false, openRouterOnly: true }],
   ['anthropic/claude-sonnet-5', { input: 2, output: 10, maxTokens: 128_000, canThink: 'adaptive', noThink: 'explicit' }],
   ['anthropic/claude-sonnet-4.6', { input: 3, output: 15, maxTokens: 128_000, canThink: 'adaptive', efforts: ['low', 'medium', 'high', 'max', 'manual'] }],
   ['anthropic/claude-sonnet-4.5', { input: 3, output: 15, maxTokens: 64 * 1024 }],

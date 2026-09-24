@@ -18,7 +18,7 @@ function baseRate(model, ...legs) {
 
 describe('canThink / canEffort', () => {
   it('canThink: false on a model without a thinking capability', () => {
-    assert.equal(canThink('anthropic/claude-3-haiku'), false)
+    assert.equal(canThink('openai/gpt-4o-mini'), false)
   })
 
   it('canThink: true on a row that does not say otherwise', () => {
@@ -49,7 +49,6 @@ describe('canThink / canEffort', () => {
   })
 
   it('canEffort: false on any model without a thinking capability', () => {
-    assert.equal(canEffort('anthropic/claude-3-haiku'), false)
     assert.equal(canEffort('openai/gpt-4o-mini'), false)
   })
 })
@@ -75,7 +74,7 @@ describe('normalizeThinkEffort', () => {
     // Callers like ai.js layer their own assertion on top
     // (`useThink !== Boolean(think) ? throw`); this helper just resolves
     // the values that will actually hit the wire.
-    assert.deepEqual(normalizeThinkEffort('anthropic/claude-3-haiku', true), { useThink: false, useEffort: undefined })
+    assert.deepEqual(normalizeThinkEffort('openai/gpt-4o-mini', true), { useThink: false, useEffort: undefined })
   })
 
   it('think=true on non-adaptive Anthropic: think=true, effort=undefined (no effort knob)', () => {
@@ -1127,7 +1126,7 @@ describe('supportedModels', () => {
   it('gives anthropic and openai their own namespace, less what only OpenRouter still reaches', () => {
     const anthropic = ids('anthropic')
     assert.ok(anthropic.length > 0 && anthropic.every((id) => id.startsWith('anthropic/')))
-    for (const id of ['anthropic/claude-sonnet-4', 'anthropic/claude-3-haiku']) assert.equal(anthropic.includes(id), false, id)
+    assert.equal(anthropic.includes('anthropic/claude-sonnet-4'), false)
     const openai = ids('openai')
     assert.ok(openai.length > 0 && openai.every((id) => id.startsWith('openai/')))
     assert.ok(openai.includes('openai/gpt-6-sol-pro'))
