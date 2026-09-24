@@ -1022,8 +1022,6 @@ describe('effortsFor / EFFORT_LEVELS', () => {
     'moonshotai/kimi-k3',
     'x-ai/grok-4.7', 'z-ai/glm-5.3',
     'deepseek/deepseek-v4-pro', 'deepseek/deepseek-v4.1-flash',
-    'openai/gpt-6-astra', 'openai/gpt-6-astra-pro',
-    'openai/gpt-5.6-sol', 'openai/gpt-5.6-terra', 'openai/gpt-5.6-luna',
     'openai/gpt-5.5', 'openai/gpt-5.5-pro',
     'openai/gpt-5.4', 'openai/gpt-5.4-nano', 'openai/gpt-5.4-mini', 'openai/gpt-5.4-pro',
     'openai/gpt-5.3-codex',
@@ -1064,7 +1062,7 @@ describe('effortsFor / EFFORT_LEVELS', () => {
     for (const model of ['anthropic/claude-opus-4.6', 'anthropic/claude-sonnet-4.6']) {
       assert.deepEqual(effortsFor(model), ['low', 'medium', 'high', 'max', 'manual'], model)
     }
-    for (const model of [...NARROWED, 'anthropic/claude-opus-5', 'anthropic/claude-sonnet-5', 'anthropic/claude-opus-4.8', 'anthropic/claude-opus-4.7', 'anthropic/claude-fable-5.1', 'google/gemma-4-31b-it']) {
+    for (const model of [...NARROWED, 'openai/gpt-6-astra', 'openai/gpt-5.6-sol', 'anthropic/claude-opus-5', 'anthropic/claude-sonnet-5', 'anthropic/claude-opus-4.8', 'anthropic/claude-opus-4.7', 'anthropic/claude-fable-5.1', 'google/gemma-4-31b-it']) {
       assert.equal(effortsFor(model).includes('manual'), false, model)
     }
     assert.ok(EFFORT_LEVELS.includes('manual'))

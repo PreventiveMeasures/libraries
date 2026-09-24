@@ -40,10 +40,9 @@ export const MAIN_MODELS = [
   ['anthropic/claude-sonnet-4.6', { input: 3, output: 15, maxTokens: 128_000, canThink: 'adaptive', efforts: ['low', 'medium', 'high', 'max', 'manual'] }],
   ['anthropic/claude-sonnet-4.5', { input: 3, output: 15, maxTokens: 64 * 1024, canThink: true }],
   ['anthropic/claude-sonnet-4', { input: 3, output: 15, maxTokens: 64 * 1024, canThink: true, openRouterOnly: true }],
-  // Thinking is always on: `disabled` and a manual `budget_tokens` both 400, which is what
-  // `noThink` and the narrowed ladder say — `manual` is the one level of the six this model has no
-  // wire form for. Cache reads are 0.05x input rather than the usual 0.10x, so the row names them.
-  ['anthropic/claude-opus-5.5', { input: 4, output: 20, cacheReadPrice: 0.2, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX }],
+  // Thinking is always on: `disabled` and a manual `budget_tokens` both 400. Cache reads are 0.05x
+  // input rather than the usual 0.10x, so the row names them.
+  ['anthropic/claude-opus-5.5', { input: 4, output: 20, cacheReadPrice: 0.2, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported' }],
   ['anthropic/claude-opus-5', { input: 5, output: 25, maxTokens: 128_000, canThink: 'adaptive', noThink: 'explicit' }],
   ['anthropic/claude-opus-4.8', { input: 5, output: 25, maxTokens: 128_000, canThink: 'adaptive' }],
   ['anthropic/claude-opus-4.7', { input: 5, output: 25, maxTokens: 128_000, canThink: 'adaptive' }],
@@ -54,21 +53,21 @@ export const MAIN_MODELS = [
   // without one — gpt-5.5-pro, gpt-5.4-pro — is an OPENAI MODEL NAME, priced six times its namesake
   // because it is a different model. Adding a new `-pro` means deciding which, and the rate says
   // it: same as its base, or not.
-  ['openai/gpt-6-astra', { input: 10, output: 50, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
-  ['openai/gpt-6-astra-pro', { input: 10, output: 50, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true, wireModel: 'openai/gpt-6-astra', reasoningMode: 'pro' }],
-  ['openai/gpt-6-sol', { input: 2, output: 10, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'explicit', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
-  ['openai/gpt-6-sol-pro', { input: 2, output: 10, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true, wireModel: 'openai/gpt-6-sol', reasoningMode: 'pro' }],
-  ['openai/gpt-6-luna', { input: 0.1, output: 0.5, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'explicit', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
-  ['openai/gpt-6-luna-pro', { input: 0.1, output: 0.5, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true, wireModel: 'openai/gpt-6-luna', reasoningMode: 'pro' }],
+  ['openai/gpt-6-astra', { input: 10, output: 50, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'unsupported', cacheBreakpoint: true }],
+  ['openai/gpt-6-astra-pro', { input: 10, output: 50, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'unsupported', cacheBreakpoint: true, wireModel: 'openai/gpt-6-astra', reasoningMode: 'pro' }],
+  ['openai/gpt-6-sol', { input: 2, output: 10, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'explicit', cacheBreakpoint: true }],
+  ['openai/gpt-6-sol-pro', { input: 2, output: 10, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'unsupported', cacheBreakpoint: true, wireModel: 'openai/gpt-6-sol', reasoningMode: 'pro' }],
+  ['openai/gpt-6-luna', { input: 0.1, output: 0.5, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'explicit', cacheBreakpoint: true }],
+  ['openai/gpt-6-luna-pro', { input: 0.1, output: 0.5, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'unsupported', cacheBreakpoint: true, wireModel: 'openai/gpt-6-luna', reasoningMode: 'pro' }],
   // 4 / 20 is Sol's PROMOTIONAL rate, which OpenAI's pricing page publishes as its table price and
   // says holds at least through 2026-11-21 — the one promotion in the openai rows. Recheck after
   // that date: the rate it reverts to is not published, so a lapse cannot be priced in advance.
-  ['openai/gpt-5.6-sol', { input: 4, output: 20, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'explicit', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
-  ['openai/gpt-5.6-sol-pro', { input: 4, output: 20, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true, wireModel: 'openai/gpt-5.6-sol', reasoningMode: 'pro' }],
-  ['openai/gpt-5.6-terra', { input: 2, output: 12, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'explicit', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
-  ['openai/gpt-5.6-terra-pro', { input: 2, output: 12, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true, wireModel: 'openai/gpt-5.6-terra', reasoningMode: 'pro' }],
-  ['openai/gpt-5.6-luna', { input: 0.2, output: 1.2, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'explicit', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
-  ['openai/gpt-5.6-luna-pro', { input: 0.2, output: 1.2, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true, wireModel: 'openai/gpt-5.6-luna', reasoningMode: 'pro' }],
+  ['openai/gpt-5.6-sol', { input: 4, output: 20, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'explicit', cacheBreakpoint: true }],
+  ['openai/gpt-5.6-sol-pro', { input: 4, output: 20, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'unsupported', cacheBreakpoint: true, wireModel: 'openai/gpt-5.6-sol', reasoningMode: 'pro' }],
+  ['openai/gpt-5.6-terra', { input: 2, output: 12, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'explicit', cacheBreakpoint: true }],
+  ['openai/gpt-5.6-terra-pro', { input: 2, output: 12, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'unsupported', cacheBreakpoint: true, wireModel: 'openai/gpt-5.6-terra', reasoningMode: 'pro' }],
+  ['openai/gpt-5.6-luna', { input: 0.2, output: 1.2, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'explicit', cacheBreakpoint: true }],
+  ['openai/gpt-5.6-luna-pro', { input: 0.2, output: 1.2, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'unsupported', cacheBreakpoint: true, wireModel: 'openai/gpt-5.6-luna', reasoningMode: 'pro' }],
   // From gpt-5.5 down to gpt-4o-mini, OpenAI bills a cache write as ordinary input — the 1.25x
   // write arrived with GPT-5.6 — so each of these rows names its input rate as `cacheWritePrice`.
   ['openai/gpt-5.5', { input: 5, output: 30, cacheWritePrice: 5, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128 * 1024, canThink: true, noThink: 'explicit', efforts: EFFORTS_THROUGH_XHIGH }],
