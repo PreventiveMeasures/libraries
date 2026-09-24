@@ -482,12 +482,14 @@ describe('buildRequestBody — provider-specific shapes', () => {
     })
   })
 
-  it('opus 5 + think=false emits an explicit {thinking: {type: "disabled"}} — it thinks by default otherwise', () => {
+  it('opus 5 and sonnet 5 + think=false emit an explicit {thinking: {type: "disabled"}} — they think by default otherwise', () => {
     withProvider('anthropic', 'ANTHROPIC_API_KEY', () => {
-      const body = buildRequestBody('anthropic/claude-opus-5', 1000, 'sys', messages)
-      assert.deepEqual(body.thinking, { type: 'disabled' })
-      // No effort alongside it — the disabled form 400s at xhigh / max.
-      assert.equal(body.output_config, undefined)
+      for (const model of ['anthropic/claude-opus-5', 'anthropic/claude-sonnet-5']) {
+        const body = buildRequestBody(model, 1000, 'sys', messages)
+        assert.deepEqual(body.thinking, { type: 'disabled' }, model)
+        // No effort alongside it — the disabled form 400s at xhigh / max.
+        assert.equal(body.output_config, undefined, model)
+      }
     })
   })
 
@@ -533,11 +535,43 @@ describe('buildRequestBody — provider-specific shapes', () => {
     })
   })
 
-  it('think=false on openrouter sends no reasoning field at all', () => {
+  it('think=false on openrouter sends no reasoning field for a model that is off by default', () => {
     withProvider('openrouter', 'OPENROUTER_API_KEY', () => {
-      const body = buildRequestBody('openai/gpt-5.5', 1000, 'sys', messages)
+      const body = buildRequestBody('openai/gpt-5.4', 1000, 'sys', messages)
       assert.equal(body.reasoning_effort, undefined)
       assert.equal(body.reasoning, undefined)
+    })
+  })
+
+  it('think=false on openrouter switches off a model that reasons by default', () => {
+    withProvider('openrouter', 'OPENROUTER_API_KEY', () => {
+      for (const model of ['deepseek/deepseek-v4.1-flash', 'qwen/qwen3.6-27b', 'anthropic/claude-opus-5', 'openai/gpt-5.5']) {
+        const body = buildRequestBody(model, 1000, 'sys', messages)
+        assert.deepEqual(body.reasoning, { enabled: false }, model)
+        assert.equal(body.reasoning_effort, undefined, model)
+      }
+      const on = buildRequestBody('deepseek/deepseek-v4.1-flash', 1000, 'sys', messages, { think: true })
+      assert.equal(on.reasoning_effort, 'high')
+      assert.equal(on.reasoning, undefined)
+    })
+  })
+
+  it('think=false on openrouter sends nothing to a model with no off switch', () => {
+    withProvider('openrouter', 'OPENROUTER_API_KEY', () => {
+      for (const model of ['x-ai/grok-4.7', 'qwen/qwen3.8-max', 'moonshotai/kimi-k3']) {
+        assert.equal(buildRequestBody(model, 1000, 'sys', messages).reasoning, undefined, model)
+      }
+    })
+  })
+
+  it('think=false on openai (Responses) names effort none on a model that reasons by default', () => {
+    withProvider('openai', 'OPENAI_API_KEY', () => {
+      for (const model of ['openai/gpt-6-sol', 'openai/gpt-5.6-luna', 'openai/gpt-5.5']) {
+        assert.deepEqual(buildRequestBody(model, 1000, 'sys', messages).reasoning, { effort: 'none' }, model)
+      }
+      assert.equal(buildRequestBody('openai/gpt-5.4', 1000, 'sys', messages).reasoning, undefined)
+      assert.equal(buildRequestBody('openai/gpt-6-astra', 1000, 'sys', messages).reasoning, undefined)
+      assert.deepEqual(buildRequestBody('openai/gpt-6-sol-pro', 1000, 'sys', messages).reasoning, { mode: 'pro' })
     })
   })
 
@@ -1243,6 +1277,23 @@ describe('gateway — Anthropic and OpenAI natively, everything else like openro
       const pro = mod.buildRequestBody('openai/gpt-6-astra-pro', 1000, 'sys', messages, { think: true, effort: 'max' })
       assert.equal(pro.model, ASTRA)
       assert.deepEqual(pro.reasoning, { effort: 'max', mode: 'pro' })
+    })
+  })
+
+  it('turns thinking off on the Responses and Messages routes, in each API\'s own form', async () => {
+    await withGateway((mod) => {
+      mod.setProvider('gateway')
+      assert.deepEqual(mod.buildRequestBody('openai/gpt-6-sol', 1000, 'sys', messages).reasoning, { effort: 'none' })
+      assert.deepEqual(mod.buildRequestBody(CLAUDE, 1000, 'sys', messages).thinking, { type: 'disabled' })
+    })
+  })
+
+  it('sends no off switch on the chat route, where only OpenRouter has one', async () => {
+    await withGateway((mod) => {
+      mod.setProvider('gateway')
+      assert.equal(mod.buildRequestBody('deepseek/deepseek-v4.1-flash', 1000, 'sys', messages).reasoning, undefined)
+      mod.setProvider('openrouter')
+      assert.deepEqual(mod.buildRequestBody('deepseek/deepseek-v4.1-flash', 1000, 'sys', messages).reasoning, { enabled: false })
     })
   })
 

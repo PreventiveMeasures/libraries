@@ -298,9 +298,36 @@ describe('no-think wire form', () => {
     ['anthropic/claude-opus-5.5', false, false],
     ['anthropic/claude-fable-5', false, false],
     ['anthropic/claude-fable-5.1', false, false],
+    ['anthropic/claude-sonnet-5', true, true],
     ['anthropic/claude-opus-4.8', false, true],
     ['anthropic/claude-sonnet-4.6', false, true],
-    ['openai/gpt-5.6-sol', false, true],
+    ['openai/gpt-6-sol', true, true],
+    ['openai/gpt-6-luna', true, true],
+    ['openai/gpt-5.6-sol', true, true],
+    ['openai/gpt-5.6-terra', true, true],
+    ['openai/gpt-5.6-luna', true, true],
+    ['openai/gpt-5.5', true, true],
+    ['openai/gpt-5.4', false, true],
+    ['openai/gpt-5.5-pro', false, false],
+    ['openai/gpt-5.4-pro', false, false],
+    ['openai/gpt-5.3-codex', false, false],
+    ['google/gemini-3.1-flash-lite-preview', true, true],
+    ['google/gemini-3.8-flash', false, false],
+    ['google/gemini-3.1-pro-preview', false, false],
+    ['google/gemma-4-31b-it', false, true],
+    ['nvidia/nemotron-3-super-120b-a12b', true, true],
+    ['nvidia/nemotron-3-super-120b-a12b:free', true, true],
+    ['nvidia/nemotron-3-ultra-550b-a55b', true, true],
+    ['nvidia/nemotron-3-ultra-550b-a55b:free', true, true],
+    ['qwen/qwen3.6-27b', true, true],
+    ['qwen/qwen3.6-35b-a3b', true, true],
+    ['qwen/qwen3.8-27b', true, true],
+    ['qwen/qwen3.8-2.4t-a95b', false, false],
+    ['qwen/qwen3.8-max', false, false],
+    ['deepseek/deepseek-v4-pro', true, true],
+    ['deepseek/deepseek-v4.1-flash', true, true],
+    ['x-ai/grok-4.7', false, false],
+    ['z-ai/glm-5.3', false, false],
     // Same shape as fable 5, arrived at from the other direction: K3 has no
     // opt-out on either route, so omitting the effort field is all we can do.
     ['moonshotai/kimi-k3', false, false],
@@ -656,7 +683,7 @@ describe('gpt-6 sol and luna', () => {
     // Both take `reasoning_effort: 'none'`; astra floors at `low`.
     for (const model of [SOL, LUNA]) {
       assert.equal(canDisableThink(model), true, model)
-      assert.equal(needsExplicitNoThink(model), false, model)
+      assert.equal(needsExplicitNoThink(model), true, model)
     }
     assert.equal(canDisableThink('openai/gpt-6-astra'), false)
     // Nor on their own -pro rows: pro IS a reasoning mode, so a request
@@ -946,9 +973,9 @@ describe('qwen3.8 max', () => {
     assert.equal(baseRate(MAX, 'cacheWrite5m'), 2.5)
   })
 
-  it('thinks, can be switched off, and takes the full effort ladder', () => {
+  it('always reasons, and takes the full effort ladder', () => {
     assert.equal(canThink(MAX), true)
-    assert.equal(canDisableThink(MAX), true)
+    assert.equal(canDisableThink(MAX), false)
     assert.equal(effortsFor(MAX), undefined)
   })
 })

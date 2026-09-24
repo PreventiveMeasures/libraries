@@ -40,7 +40,7 @@ const MODELS = new Map([
   ['anthropic/claude-fable-5', { input: 10, output: 50, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported' }],
   ['anthropic/claude-haiku-4.5', { input: 1, output: 5, maxTokens: 64_000, canThink: true }],
   ['anthropic/claude-3-haiku', { input: 0.25, output: 1.25, maxTokens: 4096 }],
-  ['anthropic/claude-sonnet-5', { input: 2, output: 10, maxTokens: 128_000, canThink: 'adaptive' }],
+  ['anthropic/claude-sonnet-5', { input: 2, output: 10, maxTokens: 128_000, canThink: 'adaptive', noThink: 'explicit' }],
   ['anthropic/claude-sonnet-4.6', { input: 3, output: 15, maxTokens: 128_000, canThink: 'adaptive' }],
   ['anthropic/claude-sonnet-4.5', { input: 3, output: 15, maxTokens: 64 * 1024, canThink: true }],
   ['anthropic/claude-sonnet-4', { input: 3, output: 15, maxTokens: 64 * 1024, canThink: true }],
@@ -60,46 +60,46 @@ const MODELS = new Map([
   // it: same as its base, or not.
   ['openai/gpt-6-astra', { input: 10, output: 50, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
   ['openai/gpt-6-astra-pro', { input: 10, output: 50, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true, wireModel: 'openai/gpt-6-astra', reasoningMode: 'pro' }],
-  ['openai/gpt-6-sol', { input: 2, output: 10, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
+  ['openai/gpt-6-sol', { input: 2, output: 10, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'explicit', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
   ['openai/gpt-6-sol-pro', { input: 2, output: 10, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true, wireModel: 'openai/gpt-6-sol', reasoningMode: 'pro' }],
-  ['openai/gpt-6-luna', { input: 0.1, output: 0.5, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
+  ['openai/gpt-6-luna', { input: 0.1, output: 0.5, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'explicit', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
   ['openai/gpt-6-luna-pro', { input: 0.1, output: 0.5, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true, wireModel: 'openai/gpt-6-luna', reasoningMode: 'pro' }],
   // 4 / 20 is Sol's PROMOTIONAL rate, which OpenAI's pricing page publishes as its table price and
   // says holds at least through 2026-11-21 — the one promotion in the openai rows. Recheck after
   // that date: the rate it reverts to is not published, so a lapse cannot be priced in advance.
-  ['openai/gpt-5.6-sol', { input: 4, output: 20, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
+  ['openai/gpt-5.6-sol', { input: 4, output: 20, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'explicit', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
   ['openai/gpt-5.6-sol-pro', { input: 4, output: 20, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true, wireModel: 'openai/gpt-5.6-sol', reasoningMode: 'pro' }],
-  ['openai/gpt-5.6-terra', { input: 2, output: 12, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
+  ['openai/gpt-5.6-terra', { input: 2, output: 12, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'explicit', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
   ['openai/gpt-5.6-terra-pro', { input: 2, output: 12, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true, wireModel: 'openai/gpt-5.6-terra', reasoningMode: 'pro' }],
-  ['openai/gpt-5.6-luna', { input: 0.2, output: 1.2, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
+  ['openai/gpt-5.6-luna', { input: 0.2, output: 1.2, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'explicit', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true }],
   ['openai/gpt-5.6-luna-pro', { input: 0.2, output: 1.2, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_MAX, cacheBreakpoint: true, wireModel: 'openai/gpt-5.6-luna', reasoningMode: 'pro' }],
   // From gpt-5.5 down to gpt-4o-mini, OpenAI bills a cache write as ordinary input — the 1.25x
   // write arrived with GPT-5.6 — so each of these rows names its input rate as `cacheWritePrice`.
-  ['openai/gpt-5.5', { input: 5, output: 30, cacheWritePrice: 5, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128 * 1024, canThink: true, efforts: EFFORTS_THROUGH_XHIGH }],
-  ['openai/gpt-5.5-pro', { input: 30, output: 180, cacheWritePrice: 30, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128 * 1024, canThink: true, efforts: EFFORTS_THROUGH_XHIGH }],
+  ['openai/gpt-5.5', { input: 5, output: 30, cacheWritePrice: 5, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128 * 1024, canThink: true, noThink: 'explicit', efforts: EFFORTS_THROUGH_XHIGH }],
+  ['openai/gpt-5.5-pro', { input: 30, output: 180, cacheWritePrice: 30, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128 * 1024, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_XHIGH }],
   ['openai/gpt-5.4', { input: 2.5, output: 15, cacheWritePrice: 2.5, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128 * 1024, canThink: true, efforts: EFFORTS_THROUGH_XHIGH }],
   ['openai/gpt-5.4-nano', { input: 0.2, output: 1.25, cacheWritePrice: 0.2, maxTokens: 128 * 1024, canThink: true, efforts: EFFORTS_THROUGH_XHIGH }],
   ['openai/gpt-5.4-mini', { input: 0.75, output: 4.5, cacheWritePrice: 0.75, maxTokens: 128 * 1024, canThink: true, efforts: EFFORTS_THROUGH_XHIGH }],
-  ['openai/gpt-5.4-pro', { input: 30, output: 180, cacheWritePrice: 30, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128 * 1024, canThink: true, efforts: EFFORTS_THROUGH_XHIGH }],
-  ['openai/gpt-5.3-codex', { input: 1.75, output: 14, cacheWritePrice: 1.75, maxTokens: 128 * 1024, canThink: true, efforts: EFFORTS_THROUGH_HIGH }],
+  ['openai/gpt-5.4-pro', { input: 30, output: 180, cacheWritePrice: 30, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128 * 1024, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_XHIGH }],
+  ['openai/gpt-5.3-codex', { input: 1.75, output: 14, cacheWritePrice: 1.75, maxTokens: 128 * 1024, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_HIGH }],
   ['openai/gpt-4.1-mini', { input: 0.4, output: 1.6, cacheReadPrice: 0.1, cacheWritePrice: 0.4, maxTokens: 32768 }],
   ['openai/gpt-4o-mini', { input: 0.15, output: 0.6, cacheReadPrice: 0.075, cacheWritePrice: 0.15, maxTokens: 16384 }],
   ['openai/gpt-oss-120b', { input: 0.039, output: 0.19, maxTokens: 128 * 1024 }],
   ['google/gemma-4-31b-it', { input: 0.14, output: 0.4, maxTokens: 128 * 1024, canThink: true }],
   ['google/gemma-4-26b-a4b-it', { input: 0.13, output: 0.4, maxTokens: 128 * 1024, canThink: true }],
-  ['google/gemini-3.8-flash', { input: 0.75, output: 3.75, maxTokens: 64 * 1024, canThink: true }],
-  ['google/gemini-3.1-flash-lite-preview', { input: 0.25, output: 1.5, maxTokens: 64 * 1024, canThink: true }],
-  ['google/gemini-3.1-pro-preview', { input: 2, output: 12, maxTokens: 64 * 1024, canThink: true }],
-  ['nvidia/nemotron-3-super-120b-a12b', { input: 0.085, output: 0.4, maxTokens: 128 * 1024, canThink: true }],
-  ['nvidia/nemotron-3-ultra-550b-a55b', { input: 0.625, output: 3.125, maxTokens: 128 * 1024, canThink: true }],
+  ['google/gemini-3.8-flash', { input: 0.75, output: 3.75, maxTokens: 64 * 1024, canThink: true, noThink: 'unsupported' }],
+  ['google/gemini-3.1-flash-lite-preview', { input: 0.25, output: 1.5, maxTokens: 64 * 1024, canThink: true, noThink: 'explicit' }],
+  ['google/gemini-3.1-pro-preview', { input: 2, output: 12, maxTokens: 64 * 1024, canThink: true, noThink: 'unsupported' }],
+  ['nvidia/nemotron-3-super-120b-a12b', { input: 0.085, output: 0.4, maxTokens: 128 * 1024, canThink: true, noThink: 'explicit' }],
+  ['nvidia/nemotron-3-ultra-550b-a55b', { input: 0.625, output: 3.125, maxTokens: 128 * 1024, canThink: true, noThink: 'explicit' }],
   ['nvidia/nemotron-3.5-lightning', { input: 0.08, output: 0.2, maxTokens: 128 * 1024, canThink: true }],
-  ['qwen/qwen3.6-27b', { input: 0.3, output: 2, maxTokens: 64 * 1024, canThink: true }],
-  ['qwen/qwen3.6-35b-a3b', { input: 0.1, output: 0.9, maxTokens: 64 * 1024, canThink: true }],
-  ['qwen/qwen3.8-27b', { input: 0.214, output: 2.55, maxTokens: 64 * 1024, canThink: true }],
-  ['qwen/qwen3.8-2.4t-a95b', { input: 2, output: 6, maxTokens: 64 * 1024, canThink: true }],
-  ['qwen/qwen3.8-max', { input: 2, output: 6, cacheReadPrice: 0.25, maxTokens: 128 * 1024, canThink: true }],
-  ['deepseek/deepseek-v4-pro', { input: 1.32, output: 3.96, cacheReadPrice: 0.044, maxTokens: 384 * 1024, canThink: true, efforts: ['low', 'high', 'max'] }],
-  ['deepseek/deepseek-v4.1-flash', { input: 0.3, output: 1.2, cacheReadPrice: 0.006, maxTokens: 384 * 1024, canThink: true, efforts: ['low', 'high', 'max'] }],
+  ['qwen/qwen3.6-27b', { input: 0.3, output: 2, maxTokens: 64 * 1024, canThink: true, noThink: 'explicit' }],
+  ['qwen/qwen3.6-35b-a3b', { input: 0.1, output: 0.9, maxTokens: 64 * 1024, canThink: true, noThink: 'explicit' }],
+  ['qwen/qwen3.8-27b', { input: 0.214, output: 2.55, maxTokens: 64 * 1024, canThink: true, noThink: 'explicit' }],
+  ['qwen/qwen3.8-2.4t-a95b', { input: 2, output: 6, maxTokens: 64 * 1024, canThink: true, noThink: 'unsupported' }],
+  ['qwen/qwen3.8-max', { input: 2, output: 6, cacheReadPrice: 0.25, maxTokens: 128 * 1024, canThink: true, noThink: 'unsupported' }],
+  ['deepseek/deepseek-v4-pro', { input: 1.32, output: 3.96, cacheReadPrice: 0.044, maxTokens: 384 * 1024, canThink: true, noThink: 'explicit', efforts: ['low', 'high', 'max'] }],
+  ['deepseek/deepseek-v4.1-flash', { input: 0.3, output: 1.2, cacheReadPrice: 0.006, maxTokens: 384 * 1024, canThink: true, noThink: 'explicit', efforts: ['low', 'high', 'max'] }],
   ['x-ai/grok-4.7', { input: 2, output: 6, cacheReadPrice: 0.5, longContext: { above: 200_000, input: 2, output: 2 }, maxTokens: 128 * 1024, canThink: true, noThink: 'unsupported', efforts: EFFORTS_THROUGH_XHIGH }],
   ['z-ai/glm-5.3', { input: 1.4, output: 4.4, cacheReadPrice: 0.26, maxTokens: 128 * 1024, canThink: true, noThink: 'unsupported', efforts: ['low', 'high', 'max'] }],
   // Kimi K3 (1M context) at Moonshot's list rate. OpenRouter resells it a little cheaper but
@@ -148,8 +148,8 @@ const MODELS = new Map([
   // Free models — may log/store/use your data
   ['openai/gpt-oss-120b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['openai/gpt-oss-20b:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
-  ['nvidia/nemotron-3-super-120b-a12b:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, free: true }],
-  ['nvidia/nemotron-3-ultra-550b-a55b:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, free: true }],
+  ['nvidia/nemotron-3-super-120b-a12b:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, noThink: 'explicit', free: true }],
+  ['nvidia/nemotron-3-ultra-550b-a55b:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, noThink: 'explicit', free: true }],
   ['nvidia/nemotron-3.5-lightning:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: true, free: true }],
   ['qwen/qwen3-coder:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['qwen/qwen3.6-plus:free', { input: 0, output: 0, maxTokens: 64 * 1024, free: true }],
@@ -246,13 +246,18 @@ export function canAdaptive(model) {
 // two booleans, so a row can't claim a contradictory pair:
 //
 //   (absent)        omit the field; that already means no thinking.
-//   'explicit'      omit means ADAPTIVE, so send `{ type: 'disabled' }`.
-//                   Accepted at effort <= high, which the no-think path
-//                   satisfies by never sending an effort at all.
+//   'explicit'      omitting leaves thinking ON, so the off switch is sent:
+//                   `{ type: 'disabled' }` on the Messages API (accepted at
+//                   effort <= high, which the no-think path satisfies by
+//                   never sending an effort at all), `effort: 'none'` on
+//                   Responses, `reasoning: { enabled: false }` through
+//                   OpenRouter. A gateway's chat route has no common
+//                   spelling for it and sends nothing.
 //   'unsupported'   no opt-out exists — either the disabled form 400s at
 //                   any effort (the fable 5 family) or the API has no off
-//                   switch at all (kimi-k3, and the gpt-6 astra rows, which
-//                   reject `reasoning_effort: 'none'` and floor at `low`).
+//                   switch at all (kimi-k3, the gpt-6 astra rows, which
+//                   reject `reasoning_effort: 'none'` and floor at `low`,
+//                   and every model OpenRouter marks reasoning-mandatory).
 //                   Omitting is the only legal request, even though thinking
 //                   stays on.
 export function needsExplicitNoThink(model) {
