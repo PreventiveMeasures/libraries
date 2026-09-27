@@ -4,7 +4,7 @@ import { assertArgs, assertRepo, assertion, isGhsa, isRefName, isStrings } from 
 import { isGone } from '../github/client.js'
 import { pool } from '../pool.js'
 import { isExactVersion, satisfies, validRange } from '../semver.js'
-import { askedVersions, order } from './common.js'
+import { affecting, askedVersions } from './common.js'
 
 const REPOS_AT_ONCE = 4
 
@@ -41,21 +41,23 @@ function fromRepository(name, advisory, range, asked, covers) {
 }
 
 // A maintainer's advisory is on the repository before GitHub reviews it
-// into the database the registries answer from. Each repository in
-// `namesOf` is asked once, and its advisories' vulnerable ranges become
-// rows for those of its names that `takes` a vulnerability for, one per
+// into the database the registries answer from. Each asked name's
+// repository, `repoOf` it, is asked once, and its advisories' vulnerable
+// ranges become rows for the names that `takes` a vulnerability, one per
 // name, advisory and range, holding the asked versions it `covers`.
-export async function repositoryAdvisories(method, github, namesOf, asked, takes, covers = satisfies) {
+export async function repositoryAdvisories(method, github, asked, { repoOf, takes = () => true, covers = satisfies }) {
+  const namesOf = Map.groupBy([...asked.keys()].filter(repoOf), repoOf)
   const listed = await pool([...namesOf], REPOS_AT_ONCE, async ([repo, names]) => ({ repo, names, list: await listAdvisories(github, repo) }))
   const rows = new Map()
   for (const { repo, names, list } of listed) {
-    for (const advisory of list) assert.ok(isRepoAdvisory(advisory), `${method}: malformed advisory from ${repo}`)
-    const vulnerable = list.filter((advisory) => !advisory.withdrawn_at).flatMap((advisory) => (advisory.vulnerabilities ?? []).map((vulnerability) => ({ advisory, vulnerability })))
-    for (const { advisory, vulnerability } of vulnerable) {
-      const range = vulnerability?.vulnerable_version_range
-      assert.ok(range == null || typeof range === 'string', `${method}: malformed range in ${advisory.ghsa_id}`)
-      for (const name of names.filter((candidate) => takes(candidate, vulnerability?.package, advisory))) {
-        rows.set(`${name} ${advisory.ghsa_id} ${range}`, fromRepository(name, advisory, range, asked.get(name), covers))
+    for (const advisory of list) {
+      assert.ok(isRepoAdvisory(advisory), `${method}: malformed advisory from ${repo}`)
+      for (const vulnerability of advisory.withdrawn_at ? [] : advisory.vulnerabilities ?? []) {
+        const range = vulnerability?.vulnerable_version_range
+        assert.ok(range == null || typeof range === 'string', `${method}: malformed range in ${advisory.ghsa_id}`)
+        for (const name of names.filter((candidate) => takes(candidate, vulnerability?.package, advisory))) {
+          rows.set(`${name} ${advisory.ghsa_id} ${range}`, fromRepository(name, advisory, range, asked.get(name), covers))
+        }
       }
     }
   }
@@ -73,8 +75,6 @@ const assertVersion = assertion('a version or a branch name', isRefName)
 export async function githubAdvisories(packages, options) {
   const asked = askedVersions('githubAdvisories', packages, assertRepo, assertVersion)
   assertArgs('githubAdvisories', options, { github: assertClient })
-  const namesOf = new Map([...asked.keys()].map((repo) => [repo, [repo]]))
   const covers = (version, range) => isPlaceholder(version) || satisfies(version, range)
-  const advisories = await repositoryAdvisories('githubAdvisories', options.github, namesOf, asked, () => true, covers)
-  return advisories.filter((advisory) => advisory.versions.length > 0).toSorted((a, b) => order(a.name, b.name))
+  return affecting(await repositoryAdvisories('githubAdvisories', options.github, asked, { repoOf: (repo) => repo, covers }))
 }

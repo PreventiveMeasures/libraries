@@ -5,7 +5,7 @@ import { NPM_REGISTRY, buildUrl, request } from '../http.js'
 import { lookUpPackageRepo } from '../npm/repos.js'
 import { pool } from '../pool.js'
 import { compareVersions, satisfies } from '../semver.js'
-import { askedVersions, order } from './common.js'
+import { affecting, askedVersions } from './common.js'
 import { assertClient, repositoryAdvisories } from './github.js'
 
 const BULK_URL = buildUrl(NPM_REGISTRY, ['-', 'npm', 'v1', 'security', 'advisories', 'bulk'])
@@ -65,11 +65,11 @@ export async function npmAdvisories(packages, options = {}) {
     // that package, and never for an advisory the registry answered with.
     // A lookup that fails throws: it is not a package without one.
     const reported = new Set(advisories.map((advisory) => `${advisory.name} ${advisory.ghsa}`))
-    const repos = await pool([...asked.keys()], LOOKUPS_AT_ONCE, async (name) => [name, await lookUpPackageRepo(name)])
-    const namesOf = new Map()
-    for (const [name, repo] of repos) if (repo) namesOf.set(repo.github, [...(namesOf.get(repo.github) ?? []), name])
+    const names = [...asked.keys()]
+    const found = await pool(names, LOOKUPS_AT_ONCE, lookUpPackageRepo)
+    const repos = new Map(names.map((name, i) => [name, found[i]?.github]))
     const takes = (name, pkg, advisory) => pkg?.ecosystem === 'npm' && pkg.name === name && !reported.has(`${name} ${advisory.ghsa_id}`)
-    advisories.push(...await repositoryAdvisories('npmAdvisories', options.github, namesOf, asked, takes))
+    advisories.push(...await repositoryAdvisories('npmAdvisories', options.github, asked, { repoOf: (name) => repos.get(name), takes }))
   }
-  return advisories.filter((advisory) => advisory.versions.length > 0).toSorted((a, b) => order(a.name, b.name))
+  return affecting(advisories)
 }

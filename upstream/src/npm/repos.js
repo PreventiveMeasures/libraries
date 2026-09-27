@@ -48,13 +48,8 @@ export async function resolvePackageRepos(packageNames, options = {}) {
   assertArgs('resolvePackageRepos', options, { cachedOnly: optional(assertBoolean) })
   const names = [...new Set(packageNames)]
   for (const name of names) assertPackageName('resolvePackageRepos', 'name', name)
-  const repos = new Map()
-  const lookUp = async (name) => {
-    const repo = await (options.cachedOnly ? readPackageRepoCache(name) : lookUpPackageRepo(name))
-    if (repo) repos.set(name, repo)
-  }
-  await pool(names, CONCURRENCY, (name) => lookUp(name).catch(() => {}))
-  return repos
+  const found = await pool(names, CONCURRENCY, (name) => (options.cachedOnly ? readPackageRepoCache(name) : lookUpPackageRepo(name)).catch(() => null))
+  return new Map(names.flatMap((name, i) => (found[i] ? [[name, found[i]]] : [])))
 }
 
 // Through the cache. Null for a package the registry does not have, or

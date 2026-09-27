@@ -15,3 +15,6 @@ export function askedVersions(method, packages, assertName, assertVersion, compa
   }
   return new Map([...versions.keys()].toSorted().map((name) => [name, [...versions.get(name)].toSorted(compare)]))
 }
+
+// The rows that hit an asked version, by name.
+export const affecting = (advisories) => advisories.filter((advisory) => advisory.versions.length > 0).toSorted((a, b) => order(a.name, b.name))
