@@ -7,12 +7,6 @@ import { basename, dirname, resolve } from 'node:path'
 // through as it is. Without npm beside node, every call throws, except
 // `valid` on a plain release.
 
-const CANDIDATE_PATHS = [
-  // POSIX: <prefix>/bin/node, <prefix>/lib/node_modules/npm.
-  '../lib/node_modules/npm/node_modules/semver',
-  // Windows: npm sits beside node.exe.
-  './node_modules/npm/node_modules/semver',
-]
 const USED = ['compare', 'satisfies', 'valid']
 // Plain releases that semver.valid answers unchanged, so it need not be
 // loaded for them: no leading zeros, and at most 15 digits a part, under
@@ -28,9 +22,10 @@ function find() {
   // Another host executable's `../lib` is not npm's.
   if (!['node', 'node.exe'].includes(basename(argv0 ?? ''))) return null
   const require = createRequire(import.meta.url)
-  for (const candidate of CANDIDATE_PATHS) {
+  // POSIX keeps npm in <prefix>/lib beside <prefix>/bin/node; Windows, beside node.exe.
+  for (const prefix of ['../lib', '.']) {
     try {
-      const lib = require(resolve(dirname(argv0), candidate))
+      const lib = require(resolve(dirname(argv0), prefix, 'node_modules/npm/node_modules/semver'))
       if (USED.every((name) => typeof lib?.[name] === 'function')) return lib
     } catch {
       // Try the next layout.
