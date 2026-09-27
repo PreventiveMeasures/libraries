@@ -14,7 +14,6 @@ const CREATE_COMMIT_MUTATION = `mutation($input: CreateCommitOnBranchInput!) {
     commit { oid url }
   }
 }`
-const GRAPHQL_BYTES = 1024 * 1024
 
 function toBase64(value, what) {
   assert.ok(typeof value === 'string' || value instanceof Uint8Array, `createCommit: ${what} must be a string or a Uint8Array, got ${typeof value}`)
@@ -79,7 +78,7 @@ export function parseGraphQLResponse(status, text) {
 // its text. A signed commit; the branch must exist.
 async function createCommitOnBranch(headers, input) {
   const res = await send(api(['graphql']), { method: 'POST', headers, body: { query: CREATE_COMMIT_MUTATION, variables: { input } }, as: 'json' })
-  return parseGraphQLResponse(res.status, new TextDecoder().decode(await readBody(res, GRAPHQL_BYTES))).createCommitOnBranch.commit
+  return parseGraphQLResponse(res.status, new TextDecoder().decode(await readBody(res, 1024 * 1024))).createCommitOnBranch.commit
 }
 
 async function forkRepo(headers, options) {

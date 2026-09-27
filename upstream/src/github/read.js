@@ -23,7 +23,7 @@ async function listUserRepos(headers) {
 
 async function getRepo(headers, options) {
   assertArgs('getRepo', options, { repo: assertRepo })
-  const info = await call(headers, repoApi(options.repo, []))
+  const info = await call(headers, repoApi(options.repo))
   assert.ok(sameName(info?.full_name, options.repo), `getRepo: answered for ${show(info?.full_name)}, not ${options.repo}`)
   return info
 }

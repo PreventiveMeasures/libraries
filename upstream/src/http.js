@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { printable } from './args.js'
+import { matches, printable } from './args.js'
 
 // Every request goes through here, to a URL from buildUrl, which has to
 // come back out of `new URL()` unchanged: no segment can then be read as
@@ -10,11 +10,11 @@ export const NPM_REGISTRY = 'https://registry.npmjs.org'
 export const GITHUB_API = 'https://api.github.com'
 
 const ORIGINS = new Set([NPM_REGISTRY, GITHUB_API])
-const isSegment = (value) => typeof value === 'string' && /^(?!\.\.?$)(?:[\w.~@-]|%[\dA-F]{2})+$/u.test(value)
-const isQueryKey = (value) => /^[a-z_]+$/u.test(value)
+const isSegment = matches(/^(?!\.\.?$)(?:[\w.~@-]|%[\dA-F]{2})+$/u)
+const isQueryKey = matches(/^[a-z_]+$/u)
 const isQueryValue = (value) => (typeof value === 'string' && value !== '') || (Number.isSafeInteger(value) && value >= 0)
 // A line break in a value would start a header of its own.
-const isHeader = ([name, value]) => /^[A-Za-z][\w-]*$/u.test(name) && typeof value === 'string' && /^[ -~]*$/u.test(value)
+const isHeader = ([name, value]) => /^[A-Za-z][\w-]*$/u.test(name) && matches(/^[ -~]*$/u)(value)
 // API documents are kilobytes, a GitHub file is at most 100 MB, a tarball
 // is what it is.
 const LIMITS = {
@@ -22,7 +22,6 @@ const LIMITS = {
   text: { bytes: 128 * 1024 * 1024, ms: 30_000 },
   bytes: { bytes: 512 * 1024 * 1024, ms: 300_000 },
 }
-const ERROR_BODY_BYTES = 4096
 const decoder = new TextDecoder()
 
 export class HttpError extends Error {
@@ -49,15 +48,11 @@ export function buildUrl(origin, segments, query = {}) {
   return href
 }
 
-function assertBuilt(url) {
-  const parsed = typeof url === 'string' ? URL.parse(url) : null
-  assert.ok(parsed?.href === url && ORIGINS.has(parsed.origin) && !parsed.username && !parsed.password && !parsed.hash, `Unexpected URL: ${printable(url)}`)
-}
-
 // Redirects aren't followed unless asked: an answer about another repo is
 // worse than an error.
 export async function send(url, { method = 'GET', headers = {}, body, redirect = 'manual', as } = {}) {
-  assertBuilt(url)
+  const parsed = typeof url === 'string' ? URL.parse(url) : null
+  assert.ok(parsed?.href === url && ORIGINS.has(parsed.origin) && !parsed.username && !parsed.password && !parsed.hash, `Unexpected URL: ${printable(url)}`)
   assert.ok(['GET', 'POST'].includes(method), `Unexpected method: ${method}`)
   assert.ok(['manual', 'follow'].includes(redirect), `Unexpected redirect mode: ${redirect}`)
   assert.ok(Object.hasOwn(LIMITS, as), `Unexpected response type: ${as}`)
@@ -89,7 +84,7 @@ export async function readBody(res, limit, { truncate = false } = {}) {
 export async function request(url, options) {
   const res = await send(url, options)
   if (!res.ok) {
-    const text = decoder.decode(await readBody(res, ERROR_BODY_BYTES, { truncate: true }).catch(() => new Uint8Array(0)))
+    const text = decoder.decode(await readBody(res, 4096, { truncate: true }).catch(() => new Uint8Array(0)))
     throw new HttpError(res.status, `${options.method ?? 'GET'} ${url} ${res.status}: ${printable(text)}`)
   }
   const bytes = await readBody(res, LIMITS[options.as].bytes)

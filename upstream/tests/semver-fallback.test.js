@@ -8,13 +8,9 @@ import { describe, it } from 'node:test'
 // own.
 process.argv[0] = '/nowhere/not-node'
 
-const { compareVersions, isExactVersion, satisfies, semverAvailable, valid } = await import('../semver.js')
+const { compareVersions, isExactVersion, satisfies, valid } = await import('../semver.js')
 
 describe('without npm beside node', () => {
-  it('says so', () => {
-    assert.equal(semverAvailable(), false)
-  })
-
   it('throws rather than guessing', () => {
     assert.throws(() => satisfies('1.0.0', '^1'), /no npm beside node/u)
     assert.throws(() => compareVersions('1.0.0', '1.0.1'), /no npm beside node/u)

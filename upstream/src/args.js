@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { isExactVersion } from './semver.js'
 
 const isControl = (char) => char < ' ' || (char >= '\u007F' && char <= '\u009F')
+export const matches = (regex) => (value) => typeof value === 'string' && regex.test(value)
 // Bidi controls can make a log line read as something it doesn't say.
 const isBidi = (char) => (char >= '\u202A' && char <= '\u202E') || (char >= '\u2066' && char <= '\u2069')
 // A prototype's properties would be read as options without being checked.
@@ -10,17 +11,17 @@ const isPlainObject = (value) => value != null && [Object.prototype, null].inclu
 // Lone surrogates make encodeURIComponent throw.
 const isString = (value, max, allowed = '') => typeof value === 'string' && value.length <= max && value.isWellFormed()
   && ![...value].some((char) => isControl(char) && !allowed.includes(char))
-const isLogin = (value) => typeof value === 'string' && /^(?=.{1,39}$)[a-z\d](?:-?[a-z\d])*$/iu.test(value)
+const isLogin = matches(/^(?=.{1,39}$)[a-z\d](?:-?[a-z\d])*$/iu)
 // `.` and `..` would be dot segments in a URL path.
-const isRepoName = (value) => typeof value === 'string' && /^(?!\.\.?$)[\w.-]{1,100}$/u.test(value)
+const isRepoName = matches(/^(?!\.\.?$)[\w.-]{1,100}$/u)
 // `.git` is never in a repo's tree, and no commit should write into it.
 const isRepoPath = (value) => isString(value, 4096) && value.split('/').every((part) => !['', '.', '..', '.git'].includes(part.toLowerCase()))
 // `git check-ref-format --branch`, one alternative per rule.
 const BAD_REF = /^$|^@$|^-|[ ~^:?*[\\]|\.\.|@\{|^\/|\/$|\/\/|(?:^|\/)\.|\.lock(?:\/|$)|\.$/u
-const isToken = (value) => typeof value === 'string' && /^[!-~]+$/u.test(value)
+const isToken = matches(/^[!-~]+$/u)
 // npm's rules for existing names: capitals allowed (JSONStream), the
 // legacy `~'!()*` not.
-const isPackageName = (value) => typeof value === 'string' && value.length <= 214 && /^(?:@[\w.-]+\/)?[\w-][\w.-]*$/u.test(value)
+const isPackageName = matches(/^(?=.{1,214}$)(?:@[\w.-]+\/)?[\w-][\w.-]*$/u)
 
 // For remote text going into error messages.
 export function printable(text) {
@@ -40,7 +41,7 @@ export function isRepo(value) {
 export const sameName = (a, b) => typeof a === 'string' && a.toLowerCase() === b.toLowerCase()
 export const isRefName = (value) => isString(value, 255) && !BAD_REF.test(value)
 // Full shas only: an abbreviation can be ambiguous, and a ref can move.
-export const isSha = (value) => typeof value === 'string' && /^(?:[\da-f]{40}|[\da-f]{64})$/u.test(value)
+export const isSha = matches(/^(?:[\da-f]{40}|[\da-f]{64})$/u)
 export const assertion = (must, predicate) => (method, what, value) => assert.ok(predicate(value), `${method}: ${what} must be ${must}, got ${show(value)}`)
 export const optional = (check) => (method, what, value) => value === undefined || check(method, what, value)
 
@@ -67,7 +68,7 @@ export const assertSha = assertion('a full commit sha', isSha)
 export const assertPath = assertion('a path inside a repository', isRepoPath)
 export const assertToken = assertion('a token', isToken)
 export const assertTokenOrNull = assertion('a token, or null for anonymous access', (value) => value === null || isToken(value))
-export const assertUserAgent = assertion('a printable user agent', (value) => typeof value === 'string' && value.trim() !== '' && /^[ -~]+$/u.test(value))
+export const assertUserAgent = assertion('a printable user agent', matches(/^[ -~]*[!-~][ -~]*$/u))
 export const assertPackageName = assertion('an npm package name', isPackageName)
 // `v1.2.3` and `1.2.3+build` pass semver.valid but are not what the
 // registry files.
