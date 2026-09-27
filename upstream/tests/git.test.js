@@ -78,6 +78,8 @@ describe('findGitCheckout', () => {
       'git@github.com:acme/app.git',
       'ssh://git@github.com/acme/app.git',
       'git://github.com/acme/app',
+      'https://GitHub.com/acme/app.git',
+      'git@GITHUB.COM:acme/app.git',
     ]
     for (const url of urls) {
       const result = await findGitCheckout(await checkout({ '.git/HEAD': `${SHA}\n`, '.git/config': config(url) }))
@@ -91,6 +93,7 @@ describe('findGitCheckout', () => {
       config('https://gitlab.com/acme/app.git'),
       config('https://git.internal.example/acme/app.git'),
       config('https://github.com.evil.example/acme/app'),
+      config('https://GitHub.com.evil.example/acme/app'),
       config('https://evil.example#@github.com/acme/app'),
       config('https://evil.example?@github.com/acme/app.git'),
       config('https://evil.example\\@github.com/acme/app'),

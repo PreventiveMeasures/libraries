@@ -20,6 +20,22 @@ describe('getRepo', () => {
     assert.deepEqual(getRepo({ bugs: 'bugs@acme.example' }), {})
   })
 
+  it('reads a repo name with dots off a tracker, and GitHub\'s host in any case', () => {
+    assert.deepEqual(getRepo({ bugs: { url: 'https://github.com/socketio/socket.io/issues' } }), { github: 'socketio/socket.io', url: 'https://github.com/socketio/socket.io' })
+    for (const pkg of [
+      { bugs: 'https://GitHub.com/acme/app/issues' },
+      { repository: 'https://GitHub.com/acme/app.git' },
+      { repository: 'git+ssh://git@GITHUB.COM/acme/app.git' },
+      { repository: 'git@GitHub.com:acme/app.git' },
+      { homepage: 'https://GitHub.com/acme/app#readme' },
+    ]) {
+      assert.deepEqual(getRepo(pkg), { github: 'acme/app', url: 'https://github.com/acme/app' }, JSON.stringify(pkg))
+    }
+    for (const pkg of [{ bugs: 'https://github.com/acme/../issues' }, { repository: 'https://GitHub.com.evil.example/acme/app' }, { repository: 'git@GitHub.com.evil.example:acme/app' }]) {
+      assert.deepEqual(getRepo(pkg), {}, JSON.stringify(pkg))
+    }
+  })
+
   it('answers the directory with the repo, never without it', () => {
     assert.deepEqual(getRepo({ repository: { type: 'git', url: 'git+https://github.com/babel/babel.git', directory: 'packages/babel-core' } }), { github: 'babel/babel', directory: 'packages/babel-core', url: 'https://github.com/babel/babel' })
     assert.deepEqual(getRepo({ repository: { url: 'https://gitlab.com/acme/app.git', directory: 'packages/x' } }), {})
