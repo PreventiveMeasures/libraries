@@ -80,6 +80,8 @@ describe('findGitCheckout', () => {
       'git://github.com/acme/app',
       'https://GitHub.com/acme/app.git',
       'git@GITHUB.COM:acme/app.git',
+      'HTTPS://github.com/acme/app.git',
+      'Git://github.com/acme/app',
       'ssh://git@github.com:22/acme/app.git',
       'https://github.com:443/acme/app.git',
     ]

@@ -20,13 +20,18 @@ describe('getRepo', () => {
     assert.deepEqual(getRepo({ bugs: 'bugs@acme.example' }), {})
   })
 
-  it('reads a repo name with dots off a tracker, and GitHub\'s host in any case', () => {
+  it('reads a repo name with dots off a tracker, and GitHub\'s host and the scheme in any case', () => {
     assert.deepEqual(getRepo({ bugs: { url: 'https://github.com/socketio/socket.io/issues' } }), { github: 'socketio/socket.io', url: 'https://github.com/socketio/socket.io' })
     assert.deepEqual(getRepo({ bugs: 'https://github.com/acme/app/issues/' }), { github: 'acme/app', url: 'https://github.com/acme/app' })
     assert.deepEqual(getRepo({ bugs: 'https://github.com/acme/app/issues//' }), {})
     for (const pkg of [
       { bugs: 'https://GitHub.com/acme/app/issues' },
+      { bugs: 'HTTPS://github.com/acme/app/issues' },
       { repository: 'https://GitHub.com/acme/app.git' },
+      { repository: 'HTTPS://github.com/acme/app.git' },
+      { repository: 'GIT+HTTPS://github.com/acme/app.git' },
+      { repository: 'Git+Ssh://git@github.com:acme/app.git' },
+      { repository: 'SSH://git@github.com/acme/app.git' },
       { repository: 'git+ssh://git@GITHUB.COM/acme/app.git' },
       { repository: 'git@GitHub.com:acme/app.git' },
       { repository: 'ssh://git@github.com:22/acme/app.git' },
