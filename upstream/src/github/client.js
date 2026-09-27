@@ -19,8 +19,7 @@ export function clientHeaders(method, options, anonymous) {
   }
 }
 
-// All async, so a bad argument is always a rejection. Arguments past the
-// method's own, per `fn.length`, are refused.
+// All async, so a bad argument is always a rejection, never a throw.
 export function bindMethods(headers, methods) {
   return Object.fromEntries(Object.entries(methods).map(([name, fn]) => [name, async (...args) => {
     assert.ok(args.length < fn.length, `${name}: unexpected arguments`)

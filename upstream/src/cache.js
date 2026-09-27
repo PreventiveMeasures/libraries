@@ -6,13 +6,11 @@ import { assertDirectoryPath } from './args.js'
 
 const DIRS = new Set(['npm/repos', 'npm/tarballs'])
 
-// No default location: unset, reads miss and writes are skipped.
 let root
 let tmpSeq = 0
 
 export function setCacheDir(dir) {
   assertDirectoryPath('setCacheDir', 'dir', dir)
-  // Resolved now, so a later chdir doesn't move it.
   root = resolve(dir)
 }
 
@@ -36,8 +34,6 @@ export async function readCacheJSON(dir, key) {
   }
 }
 
-// Temp file and rename, so a killed process never leaves a truncated
-// record. Never throws: an unwritable cache only makes the next call slower.
 export async function writeCache(dir, key, data) {
   const path = cachePath(dir, key)
   if (path === null) return false

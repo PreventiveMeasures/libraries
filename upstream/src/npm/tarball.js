@@ -5,9 +5,7 @@ import { assertPackageName, assertPackageVersion, printable, show } from '../arg
 import { readCache, readCacheJSON, writeCache, writeCacheJSON } from '../cache.js'
 import { NPM_REGISTRY, buildUrl, request } from '../http.js'
 
-// The bytes, and beside them a `.json` with the integrity they were
-// checked against. No expiry: the registry never takes a version twice.
-const DIR = 'npm/tarballs'
+const DIR = 'npm/tarballs' // No expiry: the registry never takes a version twice.
 // Only sha512: every version on the registry has one, so a sha1-only
 // integrity is refused rather than trusted.
 const SHA512_RE = /^sha512-(?<digest>[\dA-Za-z+/]{86}==)(?:\?[!-~]*)?$/u

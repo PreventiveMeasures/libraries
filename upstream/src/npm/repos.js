@@ -6,9 +6,7 @@ import { NPM_REGISTRY, buildUrl, request } from '../http.js'
 import { assertRepoDirectory, getRepo, isRepoDirectory } from '../package.js'
 
 const DIR = 'npm/repos'
-// The link changes only on a transfer or rename, and GitHub redirects a
-// renamed repo.
-const TTL_MS = 30 * 24 * 60 * 60 * 1000
+const TTL_MS = 30 * 24 * 60 * 60 * 1000 // A link only moves on a transfer or rename, and GitHub redirects those.
 const CONCURRENCY = 8
 
 export async function getGitHub(name) {
@@ -31,8 +29,8 @@ export async function readPackageRepoCache(name) {
   return { github: entry.github, ...(entry.directory && { directory: entry.directory }) }
 }
 
-// Only a resolved repo is written: a 404, a rate limit and a package with
-// no repo link fail alike, and caching that would hide the link for a month.
+// Only resolved repos are cached: a 404, a rate limit and a package with
+// no repo link fail alike.
 export async function writePackageRepoCache(name, github, directory = '') {
   assertPackageName('writePackageRepoCache', 'name', name)
   assertRepo('writePackageRepoCache', 'github', github)
@@ -40,8 +38,6 @@ export async function writePackageRepoCache(name, github, directory = '') {
   return await writeCacheJSON(DIR, `${name}.json`, { at: Date.now(), name, github, directory })
 }
 
-// A malformed name throws for the batch; a lookup that fails only leaves
-// its name out.
 export async function resolvePackageRepos(packageNames, options = {}) {
   assert.ok(typeof packageNames?.[Symbol.iterator] === 'function' && typeof packageNames !== 'string', 'resolvePackageRepos: packageNames must be an iterable of names')
   assertArgs('resolvePackageRepos', options, { cachedOnly: optional(assertBoolean) })

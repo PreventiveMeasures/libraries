@@ -52,7 +52,6 @@ function fileChanges(additions = [], deletions = []) {
   }
 }
 
-// A branch, or `owner:branch` for a pull request from a fork.
 function assertHead(method, what, head) {
   const colon = typeof head === 'string' ? head.indexOf(':') : -1
   if (colon === -1) return assertRef(method, what, head)
@@ -60,7 +59,6 @@ function assertHead(method, what, head) {
   assertRef(method, `${what} branch`, head.slice(colon + 1))
 }
 
-// The body is read as text first, so a failure's message keeps it.
 // Exported to test the error paths without a fetch mock.
 export function parseGraphQLResponse(status, text) {
   if (status < 200 || status >= 300) {
@@ -74,8 +72,7 @@ export function parseGraphQLResponse(status, text) {
   return json.data
 }
 
-// The query is a constant; the input travels as JSON beside it, never in
-// its text. A signed commit; the branch must exist.
+// A signed commit; the branch must already exist.
 async function createCommitOnBranch(headers, input) {
   const res = await send(api(['graphql']), { method: 'POST', headers, body: { query: CREATE_COMMIT_MUTATION, variables: { input } }, as: 'json' })
   return parseGraphQLResponse(res.status, new TextDecoder().decode(await readBody(res, 1024 * 1024))).createCommitOnBranch.commit

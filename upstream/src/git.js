@@ -4,12 +4,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path'
 import { assertDirectoryPath, isRefName, isSha } from './args.js'
 import { githubRepoOfUrl } from './remote.js'
 
-// Read off `.git` without running git. Best-effort: whatever can't be
-// read is a field left out; only a non-string `dir` throws.
-
-// Only this exact form, at the start of a line. Only `owner/name` is
-// returned: the URL may name a private host or carry a token.
-const ORIGIN = '[remote "origin"]\n\turl = '
+const ORIGIN = '[remote "origin"]\n\turl = ' // As git writes it. Only `owner/name` leaves here: the URL may carry a token.
 const read = (path) => readFile(path, 'utf8').catch(() => null)
 const isDirectory = async (path) => (await stat(path).catch(() => null))?.isDirectory() ?? false
 

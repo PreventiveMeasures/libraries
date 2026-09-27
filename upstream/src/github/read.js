@@ -5,7 +5,6 @@ import { encodeSegment } from '../http.js'
 import { api, bindMethods, call, clientHeaders, repoApi } from './client.js'
 
 const PER_PAGE = 100
-// A server that keeps answering full pages isn't asked forever.
 const MAX_PAGES = 100
 
 const getCurrentUser = (headers) => call(headers, api(['user']))
@@ -31,7 +30,6 @@ async function getRepo(headers, options) {
 export async function getRepoHead(headers, options) {
   assertArgs('getRepoHead', options, { repo: assertRepo, branch: optional(assertRef) })
   const { repo, branch } = options
-  // Checked like a branch passed in: it goes into the next URL.
   const ref = branch ?? (await getRepo(headers, { repo })).default_branch
   assertRef('getRepoHead', 'default branch', ref)
   const data = await call(headers, repoApi(repo, ['git', 'ref', 'heads', encodeSegment(ref)]))
