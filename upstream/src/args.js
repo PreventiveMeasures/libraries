@@ -14,7 +14,7 @@ const isString = (value, max, allowed = '') => typeof value === 'string' && valu
 const isLogin = matches(/^(?=.{1,39}$)[a-z\d](?:-?[a-z\d])*$/iu)
 const isRepoName = matches(/^(?!\.\.?$)[\w.-]{1,100}$/u)
 // `.git` is never in a repo's tree, and no commit should write into it.
-const isRepoPath = (value) => isString(value, 4096) && value.split('/').every((part) => !['', '.', '..', '.git'].includes(part.toLowerCase()))
+export const isRepoPath = (value) => isString(value, 4096) && value.split('/').every((part) => !['', '.', '..', '.git'].includes(part.toLowerCase()))
 const BAD_REF = /^$|^@$|^-|[ ~^:?*[\\]|\.\.|@\{|^\/|\/$|\/\/|(?:^|\/)\.|\.lock(?:\/|$)|\.$/u // git check-ref-format, a rule per alternative
 const isToken = matches(/^[!-~]+$/u)
 // npm's rules for existing names: capitals allowed (JSONStream), the

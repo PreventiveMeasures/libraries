@@ -41,6 +41,12 @@ describe('getRepo', () => {
     }
   })
 
+  it('takes any directory git could have, but no traversal or empty part', () => {
+    const at = (directory) => getRepo({ repository: { url: 'https://github.com/acme/mono', directory } }).directory
+    for (const directory of ['packages/@scope/pkg', 'packages/café', 'my dir/pkg', '.github/actions/x', 'a+b/c~d']) assert.equal(at(directory), directory)
+    for (const directory of ['../x', 'a/../b', 'a//b', 'a/./b', '.git/x', 'a/.GIT', 'a\u0000b', 'a\u0007b']) assert.equal(at(directory), undefined, JSON.stringify(directory))
+  })
+
   it('answers the directory with the repo, never without it', () => {
     assert.deepEqual(getRepo({ repository: { type: 'git', url: 'git+https://github.com/babel/babel.git', directory: 'packages/babel-core' } }), { github: 'babel/babel', directory: 'packages/babel-core', url: 'https://github.com/babel/babel' })
     assert.deepEqual(getRepo({ repository: { url: 'https://gitlab.com/acme/app.git', directory: 'packages/x' } }), {})

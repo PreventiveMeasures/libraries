@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { assertion, isRepo, sameName } from './args.js'
+import { assertion, isRepo, isRepoPath, sameName } from './args.js'
 import { githubRepoOfUrl } from './remote.js'
 
 const bugsRegex = /^https?:\/\/(?i:github\.com)\/(?<repo>[\w-]+\/[\w.-]+)\/issues\/?$/u
@@ -10,7 +10,6 @@ const bugsRegex = /^https?:\/\/(?i:github\.com)\/(?<repo>[\w-]+\/[\w.-]+)\/issue
 const shorthandRegex = /^(?:github:)?(?<repo>[\w-]+\/[\w.-]+)$/u
 // The ref is one segment: a branch with a `/` reads as part of the directory.
 const homepageRegex = /^(?:https?:\/\/)?(?:www\.)?github\.com\/(?<repo>[\w-]+\/[\w.-]+?)(?:\.git)?(?:\/(?:tree\/[^/]+(?:\/(?<directory>.*))?)?)?$/iu
-const segmentRegex = /^[\w-][\w.-]*$/u // No leading dot, so no `.` or `..` in a github.com link.
 const str = (value) => (typeof value === 'string' ? value : '')
 const urlOf = (field) => str(field?.url ?? field)
 const homepageUrl = (homepage) => str(homepage).trim().split(/[?#]/u)[0] // npm appends `#readme`.
@@ -20,7 +19,7 @@ const repositoryRepo = (url) => repoIn(shorthandRegex, url) ?? githubRepoOfUrl(u
 
 function repoSubdirectory(value) {
   const trimmed = str(value).trim().replace(/^(?:\.\/|\/)+/u, '').replace(/\/+$/u, '')
-  return trimmed && trimmed.split('/').every((segment) => segmentRegex.test(segment)) ? trimmed : undefined
+  return isRepoPath(trimmed) ? trimmed : undefined // No empty, `.`, `..` or `.git` part: a path inside the repo.
 }
 
 export const isRepoDirectory = (value) => typeof value === 'string' && (value === '' || repoSubdirectory(value) === value)

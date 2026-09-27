@@ -72,8 +72,8 @@ function toAdvisory(ecosystem, name, versions, record) {
 
 // OSV's batch query matches versions on its side, but answers ids only:
 // each record is fetched once after. A record another database also
-// publishes comes back under both ids, so one that aliases a GHSA
-// answered for the same package is left out.
+// publishes comes back under both ids, so one that aliases a GHSA keeps
+// only the versions that GHSA was not answered for.
 async function osvAdvisories(ecosystem, asked, options) {
   const { osv, keep = () => true } = ecosystem
   const list = [...asked].flatMap(([name, versions]) => versions.map((version) => ({ name, version })))
@@ -94,12 +94,14 @@ async function osvAdvisories(ecosystem, asked, options) {
     }
   }
   const records = await pool([...hits.keys()], CONCURRENCY, getVuln)
+  const live = new Set(records.filter((record) => !record.withdrawn).map((record) => record.id))
   const rows = []
-  for (const record of records) {
-    if (record.withdrawn) continue
+  for (const record of records.filter((entry) => live.has(entry.id))) {
     for (const [name, versions] of hits.get(record.id)) {
-      const shadowed = !isGhsa(record.id) && record.aliases.some((alias) => isGhsa(alias) && hits.get(alias)?.has(name))
-      if (!shadowed) rows.push(toAdvisory(osv, name, [...versions], record))
+      // Only the versions a live GHSA it aliases answered for too.
+      const shadowed = isGhsa(record.id) ? [] : record.aliases.filter((alias) => isGhsa(alias) && live.has(alias)).flatMap((alias) => [...(hits.get(alias)?.get(name) ?? [])])
+      const rest = [...versions].filter((version) => !shadowed.includes(version))
+      if (rest.length > 0) rows.push(toAdvisory(osv, name, rest, record))
     }
   }
   rows.sort((a, b) => order(a.name, b.name) || order(a.id, b.id))

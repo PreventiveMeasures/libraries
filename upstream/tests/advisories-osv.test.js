@@ -186,6 +186,25 @@ describe('composer', () => {
     assert.equal(found[3].severity, 'high')
   })
 
+  it('keeps the versions of an aliased record that its GHSA was not answered for, and all of them beside a withdrawn GHSA', async () => {
+    stubOsv({
+      'acme/app@1.0.0': ['CVE-2026-0001'],
+      'acme/app@2.0.0': ['CVE-2026-0001', 'GHSA-aaaa-aaaa-aaaa'],
+      'acme/lib@1.0.0': ['CVE-2026-0002', 'GHSA-bbbb-bbbb-bbbb'],
+    }, {
+      'CVE-2026-0001': { id: 'CVE-2026-0001', aliases: ['GHSA-aaaa-aaaa-aaaa'] },
+      'GHSA-aaaa-aaaa-aaaa': ghsa('GHSA-aaaa-aaaa-aaaa', { aliases: ['CVE-2026-0001'] }),
+      'CVE-2026-0002': { id: 'CVE-2026-0002', aliases: ['GHSA-bbbb-bbbb-bbbb'] },
+      'GHSA-bbbb-bbbb-bbbb': ghsa('GHSA-bbbb-bbbb-bbbb', { aliases: ['CVE-2026-0002'], withdrawn: '2026-01-01T00:00:00Z' }),
+    })
+    const found = await composer([{ name: 'acme/app', version: '1.0.0' }, { name: 'acme/app', version: '2.0.0' }, { name: 'acme/lib', version: '1.0.0' }])
+    assert.deepEqual(found.map(({ name, id, versions }) => [name, id, versions]), [
+      ['acme/app', 'CVE-2026-0001', ['1.0.0']],
+      ['acme/app', 'GHSA-aaaa-aaaa-aaaa', ['2.0.0']],
+      ['acme/lib', 'CVE-2026-0002', ['1.0.0']],
+    ])
+  })
+
   it('takes Composer release versions, and refuses dev versions and malformed names, before any request', async () => {
     const calls = stubOsv({}, {})
     for (const version of ['1.2.3', 'v1.2.3', '1.2.3.4', '2.0.0-beta1', '2.0.0-RC2', '1.0.0-p1', '1.0']) {
