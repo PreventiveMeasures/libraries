@@ -36,13 +36,14 @@ describe('findGitCheckout', () => {
       '.git/config': config('https://github.com/acme/app.git'),
       'packages/pkg/src/index.js': '',
     })
-    assert.deepEqual(await findGitCheckout(join(root, 'packages/pkg')), { commit: SHA, directory: 'packages/pkg', github: 'acme/app' })
-    assert.deepEqual(await findGitCheckout(root), { commit: SHA, directory: '', github: 'acme/app' })
+    assert.deepEqual(await findGitCheckout(join(root, 'packages/pkg')), { github: 'acme/app', directory: 'packages/pkg', url: 'https://github.com/acme/app', commit: SHA })
+    // Absent at the root, as getRepo has it.
+    assert.deepEqual(await findGitCheckout(root), { github: 'acme/app', url: 'https://github.com/acme/app', commit: SHA })
   })
 
   it('reads a detached HEAD, and a ref from packed-refs', async () => {
     const detached = await checkout({ '.git/HEAD': `${SHA2}\n` })
-    assert.deepEqual(await findGitCheckout(detached), { commit: SHA2, directory: '' })
+    assert.deepEqual(await findGitCheckout(detached), { commit: SHA2 })
     const packed = await checkout({
       '.git/HEAD': 'ref: refs/heads/main\n',
       '.git/packed-refs': `# pack-refs with: peeled fully-peeled sorted\n${SHA2} refs/heads/dev\n${SHA} refs/heads/main\n^${SHA2}\n`,
@@ -59,7 +60,7 @@ describe('findGitCheckout', () => {
       'wt/.git': 'gitdir: ../main/.git/worktrees/wt\n',
       'wt/lib/a.js': '',
     })
-    assert.deepEqual(await findGitCheckout(join(root, 'wt/lib')), { commit: SHA, directory: 'lib', github: 'acme/app' })
+    assert.deepEqual(await findGitCheckout(join(root, 'wt/lib')), { github: 'acme/app', directory: 'lib', url: 'https://github.com/acme/app', commit: SHA })
   })
 
   it('answers where the directory really is, through a symlink', async () => {
@@ -80,8 +81,8 @@ describe('findGitCheckout', () => {
     ]
     for (const url of urls) {
       const result = await findGitCheckout(await checkout({ '.git/HEAD': `${SHA}\n`, '.git/config': config(url) }))
-      assert.deepEqual(result, { commit: SHA, directory: '', github: 'acme/app' }, url)
-      assert.doesNotMatch(JSON.stringify(result), /secret|x-access-token|github\.com/u)
+      assert.deepEqual(result, { github: 'acme/app', url: 'https://github.com/acme/app', commit: SHA }, url)
+      assert.doesNotMatch(JSON.stringify(result), /secret|x-access-token|git@|\.git\b/u)
     }
   })
 
@@ -98,21 +99,24 @@ describe('findGitCheckout', () => {
       '',
     ]
     for (const text of configs) {
-      assert.deepEqual(await findGitCheckout(await checkout({ '.git/HEAD': `${SHA}\n`, '.git/config': text })), { commit: SHA, directory: '' }, text)
+      assert.deepEqual(await findGitCheckout(await checkout({ '.git/HEAD': `${SHA}\n`, '.git/config': text })), { commit: SHA }, text)
     }
   })
 
-  it('answers null where there is no checkout, or no HEAD it can read', async () => {
+  it('leaves out a commit it cannot read, and keeps the rest', async () => {
     const heads = ['', 'ref: refs/heads/missing\n', 'ref: ../../../etc/passwd\n', 'ref: refs/../../x\n', 'ref: HEAD\n', 'abc123\n', `${SHA.toUpperCase()}\n`]
     for (const head of heads) {
-      assert.equal(await findGitCheckout(await checkout({ '.git/HEAD': head })), null, head)
+      const root = await checkout({ '.git/HEAD': head, '.git/config': config('https://github.com/acme/app'), 'sub/a.js': '' })
+      assert.deepEqual(await findGitCheckout(join(root, 'sub')), { github: 'acme/app', directory: 'sub', url: 'https://github.com/acme/app' }, head)
     }
-    assert.equal(await findGitCheckout(await checkout({ '.git/config': config('https://github.com/acme/app') })), null)
-    assert.equal(await findGitCheckout(await checkout({ '.git': 'gitdir: ./nowhere\n' })), null)
-    assert.equal(await findGitCheckout(await checkout({ '.git': 'not a pointer\n' })), null)
-    assert.equal(await findGitCheckout(join(base, 'does-not-exist')), null)
+  })
+
+  it('answers nothing at all where there is no checkout', async () => {
+    assert.deepEqual(await findGitCheckout(await checkout({ '.git': 'gitdir: ./nowhere\n' })), {})
+    assert.deepEqual(await findGitCheckout(await checkout({ '.git': 'not a pointer\n' })), {})
+    assert.deepEqual(await findGitCheckout(join(base, 'does-not-exist')), {})
     const file = join(await checkout({ '.git/HEAD': `${SHA}\n`, 'a.txt': '' }), 'a.txt')
-    assert.equal(await findGitCheckout(file), null)
+    assert.deepEqual(await findGitCheckout(file), {})
   })
 
   it('refuses a dir that is not a path', async () => {

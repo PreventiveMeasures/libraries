@@ -10,8 +10,8 @@ import { githubRepoOfUrl } from './remote.js'
 // repo that is. Read straight off `.git`, without running git: HEAD, the
 // ref it names (loose, or in packed-refs), and one line of the config.
 //
-// Best-effort throughout: anything that is not there, or not in the shape
-// git writes it, is an answer of null (or no `github`), never a throw.
+// Best-effort throughout, and field by field: anything that is not there,
+// or not in the shape git writes it, is a field left out, never a throw.
 // Only a `dir` that is not a string throws, being a caller's mistake
 // rather than a checkout's.
 
@@ -79,20 +79,26 @@ async function originGitHub(commonDir) {
   return githubRepoOfUrl(url)
 }
 
-// `{ commit, directory, github? }` for the checkout `dir` is in:
-// `directory` is where `dir` sits in it, `/`-separated, and empty at its
-// root; `github` is `owner/name` when the origin remote is a GitHub one.
-// Null where there is no checkout above `dir` or its HEAD cannot be read.
+// `{ github?, directory?, url?, commit? }` for the checkout `dir` is in,
+// the shape getRepo (package.js) answers in: `github` is `owner/name` and
+// `url` its page when the origin remote is a GitHub one; `directory` is
+// where `dir` sits in the checkout, `/`-separated, absent at its root;
+// `commit` is HEAD's. Empty where there is no checkout above `dir`.
 export async function findGitCheckout(dir) {
   assert.ok(typeof dir === 'string' && dir !== '', `findGitCheckout: dir must be a directory path, got ${typeof dir === 'string' ? '""' : typeof dir}`)
   const start = await realpath(resolve(dir)).catch(() => null)
-  if (start === null || !await isDirectory(start)) return null
+  if (start === null || !await isDirectory(start)) return {}
   const dirs = await findGitDirs(start)
-  if (dirs === null) return null
-  const commit = await headCommit(dirs.gitDir, dirs.commonDir)
-  if (commit === null) return null
+  if (dirs === null) return {}
   const path = relative(dirs.root, start)
-  if (isAbsolute(path) || path.split(sep).includes('..')) return null
+  if (isAbsolute(path) || path.split(sep).includes('..')) return {}
+  const directory = path.split(sep).join('/')
   const github = await originGitHub(dirs.commonDir)
-  return { commit, directory: path.split(sep).join('/'), ...(github && { github }) }
+  const commit = await headCommit(dirs.gitDir, dirs.commonDir)
+  return {
+    ...(github && { github }),
+    ...(directory && { directory }),
+    ...(github && { url: `https://github.com/${github}` }),
+    ...(commit && { commit }),
+  }
 }

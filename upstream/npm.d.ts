@@ -16,12 +16,13 @@ export class HttpError extends Error {
   status: number
 }
 
-// A package's GitHub repo as its registry metadata names it: `repo` is
-// `owner/name`, and `directory` is where in the repo the package sits,
-// absent for a package at the repo root. Throws when the package cannot
-// be fetched or names no GitHub repo.
+// A package's GitHub repo as its registry metadata names it — getRepo
+// (package.js) over its `latest` document: `github` is `owner/name`, and
+// `directory` is where in the repo the package sits, absent for a
+// package at the repo root. Throws when the package cannot be fetched or
+// names no GitHub repo.
 export interface GitHubLink {
-  repo: string
+  github: string
   directory?: string
   url: string
 }
@@ -39,8 +40,8 @@ export function resolvePackageRepos(packageNames: Iterable<string>, options?: { 
 // The disk cache resolvePackageRepos reads and writes, a month per entry.
 // A read answers null for anything but a usable entry; a write answers
 // false where it could not write, and never throws.
-export function readPackageRepoCache(name: string): Promise<{ repo: string; directory?: string } | null>
-export function writePackageRepoCache(name: string, repo: string, directory?: string): Promise<boolean>
+export function readPackageRepoCache(name: string): Promise<PackageRepo | null>
+export function writePackageRepoCache(name: string, github: string, directory?: string): Promise<boolean>
 
 // A published version's gzipped tarball, whole, in memory, downloaded
 // only where `dist.tarball` is exactly that version's registry URL.

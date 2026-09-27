@@ -20,6 +20,10 @@
       "types": "./npm.d.ts",
       "default": "./npm.js"
     },
+    "./package.js": {
+      "types": "./package.d.ts",
+      "default": "./package.js"
+    },
     "./semver.js": {
       "types": "./semver.d.ts",
       "default": "./semver.js"
@@ -34,6 +38,8 @@
     "github/write.js",
     "npm.d.ts",
     "npm.js",
+    "package.d.ts",
+    "package.js",
     "semver.d.ts",
     "semver.js",
     "src/args.js",
@@ -45,6 +51,7 @@
     "src/http.js",
     "src/npm/repos.js",
     "src/npm/tarball.js",
+    "src/package.js",
     "src/remote.js",
     "src/semver.js"
   ],

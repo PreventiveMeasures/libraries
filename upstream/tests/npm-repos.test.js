@@ -54,8 +54,8 @@ async function resolveOne(body) {
 // The repo AND where in it the package sits, which is what a monorepo
 // package needs for a link that lands on the package.
 async function resolveRepo(body) {
-  const { repo, directory } = await resolveOne(body)
-  return directory ? `${repo} @ ${directory}` : repo
+  const { github, directory } = await resolveOne(body)
+  return directory ? `${github} @ ${directory}` : github
 }
 
 describe('getGitHub — where in the repo the package sits', () => {
@@ -120,29 +120,29 @@ describe('getGitHub — where in the repo the package sits', () => {
 
 describe('getGitHub', () => {
   it('reads the repo off the issue tracker', async () => {
-    assert.deepEqual(await resolveOne(tracked('lodash/lodash')), { repo: 'lodash/lodash', url: 'https://github.com/lodash/lodash' })
+    assert.deepEqual(await resolveOne(tracked('lodash/lodash')), { github: 'lodash/lodash', url: 'https://github.com/lodash/lodash' })
   })
 
   it('upgrades an http tracker link', async () => {
     const body = { bugs: { url: 'http://github.com/lodash/lodash/issues' }, homepage: 'https://github.com/lodash/lodash#readme' }
-    assert.equal((await resolveOne(body)).repo, 'lodash/lodash')
+    assert.equal((await resolveOne(body)).github, 'lodash/lodash')
   })
 
   it("reads npm's `owner/name` shorthand when the package's own site is the homepage", async () => {
     // srvx: docs at srvx.h3.dev, code at github.com/h3js/srvx. Before
     // the shorthand this package simply had no repo link.
     const body = { homepage: 'https://srvx.h3.dev', repository: { url: 'h3js/srvx', type: 'git' } }
-    assert.deepEqual(await resolveOne(body), { repo: 'h3js/srvx', url: 'https://github.com/h3js/srvx' })
+    assert.deepEqual(await resolveOne(body), { github: 'h3js/srvx', url: 'https://github.com/h3js/srvx' })
   })
 
   it('takes the shorthand as a bare string, and with an explicit `github:`', async () => {
-    assert.equal((await resolveOne({ repository: 'h3js/srvx' })).repo, 'h3js/srvx')
-    assert.equal((await resolveOne({ repository: { url: 'github:h3js/srvx' } })).repo, 'h3js/srvx')
+    assert.equal((await resolveOne({ repository: 'h3js/srvx' })).github, 'h3js/srvx')
+    assert.equal((await resolveOne({ repository: { url: 'github:h3js/srvx' } })).github, 'h3js/srvx')
   })
 
   it('reads a canonical repository URL, in every spelling npm accepts', async () => {
     // The common case for a package whose `bugs` npm never filled in.
-    const url = async (value) => (await resolveOne({ repository: { url: value } })).repo
+    const url = async (value) => (await resolveOne({ repository: { url: value } })).github
     assert.equal(await url('git+https://github.com/acme/widget.git'), 'acme/widget')
     assert.equal(await url('https://github.com/acme/widget'), 'acme/widget')
     assert.equal(await url('https://github.com/acme/widget/'), 'acme/widget')
@@ -166,7 +166,7 @@ describe('getGitHub', () => {
   })
 
   it('keeps dots in the REPO name — `socket.io` is a repo', async () => {
-    assert.equal((await resolveOne({ repository: 'socketio/socket.io' })).repo, 'socketio/socket.io')
+    assert.equal((await resolveOne({ repository: 'socketio/socket.io' })).github, 'socketio/socket.io')
   })
 
   it('refuses a value that names a host rather than an owner', async () => {
@@ -194,7 +194,7 @@ describe('getGitHub', () => {
 describe('the npm → GitHub repo cache', () => {
   it('reads back what it wrote', async () => {
     assert.equal(await writePackageRepoCache('lodash', 'lodash/lodash'), true)
-    assert.deepEqual(await readPackageRepoCache('lodash'), { repo: 'lodash/lodash' })
+    assert.deepEqual(await readPackageRepoCache('lodash'), { github: 'lodash/lodash' })
   })
 
   it('misses on a name it has never seen', async () => {
@@ -206,28 +206,28 @@ describe('the npm → GitHub repo cache', () => {
     // directory — a path built out of a name a caller handed in.
     await writePackageRepoCache('@babel/core', 'babel/babel')
     assert.deepEqual(await readdir(REPOS), ['%40babel%2Fcore.json'])
-    assert.deepEqual(await readPackageRepoCache('@babel/core'), { repo: 'babel/babel' })
+    assert.deepEqual(await readPackageRepoCache('@babel/core'), { github: 'babel/babel' })
   })
 
   it('misses on an entry older than the TTL, and hits on one inside it', async () => {
     await mkdir(REPOS, { recursive: true })
-    const entry = (age) => JSON.stringify({ at: Date.now() - age, name: 'lodash', repo: 'lodash/lodash', directory: '' })
+    const entry = (age) => JSON.stringify({ at: Date.now() - age, name: 'lodash', github: 'lodash/lodash', directory: '' })
     await writeFile(join(REPOS, 'lodash.json'), entry(31 * DAY))
     assert.equal(await readPackageRepoCache('lodash'), null)
     await writeFile(join(REPOS, 'lodash.json'), entry(29 * DAY))
-    assert.deepEqual(await readPackageRepoCache('lodash'), { repo: 'lodash/lodash' })
+    assert.deepEqual(await readPackageRepoCache('lodash'), { github: 'lodash/lodash' })
   })
 
   it('misses on a half-written file, an unstamped entry, or a slug that is not a string', async () => {
     await mkdir(REPOS, { recursive: true })
     const write = (body) => writeFile(join(REPOS, 'lodash.json'), body)
-    await write('{"at":1,"repo":"lodash/lo')
+    await write('{"at":1,"github":"lodash/lo')
     assert.equal(await readPackageRepoCache('lodash'), null)
-    await write(JSON.stringify({ repo: 'lodash/lodash' }))
+    await write(JSON.stringify({ github: 'lodash/lodash' }))
     assert.equal(await readPackageRepoCache('lodash'), null)
-    await write(JSON.stringify({ at: Date.now(), repo: { github: 'lodash/lodash' }, directory: '' }))
+    await write(JSON.stringify({ at: Date.now(), github: { repo: 'lodash/lodash' }, directory: '' }))
     assert.equal(await readPackageRepoCache('lodash'), null)
-    await write(JSON.stringify({ at: Date.now(), repo: '', directory: '' }))
+    await write(JSON.stringify({ at: Date.now(), github: '', directory: '' }))
     assert.equal(await readPackageRepoCache('lodash'), null)
   })
 })
@@ -292,29 +292,29 @@ describe('resolvePackageRepos', () => {
     // and a monorepo package would quietly link to the repo root for a
     // month rather than being looked up once.
     await mkdir(REPOS, { recursive: true })
-    await writeFile(join(REPOS, 'lodash.json'), JSON.stringify({ at: Date.now(), name: 'lodash', repo: 'lodash/lodash' }))
+    await writeFile(join(REPOS, 'lodash.json'), JSON.stringify({ at: Date.now(), name: 'lodash', github: 'lodash/lodash' }))
     assert.equal(await readPackageRepoCache('lodash'), null)
   })
 
   it('round-trips a root package as an empty directory, not a missing one', async () => {
     await writePackageRepoCache('lodash', 'lodash/lodash')
-    assert.deepEqual(await readPackageRepoCache('lodash'), { repo: 'lodash/lodash' })
+    assert.deepEqual(await readPackageRepoCache('lodash'), { github: 'lodash/lodash' })
     await writePackageRepoCache('@babel/core', 'babel/babel', 'packages/babel-core')
-    assert.deepEqual(await readPackageRepoCache('@babel/core'), { repo: 'babel/babel', directory: 'packages/babel-core' })
+    assert.deepEqual(await readPackageRepoCache('@babel/core'), { github: 'babel/babel', directory: 'packages/babel-core' })
   })
 })
 
 describe('getGitHub — the sources it reads, and what it holds them to', () => {
   it('reads the tracker without a homepage beside it', async () => {
-    assert.equal((await resolveOne({ bugs: { url: 'https://github.com/acme/app/issues' } })).repo, 'acme/app')
+    assert.equal((await resolveOne({ bugs: { url: 'https://github.com/acme/app/issues' } })).github, 'acme/app')
   })
 
   it('falls back to a GitHub homepage when nothing else names the repo', async () => {
-    assert.deepEqual(await resolveOne({ homepage: 'https://github.com/acme/app#readme' }), { repo: 'acme/app', url: 'https://github.com/acme/app' })
+    assert.deepEqual(await resolveOne({ homepage: 'https://github.com/acme/app#readme' }), { github: 'acme/app', url: 'https://github.com/acme/app' })
     assert.equal(await resolveRepo({ homepage: 'https://github.com/acme/app/tree/main/packages/pkg' }), 'acme/app @ packages/pkg')
-    assert.equal((await resolveOne({ homepage: 'https://github.com/acme/app.git/' })).repo, 'acme/app')
+    assert.equal((await resolveOne({ homepage: 'https://github.com/acme/app.git/' })).github, 'acme/app')
     // Behind the other two, not ahead of them.
-    assert.equal((await resolveOne({ ...tracked('acme/app'), homepage: 'https://github.com/other/docs' })).repo, 'acme/app')
+    assert.equal((await resolveOne({ ...tracked('acme/app'), homepage: 'https://github.com/other/docs' })).github, 'acme/app')
     for (const homepage of ['https://github.com/acme', 'https://github.com/acme/app/issues', 'https://github.com.evil.example/acme/app', 'https://evil.example/github.com/acme/app']) {
       await assert.rejects(resolveOne({ homepage }), /no GitHub repo/u, homepage)
     }
@@ -325,13 +325,13 @@ describe('getGitHub — the sources it reads, and what it holds them to', () => 
       await assert.rejects(resolveOne({ repository }), /no GitHub repo/u, repository)
     }
     // A bad one falls through to the next source rather than winning.
-    assert.equal((await resolveOne({ repository: 'acme/..', homepage: 'https://github.com/acme/app' })).repo, 'acme/app')
+    assert.equal((await resolveOne({ repository: 'acme/..', homepage: 'https://github.com/acme/app' })).github, 'acme/app')
   })
 
   it("takes the scoped names npm does, and the registry's answer only for the name asked", async () => {
     for (const name of ['@foo.bar/pkg', '@foo_bar/pkg', 'pkg.', 'a..b']) {
       stubRegistry({ [name]: tracked('acme/app') })
-      assert.equal((await getGitHub(name)).repo, 'acme/app', name)
+      assert.equal((await getGitHub(name)).github, 'acme/app', name)
     }
     globalThis.fetch = () => Promise.resolve(Response.json({ name: 'other', ...tracked('acme/app') }))
     await assert.rejects(getGitHub('pkg'), /getGitHub: the registry answered for other, not pkg/u)
@@ -340,8 +340,8 @@ describe('getGitHub — the sources it reads, and what it holds them to', () => 
 
 describe('the npm → GitHub repo cache, held to the same formats', () => {
   it('refuses to write what a lookup would never answer', async () => {
-    await assert.rejects(writePackageRepoCache('lodash', 'lodash/..'), /repo must be "owner\/name"/u)
-    await assert.rejects(writePackageRepoCache('lodash', 'lodash'), /repo must be "owner\/name"/u)
+    await assert.rejects(writePackageRepoCache('lodash', 'lodash/..'), /github must be "owner\/name"/u)
+    await assert.rejects(writePackageRepoCache('lodash', 'lodash'), /github must be "owner\/name"/u)
     await assert.rejects(writePackageRepoCache('lodash', 'lodash/lodash', '../etc'), /directory must be a path inside the repository/u)
     await assert.rejects(writePackageRepoCache('../lodash', 'lodash/lodash'), /name must be an npm package name/u)
     await assert.rejects(readPackageRepoCache(['lodash']), /name must be an npm package name/u)
@@ -350,8 +350,8 @@ describe('the npm → GitHub repo cache, held to the same formats', () => {
 
   it('misses on an entry for another name, or with a repo or directory a lookup would not give', async () => {
     await mkdir(REPOS, { recursive: true })
-    const write = (entry) => writeFile(join(REPOS, 'lodash.json'), JSON.stringify({ at: Date.now(), name: 'lodash', repo: 'lodash/lodash', directory: '', ...entry }))
-    for (const entry of [{ name: 'other' }, { repo: 'lodash/..' }, { repo: 'https://evil.example/x' }, { directory: '../etc' }, { directory: null }]) {
+    const write = (entry) => writeFile(join(REPOS, 'lodash.json'), JSON.stringify({ at: Date.now(), name: 'lodash', github: 'lodash/lodash', directory: '', ...entry }))
+    for (const entry of [{ name: 'other' }, { github: 'lodash/..' }, { github: 'https://evil.example/x' }, { directory: '../etc' }, { directory: null }]) {
       await write(entry)
       assert.equal(await readPackageRepoCache('lodash'), null, JSON.stringify(entry))
     }
