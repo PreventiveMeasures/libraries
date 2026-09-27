@@ -4,6 +4,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { isRepo, show } from '../args.js'
 import { readCacheJSON, writeCacheJSON } from '../cache.js'
 import { CRATES_API, HttpError, PACKAGIST_REPO, buildUrl, request } from '../http.js'
+import { lookUpPackageRepo } from '../npm/repos.js'
 import { pool } from '../pool.js'
 import { githubRepoOfUrl } from '../remote.js'
 
@@ -38,9 +39,9 @@ async function fetchCrates(names) {
     const chunk = names.slice(i, i + CRATES_PER_REQUEST)
     const url = buildUrl(CRATES_API, ['api', 'v1', 'crates'], { 'ids[]': chunk, per_page: CRATES_PER_REQUEST })
     const answer = await request(url, { as: 'json', headers: { 'User-Agent': USER_AGENT } })
-    assert.ok(Array.isArray(answer?.crates), 'cargoAdvisories: expected a list of crates from crates.io')
+    assert.ok(Array.isArray(answer?.crates), 'advisories: expected a list of crates from crates.io')
     for (const crate of answer.crates) {
-      assert.ok(chunk.includes(crate?.id), `cargoAdvisories: crates.io answered for ${show(crate?.id)}, which was not asked`)
+      assert.ok(chunk.includes(crate?.id), `advisories: crates.io answered for ${show(crate?.id)}, which was not asked`)
       found.set(crate.id, githubRepoOfUrl(crate.repository) ?? null)
     }
   }
@@ -56,7 +57,7 @@ async function fetchComposerRepo(name) {
   })
   if (answer === null) return null
   const versions = Object.hasOwn(answer?.packages ?? {}, name) ? answer.packages[name] : undefined
-  assert.ok(Array.isArray(versions), `composerAdvisories: Packagist answered without ${name}`)
+  assert.ok(Array.isArray(versions), `advisories: Packagist answered without ${name}`)
   return githubRepoOfUrl(versions[0]?.source?.url) ?? null
 }
 
@@ -65,3 +66,7 @@ export const composerRepos = (names) => cachedRepos('composer/repos', names, asy
   const found = await pool(missing, PACKAGES_AT_ONCE, fetchComposerRepo)
   return new Map(missing.map((name, i) => [name, found[i]]))
 })
+export async function npmRepos(names) {
+  const found = await pool(names, PACKAGES_AT_ONCE, lookUpPackageRepo)
+  return new Map(names.map((name, i) => [name, found[i]?.github ?? null]))
+}

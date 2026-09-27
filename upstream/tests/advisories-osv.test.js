@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, afterEach, describe, it } from 'node:test'
 
-import { HttpError, cargoAdvisories, composerAdvisories } from '../advisories.js'
+import { HttpError, advisories } from '../advisories.js'
 import { createClient } from '../github.js'
 import { setCacheDir } from '../npm.js'
 
@@ -15,6 +15,11 @@ const realFetch = globalThis.fetch
 afterEach(() => {
   globalThis.fetch = realFetch
 })
+
+// `{ name, version }` pairs as the packages advisories takes.
+const as = (ecosystem) => (pairs, options) => advisories(pairs.map(({ name, version, ...rest }) => ({ ecosystem, name, versions: [version], ...rest })), options)
+const cargo = as('cargo')
+const composer = as('composer')
 
 // OSV, for a fixed set of hits (`name@version` → ids) and records (id →
 // record). `calls` is every request, with its parsed body.
@@ -45,7 +50,7 @@ const rustsec = (id, overrides = {}) => ({
   ...overrides,
 })
 
-describe('cargoAdvisories', () => {
+describe('cargo', () => {
   it('reads RustSec records only, one entry per crate and record, with the versions each affects', async () => {
     const calls = stubOsv({
       'smallvec@1.6.0': ['GHSA-43w2-9j62-hq99', 'RUSTSEC-2021-0003'],
@@ -60,7 +65,7 @@ describe('cargoAdvisories', () => {
       }),
       'RUSTSEC-2021-0055': rustsec('RUSTSEC-2021-0055', { aliases: [], affected: [] }),
     })
-    const advisories = await cargoAdvisories([
+    const found = await cargo([
       { name: 'smallvec', version: '1.6.0' },
       { name: 'smallvec', version: '0.6.10' },
       { name: 'openssl-src', version: '111.10.0+1.1.1g' },
@@ -77,39 +82,36 @@ describe('cargoAdvisories', () => {
       ] },
     })
     assert.deepEqual(calls.slice(1).map((call) => call.url).toSorted(), [`${VULN}RUSTSEC-2018-0018`, `${VULN}RUSTSEC-2021-0003`, `${VULN}RUSTSEC-2021-0055`])
-    assert.deepEqual(advisories, [
-      { name: 'openssl-src', source: 'osv', id: 'RUSTSEC-2021-0055', aliases: [], title: 'Advisory RUSTSEC-2021-0055', cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', versions: ['111.10.0+1.1.1g'] },
-      { name: 'smallvec', source: 'osv', id: 'RUSTSEC-2018-0018', aliases: ['CVE-2018-25023', 'GHSA-55m5-whcv-c49c', 'GHSA-66p5-j55p-32r9'], title: 'Advisory RUSTSEC-2018-0018', informational: 'unsound', versions: ['0.6.10'] },
-      { name: 'smallvec', source: 'osv', id: 'RUSTSEC-2021-0003', ghsa: 'GHSA-43w2-9j62-hq99', aliases: ['CVE-2021-25900', 'GHSA-43w2-9j62-hq99'], title: 'Advisory RUSTSEC-2021-0003', cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', versions: ['0.6.10', '1.6.0'] },
+    const common = { ecosystem: 'cargo', source: 'osv', cwe: [] }
+    assert.deepEqual(found, [
+      { ...common, name: 'openssl-src', id: 'RUSTSEC-2021-0055', aliases: [], title: 'Advisory RUSTSEC-2021-0055', cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', versions: ['111.10.0+1.1.1g'] },
+      { ...common, name: 'smallvec', id: 'RUSTSEC-2018-0018', aliases: ['CVE-2018-25023', 'GHSA-55m5-whcv-c49c', 'GHSA-66p5-j55p-32r9'], title: 'Advisory RUSTSEC-2018-0018', informational: 'unsound', versions: ['0.6.10'] },
+      {
+        ...common, name: 'smallvec', id: 'RUSTSEC-2021-0003', ghsa: 'GHSA-43w2-9j62-hq99', aliases: ['CVE-2021-25900', 'GHSA-43w2-9j62-hq99'], title: 'Advisory RUSTSEC-2021-0003',
+        cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', versions: ['0.6.10', '1.6.0'],
+      },
     ])
   })
 
   it('leaves out a withdrawn record', async () => {
     stubOsv({ 'smallvec@1.6.0': ['RUSTSEC-2021-0003'] }, { 'RUSTSEC-2021-0003': rustsec('RUSTSEC-2021-0003', { withdrawn: '2026-01-01T00:00:00Z' }) })
-    assert.deepEqual(await cargoAdvisories([{ name: 'smallvec', version: '1.6.0' }]), [])
+    assert.deepEqual(await cargo([{ name: 'smallvec', version: '1.6.0' }]), [])
   })
 
-  it('asks for 1000 packages at a time', async () => {
+  it('asks for 1000 versions at a time', async () => {
     const calls = stubOsv({}, {})
     const packages = Array.from({ length: 1001 }, (_, i) => ({ name: `crate${String(i).padStart(4, '0')}`, version: '1.0.0' }))
-    assert.deepEqual(await cargoAdvisories(packages), [])
+    assert.deepEqual(await cargo(packages), [])
     assert.deepEqual(calls.map((call) => call.body.queries.length), [1000, 1])
   })
 
-  it('makes no request for no packages', async () => {
+  it('refuses a malformed crate name or version, before any request', async () => {
     const calls = stubOsv({}, {})
-    assert.deepEqual(await cargoAdvisories([]), [])
-    assert.deepEqual(calls, [])
-  })
-
-  it('refuses a malformed crate name or version, or anything but an iterable, before any request', async () => {
-    const calls = stubOsv({}, {})
-    await assert.rejects(cargoAdvisories('smallvec'), /cargoAdvisories: packages must be an iterable/u)
     for (const name of ['', '1abc', '../x', 'a/b', 'a b', 'x'.repeat(65), ['smallvec'], undefined]) {
-      await assert.rejects(cargoAdvisories([{ name, version: '1.0.0' }]), /cargoAdvisories: name must be a crate name/u, String(name))
+      await assert.rejects(cargo([{ name, version: '1.0.0' }]), /advisories: package\.name must be a crate name/u, String(name))
     }
     for (const version of ['1.0', '^1.0.0', 'v1.0.0', '01.0.0', '1.0.0+', '1.0.0 ', '*', undefined]) {
-      await assert.rejects(cargoAdvisories([{ name: 'smallvec', version }]), /cargoAdvisories: version must be a semver version/u, String(version))
+      await assert.rejects(cargo([{ name: 'smallvec', version }]), /advisories: package\.versions must be a semver version/u, String(version))
     }
     assert.deepEqual(calls, [])
   })
@@ -123,23 +125,23 @@ describe('cargoAdvisories', () => {
       [[null], /malformed OSV result for smallvec@1\.6\.0/u],
     ]) {
       globalThis.fetch = () => Promise.resolve(Response.json({ results }))
-      await assert.rejects(cargoAdvisories(one), error, JSON.stringify(results))
+      await assert.rejects(cargo(one), error, JSON.stringify(results))
     }
     stubOsv({ 'smallvec@1.6.0': ['RUSTSEC-2021-0003'] }, { 'RUSTSEC-2021-0003': rustsec('RUSTSEC-2021-0004') })
-    await assert.rejects(cargoAdvisories(one), /cargoAdvisories: OSV answered for "RUSTSEC-2021-0004", not RUSTSEC-2021-0003/u)
+    await assert.rejects(cargo(one), /advisories: OSV answered for "RUSTSEC-2021-0004", not RUSTSEC-2021-0003/u)
     stubOsv({ 'smallvec@1.6.0': ['RUSTSEC-2021-0003'] }, { 'RUSTSEC-2021-0003': rustsec('RUSTSEC-2021-0003', { aliases: 'CVE-2021-25900' }) })
-    await assert.rejects(cargoAdvisories(one), /cargoAdvisories: malformed OSV record RUSTSEC-2021-0003/u)
+    await assert.rejects(cargo(one), /advisories: malformed OSV record RUSTSEC-2021-0003/u)
     stubOsv({ 'smallvec@1.6.0': ['RUSTSEC-2021-0003'] }, {})
-    await assert.rejects(cargoAdvisories(one), (err) => err instanceof HttpError && err.status === 404)
+    await assert.rejects(cargo(one), (err) => err instanceof HttpError && err.status === 404)
   })
 })
 
-describe('composerAdvisories', () => {
+describe('composer', () => {
   const ghsa = (id, overrides = {}) => ({
     id,
     summary: `Advisory ${id}`,
     aliases: ['CVE-2025-31674', 'DRUPAL-CORE-2025-003'],
-    database_specific: { severity: 'MODERATE' },
+    database_specific: { severity: 'MODERATE', cwe_ids: ['CWE-913'] },
     severity: [{ type: 'CVSS_V4', score: 'CVSS:4.0/AV:N/AC:H/AT:N/PR:H/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N/E:U' }],
     ...overrides,
   })
@@ -155,19 +157,20 @@ describe('composerAdvisories', () => {
       'DRUPAL-CORE-2023-001': { id: 'DRUPAL-CORE-2023-001' },
       'GHSA-6439-2f28-8p8q': ghsa('GHSA-6439-2f28-8p8q', { aliases: ['CVE-2026-45075'], database_specific: { severity: 'HIGH' }, severity: [] }),
     })
-    const advisories = await composerAdvisories([
+    const found = await composer([
       { name: 'drupal/core', version: '9.5.0' },
       { name: 'drupal/other', version: '1.0.0' },
       { name: 'symfony/http-kernel', version: 'v7.4.5' },
     ])
-    assert.deepEqual(advisories.map(({ name, id }) => `${name} ${id}`), [
+    assert.deepEqual(found.map(({ name, id }) => `${name} ${id}`), [
       'drupal/core DRUPAL-CORE-2023-001',
       'drupal/core GHSA-2qph-q8xw-gv7q',
       'drupal/other DRUPAL-CORE-2025-003',
       'symfony/http-kernel GHSA-6439-2f28-8p8q',
     ])
-    assert.deepEqual(advisories[0], { name: 'drupal/core', source: 'osv', id: 'DRUPAL-CORE-2023-001', aliases: [], versions: ['9.5.0'] })
-    assert.deepEqual(advisories[1], {
+    assert.deepEqual(found[0], { ecosystem: 'composer', name: 'drupal/core', source: 'osv', id: 'DRUPAL-CORE-2023-001', aliases: [], cwe: [], versions: ['9.5.0'] })
+    assert.deepEqual(found[1], {
+      ecosystem: 'composer',
       name: 'drupal/core',
       source: 'osv',
       id: 'GHSA-2qph-q8xw-gv7q',
@@ -176,29 +179,30 @@ describe('composerAdvisories', () => {
       title: 'Advisory GHSA-2qph-q8xw-gv7q',
       severity: 'moderate',
       cvssVector: 'CVSS:4.0/AV:N/AC:H/AT:N/PR:H/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N/E:U',
+      cwe: ['CWE-913'],
       versions: ['9.5.0'],
     })
-    assert.equal(advisories[2].ghsa, 'GHSA-2qph-q8xw-gv7q')
-    assert.equal(advisories[3].severity, 'high')
+    assert.equal(found[2].ghsa, 'GHSA-2qph-q8xw-gv7q')
+    assert.equal(found[3].severity, 'high')
   })
 
   it('takes Composer release versions, and refuses dev versions and malformed names, before any request', async () => {
     const calls = stubOsv({}, {})
     for (const version of ['1.2.3', 'v1.2.3', '1.2.3.4', '2.0.0-beta1', '2.0.0-RC2', '1.0.0-p1', '1.0']) {
-      await composerAdvisories([{ name: 'acme/app', version }])
+      await composer([{ name: 'acme/app', version }])
     }
     assert.equal(calls.length, 7)
     for (const version of ['dev-main', '2.x-dev', '1.0.0-dev', '^1.0', '1.0.0 ', '', undefined]) {
-      await assert.rejects(composerAdvisories([{ name: 'acme/app', version }]), /composerAdvisories: version must be a Composer release version/u, String(version))
+      await assert.rejects(composer([{ name: 'acme/app', version }]), /advisories: package\.versions must be a Composer release version/u, String(version))
     }
     for (const name of ['acme', 'Acme/App', 'acme/', '/app', 'acme/app/x', '../app', 'acme/ap p', undefined]) {
-      await assert.rejects(composerAdvisories([{ name, version: '1.0.0' }]), /composerAdvisories: name must be a Composer package name/u, String(name))
+      await assert.rejects(composer([{ name, version: '1.0.0' }]), /advisories: package\.name must be a Composer package name/u, String(name))
     }
     assert.equal(calls.length, 7)
   })
 })
 
-describe('with a GitHub client', () => {
+describe('cargo and composer, with a GitHub client', () => {
   const github = createClient({ token: 'test-token' })
   const CRATES = 'https://crates.io/api/v1/crates?'
   const listing = (repo) => `https://api.github.com/repos/${repo}/security-advisories?state=published&per_page=100`
@@ -246,8 +250,8 @@ describe('with a GitHub client', () => {
         ],
       },
     })
-    const advisories = await cargoAdvisories([{ name: 'smallvec', version: '1.6.0' }, { name: 'local-only', version: '0.1.0' }, { name: 'not-on-crates-io', version: '1.0.0' }], { github })
-    assert.deepEqual(advisories.map(({ source, id, ghsa, range, versions }) => [source, id ?? ghsa, range, versions]), [
+    const found = await cargo([{ name: 'smallvec', version: '1.6.0' }, { name: 'local-only', version: '0.1.0' }, { name: 'not-on-crates-io', version: '1.0.0' }], { github, lookUpRepos: true })
+    assert.deepEqual(found.map(({ source, id, range, versions }) => [source, id, range, versions]), [
       ['osv', 'RUSTSEC-2021-0003', undefined, ['1.6.0']],
       ['repository', 'GHSA-bbbb-bbbb-bbbb', '>= 1.0.0, < 1.7.0', ['1.6.0']],
     ])
@@ -256,6 +260,17 @@ describe('with a GitHub client', () => {
     assert.deepEqual(new URL(toCrates[0].url).searchParams.getAll('ids[]'), ['local-only', 'not-on-crates-io', 'smallvec'])
     assert.match(toCrates[0].headers['User-Agent'], /^@preventive\/upstream /u)
     assert.deepEqual(calls.filter(({ url }) => url.startsWith('https://api.github.com/')).map(({ url }) => url), [listing('servo/rust-smallvec')])
+  })
+
+  it('asks a repository given without looking it up, and none by default otherwise', async () => {
+    const answers = { crates: { smallvec: 'https://github.com/servo/rust-smallvec' }, listings: { 'acme/fork': [repoAdvisory('GHSA-bbbb-bbbb-bbbb', [vuln('rust', 'smallvec', '< 9.0.0')])] } }
+    let calls = stubAll(answers)
+    const found = await cargo([{ name: 'smallvec', version: '1.6.0', github: 'acme/fork' }], { github, lookUpRepos: true })
+    assert.deepEqual(found.map(({ id }) => id), ['GHSA-bbbb-bbbb-bbbb'])
+    assert.deepEqual(calls.filter(({ url }) => url !== BATCH).map(({ url }) => url), [listing('acme/fork')])
+    calls = stubAll(answers)
+    assert.deepEqual(await cargo([{ name: 'smallvec', version: '1.6.0' }], { github }), [])
+    assert.deepEqual(calls.map(({ url }) => url), [BATCH])
   })
 
   it('reads a Composer version past its `v`, and takes one semver cannot read as every version', async () => {
@@ -271,8 +286,8 @@ describe('with a GitHub client', () => {
         ],
       },
     })
-    const advisories = await composerAdvisories([{ name: 'monolog/monolog', version: 'v1.2.3' }, { name: 'monolog/monolog', version: '1.2.3.4' }, { name: 'acme/private', version: '1.0.0' }], { github })
-    assert.deepEqual(advisories.map(({ source, id, ghsa, severity, versions }) => [source, id ?? ghsa, severity, versions]), [
+    const found = await composer([{ name: 'monolog/monolog', version: 'v1.2.3' }, { name: 'monolog/monolog', version: '1.2.3.4' }, { name: 'acme/private', version: '1.0.0' }], { github, lookUpRepos: true })
+    assert.deepEqual(found.map(({ source, id, severity, versions }) => [source, id, severity, versions]), [
       ['osv', 'GHSA-f57v-q966-7fh6', undefined, ['v1.2.3']],
       ['repository', 'GHSA-bbbb-bbbb-bbbb', 'moderate', ['1.2.3.4', 'v1.2.3']],
       ['repository', 'GHSA-cccc-cccc-cccc', 'moderate', ['1.2.3.4']],
@@ -285,16 +300,16 @@ describe('with a GitHub client', () => {
 
   it('throws when a repository cannot be looked up, or an answer is about something not asked', async () => {
     const one = [{ name: 'smallvec', version: '1.6.0' }]
+    const options = { github, lookUpRepos: true }
     stubAll({ crates: Response.json({ errors: [] }, { status: 500 }) })
-    await assert.rejects(cargoAdvisories(one, { github }), { name: 'HttpError', status: 500 })
+    await assert.rejects(cargo(one, options), { name: 'HttpError', status: 500 })
     stubAll({ crates: { smallvec: 'https://github.com/servo/rust-smallvec' } })
     const stubbed = globalThis.fetch
     globalThis.fetch = (url, init) => (String(url).startsWith(CRATES) ? Promise.resolve(Response.json({ crates: [{ id: 'serde', repository: null }] })) : stubbed(url, init))
-    await assert.rejects(cargoAdvisories(one, { github }), /cargoAdvisories: crates\.io answered for "serde", which was not asked/u)
+    await assert.rejects(cargo(one, options), /advisories: crates\.io answered for "serde", which was not asked/u)
     stubAll({})
     globalThis.fetch = (url) => Promise.resolve(String(url) === BATCH ? Response.json({ results: [{}] }) : Response.json({ packages: {} }))
-    await assert.rejects(composerAdvisories([{ name: 'acme/app', version: '1.0.0' }], { github }), /composerAdvisories: Packagist answered without acme\/app/u)
-    await assert.rejects(cargoAdvisories(one, { github: {} }), /cargoAdvisories: github must be a GitHub client/u)
+    await assert.rejects(composer([{ name: 'acme/app', version: '1.0.0' }], options), /advisories: Packagist answered without acme\/app/u)
   })
 
   describe('through the cache', () => {
@@ -308,9 +323,9 @@ describe('with a GitHub client', () => {
       setCacheDir(dir)
       const answers = { crates: { smallvec: 'https://github.com/servo/rust-smallvec' }, listings: { 'servo/rust-smallvec': [] } }
       stubAll(answers)
-      await cargoAdvisories([{ name: 'smallvec', version: '1.6.0' }], { github })
+      await cargo([{ name: 'smallvec', version: '1.6.0' }], { github, lookUpRepos: true })
       const calls = stubAll({ ...answers, crates: Response.json({}, { status: 500 }) })
-      await cargoAdvisories([{ name: 'smallvec', version: '1.6.0' }], { github })
+      await cargo([{ name: 'smallvec', version: '1.6.0' }], { github, lookUpRepos: true })
       assert.deepEqual(calls.filter(({ url }) => url.startsWith(CRATES)), [])
       assert.equal(calls.filter(({ url }) => url === listing('servo/rust-smallvec')).length, 1)
     })

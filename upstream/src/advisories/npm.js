@@ -1,16 +1,13 @@
 import assert from 'node:assert/strict'
 
-import { assertArgs, assertPackageName, assertPackageVersion, isGhsa, isStrings, optional, show } from '../args.js'
+import { assertPackageName, assertPackageVersion, isGhsa, isStrings, show } from '../args.js'
 import { NPM_REGISTRY, buildUrl, request } from '../http.js'
-import { lookUpPackageRepo } from '../npm/repos.js'
-import { pool } from '../pool.js'
 import { compareVersions, satisfies } from '../semver.js'
-import { affecting, askedVersions } from './common.js'
-import { assertClient, repositoryAdvisories } from './github.js'
+import { withRepositories } from './github.js'
+import { npmRepos } from './repos.js'
 
 const BULK_URL = buildUrl(NPM_REGISTRY, ['-', 'npm', 'v1', 'security', 'advisories', 'bulk'])
 const NAMES_PER_REQUEST = 250
-const LOOKUPS_AT_ONCE = 8
 const GHSA_PAGE = 'https://github.com/advisories/'
 
 const isRow = (row) => row && typeof row === 'object' && Number.isSafeInteger(row.id)
@@ -23,8 +20,9 @@ function fromRegistry(name, row, asked) {
   return {
     name,
     source: 'registry',
-    id: row.id,
+    id: isGhsa(ghsa) ? ghsa : `npm:${row.id}`,
     ...(isGhsa(ghsa) && { ghsa }),
+    aliases: [],
     title: row.title,
     severity: row.severity,
     ...(typeof score === 'number' && score > 0 && { cvss: score }), // npm spells "not scored" as 0.
@@ -42,34 +40,21 @@ async function registryAdvisories(asked) {
     const chunk = names.slice(i, i + NAMES_PER_REQUEST)
     const body = Object.fromEntries(chunk.map((name) => [name, asked.get(name)]))
     const answer = await request(BULK_URL, { method: 'POST', body, as: 'json' })
-    assert.ok(answer && typeof answer === 'object' && !Array.isArray(answer), 'npmAdvisories: expected an object from the registry')
-    for (const name of Object.keys(answer)) assert.ok(Object.hasOwn(body, name), `npmAdvisories: the registry answered for ${show(name)}, which was not asked`)
+    assert.ok(answer && typeof answer === 'object' && !Array.isArray(answer), 'advisories: expected an object from the registry')
+    for (const name of Object.keys(answer)) assert.ok(Object.hasOwn(body, name), `advisories: the registry answered for ${show(name)}, which was not asked`)
     for (const name of chunk) {
       const rows = Object.hasOwn(answer, name) ? answer[name] : []
-      assert.ok(Array.isArray(rows) && rows.every(isRow), `npmAdvisories: malformed advisories for ${name}`)
+      assert.ok(Array.isArray(rows) && rows.every(isRow), `advisories: malformed advisories for ${name}`)
       advisories.push(...rows.map((row) => fromRegistry(name, row, asked.get(name))))
     }
   }
   return advisories
 }
 
-// What `npm audit` asks the registry, one row per vulnerable range, and
-// with `github`, what the packages' repositories publish that the
-// registry does not have yet.
-export async function npmAdvisories(packages, options = {}) {
-  const asked = askedVersions('npmAdvisories', packages, assertPackageName, assertPackageVersion, compareVersions)
-  assertArgs('npmAdvisories', options, { github: optional(assertClient) })
-  const advisories = await registryAdvisories(asked)
-  if (options.github) {
-    // The repository the registry names for a package, matched only for
-    // that package, and never for an advisory the registry answered with.
-    // A lookup that fails throws: it is not a package without one.
-    const reported = new Set(advisories.map((advisory) => `${advisory.name} ${advisory.ghsa}`))
-    const names = [...asked.keys()]
-    const found = await pool(names, LOOKUPS_AT_ONCE, lookUpPackageRepo)
-    const repos = new Map(names.map((name, i) => [name, found[i]?.github]))
-    const takes = (name, pkg, advisory) => pkg?.ecosystem === 'npm' && pkg.name === name && !reported.has(`${name} ${advisory.ghsa_id}`)
-    advisories.push(...await repositoryAdvisories('npmAdvisories', options.github, asked, { repoOf: (name) => repos.get(name), takes }))
-  }
-  return affecting(advisories)
+// What `npm audit` asks the registry, one row per vulnerable range.
+export const NPM = {
+  assertName: assertPackageName,
+  assertVersion: assertPackageVersion,
+  compare: compareVersions,
+  advisories: async (asked, options) => await withRepositories(await registryAdvisories(asked), asked, options, { ecosystem: 'npm', lookUp: npmRepos }),
 }

@@ -50,6 +50,7 @@
     "semver.js",
     "src/advisories/common.js",
     "src/advisories/github.js",
+    "src/advisories/index.js",
     "src/advisories/npm.js",
     "src/advisories/osv.js",
     "src/advisories/repos.js",
