@@ -26,7 +26,7 @@ async function getDist(name, version) {
   // Taken from `dist`, but only where it is exactly the URL the registry
   // files this version's tarball under, checked before anything is
   // downloaded: never another host, another package or another version.
-  const expected = `${REGISTRY}/${name}/-/${name.split('/').pop()}-${version}.tgz`
+  const expected = `${REGISTRY}/${name}/-/${name.split('/').at(-1)}-${version}.tgz`
   assert.equal(tarball, expected, `Unexpected tarball URL for ${name}@${version}: ${tarball}`)
   assert.ok(typeof integrity === 'string', `No integrity for ${name}@${version}`)
   return { tarball, integrity }
