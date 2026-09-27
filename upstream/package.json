@@ -60,6 +60,7 @@
     "src/npm/repos.js",
     "src/npm/tarball.js",
     "src/package.js",
+    "src/pool.js",
     "src/remote.js",
     "src/semver.js"
   ],

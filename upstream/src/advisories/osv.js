@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 
 import { assertion, isGhsa, matches, show } from '../args.js'
 import { OSV_API, buildUrl, request } from '../http.js'
+import { pool } from '../pool.js'
 
 const QUERIES_PER_REQUEST = 1000
 const CONCURRENCY = 8
@@ -20,18 +21,6 @@ const PACKAGIST = {
   assertName: assertion('a Composer package name', matches(/^(?=.{3,256}$)[a-z\d](?:[_.-]?[a-z\d]+)*\/[a-z\d](?:(?:[_.]|-{1,2})?[a-z\d]+)*$/u)),
   assertVersion: assertion('a Composer release version', matches(/^(?=.{1,64}$)v?\d+(?:\.\d+){0,3}(?:[._-]?(?:stable|beta|b|RC|alpha|a|patch|pl|p)(?:[.-]?\d+)*)?$/iu)),
   keep: () => true,
-}
-
-async function pool(items, fn) {
-  const results = []
-  let next = 0
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, async () => {
-    while (next < items.length) {
-      const i = next++
-      results[i] = await fn(items[i])
-    }
-  }))
-  return results
 }
 
 async function getVuln(method, id) {
@@ -92,7 +81,7 @@ async function osvAdvisories(method, { ecosystem, assertName, assertVersion, kee
     }
   }
   const ids = [...hits.keys()]
-  const records = await pool(ids, (id) => getVuln(method, id))
+  const records = await pool(ids, CONCURRENCY, (id) => getVuln(method, id))
   const advisories = []
   for (const [k, record] of records.entries()) {
     if (record.withdrawn) continue

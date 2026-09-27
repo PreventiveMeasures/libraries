@@ -95,5 +95,15 @@ async function getAdvisory(headers, options) {
   return advisory
 }
 
-export const readMethods = { getCurrentUser, listUserRepos, getRepo, getRepoHead, getRepoFile, getRepoTarball, getPullRequest, getCollaboratorPermission, getAdvisory }
+// One page: GitHub pages this list by a cursor in the Link header, which
+// `call` does not read, so a full page is refused rather than cut short.
+async function listRepoAdvisories(headers, options) {
+  assertArgs('listRepoAdvisories', options, { repo: assertRepo })
+  const list = await call(headers, repoApi(options.repo, ['security-advisories'], { state: 'published', per_page: PER_PAGE }))
+  assert.ok(Array.isArray(list), `listRepoAdvisories: expected an array for ${options.repo}`)
+  assert.ok(list.length < PER_PAGE, `listRepoAdvisories: ${options.repo} has ${PER_PAGE} or more published advisories, more than a page`)
+  return list
+}
+
+export const readMethods = { getCurrentUser, listUserRepos, getRepo, getRepoHead, getRepoFile, getRepoTarball, getPullRequest, getCollaboratorPermission, getAdvisory, listRepoAdvisories }
 export const createClient = (options) => bindMethods(clientHeaders('createClient', options, true), readMethods)

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
 
 import { HttpError, npmAdvisories } from '../advisories.js'
+import { createClient } from '../github.js'
 
 const BULK = 'https://registry.npmjs.org/-/npm/v1/security/advisories/bulk'
 const realFetch = globalThis.fetch
@@ -46,8 +47,8 @@ describe('npmAdvisories', () => {
     ])
     assert.deepEqual(calls, [{ url: BULK, method: 'POST', body: { lodash: ['4.17.15', '4.17.21'], minimist: ['1.2.0'] } }])
     assert.deepEqual(advisories, [
-      { name: 'lodash', id: 3, ghsa: 'GHSA-35jh-r3h4-6jhm', title: 'Command Injection in lodash', severity: 'high', cwe: [], range: '<4.17.21', versions: ['4.17.15'] },
-      { name: 'minimist', id: 2, ghsa: 'GHSA-xvch-5gv4-984h', title: 'Prototype Pollution in minimist', severity: 'critical', cvss: 9.8, cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', cwe: ['CWE-1321'], range: '>=1.0.0 <1.2.6', versions: ['1.2.0'] },
+      { name: 'lodash', source: 'registry', id: 3, ghsa: 'GHSA-35jh-r3h4-6jhm', title: 'Command Injection in lodash', severity: 'high', cwe: [], range: '<4.17.21', versions: ['4.17.15'] },
+      { name: 'minimist', source: 'registry', id: 2, ghsa: 'GHSA-xvch-5gv4-984h', title: 'Prototype Pollution in minimist', severity: 'critical', cvss: 9.8, cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', cwe: ['CWE-1321'], range: '>=1.0.0 <1.2.6', versions: ['1.2.0'] },
     ])
   })
 
@@ -109,5 +110,109 @@ describe('npmAdvisories', () => {
   it('throws an HttpError for a failed request', async () => {
     globalThis.fetch = () => Promise.resolve(Response.json({ error: 'nope' }, { status: 503 }))
     await assert.rejects(npmAdvisories([{ name: 'pkg', version: '1.0.0' }]), (err) => err instanceof HttpError && err.status === 503)
+  })
+})
+
+describe('npmAdvisories with a GitHub client', () => {
+  const REPO_ADVISORIES = 'https://api.github.com/repos/acme/mono/security-advisories?state=published&per_page=100'
+  const github = createClient({ token: 'test-token' })
+  const repoAdvisory = (ghsa, vulnerabilities, overrides = {}) => ({
+    ghsa_id: ghsa,
+    state: 'published',
+    summary: `Advisory ${ghsa}`,
+    severity: 'medium',
+    cwe_ids: ['CWE-79'],
+    cvss_severities: { cvss_v3: { vector_string: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N', score: 6.1 }, cvss_v4: { vector_string: null, score: null } },
+    vulnerabilities,
+    ...overrides,
+  })
+  const vuln = (name, range, ecosystem = 'npm') => ({ package: { ecosystem, name }, vulnerable_version_range: range, patched_versions: null })
+
+  // The registry (bulk advisories, and `latest` documents naming each
+  // package's repo) and GitHub, each answering from what is given.
+  function stubAll({ bulk = {}, repos = {}, github: answers = {} }) {
+    const calls = []
+    globalThis.fetch = (url, init = {}) => {
+      url = String(url)
+      calls.push(url)
+      if (url === BULK) return Promise.resolve(Response.json(bulk))
+      const latest = /^https:\/\/registry\.npmjs\.org\/(.+)\/latest$/u.exec(url)
+      if (latest) {
+        const name = decodeURIComponent(latest[1])
+        return Promise.resolve(Object.hasOwn(repos, name) ? Response.json({ name, repository: { url: `git+https://github.com/${repos[name]}.git` } }) : Response.json({ error: 'Not found' }, { status: 404 }))
+      }
+      if (Object.hasOwn(answers, url)) {
+        const answer = answers[url]
+        return Promise.resolve(answer instanceof Response ? answer.clone() : Response.json(answer))
+      }
+      return Promise.reject(new Error(`unexpected request: ${url} ${init.method ?? 'GET'}`))
+    }
+    return calls
+  }
+
+  it('adds what the repository publishes and the registry does not have, for the packages it is named for', async () => {
+    stubAll({
+      bulk: { 'mono-a': [row({ id: 7, url: 'https://github.com/advisories/GHSA-aaaa-aaaa-aaaa', vulnerable_versions: '<0.1.0' })] },
+      repos: { 'mono-a': 'acme/mono', 'mono-b': 'acme/mono' },
+      github: {
+        [REPO_ADVISORIES]: [
+          // Reviewed, and the registry's range misses 1.0.0: the registry's word stands.
+          repoAdvisory('GHSA-aaaa-aaaa-aaaa', [vuln('mono-a', '< 2.0.0')]),
+          // Two disjoint ranges are two entries, and two rows.
+          repoAdvisory('GHSA-bbbb-bbbb-bbbb', [vuln('mono-a', '>= 1.0.0, < 1.2.6'), vuln('mono-a', '>= 2.0.0, < 2.1.0'), vuln('mono-a', '>= 3.0.0')]),
+          // Another package in the repo, one not asked, another ecosystem.
+          repoAdvisory('GHSA-cccc-cccc-cccc', [vuln('mono-b', 'not a range'), vuln('mono-c', '< 9.0.0'), vuln('mono-a', '< 9.0.0', 'pip')], { severity: null, cvss_severities: null, cwe_ids: null }),
+          repoAdvisory('GHSA-dddd-dddd-dddd', [vuln('mono-a', '< 9.0.0')], { withdrawn_at: '2026-01-01T00:00:00Z' }),
+        ],
+      },
+    })
+    const advisories = await npmAdvisories([
+      { name: 'mono-a', version: '1.0.0' },
+      { name: 'mono-a', version: '2.0.5' },
+      { name: 'mono-b', version: '4.0.0' },
+    ], { github })
+    assert.deepEqual(advisories, [
+      {
+        name: 'mono-a', source: 'repository', ghsa: 'GHSA-bbbb-bbbb-bbbb', title: 'Advisory GHSA-bbbb-bbbb-bbbb', severity: 'moderate', cvss: 6.1,
+        cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N', cwe: ['CWE-79'], range: '>= 1.0.0, < 1.2.6', versions: ['1.0.0'],
+      },
+      {
+        name: 'mono-a', source: 'repository', ghsa: 'GHSA-bbbb-bbbb-bbbb', title: 'Advisory GHSA-bbbb-bbbb-bbbb', severity: 'moderate', cvss: 6.1,
+        cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N', cwe: ['CWE-79'], range: '>= 2.0.0, < 2.1.0', versions: ['2.0.5'],
+      },
+      { name: 'mono-b', source: 'repository', ghsa: 'GHSA-cccc-cccc-cccc', title: 'Advisory GHSA-cccc-cccc-cccc', cwe: [], range: 'not a range', versions: ['4.0.0'] },
+    ])
+  })
+
+  it('asks GitHub once per repository, and not for a package with no repo', async () => {
+    const calls = stubAll({ repos: { 'mono-a': 'acme/mono', 'mono-b': 'acme/mono' }, github: { [REPO_ADVISORIES]: [] } })
+    assert.deepEqual(await npmAdvisories([{ name: 'mono-a', version: '1.0.0' }, { name: 'mono-b', version: '1.0.0' }, { name: 'norepo', version: '1.0.0' }], { github }), [])
+    assert.deepEqual(calls.filter((url) => url.startsWith('https://api.github.com/')), [REPO_ADVISORIES])
+  })
+
+  it('skips a repository gone, renamed or blocked, and throws on any other failure', async () => {
+    const one = [{ name: 'mono-a', version: '1.0.0' }]
+    for (const status of [301, 404, 410, 451]) {
+      const answer = status === 301 ? new Response('', { status, headers: { location: 'https://api.github.com/repositories/1' } }) : Response.json({ message: 'x' }, { status })
+      stubAll({ repos: { 'mono-a': 'acme/mono' }, github: { [REPO_ADVISORIES]: answer } })
+      assert.deepEqual(await npmAdvisories(one, { github }), [], String(status))
+    }
+    for (const status of [403, 500]) {
+      stubAll({ repos: { 'mono-a': 'acme/mono' }, github: { [REPO_ADVISORIES]: Response.json({ message: 'x' }, { status }) } })
+      await assert.rejects(npmAdvisories(one, { github }), (err) => err instanceof HttpError && err.status === status, String(status))
+    }
+    stubAll({ repos: { 'mono-a': 'acme/mono' }, github: { [REPO_ADVISORIES]: [{ ghsa_id: 'GHSA-aaaa-aaaa-aaaa', state: 'draft', summary: 'x' }] } })
+    await assert.rejects(npmAdvisories(one, { github }), /npmAdvisories: malformed advisory from acme\/mono/u)
+    stubAll({ repos: { 'mono-a': 'acme/mono' }, github: { [REPO_ADVISORIES]: Array.from({ length: 100 }, (_, i) => repoAdvisory(`GHSA-aaaa-aaaa-${String(i).padStart(4, '2')}`, [])) } })
+    await assert.rejects(npmAdvisories(one, { github }), /listRepoAdvisories: acme\/mono has 100 or more published advisories/u)
+  })
+
+  it('refuses a github option that is not a client, before any request', async () => {
+    const calls = stubAll({})
+    for (const option of [{}, 'token', { listRepoAdvisories: 1 }]) {
+      await assert.rejects(npmAdvisories([{ name: 'pkg', version: '1.0.0' }], { github: option }), /npmAdvisories: github must be a GitHub client from createClient/u)
+    }
+    await assert.rejects(npmAdvisories([{ name: 'pkg', version: '1.0.0' }], { gitHub: github }), /npmAdvisories: unknown option gitHub/u)
+    assert.deepEqual(calls, [])
   })
 })

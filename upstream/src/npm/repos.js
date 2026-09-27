@@ -4,6 +4,7 @@ import { assertArgs, assertBoolean, assertPackageName, assertRepo, isRepo, optio
 import { readCacheJSON, writeCacheJSON } from '../cache.js'
 import { NPM_REGISTRY, buildUrl, request } from '../http.js'
 import { assertRepoDirectory, getRepo, isRepoDirectory } from '../package.js'
+import { pool } from '../pool.js'
 
 const DIR = 'npm/repos'
 const TTL_MS = 30 * 24 * 60 * 60 * 1000 // A link only moves on a transfer or rename, and GitHub redirects those.
@@ -51,9 +52,6 @@ export async function resolvePackageRepos(packageNames, options = {}) {
     repos.set(name, { github, ...(directory && { directory }) })
     await writePackageRepoCache(name, github, directory)
   }
-  let next = 0
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, names.length) }, async () => {
-    while (next < names.length) await lookUp(names[next++]).catch(() => {})
-  }))
+  await pool(names, CONCURRENCY, (name) => lookUp(name).catch(() => {}))
   return repos
 }
