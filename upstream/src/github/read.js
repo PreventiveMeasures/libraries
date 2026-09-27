@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
+import { createHash } from 'node:crypto'
 
 import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, isSha, optional, sameName, show } from '../args.js'
 import { decode, encodeSegment } from '../http.js'
@@ -47,17 +48,21 @@ export async function getRepoHead(headers, options) {
 
 // GitHub's object for the path first: a directory, symlink or submodule is
 // refused rather than read as a file's text. Up to 1 MB the object holds
-// the content; past it, `encoding: none`, and the raw read follows.
+// the content; past it, `encoding: none`, and the blob it names is read,
+// which a push to the ref since cannot change. Either way the bytes must
+// hash to that blob.
 async function getRepoFile(headers, options) {
   assertArgs('getRepoFile', options, { repo: assertRepo, path: assertPath, ref: optional(assertRef) })
   const { repo, path, ref } = options
   const url = repoApi(repo, ['contents', ...path.split('/').map(encodeSegment)], ref === undefined ? {} : { ref })
   const file = await call(headers, url)
-  assert.ok(file?.type === 'file' && file.path === path && Number.isSafeInteger(file.size), `getRepoFile: ${repo} has no file at ${show(path)}`)
-  if (file.encoding === 'none') return await call({ ...headers, Accept: 'application/vnd.github.raw' }, url, { as: 'text' })
-  assert.ok(file.encoding === 'base64' && /^[\dA-Za-z+/=\n]*$/u.test(file.content ?? ''), `getRepoFile: unexpected encoding for ${show(path)}`)
-  const bytes = Buffer.from(file.content, 'base64')
-  assert.ok(bytes.length === file.size, `getRepoFile: ${show(path)} came back ${bytes.length} bytes, not ${file.size}`)
+  assert.ok(file?.type === 'file' && file.path === path && Number.isSafeInteger(file.size) && isSha(file.sha), `getRepoFile: ${repo} has no file at ${show(path)}`)
+  assert.ok(file.encoding === 'none' || (file.encoding === 'base64' && /^[\dA-Za-z+/=\n]*$/u.test(file.content ?? '')), `getRepoFile: unexpected encoding for ${show(path)}`)
+  const bytes = file.encoding === 'none'
+    ? await call({ ...headers, Accept: 'application/vnd.github.raw' }, repoApi(repo, ['git', 'blobs', file.sha]), { as: 'bytes' })
+    : Buffer.from(file.content, 'base64')
+  const blob = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex')
+  assert.ok(bytes.length === file.size && blob === file.sha, `getRepoFile: ${show(path)} came back as blob ${blob}, not ${file.sha}`)
   return decode(bytes, url)
 }
 

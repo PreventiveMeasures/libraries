@@ -52,7 +52,7 @@ async function repositoryAdvisories(github, asked, { repoOf, takes = () => true,
       for (const vulnerability of advisory.withdrawn_at ? [] : advisory.vulnerabilities ?? []) {
         const range = vulnerability?.vulnerable_version_range ?? ''
         assert.ok(typeof range === 'string', `advisories: malformed range in ${advisory.ghsa_id}`)
-        for (const name of names.filter((candidate) => takes(candidate, vulnerability?.package, advisory))) {
+        for (const name of names.filter((candidate) => takes(candidate, vulnerability?.package))) {
           rows.set(`${name} ${advisory.ghsa_id} ${range}`, fromRepository(name, advisory, range, asked.get(name), covers))
         }
       }
@@ -64,15 +64,16 @@ async function repositoryAdvisories(github, asked, { repoOf, takes = () => true,
 // A maintainer's advisory is on the repository before GitHub reviews it
 // into the databases the registries answer from. With `repoAdvisories`,
 // each package's repository, `known` or else looked up, adds what it
-// publishes that `rows` do not have, for GitHub's `ecosystem` entries
-// naming the package.
+// publishes for GitHub's `ecosystem` entries naming the package, for the
+// versions `rows` do not already report under that GHSA.
 export async function withRepositories(rows, asked, { github, repoAdvisories, known }, { ecosystem, lookUp, covers }) {
   if (!repoAdvisories) return rows
-  const reported = new Set(rows.flatMap((row) => [row.id, row.ghsa, ...row.aliases].filter(isGhsa).map((id) => `${row.name} ${id}`)))
+  const reported = new Set(rows.flatMap((row) => [row.id, row.ghsa, ...row.aliases].filter(isGhsa).flatMap((id) => row.versions.map((version) => `${row.name} ${id} ${version}`))))
   const found = await lookUp([...asked.keys()].filter((name) => !known.has(name)))
   const repoOf = (name) => known.get(name) ?? found.get(name)
-  const takes = (name, pkg, advisory) => pkg?.ecosystem === ecosystem && pkg.name === name && !reported.has(`${name} ${advisory.ghsa_id}`)
-  return [...rows, ...await repositoryAdvisories(github, asked, { repoOf, takes, covers })]
+  const takes = (name, pkg) => pkg?.ecosystem === ecosystem && pkg.name === name
+  const added = await repositoryAdvisories(github, asked, { repoOf, takes, covers })
+  return [...rows, ...added.map((row) => ({ ...row, versions: row.versions.filter((version) => !reported.has(`${row.name} ${row.id} ${version}`)) }))]
 }
 
 // stasis versions a repository with no version of its own by its branch,

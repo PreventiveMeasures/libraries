@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
+import { createHash } from 'node:crypto'
 import { afterEach, describe, it } from 'node:test'
 
 import { HttpError, createClient } from '../github.js'
@@ -142,7 +143,10 @@ describe('getRepoHead', () => {
 })
 
 describe('getRepoFile', () => {
-  const fileAt = (path, text, overrides = {}) => json({ type: 'file', path, size: Buffer.byteLength(text), encoding: 'base64', content: `${Buffer.from(text).toString('base64')}\n`, ...overrides })
+  // git's id for a blob: the sha1 of a header and the bytes.
+  const blobSha = (bytes) => createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex')
+  const fileAt = (path, text, overrides = {}) => json({ type: 'file', path, size: Buffer.byteLength(text), sha: blobSha(Buffer.from(text)), encoding: 'base64', content: `${Buffer.from(text).toString('base64')}\n`, ...overrides })
+  const bigFile = (bytes, overrides = {}) => json({ type: 'file', path: 'big.txt', size: bytes.length, sha: blobSha(bytes), encoding: 'none', content: '', ...overrides })
 
   it("reads a file's content off GitHub's object for it, each path segment encoded, at a ref", async () => {
     const calls = stubGitHub(({ url }) => fileAt(url.includes('package.json') ? 'dir with space/package.json' : 'a.txt', 'héllo { "name": "app" }'))
@@ -153,10 +157,22 @@ describe('getRepoFile', () => {
     assert.equal(calls[1].url, `https://api.github.com/repos/acme/app/contents/a.txt?ref=${SHA}`)
   })
 
-  it('reads a file past 1 MB raw, after its object says it is one', async () => {
-    const calls = stubGitHub(({ headers }) => (headers.Accept === 'application/vnd.github.raw' ? new Response('big') : json({ type: 'file', path: 'big.txt', size: 2_000_000, encoding: 'none', content: '' })))
-    assert.equal(await client().getRepoFile({ repo: 'acme/app', path: 'big.txt' }), 'big')
-    assert.deepEqual(calls.map((call) => call.headers.Accept), ['application/vnd.github+json', 'application/vnd.github.raw'])
+  it('reads a file past 1 MB as the blob its object names, which no later push can change', async () => {
+    const bytes = Buffer.from('big')
+    const calls = stubGitHub(({ headers }) => (headers.Accept === 'application/vnd.github.raw' ? new Response(bytes) : bigFile(bytes)))
+    assert.equal(await client().getRepoFile({ repo: 'acme/app', path: 'big.txt', ref: 'main' }), 'big')
+    assert.deepEqual(calls.map((call) => [call.url, call.headers.Accept]), [
+      ['https://api.github.com/repos/acme/app/contents/big.txt?ref=main', 'application/vnd.github+json'],
+      [`https://api.github.com/repos/acme/app/git/blobs/${blobSha(bytes)}`, 'application/vnd.github.raw'],
+    ])
+  })
+
+  it('refuses a blob that does not hash to what the object named', async () => {
+    const bytes = Buffer.from('big')
+    for (const served of [Buffer.from('bag'), Buffer.from('bigger'), Buffer.from('[{"type":"dir"}]')]) {
+      stubGitHub(({ headers }) => (headers.Accept === 'application/vnd.github.raw' ? new Response(served) : bigFile(bytes)))
+      await assert.rejects(client().getRepoFile({ repo: 'acme/app', path: 'big.txt' }), new RegExp(`getRepoFile: "big.txt" came back as blob ${blobSha(served)}, not ${blobSha(bytes)}`, 'u'))
+    }
   })
 
   it('refuses a directory, a symlink, another path, or content that is not what it says', async () => {
@@ -165,10 +181,12 @@ describe('getRepoFile', () => {
       [json({ type: 'symlink', path: 'dir', size: 5, target: 'other' }), /getRepoFile: acme\/app has no file at "dir"/u],
       [json({ type: 'submodule', path: 'dir', size: 0 }), /getRepoFile: acme\/app has no file at "dir"/u],
       [fileAt('other', 'x'), /getRepoFile: acme\/app has no file at "dir"/u],
+      [fileAt('dir', 'x', { sha: undefined }), /getRepoFile: acme\/app has no file at "dir"/u],
       [fileAt('dir', 'x', { encoding: 'utf-8' }), /getRepoFile: unexpected encoding for "dir"/u],
       [fileAt('dir', 'x', { content: '!!' }), /getRepoFile: unexpected encoding for "dir"/u],
-      [fileAt('dir', 'xyz', { size: 2 }), /getRepoFile: "dir" came back 3 bytes, not 2/u],
-      [fileAt('dir', 'x', { content: Buffer.from([0xff]).toString('base64'), size: 1 }), /Malformed UTF-8/u],
+      [fileAt('dir', 'xyz', { size: 2 }), /getRepoFile: "dir" came back as blob/u],
+      [fileAt('dir', 'xyz', { sha: blobSha(Buffer.from('xyw')) }), /getRepoFile: "dir" came back as blob/u],
+      [fileAt('dir', 'x', { content: Buffer.from([0xff]).toString('base64'), size: 1, sha: blobSha(Buffer.from([0xff])) }), /Malformed UTF-8/u],
     ]) {
       const calls = stubGitHub(() => answer.clone())
       await assert.rejects(client().getRepoFile({ repo: 'acme/app', path: 'dir' }), error)

@@ -323,8 +323,10 @@ describe('cargo and composer, with a GitHub client', () => {
       },
     })
     const found = await composer([{ name: 'monolog/monolog', version: 'v1.2.3' }, { name: 'monolog/monolog', version: '1.2.3.4' }, { name: 'acme/private', version: '1.0.0' }], { github, repoAdvisories: true })
+    // OSV answered for v1.2.3 alone; the repository's range covers 1.2.3.4 too.
     assert.deepEqual(found.map(({ source, id, severity, versions }) => [source, id, severity, versions]), [
       ['osv', 'GHSA-f57v-q966-7fh6', undefined, ['v1.2.3']],
+      ['repository', 'GHSA-f57v-q966-7fh6', 'moderate', ['1.2.3.4']],
       ['repository', 'GHSA-bbbb-bbbb-bbbb', 'moderate', ['1.2.3.4', 'v1.2.3']],
       ['repository', 'GHSA-cccc-cccc-cccc', 'moderate', ['1.2.3.4']],
     ])

@@ -44,8 +44,9 @@ export interface Advisory {
   name: string
   // `registry`: npm's, as `npm audit` has it, one row per vulnerable
   // range. `osv`: RustSec for cargo, OSV's Packagist records for composer.
-  // `repository`: published on the package's repository and not in the
-  // others' answer, one row per range.
+  // `repository`: published on the package's repository, one row per
+  // range, holding only the versions the others' answer does not report
+  // under that GHSA.
   source: 'registry' | 'osv' | 'repository'
   // A GHSA, RUSTSEC-…, DRUPAL-CORE-…, or npm:<id> for a registry row
   // without a GHSA.

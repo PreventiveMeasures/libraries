@@ -218,12 +218,13 @@ describe('npm, with a GitHub client', () => {
 
   it('adds what the repository publishes and the registry does not have, for the packages it is named for', async () => {
     stubAll({
-      bulk: { 'mono-a': [row({ id: 7, url: 'https://github.com/advisories/GHSA-aaaa-aaaa-aaaa', vulnerable_versions: '<0.1.0' })] },
+      bulk: { 'mono-a': [row({ id: 7, url: 'https://github.com/advisories/GHSA-aaaa-aaaa-aaaa', vulnerable_versions: '<1.0.1' })] },
       repos: { 'mono-a': 'acme/mono', 'mono-b': 'acme/mono' },
       github: {
         [REPO_ADVISORIES]: [
-          // Reviewed, and the registry's range misses 1.0.0: the registry's word stands.
-          repoAdvisory('GHSA-aaaa-aaaa-aaaa', [vuln('mono-a', '< 2.0.0')]),
+          // Reviewed, and the registry's range stops short of 2.0.5, which the
+          // repository's newer one covers: only 2.0.5 is added.
+          repoAdvisory('GHSA-aaaa-aaaa-aaaa', [vuln('mono-a', '< 3.0.0')]),
           // Two disjoint ranges are two entries, and two rows.
           repoAdvisory('GHSA-bbbb-bbbb-bbbb', [vuln('mono-a', '>= 1.0.0, < 1.2.6'), vuln('mono-a', '>= 2.0.0, < 2.1.0'), vuln('mono-a', '>= 3.0.0')]),
           // Another package in the repo, one not asked, another ecosystem.
@@ -239,6 +240,11 @@ describe('npm, with a GitHub client', () => {
     ], { github, repoAdvisories: true })
     const common = { ecosystem: 'npm', source: 'repository', aliases: [], severity: 'moderate', cvss: 6.1, cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N', cwe: ['CWE-79'] }
     assert.deepEqual(found, [
+      {
+        ecosystem: 'npm', name: 'mono-a', source: 'registry', id: 'GHSA-aaaa-aaaa-aaaa', ghsa: 'GHSA-aaaa-aaaa-aaaa', aliases: [], title: 'Prototype Pollution in minimist', severity: 'critical',
+        cvss: 9.8, cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', cwe: ['CWE-1321'], range: '<1.0.1', versions: ['1.0.0'],
+      },
+      { ...common, name: 'mono-a', id: 'GHSA-aaaa-aaaa-aaaa', ghsa: 'GHSA-aaaa-aaaa-aaaa', title: 'Advisory GHSA-aaaa-aaaa-aaaa', range: '< 3.0.0', versions: ['2.0.5'] },
       { ...common, name: 'mono-a', id: 'GHSA-bbbb-bbbb-bbbb', ghsa: 'GHSA-bbbb-bbbb-bbbb', title: 'Advisory GHSA-bbbb-bbbb-bbbb', range: '>= 1.0.0, < 1.2.6', versions: ['1.0.0'] },
       { ...common, name: 'mono-a', id: 'GHSA-bbbb-bbbb-bbbb', ghsa: 'GHSA-bbbb-bbbb-bbbb', title: 'Advisory GHSA-bbbb-bbbb-bbbb', range: '>= 2.0.0, < 2.1.0', versions: ['2.0.5'] },
       {
