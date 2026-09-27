@@ -31,6 +31,31 @@ describe('getRepo', () => {
     }
   })
 
+  it('answers a url only for a GitHub repo it parsed, and only as that repo\'s GitHub page', () => {
+    const pkgs = [
+      { repository: 'gitlab:acme/app' },
+      { repository: 'bitbucket:acme/app' },
+      { repository: 'https://gitlab.com/acme/app.git' },
+      { repository: 'https://git.internal.example/acme/app.git' },
+      { repository: 'https://token@github.com.evil.example/acme/app' },
+      { homepage: 'https://acme.example/docs' },
+      { bugs: 'https://tracker.example/acme/issues' },
+      { repository: 'git+https://user:secret@github.com/acme/app.git' },
+      { repository: 'git@github.com:acme/app.git', homepage: 'https://acme.example' },
+      { bugs: { url: 'http://github.com/acme/app/issues' } },
+      { homepage: 'https://www.github.com/Acme/App/tree/main/pkg#readme' },
+    ]
+    for (const pkg of pkgs) {
+      const link = getRepo(pkg)
+      if (link.github === undefined) {
+        assert.deepEqual(link, {}, JSON.stringify(pkg))
+      } else {
+        assert.equal(link.url, `https://github.com/${link.github}`, JSON.stringify(pkg))
+        assert.doesNotMatch(JSON.stringify(link), /secret|token|www\.|http:|\.git\b|git@|#/u, JSON.stringify(pkg))
+      }
+    }
+  })
+
   it('throws only for what is not a package.json object', () => {
     for (const value of [null, undefined, 'package.json', ['a'], 42]) {
       assert.throws(() => getRepo(value), /getRepo: expected a package.json object/u, String(value))
