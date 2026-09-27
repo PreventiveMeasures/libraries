@@ -7,17 +7,17 @@ import { api, bindMethods, call, clientHeaders, repoApi } from './client.js'
 const PER_PAGE = 100
 const MAX_PAGES = 100
 
-async function paginate(method, headers, pageUrl) {
-  const items = []
+async function* pages(method, headers, pageUrl) {
   for (let page = 1; page <= MAX_PAGES; page++) {
     const body = await call(headers, pageUrl({ per_page: PER_PAGE, page }))
     assert.ok(Array.isArray(body), `${method}: expected an array for page ${page}`)
-    items.push(...body)
-    if (body.length < PER_PAGE) return items
+    yield body
+    if (body.length < PER_PAGE) return
   }
   assert.fail(`${method}: more than ${MAX_PAGES} pages`)
 }
 
+const paginate = async (method, headers, pageUrl) => (await Array.fromAsync(pages(method, headers, pageUrl))).flat()
 const getCurrentUser = (headers) => call(headers, api(['user']))
 const listUserRepos = (headers) => paginate('listUserRepos', headers, (paging) => api(['user', 'repos'], { ...paging, sort: 'full_name' }))
 
