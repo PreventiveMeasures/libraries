@@ -47,8 +47,9 @@ export interface Client {
   getRepoHead(options: { repo: RepoName; branch?: string }): Promise<{ branch: string; oid: string }>
   // The repo's gzipped tarball at the full commit `sha`, whole, in memory.
   getRepoTarball(options: { repo: RepoName; sha: string }): Promise<Uint8Array>
-  // Every page of `GET /user/repos`, as GitHub's repository objects.
-  listUserRepos(): Promise<any[]>
+  // Every page of `GET /user/repos`, as GitHub's repository objects; more
+  // than `maxPages` (100 by default) pages of 100 is an error.
+  listUserRepos(options?: { maxPages?: number }): Promise<any[]>
 }
 
 export function createClient(options: ClientOptions): Client

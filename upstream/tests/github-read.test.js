@@ -76,7 +76,8 @@ describe('arguments, before any request', () => {
     await assert.rejects(client().getRepoHead({ repo: 'acme/app', brnach: 'main' }), /getRepoHead: unknown option brnach/u)
     await assert.rejects(client().getRepo({ repo: 'acme/app' }, {}), /getRepo: unexpected arguments/u)
     await assert.rejects(client().getCurrentUser({}), /getCurrentUser: unexpected arguments/u)
-    await assert.rejects(client().listUserRepos({ page: 2 }), /listUserRepos: unexpected arguments/u)
+    await assert.rejects(client().listUserRepos({ page: 2 }), /listUserRepos: unknown option page/u)
+    await assert.rejects(client().listUserRepos({}, {}), /listUserRepos: unexpected arguments/u)
     assert.deepEqual(calls, [])
   })
 })
@@ -265,6 +266,17 @@ describe('listUserRepos', () => {
     const calls = stubGitHub(() => json(Array.from({ length: 100 }, () => ({}))))
     await assert.rejects(client().listUserRepos(), /listUserRepos: more than 100 pages/u)
     assert.equal(calls.length, 100)
+  })
+
+  it('stops at maxPages when given one, and refuses one that is not a positive integer', async () => {
+    const calls = stubGitHub(() => json(Array.from({ length: 100 }, () => ({}))))
+    await assert.rejects(client().listUserRepos({ maxPages: 2 }), /listUserRepos: more than 2 pages/u)
+    assert.equal(calls.length, 2)
+    for (const maxPages of [0, -1, 1.5, '2', null]) {
+      await assert.rejects(client().listUserRepos({ maxPages }), /listUserRepos: maxPages must be a positive integer/u, String(maxPages))
+    }
+    await assert.rejects(client().listUserRepos(null), /listUserRepos: options must be an options object/u)
+    assert.equal(calls.length, 2)
   })
 
   it('refuses a page that must be a list', async () => {

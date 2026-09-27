@@ -7,19 +7,24 @@ import { api, bindMethods, call, clientHeaders, repoApi } from './client.js'
 const PER_PAGE = 100
 const MAX_PAGES = 100
 
-async function* pages(method, headers, pageUrl) {
-  for (let page = 1; page <= MAX_PAGES; page++) {
+async function* pages(method, headers, pageUrl, maxPages = MAX_PAGES) {
+  for (let page = 1; page <= maxPages; page++) {
     const body = await call(headers, pageUrl({ per_page: PER_PAGE, page }))
     assert.ok(Array.isArray(body), `${method}: expected an array for page ${page}`)
     yield body
     if (body.length < PER_PAGE) return
   }
-  assert.fail(`${method}: more than ${MAX_PAGES} pages`)
+  assert.fail(`${method}: more than ${maxPages} pages`)
 }
 
-const paginate = async (method, headers, pageUrl) => (await Array.fromAsync(pages(method, headers, pageUrl))).flat()
+const paginate = async (...args) => (await Array.fromAsync(pages(...args))).flat()
 const getCurrentUser = (headers) => call(headers, api(['user']))
-const listUserRepos = (headers) => paginate('listUserRepos', headers, (paging) => api(['user', 'repos'], { ...paging, sort: 'full_name' }))
+
+// No default for `options`: bindMethods counts it to refuse extra arguments.
+async function listUserRepos(headers, options) {
+  assertArgs('listUserRepos', options === undefined ? {} : options, { maxPages: optional(assertNumber) })
+  return await paginate('listUserRepos', headers, (paging) => api(['user', 'repos'], { ...paging, sort: 'full_name' }), options?.maxPages)
+}
 
 async function getRepo(headers, options) {
   assertArgs('getRepo', options, { repo: assertRepo })
