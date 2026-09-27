@@ -8,7 +8,7 @@ import { describe, it } from 'node:test'
 // of its own.
 process.argv[0] = '/nowhere/not-node'
 
-const { compareVersions, satisfies, semverAvailable } = await import('../npm.js')
+const { compareVersions, satisfies, semverAvailable, valid } = await import('../semver.js')
 
 describe('without npm beside node', () => {
   it('says so', () => {
@@ -18,6 +18,14 @@ describe('without npm beside node', () => {
   it('reads every range as matching, never hiding one', () => {
     assert.equal(satisfies('4.17.21', '<4.17.21'), true)
     assert.equal(satisfies('9.9.9', '1.0.0'), true)
+  })
+
+  it('validates by shape, still refusing anything but digits, dots and [\\w+-]', () => {
+    assert.equal(valid('1.2.3'), '1.2.3')
+    assert.equal(valid('1.2.3-rc.1'), '1.2.3-rc.1')
+    for (const version of ['v1.2.3', ' 1.2.3', '1.2', '^1.2.3', '1.2.3/../x', 123, undefined]) {
+      assert.equal(valid(version), null, String(version))
+    }
   })
 
   it('orders versions as strings, deterministically', () => {

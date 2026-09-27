@@ -1,4 +1,9 @@
 // Hand-written against npm.js; a change to either belongs with the other.
+//
+// Every call that reaches the registry first asserts that the name is a
+// string of the shape npm takes, and a version a string that npm's
+// semver.valid answers with unchanged; neither goes near a request, or a
+// cache path, otherwise.
 
 // Where cached answers live. Unset by default, and unset means no cache:
 // every read misses and every write is skipped.
@@ -34,14 +39,5 @@ export function writePackageRepoCache(name: string, repo: string, directory?: st
 // only where `dist.tarball` is exactly that version's registry URL.
 // Checked against the registry's sha512 `dist.integrity` on download,
 // before it is cached, and again on every load from the cache; a mismatch
-// throws. `version` must be exact.
+// throws.
 export function getTarball(name: string, version: string): Promise<Uint8Array>
-
-// npm's own semver, borrowed from the Node install. Without it, which
-// semverAvailable() reports, satisfies answers true for every range and
-// compareVersions falls back to a string compare.
-export function semverAvailable(): boolean
-// Prereleases included; a range npm cannot parse matches everything.
-export function satisfies(version: string, range: string): boolean
-export function compareVersions(a: string, b: string): number
-export function isExactVersion(version: unknown): version is string

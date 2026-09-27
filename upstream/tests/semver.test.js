@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { compareVersions, isExactVersion, satisfies, semverAvailable } from '../npm.js'
+import { compareVersions, isExactVersion, satisfies, semverAvailable, valid } from '../semver.js'
 
 // Against the npm that ships beside the node running this, which every
 // install these tests run on has.
@@ -52,6 +52,26 @@ describe('isExactVersion', () => {
   it('refuses a range, a pin or a non-string', () => {
     for (const version of ['^1.2.3', '1.2', '1.2.x', 'file:../a', 'link:a', 'latest', '', 123, undefined, null]) {
       assert.equal(isExactVersion(version), false, String(version))
+    }
+  })
+})
+
+describe('valid', () => {
+  it('answers a version as semver spells it', () => {
+    for (const version of ['1.2.3', '0.0.0', '1.2.3-rc.1', '10.20.30-alpha.1.beta']) {
+      assert.equal(valid(version), version)
+    }
+  })
+
+  it('normalizes what it can read, so the answer is not always the input', () => {
+    assert.equal(valid('v1.2.3'), '1.2.3')
+    assert.equal(valid(' 1.2.3 '), '1.2.3')
+    assert.equal(valid('1.2.3+build.5'), '1.2.3')
+  })
+
+  it('answers null for anything that is not a version', () => {
+    for (const version of ['01.2.3', '1.2', '^1.2.3', '1.2.x', 'latest', '1.2.3/../x', '', 123, undefined, null, ['1.2.3']]) {
+      assert.equal(valid(version), null, String(version))
     }
   })
 })

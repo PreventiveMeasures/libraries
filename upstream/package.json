@@ -11,6 +11,10 @@
     "./npm.js": {
       "types": "./npm.d.ts",
       "default": "./npm.js"
+    },
+    "./semver.js": {
+      "types": "./semver.d.ts",
+      "default": "./semver.js"
     }
   },
   "files": [
@@ -18,12 +22,14 @@
     "github.js",
     "npm.d.ts",
     "npm.js",
+    "semver.d.ts",
+    "semver.js",
     "src/cache.js",
     "src/github.js",
     "src/npm/registry.js",
     "src/npm/repos.js",
-    "src/npm/semver.js",
-    "src/npm/tarball.js"
+    "src/npm/tarball.js",
+    "src/semver.js"
   ],
   "engines": {
     "node": ">=24.14.0"

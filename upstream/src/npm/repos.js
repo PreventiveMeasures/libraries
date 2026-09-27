@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { cacheDir } from '../cache.js'
-import { REGISTRY, packageNameRegex } from './registry.js'
+import { REGISTRY, assertPackageName } from './registry.js'
 
 // Which GitHub repo a published npm package's code lives in, and where in
 // that repo the package sits — the lookup, and the disk cache that keeps a
@@ -33,7 +33,7 @@ const shorthandRegex = /^(?:github:)?(?<repo>[\w-]+\/[\w.-]+)$/u
 // the project, not about a version, and the full document is megabytes
 // of version history to answer a one-line question.
 async function getShortInfo(name) {
-  assert.ok(packageNameRegex.test(name), `Unexpected package name: ${name}`)
+  assertPackageName(name)
   const res = await fetch(`${REGISTRY}/${name}/latest`)
   assert.ok(res.ok, `Failed to fetch ${name} from npm: ${res.status}`)
   const json = await res.json()

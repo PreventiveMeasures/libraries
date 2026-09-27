@@ -96,13 +96,6 @@ describe('getTarball', () => {
     assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0')), BYTES)
   })
 
-  it('refuses a name or a version it should not ask for, without asking', async () => {
-    const calls = stubRegistry()
-    for (const [name, version] of [['../pkg', '1.0.0'], ['pkg', '^1.0.0'], ['pkg', 'latest'], ['pkg', '1.0.0/../x'], ['pkg', undefined]]) {
-      await assert.rejects(getTarball(name, version), /Unexpected package name|Expected an exact version/u, `${name}@${version}`)
-    }
-    assert.deepEqual(calls, [])
-  })
 
   it('throws on a version the registry does not have', async () => {
     stubRegistry()

@@ -2,7 +2,8 @@ import { createRequire } from 'node:module'
 import { basename, dirname, resolve } from 'node:path'
 
 // Range matching, for deciding which versions an advisory's
-// `vulnerable_versions` range actually covers.
+// `vulnerable_versions` range actually covers, and validation, for
+// deciding which versions are fit to go into a registry request at all.
 //
 // npm ships its own `semver`, and npm ships with Node, at a path fixed
 // relative to the running binary. @exodus/stasis's audit borrows it
@@ -110,4 +111,19 @@ const EXACT_VERSION_RE = /^\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?$/u
 
 export function isExactVersion(version) {
   return typeof version === 'string' && EXACT_VERSION_RE.test(version)
+}
+
+// npm's `semver.valid`: the version as semver spells it, or null for
+// anything that is not one. It normalizes as it goes — `v1.2.3`,
+// ` 1.2.3 ` and `1.2.3+build` all answer `1.2.3` — so a caller that
+// wants the exact spelling compares the answer with what it passed.
+//
+// Without npm's semver this falls back to isExactVersion, which is
+// looser about the spelling (leading zeros, build metadata) but no
+// looser about the characters: digits, dots, `[\w+-]`, nothing that can
+// change a URL's path or a file's directory.
+export function valid(version) {
+  const semver = load()
+  if (semver) return semver.valid(version)
+  return isExactVersion(version) ? version : null
 }

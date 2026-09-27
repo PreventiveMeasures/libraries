@@ -4,8 +4,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { cacheDir } from '../cache.js'
-import { REGISTRY, packageNameRegex } from './registry.js'
-import { isExactVersion } from './semver.js'
+import { REGISTRY, assertPackageName, assertPackageVersion } from './registry.js'
 
 // A published version's tarball, whole, in memory: the `.tgz` bytes as
 // the registry serves them, checked against the `dist.integrity` the
@@ -17,6 +16,8 @@ import { isExactVersion } from './semver.js'
 // that is read, and the full document is megabytes of every other
 // version.
 async function getDist(name, version) {
+  assertPackageName(name)
+  assertPackageVersion(version)
   const res = await fetch(`${REGISTRY}/${name}/${version}`)
   assert.ok(res.ok, `Failed to fetch ${name}@${version} from npm: ${res.status}`)
   const json = await res.json()
@@ -53,8 +54,8 @@ function assertIntegrity(bytes, integrity, what) {
 // without asking the registry anything. A published version's tarball
 // never changes — the registry refuses to take a version twice — so an
 // entry does not expire. The name goes through encodeURIComponent, as in
-// the repo cache, and the version is exact, which keeps it to
-// `[\w.+-]`.
+// the repo cache, and the version is one assertPackageVersion took,
+// which keeps it to `[\w.+-]`.
 const dir = () => (cacheDir() === undefined ? null : join(cacheDir(), 'npm', 'tarballs'))
 const entryBase = (name, version) => join(dir(), `${encodeURIComponent(name)}@${version}`)
 
@@ -108,8 +109,8 @@ async function writeTarballCache(name, version, bytes, integrity) {
 // and only bytes that match the published integrity are written back or
 // returned.
 export async function getTarball(name, version) {
-  assert.ok(packageNameRegex.test(name), `Unexpected package name: ${name}`)
-  assert.ok(isExactVersion(version), `Expected an exact version, got: ${version}`)
+  assertPackageName(name)
+  assertPackageVersion(version)
   const cached = await readTarballCache(name, version)
   if (cached) return cached
   const { tarball, integrity } = await getDist(name, version)
