@@ -30,7 +30,7 @@ export async function readCache(dir, key) {
 export async function readCacheJSON(dir, key) {
   const bytes = await readCache(dir, key)
   try {
-    return bytes === null ? null : JSON.parse(new TextDecoder().decode(bytes))
+    return bytes && JSON.parse(new TextDecoder().decode(bytes))
   } catch {
     return null
   }

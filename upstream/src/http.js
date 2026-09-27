@@ -13,6 +13,8 @@ const ORIGINS = new Set([NPM_REGISTRY, GITHUB_API])
 const isSegment = (value) => typeof value === 'string' && /^(?!\.\.?$)(?:[\w.~@-]|%[\dA-F]{2})+$/u.test(value)
 const isQueryKey = (value) => /^[a-z_]+$/u.test(value)
 const isQueryValue = (value) => (typeof value === 'string' && value !== '') || (Number.isSafeInteger(value) && value >= 0)
+// A line break in a value would start a header of its own.
+const isHeader = ([name, value]) => /^[A-Za-z][\w-]*$/u.test(name) && typeof value === 'string' && /^[ -~]*$/u.test(value)
 // API documents are kilobytes, a GitHub file is at most 100 MB, a tarball
 // is what it is.
 const LIMITS = {
@@ -39,30 +41,17 @@ export function encodeSegment(value) {
 
 export function buildUrl(origin, segments, query = {}) {
   assert.ok(ORIGINS.has(origin), `Unexpected origin: ${origin}`)
-  assert.ok(Array.isArray(segments) && segments.length > 0, 'Expected path segments')
-  for (const segment of segments) assert.ok(isSegment(segment), `Unexpected URL path segment: ${JSON.stringify(segment)}`)
-  const base = `${origin}/${segments.join('/')}`
-  const url = new URL(base)
-  for (const [key, value] of Object.entries(query)) {
-    assert.ok(isQueryKey(key) && isQueryValue(value), `Unexpected query parameter: ${key}`)
-    url.searchParams.set(key, String(value))
-  }
-  const href = url.href
-  assert.ok((href === base || href.startsWith(`${base}?`)) && new URL(href).href === href, `URL changed in parsing: ${base} became ${href}`)
+  assert.ok(segments.length > 0 && segments.every(isSegment), `Unexpected URL path segment in ${JSON.stringify(segments)}`)
+  assert.ok(Object.entries(query).every(([key, value]) => isQueryKey(key) && isQueryValue(value)), `Unexpected query parameter in ${JSON.stringify(query)}`)
+  const search = new URLSearchParams(query).toString()
+  const href = `${origin}/${segments.join('/')}${search && `?${search}`}`
+  assert.equal(new URL(href).href, href, `URL changed in parsing: ${href}`)
   return href
 }
 
 function assertBuilt(url) {
-  assert.equal(typeof url, 'string')
-  const parsed = new URL(url)
-  assert.ok(ORIGINS.has(parsed.origin) && parsed.href === url && !parsed.username && !parsed.password && !parsed.hash, `Unexpected URL: ${printable(url)}`)
-}
-
-// A line break in a value would start a header of its own.
-function assertHeaders(headers) {
-  for (const [name, value] of Object.entries(headers)) {
-    assert.ok(/^[A-Za-z][\w-]*$/u.test(name) && typeof value === 'string' && /^[ -~]*$/u.test(value), `Unexpected header: ${printable(name)}`)
-  }
+  const parsed = typeof url === 'string' ? URL.parse(url) : null
+  assert.ok(parsed?.href === url && ORIGINS.has(parsed.origin) && !parsed.username && !parsed.password && !parsed.hash, `Unexpected URL: ${printable(url)}`)
 }
 
 // Redirects aren't followed unless asked: an answer about another repo is
@@ -72,7 +61,7 @@ export async function send(url, { method = 'GET', headers = {}, body, redirect =
   assert.ok(['GET', 'POST'].includes(method), `Unexpected method: ${method}`)
   assert.ok(['manual', 'follow'].includes(redirect), `Unexpected redirect mode: ${redirect}`)
   assert.ok(Object.hasOwn(LIMITS, as), `Unexpected response type: ${as}`)
-  assertHeaders(headers)
+  assert.ok(Object.entries(headers).every(isHeader), 'Unexpected header')
   const json = body === undefined ? {} : { headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
   return await fetch(url, { method, headers, redirect, signal: AbortSignal.timeout(LIMITS[as].ms), ...json })
 }

@@ -41,12 +41,8 @@ async function headCommit(gitDir, commonDir) {
   if (!isRefName(ref)) return null
   const loose = (await read(join(commonDir, ...ref.split('/'))))?.trim()
   if (isSha(loose)) return loose
-  const packed = await read(join(commonDir, 'packed-refs'))
-  for (const line of packed?.split('\n') ?? []) {
-    const [sha, name, ...rest] = line.trim().split(' ')
-    if (name === ref && rest.length === 0 && isSha(sha)) return sha
-  }
-  return null
+  const lines = (await read(join(commonDir, 'packed-refs')))?.split('\n').map((line) => line.trim().split(' ')) ?? []
+  return lines.find(([sha, name, ...rest]) => name === ref && rest.length === 0 && isSha(sha))?.[0] ?? null
 }
 
 async function originGitHub(commonDir) {

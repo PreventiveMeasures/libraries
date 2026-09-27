@@ -4,6 +4,7 @@ import { assertArgs, assertToken, assertTokenOrNull, assertUserAgent, optional }
 import { GITHUB_API, buildUrl, request } from '../http.js'
 
 export const api = (segments, query) => buildUrl(GITHUB_API, segments, query)
+export const repoApi = (repo, segments, query) => api(['repos', ...repo.split('/'), ...segments], query)
 export const call = (headers, url, options) => request(url, { as: 'json', headers, ...options })
 
 // `null` is explicit anonymous access, so a forgotten token is an error.

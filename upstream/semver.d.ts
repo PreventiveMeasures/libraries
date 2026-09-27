@@ -2,7 +2,7 @@
 
 // npm's own semver, borrowed from the npm beside node and passed through
 // as it is. Without it, which semverAvailable() reports, every call
-// throws, except valid() on a plain MAJOR.MINOR.PATCH.
+// throws, except valid() on a plain MAJOR.MINOR.PATCH with no options.
 export function semverAvailable(): boolean
 export function satisfies(version: string, range: string, options?: { includePrerelease?: boolean; loose?: boolean }): boolean
 export function compareVersions(a: string, b: string): -1 | 0 | 1

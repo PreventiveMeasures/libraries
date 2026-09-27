@@ -46,6 +46,12 @@ describe('valid', () => {
     for (const version of [undefined, null, 42, ['1.2.3']]) assert.equal(valid(version), semver.valid(version), String(version))
   })
 
+  it('answers what semver.valid answers with options too, invalid ones included', () => {
+    for (const options of [{}, { loose: true }, { includePrerelease: true }, true, false, 'loose', 42, null]) {
+      for (const version of EDGES) assert.equal(valid(version, options), semver.valid(version, options), `${JSON.stringify(version)} ${JSON.stringify(options)}`)
+    }
+  })
+
   it('counts as exact only what semver spells unchanged', () => {
     for (const version of ['1.2.3', '0.0.0', '1.2.3-rc.1', '1.2.3-beta.2']) assert.equal(isExactVersion(version), true, version)
     for (const version of ['v1.2.3', ' 1.2.3', '1.2.3+build.5', '01.2.3', '1.2', '^1.2.3', '', 123, undefined]) assert.equal(isExactVersion(version), false, String(version))

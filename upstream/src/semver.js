@@ -16,7 +16,8 @@ const CANDIDATE_PATHS = [
 const USED = ['compare', 'satisfies', 'valid']
 // Plain releases that semver.valid answers unchanged, so it need not be
 // loaded for them: no leading zeros, and at most 15 digits a part, under
-// Number.MAX_SAFE_INTEGER. Anything else goes to semver.
+// Number.MAX_SAFE_INTEGER. Anything else, or any call with options, goes
+// to semver.
 const PLAIN_RELEASE = /^(?:0|[1-9]\d{0,14})\.(?:0|[1-9]\d{0,14})\.(?:0|[1-9]\d{0,14})$/u
 
 // `undefined`: not looked for yet; `null`: not there.
@@ -48,6 +49,6 @@ function semver() {
 export const semverAvailable = () => lookUp() !== null
 export const satisfies = (...args) => semver().satisfies(...args)
 export const compareVersions = (...args) => semver().compare(...args)
-export const valid = (version, ...rest) => (typeof version === 'string' && PLAIN_RELEASE.test(version) ? version : semver().valid(version, ...rest))
+export const valid = (version, ...rest) => (rest.length === 0 && typeof version === 'string' && PLAIN_RELEASE.test(version) ? version : semver().valid(version, ...rest))
 // Spelled exactly as semver spells it: not `v1.2.3`, not `1.2.3+build`.
 export const isExactVersion = (version) => typeof version === 'string' && valid(version) === version

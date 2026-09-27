@@ -11,16 +11,12 @@ const DIR = 'npm/repos'
 const TTL_MS = 30 * 24 * 60 * 60 * 1000
 const CONCURRENCY = 8
 
-// `latest`, not the full packument, which is megabytes of version history.
-async function getShortInfo(name) {
-  const json = await request(buildUrl(NPM_REGISTRY, [...name.split('/'), 'latest']), { as: 'json' })
-  assert.ok(json?.name === name, `getGitHub: the registry answered for ${show(json?.name)}, not ${name}`)
-  return json
-}
-
 export async function getGitHub(name) {
   assertPackageName('getGitHub', 'name', name)
-  const link = getRepo(await getShortInfo(name))
+  // `latest`, not the full packument, which is megabytes of version history.
+  const json = await request(buildUrl(NPM_REGISTRY, [...name.split('/'), 'latest']), { as: 'json' })
+  assert.ok(json?.name === name, `getGitHub: the registry answered for ${show(json?.name)}, not ${name}`)
+  const link = getRepo(json)
   assert.ok(link.github, `getGitHub: no GitHub repo for ${name}`)
   return link
 }

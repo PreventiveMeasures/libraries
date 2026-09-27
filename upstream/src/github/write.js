@@ -6,7 +6,7 @@ import {
   optional, printable,
 } from '../args.js'
 import { readBody, send } from '../http.js'
-import { api, bindMethods, call, clientHeaders } from './client.js'
+import { api, bindMethods, call, clientHeaders, repoApi } from './client.js'
 import { getRepoHead, readMethods } from './read.js'
 
 const CREATE_COMMIT_MUTATION = `mutation($input: CreateCommitOnBranchInput!) {
@@ -86,14 +86,14 @@ async function forkRepo(headers, options) {
   assertArgs('forkRepo', options, { repo: assertRepo, name: optional(assertRepoName), organization: optional(assertLogin), defaultBranchOnly: optional(assertBoolean) })
   const { repo, name, organization, defaultBranchOnly } = options
   const body = { ...(name && { name }), ...(organization && { organization }), ...(defaultBranchOnly && { default_branch_only: true }) }
-  return await call(headers, api(['repos', ...repo.split('/'), 'forks']), { method: 'POST', body })
+  return await call(headers, repoApi(repo, ['forks']), { method: 'POST', body })
 }
 
 async function createBranch(headers, options) {
   assertArgs('createBranch', options, { repo: assertRepo, branch: assertRef, oid: optional(assertSha) })
   const { repo, branch } = options
   const sha = options.oid ?? (await getRepoHead(headers, { repo })).oid
-  return await call(headers, api(['repos', ...repo.split('/'), 'git', 'refs']), { method: 'POST', body: { ref: `refs/heads/${branch}`, sha } })
+  return await call(headers, repoApi(repo, ['git', 'refs']), { method: 'POST', body: { ref: `refs/heads/${branch}`, sha } })
 }
 
 async function createCommit(headers, options) {
@@ -109,7 +109,7 @@ async function createPR(headers, options) {
   assertArgs('createPR', options, { repo: assertRepo, title: assertLine, body: optional(assertText), head: assertHead, base: assertRef, draft: optional(assertBoolean) })
   const { repo, title, body, head, base, draft } = options
   const payload = { title, head, base, ...(body && { body }), ...(draft && { draft: true }) }
-  return await call(headers, api(['repos', ...repo.split('/'), 'pulls']), { method: 'POST', body: payload })
+  return await call(headers, repoApi(repo, ['pulls']), { method: 'POST', body: payload })
 }
 
 export const createWriteClient = (options) => bindMethods(clientHeaders('createWriteClient', options, false), { ...readMethods, forkRepo, createBranch, createCommit, createPR })

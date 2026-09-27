@@ -20,6 +20,7 @@ describe('without npm beside node', () => {
     assert.throws(() => compareVersions('1.0.0', '1.0.1'), /no npm beside node/u)
     assert.throws(() => valid('1.2.3-rc.1'), /no npm beside node/u)
     assert.throws(() => valid('v1.2.3'), /no npm beside node/u)
+    assert.throws(() => valid('1.2.3', { loose: true }), /no npm beside node/u)
   })
 
   it('still answers a plain release, which needs no semver', () => {

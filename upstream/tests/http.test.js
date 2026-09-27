@@ -36,7 +36,7 @@ describe('buildUrl', () => {
     assert.throws(() => buildUrl(GITHUB_API, ['x'], { ref: '' }), /Unexpected query parameter/u)
     assert.throws(() => buildUrl(GITHUB_API, ['x'], { page: -1 }), /Unexpected query parameter/u)
     assert.throws(() => buildUrl(GITHUB_API, ['x'], { ref: ['a'] }), /Unexpected query parameter/u)
-    assert.throws(() => buildUrl(GITHUB_API, []), /Expected path segments/u)
+    assert.throws(() => buildUrl(GITHUB_API, []), /Unexpected URL path segment in \[\]/u)
   })
 })
 
@@ -136,7 +136,7 @@ describe('limits', () => {
 
   it('refuses a header name or value that could split the request', async () => {
     globalThis.fetch = () => assert.fail('no request expected')
-    await assert.rejects(send(`${GITHUB_API}/x`, { as: 'json', headers: { 'X-A': 'b\r\nX-Evil: 1' } }), /Unexpected header: X-A/u)
+    await assert.rejects(send(`${GITHUB_API}/x`, { as: 'json', headers: { 'X-A': 'b\r\nX-Evil: 1' } }), /Unexpected header/u)
     await assert.rejects(send(`${GITHUB_API}/x`, { as: 'json', headers: { 'X A': 'b' } }), /Unexpected header/u)
     await assert.rejects(send(`${GITHUB_API}/x`, { as: 'json', headers: { 'X-A': 42 } }), /Unexpected header/u)
   })
