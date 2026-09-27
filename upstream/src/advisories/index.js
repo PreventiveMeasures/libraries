@@ -31,8 +31,8 @@ function collect(packages) {
 }
 
 export async function advisories(packages, options = {}) {
-  assertArgs('advisories', options, { github: optional(assertClient), lookUpRepos: optional(assertBoolean) })
-  assert.ok(!options.lookUpRepos || options.github, 'advisories: lookUpRepos needs a github client')
+  assertArgs('advisories', options, { github: optional(assertClient), repoAdvisories: optional(assertBoolean) })
+  assert.ok(!options.repoAdvisories || options.github, 'advisories: repoAdvisories needs a github client')
   const byEcosystem = collect(packages)
   assert.ok(!byEcosystem.has('github') || options.github, 'advisories: github packages need a github client')
   const found = await Promise.all([...byEcosystem].map(async ([ecosystem, named]) => {
@@ -40,7 +40,7 @@ export async function advisories(packages, options = {}) {
     const names = [...named.keys()].toSorted()
     const asked = new Map(names.map((name) => [name, [...named.get(name).versions].toSorted(compare)]))
     const known = new Map(names.filter((name) => named.get(name).github).map((name) => [name, named.get(name).github]))
-    const rows = await lookUp(asked, { github: options.github, lookUpRepos: options.lookUpRepos === true, known })
+    const rows = await lookUp(asked, { github: options.github, repoAdvisories: options.repoAdvisories === true, known })
     return rows.map((row) => ({ ecosystem, ...row }))
   }))
   return found.flat().filter((row) => row.versions.length > 0).toSorted((a, b) => order(a.ecosystem, b.ecosystem) || order(a.name, b.name))

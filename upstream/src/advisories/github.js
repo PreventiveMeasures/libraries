@@ -65,14 +65,14 @@ async function repositoryAdvisories(github, asked, { repoOf, takes = () => true,
 }
 
 // A maintainer's advisory is on the repository before GitHub reviews it
-// into the databases the registries answer from. With a client, the
-// repositories `known` for the packages, and with `lookUpRepos` every
-// other package's too, add what they publish that `rows` do not have, for
-// GitHub's `ecosystem` entries naming the package.
-export async function withRepositories(rows, asked, { github, lookUpRepos, known }, { ecosystem, lookUp, covers }) {
-  if (!github) return rows
+// into the databases the registries answer from. With `repoAdvisories`,
+// each package's repository, `known` or else looked up, adds what it
+// publishes that `rows` do not have, for GitHub's `ecosystem` entries
+// naming the package.
+export async function withRepositories(rows, asked, { github, repoAdvisories, known }, { ecosystem, lookUp, covers }) {
+  if (!repoAdvisories) return rows
   const reported = new Set(rows.flatMap((row) => [row.id, row.ghsa, ...row.aliases].filter(isGhsa).map((id) => `${row.name} ${id}`)))
-  const found = lookUpRepos ? await lookUp([...asked.keys()].filter((name) => !known.has(name))) : new Map()
+  const found = await lookUp([...asked.keys()].filter((name) => !known.has(name)))
   const repoOf = (name) => known.get(name) ?? found.get(name)
   const takes = (name, pkg, advisory) => pkg?.ecosystem === ecosystem && pkg.name === name && !reported.has(`${name} ${advisory.ghsa_id}`)
   return [...rows, ...await repositoryAdvisories(github, asked, { repoOf, takes, covers })]

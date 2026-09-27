@@ -14,8 +14,8 @@ export interface Package {
   // `github`, the repository `owner/name` itself.
   name: string
   // Its GitHub repository, where the caller knows it (package.json,
-  // Cargo.toml, installed.json); not for `github` packages, which are
-  // their own.
+  // Cargo.toml, installed.json), for `repoAdvisories` to ask without
+  // looking it up; not for `github` packages, which are their own.
   github?: RepoName
   // npm and `github`: semver; `github` also takes a branch name or 0.0.0,
   // which every range covers. cargo: semver, build metadata allowed.
@@ -25,15 +25,16 @@ export interface Package {
 }
 
 export interface AdvisoryOptions {
-  // Asks the packages' GitHub repositories for their published advisories,
-  // which they have before GitHub reviews them into the databases below.
-  // Only repositories that are known are asked: a package's `github`, and
-  // `github` packages. Required for `github` packages.
+  // The client every GitHub request goes through. Required for `github`
+  // packages, whose repository's published advisories are their only
+  // source, and for `repoAdvisories`; by itself it asks nothing else.
   github?: Client
-  // Also looks every other package's repository up, from npm's metadata,
-  // crates.io or Packagist, through the cache, and asks it too. Needs
-  // `github`.
-  lookUpRepos?: boolean
+  // Also asks each npm, cargo and composer package's GitHub repository
+  // for its published advisories, which it has before GitHub reviews them
+  // into the databases above: the package's `github` where given, else
+  // the one npm's metadata, crates.io or Packagist names, looked up
+  // through the cache. Needs `github`.
+  repoAdvisories?: boolean
 }
 
 // One advisory on one package, with the versions asked about that it

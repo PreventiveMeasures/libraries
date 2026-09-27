@@ -56,7 +56,7 @@ describe('advisories', () => {
       await assert.rejects(advisories([ok, pkg]), error, JSON.stringify(pkg))
     }
     await assert.rejects(advisories([{ ...ok, github: 'acme/a' }, { ...ok, github: 'acme/b' }]), /advisories: lodash is given two repositories/u)
-    await assert.rejects(advisories([ok], { lookUpRepos: true }), /advisories: lookUpRepos needs a github client/u)
+    await assert.rejects(advisories([ok], { repoAdvisories: true }), /advisories: repoAdvisories needs a github client/u)
     await assert.rejects(advisories([{ ecosystem: 'github', name: 'acme/app', versions: ['1.0.0'] }]), /advisories: github packages need a github client/u)
     await assert.rejects(advisories([ok], { github: {} }), /advisories: github must be a GitHub client from createClient/u)
     await assert.rejects(advisories([ok], { gitHub: {} }), /advisories: unknown option gitHub/u)
@@ -202,7 +202,7 @@ describe('npm, with a GitHub client', () => {
       { name: 'mono-a', version: '1.0.0' },
       { name: 'mono-a', version: '2.0.5' },
       { name: 'mono-b', version: '4.0.0' },
-    ], { github, lookUpRepos: true })
+    ], { github, repoAdvisories: true })
     const common = { ecosystem: 'npm', source: 'repository', aliases: [], severity: 'moderate', cvss: 6.1, cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N', cwe: ['CWE-79'] }
     assert.deepEqual(found, [
       { ...common, name: 'mono-a', id: 'GHSA-bbbb-bbbb-bbbb', ghsa: 'GHSA-bbbb-bbbb-bbbb', title: 'Advisory GHSA-bbbb-bbbb-bbbb', range: '>= 1.0.0, < 1.2.6', versions: ['1.0.0'] },
@@ -213,50 +213,51 @@ describe('npm, with a GitHub client', () => {
     ])
   })
 
-  it('asks only the repositories given, unless told to look the rest up, and each once', async () => {
+  it('asks no repository without repoAdvisories, and with it, one given as is and the rest looked up, each once', async () => {
     const answers = { repos: { 'mono-a': 'acme/mono', 'mono-b': 'acme/mono' }, github: { [REPO_ADVISORIES]: [], [GIVEN]: [] } }
     const packages = [{ name: 'mono-a', version: '1.0.0' }, { name: 'mono-b', version: '1.0.0' }, { name: 'given', version: '1.0.0', github: 'acme/given' }]
     let calls = stubAll(answers)
     assert.deepEqual(await npm(packages, { github }), [])
-    assert.deepEqual(calls.filter((url) => url !== BULK), [GIVEN])
+    assert.deepEqual(calls, [BULK])
     calls = stubAll(answers)
-    assert.deepEqual(await npm([...packages, { name: 'norepo', version: '1.0.0' }], { github, lookUpRepos: true }), [])
+    assert.deepEqual(await npm([...packages, { name: 'norepo', version: '1.0.0' }], { github, repoAdvisories: true }), [])
     assert.deepEqual(calls.filter((url) => url.startsWith('https://registry.npmjs.org/') && url !== BULK).toSorted(), ['mono-a', 'mono-b', 'norepo'].map((name) => `https://registry.npmjs.org/${name}/latest`))
     assert.deepEqual(calls.filter((url) => url.startsWith('https://api.github.com/')).toSorted(), [GIVEN, REPO_ADVISORIES])
   })
 
   it('skips a repository gone, renamed or blocked, and throws on any other failure', async () => {
     const one = [{ name: 'mono-a', version: '1.0.0', github: 'acme/mono' }]
+    const options = { github, repoAdvisories: true }
     for (const status of [301, 404, 410, 451]) {
       const answer = status === 301 ? new Response('', { status, headers: { location: 'https://api.github.com/repositories/1' } }) : Response.json({ message: 'x' }, { status })
       stubAll({ github: { [REPO_ADVISORIES]: answer } })
-      assert.deepEqual(await npm(one, { github }), [], String(status))
+      assert.deepEqual(await npm(one, options), [], String(status))
     }
     for (const status of [403, 500]) {
       stubAll({ github: { [REPO_ADVISORIES]: Response.json({ message: 'x' }, { status }) } })
-      await assert.rejects(npm(one, { github }), (err) => err instanceof HttpError && err.status === status, String(status))
+      await assert.rejects(npm(one, options), (err) => err instanceof HttpError && err.status === status, String(status))
     }
     stubAll({ github: { [REPO_ADVISORIES]: [{ ghsa_id: 'GHSA-aaaa-aaaa-aaaa', state: 'draft', summary: 'x' }] } })
-    await assert.rejects(npm(one, { github }), /advisories: malformed advisory from acme\/mono/u)
+    await assert.rejects(npm(one, options), /advisories: malformed advisory from acme\/mono/u)
     stubAll({ github: { [REPO_ADVISORIES]: Array.from({ length: 100 }, (_, i) => repoAdvisory(`GHSA-aaaa-aaaa-${String(i).padStart(4, '2')}`, [])) } })
-    await assert.rejects(npm(one, { github }), /listRepoAdvisories: acme\/mono has 100 or more published advisories/u)
+    await assert.rejects(npm(one, options), /listRepoAdvisories: acme\/mono has 100 or more published advisories/u)
   })
 
   it("throws when a package's repository cannot be looked up, and skips one the registry does not have", async () => {
     const one = [{ name: 'mono-a', version: '1.0.0' }]
     stubAll({ repos: {} })
-    assert.deepEqual(await npm(one, { github, lookUpRepos: true }), [])
+    assert.deepEqual(await npm(one, { github, repoAdvisories: true }), [])
     for (const status of [429, 500]) {
       const calls = []
       globalThis.fetch = (url) => {
         calls.push(String(url))
         return Promise.resolve(String(url) === BULK ? Response.json({}) : Response.json({ error: 'x' }, { status }))
       }
-      await assert.rejects(npm(one, { github, lookUpRepos: true }), (err) => err instanceof HttpError && err.status === status, String(status))
+      await assert.rejects(npm(one, { github, repoAdvisories: true }), (err) => err instanceof HttpError && err.status === status, String(status))
       assert.deepEqual(calls, [BULK, 'https://registry.npmjs.org/mono-a/latest'])
     }
     globalThis.fetch = (url) => Promise.resolve(String(url) === BULK ? Response.json({}) : Response.json({ name: 'other' }))
-    await assert.rejects(npm(one, { github, lookUpRepos: true }), /lookUpPackageRepo: the registry answered for "other", not mono-a/u)
+    await assert.rejects(npm(one, { github, repoAdvisories: true }), /lookUpPackageRepo: the registry answered for "other", not mono-a/u)
   })
 })
 

@@ -269,7 +269,7 @@ describe('cargo and composer, with a GitHub client', () => {
         ],
       },
     })
-    const found = await cargo([{ name: 'smallvec', version: '1.6.0' }, { name: 'local-only', version: '0.1.0' }, { name: 'not-on-crates-io', version: '1.0.0' }], { github, lookUpRepos: true })
+    const found = await cargo([{ name: 'smallvec', version: '1.6.0' }, { name: 'local-only', version: '0.1.0' }, { name: 'not-on-crates-io', version: '1.0.0' }], { github, repoAdvisories: true })
     assert.deepEqual(found.map(({ source, id, range, versions }) => [source, id, range, versions]), [
       ['osv', 'RUSTSEC-2021-0003', undefined, ['1.6.0']],
       ['repository', 'GHSA-bbbb-bbbb-bbbb', '>= 1.0.0, < 1.7.0', ['1.6.0']],
@@ -281,14 +281,14 @@ describe('cargo and composer, with a GitHub client', () => {
     assert.deepEqual(calls.filter(({ url }) => url.startsWith('https://api.github.com/')).map(({ url }) => url), [listing('servo/rust-smallvec')])
   })
 
-  it('asks a repository given without looking it up, and none by default otherwise', async () => {
+  it('asks a repository given without looking it up, and none without repoAdvisories', async () => {
     const answers = { crates: { smallvec: 'https://github.com/servo/rust-smallvec' }, listings: { 'acme/fork': [repoAdvisory('GHSA-bbbb-bbbb-bbbb', [vuln('rust', 'smallvec', '< 9.0.0')])] } }
     let calls = stubAll(answers)
-    const found = await cargo([{ name: 'smallvec', version: '1.6.0', github: 'acme/fork' }], { github, lookUpRepos: true })
+    const found = await cargo([{ name: 'smallvec', version: '1.6.0', github: 'acme/fork' }], { github, repoAdvisories: true })
     assert.deepEqual(found.map(({ id }) => id), ['GHSA-bbbb-bbbb-bbbb'])
     assert.deepEqual(calls.filter(({ url }) => url !== BATCH).map(({ url }) => url), [listing('acme/fork')])
     calls = stubAll(answers)
-    assert.deepEqual(await cargo([{ name: 'smallvec', version: '1.6.0' }], { github }), [])
+    assert.deepEqual(await cargo([{ name: 'smallvec', version: '1.6.0', github: 'acme/fork' }], { github }), [])
     assert.deepEqual(calls.map(({ url }) => url), [BATCH])
   })
 
@@ -305,7 +305,7 @@ describe('cargo and composer, with a GitHub client', () => {
         ],
       },
     })
-    const found = await composer([{ name: 'monolog/monolog', version: 'v1.2.3' }, { name: 'monolog/monolog', version: '1.2.3.4' }, { name: 'acme/private', version: '1.0.0' }], { github, lookUpRepos: true })
+    const found = await composer([{ name: 'monolog/monolog', version: 'v1.2.3' }, { name: 'monolog/monolog', version: '1.2.3.4' }, { name: 'acme/private', version: '1.0.0' }], { github, repoAdvisories: true })
     assert.deepEqual(found.map(({ source, id, severity, versions }) => [source, id, severity, versions]), [
       ['osv', 'GHSA-f57v-q966-7fh6', undefined, ['v1.2.3']],
       ['repository', 'GHSA-bbbb-bbbb-bbbb', 'moderate', ['1.2.3.4', 'v1.2.3']],
@@ -319,7 +319,7 @@ describe('cargo and composer, with a GitHub client', () => {
 
   it('throws when a repository cannot be looked up, or an answer is about something not asked', async () => {
     const one = [{ name: 'smallvec', version: '1.6.0' }]
-    const options = { github, lookUpRepos: true }
+    const options = { github, repoAdvisories: true }
     stubAll({ crates: Response.json({ errors: [] }, { status: 500 }) })
     await assert.rejects(cargo(one, options), { name: 'HttpError', status: 500 })
     stubAll({ crates: { smallvec: 'https://github.com/servo/rust-smallvec' } })
@@ -342,9 +342,9 @@ describe('cargo and composer, with a GitHub client', () => {
       setCacheDir(dir)
       const answers = { crates: { smallvec: 'https://github.com/servo/rust-smallvec' }, listings: { 'servo/rust-smallvec': [] } }
       stubAll(answers)
-      await cargo([{ name: 'smallvec', version: '1.6.0' }], { github, lookUpRepos: true })
+      await cargo([{ name: 'smallvec', version: '1.6.0' }], { github, repoAdvisories: true })
       const calls = stubAll({ ...answers, crates: Response.json({}, { status: 500 }) })
-      await cargo([{ name: 'smallvec', version: '1.6.0' }], { github, lookUpRepos: true })
+      await cargo([{ name: 'smallvec', version: '1.6.0' }], { github, repoAdvisories: true })
       assert.deepEqual(calls.filter(({ url }) => url.startsWith(CRATES)), [])
       assert.equal(calls.filter(({ url }) => url === listing('servo/rust-smallvec')).length, 1)
     })
