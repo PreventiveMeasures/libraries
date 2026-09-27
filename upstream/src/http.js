@@ -11,6 +11,7 @@ export const GITHUB_API = 'https://api.github.com'
 export const OSV_API = 'https://api.osv.dev'
 export const CRATES_API = 'https://crates.io'
 export const PACKAGIST_REPO = 'https://repo.packagist.org'
+export const MAX_BYTES = 512 * 1024 * 1024
 
 const ORIGINS = new Set([NPM_REGISTRY, GITHUB_API, OSV_API, CRATES_API, PACKAGIST_REPO])
 const isSegment = matches(/^(?!\.\.?$)(?:[\w.~@-]|%[\dA-F]{2})+$/u)
@@ -20,13 +21,12 @@ const isQueryValue = (value) => (typeof value === 'string' && value !== '') || (
 const isQuery = ([key, value]) => isQueryKey(key) && (key.endsWith('[]') ? Array.isArray(value) && value.length > 0 && value.every(isQueryValue) : isQueryValue(value))
 // A line break in a value would start a header of its own.
 const isHeader = ([name, value]) => /^[A-Za-z][\w-]*$/u.test(name) && matches(/^[ -~]*$/u)(value)
-const decoder = new TextDecoder('utf-8', { fatal: true })
-
-export const LIMITS = {
+const LIMITS = {
   json: { bytes: 64 * 1024 * 1024, ms: 30_000 },
   text: { bytes: 128 * 1024 * 1024, ms: 30_000 },
-  bytes: { bytes: 512 * 1024 * 1024, ms: 300_000 },
+  bytes: { bytes: MAX_BYTES, ms: 300_000 },
 }
+const decoder = new TextDecoder('utf-8', { fatal: true })
 
 export class HttpError extends Error {
   constructor(status, message) {
