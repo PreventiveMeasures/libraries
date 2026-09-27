@@ -3,10 +3,11 @@
 // Every method checks its arguments hard before any request is built:
 // an options object holding only the keys listed here, a repo that is
 // `owner/name` by GitHub's rules, branches and tags that git would take,
-// full commit shas, paths with no empty, `.` or `..` component. A bad
-// one is a rejection naming the method; nothing is sent. Redirects are
-// refused, except the tarball's, so an answer is about the repo asked
-// for.
+// full commit shas, paths with no empty, `.` or `..` component, titles
+// and headlines on one line. A bad one is a rejection naming the method;
+// nothing is sent. Every URL is built from checked, encoded segments and
+// has to come back out of URL parsing unchanged. Redirects are refused,
+// except the tarball's, so an answer is about the repo asked for.
 
 // `owner/name`.
 export type RepoName = string
@@ -21,8 +22,8 @@ export interface ClientOptions {
 export type PullRequestStatus = 'open' | 'draft' | 'closed' | 'merged'
 
 // A failed request: `status` is the HTTP status GitHub answered with.
-export class GitHubError extends Error {
-  name: 'GitHubError'
+export class HttpError extends Error {
+  name: 'HttpError'
   status: number
 }
 

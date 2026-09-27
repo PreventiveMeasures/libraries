@@ -3,7 +3,7 @@
 
 import type { Client, RepoName } from '../github.js'
 
-export { GitHubError } from '../github.js'
+export { HttpError } from '../github.js'
 
 export interface WriteClientOptions {
   // Never anonymous.

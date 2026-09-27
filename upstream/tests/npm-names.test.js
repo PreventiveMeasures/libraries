@@ -34,21 +34,26 @@ describe('before any request to npm', () => {
   it('getGitHub refuses a malformed name', async () => {
     const calls = forbidRequests()
     for (const name of BAD_NAMES) {
-      await assert.rejects(getGitHub(name), /Unexpected package name/u, String(name))
+      await assert.rejects(getGitHub(name), /name must be an npm package name/u, String(name))
     }
     assert.deepEqual(calls, [])
   })
 
-  it('resolvePackageRepos leaves a malformed name out, unasked', async () => {
+  it('resolvePackageRepos refuses a malformed name, and the batch with it, unasked', async () => {
     const calls = forbidRequests()
-    assert.deepEqual([...await resolvePackageRepos(BAD_NAMES)], [])
+    for (const name of BAD_NAMES) {
+      await assert.rejects(resolvePackageRepos(['lodash', name]), /resolvePackageRepos: name must be an npm package name/u, String(name))
+    }
+    await assert.rejects(resolvePackageRepos('lodash'), /packageNames must be an iterable of names/u)
+    await assert.rejects(resolvePackageRepos(['lodash'], { cached: true }), /resolvePackageRepos: unknown option cached/u)
+    await assert.rejects(resolvePackageRepos(['lodash'], { cachedOnly: 'yes' }), /cachedOnly must be a boolean/u)
     assert.deepEqual(calls, [])
   })
 
   it('getTarball refuses a malformed name', async () => {
     const calls = forbidRequests()
     for (const name of BAD_NAMES) {
-      await assert.rejects(getTarball(name, '1.0.0'), /Unexpected package name/u, String(name))
+      await assert.rejects(getTarball(name, '1.0.0'), /name must be an npm package name/u, String(name))
     }
     assert.deepEqual(calls, [])
   })
@@ -56,7 +61,7 @@ describe('before any request to npm', () => {
   it('getTarball refuses a version semver does not spell exactly so', async () => {
     const calls = forbidRequests()
     for (const version of BAD_VERSIONS) {
-      await assert.rejects(getTarball('lodash', version), /Unexpected package version/u, String(version))
+      await assert.rejects(getTarball('lodash', version), /version must be an exact semver version/u, String(version))
     }
     assert.deepEqual(calls, [])
   })

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
 
-import { GitHubError, createClient } from '../github.js'
+import { HttpError, createClient } from '../github.js'
 import { SHA, forbidRequests, json, stubGitHub } from './github-stub.js'
 
 const realFetch = globalThis.fetch
@@ -15,9 +15,9 @@ const client = () => createClient({ token: 't0ken' })
 describe('createClient', () => {
   it('needs a token, or null for an anonymous client', () => {
     for (const options of [{}, { token: undefined }, { token: '' }, { token: 'a b' }, { token: 't\n' }, { token: 42 }]) {
-      assert.throws(() => createClient(options), /createClient: token must be a non-empty string, or null/u, JSON.stringify(options))
+      assert.throws(() => createClient(options), /createClient: token must be a token, or null for anonymous access/u, JSON.stringify(options))
     }
-    assert.throws(() => createClient(), /createClient: expected an options object/u)
+    assert.throws(() => createClient(), /createClient: options must be an options object/u)
     assert.throws(() => createClient({ token: 't', usrAgent: 'x' }), /createClient: unknown option usrAgent/u)
     assert.throws(() => createClient({ token: 't', userAgent: '' }), /userAgent must be/u)
   })
@@ -63,16 +63,16 @@ describe('arguments, before any request', () => {
     const calls = forbidRequests()
     const bad = ['octocat', 'a/b/c', '../x', 'a/..', 'a/.', 'git.hub/x', '-acme/x', 'acme-/x', 'ac--me/x', `${'a'.repeat(40)}/x`, `a/${'x'.repeat(101)}`, 'a/b?c', 'a/b#c', 'a/b c', '', undefined, ['acme/app']]
     for (const repo of bad) {
-      await assert.rejects(client().getRepo({ repo }), /getRepo: expected "owner\/name"/u, String(repo))
+      await assert.rejects(client().getRepo({ repo }), /getRepo: repo must be "owner\/name"/u, String(repo))
     }
     assert.deepEqual(calls, [])
   })
 
-  it('refuses what is not an options object, an unknown option, or an argument too many', async () => {
+  it('refuses what must be an options object, an unknown option, or an argument too many', async () => {
     const calls = forbidRequests()
-    await assert.rejects(client().getRepo(), /getRepo: expected an options object/u)
-    await assert.rejects(client().getRepo('acme/app'), /getRepo: expected an options object/u)
-    await assert.rejects(client().getRepo(null), /getRepo: expected an options object/u)
+    await assert.rejects(client().getRepo(), /getRepo: options must be an options object/u)
+    await assert.rejects(client().getRepo('acme/app'), /getRepo: options must be an options object/u)
+    await assert.rejects(client().getRepo(null), /getRepo: options must be an options object/u)
     await assert.rejects(client().getRepoHead({ repo: 'acme/app', brnach: 'main' }), /getRepoHead: unknown option brnach/u)
     await assert.rejects(client().getRepo({ repo: 'acme/app' }, {}), /getRepo: unexpected arguments/u)
     await assert.rejects(client().getCurrentUser({}), /getCurrentUser: unexpected arguments/u)
@@ -82,19 +82,19 @@ describe('arguments, before any request', () => {
 })
 
 describe('responses', () => {
-  it('throws a GitHubError with the status and body of a failed request', async () => {
+  it('throws a HttpError with the status and body of a failed request', async () => {
     stubGitHub(() => new Response('{"message":"Not Found"}', { status: 404 }))
     await assert.rejects(client().getCurrentUser(), (err) => {
-      assert.ok(err instanceof GitHubError)
+      assert.ok(err instanceof HttpError)
       assert.equal(err.status, 404)
-      assert.equal(err.message, 'GitHub GET /user 404: {"message":"Not Found"}')
+      assert.equal(err.message, 'GET https://api.github.com/user 404: {"message":"Not Found"}')
       return true
     })
   })
 
   it('refuses a redirect rather than following it to another repo', async () => {
     const calls = stubGitHub(() => new Response('', { status: 301, headers: { location: 'https://api.github.com/repositories/1' } }))
-    await assert.rejects(client().getRepo({ repo: 'acme/old-name' }), { name: 'GitHubError', status: 301 })
+    await assert.rejects(client().getRepo({ repo: 'acme/old-name' }), { name: 'HttpError', status: 301 })
     assert.equal(calls[0].redirect, 'manual')
   })
 })
@@ -128,10 +128,10 @@ describe('getRepoHead', () => {
     ])
   })
 
-  it('refuses a branch git would not take, and an answer that is not a full sha', async () => {
+  it('refuses a branch git would not take, and an answer that must be a full sha', async () => {
     const calls = forbidRequests()
     for (const branch of ['', 'a..b', 'a b', 'a~1', 'a^', 'a:b', 'a?', 'a*', 'a[b', 'a\\b', '/a', 'a/', 'a//b', '.a', 'a/.b', 'a.lock', 'a.', '@', '-a', 'a@{1}', 'a\u0000b', 42]) {
-      await assert.rejects(client().getRepoHead({ repo: 'acme/app', branch }), /getRepoHead: branch is not a branch or tag name/u, JSON.stringify(branch))
+      await assert.rejects(client().getRepoHead({ repo: 'acme/app', branch }), /getRepoHead: branch must be a branch or tag name/u, JSON.stringify(branch))
     }
     assert.deepEqual(calls, [])
     stubGitHub(() => json({ object: { sha: 'abc123' } }))
@@ -149,12 +149,20 @@ describe('getRepoFile', () => {
     assert.equal(calls[1].url, `https://api.github.com/repos/acme/app/contents/a.txt?ref=${SHA}`)
   })
 
+  it('encodes what URL parsing would otherwise read: a `%2e%2e`, a `#`, a `?`', async () => {
+    const calls = stubGitHub(() => new Response('x'))
+    await client().getRepoFile({ repo: 'acme/app', path: '%2e%2e/a#b?c/(d)', ref: 'feat/a#b' })
+    assert.equal(calls[0].url, 'https://api.github.com/repos/acme/app/contents/%252e%252e/a%23b%3Fc/%28d%29?ref=feat%2Fa%23b')
+    stubGitHub(() => json({ object: { sha: SHA } }))
+    await client().getRepoHead({ repo: 'acme/app', branch: 'a#b' })
+  })
+
   it('refuses a path that could step out of the repo, or a bad ref', async () => {
     const calls = forbidRequests()
     for (const path of ['', '../../user', 'a/../../b', './a', 'a/./b', '/a', 'a/', 'a//b', '.', '..', 'a\nb', 42, undefined]) {
-      await assert.rejects(client().getRepoFile({ repo: 'acme/app', path }), /getRepoFile: path is not a path inside a repository/u, JSON.stringify(path))
+      await assert.rejects(client().getRepoFile({ repo: 'acme/app', path }), /getRepoFile: path must be a path inside a repository/u, JSON.stringify(path))
     }
-    await assert.rejects(client().getRepoFile({ repo: 'acme/app', path: 'a', ref: '../main' }), /getRepoFile: ref is not a branch or tag name/u)
+    await assert.rejects(client().getRepoFile({ repo: 'acme/app', path: 'a', ref: '../main' }), /getRepoFile: ref must be a branch or tag name/u)
     assert.deepEqual(calls, [])
   })
 })
@@ -169,20 +177,20 @@ describe('getRepoTarball', () => {
     assert.deepEqual(tarball, bytes)
     assert.equal(calls[0].url, `https://api.github.com/repos/acme/app/tarball/${SHA}`)
     assert.equal(calls[0].headers.Authorization, 'Bearer t0ken')
-    assert.equal(calls[0].redirect, undefined)
+    assert.equal(calls[0].redirect, 'follow')
   })
 
   it('takes only a full commit sha, not a branch, a tag, a path or an abbreviation', async () => {
     const calls = forbidRequests()
     for (const sha of [undefined, '', 'main', 'v1.0.0', '..', 'abc123', SHA.toUpperCase(), `${SHA}/..`, `${SHA}0`, 'a'.repeat(65)]) {
-      await assert.rejects(client().getRepoTarball({ repo: 'acme/app', sha }), /getRepoTarball: sha is not a full commit sha/u, String(sha))
+      await assert.rejects(client().getRepoTarball({ repo: 'acme/app', sha }), /getRepoTarball: sha must be a full commit sha/u, String(sha))
     }
     assert.deepEqual(calls, [])
   })
 
-  it('throws a GitHubError for a failed tarball', async () => {
+  it('throws a HttpError for a failed tarball', async () => {
     stubGitHub(() => new Response('{"message":"No commit found"}', { status: 404 }))
-    await assert.rejects(client().getRepoTarball({ repo: 'acme/app', sha: SHA }), { name: 'GitHubError', status: 404, message: `GitHub GET /repos/acme/app/tarball/${SHA} 404: {"message":"No commit found"}` })
+    await assert.rejects(client().getRepoTarball({ repo: 'acme/app', sha: SHA }), { name: 'HttpError', status: 404, message: `GET https://api.github.com/repos/acme/app/tarball/${SHA} 404: {"message":"No commit found"}` })
   })
 })
 
@@ -213,10 +221,10 @@ describe('getPullRequest', () => {
     }
   })
 
-  it('refuses a number that is not a positive integer', async () => {
+  it('refuses a number that must be a positive integer', async () => {
     const calls = forbidRequests()
     for (const number of [0, -1, 1.5, '7', Number.NaN, Infinity, 2 ** 53, undefined]) {
-      await assert.rejects(client().getPullRequest({ repo: 'acme/app', number }), /getPullRequest: number is not a positive integer/u, String(number))
+      await assert.rejects(client().getPullRequest({ repo: 'acme/app', number }), /getPullRequest: number must be a positive integer/u, String(number))
     }
     assert.deepEqual(calls, [])
   })
@@ -230,12 +238,12 @@ describe('getCollaboratorPermission', () => {
     assert.equal(calls[0].url, 'https://api.github.com/repos/acme/app/collaborators/octocat/permission')
   })
 
-  it('refuses an answer about another user, and a username that is not a login', async () => {
+  it('refuses an answer about another user, and a username that must be a login', async () => {
     stubGitHub(() => json({ permission: 'admin', user: { login: 'someone-else', id: 2 } }))
     await assert.rejects(client().getCollaboratorPermission({ repo: 'acme/app', username: 'octocat' }), /answered for someone-else, not octocat/u)
     const calls = forbidRequests()
     for (const username of ['', '../admin', 'a/b', 'octo cat', '-octo', 'x'.repeat(40), undefined]) {
-      await assert.rejects(client().getCollaboratorPermission({ repo: 'acme/app', username }), /username is not a GitHub login/u, String(username))
+      await assert.rejects(client().getCollaboratorPermission({ repo: 'acme/app', username }), /username must be a GitHub login/u, String(username))
     }
     assert.deepEqual(calls, [])
   })
@@ -253,7 +261,7 @@ describe('listUserRepos', () => {
     ])
   })
 
-  it('refuses a page that is not a list', async () => {
+  it('refuses a page that must be a list', async () => {
     stubGitHub(() => json({ message: 'odd' }))
     await assert.rejects(client().listUserRepos(), /listUserRepos: expected an array for page 1/u)
   })

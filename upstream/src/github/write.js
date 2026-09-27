@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 
-import { assertBoolean, assertLogin, assertOptional, assertOptions, assertPath, assertRef, assertRepoName, assertSha, assertString, assertText, parseRepo } from './args.js'
+import {
+  assertBoolean, assertLine, assertLogin, assertOptional, assertOptions, assertPath, assertRef, assertRepo, assertRepoName,
+  assertSha, assertText,
+} from '../args.js'
+import { send } from '../http.js'
+import { api, bindMethods, call, clientHeaders } from './client.js'
 import { getRepoHead, readMethods } from './read.js'
-import { API, bindMethods, clientHeaders, request } from './request.js'
 
 const CREATE_COMMIT_MUTATION = `mutation($input: CreateCommitOnBranchInput!) {
   createCommitOnBranch(input: $input) {
@@ -11,25 +15,21 @@ const CREATE_COMMIT_MUTATION = `mutation($input: CreateCommitOnBranchInput!) {
   }
 }`
 
-function toBase64(value) {
-  if (Buffer.isBuffer(value)) return value.toString('base64')
-  if (value instanceof Uint8Array) return Buffer.from(value).toString('base64')
+function toBase64(value, what) {
   if (typeof value === 'string') return Buffer.from(value, 'utf8').toString('base64')
-  assert.fail(`Unsupported file contents type: ${typeof value}`)
+  assert.ok(value instanceof Uint8Array, `createCommit: ${what} must be a string or a Uint8Array, got ${typeof value}`)
+  return Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString('base64')
 }
 
 function normalizeMessage(message) {
   if (typeof message === 'string') {
-    assertText('createCommit', 'message', message)
+    assertLine('createCommit', 'message', message)
     return { headline: message }
   }
-  assert.ok(message !== null && typeof message === 'object' && !Array.isArray(message), 'createCommit: message must be a string or { headline, body? }')
-  assertOptions('createCommit', message, ['headline', 'body'])
-  assertText('createCommit', 'message.headline', message.headline)
-  assertOptional(assertString, 'createCommit', 'message.body', message.body)
-  const out = { headline: message.headline }
-  if (message.body) out.body = message.body
-  return out
+  assertOptions('createCommit', 'message', message, ['headline', 'body'])
+  assertLine('createCommit', 'message.headline', message.headline)
+  assertOptional(assertText, 'createCommit', 'message.body', message.body)
+  return { headline: message.headline, ...(message.body && { body: message.body }) }
 }
 
 // Parse and validate a GitHub GraphQL response. Throws with the response
@@ -57,84 +57,87 @@ export function parseGraphQLResponse(status, text) {
   return json.data
 }
 
+// The query is always one of the constants above, and the variables go
+// as JSON beside it, never into its text.
 async function graphql(headers, query, variables) {
-  const res = await fetch(`${API}/graphql`, {
-    method: 'POST',
-    headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, variables }),
-  })
+  assert.equal(query, CREATE_COMMIT_MUTATION)
+  const res = await send(api(['graphql']), { method: 'POST', headers, body: { query, variables } })
   return parseGraphQLResponse(res.status, await res.text())
 }
 
 // Fork the given repo into the authenticated user's account (or the given
 // organization). Returns the forked repo object; `full_name` is the handle
 // to use in subsequent calls.
-function forkRepo(headers, options) {
-  assertOptions('forkRepo', options, ['repo', 'name', 'organization', 'defaultBranchOnly'])
+async function forkRepo(headers, options) {
+  assertOptions('forkRepo', 'options', options, ['repo', 'name', 'organization', 'defaultBranchOnly'])
   const { repo, name, organization, defaultBranchOnly } = options
-  const { owner, name: srcName } = parseRepo('forkRepo', repo)
+  assertRepo('forkRepo', 'repo', repo)
   assertOptional(assertRepoName, 'forkRepo', 'name', name)
   assertOptional(assertLogin, 'forkRepo', 'organization', organization)
   assertOptional(assertBoolean, 'forkRepo', 'defaultBranchOnly', defaultBranchOnly)
-  const body = {}
-  if (name) body.name = name
-  if (organization) body.organization = organization
-  if (defaultBranchOnly) body.default_branch_only = true
-  return request(headers, 'POST', `/repos/${owner}/${srcName}/forks`, { body })
+  const body = { ...(name && { name }), ...(organization && { organization }), ...(defaultBranchOnly && { default_branch_only: true }) }
+  return await call(headers, api(['repos', ...repo.split('/'), 'forks']), { method: 'POST', body })
 }
 
 // Create a new branch at the given commit OID. If `oid` is omitted, the
 // repo's default branch head is used. Returns the created ref object.
 async function createBranch(headers, options) {
-  assertOptions('createBranch', options, ['repo', 'branch', 'oid'])
+  assertOptions('createBranch', 'options', options, ['repo', 'branch', 'oid'])
   const { repo, branch, oid } = options
-  const { owner, name } = parseRepo('createBranch', repo)
+  assertRepo('createBranch', 'repo', repo)
   assertRef('createBranch', 'branch', branch)
   assertOptional(assertSha, 'createBranch', 'oid', oid)
   const sha = oid ?? (await getRepoHead(headers, { repo })).oid
-  return request(headers, 'POST', `/repos/${owner}/${name}/git/refs`, {
-    body: { ref: `refs/heads/${branch}`, sha },
-  })
+  return await call(headers, api(['repos', ...repo.split('/'), 'git', 'refs']), { method: 'POST', body: { ref: `refs/heads/${branch}`, sha } })
 }
 
+// Each path at most once across both lists: a commit that adds and
+// deletes one path, or adds it twice, says two things about it.
 function fileChanges(additions, deletions) {
   assert.ok(Array.isArray(additions), 'createCommit: additions must be an array')
   assert.ok(Array.isArray(deletions), 'createCommit: deletions must be an array')
+  const seen = new Set()
+  const once = (path, what) => {
+    assertPath('createCommit', what, path)
+    assert.ok(!seen.has(path), `createCommit: ${what} names ${JSON.stringify(path)} a second time`)
+    seen.add(path)
+    return path
+  }
   return {
     additions: additions.map((addition, i) => {
-      assertOptions('createCommit', addition, ['path', 'contents'])
-      assertPath('createCommit', `additions[${i}].path`, addition.path)
-      return { path: addition.path, contents: toBase64(addition.contents) }
+      assertOptions('createCommit', `additions[${i}]`, addition, ['path', 'contents'])
+      return { path: once(addition.path, `additions[${i}].path`), contents: toBase64(addition.contents, `additions[${i}].contents`) }
     }),
     deletions: deletions.map((deletion, i) => {
-      if (typeof deletion !== 'string') assertOptions('createCommit', deletion, ['path'])
-      const path = typeof deletion === 'string' ? deletion : deletion.path
-      assertPath('createCommit', `deletions[${i}]`, path)
-      return { path }
+      if (typeof deletion === 'string') return { path: once(deletion, `deletions[${i}]`) }
+      assertOptions('createCommit', `deletions[${i}]`, deletion, ['path'])
+      return { path: once(deletion.path, `deletions[${i}].path`) }
     }),
   }
 }
 
 // Create a signed commit on the given branch via the GraphQL
 // createCommitOnBranch mutation. The branch must already exist — use
-// createBranch() first to create a new one.
+// createBranch() first to create a new one. Every variable sent is one
+// checked here: the repo, the branch, the message, each path, and the
+// head — passed in, or read from the branch and checked as a sha there.
 //
-// additions: [{ path, contents: string | Buffer | Uint8Array }]
+// additions: [{ path, contents: string | Uint8Array }]
 // deletions: [{ path } | path]
 // expectedHeadOid: if omitted, the current branch head is fetched first.
 async function createCommit(headers, options) {
-  assertOptions('createCommit', options, ['repo', 'branch', 'message', 'additions', 'deletions', 'expectedHeadOid'])
+  assertOptions('createCommit', 'options', options, ['repo', 'branch', 'message', 'additions', 'deletions', 'expectedHeadOid'])
   const { repo, branch, message, additions = [], deletions = [], expectedHeadOid } = options
-  parseRepo('createCommit', repo)
+  assertRepo('createCommit', 'repo', repo)
   assertRef('createCommit', 'branch', branch)
   assertOptional(assertSha, 'createCommit', 'expectedHeadOid', expectedHeadOid)
-  const changes = fileChanges(additions, deletions)
-  const headline = normalizeMessage(message)
+  const fileChangesInput = fileChanges(additions, deletions)
+  const messageInput = normalizeMessage(message)
   const oid = expectedHeadOid ?? (await getRepoHead(headers, { repo, branch })).oid
   const input = {
     branch: { repositoryNameWithOwner: repo, branchName: branch },
-    message: headline,
-    fileChanges: changes,
+    message: messageInput,
+    fileChanges: fileChangesInput,
     expectedHeadOid: oid,
   }
   const data = await graphql(headers, CREATE_COMMIT_MUTATION, { input })
@@ -143,12 +146,12 @@ async function createCommit(headers, options) {
 
 // Open a pull request. For cross-repo PRs (e.g. from a fork), pass
 // `head` as `"owner:branch"`; for same-repo PRs, pass just the branch.
-function createPR(headers, options) {
-  assertOptions('createPR', options, ['repo', 'title', 'body', 'head', 'base', 'draft'])
+async function createPR(headers, options) {
+  assertOptions('createPR', 'options', options, ['repo', 'title', 'body', 'head', 'base', 'draft'])
   const { repo, title, body, head, base, draft } = options
-  const { owner, name } = parseRepo('createPR', repo)
-  assertText('createPR', 'title', title)
-  assertOptional(assertString, 'createPR', 'body', body)
+  assertRepo('createPR', 'repo', repo)
+  assertLine('createPR', 'title', title)
+  assertOptional(assertText, 'createPR', 'body', body)
   const colon = typeof head === 'string' ? head.indexOf(':') : -1
   if (colon === -1) {
     assertRef('createPR', 'head', head)
@@ -158,10 +161,8 @@ function createPR(headers, options) {
   }
   assertRef('createPR', 'base', base)
   assertOptional(assertBoolean, 'createPR', 'draft', draft)
-  const payload = { title, head, base }
-  if (body) payload.body = body
-  if (draft) payload.draft = true
-  return request(headers, 'POST', `/repos/${owner}/${name}/pulls`, { body: payload })
+  const payload = { title, head, base, ...(body && { body }), ...(draft && { draft: true }) }
+  return await call(headers, api(['repos', ...repo.split('/'), 'pulls']), { method: 'POST', body: payload })
 }
 
 // Everything the read client does, and the four calls that change

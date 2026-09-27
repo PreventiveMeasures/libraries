@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
 
-import { GitHubError as ReadError } from '../github.js'
-import { GitHubError, createWriteClient, parseGraphQLResponse } from '../github/write.js'
+import { HttpError as ReadError } from '../github.js'
+import { HttpError, createWriteClient, parseGraphQLResponse } from '../github/write.js'
 import { SHA, SHA2, forbidRequests, json, stubGitHub } from './github-stub.js'
 
 const realFetch = globalThis.fetch
@@ -16,7 +16,7 @@ const client = () => createWriteClient({ token: 't0ken' })
 describe('createWriteClient', () => {
   it('needs a real token: a client that writes is never anonymous', () => {
     for (const options of [{}, { token: null }, { token: '' }, { token: 'a b' }]) {
-      assert.throws(() => createWriteClient(options), /createWriteClient: token must be a non-empty string$/u, JSON.stringify(options))
+      assert.throws(() => createWriteClient(options), /createWriteClient: token must be a token, got/u, JSON.stringify(options))
     }
   })
 
@@ -26,7 +26,7 @@ describe('createWriteClient', () => {
       'getCollaboratorPermission', 'getCurrentUser', 'getPullRequest', 'getRepo',
       'getRepoFile', 'getRepoHead', 'getRepoTarball', 'listUserRepos',
     ])
-    assert.equal(GitHubError, ReadError)
+    assert.equal(HttpError, ReadError)
   })
 })
 
@@ -41,9 +41,9 @@ describe('forkRepo', () => {
 
   it('refuses a bad name, organization or flag', async () => {
     const calls = forbidRequests()
-    await assert.rejects(client().forkRepo({ repo: 'acme/app', name: '..' }), /forkRepo: name is not a repository name/u)
-    await assert.rejects(client().forkRepo({ repo: 'acme/app', name: '' }), /forkRepo: name is not a repository name/u)
-    await assert.rejects(client().forkRepo({ repo: 'acme/app', organization: 'my/org' }), /forkRepo: organization is not a GitHub login/u)
+    await assert.rejects(client().forkRepo({ repo: 'acme/app', name: '..' }), /forkRepo: name must be a repository name/u)
+    await assert.rejects(client().forkRepo({ repo: 'acme/app', name: '' }), /forkRepo: name must be a repository name/u)
+    await assert.rejects(client().forkRepo({ repo: 'acme/app', organization: 'my/org' }), /forkRepo: organization must be a GitHub login/u)
     await assert.rejects(client().forkRepo({ repo: 'acme/app', defaultBranchOnly: 'yes' }), /forkRepo: defaultBranchOnly must be a boolean/u)
     await assert.rejects(client().forkRepo({ repo: 'acme/app', org: 'x' }), /forkRepo: unknown option org/u)
     assert.deepEqual(calls, [])
@@ -66,12 +66,12 @@ describe('createBranch', () => {
     assert.deepEqual(calls.at(-1).body, { ref: 'refs/heads/fix', sha: SHA })
   })
 
-  it('refuses a branch git would not take, or an oid that is not a full sha', async () => {
+  it('refuses a branch git would not take, or an oid that must be a full sha', async () => {
     const calls = forbidRequests()
     for (const branch of [undefined, '', 'refs/../x', 'a b', 'x.lock', '-x']) {
-      await assert.rejects(client().createBranch({ repo: 'acme/app', branch, oid: SHA }), /createBranch: branch is not a branch or tag name/u, String(branch))
+      await assert.rejects(client().createBranch({ repo: 'acme/app', branch, oid: SHA }), /createBranch: branch must be a branch or tag name/u, String(branch))
     }
-    await assert.rejects(client().createBranch({ repo: 'acme/app', branch: 'x', oid: 'main' }), /createBranch: oid is not a full commit sha/u)
+    await assert.rejects(client().createBranch({ repo: 'acme/app', branch: 'x', oid: 'main' }), /createBranch: oid must be a full commit sha/u)
     assert.deepEqual(calls, [])
   })
 })
@@ -114,19 +114,23 @@ describe('createCommit', () => {
     const calls = forbidRequests()
     const base = { repo: 'acme/app', branch: 'fix', expectedHeadOid: SHA }
     const bad = [
-      [{ message: '' }, /message must be a non-empty string/u],
-      [{ message: undefined }, /createCommit: message must be a string or \{ headline, body\? \}/u],
-      [{ message: ['x'] }, /createCommit: message must be a string or \{ headline, body\? \}/u],
-      [{ message: { headline: '' } }, /message.headline must be a non-empty string/u],
-      [{ message: { headline: 'x', body: 7 } }, /message.body must be a string/u],
-      [{ message: { headline: 'x', title: 'y' } }, /unknown option title/u],
-      [{ message: 'x', additions: [{ path: '../x', contents: 'x' }] }, /additions\[0\].path is not a path inside a repository/u],
-      [{ message: 'x', additions: [{ path: 'x', contents: 7 }] }, /Unsupported file contents type/u],
-      [{ message: 'x', additions: [{ path: 'x', contents: 'x', mode: '100755' }] }, /unknown option mode/u],
+      [{ message: '' }, /createCommit: message must be a non-empty single line/u],
+      [{ message: 'Fix\nit' }, /createCommit: message must be a non-empty single line, got "Fix\\nit"/u],
+      [{ message: undefined }, /createCommit: message must be an options object/u],
+      [{ message: ['x'] }, /createCommit: message must be an options object/u],
+      [{ message: { headline: '' } }, /message.headline must be a non-empty single line/u],
+      [{ message: { headline: 'x', body: 7 } }, /message.body must be text with no control characters/u],
+      [{ message: { headline: 'x', title: 'y' } }, /createCommit: unknown option message.title/u],
+      [{ message: 'x', additions: [{ path: '../x', contents: 'x' }] }, /additions\[0\].path must be a path inside a repository/u],
+      [{ message: 'x', additions: [{ path: 'x', contents: 7 }] }, /createCommit: additions\[0\].contents must be a string or a Uint8Array/u],
+      [{ message: 'x', additions: [{ path: 'x', contents: 'x', mode: '100755' }] }, /createCommit: unknown option additions\[0\].mode/u],
       [{ message: 'x', additions: { path: 'x' } }, /additions must be an array/u],
-      [{ message: 'x', deletions: ['a//b'] }, /deletions\[0\] is not a path inside a repository/u],
-      [{ message: 'x', deletions: [{ path: 'x', why: 'y' }] }, /unknown option why/u],
-      [{ message: 'x', expectedHeadOid: 'HEAD' }, /expectedHeadOid is not a full commit sha/u],
+      [{ message: 'x', deletions: ['a//b'] }, /deletions\[0\] must be a path inside a repository/u],
+      [{ message: 'x', additions: [{ path: 'a', contents: '' }], deletions: ['a'] }, /deletions\[0\] names "a" a second time/u],
+      [{ message: 'x', additions: [{ path: 'a', contents: '' }, { path: 'a', contents: '' }] }, /additions\[1\].path names "a" a second time/u],
+      [{ message: { headline: 'x', body: 'a\u0000b' } }, /message.body must be text with no control characters/u],
+      [{ message: 'x', deletions: [{ path: 'x', why: 'y' }] }, /createCommit: unknown option deletions\[0\].why/u],
+      [{ message: 'x', expectedHeadOid: 'HEAD' }, /expectedHeadOid must be a full commit sha/u],
     ]
     for (const [options, error] of bad) {
       await assert.rejects(client().createCommit({ ...base, ...options }), error, JSON.stringify(options))
@@ -148,12 +152,13 @@ describe('createPR', () => {
     const calls = forbidRequests()
     const base = { repo: 'acme/app', title: 'Fix', head: 'me:fix', base: 'main' }
     const bad = [
-      [{ base: undefined }, /createPR: base is not a branch or tag name/u],
-      [{ title: ' ' }, /createPR: title must be a non-empty string/u],
-      [{ head: 'me:' }, /createPR: head branch is not a branch or tag name/u],
-      [{ head: 'm/e:fix' }, /createPR: head owner is not a GitHub login/u],
-      [{ head: 'a:b:c' }, /createPR: head branch is not a branch or tag name/u],
-      [{ body: 7 }, /createPR: body must be a string/u],
+      [{ base: undefined }, /createPR: base must be a branch or tag name/u],
+      [{ title: ' ' }, /createPR: title must be a non-empty single line/u],
+      [{ head: 'me:' }, /createPR: head branch must be a branch or tag name/u],
+      [{ head: 'm/e:fix' }, /createPR: head owner must be a GitHub login/u],
+      [{ head: 'a:b:c' }, /createPR: head branch must be a branch or tag name/u],
+      [{ body: 7 }, /createPR: body must be text with no control characters/u],
+      [{ title: 'Fix\r\nit' }, /createPR: title must be a non-empty single line/u],
       [{ draft: 1 }, /createPR: draft must be a boolean/u],
     ]
     for (const [options, error] of bad) {

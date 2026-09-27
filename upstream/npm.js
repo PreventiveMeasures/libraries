@@ -3,5 +3,6 @@
 // lives in, and a published version's tarball checked against its
 // integrity, both through an optional disk cache.
 export { setCacheDir } from './src/cache.js'
+export { HttpError } from './src/http.js'
 export { getGitHub, readPackageRepoCache, resolvePackageRepos, writePackageRepoCache } from './src/npm/repos.js'
 export { getTarball } from './src/npm/tarball.js'

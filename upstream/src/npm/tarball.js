@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 
+import { assertPackageName, assertPackageVersion } from '../args.js'
 import { readCache, readCacheJSON, writeCache, writeCacheJSON } from '../cache.js'
-import { REGISTRY, assertPackageName, assertPackageVersion } from './registry.js'
+import { NPM_REGISTRY, buildUrl, request } from '../http.js'
 
 // A published version's tarball, whole, in memory: the `.tgz` bytes as
 // the registry serves them, checked against the `dist.integrity` the
@@ -12,22 +13,17 @@ import { REGISTRY, assertPackageName, assertPackageVersion } from './registry.js
 
 // The version's own document rather than the packument: `dist` is all
 // that is read, and the full document is megabytes of every other
-// version.
+// version. Only called with a name and version getTarball has checked.
 async function getDist(name, version) {
-  assertPackageName(name)
-  assertPackageVersion(version)
-  const res = await fetch(`${REGISTRY}/${name}/${version}`)
-  assert.ok(res.ok, `Failed to fetch ${name}@${version} from npm: ${res.status}`)
-  const json = await res.json()
-  assert.equal(json.name, name)
-  assert.equal(json.version, version)
+  const json = await request(buildUrl(NPM_REGISTRY, [...name.split('/'), version]), { as: 'json' })
+  assert.ok(json?.name === name && json.version === version, `getTarball: the registry answered for ${json?.name}@${json?.version}, not ${name}@${version}`)
   const { tarball, integrity } = json.dist ?? {}
   // Taken from `dist`, but only where it is exactly the URL the registry
   // files this version's tarball under, checked before anything is
   // downloaded: never another host, another package or another version.
-  const expected = `${REGISTRY}/${name}/-/${name.split('/').at(-1)}-${version}.tgz`
-  assert.equal(tarball, expected, `Unexpected tarball URL for ${name}@${version}: ${tarball}`)
-  assert.ok(typeof integrity === 'string', `No integrity for ${name}@${version}`)
+  const expected = buildUrl(NPM_REGISTRY, [...name.split('/'), '-', `${name.split('/').at(-1)}-${version}.tgz`])
+  assert.equal(tarball, expected, `getTarball: unexpected tarball URL for ${name}@${version}: ${tarball}`)
+  assert.ok(typeof integrity === 'string', `getTarball: no integrity for ${name}@${version}`)
   return { tarball, integrity }
 }
 
@@ -35,15 +31,15 @@ async function getDist(name, version) {
 // each optionally followed by `?options`. Only sha512 is read — every
 // version on the registry carries one, back to the oldest — so a
 // document offering nothing stronger than sha1 is refused rather than
-// checked with the weaker hash. Any one sha512 entry matching is a match,
-// as SRI has it.
+// checked with the weaker hash. A sha512 entry has to be one: 64 bytes,
+// in base64. Any one of them matching is a match, as SRI has it.
+const SHA512_RE = /^sha512-(?<digest>[\dA-Za-z+/]{86}==)(?:\?[!-~]*)?$/u
+
 function assertIntegrity(bytes, integrity, what) {
-  const expected = integrity.split(/\s+/u)
-    .filter((entry) => entry.startsWith('sha512-'))
-    .map((entry) => entry.slice('sha512-'.length).split('?')[0])
-  assert.ok(expected.length > 0, `No sha512 integrity for ${what}: ${integrity}`)
+  const expected = integrity.split(/\s+/u).map((entry) => SHA512_RE.exec(entry)?.groups.digest).filter(Boolean)
+  assert.ok(expected.length > 0, `getTarball: no sha512 integrity for ${what}: ${integrity}`)
   const actual = createHash('sha512').update(bytes).digest('base64')
-  assert.ok(expected.includes(actual), `Integrity mismatch for ${what}: expected ${integrity}, got sha512-${actual}`)
+  assert.ok(expected.includes(actual), `getTarball: integrity mismatch for ${what}: expected ${integrity}, got sha512-${actual}`)
 }
 
 // Filed under npm/tarballs, beside the repo links: `<name>@<version>.tgz`
@@ -82,14 +78,12 @@ async function writeTarballCache(name, version, bytes, integrity) {
 // and only bytes that match the published integrity are written back or
 // returned.
 export async function getTarball(name, version) {
-  assertPackageName(name)
-  assertPackageVersion(version)
+  assertPackageName('getTarball', 'name', name)
+  assertPackageVersion('getTarball', 'version', version)
   const cached = await readTarballCache(name, version)
   if (cached) return cached
   const { tarball, integrity } = await getDist(name, version)
-  const res = await fetch(tarball)
-  assert.ok(res.ok, `Failed to fetch ${tarball}: ${res.status}`)
-  const bytes = new Uint8Array(await res.arrayBuffer())
+  const bytes = await request(tarball, { as: 'bytes' })
   assertIntegrity(bytes, integrity, `${name}@${version} from ${tarball}`)
   await writeTarballCache(name, version, bytes, integrity)
   return bytes

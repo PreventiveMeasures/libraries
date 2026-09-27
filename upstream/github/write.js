@@ -4,4 +4,4 @@
 // open a pull request. A separate front door so that a caller that only
 // reads never holds a client that can write.
 export { createWriteClient, parseGraphQLResponse } from '../src/github/write.js'
-export { GitHubError } from '../src/github/request.js'
+export { HttpError } from '../src/http.js'

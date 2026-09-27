@@ -5,4 +5,4 @@
 // can change anything on GitHub; github/write.js has the one that can.
 // Every argument is checked hard before any request is built.
 export { createClient } from './src/github/read.js'
-export { GitHubError } from './src/github/request.js'
+export { HttpError } from './src/http.js'

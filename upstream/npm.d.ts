@@ -9,6 +9,13 @@
 // every read misses and every write is skipped.
 export function setCacheDir(dir: string): void
 
+// A failed request: `status` is the HTTP status the registry answered
+// with (404 for a package or version it does not have).
+export class HttpError extends Error {
+  name: 'HttpError'
+  status: number
+}
+
 // A package's GitHub repo as its registry metadata names it: `repo` is
 // `owner/name`, and `directory` is where in the repo the package sits,
 // absent for a package at the repo root. Throws when the package cannot

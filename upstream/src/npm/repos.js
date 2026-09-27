@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 
+import { assertBoolean, assertOptional, assertOptions, assertPackageName, assertRepo, isRepo } from '../args.js'
 import { readCacheJSON, writeCacheJSON } from '../cache.js'
-import { REGISTRY, assertPackageName } from './registry.js'
+import { NPM_REGISTRY, buildUrl, request } from '../http.js'
 
 // Which GitHub repo a published npm package's code lives in, and where in
 // that repo the package sits — the lookup, and the disk cache that keeps a
@@ -31,13 +32,10 @@ const shorthandRegex = /^(?:github:)?(?<repo>[\w-]+\/[\w.-]+)$/u
 // the project, not about a version, and the full document is megabytes
 // of version history to answer a one-line question.
 async function getShortInfo(name) {
-  assertPackageName(name)
-  const res = await fetch(`${REGISTRY}/${name}/latest`)
-  assert.ok(res.ok, `Failed to fetch ${name} from npm: ${res.status}`)
-  const json = await res.json()
-  assert.equal(json.name, name)
+  const json = await request(buildUrl(NPM_REGISTRY, [...name.split('/'), 'latest']), { as: 'json' })
+  assert.ok(json?.name === name, `getGitHub: the registry answered for ${json?.name}, not ${name}`)
   const { bugs, homepage, repository } = json
-  return { name, bugs, homepage, repository }
+  return { bugs, homepage, repository }
 }
 
 // `owner/name` off the issue tracker, which is the field that names the
@@ -45,12 +43,12 @@ async function getShortInfo(name) {
 // that suffix IS the repo — but only when the link is a GitHub one and
 // only when it really carried the suffix, since a tracker somewhere
 // else answers a different question. Undefined rather than a throw when
-// it doesn't hold: the shorthand below gets its turn.
-function bugsRepo(bugs, homepage) {
-  if (!bugs?.url || !homepage) return undefined
-  const issues = String(bugs.url).replace(/^http:/u, 'https:')
+// it doesn't hold: the shorthand below gets its turn. Read on its own:
+// the tracker names the repo whether or not a homepage is set.
+function bugsRepo(bugs) {
+  if (typeof bugs?.url !== 'string') return undefined
+  const issues = bugs.url.replace(/^http:/u, 'https:')
   const url = issues.replace(/\/issues$/u, '')
-  //if (homepage !== `${url}#readme`) return undefined
   if (issues !== `${url}/issues` || !githubRegex.test(url)) return undefined
   return url.replace('https://github.com/', '')
 }
@@ -87,6 +85,18 @@ function repositoryRepo(repository) {
 // practice, and there is nothing in the URL that could tell the two
 // apart anyway.
 const homepageTreeRegex = /^(?:https?:\/\/)?(?:www\.)?github\.com\/(?<repo>[\w-]+\/[\w.-]+)\/tree\/[^/]+\/(?<directory>.+)$/iu
+
+// The same, or the repo's own page: `https://github.com/acme/app`, which
+// is what npm fills `homepage` in with from `repository`. Query and
+// fragment off first: npm's own convention hangs `#readme` on the end of
+// exactly these URLs.
+const homepageRepoRegex = /^(?:https?:\/\/)?(?:www\.)?github\.com\/(?<repo>[\w-]+\/[\w.-]+?)(?:\.git)?(?:\/|\/tree\/[^/]+\/.+)?$/iu
+
+const homepageUrl = (homepage) => (typeof homepage === 'string' ? homepage.trim().split(/[?#]/u)[0] : '')
+
+function homepageRepo(homepage) {
+  return homepageRepoRegex.exec(homepageUrl(homepage))?.groups.repo
+}
 
 // One path segment of a directory inside a repo. `.` and `..` are
 // excluded by the leading class — a segment has to start with something
@@ -126,20 +136,23 @@ function repoDirectory(repository, homepage, repo) {
     const directory = repoSubdirectory(typeof repository === 'string' ? undefined : repository?.directory)
     if (directory) return directory
   }
-  // Query and fragment off first: npm's own convention hangs `#readme`
-  // on the end of exactly these URLs.
-  const tree = typeof homepage === 'string' ? homepageTreeRegex.exec(homepage.trim().split(/[?#]/u)[0]) : null
+  const tree = homepageTreeRegex.exec(homepageUrl(homepage))
   if (!tree || tree.groups.repo.toLowerCase() !== repo.toLowerCase()) return undefined
   return repoSubdirectory(tree.groups.directory)
 }
 
 // The tracker first, because most packages carry one and npm fills it
-// in; the `repository` shorthand for the ones that point `homepage` and
-// `bugs` at a site of their own.
+// in; `repository` after, spelled any of the ways above, for the ones
+// that point `bugs` at a site of their own; the homepage last, for a
+// package that names its repo nowhere else. Whichever answers has to be
+// `owner/name` by GitHub's own rules too — the patterns above are looser
+// about owners, and a `..` for a name would be a traversal in every link
+// made from it.
 export async function getGitHub(name) {
+  assertPackageName('getGitHub', 'name', name)
   const { bugs, homepage, repository } = await getShortInfo(name)
-  const repo = bugsRepo(bugs, homepage) ?? repositoryRepo(repository)
-  assert.ok(repo, `No GitHub repo for ${name}`)
+  const repo = [bugsRepo(bugs), repositoryRepo(repository), homepageRepo(homepage)].find(isRepo)
+  assert.ok(repo, `getGitHub: no GitHub repo for ${name}`)
   // Absent rather than undefined at the repo root.
   const directory = repoDirectory(repository, homepage, repo)
   return { repo, ...(directory && { directory }), url: `https://github.com/${repo}` }
@@ -174,11 +187,17 @@ const TTL_MS = 30 * 24 * 60 * 60 * 1000
 // unconditionally: read leniently, an old entry would answer with a repo
 // and no directory, and every monorepo package would quietly link to the
 // root of its repo for a month rather than simply being looked up again.
+//
+// Held to the formats a lookup answers in, so what comes off disk is no
+// less checked than what came off the registry.
+const isDirectory = (value) => typeof value === 'string' && (value === '' || repoSubdirectory(value) === value)
+
 export async function readPackageRepoCache(name) {
+  assertPackageName('readPackageRepoCache', 'name', name)
   const entry = await readCacheJSON(DIR, `${name}.json`)
   if (!entry || typeof entry !== 'object' || typeof entry.at !== 'number') return null
   if (Date.now() - entry.at > TTL_MS) return null
-  if (typeof entry.repo !== 'string' || !entry.repo || typeof entry.directory !== 'string') return null
+  if (entry.name !== name || !isRepo(entry.repo) || !isDirectory(entry.directory)) return null
   return { repo: entry.repo, ...(entry.directory && { directory: entry.directory }) }
 }
 
@@ -189,7 +208,10 @@ export async function readPackageRepoCache(name) {
 // of packages with no link on them. False where the cache could not be
 // written; never a throw.
 export async function writePackageRepoCache(name, repo, directory = '') {
-  return await writeCacheJSON(DIR, `${name}.json`, { at: Date.now(), name, repo, directory: directory ?? '' })
+  assertPackageName('writePackageRepoCache', 'name', name)
+  assertRepo('writePackageRepoCache', 'repo', repo)
+  assert.ok(isDirectory(directory), `writePackageRepoCache: directory must be a path inside the repository, got ${JSON.stringify(directory)}`)
+  return await writeCacheJSON(DIR, `${name}.json`, { at: Date.now(), name, repo, directory })
 }
 
 // Best-effort npm → GitHub repo lookup for a set of package names.
@@ -204,23 +226,28 @@ export async function writePackageRepoCache(name, repo, directory = '') {
 // without a link rather than reaching for the network.
 //
 // Only a resolved slug is written back, because only that is an answer;
-// see writePackageRepoCache on why a failure is not cached.
-export async function resolvePackageRepos(packageNames, { cachedOnly = false } = {}) {
+// see writePackageRepoCache on why a failure is not cached. A name that
+// is not one is not a lookup that failed, though: every name is checked
+// before anything is read, and one bad one throws for the lot.
+export async function resolvePackageRepos(packageNames, options = {}) {
+  assert.ok(typeof packageNames?.[Symbol.iterator] === 'function' && typeof packageNames !== 'string', 'resolvePackageRepos: packageNames must be an iterable of names')
+  assertOptions('resolvePackageRepos', 'options', options, ['cachedOnly'])
+  assertOptional(assertBoolean, 'resolvePackageRepos', 'cachedOnly', options.cachedOnly)
+  const names = [...new Set(packageNames)]
+  for (const name of names) assertPackageName('resolvePackageRepos', 'name', name)
   const repos = new Map()
   const stamp = (github, directory) => ({ github, ...(directory && { directory }) })
-  await Promise.all([...packageNames].map(async (name) => {
+  await Promise.all(names.map(async (name) => {
     const stored = await readPackageRepoCache(name)
     if (stored) {
       repos.set(name, stamp(stored.repo, stored.directory))
       return
     }
-    if (cachedOnly) return
+    if (options.cachedOnly) return
     try {
       const { repo, directory } = await getGitHub(name)
-      if (repo) {
-        repos.set(name, stamp(repo, directory))
-        await writePackageRepoCache(name, repo, directory)
-      }
+      repos.set(name, stamp(repo, directory))
+      await writePackageRepoCache(name, repo, directory)
     } catch {
       // Fail-soft per the comment above: a package that resolves to no
       // repo is simply absent from the map.

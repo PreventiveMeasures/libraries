@@ -20,8 +20,8 @@ function stubRegistry(payloads) {
     const name = decodeURIComponent(String(url).replace('https://registry.npmjs.org/', '').replace(/\/latest$/u, ''))
     calls.push(name)
     const body = payloads[name]
-    if (!body) return { ok: false, status: 404, json: () => ({}) }
-    return { ok: true, status: 200, json: () => ({ name, ...body }) }
+    if (!body) return Promise.resolve(Response.json({ error: 'Not found' }, { status: 404 }))
+    return Promise.resolve(Response.json({ name, ...body }))
   }
   return calls
 }

@@ -60,7 +60,7 @@ describe('getTarball', () => {
 
   it('refuses bytes that do not match the integrity, and caches nothing', async () => {
     stubRegistry({ served: new Uint8Array([...BYTES, 0]) })
-    await assert.rejects(getTarball('pkg', '1.0.0'), /Integrity mismatch for pkg@1\.0\.0 from https:\/\/registry\.npmjs\.org\/pkg\/-\/pkg-1\.0\.0\.tgz/u)
+    await assert.rejects(getTarball('pkg', '1.0.0'), /getTarball: integrity mismatch for pkg@1\.0\.0 from https:\/\/registry\.npmjs\.org\/pkg\/-\/pkg-1\.0\.0\.tgz/u)
     assert.deepEqual(await readdir(TARBALLS).catch(() => []), [])
   })
 
@@ -76,7 +76,7 @@ describe('getTarball', () => {
       undefined,
     ]) {
       const calls = stubRegistry({ dist: { tarball } })
-      await assert.rejects(getTarball('pkg', '1.0.0'), /Unexpected tarball URL/u, tarball)
+      await assert.rejects(getTarball('pkg', '1.0.0'), /getTarball: unexpected tarball URL/u, tarball)
       assert.deepEqual(calls, ['https://registry.npmjs.org/pkg/1.0.0'])
     }
   })
@@ -89,9 +89,9 @@ describe('getTarball', () => {
 
   it('needs a sha512 integrity, and takes any one of several', async () => {
     stubRegistry({ dist: { integrity: undefined } })
-    await assert.rejects(getTarball('pkg', '1.0.0'), /No integrity for pkg@1\.0\.0/u)
+    await assert.rejects(getTarball('pkg', '1.0.0'), /getTarball: no integrity for pkg@1\.0\.0/u)
     stubRegistry({ dist: { integrity: sri(BYTES, 'sha1') } })
-    await assert.rejects(getTarball('pkg', '1.0.0'), /No sha512 integrity/u)
+    await assert.rejects(getTarball('pkg', '1.0.0'), /getTarball: no sha512 integrity/u)
     stubRegistry({ dist: { integrity: `${sri(BYTES, 'sha1')} ${sri(new Uint8Array([1]))} ${sri(BYTES)}?opt` } })
     assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0')), BYTES)
   })
@@ -99,7 +99,7 @@ describe('getTarball', () => {
 
   it('throws on a version the registry does not have', async () => {
     stubRegistry()
-    await assert.rejects(getTarball('pkg', '9.9.9'), /Failed to fetch pkg@9\.9\.9 from npm: 404/u)
+    await assert.rejects(getTarball('pkg', '9.9.9'), { name: 'HttpError', status: 404, message: 'GET https://registry.npmjs.org/pkg/9.9.9 404: {"error":"Not found"}' })
   })
 })
 
@@ -124,7 +124,7 @@ describe('the tarball cache', () => {
     await getTarball('pkg', '1.0.0')
     await writeFile(join(TARBALLS, 'pkg%401.0.0.tgz'), new Uint8Array([...BYTES, 0]))
     const calls = stubRegistry()
-    await assert.rejects(getTarball('pkg', '1.0.0'), /Integrity mismatch for pkg@1\.0\.0 from the cache/u)
+    await assert.rejects(getTarball('pkg', '1.0.0'), /getTarball: integrity mismatch for pkg@1\.0\.0 from the cache/u)
     assert.deepEqual(calls, [])
   })
 

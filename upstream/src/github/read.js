@@ -1,12 +1,25 @@
 import assert from 'node:assert/strict'
 
-import { assertLogin, assertNumber, assertOptional, assertOptions, assertPath, assertRef, assertSha, isSha, parseRepo } from './args.js'
-import { API, GitHubError, bindMethods, clientHeaders, request } from './request.js'
+import { assertLogin, assertNumber, assertOptional, assertOptions, assertPath, assertRef, assertRepo, assertSha, isSha } from '../args.js'
+import { encodeSegment } from '../http.js'
+import { api, bindMethods, call, clientHeaders } from './client.js'
 
 const PER_PAGE = 100
+// A hundred pages is ten thousand repositories: past that, a server that
+// keeps answering full pages is not one to keep asking.
+const MAX_PAGES = 100
 
-function getCurrentUser(headers) {
-  return request(headers, 'GET', '/user')
+// `owner/name` checked and split, for a method's options: each half is
+// then a path segment on its own.
+function repoSegments(method, repo) {
+  assertRepo(method, 'repo', repo)
+  return repo.split('/')
+}
+
+const sameName = (a, b) => typeof a === 'string' && a.toLowerCase() === b.toLowerCase()
+
+async function getCurrentUser(headers) {
+  return await call(headers, api(['user']))
 }
 
 // Every repository the authenticated user can list (`GET /user/repos`),
@@ -14,21 +27,20 @@ function getCurrentUser(headers) {
 // carries no repository permissions, that is the user's public repos.
 async function listUserRepos(headers) {
   const repos = []
-  for (let page = 1; ; page++) {
-    const body = await request(headers, 'GET', `/user/repos?per_page=${PER_PAGE}&page=${page}&sort=full_name`)
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const body = await call(headers, api(['user', 'repos'], { per_page: PER_PAGE, page, sort: 'full_name' }))
     assert.ok(Array.isArray(body), `listUserRepos: expected an array for page ${page}`)
     repos.push(...body)
     if (body.length < PER_PAGE) return repos
   }
+  assert.fail(`listUserRepos: more than ${MAX_PAGES} pages`)
 }
 
 // The repository object, refused unless it is the repository asked for.
 async function getRepo(headers, options) {
-  assertOptions('getRepo', options, ['repo'])
-  const { owner, name } = parseRepo('getRepo', options.repo)
-  const info = await request(headers, 'GET', `/repos/${owner}/${name}`)
-  const fullName = info?.full_name
-  assert.ok(typeof fullName === 'string' && fullName.toLowerCase() === options.repo.toLowerCase(), `getRepo: answered for ${fullName}, not ${options.repo}`)
+  assertOptions('getRepo', 'options', options, ['repo'])
+  const info = await call(headers, api(['repos', ...repoSegments('getRepo', options.repo)]))
+  assert.ok(sameName(info?.full_name, options.repo), `getRepo: answered for ${info?.full_name}, not ${options.repo}`)
   return info
 }
 
@@ -36,27 +48,28 @@ async function getRepo(headers, options) {
 // enterprise grants included — as GitHub's `{ permission, role_name, user }`.
 // A 404 is thrown as one: no such repo, or no access to it with this token.
 async function getCollaboratorPermission(headers, options) {
-  assertOptions('getCollaboratorPermission', options, ['repo', 'username'])
-  const { owner, name } = parseRepo('getCollaboratorPermission', options.repo)
-  assertLogin('getCollaboratorPermission', 'username', options.username)
-  const body = await request(headers, 'GET', `/repos/${owner}/${name}/collaborators/${options.username}/permission`)
+  const method = 'getCollaboratorPermission'
+  assertOptions(method, 'options', options, ['repo', 'username'])
+  const repo = repoSegments(method, options.repo)
+  assertLogin(method, 'username', options.username)
+  const body = await call(headers, api(['repos', ...repo, 'collaborators', options.username, 'permission']))
   const login = body?.user?.login
-  assert.ok(typeof body?.permission === 'string' && typeof login === 'string' && login.toLowerCase() === options.username.toLowerCase(), `getCollaboratorPermission: answered for ${login}, not ${options.username}`)
+  assert.ok(typeof body?.permission === 'string' && sameName(login, options.username), `${method}: answered for ${login}, not ${options.username}`)
   return body
 }
 
 // `{ title, status }` for one pull request, status being `merged`,
 // `closed`, `draft` or `open`, in that order. Refused unless the answer is
-// that pull request in that repo: request() refuses a redirect, and the
-// body has to carry the same number and a base repo of the same name.
+// that pull request in that repo: redirects are refused, and the body has
+// to carry the same number and a base repo of the same name.
 async function getPullRequest(headers, options) {
-  assertOptions('getPullRequest', options, ['repo', 'number'])
+  assertOptions('getPullRequest', 'options', options, ['repo', 'number'])
   const { repo, number } = options
-  const { owner, name } = parseRepo('getPullRequest', repo)
+  const segments = repoSegments('getPullRequest', repo)
   assertNumber('getPullRequest', 'number', number)
-  const pr = await request(headers, 'GET', `/repos/${owner}/${name}/pulls/${number}`)
+  const pr = await call(headers, api(['repos', ...segments, 'pulls', String(number)]))
   const base = pr?.base?.repo?.full_name
-  assert.ok(pr?.number === number && typeof base === 'string' && base.toLowerCase() === repo.toLowerCase(), `getPullRequest: answered for ${base}#${pr?.number}, not ${repo}#${number}`)
+  assert.ok(pr?.number === number && sameName(base, repo), `getPullRequest: answered for ${base}#${pr?.number}, not ${repo}#${number}`)
   assert.ok(typeof pr.title === 'string' && pr.title.trim() !== '', `getPullRequest: ${repo}#${number} has no title`)
   assert.ok(['open', 'closed'].includes(pr.state) && typeof pr.merged === 'boolean', `getPullRequest: ${repo}#${number} has no state`)
   let status = 'open'
@@ -67,15 +80,16 @@ async function getPullRequest(headers, options) {
 }
 
 // Return { branch, oid } for the head of the given branch. If branch is
-// omitted, the repo's default branch is used.
+// omitted, the repo's default branch is used — held to the same rule as a
+// branch passed in, since it goes into the next request's path.
 export async function getRepoHead(headers, options) {
-  assertOptions('getRepoHead', options, ['repo', 'branch'])
+  assertOptions('getRepoHead', 'options', options, ['repo', 'branch'])
   const { repo, branch } = options
-  const { owner, name } = parseRepo('getRepoHead', repo)
+  const segments = repoSegments('getRepoHead', repo)
   assertOptional(assertRef, 'getRepoHead', 'branch', branch)
   const ref = branch ?? (await getRepo(headers, { repo })).default_branch
   assertRef('getRepoHead', 'default branch', ref)
-  const data = await request(headers, 'GET', `/repos/${owner}/${name}/git/ref/heads/${encodeURIComponent(ref)}`)
+  const data = await call(headers, api(['repos', ...segments, 'git', 'ref', 'heads', encodeSegment(ref)]))
   assert.ok(isSha(data?.object?.sha), `getRepoHead: no commit sha for ${repo}@${ref}`)
   return { branch: ref, oid: data.object.sha }
 }
@@ -83,35 +97,27 @@ export async function getRepoHead(headers, options) {
 // Fetch the raw contents of a file at the given ref (defaults to the
 // repo's default branch). Returns the file body as a UTF-8 string.
 async function getRepoFile(headers, options) {
-  assertOptions('getRepoFile', options, ['repo', 'path', 'ref'])
+  assertOptions('getRepoFile', 'options', options, ['repo', 'path', 'ref'])
   const { repo, path, ref } = options
-  const { owner, name } = parseRepo('getRepoFile', repo)
+  const segments = repoSegments('getRepoFile', repo)
   assertPath('getRepoFile', 'path', path)
   assertOptional(assertRef, 'getRepoFile', 'ref', ref)
-  const query = ref ? `?ref=${encodeURIComponent(ref)}` : ''
-  const encoded = path.split('/').map(encodeURIComponent).join('/')
-  const url = `/repos/${owner}/${name}/contents/${encoded}${query}`
-  const text = await request(headers, 'GET', url, { accept: 'application/vnd.github.raw' })
-  assert.ok(typeof text === 'string', `Expected file contents, got ${typeof text}`)
-  return text
+  const url = api(['repos', ...segments, 'contents', ...path.split('/').map(encodeSegment)], ref === undefined ? {} : { ref })
+  return await call({ ...headers, Accept: 'application/vnd.github.raw' }, url, { as: 'text' })
 }
 
 // Fetch the repo's tarball at the given commit into memory. Returns the
-// gzipped tar as a Uint8Array. Not through request(): that reads the
-// body as text, which would mangle the bytes, and refuses redirects,
-// while this API answers with one to codeload.github.com.
+// gzipped tar as a Uint8Array. The one redirect followed: this API
+// answers with one to codeload.github.com.
 //
 // A full commit sha and nothing else: the bytes are then the ones that
 // commit holds, rather than whatever a branch or a tag pointed at when
 // they were asked for.
 async function getRepoTarball(headers, options) {
-  assertOptions('getRepoTarball', options, ['repo', 'sha'])
-  const { owner, name } = parseRepo('getRepoTarball', options.repo)
+  assertOptions('getRepoTarball', 'options', options, ['repo', 'sha'])
+  const segments = repoSegments('getRepoTarball', options.repo)
   assertSha('getRepoTarball', 'sha', options.sha)
-  const path = `/repos/${owner}/${name}/tarball/${options.sha}`
-  const res = await fetch(`${API}${path}`, { headers })
-  if (!res.ok) throw new GitHubError(res.status, `GitHub GET ${path} ${res.status}: ${await res.text()}`)
-  return new Uint8Array(await res.arrayBuffer())
+  return await call(headers, api(['repos', ...segments, 'tarball', options.sha]), { as: 'bytes', redirect: 'follow' })
 }
 
 export const readMethods = {

@@ -35,8 +35,8 @@ function stubRegistry(payloads) {
     const name = decodeURIComponent(String(url).replace('https://registry.npmjs.org/', '').replace(/\/latest$/u, ''))
     calls.push(name)
     const body = payloads[name]
-    if (!body) return { ok: false, status: 404, json: () => ({}) }
-    return { ok: true, status: 200, json: () => ({ name, ...body }) }
+    if (!body) return Promise.resolve(Response.json({ error: 'Not found' }, { status: 404 }))
+    return Promise.resolve(Response.json({ name, ...body }))
   }
   return calls
 }
@@ -301,5 +301,59 @@ describe('resolvePackageRepos', () => {
     assert.deepEqual(await readPackageRepoCache('lodash'), { repo: 'lodash/lodash' })
     await writePackageRepoCache('@babel/core', 'babel/babel', 'packages/babel-core')
     assert.deepEqual(await readPackageRepoCache('@babel/core'), { repo: 'babel/babel', directory: 'packages/babel-core' })
+  })
+})
+
+describe('getGitHub — the sources it reads, and what it holds them to', () => {
+  it('reads the tracker without a homepage beside it', async () => {
+    assert.equal((await resolveOne({ bugs: { url: 'https://github.com/acme/app/issues' } })).repo, 'acme/app')
+  })
+
+  it('falls back to a GitHub homepage when nothing else names the repo', async () => {
+    assert.deepEqual(await resolveOne({ homepage: 'https://github.com/acme/app#readme' }), { repo: 'acme/app', url: 'https://github.com/acme/app' })
+    assert.equal(await resolveRepo({ homepage: 'https://github.com/acme/app/tree/main/packages/pkg' }), 'acme/app @ packages/pkg')
+    assert.equal((await resolveOne({ homepage: 'https://github.com/acme/app.git/' })).repo, 'acme/app')
+    // Behind the other two, not ahead of them.
+    assert.equal((await resolveOne({ ...tracked('acme/app'), homepage: 'https://github.com/other/docs' })).repo, 'acme/app')
+    for (const homepage of ['https://github.com/acme', 'https://github.com/acme/app/issues', 'https://github.com.evil.example/acme/app', 'https://evil.example/github.com/acme/app']) {
+      await assert.rejects(resolveOne({ homepage }), /no GitHub repo/u, homepage)
+    }
+  })
+
+  it('takes only what is `owner/name` by GitHub rules, whichever field says it', async () => {
+    for (const repository of ['acme/..', 'acme/.', 'https://github.com/acme/..', '-acme/app', 'ac_me/app', `${'a'.repeat(40)}/app`]) {
+      await assert.rejects(resolveOne({ repository }), /no GitHub repo/u, repository)
+    }
+    // A bad one falls through to the next source rather than winning.
+    assert.equal((await resolveOne({ repository: 'acme/..', homepage: 'https://github.com/acme/app' })).repo, 'acme/app')
+  })
+
+  it("takes the scoped names npm does, and the registry's answer only for the name asked", async () => {
+    for (const name of ['@foo.bar/pkg', '@foo_bar/pkg', 'pkg.', 'a..b']) {
+      stubRegistry({ [name]: tracked('acme/app') })
+      assert.equal((await getGitHub(name)).repo, 'acme/app', name)
+    }
+    globalThis.fetch = () => Promise.resolve(Response.json({ name: 'other', ...tracked('acme/app') }))
+    await assert.rejects(getGitHub('pkg'), /getGitHub: the registry answered for other, not pkg/u)
+  })
+})
+
+describe('the npm → GitHub repo cache, held to the same formats', () => {
+  it('refuses to write what a lookup would never answer', async () => {
+    await assert.rejects(writePackageRepoCache('lodash', 'lodash/..'), /repo must be "owner\/name"/u)
+    await assert.rejects(writePackageRepoCache('lodash', 'lodash'), /repo must be "owner\/name"/u)
+    await assert.rejects(writePackageRepoCache('lodash', 'lodash/lodash', '../etc'), /directory must be a path inside the repository/u)
+    await assert.rejects(writePackageRepoCache('../lodash', 'lodash/lodash'), /name must be an npm package name/u)
+    await assert.rejects(readPackageRepoCache(['lodash']), /name must be an npm package name/u)
+    assert.deepEqual(await readdir(REPOS).catch(() => []), [])
+  })
+
+  it('misses on an entry for another name, or with a repo or directory a lookup would not give', async () => {
+    await mkdir(REPOS, { recursive: true })
+    const write = (entry) => writeFile(join(REPOS, 'lodash.json'), JSON.stringify({ at: Date.now(), name: 'lodash', repo: 'lodash/lodash', directory: '', ...entry }))
+    for (const entry of [{ name: 'other' }, { repo: 'lodash/..' }, { repo: 'https://evil.example/x' }, { directory: '../etc' }, { directory: null }]) {
+      await write(entry)
+      assert.equal(await readPackageRepoCache('lodash'), null, JSON.stringify(entry))
+    }
   })
 })
