@@ -243,23 +243,30 @@ describe('getAdvisory', () => {
     await assert.rejects(client().getAdvisory({ ghsa: GHSA }), /getAdvisory: answered for "GHSA-vh95-rmgr-6w4m", not GHSA-xvch-5gv4-984h/u)
   })
 
-  it("falls back to the repository's own copy only on a 404, and only with a repo", async () => {
-    const repoCopy = { ghsa_id: GHSA, state: 'published', summary: 'Prototype Pollution in minimist' }
-    const notFound = () => json({ message: 'Not Found' }, 404)
-    let calls = stubGitHub(({ url }) => (url.includes('/repos/') ? json(repoCopy) : notFound()))
+  it("reads the repository's copy first, and the global one when the repository fails", async () => {
+    const repoCopy = { ghsa_id: GHSA, state: 'published', summary: 'Prototype Pollution in minimist (updated)' }
+    const globalCopy = { ghsa_id: GHSA, type: 'reviewed', summary: 'Prototype Pollution in minimist' }
+    const REPO_URL = `https://api.github.com/repos/minimistjs/minimist/security-advisories/${GHSA}`
+    const GLOBAL_URL = `https://api.github.com/advisories/${GHSA}`
+    let calls = stubGitHub(({ url }) => json(url === REPO_URL ? repoCopy : globalCopy))
     assert.deepEqual(await client().getAdvisory({ ghsa: GHSA, repo: 'minimistjs/minimist' }), repoCopy)
-    assert.deepEqual(calls.map((call) => call.url), [
-      `https://api.github.com/advisories/${GHSA}`,
-      `https://api.github.com/repos/minimistjs/minimist/security-advisories/${GHSA}`,
-    ])
-    calls = stubGitHub(notFound)
-    await assert.rejects(client().getAdvisory({ ghsa: GHSA }), { name: 'HttpError', status: 404 })
-    assert.equal(calls.length, 1)
-    calls = stubGitHub(() => json({ message: 'Server Error' }, 500))
-    await assert.rejects(client().getAdvisory({ ghsa: GHSA, repo: 'minimistjs/minimist' }), { name: 'HttpError', status: 500 })
-    assert.equal(calls.length, 1)
-    stubGitHub(({ url }) => (url.includes('/repos/') ? json({ ...repoCopy, state: 'draft' }) : notFound()))
+    assert.deepEqual(calls.map((call) => call.url), [REPO_URL])
+    for (const failed of [json({ message: 'Not Found' }, 404), json({ message: 'Repository access blocked' }, 451), new Response('', { status: 301, headers: { location: 'https://api.github.com/repositories/1' } })]) {
+      calls = stubGitHub(({ url }) => (url === REPO_URL ? failed.clone() : json(globalCopy)))
+      assert.deepEqual(await client().getAdvisory({ ghsa: GHSA, repo: 'minimistjs/minimist' }), globalCopy)
+      assert.deepEqual(calls.map((call) => call.url), [REPO_URL, GLOBAL_URL])
+    }
+    calls = stubGitHub(() => json(globalCopy))
+    await client().getAdvisory({ ghsa: GHSA })
+    assert.deepEqual(calls.map((call) => call.url), [GLOBAL_URL])
+  })
+
+  it("refuses a repository copy that is not published, or not the one asked for, rather than falling back", async () => {
+    const calls = stubGitHub(({ url }) => json(url.includes('/repos/') ? { ghsa_id: GHSA, state: 'draft' } : { ghsa_id: GHSA }))
     await assert.rejects(client().getAdvisory({ ghsa: GHSA, repo: 'minimistjs/minimist' }), /getAdvisory: GHSA-xvch-5gv4-984h is "draft", not published/u)
+    stubGitHub(() => json({ ghsa_id: 'GHSA-vh95-rmgr-6w4m', state: 'published' }))
+    await assert.rejects(client().getAdvisory({ ghsa: GHSA, repo: 'minimistjs/minimist' }), /getAdvisory: answered for "GHSA-vh95-rmgr-6w4m"/u)
+    assert.equal(calls.length, 1)
     await assert.rejects(client().getAdvisory({ ghsa: GHSA, repo: 'minimist' }), /getAdvisory: repo must be "owner\/name"/u)
   })
 

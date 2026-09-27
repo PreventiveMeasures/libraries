@@ -79,16 +79,17 @@ async function getCollaboratorPermission(headers, options) {
   return body
 }
 
-// The global database has an advisory a maintainer published only once
-// GitHub has reviewed it, and answers 404 until then; the repository's
-// own copy is there from the start.
+// The repository's copy is the maintainer's latest text, there from the
+// start; the global database has it only once GitHub has reviewed it, and
+// is the fallback for a repository that is gone.
 async function getAdvisory(headers, options) {
   assertArgs('getAdvisory', options, { ghsa: assertGhsa, repo: optional(assertRepo) })
   const { ghsa, repo } = options
-  const advisory = await call(headers, api(['advisories', ghsa])).catch((err) => {
-    if (repo === undefined || !(err instanceof HttpError) || err.status !== 404) throw err
-    return call(headers, repoApi(repo, ['security-advisories', ghsa]))
-  })
+  const global = () => call(headers, api(['advisories', ghsa]))
+  const advisory = await (repo === undefined ? global() : call(headers, repoApi(repo, ['security-advisories', ghsa])).catch((err) => {
+    if (!(err instanceof HttpError)) throw err
+    return global()
+  }))
   assert.ok(advisory?.ghsa_id === ghsa, `getAdvisory: answered for ${show(advisory?.ghsa_id)}, not ${ghsa}`)
   assert.ok(advisory.state === undefined || advisory.state === 'published', `getAdvisory: ${ghsa} is ${show(advisory.state)}, not published`)
   return advisory

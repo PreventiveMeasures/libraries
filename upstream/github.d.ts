@@ -32,12 +32,12 @@ export class HttpError extends Error {
 
 // Reads only.
 export interface Client {
-  // An advisory from GitHub's global database, by its GHSA id. One a
-  // maintainer published reaches that database only once GitHub has
-  // reviewed it, 404 until then; with `repo`, a 404 falls back to that
-  // repository's own published copy, which is shaped as a repository
-  // advisory (`state`, `patched_versions`, no `type`). Refused unless it is
-  // the one asked for, and published.
+  // An advisory by its GHSA id. With `repo`, that repository's published
+  // copy: the maintainer's latest text, there before GitHub reviews it,
+  // and shaped as a repository advisory (`state`, `patched_versions`, no
+  // `type`). Without `repo`, or when that request fails (a repository gone,
+  // renamed or blocked), GitHub's global database, which has it only once
+  // reviewed. Refused unless it is the one asked for, and published.
   getAdvisory(options: { ghsa: string; repo?: RepoName }): Promise<{ ghsa_id: string } & Record<string, any>>
   // GitHub's `{ permission, role_name, user }` for `username` on `repo`,
   // teams, organization and enterprise grants included.
