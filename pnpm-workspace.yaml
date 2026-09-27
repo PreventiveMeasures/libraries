@@ -18,6 +18,7 @@ packages:
   - "ai"
   - "diff"
   - "archive"
+  - "lockfile"
   - "upstream"
   - "vfs"
   - "yaml"
