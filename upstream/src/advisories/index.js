@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { assertArgs, assertBoolean, assertRepo, assertion, optional } from '../args.js'
+import { assertArgs, assertBoolean, assertRepo, assertion, optional, sameName } from '../args.js'
 import { byNumbers, order } from './common.js'
 import { GITHUB, assertClient } from './github.js'
 import { NPM } from './npm.js'
@@ -23,7 +23,7 @@ function collect(packages) {
     assert.ok(pkg.ecosystem !== 'github' || pkg.github === undefined, 'advisories: a github package is its own repository, and takes no package.github')
     const named = byEcosystem.get(pkg.ecosystem) ?? byEcosystem.set(pkg.ecosystem, new Map()).get(pkg.ecosystem)
     const entry = named.get(pkg.name) ?? named.set(pkg.name, { versions: new Set() }).get(pkg.name)
-    assert.ok(pkg.github === undefined || entry.github === undefined || entry.github === pkg.github, `advisories: ${pkg.name} is given two repositories`)
+    assert.ok(pkg.github === undefined || entry.github === undefined || sameName(entry.github, pkg.github), `advisories: ${pkg.name} is given two repositories`)
     entry.github ??= pkg.github
     for (const version of pkg.versions) entry.versions.add(version)
   }

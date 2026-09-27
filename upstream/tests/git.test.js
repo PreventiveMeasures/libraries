@@ -80,6 +80,8 @@ describe('findGitCheckout', () => {
       'git://github.com/acme/app',
       'https://GitHub.com/acme/app.git',
       'git@GITHUB.COM:acme/app.git',
+      'ssh://git@github.com:22/acme/app.git',
+      'https://github.com:443/acme/app.git',
     ]
     for (const url of urls) {
       const result = await findGitCheckout(await checkout({ '.git/HEAD': `${SHA}\n`, '.git/config': config(url) }))

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
+import { Buffer } from 'node:buffer'
 
 import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, isSha, optional, sameName, show } from '../args.js'
-import { encodeSegment } from '../http.js'
+import { decode, encodeSegment } from '../http.js'
 import { api, bindMethods, call, clientHeaders, isGone, repoApi } from './client.js'
 
 const PER_PAGE = 100
@@ -44,11 +45,20 @@ export async function getRepoHead(headers, options) {
   return { branch: ref, oid: data.object.sha }
 }
 
+// GitHub's object for the path first: a directory, symlink or submodule is
+// refused rather than read as a file's text. Up to 1 MB the object holds
+// the content; past it, `encoding: none`, and the raw read follows.
 async function getRepoFile(headers, options) {
   assertArgs('getRepoFile', options, { repo: assertRepo, path: assertPath, ref: optional(assertRef) })
   const { repo, path, ref } = options
   const url = repoApi(repo, ['contents', ...path.split('/').map(encodeSegment)], ref === undefined ? {} : { ref })
-  return await call({ ...headers, Accept: 'application/vnd.github.raw' }, url, { as: 'text' })
+  const file = await call(headers, url)
+  assert.ok(file?.type === 'file' && file.path === path && Number.isSafeInteger(file.size), `getRepoFile: ${repo} has no file at ${show(path)}`)
+  if (file.encoding === 'none') return await call({ ...headers, Accept: 'application/vnd.github.raw' }, url, { as: 'text' })
+  assert.ok(file.encoding === 'base64' && /^[\dA-Za-z+/=\n]*$/u.test(file.content ?? ''), `getRepoFile: unexpected encoding for ${show(path)}`)
+  const bytes = Buffer.from(file.content, 'base64')
+  assert.ok(bytes.length === file.size, `getRepoFile: ${show(path)} came back ${bytes.length} bytes, not ${file.size}`)
+  return decode(bytes, url)
 }
 
 // The one request that follows a redirect, to codeload.github.com. A full

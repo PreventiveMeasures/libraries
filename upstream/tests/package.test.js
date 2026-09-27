@@ -29,6 +29,8 @@ describe('getRepo', () => {
       { repository: 'https://GitHub.com/acme/app.git' },
       { repository: 'git+ssh://git@GITHUB.COM/acme/app.git' },
       { repository: 'git@GitHub.com:acme/app.git' },
+      { repository: 'ssh://git@github.com:22/acme/app.git' },
+      { repository: 'https://github.com:443/acme/app.git' },
       { homepage: 'https://GitHub.com/acme/app#readme' },
       { homepage: 'https://github.com/acme/app/tree/main' },
       { homepage: 'https://github.com/acme/app/tree/main/' },
@@ -36,7 +38,7 @@ describe('getRepo', () => {
       assert.deepEqual(getRepo(pkg), { github: 'acme/app', url: 'https://github.com/acme/app' }, JSON.stringify(pkg))
     }
     assert.deepEqual(getRepo({ homepage: 'https://github.com/acme/app/tree/main/packages/x/' }), { github: 'acme/app', directory: 'packages/x', url: 'https://github.com/acme/app' })
-    for (const pkg of [{ homepage: 'https://github.com/acme/app/tree' }, { homepage: 'https://github.com/acme/app/blob/main/README.md' }, { bugs: 'https://github.com/acme/../issues' }, { repository: 'https://GitHub.com.evil.example/acme/app' }, { repository: 'git@GitHub.com.evil.example:acme/app' }]) {
+    for (const pkg of [{ homepage: 'https://github.com/acme/app/tree' }, { homepage: 'https://github.com/acme/app/blob/main/README.md' }, { bugs: 'https://github.com/acme/../issues' }, { repository: 'https://GitHub.com.evil.example/acme/app' }, { repository: 'git@GitHub.com.evil.example:acme/app' }, { repository: 'https://github.com:443@evil.example/acme/app' }, { repository: 'https://github.com:x/acme/app' }]) {
       assert.deepEqual(getRepo(pkg), {}, JSON.stringify(pkg))
     }
   })

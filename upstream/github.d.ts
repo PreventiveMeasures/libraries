@@ -48,8 +48,8 @@ export interface Client {
   getPullRequest(options: { repo: RepoName; number: number }): Promise<{ title: string; status: PullRequestStatus }>
   // GitHub's repository object, refused unless it is the repo asked for.
   getRepo(options: { repo: RepoName }): Promise<any>
-  // A file's raw contents, at `ref` or the default branch; refused unless
-  // they are valid UTF-8.
+  // A file's contents as text, at `ref` or the default branch. Refused for
+  // a directory, a symlink or a submodule, and unless valid UTF-8.
   getRepoFile(options: { repo: RepoName; path: string; ref?: string }): Promise<string>
   // The head of `branch`, or of the default branch without one.
   getRepoHead(options: { repo: RepoName; branch?: string }): Promise<{ branch: string; oid: string }>

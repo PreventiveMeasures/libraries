@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { Buffer } from 'node:buffer'
 import { afterEach, describe, it } from 'node:test'
 
 import { HttpError, createClient } from '../github.js'
@@ -141,17 +142,42 @@ describe('getRepoHead', () => {
 })
 
 describe('getRepoFile', () => {
-  it('reads a file raw, each path segment encoded, at a ref', async () => {
-    const calls = stubGitHub(() => new Response('{ "name": "app" }', { headers: { 'content-type': 'application/vnd.github.raw' } }))
-    assert.equal(await client().getRepoFile({ repo: 'acme/app', path: 'dir with space/package.json', ref: 'v1.0.0' }), '{ "name": "app" }')
+  const fileAt = (path, text, overrides = {}) => json({ type: 'file', path, size: Buffer.byteLength(text), encoding: 'base64', content: `${Buffer.from(text).toString('base64')}\n`, ...overrides })
+
+  it("reads a file's content off GitHub's object for it, each path segment encoded, at a ref", async () => {
+    const calls = stubGitHub(({ url }) => fileAt(url.includes('package.json') ? 'dir with space/package.json' : 'a.txt', 'héllo { "name": "app" }'))
+    assert.equal(await client().getRepoFile({ repo: 'acme/app', path: 'dir with space/package.json', ref: 'v1.0.0' }), 'héllo { "name": "app" }')
     assert.equal(calls[0].url, 'https://api.github.com/repos/acme/app/contents/dir%20with%20space/package.json?ref=v1.0.0')
-    assert.equal(calls[0].headers.Accept, 'application/vnd.github.raw')
+    assert.equal(calls[0].headers.Accept, 'application/vnd.github+json')
     await client().getRepoFile({ repo: 'acme/app', path: 'a.txt', ref: SHA })
     assert.equal(calls[1].url, `https://api.github.com/repos/acme/app/contents/a.txt?ref=${SHA}`)
   })
 
+  it('reads a file past 1 MB raw, after its object says it is one', async () => {
+    const calls = stubGitHub(({ headers }) => (headers.Accept === 'application/vnd.github.raw' ? new Response('big') : json({ type: 'file', path: 'big.txt', size: 2_000_000, encoding: 'none', content: '' })))
+    assert.equal(await client().getRepoFile({ repo: 'acme/app', path: 'big.txt' }), 'big')
+    assert.deepEqual(calls.map((call) => call.headers.Accept), ['application/vnd.github+json', 'application/vnd.github.raw'])
+  })
+
+  it('refuses a directory, a symlink, another path, or content that is not what it says', async () => {
+    for (const [answer, error] of [
+      [json([{ type: 'file', path: 'dir/a.txt', size: 1 }]), /getRepoFile: acme\/app has no file at "dir"/u],
+      [json({ type: 'symlink', path: 'dir', size: 5, target: 'other' }), /getRepoFile: acme\/app has no file at "dir"/u],
+      [json({ type: 'submodule', path: 'dir', size: 0 }), /getRepoFile: acme\/app has no file at "dir"/u],
+      [fileAt('other', 'x'), /getRepoFile: acme\/app has no file at "dir"/u],
+      [fileAt('dir', 'x', { encoding: 'utf-8' }), /getRepoFile: unexpected encoding for "dir"/u],
+      [fileAt('dir', 'x', { content: '!!' }), /getRepoFile: unexpected encoding for "dir"/u],
+      [fileAt('dir', 'xyz', { size: 2 }), /getRepoFile: "dir" came back 3 bytes, not 2/u],
+      [fileAt('dir', 'x', { content: Buffer.from([0xff]).toString('base64'), size: 1 }), /Malformed UTF-8/u],
+    ]) {
+      const calls = stubGitHub(() => answer.clone())
+      await assert.rejects(client().getRepoFile({ repo: 'acme/app', path: 'dir' }), error)
+      assert.equal(calls.length, 1)
+    }
+  })
+
   it('encodes what URL parsing would otherwise read: a `%2e%2e`, a `#`, a `?`', async () => {
-    const calls = stubGitHub(() => new Response('x'))
+    const calls = stubGitHub(() => fileAt('%2e%2e/a#b?c/(d)', 'x'))
     await client().getRepoFile({ repo: 'acme/app', path: '%2e%2e/a#b?c/(d)', ref: 'feat/a#b' })
     assert.equal(calls[0].url, 'https://api.github.com/repos/acme/app/contents/%252e%252e/a%23b%3Fc/%28d%29?ref=feat%2Fa%23b')
     stubGitHub(() => json({ object: { sha: SHA } }))

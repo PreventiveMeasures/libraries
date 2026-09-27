@@ -68,6 +68,12 @@ describe('advisories', () => {
     assert.deepEqual(await advisories([]), [])
     assert.deepEqual(calls, [])
   })
+
+  it('takes one repository spelled in two cases as one', async () => {
+    stubRegistry(() => ({}))
+    const pkg = { ecosystem: 'npm', name: 'lodash', versions: ['1.0.0'] }
+    assert.deepEqual(await advisories([{ ...pkg, github: 'Lodash/Lodash' }, { ...pkg, github: 'lodash/lodash' }]), [])
+  })
 })
 
 describe('npm', () => {
