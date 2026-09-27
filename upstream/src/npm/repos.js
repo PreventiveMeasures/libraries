@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict'
 
-import { assertBoolean, assertOptional, assertOptions, assertPackageName, assertRepo, isRepo, show } from '../args.js'
+import { assertArgs, assertBoolean, assertPackageName, assertRepo, isRepo, optional, show } from '../args.js'
 import { readCacheJSON, writeCacheJSON } from '../cache.js'
 import { NPM_REGISTRY, buildUrl, request } from '../http.js'
 import { assertRepoDirectory, getRepo, isRepoDirectory } from '../package.js'
+
+const DIR = 'npm/repos'
+// The link changes only on a transfer or rename, and GitHub redirects a
+// renamed repo.
+const TTL_MS = 30 * 24 * 60 * 60 * 1000
+const CONCURRENCY = 8
 
 // `latest`, not the full packument, which is megabytes of version history.
 async function getShortInfo(name) {
@@ -19,20 +25,13 @@ export async function getGitHub(name) {
   return link
 }
 
-const DIR = 'npm/repos'
-
-// The link changes only on a transfer or rename, and GitHub redirects a
-// renamed repo.
-const TTL_MS = 30 * 24 * 60 * 60 * 1000
-
 // An entry without `directory` predates the field: a miss, not a package
 // at the repo root.
 export async function readPackageRepoCache(name) {
   assertPackageName('readPackageRepoCache', 'name', name)
   const entry = await readCacheJSON(DIR, `${name}.json`)
-  if (!entry || typeof entry !== 'object' || typeof entry.at !== 'number') return null
-  if (Date.now() - entry.at > TTL_MS) return null
-  if (entry.name !== name || !isRepo(entry.github) || !isRepoDirectory(entry.directory)) return null
+  const fresh = typeof entry?.at === 'number' && Date.now() - entry.at <= TTL_MS
+  if (!fresh || entry.name !== name || !isRepo(entry.github) || !isRepoDirectory(entry.directory)) return null
   return { github: entry.github, ...(entry.directory && { directory: entry.directory }) }
 }
 
@@ -45,35 +44,24 @@ export async function writePackageRepoCache(name, github, directory = '') {
   return await writeCacheJSON(DIR, `${name}.json`, { at: Date.now(), name, github, directory })
 }
 
-const CONCURRENCY = 8
-
 // A malformed name throws for the batch; a lookup that fails only leaves
 // its name out.
 export async function resolvePackageRepos(packageNames, options = {}) {
   assert.ok(typeof packageNames?.[Symbol.iterator] === 'function' && typeof packageNames !== 'string', 'resolvePackageRepos: packageNames must be an iterable of names')
-  assertOptions('resolvePackageRepos', 'options', options, ['cachedOnly'])
-  assertOptional(assertBoolean, 'resolvePackageRepos', 'cachedOnly', options.cachedOnly)
+  assertArgs('resolvePackageRepos', options, { cachedOnly: optional(assertBoolean) })
   const names = [...new Set(packageNames)]
   for (const name of names) assertPackageName('resolvePackageRepos', 'name', name)
   const repos = new Map()
   const lookUp = async (name) => {
     const stored = await readPackageRepoCache(name)
-    if (stored) {
-      repos.set(name, stored)
-      return
-    }
-    if (options.cachedOnly) return
-    try {
-      const { github, directory } = await getGitHub(name)
-      repos.set(name, { github, ...(directory && { directory }) })
-      await writePackageRepoCache(name, github, directory)
-    } catch {
-      // A failed lookup only leaves the name out.
-    }
+    if (stored || options.cachedOnly) return stored && repos.set(name, stored)
+    const { github, directory } = await getGitHub(name)
+    repos.set(name, { github, ...(directory && { directory }) })
+    await writePackageRepoCache(name, github, directory)
   }
   let next = 0
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, names.length) }, async () => {
-    while (next < names.length) await lookUp(names[next++])
+    while (next < names.length) await lookUp(names[next++]).catch(() => {})
   }))
   return repos
 }

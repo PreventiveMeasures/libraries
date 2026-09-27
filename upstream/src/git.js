@@ -1,5 +1,5 @@
 import { readFile, realpath, stat } from 'node:fs/promises'
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 
 import { assertDirectoryPath, isRefName, isSha } from './args.js'
 import { githubRepoOfUrl } from './remote.js'
@@ -7,14 +7,10 @@ import { githubRepoOfUrl } from './remote.js'
 // Read off `.git` without running git. Best-effort: whatever can't be
 // read is a field left out; only a non-string `dir` throws.
 
-const read = async (path) => {
-  try {
-    return await readFile(path, 'utf8')
-  } catch {
-    return null
-  }
-}
-
+// Only this exact form, at the start of a line. Only `owner/name` is
+// returned: the URL may name a private host or carry a token.
+const ORIGIN = '[remote "origin"]\n\turl = '
+const read = (path) => readFile(path, 'utf8').catch(() => null)
 const isDirectory = async (path) => (await stat(path).catch(() => null))?.isDirectory() ?? false
 
 // A `.git` file points at the real git dir (worktrees, submodules), and a
@@ -53,32 +49,19 @@ async function headCommit(gitDir, commonDir) {
   return null
 }
 
-// Only this exact form, at the start of a line. Only `owner/name` is
-// returned: the URL may name a private host or carry a token.
-const ORIGIN = '[remote "origin"]\n\turl = '
-
 async function originGitHub(commonDir) {
   const config = `\n${await read(join(commonDir, 'config')) ?? ''}`
   const at = config.indexOf(`\n${ORIGIN}`)
-  if (at === -1) return undefined
-  return githubRepoOfUrl(config.slice(at + 1 + ORIGIN.length).split('\n')[0].trim())
+  return at === -1 ? undefined : githubRepoOfUrl(config.slice(at + 1 + ORIGIN.length).split('\n')[0].trim())
 }
 
 export async function findGitCheckout(dir) {
   assertDirectoryPath('findGitCheckout', 'dir', dir)
   const start = await realpath(resolve(dir)).catch(() => null)
-  if (start === null || !await isDirectory(start)) return {}
-  const dirs = await findGitDirs(start)
+  const dirs = start && await isDirectory(start) ? await findGitDirs(start) : null
   if (dirs === null) return {}
-  const path = relative(dirs.root, start)
-  if (isAbsolute(path) || path.split(sep).includes('..')) return {}
-  const directory = path.split(sep).join('/')
+  const directory = relative(dirs.root, start).split(sep).join('/')
   const github = await originGitHub(dirs.commonDir)
   const commit = await headCommit(dirs.gitDir, dirs.commonDir)
-  return {
-    ...(github && { github }),
-    ...(directory && { directory }),
-    ...(github && { url: `https://github.com/${github}` }),
-    ...(commit && { commit }),
-  }
+  return { ...(github && { github }), ...(directory && { directory }), ...(github && { url: `https://github.com/${github}` }), ...(commit && { commit }) }
 }

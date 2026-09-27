@@ -1,19 +1,15 @@
-import { assertNoArgs, assertOptions, assertToken, assertTokenOrNull, assertUserAgent } from '../args.js'
+import assert from 'node:assert/strict'
+
+import { assertArgs, assertToken, assertTokenOrNull, assertUserAgent, optional } from '../args.js'
 import { GITHUB_API, buildUrl, request } from '../http.js'
 
 export const api = (segments, query) => buildUrl(GITHUB_API, segments, query)
-
-export async function call(headers, url, { as = 'json', ...options } = {}) {
-  return await request(url, { headers, as, ...options })
-}
+export const call = (headers, url, options) => request(url, { as: 'json', headers, ...options })
 
 // `null` is explicit anonymous access, so a forgotten token is an error.
-export function clientHeaders(method, options, { anonymous }) {
-  assertOptions(method, 'options', options, ['token', 'userAgent'])
+export function clientHeaders(method, options, anonymous) {
+  assertArgs(method, options, { token: anonymous ? assertTokenOrNull : assertToken, userAgent: optional(assertUserAgent) })
   const { token, userAgent = '@preventive/upstream' } = options
-  const assertTokenFor = anonymous ? assertTokenOrNull : assertToken
-  assertTokenFor(method, 'token', token)
-  assertUserAgent(method, 'userAgent', userAgent)
   return {
     ...(token !== null && { Authorization: `Bearer ${token}` }),
     Accept: 'application/vnd.github+json',
@@ -25,12 +21,8 @@ export function clientHeaders(method, options, { anonymous }) {
 // All async, so a bad argument is always a rejection. Arguments past the
 // method's own, per `fn.length`, are refused.
 export function bindMethods(headers, methods) {
-  const bound = {}
-  for (const [name, fn] of Object.entries(methods)) {
-    bound[name] = async (...args) => {
-      assertNoArgs(name, args.slice(fn.length - 1))
-      return await fn(headers, ...args)
-    }
-  }
-  return bound
+  return Object.fromEntries(Object.entries(methods).map(([name, fn]) => [name, async (...args) => {
+    assert.ok(args.length < fn.length, `${name}: unexpected arguments`)
+    return await fn(headers, ...args)
+  }]))
 }

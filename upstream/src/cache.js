@@ -4,8 +4,11 @@ import { dirname, join, resolve } from 'node:path'
 
 import { assertDirectoryPath } from './args.js'
 
+const DIRS = new Set(['npm/repos', 'npm/tarballs'])
+
 // No default location: unset, reads miss and writes are skipped.
 let root
+let tmpSeq = 0
 
 export function setCacheDir(dir) {
   assertDirectoryPath('setCacheDir', 'dir', dir)
@@ -13,23 +16,15 @@ export function setCacheDir(dir) {
   root = resolve(dir)
 }
 
-const DIRS = new Set(['npm/repos', 'npm/tarballs'])
-
 // URI-encoded, so a `/` or `..` in a key stays inside one file name.
 function cachePath(dir, key) {
-  assert.ok(DIRS.has(dir) && typeof key === 'string' && key !== '', `Unexpected cache entry: ${dir}`)
+  assert.ok(DIRS.has(dir) && key && typeof key === 'string', `Unexpected cache entry: ${dir}`)
   return root === undefined ? null : join(root, dir, encodeURIComponent(key))
 }
 
 export async function readCache(dir, key) {
   const path = cachePath(dir, key)
-  if (path === null) return null
-  try {
-    const bytes = await readFile(path)
-    return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-  } catch {
-    return null
-  }
+  return path && await readFile(path).then((bytes) => new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength), () => null)
 }
 
 export async function readCacheJSON(dir, key) {
@@ -41,8 +36,6 @@ export async function readCacheJSON(dir, key) {
   }
 }
 
-let tmpSeq = 0
-
 // Temp file and rename, so a killed process never leaves a truncated
 // record. Never throws: an unwritable cache only makes the next call slower.
 export async function writeCache(dir, key, data) {
@@ -53,11 +46,11 @@ export async function writeCache(dir, key, data) {
     await mkdir(dirname(path), { recursive: true })
     await writeFile(tmp, data)
     await rename(tmp, path)
+    return true
   } catch {
     await rm(tmp, { force: true }).catch(() => {})
     return false
   }
-  return true
 }
 
 export async function writeCacheJSON(dir, key, value) {

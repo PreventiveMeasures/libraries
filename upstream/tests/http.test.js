@@ -136,9 +136,9 @@ describe('limits', () => {
 
   it('refuses a header name or value that could split the request', async () => {
     globalThis.fetch = () => assert.fail('no request expected')
-    await assert.rejects(send(`${GITHUB_API}/x`, { headers: { 'X-A': 'b\r\nX-Evil: 1' } }), /Unexpected header: X-A/u)
-    await assert.rejects(send(`${GITHUB_API}/x`, { headers: { 'X A': 'b' } }), /Unexpected header/u)
-    await assert.rejects(send(`${GITHUB_API}/x`, { headers: { 'X-A': 42 } }), /Unexpected header/u)
+    await assert.rejects(send(`${GITHUB_API}/x`, { as: 'json', headers: { 'X-A': 'b\r\nX-Evil: 1' } }), /Unexpected header: X-A/u)
+    await assert.rejects(send(`${GITHUB_API}/x`, { as: 'json', headers: { 'X A': 'b' } }), /Unexpected header/u)
+    await assert.rejects(send(`${GITHUB_API}/x`, { as: 'json', headers: { 'X-A': 42 } }), /Unexpected header/u)
   })
 
   it('escapes control and bidi characters a response puts in an error message', async () => {
@@ -150,6 +150,17 @@ describe('limits', () => {
 })
 
 describe('src/', () => {
+  it('holds no literal control or bidi character, which would make the source read as something it is not', () => {
+    const dir = new URL('../src/', import.meta.url)
+    const hidden = (char) => {
+      const code = char.codePointAt(0)
+      return (code < 0x20 && char !== '\t' && char !== '\n') || (code >= 0x7F && code <= 0x9F) || (code >= 0x20_2A && code <= 0x20_2E) || (code >= 0x20_66 && code <= 0x20_69)
+    }
+    for (const name of readdirSync(dir, { recursive: true }).filter((file) => file.endsWith('.js'))) {
+      assert.equal([...readFileSync(new URL(name, dir), 'utf8')].find(hidden), undefined, name)
+    }
+  })
+
   it('calls fetch in http.js and nowhere else', () => {
     const dir = new URL('../src/', import.meta.url)
     const files = readdirSync(dir, { recursive: true }).filter((name) => name.endsWith('.js'))

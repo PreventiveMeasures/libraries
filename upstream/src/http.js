@@ -8,18 +8,34 @@ import { printable } from './args.js'
 
 export const NPM_REGISTRY = 'https://registry.npmjs.org'
 export const GITHUB_API = 'https://api.github.com'
-const ORIGINS = new Set([NPM_REGISTRY, GITHUB_API])
 
-const isSegment = (value) => typeof value === 'string' && /^(?:[\w.~@-]|%[\dA-F]{2})+$/u.test(value) && value !== '.' && value !== '..'
+const ORIGINS = new Set([NPM_REGISTRY, GITHUB_API])
+const isSegment = (value) => typeof value === 'string' && /^(?!\.\.?$)(?:[\w.~@-]|%[\dA-F]{2})+$/u.test(value)
+const isQueryKey = (value) => /^[a-z_]+$/u.test(value)
+const isQueryValue = (value) => (typeof value === 'string' && value !== '') || (Number.isSafeInteger(value) && value >= 0)
+// API documents are kilobytes, a GitHub file is at most 100 MB, a tarball
+// is what it is.
+const LIMITS = {
+  json: { bytes: 64 * 1024 * 1024, ms: 30_000 },
+  text: { bytes: 128 * 1024 * 1024, ms: 30_000 },
+  bytes: { bytes: 512 * 1024 * 1024, ms: 300_000 },
+}
+const ERROR_BODY_BYTES = 4096
+const decoder = new TextDecoder()
+
+export class HttpError extends Error {
+  constructor(status, message) {
+    super(message)
+    this.name = 'HttpError'
+    this.status = status
+  }
+}
 
 // encodeURIComponent leaves `!'()*` as they are.
 export function encodeSegment(value) {
   assert.equal(typeof value, 'string')
   return encodeURIComponent(value).replace(/[!'()*]/gu, (char) => `%${char.codePointAt(0).toString(16).toUpperCase()}`)
 }
-
-const isQueryKey = (value) => /^[a-z_]+$/u.test(value)
-const isQueryValue = (value) => (typeof value === 'string' && value !== '') || (Number.isSafeInteger(value) && value >= 0)
 
 export function buildUrl(origin, segments, query = {}) {
   assert.ok(ORIGINS.has(origin), `Unexpected origin: ${origin}`)
@@ -36,14 +52,6 @@ export function buildUrl(origin, segments, query = {}) {
   return href
 }
 
-export class HttpError extends Error {
-  constructor(status, message) {
-    super(message)
-    this.name = 'HttpError'
-    this.status = status
-  }
-}
-
 function assertBuilt(url) {
   assert.equal(typeof url, 'string')
   const parsed = new URL(url)
@@ -57,30 +65,16 @@ function assertHeaders(headers) {
   }
 }
 
-// API documents are kilobytes, a GitHub file is at most 100 MB, a tarball
-// is what it is.
-const LIMITS = {
-  json: { bytes: 64 * 1024 * 1024, ms: 30_000 },
-  text: { bytes: 128 * 1024 * 1024, ms: 30_000 },
-  bytes: { bytes: 512 * 1024 * 1024, ms: 300_000 },
-}
-
-const ERROR_BODY_BYTES = 4096
-
 // Redirects aren't followed unless asked: an answer about another repo is
 // worse than an error.
-export async function send(url, { method = 'GET', headers = {}, body, redirect = 'manual', as = 'json' } = {}) {
+export async function send(url, { method = 'GET', headers = {}, body, redirect = 'manual', as } = {}) {
   assertBuilt(url)
   assert.ok(['GET', 'POST'].includes(method), `Unexpected method: ${method}`)
   assert.ok(['manual', 'follow'].includes(redirect), `Unexpected redirect mode: ${redirect}`)
   assert.ok(Object.hasOwn(LIMITS, as), `Unexpected response type: ${as}`)
   assertHeaders(headers)
-  const init = { method, headers: { ...headers }, redirect, signal: AbortSignal.timeout(LIMITS[as].ms) }
-  if (body !== undefined) {
-    init.headers['Content-Type'] = 'application/json'
-    init.body = JSON.stringify(body)
-  }
-  return await fetch(url, init)
+  const json = body === undefined ? {} : { headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+  return await fetch(url, { method, headers, redirect, signal: AbortSignal.timeout(LIMITS[as].ms), ...json })
 }
 
 export async function readBody(res, limit, { truncate = false } = {}) {
@@ -91,44 +85,28 @@ export async function readBody(res, limit, { truncate = false } = {}) {
   }
   const chunks = []
   let size = 0
-  const reader = res.body?.getReader()
-  for (;;) {
-    const { done, value } = reader ? await reader.read() : { done: true }
-    if (done) break
-    chunks.push(value)
-    size += value.byteLength
-    if (size > limit) {
-      await reader.cancel()
-      if (!truncate) throw new Error(`Response too large: over ${limit} bytes`)
-      break
-    }
+  for await (const chunk of res.body ?? []) {
+    chunks.push(chunk)
+    size += chunk.byteLength
+    if (size <= limit) continue
+    if (!truncate) throw new Error(`Response too large: over ${limit} bytes`)
+    break
   }
-  const bytes = new Uint8Array(Math.min(size, limit))
-  let at = 0
-  for (const chunk of chunks) {
-    const part = chunk.subarray(0, bytes.length - at)
-    bytes.set(part, at)
-    at += part.length
-  }
-  return bytes
+  return new Uint8Array(await new Blob(chunks).arrayBuffer(), 0, Math.min(size, limit))
 }
-
-const decoder = new TextDecoder()
 
 // Read as the caller says, not by content type, which proxies drop or
 // rewrite.
 export async function request(url, options) {
-  const { as } = options
-  assert.ok(Object.hasOwn(LIMITS, as), `Unexpected response type: ${as}`)
   const res = await send(url, options)
   if (!res.ok) {
     const text = decoder.decode(await readBody(res, ERROR_BODY_BYTES, { truncate: true }).catch(() => new Uint8Array(0)))
     throw new HttpError(res.status, `${options.method ?? 'GET'} ${url} ${res.status}: ${printable(text)}`)
   }
-  const bytes = await readBody(res, LIMITS[as].bytes)
-  if (as === 'bytes') return bytes
+  const bytes = await readBody(res, LIMITS[options.as].bytes)
+  if (options.as === 'bytes') return bytes
   const text = decoder.decode(bytes)
-  if (as === 'text') return text
+  if (options.as === 'text') return text
   try {
     return JSON.parse(text)
   } catch (err) {

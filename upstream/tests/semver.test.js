@@ -1,77 +1,53 @@
 import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
+import { dirname, resolve } from 'node:path'
 import { describe, it } from 'node:test'
 
 import { compareVersions, isExactVersion, satisfies, semverAvailable, valid } from '../semver.js'
 
 // Against the npm that ships beside the node running this, which every
 // install these tests run on has.
+const semver = createRequire(import.meta.url)(resolve(dirname(process.argv[0]), '../lib/node_modules/npm/node_modules/semver'))
 
 describe("npm's semver, borrowed", () => {
   it('is found beside node', () => {
     assert.equal(semverAvailable(), true)
   })
 
-  it('matches a range', () => {
+  it("answers as semver does, options and all", () => {
     assert.equal(satisfies('4.17.20', '<4.17.21'), true)
     assert.equal(satisfies('4.17.21', '<4.17.21'), false)
-    assert.equal(satisfies('1.2.3', '>=1.0.0 <2.0.0 || >=3.0.0'), true)
-    assert.equal(satisfies('2.5.0', '>=1.0.0 <2.0.0 || >=3.0.0'), false)
-  })
-
-  it('counts a prerelease of a covered version as covered', () => {
-    // Plain semver would say no: `<4.17.21` names no prerelease.
-    assert.equal(satisfies('4.17.20-rc.1', '<4.17.21'), true)
-  })
-
-  it('reads a range it cannot parse as matching everything', () => {
-    assert.equal(satisfies('1.0.0', 'not a range'), true)
-    assert.equal(satisfies('1.0.0', '>=<1'), true)
-  })
-
-  it('orders versions as versions', () => {
+    assert.equal(satisfies('4.17.20-rc.1', '<4.17.21'), false)
+    assert.equal(satisfies('4.17.20-rc.1', '<4.17.21', { includePrerelease: true }), true)
+    assert.equal(satisfies('1.0.0', 'not a range'), false)
     assert.equal(compareVersions('1.9.0', '1.10.0'), -1)
-    assert.equal(compareVersions('1.10.0', '1.9.0'), 1)
-    assert.equal(compareVersions('1.0.0', '1.0.0'), 0)
-    assert.equal(compareVersions('1.0.0-rc.1', '1.0.0'), -1)
     assert.deepEqual(['1.10.0', '1.2.0', '1.9.0'].toSorted(compareVersions), ['1.2.0', '1.9.0', '1.10.0'])
-  })
-
-  it('orders what is not a version as a string', () => {
-    assert.equal(compareVersions('file:a', 'file:b'), -1)
-    assert.equal(compareVersions('link:b', 'link:a'), 1)
-  })
-})
-
-describe('isExactVersion', () => {
-  it('takes a resolved version', () => {
-    for (const version of ['1.2.3', '0.0.0', '1.2.3-rc.1', '1.2.3+build.5', '1.2.3-beta.2+sha.abc']) {
-      assert.equal(isExactVersion(version), true, version)
-    }
-  })
-
-  it('refuses a range, a pin or a non-string', () => {
-    for (const version of ['^1.2.3', '1.2', '1.2.x', 'file:../a', 'link:a', 'latest', '', 123, undefined, null]) {
-      assert.equal(isExactVersion(version), false, String(version))
-    }
+    assert.throws(() => compareVersions('file:a', 'file:b'), /Invalid Version/u)
   })
 })
 
 describe('valid', () => {
-  it('answers a version as semver spells it', () => {
-    for (const version of ['1.2.3', '0.0.0', '1.2.3-rc.1', '10.20.30-alpha.1.beta']) {
-      assert.equal(valid(version), version)
-    }
+  // The fast path answers without semver, so it may only ever answer what
+  // semver would: every string here, and a few thousand random ones, is
+  // checked against semver.valid itself.
+  const EDGES = [
+    '0.0.0', '1.2.3', '10.20.30', '999999999999999.0.0', '0.999999999999999.0', '9007199254740991.0.0', '9007199254740992.0.0',
+    '9999999999999999.1.1', '01.2.3', '1.02.3', '1.2.03', '00.0.0', '1.2', '1.2.3.4', '1..3', '.1.2', '1.2.', '-1.2.3', '+1.2.3',
+    'v1.2.3', '=1.2.3', ' 1.2.3', '1.2.3 ', '1.2.3\n', '\n1.2.3', '1.2.3-0', '1.2.3-rc.1', '1.2.3-01', '1.2.3+build', '1.2.3-a+b',
+    '１.2.3', '1.2.3\u0000', '', 'latest', '*', '^1.2.3', '1.x', `1.2.${'1'.repeat(300)}`,
+  ]
+  let seed = 7
+  const next = (n) => { seed = (seed * 48271) % 2147483647; return seed % n }
+  const PIECES = ['0', '1', '9', '01', '10', '123456789012345', '1234567890123456', '.', '.', '.', '-', '+', 'rc', 'v', ' ', 'x']
+  const RANDOM = Array.from({ length: 3000 }, () => Array.from({ length: 1 + next(7) }, () => PIECES[next(PIECES.length)]).join(''))
+
+  it('answers exactly what semver.valid answers', () => {
+    for (const version of [...EDGES, ...RANDOM]) assert.equal(valid(version), semver.valid(version), JSON.stringify(version))
+    for (const version of [undefined, null, 42, ['1.2.3']]) assert.equal(valid(version), semver.valid(version), String(version))
   })
 
-  it('normalizes what it can read, so the answer is not always the input', () => {
-    assert.equal(valid('v1.2.3'), '1.2.3')
-    assert.equal(valid(' 1.2.3 '), '1.2.3')
-    assert.equal(valid('1.2.3+build.5'), '1.2.3')
-  })
-
-  it('answers null for anything that is not a version', () => {
-    for (const version of ['01.2.3', '1.2', '^1.2.3', '1.2.x', 'latest', '1.2.3/../x', '', 123, undefined, null, ['1.2.3']]) {
-      assert.equal(valid(version), null, String(version))
-    }
+  it('counts as exact only what semver spells unchanged', () => {
+    for (const version of ['1.2.3', '0.0.0', '1.2.3-rc.1', '1.2.3-beta.2']) assert.equal(isExactVersion(version), true, version)
+    for (const version of ['v1.2.3', ' 1.2.3', '1.2.3+build.5', '01.2.3', '1.2', '^1.2.3', '', 123, undefined]) assert.equal(isExactVersion(version), false, String(version))
   })
 })
