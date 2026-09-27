@@ -42,6 +42,10 @@ export interface NpmAdvisory {
   versions: string[]
 }
 
+// A row from a repository's own published advisories, as githubAdvisories
+// answers them: `name` is the repository.
+export type GitHubAdvisory = Omit<NpmAdvisory, 'id' | 'source'> & { source: 'repository' }
+
 // One OSV record on one package, with the versions asked about that it
 // affects (never empty).
 export interface OsvAdvisory {
@@ -80,4 +84,12 @@ export function cargoAdvisories(packages: Iterable<InstalledPackage>): Promise<O
 // publishes under a GHSA answered for the same package is left out. Dev
 // versions (`dev-main`) are refused: OSV cannot place them. Sorted by
 // name, then id.
-export function packagistAdvisories(packages: Iterable<InstalledPackage>): Promise<OsvAdvisory[]>
+export function composerAdvisories(packages: Iterable<InstalledPackage>): Promise<OsvAdvisory[]>
+
+// Dependencies that are GitHub repositories themselves (stasis's `github`
+// ecosystem): `name` is `owner/name`, `version` an exact semver version.
+// Each repository's own published advisories, asked once, four at a time,
+// with every range they list counted, whichever package it names; the
+// same range listed for two packages is one row. A repository gone,
+// renamed or blocked is skipped; any other failure throws. Sorted by name.
+export function githubAdvisories(packages: Iterable<InstalledPackage>, options: { github: Client }): Promise<GitHubAdvisory[]>

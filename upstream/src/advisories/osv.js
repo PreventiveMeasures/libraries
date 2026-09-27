@@ -15,7 +15,7 @@ const CRATES = {
   assertVersion: assertion('a semver version', matches(/^(?=.{5,256}$)(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][\dA-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][\dA-Za-z-]*))*)?(?:\+[\dA-Za-z-]+(?:\.[\dA-Za-z-]+)*)?$/u)),
   keep: (id) => id.startsWith('RUSTSEC-'), // What `cargo audit` reads; the GHSA records mirror it.
 }
-const PACKAGIST = {
+const COMPOSER = {
   ecosystem: 'Packagist',
   assertName: assertion('a Composer package name', matches(/^(?=.{3,256}$)[a-z\d](?:[_.-]?[a-z\d]+)*\/[a-z\d](?:(?:[_.]|-{1,2})?[a-z\d]+)*$/u)),
   assertVersion: assertion('a Composer release version', matches(/^(?=.{1,64}$)v?\d+(?:\.\d+){0,3}(?:[._-]?(?:stable|beta|b|RC|alpha|a|patch|pl|p)(?:[.-]?\d+)*)?$/iu)),
@@ -88,4 +88,4 @@ export const cargoAdvisories = (packages) => osvAdvisories('cargoAdvisories', CR
 // TODO: packagist.org's API, what `composer audit` reads, also has the
 // FriendsOfPHP advisories OSV lacks; using it means matching Composer
 // version ranges here.
-export const packagistAdvisories = (packages) => osvAdvisories('packagistAdvisories', PACKAGIST, packages)
+export const composerAdvisories = (packages) => osvAdvisories('composerAdvisories', COMPOSER, packages)

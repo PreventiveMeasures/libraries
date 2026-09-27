@@ -49,6 +49,7 @@
     "semver.d.ts",
     "semver.js",
     "src/advisories/common.js",
+    "src/advisories/github.js",
     "src/advisories/npm.js",
     "src/advisories/osv.js",
     "src/args.js",

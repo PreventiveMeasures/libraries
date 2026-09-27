@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
 
-import { HttpError, cargoAdvisories, packagistAdvisories } from '../advisories.js'
+import { HttpError, cargoAdvisories, composerAdvisories } from '../advisories.js'
 
 const BATCH = 'https://api.osv.dev/v1/querybatch'
 const VULN = 'https://api.osv.dev/v1/vulns/'
@@ -129,7 +129,7 @@ describe('cargoAdvisories', () => {
   })
 })
 
-describe('packagistAdvisories', () => {
+describe('composerAdvisories', () => {
   const ghsa = (id, overrides = {}) => ({
     id,
     summary: `Advisory ${id}`,
@@ -150,7 +150,7 @@ describe('packagistAdvisories', () => {
       'DRUPAL-CORE-2023-001': { id: 'DRUPAL-CORE-2023-001' },
       'GHSA-6439-2f28-8p8q': ghsa('GHSA-6439-2f28-8p8q', { aliases: ['CVE-2026-45075'], database_specific: { severity: 'HIGH' }, severity: [] }),
     })
-    const advisories = await packagistAdvisories([
+    const advisories = await composerAdvisories([
       { name: 'drupal/core', version: '9.5.0' },
       { name: 'drupal/other', version: '1.0.0' },
       { name: 'symfony/http-kernel', version: 'v7.4.5' },
@@ -179,14 +179,14 @@ describe('packagistAdvisories', () => {
   it('takes Composer release versions, and refuses dev versions and malformed names, before any request', async () => {
     const calls = stubOsv({}, {})
     for (const version of ['1.2.3', 'v1.2.3', '1.2.3.4', '2.0.0-beta1', '2.0.0-RC2', '1.0.0-p1', '1.0']) {
-      await packagistAdvisories([{ name: 'acme/app', version }])
+      await composerAdvisories([{ name: 'acme/app', version }])
     }
     assert.equal(calls.length, 7)
     for (const version of ['dev-main', '2.x-dev', '1.0.0-dev', '^1.0', '1.0.0 ', '', undefined]) {
-      await assert.rejects(packagistAdvisories([{ name: 'acme/app', version }]), /packagistAdvisories: version must be a Composer release version/u, String(version))
+      await assert.rejects(composerAdvisories([{ name: 'acme/app', version }]), /composerAdvisories: version must be a Composer release version/u, String(version))
     }
     for (const name of ['acme', 'Acme/App', 'acme/', '/app', 'acme/app/x', '../app', 'acme/ap p', undefined]) {
-      await assert.rejects(packagistAdvisories([{ name, version: '1.0.0' }]), /packagistAdvisories: name must be a Composer package name/u, String(name))
+      await assert.rejects(composerAdvisories([{ name, version: '1.0.0' }]), /composerAdvisories: name must be a Composer package name/u, String(name))
     }
     assert.equal(calls.length, 7)
   })

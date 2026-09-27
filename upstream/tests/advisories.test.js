@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
 
-import { HttpError, npmAdvisories } from '../advisories.js'
+import { HttpError, githubAdvisories, npmAdvisories } from '../advisories.js'
 import { createClient } from '../github.js'
 
 const BULK = 'https://registry.npmjs.org/-/npm/v1/security/advisories/bulk'
@@ -213,6 +213,70 @@ describe('npmAdvisories with a GitHub client', () => {
       await assert.rejects(npmAdvisories([{ name: 'pkg', version: '1.0.0' }], { github: option }), /npmAdvisories: github must be a GitHub client from createClient/u)
     }
     await assert.rejects(npmAdvisories([{ name: 'pkg', version: '1.0.0' }], { gitHub: github }), /npmAdvisories: unknown option gitHub/u)
+    assert.deepEqual(calls, [])
+  })
+})
+
+describe('githubAdvisories', () => {
+  const OZ = 'https://api.github.com/repos/OpenZeppelin/openzeppelin-contracts/security-advisories?state=published&per_page=100'
+  const github = createClient({ token: 'test-token' })
+  const advisory = (ghsa, vulnerabilities, overrides = {}) => ({ ghsa_id: ghsa, state: 'published', summary: `Advisory ${ghsa}`, severity: 'high', cwe_ids: [], vulnerabilities, ...overrides })
+  const vuln = (name, range) => ({ package: { ecosystem: 'npm', name }, vulnerable_version_range: range })
+
+  function stubGitHub(answers) {
+    const calls = []
+    globalThis.fetch = (url) => {
+      calls.push(String(url))
+      const answer = answers[String(url)]
+      if (answer === undefined) return Promise.reject(new Error(`unexpected request: ${url}`))
+      return Promise.resolve(answer instanceof Response ? answer.clone() : Response.json(answer))
+    }
+    return calls
+  }
+
+  it("counts every range a repository's advisories list, whichever package, once each", async () => {
+    const calls = stubGitHub({
+      [OZ]: [
+        advisory('GHSA-aaaa-aaaa-aaaa', [vuln('@openzeppelin/contracts', '>= 4.0.0, < 4.9.3'), vuln('@openzeppelin/contracts-upgradeable', '>= 4.0.0, < 4.9.3')]),
+        advisory('GHSA-bbbb-bbbb-bbbb', [vuln('@openzeppelin/contracts', '>= 5.0.0, < 5.0.2'), { package: { ecosystem: 'other', name: 'x' }, vulnerable_version_range: null }]),
+        advisory('GHSA-cccc-cccc-cccc', [vuln('@openzeppelin/contracts', '< 9.0.0')], { withdrawn_at: '2026-01-01T00:00:00Z' }),
+      ],
+    })
+    const advisories = await githubAdvisories([
+      { name: 'OpenZeppelin/openzeppelin-contracts', version: '4.9.0' },
+      { name: 'OpenZeppelin/openzeppelin-contracts', version: '5.0.1' },
+    ], { github })
+    assert.deepEqual(calls, [OZ])
+    assert.deepEqual(advisories.map(({ ghsa, range, versions }) => [ghsa, range, versions]), [
+      ['GHSA-aaaa-aaaa-aaaa', '>= 4.0.0, < 4.9.3', ['4.9.0']],
+      ['GHSA-bbbb-bbbb-bbbb', '>= 5.0.0, < 5.0.2', ['5.0.1']],
+      ['GHSA-bbbb-bbbb-bbbb', '', ['4.9.0', '5.0.1']],
+    ])
+    assert.deepEqual(advisories[0], {
+      name: 'OpenZeppelin/openzeppelin-contracts', source: 'repository', ghsa: 'GHSA-aaaa-aaaa-aaaa', title: 'Advisory GHSA-aaaa-aaaa-aaaa', severity: 'high', cwe: [], range: '>= 4.0.0, < 4.9.3', versions: ['4.9.0'],
+    })
+  })
+
+  it('skips a repository gone, and throws on any other failure', async () => {
+    const one = [{ name: 'OpenZeppelin/openzeppelin-contracts', version: '4.9.0' }]
+    stubGitHub({ [OZ]: Response.json({ message: 'Not Found' }, { status: 404 }) })
+    assert.deepEqual(await githubAdvisories(one, { github }), [])
+    stubGitHub({ [OZ]: Response.json({ message: 'rate limited' }, { status: 403 }) })
+    await assert.rejects(githubAdvisories(one, { github }), { name: 'HttpError', status: 403 })
+    stubGitHub({ [OZ]: [advisory('GHSA-aaaa-aaaa-aaaa', [{ package: null, vulnerable_version_range: 42 }])] })
+    await assert.rejects(githubAdvisories(one, { github }), /githubAdvisories: malformed range in GHSA-aaaa-aaaa-aaaa/u)
+  })
+
+  it('refuses what is not `owner/name` at a semver version, or no client, before any request', async () => {
+    const calls = stubGitHub({})
+    for (const name of ['openzeppelin-contracts', 'a/b/c', '../x', undefined]) {
+      await assert.rejects(githubAdvisories([{ name, version: '1.0.0' }], { github }), /githubAdvisories: name must be "owner\/name"/u, String(name))
+    }
+    for (const version of ['main', 'v4.9.0', '4.9', undefined]) {
+      await assert.rejects(githubAdvisories([{ name: 'acme/app', version }], { github }), /githubAdvisories: version must be an exact semver version/u, String(version))
+    }
+    await assert.rejects(githubAdvisories([{ name: 'acme/app', version: '1.0.0' }]), /githubAdvisories: options must be an options object/u)
+    await assert.rejects(githubAdvisories([{ name: 'acme/app', version: '1.0.0' }], {}), /githubAdvisories: github must be a GitHub client/u)
     assert.deepEqual(calls, [])
   })
 })

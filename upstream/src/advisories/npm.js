@@ -1,24 +1,19 @@
 import assert from 'node:assert/strict'
 
-import { assertArgs, assertPackageName, assertPackageVersion, assertion, isGhsa, isStrings, optional, show } from '../args.js'
-import { HttpError, NPM_REGISTRY, buildUrl, request } from '../http.js'
+import { assertArgs, assertPackageName, assertPackageVersion, isGhsa, isStrings, optional, show } from '../args.js'
+import { NPM_REGISTRY, buildUrl, request } from '../http.js'
 import { resolvePackageRepos } from '../npm/repos.js'
-import { pool } from '../pool.js'
-import { compareVersions, satisfies, validRange } from '../semver.js'
+import { compareVersions, satisfies } from '../semver.js'
 import { askedVersions, order } from './common.js'
+import { assertClient, repositoryAdvisories } from './github.js'
 
 const BULK_URL = buildUrl(NPM_REGISTRY, ['-', 'npm', 'v1', 'security', 'advisories', 'bulk'])
 const NAMES_PER_REQUEST = 250
-const REPOS_AT_ONCE = 4
 const GHSA_PAGE = 'https://github.com/advisories/'
 
 const isRow = (row) => row && typeof row === 'object' && Number.isSafeInteger(row.id)
   && ['url', 'title', 'severity', 'vulnerable_versions'].every((key) => typeof row[key] === 'string')
   && (row.cwe === undefined || isStrings(row.cwe))
-const isRepoAdvisory = (advisory) => advisory && typeof advisory === 'object' && isGhsa(advisory.ghsa_id)
-  && advisory.state === 'published' && typeof advisory.summary === 'string'
-  && (advisory.vulnerabilities == null || Array.isArray(advisory.vulnerabilities)) && (advisory.cwe_ids == null || isStrings(advisory.cwe_ids))
-const assertClient = assertion('a GitHub client from createClient', (value) => typeof value?.listRepoAdvisories === 'function')
 
 function fromRegistry(name, row, asked) {
   const ghsa = row.url.startsWith(GHSA_PAGE) ? row.url.slice(GHSA_PAGE.length) : undefined
@@ -35,28 +30,6 @@ function fromRegistry(name, row, asked) {
     cwe: row.cwe ?? [],
     range: row.vulnerable_versions,
     versions: asked.filter((version) => satisfies(version, row.vulnerable_versions)),
-  }
-}
-
-// GitHub's `>= 1.0.0, < 1.2.6` is npm's with the commas dropped. A range
-// semver cannot read covers every version: maintainers write these
-// unreviewed, and a missed advisory is worse than a spare one.
-function fromRepository(name, advisory, range, asked) {
-  const npmRange = (range ?? '').replaceAll(',', ' ')
-  const readable = validRange(npmRange) !== null
-  const cvss = [advisory.cvss_severities?.cvss_v3, advisory.cvss_severities?.cvss_v4, advisory.cvss].find((entry) => typeof entry?.vector_string === 'string')
-  const { severity } = advisory
-  return {
-    name,
-    source: 'repository',
-    ghsa: advisory.ghsa_id,
-    title: advisory.summary,
-    ...(typeof severity === 'string' && { severity: severity === 'medium' ? 'moderate' : severity }),
-    ...(typeof cvss?.score === 'number' && cvss.score > 0 && { cvss: cvss.score }),
-    ...(cvss && { cvssVector: cvss.vector_string }),
-    cwe: advisory.cwe_ids ?? [],
-    range: range ?? '',
-    versions: asked.filter((version) => !readable || satisfies(version, npmRange)),
   }
 }
 
@@ -78,34 +51,6 @@ async function registryAdvisories(asked) {
   return advisories
 }
 
-// A repository renamed, deleted or blocked has nothing to add.
-const listAdvisories = (github, repo) => github.listRepoAdvisories({ repo }).catch((err) => {
-  if (err instanceof HttpError && [301, 404, 410, 451].includes(err.status)) return []
-  throw err
-})
-
-// A maintainer's advisory is on the repository before GitHub reviews it
-// into the database the registry answers from. Only the packages the
-// registry names that repository for are matched against it.
-async function repositoryAdvisories(github, asked, reported) {
-  const resolved = await resolvePackageRepos(asked.keys())
-  const namesOf = Map.groupBy(resolved.keys(), (name) => resolved.get(name).github)
-  const listed = await pool([...namesOf], REPOS_AT_ONCE, async ([repo, names]) => ({ repo, names, list: await listAdvisories(github, repo) }))
-  const advisories = []
-  for (const { repo, names, list } of listed) {
-    for (const advisory of list) {
-      assert.ok(isRepoAdvisory(advisory), `npmAdvisories: malformed advisory from ${repo}`)
-      if (advisory.withdrawn_at) continue
-      for (const { package: pkg, vulnerable_version_range: range } of advisory.vulnerabilities ?? []) {
-        if (pkg?.ecosystem !== 'npm' || !names.includes(pkg.name) || reported.has(`${pkg.name} ${advisory.ghsa_id}`)) continue
-        assert.ok(range == null || typeof range === 'string', `npmAdvisories: malformed range in ${advisory.ghsa_id}`)
-        advisories.push(fromRepository(pkg.name, advisory, range, asked.get(pkg.name)))
-      }
-    }
-  }
-  return advisories
-}
-
 // What `npm audit` asks the registry, one row per vulnerable range, and
 // with `github`, what the packages' repositories publish that the
 // registry does not have yet.
@@ -114,8 +59,13 @@ export async function npmAdvisories(packages, options = {}) {
   assertArgs('npmAdvisories', options, { github: optional(assertClient) })
   const advisories = await registryAdvisories(asked)
   if (options.github) {
+    // The repository the registry names for a package, matched only for
+    // that package, and never for an advisory the registry answered with.
     const reported = new Set(advisories.map((advisory) => `${advisory.name} ${advisory.ghsa}`))
-    advisories.push(...await repositoryAdvisories(options.github, asked, reported))
+    const resolved = await resolvePackageRepos(asked.keys())
+    const namesOf = Map.groupBy(resolved.keys(), (name) => resolved.get(name).github)
+    const takes = (name, pkg, advisory) => pkg?.ecosystem === 'npm' && pkg.name === name && !reported.has(`${name} ${advisory.ghsa_id}`)
+    advisories.push(...await repositoryAdvisories('npmAdvisories', options.github, namesOf, asked, takes))
   }
   return advisories.filter((advisory) => advisory.versions.length > 0).toSorted((a, b) => order(a.name, b.name))
 }
