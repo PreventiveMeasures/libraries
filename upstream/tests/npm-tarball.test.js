@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, beforeEach, describe, it } from 'node:test'
@@ -104,19 +104,21 @@ describe('getTarball', () => {
 })
 
 describe('the tarball cache', () => {
-  it('serves the next call from disk, checked, without a request', async () => {
+  const DOC = 'https://registry.npmjs.org/pkg/1.0.0'
+
+  it('serves the bytes of the next call from disk, still checked against the registry', async () => {
     stubRegistry()
     await getTarball('pkg', '1.0.0')
-    globalThis.fetch = undefined
+    const calls = stubRegistry()
     assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0')), BYTES)
+    assert.deepEqual(calls, [DOC])
   })
 
-  it('files the bytes with the integrity they were checked against, a scoped name in one file', async () => {
+  it('files only the bytes, a scoped name in one file', async () => {
     stubRegistry({ name: '@scope/pkg' })
     await getTarball('@scope/pkg', '1.0.0')
-    assert.deepEqual((await readdir(TARBALLS)).toSorted(), ['%40scope%2Fpkg%401.0.0.json', '%40scope%2Fpkg%401.0.0.tgz'])
+    assert.deepEqual(await readdir(TARBALLS), ['%40scope%2Fpkg%401.0.0.tgz'])
     assert.deepEqual(new Uint8Array(await readFile(join(TARBALLS, '%40scope%2Fpkg%401.0.0.tgz'))), BYTES)
-    assert.deepEqual(JSON.parse(await readFile(join(TARBALLS, '%40scope%2Fpkg%401.0.0.json'), 'utf8')), { name: '@scope/pkg', version: '1.0.0', integrity: sri(BYTES) })
   })
 
   it('throws on cached bytes that no longer match, rather than fetching over them', async () => {
@@ -125,29 +127,29 @@ describe('the tarball cache', () => {
     await writeFile(join(TARBALLS, 'pkg%401.0.0.tgz'), new Uint8Array([...BYTES, 0]))
     const calls = stubRegistry()
     await assert.rejects(getTarball('pkg', '1.0.0'), /getTarball: integrity mismatch for pkg@1\.0\.0 from the cache/u)
-    assert.deepEqual(calls, [])
+    assert.deepEqual(calls, [DOC])
   })
 
-  it('misses on half an entry, or a record it did not write, and fetches again', async () => {
+  it('takes nothing the cache says about its own bytes', async () => {
+    const evil = new Uint8Array([0x1f, 0x8b, 0x66, 0x66])
+    await mkdir(TARBALLS, { recursive: true })
+    await writeFile(join(TARBALLS, 'pkg%401.0.0.tgz'), evil)
+    await writeFile(join(TARBALLS, 'pkg%401.0.0.json'), JSON.stringify({ name: 'pkg', version: '1.0.0', integrity: sri(evil) }))
+    stubRegistry()
+    await assert.rejects(getTarball('pkg', '1.0.0'), /getTarball: integrity mismatch for pkg@1\.0\.0 from the cache/u)
+    globalThis.fetch = () => Promise.reject(new Error('offline'))
+    await assert.rejects(getTarball('pkg', '1.0.0'), /offline/u)
+  })
+
+  it('fetches again where the bytes are gone, and files them again', async () => {
     stubRegistry()
     await getTarball('pkg', '1.0.0')
-    const json = join(TARBALLS, 'pkg%401.0.0.json')
-    const tgz = join(TARBALLS, 'pkg%401.0.0.tgz')
-
-    for (const damage of [
-      () => rm(json),
-      () => rm(tgz),
-      () => writeFile(json, '{"name":"pkg","vers'),
-      () => writeFile(json, JSON.stringify({ name: 'other', version: '1.0.0', integrity: sri(BYTES) })),
-      () => writeFile(json, JSON.stringify({ name: 'pkg', version: '1.0.0' })),
-    ]) {
-      await damage()
-      const calls = stubRegistry()
-      assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0')), BYTES)
-      assert.equal(calls.length, 2)
-      // And the fetch put a whole entry back.
-      globalThis.fetch = undefined
-      assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0')), BYTES)
-    }
+    await rm(join(TARBALLS, 'pkg%401.0.0.tgz'))
+    let calls = stubRegistry()
+    assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0')), BYTES)
+    assert.equal(calls.length, 2)
+    calls = stubRegistry()
+    await getTarball('pkg', '1.0.0')
+    assert.deepEqual(calls, [DOC])
   })
 })

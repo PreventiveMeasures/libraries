@@ -47,7 +47,8 @@ export function writePackageRepoCache(name: string, github: string, directory?: 
 
 // A published version's gzipped tarball, whole, in memory, downloaded
 // only where `dist.tarball` is exactly that version's registry URL.
-// Checked against the registry's sha512 `dist.integrity` on download,
-// before it is cached, and again on every load from the cache; a mismatch
-// throws.
+// The version document is fetched on every call, cached tarball or not,
+// and the bytes are checked against its sha512 `dist.integrity` whether
+// they were downloaded (before they are cached) or read from the cache.
+// A mismatch throws.
 export function getTarball(name: string, version: string): Promise<Uint8Array>

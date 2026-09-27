@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 
 import { assertPackageName, assertPackageVersion, printable, show } from '../args.js'
-import { readCache, readCacheJSON, writeCache, writeCacheJSON } from '../cache.js'
+import { readCache, writeCache } from '../cache.js'
 import { NPM_REGISTRY, buildUrl, request } from '../http.js'
 
 const DIR = 'npm/tarballs' // No expiry: the registry never takes a version twice.
@@ -28,25 +28,22 @@ function assertIntegrity(bytes, integrity, what) {
   assert.ok(expected.includes(actual), `getTarball: integrity mismatch for ${what}: expected ${printable(integrity)}, got sha512-${actual}`)
 }
 
-// Whole entries are written only after checking, so a mismatch here is
-// tampering or corruption: it throws rather than fetching over it.
-async function readTarballCache(name, version) {
-  const entry = await readCacheJSON(DIR, `${name}@${version}.json`)
-  if (entry?.name !== name || entry.version !== version || typeof entry.integrity !== 'string') return null
-  const bytes = await readCache(DIR, `${name}@${version}.tgz`)
-  if (bytes) assertIntegrity(bytes, entry.integrity, `${name}@${version} from the cache`)
-  return bytes
-}
-
+// The version document is read every time, cache or not: bytes from the
+// cache are checked against the registry's integrity, never against
+// anything the cache itself holds. A mismatch there throws rather than
+// fetching over it.
 export async function getTarball(name, version) {
   assertPackageName('getTarball', 'name', name)
   assertPackageVersion('getTarball', 'version', version)
-  const cached = await readTarballCache(name, version)
-  if (cached) return cached
   const { tarball, integrity } = await getDist(name, version)
+  const key = `${name}@${version}.tgz`
+  const cached = await readCache(DIR, key)
+  if (cached) {
+    assertIntegrity(cached, integrity, `${name}@${version} from the cache`)
+    return cached
+  }
   const bytes = await request(tarball, { as: 'bytes' })
   assertIntegrity(bytes, integrity, `${name}@${version} from ${tarball}`)
-  // Bytes first: the `.json` is what makes an entry.
-  if (await writeCache(DIR, `${name}@${version}.tgz`, bytes)) await writeCacheJSON(DIR, `${name}@${version}.json`, { name, version, integrity })
+  await writeCache(DIR, key, bytes)
   return bytes
 }
