@@ -63,15 +63,13 @@ export interface OsvAdvisory {
 }
 
 // What `npm audit` asks the registry, 250 names to a request. With
-// `github`, also what each package's GitHub repository publishes that the
-// registry has not answered with, which covers advisories GitHub has not
+// `github`, also what each package's repository publishes that the
+// registry did not answer with, which covers advisories GitHub has not
 // reviewed yet: the repository is the one the registry names for the
-// package (resolvePackageRepos in npm.js, through its cache), and
-// matched only for the packages it is named for. That is one GitHub
-// request per repository, four at a time; a repository gone, renamed or
-// blocked is skipped, and any other failure throws. Sorted by name, the
-// registry's rows first. Matching versions to ranges takes npm's semver,
-// from the npm beside node.
+// package (resolvePackageRepos, through its cache), asked once, four at a
+// time. One gone, renamed or blocked is skipped; any other failure
+// throws. Sorted by name, the registry's rows first. Versions are matched
+// by npm's semver, from the npm beside node.
 export function npmAdvisories(packages: Iterable<InstalledPackage>, options?: { github?: Client }): Promise<NpmAdvisory[]>
 
 // RustSec, the database `cargo audit` reads, through OSV. Versions are

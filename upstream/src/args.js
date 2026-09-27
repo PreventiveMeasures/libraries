@@ -35,6 +35,7 @@ export function isRepo(value) {
   return isLogin(owner) && isRepoName(name) && rest.length === 0
 }
 
+export const isStrings = (value) => Array.isArray(value) && value.every((item) => typeof item === 'string')
 export const sameName = (a, b) => typeof a === 'string' && a.toLowerCase() === b.toLowerCase()
 export const isRefName = (value) => isString(value, 255) && !BAD_REF.test(value)
 export const isSha = matches(/^(?:[\da-f]{40}|[\da-f]{64})$/u)

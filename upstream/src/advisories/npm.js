@@ -1,18 +1,17 @@
 import assert from 'node:assert/strict'
 
-import { assertArgs, assertPackageName, assertPackageVersion, assertion, isGhsa, optional, show } from '../args.js'
+import { assertArgs, assertPackageName, assertPackageVersion, assertion, isGhsa, isStrings, optional, show } from '../args.js'
 import { HttpError, NPM_REGISTRY, buildUrl, request } from '../http.js'
 import { resolvePackageRepos } from '../npm/repos.js'
 import { pool } from '../pool.js'
 import { compareVersions, satisfies, validRange } from '../semver.js'
+import { askedVersions, order } from './common.js'
 
 const BULK_URL = buildUrl(NPM_REGISTRY, ['-', 'npm', 'v1', 'security', 'advisories', 'bulk'])
 const NAMES_PER_REQUEST = 250
 const REPOS_AT_ONCE = 4
 const GHSA_PAGE = 'https://github.com/advisories/'
-const GONE = new Set([301, 404, 410, 451]) // A repository renamed, deleted or blocked.
 
-const isStrings = (value) => Array.isArray(value) && value.every((item) => typeof item === 'string')
 const isRow = (row) => row && typeof row === 'object' && Number.isSafeInteger(row.id)
   && ['url', 'title', 'severity', 'vulnerable_versions'].every((key) => typeof row[key] === 'string')
   && (row.cwe === undefined || isStrings(row.cwe))
@@ -62,7 +61,7 @@ function fromRepository(name, advisory, range, asked) {
 }
 
 async function registryAdvisories(asked) {
-  const names = [...asked.keys()].toSorted()
+  const names = [...asked.keys()]
   const advisories = []
   for (let i = 0; i < names.length; i += NAMES_PER_REQUEST) {
     const chunk = names.slice(i, i + NAMES_PER_REQUEST)
@@ -79,27 +78,28 @@ async function registryAdvisories(asked) {
   return advisories
 }
 
+// A repository renamed, deleted or blocked has nothing to add.
+const listAdvisories = (github, repo) => github.listRepoAdvisories({ repo }).catch((err) => {
+  if (err instanceof HttpError && [301, 404, 410, 451].includes(err.status)) return []
+  throw err
+})
+
 // A maintainer's advisory is on the repository before GitHub reviews it
 // into the database the registry answers from. Only the packages the
 // registry names that repository for are matched against it.
 async function repositoryAdvisories(github, asked, reported) {
-  const packagesOf = new Map()
-  for (const [name, { github: repo }] of await resolvePackageRepos(asked.keys())) packagesOf.set(repo, [...(packagesOf.get(repo) ?? []), name])
-  const repos = [...packagesOf.keys()]
-  const lists = await pool(repos, REPOS_AT_ONCE, (repo) => github.listRepoAdvisories({ repo }).catch((err) => {
-    if (err instanceof HttpError && GONE.has(err.status)) return []
-    throw err
-  }))
+  const resolved = await resolvePackageRepos(asked.keys())
+  const namesOf = Map.groupBy(resolved.keys(), (name) => resolved.get(name).github)
+  const listed = await pool([...namesOf], REPOS_AT_ONCE, async ([repo, names]) => ({ repo, names, list: await listAdvisories(github, repo) }))
   const advisories = []
-  for (const [k, repo] of repos.entries()) {
-    for (const advisory of lists[k]) {
+  for (const { repo, names, list } of listed) {
+    for (const advisory of list) {
       assert.ok(isRepoAdvisory(advisory), `npmAdvisories: malformed advisory from ${repo}`)
       if (advisory.withdrawn_at) continue
       for (const { package: pkg, vulnerable_version_range: range } of advisory.vulnerabilities ?? []) {
-        const name = pkg?.name
-        if (pkg?.ecosystem !== 'npm' || !packagesOf.get(repo).includes(name) || reported.has(`${name} ${advisory.ghsa_id}`)) continue
+        if (pkg?.ecosystem !== 'npm' || !names.includes(pkg.name) || reported.has(`${pkg.name} ${advisory.ghsa_id}`)) continue
         assert.ok(range == null || typeof range === 'string', `npmAdvisories: malformed range in ${advisory.ghsa_id}`)
-        advisories.push(fromRepository(name, advisory, range, asked.get(name)))
+        advisories.push(fromRepository(pkg.name, advisory, range, asked.get(pkg.name)))
       }
     }
   }
@@ -110,19 +110,12 @@ async function repositoryAdvisories(github, asked, reported) {
 // with `github`, what the packages' repositories publish that the
 // registry does not have yet.
 export async function npmAdvisories(packages, options = {}) {
-  assert.ok(typeof packages?.[Symbol.iterator] === 'function' && typeof packages !== 'string', 'npmAdvisories: packages must be an iterable of { name, version }')
+  const asked = askedVersions('npmAdvisories', packages, assertPackageName, assertPackageVersion, compareVersions)
   assertArgs('npmAdvisories', options, { github: optional(assertClient) })
-  const versions = new Map()
-  for (const pkg of packages) {
-    assertPackageName('npmAdvisories', 'name', pkg?.name)
-    assertPackageVersion('npmAdvisories', 'version', pkg.version)
-    versions.set(pkg.name, (versions.get(pkg.name) ?? new Set()).add(pkg.version))
-  }
-  const asked = new Map([...versions].map(([name, set]) => [name, [...set].toSorted(compareVersions)]))
   const advisories = await registryAdvisories(asked)
   if (options.github) {
     const reported = new Set(advisories.map((advisory) => `${advisory.name} ${advisory.ghsa}`))
     advisories.push(...await repositoryAdvisories(options.github, asked, reported))
   }
-  return advisories.filter((advisory) => advisory.versions.length > 0).toSorted((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+  return advisories.filter((advisory) => advisory.versions.length > 0).toSorted((a, b) => order(a.name, b.name))
 }
