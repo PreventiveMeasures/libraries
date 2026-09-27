@@ -4,14 +4,16 @@ import { describe, it } from 'node:test'
 import { parsePnpmLockfile } from '../pnpm.js'
 
 // The baseline: real lockfiles, written by pnpm 9, 10, 11 and 12 from one
-// workspace that pulls in every kind of dependency a v9 lockfile records,
-// and by pnpm 12 once more with the package manager pinned, which leads
-// the file with an env document. scripts/record-pnpm.js builds the
-// workspace and records them; its header says what is in it.
+// workspace that pulls in every kind of dependency a v9 lockfile records;
+// by pnpm 11 and 12 once more with a config dependency, and under pnpm 12
+// the package manager pinned, which lead the file with an env document;
+// and by pnpm 12 for a bare project given a config dependency and nothing
+// installed, which leaves the env document alone. scripts/record-pnpm.js
+// builds them; its header says what is in them.
 
 const FIXTURES = new URL('fixtures/', import.meta.url)
 const read = (name) => parsePnpmLockfile(readFileSync(new URL(`${name}.yaml`, FIXTURES), 'utf8'))
-const VERSIONS = ['pnpm-9', 'pnpm-10', 'pnpm-11', 'pnpm-12', 'pnpm-12-env']
+const VERSIONS = ['pnpm-9', 'pnpm-10', 'pnpm-11', 'pnpm-11-config', 'pnpm-12', 'pnpm-12-env']
 
 // Records come back with a null prototype, which strict deepEqual holds
 // against a literal; structuredClone gives them Object.prototype back and
@@ -23,7 +25,8 @@ const plain = (value) => structuredClone(value)
 const byName = (lock, name, version) => Object.values(lock.packages).filter((pkg) => pkg.name === name && pkg.version === version)
 
 describe('every version reads to the same workspace', () => {
-  const locks = Object.fromEntries(VERSIONS.map((name) => [name, read(name)]))
+  const files = Object.fromEntries(VERSIONS.map((name) => [name, read(name)]))
+  const locks = Object.fromEntries(VERSIONS.map((name) => [name, files[name].lockfile]))
 
   it('the same packages, by name and version', () => {
     const list = (lock) => Object.values(lock.packages).map((pkg) => `${pkg.name}@${pkg.version ?? pkg.resolution.directory}`).sort()
@@ -45,7 +48,7 @@ describe('every version reads to the same workspace', () => {
     assert.deepEqual(plain(locks['pnpm-9'].patchedDependencies), { 'is-number@7.0.0': { hash: 'zrvjrhdgfsy5o3tngjlyoyyjce', path: 'patches/is-number@7.0.0.patch' } })
     const hash = '25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342'
     assert.deepEqual(plain(locks['pnpm-10'].patchedDependencies), { 'is-number@7.0.0': { hash, path: 'patches/is-number@7.0.0.patch' } })
-    for (const name of ['pnpm-11', 'pnpm-12', 'pnpm-12-env']) {
+    for (const name of ['pnpm-11', 'pnpm-11-config', 'pnpm-12', 'pnpm-12-env']) {
       assert.deepEqual(plain(locks[name].patchedDependencies), { 'is-number@7.0.0': { hash, path: undefined } }, name)
     }
     for (const name of VERSIONS) {
@@ -56,18 +59,19 @@ describe('every version reads to the same workspace', () => {
     }
   })
 
-  it('only pnpm 12 with a pinned package manager has an env document', () => {
-    for (const name of ['pnpm-9', 'pnpm-10', 'pnpm-11', 'pnpm-12']) assert.equal(locks[name].env, undefined, name)
-    const { env, ...main } = locks['pnpm-12-env']
-    const { env: none, ...alone } = locks['pnpm-12']
-    assert.equal(none, undefined)
-    assert.deepEqual(plain(main), plain(alone))
-    assert.ok(env !== undefined)
+  it('an env document leads only where there is something to lock beside the project', () => {
+    for (const name of ['pnpm-9', 'pnpm-10', 'pnpm-11', 'pnpm-12']) assert.equal(files[name].env, undefined, name)
+    for (const name of ['pnpm-11-config', 'pnpm-12-env']) assert.notEqual(files[name].env, undefined, name)
+  })
+
+  it('and leaves the project\'s lockfile as it would be without', () => {
+    assert.deepEqual(plain(locks['pnpm-11-config']), plain(locks['pnpm-11']))
+    assert.deepEqual(plain(locks['pnpm-12-env']), plain(locks['pnpm-12']))
   })
 })
 
 describe('a pnpm 10 lockfile, spot-checked', () => {
-  const lock = read('pnpm-10')
+  const lock = read('pnpm-10').lockfile
   const root = lock.importers['.']
 
   it('records have no prototype', () => {
@@ -202,7 +206,7 @@ describe('a pnpm 10 lockfile, spot-checked', () => {
 describe('the pnpm 11 and 12 spellings', () => {
   it('a git dependency over https', () => {
     for (const name of ['pnpm-11', 'pnpm-12']) {
-      const lock = read(name)
+      const lock = read(name).lockfile
       const key = lock.importers['.'].dependencies.isarray
       assert.equal(key, 'isarray@git+https://github.com/juliangruber/isarray.git#63ea4ca0a0d6b0574d6a470ebd26880c3026db4a', name)
       assert.equal(lock.packages[key].resolution.repo, 'https://github.com/juliangruber/isarray.git', name)
@@ -210,26 +214,42 @@ describe('the pnpm 11 and 12 spellings', () => {
   })
 })
 
-describe('the env document pnpm 12 leads with', () => {
-  const { env } = read('pnpm-12-env')
+describe('the env document', () => {
+  it('pnpm 11 locks config dependencies in it', () => {
+    const { env } = read('pnpm-11-config')
+    assert.deepEqual(plain(env.importers), {
+      '.': { specifiers: { 'is-number': '7.0.0' }, configDependencies: { 'is-number': 'is-number@7.0.0' }, packageManagerDependencies: {} },
+    })
+    assert.deepEqual(Object.keys(env.packages), ['is-number@7.0.0'])
+    const [project] = byName(read('pnpm-11').lockfile, 'is-number', '7.0.0')
+    assert.equal(env.packages['is-number@7.0.0'].resolution.integrity, project.resolution.integrity)
+  })
 
-  it('has the one importer, with the package manager', () => {
-    assert.deepEqual(Object.keys(env.importers), ['.'])
-    const importer = env.importers['.']
-    assert.deepEqual(plain(importer), {
-      specifiers: { pnpm: '12.6.0' },
-      configDependencies: {},
+  it('pnpm 12 locks the package manager a project pins in it too', () => {
+    const { env } = read('pnpm-12-env')
+    assert.equal(env.lockfileVersion, '9.0')
+    assert.deepEqual(plain(env.importers['.']), {
+      specifiers: { 'is-number': '7.0.0', pnpm: '12.6.0' },
+      configDependencies: { 'is-number': 'is-number@7.0.0' },
       packageManagerDependencies: { pnpm: 'pnpm@12.6.0' },
     })
   })
 
   it('locks the package manager and its bindings like any package', () => {
-    assert.equal(env.lockfileVersion, '9.0')
-    assert.equal(Object.keys(env.packages).length, 15)
+    const { env } = read('pnpm-12-env')
+    assert.equal(Object.keys(env.packages).length, 16)
     const pnpm = env.packages['pnpm@12.6.0']
     assert.equal(pnpm.version, '12.6.0')
     assert.equal(Object.keys(pnpm.optionalDependencies).length, 14)
     const linux = env.packages[pnpm.optionalDependencies['@pnpm/exe.linux-x64']]
     assert.deepEqual([linux.name, linux.os, linux.cpu, linux.libc, linux.optional], ['@pnpm/exe.linux-x64', ['linux'], ['x64'], ['glibc'], true])
+  })
+
+  it('alone, before anything is installed, is no lockfile for the project', () => {
+    const { lockfile, env } = read('pnpm-12-env-only')
+    assert.equal(lockfile, undefined)
+    assert.deepEqual(plain(env.importers['.'].configDependencies), { 'is-number': 'is-number@7.0.0' })
+    const [project] = byName(read('pnpm-12').lockfile, 'is-number', '7.0.0')
+    assert.equal(env.packages['is-number@7.0.0'].resolution.integrity, project.resolution.integrity)
   })
 })

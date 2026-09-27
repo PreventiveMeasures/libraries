@@ -81,6 +81,10 @@ snapshots:
   f@https://example.com/f.tgz: {}
 `
 
+// An env document, as pnpm writes it before the lockfile: config
+// dependencies and the package manager, then the `---` that ends it.
+const ENV = `---\nlockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    configDependencies:\n      c:\n        specifier: 2.0.0\n        version: 2.0.0\n    packageManagerDependencies:\n      pnpm:\n        specifier: 12.6.0\n        version: 12.6.0\n\npackages:\n\n  c@2.0.0:\n    resolution: {integrity: ${I}}\n\n  pnpm@12.6.0:\n    resolution: {integrity: ${I}}\n\nsnapshots:\n\n  c@2.0.0: {}\n\n  pnpm@12.6.0: {}\n\n---\n`
+
 // BASE with each `[from, to]` replaced, once; `from` has to be there.
 function edit(...edits) {
   let text = BASE
@@ -100,11 +104,14 @@ const refuses = (text, message, where) => assert.throws(() => parsePnpmLockfile(
 
 const plain = (value) => structuredClone(value)
 
+// The project's lockfile, of a file that has one.
+const parse = (text) => parsePnpmLockfile(text).lockfile
+
 // A key or value as a message quotes it: past 200 characters, cut.
 const shown = (text) => JSON.stringify(text.length > 200 ? `${text.slice(0, 200)}…` : text)
 
 describe('the base lockfile', () => {
-  const lock = parsePnpmLockfile(BASE)
+  const lock = parse(BASE)
 
   it('reads', () => {
     assert.deepEqual(Object.keys(lock.packages), ['a@1.0.0(c@2.0.0)', 'b@1.0.0(patch_hash=abc123)', 'c@2.0.0', 'd@file:d', `e@git+https://example.com/e.git#${C}`, 'f@https://example.com/f.tgz'])
@@ -118,15 +125,15 @@ describe('the base lockfile', () => {
     assert.equal(lock.packages['b@1.0.0(patch_hash=abc123)'].patchHash, 'abc123')
     assert.equal(lock.packages['c@2.0.0'].resolution.tarball, 'https://registry.npmjs.org/c/-/c-2.0.0.tgz')
     assert.deepEqual(lock.packages['f@https://example.com/f.tgz'].resolution, { type: 'tarball', integrity: undefined, tarball: 'https://example.com/f.tgz', path: undefined, gitHosted: false })
-    assert.equal(lock.env, undefined)
+    assert.equal(parsePnpmLockfile(BASE).env, undefined)
   })
 
   it('with CRLF line ends too', () => {
-    assert.deepEqual(plain(parsePnpmLockfile(BASE.replaceAll('\n', '\r\n'))), plain(lock))
+    assert.deepEqual(plain(parse(BASE.replaceAll('\n', '\r\n'))), plain(lock))
   })
 
   it('an empty workspace', () => {
-    const empty = parsePnpmLockfile("lockfileVersion: '9.0'\n\nimporters:\n\n  .: {}\n")
+    const empty = parse("lockfileVersion: '9.0'\n\nimporters:\n\n  .: {}\n")
     assert.deepEqual(plain(empty.packages), {})
     assert.deepEqual(plain(empty.importers['.']), {
       specifiers: {},
@@ -141,7 +148,7 @@ describe('the base lockfile', () => {
 })
 
 describe('what else pnpm writes is read', () => {
-  const read = (...edits) => parsePnpmLockfile(edit(...edits))
+  const read = (...edits) => parse(edit(...edits))
 
   it('every setting', () => {
     const settings = '  autoInstallPeers: true\n  dedupePeers: true\n  excludeLinksFromLockfile: true\n  injectWorkspacePackages: true\n  peersSuffixMaxLength: 20\n'
@@ -169,7 +176,7 @@ describe('what else pnpm writes is read', () => {
   it('a git subdirectory and a sha256 repository', () => {
     const long = `${C}${C.slice(0, 24)}`
     const text = edit([`repo: https://example.com/e.git, type: git}`, `repo: https://example.com/e.git, type: git, path: /packages/e}`]).replaceAll(C, long)
-    const lock = parsePnpmLockfile(text)
+    const lock = parse(text)
     assert.deepEqual(lock.packages[`e@git+https://example.com/e.git#${long}`].resolution, { type: 'git', repo: 'https://example.com/e.git', commit: long, path: '/packages/e' })
   })
 
@@ -241,13 +248,28 @@ describe('what else pnpm writes is read', () => {
     assert.equal(lock.importers['.'].specifiers.constructor, '1.0.0')
   })
 
+  const checkEnv = (env) => {
+    assert.deepEqual(plain(env.importers['.']), {
+      specifiers: { c: '2.0.0', pnpm: '12.6.0' },
+      configDependencies: { c: 'c@2.0.0' },
+      packageManagerDependencies: { pnpm: 'pnpm@12.6.0' },
+    })
+    assert.deepEqual(Object.keys(env.packages), ['c@2.0.0', 'pnpm@12.6.0'])
+  }
+
   it('an env document before the lockfile', () => {
-    const env = `---\nlockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    configDependencies: {}\n    packageManagerDependencies:\n      pnpm:\n        specifier: 12.6.0\n        version: 12.6.0\n\npackages:\n\n  pnpm@12.6.0:\n    resolution: {integrity: ${I}}\n\nsnapshots:\n\n  pnpm@12.6.0: {}\n\n---\n`
-    for (const text of [`${env}${BASE}`, `${env}${BASE}`.replaceAll('\n', '\r\n')]) {
-      const lock = parsePnpmLockfile(text)
-      assert.deepEqual(plain(lock.env.importers['.'].packageManagerDependencies), { pnpm: 'pnpm@12.6.0' })
-      assert.deepEqual(Object.keys(lock.env.packages), ['pnpm@12.6.0'])
-      assert.deepEqual(Object.keys(lock.packages), Object.keys(parsePnpmLockfile(BASE).packages))
+    for (const text of [`${ENV}${BASE}`, `${ENV}${BASE}`.replaceAll('\n', '\r\n'), `${ENV}\n\n${BASE}`]) {
+      const { lockfile, env } = parsePnpmLockfile(text)
+      checkEnv(env)
+      assert.deepEqual(plain(lockfile), plain(parse(BASE)))
+    }
+  })
+
+  it('an env document alone, which is no lockfile for the project', () => {
+    for (const text of [ENV, ENV.replaceAll('\n', '\r\n'), `${ENV}\n  \n`]) {
+      const { lockfile, env } = parsePnpmLockfile(text)
+      checkEnv(env)
+      assert.equal(lockfile, undefined)
     }
   })
 })
@@ -282,10 +304,20 @@ describe('the document is refused', () => {
 
   it('as more than one document, but for the env document first', () => {
     refuses(`${BASE}---\n${BASE}`, 'expected one document, found 2')
-    refuses(`---\n${BASE}`, 'expected an env document after the first "---" and the lockfile after the next, found 1 document')
-    refuses(`---\n${BASE}---\n${BASE}---\n${BASE}`, 'expected an env document after the first "---" and the lockfile after the next, found 3 documents')
-    // pnpm finds the second document by a line of `---` alone.
-    refuses(`---\n${BASE}---  \n${BASE}`, 'expected an env document after the first "---" and the lockfile after the next, found 2 documents')
+    // A `---` with nothing after it is an empty document to YAML.
+    assert.throws(() => parsePnpmLockfile(`${BASE}---\n`), { name: 'YamlError', message: /^empty document/u })
+  })
+
+  it('with an env document that does not end where pnpm ends it', () => {
+    const unended = 'expected the env document the first "---" starts to end at a line of "---"'
+    refuses(`---\n${BASE}`, unended)
+    refuses('---\n---\n', unended)
+    refuses(ENV.slice(0, -1), unended)
+    // pnpm ends it at a line of `---` alone, and only there.
+    refuses(`---\n${BASE}---  \n${BASE}`, unended)
+    refuses(`---\n${BASE}---  \n${BASE}---\n${BASE}`, 'expected the env document and the lockfile between lines of "---" alone, found 3 documents')
+    refuses(`---\n${BASE}---  \n${BASE}---\n`, 'expected the env document between lines of "---" alone, found 2 documents')
+    refuses(`---\n${BASE}---\n${BASE}---\n${BASE}`, 'expected the env document and the lockfile between lines of "---" alone, found 3 documents')
   })
 })
 

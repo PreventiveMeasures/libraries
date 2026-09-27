@@ -3,10 +3,9 @@
 export { YamlError } from '@preventive/yaml'
 
 // Reads a pnpm-lock.yaml of `lockfileVersion: '9.0'`, as pnpm 9 to 12 write
-// it, the two-document form pnpm 12 writes when a project pins its package
-// manager included. Nothing is dropped: an older format is refused, and so
-// is anything in this one the reader does not know the meaning of — a
-// field, at any depth, a resolution `type` (`binary`, `variations`, a
+// it, one document or two. Nothing is dropped: an older format is refused,
+// and so is anything in this one the reader does not know the meaning of —
+// a field, at any depth, a resolution `type` (`binary`, `variations`, a
 // `custom:` one), a tarball `revision`, a named registry, a runtime.
 //
 // So is a lockfile that contradicts itself or could be read two ways: a
@@ -18,7 +17,7 @@ export { YamlError } from '@preventive/yaml'
 // Throws a TypeError for anything but a string, a YamlError where the text
 // is not the YAML pnpm writes, and a LockfileError where it is but is not a
 // lockfile read here.
-export function parsePnpmLockfile(text: string): PnpmLockfile
+export function parsePnpmLockfile(text: string): PnpmLockfileFile
 
 // `where` is the place in the lockfile a refusal is about, as a property
 // path from its top — `packages["q@1.5.1"].resolution`, and under `env` for
@@ -39,6 +38,18 @@ export class LockfileError extends Error {
 // installer reads them; both come back from the lockfile's.
 export type Target = string
 
+// What a pnpm-lock.yaml holds. pnpm 11 and later lead it with the env
+// document where there is something to lock beside the project: config
+// dependencies, and from pnpm 12 the package manager a project pins. `env`
+// is that document, undefined where the file does not start with it.
+// `lockfile` is the project's, undefined where the file holds the env
+// document alone, as pnpm writes it when config dependencies are added
+// before anything is installed: no lockfile for the project at all.
+export interface PnpmLockfileFile {
+  lockfile: PnpmLockfile | undefined
+  env: PnpmEnvLockfile | undefined
+}
+
 export interface PnpmLockfile {
   lockfileVersion: '9.0'
   settings: PnpmSettings
@@ -55,8 +66,6 @@ export interface PnpmLockfile {
   // patch hash and the peers in parentheses. One package resolved with two
   // sets of peers is two entries.
   packages: Record<string, PnpmPackage>
-  // pnpm 12's first document: the package manager and config dependencies.
-  env: PnpmEnvLockfile | undefined
 }
 
 export interface PnpmEnvLockfile {

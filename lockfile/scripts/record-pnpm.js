@@ -10,9 +10,15 @@
 // npm alias, a catalog and a named one, peers resolved inside peers, a
 // patch, an override, workspace packages linked and injected, dev and
 // optional ones and platform bindings. pnpm 9 takes its overrides and
-// patches from package.json; later versions from pnpm-workspace.yaml. The
-// last run pins pnpm 12 as the package manager, which leads the lockfile
-// with an env document.
+// patches from package.json; later versions from pnpm-workspace.yaml.
+//
+// The runs after the first four lead the lockfile with an env document: a
+// config dependency added after the install under pnpm 11, and under pnpm
+// 12 one added to a project that also pins pnpm as its package manager.
+// The last adds a config dependency to a bare project and installs
+// nothing, which leaves the env document alone in the file. The config
+// dependency is a package with no code pnpm runs, so it changes nothing
+// else.
 
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -26,8 +32,12 @@ const RUNS = [
   { name: 'pnpm-10', pnpm: '10.34.5' },
   { name: 'pnpm-11', pnpm: '11.27.1' },
   { name: 'pnpm-12', pnpm: '12.6.0' },
-  { name: 'pnpm-12-env', pnpm: '12.6.0', packageManager: 'pnpm@12.6.0' },
+  { name: 'pnpm-11-config', pnpm: '11.27.1', config: true },
+  { name: 'pnpm-12-env', pnpm: '12.6.0', packageManager: 'pnpm@12.6.0', config: true },
+  { name: 'pnpm-12-env-only', pnpm: '12.6.0', bare: true, config: true },
 ]
+
+const CONFIG = 'is-number@7.0.0'
 
 const OVERRIDES = { 'loose-envify': '1.4.0' }
 const PATCHES = { 'is-number@7.0.0': 'patches/is-number@7.0.0.patch' }
@@ -88,22 +98,30 @@ function write(dir, name, content) {
 
 const yamlMap = (key, map) => [`${key}:`, ...Object.entries(map).map(([k, v]) => `  ${k}: ${v}`)]
 
+// The workspace above, laid out in `dir` for `run`.
+function lay(dir, run) {
+  for (const [name, content] of Object.entries(FILES)) write(dir, name, content)
+  mkdirSync(join(dir, 'vendor'))
+  execFileSync('npm', ['pack', '--pack-destination', '../vendor'], { cwd: join(dir, 'tgz'), stdio: 'ignore' })
+  rmSync(join(dir, 'tgz'), { recursive: true })
+  const legacy = run.pnpm.startsWith('9.')
+  write(dir, 'package.json', {
+    ...ROOT,
+    ...(run.packageManager ? { packageManager: run.packageManager } : {}),
+    ...(legacy ? { pnpm: { overrides: OVERRIDES, patchedDependencies: PATCHES } } : {}),
+  })
+  const settings = legacy ? [] : [...yamlMap('overrides', OVERRIDES), ...yamlMap('patchedDependencies', PATCHES)]
+  write(dir, 'pnpm-workspace.yaml', `${[...WORKSPACE, ...settings].join('\n')}\n`)
+}
+
 for (const run of RUNS) {
   const dir = mkdtempSync(join(tmpdir(), `${run.name}-`))
+  const pnpm = (...args) => execFileSync('npx', ['-y', `pnpm@${run.pnpm}`, ...args, `--config.store-dir=${dir}.store`], { cwd: dir, stdio: 'inherit' })
   try {
-    for (const [name, content] of Object.entries(FILES)) write(dir, name, content)
-    mkdirSync(join(dir, 'vendor'))
-    execFileSync('npm', ['pack', '--pack-destination', '../vendor'], { cwd: join(dir, 'tgz'), stdio: 'ignore' })
-    rmSync(join(dir, 'tgz'), { recursive: true })
-    const legacy = run.pnpm.startsWith('9.')
-    write(dir, 'package.json', {
-      ...ROOT,
-      ...(run.packageManager ? { packageManager: run.packageManager } : {}),
-      ...(legacy ? { pnpm: { overrides: OVERRIDES, patchedDependencies: PATCHES } } : {}),
-    })
-    const settings = legacy ? [] : [...yamlMap('overrides', OVERRIDES), ...yamlMap('patchedDependencies', PATCHES)]
-    write(dir, 'pnpm-workspace.yaml', `${[...WORKSPACE, ...settings].join('\n')}\n`)
-    execFileSync('npx', ['-y', `pnpm@${run.pnpm}`, 'install', `--config.store-dir=${dir}.store`], { cwd: dir, stdio: 'inherit' })
+    if (run.bare) write(dir, 'package.json', { name: 'bare', version: '0.0.0', private: true })
+    else lay(dir, run)
+    if (!run.bare) pnpm('install')
+    if (run.config) pnpm('add', '--config', CONFIG)
     copyFileSync(join(dir, 'pnpm-lock.yaml'), new URL(`${run.name}.yaml`, OUT))
   } finally {
     rmSync(dir, { recursive: true, force: true })

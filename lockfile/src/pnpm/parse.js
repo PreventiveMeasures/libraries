@@ -2,10 +2,12 @@
 // fields read are the ones below; any other, at any depth, is refused
 // rather than dropped, and so is any older format.
 //
-// pnpm 12 writes a stream of two documents when the project pins its
-// package manager, the env document first: the package manager and the
-// config dependencies, locked the same way. pnpm tells the two apart by the
-// text, a `---` line first, and so does this.
+// pnpm 11 and later write a file of two documents where there is something
+// to lock beside the project: the env document first, with the config
+// dependencies and, from pnpm 12, the package manager a project pins, locked
+// the same way; the project's lockfile second. Before anything is installed
+// the second may be missing, and the file ends at the `---` after the env
+// document.
 
 import { parseYamlStream } from '@preventive/yaml'
 import { LockfileError, at, quote } from '../error.js'
@@ -106,16 +108,28 @@ function readDocument(doc, prefix, env) {
   }
 }
 
+// The split is pnpm's own (@pnpm/lockfile.fs, yamlDocuments.js), made on
+// the text: a file that starts with a line of `---` leads with the env
+// document, which runs to the next line of `---` alone, and what follows
+// that is the project's lockfile, unless it is blank, when there is none.
+// The YAML is still read as one stream, so a line number counts from the
+// top of the file, and has to hold the documents the split does.
 export function parsePnpmLockfile(source) {
-  const docs = parseYamlStream(source)
-  const lf = source.replaceAll('\r\n', '\n')
-  if (!lf.startsWith('---\n')) {
+  if (typeof source !== 'string') throw new TypeError('expected a string')
+  const lead = /^---\r?\n/u.exec(source)?.[0]
+  if (lead === undefined) {
+    const docs = parseYamlStream(source)
     if (docs.length !== 1) throw new LockfileError(`expected one document, found ${docs.length}`)
-    return { ...readDocument(docs[0], '', false), env: undefined }
+    return { lockfile: readDocument(docs[0], '', false), env: undefined }
   }
-  if (docs.length !== 2 || !lf.includes('\n---\n', 4)) {
-    throw new LockfileError(`expected an env document after the first "---" and the lockfile after the next, found ${docs.length} document${docs.length === 1 ? '' : 's'}`)
+  const separator = /\n---\r?\n/gu
+  separator.lastIndex = lead.length
+  const found = separator.exec(source)
+  if (found === null) throw new LockfileError('expected the env document the first "---" starts to end at a line of "---"')
+  const alone = source.slice(separator.lastIndex).trim() === ''
+  const docs = parseYamlStream(alone ? source.slice(0, found.index + 1) : source)
+  if (docs.length !== (alone ? 1 : 2)) {
+    throw new LockfileError(`expected the env document${alone ? '' : ' and the lockfile'} between lines of "---" alone, found ${docs.length} documents`)
   }
-  const env = readDocument(docs[0], 'env', true)
-  return { ...readDocument(docs[1], '', false), env }
+  return { lockfile: alone ? undefined : readDocument(docs[1], '', false), env: readDocument(docs[0], 'env', true) }
 }
