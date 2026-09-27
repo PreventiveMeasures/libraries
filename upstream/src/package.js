@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { assertion, isRepo, sameName } from './args.js'
 import { githubRepoOfUrl } from './remote.js'
 
-const bugsRegex = /^https?:\/\/(?i:github\.com)\/(?<repo>[\w-]+\/[\w.-]+)\/issues$/u
+const bugsRegex = /^https?:\/\/(?i:github\.com)\/(?<repo>[\w-]+\/[\w.-]+)\/issues\/?$/u
 // npm's `owner/name` shorthand means GitHub. No dots in the owner, so a
 // domain (`srvx.h3.dev/srvx`) isn't read as one; another forge's prefix
 // (`gitlab:`) can't match.

@@ -261,6 +261,14 @@ describe('getAdvisory', () => {
     assert.deepEqual(calls.map((call) => call.url), [GLOBAL_URL])
   })
 
+  it('throws, rather than answer the global copy, when the repository fails without being gone', async () => {
+    for (const status of [403, 429, 500, 503]) {
+      const calls = stubGitHub(({ url }) => (url.includes('/repos/') ? json({ message: 'x' }, status) : json({ ghsa_id: GHSA })))
+      await assert.rejects(client().getAdvisory({ ghsa: GHSA, repo: 'minimistjs/minimist' }), { name: 'HttpError', status }, String(status))
+      assert.equal(calls.length, 1)
+    }
+  })
+
   it("refuses a repository copy that is not published, or not the one asked for, rather than falling back", async () => {
     const calls = stubGitHub(({ url }) => json(url.includes('/repos/') ? { ghsa_id: GHSA, state: 'draft' } : { ghsa_id: GHSA }))
     await assert.rejects(client().getAdvisory({ ghsa: GHSA, repo: 'minimistjs/minimist' }), /getAdvisory: GHSA-xvch-5gv4-984h is "draft", not published/u)

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { assertArgs, assertPackageVersion, assertRepo, assertion, isGhsa, isStrings } from '../args.js'
-import { HttpError } from '../http.js'
+import { isGone } from '../github/client.js'
 import { pool } from '../pool.js'
 import { compareVersions, satisfies, validRange } from '../semver.js'
 import { askedVersions, order } from './common.js'
@@ -13,9 +13,8 @@ const isRepoAdvisory = (advisory) => advisory && typeof advisory === 'object' &&
   && (advisory.vulnerabilities == null || Array.isArray(advisory.vulnerabilities)) && (advisory.cwe_ids == null || isStrings(advisory.cwe_ids))
 export const assertClient = assertion('a GitHub client from createClient', (value) => typeof value?.listRepoAdvisories === 'function')
 
-// A repository renamed, deleted or blocked has nothing to add.
 const listAdvisories = (github, repo) => github.listRepoAdvisories({ repo }).catch((err) => {
-  if (err instanceof HttpError && [301, 404, 410, 451].includes(err.status)) return []
+  if (isGone(err)) return []
   throw err
 })
 

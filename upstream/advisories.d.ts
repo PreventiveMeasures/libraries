@@ -70,10 +70,12 @@ export interface OsvAdvisory {
 // `github`, also what each package's repository publishes that the
 // registry did not answer with, which covers advisories GitHub has not
 // reviewed yet: the repository is the one the registry names for the
-// package (resolvePackageRepos, through its cache), asked once, four at a
-// time. One gone, renamed or blocked is skipped; any other failure
-// throws. Sorted by name, the registry's rows first. Versions are matched
-// by npm's semver, from the npm beside node.
+// package (through resolvePackageRepos's cache), asked once, four at a
+// time. A package the registry does not have or that names no GitHub
+// repo, and a repository gone, renamed or blocked, add nothing; any other
+// failure, a lookup's included, throws. Sorted by name, the registry's
+// rows first. Versions are matched by npm's semver, from the npm beside
+// node.
 export function npmAdvisories(packages: Iterable<InstalledPackage>, options?: { github?: Client }): Promise<NpmAdvisory[]>
 
 // RustSec, the database `cargo audit` reads, through OSV. Versions are

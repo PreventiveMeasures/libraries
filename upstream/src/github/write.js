@@ -16,7 +16,8 @@ const CREATE_COMMIT_MUTATION = `mutation($input: CreateCommitOnBranchInput!) {
 }`
 
 function toBase64(value, what) {
-  assert.ok(typeof value === 'string' || value instanceof Uint8Array, `createCommit: ${what} must be a string or a Uint8Array, got ${typeof value}`)
+  // Buffer.from would put U+FFFD in for a lone surrogate, and commit other bytes than asked.
+  assert.ok((typeof value === 'string' && value.isWellFormed()) || value instanceof Uint8Array, `createCommit: ${what} must be a well-formed string or a Uint8Array, got ${typeof value === 'string' ? 'a malformed string' : typeof value}`)
   return Buffer.from(value).toString('base64')
 }
 

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 
 import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, isSha, optional, sameName, show } from '../args.js'
-import { HttpError, encodeSegment } from '../http.js'
-import { api, bindMethods, call, clientHeaders, repoApi } from './client.js'
+import { encodeSegment } from '../http.js'
+import { api, bindMethods, call, clientHeaders, isGone, repoApi } from './client.js'
 
 const PER_PAGE = 100
 const MAX_PAGES = 100
@@ -81,13 +81,13 @@ async function getCollaboratorPermission(headers, options) {
 
 // The repository's copy is the maintainer's latest text, there from the
 // start; the global database has it only once GitHub has reviewed it, and
-// is the fallback for a repository that is gone.
+// is the fallback for a repository that is gone, not for one that failed.
 async function getAdvisory(headers, options) {
   assertArgs('getAdvisory', options, { ghsa: assertGhsa, repo: optional(assertRepo) })
   const { ghsa, repo } = options
   const global = () => call(headers, api(['advisories', ghsa]))
   const advisory = await (repo === undefined ? global() : call(headers, repoApi(repo, ['security-advisories', ghsa])).catch((err) => {
-    if (!(err instanceof HttpError)) throw err
+    if (!isGone(err)) throw err
     return global()
   }))
   assert.ok(advisory?.ghsa_id === ghsa, `getAdvisory: answered for ${show(advisory?.ghsa_id)}, not ${ghsa}`)

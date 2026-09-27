@@ -35,9 +35,10 @@ export interface Client {
   // An advisory by its GHSA id. With `repo`, that repository's published
   // copy: the maintainer's latest text, there before GitHub reviews it,
   // and shaped as a repository advisory (`state`, `patched_versions`, no
-  // `type`). Without `repo`, or when that request fails (a repository gone,
-  // renamed or blocked), GitHub's global database, which has it only once
-  // reviewed. Refused unless it is the one asked for, and published.
+  // `type`). Without `repo`, or with a repository gone, renamed or blocked
+  // (301, 404, 410, 451), GitHub's global database, which has it only once
+  // reviewed; any other failure throws. Refused unless it is the one asked
+  // for, and published.
   getAdvisory(options: { ghsa: string; repo?: RepoName }): Promise<{ ghsa_id: string } & Record<string, any>>
   // GitHub's `{ permission, role_name, user }` for `username` on `repo`,
   // teams, organization and enterprise grants included.

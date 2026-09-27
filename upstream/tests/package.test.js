@@ -22,6 +22,8 @@ describe('getRepo', () => {
 
   it('reads a repo name with dots off a tracker, and GitHub\'s host in any case', () => {
     assert.deepEqual(getRepo({ bugs: { url: 'https://github.com/socketio/socket.io/issues' } }), { github: 'socketio/socket.io', url: 'https://github.com/socketio/socket.io' })
+    assert.deepEqual(getRepo({ bugs: 'https://github.com/acme/app/issues/' }), { github: 'acme/app', url: 'https://github.com/acme/app' })
+    assert.deepEqual(getRepo({ bugs: 'https://github.com/acme/app/issues//' }), {})
     for (const pkg of [
       { bugs: 'https://GitHub.com/acme/app/issues' },
       { repository: 'https://GitHub.com/acme/app.git' },

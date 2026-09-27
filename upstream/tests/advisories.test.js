@@ -207,6 +207,23 @@ describe('npmAdvisories with a GitHub client', () => {
     await assert.rejects(npmAdvisories(one, { github }), /listRepoAdvisories: acme\/mono has 100 or more published advisories/u)
   })
 
+  it('throws when a package\'s repository cannot be looked up, and skips one the registry does not have', async () => {
+    const one = [{ name: 'mono-a', version: '1.0.0' }]
+    stubAll({ repos: {} })
+    assert.deepEqual(await npmAdvisories(one, { github }), [])
+    for (const status of [429, 500]) {
+      const calls = []
+      globalThis.fetch = (url) => {
+        calls.push(String(url))
+        return Promise.resolve(String(url) === BULK ? Response.json({}) : Response.json({ error: 'x' }, { status }))
+      }
+      await assert.rejects(npmAdvisories(one, { github }), (err) => err instanceof HttpError && err.status === status, String(status))
+      assert.deepEqual(calls, [BULK, 'https://registry.npmjs.org/mono-a/latest'])
+    }
+    globalThis.fetch = (url) => Promise.resolve(String(url) === BULK ? Response.json({}) : Response.json({ name: 'other' }))
+    await assert.rejects(npmAdvisories(one, { github }), /lookUpPackageRepo: the registry answered for "other", not mono-a/u)
+  })
+
   it('refuses a github option that is not a client, before any request', async () => {
     const calls = stubAll({})
     for (const option of [{}, 'token', { listRepoAdvisories: 1 }]) {
