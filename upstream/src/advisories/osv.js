@@ -8,8 +8,9 @@ import { inRange, isText, metrics, order } from './common.js'
 import { withRepositories } from './github.js'
 import { composerRepos, crateRepos } from './repos.js'
 
+const QUERY_URL = buildUrl(OSV_API, ['v1', 'querybatch'])
 const QUERIES_PER_REQUEST = 1000
-const CONCURRENCY = 8
+const RECORDS_AT_ONCE = 8
 const isOsvId = matches(/^(?=.{1,128}$)[A-Z][\dA-Z]*(?:-[\dA-Za-z]+)+$/u)
 const INFORMATIONAL = new Set(['unmaintained', 'unsound', 'notice'])
 
@@ -73,13 +74,13 @@ function toAdvisory(ecosystem, name, versions, record) {
 // publishes comes back under both ids, so one that aliases a GHSA keeps
 // only the versions that GHSA was not answered for.
 async function osvAdvisories(ecosystem, asked, options) {
-  const { osv, keep = () => true } = ecosystem
+  const { osv, github, lookUp, covers, keep = () => true } = ecosystem
   const list = [...asked].flatMap(([name, versions]) => versions.map((version) => ({ name, version })))
   const hits = new Map() // id → name → versions, in `list` order
   for (let i = 0; i < list.length; i += QUERIES_PER_REQUEST) {
     const chunk = list.slice(i, i + QUERIES_PER_REQUEST)
     const body = { queries: chunk.map(({ name, version }) => ({ package: { name, ecosystem: osv }, version })) }
-    const answer = await request(buildUrl(OSV_API, ['v1', 'querybatch']), { method: 'POST', body, as: 'json' })
+    const answer = await request(QUERY_URL, { method: 'POST', body, as: 'json' })
     assert.ok(Array.isArray(answer?.results) && answer.results.length === chunk.length, 'advisories: expected one OSV result per query')
     for (const [j, result] of answer.results.entries()) {
       const { name, version } = chunk[j]
@@ -91,17 +92,17 @@ async function osvAdvisories(ecosystem, asked, options) {
       }
     }
   }
-  const records = await pool([...hits.keys()], CONCURRENCY, getVuln)
-  const live = new Set(records.filter((record) => !record.withdrawn).map((record) => record.id))
+  const records = (await pool([...hits.keys()], RECORDS_AT_ONCE, getVuln)).filter((record) => !record.withdrawn)
+  const live = new Set(records.map((record) => record.id))
   const rows = []
-  for (const record of records.filter((entry) => live.has(entry.id))) {
+  for (const record of records) {
     for (const [name, versions] of hits.get(record.id)) {
       // Only the versions a live GHSA it aliases answered for too.
-      const shadowed = isGhsa(record.id) ? [] : record.aliases.filter((alias) => isGhsa(alias) && live.has(alias)).flatMap((alias) => [...(hits.get(alias)?.get(name) ?? [])])
+      const shadowed = isGhsa(record.id) ? [] : record.aliases.filter((alias) => isGhsa(alias) && live.has(alias)).flatMap((alias) => [...(hits.get(alias).get(name) ?? [])])
       const rest = [...versions].filter((version) => !shadowed.includes(version))
       if (rest.length > 0) rows.push(toAdvisory(osv, name, rest, record))
     }
   }
   rows.sort((a, b) => order(a.name, b.name) || order(a.id, b.id))
-  return await withRepositories(rows, asked, options, { ecosystem: ecosystem.github, lookUp: ecosystem.lookUp, covers: ecosystem.covers })
+  return await withRepositories(rows, asked, options, { ecosystem: github, lookUp, covers })
 }

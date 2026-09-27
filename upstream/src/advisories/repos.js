@@ -49,6 +49,11 @@ async function fetchCrates(names) {
   return found
 }
 
+async function fetchEach(names, fetch) {
+  const found = await pool(names, PACKAGES_AT_ONCE, fetch)
+  return new Map(names.map((name, i) => [name, found[i]]))
+}
+
 // The first version in Packagist's file is its latest, in full.
 async function fetchComposerRepo(name) {
   const [vendor, pkg] = name.split('/')
@@ -63,11 +68,5 @@ async function fetchComposerRepo(name) {
 }
 
 export const crateRepos = (names) => cachedRepos('cargo/repos', names, fetchCrates)
-export const composerRepos = (names) => cachedRepos('composer/repos', names, async (missing) => {
-  const found = await pool(missing, PACKAGES_AT_ONCE, fetchComposerRepo)
-  return new Map(missing.map((name, i) => [name, found[i]]))
-})
-export async function npmRepos(names) {
-  const found = await pool(names, PACKAGES_AT_ONCE, lookUpPackageRepo)
-  return new Map(names.map((name, i) => [name, found[i]?.github ?? null]))
-}
+export const composerRepos = (names) => cachedRepos('composer/repos', names, (missing) => fetchEach(missing, fetchComposerRepo))
+export const npmRepos = (names) => fetchEach(names, async (name) => (await lookUpPackageRepo(name))?.github ?? null)

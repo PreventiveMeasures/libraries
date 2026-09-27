@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
 
 import { assertArgs, assertBoolean, assertRepo, assertion, optional, sameName } from '../args.js'
-import { byNumbers, order } from './common.js'
+import { order } from './common.js'
 import { GITHUB, assertClient } from './github.js'
 import { NPM } from './npm.js'
 import { CARGO, COMPOSER } from './osv.js'
 
 const ECOSYSTEMS = { npm: NPM, cargo: CARGO, composer: COMPOSER, github: GITHUB }
+const byNumbers = new Intl.Collator('en', { numeric: true }).compare
 const assertEcosystem = assertion(`one of ${Object.keys(ECOSYSTEMS).join(', ')}`, (value) => typeof value === 'string' && Object.hasOwn(ECOSYSTEMS, value))
 const assertVersions = assertion('a non-empty array', (value) => Array.isArray(value) && value.length > 0)
 
@@ -36,11 +37,11 @@ export async function advisories(packages, options = {}) {
   const byEcosystem = collect(packages)
   assert.ok(!byEcosystem.has('github') || options.github, 'advisories: github packages need a github client')
   const found = await Promise.all([...byEcosystem].map(async ([ecosystem, named]) => {
-    const { compare = byNumbers, advisories: lookUp } = ECOSYSTEMS[ecosystem]
+    const { compare = byNumbers, advisories: find } = ECOSYSTEMS[ecosystem]
     const names = [...named.keys()].toSorted()
     const asked = new Map(names.map((name) => [name, [...named.get(name).versions].toSorted(compare)]))
     const known = new Map(names.filter((name) => named.get(name).github).map((name) => [name, named.get(name).github]))
-    const rows = await lookUp(asked, { github: options.github, repoAdvisories: options.repoAdvisories === true, known })
+    const rows = await find(asked, { github: options.github, repoAdvisories: options.repoAdvisories === true, known })
     return rows.map((row) => ({ ecosystem, ...row }))
   }))
   return found.flat().filter((row) => row.versions.length > 0).toSorted((a, b) => order(a.ecosystem, b.ecosystem) || order(a.name, b.name))

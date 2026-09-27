@@ -1,11 +1,11 @@
 import { isStrings, matches } from '../args.js'
 import { satisfies, validRange } from '../semver.js'
 
-export const byNumbers = new Intl.Collator('en', { numeric: true }).compare
 export const order = (a, b) => (a > b) - (a < b)
 
 // As `npm audit` matches: a prerelease is in a range around it.
 const SEMVER = { includePrerelease: true, loose: true }
+
 export const inRange = (version, range) => satisfies(version, range, SEMVER)
 
 // The asked versions a range `covers`. One semver cannot read covers them

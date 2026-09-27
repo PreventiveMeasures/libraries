@@ -16,12 +16,13 @@ const isRow = (row) => row && typeof row === 'object' && Number.isSafeInteger(ro
   && (row.cwe === undefined || isStrings(row.cwe))
 
 function fromRegistry(name, row, asked) {
-  const ghsa = row.url.startsWith(GHSA_PAGE) ? row.url.slice(GHSA_PAGE.length) : undefined
+  const tail = row.url.startsWith(GHSA_PAGE) ? row.url.slice(GHSA_PAGE.length) : ''
+  const ghsa = isGhsa(tail) ? tail : undefined
   return {
     name,
     source: 'registry',
-    id: isGhsa(ghsa) ? ghsa : `npm:${row.id}`,
-    ...(isGhsa(ghsa) && { ghsa }),
+    id: ghsa ?? `npm:${row.id}`,
+    ...(ghsa && { ghsa }),
     aliases: [],
     title: row.title,
     ...metrics({ severity: row.severity, score: row.cvss?.score, vector: row.cvss?.vectorString, cwe: row.cwe }),
