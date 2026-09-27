@@ -157,6 +157,22 @@ describe('what else pnpm writes is read', () => {
     })
   })
 
+  it('a peer suffix limit of 0, which hashes every one', () => {
+    assert.equal(read(['  autoInstallPeers: true\n', '  peersSuffixMaxLength: 0\n']).settings.peersSuffixMaxLength, 0)
+  })
+
+  it('what rewrote the manifests, and the optional dependencies left out', () => {
+    const header = (checksums) => read(['settings:', `${checksums}\nignoredOptionalDependencies:\n  - fsevents\n  - '@esbuild/*'\n\nsettings:`])
+    const bare = header('packageExtensionsChecksum: 16a1ed6e7ce817a90048c6de502598af\n\npnpmfileChecksum: 4v4g43vz4g3vbbdiawo2fhluvq\n')
+    assert.deepEqual([bare.packageExtensionsChecksum, bare.pnpmfileChecksum], ['16a1ed6e7ce817a90048c6de502598af', '4v4g43vz4g3vbbdiawo2fhluvq'])
+    assert.deepEqual(bare.ignoredOptionalDependencies, ['fsevents', '@esbuild/*'])
+    const sri = 'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU='
+    const integrity = header(`packageExtensionsChecksum: ${sri}\n\npnpmfileChecksum: ${sri}\n`)
+    assert.deepEqual([integrity.packageExtensionsChecksum, integrity.pnpmfileChecksum], [sri, sri])
+    const none = parse(BASE)
+    assert.deepEqual([none.packageExtensionsChecksum, none.pnpmfileChecksum, none.ignoredOptionalDependencies], [undefined, undefined, []])
+  })
+
   it('a patch with its path, as pnpm 9 and 10 write it', () => {
     const lock = read(['  b@1.0.0: abc123', '  b@1.0.0:\n    hash: abc123\n    path: patches/b@1.0.0.patch'])
     assert.deepEqual(plain(lock.patchedDependencies), { 'b@1.0.0': { hash: 'abc123', path: 'patches/b@1.0.0.patch' } })
@@ -292,7 +308,7 @@ describe('the document is refused', () => {
   })
 
   it('with a field this reader does not know', () => {
-    for (const field of ['time', 'pnpmfileChecksum', 'packageExtensionsChecksum', 'ignoredOptionalDependencies', 'onlyBuiltDependencies']) {
+    for (const field of ['time', 'onlyBuiltDependencies', 'neverBuiltDependencies', 'untrackedPnpmfileReadPackageHook']) {
       refuses(edit(['settings:', `${field}: x\n\nsettings:`]), `unsupported field "${field}"`, undefined)
     }
     refuses(edit(['  autoInstallPeers: true', '  resolutionMode: highest']), 'settings: unsupported field "resolutionMode"', 'settings')
@@ -324,7 +340,8 @@ describe('the document is refused', () => {
 describe('the header is held to what pnpm writes', () => {
   it('settings', () => {
     refuses(edit(['autoInstallPeers: true', "autoInstallPeers: 'true'"]), 'settings.autoInstallPeers: expected true or false, found the string "true"')
-    refuses(edit(['autoInstallPeers: true', 'peersSuffixMaxLength: 0']), 'settings.peersSuffixMaxLength: expected a positive integer, found the number 0')
+    refuses(edit(['autoInstallPeers: true', 'peersSuffixMaxLength: -1']), 'settings.peersSuffixMaxLength: expected a non-negative integer, found the number -1')
+    refuses(edit(['autoInstallPeers: true', 'peersSuffixMaxLength: 1.5']), 'settings.peersSuffixMaxLength: expected a non-negative integer, found the number 1.5')
     refuses(edit(['settings:\n  autoInstallPeers: true', 'settings: []']), 'settings: expected a mapping, found a sequence')
   })
 
@@ -334,6 +351,16 @@ describe('the header is held to what pnpm writes', () => {
     refuses(edit(['  b@1.0.0: abc123', '  b@1.0.0:\n    hash: abc123\n    path: /abs.patch']), 'patchedDependencies["b@1.0.0"].path: "/abs.patch" is not a relative path in normal form')
     refuses(edit(['  b@1.0.0: abc123', '  b@1.0.0:\n    hash: abc123\n    path: p\n    extra: 1']), 'patchedDependencies["b@1.0.0"]: unsupported field "extra"')
     refuses(edit(['  b@1.0.0: abc123', '  b@1.0.0: abc124']), 'snapshots["b@1.0.0(patch_hash=abc123)"]: the patch hash "abc123" is not in patchedDependencies')
+  })
+
+  it('checksums and ignored optional dependencies', () => {
+    const header = (line) => edit(['settings:', `${line}\n\nsettings:`])
+    refuses(header('pnpmfileChecksum: ABC'), 'pnpmfileChecksum: "ABC" is not a checksum')
+    refuses(header('pnpmfileChecksum: sha512-abc'), 'pnpmfileChecksum: "sha512-abc" is not a checksum')
+    refuses(header('pnpmfileChecksum: sha256-abc'), 'pnpmfileChecksum: "sha256-abc" is not a sha1, sha256, sha384 or sha512 integrity')
+    refuses(header('packageExtensionsChecksum: 12'), 'packageExtensionsChecksum: expected a string, found the number 12')
+    refuses(header('ignoredOptionalDependencies: fsevents'), 'ignoredOptionalDependencies: expected a sequence, found the string "fsevents"')
+    refuses(header("ignoredOptionalDependencies: ['']"), 'ignoredOptionalDependencies[0]: expected a non-empty string')
   })
 
   it('catalogs and overrides', () => {

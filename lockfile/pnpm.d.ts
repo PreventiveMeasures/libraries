@@ -60,6 +60,14 @@ export interface PnpmLockfile {
   // By selector, the patch: `path` is its file, relative to the lockfile's
   // directory, which pnpm 11 and later leave out.
   patchedDependencies: Record<string, { hash: string, path: string | undefined }>
+  // Set where `packageExtensions` or a pnpmfile's hooks rewrote the
+  // manifests pnpm resolved from, so a package's dependencies here may not
+  // be what it publishes: a digest of each, bare from pnpm 9, `sha256-`
+  // from pnpm 10.
+  packageExtensionsChecksum: string | undefined
+  pnpmfileChecksum: string | undefined
+  // Names and patterns (`@esbuild/*`) of optional dependencies not installed.
+  ignoredOptionalDependencies: string[]
   // By project directory relative to the lockfile's, `.` for its own.
   importers: Record<string, PnpmImporter>
   // By snapshot key: `name@version`, or `name@` and a source, then the

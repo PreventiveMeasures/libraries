@@ -11,12 +11,16 @@
 
 import { parseYamlStream } from '@preventive/yaml'
 import { LockfileError, at, quote } from '../error.js'
-import { checkName, checkRelative } from '../names.js'
-import { EMPTY, boolean, count, entries, kind, record, string, text, textMap } from '../shape.js'
+import { checkIntegrity, checkName, checkRelative } from '../names.js'
+import { EMPTY, boolean, count, entries, kind, record, string, text, textMap, texts } from '../shape.js'
 import { ENV_KINDS, KINDS, readImporters } from './importers.js'
 import { readPackages } from './packages.js'
 
-const FIELDS = ['lockfileVersion', 'settings', 'catalogs', 'overrides', 'patchedDependencies', 'importers', 'packages', 'snapshots']
+const FIELDS = [
+  'lockfileVersion', 'settings', 'catalogs', 'overrides', 'patchedDependencies',
+  'packageExtensionsChecksum', 'pnpmfileChecksum', 'ignoredOptionalDependencies',
+  'importers', 'packages', 'snapshots',
+]
 const ENV_FIELDS = ['lockfileVersion', 'importers', 'packages', 'snapshots']
 
 const SETTINGS = {
@@ -63,6 +67,16 @@ function readPatches(value, where) {
   return patches
 }
 
+// A digest of what rewrote the manifests pnpm resolved from: pnpm 9 writes
+// it bare, in hex or base32, and pnpm 10 and later as a sha256 integrity.
+function readChecksum(value, where) {
+  if (value === undefined) return undefined
+  const checksum = text(value, where)
+  if (/^[\da-z]+$/u.test(checksum)) return checksum
+  if (!checksum.startsWith('sha256-')) throw new LockfileError(`${quote(checksum)} is not a checksum`, where)
+  return checkIntegrity(checksum, where)
+}
+
 // Every snapshot is reached from an importer, as pnpm prunes the rest: one
 // that is not would be listed as installed when nothing installs it.
 function checkReached(importers, packages, where) {
@@ -103,6 +117,9 @@ function readDocument(doc, prefix, env) {
     catalogs: readCatalogs(doc.catalogs, at(prefix, 'catalogs')),
     overrides: textMap(doc.overrides ?? EMPTY, at(prefix, 'overrides'), text),
     patchedDependencies,
+    packageExtensionsChecksum: readChecksum(doc.packageExtensionsChecksum, at(prefix, 'packageExtensionsChecksum')),
+    pnpmfileChecksum: readChecksum(doc.pnpmfileChecksum, at(prefix, 'pnpmfileChecksum')),
+    ignoredOptionalDependencies: doc.ignoredOptionalDependencies === undefined ? [] : texts(doc.ignoredOptionalDependencies, at(prefix, 'ignoredOptionalDependencies')),
     importers,
     packages,
   }

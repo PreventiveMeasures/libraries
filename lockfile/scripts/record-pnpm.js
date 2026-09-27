@@ -19,6 +19,13 @@
 // nothing, which leaves the env document alone in the file. The config
 // dependency is a package with no code pnpm runs, so it changes nothing
 // else.
+//
+// The two runs of the small project after those give pnpm's manifests
+// something to rewrite, a pnpmfile hook and a package extension, an
+// optional dependency to ignore by name and one by pattern, and a peer to
+// hash with `peersSuffixMaxLength: 0`; pnpm 9 writes its checksums bare,
+// pnpm 10 and later as integrities. pnpm 9 takes the settings from
+// package.json and has no such limit to set.
 
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -35,7 +42,14 @@ const RUNS = [
   { name: 'pnpm-11-config', pnpm: '11.27.1', config: true },
   { name: 'pnpm-12-env', pnpm: '12.6.0', packageManager: 'pnpm@12.6.0', config: true },
   { name: 'pnpm-12-env-only', pnpm: '12.6.0', bare: true, config: true },
+  { name: 'pnpm-9-hooks', pnpm: '9.15.9', hooks: true },
+  { name: 'pnpm-12-hooks', pnpm: '12.6.0', hooks: true },
 ]
+
+const HOOKS = {
+  packageExtensions: { 'is-odd': { dependencies: { 'is-number': '6.0.0' } } },
+  ignoredOptionalDependencies: ['fsevents', '@esbuild/*'],
+}
 
 const CONFIG = 'is-number@7.0.0'
 
@@ -114,11 +128,33 @@ function lay(dir, run) {
   write(dir, 'pnpm-workspace.yaml', `${[...WORKSPACE, ...settings].join('\n')}\n`)
 }
 
+// The small project, laid out in `dir` for `run`.
+function layHooks(dir, run) {
+  const legacy = run.pnpm.startsWith('9.')
+  write(dir, 'package.json', {
+    name: 'hooks',
+    version: '0.0.0',
+    private: true,
+    dependencies: { 'is-odd': '3.0.1', react: '18.2.0', 'react-dom': '18.2.0' },
+    optionalDependencies: { fsevents: '2.3.3' },
+    ...(legacy ? { pnpm: HOOKS } : {}),
+  })
+  write(dir, '.pnpmfile.cjs', 'module.exports = { hooks: { readPackage: (pkg) => pkg } }\n')
+  if (legacy) return
+  const workspace = [
+    'packageExtensions:', '  is-odd:', '    dependencies:', '      is-number: 6.0.0',
+    'ignoredOptionalDependencies:', ...HOOKS.ignoredOptionalDependencies.map((name) => `  - '${name}'`),
+    'peersSuffixMaxLength: 0',
+  ]
+  write(dir, 'pnpm-workspace.yaml', `${workspace.join('\n')}\n`)
+}
+
 for (const run of RUNS) {
   const dir = mkdtempSync(join(tmpdir(), `${run.name}-`))
   const pnpm = (...args) => execFileSync('npx', ['-y', `pnpm@${run.pnpm}`, ...args, `--config.store-dir=${dir}.store`], { cwd: dir, stdio: 'inherit' })
   try {
     if (run.bare) write(dir, 'package.json', { name: 'bare', version: '0.0.0', private: true })
+    else if (run.hooks) layHooks(dir, run)
     else lay(dir, run)
     if (!run.bare) pnpm('install')
     if (run.config) pnpm('add', '--config', CONFIG)

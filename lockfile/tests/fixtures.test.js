@@ -7,9 +7,11 @@ import { parsePnpmLockfile } from '../pnpm.js'
 // workspace that pulls in every kind of dependency a v9 lockfile records;
 // by pnpm 11 and 12 once more with a config dependency, and under pnpm 12
 // the package manager pinned, which lead the file with an env document;
-// and by pnpm 12 for a bare project given a config dependency and nothing
-// installed, which leaves the env document alone. scripts/record-pnpm.js
-// builds them; its header says what is in them.
+// by pnpm 12 for a bare project given a config dependency and nothing
+// installed, which leaves the env document alone; and by pnpm 9 and 12 for
+// a small project whose manifests a pnpmfile and a package extension
+// rewrite. scripts/record-pnpm.js builds them; its header says what is in
+// them.
 
 const FIXTURES = new URL('fixtures/', import.meta.url)
 const read = (name) => parsePnpmLockfile(readFileSync(new URL(`${name}.yaml`, FIXTURES), 'utf8'))
@@ -251,5 +253,31 @@ describe('the env document', () => {
     assert.deepEqual(plain(env.importers['.'].configDependencies), { 'is-number': 'is-number@7.0.0' })
     const [project] = byName(read('pnpm-12').lockfile, 'is-number', '7.0.0')
     assert.equal(env.packages['is-number@7.0.0'].resolution.integrity, project.resolution.integrity)
+  })
+})
+
+describe('what rewrote the manifests, as pnpm 9 and 12 record it', () => {
+  const v9 = read('pnpm-9-hooks').lockfile
+  const v12 = read('pnpm-12-hooks').lockfile
+
+  it('a checksum of each, bare from pnpm 9, an integrity from pnpm 10', () => {
+    assert.match(v9.packageExtensionsChecksum, /^[\da-f]{32}$/u)
+    assert.match(v9.pnpmfileChecksum, /^[\da-z]{26}$/u)
+    assert.match(v12.packageExtensionsChecksum, /^sha256-/u)
+    assert.match(v12.pnpmfileChecksum, /^sha256-/u)
+  })
+
+  it('the optional dependencies left out, and left out of the graph', () => {
+    for (const lock of [v9, v12]) {
+      assert.deepEqual([...lock.ignoredOptionalDependencies].sort(), ['@esbuild/*', 'fsevents'])
+      assert.deepEqual(plain(lock.importers['.'].optionalDependencies), {})
+      assert.equal(byName(lock, 'fsevents', '2.3.3').length, 0)
+    }
+  })
+
+  it('every peer suffix hashed, where the limit is 0', () => {
+    assert.equal(v12.settings.peersSuffixMaxLength, 0)
+    assert.match(v12.importers['.'].dependencies['react-dom'], /^react-dom@18\.2\.0\([\da-f]{32}\)$/u)
+    assert.equal(v9.importers['.'].dependencies['react-dom'], 'react-dom@18.2.0(react@18.2.0)')
   })
 })

@@ -71,6 +71,6 @@ export function flag(value, where) {
 }
 
 export function count(value, where) {
-  if (!Number.isSafeInteger(value) || value < 1) throw refuse('a positive integer', value, where)
+  if (!Number.isSafeInteger(value) || value < 0) throw refuse('a non-negative integer', value, where)
   return value
 }
