@@ -5,7 +5,7 @@ import {
   assertArgs, assertBoolean, assertLine, assertLogin, assertPath, assertRef, assertRepo, assertRepoName, assertSha, assertText,
   optional, printable,
 } from '../args.js'
-import { readBody, send } from '../http.js'
+import { decode, readBody, send } from '../http.js'
 import { api, bindMethods, call, clientHeaders, repoApi } from './client.js'
 import { getRepoHead, readMethods } from './read.js'
 
@@ -75,7 +75,7 @@ export function parseGraphQLResponse(status, text) {
 // A signed commit; the branch must already exist.
 async function createCommitOnBranch(headers, input) {
   const res = await send(api(['graphql']), { method: 'POST', headers, body: { query: CREATE_COMMIT_MUTATION, variables: { input } }, as: 'json' })
-  return parseGraphQLResponse(res.status, new TextDecoder().decode(await readBody(res, 1024 * 1024))).createCommitOnBranch.commit
+  return parseGraphQLResponse(res.status, decode(await readBody(res, 1024 * 1024), 'GitHub GraphQL')).createCommitOnBranch.commit
 }
 
 async function forkRepo(headers, options) {

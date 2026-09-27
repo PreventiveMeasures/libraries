@@ -20,13 +20,21 @@ const LIMITS = {
   text: { bytes: 128 * 1024 * 1024, ms: 30_000 },
   bytes: { bytes: 512 * 1024 * 1024, ms: 300_000 },
 }
-const decoder = new TextDecoder()
+const decoder = new TextDecoder('utf-8', { fatal: true })
 
 export class HttpError extends Error {
   constructor(status, message) {
     super(message)
     this.name = 'HttpError'
     this.status = status
+  }
+}
+
+export function decode(bytes, from) {
+  try {
+    return decoder.decode(bytes)
+  } catch (err) {
+    throw new Error(`Malformed UTF-8 from ${from}`, { cause: err })
   }
 }
 
@@ -82,12 +90,13 @@ export async function readBody(res, limit, { truncate = false } = {}) {
 export async function request(url, options) {
   const res = await send(url, options)
   if (!res.ok) {
-    const text = decoder.decode(await readBody(res, 4096, { truncate: true }).catch(() => new Uint8Array(0)))
+    // A stream decode holds back a character cut at the limit rather than refusing it.
+    const text = await readBody(res, 4096, { truncate: true }).then((bytes) => new TextDecoder('utf-8', { fatal: true }).decode(bytes, { stream: true })).catch(() => '')
     throw new HttpError(res.status, `${options.method ?? 'GET'} ${url} ${res.status}: ${printable(text)}`)
   }
   const bytes = await readBody(res, LIMITS[options.as].bytes)
   if (options.as === 'bytes') return bytes
-  const text = decoder.decode(bytes)
+  const text = decode(bytes, url)
   if (options.as === 'text') return text
   try {
     return JSON.parse(text)

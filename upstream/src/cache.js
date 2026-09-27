@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 
 import { assertDirectoryPath } from './args.js'
+import { decode } from './http.js'
 
 const DIRS = new Set(['npm/repos', 'npm/tarballs'])
 
@@ -28,7 +29,7 @@ export async function readCache(dir, key) {
 export async function readCacheJSON(dir, key) {
   const bytes = await readCache(dir, key)
   try {
-    return bytes && JSON.parse(new TextDecoder().decode(bytes))
+    return bytes && JSON.parse(decode(bytes, key))
   } catch {
     return null
   }

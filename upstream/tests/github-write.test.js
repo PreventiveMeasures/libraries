@@ -103,6 +103,11 @@ describe('createCommit', () => {
     })
   })
 
+  it('refuses a GraphQL answer that is not UTF-8', async () => {
+    stubGitHub(() => new Response(new Uint8Array([0x7B, 0xFF, 0x7D])))
+    await assert.rejects(client().createCommit({ repo: 'acme/app', branch: 'fix', message: 'Fix it', expectedHeadOid: SHA }), { message: 'Malformed UTF-8 from GitHub GraphQL' })
+  })
+
   it('reads the branch head first when no expectedHeadOid is given', async () => {
     const calls = stubGitHub(({ url }) => (url.endsWith('/graphql') ? json(commitBody) : json({ object: { sha: SHA } })))
     await client().createCommit({ repo: 'acme/app', branch: 'fix', message: 'Fix it' })

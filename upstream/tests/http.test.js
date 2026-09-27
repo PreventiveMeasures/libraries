@@ -94,6 +94,27 @@ describe('send and request', () => {
     await assert.rejects(request(`${NPM_REGISTRY}/x`, { as: 'json' }), /Malformed JSON from https:\/\/registry\.npmjs\.org\/x: <html>/u)
   })
 
+  it('decodes UTF-8 strictly, dropping a BOM as .text() does', async () => {
+    stub(() => new Response(new Uint8Array([0xEF, 0xBB, 0xBF, 0x7B, 0x7D])))
+    assert.equal(await request(`${NPM_REGISTRY}/x`, { as: 'text' }), '{}')
+    assert.deepEqual(await request(`${NPM_REGISTRY}/x`, { as: 'json' }), {})
+    stub(() => new Response(new Uint8Array([0x22, 0xFF, 0x22])))
+    for (const as of ['text', 'json']) {
+      await assert.rejects(request(`${NPM_REGISTRY}/x`, { as }), (err) => {
+        assert.equal(err.message, `Malformed UTF-8 from ${NPM_REGISTRY}/x`)
+        assert.equal(err.cause.code, 'ERR_ENCODING_INVALID_ENCODED_DATA')
+        return true
+      })
+    }
+  })
+
+  it('keeps the status of an error whose body is not UTF-8, and a character cut at the limit out of it', async () => {
+    stub(() => new Response(new Uint8Array([0x61, 0xFF]), { status: 502 }))
+    await assert.rejects(request(`${GITHUB_API}/x`, { as: 'json' }), { name: 'HttpError', status: 502, message: `GET ${GITHUB_API}/x 502: ` })
+    stub(() => new Response(`${'x'.repeat(4095)}é`, { status: 500 }))
+    await assert.rejects(request(`${GITHUB_API}/x`, { as: 'json' }), { name: 'HttpError', status: 500, message: `GET ${GITHUB_API}/x 500: ${'x'.repeat(4095)}` })
+  })
+
   it('throws an HttpError for anything but a 2xx, a redirect included, with the start of the body', async () => {
     stub(() => new Response('x'.repeat(10_000), { status: 500 }))
     await assert.rejects(request(`${GITHUB_API}/x`, { as: 'json' }), (err) => {

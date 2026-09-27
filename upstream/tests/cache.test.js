@@ -32,6 +32,11 @@ describe('the cache', () => {
     assert.deepEqual(await readCache('npm/tarballs', '../../escape@1.0.0.tgz'), new Uint8Array([1]))
   })
 
+  it('reads a record that is not UTF-8 as a miss', async () => {
+    assert.equal(await writeCache('npm/repos', 'bad.json', new Uint8Array([0x22, 0xFF, 0x22])), true)
+    assert.equal(await readCacheJSON('npm/repos', 'bad.json'), null)
+  })
+
   it('files records only under the kinds it keeps', async () => {
     await assert.rejects(writeCache('../etc', 'x', ''), /Unexpected cache entry/u)
     await assert.rejects(readCache('npm', 'x'), /Unexpected cache entry/u)
