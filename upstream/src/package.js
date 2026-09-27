@@ -14,6 +14,12 @@ const str = (value) => (typeof value === 'string' ? value : '')
 const urlOf = (field) => str(field?.url ?? field)
 const homepageUrl = (homepage) => str(homepage).trim().split(/[?#]/u)[0] // npm appends `#readme`.
 const repoIn = (regex, text) => regex.exec(text)?.groups.repo
+// A URL's path spells a tree path percent-encoded; one that does not decode names none.
+function decodePath(path = '') {
+  try {
+    return decodeURIComponent(path)
+  } catch {}
+}
 
 const repositoryRepo = (url) => repoIn(shorthandRegex, url) ?? githubRepoOfUrl(url)
 
@@ -33,6 +39,6 @@ export function getRepo(pkg) {
   const github = [repoIn(bugsRegex, urlOf(bugs)), declared, homepage?.repo].find(isRepo)
   if (github === undefined) return {}
   const directory = (sameName(declared, github) && repoSubdirectory(repository?.directory))
-    || (sameName(homepage?.repo, github) && repoSubdirectory(homepage.directory))
+    || (sameName(homepage?.repo, github) && repoSubdirectory(decodePath(homepage.directory)))
   return { github, ...(directory && { directory }), url: `https://github.com/${github}` }
 }

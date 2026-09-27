@@ -38,6 +38,11 @@ describe('getRepo', () => {
       assert.deepEqual(getRepo(pkg), { github: 'acme/app', url: 'https://github.com/acme/app' }, JSON.stringify(pkg))
     }
     assert.deepEqual(getRepo({ homepage: 'https://github.com/acme/app/tree/main/packages/x/' }), { github: 'acme/app', directory: 'packages/x', url: 'https://github.com/acme/app' })
+    // A URL's path is percent-encoded; the directory is the tree path it spells.
+    assert.deepEqual(getRepo({ homepage: 'https://github.com/acme/app/tree/main/my%20dir/caf%C3%A9%23x' }), { github: 'acme/app', directory: 'my dir/café#x', url: 'https://github.com/acme/app' })
+    for (const directory of ['%2e%2e/x', 'a/%2E/b', 'a%2F%2Fb', '%00x', 'caf%C3', 'a%zz']) {
+      assert.deepEqual(getRepo({ homepage: `https://github.com/acme/app/tree/main/${directory}` }), { github: 'acme/app', url: 'https://github.com/acme/app' }, directory)
+    }
     for (const pkg of [{ homepage: 'https://github.com/acme/app/tree' }, { homepage: 'https://github.com/acme/app/blob/main/README.md' }, { bugs: 'https://github.com/acme/../issues' }, { repository: 'https://GitHub.com.evil.example/acme/app' }, { repository: 'git@GitHub.com.evil.example:acme/app' }, { repository: 'https://github.com:443@evil.example/acme/app' }, { repository: 'https://github.com:x/acme/app' }]) {
       assert.deepEqual(getRepo(pkg), {}, JSON.stringify(pkg))
     }
