@@ -7,14 +7,15 @@ import { api, bindMethods, call, clientHeaders, repoApi } from './client.js'
 const PER_PAGE = 100
 const MAX_PAGES = 100
 
+// A list of exactly `maxPages` full pages is whole only if the next is empty.
 async function* pages(method, headers, pageUrl, maxPages = MAX_PAGES) {
-  for (let page = 1; page <= maxPages; page++) {
+  for (let page = 1; ; page++) {
     const body = await call(headers, pageUrl({ per_page: PER_PAGE, page }))
     assert.ok(Array.isArray(body), `${method}: expected an array for page ${page}`)
+    assert.ok(page <= maxPages || body.length === 0, `${method}: more than ${maxPages} pages`)
     yield body
     if (body.length < PER_PAGE) return
   }
-  assert.fail(`${method}: more than ${maxPages} pages`)
 }
 
 const paginate = async (...args) => (await Array.fromAsync(pages(...args))).flat()

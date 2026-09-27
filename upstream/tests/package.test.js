@@ -28,10 +28,13 @@ describe('getRepo', () => {
       { repository: 'git+ssh://git@GITHUB.COM/acme/app.git' },
       { repository: 'git@GitHub.com:acme/app.git' },
       { homepage: 'https://GitHub.com/acme/app#readme' },
+      { homepage: 'https://github.com/acme/app/tree/main' },
+      { homepage: 'https://github.com/acme/app/tree/main/' },
     ]) {
       assert.deepEqual(getRepo(pkg), { github: 'acme/app', url: 'https://github.com/acme/app' }, JSON.stringify(pkg))
     }
-    for (const pkg of [{ bugs: 'https://github.com/acme/../issues' }, { repository: 'https://GitHub.com.evil.example/acme/app' }, { repository: 'git@GitHub.com.evil.example:acme/app' }]) {
+    assert.deepEqual(getRepo({ homepage: 'https://github.com/acme/app/tree/main/packages/x/' }), { github: 'acme/app', directory: 'packages/x', url: 'https://github.com/acme/app' })
+    for (const pkg of [{ homepage: 'https://github.com/acme/app/tree' }, { homepage: 'https://github.com/acme/app/blob/main/README.md' }, { bugs: 'https://github.com/acme/../issues' }, { repository: 'https://GitHub.com.evil.example/acme/app' }, { repository: 'git@GitHub.com.evil.example:acme/app' }]) {
       assert.deepEqual(getRepo(pkg), {}, JSON.stringify(pkg))
     }
   })

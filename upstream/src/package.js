@@ -9,7 +9,7 @@ const bugsRegex = /^https?:\/\/(?i:github\.com)\/(?<repo>[\w-]+\/[\w.-]+)\/issue
 // (`gitlab:`) can't match.
 const shorthandRegex = /^(?:github:)?(?<repo>[\w-]+\/[\w.-]+)$/u
 // The ref is one segment: a branch with a `/` reads as part of the directory.
-const homepageRegex = /^(?:https?:\/\/)?(?:www\.)?github\.com\/(?<repo>[\w-]+\/[\w.-]+?)(?:\.git)?(?:\/|\/tree\/[^/]+\/(?<directory>.+))?$/iu
+const homepageRegex = /^(?:https?:\/\/)?(?:www\.)?github\.com\/(?<repo>[\w-]+\/[\w.-]+?)(?:\.git)?(?:\/(?:tree\/[^/]+(?:\/(?<directory>.*))?)?)?$/iu
 const segmentRegex = /^[\w-][\w.-]*$/u // No leading dot, so no `.` or `..` in a github.com link.
 const str = (value) => (typeof value === 'string' ? value : '')
 const urlOf = (field) => str(field?.url ?? field)

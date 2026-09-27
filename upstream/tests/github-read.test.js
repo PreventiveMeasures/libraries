@@ -265,18 +265,25 @@ describe('listUserRepos', () => {
   it('stops at 100 pages rather than read on without end', async () => {
     const calls = stubGitHub(() => json(Array.from({ length: 100 }, () => ({}))))
     await assert.rejects(client().listUserRepos(), /listUserRepos: more than 100 pages/u)
-    assert.equal(calls.length, 100)
+    assert.equal(calls.length, 101)
   })
 
   it('stops at maxPages when given one, and refuses one that is not a positive integer', async () => {
     const calls = stubGitHub(() => json(Array.from({ length: 100 }, () => ({}))))
     await assert.rejects(client().listUserRepos({ maxPages: 2 }), /listUserRepos: more than 2 pages/u)
-    assert.equal(calls.length, 2)
+    assert.equal(calls.length, 3)
     for (const maxPages of [0, -1, 1.5, '2', null]) {
       await assert.rejects(client().listUserRepos({ maxPages }), /listUserRepos: maxPages must be a positive integer/u, String(maxPages))
     }
     await assert.rejects(client().listUserRepos(null), /listUserRepos: options must be an options object/u)
-    assert.equal(calls.length, 2)
+    assert.equal(calls.length, 3)
+  })
+
+  it('answers a list of exactly maxPages full pages, once the next page comes back empty', async () => {
+    const full = Array.from({ length: 100 }, () => ({}))
+    const calls = stubGitHub(({ url }) => json(url.includes('page=3&') ? [] : full))
+    assert.equal((await client().listUserRepos({ maxPages: 2 })).length, 200)
+    assert.equal(calls.length, 3)
   })
 
   it('refuses a page that must be a list', async () => {
