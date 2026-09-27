@@ -30,6 +30,13 @@ export function resolvePackageRepos(packageNames: Iterable<string>, options?: { 
 export function readPackageRepoCache(name: string): Promise<{ repo: string; directory?: string } | null>
 export function writePackageRepoCache(name: string, repo: string, directory?: string): Promise<boolean>
 
+// A published version's gzipped tarball, whole, in memory, downloaded
+// only where `dist.tarball` is exactly that version's registry URL.
+// Checked against the registry's sha512 `dist.integrity` on download,
+// before it is cached, and again on every load from the cache; a mismatch
+// throws. `version` must be exact.
+export function getTarball(name: string, version: string): Promise<Uint8Array>
+
 // npm's own semver, borrowed from the Node install. Without it, which
 // semverAvailable() reports, satisfies answers true for every range and
 // compareVersions falls back to a string compare.

@@ -3,14 +3,11 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { cacheDir } from '../cache.js'
+import { REGISTRY, packageNameRegex } from './registry.js'
 
 // Which GitHub repo a published npm package's code lives in, and where in
 // that repo the package sits — the lookup, and the disk cache that keeps a
 // caller from asking twice.
-
-// Same shape npm itself validates names against. A name that fails it
-// never reaches the request.
-const packageNameRegex = /^(@[\da-z-]+\/)?[\w-]+(\.[\w-]+)*$/u
 
 // What `bugs.url` has to look like once its `/issues` suffix is off.
 // Deliberately narrow (no dots), because this is matched against a URL a
@@ -37,7 +34,7 @@ const shorthandRegex = /^(?:github:)?(?<repo>[\w-]+\/[\w.-]+)$/u
 // of version history to answer a one-line question.
 async function getShortInfo(name) {
   assert.ok(packageNameRegex.test(name), `Unexpected package name: ${name}`)
-  const res = await fetch(`https://registry.npmjs.org/${name}/latest`)
+  const res = await fetch(`${REGISTRY}/${name}/latest`)
   assert.ok(res.ok, `Failed to fetch ${name} from npm: ${res.status}`)
   const json = await res.json()
   assert.equal(json.name, name)

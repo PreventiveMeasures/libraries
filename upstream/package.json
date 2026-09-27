@@ -20,8 +20,10 @@
     "npm.js",
     "src/cache.js",
     "src/github.js",
+    "src/npm/registry.js",
     "src/npm/repos.js",
-    "src/npm/semver.js"
+    "src/npm/semver.js",
+    "src/npm/tarball.js"
   ],
   "engines": {
     "node": ">=24.14.0"

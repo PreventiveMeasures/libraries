@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { after, describe, it } from 'node:test'
 
-import { readPackageRepoCache, resolvePackageRepos, setCacheDir, writePackageRepoCache } from '../npm.js'
+import { getTarball, readPackageRepoCache, resolvePackageRepos, setCacheDir, writePackageRepoCache } from '../npm.js'
 
 // A file of its own, because the cache directory is process-wide and
 // this is what a process that never calls setCacheDir gets: no cache at
@@ -42,6 +43,20 @@ describe('without setCacheDir', () => {
   it('answers nothing under cachedOnly', async () => {
     globalThis.fetch = undefined
     assert.deepEqual([...await resolvePackageRepos(new Set(['lodash']), { cachedOnly: true })], [])
+  })
+
+  it('fetches a tarball every time, still checked', async () => {
+    const bytes = new Uint8Array([1, 2, 3])
+    const integrity = `sha512-${createHash('sha512').update(bytes).digest('base64')}`
+    const calls = []
+    globalThis.fetch = (url) => {
+      calls.push(String(url))
+      if (String(url).endsWith('.tgz')) return Promise.resolve(new Response(bytes))
+      return Promise.resolve(Response.json({ name: 'pkg', version: '1.0.0', dist: { tarball: 'https://registry.npmjs.org/pkg/-/pkg-1.0.0.tgz', integrity } }))
+    }
+    assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0')), bytes)
+    assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0')), bytes)
+    assert.equal(calls.length, 4)
   })
 
   it('refuses a directory that is not one, and stays without a cache', async () => {
