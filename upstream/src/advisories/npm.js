@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 
 import { assertPackageName, assertPackageVersion, isGhsa, isStrings, show } from '../args.js'
 import { NPM_REGISTRY, buildUrl, request } from '../http.js'
-import { compareVersions, satisfies } from '../semver.js'
+import { compareVersions } from '../semver.js'
+import { covered, isText, metrics } from './common.js'
 import { withRepositories } from './github.js'
 import { npmRepos } from './repos.js'
 
@@ -11,12 +12,11 @@ const NAMES_PER_REQUEST = 250
 const GHSA_PAGE = 'https://github.com/advisories/'
 
 const isRow = (row) => row && typeof row === 'object' && Number.isSafeInteger(row.id)
-  && ['url', 'title', 'severity', 'vulnerable_versions'].every((key) => typeof row[key] === 'string')
+  && ['url', 'severity', 'vulnerable_versions'].every((key) => typeof row[key] === 'string') && isText(row.title)
   && (row.cwe === undefined || isStrings(row.cwe))
 
 function fromRegistry(name, row, asked) {
   const ghsa = row.url.startsWith(GHSA_PAGE) ? row.url.slice(GHSA_PAGE.length) : undefined
-  const { score, vectorString } = row.cvss ?? {}
   return {
     name,
     source: 'registry',
@@ -24,12 +24,9 @@ function fromRegistry(name, row, asked) {
     ...(isGhsa(ghsa) && { ghsa }),
     aliases: [],
     title: row.title,
-    severity: row.severity,
-    ...(typeof score === 'number' && score > 0 && { cvss: score }), // npm spells "not scored" as 0.
-    ...(typeof vectorString === 'string' && { cvssVector: vectorString }),
-    cwe: row.cwe ?? [],
+    ...metrics({ severity: row.severity, score: row.cvss?.score, vector: row.cvss?.vectorString, cwe: row.cwe }),
     range: row.vulnerable_versions,
-    versions: asked.filter((version) => satisfies(version, row.vulnerable_versions)),
+    versions: covered(asked, row.vulnerable_versions),
   }
 }
 

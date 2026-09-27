@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, afterEach, describe, it } from 'node:test'
@@ -91,6 +91,23 @@ describe('cargo', () => {
         cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', versions: ['0.6.10', '1.6.0'],
       },
     ])
+  })
+
+  it('keeps only aliases, kinds and metrics in their documented shape, and refuses a title that is not well-formed', async () => {
+    stubOsv({ 'smallvec@1.6.0': ['RUSTSEC-2021-0003'] }, {
+      'RUSTSEC-2021-0003': rustsec('RUSTSEC-2021-0003', {
+        aliases: ['CVE-2021-25900', 'not an id', 'X'.repeat(200)],
+        severity: [{ type: 'CVSS_V3', score: 'high' }],
+        database_specific: { severity: 'MEDIUM', cwe_ids: ['CWE-787', 'CWE-x'] },
+        affected: [{ package: { name: 'smallvec', ecosystem: 'crates.io' }, database_specific: { informational: 'deprecated' } }],
+      }),
+    })
+    const [found] = await cargo([{ name: 'smallvec', version: '1.6.0' }])
+    assert.deepEqual({ aliases: found.aliases, severity: found.severity, cvssVector: found.cvssVector, cwe: found.cwe, informational: found.informational }, {
+      aliases: ['CVE-2021-25900'], severity: 'moderate', cvssVector: undefined, cwe: ['CWE-787'], informational: undefined,
+    })
+    stubOsv({ 'smallvec@1.6.0': ['RUSTSEC-2021-0003'] }, { 'RUSTSEC-2021-0003': rustsec('RUSTSEC-2021-0003', { summary: 'a\uDC00' }) })
+    await assert.rejects(cargo([{ name: 'smallvec', version: '1.6.0' }]), /advisories: malformed OSV record RUSTSEC-2021-0003/u)
   })
 
   it('leaves out a withdrawn record', async () => {
@@ -337,7 +354,7 @@ describe('cargo and composer, with a GitHub client', () => {
       await rm(dir, { recursive: true, force: true })
     })
 
-    it("keeps a crate's repo for the next run", async () => {
+    it("keeps a crate's repo for the next run, and not one dated in the future", async () => {
       dir = await mkdtemp(join(tmpdir(), 'upstream-osv-cache-'))
       setCacheDir(dir)
       const answers = { crates: { smallvec: 'https://github.com/servo/rust-smallvec' }, listings: { 'servo/rust-smallvec': [] } }
@@ -347,6 +364,11 @@ describe('cargo and composer, with a GitHub client', () => {
       await cargo([{ name: 'smallvec', version: '1.6.0' }], { github, repoAdvisories: true })
       assert.deepEqual(calls.filter(({ url }) => url.startsWith(CRATES)), [])
       assert.equal(calls.filter(({ url }) => url === listing('servo/rust-smallvec')).length, 1)
+      await writeFile(join(dir, 'cargo', 'repos', 'smallvec.json'), JSON.stringify({ at: Date.now() + 60_000, name: 'smallvec', github: 'evil/fork' }))
+      const again = stubAll(answers)
+      await cargo([{ name: 'smallvec', version: '1.6.0' }], { github, repoAdvisories: true })
+      assert.equal(again.filter(({ url }) => url.startsWith(CRATES)).length, 1)
+      assert.deepEqual(again.filter(({ url }) => url.startsWith('https://api.github.com/')).map(({ url }) => url), [listing('servo/rust-smallvec')])
     })
   })
 })

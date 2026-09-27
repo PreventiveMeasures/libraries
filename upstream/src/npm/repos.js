@@ -29,7 +29,8 @@ export async function getGitHub(name) {
 export async function readPackageRepoCache(name) {
   assertPackageName('readPackageRepoCache', 'name', name)
   const entry = await readCacheJSON(DIR, `${name}.json`)
-  const fresh = typeof entry?.at === 'number' && Date.now() - entry.at <= TTL_MS
+  const age = typeof entry?.at === 'number' ? Date.now() - entry.at : Number.NaN
+  const fresh = age >= 0 && age <= TTL_MS // An entry from the future is not fresh forever.
   if (!fresh || entry.name !== name || !isRepo(entry.github) || !isRepoDirectory(entry.directory)) return null
   return { github: entry.github, ...(entry.directory && { directory: entry.directory }) }
 }

@@ -351,7 +351,7 @@ describe('the npm → GitHub repo cache, held to the same formats', () => {
   it('misses on an entry for another name, or with a repo or directory a lookup would not give', async () => {
     await mkdir(REPOS, { recursive: true })
     const write = (entry) => writeFile(join(REPOS, 'lodash.json'), JSON.stringify({ at: Date.now(), name: 'lodash', github: 'lodash/lodash', directory: '', ...entry }))
-    for (const entry of [{ name: 'other' }, { github: 'lodash/..' }, { github: 'https://evil.example/x' }, { directory: '../etc' }, { directory: null }]) {
+    for (const entry of [{ name: 'other' }, { github: 'lodash/..' }, { github: 'https://evil.example/x' }, { directory: '../etc' }, { directory: null }, { at: Date.now() + 60_000 }, { at: String(Date.now()) }]) {
       await write(entry)
       assert.equal(await readPackageRepoCache('lodash'), null, JSON.stringify(entry))
     }

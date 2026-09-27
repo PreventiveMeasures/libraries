@@ -144,6 +144,34 @@ describe('npm', () => {
     }
   })
 
+  it('matches ranges as npm audit does: a prerelease inside one, and every version for one semver cannot read', async () => {
+    const npmRow = (id, range) => row({ id, url: `https://npmjs.com/advisories/${id}`, vulnerable_versions: range })
+    stubRegistry(() => ({ pkg: [npmRow(1, '<1.2.6'), npmRow(2, 'not a range'), npmRow(3, '>=2.0.0')] }))
+    const found = await npm([{ name: 'pkg', version: '1.0.0-beta.1' }, { name: 'pkg', version: '1.3.0' }])
+    assert.deepEqual(found.map(({ id, versions }) => [id, versions]), [['npm:1', ['1.0.0-beta.1']], ['npm:2', ['1.0.0-beta.1', '1.3.0']]])
+  })
+
+  it('keeps only what is in its documented shape: a severity word, a score out of 10, a CVSS vector, CWE ids', async () => {
+    stubRegistry(() => ({
+      pkg: [
+        row({ id: 1, url: 'https://npmjs.com/advisories/1', severity: 'MEDIUM', cvss: { score: 10, vectorString: 'CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N' }, cwe: ['CWE-79', 'NVD-CWE-Other', 'CWE-'] }),
+        row({ id: 2, url: 'https://npmjs.com/advisories/2', severity: 'severe', cvss: { score: 11, vectorString: 'CVSS:3.1/AV:N\u001B[2J' } }),
+        row({ id: 3, url: 'https://npmjs.com/advisories/3', cvss: { score: -1, vectorString: 7 } }),
+      ],
+    }))
+    const found = await npm([{ name: 'pkg', version: '1.2.0' }])
+    assert.deepEqual(found.map(({ id, severity, cvss, cvssVector, cwe }) => ({ id, severity, cvss, cvssVector, cwe })), [
+      { id: 'npm:1', severity: 'moderate', cvss: 10, cvssVector: 'CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N', cwe: ['CWE-79'] },
+      { id: 'npm:2', severity: undefined, cvss: undefined, cvssVector: undefined, cwe: ['CWE-1321'] },
+      { id: 'npm:3', severity: 'critical', cvss: undefined, cvssVector: undefined, cwe: ['CWE-1321'] },
+    ])
+  })
+
+  it('refuses a title that is not well-formed text', async () => {
+    stubRegistry(() => ({ pkg: [row({ title: 'a\uD800b' })] }))
+    await assert.rejects(npm([{ name: 'pkg', version: '1.2.0' }]), /advisories: malformed advisories for pkg/u)
+  })
+
   it('throws an HttpError for a failed request', async () => {
     globalThis.fetch = () => Promise.resolve(Response.json({ error: 'nope' }, { status: 503 }))
     await assert.rejects(npm([{ name: 'pkg', version: '1.0.0' }]), (err) => err instanceof HttpError && err.status === 503)
@@ -229,6 +257,12 @@ describe('npm, with a GitHub client', () => {
     assert.deepEqual(await npm([...packages, { name: 'norepo', version: '1.0.0' }], { github, repoAdvisories: true }), [])
     assert.deepEqual(calls.filter((url) => url.startsWith('https://registry.npmjs.org/') && url !== BULK).toSorted(), ['mono-a', 'mono-b', 'norepo'].map((name) => `https://registry.npmjs.org/${name}/latest`))
     assert.deepEqual(calls.filter((url) => url.startsWith('https://api.github.com/')).toSorted(), [GIVEN, REPO_ADVISORIES])
+  })
+
+  it('asks one repository spelled in two cases once', async () => {
+    const calls = stubAll({ github: { [REPO_ADVISORIES]: [] } })
+    await npm([{ name: 'mono-a', version: '1.0.0', github: 'acme/mono' }, { name: 'mono-b', version: '1.0.0', github: 'Acme/Mono' }], { github, repoAdvisories: true })
+    assert.deepEqual(calls.filter((url) => url.startsWith('https://api.github.com/')), [REPO_ADVISORIES])
   })
 
   it('skips a repository gone, renamed or blocked, and throws on any other failure', async () => {

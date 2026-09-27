@@ -3,14 +3,15 @@ import assert from 'node:assert/strict'
 import { assertion, isGhsa, isStrings, matches, show } from '../args.js'
 import { OSV_API, buildUrl, request } from '../http.js'
 import { pool } from '../pool.js'
-import { isExactVersion, satisfies } from '../semver.js'
-import { order } from './common.js'
+import { isExactVersion } from '../semver.js'
+import { inRange, isText, metrics, order } from './common.js'
 import { withRepositories } from './github.js'
 import { composerRepos, crateRepos } from './repos.js'
 
 const QUERIES_PER_REQUEST = 1000
 const CONCURRENCY = 8
-const isOsvId = matches(/^[A-Z][\dA-Z]*(?:-[\dA-Za-z]+)+$/u)
+const isOsvId = matches(/^(?=.{1,128}$)[A-Z][\dA-Z]*(?:-[\dA-Za-z]+)+$/u)
+const INFORMATIONAL = new Set(['unmaintained', 'unsound', 'notice'])
 
 export const CARGO = {
   osv: 'crates.io',
@@ -34,7 +35,7 @@ export const COMPOSER = {
   // (1.2.3.4, 1.0.0-p1) is covered by every range.
   covers: (version, range) => {
     const plain = version.replace(/^v/iu, '')
-    return !isExactVersion(plain) || satisfies(plain, range)
+    return !isExactVersion(plain) || inRange(plain, range)
   },
   advisories: (asked, options) => osvAdvisories(COMPOSER, asked, options),
 }
@@ -42,19 +43,18 @@ export const COMPOSER = {
 async function getVuln(id) {
   const record = await request(buildUrl(OSV_API, ['v1', 'vulns', id]), { as: 'json' })
   assert.ok(record?.id === id, `advisories: OSV answered for ${show(record?.id)}, not ${id}`)
-  assert.ok((record.aliases === undefined || isStrings(record.aliases)) && ['summary', 'withdrawn'].every((key) => record[key] === undefined || typeof record[key] === 'string'), `advisories: malformed OSV record ${id}`)
-  return { ...record, aliases: record.aliases ?? [] }
+  assert.ok((record.aliases === undefined || isStrings(record.aliases)) && (record.summary === undefined || isText(record.summary))
+    && (record.withdrawn === undefined || typeof record.withdrawn === 'string'), `advisories: malformed OSV record ${id}`)
+  return { ...record, aliases: (record.aliases ?? []).filter(isOsvId) }
 }
 
 function toAdvisory(ecosystem, name, versions, record) {
   const { aliases } = record
   const ghsas = aliases.filter(isGhsa)
   const ghsa = isGhsa(record.id) ? record.id : (ghsas.length === 1 ? ghsas[0] : undefined)
-  const severity = record.database_specific?.severity
   const vector = record.severity?.find?.((entry) => /^CVSS_V[34]$/u.test(entry?.type))?.score
   const affected = record.affected?.find?.((entry) => entry?.package?.ecosystem === ecosystem && entry.package.name === name)
   const informational = affected?.database_specific?.informational
-  const cwe = record.database_specific?.cwe_ids
   return {
     name,
     source: 'osv',
@@ -62,10 +62,8 @@ function toAdvisory(ecosystem, name, versions, record) {
     ...(ghsa && { ghsa }),
     aliases,
     ...(record.summary && { title: record.summary }),
-    ...(typeof severity === 'string' && { severity: severity.toLowerCase() }),
-    ...(typeof vector === 'string' && { cvssVector: vector }),
-    cwe: isStrings(cwe) ? cwe : [],
-    ...(typeof informational === 'string' && { informational }),
+    ...metrics({ severity: record.database_specific?.severity, vector, cwe: record.database_specific?.cwe_ids }),
+    ...(INFORMATIONAL.has(informational) && { informational }),
     versions,
   }
 }

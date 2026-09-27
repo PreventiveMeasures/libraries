@@ -3,12 +3,13 @@ import assert from 'node:assert/strict'
 import { assertRepo, assertion, isGhsa, isRefName, isStrings } from '../args.js'
 import { isGone } from '../github/client.js'
 import { pool } from '../pool.js'
-import { isExactVersion, satisfies, validRange } from '../semver.js'
+import { isExactVersion } from '../semver.js'
+import { covered, inRange, isText, metrics } from './common.js'
 
 const REPOS_AT_ONCE = 4
 
 const isRepoAdvisory = (advisory) => advisory && typeof advisory === 'object' && isGhsa(advisory.ghsa_id)
-  && advisory.state === 'published' && typeof advisory.summary === 'string'
+  && advisory.state === 'published' && isText(advisory.summary)
   && (advisory.vulnerabilities == null || Array.isArray(advisory.vulnerabilities)) && (advisory.cwe_ids == null || isStrings(advisory.cwe_ids))
 export const assertClient = assertion('a GitHub client from createClient', (value) => typeof value?.listRepoAdvisories === 'function')
 
@@ -17,14 +18,11 @@ const listAdvisories = (github, repo) => github.listRepoAdvisories({ repo }).cat
   throw err
 })
 
-// GitHub's `>= 1.0.0, < 1.2.6` is npm's with the commas dropped. A range
-// semver cannot read covers every version: maintainers write these
-// unreviewed, and a missed advisory is worse than a spare one.
+// GitHub's `>= 1.0.0, < 1.2.6` is npm's with the commas dropped.
+// Maintainers write these unreviewed: one without a range, or with one
+// semver cannot read, covers every version.
 function fromRepository(name, advisory, range, asked, covers) {
-  const npmRange = (range ?? '').replaceAll(',', ' ')
-  const readable = validRange(npmRange) !== null
   const cvss = [advisory.cvss_severities?.cvss_v3, advisory.cvss_severities?.cvss_v4, advisory.cvss].find((entry) => typeof entry?.vector_string === 'string')
-  const { severity } = advisory
   return {
     name,
     source: 'repository',
@@ -32,12 +30,9 @@ function fromRepository(name, advisory, range, asked, covers) {
     ghsa: advisory.ghsa_id,
     aliases: [],
     title: advisory.summary,
-    ...(typeof severity === 'string' && { severity: severity === 'medium' ? 'moderate' : severity }),
-    ...(typeof cvss?.score === 'number' && cvss.score > 0 && { cvss: cvss.score }),
-    ...(cvss && { cvssVector: cvss.vector_string }),
-    cwe: advisory.cwe_ids ?? [],
+    ...metrics({ severity: advisory.severity, score: cvss?.score, vector: cvss?.vector_string, cwe: advisory.cwe_ids }),
     range: range ?? '',
-    versions: asked.filter((version) => !readable || covers(version, npmRange)),
+    versions: covered(asked, (range ?? '').replaceAll(',', ' '), covers),
   }
 }
 
@@ -45,9 +40,10 @@ function fromRepository(name, advisory, range, asked, covers) {
 // advisories' vulnerable ranges become rows for the names that `takes` a
 // vulnerability, one per name, advisory and range, holding the asked
 // versions it `covers`.
-async function repositoryAdvisories(github, asked, { repoOf, takes = () => true, covers = satisfies }) {
-  const namesOf = Map.groupBy([...asked.keys()].filter(repoOf), repoOf)
-  const listed = await pool([...namesOf], REPOS_AT_ONCE, async ([repo, names]) => ({ repo, names, list: await listAdvisories(github, repo) }))
+async function repositoryAdvisories(github, asked, { repoOf, takes = () => true, covers = inRange }) {
+  // GitHub's names are case-insensitive: one spelling asks for all.
+  const namesOf = Map.groupBy([...asked.keys()].filter(repoOf), (name) => repoOf(name).toLowerCase())
+  const listed = await pool([...namesOf.values()], REPOS_AT_ONCE, async (names) => ({ repo: repoOf(names[0]), names, list: await listAdvisories(github, repoOf(names[0])) }))
   const rows = new Map()
   for (const { repo, names, list } of listed) {
     for (const advisory of list) {
@@ -87,5 +83,5 @@ const isPlaceholder = (version) => version === '0.0.0' || !isExactVersion(versio
 export const GITHUB = {
   assertName: assertRepo,
   assertVersion: assertion('a version or a branch name', isRefName),
-  advisories: (asked, { github }) => repositoryAdvisories(github, asked, { repoOf: (repo) => repo, covers: (version, range) => isPlaceholder(version) || satisfies(version, range) }),
+  advisories: (asked, { github }) => repositoryAdvisories(github, asked, { repoOf: (repo) => repo, covers: (version, range) => isPlaceholder(version) || inRange(version, range) }),
 }

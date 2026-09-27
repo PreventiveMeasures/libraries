@@ -21,7 +21,8 @@ async function cachedRepos(dir, names, fetchMissing) {
   const repos = new Map()
   for (const name of names) {
     const entry = await readCacheJSON(dir, `${name}.json`)
-    if (typeof entry?.at === 'number' && Date.now() - entry.at <= TTL_MS && entry.name === name && isRepo(entry.github)) repos.set(name, entry.github)
+    const age = typeof entry?.at === 'number' ? Date.now() - entry.at : Number.NaN
+    if (age >= 0 && age <= TTL_MS && entry.name === name && isRepo(entry.github)) repos.set(name, entry.github)
   }
   const missing = names.filter((name) => !repos.has(name))
   for (const [name, github] of await fetchMissing(missing)) {
