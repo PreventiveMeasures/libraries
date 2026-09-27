@@ -8,8 +8,9 @@ import { matches, printable } from './args.js'
 
 export const NPM_REGISTRY = 'https://registry.npmjs.org'
 export const GITHUB_API = 'https://api.github.com'
+export const OSV_API = 'https://api.osv.dev'
 
-const ORIGINS = new Set([NPM_REGISTRY, GITHUB_API])
+const ORIGINS = new Set([NPM_REGISTRY, GITHUB_API, OSV_API])
 const isSegment = matches(/^(?!\.\.?$)(?:[\w.~@-]|%[\dA-F]{2})+$/u)
 const isQueryKey = matches(/^[a-z_]+$/u)
 const isQueryValue = (value) => (typeof value === 'string' && value !== '') || (Number.isSafeInteger(value) && value >= 0)

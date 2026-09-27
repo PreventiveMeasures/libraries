@@ -38,6 +38,7 @@ export function isRepo(value) {
 export const sameName = (a, b) => typeof a === 'string' && a.toLowerCase() === b.toLowerCase()
 export const isRefName = (value) => isString(value, 255) && !BAD_REF.test(value)
 export const isSha = matches(/^(?:[\da-f]{40}|[\da-f]{64})$/u)
+export const isGhsa = matches(/^GHSA(?:-[\da-hj-km-np-tv-z]{4}){3}$/u)
 export const assertion = (must, predicate) => (method, what, value) => assert.ok(predicate(value), `${method}: ${what} must be ${must}, got ${show(value)}`)
 export const optional = (check) => (method, what, value) => value === undefined || check(method, what, value)
 
@@ -66,4 +67,4 @@ export const assertTokenOrNull = assertion('a token, or null for anonymous acces
 export const assertUserAgent = assertion('a printable user agent', matches(/^[ -~]*[!-~][ -~]*$/u))
 export const assertPackageName = assertion('an npm package name', isPackageName)
 export const assertPackageVersion = assertion('an exact semver version', isExactVersion)
-export const assertGhsa = assertion('a GHSA id', matches(/^GHSA(?:-[\da-hj-km-np-tv-z]{4}){3}$/u))
+export const assertGhsa = assertion('a GHSA id', isGhsa)

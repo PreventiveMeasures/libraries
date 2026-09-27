@@ -32,9 +32,13 @@ export class HttpError extends Error {
 
 // Reads only.
 export interface Client {
-  // A reviewed advisory from GitHub's global database, by its GHSA id,
-  // refused unless it is the one asked for.
-  getAdvisory(options: { ghsa: string }): Promise<{ ghsa_id: string } & Record<string, any>>
+  // An advisory from GitHub's global database, by its GHSA id. One a
+  // maintainer published reaches that database only once GitHub has
+  // reviewed it, 404 until then; with `repo`, a 404 falls back to that
+  // repository's own published copy, which is shaped as a repository
+  // advisory (`state`, `patched_versions`, no `type`). Refused unless it is
+  // the one asked for, and published.
+  getAdvisory(options: { ghsa: string; repo?: RepoName }): Promise<{ ghsa_id: string } & Record<string, any>>
   // GitHub's `{ permission, role_name, user }` for `username` on `repo`,
   // teams, organization and enterprise grants included.
   getCollaboratorPermission(options: { repo: RepoName; username: string }): Promise<{ permission: string; role_name?: string; user: { login: string; id: number } } & Record<string, any>>

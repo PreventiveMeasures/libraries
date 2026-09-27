@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, isSha, optional, sameName, show } from '../args.js'
-import { encodeSegment } from '../http.js'
+import { HttpError, encodeSegment } from '../http.js'
 import { api, bindMethods, call, clientHeaders, repoApi } from './client.js'
 
 const PER_PAGE = 100
@@ -79,10 +79,18 @@ async function getCollaboratorPermission(headers, options) {
   return body
 }
 
+// The global database has an advisory a maintainer published only once
+// GitHub has reviewed it, and answers 404 until then; the repository's
+// own copy is there from the start.
 async function getAdvisory(headers, options) {
-  assertArgs('getAdvisory', options, { ghsa: assertGhsa })
-  const advisory = await call(headers, api(['advisories', options.ghsa]))
-  assert.ok(advisory?.ghsa_id === options.ghsa, `getAdvisory: answered for ${show(advisory?.ghsa_id)}, not ${options.ghsa}`)
+  assertArgs('getAdvisory', options, { ghsa: assertGhsa, repo: optional(assertRepo) })
+  const { ghsa, repo } = options
+  const advisory = await call(headers, api(['advisories', ghsa])).catch((err) => {
+    if (repo === undefined || !(err instanceof HttpError) || err.status !== 404) throw err
+    return call(headers, repoApi(repo, ['security-advisories', ghsa]))
+  })
+  assert.ok(advisory?.ghsa_id === ghsa, `getAdvisory: answered for ${show(advisory?.ghsa_id)}, not ${ghsa}`)
+  assert.ok(advisory.state === undefined || advisory.state === 'published', `getAdvisory: ${ghsa} is ${show(advisory.state)}, not published`)
   return advisory
 }
 

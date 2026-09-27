@@ -47,7 +47,7 @@ describe('npmAdvisories', () => {
     assert.deepEqual(calls, [{ url: BULK, method: 'POST', body: { lodash: ['4.17.15', '4.17.21'], minimist: ['1.2.0'] } }])
     assert.deepEqual(advisories, [
       { name: 'lodash', id: 3, ghsa: 'GHSA-35jh-r3h4-6jhm', title: 'Command Injection in lodash', severity: 'high', cwe: [], range: '<4.17.21', versions: ['4.17.15'] },
-      { name: 'minimist', id: 2, ghsa: 'GHSA-xvch-5gv4-984h', title: 'Prototype Pollution in minimist', severity: 'critical', cvss: 9.8, cwe: ['CWE-1321'], range: '>=1.0.0 <1.2.6', versions: ['1.2.0'] },
+      { name: 'minimist', id: 2, ghsa: 'GHSA-xvch-5gv4-984h', title: 'Prototype Pollution in minimist', severity: 'critical', cvss: 9.8, cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', cwe: ['CWE-1321'], range: '>=1.0.0 <1.2.6', versions: ['1.2.0'] },
     ])
   })
 

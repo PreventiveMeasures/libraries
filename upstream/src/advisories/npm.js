@@ -1,27 +1,28 @@
 import assert from 'node:assert/strict'
 
-import { assertPackageName, assertPackageVersion, show } from './args.js'
-import { NPM_REGISTRY, buildUrl, request } from './http.js'
-import { compareVersions, satisfies } from './semver.js'
+import { assertPackageName, assertPackageVersion, isGhsa, show } from '../args.js'
+import { NPM_REGISTRY, buildUrl, request } from '../http.js'
+import { compareVersions, satisfies } from '../semver.js'
 
 const BULK_URL = buildUrl(NPM_REGISTRY, ['-', 'npm', 'v1', 'security', 'advisories', 'bulk'])
 const NAMES_PER_REQUEST = 250
-const GHSA_URL = /^https:\/\/github\.com\/advisories\/(?<ghsa>GHSA(?:-[\da-hj-km-np-tv-z]{4}){3})$/u
+const GHSA_PAGE = 'https://github.com/advisories/'
 
 const isRow = (row) => row && typeof row === 'object' && Number.isSafeInteger(row.id)
   && ['url', 'title', 'severity', 'vulnerable_versions'].every((key) => typeof row[key] === 'string')
   && (row.cwe === undefined || (Array.isArray(row.cwe) && row.cwe.every((cwe) => typeof cwe === 'string')))
 
 function toAdvisory(name, row, asked) {
-  const ghsa = GHSA_URL.exec(row.url)?.groups.ghsa
-  const score = row.cvss?.score
+  const ghsa = row.url.startsWith(GHSA_PAGE) ? row.url.slice(GHSA_PAGE.length) : undefined
+  const { score, vectorString } = row.cvss ?? {}
   return {
     name,
     id: row.id,
-    ...(ghsa && { ghsa }),
+    ...(isGhsa(ghsa) && { ghsa }),
     title: row.title,
     severity: row.severity,
     ...(typeof score === 'number' && score > 0 && { cvss: score }), // npm spells "not scored" as 0.
+    ...(typeof vectorString === 'string' && { cvssVector: vectorString }),
     cwe: row.cwe ?? [],
     range: row.vulnerable_versions,
     versions: asked.filter((version) => satisfies(version, row.vulnerable_versions)),
