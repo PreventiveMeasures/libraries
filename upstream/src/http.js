@@ -9,11 +9,15 @@ import { matches, printable } from './args.js'
 export const NPM_REGISTRY = 'https://registry.npmjs.org'
 export const GITHUB_API = 'https://api.github.com'
 export const OSV_API = 'https://api.osv.dev'
+export const CRATES_API = 'https://crates.io'
+export const PACKAGIST_REPO = 'https://repo.packagist.org'
 
-const ORIGINS = new Set([NPM_REGISTRY, GITHUB_API, OSV_API])
+const ORIGINS = new Set([NPM_REGISTRY, GITHUB_API, OSV_API, CRATES_API, PACKAGIST_REPO])
 const isSegment = matches(/^(?!\.\.?$)(?:[\w.~@-]|%[\dA-F]{2})+$/u)
-const isQueryKey = matches(/^[a-z_]+$/u)
+const isQueryKey = matches(/^[a-z_]+(?:\[\])?$/u)
 const isQueryValue = (value) => (typeof value === 'string' && value !== '') || (Number.isSafeInteger(value) && value >= 0)
+// Only a `key[]` repeats, and it always does.
+const isQuery = ([key, value]) => isQueryKey(key) && (key.endsWith('[]') ? Array.isArray(value) && value.length > 0 && value.every(isQueryValue) : isQueryValue(value))
 // A line break in a value would start a header of its own.
 const isHeader = ([name, value]) => /^[A-Za-z][\w-]*$/u.test(name) && matches(/^[ -~]*$/u)(value)
 const LIMITS = {
@@ -48,8 +52,8 @@ export function encodeSegment(value) {
 export function buildUrl(origin, segments, query = {}) {
   assert.ok(ORIGINS.has(origin), `Unexpected origin: ${origin}`)
   assert.ok(segments.length > 0 && segments.every(isSegment), `Unexpected URL path segment in ${JSON.stringify(segments)}`)
-  assert.ok(Object.entries(query).every(([key, value]) => isQueryKey(key) && isQueryValue(value)), `Unexpected query parameter in ${JSON.stringify(query)}`)
-  const search = new URLSearchParams(query).toString()
+  assert.ok(Object.entries(query).every(isQuery), `Unexpected query parameter in ${JSON.stringify(query)}`)
+  const search = new URLSearchParams(Object.entries(query).flatMap(([key, value]) => [value].flat().map((item) => [key, item]))).toString()
   const href = `${origin}/${segments.join('/')}${search && `?${search}`}`
   assert.equal(new URL(href).href, href, `URL changed in parsing: ${href}`)
   return href

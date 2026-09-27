@@ -50,6 +50,7 @@ export type GitHubAdvisory = Omit<NpmAdvisory, 'id' | 'source'> & { source: 'rep
 // affects (never empty).
 export interface OsvAdvisory {
   name: string
+  source: 'osv'
   // RUSTSEC-…, GHSA-…, or another database's id (DRUPAL-CORE-…).
   id: string
   // The id itself, or its one GHSA alias; absent where there is none, or
@@ -80,13 +81,13 @@ export function npmAdvisories(packages: Iterable<InstalledPackage>, options?: { 
 
 // RustSec, the database `cargo audit` reads, through OSV. Versions are
 // semver, build metadata allowed. Sorted by name, then id.
-export function cargoAdvisories(packages: Iterable<InstalledPackage>): Promise<OsvAdvisory[]>
+export function cargoAdvisories(packages: Iterable<InstalledPackage>, options?: { github?: Client }): Promise<(OsvAdvisory | GitHubAdvisory)[]>
 
 // OSV's Packagist records, mostly GHSA. A record another database also
 // publishes under a GHSA answered for the same package is left out. Dev
 // versions (`dev-main`) are refused: OSV cannot place them. Sorted by
 // name, then id.
-export function composerAdvisories(packages: Iterable<InstalledPackage>): Promise<OsvAdvisory[]>
+export function composerAdvisories(packages: Iterable<InstalledPackage>, options?: { github?: Client }): Promise<(OsvAdvisory | GitHubAdvisory)[]>
 
 // Dependencies that are GitHub repositories themselves (stasis's `github`
 // ecosystem): `name` is `owner/name`, `version` a version or, where stasis

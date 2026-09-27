@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { afterEach, describe, it } from 'node:test'
 
-import { GITHUB_API, HttpError, NPM_REGISTRY, buildUrl, encodeSegment, readBody, request, send } from '../src/http.js'
+import { CRATES_API, GITHUB_API, HttpError, NPM_REGISTRY, buildUrl, encodeSegment, readBody, request, send } from '../src/http.js'
 
 const realFetch = globalThis.fetch
 
@@ -31,11 +31,18 @@ describe('buildUrl', () => {
     }
   })
 
+  it('repeats a `key[]` for each of its values', () => {
+    assert.equal(buildUrl(CRATES_API, ['api', 'v1', 'crates'], { 'ids[]': ['serde', 'smallvec'], per_page: 100 }), 'https://crates.io/api/v1/crates?ids%5B%5D=serde&ids%5B%5D=smallvec&per_page=100')
+  })
+
   it('refuses a query key or value it does not expect', () => {
     assert.throws(() => buildUrl(GITHUB_API, ['x'], { 'a&b': 'c' }), /Unexpected query parameter/u)
     assert.throws(() => buildUrl(GITHUB_API, ['x'], { ref: '' }), /Unexpected query parameter/u)
     assert.throws(() => buildUrl(GITHUB_API, ['x'], { page: -1 }), /Unexpected query parameter/u)
     assert.throws(() => buildUrl(GITHUB_API, ['x'], { ref: ['a'] }), /Unexpected query parameter/u)
+    assert.throws(() => buildUrl(GITHUB_API, ['x'], { 'ids[]': 'a' }), /Unexpected query parameter/u)
+    assert.throws(() => buildUrl(GITHUB_API, ['x'], { 'ids[]': [] }), /Unexpected query parameter/u)
+    assert.throws(() => buildUrl(GITHUB_API, ['x'], { 'ids[]': ['a', ''] }), /Unexpected query parameter/u)
     assert.throws(() => buildUrl(GITHUB_API, []), /Unexpected URL path segment in \[\]/u)
   })
 })
