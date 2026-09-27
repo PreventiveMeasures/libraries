@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { after, beforeEach, describe, it } from 'node:test'
 
 import { getTarball, setCacheDir } from '../npm.js'
@@ -14,16 +14,27 @@ setCacheDir(CACHE_DIR)
 
 const TARBALLS = join(CACHE_DIR, 'npm', 'tarballs')
 
+// npm's cache and the home directory, where getTarball looks first: this
+// file's own too, so no tarball on this machine answers for the stubs.
+const LOCAL = join(tmpdir(), `upstream-npm-local-test-${process.pid}`)
+const HOME = join(LOCAL, 'home')
+const NPM_CACHE = join(LOCAL, 'npm-cache')
+process.env.HOME = HOME
+process.env.npm_config_cache = NPM_CACHE
+delete process.env.NPM_CONFIG_CACHE
+
 const realFetch = globalThis.fetch
 
 beforeEach(async () => {
   await rm(CACHE_DIR, { recursive: true, force: true })
+  await rm(LOCAL, { recursive: true, force: true })
   globalThis.fetch = realFetch
 })
 
 after(async () => {
   globalThis.fetch = realFetch
   await rm(CACHE_DIR, { recursive: true, force: true })
+  await rm(LOCAL, { recursive: true, force: true })
 })
 
 // Not valid UTF-8, so bytes that went through a string anywhere would
@@ -151,5 +162,103 @@ describe('the tarball cache', () => {
     calls = stubRegistry()
     await getTarball('pkg', '1.0.0')
     assert.deepEqual(calls, [DOC])
+  })
+})
+
+describe('the caches of other tools', () => {
+  const DOC = 'https://registry.npmjs.org/pkg/1.0.0'
+  // Where cacache files bytes: by their sha512, in hex.
+  const contentPath = (root, bytes) => {
+    const hex = createHash('sha512').update(bytes).digest('hex')
+    return join(root, '_cacache', 'content-v2', 'sha512', hex.slice(0, 2), hex.slice(2, 4), hex.slice(4))
+  }
+  const legacyPath = (root, name, version) => join(root, name, version, 'package.tgz')
+  const plant = async (path, bytes) => {
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, bytes)
+  }
+
+  it('serves what cacache filed under the sha512, asking only for the version document', async () => {
+    await plant(contentPath(NPM_CACHE, BYTES), BYTES)
+    const calls = stubRegistry()
+    const bytes = await getTarball('pkg', '1.0.0')
+    assert.ok(bytes instanceof Uint8Array)
+    assert.deepEqual(new Uint8Array(bytes), BYTES)
+    assert.deepEqual(calls, [DOC])
+    assert.deepEqual(await readdir(TARBALLS).catch(() => []), [])
+  })
+
+  it("serves npm 4's <name>/<version>/package.tgz, a scoped name nested", async () => {
+    await plant(legacyPath(NPM_CACHE, 'pkg', '1.0.0'), BYTES)
+    await plant(legacyPath(NPM_CACHE, '@scope/pkg', '2.0.0-rc.1'), BYTES)
+    let calls = stubRegistry()
+    assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0')), BYTES)
+    assert.deepEqual(calls, [DOC])
+    calls = stubRegistry({ name: '@scope/pkg', version: '2.0.0-rc.1' })
+    assert.deepEqual(new Uint8Array(await getTarball('@scope/pkg', '2.0.0-rc.1')), BYTES)
+    assert.deepEqual(calls, ['https://registry.npmjs.org/@scope/pkg/2.0.0-rc.1'])
+  })
+
+  it('passes over bytes that do not match the registry, and downloads', async () => {
+    const other = new Uint8Array([...BYTES, 0])
+    await plant(contentPath(NPM_CACHE, BYTES), other)
+    await plant(legacyPath(NPM_CACHE, 'pkg', '1.0.0'), other)
+    const calls = stubRegistry()
+    assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0')), BYTES)
+    assert.deepEqual(calls, [DOC, tarballUrl('pkg', '1.0.0')])
+    assert.deepEqual(new Uint8Array(await readFile(contentPath(NPM_CACHE, BYTES))), other)
+    assert.deepEqual(await readdir(TARBALLS), ['pkg%401.0.0.tgz'])
+  })
+
+  it('passes over what is not a file', async () => {
+    await mkdir(contentPath(NPM_CACHE, BYTES), { recursive: true })
+    await mkdir(legacyPath(NPM_CACHE, 'pkg', '1.0.0'), { recursive: true })
+    const calls = stubRegistry()
+    assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0')), BYTES)
+    assert.equal(calls.length, 2)
+  })
+
+  it('comes before the cache of setCacheDir', async () => {
+    await plant(contentPath(NPM_CACHE, BYTES), BYTES)
+    await plant(join(TARBALLS, 'pkg%401.0.0.tgz'), new Uint8Array([...BYTES, 0]))
+    const calls = stubRegistry()
+    assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0')), BYTES)
+    assert.deepEqual(calls, [DOC])
+  })
+
+  it("looks where npm does: npm_config_cache, ~/ expanded, else ~/.npm", { skip: process.platform === 'win32' }, async () => {
+    try {
+      for (const [set, root] of [
+        [() => { process.env.npm_config_cache = '~/elsewhere' }, join(HOME, 'elsewhere')],
+        [() => { delete process.env.npm_config_cache }, join(HOME, '.npm')],
+        [() => { process.env.NPM_CONFIG_CACHE = join(LOCAL, 'upper') }, join(LOCAL, 'upper')],
+      ]) {
+        set()
+        await rm(LOCAL, { recursive: true, force: true })
+        await plant(contentPath(root, BYTES), BYTES)
+        const calls = stubRegistry()
+        assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0')), BYTES, root)
+        assert.deepEqual(calls, [DOC], root)
+      }
+    } finally {
+      process.env.npm_config_cache = NPM_CACHE
+      delete process.env.NPM_CONFIG_CACHE
+    }
+  })
+
+  it('serves ~/.audit/cache/tgz/<org>:<name>-<version>.tgz, and passes over a mismatch there', { skip: process.platform === 'win32' }, async () => {
+    const audit = join(HOME, '.audit', 'cache', 'tgz')
+    await plant(join(audit, 'pkg-1.0.0.tgz'), BYTES)
+    await plant(join(audit, 'scope:pkg-2.0.0-rc.1.tgz'), BYTES)
+    let calls = stubRegistry()
+    assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0')), BYTES)
+    assert.deepEqual(calls, [DOC])
+    calls = stubRegistry({ name: '@scope/pkg', version: '2.0.0-rc.1' })
+    assert.deepEqual(new Uint8Array(await getTarball('@scope/pkg', '2.0.0-rc.1')), BYTES)
+    assert.deepEqual(calls, ['https://registry.npmjs.org/@scope/pkg/2.0.0-rc.1'])
+    await plant(join(audit, 'pkg-1.0.0.tgz'), new Uint8Array([...BYTES, 0]))
+    calls = stubRegistry()
+    assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0')), BYTES)
+    assert.deepEqual(calls, [DOC, tarballUrl('pkg', '1.0.0')])
   })
 })

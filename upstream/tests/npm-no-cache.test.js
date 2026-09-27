@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
 import { getTarball, readPackageRepoCache, resolvePackageRepos, setCacheDir, writePackageRepoCache } from '../npm.js'
@@ -7,6 +9,12 @@ import { getTarball, readPackageRepoCache, resolvePackageRepos, setCacheDir, wri
 // A file of its own, because the cache directory is process-wide and
 // this is what a process that never calls setCacheDir gets: no cache at
 // all, rather than one somewhere nobody chose.
+
+// And other tools' caches with nothing in them, as getTarball reads those
+// first: a home directory and an npm cache that do not exist.
+process.env.HOME = join(tmpdir(), `upstream-npm-no-cache-test-${process.pid}`)
+process.env.npm_config_cache = join(process.env.HOME, '.npm')
+delete process.env.NPM_CONFIG_CACHE
 
 const realFetch = globalThis.fetch
 

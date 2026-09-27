@@ -55,6 +55,12 @@ export function writePackageRepoCache(name: string, github: string, directory?: 
 // only where `dist.tarball` is exactly that version's registry URL.
 // The version document is fetched on every call, cached tarball or not,
 // and the bytes are checked against its sha512 `dist.integrity` whether
-// they were downloaded (before they are cached) or read from the cache.
-// A mismatch throws.
+// they were downloaded (before they are cached) or read from a cache.
+//
+// Other tools' caches are read first, and never written: npm's (cacache
+// under npm_config_cache, else npm's default, `~/.npm` outside Windows;
+// and npm 4's `<name>/<version>/package.tgz` there), then
+// `~/.audit/cache/tgz/<org>:<name>-<version>.tgz`. A file there that does
+// not match is passed over. One in setCacheDir's cache that does not
+// match throws.
 export function getTarball(name: string, version: string): Promise<Uint8Array>
