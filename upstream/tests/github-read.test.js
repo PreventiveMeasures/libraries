@@ -108,7 +108,7 @@ describe('getRepo', () => {
 
   it('refuses an answer about another repo', async () => {
     stubGitHub(() => json({ full_name: 'other/app' }))
-    await assert.rejects(client().getRepo({ repo: 'acme/app' }), /getRepo: answered for other\/app, not acme\/app/u)
+    await assert.rejects(client().getRepo({ repo: 'acme/app' }), /getRepo: answered for "other\/app", not acme\/app/u)
   })
 })
 
@@ -240,7 +240,7 @@ describe('getCollaboratorPermission', () => {
 
   it('refuses an answer about another user, and a username that must be a login', async () => {
     stubGitHub(() => json({ permission: 'admin', user: { login: 'someone-else', id: 2 } }))
-    await assert.rejects(client().getCollaboratorPermission({ repo: 'acme/app', username: 'octocat' }), /answered for someone-else, not octocat/u)
+    await assert.rejects(client().getCollaboratorPermission({ repo: 'acme/app', username: 'octocat' }), /answered for "someone-else", not octocat/u)
     const calls = forbidRequests()
     for (const username of ['', '../admin', 'a/b', 'octo cat', '-octo', 'x'.repeat(40), undefined]) {
       await assert.rejects(client().getCollaboratorPermission({ repo: 'acme/app', username }), /username must be a GitHub login/u, String(username))

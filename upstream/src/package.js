@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { isRepo } from './args.js'
+import { assertion, isRepo } from './args.js'
 import { githubRepoOfUrl } from './remote.js'
 
 // Which GitHub repo a package's own metadata names, and where in that
@@ -110,19 +110,24 @@ function repoSubdirectory(value) {
 // `repository.url` names, and a homepage path one inside the repo in its
 // own URL, so where either names something else it is dropped rather
 // than spliced into a link it was never a path in.
+// GitHub names are not case-sensitive, so neither is naming the same one.
+const sameRepo = (a, b) => a.toLowerCase() === b.toLowerCase()
+
 function repoDirectory(repository, homepage, github) {
   const declared = repositoryRepo(repository)
-  if (declared === undefined || declared === github) {
+  if (declared === undefined || sameRepo(declared, github)) {
     const directory = repoSubdirectory(typeof repository === 'string' ? undefined : repository?.directory)
     if (directory) return directory
   }
   const tree = homepageTreeRegex.exec(homepageUrl(homepage))
-  if (!tree || tree.groups.repo.toLowerCase() !== github.toLowerCase()) return undefined
+  if (!tree || !sameRepo(tree.groups.repo, github)) return undefined
   return repoSubdirectory(tree.groups.directory)
 }
 
 // A `directory` as repoDirectory answers one: empty for the repo root.
 export const isRepoDirectory = (value) => typeof value === 'string' && (value === '' || repoSubdirectory(value) === value)
+
+export const assertRepoDirectory = assertion('a path inside the repository', isRepoDirectory)
 
 // `{ github?, directory?, url? }` for a package.json, or the registry's
 // document for a version of one: `github` is `owner/name`, `directory`

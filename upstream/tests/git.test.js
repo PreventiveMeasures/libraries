@@ -91,6 +91,11 @@ describe('findGitCheckout', () => {
       config('https://gitlab.com/acme/app.git'),
       config('https://git.internal.example/acme/app.git'),
       config('https://github.com.evil.example/acme/app'),
+      config('https://evil.example#@github.com/acme/app'),
+      config('https://evil.example?@github.com/acme/app.git'),
+      config('https://evil.example\\@github.com/acme/app'),
+      '[core]\n# [remote "origin"]\n\turl = https://github.com/acme/app.git\n',
+      '[remote "upstream"]\n\tpushurl = x [remote "origin"]\n\turl = https://github.com/acme/app.git\n',
       config('https://github.com/acme/..'),
       config('/srv/git/app.git'),
       '[remote "upstream"]\n\turl = https://github.com/acme/app.git\n',
@@ -101,6 +106,11 @@ describe('findGitCheckout', () => {
     for (const text of configs) {
       assert.deepEqual(await findGitCheckout(await checkout({ '.git/HEAD': `${SHA}\n`, '.git/config': text })), { commit: SHA }, text)
     }
+  })
+
+  it('reads an origin section at the very start of the config', async () => {
+    const root = await checkout({ '.git/HEAD': `${SHA}\n`, '.git/config': '[remote "origin"]\n\turl = git@github.com:acme/app.git\n' })
+    assert.deepEqual(await findGitCheckout(root), { github: 'acme/app', url: 'https://github.com/acme/app', commit: SHA })
   })
 
   it('leaves out a commit it cannot read, and keeps the rest', async () => {

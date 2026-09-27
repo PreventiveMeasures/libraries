@@ -334,7 +334,7 @@ describe('getGitHub — the sources it reads, and what it holds them to', () => 
       assert.equal((await getGitHub(name)).github, 'acme/app', name)
     }
     globalThis.fetch = () => Promise.resolve(Response.json({ name: 'other', ...tracked('acme/app') }))
-    await assert.rejects(getGitHub('pkg'), /getGitHub: the registry answered for other, not pkg/u)
+    await assert.rejects(getGitHub('pkg'), /getGitHub: the registry answered for "other", not pkg/u)
   })
 })
 
@@ -355,5 +355,25 @@ describe('the npm → GitHub repo cache, held to the same formats', () => {
       await write(entry)
       assert.equal(await readPackageRepoCache('lodash'), null, JSON.stringify(entry))
     }
+  })
+})
+
+describe('resolvePackageRepos, at the registry', () => {
+  it('asks a few at a time, not all at once', async () => {
+    let inFlight = 0
+    let most = 0
+    globalThis.fetch = async (url) => {
+      inFlight++
+      most = Math.max(most, inFlight)
+      await new Promise((resolve) => { setTimeout(resolve, 5) })
+      inFlight--
+      const name = decodeURIComponent(String(url).replace('https://registry.npmjs.org/', '').replace(/\/latest$/u, ''))
+      return Response.json({ name, ...tracked(`acme/${name}`) })
+    }
+    const names = Array.from({ length: 30 }, (_, i) => `pkg${i}`)
+    const repos = await resolvePackageRepos(names)
+    assert.equal(repos.size, 30)
+    assert.deepEqual(repos.get('pkg7'), { github: 'acme/pkg7' })
+    assert.equal(most, 8)
   })
 })

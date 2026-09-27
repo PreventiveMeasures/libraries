@@ -7,7 +7,10 @@
 // and headlines on one line. A bad one is a rejection naming the method;
 // nothing is sent. Every URL is built from checked, encoded segments and
 // has to come back out of URL parsing unchanged. Redirects are refused,
-// except the tarball's, so an answer is about the repo asked for.
+// except the tarball's, so an answer is about the repo asked for. A
+// response is read up to a size limit (64 MiB of JSON, 128 MiB of a file,
+// 512 MiB of a tarball) and within a timeout (30 seconds, 5 minutes for a
+// tarball), and what it says goes into an error message escaped.
 
 // `owner/name`.
 export type RepoName = string

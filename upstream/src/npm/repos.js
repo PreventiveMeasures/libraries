@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 
-import { assertBoolean, assertOptional, assertOptions, assertPackageName, assertRepo, isRepo } from '../args.js'
+import { assertBoolean, assertOptional, assertOptions, assertPackageName, assertRepo, isRepo, show } from '../args.js'
 import { readCacheJSON, writeCacheJSON } from '../cache.js'
 import { NPM_REGISTRY, buildUrl, request } from '../http.js'
-import { getRepo, isRepoDirectory } from '../package.js'
+import { assertRepoDirectory, getRepo, isRepoDirectory } from '../package.js'
 
 // Which GitHub repo a published npm package's code lives in, and where in
 // that repo the package sits — the lookup, and the disk cache that keeps a
@@ -16,7 +16,7 @@ import { getRepo, isRepoDirectory } from '../package.js'
 // of version history to answer a one-line question.
 async function getShortInfo(name) {
   const json = await request(buildUrl(NPM_REGISTRY, [...name.split('/'), 'latest']), { as: 'json' })
-  assert.ok(json?.name === name, `getGitHub: the registry answered for ${json?.name}, not ${name}`)
+  assert.ok(json?.name === name, `getGitHub: the registry answered for ${show(json?.name)}, not ${name}`)
   return json
 }
 
@@ -79,7 +79,7 @@ export async function readPackageRepoCache(name) {
 export async function writePackageRepoCache(name, github, directory = '') {
   assertPackageName('writePackageRepoCache', 'name', name)
   assertRepo('writePackageRepoCache', 'github', github)
-  assert.ok(isRepoDirectory(directory), `writePackageRepoCache: directory must be a path inside the repository, got ${JSON.stringify(directory)}`)
+  assertRepoDirectory('writePackageRepoCache', 'directory', directory)
   return await writeCacheJSON(DIR, `${name}.json`, { at: Date.now(), name, github, directory })
 }
 
@@ -98,6 +98,11 @@ export async function writePackageRepoCache(name, github, directory = '') {
 // see writePackageRepoCache on why a failure is not cached. A name that
 // is not one is not a lookup that failed, though: every name is checked
 // before anything is read, and one bad one throws for the lot.
+//
+// A few at a time, not all at once: a tree of a thousand packages is not
+// a thousand requests in flight at the registry.
+const CONCURRENCY = 8
+
 export async function resolvePackageRepos(packageNames, options = {}) {
   assert.ok(typeof packageNames?.[Symbol.iterator] === 'function' && typeof packageNames !== 'string', 'resolvePackageRepos: packageNames must be an iterable of names')
   assertOptions('resolvePackageRepos', 'options', options, ['cachedOnly'])
@@ -105,22 +110,25 @@ export async function resolvePackageRepos(packageNames, options = {}) {
   const names = [...new Set(packageNames)]
   for (const name of names) assertPackageName('resolvePackageRepos', 'name', name)
   const repos = new Map()
-  const stamp = (github, directory) => ({ github, ...(directory && { directory }) })
-  await Promise.all(names.map(async (name) => {
+  const lookUp = async (name) => {
     const stored = await readPackageRepoCache(name)
     if (stored) {
-      repos.set(name, stamp(stored.github, stored.directory))
+      repos.set(name, stored)
       return
     }
     if (options.cachedOnly) return
     try {
       const { github, directory } = await getGitHub(name)
-      repos.set(name, stamp(github, directory))
+      repos.set(name, { github, ...(directory && { directory }) })
       await writePackageRepoCache(name, github, directory)
     } catch {
       // Fail-soft per the comment above: a package that resolves to no
       // repo is simply absent from the map.
     }
+  }
+  let next = 0
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, names.length) }, async () => {
+    while (next < names.length) await lookUp(names[next++])
   }))
   return repos
 }

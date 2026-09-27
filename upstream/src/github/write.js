@@ -3,9 +3,9 @@ import { Buffer } from 'node:buffer'
 
 import {
   assertBoolean, assertLine, assertLogin, assertOptional, assertOptions, assertPath, assertRef, assertRepo, assertRepoName,
-  assertSha, assertText,
+  assertSha, assertText, printable,
 } from '../args.js'
-import { send } from '../http.js'
+import { readBody, send } from '../http.js'
 import { api, bindMethods, call, clientHeaders } from './client.js'
 import { getRepoHead, readMethods } from './read.js'
 
@@ -45,24 +45,30 @@ function normalizeMessage(message) {
 // useless for diagnosing rate limits, HTML error pages, or invalid
 // tokens. Reading the body as text first and surfacing it (truncated
 // for sanity) gives operators something to look at.
+//
+// What the body says goes into the messages escaped (printable), so a
+// response cannot put control characters into a log line.
 export function parseGraphQLResponse(status, text) {
   if (status < 200 || status >= 300) {
-    throw new Error(`GitHub GraphQL ${status}: ${text || '(empty body)'}`)
+    throw new Error(`GitHub GraphQL ${status}: ${printable(text.slice(0, 4096)) || '(empty body)'}`)
   }
   let json
   try { json = JSON.parse(text) } catch (err) {
-    throw new Error(`GitHub GraphQL ${status}: malformed JSON response (${err.message}): ${text.slice(0, 200)}`, { cause: err })
+    throw new Error(`GitHub GraphQL ${status}: malformed JSON response (${err.message}): ${printable(text.slice(0, 200))}`, { cause: err })
   }
-  if (json.errors) throw new Error(`GitHub GraphQL: ${JSON.stringify(json.errors)}`)
+  if (json.errors) throw new Error(`GitHub GraphQL: ${printable(JSON.stringify(json.errors))}`)
   return json.data
 }
+
+// A mutation's answer is a few hundred bytes; an error, a few more.
+const GRAPHQL_BYTES = 1024 * 1024
 
 // The query is always one of the constants above, and the variables go
 // as JSON beside it, never into its text.
 async function graphql(headers, query, variables) {
   assert.equal(query, CREATE_COMMIT_MUTATION)
-  const res = await send(api(['graphql']), { method: 'POST', headers, body: { query, variables } })
-  return parseGraphQLResponse(res.status, await res.text())
+  const res = await send(api(['graphql']), { method: 'POST', headers, body: { query, variables }, as: 'json' })
+  return parseGraphQLResponse(res.status, new TextDecoder().decode(await readBody(res, GRAPHQL_BYTES)))
 }
 
 // Fork the given repo into the authenticated user's account (or the given

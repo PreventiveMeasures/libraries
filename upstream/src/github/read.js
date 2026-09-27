@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { assertLogin, assertNumber, assertOptional, assertOptions, assertPath, assertRef, assertRepo, assertSha, isSha } from '../args.js'
+import { assertLogin, assertNumber, assertOptional, assertOptions, assertPath, assertRef, assertRepo, assertSha, isSha, show } from '../args.js'
 import { encodeSegment } from '../http.js'
 import { api, bindMethods, call, clientHeaders } from './client.js'
 
@@ -40,7 +40,7 @@ async function listUserRepos(headers) {
 async function getRepo(headers, options) {
   assertOptions('getRepo', 'options', options, ['repo'])
   const info = await call(headers, api(['repos', ...repoSegments('getRepo', options.repo)]))
-  assert.ok(sameName(info?.full_name, options.repo), `getRepo: answered for ${info?.full_name}, not ${options.repo}`)
+  assert.ok(sameName(info?.full_name, options.repo), `getRepo: answered for ${show(info?.full_name)}, not ${options.repo}`)
   return info
 }
 
@@ -54,7 +54,7 @@ async function getCollaboratorPermission(headers, options) {
   assertLogin(method, 'username', options.username)
   const body = await call(headers, api(['repos', ...repo, 'collaborators', options.username, 'permission']))
   const login = body?.user?.login
-  assert.ok(typeof body?.permission === 'string' && sameName(login, options.username), `${method}: answered for ${login}, not ${options.username}`)
+  assert.ok(typeof body?.permission === 'string' && sameName(login, options.username), `${method}: answered for ${show(login)}, not ${options.username}`)
   return body
 }
 
@@ -69,7 +69,7 @@ async function getPullRequest(headers, options) {
   assertNumber('getPullRequest', 'number', number)
   const pr = await call(headers, api(['repos', ...segments, 'pulls', String(number)]))
   const base = pr?.base?.repo?.full_name
-  assert.ok(pr?.number === number && sameName(base, repo), `getPullRequest: answered for ${base}#${pr?.number}, not ${repo}#${number}`)
+  assert.ok(pr?.number === number && sameName(base, repo), `getPullRequest: answered for ${show(base)}#${show(pr?.number)}, not ${repo}#${number}`)
   assert.ok(typeof pr.title === 'string' && pr.title.trim() !== '', `getPullRequest: ${repo}#${number} has no title`)
   assert.ok(['open', 'closed'].includes(pr.state) && typeof pr.merged === 'boolean', `getPullRequest: ${repo}#${number} has no state`)
   let status = 'open'

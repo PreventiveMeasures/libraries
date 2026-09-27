@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 
-import { assertPackageName, assertPackageVersion } from '../args.js'
+import { assertPackageName, assertPackageVersion, printable, show } from '../args.js'
 import { readCache, readCacheJSON, writeCache, writeCacheJSON } from '../cache.js'
 import { NPM_REGISTRY, buildUrl, request } from '../http.js'
 
@@ -16,13 +16,13 @@ import { NPM_REGISTRY, buildUrl, request } from '../http.js'
 // version. Only called with a name and version getTarball has checked.
 async function getDist(name, version) {
   const json = await request(buildUrl(NPM_REGISTRY, [...name.split('/'), version]), { as: 'json' })
-  assert.ok(json?.name === name && json.version === version, `getTarball: the registry answered for ${json?.name}@${json?.version}, not ${name}@${version}`)
+  assert.ok(json?.name === name && json.version === version, `getTarball: the registry answered for ${show(json?.name)}@${show(json?.version)}, not ${name}@${version}`)
   const { tarball, integrity } = json.dist ?? {}
   // Taken from `dist`, but only where it is exactly the URL the registry
   // files this version's tarball under, checked before anything is
   // downloaded: never another host, another package or another version.
   const expected = buildUrl(NPM_REGISTRY, [...name.split('/'), '-', `${name.split('/').at(-1)}-${version}.tgz`])
-  assert.equal(tarball, expected, `getTarball: unexpected tarball URL for ${name}@${version}: ${tarball}`)
+  assert.ok(tarball === expected, `getTarball: unexpected tarball URL for ${name}@${version}: ${show(tarball)}`)
   assert.ok(typeof integrity === 'string', `getTarball: no integrity for ${name}@${version}`)
   return { tarball, integrity }
 }
@@ -37,9 +37,9 @@ const SHA512_RE = /^sha512-(?<digest>[\dA-Za-z+/]{86}==)(?:\?[!-~]*)?$/u
 
 function assertIntegrity(bytes, integrity, what) {
   const expected = integrity.split(/\s+/u).map((entry) => SHA512_RE.exec(entry)?.groups.digest).filter(Boolean)
-  assert.ok(expected.length > 0, `getTarball: no sha512 integrity for ${what}: ${integrity}`)
+  assert.ok(expected.length > 0, `getTarball: no sha512 integrity for ${what}: ${show(integrity)}`)
   const actual = createHash('sha512').update(bytes).digest('base64')
-  assert.ok(expected.includes(actual), `getTarball: integrity mismatch for ${what}: expected ${integrity}, got sha512-${actual}`)
+  assert.ok(expected.includes(actual), `getTarball: integrity mismatch for ${what}: expected ${printable(integrity)}, got sha512-${actual}`)
 }
 
 // Filed under npm/tarballs, beside the repo links: `<name>@<version>.tgz`

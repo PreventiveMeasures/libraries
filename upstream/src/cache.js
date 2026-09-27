@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
+
+import { assertDirectoryPath } from './args.js'
 
 // Where cached answers live on disk, which is the caller's to decide and
 // nobody else's: this package has no idea what the host is or where a
@@ -12,18 +14,25 @@ import { dirname, join } from 'node:path'
 // time and leaves nothing behind on disk.
 let root
 
+// Resolved when set, so a relative one names the same place for the rest
+// of the process, whatever the working directory becomes.
 export function setCacheDir(dir) {
-  assert.ok(typeof dir === 'string' && dir.length > 0, 'setCacheDir: expected a directory path')
-  root = dir
+  assertDirectoryPath('setCacheDir', 'dir', dir)
+  root = resolve(dir)
 }
 
-// One file in the cache: `dir` is where under the root a kind of record
-// is filed — under the registry or API that answered it, since what a
-// record means is a property of who was asked — and `key` names the
+// The kinds of record kept, each filed under the registry or API that
+// answered it, since what a record means is a property of who was asked.
+const DIRS = new Set(['npm/repos', 'npm/tarballs'])
+
+// One file in the cache: `dir` is one of the above, and `key` names the
 // record in it. The key goes through encodeURIComponent, so the `/` in a
 // scoped package name, or a `..` in anything, stays part of one file name
 // rather than making a directory of it. Null while there is no cache.
-const cachePath = (dir, key) => (root === undefined ? null : join(root, dir, encodeURIComponent(key)))
+function cachePath(dir, key) {
+  assert.ok(DIRS.has(dir) && typeof key === 'string' && key !== '', `Unexpected cache entry: ${dir}`)
+  return root === undefined ? null : join(root, dir, encodeURIComponent(key))
+}
 
 // A record's bytes, or null for no cache or nothing readable there. What
 // they have to be is the caller's to check: every answer but a usable
@@ -40,10 +49,9 @@ export async function readCache(dir, key) {
 }
 
 export async function readCacheJSON(dir, key) {
-  const path = cachePath(dir, key)
-  if (path === null) return null
+  const bytes = await readCache(dir, key)
   try {
-    return JSON.parse(await readFile(path, 'utf8'))
+    return bytes === null ? null : JSON.parse(new TextDecoder().decode(bytes))
   } catch {
     return null
   }
@@ -55,7 +63,8 @@ let tmpSeq = 0
 // cannot leave a truncated file that a later read would take for the
 // record. A cache that cannot be written at all — none set, a read-only
 // directory, a full disk — is a slower next call, not a failed one, so
-// this never throws: false where it could not write.
+// this never throws: false where it could not write, with the temp file
+// it may have left removed.
 export async function writeCache(dir, key, data) {
   const path = cachePath(dir, key)
   if (path === null) return false
@@ -65,6 +74,7 @@ export async function writeCache(dir, key, data) {
     await writeFile(tmp, data)
     await rename(tmp, path)
   } catch {
+    await rm(tmp, { force: true }).catch(() => {})
     return false
   }
   return true

@@ -168,6 +168,47 @@ describe('createPR', () => {
   })
 })
 
+describe('string formats', () => {
+  it('refuses an options object that is not a plain one', async () => {
+    const calls = forbidRequests()
+    const inherited = Object.create({ draft: 'yes' })
+    Object.assign(inherited, { repo: 'acme/app', title: 'Fix', head: 'fix', base: 'main' })
+    await assert.rejects(client().createPR(inherited), /createPR: options must be an options object, got object/u)
+    class Options { repo = 'acme/app' }
+    await assert.rejects(client().getRepo(new Options()), /getRepo: options must be an options object/u)
+    await assert.rejects(client().getRepo({ repo: 'acme/app', [Symbol('x')]: 1 }), /getRepo: unknown option Symbol\(x\)/u)
+    assert.deepEqual(calls, [])
+  })
+
+  it('refuses a string that is not well-formed, too long, or reaches into .git', async () => {
+    const calls = forbidRequests()
+    const base = { repo: 'acme/app', branch: 'fix', expectedHeadOid: SHA }
+    const bad = [
+      [{ message: 'lone \uD800 surrogate' }, /message must be a non-empty single line/u],
+      [{ message: 'x'.repeat(1025) }, /message must be a non-empty single line/u],
+      [{ message: { headline: 'x', body: 'x'.repeat(65_537) } }, /message.body must be text/u],
+      [{ message: { headline: 'x', body: 'c1 \u0085 control' } }, /message.body must be text/u],
+      [{ message: 'x', additions: [{ path: '.git/hooks/post-checkout', contents: '' }] }, /additions\[0\].path must be a path inside a repository/u],
+      [{ message: 'x', deletions: ['sub/.GIT/config'] }, /deletions\[0\] must be a path inside a repository/u],
+      [{ message: 'x', deletions: ['a\uDC00'] }, /deletions\[0\] must be a path inside a repository/u],
+    ]
+    for (const [options, error] of bad) {
+      await assert.rejects(client().createCommit({ ...base, ...options }), error, JSON.stringify(options))
+    }
+    await assert.rejects(client().getRepoFile({ repo: 'acme/app', path: 'a\uD800' }), /path must be a path inside a repository/u)
+    await assert.rejects(client().getRepoHead({ repo: 'acme/app', branch: 'b\uD800' }), /branch must be a branch or tag name/u)
+    assert.deepEqual(calls, [])
+    // .github, .gitignore and friends are ordinary paths.
+    stubGitHub(() => json({ data: { createCommitOnBranch: { commit: { oid: SHA2, url: 'u' } } } }))
+    await client().createCommit({ ...base, message: 'x', additions: [{ path: '.github/workflows/ci.yml', contents: '' }, { path: '.gitignore', contents: '' }] })
+  })
+
+  it('escapes what a value was, in the message about it', async () => {
+    forbidRequests()
+    await assert.rejects(client().createPR({ repo: 'acme/app', title: '\u001B[2J\u202E', head: 'fix', base: 'main' }), { message: 'createPR: title must be a non-empty single line, got "\\u001b[2J\\u202e"' })
+  })
+})
+
 describe('parseGraphQLResponse', () => {
   it('answers the data', () => {
     assert.deepEqual(parseGraphQLResponse(200, '{"data":{"a":1}}'), { a: 1 })

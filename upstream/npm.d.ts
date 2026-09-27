@@ -3,10 +3,12 @@
 // Every call that reaches the registry first asserts that the name is a
 // string of the shape npm takes, and a version a string that npm's
 // semver.valid answers with unchanged; neither goes near a request, or a
-// cache path, otherwise.
+// cache path, otherwise. Responses are read up to a size limit and within
+// a timeout, as github.d.ts describes, and lookups for many names go to
+// the registry eight at a time.
 
-// Where cached answers live. Unset by default, and unset means no cache:
-// every read misses and every write is skipped.
+// Where cached answers live, resolved when set. Unset by default, and
+// unset means no cache: every read misses and every write is skipped.
 export function setCacheDir(dir: string): void
 
 // A failed request: `status` is the HTTP status the registry answered

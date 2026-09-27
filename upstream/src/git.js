@@ -1,8 +1,7 @@
-import assert from 'node:assert/strict'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
-import { isRefName, isSha } from './args.js'
+import { assertDirectoryPath, isRefName, isSha } from './args.js'
 import { githubRepoOfUrl } from './remote.js'
 
 // Which commit a directory on disk is checked out at, where in its
@@ -66,17 +65,18 @@ async function headCommit(gitDir, commonDir) {
 }
 
 // The origin's URL, off exactly the lines git writes for it and nothing
-// cleverer: a config written any other way just has no `github`. Only the
-// `owner/name` of a GitHub remote comes back out; the URL itself never
-// does, since it can name a private host or carry a token.
+// cleverer: a config written any other way just has no `github`. The
+// section header has to start a line, so one in a comment or inside
+// another value is not it. Only the `owner/name` of a GitHub remote comes
+// back out; the URL itself never does, since it can name a private host
+// or carry a token.
 const ORIGIN = '[remote "origin"]\n\turl = '
 
 async function originGitHub(commonDir) {
-  const config = await read(join(commonDir, 'config'))
-  const at = config?.indexOf(ORIGIN) ?? -1
+  const config = `\n${await read(join(commonDir, 'config')) ?? ''}`
+  const at = config.indexOf(`\n${ORIGIN}`)
   if (at === -1) return undefined
-  const url = config.slice(at + ORIGIN.length).split('\n')[0].trim()
-  return githubRepoOfUrl(url)
+  return githubRepoOfUrl(config.slice(at + 1 + ORIGIN.length).split('\n')[0].trim())
 }
 
 // `{ github?, directory?, url?, commit? }` for the checkout `dir` is in,
@@ -85,7 +85,7 @@ async function originGitHub(commonDir) {
 // where `dir` sits in the checkout, `/`-separated, absent at its root;
 // `commit` is HEAD's. Empty where there is no checkout above `dir`.
 export async function findGitCheckout(dir) {
-  assert.ok(typeof dir === 'string' && dir !== '', `findGitCheckout: dir must be a directory path, got ${typeof dir === 'string' ? '""' : typeof dir}`)
+  assertDirectoryPath('findGitCheckout', 'dir', dir)
   const start = await realpath(resolve(dir)).catch(() => null)
   if (start === null || !await isDirectory(start)) return {}
   const dirs = await findGitDirs(start)

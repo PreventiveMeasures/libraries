@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { afterEach, describe, it } from 'node:test'
 
-import { GITHUB_API, HttpError, NPM_REGISTRY, buildUrl, encodeSegment, request, send } from '../src/http.js'
+import { GITHUB_API, HttpError, NPM_REGISTRY, buildUrl, encodeSegment, readBody, request, send } from '../src/http.js'
 
 const realFetch = globalThis.fetch
 
@@ -77,7 +77,9 @@ describe('send and request', () => {
   it('refuses redirects unless asked, and sends a JSON body as JSON', async () => {
     const calls = stub(() => new Response('{"ok":true}'))
     assert.deepEqual(await request(`${GITHUB_API}/x`, { as: 'json', method: 'POST', body: { a: 1 }, headers: { 'X-A': 'b' } }), { ok: true })
-    assert.deepEqual(calls[0].init, { method: 'POST', redirect: 'manual', headers: { 'X-A': 'b', 'Content-Type': 'application/json' }, body: '{"a":1}' })
+    const { signal, ...init } = calls[0].init
+    assert.ok(signal instanceof AbortSignal)
+    assert.deepEqual(init, { method: 'POST', redirect: 'manual', headers: { 'X-A': 'b', 'Content-Type': 'application/json' }, body: '{"a":1}' })
     await request(`${GITHUB_API}/x`, { as: 'text', redirect: 'follow' })
     assert.equal(calls[1].init.redirect, 'follow')
   })
@@ -93,15 +95,57 @@ describe('send and request', () => {
   })
 
   it('throws an HttpError for anything but a 2xx, a redirect included, with the start of the body', async () => {
-    stub(() => new Response('x'.repeat(5000), { status: 500 }))
+    stub(() => new Response('x'.repeat(10_000), { status: 500 }))
     await assert.rejects(request(`${GITHUB_API}/x`, { as: 'json' }), (err) => {
       assert.ok(err instanceof HttpError)
       assert.equal(err.status, 500)
-      assert.equal(err.message, `GET ${GITHUB_API}/x 500: ${'x'.repeat(1000)}`)
+      assert.equal(err.message, `GET ${GITHUB_API}/x 500: ${'x'.repeat(4096)}`)
       return true
     })
     stub(() => new Response('', { status: 302, headers: { location: 'https://evil.example/' } }))
     await assert.rejects(request(`${GITHUB_API}/x`, { as: 'json' }), { name: 'HttpError', status: 302 })
+  })
+})
+
+describe('limits', () => {
+  it('reads a body up to its limit, and no further', async () => {
+    assert.deepEqual(await readBody(new Response('abcdef'), 6), new TextEncoder().encode('abcdef'))
+    await assert.rejects(readBody(new Response('abcdef'), 5), /Response too large: over 5 bytes/u)
+    assert.deepEqual(await readBody(new Response('abcdef'), 3, { truncate: true }), new TextEncoder().encode('abc'))
+    assert.deepEqual(await readBody(new Response(null), 3), new Uint8Array(0))
+  })
+
+  it('refuses a body whose declared length is over the limit before reading it', async () => {
+    const res = new Response('abc', { headers: { 'content-length': '999' } })
+    await assert.rejects(readBody(res, 100), /Response too large: 999 bytes, over 100/u)
+    globalThis.fetch = () => Promise.resolve(new Response('{}', { headers: { 'content-length': String(65 * 1024 * 1024) } }))
+    await assert.rejects(request(`${NPM_REGISTRY}/x`, { as: 'json' }), /Response too large/u)
+  })
+
+  it('sends every request with a timeout', async () => {
+    const signals = []
+    globalThis.fetch = (url, init) => {
+      signals.push(init.signal)
+      return Promise.resolve(new Response('{}'))
+    }
+    await request(`${NPM_REGISTRY}/x`, { as: 'json' })
+    await request(`${NPM_REGISTRY}/x`, { as: 'bytes' })
+    assert.equal(signals.length, 2)
+    for (const signal of signals) assert.ok(signal instanceof AbortSignal && !signal.aborted)
+  })
+
+  it('refuses a header name or value that could split the request', async () => {
+    globalThis.fetch = () => assert.fail('no request expected')
+    await assert.rejects(send(`${GITHUB_API}/x`, { headers: { 'X-A': 'b\r\nX-Evil: 1' } }), /Unexpected header: X-A/u)
+    await assert.rejects(send(`${GITHUB_API}/x`, { headers: { 'X A': 'b' } }), /Unexpected header/u)
+    await assert.rejects(send(`${GITHUB_API}/x`, { headers: { 'X-A': 42 } }), /Unexpected header/u)
+  })
+
+  it('escapes control and bidi characters a response puts in an error message', async () => {
+    globalThis.fetch = () => Promise.resolve(new Response('\u001B[2Jgone\u202Eevil\nline', { status: 500 }))
+    await assert.rejects(request(`${GITHUB_API}/x`, { as: 'json' }), { message: `GET ${GITHUB_API}/x 500: \\u001b[2Jgone\\u202eevil\\u000aline` })
+    globalThis.fetch = () => Promise.resolve(new Response('\u0007not json'))
+    await assert.rejects(request(`${GITHUB_API}/x`, { as: 'json' }), { message: `Malformed JSON from ${GITHUB_API}/x: \\u0007not json` })
   })
 })
 
