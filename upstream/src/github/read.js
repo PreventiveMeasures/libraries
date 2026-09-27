@@ -7,18 +7,19 @@ import { api, bindMethods, call, clientHeaders, repoApi } from './client.js'
 const PER_PAGE = 100
 const MAX_PAGES = 100
 
-const getCurrentUser = (headers) => call(headers, api(['user']))
-
-async function listUserRepos(headers) {
-  const repos = []
+async function paginate(method, headers, pageUrl) {
+  const items = []
   for (let page = 1; page <= MAX_PAGES; page++) {
-    const body = await call(headers, api(['user', 'repos'], { per_page: PER_PAGE, page, sort: 'full_name' }))
-    assert.ok(Array.isArray(body), `listUserRepos: expected an array for page ${page}`)
-    repos.push(...body)
-    if (body.length < PER_PAGE) return repos
+    const body = await call(headers, pageUrl({ per_page: PER_PAGE, page }))
+    assert.ok(Array.isArray(body), `${method}: expected an array for page ${page}`)
+    items.push(...body)
+    if (body.length < PER_PAGE) return items
   }
-  assert.fail(`listUserRepos: more than ${MAX_PAGES} pages`)
+  assert.fail(`${method}: more than ${MAX_PAGES} pages`)
 }
+
+const getCurrentUser = (headers) => call(headers, api(['user']))
+const listUserRepos = (headers) => paginate('listUserRepos', headers, (paging) => api(['user', 'repos'], { ...paging, sort: 'full_name' }))
 
 async function getRepo(headers, options) {
   assertArgs('getRepo', options, { repo: assertRepo })

@@ -261,6 +261,12 @@ describe('listUserRepos', () => {
     ])
   })
 
+  it('stops at 100 pages rather than read on without end', async () => {
+    const calls = stubGitHub(() => json(Array.from({ length: 100 }, () => ({}))))
+    await assert.rejects(client().listUserRepos(), /listUserRepos: more than 100 pages/u)
+    assert.equal(calls.length, 100)
+  })
+
   it('refuses a page that must be a list', async () => {
     stubGitHub(() => json({ message: 'odd' }))
     await assert.rejects(client().listUserRepos(), /listUserRepos: expected an array for page 1/u)
