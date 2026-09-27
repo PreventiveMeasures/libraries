@@ -1,44 +1,49 @@
 // Hand-written against github.js; a change to either belongs with the other.
+//
+// Every method checks its arguments hard before any request is built:
+// an options object holding only the keys listed here, a repo that is
+// `owner/name` by GitHub's rules, branches and tags that git would take,
+// full commit shas, paths with no empty, `.` or `..` component. A bad
+// one is a rejection naming the method; nothing is sent. Redirects are
+// refused, except the tarball's, so an answer is about the repo asked
+// for.
 
-// `owner/name`, which is how every call below names a repo.
+// `owner/name`.
 export type RepoName = string
 
 export interface ClientOptions {
-  token: string
+  // `null` for an anonymous client, which reads public repositories
+  // without anyone's credentials. Required either way.
+  token: string | null
   userAgent?: string
 }
 
-export type CommitMessage = string | { headline: string; body?: string }
+export type PullRequestStatus = 'open' | 'draft' | 'closed' | 'merged'
 
+// A failed request: `status` is the HTTP status GitHub answered with.
+export class GitHubError extends Error {
+  name: 'GitHubError'
+  status: number
+}
+
+// Reads only.
 export interface Client {
-  // Into the authenticated user's account, or the given organization.
-  // Answers GitHub's repo object; `full_name` names the fork.
-  forkRepo(options: { repo: RepoName; name?: string; organization?: string; defaultBranchOnly?: boolean }): Promise<any>
-  // At `oid`, or at the head of the default branch without one.
-  createBranch(options: { repo: RepoName; branch: string; oid?: string }): Promise<any>
-  // A signed commit on an existing branch, through GraphQL
-  // createCommitOnBranch. `expectedHeadOid` defaults to the branch head.
-  createCommit(options: {
-    repo: RepoName
-    branch: string
-    message: CommitMessage
-    additions?: { path: string; contents: string | Uint8Array }[]
-    deletions?: (string | { path: string })[]
-    expectedHeadOid?: string
-  }): Promise<{ oid: string; url: string }>
-  // `head` is `owner:branch` for a pull request from a fork.
-  createPR(options: { repo: RepoName; title: string; head: string; base: string; body?: string; draft?: boolean }): Promise<any>
+  // GitHub's `{ permission, role_name, user }` for `username` on `repo`,
+  // teams, organization and enterprise grants included.
+  getCollaboratorPermission(options: { repo: RepoName; username: string }): Promise<{ permission: string; role_name?: string; user: { login: string; id: number } } & Record<string, any>>
   getCurrentUser(): Promise<any>
-  // The head of `branch`, or of the default branch without one.
-  getRepoHead(options: { repo: RepoName; branch?: string }): Promise<{ branch: string; oid: string }>
+  // Refused unless GitHub answers with that pull request in that repo.
+  getPullRequest(options: { repo: RepoName; number: number }): Promise<{ title: string; status: PullRequestStatus }>
+  // GitHub's repository object, refused unless it is the repo asked for.
+  getRepo(options: { repo: RepoName }): Promise<any>
   // A file's raw contents as UTF-8, at `ref` or the default branch.
   getRepoFile(options: { repo: RepoName; path: string; ref?: string }): Promise<string>
-  // The repo's gzipped tarball at `sha`, whole, in memory.
+  // The head of `branch`, or of the default branch without one.
+  getRepoHead(options: { repo: RepoName; branch?: string }): Promise<{ branch: string; oid: string }>
+  // The repo's gzipped tarball at the full commit `sha`, whole, in memory.
   getRepoTarball(options: { repo: RepoName; sha: string }): Promise<Uint8Array>
+  // Every page of `GET /user/repos`, as GitHub's repository objects.
+  listUserRepos(): Promise<any[]>
 }
 
 export function createClient(options: ClientOptions): Client
-
-// A GraphQL response's `data`, or a throw carrying the status and body on
-// a transport error, malformed JSON or an `errors` array.
-export function parseGraphQLResponse(status: number, text: string): any

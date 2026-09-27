@@ -114,15 +114,15 @@ describe('the tarball cache', () => {
   it('files the bytes with the integrity they were checked against, a scoped name in one file', async () => {
     stubRegistry({ name: '@scope/pkg' })
     await getTarball('@scope/pkg', '1.0.0')
-    assert.deepEqual((await readdir(TARBALLS)).toSorted(), ['%40scope%2Fpkg@1.0.0.json', '%40scope%2Fpkg@1.0.0.tgz'])
-    assert.deepEqual(new Uint8Array(await readFile(join(TARBALLS, '%40scope%2Fpkg@1.0.0.tgz'))), BYTES)
-    assert.deepEqual(JSON.parse(await readFile(join(TARBALLS, '%40scope%2Fpkg@1.0.0.json'), 'utf8')), { name: '@scope/pkg', version: '1.0.0', integrity: sri(BYTES) })
+    assert.deepEqual((await readdir(TARBALLS)).toSorted(), ['%40scope%2Fpkg%401.0.0.json', '%40scope%2Fpkg%401.0.0.tgz'])
+    assert.deepEqual(new Uint8Array(await readFile(join(TARBALLS, '%40scope%2Fpkg%401.0.0.tgz'))), BYTES)
+    assert.deepEqual(JSON.parse(await readFile(join(TARBALLS, '%40scope%2Fpkg%401.0.0.json'), 'utf8')), { name: '@scope/pkg', version: '1.0.0', integrity: sri(BYTES) })
   })
 
   it('throws on cached bytes that no longer match, rather than fetching over them', async () => {
     stubRegistry()
     await getTarball('pkg', '1.0.0')
-    await writeFile(join(TARBALLS, 'pkg@1.0.0.tgz'), new Uint8Array([...BYTES, 0]))
+    await writeFile(join(TARBALLS, 'pkg%401.0.0.tgz'), new Uint8Array([...BYTES, 0]))
     const calls = stubRegistry()
     await assert.rejects(getTarball('pkg', '1.0.0'), /Integrity mismatch for pkg@1\.0\.0 from the cache/u)
     assert.deepEqual(calls, [])
@@ -131,8 +131,8 @@ describe('the tarball cache', () => {
   it('misses on half an entry, or a record it did not write, and fetches again', async () => {
     stubRegistry()
     await getTarball('pkg', '1.0.0')
-    const json = join(TARBALLS, 'pkg@1.0.0.json')
-    const tgz = join(TARBALLS, 'pkg@1.0.0.tgz')
+    const json = join(TARBALLS, 'pkg%401.0.0.json')
+    const tgz = join(TARBALLS, 'pkg%401.0.0.tgz')
 
     for (const damage of [
       () => rm(json),

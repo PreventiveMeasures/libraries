@@ -8,6 +8,10 @@
       "types": "./github.d.ts",
       "default": "./github.js"
     },
+    "./github/write.js": {
+      "types": "./github/write.d.ts",
+      "default": "./github/write.js"
+    },
     "./npm.js": {
       "types": "./npm.d.ts",
       "default": "./npm.js"
@@ -20,12 +24,17 @@
   "files": [
     "github.d.ts",
     "github.js",
+    "github/write.d.ts",
+    "github/write.js",
     "npm.d.ts",
     "npm.js",
     "semver.d.ts",
     "semver.js",
     "src/cache.js",
-    "src/github.js",
+    "src/github/args.js",
+    "src/github/read.js",
+    "src/github/request.js",
+    "src/github/write.js",
     "src/npm/registry.js",
     "src/npm/repos.js",
     "src/npm/tarball.js",

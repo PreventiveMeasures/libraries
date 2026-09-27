@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
 
-import { cacheDir } from '../cache.js'
+import { readCacheJSON, writeCacheJSON } from '../cache.js'
 import { REGISTRY, assertPackageName } from './registry.js'
 
 // Which GitHub repo a published npm package's code lives in, and where in
@@ -148,20 +146,14 @@ export async function getGitHub(name) {
 }
 
 // The answer above, kept on disk between runs, when setCacheDir has named
-// a place for it.
+// a place for it: one `<name>.json` per package under npm/repos.
 //
 // It is one registry request per package, for something that barely
 // moves: which repo a published package's metadata points at. A caller
 // resolving a middling dependency tree spends hundreds of them
 // re-reading what its last run already read, and one that cannot reach
 // the network cannot spend them at all.
-//
-// Filed under the registry that answered: what a record means is a
-// property of who was asked, so the next thing read from an API of its
-// own belongs beside this one rather than in a heap at the cache root. A
-// function, not a constant: the cache root is set at startup, which is
-// after this module is evaluated. Null while there is no cache.
-const dir = () => (cacheDir() === undefined ? null : join(cacheDir(), 'npm', 'repos'))
+const DIR = 'npm/repos'
 
 // A month. The link is published metadata rather than a fact about an
 // install, so it goes stale only when a package is transferred or its
@@ -169,11 +161,6 @@ const dir = () => (cacheDir() === undefined ? null : join(cacheDir(), 'npm', 're
 // redirect, which makes a month-old answer a working link rather than a
 // wrong one.
 const TTL_MS = 30 * 24 * 60 * 60 * 1000
-
-// Through encodeURIComponent: the `/` in a scoped name (`@scope/pkg`)
-// would otherwise be a directory, and a name that came from a caller is
-// not trusted enough to interpolate into a path as it stands.
-const entryPath = (name) => join(dir(), `${encodeURIComponent(name)}.json`)
 
 // The stored `{ repo, directory }`, or null for anything that is not
 // one: no cache, no entry, a stale entry, a half-written file, an entry
@@ -188,43 +175,21 @@ const entryPath = (name) => join(dir(), `${encodeURIComponent(name)}.json`)
 // and no directory, and every monorepo package would quietly link to the
 // root of its repo for a month rather than simply being looked up again.
 export async function readPackageRepoCache(name) {
-  if (dir() === null) return null
-  try {
-    const entry = JSON.parse(await readFile(entryPath(name), 'utf8'))
-    if (!entry || typeof entry !== 'object' || typeof entry.at !== 'number') return null
-    if (Date.now() - entry.at > TTL_MS) return null
-    if (typeof entry.repo !== 'string' || !entry.repo || typeof entry.directory !== 'string') return null
-    return { repo: entry.repo, ...(entry.directory && { directory: entry.directory }) }
-  } catch {
-    return null
-  }
+  const entry = await readCacheJSON(DIR, `${name}.json`)
+  if (!entry || typeof entry !== 'object' || typeof entry.at !== 'number') return null
+  if (Date.now() - entry.at > TTL_MS) return null
+  if (typeof entry.repo !== 'string' || !entry.repo || typeof entry.directory !== 'string') return null
+  return { repo: entry.repo, ...(entry.directory && { directory: entry.directory }) }
 }
 
-let tmpSeq = 0
-
-// Written through a temp name and renamed into place, so a killed
-// process cannot leave a truncated file that a later run would read as
-// the repo. A cache that cannot be written at all — none set, a
-// read-only directory, a full disk — is a slower next run, not a failed
-// one, so nothing here throws.
-//
 // Only a RESOLVED slug is ever passed here. A lookup that failed is not
 // an answer: a 404, a rate limit, a network blip and a package that has
 // simply not published a repo link all fail the same way, and filing
 // that as a result would turn a minute of registry trouble into a month
-// of packages with no link on them.
+// of packages with no link on them. False where the cache could not be
+// written; never a throw.
 export async function writePackageRepoCache(name, repo, directory = '') {
-  if (dir() === null) return false
-  const path = entryPath(name)
-  const tmp = `${path}.${process.pid}.${++tmpSeq}.tmp`
-  try {
-    await mkdir(dir(), { recursive: true })
-    await writeFile(tmp, JSON.stringify({ at: Date.now(), name, repo, directory: directory ?? '' }))
-    await rename(tmp, path)
-  } catch {
-    return false
-  }
-  return true
+  return await writeCacheJSON(DIR, `${name}.json`, { at: Date.now(), name, repo, directory: directory ?? '' })
 }
 
 // Best-effort npm → GitHub repo lookup for a set of package names.
