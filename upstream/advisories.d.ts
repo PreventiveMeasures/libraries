@@ -89,9 +89,10 @@ export function cargoAdvisories(packages: Iterable<InstalledPackage>): Promise<O
 export function composerAdvisories(packages: Iterable<InstalledPackage>): Promise<OsvAdvisory[]>
 
 // Dependencies that are GitHub repositories themselves (stasis's `github`
-// ecosystem): `name` is `owner/name`, `version` an exact semver version.
-// Each repository's own published advisories, asked once, four at a time,
-// with every range they list counted, whichever package it names; the
-// same range listed for two packages is one row. A repository gone,
-// renamed or blocked is skipped; any other failure throws. Sorted by name.
+// ecosystem): `name` is `owner/name`, `version` a version or, where stasis
+// had none, a branch name or 0.0.0, which every range covers. Each
+// repository's own published advisories, asked once, four at a time, with
+// every range they list counted, whichever package it names; the same
+// range listed for two packages is one row. A repository gone, renamed or
+// blocked is skipped; any other failure throws. Sorted by name.
 export function githubAdvisories(packages: Iterable<InstalledPackage>, options: { github: Client }): Promise<GitHubAdvisory[]>

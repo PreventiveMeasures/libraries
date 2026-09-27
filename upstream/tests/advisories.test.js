@@ -274,6 +274,20 @@ describe('githubAdvisories', () => {
     })
   })
 
+  it('takes a branch name or 0.0.0 as every version', async () => {
+    stubGitHub({
+      [OZ]: [
+        advisory('GHSA-aaaa-aaaa-aaaa', [vuln('@openzeppelin/contracts', '>= 4.0.0, < 4.9.3')]),
+        advisory('GHSA-bbbb-bbbb-bbbb', [vuln('@openzeppelin/contracts', '= 5.0.1')]),
+      ],
+    })
+    const advisories = await githubAdvisories(['master', '0.0.0', 'v4.9.0', '5.0.1', '6.0.0'].map((version) => ({ name: 'OpenZeppelin/openzeppelin-contracts', version })), { github })
+    assert.deepEqual(advisories.map(({ ghsa, versions }) => [ghsa, versions]), [
+      ['GHSA-aaaa-aaaa-aaaa', ['0.0.0', 'master', 'v4.9.0']],
+      ['GHSA-bbbb-bbbb-bbbb', ['0.0.0', '5.0.1', 'master', 'v4.9.0']],
+    ])
+  })
+
   it('skips a repository gone, and throws on any other failure', async () => {
     const one = [{ name: 'OpenZeppelin/openzeppelin-contracts', version: '4.9.0' }]
     stubGitHub({ [OZ]: Response.json({ message: 'Not Found' }, { status: 404 }) })
@@ -284,13 +298,13 @@ describe('githubAdvisories', () => {
     await assert.rejects(githubAdvisories(one, { github }), /githubAdvisories: malformed range in GHSA-aaaa-aaaa-aaaa/u)
   })
 
-  it('refuses what is not `owner/name` at a semver version, or no client, before any request', async () => {
+  it('refuses what is not `owner/name` at a version or branch, or no client, before any request', async () => {
     const calls = stubGitHub({})
     for (const name of ['openzeppelin-contracts', 'a/b/c', '../x', undefined]) {
       await assert.rejects(githubAdvisories([{ name, version: '1.0.0' }], { github }), /githubAdvisories: name must be "owner\/name"/u, String(name))
     }
-    for (const version of ['main', 'v4.9.0', '4.9', undefined]) {
-      await assert.rejects(githubAdvisories([{ name: 'acme/app', version }], { github }), /githubAdvisories: version must be an exact semver version/u, String(version))
+    for (const version of ['', 'a b', 'x..y', 'main.lock', '-x', ['main'], undefined]) {
+      await assert.rejects(githubAdvisories([{ name: 'acme/app', version }], { github }), /githubAdvisories: version must be a version or a branch name/u, String(version))
     }
     await assert.rejects(githubAdvisories([{ name: 'acme/app', version: '1.0.0' }]), /githubAdvisories: options must be an options object/u)
     await assert.rejects(githubAdvisories([{ name: 'acme/app', version: '1.0.0' }], {}), /githubAdvisories: github must be a GitHub client/u)

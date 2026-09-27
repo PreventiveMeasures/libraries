@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 
-import { assertArgs, assertPackageVersion, assertRepo, assertion, isGhsa, isStrings } from '../args.js'
+import { assertArgs, assertRepo, assertion, isGhsa, isRefName, isStrings } from '../args.js'
 import { isGone } from '../github/client.js'
 import { pool } from '../pool.js'
-import { compareVersions, satisfies, validRange } from '../semver.js'
+import { isExactVersion, satisfies, validRange } from '../semver.js'
 import { askedVersions, order } from './common.js'
 
 const REPOS_AT_ONCE = 4
@@ -21,7 +21,7 @@ const listAdvisories = (github, repo) => github.listRepoAdvisories({ repo }).cat
 // GitHub's `>= 1.0.0, < 1.2.6` is npm's with the commas dropped. A range
 // semver cannot read covers every version: maintainers write these
 // unreviewed, and a missed advisory is worse than a spare one.
-function fromRepository(name, advisory, range, asked) {
+function fromRepository(name, advisory, range, asked, covers) {
   const npmRange = (range ?? '').replaceAll(',', ' ')
   const readable = validRange(npmRange) !== null
   const cvss = [advisory.cvss_severities?.cvss_v3, advisory.cvss_severities?.cvss_v4, advisory.cvss].find((entry) => typeof entry?.vector_string === 'string')
@@ -36,7 +36,7 @@ function fromRepository(name, advisory, range, asked) {
     ...(cvss && { cvssVector: cvss.vector_string }),
     cwe: advisory.cwe_ids ?? [],
     range: range ?? '',
-    versions: asked.filter((version) => !readable || satisfies(version, npmRange)),
+    versions: asked.filter((version) => !readable || covers(version, npmRange)),
   }
 }
 
@@ -44,8 +44,8 @@ function fromRepository(name, advisory, range, asked) {
 // into the database the registries answer from. Each repository in
 // `namesOf` is asked once, and its advisories' vulnerable ranges become
 // rows for those of its names that `takes` a vulnerability for, one per
-// name, advisory and range.
-export async function repositoryAdvisories(method, github, namesOf, asked, takes) {
+// name, advisory and range, holding the asked versions it `covers`.
+export async function repositoryAdvisories(method, github, namesOf, asked, takes, covers = satisfies) {
   const listed = await pool([...namesOf], REPOS_AT_ONCE, async ([repo, names]) => ({ repo, names, list: await listAdvisories(github, repo) }))
   const rows = new Map()
   for (const { repo, names, list } of listed) {
@@ -55,20 +55,26 @@ export async function repositoryAdvisories(method, github, namesOf, asked, takes
       const range = vulnerability?.vulnerable_version_range
       assert.ok(range == null || typeof range === 'string', `${method}: malformed range in ${advisory.ghsa_id}`)
       for (const name of names.filter((candidate) => takes(candidate, vulnerability?.package, advisory))) {
-        rows.set(`${name} ${advisory.ghsa_id} ${range}`, fromRepository(name, advisory, range, asked.get(name)))
+        rows.set(`${name} ${advisory.ghsa_id} ${range}`, fromRepository(name, advisory, range, asked.get(name), covers))
       }
     }
   }
   return [...rows.values()]
 }
 
+// stasis versions a repository with no version of its own by its branch,
+// or 0.0.0: every range covers those.
+const isPlaceholder = (version) => version === '0.0.0' || !isExactVersion(version)
+const assertVersion = assertion('a version or a branch name', isRefName)
+
 // Dependencies that are GitHub repositories themselves (stasis's `github`
-// ecosystem), `owner/name` at a semver version: every range their own
-// published advisories list counts, whichever package it names.
+// ecosystem), `owner/name`: every range their own published advisories
+// list counts, whichever package it names.
 export async function githubAdvisories(packages, options) {
-  const asked = askedVersions('githubAdvisories', packages, assertRepo, assertPackageVersion, compareVersions)
+  const asked = askedVersions('githubAdvisories', packages, assertRepo, assertVersion)
   assertArgs('githubAdvisories', options, { github: assertClient })
   const namesOf = new Map([...asked.keys()].map((repo) => [repo, [repo]]))
-  const advisories = await repositoryAdvisories('githubAdvisories', options.github, namesOf, asked, () => true)
+  const covers = (version, range) => isPlaceholder(version) || satisfies(version, range)
+  const advisories = await repositoryAdvisories('githubAdvisories', options.github, namesOf, asked, () => true, covers)
   return advisories.filter((advisory) => advisory.versions.length > 0).toSorted((a, b) => order(a.name, b.name))
 }
