@@ -66,3 +66,4 @@ export const assertTokenOrNull = assertion('a token, or null for anonymous acces
 export const assertUserAgent = assertion('a printable user agent', matches(/^[ -~]*[!-~][ -~]*$/u))
 export const assertPackageName = assertion('an npm package name', isPackageName)
 export const assertPackageVersion = assertion('an exact semver version', isExactVersion)
+export const assertGhsa = assertion('a GHSA id', matches(/^GHSA(?:-[\da-hj-km-np-tv-z]{4}){3}$/u))

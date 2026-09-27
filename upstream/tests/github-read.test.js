@@ -42,7 +42,7 @@ describe('createClient', () => {
 
   it('reads, and nothing else', () => {
     assert.deepEqual(Object.keys(client()).toSorted(), [
-      'getCollaboratorPermission', 'getCurrentUser', 'getPullRequest', 'getRepo',
+      'getAdvisory', 'getCollaboratorPermission', 'getCurrentUser', 'getPullRequest', 'getRepo',
       'getRepoFile', 'getRepoHead', 'getRepoTarball', 'listUserRepos',
     ])
   })
@@ -226,6 +226,27 @@ describe('getPullRequest', () => {
     const calls = forbidRequests()
     for (const number of [0, -1, 1.5, '7', Number.NaN, Infinity, 2 ** 53, undefined]) {
       await assert.rejects(client().getPullRequest({ repo: 'acme/app', number }), /getPullRequest: number must be a positive integer/u, String(number))
+    }
+    assert.deepEqual(calls, [])
+  })
+})
+
+describe('getAdvisory', () => {
+  const GHSA = 'GHSA-xvch-5gv4-984h'
+
+  it("answers GitHub's advisory, when it is the one asked for", async () => {
+    const body = { ghsa_id: GHSA, cve_id: 'CVE-2021-44906', summary: 'Prototype Pollution in minimist' }
+    const calls = stubGitHub(() => json(body))
+    assert.deepEqual(await client().getAdvisory({ ghsa: GHSA }), body)
+    assert.equal(calls[0].url, `https://api.github.com/advisories/${GHSA}`)
+    stubGitHub(() => json({ ...body, ghsa_id: 'GHSA-vh95-rmgr-6w4m' }))
+    await assert.rejects(client().getAdvisory({ ghsa: GHSA }), /getAdvisory: answered for "GHSA-vh95-rmgr-6w4m", not GHSA-xvch-5gv4-984h/u)
+  })
+
+  it('refuses what is not a GHSA id, before any request', async () => {
+    const calls = forbidRequests()
+    for (const ghsa of ['CVE-2021-44906', 'GHSA-xvch-5gv4', 'ghsa-xvch-5gv4-984h', 'GHSA-XVCH-5GV4-984H', 'GHSA-xvch-5gv4-984i', `${GHSA}/x`, `../${GHSA}`, undefined]) {
+      await assert.rejects(client().getAdvisory({ ghsa }), /getAdvisory: ghsa must be a GHSA id/u, String(ghsa))
     }
     assert.deepEqual(calls, [])
   })

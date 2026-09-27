@@ -4,6 +4,10 @@
   "description": "Minimal npm registry and GitHub clients, and a git checkout reader: the calls we use, nothing more",
   "type": "module",
   "exports": {
+    "./advisories.js": {
+      "types": "./advisories.d.ts",
+      "default": "./advisories.js"
+    },
     "./github.js": {
       "types": "./github.d.ts",
       "default": "./github.js"
@@ -30,6 +34,8 @@
     }
   },
   "files": [
+    "advisories.d.ts",
+    "advisories.js",
     "github.d.ts",
     "github.js",
     "git.d.ts",
@@ -42,6 +48,7 @@
     "package.js",
     "semver.d.ts",
     "semver.js",
+    "src/advisories.js",
     "src/args.js",
     "src/cache.js",
     "src/git.js",

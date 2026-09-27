@@ -32,6 +32,9 @@ export class HttpError extends Error {
 
 // Reads only.
 export interface Client {
+  // A reviewed advisory from GitHub's global database, by its GHSA id,
+  // refused unless it is the one asked for.
+  getAdvisory(options: { ghsa: string }): Promise<{ ghsa_id: string } & Record<string, any>>
   // GitHub's `{ permission, role_name, user }` for `username` on `repo`,
   // teams, organization and enterprise grants included.
   getCollaboratorPermission(options: { repo: RepoName; username: string }): Promise<{ permission: string; role_name?: string; user: { login: string; id: number } } & Record<string, any>>

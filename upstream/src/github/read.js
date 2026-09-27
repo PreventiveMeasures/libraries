@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { assertArgs, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, isSha, optional, sameName, show } from '../args.js'
+import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, isSha, optional, sameName, show } from '../args.js'
 import { encodeSegment } from '../http.js'
 import { api, bindMethods, call, clientHeaders, repoApi } from './client.js'
 
@@ -79,5 +79,12 @@ async function getCollaboratorPermission(headers, options) {
   return body
 }
 
-export const readMethods = { getCurrentUser, listUserRepos, getRepo, getRepoHead, getRepoFile, getRepoTarball, getPullRequest, getCollaboratorPermission }
+async function getAdvisory(headers, options) {
+  assertArgs('getAdvisory', options, { ghsa: assertGhsa })
+  const advisory = await call(headers, api(['advisories', options.ghsa]))
+  assert.ok(advisory?.ghsa_id === options.ghsa, `getAdvisory: answered for ${show(advisory?.ghsa_id)}, not ${options.ghsa}`)
+  return advisory
+}
+
+export const readMethods = { getCurrentUser, listUserRepos, getRepo, getRepoHead, getRepoFile, getRepoTarball, getPullRequest, getCollaboratorPermission, getAdvisory }
 export const createClient = (options) => bindMethods(clientHeaders('createClient', options, true), readMethods)

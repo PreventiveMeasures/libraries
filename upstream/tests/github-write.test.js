@@ -23,7 +23,7 @@ describe('createWriteClient', () => {
   it('reads as the read client does, and writes', () => {
     assert.deepEqual(Object.keys(client()).toSorted(), [
       'createBranch', 'createCommit', 'createPR', 'forkRepo',
-      'getCollaboratorPermission', 'getCurrentUser', 'getPullRequest', 'getRepo',
+      'getAdvisory', 'getCollaboratorPermission', 'getCurrentUser', 'getPullRequest', 'getRepo',
       'getRepoFile', 'getRepoHead', 'getRepoTarball', 'listUserRepos',
     ])
     assert.equal(HttpError, ReadError)
