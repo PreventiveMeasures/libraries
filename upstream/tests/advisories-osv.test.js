@@ -288,8 +288,8 @@ describe('with a GitHub client', () => {
     stubAll({ crates: Response.json({ errors: [] }, { status: 500 }) })
     await assert.rejects(cargoAdvisories(one, { github }), { name: 'HttpError', status: 500 })
     stubAll({ crates: { smallvec: 'https://github.com/servo/rust-smallvec' } })
-    const realFetch = globalThis.fetch
-    globalThis.fetch = (url, init) => (String(url).startsWith(CRATES) ? Promise.resolve(Response.json({ crates: [{ id: 'serde', repository: null }] })) : realFetch(url, init))
+    const stubbed = globalThis.fetch
+    globalThis.fetch = (url, init) => (String(url).startsWith(CRATES) ? Promise.resolve(Response.json({ crates: [{ id: 'serde', repository: null }] })) : stubbed(url, init))
     await assert.rejects(cargoAdvisories(one, { github }), /cargoAdvisories: crates\.io answered for "serde", which was not asked/u)
     stubAll({})
     globalThis.fetch = (url) => Promise.resolve(String(url) === BATCH ? Response.json({ results: [{}] }) : Response.json({ packages: {} }))
