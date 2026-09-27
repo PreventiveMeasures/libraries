@@ -39,6 +39,11 @@ describe('getRepo', () => {
   it('answers the directory with the repo, never without it', () => {
     assert.deepEqual(getRepo({ repository: { type: 'git', url: 'git+https://github.com/babel/babel.git', directory: 'packages/babel-core' } }), { github: 'babel/babel', directory: 'packages/babel-core', url: 'https://github.com/babel/babel' })
     assert.deepEqual(getRepo({ repository: { url: 'https://gitlab.com/acme/app.git', directory: 'packages/x' } }), {})
+    const tracker = { bugs: 'https://github.com/acme/app/issues' }
+    for (const repository of [{ url: 'https://gitlab.com/other/mono.git', directory: 'packages/x' }, { url: 'not a url', directory: 'packages/x' }, { directory: 'packages/x' }]) {
+      assert.deepEqual(getRepo({ ...tracker, repository }), { github: 'acme/app', url: 'https://github.com/acme/app' }, JSON.stringify(repository))
+    }
+    assert.deepEqual(getRepo({ ...tracker, repository: { url: 'git+https://github.com/Acme/App.git', directory: 'packages/x' } }), { github: 'acme/app', directory: 'packages/x', url: 'https://github.com/acme/app' })
   })
 
   it('answers nothing, rather than throwing, where nothing names a GitHub repo', () => {

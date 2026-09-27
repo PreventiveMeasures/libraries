@@ -33,7 +33,7 @@ export function getRepo(pkg) {
   const homepage = homepageRegex.exec(homepageUrl(pkg.homepage))?.groups
   const github = [repoIn(bugsRegex, urlOf(bugs)), declared, homepage?.repo].find(isRepo)
   if (github === undefined) return {}
-  const directory = ((declared === undefined || sameName(declared, github)) && repoSubdirectory(repository?.directory))
+  const directory = (sameName(declared, github) && repoSubdirectory(repository?.directory))
     || (sameName(homepage?.repo, github) && repoSubdirectory(homepage.directory))
   return { github, ...(directory && { directory }), url: `https://github.com/${github}` }
 }
