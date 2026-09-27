@@ -85,7 +85,7 @@ export const assertRepo = assertion('"owner/name"', isRepo)
 // empty or dot-led component and none ending `.lock`, not `@`, not led by
 // `-`, not ending in `.`. The empty-component rule is also what keeps a
 // leading, trailing or doubled `/` out. A full commit sha passes too.
-const isRefName = (value) => typeof value === 'string' && value !== '' && value.length <= 255 && !hasControl(value)
+export const isRefName = (value) => typeof value === 'string' && value !== '' && value.length <= 255 && !hasControl(value)
   && !/[ ~^:?*[\\]/u.test(value) && !value.includes('..') && !value.includes('@{')
   && value !== '@' && !value.startsWith('-') && !value.endsWith('.')
   && value.split('/').every((part) => part !== '' && !part.startsWith('.') && !part.endsWith('.lock'))

@@ -1,7 +1,7 @@
 {
   "name": "@preventive/upstream",
   "version": "0.0.0",
-  "description": "Minimal npm registry and GitHub clients: the calls we use, nothing more",
+  "description": "Minimal npm registry and GitHub clients, and a git checkout reader: the calls we use, nothing more",
   "type": "module",
   "exports": {
     "./github.js": {
@@ -11,6 +11,10 @@
     "./github/write.js": {
       "types": "./github/write.d.ts",
       "default": "./github/write.js"
+    },
+    "./git.js": {
+      "types": "./git.d.ts",
+      "default": "./git.js"
     },
     "./npm.js": {
       "types": "./npm.d.ts",
@@ -24,6 +28,8 @@
   "files": [
     "github.d.ts",
     "github.js",
+    "git.d.ts",
+    "git.js",
     "github/write.d.ts",
     "github/write.js",
     "npm.d.ts",
@@ -32,12 +38,14 @@
     "semver.js",
     "src/args.js",
     "src/cache.js",
+    "src/git.js",
     "src/github/client.js",
     "src/github/read.js",
     "src/github/write.js",
     "src/http.js",
     "src/npm/repos.js",
     "src/npm/tarball.js",
+    "src/remote.js",
     "src/semver.js"
   ],
   "engines": {

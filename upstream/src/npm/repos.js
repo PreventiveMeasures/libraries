@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { assertBoolean, assertOptional, assertOptions, assertPackageName, assertRepo, isRepo } from '../args.js'
 import { readCacheJSON, writeCacheJSON } from '../cache.js'
 import { NPM_REGISTRY, buildUrl, request } from '../http.js'
+import { githubRepoOfUrl } from '../remote.js'
 
 // Which GitHub repo a published npm package's code lives in, and where in
 // that repo the package sits — the lookup, and the disk cache that keeps a
@@ -53,28 +54,15 @@ function bugsRepo(bugs) {
   return url.replace('https://github.com/', '')
 }
 
-// The same repo spelled as a URL, which is what most packages carry:
-// `git+https://github.com/acme/widget.git`, `git://github.com/…`, a
-// plain `https://github.com/…`, `git+ssh://git@github.com/…`, and the
-// scp-like `git@github.com:acme/widget.git`. A `.git` suffix and a
-// trailing slash are npm's noise rather than part of the name.
-//
-// `github.com` has to be the HOST here, not a path segment or the start
-// of a longer name: the scheme and the optional `user@` are matched
-// explicitly, so neither `https://evil.example/github.com/a/b` nor
-// `https://github.com.evil.example/a/b` can pass for a GitHub URL and
-// point the package at a repo it never came from.
-const gitUrlRegex = /^(?:git\+)?(?:https?|git|ssh):\/\/(?:[^@/]*@)?github\.com\/(?<repo>[\w-]+\/[\w.-]+?)(?:\.git)?\/?$/u
-const scpRegex = /^(?:git\+ssh:\/\/)?git@github\.com:(?<repo>[\w-]+\/[\w.-]+?)(?:\.git)?$/u
-
 // `repository` is a string as often as it is `{ url }`, and both spell
-// a repo the same three ways. A `directory` beside it (a monorepo's
+// a repo the same ways: the shorthand above, or a URL (githubRepoOfUrl,
+// in src/remote.js). A `directory` beside it (a monorepo's
 // subpath) says where in the repo the package lives, not which repo it
 // is, so it changes nothing here.
 function repositoryRepo(repository) {
   const url = typeof repository === 'string' ? repository : repository?.url
   if (typeof url !== 'string') return undefined
-  return (shorthandRegex.exec(url) ?? gitUrlRegex.exec(url) ?? scpRegex.exec(url))?.groups.repo
+  return shorthandRegex.exec(url)?.groups.repo ?? githubRepoOfUrl(url)
 }
 
 // A `homepage` that points INTO the repo, which is where a package that
