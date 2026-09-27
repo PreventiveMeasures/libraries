@@ -1,0 +1,50 @@
+{
+  "name": "@preventive/upstream",
+  "version": "0.0.0",
+  "description": "Minimal npm registry and GitHub clients: the calls we use, nothing more",
+  "type": "module",
+  "exports": {
+    "./github.js": {
+      "types": "./github.d.ts",
+      "default": "./github.js"
+    },
+    "./npm.js": {
+      "types": "./npm.d.ts",
+      "default": "./npm.js"
+    }
+  },
+  "files": [
+    "github.d.ts",
+    "github.js",
+    "npm.d.ts",
+    "npm.js",
+    "src/cache.js",
+    "src/github.js",
+    "src/npm/repos.js",
+    "src/npm/semver.js"
+  ],
+  "engines": {
+    "node": ">=24.14.0"
+  },
+  "scripts": {
+    "test": "node --test ./tests/*.test.js"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Nikita Skovoroda",
+    "email": "chalkerx@gmail.com",
+    "url": "https://github.com/ChALkeR"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PreventiveMeasures/libraries.git",
+    "directory": "upstream"
+  },
+  "bugs": {
+    "url": "https://github.com/PreventiveMeasures/libraries/issues"
+  },
+  "homepage": "https://github.com/PreventiveMeasures/libraries/tree/main/upstream",
+  "publishConfig": {
+    "access": "public"
+  }
+}
