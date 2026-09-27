@@ -2,26 +2,17 @@ import assert from 'node:assert/strict'
 
 import { printable } from './args.js'
 
-// Every request this package makes goes through here, and every URL it
-// requests is built here: from one of a fixed set of origins, and path
-// segments each checked to be URL-safe and not a dot segment. A value
-// that could hold anything — a git ref, a path inside a repo — is
-// percent-encoded first, with encodeSegment. The URL built then has to
-// come back out of URL parsing exactly as it went in, so nothing it
-// holds was read as a dot segment (`%2e%2e` is one), a query, a fragment
-// or anything else the builder did not put there.
+// Every request goes through here, to a URL from buildUrl, which has to
+// come back out of `new URL()` unchanged: no segment can then be read as
+// `..` (`%2e%2e` included), a query or a fragment.
 
 export const NPM_REGISTRY = 'https://registry.npmjs.org'
 export const GITHUB_API = 'https://api.github.com'
 const ORIGINS = new Set([NPM_REGISTRY, GITHUB_API])
 
-// Letters, digits, `.`, `_`, `~`, `-`, `@` (an npm scope) and percent
-// escapes, and not `.` or `..`.
 const isSegment = (value) => typeof value === 'string' && /^(?:[\w.~@-]|%[\dA-F]{2})+$/u.test(value) && value !== '.' && value !== '..'
 
-// encodeURIComponent leaves `!'()*` as they are, which URL parsing also
-// does; encoded here too, so an encoded segment is letters, digits,
-// `-_.~` and escapes only.
+// encodeURIComponent leaves `!'()*` as they are.
 export function encodeSegment(value) {
   assert.equal(typeof value, 'string')
   return encodeURIComponent(value).replace(/[!'()*]/gu, (char) => `%${char.codePointAt(0).toString(16).toUpperCase()}`)
@@ -45,9 +36,6 @@ export function buildUrl(origin, segments, query = {}) {
   return href
 }
 
-// A failed request: `status` is the HTTP status the service answered
-// with, so a caller can tell a 401 (log in again) or a 404 (no such
-// thing, or no access to it) from the rest without reading the message.
 export class HttpError extends Error {
   constructor(status, message) {
     super(message)
@@ -56,40 +44,31 @@ export class HttpError extends Error {
   }
 }
 
-// A URL buildUrl made, checked again at the door: nothing reaches fetch
-// that is not one.
 function assertBuilt(url) {
   assert.equal(typeof url, 'string')
   const parsed = new URL(url)
   assert.ok(ORIGINS.has(parsed.origin) && parsed.href === url && !parsed.username && !parsed.password && !parsed.hash, `Unexpected URL: ${printable(url)}`)
 }
 
-// Header names as HTTP spells them, and values of printable ASCII: a line
-// break in one would be a header of its own.
+// A line break in a value would start a header of its own.
 function assertHeaders(headers) {
   for (const [name, value] of Object.entries(headers)) {
     assert.ok(/^[A-Za-z][\w-]*$/u.test(name) && typeof value === 'string' && /^[ -~]*$/u.test(value), `Unexpected header: ${printable(name)}`)
   }
 }
 
-// How much of a body is read, and how long a request may take, by what it
-// is read as: an API answer or a registry document is kilobytes, a file
-// out of a repo at most GitHub's hundred megabytes, a tarball what it is.
-// Past either, the request is abandoned rather than waited on or held.
+// API documents are kilobytes, a GitHub file is at most 100 MB, a tarball
+// is what it is.
 const LIMITS = {
   json: { bytes: 64 * 1024 * 1024, ms: 30_000 },
   text: { bytes: 128 * 1024 * 1024, ms: 30_000 },
   bytes: { bytes: 512 * 1024 * 1024, ms: 300_000 },
 }
 
-// Of an error's body, only the start: enough to say what went wrong.
 const ERROR_BODY_BYTES = 4096
 
-// The request as sent, with its Response as it came back. Redirects are
-// not followed unless `redirect: 'follow'` asks for it: a request made
-// about one thing should be answered about that thing or fail, not
-// quietly land on another. Not followed, a 3xx is a response that is not
-// ok, like any other.
+// Redirects aren't followed unless asked: an answer about another repo is
+// worse than an error.
 export async function send(url, { method = 'GET', headers = {}, body, redirect = 'manual', as = 'json' } = {}) {
   assertBuilt(url)
   assert.ok(['GET', 'POST'].includes(method), `Unexpected method: ${method}`)
@@ -104,9 +83,6 @@ export async function send(url, { method = 'GET', headers = {}, body, redirect =
   return await fetch(url, init)
 }
 
-// A body, read a chunk at a time up to `limit` bytes. Past it, the rest
-// is not read: `truncate` answers what came before, and otherwise it is
-// an error — as it is straight away for a Content-Length that says so.
 export async function readBody(res, limit, { truncate = false } = {}) {
   const declared = Number(res.headers.get('content-length'))
   if (!truncate && declared > limit) {
@@ -139,10 +115,8 @@ export async function readBody(res, limit, { truncate = false } = {}) {
 
 const decoder = new TextDecoder()
 
-// The body of a successful response, read `as` the caller says it is —
-// not as its content type claims, which proxies are known to drop or
-// rewrite. Anything but a 2xx throws an HttpError, with the start of the
-// body in its message.
+// Read as the caller says, not by content type, which proxies drop or
+// rewrite.
 export async function request(url, options) {
   const { as } = options
   assert.ok(Object.hasOwn(LIMITS, as), `Unexpected response type: ${as}`)

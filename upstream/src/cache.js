@@ -4,39 +4,23 @@ import { dirname, join, resolve } from 'node:path'
 
 import { assertDirectoryPath } from './args.js'
 
-// Where cached answers live on disk, which is the caller's to decide and
-// nobody else's: this package has no idea what the host is or where a
-// deployment wants its cache. So there is no default and no environment
-// variable read here.
-//
-// Unset, there is no cache at all: every read misses and every write is
-// skipped, so a caller that never calls setCacheDir asks the network each
-// time and leaves nothing behind on disk.
+// No default location: unset, reads miss and writes are skipped.
 let root
 
-// Resolved when set, so a relative one names the same place for the rest
-// of the process, whatever the working directory becomes.
 export function setCacheDir(dir) {
   assertDirectoryPath('setCacheDir', 'dir', dir)
+  // Resolved now, so a later chdir doesn't move it.
   root = resolve(dir)
 }
 
-// The kinds of record kept, each filed under the registry or API that
-// answered it, since what a record means is a property of who was asked.
 const DIRS = new Set(['npm/repos', 'npm/tarballs'])
 
-// One file in the cache: `dir` is one of the above, and `key` names the
-// record in it. The key goes through encodeURIComponent, so the `/` in a
-// scoped package name, or a `..` in anything, stays part of one file name
-// rather than making a directory of it. Null while there is no cache.
+// URI-encoded, so a `/` or `..` in a key stays inside one file name.
 function cachePath(dir, key) {
   assert.ok(DIRS.has(dir) && typeof key === 'string' && key !== '', `Unexpected cache entry: ${dir}`)
   return root === undefined ? null : join(root, dir, encodeURIComponent(key))
 }
 
-// A record's bytes, or null for no cache or nothing readable there. What
-// they have to be is the caller's to check: every answer but a usable
-// record is a miss.
 export async function readCache(dir, key) {
   const path = cachePath(dir, key)
   if (path === null) return null
@@ -59,12 +43,8 @@ export async function readCacheJSON(dir, key) {
 
 let tmpSeq = 0
 
-// Written through a temp name and renamed into place, so a killed process
-// cannot leave a truncated file that a later read would take for the
-// record. A cache that cannot be written at all — none set, a read-only
-// directory, a full disk — is a slower next call, not a failed one, so
-// this never throws: false where it could not write, with the temp file
-// it may have left removed.
+// Temp file and rename, so a killed process never leaves a truncated
+// record. Never throws: an unwritable cache only makes the next call slower.
 export async function writeCache(dir, key, data) {
   const path = cachePath(dir, key)
   if (path === null) return false

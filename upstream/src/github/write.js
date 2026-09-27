@@ -32,22 +32,8 @@ function normalizeMessage(message) {
   return { headline: message.headline, ...(message.body && { body: message.body }) }
 }
 
-// Parse and validate a GitHub GraphQL response. Throws with the response
-// status + body on transport errors, JSON parse failures, or `errors[]`
-// in the body. Pulled out of `graphql()` so the (otherwise globalThis-
-// .fetch-coupled) error paths can be unit-tested without a mock.
-//
-// Why this matters: the previous shape was
-//   const json = await res.json().catch(() => null)
-//   throw new Error(`GitHub GraphQL ${res.status}: ${JSON.stringify(json)}`)
-// which silently swallowed the original parse error AND the response
-// body — every transport failure ended up as `… 502: null` in logs,
-// useless for diagnosing rate limits, HTML error pages, or invalid
-// tokens. Reading the body as text first and surfacing it (truncated
-// for sanity) gives operators something to look at.
-//
-// What the body says goes into the messages escaped (printable), so a
-// response cannot put control characters into a log line.
+// The body is read as text first, so a failure's message keeps it.
+// Exported to test the error paths without a fetch mock.
 export function parseGraphQLResponse(status, text) {
   if (status < 200 || status >= 300) {
     throw new Error(`GitHub GraphQL ${status}: ${printable(text.slice(0, 4096)) || '(empty body)'}`)
@@ -60,20 +46,16 @@ export function parseGraphQLResponse(status, text) {
   return json.data
 }
 
-// A mutation's answer is a few hundred bytes; an error, a few more.
 const GRAPHQL_BYTES = 1024 * 1024
 
-// The query is always one of the constants above, and the variables go
-// as JSON beside it, never into its text.
+// The query is always the constant; the variables travel as JSON beside
+// it, never in its text.
 async function graphql(headers, query, variables) {
   assert.equal(query, CREATE_COMMIT_MUTATION)
   const res = await send(api(['graphql']), { method: 'POST', headers, body: { query, variables }, as: 'json' })
   return parseGraphQLResponse(res.status, new TextDecoder().decode(await readBody(res, GRAPHQL_BYTES)))
 }
 
-// Fork the given repo into the authenticated user's account (or the given
-// organization). Returns the forked repo object; `full_name` is the handle
-// to use in subsequent calls.
 async function forkRepo(headers, options) {
   assertOptions('forkRepo', 'options', options, ['repo', 'name', 'organization', 'defaultBranchOnly'])
   const { repo, name, organization, defaultBranchOnly } = options
@@ -85,8 +67,6 @@ async function forkRepo(headers, options) {
   return await call(headers, api(['repos', ...repo.split('/'), 'forks']), { method: 'POST', body })
 }
 
-// Create a new branch at the given commit OID. If `oid` is omitted, the
-// repo's default branch head is used. Returns the created ref object.
 async function createBranch(headers, options) {
   assertOptions('createBranch', 'options', options, ['repo', 'branch', 'oid'])
   const { repo, branch, oid } = options
@@ -97,8 +77,6 @@ async function createBranch(headers, options) {
   return await call(headers, api(['repos', ...repo.split('/'), 'git', 'refs']), { method: 'POST', body: { ref: `refs/heads/${branch}`, sha } })
 }
 
-// Each path at most once across both lists: a commit that adds and
-// deletes one path, or adds it twice, says two things about it.
 function fileChanges(additions, deletions) {
   assert.ok(Array.isArray(additions), 'createCommit: additions must be an array')
   assert.ok(Array.isArray(deletions), 'createCommit: deletions must be an array')
@@ -122,15 +100,7 @@ function fileChanges(additions, deletions) {
   }
 }
 
-// Create a signed commit on the given branch via the GraphQL
-// createCommitOnBranch mutation. The branch must already exist — use
-// createBranch() first to create a new one. Every variable sent is one
-// checked here: the repo, the branch, the message, each path, and the
-// head — passed in, or read from the branch and checked as a sha there.
-//
-// additions: [{ path, contents: string | Uint8Array }]
-// deletions: [{ path } | path]
-// expectedHeadOid: if omitted, the current branch head is fetched first.
+// A signed commit, through createCommitOnBranch; the branch must exist.
 async function createCommit(headers, options) {
   assertOptions('createCommit', 'options', options, ['repo', 'branch', 'message', 'additions', 'deletions', 'expectedHeadOid'])
   const { repo, branch, message, additions = [], deletions = [], expectedHeadOid } = options
@@ -150,8 +120,6 @@ async function createCommit(headers, options) {
   return data.createCommitOnBranch.commit
 }
 
-// Open a pull request. For cross-repo PRs (e.g. from a fork), pass
-// `head` as `"owner:branch"`; for same-repo PRs, pass just the branch.
 async function createPR(headers, options) {
   assertOptions('createPR', 'options', options, ['repo', 'title', 'body', 'head', 'base', 'draft'])
   const { repo, title, body, head, base, draft } = options
@@ -171,8 +139,6 @@ async function createPR(headers, options) {
   return await call(headers, api(['repos', ...repo.split('/'), 'pulls']), { method: 'POST', body: payload })
 }
 
-// Everything the read client does, and the four calls that change
-// something: fork, branch, commit, pull request. Never anonymous.
 export function createWriteClient(options) {
   const headers = clientHeaders('createWriteClient', options, { anonymous: false })
   return bindMethods(headers, { ...readMethods, createBranch, createCommit, createPR, forkRepo })

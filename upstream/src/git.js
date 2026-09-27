@@ -4,15 +4,8 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { assertDirectoryPath, isRefName, isSha } from './args.js'
 import { githubRepoOfUrl } from './remote.js'
 
-// Which commit a directory on disk is checked out at, where in its
-// repository it sits, and — where the checkout says so — which GitHub
-// repo that is. Read straight off `.git`, without running git: HEAD, the
-// ref it names (loose, or in packed-refs), and one line of the config.
-//
-// Best-effort throughout, and field by field: anything that is not there,
-// or not in the shape git writes it, is a field left out, never a throw.
-// Only a `dir` that is not a string throws, being a caller's mistake
-// rather than a checkout's.
+// Read off `.git` without running git. Best-effort: whatever can't be
+// read is a field left out; only a non-string `dir` throws.
 
 const read = async (path) => {
   try {
@@ -24,10 +17,8 @@ const read = async (path) => {
 
 const isDirectory = async (path) => (await stat(path).catch(() => null))?.isDirectory() ?? false
 
-// The closest `.git` at or above `start`: a directory, or a file with a
-// `gitdir:` line pointing at one, as a worktree or a submodule has. Then
-// the directory the refs and the config live in, which for a worktree is
-// the one its `commondir` names.
+// A `.git` file points at the real git dir (worktrees, submodules), and a
+// worktree keeps its refs and config in the dir `commondir` names.
 async function findGitDirs(start) {
   for (let dir = start; ; dir = dirname(dir)) {
     const dotGit = join(dir, '.git')
@@ -45,13 +36,11 @@ async function findGitDirs(start) {
   }
 }
 
-// HEAD's commit: HEAD itself when detached, else the ref it names — its
-// loose file, or its line in packed-refs. The ref is held to git's own
-// name rules and to `refs/` before it is joined to a path, so a HEAD that
-// says `ref: ../../somewhere` reads nothing outside the git directory.
 async function headCommit(gitDir, commonDir) {
   const head = (await read(join(gitDir, 'HEAD')))?.trim()
   if (isSha(head)) return head
+  // Checked before it is joined to a path, so `ref: ../../x` can't read
+  // outside the git dir.
   const ref = /^ref: (?<ref>refs\/\S+)$/u.exec(head ?? '')?.groups.ref
   if (!isRefName(ref)) return null
   const loose = (await read(join(commonDir, ...ref.split('/'))))?.trim()
@@ -64,12 +53,8 @@ async function headCommit(gitDir, commonDir) {
   return null
 }
 
-// The origin's URL, off exactly the lines git writes for it and nothing
-// cleverer: a config written any other way just has no `github`. The
-// section header has to start a line, so one in a comment or inside
-// another value is not it. Only the `owner/name` of a GitHub remote comes
-// back out; the URL itself never does, since it can name a private host
-// or carry a token.
+// Only this exact form, at the start of a line. Only `owner/name` is
+// returned: the URL may name a private host or carry a token.
 const ORIGIN = '[remote "origin"]\n\turl = '
 
 async function originGitHub(commonDir) {
@@ -79,11 +64,6 @@ async function originGitHub(commonDir) {
   return githubRepoOfUrl(config.slice(at + 1 + ORIGIN.length).split('\n')[0].trim())
 }
 
-// `{ github?, directory?, url?, commit? }` for the checkout `dir` is in,
-// the shape getRepo (package.js) answers in: `github` is `owner/name` and
-// `url` its page when the origin remote is a GitHub one; `directory` is
-// where `dir` sits in the checkout, `/`-separated, absent at its root;
-// `commit` is HEAD's. Empty where there is no checkout above `dir`.
 export async function findGitCheckout(dir) {
   assertDirectoryPath('findGitCheckout', 'dir', dir)
   const start = await realpath(resolve(dir)).catch(() => null)

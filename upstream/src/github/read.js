@@ -5,12 +5,9 @@ import { encodeSegment } from '../http.js'
 import { api, bindMethods, call, clientHeaders } from './client.js'
 
 const PER_PAGE = 100
-// A hundred pages is ten thousand repositories: past that, a server that
-// keeps answering full pages is not one to keep asking.
+// A server that keeps answering full pages isn't asked forever.
 const MAX_PAGES = 100
 
-// `owner/name` checked and split, for a method's options: each half is
-// then a path segment on its own.
 function repoSegments(method, repo) {
   assertRepo(method, 'repo', repo)
   return repo.split('/')
@@ -22,9 +19,6 @@ async function getCurrentUser(headers) {
   return await call(headers, api(['user']))
 }
 
-// Every repository the authenticated user can list (`GET /user/repos`),
-// all pages, as GitHub's repository objects. With a login token that
-// carries no repository permissions, that is the user's public repos.
 async function listUserRepos(headers) {
   const repos = []
   for (let page = 1; page <= MAX_PAGES; page++) {
@@ -36,7 +30,6 @@ async function listUserRepos(headers) {
   assert.fail(`listUserRepos: more than ${MAX_PAGES} pages`)
 }
 
-// The repository object, refused unless it is the repository asked for.
 async function getRepo(headers, options) {
   assertOptions('getRepo', 'options', options, ['repo'])
   const info = await call(headers, api(['repos', ...repoSegments('getRepo', options.repo)]))
@@ -44,9 +37,6 @@ async function getRepo(headers, options) {
   return info
 }
 
-// A user's effective permission on a repo — teams, organization and
-// enterprise grants included — as GitHub's `{ permission, role_name, user }`.
-// A 404 is thrown as one: no such repo, or no access to it with this token.
 async function getCollaboratorPermission(headers, options) {
   const method = 'getCollaboratorPermission'
   assertOptions(method, 'options', options, ['repo', 'username'])
@@ -58,10 +48,6 @@ async function getCollaboratorPermission(headers, options) {
   return body
 }
 
-// `{ title, status }` for one pull request, status being `merged`,
-// `closed`, `draft` or `open`, in that order. Refused unless the answer is
-// that pull request in that repo: redirects are refused, and the body has
-// to carry the same number and a base repo of the same name.
 async function getPullRequest(headers, options) {
   assertOptions('getPullRequest', 'options', options, ['repo', 'number'])
   const { repo, number } = options
@@ -79,14 +65,12 @@ async function getPullRequest(headers, options) {
   return { title: pr.title, status }
 }
 
-// Return { branch, oid } for the head of the given branch. If branch is
-// omitted, the repo's default branch is used — held to the same rule as a
-// branch passed in, since it goes into the next request's path.
 export async function getRepoHead(headers, options) {
   assertOptions('getRepoHead', 'options', options, ['repo', 'branch'])
   const { repo, branch } = options
   const segments = repoSegments('getRepoHead', repo)
   assertOptional(assertRef, 'getRepoHead', 'branch', branch)
+  // Checked like a branch passed in: it goes into the next URL.
   const ref = branch ?? (await getRepo(headers, { repo })).default_branch
   assertRef('getRepoHead', 'default branch', ref)
   const data = await call(headers, api(['repos', ...segments, 'git', 'ref', 'heads', encodeSegment(ref)]))
@@ -94,8 +78,6 @@ export async function getRepoHead(headers, options) {
   return { branch: ref, oid: data.object.sha }
 }
 
-// Fetch the raw contents of a file at the given ref (defaults to the
-// repo's default branch). Returns the file body as a UTF-8 string.
 async function getRepoFile(headers, options) {
   assertOptions('getRepoFile', 'options', options, ['repo', 'path', 'ref'])
   const { repo, path, ref } = options
@@ -106,13 +88,8 @@ async function getRepoFile(headers, options) {
   return await call({ ...headers, Accept: 'application/vnd.github.raw' }, url, { as: 'text' })
 }
 
-// Fetch the repo's tarball at the given commit into memory. Returns the
-// gzipped tar as a Uint8Array. The one redirect followed: this API
-// answers with one to codeload.github.com.
-//
-// A full commit sha and nothing else: the bytes are then the ones that
-// commit holds, rather than whatever a branch or a tag pointed at when
-// they were asked for.
+// The one request that follows a redirect, to codeload.github.com. A full
+// sha only, so the bytes are that commit's, not wherever a ref points now.
 async function getRepoTarball(headers, options) {
   assertOptions('getRepoTarball', 'options', options, ['repo', 'sha'])
   const segments = repoSegments('getRepoTarball', options.repo)
@@ -124,8 +101,6 @@ export const readMethods = {
   getCollaboratorPermission, getCurrentUser, getPullRequest, getRepo, getRepoFile, getRepoHead, getRepoTarball, listUserRepos,
 }
 
-// Reads only: nothing a client made here can change anything on GitHub.
-// A client that writes comes from github/write.js.
 export function createClient(options) {
   return bindMethods(clientHeaders('createClient', options, { anonymous: true }), readMethods)
 }
