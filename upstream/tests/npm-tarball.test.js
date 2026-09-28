@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { after, beforeEach, describe, it } from 'node:test'
 
-import { getTarball, setCacheDir } from '../npm.js'
+import { getMeta, getTarball, setCacheDir, verifyDist } from '../npm.js'
 
 // A cache directory of this file's own: everything below is a real disk
 // read or write, and it has to land somewhere nothing else reads.
@@ -87,7 +87,7 @@ describe('getTarball', () => {
       undefined,
     ]) {
       const calls = stubRegistry({ dist: { tarball } })
-      await assert.rejects(getTarball('pkg', '1.0.0'), /getTarball: unexpected tarball URL/u, tarball)
+      await assert.rejects(getTarball('pkg', '1.0.0'), /getTarball: dist\.tarball must be https:\/\/registry\.npmjs\.org\/pkg\/-\/pkg-1\.0\.0\.tgz, got/u, tarball)
       assert.deepEqual(calls, ['https://registry.npmjs.org/pkg/1.0.0'])
     }
   })
@@ -98,15 +98,13 @@ describe('getTarball', () => {
     assert.deepEqual(calls, ['https://registry.npmjs.org/@scope/pkg/1.0.0', 'https://registry.npmjs.org/@scope/pkg/-/pkg-1.0.0.tgz'])
   })
 
-  it('needs a sha512 integrity, and takes any one of several', async () => {
-    stubRegistry({ dist: { integrity: undefined } })
-    await assert.rejects(getTarball('pkg', '1.0.0'), /getTarball: no integrity for pkg@1\.0\.0/u)
-    stubRegistry({ dist: { integrity: sri(BYTES, 'sha1') } })
-    await assert.rejects(getTarball('pkg', '1.0.0'), /getTarball: no sha512 integrity/u)
-    stubRegistry({ dist: { integrity: `${sri(BYTES, 'sha1')} ${sri(new Uint8Array([1]))} ${sri(BYTES)}?opt` } })
-    assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0')), BYTES)
+  it('needs exactly one sha512 as the integrity, as the registry writes it', async () => {
+    for (const integrity of [undefined, sri(BYTES, 'sha1'), `${sri(BYTES, 'sha1')} ${sri(BYTES)}`, `${sri(BYTES)} ${sri(BYTES)}`, `${sri(BYTES)}?opt`, ` ${sri(BYTES)}`, sri(BYTES).replace('sha512', 'SHA512')]) {
+      const calls = stubRegistry({ dist: { integrity } })
+      await assert.rejects(getTarball('pkg', '1.0.0'), /getTarball: dist\.integrity must be "sha512-" and a base64 sha512/u, String(integrity))
+      assert.deepEqual(calls, ['https://registry.npmjs.org/pkg/1.0.0'])
+    }
   })
-
 
   it('throws on a version the registry does not have', async () => {
     stubRegistry()
@@ -128,14 +126,14 @@ describe('the tarball cache', () => {
   it('files only the bytes, a scoped name in one file', async () => {
     stubRegistry({ name: '@scope/pkg' })
     await getTarball('@scope/pkg', '1.0.0')
-    assert.deepEqual(await readdir(TARBALLS), ['%40scope%2Fpkg%401.0.0.tgz'])
-    assert.deepEqual(new Uint8Array(await readFile(join(TARBALLS, '%40scope%2Fpkg%401.0.0.tgz'))), BYTES)
+    assert.deepEqual(await readdir(TARBALLS), ['@scope+pkg@1.0.0.tgz'])
+    assert.deepEqual(new Uint8Array(await readFile(join(TARBALLS, '@scope+pkg@1.0.0.tgz'))), BYTES)
   })
 
   it('throws on cached bytes that no longer match, rather than fetching over them', async () => {
     stubRegistry()
     await getTarball('pkg', '1.0.0')
-    await writeFile(join(TARBALLS, 'pkg%401.0.0.tgz'), new Uint8Array([...BYTES, 0]))
+    await writeFile(join(TARBALLS, 'pkg@1.0.0.tgz'), new Uint8Array([...BYTES, 0]))
     const calls = stubRegistry()
     await assert.rejects(getTarball('pkg', '1.0.0'), /getTarball: integrity mismatch for pkg@1\.0\.0 from the cache/u)
     assert.deepEqual(calls, [DOC])
@@ -144,8 +142,8 @@ describe('the tarball cache', () => {
   it('takes nothing the cache says about its own bytes', async () => {
     const evil = new Uint8Array([0x1f, 0x8b, 0x66, 0x66])
     await mkdir(TARBALLS, { recursive: true })
-    await writeFile(join(TARBALLS, 'pkg%401.0.0.tgz'), evil)
-    await writeFile(join(TARBALLS, 'pkg%401.0.0.json'), JSON.stringify({ name: 'pkg', version: '1.0.0', integrity: sri(evil) }))
+    await writeFile(join(TARBALLS, 'pkg@1.0.0.tgz'), evil)
+    await writeFile(join(TARBALLS, 'pkg@1.0.0.json'), JSON.stringify({ name: 'pkg', version: '1.0.0', integrity: sri(evil) }))
     stubRegistry()
     await assert.rejects(getTarball('pkg', '1.0.0'), /getTarball: integrity mismatch for pkg@1\.0\.0 from the cache/u)
     globalThis.fetch = () => Promise.reject(new Error('offline'))
@@ -155,7 +153,7 @@ describe('the tarball cache', () => {
   it('fetches again where the bytes are gone, and files them again', async () => {
     stubRegistry()
     await getTarball('pkg', '1.0.0')
-    await rm(join(TARBALLS, 'pkg%401.0.0.tgz'))
+    await rm(join(TARBALLS, 'pkg@1.0.0.tgz'))
     let calls = stubRegistry()
     assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0')), BYTES)
     assert.equal(calls.length, 2)
@@ -207,7 +205,7 @@ describe('the caches of other tools', () => {
     assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0')), BYTES)
     assert.deepEqual(calls, [DOC, tarballUrl('pkg', '1.0.0')])
     assert.deepEqual(new Uint8Array(await readFile(contentPath(NPM_CACHE, BYTES))), other)
-    assert.deepEqual(await readdir(TARBALLS), ['pkg%401.0.0.tgz'])
+    assert.deepEqual(await readdir(TARBALLS), ['pkg@1.0.0.tgz'])
   })
 
   it('passes over what is not a file', async () => {
@@ -220,7 +218,7 @@ describe('the caches of other tools', () => {
 
   it('comes before the cache of setCacheDir', async () => {
     await plant(contentPath(NPM_CACHE, BYTES), BYTES)
-    await plant(join(TARBALLS, 'pkg%401.0.0.tgz'), new Uint8Array([...BYTES, 0]))
+    await plant(join(TARBALLS, 'pkg@1.0.0.tgz'), new Uint8Array([...BYTES, 0]))
     const calls = stubRegistry()
     assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0')), BYTES)
     assert.deepEqual(calls, [DOC])
@@ -260,5 +258,106 @@ describe('the caches of other tools', () => {
     calls = stubRegistry()
     assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0')), BYTES)
     assert.deepEqual(calls, [DOC, tarballUrl('pkg', '1.0.0')])
+  })
+})
+
+describe('getMeta, verifyDist, and getTarball with a dist', () => {
+  const DOC = 'https://registry.npmjs.org/pkg/1.0.0'
+  const DIST = { tarball: tarballUrl('pkg', '1.0.0'), integrity: sri(BYTES) }
+  const OTHER = sri(new Uint8Array([1]))
+
+  it('answers the name, the version and a dist of only its tarball and integrity', async () => {
+    const calls = stubRegistry({ dist: { shasum: 'abc', fileCount: 3, signatures: [] } })
+    assert.deepEqual(await getMeta('pkg', '1.0.0'), { name: 'pkg', version: '1.0.0', dist: DIST })
+    assert.deepEqual(calls, [DOC])
+    stubRegistry({ name: '@scope/pkg' })
+    assert.deepEqual(await getMeta('@scope/pkg', '1.0.0'), { name: '@scope/pkg', version: '1.0.0', dist: { tarball: tarballUrl('@scope/pkg', '1.0.0'), integrity: sri(BYTES) } })
+  })
+
+  it('refuses an answer about another version, or a dist not held to the rules', async () => {
+    globalThis.fetch = () => Promise.resolve(Response.json({ name: 'pkg', version: '1.0.1', dist: DIST }))
+    await assert.rejects(getMeta('pkg', '1.0.0'), /getMeta: the registry answered for .*1\.0\.1.*, not pkg@1\.0\.0/u)
+    stubRegistry({ dist: { integrity: sri(BYTES, 'sha1') } })
+    await assert.rejects(getMeta('pkg', '1.0.0'), /getMeta: dist\.integrity must be/u)
+    stubRegistry({ dist: { tarball: 'https://evil.example/pkg-1.0.0.tgz' } })
+    await assert.rejects(getMeta('pkg', '1.0.0'), /getMeta: dist\.tarball must be/u)
+  })
+
+  it("verifies a dist against the registry's, and throws on a different integrity", async () => {
+    const calls = stubRegistry()
+    await verifyDist('pkg', '1.0.0', DIST)
+    assert.deepEqual(calls, [DOC])
+    stubRegistry()
+    await assert.rejects(verifyDist('pkg', '1.0.0', { ...DIST, integrity: OTHER }), (err) => err.message === `verifyDist: pkg@1.0.0 is ${sri(BYTES)} on the registry, not ${OTHER}`)
+  })
+
+  it('refuses a dist not held to the rules before any request', async () => {
+    const calls = []
+    globalThis.fetch = (url) => {
+      calls.push(String(url))
+      return Promise.reject(new Error(`unexpected request: ${url}`))
+    }
+    for (const [dist, error] of [
+      [null, /dist must be an options object/u],
+      [{ ...DIST, shasum: 'abc' }, /unknown option dist\.shasum/u],
+      [{ ...DIST, integrity: `${DIST.integrity} ${DIST.integrity}` }, /dist\.integrity must be "sha512-"/u],
+      [{ ...DIST, integrity: sri(BYTES, 'sha1') }, /dist\.integrity must be "sha512-"/u],
+      [{ ...DIST, integrity: `sha512-${'A'.repeat(85)}B==` }, /dist\.integrity must be "sha512-"/u],
+      [{ ...DIST, tarball: 'https://evil.example/pkg/-/pkg-1.0.0.tgz' }, /dist\.tarball must be https:\/\/registry\.npmjs\.org\/pkg\/-\/pkg-1\.0\.0\.tgz/u],
+      [{ integrity: DIST.integrity }, /dist\.tarball must be/u],
+    ]) {
+      await assert.rejects(verifyDist('pkg', '1.0.0', dist), error, JSON.stringify(dist))
+      await assert.rejects(getTarball('pkg', '1.0.0', dist), error, JSON.stringify(dist))
+    }
+    await assert.rejects(verifyDist('pkg', '1.0.0'), /verifyDist: dist must be an options object/u)
+    await assert.rejects(verifyDist('_pkg', '1.0.0', DIST), /verifyDist: name must be an npm package name/u)
+    assert.deepEqual(calls, [])
+  })
+
+  it('takes only the fields a given dist has of its own', async () => {
+    const calls = []
+    globalThis.fetch = (url) => {
+      calls.push(String(url))
+      return Promise.reject(new Error(`unexpected request: ${url}`))
+    }
+    // eslint-disable-next-line no-extend-native -- a polluted prototype is what this test is about
+    for (const key of ['tarball', 'integrity']) Object.defineProperty(Object.prototype, key, { value: DIST[key], configurable: true })
+    try {
+      await assert.rejects(getTarball('pkg', '1.0.0', {}), /getTarball: dist\.integrity must be/u)
+      await assert.rejects(verifyDist('pkg', '1.0.0', {}), /verifyDist: dist\.integrity must be/u)
+      await assert.rejects(getTarball('pkg', '1.0.0', { integrity: DIST.integrity }), /getTarball: dist\.tarball must be/u)
+    } finally {
+      for (const key of ['tarball', 'integrity']) delete Object.prototype[key]
+    }
+    assert.deepEqual(calls, [])
+  })
+
+  it('holds a given dist to what it was when checked, read once', async () => {
+    const mutable = { ...DIST }
+    let calls = stubRegistry()
+    const pending = getTarball('pkg', '1.0.0', mutable)
+    Object.assign(mutable, { tarball: tarballUrl('other', '1.0.0'), integrity: OTHER })
+    assert.deepEqual(new Uint8Array(await pending), BYTES)
+    assert.deepEqual(calls, [tarballUrl('pkg', '1.0.0')])
+    await rm(CACHE_DIR, { recursive: true, force: true })
+    let reads = 0
+    const shifting = { tarball: DIST.tarball, get integrity() { return reads++ === 0 ? DIST.integrity : OTHER } }
+    calls = stubRegistry()
+    assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0', shifting)), BYTES)
+    assert.equal(reads, 1)
+    const given = { ...DIST }
+    stubRegistry()
+    const verifying = verifyDist('pkg', '1.0.0', given)
+    given.integrity = OTHER
+    await verifying
+  })
+
+  it('reads a tarball by a given dist, never asking for the version document', async () => {
+    const calls = stubRegistry()
+    assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0', DIST)), BYTES)
+    assert.deepEqual(calls, [tarballUrl('pkg', '1.0.0')])
+    await rm(CACHE_DIR, { recursive: true, force: true })
+    stubRegistry()
+    await assert.rejects(getTarball('pkg', '1.0.0', { ...DIST, integrity: OTHER }), /getTarball: integrity mismatch for pkg@1\.0\.0 from https:/u)
   })
 })

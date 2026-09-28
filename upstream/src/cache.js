@@ -15,10 +15,12 @@ export function setCacheDir(dir) {
   root = resolve(dir)
 }
 
-// URI-encoded, so a `/` or `..` in a key stays inside one file name.
+// URI-encoded, so a `/` or `..` in a key stays inside one file name, then
+// `@` kept and `/` written `+`, as pnpm names its store: `@babel+core@7.29.7`.
+// encodeURIComponent writes neither `@` nor `+` bare, so no two keys meet.
 function cachePath(dir, key) {
   assert.ok(DIRS.has(dir) && key && typeof key === 'string', `Unexpected cache entry: ${dir}`)
-  return root === undefined ? null : join(root, dir, encodeURIComponent(key))
+  return root === undefined ? null : join(root, dir, encodeURIComponent(key).replaceAll('%40', '@').replaceAll('%2F', '+'))
 }
 
 export async function readCache(dir, key) {

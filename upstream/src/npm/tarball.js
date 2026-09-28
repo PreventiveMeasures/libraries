@@ -5,32 +5,50 @@ import { readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import { assertPackageName, assertPackageVersion, show } from '../args.js'
+import { assertArgs, assertPackageName, assertPackageVersion, assertion, matches, show } from '../args.js'
 import { readCache, writeCache } from '../cache.js'
 import { MAX_BYTES, NPM_REGISTRY, buildUrl, request } from '../http.js'
 
 const DIR = 'npm/tarballs' // No expiry: the registry never takes a version twice.
-// Only sha512: every version on the registry has one, so a sha1-only
-// integrity is refused rather than trusted.
-const SHA512_RE = /^sha512-(?<digest>[\dA-Za-z+/]{86}==)(?:\?[!-~]*)?$/u
-const sha512 = (bytes) => createHash('sha512').update(bytes).digest('base64')
+// One sha512 and nothing else, as the registry writes it: a sha1, a second
+// hash or an option is refused rather than trusted. 64 bytes leave the
+// last character before `==` two bits, so only A, Q, g or w is canonical.
+const assertIntegrity = assertion('"sha512-" and a base64 sha512', matches(/^sha512-[\dA-Za-z+/]{85}[AQgw]==$/u))
+const sha512 = (bytes) => `sha512-${createHash('sha512').update(bytes).digest('base64')}`
 
-async function getDist(name, version) {
-  const segments = name.split('/')
-  const json = await request(buildUrl(NPM_REGISTRY, [...segments, version]), { as: 'json' })
-  assert.ok(json?.name === name && json.version === version, `getTarball: the registry answered for ${show(json?.name)}@${show(json?.version)}, not ${name}@${version}`)
-  const { tarball, integrity } = json.dist ?? {}
-  const expected = buildUrl(NPM_REGISTRY, [...segments, '-', `${segments.at(-1)}-${version}.tgz`])
-  assert.ok(tarball === expected, `getTarball: unexpected tarball URL for ${name}@${version}: ${show(tarball)}`)
-  assert.ok(typeof integrity === 'string', `getTarball: no integrity for ${name}@${version}`)
-  const digests = integrity.split(/\s+/u).map((entry) => SHA512_RE.exec(entry)?.groups.digest).filter(Boolean)
-  assert.ok(digests.length > 0, `getTarball: no sha512 integrity for ${name}@${version}: ${show(integrity)}`)
-  return { tarball, digests }
+function assertPackage(method, name, version) {
+  assertPackageName(method, 'name', name)
+  assertPackageVersion(method, 'version', version)
 }
 
-function assertIntegrity(bytes, digests, what) {
+function tarballUrl(name, version) {
+  const segments = name.split('/')
+  return buildUrl(NPM_REGISTRY, [...segments, '-', `${segments.at(-1)}-${version}.tgz`])
+}
+
+// `{ tarball, integrity }` and nothing else, the tarball exactly the
+// registry's own URL for that version. Each field is read once, and only
+// as the object's own, into a copy that is checked and used from then on:
+// the caller's object can change while a request is out, and a field on
+// its prototype is not one it has.
+function checkedDist(method, name, version, dist) {
+  assertArgs(method, dist, { tarball: null, integrity: null }, 'dist')
+  const [tarball, integrity] = ['tarball', 'integrity'].map((key) => (Object.hasOwn(dist, key) ? dist[key] : undefined))
+  assertIntegrity(method, 'dist.integrity', integrity)
+  const expected = tarballUrl(name, version)
+  assert.ok(tarball === expected, `${method}: dist.tarball must be ${expected}, got ${show(tarball)}`)
+  return { tarball, integrity }
+}
+
+async function getDist(method, name, version) {
+  const json = await request(buildUrl(NPM_REGISTRY, [...name.split('/'), version]), { as: 'json' })
+  assert.ok(json?.name === name && json.version === version, `${method}: the registry answered for ${show(json?.name)}@${show(json?.version)}, not ${name}@${version}`)
+  return checkedDist(method, name, version, { tarball: json.dist?.tarball, integrity: json.dist?.integrity })
+}
+
+function assertBytes(bytes, integrity, what) {
   const actual = sha512(bytes)
-  assert.ok(digests.includes(actual), `getTarball: integrity mismatch for ${what}: expected sha512-${digests.join(' sha512-')}, got sha512-${actual}`)
+  assert.ok(actual === integrity, `getTarball: integrity mismatch for ${what}: expected ${integrity}, got ${actual}`)
 }
 
 // Where npm keeps its cache, short of an .npmrc moving it: npm_config_cache,
@@ -52,35 +70,46 @@ async function readRegularFile(path) {
 
 // npm 5+ (cacache) files a tarball by its sha512, npm 4 and before as
 // <name>/<version>/package.tgz; ~/.audit as <org>:<name>-<version>.tgz.
-async function readLocalCaches(name, version, digests) {
-  const hexes = digests.map((digest) => Buffer.from(digest, 'base64').toString('hex'))
-  const npm = npmCacheDirs().flatMap((root) => [...hexes.map((hex) => join(root, '_cacache/content-v2/sha512', hex.slice(0, 2), hex.slice(2, 4), hex.slice(4))), join(root, name, version, 'package.tgz')])
+async function readLocalCaches(name, version, integrity) {
+  const hex = Buffer.from(integrity.slice('sha512-'.length), 'base64').toString('hex')
+  const npm = npmCacheDirs().flatMap((root) => [join(root, '_cacache/content-v2/sha512', hex.slice(0, 2), hex.slice(2, 4), hex.slice(4)), join(root, name, version, 'package.tgz')])
   const audit = join(homedir(), '.audit/cache/tgz', `${name.replace(/^@/u, '').replace('/', ':')}-${version}.tgz`)
   for (const path of [...npm, audit]) {
     const bytes = await readRegularFile(path)
-    if (bytes && digests.includes(sha512(bytes))) return bytes
+    if (bytes && sha512(bytes) === integrity) return bytes
   }
   return null
 }
 
-// The version document is read every time, cache or not: bytes from a
-// cache are checked against the registry's integrity, never against
-// anything a cache itself holds. A mismatch in ours throws rather than
-// fetching over it.
-export async function getTarball(name, version) {
-  assertPackageName('getTarball', 'name', name)
-  assertPackageVersion('getTarball', 'version', version)
-  const dist = await getDist(name, version)
-  const local = await readLocalCaches(name, version, dist.digests)
+export async function getMeta(name, version) {
+  assertPackage('getMeta', name, version)
+  return { name, version, dist: await getDist('getMeta', name, version) }
+}
+
+export async function verifyDist(name, version, dist) {
+  assertPackage('verifyDist', name, version)
+  const given = checkedDist('verifyDist', name, version, dist)
+  const { integrity } = await getDist('verifyDist', name, version)
+  assert.ok(given.integrity === integrity, `verifyDist: ${name}@${version} is ${integrity} on the registry, not ${given.integrity}`)
+}
+
+// Without `dist`, the version document is read every time, cache or not:
+// bytes from a cache are checked against the registry's integrity, never
+// against anything a cache itself holds. A mismatch in ours throws rather
+// than fetching over it.
+export async function getTarball(name, version, dist) {
+  assertPackage('getTarball', name, version)
+  dist = dist === undefined ? await getDist('getTarball', name, version) : checkedDist('getTarball', name, version, dist)
+  const local = await readLocalCaches(name, version, dist.integrity)
   if (local) return local
   const key = `${name}@${version}.tgz`
   const cached = await readCache(DIR, key)
   if (cached) {
-    assertIntegrity(cached, dist.digests, `${name}@${version} from the cache`)
+    assertBytes(cached, dist.integrity, `${name}@${version} from the cache`)
     return cached
   }
   const bytes = await request(dist.tarball, { as: 'bytes' })
-  assertIntegrity(bytes, dist.digests, `${name}@${version} from ${dist.tarball}`)
+  assertBytes(bytes, dist.integrity, `${name}@${version} from ${dist.tarball}`)
   await writeCache(DIR, key, bytes)
   return bytes
 }

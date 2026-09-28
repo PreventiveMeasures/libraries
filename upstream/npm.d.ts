@@ -51,10 +51,33 @@ export function resolvePackageRepos(packageNames: Iterable<string>, options?: { 
 export function readPackageRepoCache(name: string): Promise<PackageRepo | null>
 export function writePackageRepoCache(name: string, github: string, directory?: string): Promise<boolean>
 
-// A published version's gzipped tarball, whole, in memory, downloaded
-// only where `dist.tarball` is exactly that version's registry URL.
-// The version document is fetched on every call, cached tarball or not,
-// and the bytes are checked against its sha512 `dist.integrity` whether
+// Where a published version's tarball is and what it hashes to: exactly
+// these two, `tarball` the registry's own URL for that version and
+// `integrity` one `sha512-<base64>`, nothing else (no sha1, second hash
+// or option). A dist given to a function below is held to the same.
+export interface Dist {
+  tarball: string
+  integrity: string
+}
+
+export interface PackageMeta {
+  name: string
+  version: string
+  dist: Dist
+}
+
+// The registry's version document, refused unless it is for that name and
+// version and its dist is held to the rules above.
+export function getMeta(name: string, version: string): Promise<PackageMeta>
+
+// Fetches the registry's dist for that version and throws unless its
+// integrity is the one given, as for a dist read off a lockfile.
+export function verifyDist(name: string, version: string, dist: Dist): Promise<void>
+
+// A published version's gzipped tarball, whole, in memory. Without `dist`,
+// the version document is fetched on every call, cached tarball or not;
+// with one, it is trusted as given and nothing but the tarball is asked
+// for. Either way the bytes are checked against `dist.integrity`, whether
 // they were downloaded (before they are cached) or read from a cache.
 //
 // Other tools' caches are read first, and never written: npm's (cacache
@@ -63,4 +86,4 @@ export function writePackageRepoCache(name: string, github: string, directory?: 
 // `~/.audit/cache/tgz/<org>:<name>-<version>.tgz`. A file there that does
 // not match is passed over. One in setCacheDir's cache that does not
 // match throws.
-export function getTarball(name: string, version: string): Promise<Uint8Array>
+export function getTarball(name: string, version: string, dist?: Dist): Promise<Uint8Array>

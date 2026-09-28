@@ -205,7 +205,7 @@ describe('the npm → GitHub repo cache', () => {
     // `@babel/core` unescaped would put `core.json` under an `@babel`
     // directory — a path built out of a name a caller handed in.
     await writePackageRepoCache('@babel/core', 'babel/babel')
-    assert.deepEqual(await readdir(REPOS), ['%40babel%2Fcore.json'])
+    assert.deepEqual(await readdir(REPOS), ['@babel+core.json'])
     assert.deepEqual(await readPackageRepoCache('@babel/core'), { github: 'babel/babel' })
   })
 

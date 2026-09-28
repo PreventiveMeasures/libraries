@@ -28,8 +28,16 @@ describe('the cache', () => {
 
   it('keeps a key to one file, whatever is in it', async () => {
     assert.equal(await writeCache('npm/tarballs', '../../escape@1.0.0.tgz', new Uint8Array([1])), true)
-    assert.deepEqual(await readdir(join(base, 'cache', 'npm', 'tarballs')), ['..%2F..%2Fescape%401.0.0.tgz'])
+    assert.deepEqual(await readdir(join(base, 'cache', 'npm', 'tarballs')), ['..+..+escape@1.0.0.tgz'])
     assert.deepEqual(await readCache('npm/tarballs', '../../escape@1.0.0.tgz'), new Uint8Array([1]))
+  })
+
+  it('names a file as pnpm would, `@` kept and `/` written `+`, and a `+` of its own apart', async () => {
+    assert.equal(await writeCacheJSON('composer/repos', 'monolog/monolog.json', { a: 1 }), true)
+    assert.equal(await writeCacheJSON('composer/repos', 'monolog+monolog.json', { a: 2 }), true)
+    assert.deepEqual((await readdir(join(base, 'cache', 'composer', 'repos'))).toSorted(), ['monolog%2Bmonolog.json', 'monolog+monolog.json'])
+    assert.deepEqual(await readCacheJSON('composer/repos', 'monolog/monolog.json'), { a: 1 })
+    assert.deepEqual(await readCacheJSON('composer/repos', 'monolog+monolog.json'), { a: 2 })
   })
 
   it('reads a record that is not UTF-8 as a miss', async () => {
