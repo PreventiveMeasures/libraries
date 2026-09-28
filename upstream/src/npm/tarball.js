@@ -27,12 +27,13 @@ function tarballUrl(name, version) {
 }
 
 // `{ tarball, integrity }` and nothing else, the tarball exactly the
-// registry's own URL for that version. Each field is read once, into a
-// copy that is checked and used from then on: the caller's object can
-// change while a request is out.
+// registry's own URL for that version. Each field is read once, and only
+// as the object's own, into a copy that is checked and used from then on:
+// the caller's object can change while a request is out, and a field on
+// its prototype is not one it has.
 function checkedDist(method, name, version, dist) {
   assertArgs(method, dist, { tarball: null, integrity: null }, 'dist')
-  const { tarball, integrity } = dist
+  const [tarball, integrity] = ['tarball', 'integrity'].map((key) => (Object.hasOwn(dist, key) ? dist[key] : undefined))
   assertIntegrity(method, 'dist.integrity', integrity)
   const expected = tarballUrl(name, version)
   assert.ok(tarball === expected, `${method}: dist.tarball must be ${expected}, got ${show(tarball)}`)

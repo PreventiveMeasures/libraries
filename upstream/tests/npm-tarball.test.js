@@ -314,6 +314,24 @@ describe('getMeta, verifyDist, and getTarball with a dist', () => {
     assert.deepEqual(calls, [])
   })
 
+  it('takes only the fields a given dist has of its own', async () => {
+    const calls = []
+    globalThis.fetch = (url) => {
+      calls.push(String(url))
+      return Promise.reject(new Error(`unexpected request: ${url}`))
+    }
+    // eslint-disable-next-line no-extend-native -- a polluted prototype is what this test is about
+    for (const key of ['tarball', 'integrity']) Object.defineProperty(Object.prototype, key, { value: DIST[key], configurable: true })
+    try {
+      await assert.rejects(getTarball('pkg', '1.0.0', {}), /getTarball: dist\.integrity must be/u)
+      await assert.rejects(verifyDist('pkg', '1.0.0', {}), /verifyDist: dist\.integrity must be/u)
+      await assert.rejects(getTarball('pkg', '1.0.0', { integrity: DIST.integrity }), /getTarball: dist\.tarball must be/u)
+    } finally {
+      for (const key of ['tarball', 'integrity']) delete Object.prototype[key]
+    }
+    assert.deepEqual(calls, [])
+  })
+
   it('holds a given dist to what it was when checked, read once', async () => {
     const mutable = { ...DIST }
     let calls = stubRegistry()
