@@ -23,9 +23,10 @@ function decodePath(path = '') {
 
 const repositoryRepo = (url) => repoIn(shorthandRegex, url) ?? githubRepoOfUrl(url)
 
+// Spaces are kept: git allows them at either end of a name.
 function repoSubdirectory(value) {
-  const trimmed = str(value).trim().replace(/^(?:\.\/|\/)+/u, '').replace(/\/+$/u, '')
-  return isRepoPath(trimmed) ? trimmed : undefined // No empty, `.`, `..` or `.git` part: a path inside the repo.
+  const path = str(value).replace(/^(?:\.\/|\/)+/u, '').replace(/\/+$/u, '')
+  return isRepoPath(path) ? path : undefined // No empty, `.`, `..` or `.git` part: a path inside the repo.
 }
 
 export const isRepoDirectory = (value) => typeof value === 'string' && (value === '' || repoSubdirectory(value) === value)

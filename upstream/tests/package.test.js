@@ -58,7 +58,8 @@ describe('getRepo', () => {
 
   it('takes any directory git could have, but no traversal or empty part', () => {
     const at = (directory) => getRepo({ repository: { url: 'https://github.com/acme/mono', directory } }).directory
-    for (const directory of ['packages/@scope/pkg', 'packages/café', 'my dir/pkg', '.github/actions/x', 'a+b/c~d']) assert.equal(at(directory), directory)
+    for (const directory of ['packages/@scope/pkg', 'packages/café', 'my dir/pkg', '.github/actions/x', 'a+b/c~d', ' packages/pkg', 'packages/pkg ']) assert.equal(at(directory), directory)
+    assert.equal(at('./packages/pkg/'), 'packages/pkg')
     for (const directory of ['../x', 'a/../b', 'a//b', 'a/./b', '.git/x', 'a/.GIT', 'a\u0000b', 'a\u0007b']) assert.equal(at(directory), undefined, JSON.stringify(directory))
   })
 
