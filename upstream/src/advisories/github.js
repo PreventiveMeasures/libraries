@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { assertRepo, assertion, isGhsa, isRefName, isStrings } from '../args.js'
 import { isGone } from '../github/client.js'
 import { pool } from '../pool.js'
-import { isExactVersion } from '../semver.js'
+import { valid } from '../semver.js'
 import { covered, inRange, isText, metrics } from './common.js'
 
 const REPOS_AT_ONCE = 4
@@ -77,8 +77,9 @@ export async function withRepositories(rows, asked, { github, repoAdvisories, kn
 }
 
 // stasis versions a repository with no version of its own by its branch,
-// or 0.0.0: every range covers those.
-const coversPlaceholder = (version, range) => version === '0.0.0' || !isExactVersion(version) || inRange(version, range)
+// or 0.0.0: every range covers those. Whatever semver reads is a version,
+// `v1.2.3` and `1.2.3+build` included.
+const coversPlaceholder = (version, range) => version === '0.0.0' || valid(version) === null || inRange(version, range)
 
 // Dependencies that are GitHub repositories themselves: every range their
 // own published advisories list counts, whichever package it names.

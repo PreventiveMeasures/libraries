@@ -362,10 +362,11 @@ describe('github', () => {
         advisory('GHSA-bbbb-bbbb-bbbb', [vuln('@openzeppelin/contracts', '= 5.0.1')]),
       ],
     })
-    const found = await repo(['master', '0.0.0', 'v4.9.0', '5.0.1', '6.0.0'])
+    // A tag or build metadata is still a version, matched as one.
+    const found = await repo(['master', 'release/1.x', '0.0.0', 'v4.9.0', '4.9.1+linux', '1.2.3+linux', '5.0.1', '6.0.0'])
     assert.deepEqual(found.map(({ ghsa, versions }) => [ghsa, versions]), [
-      ['GHSA-aaaa-aaaa-aaaa', ['0.0.0', 'master', 'v4.9.0']],
-      ['GHSA-bbbb-bbbb-bbbb', ['0.0.0', '5.0.1', 'master', 'v4.9.0']],
+      ['GHSA-aaaa-aaaa-aaaa', ['0.0.0', '4.9.1+linux', 'master', 'release/1.x', 'v4.9.0']],
+      ['GHSA-bbbb-bbbb-bbbb', ['0.0.0', '5.0.1', 'master', 'release/1.x']],
     ])
   })
 
