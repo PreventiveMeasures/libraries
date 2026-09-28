@@ -123,8 +123,8 @@ export function canAdaptive(model) {
   return MODELS.get(model)?.canThink === 'adaptive'
 }
 
-// `noThink` — how a think=false request turns thinking off. One field with three states rather than
-// two booleans, so a row can't claim a contradictory pair:
+// `noThink` — how a think=false request turns thinking off. One field with four states rather than
+// a set of booleans, so a row can't claim a contradictory pair:
 //
 //   (absent)        omit the field; that already means no thinking.
 //   'explicit'      omitting leaves thinking ON, so the off switch is sent:
@@ -134,6 +134,12 @@ export function canAdaptive(model) {
 //                   Responses, `reasoning: { enabled: false }` through
 //                   OpenRouter. A gateway's chat route has no common
 //                   spelling for it and sends nothing.
+//   'between_tools' as 'explicit' on the Messages API, except that the
+//                   disabled form 400s and `{ type: 'between_tools' }`, the
+//                   lowest setting, is the switch: no extended thinking,
+//                   under the same effort limit (sonnet 5.5). OpenRouter
+//                   marks the model reasoning-mandatory, so the chat routes
+//                   send nothing and it thinks there anyway.
 //   'unsupported'   no opt-out exists — either the disabled form 400s at
 //                   any effort (the fable 5 family) or the API has no off
 //                   switch at all (kimi-k3, the gpt-6 astra rows, which
@@ -143,6 +149,10 @@ export function canAdaptive(model) {
 //                   stays on.
 export function needsExplicitNoThink(model) {
   return MODELS.get(model)?.noThink === 'explicit'
+}
+
+export function needsBetweenToolsNoThink(model) {
+  return MODELS.get(model)?.noThink === 'between_tools'
 }
 
 export function canDisableThink(model) {
@@ -165,6 +175,7 @@ export function canDisableThink(model) {
 export const TASK_BUDGET_MODELS = new Set([
   'anthropic/claude-opus-5.5',
   'anthropic/claude-fable-5.1',
+  'anthropic/claude-sonnet-5.5',
   'anthropic/claude-fable-5',
   'anthropic/claude-opus-5',
   'anthropic/claude-sonnet-5',

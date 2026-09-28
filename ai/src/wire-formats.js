@@ -1,4 +1,4 @@
-import { canAdaptive, canTaskBudget, needsExplicitNoThink } from './models.js'
+import { canAdaptive, canTaskBudget, needsBetweenToolsNoThink, needsExplicitNoThink } from './models.js'
 import { ANTHROPIC_SYSTEM_CACHE, anthropicInitialUserMessage, cachesConversation, flattenUserContent } from './prompt-cache.js'
 
 // Wire formats the adapters are assembled from, kept out of providers.js so that file stays the
@@ -66,6 +66,8 @@ export function anthropicShape(modelId) {
         // Safe to send with no effort set: the disabled form 400s only at xhigh / max, and this
         // branch is reached only when `effort` is unset.
         body.thinking = { type: 'disabled' }
+      } else if (needsBetweenToolsNoThink(model)) {
+        body.thinking = { type: 'between_tools' }
       }
       // task-budgets-2026-03-13 beta, gated by canTaskBudget. `output_config` may already carry an
       // `effort` from the adaptive-thinking branch above; merge so both can coexist (the docs

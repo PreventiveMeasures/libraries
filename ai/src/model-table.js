@@ -37,10 +37,11 @@ export const MAIN_MODELS = [
   // input rather than the usual 0.10x, so the row names them.
   ['anthropic/claude-opus-5.5', { input: 4, output: 20, cacheReadPrice: 0.2, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported' }],
   ['anthropic/claude-fable-5.1', { input: 10, output: 50, cacheReadPrice: 0.25, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported' }],
-  ['anthropic/claude-sonnet-5', { input: 2, output: 10, maxTokens: 128_000, canThink: 'adaptive', noThink: 'explicit' }],
+  ['anthropic/claude-sonnet-5.5', { input: 2, output: 10, maxTokens: 128_000, canThink: 'adaptive', noThink: 'between_tools' }],
   ['anthropic/claude-haiku-4.5', { input: 1, output: 5, maxTokens: 64_000 }],
   ['anthropic/claude-fable-5', { input: 10, output: 50, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported' }],
   ['anthropic/claude-opus-5', { input: 5, output: 25, maxTokens: 128_000, canThink: 'adaptive', noThink: 'explicit' }],
+  ['anthropic/claude-sonnet-5', { input: 2, output: 10, maxTokens: 128_000, canThink: 'adaptive', noThink: 'explicit' }],
   ['anthropic/claude-opus-4.8', { input: 5, output: 25, maxTokens: 128_000, canThink: 'adaptive' }],
   ['anthropic/claude-opus-4.7', { input: 5, output: 25, maxTokens: 128_000, canThink: 'adaptive' }],
   ['anthropic/claude-opus-4.6', { input: 5, output: 25, maxTokens: 128_000, canThink: 'adaptive', efforts: ['low', 'medium', 'high', 'max', 'manual'] }],

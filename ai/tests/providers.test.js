@@ -482,6 +482,19 @@ describe('buildRequestBody — provider-specific shapes', () => {
     })
   })
 
+  it('sonnet 5.5 goes out hyphenated, and turns thinking off with between_tools, since disabled 400s there', () => {
+    withProvider('anthropic', 'ANTHROPIC_API_KEY', () => {
+      const on = buildRequestBody('anthropic/claude-sonnet-5.5', 1000, 'sys', messages, { think: true, effort: 'max' })
+      assert.equal(on.model, 'claude-sonnet-5-5')
+      assert.deepEqual(on.thinking, { type: 'adaptive' })
+      assert.deepEqual(on.output_config, { effort: 'max' })
+      const off = buildRequestBody('anthropic/claude-sonnet-5.5', 1000, 'sys', messages)
+      assert.deepEqual(off.thinking, { type: 'between_tools' })
+      // No effort alongside it: between_tools 400s at xhigh / max, as disabled does.
+      assert.equal(off.output_config, undefined)
+    })
+  })
+
   it('opus 5 and sonnet 5 + think=false emit an explicit {thinking: {type: "disabled"}} — they think by default otherwise', () => {
     withProvider('anthropic', 'ANTHROPIC_API_KEY', () => {
       for (const model of ['anthropic/claude-opus-5', 'anthropic/claude-sonnet-5']) {
@@ -558,7 +571,7 @@ describe('buildRequestBody — provider-specific shapes', () => {
 
   it('think=false on openrouter sends nothing to a model with no off switch', () => {
     withProvider('openrouter', 'OPENROUTER_API_KEY', () => {
-      for (const model of ['x-ai/grok-4.7', 'qwen/qwen3.8-max', 'moonshotai/kimi-k3']) {
+      for (const model of ['x-ai/grok-4.7', 'qwen/qwen3.8-max', 'moonshotai/kimi-k3', 'anthropic/claude-sonnet-5.5']) {
         assert.equal(buildRequestBody(model, 1000, 'sys', messages).reasoning, undefined, model)
       }
     })
@@ -1285,6 +1298,7 @@ describe('gateway — Anthropic and OpenAI natively, everything else like openro
       mod.setProvider('gateway')
       assert.deepEqual(mod.buildRequestBody('openai/gpt-6-sol', 1000, 'sys', messages).reasoning, { effort: 'none' })
       assert.deepEqual(mod.buildRequestBody(CLAUDE, 1000, 'sys', messages).thinking, { type: 'disabled' })
+      assert.deepEqual(mod.buildRequestBody('anthropic/claude-sonnet-5.5', 1000, 'sys', messages).thinking, { type: 'between_tools' })
     })
   })
 

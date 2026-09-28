@@ -3,7 +3,7 @@ import { describe, it } from 'node:test'
 
 import * as ai from '../index.js'
 
-import { DEFAULT_MODEL, EFFORT_LEVELS, KNOWN_MODELS, TASK_BUDGET_MODELS, TASK_BUDGET_MODES, calculateCost, canAdaptive, canDisableThink, canEffort, canTaskBudget, canThink, effortsFor, emptyUsage, getMaxTokens, isRecognizedModel, needsExplicitNoThink, normalizeThinkEffort, ollamaModels, ollamaTagFor, readsCacheBreakpoint, reasoningModeFor, resolveModel, resolveThinkEffort, supportedModels, unknownModelMessage, validateModel, wireModelFor } from '../src/models.js'
+import { DEFAULT_MODEL, EFFORT_LEVELS, KNOWN_MODELS, TASK_BUDGET_MODELS, TASK_BUDGET_MODES, calculateCost, canAdaptive, canDisableThink, canEffort, canTaskBudget, canThink, effortsFor, emptyUsage, getMaxTokens, isRecognizedModel, needsBetweenToolsNoThink, needsExplicitNoThink, normalizeThinkEffort, ollamaModels, ollamaTagFor, readsCacheBreakpoint, reasoningModeFor, resolveModel, resolveThinkEffort, supportedModels, unknownModelMessage, validateModel, wireModelFor } from '../src/models.js'
 
 // What the named usage legs cost per Mtok at a model's BASE rate. A
 // million-token prompt is past the 272K long-context line on every OpenAI
@@ -183,6 +183,7 @@ describe('resolveThinkEffort', () => {
 describe('canTaskBudget', () => {
   it('true for the models on the task-budgets-2026-03-13 beta', () => {
     assert.equal(canTaskBudget('anthropic/claude-fable-5.1'), true)
+    assert.equal(canTaskBudget('anthropic/claude-sonnet-5.5'), true)
     assert.equal(canTaskBudget('anthropic/claude-fable-5'), true)
     assert.equal(canTaskBudget('anthropic/claude-opus-5'), true)
     assert.equal(canTaskBudget('anthropic/claude-sonnet-5'), true)
@@ -298,6 +299,42 @@ describe('claude opus 5.5', () => {
   })
 })
 
+describe('claude sonnet 5.5', () => {
+  const SONNET55 = 'anthropic/claude-sonnet-5.5'
+
+  it('prices at the published $2 / $10 per Mtok, the same as sonnet 5', () => {
+    assert.equal(baseRate(SONNET55, 'input'), 2)
+    assert.equal(baseRate(SONNET55, 'output'), 10)
+  })
+
+  it('bills the cache legs at the usual multiples of input, with no override', () => {
+    assert.equal(baseRate(SONNET55, 'cacheRead'), 0.2)
+    assert.equal(baseRate(SONNET55, 'cacheWrite5m'), 2.5)
+    assert.equal(baseRate(SONNET55, 'cacheWrite1h'), 4)
+  })
+
+  it('registers a 128,000 max_tokens', () => {
+    assert.equal(getMaxTokens(SONNET55), 128_000)
+  })
+
+  it('is adaptive-thinking capable and takes every effort level except manual', () => {
+    assert.equal(canAdaptive(SONNET55), true)
+    assert.deepEqual(normalizeThinkEffort(SONNET55, true), { useThink: true, useEffort: 'high' })
+    assert.deepEqual(effortsFor(SONNET55), ['low', 'medium', 'high', 'xhigh', 'max'])
+  })
+
+  it('turns thinking off with between_tools, which only the Messages API spells', () => {
+    assert.equal(canDisableThink(SONNET55), true)
+    assert.equal(needsBetweenToolsNoThink(SONNET55), true)
+    assert.equal(needsExplicitNoThink(SONNET55), false)
+    assert.equal(needsBetweenToolsNoThink('anthropic/claude-sonnet-5'), false)
+  })
+
+  it('accepts the Anthropic task-budgets beta', () => {
+    assert.equal(canTaskBudget(SONNET55), true)
+  })
+})
+
 describe('no-think wire form', () => {
   // Fable 5 is the row worth reading twice: it thinks by default like opus
   // 5, yet needs no explicit opt-out because it accepts none — the disabled
@@ -309,6 +346,9 @@ describe('no-think wire form', () => {
     ['anthropic/claude-opus-5.5', false, false],
     ['anthropic/claude-fable-5', false, false],
     ['anthropic/claude-fable-5.1', false, false],
+    // Sonnet 5.5's off switch is between_tools, on the Messages API alone:
+    // OpenRouter marks its reasoning mandatory.
+    ['anthropic/claude-sonnet-5.5', false, true],
     ['anthropic/claude-sonnet-5', true, true],
     ['anthropic/claude-opus-4.8', false, true],
     ['anthropic/claude-sonnet-4.6', false, true],
@@ -552,6 +592,7 @@ describe('long-context tier', () => {
     ['anthropic/claude-opus-4.8', 5, 25],
     ['anthropic/claude-opus-4.7', 5, 25],
     ['anthropic/claude-opus-4.6', 5, 25],
+    ['anthropic/claude-sonnet-5.5', 2, 10],
     ['anthropic/claude-sonnet-5', 2, 10],
     ['anthropic/claude-sonnet-4.6', 3, 15],
   ]) {
