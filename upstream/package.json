@@ -1,6 +1,6 @@
 {
   "name": "@preventive/upstream",
-  "version": "0.0.0",
+  "version": "1.0.0-alpha.0",
   "description": "Minimal npm registry and GitHub clients, and a git checkout reader: the calls we use, nothing more",
   "type": "module",
   "exports": {
