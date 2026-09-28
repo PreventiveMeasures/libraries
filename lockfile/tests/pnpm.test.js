@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { LockfileError, YamlError, parsePnpmLockfile } from '../pnpm.js'
+import { LockfileError, YamlError, packageKeyOf, parsePnpmLockfile } from '../pnpm.js'
 
 // One small lockfile with a package of every kind — registry, with its
 // tarball URL and without, a peer, a patch, a directory, git, a remote
@@ -571,5 +571,21 @@ describe('the env document is held to what pnpm writes', () => {
 describe('messages quote what they show', () => {
   it('controls and bidirectional marks are escaped, and length cut', () => {
     refuses(edit(['  b@1.0.0:\n', '  "b\\e[2J\\u202E@1.0.0":\n']), 'packages["b\\u001b[2J\\u202e@1.0.0"]: "b\\u001b[2J\\u202e" is not a package name')
+  })
+})
+
+describe('packageKeyOf, from the front door', () => {
+  it('drops the patch hash and the peers of a key in packages', () => {
+    const lock = parse(BASE)
+    assert.deepEqual(Object.keys(lock.packages).map(packageKeyOf), ['a@1.0.0', 'b@1.0.0', 'c@2.0.0', 'd@file:d', `e@git+https://example.com/e.git#${C}`, 'f@https://example.com/f.tgz'])
+    assert.equal(packageKeyOf('ws@file:packages/ws(patch_hash=abc)(react@18.2.0)'), 'ws@file:packages/ws')
+    assert.equal(packageKeyOf('a@1.0.0(3c43e3b4d70b446a2aae7f4f7fbeccdd)'), 'a@1.0.0')
+  })
+
+  it('leaves a key without a suffix as it is, and refuses anything but a string', () => {
+    assert.equal(packageKeyOf('a@1.0.0'), 'a@1.0.0')
+    assert.equal(packageKeyOf(''), '')
+    assert.throws(() => packageKeyOf(undefined), { name: 'TypeError', message: 'expected a string' })
+    assert.throws(() => packageKeyOf(['a@1.0.0']), TypeError)
   })
 })

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
-import { parsePnpmLockfile } from '../pnpm.js'
+import { packageKeyOf, parsePnpmLockfile } from '../pnpm.js'
 
 // The baseline: real lockfiles, written by pnpm 9, 10, 11 and 12 from one
 // workspace that pulls in every kind of dependency a v9 lockfile records;
@@ -289,6 +289,12 @@ describe('what rewrote the manifests, as pnpm 9 and 12 record it', () => {
       'react@18.2.0': '2022-06-14T19:46:38.369Z',
     })
     assert.deepEqual(plain(v9.time), {})
+  })
+
+  it('`time` names each direct dependency by its package key', () => {
+    const direct = Object.values(v12.importers['.'].dependencies).map(packageKeyOf).sort()
+    assert.deepEqual(Object.keys(v12.time).sort(), direct)
+    assert.ok(direct.includes('react-dom@18.2.0'))
   })
 
   it('every peer suffix hashed, where the limit is 0', () => {

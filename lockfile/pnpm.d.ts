@@ -19,6 +19,14 @@ export { YamlError } from '@preventive/yaml'
 // lockfile read here.
 export function parsePnpmLockfile(text: string): PnpmLockfileFile
 
+// The package key under a snapshot key, as pnpm reads it (its
+// removeSuffix): a key of `packages` here with its patch hash and peers
+// dropped, `react-dom@18.2.0(react@18.2.0)` to `react-dom@18.2.0`, which is
+// how the `packages:` section of the file and `time` name a package, and
+// what every snapshot of one package shares. A key with no suffix comes
+// back as it is; nothing is checked but that it is a string.
+export function packageKeyOf(key: string): string
+
 // `where` is the place in the lockfile a refusal is about, as a property
 // path from its top — `packages["q@1.5.1"].resolution`, and under `env` for
 // the env document — or undefined for the file as a whole; the message

@@ -32,6 +32,7 @@ function suffixOf(key) {
 
 // pnpm's removeSuffix: the package key under a snapshot key.
 export function packageKeyOf(key) {
+  if (typeof key !== 'string') throw new TypeError('expected a string')
   const { peers, patch } = suffixOf(key)
   return patch === -1 ? (peers === -1 ? key : key.slice(0, peers)) : key.slice(0, patch)
 }
