@@ -9,7 +9,7 @@ const bugsRegex = /^(?i:https?:\/\/github\.com)(?::\d{1,5})?\/(?<repo>[\w-]+\/[\
 // (`gitlab:`) can't match.
 const shorthandRegex = /^(?:github:)?(?<repo>[\w-]+\/[\w.-]+)$/u
 // The ref is one segment: a branch with a `/` reads as part of the directory.
-const homepageRegex = /^(?:https?:\/\/)?(?:www\.)?github\.com\/(?<repo>[\w-]+\/[\w.-]+?)(?:\.git)?(?:\/(?:tree\/[^/]+(?:\/(?<directory>.*))?)?)?$/iu
+const homepageRegex = /^(?:https?:\/\/)?(?:www\.)?github\.com(?::\d{1,5})?\/(?<repo>[\w-]+\/[\w.-]+?)(?:\.git)?(?:\/(?:tree\/[^/]+(?:\/(?<directory>.*))?)?)?$/iu
 const str = (value) => (typeof value === 'string' ? value : '')
 const urlOf = (field) => str(field?.url ?? field)
 const homepageUrl = (homepage) => str(homepage).trim().split(/[?#]/u)[0] // npm appends `#readme`.
