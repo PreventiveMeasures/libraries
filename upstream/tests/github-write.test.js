@@ -220,9 +220,9 @@ describe('parseGraphQLResponse', () => {
     assert.deepEqual(parseGraphQLResponse(200, '{"data":{"a":1}}'), { a: 1 })
   })
 
-  it('carries the status and the body of a transport error', () => {
-    assert.throws(() => parseGraphQLResponse(502, '<html>Bad Gateway</html>'), { message: 'GitHub GraphQL 502: <html>Bad Gateway</html>' })
-    assert.throws(() => parseGraphQLResponse(401, ''), { message: 'GitHub GraphQL 401: (empty body)' })
+  it('carries the status and the body of a transport error, as an HttpError', () => {
+    assert.throws(() => parseGraphQLResponse(502, '<html>Bad Gateway</html>'), (err) => err instanceof HttpError && err.status === 502 && err.message === 'GitHub GraphQL 502: <html>Bad Gateway</html>')
+    assert.throws(() => parseGraphQLResponse(401, ''), (err) => err instanceof HttpError && err.status === 401 && err.message === 'GitHub GraphQL 401: (empty body)')
   })
 
   it('says a body is malformed, and keeps the parse error as the cause', () => {

@@ -21,7 +21,11 @@ function decodePath(path = '') {
   } catch {}
 }
 
-const repositoryRepo = (url) => repoIn(shorthandRegex, url) ?? githubRepoOfUrl(url)
+// npm lets a repository name a commit-ish after `#`; it is not part of the repo.
+function repositoryRepo(url) {
+  const repo = url.replace(/#.*$/su, '')
+  return repoIn(shorthandRegex, repo) ?? githubRepoOfUrl(repo)
+}
 
 // Spaces are kept: git allows them at either end of a name.
 function repoSubdirectory(value) {

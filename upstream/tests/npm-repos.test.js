@@ -329,7 +329,7 @@ describe('getGitHub — the sources it reads, and what it holds them to', () => 
   })
 
   it("takes the scoped names npm does, and the registry's answer only for the name asked", async () => {
-    for (const name of ['@foo.bar/pkg', '@foo_bar/pkg', 'pkg.', 'a..b']) {
+    for (const name of ['@foo.bar/pkg', '@foo_bar/pkg', 'pkg.', 'a..b', '@scope/_pkg', '@scope/-pkg', '@_scope/pkg', 'A1']) {
       stubRegistry({ [name]: tracked('acme/app') })
       assert.equal((await getGitHub(name)).github, 'acme/app', name)
     }

@@ -5,7 +5,7 @@ import {
   assertArgs, assertBoolean, assertLine, assertLogin, assertPath, assertRef, assertRepo, assertRepoName, assertSha, assertText,
   optional, printable,
 } from '../args.js'
-import { decode, readBody, send } from '../http.js'
+import { HttpError, decode, readBody, send } from '../http.js'
 import { api, bindMethods, call, clientHeaders, repoApi } from './client.js'
 import { getRepoHead, readMethods } from './read.js'
 
@@ -63,7 +63,7 @@ function assertHead(method, what, head) {
 // Exported to test the error paths without a fetch mock.
 export function parseGraphQLResponse(status, text) {
   if (status < 200 || status >= 300) {
-    throw new Error(`GitHub GraphQL ${status}: ${printable(text.slice(0, 4096)) || '(empty body)'}`)
+    throw new HttpError(status, `GitHub GraphQL ${status}: ${printable(text.slice(0, 4096)) || '(empty body)'}`)
   }
   let json
   try { json = JSON.parse(text) } catch (err) {

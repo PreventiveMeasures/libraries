@@ -26,7 +26,7 @@ function forbidRequests() {
 // `['lodash']` is the one to watch: RegExp#test and a template literal
 // both coerce it to `lodash`, so without the type check it would pass as
 // a name and be requested as one.
-const BAD_NAMES = [['lodash'], 42, undefined, null, { toString: () => 'lodash' }, '', '../lodash', 'lodash/../x', '@scope', '@scope/', 'a b', 'lodash?x', 'lodash#x']
+const BAD_NAMES = [['lodash'], 42, undefined, null, { toString: () => 'lodash' }, '', '../lodash', 'lodash/../x', '@scope', '@scope/', 'a b', 'lodash?x', 'lodash#x', '_private', '-dash', '.dot', '@scope/.pkg']
 
 const BAD_VERSIONS = [['1.0.0'], 100, undefined, null, '', 'latest', '^1.0.0', '1.0', '1.0.x', '01.0.0', 'v1.0.0', ' 1.0.0', '1.0.0 ', '1.0.0+build', '1.0.0/../x', '1.0.0?x']
 

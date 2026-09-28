@@ -19,7 +19,8 @@ const BAD_REF = /^$|^@$|^-|[ ~^:?*[\\]|\.\.|@\{|^\/|\/$|\/\/|(?:^|\/)\.|\.lock(?
 const isToken = matches(/^[!-~]+$/u)
 // npm's rules for existing names: capitals allowed (JSONStream), the
 // legacy `~'!()*` not.
-const isPackageName = matches(/^(?=.{1,214}$)(?:@[\w.-]+\/)?[\w-][\w.-]*$/u)
+// npm's rule: an unscoped name starts with neither `.`, `_` nor `-`.
+const isPackageName = matches(/^(?=.{1,214}$)(?:@[\w.-]+\/[\w-]|[\dA-Za-z])[\w.-]*$/u)
 
 export function printable(text) {
   return [...String(text)].map((char) => (isControl(char) || isBidi(char) ? `\\u${char.codePointAt(0).toString(16).padStart(4, '0')}` : char)).join('')

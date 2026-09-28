@@ -37,5 +37,6 @@ export interface WriteClient extends Client {
 export function createWriteClient(options: WriteClientOptions): WriteClient
 
 // A GraphQL response's `data`, or a throw carrying the status and body on
-// a transport error, malformed JSON or an `errors` array.
+// a transport error (an HttpError, as a REST failure is), malformed JSON
+// or an `errors` array.
 export function parseGraphQLResponse(status: number, text: string): any
