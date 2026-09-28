@@ -46,6 +46,6 @@
     "access": "public"
   },
   "dependencies": {
-    "@preventive/yaml": "workspace:^"
+    "@preventive/yaml": "1.0.0-beta.0"
   }
 }

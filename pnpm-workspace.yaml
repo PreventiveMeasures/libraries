@@ -22,3 +22,5 @@ packages:
   - "upstream"
   - "vfs"
   - "yaml"
+
+preferWorkspacePackages: true
