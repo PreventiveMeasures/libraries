@@ -302,6 +302,7 @@ describe('getMeta, verifyDist, and getTarball with a dist', () => {
       [{ ...DIST, shasum: 'abc' }, /unknown option dist\.shasum/u],
       [{ ...DIST, integrity: `${DIST.integrity} ${DIST.integrity}` }, /dist\.integrity must be "sha512-"/u],
       [{ ...DIST, integrity: sri(BYTES, 'sha1') }, /dist\.integrity must be "sha512-"/u],
+      [{ ...DIST, integrity: `sha512-${'A'.repeat(85)}B==` }, /dist\.integrity must be "sha512-"/u],
       [{ ...DIST, tarball: 'https://evil.example/pkg/-/pkg-1.0.0.tgz' }, /dist\.tarball must be https:\/\/registry\.npmjs\.org\/pkg\/-\/pkg-1\.0\.0\.tgz/u],
       [{ integrity: DIST.integrity }, /dist\.tarball must be/u],
     ]) {

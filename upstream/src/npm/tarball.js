@@ -11,8 +11,9 @@ import { MAX_BYTES, NPM_REGISTRY, buildUrl, request } from '../http.js'
 
 const DIR = 'npm/tarballs' // No expiry: the registry never takes a version twice.
 // One sha512 and nothing else, as the registry writes it: a sha1, a second
-// hash or an option is refused rather than trusted.
-const assertIntegrity = assertion('"sha512-" and a base64 sha512', matches(/^sha512-[\dA-Za-z+/]{86}==$/u))
+// hash or an option is refused rather than trusted. 64 bytes leave the
+// last character before `==` two bits, so only A, Q, g or w is canonical.
+const assertIntegrity = assertion('"sha512-" and a base64 sha512', matches(/^sha512-[\dA-Za-z+/]{85}[AQgw]==$/u))
 const sha512 = (bytes) => `sha512-${createHash('sha512').update(bytes).digest('base64')}`
 
 function assertPackage(method, name, version) {
