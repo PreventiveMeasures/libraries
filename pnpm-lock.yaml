@@ -33,6 +33,12 @@ importers:
 
   diff: {}
 
+  lockfile:
+    dependencies:
+      '@preventive/yaml':
+        specifier: workspace:^
+        version: link:../yaml
+
   upstream: {}
 
   vfs:

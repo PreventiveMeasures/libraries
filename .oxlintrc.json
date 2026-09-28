@@ -80,6 +80,7 @@
         "ai/tests/**",
         "diff/tests/**",
         "archive/tests/**",
+        "lockfile/tests/**",
         "upstream/tests/**",
         "vfs/tests/**",
         "yaml/tests/**"

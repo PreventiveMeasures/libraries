@@ -1,0 +1,150 @@
+// The packages a lockfile holds: one for each of its `snapshots`, with the
+// `packages` entry it is a snapshot of folded in, as pnpm itself reads them.
+// A snapshot is a package as resolved in one place in the tree — its peers
+// and its patch are in its key — and the entry is what the package is
+// wherever it is. Every snapshot has its entry and every entry a snapshot.
+
+import { LockfileError, at, quote } from '../error.js'
+import { checkName, checkRelative, checkVersion, isVersion, joinRelative } from '../names.js'
+import { EMPTY, entries, flag, record, text, textMap, texts } from '../shape.js'
+import { refToKey, splitPackageKey, splitSnapshotKey } from './key.js'
+import { readResolution } from './resolution.js'
+
+const INFO = ['resolution', 'version', 'name', 'engines', 'cpu', 'os', 'libc', 'deprecated', 'hasBin', 'bundledDependencies', 'peerDependencies', 'peerDependenciesMeta']
+const SNAPSHOT = ['dependencies', 'optionalDependencies', 'optional', 'transitivePeerDependencies']
+
+// The prefixes pnpm keeps from naming a registry (its
+// RESERVED_VERSION_PREFIXES): a key's source after one of these is a
+// directory, a tarball or a repository. Any other `prefix:version` is a
+// registry named in the settings, which pnpm 11 writes, and `runtime:` is a
+// node, bun or deno binary; neither is read here.
+const SOURCES = new Set(['bitbucket', 'catalog', 'custom', 'file', 'git', 'github', 'gitlab', 'http', 'https', 'jsr', 'link', 'npm', 'ssh', 'workspace'])
+
+// A key and its resolution say the same thing twice, and pnpm's reader
+// trusts one of them or the other depending on which case it is in, so they
+// are held to agree as its writer makes them: a registry version is a
+// tarball with an integrity and takes its version from the key; `file:` is
+// the very directory or tarball resolved; anything else is fetched from a
+// URL, a git repository or a tarball, and carries its version in a field.
+// A directory has no version in the lockfile at all.
+function readVersion(ref, entry, resolution, where) {
+  const { type, tarball } = resolution
+  const local = tarball?.startsWith('file:')
+  if (isVersion(ref)) {
+    if (type !== 'tarball' || resolution.integrity === undefined || local || resolution.gitHosted || resolution.path !== undefined) {
+      throw new LockfileError(`expected a registry tarball with an integrity, for the version ${quote(ref)}`, at(where, 'resolution'))
+    }
+    if (entry.version !== undefined) throw new LockfileError('a registry package has its version in its key', at(where, 'version'))
+    return ref
+  }
+  const scheme = /^([A-Za-z][\w+.-]*):/u.exec(ref)?.[1]
+  if (scheme === undefined) throw new LockfileError(`${quote(ref)} is neither a version nor a source`, where)
+  if (scheme === 'runtime' || (!SOURCES.has(scheme) && isVersion(ref.slice(scheme.length + 1)))) {
+    throw new LockfileError(`${quote(ref)} is from a runtime or a named registry, which is not supported`, where)
+  }
+  const agrees = scheme === 'file'
+    ? ref === (type === 'directory' ? `file:${resolution.directory}` : tarball)
+    : type === 'git' || (type === 'tarball' && tarball !== undefined && !local)
+  if (!agrees) throw new LockfileError(`${quote(ref)} is not where the resolution says the package comes from`, at(where, 'resolution'))
+  if (type === 'directory') {
+    if (entry.version !== undefined) throw new LockfileError('a directory has no version in the lockfile', at(where, 'version'))
+    return undefined
+  }
+  if (entry.version === undefined) throw new LockfileError('expected a version, for a package not from the registry', where)
+  return checkVersion(entry.version, at(where, 'version'))
+}
+
+const names = (value, where) => texts(value, where).map((name, index) => checkName(name, `${where}[${index}]`))
+
+function readInfo(key, entry, where) {
+  record(entry, where, INFO)
+  const { name, ref } = splitPackageKey(key, where)
+  if (entry.name !== undefined && entry.name !== name) throw new LockfileError(`expected the name in the key, ${quote(name)}`, at(where, 'name'))
+  const resolution = readResolution(entry.resolution, at(where, 'resolution'))
+  const list = (field) => (entry[field] === undefined ? undefined : texts(entry[field], at(where, field)))
+  const bundled = entry.bundledDependencies
+  return {
+    name,
+    version: readVersion(ref, entry, resolution, where),
+    resolution,
+    engines: entry.engines === undefined ? Object.create(null) : textMap(entry.engines, at(where, 'engines')),
+    os: list('os'),
+    cpu: list('cpu'),
+    libc: list('libc'),
+    deprecated: entry.deprecated === undefined ? undefined : text(entry.deprecated, at(where, 'deprecated')),
+    hasBin: flag(entry.hasBin, at(where, 'hasBin')),
+    bundledDependencies: bundled === undefined || bundled === true ? bundled : names(bundled, at(where, 'bundledDependencies')),
+    peerDependencies: entry.peerDependencies === undefined ? Object.create(null) : textMap(entry.peerDependencies, at(where, 'peerDependencies'), checkName),
+    peerDependenciesMeta: readPeersMeta(entry.peerDependenciesMeta, at(where, 'peerDependenciesMeta')),
+  }
+}
+
+function readPeersMeta(value, where) {
+  const meta = Object.create(null)
+  for (const [name, item, here] of entries(value ?? EMPTY, where)) {
+    record(item, here, ['optional'])
+    meta[checkName(name, here)] = { optional: flag(item.optional, at(here, 'optional')) }
+  }
+  return meta
+}
+
+// What a dependency's reference leads to: the key of a snapshot, or
+// `link:` and a directory linked in place, which the lockfile does not
+// hold. A link is written relative to `base`, and handed back relative to
+// the lockfile's directory.
+export function target(ref, alias, base, snapshots, where) {
+  if (ref.startsWith('link:')) return `link:${joinRelative(base, checkRelative(ref.slice(5), where))}`
+  const key = refToKey(ref, alias)
+  if (!(key in snapshots)) throw new LockfileError(`${quote(ref)} leads to ${quote(key)}, which is not in snapshots`, where)
+  return key
+}
+
+// A snapshot's links are read from the lockfile's directory, as pnpm's
+// installer reads them, although its writer leaves a `link:` a directory
+// dependency asks for as that dependency wrote it.
+function readTargets(value, where, snapshots) {
+  const targets = Object.create(null)
+  for (const [alias, ref, here] of entries(value ?? EMPTY, where)) {
+    targets[checkName(alias, here)] = target(text(ref, here), alias, '.', snapshots, here)
+  }
+  return targets
+}
+
+function readSnapshot(entry, where, snapshots) {
+  record(entry, where, SNAPSHOT)
+  const dependencies = readTargets(entry.dependencies, at(where, 'dependencies'), snapshots)
+  const optionalDependencies = readTargets(entry.optionalDependencies, at(where, 'optionalDependencies'), snapshots)
+  for (const alias of Object.keys(optionalDependencies)) {
+    if (alias in dependencies) throw new LockfileError('listed under dependencies too', at(at(where, 'optionalDependencies'), alias))
+  }
+  const peers = entry.transitivePeerDependencies
+  return {
+    dependencies,
+    optionalDependencies,
+    optional: flag(entry.optional, at(where, 'optional')),
+    transitivePeerDependencies: peers === undefined ? [] : names(peers, at(where, 'transitivePeerDependencies')),
+  }
+}
+
+// `prefix` is where the document is, for messages; `patches` the hashes its
+// patchedDependencies hold, which a snapshot's patch hash has to be one of.
+export function readPackages(doc, prefix, patches) {
+  const infos = new Map()
+  const packagesAt = at(prefix, 'packages')
+  for (const [key, entry, where] of entries(doc.packages ?? EMPTY, packagesAt)) infos.set(key, readInfo(key, entry, where))
+  const snapshots = record(doc.snapshots ?? EMPTY, at(prefix, 'snapshots'))
+  const packages = Object.create(null)
+  const seen = new Set()
+  for (const [key, entry, where] of entries(snapshots, at(prefix, 'snapshots'))) {
+    const { base, patchHash } = splitSnapshotKey(key, where)
+    const info = infos.get(base)
+    if (info === undefined) throw new LockfileError(`${quote(base)} is not in packages`, where)
+    if (patchHash !== undefined && !patches.has(patchHash)) throw new LockfileError(`the patch hash ${quote(patchHash)} is not in patchedDependencies`, where)
+    seen.add(base)
+    packages[key] = { ...info, patchHash, ...readSnapshot(entry, where, snapshots) }
+  }
+  for (const key of infos.keys()) {
+    if (!seen.has(key)) throw new LockfileError('no snapshot is of this package', at(packagesAt, key))
+  }
+  return { packages, snapshots }
+}
