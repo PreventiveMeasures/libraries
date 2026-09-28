@@ -15,6 +15,11 @@ const DIR = 'npm/tarballs' // No expiry: the registry never takes a version twic
 const assertIntegrity = assertion('"sha512-" and a base64 sha512', matches(/^sha512-[\dA-Za-z+/]{86}==$/u))
 const sha512 = (bytes) => `sha512-${createHash('sha512').update(bytes).digest('base64')}`
 
+function assertPackage(method, name, version) {
+  assertPackageName(method, 'name', name)
+  assertPackageVersion(method, 'version', version)
+}
+
 function tarballUrl(name, version) {
   const segments = name.split('/')
   return buildUrl(NPM_REGISTRY, [...segments, '-', `${segments.at(-1)}-${version}.tgz`])
@@ -72,14 +77,12 @@ async function readLocalCaches(name, version, integrity) {
 }
 
 export async function getMeta(name, version) {
-  assertPackageName('getMeta', 'name', name)
-  assertPackageVersion('getMeta', 'version', version)
+  assertPackage('getMeta', name, version)
   return { name, version, dist: await getDist('getMeta', name, version) }
 }
 
 export async function verifyDist(name, version, dist) {
-  assertPackageName('verifyDist', 'name', name)
-  assertPackageVersion('verifyDist', 'version', version)
+  assertPackage('verifyDist', name, version)
   assertDist('verifyDist', name, version, dist)
   const { integrity } = await getDist('verifyDist', name, version)
   assert.ok(dist.integrity === integrity, `verifyDist: ${name}@${version} is ${integrity} on the registry, not ${dist.integrity}`)
@@ -90,8 +93,7 @@ export async function verifyDist(name, version, dist) {
 // against anything a cache itself holds. A mismatch in ours throws rather
 // than fetching over it.
 export async function getTarball(name, version, dist) {
-  assertPackageName('getTarball', 'name', name)
-  assertPackageVersion('getTarball', 'version', version)
+  assertPackage('getTarball', name, version)
   if (dist === undefined) dist = await getDist('getTarball', name, version)
   else assertDist('getTarball', name, version, dist)
   const local = await readLocalCaches(name, version, dist.integrity)
