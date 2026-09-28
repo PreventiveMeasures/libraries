@@ -173,6 +173,18 @@ describe('what else pnpm writes is read', () => {
     assert.deepEqual([none.packageExtensionsChecksum, none.pnpmfileChecksum, none.ignoredOptionalDependencies], [undefined, undefined, []])
   })
 
+  it('when each direct dependency was published, where pnpm resolved by time', () => {
+    const lock = read(['settings:', "time:\n  a@1.0.0: '2022-06-14T19:46:38.369Z'\n  d@file:d: '2011-03-15T17:51:47Z'\n\nsettings:"])
+    assert.deepEqual(plain(lock.time), { 'a@1.0.0': '2022-06-14T19:46:38.369Z', 'd@file:d': '2011-03-15T17:51:47Z' })
+    assert.deepEqual(plain(parse(BASE).time), {})
+    assert.deepEqual(plain(read(['settings:', 'time: {}\n\nsettings:']).time), {})
+  })
+
+  it('the Node executable a dependency\'s bins run with', () => {
+    const lock = read(['    devDependencies:', '    dependenciesMeta:\n      d:\n        node: /usr/local/bin/node18\n        injected: false\n    devDependencies:'])
+    assert.deepEqual(plain(lock.importers['.'].dependenciesMeta), { d: { injected: false, node: '/usr/local/bin/node18' } })
+  })
+
   it('a patch with its path, as pnpm 9 and 10 write it', () => {
     const lock = read(['  b@1.0.0: abc123', '  b@1.0.0:\n    hash: abc123\n    path: patches/b@1.0.0.patch'])
     assert.deepEqual(plain(lock.patchedDependencies), { 'b@1.0.0': { hash: 'abc123', path: 'patches/b@1.0.0.patch' } })
@@ -308,7 +320,7 @@ describe('the document is refused', () => {
   })
 
   it('with a field this reader does not know', () => {
-    for (const field of ['time', 'onlyBuiltDependencies', 'neverBuiltDependencies', 'untrackedPnpmfileReadPackageHook']) {
+    for (const field of ['onlyBuiltDependencies', 'neverBuiltDependencies', 'untrackedPnpmfileReadPackageHook', 'resolutionMode']) {
       refuses(edit(['settings:', `${field}: x\n\nsettings:`]), `unsupported field "${field}"`, undefined)
     }
     refuses(edit(['  autoInstallPeers: true', '  resolutionMode: highest']), 'settings: unsupported field "resolutionMode"', 'settings')
@@ -361,6 +373,16 @@ describe('the header is held to what pnpm writes', () => {
     refuses(header('packageExtensionsChecksum: 12'), 'packageExtensionsChecksum: expected a string, found the number 12')
     refuses(header('ignoredOptionalDependencies: fsevents'), 'ignoredOptionalDependencies: expected a sequence, found the string "fsevents"')
     refuses(header("ignoredOptionalDependencies: ['']"), 'ignoredOptionalDependencies[0]: expected a non-empty string')
+  })
+
+  it('time', () => {
+    const time = (line) => edit(['settings:', `time:\n  ${line}\n\nsettings:`])
+    refuses(time("a@1.0.0(c@2.0.0): '2022-06-14T19:46:38.369Z'"), 'time["a@1.0.0(c@2.0.0)"]: "a@1.0.0(c@2.0.0)" is not in packages')
+    refuses(time("z@1.0.0: '2022-06-14T19:46:38.369Z'"), 'time["z@1.0.0"]: "z@1.0.0" is not in packages')
+    for (const stamp of ['2022-06-14', '2022-06-14T19:46:38', '2022-06-14T19:46:38+01:00', '2022-02-30T00:00:00Z', '2022-06-14T24:00:00Z', '2022-13-01T00:00:00Z', ' 2022-06-14T19:46:38Z']) {
+      refuses(time(`a@1.0.0: '${stamp}'`), `time["a@1.0.0"]: ${JSON.stringify(stamp)} is not a UTC timestamp`)
+    }
+    refuses(time('a@1.0.0: 1655235998'), 'time["a@1.0.0"]: expected a string, found the number 1655235998')
   })
 
   it('catalogs and overrides', () => {
@@ -512,7 +534,8 @@ describe('an importer is held to what pnpm writes', () => {
 
   it('its fields', () => {
     refuses(edit(['    devDependencies:', '    specifiers: {}\n    devDependencies:']), 'importers["."]: unsupported field "specifiers"')
-    refuses(edit(['    devDependencies:', '    dependenciesMeta:\n      d:\n        node: 18\n    devDependencies:']), 'importers["."].dependenciesMeta.d: unsupported field "node"')
+    refuses(edit(['    devDependencies:', '    dependenciesMeta:\n      d:\n        patch: x.patch\n    devDependencies:']), 'importers["."].dependenciesMeta.d: unsupported field "patch"')
+    refuses(edit(['    devDependencies:', '    dependenciesMeta:\n      d:\n        node: 18\n    devDependencies:']), 'importers["."].dependenciesMeta.d.node: expected a string, found the number 18')
     refuses(edit(['    devDependencies:', '    dependenciesMeta:\n      d:\n        injected: yes\n    devDependencies:']), 'importers["."].dependenciesMeta.d.injected: expected true or false, found the string "yes"')
     refuses(edit(['    devDependencies:', '    linkDirectory: true\n    devDependencies:']), 'importers["."].linkDirectory: expected false, the only value pnpm writes')
     refuses(edit(['    devDependencies:', '    publishDirectory: ../../x/../y\n    devDependencies:']), 'importers["."].publishDirectory: "../../x/../y" is not a relative path in normal form')

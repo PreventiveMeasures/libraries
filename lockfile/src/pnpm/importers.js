@@ -35,14 +35,18 @@ function readDependencies(importer, kinds, id, where, snapshots) {
   return result
 }
 
-// `injected` is the one setting a dependency's meta may carry into the
-// lockfile that is read here: a workspace package installed as a copy, a
-// `file:` snapshot, rather than linked.
+// What a dependency's meta may carry into the lockfile: `injected`, a
+// workspace package installed as a copy, a `file:` snapshot, rather than
+// linked; and `node`, the Node executable its bins are run with, where it
+// is not the one pnpm runs on.
 function readMeta(value, where) {
   const meta = Object.create(null)
   for (const [name, item, here] of entries(value ?? EMPTY, where)) {
-    record(item, here, ['injected'])
-    meta[checkName(name, here)] = { injected: item.injected === undefined ? false : boolean(item.injected, at(here, 'injected')) }
+    record(item, here, ['injected', 'node'])
+    meta[checkName(name, here)] = {
+      injected: item.injected === undefined ? false : boolean(item.injected, at(here, 'injected')),
+      node: item.node === undefined ? undefined : text(item.node, at(here, 'node')),
+    }
   }
   return meta
 }

@@ -68,6 +68,9 @@ export interface PnpmLockfile {
   pnpmfileChecksum: string | undefined
   // Names and patterns (`@esbuild/*`) of optional dependencies not installed.
   ignoredOptionalDependencies: string[]
+  // By package key, when each direct dependency was published, where pnpm
+  // resolved by time (`resolution-mode=time-based`): a UTC timestamp.
+  time: Record<string, string>
   // By project directory relative to the lockfile's, `.` for its own.
   importers: Record<string, PnpmImporter>
   // By snapshot key: `name@version`, or `name@` and a source, then the
@@ -104,7 +107,9 @@ export interface PnpmImporter {
   devDependencies: Record<string, Target>
   optionalDependencies: Record<string, Target>
   // `injected`: installed as a copy, a `file:` package, not linked.
-  dependenciesMeta: Record<string, { injected: boolean }>
+  // `node`: the Node executable the dependency's bins are run with, where
+  // the manifest names one.
+  dependenciesMeta: Record<string, { injected: boolean, node: string | undefined }>
   // Linked by this subdirectory of the project rather than the project,
   // unless linkDirectory is false.
   publishDirectory: string | undefined

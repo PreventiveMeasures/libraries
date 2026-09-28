@@ -22,10 +22,12 @@
 //
 // The two runs of the small project after those give pnpm's manifests
 // something to rewrite, a pnpmfile hook and a package extension, an
-// optional dependency to ignore by name and one by pattern, and a peer to
-// hash with `peersSuffixMaxLength: 0`; pnpm 9 writes its checksums bare,
-// pnpm 10 and later as integrities. pnpm 9 takes the settings from
-// package.json and has no such limit to set.
+// optional dependency to ignore by name and one by pattern, a Node
+// executable for a dependency's bins, and a peer to hash with
+// `peersSuffixMaxLength: 0`, and resolve by time, which records when each
+// direct dependency was published; pnpm 9 writes its checksums bare, pnpm
+// 10 and later as integrities. pnpm 9 takes the settings from package.json
+// and has neither the limit nor the resolution mode to set.
 
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -135,8 +137,9 @@ function layHooks(dir, run) {
     name: 'hooks',
     version: '0.0.0',
     private: true,
-    dependencies: { 'is-odd': '3.0.1', react: '18.2.0', 'react-dom': '18.2.0' },
+    dependencies: { 'is-odd': '3.0.1', mkdirp: '1.0.4', react: '18.2.0', 'react-dom': '18.2.0' },
     optionalDependencies: { fsevents: '2.3.3' },
+    dependenciesMeta: { mkdirp: { node: '/usr/local/bin/node' } },
     ...(legacy ? { pnpm: HOOKS } : {}),
   })
   write(dir, '.pnpmfile.cjs', 'module.exports = { hooks: { readPackage: (pkg) => pkg } }\n')
@@ -145,6 +148,7 @@ function layHooks(dir, run) {
     'packageExtensions:', '  is-odd:', '    dependencies:', '      is-number: 6.0.0',
     'ignoredOptionalDependencies:', ...HOOKS.ignoredOptionalDependencies.map((name) => `  - '${name}'`),
     'peersSuffixMaxLength: 0',
+    'resolutionMode: time-based',
   ]
   write(dir, 'pnpm-workspace.yaml', `${workspace.join('\n')}\n`)
 }

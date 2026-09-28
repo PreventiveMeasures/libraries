@@ -97,7 +97,7 @@ describe('a pnpm 10 lockfile, spot-checked', () => {
     assert.equal(root.specifiers.react, 'catalog:')
     assert.deepEqual(plain(root.devDependencies), { mkdirp: 'mkdirp@1.0.4' })
     assert.deepEqual(plain(root.optionalDependencies), { '@img/sharp-linux-x64': '@img/sharp-linux-x64@0.33.5', fsevents: 'fsevents@2.3.3' })
-    assert.deepEqual(plain(root.dependenciesMeta), { 'ws-a': { injected: true } })
+    assert.deepEqual(plain(root.dependenciesMeta), { 'ws-a': { injected: true, node: undefined } })
     assert.equal(root.publishDirectory, undefined)
     assert.equal(root.linkDirectory, true)
     assert.deepEqual(Object.keys(root.specifiers).sort(), [...Object.keys(root.dependencies), ...Object.keys(root.devDependencies), ...Object.keys(root.optionalDependencies)].sort())
@@ -273,6 +273,22 @@ describe('what rewrote the manifests, as pnpm 9 and 12 record it', () => {
       assert.deepEqual(plain(lock.importers['.'].optionalDependencies), {})
       assert.equal(byName(lock, 'fsevents', '2.3.3').length, 0)
     }
+  })
+
+  it('the Node executable a dependency\'s bins run with, as the manifest names it', () => {
+    for (const lock of [v9, v12]) {
+      assert.deepEqual(plain(lock.importers['.'].dependenciesMeta), { mkdirp: { injected: false, node: '/usr/local/bin/node' } })
+    }
+  })
+
+  it('when each direct dependency was published, where pnpm resolved by time', () => {
+    assert.deepEqual(plain(v12.time), {
+      'is-odd@3.0.1': '2018-05-31T20:04:53.306Z',
+      'mkdirp@1.0.4': '2020-04-03T17:03:08.825Z',
+      'react-dom@18.2.0': '2022-06-14T19:46:48.370Z',
+      'react@18.2.0': '2022-06-14T19:46:38.369Z',
+    })
+    assert.deepEqual(plain(v9.time), {})
   })
 
   it('every peer suffix hashed, where the limit is 0', () => {

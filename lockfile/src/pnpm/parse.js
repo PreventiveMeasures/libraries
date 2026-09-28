@@ -18,7 +18,7 @@ import { readPackages } from './packages.js'
 
 const FIELDS = [
   'lockfileVersion', 'settings', 'catalogs', 'overrides', 'patchedDependencies',
-  'packageExtensionsChecksum', 'pnpmfileChecksum', 'ignoredOptionalDependencies',
+  'packageExtensionsChecksum', 'pnpmfileChecksum', 'ignoredOptionalDependencies', 'time',
   'importers', 'packages', 'snapshots',
 ]
 const ENV_FIELDS = ['lockfileVersion', 'importers', 'packages', 'snapshots']
@@ -77,6 +77,26 @@ function readChecksum(value, where) {
   return checkIntegrity(checksum, where)
 }
 
+// When a direct dependency was published, by its package key, where pnpm
+// resolved by time (`resolution-mode=time-based`): a UTC timestamp, as the
+// registry gives it. A date that would roll over, February 30th or 24:00,
+// is refused rather than read as another.
+const TIMESTAMP = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/u
+
+function readTime(value, where, packages) {
+  const time = Object.create(null)
+  for (const [key, item, here] of entries(value ?? EMPTY, where)) {
+    if (!(key in packages)) throw new LockfileError(`${quote(key)} is not in packages`, here)
+    const stamp = text(item, here)
+    const ms = TIMESTAMP.test(stamp) ? Date.parse(stamp) : Number.NaN
+    if (Number.isNaN(ms) || new Date(ms).toISOString().slice(0, 19) !== stamp.slice(0, 19)) {
+      throw new LockfileError(`${quote(stamp)} is not a UTC timestamp`, here)
+    }
+    time[key] = stamp
+  }
+  return time
+}
+
 // Every snapshot is reached from an importer, as pnpm prunes the rest: one
 // that is not would be listed as installed when nothing installs it.
 function checkReached(importers, packages, where) {
@@ -120,6 +140,7 @@ function readDocument(doc, prefix, env) {
     packageExtensionsChecksum: readChecksum(doc.packageExtensionsChecksum, at(prefix, 'packageExtensionsChecksum')),
     pnpmfileChecksum: readChecksum(doc.pnpmfileChecksum, at(prefix, 'pnpmfileChecksum')),
     ignoredOptionalDependencies: doc.ignoredOptionalDependencies === undefined ? [] : texts(doc.ignoredOptionalDependencies, at(prefix, 'ignoredOptionalDependencies')),
+    time: readTime(doc.time, at(prefix, 'time'), doc.packages ?? EMPTY),
     importers,
     packages,
   }
