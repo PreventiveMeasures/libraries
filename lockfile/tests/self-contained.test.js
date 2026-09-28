@@ -77,6 +77,16 @@ describe('lockfile/ imports nothing from outside but what it declares', () => {
     assert.equal(manifest.peerDependencies, undefined)
   })
 
+  // The manifest is published as written, so a `workspace:` specifier would
+  // reach the registry as it is, and a range would take in whatever a
+  // pre-release of the parser changes next. pnpm links the workspace's own
+  // copy while its version is the one pinned.
+  it('pins each dependency to an exact version', () => {
+    for (const [name, spec] of Object.entries(manifest.dependencies)) {
+      assert.match(spec, /^\d+\.\d+\.\d+(?:-[\d.A-Za-z-]+)?$/u, `${name} is ${spec}, not an exact version`)
+    }
+  })
+
   for (const file of files) {
     const name = file.href.slice(PKG_DIR.href.length)
     it(`${name} imports only within lockfile/ or a declared dependency`, () => {
