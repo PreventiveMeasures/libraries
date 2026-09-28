@@ -314,6 +314,26 @@ describe('getMeta, verifyDist, and getTarball with a dist', () => {
     assert.deepEqual(calls, [])
   })
 
+  it('holds a given dist to what it was when checked, read once', async () => {
+    const mutable = { ...DIST }
+    let calls = stubRegistry()
+    const pending = getTarball('pkg', '1.0.0', mutable)
+    Object.assign(mutable, { tarball: tarballUrl('other', '1.0.0'), integrity: OTHER })
+    assert.deepEqual(new Uint8Array(await pending), BYTES)
+    assert.deepEqual(calls, [tarballUrl('pkg', '1.0.0')])
+    await rm(CACHE_DIR, { recursive: true, force: true })
+    let reads = 0
+    const shifting = { tarball: DIST.tarball, get integrity() { return reads++ === 0 ? DIST.integrity : OTHER } }
+    calls = stubRegistry()
+    assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0', shifting)), BYTES)
+    assert.equal(reads, 1)
+    const given = { ...DIST }
+    stubRegistry()
+    const verifying = verifyDist('pkg', '1.0.0', given)
+    given.integrity = OTHER
+    await verifying
+  })
+
   it('reads a tarball by a given dist, never asking for the version document', async () => {
     const calls = stubRegistry()
     assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0', DIST)), BYTES)

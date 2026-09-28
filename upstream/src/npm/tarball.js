@@ -27,19 +27,22 @@ function tarballUrl(name, version) {
 }
 
 // `{ tarball, integrity }` and nothing else, the tarball exactly the
-// registry's own URL for that version.
-function assertDist(method, name, version, dist) {
-  assertArgs(method, dist, { tarball: null, integrity: assertIntegrity }, 'dist')
+// registry's own URL for that version. Each field is read once, into a
+// copy that is checked and used from then on: the caller's object can
+// change while a request is out.
+function checkedDist(method, name, version, dist) {
+  assertArgs(method, dist, { tarball: null, integrity: null }, 'dist')
+  const { tarball, integrity } = dist
+  assertIntegrity(method, 'dist.integrity', integrity)
   const expected = tarballUrl(name, version)
-  assert.ok(dist.tarball === expected, `${method}: dist.tarball must be ${expected}, got ${show(dist.tarball)}`)
+  assert.ok(tarball === expected, `${method}: dist.tarball must be ${expected}, got ${show(tarball)}`)
+  return { tarball, integrity }
 }
 
 async function getDist(method, name, version) {
   const json = await request(buildUrl(NPM_REGISTRY, [...name.split('/'), version]), { as: 'json' })
   assert.ok(json?.name === name && json.version === version, `${method}: the registry answered for ${show(json?.name)}@${show(json?.version)}, not ${name}@${version}`)
-  const dist = { tarball: json.dist?.tarball, integrity: json.dist?.integrity }
-  assertDist(method, name, version, dist)
-  return dist
+  return checkedDist(method, name, version, { tarball: json.dist?.tarball, integrity: json.dist?.integrity })
 }
 
 function assertBytes(bytes, integrity, what) {
@@ -84,9 +87,9 @@ export async function getMeta(name, version) {
 
 export async function verifyDist(name, version, dist) {
   assertPackage('verifyDist', name, version)
-  assertDist('verifyDist', name, version, dist)
+  const given = checkedDist('verifyDist', name, version, dist)
   const { integrity } = await getDist('verifyDist', name, version)
-  assert.ok(dist.integrity === integrity, `verifyDist: ${name}@${version} is ${integrity} on the registry, not ${dist.integrity}`)
+  assert.ok(given.integrity === integrity, `verifyDist: ${name}@${version} is ${integrity} on the registry, not ${given.integrity}`)
 }
 
 // Without `dist`, the version document is read every time, cache or not:
@@ -95,8 +98,7 @@ export async function verifyDist(name, version, dist) {
 // than fetching over it.
 export async function getTarball(name, version, dist) {
   assertPackage('getTarball', name, version)
-  if (dist === undefined) dist = await getDist('getTarball', name, version)
-  else assertDist('getTarball', name, version, dist)
+  dist = dist === undefined ? await getDist('getTarball', name, version) : checkedDist('getTarball', name, version, dist)
   const local = await readLocalCaches(name, version, dist.integrity)
   if (local) return local
   const key = `${name}@${version}.tgz`
