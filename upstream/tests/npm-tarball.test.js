@@ -126,14 +126,14 @@ describe('the tarball cache', () => {
   it('files only the bytes, a scoped name in one file', async () => {
     stubRegistry({ name: '@scope/pkg' })
     await getTarball('@scope/pkg', '1.0.0')
-    assert.deepEqual(await readdir(TARBALLS), ['%40scope%2Fpkg%401.0.0.tgz'])
-    assert.deepEqual(new Uint8Array(await readFile(join(TARBALLS, '%40scope%2Fpkg%401.0.0.tgz'))), BYTES)
+    assert.deepEqual(await readdir(TARBALLS), ['@scope+pkg@1.0.0.tgz'])
+    assert.deepEqual(new Uint8Array(await readFile(join(TARBALLS, '@scope+pkg@1.0.0.tgz'))), BYTES)
   })
 
   it('throws on cached bytes that no longer match, rather than fetching over them', async () => {
     stubRegistry()
     await getTarball('pkg', '1.0.0')
-    await writeFile(join(TARBALLS, 'pkg%401.0.0.tgz'), new Uint8Array([...BYTES, 0]))
+    await writeFile(join(TARBALLS, 'pkg@1.0.0.tgz'), new Uint8Array([...BYTES, 0]))
     const calls = stubRegistry()
     await assert.rejects(getTarball('pkg', '1.0.0'), /getTarball: integrity mismatch for pkg@1\.0\.0 from the cache/u)
     assert.deepEqual(calls, [DOC])
@@ -142,8 +142,8 @@ describe('the tarball cache', () => {
   it('takes nothing the cache says about its own bytes', async () => {
     const evil = new Uint8Array([0x1f, 0x8b, 0x66, 0x66])
     await mkdir(TARBALLS, { recursive: true })
-    await writeFile(join(TARBALLS, 'pkg%401.0.0.tgz'), evil)
-    await writeFile(join(TARBALLS, 'pkg%401.0.0.json'), JSON.stringify({ name: 'pkg', version: '1.0.0', integrity: sri(evil) }))
+    await writeFile(join(TARBALLS, 'pkg@1.0.0.tgz'), evil)
+    await writeFile(join(TARBALLS, 'pkg@1.0.0.json'), JSON.stringify({ name: 'pkg', version: '1.0.0', integrity: sri(evil) }))
     stubRegistry()
     await assert.rejects(getTarball('pkg', '1.0.0'), /getTarball: integrity mismatch for pkg@1\.0\.0 from the cache/u)
     globalThis.fetch = () => Promise.reject(new Error('offline'))
@@ -153,7 +153,7 @@ describe('the tarball cache', () => {
   it('fetches again where the bytes are gone, and files them again', async () => {
     stubRegistry()
     await getTarball('pkg', '1.0.0')
-    await rm(join(TARBALLS, 'pkg%401.0.0.tgz'))
+    await rm(join(TARBALLS, 'pkg@1.0.0.tgz'))
     let calls = stubRegistry()
     assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0')), BYTES)
     assert.equal(calls.length, 2)
@@ -205,7 +205,7 @@ describe('the caches of other tools', () => {
     assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0')), BYTES)
     assert.deepEqual(calls, [DOC, tarballUrl('pkg', '1.0.0')])
     assert.deepEqual(new Uint8Array(await readFile(contentPath(NPM_CACHE, BYTES))), other)
-    assert.deepEqual(await readdir(TARBALLS), ['pkg%401.0.0.tgz'])
+    assert.deepEqual(await readdir(TARBALLS), ['pkg@1.0.0.tgz'])
   })
 
   it('passes over what is not a file', async () => {
@@ -218,7 +218,7 @@ describe('the caches of other tools', () => {
 
   it('comes before the cache of setCacheDir', async () => {
     await plant(contentPath(NPM_CACHE, BYTES), BYTES)
-    await plant(join(TARBALLS, 'pkg%401.0.0.tgz'), new Uint8Array([...BYTES, 0]))
+    await plant(join(TARBALLS, 'pkg@1.0.0.tgz'), new Uint8Array([...BYTES, 0]))
     const calls = stubRegistry()
     assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0')), BYTES)
     assert.deepEqual(calls, [DOC])
