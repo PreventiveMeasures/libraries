@@ -78,12 +78,17 @@ describe('lockfile/ imports nothing from outside but what it declares', () => {
   })
 
   // The manifest is published as written, so a `workspace:` specifier would
-  // reach the registry as it is, and a range would take in whatever a
-  // pre-release of the parser changes next. pnpm links the workspace's own
-  // copy while its version is the one pinned.
-  it('pins each dependency to an exact version', () => {
+  // reach the registry as it is. A pre-release is pinned, as the next one
+  // may change its API; a release takes a caret, as semver has it keep its
+  // API until the next major. pnpm links the workspace's own copy while its
+  // version satisfies the specifier.
+  it('pins a pre-release, and takes a release with a caret', () => {
     for (const [name, spec] of Object.entries(manifest.dependencies)) {
-      assert.match(spec, /^\d+\.\d+\.\d+(?:-[\d.A-Za-z-]+)?$/u, `${name} is ${spec}, not an exact version`)
+      const m = /^(\^?)\d+\.\d+\.\d+(-[\d.A-Za-z-]+)?$/u.exec(spec)
+      assert.ok(m !== null, `${name} is ${spec}, not a version or a caret on one`)
+      const [, caret, prerelease] = m
+      if (prerelease === undefined) assert.equal(caret, '^', `${name} is ${spec}: a release takes a caret`)
+      else assert.equal(caret, '', `${name} is ${spec}: a pre-release is pinned`)
     }
   })
 
