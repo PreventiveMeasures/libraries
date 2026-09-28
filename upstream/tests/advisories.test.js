@@ -345,6 +345,16 @@ describe('github', () => {
     })
   })
 
+  it('merges one repository spelled in two cases, under the first spelling', async () => {
+    const calls = stubGitHub({ [OZ]: [advisory('GHSA-aaaa-aaaa-aaaa', [vuln('@openzeppelin/contracts', '< 5.0.0')])] })
+    const found = await advisories([
+      { ecosystem: 'github', name: 'OpenZeppelin/openzeppelin-contracts', versions: ['4.9.0'] },
+      { ecosystem: 'github', name: 'openzeppelin/OpenZeppelin-Contracts', versions: ['4.8.0'] },
+    ], { github })
+    assert.deepEqual(calls, [OZ])
+    assert.deepEqual(found.map(({ name, versions }) => [name, versions]), [['OpenZeppelin/openzeppelin-contracts', ['4.8.0', '4.9.0']]])
+  })
+
   it('takes a branch name or 0.0.0 as every version', async () => {
     stubGitHub({
       [OZ]: [

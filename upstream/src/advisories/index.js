@@ -23,7 +23,9 @@ function collect(packages) {
     for (const version of pkg.versions) assertVersion('advisories', 'package.versions', version)
     assert.ok(pkg.ecosystem !== 'github' || pkg.github === undefined, 'advisories: a github package is its own repository, and takes no package.github')
     const named = byEcosystem.get(pkg.ecosystem) ?? byEcosystem.set(pkg.ecosystem, new Map()).get(pkg.ecosystem)
-    const entry = named.get(pkg.name) ?? named.set(pkg.name, { versions: new Set() }).get(pkg.name)
+    // A repository's name is GitHub's, in any case: the first spelling stands.
+    const name = pkg.ecosystem === 'github' ? [...named.keys()].find((known) => sameName(known, pkg.name)) ?? pkg.name : pkg.name
+    const entry = named.get(name) ?? named.set(name, { versions: new Set() }).get(name)
     assert.ok(pkg.github === undefined || entry.github === undefined || sameName(entry.github, pkg.github), `advisories: ${pkg.name} is given two repositories`)
     entry.github ??= pkg.github
     for (const version of pkg.versions) entry.versions.add(version)
