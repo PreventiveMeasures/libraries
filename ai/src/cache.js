@@ -27,7 +27,7 @@ export function cacheDir() {
 //
 // Re-exported for the callers and tests that have always imported the history helpers from here;
 // they live in cache-history.js now.
-export { dropRequestsAfterFirst, isMaxStringLengthError, stripThinkingSignatures } from './cache-history.js'
+export { nullAfterFirst } from './cache-history.js'
 
 let uniqueRerun
 
@@ -221,9 +221,9 @@ export async function getCached(userContent, opts, { validate } = {}) {
 // hit — so a caller can name the entry it just wrote, so a caller that later scans the cache can
 // recognise its own requests by exact key — fresh writes as well as hits).
 export async function setCache(userContent, result, history, opts) {
-  // Serialise (same slimming + overflow recovery as the partial) before touching disk, so an
-  // unrecoverable overflow throws before we write a dangling `.md` — preserving the all-or-nothing
-  // behaviour from when the caller stringified the history itself.
+  // Serialise (the same slimming as the partial) before touching disk, so an overflow throws
+  // before we write a dangling `.md` — preserving the all-or-nothing behaviour from when the
+  // caller stringified the history itself.
   const json = serializeHistory(history)
   const { dir, key } = await resolveCachePaths(userContent, opts)
   await ensureDir(dir)
