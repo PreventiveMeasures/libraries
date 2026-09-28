@@ -1,0 +1,95 @@
+{
+  "name": "@preventive/upstream",
+  "version": "0.0.0",
+  "description": "Minimal npm registry and GitHub clients, and a git checkout reader: the calls we use, nothing more",
+  "type": "module",
+  "exports": {
+    "./advisories.js": {
+      "types": "./advisories.d.ts",
+      "default": "./advisories.js"
+    },
+    "./github.js": {
+      "types": "./github.d.ts",
+      "default": "./github.js"
+    },
+    "./github/write.js": {
+      "types": "./github/write.d.ts",
+      "default": "./github/write.js"
+    },
+    "./git.js": {
+      "types": "./git.d.ts",
+      "default": "./git.js"
+    },
+    "./npm.js": {
+      "types": "./npm.d.ts",
+      "default": "./npm.js"
+    },
+    "./package.js": {
+      "types": "./package.d.ts",
+      "default": "./package.js"
+    },
+    "./semver.js": {
+      "types": "./semver.d.ts",
+      "default": "./semver.js"
+    }
+  },
+  "files": [
+    "advisories.d.ts",
+    "advisories.js",
+    "github.d.ts",
+    "github.js",
+    "git.d.ts",
+    "git.js",
+    "github/write.d.ts",
+    "github/write.js",
+    "npm.d.ts",
+    "npm.js",
+    "package.d.ts",
+    "package.js",
+    "semver.d.ts",
+    "semver.js",
+    "src/advisories/common.js",
+    "src/advisories/github.js",
+    "src/advisories/index.js",
+    "src/advisories/npm.js",
+    "src/advisories/osv.js",
+    "src/advisories/repos.js",
+    "src/args.js",
+    "src/cache.js",
+    "src/git.js",
+    "src/github/client.js",
+    "src/github/read.js",
+    "src/github/write.js",
+    "src/http.js",
+    "src/npm/repos.js",
+    "src/npm/tarball.js",
+    "src/package.js",
+    "src/pool.js",
+    "src/remote.js",
+    "src/semver.js"
+  ],
+  "engines": {
+    "node": ">=24.14.0"
+  },
+  "scripts": {
+    "test": "node --test ./tests/*.test.js"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Nikita Skovoroda",
+    "email": "chalkerx@gmail.com",
+    "url": "https://github.com/ChALkeR"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PreventiveMeasures/libraries.git",
+    "directory": "upstream"
+  },
+  "bugs": {
+    "url": "https://github.com/PreventiveMeasures/libraries/issues"
+  },
+  "homepage": "https://github.com/PreventiveMeasures/libraries/tree/main/upstream",
+  "publishConfig": {
+    "access": "public"
+  }
+}

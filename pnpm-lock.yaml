@@ -33,6 +33,8 @@ importers:
 
   diff: {}
 
+  upstream: {}
+
   vfs:
     devDependencies:
       '@preventive/archive':

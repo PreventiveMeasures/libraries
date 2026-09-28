@@ -18,5 +18,6 @@ packages:
   - "ai"
   - "diff"
   - "archive"
+  - "upstream"
   - "vfs"
   - "yaml"
