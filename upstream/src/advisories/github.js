@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 
 import { assertRepo, assertion, isGhsa, isRefName, isStrings } from '../args.js'
 import { isGone } from '../github/client.js'
+import { recover } from '../http.js'
 import { pool } from '../pool.js'
 import { valid } from '../semver.js'
 import { covered, inRange, isText, metrics } from './common.js'
@@ -14,10 +15,7 @@ const isRepoAdvisory = (advisory) => advisory && typeof advisory === 'object' &&
 
 export const assertClient = assertion('a GitHub client from createClient', (value) => typeof value?.listRepoAdvisories === 'function')
 
-const listAdvisories = (github, repo) => github.listRepoAdvisories({ repo }).catch((err) => {
-  if (isGone(err)) return []
-  throw err
-})
+const listAdvisories = (github, repo) => github.listRepoAdvisories({ repo }).catch(recover(isGone, []))
 
 // GitHub's `>= 1.0.0, < 1.2.6` is npm's with the commas dropped.
 // Maintainers write these unreviewed: one without a range, or with one

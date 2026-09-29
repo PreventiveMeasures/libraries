@@ -10,3 +10,5 @@ export async function pool(items, limit, fn) {
   }))
   return results
 }
+
+export const chunks = (items, size) => Array.from({ length: Math.ceil(items.length / size) }, (_, i) => items.slice(i * size, (i + 1) * size))

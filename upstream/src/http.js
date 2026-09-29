@@ -40,11 +40,17 @@ export class HttpError extends Error {
   }
 }
 
+export const isNotFound = (err) => err instanceof HttpError && err.status === 404
+export const recover = (expected, value) => (err) => {
+  if (!expected(err)) throw err
+  return value
+}
+
 export function decode(bytes, from) {
   try {
     return decoder.decode(bytes)
-  } catch (err) {
-    throw new Error(`Malformed UTF-8 from ${from}`, { cause: err })
+  } catch (cause) {
+    throw new Error(`Malformed UTF-8 from ${from}`, { cause })
   }
 }
 
@@ -110,7 +116,7 @@ export async function request(url, options) {
   if (options.as === 'text') return text
   try {
     return JSON.parse(text)
-  } catch (err) {
-    throw new Error(`Malformed JSON from ${url}: ${printable(text.slice(0, 200))}`, { cause: err })
+  } catch (cause) {
+    throw new Error(`Malformed JSON from ${url}: ${printable(text.slice(0, 200))}`, { cause })
   }
 }

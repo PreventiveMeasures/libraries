@@ -66,17 +66,11 @@ export function parseGraphQLResponse(status, text) {
     throw new HttpError(status, `GitHub GraphQL ${status}: ${printable(text.slice(0, 4096)) || '(empty body)'}`)
   }
   let json
-  try { json = JSON.parse(text) } catch (err) {
-    throw new Error(`GitHub GraphQL ${status}: malformed JSON response (${err.message}): ${printable(text.slice(0, 200))}`, { cause: err })
+  try { json = JSON.parse(text) } catch (cause) {
+    throw new Error(`GitHub GraphQL ${status}: malformed JSON response (${cause.message}): ${printable(text.slice(0, 200))}`, { cause })
   }
   if (json.errors) throw new Error(`GitHub GraphQL: ${printable(JSON.stringify(json.errors))}`)
   return json.data
-}
-
-// A signed commit; the branch must already exist.
-async function createCommitOnBranch(headers, input) {
-  const res = await send(api(['graphql']), { method: 'POST', headers, body: { query: CREATE_COMMIT_MUTATION, variables: { input } }, as: 'json' })
-  return parseGraphQLResponse(res.status, decode(await readBody(res, 1024 * 1024), 'GitHub GraphQL')).createCommitOnBranch.commit
 }
 
 async function forkRepo(headers, options) {
@@ -93,13 +87,16 @@ async function createBranch(headers, options) {
   return await call(headers, repoApi(repo, ['git', 'refs']), { method: 'POST', body: { ref: `refs/heads/${branch}`, sha } })
 }
 
+// A signed commit; the branch must already exist.
 async function createCommit(headers, options) {
   assertArgs('createCommit', options, { repo: assertRepo, branch: assertRef, message: null, additions: null, deletions: null, expectedHeadOid: optional(assertSha) })
   const { repo, branch } = options
   const changes = fileChanges(options.additions, options.deletions)
   const message = commitMessage(options.message)
   const expectedHeadOid = options.expectedHeadOid ?? (await getRepoHead(headers, { repo, branch })).oid
-  return await createCommitOnBranch(headers, { branch: { repositoryNameWithOwner: repo, branchName: branch }, message, fileChanges: changes, expectedHeadOid })
+  const input = { branch: { repositoryNameWithOwner: repo, branchName: branch }, message, fileChanges: changes, expectedHeadOid }
+  const res = await send(api(['graphql']), { method: 'POST', headers, body: { query: CREATE_COMMIT_MUTATION, variables: { input } }, as: 'json' })
+  return parseGraphQLResponse(res.status, decode(await readBody(res, 1024 * 1024), 'GitHub GraphQL')).createCommitOnBranch.commit
 }
 
 async function createPR(headers, options) {

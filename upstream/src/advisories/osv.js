@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 
 import { assertCrateName, assertCrateVersion, assertion, isGhsa, isStrings, matches, show } from '../args.js'
 import { OSV_API, buildUrl, request } from '../http.js'
-import { pool } from '../pool.js'
+import { chunks, pool } from '../pool.js'
 import { isExactVersion } from '../semver.js'
 import { inRange, isText, metrics, order } from './common.js'
 import { withRepositories } from './github.js'
@@ -77,8 +77,7 @@ async function osvAdvisories(ecosystem, asked, options) {
   const { osv, github, lookUp, covers, keep = () => true } = ecosystem
   const list = [...asked].flatMap(([name, versions]) => versions.map((version) => ({ name, version })))
   const hits = new Map() // id → name → versions, in `list` order
-  for (let i = 0; i < list.length; i += QUERIES_PER_REQUEST) {
-    const chunk = list.slice(i, i + QUERIES_PER_REQUEST)
+  for (const chunk of chunks(list, QUERIES_PER_REQUEST)) {
     const body = { queries: chunk.map(({ name, version }) => ({ package: { name, ecosystem: osv }, version })) }
     const answer = await request(QUERY_URL, { method: 'POST', body, as: 'json' })
     assert.ok(Array.isArray(answer?.results) && answer.results.length === chunk.length, 'advisories: expected one OSV result per query')

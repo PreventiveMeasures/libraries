@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict'
 
 import { assertArgs, assertBoolean, assertPackageName, assertRepo, isRepo, optional, show } from '../args.js'
-import { readCacheJSON, writeCacheJSON } from '../cache.js'
-import { HttpError, NPM_REGISTRY, buildUrl, request } from '../http.js'
+import { readRecord, writeRecord } from '../cache.js'
+import { NPM_REGISTRY, buildUrl, isNotFound, recover, request } from '../http.js'
 import { assertRepoDirectory, getRepo, isRepoDirectory } from '../package.js'
 import { pool } from '../pool.js'
 
 const DIR = 'npm/repos'
-const TTL_MS = 30 * 24 * 60 * 60 * 1000 // A link only moves on a transfer or rename, and GitHub redirects those.
 const CONCURRENCY = 8
 
 // `latest`, not the full packument, which is megabytes of version history.
@@ -28,10 +27,8 @@ export async function getGitHub(name) {
 // at the repo root.
 export async function readPackageRepoCache(name) {
   assertPackageName('readPackageRepoCache', 'name', name)
-  const entry = await readCacheJSON(DIR, `${name}.json`)
-  const age = typeof entry?.at === 'number' ? Date.now() - entry.at : Number.NaN
-  const fresh = age >= 0 && age <= TTL_MS // An entry from the future is not fresh forever.
-  if (!fresh || entry.name !== name || !isRepo(entry.github) || !isRepoDirectory(entry.directory)) return null
+  const entry = await readRecord(DIR, name)
+  if (!isRepo(entry?.github) || !isRepoDirectory(entry.directory)) return null
   return { github: entry.github, ...(entry.directory && { directory: entry.directory }) }
 }
 
@@ -41,7 +38,7 @@ export async function writePackageRepoCache(name, github, directory = '') {
   assertPackageName('writePackageRepoCache', 'name', name)
   assertRepo('writePackageRepoCache', 'github', github)
   assertRepoDirectory('writePackageRepoCache', 'directory', directory)
-  return await writeCacheJSON(DIR, `${name}.json`, { at: Date.now(), name, github, directory })
+  return await writeRecord(DIR, name, { github, directory })
 }
 
 export async function resolvePackageRepos(packageNames, options = {}) {
@@ -58,10 +55,7 @@ export async function resolvePackageRepos(packageNames, options = {}) {
 export async function lookUpPackageRepo(name) {
   const stored = await readPackageRepoCache(name)
   if (stored) return stored
-  const { github, directory } = await fetchRepo('lookUpPackageRepo', name).catch((err) => {
-    if (err instanceof HttpError && err.status === 404) return {}
-    throw err
-  })
+  const { github, directory } = await fetchRepo('lookUpPackageRepo', name).catch(recover(isNotFound, {}))
   if (!github) return null
   await writePackageRepoCache(name, github, directory)
   return { github, ...(directory && { directory }) }
