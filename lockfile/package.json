@@ -1,6 +1,6 @@
 {
   "name": "@preventive/lockfile",
-  "version": "1.0.0-alpha.0",
+  "version": "1.0.0-alpha.1",
   "description": "Strict lockfile reader: pnpm-lock.yaml v9 checked field by field, its packages and graph resolved, and the YAML and TOML parsers it reads by",
   "type": "module",
   "exports": {
