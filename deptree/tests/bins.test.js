@@ -41,8 +41,10 @@ describe('checkPatchOfBins', () => {
   })
 
   const refused = [
-    ['a change to its bins', { 'package.json': JSON.stringify({ ...manifest, bin: { x: 'lib.js' } }) }, /changes the name or bins/u],
-    ['a change to directories.bin', { 'package.json': JSON.stringify({ ...manifest, directories: { bin: 'bin' } }) }, /changes the name or bins/u],
+    ['a change to its bins', { 'package.json': JSON.stringify({ ...manifest, bin: { x: 'lib.js' } }) }, /changes the name, version or bins/u],
+    ['a change to directories.bin', { 'package.json': JSON.stringify({ ...manifest, directories: { bin: 'bin' } }) }, /changes the name, version or bins/u],
+    ['a change to its version, which ranks its commands', { 'package.json': JSON.stringify({ ...manifest, version: '1.0.1' }) }, /changes the name, version or bins/u],
+    ['an engines.runtime that has pnpm look for a Node to run its bins with', { 'package.json': JSON.stringify({ ...manifest, engines: { runtime: { name: 'node', onFail: 'download' } } }) }, /its engines\.runtime has pnpm look for a Node/u],
     ['a bin\'s file removed', { 'cli.js': undefined }, /makes or removes "cli\.js"/u],
     ['a change to a bin with a CRLF #! line', { 'cli.js': '#!/usr/bin/env node\r\nx\n' }, /a bin with a CRLF/u],
     ['package.json removed', { 'package.json': undefined }, /removes package\.json/u],

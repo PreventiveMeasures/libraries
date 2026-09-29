@@ -366,11 +366,11 @@ function fixedFiles(nodes, fixed, contested) {
 }
 
 // Every path the package at `node` and those it bundles name as bins,
-// relative to it, whether pnpm links them or not, where its files are
-// `files`.
-function binPaths(node, files, major) {
+// relative to it, whether pnpm links them or not, where its package.json
+// is `manifest` and its files are `files`.
+function binPaths(node, manifest, files, major) {
   const where = quote(node.key)
-  const commands = [...commandsOf(node.dir, node.manifest, files, node.dir, where, major), ...bundledCommands({ ...node, files }, where, major)]
+  const commands = [...commandsOf(node.dir, manifest, files, node.dir, where, major), ...bundledCommands({ ...node, files }, where, major)]
   return new Set(commands.map(({ target }) => target.slice(node.dir.length + 1)))
 }
 
@@ -399,19 +399,21 @@ export function fixBin(file, where) {
   return { data, mode: 0o755 }
 }
 
-const BIN_FIELDS = (manifest) => JSON.stringify([manifest.name, manifest.bin, manifest.directories?.bin])
+const BIN_FIELDS = (manifest) => JSON.stringify([manifest.name, manifest.version, manifest.bin, manifest.directories?.bin])
 
 // A patch is applied between two times its package's bins are linked,
 // so it may not change what either does: `patched` is the package's files
-// with the patch applied, `targets` those that fixBin is run on. It gives
-// back the package's package.json, patched, as parsed.
+// with the patch applied, `targets` those that fixBin is run on. pnpm
+// reads package.json again after it, for the name and version a command
+// is taken by as well as the bins. It gives back the package's
+// package.json, patched, as parsed.
 export function checkPatchOfBins(node, patched, targets, where, major) {
   const file = patched.get('package.json')
   if (file?.data === undefined) throw new DeptreeError('the patch removes package.json', where)
   const manifest = file.data === node.files.get('package.json').data ? node.manifest : parseManifest(file, where)
-  if (BIN_FIELDS(manifest) !== BIN_FIELDS(node.manifest)) throw new DeptreeError('the patch changes the name or bins package.json gives, which pnpm reads both before and after it', where)
-  const wasBin = binPaths(node, node.files, major)
-  const isBin = binPaths(node, patched, major)
+  if (BIN_FIELDS(manifest) !== BIN_FIELDS(node.manifest)) throw new DeptreeError('the patch changes the name, version or bins package.json gives, which pnpm reads both before and after it', where)
+  const wasBin = binPaths(node, node.manifest, node.files, major)
+  const isBin = binPaths(node, manifest, patched, major)
   for (const path of new Set([...wasBin, ...isBin])) {
     if (wasBin.has(path) !== isBin.has(path)) throw new DeptreeError(`the patch changes whether ${quote(path)} is a bin, which pnpm reads both before and after it`, where)
     if ((node.files.get(path)?.data !== undefined) !== (patched.get(path)?.data !== undefined)) {
