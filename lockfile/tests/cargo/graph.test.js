@@ -210,9 +210,10 @@ describe('resolveCargoFeatures', () => {
     assert.throws(() => resolveCargoFeatures(twice(', optional = true'), { packages: ['app 0.1.0'], features: ['bb'], host: HOST }), refusedWith(message))
   })
 
-  // c twice, for no platform and as a Windows dev-dependency: only a test
-  // built for Windows depends on it, which a proc-macro's is not.
-  it('refuses two names where only a test depends on the package, and not where no test built for that platform does', () => {
+  // c twice, for no platform and as a Windows dev-dependency, or a
+  // build-dependency: only a test built for Windows depends on it, which a
+  // proc-macro's is not, or the build script.
+  it('refuses two names where only a test or a build script depends on the package, and not where no test built for that platform does', () => {
     const lock = LOCK.replace('dependencies = ["a", "b 1.0.0", "b 2.0.0"]', 'dependencies = ["a", "b 1.0.0", "b 2.0.0", "c"]')
     const deps = '\n[target.\'cfg(any())\'.dependencies]\ncc = { package = "c", version = "1" }\n\n[target.\'cfg(windows)\'.dev-dependencies]\ncd = { package = "c", version = "1" }\n'
     const windows = { packages: ['app 0.1.0'], host: HOST, targets: [{ name: 'x86_64-pc-windows-msvc', cfg: ['windows', 'target_os="windows"'] }] }
@@ -221,6 +222,8 @@ describe('resolveCargoFeatures', () => {
     assert.throws(() => resolveCargoFeatures(lib, { ...windows, dev: true }), refusedWith(`app 0.1.0: depends on "${C}" as both "cd" and "cc", which cargo refuses to build`))
     const macro = link({ lock, change: { 'app 0.1.0': `${MANIFESTS['app 0.1.0']}${deps}\n[lib]\nproc-macro = true\n` } })
     assert.equal(resolveCargoFeatures(macro, { ...windows, dev: true })['app 0.1.0'].host.length, 0)
+    const script = link({ lock, change: { 'app 0.1.0': `${MANIFESTS['app 0.1.0']}${deps.replace("[target.'cfg(windows)'.dev-dependencies]", '[build-dependencies]')}` } })
+    assert.throws(() => resolveCargoFeatures(script, { packages: ['app 0.1.0'], host: HOST }), refusedWith(`app 0.1.0: depends on "${C}" as both "cd" and "cc", which cargo refuses to build`))
   })
 
   const refused = [

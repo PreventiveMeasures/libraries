@@ -279,14 +279,14 @@ class FeatureResolver {
   // packages features that are not built; each package built has its
   // features whatever the resolver.
   //
-  // Where a crate the build is sure to compile depends on one package by two
-  // names, cargo refuses to build it: a member's library or binary, and its
-  // tests where dev targets are built, for the host where it is a
-  // proc-macro, and what they depend on, but by build-dependencies, which
-  // only a build script a filesystem tells of uses.
+  // Where a crate the build compiles depends on one package by two names,
+  // cargo refuses to build it; that is looked for from each member's library
+  // or binary, and its tests where dev targets are built, for the host where
+  // it is a proc-macro, and not from what is listed for the target in case
+  // a proc-macro has more targets.
   result(built) {
     const libraries = built.map((key) => [key, this.graph.packages[key].manifest.procMacro ? 'host' : 'normal'])
-    this.reach(libraries, (key, dep) => dep.kind !== 'build' && this.checkNamed(key, dep))
+    this.reach(libraries, (key, dep) => this.checkNamed(key, dep))
     const reached = this.reach(built.flatMap((key) => this.kindsOf(key).map((fk) => [key, fk])), () => true)
     const result = Object.create(null)
     for (const key of Object.keys(this.graph.packages)) {

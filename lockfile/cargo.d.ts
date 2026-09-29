@@ -214,11 +214,10 @@ export interface CargoLinkedDependency extends CargoDependency {
 // no build script; and what a member depends on, though it may have no
 // library or binary for `cargo build` to build.
 //
-// Refused, as cargo refuses to build it: a crate the build is sure to
-// compile, a member's library or binary, its tests where dev targets are
-// built, and what they depend on but by build-dependencies, that depends on
-// one package by two names, `-` read as `_`, where the build turns both on,
-// of any kind or platform.
+// Refused, as cargo refuses to build it: a crate listed, but for a
+// proc-macro member for the target and what only that reaches, that depends
+// on one package by two names, `-` read as `_`, where the build turns both
+// on, of any kind or platform.
 export function resolveCargoFeatures(graph: CargoGraph, build: CargoBuild): Record<string, { normal: string[] | undefined, host: string[] | undefined }>
 
 // The host is what `rustc -vV` calls it and `rustc --print cfg` prints for
