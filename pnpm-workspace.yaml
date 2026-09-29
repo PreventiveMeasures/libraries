@@ -18,6 +18,7 @@ packages:
   - "ai"
   - "diff"
   - "archive"
+  - "deptree"
   - "lockfile"
   - "upstream"
   - "vfs"

@@ -1,0 +1,270 @@
+// How each setting pnpm reads is read: by its name, as pnpm-workspace.yaml
+// spells it, its kind and what it is held to (READ, READ_11), or passed
+// over as leaving the tree as it is (IGNORED, IGNORED_11); a name that is
+// neither is refused, as is a value read that is not one built for.
+
+import { valid } from '@preventive/upstream/semver.js'
+import { DeptreeError, quote } from '../error.js'
+import { REGISTRY } from '../tarball.js'
+
+export const readers = {
+  boolean(value, where) {
+    if (typeof value === 'boolean') return value
+    if (value === 'true' || value === 'false') return value === 'true'
+    throw new DeptreeError(`expected true or false, found ${show(value)}`, where)
+  },
+  count(value, where) {
+    const number = typeof value === 'string' && /^\d{1,9}$/u.test(value) ? Number(value) : value
+    if (Number.isSafeInteger(number) && number > 0) return number
+    throw new DeptreeError(`expected a positive integer, found ${show(value)}`, where)
+  },
+  text(value, where) {
+    if (typeof value === 'string') return value
+    throw new DeptreeError(`expected a string, found ${show(value)}`, where)
+  },
+  // A list: a string alone is a list of it, as pnpm reads a hoist pattern.
+  texts(value, where) {
+    return readers.list(typeof value === 'string' ? [value] : value, where, 'a string or a list of strings')
+  },
+  // A list, and only a list: pnpm fails on a string alone where it sorts or
+  // maps the value.
+  list(value, where, expected = 'a list of strings') {
+    if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) throw new DeptreeError(`expected ${expected}, found ${show(value)}`, where)
+    return [...value]
+  },
+  // pnpm-workspace.yaml's `packages`, which pnpm holds to a list of
+  // non-empty strings.
+  globs(value, where) {
+    if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || item === '')) throw new DeptreeError(`expected a list of non-empty strings, found ${show(value)}`, where)
+    return [...value]
+  },
+  mapping(value, where) {
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) return value
+    throw new DeptreeError(`expected a mapping, found ${show(value)}`, where)
+  },
+  onFail(value, where) {
+    if (ON_FAIL.has(value)) return value
+    throw new DeptreeError(`expected one of ${[...ON_FAIL].join(', ')}, found ${show(value)}`, where)
+  },
+  linkWorkspacePackages(value, where) {
+    return value === 'deep' ? true : readers.boolean(value, where)
+  },
+  // true or false, or what to read and write, and a remote cache, which is
+  // refused.
+  sideEffectsCache(value, where) {
+    if (typeof value === 'boolean') return value
+    if (readers.mapping(value, where).remote != null) never('what a build left in a remote cache is not restored here')(value.remote, `${where}.remote`)
+    return value
+  },
+  // By project name, or as a list each with the names it matches: what
+  // pnpm 11 takes for a project that pnpm 10 took from its own .npmrc. Of
+  // those, where to save and how is all that leaves the tree as it is.
+  packageConfigs(value, where) {
+    const configs = Array.isArray(value) ? value.map((item, i) => [i, item]) : Object.entries(readers.mapping(value, where))
+    for (const [key, config] of configs) {
+      const here = `${where}[${quote(String(key))}]`
+      for (const field of Object.keys(readers.mapping(config, here))) {
+        if (field === 'saveExact' || field === 'savePrefix' || (field === 'match' && Array.isArray(value))) continue
+        throw new DeptreeError(`${quote(field)} is not supported: of a project's settings, only saveExact and savePrefix are read`, here)
+      }
+    }
+    return value
+  },
+}
+
+const ON_FAIL = new Set(['download', 'error', 'warn', 'ignore'])
+
+const show = (value) => (typeof value === 'string' ? quote(value) : Array.isArray(value) ? 'a list' : value === null ? 'null' : typeof value === 'object' ? 'a mapping' : String(value))
+
+// Read, and held to one value: the default, or the only one built for.
+const only = (kind, wanted, why) => ({ kind, check: (value, where) => {
+  if (value !== wanted) throw new DeptreeError(`${show(value)} is not supported: ${why}`, where)
+} })
+
+// Read, and refused whatever it is.
+const never = (why) => (value, where) => {
+  throw new DeptreeError(`${show(value)} is not supported: ${why}`, where)
+}
+
+export const READ = {
+  __proto__: null,
+  nodeLinker: only('text', 'isolated', 'only the isolated node_modules layout is built'),
+  symlink: only('boolean', true, 'a tree without its links is not built'),
+  enableModulesDir: only('boolean', true, 'a tree without node_modules is not built'),
+  modulesDir: only('text', 'node_modules', 'the modules directory is always node_modules'),
+  virtualStoreDir: only('text', 'node_modules/.pnpm', 'the virtual store is always node_modules/.pnpm'),
+  enableGlobalVirtualStore: only('boolean', false, 'a global virtual store is not built'),
+  dedupeDirectDeps: only('boolean', false, 'direct dependencies are linked into every project'),
+  injectWorkspacePackages: only('boolean', false, 'workspace packages are linked, never injected'),
+  excludeLinksFromLockfile: only('boolean', false, 'links left out of the lockfile would be left out of the tree'),
+  sharedWorkspaceLockfile: only('boolean', true, 'one lockfile is read for the whole workspace'),
+  lockfile: only('boolean', true, 'the tree is the lockfile\'s'),
+  packageLock: only('boolean', true, 'the tree is the lockfile\'s'),
+  optional: only('boolean', true, 'optional dependencies are installed'),
+  production: only('boolean', false, 'devDependencies are installed'),
+  dev: only('boolean', false, 'dependencies are installed'),
+  ignorePatchFailures: { ...only('boolean', false, 'a patch that does not apply is an error'), rc: false },
+  force: only('boolean', false, 'optional packages the host cannot run are left out'),
+  recursiveInstall: only('boolean', true, 'every project is installed'),
+  ignoreWorkspace: only('boolean', false, 'the workspace is installed as one'),
+  shamefullyFlatten: only('boolean', false, 'its old name is not read for shamefullyHoist'),
+  gitBranchLockfile: only('boolean', false, 'the lockfile is the one given'),
+  mergeGitBranchLockfiles: only('boolean', false, 'the lockfile is the one given'),
+  mergeGitBranchLockfilesBranchPattern: { kind: 'texts', check: never('the lockfile is the one given') },
+  lockfileDir: { kind: 'text', check: never('the lockfile is the one given, at the root of the tree') },
+  lockfileDirectory: { kind: 'text', check: never('the lockfile is the one given, at the root of the tree') },
+  only: { kind: 'text', check: never('dependencies and devDependencies are both installed') },
+  filter: { kind: 'texts', check: never('every project is installed') },
+  filterProd: { kind: 'texts', check: never('every project is installed') },
+  useNodeVersion: { kind: 'text', check: never('the Node a tree is built for is the host\'s, or nodeVersion') },
+  globalPnpmfile: { kind: 'text', check: never('a pnpmfile\'s hooks are not run here') },
+  registry: { kind: 'text', check: checkRegistry },
+  virtualStoreDirMaxLength: { kind: 'count' },
+  hoist: { kind: 'boolean' },
+  hoistPattern: { kind: 'texts' },
+  publicHoistPattern: { kind: 'texts' },
+  shamefullyHoist: { kind: 'boolean' },
+  hoistWorkspacePackages: { kind: 'boolean' },
+  engineStrict: { kind: 'boolean' },
+  nodeVersion: { kind: 'text', check: checkNodeVersion },
+  autoInstallPeers: { kind: 'boolean' },
+  dedupePeers: { kind: 'boolean' },
+  peersSuffixMaxLength: { kind: 'count' },
+  // Neither pnpm's .npmrc nor ours has these.
+  supportedArchitectures: { kind: 'mapping', check: checkArchitectures, rc: false },
+  patchedDependencies: { kind: 'mapping', check: checkPatches, rc: false },
+  overrides: { kind: 'mapping', rc: false },
+  catalog: { kind: 'mapping', check: checkCatalog, rc: false },
+  catalogs: { kind: 'mapping', check: checkCatalogs, rc: false },
+  packageExtensions: { kind: 'mapping', rc: false },
+  ignoredOptionalDependencies: { kind: 'list', rc: false },
+  packages: { kind: 'globs', rc: false },
+}
+
+// What pnpm 11 reads that pnpm 10 has not, or reads otherwise.
+const READ_11 = {
+  __proto__: null,
+  virtualStoreType: only('text', 'project', 'a global virtual store is not built'),
+  virtualStoreOnly: only('boolean', false, 'a tree without its projects\' links is not built'),
+  nodeExperimentalPackageMap: only('boolean', false, 'node_modules/.package-map.json is not written'),
+  registries: { kind: 'mapping', check: checkRegistries },
+  namedRegistries: { kind: 'mapping', check: (value, where) => Object.keys(value).length === 0 || never('packages are fetched from the public registry alone')(value, where) },
+  remoteSideEffectsCache: { kind: 'mapping', check: never('what a build left in a remote cache is not restored here') },
+  sideEffectsCache: { kind: 'sideEffectsCache' },
+  packageConfigs: { kind: 'packageConfigs' },
+  pmOnFail: { kind: 'onFail' },
+  runtimeOnFail: { kind: 'onFail' },
+  linkWorkspacePackages: { kind: 'linkWorkspacePackages' },
+}
+
+// What pnpm 11 has that leaves the tree as it is. The tree follows the
+// lockfile, as pnpm 11's does with trustLockfile: minimumReleaseAge and the
+// rest of what pnpm 11 checks the lockfile against the registry by before
+// it installs — each package's publish time, its tarball URL, its trust —
+// are passed over.
+const IGNORED_11 = new Set([
+  'minimumReleaseAgeIgnoreMissingTime', 'minimumReleaseAgeStrict', 'minimumReleaseAgeExcludePrune', 'trustLockfile',
+  'trustPolicy', 'trustPolicyExclude', 'trustPolicyExcludePrune', 'trustPolicyIgnoreAfter', 'pnprServer',
+  'fetchMinSpeedKiBps', 'fetchWarnTimeoutMs', 'fetchingConcurrency', 'gitShallowHosts', 'npmrcAuthFile', 'nodeDownloadMirrors',
+  'frozenStore', 'globalVirtualStoreDir', 'dlxCacheMaxAge', 'optimisticRepeatInstall', 'forceIgnoresPlatform',
+  'audit', 'auditLevel', 'update', 'tasks', 'versioning', 'patchesDir', 'syncInjectedDepsAfterScripts', 'nodePackageMapType',
+  // a patch that does not apply is always an error in pnpm 11
+  'ignorePatchFailures',
+  // passed over in a project's pnpm-workspace.yaml
+  'configDir', 'globalBinDir', 'globalDir', 'globalPkgDir', 'pnpmHomeDir', 'stateDir', 'userconfig', 'bin', 'dir',
+  'rootProjectManifestDir', 'workspaceDir', 'authConfig', 'userConfig', 'configByUri', 'packageManagerNetworkConfig',
+  'packageManagerRegistries', 'scope', 'hooks', 'finders', 'allProjects', 'selectedProjectsGraph', 'allProjectsGraph',
+  'prodAllProjectsGraph', 'prodOnlySelectedProjectDirs', 'rootProjectManifest', 'enginePinManifest',
+  'nodeVersionFromEnginesRuntime', 'cliOptions', 'explicitlySetKeys', 'packageManager', 'wantedPackageManager',
+])
+
+// The keys of the root package.json's `pnpm` field pnpm 10 reads; it
+// passes over any other there.
+export const MANIFEST_KEYS = [
+  'allowBuilds', 'allowNonAppliedPatches', 'allowUnusedPatches', 'allowedDeprecatedVersions', 'auditConfig',
+  'configDependencies', 'executionEnv', 'ignorePatchFailures', 'ignoredBuiltDependencies', 'ignoredOptionalDependencies',
+  'neverBuiltDependencies', 'onlyBuiltDependencies', 'onlyBuiltDependenciesFile', 'overrides', 'packageExtensions',
+  'patchedDependencies', 'peerDependencyRules', 'requiredScripts', 'supportedArchitectures', 'updateConfig',
+]
+
+// Settings that leave the tree as it is. Resolution is done: the lockfile
+// is what these made of the manifests, and a frozen install holds it to
+// none of them (uptodate.js has those it does). Fetching goes to the public
+// registry alone, through @preventive/upstream, so the network and its
+// credentials are its own; the store, caches and state live outside
+// node_modules; bins are never written here, and scripts never run, as
+// with --ignore-scripts, whatever a setting would allow to build.
+export const IGNORED = new Set([
+  // resolution, already in the lockfile
+  'allowNonAppliedPatches', 'allowUnusedPatches', 'allowedDeprecatedVersions', 'blockExoticSubdeps', 'catalogMode',
+  'dedupeInjectedDeps', 'dedupePeerDependents', 'linkWorkspacePackages', 'lockfileIncludeTarballUrl',
+  'minimumReleaseAge', 'minimumReleaseAgeExclude', 'peerDependencyRules', 'preferWorkspacePackages',
+  'registrySupportsTimeField', 'resolutionMode', 'resolvePeersFromWorkspaceRoot', 'saveExact', 'savePrefix',
+  'saveWorkspaceProtocol', 'strictPeerDependencies',
+  // the network, and credentials for it
+  'alwaysAuth', 'ca', 'cafile', 'cert', 'email', 'fetchRetries', 'fetchRetryFactor', 'fetchRetryMaxtimeout',
+  'fetchRetryMintimeout', 'fetchTimeout', 'httpProxy', 'httpsProxy', 'key', 'localAddress', 'maxsockets',
+  'networkConcurrency', 'noProxy', 'noproxy', 'offline', 'preferOffline', 'proxy', 'strictSsl', 'userAgent',
+  // the store, caches and state, none of it in node_modules
+  'cacheDir', 'modulesCacheMaxAge', 'packageImportMethod', 'sideEffectsCache', 'sideEffectsCacheReadonly',
+  'stateDir', 'storeDir', 'strictStorePkgContentCheck', 'verifyStoreIntegrity',
+  // scripts, which are not run, and bins, which are not written
+  'allowBuilds', 'childConcurrency', 'dangerouslyAllowAllBuilds', 'enablePrePostScripts', 'extendNodePath',
+  'ignoreDepScripts', 'ignoreScripts', 'ignoredBuiltDependencies', 'neverBuiltDependencies', 'nodeOptions',
+  'onlyBuiltDependencies', 'onlyBuiltDependenciesFile', 'preferSymlinkedExecutables', 'scriptShell',
+  'shellEmulator', 'strictDepBuilds', 'unsafePerm', 'verifyDepsBeforeRun',
+  // how the command runs, and what other commands read
+  'auditConfig', 'bail', 'ci', 'color', 'executionEnv', 'ignoreWorkspaceRootCheck', 'loglevel',
+  'reporter', 'requiredScripts', 'updateConfig', 'updateNotifier', 'useBetaCli', 'workspaceConcurrency',
+  // an install here is always frozen, whatever these say
+  'frozenLockfile', 'preferFrozenLockfile',
+  // the root package.json's packageManager is always held to be host.pnpm
+  'managePackageManagerVersions', 'packageManagerStrict', 'packageManagerStrictVersion',
+])
+
+export function checkRegistry(value, where) {
+  if ((value.endsWith('/') ? value : `${value}/`) !== REGISTRY) throw new DeptreeError(`${quote(value)} is not supported: packages are fetched from ${REGISTRY} alone`, where)
+}
+
+// pnpm 11's registries: by scope, or `default`, the registry's URL.
+function checkRegistries(value, where) {
+  for (const [scope, url] of Object.entries(value)) checkRegistry(readers.text(url, `${where}.${scope}`), `${where}.${scope}`)
+}
+
+function checkNodeVersion(value, where) {
+  if (valid(value) === null) throw new DeptreeError(`${quote(value)} is not an exact version`, where)
+}
+
+const ARCHITECTURES = new Set(['os', 'cpu', 'libc'])
+function checkArchitectures(value, where) {
+  for (const [key, list] of Object.entries(value)) {
+    if (!ARCHITECTURES.has(key)) throw new DeptreeError(`unsupported key ${quote(key)}`, where)
+    readers.list(list, `${where}.${key}`)
+  }
+}
+
+// A catalog: by name, the specifier it gives the package.
+function checkCatalog(value, where) {
+  for (const [name, spec] of Object.entries(value)) readers.text(spec, `${where}.${name}`)
+}
+
+function checkCatalogs(value, where) {
+  for (const [name, catalog] of Object.entries(value)) checkCatalog(readers.mapping(catalog, `${where}.${name}`), `${where}.${name}`)
+}
+
+// What reads a setting for pnpm of `major`, or undefined for one that
+// leaves the tree as it is; one that is neither is refused.
+export function readerOf(name, where, major) {
+  if (major >= 11 && name in READ_11) return READ_11[name]
+  if (IGNORED.has(name) || (major >= 11 && IGNORED_11.has(name))) return undefined
+  if (!(name in READ)) throw new DeptreeError('unsupported setting', where)
+  return READ[name]
+}
+
+// By selector, the patch file, relative to the workspace's directory.
+function checkPatches(value, where) {
+  for (const [selector, path] of Object.entries(value)) {
+    const here = `${where}[${quote(selector)}]`
+    if (readers.text(path, here).startsWith('/')) throw new DeptreeError('an absolute patch path is not supported', here)
+  }
+}
