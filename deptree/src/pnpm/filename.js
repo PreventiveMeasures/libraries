@@ -10,6 +10,7 @@
 // space as well; a snapshot of the registry never ends in either, but the
 // hash is the reason this is pnpm 10's and no other's.
 
+import { quote } from '../error.js'
 import { sha256Hex } from '../hash.js'
 
 const HASHED = 33 // `_` and 32 hex characters
@@ -18,5 +19,5 @@ export async function depPathToFilename(depPath, maxLength) {
   let filename = depPath.replace(/[\\/:*?"<>|#]/gu, '+')
   if (filename.includes('(')) filename = filename.replace(/\)$/u, '').replace(/\)\(|\(|\)/gu, '_')
   if (filename.length <= maxLength && filename === filename.toLowerCase()) return filename
-  return `${filename.slice(0, Math.max(maxLength - HASHED, 0))}_${(await sha256Hex(filename)).slice(0, 32)}`
+  return `${filename.slice(0, Math.max(maxLength - HASHED, 0))}_${(await sha256Hex(filename, quote(depPath))).slice(0, 32)}`
 }

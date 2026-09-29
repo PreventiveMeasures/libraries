@@ -95,7 +95,7 @@ async function readPatches(lockfile, settings, given) {
   for (const [path, text] of given) {
     const named = byPath.get(path)
     if (named === undefined) throw new DeptreeError('the lockfile names no patch by this path', `patches[${quote(path)}]`)
-    const hash = await sha256Hex(text.replaceAll('\r\n', '\n'))
+    const hash = await sha256Hex(text.replaceAll('\r\n', '\n'), `patches[${quote(path)}]`)
     for (const { hash: wanted, where } of named) {
       if (hash !== wanted) throw new DeptreeError(`the patch given hashes to ${hash}`, where)
     }

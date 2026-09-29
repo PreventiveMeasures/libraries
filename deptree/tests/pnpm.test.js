@@ -246,6 +246,7 @@ describe('buildPnpmTree refuses', () => {
     await refuses({ patches: {} }, /^"p@1\.0\.0\(patch_hash=[\da-f]+\)": the patch [\da-f]+ is not given/u)
     await refuses({ patches: { 'patches/p.patch': `${PATCH} ` } }, /^patchedDependencies\["p@1\.0\.0"\]: the patch given hashes to/u)
     await refuses({ patches: { 'patches/q.patch': PATCH } }, /^patches\["patches\/q\.patch"\]: the lockfile names no patch by this path/u)
+    await refuses({ patches: { 'patches/p.patch': `${PATCH}\uDC00` } }, /^patches\["patches\/p\.patch"\]: expected well-formed text to hash$/u)
     await refuses({ workspace: 'patchedDependencies:\n  p@1.0.0: other.patch\n' }, /pnpm-workspace\.yaml does not name this patch by this path/u)
   })
 

@@ -22,6 +22,12 @@ describe('depPathToFilename', () => {
     })
   }
 
+  // TextEncoder writes a lone surrogate as U+FFFD, so it would hash as
+  // another key does.
+  it('refuses to hash a key that is not well-formed text', async () => {
+    await assert.rejects(depPathToFilename('A@1.0.0(\uD800)', 120), /^DeptreeError: "A@1\.0\.0\(\\ud800\)": expected well-formed text to hash$/u)
+  })
+
   it('cuts a long one to the length, hash included', async () => {
     const dir = await depPathToFilename(`a@1.0.0(${'b'.repeat(200)}@1.0.0)`, 120)
     assert.equal(dir.length, 120)
