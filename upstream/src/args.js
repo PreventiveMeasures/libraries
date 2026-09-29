@@ -70,3 +70,7 @@ export const assertUserAgent = assertion('a printable user agent', matches(/^[ -
 export const assertPackageName = assertion('an npm package name', isPackageName)
 export const assertPackageVersion = assertion('an exact semver version', isExactVersion)
 export const assertGhsa = assertion('a GHSA id', isGhsa)
+export const assertCrateName = assertion('a crate name', matches(/^[A-Za-z][\w-]{0,63}$/u))
+export const assertCrateVersion = assertion('a semver version', matches(/^(?=.{5,256}$)(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][\dA-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][\dA-Za-z-]*))*)?(?:\+[\dA-Za-z-]+(?:\.[\dA-Za-z-]+)*)?$/u))
+// As Cargo.lock and soldeer.lock write a checksum.
+export const assertSha256 = assertion('a sha256 in lowercase hex', matches(/^[\da-f]{64}$/u))

@@ -11,9 +11,13 @@ export const GITHUB_API = 'https://api.github.com'
 export const OSV_API = 'https://api.osv.dev'
 export const CRATES_API = 'https://crates.io'
 export const PACKAGIST_REPO = 'https://repo.packagist.org'
+export const CRATES_INDEX = 'https://index.crates.io'
+export const CRATES_STATIC = 'https://static.crates.io'
+export const SOLDEER_API = 'https://api.soldeer.xyz'
+export const SOLDEER_REVISIONS = 'https://soldeer-revisions.s3.amazonaws.com'
 export const MAX_BYTES = 512 * 1024 * 1024
 
-const ORIGINS = new Set([NPM_REGISTRY, GITHUB_API, OSV_API, CRATES_API, PACKAGIST_REPO])
+const ORIGINS = new Set([NPM_REGISTRY, GITHUB_API, OSV_API, CRATES_API, PACKAGIST_REPO, CRATES_INDEX, CRATES_STATIC, SOLDEER_API, SOLDEER_REVISIONS])
 const isSegment = matches(/^(?!\.\.?$)(?:[\w.~@-]|%[\dA-F]{2})+$/u)
 const isQueryKey = matches(/^[a-z_]+(?:\[\])?$/u)
 const isQueryValue = (value) => (typeof value === 'string' && value !== '') || (Number.isSafeInteger(value) && value >= 0)

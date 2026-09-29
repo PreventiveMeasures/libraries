@@ -13,8 +13,9 @@
 // The directory is trusted: a package's repo is answered from it as it
 // was written, with no request. Point it only at storage that nothing
 // less trusted than the caller can write, never a cache shared with or
-// restored from lower-trust jobs. Tarballs don't rely on this, since they
-// are checked against the registry's integrity on every call.
+// restored from lower-trust jobs. Tarballs, crates (cargo.js) and zips
+// (soldeer.js) don't rely on this, since they are checked against their
+// integrity on every call.
 export function setCacheDir(dir: string): void
 
 // A failed request: `status` is the HTTP status the registry answered

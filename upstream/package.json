@@ -1,12 +1,16 @@
 {
   "name": "@preventive/upstream",
   "version": "1.0.0-alpha.0",
-  "description": "Minimal npm registry and GitHub clients, and a git checkout reader: the calls we use, nothing more",
+  "description": "Minimal npm, crates.io and Soldeer registry clients, a GitHub client, and a git checkout reader: the calls we use, nothing more",
   "type": "module",
   "exports": {
     "./advisories.js": {
       "types": "./advisories.d.ts",
       "default": "./advisories.js"
+    },
+    "./cargo.js": {
+      "types": "./cargo.d.ts",
+      "default": "./cargo.js"
     },
     "./github.js": {
       "types": "./github.d.ts",
@@ -31,11 +35,17 @@
     "./semver.js": {
       "types": "./semver.d.ts",
       "default": "./semver.js"
+    },
+    "./soldeer.js": {
+      "types": "./soldeer.d.ts",
+      "default": "./soldeer.js"
     }
   },
   "files": [
     "advisories.d.ts",
     "advisories.js",
+    "cargo.d.ts",
+    "cargo.js",
     "github.d.ts",
     "github.js",
     "git.d.ts",
@@ -48,6 +58,8 @@
     "package.js",
     "semver.d.ts",
     "semver.js",
+    "soldeer.d.ts",
+    "soldeer.js",
     "src/advisories/common.js",
     "src/advisories/github.js",
     "src/advisories/index.js",
@@ -56,6 +68,8 @@
     "src/advisories/repos.js",
     "src/args.js",
     "src/cache.js",
+    "src/cargo.js",
+    "src/download.js",
     "src/git.js",
     "src/github/client.js",
     "src/github/read.js",
@@ -66,7 +80,8 @@
     "src/package.js",
     "src/pool.js",
     "src/remote.js",
-    "src/semver.js"
+    "src/semver.js",
+    "src/soldeer.js"
   ],
   "engines": {
     "node": ">=24.14.0"
