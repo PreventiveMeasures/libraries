@@ -118,6 +118,8 @@ describe('readSettings', () => {
     assert.deepEqual(read({ manifest }).ignoredOptionalDependencies, ['x'])
     assert.deepEqual(read({ manifest, workspace: 'supportedArchitectures:\n  os: [linux]\n' }).supportedArchitectures.os, ['current', 'darwin'])
     assert.deepEqual(read({ workspace: 'supportedArchitectures:\n  os: [linux]\n' }).supportedArchitectures.os, ['linux'])
+    // A hoist pattern alone is a list of it, as pnpm reads one.
+    assert.deepEqual(read({ workspace: 'hoistPattern: color-*\npublicHoistPattern: eslint\n' }), { ...DEFAULTS, hoistPattern: ['color-*'], publicHoistPattern: ['eslint'] })
     assert.throws(() => read({ manifest: { pnpm: { configDependencies: {} } } }), /^DeptreeError: package\.json: pnpm\.configDependencies: unsupported setting$/u)
   })
 
@@ -146,6 +148,10 @@ describe('readSettings', () => {
     [{ workspace: 'virtualStoreDirMaxLength: 0\n' }, /expected a positive integer/u],
     [{ workspace: 'enableGlobalVirtualStore: true\n' }, /a global virtual store is not built/u],
     [{ workspace: 'supportedArchitectures:\n  arch: [x64]\n' }, /unsupported key "arch"/u],
+    // A string alone where pnpm maps or sorts a list, which pnpm fails on.
+    [{ workspace: 'supportedArchitectures:\n  os: darwin\n' }, /^pnpm-workspace\.yaml: supportedArchitectures\.os: expected a list of strings, found "darwin"$/u],
+    [{ manifest: { pnpm: { supportedArchitectures: { cpu: 'arm64' } } } }, /^package\.json: pnpm\.supportedArchitectures\.cpu: expected a list of strings/u],
+    [{ workspace: 'ignoredOptionalDependencies: x\n' }, /^pnpm-workspace\.yaml: ignoredOptionalDependencies: expected a list of strings, found "x"$/u],
     [{ workspace: 'nodeVersion: "20"\n' }, /"20" is not an exact version/u],
     [{ workspace: 'patchedDependencies:\n  a@1.0.0: /abs.patch\n' }, /an absolute patch path is not supported/u],
     [{ npmrc: 'production=true\n' }, /devDependencies are installed/u],

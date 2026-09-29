@@ -53,11 +53,15 @@ const readers = {
     if (typeof value === 'string') return value
     throw new DeptreeError(`expected a string, found ${show(value)}`, where)
   },
-  // A list: a string alone is a list of it, as pnpm reads one.
+  // A list: a string alone is a list of it, as pnpm reads a hoist pattern.
   texts(value, where) {
-    const list = typeof value === 'string' ? [value] : value
-    if (!Array.isArray(list) || list.some((item) => typeof item !== 'string')) throw new DeptreeError(`expected a string or a list of strings, found ${show(value)}`, where)
-    return [...list]
+    return readers.list(typeof value === 'string' ? [value] : value, where, 'a string or a list of strings')
+  },
+  // A list, and only a list: pnpm fails on a string alone where it sorts or
+  // maps the value.
+  list(value, where, expected = 'a list of strings') {
+    if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) throw new DeptreeError(`expected ${expected}, found ${show(value)}`, where)
+    return [...value]
   },
   // pnpm-workspace.yaml's `packages`, which pnpm holds to a list of
   // non-empty strings.
@@ -115,7 +119,7 @@ const READ = {
   catalog: { kind: 'mapping', check: checkCatalog, rc: false },
   catalogs: { kind: 'mapping', check: checkCatalogs, rc: false },
   packageExtensions: { kind: 'mapping', rc: false },
-  ignoredOptionalDependencies: { kind: 'texts', rc: false },
+  ignoredOptionalDependencies: { kind: 'list', rc: false },
   packages: { kind: 'globs', rc: false },
 }
 
@@ -177,7 +181,7 @@ const ARCHITECTURES = new Set(['os', 'cpu', 'libc'])
 function checkArchitectures(value, where) {
   for (const [key, list] of Object.entries(value)) {
     if (!ARCHITECTURES.has(key)) throw new DeptreeError(`unsupported key ${quote(key)}`, where)
-    readers.texts(list, `${where}.${key}`)
+    readers.list(list, `${where}.${key}`)
   }
 }
 
