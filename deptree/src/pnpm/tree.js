@@ -162,7 +162,7 @@ function linkTarget(path, target) {
 // Every link in the tree, by its path: each node's children beside it and
 // itself inside it where it depends on itself, then what is hoisted, then
 // each project's direct dependencies, which win over a hoisted alias.
-function linksOf(nodes, direct, settings, projects) {
+function linksOf(nodes, direct, settings, projects, major) {
   const byDir = new Map([...nodes.values()].map((node) => [node.dir, node]))
   const links = new Map()
   for (const node of nodes.values()) {
@@ -170,7 +170,7 @@ function linksOf(nodes, direct, settings, projects) {
     const self = node.children.get(node.name)
     if (byDir.has(self)) links.set(`${node.dir}/node_modules/${node.name}`, self)
   }
-  for (const [path, dir] of hoist(byDir, direct, settings, projects)) links.set(path, dir)
+  for (const [path, dir] of hoist(byDir, direct, settings, projects, major)) links.set(path, dir)
   for (const [id, children] of direct) {
     for (const [alias, dir] of children) links.set(`${id === '.' ? '' : `${id}/`}node_modules/${alias}`, dir)
   }
@@ -210,7 +210,7 @@ export async function buildPnpmTree(options) {
   checkOptional(lockfile)
   const projects = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
   const check = createCheck({ host, settings })
-  const skipped = skippedSnapshots(lockfile, check)
+  const { skipped, incompatible } = skippedSnapshots(lockfile, check, { major: host.major, engineStrict: settings.engineStrict })
   const { nodes, direct } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, host.major)
   for (const node of nodes.values()) checkRegistry(node)
 
@@ -221,7 +221,7 @@ export async function buildPnpmTree(options) {
     checkDependencies(manifest, node.pkg, quote(node.key), hook)
     byDir.set(node.dir, { ...node, files, manifest })
   }
-  const links = linksOf(nodes, direct, settings, projects)
+  const links = linksOf(nodes, direct, settings, projects, host.major)
   const targets = binTargets({
     nodes: byDir,
     projects: manifests,
@@ -233,9 +233,8 @@ export async function buildPnpmTree(options) {
 
   const vfs = new Vfs()
   vfs.mkdir('/node_modules/.pnpm', { recursive: true })
-  const stats = { projects: manifests.size, snapshots: Object.keys(lockfile.packages).length, installed: nodes.size, skipped: skipped.size, incompatible: 0, tarballs: fetched.size, patched: 0, files: 0, bytes: 0, links: links.size }
+  const stats = { projects: manifests.size, snapshots: Object.keys(lockfile.packages).length, installed: nodes.size, skipped: skipped.size, incompatible: incompatible.size, tarballs: fetched.size, patched: 0, files: 0, bytes: 0, links: links.size }
   for (const node of byDir.values()) {
-    if (check(node.key, node.pkg) === null) stats.incompatible++
     if (node.pkg.patchHash !== undefined) stats.patched++
     try {
       vfs.mkdir(`/${node.dir}`, { recursive: true })

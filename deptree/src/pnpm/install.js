@@ -12,14 +12,23 @@
 // The projects are walked in the lockfile's order, which is the order of
 // their directories; pnpm walks them in the order it finds them on disk,
 // which only a snapshot reached both ways as above can tell apart.
+//
+// pnpm 11 walks breadth first, and by the kind of each edge rather than of
+// each snapshot: an optional dependency the host cannot run is not taken,
+// and what a taken package requires is taken whether the host can run it
+// or not, with a warning; each reachable snapshot not taken is left out.
+// Where a package of an optional edge names no os, cpu or libc, pnpm 11
+// infers them from its name, as `@nx/nx-win32-arm64-msvc` names win32.
 
 import { satisfies } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 
 // pnpm's checkList: `any` alone is anything, `!x` excludes, and a list of
-// exclusions alone takes what none of them names. The count of exclusions
-// runs over every value the host is taken to be, as pnpm counts it.
-function checkList(values, list) {
+// exclusions alone takes what none of them names. pnpm 10 counts the
+// exclusions over every value the host is taken to be, so a list of them
+// takes nothing where the host is taken to be more than one thing; pnpm 11
+// does not.
+function checkList(values, list, major) {
   if (list.length === 1 && list[0] === 'any') return true
   let match = false
   let excluded = 0
@@ -31,16 +40,39 @@ function checkList(values, list) {
       } else if (item === value) match = true
     }
   }
-  return match || excluded === list.length
+  return match || (major >= 11 ? list.every((item) => item.startsWith('!')) : excluded === list.length)
+}
+
+// pnpm 11's inferPlatformFromPackageName: the os, cpu and libc the words
+// of a package's name, less its scope, say it is for.
+const OS_WORDS = { __proto__: null, aix: 'aix', android: 'android', darwin: 'darwin', macos: 'darwin', osx: 'darwin', freebsd: 'freebsd', linux: 'linux', netbsd: 'netbsd', openbsd: 'openbsd', openharmony: 'openharmony', sunos: 'sunos', win32: 'win32', windows: 'win32' }
+const CPU_WORDS = { __proto__: null, arm: 'arm', armv6: 'arm', armv7: 'arm', arm64: 'arm64', aarch64: 'arm64', ia32: 'ia32', loong64: 'loong64', mips64el: 'mips64el', ppc64: 'ppc64', ppc64le: 'ppc64', riscv64: 'riscv64', s390x: 's390x', x64: 'x64', amd64: 'x64', wasm32: 'wasm32' }
+const LIBC_WORDS = { __proto__: null, glibc: 'glibc', gnu: 'glibc', gnueabihf: 'glibc', musl: 'musl', musleabihf: 'musl' }
+function inferPlatform(name) {
+  const words = name.slice(name.indexOf('/') + 1).toLowerCase().split(/[-_.]/u)
+  const pick = (table) => {
+    const values = [...new Set(words.map((word) => table[word]).filter((value) => value !== undefined))]
+    return values.length > 0 ? values : undefined
+  }
+  return { os: pick(OS_WORDS), cpu: pick(CPU_WORDS), libc: pick(LIBC_WORDS) }
+}
+
+// pnpm 11's effectivePlatform, for a package checked as optional.
+function effectivePlatform(pkg) {
+  if (pkg.os !== undefined && pkg.cpu !== undefined && pkg.libc !== undefined) return pkg
+  const inferred = inferPlatform(pkg.name)
+  const declares = pkg.os !== undefined || pkg.cpu !== undefined || pkg.libc !== undefined
+  if (inferred.os === undefined && (!declares || (inferred.cpu === undefined && inferred.libc === undefined))) return pkg
+  return { ...pkg, os: pkg.os ?? inferred.os, cpu: pkg.cpu ?? inferred.cpu, libc: pkg.libc ?? inferred.libc }
 }
 
 // What the host is taken to be: itself, or what `supportedArchitectures`
 // lists for each, `current` standing for itself.
 const current = (value, supported) => (supported ?? ['current']).map((item) => (item === 'current' ? value : item))
 
-const takesPlatform = (pkg, host, supported) => checkList(current(host.os, supported?.os), pkg.os ?? ['any'])
-  && checkList(current(host.cpu, supported?.cpu), pkg.cpu ?? ['any'])
-  && (host.libc === 'unknown' || checkList(current(host.libc, supported?.libc), pkg.libc ?? ['any']))
+const takesPlatform = (pkg, host, supported, major = 10) => checkList(current(host.os, supported?.os), pkg.os ?? ['any'], major)
+  && checkList(current(host.cpu, supported?.cpu), pkg.cpu ?? ['any'], major)
+  && (host.libc === 'unknown' || checkList(current(host.libc, supported?.libc), pkg.libc ?? ['any'], major))
 
 const takesEngine = (engines, node) => !engines.node || satisfies(node, engines.node, { includePrerelease: true })
 
@@ -60,7 +92,7 @@ function platformList(value, where) {
 // not match is found first, and the engines are then not looked at.
 export function checkProject(manifest, where, { host, settings }) {
   const platform = { os: platformList(manifest.os, `${where}.os`), cpu: platformList(manifest.cpu, `${where}.cpu`), libc: platformList(manifest.libc, `${where}.libc`) }
-  if (!takesPlatform(platform, host, settings.supportedArchitectures)) return
+  if (!takesPlatform(platform, host, settings.supportedArchitectures, host.major)) return
   const engines = manifest.engines
   if (engines === undefined || engines === null) return
   const node = settings.nodeVersion ?? host.node
@@ -72,14 +104,17 @@ export function checkProject(manifest, where, { host, settings }) {
 
 // A check of one snapshot: true where the host can run it, false where it
 // is optional and cannot, and null where it cannot but is not optional and
-// is installed anyway. With `engineStrict` that last is refused.
+// is installed anyway. With `engineStrict` that last is refused. pnpm 10
+// takes a snapshot to be optional as the lockfile marks it; pnpm 11 as the
+// edge it is reached by, and holds only one the lockfile does not mark
+// optional to engineStrict.
 export function createCheck({ host, settings }) {
   const node = settings.nodeVersion ?? host.node
-  return (key, pkg) => {
-    const platform = takesPlatform(pkg, host, settings.supportedArchitectures)
+  return (key, pkg, optional = pkg.optional, strict = settings.engineStrict) => {
+    const platform = takesPlatform(host.major >= 11 && optional ? effectivePlatform(pkg) : pkg, host, settings.supportedArchitectures, host.major)
     if (platform && takesEngine(pkg.engines, node)) return true
-    if (pkg.optional) return false
-    if (settings.engineStrict) throw new DeptreeError(`the host does not take its ${platform ? 'engines.node' : 'os, cpu or libc'}, which engineStrict refuses`, quote(key))
+    if (optional) return false
+    if (strict) throw new DeptreeError(`the host does not take its ${platform ? 'engines.node' : 'os, cpu or libc'}, which engineStrict refuses`, quote(key))
     return null
   }
 }
@@ -109,8 +144,49 @@ function projectKeys(lockfile, ids, walked) {
   return more.length === 0 ? keys : [...keys, ...projectKeys(lockfile, more, walked)]
 }
 
-// The keys of the snapshots left out. `check` is createCheck's.
-export function skippedSnapshots(lockfile, check) {
+// pnpm 11's filterLockfileByImportersAndEngine: the snapshots left out,
+// and those installed although the host cannot run them.
+function skippedSnapshots11(lockfile, check, strict) {
+  const edgesOf = (deps, optional) => Object.values(deps).filter((target) => !target.startsWith('link:')).map((key) => ({ key, optional }))
+  const queue = Object.values(lockfile.importers).flatMap((importer) => [...edgesOf(importer.dependencies, false), ...edgesOf(importer.devDependencies, false), ...edgesOf(importer.optionalDependencies, true)])
+  const starts = queue.map(({ key }) => key)
+  const installed = new Set()
+  const required = new Set()
+  const incompatible = new Map()
+  for (let i = 0; i < queue.length; i++) {
+    const { key, optional } = queue[i]
+    if (!optional) required.add(key)
+    if (installed.has(key)) continue
+    const pkg = lockfile.packages[key]
+    if (!incompatible.has(key)) incompatible.set(key, check(key, pkg, true) === false)
+    if (optional && incompatible.get(key)) continue
+    installed.add(key)
+    queue.push(...edgesOf(pkg.dependencies, false), ...edgesOf(pkg.optionalDependencies, true))
+  }
+  const skipped = new Set()
+  const warned = new Set()
+  for (const key of incompatible.keys()) {
+    const pkg = lockfile.packages[key]
+    const ok = check(key, pkg, !installed.has(key) || !required.has(key), strict && !pkg.optional)
+    if (ok === false) skipped.add(key)
+    if (ok === null) warned.add(key)
+  }
+  const seen = new Set()
+  for (let i = 0; i < starts.length; i++) {
+    const key = starts[i]
+    if (seen.has(key)) continue
+    seen.add(key)
+    const pkg = lockfile.packages[key]
+    if (!installed.has(key) && pkg.optional) skipped.add(key)
+    starts.push(...[...edgesOf(pkg.dependencies), ...edgesOf(pkg.optionalDependencies)].map((edge) => edge.key))
+  }
+  return { skipped, incompatible: warned }
+}
+
+// The keys of the snapshots left out, and of those installed although the
+// host cannot run them. `check` is createCheck's.
+export function skippedSnapshots(lockfile, check, { major = 10, engineStrict = false } = {}) {
+  if (major >= 11) return skippedSnapshots11(lockfile, check, engineStrict)
   const ids = Object.keys(lockfile.importers)
   const walked = new Set(ids)
   const picked = new Set()
@@ -129,8 +205,12 @@ export function skippedSnapshots(lockfile, check) {
   }
   visit(projectKeys(lockfile, ids, walked), true)
   // The graph is built of the rest, each checked again on its own.
+  const incompatible = new Set()
   for (const key of picked) {
-    if (!skipped.has(key) && check(key, lockfile.packages[key]) === false) skipped.add(key)
+    if (skipped.has(key)) continue
+    const ok = check(key, lockfile.packages[key])
+    if (ok === false) skipped.add(key)
+    if (ok === null) incompatible.add(key)
   }
-  return skipped
+  return { skipped, incompatible }
 }
