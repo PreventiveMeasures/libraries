@@ -57,6 +57,14 @@ export interface PnpmHost {
 // those name none are pnpm-workspace.yaml's `overrides` read. `$name` in
 // one is the root package.json's own specifier for `name`, and
 // `catalog:` what the workspace's catalog gives the package.
+//
+// Of the .npmrc, only what pnpm reads for an install is read: its settings
+// by their kebab-case names, those that can change the tree held to what
+// is built here, and all else — npm's own settings, publishing's,
+// credentials, other names — passed over. A `${VAR}` pnpm would fill in is
+// taken in a line passed over, such as `//registry.npmjs.org/:_authToken`,
+// where the rest of the file would not change the tree: pnpm drops the
+// whole file where the variable is unset.
 export interface PnpmTreeOptions {
   lockfile: string
   manifests: Record<string, string> | Map<string, string>

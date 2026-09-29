@@ -70,7 +70,26 @@ describe('readSettings', () => {
 
   it('reads pnpm-workspace.yaml\'s packages, and only there', () => {
     assert.deepEqual(read({ workspace: 'packages: [a, "!b"]\n' }).packages, ['a', '!b'])
-    assert.throws(() => read({ npmrc: 'packages=a\n' }), /^DeptreeError: \.npmrc:1: packages: unsupported setting$/u)
+    assert.deepEqual(read({ npmrc: 'packages=a\n' }), DEFAULTS)
+  })
+
+  // pnpm reads an .npmrc's settings by their kebab-case names, those it has
+  // types for alone: npm's own, publishing's, and any other name or
+  // spelling are passed over for an install.
+  it('passes over in an .npmrc what pnpm does not read for an install', () => {
+    const npmrc = 'fund=false\naudit=false\nlegacy-peer-deps=true\naccess=public\nprovenance=true\nignore-compatibility-db=true\nsome-new-setting=1\npublicHoistPattern=*\nNODE_LINKER=hoisted\nsave-exact=true\n'
+    assert.deepEqual(read({ npmrc }), DEFAULTS)
+  })
+
+  // pnpm drops the whole .npmrc where a variable in it is unset: one in a
+  // line passed over is taken where dropping the file would change nothing.
+  it('takes a variable from the environment only where the rest of the file cannot turn on it', () => {
+    const token = '//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n'
+    assert.deepEqual(read({ npmrc: `${token}_auth=\${AUTH}\nsave-exact=true\n` }), DEFAULTS)
+    assert.deepEqual(read({ npmrc: `${token}auto-install-peers=true\n` }), DEFAULTS)
+    assert.deepEqual(read({ npmrc: `${token}hoist=false\n`, workspace: 'hoist: false\n' }).hoistPattern, undefined)
+    assert.throws(() => read({ npmrc: `${token}hoist=false\n` }), /^DeptreeError: \.npmrc: a line takes a value from the environment, which pnpm drops the whole file for where it is unset/u)
+    assert.throws(() => read({ npmrc: 'registry=${REGISTRY}\n' }), /^DeptreeError: \.npmrc:1: registry: "\$\{REGISTRY\}" is taken from the environment/u)
   })
 
   // Scripts are never run, as with --ignore-scripts: what a setting would
@@ -127,18 +146,24 @@ describe('readSettings', () => {
     const { catalogs } = read({ workspace: 'catalog:\n  a: ^1\ncatalogs:\n  next:\n    a: ^2\n' })
     assert.deepEqual(JSON.parse(JSON.stringify(catalogs)), { default: { a: '^1' }, next: { a: '^2' } })
     assert.throws(() => read({ workspace: 'catalog:\n  a: ^1\ncatalogs:\n  default:\n    a: ^2\n' }), /the default catalog is defined twice/u)
-    assert.throws(() => read({ npmrc: 'overrides=x\n' }), /^DeptreeError: \.npmrc:1: overrides: unsupported setting$/u)
+    assert.deepEqual(read({ npmrc: 'overrides=x\n' }), DEFAULTS)
   })
 
   const refused = [
     [{ workspace: 'nodeLinker: hoisted\n' }, /^pnpm-workspace\.yaml: nodeLinker: "hoisted" is not supported/u],
     [{ npmrc: 'node-linker=pnp\n' }, /^\.npmrc:1: node-linker: "pnp" is not supported/u],
     [{ workspace: 'someNewSetting: 1\n' }, /^pnpm-workspace\.yaml: someNewSetting: unsupported setting$/u],
-    [{ npmrc: 'some-new-setting=1\n' }, /^\.npmrc:1: some-new-setting: unsupported setting$/u],
-    [{ npmrc: 'publicHoistPattern=*\n' }, /^\.npmrc:1: publicHoistPattern: unsupported setting$/u],
     [{ npmrc: 'registry=https://npm.example.com/\n' }, /packages are fetched from https:\/\/registry\.npmjs\.org\/ alone/u],
     [{ npmrc: '@s:registry=https://npm.example.com/\n' }, /^\.npmrc:1: @s:registry:/u],
-    [{ npmrc: '//registry.npmjs.org/:_authToken=${TOKEN}\n' }, /is taken from the environment/u],
+    // What pnpm reads from an .npmrc that would change the tree.
+    [{ npmrc: 'force=true\n' }, /^\.npmrc:1: force: true is not supported: optional packages the host cannot run are left out$/u],
+    [{ npmrc: 'recursive-install=false\n' }, /every project is installed/u],
+    [{ npmrc: 'lockfile-dir=..\n' }, /the lockfile is the one given/u],
+    [{ npmrc: 'only=prod\n' }, /dependencies and devDependencies are both installed/u],
+    [{ npmrc: 'shamefully-flatten=true\n' }, /its old name is not read/u],
+    [{ npmrc: 'use-node-version=20.0.0\n' }, /the Node a tree is built for/u],
+    [{ npmrc: 'git-branch-lockfile=true\n' }, /the lockfile is the one given/u],
+    [{ npmrc: 'filter=a\n' }, /every project is installed/u],
     [{ workspace: 'storeDir: ${HOME}/store\n' }, /is taken from the environment/u],
     [{ npmrc: 'hoist="false"\n' }, /is quoted, escaped or commented/u],
     [{ npmrc: 'hoist=false ; no\n' }, /is quoted, escaped or commented/u],

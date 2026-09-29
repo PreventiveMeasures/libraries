@@ -3,13 +3,24 @@
 // each over the one before: `pnpm install` spreads what the package.json
 // sets over the config it read the others into, so there the package.json
 // wins, whatever pnpm's config alone would say.
-// Every key is one of three things: a setting read here, and held to the
-// values this package builds a tree for; a setting that leaves the tree as
-// it is, whether because a frozen lockfile already says what it would have
-// changed, because it is about the network, the store, a cache, a script or
-// a bin — no script is ever run, whatever a setting allows — or because it
-// is a credential; or anything else, which is refused
-// by name, as is a value read here that this package does not build for.
+// In pnpm-workspace.yaml and the package.json, every key is one of three
+// things: a setting read here, and held to the values this package builds
+// a tree for; a setting that leaves the tree as it is, whether because a
+// frozen lockfile already says what it would have changed, because it is
+// about the network, the store, a cache, a script or a bin — no script is
+// ever run, whatever a setting allows — or because it is a credential; or
+// anything else, which is refused by name, as is a value read here that
+// this package does not build for.
+//
+// An .npmrc is read as pnpm reads one: by the kebab-case names of its
+// settings alone, and of those only the ones it has types for, which are
+// npm's and its own. Every one of those that can change the tree is read
+// here as above; anything else in the file — npm's settings pnpm has no
+// use for, publishing's, credentials, any other spelling — pnpm passes
+// over for an install, and so does this. A value pnpm would take from the
+// environment is not known here: pnpm drops the whole file where one such
+// variable is unset, so one in a line passed over is taken only where the
+// file sets nothing that dropping it would change.
 //
 // Only these files are read. Settings from anywhere else pnpm looks — a
 // user or global .npmrc, `npm_config_*` in the environment, the command
@@ -32,8 +43,10 @@ function plain(value, where) {
   return value
 }
 
+const fromEnvironment = (value) => typeof value === 'string' && value.includes('${')
+
 function noEnvironment(value, where) {
-  if (typeof value === 'string' && value.includes('${')) throw new DeptreeError(`${quote(value)} is taken from the environment, which is not read here`, where)
+  if (fromEnvironment(value)) throw new DeptreeError(`${quote(value)} is taken from the environment, which is not read here`, where)
   if (Array.isArray(value)) for (const item of value) noEnvironment(item, where)
   return value
 }
@@ -82,6 +95,11 @@ const only = (kind, wanted, why) => ({ kind, check: (value, where) => {
   if (value !== wanted) throw new DeptreeError(`${show(value)} is not supported: ${why}`, where)
 } })
 
+// Read, and refused whatever it is.
+const never = (why) => (value, where) => {
+  throw new DeptreeError(`${show(value)} is not supported: ${why}`, where)
+}
+
 const READ = {
   __proto__: null,
   nodeLinker: only('text', 'isolated', 'only the isolated node_modules layout is built'),
@@ -99,7 +117,21 @@ const READ = {
   optional: only('boolean', true, 'optional dependencies are installed'),
   production: only('boolean', false, 'devDependencies are installed'),
   dev: only('boolean', false, 'dependencies are installed'),
-  ignorePatchFailures: only('boolean', false, 'a patch that does not apply is an error'),
+  ignorePatchFailures: { ...only('boolean', false, 'a patch that does not apply is an error'), rc: false },
+  force: only('boolean', false, 'optional packages the host cannot run are left out'),
+  recursiveInstall: only('boolean', true, 'every project is installed'),
+  ignoreWorkspace: only('boolean', false, 'the workspace is installed as one'),
+  shamefullyFlatten: only('boolean', false, 'its old name is not read for shamefullyHoist'),
+  gitBranchLockfile: only('boolean', false, 'the lockfile is the one given'),
+  mergeGitBranchLockfiles: only('boolean', false, 'the lockfile is the one given'),
+  mergeGitBranchLockfilesBranchPattern: { kind: 'texts', check: never('the lockfile is the one given') },
+  lockfileDir: { kind: 'text', check: never('the lockfile is the one given, at the root of the tree') },
+  lockfileDirectory: { kind: 'text', check: never('the lockfile is the one given, at the root of the tree') },
+  only: { kind: 'text', check: never('dependencies and devDependencies are both installed') },
+  filter: { kind: 'texts', check: never('every project is installed') },
+  filterProd: { kind: 'texts', check: never('every project is installed') },
+  useNodeVersion: { kind: 'text', check: never('the Node a tree is built for is the host\'s, or nodeVersion') },
+  globalPnpmfile: { kind: 'text', check: never('a pnpmfile\'s hooks are not run here') },
   registry: { kind: 'text', check: checkRegistry },
   virtualStoreDirMaxLength: { kind: 'count' },
   hoist: { kind: 'boolean' },
@@ -159,15 +191,13 @@ const IGNORED = new Set([
   'onlyBuiltDependencies', 'onlyBuiltDependenciesFile', 'preferSymlinkedExecutables', 'scriptShell',
   'shellEmulator', 'strictDepBuilds', 'unsafePerm', 'verifyDepsBeforeRun',
   // how the command runs, and what other commands read
-  'auditConfig', 'bail', 'ci', 'color', 'executionEnv', 'ignoreWorkspaceRootCheck', 'loglevel', 'recursiveInstall',
+  'auditConfig', 'bail', 'ci', 'color', 'executionEnv', 'ignoreWorkspaceRootCheck', 'loglevel',
   'reporter', 'requiredScripts', 'updateConfig', 'updateNotifier', 'useBetaCli', 'workspaceConcurrency',
   // an install here is always frozen, whatever these say
   'frozenLockfile', 'preferFrozenLockfile',
   // the root package.json's packageManager is always held to be host.pnpm
   'managePackageManagerVersions', 'packageManagerStrict', 'packageManagerStrictVersion',
 ])
-// `_auth` and the like are credentials for the default registry.
-const CREDENTIALS = new Set(['_auth', '_authToken', '_password', 'username'])
 
 function checkRegistry(value, where) {
   if ((value.endsWith('/') ? value : `${value}/`) !== REGISTRY) throw new DeptreeError(`${quote(value)} is not supported: packages are fetched from ${REGISTRY} alone`, where)
@@ -214,34 +244,30 @@ const KEBAB = /^[a-z][\da-z]*(?:-[\da-z]+)*$/u
 const camelCase = (key) => key.replace(/-+([a-z\d])/gu, (_, char) => char.toUpperCase())
 
 // An .npmrc's settings by name, each written once, or once with `[]` each
-// time; anything written for a scope or a registry URL is a credential or
-// a registry of its own, which fetching from the public registry leaves
-// alone unless it moves a scope off it.
+// time, and whether any line takes something from the environment. A
+// registry for a scope has to be the public one.
 function fromNpmrc(text) {
   const settings = new Map()
+  let environment = false
   for (const { key, value, list, line } of parseNpmrc(text)) {
     const where = `.npmrc:${line}: ${key}`
-    // Where the variable is unset, pnpm drops the whole file, whatever the
-    // setting: what it reads depends on an environment not read here.
-    noEnvironment(key, where)
-    noEnvironment(value, where)
-    if (key.startsWith('//') || CREDENTIALS.has(key)) continue
     if (/^@[^:]+:registry$/u.test(key)) {
-      checkRegistry(plain(value, where), where)
+      checkRegistry(plain(noEnvironment(value, where), where), where)
       continue
     }
-    // pnpm reads a setting in an .npmrc by its kebab-case name alone, and
-    // passes over any other spelling, which would read here as the setting.
     const name = KEBAB.test(key) ? camelCase(key) : undefined
-    if (!isRead(name, where)) continue
-    if (READ[name].rc === false) throw new DeptreeError('unsupported setting', where)
+    if (!(name in READ) || READ[name].rc === false) {
+      environment ||= fromEnvironment(key) || fromEnvironment(value)
+      continue
+    }
+    noEnvironment(value, where)
     const earlier = settings.get(name)
     if (earlier !== undefined && !(list && earlier.list)) throw new DeptreeError('set more than once', where)
     if (list && READ[name].kind !== 'texts') throw new DeptreeError('not a list', where)
     const next = list ? [...(earlier?.value ?? []), plain(value, where)] : plain(value, where)
     settings.set(name, { value: next, list, where })
   }
-  return settings
+  return { settings, environment }
 }
 
 // The root package.json's settings: the keys of `pnpm` pnpm reads, and
@@ -315,12 +341,8 @@ function catalogsOf(catalog, catalogs = {}) {
   return Object.assign(Object.create(null), catalog === undefined ? {} : { default: catalog }, catalogs)
 }
 
-// `workspace` is pnpm-workspace.yaml as parsed and `npmrc` the text of the
-// .npmrc, either of which may be undefined; `manifest` the root
-// package.json as parsed. `os` is the host's, which one default depends
-// on. Overrides that name nothing are none, and leave those below them.
-export function readSettings({ workspace, npmrc, manifest, os }) {
-  const layers = [npmrc === undefined ? new Map() : fromNpmrc(npmrc), workspace === undefined ? new Map() : fromWorkspace(workspace), fromManifest(manifest)]
+// Each layer over the one before, as `derive` has them.
+function settle(layers, manifest, os) {
   const values = new Map()
   for (const layer of layers) {
     for (const [name, { value, where }] of layer) {
@@ -335,4 +357,18 @@ export function readSettings({ workspace, npmrc, manifest, os }) {
     }
   }
   return derive((name) => values.get(name), os)
+}
+
+// `workspace` is pnpm-workspace.yaml as parsed and `npmrc` the text of the
+// .npmrc, either of which may be undefined; `manifest` the root
+// package.json as parsed. `os` is the host's, which one default depends
+// on. Overrides that name nothing are none, and leave those below them.
+export function readSettings({ workspace, npmrc, manifest, os }) {
+  const rc = npmrc === undefined ? { settings: new Map(), environment: false } : fromNpmrc(npmrc)
+  const rest = [workspace === undefined ? new Map() : fromWorkspace(workspace), fromManifest(manifest)]
+  const settings = settle([rc.settings, ...rest], manifest, os)
+  if (rc.environment && JSON.stringify(settings) !== JSON.stringify(settle(rest, manifest, os))) {
+    throw new DeptreeError('a line takes a value from the environment, which pnpm drops the whole file for where it is unset, and the file sets what would change the tree', '.npmrc')
+  }
+  return settings
 }
