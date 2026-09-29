@@ -301,6 +301,21 @@ ${['c@2.0.0', 'c@2.1.0', 'x@1.0.0', 'y@1.0.0'].map((id) => `  ${id}:\n    resolu
     assert.equal(vfs.readText('/node_modules/.pnpm/u@1.0.0/node_modules/u/u.js'), '#!/usr/bin/env node\r\n')
   })
 
+  // pnpm reads a `bin` list as it reads any object, by its keys: the
+  // command of `["bin/foo"]` is `0`, and takes nothing from foo's `foo`,
+  // so both files are fixed.
+  it('takes a bin list\'s commands by their indexes, as pnpm does', async () => {
+    const bins = await Promise.all([
+      tarball('arr', '1.0.0', { 'bin/foo': '#!/usr/bin/env node\n' }, { manifest: { bin: ['bin/foo'] } }),
+      tarball('foo', '1.0.0', { 'f.js': '#!/usr/bin/env node\n' }, { manifest: { bin: { foo: 'f.js' } } }),
+    ])
+    stubRegistry(bins)
+    const packages = bins.map((t) => `  ${t.name}@1.0.0:\n    resolution: {integrity: ${t.integrity}}\n    hasBin: true\n`).join('\n')
+    const { vfs } = await buildPnpmTree({ lockfile: small(dep('arr') + dep('foo'), `${packages}\n`, '  arr@1.0.0: {}\n\n  foo@1.0.0: {}\n'), manifests: { '.': manifest({ arr: '1.0.0', foo: '1.0.0' }) }, host: HOST })
+    assert.equal(vfs.stat('/node_modules/.pnpm/arr@1.0.0/node_modules/arr/bin/foo').mode, 0o755)
+    assert.equal(vfs.stat('/node_modules/.pnpm/foo@1.0.0/node_modules/foo/f.js').mode, 0o755)
+  })
+
   // pnpm looks for a Node to run a package's bins with where the first
   // Node of its engines.runtime is one to download, and fails on a list
   // with nothing where it reads a runtime.
