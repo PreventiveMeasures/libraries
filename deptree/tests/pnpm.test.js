@@ -693,7 +693,7 @@ describe('buildPnpmTree into a given Vfs', () => {
   // read from the Vfs given alone, and only where it is there.
   describe('with an override to a directory', () => {
     const app = tarball('app', '1.0.0', { 'index.js': 'app' }, { manifest: { dependencies: { foo: '^1.0.0' } } })
-    const linked = async (spec, specifier, { v11 = false } = {}) => {
+    const linked = async (spec, specifier, { v11 = false, appFoo = 'link:vendor/foo' } = {}) => {
       const { integrity } = await app
       const overrides = `overrides:\n  foo: ${spec}\n`
       return { overrides, lockfile: `lockfileVersion: '9.0'
@@ -723,7 +723,7 @@ snapshots:
 
   app@1.0.0:
     dependencies:
-      foo: link:vendor/foo
+      foo: ${appFoo}
 `, manifest: JSON.stringify({ name: 'root', dependencies: { app: '1.0.0', foo: '^1.0.0' }, ...(v11 ? {} : { pnpm: { overrides: { foo: spec } } }) }) }
     }
     const vendored = { 'vendor/foo/package.json': '{"name":"foo","version":"1.5.0","bin":{"foo":"cli.js"}}', 'vendor/foo/cli.js': '#!/usr/bin/env node\n' }
@@ -746,6 +746,15 @@ snapshots:
       await assert.rejects(buildLinked(given), /^DeptreeError: overrides\["foo"\]: an override to a directory, "vendor\/foo", is read only from a Vfs given as vfs$/u)
       await assert.rejects(buildLinked(given, { vfs: createVfs({ 'package.json': given.manifest, 'vendor/foo/cli.js': '' }) }), /^DeptreeError: overrides\["foo"\]: "vendor\/foo" holds no package\.json in the Vfs given$/u)
       await assert.rejects(buildLinked(await linked('file:./vendor/foo', 'file:vendor/foo'), { vfs: createVfs(vendored) }), /^DeptreeError: overrides\["foo"\]: an override to a copy of a directory, as file: has pnpm install it, is not supported/u)
+    })
+
+    // pnpm writes a package's dependency overridden to a directory as a link
+    // to it, and links whatever the lockfile says.
+    it('refuses a package\'s link to another directory than its override names', async () => {
+      stubRegistry([await app])
+      const elsewhere = { ...vendored, 'vendor/bar/package.json': '{"name":"foo","version":"1.5.0"}' }
+      const given = await linked('./vendor/foo', './vendor/foo', { appFoo: 'link:vendor/bar' })
+      await assert.rejects(buildLinked(given, { vfs: createVfs({ 'package.json': given.manifest, ...elsewhere }) }), /^DeptreeError: "app@1\.0\.0": the lockfile gives it "foo" as "link:vendor\/bar", and its package\.json, overridden, names "vendor\/foo"$/u)
     })
   })
 

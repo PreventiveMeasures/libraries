@@ -28,6 +28,7 @@ import { unpack } from '@preventive/archive/tar.js'
 import { normalize } from '@preventive/vfs/path.js'
 import { getTarball } from '@preventive/upstream/npm.js'
 import { DeptreeError, quote } from './error.js'
+import { localOf } from './pnpm/overrides.js'
 import { matchesIntegrity } from './hash.js'
 
 // What a tarball may unpack to, as upstream bounds what it downloads.
@@ -102,7 +103,9 @@ function checkManifest(manifest, pkg, where) {
 const bundledOf = (manifest) => manifest.bundleDependencies ?? manifest.bundledDependencies
 
 // A snapshot's dependencies against the package.json of its package, as
-// fetchPackage read it: `hook` is hook.js's.
+// fetchPackage read it: `hook` is hook.js's. One the package.json, as
+// overridden, names a directory for is linked there, from the lockfile's
+// directory, as pnpm writes it.
 export function checkDependencies(manifest, pkg, where, hook) {
   const bundled = bundledOf(manifest)
   const read = hook(manifest, `${where}: package.json`)
@@ -110,6 +113,12 @@ export function checkDependencies(manifest, pkg, where, hook) {
   for (const name of [...names(read.dependencies), ...names(read.optionalDependencies)]) {
     if (bundled === true || (Array.isArray(bundled) && bundled.includes(name)) || given.has(name)) continue
     throw new DeptreeError(`package.json asks for ${quote(name)}, which the lockfile does not give it`, where)
+  }
+  for (const [name, spec] of [...Object.entries(read.dependencies ?? {}), ...Object.entries(read.optionalDependencies ?? {})]) {
+    const local = localOf(spec, `${where}: package.json`)
+    const target = pkg.dependencies[name] ?? pkg.optionalDependencies[name]
+    if (local === undefined || target === undefined || target === `link:${local.dir}`) continue
+    throw new DeptreeError(`the lockfile gives it ${quote(name)} as ${quote(target)}, and its package.json, overridden, names ${quote(local.dir)}`, where)
   }
   // A peer resolved is filed as optional where it is optional; pnpm's
   // compatibility database adds peers to a few packages, which the

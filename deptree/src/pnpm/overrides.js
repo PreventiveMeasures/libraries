@@ -98,7 +98,7 @@ function fromCatalog(catalogs, spec, name, where, major) {
 
 // The directory an override names, as pnpm's local resolver reads a
 // specifier, and by which protocol, or undefined for one that is none.
-function localOf(spec, where) {
+export function localOf(spec, where) {
   const protocol = ['file:', 'link:'].find((prefix) => spec.startsWith(prefix)) ?? (/^(?:[./]|~\/)/u.test(spec) ? '' : undefined)
   if (protocol === undefined) return undefined
   const path = spec.slice(protocol.length).replace(/\/+$/u, '')
