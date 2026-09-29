@@ -1,8 +1,9 @@
-// The pieces of a TOML line: whitespace, comments, keys and values. `src` is
-// { text, pos, line, fixed }: the text, where the reader is in it, the line
-// it is on (from zero), and the containers no later line may add to, which
-// are every array and table read here, as a value or within one. An inline
-// table's keys are set here too; where a line's key goes is parse.js's.
+// The lines of a TOML document, read from `src`: { text, pos, line }, the
+// text, where the reader is in it, and the line it is on (from zero). A
+// line holds a header, or a key and its value, or neither; readLine reads
+// what it holds and endLine the spaces, comment and line break after. Where
+// a line's key goes is parse.js's to say; an inline table's keys are set
+// here.
 //
 // Read here: basic and literal strings, on one line or across lines,
 // integers and floats (number.js), booleans, offset date-times, arrays
@@ -25,12 +26,13 @@ function take(src, re) {
   return m
 }
 
-const SPACES = /[\t ]*/uy
-export const skipSpaces = (src) => take(src, SPACES)
+function skipSpaces(src) {
+  while (src.text[src.pos] === ' ' || src.text[src.pos] === '\t') src.pos++
+}
 
 // What is left of the line, for a message: no more of it than a message
 // shows, however long the line.
-export function found(src) {
+function found(src) {
   if (src.pos >= src.text.length) return 'the end of the text'
   const rest = /^[^\n]*/u.exec(src.text.slice(src.pos, src.pos + 65))[0].replace(/\r$/u, '')
   return rest === '' ? 'the end of the line' : excerpt(rest)
@@ -41,25 +43,25 @@ export function found(src) {
 // which is how the patterns below spell them. A carriage return counts, but
 // for the one before a line feed, which ends the line.
 const hex = (char) => `U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`
+const LONE_CR = 'a carriage return must be followed by a line feed'
 
 function refuseControl(src, char, where) {
-  if (char === '\r') assert(false, src, 'a carriage return must be followed by a line feed')
-  assert(false, src, () => `${hex(char)} is not allowed in ${where}`)
+  throw new TomlError(char === '\r' ? LONE_CR : `${hex(char)} is not allowed in ${where}`, src.line)
 }
 
 // Whether the line ends at `src.pos`: a line break or the end of the text.
-export const atLineEnd = (src) => src.pos >= src.text.length || src.text[src.pos] === '\n' || src.text.startsWith('\r\n', src.pos)
+const atLineEnd = (src) => src.pos >= src.text.length || src.text[src.pos] === '\n' || src.text.startsWith('\r\n', src.pos)
 
 // A comment runs to the end of its line and is dropped.
 const COMMENT = /#[^[\p{Cc}--[\t\u0080-\u009F]]]*/vy
-export function skipComment(src) {
-  if (take(src, COMMENT) === null) return
-  const char = src.text[src.pos]
-  if (char !== undefined && char !== '\n' && !src.text.startsWith('\r\n', src.pos)) refuseControl(src, char, 'a comment')
+function skipComment(src) {
+  if (src.text[src.pos] !== '#') return
+  take(src, COMMENT)
+  if (!atLineEnd(src)) refuseControl(src, src.text[src.pos], 'a comment')
 }
 
 // A line break, `\n` or `\r\n`, if one is next.
-export function takeNewline(src) {
+function takeNewline(src) {
   if (src.text[src.pos] === '\n') src.pos += 1
   else if (src.text.startsWith('\r\n', src.pos)) src.pos += 2
   else return false
@@ -77,6 +79,7 @@ function skipBlank(src) {
 
 const ESCAPES = { __proto__: null, b: '\b', t: '\t', n: '\n', f: '\f', r: '\r', '"': '"', '\\': '\\' }
 const BASIC_RUN = /[^"\\[\p{Cc}--[\t\u0080-\u009F]]]*/vy
+const LITERAL_RUN = /[^'[\p{Cc}--[\t\u0080-\u009F]]]*/vy
 const UNICODE = /u([\dA-Fa-f]{4})|U([\dA-Fa-f]{8})/uy
 
 function readEscape(src) {
@@ -92,30 +95,22 @@ function readEscape(src) {
   return String.fromCodePoint(code)
 }
 
-// `"…"`, on one line, with TOML 1.0's escapes.
-function readBasic(src) {
+// `"…"`, with TOML 1.0's escapes, or `'…'`, taken as written, on one line.
+// A literal string's run takes in backslashes, so only a basic one stops at
+// one.
+function readString(src, quote) {
+  const run = quote === '"' ? BASIC_RUN : LITERAL_RUN
   src.pos++
   let value = ''
   for (;;) {
-    value += take(src, BASIC_RUN)[0]
+    value += take(src, run)[0]
     assert(!atLineEnd(src), src, 'unterminated string')
     const char = src.text[src.pos]
     src.pos++
-    if (char === '"') return value
+    if (char === quote) return value
     if (char === '\\') value += readEscape(src)
     else refuseControl(src, char, 'a string')
   }
-}
-
-// `'…'`, on one line, taken as written.
-const LITERAL_RUN = /[^'[\p{Cc}--[\t\u0080-\u009F]]]*/vy
-function readLiteral(src) {
-  src.pos++
-  const value = take(src, LITERAL_RUN)[0]
-  assert(!atLineEnd(src), src, 'unterminated string')
-  const char = src.text[src.pos]
-  src.pos++
-  return char === "'" ? value : refuseControl(src, char, 'a string')
 }
 
 // After a backslash in a multi-line basic string: the end of its line,
@@ -135,13 +130,14 @@ function readMultilineEscape(src) {
 }
 
 // `"""…"""` and `'''…'''`, across lines. A line break just after the opening
-// quotes is dropped, and CRLF within is read as LF, as tomllib has it; one
-// or two quotes just before the closing three are the string's own. A
-// basic one has the escapes a basic string has, and a backslash that ends
-// its line; in a literal one, nothing is escaped.
+// quotes is dropped, and CRLF within is read as LF, as tomllib has it. The
+// first run of three quotes or more ends the string, and one or two past
+// three are the string's own. A basic one has the escapes a basic string
+// has, and a backslash that ends its line; in a literal one, nothing is
+// escaped.
+const CLOSE = { __proto__: null, '"': /"{3,5}/uy, "'": /'{3,5}/uy }
 function readMultiline(src, quote) {
   const run = quote === '"' ? BASIC_RUN : LITERAL_RUN
-  const close = quote.repeat(3)
   src.pos += 3
   takeNewline(src)
   let value = ''
@@ -152,12 +148,8 @@ function readMultiline(src, quote) {
       continue
     }
     assert(src.pos < src.text.length, src, 'unterminated string')
-    if (src.text.startsWith(close, src.pos)) {
-      src.pos += 3
-      const extra = src.text.startsWith(quote.repeat(2), src.pos) ? 2 : src.text[src.pos] === quote ? 1 : 0
-      src.pos += extra
-      return value + quote.repeat(extra)
-    }
+    const close = take(src, CLOSE[quote])
+    if (close !== null) return value + close[0].slice(3)
     const char = src.text[src.pos]
     src.pos++
     if (char === quote) value += char
@@ -173,14 +165,14 @@ function readSimpleKey(src) {
   const char = src.text[src.pos]
   if (char === '"' || char === "'") {
     assert(!src.text.startsWith(char.repeat(3), src.pos), src, 'a multi-line string cannot be a key')
-    return char === '"' ? readBasic(src) : readLiteral(src)
+    return readString(src, char)
   }
   const m = take(src, BARE)
   assert(m !== null, src, () => `expected a key, found ${found(src)}`)
   return m[0]
 }
 
-export function readKey(src) {
+function readKey(src) {
   const keys = [readSimpleKey(src)]
   for (;;) {
     const at = src.pos
@@ -207,7 +199,7 @@ function readToken(src) {
   if (token === 'true') return true
   if (token === 'false') return false
   const value = readInteger(token, src) ?? readFloat(token, src) ?? readDateTime(token, src)
-  if (value === undefined) throw new TomlError(`expected a value, found ${excerpt(token)}`, src.line)
+  assert(value !== undefined, src, () => `expected a value, found ${excerpt(token)}`)
   return value
 }
 
@@ -218,7 +210,7 @@ export function setKey(src, table, key, value) {
 }
 
 // `key = value`, the key dotted or not, for the caller to set.
-export function readKeyValue(src, depth) {
+function readKeyValue(src, depth) {
   const keys = readKey(src)
   skipSpaces(src)
   assert(src.text[src.pos] === '=', src, () => `expected "=" after the key, found ${found(src)}`)
@@ -230,7 +222,6 @@ export function readKeyValue(src, depth) {
 function readArray(src, depth) {
   src.pos++
   const list = []
-  src.fixed.add(list)
   for (;;) {
     skipBlank(src)
     if (src.text[src.pos] === ']') break
@@ -254,7 +245,6 @@ function putInline(src, table, open, keys, value) {
     if (!(key in at)) {
       at[key] = Object.create(null)
       open.add(at[key])
-      src.fixed.add(at[key])
     }
     const next = at[key]
     assert(open.has(next), src, () => `${excerpt(key)} is ${inlineKind(next)}, which a dotted key cannot add to`)
@@ -273,7 +263,6 @@ function sameLine(src) {
 function readInline(src, depth) {
   src.pos++
   const table = Object.create(null)
-  src.fixed.add(table)
   const open = new Set()
   skipSpaces(src)
   sameLine(src)
@@ -298,11 +287,11 @@ function readInline(src, depth) {
 
 function readValue(src, depth) {
   assert(depth <= MAX_DEPTH, src, 'nested too deep')
-  switch (src.text[src.pos]) {
+  const char = src.text[src.pos]
+  switch (char) {
     case '"':
-      return src.text.startsWith('"""', src.pos) ? readMultiline(src, '"') : readBasic(src)
     case "'":
-      return src.text.startsWith("'''", src.pos) ? readMultiline(src, "'") : readLiteral(src)
+      return src.text.startsWith(char.repeat(3), src.pos) ? readMultiline(src, char) : readString(src, char)
     case '[':
       return readArray(src, depth)
     case '{':
@@ -310,4 +299,39 @@ function readValue(src, depth) {
     default:
       return readToken(src)
   }
+}
+
+// `[a.b]` or `[[a.b]]`: the header's keys, and whether it adds a table to
+// an array of tables.
+function readHeader(src) {
+  const array = src.text.startsWith('[[', src.pos)
+  src.pos += array ? 2 : 1
+  skipSpaces(src)
+  const keys = readKey(src)
+  skipSpaces(src)
+  const close = array ? ']]' : ']'
+  assert(src.text.startsWith(close, src.pos), src, () => `expected "${close}", found ${found(src)}`)
+  src.pos += close.length
+  return { keys, array }
+}
+
+// What a line holds: a header, as { keys, array }, or a key and its value,
+// as { keys, value }; or undefined, where it is blank or a comment, or
+// begins with a carriage return that endLine refuses.
+export function readLine(src) {
+  skipSpaces(src)
+  const char = src.text[src.pos]
+  if (char === '[') return readHeader(src)
+  if (char === '#' || char === '\r' || atLineEnd(src)) return undefined
+  return readKeyValue(src, 0)
+}
+
+// The rest of a line: spaces, a comment, and its line break or the end of
+// the text.
+export function endLine(src) {
+  skipSpaces(src)
+  skipComment(src)
+  if (takeNewline(src) || src.pos === src.text.length) return
+  assert(src.text[src.pos] !== '\r', src, LONE_CR)
+  throw new TomlError(`expected the end of the line, found ${found(src)}`, src.line)
 }

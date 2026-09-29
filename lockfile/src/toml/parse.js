@@ -1,8 +1,9 @@
 // A minimal, strict TOML 1.0 reader: the TOML that Cargo.toml, Cargo.lock,
 // uv.lock, poetry.lock, pylock.toml and foundry.toml are written in, and
 // nothing it does not read the way TOML does. Comments are dropped. What
-// is read is value.js's to say; what is refused, it names, rather than
-// read in some other way. Tables come back with a null prototype.
+// a line holds is value.js's to read, and where it goes is said here; what
+// is refused, either names, rather than read in some other way. Tables come
+// back with a null prototype.
 //
 // A table is written once. `[a.b]` declares a.b, and makes a on the way,
 // which a later `[a]` may still declare; `[[a]]` adds a table to the array
@@ -12,14 +13,14 @@
 // Nothing adds to an array or an inline table written as a value.
 
 import { TomlError, assert, excerpt } from './error.js'
-import { atLineEnd, found, readKey, readKeyValue, setKey, skipComment, skipSpaces, takeNewline } from './value.js'
+import { endLine, readLine, setKey } from './value.js'
 
 const isTable = (value) => typeof value === 'object' && value !== null && Object.getPrototypeOf(value) === null
 
-function kind(state, src, value) {
+function kind(state, value) {
   if (state.arrays.has(value)) return 'an array of tables'
   if (Array.isArray(value)) return 'an array'
-  if (isTable(value)) return src.fixed.has(value) ? 'an inline table' : 'a table'
+  if (isTable(value)) return state.fixed.has(value) ? 'an inline table' : 'a table'
   return 'a value'
 }
 
@@ -35,21 +36,13 @@ function walk(state, src, keys) {
       state.implicit.add(table[key])
     }
     const next = state.arrays.has(table[key]) ? table[key].at(-1) : table[key]
-    assert(isTable(next) && !src.fixed.has(next), src, () => `${excerpt(key)} is ${kind(state, src, next)}, which a header cannot add to`)
+    assert(isTable(next) && !state.fixed.has(next), src, () => `${excerpt(key)} is ${kind(state, next)}, which a header cannot add to`)
     table = next
   }
   return table
 }
 
-function readHeader(state, src) {
-  const array = src.text.startsWith('[[', src.pos)
-  src.pos += array ? 2 : 1
-  skipSpaces(src)
-  const keys = readKey(src)
-  skipSpaces(src)
-  const close = array ? ']]' : ']'
-  assert(src.text.startsWith(close, src.pos), src, () => `expected "${close}", found ${found(src)}`)
-  src.pos += close.length
+function putHeader(state, src, keys, array) {
   state.pending.clear()
   const parent = walk(state, src, keys.slice(0, -1))
   const key = keys.at(-1)
@@ -58,13 +51,13 @@ function readHeader(state, src) {
       parent[key] = []
       state.arrays.add(parent[key])
     }
-    assert(state.arrays.has(parent[key]), src, () => `${named(keys)} is ${kind(state, src, parent[key])}, not an array of tables`)
+    assert(state.arrays.has(parent[key]), src, () => `${named(keys)} is ${kind(state, parent[key])}, not an array of tables`)
     state.current = Object.create(null)
     parent[key].push(state.current)
     return
   }
   if (key in parent) {
-    assert(state.implicit.has(parent[key]), src, () => `${named(keys)} is ${kind(state, src, parent[key])} already`)
+    assert(state.implicit.has(parent[key]), src, () => `${named(keys)} is ${kind(state, parent[key])} already`)
     state.implicit.delete(parent[key])
   } else {
     parent[key] = Object.create(null)
@@ -72,13 +65,14 @@ function readHeader(state, src) {
   state.current = parent[key]
 }
 
-// A key/value line's key, dotted or not, in the table of its section.
+// A key/value line's key, dotted or not, in the table of its section. An
+// inline table written there is fixed: nothing adds to it later.
 function putDotted(state, src, keys, value) {
   let table = state.current
   for (const key of keys.slice(0, -1)) {
     if (key in table) {
       const next = table[key]
-      assert(isTable(next) && !src.fixed.has(next), src, () => `${excerpt(key)} is ${kind(state, src, next)}, which a dotted key cannot add to`)
+      assert(isTable(next) && !state.fixed.has(next), src, () => `${excerpt(key)} is ${kind(state, next)}, which a dotted key cannot add to`)
       assert(state.implicit.has(next) || state.pending.has(next), src, () => `${excerpt(key)} is a table declared elsewhere, which a dotted key cannot add to`)
       if (state.implicit.delete(next)) state.pending.add(next)
     } else {
@@ -88,6 +82,7 @@ function putDotted(state, src, keys, value) {
     table = table[key]
   }
   setKey(src, table, keys.at(-1), value)
+  if (isTable(value)) state.fixed.add(value)
 }
 
 // A lone surrogate is no character at all, and a byte order mark is not
@@ -111,20 +106,16 @@ function checkText(text) {
 export function parseToml(text) {
   checkText(text)
   const root = Object.create(null)
-  const src = { text, pos: 0, line: 0, fixed: new WeakSet() }
-  const state = { root, current: root, implicit: new WeakSet(), pending: new Set(), arrays: new WeakSet() }
+  const src = { text, pos: 0, line: 0 }
+  // The tables a header made on its way, which a later one may declare;
+  // those dotted keys made or entered in this section; the arrays of
+  // tables; and the inline tables written as a line's value.
+  const state = { root, current: root, implicit: new Set(), pending: new Set(), arrays: new Set(), fixed: new Set() }
   while (src.pos < text.length) {
-    skipSpaces(src)
-    if (text[src.pos] === '[') readHeader(state, src)
-    else if (text[src.pos] !== '#' && text[src.pos] !== '\r' && !atLineEnd(src)) {
-      const { keys, value } = readKeyValue(src, 0)
-      putDotted(state, src, keys, value)
-    }
-    skipSpaces(src)
-    skipComment(src)
-    if (takeNewline(src)) continue
-    assert(text[src.pos] !== '\r', src, 'a carriage return must be followed by a line feed')
-    assert(src.pos === text.length, src, () => `expected the end of the line, found ${found(src)}`)
+    const line = readLine(src)
+    if (line?.value !== undefined) putDotted(state, src, line.keys, line.value)
+    else if (line !== undefined) putHeader(state, src, line.keys, line.array)
+    endLine(src)
   }
   return root
 }
