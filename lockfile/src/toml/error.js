@@ -7,20 +7,13 @@ export class TomlError extends Error {
   }
 }
 
-// Every check the reader makes goes through here: a condition that does not
-// hold is a refusal on the line the reader is at, never a guess at what the
-// text meant. `detail` is the message, or a function that makes it where
-// making it costs something, so that only a refusal pays for it.
+// `detail` may be a function, so that only a refusal pays for its message.
 export function assert(condition, src, detail) {
   if (!condition) throw new TomlError(typeof detail === 'function' ? detail() : detail, src.line)
 }
 
-// A piece of the input for a message, quoted, and cut short where it runs
-// long, between characters: a line may be a megabyte, and a message is for
-// a person to read. Every control, line separator and bidirectional control
-// is escaped, where JSON leaves DEL, C1, U+2028, U+2029 and the bidi
-// controls as they are, so that a file cannot act on the terminal a message
-// is shown in, nor reorder what it shows.
+// Cut between characters, and with the controls, line separators and bidi
+// controls JSON leaves raw escaped, so input cannot act on a terminal.
 const UNSHOWN = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]/gu
 export const EXCERPT = 64
 

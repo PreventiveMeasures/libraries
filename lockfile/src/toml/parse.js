@@ -1,18 +1,10 @@
-// A minimal, strict TOML 1.0 reader: the TOML that Cargo.toml, Cargo.lock,
-// uv.lock, poetry.lock, pylock.toml and foundry.toml are written in, and
-// nothing it does not read the way TOML does. value.js reads what a line
-// holds, and here it is put where it goes; what is refused is named, never
-// read some other way. Tables have a null prototype.
-//
-// A table is written once. `[a.b]` declares a.b, and makes a on the way,
-// which a later `[a]` may still declare; `[[a]]` adds a table to the array
-// a, and a header through a names that last table. Dotted keys make tables
-// of their own, which the lines of their section may add to and no later
-// header or dotted key may; a header may still make a table beneath one.
-// Nothing adds to an array or an inline table written as a value. A dotted
-// key through a table a header made on its way (`[a.b.c]`, then `b.d` under
-// `[a]`) is not supported: tomllib reads it, and the toml crate Cargo reads
-// with does not.
+// TOML's table rules. A table is written once. `[a.b]` makes `a` on the way
+// (`implicit`), which a later `[a]` may still declare; `[[a]]` adds a table to
+// the array `a` (`arrays`), and a header through `a` names its last table.
+// Dotted keys make tables (`pending`) only their own section may add to, and
+// nothing adds to an inline table written as a value (`fixed`). A dotted key
+// through an implicit table is not supported: tomllib reads it, and the toml
+// crate Cargo reads with does not.
 
 import { TomlError, assert, excerpt } from './error.js'
 import { endLine, isTable, readLine, setKey } from './value.js'
@@ -26,8 +18,6 @@ function kind(state, value) {
 
 const named = (keys) => excerpt(keys.join('.'))
 
-// The tables a header names on its way: made where missing, and the last
-// table of an array of tables where it names one.
 function walk(state, src, keys) {
   let table = state.root
   for (const key of keys) {
@@ -54,16 +44,12 @@ function putHeader(state, src, keys, array) {
   state.current = parent[key]
 }
 
-// Why a dotted key may not go through `next`, which only a table dotted
-// keys made in this section lets it.
 function throughRefused(state, key, next) {
   if (!isTable(next) || state.fixed.has(next)) return `${excerpt(key)} is ${kind(state, next)}, which a dotted key cannot add to`
   if (state.implicit.has(next)) return `a dotted key through ${excerpt(key)}, a table a header made on its way, is not supported`
   return `${excerpt(key)} is a table declared elsewhere, which a dotted key cannot add to`
 }
 
-// A key/value line's key, dotted or not, in the table of its section. An
-// inline table written there is fixed: nothing adds to it later.
 function putDotted(state, src, keys, value) {
   let table = state.current
   for (const key of keys.slice(0, -1)) {
@@ -76,10 +62,8 @@ function putDotted(state, src, keys, value) {
   if (isTable(value)) state.fixed.add(value)
 }
 
-// A lone surrogate is no character at all, and a byte order mark is not
-// TOML; both are refused where they are. So is U+FFFD, which TOML allows,
-// but which a lenient decoder writes where bytes are not UTF-8: a file read
-// that way would come back with its damage in its strings, read as text.
+// U+FFFD is TOML, but a lenient decoder writes it for bytes that are not
+// UTF-8, so it is refused rather than read as text.
 const DAMAGE = { __proto__: null, '\uFEFF': 'a byte order mark is not read', '\uFFFD': 'U+FFFD is not supported: a decoder puts it where bytes are not UTF-8' }
 
 function checkText(text) {
@@ -94,9 +78,6 @@ export function parseToml(text) {
   checkText(text)
   const root = Object.create(null)
   const src = { text, pos: 0, line: 0 }
-  // The tables a header made on its way, which a later one may declare;
-  // those dotted keys made in this section; the arrays of tables; and the
-  // inline tables written as a line's value.
   const state = { root, current: root, implicit: new Set(), pending: new Set(), arrays: new Set(), fixed: new Set() }
   while (src.pos < text.length) {
     const line = readLine(src)

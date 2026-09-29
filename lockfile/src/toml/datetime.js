@@ -1,10 +1,7 @@
-// Offset date-times, the one kind of TOML date or time read here, as pylock
-// files carry an upload time, in RFC 3339 as writers emit it: a `T`, and `Z`
-// or an offset. Refused by name: a space for `T`, a lower-case `t` or `z`,
-// TOML 1.1's times without seconds, the local date-times, dates and times,
-// which name no instant, and RFC 3339's year 0000 and leap second, which
-// Date and tomllib have not, and the toml crate reads, rolling a leap second
-// over. A date not in the calendar (February 30th, 24:00) is refused too.
+// Only offset date-times are read: local ones name no instant. RFC 3339's
+// year 0000 and leap second are refused: Date and tomllib cannot hold them,
+// and the toml crate rolls a leap second over. A date not in the calendar is
+// refused, where Date would roll it over too.
 
 import { TomlError, assert, excerpt } from './error.js'
 
@@ -13,8 +10,7 @@ const LOCAL = /^(?:\d{4}-\d\d-\d\d(?:[Tt]\d\d:\d\d:\d\d(?:\.\d+)?)?|\d\d:\d\d:\d
 const NO_SECONDS = /^(?:\d{4}-\d\d-\d\d[Tt])?\d\d:\d\d(?:[Zz]|[+-]\d\d:\d\d)?$/u
 const DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
-// An RFC 3339 date-time's parts, and why what of RFC 3339 it has is not
-// read here, if it is not; undefined where it is not a date-time.
+// undefined where not RFC 3339; `unsupported` lists why one is not read.
 function partsOf(text) {
   const m = DATETIME.exec(text)
   if (m === null) return undefined
@@ -31,9 +27,6 @@ function partsOf(text) {
   return { year, month, day, hour, minute, second, fraction: m[8]?.slice(1) ?? '', offset, unsupported }
 }
 
-// An offset date-time, kept as written: `text` is its RFC 3339 spelling,
-// fractional seconds to however many digits it has, and the offset it was
-// written in. toDate() is the instant, to the millisecond.
 export class TomlDateTime {
   constructor(text) {
     if (typeof text !== 'string' || partsOf(text)?.unsupported.length !== 0) throw new TypeError('expected an RFC 3339 offset date-time')
@@ -59,9 +52,7 @@ export class TomlDateTime {
   }
 }
 
-// A token that begins as a date or a time is one, or is refused; anything
-// else is not a date-time, and undefined. Of what RFC 3339 has and this
-// does not read, one alone is named.
+// Of the reasons a date-time is not read, one alone is named.
 export function readDateTime(token, src) {
   if (!/^(?:\d{4}-\d\d-\d\d|\d\d:\d\d)/u.test(token)) return undefined
   const parts = partsOf(token)
