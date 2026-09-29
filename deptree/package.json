@@ -64,7 +64,7 @@
   "dependencies": {
     "@preventive/archive": "1.0.0-beta.3",
     "@preventive/diff": "^1.0.0",
-    "@preventive/lockfile": "1.0.0-alpha.0",
+    "@preventive/lockfile": "1.0.0-alpha.1",
     "@preventive/upstream": "1.0.0-alpha.0",
     "@preventive/vfs": "1.0.0-beta.1"
   }
