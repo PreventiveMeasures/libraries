@@ -22,9 +22,10 @@ export function assert(condition, src, detail) {
 // controls as they are, so that a file cannot act on the terminal a message
 // is shown in, nor reorder what it shows.
 const UNSHOWN = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]/gu
+export const EXCERPT = 64
 
 export function excerpt(text) {
-  const cut = text.length > 64 ? text.slice(0, text.codePointAt(63) > 0xFFFF ? 63 : 64) : text
+  const cut = text.length > EXCERPT ? text.slice(0, text.codePointAt(EXCERPT - 1) > 0xFFFF ? EXCERPT - 1 : EXCERPT) : text
   const quoted = JSON.stringify(cut).replaceAll(UNSHOWN, (char) => `\\u${char.codePointAt(0).toString(16).padStart(4, '0')}`)
   return cut === text ? quoted : `${quoted}...`
 }

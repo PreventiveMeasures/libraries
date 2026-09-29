@@ -18,9 +18,7 @@
 // reader that took it would read files one of them does not.
 
 import { TomlError, assert, excerpt } from './error.js'
-import { endLine, readLine, setKey } from './value.js'
-
-const isTable = (value) => typeof value === 'object' && value !== null && Object.getPrototypeOf(value) === null
+import { endLine, isTable, readLine, setKey } from './value.js'
 
 function kind(state, value) {
   if (state.arrays.has(value)) return 'an array of tables'
@@ -61,13 +59,17 @@ function putHeader(state, src, keys, array) {
     parent[key].push(state.current)
     return
   }
-  if (key in parent) {
-    assert(state.implicit.has(parent[key]), src, () => `${named(keys)} is ${kind(state, parent[key])} already`)
-    state.implicit.delete(parent[key])
-  } else {
-    parent[key] = Object.create(null)
-  }
+  if (key in parent) assert(state.implicit.delete(parent[key]), src, () => `${named(keys)} is ${kind(state, parent[key])} already`)
+  else parent[key] = Object.create(null)
   state.current = parent[key]
+}
+
+// Why a dotted key may not go through `next`, which only a table dotted
+// keys made in this section lets it.
+function throughRefused(state, key, next) {
+  if (!isTable(next) || state.fixed.has(next)) return `${excerpt(key)} is ${kind(state, next)}, which a dotted key cannot add to`
+  if (state.implicit.has(next)) return `a dotted key through ${excerpt(key)}, a table a header made on its way, is not supported`
+  return `${excerpt(key)} is a table declared elsewhere, which a dotted key cannot add to`
 }
 
 // A key/value line's key, dotted or not, in the table of its section. An
@@ -77,9 +79,7 @@ function putDotted(state, src, keys, value) {
   for (const key of keys.slice(0, -1)) {
     if (key in table) {
       const next = table[key]
-      assert(isTable(next) && !state.fixed.has(next), src, () => `${excerpt(key)} is ${kind(state, next)}, which a dotted key cannot add to`)
-      assert(!state.implicit.has(next), src, () => `a dotted key through ${excerpt(key)}, a table a header made on its way, is not supported`)
-      assert(state.pending.has(next), src, () => `${excerpt(key)} is a table declared elsewhere, which a dotted key cannot add to`)
+      assert(state.pending.has(next), src, () => throughRefused(state, key, next))
     } else {
       table[key] = Object.create(null)
       state.pending.add(table[key])
@@ -113,15 +113,13 @@ export function parseToml(text) {
   const root = Object.create(null)
   const src = { text, pos: 0, line: 0 }
   // The tables a header made on its way, which a later one may declare;
-  // those dotted keys made or entered in this section; the arrays of
-  // tables; and the inline tables written as a line's value.
+  // those dotted keys made in this section; the arrays of tables; and the
+  // inline tables written as a line's value.
   const state = { root, current: root, implicit: new Set(), pending: new Set(), arrays: new Set(), fixed: new Set() }
   while (src.pos < text.length) {
-    // Own properties alone, so that no name another module sets on
-    // Object.prototype turns a header into a key.
     const line = readLine(src)
-    if (line !== undefined && Object.hasOwn(line, 'value')) putDotted(state, src, line.keys, line.value)
-    else if (line !== undefined) putHeader(state, src, line.keys, line.array)
+    if (line?.header === true) putHeader(state, src, line.keys, line.array)
+    else if (line !== undefined) putDotted(state, src, line.keys, line.value)
     endLine(src)
   }
   return root

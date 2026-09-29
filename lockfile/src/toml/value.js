@@ -13,7 +13,7 @@
 // across lines or with a trailing comma.
 
 import { readDateTime } from './datetime.js'
-import { TomlError, assert, excerpt } from './error.js'
+import { EXCERPT, TomlError, assert, excerpt } from './error.js'
 import { readFloat, readInteger } from './number.js'
 
 const MAX_DEPTH = 64
@@ -31,10 +31,10 @@ function skipSpaces(src) {
 }
 
 // What is left of the line, for a message: no more of it than a message
-// shows, however long the line.
+// shows, and one character to tell it is cut, however long the line.
 function found(src) {
   if (src.pos >= src.text.length) return 'the end of the text'
-  const rest = /^[^\n]*/u.exec(src.text.slice(src.pos, src.pos + 65))[0].replace(/\r$/u, '')
+  const rest = /^[^\n]*/u.exec(src.text.slice(src.pos, src.pos + EXCERPT + 1))[0].replace(/\r$/u, '')
   return rest === '' ? 'the end of the line' : excerpt(rest)
 }
 
@@ -78,8 +78,13 @@ function skipBlank(src) {
 }
 
 const ESCAPES = { __proto__: null, b: '\b', t: '\t', n: '\n', f: '\f', r: '\r', '"': '"', '\\': '\\' }
-const BASIC_RUN = /[^"\\[\p{Cc}--[\t\u0080-\u009F]]]*/vy
-const LITERAL_RUN = /[^'[\p{Cc}--[\t\u0080-\u009F]]]*/vy
+// What a string's run stops at, by its quote: the quote, a control, and in
+// a basic string a backslash.
+const RUN = {
+  __proto__: null,
+  '"': /[^"\\[\p{Cc}--[\t\u0080-\u009F]]]*/vy,
+  "'": /[^'[\p{Cc}--[\t\u0080-\u009F]]]*/vy,
+}
 const UNICODE = /u([\dA-Fa-f]{4})|U([\dA-Fa-f]{8})/uy
 
 function readEscape(src) {
@@ -99,11 +104,10 @@ function readEscape(src) {
 // A literal string's run takes in backslashes, so only a basic one stops at
 // one.
 function readString(src, quote) {
-  const run = quote === '"' ? BASIC_RUN : LITERAL_RUN
   src.pos++
   let value = ''
   for (;;) {
-    value += take(src, run)[0]
+    value += take(src, RUN[quote])[0]
     assert(!atLineEnd(src), src, 'unterminated string')
     const char = src.text[src.pos]
     src.pos++
@@ -137,12 +141,11 @@ function readMultilineEscape(src) {
 // escaped.
 const CLOSE = { __proto__: null, '"': /"{3,5}/uy, "'": /'{3,5}/uy }
 function readMultiline(src, quote) {
-  const run = quote === '"' ? BASIC_RUN : LITERAL_RUN
   src.pos += 3
   takeNewline(src)
   let value = ''
   for (;;) {
-    value += take(src, run)[0]
+    value += take(src, RUN[quote])[0]
     if (takeNewline(src)) {
       value += '\n'
       continue
@@ -158,13 +161,17 @@ function readMultiline(src, quote) {
   }
 }
 
+// Whether the quote at `src.pos` opens a multi-line string.
+const tripled = (src, quote) => src.text[src.pos + 1] === quote && src.text[src.pos + 2] === quote
+
 // A key: bare, of ASCII letters, digits, `_` and `-`, or quoted; dotted, a
-// list of them with dots between, spaces allowed about each dot.
+// list of them with dots between, spaces allowed about each dot, and the
+// spaces after it taken too.
 const BARE = /[\w-]+/uy
 function readSimpleKey(src) {
   const char = src.text[src.pos]
   if (char === '"' || char === "'") {
-    assert(!src.text.startsWith(char.repeat(3), src.pos), src, 'a multi-line string cannot be a key')
+    assert(!tripled(src, char), src, 'a multi-line string cannot be a key')
     return readString(src, char)
   }
   const m = take(src, BARE)
@@ -175,12 +182,8 @@ function readSimpleKey(src) {
 function readKey(src) {
   const keys = [readSimpleKey(src)]
   for (;;) {
-    const at = src.pos
     skipSpaces(src)
-    if (src.text[src.pos] !== '.') {
-      src.pos = at
-      return keys
-    }
+    if (src.text[src.pos] !== '.') return keys
     src.pos++
     skipSpaces(src)
     keys.push(readSimpleKey(src))
@@ -203,20 +206,20 @@ function readToken(src) {
   return value
 }
 
-// A key is set once in its table.
+// A key is set once in its table. A table has no prototype and no value
+// is undefined, so a key is there where its value is.
 export function setKey(src, table, key, value) {
-  assert(!(key in table), src, () => `duplicate key ${excerpt(key)}`)
+  assert(table[key] === undefined, src, () => `duplicate key ${excerpt(key)}`)
   table[key] = value
 }
 
 // `key = value`, the key dotted or not, for the caller to set.
 function readKeyValue(src, depth) {
   const keys = readKey(src)
-  skipSpaces(src)
   assert(src.text[src.pos] === '=', src, () => `expected "=" after the key, found ${found(src)}`)
   src.pos++
   skipSpaces(src)
-  return { keys, value: readValue(src, depth) }
+  return { header: false, keys, value: readValue(src, depth) }
 }
 
 function readArray(src, depth) {
@@ -235,9 +238,12 @@ function readArray(src, depth) {
   return list
 }
 
+// A table read here or made in parse.js: an object of no prototype.
+export const isTable = (value) => typeof value === 'object' && value !== null && Object.getPrototypeOf(value) === null
+
 // A dotted key within an inline table may only go through tables the same
 // inline table's dotted keys made, which are `open`.
-const inlineKind = (value) => (Array.isArray(value) ? 'an array' : Object.getPrototypeOf(value) === null ? 'an inline table' : 'a value')
+const inlineKind = (value) => (Array.isArray(value) ? 'an array' : isTable(value) ? 'an inline table' : 'a value')
 
 function putInline(src, table, open, keys, value) {
   let at = table
@@ -255,8 +261,9 @@ function putInline(src, table, open, keys, value) {
 
 // TOML 1.1 lets an inline table run across lines, with comments, and end
 // in a comma; the 1.0 read here keeps it to one line and no comma after
-// its last pair.
+// its last pair. Spaces are passed over on the way.
 function sameLine(src) {
+  skipSpaces(src)
   assert(!atLineEnd(src) && src.text[src.pos] !== '#', src, 'an inline table across lines is not supported')
 }
 
@@ -264,19 +271,16 @@ function readInline(src, depth) {
   src.pos++
   const table = Object.create(null)
   const open = new Set()
-  skipSpaces(src)
   sameLine(src)
   if (src.text[src.pos] === '}') {
     src.pos++
     return table
   }
   for (;;) {
-    skipSpaces(src)
     sameLine(src)
     assert(src.text[src.pos] !== '}', src, 'a trailing comma in an inline table is not supported')
     const { keys, value } = readKeyValue(src, depth + 1)
     putInline(src, table, open, keys, value)
-    skipSpaces(src)
     sameLine(src)
     const char = src.text[src.pos]
     assert(char === ',' || char === '}', src, () => `expected "," or "}" on the inline table's line, found ${found(src)}`)
@@ -291,7 +295,7 @@ function readValue(src, depth) {
   switch (char) {
     case '"':
     case "'":
-      return src.text.startsWith(char.repeat(3), src.pos) ? readMultiline(src, char) : readString(src, char)
+      return tripled(src, char) ? readMultiline(src, char) : readString(src, char)
     case '[':
       return readArray(src, depth)
     case '{':
@@ -308,16 +312,17 @@ function readHeader(src) {
   src.pos += array ? 2 : 1
   skipSpaces(src)
   const keys = readKey(src)
-  skipSpaces(src)
   const close = array ? ']]' : ']'
   assert(src.text.startsWith(close, src.pos), src, () => `expected "${close}", found ${found(src)}`)
   src.pos += close.length
-  return { keys, array }
+  return { header: true, keys, array }
 }
 
-// What a line holds: a header, as { keys, array }, or a key and its value,
-// as { keys, value }; or undefined, where it is blank or a comment, or
-// begins with a carriage return that endLine refuses.
+// What a line holds: a header, as { header: true, keys, array }, or a key
+// and its value, as { header: false, keys, value }; or undefined, where it
+// is blank or a comment, or begins with a carriage return that endLine
+// refuses. Each says itself which it is, so that no `header` another module
+// sets on Object.prototype can.
 export function readLine(src) {
   skipSpaces(src)
   const char = src.text[src.pos]
