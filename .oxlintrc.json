@@ -82,8 +82,7 @@
         "archive/tests/**",
         "lockfile/tests/**",
         "upstream/tests/**",
-        "vfs/tests/**",
-        "yaml/tests/**"
+        "vfs/tests/**"
       ],
       "rules": {
         "max-lines-per-function": "off",

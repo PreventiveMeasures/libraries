@@ -4,5 +4,5 @@
 export { parsePnpmLockfile } from './src/pnpm/parse.js'
 export { packageKeyOf } from './src/pnpm/key.js'
 export { LockfileError } from './src/error.js'
-// What the YAML beneath is refused with, from the parser this reads it by.
-export { YamlError } from '@preventive/yaml'
+// What the YAML beneath is refused with, from the parser in yaml.js.
+export { YamlError } from './src/yaml/error.js'

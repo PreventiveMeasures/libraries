@@ -6,9 +6,9 @@
 // are refused, as is any plain scalar the core schema would type by a rule
 // not implemented here (`~`, `TRUE`, `0x1F`, `.inf`, ...) and any js-yaml
 // would read as a date. Mappings come back with a null prototype. A stream of
-// documents, each after a `---` line, is what pnpm 12 writes when the project
-// pins its package manager: that manager's own lockfile first, the project's
-// second.
+// documents, each after a `---` line, is what pnpm 11 and later write where
+// there is something to lock beside the project: the env document first, the
+// project's lockfile second.
 
 import { YamlError, excerpt } from './error.js'
 import { parseInline, readKey, setKey } from './scalar.js'

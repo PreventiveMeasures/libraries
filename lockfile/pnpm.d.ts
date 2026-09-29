@@ -1,6 +1,6 @@
 // Hand-written against pnpm.js; a change to either belongs with the other.
 
-export { YamlError } from '@preventive/yaml'
+export { YamlError } from './yaml.js'
 
 // Reads a pnpm-lock.yaml of `lockfileVersion: '9.0'`, as pnpm 9 to 12 write
 // it, one document or two. Nothing is dropped: an older format is refused,

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { describe, it } from 'node:test'
-import { YamlError, parseYaml, parseYamlStream } from '../index.js'
+import { YamlError, parseYaml, parseYamlStream } from '../../yaml.js'
 
 // Mappings come back with a null prototype, which strict deepEqual holds
 // against a literal; structuredClone gives them Object.prototype back and
@@ -415,7 +415,7 @@ describe('what it costs', () => {
   // come to nothing cost next to nothing. An object for every line took
   // hundreds of megabytes of this, where js-yaml takes none.
   it('millions of blank and comment lines, in a heap of 64 MiB', () => {
-    const index = JSON.stringify(new URL('../index.js', import.meta.url).href)
+    const index = JSON.stringify(new URL('../../yaml.js', import.meta.url).href)
     const { status, stderr } = spawnSync(process.execPath, ['--max-old-space-size=64', '-e', `(${parseManyLines})(${index})`], { encoding: 'utf8' })
     assert.equal(status, 0, stderr)
   })

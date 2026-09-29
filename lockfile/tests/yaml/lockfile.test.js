@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
-import { parseYaml, parseYamlStream } from '../index.js'
+import { parseYaml, parseYamlStream } from '../../yaml.js'
 
 // The baseline: real lockfiles, one per format pnpm has written — 5.4 (pnpm
 // 7), 6.0 (pnpm 8) and 9.0 (pnpm 10) — generated from one project that

@@ -9,7 +9,7 @@
 // the second may be missing, and the file ends at the `---` after the env
 // document.
 
-import { parseYamlStream } from '@preventive/yaml'
+import { parseYamlStream } from '../yaml/parse.js'
 import { LockfileError, at, quote } from '../error.js'
 import { checkIntegrity, checkName, checkRelative } from '../names.js'
 import { EMPTY, boolean, count, entries, kind, record, string, text, textMap, texts } from '../shape.js'
