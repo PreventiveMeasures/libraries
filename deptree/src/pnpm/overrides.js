@@ -23,7 +23,7 @@ import { DeptreeError, quote } from '../error.js'
 // validate-npm-package-name 5's validForOldPackages, which pnpm reads a
 // selector's name by: what npm ever took as a name.
 const SCOPED = /^(?:@([^/]+?)\/)?([^/]+?)$/u
-function validForOldPackages(name) {
+export function validForOldPackages(name) {
   if (name === '' || name.startsWith('.') || name.startsWith('_') || name.trim() !== name) return false
   if (name.toLowerCase() === 'node_modules' || name.toLowerCase() === 'favicon.ico') return false
   if (encodeURIComponent(name) === name) return true

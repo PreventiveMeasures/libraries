@@ -40,28 +40,46 @@ const lexCompare = (a, b) => (a > b ? 1 : a < b ? -1 : 0)
 // Where each hoisted alias is linked, and to which directory: a Map of
 // the link's path to its target, both relative to the lockfile's
 // directory. `nodes` is the graph by directory; `direct` its projects'
-// direct dependencies, the root project's under `.`.
-export function hoist(nodes, direct, { hoistPattern, publicHoistPattern }) {
+// direct dependencies, the root project's under `.`; `projects` the
+// workspace's named projects by directory, where hoistWorkspacePackages
+// has them hoisted by name too.
+//
+// pnpm puts those names first among the root's, a direct dependency of
+// one name replacing it. Hoisting a project does not take its name, so a
+// package of that name may be hoisted to the same place too; there the
+// project wins, as pnpm replaces a link into the store with it and leaves
+// its own in place of one.
+export function hoist(nodes, direct, { hoistPattern, publicHoistPattern }, projects = new Map()) {
   const links = new Map()
   if (hoistPattern === undefined && publicHoistPattern === undefined) return links
   const isPublic = createMatcher(publicHoistPattern ?? [])
   const isPrivate = createMatcher(hoistPattern ?? [])
   const starts = [...direct.values()].flatMap((children) => [...children].filter(([, dir]) => nodes.has(dir)))
-  const root = new Map()
-  for (const [alias, dir] of starts) if (!root.has(alias)) root.set(alias, dir)
+  const root = new Map([...projects].map(([id, name]) => [name, { project: id }]))
+  const listed = new Set()
+  for (const [alias, dir] of starts) {
+    if (listed.has(alias)) continue
+    listed.add(alias)
+    root.set(alias, dir)
+  }
   const order = [
     { children: root, dir: '', depth: -1 },
     ...walk(nodes, starts.map(([, dir]) => dir)).map(({ node, depth }) => ({ children: node.children, dir: node.dir, depth })),
   ]
   order.sort((a, b) => a.depth - b.depth || lexCompare(a.dir, b.dir))
   const taken = new Set(direct.get('.')?.keys())
+  const hoistedProjects = new Map()
   for (const { children } of order) {
     for (const [alias, dir] of children) {
       const where = isPublic(alias) ? 'node_modules' : isPrivate(alias) ? 'node_modules/.pnpm/node_modules' : undefined
-      if (where === undefined || taken.has(alias.toLowerCase()) || !nodes.has(dir)) continue
-      taken.add(alias.toLowerCase())
-      links.set(`${where}/${alias}`, dir)
+      if (where === undefined || taken.has(alias.toLowerCase())) continue
+      if (typeof dir === 'object') hoistedProjects.set(`${where}/${alias}`, dir.project)
+      else if (nodes.has(dir)) {
+        taken.add(alias.toLowerCase())
+        links.set(`${where}/${alias}`, dir)
+      }
     }
   }
+  for (const [path, dir] of hoistedProjects) links.set(path, dir)
   return links
 }

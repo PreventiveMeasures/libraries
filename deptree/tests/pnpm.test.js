@@ -147,7 +147,7 @@ const root = ({ pnpm = {}, ...fields } = {}) => JSON.stringify({
   ...fields,
 })
 
-const build = (options = {}) => buildPnpmTree({ lockfile: lockfile(), manifest: root(), patches: { 'patches/p.patch': PATCH }, host: HOST, ...options })
+const build = ({ manifest = root(), ...options } = {}) => buildPnpmTree({ lockfile: lockfile(), manifests: { '.': manifest }, patches: { 'patches/p.patch': PATCH }, host: HOST, ...options })
 const text = (vfs, path) => vfs.readText(path)
 const UP = `Up@1.0.0_${hex('Up@1.0.0').slice(0, 32)}`
 const P = `p@1.0.0_patch_hash=${H}`
@@ -301,9 +301,10 @@ describe('buildPnpmTree refuses', () => {
   })
 
   it('a root package.json that is not a JSON object', async () => {
-    await refuses({ manifest: '{' }, /^package\.json: not JSON/u)
-    await refuses({ manifest: '[]' }, /^package\.json: expected an object$/u)
-    await assert.rejects(build({ manifest: undefined }), TypeError)
+    await refuses({ manifest: '{' }, /^manifests\["\."\]: not JSON/u)
+    await refuses({ manifest: '[]' }, /^manifests\["\."\]: expected an object$/u)
+    await assert.rejects(build({ manifests: undefined }), TypeError)
+    await assert.rejects(build({ manifest: 7 }), TypeError)
   })
 
   it('a lockfile resolved with other settings', async () => {
@@ -319,8 +320,50 @@ describe('buildPnpmTree refuses', () => {
     await refuses({ lockfile: "lockfileVersion: '6.0'\n" }, /unsupported version/u, LockfileError)
   })
 
-  it('workspace packages to hoist, whose names the lockfile does not hold', async () => {
+  // pnpm installs the projects it finds, and holds each to its importer:
+  // one without the other is not the lockfile's tree.
+  it('a project without its package.json, or a package.json without its importer', async () => {
     const two = lockfile().replace('importers:\n', 'importers:\n\n  packages/x: {}\n')
-    await refuses({ lockfile: two }, /^hoistWorkspacePackages: hoisting workspace packages needs each project's name/u)
+    await refuses({ lockfile: two }, /^importers\["packages\/x"\]: the package\.json of this project is not given$/u)
+    await refuses({ manifests: { '.': root(), 'packages/y': '{}' } }, /^manifests\["packages\/y"\]: the lockfile has no importer for this project/u)
+  })
+
+  it('a lockfile not up to date with a package.json', async () => {
+    stubRegistry(TARBALLS)
+    await refuses({ manifest: root({ dependencies: { a: '^1.0.0' } }) }, /^manifests\["\."\]: the lockfile is not up to date with this package\.json, which pnpm refuses a frozen install for: the specifiers differ/u)
+    await refuses({ manifest: root({ peerDependencies: { b: '1.0.0' } }) }, /the specifiers differ: "b" is in package\.json and not in the lockfile$/u)
+    const vfs = await build({ manifest: root({ peerDependencies: { a: '1.0.0' } }), workspace: 'hoist: true\n' })
+    assert.ok(vfs.isSymlink('/node_modules/a'), 'a peer the project lists as a dependency too asks for nothing more')
+  })
+})
+
+describe('buildPnpmTree with a workspace', () => {
+  const two = lockfile().replace('importers:\n', 'importers:\n\n  packages/x:\n    dependencies:\n      b:\n        specifier: 1.0.0\n        version: 1.0.0\n')
+  const manifests = (x) => ({ '.': root(), 'packages/x': JSON.stringify(x) })
+  const buildTwo = (x, options) => buildPnpmTree({ lockfile: two, manifests: manifests(x), patches: { 'patches/p.patch': PATCH }, host: HOST, ...options })
+
+  it('links each project\'s dependencies, and hoists each named project by its name', async () => {
+    stubRegistry(TARBALLS)
+    const vfs = await buildTwo({ name: '@w/x', dependencies: { b: '1.0.0' } })
+    assert.equal(vfs.readlink('/packages/x/node_modules/b'), '../../../node_modules/.pnpm/b@1.0.0/node_modules/b')
+    assert.equal(vfs.readlink('/node_modules/.pnpm/node_modules/@w/x'), '../../../../packages/x')
+    const unnamed = await buildTwo({ dependencies: { b: '1.0.0' } })
+    assert.deepEqual(unnamed.readdir('/node_modules/.pnpm/node_modules'), ['Up', 'b', 'c', 'd'])
+    const off = await buildTwo({ name: '@w/x', dependencies: { b: '1.0.0' } }, { workspace: 'hoistWorkspacePackages: false\n' })
+    assert.equal(off.isSymlink('/node_modules/.pnpm/node_modules/@w/x'), false)
+  })
+
+  // A project hoisted by its name does not take it: a package of that name
+  // is hoisted there too, and the project wins, as pnpm has it.
+  it('hoists a project over a package of its name', async () => {
+    stubRegistry(TARBALLS)
+    const vfs = await buildTwo({ name: 'd', dependencies: { b: '1.0.0' } })
+    assert.equal(vfs.readlink('/node_modules/.pnpm/node_modules/d'), '../../../packages/x')
+  })
+
+  it('refuses a project not up to date with its package.json, or two projects of one name', async () => {
+    await assert.rejects(buildTwo({ name: 'x', dependencies: { b: '^1.0.0' } }), /^DeptreeError: manifests\["packages\/x"\]: the lockfile is not up to date/u)
+    const three = two.replace('importers:\n', 'importers:\n\n  packages/y: {}\n')
+    await assert.rejects(buildPnpmTree({ lockfile: three, manifests: { ...manifests({ name: 'x', dependencies: { b: '1.0.0' } }), 'packages/y': '{"name":"x"}' }, patches: { 'patches/p.patch': PATCH }, host: HOST }), /^DeptreeError: manifests\["packages\/y"\]\.name: "x" is the name of another project too$/u)
   })
 })

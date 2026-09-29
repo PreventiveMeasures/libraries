@@ -27,6 +27,7 @@ import { fetchFiles, tarballUrl } from '../tarball.js'
 import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
 import { createCheck, skippedSnapshots } from './install.js'
+import { checkProjects, readManifests, workspaceNames } from './projects.js'
 import { readSettings } from './settings.js'
 import { checkUpToDate } from './uptodate.js'
 
@@ -47,7 +48,7 @@ function checkHost(host) {
 }
 
 // What the lockfile holds that no tree is built for here.
-function checkLockfile(lockfile, settings) {
+function checkLockfile(lockfile) {
   if (lockfile.settings.excludeLinksFromLockfile) throw new DeptreeError('links left out of the lockfile would be left out of the tree', 'settings.excludeLinksFromLockfile')
   if (lockfile.settings.injectWorkspacePackages) throw new DeptreeError('injected workspace packages are not supported', 'settings.injectWorkspacePackages')
   if (lockfile.pnpmfileChecksum !== undefined) throw new DeptreeError('a pnpmfile\'s hooks are not run here', 'pnpmfileChecksum')
@@ -55,10 +56,6 @@ function checkLockfile(lockfile, settings) {
     for (const [name, meta] of Object.entries(importer.dependenciesMeta)) {
       if (meta.injected) throw new DeptreeError('an injected dependency is not supported', `importers[${quote(id)}].dependenciesMeta[${quote(name)}]`)
     }
-  }
-  const hoisting = settings.hoistPattern !== undefined || settings.publicHoistPattern !== undefined
-  if (hoisting && settings.hoistWorkspacePackages && Object.keys(lockfile.importers).some((id) => id !== '.')) {
-    throw new DeptreeError('hoisting workspace packages needs each project\'s name, which the lockfile does not hold; set hoistWorkspacePackages to false', 'hoistWorkspacePackages')
   }
 }
 
@@ -125,7 +122,7 @@ function linkTarget(path, target) {
 // Every link in the tree, by its path: each node's children beside it and
 // itself inside it where it depends on itself, then what is hoisted, then
 // each project's direct dependencies, which win over a hoisted alias.
-function linksOf(nodes, direct, settings) {
+function linksOf(nodes, direct, settings, projects) {
   const byDir = new Map([...nodes.values()].map((node) => [node.dir, node]))
   const links = new Map()
   for (const node of nodes.values()) {
@@ -133,7 +130,7 @@ function linksOf(nodes, direct, settings) {
     const self = node.children.get(node.name)
     if (byDir.has(self)) links.set(`${node.dir}/node_modules/${node.name}`, self)
   }
-  for (const [path, dir] of hoist(byDir, direct, settings)) links.set(path, dir)
+  for (const [path, dir] of hoist(byDir, direct, settings, projects)) links.set(path, dir)
   for (const [id, children] of direct) {
     for (const [alias, dir] of children) links.set(`${id === '.' ? '' : `${id}/`}node_modules/${alias}`, dir)
   }
@@ -144,20 +141,6 @@ function linksOf(nodes, direct, settings) {
 // nothing, as pnpm reads it.
 const readWorkspace = (text) => (text === undefined || /^(?:[\t ]*(?:#.*)?(?:\r?\n|$))*$/u.test(text) ? undefined : parseYaml(text))
 
-// The root package.json as parsed, as pnpm reads one: a byte order mark
-// dropped, and an object.
-function readManifest(text) {
-  if (typeof text !== 'string') throw new TypeError('manifest must be the text of the root package.json')
-  let manifest
-  try {
-    manifest = JSON.parse(text.replace(/^\uFEFF/u, ''))
-  } catch (error) {
-    throw new DeptreeError(`not JSON: ${error.message}`, 'package.json', { cause: error })
-  }
-  if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) throw new DeptreeError('expected an object', 'package.json')
-  return manifest
-}
-
 function readPatchesGiven(patches) {
   const entries = patches instanceof Map ? [...patches] : Object.entries(patches ?? {})
   for (const [path, text] of entries) {
@@ -167,25 +150,28 @@ function readPatchesGiven(patches) {
 }
 
 export async function buildPnpmTree(options) {
-  const { lockfile: text, manifest: manifestText, workspace, npmrc, patches, host: machine } = options ?? {}
+  const { lockfile: text, manifests: manifestTexts, workspace, npmrc, patches, host: machine } = options ?? {}
   if (typeof text !== 'string') throw new TypeError('lockfile must be the text of pnpm-lock.yaml')
   for (const [name, value] of [['workspace', workspace], ['npmrc', npmrc]]) {
     if (value !== undefined && typeof value !== 'string') throw new TypeError(`${name} must be a string, or left out`)
   }
   const host = checkHost(machine)
-  const manifest = readManifest(manifestText)
   const { lockfile, env } = parsePnpmLockfile(text)
   if (env !== undefined) throw new DeptreeError('the env document pnpm 11 writes is not supported', 'env')
-  const settings = readSettings({ workspace: readWorkspace(workspace), npmrc, manifest, os: host.os })
-  checkLockfile(lockfile, settings)
+  if (!('.' in lockfile.importers)) throw new DeptreeError('expected the root project, whose package.json holds settings', 'importers')
+  const manifests = readManifests(manifestTexts, lockfile)
+  const settings = readSettings({ workspace: readWorkspace(workspace), npmrc, manifest: manifests.get('.'), os: host.os })
+  checkLockfile(lockfile)
   const given = await checkUpToDate(lockfile, settings, readPatchesGiven(patches))
+  checkProjects(lockfile, manifests, settings)
+  const projects = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
   const skipped = skippedSnapshots(lockfile, createCheck({ host, settings }))
   const { nodes, direct } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength)
   for (const node of nodes.values()) checkRegistry(node)
   const vfs = new Vfs()
   vfs.mkdir('/node_modules/.pnpm', { recursive: true })
   await installAll(vfs, nodes.values(), given)
-  for (const [path, target] of linksOf(nodes, direct, settings)) {
+  for (const [path, target] of linksOf(nodes, direct, settings, projects)) {
     try {
       vfs.mkdir(dirname(`/${path}`), { recursive: true })
       vfs.symlink(linkTarget(path, target), `/${path}`)

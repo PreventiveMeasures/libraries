@@ -22,6 +22,7 @@
     "src/pnpm/install.js",
     "src/pnpm/npmrc.js",
     "src/pnpm/overrides.js",
+    "src/pnpm/projects.js",
     "src/pnpm/settings.js",
     "src/pnpm/tree.js",
     "src/pnpm/uptodate.js",

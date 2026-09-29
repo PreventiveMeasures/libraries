@@ -20,12 +20,21 @@ export interface PnpmHost {
   libc: 'glibc' | 'musl' | 'unknown'
 }
 
-// The files an install reads, as text: pnpm-lock.yaml; the root
-// package.json beside it; pnpm-workspace.yaml and the .npmrc, where there
-// are any; and every patch file the settings' patchedDependencies name, by
-// the path from the lockfile's directory they name it by. Settings from
-// anywhere else — another .npmrc, the environment, the command line — are
-// not read, and are taken to be at their defaults.
+// The files an install reads, as text: pnpm-lock.yaml; the package.json
+// of every project it installs, by the project's directory relative to the
+// lockfile's (`.` for the root, then as its importers are keyed); pnpm-
+// workspace.yaml and the .npmrc, where there are any; and every patch file
+// the settings' patchedDependencies name, by the path from the lockfile's
+// directory they name it by. Settings from anywhere else — another
+// .npmrc, the environment, the command line — are not read, and are taken
+// to be at their defaults.
+//
+// Each project is held to its importer as --frozen-lockfile holds it: its
+// dependencies, devDependencies, optionalDependencies and, with
+// autoInstallPeers, the peers it lists nowhere else, have to be what the
+// importer records, and in the ranges they ask for. Every importer has to
+// have its package.json given, and every package.json an importer. The
+// projects' names are what hoistWorkspacePackages hoists them by.
 //
 // Settings are read as `pnpm install` 10 reads them, each source over the
 // one before: the .npmrc, then pnpm-workspace.yaml, then what the
@@ -37,7 +46,7 @@ export interface PnpmHost {
 // `catalog:` what the workspace's catalog gives the package.
 export interface PnpmTreeOptions {
   lockfile: string
-  manifest: string
+  manifests: Record<string, string> | Map<string, string>
   workspace?: string
   npmrc?: string
   patches?: Record<string, string> | Map<string, string>
@@ -57,8 +66,9 @@ export interface PnpmTreeOptions {
 // The lockfile is held to the settings as pnpm holds it before a frozen
 // install — catalogs, overrides, package extensions, optional
 // dependencies left out, patches, autoInstallPeers, dedupePeers,
-// peersSuffixMaxLength — and refused where one differs, as pnpm would
-// refuse it with --frozen-lockfile and resolve anew without.
+// peersSuffixMaxLength — and to each project's package.json, and refused
+// where one differs, as pnpm would refuse it with --frozen-lockfile and
+// resolve anew without.
 //
 // Packages come from https://registry.npmjs.org/ alone, fetched through
 // @preventive/upstream, and each tarball is held to the lockfile's
@@ -69,7 +79,8 @@ export interface PnpmTreeOptions {
 // setting this does not know or does not build for, overrides pnpm cannot
 // read, a lockfile not resolved with these settings, a package from
 // anywhere but the registry, a pnpmfile, package extensions, an injected
-// or unnamed-workspace case, a patch that does not hash or apply, text
+// dependency, a lockfile not up to date with a package.json, two projects
+// of one name, a patch that does not hash or apply, text
 // that is not well-formed where it is hashed — each is refused with a
 // DeptreeError, a LockfileError or a YamlError that says where. A
 // TypeError is thrown for options of the wrong type.
