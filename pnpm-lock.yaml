@@ -31,6 +31,24 @@ importers:
         specifier: ^1.16.0
         version: 1.16.0
 
+  deptree:
+    dependencies:
+      '@preventive/archive':
+        specifier: 1.0.0-beta.3
+        version: link:../archive
+      '@preventive/diff':
+        specifier: ^1.0.0
+        version: link:../diff
+      '@preventive/lockfile':
+        specifier: 1.0.0-alpha.0
+        version: link:../lockfile
+      '@preventive/upstream':
+        specifier: 1.0.0-alpha.0
+        version: link:../upstream
+      '@preventive/vfs':
+        specifier: 1.0.0-beta.1
+        version: link:../vfs
+
   diff: {}
 
   lockfile: {}
