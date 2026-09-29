@@ -79,6 +79,5 @@ export async function verifyDist(name, version, dist) {
 export async function getTarball(name, version, dist) {
   assertPackage('getTarball', name, version)
   const { tarball, integrity } = dist === undefined ? await getDist('getTarball', name, version) : checkedDist('getTarball', name, version, dist)
-  const local = localPaths(name, version, integrity)
-  return await verifiedDownload({ method: 'getTarball', dir: DIR, what: `${name}@${version}`, ext: 'tgz', algorithm: 'sha512', expected: integrity, local, locate: () => tarball })
+  return await verifiedDownload({ method: 'getTarball', dir: DIR, what: `${name}@${version}`, ext: 'tgz', algorithm: 'sha512', expected: integrity, local: localPaths(name, version, integrity), locate: () => tarball })
 }

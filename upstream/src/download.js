@@ -19,12 +19,11 @@ async function readRegularFile(path) {
   return await readFile(path).then((bytes) => new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength), () => null)
 }
 
-// Bytes whose `algorithm` hash is `expected`, from the first that has them
-// of: `local`, other tools' caches, read and never written, where a file
-// that does not match is passed over; ours, where one that does not match
-// throws rather than being fetched over; and the URL `locate` answers,
-// checked before it is cached. `expected` comes from the registry or the
-// caller, never off disk, and without it nothing is read at all.
+// Bytes whose `algorithm` hash is `expected`, which the registry or the
+// caller gives, never a disk; without it nothing is read. From `local`,
+// other tools' caches (read, never written; a mismatch is passed over),
+// else ours (a mismatch throws), else what `locate` answers, checked and
+// then cached.
 export async function verifiedDownload({ method, dir, what, ext, algorithm, expected, local = [], locate }) {
   assert.ok(Object.hasOwn(DIGESTS, algorithm) && typeof expected === 'string' && expected !== '', `${method}: nothing to check ${what} against`)
   const digest = DIGESTS[algorithm]

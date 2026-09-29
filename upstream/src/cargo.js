@@ -16,7 +16,7 @@ async function getChecksum(name, version) {
   const lower = name.toLowerCase()
   const prefix = lower.length < 3 ? [String(lower.length)] : lower.length === 3 ? ['3', lower[0]] : [lower.slice(0, 2), lower.slice(2, 4)]
   const text = await request(buildUrl(CRATES_INDEX, [...prefix, lower]), { as: 'text' })
-  const entry = text.split('\n').filter(Boolean).map((line) => JSON.parse(line)).find((line) => line?.vers === version)
+  const entry = text.split('\n').filter(Boolean).map((line) => JSON.parse(line)).find((candidate) => candidate?.vers === version)
   assert.ok(entry, `getCrate: the index has no ${name}@${version}`)
   assert.ok(entry.name === name, `getCrate: the index answered for ${show(entry.name)}, not ${name}`)
   assertSha256('getCrate', 'the index cksum', entry.cksum)
