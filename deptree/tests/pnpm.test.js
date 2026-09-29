@@ -929,6 +929,47 @@ snapshots:
     })
   })
 
+  // pnpm links a package's dependency on its own name inside it only where
+  // that leads to a package in its graph, and a directory is none: real
+  // installs of pnpm 10 and 11 leave this one out, and so does this.
+  it('leaves out a package\'s dependency on its own name overridden to a directory, as pnpm does', async () => {
+    const foo = await tarball('foo', '1.0.0', { 'index.js': 'foo' }, { manifest: { dependencies: { foo: '^1.0.0' } } })
+    stubRegistry([foo])
+    const manifest = JSON.stringify({ name: 'root', dependencies: { foo: '1.0.0' }, pnpm: { overrides: { 'foo@1>foo': 'link:vendor/foo' } } })
+    const selfLinked = `lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+overrides:
+  foo@1>foo: link:vendor/foo
+
+importers:
+
+  .:
+    dependencies:
+      foo:
+        specifier: 1.0.0
+        version: 1.0.0
+
+packages:
+
+  foo@1.0.0:
+    resolution: {integrity: ${foo.integrity}}
+
+snapshots:
+
+  foo@1.0.0:
+    dependencies:
+      foo: link:vendor/foo
+`
+    const { vfs } = await buildPnpmTree({ lockfile: selfLinked, manifests: { '.': manifest }, host: HOST, vfs: createVfs({ 'package.json': manifest, 'vendor/foo/package.json': '{"name":"foo","version":"2.0.0"}' }) })
+    assert.deepEqual(vfs.readdir('/node_modules/.pnpm/foo@1.0.0/node_modules'), ['foo'])
+    assert.equal(vfs.readdir('/node_modules/.pnpm/foo@1.0.0/node_modules/foo').includes('node_modules'), false)
+    assert.equal(vfs.readText('/node_modules/foo/index.js'), 'foo')
+  })
+
   it('takes a Vfs and nothing else', async () => {
     await assert.rejects(into({}), (error) => error instanceof TypeError && error.message === 'vfs must be a Vfs, or left out')
   })
