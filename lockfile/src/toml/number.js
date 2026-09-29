@@ -1,15 +1,10 @@
-// Integers and floats, read so that none comes back as another number.
-//
-// An integer is decimal, or after `0x`, `0o` or `0b` hexadecimal, octal or
-// binary, with no sign and leading zeros allowed; underscores go between
-// digits. TOML holds it to 64 bits, signed, and so is it held here. Within
-// ±(2^53 − 1) it is a number; past that a bigint, which a double would
-// have rounded.
-//
-// A float is a binary64 double, as TOML has it, kept in a TomlFloat with
-// the text it was written as, so that `1.0` is not taken for the integer
-// `1`. One a double cannot hold, which would be Infinity or 0 where the
-// text is neither, is refused rather than read as that.
+// Integers and floats, none read as another number. An integer is decimal,
+// or hexadecimal, octal or binary after `0x`, `0o` or `0b` (no sign, leading
+// zeros allowed), with underscores between digits, and held to TOML's 64
+// bits: a number within ±(2^53 − 1), and past that a bigint, which a double
+// would round. A float is a binary64 double in a TomlFloat, with the text it
+// was written as, so that `1.0` is not the integer `1`; one a double cannot
+// hold, which would be Infinity or 0 where the text is neither, is refused.
 
 import { assert, excerpt } from './error.js'
 
@@ -48,10 +43,9 @@ function floatOf(text) {
   return Number.isFinite(value) && (value !== 0 || zero) ? value : null
 }
 
-// A float as written: `text` is its spelling, underscores and all, and
-// `value` the double it names, which valueOf() and toJSON() give. Frozen.
-// The constructor takes only what the parser would read, and throws a
-// TypeError at anything else.
+// A float as written: `text` is its spelling, underscores and all, `value`
+// the double it names, which valueOf() and toJSON() give. Frozen; the
+// constructor takes only what the parser would read, else a TypeError.
 export class TomlFloat {
   constructor(text) {
     const value = floatOf(text)

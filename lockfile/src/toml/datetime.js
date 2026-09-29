@@ -1,13 +1,10 @@
 // Offset date-times, the one kind of TOML date or time read here, as pylock
-// files carry an upload time: RFC 3339 as writers emit it, a `T` between
-// date and time and `Z` or an offset after. The space TOML allows for `T`,
-// a lower-case `t` or `z`, TOML 1.1's times without seconds, and the local
-// date-times, dates and times, which name no instant, are refused, and so
-// are the year 0000 and a leap second, which RFC 3339 has and Date has not:
-// tomllib refuses them, and the toml crate reads them, a leap second by
-// rolling it over into the next minute. A date that is not in the calendar
-// is refused too (February 30th, 24:00), where Date would roll it over into
-// another.
+// files carry an upload time, in RFC 3339 as writers emit it: a `T`, and `Z`
+// or an offset. Refused by name: a space for `T`, a lower-case `t` or `z`,
+// TOML 1.1's times without seconds, the local date-times, dates and times,
+// which name no instant, and RFC 3339's year 0000 and leap second, which
+// Date and tomllib have not, and the toml crate reads, rolling a leap second
+// over. A date not in the calendar (February 30th, 24:00) is refused too.
 
 import { TomlError, assert, excerpt } from './error.js'
 
@@ -16,15 +13,8 @@ const LOCAL = /^(?:\d{4}-\d\d-\d\d(?:[Tt]\d\d:\d\d:\d\d(?:\.\d+)?)?|\d\d:\d\d:\d
 const NO_SECONDS = /^(?:\d{4}-\d\d-\d\d[Tt])?\d\d:\d\d(?:[Zz]|[+-]\d\d:\d\d)?$/u
 const DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
-const UNSUPPORTED = {
-  __proto__: null,
-  case: 'a date-time with a lower-case "t" or "z" is not supported',
-  year: 'the year 0000 is not supported',
-  leap: 'a leap second is not supported',
-}
-
-// An RFC 3339 date-time's parts, and what of RFC 3339 it has that is not
-// read here; undefined where it is not one.
+// An RFC 3339 date-time's parts, and why what of RFC 3339 it has is not
+// read here, if it is not; undefined where it is not a date-time.
 function partsOf(text) {
   const m = DATETIME.exec(text)
   if (m === null) return undefined
@@ -34,9 +24,9 @@ function partsOf(text) {
   if (hour > 23 || minute > 59 || second > 60) return undefined
   if (m[10] !== undefined && (Number(m[11]) > 23 || Number(m[12]) > 59)) return undefined
   const unsupported = []
-  if (m[4] === 't' || m[9] === 'z') unsupported.push('case')
-  if (year === 0) unsupported.push('year')
-  if (second === 60) unsupported.push('leap')
+  if (m[4] === 't' || m[9] === 'z') unsupported.push('a date-time with a lower-case "t" or "z" is not supported')
+  if (year === 0) unsupported.push('the year 0000 is not supported')
+  if (second === 60) unsupported.push('a leap second is not supported')
   const offset = m[10] === undefined ? 0 : (m[10] === '-' ? -1 : 1) * (Number(m[11]) * 60 + Number(m[12]))
   return { year, month, day, hour, minute, second, fraction: m[8]?.slice(1) ?? '', offset, unsupported }
 }
@@ -80,6 +70,6 @@ export function readDateTime(token, src) {
   assert(!spaced, src, 'a date-time with a space in place of "T" is not supported')
   assert(!LOCAL.test(token), src, () => `local dates and times are not supported: ${excerpt(token)}`)
   assert(!NO_SECONDS.test(token), src, () => `a date-time or a time without seconds is not supported: ${excerpt(token)}`)
-  assert(parts?.unsupported.length !== 1, src, () => `${UNSUPPORTED[parts.unsupported[0]]}: ${excerpt(token)}`)
+  assert(parts?.unsupported.length !== 1, src, () => `${parts.unsupported[0]}: ${excerpt(token)}`)
   throw new TomlError(`${excerpt(token)} is not a date-time of the form YYYY-MM-DDTHH:MM:SS[.fraction](Z|±HH:MM)`, src.line)
 }

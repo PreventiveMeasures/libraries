@@ -1,21 +1,18 @@
 // A minimal, strict TOML 1.0 reader: the TOML that Cargo.toml, Cargo.lock,
 // uv.lock, poetry.lock, pylock.toml and foundry.toml are written in, and
-// nothing it does not read the way TOML does. Comments are dropped. What
-// a line holds is value.js's to read, and where it goes is said here; what
-// is refused, either names, rather than read in some other way. Tables come
-// back with a null prototype.
+// nothing it does not read the way TOML does. value.js reads what a line
+// holds, and here it is put where it goes; what is refused is named, never
+// read some other way. Tables have a null prototype.
 //
 // A table is written once. `[a.b]` declares a.b, and makes a on the way,
 // which a later `[a]` may still declare; `[[a]]` adds a table to the array
 // a, and a header through a names that last table. Dotted keys make tables
 // of their own, which the lines of their section may add to and no later
 // header or dotted key may; a header may still make a table beneath one.
-// Nothing adds to an array or an inline table written as a value.
-//
-// A dotted key through a table a header made on its way (`[a.b.c]`, then
-// `b.d` under `[a]`) is refused as not supported: tomllib reads it, and the
-// toml crate Cargo reads with refuses it, or reads it only in part, and a
-// reader that took it would read files one of them does not.
+// Nothing adds to an array or an inline table written as a value. A dotted
+// key through a table a header made on its way (`[a.b.c]`, then `b.d` under
+// `[a]`) is not supported: tomllib reads it, and the toml crate Cargo reads
+// with does not.
 
 import { TomlError, assert, excerpt } from './error.js'
 import { endLine, isTable, readLine, setKey } from './value.js'
@@ -34,10 +31,7 @@ const named = (keys) => excerpt(keys.join('.'))
 function walk(state, src, keys) {
   let table = state.root
   for (const key of keys) {
-    if (!(key in table)) {
-      table[key] = Object.create(null)
-      state.implicit.add(table[key])
-    }
+    if (!(key in table)) state.implicit.add(table[key] = Object.create(null))
     const next = state.arrays.has(table[key]) ? table[key].at(-1) : table[key]
     assert(isTable(next) && !state.fixed.has(next), src, () => `${excerpt(key)} is ${kind(state, next)}, which a header cannot add to`)
     table = next
@@ -50,13 +44,9 @@ function putHeader(state, src, keys, array) {
   const parent = walk(state, src, keys.slice(0, -1))
   const key = keys.at(-1)
   if (array) {
-    if (!(key in parent)) {
-      parent[key] = []
-      state.arrays.add(parent[key])
-    }
+    if (!(key in parent)) state.arrays.add(parent[key] = [])
     assert(state.arrays.has(parent[key]), src, () => `${named(keys)} is ${kind(state, parent[key])}, not an array of tables`)
-    state.current = Object.create(null)
-    parent[key].push(state.current)
+    parent[key].push(state.current = Object.create(null))
     return
   }
   if (key in parent) assert(state.implicit.delete(parent[key]), src, () => `${named(keys)} is ${kind(state, parent[key])} already`)
@@ -77,14 +67,10 @@ function throughRefused(state, key, next) {
 function putDotted(state, src, keys, value) {
   let table = state.current
   for (const key of keys.slice(0, -1)) {
-    if (key in table) {
-      const next = table[key]
-      assert(state.pending.has(next), src, () => throughRefused(state, key, next))
-    } else {
-      table[key] = Object.create(null)
-      state.pending.add(table[key])
-    }
-    table = table[key]
+    if (!(key in table)) state.pending.add(table[key] = Object.create(null))
+    const next = table[key]
+    assert(state.pending.has(next), src, () => throughRefused(state, key, next))
+    table = next
   }
   setKey(src, table, keys.at(-1), value)
   if (isTable(value)) state.fixed.add(value)
@@ -94,11 +80,7 @@ function putDotted(state, src, keys, value) {
 // TOML; both are refused where they are. So is U+FFFD, which TOML allows,
 // but which a lenient decoder writes where bytes are not UTF-8: a file read
 // that way would come back with its damage in its strings, read as text.
-const DAMAGE = {
-  __proto__: null,
-  '\uFEFF': 'a byte order mark is not read',
-  '\uFFFD': 'U+FFFD is not supported: a decoder puts it where bytes are not UTF-8',
-}
+const DAMAGE = { __proto__: null, '\uFEFF': 'a byte order mark is not read', '\uFFFD': 'U+FFFD is not supported: a decoder puts it where bytes are not UTF-8' }
 
 function checkText(text) {
   if (typeof text !== 'string') throw new TypeError('expected a string')

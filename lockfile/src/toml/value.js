@@ -1,14 +1,9 @@
 // The lines of a TOML document, read from `src`: { text, pos, line }, the
-// text, where the reader is in it, and the line it is on (from zero). A
-// line holds a header, or a key and its value, or neither; readLine reads
-// what it holds and endLine the spaces, comment and line break after. Where
-// a line's key goes is parse.js's to say; an inline table's keys are set
-// here.
-//
-// Read here: basic and literal strings, on one line or across lines,
-// integers and floats (number.js), booleans, offset date-times, arrays
-// (across lines, with comments and a trailing comma) and inline tables (on
-// one line, as TOML 1.0 has them). Refused, each by name: local dates and
+// line counted from zero. readLine reads a line's header or key and value,
+// endLine what follows; where a key goes is parse.js's to say, but for an
+// inline table's. Read: basic and literal strings, on one line or across
+// lines, integers and floats (number.js), booleans, offset date-times,
+// arrays, and inline tables on one line. Refused by name: local dates and
 // times, and TOML 1.1's escapes, times without seconds, and inline tables
 // across lines or with a trailing comma.
 
@@ -100,9 +95,8 @@ function readEscape(src) {
   return String.fromCodePoint(code)
 }
 
-// `"…"`, with TOML 1.0's escapes, or `'…'`, taken as written, on one line.
-// A literal string's run takes in backslashes, so only a basic one stops at
-// one.
+// `"…"`, with TOML 1.0's escapes, or `'…'`, taken as written, on one line;
+// a literal string's run takes backslashes in.
 function readString(src, quote) {
   src.pos++
   let value = ''
@@ -118,27 +112,20 @@ function readString(src, quote) {
 }
 
 // After a backslash in a multi-line basic string: the end of its line,
-// whitespace before it allowed, which takes along every space, tab and
-// line break up to the string's next character; or else an escape.
+// spaces before it allowed, which takes along every space, tab and line
+// break up to the string's next character; or else an escape.
+const CONTINUATION = /[\t ]*\r?\n(?:[\t ]|\r?\n)*/uy
 function readMultilineEscape(src) {
-  const at = src.pos
-  skipSpaces(src)
-  if (!takeNewline(src)) {
-    src.pos = at
-    return readEscape(src)
-  }
-  do {
-    skipSpaces(src)
-  } while (takeNewline(src))
+  const m = take(src, CONTINUATION)
+  if (m === null) return readEscape(src)
+  src.line += m[0].split('\n').length - 1
   return ''
 }
 
-// `"""…"""` and `'''…'''`, across lines. A line break just after the opening
-// quotes is dropped, and CRLF within is read as LF, as tomllib has it. The
-// first run of three quotes or more ends the string, and one or two past
-// three are the string's own. A basic one has the escapes a basic string
-// has, and a backslash that ends its line; in a literal one, nothing is
-// escaped.
+// `"""…"""` and `'''…'''`, across lines: a line break just after the opening
+// quotes is dropped, CRLF within is read as LF, as tomllib has it, and the
+// first three quotes or more end it, one or two past three its own. A basic
+// one has a basic string's escapes and a backslash that ends a line.
 const CLOSE = { __proto__: null, '"': /"{3,5}/uy, "'": /'{3,5}/uy }
 function readMultiline(src, quote) {
   src.pos += 3
@@ -225,9 +212,7 @@ function readKeyValue(src, depth) {
 function readArray(src, depth) {
   src.pos++
   const list = []
-  for (;;) {
-    skipBlank(src)
-    if (src.text[src.pos] === ']') break
+  for (skipBlank(src); src.text[src.pos] !== ']'; skipBlank(src)) {
     list.push(readValue(src, depth + 1))
     skipBlank(src)
     if (src.text[src.pos] === ']') break
@@ -248,10 +233,7 @@ const inlineKind = (value) => (Array.isArray(value) ? 'an array' : isTable(value
 function putInline(src, table, open, keys, value) {
   let at = table
   for (const key of keys.slice(0, -1)) {
-    if (!(key in at)) {
-      at[key] = Object.create(null)
-      open.add(at[key])
-    }
+    if (!(key in at)) open.add(at[key] = Object.create(null))
     const next = at[key]
     assert(open.has(next), src, () => `${excerpt(key)} is ${inlineKind(next)}, which a dotted key cannot add to`)
     at = next
@@ -260,8 +242,7 @@ function putInline(src, table, open, keys, value) {
 }
 
 // TOML 1.1 lets an inline table run across lines, with comments, and end
-// in a comma; the 1.0 read here keeps it to one line and no comma after
-// its last pair. Spaces are passed over on the way.
+// in a comma; 1.0 does not. Spaces are passed over on the way.
 function sameLine(src) {
   skipSpaces(src)
   assert(!atLineEnd(src) && src.text[src.pos] !== '#', src, 'an inline table across lines is not supported')
@@ -292,17 +273,10 @@ function readInline(src, depth) {
 function readValue(src, depth) {
   assert(depth <= MAX_DEPTH, src, 'nested too deep')
   const char = src.text[src.pos]
-  switch (char) {
-    case '"':
-    case "'":
-      return tripled(src, char) ? readMultiline(src, char) : readString(src, char)
-    case '[':
-      return readArray(src, depth)
-    case '{':
-      return readInline(src, depth)
-    default:
-      return readToken(src)
-  }
+  if (char === '"' || char === "'") return tripled(src, char) ? readMultiline(src, char) : readString(src, char)
+  if (char === '[') return readArray(src, depth)
+  if (char === '{') return readInline(src, depth)
+  return readToken(src)
 }
 
 // `[a.b]` or `[[a.b]]`: the header's keys, and whether it adds a table to
@@ -318,11 +292,9 @@ function readHeader(src) {
   return { header: true, keys, array }
 }
 
-// What a line holds: a header, as { header: true, keys, array }, or a key
-// and its value, as { header: false, keys, value }; or undefined, where it
-// is blank or a comment, or begins with a carriage return that endLine
-// refuses. Each says itself which it is, so that no `header` another module
-// sets on Object.prototype can.
+// A line's header, { header: true, keys, array }, or key and value, { header:
+// false, keys, value }, each saying itself which, so that no `header` set on
+// Object.prototype can; undefined for a blank, comment or lone-CR line.
 export function readLine(src) {
   skipSpaces(src)
   const char = src.text[src.pos]
