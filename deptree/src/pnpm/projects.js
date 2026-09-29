@@ -33,7 +33,7 @@
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, difference, quote } from '../error.js'
-import { checkCatalogResolutions, checkLinkedPackages, refOf, sameSpecifier } from './frozen.js'
+import { checkCatalogResolutions, checkLinkTargets, checkLinkedPackages, refOf, sameSpecifier } from './frozen.js'
 import { checkProject } from './install.js'
 import { validForOldPackages } from './overrides.js'
 
@@ -212,9 +212,10 @@ export function checkProjects(lockfile, manifests, { hook, host, settings }) {
     const importer = lockfile.importers[id]
     const reason = mismatch(importer, hooked, settings.autoInstallPeers, host.major, where)
     if (reason !== undefined) throw new DeptreeError(`the lockfile is not up to date with this package.json, which a frozen install refuses: ${reason}`, where)
+    checkLinkTargets({ id, manifest: hooked, importer }, where)
     if (host.major < 11) continue
     checkCatalogResolutions(importer, lockfile.catalogs, where)
-    checkLinkedPackages({ id, manifest: hooked, importer, projects: manifests, linkWorkspacePackages: settings.linkWorkspacePackages }, where)
+    checkLinkedPackages({ manifest: hooked, importer, projects: manifests, linkWorkspacePackages: settings.linkWorkspacePackages }, where)
   }
 }
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { parsePnpmLockfile } from '@preventive/lockfile/pnpm.js'
-import { checkCatalogResolutions, checkLinkedPackages, sameSpecifier } from '../src/pnpm/frozen.js'
+import { checkCatalogResolutions, checkLinkTargets, checkLinkedPackages, sameSpecifier } from '../src/pnpm/frozen.js'
 
 // What pnpm 11's frozen install holds a project to beyond pnpm 10's, case
 // by case.
@@ -88,7 +88,9 @@ snapshots:
 `}`).lockfile
     const b = { name: 'b', dependencies: { a: spec } }
     const projects = new Map([['.', { name: 'root' }], ['packages/a', { name: 'a', version: '1.2.0' }], ['packages/b', b], ['packages/x', { name: 'x', version: '1.2.0' }]])
-    checkLinkedPackages({ id: 'packages/b', manifest: b, importer: lockfile.importers['packages/b'], projects, linkWorkspacePackages }, 'x')
+    const importer = lockfile.importers['packages/b']
+    checkLinkTargets({ id: 'packages/b', manifest: b, importer }, 'x')
+    checkLinkedPackages({ manifest: b, importer, projects, linkWorkspacePackages }, 'x')
   }
 
   it('takes a workspace package linked where its version is in range, and one from the registry where it is not', () => {
@@ -96,6 +98,8 @@ snapshots:
     check('workspace:*', 'link:../a')
     check('workspace:../a', 'link:../a')
     check('link:../a', 'link:../a')
+    check('../a', 'link:../a')
+    check('./../a/', 'link:../a')
     check('^1.0.0', '1.2.0')
     check('^1.0.0', 'link:../a', { linkWorkspacePackages: true })
     check('^2.0.0', 'link:../a')
@@ -106,6 +110,8 @@ snapshots:
     ['one linked out of range where workspace packages are linked', ['^2.0.0', 'link:../a', { linkWorkspacePackages: true }], /is not in the range "\^2\.0\.0"/u],
     ['a workspace package in range and not linked', ['^1.0.0', '1.2.0', { linkWorkspacePackages: true }], /the workspace package a \(1\.2\.0\) is in the range "\^1\.0\.0" and not linked/u],
     ['a link to another directory than the specifier', ['link:../c', 'link:../a'], /a is linked to "packages\/a", which is not where "link:\.\.\/c" leads/u],
+    ['a link to another directory than a path alone', ['../c', 'link:../a'], /a is linked to "packages\/a", which is not where "\.\.\/c" leads/u],
+    ['a link to another directory than a workspace: path', ['workspace:../c', 'link:../a'], /which is not where "workspace:\.\.\/c" leads/u],
     ['a link out of every workspace package of the name', ['workspace:^1.0.0', 'link:../x'], /a is linked to "packages\/x", which is in no workspace package named "a"/u],
     ['a link to a directory that is no project', ['^1.0.0', 'link:../../elsewhere', { linkWorkspacePackages: true }], /it is linked to "elsewhere", which is no project/u],
     ['a path from the home directory', ['link:~/a', 'link:../a'], /"~\/a" is not a path from the project, which is not supported/u],

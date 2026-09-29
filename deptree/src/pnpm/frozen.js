@@ -81,7 +81,7 @@ export function checkCatalogResolutions(importer, catalogs, where) {
 function specPath(dir, path, where) {
   const clean = path.startsWith('./') ? path.slice(2) : path
   if (/^(?:~[/\\]|[/\\]|[A-Za-z]:)/u.test(clean) || clean.includes('\\')) throw new DeptreeError(`${quote(path)} is not a path from the project, which is not supported`, where)
-  return normalize(join(dir, clean))
+  return normalize(join(dir, clean.replace(/\/+$/u, '')))
 }
 
 const isWorkspacePath = (spec) => /^(?:[./\\]|~[/\\]|[A-Za-z]:)/u.test(spec)
@@ -126,11 +126,40 @@ const isTag = (range) => valid(range, { loose: true }) === null && validRange(ra
 
 const KINDS = ['optionalDependencies', 'dependencies', 'devDependencies']
 
-// checkLinkedPackagesAreUpToDate, for the project at `id`: `manifest` is
-// its package.json as read through the read-package hook, `projects`
-// every project's by its directory, as given, and `linkWorkspacePackages`
-// the setting.
-export function checkLinkedPackages({ id, manifest, importer, projects, linkWorkspacePackages }, where) {
+// The directory a specifier names, where it names one: by `link:`,
+// `file:`, a `workspace:` path, or a path alone, as pnpm reads one.
+function pathOf(spec) {
+  if (spec.startsWith('link:') || spec.startsWith('file:')) return spec.slice(5)
+  if (spec.startsWith('workspace:')) return isWorkspacePath(spec.slice('workspace:'.length)) ? spec.slice('workspace:'.length) : undefined
+  return /^(?:[./]|~\/|[a-z]:)/iu.test(spec) ? spec : undefined
+}
+
+// A dependency the lockfile links has to be linked where the project's
+// package.json, read through the read-package hook, names a directory for
+// it, as a lockfile pnpm writes always has it: pnpm 11 holds a `link:` or
+// `workspace:` path to that, and pnpm 10, or pnpm 11 a path alone, would
+// link whatever the lockfile says. A `file:` one is pnpm's to link, where
+// it does.
+export function checkLinkTargets({ id, manifest, importer }, where) {
+  for (const kind of KINDS) {
+    for (const [alias, target] of Object.entries(importer[kind])) {
+      const spec = manifest[kind]?.[alias]
+      if (!spec || !target.startsWith('link:') || importer.specifiers[alias].startsWith('file:')) continue
+      const path = pathOf(spec)
+      const linkedTo = target.slice('link:'.length)
+      if (path !== undefined && specPath(id, path, `${where}.${kind}.${alias}`) !== linkedTo) {
+        throw new DeptreeError(`the lockfile is not up to date with this package.json, which a frozen install refuses: ${alias} is linked to ${quote(linkedTo)}, which is not where ${quote(spec)} leads`, where)
+      }
+    }
+  }
+}
+
+// checkLinkedPackagesAreUpToDate, for the project at `id`, less the
+// directories a package.json names, which checkLinkTargets holds links to:
+// `manifest` is its package.json as read through the read-package hook,
+// `projects` every project's by its directory, as given, and
+// `linkWorkspacePackages` the setting.
+export function checkLinkedPackages({ manifest, importer, projects, linkWorkspacePackages }, where) {
   const byName = new Map()
   const byDir = new Map()
   for (const [dir, project] of projects) {
@@ -156,17 +185,12 @@ export function checkLinkedPackages({ id, manifest, importer, projects, linkWork
       const local = importer.specifiers[alias].startsWith('file:') || packageKeyOf(target).includes('@file:')
       if (local && !linked) throw new DeptreeError('a dependency on a local directory or tarball is not supported', here)
       if (local) continue
-      const linkedTo = linked ? target.slice('link:'.length) : undefined
-      const path = spec.startsWith('link:') || spec.startsWith('file:') ? spec.slice(5) : spec.startsWith('workspace:') && !workspaceRange ? spec.slice('workspace:'.length) : undefined
-      if (linked && path !== undefined) {
-        if (specPath(id, path, here) !== linkedTo) throw outdated(`${alias} is linked to ${quote(linkedTo)}, which is not where ${quote(spec)} leads`)
-        continue
-      }
+      if (linked && pathOf(spec) !== undefined) continue
       const name = targetName(spec, alias)
       const range = versionRange(spec)
       if (linked && isTag(range)) continue
       const named = byName.get(name)
-      const dir = linked ? linkedTo : named?.get(packageKeyOf(refOf(alias, target)))
+      const dir = linked ? target.slice('link:'.length) : named?.get(packageKeyOf(refOf(alias, target)))
       if (dir === undefined) {
         const taking = workspaceRange && named !== undefined ? [...named.keys()].find((version) => inRange(projects.get(named.get(version)).version, range)) : undefined
         if (taking !== undefined) throw outdated(`the workspace package ${quote(name)} (${taking}) is in the range ${quote(spec)} and not linked`)

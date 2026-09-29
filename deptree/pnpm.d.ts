@@ -155,8 +155,10 @@ export interface PnpmTree {
 // host.node.
 //
 // And to more than pnpm holds it to, where a lockfile pnpm writes, or a
-// package the registry serves, always holds: each snapshot marked
-// optional exactly where only optional dependencies reach it; each patch
+// package the registry serves, always holds: each dependency linked where
+// the package.json names a directory for it, a path alone among them; each
+// snapshot marked optional exactly where only optional dependencies reach
+// it; each patch
 // on the package the settings pick it for, and each used; each tarball
 // gzipped, every file under one directory, no link or device in it, and
 // a package.json for exactly its name and version, whose os, cpu, libc,

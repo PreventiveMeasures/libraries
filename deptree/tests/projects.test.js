@@ -100,6 +100,15 @@ describe('checkProjects', () => {
     check({ ...MANIFEST, devEngines: { runtime: { name: 'node', version: '24.0.0', onFail: 'warn' } } })
   })
 
+  // pnpm 10 links what the lockfile says, but a lockfile pnpm writes links
+  // a directory the package.json names there.
+  it('refuses a link to another directory than the package.json names', () => {
+    const lockfile = structuredClone(LOCKFILE)
+    Object.setPrototypeOf(lockfile.importers, null)
+    lockfile.importers['.'].devDependencies.l = 'link:../m'
+    assert.throws(() => check(MANIFEST, { lockfile }), /^DeptreeError: manifests\["\."\]: the lockfile is not up to date with this package\.json, which a frozen install refuses: l is linked to "\.\.\/m", which is not where "link:\.\.\/l" leads$/u)
+  })
+
   it('refuses a version the importer resolved outside its range', () => {
     const lockfile = structuredClone(LOCKFILE)
     Object.setPrototypeOf(lockfile.importers, null)
