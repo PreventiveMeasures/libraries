@@ -197,6 +197,14 @@ describe('resolveCargoFeatures', () => {
     assert.equal(build({ features: ['extra'] })['a 0.1.0'].normal.includes('b'), false)
   })
 
+  it('takes an empty list of targets as none: the host', () => {
+    const b1 = 'b1 = { package = "b", version = "1" }\n'
+    const unix = link({ change: { 'app 0.1.0': `${MANIFESTS['app 0.1.0'].replace(b1, '')}\n[target.'cfg(unix)'.dependencies]\n${b1}` } })
+    const empty = resolveCargoFeatures(unix, { packages: ['app 0.1.0'], host: HOST, targets: [] })
+    assert.deepEqual(empty, resolveCargoFeatures(unix, { packages: ['app 0.1.0'], host: HOST }))
+    assert.deepEqual(empty[B1], { normal: [], host: undefined })
+  })
+
   it('resolves the root package under resolver 1 whether built or not, and lists only what is built', () => {
     const v1 = link({ change: { 'app 0.1.0': MANIFESTS['app 0.1.0'].replace('edition = "2021"', 'edition = "2015"') } })
     assert.deepEqual({ ...resolveCargoFeatures(v1, { packages: ['a 0.1.0'], features: ['extra'], host: HOST }) }, { 'a 0.1.0': { normal: ['extra'], host: undefined } })

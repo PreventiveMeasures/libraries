@@ -134,7 +134,7 @@ class FeatureResolver {
     this.targeted = targeted
     const all = options.targets === 'all'
     this.host = all ? undefined : readPlatform(options.host, 'host')
-    this.targets = all ? [] : (options.targets ?? [options.host]).map((target, index) => readPlatform(target, `targets[${index}]`))
+    this.targets = all ? [] : (options.targets?.length > 0 ? options.targets : [options.host]).map((target, index) => readPlatform(target, `targets[${index}]`))
     this.dev = options.dev === true
     this.decoupleHost = graph.resolver >= 2
     this.decoupleDev = graph.resolver >= 2 && !this.dev

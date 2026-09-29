@@ -118,10 +118,40 @@ function inherit(value, where, name, context) {
   }
 }
 
-// What tells two sources apart without a filesystem: a path's is not.
-function sourceKey(source) {
-  const identity = sourceIdentity(source, 'path')
-  return identity === ANY_REGISTRY ? `${identity} ${source.registry}` : identity
+// What tells two sources apart without a filesystem. A path is read as
+// cargo reads it, from the manifest's directory, or the workspace root's
+// where it is inherited: `.` and empty parts dropped and `..` taken back,
+// leaving the `..` it climbs out by and the parts after, or from `/`.
+function sourceOf(source, inherited) {
+  if (source.type !== 'path') {
+    const identity = sourceIdentity(source, 'path')
+    return { key: identity === ANY_REGISTRY ? `${identity} ${source.registry}` : identity }
+  }
+  const parts = []
+  let up = 0
+  for (const part of source.path.split('/')) {
+    if (part === '..' && parts.length > 0) parts.pop()
+    else if (part === '..') up++
+    else if (part !== '' && part !== '.') parts.push(part)
+  }
+  return { key: 'path', absolute: source.path.startsWith('/'), up, parts, inherited }
+}
+
+const endsWith = (long, short) => short.length <= long.length && short.every((part, index) => part === long[long.length - short.length + index])
+
+// Whether two sources are other ones whatever the directories are named.
+// Two paths from one directory meet only where the one that climbs further
+// goes back down through that directory's names, no more of them than it
+// climbed, and then as the other; paths from directories not known one from
+// the other meet only where they end alike.
+function differ(a, b) {
+  if (a.key !== 'path' || b.key !== 'path') return a.key !== b.key
+  if (a.absolute && b.absolute) return a.parts.join('/') !== b.parts.join('/')
+  if (a.absolute || b.absolute) return !endsWith((a.absolute ? a : b).parts, (a.absolute ? b : a).parts)
+  if (a.inherited !== b.inherited) return !endsWith(a.parts, b.parts) && !endsWith(b.parts, a.parts)
+  const [far, near] = a.up >= b.up ? [a, b] : [b, a]
+  const down = far.parts.length - near.parts.length
+  return down < 0 || down > far.up - near.up || !endsWith(far.parts, near.parts)
 }
 
 function readDependencies(value, where, kind, target, context) {
@@ -129,9 +159,10 @@ function readDependencies(value, where, kind, target, context) {
     checkName(name, here)
     const spec = isTable(item) && 'workspace' in item ? inherit(item, here, name, context) : { ...readSpec(item, here, name, context.edition), inherited: false }
     if (spec.optional && kind === 'dev') throw new LockfileError('a dev-dependency cannot be optional', here)
-    const source = sourceKey(spec.source)
-    if ((context.sources.get(name) ?? source) !== source) throw new LockfileError(`${quote(name)} is given another source elsewhere, which cargo refuses`, here)
-    context.sources.set(name, source)
+    const source = sourceOf(spec.source, spec.inherited)
+    const seen = context.sources.get(name) ?? []
+    if (seen.some((other) => differ(other, source))) throw new LockfileError(`${quote(name)} is given another source elsewhere, which cargo refuses`, here)
+    context.sources.set(name, [...seen, source])
     context.list.push({ name, kind, target, ...spec })
   }
 }

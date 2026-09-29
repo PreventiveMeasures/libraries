@@ -226,8 +226,9 @@ export function resolveCargoFeatures(graph: CargoGraph, build: CargoBuild): Reco
 
 // The host is what `rustc -vV` calls it and `rustc --print cfg` prints for
 // it; each target, each `--target` likewise, is the host alone where none
-// is given. Targets `'all'` read every platform at once, as `cargo
-// metadata` and `cargo tree --target all` do, and need no host.
+// is given or the list is empty. Targets `'all'` read every platform at
+// once, as `cargo metadata` and `cargo tree --target all` do, and need no
+// host.
 export type CargoBuild = CargoCommand & (
   | { host: CargoPlatform, targets?: CargoPlatform[] }
   | { host?: CargoPlatform, targets: 'all' }

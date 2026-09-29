@@ -126,6 +126,25 @@ describe('parseCargoManifest', () => {
     assert.equal(parseCargoManifest('[package]\nname = "a"\npublish = false\n').package.version, '0.0.0')
   })
 
+  // lib at crates/lib, and again for unix: by other words, or by a path that
+  // climbs out of the directory, which may lead back into it.
+  it('takes a path that leads to the same place, or may, as the same source', () => {
+    for (const path of ['./crates//lib/', 'crates/x/../lib', '../root/crates/lib', '/root/crates/lib']) {
+      const pkg = parseCargoManifest(edit(ROOT, 'libc = "0.2"', `lib = { path = "${path}", version = "0.2" }`)).package
+      assert.equal(pkg.dependencies.filter((dep) => dep.name === 'lib').length, 2)
+    }
+  })
+
+  // util at crates/util of the root, inherited by crates/m, and again for
+  // unix from crates/m.
+  it('reads an inherited path from the workspace root', () => {
+    const utilRoot = parseCargoManifest('[workspace]\nmembers = ["crates/*"]\n\n[workspace.dependencies]\nutil = { path = "crates/util" }\n')
+    const member = (path) => `[package]\nname = "m"\nversion = "0.1.0"\n\n[dependencies]\nutil = { workspace = true }\n\n[target.'cfg(unix)'.dependencies]\nutil = { path = "${path}" }\n`
+    assert.equal(parseCargoManifest(member('../util'), utilRoot).package.dependencies.length, 2)
+    const message = 'target["cfg(unix)"].dependencies.util: "util" is given another source elsewhere, which cargo refuses'
+    assert.throws(() => parseCargoManifest(member('../other'), utilRoot), (error) => error instanceof LockfileError && error.message === message)
+  })
+
   it('throws a TypeError for a root that is not one', () => {
     assert.throws(() => parseCargoManifest(MEMBER, parseCargoManifest('[package]\nname = "a"\n')), TypeError)
   })
@@ -157,6 +176,8 @@ describe('parseCargoManifest', () => {
     ['a dependency feature with dep:', edit(ROOT, 'cc = "1"', 'cc = { version = "1", features = ["dep:y"] }'), '["build-dependencies"].cc.features[0]: "dep:y": a dependency\'s feature cannot be `dep:`'],
     ['an optional dev-dependency', edit(ROOT, 'log = { workspace = true }', 'log = { workspace = true, optional = true }'), '["dev-dependencies"].log: a dev-dependency cannot be optional'],
     ['two sources for one name', edit(ROOT, 'libc = "0.2"', 'itoa04 = { package = "itoa", git = "https://example.com/itoa" }'), 'target["cfg(unix)"].dependencies.itoa04: "itoa04" is given another source elsewhere, which cargo refuses'],
+    ['two paths for one name', edit(ROOT, 'libc = "0.2"', 'lib = { path = "crates/other", version = "0.2" }'), 'target["cfg(unix)"].dependencies.lib: "lib" is given another source elsewhere, which cargo refuses'],
+    ['a path that climbs out and cannot come back to the other', edit(ROOT, 'libc = "0.2"', 'lib = { path = "../crates/other", version = "0.2" }'), 'target["cfg(unix)"].dependencies.lib: "lib" is given another source elsewhere, which cargo refuses'],
     ['a platform that is neither', edit(ROOT, "[target.'cfg(unix)'.dependencies]", "[target.'cfg(unix'.dependencies]"), 'target["cfg(unix"]: "cfg(unix" is neither a target\'s name nor cfg(…)'],
     ['a cfg expression cargo refuses', edit(ROOT, "[target.'cfg(unix)'.dependencies]", "[target.'cfg(not(a, b))'.dependencies]"), 'target["cfg(not(a, b))"]: "not(a, b)" is not a cfg expression: expected ")"'],
     ['inheriting with no root given', MEMBER, 'package.edition: inherits from a workspace, and no workspace root is given'],
