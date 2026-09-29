@@ -79,7 +79,8 @@ function filesUnder(files, base, dir) {
 // pnpm 11 looks a name up among OWNERS as a plain object's key, and fails
 // on one that Object.prototype has.
 function owns({ name, pkgName, own }, major, where) {
-  if (own || name === pkgName || major < 11) return own || name === pkgName
+  if (own || name === pkgName) return true
+  if (major < 11) return false
   if (name in Object.prototype) throw new DeptreeError(`two bins are named ${quote(name)}, which pnpm 11 fails on`, where)
   return OWNERS[name]?.includes(pkgName) === true
 }
@@ -102,10 +103,11 @@ function commandsOf(dir, manifest, files, base, where, major) {
     const commands = []
     for (const [command, rel] of entries) {
       const name = command[0] === '@' ? command.slice(command.indexOf('/') + 1) : command
-      const empty = name === '' || name === '.' || name === '..'
-      if (empty && major >= 11) continue
       if (name !== encodeURIComponent(name) && name !== '$') continue
-      if (empty) throw new DeptreeError(`a bin named ${quote(name)} is not supported`, where)
+      if (name === '' || name === '.' || name === '..') {
+        if (major >= 11) continue
+        throw new DeptreeError(`a bin named ${quote(name)} is not supported`, where)
+      }
       const target = inPackage(dir, rel, where)
       if (target !== undefined) commands.push({ ...common, name, target })
     }
