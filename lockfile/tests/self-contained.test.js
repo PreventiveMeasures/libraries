@@ -22,6 +22,8 @@ const sourced = (name) => name.endsWith('.js') || name.endsWith('.d.ts')
 // The front doors plus the modules behind them. `tests/` and `scripts/` are
 // left out: neither ships, and each may reach for whatever drives it.
 const files = [
+  new URL('cargo.js', PKG_DIR),
+  new URL('cargo.d.ts', PKG_DIR),
   new URL('pnpm.js', PKG_DIR),
   new URL('pnpm.d.ts', PKG_DIR),
   new URL('rust-semver.js', PKG_DIR),
