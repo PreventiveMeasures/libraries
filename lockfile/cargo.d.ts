@@ -212,7 +212,11 @@ export interface CargoLinkedDependency extends CargoDependency {
 // what it depends on, is listed for the target too, in case it has more
 // targets than its library; a build-dependency, though the package may have
 // no build script; and what a member depends on, though it may have no
-// library or binary for `cargo build` to build.
+// library or binary for `cargo build` to build. So is a build-dependency
+// that a package built for the target turns on and the same package built
+// for the host does not: where the two have the same features, cargo gives
+// them one build script, with the dependencies of whichever it comes to
+// first.
 //
 // Refused, as cargo refuses to build it: a crate listed, but for a
 // proc-macro member for the target and what only that reaches, that depends
