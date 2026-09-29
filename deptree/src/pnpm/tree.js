@@ -25,6 +25,7 @@ import { Vfs } from '@preventive/vfs'
 import { dirname, relative } from '@preventive/vfs/path.js'
 import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
+import { checkNoModules, mount } from '../mount.js'
 import { applyPatch, parsePatch } from '../patch.js'
 import { REGISTRY, checkDependencies, fetchPackage, tarballUrl } from '../tarball.js'
 import { binTargets, checkPatchOfBins, fixBin } from './bins.js'
@@ -189,12 +190,15 @@ function readPatchesGiven(patches) {
 }
 
 export async function buildPnpmTree(options) {
-  const { lockfile: text, manifests: manifestTexts, workspace, npmrc, patches, host: machine } = options ?? {}
+  const { lockfile: text, manifests: manifestTexts, workspace, npmrc, patches, host: machine, vfs: into } = options ?? {}
   if (typeof text !== 'string') throw new TypeError('lockfile must be the text of pnpm-lock.yaml')
+  if (into !== undefined && !(into instanceof Vfs)) throw new TypeError('vfs must be a Vfs, or left out')
   for (const [name, value] of [['workspace', workspace], ['npmrc', npmrc]]) {
     if (value !== undefined && typeof value !== 'string') throw new TypeError(`${name} must be a string, or left out`)
   }
   const host = checkHost(machine)
+  // Refused before anything is fetched; mount checks again.
+  if (into !== undefined) checkNoModules(into, host.os === 'darwin')
   const { lockfile, env } = parsePnpmLockfile(text)
   // pnpm 11 locks config dependencies there, which are refused, and the
   // pnpm a project pins, which leaves the tree as it is.
@@ -264,5 +268,7 @@ export async function buildPnpmTree(options) {
   }
   checkLinks(vfs, links)
   if (host.os === 'darwin') checkCollisions(vfs)
-  return { vfs, stats }
+  if (into === undefined) return { vfs, stats }
+  mount(vfs, into, host.os === 'darwin')
+  return { vfs: into, stats }
 }

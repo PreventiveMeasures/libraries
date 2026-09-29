@@ -15,6 +15,7 @@
     "src/error.js",
     "src/hash.js",
     "src/matcher.js",
+    "src/mount.js",
     "src/patch.js",
     "src/pnpm/bins.js",
     "src/pnpm/checks.js",

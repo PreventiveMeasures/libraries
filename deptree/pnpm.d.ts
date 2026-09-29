@@ -78,6 +78,17 @@ export interface PnpmHost {
 // trustLockfile: minimumReleaseAge, and the rest of what pnpm 11 checks the
 // lockfile against the registry by before it installs — each package's
 // publish time, its tarball URL, its trust — are passed over.
+//
+// `vfs` is a Vfs to mount the tree into, at its root, which is taken to
+// be the lockfile's directory, beside whatever it holds, such as the
+// projects themselves; without one, a new Vfs holds the tree alone. A Vfs
+// that holds a node_modules anywhere, or on macOS a name that is one
+// there, is refused before anything is fetched: kept beside the tree, Node
+// would read it as the tree's, and removed, it would be the caller's lost.
+// Nothing there is written over: each directory the tree has is one there
+// or is made, and every file and link is written where nothing is. The
+// tree is built, and held to every check below, before any of it is
+// written, so a refusal leaves the Vfs as it was.
 export interface PnpmTreeOptions {
   lockfile: string
   manifests: Record<string, string> | Map<string, string>
@@ -85,6 +96,7 @@ export interface PnpmTreeOptions {
   npmrc?: string
   patches?: Record<string, string> | Map<string, string>
   host: PnpmHost
+  vfs?: Vfs
 }
 
 // What buildPnpmTree counts, all of it plain numbers: `projects` the
@@ -107,6 +119,7 @@ export interface PnpmTreeStats {
   links: number
 }
 
+// `vfs` is the one given, the tree mounted into it, or a new one.
 export interface PnpmTree {
   vfs: Vfs
   stats: PnpmTreeStats
@@ -130,7 +143,8 @@ export interface PnpmTree {
 // store; where it hardlinks them instead, making one executable makes
 // every file of the same content executable, and the store's, for later
 // installs too, which is not followed here. Every file is written once,
-// and a write that would replace anything with something else is refused.
+// and a write that would replace anything with something else is refused;
+// into a Vfs given, one that would replace anything at all.
 // pnpm 11 links bins otherwise in places — npm owns `npx` and pnpm its
 // aliases, a project's .bin takes the bins of the peers its dependencies
 // require — and each is built as the one given links them.

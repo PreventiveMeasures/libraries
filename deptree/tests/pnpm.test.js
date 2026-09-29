@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { afterEach, describe, it } from 'node:test'
+import { createVfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, buildPnpmTree } from '../pnpm.js'
 import { HOST, stubRegistry, tarball } from './registry.js'
 
@@ -592,5 +593,83 @@ describe('buildPnpmTree with a workspace', () => {
     for (const workspace of ['packages: packages/*\n', 'packages:\n  - ""\n', 'packages:\n  - 1\n']) {
       await assert.rejects(buildTwo({}, { workspace }), /^DeptreeError: pnpm-workspace\.yaml: packages: expected a list of non-empty strings/u, workspace)
     }
+  })
+})
+
+// A tree mounted into a Vfs that holds the projects already, beside what
+// is there: nothing is written over, and a node_modules there already is
+// refused, before anything is fetched, and whatever refuses, nothing is
+// written.
+describe('buildPnpmTree into a given Vfs', () => {
+  const two = lockfile().replace('importers:\n', 'importers:\n\n  packages/x:\n    dependencies:\n      b:\n        specifier: 1.0.0\n        version: 1.0.0\n')
+  const x = JSON.stringify({ name: 'x', dependencies: { b: '1.0.0' } })
+  const sources = { 'package.json': root(), 'pnpm-lock.yaml': two, 'packages/x/package.json': x, 'packages/x/index.js': 'x' }
+  const into = (vfs, options) => buildPnpmTree({ lockfile: two, manifests: { '.': root(), 'packages/x': x }, workspace: 'packages:\n  - packages/*\n', patches: { 'patches/p.patch': PATCH }, host: HOST, vfs, ...options })
+  const paths = (vfs) => [...vfs.walk('/')].map(({ path, type }) => `${path} ${type}`)
+
+  it('mounts the tree beside the projects\' own files', async () => {
+    stubRegistry(TARBALLS)
+    const target = createVfs(sources)
+    const { vfs, stats } = await into(target)
+    assert.equal(vfs, target)
+    assert.equal(vfs.readText('/packages/x/index.js'), 'x')
+    assert.equal(vfs.readText('/packages/x/node_modules/b/package.json'), '{"name":"b","version":"1.0.0"}')
+    assert.equal(vfs.readText('/node_modules/p/index.js'), 'module.exports = 2\n')
+    assert.equal(vfs.stat('/node_modules/.pnpm/d@1.0.0/node_modules/d/bin/d.js').mode, 0o755)
+    assert.equal(vfs.realpath('/node_modules/.pnpm/node_modules/x'), '/packages/x')
+    assert.equal(stats.projects, 2)
+  })
+
+  it('refuses a node_modules there already, anywhere, before it fetches anything', async () => {
+    const calls = stubRegistry(TARBALLS)
+    const there = [
+      ['node_modules/q/index.js', '/node_modules'],
+      ['packages/x/node_modules/.modules.yaml', '/packages/x/node_modules'],
+      ['packages/unrelated/src/node_modules', '/packages/unrelated/src/node_modules'],
+    ]
+    for (const [path, found] of there) {
+      const target = createVfs({ ...sources, [path]: '' })
+      const before = paths(target)
+      await assert.rejects(into(target), (error) => error instanceof DeptreeError && error.message === `vfs[${JSON.stringify(found)}]: a node_modules is there already, which is neither kept beside the tree nor removed`, path)
+      assert.deepEqual(paths(target), before)
+    }
+    const linked = createVfs({ ...sources, 'other/node_modules': { type: 'symlink', target: '../elsewhere' } })
+    await assert.rejects(into(linked), /^DeptreeError: vfs\["\/other\/node_modules"\]: a node_modules is there already/u)
+    assert.equal(calls.length, 0)
+  })
+
+  it('refuses a link or a file where the tree has a directory, and writes nothing', async () => {
+    stubRegistry(TARBALLS)
+    const refused = [
+      [{ 'package.json': root(), packages: { type: 'symlink', target: 'elsewhere' }, 'elsewhere/x/package.json': x }, /^DeptreeError: vfs\["\/packages"\]: a symlink is there already, where the tree has a directory$/u],
+      [{ 'package.json': root(), 'packages/x': 'not a directory' }, /^DeptreeError: vfs\["\/packages\/x"\]: a file is there already, where the tree has a directory$/u],
+    ]
+    for (const [given, pattern] of refused) {
+      const target = createVfs(given)
+      const before = paths(target)
+      await assert.rejects(into(target), pattern)
+      assert.deepEqual(paths(target), before)
+    }
+  })
+
+  it('writes nothing where the tree is refused as it is built', async () => {
+    stubRegistry(TARBALLS.map((t) => (t.name === 'b' ? { ...t, served: new Uint8Array([...t.bytes, 0]) } : t)))
+    const target = createVfs(sources)
+    const before = paths(target)
+    await assert.rejects(into(target), /integrity mismatch/u)
+    assert.deepEqual(paths(target), before)
+  })
+
+  it('refuses on macOS a name there already that is one with a name of the tree', async () => {
+    stubRegistry(TARBALLS)
+    const mac = { ...HOST, os: 'darwin', cpu: 'arm64' }
+    await assert.rejects(into(createVfs({ ...sources, 'lib/Node_Modules/x': '' }), { host: mac }), /^DeptreeError: vfs\["\/lib\/Node_Modules"\]: a node_modules is there already/u)
+    await assert.rejects(into(createVfs({ 'package.json': root(), 'Packages/x/package.json': x }), { host: mac }), /^DeptreeError: vfs\["\/packages"\]: "Packages" is there already, which is one name with "packages" on macOS$/u)
+    const linux = await into(createVfs({ ...sources, 'lib/Node_Modules/x': '' }))
+    assert.equal(linux.vfs.isFile('/lib/Node_Modules/x'), true)
+  })
+
+  it('takes a Vfs and nothing else', async () => {
+    await assert.rejects(into({}), (error) => error instanceof TypeError && error.message === 'vfs must be a Vfs, or left out')
   })
 })
