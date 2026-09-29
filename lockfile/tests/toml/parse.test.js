@@ -291,6 +291,9 @@ describe('what is not TOML is refused', () => {
     // What a file that is not UTF-8 comes to when read without `fatal`.
     const lenient = Buffer.from([0x61, 0x20, 0x3D, 0x20, 0x22, 0xFF, 0x22, 0x0A]).toString('utf8')
     refuses(`# first\n${lenient}`, 'U+FFFD is not supported: a decoder puts it where bytes are not UTF-8', 1)
+    // The decoding toml.d.ts gives keeps a byte order mark for the reader to refuse.
+    const decoded = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(Buffer.from('﻿a = 1\n'))
+    refuses(decoded, 'a byte order mark is not read', 0)
     assert.throws(() => parseToml(Buffer.from('a = 1')), { name: 'TypeError', message: 'expected a string' })
   })
 

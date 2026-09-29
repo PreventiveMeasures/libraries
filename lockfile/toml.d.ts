@@ -23,10 +23,11 @@ export type TomlValue = string | number | bigint | boolean | TomlFloat | TomlDat
 // a trailing comma, an integer past 64 bits, a float a double cannot hold,
 // nesting past 64 levels; and anything that is not TOML at all.
 //
-// `text` is the file decoded as UTF-8, strictly: `new TextDecoder('utf-8',
-// { fatal: true })`, or it may be damaged. A byte order mark, a lone
-// surrogate and U+FFFD, which a lenient decoder writes where bytes are not
-// UTF-8, are refused.
+// `text` is the file decoded as UTF-8, strictly and with any byte order mark
+// kept: `new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })`, or it
+// may be damaged. A byte order mark (tomllib refuses one, the toml crate
+// reads past it), a lone surrogate and U+FFFD, which a lenient decoder
+// writes where bytes are not UTF-8, are refused.
 export function parseToml(text: string): TomlTable
 
 // An offset date-time, as written: `text` is its RFC 3339 spelling, with
