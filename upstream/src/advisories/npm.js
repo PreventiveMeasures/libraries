@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 
 import { assertPackageName, assertPackageVersion, isGhsa, isStrings, show } from '../args.js'
 import { NPM_REGISTRY, buildUrl, request } from '../http.js'
+import { chunks } from '../pool.js'
 import { compareVersions } from '../semver.js'
 import { covered, isText, metrics } from './common.js'
 import { withRepositories } from './github.js'
@@ -34,8 +35,7 @@ function fromRegistry(name, row, asked) {
 async function registryAdvisories(asked) {
   const names = [...asked.keys()]
   const advisories = []
-  for (let i = 0; i < names.length; i += NAMES_PER_REQUEST) {
-    const chunk = names.slice(i, i + NAMES_PER_REQUEST)
+  for (const chunk of chunks(names, NAMES_PER_REQUEST)) {
     const body = Object.fromEntries(chunk.map((name) => [name, asked.get(name)]))
     const answer = await request(BULK_URL, { method: 'POST', body, as: 'json' })
     assert.ok(answer && typeof answer === 'object' && !Array.isArray(answer), 'advisories: expected an object from the registry')

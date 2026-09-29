@@ -5,7 +5,7 @@ import { isRepo, show } from '../args.js'
 import { readRecord, writeRecord } from '../cache.js'
 import { CRATES_API, PACKAGIST_REPO, buildUrl, isNotFound, recover, request } from '../http.js'
 import { lookUpPackageRepo } from '../npm/repos.js'
-import { pool } from '../pool.js'
+import { chunks, pool } from '../pool.js'
 import { githubRepoOfUrl } from '../remote.js'
 
 const CRATES_PER_REQUEST = 100
@@ -33,9 +33,8 @@ async function cachedRepos(dir, names, fetchMissing) {
 // A crate crates.io leaves out of its answer is one it does not have.
 async function fetchCrates(names) {
   const found = new Map(names.map((name) => [name, null]))
-  for (let i = 0; i < names.length; i += CRATES_PER_REQUEST) {
+  for (const [i, chunk] of chunks(names, CRATES_PER_REQUEST).entries()) {
     if (i > 0) await sleep(CRATES_PACE_MS)
-    const chunk = names.slice(i, i + CRATES_PER_REQUEST)
     const url = buildUrl(CRATES_API, ['api', 'v1', 'crates'], { 'ids[]': chunk, per_page: CRATES_PER_REQUEST })
     const answer = await request(url, { as: 'json', headers: { 'User-Agent': USER_AGENT } })
     assert.ok(Array.isArray(answer?.crates), 'advisories: expected a list of crates from crates.io')
@@ -57,7 +56,7 @@ async function fetchComposerRepo(name) {
   const [vendor, pkg] = name.split('/')
   const answer = await request(buildUrl(PACKAGIST_REPO, ['p2', vendor, `${pkg}.json`]), { as: 'json' }).catch(recover(isNotFound, null))
   if (answer === null) return null
-  const versions = Object.hasOwn(answer?.packages ?? {}, name) ? answer.packages[name] : undefined
+  const versions = Object.hasOwn(answer.packages ?? {}, name) ? answer.packages[name] : undefined
   assert.ok(Array.isArray(versions), `advisories: Packagist answered without ${name}`)
   return githubRepoOfUrl(versions[0]?.source?.url) ?? null
 }
