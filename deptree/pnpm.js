@@ -4,6 +4,9 @@
 // through @preventive/upstream, and whatever cache it keeps is its own.
 export { buildPnpmTree } from './src/pnpm/tree.js'
 export { DeptreeError } from './src/error.js'
+// Where @preventive/upstream caches what it fetches, tarballs among it;
+// unset, nothing is cached and nothing is written.
+export { setCacheDir } from '@preventive/upstream/npm.js'
 // What the inputs beneath are refused with: the lockfile, and the YAML of
 // it and of pnpm-workspace.yaml.
 export { LockfileError, YamlError } from '@preventive/lockfile/pnpm.js'

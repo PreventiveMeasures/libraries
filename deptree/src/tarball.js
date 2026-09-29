@@ -15,10 +15,13 @@
 // that package.json has to agree with what the lockfile recorded of the
 // package's: its os, cpu and libc, whether it has bins, what it bundles.
 // And every dependency it asks for, read through pnpm's read-package hook
-// as pnpm reads it (hook.js), has to be among its snapshot's, bundled or
-// optional ones aside: a lockfile that leaves one out would leave the
+// as pnpm reads it (hook.js), has to be among each of its snapshots', bundled
+// or optional ones aside: a lockfile that leaves one out would leave the
 // package to find it wherever it is hoisted, if anywhere. A registry whose
 // metadata says other than its tarball does is caught at the same time.
+//
+// A package is fetched and read once however many snapshots it has, one
+// for each set of peers it is resolved with.
 
 import { decompress } from '@preventive/archive/compression.js'
 import { unpack } from '@preventive/archive/tar.js'
@@ -87,15 +90,21 @@ function readManifest(files, pkg, where) {
   return manifest
 }
 
-// What the lockfile recorded of the package, and its snapshot's
-// dependencies, against the package.json: `hook` is hook.js's.
-function checkManifest(manifest, pkg, where, hook) {
+// What the lockfile recorded of the package against the package.json.
+function checkManifest(manifest, pkg, where) {
   for (const field of ['os', 'cpu', 'libc']) {
     if (!same(manifest[field], pkg[field])) throw new DeptreeError(`package.json's ${field} is not the lockfile's`, where)
   }
   if (hasBin(manifest) !== pkg.hasBin) throw new DeptreeError(`package.json ${pkg.hasBin ? 'has no bins, and the lockfile says it has' : 'has bins, and the lockfile says it has none'}`, where)
-  const bundled = manifest.bundleDependencies ?? manifest.bundledDependencies
-  if (!same(bundled, pkg.bundledDependencies)) throw new DeptreeError('package.json bundles other than the lockfile says', where)
+  if (!same(bundledOf(manifest), pkg.bundledDependencies)) throw new DeptreeError('package.json bundles other than the lockfile says', where)
+}
+
+const bundledOf = (manifest) => manifest.bundleDependencies ?? manifest.bundledDependencies
+
+// A snapshot's dependencies against the package.json of its package, as
+// fetchPackage read it: `hook` is hook.js's.
+export function checkDependencies(manifest, pkg, where, hook) {
+  const bundled = bundledOf(manifest)
   const read = hook(manifest, `${where}: package.json`)
   const given = new Set([...names(pkg.dependencies), ...names(pkg.optionalDependencies)])
   for (const name of [...names(read.dependencies), ...names(read.optionalDependencies)]) {
@@ -111,13 +120,15 @@ function checkManifest(manifest, pkg, where, hook) {
   }
 }
 
-// The files of a snapshot's package, which has to be from the registry.
-export async function fetchFiles(pkg, where, hook) {
+// A package's files, and its package.json as parsed; the package has to be
+// from the registry.
+export async function fetchPackage(pkg, where) {
   const { integrity } = pkg.resolution
   const bytes = await getTarball(pkg.name, pkg.version, { tarball: tarballUrl(pkg.name, pkg.version), integrity })
   if (!await matchesIntegrity(bytes, integrity)) throw new DeptreeError(`the tarball is not ${integrity}`, where)
   if (bytes[0] !== 0x1f || bytes[1] !== 0x8b || bytes[2] !== 0x08) throw new DeptreeError('the tarball is not gzipped', where)
   const files = filesOf(unpack(await decompress(bytes, 'gzip', { limit: MAX_BYTES })), where)
-  checkManifest(readManifest(files, pkg, where), pkg, where, hook)
-  return files
+  const manifest = readManifest(files, pkg, where)
+  checkManifest(manifest, pkg, where)
+  return { files, manifest }
 }

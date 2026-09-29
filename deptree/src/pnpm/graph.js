@@ -7,6 +7,7 @@
 // directory it names, which is no node. Paths here are relative to the
 // lockfile's directory, the root of the tree.
 
+import { DeptreeError, quote } from '../error.js'
 import { depPathToFilename } from './filename.js'
 
 const VIRTUAL_STORE = 'node_modules/.pnpm'
@@ -33,10 +34,14 @@ function childrenOf(targets, nodes, skipped) {
 // the order hoisting walks them in.
 export async function buildGraph(lockfile, skipped, maxLength) {
   const nodes = new Map()
+  const keyByDir = new Map()
   for (const [key, pkg] of Object.entries(lockfile.packages)) {
     if (skipped.has(key)) continue
     const store = `${VIRTUAL_STORE}/${await depPathToFilename(key, maxLength)}`
-    nodes.set(key, { key, pkg, name: pkg.name, dir: `${store}/node_modules/${pkg.name}`, modules: `${store}/node_modules` })
+    const dir = `${store}/node_modules/${pkg.name}`
+    if (keyByDir.has(dir)) throw new DeptreeError(`${quote(keyByDir.get(dir))} and ${quote(key)} would be installed in one directory`, quote(dir))
+    keyByDir.set(dir, key)
+    nodes.set(key, { key, pkg, name: pkg.name, dir, modules: `${store}/node_modules` })
   }
   for (const node of nodes.values()) {
     node.children = childrenOf({ ...node.pkg.dependencies, ...node.pkg.optionalDependencies }, nodes, skipped)

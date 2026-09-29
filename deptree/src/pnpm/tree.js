@@ -8,13 +8,16 @@
 // says whether or not anything is there: the tree holds node_modules and
 // nothing else of the projects.
 //
-// Not written: bins and their shims (node_modules/.bin), which pnpm makes
-// of each package's manifest, and the executable bit it gives the files
-// they run; .modules.yaml, .pnpm/lock.yaml and the workspace state, which
-// are pnpm's own; and anything a lifecycle script would build. The tree is
-// always the one `pnpm install --ignore-scripts` makes: no script is run,
-// a project's or a dependency's, whatever the settings allow, and patches
-// are applied all the same, as pnpm applies them before any script.
+// Not written: bins and their shims (node_modules/.bin), though what
+// linking them does to the files they run is (bins.js); .modules.yaml,
+// .pnpm/lock.yaml and the workspace state, which are pnpm's own; and
+// anything a lifecycle script would build. The tree is always the one
+// `pnpm install --ignore-scripts` makes: no script is run, a project's or
+// a dependency's, whatever the settings allow, and patches are applied all
+// the same, as pnpm applies them before any script.
+//
+// Each package is fetched once, and each snapshot's files composed in
+// memory — its package's, patched, bins fixed — before one write of each.
 
 import { packageKeyOf, parsePnpmLockfile } from '@preventive/lockfile/pnpm.js'
 import { parseYaml } from '@preventive/lockfile/yaml.js'
@@ -23,7 +26,8 @@ import { dirname, relative } from '@preventive/vfs/path.js'
 import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { applyPatch, parsePatch } from '../patch.js'
-import { REGISTRY, fetchFiles, tarballUrl } from '../tarball.js'
+import { REGISTRY, checkDependencies, fetchPackage, tarballUrl } from '../tarball.js'
+import { binPaths, binTargets, fixBin, hasCrlfShebang } from './bins.js'
 import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
 import { createCheck, skippedSnapshots } from './install.js'
@@ -77,43 +81,88 @@ function checkRegistry(node) {
   if (!resolution.integrity?.startsWith('sha512-')) throw new DeptreeError('expected a sha512 integrity', quote(key))
 }
 
-async function install(vfs, node, patches, hook) {
-  const where = quote(node.key)
-  try {
-    const files = await fetchFiles(node.pkg, where, hook)
-    vfs.mkdir(`/${node.dir}`, { recursive: true })
-    for (const [path, { data, mode }] of files) {
-      vfs.mkdir(dirname(`/${node.dir}/${path}`), { recursive: true })
-      vfs.writeFile(`/${node.dir}/${path}`, data, { mode })
-    }
-    const { patchHash } = node.pkg
-    if (patchHash === undefined) return
-    if (!patches.has(patchHash)) throw new DeptreeError(`the patch ${patchHash} is not given`, where)
-    const patch = patches.get(patchHash)
-    patch.parsed ??= parsePatch(patch.text, patch.path)
-    applyPatch(vfs, `/${node.dir}`, patch.parsed)
-  } catch (error) {
-    if (error instanceof DeptreeError) throw error
-    throw new DeptreeError(error.message, where, { cause: error })
-  }
-}
-
-// Each node's package, a few at a time; the first failure stops the rest
-// from starting.
-async function installAll(vfs, nodes, patches, hook) {
-  const queue = [...nodes]
+// Each package's files and package.json, by its name and version: a
+// package is fetched once however many snapshots it has, a few at a time,
+// and the first failure stops the rest from starting.
+async function fetchAll(nodes) {
+  const queue = [...new Map([...nodes.values()].map((node) => [packageKeyOf(node.key), node.pkg])).entries()]
+  const fetched = new Map()
   let failed = false
   const worker = async () => {
     while (queue.length > 0 && !failed) {
+      const [id, pkg] = queue.shift()
       try {
-        await install(vfs, queue.shift(), patches, hook)
+        fetched.set(id, await fetchPackage(pkg, quote(id)))
       } catch (error) {
         failed = true
-        throw error
+        throw error instanceof DeptreeError ? error : new DeptreeError(error.message, quote(id), { cause: error })
       }
     }
   }
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker))
+  return fetched
+}
+
+const decoder = new TextDecoder('utf-8', { fatal: true })
+const BIN_FIELDS = (manifest) => JSON.stringify([manifest.name, manifest.bin, manifest.directories])
+
+// A patch applied here is applied as pnpm applies it, between two times
+// its package's bins are linked: bins.js says what that forbids.
+function checkPatchOfBins(node, patched, targets, where) {
+  for (const path of binPaths(node)) {
+    if ((node.files.get(path)?.data !== undefined) !== (patched.get(path)?.data !== undefined)) {
+      throw new DeptreeError(`the patch makes or removes ${quote(path)}, which a bin names, and which pnpm links before and after it`, where)
+    }
+  }
+  for (const path of targets) {
+    const before = node.files.get(path).data
+    const after = patched.get(path).data
+    if (before !== after && (hasCrlfShebang(before) || hasCrlfShebang(after))) throw new DeptreeError(`the patch changes ${quote(path)}, a bin with a CRLF \`#!\` line, which pnpm rewrites before and after it`, where)
+  }
+  const manifest = patched.get('package.json')
+  if (manifest?.data === undefined) throw new DeptreeError('the patch removes package.json', where)
+  if (manifest.data === node.files.get('package.json').data) return
+  let read
+  try {
+    read = JSON.parse(decoder.decode(manifest.data))
+  } catch {
+    throw new DeptreeError('the patch leaves a package.json that is not JSON', where)
+  }
+  if (BIN_FIELDS(read) !== BIN_FIELDS(node.manifest)) throw new DeptreeError('the patch changes the name or bins package.json gives, which pnpm reads both before and after it', where)
+}
+
+// A snapshot's files as pnpm leaves them: its package's, the patch the
+// snapshot names applied, and what linking bins does to them.
+function compose(node, patches, targets) {
+  const where = quote(node.key)
+  let files = node.files
+  const { patchHash } = node.pkg
+  if (patchHash !== undefined) {
+    if (!patches.has(patchHash)) throw new DeptreeError(`the patch ${patchHash} is not given`, where)
+    const patch = patches.get(patchHash)
+    patch.parsed ??= parsePatch(patch.text, patch.path)
+    files = applyPatch(files, patch.parsed)
+    checkPatchOfBins(node, files, targets, where)
+  }
+  if (targets.size === 0) return files
+  files = new Map(files)
+  for (const path of targets) files.set(path, fixBin(files.get(path), `${where}: ${quote(path)}`))
+  return files
+}
+
+const sameBytes = (a, b) => a.length === b.length && a.every((byte, i) => byte === b[i])
+
+// Writes a file where nothing is, or the same file is: a write never
+// replaces anything else.
+function writeOnce(vfs, path, { data, mode }) {
+  if (vfs.isFile(path)) {
+    if (vfs.lstat(path).mode === mode && sameBytes(vfs.readFile(path), data)) return false
+  } else if (!vfs.isSymlink(path) && !vfs.isDirectory(path)) {
+    vfs.mkdir(dirname(path), { recursive: true })
+    vfs.writeFile(path, data, { mode })
+    return true
+  }
+  throw new DeptreeError('would be written over with something else', quote(path.slice(1)))
 }
 
 // A link's target spelled from the directory the link is in, as pnpm's
@@ -175,13 +224,48 @@ export async function buildPnpmTree(options) {
   checkProjects(lockfile, manifests, { hook, host, settings })
   checkOptional(lockfile)
   const projects = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
-  const skipped = skippedSnapshots(lockfile, createCheck({ host, settings }))
+  const check = createCheck({ host, settings })
+  const skipped = skippedSnapshots(lockfile, check)
   const { nodes, direct } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength)
   for (const node of nodes.values()) checkRegistry(node)
+
+  const fetched = await fetchAll(nodes)
+  const byDir = new Map()
+  for (const node of nodes.values()) {
+    const { files, manifest } = fetched.get(packageKeyOf(node.key))
+    checkDependencies(manifest, node.pkg, quote(node.key), hook)
+    byDir.set(node.dir, { ...node, files, manifest })
+  }
+  const links = linksOf(nodes, direct, settings, projects)
+  const targets = binTargets({
+    nodes: byDir,
+    projects: manifests,
+    direct,
+    links,
+    publicHoist: settings.publicHoistPattern?.length > 0,
+    building: Object.keys(settings.patchedDependencies ?? {}).length > 0,
+  })
+
   const vfs = new Vfs()
   vfs.mkdir('/node_modules/.pnpm', { recursive: true })
-  await installAll(vfs, nodes.values(), given, hook)
-  const links = linksOf(nodes, direct, settings, projects)
+  const stats = { projects: manifests.size, snapshots: Object.keys(lockfile.packages).length, installed: nodes.size, skipped: skipped.size, incompatible: 0, tarballs: fetched.size, patched: 0, files: 0, bytes: 0, links: links.size }
+  for (const node of byDir.values()) {
+    if (check(node.key, node.pkg) === null) stats.incompatible++
+    if (node.pkg.patchHash !== undefined) stats.patched++
+    try {
+      vfs.mkdir(`/${node.dir}`, { recursive: true })
+      for (const [path, file] of compose(node, given, targets.get(node.dir) ?? new Set())) {
+        if (file.directory) vfs.mkdir(`/${node.dir}/${path}`, { recursive: true })
+        else if (writeOnce(vfs, `/${node.dir}/${path}`, file)) {
+          stats.files++
+          stats.bytes += file.data.length
+        }
+      }
+    } catch (error) {
+      if (error instanceof DeptreeError) throw error
+      throw new DeptreeError(error.message, quote(node.key), { cause: error })
+    }
+  }
   for (const [path, target] of links) {
     try {
       vfs.mkdir(dirname(`/${path}`), { recursive: true })
@@ -192,5 +276,5 @@ export async function buildPnpmTree(options) {
   }
   checkLinks(vfs, links)
   if (host.os === 'darwin') checkCollisions(vfs)
-  return vfs
+  return { vfs, stats }
 }

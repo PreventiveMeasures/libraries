@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { createVfs } from '@preventive/vfs'
 import { DeptreeError } from '../pnpm.js'
 import { applyPatch, parsePatch } from '../src/patch.js'
 
@@ -48,30 +47,34 @@ index 4444444444444444444444444444444444444444..00000000000000000000000000000000
 -b
 `
 
-const pkg = () => createVfs({ '/p/lib/x.js': FILE, '/p/gone.js': 'a\nb\n', '/p/package.json': '{}' })
-const apply = (vfs, text) => applyPatch(vfs, '/p', parsePatch(text, 'x.patch'))
+const encoder = new TextEncoder()
+const decoder = new TextDecoder()
+const pkg = () => new Map(Object.entries({ 'lib/x.js': FILE, 'gone.js': 'a\nb\n', 'package.json': '{}' }).map(([path, text]) => [path, { data: encoder.encode(text), mode: 0o644 }]))
+const apply = (files, text) => applyPatch(files, parsePatch(text, 'x.patch'))
+const text = (files, path) => decoder.decode(files.get(path).data)
 
 describe('applyPatch', () => {
-  it('changes, creates and deletes files', () => {
-    const vfs = pkg()
-    apply(vfs, `${MODIFY}${CREATE}${DELETE}`)
-    assert.equal(vfs.readText('/p/lib/x.js'), FILE.replace('four', 'FOUR'))
-    assert.equal(vfs.readText('/p/new.js'), '#!/usr/bin/env node\nx')
-    assert.equal(vfs.stat('/p/new.js').mode, 0o755)
-    assert.equal(vfs.isFile('/p/gone.js'), false)
+  it('changes, creates and deletes files, and leaves what it is given', () => {
+    const before = pkg()
+    const files = apply(before, `${MODIFY}${CREATE}${DELETE}`)
+    assert.equal(text(files, 'lib/x.js'), FILE.replace('four', 'FOUR'))
+    assert.equal(text(files, 'new.js'), '#!/usr/bin/env node\nx')
+    assert.equal(files.get('new.js').mode, 0o755)
+    assert.equal(files.has('gone.js'), false)
+    assert.equal(text(before, 'lib/x.js'), FILE)
+    assert.equal(before.has('gone.js'), true)
   })
 
-  it('deletes a file whose whole content it names', () => {
-    const vfs = pkg()
-    apply(vfs, DELETE_FULL)
-    assert.equal(vfs.isFile('/p/gone.js'), false)
+  it('deletes a file whose whole content it names, and leaves its directory', () => {
+    const files = apply(pkg(), DELETE_FULL.replaceAll('gone.js', 'lib/x.js').replace('@@ -1,2 +0,0 @@\n-a\n-b\n', `@@ -1,7 +0,0 @@\n${FILE.replace(/^/gmu, '-').slice(0, -1)}`))
+    assert.equal(files.has('lib/x.js'), false)
+    assert.deepEqual(files.get('lib'), { directory: true })
   })
 
   it('keeps a changed file\'s mode', () => {
-    const vfs = pkg()
-    vfs.chmod('/p/lib/x.js', 0o755)
-    apply(vfs, MODIFY)
-    assert.equal(vfs.stat('/p/lib/x.js').mode, 0o755)
+    const files = pkg()
+    files.set('lib/x.js', { ...files.get('lib/x.js'), mode: 0o755 })
+    assert.equal(apply(files, MODIFY).get('lib/x.js').mode, 0o755)
   })
 
   const refused = [
@@ -87,13 +90,15 @@ describe('applyPatch', () => {
     ['a preamble', `From: someone\n${MODIFY}`, /expected "diff --git a\/" first/u],
     ['a carriage return', MODIFY.replaceAll('\n', '\r\n'), /a carriage return is not supported/u],
     ['a file created over one', CREATE.replaceAll('new.js', 'package.json'), /creates a file that is there/u],
+    ['a file created over a directory', CREATE.replaceAll('new.js', 'lib'), /creates a file that is there/u],
+    ['a file created inside a file', CREATE.replaceAll('new.js', 'package.json/x'), /creates a file that is there/u],
     ['a change to a file that is not there', MODIFY.replaceAll('lib/x.js', 'lib/z.js'), /changes a file that is not there/u],
     ['a deletion that leaves some of the file', DELETE_FULL.replace('@@ -1,2 +0,0 @@\n-a\n-b\n', '@@ -1 +0,0 @@\n-a\n'), /deletes a file it does not remove all of/u],
     ['an insertion with no context past the start', MODIFY.replace(/@@[^]*$/u, '@@ -3,0 +4 @@\n+x\n'), /one with no context/u],
   ]
-  for (const [what, text, pattern] of refused) {
+  for (const [what, patch, pattern] of refused) {
     it(`refuses ${what}`, () => {
-      assert.throws(() => apply(pkg(), text), (error) => error instanceof DeptreeError && pattern.test(error.message))
+      assert.throws(() => apply(pkg(), patch), (error) => error instanceof DeptreeError && pattern.test(error.message))
     })
   }
 })

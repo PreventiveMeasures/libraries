@@ -16,6 +16,7 @@
     "src/hash.js",
     "src/matcher.js",
     "src/patch.js",
+    "src/pnpm/bins.js",
     "src/pnpm/checks.js",
     "src/pnpm/filename.js",
     "src/pnpm/graph.js",

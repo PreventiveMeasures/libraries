@@ -4,6 +4,12 @@ import type { Vfs } from '@preventive/vfs'
 
 export { LockfileError, YamlError } from '@preventive/lockfile/pnpm.js'
 
+// Where @preventive/upstream caches what it fetches, tarballs among them.
+// Unset, which it is by default, nothing is cached and nothing is written:
+// tarballs are fetched every time, each once for however many snapshots it
+// has. It is the one place anything here touches a filesystem.
+export { setCacheDir } from '@preventive/upstream/npm.js'
+
 // The machine pnpm would install on, which a tree depends on: `pnpm` is
 // the version that installs, and has to be a 10.x, the only one built
 // for; `node` the Node it runs on, unless the settings name a nodeVersion;
@@ -60,6 +66,31 @@ export interface PnpmTreeOptions {
   host: PnpmHost
 }
 
+// What buildPnpmTree counts, all of it plain numbers: `projects` the
+// importers; `snapshots` the lockfile's; `installed` those in the tree;
+// `skipped` the optional ones left out, as the host cannot run them or
+// only such reach them; `incompatible` those installed although the host
+// does not take their platform or engines, which pnpm warns of; `tarballs`
+// the packages fetched, each once; `patched` the snapshots a patch is
+// applied to; `files` and `bytes` what is written; `links` the symlinks.
+export interface PnpmTreeStats {
+  projects: number
+  snapshots: number
+  installed: number
+  skipped: number
+  incompatible: number
+  tarballs: number
+  patched: number
+  files: number
+  bytes: number
+  links: number
+}
+
+export interface PnpmTree {
+  vfs: Vfs
+  stats: PnpmTreeStats
+}
+
 // The node_modules tree `pnpm install --frozen-lockfile --ignore-scripts`
 // makes with pnpm 10's isolated linker, and no other install: whatever the
 // settings say of frozen lockfiles, the install is frozen, which is also
@@ -70,8 +101,14 @@ export interface PnpmTreeOptions {
 // node_modules of links. Links are relative; a `link:` dependency leads
 // where the lockfile says, which the tree does not hold. Scripts are
 // always ignored, as `--ignore-scripts` has pnpm ignore them, whatever the
-// settings would allow to build. Bins, and the executable bit pnpm gives
-// the files they run, and pnpm's own state files are not written.
+// settings would allow to build. No .bin is written, nor pnpm's own state
+// files; but each file a bin pnpm links runs is left as linking leaves it:
+// executable, and with a CRLF ending its `#!` line made LF. Every file is
+// its own, as pnpm's files are where it clones or copies them from its
+// store; where it hardlinks them instead, making one executable makes
+// every file of the same content executable, and the store's, for later
+// installs too, which is not followed here. Every file is written once,
+// and a write that would replace anything with something else is refused.
 //
 // The lockfile is held to what a frozen install holds it to, and refused
 // where pnpm would refuse it: the settings that shaped its resolution —
@@ -106,10 +143,12 @@ export interface PnpmTreeOptions {
 // dependency, a lockfile not up to date with a package.json, another
 // package manager, a runtime to download, two projects of one name, a
 // patch that does not hash or apply, a check above that fails, text
-// that is not well-formed where it is hashed — each is refused with a
+// that is not well-formed where it is hashed, a patch that would change a
+// bin's file between two times pnpm links it, a file whose mode would turn
+// on the order a directory is read in — each is refused with a
 // DeptreeError, a LockfileError or a YamlError that says where. A
 // TypeError is thrown for options of the wrong type.
-export function buildPnpmTree(options: PnpmTreeOptions): Promise<Vfs>
+export function buildPnpmTree(options: PnpmTreeOptions): Promise<PnpmTree>
 
 // `where` is what a refusal is about — `pnpm-workspace.yaml: nodeLinker`,
 // `.npmrc:3: node-linker`, a package's key — or undefined for the call as

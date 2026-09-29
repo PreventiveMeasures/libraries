@@ -147,7 +147,8 @@ const root = ({ pnpm = {}, ...fields } = {}) => JSON.stringify({
   ...fields,
 })
 
-const build = ({ manifest = root(), ...options } = {}) => buildPnpmTree({ lockfile: lockfile(), manifests: { '.': manifest }, patches: { 'patches/p.patch': PATCH }, host: HOST, ...options })
+const buildResult = ({ manifest = root(), ...options } = {}) => buildPnpmTree({ lockfile: lockfile(), manifests: { '.': manifest }, patches: { 'patches/p.patch': PATCH }, host: HOST, ...options })
+const build = async (options) => (await buildResult(options)).vfs
 const text = (vfs, path) => vfs.readText(path)
 const UP = `Up@1.0.0_${hex('Up@1.0.0').slice(0, 32)}`
 const P = `p@1.0.0_patch_hash=${H}`
@@ -203,11 +204,100 @@ describe('buildPnpmTree', () => {
     assert.equal(vfs.readlink('/node_modules/mac'), '.pnpm/mac@1.0.0/node_modules/mac')
   })
 
+  it('counts what it installs', async () => {
+    stubRegistry(TARBALLS)
+    const { stats } = await buildResult()
+    assert.ok(stats.bytes > 0)
+    assert.deepEqual({ ...stats, bytes: 0 }, { projects: 1, snapshots: 9, installed: 8, skipped: 1, incompatible: 0, tarballs: 8, patched: 1, files: 12, bytes: 0, links: 13 })
+  })
+
   it('names long directories as pnpm 10 does', async () => {
     stubRegistry(TARBALLS)
     const vfs = await build({ workspace: 'virtualStoreDirMaxLength: 40\n' })
     assert.ok(vfs.isDirectory(`/node_modules/.pnpm/a@1.0.0_c@2.0.0/node_modules/a`))
     assert.ok(vfs.isDirectory(`/node_modules/.pnpm/p@1.0.0_${hex(`p@1.0.0_patch_hash=${H}`).slice(0, 32)}/node_modules/p`))
+  })
+})
+
+// Tarballs are fetched once for each package, however many snapshots it
+// has; bins' files are left as linking them leaves them.
+describe('buildPnpmTree packages', () => {
+  const small = (importer, packages, snapshots) => `lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+${importer}
+packages:
+${packages}
+snapshots:
+${snapshots}`
+  const dep = (name, version = '1.0.0') => `      ${name}:\n        specifier: ${version}\n        version: ${version}\n`
+  const manifest = (dependencies) => JSON.stringify({ name: 'root', dependencies })
+
+  it('fetches a package resolved under two sets of peers once', async () => {
+    const more = await Promise.all([tarball('c', '2.1.0'), tarball('x', '1.0.0'), tarball('y', '1.0.0')])
+    const calls = stubRegistry([...TARBALLS, ...more])
+    const integrity = Object.fromEntries([...TARBALLS, ...more].map((t) => [`${t.name}@${t.version}`, t.integrity]))
+    const peers = small(dep('x') + dep('y'), `  a@1.0.0:
+    resolution: {integrity: ${integrity['a@1.0.0']}}
+    peerDependencies:
+      c: ^2.0.0
+
+${['c@2.0.0', 'c@2.1.0', 'x@1.0.0', 'y@1.0.0'].map((id) => `  ${id}:\n    resolution: {integrity: ${integrity[id]}}\n`).join('\n')}
+`, `  a@1.0.0(c@2.0.0):
+    dependencies:
+      c: 2.0.0
+
+  a@1.0.0(c@2.1.0):
+    dependencies:
+      c: 2.1.0
+
+  c@2.0.0: {}
+
+  c@2.1.0: {}
+
+  x@1.0.0:
+    dependencies:
+      a: 1.0.0(c@2.0.0)
+      c: 2.0.0
+
+  y@1.0.0:
+    dependencies:
+      a: 1.0.0(c@2.1.0)
+      c: 2.1.0
+`)
+    const { vfs, stats } = await buildPnpmTree({ lockfile: peers, manifests: { '.': manifest({ x: '1.0.0', y: '1.0.0' }) }, host: HOST })
+    assert.equal(calls.filter((url) => url.endsWith('/a-1.0.0.tgz')).length, 1)
+    assert.equal(calls.length, 5)
+    assert.equal(stats.tarballs, 5)
+    assert.equal(stats.installed, 6)
+    assert.equal(vfs.readText('/node_modules/.pnpm/a@1.0.0_c@2.0.0/node_modules/a/index.js'), 'a')
+    assert.equal(vfs.readText('/node_modules/.pnpm/a@1.0.0_c@2.1.0/node_modules/a/index.js'), 'a')
+  })
+
+  // pnpm links `t` of t, whose name it is, over u's, and fixes only the
+  // file it links: made executable, and its `#!` line ending in LF.
+  it('leaves the files bins run as linking them leaves them', async () => {
+    const bins = await Promise.all([
+      tarball('t', '1.0.0', { 'cli.js': '#!/usr/bin/env node\r\nrun()\r\n', 'other.js': '#!/x\r\n' }, { manifest: { bin: { t: 'cli.js' } } }),
+      tarball('u', '1.0.0', { 'u.js': '#!/usr/bin/env node\r\n' }, { manifest: { bin: { t: 'u.js' } } }),
+    ])
+    stubRegistry(bins)
+    const packages = bins.map((t) => `  ${t.name}@1.0.0:\n    resolution: {integrity: ${t.integrity}}\n    hasBin: true\n`).join('\n')
+    const { vfs } = await buildPnpmTree({ lockfile: small(dep('t') + dep('u'), `${packages}\n`, '  t@1.0.0: {}\n\n  u@1.0.0: {}\n'), manifests: { '.': manifest({ t: '1.0.0', u: '1.0.0' }) }, host: HOST })
+    const t = '/node_modules/.pnpm/t@1.0.0/node_modules/t'
+    assert.equal(vfs.stat(`${t}/cli.js`).mode, 0o755)
+    assert.equal(vfs.readText(`${t}/cli.js`), '#!/usr/bin/env node\nrun()\r\n')
+    assert.equal(vfs.stat(`${t}/other.js`).mode, 0o644)
+    assert.equal(vfs.readText(`${t}/other.js`), '#!/x\r\n')
+    assert.equal(vfs.stat('/node_modules/.pnpm/u@1.0.0/node_modules/u/u.js').mode, 0o644)
+    assert.equal(vfs.readText('/node_modules/.pnpm/u@1.0.0/node_modules/u/u.js'), '#!/usr/bin/env node\r\n')
   })
 })
 
@@ -392,7 +482,7 @@ describe('buildPnpmTree with a workspace', () => {
   const two = lockfile().replace('importers:\n', 'importers:\n\n  packages/x:\n    dependencies:\n      b:\n        specifier: 1.0.0\n        version: 1.0.0\n')
   const manifests = (x) => ({ '.': root(), 'packages/x': JSON.stringify(x) })
   const WORKSPACE = 'packages:\n  - packages/*\n'
-  const buildTwo = (x, options) => buildPnpmTree({ lockfile: two, manifests: manifests(x), workspace: WORKSPACE, patches: { 'patches/p.patch': PATCH }, host: HOST, ...options })
+  const buildTwo = async (x, options) => (await buildPnpmTree({ lockfile: two, manifests: manifests(x), workspace: WORKSPACE, patches: { 'patches/p.patch': PATCH }, host: HOST, ...options })).vfs
 
   it('links each project\'s dependencies, and hoists each named project by its name', async () => {
     stubRegistry(TARBALLS)

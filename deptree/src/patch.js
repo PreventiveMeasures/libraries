@@ -1,4 +1,4 @@
-// A patch applied to a package's files in a Vfs, as `pnpm patch-commit`
+// A patch applied to a package's files, as `pnpm patch-commit`
 // writes one: a git diff, a `diff --git a/<path> b/<path>` header for each
 // file, and unified hunks, a path relative to the package's directory. A
 // file is changed, created from /dev/null or deleted; a rename, a copy, a
@@ -103,24 +103,50 @@ function applyTo(text, { hunks, blocks, where }) {
   return applyChangeSet(text, blocks)
 }
 
-// Applies a parsed patch under `dir`, which holds a package's files and
-// nothing that links out of it.
-export function applyPatch(vfs, dir, files) {
-  for (const file of files) {
-    const path = `${dir}/${file.path}`
-    const exists = vfs.isFile(path)
+const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
+const encoder = new TextEncoder()
+
+function textOf(file, where) {
+  try {
+    return decoder.decode(file.data)
+  } catch {
+    throw new DeptreeError('changes a file that is not UTF-8', where)
+  }
+}
+
+function bytesOf(text, where) {
+  if (!text.isWellFormed()) throw new DeptreeError('makes a file that is not well-formed text', where)
+  return encoder.encode(text)
+}
+
+const parentsOf = (path) => path.split('/').slice(0, -1).map((_, index, names) => names.slice(0, index + 1).join('/'))
+
+// Applies a parsed patch to a package's files: a Map of each path in the
+// package to a file, `{ data, mode }`, or to `{ directory: true }` for a
+// directory. A changed file keeps its mode, and a deleted one leaves its
+// directory, empty or not, as pnpm leaves them. Hands back a new Map; the
+// one given is left as it is.
+export function applyPatch(files, patch) {
+  const next = new Map(files)
+  for (const file of patch) {
+    const current = next.get(file.path)
     if (file.change === 'create') {
-      if (exists || vfs.isSymlink(path) || vfs.isDirectory(path)) throw new DeptreeError('creates a file that is there', file.where)
-      vfs.mkdir(path.slice(0, path.lastIndexOf('/')), { recursive: true })
-      vfs.writeFile(path, applyTo('', file), { mode: file.mode })
+      const taken = current !== undefined || [...next.keys()].some((path) => path.startsWith(`${file.path}/`)) || parentsOf(file.path).some((dir) => next.get(dir)?.data !== undefined)
+      if (taken) throw new DeptreeError('creates a file that is there', file.where)
+      next.set(file.path, { data: bytesOf(applyTo('', file), file.where), mode: file.mode })
       continue
     }
-    if (!exists) throw new DeptreeError('changes a file that is not there', file.where)
+    if (current?.data === undefined) throw new DeptreeError('changes a file that is not there', file.where)
     // A deletion git writes with --irreversible-delete has no hunks, and
     // says nothing of what it deletes.
-    const result = file.change === 'delete' && file.hunks.length === 0 ? '' : applyTo(vfs.readText(path), file)
-    if (file.change !== 'delete') vfs.writeFile(path, result)
-    else if (result === '') vfs.rm(path)
-    else throw new DeptreeError('deletes a file it does not remove all of', file.where)
+    const result = file.change === 'delete' && file.hunks.length === 0 ? '' : applyTo(textOf(current, file.where), file)
+    if (file.change === 'delete') {
+      if (result !== '') throw new DeptreeError('deletes a file it does not remove all of', file.where)
+      next.delete(file.path)
+      for (const dir of parentsOf(file.path)) if (!next.has(dir)) next.set(dir, { directory: true })
+    } else {
+      next.set(file.path, { data: bytesOf(result, file.where), mode: current.mode })
+    }
   }
+  return next
 }
