@@ -32,7 +32,7 @@ import { binTargets, checkPatchOfBins, fixBin } from './bins.js'
 import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
 import { checkLocalOverrides, readLinked } from './local.js'
-import { createCheck, skippedSnapshots } from './install.js'
+import { checkPatchedEngines, createCheck, skippedSnapshots } from './install.js'
 import { checkCollisions, checkLinks, checkOptional } from './checks.js'
 import { createHook } from './hook.js'
 import { listOverrides } from './overrides.js'
@@ -117,9 +117,26 @@ async function fetchAll(nodes) {
   return fetched
 }
 
+// Each node with its package's files and package.json, by its directory:
+// its dependencies held to the package.json, as `hook` reads it once for
+// each package.
+async function fetchNodes(nodes, hook) {
+  const fetched = await fetchAll(nodes)
+  const byDir = new Map()
+  for (const node of nodes.values()) {
+    const id = packageKeyOf(node.key)
+    const got = fetched.get(id)
+    got.read ??= hook(got.manifest, `${quote(id)}: package.json`)
+    checkDependencies(got.manifest, got.read, node.pkg, quote(node.key))
+    byDir.set(node.dir, { ...node, files: got.files, manifest: got.manifest })
+  }
+  return { byDir, tarballs: fetched.size }
+}
+
 // A snapshot's files as pnpm leaves them: its package's, the patch the
-// snapshot names applied, and what linking bins does to them.
-function compose(node, patches, targets, major) {
+// snapshot names applied, and what linking bins does to them. `context`
+// is the host and settings.
+function compose(node, patches, targets, context) {
   const where = quote(node.key)
   let files = node.files
   const { patchHash } = node.pkg
@@ -128,7 +145,7 @@ function compose(node, patches, targets, major) {
     const patch = patches.get(patchHash)
     patch.parsed ??= parsePatch(patch.text, patch.path)
     files = applyPatch(files, patch.parsed)
-    checkPatchOfBins(node, files, targets, where, major)
+    checkPatchedEngines(checkPatchOfBins(node, files, targets, where, context.host.major), where, context)
   }
   if (targets.size === 0) return files
   files = new Map(files)
@@ -222,13 +239,7 @@ export async function buildPnpmTree(options) {
   const { nodes, direct } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, host.major)
   for (const node of nodes.values()) checkRegistry(node)
 
-  const fetched = await fetchAll(nodes)
-  const byDir = new Map()
-  for (const node of nodes.values()) {
-    const { files, manifest } = fetched.get(packageKeyOf(node.key))
-    checkDependencies(manifest, node.pkg, quote(node.key), hook)
-    byDir.set(node.dir, { ...node, files, manifest })
-  }
+  const { byDir, tarballs } = await fetchNodes(nodes, hook)
   const links = linksOf(nodes, direct, settings, projects, host.major)
   const linked = readLinked(links, byDir, manifests, into)
   const targets = binTargets({
@@ -244,12 +255,12 @@ export async function buildPnpmTree(options) {
 
   const vfs = new Vfs()
   vfs.mkdir('/node_modules/.pnpm', { recursive: true })
-  const stats = { projects: manifests.size, snapshots: Object.keys(lockfile.packages).length, installed: nodes.size, skipped: skipped.size, incompatible: incompatible.size, tarballs: fetched.size, patched: 0, files: 0, bytes: 0, links: links.size }
+  const stats = { projects: manifests.size, snapshots: Object.keys(lockfile.packages).length, installed: nodes.size, skipped: skipped.size, incompatible: incompatible.size, tarballs, patched: 0, files: 0, bytes: 0, links: links.size }
   for (const node of byDir.values()) {
     if (node.pkg.patchHash !== undefined) stats.patched++
     try {
       vfs.mkdir(`/${node.dir}`, { recursive: true })
-      for (const [path, file] of compose(node, given, targets.get(node.dir) ?? new Set(), host.major)) {
+      for (const [path, file] of compose(node, given, targets.get(node.dir) ?? new Set(), { host, settings })) {
         if (file.directory) vfs.mkdir(`/${node.dir}/${path}`, { recursive: true })
         else if (writeOnce(vfs, `/${node.dir}/${path}`, file)) {
           stats.files++

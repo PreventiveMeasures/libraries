@@ -9,7 +9,7 @@ import { basename, dirname } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from './error.js'
 
 // As macOS takes a name, whatever its case and normalization.
-const fold = (name) => name.normalize('NFD').toLowerCase()
+export const fold = (name) => name.normalize('NFD').toLowerCase()
 
 const where = (path) => `vfs[${quote(path)}]`
 

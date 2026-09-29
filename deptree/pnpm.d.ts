@@ -98,6 +98,11 @@ export interface PnpmHost {
 // lockfile's, has to be there with a package.json, whose bins are read as
 // pnpm reads them; nothing outside node_modules is written, though pnpm
 // 10 makes the files a linked directory's bins run executable too.
+// Without it, or outside the lockfile's directory, such a directory's
+// bins are not known, and neither are those of a project that has them
+// by the files of its directories.bin: where one could win a command a
+// package's file is linked by, and so decide whether pnpm fixes that
+// file, and fixing it would change it, the tree is refused.
 export interface PnpmTreeOptions {
   lockfile: string
   manifests: Record<string, string> | Map<string, string>
@@ -160,18 +165,21 @@ export interface PnpmTree {
 //
 // The lockfile is held to what a frozen install holds it to, and refused
 // where pnpm would refuse it: the settings that shaped its resolution —
-// catalogs, overrides, package extensions, optional dependencies left
-// out, patches, autoInstallPeers, dedupePeers, peersSuffixMaxLength —
-// and each project's package.json, read through pnpm's read-package hook
-// as pnpm reads it. The root package.json's packageManager, where it has
-// one, has to be `pnpm@` host.pnpm exactly, as pnpm would switch to the
-// one it names; a project's engines.pnpm has to take host.pnpm, and with
-// engineStrict its engines.node host.node. pnpm 11 holds a lockfile to
-// more before it installs, and so does this for it: a catalog dependency
-// to the catalog's version, a workspace package linked exactly where its
-// version is in range, and a patch hash in a snapshot's peers to the
-// patch; it lets an optional dependency the importer has no specifier for
-// go unresolved, and takes two spellings of one git commit alike. A
+// catalogs, overrides, package extensions, optional dependencies left out,
+// patches, autoInstallPeers, dedupePeers, peersSuffixMaxLength — and each
+// project's package.json, read through pnpm's read-package hook as pnpm
+// reads it. The root package.json's packageManager, where it has one, has
+// to be `pnpm@` host.pnpm exactly, as pnpm would switch to the one it
+// names; a project's engines.pnpm has to take host.pnpm, and with
+// engineStrict its engines.node host.node. With engineStrict, pnpm 11
+// holds a patched package's engines.node to host.node as its package.json
+// has it once patched, not as the lockfile records it, and fails on, or
+// takes out, one that does not take it, which is refused. pnpm 11 holds a
+// lockfile to more before it installs, and so does this for it: a catalog
+// dependency to the catalog's version, a workspace package linked exactly
+// where its version is in range, and a patch hash in a snapshot's peers to
+// the patch; it lets an optional dependency the importer has no specifier
+// for go unresolved, and takes two spellings of one git commit alike. A
 // devEngines.packageManager is refused unless its onFail, or pmOnFail, is
 // to warn or ignore, as pnpm 11 installs with the pnpm the lockfile pins
 // for it; and a root engines.runtime whose onFail is `error` has to take

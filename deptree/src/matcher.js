@@ -6,7 +6,8 @@
 // later inclusion, and a list of exclusions alone matches what none of them
 // does.
 
-const escape = (text) => text.replace(/[$()+.?[\\\]^{|}]/gu, '\\$&')
+// Text as a regular expression that matches it alone.
+export const escape = (text) => text.replace(/[$()+.?[\\\]^{|}]/gu, '\\$&')
 
 function matcherOf(pattern) {
   if (pattern === '*') return () => true

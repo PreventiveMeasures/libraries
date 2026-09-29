@@ -107,16 +107,29 @@ export function checkProject(manifest, where, { host, settings }) {
 // is installed anyway. With `engineStrict` that last is refused. pnpm 10
 // takes a snapshot to be optional as the lockfile marks it; pnpm 11 as the
 // edge it is reached by, and holds only one the lockfile does not mark
-// optional to engineStrict.
+// optional to engineStrict. With engineStrict, pnpm 11 passes over the
+// engines of a snapshot that is patched, which checkPatchedEngines holds
+// its package.json to once patched.
 export function createCheck({ host, settings }) {
   const node = settings.nodeVersion ?? host.node
+  const patchedLater = host.major >= 11 && settings.engineStrict
   return (key, pkg, optional = pkg.optional, strict = settings.engineStrict) => {
     const platform = takesPlatform(host.major >= 11 && optional ? effectivePlatform(pkg) : pkg, host, settings.supportedArchitectures, host.major)
-    if (platform && takesEngine(pkg.engines, node)) return true
+    if (platform && takesEngine(patchedLater && pkg.patchHash !== undefined ? {} : pkg.engines, node)) return true
     if (optional) return false
     if (strict) throw new DeptreeError(`the host does not take its ${platform ? 'engines.node' : 'os, cpu or libc'}, which engineStrict refuses`, quote(key))
     return null
   }
+}
+
+// pnpm 11, with engineStrict, holds a patched package's package.json,
+// once patched, to the Node, and fails where it does not take it; where
+// the package is optional, it removes it from the tree it has linked,
+// which is refused too.
+export function checkPatchedEngines(manifest, where, { host, settings }) {
+  if (host.major < 11 || !settings.engineStrict || manifest.engines === undefined || manifest.engines === null) return
+  const node = settings.nodeVersion ?? host.node
+  if (!takesEngine(manifest.engines, node)) throw new DeptreeError(`its package.json, patched, has an engines.node, ${quote(String(manifest.engines.node))}, that does not take Node ${node}, which pnpm 11 refuses with engineStrict, or removes the package for where it is optional`, where)
 }
 
 // A reference's key, or the project a `link:` leads to, if it is one.

@@ -74,8 +74,16 @@ const decoder = new TextDecoder('utf-8', { fatal: true })
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b)
 const names = (value) => Object.keys(value ?? {})
 
-// Whether a package.json has bins, as the lockfile's hasBin records it.
-const hasBin = (manifest) => Boolean((manifest.bin && (typeof manifest.bin === 'string' || Object.keys(manifest.bin).length > 0)) || manifest.directories?.bin)
+// Whether a package.json has bins, as the lockfile's hasBin records it:
+// by a `bin` that names any, or with none, by a directories.bin. Where
+// `bin` is there and names none, and there is a directories.bin, pnpm
+// resolves it as having none and pnpm 11 rewrites a snapshot as having
+// some, so that is undefined: bins are linked as the lockfile has it.
+function hasBin({ bin, directories }) {
+  if (bin === undefined || bin === null) return Boolean(directories?.bin)
+  if (bin && Object.keys(bin).length > 0) return true
+  return directories?.bin ? undefined : false
+}
 
 function readManifest(files, pkg, where) {
   const file = files.get('package.json')
@@ -96,28 +104,29 @@ function checkManifest(manifest, pkg, where) {
   for (const field of ['os', 'cpu', 'libc']) {
     if (!same(manifest[field], pkg[field])) throw new DeptreeError(`package.json's ${field} is not the lockfile's`, where)
   }
-  if (hasBin(manifest) !== pkg.hasBin) throw new DeptreeError(`package.json ${pkg.hasBin ? 'has no bins, and the lockfile says it has' : 'has bins, and the lockfile says it has none'}`, where)
+  const has = hasBin(manifest)
+  if (has !== undefined && has !== pkg.hasBin) throw new DeptreeError(`package.json ${pkg.hasBin ? 'has no bins, and the lockfile says it has' : 'has bins, and the lockfile says it has none'}`, where)
   if (!same(bundledOf(manifest), pkg.bundledDependencies)) throw new DeptreeError('package.json bundles other than the lockfile says', where)
 }
 
 const bundledOf = (manifest) => manifest.bundleDependencies ?? manifest.bundledDependencies
 
 // A snapshot's dependencies against the package.json of its package, as
-// fetchPackage read it: `hook` is hook.js's. One the package.json, as
-// overridden, names a directory for is linked there, from the lockfile's
-// directory, as pnpm writes it.
-export function checkDependencies(manifest, pkg, where, hook) {
+// fetchPackage read it and `read` as hook.js's hook has it. One the
+// package.json, as overridden, names a directory for is linked there,
+// from the lockfile's directory, as pnpm writes it.
+export function checkDependencies(manifest, read, pkg, where) {
   const bundled = bundledOf(manifest)
-  const read = hook(manifest, `${where}: package.json`)
   const given = new Set([...names(pkg.dependencies), ...names(pkg.optionalDependencies)])
   for (const name of [...names(read.dependencies), ...names(read.optionalDependencies)]) {
     if (bundled === true || (Array.isArray(bundled) && bundled.includes(name)) || given.has(name)) continue
     throw new DeptreeError(`package.json asks for ${quote(name)}, which the lockfile does not give it`, where)
   }
   for (const [name, spec] of [...Object.entries(read.dependencies ?? {}), ...Object.entries(read.optionalDependencies ?? {})]) {
-    const local = localOf(spec, `${where}: package.json`)
     const target = pkg.dependencies[name] ?? pkg.optionalDependencies[name]
-    if (local === undefined || target === undefined || target === `link:${local.dir}`) continue
+    if (target === undefined) continue
+    const local = localOf(spec, `${where}: package.json`)
+    if (local === undefined || target === `link:${local.dir}`) continue
     throw new DeptreeError(`the lockfile gives it ${quote(name)} as ${quote(target)}, and its package.json, overridden, names ${quote(local.dir)}`, where)
   }
   // A peer resolved is filed as optional where it is optional; pnpm's

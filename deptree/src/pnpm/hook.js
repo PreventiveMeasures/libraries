@@ -16,8 +16,7 @@
 // peerDependenciesMeta with the peer.
 
 import { intersects, satisfies, validRange } from '@preventive/upstream/semver.js'
-import { join, normalize } from '@preventive/vfs/path.js'
-import { DeptreeError, quote } from '../error.js'
+import { DeptreeError } from '../error.js'
 import { createMatcher } from '../matcher.js'
 
 const KINDS = ['dependencies', 'optionalDependencies', 'devDependencies']
@@ -31,30 +30,22 @@ const meets = (range, spec) => !range || spec === range || (validRange(spec) !==
 const mostSpecific = (overrides) => overrides.sort((a, b) => (meets(b.target.range ?? '', a.target.range ?? '') ? -1 : 1))[0]
 
 const isPeerRange = (spec) => validRange(spec) !== null || spec.includes('workspace:') || spec.includes('catalog:')
-const isLocal = (spec) => spec.startsWith('file:') || spec.startsWith('link:')
 
-// A path from one directory to another, both relative to the lockfile's
-// in its normal form; undefined where `from` climbs out of it.
+// A path from one directory under the lockfile's to another, both in
+// their normal form.
 function pathBetween(from, to) {
   const a = from === '.' ? [] : from.split('/')
   const b = to === '.' ? [] : to.split('/')
   let shared = 0
   while (shared < a.length && shared < b.length && a[shared] === b[shared]) shared++
-  if (a.slice(shared).includes('..')) return undefined
   return [...a.slice(shared).map(() => '..'), ...b.slice(shared)].join('/') || '.'
 }
 
-// An override to a path, `file:`, `link:` or bare, as pnpm writes it into
-// the project at `dir`: relative to it, from the lockfile's directory. One
-// from the root or the home directory it leaves as it is, which is not
-// known here.
-function localSpec(spec, dir, selector, where) {
-  const protocol = ['file:', 'link:'].find((prefix) => spec.startsWith(prefix)) ?? (/^(?:[./]|~\/)/u.test(spec) ? '' : undefined)
-  if (protocol === undefined) return spec
-  const path = spec.slice(protocol.length).replace(/\/+$/u, '')
-  const resolved = /^(?:\/|~[/\\])/u.test(path) ? undefined : pathBetween(dir, normalize(join('.', path)))
-  if (resolved === undefined) throw new DeptreeError(`the override ${quote(selector)} is to a path pnpm writes into the project's specifier as one from outside it`, where)
-  return protocol === '' && !/^(?:[./]|~\/)/u.test(resolved) ? `./${resolved}` : `${protocol}${resolved}`
+// An override to a directory, `local` as listOverrides has it, as pnpm
+// writes it into the project at `dir`: relative to it.
+function localSpec({ protocol, dir: to }, dir) {
+  const path = pathBetween(dir, to)
+  return protocol === '' && !path.startsWith('.') ? `./${path}` : `${protocol}${path}`
 }
 
 function checkFields(manifest, where) {
@@ -94,8 +85,8 @@ export function createHook({ overrides, ignored, major = 10 }) {
             if (peers !== undefined && major >= 11) delete copy.peerDependenciesMeta?.[name]
             continue
           }
-          let wanted = chosen.spec
-          if (dir !== undefined && (major >= 11 || isLocal(wanted))) wanted = localSpec(wanted, dir, chosen.selector, where)
+          const { local } = chosen
+          const wanted = dir !== undefined && local !== undefined && (major >= 11 || local.protocol !== '') ? localSpec(local, dir) : chosen.spec
           if (peers === undefined || !isPeerRange(wanted)) deps[name] = wanted
           else peers[name] = wanted
         }

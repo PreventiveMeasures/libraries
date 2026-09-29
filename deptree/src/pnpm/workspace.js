@@ -20,9 +20,9 @@
 // starting with a dot and all.
 
 import { DeptreeError, quote } from '../error.js'
+import { escape } from '../matcher.js'
 
 const UNSUPPORTED = /[?[\]{}()\\]/u
-const escape = (text) => text.replace(/[$()+.?[\\\]^{|}]/gu, '\\$&')
 
 // tinyglobby's path.posix.normalize of a glob: empty and `.` names
 // dropped, and `..` taking the name before it with it.

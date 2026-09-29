@@ -50,4 +50,29 @@ describe('checkPatchOfBins', () => {
   for (const [what, changes, pattern] of refused) {
     it(`refuses ${what}`, () => assert.throws(() => check(changes), (error) => error instanceof DeptreeError && pattern.test(error.message)))
   }
+
+  it('gives back package.json, patched', () => {
+    const changed = { ...manifest, description: 'd' }
+    assert.deepEqual(check({ 'package.json': JSON.stringify(changed) }), changed)
+    assert.equal(check({}), manifest)
+  })
+
+  // Bins by the files of a directories.bin, and a bundled package's.
+  const other = { name: 'y', version: '1.0.0', directories: { bin: 'bin' } }
+  const bundled = JSON.stringify({ name: 'q', version: '1.0.0', bin: { q: 'q.js' } })
+  const y = { key: 'y@1.0.0', dir: 'node_modules/.pnpm/y@1.0.0/node_modules/y', manifest: other, files: filesOf({ 'package.json': JSON.stringify(other), 'bin/y.js': '', 'node_modules/q/package.json': bundled, 'node_modules/q/q.js': '', 'node_modules/q/r.js': '' }) }
+  const checkY = (changes) => {
+    const files = new Map(y.files)
+    for (const [path, text] of Object.entries(changes)) files.set(path, file(text))
+    return checkPatchOfBins(y, files, new Set(), 'y', 10)
+  }
+
+  it('lets a patch make a file outside directories.bin', () => {
+    checkY({ 'lib/new.js': '', 'bin/.hidden': '' })
+  })
+
+  it('refuses a file made under directories.bin, or a bundled package\'s bins changed', () => {
+    assert.throws(() => checkY({ 'bin/new.js': '' }), /^DeptreeError: y: the patch changes whether "bin\/new\.js" is a bin/u)
+    assert.throws(() => checkY({ 'node_modules/q/package.json': bundled.replace('q.js', 'r.js') }), /^DeptreeError: y: the patch changes whether "node_modules\/q\/(?:q|r)\.js" is a bin/u)
+  })
 })

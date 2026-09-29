@@ -5,6 +5,7 @@
 // everywhere it is installed.
 
 import { DeptreeError, quote } from '../error.js'
+import { fold } from '../mount.js'
 
 // A snapshot is optional exactly where no importer reaches it through
 // dependencies alone, its devDependencies counted among them, as pnpm
@@ -40,9 +41,9 @@ export function checkCollisions(vfs) {
     if (type !== 'directory') continue
     const folded = new Map()
     for (const name of vfs.readdir(path)) {
-      const fold = name.normalize('NFD').toLowerCase()
-      if (folded.has(fold)) throw new DeptreeError(`${quote(folded.get(fold))} and ${quote(name)} are one name on macOS`, quote(path))
-      folded.set(fold, name)
+      const key = fold(name)
+      if (folded.has(key)) throw new DeptreeError(`${quote(folded.get(key))} and ${quote(name)} are one name on macOS`, quote(path))
+      folded.set(key, name)
     }
   }
 }
