@@ -41,7 +41,8 @@
 // would be applied between two links of a file whose fix it would
 // change: one that makes or removes a file a bin names, or one under a
 // directories.bin, changes a bin file with a CRLF `#!` line, or changes
-// the bins a package.json names, its own or a bundled package's.
+// the bins a package.json names, its own or a bundled package's, or the
+// name or version they are ranked by.
 
 import { compareVersions, valid } from '@preventive/upstream/semver.js'
 import { basename, join } from '@preventive/vfs/path.js'
@@ -367,11 +368,16 @@ function fixedFiles(nodes, fixed, contested) {
 
 // Every path the package at `node` and those it bundles name as bins,
 // relative to it, whether pnpm links them or not, where its package.json
-// is `manifest` and its files are `files`.
-function binPaths(node, manifest, files, major) {
+// is `manifest` and its files are `files`: each with the commands that
+// name it and the package name and version each is ranked by.
+function binsOf(node, manifest, files, major) {
   const where = quote(node.key)
-  const commands = [...commandsOf(node.dir, manifest, files, node.dir, where, major), ...bundledCommands({ ...node, files }, where, major)]
-  return new Set(commands.map(({ target }) => target.slice(node.dir.length + 1)))
+  const bins = new Map()
+  for (const { target, name, pkgName, pkgVersion } of [...commandsOf(node.dir, manifest, files, node.dir, where, major), ...bundledCommands({ ...node, files }, where, major)]) {
+    const path = target.slice(node.dir.length + 1)
+    bins.set(path, [...bins.get(path) ?? [], JSON.stringify([name, pkgName, pkgVersion])].sort())
+  }
+  return bins
 }
 
 // Whether a file starts with a `#!` line ending in CRLF, as fixBin reads
@@ -412,10 +418,11 @@ export function checkPatchOfBins(node, patched, targets, where, major) {
   if (file?.data === undefined) throw new DeptreeError('the patch removes package.json', where)
   const manifest = file.data === node.files.get('package.json').data ? node.manifest : parseManifest(file, where)
   if (BIN_FIELDS(manifest) !== BIN_FIELDS(node.manifest)) throw new DeptreeError('the patch changes the name, version or bins package.json gives, which pnpm reads both before and after it', where)
-  const wasBin = binPaths(node, node.manifest, node.files, major)
-  const isBin = binPaths(node, manifest, patched, major)
-  for (const path of new Set([...wasBin, ...isBin])) {
-    if (wasBin.has(path) !== isBin.has(path)) throw new DeptreeError(`the patch changes whether ${quote(path)} is a bin, which pnpm reads both before and after it`, where)
+  const was = binsOf(node, node.manifest, node.files, major)
+  const is = binsOf(node, manifest, patched, major)
+  for (const path of new Set([...was.keys(), ...is.keys()])) {
+    if (was.has(path) !== is.has(path)) throw new DeptreeError(`the patch changes whether ${quote(path)} is a bin, which pnpm reads both before and after it`, where)
+    if (JSON.stringify(was.get(path)) !== JSON.stringify(is.get(path))) throw new DeptreeError(`the patch changes the commands that name ${quote(path)}, or the name or version they are ranked by, which pnpm reads both before and after it`, where)
     if ((node.files.get(path)?.data !== undefined) !== (patched.get(path)?.data !== undefined)) {
       throw new DeptreeError(`the patch makes or removes ${quote(path)}, which a bin names, and which pnpm links before and after it`, where)
     }

@@ -61,7 +61,8 @@ describe('checkPatchOfBins', () => {
 
   // Bins by the files of a directories.bin, and a bundled package's.
   const other = { name: 'y', version: '1.0.0', directories: { bin: 'bin' } }
-  const bundled = JSON.stringify({ name: 'q', version: '1.0.0', bin: { q: 'q.js' } })
+  const bundledOf = (fields) => JSON.stringify({ name: 'q', version: '1.0.0', bin: { q: 'q.js', r: 'r.js' }, ...fields })
+  const bundled = bundledOf({})
   const y = { key: 'y@1.0.0', dir: 'node_modules/.pnpm/y@1.0.0/node_modules/y', manifest: other, files: filesOf({ 'package.json': JSON.stringify(other), 'bin/y.js': '', 'node_modules/q/package.json': bundled, 'node_modules/q/q.js': '', 'node_modules/q/r.js': '' }) }
   const checkY = (changes) => {
     const files = new Map(y.files)
@@ -75,6 +76,15 @@ describe('checkPatchOfBins', () => {
 
   it('refuses a file made under directories.bin, or a bundled package\'s bins changed', () => {
     assert.throws(() => checkY({ 'bin/new.js': '' }), /^DeptreeError: y: the patch changes whether "bin\/new\.js" is a bin/u)
-    assert.throws(() => checkY({ 'node_modules/q/package.json': bundled.replace('q.js', 'r.js') }), /^DeptreeError: y: the patch changes whether "node_modules\/q\/(?:q|r)\.js" is a bin/u)
+    assert.throws(() => checkY({ 'node_modules/q/package.json': bundledOf({ bin: { q: 'r.js' } }) }), /^DeptreeError: y: the patch changes whether "node_modules\/q\/q\.js" is a bin/u)
+  })
+
+  // A bundled package's commands are ranked by their names, and its name
+  // and version, which pnpm reads again after the patch.
+  it('refuses a bundled package\'s commands, name or version changed where its bins are the same files', () => {
+    for (const fields of [{ bin: { q: 'r.js', r: 'q.js' } }, { name: 'p' }, { version: '1.0.1' }]) {
+      assert.throws(() => checkY({ 'node_modules/q/package.json': bundledOf(fields) }), /^DeptreeError: y: the patch changes the commands that name "node_modules\/q\/[qr]\.js", or the name or version they are ranked by/u, JSON.stringify(fields))
+    }
+    checkY({ 'node_modules/q/package.json': bundledOf({ description: 'd' }) })
   })
 })
