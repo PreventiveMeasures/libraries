@@ -3,7 +3,7 @@ import { readdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import { assertCrateName, assertCrateVersion, assertSha256, show } from './args.js'
+import { assertCrateName, assertCrateVersion, assertSha256, printable, show } from './args.js'
 import { verifiedDownload } from './download.js'
 import { CRATES_INDEX, CRATES_STATIC, buildUrl, encodeSegment, request } from './http.js'
 
@@ -16,7 +16,14 @@ async function getChecksum(name, version) {
   const lower = name.toLowerCase()
   const prefix = lower.length < 3 ? [String(lower.length)] : lower.length === 3 ? ['3', lower[0]] : [lower.slice(0, 2), lower.slice(2, 4)]
   const text = await request(buildUrl(CRATES_INDEX, [...prefix, lower]), { as: 'text' })
-  const entry = text.split('\n').filter(Boolean).map((line) => JSON.parse(line)).find((candidate) => candidate?.vers === version)
+  const parse = (line) => {
+    try {
+      return JSON.parse(line)
+    } catch {
+      assert.fail(`getCrate: the index for ${name} has a line that is not JSON: ${printable(line.slice(0, 200))}`)
+    }
+  }
+  const entry = text.split('\n').filter(Boolean).map(parse).find((candidate) => candidate?.vers === version)
   assert.ok(entry, `getCrate: the index has no ${name}@${version}`)
   assert.ok(entry.name === name, `getCrate: the index answered for ${show(entry.name)}, not ${name}`)
   assertSha256('getCrate', 'the index cksum', entry.cksum)

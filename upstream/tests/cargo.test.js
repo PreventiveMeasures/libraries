@@ -96,6 +96,16 @@ describe('getCrate', () => {
     }
   })
 
+  it('refuses an index line that is not JSON, and says so printably', async () => {
+    const calls = []
+    globalThis.fetch = (url) => {
+      calls.push(String(url))
+      return Promise.resolve(new Response(`${JSON.stringify({ name: 'crate', vers: '0.9.0', cksum: sha256(BYTES) })}\n{"vers":\u001B[2J}`))
+    }
+    await assert.rejects(getCrate('crate', '1.0.0'), { message: 'getCrate: the index for crate has a line that is not JSON: {"vers":\\u001b[2J}' })
+    assert.deepEqual(calls, [INDEX])
+  })
+
   it('throws on a crate the index does not have', async () => {
     stubCratesIo()
     await assert.rejects(getCrate('other', '1.0.0'), { name: 'HttpError', status: 404 })
