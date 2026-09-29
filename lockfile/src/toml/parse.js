@@ -11,6 +11,11 @@
 // of their own, which the lines of their section may add to and no later
 // header or dotted key may; a header may still make a table beneath one.
 // Nothing adds to an array or an inline table written as a value.
+//
+// A dotted key through a table a header made on its way (`[a.b.c]`, then
+// `b.d` under `[a]`) is refused as not supported: tomllib reads it, and the
+// toml crate Cargo reads with refuses it, or reads it only in part, and a
+// reader that took it would read files one of them does not.
 
 import { TomlError, assert, excerpt } from './error.js'
 import { endLine, readLine, setKey } from './value.js'
@@ -73,8 +78,8 @@ function putDotted(state, src, keys, value) {
     if (key in table) {
       const next = table[key]
       assert(isTable(next) && !state.fixed.has(next), src, () => `${excerpt(key)} is ${kind(state, next)}, which a dotted key cannot add to`)
-      assert(state.implicit.has(next) || state.pending.has(next), src, () => `${excerpt(key)} is a table declared elsewhere, which a dotted key cannot add to`)
-      if (state.implicit.delete(next)) state.pending.add(next)
+      assert(!state.implicit.has(next), src, () => `a dotted key through ${excerpt(key)}, a table a header made on its way, is not supported`)
+      assert(state.pending.has(next), src, () => `${excerpt(key)} is a table declared elsewhere, which a dotted key cannot add to`)
     } else {
       table[key] = Object.create(null)
       state.pending.add(table[key])
@@ -112,8 +117,10 @@ export function parseToml(text) {
   // tables; and the inline tables written as a line's value.
   const state = { root, current: root, implicit: new Set(), pending: new Set(), arrays: new Set(), fixed: new Set() }
   while (src.pos < text.length) {
+    // Own properties alone, so that no name another module sets on
+    // Object.prototype turns a header into a key.
     const line = readLine(src)
-    if (line?.value !== undefined) putDotted(state, src, line.keys, line.value)
+    if (line !== undefined && Object.hasOwn(line, 'value')) putDotted(state, src, line.keys, line.value)
     else if (line !== undefined) putHeader(state, src, line.keys, line.array)
     endLine(src)
   }

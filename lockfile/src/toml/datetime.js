@@ -2,9 +2,10 @@
 // files carry an upload time: RFC 3339 as writers emit it, a `T` between
 // date and time and `Z` or an offset after. The space TOML allows for `T`,
 // a lower-case `t` or `z`, TOML 1.1's times without seconds, and the local
-// date-times, dates and times, which name no instant, are refused. A date
-// that is not in the calendar is refused too (February 30th, second 60,
-// year 0), where Date would roll it over into another.
+// date-times, dates and times, which name no instant, are refused, and so
+// are the year 0000 and a leap second, which RFC 3339 has and Date has not.
+// A date that is not in the calendar is refused too (February 30th, 24:00),
+// where Date would roll it over into another.
 
 import { TomlError, assert, excerpt } from './error.js'
 
@@ -62,5 +63,11 @@ export function readDateTime(token, src) {
   assert(!LOCAL.test(token), src, () => `local dates and times are not supported: ${excerpt(token)}`)
   assert(!NO_SECONDS.test(token), src, () => `a date-time or a time without seconds is not supported: ${excerpt(token)}`)
   assert(partsOf(token.toUpperCase()) === undefined, src, () => `a date-time with a lower-case "t" or "z" is not supported: ${excerpt(token)}`)
+  // Each of these, tomllib refuses and the toml crate reads, a leap second
+  // by rolling it over into the next minute. As year 2000 is a leap year as
+  // 0000 is, and second 59 is in any minute, the date is otherwise the same.
+  assert(!token.startsWith('0000-') || partsOf(`2000${token.slice(4)}`) === undefined, src, () => `the year 0000 is not supported: ${excerpt(token)}`)
+  const leap = /^\d{4}-\d\d-\d\dT\d\d:\d\d:60/u.test(token) && partsOf(`${token.slice(0, 17)}59${token.slice(19)}`) !== undefined
+  assert(!leap, src, () => `a leap second is not supported: ${excerpt(token)}`)
   throw new TomlError(`${excerpt(token)} is not a date-time of the form YYYY-MM-DDTHH:MM:SS[.fraction](Z|±HH:MM)`, src.line)
 }

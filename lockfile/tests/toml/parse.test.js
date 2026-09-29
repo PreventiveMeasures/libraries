@@ -137,8 +137,10 @@ describe('what is read', () => {
     })
   })
 
-  it('dotted keys through a table only a header on the way has made', () => {
-    assert.deepEqual(parse('[a.b.c]\n[a]\nb.d = 1\n'), { a: { b: { c: {}, d: 1 } } })
+  it('no dotted key through a table only a header on the way has made, which TOML readers differ on', () => {
+    refuses('[a.b.c]\n[a]\nb.d = 1\n', 'a dotted key through "b", a table a header made on its way, is not supported', 2)
+    refuses('[a.b.d]\n[a]\nb.c.d = 1\n', 'a dotted key through "b", a table a header made on its way, is not supported', 2)
+    assert.deepEqual(parse('[a.b.c]\n[a.b]\nx = 1\n'), { a: { b: { c: {}, x: 1 } } })
   })
 
   it('CRLF line ends, trailing comments and whitespace, and no final line break', () => {
@@ -186,6 +188,9 @@ describe('what is not supported is refused by name', () => {
     ['1979-05-27T07:32:00', 'local dates and times are not supported: "1979-05-27T07:32:00"'],
     ['1979-05-27 07:32:00Z', 'a date-time with a space in place of "T" is not supported'],
     ['1979-05-27t07:32:00z', 'a date-time with a lower-case "t" or "z" is not supported: "1979-05-27t07:32:00z"'],
+    ['0000-02-29T00:00:00Z', 'the year 0000 is not supported: "0000-02-29T00:00:00Z"'],
+    ['1979-05-27T23:59:60Z', 'a leap second is not supported: "1979-05-27T23:59:60Z"'],
+    ['1979-05-27T07:32:60.5+01:00', 'a leap second is not supported: "1979-05-27T07:32:60.5+01:00"'],
     ['"\\e"', 'unsupported escape "\\\\e"'],
     ['"\\x41"', 'unsupported escape "\\\\x"'],
     ['07:32', 'a date-time or a time without seconds is not supported: "07:32"'],
@@ -236,8 +241,7 @@ describe('what is not TOML is refused', () => {
       ["'a\u007Fb'", 'U+007F is not allowed in a string'],
       ['2023-02-29T00:00:00Z', '"2023-02-29T00:00:00Z" is not a date-time of the form YYYY-MM-DDTHH:MM:SS[.fraction](Z|±HH:MM)'],
       ['2024-04-31T00:00:00Z', '"2024-04-31T00:00:00Z" is not a date-time of the form YYYY-MM-DDTHH:MM:SS[.fraction](Z|±HH:MM)'],
-      ['1979-05-27T07:32:60Z', '"1979-05-27T07:32:60Z" is not a date-time of the form YYYY-MM-DDTHH:MM:SS[.fraction](Z|±HH:MM)'],
-      ['0000-01-01T00:00:00Z', '"0000-01-01T00:00:00Z" is not a date-time of the form YYYY-MM-DDTHH:MM:SS[.fraction](Z|±HH:MM)'],
+      ['1979-05-27T07:60:00Z', '"1979-05-27T07:60:00Z" is not a date-time of the form YYYY-MM-DDTHH:MM:SS[.fraction](Z|±HH:MM)'],
       ['1979-05-27T07:32:00+24:00', '"1979-05-27T07:32:00+24:00" is not a date-time of the form YYYY-MM-DDTHH:MM:SS[.fraction](Z|±HH:MM)'],
       ['[1 2]', 'expected "," or "]", found "2]"'],
       ['[,]', 'expected a value, found ",]"'],
@@ -290,11 +294,35 @@ describe('what is not TOML is refused', () => {
     assert.throws(() => parseToml(Buffer.from('a = 1')), { name: 'TypeError', message: 'expected a string' })
   })
 
+  it('messages quote the text with controls, separators and bidi controls escaped, and cut between characters', () => {
+    refuses('a = 1 ‮evil\n', 'expected the end of the line, found "\\u202eevil"', 0)
+    refuses('[\u009B31m]\n', 'expected a key, found "\\u009b31m]"', 0)
+    refuses('a = 1  x\n', 'expected the end of the line, found "\\u2028x"', 0)
+    refuses('k = \u007F\n', 'expected a value, found "\\u007f"', 0)
+    refuses(`a = 1 ${'x'.repeat(63)}😀tail\n`, `expected the end of the line, found "${'x'.repeat(63)}"...`, 0)
+  })
+
   it('nesting past 64, however it is written', () => {
     refuses(`a = ${'['.repeat(66)}${']'.repeat(66)}\n`, 'nested too deep', 0)
     refuses(`a = ${'{ b = '.repeat(66)}1${' }'.repeat(66)}\n`, 'nested too deep', 0)
     refuses(`${Array.from({ length: 65 }, (_, i) => `k${i}`).join('.')} = 1\n`, 'a key with too many parts', 0)
     assert.doesNotThrow(() => parseToml(`a = ${'['.repeat(64)}${']'.repeat(64)}\n`))
+  })
+})
+
+describe('what another module does to the prototypes', () => {
+  it('a name set on Object.prototype turns no header into a key, and changes nothing read', () => {
+    const text = '[package]\nname = "demo"\n[[bin]]\npath = { a.b = 1 }\n'
+    const expected = parse(text)
+    for (const name of ['value', 'keys', 'array', 'b', 'path']) {
+      // eslint-disable-next-line no-extend-native -- a polluted prototype is what this test is about
+      Object.prototype[name] = 'polluted'
+      try {
+        assert.deepEqual(parse(text), expected, name)
+      } finally {
+        delete Object.prototype[name]
+      }
+    }
   })
 })
 
