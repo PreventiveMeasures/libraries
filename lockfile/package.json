@@ -30,6 +30,7 @@
     "src/shape.js",
     "src/toml/datetime.js",
     "src/toml/error.js",
+    "src/toml/number.js",
     "src/toml/parse.js",
     "src/toml/value.js",
     "src/yaml/error.js",

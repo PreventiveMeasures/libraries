@@ -1,7 +1,10 @@
 // Python's tomllib as the reference: a TOML 1.0 reader in the standard
 // library since 3.11. Each document is read in one python3 process, and
-// comes back as { value } with offset date-times as UTC instants to the
-// microsecond, or { error }. Undefined where there is no such python.
+// comes back as { value }, or { error }, undefined where there is no such
+// python. In the value, an offset date-time is its UTC instant to the
+// microsecond, a float the 64 bits of its double (a NaN is only NaN, as
+// TOML gives it no sign), and an integer past 2^53 its decimal digits,
+// which a JSON number would round.
 //
 // Keys are written with nothing in them for JSON to escape: anything but
 // printable ASCII, and `"`, `\` and `%`, as `%<hex>;`. V8's JSON.parse (13.6,
@@ -9,10 +12,10 @@
 // met in the same place: after `{"a":1,"\\":2}`, `{"a":1,"\n":2}` comes
 // back with a backslash for its key.
 import { spawnSync } from 'node:child_process'
-import { TomlDateTime } from '../../toml.js'
+import { TomlDateTime, TomlFloat } from '../../toml.js'
 
 const SCRIPT = `
-import datetime, json, sys, tomllib
+import datetime, json, struct, sys, tomllib
 def key(text):
     return ''.join(c if ' ' <= c <= '~' and c not in '"\\\\%' else f'%{ord(c):x};' for c in text)
 def encode(value):
@@ -26,8 +29,12 @@ def encode(value):
         shift = 400 if value.year < 5000 else -400
         utc = value.replace(year=value.year + shift).astimezone(datetime.timezone.utc)
         return {'$datetime': f'{utc.year - shift:04d}' + utc.strftime('-%m-%dT%H:%M:%S.%fZ')}
-    if isinstance(value, (str, bool, int)):
+    if isinstance(value, float):
+        return {'$float': 'nan' if value != value else struct.pack('>d', value).hex()}
+    if isinstance(value, (str, bool)):
         return value
+    if isinstance(value, int):
+        return value if abs(value) <= 2 ** 53 - 1 else {'$int': str(value)}
     return {'$other': repr(value)}
 results = []
 for text in json.load(sys.stdin):
@@ -56,9 +63,17 @@ function instant(datetime) {
 
 const keyOf = (key) => key.replace(/[^ -~]|["%\\]/gu, (char) => `%${char.codePointAt(0).toString(16)};`)
 
+function bits(number) {
+  const view = new DataView(new ArrayBuffer(8))
+  view.setFloat64(0, number)
+  return view.getBigUint64(0).toString(16).padStart(16, '0')
+}
+
 // A parsed document as tomllib's JSON has it.
 export function plain(value) {
   if (value instanceof TomlDateTime) return { $datetime: instant(value) }
+  if (value instanceof TomlFloat) return { $float: Number.isNaN(value.value) ? 'nan' : bits(value.value) }
+  if (typeof value === 'bigint') return { $int: String(value) }
   if (Array.isArray(value)) return value.map(plain)
   if (typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [keyOf(key), plain(item)]))
   return value

@@ -1,8 +1,8 @@
-// A minimal, strict TOML 1.0 reader: the TOML that Cargo.lock, uv.lock,
-// poetry.lock, pylock.toml and foundry.toml are written in, and nothing it
-// does not read the way TOML does. Comments are dropped. What is read is
-// value.js's to say; what is refused, it names, rather than read in some
-// other way. Tables come back with a null prototype.
+// A minimal, strict TOML 1.0 reader: the TOML that Cargo.toml, Cargo.lock,
+// uv.lock, poetry.lock, pylock.toml and foundry.toml are written in, and
+// nothing it does not read the way TOML does. Comments are dropped. What
+// is read is value.js's to say; what is refused, it names, rather than
+// read in some other way. Tables come back with a null prototype.
 //
 // A table is written once. `[a.b]` declares a.b, and makes a on the way,
 // which a later `[a]` may still declare; `[[a]]` adds a table to the array

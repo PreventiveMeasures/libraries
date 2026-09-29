@@ -12,7 +12,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
-import { TomlDateTime, parseToml } from '../toml.js'
+import { TomlDateTime, TomlFloat, parseToml } from '../toml.js'
 
 const COMMIT = 'ff49d109861c1ad25af53f687f2aef19ab650600'
 const UNSUPPORTED = /not supported|out of range|a byte order mark/u
@@ -34,9 +34,14 @@ function instant(text) {
   return `${date.getTime()}.${(m[2] ?? '').padEnd(6, '0').slice(0, 6)}`
 }
 
+// A float as the double it names, NaN whatever its sign, as TOML has it.
+const SPECIAL = { __proto__: null, inf: Infinity, '+inf': Infinity, '-inf': -Infinity, nan: Number.NaN, '+nan': Number.NaN, '-nan': Number.NaN }
+const double = (number) => (Number.isNaN(number) ? 'nan' : Object.is(number, -0) ? '-0' : String(number))
+
 // A parsed document as toml-test's JSON has it, each value tagged.
 function tagged(value) {
   if (value instanceof TomlDateTime) return { type: 'datetime', value: instant(value.text) }
+  if (value instanceof TomlFloat) return { type: 'float', value: double(value.value) }
   if (Array.isArray(value)) return value.map(tagged)
   if (typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, tagged(item)]))
   if (typeof value === 'string') return { type: 'string', value }
@@ -46,7 +51,9 @@ function tagged(value) {
 function expected(value) {
   if (Array.isArray(value)) return value.map(expected)
   const tag = Object.keys(value).length === 2 && typeof value.type === 'string' && typeof value.value === 'string'
-  if (tag) return value.type === 'datetime' ? { type: 'datetime', value: instant(value.value) } : value
+  if (tag && value.type === 'datetime') return { type: 'datetime', value: instant(value.value) }
+  if (tag && value.type === 'float') return { type: 'float', value: double(SPECIAL[value.value] ?? Number(value.value)) }
+  if (tag) return value
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, expected(item)]))
 }
 

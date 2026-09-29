@@ -6,15 +6,20 @@ import { plain } from './reference.js'
 
 // The baseline: real files, each written by its own tool or kept by its own
 // project — Cargo.lock, uv.lock, poetry.lock, a pylock.toml from uv and one
-// from pip, and three projects' foundry.toml — with the .json of what
-// Python's tomllib reads from each beside it. scripts/record-toml.js
-// records them all; its header says how.
+// from pip, three projects' foundry.toml, and Cargo.toml as crates.io
+// serves it, published and as written — with the .json of what Python's
+// tomllib reads from each beside it. scripts/record-toml.js records them
+// all; its header says how.
 
 const FIXTURES = new URL('fixtures/', import.meta.url)
 const text = (name) => readFileSync(new URL(name, FIXTURES), 'utf8')
 const read = (name) => parseToml(text(name))
 
-const NAMES = ['Cargo.lock', 'uv.lock', 'poetry.lock', 'pylock.uv.toml', 'pylock.pip.toml', 'foundry.forge-std.toml', 'foundry.solady.toml', 'foundry.openzeppelin.toml']
+const NAMES = [
+  'Cargo.lock', 'uv.lock', 'poetry.lock', 'pylock.uv.toml', 'pylock.pip.toml',
+  'foundry.forge-std.toml', 'foundry.solady.toml', 'foundry.openzeppelin.toml',
+  'Cargo.regex.toml', 'Cargo.regex.toml.orig', 'Cargo.toml_edit.toml',
+]
 
 describe('reads what tomllib reads', () => {
   for (const name of NAMES) {
@@ -23,6 +28,18 @@ describe('reads what tomllib reads', () => {
 })
 
 describe('each, spot-checked', () => {
+  it('Cargo.toml: a multi-line description, published and as written', () => {
+    const description = 'An implementation of regular expressions for Rust. This implementation uses\nfinite automata and guarantees linear time matching on all inputs.\n'
+    assert.equal(read('Cargo.regex.toml').package.description, description)
+    assert.equal(read('Cargo.regex.toml.orig').package.description, description)
+  })
+
+  it('Cargo.toml: cargo-release replacements in multi-line strings', () => {
+    const replacements = read('Cargo.toml_edit.toml').package.metadata.release['pre-release-replacements']
+    assert.ok(replacements.some((item) => item.replace === '<!-- next-header -->\n## [Unreleased] - ReleaseDate\n'))
+    assert.ok(replacements.some((item) => item.replace.startsWith('<!-- next-url -->\n[Unreleased]: ')))
+  })
+
   it('Cargo.lock: the format version, and a package from git', () => {
     const lock = read('Cargo.lock')
     assert.equal(lock.version, 4)

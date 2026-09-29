@@ -4,16 +4,16 @@
 // are every array and table read here, as a value or within one. An inline
 // table's keys are set here too; where a line's key goes is parse.js's.
 //
-// Read here: basic and literal strings on one line, decimal integers with
-// or without underscores, booleans, offset date-times, arrays (across lines,
-// with comments and a trailing comma) and inline tables (on one line, as
-// TOML 1.0 has them). Refused, each by name: multi-line strings, floats,
-// infinities and NaN, hexadecimal, octal and binary integers, local dates
-// and times, and TOML 1.1's escapes, times without seconds, and inline
-// tables across lines or with a trailing comma.
+// Read here: basic and literal strings, on one line or across lines,
+// integers and floats (number.js), booleans, offset date-times, arrays
+// (across lines, with comments and a trailing comma) and inline tables (on
+// one line, as TOML 1.0 has them). Refused, each by name: local dates and
+// times, and TOML 1.1's escapes, times without seconds, and inline tables
+// across lines or with a trailing comma.
 
 import { readDateTime } from './datetime.js'
 import { TomlError, assert, excerpt } from './error.js'
+import { readFloat, readInteger } from './number.js'
 
 const MAX_DEPTH = 64
 
@@ -94,7 +94,6 @@ function readEscape(src) {
 
 // `"…"`, on one line, with TOML 1.0's escapes.
 function readBasic(src) {
-  assert(!src.text.startsWith('"""', src.pos), src, 'multi-line strings are not supported')
   src.pos++
   let value = ''
   for (;;) {
@@ -111,7 +110,6 @@ function readBasic(src) {
 // `'…'`, on one line, taken as written.
 const LITERAL_RUN = /[^'[\p{Cc}--[\t\u0080-\u009F]]]*/vy
 function readLiteral(src) {
-  assert(!src.text.startsWith("'''", src.pos), src, 'multi-line strings are not supported')
   src.pos++
   const value = take(src, LITERAL_RUN)[0]
   assert(!atLineEnd(src), src, 'unterminated string')
@@ -120,13 +118,63 @@ function readLiteral(src) {
   return char === "'" ? value : refuseControl(src, char, 'a string')
 }
 
+// After a backslash in a multi-line basic string: the end of its line,
+// whitespace before it allowed, which takes along every space, tab and
+// line break up to the string's next character; or else an escape.
+function readMultilineEscape(src) {
+  const at = src.pos
+  skipSpaces(src)
+  if (!takeNewline(src)) {
+    src.pos = at
+    return readEscape(src)
+  }
+  do {
+    skipSpaces(src)
+  } while (takeNewline(src))
+  return ''
+}
+
+// `"""…"""` and `'''…'''`, across lines. A line break just after the opening
+// quotes is dropped, and CRLF within is read as LF, as tomllib has it; one
+// or two quotes just before the closing three are the string's own. A
+// basic one has the escapes a basic string has, and a backslash that ends
+// its line; in a literal one, nothing is escaped.
+function readMultiline(src, quote) {
+  const run = quote === '"' ? BASIC_RUN : LITERAL_RUN
+  const close = quote.repeat(3)
+  src.pos += 3
+  takeNewline(src)
+  let value = ''
+  for (;;) {
+    value += take(src, run)[0]
+    if (takeNewline(src)) {
+      value += '\n'
+      continue
+    }
+    assert(src.pos < src.text.length, src, 'unterminated string')
+    if (src.text.startsWith(close, src.pos)) {
+      src.pos += 3
+      const extra = src.text.startsWith(quote.repeat(2), src.pos) ? 2 : src.text[src.pos] === quote ? 1 : 0
+      src.pos += extra
+      return value + quote.repeat(extra)
+    }
+    const char = src.text[src.pos]
+    src.pos++
+    if (char === quote) value += char
+    else if (char === '\\') value += readMultilineEscape(src)
+    else refuseControl(src, char, 'a string')
+  }
+}
+
 // A key: bare, of ASCII letters, digits, `_` and `-`, or quoted; dotted, a
 // list of them with dots between, spaces allowed about each dot.
 const BARE = /[\w-]+/uy
 function readSimpleKey(src) {
   const char = src.text[src.pos]
-  if (char === '"') return readBasic(src)
-  if (char === "'") return readLiteral(src)
+  if (char === '"' || char === "'") {
+    assert(!src.text.startsWith(char.repeat(3), src.pos), src, 'a multi-line string cannot be a key')
+    return char === '"' ? readBasic(src) : readLiteral(src)
+  }
   const m = take(src, BARE)
   assert(m !== null, src, () => `expected a key, found ${found(src)}`)
   return m[0]
@@ -151,8 +199,6 @@ export function readKey(src) {
 // What a value that is not a string, an array or an inline table may be
 // spelled with; one is read whole and then told apart.
 const TOKEN = /[\w+.:-]+/uy
-const INTEGER = /^[+-]?(?:0|[1-9](?:_?\d)*)$/u
-const FLOAT = /^[+-]?(?:inf|nan|(?:0|[1-9](?:_?\d)*)(?:\.\d(?:_?\d)*)?(?:[Ee][+-]?\d(?:_?\d)*)?)$/u
 
 function readToken(src) {
   const m = take(src, TOKEN)
@@ -160,16 +206,9 @@ function readToken(src) {
   const token = m[0]
   if (token === 'true') return true
   if (token === 'false') return false
-  if (INTEGER.test(token)) {
-    const number = Number(token.replaceAll('_', ''))
-    assert(Math.abs(number) <= Number.MAX_SAFE_INTEGER, src, () => `integer out of range ${excerpt(token)}`)
-    return number === 0 ? 0 : number
-  }
-  const datetime = readDateTime(token, src)
-  if (datetime !== undefined) return datetime
-  assert(!FLOAT.test(token), src, () => `floats are not supported: ${excerpt(token)}`)
-  assert(!/^[+-]?0[box]/u.test(token), src, () => `hexadecimal, octal and binary integers are not supported: ${excerpt(token)}`)
-  throw new TomlError(`expected a value, found ${excerpt(token)}`, src.line)
+  const value = readInteger(token, src) ?? readFloat(token, src) ?? readDateTime(token, src)
+  if (value === undefined) throw new TomlError(`expected a value, found ${excerpt(token)}`, src.line)
+  return value
 }
 
 // A key is set once in its table.
@@ -261,9 +300,9 @@ function readValue(src, depth) {
   assert(depth <= MAX_DEPTH, src, 'nested too deep')
   switch (src.text[src.pos]) {
     case '"':
-      return readBasic(src)
+      return src.text.startsWith('"""', src.pos) ? readMultiline(src, '"') : readBasic(src)
     case "'":
-      return readLiteral(src)
+      return src.text.startsWith("'''", src.pos) ? readMultiline(src, "'") : readLiteral(src)
     case '[':
       return readArray(src, depth)
     case '{':

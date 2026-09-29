@@ -61,13 +61,17 @@ function tables({ next, pick }) {
   return `${lines.join('\n')}\n`
 }
 
-// Valid TOML from its grammar, with every kind of value this reader takes
-// and a few it refuses as unsupported; half of the documents then have one
-// character put in or taken out, so that each check is met on its own.
+// Valid TOML from its grammar, with every kind of value this reader takes,
+// multi-line strings, floats and integers of every base and size among
+// them, and a few it refuses as unsupported; half of the documents then
+// have one character put in or taken out, so that each check is met on its
+// own.
 const STRING_CHARS = ['a', 'Z', ' ', '\t', '#', '=', '.', "'", '"', '\\', '[', '{', ',', '}', 'é', '😀', '\u0085', '\u009F', '\u00A0', '\u2028', '\u200F', '\uFFFF']
 const ESCAPES = ['\\n', '\\t', '\\b', '\\f', '\\r', '\\"', '\\\\', '\\u00e9', '\\u0000', '\\u007F', '\\uFFFF', '\\U0001F600', '\\U0010FFFF']
 const BARE_KEYS = ['a', 'b', 'c', 'x', 'y', 'k1', '_', '-', '1', 'A-b_2', 'true', 'inf', '0', '00', '1979-05-27']
-const UNSUPPORTED_VALUES = ['1.5', '0x1f', 'inf', '9007199254740992', '1979-05-27', '07:32:00', '1979-05-27T07:32:00', '1979-05-27 07:32:00Z']
+const UNSUPPORTED_VALUES = ['1979-05-27', '07:32:00', '1979-05-27T07:32:00', '1979-05-27 07:32:00Z', '1e400', '9223372036854775808', '0x8000000000000000']
+const MULTILINE_PIECES = ['a', ' ', '\t', '#', 'é', '😀', '\u0085', '\u2028', '\n', '\n', '\r\n', '"', '""', "'", "''", '\\', '{', '=']
+const LINE_ENDS = ['\\\n', '\\  \n  ', '\\\r\n\n\t', '\\\t\n']
 const FLAWS = ['[', ']', '{', '}', '=', ',', '.', '"', "'", '#', '\\', '\n', '\r', ' ', '\t', 'a', '0', '_', '-', '+', ':', 'T', 'Z', 'z', 'e', '\u0000', '\u007F', '\u0085', '\uFEFF']
 
 function grammar({ next, pick }) {
@@ -87,19 +91,47 @@ function grammar({ next, pick }) {
     const offset = pick(['Z', '+00:00', '-00:00', `+${two(int(24))}:${two(int(60))}`, `-${two(int(24))}:${two(int(60))}`])
     return `${String(year).padStart(4, '0')}-${two(month)}-${two(next() < 0.2 ? days : 1 + int(days))}T${two(int(24))}:${two(int(60))}:${two(int(60))}${fraction}${offset}`
   }
+  const digits = (alphabet, count) => Array.from({ length: count }, () => alphabet[int(alphabet.length)]).join('')
+  const grouped = (text) => (next() < 0.3 ? text.replace(/.(?=.)/gu, (digit) => (next() < 0.3 ? `${digit}_` : digit)) : text)
+  const sign = () => pick(['', '', '-', '+'])
   function integer() {
-    const digits = `${1 + int(9)}${some(13, () => int(10)).join('')}`
-    const grouped = next() < 0.3 ? digits.replace(/\d(?=\d)/gu, (digit) => (next() < 0.3 ? `${digit}_` : digit)) : digits
-    return `${pick(['', '', '-', '+'])}${next() < 0.1 ? pick(['0', '9007199254740991', '9_007_199_254_740_991']) : grouped}`
+    const r = next()
+    if (r < 0.2) {
+      const [prefix, alphabet] = pick([['0x', '0123456789abcdefABCDEF'], ['0o', '01234567'], ['0b', '01']])
+      return `${prefix}${grouped(digits(alphabet, 1 + int(prefix === '0b' ? 64 : 17)))}`
+    }
+    if (r < 0.3) return `${sign()}${grouped(`${1 + int(9)}${digits('0123456789', 15 + int(4))}`)}`
+    if (r < 0.35) return `${sign()}${pick(['0', '9007199254740991', '9_007_199_254_740_991', '9223372036854775807'])}`
+    return `${sign()}${grouped(`${1 + int(9)}${digits('0123456789', int(13))}`)}`
+  }
+  function float() {
+    if (next() < 0.15) return `${sign()}${pick(['inf', 'nan'])}`
+    const whole = next() < 0.2 ? '0' : grouped(`${1 + int(9)}${digits('0123456789', int(12))}`)
+    const fraction = next() < 0.7 ? `.${grouped(digits('0123456789', 1 + int(20)))}` : ''
+    const exponent = fraction === '' || next() < 0.4 ? `${pick(['e', 'E'])}${pick(['', '+', '-'])}${grouped(digits('0123456789', 1 + int(next() < 0.9 ? 2 : 3)))}` : ''
+    return `${sign()}${whole}${fraction}${exponent}`
+  }
+  // Pieces that make three quotes in a row only where the string ends.
+  function multiline() {
+    const quote = pick(['"', "'"])
+    const pieces = some(12, () => {
+      const piece = pick(MULTILINE_PIECES)
+      if (quote === "'") return piece
+      return piece === '\\' ? pick(LINE_ENDS) : next() < 0.2 ? pick(ESCAPES) : piece
+    })
+    const body = pieces.join('').replace(quote === '"' ? /"{3,}/gu : /'{3,}/gu, quote.repeat(2))
+    return `${quote.repeat(3)}${pick(['', '\n', '\r\n'])}${body}${quote.repeat(3)}`
   }
   function value(depth) {
     const r = next()
-    if (r < 0.15) return basic()
-    if (r < 0.22) return literal()
+    if (r < 0.12) return basic()
+    if (r < 0.18) return literal()
+    if (r < 0.28) return multiline()
     if (r < 0.42) return integer()
-    if (r < 0.48) return pick(['true', 'false'])
-    if (r < 0.58) return datetime()
-    if (r < 0.6) return pick(UNSUPPORTED_VALUES)
+    if (r < 0.5) return float()
+    if (r < 0.54) return pick(['true', 'false'])
+    if (r < 0.62) return datetime()
+    if (r < 0.64) return pick(UNSUPPORTED_VALUES)
     if (depth > 3) return integer()
     const items = some(4, () => value(depth + 1))
     if (r < 0.8) return `[${space()}${pick(['', '\n'])}${items.join(pick([', ', ',', ' , ', ',\n', ', # c\n', ',\r\n']))}${items.length > 0 ? pick(['', ',']) : ''}${pick(['', '\n'])}${space()}]`
