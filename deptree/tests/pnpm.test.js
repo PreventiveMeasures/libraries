@@ -37,12 +37,12 @@ const TARBALLS = await Promise.all([
 ])
 const I = Object.fromEntries(TARBALLS.map((t) => [t.name, t.integrity]))
 
-const lockfile = ({ patchHash = H, mac = '[darwin]' } = {}) => `lockfileVersion: '9.0'
+const lockfile = ({ patchHash = H, mac = '[darwin]', overrides = '' } = {}) => `lockfileVersion: '9.0'
 
 settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
-
+${overrides}
 patchedDependencies:
   p@1.0.0:
     hash: ${patchHash}
@@ -136,7 +136,18 @@ snapshots:
   p@1.0.0(patch_hash=${patchHash}): {}
 `
 
-const build = (options = {}) => buildPnpmTree({ lockfile: lockfile(), patches: { 'patches/p.patch': PATCH }, host: HOST, ...options })
+// The root package.json, which names the patch as pnpm-workspace.yaml
+// may instead.
+const root = ({ pnpm = {}, ...fields } = {}) => JSON.stringify({
+  name: 'root',
+  dependencies: { Up: '1.0.0', a: '1.0.0', l: 'link:../l', 'my-lodash': 'npm:lodash@4.17.21', p: '1.0.0' },
+  devDependencies: { e: '1.0.0' },
+  optionalDependencies: { mac: '1.0.0' },
+  pnpm: { patchedDependencies: { 'p@1.0.0': 'patches/p.patch' }, ...pnpm },
+  ...fields,
+})
+
+const build = (options = {}) => buildPnpmTree({ lockfile: lockfile(), manifest: root(), patches: { 'patches/p.patch': PATCH }, host: HOST, ...options })
 const text = (vfs, path) => vfs.readText(path)
 const UP = `Up@1.0.0_${hex('Up@1.0.0').slice(0, 32)}`
 const P = `p@1.0.0_patch_hash=${H}`
@@ -241,13 +252,26 @@ describe('buildPnpmTree refuses', () => {
     assert.deepEqual(calls, [])
   })
 
+  // pnpm hashes every patch it is configured with, and holds the lockfile
+  // to the hashes and the paths: each has to be given, and hash as the
+  // lockfile says, under the path it says.
   it('a patch that is not given, does not hash as the lockfile says, or is named elsewhere', async () => {
     stubRegistry(TARBALLS)
-    await refuses({ patches: {} }, /^"p@1\.0\.0\(patch_hash=[\da-f]+\)": the patch [\da-f]+ is not given/u)
-    await refuses({ patches: { 'patches/p.patch': `${PATCH} ` } }, /^patchedDependencies\["p@1\.0\.0"\]: the patch given hashes to/u)
-    await refuses({ patches: { 'patches/q.patch': PATCH } }, /^patches\["patches\/q\.patch"\]: the lockfile names no patch by this path/u)
+    await refuses({ patches: {} }, /^patchedDependencies\["p@1\.0\.0"\]: the patch "patches\/p\.patch" is not given, and pnpm reads every patch/u)
+    await refuses({ patches: { 'patches/p.patch': PATCH.replace('= 2', '= 3') } }, /^patchedDependencies: the patches differ: "p@1\.0\.0" is "[\da-f]{64} patches\/p\.patch" in the lockfile and "[\da-f]{64} patches\/p\.patch" in the settings; pnpm would refuse a frozen install/u)
+    await refuses({ patches: { 'patches/p.patch': PATCH, 'patches/q.patch': PATCH } }, /^patches\["patches\/q\.patch"\]: no patchedDependencies setting names this patch/u)
     await refuses({ patches: { 'patches/p.patch': `${PATCH}\uDC00` } }, /^patches\["patches\/p\.patch"\]: expected well-formed text to hash$/u)
-    await refuses({ workspace: 'patchedDependencies:\n  p@1.0.0: other.patch\n' }, /pnpm-workspace\.yaml does not name this patch by this path/u)
+    await refuses({ manifest: root({ pnpm: { patchedDependencies: undefined } }), workspace: 'patchedDependencies:\n  p@1.0.0: other.patch\n', patches: { 'other.patch': PATCH } }, /^patchedDependencies: the patches differ: .* in the lockfile and "[\da-f]{64} other\.patch" in the settings/u)
+    // The package.json's patches win over pnpm-workspace.yaml's.
+    await refuses({ workspace: 'patchedDependencies:\n  p@1.0.0: other.patch\n', patches: { 'patches/p.patch': PATCH, 'other.patch': PATCH } }, /^patches\["other\.patch"\]: no patchedDependencies setting names this patch/u)
+    await refuses({ manifest: root({ pnpm: { patchedDependencies: undefined } }) }, /^patches\["patches\/p\.patch"\]: no patchedDependencies setting names this patch/u)
+    await refuses({ manifest: root({ pnpm: { patchedDependencies: undefined } }), patches: {} }, /^patchedDependencies: the patches differ: "p@1\.0\.0" is .* in the lockfile and nothing in the settings/u)
+  })
+
+  it('reads the patch where pnpm-workspace.yaml names it instead', async () => {
+    stubRegistry(TARBALLS)
+    const vfs = await build({ manifest: root({ pnpm: { patchedDependencies: undefined } }), workspace: 'patchedDependencies:\n  p@1.0.0: ./patches/p.patch\n' })
+    assert.equal(vfs.readText('/node_modules/p/index.js'), 'module.exports = 2\n')
   })
 
   it('a patch that does not apply exactly', async () => {
@@ -274,6 +298,21 @@ describe('buildPnpmTree refuses', () => {
     stubRegistry(TARBALLS)
     const vfs = await build({ workspace: '# nothing here\n\n' })
     assert.ok(vfs.isSymlink('/node_modules/a'))
+  })
+
+  it('a root package.json that is not a JSON object', async () => {
+    await refuses({ manifest: '{' }, /^package\.json: not JSON/u)
+    await refuses({ manifest: '[]' }, /^package\.json: expected an object$/u)
+    await assert.rejects(build({ manifest: undefined }), TypeError)
+  })
+
+  it('a lockfile resolved with other settings', async () => {
+    stubRegistry(TARBALLS)
+    await refuses({ workspace: 'autoInstallPeers: false\n' }, /^settings\.autoInstallPeers: autoInstallPeers is true in the lockfile; pnpm would refuse a frozen install/u)
+    await refuses({ workspace: 'dedupePeers: true\n' }, /^settings\.dedupePeers:/u)
+    await refuses({ npmrc: 'peers-suffix-max-length=100\n' }, /^settings\.peersSuffixMaxLength:/u)
+    await refuses({ workspace: 'ignoredOptionalDependencies: [mac]\n' }, /^ignoredOptionalDependencies: the optional dependencies left out differ/u)
+    await refuses({ workspace: 'packageExtensions:\n  a:\n    dependencies:\n      b: 1.0.0\n' }, /^packageExtensions: package extensions are not supported/u)
   })
 
   it('a lockfile the lockfile reader refuses', async () => {

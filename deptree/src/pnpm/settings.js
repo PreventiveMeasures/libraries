@@ -1,5 +1,8 @@
-// The settings a pnpm 10 install reads from the .npmrc beside the lockfile
-// and from pnpm-workspace.yaml, the second over the first, as pnpm has it.
+// The settings a pnpm 10 install reads from the .npmrc beside the lockfile,
+// from pnpm-workspace.yaml, and from the root package.json's `pnpm` field,
+// each over the one before: `pnpm install` spreads what the package.json
+// sets over the config it read the others into, so there the package.json
+// wins, whatever pnpm's config alone would say.
 // Every key is one of three things: a setting read here, and held to the
 // values this package builds a tree for; a setting that leaves the tree as
 // it is, whether because a frozen lockfile already says what it would have
@@ -8,14 +11,16 @@
 // is a credential; or anything else, which is refused
 // by name, as is a value read here that this package does not build for.
 //
-// Only these two files are read. Settings from anywhere else pnpm looks —
-// a user or global .npmrc, `npm_config_*` in the environment, the root
-// package.json's `pnpm` field, the command line — are not seen, and a tree
-// built here is the one those leave at their defaults.
+// Only these files are read. Settings from anywhere else pnpm looks — a
+// user or global .npmrc, `npm_config_*` in the environment, the command
+// line — are not seen, and a tree built here is the one those leave at
+// their defaults. Of the package.json, pnpm 10 reads only the keys of
+// `pnpm` below (MANIFEST_KEYS) and Yarn's `resolutions`, and so does this.
 
 import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { parseNpmrc } from './npmrc.js'
+import { replaceReferences } from './overrides.js'
 
 const REGISTRY = 'https://registry.npmjs.org/'
 
@@ -95,24 +100,42 @@ const READ = {
   hoistWorkspacePackages: { kind: 'boolean' },
   engineStrict: { kind: 'boolean' },
   nodeVersion: { kind: 'text', check: checkNodeVersion },
-  supportedArchitectures: { kind: 'mapping', check: checkArchitectures },
-  patchedDependencies: { kind: 'mapping', check: checkPatches },
+  autoInstallPeers: { kind: 'boolean' },
+  dedupePeers: { kind: 'boolean' },
+  peersSuffixMaxLength: { kind: 'count' },
+  // Neither pnpm's .npmrc nor ours has these.
+  supportedArchitectures: { kind: 'mapping', check: checkArchitectures, rc: false },
+  patchedDependencies: { kind: 'mapping', check: checkPatches, rc: false },
+  overrides: { kind: 'mapping', rc: false },
+  catalog: { kind: 'mapping', check: checkCatalog, rc: false },
+  catalogs: { kind: 'mapping', check: (value, where) => { for (const [name, catalog] of Object.entries(value)) checkCatalog(readers.mapping(catalog, `${where}.${name}`), `${where}.${name}`) }, rc: false },
+  packageExtensions: { kind: 'mapping', rc: false },
+  ignoredOptionalDependencies: { kind: 'texts', rc: false },
 }
 
+// The keys of the root package.json's `pnpm` field pnpm 10 reads; it
+// passes over any other there.
+const MANIFEST_KEYS = [
+  'allowBuilds', 'allowNonAppliedPatches', 'allowUnusedPatches', 'allowedDeprecatedVersions', 'auditConfig',
+  'configDependencies', 'executionEnv', 'ignorePatchFailures', 'ignoredBuiltDependencies', 'ignoredOptionalDependencies',
+  'neverBuiltDependencies', 'onlyBuiltDependencies', 'onlyBuiltDependenciesFile', 'overrides', 'packageExtensions',
+  'patchedDependencies', 'peerDependencyRules', 'requiredScripts', 'supportedArchitectures', 'updateConfig',
+]
+
 // Settings that leave the tree as it is. Resolution is done: the lockfile
-// is what these made of the manifests. Fetching goes to the public
+// is what these made of the manifests, and a frozen install holds it to
+// none of them (uptodate.js has those it does). Fetching goes to the public
 // registry alone, through @preventive/upstream, so the network and its
 // credentials are its own; the store, caches and state live outside
 // node_modules; bins are never written here, and scripts never run, as
 // with --ignore-scripts, whatever a setting would allow to build.
 const IGNORED = new Set([
   // resolution, already in the lockfile
-  'allowNonAppliedPatches', 'allowUnusedPatches', 'allowedDeprecatedVersions', 'autoInstallPeers', 'blockExoticSubdeps',
-  'catalog', 'catalogMode', 'catalogs', 'dedupeInjectedDeps', 'dedupePeerDependents', 'dedupePeers',
-  'ignoredOptionalDependencies', 'linkWorkspacePackages', 'lockfileIncludeTarballUrl', 'minimumReleaseAge',
-  'minimumReleaseAgeExclude', 'overrides', 'packageExtensions', 'packages', 'peerDependencyRules', 'peersSuffixMaxLength',
-  'preferWorkspacePackages', 'registrySupportsTimeField', 'resolutionMode', 'resolvePeersFromWorkspaceRoot',
-  'saveExact', 'savePrefix', 'saveWorkspaceProtocol', 'strictPeerDependencies',
+  'allowNonAppliedPatches', 'allowUnusedPatches', 'allowedDeprecatedVersions', 'blockExoticSubdeps', 'catalogMode',
+  'dedupeInjectedDeps', 'dedupePeerDependents', 'linkWorkspacePackages', 'lockfileIncludeTarballUrl',
+  'minimumReleaseAge', 'minimumReleaseAgeExclude', 'packages', 'peerDependencyRules', 'preferWorkspacePackages',
+  'registrySupportsTimeField', 'resolutionMode', 'resolvePeersFromWorkspaceRoot', 'saveExact', 'savePrefix',
+  'saveWorkspaceProtocol', 'strictPeerDependencies',
   // the network, and credentials for it
   'alwaysAuth', 'ca', 'cafile', 'cert', 'email', 'fetchRetries', 'fetchRetryFactor', 'fetchRetryMaxtimeout',
   'fetchRetryMintimeout', 'fetchTimeout', 'httpProxy', 'httpsProxy', 'key', 'localAddress', 'maxsockets',
@@ -125,7 +148,8 @@ const IGNORED = new Set([
   'ignoreDepScripts', 'ignoreScripts', 'ignoredBuiltDependencies', 'neverBuiltDependencies', 'nodeOptions',
   'onlyBuiltDependencies', 'onlyBuiltDependenciesFile', 'preferSymlinkedExecutables', 'scriptShell',
   'shellEmulator', 'strictDepBuilds', 'unsafePerm', 'verifyDepsBeforeRun',
-  // how the command runs
+  // how the command runs, and what other commands read
+  'auditConfig', 'executionEnv', 'requiredScripts', 'updateConfig',
   'bail', 'ci', 'color', 'frozenLockfile', 'loglevel', 'managePackageManagerVersions',
   'packageManagerStrict', 'packageManagerStrictVersion', 'preferFrozenLockfile', 'recursiveInstall', 'reporter',
   'updateNotifier', 'useBetaCli', 'workspaceConcurrency',
@@ -147,6 +171,11 @@ function checkArchitectures(value, where) {
     if (!ARCHITECTURES.has(key)) throw new DeptreeError(`unsupported key ${quote(key)}`, where)
     readers.texts(list, `${where}.${key}`)
   }
+}
+
+// A catalog: by name, the specifier it gives the package.
+function checkCatalog(value, where) {
+  for (const [name, spec] of Object.entries(value)) readers.text(spec, `${where}.${name}`)
 }
 
 // By selector, the patch file, relative to the workspace's directory.
@@ -181,12 +210,35 @@ function fromNpmrc(text) {
     // passes over any other spelling, which would read here as the setting.
     const name = KEBAB.test(key) ? camelCase(key) : undefined
     if (IGNORED.has(name)) continue
-    if (!(name in READ)) throw new DeptreeError('unsupported setting', where)
+    if (!(name in READ) || READ[name].rc === false) throw new DeptreeError('unsupported setting', where)
     const earlier = settings.get(name)
     if (earlier !== undefined && !(list && earlier.list)) throw new DeptreeError('set more than once', where)
     if (list && READ[name].kind !== 'texts') throw new DeptreeError('not a list', where)
     const next = list ? [...(earlier?.value ?? []), plain(value, where)] : plain(value, where)
     settings.set(name, { value: next, list, where })
+  }
+  return settings
+}
+
+// The root package.json's settings: the keys of `pnpm` pnpm reads, and
+// overrides of `resolutions` and `pnpm.overrides` both, the second over the
+// first.
+function fromManifest(manifest) {
+  const pnpm = manifest.pnpm === undefined ? {} : readers.mapping(manifest.pnpm, 'package.json: pnpm')
+  const settings = new Map()
+  for (const name of MANIFEST_KEYS) {
+    if (!Object.hasOwn(pnpm, name) || name === 'overrides') continue
+    const where = `package.json: pnpm.${name}`
+    noEnvironment(pnpm[name], where)
+    if (IGNORED.has(name)) continue
+    if (!(name in READ)) throw new DeptreeError('unsupported setting', where)
+    settings.set(name, { value: pnpm[name], where })
+  }
+  const { resolutions } = manifest
+  if (resolutions !== undefined || Object.hasOwn(pnpm, 'overrides')) {
+    const where = 'package.json: resolutions and pnpm.overrides'
+    const value = { ...(resolutions === undefined ? {} : readers.mapping(resolutions, 'package.json: resolutions')), ...(Object.hasOwn(pnpm, 'overrides') ? readers.mapping(pnpm.overrides, 'package.json: pnpm.overrides') : {}) }
+    settings.set('overrides', { value, where })
   }
   return settings
 }
@@ -223,20 +275,41 @@ function derive(get, os) {
     nodeVersion: get('nodeVersion'),
     supportedArchitectures: get('supportedArchitectures'),
     patchedDependencies: get('patchedDependencies'),
+    overrides: get('overrides'),
+    catalogs: catalogsOf(get('catalog'), get('catalogs')),
+    packageExtensions: get('packageExtensions'),
+    ignoredOptionalDependencies: get('ignoredOptionalDependencies') ?? [],
+    autoInstallPeers: get('autoInstallPeers') ?? true,
+    dedupePeers: get('dedupePeers') ?? false,
+    peersSuffixMaxLength: get('peersSuffixMaxLength') ?? 1000,
   }
 }
 
-// `workspace` is pnpm-workspace.yaml as parsed, `npmrc` the text of the
-// .npmrc; either may be undefined. `os` is the host's, which one default
-// depends on.
-export function readSettings({ workspace, npmrc, os }) {
-  const layers = [npmrc === undefined ? new Map() : fromNpmrc(npmrc), workspace === undefined ? new Map() : fromWorkspace(workspace)]
+// The catalogs by name, `catalog` being `default`, as pnpm has them, which
+// refuses the default one written both ways.
+function catalogsOf(catalog, catalogs = {}) {
+  if (catalog !== undefined && Object.hasOwn(catalogs, 'default')) {
+    throw new DeptreeError('the default catalog is defined twice, as catalog and as catalogs.default', 'pnpm-workspace.yaml: catalog')
+  }
+  return Object.assign(Object.create(null), catalog === undefined ? {} : { default: catalog }, catalogs)
+}
+
+// `workspace` is pnpm-workspace.yaml as parsed and `npmrc` the text of the
+// .npmrc, either of which may be undefined; `manifest` the root
+// package.json as parsed. `os` is the host's, which one default depends
+// on. Overrides that name nothing are none, and leave those below them.
+export function readSettings({ workspace, npmrc, manifest, os }) {
+  const layers = [npmrc === undefined ? new Map() : fromNpmrc(npmrc), workspace === undefined ? new Map() : fromWorkspace(workspace), fromManifest(manifest)]
   const values = new Map()
   for (const layer of layers) {
     for (const [name, { value, where }] of layer) {
       const { kind, check } = READ[name]
-      const read = readers[kind](value, where)
+      let read = readers[kind](value, where)
       check?.(read, where)
+      if (name === 'overrides') {
+        if (Object.keys(read).length === 0) continue
+        read = replaceReferences(read, manifest, where)
+      }
       values.set(name, read)
     }
   }

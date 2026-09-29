@@ -19,16 +19,16 @@
 import { packageKeyOf, parsePnpmLockfile } from '@preventive/lockfile/pnpm.js'
 import { parseYaml } from '@preventive/lockfile/yaml.js'
 import { Vfs } from '@preventive/vfs'
-import { dirname, normalize, relative } from '@preventive/vfs/path.js'
+import { dirname, relative } from '@preventive/vfs/path.js'
 import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
-import { sha256Hex } from '../hash.js'
 import { applyPatch, parsePatch } from '../patch.js'
 import { fetchFiles, tarballUrl } from '../tarball.js'
 import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
 import { createCheck, skippedSnapshots } from './install.js'
 import { readSettings } from './settings.js'
+import { checkUpToDate } from './uptodate.js'
 
 const CONCURRENCY = 8
 const LIBC = new Set(['glibc', 'musl', 'unknown'])
@@ -74,36 +74,6 @@ function checkRegistry(node) {
   if (!resolution.integrity?.startsWith('sha512-')) throw new DeptreeError('expected a sha512 integrity', quote(key))
 }
 
-// The patches the lockfile names, by the hash it names each by: each file
-// given has to be one it names, by the path it names it by, and to hash as
-// it says. pnpm 10 hashes a patch as SHA-256 of its text, a CRLF read as LF.
-async function readPatches(lockfile, settings, given) {
-  const byPath = new Map()
-  for (const [selector, { hash, path }] of Object.entries(lockfile.patchedDependencies)) {
-    const where = `patchedDependencies[${quote(selector)}]`
-    if (path === undefined || !/^[\da-f]{64}$/u.test(hash)) throw new DeptreeError('expected a path and a SHA-256 hash, as pnpm 10 writes a patch', where)
-    const configured = settings.patchedDependencies?.[selector]
-    if (settings.patchedDependencies !== undefined && (configured === undefined || normalize(configured) !== path)) {
-      throw new DeptreeError('pnpm-workspace.yaml does not name this patch by this path', where)
-    }
-    byPath.set(path, [...byPath.get(path) ?? [], { hash, where }])
-  }
-  if (settings.patchedDependencies !== undefined && Object.keys(settings.patchedDependencies).some((selector) => !(selector in lockfile.patchedDependencies))) {
-    throw new DeptreeError('names a patch the lockfile does not', 'pnpm-workspace.yaml: patchedDependencies')
-  }
-  const byHash = new Map()
-  for (const [path, text] of given) {
-    const named = byPath.get(path)
-    if (named === undefined) throw new DeptreeError('the lockfile names no patch by this path', `patches[${quote(path)}]`)
-    const hash = await sha256Hex(text.replaceAll('\r\n', '\n'), `patches[${quote(path)}]`)
-    for (const { hash: wanted, where } of named) {
-      if (hash !== wanted) throw new DeptreeError(`the patch given hashes to ${hash}`, where)
-    }
-    byHash.set(hash, parsePatch(text, path))
-  }
-  return byHash
-}
-
 async function install(vfs, node, patches) {
   const where = quote(node.key)
   try {
@@ -116,7 +86,9 @@ async function install(vfs, node, patches) {
     const { patchHash } = node.pkg
     if (patchHash === undefined) return
     if (!patches.has(patchHash)) throw new DeptreeError(`the patch ${patchHash} is not given`, where)
-    applyPatch(vfs, `/${node.dir}`, patches.get(patchHash))
+    const patch = patches.get(patchHash)
+    patch.parsed ??= parsePatch(patch.text, patch.path)
+    applyPatch(vfs, `/${node.dir}`, patch.parsed)
   } catch (error) {
     if (error instanceof DeptreeError) throw error
     throw new DeptreeError(error.message, where, { cause: error })
@@ -172,6 +144,20 @@ function linksOf(nodes, direct, settings) {
 // nothing, as pnpm reads it.
 const readWorkspace = (text) => (text === undefined || /^(?:[\t ]*(?:#.*)?(?:\r?\n|$))*$/u.test(text) ? undefined : parseYaml(text))
 
+// The root package.json as parsed, as pnpm reads one: a byte order mark
+// dropped, and an object.
+function readManifest(text) {
+  if (typeof text !== 'string') throw new TypeError('manifest must be the text of the root package.json')
+  let manifest
+  try {
+    manifest = JSON.parse(text.replace(/^\uFEFF/u, ''))
+  } catch (error) {
+    throw new DeptreeError(`not JSON: ${error.message}`, 'package.json', { cause: error })
+  }
+  if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) throw new DeptreeError('expected an object', 'package.json')
+  return manifest
+}
+
 function readPatchesGiven(patches) {
   const entries = patches instanceof Map ? [...patches] : Object.entries(patches ?? {})
   for (const [path, text] of entries) {
@@ -181,17 +167,18 @@ function readPatchesGiven(patches) {
 }
 
 export async function buildPnpmTree(options) {
-  const { lockfile: text, workspace, npmrc, patches, host: machine } = options ?? {}
+  const { lockfile: text, manifest: manifestText, workspace, npmrc, patches, host: machine } = options ?? {}
   if (typeof text !== 'string') throw new TypeError('lockfile must be the text of pnpm-lock.yaml')
   for (const [name, value] of [['workspace', workspace], ['npmrc', npmrc]]) {
     if (value !== undefined && typeof value !== 'string') throw new TypeError(`${name} must be a string, or left out`)
   }
   const host = checkHost(machine)
+  const manifest = readManifest(manifestText)
   const { lockfile, env } = parsePnpmLockfile(text)
   if (env !== undefined) throw new DeptreeError('the env document pnpm 11 writes is not supported', 'env')
-  const settings = readSettings({ workspace: readWorkspace(workspace), npmrc, os: host.os })
+  const settings = readSettings({ workspace: readWorkspace(workspace), npmrc, manifest, os: host.os })
   checkLockfile(lockfile, settings)
-  const given = await readPatches(lockfile, settings, readPatchesGiven(patches))
+  const given = await checkUpToDate(lockfile, settings, readPatchesGiven(patches))
   const skipped = skippedSnapshots(lockfile, createCheck({ host, settings }))
   const { nodes, direct } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength)
   for (const node of nodes.values()) checkRegistry(node)

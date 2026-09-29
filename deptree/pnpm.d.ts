@@ -20,13 +20,24 @@ export interface PnpmHost {
   libc: 'glibc' | 'musl' | 'unknown'
 }
 
-// The files an install reads, as text: pnpm-lock.yaml; pnpm-workspace.yaml
-// and the .npmrc beside it, where there are any; and each patch file its
-// patchedDependencies names, by the path the lockfile names it by. Settings
-// from anywhere else — another .npmrc, the environment, the root
-// package.json — are not read, and are taken to be at their defaults.
+// The files an install reads, as text: pnpm-lock.yaml; the root
+// package.json beside it; pnpm-workspace.yaml and the .npmrc, where there
+// are any; and every patch file the settings' patchedDependencies name, by
+// the path from the lockfile's directory they name it by. Settings from
+// anywhere else — another .npmrc, the environment, the command line — are
+// not read, and are taken to be at their defaults.
+//
+// Settings are read as `pnpm install` 10 reads them, each source over the
+// one before: the .npmrc, then pnpm-workspace.yaml, then what the
+// package.json's `pnpm` field sets, which pnpm's install spreads over the
+// rest. Overrides are the package.json's Yarn-style `resolutions` and
+// `pnpm.overrides`, the second winning a selector both name; only where
+// those name none are pnpm-workspace.yaml's `overrides` read. `$name` in
+// one is the root package.json's own specifier for `name`, and
+// `catalog:` what the workspace's catalog gives the package.
 export interface PnpmTreeOptions {
   lockfile: string
+  manifest: string
   workspace?: string
   npmrc?: string
   patches?: Record<string, string> | Map<string, string>
@@ -43,15 +54,23 @@ export interface PnpmTreeOptions {
 // settings would allow to build. Bins, and the executable bit pnpm gives
 // the files they run, and pnpm's own state files are not written.
 //
+// The lockfile is held to the settings as pnpm holds it before a frozen
+// install — catalogs, overrides, package extensions, optional
+// dependencies left out, patches, autoInstallPeers, dedupePeers,
+// peersSuffixMaxLength — and refused where one differs, as pnpm would
+// refuse it with --frozen-lockfile and resolve anew without.
+//
 // Packages come from https://registry.npmjs.org/ alone, fetched through
 // @preventive/upstream, and each tarball is held to the lockfile's
 // integrity; each patch to the lockfile's hash of it, and applied only
 // where every hunk matches exactly where it says.
 //
 // Nothing is left to a guess: a lockfile the lockfile reader refuses, a
-// setting this does not know or does not build for, a package from
-// anywhere but the registry, a pnpmfile, an injected or unnamed-workspace
-// case, a patch that does not hash or apply — each is refused with a
+// setting this does not know or does not build for, overrides pnpm cannot
+// read, a lockfile not resolved with these settings, a package from
+// anywhere but the registry, a pnpmfile, package extensions, an injected
+// or unnamed-workspace case, a patch that does not hash or apply, text
+// that is not well-formed where it is hashed — each is refused with a
 // DeptreeError, a LockfileError or a YamlError that says where. A
 // TypeError is thrown for options of the wrong type.
 export function buildPnpmTree(options: PnpmTreeOptions): Promise<Vfs>

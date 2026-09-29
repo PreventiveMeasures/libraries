@@ -5,7 +5,7 @@ import { DeptreeError } from '../pnpm.js'
 import { parseNpmrc } from '../src/pnpm/npmrc.js'
 import { readSettings } from '../src/pnpm/settings.js'
 
-const read = ({ workspace, npmrc, os = 'linux' } = {}) => readSettings({ workspace: workspace === undefined ? undefined : parseYaml(workspace), npmrc, os })
+const read = ({ workspace, npmrc, manifest = {}, os = 'linux' } = {}) => readSettings({ workspace: workspace === undefined ? undefined : parseYaml(workspace), npmrc, manifest, os })
 
 const DEFAULTS = {
   virtualStoreDirMaxLength: 120,
@@ -16,6 +16,13 @@ const DEFAULTS = {
   nodeVersion: undefined,
   supportedArchitectures: undefined,
   patchedDependencies: undefined,
+  overrides: undefined,
+  catalogs: Object.create(null),
+  packageExtensions: undefined,
+  ignoredOptionalDependencies: [],
+  autoInstallPeers: true,
+  dedupePeers: false,
+  peersSuffixMaxLength: 1000,
 }
 
 describe('parseNpmrc', () => {
@@ -55,8 +62,9 @@ describe('readSettings', () => {
 
   it('passes over what leaves the tree as it is', () => {
     const npmrc = 'registry=https://registry.npmjs.org/\n@s:registry=https://registry.npmjs.org\n//registry.npmjs.org/:_authToken=abc\nstore-dir=/x\nauto-install-peers=true\nstrict-ssl=false\n'
-    const workspace = 'packages: [a]\ncatalog:\n  x: ^1\noverrides:\n  x: 1\nallowBuilds:\n  esbuild: false\nminimumReleaseAge: 1440\n'
-    assert.deepEqual(read({ npmrc, workspace }), DEFAULTS)
+    const workspace = 'packages: [a]\nallowBuilds:\n  esbuild: false\nminimumReleaseAge: 1440\npeerDependencyRules:\n  ignoreMissing: [x]\n'
+    const manifest = { name: 'x', scripts: { postinstall: 'x' }, pnpm: { nodeLinker: 'hoisted', updateConfig: {}, allowedDeprecatedVersions: {} } }
+    assert.deepEqual(read({ npmrc, workspace, manifest }), DEFAULTS)
   })
 
   // Scripts are never run, as with --ignore-scripts: what a setting would
@@ -64,6 +72,54 @@ describe('readSettings', () => {
   it('passes over what would allow a script to run', () => {
     const workspace = 'allowBuilds:\n  esbuild: true\nonlyBuiltDependencies: [esbuild]\nneverBuiltDependencies: [x]\ndangerouslyAllowAllBuilds: true\n'
     assert.deepEqual(read({ workspace, npmrc: 'ignore-scripts=false\n' }), DEFAULTS)
+  })
+
+  describe('overrides', () => {
+    const overrides = (input) => ({ ...read(input).overrides })
+
+    it('are resolutions, and pnpm.overrides over them', () => {
+      const manifest = { resolutions: { a: '1', b: '1' }, pnpm: { overrides: { b: '2', c: '2' } } }
+      assert.deepEqual(overrides({ manifest }), { a: '1', b: '2', c: '2' })
+    })
+
+    // pnpm install spreads the package.json's settings over the config it
+    // read pnpm-workspace.yaml into, so its overrides replace those whole.
+    it('are the package.json\'s where it names any, and pnpm-workspace.yaml\'s only where it names none', () => {
+      const manifest = { resolutions: { a: '1' }, pnpm: { overrides: { b: '2' } } }
+      assert.deepEqual(overrides({ manifest, workspace: 'overrides:\n  c: "3"\n' }), { a: '1', b: '2' })
+      assert.deepEqual(overrides({ manifest: { resolutions: {} }, workspace: 'overrides:\n  c: "3"\n' }), { c: '3' })
+      assert.deepEqual(overrides({ workspace: 'overrides:\n  c: "3"\n' }), { c: '3' })
+      assert.equal(read({ manifest: { resolutions: {} }, workspace: 'overrides: {}\n' }).overrides, undefined)
+    })
+
+    it('take $name from the root package.json, optional over regular over dev', () => {
+      const manifest = { devDependencies: { a: '1', b: '1' }, dependencies: { b: '2', c: '2' }, optionalDependencies: { c: '3' }, pnpm: { overrides: { x: '$a', y: '$b', z: '$c' } } }
+      assert.deepEqual(overrides({ manifest }), { x: '1', y: '2', z: '3' })
+      assert.deepEqual(overrides({ manifest: { ...manifest, pnpm: {} }, workspace: 'overrides:\n  w: $b\n' }), { w: '2' })
+      assert.throws(() => read({ manifest: { pnpm: { overrides: { x: '$nope' } } } }), /"\$nope" names no dependency of the root package\.json/u)
+      assert.throws(() => read({ manifest: { resolutions: { x: 1 } } }), /expected a string for "x"/u)
+    })
+
+    it('are refused where the root package.json misspells them', () => {
+      assert.throws(() => read({ manifest: { resolutions: ['a'] } }), /^DeptreeError: package\.json: resolutions: expected a mapping, found a list$/u)
+      assert.throws(() => read({ manifest: { pnpm: 'x' } }), /^DeptreeError: package\.json: pnpm: expected a mapping/u)
+    })
+  })
+
+  it('reads the root package.json\'s pnpm field, over pnpm-workspace.yaml', () => {
+    const manifest = { pnpm: { supportedArchitectures: { os: ['current', 'darwin'] }, ignoredOptionalDependencies: ['x'] } }
+    assert.deepEqual(read({ manifest }).supportedArchitectures, { os: ['current', 'darwin'] })
+    assert.deepEqual(read({ manifest }).ignoredOptionalDependencies, ['x'])
+    assert.deepEqual(read({ manifest, workspace: 'supportedArchitectures:\n  os: [linux]\n' }).supportedArchitectures.os, ['current', 'darwin'])
+    assert.deepEqual(read({ workspace: 'supportedArchitectures:\n  os: [linux]\n' }).supportedArchitectures.os, ['linux'])
+    assert.throws(() => read({ manifest: { pnpm: { configDependencies: {} } } }), /^DeptreeError: package\.json: pnpm\.configDependencies: unsupported setting$/u)
+  })
+
+  it('reads the catalogs, and refuses the default one twice', () => {
+    const { catalogs } = read({ workspace: 'catalog:\n  a: ^1\ncatalogs:\n  next:\n    a: ^2\n' })
+    assert.deepEqual(JSON.parse(JSON.stringify(catalogs)), { default: { a: '^1' }, next: { a: '^2' } })
+    assert.throws(() => read({ workspace: 'catalog:\n  a: ^1\ncatalogs:\n  default:\n    a: ^2\n' }), /the default catalog is defined twice/u)
+    assert.throws(() => read({ npmrc: 'overrides=x\n' }), /^DeptreeError: \.npmrc:1: overrides: unsupported setting$/u)
   })
 
   const refused = [
