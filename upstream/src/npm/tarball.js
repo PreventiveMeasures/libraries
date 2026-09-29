@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
-import { readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 import { assertArgs, assertPackageName, assertPackageVersion, assertion, matches, show } from '../args.js'
-import { readCache, writeCache } from '../cache.js'
-import { MAX_BYTES, NPM_REGISTRY, buildUrl, request } from '../http.js'
+import { verifiedDownload } from '../download.js'
+import { NPM_REGISTRY, buildUrl, request } from '../http.js'
 
 const DIR = 'npm/tarballs' // No expiry: the registry never takes a version twice.
 // One sha512 and nothing else, as the registry writes it: a sha1, a second
@@ -46,11 +45,6 @@ async function getDist(method, name, version) {
   return checkedDist(method, name, version, { tarball: json.dist?.tarball, integrity: json.dist?.integrity })
 }
 
-function assertBytes(bytes, integrity, what) {
-  const actual = sha512(bytes)
-  assert.ok(actual === integrity, `getTarball: integrity mismatch for ${what}: expected ${integrity}, got ${actual}`)
-}
-
 // Where npm keeps its cache, short of an .npmrc moving it: npm_config_cache,
 // as npm sets it for what it runs, else npm's default. On Windows, npm 4
 // and before defaulted to %APPDATA%, later ones to %LOCALAPPDATA%.
@@ -61,24 +55,12 @@ function npmCacheDirs() {
   return [process.env.LOCALAPPDATA, process.env.APPDATA].map((dir) => join(dir || homedir(), 'npm-cache'))
 }
 
-// Only a regular file: a FIFO or a device would block or never end.
-async function readRegularFile(path) {
-  const stats = await stat(path).catch(() => null)
-  if (!stats?.isFile() || stats.size > MAX_BYTES) return null
-  return await readFile(path).then((bytes) => new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength), () => null)
-}
-
 // npm 5+ (cacache) files a tarball by its sha512, npm 4 and before as
 // <name>/<version>/package.tgz; ~/.audit as <org>:<name>-<version>.tgz.
-async function readLocalCaches(name, version, integrity) {
+function localPaths(name, version, integrity) {
   const hex = Buffer.from(integrity.slice('sha512-'.length), 'base64').toString('hex')
   const npm = npmCacheDirs().flatMap((root) => [join(root, '_cacache/content-v2/sha512', hex.slice(0, 2), hex.slice(2, 4), hex.slice(4)), join(root, name, version, 'package.tgz')])
-  const audit = join(homedir(), '.audit/cache/tgz', `${name.replace(/^@/u, '').replace('/', ':')}-${version}.tgz`)
-  for (const path of [...npm, audit]) {
-    const bytes = await readRegularFile(path)
-    if (bytes && sha512(bytes) === integrity) return bytes
-  }
-  return null
+  return [...npm, join(homedir(), '.audit/cache/tgz', `${name.replace(/^@/u, '').replace('/', ':')}-${version}.tgz`)]
 }
 
 export async function getMeta(name, version) {
@@ -95,21 +77,10 @@ export async function verifyDist(name, version, dist) {
 
 // Without `dist`, the version document is read every time, cache or not:
 // bytes from a cache are checked against the registry's integrity, never
-// against anything a cache itself holds. A mismatch in ours throws rather
-// than fetching over it.
+// against anything a cache itself holds.
 export async function getTarball(name, version, dist) {
   assertPackage('getTarball', name, version)
-  dist = dist === undefined ? await getDist('getTarball', name, version) : checkedDist('getTarball', name, version, dist)
-  const local = await readLocalCaches(name, version, dist.integrity)
-  if (local) return local
-  const key = `${name}@${version}.tgz`
-  const cached = await readCache(DIR, key)
-  if (cached) {
-    assertBytes(cached, dist.integrity, `${name}@${version} from the cache`)
-    return cached
-  }
-  const bytes = await request(dist.tarball, { as: 'bytes' })
-  assertBytes(bytes, dist.integrity, `${name}@${version} from ${dist.tarball}`)
-  await writeCache(DIR, key, bytes)
-  return bytes
+  const { tarball, integrity } = dist === undefined ? await getDist('getTarball', name, version) : checkedDist('getTarball', name, version, dist)
+  const local = localPaths(name, version, integrity)
+  return await verifiedDownload({ method: 'getTarball', dir: DIR, what: `${name}@${version}`, ext: 'tgz', digest: sha512, expected: integrity, local, locate: () => tarball })
 }

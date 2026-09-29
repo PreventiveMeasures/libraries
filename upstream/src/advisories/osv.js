@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { assertion, isGhsa, isStrings, matches, show } from '../args.js'
+import { assertCrateName, assertCrateVersion, assertion, isGhsa, isStrings, matches, show } from '../args.js'
 import { OSV_API, buildUrl, request } from '../http.js'
 import { pool } from '../pool.js'
 import { isExactVersion } from '../semver.js'
@@ -18,8 +18,8 @@ export const CARGO = {
   osv: 'crates.io',
   github: 'rust',
   lookUp: crateRepos,
-  assertName: assertion('a crate name', matches(/^[A-Za-z][\w-]{0,63}$/u)),
-  assertVersion: assertion('a semver version', matches(/^(?=.{5,256}$)(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][\dA-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][\dA-Za-z-]*))*)?(?:\+[\dA-Za-z-]+(?:\.[\dA-Za-z-]+)*)?$/u)),
+  assertName: assertCrateName,
+  assertVersion: assertCrateVersion,
   keep: (id) => id.startsWith('RUSTSEC-'), // What `cargo audit` reads; the GHSA records mirror it.
   advisories: (asked, options) => osvAdvisories(CARGO, asked, options),
 }

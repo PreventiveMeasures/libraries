@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path'
 import { assertDirectoryPath } from './args.js'
 import { decode } from './http.js'
 
-const DIRS = new Set(['npm/repos', 'npm/tarballs', 'cargo/repos', 'composer/repos'])
+const DIRS = new Set(['npm/repos', 'npm/tarballs', 'cargo/repos', 'cargo/crates', 'composer/repos', 'soldeer/zips'])
 
 let root
 let tmpSeq = 0
