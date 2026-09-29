@@ -56,7 +56,7 @@ export function filesOf(entries, where) {
     if (entry.type === 'directory') continue
     if (entry.type !== 'file') throw new DeptreeError(`${quote(entry.name)} is a ${entry.type}, which is not supported`, where)
     tops.add(entry.storedName.slice(0, Math.max(entry.storedName.indexOf('/'), 0)))
-    if (tops.size > 1) throw new DeptreeError('the tarball has files under more than one directory, or at its top', where)
+    if (tops.size > 1 || tops.has('')) throw new DeptreeError('the tarball has files under more than one directory, or at its top', where)
     const name = nameOf(entry.storedName)
     if (name === '' || name.split('/').some((segment) => segment === '' || segment === '.' || segment === '..')) {
       throw new DeptreeError(`${quote(entry.storedName)} names no file in the package`, where)

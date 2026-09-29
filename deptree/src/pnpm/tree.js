@@ -81,11 +81,21 @@ function checkRegistry(node) {
   if (!resolution.integrity?.startsWith('sha512-')) throw new DeptreeError('expected a sha512 integrity', quote(key))
 }
 
+// What a package's snapshots all have of it, and it is fetched and held to.
+const PACKAGE_FIELDS = ['resolution', 'os', 'cpu', 'libc', 'hasBin', 'bundledDependencies']
+const packageFields = (pkg) => JSON.stringify(PACKAGE_FIELDS.map((field) => pkg[field]))
+
 // Each package's files and package.json, by its name and version: a
 // package is fetched once however many snapshots it has, a few at a time,
 // and the first failure stops the rest from starting.
 async function fetchAll(nodes) {
-  const queue = [...new Map([...nodes.values()].map((node) => [packageKeyOf(node.key), node.pkg])).entries()]
+  const packages = new Map()
+  for (const { key, pkg } of nodes.values()) {
+    const id = packageKeyOf(key)
+    if (!packages.has(id)) packages.set(id, pkg)
+    else if (packageFields(packages.get(id)) !== packageFields(pkg)) throw new DeptreeError(`its snapshots differ on what the package is: ${PACKAGE_FIELDS.join(', ')}`, quote(id))
+  }
+  const queue = [...packages]
   const fetched = new Map()
   let failed = false
   const worker = async () => {

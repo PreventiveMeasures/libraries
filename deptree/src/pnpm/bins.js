@@ -284,7 +284,7 @@ export function fixBin(file, where) {
   return { data, mode: 0o755 }
 }
 
-const BIN_FIELDS = (manifest) => JSON.stringify([manifest.name, manifest.bin, manifest.directories])
+const BIN_FIELDS = (manifest) => JSON.stringify([manifest.name, manifest.bin, manifest.directories?.bin])
 
 // A patch is applied between two times its package's bins are linked,
 // so it may not change what either does: `patched` is the package's files
