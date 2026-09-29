@@ -1,15 +1,16 @@
 // Offset date-times, the one kind of TOML date or time read here, as pylock
 // files carry an upload time: RFC 3339 as writers emit it, a `T` between
 // date and time and `Z` or an offset after. The space TOML allows for `T`,
-// a lower-case `t` or `z`, and the local date-times, dates and times, which
-// name no instant, are refused. A date that is not in the calendar is
-// refused too (February 30th, second 60, year 0), where Date would roll it
-// over into another.
+// a lower-case `t` or `z`, TOML 1.1's times without seconds, and the local
+// date-times, dates and times, which name no instant, are refused. A date
+// that is not in the calendar is refused too (February 30th, second 60,
+// year 0), where Date would roll it over into another.
 
 import { TomlError, assert, excerpt } from './error.js'
 
 const DATETIME = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(\.\d+)?(?:Z|([+-])(\d\d):(\d\d))$/u
 const LOCAL = /^(?:\d{4}-\d\d-\d\d(?:[Tt]\d\d:\d\d:\d\d(?:\.\d+)?)?|\d\d:\d\d:\d\d(?:\.\d+)?)$/u
+const NO_SECONDS = /^(?:\d{4}-\d\d-\d\d[Tt])?\d\d:\d\d(?:[Zz]|[+-]\d\d:\d\d)?$/u
 const DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
 function partsOf(text) {
@@ -59,6 +60,7 @@ export function readDateTime(token, src) {
   const spaced = /^\d{4}-\d\d-\d\d$/u.test(token) && /^ \d\d:/u.test(src.text.slice(src.pos, src.pos + 4))
   assert(!spaced, src, 'a date-time with a space in place of "T" is not supported')
   assert(!LOCAL.test(token), src, () => `local dates and times are not supported: ${excerpt(token)}`)
+  assert(!NO_SECONDS.test(token), src, () => `a date-time or a time without seconds is not supported: ${excerpt(token)}`)
   assert(partsOf(token.toUpperCase()) === undefined, src, () => `a date-time with a lower-case "t" or "z" is not supported: ${excerpt(token)}`)
   throw new TomlError(`${excerpt(token)} is not a date-time of the form YYYY-MM-DDTHH:MM:SS[.fraction](Z|±HH:MM)`, src.line)
 }

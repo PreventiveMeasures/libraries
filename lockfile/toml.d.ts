@@ -16,8 +16,14 @@ export type TomlValue = string | number | boolean | TomlDateTime | TomlValue[] |
 // date-times, arrays and inline tables. Anything else is a TomlError that
 // names it: multi-line strings, floats, hexadecimal, octal and binary
 // integers, local dates and times, a date-time with a space or a lower-case
-// `t` or `z`, TOML 1.1's escapes and multi-line inline tables, an integer
-// past 2^53, nesting past 64 levels; and anything that is not TOML at all.
+// `t` or `z`, TOML 1.1's escapes, times without seconds, and inline tables
+// across lines or with a trailing comma, an integer past 2^53, nesting past
+// 64 levels; and anything that is not TOML at all.
+//
+// `text` is the file decoded as UTF-8, strictly: `new TextDecoder('utf-8',
+// { fatal: true })`, or it may be damaged. A byte order mark, a lone
+// surrogate and U+FFFD, which a lenient decoder writes where bytes are not
+// UTF-8, are refused.
 export function parseToml(text: string): TomlTable
 
 // An offset date-time, as written: `text` is its RFC 3339 spelling, with

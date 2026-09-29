@@ -91,13 +91,21 @@ function putDotted(state, src, keys, value) {
 }
 
 // A lone surrogate is no character at all, and a byte order mark is not
-// TOML; both are refused where they are.
+// TOML; both are refused where they are. So is U+FFFD, which TOML allows,
+// but which a lenient decoder writes where bytes are not UTF-8: a file read
+// that way would come back with its damage in its strings, read as text.
+const DAMAGE = {
+  __proto__: null,
+  '\uFEFF': 'a byte order mark is not read',
+  '\uFFFD': 'U+FFFD is not supported: a decoder puts it where bytes are not UTF-8',
+}
+
 function checkText(text) {
   if (typeof text !== 'string') throw new TypeError('expected a string')
-  const m = /\p{Cs}|^﻿/u.exec(text)
+  const m = /\p{Cs}|^\uFEFF|\uFFFD/u.exec(text)
   if (m === null) return
   const line = text.slice(0, m.index).split('\n').length - 1
-  throw new TomlError(m[0] === '﻿' ? 'a byte order mark is not read' : 'a lone surrogate is not well-formed Unicode', line)
+  throw new TomlError(DAMAGE[m[0]] ?? 'a lone surrogate is not well-formed Unicode', line)
 }
 
 export function parseToml(text) {

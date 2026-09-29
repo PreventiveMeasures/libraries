@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict'
+import { readFileSync, readdirSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { parseToml } from '../../toml.js'
 import { hasTomllib, plain, tomllib } from './reference.js'
 
 // Python's tomllib, a TOML 1.0 reader, against this one, over documents
-// put together at random from pieces, most of them TOML, many of them
-// not: every document read here is read the same by tomllib; every one
-// tomllib refuses is refused here; and one refused here that tomllib reads
-// is refused for something named as not supported. The seed is fixed, so a
-// failure names its document and comes back on a rerun.
+// made at random: from pieces, from TOML's grammar, from the fixtures with
+// edits, and from characters in any order. Every document read here is read
+// the same by tomllib; every one tomllib refuses is refused here; and one
+// refused here that tomllib reads is refused for something named as not
+// supported. The seeds are fixed, so a failure names its document and comes
+// back on a rerun.
 
 const HEADERS = ['[a]', '[a.b]', '[ a . b ]', '[[a]]', '[[a.b]]', '["q k"]', "['lit']", '[a."b.c"]', '[b]', '[a.b.c]', '[[b.c]]', '[a.x]', '[x.y]', '[x]', '[]', '[a', '[[a]', '[ [a] ]', '[a.]', '[[ a ]]', '[a . "b"]', '[\ta]']
 const KEYS = ['x', 'y', '"q"', "'l'", 'a', 'b', 'a.b', 'b.c', 'x.y', 'x.y.z', '"a".b', 'a . b', '1', '-', '_', '""', 'bad key', 'k#', 'c', 'a.x', 'y.z']
@@ -31,10 +33,12 @@ const ENDS = ['\n', '\r\n', '\r']
 const TABLE_HEADERS = ['[a]', '[a.b]', '[[a]]', '[[a.b]]', '[b]', '[a.b.c]', '[[b.c]]', '[a.x]', '[x.y]', '[x]', '[x.y.z]', '[[x.y]]', '[b.c]', '[b.c.d]', '[a.b.d]', '["a".b]']
 const TABLE_KEYS = ['x', 'y', 'a', 'b', 'c', 'a.b', 'b.c', 'x.y', 'x.y.z', 'a.x', 'y.z', 'c.d', 'b.c.d', 'z']
 
-// A linear congruential generator: enough to spread the pieces about.
+// A linear congruential generator, enough to spread the pieces about, its
+// product taken in 32 bits: as a double it runs past 2^53 and is rounded,
+// and the sequence falls into a cycle some ten thousand long.
 function random(seed) {
   let state = seed
-  const next = () => (state = (state * 1103515245 + 12345) % 2 ** 31) / 2 ** 31
+  const next = () => (state = (Math.imul(state, 1103515245) + 12345) & 0x7FFF_FFFF) / 2 ** 31
   return { next, pick: (list) => list[Math.floor(next() * list.length)] }
 }
 
@@ -56,6 +60,99 @@ function tables({ next, pick }) {
   const lines = Array.from({ length: 1 + Math.floor(next() * 12) }, () => (next() < 0.35 ? pick(TABLE_HEADERS) : `${pick(TABLE_KEYS)} = ${pick(GOOD)}`))
   return `${lines.join('\n')}\n`
 }
+
+// Valid TOML from its grammar, with every kind of value this reader takes
+// and a few it refuses as unsupported; half of the documents then have one
+// character put in or taken out, so that each check is met on its own.
+const STRING_CHARS = ['a', 'Z', ' ', '\t', '#', '=', '.', "'", '"', '\\', '[', '{', ',', '}', 'é', '😀', '\u0085', '\u009F', '\u00A0', '\u2028', '\u200F', '\uFFFF']
+const ESCAPES = ['\\n', '\\t', '\\b', '\\f', '\\r', '\\"', '\\\\', '\\u00e9', '\\u0000', '\\u007F', '\\uFFFF', '\\U0001F600', '\\U0010FFFF']
+const BARE_KEYS = ['a', 'b', 'c', 'x', 'y', 'k1', '_', '-', '1', 'A-b_2', 'true', 'inf', '0', '00', '1979-05-27']
+const UNSUPPORTED_VALUES = ['1.5', '0x1f', 'inf', '9007199254740992', '1979-05-27', '07:32:00', '1979-05-27T07:32:00', '1979-05-27 07:32:00Z']
+const FLAWS = ['[', ']', '{', '}', '=', ',', '.', '"', "'", '#', '\\', '\n', '\r', ' ', '\t', 'a', '0', '_', '-', '+', ':', 'T', 'Z', 'z', 'e', '\u0000', '\u007F', '\u0085', '\uFEFF']
+
+function grammar({ next, pick }) {
+  const int = (n) => Math.floor(next() * n)
+  const some = (n, make) => Array.from({ length: int(n) }, make)
+  const space = () => pick(['', ' ', ' ', '\t', '  '])
+  const basic = () => `"${some(5, () => (next() < 0.3 ? pick(ESCAPES) : pick(STRING_CHARS).replace(/^["\\]$/u, '\\$&'))).join('')}"`
+  const literal = () => `'${some(5, () => pick(STRING_CHARS).replace(/^'$/u, '"')).join('')}'`
+  const key = () => Array.from({ length: next() < 0.7 ? 1 : 2 + int(2) }, () => (next() < 0.75 ? pick(BARE_KEYS) : next() < 0.6 ? basic() : literal())).join(pick(['.', ' . ', '\t.']))
+  const two = (n) => String(n).padStart(2, '0')
+  function datetime() {
+    const year = 1 + int(9999)
+    const month = 1 + int(12)
+    const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0
+    const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1]
+    const fraction = next() < 0.3 ? `.${some(10, () => int(10)).join('')}0` : ''
+    const offset = pick(['Z', '+00:00', '-00:00', `+${two(int(24))}:${two(int(60))}`, `-${two(int(24))}:${two(int(60))}`])
+    return `${String(year).padStart(4, '0')}-${two(month)}-${two(next() < 0.2 ? days : 1 + int(days))}T${two(int(24))}:${two(int(60))}:${two(int(60))}${fraction}${offset}`
+  }
+  function integer() {
+    const digits = `${1 + int(9)}${some(13, () => int(10)).join('')}`
+    const grouped = next() < 0.3 ? digits.replace(/\d(?=\d)/gu, (digit) => (next() < 0.3 ? `${digit}_` : digit)) : digits
+    return `${pick(['', '', '-', '+'])}${next() < 0.1 ? pick(['0', '9007199254740991', '9_007_199_254_740_991']) : grouped}`
+  }
+  function value(depth) {
+    const r = next()
+    if (r < 0.15) return basic()
+    if (r < 0.22) return literal()
+    if (r < 0.42) return integer()
+    if (r < 0.48) return pick(['true', 'false'])
+    if (r < 0.58) return datetime()
+    if (r < 0.6) return pick(UNSUPPORTED_VALUES)
+    if (depth > 3) return integer()
+    const items = some(4, () => value(depth + 1))
+    if (r < 0.8) return `[${space()}${pick(['', '\n'])}${items.join(pick([', ', ',', ' , ', ',\n', ', # c\n', ',\r\n']))}${items.length > 0 ? pick(['', ',']) : ''}${pick(['', '\n'])}${space()}]`
+    return `{${space()}${items.map((item) => `${key()}${space()}=${space()}${item}`).join(pick([', ', ',', ' , ']))}${space()}}`
+  }
+  const lines = Array.from({ length: 1 + int(8) }, () => {
+    const r = next()
+    const line = r < 0.2 ? (next() < 0.3 ? `[[${space()}${key()}${space()}]]` : `[${space()}${key()}${space()}]`)
+      : r < 0.9 ? `${key()}${space()}=${space()}${value(0)}`
+      : `#${some(4, () => pick(STRING_CHARS)).join('')}`
+    return `${pick(['', '', '', ' ', '\t'])}${line}${next() < 0.15 ? `${space()}#${pick(STRING_CHARS)}` : ''}`
+  })
+  const text = `${lines.join(next() < 0.8 ? '\n' : '\r\n')}${pick(['\n', '', '\r\n'])}`
+  return next() < 0.5 ? text : edit(text, next() < 0.5 ? 1 : 0, pick(FLAWS), next)
+}
+
+// A text with `count` characters taken out at a place picked at random, and
+// `insert` put in there: whole code points, as a text that is not UTF-8
+// cannot be TOML.
+function edit(text, count, insert, next) {
+  const chars = [...text]
+  chars.splice(Math.floor(next() * (chars.length + 1)), count, insert)
+  return chars.join('')
+}
+
+// Runs of lines from the fixtures, real TOML as tools write it, each with a
+// few edits: characters taken out or put in, a line repeated or moved.
+const FIXTURES = new URL('fixtures/', import.meta.url)
+const REAL = readdirSync(FIXTURES).filter((name) => !name.endsWith('.json')).map((name) => readFileSync(new URL(name, FIXTURES), 'utf8').split('\n'))
+const INSERTS = [...FLAWS, '[[', ']]', '""', 'x.y', '[a]', 'a = 1\n']
+
+function edited({ next, pick }) {
+  const int = (n) => Math.floor(next() * n)
+  const file = pick(REAL)
+  const start = int(Math.max(1, file.length - 30))
+  let lines = file.slice(start, start + 5 + int(40))
+  for (let edits = 1 + int(3); edits > 0; edits--) {
+    const r = next()
+    if (r < 0.6) {
+      lines = edit(lines.join('\n'), r < 0.3 ? 1 + int(3) : 0, r < 0.3 ? '' : pick(INSERTS), next).split('\n')
+    } else if (r < 0.8) {
+      lines.splice(int(lines.length + 1), 0, pick(lines))
+    } else {
+      const [i, j] = [int(lines.length), int(lines.length)];
+      [lines[i], lines[j]] = [lines[j], lines[i]]
+    }
+  }
+  return lines.join('\n')
+}
+
+// Characters and short runs TOML is made of, in any order at all.
+const ALPHABET = ['a', 'b', '1', '0', '9', '_', '-', '+', '.', ':', 'T', 'Z', 'e', 'x', 'n', 'f', 't', 'r', 'u', ' ', '\t', '\n', '\r', '\r\n', '=', '[', ']', '{', '}', ',', '"', "'", '#', '\\', 'U', '\u0000', '\u007F', '\u0085', '\u00A0', 'é', '😀', '\uFEFF', '\f', '\u2028', '2024-01-01', '00:00:00', '"""', "'''"]
+const characters = ({ next, pick }) => Array.from({ length: 1 + Math.floor(next() * 24) }, () => pick(ALPHABET)).join('')
 
 const UNSUPPORTED = /not supported|out of range|a byte order mark/u
 
@@ -96,5 +193,23 @@ describe('against tomllib', { skip: !hasTomllib() && 'no python3 with tomllib' }
     const counts = compare(Array.from({ length: 6000 }, () => tables(generator)))
     assert.ok(counts.both > 1000 && counts.neither > 3000, JSON.stringify(counts))
     assert.equal(counts.unsupported, 0)
+  })
+
+  it('valid documents from the grammar, half of them with one flaw', () => {
+    const generator = random(0x6A_7A_11)
+    const counts = compare(Array.from({ length: 6000 }, () => grammar(generator)))
+    assert.ok(counts.both > 2000 && counts.neither > 2000 && counts.unsupported > 200, JSON.stringify(counts))
+  })
+
+  it('runs of lines from the fixtures, edited', () => {
+    const generator = random(0x3D_17_ED)
+    const counts = compare(Array.from({ length: 3000 }, () => edited(generator)))
+    assert.ok(counts.both > 500 && counts.neither > 1500, JSON.stringify(counts))
+  })
+
+  it('characters in any order', () => {
+    const generator = random(0x0C_4A_25)
+    const counts = compare(Array.from({ length: 6000 }, () => characters(generator)))
+    assert.ok(counts.both > 40 && counts.neither > 5000, JSON.stringify(counts))
   })
 })

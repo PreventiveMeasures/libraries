@@ -70,7 +70,7 @@ describe('what is read', () => {
     })
     // One line, but for an array within, which may run on as arrays do.
     assert.deepEqual(parse('a = { b = [\n  1,\n  # c\n  2 ] }\n'), { a: { b: [1, 2] } })
-    refuses('a = { b = [\n1 ]\n}\n', 'expected "," or "}" on the inline table\'s line, found the end of the line', 1)
+    refuses('a = { b = [\n1 ]\n}\n', 'an inline table across lines is not supported', 1)
   })
 
   it('tables, and a table declared after one beneath it', () => {
@@ -143,8 +143,12 @@ describe('what is not supported is refused by name', () => {
     ["'''x'''", 'multi-line strings are not supported'],
     ['"\\e"', 'unsupported escape "\\\\e"'],
     ['"\\x41"', 'unsupported escape "\\\\x"'],
-    ['{ a = 1, }', 'expected a key, found "}"'],
-    ['{ a = 1\n}', 'expected "," or "}" on the inline table\'s line, found the end of the line'],
+    ['07:32', 'a date-time or a time without seconds is not supported: "07:32"'],
+    ['1979-05-27T07:32Z', 'a date-time or a time without seconds is not supported: "1979-05-27T07:32Z"'],
+    ['{ a = 1, }', 'a trailing comma in an inline table is not supported'],
+    ['{ a = 1\n}', 'an inline table across lines is not supported'],
+    ['{\n  a = 1 }', 'an inline table across lines is not supported'],
+    ['{ a = 1, # c\n  b = 2 }', 'an inline table across lines is not supported'],
   ]) {
     it(value.replaceAll('\n', '\\n'), () => refuses(`k = ${value}\n`, message, 0))
   }
@@ -203,13 +207,16 @@ describe('what is not TOML is refused', () => {
     refuses('a = """\nx"""\n', 'multi-line strings are not supported', 0)
   })
 
-  it('what is not text: a lone carriage return, control characters, a byte order mark, a lone surrogate', () => {
+  it('what is not text: a lone carriage return, control characters, a byte order mark, a lone surrogate, U+FFFD', () => {
     refuses('a = 1\rb = 2\n', 'a carriage return must be followed by a line feed', 0)
     refuses('a = 1\n\r', 'a carriage return must be followed by a line feed', 1)
     refuses('a = 1 # x\u0000y\n', 'U+0000 is not allowed in a comment', 0)
     refuses('# x\ry\n', 'a carriage return must be followed by a line feed', 0)
     refuses('\uFEFFa = 1\n', 'a byte order mark is not read', 0)
     refuses('a = 1\nb = "\uD800"\n', 'a lone surrogate is not well-formed Unicode', 1)
+    // What a file that is not UTF-8 comes to when read without `fatal`.
+    const lenient = Buffer.from([0x61, 0x20, 0x3D, 0x20, 0x22, 0xFF, 0x22, 0x0A]).toString('utf8')
+    refuses(`# first\n${lenient}`, 'U+FFFD is not supported: a decoder puts it where bytes are not UTF-8', 1)
     assert.throws(() => parseToml(Buffer.from('a = 1')), { name: 'TypeError', message: 'expected a string' })
   })
 

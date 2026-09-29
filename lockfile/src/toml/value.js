@@ -9,7 +9,8 @@
 // with comments and a trailing comma) and inline tables (on one line, as
 // TOML 1.0 has them). Refused, each by name: multi-line strings, floats,
 // infinities and NaN, hexadecimal, octal and binary integers, local dates
-// and times, and TOML 1.1's escapes and multi-line inline tables.
+// and times, and TOML 1.1's escapes, times without seconds, and inline
+// tables across lines or with a trailing comma.
 
 import { readDateTime } from './datetime.js'
 import { TomlError, assert, excerpt } from './error.js'
@@ -223,21 +224,32 @@ function putInline(src, table, open, keys, value) {
   setKey(src, at, keys.at(-1), value)
 }
 
+// TOML 1.1 lets an inline table run across lines, with comments, and end
+// in a comma; the 1.0 read here keeps it to one line and no comma after
+// its last pair.
+function sameLine(src) {
+  assert(!atLineEnd(src) && src.text[src.pos] !== '#', src, 'an inline table across lines is not supported')
+}
+
 function readInline(src, depth) {
   src.pos++
   const table = Object.create(null)
   src.fixed.add(table)
   const open = new Set()
   skipSpaces(src)
+  sameLine(src)
   if (src.text[src.pos] === '}') {
     src.pos++
     return table
   }
   for (;;) {
     skipSpaces(src)
+    sameLine(src)
+    assert(src.text[src.pos] !== '}', src, 'a trailing comma in an inline table is not supported')
     const { keys, value } = readKeyValue(src, depth + 1)
     putInline(src, table, open, keys, value)
     skipSpaces(src)
+    sameLine(src)
     const char = src.text[src.pos]
     assert(char === ',' || char === '}', src, () => `expected "," or "}" on the inline table's line, found ${found(src)}`)
     src.pos++
