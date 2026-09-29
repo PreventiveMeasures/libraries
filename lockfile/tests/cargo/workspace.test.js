@@ -92,7 +92,14 @@ describe('a workspace cargo locked and vendored', () => {
         const resolved = resolveCargoFeatures(graph, options)
         for (const [unit, features] of Object.entries(build.built)) {
           const [key, fk] = [unit.slice(0, unit.lastIndexOf(' ')), unit.slice(unit.lastIndexOf(' ') + 1)]
-          assert.deepEqual(resolved[key]?.[resolver === '1' ? 'normal' : fk], features, unit)
+          assert.deepEqual(resolved[key]?.[fk], features, unit)
+        }
+        // Nothing it lists goes unbuilt, but a proc-macro member for the
+        // target, which cargo resolves in case the member has more targets.
+        for (const [key, kinds] of Object.entries(resolved)) {
+          for (const fk of ['normal', 'host'].filter((kind) => kinds[kind] !== undefined)) {
+            if (!(`${key} ${fk}` in build.built)) assert.deepEqual([key, fk], ['macros 0.1.0', 'normal'])
+          }
         }
       })
     }

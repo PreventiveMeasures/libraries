@@ -14,8 +14,7 @@ import { LockfileError, at, quote } from '../error.js'
 import { isVersion } from '../names.js'
 import { parseToml } from '../toml/parse.js'
 import { isTable } from '../toml/value.js'
-import { NIGHTLY, dashed, gatherDependencies, readSpec } from './dependency.js'
-import { featureMap } from './featuremap.js'
+import { NIGHTLY, dashed, featureMap, gatherDependencies, readSpec } from './dependency.js'
 import { array, boolean, checkName, entries, optional, refuse, string, strings, table } from './shape.js'
 
 const TOP = [
@@ -83,7 +82,7 @@ function readWorkspace(value) {
   const dependencies = Object.create(null)
   for (const [name, item, here] of entries(value.dependencies ?? Object.create(null), 'workspace.dependencies')) {
     checkName(name, here)
-    const spec = readSpec(item, here, name, undefined)
+    const spec = readSpec(item, here, name)
     if (spec.optional) throw new LockfileError('a workspace dependency cannot be optional', here)
     if (isTable(item) && item.public !== undefined) throw new LockfileError('a workspace dependency cannot be public', here)
     dependencies[name] = spec
@@ -102,7 +101,7 @@ function readPatch(value) {
   const patch = Object.create(null)
   for (const [key, deps, here] of entries(value ?? Object.create(null), 'patch')) {
     patch[key] = Object.create(null)
-    for (const [name, item, there] of entries(deps, here)) patch[key][checkName(name, there)] = readSpec(item, there, name, undefined)
+    for (const [name, item, there] of entries(deps, here)) patch[key][checkName(name, there)] = readSpec(item, there, name)
   }
   return patch
 }
@@ -112,7 +111,6 @@ function inheritField(value, where, key, workspace) {
   if (!isTable(value)) return value
   table(value, where, ['workspace'])
   if (value.workspace !== true) throw refuse('true', value.workspace, at(where, 'workspace'))
-  if (!INHERITABLE.includes(key)) throw new LockfileError('cannot be inherited', where)
   if (workspace === undefined) throw new LockfileError('inherits from a workspace, and no workspace root is given', where)
   if (workspace.package[key] === undefined) throw new LockfileError(`workspace.package.${key} is not given`, where)
   return workspace.package[key]

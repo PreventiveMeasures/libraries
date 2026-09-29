@@ -141,6 +141,31 @@ describe('linkCargo', () => {
   })
 })
 
+// A [patch] of x with a path, keyed by the source it patches, and a
+// dependency on x from crates.io or another registry.
+describe('linkCargo with a [patch]', () => {
+  const lock = parseCargoLock('version = 4\n[[package]]\nname = "app"\nversion = "0.1.0"\ndependencies = ["x"]\n[[package]]\nname = "x"\nversion = "1.0.0"\n')
+  const x = parseCargoManifest('[package]\nname = "x"\nversion = "1.0.0"\n')
+  const patched = (dependency, key) => {
+    const root = parseCargoManifest(`[package]\nname = "app"\nversion = "0.1.0"\n\n[dependencies]\nx = ${dependency}\n\n[patch.${key}]\nx = { path = "x" }\n`)
+    return linkCargo(lock, { 'app 0.1.0': root, 'x 1.0.0': x }, { workspace: root, members: ['app 0.1.0'] })
+  }
+
+  it('ties a dependency to the patch of its source', () => {
+    assert.equal(patched('"1"', 'crates-io').packages['app 0.1.0'].dependencies[0].resolved, 'x 1.0.0')
+    assert.equal(patched('"1"', '"https://github.com/rust-lang/crates.io-index/"').packages['app 0.1.0'].dependencies[0].resolved, 'x 1.0.0')
+    assert.equal(patched('{ version = "1", registry-index = "https://example.com/index" }', '"https://example.com/index"').packages['app 0.1.0'].dependencies[0].resolved, 'x 1.0.0')
+    assert.equal(patched('{ version = "1", registry = "corp" }', 'corp').packages['app 0.1.0'].dependencies[0].resolved, 'x 1.0.0')
+  })
+
+  it('refuses a dependency on a source no patch is for', () => {
+    const message = 'app 0.1.0: the lockfile resolves no "x", which the members\' features turn on: is it out of date?'
+    assert.throws(() => patched('"1"', '"https://example.com/index"'), refusedWith(message))
+    assert.throws(() => patched('{ version = "1", registry-index = "https://example.com/index" }', 'crates-io'), refusedWith(message))
+    assert.throws(() => patched('{ version = "1", registry = "corp" }', 'other'), refusedWith(message))
+  })
+})
+
 describe('resolveCargoFeatures', () => {
   const graph = link()
   const build = (options) => resolveCargoFeatures(graph, { packages: ['app 0.1.0'], host: HOST, ...options })

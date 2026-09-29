@@ -199,19 +199,31 @@ export interface CargoLinkedDependency extends CargoDependency {
 }
 
 // The features a build turns on, by cargo's feature resolver: what
-// `cargo build` with these flags compiles each package with. Resolver 2
-// and 3 keep a package's features for the host (build scripts,
-// proc-macros, and what they depend on) apart from those for the target,
-// and leave out dependencies for platforms not built for, and
+// `cargo build` with these flags compiles each package with, for each way
+// it compiles it, for the host (build scripts, proc-macros and what they
+// depend on) or for the target. Resolver 2 and 3 give the two their own
+// features, and turn on nothing for a platform not built for or for
 // dev-dependencies where no dev target is built; resolver 1 unifies all of
-// it, into `normal`.
+// it, so one package has one set of features, both ways and every way.
 //
-// A package is listed for each way the resolver reaches it, which is each
-// way it is built but for a few: a proc-macro member is reached for the
-// target too, and a member's dev-dependencies wherever the member is.
+// A package is listed as cargo's unit graph reaches it, but for what only a
+// filesystem tells, which targets a package has: a proc-macro member, and
+// what it depends on, is listed for the target too, in case it has more
+// targets than its library; a build-dependency, though the package may have
+// no build script; and what a member depends on, though it may have no
+// library or binary for `cargo build` to build.
 export function resolveCargoFeatures(graph: CargoGraph, build: CargoBuild): Record<string, { normal: string[] | undefined, host: string[] | undefined }>
 
-export interface CargoBuild {
+// The host is what `rustc -vV` calls it and `rustc --print cfg` prints for
+// it; each target, each `--target` likewise, is the host alone where none
+// is given. Targets `'all'` read every platform at once, as `cargo
+// metadata` and `cargo tree --target all` do, and need no host.
+export type CargoBuild = CargoCommand & (
+  | { host: CargoPlatform, targets?: CargoPlatform[] }
+  | { host?: CargoPlatform, targets: 'all' }
+)
+
+export interface CargoCommand {
   // `-p`: the keys of the members built; all of graph.members for
   // `--workspace`.
   packages: string[]
@@ -225,12 +237,6 @@ export interface CargoBuild {
   current?: string
   // Whether a dev target is built: `cargo test`, `--all-targets`.
   dev?: boolean
-  // What `rustc -vV` calls the host, and `rustc --print cfg` prints for it;
-  // `targets`, each `--target` likewise, is the host alone where none is
-  // given. `'all'` reads every platform at once, as `cargo metadata` and
-  // `cargo tree --target all` do, and needs no host.
-  host?: CargoPlatform
-  targets?: CargoPlatform[] | 'all'
 }
 
 export interface CargoPlatform {

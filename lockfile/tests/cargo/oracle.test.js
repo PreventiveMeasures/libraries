@@ -2,8 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { LockfileError } from '../../cargo.js'
-import { parseCfg, parsePlatform, platformMatches } from '../../src/cargo/platform.js'
-import { matches, parseRequirement, parseVersion } from '../../src/cargo/semver.js'
+import { matches, parseCfg, parsePlatform, parseRequirement, parseVersion, platformMatches } from '../../src/cargo/syntax.js'
 
 // Version requirements and platforms, against what the semver and
 // cargo-platform crates cargo reads them with make of each, from
