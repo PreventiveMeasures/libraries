@@ -41,7 +41,6 @@ export class HttpError extends Error {
 }
 
 export const isNotFound = (err) => err instanceof HttpError && err.status === 404
-// For `.catch`: `value` for a failure `expected` takes, any other thrown on.
 export const recover = (expected, value) => (err) => {
   if (!expected(err)) throw err
   return value
