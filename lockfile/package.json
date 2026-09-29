@@ -1,7 +1,7 @@
 {
   "name": "@preventive/lockfile",
   "version": "1.0.0-alpha.0",
-  "description": "Strict lockfile reader: pnpm-lock.yaml v9 checked field by field, its packages and graph resolved, and the YAML parser it reads by",
+  "description": "Strict lockfile reader: pnpm-lock.yaml v9 checked field by field, its packages and graph resolved, and the YAML and TOML parsers it reads by",
   "type": "module",
   "exports": {
     "./pnpm.js": {
@@ -11,6 +11,10 @@
     "./yaml.js": {
       "types": "./yaml.d.ts",
       "default": "./yaml.js"
+    },
+    "./toml.js": {
+      "types": "./toml.d.ts",
+      "default": "./toml.js"
     }
   },
   "files": [
@@ -24,9 +28,15 @@
     "src/pnpm/parse.js",
     "src/pnpm/resolution.js",
     "src/shape.js",
+    "src/toml/datetime.js",
+    "src/toml/error.js",
+    "src/toml/parse.js",
+    "src/toml/value.js",
     "src/yaml/error.js",
     "src/yaml/parse.js",
     "src/yaml/scalar.js",
+    "toml.d.ts",
+    "toml.js",
     "yaml.d.ts",
     "yaml.js"
   ],
@@ -34,7 +44,7 @@
     "node": ">=24.14.0"
   },
   "scripts": {
-    "test": "node --test ./tests/*.test.js ./tests/yaml/*.test.js"
+    "test": "node --test ./tests/*.test.js ./tests/toml/*.test.js ./tests/yaml/*.test.js"
   },
   "license": "MIT",
   "author": {

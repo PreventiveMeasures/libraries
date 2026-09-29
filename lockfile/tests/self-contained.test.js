@@ -6,7 +6,7 @@ import { describe, it } from 'node:test'
 // `lockfile/` is a package of its own, and the point of it is that it can
 // be dropped into anything: nothing in it may reach outside itself, and
 // nothing in it may assume a filesystem, a terminal, a locale or a host of
-// any kind. A reader of untrusted files, its YAML parser among them, has one
+// any kind. A reader of untrusted files, its YAML and TOML parsers among them, has one
 // more reason than most to have no dependencies at all — not even node:
 // builtins, which it does not need.
 //
@@ -22,6 +22,8 @@ const sourced = (name) => name.endsWith('.js') || name.endsWith('.d.ts')
 const files = [
   new URL('pnpm.js', PKG_DIR),
   new URL('pnpm.d.ts', PKG_DIR),
+  new URL('toml.js', PKG_DIR),
+  new URL('toml.d.ts', PKG_DIR),
   new URL('yaml.js', PKG_DIR),
   new URL('yaml.d.ts', PKG_DIR),
   ...readdirSync(SRC_DIR, { recursive: true })
