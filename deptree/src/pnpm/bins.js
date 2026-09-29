@@ -33,7 +33,7 @@
 // line, or changes the bins its package.json names.
 
 import { compareVersions, valid } from '@preventive/upstream/semver.js'
-import { join } from '@preventive/vfs/path.js'
+import { basename, join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 
 // A package whose directory has no package.json is still linked by these
@@ -90,13 +90,10 @@ function commandsOf(dir, manifest, files, base, where) {
   const root = inPackage(dir, binDir, where)
   if (root === undefined) return []
   const found = filesUnder(files, base, root)
-  const counts = new Map()
-  for (const path of found) counts.set(path.split('/').at(-1), (counts.get(path.split('/').at(-1)) ?? 0) + 1)
-  // tinyglobby lists them in the order the directories are read in.
-  return found.map((path) => {
-    const name = path.split('/').at(-1)
-    return { ...common, name, target: `${root}/${path}`, ownName: name === manifest.name, unordered: counts.get(name) > 1 }
-  })
+  // tinyglobby lists them in the order the directories are read in,
+  // which decides between two of one name.
+  const names = found.map((path) => basename(path))
+  return found.map((path, i) => ({ ...common, name: names[i], target: `${root}/${path}`, ownName: names[i] === manifest.name, unordered: names.indexOf(names[i]) !== names.lastIndexOf(names[i]) }))
 }
 
 // compareCommandsInConflict, which pnpm keeps the greater of.
@@ -198,32 +195,30 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
   // One linking of commands into a directory: `ordered` says whether the
   // order they come in is one pnpm always has.
   const link = (commands, { ordered, where }) => {
-    const groups = new Map()
-    for (const command of commands) groups.set(command.name, [...(groups.get(command.name) ?? []), command])
-    for (const group of groups.values()) {
-      let best = [group[0]]
-      for (const command of group.slice(1)) {
-        const order = compare(command, best[0], where)
-        if (order > 0) best = [command]
-        else if (order === 0) best.push(command)
+    const best = new Map()
+    for (const command of commands) {
+      const tied = best.get(command.name)
+      const order = tied === undefined ? 1 : compare(command, tied[0], where)
+      if (order > 0) best.set(command.name, [command])
+      else if (order === 0) tied.push(command)
+    }
+    for (const tied of best.values()) {
+      const unsure = new Set(tied.map(({ target }) => target)).size > 1 && (!ordered || tied.some(({ unordered }) => unordered))
+      for (const { target, owner } of unsure ? tied : tied.slice(0, 1)) {
+        if (owner !== undefined) (unsure ? contested : fixed).set(target, owner)
       }
-      const targets = new Set(best.map(({ target }) => target))
-      const unsure = targets.size > 1 && (!ordered || best.some(({ unordered }) => unordered))
-      for (const { target, owner } of unsure ? best : best.slice(0, 1)) if (owner !== undefined) (unsure ? contested : fixed).set(target, owner)
     }
   }
 
   for (const node of nodes.values()) {
     const where = quote(node.key)
     const children = [...node.children.values()]
-    if (children.every((dir) => nodes.has(dir))) {
-      link(children.filter((dir) => nodes.get(dir).pkg.hasBin).flatMap((dir) => commandsOfDir(dir)), { ordered: true, where })
-    } else {
-      link(children.flatMap((dir) => commandsOfDir(dir)), { ordered: false, where })
-    }
+    const withBins = children.filter((dir) => nodes.get(dir)?.pkg.hasBin).flatMap((dir) => commandsOfDir(dir))
+    if (children.every((dir) => nodes.has(dir))) link(withBins, { ordered: true, where })
+    else link(children.flatMap((dir) => commandsOfDir(dir)), { ordered: false, where })
     if (node.pkg.bundledDependencies !== undefined) link(bundledCommands(node, where), { ordered: false, where })
     if (building && (node.pkg.patchHash !== undefined || hasInstallScript(node.manifest, node.files))) {
-      link([...children.filter((dir) => nodes.get(dir)?.pkg.hasBin).flatMap((dir) => commandsOfDir(dir)), ...commandsOfDir(node.dir)], { ordered: true, where })
+      link([...withBins, ...commandsOfDir(node.dir)], { ordered: true, where })
     }
   }
 
@@ -259,14 +254,14 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
 
 // Every path the package at `node` and those it bundles name as bins,
 // relative to it, whether pnpm links them or not.
-export function binPaths(node) {
+function binPaths(node) {
   const commands = [...commandsOf(node.dir, node.manifest, node.files, node.dir, quote(node.key)), ...bundledCommands(node, quote(node.key))]
   return new Set(commands.map(({ target }) => target.slice(node.dir.length + 1)))
 }
 
 // Whether a file starts with a `#!` line ending in CRLF, as fixBin reads
 // its first 2048 bytes to tell.
-export function hasCrlfShebang(data) {
+function hasCrlfShebang(data) {
   if (data[0] !== 0x23 || data[1] !== 0x21) return false
   const newline = data.subarray(0, 2048).indexOf(0x0a)
   return newline >= 4 && data[newline - 1] === 0x0d
@@ -287,4 +282,25 @@ export function fixBin(file, where) {
   data.set(file.data.subarray(0, newline - 1))
   data.set(file.data.subarray(newline), newline - 1)
   return { data, mode: 0o755 }
+}
+
+const BIN_FIELDS = (manifest) => JSON.stringify([manifest.name, manifest.bin, manifest.directories])
+
+// A patch is applied between two times its package's bins are linked,
+// so it may not change what either does: `patched` is the package's files
+// with the patch applied, `targets` those that fixBin is run on.
+export function checkPatchOfBins(node, patched, targets, where) {
+  for (const path of binPaths(node)) {
+    if ((node.files.get(path)?.data !== undefined) !== (patched.get(path)?.data !== undefined)) {
+      throw new DeptreeError(`the patch makes or removes ${quote(path)}, which a bin names, and which pnpm links before and after it`, where)
+    }
+  }
+  for (const path of targets) {
+    const before = node.files.get(path).data
+    const after = patched.get(path).data
+    if (before !== after && (hasCrlfShebang(before) || hasCrlfShebang(after))) throw new DeptreeError(`the patch changes ${quote(path)}, a bin with a CRLF \`#!\` line, which pnpm rewrites before and after it`, where)
+  }
+  const manifest = patched.get('package.json')
+  if (manifest?.data === undefined) throw new DeptreeError('the patch removes package.json', where)
+  if (manifest.data !== node.files.get('package.json').data && BIN_FIELDS(parseManifest(manifest, where)) !== BIN_FIELDS(node.manifest)) throw new DeptreeError('the patch changes the name or bins package.json gives, which pnpm reads both before and after it', where)
 }

@@ -27,7 +27,7 @@ import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { applyPatch, parsePatch } from '../patch.js'
 import { REGISTRY, checkDependencies, fetchPackage, tarballUrl } from '../tarball.js'
-import { binPaths, binTargets, fixBin, hasCrlfShebang } from './bins.js'
+import { binTargets, checkPatchOfBins, fixBin } from './bins.js'
 import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
 import { createCheck, skippedSnapshots } from './install.js'
@@ -101,34 +101,6 @@ async function fetchAll(nodes) {
   }
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker))
   return fetched
-}
-
-const decoder = new TextDecoder('utf-8', { fatal: true })
-const BIN_FIELDS = (manifest) => JSON.stringify([manifest.name, manifest.bin, manifest.directories])
-
-// A patch applied here is applied as pnpm applies it, between two times
-// its package's bins are linked: bins.js says what that forbids.
-function checkPatchOfBins(node, patched, targets, where) {
-  for (const path of binPaths(node)) {
-    if ((node.files.get(path)?.data !== undefined) !== (patched.get(path)?.data !== undefined)) {
-      throw new DeptreeError(`the patch makes or removes ${quote(path)}, which a bin names, and which pnpm links before and after it`, where)
-    }
-  }
-  for (const path of targets) {
-    const before = node.files.get(path).data
-    const after = patched.get(path).data
-    if (before !== after && (hasCrlfShebang(before) || hasCrlfShebang(after))) throw new DeptreeError(`the patch changes ${quote(path)}, a bin with a CRLF \`#!\` line, which pnpm rewrites before and after it`, where)
-  }
-  const manifest = patched.get('package.json')
-  if (manifest?.data === undefined) throw new DeptreeError('the patch removes package.json', where)
-  if (manifest.data === node.files.get('package.json').data) return
-  let read
-  try {
-    read = JSON.parse(decoder.decode(manifest.data))
-  } catch {
-    throw new DeptreeError('the patch leaves a package.json that is not JSON', where)
-  }
-  if (BIN_FIELDS(read) !== BIN_FIELDS(node.manifest)) throw new DeptreeError('the patch changes the name or bins package.json gives, which pnpm reads both before and after it', where)
 }
 
 // A snapshot's files as pnpm leaves them: its package's, the patch the
