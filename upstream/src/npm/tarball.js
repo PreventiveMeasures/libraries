@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
-import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -13,7 +12,6 @@ const DIR = 'npm/tarballs' // No expiry: the registry never takes a version twic
 // hash or an option is refused rather than trusted. 64 bytes leave the
 // last character before `==` two bits, so only A, Q, g or w is canonical.
 const assertIntegrity = assertion('"sha512-" and a base64 sha512', matches(/^sha512-[\dA-Za-z+/]{85}[AQgw]==$/u))
-const sha512 = (bytes) => `sha512-${createHash('sha512').update(bytes).digest('base64')}`
 
 function assertPackage(method, name, version) {
   assertPackageName(method, 'name', name)
@@ -82,5 +80,5 @@ export async function getTarball(name, version, dist) {
   assertPackage('getTarball', name, version)
   const { tarball, integrity } = dist === undefined ? await getDist('getTarball', name, version) : checkedDist('getTarball', name, version, dist)
   const local = localPaths(name, version, integrity)
-  return await verifiedDownload({ method: 'getTarball', dir: DIR, what: `${name}@${version}`, ext: 'tgz', digest: sha512, expected: integrity, local, locate: () => tarball })
+  return await verifiedDownload({ method: 'getTarball', dir: DIR, what: `${name}@${version}`, ext: 'tgz', algorithm: 'sha512', expected: integrity, local, locate: () => tarball })
 }

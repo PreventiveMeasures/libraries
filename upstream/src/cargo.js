@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 import { assertCrateName, assertCrateVersion, assertSha256, show } from './args.js'
-import { sha256, verifiedDownload } from './download.js'
+import { verifiedDownload } from './download.js'
 import { CRATES_INDEX, CRATES_STATIC, buildUrl, encodeSegment, request } from './http.js'
 
 const DIR = 'cargo/crates' // No expiry: crates.io never takes a version twice.
@@ -36,5 +36,5 @@ export async function getCrate(name, version, checksum) {
   if (checksum !== undefined) assertSha256('getCrate', 'checksum', checksum)
   const expected = checksum ?? await getChecksum(name, version)
   const locate = () => buildUrl(CRATES_STATIC, ['crates', name, `${name}-${encodeSegment(version)}.crate`])
-  return await verifiedDownload({ method: 'getCrate', dir: DIR, what: `${name}@${version}`, ext: 'crate', digest: sha256, expected, local: await localPaths(name, version), locate })
+  return await verifiedDownload({ method: 'getCrate', dir: DIR, what: `${name}@${version}`, ext: 'crate', algorithm: 'sha256', expected, local: await localPaths(name, version), locate })
 }

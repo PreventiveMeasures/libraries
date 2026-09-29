@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { assertSha256, assertion, matches, show } from './args.js'
-import { sha256, verifiedDownload } from './download.js'
+import { verifiedDownload } from './download.js'
 import { SOLDEER_API, SOLDEER_REVISIONS, buildUrl, request } from './http.js'
 
 const DIR = 'soldeer/zips' // No expiry: the registry refuses a version it already has.
@@ -29,5 +29,5 @@ export async function getZip(name, version, checksum) {
   assertName('getZip', 'name', name)
   assertVersion('getZip', 'version', version)
   assertSha256('getZip', 'checksum', checksum)
-  return await verifiedDownload({ method: 'getZip', dir: DIR, what: `${name}@${version}`, ext: 'zip', digest: sha256, expected: checksum, locate: () => zipUrl(name, version) })
+  return await verifiedDownload({ method: 'getZip', dir: DIR, what: `${name}@${version}`, ext: 'zip', algorithm: 'sha256', expected: checksum, locate: () => zipUrl(name, version) })
 }
