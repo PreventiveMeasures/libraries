@@ -46,3 +46,25 @@ describe('listOverrides', () => {
     assert.throws(() => parseOverrides({ foo: 'catalog:nope' }, catalogs), /catalog "nope" has no entry/u)
   })
 })
+
+// pnpm 11 trims selectors, takes a catalog's `workspace:` entry, and reads
+// `name@` as converging on an exact version.
+describe('listOverrides for pnpm 11', () => {
+  const list = (overrides, catalogs = {}) => listOverrides(overrides, catalogs, 11)
+
+  it('trims each selector, as the lockfile records it', () => {
+    assert.deepEqual(list({ ' foo ': '1.0.0' }).map(({ selector }) => selector), ['foo'])
+    assert.throws(() => list({ foo: '1.0.0', ' foo': '2.0.0' }), /"foo" is another selector's too, once pnpm 11 trims them/u)
+  })
+
+  it('takes a workspace: entry of a catalog', () => {
+    assert.equal(list({ ws: 'catalog:' }, { __proto__: null, default: { ws: 'workspace:*' } })[0].spec, 'workspace:*')
+  })
+
+  it('reads name@ as converging on an exact version, and refuses it otherwise', () => {
+    assert.deepEqual(list({ 'foo@': '1.2.3' }), [{ selector: 'foo@', target: { name: 'foo', range: '' }, spec: '1.2.3', converge: true }])
+    assert.equal(listOverrides({ 'foo@': '1.2.3' }, {})[0].converge, undefined, 'pnpm 10 reads it as foo alone')
+    assert.throws(() => list({ 'foo@': '^1.2.3' }), /"\^1\.2\.3" is not the exact version pnpm 11 holds a converging override to/u)
+    assert.throws(() => list({ 'bar>foo@': '1.2.3' }), /an empty range with a parent is refused by pnpm 11/u)
+  })
+})

@@ -299,6 +299,28 @@ ${['c@2.0.0', 'c@2.1.0', 'x@1.0.0', 'y@1.0.0'].map((id) => `  ${id}:\n    resolu
     assert.equal(vfs.stat('/node_modules/.pnpm/u@1.0.0/node_modules/u/u.js').mode, 0o644)
     assert.equal(vfs.readText('/node_modules/.pnpm/u@1.0.0/node_modules/u/u.js'), '#!/usr/bin/env node\r\n')
   })
+
+  // pnpm 11 has npm own npx, and links into a project's .bin the bins of
+  // the peers its dependencies require: h's peer p loses `cmd` to z beside
+  // h, and wins it in the project's .bin.
+  it('links bins as pnpm 11 does', async () => {
+    const bins = await Promise.all([
+      tarball('npm', '1.0.0', { 'n.js': '#!n\n' }, { manifest: { bin: { npx: 'n.js' } } }),
+      tarball('zz', '1.0.0', { 'z.js': '#!zz\n' }, { manifest: { bin: { npx: 'z.js' } } }),
+      tarball('h', '1.0.0', {}, { manifest: { peerDependencies: { p: '1.0.0' }, dependencies: { z: '1.0.0' } } }),
+      tarball('p', '1.0.0', { 'p.js': '#!p\n' }, { manifest: { bin: { cmd: 'p.js' } } }),
+      tarball('z', '1.0.0', { 'z.js': '#!z\n' }, { manifest: { bin: { cmd: 'z.js' } } }),
+    ])
+    stubRegistry(bins)
+    const entry = (t) => `  ${t.name}@1.0.0:\n    resolution: {integrity: ${t.integrity}}\n${t.name === 'h' ? '    peerDependencies:\n      p: 1.0.0\n' : '    hasBin: true\n'}`
+    const lock = small(dep('npm') + dep('zz') + dep('h', '1.0.0(p@1.0.0)'), `${bins.map(entry).join('\n')}\n`, '  h@1.0.0(p@1.0.0):\n    dependencies:\n      p: 1.0.0\n      z: 1.0.0\n\n  npm@1.0.0: {}\n\n  p@1.0.0: {}\n\n  z@1.0.0: {}\n\n  zz@1.0.0: {}\n').replace('specifier: 1.0.0(p@1.0.0)', 'specifier: 1.0.0')
+    const mode = (vfs, key, file) => vfs.stat(`/node_modules/.pnpm/${key}/node_modules/${key.split('@')[0]}/${file}`).mode
+    const options = { lockfile: lock, manifests: { '.': manifest({ npm: '1.0.0', zz: '1.0.0', h: '1.0.0' }) }, workspace: 'hoist: false\n' }
+    const v11 = (await buildPnpmTree({ ...options, host: { ...HOST, pnpm: '11.28.2' } })).vfs
+    assert.deepEqual([mode(v11, 'npm@1.0.0', 'n.js'), mode(v11, 'zz@1.0.0', 'z.js'), mode(v11, 'p@1.0.0', 'p.js')], [0o755, 0o644, 0o755])
+    const v10 = (await buildPnpmTree({ ...options, host: HOST })).vfs
+    assert.deepEqual([mode(v10, 'npm@1.0.0', 'n.js'), mode(v10, 'zz@1.0.0', 'z.js'), mode(v10, 'p@1.0.0', 'p.js')], [0o644, 0o755, 0o644])
+  })
 })
 
 describe('buildPnpmTree refuses', () => {
@@ -488,20 +510,18 @@ describe('buildPnpmTree for pnpm 11', () => {
   const lockfile11 = () => lockfile().replace(`  p@1.0.0:\n    hash: ${H}\n    path: patches/p.patch\n`, `  p@1.0.0: ${H}\n`)
   const patchedInYaml = 'patchedDependencies:\n  p@1.0.0: patches/p.patch\n'
 
-  const TODO = { todo: 'pnpm 11 is refused until what it does differently is all read' }
-
-  it('builds from settings in pnpm-workspace.yaml and pnpm 11\'s lockfile', TODO, async () => {
+  it('builds from settings in pnpm-workspace.yaml and pnpm 11\'s lockfile', async () => {
     stubRegistry(TARBALLS)
     const { vfs } = await buildPnpmTree({ lockfile: lockfile11(), manifests: { '.': root({ pnpm: { patchedDependencies: undefined } }) }, workspace: patchedInYaml, patches: { 'patches/p.patch': PATCH }, host: HOST_11 })
     assert.equal(text(vfs, '/node_modules/p/index.js'), 'module.exports = 2\n')
   })
 
-  it('reads no setting of the package.json', TODO, async () => {
+  it('reads no setting of the package.json', async () => {
     await assert.rejects(buildPnpmTree({ lockfile: lockfile11(), manifests: { '.': root() }, patches: { 'patches/p.patch': PATCH }, host: HOST_11 }), /^DeptreeError: patches\["patches\/p\.patch"\]: no patchedDependencies setting names this patch$/u)
   })
 
   it('refuses a pnpm it is not built for', async () => {
-    await assert.rejects(buildPnpmTree({ lockfile: lockfile11(), manifests: { '.': root() }, host: { ...HOST, pnpm: '12.0.0' } }), /^DeptreeError: host\.pnpm: pnpm "12\.0\.0" is not supported: only pnpm 10 is$/u)
+    await assert.rejects(buildPnpmTree({ lockfile: lockfile11(), manifests: { '.': root() }, host: { ...HOST, pnpm: '12.0.0' } }), /^DeptreeError: host\.pnpm: pnpm "12\.0\.0" is not supported: only pnpm 10 and 11 are$/u)
   })
 })
 

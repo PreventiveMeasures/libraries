@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { checkPatchUse } from '../src/pnpm/patches.js'
+import { checkPatchUse, checkPeerPatches } from '../src/pnpm/patches.js'
 
 // Which patch pnpm applies to a package, by the settings' selectors, held
 // against the patch hash its snapshot key names.
@@ -25,4 +25,25 @@ describe('checkPatchUse', () => {
     assert.throws(() => checkPatchUse(lockfile([['a', '1.5.0']]), hashes({ 'a@latest': 'x' })), /"latest" is not a version range/u)
     assert.throws(() => checkPatchUse(lockfile([['a', '1.0.0', 'x']]), hashes({ 'a@1.0.0': 'x', 'b@1.0.0': 'y' })), /^DeptreeError: patchedDependencies\["b@1\.0\.0"\]: patches no package in the lockfile$/u)
   })
+})
+
+// pnpm 11 holds the peers in a key to their patches too.
+describe('checkPeerPatches', () => {
+  const keys = (list, dedupePeers) => ({ settings: { dedupePeers }, packages: Object.fromEntries(list.map((key) => [key, {}])) })
+  const b = hashes({ 'b@2.0.0': 'h' })
+
+  it('takes a patched peer that names the hash of its patch', () => {
+    checkPeerPatches(keys(['a@1.0.0(b@2.0.0(patch_hash=h))', 'b@2.0.0(patch_hash=h)', 'c@1.0.0(d@1.0.0)']), b)
+    checkPeerPatches(keys(['a@1.0.0(b@2.0.0)'], true), b)
+  })
+
+  const refused = [
+    ['a patched peer that names no hash', ['a@1.0.0(b@2.0.0)'], /the patch hash "b@2\.0\.0" names is not the one of the patch pnpm picks/u],
+    ['a patched peer that names another hash', ['a@1.0.0(b@2.0.0(patch_hash=x))'], /"b@2\.0\.0\(patch_hash=x\)" names is not the one/u],
+    ['a peer that names a hash no patch picks', ['a@1.0.0(c@1.0.0(patch_hash=h))'], /"c@1\.0\.0\(patch_hash=h\)" names is not the one/u],
+    ['a peer whose hash is not where pnpm reads it', ['a@1.0.0(b@2.0.0(d@1.0.0)(patch_hash=h))'], /is patched in a way pnpm 11 cannot check/u],
+  ]
+  for (const [what, list, pattern] of refused) {
+    it(`refuses ${what}`, () => assert.throws(() => checkPeerPatches(keys(list), b), pattern))
+  }
 })

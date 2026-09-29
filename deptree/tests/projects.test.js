@@ -41,7 +41,7 @@ snapshots:
 
 const MANIFEST = { dependencies: { q: '^1.0.0', r: 'npm:q@1.2.0' }, devDependencies: { l: 'link:../l' } }
 const SETTINGS = { autoInstallPeers: true, engineStrict: false }
-const check = (manifest, { lockfile = LOCKFILE, hook = createHook({ overrides: [], ignored: [] }), host = HOST, ...settings } = {}) => {
+const check = (manifest, { lockfile = LOCKFILE, hook = createHook({ overrides: [], ignored: [] }), host = { ...HOST, major: 10 }, ...settings } = {}) => {
   checkProjects(lockfile, new Map([['.', manifest]]), { hook, host, settings: { ...SETTINGS, ...settings } })
 }
 
@@ -105,5 +105,60 @@ describe('checkProjects', () => {
     Object.setPrototypeOf(lockfile.importers, null)
     lockfile.importers['.'].specifiers.q = '^2.0.0'
     assert.throws(() => check({ ...MANIFEST, dependencies: { ...MANIFEST.dependencies, q: '^2.0.0' } }, { lockfile }), /dependencies\.q resolved to "1\.2\.0", which is not in "\^2\.0\.0"/u)
+  })
+})
+
+// What pnpm 11's frozen install holds a project to beyond pnpm 10's.
+describe('checkProjects for pnpm 11', () => {
+  const HOST_11 = { ...HOST, pnpm: '11.28.2', major: 11 }
+  const check11 = (manifest, options) => check(manifest, { host: HOST_11, ...options })
+
+  it('lets an optional dependency the importer has no specifier for go unresolved', () => {
+    const manifest = { ...MANIFEST, optionalDependencies: { gone: '1.0.0' } }
+    check11(manifest)
+    assert.throws(() => check(manifest), /"gone" is nothing in the lockfile and "1\.0\.0" in package\.json/u, 'pnpm 10 refuses it')
+  })
+
+  it('takes git specifiers of one repository and commit alike', () => {
+    const lockfile = structuredClone(LOCKFILE)
+    Object.setPrototypeOf(lockfile.importers, null)
+    lockfile.importers['.'].specifiers.r = 'github:o/r#v1'
+    const manifest = (r) => ({ ...MANIFEST, dependencies: { ...MANIFEST.dependencies, r } })
+    for (const same of ['o/r#v1', 'git+https://github.com/o/r.git#v1', 'https://github.com/o/r#v1', 'git://GitHub.com/o/r.git#v1']) check11(manifest(same), { lockfile })
+    for (const other of ['o/r#v2', 'o/s#v1', 'git+https://example.com/o/r#v1']) assert.throws(() => check11(manifest(other), { lockfile }), /the specifiers differ/u, other)
+    assert.throws(() => check(manifest('o/r#v1'), { lockfile }), /the specifiers differ/u, 'pnpm 10 takes only the same spelling')
+  })
+
+  it('holds a packageManager, or devEngines.packageManager, to what pnpm 11 runs', () => {
+    check11({ ...MANIFEST, packageManager: 'pnpm@11.28.2' })
+    assert.throws(() => check11({ ...MANIFEST, packageManager: 'pnpm@10.33.4' }), /packageManager: the project is installed by pnpm 10\.33\.4/u)
+    check11({ ...MANIFEST, packageManager: 'pnpm@10.33.4' }, { pmOnFail: 'ignore' })
+    check11({ ...MANIFEST, packageManager: 'yarn@4.0.0' }, { pmOnFail: 'warn' })
+    const engine = (onFail) => ({ ...MANIFEST, devEngines: { packageManager: { name: 'pnpm', version: '^11.0.0', onFail } } })
+    assert.throws(() => check11(engine('download')), /devEngines\.packageManager: not supported/u)
+    assert.throws(() => check11(engine(undefined)), /devEngines\.packageManager: not supported/u)
+    check11(engine('warn'))
+    check11(engine('error'), { pmOnFail: 'ignore' })
+    check11({ ...MANIFEST, devEngines: { packageManager: [{ name: 'pnpm' }, { name: 'yarn' }] } }, { pmOnFail: undefined })
+  })
+
+  it('checks the Node a root engines.runtime asks for with onFail error', () => {
+    const runtime = (version, onFail = 'error') => ({ ...MANIFEST, engines: { runtime: { name: 'node', version, onFail } } })
+    check11(runtime('>=24'))
+    check11(runtime('<24', 'warn'))
+    assert.throws(() => check11(runtime('<24')), /engines\.runtime: Node 24\.15\.0 is not in "<24", which pnpm 11 refuses/u)
+    check11(runtime('<24'), { runtimeOnFail: 'ignore' })
+    check(runtime('<24'))
+    assert.throws(() => check11({ ...MANIFEST, devEngines: { runtime: { name: 'bun', version: '1', onFail: 'error' } } }), /the bun it runs on is checked by pnpm 11/u)
+  })
+
+  it('holds the importer\'s linkDirectory to publishConfig', () => {
+    const lockfile = structuredClone(LOCKFILE)
+    Object.setPrototypeOf(lockfile.importers, null)
+    lockfile.importers['.'].publishDirectory = 'dist'
+    const manifest = (linkDirectory) => ({ ...MANIFEST, publishConfig: { directory: 'dist', linkDirectory } })
+    check11(manifest(undefined), { lockfile })
+    assert.throws(() => check11(manifest(false), { lockfile }), /linkDirectory is true in the lockfile and publishConfig\.linkDirectory false/u)
+    check(manifest(false), { lockfile })
   })
 })

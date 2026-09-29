@@ -1,5 +1,5 @@
-// A node_modules tree as pnpm 10 installs it from a frozen lockfile with
-// the isolated linker, held in a Vfs rooted at the lockfile's directory:
+// A node_modules tree as pnpm 10 or 11 installs it from a frozen lockfile
+// with the isolated linker, held in a Vfs rooted at the lockfile's directory:
 // each package's files at node_modules/.pnpm/<its directory>/node_modules/
 // <its name>, its dependencies linked beside it, the hoisted aliases in
 // node_modules/.pnpm/node_modules and node_modules, and each project's
@@ -49,9 +49,8 @@ function checkHost(host) {
   }
   const { pnpm, node, os, libc } = host
   const major = Number(valid(pnpm)?.split('.')[0])
-  // What pnpm 11 does differently is read below where it is known; pnpm 11
-  // is refused until all of it is.
-  if (major !== 10) throw new DeptreeError(`pnpm ${quote(pnpm)} is not supported: only pnpm 10 is`, 'host.pnpm')
+  // What pnpm 11 does differently is read below, by `major`, where it is.
+  if (major !== 10 && major !== 11) throw new DeptreeError(`pnpm ${quote(pnpm)} is not supported: only pnpm 10 and 11 are`, 'host.pnpm')
   if (valid(node) === null) throw new DeptreeError(`${quote(node)} is not an exact version`, 'host.node')
   if (os === 'win32') throw new DeptreeError('Windows is not supported: pnpm links there with junctions to absolute paths', 'host.os')
   if (!LIBC.has(libc)) throw new DeptreeError(`expected "glibc", "musl" or "unknown", found ${quote(libc)}`, 'host.libc')
@@ -197,15 +196,18 @@ export async function buildPnpmTree(options) {
   }
   const host = checkHost(machine)
   const { lockfile, env } = parsePnpmLockfile(text)
-  if (env !== undefined) throw new DeptreeError('the env document pnpm 11 writes is not supported', 'env')
+  // pnpm 11 locks config dependencies there, which are refused, and the
+  // pnpm a project pins, which leaves the tree as it is.
+  if (env !== undefined && host.major < 11) throw new DeptreeError('the env document pnpm 11 writes is not supported', 'env')
+  if (env !== undefined && Object.keys(env.importers['.'].configDependencies).length > 0) throw new DeptreeError('config dependencies are not supported', 'env.importers["."].configDependencies')
   if (!('.' in lockfile.importers)) throw new DeptreeError('expected the root project, whose package.json holds settings', 'importers')
   const manifests = readManifests(manifestTexts, lockfile)
   const settings = readSettings({ workspace: readWorkspace(workspace), npmrc, manifest: manifests.get('.'), os: host.os, major: host.major })
   checkLockfile(lockfile)
-  checkWorkspace(Object.keys(lockfile.importers), settings.packages)
-  const overrides = listOverrides(settings.overrides, settings.catalogs)
+  checkWorkspace(Object.keys(lockfile.importers), settings.packages, host.major)
+  const overrides = listOverrides(settings.overrides, settings.catalogs, host.major)
   const given = await checkUpToDate(lockfile, settings, overrides, readPatchesGiven(patches), host.major)
-  const hook = createHook({ overrides, ignored: settings.ignoredOptionalDependencies })
+  const hook = createHook({ overrides, ignored: settings.ignoredOptionalDependencies, major: host.major })
   checkProjects(lockfile, manifests, { hook, host, settings })
   checkOptional(lockfile)
   const projects = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
@@ -213,6 +215,13 @@ export async function buildPnpmTree(options) {
   const { skipped, incompatible } = skippedSnapshots(lockfile, check, { major: host.major, engineStrict: settings.engineStrict })
   const { nodes, direct } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, host.major)
   for (const node of nodes.values()) checkRegistry(node)
+  // pnpm 11 holds every package the lockfile has by a version to being the
+  // registry's, with an integrity, whether it is installed or not.
+  if (host.major >= 11) {
+    for (const [key, pkg] of Object.entries(lockfile.packages)) {
+      if (packageKeyOf(key) === `${pkg.name}@${pkg.version}`) checkRegistry({ key, pkg })
+    }
+  }
 
   const fetched = await fetchAll(nodes)
   const byDir = new Map()

@@ -17,7 +17,14 @@
 // they did their work: with a frozen lockfile pnpm only holds them to the
 // lockfile's `overrides` (uptodate.js), and resolves anew where they
 // differ.
+//
+// pnpm 11 reads them from pnpm-workspace.yaml alone, trims each selector,
+// takes a catalog's `workspace:` entry, and reads `name@` with an exact
+// version as converging: a dependency on `name` whose range takes that
+// version is given it, where no other override is chosen. It refuses one
+// with a parent and an empty range, and one whose version is not exact.
 
+import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 
 // validate-npm-package-name 5's validForOldPackages, which pnpm reads a
@@ -71,13 +78,13 @@ const CATALOG = 'catalog:'
 
 // @pnpm/catalogs.resolver's resolveFromCatalog: the specifier a catalog
 // gives `name`, where `spec` asks for one.
-function fromCatalog(catalogs, spec, name, where) {
+function fromCatalog(catalogs, spec, name, where, major) {
   if (!spec.startsWith(CATALOG)) return spec
   const catalog = spec.slice(CATALOG.length).trim() || 'default'
   const found = Object.hasOwn(catalogs, catalog) && Object.hasOwn(catalogs[catalog], name) ? catalogs[catalog][name] : undefined
   const refused = found === undefined ? `catalog ${quote(catalog)} has no entry for ${quote(name)}`
     : found.startsWith(CATALOG) ? `the entry for ${quote(name)} in catalog ${quote(catalog)} is itself a catalog reference`
-    : ['workspace', 'link', 'file'].includes(found.split(':')[0]) ? `the entry for ${quote(name)} in catalog ${quote(catalog)} uses a protocol pnpm refuses in a catalog`
+    : ['link', 'file', ...(major >= 11 ? [] : ['workspace'])].includes(found.split(':')[0]) ? `the entry for ${quote(name)} in catalog ${quote(catalog)} uses a protocol pnpm refuses in a catalog`
     : undefined
   if (refused !== undefined) throw new DeptreeError(`pnpm cannot resolve a catalog in the overrides: ${refused}`, where)
   return found
@@ -86,10 +93,18 @@ function fromCatalog(catalogs, spec, name, where) {
 // The overrides pnpm installs with, in order, as its parseOverrides has
 // them: each selector parsed, and its specifier with any catalog resolved.
 // By selector, they are what the lockfile's `overrides` is held to.
-export function listOverrides(overrides, catalogs) {
-  return Object.entries(overrides ?? {}).map(([selector, spec]) => {
-    const where = `overrides[${quote(selector)}]`
+export function listOverrides(overrides, catalogs, major = 10) {
+  const seen = new Set()
+  return Object.entries(overrides ?? {}).map(([raw, given]) => {
+    const where = `overrides[${quote(raw)}]`
+    const selector = major >= 11 ? raw.trim() : raw
+    if (seen.has(selector)) throw new DeptreeError(`${quote(selector)} is another selector's too, once pnpm 11 trims them`, where)
+    seen.add(selector)
     const { parent, target } = parseSelector(selector, where)
-    return { selector, parent, target, spec: fromCatalog(catalogs, spec, target.name, where) }
+    const spec = fromCatalog(catalogs, given, target.name, where, major)
+    if (major < 11 || (target.range !== '' && parent?.range !== '')) return { selector, parent, target, spec }
+    if (parent !== undefined) throw new DeptreeError('an empty range with a parent is refused by pnpm 11', where)
+    if (valid(spec) === null) throw new DeptreeError(`${quote(spec)} is not the exact version pnpm 11 holds a converging override to`, where)
+    return { selector, target, spec, converge: true }
   })
 }

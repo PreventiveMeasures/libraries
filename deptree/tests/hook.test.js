@@ -33,9 +33,26 @@ describe('createHook', () => {
   })
 
   it('refuses an override to a local path where asked to, and a malformed package.json', () => {
-    assert.throws(() => hook({ a: 'link:../a' })({ dependencies: { a: '1' } }, 'x', { local: 'refuse' }), /^DeptreeError: x: the override "a" is to a local path/u)
+    assert.throws(() => hook({ a: 'link:../a' })({ dependencies: { a: '1' } }, 'x', { dir: '.' }), /^DeptreeError: x: the override "a" is to a local path/u)
     assert.deepEqual(hook({ a: 'link:../a' })({ dependencies: { a: '1' } }, 'x').dependencies, { a: 'link:../a' })
     assert.throws(() => hook({})({ dependencies: { a: 1 } }, 'x'), /^DeptreeError: x\.dependencies: expected a mapping of names to specifiers$/u)
+  })
+
+  // pnpm 11 converges where no other override is chosen, drops a peer's
+  // meta with the peer, and writes an override to a path into a project
+  // relative to it.
+  it('reads overrides as pnpm 11 does', () => {
+    const hook11 = (overrides) => createHook({ overrides: listOverrides(overrides, {}, 11), ignored: [], major: 11 })
+    const converging = hook11({ 'foo@': '1.2.3', 'bar@': '2.0.0', bar: '3.0.0' })({ dependencies: { foo: '^1.0.0', bar: '^2.0.0' }, devDependencies: { foo: '^2.0.0' }, peerDependencies: { foo: '1.x' } }, 'x')
+    assert.deepEqual(converging, { dependencies: { foo: '1.2.3', bar: '3.0.0' }, devDependencies: { foo: '^2.0.0' }, peerDependencies: { foo: '1.2.3' } })
+    const gone = hook11({ p: '-' })({ peerDependencies: { p: '1', q: '1' }, peerDependenciesMeta: { p: { optional: true }, q: { optional: true } } }, 'x')
+    assert.deepEqual(gone, { dependencies: {}, peerDependencies: { q: '1' }, peerDependenciesMeta: { q: { optional: true } } })
+    const local = hook11({ a: 'link:packages/a', b: 'file:./b/', c: './c', d: '../d' })
+    assert.deepEqual(local({ dependencies: { a: '1', b: '1', c: '1', d: '1' } }, 'x', { dir: 'packages/x' }).dependencies, { a: 'link:../a', b: 'file:../../b', c: '../../c', d: '../../../d' })
+    assert.deepEqual(local({ dependencies: { a: '1', c: '1' } }, 'x', { dir: '.' }).dependencies, { a: 'link:packages/a', c: './c' })
+    for (const spec of ['link:/abs', 'file:~/x', '~/x']) {
+      assert.throws(() => hook11({ a: spec })({ dependencies: { a: '1' } }, 'x', { dir: '.' }), /is to a path pnpm writes into the project's specifier as one from outside it/u, spec)
+    }
   })
 
   it('leaves the package.json it is given as it was', () => {

@@ -105,6 +105,41 @@ describe('readSettings', () => {
     assert.throws(() => read({ npmrc: 'registry=https://npm.example.com/\n', major: 11 }), /packages are fetched from https:\/\/registry\.npmjs\.org\/ alone/u)
   })
 
+  // pnpm 11 passes over a kebab-case key of pnpm-workspace.yaml, and has
+  // settings of its own: those that leave the tree as it is are passed
+  // over, and the rest held to what is built here.
+  it('reads pnpm 11\'s own settings', () => {
+    const workspace = 'node-linker: hoisted\ntrustLockfile: false\nminimumReleaseAge: 1440\noptimisticRepeatInstall: true\nignorePatchFailures: true\nstoreDir: /s\nvirtualStoreType: project\nregistries:\n  default: https://registry.npmjs.org/\nsideEffectsCache: false\npackageConfigs:\n  root:\n    saveExact: true\n'
+    assert.deepEqual(read({ workspace, major: 11 }), DEFAULTS)
+    assert.deepEqual(read({ workspace: 'linkWorkspacePackages: deep\npmOnFail: ignore\nruntimeOnFail: warn\n', major: 11 }), { ...DEFAULTS, linkWorkspacePackages: true, pmOnFail: 'ignore', runtimeOnFail: 'warn' })
+    assert.throws(() => read({ workspace: 'node-linker: hoisted\n' }), /^DeptreeError: pnpm-workspace\.yaml: node-linker: unsupported setting$/u, 'pnpm 10 does not pass over it')
+    const refused = [
+      ['virtualStoreType: global\n', /"global" is not supported/u],
+      ['virtualStoreOnly: true\n', /true is not supported/u],
+      ['nodeExperimentalPackageMap: true\n', /package-map/u],
+      ['registries:\n  default: https://npm.example.com/\n', /registries\.default: "https:\/\/npm\.example\.com\/" is not supported/u],
+      ['namedRegistries:\n  work: https://registry.npmjs.org/\n', /namedRegistries: a mapping is not supported/u],
+      ['sideEffectsCache:\n  remote:\n    url: https://cache.example.com/\n', /sideEffectsCache\.remote: a mapping is not supported/u],
+      ['packageConfigs:\n  root:\n    modulesDir: m\n', /packageConfigs\["root"\]: "modulesDir" is not supported/u],
+      ['packageConfigs:\n  - match: [root]\n    hoist: false\n', /packageConfigs\["0"\]: "hoist" is not supported/u],
+      ['pmOnFail: sometimes\n', /pmOnFail: expected one of download, error, warn, ignore/u],
+    ]
+    for (const [text, pattern] of refused) assert.throws(() => read({ workspace: text, major: 11 }), pattern, text)
+  })
+
+  // pnpm 11 takes nodeVersion from the root package.json's engines.runtime
+  // where it pins Node exactly, devEngines first.
+  it('takes nodeVersion for pnpm 11 from the Node engines.runtime pins', () => {
+    const runtime = (version, onFail = 'error') => ({ name: 'node', version, onFail })
+    assert.equal(read({ manifest: { engines: { runtime: runtime('22.1.0') } }, major: 11 }).nodeVersion, '22.1.0')
+    assert.equal(read({ manifest: { devEngines: { runtime: [{ name: 'deno' }, runtime('20.0.0', 'warn')] }, engines: { runtime: runtime('22.1.0') } }, major: 11 }).nodeVersion, '20.0.0')
+    assert.equal(read({ manifest: { devEngines: { runtime: runtime('>=20') }, engines: { runtime: runtime('22.1.0') } }, major: 11 }).nodeVersion, undefined, 'a range decides, and pins nothing')
+    assert.equal(read({ manifest: { engines: { runtime: runtime('22.1.0') } }, workspace: 'nodeVersion: 24.0.0\n', major: 11 }).nodeVersion, '24.0.0')
+    assert.equal(read({ manifest: { engines: { runtime: runtime('22.1.0') } } }).nodeVersion, undefined, 'pnpm 10 takes none')
+    assert.throws(() => read({ manifest: { engines: { runtime: runtime('22.1.0', 'download') } }, major: 11 }), /a Node runtime to download is not supported/u)
+    assert.throws(() => read({ manifest: { engines: { runtime: runtime('22.1.0') } }, workspace: 'runtimeOnFail: download\n', major: 11 }), /a Node runtime to download is not supported/u)
+  })
+
   // Scripts are never run, as with --ignore-scripts: what a setting would
   // allow to build is built by nothing here.
   it('passes over what would allow a script to run', () => {

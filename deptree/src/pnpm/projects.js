@@ -208,7 +208,7 @@ export function checkProjects(lockfile, manifests, { hook, host, settings }) {
     const where = `manifests[${quote(id)}]`
     checkProject(manifest, where, { host, settings })
     checkRuntimes(manifest, where, { host, onFail: id === '.' ? settings.runtimeOnFail : undefined })
-    const hooked = hook(manifest, where, { local: 'refuse' })
+    const hooked = hook(manifest, where, { dir: id })
     const importer = lockfile.importers[id]
     const reason = mismatch(importer, hooked, settings.autoInstallPeers, host.major, where)
     if (reason !== undefined) throw new DeptreeError(`the lockfile is not up to date with this package.json, which a frozen install refuses: ${reason}`, where)

@@ -16,6 +16,8 @@
 // in front leaves out what it takes, wherever it is in the list. Anything
 // else a glob can say — `?`, a class, a brace, an extglob, an escape — is
 // refused, and so is a glob reaching outside the workspace's directory.
+// pnpm 11 leaves out what a `!` glob takes with micromatch too, a name
+// starting with a dot and all.
 
 import { DeptreeError, quote } from '../error.js'
 
@@ -35,28 +37,30 @@ function normalizeGlob(glob, where) {
   return names
 }
 
-// A name's pattern: `*` any run of characters, but not a leading dot.
-const NAME = (name) => `${name.startsWith('*') ? '(?!\\.)' : ''}${name.split('*').map(escape).join('[^/]*')}`
-// `**`: any number of names, none with a leading dot, each with its `/`.
-const GLOBSTAR = '(?:(?!\\.)[^/]+/)*'
+// A name's pattern: `*` any run of characters, but not a leading dot
+// unless `dot`.
+const NAME = (name, dot) => `${name.startsWith('*') && !dot ? '(?!\\.)' : ''}${name.split('*').map(escape).join('[^/]*')}`
+// `**`: any number of names, none with a leading dot unless `dot`, each
+// with its `/`.
+const GLOBSTAR = (dot) => `(?:${dot ? '' : '(?!\\.)'}[^/]+/)*`
 
-function compile(glob, where) {
+function compile(glob, where, dot) {
   const names = normalizeGlob(`${glob}/package.json`, where)
   if (glob === '' || glob.startsWith('/') || UNSUPPORTED.test(glob) || glob.includes('!') || names.some((name) => name !== '**' && name.includes('**'))) {
     throw new DeptreeError(`${quote(glob)} is not supported: only \`*\`, \`**\` as a whole name and a leading \`!\` are`, where)
   }
   // The last name is package.json, which a `/` never follows.
-  const source = names.map((name, index) => (name === '**' ? GLOBSTAR : `${NAME(name)}${index === names.length - 1 ? '' : '/'}`)).join('')
+  const source = names.map((name, index) => (name === '**' ? GLOBSTAR(dot) : `${NAME(name, dot)}${index === names.length - 1 ? '' : '/'}`)).join('')
   return new RegExp(`^${source}$`, 'u')
 }
 
 // `ids` are the projects' directories, `.` the root; `packages` the globs,
-// or undefined.
-export function checkWorkspace(ids, packages) {
+// or undefined; `major` pnpm's major version.
+export function checkWorkspace(ids, packages, major = 10) {
   const where = 'pnpm-workspace.yaml: packages'
   const globs = (packages ?? []).map((glob) => {
     const exclude = glob.startsWith('!')
-    return { exclude, regexp: compile(exclude ? glob.slice(1) : glob, where) }
+    return { exclude, regexp: compile(exclude ? glob.slice(1) : glob, where, exclude && major >= 11) }
   })
   for (const id of ids) {
     if (id === '.') continue

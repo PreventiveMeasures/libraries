@@ -11,8 +11,10 @@ export { LockfileError, YamlError } from '@preventive/lockfile/pnpm.js'
 export { setCacheDir } from '@preventive/upstream/npm.js'
 
 // The machine pnpm would install on, which a tree depends on: `pnpm` is
-// the version that installs, and has to be a 10.x, the only one built
-// for; `node` the Node it runs on, unless the settings name a nodeVersion;
+// the version that installs, and has to be a 10.x or an 11.x, the two
+// built for, each as it differs from the other; `node` the Node it runs
+// on, unless the settings name a nodeVersion or, for pnpm 11, the root
+// package.json's engines.runtime pins one;
 // `os`, `cpu` and `libc` as Node and pnpm name them — `linux`, `x64`,
 // `glibc` — with `unknown` for a libc outside Linux, as pnpm has it.
 // Windows is refused: pnpm links there with junctions to absolute paths.
@@ -65,6 +67,17 @@ export interface PnpmHost {
 // taken in a line passed over, such as `//registry.npmjs.org/:_authToken`,
 // where the rest of the file would not change the tree: pnpm drops the
 // whole file where the variable is unset.
+//
+// pnpm 11 reads its settings from pnpm-workspace.yaml alone, as this does
+// for it: of the .npmrc only its registries, and of the package.json no
+// setting, `resolutions` and the `pnpm` field none. It passes over a
+// pnpm-workspace.yaml key not in camelCase; its own settings are read as
+// the rest are, pmOnFail and runtimeOnFail among them, which decide what
+// its packageManager, devEngines.packageManager and engines.runtime
+// checks do. Its check of the lockfile against the registry — each
+// package's publish time against minimumReleaseAge, its tarball URL
+// against the registry's — is not made: it turns on the registry and the
+// time, not on the files given.
 export interface PnpmTreeOptions {
   lockfile: string
   manifests: Record<string, string> | Map<string, string>
@@ -100,7 +113,8 @@ export interface PnpmTree {
 }
 
 // The node_modules tree `pnpm install --frozen-lockfile --ignore-scripts`
-// makes with pnpm 10's isolated linker, and no other install: whatever the
+// makes with the isolated linker of host.pnpm, 10 or 11, and no other
+// install: whatever the
 // settings say of frozen lockfiles, the install is frozen, which is also
 // the only one that hoists by the lockfile's graph alone. It is rooted at
 // the lockfile's directory: each package's
@@ -117,6 +131,9 @@ export interface PnpmTree {
 // every file of the same content executable, and the store's, for later
 // installs too, which is not followed here. Every file is written once,
 // and a write that would replace anything with something else is refused.
+// pnpm 11 links bins otherwise in places — npm owns `npx` and pnpm its
+// aliases, a project's .bin takes the bins of the peers its dependencies
+// require — and each is built as the one given links them.
 //
 // The lockfile is held to what a frozen install holds it to, and refused
 // where pnpm would refuse it: the settings that shaped its resolution —
@@ -126,7 +143,17 @@ export interface PnpmTree {
 // as pnpm reads it. The root package.json's packageManager, where it has
 // one, has to be `pnpm@` host.pnpm exactly, as pnpm would switch to the
 // one it names; a project's engines.pnpm has to take host.pnpm, and with
-// engineStrict its engines.node host.node.
+// engineStrict its engines.node host.node. pnpm 11 holds a lockfile to
+// more before it installs, and so does this for it: a catalog dependency
+// to the catalog's version, a workspace package linked exactly where its
+// version is in range, a patch hash in a snapshot's peers to the patch,
+// and every package by a version to the registry's, installed or not; it
+// lets an optional dependency the importer has no specifier for go
+// unresolved, and takes two spellings of one git commit alike. A
+// devEngines.packageManager is refused unless its onFail, or pmOnFail, is
+// to warn or ignore, as pnpm 11 installs with the pnpm the lockfile pins
+// for it; and a root engines.runtime whose onFail is `error` has to take
+// host.node.
 //
 // And to more than pnpm holds it to, where a lockfile pnpm writes, or a
 // package the registry serves, always holds: each snapshot marked
