@@ -20,12 +20,13 @@ export function quote(text) {
 }
 
 // The first key two mappings of strings differ at, for a message: `sides`
-// names where each is from.
-export function difference(a, b, [aSide, bSide]) {
+// names where each is from, and `same` tells two values alike.
+export function difference(a, b, [aSide, bSide], same = (x, y) => x === y) {
   for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
-    const x = Object.hasOwn(a, key) ? quote(a[key]) : 'nothing'
-    const y = Object.hasOwn(b, key) ? quote(b[key]) : 'nothing'
-    if (x !== y) return `${quote(key)} is ${x} in ${aSide} and ${y} in ${bSide}`
+    const inA = Object.hasOwn(a, key)
+    const inB = Object.hasOwn(b, key)
+    if (inA && inB && same(a[key], b[key])) continue
+    return `${quote(key)} is ${inA ? quote(a[key]) : 'nothing'} in ${aSide} and ${inB ? quote(b[key]) : 'nothing'} in ${bSide}`
   }
   return undefined
 }

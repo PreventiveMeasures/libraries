@@ -34,7 +34,7 @@ describe('checkPatchOfBins', () => {
     }
     return files
   }
-  const check = (changes) => checkPatchOfBins(node, patched(changes), new Set(['cli.js']), 'x')
+  const check = (changes) => checkPatchOfBins(node, patched(changes), new Set(['cli.js']), 'x', 10)
 
   it('lets a patch change what of package.json linking bins does not read', () => {
     check({ 'lib.js': 'changed', 'cli.js': '#!/usr/bin/env node\nchanged\n', 'package.json': JSON.stringify({ ...manifest, description: 'd', directories: { doc: 'docs' } }) })

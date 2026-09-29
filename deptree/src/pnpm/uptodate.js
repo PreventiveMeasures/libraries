@@ -1,10 +1,12 @@
-// Whether the lockfile is the one pnpm 10 would install as it is. Before a
+// Whether the lockfile is the one pnpm would install as it is. Before a
 // frozen install pnpm holds it to the settings that shaped its resolution
 // (@pnpm/lockfile.settings-checker's getOutdatedLockfileSetting): the
 // catalogs, the overrides, the package extensions' checksum, the optional
 // dependencies left out, the patches, and a few of its own settings. Where
 // one differs, `--frozen-lockfile` refuses to install, and so does this,
 // naming the setting as pnpm names it. An install here is always frozen.
+// pnpm 11 takes two git specifiers of one commit in a catalog alike, and
+// holds the patch hashes in the peers of a key to the patches too.
 //
 // The patches are hashed here, all of them, as pnpm reads every one it is
 // configured with, whether or not a package installed uses it; each has to
@@ -15,7 +17,8 @@
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, difference, quote } from '../error.js'
 import { sha256Hex } from '../hash.js'
-import { checkPatchUse } from './patches.js'
+import { sameSpecifier } from './frozen.js'
+import { checkPatchUse, checkPeerPatches } from './patches.js'
 
 const outdated = (name, detail) => new DeptreeError(`${detail}, which a frozen install refuses`, name)
 
@@ -63,7 +66,7 @@ export async function checkUpToDate(lockfile, settings, overrides, given, major 
   for (const [name, catalog] of Object.entries(lockfile.catalogs)) {
     for (const [alias, { specifier }] of Object.entries(catalog)) {
       const configured = settings.catalogs[name]?.[alias]
-      if (specifier !== configured) throw outdated('catalogs', `${quote(alias)} is ${quote(specifier)} in the lockfile's catalog ${quote(name)}, and ${configured === undefined ? 'nothing' : quote(configured)} in the settings`)
+      if (!sameSpecifier(specifier, configured, major)) throw outdated('catalogs', `${quote(alias)} is ${quote(specifier)} in the lockfile's catalog ${quote(name)}, and ${configured === undefined ? 'nothing' : quote(configured)} in the settings`)
     }
   }
   const overridden = difference(lockfile.overrides, Object.fromEntries(overrides.map(({ selector, spec }) => [selector, spec])), SIDES)
@@ -79,5 +82,6 @@ export async function checkUpToDate(lockfile, settings, overrides, given, major 
   if (Boolean(locked.dedupePeers) !== settings.dedupePeers) throw outdated('settings.dedupePeers', `dedupePeers is ${Boolean(locked.dedupePeers)} in the lockfile`)
   if ((locked.peersSuffixMaxLength ?? 1000) !== settings.peersSuffixMaxLength) throw outdated('settings.peersSuffixMaxLength', `peersSuffixMaxLength is ${locked.peersSuffixMaxLength ?? 'left at 1000'} in the lockfile`)
   checkPatchUse(lockfile, hashes)
+  if (major >= 11) checkPeerPatches(lockfile, hashes)
   return byHash
 }

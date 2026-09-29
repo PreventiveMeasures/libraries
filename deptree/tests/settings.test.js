@@ -24,6 +24,9 @@ const DEFAULTS = {
   dedupePeers: false,
   peersSuffixMaxLength: 1000,
   packages: undefined,
+  linkWorkspacePackages: false,
+  pmOnFail: undefined,
+  runtimeOnFail: undefined,
 }
 
 describe('parseNpmrc', () => {

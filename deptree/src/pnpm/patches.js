@@ -66,3 +66,77 @@ export function checkPatchUse(lockfile, hashes) {
     if (!used.has(selector)) throw new DeptreeError('patches no package in the lockfile', `patchedDependencies[${quote(selector)}]`)
   }
 }
+
+const PATCH = '(patch_hash='
+
+// A key's run of balanced groups at its end, each on its own, and what is
+// before them; undefined where they do not balance.
+function splitSuffix(key) {
+  const segments = []
+  let end = key.length
+  while (end > 0 && key[end - 1] === ')') {
+    let depth = 0
+    let start = end - 1
+    for (; start >= 0; start--) {
+      if (key[start] === ')') depth++
+      else if (key[start] === '(' && --depth === 0) break
+    }
+    if (start < 0) return undefined
+    segments.unshift(key.slice(start, end))
+    end = start
+  }
+  return { locator: key.slice(0, end), segments }
+}
+
+// dependency-path's parse, of what is read here: the name, the version
+// where it is SemVer, and the patch hash.
+function parseKey(key) {
+  const at = key.indexOf('@', 1)
+  if (at === -1 || at === key.length - 1) return {}
+  const rest = key.slice(at + 1)
+  const base = packageKeyOf(rest)
+  const hash = rest.startsWith(PATCH, base.length) ? rest.slice(base.length + PATCH.length, rest.indexOf(')', base.length)) : undefined
+  return { name: key.slice(0, at), version: valid(base) === null ? undefined : base, hash }
+}
+
+// pnpm 11 holds what a key names to their patches down through its peers
+// (@pnpm/lockfile.fs's checkPatchedDepPaths), where pnpm 10 holds only the
+// snapshot: a peer that names a patch hash, or, unless dedupePeers leaves
+// them out, one of a version of a patched package, has to name the hash of
+// the patch picked for it. One whose hash cannot be told is refused too.
+export function checkPeerPatches(lockfile, hashes) {
+  const groups = group(Object.keys(hashes))
+  const carried = lockfile.settings.dedupePeers !== true
+  const uncheckable = (key, where) => new DeptreeError(`${quote(key)} is patched in a way pnpm 11 cannot check against patchedDependencies, which a frozen install refuses`, where)
+  const seen = new Set()
+  const judge = (key, where) => {
+    const suffix = splitSuffix(key)
+    if (key.includes(PATCH) && (suffix === undefined || suffix.locator.includes(PATCH) || suffix.segments.slice(1).some((segment) => segment.startsWith(PATCH)))) throw uncheckable(key, where)
+    const { name, version, hash } = parseKey(key)
+    if (name === undefined) throw uncheckable(key, where)
+    const known = lockfile.packages[key]?.version ?? version
+    const found = groups.get(name)
+    if (known === undefined && found !== undefined && (found.exact.size > 0 || found.ranges.length > 0)) throw uncheckable(key, where)
+    const selector = found === undefined ? undefined : pick(groups, name, known ?? '', where)
+    if ((selector === undefined ? undefined : hashes[selector].hash) !== hash) {
+      throw new DeptreeError(`the patch hash ${quote(key)} names is not the one of the patch pnpm picks for it, which pnpm 11 refuses a frozen install for`, where)
+    }
+    const peers = []
+    for (const segment of suffix?.segments ?? []) {
+      if (segment.startsWith(PATCH)) continue
+      const peer = segment.slice(1, -1)
+      const parsed = parseKey(peer)
+      if (segment.includes(PATCH) || (carried && version !== undefined && parsed.version !== undefined && groups.has(parsed.name))) peers.push(peer)
+    }
+    return peers
+  }
+  for (const key of Object.keys(lockfile.packages)) {
+    let level = [key]
+    while (level.length > 0) {
+      level = level.filter((peer) => !seen.has(peer)).flatMap((peer) => {
+        seen.add(peer)
+        return judge(peer, quote(key))
+      })
+    }
+  }
+}

@@ -118,7 +118,7 @@ async function fetchAll(nodes) {
 
 // A snapshot's files as pnpm leaves them: its package's, the patch the
 // snapshot names applied, and what linking bins does to them.
-function compose(node, patches, targets) {
+function compose(node, patches, targets, major) {
   const where = quote(node.key)
   let files = node.files
   const { patchHash } = node.pkg
@@ -127,7 +127,7 @@ function compose(node, patches, targets) {
     const patch = patches.get(patchHash)
     patch.parsed ??= parsePatch(patch.text, patch.path)
     files = applyPatch(files, patch.parsed)
-    checkPatchOfBins(node, files, targets, where)
+    checkPatchOfBins(node, files, targets, where, major)
   }
   if (targets.size === 0) return files
   files = new Map(files)
@@ -229,6 +229,8 @@ export async function buildPnpmTree(options) {
     links,
     publicHoist: settings.publicHoistPattern?.length > 0,
     building: Object.keys(settings.patchedDependencies ?? {}).length > 0,
+    peers: settings.autoInstallPeers,
+    major: host.major,
   })
 
   const vfs = new Vfs()
@@ -238,7 +240,7 @@ export async function buildPnpmTree(options) {
     if (node.pkg.patchHash !== undefined) stats.patched++
     try {
       vfs.mkdir(`/${node.dir}`, { recursive: true })
-      for (const [path, file] of compose(node, given, targets.get(node.dir) ?? new Set())) {
+      for (const [path, file] of compose(node, given, targets.get(node.dir) ?? new Set(), host.major)) {
         if (file.directory) vfs.mkdir(`/${node.dir}/${path}`, { recursive: true })
         else if (writeOnce(vfs, `/${node.dir}/${path}`, file)) {
           stats.files++

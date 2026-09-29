@@ -1,15 +1,18 @@
-// What pnpm 10 does to the files its bins run (@pnpm/link-bins, and
+// What pnpm does to the files its bins run (@pnpm/link-bins, and
 // bin-links' fixBin): no .bin directory is written here, but each file a
-// bin pnpm links runs is left as linking leaves it, given mode 0o755 and,
-// where it starts with a `#!` line that ends in CRLF, with that line
-// ending in LF instead.
+// bin pnpm links runs is left as linking leaves it, executable and, where
+// it starts with a `#!` line that ends in CRLF, with that line ending in
+// LF instead. pnpm 10 gives it mode 0o755, and pnpm 11 adds 0o111 to its
+// mode where that lacks any of it, which for the 0o644 and 0o755 a
+// package's files have here is the same.
 //
 // A package's bins are its `bin` — a path, or paths by command — or, with
 // none, every file under `directories.bin` that is not a dotfile or in a
 // dot directory, each by its name. A command that is not a name, or a
-// path that leads out of the package, is passed over. pnpm links bins
-// into many .bin directories, and runs fixBin on a file only where its
-// command is the one linked by that name there and the file is there:
+// path that leads out of the package, is passed over, as pnpm 11 passes
+// over one named `.` or `..` or nothing. pnpm links bins into many .bin
+// directories, and runs fixBin on a file only where its command is the
+// one linked by that name there and the file is there:
 //
 //  - each package's own node_modules/.bin, for its children's bins (or,
 //    where a child is a `link:`, for whatever is beside it), and for those
@@ -17,28 +20,34 @@
 //  - node_modules/.pnpm/node_modules/.bin, for what is privately hoisted;
 //  - each project's node_modules/.bin, for its direct dependencies' bins,
 //    and at the root, where anything is publicly hoisted, for all it holds,
-//    a direct dependency's command over a hoisted one's;
+//    a direct dependency's command over a hoisted one's; with pnpm 11 and
+//    autoInstallPeers, then for the bins of each peer a direct dependency
+//    requires, by names not linked there yet;
 //  - where any patch is configured, each package that is patched or has
 //    an install script is built, scripts or not, which links its own bins
 //    beside its children's in its own .bin before its patch is applied.
 //
 // Of two commands of one name in a directory, pnpm links the one the
-// package of that name has, else the one of the package whose name sorts
-// last (by `localeCompare`, read here as English), else of the later
-// version, else the first it came to. Where that first is by the order a
-// directory is read in, which varies, and a file's mode or text would
-// turn on it, the tree is refused. So is a patch that would be applied
-// between two links of a file whose fix it would change: one that makes
-// or removes a file a bin names, changes a bin file with a CRLF `#!`
-// line, or changes the bins its package.json names.
+// package of that name has (with pnpm 11, or npm's `npx`, and pnpm's
+// `pn`, `pnpx`, `pnx` and `pnpm`), else the one of the package whose name
+// sorts last (by `localeCompare`, read here as English), else of the
+// later version, else the first it came to. Where that first is by the
+// order a directory is read in, which varies, and a file's mode or text
+// would turn on it, the tree is refused. So is a patch that would be
+// applied between two links of a file whose fix it would change: one that
+// makes or removes a file a bin names, changes a bin file with a CRLF
+// `#!` line, or changes the bins its package.json names.
 
 import { compareVersions, valid } from '@preventive/upstream/semver.js'
 import { basename, join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 
 // A package whose directory has no package.json is still linked by these
-// names, to the runtime's binary inside it.
+// names by pnpm 10, to the runtime's binary inside it.
 const RUNTIMES = { __proto__: null, node: 'bin/node', deno: 'deno', bun: 'bun' }
+
+// The packages pnpm 11 takes to own a command by a name not their own.
+const OWNERS = { __proto__: null, npx: ['npm'], pn: ['pnpm', '@pnpm/exe'], pnpm: ['@pnpm/exe'], pnpx: ['pnpm', '@pnpm/exe'], pnx: ['pnpm', '@pnpm/exe'] }
 
 const collator = new Intl.Collator('en')
 const decoder = new TextDecoder('utf-8', { fatal: true })
@@ -66,22 +75,39 @@ function filesUnder(files, base, dir) {
   return found
 }
 
+// Whether pnpm takes a package to own a command, which wins it the name.
+// pnpm 11 looks a name up among OWNERS as a plain object's key, and fails
+// on one that Object.prototype has.
+function owns({ name, pkgName, own }, major, where) {
+  if (own || name === pkgName || major < 11) return own || name === pkgName
+  if (name in Object.prototype) throw new DeptreeError(`two bins are named ${quote(name)}, which pnpm 11 fails on`, where)
+  return OWNERS[name]?.includes(pkgName) === true
+}
+
 // A package's commands: `dir` is where the package is, `manifest` its
 // package.json, `files` the files of the package holding it (itself, or
 // the one that bundles it), by their paths under `base`, which is
 // undefined for a project, whose files are not in the tree.
-function commandsOf(dir, manifest, files, base, where) {
+function commandsOf(dir, manifest, files, base, where, major) {
   const common = { pkgName: manifest.name, pkgVersion: manifest.version, owner: base }
   if (typeof manifest.bin === 'string' && !manifest.name) throw new DeptreeError('it has a bin and no name, which pnpm fails on', where)
+  // pnpm looks for the Node it would download from where the package is,
+  // and fails where there is none.
+  const runtime = manifest.engines?.runtime
+  if (runtime && (Array.isArray(runtime) || (runtime.name === 'node' && runtime.onFail === 'download'))) {
+    throw new DeptreeError('its engines.runtime has pnpm look for a Node to run its bins with, which is not supported', where)
+  }
   if (manifest.bin) {
     const entries = typeof manifest.bin === 'string' ? [[manifest.name, manifest.bin]] : Object.entries(manifest.bin)
     const commands = []
     for (const [command, rel] of entries) {
       const name = command[0] === '@' ? command.slice(command.indexOf('/') + 1) : command
+      const empty = name === '' || name === '.' || name === '..'
+      if (empty && major >= 11) continue
       if (name !== encodeURIComponent(name) && name !== '$') continue
-      if (name === '' || name === '.' || name === '..') throw new DeptreeError(`a bin named ${quote(name)} is not supported`, where)
+      if (empty) throw new DeptreeError(`a bin named ${quote(name)} is not supported`, where)
       const target = inPackage(dir, rel, where)
-      if (target !== undefined) commands.push({ ...common, name, target, ownName: name === manifest.name })
+      if (target !== undefined) commands.push({ ...common, name, target })
     }
     return commands
   }
@@ -93,13 +119,18 @@ function commandsOf(dir, manifest, files, base, where) {
   // tinyglobby lists them in the order the directories are read in,
   // which decides between two of one name.
   const names = found.map((path) => basename(path))
-  return found.map((path, i) => ({ ...common, name: names[i], target: `${root}/${path}`, ownName: names[i] === manifest.name, unordered: names.indexOf(names[i]) !== names.lastIndexOf(names[i]) }))
+  return found.map((path, i) => ({ ...common, name: names[i], target: `${root}/${path}`, unordered: names.indexOf(names[i]) !== names.lastIndexOf(names[i]) }))
 }
 
 // compareCommandsInConflict, which pnpm keeps the greater of.
-function compare(a, b, where) {
-  if (a.ownName !== b.ownName) return a.ownName ? 1 : -1
-  if (a.pkgName !== b.pkgName) return collator.compare(a.pkgName, b.pkgName)
+function compare(a, b, where, major) {
+  const aOwns = owns(a, major, where)
+  const bOwns = owns(b, major, where)
+  if (aOwns !== bOwns) return aOwns ? 1 : -1
+  if (a.pkgName !== b.pkgName) {
+    if (typeof a.pkgName !== 'string' || typeof b.pkgName !== 'string') throw new DeptreeError(`two bins named ${quote(a.name)} are of packages not both named, which pnpm fails on`, where)
+    return collator.compare(a.pkgName, b.pkgName)
+  }
   if (valid(a.pkgVersion) === null || valid(b.pkgVersion) === null) throw new DeptreeError(`two bins named ${quote(a.name)} are of ${quote(a.pkgName)} at versions pnpm cannot compare, which it fails on`, where)
   return compareVersions(a.pkgVersion, b.pkgVersion)
 }
@@ -145,20 +176,44 @@ function parseManifest(file, where) {
   }
 }
 
-// The commands of the packages `node` bundles.
-function bundledCommands(node, where) {
+// The commands of the packages `node` bundles. For one with no
+// package.json pnpm 11 reads the bins of the package.json of the nearest
+// directory above it whose publishConfig.directory it is, as far up as the
+// filesystem goes, which is refused.
+function bundledCommands(node, where, major) {
   const commands = []
   for (const name of bundledIn(node.files)) {
     const here = `${where}: node_modules/${name}`
     const file = node.files.get(`node_modules/${name}/package.json`)
     const dir = `${node.dir}/node_modules/${name}`
     if (file !== undefined) {
-      commands.push(...commandsOf(dir, normalized(parseManifest(file, here), here), node.files, node.dir, here))
+      commands.push(...commandsOf(dir, normalized(parseManifest(file, here), here), node.files, node.dir, here, major))
+    } else if (major >= 11) {
+      throw new DeptreeError('it bundles a package with no package.json, whose bins pnpm 11 looks for above it', here)
     } else if (name in RUNTIMES) {
-      commands.push({ name, target: `${dir}/${RUNTIMES[name]}`, owner: node.dir, ownName: true, pkgName: '', pkgVersion: '' })
+      commands.push({ name, target: `${dir}/${RUNTIMES[name]}`, owner: node.dir, own: true, pkgName: '', pkgVersion: '' })
     }
   }
   return commands
+}
+
+// Where the peers pnpm 11 links the bins of into a project's .bin lead:
+// each peer a direct dependency has that is not optional and that its
+// snapshot resolves, by the path of its link beside the dependency, in
+// the order of those paths.
+function peersOf(children, nodes) {
+  const byPath = new Map()
+  for (const dir of children.values()) {
+    const node = nodes.get(dir)
+    if (node === undefined) continue
+    const { peerDependencies, peerDependenciesMeta, dependencies, optionalDependencies } = node.pkg
+    for (const name of Object.keys(peerDependencies)) {
+      if (peerDependenciesMeta[name]?.optional || (dependencies[name] === undefined && optionalDependencies[name] === undefined)) continue
+      const peer = name === node.name ? node.dir : node.children.get(name)
+      if (peer !== undefined) byPath.set(`${node.modules}/${name}`, peer)
+    }
+  }
+  return [...byPath.keys()].sort().map((path) => byPath.get(path))
 }
 
 // Whether pnpm builds a package, as its pkgRequiresBuild tells: an
@@ -171,34 +226,36 @@ const hasInstallScript = (manifest, files) => Boolean((manifest.scripts != null 
 // `files` and `manifest`; `projects` each project's package.json by its
 // directory, `direct` each project's direct dependencies, `links` every
 // link in the tree, `publicHoist` whether anything is publicly hoisted,
-// and `building` whether any patch is configured.
-export function binTargets({ nodes, projects, direct, links, publicHoist, building }) {
+// `building` whether any patch is configured, `peers` whether peers are
+// installed automatically, and `major` pnpm's major version.
+export function binTargets({ nodes, projects, direct, links, publicHoist, building, peers, major }) {
   const commandCache = new Map()
   // A `link:` that is no project leads to a directory not given here,
   // which is taken to have no bins.
   const commandsOfDir = (dir, { raw = false } = {}) => {
     const node = nodes.get(dir)
     if (node !== undefined) {
-      if (!commandCache.has(dir)) commandCache.set(dir, commandsOf(dir, node.manifest, node.files, dir, quote(node.key)))
+      if (!commandCache.has(dir)) commandCache.set(dir, commandsOf(dir, node.manifest, node.files, dir, quote(node.key), major))
       return commandCache.get(dir)
     }
     // A project, whose bins are outside the tree but may take a name.
     const manifest = projects.get(dir)
     if (manifest === undefined) return []
     const where = `manifests[${quote(dir)}]`
-    return commandsOf(dir, raw ? manifest : normalized(manifest, where), new Map(), undefined, where)
+    return commandsOf(dir, raw ? manifest : normalized(manifest, where), new Map(), undefined, where, major)
   }
 
   // By each file's path in the tree, the package it is in.
   const fixed = new Map()
   const contested = new Map()
   // One linking of commands into a directory: `ordered` says whether the
-  // order they come in is one pnpm always has.
+  // order they come in is one pnpm always has. It gives back the names
+  // linked.
   const link = (commands, { ordered, where }) => {
     const best = new Map()
     for (const command of commands) {
       const tied = best.get(command.name)
-      const order = tied === undefined ? 1 : compare(command, tied[0], where)
+      const order = tied === undefined ? 1 : compare(command, tied[0], where, major)
       if (order > 0) best.set(command.name, [command])
       else if (order === 0) tied.push(command)
     }
@@ -208,6 +265,7 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
         if (owner !== undefined) (unsure ? contested : fixed).set(target, owner)
       }
     }
+    return new Set(best.keys())
   }
 
   for (const node of nodes.values()) {
@@ -216,7 +274,7 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
     const withBins = children.filter((dir) => nodes.get(dir)?.pkg.hasBin).flatMap((dir) => commandsOfDir(dir))
     if (children.every((dir) => nodes.has(dir))) link(withBins, { ordered: true, where })
     else link(children.flatMap((dir) => commandsOfDir(dir)), { ordered: false, where })
-    if (node.pkg.bundledDependencies !== undefined) link(bundledCommands(node, where), { ordered: false, where })
+    if (node.pkg.bundledDependencies !== undefined) link(bundledCommands(node, where, major), { ordered: false, where })
     if (building && (node.pkg.patchHash !== undefined || hasInstallScript(node.manifest, node.files))) {
       link([...withBins, ...commandsOfDir(node.dir)], { ordered: true, where })
     }
@@ -228,15 +286,22 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
 
   for (const [id, children] of direct) {
     const where = `importers[${quote(id)}]`
+    let linked
     if (id === '.' && publicHoist) {
       const manifest = projects.get('.')
       const own = new Set(Object.keys({ ...manifest.devDependencies, ...manifest.dependencies, ...manifest.optionalDependencies }))
       const entries = [...links].filter(([path]) => /^node_modules\/(?:@[^/]+\/)?[^/@.][^/]*$/u.test(path))
       const commands = entries.flatMap(([path, dir]) => commandsOfDir(dir, { raw: true }).map((command) => ({ ...command, direct: own.has(path.slice('node_modules/'.length)) })))
       const names = new Set(commands.filter((command) => command.direct).map(({ name }) => name))
-      link([...commands.filter((command) => command.direct), ...commands.filter((command) => !command.direct && !names.has(command.name))], { ordered: false, where })
+      linked = link([...commands.filter((command) => command.direct), ...commands.filter((command) => !command.direct && !names.has(command.name))], { ordered: false, where })
     } else {
-      link([...children.values()].flatMap((dir) => commandsOfDir(dir, { raw: true })), { ordered: true, where })
+      // pnpm 11 reads the bins only of what the lockfile says has some.
+      const dirs = [...children.values()].filter((dir) => major < 11 || (nodes.get(dir)?.pkg.hasBin ?? true))
+      linked = link(dirs.flatMap((dir) => commandsOfDir(dir, { raw: true })), { ordered: true, where })
+    }
+    if (major >= 11 && peers) {
+      const commands = peersOf(children, nodes).flatMap((dir) => commandsOfDir(dir, { raw: true }))
+      link(commands.filter(({ name }) => !linked.has(name)), { ordered: true, where })
     }
   }
 
@@ -254,8 +319,8 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
 
 // Every path the package at `node` and those it bundles name as bins,
 // relative to it, whether pnpm links them or not.
-function binPaths(node) {
-  const commands = [...commandsOf(node.dir, node.manifest, node.files, node.dir, quote(node.key)), ...bundledCommands(node, quote(node.key))]
+function binPaths(node, major) {
+  const commands = [...commandsOf(node.dir, node.manifest, node.files, node.dir, quote(node.key), major), ...bundledCommands(node, quote(node.key), major)]
   return new Set(commands.map(({ target }) => target.slice(node.dir.length + 1)))
 }
 
@@ -289,8 +354,8 @@ const BIN_FIELDS = (manifest) => JSON.stringify([manifest.name, manifest.bin, ma
 // A patch is applied between two times its package's bins are linked,
 // so it may not change what either does: `patched` is the package's files
 // with the patch applied, `targets` those that fixBin is run on.
-export function checkPatchOfBins(node, patched, targets, where) {
-  for (const path of binPaths(node)) {
+export function checkPatchOfBins(node, patched, targets, where, major) {
+  for (const path of binPaths(node, major)) {
     if ((node.files.get(path)?.data !== undefined) !== (patched.get(path)?.data !== undefined)) {
       throw new DeptreeError(`the patch makes or removes ${quote(path)}, which a bin names, and which pnpm links before and after it`, where)
     }
