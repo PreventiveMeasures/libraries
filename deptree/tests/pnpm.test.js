@@ -516,6 +516,18 @@ describe('buildPnpmTree for pnpm 11', () => {
     assert.equal(text(vfs, '/node_modules/p/index.js'), 'module.exports = 2\n')
   })
 
+  // pnpm 11 checks a lockfile against the registry before it installs,
+  // unless trustLockfile: the tree here follows the lockfile, whatever
+  // minimumReleaseAge says, and asks the registry for nothing but tarballs.
+  it('follows the lockfile, whatever minimumReleaseAge says', async () => {
+    const calls = stubRegistry(TARBALLS)
+    const elsewhere = lockfile11().replace(`  mac@1.0.0:\n    resolution: {integrity: ${I.mac}}`, `  mac@1.0.0:\n    resolution: {integrity: ${I.mac}, tarball: https://example.com/mac.tgz}`)
+    const workspace = `${patchedInYaml}minimumReleaseAge: 100000\nminimumReleaseAgeStrict: true\ntrustLockfile: false\n`
+    const { vfs } = await buildPnpmTree({ lockfile: elsewhere, manifests: { '.': root({ pnpm: { patchedDependencies: undefined } }) }, workspace, patches: { 'patches/p.patch': PATCH }, host: HOST_11 })
+    assert.equal(text(vfs, '/node_modules/p/index.js'), 'module.exports = 2\n')
+    assert.ok(calls.every((url) => url.endsWith('.tgz')), calls.join(', '))
+  })
+
   it('reads no setting of the package.json', async () => {
     await assert.rejects(buildPnpmTree({ lockfile: lockfile11(), manifests: { '.': root() }, patches: { 'patches/p.patch': PATCH }, host: HOST_11 }), /^DeptreeError: patches\["patches\/p\.patch"\]: no patchedDependencies setting names this patch$/u)
   })

@@ -157,10 +157,11 @@ const READ_11 = {
   linkWorkspacePackages: { kind: 'linkWorkspacePackages' },
 }
 
-// What pnpm 11 has that leaves the tree as it is. The lockfile's
-// verification against the registry — each package's publish time against
-// minimumReleaseAge, its tarball URL against the registry's — is not made
-// here: it turns on the registry and the time, and not on the lockfile.
+// What pnpm 11 has that leaves the tree as it is. The tree follows the
+// lockfile, as pnpm 11's does with trustLockfile: minimumReleaseAge and the
+// rest of what pnpm 11 checks the lockfile against the registry by before
+// it installs — each package's publish time, its tarball URL, its trust —
+// are passed over.
 const IGNORED_11 = new Set([
   'minimumReleaseAgeIgnoreMissingTime', 'minimumReleaseAgeStrict', 'minimumReleaseAgeExcludePrune', 'trustLockfile',
   'trustPolicy', 'trustPolicyExclude', 'trustPolicyExcludePrune', 'trustPolicyIgnoreAfter', 'pnprServer',

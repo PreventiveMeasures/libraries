@@ -215,13 +215,6 @@ export async function buildPnpmTree(options) {
   const { skipped, incompatible } = skippedSnapshots(lockfile, check, { major: host.major, engineStrict: settings.engineStrict })
   const { nodes, direct } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, host.major)
   for (const node of nodes.values()) checkRegistry(node)
-  // pnpm 11 holds every package the lockfile has by a version to being the
-  // registry's, with an integrity, whether it is installed or not.
-  if (host.major >= 11) {
-    for (const [key, pkg] of Object.entries(lockfile.packages)) {
-      if (packageKeyOf(key) === `${pkg.name}@${pkg.version}`) checkRegistry({ key, pkg })
-    }
-  }
 
   const fetched = await fetchAll(nodes)
   const byDir = new Map()

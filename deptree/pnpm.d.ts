@@ -74,10 +74,10 @@ export interface PnpmHost {
 // pnpm-workspace.yaml key not in camelCase; its own settings are read as
 // the rest are, pmOnFail and runtimeOnFail among them, which decide what
 // its packageManager, devEngines.packageManager and engines.runtime
-// checks do. Its check of the lockfile against the registry — each
-// package's publish time against minimumReleaseAge, its tarball URL
-// against the registry's — is not made: it turns on the registry and the
-// time, not on the files given.
+// checks do. The tree follows the lockfile, as pnpm 11's does with
+// trustLockfile: minimumReleaseAge, and the rest of what pnpm 11 checks the
+// lockfile against the registry by before it installs — each package's
+// publish time, its tarball URL, its trust — are passed over.
 export interface PnpmTreeOptions {
   lockfile: string
   manifests: Record<string, string> | Map<string, string>
@@ -146,10 +146,9 @@ export interface PnpmTree {
 // engineStrict its engines.node host.node. pnpm 11 holds a lockfile to
 // more before it installs, and so does this for it: a catalog dependency
 // to the catalog's version, a workspace package linked exactly where its
-// version is in range, a patch hash in a snapshot's peers to the patch,
-// and every package by a version to the registry's, installed or not; it
-// lets an optional dependency the importer has no specifier for go
-// unresolved, and takes two spellings of one git commit alike. A
+// version is in range, and a patch hash in a snapshot's peers to the
+// patch; it lets an optional dependency the importer has no specifier for
+// go unresolved, and takes two spellings of one git commit alike. A
 // devEngines.packageManager is refused unless its onFail, or pmOnFail, is
 // to warn or ignore, as pnpm 11 installs with the pnpm the lockfile pins
 // for it; and a root engines.runtime whose onFail is `error` has to take
