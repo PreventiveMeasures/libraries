@@ -3,7 +3,7 @@ import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { describe, it } from 'node:test'
 
-import { compareVersions, isExactVersion, satisfies, valid, validRange } from '../semver.js'
+import { compareVersions, intersects, isExactVersion, satisfies, valid, validRange } from '../semver.js'
 
 // Against the npm that ships beside the node running this, which every
 // install these tests run on has.
@@ -24,6 +24,9 @@ describe("npm's semver, borrowed", () => {
     assert.equal(validRange('latest'), null)
     assert.equal(validRange('npm:foo@1'), null)
     for (const range of ['^1.2.0', '*', '', 'latest', 'x.y', '>=1 <2']) assert.equal(validRange(range), semver.validRange(range))
+    assert.equal(intersects('^1.2.0', '1.5.0'), true)
+    assert.equal(intersects('^1.2.0', '^2.0.0'), false)
+    assert.throws(() => intersects('^1', 'latest'), /Invalid comparator/u)
   })
 })
 
