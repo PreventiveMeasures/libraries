@@ -1,0 +1,89 @@
+// TOML's table rules. A table is written once. `[a.b]` makes `a` on the way
+// (`implicit`), which a later `[a]` may still declare; `[[a]]` adds a table to
+// the array `a` (`arrays`), and a header through `a` names its last table.
+// Dotted keys make tables (`pending`) only their own section may add to, and
+// nothing adds to an inline table written as a value (`fixed`). A dotted key
+// through an implicit table is not supported: tomllib reads it, and the toml
+// crate Cargo reads with does not.
+
+import { TomlError, assert, excerpt } from './error.js'
+import { endLine, isTable, readLine, setKey } from './value.js'
+
+function kind(state, value) {
+  if (state.arrays.has(value)) return 'an array of tables'
+  if (Array.isArray(value)) return 'an array'
+  if (isTable(value)) return state.fixed.has(value) ? 'an inline table' : 'a table'
+  return 'a value'
+}
+
+const named = (keys) => excerpt(keys.join('.'))
+
+function walk(state, src, keys) {
+  let table = state.root
+  for (const key of keys) {
+    if (!(key in table)) state.implicit.add(table[key] = Object.create(null))
+    const next = state.arrays.has(table[key]) ? table[key].at(-1) : table[key]
+    assert(isTable(next) && !state.fixed.has(next), src, () => `${excerpt(key)} is ${kind(state, next)}, which a header cannot add to`)
+    table = next
+  }
+  return table
+}
+
+function putHeader(state, src, keys, array) {
+  state.pending.clear()
+  const parent = walk(state, src, keys.slice(0, -1))
+  const key = keys.at(-1)
+  if (array) {
+    if (!(key in parent)) state.arrays.add(parent[key] = [])
+    assert(state.arrays.has(parent[key]), src, () => `${named(keys)} is ${kind(state, parent[key])}, not an array of tables`)
+    parent[key].push(state.current = Object.create(null))
+    return
+  }
+  if (key in parent) assert(state.implicit.delete(parent[key]), src, () => `${named(keys)} is ${kind(state, parent[key])} already`)
+  else parent[key] = Object.create(null)
+  state.current = parent[key]
+}
+
+function throughRefused(state, key, next) {
+  if (!isTable(next) || state.fixed.has(next)) return `${excerpt(key)} is ${kind(state, next)}, which a dotted key cannot add to`
+  if (state.implicit.has(next)) return `a dotted key through ${excerpt(key)}, a table a header made on its way, is not supported`
+  return `${excerpt(key)} is a table declared elsewhere, which a dotted key cannot add to`
+}
+
+function putDotted(state, src, keys, value) {
+  let table = state.current
+  for (const key of keys.slice(0, -1)) {
+    if (!(key in table)) state.pending.add(table[key] = Object.create(null))
+    const next = table[key]
+    assert(state.pending.has(next), src, () => throughRefused(state, key, next))
+    table = next
+  }
+  setKey(src, table, keys.at(-1), value)
+  if (isTable(value)) state.fixed.add(value)
+}
+
+// U+FFFD is TOML, but a lenient decoder writes it for bytes that are not
+// UTF-8, so it is refused rather than read as text.
+const DAMAGE = { __proto__: null, '\uFEFF': 'a byte order mark is not read', '\uFFFD': 'U+FFFD is not supported: a decoder puts it where bytes are not UTF-8' }
+
+function checkText(text) {
+  if (typeof text !== 'string') throw new TypeError('expected a string')
+  const m = /\p{Cs}|^\uFEFF|\uFFFD/u.exec(text)
+  if (m === null) return
+  const line = text.slice(0, m.index).split('\n').length - 1
+  throw new TomlError(DAMAGE[m[0]] ?? 'a lone surrogate is not well-formed Unicode', line)
+}
+
+export function parseToml(text) {
+  checkText(text)
+  const root = Object.create(null)
+  const src = { text, pos: 0, line: 0 }
+  const state = { root, current: root, implicit: new Set(), pending: new Set(), arrays: new Set(), fixed: new Set() }
+  while (src.pos < text.length) {
+    const line = readLine(src)
+    if (line?.header === true) putHeader(state, src, line.keys, line.array)
+    else if (line !== undefined) putDotted(state, src, line.keys, line.value)
+    endLine(src)
+  }
+  return root
+}

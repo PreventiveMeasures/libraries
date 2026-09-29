@@ -1,0 +1,103 @@
+{
+  "profile": {
+    "default": {
+      "solc_version": "0.8.36",
+      "evm_version": "paris",
+      "auto_detect_solc": false,
+      "optimizer": true,
+      "optimizer_runs": 1000,
+      "gas_limit": 100000000,
+      "skip": [
+        "*/*7702*",
+        "*/*BlockHashLib*",
+        "*/*Transient*",
+        "*/ext/ithaca/*",
+        "*/clz/*",
+        "*/ext/zksync/*"
+      ],
+      "fs_permissions": [
+        {
+          "access": "read",
+          "path": "./test/data"
+        }
+      ],
+      "remappings": [
+        "forge-std=test/utils/forge-std/"
+      ],
+      "ignored_error_codes": [
+        2424,
+        8429,
+        4591
+      ],
+      "fuzz": {
+        "runs": 256
+      }
+    },
+    "pre_global_structs": {
+      "skip": [
+        "*/g/*",
+        "*/*7702*",
+        "*/*BlockHashLib*",
+        "*/*Transient*",
+        "*/ext/ithaca/*",
+        "*/clz/*",
+        "*/ext/zksync/*"
+      ]
+    },
+    "post_osaka": {
+      "evm_version": "osaka",
+      "skip": [
+        "*/ext/ithaca/*"
+      ]
+    },
+    "zksync": {
+      "match_path": "*/ext/zksync/*",
+      "evm_version": "cancun",
+      "skip": [
+        "*/clz/*"
+      ]
+    },
+    "ithaca": {
+      "gas_limit": 16777216,
+      "evm_version": "prague",
+      "test": "test/ext/ithaca",
+      "skip": [
+        "*/clz/*"
+      ]
+    },
+    "solx": {
+      "solc_version": "/usr/local/bin/solx",
+      "evm_version": "paris",
+      "optimization": 3,
+      "gas_limit": 100000000,
+      "skip": [
+        "*/*7702*",
+        "*/*Transient*",
+        "*/ext/ithaca/*",
+        "*/ext/zksync/*"
+      ],
+      "fs_permissions": [
+        {
+          "access": "read",
+          "path": "./test/data"
+        }
+      ],
+      "remappings": [
+        "forge-std=test/utils/forge-std/"
+      ]
+    }
+  },
+  "lint": {
+    "lint_on_build": false
+  },
+  "fmt": {
+    "line_length": 100,
+    "ignore": [
+      "src/accounts/EIP7702Proxy.sol"
+    ]
+  },
+  "invariant": {
+    "depth": 15,
+    "runs": 10
+  }
+}

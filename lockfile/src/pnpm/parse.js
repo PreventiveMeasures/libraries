@@ -60,8 +60,9 @@ function readPatches(value, where) {
   for (const [selector, item, here] of entries(value ?? EMPTY, where)) {
     const full = typeof item !== 'string'
     if (full) record(item, here, ['hash', 'path'])
-    const hash = text(full ? item.hash : item, full ? at(here, 'hash') : here)
-    if (!/^[\da-z]+$/u.test(hash)) throw new LockfileError(`${quote(hash)} is not a patch hash`, full ? at(here, 'hash') : here)
+    const hashAt = full ? at(here, 'hash') : here
+    const hash = text(full ? item.hash : item, hashAt)
+    if (!/^[\da-z]+$/u.test(hash)) throw new LockfileError(`${quote(hash)} is not a patch hash`, hashAt)
     patches[text(selector, here)] = { hash, path: full ? checkRelative(item.path, at(here, 'path')) : undefined }
   }
   return patches
