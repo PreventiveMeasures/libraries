@@ -20,10 +20,11 @@ export const refuse = (expected, value, where) => new LockfileError(`expected ${
 
 // A table with only the `fields` named, when named: any other key is one
 // this reader does not know the meaning of, and it is refused rather than
-// dropped.
-export function table(value, where, fields) {
+// dropped, by the reason `refused` gives where it gives one.
+export function table(value, where, fields, refused = {}) {
   if (!isTable(value)) throw refuse('a table', value, where)
   for (const key of fields === undefined ? [] : Object.keys(value)) {
+    if (Object.hasOwn(refused, key)) throw new LockfileError(refused[key], at(where ?? '', key))
     if (!fields.includes(key)) throw new LockfileError(`unsupported key ${quote(key)}`, where)
   }
   return value
@@ -42,9 +43,13 @@ export function boolean(value, where) {
   return value
 }
 
-export function strings(value, where) {
+export function array(value, where) {
   if (!Array.isArray(value)) throw refuse('an array', value, where)
-  return value.map((item, index) => string(item, `${where}[${index}]`))
+  return value
+}
+
+export function strings(value, where) {
+  return array(value, where).map((item, index) => string(item, `${where}[${index}]`))
 }
 
 export const optional = (read) => (value, where) => (value === undefined ? undefined : read(value, where))

@@ -39,9 +39,14 @@ function parseJson(text, where) {
   } catch (error) {
     throw new LockfileError(`not JSON: ${error.message}`, where)
   }
-  const keys = [...text.matchAll(/"(?:[^"\\]|\\.)*"(\s*:)?/gsu)].filter((m) => m[1] !== undefined).length
-  const count = (item) => (typeof item !== 'object' || item === null ? 0 : Array.isArray(item) ? item.reduce((sum, x) => sum + count(x), 0) : Object.values(item).reduce((sum, x) => sum + 1 + count(x), 0))
-  if (keys !== count(value)) throw new LockfileError('a key is given twice', where)
+  // Every string in the text, in turn; a key is one a colon follows.
+  const written = [...text.matchAll(/"(?:[^"\\]|\\.)*"(\s*:)?/gsu)].filter((m) => m[1] !== undefined).length
+  const count = (item) => {
+    if (typeof item !== 'object' || item === null) return 0
+    const values = Object.values(item)
+    return (Array.isArray(item) ? 0 : values.length) + values.reduce((sum, x) => sum + count(x), 0)
+  }
+  if (written !== count(value)) throw new LockfileError('a key is given twice', where)
   return value
 }
 

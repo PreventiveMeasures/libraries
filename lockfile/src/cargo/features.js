@@ -14,17 +14,12 @@
 import { LockfileError, quote } from '../error.js'
 import { membersWithFeatures } from './command.js'
 import { featureValue } from './featuremap.js'
-import { activate } from './resolve.js'
+import { activate, setOf } from './resolve.js'
 import { parseCfg, parsePlatform, platformMatches } from './platform.js'
 
 function readPlatform(value, where) {
   if (typeof value?.name !== 'string' || !Array.isArray(value.cfg)) throw new TypeError(`expected ${where} as { name, cfg }`)
   return { name: value.name, cfg: new Set(value.cfg.map((line) => parseCfg(line, where))) }
-}
-
-function setOf(map, key) {
-  if (!map.has(key)) map.set(key, new Set())
-  return map.get(key)
 }
 
 // Cargo's FeatureResolver, method for method. `fk` is what a package is
@@ -149,7 +144,6 @@ class FeatureResolver {
   resolveRoot(key, values) {
     const fks = this.trackForHost && this.graph.packages[key].manifest.procMacroTarget ? ['normal', 'host'] : ['normal']
     for (const fk of fks) {
-      this.enabled(key, fk)
       for (const value of values) this.activateValue(key, fk, value)
       this.activatePkg(key, fk, [], 'roots')
     }
@@ -165,21 +159,19 @@ class FeatureResolver {
   }
 }
 
-// What the command line asks of a root, checked as cargo's dependency
-// resolver checks it: a feature the root has, or a feature of a dependency
-// it has.
+// What the command line asks of a root, `--all-features` and default
+// features among it. A feature it lacks is refused where it is required; a
+// dependency it lacks, here, as cargo's resolver refuses it.
 function rootValues(pkg, key, asked) {
   const map = pkg.manifest.features
-  const values = []
-  for (const value of asked.values) {
-    const text = value.dep === undefined ? value.feature : `${value.dep}${value.weak ? '?' : ''}/${value.feature}`
-    if (value.dep === undefined && !(value.feature in map)) throw new LockfileError(`${quote(key)} has no feature ${quote(text)}`, 'features')
-    if (value.dep !== undefined && !pkg.dependencies.some((dep) => dep.name === value.dep)) throw new LockfileError(`${quote(key)} has no dependency ${quote(value.dep)}`, 'features')
-    values.push(value)
-  }
-  if (asked.defaultFeatures && 'default' in map) values.push({ dep: undefined, feature: 'default', weak: false })
-  if (asked.allFeatures) values.push(...Object.keys(map).map((feature) => ({ dep: undefined, feature, weak: false })))
-  return values
+  const missing = asked.values.find((value) => value.dep !== undefined && !pkg.dependencies.some((dep) => dep.name === value.dep))
+  if (missing !== undefined) throw new LockfileError(`${quote(key)} has no dependency ${quote(missing.dep)}`, 'features')
+  const plain = (feature) => ({ dep: undefined, feature, weak: false })
+  return [
+    ...asked.values,
+    ...(asked.defaultFeatures && 'default' in map ? [plain('default')] : []),
+    ...(asked.allFeatures ? Object.keys(map).map(plain) : []),
+  ]
 }
 
 export function resolveCargoFeatures(graph, options) {

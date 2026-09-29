@@ -37,14 +37,21 @@ function lastDeclared(pkg) {
   return new Map(order.map((dep) => [dep.name, dep]))
 }
 
+// What of the command line a member takes: a feature it has, a feature of
+// a dependency it has, and `member/feature` as its own feature.
 function matching(pkg, values, found) {
   const deps = lastDeclared(pkg)
   const has = (feature) => feature in pkg.features || deps.get(feature)?.optional === true
+  const take = (value) => {
+    if (value.dep === undefined) return has(value.feature) ? value : undefined
+    if (deps.has(value.dep)) return value
+    return value.dep === pkg.name && has(value.feature) ? { dep: undefined, feature: value.feature, weak: false } : undefined
+  }
   const own = []
   for (const value of values) {
-    if (value.dep === undefined ? has(value.feature) : deps.has(value.dep)) own.push(value)
-    else if (value.dep === pkg.name && has(value.feature)) own.push({ dep: undefined, feature: value.feature, weak: false })
-    else continue
+    const taken = take(value)
+    if (taken === undefined) continue
+    own.push(taken)
     found.add(value.text)
   }
   return own

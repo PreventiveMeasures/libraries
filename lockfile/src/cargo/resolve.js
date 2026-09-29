@@ -17,7 +17,7 @@
 import { LockfileError, quote } from '../error.js'
 import { featureValue } from './featuremap.js'
 
-function setOf(map, key) {
+export function setOf(map, key) {
   if (!map.has(key)) map.set(key, new Set())
   return map.get(key)
 }
@@ -55,18 +55,19 @@ class Activation {
     for (const item of map[feature]) this.requireValue(key, into, featureValue(item), key)
   }
 
+  // `name/feature` turns on `name`, and its feature of that name where it
+  // has one; `name?/feature` only `name`.
   requireValue(key, into, value, asker) {
-    if (value.dep === undefined) return this.require(key, into, value.feature, asker)
-    const map = this.packages[key].manifest.features
-    const isOptional = this.packages[key].dependencies.some((dep) => dep.name === value.dep && dep.optional)
-    if (value.feature !== undefined && !value.weak && isOptional && value.dep in map) this.require(key, into, value.dep, asker)
-    if (!into.enabled.has(value.dep)) this.dirty.add(key)
+    if (value.dep === undefined) {
+      this.require(key, into, value.feature, asker)
+      return
+    }
+    const { features, dependencies } = this.packages[key].manifest
+    const isOptional = dependencies.some((dep) => dep.name === value.dep && dep.optional)
+    if (value.feature !== undefined && !value.weak && isOptional && value.dep in features) this.require(key, into, value.dep, asker)
     into.enabled.add(value.dep)
-    if (value.feature === undefined) return undefined
-    const asked = setOf(into.asked, value.dep)
-    if (!asked.has(value.feature)) this.dirty.add(key)
-    asked.add(value.feature)
-    return undefined
+    if (value.feature !== undefined) setOf(into.asked, value.dep).add(value.feature)
+    this.dirty.add(key)
   }
 
   // Asks `dep`'s package for what `dep` and `extra` ask.
@@ -79,17 +80,14 @@ class Activation {
   }
 
   run(roots) {
-    const own = new Map()
     for (const [key, values] of roots) {
-      const asked = request()
-      for (const value of values) this.requireValue(key, asked, value, 'features')
-      own.set(key, asked)
-      const union = this.requestOf(key)
-      for (const feature of asked.features) union.features.add(feature)
-      for (const name of asked.enabled) union.enabled.add(name)
-      for (const [name, set] of asked.asked) for (const feature of set) setOf(union.asked, name).add(feature)
+      const [own, union] = [request(), this.requestOf(key)]
+      for (const value of values) {
+        this.requireValue(key, own, value, 'features')
+        this.requireValue(key, union, value, 'features')
+      }
       for (const dep of this.packages[key].dependencies) {
-        if (dep.kind === 'dev') this.ask(dep, asked.asked.get(dep.name) ?? [], key)
+        if (dep.kind === 'dev') this.ask(dep, own.asked.get(dep.name) ?? [], key)
       }
     }
     while (this.dirty.size > 0) {

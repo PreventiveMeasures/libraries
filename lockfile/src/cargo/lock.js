@@ -12,7 +12,7 @@
 import { LockfileError, at, quote } from '../error.js'
 import { isVersion } from '../names.js'
 import { parseToml } from '../toml/parse.js'
-import { checkName, kind, optional, string, strings, table } from './shape.js'
+import { array, checkName, kind, optional, string, strings, table } from './shape.js'
 import { parseLockSource } from './source.js'
 
 const FIELDS = ['version', 'package', 'patch']
@@ -22,11 +22,10 @@ const CHECKSUM = /^[\da-f]{64}$/u
 
 // Keys cargo reads that are not read here, by why.
 const TOP_REFUSED = {
-  __proto__: null,
   root: 'a [root] table is lockfile version 1, which is not read here',
   metadata: 'a [metadata] table holds checksums in lockfile version 1 and nothing cargo writes after',
 }
-const PACKAGE_REFUSED = { __proto__: null, replace: '[replace] is not supported' }
+const PACKAGE_REFUSED = { replace: '[replace] is not supported' }
 
 function checkVersion(value, where) {
   if (value === 3 || value === 4) return value
@@ -35,19 +34,12 @@ function checkVersion(value, where) {
   throw new LockfileError(`unsupported version: expected 3 or 4, found ${kind(value)}`, where)
 }
 
-function checkFields(value, where, fields, refused) {
-  for (const key of Object.keys(table(value, where))) {
-    if (key in refused) throw new LockfileError(refused[key], at(where ?? '', key))
-  }
-  return table(value, where, fields)
-}
-
 // The key a package goes by: how a lockfile names it in full, `name
 // version` for a path package and `name version (source)` for any other.
 const keyOf = (name, version, source) => (source === undefined ? `${name} ${version}` : `${name} ${version} (${source})`)
 
-function readPackage(value, where) {
-  checkFields(value, where, PACKAGE, PACKAGE_REFUSED)
+function readPackage(value, where, fields = PACKAGE) {
+  table(value, where, fields, PACKAGE_REFUSED)
   const name = checkName(value.name, at(where, 'name'))
   const version = string(value.version, at(where, 'version'))
   if (!isVersion(version)) throw new LockfileError(`${quote(version)} is not a version`, at(where, 'version'))
@@ -69,8 +61,7 @@ function resolveEdge(edge, where, byName) {
   const fail = (why) => {
     throw new LockfileError(`${quote(edge)} ${why}`, where)
   }
-  const m = /^([^ ]+)(?: ([^ ]+)(?: \((.+)\))?)?$/su.exec(edge) ?? fail('is not `name`, `name version` or `name version (source)`')
-  const [, name, version, source] = m
+  const [, name, version, source] = /^([^ ]+)(?: ([^ ]+)(?: \((.+)\))?)?$/su.exec(edge) ?? fail('is not `name`, `name version` or `name version (source)`')
   const named = byName.get(name) ?? fail('names no package in the lockfile')
   const versions = version === undefined ? [...new Set(named.map((pkg) => pkg.version))] : [version]
   if (versions.length > 1) fail(`could be any of ${versions.length} versions`)
@@ -105,11 +96,9 @@ function checkReached(packages, where) {
 
 export function parseCargoLock(text) {
   if (typeof text !== 'string') throw new TypeError('expected a string')
-  const doc = checkFields(parseToml(text), undefined, FIELDS, TOP_REFUSED)
+  const doc = table(parseToml(text), undefined, FIELDS, TOP_REFUSED)
   const version = checkVersion(doc.version, 'version')
-  const list = doc.package === undefined ? [] : doc.package
-  if (!Array.isArray(list)) throw new LockfileError(`expected an array of tables, found ${kind(list)}`, 'package')
-  const read = list.map((item, index) => readPackage(item, `package[${index}]`))
+  const read = array(doc.package ?? [], 'package').map((item, index) => readPackage(item, `package[${index}]`))
   const byName = new Map()
   const seen = new Map()
   for (const [index, pkg] of read.entries()) {
@@ -136,10 +125,9 @@ export function parseCargoLock(text) {
 // takes, which cargo keeps so as not to resolve it again.
 function readUnused(value) {
   if (value === undefined) return []
-  checkFields(value, 'patch', ['unused'], {})
-  if (!Array.isArray(value.unused)) throw new LockfileError(`expected an array of tables, found ${kind(value.unused)}`, 'patch.unused')
-  return value.unused.map((item, index) => {
-    const pkg = readPackage(checkFields(item, `patch.unused[${index}]`, UNUSED, PACKAGE_REFUSED), `patch.unused[${index}]`)
-    return { name: pkg.name, version: pkg.version, source: pkg.source, checksum: pkg.checksum }
+  table(value, 'patch', ['unused'])
+  return array(value.unused, 'patch.unused').map((item, index) => {
+    const { name, version, source, checksum } = readPackage(item, `patch.unused[${index}]`, UNUSED)
+    return { name, version, source, checksum }
   })
 }

@@ -14,16 +14,16 @@ import { LockfileError, at, quote } from '../error.js'
 import { isVersion } from '../names.js'
 import { parseToml } from '../toml/parse.js'
 import { isTable } from '../toml/value.js'
-import { NIGHTLY, dashed, gatherDependencies, readSpec, refuseKeys } from './dependency.js'
+import { NIGHTLY, dashed, gatherDependencies, readSpec } from './dependency.js'
 import { featureMap } from './featuremap.js'
-import { boolean, checkName, entries, optional, refuse, string, strings, table } from './shape.js'
+import { array, boolean, checkName, entries, optional, refuse, string, strings, table } from './shape.js'
 
 const TOP = [
   'package', 'project', 'badges', 'features', 'lib', 'bin', 'example', 'test', 'bench',
   'dependencies', 'dev-dependencies', 'dev_dependencies', 'build-dependencies', 'build_dependencies',
   'target', 'lints', 'hints', 'workspace', 'profile', 'patch',
 ]
-const TOP_REFUSED = { __proto__: null, 'cargo-features': `cargo-features, ${NIGHTLY}`, replace: '[replace] is not supported' }
+const TOP_REFUSED = { 'cargo-features': `cargo-features, ${NIGHTLY}`, replace: '[replace] is not supported' }
 const INHERITABLE = [
   'authors', 'categories', 'description', 'documentation', 'edition', 'exclude', 'homepage', 'include',
   'keywords', 'license', 'license-file', 'publish', 'readme', 'repository', 'rust-version', 'version',
@@ -33,7 +33,6 @@ const PACKAGE = [
   'autobenches', 'default-run', 'resolver', 'metadata',
 ]
 const PACKAGE_REFUSED = {
-  __proto__: null,
   metabuild: `metabuild, ${NIGHTLY}`,
   'default-target': `a per-package target, ${NIGHTLY}`,
   'forced-target': `a per-package target, ${NIGHTLY}`,
@@ -70,14 +69,9 @@ function procMacroOf(value, where, edition, lib) {
 }
 
 function procMacroTargets(doc, edition) {
-  const lib = doc.lib === undefined ? false : procMacroOf(doc.lib, 'lib', edition, true)
-  let any = lib
-  for (const key of ['example', 'test', 'bench']) {
-    const list = doc[key] ?? []
-    if (!Array.isArray(list)) throw refuse('an array of tables', list, key)
-    for (const [index, item] of list.entries()) any = procMacroOf(item, `${key}[${index}]`, edition, false) || any
-  }
-  return { lib, any }
+  const lib = doc.lib !== undefined && procMacroOf(doc.lib, 'lib', edition, true)
+  const others = ['example', 'test', 'bench'].flatMap((key) => array(doc[key] ?? [], key).map((item, index) => procMacroOf(item, `${key}[${index}]`, edition, false)))
+  return { lib, any: lib || others.includes(true) }
 }
 
 function readWorkspace(value) {
@@ -127,16 +121,13 @@ function inheritField(value, where, key, workspace) {
 function readPackage(doc, workspace) {
   if (doc.package !== undefined && doc.project !== undefined) throw new LockfileError('[project] beside [package]', 'project')
   const where = doc.package === undefined ? 'project' : 'package'
-  const value = doc[where]
-  refuseKeys(value, where, PACKAGE_REFUSED)
-  table(value, where, PACKAGE)
+  const value = table(doc[where], where, PACKAGE, PACKAGE_REFUSED)
   if (value.workspace !== undefined && doc.workspace !== undefined) throw new LockfileError('a workspace root names no other root', at(where, 'workspace'))
-  const field = (key) => inheritField(value[key], at(where, key), key, workspace)
-  for (const key of INHERITABLE) field(key)
-  const edition = optional(readEdition)(field('edition'), at(where, 'edition')) ?? '2015'
+  const fields = Object.fromEntries(INHERITABLE.map((key) => [key, inheritField(value[key], at(where, key), key, workspace)]))
+  const edition = optional(readEdition)(fields.edition, at(where, 'edition')) ?? '2015'
   if (where === 'project' && edition === '2024') throw new LockfileError('not supported in the 2024 edition: use [package]', where)
-  const version = optional(readVersion)(field('version'), at(where, 'version'))
-  const publish = field('publish')
+  const version = optional(readVersion)(fields.version, at(where, 'version'))
+  const { publish } = fields
   if (version === undefined && publish !== undefined && publish !== false && !(Array.isArray(publish) && publish.length === 0)) {
     throw new LockfileError('`publish` needs a `version`', at(where, 'publish'))
   }
@@ -151,9 +142,7 @@ const PACKAGE_ONLY = ['badges', 'features', 'lib', 'bin', 'example', 'test', 'be
 // inherits from it; a root inherits from its own [workspace].
 export function parseCargoManifest(text, workspace) {
   if (typeof text !== 'string') throw new TypeError('expected a string')
-  const doc = parseToml(text)
-  refuseKeys(doc, undefined, TOP_REFUSED)
-  table(doc, undefined, TOP)
+  const doc = table(parseToml(text), undefined, TOP, TOP_REFUSED)
   const own = doc.workspace === undefined ? undefined : readWorkspace(doc.workspace)
   if (own !== undefined && workspace !== undefined) throw new LockfileError('a workspace root inherits from its own [workspace], not another', 'workspace')
   if (workspace !== undefined && workspace.workspace === undefined) throw new TypeError('expected the manifest of a workspace root')

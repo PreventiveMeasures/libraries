@@ -8,7 +8,7 @@ import { isTable } from '../toml/value.js'
 import { parsePlatform } from './platform.js'
 import { parseRequirement } from './semver.js'
 import { boolean, checkName, entries, optional, refuse, string, strings, table } from './shape.js'
-import { gitIdentity } from './source.js'
+import { ANY_REGISTRY, sourceIdentity } from './source.js'
 
 export const NIGHTLY = 'which only a nightly cargo reads, is not supported'
 
@@ -17,7 +17,6 @@ const DETAILED = [
   'default-features', 'default_features', 'package', 'public',
 ]
 const DETAILED_REFUSED = {
-  __proto__: null,
   base: `a path base, ${NIGHTLY}`,
   artifact: `an artifact dependency, ${NIGHTLY}`,
   lib: `an artifact dependency, ${NIGHTLY}`,
@@ -25,12 +24,6 @@ const DETAILED_REFUSED = {
 }
 const INHERITED = ['workspace', 'features', 'default-features', 'default_features', 'optional', 'public']
 const KINDS = [['dependencies', 'normal'], ['dev-dependencies', 'dev'], ['build-dependencies', 'build']]
-
-export function refuseKeys(value, where, refused) {
-  for (const key of Object.keys(table(value, where))) {
-    if (key in refused) throw new LockfileError(refused[key], at(where ?? '', key))
-  }
-}
 
 // `dev_dependencies` for `dev-dependencies` and the like: gone in the 2024
 // edition, and ambiguous beside the other.
@@ -67,8 +60,7 @@ export function readSpec(value, where, name, edition) {
     parseRequirement(value, where)
     return { package: name, version: value, source: { type: 'registry', registry: undefined, index: undefined }, optional: false, defaultFeatures: true, features: [] }
   }
-  refuseKeys(value, where, DETAILED_REFUSED)
-  table(value, where, DETAILED)
+  table(value, where, DETAILED, DETAILED_REFUSED)
   const read = (key, reader) => optional(reader)(value[key], at(where, key))
   const version = read('version', string)
   if (version !== undefined) parseRequirement(version, at(where, 'version'))
@@ -126,8 +118,8 @@ function inherit(value, where, name, context) {
 
 // What tells two sources apart without a filesystem: a path's is not.
 function sourceKey(source) {
-  if (source.type === 'git') return gitIdentity(source.url, ['branch', 'tag', 'rev'].flatMap((key) => (source[key] === undefined ? [] : [key, source[key]])))
-  return source.type === 'path' ? 'path' : JSON.stringify([source.registry, source.index])
+  const identity = sourceIdentity(source, 'path')
+  return identity === ANY_REGISTRY ? `${identity} ${source.registry}` : identity
 }
 
 function readDependencies(value, where, kind, target, context) {

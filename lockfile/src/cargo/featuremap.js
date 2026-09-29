@@ -23,37 +23,34 @@ export function featureMap(value, where, dependencies) {
   for (const [name, list, here] of entries(value ?? Object.create(null), where)) written[checkFeature(name, here)] = strings(list, here)
   const optionalDep = new Map()
   for (const dep of dependencies) optionalDep.set(dep.name, (optionalDep.get(dep.name) ?? false) || dep.optional)
-  const explicit = new Set(Object.values(written).flat().filter((item) => item.startsWith('dep:')).map((item) => item.slice(4)))
+  const values = Object.values(written).flat().map(featureValue)
+  const explicit = new Set(values.filter((item) => item.feature === undefined).map((item) => item.dep))
   const map = Object.assign(Object.create(null), written)
   for (const dep of dependencies) {
     if (dep.optional && !(dep.name in written) && !explicit.has(dep.name)) map[dep.name] = [`dep:${dep.name}`]
   }
   const used = new Set()
   for (const [feature, list] of Object.entries(map)) {
-    const here = at(where, feature)
     for (const item of list) {
       const fail = (why) => {
-        throw new LockfileError(`${quote(item)} ${why}`, here)
+        throw new LockfileError(`${quote(item)} ${why}`, at(where, feature))
       }
-      const slash = item.indexOf('/')
-      if (slash === -1 && !item.startsWith('dep:')) {
-        if (item in written) continue
-        if (!optionalDep.has(item)) fail('is neither a feature nor a dependency')
-        if (!optionalDep.get(item)) fail('is a dependency, but not an optional one')
-        if (!(item in map)) fail(`is an optional dependency with no feature of its name: use "dep:${item}"`)
+      const { dep, feature: named, weak } = featureValue(item)
+      if (dep === undefined) {
+        if (named in written) continue
+        if (!optionalDep.has(named)) fail('is neither a feature nor a dependency')
+        if (!optionalDep.get(named)) fail('is a dependency, but not an optional one')
+        if (!(named in map)) fail(`is an optional dependency with no feature of its name: use "dep:${named}"`)
         continue
       }
-      const weak = slash !== -1 && item[slash - 1] === '?'
-      const dep = slash === -1 ? item.slice(4) : item.slice(0, weak ? slash - 1 : slash)
       used.add(dep)
-      if (slash !== -1 && item.includes('/', slash + 1)) fail('has more than one "/"')
+      if (named?.includes('/')) fail('has more than one "/"')
       if (dep.startsWith('dep:')) fail('has both "dep:" and "/"')
       if (!optionalDep.has(dep)) fail(`names ${quote(dep)}, which is not a dependency`)
-      if ((slash === -1 || weak) && !optionalDep.get(dep)) fail(`names ${quote(dep)}, which is not an optional dependency`)
+      if ((named === undefined || weak) && !optionalDep.get(dep)) fail(`names ${quote(dep)}, which is not an optional dependency`)
     }
   }
   const unused = [...optionalDep].find(([name, isOptional]) => isOptional && !used.has(name))
   if (unused !== undefined) throw new LockfileError(`optional dependency ${quote(unused[0])} is in no feature: add "dep:${unused[0]}" to one`, where)
   return map
 }
-
