@@ -5,7 +5,8 @@
 // manifest's. Cargo ties the two together by name, version requirement and
 // source; so does this, and refuses where it cannot do so one way only:
 // a declaration two edges could be, an edge no declaration is, a
-// declaration the lockfile should resolve and does not. A declaration is
+// declaration the lockfile should resolve and does not, a package no member
+// depends on, which cargo would have pruned. A declaration is
 // active where the lockfile's resolve, every member's every feature on,
 // turns it on; the lockfile's edges are the active declarations'.
 
@@ -73,7 +74,13 @@ export function linkCargo(lock, manifests, options) {
   const why = (dep) => (ambiguous.has(dep)
     ? `${quote(dep.name)} could be any of ${ambiguous.get(dep).map(quote).join(', ')}`
     : `the lockfile resolves no ${quote(dep.name)}, which the members' features turn on: is it out of date?`)
-  for (const dep of activate(packages, roots, why)) dep.active = true
+  const reached = new Set(members)
+  for (const dep of activate(packages, roots, why)) {
+    dep.active = true
+    reached.add(dep.resolved)
+  }
+  const lost = Object.keys(packages).find((key) => !reached.has(key))
+  if (lost !== undefined) throw new LockfileError('no member depends on it, directly or not: is the lockfile out of date?', lost)
   for (const [key, pkg] of Object.entries(packages)) {
     const claimed = new Set(pkg.dependencies.filter((dep) => dep.active).map((dep) => dep.resolved))
     const stray = lock.packages[key].dependencies.find((dep) => !claimed.has(dep))

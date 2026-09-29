@@ -100,6 +100,12 @@ function link({ lock = LOCK, change = {} } = {}) {
 
 const refusedWith = (message) => (error) => error instanceof LockfileError && error.message === message
 
+// A path package beside the workspace, which cargo would have pruned.
+const Z = '[[package]]\nname = "z"\nversion = "0.1.0"\n'
+const Z_MANIFEST = '[package]\nname = "z"\nversion = "0.1.0"\n'
+const Y = `y 1.0.0 (${CRATES})`
+const UNREACHED = 'no member depends on it, directly or not: is the lockfile out of date?'
+
 describe('linkCargo', () => {
   const graph = link()
 
@@ -122,6 +128,12 @@ describe('linkCargo', () => {
     ['an edge no declaration is', { lock: LOCK.replace('dependencies = ["b 2.0.0"]', 'dependencies = ["b 2.0.0", "c"]') }, 'a 0.1.0: the lockfile\'s edge to "c 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)" is no dependency the members\' features turn on: is it out of date?'],
     ['a declaration two packages could be', { change: { 'app 0.1.0': `${MANIFESTS['app 0.1.0']}bb = { package = "b", version = ">=1" }\n` } }, `app 0.1.0: "bb" could be any of "${B1}", "${B2}"`],
     ['a feature the package does not have', { change: { 'app 0.1.0': MANIFESTS['app 0.1.0'].replace('["fast"]', '["fast", "nope"]') } }, `app 0.1.0: "nope" is asked of "${B2}", which has no such feature`],
+    ['a path package no member depends on', { lock: `${LOCK}\n${Z}`, change: { 'z 0.1.0': Z_MANIFEST } }, `z 0.1.0: ${UNREACHED}`],
+    [
+      'what only such a package depends on',
+      { lock: `${LOCK}\n[[package]]\nname = "y"\nversion = "1.0.0"\nsource = "${CRATES}"\nchecksum = "${SUM}"\n\n${Z}dependencies = ["y"]\n`, change: { 'z 0.1.0': `${Z_MANIFEST}\n[dependencies]\ny = "1"\n`, [Y]: '[package]\nname = "y"\nversion = "1.0.0"\n' } },
+      `${Y}: ${UNREACHED}`,
+    ],
   ]
   for (const [title, input, message] of refused) {
     it(`refuses ${title}`, () => assert.throws(() => link(input), refusedWith(message)))

@@ -163,7 +163,8 @@ function resolveEdge(edge, where, byName) {
 }
 
 // Every package is reached from a path package, a workspace member or one
-// of their path dependencies, as cargo prunes the rest.
+// of their path dependencies, as cargo prunes the rest; which of them are
+// members, and reach it, linkCargo checks.
 function checkReached(packages, where) {
   const reached = new Set(packages.filter((pkg) => pkg.source === undefined))
   for (const pkg of reached) for (const next of pkg.resolved) reached.add(next)
