@@ -149,10 +149,12 @@ const IGNORED = new Set([
   'onlyBuiltDependencies', 'onlyBuiltDependenciesFile', 'preferSymlinkedExecutables', 'scriptShell',
   'shellEmulator', 'strictDepBuilds', 'unsafePerm', 'verifyDepsBeforeRun',
   // how the command runs, and what other commands read
-  'auditConfig', 'executionEnv', 'requiredScripts', 'updateConfig',
-  'bail', 'ci', 'color', 'frozenLockfile', 'loglevel', 'managePackageManagerVersions',
-  'packageManagerStrict', 'packageManagerStrictVersion', 'preferFrozenLockfile', 'recursiveInstall', 'reporter',
-  'updateNotifier', 'useBetaCli', 'workspaceConcurrency',
+  'auditConfig', 'bail', 'ci', 'color', 'executionEnv', 'loglevel', 'recursiveInstall', 'reporter', 'requiredScripts',
+  'updateConfig', 'updateNotifier', 'useBetaCli', 'workspaceConcurrency',
+  // an install here is always frozen, whatever these say
+  'frozenLockfile', 'preferFrozenLockfile',
+  // the root package.json's packageManager is always held to be host.pnpm
+  'managePackageManagerVersions', 'packageManagerStrict', 'packageManagerStrictVersion',
 ])
 // `_auth` and the like are credentials for the default registry.
 const CREDENTIALS = new Set(['_auth', '_authToken', '_password', 'username'])

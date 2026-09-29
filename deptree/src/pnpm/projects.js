@@ -14,13 +14,21 @@
 // under, and a version the importer resolved has to be in its range. Its
 // publishConfig.directory and dependenciesMeta have to be the importer's.
 //
-// Without --frozen-lockfile pnpm holds workspace packages to more: that a
-// dependency is linked exactly where the workspace's own version is in
-// its range. A frozen install does not, and neither does this.
+// Each package.json is read as pnpm reads it before that: through its
+// read-package hook (hook.js), so a direct dependency overridden or an
+// optional one ignored is held to the importer as overridden or left out;
+// and held to the host by its engines (install.js's checkProject). The
+// root one's packageManager, where it names one, has to be the pnpm the
+// tree is built for: pnpm 10 would run that one instead.
+//
+// Installs are frozen, always: pnpm's further checks without
+// --frozen-lockfile, that workspace packages are linked exactly where
+// their version is in range, are not made.
 
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
+import { checkProject } from './install.js'
 import { validForOldPackages } from './overrides.js'
 
 const KINDS = ['optionalDependencies', 'dependencies', 'devDependencies']
@@ -127,11 +135,43 @@ function mismatch(importer, manifest, autoInstallPeers, where) {
   return undefined
 }
 
-export function checkProjects(lockfile, manifests, { autoInstallPeers }) {
+// packageManager as pnpm's parsePackageManager reads it, held to be this
+// pnpm, exactly: pnpm switches to the version it names, and one it cannot
+// switch to, or another package manager, is refused rather than run over.
+function checkPackageManager(manifest, host) {
+  const { packageManager } = manifest
+  if (packageManager === undefined) return
+  const where = 'manifests["."].packageManager'
+  const version = typeof packageManager === 'string' ? /^pnpm@([^+:@]+)(?:\+.*)?$/u.exec(packageManager)?.[1] : undefined
+  if (version === undefined || valid(version) !== version) throw new DeptreeError(`${quote(String(packageManager))} is not pnpm at an exact version`, where)
+  if (version !== host.pnpm) throw new DeptreeError(`the project is installed by pnpm ${version}, which pnpm switches to, not ${host.pnpm}`, where)
+}
+
+// A runtime pnpm would download and install as a dependency, which is
+// refused as the lockfile reader refuses a `runtime:` one.
+const RUNTIMES = [['devEngines', 'devDependencies'], ['engines', 'dependencies']]
+function checkRuntimes(manifest, where) {
+  for (const [field, kind] of RUNTIMES) {
+    const runtime = manifest[field]?.runtime
+    if (runtime === undefined || runtime === null) continue
+    const runtimes = Array.isArray(runtime) ? runtime : [runtime]
+    for (const name of ['node', 'deno', 'bun']) {
+      if (manifest[kind]?.[name]) continue
+      if (runtimes.find((item) => item?.name === name)?.onFail === 'download') throw new DeptreeError(`a ${name} runtime to download is not supported`, `${where}.${field}.runtime`)
+    }
+  }
+}
+
+// `hook` is hook.js's, which each package.json is read through; `host`
+// and `settings` what its engines are held to.
+export function checkProjects(lockfile, manifests, { hook, host, settings }) {
+  checkPackageManager(manifests.get('.'), host)
   for (const [id, manifest] of manifests) {
     const where = `manifests[${quote(id)}]`
-    const reason = mismatch(lockfile.importers[id], manifest, autoInstallPeers, where)
-    if (reason !== undefined) throw new DeptreeError(`the lockfile is not up to date with this package.json, which pnpm refuses a frozen install for: ${reason}`, where)
+    checkProject(manifest, where, { host, settings })
+    checkRuntimes(manifest, where)
+    const reason = mismatch(lockfile.importers[id], hook(manifest, where, { local: 'refuse' }), settings.autoInstallPeers, where)
+    if (reason !== undefined) throw new DeptreeError(`the lockfile is not up to date with this package.json, which a frozen install refuses: ${reason}`, where)
   }
 }
 

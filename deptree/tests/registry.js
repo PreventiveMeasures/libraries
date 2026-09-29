@@ -19,10 +19,11 @@ export const url = (name, version) => `https://registry.npmjs.org/${name}/-/${na
 
 // A package's tarball as npm packs one, everything under `package/`:
 // `files` maps a path to text, or to `{ data, mode }`, and package.json is
-// written for the name and version unless given.
-export async function tarball(name, version, files = {}, { top = 'package' } = {}) {
-  const all = { 'package.json': JSON.stringify({ name, version }), ...files }
-  const entries = Object.entries(all).map(([path, file]) => {
+// written for the name and version, and the fields of `manifest`, unless
+// given.
+export async function tarball(name, version, files = {}, { top = 'package', manifest = {} } = {}) {
+  const all = { 'package.json': JSON.stringify({ name, version, ...manifest }), ...files }
+  const entries = Object.entries(all).filter(([, file]) => file !== undefined).map(([path, file]) => {
     const { data, mode } = typeof file === 'string' ? { data: file } : file
     return { name: `${top}/${path}`, data: typeof data === 'string' ? encoder.encode(data) : data, mode: mode ?? 0o644 }
   })

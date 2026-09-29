@@ -3,9 +3,8 @@
 // (@pnpm/lockfile.settings-checker's getOutdatedLockfileSetting): the
 // catalogs, the overrides, the package extensions' checksum, the optional
 // dependencies left out, the patches, and a few of its own settings. Where
-// one differs, `--frozen-lockfile` refuses to install and a plain install
-// resolves anew, and either way the tree is not this lockfile's: so it is
-// refused here, named as pnpm names it.
+// one differs, `--frozen-lockfile` refuses to install, and so does this,
+// naming the setting as pnpm names it. An install here is always frozen.
 //
 // The patches are hashed here, all of them, as pnpm reads every one it is
 // configured with, whether or not a package installed uses it; each has to
@@ -17,8 +16,9 @@ import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { sha256Hex } from '../hash.js'
 import { parseOverrides } from './overrides.js'
+import { checkPatchUse } from './patches.js'
 
-const outdated = (name, detail) => new DeptreeError(`${detail}; pnpm would refuse a frozen install for it, and resolve anew otherwise`, name)
+const outdated = (name, detail) => new DeptreeError(`${detail}, which a frozen install refuses`, name)
 
 // The first place two mappings of strings differ, for a message.
 function difference(locked, configured) {
@@ -86,5 +86,6 @@ export async function checkUpToDate(lockfile, settings, given) {
   if (locked.autoInstallPeers !== undefined && locked.autoInstallPeers !== settings.autoInstallPeers) throw outdated('settings.autoInstallPeers', `autoInstallPeers is ${locked.autoInstallPeers} in the lockfile`)
   if (Boolean(locked.dedupePeers) !== settings.dedupePeers) throw outdated('settings.dedupePeers', `dedupePeers is ${Boolean(locked.dedupePeers)} in the lockfile`)
   if ((locked.peersSuffixMaxLength ?? 1000) !== settings.peersSuffixMaxLength) throw outdated('settings.peersSuffixMaxLength', `peersSuffixMaxLength is ${locked.peersSuffixMaxLength ?? 'left at 1000'} in the lockfile`)
+  checkPatchUse(lockfile, hashes)
   return byHash
 }

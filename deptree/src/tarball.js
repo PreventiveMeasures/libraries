@@ -7,17 +7,23 @@
 // (@pnpm/store.cafs): the first segment of each name dropped, whatever it
 // is, only files kept, as ones not executable or executable by anyone.
 //
-// pnpm passes over what it does not keep, and takes a later file under a
-// name over an earlier one; here a link of either kind or a device is
-// refused, and so is a name that comes out twice as two different files.
-// A tarball's package.json, if it has one, is held to the name and
-// version the lockfile gives it, as pnpm holds a store's.
+// Here it is held to more than pnpm holds it to, to what npm packs: a
+// gzipped tarball, every file under one directory, no link of either kind
+// or device, which pnpm would pass over or refuse, and no name twice as
+// two different files, of which pnpm would keep the later. It has to have
+// a package.json, for exactly the name and version the lockfile says, and
+// that package.json has to agree with what the lockfile recorded of the
+// package's: its os, cpu and libc, whether it has bins, what it bundles.
+// And every dependency it asks for, read through pnpm's read-package hook
+// as pnpm reads it (hook.js), has to be among its snapshot's, bundled or
+// optional ones aside: a lockfile that leaves one out would leave the
+// package to find it wherever it is hoisted, if anywhere. A registry whose
+// metadata says other than its tarball does is caught at the same time.
 
 import { decompress } from '@preventive/archive/compression.js'
 import { unpack } from '@preventive/archive/tar.js'
 import { normalize } from '@preventive/vfs/path.js'
 import { getTarball } from '@preventive/upstream/npm.js'
-import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from './error.js'
 import { matchesIntegrity } from './hash.js'
 
@@ -28,7 +34,6 @@ const REGISTRY = 'https://registry.npmjs.org/'
 // The registry's own URL for a version's tarball, as npm and pnpm spell it.
 export const tarballUrl = (name, version) => `${REGISTRY}${name}/-/${name.split('/').at(-1)}-${version}.tgz`
 
-const isGzip = (bytes) => bytes[0] === 0x1f && bytes[1] === 0x8b && bytes[2] === 0x08
 
 // pnpm's name for an entry: past the first `/` of the name as stored,
 // folded where it has a `./` in it, a `//` made one.
@@ -44,9 +49,12 @@ const sameFile = (a, b) => a.mode === b.mode && a.data.length === b.data.length 
 // A Map of each file's path in the package to its bytes and mode.
 export function filesOf(entries, where) {
   const files = new Map()
+  const tops = new Set()
   for (const entry of entries) {
-    if (entry.type === 'directory' || entry.type === 'symlink') continue
+    if (entry.type === 'directory') continue
     if (entry.type !== 'file') throw new DeptreeError(`${quote(entry.name)} is a ${entry.type}, which is not supported`, where)
+    tops.add(entry.storedName.slice(0, Math.max(entry.storedName.indexOf('/'), 0)))
+    if (tops.size > 1) throw new DeptreeError('the tarball has files under more than one directory, or at its top', where)
     const name = nameOf(entry.storedName)
     if (name === '' || name.split('/').some((segment) => segment === '' || segment === '.' || segment === '..')) {
       throw new DeptreeError(`${quote(entry.storedName)} names no file in the package`, where)
@@ -60,29 +68,57 @@ export function filesOf(entries, where) {
 }
 
 const decoder = new TextDecoder('utf-8', { fatal: true })
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b)
+const names = (value) => Object.keys(value ?? {})
 
-function checkManifest(files, pkg, where) {
+// Whether a package.json has bins, as the lockfile's hasBin records it.
+const hasBin = (manifest) => Boolean((manifest.bin && (typeof manifest.bin === 'string' || Object.keys(manifest.bin).length > 0)) || manifest.directories?.bin)
+
+function readManifest(files, pkg, where) {
   const file = files.get('package.json')
-  if (file === undefined) return
+  if (file === undefined) throw new DeptreeError('the tarball has no package.json', where)
   let manifest
   try {
     manifest = JSON.parse(decoder.decode(file.data))
   } catch {
     throw new DeptreeError('package.json is not JSON', where)
   }
-  const { name, version } = manifest ?? {}
-  const sameName = typeof name === 'string' && name.toLowerCase() === pkg.name.toLowerCase()
-  const sameVersion = version === pkg.version || (typeof version === 'string' && valid(version, { loose: true }) === pkg.version)
-  if (!sameName || !sameVersion) throw new DeptreeError(`package.json is for ${quote(`${name}@${version}`)}`, where)
+  if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) throw new DeptreeError('package.json is not an object', where)
+  if (manifest.name !== pkg.name || manifest.version !== pkg.version) throw new DeptreeError(`package.json is for ${quote(`${manifest.name}@${manifest.version}`)}`, where)
+  return manifest
+}
+
+// What the lockfile recorded of the package, and its snapshot's
+// dependencies, against the package.json: `hook` is hook.js's.
+function checkManifest(manifest, pkg, where, hook) {
+  for (const field of ['os', 'cpu', 'libc']) {
+    if (!same(manifest[field], pkg[field])) throw new DeptreeError(`package.json's ${field} is not the lockfile's`, where)
+  }
+  if (hasBin(manifest) !== pkg.hasBin) throw new DeptreeError(`package.json ${pkg.hasBin ? 'has no bins, and the lockfile says it has' : 'has bins, and the lockfile says it has none'}`, where)
+  const bundled = manifest.bundleDependencies ?? manifest.bundledDependencies
+  if (!same(bundled, pkg.bundledDependencies)) throw new DeptreeError('package.json bundles other than the lockfile says', where)
+  const read = hook(manifest, `${where}: package.json`)
+  const given = new Set([...names(pkg.dependencies), ...names(pkg.optionalDependencies)])
+  for (const name of [...names(read.dependencies), ...names(read.optionalDependencies)]) {
+    if (bundled === true || (Array.isArray(bundled) && bundled.includes(name)) || given.has(name)) continue
+    throw new DeptreeError(`package.json asks for ${quote(name)}, which the lockfile does not give it`, where)
+  }
+  // A peer resolved is filed as optional where it is optional; pnpm's
+  // compatibility database adds peers to a few packages, which the
+  // lockfile records among their peers and the package.json does not.
+  const optional = new Set([...names(read.optionalDependencies), ...names(manifest.peerDependencies), ...names(manifest.peerDependenciesMeta), ...names(pkg.peerDependencies), ...names(pkg.peerDependenciesMeta)])
+  for (const name of names(pkg.optionalDependencies)) {
+    if (!optional.has(name)) throw new DeptreeError(`the lockfile gives it ${quote(name)} as optional, which its package.json does not`, where)
+  }
 }
 
 // The files of a snapshot's package, which has to be from the registry.
-export async function fetchFiles(pkg, where) {
+export async function fetchFiles(pkg, where, hook) {
   const { integrity } = pkg.resolution
   const bytes = await getTarball(pkg.name, pkg.version, { tarball: tarballUrl(pkg.name, pkg.version), integrity })
   if (!await matchesIntegrity(bytes, integrity)) throw new DeptreeError(`the tarball is not ${integrity}`, where)
-  const tar = isGzip(bytes) ? await decompress(bytes, 'gzip', { limit: MAX_BYTES }) : bytes
-  const files = filesOf(unpack(tar), where)
-  checkManifest(files, pkg, where)
+  if (bytes[0] !== 0x1f || bytes[1] !== 0x8b || bytes[2] !== 0x08) throw new DeptreeError('the tarball is not gzipped', where)
+  const files = filesOf(unpack(await decompress(bytes, 'gzip', { limit: MAX_BYTES })), where)
+  checkManifest(readManifest(files, pkg, where), pkg, where, hook)
   return files
 }

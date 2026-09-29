@@ -52,6 +52,32 @@ function checkEngine(pkg, node) {
   return 'engine'
 }
 
+// A package.json's os, cpu or libc as pnpm's checkList reads one: a string
+// is a list of it, and what is not a string in a list is passed over.
+function platformList(value, where) {
+  if (value === undefined || value === null) return undefined
+  if (typeof value === 'string') return [value]
+  if (Array.isArray(value)) return value.filter((item) => typeof item === 'string')
+  throw new DeptreeError('expected a string or a list of them', where)
+}
+
+// A project as pnpm's packageIsInstallable holds it when it reads its
+// package.json: a platform the host is not only warns, and so does an
+// engines.node it does not take, unless engineStrict; an engines.pnpm it
+// does not take is always refused. As pnpm has it, a platform that does
+// not match is found first, and the engines are then not looked at.
+export function checkProject(manifest, where, { host, settings }) {
+  const platform = { os: platformList(manifest.os, `${where}.os`), cpu: platformList(manifest.cpu, `${where}.cpu`), libc: platformList(manifest.libc, `${where}.libc`) }
+  if (checkPlatform(platform, host, settings.supportedArchitectures ?? { os: ['current'], cpu: ['current'], libc: ['current'] }) !== undefined) return
+  const engines = manifest.engines
+  if (engines === undefined || engines === null) return
+  const node = settings.nodeVersion ?? host.node
+  if (engines.pnpm && !satisfies(host.pnpm, engines.pnpm, { includePrerelease: true })) {
+    throw new DeptreeError(`its engines.pnpm, ${quote(String(engines.pnpm))}, does not take pnpm ${host.pnpm}, which pnpm refuses`, where)
+  }
+  if (settings.engineStrict && checkEngine({ engines }, node) !== undefined) throw new DeptreeError(`its engines.node, ${quote(String(engines.node))}, does not take Node ${node}, which engineStrict refuses`, where)
+}
+
 // A check of one snapshot: true where the host can run it, false where it
 // is optional and cannot, and null where it cannot but is not optional and
 // is installed anyway. With `engineStrict` that last is refused.

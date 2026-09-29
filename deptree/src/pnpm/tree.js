@@ -27,6 +27,9 @@ import { fetchFiles, tarballUrl } from '../tarball.js'
 import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
 import { createCheck, skippedSnapshots } from './install.js'
+import { checkCollisions, checkLinks, checkOptional } from './checks.js'
+import { createHook } from './hook.js'
+import { listOverrides } from './overrides.js'
 import { checkProjects, readManifests, workspaceNames } from './projects.js'
 import { readSettings } from './settings.js'
 import { checkUpToDate } from './uptodate.js'
@@ -71,10 +74,10 @@ function checkRegistry(node) {
   if (!resolution.integrity?.startsWith('sha512-')) throw new DeptreeError('expected a sha512 integrity', quote(key))
 }
 
-async function install(vfs, node, patches) {
+async function install(vfs, node, patches, hook) {
   const where = quote(node.key)
   try {
-    const files = await fetchFiles(node.pkg, where)
+    const files = await fetchFiles(node.pkg, where, hook)
     vfs.mkdir(`/${node.dir}`, { recursive: true })
     for (const [path, { data, mode }] of files) {
       vfs.mkdir(dirname(`/${node.dir}/${path}`), { recursive: true })
@@ -94,13 +97,13 @@ async function install(vfs, node, patches) {
 
 // Each node's package, a few at a time; the first failure stops the rest
 // from starting.
-async function installAll(vfs, nodes, patches) {
+async function installAll(vfs, nodes, patches, hook) {
   const queue = [...nodes]
   let failed = false
   const worker = async () => {
     while (queue.length > 0 && !failed) {
       try {
-        await install(vfs, queue.shift(), patches)
+        await install(vfs, queue.shift(), patches, hook)
       } catch (error) {
         failed = true
         throw error
@@ -163,15 +166,18 @@ export async function buildPnpmTree(options) {
   const settings = readSettings({ workspace: readWorkspace(workspace), npmrc, manifest: manifests.get('.'), os: host.os })
   checkLockfile(lockfile)
   const given = await checkUpToDate(lockfile, settings, readPatchesGiven(patches))
-  checkProjects(lockfile, manifests, settings)
+  const hook = createHook({ overrides: listOverrides(settings.overrides, settings.catalogs), ignored: settings.ignoredOptionalDependencies })
+  checkProjects(lockfile, manifests, { hook, host, settings })
+  checkOptional(lockfile)
   const projects = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
   const skipped = skippedSnapshots(lockfile, createCheck({ host, settings }))
   const { nodes, direct } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength)
   for (const node of nodes.values()) checkRegistry(node)
   const vfs = new Vfs()
   vfs.mkdir('/node_modules/.pnpm', { recursive: true })
-  await installAll(vfs, nodes.values(), given)
-  for (const [path, target] of linksOf(nodes, direct, settings, projects)) {
+  await installAll(vfs, nodes.values(), given, hook)
+  const links = linksOf(nodes, direct, settings, projects)
+  for (const [path, target] of links) {
     try {
       vfs.mkdir(dirname(`/${path}`), { recursive: true })
       vfs.symlink(linkTarget(path, target), `/${path}`)
@@ -179,5 +185,7 @@ export async function buildPnpmTree(options) {
       throw new DeptreeError(`cannot be linked: ${error.message}`, quote(path), { cause: error })
     }
   }
+  checkLinks(vfs, links)
+  if (host.os === 'darwin') checkCollisions(vfs)
   return vfs
 }

@@ -53,8 +53,11 @@ export interface PnpmTreeOptions {
   host: PnpmHost
 }
 
-// The node_modules tree pnpm 10 installs from a frozen lockfile with the
-// isolated linker, rooted at the lockfile's directory: each package's
+// The node_modules tree `pnpm install --frozen-lockfile --ignore-scripts`
+// makes with pnpm 10's isolated linker, and no other install: whatever the
+// settings say of frozen lockfiles, the install is frozen, which is also
+// the only one that hoists by the lockfile's graph alone. It is rooted at
+// the lockfile's directory: each package's
 // files at node_modules/.pnpm/<dir>/node_modules/<name>, its dependencies
 // linked beside it, the hoisted aliases, and each project's own
 // node_modules of links. Links are relative; a `link:` dependency leads
@@ -63,12 +66,26 @@ export interface PnpmTreeOptions {
 // settings would allow to build. Bins, and the executable bit pnpm gives
 // the files they run, and pnpm's own state files are not written.
 //
-// The lockfile is held to the settings as pnpm holds it before a frozen
-// install — catalogs, overrides, package extensions, optional
-// dependencies left out, patches, autoInstallPeers, dedupePeers,
-// peersSuffixMaxLength — and to each project's package.json, and refused
-// where one differs, as pnpm would refuse it with --frozen-lockfile and
-// resolve anew without.
+// The lockfile is held to what a frozen install holds it to, and refused
+// where pnpm would refuse it: the settings that shaped its resolution —
+// catalogs, overrides, package extensions, optional dependencies left
+// out, patches, autoInstallPeers, dedupePeers, peersSuffixMaxLength —
+// and each project's package.json, read through pnpm's read-package hook
+// as pnpm reads it. The root package.json's packageManager, where it has
+// one, has to be `pnpm@` host.pnpm exactly, as pnpm would switch to the
+// one it names; a project's engines.pnpm has to take host.pnpm, and with
+// engineStrict its engines.node host.node.
+//
+// And to more than pnpm holds it to, where a lockfile pnpm writes, or a
+// package the registry serves, always holds: each snapshot marked
+// optional exactly where only optional dependencies reach it; each patch
+// on the package the settings pick it for, and each used; each tarball
+// gzipped, every file under one directory, no link or device in it, and
+// a package.json for exactly its name and version, whose os, cpu, libc,
+// bins and bundled dependencies are what the lockfile recorded and whose
+// every dependency the snapshot has. On macOS, two names in one directory
+// that differ only in case or normalization are refused, as they would be
+// one name there.
 //
 // Packages come from https://registry.npmjs.org/ alone, fetched through
 // @preventive/upstream, and each tarball is held to the lockfile's
@@ -79,8 +96,9 @@ export interface PnpmTreeOptions {
 // setting this does not know or does not build for, overrides pnpm cannot
 // read, a lockfile not resolved with these settings, a package from
 // anywhere but the registry, a pnpmfile, package extensions, an injected
-// dependency, a lockfile not up to date with a package.json, two projects
-// of one name, a patch that does not hash or apply, text
+// dependency, a lockfile not up to date with a package.json, another
+// package manager, a runtime to download, two projects of one name, a
+// patch that does not hash or apply, a check above that fails, text
 // that is not well-formed where it is hashed — each is refused with a
 // DeptreeError, a LockfileError or a YamlError that says where. A
 // TypeError is thrown for options of the wrong type.

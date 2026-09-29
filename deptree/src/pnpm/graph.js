@@ -45,6 +45,7 @@ export async function buildGraph(lockfile, skipped, maxLength) {
   const direct = new Map()
   for (const [id, importer] of Object.entries(lockfile.importers)) {
     if (id.startsWith('../') || id === '..') throw new DeptreeError('a project outside the lockfile\'s directory is not supported', `importers[${quote(id)}]`)
+    if (id.split('/').includes('node_modules')) throw new DeptreeError('a project inside node_modules would be inside the tree', `importers[${quote(id)}]`)
     direct.set(id, childrenOf({ ...importer.devDependencies, ...importer.dependencies, ...importer.optionalDependencies }, nodes, skipped))
   }
   return { nodes, direct }

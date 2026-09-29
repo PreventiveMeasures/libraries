@@ -29,10 +29,10 @@ const TARBALLS = await Promise.all([
   tarball('a', '1.0.0', { 'index.js': 'a' }),
   tarball('b', '1.0.0'),
   tarball('c', '2.0.0'),
-  tarball('d', '1.0.0', { 'bin/d.js': { data: '#!/usr/bin/env node\n', mode: 0o755 } }),
+  tarball('d', '1.0.0', { 'bin/d.js': { data: '#!/usr/bin/env node\n', mode: 0o755 } }, { manifest: { bin: { d: 'bin/d.js' } } }),
   tarball('e', '1.0.0'),
   tarball('lodash', '4.17.21', { 'lodash.js': 'lodash' }),
-  tarball('mac', '1.0.0'),
+  tarball('mac', '1.0.0', {}, { manifest: { os: ['darwin'] } }),
   tarball('p', '1.0.0', { 'index.js': 'module.exports = 1\n' }),
 ])
 const I = Object.fromEntries(TARBALLS.map((t) => [t.name, t.integrity]))
@@ -227,7 +227,9 @@ describe('buildPnpmTree refuses', () => {
     await refuses({ lockfile: lockfile().replace(I.b, other.integrity) }, /^"b@1\.0\.0": package.json is for "bb@1\.0\.0"/u)
   })
 
-  it('a hard link in a tarball, and passes over a symlink', async () => {
+  // pnpm passes over a symlink, and npm packs none: a tarball with one was
+  // not packed by npm, and is refused as a hard link or a device is.
+  it('a link of either kind in a tarball', async () => {
     const { pack } = await import('@preventive/archive/tar.js')
     const { compress } = await import('@preventive/archive/compression.js')
     const entries = (extra) => [{ name: 'package/package.json', data: new TextEncoder().encode('{"name":"c","version":"2.0.0"}') }, extra]
@@ -236,10 +238,58 @@ describe('buildPnpmTree refuses', () => {
     const withLink = { name: 'c', version: '2.0.0', bytes: linked }
     stubRegistry([...TARBALLS.filter((t) => t.name !== 'c'), withLink])
     const { sri } = await import('./registry.js')
-    const vfs = await build({ lockfile: lockfile().replace(I.c, sri(linked)) })
-    assert.deepEqual(vfs.readdir('/node_modules/.pnpm/c@2.0.0/node_modules/c'), ['package.json'])
+    await refuses({ lockfile: lockfile().replace(I.c, sri(linked)) }, /^"c@2\.0\.0": "package\/x" is a symlink, which is not supported$/u)
     stubRegistry([...TARBALLS.filter((t) => t.name !== 'c'), { ...withLink, bytes: hard }])
     await refuses({ lockfile: lockfile().replace(I.c, sri(hard)) }, /^"c@2\.0\.0": "package\/x" is a hardlink/u)
+  })
+
+  // Stricter than pnpm, which passes over most of these: what npm packs,
+  // and a package.json that says what the lockfile recorded of it.
+  it('a tarball that is not one npm packs, or whose package.json the lockfile does not agree with', async () => {
+    const { sri } = await import('./registry.js')
+    const cases = [
+      [await tarball('b', '1.0.0', {}, { manifest: { os: ['darwin'] } }), /package\.json's os is not the lockfile's$/u],
+      [await tarball('b', '1.0.0', {}, { manifest: { bin: 'x.js' } }), /package\.json has bins, and the lockfile says it has none$/u],
+      [await tarball('b', '1.0.0', {}, { manifest: { bundleDependencies: ['z'] } }), /package\.json bundles other than the lockfile says$/u],
+      [await tarball('b', '1.0.0', {}, { manifest: { dependencies: { z: '1.0.0' } } }), /package\.json asks for "z", which the lockfile does not give it$/u],
+      [await tarball('B', '1.0.0', {}), /package\.json is for "B@1\.0\.0"/u],
+      [await tarball('b', '1.0.0', { 'package.json': '[]' }), /package\.json is not an object$/u],
+    ]
+    for (const [served, pattern] of cases) {
+      const b = { ...served, name: 'b' }
+      stubRegistry([...TARBALLS.filter((t) => t.name !== 'b'), b])
+      await refuses({ lockfile: lockfile().replace(I.b, b.integrity) }, pattern)
+    }
+    const { pack } = await import('@preventive/archive/tar.js')
+    const { compress } = await import('@preventive/archive/compression.js')
+    const json = new TextEncoder().encode('{"name":"b","version":"1.0.0"}')
+    const two = await compress(pack([{ name: 'package/package.json', data: json }, { name: 'other/x.js', data: json }]), 'gzip')
+    stubRegistry([...TARBALLS.filter((t) => t.name !== 'b'), { name: 'b', version: '1.0.0', bytes: two }])
+    await refuses({ lockfile: lockfile().replace(I.b, sri(two)) }, /^"b@1\.0\.0": the tarball has files under more than one directory, or at its top$/u)
+    const plain = pack([{ name: 'package/package.json', data: json }])
+    stubRegistry([...TARBALLS.filter((t) => t.name !== 'b'), { name: 'b', version: '1.0.0', bytes: plain }])
+    await refuses({ lockfile: lockfile().replace(I.b, sri(plain)) }, /^"b@1\.0\.0": the tarball is not gzipped$/u)
+    const bare = await tarball('b', '1.0.0', { 'x.js': 'x', 'package.json': undefined })
+    stubRegistry([...TARBALLS.filter((t) => t.name !== 'b'), bare])
+    await refuses({ lockfile: lockfile().replace(I.b, bare.integrity) }, /^"b@1\.0\.0": the tarball has no package\.json$/u)
+  })
+
+  it('a lockfile whose optional marks pnpm would not have written', async () => {
+    await refuses({ lockfile: lockfile().replace('  mac@1.0.0:\n    optional: true\n', '  mac@1.0.0: {}\n') }, /^snapshots\["mac@1\.0\.0"\]: marked required where only optional dependencies reach it/u)
+    await refuses({ lockfile: lockfile().replace('  c@2.0.0: {}\n', '  c@2.0.0:\n    optional: true\n') }, /^snapshots\["c@2\.0\.0"\]: marked optional where an importer requires it/u)
+  })
+
+  it('a project inside node_modules', async () => {
+    const inside = lockfile().replace('importers:\n', 'importers:\n\n  node_modules/x: {}\n')
+    await refuses({ lockfile: inside, manifests: { '.': root(), 'node_modules/x': '{}' } }, /^importers\["node_modules\/x"\]: a project inside node_modules/u)
+  })
+
+  it('names that are one name on macOS, where the host is macOS', async () => {
+    const both = await tarball('b', '1.0.0', { 'Index.js': 'a', 'index.js': 'b' })
+    stubRegistry([...TARBALLS.filter((t) => t.name !== 'b'), both])
+    const vfs = await build({ lockfile: lockfile().replace(I.b, both.integrity) })
+    assert.deepEqual(vfs.readdir('/node_modules/.pnpm/b@1.0.0/node_modules/b'), ['Index.js', 'index.js', 'package.json'])
+    await refuses({ lockfile: lockfile().replace(I.b, both.integrity), host: { ...HOST, os: 'darwin', libc: 'unknown' } }, /"Index\.js" and "index\.js" are one name on macOS$/u)
   })
 
   it('a package from anywhere but the registry, before fetching anything', async () => {
@@ -258,7 +308,7 @@ describe('buildPnpmTree refuses', () => {
   it('a patch that is not given, does not hash as the lockfile says, or is named elsewhere', async () => {
     stubRegistry(TARBALLS)
     await refuses({ patches: {} }, /^patchedDependencies\["p@1\.0\.0"\]: the patch "patches\/p\.patch" is not given, and pnpm reads every patch/u)
-    await refuses({ patches: { 'patches/p.patch': PATCH.replace('= 2', '= 3') } }, /^patchedDependencies: the patches differ: "p@1\.0\.0" is "[\da-f]{64} patches\/p\.patch" in the lockfile and "[\da-f]{64} patches\/p\.patch" in the settings; pnpm would refuse a frozen install/u)
+    await refuses({ patches: { 'patches/p.patch': PATCH.replace('= 2', '= 3') } }, /^patchedDependencies: the patches differ: "p@1\.0\.0" is "[\da-f]{64} patches\/p\.patch" in the lockfile and "[\da-f]{64} patches\/p\.patch" in the settings, which a frozen install refuses$/u)
     await refuses({ patches: { 'patches/p.patch': PATCH, 'patches/q.patch': PATCH } }, /^patches\["patches\/q\.patch"\]: no patchedDependencies setting names this patch/u)
     await refuses({ patches: { 'patches/p.patch': `${PATCH}\uDC00` } }, /^patches\["patches\/p\.patch"\]: expected well-formed text to hash$/u)
     await refuses({ manifest: root({ pnpm: { patchedDependencies: undefined } }), workspace: 'patchedDependencies:\n  p@1.0.0: other.patch\n', patches: { 'other.patch': PATCH } }, /^patchedDependencies: the patches differ: .* in the lockfile and "[\da-f]{64} other\.patch" in the settings/u)
@@ -287,8 +337,9 @@ describe('buildPnpmTree refuses', () => {
   })
 
   it('an incompatible package where engineStrict has pnpm refuse one', async () => {
-    stubRegistry(TARBALLS)
-    const strict = lockfile().replace('    os: [darwin]\n', '    os: [darwin]\n\n  e@1.0.0:\n    resolution: {integrity: X}\n    os: [darwin]\n'.replace('X', I.e)).replace(`  e@1.0.0:\n    resolution: {integrity: ${I.e}}\n\n  lodash`, '  lodash')
+    const e = await tarball('e', '1.0.0', {}, { manifest: { os: ['darwin'] } })
+    stubRegistry([...TARBALLS.filter((t) => t.name !== 'e'), e])
+    const strict = lockfile().replace('    os: [darwin]\n', '    os: [darwin]\n\n  e@1.0.0:\n    resolution: {integrity: X}\n    os: [darwin]\n'.replace('X', e.integrity)).replace(`  e@1.0.0:\n    resolution: {integrity: ${I.e}}\n\n  lodash`, '  lodash')
     await refuses({ lockfile: strict, workspace: 'engineStrict: true\n' }, /^"e@1\.0\.0": the host does not take its os, cpu or libc/u)
     const vfs = await build({ lockfile: strict })
     assert.ok(vfs.isSymlink('/node_modules/e'), 'installed with a warning, as pnpm does')
@@ -309,7 +360,7 @@ describe('buildPnpmTree refuses', () => {
 
   it('a lockfile resolved with other settings', async () => {
     stubRegistry(TARBALLS)
-    await refuses({ workspace: 'autoInstallPeers: false\n' }, /^settings\.autoInstallPeers: autoInstallPeers is true in the lockfile; pnpm would refuse a frozen install/u)
+    await refuses({ workspace: 'autoInstallPeers: false\n' }, /^settings\.autoInstallPeers: autoInstallPeers is true in the lockfile, which a frozen install refuses$/u)
     await refuses({ workspace: 'dedupePeers: true\n' }, /^settings\.dedupePeers:/u)
     await refuses({ npmrc: 'peers-suffix-max-length=100\n' }, /^settings\.peersSuffixMaxLength:/u)
     await refuses({ workspace: 'ignoredOptionalDependencies: [mac]\n' }, /^ignoredOptionalDependencies: the optional dependencies left out differ/u)
@@ -330,7 +381,7 @@ describe('buildPnpmTree refuses', () => {
 
   it('a lockfile not up to date with a package.json', async () => {
     stubRegistry(TARBALLS)
-    await refuses({ manifest: root({ dependencies: { a: '^1.0.0' } }) }, /^manifests\["\."\]: the lockfile is not up to date with this package\.json, which pnpm refuses a frozen install for: the specifiers differ/u)
+    await refuses({ manifest: root({ dependencies: { a: '^1.0.0' } }) }, /^manifests\["\."\]: the lockfile is not up to date with this package\.json, which a frozen install refuses: the specifiers differ/u)
     await refuses({ manifest: root({ peerDependencies: { b: '1.0.0' } }) }, /the specifiers differ: "b" is in package\.json and not in the lockfile$/u)
     const vfs = await build({ manifest: root({ peerDependencies: { a: '1.0.0' } }), workspace: 'hoist: true\n' })
     assert.ok(vfs.isSymlink('/node_modules/a'), 'a peer the project lists as a dependency too asks for nothing more')
