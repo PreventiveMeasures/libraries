@@ -59,6 +59,12 @@ const readers = {
     if (!Array.isArray(list) || list.some((item) => typeof item !== 'string')) throw new DeptreeError(`expected a string or a list of strings, found ${show(value)}`, where)
     return [...list]
   },
+  // pnpm-workspace.yaml's `packages`, which pnpm holds to a list of
+  // non-empty strings.
+  globs(value, where) {
+    if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || item === '')) throw new DeptreeError(`expected a list of non-empty strings, found ${show(value)}`, where)
+    return [...value]
+  },
   mapping(value, where) {
     if (value !== null && typeof value === 'object' && !Array.isArray(value)) return value
     throw new DeptreeError(`expected a mapping, found ${show(value)}`, where)
@@ -110,6 +116,7 @@ const READ = {
   catalogs: { kind: 'mapping', check: checkCatalogs, rc: false },
   packageExtensions: { kind: 'mapping', rc: false },
   ignoredOptionalDependencies: { kind: 'texts', rc: false },
+  packages: { kind: 'globs', rc: false },
 }
 
 // The keys of the root package.json's `pnpm` field pnpm 10 reads; it
@@ -132,7 +139,7 @@ const IGNORED = new Set([
   // resolution, already in the lockfile
   'allowNonAppliedPatches', 'allowUnusedPatches', 'allowedDeprecatedVersions', 'blockExoticSubdeps', 'catalogMode',
   'dedupeInjectedDeps', 'dedupePeerDependents', 'linkWorkspacePackages', 'lockfileIncludeTarballUrl',
-  'minimumReleaseAge', 'minimumReleaseAgeExclude', 'packages', 'peerDependencyRules', 'preferWorkspacePackages',
+  'minimumReleaseAge', 'minimumReleaseAgeExclude', 'peerDependencyRules', 'preferWorkspacePackages',
   'registrySupportsTimeField', 'resolutionMode', 'resolvePeersFromWorkspaceRoot', 'saveExact', 'savePrefix',
   'saveWorkspaceProtocol', 'strictPeerDependencies',
   // the network, and credentials for it
@@ -148,8 +155,8 @@ const IGNORED = new Set([
   'onlyBuiltDependencies', 'onlyBuiltDependenciesFile', 'preferSymlinkedExecutables', 'scriptShell',
   'shellEmulator', 'strictDepBuilds', 'unsafePerm', 'verifyDepsBeforeRun',
   // how the command runs, and what other commands read
-  'auditConfig', 'bail', 'ci', 'color', 'executionEnv', 'loglevel', 'recursiveInstall', 'reporter', 'requiredScripts',
-  'updateConfig', 'updateNotifier', 'useBetaCli', 'workspaceConcurrency',
+  'auditConfig', 'bail', 'ci', 'color', 'executionEnv', 'ignoreWorkspaceRootCheck', 'loglevel', 'recursiveInstall',
+  'reporter', 'requiredScripts', 'updateConfig', 'updateNotifier', 'useBetaCli', 'workspaceConcurrency',
   // an install here is always frozen, whatever these say
   'frozenLockfile', 'preferFrozenLockfile',
   // the root package.json's packageManager is always held to be host.pnpm
@@ -291,6 +298,7 @@ function derive(get, os) {
     autoInstallPeers: get('autoInstallPeers') ?? true,
     dedupePeers: get('dedupePeers') ?? false,
     peersSuffixMaxLength: get('peersSuffixMaxLength') ?? 1000,
+    packages: get('packages'),
   }
 }
 

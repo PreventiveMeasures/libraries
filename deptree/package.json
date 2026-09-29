@@ -29,6 +29,7 @@
     "src/pnpm/settings.js",
     "src/pnpm/tree.js",
     "src/pnpm/uptodate.js",
+    "src/pnpm/workspace.js",
     "src/tarball.js"
   ],
   "engines": {

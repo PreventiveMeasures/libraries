@@ -29,12 +29,19 @@ export interface PnpmHost {
 // .npmrc, the environment, the command line — are not read, and are taken
 // to be at their defaults.
 //
+// A workspace is one lockfile for several projects, each a package.json:
+// the root, and every directory pnpm-workspace.yaml's `packages` globs
+// take, as pnpm globs for them — `*` and `**`, a leading `!` to leave out,
+// and no other glob syntax. Without `packages` the root is the only
+// project. Every importer has to have its package.json given, and be a
+// project those globs take; and every project pnpm would find has to be
+// given, which cannot be checked here, as the directories are not.
+//
 // Each project is held to its importer as --frozen-lockfile holds it: its
 // dependencies, devDependencies, optionalDependencies and, with
 // autoInstallPeers, the peers it lists nowhere else, have to be what the
-// importer records, and in the ranges they ask for. Every importer has to
-// have its package.json given, and every package.json an importer. The
-// projects' names are what hoistWorkspacePackages hoists them by.
+// importer records, and in the ranges they ask for. The projects' names
+// are what hoistWorkspacePackages hoists them by.
 //
 // Settings are read as `pnpm install` 10 reads them, each source over the
 // one before: the .npmrc, then pnpm-workspace.yaml, then what the

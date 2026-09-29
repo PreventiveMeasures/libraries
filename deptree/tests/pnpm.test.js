@@ -391,7 +391,8 @@ describe('buildPnpmTree refuses', () => {
 describe('buildPnpmTree with a workspace', () => {
   const two = lockfile().replace('importers:\n', 'importers:\n\n  packages/x:\n    dependencies:\n      b:\n        specifier: 1.0.0\n        version: 1.0.0\n')
   const manifests = (x) => ({ '.': root(), 'packages/x': JSON.stringify(x) })
-  const buildTwo = (x, options) => buildPnpmTree({ lockfile: two, manifests: manifests(x), patches: { 'patches/p.patch': PATCH }, host: HOST, ...options })
+  const WORKSPACE = 'packages:\n  - packages/*\n'
+  const buildTwo = (x, options) => buildPnpmTree({ lockfile: two, manifests: manifests(x), workspace: WORKSPACE, patches: { 'patches/p.patch': PATCH }, host: HOST, ...options })
 
   it('links each project\'s dependencies, and hoists each named project by its name', async () => {
     stubRegistry(TARBALLS)
@@ -400,7 +401,7 @@ describe('buildPnpmTree with a workspace', () => {
     assert.equal(vfs.readlink('/node_modules/.pnpm/node_modules/@w/x'), '../../../../packages/x')
     const unnamed = await buildTwo({ dependencies: { b: '1.0.0' } })
     assert.deepEqual(unnamed.readdir('/node_modules/.pnpm/node_modules'), ['Up', 'b', 'c', 'd'])
-    const off = await buildTwo({ name: '@w/x', dependencies: { b: '1.0.0' } }, { workspace: 'hoistWorkspacePackages: false\n' })
+    const off = await buildTwo({ name: '@w/x', dependencies: { b: '1.0.0' } }, { workspace: `${WORKSPACE}hoistWorkspacePackages: false\n` })
     assert.equal(off.isSymlink('/node_modules/.pnpm/node_modules/@w/x'), false)
   })
 
@@ -415,6 +416,32 @@ describe('buildPnpmTree with a workspace', () => {
   it('refuses a project not up to date with its package.json, or two projects of one name', async () => {
     await assert.rejects(buildTwo({ name: 'x', dependencies: { b: '^1.0.0' } }), /^DeptreeError: manifests\["packages\/x"\]: the lockfile is not up to date/u)
     const three = two.replace('importers:\n', 'importers:\n\n  packages/y: {}\n')
-    await assert.rejects(buildPnpmTree({ lockfile: three, manifests: { ...manifests({ name: 'x', dependencies: { b: '1.0.0' } }), 'packages/y': '{"name":"x"}' }, patches: { 'patches/p.patch': PATCH }, host: HOST }), /^DeptreeError: manifests\["packages\/y"\]\.name: "x" is the name of another project too$/u)
+    await assert.rejects(buildPnpmTree({ lockfile: three, manifests: { ...manifests({ name: 'x', dependencies: { b: '1.0.0' } }), 'packages/y': '{"name":"x"}' }, workspace: WORKSPACE, patches: { 'patches/p.patch': PATCH }, host: HOST }), /^DeptreeError: manifests\["packages\/y"\]\.name: "x" is the name of another project too$/u)
+  })
+
+  // pnpm installs the projects `packages` finds, the root always among
+  // them, and only those: a project it would not find is refused.
+  it('takes only the projects pnpm-workspace.yaml\'s packages finds', async () => {
+    stubRegistry(TARBALLS)
+    const x = { name: 'x', dependencies: { b: '1.0.0' } }
+    for (const globs of [['packages/*'], ['packages/**'], ['**'], ['./packages/x/'], ['packages/*', '!packages/y'], ['!packages/y', 'packages/*'], ['other/../packages/x']]) {
+      const workspace = `packages:\n${globs.map((glob) => `  - '${glob}'\n`).join('')}`
+      assert.equal((await buildTwo(x, { workspace })).isSymlink('/packages/x/node_modules/b'), true, globs.join(', '))
+    }
+    for (const globs of [[], ['packages'], ['packages/y'], ['packages/*/z'], ['*'], ['packages/*', '!packages/x'], ['!packages/x', 'packages/*'], ['packages/.*']]) {
+      const workspace = `packages:${globs.length === 0 ? ' []' : ''}\n${globs.map((glob) => `  - '${glob}'\n`).join('')}`
+      await assert.rejects(buildTwo(x, { workspace }), /^DeptreeError: importers\["packages\/x"\]: pnpm-workspace\.yaml's packages do not take this directory, so pnpm would not install it as a project$/u, globs.join(', '))
+    }
+    await assert.rejects(buildTwo(x, { workspace: undefined }), /^DeptreeError: importers\["packages\/x"\]: pnpm-workspace\.yaml's packages are not set/u)
+    await assert.rejects(buildTwo(x, { workspace: 'hoist: true\n' }), /packages are not set/u)
+  })
+
+  it('refuses globs it does not read as tinyglobby does', async () => {
+    for (const glob of ['packages/{x,y}', 'packages/?', 'packages/[xy]', 'packages/@(x)', 'packages\\x', '/packages/x', '../packages/x', 'packages/x**', '!!packages/x', 'packages/!x']) {
+      await assert.rejects(buildTwo({}, { workspace: `packages:\n  - '${glob}'\n` }), /^DeptreeError: pnpm-workspace\.yaml: packages: ".*" (?:is not supported|reaches outside)/u, glob)
+    }
+    for (const workspace of ['packages: packages/*\n', 'packages:\n  - ""\n', 'packages:\n  - 1\n']) {
+      await assert.rejects(buildTwo({}, { workspace }), /^DeptreeError: pnpm-workspace\.yaml: packages: expected a list of non-empty strings/u, workspace)
+    }
   })
 })

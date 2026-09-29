@@ -23,6 +23,7 @@ const DEFAULTS = {
   autoInstallPeers: true,
   dedupePeers: false,
   peersSuffixMaxLength: 1000,
+  packages: undefined,
 }
 
 describe('parseNpmrc', () => {
@@ -62,9 +63,14 @@ describe('readSettings', () => {
 
   it('passes over what leaves the tree as it is', () => {
     const npmrc = 'registry=https://registry.npmjs.org/\n@s:registry=https://registry.npmjs.org\n//registry.npmjs.org/:_authToken=abc\nstore-dir=/x\nauto-install-peers=true\nstrict-ssl=false\n'
-    const workspace = 'packages: [a]\nallowBuilds:\n  esbuild: false\nminimumReleaseAge: 1440\npeerDependencyRules:\n  ignoreMissing: [x]\n'
+    const workspace = 'allowBuilds:\n  esbuild: false\nminimumReleaseAge: 1440\npeerDependencyRules:\n  ignoreMissing: [x]\nignoreWorkspaceRootCheck: true\n'
     const manifest = { name: 'x', scripts: { postinstall: 'x' }, pnpm: { nodeLinker: 'hoisted', updateConfig: {}, allowedDeprecatedVersions: {} } }
     assert.deepEqual(read({ npmrc, workspace, manifest }), DEFAULTS)
+  })
+
+  it('reads pnpm-workspace.yaml\'s packages, and only there', () => {
+    assert.deepEqual(read({ workspace: 'packages: [a, "!b"]\n' }).packages, ['a', '!b'])
+    assert.throws(() => read({ npmrc: 'packages=a\n' }), /^DeptreeError: \.npmrc:1: packages: unsupported setting$/u)
   })
 
   // Scripts are never run, as with --ignore-scripts: what a setting would

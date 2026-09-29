@@ -33,6 +33,7 @@ import { listOverrides } from './overrides.js'
 import { checkProjects, readManifests, workspaceNames } from './projects.js'
 import { readSettings } from './settings.js'
 import { checkUpToDate } from './uptodate.js'
+import { checkWorkspace } from './workspace.js'
 
 const CONCURRENCY = 8
 const LIBC = new Set(['glibc', 'musl', 'unknown'])
@@ -167,6 +168,7 @@ export async function buildPnpmTree(options) {
   const manifests = readManifests(manifestTexts, lockfile)
   const settings = readSettings({ workspace: readWorkspace(workspace), npmrc, manifest: manifests.get('.'), os: host.os })
   checkLockfile(lockfile)
+  checkWorkspace(Object.keys(lockfile.importers), settings.packages)
   const overrides = listOverrides(settings.overrides, settings.catalogs)
   const given = await checkUpToDate(lockfile, settings, overrides, readPatchesGiven(patches))
   const hook = createHook({ overrides, ignored: settings.ignoredOptionalDependencies })
