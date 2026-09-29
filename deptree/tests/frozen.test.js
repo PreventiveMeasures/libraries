@@ -115,6 +115,8 @@ snapshots:
     ['a link out of every workspace package of the name', ['workspace:^1.0.0', 'link:../x'], /a is linked to "packages\/x", which is in no workspace package named "a"/u],
     ['a link to a directory that is no project', ['^1.0.0', 'link:../../elsewhere', { linkWorkspacePackages: true }], /it is linked to "elsewhere", which is no project/u],
     ['a path from the home directory', ['link:~/a', 'link:../a'], /"~\/a" is not a path from the project, which is not supported/u],
+    ['a path led by a backslash', ['\\a', 'link:../a'], /"\\\\a" is not a path from the project, which is not supported/u],
+    ['a path from the home directory led by a backslash', ['~\\a', 'link:../a'], /"~\\\\a" is not a path from the project, which is not supported/u],
   ]
   for (const [what, [spec, version, options], pattern] of refused) {
     it(`refuses ${what}`, () => assert.throws(() => check(spec, version, options), pattern))

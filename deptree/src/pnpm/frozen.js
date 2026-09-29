@@ -127,11 +127,14 @@ const isTag = (range) => valid(range, { loose: true }) === null && validRange(ra
 const KINDS = ['optionalDependencies', 'dependencies', 'devDependencies']
 
 // The directory a specifier names, where it names one: by `link:`,
-// `file:`, a `workspace:` path, or a path alone, as pnpm reads one.
+// `file:`, a `workspace:` path, or a path alone, as pnpm reads one. One
+// led by a backslash, a path to pnpm on Windows alone, is taken for one
+// too, for specPath to refuse, as a lockfile pnpm writes elsewhere never
+// links it.
 function pathOf(spec) {
   if (spec.startsWith('link:') || spec.startsWith('file:')) return spec.slice(5)
   if (spec.startsWith('workspace:')) return isWorkspacePath(spec.slice('workspace:'.length)) ? spec.slice('workspace:'.length) : undefined
-  return /^(?:[./]|~\/|[a-z]:)/iu.test(spec) ? spec : undefined
+  return /^(?:[./\\]|~[/\\]|[a-z]:)/iu.test(spec) ? spec : undefined
 }
 
 // A dependency the lockfile links has to be linked where the project's
