@@ -22,7 +22,7 @@ import { array, checkName, kind, optional, string, strings, table } from './shap
 // (github.com's in https and lower case, no trailing `/` or `.git`),
 // whatever the commit. `identity` is that, as a string.
 
-const REFERENCES = new Set(['branch', 'tag', 'rev'])
+const REFERENCES = ['branch', 'tag', 'rev']
 const COMMIT = /^(?:[\da-f]{40}|[\da-f]{64})$/u
 
 function canonical(url) {
@@ -58,7 +58,7 @@ export function parseLockSource(text, where, edge) {
   if (edge ? commit !== undefined : !COMMIT.test(commit ?? '')) fail(edge ? 'a dependency names no commit' : 'expected "#" and the commit it resolved to')
   const url = parseUrl(base) ?? fail('expected a URL in normal form')
   const pairs = [...new URLSearchParams(query ?? '')]
-  if (pairs.length > 1 || (pairs.length === 1 && !REFERENCES.has(pairs[0][0]))) fail('expected at most one of branch=, tag= or rev=')
+  if (pairs.length > 1 || (pairs.length === 1 && !REFERENCES.includes(pairs[0][0]))) fail('expected at most one of branch=, tag= or rev=')
   return { scheme, identity: identity(scheme, url, pairs[0]) }
 }
 
@@ -74,7 +74,7 @@ export const ANY_REGISTRY = 'any registry'
 export function sourceIdentity(source, parent) {
   if (source.type === 'path') return parent
   if (source.type === 'git') {
-    const reference = ['branch', 'tag', 'rev'].flatMap((key) => (source[key] === undefined ? [] : [key, source[key]]))
+    const reference = REFERENCES.flatMap((key) => (source[key] === undefined ? [] : [key, source[key]]))
     return identity('git', new URL(source.url), reference)
   }
   if (source.index !== undefined) return identity(source.index.startsWith('sparse+') ? 'sparse' : 'registry', new URL(source.index))
@@ -165,15 +165,8 @@ function resolveEdge(edge, where, byName) {
 // Every package is reached from a path package, a workspace member or one
 // of their path dependencies, as cargo prunes the rest.
 function checkReached(packages, where) {
-  const queue = packages.filter((pkg) => pkg.source === undefined)
-  const reached = new Set(queue)
-  while (queue.length > 0) {
-    for (const next of queue.pop().resolved) {
-      if (reached.has(next)) continue
-      reached.add(next)
-      queue.push(next)
-    }
-  }
+  const reached = new Set(packages.filter((pkg) => pkg.source === undefined))
+  for (const pkg of reached) for (const next of pkg.resolved) reached.add(next)
   const lost = packages.find((pkg) => !reached.has(pkg))
   if (lost !== undefined) throw new LockfileError(`nothing in the workspace depends on ${quote(lost.key)}, directly or not`, where)
 }
@@ -183,14 +176,13 @@ export function parseCargoLock(text) {
   const doc = table(parseToml(text), undefined, FIELDS, TOP_REFUSED)
   const version = checkVersion(doc.version, 'version')
   const read = array(doc.package ?? [], 'package').map((item, index) => readPackage(item, `package[${index}]`))
-  const byName = new Map()
   const seen = new Map()
   for (const [index, pkg] of read.entries()) {
     const same = `${pkg.name} ${pkg.version} ${pkg.identity}`
     if (seen.has(same)) throw new LockfileError(`${quote(pkg.key)} is listed twice, first as package[${seen.get(same)}]`, `package[${index}]`)
     seen.set(same, index)
-    byName.set(pkg.name, [...(byName.get(pkg.name) ?? []), pkg])
   }
+  const byName = Map.groupBy(read, (pkg) => pkg.name)
   for (const [index, pkg] of read.entries()) {
     const where = at(`package[${index}]`, 'dependencies')
     pkg.resolved = pkg.edges.map((edge, i) => resolveEdge(edge, `${where}[${i}]`, byName))

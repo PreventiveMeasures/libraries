@@ -13,7 +13,7 @@
 
 import { LockfileError, quote } from '../error.js'
 import { featureValue } from './dependency.js'
-import { activate, setOf } from './graph.js'
+import { activate, requestsOf, setOf } from './graph.js'
 import { parseCfg, parsePlatform, platformMatches } from './syntax.js'
 
 // What cargo's command line asks of each member it builds: `-p`, and
@@ -44,10 +44,10 @@ function parseFeatures(features) {
 // dev-dependencies there.
 function lastDeclared(pkg) {
   const rank = (dep) => (dep.target === undefined ? ['normal', 'dev', 'build'] : ['normal', 'build', 'dev']).indexOf(dep.kind)
-  const order = [...pkg.dependencies].sort((a, b) => {
-    if ((a.target === undefined) !== (b.target === undefined)) return a.target === undefined ? -1 : 1
-    if (a.target !== b.target) return a.target < b.target ? -1 : 1
-    return rank(a) - rank(b)
+  // No platform is empty, so the top tables' '' comes first.
+  const order = pkg.dependencies.toSorted((a, b) => {
+    const [x, y] = [a.target ?? '', b.target ?? '']
+    return x === y ? rank(a) - rank(b) : (x < y ? -1 : 1)
   })
   return new Map(order.map((dep) => [dep.name, dep]))
 }
@@ -62,14 +62,12 @@ function matching(pkg, values, found) {
     if (deps.has(value.dep)) return value
     return value.dep === pkg.name && has(value.feature) ? featureValue(value.feature) : undefined
   }
-  const own = []
-  for (const value of values) {
+  return values.flatMap((value) => {
     const taken = take(value)
-    if (taken === undefined) continue
-    own.push(taken)
+    if (taken === undefined) return []
     found.add(value.text)
-  }
-  return own
+    return [taken]
+  })
 }
 
 // Each member's share of `--features`, and whether it keeps its default
@@ -188,17 +186,12 @@ class FeatureResolver {
     this.activateRec(key, fk, feature)
   }
 
-  requestsOf(dep) {
-    return dep.defaultFeatures && 'default' in this.features(dep.resolved) ? [...dep.features, 'default'] : dep.features
-  }
-
   activatePkg(key, fk, requests, asker) {
-    this.enabled(key, fk)
     for (const feature of requests) this.request(key, fk, feature, asker)
     if (this.processed.has(`${fk} ${key}`)) return
     this.processed.add(`${fk} ${key}`)
     for (const { dep, depFk } of this.deps(key, fk)) {
-      if (!dep.optional) this.activatePkg(dep.resolved, depFk, this.requestsOf(dep), key)
+      if (!dep.optional) this.activatePkg(dep.resolved, depFk, requestsOf(this.graph.packages, dep), key)
     }
   }
 
@@ -224,7 +217,7 @@ class FeatureResolver {
     for (const { dep, depFk } of this.deps(key, fk)) {
       if (dep.name !== name) continue
       for (const feature of waiting) this.request(dep.resolved, depFk, feature, key)
-      this.activatePkg(dep.resolved, depFk, this.requestsOf(dep), key)
+      this.activatePkg(dep.resolved, depFk, requestsOf(this.graph.packages, dep), key)
     }
   }
 

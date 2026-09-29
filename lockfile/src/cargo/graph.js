@@ -116,6 +116,12 @@ export function setOf(map, key) {
   return map.get(key)
 }
 
+// What a declaration asks of its package: its features, and `default` where
+// it keeps the default features and the package has them.
+export function requestsOf(packages, dep) {
+  return dep.defaultFeatures && 'default' in packages[dep.resolved].manifest.features ? [...dep.features, 'default'] : dep.features
+}
+
 // What a package is asked for, and what that turns on: its features, the
 // optional dependencies turned on, and the features asked of each
 // dependency, by name.
@@ -169,8 +175,7 @@ class Activation {
     if (dep.resolved === undefined) throw new LockfileError(this.why(dep), key)
     this.active.add(dep)
     const target = this.requestOf(dep.resolved)
-    const defaults = dep.defaultFeatures && 'default' in this.packages[dep.resolved].manifest.features ? ['default'] : []
-    for (const feature of [...dep.features, ...defaults, ...extra]) this.require(dep.resolved, target, feature, key)
+    for (const feature of [...requestsOf(this.packages, dep), ...extra]) this.require(dep.resolved, target, feature, key)
   }
 
   run(roots) {

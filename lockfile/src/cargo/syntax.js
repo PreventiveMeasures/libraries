@@ -37,7 +37,7 @@ export function parseRequirement(text, where) {
   const fail = (why) => {
     throw new LockfileError(`${quote(text)} is not a version requirement: ${why}`, where)
   }
-  const start = text.length - text.replace(/^ +/u, '').length
+  const start = /^ */u.exec(text)[0].length
   if (/^[*Xx]/u.test(text.slice(start))) {
     if (/^[*Xx] *$/u.test(text.slice(start))) return []
     fail('a wildcard is only a requirement alone')

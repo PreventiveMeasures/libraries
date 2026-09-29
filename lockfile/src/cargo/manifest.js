@@ -17,11 +17,12 @@ import { isTable } from '../toml/value.js'
 import { NIGHTLY, dashed, featureMap, gatherDependencies, readSpec } from './dependency.js'
 import { array, boolean, checkName, entries, optional, refuse, string, strings, table } from './shape.js'
 
-const TOP = [
-  'package', 'project', 'badges', 'features', 'lib', 'bin', 'example', 'test', 'bench',
-  'dependencies', 'dev-dependencies', 'dev_dependencies', 'build-dependencies', 'build_dependencies',
-  'target', 'lints', 'hints', 'workspace', 'profile', 'patch',
+// What only a package has, which a virtual manifest cannot.
+const PACKAGE_ONLY = [
+  'badges', 'features', 'lib', 'bin', 'example', 'test', 'bench', 'dependencies', 'dev-dependencies',
+  'dev_dependencies', 'build-dependencies', 'build_dependencies', 'target', 'lints', 'hints',
 ]
+const TOP = [...PACKAGE_ONLY, 'package', 'project', 'workspace', 'profile', 'patch']
 const TOP_REFUSED = { 'cargo-features': `cargo-features, ${NIGHTLY}`, replace: '[replace] is not supported' }
 const INHERITABLE = [
   'authors', 'categories', 'description', 'documentation', 'edition', 'exclude', 'homepage', 'include',
@@ -70,7 +71,7 @@ function procMacroOf(value, where, edition, lib) {
 function procMacroTargets(doc, edition) {
   const lib = doc.lib !== undefined && procMacroOf(doc.lib, 'lib', edition, true)
   const others = ['example', 'test', 'bench'].flatMap((key) => array(doc[key] ?? [], key).map((item, index) => procMacroOf(item, `${key}[${index}]`, edition, false)))
-  return { lib, any: lib || others.includes(true) }
+  return { procMacro: lib, procMacroTarget: lib || others.includes(true) }
 }
 
 function readWorkspace(value) {
@@ -134,8 +135,6 @@ function readPackage(doc, workspace) {
   return { name: checkName(value.name, at(where, 'name')), version: version ?? '0.0.0', edition, resolver }
 }
 
-const PACKAGE_ONLY = ['badges', 'features', 'lib', 'bin', 'example', 'test', 'bench', 'dependencies', 'dev-dependencies', 'dev_dependencies', 'build-dependencies', 'build_dependencies', 'target', 'lints', 'hints']
-
 // `workspace` is the root's manifest, read before, for a member that
 // inherits from it; a root inherits from its own [workspace].
 export function parseCargoManifest(text, workspace) {
@@ -153,17 +152,10 @@ export function parseCargoManifest(text, workspace) {
     return { package: undefined, workspace: own, patch }
   }
   const pkg = readPackage(doc, root)
-  const context = { workspace: root, edition: pkg.edition, list: [], sources: new Map() }
-  const dependencies = gatherDependencies(doc, context)
-  const procMacro = procMacroTargets(doc, pkg.edition)
+  const dependencies = gatherDependencies(doc, root, pkg.edition)
+  const targets = procMacroTargets(doc, pkg.edition)
   return {
-    package: {
-      ...pkg,
-      features: featureMap(doc.features, 'features', dependencies),
-      dependencies,
-      procMacro: procMacro.lib,
-      procMacroTarget: procMacro.any,
-    },
+    package: { ...pkg, features: featureMap(doc.features, 'features', dependencies), dependencies, ...targets },
     workspace: own,
     patch,
   }

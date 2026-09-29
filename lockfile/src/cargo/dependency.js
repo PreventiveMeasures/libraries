@@ -136,8 +136,10 @@ function readDependencies(value, where, kind, target, context) {
   }
 }
 
-// Tables of dependencies at the top and under each [target.<platform>].
-export function gatherDependencies(doc, context) {
+// Tables of dependencies at the top and under each [target.<platform>];
+// `workspace` is the root's [workspace], for what is inherited from it.
+export function gatherDependencies(doc, workspace, edition) {
+  const context = { workspace, edition, list: [], sources: new Map() }
   const gather = (value, where, target) => {
     for (const [key, kind] of KINDS) {
       const deps = dashed(value, where, key, context.edition)
