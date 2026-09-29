@@ -9,24 +9,21 @@ import { api, bindMethods, call, clientHeaders, isGone, repoApi } from './client
 const PER_PAGE = 100
 const MAX_PAGES = 100
 
-// A list of exactly `maxPages` full pages is whole only if the next is empty.
-async function* pages(method, headers, pageUrl, maxPages = MAX_PAGES) {
-  for (let page = 1; ; page++) {
-    const body = await call(headers, pageUrl({ per_page: PER_PAGE, page }))
-    assert.ok(Array.isArray(body), `${method}: expected an array for page ${page}`)
-    assert.ok(page <= maxPages || body.length === 0, `${method}: more than ${maxPages} pages`)
-    yield body
-    if (body.length < PER_PAGE) return
-  }
-}
-
-const paginate = async (...args) => (await Array.fromAsync(pages(...args))).flat()
 const getCurrentUser = (headers) => call(headers, api(['user']))
 
 // No default for `options`: bindMethods counts it to refuse extra arguments.
 async function listUserRepos(headers, options) {
   assertArgs('listUserRepos', options === undefined ? {} : options, { maxPages: optional(assertNumber) })
-  return await paginate('listUserRepos', headers, (paging) => api(['user', 'repos'], { ...paging, sort: 'full_name' }), options?.maxPages)
+  const { maxPages = MAX_PAGES } = options ?? {}
+  const repos = []
+  for (let page = 1; ; page++) {
+    const body = await call(headers, api(['user', 'repos'], { per_page: PER_PAGE, page, sort: 'full_name' }))
+    assert.ok(Array.isArray(body), `listUserRepos: expected an array for page ${page}`)
+    // A list of exactly `maxPages` full pages is whole only if the next is empty.
+    assert.ok(page <= maxPages || body.length === 0, `listUserRepos: more than ${maxPages} pages`)
+    repos.push(...body)
+    if (body.length < PER_PAGE) return repos
+  }
 }
 
 async function getRepo(headers, options) {

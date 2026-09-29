@@ -7,6 +7,7 @@ import { assertDirectoryPath } from './args.js'
 import { MAX_BYTES, decode } from './http.js'
 
 const DIRS = new Set(['npm/repos', 'npm/tarballs', 'cargo/repos', 'cargo/crates', 'composer/repos', 'soldeer/zips'])
+const RECORD_TTL_MS = 30 * 24 * 60 * 60 * 1000 // A repo link only moves on a transfer or rename, and GitHub redirects those.
 
 let root
 let tmpSeq = 0
@@ -65,6 +66,15 @@ export async function readCacheJSON(dir, key) {
   }
 }
 
+// JSON filed as `<name>.json`, stamped with that name and when it was
+// written: read back for a month, and only for that name. One stamped in
+// the future is not fresh forever.
+export async function readRecord(dir, name) {
+  const record = await readCacheJSON(dir, `${name}.json`)
+  const age = typeof record?.at === 'number' ? Date.now() - record.at : Number.NaN
+  return age >= 0 && age <= RECORD_TTL_MS && record.name === name ? record : null
+}
+
 export async function writeCache(dir, key, data) {
   const path = cachePath(dir, key)
   if (path === null) return false
@@ -83,3 +93,5 @@ export async function writeCache(dir, key, data) {
 export async function writeCacheJSON(dir, key, value) {
   return await writeCache(dir, key, JSON.stringify(value))
 }
+
+export const writeRecord = (dir, name, value) => writeCacheJSON(dir, `${name}.json`, { at: Date.now(), name, ...value })

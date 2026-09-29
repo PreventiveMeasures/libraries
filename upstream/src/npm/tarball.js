@@ -18,11 +18,6 @@ function assertPackage(method, name, version) {
   assertPackageVersion(method, 'version', version)
 }
 
-function tarballUrl(name, version) {
-  const segments = name.split('/')
-  return buildUrl(NPM_REGISTRY, [...segments, '-', `${segments.at(-1)}-${version}.tgz`])
-}
-
 // `{ tarball, integrity }` and nothing else, the tarball exactly the
 // registry's own URL for that version. Each field is read once, and only
 // as the object's own, into a copy that is checked and used from then on:
@@ -32,7 +27,8 @@ function checkedDist(method, name, version, dist) {
   assertArgs(method, dist, { tarball: null, integrity: null }, 'dist')
   const [tarball, integrity] = ['tarball', 'integrity'].map((key) => (Object.hasOwn(dist, key) ? dist[key] : undefined))
   assertIntegrity(method, 'dist.integrity', integrity)
-  const expected = tarballUrl(name, version)
+  const segments = name.split('/')
+  const expected = buildUrl(NPM_REGISTRY, [...segments, '-', `${segments.at(-1)}-${version}.tgz`])
   assert.ok(tarball === expected, `${method}: dist.tarball must be ${expected}, got ${show(tarball)}`)
   return { tarball, integrity }
 }
