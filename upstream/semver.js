@@ -1,1 +1,1 @@
-export { compareVersions, isExactVersion, satisfies, valid } from './src/semver.js'
+export { compareVersions, intersects, isExactVersion, satisfies, valid, validRange } from './src/semver.js'
