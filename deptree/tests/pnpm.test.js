@@ -301,6 +301,26 @@ ${['c@2.0.0', 'c@2.1.0', 'x@1.0.0', 'y@1.0.0'].map((id) => `  ${id}:\n    resolu
     assert.equal(vfs.readText('/node_modules/.pnpm/u@1.0.0/node_modules/u/u.js'), '#!/usr/bin/env node\r\n')
   })
 
+  // pnpm looks for a Node to run a package's bins with where the first
+  // Node of its engines.runtime is one to download, and fails on a list
+  // with nothing where it reads a runtime.
+  it('refuses the bins of a package whose engines.runtime has pnpm download a Node', async () => {
+    const runtimes = [
+      [{ name: 'node', onFail: 'warn' }, true],
+      [[{ name: 'deno', onFail: 'download' }, { name: 'node', onFail: 'error' }, null], true],
+      [[{ name: 'node', onFail: 'download' }], false],
+      [{ name: 'node', version: '22', onFail: 'download' }, false],
+      [[{ name: 'deno' }, null, { name: 'node' }], false],
+    ]
+    for (const [runtime, builds] of runtimes) {
+      const r = await tarball('r', '1.0.0', { 'r.js': '#!/usr/bin/env node\n' }, { manifest: { bin: { r: 'r.js' }, engines: { runtime } } })
+      stubRegistry([r])
+      const built = buildPnpmTree({ lockfile: small(dep('r'), `  r@1.0.0:\n    resolution: {integrity: ${r.integrity}}\n    hasBin: true\n\n`, '  r@1.0.0: {}\n'), manifests: { '.': manifest({ r: '1.0.0' }) }, host: HOST })
+      if (builds) assert.equal((await built).vfs.stat('/node_modules/r/r.js').mode, 0o755, JSON.stringify(runtime))
+      else await assert.rejects(built, /^DeptreeError: "r@1\.0\.0": its engines\.runtime (?:has pnpm look for a Node|lists nothing where pnpm reads a runtime)/u, JSON.stringify(runtime))
+    }
+  })
+
   // pnpm 11 has npm own npx, and links into a project's .bin the bins of
   // the peers its dependencies require: h's peer p loses `cmd` to z beside
   // h, and wins it in the project's .bin.

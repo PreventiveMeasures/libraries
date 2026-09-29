@@ -85,6 +85,19 @@ function owns({ name, pkgName, own }, major, where) {
   return OWNERS[name]?.includes(pkgName) === true
 }
 
+// pnpm's runtimeHasNodeDownloaded: whether engines.runtime asks for a Node
+// to download, the first runtime of a list named node deciding. pnpm fails
+// on a list with nothing in it where it reads one, before that.
+function downloadsNode(runtime, where) {
+  if (!runtime) return false
+  if (!Array.isArray(runtime)) return runtime.name === 'node' && runtime.onFail === 'download'
+  for (const item of runtime) {
+    if (item === null || item === undefined) throw new DeptreeError('its engines.runtime lists nothing where pnpm reads a runtime, which pnpm fails on', where)
+    if (item.name === 'node') return item.onFail === 'download'
+  }
+  return false
+}
+
 // A package's commands: `dir` is where the package is, `manifest` its
 // package.json, `files` the files of the package holding it (itself, or
 // the one that bundles it), by their paths under `base`, which is
@@ -94,8 +107,7 @@ function commandsOf(dir, manifest, files, base, where, major) {
   if (typeof manifest.bin === 'string' && !manifest.name) throw new DeptreeError('it has a bin and no name, which pnpm fails on', where)
   // pnpm looks for the Node it would download from where the package is,
   // and fails where there is none.
-  const runtime = manifest.engines?.runtime
-  if (runtime && (Array.isArray(runtime) || (runtime.name === 'node' && runtime.onFail === 'download'))) {
+  if (downloadsNode(manifest.engines?.runtime, where)) {
     throw new DeptreeError('its engines.runtime has pnpm look for a Node to run its bins with, which is not supported', where)
   }
   if (manifest.bin) {
