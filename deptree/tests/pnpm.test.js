@@ -481,6 +481,30 @@ describe('buildPnpmTree refuses', () => {
   })
 })
 
+// pnpm 11 reads its settings from pnpm-workspace.yaml alone, and writes
+// each patch's hash alone in the lockfile.
+describe('buildPnpmTree for pnpm 11', () => {
+  const HOST_11 = { ...HOST, pnpm: '11.28.2' }
+  const lockfile11 = () => lockfile().replace(`  p@1.0.0:\n    hash: ${H}\n    path: patches/p.patch\n`, `  p@1.0.0: ${H}\n`)
+  const patchedInYaml = 'patchedDependencies:\n  p@1.0.0: patches/p.patch\n'
+
+  const TODO = { todo: 'pnpm 11 is refused until what it does differently is all read' }
+
+  it('builds from settings in pnpm-workspace.yaml and pnpm 11\'s lockfile', TODO, async () => {
+    stubRegistry(TARBALLS)
+    const { vfs } = await buildPnpmTree({ lockfile: lockfile11(), manifests: { '.': root({ pnpm: { patchedDependencies: undefined } }) }, workspace: patchedInYaml, patches: { 'patches/p.patch': PATCH }, host: HOST_11 })
+    assert.equal(text(vfs, '/node_modules/p/index.js'), 'module.exports = 2\n')
+  })
+
+  it('reads no setting of the package.json', TODO, async () => {
+    await assert.rejects(buildPnpmTree({ lockfile: lockfile11(), manifests: { '.': root() }, patches: { 'patches/p.patch': PATCH }, host: HOST_11 }), /^DeptreeError: patches\["patches\/p\.patch"\]: no patchedDependencies setting names this patch$/u)
+  })
+
+  it('refuses a pnpm it is not built for', async () => {
+    await assert.rejects(buildPnpmTree({ lockfile: lockfile11(), manifests: { '.': root() }, host: { ...HOST, pnpm: '12.0.0' } }), /^DeptreeError: host\.pnpm: pnpm "12\.0\.0" is not supported: only pnpm 10 is$/u)
+  })
+})
+
 describe('buildPnpmTree with a workspace', () => {
   const two = lockfile().replace('importers:\n', 'importers:\n\n  packages/x:\n    dependencies:\n      b:\n        specifier: 1.0.0\n        version: 1.0.0\n')
   const manifests = (x) => ({ '.': root(), 'packages/x': JSON.stringify(x) })

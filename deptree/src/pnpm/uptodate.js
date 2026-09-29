@@ -48,8 +48,9 @@ async function hashPatches(configured, given) {
   return { hashes, byHash }
 }
 
-function checkPatches(locked, hashes) {
-  const flat = (patches) => Object.fromEntries(Object.entries(patches).map(([selector, { hash, path }]) => [selector, `${hash} ${path}`]))
+// pnpm 11's lockfile has each patch's hash alone, pnpm 10's its path too.
+function checkPatches(locked, hashes, major) {
+  const flat = (patches) => Object.fromEntries(Object.entries(patches).map(([selector, { hash, path }]) => [selector, major >= 11 ? hash : `${hash} ${path}`]))
   const detail = difference(flat(locked), flat(hashes), SIDES)
   if (detail !== undefined) throw outdated('patchedDependencies', `the patches differ: ${detail}`)
 }
@@ -57,7 +58,7 @@ function checkPatches(locked, hashes) {
 // Throws where pnpm would not install the lockfile as it is; hands back the
 // patches by hash, their text and path, to apply where a snapshot names one.
 // `overrides` is listOverrides's.
-export async function checkUpToDate(lockfile, settings, overrides, given) {
+export async function checkUpToDate(lockfile, settings, overrides, given, major = 10) {
   const { hashes, byHash } = await hashPatches(settings.patchedDependencies, given)
   for (const [name, catalog] of Object.entries(lockfile.catalogs)) {
     for (const [alias, { specifier }] of Object.entries(catalog)) {
@@ -72,7 +73,7 @@ export async function checkUpToDate(lockfile, settings, overrides, given) {
   if (lockfile.packageExtensionsChecksum !== undefined) throw outdated('packageExtensionsChecksum', 'the lockfile was resolved with package extensions, and the settings have none')
   const ignored = (list) => JSON.stringify([...list].sort())
   if (ignored(lockfile.ignoredOptionalDependencies) !== ignored(settings.ignoredOptionalDependencies)) throw outdated('ignoredOptionalDependencies', 'the optional dependencies left out differ')
-  checkPatches(lockfile.patchedDependencies, hashes)
+  checkPatches(lockfile.patchedDependencies, hashes, major)
   const locked = lockfile.settings
   if (locked.autoInstallPeers !== undefined && locked.autoInstallPeers !== settings.autoInstallPeers) throw outdated('settings.autoInstallPeers', `autoInstallPeers is ${locked.autoInstallPeers} in the lockfile`)
   if (Boolean(locked.dedupePeers) !== settings.dedupePeers) throw outdated('settings.dedupePeers', `dedupePeers is ${Boolean(locked.dedupePeers)} in the lockfile`)

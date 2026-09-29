@@ -32,12 +32,12 @@ function childrenOf(targets, nodes, skipped) {
 // `nodes` by snapshot key, and `direct`, by project, the children each
 // project links: devDependencies first, as pnpm spreads them, which is
 // the order hoisting walks them in.
-export async function buildGraph(lockfile, skipped, maxLength) {
+export async function buildGraph(lockfile, skipped, maxLength, major = 10) {
   const nodes = new Map()
   const keyByDir = new Map()
   for (const [key, pkg] of Object.entries(lockfile.packages)) {
     if (skipped.has(key)) continue
-    const store = `${VIRTUAL_STORE}/${await depPathToFilename(key, maxLength)}`
+    const store = `${VIRTUAL_STORE}/${await depPathToFilename(key, maxLength, major)}`
     const dir = `${store}/node_modules/${pkg.name}`
     if (keyByDir.has(dir)) throw new DeptreeError(`${quote(keyByDir.get(dir))} and ${quote(key)} would be installed in one directory`, quote(dir))
     keyByDir.set(dir, key)

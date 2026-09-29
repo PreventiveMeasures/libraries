@@ -5,7 +5,7 @@ import { DeptreeError } from '../pnpm.js'
 import { parseNpmrc } from '../src/pnpm/npmrc.js'
 import { readSettings } from '../src/pnpm/settings.js'
 
-const read = ({ workspace, npmrc, manifest = {}, os = 'linux' } = {}) => readSettings({ workspace: workspace === undefined ? undefined : parseYaml(workspace), npmrc, manifest, os })
+const read = ({ workspace, npmrc, manifest = {}, os = 'linux', major } = {}) => readSettings({ workspace: workspace === undefined ? undefined : parseYaml(workspace), npmrc, manifest, os, major })
 
 const DEFAULTS = {
   virtualStoreDirMaxLength: 120,
@@ -90,6 +90,16 @@ describe('readSettings', () => {
     assert.deepEqual(read({ npmrc: `${token}hoist=false\n`, workspace: 'hoist: false\n' }).hoistPattern, undefined)
     assert.throws(() => read({ npmrc: `${token}hoist=false\n` }), /^DeptreeError: \.npmrc: a line takes a value from the environment, which pnpm drops the whole file for where it is unset/u)
     assert.throws(() => read({ npmrc: 'registry=${REGISTRY}\n' }), /^DeptreeError: \.npmrc:1: registry: "\$\{REGISTRY\}" is taken from the environment/u)
+  })
+
+  // pnpm 11 reads settings from pnpm-workspace.yaml alone: an .npmrc for
+  // its registries, and nothing of the package.json, `resolutions` none.
+  it('reads settings as pnpm 11 does', () => {
+    const manifest = { resolutions: { ms: '2.1.2' }, pnpm: { overrides: { ms: '2.1.3' }, nodeLinker: 'hoisted' } }
+    const npmrc = 'hoist=false\nnode-linker=hoisted\nregistry=${REGISTRY}\n//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n'
+    assert.deepEqual(read({ manifest, npmrc, major: 11 }), DEFAULTS)
+    assert.deepEqual({ ...read({ workspace: 'overrides:\n  ms: 2.1.3\n', major: 11 }).overrides }, { ms: '2.1.3' })
+    assert.throws(() => read({ npmrc: 'registry=https://npm.example.com/\n', major: 11 }), /packages are fetched from https:\/\/registry\.npmjs\.org\/ alone/u)
   })
 
   // Scripts are never run, as with --ignore-scripts: what a setting would

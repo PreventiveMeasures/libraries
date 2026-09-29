@@ -28,6 +28,20 @@ describe('depPathToFilename', () => {
     await assert.rejects(depPathToFilename('A@1.0.0(\uD800)', 120), /^DeptreeError: "A@1\.0\.0\(\\ud800\)": expected well-formed text to hash$/u)
   })
 
+  // pnpm 11 makes a trailing dot or space `+` and hashes, as its own
+  // depPathToFilename answers for these; pnpm 10 leaves them.
+  it('escapes a trailing dot or space as pnpm 11 does', async () => {
+    const PNPM_11 = [
+      ['a@1.0.0.', 120, 'a@1.0.0+_f24ca05381a71dc7fd19078ac0a6a304'],
+      ['a@1.0.0 ', 120, 'a@1.0.0+_debea321e14781cf7056df11d1293e11'],
+      ['a@1.0.0(b@1.0.0.)', 120, 'a@1.0.0_b@1.0.0+_6d9f192d8da8c4446c134075b85fe376'],
+      ['a@1.0.0(b@1.0.0.)', 40, 'a@1.0.0_6d9f192d8da8c4446c134075b85fe376'],
+      ['A@1.0.0', 120, 'A@1.0.0_030f5287fa75dd4cda2fe675a140bfac'],
+    ]
+    for (const [key, max, dir] of PNPM_11) assert.equal(await depPathToFilename(key, max, 11), dir, key)
+    assert.equal(await depPathToFilename('a@1.0.0.', 120, 10), 'a@1.0.0.')
+  })
+
   it('cuts a long one to the length, hash included', async () => {
     const dir = await depPathToFilename(`a@1.0.0(${'b'.repeat(200)}@1.0.0)`, 120)
     assert.equal(dir.length, 120)

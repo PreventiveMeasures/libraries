@@ -246,11 +246,17 @@ const camelCase = (key) => key.replace(/-+([a-z\d])/gu, (_, char) => char.toUppe
 // An .npmrc's settings by name, each written once, or once with `[]` each
 // time, and whether any line takes something from the environment. A
 // registry for a scope has to be the public one.
-function fromNpmrc(text) {
+// pnpm 11 reads an .npmrc for credentials and registries alone, and passes
+// over a registry of a project's .npmrc that names a variable.
+function fromNpmrc(text, major) {
   const settings = new Map()
   let environment = false
   for (const { key, value, list, line } of parseNpmrc(text)) {
     const where = `.npmrc:${line}: ${key}`
+    if (major >= 11) {
+      if ((key === 'registry' || /^@[^:]+:registry$/u.test(key)) && !fromEnvironment(value)) checkRegistry(plain(value, where), where)
+      continue
+    }
     if (/^@[^:]+:registry$/u.test(key)) {
       checkRegistry(plain(noEnvironment(value, where), where), where)
       continue
@@ -363,9 +369,10 @@ function settle(layers, manifest, os) {
 // .npmrc, either of which may be undefined; `manifest` the root
 // package.json as parsed. `os` is the host's, which one default depends
 // on. Overrides that name nothing are none, and leave those below them.
-export function readSettings({ workspace, npmrc, manifest, os }) {
-  const rc = npmrc === undefined ? { settings: new Map(), environment: false } : fromNpmrc(npmrc)
-  const rest = [workspace === undefined ? new Map() : fromWorkspace(workspace), fromManifest(manifest)]
+export function readSettings({ workspace, npmrc, manifest, os, major = 10 }) {
+  const rc = npmrc === undefined ? { settings: new Map(), environment: false } : fromNpmrc(npmrc, major)
+  // pnpm 11 reads no setting from the package.json, its `resolutions` none.
+  const rest = [workspace === undefined ? new Map() : fromWorkspace(workspace), major >= 11 ? new Map() : fromManifest(manifest)]
   const settings = settle([rc.settings, ...rest], manifest, os)
   if (rc.environment && JSON.stringify(settings) !== JSON.stringify(settle(rest, manifest, os))) {
     throw new DeptreeError('a line takes a value from the environment, which pnpm drops the whole file for where it is unset, and the file sets what would change the tree', '.npmrc')

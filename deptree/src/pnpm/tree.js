@@ -48,11 +48,14 @@ function checkHost(host) {
     if (typeof host[key] !== 'string' || host[key] === '') throw new TypeError(`host.${key} must be a non-empty string`)
   }
   const { pnpm, node, os, libc } = host
-  if (!valid(pnpm)?.startsWith('10.')) throw new DeptreeError(`pnpm ${quote(pnpm)} is not supported: only pnpm 10 is`, 'host.pnpm')
+  const major = Number(valid(pnpm)?.split('.')[0])
+  // What pnpm 11 does differently is read below where it is known; pnpm 11
+  // is refused until all of it is.
+  if (major !== 10) throw new DeptreeError(`pnpm ${quote(pnpm)} is not supported: only pnpm 10 is`, 'host.pnpm')
   if (valid(node) === null) throw new DeptreeError(`${quote(node)} is not an exact version`, 'host.node')
   if (os === 'win32') throw new DeptreeError('Windows is not supported: pnpm links there with junctions to absolute paths', 'host.os')
   if (!LIBC.has(libc)) throw new DeptreeError(`expected "glibc", "musl" or "unknown", found ${quote(libc)}`, 'host.libc')
-  return { pnpm, node, os, cpu: host.cpu, libc }
+  return { pnpm, major, node, os, cpu: host.cpu, libc }
 }
 
 // What the lockfile holds that no tree is built for here.
@@ -197,18 +200,18 @@ export async function buildPnpmTree(options) {
   if (env !== undefined) throw new DeptreeError('the env document pnpm 11 writes is not supported', 'env')
   if (!('.' in lockfile.importers)) throw new DeptreeError('expected the root project, whose package.json holds settings', 'importers')
   const manifests = readManifests(manifestTexts, lockfile)
-  const settings = readSettings({ workspace: readWorkspace(workspace), npmrc, manifest: manifests.get('.'), os: host.os })
+  const settings = readSettings({ workspace: readWorkspace(workspace), npmrc, manifest: manifests.get('.'), os: host.os, major: host.major })
   checkLockfile(lockfile)
   checkWorkspace(Object.keys(lockfile.importers), settings.packages)
   const overrides = listOverrides(settings.overrides, settings.catalogs)
-  const given = await checkUpToDate(lockfile, settings, overrides, readPatchesGiven(patches))
+  const given = await checkUpToDate(lockfile, settings, overrides, readPatchesGiven(patches), host.major)
   const hook = createHook({ overrides, ignored: settings.ignoredOptionalDependencies })
   checkProjects(lockfile, manifests, { hook, host, settings })
   checkOptional(lockfile)
   const projects = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
   const check = createCheck({ host, settings })
   const skipped = skippedSnapshots(lockfile, check)
-  const { nodes, direct } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength)
+  const { nodes, direct } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, host.major)
   for (const node of nodes.values()) checkRegistry(node)
 
   const fetched = await fetchAll(nodes)
