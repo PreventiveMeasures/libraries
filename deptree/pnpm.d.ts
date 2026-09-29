@@ -38,9 +38,10 @@ export interface PnpmTreeOptions {
 // files at node_modules/.pnpm/<dir>/node_modules/<name>, its dependencies
 // linked beside it, the hoisted aliases, and each project's own
 // node_modules of links. Links are relative; a `link:` dependency leads
-// where the lockfile says, which the tree does not hold. Bins, and the
-// executable bit pnpm gives the files they run; pnpm's own state files;
-// and what lifecycle scripts would build: none of these is written.
+// where the lockfile says, which the tree does not hold. Scripts are
+// always ignored, as `--ignore-scripts` has pnpm ignore them, whatever the
+// settings would allow to build. Bins, and the executable bit pnpm gives
+// the files they run, and pnpm's own state files are not written.
 //
 // Packages come from https://registry.npmjs.org/ alone, fetched through
 // @preventive/upstream, and each tarball is held to the lockfile's

@@ -4,7 +4,8 @@
 // values this package builds a tree for; a setting that leaves the tree as
 // it is, whether because a frozen lockfile already says what it would have
 // changed, because it is about the network, the store, a cache, a script or
-// a bin, or because it is a credential; or anything else, which is refused
+// a bin — no script is ever run, whatever a setting allows — or because it
+// is a credential; or anything else, which is refused
 // by name, as is a value read here that this package does not build for.
 //
 // Only these two files are read. Settings from anywhere else pnpm looks —
@@ -67,7 +68,6 @@ const only = (kind, wanted, why) => ({ kind, check: (value, where) => {
   if (value !== wanted) throw new DeptreeError(`${show(value)} is not supported: ${why}`, where)
 } })
 
-const SCRIPTS = 'dependencies\' lifecycle scripts are never run here, so a tree they would build into cannot be built'
 const READ = {
   __proto__: null,
   nodeLinker: only('text', 'isolated', 'only the isolated node_modules layout is built'),
@@ -86,9 +86,6 @@ const READ = {
   production: only('boolean', false, 'devDependencies are installed'),
   dev: only('boolean', false, 'dependencies are installed'),
   ignorePatchFailures: only('boolean', false, 'a patch that does not apply is an error'),
-  dangerouslyAllowAllBuilds: only('boolean', false, SCRIPTS),
-  onlyBuiltDependencies: { kind: 'texts', check: (value, where) => { if (value.length > 0) throw new DeptreeError(SCRIPTS, where) } },
-  allowBuilds: { kind: 'mapping', check: checkAllowBuilds },
   registry: { kind: 'text', check: checkRegistry },
   virtualStoreDirMaxLength: { kind: 'count' },
   hoist: { kind: 'boolean' },
@@ -106,7 +103,8 @@ const READ = {
 // is what these made of the manifests. Fetching goes to the public
 // registry alone, through @preventive/upstream, so the network and its
 // credentials are its own; the store, caches and state live outside
-// node_modules; scripts are never run and bins never written here.
+// node_modules; bins are never written here, and scripts never run, as
+// with --ignore-scripts, whatever a setting would allow to build.
 const IGNORED = new Set([
   // resolution, already in the lockfile
   'allowNonAppliedPatches', 'allowUnusedPatches', 'allowedDeprecatedVersions', 'autoInstallPeers', 'blockExoticSubdeps',
@@ -123,9 +121,10 @@ const IGNORED = new Set([
   'cacheDir', 'modulesCacheMaxAge', 'packageImportMethod', 'sideEffectsCache', 'sideEffectsCacheReadonly',
   'stateDir', 'storeDir', 'strictStorePkgContentCheck', 'verifyStoreIntegrity',
   // scripts, which are not run, and bins, which are not written
-  'childConcurrency', 'enablePrePostScripts', 'extendNodePath', 'ignoreDepScripts', 'ignoreScripts',
-  'ignoredBuiltDependencies', 'nodeOptions', 'preferSymlinkedExecutables', 'scriptShell', 'shellEmulator',
-  'strictDepBuilds', 'unsafePerm', 'verifyDepsBeforeRun',
+  'allowBuilds', 'childConcurrency', 'dangerouslyAllowAllBuilds', 'enablePrePostScripts', 'extendNodePath',
+  'ignoreDepScripts', 'ignoreScripts', 'ignoredBuiltDependencies', 'neverBuiltDependencies', 'nodeOptions',
+  'onlyBuiltDependencies', 'onlyBuiltDependenciesFile', 'preferSymlinkedExecutables', 'scriptShell',
+  'shellEmulator', 'strictDepBuilds', 'unsafePerm', 'verifyDepsBeforeRun',
   // how the command runs
   'bail', 'ci', 'color', 'frozenLockfile', 'loglevel', 'managePackageManagerVersions',
   'packageManagerStrict', 'packageManagerStrictVersion', 'preferFrozenLockfile', 'recursiveInstall', 'reporter',
@@ -140,13 +139,6 @@ function checkRegistry(value, where) {
 
 function checkNodeVersion(value, where) {
   if (valid(value) === null) throw new DeptreeError(`${quote(value)} is not an exact version`, where)
-}
-
-function checkAllowBuilds(value, where) {
-  for (const [name, build] of Object.entries(value)) {
-    if (typeof build !== 'boolean') throw new DeptreeError(`expected true or false, found ${show(build)}`, `${where}.${name}`)
-    if (build) throw new DeptreeError(SCRIPTS, `${where}.${name}`)
-  }
 }
 
 const ARCHITECTURES = new Set(['os', 'cpu', 'libc'])

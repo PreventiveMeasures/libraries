@@ -11,8 +11,10 @@
 // Not written: bins and their shims (node_modules/.bin), which pnpm makes
 // of each package's manifest, and the executable bit it gives the files
 // they run; .modules.yaml, .pnpm/lock.yaml and the workspace state, which
-// are pnpm's own; and anything a lifecycle script would build, as none is
-// run here — settings.js refuses any setting that would allow one to.
+// are pnpm's own; and anything a lifecycle script would build. The tree is
+// always the one `pnpm install --ignore-scripts` makes: no script is run,
+// a project's or a dependency's, whatever the settings allow, and patches
+// are applied all the same, as pnpm applies them before any script.
 
 import { packageKeyOf, parsePnpmLockfile } from '@preventive/lockfile/pnpm.js'
 import { parseYaml } from '@preventive/lockfile/yaml.js'

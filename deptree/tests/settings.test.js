@@ -59,6 +59,13 @@ describe('readSettings', () => {
     assert.deepEqual(read({ npmrc, workspace }), DEFAULTS)
   })
 
+  // Scripts are never run, as with --ignore-scripts: what a setting would
+  // allow to build is built by nothing here.
+  it('passes over what would allow a script to run', () => {
+    const workspace = 'allowBuilds:\n  esbuild: true\nonlyBuiltDependencies: [esbuild]\nneverBuiltDependencies: [x]\ndangerouslyAllowAllBuilds: true\n'
+    assert.deepEqual(read({ workspace, npmrc: 'ignore-scripts=false\n' }), DEFAULTS)
+  })
+
   const refused = [
     [{ workspace: 'nodeLinker: hoisted\n' }, /^pnpm-workspace\.yaml: nodeLinker: "hoisted" is not supported/u],
     [{ npmrc: 'node-linker=pnp\n' }, /^\.npmrc:1: node-linker: "pnp" is not supported/u],
@@ -75,9 +82,6 @@ describe('readSettings', () => {
     [{ npmrc: 'hoist[]=false\n' }, /^\.npmrc:1: hoist: not a list$/u],
     [{ npmrc: 'hoist=maybe\n' }, /expected true or false/u],
     [{ workspace: 'virtualStoreDirMaxLength: 0\n' }, /expected a positive integer/u],
-    [{ workspace: 'onlyBuiltDependencies: [esbuild]\n' }, /lifecycle scripts are never run here/u],
-    [{ workspace: 'allowBuilds:\n  esbuild: true\n' }, /^pnpm-workspace\.yaml: allowBuilds\.esbuild: .*lifecycle scripts/u],
-    [{ workspace: 'dangerouslyAllowAllBuilds: true\n' }, /lifecycle scripts/u],
     [{ workspace: 'enableGlobalVirtualStore: true\n' }, /a global virtual store is not built/u],
     [{ workspace: 'supportedArchitectures:\n  arch: [x64]\n' }, /unsupported key "arch"/u],
     [{ workspace: 'nodeVersion: "20"\n' }, /"20" is not an exact version/u],
