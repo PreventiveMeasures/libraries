@@ -252,17 +252,18 @@ class FeatureResolver {
   }
 
   // What the build compiles, as cargo's unit graph reaches it: from the
-  // roots, along what the build's resolve turns on, for the platforms built,
-  // and to dev-dependencies only from a root's own targets, which are for the
-  // host too where it is a proc-macro. The resolver walks more under
+  // packages built, which under resolver 1 may be fewer than the roots
+  // resolved, along what the build's resolve turns on, for the platforms
+  // built, and to dev-dependencies only from a root's own targets, which are
+  // for the host too where it is a proc-macro. The resolver walks more under
   // resolver 1, and so gives packages features that are not built; each
   // package built has its features whatever the resolver.
-  result(roots) {
+  result(built) {
     const reached = new Map()
     const visit = (key, fk) => {
       if (!reached.has(`${fk} ${key}`)) reached.set(`${fk} ${key}`, [key, fk])
     }
-    for (const key of roots.keys()) for (const fk of this.kindsOf(key)) visit(key, fk)
+    for (const key of built) for (const fk of this.kindsOf(key)) visit(key, fk)
     const own = new Set(reached.keys())
     for (const [key, fk] of reached.values()) {
       const on = this.activatedDeps.get(`${this.saved(fk)} ${key}`)
@@ -270,6 +271,7 @@ class FeatureResolver {
         if (!this.targeted.has(dep) || (dep.optional && !on?.has(dep.name))) continue
         if (dep.kind === 'dev' && !(this.dev && own.has(`${fk} ${key}`))) continue
         if (dep.target !== undefined && this.host !== undefined && !this.activeFor(dep, fk)) continue
+        this.checkNamed(key, dep)
         visit(dep.resolved, fk === 'host' || dep.kind === 'build' || this.graph.packages[dep.resolved].manifest.procMacro ? 'host' : 'normal')
       }
     }
@@ -280,6 +282,16 @@ class FeatureResolver {
     }
     return result
   }
+
+  // A crate calls a package it depends on by one name, whichever of its
+  // declarations the build's resolve turns on names it, of any kind or
+  // platform: the name given, `-` read as `_`, or the library's, taken here
+  // to be the package's. Where two do not agree, cargo refuses to build it.
+  checkNamed(key, dep) {
+    const named = (item) => item.name.replaceAll('-', '_')
+    const other = this.graph.packages[key].dependencies.find((item) => this.targeted.has(item) && item.resolved === dep.resolved && named(item) !== named(dep))
+    if (other !== undefined) throw new LockfileError(`depends on ${quote(dep.resolved)} as both ${quote(dep.name)} and ${quote(other.name)}, which cargo refuses to build`, key)
+  }
 }
 
 export function resolveCargoFeatures(graph, options) {
@@ -288,5 +300,5 @@ export function resolveCargoFeatures(graph, options) {
   const why = (dep) => `the build turns on ${quote(dep.name)}, which the lockfile does not resolve to one package, and cargo would anew`
   const resolver = new FeatureResolver(graph, activate(graph.packages, roots, why), options)
   for (const [key, values] of roots) resolver.resolveRoot(key, values)
-  return resolver.result(roots)
+  return resolver.result(options.packages)
 }

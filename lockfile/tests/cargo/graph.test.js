@@ -197,6 +197,19 @@ describe('resolveCargoFeatures', () => {
     assert.equal(build({ features: ['extra'] })['a 0.1.0'].normal.includes('b'), false)
   })
 
+  it('resolves the root package under resolver 1 whether built or not, and lists only what is built', () => {
+    const v1 = link({ change: { 'app 0.1.0': MANIFESTS['app 0.1.0'].replace('edition = "2021"', 'edition = "2015"') } })
+    assert.deepEqual({ ...resolveCargoFeatures(v1, { packages: ['a 0.1.0'], features: ['extra'], host: HOST }) }, { 'a 0.1.0': { normal: ['extra'], host: undefined } })
+  })
+
+  it('refuses a package built that depends on one package by two names, where the build turns both on', () => {
+    const twice = (spec) => link({ change: { 'app 0.1.0': `${MANIFESTS['app 0.1.0']}bb = { package = "b", version = "2"${spec} }\n` } })
+    const message = `app 0.1.0: depends on "${B2}" as both "b" and "bb", which cargo refuses to build`
+    assert.throws(() => resolveCargoFeatures(twice(''), { packages: ['app 0.1.0'], host: HOST }), refusedWith(message))
+    assert.equal(resolveCargoFeatures(twice(', optional = true'), { packages: ['app 0.1.0'], host: HOST })[B2].normal.length, 1)
+    assert.throws(() => resolveCargoFeatures(twice(', optional = true'), { packages: ['app 0.1.0'], features: ['bb'], host: HOST }), refusedWith(message))
+  })
+
   const refused = [
     ['a feature no package selected has', { features: ['nope'] }, 'features: no package selected has "nope"'],
     ['dep: on the command line', { features: ['dep:b'] }, 'features: "dep:b": `dep:` is not taken on the command line'],

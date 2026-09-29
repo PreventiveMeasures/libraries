@@ -213,6 +213,9 @@ export interface CargoLinkedDependency extends CargoDependency {
 // targets than its library; a build-dependency, though the package may have
 // no build script; and what a member depends on, though it may have no
 // library or binary for `cargo build` to build.
+//
+// Refused, as cargo refuses to build it: a package built that depends on one
+// package by two names, `-` read as `_`, where the build turns both on.
 export function resolveCargoFeatures(graph: CargoGraph, build: CargoBuild): Record<string, { normal: string[] | undefined, host: string[] | undefined }>
 
 // The host is what `rustc -vV` calls it and `rustc --print cfg` prints for
@@ -234,7 +237,8 @@ export interface CargoCommand {
   allFeatures?: boolean
   noDefaultFeatures?: boolean
   // Resolver 1 with a root package gives `--features` to the member cargo
-  // runs in: its key. The root package where none is given.
+  // runs in: its key. The root package where none is given. It is resolved,
+  // and its features unified with the rest, whether it is built or not.
   current?: string
   // Whether a dev target is built: `cargo test`, `--all-targets`.
   dev?: boolean
