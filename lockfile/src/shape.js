@@ -1,5 +1,5 @@
 // The shapes a lockfile's values come in, each checked where it is read.
-// A mapping here is what @preventive/yaml hands back: an object with a null
+// A mapping here is what the YAML parser hands back: an object with a null
 // prototype, so a key is only ever a key.
 
 import { LockfileError, at, quote } from './error.js'

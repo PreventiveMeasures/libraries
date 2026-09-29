@@ -33,11 +33,7 @@ importers:
 
   diff: {}
 
-  lockfile:
-    dependencies:
-      '@preventive/yaml':
-        specifier: 1.0.0-beta.0
-        version: link:../yaml
+  lockfile: {}
 
   upstream: {}
 
@@ -46,8 +42,6 @@ importers:
       '@preventive/archive':
         specifier: workspace:*
         version: link:../archive
-
-  yaml: {}
 
 packages:
 

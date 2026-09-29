@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { LockfileError, YamlError, packageKeyOf, parsePnpmLockfile } from '../pnpm.js'
+import { YamlError as YamlErrorOfYaml } from '../yaml.js'
 
 // One small lockfile with a package of every kind — registry, with its
 // tarball URL and without, a peer, a patch, a directory, git, a remote
@@ -306,6 +307,7 @@ describe('the document is refused', () => {
   it('when it is not text, or not the YAML pnpm writes', () => {
     assert.throws(() => parsePnpmLockfile(Buffer.from(BASE)), TypeError)
     assert.throws(() => parsePnpmLockfile(`${BASE}\tx: 1\n`), YamlError)
+    assert.equal(YamlError, YamlErrorOfYaml, 'pnpm.js and yaml.js hand out one YamlError')
   })
 
   it('when it is not a mapping', () => {
