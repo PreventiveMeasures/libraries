@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { parseOverrides, parseSelector } from '../src/pnpm/overrides.js'
+import { listOverrides, parseSelector } from '../src/pnpm/overrides.js'
 
 // Selectors as pnpm 10 parses them (@pnpm/parse-overrides): a package, a
 // range after its `@`, and a parent before a `>` that follows anything but
@@ -30,11 +30,12 @@ describe('parseSelector', () => {
   }
 })
 
-describe('parseOverrides', () => {
+describe('listOverrides', () => {
+  const parseOverrides = (overrides, catalogs) => Object.fromEntries(listOverrides(overrides, catalogs).map(({ selector, spec }) => [selector, spec]))
   const catalogs = { __proto__: null, default: { foo: '^1.0.0', rec: 'catalog:', ws: 'workspace:*', ln: 'link:../x' }, next: { foo: '^2.0.0' } }
 
   it('resolves a catalog for the package a selector targets', () => {
-    assert.deepEqual({ ...parseOverrides({ foo: 'catalog:', 'bar>foo': 'catalog:next', baz: '1.0.0', qux: '-' }, catalogs) }, { foo: '^1.0.0', 'bar>foo': '^2.0.0', baz: '1.0.0', qux: '-' })
+    assert.deepEqual(parseOverrides({ foo: 'catalog:', 'bar>foo': 'catalog:next', baz: '1.0.0', qux: '-' }, catalogs), { foo: '^1.0.0', 'bar>foo': '^2.0.0', baz: '1.0.0', qux: '-' })
   })
 
   it('refuses a catalog pnpm cannot resolve', () => {

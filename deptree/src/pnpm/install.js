@@ -13,7 +13,7 @@
 // their directories; pnpm walks them in the order it finds them on disk,
 // which only a snapshot reached both ways as above can tell apart.
 
-import { satisfies, valid } from '@preventive/upstream/semver.js'
+import { satisfies } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 
 // pnpm's checkList: `any` alone is anything, `!x` excludes, and a list of
@@ -38,19 +38,11 @@ function checkList(values, list) {
 // lists for each, `current` standing for itself.
 const current = (value, supported) => (supported ?? ['current']).map((item) => (item === 'current' ? value : item))
 
-function checkPlatform(pkg, host, supported) {
-  const ok = checkList(current(host.os, supported?.os), pkg.os ?? ['any'])
-    && checkList(current(host.cpu, supported?.cpu), pkg.cpu ?? ['any'])
-    && (host.libc === 'unknown' || checkList(current(host.libc, supported?.libc), pkg.libc ?? ['any']))
-  return ok ? undefined : 'platform'
-}
+const takesPlatform = (pkg, host, supported) => checkList(current(host.os, supported?.os), pkg.os ?? ['any'])
+  && checkList(current(host.cpu, supported?.cpu), pkg.cpu ?? ['any'])
+  && (host.libc === 'unknown' || checkList(current(host.libc, supported?.libc), pkg.libc ?? ['any']))
 
-function checkEngine(pkg, node) {
-  const wanted = pkg.engines.node
-  if (!wanted || satisfies(node, wanted, { includePrerelease: true })) return undefined
-  if (valid(node) === null) throw new DeptreeError(`${quote(node)} is not an exact version`, 'nodeVersion')
-  return 'engine'
-}
+const takesEngine = (engines, node) => !engines.node || satisfies(node, engines.node, { includePrerelease: true })
 
 // A package.json's os, cpu or libc as pnpm's checkList reads one: a string
 // is a list of it, and what is not a string in a list is passed over.
@@ -68,14 +60,14 @@ function platformList(value, where) {
 // not match is found first, and the engines are then not looked at.
 export function checkProject(manifest, where, { host, settings }) {
   const platform = { os: platformList(manifest.os, `${where}.os`), cpu: platformList(manifest.cpu, `${where}.cpu`), libc: platformList(manifest.libc, `${where}.libc`) }
-  if (checkPlatform(platform, host, settings.supportedArchitectures ?? { os: ['current'], cpu: ['current'], libc: ['current'] }) !== undefined) return
+  if (!takesPlatform(platform, host, settings.supportedArchitectures)) return
   const engines = manifest.engines
   if (engines === undefined || engines === null) return
   const node = settings.nodeVersion ?? host.node
   if (engines.pnpm && !satisfies(host.pnpm, engines.pnpm, { includePrerelease: true })) {
     throw new DeptreeError(`its engines.pnpm, ${quote(String(engines.pnpm))}, does not take pnpm ${host.pnpm}, which pnpm refuses`, where)
   }
-  if (settings.engineStrict && checkEngine({ engines }, node) !== undefined) throw new DeptreeError(`its engines.node, ${quote(String(engines.node))}, does not take Node ${node}, which engineStrict refuses`, where)
+  if (settings.engineStrict && !takesEngine(engines, node)) throw new DeptreeError(`its engines.node, ${quote(String(engines.node))}, does not take Node ${node}, which engineStrict refuses`, where)
 }
 
 // A check of one snapshot: true where the host can run it, false where it
@@ -84,10 +76,10 @@ export function checkProject(manifest, where, { host, settings }) {
 export function createCheck({ host, settings }) {
   const node = settings.nodeVersion ?? host.node
   return (key, pkg) => {
-    const reason = checkPlatform(pkg, host, settings.supportedArchitectures) ?? checkEngine(pkg, node)
-    if (reason === undefined) return true
+    const platform = takesPlatform(pkg, host, settings.supportedArchitectures)
+    if (platform && takesEngine(pkg.engines, node)) return true
     if (pkg.optional) return false
-    if (settings.engineStrict) throw new DeptreeError(`the host does not take its ${reason === 'platform' ? 'os, cpu or libc' : 'engines.node'}, which engineStrict refuses`, quote(key))
+    if (settings.engineStrict) throw new DeptreeError(`the host does not take its ${platform ? 'engines.node' : 'os, cpu or libc'}, which engineStrict refuses`, quote(key))
     return null
   }
 }

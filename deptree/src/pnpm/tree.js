@@ -23,7 +23,7 @@ import { dirname, relative } from '@preventive/vfs/path.js'
 import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { applyPatch, parsePatch } from '../patch.js'
-import { fetchFiles, tarballUrl } from '../tarball.js'
+import { REGISTRY, fetchFiles, tarballUrl } from '../tarball.js'
 import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
 import { createCheck, skippedSnapshots } from './install.js'
@@ -43,7 +43,7 @@ function checkHost(host) {
     if (typeof host[key] !== 'string' || host[key] === '') throw new TypeError(`host.${key} must be a non-empty string`)
   }
   const { pnpm, node, os, libc } = host
-  if (valid(pnpm) === null || valid(pnpm).split('.')[0] !== '10') throw new DeptreeError(`pnpm ${quote(pnpm)} is not supported: only pnpm 10 is`, 'host.pnpm')
+  if (!valid(pnpm)?.startsWith('10.')) throw new DeptreeError(`pnpm ${quote(pnpm)} is not supported: only pnpm 10 is`, 'host.pnpm')
   if (valid(node) === null) throw new DeptreeError(`${quote(node)} is not an exact version`, 'host.node')
   if (os === 'win32') throw new DeptreeError('Windows is not supported: pnpm links there with junctions to absolute paths', 'host.os')
   if (!LIBC.has(libc)) throw new DeptreeError(`expected "glibc", "musl" or "unknown", found ${quote(libc)}`, 'host.libc')
@@ -56,6 +56,8 @@ function checkLockfile(lockfile) {
   if (lockfile.settings.injectWorkspacePackages) throw new DeptreeError('injected workspace packages are not supported', 'settings.injectWorkspacePackages')
   if (lockfile.pnpmfileChecksum !== undefined) throw new DeptreeError('a pnpmfile\'s hooks are not run here', 'pnpmfileChecksum')
   for (const [id, importer] of Object.entries(lockfile.importers)) {
+    if (id === '..' || id.startsWith('../')) throw new DeptreeError('a project outside the lockfile\'s directory is not supported', `importers[${quote(id)}]`)
+    if (id.split('/').includes('node_modules')) throw new DeptreeError('a project inside node_modules would be inside the tree', `importers[${quote(id)}]`)
     for (const [name, meta] of Object.entries(importer.dependenciesMeta)) {
       if (meta.injected) throw new DeptreeError('an injected dependency is not supported', `importers[${quote(id)}].dependenciesMeta[${quote(name)}]`)
     }
@@ -70,7 +72,7 @@ function checkRegistry(node) {
   const { resolution } = pkg
   const fromRegistry = pkg.version !== undefined && packageKeyOf(key) === `${pkg.name}@${pkg.version}` && resolution.type === 'tarball'
     && resolution.path === undefined && !resolution.gitHosted && (resolution.tarball ?? tarballUrl(pkg.name, pkg.version)) === tarballUrl(pkg.name, pkg.version)
-  if (!fromRegistry) throw new DeptreeError('only packages from https://registry.npmjs.org/ are supported', quote(key))
+  if (!fromRegistry) throw new DeptreeError(`only packages from ${REGISTRY} are supported`, quote(key))
   if (!resolution.integrity?.startsWith('sha512-')) throw new DeptreeError('expected a sha512 integrity', quote(key))
 }
 
@@ -165,8 +167,9 @@ export async function buildPnpmTree(options) {
   const manifests = readManifests(manifestTexts, lockfile)
   const settings = readSettings({ workspace: readWorkspace(workspace), npmrc, manifest: manifests.get('.'), os: host.os })
   checkLockfile(lockfile)
-  const given = await checkUpToDate(lockfile, settings, readPatchesGiven(patches))
-  const hook = createHook({ overrides: listOverrides(settings.overrides, settings.catalogs), ignored: settings.ignoredOptionalDependencies })
+  const overrides = listOverrides(settings.overrides, settings.catalogs)
+  const given = await checkUpToDate(lockfile, settings, overrides, readPatchesGiven(patches))
+  const hook = createHook({ overrides, ignored: settings.ignoredOptionalDependencies })
   checkProjects(lockfile, manifests, { hook, host, settings })
   checkOptional(lockfile)
   const projects = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()

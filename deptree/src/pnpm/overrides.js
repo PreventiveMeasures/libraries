@@ -85,16 +85,11 @@ function fromCatalog(catalogs, spec, name, where) {
 
 // The overrides pnpm installs with, in order, as its parseOverrides has
 // them: each selector parsed, and its specifier with any catalog resolved.
+// By selector, they are what the lockfile's `overrides` is held to.
 export function listOverrides(overrides, catalogs) {
   return Object.entries(overrides ?? {}).map(([selector, spec]) => {
     const where = `overrides[${quote(selector)}]`
     const { parent, target } = parseSelector(selector, where)
     return { selector, parent, target, spec: fromCatalog(catalogs, spec, target.name, where) }
   })
-}
-
-// The same by selector, as createOverridesMapFromParsed has them for the
-// lockfile's `overrides` to be held to.
-export function parseOverrides(overrides, catalogs) {
-  return Object.assign(Object.create(null), ...listOverrides(overrides, catalogs).map(({ selector, spec }) => ({ [selector]: spec })))
 }

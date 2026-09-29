@@ -55,7 +55,7 @@ describe('checkProjects', () => {
   const refused = [
     ['a changed specifier', { ...MANIFEST, dependencies: { ...MANIFEST.dependencies, q: '^1.1.0' } }, /the specifiers differ: "q" is "\^1\.0\.0" in the lockfile and "\^1\.1\.0" in package\.json/u],
     ['a dependency of another kind', { dependencies: { q: '^1.0.0' }, devDependencies: { ...MANIFEST.devDependencies, r: 'npm:q@1.2.0' } }, /dependencies in the lockfile do not match/u],
-    ['a peer listed nowhere else', { ...MANIFEST, peerDependencies: { z: '1' } }, /"z" is in package\.json and not in the lockfile/u],
+    ['a peer listed nowhere else', { ...MANIFEST, peerDependencies: { z: '1' } }, /"z" is nothing in the lockfile and "1" in package\.json/u],
     ['a publish directory', { ...MANIFEST, publishConfig: { directory: 'dist' } }, /publishDirectory/u],
     ['dependenciesMeta', { ...MANIFEST, dependenciesMeta: { q: { injected: true } } }, /dependenciesMeta differs/u],
     ['a specifier that is not a string', { ...MANIFEST, dependencies: { ...MANIFEST.dependencies, q: 1 } }, /^DeptreeError: manifests\["\."\]\.dependencies: expected a mapping of names to specifiers$/u],
@@ -72,7 +72,7 @@ describe('checkProjects', () => {
     const { listOverrides } = OVERRIDES
     const hook = createHook({ overrides: listOverrides({ q: '^1.0.0', z: '-' }, {}), ignored: ['o'] })
     check({ ...MANIFEST, dependencies: { ...MANIFEST.dependencies, q: '^1.1.0', z: '1' }, optionalDependencies: { o: '1' } }, { hook })
-    assert.throws(() => check({ ...MANIFEST, dependencies: { ...MANIFEST.dependencies, z: '1' } }), /"z" is in package\.json and not in the lockfile/u)
+    assert.throws(() => check({ ...MANIFEST, dependencies: { ...MANIFEST.dependencies, z: '1' } }), /"z" is nothing in the lockfile and "1" in package\.json/u)
     const local = createHook({ overrides: listOverrides({ q: 'link:../q' }, {}), ignored: [] })
     assert.throws(() => check(MANIFEST, { hook: local }), /the override "q" is to a local path/u)
   })

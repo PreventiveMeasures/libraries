@@ -19,10 +19,9 @@
 
 import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
+import { REGISTRY } from '../tarball.js'
 import { parseNpmrc } from './npmrc.js'
 import { replaceReferences } from './overrides.js'
-
-const REGISTRY = 'https://registry.npmjs.org/'
 
 // An .npmrc value read only where it can mean one thing: not quoted, not
 // escaped, with no `;` or `#` that ini would cut it at. Neither file's
@@ -108,7 +107,7 @@ const READ = {
   patchedDependencies: { kind: 'mapping', check: checkPatches, rc: false },
   overrides: { kind: 'mapping', rc: false },
   catalog: { kind: 'mapping', check: checkCatalog, rc: false },
-  catalogs: { kind: 'mapping', check: (value, where) => { for (const [name, catalog] of Object.entries(value)) checkCatalog(readers.mapping(catalog, `${where}.${name}`), `${where}.${name}`) }, rc: false },
+  catalogs: { kind: 'mapping', check: checkCatalogs, rc: false },
   packageExtensions: { kind: 'mapping', rc: false },
   ignoredOptionalDependencies: { kind: 'texts', rc: false },
 }
@@ -180,6 +179,18 @@ function checkCatalog(value, where) {
   for (const [name, spec] of Object.entries(value)) readers.text(spec, `${where}.${name}`)
 }
 
+function checkCatalogs(value, where) {
+  for (const [name, catalog] of Object.entries(value)) checkCatalog(readers.mapping(catalog, `${where}.${name}`), `${where}.${name}`)
+}
+
+// Whether a setting is read here; one that leaves the tree as it is is
+// not, and one that is neither is refused.
+function isRead(name, where) {
+  if (IGNORED.has(name)) return false
+  if (!(name in READ)) throw new DeptreeError('unsupported setting', where)
+  return true
+}
+
 // By selector, the patch file, relative to the workspace's directory.
 function checkPatches(value, where) {
   for (const [selector, path] of Object.entries(value)) {
@@ -211,8 +222,8 @@ function fromNpmrc(text) {
     // pnpm reads a setting in an .npmrc by its kebab-case name alone, and
     // passes over any other spelling, which would read here as the setting.
     const name = KEBAB.test(key) ? camelCase(key) : undefined
-    if (IGNORED.has(name)) continue
-    if (!(name in READ) || READ[name].rc === false) throw new DeptreeError('unsupported setting', where)
+    if (!isRead(name, where)) continue
+    if (READ[name].rc === false) throw new DeptreeError('unsupported setting', where)
     const earlier = settings.get(name)
     if (earlier !== undefined && !(list && earlier.list)) throw new DeptreeError('set more than once', where)
     if (list && READ[name].kind !== 'texts') throw new DeptreeError('not a list', where)
@@ -232,9 +243,7 @@ function fromManifest(manifest) {
     if (!Object.hasOwn(pnpm, name) || name === 'overrides') continue
     const where = `package.json: pnpm.${name}`
     noEnvironment(pnpm[name], where)
-    if (IGNORED.has(name)) continue
-    if (!(name in READ)) throw new DeptreeError('unsupported setting', where)
-    settings.set(name, { value: pnpm[name], where })
+    if (isRead(name, where)) settings.set(name, { value: pnpm[name], where })
   }
   const { resolutions } = manifest
   if (resolutions !== undefined || Object.hasOwn(pnpm, 'overrides')) {
@@ -252,9 +261,7 @@ function fromWorkspace(workspace) {
     const where = `pnpm-workspace.yaml: ${name}`
     noEnvironment(name, where)
     noEnvironment(value, where)
-    if (IGNORED.has(name)) continue
-    if (!(name in READ)) throw new DeptreeError('unsupported setting', where)
-    settings.set(name, { value, where })
+    if (isRead(name, where)) settings.set(name, { value, where })
   }
   return settings
 }

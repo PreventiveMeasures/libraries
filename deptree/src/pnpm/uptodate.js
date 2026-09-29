@@ -13,22 +13,13 @@
 // applied, as pnpm reads it.
 
 import { normalize } from '@preventive/vfs/path.js'
-import { DeptreeError, quote } from '../error.js'
+import { DeptreeError, difference, quote } from '../error.js'
 import { sha256Hex } from '../hash.js'
-import { parseOverrides } from './overrides.js'
 import { checkPatchUse } from './patches.js'
 
 const outdated = (name, detail) => new DeptreeError(`${detail}, which a frozen install refuses`, name)
 
-// The first place two mappings of strings differ, for a message.
-function difference(locked, configured) {
-  for (const key of new Set([...Object.keys(locked), ...Object.keys(configured)])) {
-    const a = Object.hasOwn(locked, key) ? quote(locked[key]) : 'nothing'
-    const b = Object.hasOwn(configured, key) ? quote(configured[key]) : 'nothing'
-    if (a !== b) return `${quote(key)} is ${a} in the lockfile and ${b} in the settings`
-  }
-  return undefined
-}
+const SIDES = ['the lockfile', 'the settings']
 
 // By selector, the hash and path pnpm computes of each configured patch,
 // and by hash, the patch's text and path. `given` is the files by path.
@@ -59,14 +50,14 @@ async function hashPatches(configured, given) {
 
 function checkPatches(locked, hashes) {
   const flat = (patches) => Object.fromEntries(Object.entries(patches).map(([selector, { hash, path }]) => [selector, `${hash} ${path}`]))
-  const detail = difference(flat(locked), flat(hashes))
+  const detail = difference(flat(locked), flat(hashes), SIDES)
   if (detail !== undefined) throw outdated('patchedDependencies', `the patches differ: ${detail}`)
 }
 
 // Throws where pnpm would not install the lockfile as it is; hands back the
 // patches by hash, their text and path, to apply where a snapshot names one.
-export async function checkUpToDate(lockfile, settings, given) {
-  const overrides = parseOverrides(settings.overrides, settings.catalogs)
+// `overrides` is listOverrides's.
+export async function checkUpToDate(lockfile, settings, overrides, given) {
   const { hashes, byHash } = await hashPatches(settings.patchedDependencies, given)
   for (const [name, catalog] of Object.entries(lockfile.catalogs)) {
     for (const [alias, { specifier }] of Object.entries(catalog)) {
@@ -74,7 +65,7 @@ export async function checkUpToDate(lockfile, settings, given) {
       if (specifier !== configured) throw outdated('catalogs', `${quote(alias)} is ${quote(specifier)} in the lockfile's catalog ${quote(name)}, and ${configured === undefined ? 'nothing' : quote(configured)} in the settings`)
     }
   }
-  const overridden = difference(lockfile.overrides, overrides)
+  const overridden = difference(lockfile.overrides, Object.fromEntries(overrides.map(({ selector, spec }) => [selector, spec])), SIDES)
   if (overridden !== undefined) throw outdated('overrides', `the overrides differ: ${overridden}`)
   // pnpm checksums them with object-hash, which is not reproduced here.
   if (settings.packageExtensions !== undefined && Object.keys(settings.packageExtensions).length > 0) throw new DeptreeError('package extensions are not supported: their checksum cannot be checked against the lockfile\'s here', 'packageExtensions')

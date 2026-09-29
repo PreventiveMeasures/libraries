@@ -21,10 +21,6 @@ export function createMatcher(patterns) {
     const ignore = pattern.startsWith('!')
     return { ignore, match: matcherOf(ignore ? pattern.slice(1) : pattern) }
   })
-  if (matchers.length === 1) {
-    const [{ ignore, match }] = matchers
-    return ignore ? (input) => !match(input) : match
-  }
   if (matchers.every(({ ignore }) => ignore)) return (input) => !matchers.some(({ match }) => match(input))
   return (input) => {
     let matched = false

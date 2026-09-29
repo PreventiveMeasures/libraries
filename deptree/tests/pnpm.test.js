@@ -382,7 +382,7 @@ describe('buildPnpmTree refuses', () => {
   it('a lockfile not up to date with a package.json', async () => {
     stubRegistry(TARBALLS)
     await refuses({ manifest: root({ dependencies: { a: '^1.0.0' } }) }, /^manifests\["\."\]: the lockfile is not up to date with this package\.json, which a frozen install refuses: the specifiers differ/u)
-    await refuses({ manifest: root({ peerDependencies: { b: '1.0.0' } }) }, /the specifiers differ: "b" is in package\.json and not in the lockfile$/u)
+    await refuses({ manifest: root({ peerDependencies: { b: '1.0.0' } }) }, /the specifiers differ: "b" is nothing in the lockfile and "1\.0\.0" in package\.json$/u)
     const vfs = await build({ manifest: root({ peerDependencies: { a: '1.0.0' } }), workspace: 'hoist: true\n' })
     assert.ok(vfs.isSymlink('/node_modules/a'), 'a peer the project lists as a dependency too asks for nothing more')
   })

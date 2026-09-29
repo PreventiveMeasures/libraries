@@ -29,11 +29,10 @@ import { matchesIntegrity } from './hash.js'
 
 // What a tarball may unpack to, as upstream bounds what it downloads.
 const MAX_BYTES = 512 * 1024 * 1024
-const REGISTRY = 'https://registry.npmjs.org/'
+export const REGISTRY = 'https://registry.npmjs.org/'
 
 // The registry's own URL for a version's tarball, as npm and pnpm spell it.
 export const tarballUrl = (name, version) => `${REGISTRY}${name}/-/${name.split('/').at(-1)}-${version}.tgz`
-
 
 // pnpm's name for an entry: past the first `/` of the name as stored,
 // folded where it has a `./` in it, a `//` made one.

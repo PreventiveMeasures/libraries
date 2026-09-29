@@ -5,7 +5,6 @@
 import { DeptreeError } from './error.js'
 
 const encoder = new TextEncoder()
-const ALGORITHMS = { __proto__: null, sha1: 'SHA-1', sha256: 'SHA-256', sha384: 'SHA-384', sha512: 'SHA-512' }
 
 const digest = async (algorithm, bytes) => new Uint8Array(await crypto.subtle.digest(algorithm, bytes))
 const hex = (bytes) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
@@ -19,12 +18,6 @@ export async function sha256Hex(text, where) {
   return hex(await digest('SHA-256', encoder.encode(text)))
 }
 
-// Whether `bytes` are what a subresource integrity of one hash names, as
-// the lockfile reader has already held it to: an algorithm, a dash, and
-// the digest in padded base64.
-export async function matchesIntegrity(bytes, integrity) {
-  const dash = integrity.indexOf('-')
-  const algorithm = ALGORITHMS[integrity.slice(0, dash)]
-  if (algorithm === undefined) return false
-  return base64(await digest(algorithm, bytes)) === integrity.slice(dash + 1)
-}
+// Whether `bytes` are what a subresource integrity names: a sha512, the
+// only kind taken, in padded base64.
+export const matchesIntegrity = async (bytes, integrity) => integrity === `sha512-${base64(await digest('SHA-512', bytes))}`
