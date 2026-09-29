@@ -251,19 +251,16 @@ class FeatureResolver {
     }
   }
 
-  // What the build compiles, as cargo's unit graph reaches it: from the
-  // packages built, which under resolver 1 may be fewer than the roots
-  // resolved, along what the build's resolve turns on, for the platforms
-  // built, and to dev-dependencies only from a root's own targets, which are
-  // for the host too where it is a proc-macro. The resolver walks more under
-  // resolver 1, and so gives packages features that are not built; each
-  // package built has its features whatever the resolver.
-  result(built) {
+  // What the build compiles, as cargo's unit graph reaches it: from
+  // `starts`, along what the build's resolve turns on and `follow` takes, for
+  // the platforms built, and to dev-dependencies only from a start's own
+  // targets, which are for the host too where it is a proc-macro.
+  reach(starts, follow) {
     const reached = new Map()
     const visit = (key, fk) => {
       if (!reached.has(`${fk} ${key}`)) reached.set(`${fk} ${key}`, [key, fk])
     }
-    for (const key of built) for (const fk of this.kindsOf(key)) visit(key, fk)
+    for (const [key, fk] of starts) visit(key, fk)
     const own = new Set(reached.keys())
     for (const [key, fk] of reached.values()) {
       const on = this.activatedDeps.get(`${this.saved(fk)} ${key}`)
@@ -271,10 +268,26 @@ class FeatureResolver {
         if (!this.targeted.has(dep) || (dep.optional && !on?.has(dep.name))) continue
         if (dep.kind === 'dev' && !(this.dev && own.has(`${fk} ${key}`))) continue
         if (dep.target !== undefined && this.host !== undefined && !this.activeFor(dep, fk)) continue
-        this.checkNamed(key, dep)
-        visit(dep.resolved, fk === 'host' || dep.kind === 'build' || this.graph.packages[dep.resolved].manifest.procMacro ? 'host' : 'normal')
+        if (follow(key, dep)) visit(dep.resolved, fk === 'host' || dep.kind === 'build' || this.graph.packages[dep.resolved].manifest.procMacro ? 'host' : 'normal')
       }
     }
+    return reached
+  }
+
+  // From the packages built, which under resolver 1 may be fewer than the
+  // roots resolved. The resolver walks more under resolver 1, and so gives
+  // packages features that are not built; each package built has its
+  // features whatever the resolver.
+  //
+  // Where a crate the build is sure to compile depends on one package by two
+  // names, cargo refuses to build it: a member's library or binary, and its
+  // tests where dev targets are built, for the host where it is a
+  // proc-macro, and what they depend on, but by build-dependencies, which
+  // only a build script a filesystem tells of uses.
+  result(built) {
+    const libraries = built.map((key) => [key, this.graph.packages[key].manifest.procMacro ? 'host' : 'normal'])
+    this.reach(libraries, (key, dep) => dep.kind !== 'build' && this.checkNamed(key, dep))
+    const reached = this.reach(built.flatMap((key) => this.kindsOf(key).map((fk) => [key, fk])), () => true)
     const result = Object.create(null)
     for (const key of Object.keys(this.graph.packages)) {
       const [normal, host] = ['normal', 'host'].map((fk) => (reached.has(`${fk} ${key}`) ? [...this.enabled(key, fk)].sort() : undefined))
@@ -291,6 +304,7 @@ class FeatureResolver {
     const named = (item) => item.name.replaceAll('-', '_')
     const other = this.graph.packages[key].dependencies.find((item) => this.targeted.has(item) && item.resolved === dep.resolved && named(item) !== named(dep))
     if (other !== undefined) throw new LockfileError(`depends on ${quote(dep.resolved)} as both ${quote(dep.name)} and ${quote(other.name)}, which cargo refuses to build`, key)
+    return true
   }
 }
 
