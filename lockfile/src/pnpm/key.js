@@ -15,26 +15,28 @@ import { checkName } from '../names.js'
 const PATCH = '(patch_hash='
 
 // pnpm's indexOfDepPathSuffix: where the run of balanced groups that ends
-// the key begins, and whether it begins with the patch hash.
+// the key begins, and where its peers begin, past the patch hash when it
+// leads the run; either is the key's length where there is none.
 function suffixOf(key) {
-  if (!key.endsWith(')')) return { peers: -1, patch: -1 }
+  const none = { start: key.length, peers: key.length }
+  if (!key.endsWith(')')) return none
   let open = 1
   for (let i = key.length - 2; i >= 0; i--) {
     if (key[i] === '(') open--
     else if (key[i] === ')') open++
     else if (open === 0) {
-      if (key.startsWith(PATCH, i + 1)) return { patch: i + 1, peers: key.indexOf('(', i + 2) }
-      return { patch: -1, peers: i + 1 }
+      if (!key.startsWith(PATCH, i + 1)) return { start: i + 1, peers: i + 1 }
+      const peers = key.indexOf('(', i + 2)
+      return { start: i + 1, peers: peers === -1 ? key.length : peers }
     }
   }
-  return { peers: -1, patch: -1 }
+  return none
 }
 
 // pnpm's removeSuffix: the package key under a snapshot key.
 export function packageKeyOf(key) {
   if (typeof key !== 'string') throw new TypeError('expected a string')
-  const { peers, patch } = suffixOf(key)
-  return patch === -1 ? (peers === -1 ? key : key.slice(0, peers)) : key.slice(0, patch)
+  return key.slice(0, suffixOf(key).start)
 }
 
 // Groups one after the other, each balanced and not empty, none of them a
@@ -52,15 +54,15 @@ function checkGroups(groups, key, where) {
 
 // The package key, and the patch hash when there is one.
 export function splitSnapshotKey(key, where) {
-  const { peers, patch } = suffixOf(key)
+  const { start, peers } = suffixOf(key)
   let hash
-  if (patch !== -1) {
-    const group = key.slice(patch, peers === -1 ? key.length : peers)
+  if (start < peers) {
+    const group = key.slice(start, peers)
     hash = /^\(patch_hash=([\da-z]+)\)$/u.exec(group)?.[1]
     if (hash === undefined) throw new LockfileError(`${quote(group)} is not a patch hash`, where)
   }
-  if (peers !== -1) checkGroups(key.slice(peers), key, where)
-  return { base: packageKeyOf(key), patchHash: hash }
+  checkGroups(key.slice(peers), key, where)
+  return { base: key.slice(0, start), patchHash: hash }
 }
 
 // A package key's name, checked, and what follows its `@`.

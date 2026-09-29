@@ -12,7 +12,7 @@
 // Nothing adds to an array or an inline table written as a value.
 
 import { TomlError, assert, excerpt } from './error.js'
-import { atLineEnd, found, readKey, readValue, skipComment, skipSpaces, takeNewline } from './value.js'
+import { atLineEnd, found, readKey, readKeyValue, setKey, skipComment, skipSpaces, takeNewline } from './value.js'
 
 const isTable = (value) => typeof value === 'object' && value !== null && Object.getPrototypeOf(value) === null
 
@@ -25,18 +25,6 @@ function kind(state, src, value) {
 
 const named = (keys) => excerpt(keys.join('.'))
 
-// An array or an inline table written as a value, and all it holds.
-function fix(src, value) {
-  if (!Array.isArray(value) && !isTable(value)) return
-  src.fixed.add(value)
-  for (const item of Object.values(value)) fix(src, item)
-}
-
-function setKey(src, table, key, value) {
-  assert(!(key in table), src, () => `duplicate key ${excerpt(key)}`)
-  table[key] = value
-}
-
 // The tables a header names on its way: made where missing, and the last
 // table of an array of tables where it names one.
 function walk(state, src, keys) {
@@ -45,14 +33,10 @@ function walk(state, src, keys) {
     if (!(key in table)) {
       table[key] = Object.create(null)
       state.implicit.add(table[key])
-    } else if (state.arrays.has(table[key])) {
-      table = table[key].at(-1)
-      continue
-    } else {
-      const value = table[key]
-      assert(isTable(value) && !src.fixed.has(value), src, () => `${excerpt(key)} is ${kind(state, src, value)}, which a header cannot add to`)
     }
-    table = table[key]
+    const next = state.arrays.has(table[key]) ? table[key].at(-1) : table[key]
+    assert(isTable(next) && !src.fixed.has(next), src, () => `${excerpt(key)} is ${kind(state, src, next)}, which a header cannot add to`)
+    table = next
   }
   return table
 }
@@ -106,35 +90,6 @@ function putDotted(state, src, keys, value) {
   setKey(src, table, keys.at(-1), value)
 }
 
-// A dotted key within an inline table may only go through tables the same
-// inline table's dotted keys made.
-const inlineKind = (value) => (Array.isArray(value) ? 'an array' : isTable(value) ? 'an inline table' : 'a value')
-
-function putInline(src, table, keys, value, open) {
-  let at = table
-  for (const key of keys.slice(0, -1)) {
-    if (!(key in at)) {
-      at[key] = Object.create(null)
-      open.add(at[key])
-    }
-    const next = at[key]
-    assert(open.has(next), src, () => `${excerpt(key)} is ${inlineKind(next)}, which a dotted key cannot add to`)
-    at = next
-  }
-  setKey(src, at, keys.at(-1), value)
-}
-
-function readKeyValue(state, src) {
-  const keys = readKey(src)
-  skipSpaces(src)
-  assert(src.text[src.pos] === '=', src, () => `expected "=" after the key, found ${found(src)}`)
-  src.pos++
-  skipSpaces(src)
-  const value = readValue(src, 0, (table, inner, item, open) => putInline(src, table, inner, item, open))
-  putDotted(state, src, keys, value)
-  fix(src, value)
-}
-
 // A lone surrogate is no character at all, and a byte order mark is not
 // TOML; both are refused where they are.
 function checkText(text) {
@@ -153,7 +108,10 @@ export function parseToml(text) {
   while (src.pos < text.length) {
     skipSpaces(src)
     if (text[src.pos] === '[') readHeader(state, src)
-    else if (text[src.pos] !== '#' && text[src.pos] !== '\r' && !atLineEnd(src)) readKeyValue(state, src)
+    else if (text[src.pos] !== '#' && text[src.pos] !== '\r' && !atLineEnd(src)) {
+      const { keys, value } = readKeyValue(src, 0)
+      putDotted(state, src, keys, value)
+    }
     skipSpaces(src)
     skipComment(src)
     if (takeNewline(src)) continue

@@ -1,7 +1,8 @@
 // The pieces of a TOML line: whitespace, comments, keys and values. `src` is
 // { text, pos, line, fixed }: the text, where the reader is in it, the line
 // it is on (from zero), and the containers no later line may add to, which
-// are the arrays and inline tables written as values.
+// are every array and table read here, as a value or within one. An inline
+// table's keys are set here too; where a line's key goes is parse.js's.
 //
 // Read here: basic and literal strings on one line, decimal integers with
 // or without underscores, booleans, offset date-times, arrays (across lines,
@@ -13,7 +14,7 @@
 import { readDateTime } from './datetime.js'
 import { TomlError, assert, excerpt } from './error.js'
 
-export const MAX_DEPTH = 64
+const MAX_DEPTH = 64
 
 // Sticky patterns, read at `src.pos`; `take` moves it past the match.
 function take(src, re) {
@@ -107,15 +108,15 @@ function readBasic(src) {
 }
 
 // `'…'`, on one line, taken as written.
-const LITERAL = /'([^'[\p{Cc}--[\t\u0080-\u009F]]]*)'/vy
+const LITERAL_RUN = /[^'[\p{Cc}--[\t\u0080-\u009F]]]*/vy
 function readLiteral(src) {
   assert(!src.text.startsWith("'''", src.pos), src, 'multi-line strings are not supported')
-  const m = take(src, LITERAL)
-  if (m !== null) return m[1]
   src.pos++
-  take(src, /[^'[\p{Cc}--[\t\u0080-\u009F]]]*/vy)
+  const value = take(src, LITERAL_RUN)[0]
   assert(!atLineEnd(src), src, 'unterminated string')
-  return refuseControl(src, src.text[src.pos], 'a string')
+  const char = src.text[src.pos]
+  src.pos++
+  return char === "'" ? value : refuseControl(src, char, 'a string')
 }
 
 // A key: bare, of ASCII letters, digits, `_` and `-`, or quoted; dotted, a
@@ -170,13 +171,30 @@ function readToken(src) {
   throw new TomlError(`expected a value, found ${excerpt(token)}`, src.line)
 }
 
-function readArray(src, depth, put) {
+// A key is set once in its table.
+export function setKey(src, table, key, value) {
+  assert(!(key in table), src, () => `duplicate key ${excerpt(key)}`)
+  table[key] = value
+}
+
+// `key = value`, the key dotted or not, for the caller to set.
+export function readKeyValue(src, depth) {
+  const keys = readKey(src)
+  skipSpaces(src)
+  assert(src.text[src.pos] === '=', src, () => `expected "=" after the key, found ${found(src)}`)
+  src.pos++
+  skipSpaces(src)
+  return { keys, value: readValue(src, depth) }
+}
+
+function readArray(src, depth) {
   src.pos++
   const list = []
+  src.fixed.add(list)
   for (;;) {
     skipBlank(src)
     if (src.text[src.pos] === ']') break
-    list.push(readValue(src, depth + 1, put))
+    list.push(readValue(src, depth + 1))
     skipBlank(src)
     if (src.text[src.pos] === ']') break
     assert(src.text[src.pos] === ',', src, () => `expected "," or "]", found ${found(src)}`)
@@ -186,12 +204,30 @@ function readArray(src, depth, put) {
   return list
 }
 
-// `put` is the document's way of setting a dotted key in a table; an inline
-// table's keys are set by the same rules, within it alone.
-function readInline(src, depth, put) {
+// A dotted key within an inline table may only go through tables the same
+// inline table's dotted keys made, which are `open`.
+const inlineKind = (value) => (Array.isArray(value) ? 'an array' : Object.getPrototypeOf(value) === null ? 'an inline table' : 'a value')
+
+function putInline(src, table, open, keys, value) {
+  let at = table
+  for (const key of keys.slice(0, -1)) {
+    if (!(key in at)) {
+      at[key] = Object.create(null)
+      open.add(at[key])
+      src.fixed.add(at[key])
+    }
+    const next = at[key]
+    assert(open.has(next), src, () => `${excerpt(key)} is ${inlineKind(next)}, which a dotted key cannot add to`)
+    at = next
+  }
+  setKey(src, at, keys.at(-1), value)
+}
+
+function readInline(src, depth) {
   src.pos++
   const table = Object.create(null)
-  const open = new Set([table])
+  src.fixed.add(table)
+  const open = new Set()
   skipSpaces(src)
   if (src.text[src.pos] === '}') {
     src.pos++
@@ -199,12 +235,8 @@ function readInline(src, depth, put) {
   }
   for (;;) {
     skipSpaces(src)
-    const keys = readKey(src)
-    skipSpaces(src)
-    assert(src.text[src.pos] === '=', src, () => `expected "=" after the key, found ${found(src)}`)
-    src.pos++
-    skipSpaces(src)
-    put(table, keys, readValue(src, depth + 1, put), open)
+    const { keys, value } = readKeyValue(src, depth + 1)
+    putInline(src, table, open, keys, value)
     skipSpaces(src)
     const char = src.text[src.pos]
     assert(char === ',' || char === '}', src, () => `expected "," or "}" on the inline table's line, found ${found(src)}`)
@@ -213,7 +245,7 @@ function readInline(src, depth, put) {
   }
 }
 
-export function readValue(src, depth, put) {
+function readValue(src, depth) {
   assert(depth <= MAX_DEPTH, src, 'nested too deep')
   switch (src.text[src.pos]) {
     case '"':
@@ -221,9 +253,9 @@ export function readValue(src, depth, put) {
     case "'":
       return readLiteral(src)
     case '[':
-      return readArray(src, depth, put)
+      return readArray(src, depth)
     case '{':
-      return readInline(src, depth, put)
+      return readInline(src, depth)
     default:
       return readToken(src)
   }
