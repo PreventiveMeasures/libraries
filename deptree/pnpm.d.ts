@@ -58,7 +58,12 @@ export interface PnpmHost {
 // `pnpm.overrides`, the second winning a selector both name; only where
 // those name none are pnpm-workspace.yaml's `overrides` read. `$name` in
 // one is the root package.json's own specifier for `name`, and
-// `catalog:` what the workspace's catalog gives the package.
+// `catalog:` what the workspace's catalog gives the package. One to a
+// directory — a path alone, such as `./vendor/foo`, or by `link:` — is
+// read only with `vfs` given, and only where the directory is under the
+// lockfile's and holds a package.json there; pnpm links it. One to a copy
+// of a directory, by `file:`, is refused: pnpm picks the files it copies
+// with npm-packlist.
 //
 // Of the .npmrc, only what pnpm reads for an install is read: its settings
 // by their kebab-case names, those that can change the tree held to what
@@ -88,7 +93,11 @@ export interface PnpmHost {
 // Nothing there is written over: each directory the tree has is one there
 // or is made, and every file and link is written where nothing is. The
 // tree is built, and held to every check below, before any of it is
-// written, so a refusal leaves the Vfs as it was.
+// written, so a refusal leaves the Vfs as it was. With it given, a
+// directory the tree links to that is no project, and is under the
+// lockfile's, has to be there with a package.json, whose bins are read as
+// pnpm reads them; nothing outside node_modules is written, though pnpm
+// 10 makes the files a linked directory's bins run executable too.
 export interface PnpmTreeOptions {
   lockfile: string
   manifests: Record<string, string> | Map<string, string>

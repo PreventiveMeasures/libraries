@@ -669,6 +669,66 @@ describe('buildPnpmTree into a given Vfs', () => {
     assert.equal(linux.vfs.isFile('/lib/Node_Modules/x'), true)
   })
 
+  // An override to a directory under the lockfile's, as pnpm links it,
+  // read from the Vfs given alone, and only where it is there.
+  describe('with an override to a directory', () => {
+    const app = tarball('app', '1.0.0', { 'index.js': 'app' }, { manifest: { dependencies: { foo: '^1.0.0' } } })
+    const linked = async (spec, specifier, { v11 = false } = {}) => {
+      const { integrity } = await app
+      const overrides = `overrides:\n  foo: ${spec}\n`
+      return { overrides, lockfile: `lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+${overrides}
+importers:
+
+  .:
+    dependencies:
+      app:
+        specifier: 1.0.0
+        version: 1.0.0
+      foo:
+        specifier: ${specifier}
+        version: link:vendor/foo
+
+packages:
+
+  app@1.0.0:
+    resolution: {integrity: ${integrity}}
+
+snapshots:
+
+  app@1.0.0:
+    dependencies:
+      foo: link:vendor/foo
+`, manifest: JSON.stringify({ name: 'root', dependencies: { app: '1.0.0', foo: '^1.0.0' }, ...(v11 ? {} : { pnpm: { overrides: { foo: spec } } }) }) }
+    }
+    const vendored = { 'vendor/foo/package.json': '{"name":"foo","version":"1.5.0","bin":{"foo":"cli.js"}}', 'vendor/foo/cli.js': '#!/usr/bin/env node\n' }
+    const buildLinked = ({ lockfile: locked, manifest, overrides }, { vfs, host = HOST } = {}) => buildPnpmTree({ lockfile: locked, manifests: { '.': manifest }, workspace: host === HOST ? undefined : overrides, host, vfs })
+
+    it('links it where the Vfs holds it, a path alone or by link:', async () => {
+      stubRegistry([await app])
+      for (const [spec, specifier, host] of [['./vendor/foo', './vendor/foo', HOST], ['link:./vendor/foo', 'link:vendor/foo', HOST], ['./vendor/foo', './vendor/foo', { ...HOST, pnpm: '11.28.2' }]]) {
+        const given = await linked(spec, specifier, { v11: host !== HOST })
+        const { vfs } = await buildLinked(given, { vfs: createVfs({ 'package.json': given.manifest, ...vendored }), host })
+        assert.equal(vfs.realpath('/node_modules/foo'), '/vendor/foo', spec)
+        assert.equal(vfs.realpath('/node_modules/.pnpm/app@1.0.0/node_modules/foo'), '/vendor/foo', spec)
+        assert.equal(vfs.stat('/vendor/foo/cli.js').mode, 0o644, 'nothing outside node_modules is written')
+      }
+    })
+
+    it('refuses it without a Vfs, or where the Vfs does not hold it', async () => {
+      stubRegistry([await app])
+      const given = await linked('./vendor/foo', './vendor/foo')
+      await assert.rejects(buildLinked(given), /^DeptreeError: overrides\["foo"\]: an override to a directory, "vendor\/foo", is read only from a Vfs given as vfs$/u)
+      await assert.rejects(buildLinked(given, { vfs: createVfs({ 'package.json': given.manifest, 'vendor/foo/cli.js': '' }) }), /^DeptreeError: overrides\["foo"\]: "vendor\/foo" holds no package\.json in the Vfs given$/u)
+      await assert.rejects(buildLinked(await linked('file:./vendor/foo', 'file:vendor/foo'), { vfs: createVfs(vendored) }), /^DeptreeError: overrides\["foo"\]: an override to a copy of a directory, as file: has pnpm install it, is not supported/u)
+    })
+  })
+
   it('takes a Vfs and nothing else', async () => {
     await assert.rejects(into({}), (error) => error instanceof TypeError && error.message === 'vfs must be a Vfs, or left out')
   })

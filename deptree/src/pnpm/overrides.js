@@ -18,6 +18,11 @@
 // lockfile's `overrides` (uptodate.js), and resolves anew where they
 // differ.
 //
+// An override to a directory — `link:`, `file:` or a path alone, such as
+// `./vendor/foo` — names it from the lockfile's directory, and is read
+// only from a Vfs given that holds it (tree.js): one outside the lockfile's
+// directory, or from the root or the home directory, is refused.
+//
 // pnpm 11 reads them from pnpm-workspace.yaml alone, trims each selector,
 // takes a catalog's `workspace:` entry, and reads `name@` with an exact
 // version as converging: a dependency on `name` whose range takes that
@@ -25,6 +30,7 @@
 // with a parent and an empty range, and one whose version is not exact.
 
 import { valid } from '@preventive/upstream/semver.js'
+import { join, normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 
 // validate-npm-package-name 5's validForOldPackages, which pnpm reads a
@@ -90,9 +96,21 @@ function fromCatalog(catalogs, spec, name, where, major) {
   return found
 }
 
+// The directory an override names, as pnpm's local resolver reads a
+// specifier, and by which protocol, or undefined for one that is none.
+function localOf(spec, where) {
+  const protocol = ['file:', 'link:'].find((prefix) => spec.startsWith(prefix)) ?? (/^(?:[./]|~\/)/u.test(spec) ? '' : undefined)
+  if (protocol === undefined) return undefined
+  const path = spec.slice(protocol.length).replace(/\/+$/u, '')
+  const dir = /^(?:[/\\]|~[/\\]|[A-Za-z]:)/u.test(path) || path.includes('\\') ? '..' : normalize(join('.', path))
+  if (dir === '..' || dir.startsWith('../')) throw new DeptreeError(`${quote(spec)} is not a directory under the lockfile's, which is not supported`, where)
+  return { protocol, dir }
+}
+
 // The overrides pnpm installs with, in order, as its parseOverrides has
-// them: each selector parsed, and its specifier with any catalog resolved.
-// By selector, they are what the lockfile's `overrides` is held to.
+// them: each selector parsed, and its specifier with any catalog resolved,
+// and `local` the directory it names, where it names one. By selector,
+// they are what the lockfile's `overrides` is held to.
 export function listOverrides(overrides, catalogs, major = 10) {
   const seen = new Set()
   return Object.entries(overrides ?? {}).map(([raw, given]) => {
@@ -102,7 +120,7 @@ export function listOverrides(overrides, catalogs, major = 10) {
     seen.add(selector)
     const { parent, target } = parseSelector(selector, where)
     const spec = fromCatalog(catalogs, given, target.name, where, major)
-    if (major < 11 || (target.range !== '' && parent?.range !== '')) return { selector, parent, target, spec }
+    if (major < 11 || (target.range !== '' && parent?.range !== '')) return { selector, parent, target, spec, local: localOf(spec, where) }
     if (parent !== undefined) throw new DeptreeError('an empty range with a parent is refused by pnpm 11', where)
     if (valid(spec) === null) throw new DeptreeError(`${quote(spec)} is not the exact version pnpm 11 holds a converging override to`, where)
     return { selector, target, spec, converge: true }

@@ -9,10 +9,11 @@
 // package.json before holding it to its importer, which is why a project
 // overridden is recorded as overridden.
 //
-// pnpm 11 converges where no override is chosen (overrides.js), drops a
-// peer's peerDependenciesMeta with the peer, and makes an override to a
-// path relative to the project it overrides for, where pnpm 10 makes it
-// absolute.
+// An override to a directory, `link:` or `file:`, is written into a
+// project relative to it, as pnpm writes it; pnpm 11 takes a path alone
+// for one too, where pnpm 10 writes it as it is. pnpm 11 also converges
+// where no override is chosen (overrides.js), and drops a peer's
+// peerDependenciesMeta with the peer.
 
 import { intersects, satisfies, validRange } from '@preventive/upstream/semver.js'
 import { join, normalize } from '@preventive/vfs/path.js'
@@ -43,10 +44,10 @@ function pathBetween(from, to) {
   return [...a.slice(shared).map(() => '..'), ...b.slice(shared)].join('/') || '.'
 }
 
-// pnpm 11's override to a path, `file:`, `link:` or bare, as it writes it
-// into the project at `dir`: relative to it, from the lockfile's
-// directory. One from the root or the home directory it leaves as it is,
-// which is not known here.
+// An override to a path, `file:`, `link:` or bare, as pnpm writes it into
+// the project at `dir`: relative to it, from the lockfile's directory. One
+// from the root or the home directory it leaves as it is, which is not
+// known here.
 function localSpec(spec, dir, selector, where) {
   const protocol = ['file:', 'link:'].find((prefix) => spec.startsWith(prefix)) ?? (/^(?:[./]|~\/)/u.test(spec) ? '' : undefined)
   if (protocol === undefined) return spec
@@ -94,8 +95,7 @@ export function createHook({ overrides, ignored, major = 10 }) {
             continue
           }
           let wanted = chosen.spec
-          if (dir !== undefined && major >= 11) wanted = localSpec(wanted, dir, chosen.selector, where)
-          else if (dir !== undefined && isLocal(wanted)) throw new DeptreeError(`the override ${quote(chosen.selector)} is to a local path, which pnpm writes into a project's specifier as an absolute one`, where)
+          if (dir !== undefined && (major >= 11 || isLocal(wanted))) wanted = localSpec(wanted, dir, chosen.selector, where)
           if (peers === undefined || !isPeerRange(wanted)) deps[name] = wanted
           else peers[name] = wanted
         }

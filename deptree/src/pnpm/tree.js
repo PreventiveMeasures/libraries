@@ -31,6 +31,7 @@ import { REGISTRY, checkDependencies, fetchPackage, tarballUrl } from '../tarbal
 import { binTargets, checkPatchOfBins, fixBin } from './bins.js'
 import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
+import { checkLocalOverrides, readLinked } from './local.js'
 import { createCheck, skippedSnapshots } from './install.js'
 import { checkCollisions, checkLinks, checkOptional } from './checks.js'
 import { createHook } from './hook.js'
@@ -210,6 +211,7 @@ export async function buildPnpmTree(options) {
   checkLockfile(lockfile)
   checkWorkspace(Object.keys(lockfile.importers), settings.packages, host.major)
   const overrides = listOverrides(settings.overrides, settings.catalogs, host.major)
+  checkLocalOverrides(overrides, into)
   const given = await checkUpToDate(lockfile, settings, overrides, readPatchesGiven(patches), host.major)
   const hook = createHook({ overrides, ignored: settings.ignoredOptionalDependencies, major: host.major })
   checkProjects(lockfile, manifests, { hook, host, settings })
@@ -228,9 +230,10 @@ export async function buildPnpmTree(options) {
     byDir.set(node.dir, { ...node, files, manifest })
   }
   const links = linksOf(nodes, direct, settings, projects, host.major)
+  const linked = readLinked(links, byDir, manifests, into)
   const targets = binTargets({
     nodes: byDir,
-    projects: manifests,
+    projects: linked.size === 0 ? manifests : new Map([...manifests, ...linked]),
     direct,
     links,
     publicHoist: settings.publicHoistPattern?.length > 0,

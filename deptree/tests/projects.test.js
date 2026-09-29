@@ -73,8 +73,8 @@ describe('checkProjects', () => {
     const hook = createHook({ overrides: listOverrides({ q: '^1.0.0', z: '-' }, {}), ignored: ['o'] })
     check({ ...MANIFEST, dependencies: { ...MANIFEST.dependencies, q: '^1.1.0', z: '1' }, optionalDependencies: { o: '1' } }, { hook })
     assert.throws(() => check({ ...MANIFEST, dependencies: { ...MANIFEST.dependencies, z: '1' } }), /"z" is nothing in the lockfile and "1" in package\.json/u)
-    const local = createHook({ overrides: listOverrides({ q: 'link:../q' }, {}), ignored: [] })
-    assert.throws(() => check(MANIFEST, { hook: local }), /the override "q" is to a local path/u)
+    const local = createHook({ overrides: listOverrides({ q: 'link:vendor/q' }, {}), ignored: [] })
+    assert.throws(() => check(MANIFEST, { hook: local }), /the specifiers differ: "q" is "\^1\.0\.0" in the lockfile and "link:vendor\/q" in package\.json/u)
   })
 
   it('refuses a packageManager other than this pnpm, exactly', () => {

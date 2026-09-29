@@ -41,7 +41,7 @@ const KINDS = ['optionalDependencies', 'dependencies', 'devDependencies']
 
 // A package.json as parsed, as pnpm reads one: a byte order mark dropped,
 // and an object.
-function readManifest(text, where) {
+export function readManifest(text, where) {
   if (typeof text !== 'string') throw new TypeError(`${where} must be the text of a package.json`)
   let manifest
   try {
