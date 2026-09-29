@@ -3,7 +3,7 @@ import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { describe, it } from 'node:test'
 
-import { compareVersions, isExactVersion, satisfies, valid } from '../semver.js'
+import { compareVersions, isExactVersion, satisfies, valid, validRange } from '../semver.js'
 
 // Against the npm that ships beside the node running this, which every
 // install these tests run on has.
@@ -19,6 +19,11 @@ describe("npm's semver, borrowed", () => {
     assert.equal(compareVersions('1.9.0', '1.10.0'), -1)
     assert.deepEqual(['1.10.0', '1.2.0', '1.9.0'].toSorted(compareVersions), ['1.2.0', '1.9.0', '1.10.0'])
     assert.throws(() => compareVersions('file:a', 'file:b'), /Invalid Version/u)
+    assert.equal(validRange('^1.2.0'), '>=1.2.0 <2.0.0-0')
+    assert.equal(validRange('1.x || >=3'), '>=1.0.0 <2.0.0-0||>=3.0.0')
+    assert.equal(validRange('latest'), null)
+    assert.equal(validRange('npm:foo@1'), null)
+    for (const range of ['^1.2.0', '*', '', 'latest', 'x.y', '>=1 <2']) assert.equal(validRange(range), semver.validRange(range))
   })
 })
 
