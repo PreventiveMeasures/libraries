@@ -37,12 +37,21 @@ import { checkCollisions, checkLinks, checkOptional } from './checks.js'
 import { createHook } from './hook.js'
 import { listOverrides } from './overrides.js'
 import { checkProjects, readManifests, workspaceNames } from './projects.js'
+import { readers } from './readers.js'
 import { readSettings } from './settings.js'
 import { checkUpToDate } from './uptodate.js'
-import { checkWorkspace } from './workspace.js'
+import { checkWorkspace, findProjects } from './workspace.js'
 
 const CONCURRENCY = 8
 const LIBC = new Set(['glibc', 'musl', 'unknown'])
+
+// The major version of `pnpm`, 10 or 11: what pnpm 11 does differently is
+// read by it, where it is.
+function majorOf(pnpm) {
+  const major = Number(valid(pnpm)?.split('.')[0])
+  if (major !== 10 && major !== 11) throw new DeptreeError(`pnpm ${quote(pnpm)} is not supported: only pnpm 10 and 11 are`, 'host.pnpm')
+  return major
+}
 
 function checkHost(host) {
   if (host === null || typeof host !== 'object') throw new TypeError('host must be an object with pnpm, node, os, cpu and libc')
@@ -50,9 +59,7 @@ function checkHost(host) {
     if (typeof host[key] !== 'string' || host[key] === '') throw new TypeError(`host.${key} must be a non-empty string`)
   }
   const { pnpm, node, os, libc } = host
-  const major = Number(valid(pnpm)?.split('.')[0])
-  // What pnpm 11 does differently is read below, by `major`, where it is.
-  if (major !== 10 && major !== 11) throw new DeptreeError(`pnpm ${quote(pnpm)} is not supported: only pnpm 10 and 11 are`, 'host.pnpm')
+  const major = majorOf(pnpm)
   if (valid(node) === null) throw new DeptreeError(`${quote(node)} is not an exact version`, 'host.node')
   if (os === 'win32') throw new DeptreeError('Windows is not supported: pnpm links there with junctions to absolute paths', 'host.os')
   if (!LIBC.has(libc)) throw new DeptreeError(`expected "glibc", "musl" or "unknown", found ${quote(libc)}`, 'host.libc')
@@ -240,6 +247,20 @@ function linksOf(byDir, direct, settings, projects, major) {
 // pnpm-workspace.yaml as parsed; one of comments alone, or nothing, sets
 // nothing, as pnpm reads it.
 const readWorkspace = (text) => (text === undefined || /^(?:[\t ]*(?:#.*)?(?:\r?\n|$))*$/u.test(text) ? undefined : parseYaml(text))
+
+// The directories of the projects pnpm finds for the workspace at the
+// root of `vfs`, which buildPnpmTree takes the package.json of each of.
+export function findPnpmProjects(options) {
+  const { workspace, host, vfs } = options ?? {}
+  if (workspace !== undefined && typeof workspace !== 'string') throw new TypeError('workspace must be a string, or left out')
+  if (typeof host?.pnpm !== 'string' || host.pnpm === '') throw new TypeError('host.pnpm must be a non-empty string')
+  if (['readdir', 'lstat', 'stat'].some((name) => typeof vfs?.[name] !== 'function')) throw new TypeError('vfs must be a Vfs, or have its readdir, lstat and stat')
+  const major = majorOf(host.pnpm)
+  const read = readWorkspace(workspace)
+  if (read !== undefined && (read === null || typeof read !== 'object' || Array.isArray(read))) throw new DeptreeError('expected a mapping', 'pnpm-workspace.yaml')
+  const packages = read?.packages === undefined ? undefined : readers.globs(read.packages, 'pnpm-workspace.yaml: packages')
+  return findProjects(vfs, packages, major)
+}
 
 function readPatchesGiven(patches) {
   const entries = patches instanceof Map ? [...patches] : Object.entries(patches ?? {})
