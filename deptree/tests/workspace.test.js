@@ -98,6 +98,15 @@ describe('findProjects', () => {
       add(vfs)
       assert.throws(() => findProjects(vfs, ['packages/*'], 10), pattern)
     }
+    // As pnpm 10.33.4 and 11.28.2 read them: a link that leads nowhere, or
+    // to a directory, is no manifest, and the next name is read.
+    for (const target of ['../../nowhere.json', '../../other']) {
+      const vfs = workspace()
+      vfs.symlink(target, '/packages/j/package.json')
+      assert.deepEqual(findProjects(vfs, ['packages/*'], 10), ['.', 'packages/a', 'packages/b'], target)
+      vfs.writeFile('/packages/j/package.yaml', 'name: j')
+      assert.throws(() => findProjects(vfs, ['packages/*'], 10), /^DeptreeError: "packages\/j\/package\.yaml": pnpm reads this project's package\.yaml/u, target)
+    }
     const vfs = workspace()
     vfs.writeFile('/package.yaml', 'name: r')
     vfs.writeFile('/packages/a/package.yaml', 'name: a')

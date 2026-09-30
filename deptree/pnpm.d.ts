@@ -243,8 +243,10 @@ export function buildPnpmTree(options: PnpmTreeOptions): Promise<PnpmTree>
 // whose name starts with a dot unless a glob spells it. pnpm reads a
 // project's package.json5 or package.yaml where it has no package.json,
 // which is refused, as is a link to a project's manifest, or to a
-// directory a glob could take a project under, which pnpm follows. A glob
-// buildPnpmTree refuses, or a pnpm not 10.x or 11.x, is refused here too.
+// directory a glob could take a project under, which pnpm follows; a link
+// that leads nowhere, or to a directory, is no manifest, as pnpm has it. A
+// glob buildPnpmTree refuses, or a pnpm not 10.x or 11.x, is refused here
+// too.
 export interface PnpmProjectsOptions {
   workspace?: string
   host: Pick<PnpmHost, 'pnpm'>
