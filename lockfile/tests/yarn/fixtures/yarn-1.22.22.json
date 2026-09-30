@@ -1,0 +1,59 @@
+{
+  ".": {
+    "name": "fixture",
+    "version": "0.0.0",
+    "private": true,
+    "workspaces": [
+      "packages/*"
+    ],
+    "dependencies": {
+      "is-odd": "https://registry.npmjs.org/is-odd/-/is-odd-3.0.1.tgz",
+      "isarray": "git+https://github.com/juliangruber/isarray.git#v2.0.5",
+      "linked": "link:./linked",
+      "local-dir": "file:./local-dir",
+      "local-tgz": "file:vendor/local-tgz-1.0.0.tgz",
+      "my-q": "npm:q@1.5.1",
+      "odd-alias": "https://registry.npmjs.org/is-odd/-/is-odd-3.0.1.tgz",
+      "react": "18.2.0",
+      "react-dom": "18.2.0",
+      "react-transition-group": "4.4.5",
+      "ws-a": "1.0.0",
+      "ws-b": "^2.0.0"
+    },
+    "devDependencies": {
+      "mkdirp": "1.0.4"
+    },
+    "optionalDependencies": {
+      "@img/sharp-linux-x64": "0.33.5",
+      "fsevents": "2.3.3"
+    },
+    "resolutions": {
+      "loose-envify": "1.4.0"
+    }
+  },
+  "packages/ws-a": {
+    "name": "ws-a",
+    "version": "1.0.0",
+    "dependencies": {
+      "is-number": "7.0.0",
+      "ws-b": "2.0.0"
+    },
+    "devDependencies": {
+      "mkdirp": "^1.0.0"
+    },
+    "peerDependencies": {
+      "react": "^18.0.0"
+    }
+  },
+  "packages/ws-b": {
+    "name": "ws-b",
+    "version": "2.0.0",
+    "dependencies": {
+      "is-number": "6.0.0",
+      "linked": "link:../../linked",
+      "local-dir": "file:../../local-dir",
+      "object-assign": "",
+      "q": "1.5.1"
+    }
+  }
+}
