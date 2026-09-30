@@ -15,29 +15,17 @@
 // is one the resolution applies to. One that is not, the root's own, a
 // dependency on what the resolution names, or another entry of the same
 // tarball, is refused, as the package installed there is not the one
-// asked for.
+// asked for; and without the manifests, every such entry is.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkName } from '../names.js'
-import { EMPTY, entries, string } from '../shape.js'
+import { EMPTY } from '../shape.js'
+import { KINDS, WHERE } from './importers.js'
 
 // What yarn names its aggregator, `workspace-aggregator-` and a UUID that
 // no glob but a wildcard matches.
 const AGGREGATOR = 'workspace-aggregator-00000000-0000-0000-0000-000000000000'
-const WHERE = 'manifests'
 
-// yarn's parsePackagePath and parsePatternInfo; a path that ends in `/` or
-// `*` or has `//` in it is ignored, as yarn does.
-export function readResolutions(value, where) {
-  const rules = []
-  for (const [path, range, here] of entries(value ?? EMPTY, where)) {
-    if (/\/$|\/{2,}|\*+$/u.test(path)) continue
-    const names = path.match(/(?:@[^/]+\/)?[^/]+/gu) ?? [path]
-    const name = checkName(names.at(-1), here)
-    rules.push({ path, glob: names.length === 1 ? `**/${path}` : path, name, pattern: `${name}@${string(range, here)}`, where: here })
-  }
-  return rules
-}
+const WILD = { '*': '[^/]*', '?': '[^/]' }
 
 // A glob as minimatch reads it, a segment of a path at a time: null for
 // `**`, and otherwise a test of one segment, where `*` is any run of
@@ -47,92 +35,91 @@ function compile({ glob, path, where }) {
   if (segments.length > 30 || segments.some((segment) => segment === '' || /[[\]{}()!+\\]/u.test(segment))) {
     throw new LockfileError(`${quote(path)} is a glob not read here`, where)
   }
-  const wild = { '*': '[^/]*', '?': '[^/]' }
-  return segments.map((segment) => (segment === '**' ? null : new RegExp(`^${segment.replaceAll(/[$.*?^|]/gu, (char) => wild[char] ?? `\\${char}`)}$`, 'u')))
+  return segments.map((segment) => (segment === '**' ? null : new RegExp(`^${segment.replaceAll(/[$.*?^|]/gu, (char) => WILD[char] ?? `\\${char}`)}$`, 'u')))
 }
 
 // The states of a glob as a mask, a bit for each segment matched so far:
 // past `**`, the next segment may match as well.
-function close(glob, mask) {
+function close(tests, mask) {
   let closed = mask
-  for (let i = 0; i < glob.length; i++) if ((closed & (1 << i)) !== 0 && glob[i] === null) closed |= 1 << (i + 1)
+  for (let i = 0; i < tests.length; i++) if ((closed & (1 << i)) !== 0 && tests[i] === null) closed |= 1 << (i + 1)
   return closed
 }
 
-function step(glob, mask, segment) {
+function step(tests, mask, segment) {
   let next = 0
-  for (let i = 0; i < glob.length; i++) {
+  for (let i = 0; i < tests.length; i++) {
     if ((mask & (1 << i)) === 0) continue
-    if (glob[i] === null) next |= 1 << i
-    else if (glob[i].test(segment)) next |= 1 << (i + 1)
+    if (tests[i] === null) next |= 1 << i
+    else if (tests[i].test(segment)) next |= 1 << (i + 1)
   }
-  return close(glob, next)
+  return close(tests, next)
 }
 
-// Tarballs and repositories as yarn fetches them, `./` or not.
-function sourceOf(resolution) {
+// Where yarn fetches a package from, as one string: a tarball, `./` or
+// not, or a repository at a commit.
+function fetchedFrom(resolution) {
   if (resolution === undefined) return undefined
   return resolution.type === 'git' ? `${resolution.repo}#${resolution.commit}` : resolution.tarball.replace(/^file:\.\//u, 'file:')
 }
 
-// What a package's entry or a project asks for, each with where it is.
-function* requests(node, importers) {
-  const [owner, where] = typeof node === 'string' ? [importers[node], at(WHERE, node)] : [node, at('', node.patterns[0])]
-  for (const kind of ['dependencies', 'devDependencies', 'optionalDependencies']) {
-    for (const [alias, target] of Object.entries(owner[kind] ?? EMPTY)) yield [alias, target, at(at(where, kind), alias)]
-  }
-}
-
 // Every request of the patterns of `entry`, along every path yarn may
-// request it by, is one a resolution to one of `sources` applies to.
-function checkApplied(entry, sources, rules, manifests, importers, packages) {
-  const own = rules.filter((rule) => rule.name === entry.name).map((rule) => ({ ...rule, glob: compile(rule) }))
-  const rule = own.find((item) => sources.includes(item.pattern))
-  const consume = (masks, name) => name.split('/').reduce((states, segment) => states.map((mask, i) => step(own[i].glob, mask, segment)), masks)
-  const initial = own.map((item) => close(item.glob, 1))
+// request it by, is one a resolution to one of `sources` applies to. A
+// node is a package or a project, and asks for others by kind.
+function checkApplied(entry, sources, rule, packages, { importers, workspaces, rules }) {
+  const own = rules.filter((item) => item.name === entry.name).map((item) => ({ pattern: item.pattern, tests: compile(item) }))
+  const consume = (masks, name) => name.split('/').reduce((states, segment) => states.map((mask, i) => step(own[i].tests, mask, segment)), masks)
+  const lead = (target) => (target.startsWith('link:') ? importers[target.slice(5)] : packages[target])
+  const by = `the resolution ${quote(rule.path)} resolves to`
+  const refuse = (node, kind, alias, detail) => {
+    const place = node.patterns === undefined ? at(WHERE, Object.keys(importers).find((dir) => importers[dir] === node)) : at('', node.patterns[0])
+    return new LockfileError(`${quote(node[kind][alias])} ${detail}`, at(at(place, kind), alias))
+  }
+  const seen = new Map()
   const queue = []
-  const seen = new Set()
   const enqueue = (node, masks) => {
-    const key = `${typeof node === 'string' ? `link:${node}` : node.patterns[0]}\n${masks.join(',')}`
-    if (seen.has(key)) return
-    seen.add(key)
+    const states = seen.get(node) ?? new Set()
+    if (states.has(masks.join())) return
+    seen.set(node, states.add(masks.join()))
     queue.push([node, masks])
   }
-  const lead = (target) => (target.startsWith('link:') ? target.slice(5) : packages[target])
-  for (const [alias, target, where] of requests('.', importers)) {
-    if (packages[target] === entry) throw new LockfileError(`${quote(target)} is given what the resolution ${quote(rule.path)} resolves to, which yarn applies to no dependency of the root's own`, where)
-    enqueue(lead(target), consume(initial, alias))
+  // A request of `node` along the path `masks` is at; one of the root's own
+  // has none, and is resolved by nothing.
+  const root = importers['.']
+  const request = (node, kind, alias, masks) => {
+    const target = node[kind][alias]
+    const next = consume(masks, alias)
+    if (packages[target] === entry) {
+      if (node === root) throw refuse(node, kind, alias, `is given what ${by}, which yarn applies to no dependency of the root's own`)
+      if (sources.includes(target)) throw refuse(node, kind, alias, `asks for what ${by}, as a dependency of its own`)
+      const first = own.find((item, i) => (next[i] & (1 << item.tests.length)) !== 0)
+      if (!sources.includes(first?.pattern)) throw refuse(node, kind, alias, `is given what ${by}, which yarn does not apply to it here`)
+    }
+    enqueue(lead(target), next)
   }
-  for (const dir of Object.keys(importers)) if (dir !== '.') enqueue(dir, consume(consume(initial, AGGREGATOR), manifests[dir].name))
+  const initial = own.map((item) => close(item.tests, 1))
+  for (const kind of KINDS) for (const alias of Object.keys(root[kind])) request(root, kind, alias, initial)
+  for (const [name, dir] of workspaces) enqueue(importers[dir], consume(consume(initial, AGGREGATOR), name))
   for (const item of rules) if (item.pattern in packages) enqueue(packages[item.pattern], consume(initial, item.name))
   while (queue.length > 0) {
     const [node, masks] = queue.pop()
-    for (const [alias, target, where] of requests(node, importers)) {
-      const next = consume(masks, alias)
-      if (packages[target] === entry) {
-        if (sources.includes(target)) throw new LockfileError(`${quote(target)} asks for what the resolution ${quote(rule.path)} resolves to, as a dependency of its own`, where)
-        const first = own.find((item, i) => (next[i] & (1 << item.glob.length)) !== 0)
-        if (!sources.includes(first?.pattern)) throw new LockfileError(`${quote(target)} is given what the resolution ${quote(rule.path)} resolves to, which yarn does not apply to it here`, where)
-      }
-      enqueue(lead(target), next)
-    }
+    for (const kind of KINDS) for (const alias of Object.keys(node[kind] ?? EMPTY)) request(node, kind, alias, masks)
   }
 }
 
 // `mixed`: the entries packages.js hands over, each giving a pattern that
-// asks for the registry what `sources` name.
-export function checkResolutions(mixed, rules, manifests, importers, packages) {
-  for (const { pkg, registry, sources, where } of mixed) {
-    for (const source of sources) {
-      if (!rules.some((rule) => rule.pattern === source)) throw new LockfileError(`${quote(registry)} asks for the registry, and is given what ${quote(source)} names, which no resolution does`, where)
-    }
-    const shared = sourceOf(pkg.resolution)
-    const rule = rules.find((item) => sources.includes(item.pattern))
-    for (const other of new Set(Object.values(packages))) {
-      if (other !== pkg && shared !== undefined && sourceOf(other.resolution) === shared) {
-        throw new LockfileError(`asks for what the resolution ${quote(rule.path)} resolves to, as a dependency of its own`, at('', other.patterns[0]))
-      }
-    }
-    checkApplied(pkg, sources, rules, manifests, importers, packages)
+// asks for the registry what its `sources` name. `project`: what
+// importers.js reads of the manifests, undefined where there are none.
+export function checkResolutions(mixed, packages, project) {
+  for (const { pkg, registry, sources } of mixed) {
+    const where = at('', pkg.patterns[0])
+    if (project === undefined) throw new LockfileError(`${quote(registry)} asks for the registry, and is given what ${quote(sources[0])} names, which only a resolution may, as the manifests would say`, where)
+    const unnamed = sources.find((source) => !project.rules.some((rule) => rule.pattern === source))
+    if (unnamed !== undefined) throw new LockfileError(`${quote(registry)} asks for the registry, and is given what ${quote(unnamed)} names, which no resolution does`, where)
+    const rule = project.rules.find((item) => sources.includes(item.pattern))
+    const source = fetchedFrom(pkg.resolution)
+    const other = source === undefined ? undefined : Object.values(packages).find((item) => item !== pkg && fetchedFrom(item.resolution) === source)
+    if (other !== undefined) throw new LockfileError(`asks for what the resolution ${quote(rule.path)} resolves to, as a dependency of its own`, at('', other.patterns[0]))
+    checkApplied(pkg, sources, rule, packages, project)
   }
 }

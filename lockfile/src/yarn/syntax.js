@@ -49,19 +49,11 @@ const QUOTED = /[:\s\\",[\]]/u
 const quoted = (value) => value.startsWith('true') || value.startsWith('false') || QUOTED.test(value) || !/^[A-Za-z]/u.test(value)
 const BARE = /[A-Za-z][^\s:\\",[\]]*/uy
 
-// Where yarn's reader ends a quoted string: at the first quote that has no
-// backslash before it, or has two. Past a `\\` and a `\"`, that is early.
-function yarnEnd(line, pos) {
-  let i = pos + 1
-  while (line[i] !== '"' || (line[i - 1] === '\\' && line[i - 2] !== '\\')) i++
-  return i + 1
-}
-
-function readQuoted(line, pos, number) {
-  let end = pos + 1
-  while (end < line.length && line[end] !== '"') end += line[end] === '\\' ? 2 : 1
-  if (end >= line.length) throw fail('a string with no closing quote', number)
-  const raw = line.slice(pos, ++end)
+// A quoted string with a backslash in it, as JSON reads it and writes it
+// back. yarn's reader ends a quoted string at the first quote with no
+// backslash before it, or with two: at a quote after a backslash the string
+// holds, which is early.
+function readEscaped(raw, number) {
   let value
   try {
     value = JSON.parse(raw)
@@ -69,8 +61,18 @@ function readQuoted(line, pos, number) {
     throw fail(`${quote(raw)} is not a string as JSON writes it`, number)
   }
   if (JSON.stringify(value) !== raw) throw fail(`${quote(raw)} is not written as JSON writes ${quote(value)}`, number)
+  if (value.includes('\\"')) throw fail(`${quote(value)} is a string yarn reads to another quote`, number)
+  return value
+}
+
+// One with none is its text, as no control or lone surrogate is let past.
+function readQuoted(line, pos, number) {
+  let end = pos + 1
+  while (end < line.length && line[end] !== '"') end += line[end] === '\\' ? 2 : 1
+  if (end >= line.length) throw fail('a string with no closing quote', number)
+  const raw = line.slice(pos, ++end)
+  const value = raw.includes('\\') ? readEscaped(raw, number) : raw.slice(1, -1)
   if (!quoted(value)) throw fail(`${quote(value)} is quoted, where yarn writes it bare`, number)
-  if (yarnEnd(line, pos) !== end) throw fail(`${quote(value)} is a string yarn reads to another quote`, number)
   return [value, end]
 }
 
@@ -110,15 +112,18 @@ function indentOf(line) {
   return indent
 }
 
+function expectHeader(src, expected) {
+  if (src.line !== expected) throw fail(`expected yarn's header, ${quote(expected)}`, Math.max(src.number, 0))
+  advance(src)
+}
+
 // yarn's header, and the comments it may add below it: the versions of
 // yarn and Node that wrote the file, where it is set to, or another tool's.
 function readHeader(src) {
-  for (const [index, expected] of HEADER.entries()) {
-    const version = VERSION.exec(src.line ?? '')?.[1]
-    if (index === 1 && version !== undefined && version !== '1') throw fail(`unsupported version: expected "1", found ${quote(version)}`, src.number)
-    if (src.line !== expected) throw fail(`expected yarn's header, ${quote(expected)}`, Math.max(src.number, 0))
-    advance(src)
-  }
+  expectHeader(src, HEADER[0])
+  const version = VERSION.exec(src.line ?? '')?.[1]
+  if (version !== undefined && version !== '1') throw fail(`unsupported version: expected "1", found ${quote(version)}`, src.number)
+  expectHeader(src, HEADER[1])
   for (; src.line?.startsWith('#'); advance(src)) {
     if (/^yarn lockfile v\d+$/u.test(src.line.slice(1).trim())) throw fail('a second lockfile version', src.number)
     if (src.line === '#') throw fail('a comment of "#" alone, which @yarnpkg/parsers does not read', src.number)
@@ -128,8 +133,10 @@ function readHeader(src) {
 // The names and ranges below a field, four spaces in.
 function readMap(src, field, number) {
   const map = Object.create(null)
-  for (let line = src.line; line?.startsWith(' ') && indentOf(line) > 2; line = src.line) {
-    if (indentOf(line) !== 4) throw fail(`expected 4 spaces of indentation, found ${indentOf(line)}`, src.number)
+  for (let line = src.line; line?.startsWith(' '); line = src.line) {
+    const indent = indentOf(line)
+    if (indent <= 2) break
+    if (indent !== 4) throw fail(`expected 4 spaces of indentation, found ${indent}`, src.number)
     const [name, end] = readKey(line, 4, src.number)
     if (line[end] !== ' ') throw fail(`expected a space and a range after ${quote(name)}`, src.number)
     const [range, after] = readValue(line, end + 1, src.number)
@@ -146,7 +153,8 @@ function readMap(src, field, number) {
 function readFields(src, number) {
   const fields = Object.create(null)
   for (let line = src.line; line?.startsWith(' '); line = src.line) {
-    if (indentOf(line) !== 2) throw fail(`expected 2 spaces of indentation, found ${indentOf(line)}`, src.number)
+    const indent = indentOf(line)
+    if (indent !== 2) throw fail(`expected 2 spaces of indentation, found ${indent}`, src.number)
     const here = src.number
     const [field, end] = readKey(line, 2, here)
     if (field in fields) throw fail(`the field ${quote(field)} twice`, here)

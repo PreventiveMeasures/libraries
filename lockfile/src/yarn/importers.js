@@ -8,17 +8,15 @@
 //
 // Every pattern is then held to be asked for, as yarn writes no other: by a
 // manifest, by a package, or, beside the patterns a resolution was applied
-// to, by the root's `resolutions` as the resolution's own; and every entry
-// that gives a pattern asking for the registry what another names, to a
-// resolution that applies to every request of it, as resolutions.js has.
+// to, by the root's `resolutions` as the resolution's own. Whether each
+// resolution applies where it was, resolutions.js has.
 
 import { LockfileError, at, quote } from '../error.js'
 import { checkName, checkRelative, joinRelative } from '../names.js'
 import { EMPTY, entries, record, string } from '../shape.js'
-import { checkResolutions, readResolutions } from './resolutions.js'
 
-const KINDS = ['dependencies', 'devDependencies', 'optionalDependencies']
-const WHERE = 'manifests'
+export const KINDS = ['dependencies', 'devDependencies', 'optionalDependencies']
+export const WHERE = 'manifests'
 
 // yarn's resolveRelative: a `file:` or `link:` path in a manifest is
 // rewritten from the manifest's directory to the lockfile's, with the `./`
@@ -49,39 +47,52 @@ function readTargets(value, dir, where, packages, workspaces) {
   return targets
 }
 
+// yarn's parsePackagePath and parsePatternInfo; a path that ends in `/` or
+// `*` or has `//` in it is ignored, as yarn does.
+function readResolutions(value, where) {
+  const rules = []
+  for (const [path, range, here] of entries(value ?? EMPTY, where)) {
+    if (/\/$|\/{2,}|\*+$/u.test(path)) continue
+    const names = path.match(/(?:@[^/]+\/)?[^/]+/gu) ?? [path]
+    const name = checkName(names.at(-1), here)
+    rules.push({ path, glob: names.length === 1 ? `**/${path}` : path, name, pattern: `${name}@${string(range, here)}`, where: here })
+  }
+  return rules
+}
+
+// The patterns asked for, and the packages they lead to, each read once.
 function checkReached(importers, packages, resolutions) {
   const reached = new Set()
-  const queue = []
+  const installed = new Set()
   const visit = (targets) => {
     for (const target of Object.values(targets)) {
       if (target.startsWith('link:') || reached.has(target)) continue
       reached.add(target)
-      queue.push(target)
+      installed.add(packages[target])
     }
   }
   for (const importer of Object.values(importers)) for (const kind of KINDS) visit(importer[kind])
-  while (queue.length > 0) {
-    const pkg = packages[queue.pop()]
+  for (const pkg of installed) {
     visit(pkg.dependencies)
     visit(pkg.optionalDependencies)
   }
-  const installed = new Set([...reached].map((pattern) => packages[pattern]))
   for (const [pattern, pkg] of Object.entries(packages)) {
     if (reached.has(pattern) || (resolutions.has(pattern) && installed.has(pkg))) continue
     throw new LockfileError('nothing asks for it: no manifest, no package and no resolution', at('', pattern))
   }
 }
 
-// `manifests` by directory, `.` among them; `packages` and `mixed` what
-// packages.js reads.
-export function readImporters(manifests, packages, mixed) {
-  record(manifests, WHERE)
+// `manifests` by directory, `.` among them; `packages` what packages.js
+// reads. The importers come back, and for resolutions.js the workspaces,
+// by name, and the rules of the root's `resolutions`, in order.
+export function readImporters(manifests, packages) {
   const workspaces = new Map()
   for (const [dir, manifest, here] of entries(manifests, WHERE)) {
     record(manifest, here)
     if (checkRelative(dir, here) === '.') continue
-    const name = checkName(string(manifest.name, at(here, 'name')), at(here, 'name'))
-    if (workspaces.has(name)) throw new LockfileError(`the name of the workspace ${quote(workspaces.get(name))} too`, at(here, 'name'))
+    const nameAt = at(here, 'name')
+    const name = checkName(string(manifest.name, nameAt), nameAt)
+    if (workspaces.has(name)) throw new LockfileError(`the name of the workspace ${quote(workspaces.get(name))} too`, nameAt)
     workspaces.set(name, dir)
   }
   const rootAt = at(WHERE, '.')
@@ -96,6 +107,5 @@ export function readImporters(manifests, packages, mixed) {
   }
   const rules = readResolutions(root.resolutions, at(rootAt, 'resolutions'))
   checkReached(importers, packages, new Set(rules.map((rule) => rule.pattern)))
-  checkResolutions(mixed, rules, manifests, importers, packages)
-  return importers
+  return { importers, workspaces, rules }
 }

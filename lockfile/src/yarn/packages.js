@@ -16,9 +16,8 @@
 // So is an entry that gives a pattern asking for the registry what another
 // pattern names, a tarball, a directory or a repository, as yarn does for
 // a dependency that names one with the same name and version: the package
-// asked for is not the one installed. Where the other pattern is a
-// resolution's own, the manifests say whether it applies to every request
-// of the entry, and resolutions.js decides; without them, it is refused.
+// asked for is not the one installed. Such an entry is handed back, as the
+// other pattern may be a resolution's own, and resolutions.js decides.
 
 import { LockfileError, at, quote } from '../error.js'
 import { checkIntegrity, checkName, checkRelative, checkVersion } from '../names.js'
@@ -59,13 +58,10 @@ function hexToBase64(hex) {
 // from the lockfile's directory, which yarn writes as the manifest does,
 // `./` and all. After a `#` is the hex sha1 of the tarball, which yarn
 // checks where there is no integrity; a sha1 integrity names it again.
-function readTarball(tarball, sha1, integrity, where) {
-  const resolved = at(where, 'resolved')
-  const path = tarball.slice(5)
-  if (tarball.startsWith('file:')) checkRelative(path.startsWith('./') ? path.slice(2) : path, resolved)
-  else if (!/^https?:\/\//u.test(tarball) || !URL.canParse(tarball)) throw new LockfileError(`${quote(tarball)} is not an http(s) URL, a file: path or a git URL`, resolved)
-  if (sha1 !== undefined && !SHA1.test(sha1)) throw new LockfileError(`${quote(sha1)} is not the hex sha1 of a tarball`, resolved)
-  const integrityAt = at(where, 'integrity')
+function readTarball(tarball, sha1, integrity, resolvedAt, integrityAt) {
+  if (tarball.startsWith('file:')) checkRelative(tarball.slice(tarball.startsWith('file:./') ? 7 : 5), resolvedAt)
+  else if (!/^https?:\/\//u.test(tarball) || !URL.canParse(tarball)) throw new LockfileError(`${quote(tarball)} is not an http(s) URL, a file: path or a git URL`, resolvedAt)
+  if (sha1 !== undefined && !SHA1.test(sha1)) throw new LockfileError(`${quote(sha1)} is not the hex sha1 of a tarball`, resolvedAt)
   for (const part of integrity === undefined ? [] : text(integrity, integrityAt).split(' ')) {
     checkIntegrity(part, integrityAt)
     if (sha1 !== undefined && part.startsWith('sha1-') && part.slice(5) !== hexToBase64(sha1)) {
@@ -78,21 +74,23 @@ function readTarball(tarball, sha1, integrity, where) {
 // Where the package's files come from, as `resolved` says; undefined where
 // yarn writes none, for a directory, which it reads again at every install.
 function readResolution(fields, where) {
+  const resolvedAt = at(where, 'resolved')
+  const integrityAt = at(where, 'integrity')
   if (fields.resolved === undefined) {
-    if (fields.integrity !== undefined) throw new LockfileError('an integrity, with nothing resolved', at(where, 'integrity'))
+    if (fields.integrity !== undefined) throw new LockfileError('an integrity, with nothing resolved', integrityAt)
     return undefined
   }
-  const [url, hash, ...rest] = text(fields.resolved, at(where, 'resolved')).split('#')
-  if (rest.length > 0) throw new LockfileError('more than one "#", of which yarn reads the first alone', at(where, 'resolved'))
-  if (!GIT.test(url)) return readTarball(url, hash, fields.integrity, where)
-  if (fields.integrity !== undefined) throw new LockfileError('an integrity, which yarn does not check for a git repository', at(where, 'integrity'))
-  if (hash === undefined || !COMMIT.test(hash)) throw new LockfileError(`expected a full commit hash after the "#" of ${quote(url)}`, at(where, 'resolved'))
-  if (/[\s\p{Cc}]/u.test(url)) throw new LockfileError(`${quote(url)} is not a repository URL`, at(where, 'resolved'))
+  const [url, hash, ...rest] = text(fields.resolved, resolvedAt).split('#')
+  if (rest.length > 0) throw new LockfileError('more than one "#", of which yarn reads the first alone', resolvedAt)
+  if (!GIT.test(url)) return readTarball(url, hash, fields.integrity, resolvedAt, integrityAt)
+  if (fields.integrity !== undefined) throw new LockfileError('an integrity, which yarn does not check for a git repository', integrityAt)
+  if (hash === undefined || !COMMIT.test(hash)) throw new LockfileError(`expected a full commit hash after the "#" of ${quote(url)}`, resolvedAt)
+  if (/[\s\p{Cc}]/u.test(url)) throw new LockfileError(`${quote(url)} is not a repository URL`, resolvedAt)
   return { type: 'git', repo: url, commit: hash }
 }
 
 // What a resolution is, for a message.
-const sourceOf = (resolution) => (resolution === undefined ? 'nothing, as for a directory' : resolution.type === 'git' ? 'a git repository' : 'a file: tarball')
+const describe = (resolution) => (resolution === undefined ? 'nothing, as for a directory' : resolution.type === 'git' ? 'a git repository' : 'a file: tarball')
 
 // Every pattern of an entry gives it one name, and those that ask for the
 // registry are given a tarball from a URL. An entry that has them beside
@@ -108,17 +106,14 @@ function checkPatterns(patterns, fields, resolution, where) {
     throw new LockfileError(`yarn installs this as ${quote(fields.name)}, and leaves ${quote(first.name)} out, which its patterns ask for`, at(where, 'name'))
   }
   const registry = patterns.find((pattern) => fromRegistry(pattern.range))
-  const sources = patterns.filter((pattern) => !fromRegistry(pattern.range)).map((pattern) => pattern.key)
   if (registry === undefined) return undefined
-  if (sources.length > 0) return { registry: registry.key, sources, where }
+  const sources = patterns.filter((pattern) => !fromRegistry(pattern.range)).map((pattern) => pattern.key)
+  if (sources.length > 0) return { registry: registry.key, sources }
   if (resolution?.type !== 'tarball' || resolution.tarball.startsWith('file:')) {
-    throw new LockfileError(`${quote(registry.key)} asks for the registry, and resolves to ${sourceOf(resolution)}`, where)
+    throw new LockfileError(`${quote(registry.key)} asks for the registry, and resolves to ${describe(resolution)}`, where)
   }
   return undefined
 }
-
-// An entry handed back, where there are no manifests to explain it.
-export const unresolved = ({ registry, sources, where }) => new LockfileError(`${quote(registry)} asks for the registry, and is given what ${quote(sources[0])} names, which only a resolution may, as the manifests would say`, where)
 
 // By name, the pattern of each dependency, to be found among the keys.
 function readDependencies(value, where, wanted) {
