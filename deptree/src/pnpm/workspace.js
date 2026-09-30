@@ -19,22 +19,18 @@
 // pnpm 11 leaves out what a `!` glob takes with micromatch too, a name
 // starting with a dot and all.
 
+import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { escape } from '../matcher.js'
 
 const UNSUPPORTED = /[?[\]{}()\\]/u
 
-// tinyglobby's path.posix.normalize of a glob: empty and `.` names
-// dropped, and `..` taking the name before it with it.
+// tinyglobby's path.posix.normalize of a glob, from the workspace's
+// directory, by its names.
 function normalizeGlob(glob, where) {
-  const names = []
-  for (const name of glob.split('/')) {
-    if (name === '' || name === '.') continue
-    if (name !== '..') names.push(name)
-    else if (names.length === 0) throw new DeptreeError(`${quote(glob)} reaches outside the workspace's directory, which is not supported`, where)
-    else names.pop()
-  }
-  return names
+  const path = normalize(`./${glob}`)
+  if (path === '..' || path.startsWith('../')) throw new DeptreeError(`${quote(glob)} reaches outside the workspace's directory, which is not supported`, where)
+  return path.split('/')
 }
 
 // A name's pattern: `*` any run of characters, but not a leading dot

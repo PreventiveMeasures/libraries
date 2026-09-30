@@ -61,7 +61,7 @@ function checkPatches(locked, hashes, major) {
 // Throws where pnpm would not install the lockfile as it is; hands back the
 // patches by hash, their text and path, to apply where a snapshot names one.
 // `overrides` is listOverrides's.
-export async function checkUpToDate(lockfile, settings, overrides, given, major = 10) {
+export async function checkUpToDate(lockfile, settings, overrides, given, major) {
   const { hashes, byHash } = await hashPatches(settings.patchedDependencies, given)
   for (const [name, catalog] of Object.entries(lockfile.catalogs)) {
     for (const [alias, { specifier }] of Object.entries(catalog)) {

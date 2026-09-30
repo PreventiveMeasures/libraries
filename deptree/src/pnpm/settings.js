@@ -61,20 +61,25 @@ function noEnvironment(value, where) {
 const KEBAB = /^[a-z][\da-z]*(?:-[\da-z]+)*$/u
 const camelCase = (key) => key.replace(/-+([a-z\d])/gu, (_, char) => char.toUpperCase())
 
+// pnpm 11 reads an .npmrc for credentials and registries alone: each
+// registry has to be the public one, but one of a project's .npmrc that
+// names a variable is passed over.
+function checkNpmrcRegistries(text) {
+  for (const { key, value, line } of parseNpmrc(text)) {
+    if ((key !== 'registry' && !/^@[^:]+:registry$/u.test(key)) || fromEnvironment(value)) continue
+    const where = `.npmrc:${line}: ${key}`
+    checkRegistry(plain(value, where), where)
+  }
+}
+
 // An .npmrc's settings by name, each written once, or once with `[]` each
 // time, and whether any line takes something from the environment. A
 // registry for a scope has to be the public one.
-// pnpm 11 reads an .npmrc for credentials and registries alone, and passes
-// over a registry of a project's .npmrc that names a variable.
-function fromNpmrc(text, major) {
+function fromNpmrc(text) {
   const settings = new Map()
   let environment = false
   for (const { key, value, list, line } of parseNpmrc(text)) {
     const where = `.npmrc:${line}: ${key}`
-    if (major >= 11) {
-      if ((key === 'registry' || /^@[^:]+:registry$/u.test(key)) && !fromEnvironment(value)) checkRegistry(plain(value, where), where)
-      continue
-    }
     if (/^@[^:]+:registry$/u.test(key)) {
       checkRegistry(plain(noEnvironment(value, where), where), where)
       continue
@@ -136,14 +141,15 @@ function fromWorkspace(workspace, major) {
 // The settings as pnpm 10 derives what it installs by: `hoist: false`
 // drops the private pattern, `shamefullyHoist` sets or drops the public
 // one, and an empty public pattern is none. A pattern left undefined is
-// not hoisted to at all.
-function derive(get, os) {
+// not hoisted to at all. virtualStoreDirMaxLength is 60 by default on
+// Windows alone, which is refused (tree.js's checkHost).
+function derive(get) {
   const shamefullyHoist = get('shamefullyHoist')
   let publicHoistPattern = get('publicHoistPattern') ?? []
   if (shamefullyHoist === true) publicHoistPattern = ['*']
   else if (shamefullyHoist === false || (publicHoistPattern.length === 1 && publicHoistPattern[0] === '')) publicHoistPattern = undefined
   return {
-    virtualStoreDirMaxLength: get('virtualStoreDirMaxLength') ?? (os === 'win32' ? 60 : 120),
+    virtualStoreDirMaxLength: get('virtualStoreDirMaxLength') ?? 120,
     hoistPattern: get('hoist') === false ? undefined : get('hoistPattern') ?? ['*'],
     publicHoistPattern,
     hoistWorkspacePackages: get('hoistWorkspacePackages') ?? true,
@@ -175,7 +181,7 @@ function catalogsOf(catalog, catalogs = {}) {
 }
 
 // Each layer over the one before, as `derive` has them.
-function settle(layers, manifest, os) {
+function settle(layers, manifest) {
   const values = new Map()
   for (const layer of layers) {
     for (const [name, { value, where, read: { kind, check } }] of layer) {
@@ -188,22 +194,29 @@ function settle(layers, manifest, os) {
       values.set(name, read)
     }
   }
-  return derive((name) => values.get(name), os)
+  return derive((name) => values.get(name))
 }
 
 // `workspace` is pnpm-workspace.yaml as parsed and `npmrc` the text of the
 // .npmrc, either of which may be undefined; `manifest` the root
-// package.json as parsed. `os` is the host's, which one default depends
-// on. Overrides that name nothing are none, and leave those below them.
-export function readSettings({ workspace, npmrc, manifest, os, major = 10 }) {
-  const rc = npmrc === undefined ? { settings: new Map(), environment: false } : fromNpmrc(npmrc, major)
-  // pnpm 11 reads no setting from the package.json, its `resolutions` none.
-  const rest = [workspace === undefined ? new Map() : fromWorkspace(workspace, major), major >= 11 ? new Map() : fromManifest(manifest)]
-  const settings = settle([rc.settings, ...rest], manifest, os)
-  if (rc.environment && JSON.stringify(settings) !== JSON.stringify(settle(rest, manifest, os))) {
+// package.json as parsed. Overrides that name nothing are none, and leave
+// those below them.
+export function readSettings({ workspace, npmrc, manifest, major = 10 }) {
+  const fromYaml = () => (workspace === undefined ? new Map() : fromWorkspace(workspace, major))
+  // pnpm 11 reads its settings from pnpm-workspace.yaml alone, and none
+  // from the package.json, its `resolutions` none.
+  if (major >= 11) {
+    if (npmrc !== undefined) checkNpmrcRegistries(npmrc)
+    const settings = settle([fromYaml()], manifest)
+    settings.nodeVersion ??= runtimeNode(manifest, settings.runtimeOnFail)
+    return settings
+  }
+  const rc = npmrc === undefined ? { settings: new Map(), environment: false } : fromNpmrc(npmrc)
+  const rest = [fromYaml(), fromManifest(manifest)]
+  const settings = settle([rc.settings, ...rest], manifest)
+  if (rc.environment && JSON.stringify(settings) !== JSON.stringify(settle(rest, manifest))) {
     throw new DeptreeError('a line takes a value from the environment, which pnpm drops the whole file for where it is unset, and the file sets what would change the tree', '.npmrc')
   }
-  if (major >= 11) settings.nodeVersion ??= runtimeNode(manifest, settings.runtimeOnFail)
   return settings
 }
 

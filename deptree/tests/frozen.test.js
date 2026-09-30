@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { parsePnpmLockfile } from '@preventive/lockfile/pnpm.js'
-import { checkCatalogResolutions, checkLinkTargets, checkLinkedPackages, sameSpecifier } from '../src/pnpm/frozen.js'
+import { checkCatalogResolutions, checkLinkTargets, checkLinkedPackages, indexProjects, sameSpecifier } from '../src/pnpm/frozen.js'
 
 // What pnpm 11's frozen install holds a project to beyond pnpm 10's, case
 // by case.
@@ -90,7 +90,7 @@ snapshots:
     const projects = new Map([['.', { name: 'root' }], ['packages/a', { name: 'a', version: '1.2.0' }], ['packages/b', b], ['packages/x', { name: 'x', version: '1.2.0' }]])
     const importer = lockfile.importers['packages/b']
     checkLinkTargets({ id: 'packages/b', manifest: b, importer }, 'x')
-    checkLinkedPackages({ manifest: b, importer, projects, linkWorkspacePackages }, 'x')
+    checkLinkedPackages({ manifest: b, importer, index: indexProjects(projects), linkWorkspacePackages }, 'x')
   }
 
   it('takes a workspace package linked where its version is in range, and one from the registry where it is not', () => {

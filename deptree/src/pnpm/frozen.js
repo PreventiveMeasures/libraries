@@ -8,8 +8,9 @@
 
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { satisfies, valid, validRange } from '@preventive/upstream/semver.js'
-import { join, normalize } from '@preventive/vfs/path.js'
+import { join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
+import { catalogEntry, catalogOf } from './overrides.js'
 
 const GIT_HOSTS = new Set(['github.com', 'gitlab.com', 'bitbucket.org'])
 const SHORTCUTS = [['github:', 'github.com'], ['gitlab:', 'gitlab.com'], ['bitbucket:', 'bitbucket.org']]
@@ -57,20 +58,21 @@ export function sameSpecifier(a, b, major) {
 }
 
 // The version an importer's target resolved to, as the lockfile spells
-// it: a key of the alias's own name is its version and peers.
-export const refOf = (alias, target) => (target.startsWith(`${alias}@`) ? target.slice(alias.length + 1) : target)
+// it, peers and all left out: a key of the alias's own name is its
+// version.
+export const resolvedOf = (alias, target) => packageKeyOf(target.startsWith(`${alias}@`) ? target.slice(alias.length + 1) : target)
 
 const targetOf = (importer, alias) => importer.dependencies[alias] ?? importer.devDependencies[alias] ?? importer.optionalDependencies[alias]
 
 // catalogResolutionsAreUpToDate.
 export function checkCatalogResolutions(importer, catalogs, where) {
   for (const [alias, specifier] of Object.entries(importer.specifiers)) {
-    if (!specifier.startsWith('catalog:')) continue
-    const name = specifier.slice('catalog:'.length).trim() || 'default'
-    const version = Object.hasOwn(catalogs, name) && Object.hasOwn(catalogs[name], alias) ? catalogs[name][alias].version : undefined
+    const name = catalogOf(specifier)
+    if (name === undefined) continue
+    const version = catalogEntry(catalogs, name, alias)?.version
     const target = targetOf(importer, alias)
     if (version === undefined || target === undefined) continue
-    const resolved = packageKeyOf(refOf(alias, target))
+    const resolved = resolvedOf(alias, target)
     if (valid(resolved) !== null && resolved !== version) throw new DeptreeError(`${quote(alias)} resolved to ${quote(resolved)}, and the lockfile's catalog ${quote(name)} to ${quote(version)}, which pnpm 11 refuses a frozen install for`, where)
   }
 }
@@ -81,7 +83,7 @@ export function checkCatalogResolutions(importer, catalogs, where) {
 function specPath(dir, path, where) {
   const clean = path.startsWith('./') ? path.slice(2) : path
   if (/^(?:~[/\\]|[/\\]|[A-Za-z]:)/u.test(clean) || clean.includes('\\')) throw new DeptreeError(`${quote(path)} is not a path from the project, which is not supported`, where)
-  return normalize(join(dir, clean.replace(/\/+$/u, '')))
+  return join(dir, clean.replace(/\/+$/u, ''))
 }
 
 const isWorkspacePath = (spec) => /^(?:[./\\]|~[/\\]|[A-Za-z]:)/u.test(spec)
@@ -124,7 +126,7 @@ const inRange = (version, range) => range === '*' || range === '^' || range === 
 // version-selector-type's tag: a name that is no version or range.
 const isTag = (range) => valid(range, { loose: true }) === null && validRange(range, { loose: true }) === null && encodeURIComponent(range) === range
 
-const KINDS = ['optionalDependencies', 'dependencies', 'devDependencies']
+export const KINDS = ['optionalDependencies', 'dependencies', 'devDependencies']
 
 // The directory a specifier names, where it names one: by `link:`,
 // `file:`, a `workspace:` path, or a path alone, as pnpm reads one. One
@@ -133,8 +135,8 @@ const KINDS = ['optionalDependencies', 'dependencies', 'devDependencies']
 // links it.
 function pathOf(spec) {
   if (spec.startsWith('link:') || spec.startsWith('file:')) return spec.slice(5)
-  if (spec.startsWith('workspace:')) return isWorkspacePath(spec.slice('workspace:'.length)) ? spec.slice('workspace:'.length) : undefined
-  return /^(?:[./\\]|~[/\\]|[a-z]:)/iu.test(spec) ? spec : undefined
+  const path = spec.startsWith('workspace:') ? spec.slice('workspace:'.length) : spec
+  return isWorkspacePath(path) ? path : undefined
 }
 
 // A dependency the lockfile links has to be linked where the project's
@@ -157,24 +159,30 @@ export function checkLinkTargets({ id, manifest, importer }, where) {
   }
 }
 
-// checkLinkedPackagesAreUpToDate, for the project at `id`, less the
-// directories a package.json names, which checkLinkTargets holds links to:
-// `manifest` is its package.json as read through the read-package hook,
-// `projects` every project's by its directory, as given, and
-// `linkWorkspacePackages` the setting.
-export function checkLinkedPackages({ manifest, importer, projects, linkWorkspacePackages }, where) {
+// Every project's package.json, as given, by its directory, and by where
+// pnpm 11 links it from, its publishConfig.directory among them; and the
+// directory of each by name and version, of which no two may be one.
+export function indexProjects(projects) {
   const byName = new Map()
   const byDir = new Map()
   for (const [dir, project] of projects) {
     byDir.set(dir, project)
     const directory = project.publishConfig?.directory
-    if (typeof directory === 'string' && project.publishConfig.linkDirectory !== false) byDir.set(normalize(join(dir, directory)), project)
+    if (typeof directory === 'string' && project.publishConfig.linkDirectory !== false) byDir.set(join(dir, directory), project)
     if (!project.name) continue
     if (!byName.has(project.name)) byName.set(project.name, new Map())
     const version = project.version ?? '0.0.0'
     if (byName.get(project.name).has(version)) throw new DeptreeError(`${quote(String(project.name))} at ${quote(String(version))} is another project's name and version too, which leaves which pnpm 11 checks a dependency against to the order it finds them in`, `manifests[${quote(dir)}]`)
     byName.get(project.name).set(version, dir)
   }
+  return { projects, byName, byDir }
+}
+
+// checkLinkedPackagesAreUpToDate, less the directories a package.json
+// names, which checkLinkTargets holds links to: `manifest` is the
+// project's package.json as read through the read-package hook, `index`
+// indexProjects's, and `linkWorkspacePackages` the setting.
+export function checkLinkedPackages({ manifest, importer, index: { projects, byName, byDir }, linkWorkspacePackages }, where) {
   const outdated = (detail) => new DeptreeError(`the lockfile is not up to date with this package.json, which pnpm 11 refuses a frozen install for: ${detail}`, where)
   for (const kind of KINDS) {
     const wanted = manifest[kind]
@@ -193,7 +201,7 @@ export function checkLinkedPackages({ manifest, importer, projects, linkWorkspac
       const range = versionRange(spec)
       if (linked && isTag(range)) continue
       const named = byName.get(name)
-      const dir = linked ? target.slice('link:'.length) : named?.get(packageKeyOf(refOf(alias, target)))
+      const dir = linked ? target.slice('link:'.length) : named?.get(resolvedOf(alias, target))
       if (dir === undefined) {
         const taking = workspaceRange && named !== undefined ? [...named.keys()].find((version) => inRange(projects.get(named.get(version)).version, range)) : undefined
         if (taking !== undefined) throw outdated(`the workspace package ${quote(name)} (${taking}) is in the range ${quote(spec)} and not linked`)

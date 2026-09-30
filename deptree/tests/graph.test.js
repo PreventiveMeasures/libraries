@@ -3,7 +3,7 @@ import { describe, it } from 'node:test'
 import { parsePnpmLockfile } from '@preventive/lockfile/pnpm.js'
 import { buildGraph } from '../src/pnpm/graph.js'
 import { hoist } from '../src/pnpm/hoist.js'
-import { createCheck, skippedSnapshots } from '../src/pnpm/install.js'
+import { skippedSnapshots } from '../src/pnpm/install.js'
 import { HOST } from './registry.js'
 
 // Lockfiles of registry packages only, every snapshot a package of its own
@@ -27,7 +27,7 @@ function lockfile({ root, graph, meta = {}, snapshotMeta = {} }) {
 }
 
 const settings = { hoistPattern: ['*'], publicHoistPattern: [] }
-const check = createCheck({ host: HOST, settings: {} })
+const on10 = { host: HOST, settings: {} }
 
 describe('skippedSnapshots', () => {
   // m cannot run here; k can, and is reached through m before n.
@@ -37,25 +37,25 @@ describe('skippedSnapshots', () => {
 
   it('leaves out an optional package first reached through one left out, as pnpm does', () => {
     const lock = lockfile({ root: { optionalDependencies: ['m', 'n'] }, graph, meta, snapshotMeta: optional })
-    assert.deepEqual([...skippedSnapshots(lock, check).skipped], ['m@1.0.0', 'k@1.0.0'])
+    assert.deepEqual([...skippedSnapshots(lock, on10).skipped], ['m@1.0.0', 'k@1.0.0'])
   })
 
   it('keeps it where it is first reached through one kept', () => {
     const lock = lockfile({ root: { dependencies: ['n'], optionalDependencies: ['m'] }, graph, meta, snapshotMeta: optional })
-    assert.deepEqual([...skippedSnapshots(lock, check).skipped], ['m@1.0.0'])
+    assert.deepEqual([...skippedSnapshots(lock, on10).skipped], ['m@1.0.0'])
   })
 
   it('installs a package that is not optional, whatever the host', () => {
     const lock = lockfile({ root: { dependencies: ['m'] }, graph: { 'm@1.0.0': {} }, meta })
-    assert.deepEqual([...skippedSnapshots(lock, check).skipped], [])
-    const strict = createCheck({ host: HOST, settings: { engineStrict: true } })
+    assert.deepEqual([...skippedSnapshots(lock, on10).skipped], [])
+    const strict = { host: HOST, settings: { engineStrict: true } }
     assert.throws(() => skippedSnapshots(lock, strict), /^DeptreeError: "m@1\.0\.0": the host does not take its os, cpu or libc/u)
   })
 
   it('leaves out an optional package whose engines.node the host\'s Node does not take', () => {
     const lock = lockfile({ root: { optionalDependencies: ['m'] }, graph: { 'm@1.0.0': {} }, meta: { 'm@1.0.0': '    engines: {node: \'>=99\'}\n' }, snapshotMeta: { 'm@1.0.0': '    optional: true\n' } })
-    assert.deepEqual([...skippedSnapshots(lock, check).skipped], ['m@1.0.0'])
-    const newer = createCheck({ host: HOST, settings: { nodeVersion: '99.0.0' } })
+    assert.deepEqual([...skippedSnapshots(lock, on10).skipped], ['m@1.0.0'])
+    const newer = { host: HOST, settings: { nodeVersion: '99.0.0' } }
     assert.deepEqual([...skippedSnapshots(lock, newer).skipped], [])
   })
 })
@@ -63,8 +63,8 @@ describe('skippedSnapshots', () => {
 // pnpm 11 walks by edges: an optional one to what the host cannot run is
 // not taken, and what a taken package requires is taken whatever the host.
 describe('skippedSnapshots for pnpm 11', () => {
-  const check11 = createCheck({ host: { ...HOST, major: 11 }, settings: {} })
-  const skipped11 = (lock, by = check11) => [...skippedSnapshots(lock, by, { major: 11 }).skipped]
+  const on11 = { host: { ...HOST, major: 11 }, settings: {} }
+  const skipped11 = (lock, on = on11) => [...skippedSnapshots(lock, on).skipped]
   const graph = { 'k@1.0.0': {}, 'm@1.0.0': { k: '1.0.0' }, 'n@1.0.0': { k: '1.0.0' } }
   const optional = { 'k@1.0.0': '    optional: true\n', 'm@1.0.0': '    optional: true\n', 'n@1.0.0': '    optional: true\n' }
 
@@ -76,21 +76,21 @@ describe('skippedSnapshots for pnpm 11', () => {
   it('installs what an installed optional package requires, whatever the host', () => {
     const lock = lockfile({ root: { optionalDependencies: ['p'] }, graph: { 'p@1.0.0': { c: '1.0.0' }, 'c@1.0.0': {} }, meta: { 'c@1.0.0': '    os: [darwin]\n' }, snapshotMeta: { 'p@1.0.0': '    optional: true\n', 'c@1.0.0': '    optional: true\n' } })
     assert.deepEqual(skipped11(lock), [])
-    assert.deepEqual([...skippedSnapshots(lock, check).skipped], ['c@1.0.0'], 'pnpm 10 leaves it out')
-    assert.deepEqual([...skippedSnapshots(lock, check11, { major: 11 }).incompatible], ['c@1.0.0'])
+    assert.deepEqual([...skippedSnapshots(lock, on10).skipped], ['c@1.0.0'], 'pnpm 10 leaves it out')
+    assert.deepEqual([...skippedSnapshots(lock, on11).incompatible], ['c@1.0.0'])
   })
 
   it('infers an optional package\'s platform from its name', () => {
     const lock = lockfile({ root: { optionalDependencies: ['bin-win32-x64', 'bin-linux-x64', 'bin-x64'] }, graph: { 'bin-win32-x64@1.0.0': {}, 'bin-linux-x64@1.0.0': {}, 'bin-x64@1.0.0': {} }, snapshotMeta: { 'bin-win32-x64@1.0.0': '    optional: true\n', 'bin-linux-x64@1.0.0': '    optional: true\n', 'bin-x64@1.0.0': '    optional: true\n' } })
     assert.deepEqual(skipped11(lock), ['bin-win32-x64@1.0.0'])
-    assert.deepEqual([...skippedSnapshots(lock, check).skipped], [], 'pnpm 10 infers nothing')
+    assert.deepEqual([...skippedSnapshots(lock, on10).skipped], [], 'pnpm 10 infers nothing')
   })
 
   it('takes a list of exclusions where the host is taken to be more than one thing', () => {
     const lock = lockfile({ root: { optionalDependencies: ['m'] }, graph: { 'm@1.0.0': {} }, meta: { 'm@1.0.0': '    os: [\'!win32\']\n' }, snapshotMeta: { 'm@1.0.0': '    optional: true\n' } })
     const wider = { supportedArchitectures: { os: ['current', 'darwin'] } }
-    assert.deepEqual(skipped11(lock, createCheck({ host: { ...HOST, major: 11 }, settings: wider })), [])
-    assert.deepEqual([...skippedSnapshots(lock, createCheck({ host: HOST, settings: wider })).skipped], ['m@1.0.0'], 'pnpm 10 counts the exclusions twice')
+    assert.deepEqual(skipped11(lock, { host: { ...HOST, major: 11 }, settings: wider }), [])
+    assert.deepEqual([...skippedSnapshots(lock, { host: HOST, settings: wider }).skipped], ['m@1.0.0'], 'pnpm 10 counts the exclusions twice')
   })
 })
 

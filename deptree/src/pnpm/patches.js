@@ -9,7 +9,7 @@
 // some snapshot.
 
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
-import { satisfies, valid, validRange } from '@preventive/upstream/semver.js'
+import { isExactVersion, satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 
 // dependency-path's parse of a selector: a name and an exact version, a
@@ -19,7 +19,7 @@ function parseSelector(selector) {
   const rest = at === -1 ? '' : packageKeyOf(selector).slice(at + 1)
   if (rest === '') return {}
   const name = selector.slice(0, at)
-  return valid(rest) === rest ? { name, version: rest } : { name, range: rest }
+  return isExactVersion(rest) ? { name, version: rest } : { name, range: rest }
 }
 
 // groupPatchedDependencies: by package name, the selectors that can pick
@@ -117,7 +117,7 @@ export function checkPeerPatches(lockfile, hashes) {
     const known = lockfile.packages[key]?.version ?? version
     const found = groups.get(name)
     if (known === undefined && found !== undefined && (found.exact.size > 0 || found.ranges.length > 0)) throw uncheckable(key, where)
-    const selector = found === undefined ? undefined : pick(groups, name, known ?? '', where)
+    const selector = pick(groups, name, known ?? '', where)
     if ((selector === undefined ? undefined : hashes[selector].hash) !== hash) {
       throw new DeptreeError(`the patch hash ${quote(key)} names is not the one of the patch pnpm picks for it, which pnpm 11 refuses a frozen install for`, where)
     }

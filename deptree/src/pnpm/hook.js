@@ -16,6 +16,7 @@
 // peerDependenciesMeta with the peer.
 
 import { intersects, satisfies, validRange } from '@preventive/upstream/semver.js'
+import { relative } from '@preventive/vfs/path.js'
 import { DeptreeError } from '../error.js'
 import { createMatcher } from '../matcher.js'
 
@@ -31,20 +32,10 @@ const mostSpecific = (overrides) => overrides.sort((a, b) => (meets(b.target.ran
 
 const isPeerRange = (spec) => validRange(spec) !== null || spec.includes('workspace:') || spec.includes('catalog:')
 
-// A path from one directory under the lockfile's to another, both in
-// their normal form.
-function pathBetween(from, to) {
-  const a = from === '.' ? [] : from.split('/')
-  const b = to === '.' ? [] : to.split('/')
-  let shared = 0
-  while (shared < a.length && shared < b.length && a[shared] === b[shared]) shared++
-  return [...a.slice(shared).map(() => '..'), ...b.slice(shared)].join('/') || '.'
-}
-
 // An override to a directory, `local` as listOverrides has it, as pnpm
 // writes it into the project at `dir`: relative to it.
 function localSpec({ protocol, dir: to }, dir) {
-  const path = pathBetween(dir, to)
+  const path = relative(dir, to) || '.'
   return protocol === '' && !path.startsWith('.') ? `./${path}` : `${protocol}${path}`
 }
 
@@ -64,19 +55,21 @@ function checkFields(manifest, where) {
 // override to a path is written into it as pnpm writes it, and undefined
 // for a package's, whose specifiers are not read.
 export function createHook({ overrides, ignored, major = 10 }) {
+  // Each list by the name it overrides, in order.
+  const byName = (list) => Map.groupBy(list, ({ target }) => target.name)
   const withParent = overrides.filter(({ parent }) => parent !== undefined)
-  const generic = overrides.filter(({ parent, converge }) => parent === undefined && !converge)
+  const generic = byName(overrides.filter(({ parent, converge }) => parent === undefined && !converge))
   const converging = new Map(overrides.filter(({ converge }) => converge).map(({ target, spec }) => [target.name, spec]))
-  const isIgnored = ignored.length > 0 ? createMatcher(ignored) : undefined
+  const isIgnored = createMatcher(ignored)
   return (manifest, where, { dir } = {}) => {
     checkFields(manifest, where)
     const copy = structuredClone(manifest)
     if (overrides.length > 0) {
-      const scoped = withParent.filter(({ parent }) => parent.name === copy.name && (!parent.range || satisfies(copy.version, parent.range)))
+      const scoped = byName(withParent.filter(({ parent }) => parent.name === copy.name && (!parent.range || satisfies(copy.version, parent.range))))
+      const pick = (list, spec) => mostSpecific((list ?? []).filter(({ target }) => meets(target.range, spec)))
       const override = (deps, peers) => {
         for (const [name, spec] of Object.entries(peers ?? deps)) {
-          const chosen = mostSpecific(scoped.filter(({ target }) => target.name === name && meets(target.range, spec)))
-            ?? mostSpecific(generic.filter(({ target }) => target.name === name && meets(target.range, spec)))
+          const chosen = pick(scoped.get(name), spec) ?? pick(generic.get(name), spec)
           const version = converging.get(name)
           if (chosen === undefined && version !== undefined && validRange(spec, { loose: true }) !== null && satisfies(version, spec, { loose: true })) (peers ?? deps)[name] = version
           if (chosen === undefined) continue
@@ -94,12 +87,10 @@ export function createHook({ overrides, ignored, major = 10 }) {
       for (const kind of KINDS) if (copy[kind] !== undefined) override(copy[kind])
       if (copy.peerDependencies !== undefined) override(copy.dependencies ??= {}, copy.peerDependencies)
     }
-    if (isIgnored !== undefined) {
-      for (const name of Object.keys(copy.optionalDependencies ?? {})) {
-        if (!isIgnored(name)) continue
-        delete copy.optionalDependencies[name]
-        delete copy.dependencies?.[name]
-      }
+    for (const name of Object.keys(copy.optionalDependencies ?? {})) {
+      if (!isIgnored(name)) continue
+      delete copy.optionalDependencies[name]
+      delete copy.dependencies?.[name]
     }
     return copy
   }

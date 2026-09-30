@@ -39,20 +39,27 @@ function typeAt(vfs, path) {
 // Each file is taken out of `tree` as it is written.
 export function mount(tree, target, folded) {
   checkNoModules(target, folded)
-  const entries = [...tree.walk('/')].filter(({ path }) => path !== '/')
-  for (const { path, type } of entries) {
-    const existing = typeAt(target, path)
+  // The tree's entries, parents first, each with what is there already;
+  // under a directory that is not there, nothing is.
+  const absent = new Set()
+  const entries = []
+  for (const { path, type } of tree.walk('/')) {
+    if (path === '/') continue
+    const parent = dirname(path)
+    const existing = absent.has(parent) ? undefined : typeAt(target, path)
+    if (existing === undefined && type === 'directory') absent.add(path)
+    entries.push({ path, type, existing })
     if (existing !== undefined && (type !== 'directory' || existing !== 'directory')) {
       throw new DeptreeError(`a ${existing} is there already, where the tree has a ${type}`, where(path))
     }
-    if (!folded || existing !== undefined || typeAt(target, dirname(path)) !== 'directory') continue
+    if (!folded || existing !== undefined || absent.has(parent)) continue
     const name = basename(path)
-    const clash = target.readdir(dirname(path)).find((other) => fold(other) === fold(name))
+    const clash = target.readdir(parent).find((other) => fold(other) === fold(name))
     if (clash !== undefined) throw new DeptreeError(`${quote(clash)} is there already, which is one name with ${quote(name)} on macOS`, where(path))
   }
-  for (const { path, type } of entries) {
+  for (const { path, type, existing } of entries) {
     if (type === 'directory') {
-      if (typeAt(target, path) === undefined) target.mkdir(path)
+      if (existing === undefined) target.mkdir(path)
     } else if (type === 'symlink') {
       target.symlink(tree.readlink(path), path)
     } else {

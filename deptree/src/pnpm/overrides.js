@@ -30,7 +30,7 @@
 // with a parent and an empty range, and one whose version is not exact.
 
 import { valid } from '@preventive/upstream/semver.js'
-import { join, normalize } from '@preventive/vfs/path.js'
+import { join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 
 // validate-npm-package-name 5's validForOldPackages, which pnpm reads a
@@ -82,12 +82,19 @@ export function replaceReferences(overrides, manifest, where) {
 
 const CATALOG = 'catalog:'
 
+// The catalog a `catalog:` specifier names, `default` where it names none,
+// or undefined for another specifier.
+export const catalogOf = (spec) => (spec.startsWith(CATALOG) ? spec.slice(CATALOG.length).trim() || 'default' : undefined)
+
+// The entry catalog `catalog` of `catalogs` has for `name`, if any.
+export const catalogEntry = (catalogs, catalog, name) => (Object.hasOwn(catalogs, catalog) && Object.hasOwn(catalogs[catalog], name) ? catalogs[catalog][name] : undefined)
+
 // @pnpm/catalogs.resolver's resolveFromCatalog: the specifier a catalog
 // gives `name`, where `spec` asks for one.
 function fromCatalog(catalogs, spec, name, where, major) {
-  if (!spec.startsWith(CATALOG)) return spec
-  const catalog = spec.slice(CATALOG.length).trim() || 'default'
-  const found = Object.hasOwn(catalogs, catalog) && Object.hasOwn(catalogs[catalog], name) ? catalogs[catalog][name] : undefined
+  const catalog = catalogOf(spec)
+  if (catalog === undefined) return spec
+  const found = catalogEntry(catalogs, catalog, name)
   const refused = found === undefined ? `catalog ${quote(catalog)} has no entry for ${quote(name)}`
     : found.startsWith(CATALOG) ? `the entry for ${quote(name)} in catalog ${quote(catalog)} is itself a catalog reference`
     : ['link', 'file', ...(major >= 11 ? [] : ['workspace'])].includes(found.split(':')[0]) ? `the entry for ${quote(name)} in catalog ${quote(catalog)} uses a protocol pnpm refuses in a catalog`
@@ -102,7 +109,7 @@ export function localOf(spec, where) {
   const protocol = ['file:', 'link:'].find((prefix) => spec.startsWith(prefix)) ?? (/^(?:[./]|~\/)/u.test(spec) ? '' : undefined)
   if (protocol === undefined) return undefined
   const path = spec.slice(protocol.length).replace(/\/+$/u, '')
-  const dir = /^(?:[/\\]|~[/\\]|[A-Za-z]:)/u.test(path) || path.includes('\\') ? '..' : normalize(join('.', path))
+  const dir = /^(?:[/\\]|~[/\\]|[A-Za-z]:)/u.test(path) || path.includes('\\') ? '..' : join('.', path)
   if (dir === '..' || dir.startsWith('../')) throw new DeptreeError(`${quote(spec)} is not a directory under the lockfile's, which is not supported`, where)
   return { protocol, dir }
 }

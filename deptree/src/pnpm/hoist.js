@@ -38,9 +38,10 @@ function walk(nodes, starts) {
 const lexCompare = (a, b) => (a > b ? 1 : a < b ? -1 : 0)
 
 // The aliases hoisted from the graph, walked from `starts`: a Map of each
-// link's path to its target. `taken` holds the names, folded, that none
-// may be hoisted by: the root project's own aliases, and, with pnpm 10,
-// with `projects` named among them at the top, hoisted last.
+// link's path to its target. `taken` holds the names none may be hoisted
+// by, each alias looked up in it folded: the root project's own aliases,
+// and those hoisted, folded. With pnpm 10, `projects` are named among the
+// top's, and hoisted last.
 function hoistGraph(nodes, starts, taken, typeOf, projects = new Map()) {
   const root = new Map([...projects].map(([id, name]) => [name, { project: id }]))
   const listed = new Set()
@@ -103,7 +104,7 @@ export function hoist(nodes, direct, { hoistPattern, publicHoistPattern }, proje
   const takenByDependencies = new Set(starts.map(([alias]) => alias.toLowerCase()))
   const hoistedProjects = [...projects].filter(([, name]) => typeOf(name) !== undefined && !takenByDependencies.has(name.toLowerCase()))
   const taken = new Set([...rootAliases, ...hoistedProjects.map(([, name]) => name)].map((alias) => alias.toLowerCase()))
-  const links = nodes.size === 0 ? new Map() : hoistGraph(nodes, starts, taken, typeOf)
+  const links = hoistGraph(nodes, starts, taken, typeOf)
   for (const [id, name] of hoistedProjects) links.set(`${typeOf(name)}/${name}`, id)
   return links
 }
