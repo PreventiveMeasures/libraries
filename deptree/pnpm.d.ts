@@ -151,13 +151,30 @@ export type PnpmProject = Pick<Vfs, 'readdir' | 'lstat' | 'stat' | 'readFile'>
 // written, so a refusal leaves the Vfs as it was. Nothing outside
 // node_modules is written, though pnpm 10 makes the files a linked
 // directory's bins run executable too.
-export interface PnpmTreeOptions {
-  lockfile?: string
-  manifests?: Record<string, string> | Map<string, string>
+//
+// The two ways the files come, one or the other: given, with `lockfile`
+// and `manifests`, `project` read only for directories; or read, with
+// `project` and none of them.
+export type PnpmTreeOptions = PnpmTreeGiven | PnpmTreeRead
+
+export interface PnpmTreeGiven {
+  lockfile: string
+  manifests: Record<string, string> | Map<string, string>
   workspace?: string
   npmrc?: string
   patches?: Record<string, string> | Map<string, string>
   project?: PnpmProject
+  host: PnpmHost
+  vfs?: Vfs
+}
+
+export interface PnpmTreeRead {
+  lockfile?: undefined
+  manifests?: undefined
+  workspace?: undefined
+  npmrc?: undefined
+  patches?: undefined
+  project: PnpmProject
   host: PnpmHost
   vfs?: Vfs
 }
