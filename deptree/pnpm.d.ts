@@ -1,50 +1,87 @@
 // Hand-written against pnpm.js; a change to either belongs with the other.
 
-import type { Vfs } from '@preventive/vfs'
+import type { NodeType, Vfs } from '@preventive/vfs'
 
 export { LockfileError, YamlError } from '@preventive/lockfile/pnpm.js'
 
 // Where @preventive/upstream caches what it fetches, tarballs among them.
-// Unset, which it is by default, nothing is cached and nothing is written:
-// tarballs are fetched every time, each once for however many snapshots it
-// has. It is the one place anything here touches a filesystem.
+// Tarballs are fetched through it, and that is the one place anything here
+// touches a filesystem. Before the network, it takes a tarball from npm's
+// cache — under $npm_config_cache, or ~/.npm — or from ~/.audit/cache/tgz,
+// where one there has the lockfile's integrity, and writes neither; then
+// from its own cache, where one is set, which is where it writes each
+// tarball it fetches. Unset, which it is by default, it has none, and
+// writes nothing: a tarball in neither of the others is fetched every
+// time, each once for however many snapshots it has. The project is read
+// only through the view given as `project`, and the tree built in a Vfs.
 export { setCacheDir } from '@preventive/upstream/npm.js'
 
 // The machine pnpm would install on, which a tree depends on: `pnpm` is
 // the version that installs, and has to be a 10.x or an 11.x, the two
-// built for, each as it differs from the other; `node` the Node it runs
-// on, unless the settings name a nodeVersion or, for pnpm 11, the root
-// package.json's engines.runtime pins one;
-// `os`, `cpu` and `libc` as Node and pnpm name them — `linux`, `x64`,
-// `glibc` — with `unknown` for a libc outside Linux, as pnpm has it.
+// built for, each as it differs from the other; left out, it is the one
+// the root package.json's packageManager pins, which pnpm switches to, and
+// has to be given where that pins none. `node` is the Node it runs on,
+// unless the settings name a nodeVersion or, for pnpm 11, the root
+// package.json's engines.runtime pins one; `os`, `cpu` and `libc` as Node
+// and pnpm name them — `linux`, `x64`, `glibc` — with `unknown` for a libc
+// outside Linux, as pnpm has it.
 // Windows is refused: pnpm links there with junctions to absolute paths.
 // An optional package the machine cannot run is left out, as pnpm leaves
 // it out; supportedArchitectures in the settings widens what is taken.
 export interface PnpmHost {
-  pnpm: string
+  pnpm?: string
   node: string
   os: string
   cpu: string
   libc: 'glibc' | 'musl' | 'unknown'
 }
 
-// The files an install reads, as text: pnpm-lock.yaml; the package.json
-// of every project it installs, by the project's directory relative to the
-// lockfile's (`.` for the root, then as its importers are keyed); pnpm-
-// workspace.yaml and the .npmrc, where there are any; and every patch file
-// the settings' patchedDependencies name, by the path from the lockfile's
-// directory they name it by. Settings from anywhere else — another
-// .npmrc, the environment, the command line — are not read, and are taken
-// to be at their defaults.
+// A view of the lockfile's directory, by paths from `/`: a Vfs, or
+// anything with its readdir, lstat, stat and readFile, such as one of a
+// directory on disk, of which only this is read: the names in a
+// directory; what a path is, `file`, `directory` or `symlink`, and its
+// mode, with lstat, and what it leads to with stat; and a file's bytes.
+// Each throws an error whose `code` is ENOENT, ENOTDIR or ELOOP for a path
+// that leads nowhere. Nothing is written to it.
+export interface PnpmProject {
+  readdir(path: string): string[]
+  lstat(path: string): { type: NodeType, mode: number }
+  stat(path: string): { type: NodeType }
+  readFile(path: string): Uint8Array
+}
+
+// The files an install reads: pnpm-lock.yaml; the package.json of every
+// project it installs; pnpm-workspace.yaml and the .npmrc, where there are
+// any; and every patch file the settings' patchedDependencies name.
+//
+// With `lockfile`, they are given as text: `manifests` by the project's
+// directory relative to the lockfile's (`.` for the root, then as its
+// importers are keyed), `patches` by the path from the lockfile's
+// directory the settings name each by, and only those.
+//
+// Without it, they are read from `project`, as pnpm reads them there, and
+// none of them may be given: pnpm-lock.yaml, which has to be there;
+// pnpm-workspace.yaml, which, where there is none, pnpm refuses under
+// another name it looks for it by, such as pnpm-workspace.yml; the .npmrc;
+// the package.json of every project pnpm finds, as findPnpmProjects finds
+// them, and no other, an importer pnpm-workspace.yaml's packages do not
+// take refused unread; and each patch the settings name, and no other,
+// which has to be under the lockfile's directory. Each is read as
+// UTF-8, and refused where it is not, a byte order mark kept as it is in
+// text given; a refusal names each as it would given:
+// `manifests["packages/x"]`, `patches["patches/p.patch"]`.
+//
+// Settings from anywhere else — another .npmrc, the environment, the
+// command line — are not read, and are taken to be at their defaults.
 //
 // A workspace is one lockfile for several projects, each a package.json:
 // the root, and every directory pnpm-workspace.yaml's `packages` globs
 // take, as pnpm globs for them — `*` and `**`, a leading `!` to leave out,
 // and no other glob syntax. Without `packages` the root is the only
-// project. Every importer has to have its package.json given, and be a
-// project those globs take; and every project pnpm would find has to be
-// given, which buildPnpmTree cannot check, as it is not given the
-// directories: findPnpmProjects finds them in those. A project the
+// project. Every importer has to have its package.json, and be a project
+// those globs take; and every project pnpm would find has to be given,
+// which buildPnpmTree cannot check where it is given them, as it is not
+// given the directories: findPnpmProjects finds them in those. A project the
 // lockfile has no importer for is held to an empty one, as pnpm holds it:
 // with no dependencies it is installed, and hoisted by its name, and with
 // any it is refused as not up to date. Its directory has to be given as
@@ -65,8 +102,8 @@ export interface PnpmHost {
 // one is the root package.json's own specifier for `name`, and
 // `catalog:` what the workspace's catalog gives the package. One to a
 // directory — a path alone, such as `./vendor/foo`, `link:` or `file:` —
-// is read only with `vfs` given, and only where the directory is under
-// the lockfile's and holds a package.json there. pnpm links to it by a
+// is read only with `project` given, and only where the directory is
+// under the lockfile's and holds a package.json there. pnpm links to it by a
 // path alone or `link:`. By `file:` it installs it as a package, of the
 // files npm-packlist's built-in rules keep, which are followed here alone:
 // a directory with a .npmignore or .gitignore, a package.json with `files`
@@ -96,31 +133,54 @@ export interface PnpmHost {
 // lockfile against the registry by before it installs — each package's
 // publish time, its tarball URL, its trust — are passed over.
 //
+// `project` is read only where it is said to be here: for the files an
+// install reads, without `lockfile`; for the directories a `link:` or an
+// override leads to. With it given, a directory the tree links to that is
+// no project, and is under the lockfile's, has to be there with a
+// package.json, whose bins are read as pnpm reads them. Without it, or
+// outside the lockfile's directory, such a directory's bins are not
+// known, and neither are those of a project that has them by the files of
+// its directories.bin: where one could win a command a package's file is
+// linked by, and so decide whether pnpm fixes that file, and fixing it
+// would change it, the tree is refused.
+//
 // `vfs` is a Vfs to mount the tree into, at its root, which is taken to
 // be the lockfile's directory, beside whatever it holds, such as the
-// projects themselves; without one, a new Vfs holds the tree alone. A Vfs
-// that holds a node_modules anywhere, or on macOS a name that is one
+// projects themselves — it may be `project` too; without one, a new Vfs
+// holds the tree alone. Nothing the tree is built from is read from it. A
+// Vfs that holds a node_modules anywhere, or on macOS a name that is one
 // there, is refused before anything is fetched: kept beside the tree, Node
 // would read it as the tree's, and removed, it would be the caller's lost.
 // Nothing there is written over: each directory the tree has is one there
 // or is made, and every file and link is written where nothing is. The
 // tree is built, and held to every check below, before any of it is
-// written, so a refusal leaves the Vfs as it was. With it given, a
-// directory the tree links to that is no project, and is under the
-// lockfile's, has to be there with a package.json, whose bins are read as
-// pnpm reads them; nothing outside node_modules is written, though pnpm
-// 10 makes the files a linked directory's bins run executable too.
-// Without it, or outside the lockfile's directory, such a directory's
-// bins are not known, and neither are those of a project that has them
-// by the files of its directories.bin: where one could win a command a
-// package's file is linked by, and so decide whether pnpm fixes that
-// file, and fixing it would change it, the tree is refused.
-export interface PnpmTreeOptions {
+// written, so a refusal leaves the Vfs as it was. Nothing outside
+// node_modules is written, though pnpm 10 makes the files a linked
+// directory's bins run executable too.
+//
+// The two ways the files come, one or the other: given, with `lockfile`
+// and `manifests`, `project` read only for directories; or read, with
+// `project` and none of them.
+export type PnpmTreeOptions = PnpmTreeGiven | PnpmTreeRead
+
+export interface PnpmTreeGiven {
   lockfile: string
   manifests: Record<string, string> | Map<string, string>
   workspace?: string
   npmrc?: string
   patches?: Record<string, string> | Map<string, string>
+  project?: PnpmProject
+  host: PnpmHost
+  vfs?: Vfs
+}
+
+export interface PnpmTreeRead {
+  lockfile?: undefined
+  manifests?: undefined
+  workspace?: undefined
+  npmrc?: undefined
+  patches?: undefined
+  project: PnpmProject
   host: PnpmHost
   vfs?: Vfs
 }
@@ -229,17 +289,19 @@ export interface PnpmTree {
 // TypeError is thrown for options of the wrong type.
 export function buildPnpmTree(options: PnpmTreeOptions): Promise<PnpmTree>
 
-// The directories of the projects pnpm finds for the workspace at the
-// root of `vfs`, by which buildPnpmTree takes their package.json: `.`, the
-// root, first, then in order each directory whose package.json a glob of
-// `workspace`'s `packages` takes, as pnpm `host.pnpm` finds them.
+// The directories of the projects pnpm finds in `project`, by which
+// buildPnpmTree takes their package.json given: `.`, the root, first, then
+// in order each directory whose package.json a glob of
+// pnpm-workspace.yaml's `packages` takes, as pnpm `host.pnpm` finds them.
+// pnpm-workspace.yaml is read from `project`, as buildPnpmTree reads it;
+// so is the root package.json, where host.pnpm is left out, for the pnpm
+// its packageManager pins.
 //
-// `vfs` is a Vfs, or anything with its readdir, lstat and stat, such as a
-// view of a directory on disk, by paths from `/`; nothing is written. Of
-// it, only the directories pnpm walks into are read: none under
-// node_modules or bower_components, and none whose name starts with a dot
-// unless a glob spells it there. A manifest is a file, or a link to one; a
-// link that leads nowhere, or to a directory, is none, as pnpm has it.
+// Of `project`, besides those, only the directories pnpm walks into are
+// read: none under node_modules or bower_components, and none whose name
+// starts with a dot unless a glob spells it there. A manifest is a file,
+// or a link to one; a link that leads nowhere, or to a directory, is none,
+// as pnpm has it.
 //
 // Refused: a root with no manifest, which pnpm takes for no project; a
 // project, the root among them, whose manifest is package.json5 or
@@ -249,12 +311,12 @@ export function buildPnpmTree(options: PnpmTreeOptions): Promise<PnpmTree>
 // project in a directory a lockfile could not key its importer by, with a
 // control, bidirectional or backslash character in its path, or a drive
 // letter; a node_modules pnpm walks into, which it does only under a
-// directory with a leading dot that a glob spells; and a glob
-// buildPnpmTree refuses, or a pnpm not 10.x or 11.x.
+// directory with a leading dot that a glob spells; a glob buildPnpmTree
+// refuses, or a pnpm not 10.x or 11.x; and a pnpm-workspace.yaml that is
+// not a mapping, is not UTF-8, or is under another name pnpm refuses.
 export interface PnpmProjectsOptions {
-  workspace?: string
-  host: Pick<PnpmHost, 'pnpm'>
-  vfs: Pick<Vfs, 'readdir' | 'lstat' | 'stat'>
+  project: PnpmProject
+  host?: Pick<PnpmHost, 'pnpm'>
 }
 
 export function findPnpmProjects(options: PnpmProjectsOptions): string[]

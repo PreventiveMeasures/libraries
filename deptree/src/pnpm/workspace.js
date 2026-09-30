@@ -21,6 +21,7 @@
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { escape } from '../matcher.js'
+import { typeOf } from './project.js'
 
 const UNSUPPORTED = /[?[\]{}()\\]/u
 
@@ -133,15 +134,19 @@ export function checkProjectId(id, where) {
   }
 }
 
+// A manifest pnpm would read through a link, the root's among them, is
+// refused before it is read.
+export const linkedManifest = (file) => new DeptreeError('a link pnpm would read a project\'s manifest through is not supported', quote(file))
+
 // The names pnpm reads a project's manifest by, the first of them there
 // winning.
 const MANIFESTS = ['package.json', 'package.json5', 'package.yaml']
 
 // The directories of the projects pnpm `major` finds by the globs of
-// `packages` in the workspace at the root of `vfs`: `.`, the root, then
-// the rest in order. Every directory tinyglobby walks into is read, and no
-// other, a link to one followed as it follows it. A manifest is a file, or
-// a link to one; a link that leads nowhere, or to a directory, is none.
+// `packages` in `project` (project.js): `.`, the root, then the rest in
+// order. Every directory tinyglobby walks into is read, and no other, a
+// link to one followed as it follows it. A manifest is a file, or a link
+// to one; a link that leads nowhere, or to a directory, is none.
 // Refused, as not read here: a root with no manifest, which pnpm takes
 // for no project; a project, the root among them, whose manifest is
 // package.json5, package.yaml or a link; a project found
@@ -150,7 +155,7 @@ const MANIFESTS = ['package.json', 'package.json5', 'package.yaml']
 // importer by; and a node_modules tinyglobby walks into, which it does
 // only under a directory with a leading dot, as what is installed there
 // is no project buildPnpmTree builds.
-export function findProjects(vfs, packages, major = 10) {
+export function findProjects(project, packages, major = 10) {
   const globs = compileAll(packages, major)
   const ids = []
   // The directories left to read, by their names, and the link each is
@@ -159,14 +164,14 @@ export function findProjects(vfs, packages, major = 10) {
   while (pending.length > 0) {
     const { names, link } = pending.pop()
     const dir = names.join('/')
-    const entries = vfs.readdir(`/${dir}`)
+    const entries = project.readdir(`/${dir}`)
     const found = names.length === 0 || taken(globs, [...names, 'package.json'])
-      ? MANIFESTS.find((name) => entries.includes(name) && typeOf(vfs, `/${[...names, name].join('/')}`) === 'file')
+      ? MANIFESTS.find((name) => entries.includes(name) && typeOf(project, `/${[...names, name].join('/')}`) === 'file')
       : undefined
     if (names.length === 0 && found === undefined) throw new DeptreeError('pnpm takes a workspace with no manifest at its root for one with no root project, which is not supported', quote('package.json'))
     if (found !== undefined) {
       const file = [...names, found].join('/')
-      if (vfs.lstat(`/${file}`).type === 'symlink') throw new DeptreeError('a link pnpm would read a project\'s manifest through is not supported', quote(file))
+      if (project.lstat(`/${file}`).type === 'symlink') throw linkedManifest(file)
       if (found !== 'package.json') throw new DeptreeError(`pnpm reads this project's ${found}, which is not supported`, quote(file))
       if (link !== undefined) throw new DeptreeError(`pnpm finds a project through this link, ${quote(dir)}, which is not supported`, quote(link))
       if (names.length > 0) {
@@ -178,8 +183,8 @@ export function findProjects(vfs, packages, major = 10) {
       const at = [...names, entry]
       if (!walked(globs, at)) continue
       const path = at.join('/')
-      const { type } = vfs.lstat(`/${path}`)
-      const linked = type === 'symlink' && typeOf(vfs, `/${path}`) === 'directory'
+      const { type } = project.lstat(`/${path}`)
+      const linked = type === 'symlink' && typeOf(project, `/${path}`) === 'directory'
       if (type !== 'directory' && !linked) continue
       if (entry === 'node_modules') throw new DeptreeError('pnpm-workspace.yaml\'s packages walk into this node_modules, which is not supported', quote(path))
       if (!linked) pending.push({ names: at, link })
@@ -188,17 +193,4 @@ export function findProjects(vfs, packages, major = 10) {
     }
   }
   return ['.', ...ids.sort()]
-}
-
-// What `path` leads to, links followed; nothing, where it leads nowhere:
-// to no entry, through a file, or round a loop of links. Any other
-// failure is thrown.
-const NOWHERE = new Set(['ENOENT', 'ENOTDIR', 'ELOOP'])
-function typeOf(vfs, path) {
-  try {
-    return vfs.stat(path).type
-  } catch (error) {
-    if (NOWHERE.has(error?.code)) return undefined
-    throw error
-  }
 }
