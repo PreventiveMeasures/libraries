@@ -249,8 +249,11 @@ export function buildPnpmTree(options: PnpmTreeOptions): Promise<PnpmTree>
 // directory, which it follows as it follows it, and a link to a directory
 // in one followed, which is not; a project in a directory a lockfile
 // could not key its importer by, with a control, bidirectional or
-// backslash character in its path, or a drive letter; and a glob
-// buildPnpmTree refuses, or a pnpm not 10.x or 11.x.
+// backslash character in its path, or a drive letter; a node_modules pnpm
+// walks into, which it does under a directory with a leading dot that a
+// glob spells, as buildPnpmTree builds no project in one; and a glob
+// buildPnpmTree refuses, or a pnpm not 10.x or 11.x. A node_modules pnpm
+// leaves out is neither read nor refused.
 export interface PnpmProjectsOptions {
   workspace?: string
   host: Pick<PnpmHost, 'pnpm'>

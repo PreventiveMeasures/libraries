@@ -150,8 +150,10 @@ const MANIFESTS = ['package.json', 'package.json5', 'package.yaml']
 // Refused, as not read here: a project, the root among them, whose
 // manifest is package.json5, package.yaml or a link; a project found
 // through a link, and a link to a directory in one followed, which is not
-// followed; and a project in a directory a lockfile could not key its
-// importer by.
+// followed; a project in a directory a lockfile could not key its
+// importer by; and a node_modules tinyglobby walks into, which it does
+// only under a directory with a leading dot, as what is installed there
+// is no project buildPnpmTree builds.
 export function findProjects(vfs, packages, major = 10) {
   const globs = compileAll(packages, major)
   const ids = []
@@ -180,8 +182,10 @@ export function findProjects(vfs, packages, major = 10) {
       if (!walked(globs, at)) continue
       const path = `/${at.join('/')}`
       const { type } = vfs.lstat(path)
-      if (type === 'directory') pending.push({ names: at, link })
-      else if (type !== 'symlink' || typeOf(vfs, path) !== 'directory') continue
+      const linked = type === 'symlink' && typeOf(vfs, path) === 'directory'
+      if (type !== 'directory' && !linked) continue
+      if (entry === 'node_modules') throw new DeptreeError('pnpm-workspace.yaml\'s packages walk into this node_modules, which is not supported', quote(at.join('/')))
+      if (!linked) pending.push({ names: at, link })
       else if (link === undefined) pending.push({ names: at, link: at.join('/') })
       else throw new DeptreeError(`a link to a directory in one tinyglobby follows, ${quote(at.join('/'))}, is not supported`, quote(link))
     }

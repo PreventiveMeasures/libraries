@@ -29,7 +29,6 @@ describe('findProjects', () => {
     [['packages/**'], ['packages/a', 'packages/b', 'packages/f/sub']],
     [['**'], ['other/e', 'packages/a', 'packages/b', 'packages/f/sub', 'tests/t']],
     [['**', '!**/b'], ['other/e', 'packages/a', 'packages/f/sub', 'tests/t']],
-    [['.hidden/**'], ['.hidden/d', '.hidden/node_modules/h']],
     [['packages/.*'], ['packages/.dot']],
     [['*/*'], ['other/e', 'packages/a', 'packages/b', 'tests/t']],
     [['**/sub'], ['packages/f/sub']],
@@ -50,10 +49,30 @@ describe('findProjects', () => {
     })
   }
 
+  // pnpm 10.33.4 and 11.28.2 list .hidden/node_modules/h for .hidden/**:
+  // tinyglobby leaves out no node_modules under a directory with a leading
+  // dot. What is installed there is no project here.
+  it('refuses a node_modules pnpm walks into, and passes over one it leaves out', () => {
+    for (const packages of [['.hidden/**'], ['.hidden/*'], ['.hidden/node_modules/*']]) {
+      assert.throws(() => findProjects(workspace(), packages, 10), /^DeptreeError: ".hidden\/node_modules": pnpm-workspace\.yaml's packages walk into this node_modules, which is not supported$/u, packages.join(', '))
+    }
+    const vfs = workspace()
+    vfs.rm('/.hidden/node_modules', { recursive: true })
+    vfs.mkdir('/.hidden/node_modules')
+    vfs.symlink('../other', '/.hidden/link')
+    vfs.symlink('../../x', '/other/node_modules')
+    assert.throws(() => findProjects(vfs, ['.hidden/**'], 10), /^DeptreeError: ".hidden\/node_modules": /u, 'an empty one')
+    vfs.rm('/.hidden/node_modules', { recursive: true })
+    assert.throws(() => findProjects(vfs, ['.hidden/**'], 10), /^DeptreeError: ".hidden\/link\/node_modules": pnpm-workspace\.yaml's packages walk into this node_modules/u, 'a link to one, through a link')
+    assert.deepEqual(findProjects(workspace(), ['**', '.hidden/d'], 10), ['.', '.hidden/d', 'other/e', 'packages/a', 'packages/b', 'packages/f/sub', 'tests/t'])
+  })
+
   it('leaves out what a `!` glob takes under a dot directory for pnpm 11 alone', () => {
+    const vfs = workspace()
+    vfs.rm('/.hidden/node_modules', { recursive: true })
     for (const packages of [['.hidden/**', '!**/d'], ['.hidden/*', '!*/d']]) {
-      assert.ok(findProjects(workspace(), packages, 10).includes('.hidden/d'), packages.join(', '))
-      assert.ok(!findProjects(workspace(), packages, 11).includes('.hidden/d'), packages.join(', '))
+      assert.ok(findProjects(vfs, packages, 10).includes('.hidden/d'), packages.join(', '))
+      assert.ok(!findProjects(vfs, packages, 11).includes('.hidden/d'), packages.join(', '))
     }
   })
 
