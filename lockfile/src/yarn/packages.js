@@ -11,11 +11,14 @@
 // an order its network decides, and installs the package under that name
 // alone; writing the lockfile again records it as `name`, and from then on
 // every install leaves the other name out. So an entry of two names, or
-// with a `name` its patterns do not give, is refused. So is an entry that
-// gives a pattern asking for the registry what another pattern names, a
-// tarball, a directory or a repository, as yarn does for a resolution or a
-// dependency that names one with the same name and version: the package
-// asked for is not the one installed.
+// with a `name` its patterns do not give, is refused.
+//
+// So is an entry that gives a pattern asking for the registry what another
+// pattern names, a tarball, a directory or a repository, as yarn does for
+// a dependency that names one with the same name and version: the package
+// asked for is not the one installed. Where the other pattern is a
+// resolution's own, the manifests say whether it applies to every request
+// of the entry, and resolutions.js decides; without them, it is refused.
 
 import { LockfileError, at, quote } from '../error.js'
 import { checkIntegrity, checkName, checkRelative, checkVersion } from '../names.js'
@@ -92,7 +95,8 @@ function readResolution(fields, where) {
 const sourceOf = (resolution) => (resolution === undefined ? 'nothing, as for a directory' : resolution.type === 'git' ? 'a git repository' : 'a file: tarball')
 
 // Every pattern of an entry gives it one name, and those that ask for the
-// registry are given a tarball from a URL, by no pattern that names one.
+// registry are given a tarball from a URL. An entry that has them beside
+// patterns that name a source is handed back, for a resolution to explain.
 function checkPatterns(patterns, fields, resolution, where) {
   const [first] = patterns
   for (const pattern of patterns) {
@@ -104,13 +108,17 @@ function checkPatterns(patterns, fields, resolution, where) {
     throw new LockfileError(`yarn installs this as ${quote(fields.name)}, and leaves ${quote(first.name)} out, which its patterns ask for`, at(where, 'name'))
   }
   const registry = patterns.find((pattern) => fromRegistry(pattern.range))
-  const source = patterns.find((pattern) => !fromRegistry(pattern.range))
-  if (registry === undefined) return
-  if (source !== undefined) throw new LockfileError(`${quote(registry.key)} asks for the registry, and is given what ${quote(source.key)} names`, where)
+  const sources = patterns.filter((pattern) => !fromRegistry(pattern.range)).map((pattern) => pattern.key)
+  if (registry === undefined) return undefined
+  if (sources.length > 0) return { registry: registry.key, sources, where }
   if (resolution?.type !== 'tarball' || resolution.tarball.startsWith('file:')) {
     throw new LockfileError(`${quote(registry.key)} asks for the registry, and resolves to ${sourceOf(resolution)}`, where)
   }
+  return undefined
 }
+
+// An entry handed back, where there are no manifests to explain it.
+export const unresolved = ({ registry, sources, where }) => new LockfileError(`${quote(registry)} asks for the registry, and is given what ${quote(sources[0])} names, which only a resolution may, as the manifests would say`, where)
 
 // By name, the pattern of each dependency, to be found among the keys.
 function readDependencies(value, where, wanted) {
@@ -123,18 +131,18 @@ function readDependencies(value, where, wanted) {
   return dependencies
 }
 
-function readPackage({ keys, fields }, wanted) {
+function readPackage({ keys, fields }, wanted, mixed) {
   const where = at('', keys[0])
   record(fields, where, FIELDS)
   const patterns = keys.map((key) => ({ key, ...splitPattern(key, at('', key)) }))
   const resolution = readResolution(fields, where)
-  checkPatterns(patterns, fields, resolution, where)
+  const handed = checkPatterns(patterns, fields, resolution, where)
   const dependencies = readDependencies(fields.dependencies, at(where, 'dependencies'), wanted)
   const optionalDependencies = readDependencies(fields.optionalDependencies, at(where, 'optionalDependencies'), wanted)
   for (const name of Object.keys(optionalDependencies)) {
     if (name in dependencies) throw new LockfileError('listed under dependencies too', at(at(where, 'optionalDependencies'), name))
   }
-  return {
+  const pkg = {
     patterns: keys,
     name: patterns[0].name,
     version: checkVersion(fields.version, at(where, 'version')),
@@ -143,18 +151,22 @@ function readPackage({ keys, fields }, wanted) {
     dependencies,
     optionalDependencies,
   }
+  if (handed !== undefined) mixed.push({ pkg, ...handed })
+  return pkg
 }
 
-// By pattern, in the order of the file, from what syntax.js reads.
+// By pattern, in the order of the file, from what syntax.js reads; and the
+// entries that give a pattern asking for the registry what others name.
 export function readPackages(list) {
   const packages = Object.create(null)
   const wanted = []
+  const mixed = []
   for (const entry of list) {
-    const pkg = readPackage(entry, wanted)
+    const pkg = readPackage(entry, wanted, mixed)
     for (const key of entry.keys) packages[key] = pkg
   }
   for (const [pattern, where] of wanted) {
     if (!(pattern in packages)) throw new LockfileError(`${quote(pattern)} is not a pattern of the lockfile`, where)
   }
-  return packages
+  return { packages, mixed }
 }

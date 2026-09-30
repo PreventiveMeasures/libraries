@@ -352,9 +352,10 @@ describe('refuses an entry yarn does not write, or installs otherwise', () => {
     refuses(edit(['"f@https://example.com/f.tgz":', '"f@https://example.com/f.tgz", "g@https://example.com/f.tgz":']), '"f@https://example.com/f.tgz" and "g@https://example.com/f.tgz" give it two names, of which yarn installs it under one alone', '["f@https://example.com/f.tgz"]')
   })
 
-  it('a pattern asking for the registry given another source', () => {
-    refuses(edit(['"f@https://example.com/f.tgz":', 'f@4.0.0, "f@https://example.com/f.tgz":']), '"f@4.0.0" asks for the registry, and is given what "f@https://example.com/f.tgz" names', '["f@4.0.0"]')
-    refuses(edit(['"d@file:./d":', 'd@^0.1.0, "d@file:./d":']), '"d@^0.1.0" asks for the registry, and is given what "d@file:./d" names', '["d@^0.1.0"]')
+  it('a pattern asking for the registry given another source, which only the manifests may say a resolution does', () => {
+    const only = 'which only a resolution may, as the manifests would say'
+    refuses(edit(['"f@https://example.com/f.tgz":', 'f@4.0.0, "f@https://example.com/f.tgz":']), `"f@4.0.0" asks for the registry, and is given what "f@https://example.com/f.tgz" names, ${only}`, '["f@4.0.0"]')
+    refuses(edit(['"d@file:./d":', 'd@^0.1.0, "d@file:./d":']), `"d@^0.1.0" asks for the registry, and is given what "d@file:./d" names, ${only}`, '["d@^0.1.0"]')
     refuses(edit(['"e@git+https://example.com/e.git#v3":', 'e@3.0.0:']), '"e@3.0.0" asks for the registry, and resolves to a git repository', '["e@3.0.0"]')
     refuses(edit(['"d@file:./d":', 'd@0.1.0:']), '"d@0.1.0" asks for the registry, and resolves to nothing, as for a directory', '["d@0.1.0"]')
     refuses(edit([`"https://example.com/f.tgz#${H}"`, `"file:vendor/f.tgz#${H}"`], ['"f@https://example.com/f.tgz":', 'f@4.0.0:']), '"f@4.0.0" asks for the registry, and resolves to a file: tarball', '["f@4.0.0"]')
@@ -390,5 +391,59 @@ describe('refuses an entry yarn does not write, or installs otherwise', () => {
 
   it('anything but a string', () => {
     assert.throws(() => parseYarnLockfile(Buffer.from(BASE)), TypeError)
+  })
+})
+
+describe('a resolution to a source, where it applies to every request', () => {
+  const URL = 'https://example.com/b.tgz'
+  // b@1.0.0, which a and d ask for, and the resolution's own pattern, both
+  // given the tarball the resolution names.
+  const RESOLVED = edit(['b@1.0.0:', `b@1.0.0, "b@${URL}":`], [`"https://registry.yarnpkg.com/b/-/b-1.0.0.tgz#${H}"\n  integrity ${H1}\n\n"d`, `"${URL}#${H}"\n  integrity ${H1}\n\n"d`])
+  const resolving = (resolutions, fields = {}) => ({ ...MANIFESTS, '.': { ...MANIFESTS['.'], resolutions, ...fields } })
+  const resolved = (resolutions, text = RESOLVED) => parseYarnLockfile(text, resolving(resolutions)).packages
+  const applies = 'which yarn does not apply to it here'
+
+  it('reads one that applies everywhere, or along every path it is asked for by', () => {
+    for (const resolutions of [{ b: URL }, { '**/b': URL }, { '**/a/b': URL, 'd/b': URL }, { '**/?/b': URL }, { '**/*/b': URL }]) {
+      const packages = resolved(resolutions)
+      assert.equal(packages['b@1.0.0'], packages[`b@${URL}`], JSON.stringify(resolutions))
+      assert.deepEqual(packages['b@1.0.0'].resolution, { type: 'tarball', tarball: URL, sha1: H, integrity: H1 })
+    }
+  })
+
+  it('refuses one that does not apply along a path it is asked for by', () => {
+    refuses(RESOLVED, `"b@1.0.0" is given what the resolution "d/b" resolves to, ${applies}`, '["a@^1.0.0"].dependencies.b', resolving({ 'd/b': URL }))
+    refuses(RESOLVED, `"b@1.0.0" is given what the resolution "**/a/b" resolves to, ${applies}`, '["d@file:./d"].dependencies.b', resolving({ '**/a/b': URL }))
+    // a is asked for by the root, as a/b, and by the workspace through
+    // yarn's aggregator, as workspace-aggregator-…/w/a/b.
+    for (const path of ['a/b', '*/b']) {
+      refuses(RESOLVED, `"b@1.0.0" is given what the resolution "${path}" resolves to, ${applies}`, '["a@^1.0.0"].dependencies.b', resolving({ [path]: URL, 'd/b': URL }))
+    }
+    // And as w/a/b, as the root asks for the workspace too.
+    refuses(RESOLVED, `"b@1.0.0" is given what the resolution "*/w/a/b" resolves to, ${applies}`, '["a@^1.0.0"].dependencies.b', resolving({ '*/w/a/b': URL, 'a/b': URL, 'd/b': URL }))
+    assert.equal(resolved({ '**/w/a/b': URL, 'a/b': URL, 'd/b': URL })['b@1.0.0'].resolution.tarball, URL)
+  })
+
+  it('refuses one that another resolution comes before, as the first to match applies', () => {
+    refuses(RESOLVED, `"b@1.0.0" is given what the resolution "**/b" resolves to, ${applies}`, '["d@file:./d"].dependencies.b', resolving({ 'd/b': '1.0.0', '**/b': URL }))
+    assert.equal(resolved({ '**/b': URL, 'd/b': '1.0.0' })['b@1.0.0'].resolution.tarball, URL)
+  })
+
+  it('refuses the root\'s own dependency given it, which no resolution applies to', () => {
+    const manifests = resolving({ '**/b': URL }, { dependencies: { ...MANIFESTS['.'].dependencies, b: '1.0.0' } })
+    refuses(RESOLVED, '"b@1.0.0" is given what the resolution "**/b" resolves to, which yarn applies to no dependency of the root\'s own', 'manifests["."].dependencies.b', manifests)
+  })
+
+  it('refuses a dependency on what it resolves to, or another entry of that tarball', () => {
+    refuses(edit(['b@1.0.0:', `b@1.0.0, "b@${URL}":`], [`"https://registry.yarnpkg.com/b/-/b-1.0.0.tgz#${H}"\n  integrity ${H1}\n\n"d`, `"${URL}#${H}"\n  integrity ${H1}\n\n"d`], ['  version "0.1.0"\n  dependencies:\n    b "1.0.0"', `  version "0.1.0"\n  dependencies:\n    b "${URL}"`]), `"b@${URL}" asks for what the resolution "**/b" resolves to, as a dependency of its own`, '["d@file:./d"].dependencies.b', resolving({ '**/b': URL }))
+    const shared = RESOLVED.replace(`"my-b@npm:b@1.0.0":\n  version "1.0.0"\n  resolved "https://registry.yarnpkg.com/b/-/b-1.0.0.tgz#${H}"`, `"my-b@npm:b@1.0.0":\n  version "1.0.0"\n  resolved "${URL}#${H}"`)
+    refuses(shared, 'asks for what the resolution "**/b" resolves to, as a dependency of its own', '["my-b@npm:b@1.0.0"]', resolving({ '**/b': URL }))
+  })
+
+  it('refuses a source no resolution names, and a glob not read here', () => {
+    const text = RESOLVED
+    refuses(text, `"b@1.0.0" asks for the registry, and is given what "b@${URL}" names, which no resolution does`, '["b@1.0.0"]', resolving(undefined, { dependencies: { ...MANIFESTS['.'].dependencies, b: URL } }))
+    refuses(text, '"**/{a,d}/b" is a glob not read here', 'manifests["."].resolutions["**/{a,d}/b"]', resolving({ '**/{a,d}/b': URL }))
+    refuses(text, 'nothing asks for it: no manifest, no package and no resolution', `["b@${URL}"]`, resolving({ '**/b': 'https://example.com/other.tgz' }))
   })
 })

@@ -43,6 +43,7 @@
     "src/yarn/importers.js",
     "src/yarn/packages.js",
     "src/yarn/parse.js",
+    "src/yarn/resolutions.js",
     "src/yarn/syntax.js",
     "toml.d.ts",
     "toml.js",

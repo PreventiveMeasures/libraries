@@ -3,7 +3,9 @@
 // directory, as <name>.json. Needs npm, git and network access to the npm
 // registry and github.com:
 //
-//     node lockfile/scripts/record-yarn.js
+//     node lockfile/scripts/record-yarn.js [name...]
+//
+// Named, only those runs are recorded, and the others kept as they are.
 //
 // The workspace pulls in every kind of dependency yarn 1 records: a
 // registry package, a tarball by URL and the same one under an alias, a
@@ -26,6 +28,15 @@
 // And under either, a resolution of is-odd's is-number to a tarball of
 // its own is given to the project's is-number too, of the same version,
 // which then installs that tarball in place of the registry's.
+//
+// Resolutions to a tarball are read where yarn applies them to every
+// request of what they resolve: a URL for is-even's is-odd, and a local
+// tarball for is-number wherever it is asked for, a workspace's own among
+// them. They are refused where yarn gives the tarball to a request they do
+// not apply to: to a regular dependency on the tarball itself, and to a
+// workspace's is-number, which a resolution of `ws-a/is-number` does not
+// reach, as yarn requests a workspace's dependencies through its
+// aggregator, but which yarn gives the tarball all the same.
 
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -103,6 +114,15 @@ const RESOLUTION = {
   },
 }
 
+const PATCHED = 'file:./vendor/is-number-6.0.0.tgz'
+const workspace = (root, dependencies) => ({
+  '.': { name: 'resolutions', version: '0.0.0', private: true, workspaces: ['packages/*'], ...root },
+  'packages/ws-a': { name: 'ws-a', version: '1.0.0', dependencies },
+})
+const RESOLVED = workspace({ dependencies: { 'is-even': '1.0.0' }, resolutions: { 'is-even/is-odd': ODD, '**/is-number': PATCHED } }, { 'is-number': '^6.0.0' })
+const SHARED = workspace({ dependencies: { 'is-odd': '3.0.1', num: PATCHED }, resolutions: { 'is-number': PATCHED } }, { 'is-odd': '3.0.1' })
+const SCOPED = workspace({ resolutions: { 'ws-a/is-number': PATCHED } }, { 'is-number': '^6.0.0' })
+
 const RUNS = [
   { name: 'yarn-1.22.22', yarn: '1.22.22', manifests: WORKSPACE },
   { name: 'yarn-1.22.19', yarn: '1.22.19', manifests: WORKSPACE },
@@ -112,6 +132,9 @@ const RUNS = [
   { name: 'yarn-1.22.19-aliases', yarn: '1.22.19', manifests: aliases(ALIASES), again: aliases(REORDERED) },
   { name: 'yarn-1.22.22-aliases', yarn: '1.22.22', manifests: aliases(ALIASES) },
   { name: 'yarn-1.22.22-resolution', yarn: '1.22.22', manifests: RESOLUTION },
+  { name: 'yarn-1.22.22-resolutions', yarn: '1.22.22', manifests: RESOLVED },
+  { name: 'yarn-1.22.22-resolution-shared', yarn: '1.22.22', manifests: SHARED },
+  { name: 'yarn-1.22.22-resolution-scoped', yarn: '1.22.22', manifests: SCOPED },
 ]
 
 function write(dir, name, content) {
@@ -136,10 +159,12 @@ function lay(dir, manifests) {
     write(dir, 'local-dir/package.json', { name: 'local-dir', version: '0.1.0', dependencies: { 'is-number': '^7.0.0' } })
     pack(dir, { name: 'local-tgz', version: '1.0.0', dependencies: { 'is-number': '^7.0.0' } }, { 'index.js': 'module.exports = 1\n' })
   }
-  if (manifests === RESOLUTION) pack(dir, { name: 'is-number', version: '6.0.0' }, { 'index.js': 'module.exports = "patched"\n' })
+  if ([RESOLUTION, RESOLVED, SHARED, SCOPED].includes(manifests)) pack(dir, { name: 'is-number', version: '6.0.0' }, { 'index.js': 'module.exports = "patched"\n' })
 }
 
-for (const run of RUNS) {
+const only = process.argv.slice(2)
+
+for (const run of RUNS.filter(({ name }) => only.length === 0 || only.includes(name))) {
   const dir = mkdtempSync(join(tmpdir(), `${run.name}-`))
   const yarn = () => execFileSync('npx', ['-y', `yarn@${run.yarn}`, 'install', '--no-progress', '--non-interactive', `--cache-folder=${dir}.cache`], { cwd: dir, stdio: 'inherit' })
   try {

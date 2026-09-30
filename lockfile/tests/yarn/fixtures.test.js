@@ -8,8 +8,10 @@ import { LockfileError, parseYarnLockfile } from '../../yarn.js'
 // pulls in every kind of dependency yarn 1 records; yarn 1.9.4, 1.22.19
 // and 1.22.22 a plain project; and the last are yarn's two ways of
 // installing something other than its lockfile says, the aliases 1.22.19
-// merges and a resolution given to a dependency it does not name.
-// scripts/record-yarn.js builds them; its header says what is in them.
+// merges and a resolution's tarball given to a dependency it does not
+// apply to, beside resolutions to tarballs it applies to wherever they are
+// asked for. scripts/record-yarn.js builds them; its header says what is
+// in them.
 
 const FIXTURES = new URL('fixtures/', import.meta.url)
 const text = (name) => readFileSync(new URL(`${name}.lock`, FIXTURES), 'utf8')
@@ -19,9 +21,10 @@ const read = (name) => parseYarnLockfile(text(name), manifests(name))
 const plain = (value) => structuredClone(value)
 const unique = (lock) => [...new Set(Object.values(lock.packages))]
 
-const refuses = (name, message) => {
-  for (const given of [undefined, manifests(name)]) {
-    assert.throws(() => parseYarnLockfile(text(name), given), (error) => error instanceof LockfileError && error.message === message)
+// Refused with the manifests with `message`, and without them with `alone`.
+const refuses = (name, message, alone = message) => {
+  for (const [given, expected] of [[undefined, alone], [manifests(name), message]]) {
+    assert.throws(() => parseYarnLockfile(text(name), given), (error) => error instanceof LockfileError && error.message === expected)
   }
 }
 
@@ -122,7 +125,40 @@ describe('what yarn installs otherwise than it says is refused', () => {
     assert.equal(packages['string-width@^4.2.0'].name, 'string-width')
   })
 
+  const unresolved = '"is-number@^6.0.0" asks for the registry, and is given what "is-number@file:./vendor/is-number-6.0.0.tgz" names, which only a resolution may, as the manifests would say'
+
   it('a resolution of one dependency\'s is-number, given to the project\'s', () => {
-    refuses('yarn-1.22.22-resolution', '["is-number@6.0.0"]: "is-number@6.0.0" asks for the registry, and is given what "is-number@file:./vendor/is-number-6.0.0.tgz" names')
+    refuses(
+      'yarn-1.22.22-resolution',
+      'manifests["."].dependencies["is-number"]: "is-number@6.0.0" is given what the resolution "is-odd/is-number" resolves to, which yarn applies to no dependency of the root\'s own',
+      `["is-number@6.0.0"]: ${unresolved.replace('^6.0.0', '6.0.0')}`,
+    )
+  })
+
+  it('a resolution\'s tarball, which a dependency asks for as well', () => {
+    refuses('yarn-1.22.22-resolution-shared', '["num@file:./vendor/is-number-6.0.0.tgz"]: asks for what the resolution "is-number" resolves to, as a dependency of its own', `["is-number@^6.0.0"]: ${unresolved}`)
+  })
+
+  it('a resolution of a workspace\'s is-number that does not reach it, as yarn asks through its aggregator', () => {
+    refuses('yarn-1.22.22-resolution-scoped', 'manifests["packages/ws-a"].dependencies["is-number"]: "is-number@^6.0.0" is given what the resolution "ws-a/is-number" resolves to, which yarn does not apply to it here', `["is-number@^6.0.0"]: ${unresolved}`)
+  })
+})
+
+describe('resolutions to tarballs, where yarn applies them to every request', () => {
+  const { packages, importers } = read('yarn-1.22.22-resolutions')
+
+  it('a local tarball for is-number, wherever it is asked for, a workspace\'s own among them', () => {
+    assert.equal(importers['packages/ws-a'].dependencies['is-number'], 'is-number@^6.0.0')
+    assert.deepEqual(packages['is-number@^6.0.0'].patterns, ['is-number@^6.0.0', 'is-number@file:./vendor/is-number-6.0.0.tgz'])
+    assert.equal(packages['is-number@^6.0.0'].resolution.tarball, 'file:./vendor/is-number-6.0.0.tgz')
+  })
+
+  it('a URL for is-even\'s is-odd alone', () => {
+    assert.equal(packages['is-even@1.0.0'].dependencies['is-odd'], 'is-odd@^0.1.2')
+    assert.deepEqual([packages['is-odd@^0.1.2'].version, packages['is-odd@^0.1.2'].resolution.tarball], ['3.0.1', 'https://registry.npmjs.org/is-odd/-/is-odd-3.0.1.tgz'])
+  })
+
+  it('without the manifests, refused, as it cannot say what is a resolution', () => {
+    assert.throws(() => parseYarnLockfile(text('yarn-1.22.22-resolutions')), /which only a resolution may, as the manifests would say$/u)
   })
 })

@@ -16,9 +16,8 @@
 // which they go on to write, as yarn installs such a package under one of
 // its names alone; and an entry that gives a pattern asking for the
 // registry a tarball, a directory or a repository that another pattern
-// names, as yarn does for a resolution to one and for a dependency on one
-// with the same name and version, and so a resolution to anything but the
-// registry.
+// names, as yarn does for a dependency on one with the same name and
+// version.
 //
 // A yarn.lock does not say which projects ask for what: `manifests` does,
 // by directory from the lockfile's, `.` for the one beside it and the
@@ -26,6 +25,16 @@
 // them, `importers` is read, and every pattern is held to be asked for, by
 // a manifest, a package or the root's `resolutions`; without, `importers`
 // is undefined.
+//
+// A resolution to a tarball, a directory or a repository shares its entry
+// with the patterns it was applied to, which ask for the registry, and is
+// read where the manifests say it applies to every request of them, along
+// every path yarn may request each by, as its minimatch reads the path; a
+// glob of more than `**`, `*` and `?` is refused. Not where yarn gives what
+// the resolution names to a request the resolution does not apply to: a
+// dependency of the root manifest's own, a dependency on the tarball
+// itself, or another entry of it. Without the manifests, such an entry is
+// refused, as nothing says a resolution made it.
 //
 // Throws a TypeError for anything but a string, and a LockfileError for
 // the rest.
