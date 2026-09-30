@@ -27,11 +27,11 @@ import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { checkNoModules, mount } from '../mount.js'
 import { applyPatch, parsePatch } from '../patch.js'
-import { REGISTRY, checkDependencies, fetchPackage, sameBytes, tarballUrl } from '../tarball.js'
+import { REGISTRY, checkDependencies, checkManifest, fetchPackage, sameBytes, tarballUrl } from '../tarball.js'
 import { binTargets, checkPatchOfBins, fixBin } from './bins.js'
 import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
-import { checkLocalOverrides, readLinked } from './local.js'
+import { checkLocalOverrides, readDirectoryPackage, readLinked } from './local.js'
 import { createPatchedCheck, skippedSnapshots } from './install.js'
 import { checkCollisions, checkLinks, checkOptional } from './checks.js'
 import { createHook } from './hook.js'
@@ -75,10 +75,18 @@ function checkLockfile(lockfile) {
 
 // A package fetched here comes from the public registry, as upstream
 // fetches it: its key is its name and version, and its resolution a
-// tarball there with a sha512.
-function checkRegistry(node) {
+// tarball there with a sha512. One pnpm installs from a directory is one
+// a `file:` override names, in `installed`, as local.js reads it, and is
+// not patched: pnpm installs its files by hardlinks, so a patch would be
+// applied to the directory's own.
+function checkSource(node, installed) {
   const { key, pkg } = node
   const { resolution } = pkg
+  if (resolution.type === 'directory') {
+    if (packageKeyOf(key) !== `${pkg.name}@file:${resolution.directory}` || !installed.has(resolution.directory)) throw new DeptreeError('a dependency on a local directory is supported only where a file: override names it', quote(key))
+    if (pkg.patchHash !== undefined) throw new DeptreeError('a patch to a package pnpm installs from a directory is not supported: it would be applied to the directory\'s own files, which pnpm hardlinks', quote(key))
+    return
+  }
   const fromRegistry = pkg.version !== undefined && packageKeyOf(key) === `${pkg.name}@${pkg.version}` && resolution.type === 'tarball'
     && resolution.path === undefined && !resolution.gitHosted && (resolution.tarball ?? tarballUrl(pkg.name, pkg.version)) === tarballUrl(pkg.name, pkg.version)
   if (!fromRegistry) throw new DeptreeError(`only packages from ${REGISTRY} are supported`, quote(key))
@@ -91,8 +99,9 @@ const packageFields = (pkg) => JSON.stringify(PACKAGE_FIELDS.map((field) => pkg[
 
 // Each package's files and package.json, by its name and version: a
 // package is fetched once however many snapshots it has, a few at a time,
-// and the first failure stops the rest from starting.
-async function fetchAll(nodes) {
+// and the first failure stops the rest from starting. One installed from
+// a directory is read from `vfs`, as npm-packlist picks its files.
+async function fetchAll(nodes, vfs, major) {
   const packages = new Map()
   for (const { key, pkg } of nodes.values()) {
     const id = packageKeyOf(key)
@@ -106,7 +115,11 @@ async function fetchAll(nodes) {
     while (queue.length > 0 && !failed) {
       const [id, pkg] = queue.shift()
       try {
-        fetched.set(id, await fetchPackage(pkg, quote(id)))
+        if (pkg.resolution.type === 'directory') {
+          const got = readDirectoryPackage(vfs, pkg, quote(id), major)
+          checkManifest(got.manifest, pkg, quote(id))
+          fetched.set(id, { ...got, local: true })
+        } else fetched.set(id, await fetchPackage(pkg, quote(id)))
       } catch (error) {
         failed = true
         throw error instanceof DeptreeError ? error : new DeptreeError(error.message, quote(id), { cause: error })
@@ -119,9 +132,9 @@ async function fetchAll(nodes) {
 
 // Each node with its package's files and package.json, by its directory:
 // its dependencies held to the package.json, as `hook` reads it once for
-// each package.
-async function fetchNodes(nodes, hook) {
-  const fetched = await fetchAll(nodes)
+// each package; and the number of tarballs fetched.
+async function fetchNodes(nodes, hook, vfs, major) {
+  const fetched = await fetchAll(nodes, vfs, major)
   const byDir = new Map()
   for (const node of nodes.values()) {
     const id = packageKeyOf(node.key)
@@ -130,13 +143,36 @@ async function fetchNodes(nodes, hook) {
     checkDependencies(got.manifest, got.read, node.pkg, quote(node.key))
     byDir.set(node.dir, { ...node, files: got.files, manifest: got.manifest })
   }
-  return { byDir, tarballs: fetched.size }
+  return { byDir, tarballs: [...fetched.values()].filter((got) => !got.local).length }
+}
+
+// A package installed from a directory has one file for each of its
+// files, hardlinked into each of its snapshots: fixBin makes it
+// executable in all of them, though a CRLF `#!` line it rewrites is
+// written as a file of that snapshot's own. By directory, the files a
+// snapshot has made executable by another's: `targets` is binTargets's.
+function executableElsewhere(byDir, targets) {
+  const byPackage = new Map()
+  for (const node of byDir.values()) {
+    if (node.pkg.resolution.type !== 'directory') continue
+    const id = packageKeyOf(node.key)
+    if (!byPackage.has(id)) byPackage.set(id, new Set())
+    for (const path of targets.get(node.dir) ?? []) byPackage.get(id).add(path)
+  }
+  const executable = new Map()
+  for (const node of byDir.values()) {
+    if (node.pkg.resolution.type !== 'directory') continue
+    const own = targets.get(node.dir) ?? new Set()
+    executable.set(node.dir, new Set([...byPackage.get(packageKeyOf(node.key))].filter((path) => !own.has(path))))
+  }
+  return executable
 }
 
 // A snapshot's files as pnpm leaves them: its package's, the patch the
-// snapshot names applied, and what linking bins does to them.
-// `checkPatched` is createPatchedCheck's.
-function compose(node, patches, targets, { major, checkPatched }) {
+// snapshot names applied, and what linking bins does to them: fixBin run
+// on `targets`, and `executable` made so. `checkPatched` is
+// createPatchedCheck's.
+function compose(node, patches, { targets, executable }, { major, checkPatched }) {
   const where = quote(node.key)
   let files = node.files
   const { patchHash } = node.pkg
@@ -151,9 +187,10 @@ function compose(node, patches, targets, { major, checkPatched }) {
     const manifest = checkPatchOfBins(node, files, targets, where, major)
     checkPatched?.(manifest, where)
   }
-  if (targets.size === 0) return files
+  if (targets.size === 0 && executable.size === 0) return files
   files = new Map(files)
   for (const path of targets) files.set(path, fixBin(files.get(path), `${where}: ${quote(path)}`))
+  for (const path of executable) files.set(path, { ...files.get(path), mode: 0o755 })
   return files
 }
 
@@ -234,7 +271,7 @@ export async function buildPnpmTree(options) {
   checkLockfile(lockfile)
   checkWorkspace(Object.keys(lockfile.importers), settings.packages, host.major)
   const overrides = listOverrides(settings.overrides, settings.catalogs, host.major)
-  checkLocalOverrides(overrides, into)
+  const installed = checkLocalOverrides(overrides, into)
   const given = await checkUpToDate(lockfile, settings, overrides, readPatchesGiven(patches), host.major)
   const hook = createHook({ overrides, ignored: settings.ignoredOptionalDependencies, major: host.major })
   checkProjects(lockfile, manifests, { hook, host, settings })
@@ -242,9 +279,9 @@ export async function buildPnpmTree(options) {
   const projects = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
   const { skipped, incompatible } = skippedSnapshots(lockfile, { host, settings })
   const { nodes, direct } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, host.major)
-  for (const node of nodes.values()) checkRegistry(node)
+  for (const node of nodes.values()) checkSource(node, installed)
 
-  const { byDir, tarballs } = await fetchNodes(nodes, hook)
+  const { byDir, tarballs } = await fetchNodes(nodes, hook, into, host.major)
   const links = linksOf(byDir, direct, settings, projects, host.major)
   const linked = readLinked(links, byDir, manifests, into)
   const targets = binTargets({
@@ -257,6 +294,7 @@ export async function buildPnpmTree(options) {
     peers: settings.autoInstallPeers,
     major: host.major,
   })
+  const executable = executableElsewhere(byDir, targets)
 
   const vfs = new Vfs()
   vfs.mkdir('/node_modules/.pnpm', { recursive: true })
@@ -268,7 +306,7 @@ export async function buildPnpmTree(options) {
     if (node.pkg.patchHash !== undefined) stats.patched++
     try {
       vfs.mkdir(`/${node.dir}`, { recursive: true })
-      for (const [path, file] of compose(node, given, targets.get(node.dir) ?? new Set(), composing)) {
+      for (const [path, file] of compose(node, given, { targets: targets.get(node.dir) ?? new Set(), executable: executable.get(node.dir) ?? new Set() }, composing)) {
         if (file.directory) vfs.mkdir(`/${node.dir}/${path}`, { recursive: true })
         else if (writeOnce(vfs, `/${node.dir}/${path}`, file)) {
           stats.files++

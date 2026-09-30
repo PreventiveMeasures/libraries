@@ -26,6 +26,7 @@
 import { decompress } from '@preventive/archive/compression.js'
 import { unpack } from '@preventive/archive/tar.js'
 import { normalize } from '@preventive/vfs/path.js'
+import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { getTarball } from '@preventive/upstream/npm.js'
 import { DeptreeError, quote } from './error.js'
 import { localOf } from './pnpm/overrides.js'
@@ -101,7 +102,7 @@ function readManifest(files, pkg, where) {
 }
 
 // What the lockfile recorded of the package against the package.json.
-function checkManifest(manifest, pkg, where) {
+export function checkManifest(manifest, pkg, where) {
   for (const field of ['os', 'cpu', 'libc']) {
     if (!same(manifest[field], pkg[field])) throw new DeptreeError(`package.json's ${field} is not the lockfile's`, where)
   }
@@ -127,7 +128,7 @@ export function checkDependencies(manifest, read, pkg, where) {
     const target = pkg.dependencies[name] ?? pkg.optionalDependencies[name]
     if (target === undefined) continue
     const local = localOf(spec, `${where}: package.json`)
-    if (local === undefined || target === `link:${local.dir}`) continue
+    if (local === undefined || target === `link:${local.dir}` || (local.protocol === 'file:' && packageKeyOf(target).endsWith(`@file:${local.dir}`))) continue
     throw new DeptreeError(`the lockfile gives it ${quote(name)} as ${quote(target)}, and its package.json, overridden, names ${quote(local.dir)}`, where)
   }
   // A peer resolved is filed as optional where it is optional; pnpm's

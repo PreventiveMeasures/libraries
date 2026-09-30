@@ -28,6 +28,7 @@
     "src/pnpm/local.js",
     "src/pnpm/npmrc.js",
     "src/pnpm/overrides.js",
+    "src/pnpm/packlist.js",
     "src/pnpm/patches.js",
     "src/pnpm/projects.js",
     "src/pnpm/readers.js",
