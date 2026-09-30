@@ -10,7 +10,8 @@
 import { DeptreeError, quote } from '../error.js'
 import { readManifest } from './projects.js'
 
-const decoder = new TextDecoder('utf-8', { fatal: true })
+// readManifest drops a byte order mark, as pnpm does one.
+const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 
 function manifestAt(vfs, dir, where) {
   const path = `/${dir}/package.json`

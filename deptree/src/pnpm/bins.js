@@ -197,7 +197,7 @@ function bundledIn(files) {
 
 function parseManifest(file, where) {
   try {
-    const manifest = JSON.parse(decoder.decode(file.data).replace(/^﻿/u, ''))
+    const manifest = JSON.parse(decoder.decode(file.data))
     if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) throw new Error('not an object')
     return manifest
   } catch {
@@ -248,7 +248,7 @@ function peersOf(children, nodes) {
 // Whether pnpm builds a package, as its pkgRequiresBuild tells: an
 // install script, a binding.gyp or a .hooks directory.
 const hasInstallScript = (manifest, files) => Boolean((manifest.scripts != null && (manifest.scripts.preinstall || manifest.scripts.install || manifest.scripts.postinstall))
-  || files.has('binding.gyp') || [...files.keys()].some((path) => /^\.hooks[\\/]/u.test(path)))
+  || files.has('binding.gyp') || files.keys().some((path) => /^\.hooks[\\/]/u.test(path)))
 
 // The files pnpm runs fixBin on, by the directory of the package they
 // are in: `nodes` is the graph by directory, each node with its package's
@@ -259,7 +259,7 @@ const hasInstallScript = (manifest, files) => Boolean((manifest.scripts != null 
 // installed automatically, and `major` pnpm's major version.
 export function binTargets({ nodes, projects, direct, links, publicHoist, building, peers, major }) {
   const commandCache = new Map()
-  const commandsOfDir = (dir, { raw = false } = {}) => {
+  const commandsOfDir = (dir, { normalize = false } = {}) => {
     const node = nodes.get(dir)
     if (node !== undefined) {
       if (!commandCache.has(dir)) commandCache.set(dir, commandsOf(dir, node.manifest, node.files, dir, quote(node.key), major))
@@ -271,7 +271,7 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
     const manifest = projects.get(dir)
     if (manifest === undefined) return [UNKNOWN]
     const where = `manifests[${quote(dir)}]`
-    return commandsOf(dir, raw ? manifest : normalized(manifest, where), undefined, undefined, where, major)
+    return commandsOf(dir, normalize ? normalized(manifest, where) : manifest, undefined, undefined, where, major)
   }
 
   // By each file's path in the tree, the package it is in; and of those
@@ -279,11 +279,10 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
   const fixed = new Map()
   const contested = new Map()
   // One linking of commands into a directory: `ordered` says whether the
-  // order they come in is one pnpm always has, and `blind` whether a
-  // command not known here may be among them. It gives back the names
+  // order they come in is one pnpm always has. It gives back the names
   // linked, and whether others may be.
-  const link = (commands, { ordered, blind = false, where }) => {
-    const unknown = blind || commands.some((command) => command.unknown)
+  const link = (commands, { ordered, where }) => {
+    const unknown = commands.some((command) => command.unknown)
     const best = new Map()
     for (const command of commands) {
       if (command.unknown) continue
@@ -309,7 +308,7 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
     const children = [...node.children.values()]
     const withBins = children.filter((dir) => nodes.get(dir)?.pkg.hasBin).flatMap((dir) => commandsOfDir(dir))
     if (children.every((dir) => nodes.has(dir))) link(withBins, { ordered: true, where })
-    else link(children.flatMap((dir) => commandsOfDir(dir)), { ordered: false, where })
+    else link(children.flatMap((dir) => commandsOfDir(dir, { normalize: true })), { ordered: false, where })
     if (node.pkg.bundledDependencies !== undefined) link(bundledCommands(node, where, major), { ordered: false, where })
     if (building && (node.pkg.patchHash !== undefined || hasInstallScript(node.manifest, node.files))) {
       link([...withBins, ...commandsOfDir(node.dir)], { ordered: true, where })
@@ -318,7 +317,7 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
 
   const PRIVATE = 'node_modules/.pnpm/node_modules/'
   const hoisted = [...links].filter(([path, dir]) => path.startsWith(PRIVATE) && nodes.get(dir)?.pkg.hasBin)
-  link(hoisted.flatMap(([, dir]) => commandsOfDir(dir, { raw: true })), { ordered: true, where: quote(PRIVATE.slice(0, -1)) })
+  link(hoisted.flatMap(([, dir]) => commandsOfDir(dir)), { ordered: true, where: quote(PRIVATE.slice(0, -1)) })
 
   for (const [id, children] of direct) {
     const where = `importers[${quote(id)}]`
@@ -327,17 +326,18 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
       const manifest = projects.get('.')
       const own = new Set(Object.keys({ ...manifest.devDependencies, ...manifest.dependencies, ...manifest.optionalDependencies }))
       const entries = [...links].filter(([path]) => /^node_modules\/(?:@[^/]+\/)?[^/@.][^/]*$/u.test(path))
-      const commands = entries.flatMap(([path, dir]) => commandsOfDir(dir, { raw: true }).map((command) => ({ ...command, direct: own.has(path.slice('node_modules/'.length)) })))
+      const commands = entries.flatMap(([path, dir]) => commandsOfDir(dir).map((command) => ({ ...command, direct: own.has(path.slice('node_modules/'.length)) })))
       const names = new Set(commands.filter((command) => command.direct).map(({ name }) => name))
       linked = link([...commands.filter((command) => command.direct), ...commands.filter((command) => !command.direct && !names.has(command.name))], { ordered: false, where })
     } else {
       // pnpm 11 reads the bins only of what the lockfile says has some.
       const dirs = [...children.values()].filter((dir) => major < 11 || (nodes.get(dir)?.pkg.hasBin ?? true))
-      linked = link(dirs.flatMap((dir) => commandsOfDir(dir, { raw: true })), { ordered: true, where })
+      linked = link(dirs.flatMap((dir) => commandsOfDir(dir)), { ordered: true, where })
     }
     if (major >= 11 && peers) {
-      const commands = peersOf(children, nodes).flatMap((dir) => commandsOfDir(dir, { raw: true }))
-      link(commands.filter(({ name }) => !linked.names.has(name)), { ordered: true, blind: linked.unknown, where })
+      // Where the names linked are not all known, neither are those left.
+      const commands = peersOf(children, nodes).flatMap((dir) => commandsOfDir(dir))
+      link([...commands.filter(({ name }) => !linked.names.has(name)), ...linked.unknown ? [UNKNOWN] : []], { ordered: true, where })
     }
   }
 

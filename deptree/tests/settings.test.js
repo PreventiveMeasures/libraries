@@ -5,7 +5,7 @@ import { DeptreeError } from '../pnpm.js'
 import { parseNpmrc } from '../src/pnpm/npmrc.js'
 import { readSettings } from '../src/pnpm/settings.js'
 
-const read = ({ workspace, npmrc, manifest = {}, os = 'linux', major } = {}) => readSettings({ workspace: workspace === undefined ? undefined : parseYaml(workspace), npmrc, manifest, os, major })
+const read = ({ workspace, npmrc, manifest = {}, major } = {}) => readSettings({ workspace: workspace === undefined ? undefined : parseYaml(workspace), npmrc, manifest, major })
 
 const DEFAULTS = {
   virtualStoreDirMaxLength: 120,
@@ -47,7 +47,6 @@ describe('parseNpmrc', () => {
 describe('readSettings', () => {
   it('is pnpm 10\'s defaults with nothing set', () => {
     assert.deepEqual(read(), DEFAULTS)
-    assert.equal(read({ os: 'darwin' }).virtualStoreDirMaxLength, 120)
   })
 
   it('reads the .npmrc, and pnpm-workspace.yaml over it', () => {

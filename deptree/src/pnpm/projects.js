@@ -30,14 +30,11 @@
 // --frozen-lockfile, that workspace packages are linked exactly where
 // their version is in range, are not made; pnpm 11 makes them frozen too.
 
-import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
-import { satisfies, valid, validRange } from '@preventive/upstream/semver.js'
+import { isExactVersion, satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, difference, quote } from '../error.js'
-import { checkCatalogResolutions, checkLinkTargets, checkLinkedPackages, refOf, sameSpecifier } from './frozen.js'
+import { KINDS, checkCatalogResolutions, checkLinkTargets, checkLinkedPackages, indexProjects, resolvedOf, sameSpecifier } from './frozen.js'
 import { checkProject } from './install.js'
 import { validForOldPackages } from './overrides.js'
-
-const KINDS = ['optionalDependencies', 'dependencies', 'devDependencies']
 
 // A package.json as parsed, as pnpm reads one: a byte order mark dropped,
 // and an object.
@@ -102,7 +99,7 @@ function checkKind(importer, kinds, kind, unresolved, major) {
     if (!locked[name] || !sameSpecifier(importer.specifiers[name], wanted[name], major)) return `${kind}.${name} is not what package.json asks for`
     const spec = importer.specifiers[name]
     if (validRange(spec) === null) continue
-    const version = packageKeyOf(refOf(name, locked[name]))
+    const version = resolvedOf(name, locked[name])
     if (valid(version) !== null && !satisfies(version, spec)) return `${kind}.${name} resolved to ${quote(version)}, which is not in ${quote(spec)}`
   }
   return undefined
@@ -166,7 +163,7 @@ function checkPackageManager(manifest, host, pmOnFail) {
   if (packageManager === undefined) return
   const where = 'manifests["."].packageManager'
   const version = typeof packageManager === 'string' ? /^pnpm@([^+:@]+)(?:\+.*)?$/u.exec(packageManager)?.[1] : undefined
-  if (version === undefined || valid(version) !== version) throw new DeptreeError(`${quote(String(packageManager))} is not pnpm at an exact version`, where)
+  if (!isExactVersion(version)) throw new DeptreeError(`${quote(String(packageManager))} is not pnpm at an exact version`, where)
   if (version !== host.pnpm) throw new DeptreeError(`the project is installed by pnpm ${version}, which pnpm switches to, not ${host.pnpm}`, where)
 }
 
@@ -175,22 +172,23 @@ function checkPackageManager(manifest, host, pmOnFail) {
 // project, pnpm 11 takes runtimeOnFail for each one's onFail, and checks a
 // runtime whose onFail is `error` against the host's before it installs.
 const RUNTIMES = [['devEngines', 'devDependencies'], ['engines', 'dependencies']]
-function checkRuntimes(manifest, where, { host, onFail }) {
+const RUNTIME_NAMES = ['node', 'deno', 'bun']
+function checkRuntimes(manifest, where, { host, root, onFail }) {
   const checked = new Set()
   for (const [field, kind] of RUNTIMES) {
     const runtime = manifest[field]?.runtime
     if (runtime === undefined || runtime === null) continue
     const here = `${where}.${field}.runtime`
     const runtimes = Array.isArray(runtime) ? runtime : [runtime]
-    for (const name of ['node', 'deno', 'bun']) {
+    for (const name of RUNTIME_NAMES) {
       if (manifest[kind]?.[name]) continue
       const item = runtimes.find((each) => each?.name === name)
       if (item !== undefined && (onFail ?? item.onFail) === 'download') throw new DeptreeError(`a ${name} runtime to download is not supported`, here)
     }
-    if (host.major < 11 || where !== 'manifests["."]') continue
+    if (host.major < 11 || !root) continue
     if (runtimes.some((item) => item === null || typeof item !== 'object')) throw new DeptreeError('expected a mapping or a list of mappings, which pnpm 11 fails on otherwise', here)
     for (const item of runtimes) {
-      if (!['node', 'deno', 'bun'].includes(item.name) || checked.has(item.name)) continue
+      if (!RUNTIME_NAMES.includes(item.name) || checked.has(item.name)) continue
       checked.add(item.name)
       if ((onFail ?? item.onFail) !== 'error') continue
       if (item.name !== 'node') throw new DeptreeError(`the ${item.name} it runs on is checked by pnpm 11, and is not known here`, here)
@@ -204,10 +202,12 @@ function checkRuntimes(manifest, where, { host, onFail }) {
 // and `settings` what its engines are held to.
 export function checkProjects(lockfile, manifests, { hook, host, settings }) {
   checkPackageManager(manifests.get('.'), host, settings.pmOnFail)
+  let index
   for (const [id, manifest] of manifests) {
     const where = `manifests[${quote(id)}]`
+    const root = id === '.'
     checkProject(manifest, where, { host, settings })
-    checkRuntimes(manifest, where, { host, onFail: id === '.' ? settings.runtimeOnFail : undefined })
+    checkRuntimes(manifest, where, { host, root, onFail: root ? settings.runtimeOnFail : undefined })
     const hooked = hook(manifest, where, { dir: id })
     const importer = lockfile.importers[id]
     const reason = mismatch(importer, hooked, settings.autoInstallPeers, host.major, where)
@@ -215,7 +215,8 @@ export function checkProjects(lockfile, manifests, { hook, host, settings }) {
     checkLinkTargets({ id, manifest: hooked, importer }, where)
     if (host.major < 11) continue
     checkCatalogResolutions(importer, lockfile.catalogs, where)
-    checkLinkedPackages({ manifest: hooked, importer, projects: manifests, linkWorkspacePackages: settings.linkWorkspacePackages }, where)
+    index ??= indexProjects(manifests)
+    checkLinkedPackages({ manifest: hooked, importer, index, linkWorkspacePackages: settings.linkWorkspacePackages }, where)
   }
 }
 

@@ -47,10 +47,11 @@ function nameOf(stored) {
   return name.replaceAll('//', '/')
 }
 
-const sameFile = (a, b) => a.mode === b.mode && a.data.length === b.data.length && a.data.every((byte, i) => byte === b.data[i])
+export const sameBytes = (a, b) => a.length === b.length && a.every((byte, i) => byte === b[i])
+const sameFile = (a, b) => a.mode === b.mode && sameBytes(a.data, b.data)
 
 // A Map of each file's path in the package to its bytes and mode.
-export function filesOf(entries, where) {
+function filesOf(entries, where) {
   const files = new Map()
   const tops = new Set()
   for (const entry of entries) {

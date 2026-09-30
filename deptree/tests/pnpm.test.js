@@ -919,6 +919,15 @@ snapshots:
       await assert.rejects(buildLinked(await linked('file:./vendor/foo', 'file:vendor/foo'), { vfs: createVfs(vendored) }), /^DeptreeError: overrides\["foo"\]: an override to a copy of a directory, as file: has pnpm install it, is not supported/u)
     })
 
+    // pnpm drops one byte order mark, and fails on JSON after it.
+    it('reads its package.json as pnpm does, one byte order mark dropped', async () => {
+      stubRegistry([await app])
+      const given = await linked('./vendor/foo', './vendor/foo')
+      const marked = (count) => createVfs({ 'package.json': given.manifest, ...vendored, 'vendor/foo/package.json': `${'\uFEFF'.repeat(count)}${vendored['vendor/foo/package.json']}` })
+      assert.equal((await buildLinked(given, { vfs: marked(1) })).vfs.realpath('/node_modules/foo'), '/vendor/foo')
+      await assert.rejects(buildLinked(given, { vfs: marked(2) }), /^DeptreeError: overrides\["foo"\]: not JSON/u)
+    })
+
     // pnpm writes a package's dependency overridden to a directory as a link
     // to it, and links whatever the lockfile says.
     it('refuses a package\'s link to another directory than its override names', async () => {

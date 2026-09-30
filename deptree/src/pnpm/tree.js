@@ -21,18 +21,18 @@
 
 import { packageKeyOf, parsePnpmLockfile } from '@preventive/lockfile/pnpm.js'
 import { parseYaml } from '@preventive/lockfile/yaml.js'
-import { Vfs } from '@preventive/vfs'
+import { Vfs, VfsError } from '@preventive/vfs'
 import { dirname, relative } from '@preventive/vfs/path.js'
 import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { checkNoModules, mount } from '../mount.js'
 import { applyPatch, parsePatch } from '../patch.js'
-import { REGISTRY, checkDependencies, fetchPackage, tarballUrl } from '../tarball.js'
+import { REGISTRY, checkDependencies, fetchPackage, sameBytes, tarballUrl } from '../tarball.js'
 import { binTargets, checkPatchOfBins, fixBin } from './bins.js'
 import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
 import { checkLocalOverrides, readLinked } from './local.js'
-import { checkPatchedEngines, createCheck, skippedSnapshots } from './install.js'
+import { createPatchedCheck, skippedSnapshots } from './install.js'
 import { checkCollisions, checkLinks, checkOptional } from './checks.js'
 import { createHook } from './hook.js'
 import { listOverrides } from './overrides.js'
@@ -134,9 +134,9 @@ async function fetchNodes(nodes, hook) {
 }
 
 // A snapshot's files as pnpm leaves them: its package's, the patch the
-// snapshot names applied, and what linking bins does to them. `context`
-// is the host and settings.
-function compose(node, patches, targets, context) {
+// snapshot names applied, and what linking bins does to them.
+// `checkPatched` is createPatchedCheck's.
+function compose(node, patches, targets, { major, checkPatched }) {
   const where = quote(node.key)
   let files = node.files
   const { patchHash } = node.pkg
@@ -144,8 +144,12 @@ function compose(node, patches, targets, context) {
     if (!patches.has(patchHash)) throw new DeptreeError(`the patch ${patchHash} is not given`, where)
     const patch = patches.get(patchHash)
     patch.parsed ??= parsePatch(patch.text, patch.path)
-    files = applyPatch(files, patch.parsed)
-    checkPatchedEngines(checkPatchOfBins(node, files, targets, where, context.host.major), where, context)
+    // Once for each package, whatever its snapshots.
+    patch.applied ??= new WeakMap()
+    if (!patch.applied.has(files)) patch.applied.set(files, applyPatch(files, patch.parsed))
+    files = patch.applied.get(files)
+    const manifest = checkPatchOfBins(node, files, targets, where, major)
+    checkPatched?.(manifest, where)
   }
   if (targets.size === 0) return files
   files = new Map(files)
@@ -153,18 +157,19 @@ function compose(node, patches, targets, context) {
   return files
 }
 
-const sameBytes = (a, b) => a.length === b.length && a.every((byte, i) => byte === b[i])
-
 // Writes a file where nothing is, or the same file is: a write never
-// replaces anything else.
+// replaces anything else. The tree holds no links yet.
 function writeOnce(vfs, path, { data, mode }) {
-  if (vfs.isFile(path)) {
-    if (vfs.lstat(path).mode === mode && sameBytes(vfs.readFile(path), data)) return false
-  } else if (!vfs.isSymlink(path) && !vfs.isDirectory(path)) {
+  let there
+  try {
+    there = vfs.lstat(path)
+  } catch (error) {
+    if (!(error instanceof VfsError)) throw error
     vfs.mkdir(dirname(path), { recursive: true })
     vfs.writeFile(path, data, { mode })
     return true
   }
+  if (there.type === 'file' && there.mode === mode && sameBytes(vfs.readFile(path), data)) return false
   throw new DeptreeError('would be written over with something else', quote(path.slice(1)))
 }
 
@@ -180,10 +185,10 @@ function linkTarget(path, target) {
 // Every link in the tree, by its path: each node's children beside it and
 // itself inside it where it depends on itself, then what is hoisted, then
 // each project's direct dependencies, which win over a hoisted alias.
-function linksOf(nodes, direct, settings, projects, major) {
-  const byDir = new Map([...nodes.values()].map((node) => [node.dir, node]))
+// `byDir` is the graph by directory.
+function linksOf(byDir, direct, settings, projects, major) {
   const links = new Map()
-  for (const node of nodes.values()) {
+  for (const node of byDir.values()) {
     for (const [alias, dir] of node.children) if (alias !== node.name) links.set(`${node.modules}/${alias}`, dir)
     const self = node.children.get(node.name)
     if (byDir.has(self)) links.set(`${node.dir}/node_modules/${node.name}`, self)
@@ -215,8 +220,9 @@ export async function buildPnpmTree(options) {
     if (value !== undefined && typeof value !== 'string') throw new TypeError(`${name} must be a string, or left out`)
   }
   const host = checkHost(machine)
+  const folded = host.os === 'darwin'
   // Refused before anything is fetched; mount checks again.
-  if (into !== undefined) checkNoModules(into, host.os === 'darwin')
+  if (into !== undefined) checkNoModules(into, folded)
   const { lockfile, env } = parsePnpmLockfile(text)
   // pnpm 11 locks config dependencies there, which are refused, and the
   // pnpm a project pins, which leaves the tree as it is.
@@ -224,7 +230,7 @@ export async function buildPnpmTree(options) {
   if (env !== undefined && Object.keys(env.importers['.'].configDependencies).length > 0) throw new DeptreeError('config dependencies are not supported', 'env.importers["."].configDependencies')
   if (!('.' in lockfile.importers)) throw new DeptreeError('expected the root project, whose package.json holds settings', 'importers')
   const manifests = readManifests(manifestTexts, lockfile)
-  const settings = readSettings({ workspace: readWorkspace(workspace), npmrc, manifest: manifests.get('.'), os: host.os, major: host.major })
+  const settings = readSettings({ workspace: readWorkspace(workspace), npmrc, manifest: manifests.get('.'), major: host.major })
   checkLockfile(lockfile)
   checkWorkspace(Object.keys(lockfile.importers), settings.packages, host.major)
   const overrides = listOverrides(settings.overrides, settings.catalogs, host.major)
@@ -234,17 +240,16 @@ export async function buildPnpmTree(options) {
   checkProjects(lockfile, manifests, { hook, host, settings })
   checkOptional(lockfile)
   const projects = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
-  const check = createCheck({ host, settings })
-  const { skipped, incompatible } = skippedSnapshots(lockfile, check, { major: host.major, engineStrict: settings.engineStrict })
+  const { skipped, incompatible } = skippedSnapshots(lockfile, { host, settings })
   const { nodes, direct } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, host.major)
   for (const node of nodes.values()) checkRegistry(node)
 
   const { byDir, tarballs } = await fetchNodes(nodes, hook)
-  const links = linksOf(nodes, direct, settings, projects, host.major)
+  const links = linksOf(byDir, direct, settings, projects, host.major)
   const linked = readLinked(links, byDir, manifests, into)
   const targets = binTargets({
     nodes: byDir,
-    projects: linked.size === 0 ? manifests : new Map([...manifests, ...linked]),
+    projects: new Map([...manifests, ...linked]),
     direct,
     links,
     publicHoist: settings.publicHoistPattern?.length > 0,
@@ -256,11 +261,14 @@ export async function buildPnpmTree(options) {
   const vfs = new Vfs()
   vfs.mkdir('/node_modules/.pnpm', { recursive: true })
   const stats = { projects: manifests.size, snapshots: Object.keys(lockfile.packages).length, installed: nodes.size, skipped: skipped.size, incompatible: incompatible.size, tarballs, patched: 0, files: 0, bytes: 0, links: links.size }
+  const composing = { major: host.major, checkPatched: createPatchedCheck({ host, settings }) }
+  // Each node is let go once written, and a package's files with its last.
   for (const node of byDir.values()) {
+    byDir.delete(node.dir)
     if (node.pkg.patchHash !== undefined) stats.patched++
     try {
       vfs.mkdir(`/${node.dir}`, { recursive: true })
-      for (const [path, file] of compose(node, given, targets.get(node.dir) ?? new Set(), { host, settings })) {
+      for (const [path, file] of compose(node, given, targets.get(node.dir) ?? new Set(), composing)) {
         if (file.directory) vfs.mkdir(`/${node.dir}/${path}`, { recursive: true })
         else if (writeOnce(vfs, `/${node.dir}/${path}`, file)) {
           stats.files++
@@ -281,8 +289,8 @@ export async function buildPnpmTree(options) {
     }
   }
   checkLinks(vfs, links)
-  if (host.os === 'darwin') checkCollisions(vfs)
+  if (folded) checkCollisions(vfs)
   if (into === undefined) return { vfs, stats }
-  mount(vfs, into, host.os === 'darwin')
+  mount(vfs, into, folded)
   return { vfs: into, stats }
 }
