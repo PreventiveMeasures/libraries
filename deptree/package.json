@@ -1,6 +1,6 @@
 {
   "name": "@preventive/deptree",
-  "version": "1.0.0-alpha.0",
+  "version": "1.0.0-alpha.1",
   "description": "A node_modules tree in memory, as a package manager would install it: pnpm 10 or 11 from its lockfile, tarballs fetched and checked, patches applied",
   "type": "module",
   "exports": {
