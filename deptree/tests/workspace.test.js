@@ -117,6 +117,12 @@ describe('findProjects', () => {
       add(vfs)
       assert.throws(() => findProjects(vfs, ['packages/*'], 10), pattern)
     }
+    // pnpm 10.33.4 and 11.28.2 list packages/a alone, and lock no root.
+    for (const add of [() => {}, (vfs) => vfs.symlink('nowhere.json', '/package.json')]) {
+      const vfs = bare()
+      add(vfs)
+      assert.throws(() => findProjects(vfs, ['packages/*'], 10), /^DeptreeError: "package\.json": pnpm takes a workspace with no manifest at its root for one with no root project, which is not supported$/u)
+    }
     // As pnpm 10.33.4 and 11.28.2 read them: a link that leads nowhere, or
     // to a directory, is no manifest, and the next name is read.
     for (const target of ['../../nowhere.json', '../../other']) {

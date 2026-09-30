@@ -243,7 +243,9 @@ export function buildPnpmTree(options: PnpmTreeOptions): Promise<PnpmTree>
 // unless a glob spells it there. A manifest is a file, or a link to one; a
 // link that leads nowhere, or to a directory, is none, as pnpm has it.
 //
-// Refused: a project, the root among them, whose manifest is
+// Refused: a root with no manifest, which pnpm takes for no project, and
+// buildPnpmTree builds no workspace without; a project, the root among
+// them, whose manifest is
 // package.json5 or package.yaml, which pnpm reads where there is no
 // package.json, or is a link; a project pnpm finds through a link to a
 // directory, which it follows as it follows it, and a link to a directory

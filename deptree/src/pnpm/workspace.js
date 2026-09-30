@@ -147,8 +147,9 @@ const MANIFESTS = ['package.json', 'package.json5', 'package.yaml']
 // the rest in order. Every directory tinyglobby walks into is read, and no
 // other, a link to one followed as it follows it. A manifest is a file, or
 // a link to one; a link that leads nowhere, or to a directory, is none.
-// Refused, as not read here: a project, the root among them, whose
-// manifest is package.json5, package.yaml or a link; a project found
+// Refused, as not read here: a root with no manifest, which pnpm takes
+// for no project; a project, the root among them, whose manifest is
+// package.json5, package.yaml or a link; a project found
 // through a link, and a link to a directory in one followed, which is not
 // followed; a project in a directory a lockfile could not key its
 // importer by; and a node_modules tinyglobby walks into, which it does
@@ -167,6 +168,7 @@ export function findProjects(vfs, packages, major = 10) {
     const found = names.length === 0 || taken(globs, [...names, 'package.json'])
       ? MANIFESTS.find((name) => entries.includes(name) && typeOf(vfs, `/${[...names, name].join('/')}`) === 'file')
       : undefined
+    if (names.length === 0 && found === undefined) throw new DeptreeError('pnpm takes a workspace with no manifest at its root for one with no root project, which is not supported', quote('package.json'))
     if (found !== undefined) {
       const file = [...names, found].join('/')
       if (vfs.lstat(`/${file}`).type === 'symlink') throw new DeptreeError('a link pnpm would read a project\'s manifest through is not supported', quote(file))
