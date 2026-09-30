@@ -148,6 +148,12 @@ interface AskOptions {
   debugRequests?: boolean | undefined
   label?: string | undefined
   taskBudget?: string | undefined
+  // Re-asks per request: up to this many for a transient upstream failure
+  // (429, 5xx, an upstream-unavailable body), up to min(retries, RETRIES)
+  // for anything else, so 0 turns retries off. RETRIES when omitted; any
+  // other value but a non-negative integer throws before a request is sent.
+  // Only an HTTP provider retries — chrome has no upstream to re-ask.
+  retries?: number | undefined
 }
 
 // `text` is null exactly when `error` is set — a failed request, malformed
@@ -186,18 +192,13 @@ export declare function providerStamp(model: string): string | undefined
 export declare function extractResponseText(response: unknown): string
 
 // The transport under those requests: how many are in flight at once, and
-// how often a failed one is re-asked.
+// how often a failed one is re-asked unless ask() is told otherwise.
 //
-// RETRIES is the default budget, and the most a failure that is not a
-// transient upstream one (a 4xx, a dropped socket, a body that isn't JSON)
-// ever gets.
+// RETRIES is the budget when ask() names none, and the most a failure that
+// is not a transient upstream one (a 4xx, a dropped socket, a body that
+// isn't JSON) ever gets.
 export declare const RETRIES: number
 export declare function setFetchConcurrency(limit: number): void
-// Re-asks per request: up to `n` for a transient upstream failure (429, 5xx,
-// an upstream-unavailable body), up to min(n, RETRIES) for anything else, so
-// 0 turns retries off. Anything but a non-negative integer restores RETRIES,
-// so an unset flag can be passed through without thought.
-export declare function setFetchRetries(n: unknown): void
 
 // The response cache on disk: where it lives, how an entry is addressed,
 // and the reads and writes over it — final entries, rejected responses kept

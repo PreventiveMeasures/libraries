@@ -2,7 +2,7 @@ import http from 'node:http'
 import assert from 'node:assert/strict'
 import { after, before, describe, it } from 'node:test'
 
-import { RETRIES, fetchJSON, isTransientHttpFailure, parseRetryAfter, retryDelayMs, setFetchRetries } from '../src/fetch-json.js'
+import { RETRIES, fetchJSON, isTransientHttpFailure, parseRetryAfter, retryDelayMs } from '../src/fetch-json.js'
 
 // The body a kimi-k3 run dies on, verbatim. It arrives under two statuses
 // — a 400 as often as a 429 — which is the whole reason the classifier
@@ -134,7 +134,7 @@ describe('retryDelayMs', () => {
 describe('the retry budgets', () => {
   it('keeps the baseline every non-transient failure gets', () => {
     // The default budget, and the ceiling on a non-transient failure's: a
-    // larger --retries buys only the transient class more.
+    // larger `retries` buys only the transient class more.
     assert.equal(RETRIES, 2)
   })
 })
@@ -182,7 +182,6 @@ describe('fetchJSON retries', () => {
   })
 
   after(async () => {
-    setFetchRetries()
     console.error = originalError
     await new Promise((resolve) => { server.close(resolve) })
   })
@@ -210,11 +209,10 @@ describe('fetchJSON retries', () => {
     requests = 0
     errors.length = 0
     handler = h
-    setFetchRetries(retries)
     clock = t.mock.timers
 
     let done = false
-    const settled = fetchJSON(url, { method: 'POST', body: '{}' })
+    const settled = fetchJSON(url, { method: 'POST', body: '{}' }, { retries })
       .then(() => null, (e) => e)
       .finally(() => { done = true })
     const nextRetryLine = () => new Promise((resolve) => { onRetryLogged = resolve })
@@ -238,7 +236,7 @@ describe('fetchJSON retries', () => {
     return { err: await settled, requests, errors, waits: waitsFrom(errors) }
   }
 
-  it('spends the --retries budget on a transient failure, and floors a Retry-After of zero', async (t) => {
+  it('spends the whole budget on a transient failure, and floors a Retry-After of zero', async (t) => {
     // `Retry-After: 0` is legal and clamps to no wait at all; returned
     // verbatim the whole budget went in milliseconds. Flooring it at
     // BASE_DELAY is what the four waits below say — and they say it
@@ -308,15 +306,12 @@ describe('fetchJSON retries', () => {
     assert.equal(err.status, 400)
   })
 
-  it('resolves a budget it cannot use back down to the flat one', async (t) => {
-    // parsePositiveInt returns undefined for a flag that was never set;
-    // stored unguarded that made `used < undefined` false — zero retries,
-    // for a caller who never asked for fewer.
-    for (const retries of [undefined, null, -1, 1.5, Number.NaN, '3']) {
-      const { requests: n, waits: slept } = await call(t, (i, res) => { res.writeHead(503); res.end('down') }, retries)
-      assert.equal(n, RETRIES + 1, `${retries}`)
-      assert.equal(slept.length, RETRIES, `${retries}`)
-    }
+  it('takes RETRIES for a budget left unnamed', async (t) => {
+    // `used < undefined` is false: without the default, a caller that
+    // passes an unset option through would get no retries at all.
+    const { requests: n, waits: slept } = await call(t, (i, res) => { res.writeHead(503); res.end('down') }, undefined)
+    assert.equal(n, RETRIES + 1)
+    assert.equal(slept.length, RETRIES)
   })
 
   it('retries nothing at all on a budget of zero', async (t) => {
@@ -340,7 +335,7 @@ describe('fetchJSON retries', () => {
   })
 
   it('spends a budget above the default on the transient class only', async (t) => {
-    // A 400 reads the same on every attempt: a long --retries meant for a
+    // A 400 reads the same on every attempt: a long budget meant for a
     // flaky upstream is no reason to send a malformed request five times.
     const { err, requests: n, waits: slept } = await call(t, (i, res) => { res.writeHead(400); res.end('bad request') }, 4)
     assert.equal(n, RETRIES + 1)

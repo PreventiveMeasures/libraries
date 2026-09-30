@@ -29,6 +29,9 @@ const ANSWER = {
   usage: { prompt_tokens: 20, completion_tokens: 4, cost: 0 },
 }
 
+// Queued in place of a response: the upstream is down for this request.
+const DOWN = Symbol('503')
+
 const requests = []
 let queued = []
 const server = createServer((req, res) => {
@@ -36,8 +39,10 @@ const server = createServer((req, res) => {
   req.on('data', (chunk) => { body += chunk })
   req.on('end', () => {
     requests.push(JSON.parse(body))
+    const next = queued.shift() ?? ANSWER
+    if (next === DOWN) { res.writeHead(503); res.end('down'); return }
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify(queued.shift() ?? ANSWER))
+    res.end(JSON.stringify(next))
   })
 })
 await new Promise((resolve) => { server.listen(0, '127.0.0.1', resolve) })
@@ -269,6 +274,27 @@ suite('chat: the `onStart` option', () => {
     const seen = []
     await run('start-B', { onStart: (history) => seen.push(history) })
     assert.deepEqual(seen, [[]])
+  })
+})
+
+suite('chat: the `retries` option', () => {
+  it('reaches the transport: zero means the first failure is the answer', async () => {
+    // The 503 is followed by a good response, so a budget left at its
+    // default — one this option failed to reach — would retry into it and
+    // resolve instead.
+    const sentBefore = requests.length
+    await assert.rejects(run('retry-A', { retries: 0 }, [DOWN, TOOL_CALL]), /API 503: down/u)
+    assert.equal(requests.length - sentBefore, 1)
+  })
+
+  it('refuses a budget that is not a count before anything is sent', async () => {
+    // NaN or -1 would compare false against every attempt: no retries, for a
+    // caller who asked for something else entirely.
+    const sentBefore = requests.length
+    for (const retries of [null, -1, 1.5, Number.NaN, '3']) {
+      await assert.rejects(run('retry-B', { retries }), /retries must be a non-negative integer/u, `${retries}`)
+    }
+    assert.equal(requests.length, sentBefore)
   })
 })
 

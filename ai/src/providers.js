@@ -469,13 +469,14 @@ export function buildRequestUrl(model) {
 // the turn in a browser it owns. Which of those happens is the adapter's to say rather than the
 // caller's, so the choice lives here beside the rest of the dispatch surface and issueTurn stays
 // one code path.
-export async function sendRequest(model, body, { taskBudget = false, debug, label } = {}) {
+// `retries` reaches fetchJSON only: a turn served from a browser has no upstream to be re-asked.
+export async function sendRequest(model, body, { taskBudget = false, debug, label, retries } = {}) {
   if (provider.send) return await provider.send(model, body, { debug, label })
   const headers = buildRequestHeaders({ taskBudget, model })
   // One last look at the body, for an adapter that has to ask the endpoint something before it can
   // finish one. Everyone else sends what they built.
   const sent = provider.finalizeBody ? await provider.finalizeBody(body) : body
-  return await fetchJSON(buildRequestUrl(model), { method: 'POST', headers, body: JSON.stringify(sent) }, { debug, label })
+  return await fetchJSON(buildRequestUrl(model), { method: 'POST', headers, body: JSON.stringify(sent) }, { debug, label, retries })
 }
 
 export function checkResponse(json) {

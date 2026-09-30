@@ -10,7 +10,7 @@ import { createInterface } from 'node:readline/promises'
 import { parseArgs, styleText } from 'node:util'
 import {
   DEFAULT_MODEL, KNOWN_MODELS, RETRIES, ask, closeProvider, getMaxTokens,
-  isRecognizedModel, resolveModel, resolveThinkEffort, setFetchRetries, setProvider, turnCost,
+  isRecognizedModel, resolveModel, resolveThinkEffort, setProvider, turnCost,
 } from '../index.js'
 
 const USAGE = `Usage: scripts/chat.js [options] [prompt]
@@ -126,14 +126,10 @@ async function main(argv) {
   // spelling's.
   if (!isRecognizedModel(model)) fail(`chat.js: unknown model ${model}. --list shows what the registry knows.\n`)
 
-  // Checked here, not left to the setter: it quietly restores the default for
-  // anything that isn't a count, which is right for a caller passing an unset
-  // flag through and wrong for someone who typed `--retries none` expecting
-  // none.
-  if (values.retries !== undefined) {
-    if (!/^\d+$/u.test(values.retries)) fail(`chat.js: --retries takes a whole number, got ${values.retries}\n`)
-    setFetchRetries(Number(values.retries))
-  }
+  // Digits only, rather than whatever Number() makes of it: that reads
+  // `--retries ''` as zero and `--retries 1e3` as a thousand, and ask() would
+  // take either without complaint.
+  if (values.retries !== undefined && !/^\d+$/u.test(values.retries)) fail(`chat.js: --retries takes a whole number, got ${values.retries}\n`)
 
   // --repl reads its prompts from stdin itself, one request per line, so
   // there is nothing to drain here and nothing to insist on.
@@ -189,6 +185,7 @@ async function turn({ model, provider, userContent, values, think }) {
   const { text, error, usage } = await ask({
     model,
     maxTokens: values['max-tokens'] ? Number(values['max-tokens']) : getMaxTokens(model),
+    retries: values.retries ? Number(values.retries) : undefined,
     systemPrompt: values.system ?? 'You are a helpful assistant.',
     userContent,
     tools,
