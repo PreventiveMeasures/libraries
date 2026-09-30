@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { afterEach, describe, it } from 'node:test'
 import { createVfs } from '@preventive/vfs'
-import { DeptreeError, LockfileError, buildPnpmTree } from '../pnpm.js'
+import { DeptreeError, LockfileError, buildPnpmTree, findPnpmProjects } from '../pnpm.js'
 import { HOST, stubRegistry, tarball } from './registry.js'
 
 // One small lockfile with a package of every kind this builds — a peer, an
@@ -663,10 +663,10 @@ describe('buildPnpmTree refuses', () => {
 
   // pnpm installs the projects it finds, and holds each to its importer:
   // one without the other is not the lockfile's tree.
-  it('a project without its package.json, or a package.json without its importer', async () => {
+  it('a project without its package.json, or one pnpm would not find', async () => {
     const two = lockfile().replace('importers:\n', 'importers:\n\n  packages/x: {}\n')
     await refuses({ lockfile: two }, /^importers\["packages\/x"\]: the package\.json of this project is not given$/u)
-    await refuses({ manifests: { '.': root(), 'packages/y': '{}' } }, /^manifests\["packages\/y"\]: the lockfile has no importer for this project/u)
+    await refuses({ manifests: { '.': root(), 'packages/y': '{}' } }, /^importers\["packages\/y"\]: pnpm-workspace\.yaml's packages are not set, so pnpm would not install it as a project$/u)
   })
 
   it('a lockfile not up to date with a package.json', async () => {
@@ -785,6 +785,45 @@ describe('buildPnpmTree with a workspace', () => {
     }
     await assert.rejects(buildTwo(x, { workspace: undefined }), /^DeptreeError: importers\["packages\/x"\]: pnpm-workspace\.yaml's packages are not set/u)
     await assert.rejects(buildTwo(x, { workspace: 'hoist: true\n' }), /packages are not set/u)
+  })
+
+  // pnpm gives a project it finds that the lockfile has no importer for an
+  // empty one, and holds it to that: one with dependencies is refused as
+  // not up to date, and one with none installed, and hoisted by its name.
+  it('holds a project findPnpmProjects finds that the lockfile has no importer for to an empty one', async () => {
+    stubRegistry(TARBALLS)
+    const x = JSON.stringify({ name: 'x', dependencies: { b: '1.0.0' } })
+    const vfs = createVfs({ 'package.json': root(), 'packages/x/package.json': x, 'patches/p.patch': PATCH })
+    assert.deepEqual(findPnpmProjects({ workspace: WORKSPACE, host: HOST, vfs }), ['.', 'packages/x'])
+    vfs.mkdir('/packages/y')
+    const given = (y) => {
+      vfs.writeFile('/packages/y/package.json', JSON.stringify(y))
+      const ids = findPnpmProjects({ workspace: WORKSPACE, host: HOST, vfs })
+      assert.deepEqual(ids, ['.', 'packages/x', 'packages/y'])
+      return Object.fromEntries(ids.map((id) => [id, vfs.readText(`/${id === '.' ? '' : `${id}/`}package.json`)]))
+    }
+    const options = { lockfile: two, workspace: WORKSPACE, patches: { 'patches/p.patch': PATCH }, host: HOST }
+    await assert.rejects(buildPnpmTree({ ...options, manifests: given({ name: 'y', dependencies: { b: '1.0.0' } }) }), /^DeptreeError: manifests\["packages\/y"\]: the lockfile is not up to date with this package\.json, which a frozen install refuses: the specifiers differ/u)
+    const { vfs: tree, stats } = await buildPnpmTree({ ...options, manifests: given({ name: 'y' }) })
+    assert.equal(tree.readlink('/node_modules/.pnpm/node_modules/y'), '../../../packages/y')
+    assert.equal(stats.projects, 3)
+  })
+
+  it('finds the projects as it reads pnpm-workspace.yaml, and refuses what buildPnpmTree refuses of it', () => {
+    const vfs = createVfs({ 'package.json': '{}', 'packages/x/package.json': '{}' })
+    for (const workspace of [undefined, '', '# none\n', 'hoist: true\n', 'packages: []\n']) assert.deepEqual(findPnpmProjects({ workspace, host: HOST, vfs }), ['.'], JSON.stringify(workspace))
+    assert.deepEqual(findPnpmProjects({ workspace: WORKSPACE, host: { pnpm: '11.28.2' }, vfs }), ['.', 'packages/x'])
+    const refused = [
+      [{ workspace: '- packages/*\n' }, /^DeptreeError: pnpm-workspace\.yaml: expected a mapping$/u],
+      [{ workspace: 'packages: packages/*\n' }, /^DeptreeError: pnpm-workspace\.yaml: packages: expected a list of non-empty strings/u],
+      [{ workspace: "packages:\n  - 'packages/{x,y}'\n" }, /^DeptreeError: pnpm-workspace\.yaml: packages: "packages\/\{x,y\}" is not supported/u],
+      [{ host: { pnpm: '9.15.9' } }, /^DeptreeError: host\.pnpm: pnpm "9\.15\.9" is not supported/u],
+      [{ workspace: 1 }, /^TypeError: workspace must be a string, or left out$/u],
+      [{ host: {} }, /^TypeError: host\.pnpm must be a non-empty string$/u],
+      [{ vfs: { readdir: () => [] } }, /^TypeError: vfs must be a Vfs, or have its readdir, lstat and stat$/u],
+    ]
+    for (const [options, pattern] of refused) assert.throws(() => findPnpmProjects({ workspace: WORKSPACE, host: HOST, vfs, ...options }), pattern, JSON.stringify(options))
+    assert.throws(() => findPnpmProjects(), /^TypeError: host\.pnpm must be a non-empty string$/u)
   })
 
   it('refuses globs it does not read as tinyglobby does', async () => {

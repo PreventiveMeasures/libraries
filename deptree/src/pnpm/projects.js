@@ -3,9 +3,10 @@
 // (@pnpm/lockfile.verification's satisfiesPackageManifest): where one is
 // not, pnpm refuses the lockfile as not up to date with that package.json,
 // and resolves anew without --frozen-lockfile, so it is refused here too.
-// Every project has to have an importer and every importer a project: the
-// projects pnpm finds are what it installs, and an importer none of them
-// is would be left out.
+// Every importer has to be a project: the projects pnpm finds are what it
+// installs, and an importer none of them is would be left out. A project
+// the lockfile has no importer for pnpm gives an empty one, which it is
+// then held to: one with dependencies is refused as not up to date.
 //
 // A project's specifiers are its dependencies, devDependencies and
 // optionalDependencies, and, with autoInstallPeers, the peerDependencies
@@ -57,7 +58,7 @@ export function readManifests(manifests, lockfile) {
   const read = new Map()
   for (const [id, text] of manifests instanceof Map ? manifests : Object.entries(manifests)) {
     const where = `manifests[${quote(id)}]`
-    if (!(id in lockfile.importers)) throw new DeptreeError('the lockfile has no importer for this project, which pnpm refuses a frozen install for', where)
+    lockfile.importers[id] ??= { specifiers: {}, dependencies: {}, devDependencies: {}, optionalDependencies: {}, dependenciesMeta: {}, linkDirectory: true }
     read.set(id, readManifest(text, where))
   }
   for (const id of Object.keys(lockfile.importers)) {

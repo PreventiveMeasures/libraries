@@ -43,7 +43,11 @@ export interface PnpmHost {
 // and no other glob syntax. Without `packages` the root is the only
 // project. Every importer has to have its package.json given, and be a
 // project those globs take; and every project pnpm would find has to be
-// given, which cannot be checked here, as the directories are not.
+// given, which buildPnpmTree cannot check, as it is not given the
+// directories: findPnpmProjects finds them in those. A project the
+// lockfile has no importer for is held to an empty one, as pnpm holds it:
+// with no dependencies it is installed, and hoisted by its name, and with
+// any it is refused as not up to date.
 //
 // Each project is held to its importer as --frozen-lockfile holds it: its
 // dependencies, devDependencies, optionalDependencies and, with
@@ -223,6 +227,30 @@ export interface PnpmTree {
 // DeptreeError, a LockfileError or a YamlError that says where. A
 // TypeError is thrown for options of the wrong type.
 export function buildPnpmTree(options: PnpmTreeOptions): Promise<PnpmTree>
+
+// The directories of the projects pnpm finds for the workspace at the
+// root of `vfs`, by which buildPnpmTree takes their package.json: `.`, the
+// root, first, then in order each directory whose package.json a glob of
+// `workspace`'s `packages` takes, as pnpm `host.pnpm` finds them. Given
+// the package.json of each, buildPnpmTree holds each to its importer as
+// pnpm does, one the lockfile has none for to an empty one.
+//
+// `vfs` is a Vfs, or anything with its readdir, lstat and stat, such as a
+// view of a directory on disk, by paths from `/`; nothing is written. Of
+// it, only the directories a glob could take a project under are read, as
+// pnpm reads them: none under node_modules or bower_components, and none
+// whose name starts with a dot unless a glob spells it. pnpm reads a
+// project's package.json5 or package.yaml where it has no package.json,
+// which is refused, as is a link to a project's manifest, or to a
+// directory a glob could take a project under, which pnpm follows. A glob
+// buildPnpmTree refuses, or a pnpm not 10.x or 11.x, is refused here too.
+export interface PnpmProjectsOptions {
+  workspace?: string
+  host: Pick<PnpmHost, 'pnpm'>
+  vfs: Pick<Vfs, 'readdir' | 'lstat' | 'stat'>
+}
+
+export function findPnpmProjects(options: PnpmProjectsOptions): string[]
 
 // `where` is what a refusal is about — `pnpm-workspace.yaml: nodeLinker`,
 // `.npmrc:3: node-linker`, a package's key — or undefined for the call as
