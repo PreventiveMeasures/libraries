@@ -8,7 +8,7 @@ import { DeptreeError, quote } from '../error.js'
 import { checkProject, readManifestTexts, readPatches, readRootFiles, readText, readWorkspaceText } from './project.js'
 import { pinnedPnpm, readManifest, readManifests } from './projects.js'
 import { readers } from './readers.js'
-import { findProjects } from './workspace.js'
+import { checkWorkspace, findProjects } from './workspace.js'
 
 const LIBC = new Set(['glibc', 'musl', 'unknown'])
 
@@ -55,13 +55,11 @@ function readRoot(project) {
   return text === undefined ? undefined : readManifest(text, ROOT)
 }
 
-// The projects pnpm `major` finds in `project` for `workspace`,
-// pnpm-workspace.yaml as parsed, whose packages are read here before the
-// rest of it is.
-function projectsIn(project, workspace, major) {
+// The packages of `workspace`, pnpm-workspace.yaml as parsed, read here
+// before the rest of it is, to find the projects by.
+function packagesOf(workspace) {
   if (workspace !== undefined && (workspace === null || typeof workspace !== 'object' || Array.isArray(workspace))) throw new DeptreeError('expected a mapping', 'pnpm-workspace.yaml')
-  const packages = workspace?.packages === undefined ? undefined : readers.globs(workspace.packages, 'pnpm-workspace.yaml: packages')
-  return findProjects(project, packages, major)
+  return workspace?.packages === undefined ? undefined : readers.globs(workspace.packages, 'pnpm-workspace.yaml: packages')
 }
 
 // The directories of the projects pnpm finds in `project`, which
@@ -71,7 +69,7 @@ export function findPnpmProjects(options) {
   checkProject(project)
   if (host !== undefined && (host === null || typeof host !== 'object')) throw new TypeError('host must be an object, or left out')
   const { major } = pnpmOf(host?.pnpm, () => readRoot(project))
-  return projectsIn(project, readWorkspace(readWorkspaceText(project)), major)
+  return findProjects(project, packagesOf(readWorkspace(readWorkspaceText(project))), major)
 }
 
 const LOCKFILE = 'lockfile must be the text of pnpm-lock.yaml, or left out with a project given to read it from'
@@ -96,8 +94,10 @@ export function inputsOf(options) {
 
 // The package.json of every project, and the pnpm that installs as pnpmOf
 // reads it from the root one: as given, or read from the project for
-// each project pnpm finds there and each importer, one not there left
-// out. `workspace` is pnpm-workspace.yaml as parsed; `pnpm` host.pnpm.
+// each project pnpm finds there, and no other, as pnpm reads them: an
+// importer the globs do not take is refused first, and one they take that
+// pnpm does not find has none. `workspace` is pnpm-workspace.yaml as
+// parsed; `pnpm` host.pnpm.
 export function manifestsOf(inputs, workspace, lockfile, pnpm) {
   if (!inputs.reading) {
     const manifests = readManifests(inputs.manifests, lockfile)
@@ -105,7 +105,9 @@ export function manifestsOf(inputs, workspace, lockfile, pnpm) {
   }
   const { project } = inputs
   const installs = pnpmOf(pnpm, () => readRoot(project))
-  const ids = new Set([...projectsIn(project, workspace, installs.major), ...Object.keys(lockfile.importers)])
+  const packages = packagesOf(workspace)
+  checkWorkspace(Object.keys(lockfile.importers), packages, installs.major)
+  const ids = findProjects(project, packages, installs.major)
   return { manifests: readManifests(readManifestTexts(project, ids), lockfile), ...installs }
 }
 

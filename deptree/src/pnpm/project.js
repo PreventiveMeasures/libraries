@@ -72,12 +72,11 @@ export function readRootFiles(project) {
 }
 
 // The text of the package.json of each of `ids`, the projects'
-// directories, by directory; one that is not there left out.
+// directories, by directory.
 export function readManifestTexts(project, ids) {
   const texts = new Map()
   for (const id of ids) {
-    const text = readText(project, id === '.' ? '/package.json' : `/${id}/package.json`, `manifests[${quote(id)}]`)
-    if (text !== undefined) texts.set(id, text)
+    texts.set(id, readText(project, id === '.' ? '/package.json' : `/${id}/package.json`, `manifests[${quote(id)}]`))
   }
   return texts
 }

@@ -58,8 +58,9 @@ export type PnpmProject = Pick<Vfs, 'readdir' | 'lstat' | 'stat' | 'readFile'>
 // pnpm-workspace.yaml, which, where there is none, pnpm refuses under
 // another name it looks for it by, such as pnpm-workspace.yml; the .npmrc;
 // the package.json of every project pnpm finds, as findPnpmProjects finds
-// them, and of every importer; and each patch the settings name, and no
-// other, which has to be under the lockfile's directory. Each is read as
+// them, and no other, an importer pnpm-workspace.yaml's packages do not
+// take refused unread; and each patch the settings name, and no other,
+// which has to be under the lockfile's directory. Each is read as
 // UTF-8, and refused where it is not, a byte order mark kept as it is in
 // text given; a refusal names each as it would given:
 // `manifests["packages/x"]`, `patches["patches/p.patch"]`.

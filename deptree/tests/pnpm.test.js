@@ -1284,7 +1284,7 @@ describe('buildPnpmTree reading the project', () => {
     await assert.rejects(fromProject({ 'package.json': outside }), /^DeptreeError: patchedDependencies\["p@1\.0\.0"\]: the patch "patches\/\.\.\/\.\.\/p\.patch" is not in the project: it is outside the lockfile's directory$/u)
   })
 
-  it('reads the package.json of every project pnpm finds, and of every importer', async () => {
+  it('reads the package.json of every project pnpm finds', async () => {
     stubRegistry(TARBALLS)
     const two = lockfile().replace('importers:\n', 'importers:\n\n  packages/x:\n    dependencies:\n      b:\n        specifier: 1.0.0\n        version: 1.0.0\n')
     const workspace = { 'pnpm-lock.yaml': two, 'pnpm-workspace.yaml': 'packages:\n  - packages/*\n' }
@@ -1316,6 +1316,18 @@ describe('buildPnpmTree reading the project', () => {
     const logged = { readdir: (path) => project.readdir(path), lstat: (path) => project.lstat(path), stat: (path) => { read.push(path); return project.stat(path) }, readFile: (path) => { read.push(path); return project.readFile(path) } }
     await assert.rejects(buildPnpmTree({ project: logged, host: HOST }), /^DeptreeError: importers\["\.\.\/other"\]: a project outside the lockfile's directory is not supported$/u)
     assert.deepEqual(read.filter((path) => path.includes('..')), [])
+  })
+
+  // pnpm reads the package.json of the projects it finds, and of no other
+  // importer: one pnpm-workspace.yaml's packages do not take is refused
+  // unread, here through a link out of the lockfile's directory.
+  it('reads nothing for an importer pnpm does not find', async () => {
+    const unlisted = lockfile().replace('importers:\n', 'importers:\n\n  vendor/x: {}\n')
+    const project = createVfs({ ...files, 'pnpm-lock.yaml': unlisted, 'pnpm-workspace.yaml': 'packages:\n  - packages/*\n', vendor: { type: 'symlink', target: 'elsewhere' }, 'elsewhere/x/package.json': '{}' })
+    const read = []
+    const logged = { readdir: (path) => project.readdir(path), lstat: (path) => project.lstat(path), stat: (path) => { read.push(path); return project.stat(path) }, readFile: (path) => { read.push(path); return project.readFile(path) } }
+    await assert.rejects(buildPnpmTree({ project: logged, host: HOST }), /^DeptreeError: importers\["vendor\/x"\]: pnpm-workspace\.yaml's packages do not take this directory, so pnpm would not install it as a project$/u)
+    assert.deepEqual(read.filter((path) => path.startsWith('/vendor')), [])
   })
 
   it('takes a project, and nothing it reads there given besides', async () => {
