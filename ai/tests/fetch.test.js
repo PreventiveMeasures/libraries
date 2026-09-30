@@ -133,8 +133,8 @@ describe('retryDelayMs', () => {
 
 describe('the retry budgets', () => {
   it('keeps the baseline every non-transient failure gets', () => {
-    // --retries governs the transient class only, and is floored by this:
-    // no failure retries fewer times than this, whatever the flag says.
+    // The default budget, and the ceiling on a non-transient failure's: a
+    // larger --retries buys only the transient class more.
     assert.equal(RETRIES, 2)
   })
 })
@@ -263,8 +263,8 @@ describe('fetchJSON retries', () => {
       res.flushHeaders()
       res.write('partial')
       realSetTimeout(() => { res.socket.destroy() }, 20)
-    }, 1)
-    assert.equal(n, RETRIES + 1) // --retries below the flat budget is floored by it
+    }, RETRIES)
+    assert.equal(n, RETRIES + 1)
     assert.equal(err.status, 503)
     // Classified transient, so it backs off rather than taking the flat
     // second: the pair doubles, jitter and all. Bounds, not exact values —
@@ -282,7 +282,7 @@ describe('fetchJSON retries', () => {
       if (i === 1) { res.writeHead(503); res.end('down'); return }
       res.writeHead(200, { 'content-type': 'application/json' })
       res.end('<html>not json</html>')
-    }, 1)
+    }, RETRIES)
     assert.ok(err instanceof SyntaxError, `${err}`)
     assert.equal(n, 4) // the 503 and its re-ask, then the parse error and its own two
     // And the two classes pace differently: the 503 backs off, the parse
@@ -310,10 +310,41 @@ describe('fetchJSON retries', () => {
 
   it('resolves a budget it cannot use back down to the flat one', async (t) => {
     // parsePositiveInt returns undefined for a flag that was never set;
-    // stored unguarded that made the budget NaN and `used < NaN` false —
-    // zero retries, not the RETRIES floor the comment promises.
-    const { requests: n, waits: slept } = await call(t, (i, res) => { res.writeHead(503); res.end('down') }, undefined)
+    // stored unguarded that made `used < undefined` false — zero retries,
+    // for a caller who never asked for fewer.
+    for (const retries of [undefined, null, -1, 1.5, Number.NaN, '3']) {
+      const { requests: n, waits: slept } = await call(t, (i, res) => { res.writeHead(503); res.end('down') }, retries)
+      assert.equal(n, RETRIES + 1, `${retries}`)
+      assert.equal(slept.length, RETRIES, `${retries}`)
+    }
+  })
+
+  it('retries nothing at all on a budget of zero', async (t) => {
+    // Both classes: a caller turning retries off wants the first failure,
+    // not two more flat seconds of the ones --retries never governed.
+    for (const [status, body] of [[503, 'down'], [400, UNAVAILABLE], [401, 'bad key']]) {
+      const { err, requests: n, errors: logged } = await call(t, (i, res) => { res.writeHead(status); res.end(body) }, 0)
+      assert.equal(n, 1, `${status}`)
+      assert.equal(err.status, status)
+      assert.deepEqual(logged, [])
+    }
+  })
+
+  it('takes a budget below the default as given, for both classes', async (t) => {
+    const transient = await call(t, (i, res) => { res.writeHead(429); res.end('slow down') }, 1)
+    assert.equal(transient.requests, 2)
+    assert.equal(transient.waits.length, 1)
+    const other = await call(t, (i, res) => { res.writeHead(400); res.end('bad request') }, 1)
+    assert.equal(other.requests, 2)
+    assert.deepEqual(other.waits, [1000])
+  })
+
+  it('spends a budget above the default on the transient class only', async (t) => {
+    // A 400 reads the same on every attempt: a long --retries meant for a
+    // flaky upstream is no reason to send a malformed request five times.
+    const { err, requests: n, waits: slept } = await call(t, (i, res) => { res.writeHead(400); res.end('bad request') }, 4)
     assert.equal(n, RETRIES + 1)
-    assert.equal(slept.length, RETRIES)
+    assert.equal(err.status, 400)
+    assert.deepEqual(slept, [1000, 1000])
   })
 })

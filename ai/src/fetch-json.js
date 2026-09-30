@@ -16,18 +16,19 @@ export function setFetchConcurrency(limit) {
   queue = new Queue(limit)
 }
 
-// How many times a TRANSIENT upstream failure is re-asked. Everything else keeps the flat RETRIES
-// budget — see fetchJSON. Narrowed at startup, like the concurrency above. A caller's own default
-// lives with the flag that sets it rather than being copied here, so a caller that never calls the
-// setter keeps RETRIES instead of inheriting a second, drifting copy of the number.
-let transientRetries = RETRIES
+// How many times a failed request is re-asked: a TRANSIENT upstream failure up to this many times,
+// everything else up to this many or RETRIES, whichever is fewer — see fetchJSON. Narrowed at
+// startup, like the concurrency above. A caller's own default lives with the flag that sets it
+// rather than being copied here, so a caller that never calls the setter keeps RETRIES instead of
+// inheriting a second, drifting copy of the number.
+let retries = RETRIES
 
 export function setFetchRetries(n) {
-  // Guarded, because the budget below is a Math.max: handed a non-integer — `parsePositiveInt`
-  // returns undefined for a flag that isn't set — it would evaluate to NaN, `used < NaN` would be
-  // false, and every transient failure would get ZERO retries, the exact inverse of the floor this
-  // is supposed to hold.
-  transientRetries = Number.isSafeInteger(n) && n > 0 ? n : RETRIES
+  // Zero is a budget like any other: one attempt and no re-asks, for a caller that would rather see
+  // the first failure than wait out a backoff. What is not a count at all restores the default —
+  // `parsePositiveInt` returns undefined for a flag that isn't set, and stored unguarded that reads
+  // as `used < undefined`, false, turning retries OFF for a caller who never asked about them.
+  retries = Number.isSafeInteger(n) && n >= 0 ? n : RETRIES
 }
 
 // The failure that ends a long run when the model is fine and the road to it is not: a gateway that
@@ -162,11 +163,12 @@ export async function fetchJSON(url, options, { debug, label } = {}) {
       } catch (err) {
         // A transient upstream failure gets the `--retries` budget and backs off; everything else —
         // a malformed request, a bad key, a dropped socket — keeps the flat second and the two
-        // tries RETRIES gives it. Never FEWER than RETRIES either way, whatever `--retries` says.
+        // tries RETRIES gives it. A larger budget buys only the transient class more; a smaller
+        // one caps both, so `--retries 0` retries nothing at all.
         const transient = err instanceof UpstreamError && isTransientHttpFailure(err.status, err.body)
         const kind = transient ? 'transient' : 'other'
         const attempt = used[kind]
-        const budget = transient ? Math.max(RETRIES, transientRetries) : RETRIES
+        const budget = transient ? retries : Math.min(retries, RETRIES)
         if (attempt < budget) {
           used[kind] = attempt + 1
           const wait = transient ? retryDelayMs(attempt, err.retryAfter) : BASE_DELAY

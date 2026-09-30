@@ -31,7 +31,7 @@ export { ask, logTurnCost, normalizeUsage } from './src/chat.js'
 export { setProvider, closeProvider, providerStamp, extractResponseText, turnCost } from './src/providers.js'
 
 // The transport under those requests: how many are in flight at once, and
-// how often a transient upstream failure is re-asked.
+// how often a failed one is re-asked.
 export { RETRIES, setFetchConcurrency, setFetchRetries } from './src/fetch-json.js'
 
 // The response cache on disk: where it lives — which the caller sets,
