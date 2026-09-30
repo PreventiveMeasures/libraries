@@ -132,9 +132,9 @@ describe('retryDelayMs', () => {
 })
 
 describe('the retry budgets', () => {
-  it('keeps the baseline every non-transient failure gets', () => {
-    // The default budget, and the ceiling on a non-transient failure's: a
-    // larger `retries` buys only the transient class more.
+  it('is the default budget, and the most a non-transient failure gets', () => {
+    // A larger `retries` buys only the transient class more; a smaller one
+    // caps both, so this is a ceiling on the non-transient class, not a floor.
     assert.equal(RETRIES, 2)
   })
 })
@@ -316,7 +316,7 @@ describe('fetchJSON retries', () => {
 
   it('retries nothing at all on a budget of zero', async (t) => {
     // Both classes: a caller turning retries off wants the first failure,
-    // not two more flat seconds of the ones --retries never governed.
+    // not two more flat seconds on the class a larger budget never reaches.
     for (const [status, body] of [[503, 'down'], [400, UNAVAILABLE], [401, 'bad key']]) {
       const { err, requests: n, errors: logged } = await call(t, (i, res) => { res.writeHead(status); res.end(body) }, 0)
       assert.equal(n, 1, `${status}`)
