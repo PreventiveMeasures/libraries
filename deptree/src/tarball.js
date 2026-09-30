@@ -108,10 +108,14 @@ export function checkManifest(manifest, pkg, where) {
   }
   const has = hasBin(manifest)
   if (has !== undefined && has !== pkg.hasBin) throw new DeptreeError(`package.json ${pkg.hasBin ? 'has no bins, and the lockfile says it has' : 'has bins, and the lockfile says it has none'}`, where)
-  if (!same(bundledOf(manifest), pkg.bundledDependencies)) throw new DeptreeError('package.json bundles other than the lockfile says', where)
+  if (!same(listed(bundledOf(manifest)), listed(pkg.bundledDependencies))) throw new DeptreeError('package.json bundles other than the lockfile says', where)
 }
 
 const bundledOf = (manifest) => manifest.bundleDependencies ?? manifest.bundledDependencies
+
+// Bundled dependencies as the lockfile records them, where pnpm 10 writes
+// an empty list and pnpm 11 leaves it out.
+const listed = (bundled) => (Array.isArray(bundled) && bundled.length === 0 ? undefined : bundled)
 
 // A snapshot's dependencies against the package.json of its package, as
 // fetchPackage read it and `read` as hook.js's hook has it. One the

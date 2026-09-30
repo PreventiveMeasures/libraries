@@ -60,12 +60,16 @@ function namedByManifest(manifest) {
   return paths.filter((path) => typeof path === 'string').map((path) => join('.', path).toLowerCase())
 }
 
+// Whether a package.json's list of bundled dependencies may name any: an
+// empty one bundles none, with either npm-packlist.
+const bundles = (list) => Boolean(list) && !(Array.isArray(list) && list.length === 0)
+
 // The files of the package at `dir` of `vfs` npm-packlist picks, with
 // their data and modes, by their paths from it; `manifest` is its
 // package.json as parsed.
 export function packDirectory(vfs, dir, manifest, major, where) {
   if (manifest.files !== undefined) throw new DeptreeError('its package.json has `files`, which npm-packlist picks the files pnpm installs by, and which is not followed here', where)
-  if (manifest.bundleDependencies || manifest.bundledDependencies) throw new DeptreeError('a directory with bundled dependencies is not supported', where)
+  if (bundles(manifest.bundleDependencies) || bundles(manifest.bundledDependencies)) throw new DeptreeError('a directory with bundled dependencies is not supported', where)
   const named = namedByManifest(manifest)
   const files = new Map()
   const visit = (names) => {

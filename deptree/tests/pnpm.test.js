@@ -405,6 +405,16 @@ snapshots:
     await assert.rejects(buildPnpmTree({ lockfile: lock(none), manifests: { '.': manifest('k') }, host: HOST }), /^DeptreeError: "k@1\.0\.0": package\.json has bins, and the lockfile says it has none$/u)
   })
 
+  it('takes an empty list of bundled dependencies as pnpm 10 and pnpm 11 record it', async () => {
+    const e = await tarball('e', '1.0.0', {}, { manifest: { bundleDependencies: [] } })
+    stubRegistry([e])
+    for (const fields of ['', '    bundledDependencies: []\n']) {
+      const { vfs } = await buildPnpmTree({ lockfile: lock(e, fields), manifests: { '.': manifest('e') }, host: HOST })
+      assert.equal(vfs.readText('/node_modules/e/package.json'), '{"name":"e","version":"1.0.0","bundleDependencies":[]}', JSON.stringify(fields))
+    }
+    await assert.rejects(buildPnpmTree({ lockfile: lock(e, '    bundledDependencies: [x]\n'), manifests: { '.': manifest('e') }, host: HOST }), /^DeptreeError: "e@1\.0\.0": package\.json bundles other than the lockfile says$/u)
+  })
+
   it('passes over the specifier of a dependency it bundles', async () => {
     const m = await tarball('m', '1.0.0', { 'node_modules/x/package.json': '{"name":"x","version":"1.0.0"}' }, { manifest: { dependencies: { x: 'file:../../x' }, bundledDependencies: ['x'] } })
     stubRegistry([m])
@@ -991,6 +1001,18 @@ snapshots:
         assert.equal(vfs.stat(`${FOO}/cli.js`).mode, 0o755)
         assert.equal(vfs.stat('/vendor/foo/cli.js').mode, 0o644, 'nothing outside node_modules is written')
         assert.equal(stats.tarballs, 1)
+      }
+    })
+
+    // pnpm 10 records an empty list of bundled dependencies, and pnpm 11
+    // leaves it out; npm-packlist bundles none by it.
+    it('takes an empty list of bundled dependencies', async () => {
+      stubRegistry([await app])
+      const listed = { ...vendored, 'vendor/foo/package.json': '{"name":"foo","version":"1.5.0","bin":{"foo":"cli.js"},"bundleDependencies":[]}' }
+      const lockfile10 = (await copied()).replace('    hasBin: true\n', '    bundledDependencies: []\n    hasBin: true\n')
+      for (const [host, manifest, workspace, written] of [[HOST, v10, undefined, lockfile10], [{ ...HOST, pnpm: '11.28.2' }, rootWith(), 'overrides:\n  foo: file:./vendor/foo\n', await copied()]]) {
+        const { vfs } = await buildPnpmTree({ lockfile: written, manifests: { '.': manifest }, workspace, host, vfs: createVfs({ 'package.json': manifest, ...listed }) })
+        assert.deepEqual(vfs.readdir(FOO), ['cli.js', 'index.js', 'package.json'], host.pnpm)
       }
     })
 

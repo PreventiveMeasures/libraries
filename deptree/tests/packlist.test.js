@@ -31,11 +31,19 @@ describe('packDirectory', () => {
     assert.deepEqual(pack(files, 11), ['package.json'])
   })
 
+  it('takes an empty list of bundled dependencies, which bundles none', () => {
+    for (const fields of [{ bundleDependencies: [] }, { bundledDependencies: [] }, { bundleDependencies: [], bundledDependencies: [] }]) {
+      assert.deepEqual(pack({ 'index.js': '' }, 10, fields), ['index.js', 'package.json'], JSON.stringify(fields))
+    }
+  })
+
   const refused = [
     ['a .npmignore', { '.npmignore': 'x\n' }, {}, /\.npmignore's rules/u],
     ['a .gitignore anywhere', { 'lib/.gitignore': 'x\n' }, {}, /\.gitignore's rules/u],
     ['a package.json with files', {}, { files: ['index.js'] }, /has `files`/u],
     ['bundled dependencies', {}, { bundleDependencies: ['a'] }, /bundled dependencies is not supported/u],
+    ['all dependencies bundled', {}, { bundledDependencies: true }, /bundled dependencies is not supported/u],
+    ['bundled dependencies beside an empty list', {}, { bundleDependencies: [], bundledDependencies: ['a'] }, /bundled dependencies is not supported/u],
     ['a readme the rules would leave out', { 'lib/README.orig': '' }, {}, /turns on rules of npm-packlist not followed here/u],
     ['a bin the rules would leave out', { 'npm-debug.log': '' }, { bin: { foo: 'npm-debug.log' } }, /turns on rules of npm-packlist not followed here/u],
     ['node_modules but for its case', { 'Node_Modules/x': '' }, {}, /node_modules but for its case/u],
