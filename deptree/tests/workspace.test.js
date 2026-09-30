@@ -136,9 +136,9 @@ describe('the globs', () => {
     assert.throws(() => findProjects({ readdir: (path) => dirs.get(path), lstat: typeOf, stat: typeOf }, ['*'], 10), /as a lockfile can key an importer$/u)
   })
 
-  it('match however many `**` a glob has, with no recursion', () => {
-    assert.throws(() => checkWorkspace(['.', 'd/d'], [`${'**/'.repeat(10_000)}x`]), /do not take this directory/u)
-    checkWorkspace(['.', 'd/d'], [`${'**/'.repeat(10_000)}d`])
+  it('match however many `**` a glob has, with no recursion, in time linear in them', () => {
+    assert.throws(() => checkWorkspace(['.', 'd/d'], [`${'**/'.repeat(100_000)}x`]), /do not take this directory/u)
+    checkWorkspace(['.', 'd/d'], [`${'**/'.repeat(100_000)}d`])
   })
 
   it('match as many `**` as there are names in time', () => {
