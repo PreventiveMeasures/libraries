@@ -193,8 +193,10 @@ export function checkLinkedPackages({ manifest, importer, index: { projects, byN
       const here = `${where}.${kind}.${alias}`
       const workspaceRange = spec.startsWith('workspace:') && !isWorkspacePath(spec.slice('workspace:'.length))
       const linked = target.startsWith('link:')
+      // A local directory or tarball is up to date where the lockfile has
+      // it, as pnpm 11's frozen install skips its own dependencies; which
+      // is installed is held to tree.js's checkSource.
       const local = importer.specifiers[alias].startsWith('file:') || packageKeyOf(target).includes('@file:')
-      if (local && !linked) throw new DeptreeError('a dependency on a local directory or tarball is not supported', here)
       if (local) continue
       if (linked && pathOf(spec) !== undefined) continue
       const name = targetName(spec, alias)

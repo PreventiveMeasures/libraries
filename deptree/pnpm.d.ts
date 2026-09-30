@@ -59,11 +59,18 @@ export interface PnpmHost {
 // those name none are pnpm-workspace.yaml's `overrides` read. `$name` in
 // one is the root package.json's own specifier for `name`, and
 // `catalog:` what the workspace's catalog gives the package. One to a
-// directory — a path alone, such as `./vendor/foo`, or by `link:` — is
-// read only with `vfs` given, and only where the directory is under the
-// lockfile's and holds a package.json there; pnpm links it. One to a copy
-// of a directory, by `file:`, is refused: pnpm picks the files it copies
-// with npm-packlist.
+// directory — a path alone, such as `./vendor/foo`, `link:` or `file:` —
+// is read only with `vfs` given, and only where the directory is under
+// the lockfile's and holds a package.json there. pnpm links to it by a
+// path alone or `link:`. By `file:` it installs it as a package, of the
+// files npm-packlist's built-in rules keep, which are followed here alone:
+// a directory with a .npmignore or .gitignore, a package.json with `files`
+// or bundled dependencies, or a link in it, is refused. pnpm hardlinks
+// those files from the directory into each snapshot of the package, so a
+// file linking a bin makes executable is made so in every snapshot and in
+// the directory, which is not written here; a CRLF `#!` line it rewrites
+// is rewritten as a file of that snapshot's own. One by `file:` to a
+// tarball is refused, and so is a `file:` dependency no override names.
 //
 // Of the .npmrc, only what pnpm reads for an install is read: its settings
 // by their kebab-case names, those that can change the tree held to what

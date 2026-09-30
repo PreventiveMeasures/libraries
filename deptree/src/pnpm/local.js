@@ -1,13 +1,14 @@
-// Directories outside node_modules the tree links to, read from the Vfs
-// given as `vfs` where there is one: those local overrides name, and
-// every other a `link:` leads to that is no project and is under the
-// lockfile's directory. Each has to hold a package.json there, whose bins
-// take their names as pnpm links them. An override to a directory is
-// read only from a Vfs given, and one to a copy of it, as `file:` has
-// pnpm install it, is refused: pnpm picks the files it copies with
-// npm-packlist, whose rules are not followed here.
+// Directories outside node_modules the tree links to or installs,
+// read from the Vfs given as `vfs` where there is one: those local
+// overrides name, and every other a `link:` leads to that is no project
+// and is under the lockfile's directory. Each has to hold a package.json
+// there, whose bins take their names as pnpm links them. An override to a
+// directory is read only from a Vfs given. One by `file:` has pnpm install
+// the directory as a package, of the files npm-packlist picks
+// (packlist.js); one to a tarball is refused.
 
 import { DeptreeError, quote } from '../error.js'
+import { packDirectory } from './packlist.js'
 import { readManifest } from './projects.js'
 
 // readManifest drops a byte order mark, as pnpm does one.
@@ -25,15 +26,29 @@ function manifestAt(vfs, dir, where) {
   return readManifest(text, where)
 }
 
-// `overrides` is listOverrides's.
+// `overrides` is listOverrides's. It gives back the directories `file:`
+// overrides have pnpm install.
 export function checkLocalOverrides(overrides, vfs) {
+  const installed = new Set()
   for (const { selector, local } of overrides) {
     if (local === undefined) continue
     const where = `overrides[${quote(selector)}]`
-    if (local.protocol === 'file:') throw new DeptreeError('an override to a copy of a directory, as file: has pnpm install it, is not supported: pnpm picks the files it copies with npm-packlist', where)
     if (vfs === undefined) throw new DeptreeError(`an override to a directory, ${quote(local.dir)}, is read only from a Vfs given as vfs`, where)
+    if (local.protocol === 'file:' && vfs.isFile(`/${local.dir}`)) throw new DeptreeError(`${quote(local.dir)} is a file in the Vfs given, and an override to a tarball is not supported`, where)
     manifestAt(vfs, local.dir, where)
+    if (local.protocol === 'file:') installed.add(local.dir)
   }
+  return installed
+}
+
+// The package at the directory a `file:` dependency names, from `vfs`:
+// its files as npm-packlist picks them, and its package.json, which has
+// to be for the name the lockfile has; the lockfile has no version.
+export function readDirectoryPackage(vfs, pkg, where, major) {
+  const { directory } = pkg.resolution
+  const manifest = manifestAt(vfs, directory, where)
+  if (manifest.name !== pkg.name) throw new DeptreeError(`its package.json is for ${quote(String(manifest.name))}`, where)
+  return { files: packDirectory(vfs, directory, manifest, major, where), manifest }
 }
 
 // By directory, the package.json of each directory the tree links to that

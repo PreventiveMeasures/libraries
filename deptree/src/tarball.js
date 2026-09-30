@@ -26,6 +26,7 @@
 import { decompress } from '@preventive/archive/compression.js'
 import { unpack } from '@preventive/archive/tar.js'
 import { normalize } from '@preventive/vfs/path.js'
+import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { getTarball } from '@preventive/upstream/npm.js'
 import { DeptreeError, quote } from './error.js'
 import { localOf } from './pnpm/overrides.js'
@@ -101,16 +102,20 @@ function readManifest(files, pkg, where) {
 }
 
 // What the lockfile recorded of the package against the package.json.
-function checkManifest(manifest, pkg, where) {
+export function checkManifest(manifest, pkg, where) {
   for (const field of ['os', 'cpu', 'libc']) {
     if (!same(manifest[field], pkg[field])) throw new DeptreeError(`package.json's ${field} is not the lockfile's`, where)
   }
   const has = hasBin(manifest)
   if (has !== undefined && has !== pkg.hasBin) throw new DeptreeError(`package.json ${pkg.hasBin ? 'has no bins, and the lockfile says it has' : 'has bins, and the lockfile says it has none'}`, where)
-  if (!same(bundledOf(manifest), pkg.bundledDependencies)) throw new DeptreeError('package.json bundles other than the lockfile says', where)
+  if (!same(listed(bundledOf(manifest)), listed(pkg.bundledDependencies))) throw new DeptreeError('package.json bundles other than the lockfile says', where)
 }
 
 const bundledOf = (manifest) => manifest.bundleDependencies ?? manifest.bundledDependencies
+
+// Bundled dependencies as the lockfile records them, where pnpm 10 writes
+// an empty list and pnpm 11 leaves it out.
+const listed = (bundled) => (Array.isArray(bundled) && bundled.length === 0 ? undefined : bundled)
 
 // A snapshot's dependencies against the package.json of its package, as
 // fetchPackage read it and `read` as hook.js's hook has it. One the
@@ -127,7 +132,7 @@ export function checkDependencies(manifest, read, pkg, where) {
     const target = pkg.dependencies[name] ?? pkg.optionalDependencies[name]
     if (target === undefined) continue
     const local = localOf(spec, `${where}: package.json`)
-    if (local === undefined || target === `link:${local.dir}`) continue
+    if (local === undefined || target === `link:${local.dir}` || (local.protocol === 'file:' && packageKeyOf(target).endsWith(`@file:${local.dir}`))) continue
     throw new DeptreeError(`the lockfile gives it ${quote(name)} as ${quote(target)}, and its package.json, overridden, names ${quote(local.dir)}`, where)
   }
   // A peer resolved is filed as optional where it is optional; pnpm's

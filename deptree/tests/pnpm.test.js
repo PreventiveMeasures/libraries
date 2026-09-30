@@ -405,6 +405,16 @@ snapshots:
     await assert.rejects(buildPnpmTree({ lockfile: lock(none), manifests: { '.': manifest('k') }, host: HOST }), /^DeptreeError: "k@1\.0\.0": package\.json has bins, and the lockfile says it has none$/u)
   })
 
+  it('takes an empty list of bundled dependencies as pnpm 10 and pnpm 11 record it', async () => {
+    const e = await tarball('e', '1.0.0', {}, { manifest: { bundleDependencies: [] } })
+    stubRegistry([e])
+    for (const fields of ['', '    bundledDependencies: []\n']) {
+      const { vfs } = await buildPnpmTree({ lockfile: lock(e, fields), manifests: { '.': manifest('e') }, host: HOST })
+      assert.equal(vfs.readText('/node_modules/e/package.json'), '{"name":"e","version":"1.0.0","bundleDependencies":[]}', JSON.stringify(fields))
+    }
+    await assert.rejects(buildPnpmTree({ lockfile: lock(e, '    bundledDependencies: [x]\n'), manifests: { '.': manifest('e') }, host: HOST }), /^DeptreeError: "e@1\.0\.0": package\.json bundles other than the lockfile says$/u)
+  })
+
   it('passes over the specifier of a dependency it bundles', async () => {
     const m = await tarball('m', '1.0.0', { 'node_modules/x/package.json': '{"name":"x","version":"1.0.0"}' }, { manifest: { dependencies: { x: 'file:../../x' }, bundledDependencies: ['x'] } })
     stubRegistry([m])
@@ -916,7 +926,7 @@ snapshots:
       const given = await linked('./vendor/foo', './vendor/foo')
       await assert.rejects(buildLinked(given), /^DeptreeError: overrides\["foo"\]: an override to a directory, "vendor\/foo", is read only from a Vfs given as vfs$/u)
       await assert.rejects(buildLinked(given, { vfs: createVfs({ 'package.json': given.manifest, 'vendor/foo/cli.js': '' }) }), /^DeptreeError: overrides\["foo"\]: "vendor\/foo" holds no package\.json in the Vfs given$/u)
-      await assert.rejects(buildLinked(await linked('file:./vendor/foo', 'file:vendor/foo'), { vfs: createVfs(vendored) }), /^DeptreeError: overrides\["foo"\]: an override to a copy of a directory, as file: has pnpm install it, is not supported/u)
+      await assert.rejects(buildLinked(await linked('file:./vendor/foo.tgz', 'file:vendor/foo.tgz'), { vfs: createVfs({ ...vendored, 'vendor/foo.tgz': '' }) }), /^DeptreeError: overrides\["foo"\]: "vendor\/foo\.tgz" is a file in the Vfs given, and an override to a tarball is not supported$/u)
     })
 
     // pnpm drops one byte order mark, and fails on JSON after it.
@@ -935,6 +945,166 @@ snapshots:
       const elsewhere = { ...vendored, 'vendor/bar/package.json': '{"name":"foo","version":"1.5.0"}' }
       const given = await linked('./vendor/foo', './vendor/foo', { appFoo: 'link:vendor/bar' })
       await assert.rejects(buildLinked(given, { vfs: createVfs({ 'package.json': given.manifest, ...elsewhere }) }), /^DeptreeError: "app@1\.0\.0": the lockfile gives it "foo" as "link:vendor\/bar", and its package\.json, overridden, names "vendor\/foo"$/u)
+    })
+  })
+
+  // pnpm installs a directory a `file:` override names as a package, of
+  // the files npm-packlist picks, hardlinked from it.
+  describe('with a file: override', () => {
+    const app = tarball('app', '1.0.0', { 'index.js': 'app' }, { manifest: { dependencies: { foo: '^1.0.0' } } })
+    const copied = async ({ hasBin = true, override = true } = {}) => `lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+${override ? '\noverrides:\n  foo: file:./vendor/foo\n' : ''}
+importers:
+
+  .:
+    dependencies:
+      app:
+        specifier: 1.0.0
+        version: 1.0.0
+      foo:
+        specifier: file:vendor/foo
+        version: file:vendor/foo
+
+packages:
+
+  app@1.0.0:
+    resolution: {integrity: ${(await app).integrity}}
+
+  foo@file:vendor/foo:
+    resolution: {directory: vendor/foo, type: directory}
+${hasBin ? '    hasBin: true\n' : ''}
+snapshots:
+
+  app@1.0.0:
+    dependencies:
+      foo: file:vendor/foo
+
+  foo@file:vendor/foo: {}
+`
+    const rootWith = (fields) => JSON.stringify({ name: 'root', dependencies: { app: '1.0.0', foo: '^1.0.0' }, ...fields })
+    const v10 = rootWith({ pnpm: { overrides: { foo: 'file:./vendor/foo' } } })
+    const vendored = { 'vendor/foo/package.json': '{"name":"foo","version":"1.5.0","bin":{"foo":"cli.js"}}', 'vendor/foo/cli.js': '#!/usr/bin/env node\r\nrun()\n', 'vendor/foo/index.js': 'foo', 'vendor/foo/.npmrc': 'a=b\n' }
+    const FOO = '/node_modules/.pnpm/foo@file+vendor+foo/node_modules/foo'
+
+    it('installs the files npm-packlist picks, as pnpm 10 and 11 do', async () => {
+      stubRegistry([await app])
+      for (const [host, manifest, workspace] of [[HOST, v10, undefined], [{ ...HOST, pnpm: '11.28.2' }, rootWith(), 'overrides:\n  foo: file:./vendor/foo\n']]) {
+        const { vfs, stats } = await buildPnpmTree({ lockfile: await copied(), manifests: { '.': manifest }, workspace, host, vfs: createVfs({ 'package.json': manifest, ...vendored }) })
+        assert.deepEqual(vfs.readdir(FOO), ['cli.js', 'index.js', 'package.json'], host.pnpm)
+        assert.equal(vfs.realpath('/node_modules/foo'), FOO)
+        assert.equal(vfs.realpath('/node_modules/.pnpm/app@1.0.0/node_modules/foo'), FOO)
+        assert.equal(vfs.readText(`${FOO}/cli.js`), '#!/usr/bin/env node\nrun()\n')
+        assert.equal(vfs.stat(`${FOO}/cli.js`).mode, 0o755)
+        assert.equal(vfs.stat('/vendor/foo/cli.js').mode, 0o644, 'nothing outside node_modules is written')
+        assert.equal(stats.tarballs, 1)
+      }
+    })
+
+    // pnpm 10 records an empty list of bundled dependencies, and pnpm 11
+    // leaves it out; npm-packlist bundles none by it.
+    it('takes an empty list of bundled dependencies', async () => {
+      stubRegistry([await app])
+      const listed = { ...vendored, 'vendor/foo/package.json': '{"name":"foo","version":"1.5.0","bin":{"foo":"cli.js"},"bundleDependencies":[]}' }
+      const lockfile10 = (await copied()).replace('    hasBin: true\n', '    bundledDependencies: []\n    hasBin: true\n')
+      for (const [host, manifest, workspace, written] of [[HOST, v10, undefined, lockfile10], [{ ...HOST, pnpm: '11.28.2' }, rootWith(), 'overrides:\n  foo: file:./vendor/foo\n', await copied()]]) {
+        const { vfs } = await buildPnpmTree({ lockfile: written, manifests: { '.': manifest }, workspace, host, vfs: createVfs({ 'package.json': manifest, ...listed }) })
+        assert.deepEqual(vfs.readdir(FOO), ['cli.js', 'index.js', 'package.json'], host.pnpm)
+      }
+    })
+
+    // pnpm links foo's `tool` into the root's .bin, and zz's over it into
+    // app2's: fixBin's chmod reaches foo's file in every snapshot, which
+    // are hardlinks of it, and its CRLF rewrite the one it is run in alone.
+    it('makes a bin executable in every snapshot, and rewrites it in the one linking fixes it in', async () => {
+      const bins = await Promise.all([
+        tarball('app2', '1.0.0', {}, { manifest: { dependencies: { foo: '^1.0.0', zz: '1.0.0', p: '2.0.0' } } }),
+        tarball('p', '1.0.0'),
+        tarball('p', '2.0.0'),
+        tarball('zz', '1.0.0', { 'z.js': '#!z\n' }, { manifest: { bin: { tool: 'z.js' } } }),
+      ])
+      stubRegistry(bins)
+      const entry = (t, fields = '') => `  ${t.name}@${t.version}:\n    resolution: {integrity: ${t.integrity}}\n${fields}`
+      const twoPeers = `lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+overrides:
+  foo: file:./vendor/foo
+
+importers:
+
+  .:
+    dependencies:
+      app2:
+        specifier: 1.0.0
+        version: 1.0.0
+      foo:
+        specifier: file:vendor/foo
+        version: file:vendor/foo(p@1.0.0)
+      p:
+        specifier: 1.0.0
+        version: 1.0.0
+
+packages:
+
+${entry(bins[0])}
+  foo@file:vendor/foo:
+    resolution: {directory: vendor/foo, type: directory}
+    hasBin: true
+    peerDependencies:
+      p: '*'
+
+${entry(bins[1])}
+${entry(bins[2])}
+${entry(bins[3], '    hasBin: true\n')}
+snapshots:
+
+  app2@1.0.0:
+    dependencies:
+      foo: file:vendor/foo(p@2.0.0)
+      p: 2.0.0
+      zz: 1.0.0
+
+  foo@file:vendor/foo(p@1.0.0):
+    dependencies:
+      p: 1.0.0
+
+  foo@file:vendor/foo(p@2.0.0):
+    dependencies:
+      p: 2.0.0
+
+  p@1.0.0: {}
+
+  p@2.0.0: {}
+
+  zz@1.0.0: {}
+`
+      const manifest = rootWith({ dependencies: { app2: '1.0.0', foo: '^1.0.0', p: '1.0.0' }, pnpm: { overrides: { foo: 'file:./vendor/foo' } } })
+      const source = { 'vendor/foo/package.json': '{"name":"foo","version":"1.5.0","peerDependencies":{"p":"*"},"bin":{"tool":"cli.js"}}', 'vendor/foo/cli.js': '#!/usr/bin/env node\r\nrun()\n' }
+      const { vfs } = await buildPnpmTree({ lockfile: twoPeers, manifests: { '.': manifest }, host: HOST, vfs: createVfs({ 'package.json': manifest, ...source }) })
+      const cli = (peer) => `/node_modules/.pnpm/foo@file+vendor+foo_p@${peer}/node_modules/foo/cli.js`
+      assert.deepEqual([vfs.stat(cli('1.0.0')).mode, vfs.readText(cli('1.0.0'))], [0o755, '#!/usr/bin/env node\nrun()\n'])
+      assert.deepEqual([vfs.stat(cli('2.0.0')).mode, vfs.readText(cli('2.0.0'))], [0o755, '#!/usr/bin/env node\r\nrun()\n'])
+    })
+
+    it('refuses it without a Vfs, or as the lockfile does not have it', async () => {
+      stubRegistry([await app])
+      await assert.rejects(buildPnpmTree({ lockfile: await copied(), manifests: { '.': v10 }, host: HOST }), /^DeptreeError: overrides\["foo"\]: an override to a directory, "vendor\/foo", is read only from a Vfs given as vfs$/u)
+      await assert.rejects(buildPnpmTree({ lockfile: await copied({ hasBin: false }), manifests: { '.': v10 }, host: HOST, vfs: createVfs({ 'package.json': v10, ...vendored }) }), /^DeptreeError: "foo@file:vendor\/foo": package\.json has bins, and the lockfile says it has none$/u)
+      const other = { ...vendored, 'vendor/foo/package.json': '{"name":"bar","version":"1.5.0","bin":{"foo":"cli.js"}}' }
+      await assert.rejects(buildPnpmTree({ lockfile: await copied(), manifests: { '.': v10 }, host: HOST, vfs: createVfs({ 'package.json': v10, ...other }) }), /^DeptreeError: "foo@file:vendor\/foo": its package\.json is for "bar"$/u)
+    })
+
+    it('refuses a dependency on a directory no file: override names', async () => {
+      stubRegistry([await app])
+      const direct = rootWith({ dependencies: { app: '1.0.0', foo: 'file:vendor/foo' } })
+      await assert.rejects(buildPnpmTree({ lockfile: await copied({ override: false }), manifests: { '.': direct }, host: HOST, vfs: createVfs({ 'package.json': direct, ...vendored }) }), /^DeptreeError: "foo@file:vendor\/foo": a dependency on a local directory is supported only where a file: override names it$/u)
     })
   })
 
