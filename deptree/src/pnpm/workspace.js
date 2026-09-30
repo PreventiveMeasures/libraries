@@ -51,17 +51,18 @@ function compile(glob, where, dot) {
 // its names on takes the path from each of its names on, the last first,
 // once each and with no recursion, however many `**` it has.
 function takes({ names: glob, dot }, names) {
-  // What the glob from each name on takes of the path from the next name.
+  // What the glob from each name on takes of the path from the next name,
+  // and from this one: two rows, swapped for each name.
   let next = Array.from({ length: glob.length + 1 }, () => true)
+  let here = Array.from({ length: glob.length + 1 }, () => false)
   for (let g = glob.length - 1; g >= 0; g--) next[g] = glob[g] === '**' && next[g + 1]
   for (let n = names.length - 1; n >= 0; n--) {
-    const here = Array.from({ length: glob.length + 1 }, () => false)
     for (let g = glob.length - 1; g >= 0; g--) {
       here[g] = glob[g] === '**'
         ? here[g + 1] || ((dot || !names[n].startsWith('.')) && next[g])
         : glob[g].test(names[n]) && next[g + 1]
     }
-    next = here
+    [next, here] = [here, next]
   }
   return next[0]
 }
@@ -147,7 +148,11 @@ const MANIFESTS = ['package.json', 'package.json5', 'package.yaml']
 export function findProjects(vfs, packages, major = 10) {
   const globs = compileAll(packages, major)
   const ids = []
-  const visit = (names) => {
+  // The directories left to read, by their names: a stack, not recursion,
+  // however deep the tree.
+  const pending = [[]]
+  while (pending.length > 0) {
+    const names = pending.pop()
     const dir = names.join('/')
     const entries = vfs.readdir(`/${dir}`)
     const found = names.length === 0 || taken(globs, [...names, 'package.json'])
@@ -167,11 +172,10 @@ export function findProjects(vfs, packages, major = 10) {
       if (!walked(globs, at)) continue
       const path = `/${at.join('/')}`
       const { type } = vfs.lstat(path)
-      if (type === 'directory') visit(at)
+      if (type === 'directory') pending.push(at)
       else if (type === 'symlink' && followed(globs, at) && typeOf(vfs, path) === 'directory') throw new DeptreeError('a link to a directory pnpm-workspace.yaml\'s packages could find a project in is not supported: tinyglobby follows it', quote(at.join('/')))
     }
   }
-  visit([])
   return ['.', ...ids.sort()]
 }
 

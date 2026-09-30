@@ -136,6 +136,22 @@ describe('the globs', () => {
     assert.throws(() => findProjects({ readdir: (path) => dirs.get(path), lstat: typeOf, stat: typeOf }, ['*'], 10), /as a lockfile can key an importer$/u)
   })
 
+  // The call stack is as deep reading the deepest directory as the top.
+  it('walk however deep a tree is, with no recursion', () => {
+    const leaf = `/${Array.from({ length: 200 }, () => 'd').join('/')}`
+    const depths = new Map()
+    const typeOf = (path) => ({ type: path.endsWith('/package.json') ? 'file' : 'directory' })
+    const readdir = (path) => {
+      const limit = Error.stackTraceLimit
+      Error.stackTraceLimit = Infinity
+      depths.set(path, new Error('depth').stack.split('\n').length)
+      Error.stackTraceLimit = limit
+      return path === leaf ? ['package.json'] : ['d', ...path === '/' ? ['package.json'] : []]
+    }
+    assert.deepEqual(findProjects({ readdir, lstat: typeOf, stat: typeOf }, ['**'], 10), ['.', leaf.slice(1)])
+    assert.equal(depths.get(leaf), depths.get('/'))
+  })
+
   it('match however many `**` a glob has, with no recursion, in time linear in them', () => {
     assert.throws(() => checkWorkspace(['.', 'd/d'], [`${'**/'.repeat(100_000)}x`]), /do not take this directory/u)
     checkWorkspace(['.', 'd/d'], [`${'**/'.repeat(100_000)}d`])
