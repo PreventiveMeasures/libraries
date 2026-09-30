@@ -26,6 +26,7 @@
 
 import { join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
+import { readBytes } from './project.js'
 
 // The rules each name is held to, folded, wherever it is.
 const ANYWHERE = /^(?:\.git|\.svn|\.hg|cvs|\.npmrc|\.ds_store|npm-debug\.log|\.npmignore|\.gitignore|\._.*|\..*\.swp|.*\.orig)$/u
@@ -64,20 +65,20 @@ function namedByManifest(manifest) {
 // empty one bundles none, with either npm-packlist.
 const bundles = (list) => Boolean(list) && !(Array.isArray(list) && list.length === 0)
 
-// The files of the package at `dir` of `vfs` npm-packlist picks, with
+// The files of the package at `dir` of `project` npm-packlist picks, with
 // their data and modes, by their paths from it; `manifest` is its
 // package.json as parsed.
-export function packDirectory(vfs, dir, manifest, major, where) {
+export function packDirectory(project, dir, manifest, major, where) {
   if (manifest.files !== undefined) throw new DeptreeError('its package.json has `files`, which npm-packlist picks the files pnpm installs by, and which is not followed here', where)
   if (bundles(manifest.bundleDependencies) || bundles(manifest.bundledDependencies)) throw new DeptreeError('a directory with bundled dependencies is not supported', where)
   const named = namedByManifest(manifest)
   const files = new Map()
   const visit = (names) => {
-    for (const entry of vfs.readdir(['', dir, ...names].join('/'))) {
+    for (const entry of project.readdir(['', dir, ...names].join('/'))) {
       const at = [...names, entry]
       const rel = at.join('/')
       const here = `${where}: ${quote(rel)}`
-      const { type, mode } = vfs.lstat(`/${dir}/${rel}`)
+      const { type, mode } = project.lstat(`/${dir}/${rel}`)
       if (type === 'symlink') throw new DeptreeError('a link in a directory pnpm installs a copy of is not supported', here)
       if (entry === '.npmignore' || entry === '.gitignore') throw new DeptreeError(`${entry}'s rules, which npm-packlist picks the files pnpm installs by, are not followed here`, here)
       if (names.length === 0 && entry !== 'node_modules' && entry.toLowerCase() === 'node_modules') throw new DeptreeError('a name that is node_modules but for its case is kept by pnpm 10 and left out by pnpm 11', here)
@@ -91,7 +92,7 @@ export function packDirectory(vfs, dir, manifest, major, where) {
       }
       if (type === 'directory') visit(at)
       else if (mode !== 0o644 && mode !== 0o755) throw new DeptreeError(`its mode, ${mode.toString(8)}, is not 644 or 755, which is not supported`, here)
-      else files.set(rel, { data: vfs.readFile(`/${dir}/${rel}`), mode })
+      else files.set(rel, { data: readBytes(project, `/${dir}/${rel}`), mode })
     }
   }
   visit([])

@@ -1,0 +1,120 @@
+// What buildPnpmTree and findPnpmProjects take, checked: the host pnpm
+// would install on, and the files an install reads — given as text, or
+// read from the project (project.js) as pnpm reads them from disk.
+
+import { parseYaml } from '@preventive/lockfile/yaml.js'
+import { valid } from '@preventive/upstream/semver.js'
+import { DeptreeError, quote } from '../error.js'
+import { checkProject, readManifestTexts, readPatches, readRootFiles, readText, readWorkspaceText } from './project.js'
+import { pinnedPnpm, readManifest, readManifests } from './projects.js'
+import { readers } from './readers.js'
+import { findProjects } from './workspace.js'
+
+const LIBC = new Set(['glibc', 'musl', 'unknown'])
+
+// The major version of `pnpm`, 10 or 11: what pnpm 11 does differently is
+// read by it, where it is.
+function majorOf(pnpm) {
+  const major = Number(valid(pnpm)?.split('.')[0])
+  if (major !== 10 && major !== 11) throw new DeptreeError(`pnpm ${quote(pnpm)} is not supported: only pnpm 10 and 11 are`, 'host.pnpm')
+  return major
+}
+
+// The pnpm that installs, and its major version: `pnpm`, host.pnpm, or
+// where that is left out, the one `root`, the root package.json as
+// parsed, pins by its packageManager, which is the only one it takes.
+function pnpmOf(pnpm, root) {
+  if (pnpm !== undefined && (typeof pnpm !== 'string' || pnpm === '')) throw new TypeError('host.pnpm must be a non-empty string, or left out')
+  const version = pnpm ?? pinnedPnpm(root?.packageManager)
+  if (version === undefined) throw new TypeError('host.pnpm must be given where the root package.json\'s packageManager pins no pnpm')
+  return { pnpm: version, major: majorOf(version) }
+}
+
+// All of host but its pnpm, which pnpmOf reads.
+export function checkHost(host) {
+  if (host === null || typeof host !== 'object') throw new TypeError('host must be an object with node, os, cpu and libc, and pnpm where it is not pinned')
+  for (const key of ['node', 'os', 'cpu', 'libc']) {
+    if (typeof host[key] !== 'string' || host[key] === '') throw new TypeError(`host.${key} must be a non-empty string`)
+  }
+  const { node, os, libc } = host
+  if (valid(node) === null) throw new DeptreeError(`${quote(node)} is not an exact version`, 'host.node')
+  if (os === 'win32') throw new DeptreeError('Windows is not supported: pnpm links there with junctions to absolute paths', 'host.os')
+  if (!LIBC.has(libc)) throw new DeptreeError(`expected "glibc", "musl" or "unknown", found ${quote(libc)}`, 'host.libc')
+  return { node, os, cpu: host.cpu, libc }
+}
+
+// pnpm-workspace.yaml as parsed; one of comments alone, or nothing, sets
+// nothing, as pnpm reads it.
+export const readWorkspace = (text) => (text === undefined || /^(?:[\t ]*(?:#.*)?(?:\r?\n|$))*$/u.test(text) ? undefined : parseYaml(text))
+
+// The root package.json in `project`, as parsed, where there is one.
+const ROOT = 'manifests["."]'
+function readRoot(project) {
+  const text = readText(project, '/package.json', ROOT)
+  return text === undefined ? undefined : readManifest(text, ROOT)
+}
+
+// The projects pnpm `major` finds in `project` for `workspace`,
+// pnpm-workspace.yaml as parsed, whose packages are read here before the
+// rest of it is.
+function projectsIn(project, workspace, major) {
+  if (workspace !== undefined && (workspace === null || typeof workspace !== 'object' || Array.isArray(workspace))) throw new DeptreeError('expected a mapping', 'pnpm-workspace.yaml')
+  const packages = workspace?.packages === undefined ? undefined : readers.globs(workspace.packages, 'pnpm-workspace.yaml: packages')
+  return findProjects(project, packages, major)
+}
+
+// The directories of the projects pnpm finds in `project`, which
+// buildPnpmTree takes the package.json of each of.
+export function findPnpmProjects(options) {
+  const { project, host } = options ?? {}
+  checkProject(project)
+  if (host !== undefined && (host === null || typeof host !== 'object')) throw new TypeError('host must be an object, or left out')
+  const { major } = pnpmOf(host?.pnpm, readRoot(project))
+  return projectsIn(project, readWorkspace(readWorkspaceText(project)), major)
+}
+
+const LOCKFILE = 'lockfile must be the text of pnpm-lock.yaml, or left out with a project given to read it from'
+
+// The files an install reads but the package.json and the patches: given,
+// with `lockfile`, or read from `project` without it.
+export function inputsOf(options) {
+  const { lockfile, manifests, workspace, npmrc, patches, project } = options
+  if (lockfile === undefined) {
+    if (project === undefined) throw new TypeError(LOCKFILE)
+    for (const [name, value] of Object.entries({ manifests, workspace, npmrc, patches })) {
+      if (value !== undefined) throw new TypeError(`${name} must be left out where lockfile is: both are read from project`)
+    }
+    return { reading: true, project, ...readRootFiles(project) }
+  }
+  if (typeof lockfile !== 'string') throw new TypeError(LOCKFILE)
+  for (const [name, value] of Object.entries({ workspace, npmrc })) {
+    if (value !== undefined && typeof value !== 'string') throw new TypeError(`${name} must be a string, or left out`)
+  }
+  return { reading: false, lockfile, manifests, workspace, npmrc, patches }
+}
+
+// The package.json of every project, and the pnpm that installs as pnpmOf
+// reads it from the root one: as given, or read from the project for
+// each project pnpm finds there and each importer, one not there left
+// out. `workspace` is pnpm-workspace.yaml as parsed; `pnpm` host.pnpm.
+export function manifestsOf(inputs, workspace, lockfile, pnpm) {
+  if (!inputs.reading) {
+    const manifests = readManifests(inputs.manifests, lockfile)
+    return { manifests, ...pnpmOf(pnpm, manifests.get('.')) }
+  }
+  const { project } = inputs
+  const installs = pnpmOf(pnpm, readRoot(project))
+  const ids = new Set([...projectsIn(project, workspace, installs.major), ...Object.keys(lockfile.importers)])
+  return { manifests: readManifests(readManifestTexts(project, ids), lockfile), ...installs }
+}
+
+// The patch files, by path: as given, or read from the project, each that
+// `configured`, patchedDependencies, names.
+export function patchesOf(inputs, configured) {
+  if (inputs.reading) return readPatches(inputs.project, configured)
+  const entries = inputs.patches instanceof Map ? [...inputs.patches] : Object.entries(inputs.patches ?? {})
+  for (const [path, text] of entries) {
+    if (typeof text !== 'string') throw new TypeError(`patches[${quote(path)}] must be a string`)
+  }
+  return entries
+}

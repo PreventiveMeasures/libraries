@@ -20,10 +20,8 @@
 // memory — its package's, patched, bins fixed — before one write of each.
 
 import { packageKeyOf, parsePnpmLockfile } from '@preventive/lockfile/pnpm.js'
-import { parseYaml } from '@preventive/lockfile/yaml.js'
 import { Vfs, VfsError } from '@preventive/vfs'
 import { dirname, relative } from '@preventive/vfs/path.js'
-import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { checkNoModules, mount } from '../mount.js'
 import { applyPatch, parsePatch } from '../patch.js'
@@ -36,35 +34,14 @@ import { createPatchedCheck, skippedSnapshots } from './install.js'
 import { checkCollisions, checkLinks, checkOptional } from './checks.js'
 import { createHook } from './hook.js'
 import { listOverrides } from './overrides.js'
-import { checkProjects, readManifests, workspaceNames } from './projects.js'
-import { readers } from './readers.js'
+import { checkHost, inputsOf, manifestsOf, patchesOf, readWorkspace } from './inputs.js'
+import { checkProject } from './project.js'
+import { checkProjects, workspaceNames } from './projects.js'
 import { readSettings } from './settings.js'
 import { checkUpToDate } from './uptodate.js'
-import { checkWorkspace, findProjects } from './workspace.js'
+import { checkWorkspace } from './workspace.js'
 
 const CONCURRENCY = 8
-const LIBC = new Set(['glibc', 'musl', 'unknown'])
-
-// The major version of `pnpm`, 10 or 11: what pnpm 11 does differently is
-// read by it, where it is.
-function majorOf(pnpm) {
-  const major = Number(valid(pnpm)?.split('.')[0])
-  if (major !== 10 && major !== 11) throw new DeptreeError(`pnpm ${quote(pnpm)} is not supported: only pnpm 10 and 11 are`, 'host.pnpm')
-  return major
-}
-
-function checkHost(host) {
-  if (host === null || typeof host !== 'object') throw new TypeError('host must be an object with pnpm, node, os, cpu and libc')
-  for (const key of ['pnpm', 'node', 'os', 'cpu', 'libc']) {
-    if (typeof host[key] !== 'string' || host[key] === '') throw new TypeError(`host.${key} must be a non-empty string`)
-  }
-  const { pnpm, node, os, libc } = host
-  const major = majorOf(pnpm)
-  if (valid(node) === null) throw new DeptreeError(`${quote(node)} is not an exact version`, 'host.node')
-  if (os === 'win32') throw new DeptreeError('Windows is not supported: pnpm links there with junctions to absolute paths', 'host.os')
-  if (!LIBC.has(libc)) throw new DeptreeError(`expected "glibc", "musl" or "unknown", found ${quote(libc)}`, 'host.libc')
-  return { pnpm, major, node, os, cpu: host.cpu, libc }
-}
 
 // What the lockfile holds that no tree is built for here.
 function checkLockfile(lockfile) {
@@ -107,8 +84,8 @@ const packageFields = (pkg) => JSON.stringify(PACKAGE_FIELDS.map((field) => pkg[
 // Each package's files and package.json, by its name and version: a
 // package is fetched once however many snapshots it has, a few at a time,
 // and the first failure stops the rest from starting. One installed from
-// a directory is read from `vfs`, as npm-packlist picks its files.
-async function fetchAll(nodes, vfs, major) {
+// a directory is read from `project`, as npm-packlist picks its files.
+async function fetchAll(nodes, project, major) {
   const packages = new Map()
   for (const { key, pkg } of nodes.values()) {
     const id = packageKeyOf(key)
@@ -123,7 +100,7 @@ async function fetchAll(nodes, vfs, major) {
       const [id, pkg] = queue.shift()
       try {
         if (pkg.resolution.type === 'directory') {
-          const got = readDirectoryPackage(vfs, pkg, quote(id), major)
+          const got = readDirectoryPackage(project, pkg, quote(id), major)
           checkManifest(got.manifest, pkg, quote(id))
           fetched.set(id, { ...got, local: true })
         } else fetched.set(id, await fetchPackage(pkg, quote(id)))
@@ -140,8 +117,8 @@ async function fetchAll(nodes, vfs, major) {
 // Each node with its package's files and package.json, by its directory:
 // its dependencies held to the package.json, as `hook` reads it once for
 // each package; and the number of tarballs fetched.
-async function fetchNodes(nodes, hook, vfs, major) {
-  const fetched = await fetchAll(nodes, vfs, major)
+async function fetchNodes(nodes, hook, project, major) {
+  const fetched = await fetchAll(nodes, project, major)
   const byDir = new Map()
   for (const node of nodes.values()) {
     const id = packageKeyOf(node.key)
@@ -244,56 +221,31 @@ function linksOf(byDir, direct, settings, projects, major) {
   return links
 }
 
-// pnpm-workspace.yaml as parsed; one of comments alone, or nothing, sets
-// nothing, as pnpm reads it.
-const readWorkspace = (text) => (text === undefined || /^(?:[\t ]*(?:#.*)?(?:\r?\n|$))*$/u.test(text) ? undefined : parseYaml(text))
-
-// The directories of the projects pnpm finds for the workspace at the
-// root of `vfs`, which buildPnpmTree takes the package.json of each of.
-export function findPnpmProjects(options) {
-  const { workspace, host, vfs } = options ?? {}
-  if (workspace !== undefined && typeof workspace !== 'string') throw new TypeError('workspace must be a string, or left out')
-  if (typeof host?.pnpm !== 'string' || host.pnpm === '') throw new TypeError('host.pnpm must be a non-empty string')
-  if (['readdir', 'lstat', 'stat'].some((name) => typeof vfs?.[name] !== 'function')) throw new TypeError('vfs must be a Vfs, or have its readdir, lstat and stat')
-  const major = majorOf(host.pnpm)
-  const read = readWorkspace(workspace)
-  if (read !== undefined && (read === null || typeof read !== 'object' || Array.isArray(read))) throw new DeptreeError('expected a mapping', 'pnpm-workspace.yaml')
-  const packages = read?.packages === undefined ? undefined : readers.globs(read.packages, 'pnpm-workspace.yaml: packages')
-  return findProjects(vfs, packages, major)
-}
-
-function readPatchesGiven(patches) {
-  const entries = patches instanceof Map ? [...patches] : Object.entries(patches ?? {})
-  for (const [path, text] of entries) {
-    if (typeof text !== 'string') throw new TypeError(`patches[${quote(path)}] must be a string`)
-  }
-  return entries
-}
-
 export async function buildPnpmTree(options) {
-  const { lockfile: text, manifests: manifestTexts, workspace, npmrc, patches, host: machine, vfs: into } = options ?? {}
-  if (typeof text !== 'string') throw new TypeError('lockfile must be the text of pnpm-lock.yaml')
+  const { project, host: given, vfs: into } = options ?? {}
   if (into !== undefined && !(into instanceof Vfs)) throw new TypeError('vfs must be a Vfs, or left out')
-  for (const [name, value] of [['workspace', workspace], ['npmrc', npmrc]]) {
-    if (value !== undefined && typeof value !== 'string') throw new TypeError(`${name} must be a string, or left out`)
-  }
-  const host = checkHost(machine)
-  const folded = host.os === 'darwin'
+  if (project !== undefined) checkProject(project)
+  const machine = checkHost(given)
+  const folded = machine.os === 'darwin'
   // Refused before anything is fetched; mount checks again.
   if (into !== undefined) checkNoModules(into, folded)
-  const { lockfile, env } = parsePnpmLockfile(text)
+  const inputs = inputsOf(options)
+  const { lockfile, env } = parsePnpmLockfile(inputs.lockfile)
+  if (!('.' in lockfile.importers)) throw new DeptreeError('expected the root project, whose package.json holds settings', 'importers')
+  checkLockfile(lockfile)
+  const workspace = readWorkspace(inputs.workspace)
+  const { manifests, pnpm, major } = manifestsOf(inputs, workspace, lockfile, given.pnpm)
+  const host = { pnpm, major, ...machine }
   // pnpm 11 locks config dependencies there, which are refused, and the
   // pnpm a project pins, which leaves the tree as it is.
   if (env !== undefined && host.major < 11) throw new DeptreeError('the env document pnpm 11 writes is not supported', 'env')
   if (env !== undefined && Object.keys(env.importers['.'].configDependencies).length > 0) throw new DeptreeError('config dependencies are not supported', 'env.importers["."].configDependencies')
-  if (!('.' in lockfile.importers)) throw new DeptreeError('expected the root project, whose package.json holds settings', 'importers')
-  const manifests = readManifests(manifestTexts, lockfile)
-  const settings = readSettings({ workspace: readWorkspace(workspace), npmrc, manifest: manifests.get('.'), major: host.major })
-  checkLockfile(lockfile)
+  const settings = readSettings({ workspace, npmrc: inputs.npmrc, manifest: manifests.get('.'), major: host.major })
   checkWorkspace(Object.keys(lockfile.importers), settings.packages, host.major)
   const overrides = listOverrides(settings.overrides, settings.catalogs, host.major)
-  const installed = checkLocalOverrides(overrides, into)
-  const given = await checkUpToDate(lockfile, settings, overrides, readPatchesGiven(patches), host.major)
+  const installed = checkLocalOverrides(overrides, project)
+  const patches = patchesOf(inputs, settings.patchedDependencies)
+  const patched = await checkUpToDate(lockfile, settings, overrides, patches, host.major)
   const hook = createHook({ overrides, ignored: settings.ignoredOptionalDependencies, major: host.major })
   checkProjects(lockfile, manifests, { hook, host, settings })
   checkOptional(lockfile)
@@ -302,9 +254,9 @@ export async function buildPnpmTree(options) {
   const { nodes, direct } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, host.major)
   for (const node of nodes.values()) checkSource(node, installed)
 
-  const { byDir, tarballs } = await fetchNodes(nodes, hook, into, host.major)
+  const { byDir, tarballs } = await fetchNodes(nodes, hook, project, host.major)
   const links = linksOf(byDir, direct, settings, projects, host.major)
-  const linked = readLinked(links, byDir, manifests, into)
+  const linked = readLinked(links, byDir, manifests, project)
   const targets = binTargets({
     nodes: byDir,
     projects: new Map([...manifests, ...linked]),
@@ -327,7 +279,7 @@ export async function buildPnpmTree(options) {
     if (node.pkg.patchHash !== undefined) stats.patched++
     try {
       vfs.mkdir(`/${node.dir}`, { recursive: true })
-      for (const [path, file] of compose(node, given, { targets: targets.get(node.dir) ?? new Set(), executable: executable.get(node.dir) ?? new Set() }, composing)) {
+      for (const [path, file] of compose(node, patched, { targets: targets.get(node.dir) ?? new Set(), executable: executable.get(node.dir) ?? new Set() }, composing)) {
         if (file.directory) vfs.mkdir(`/${node.dir}/${path}`, { recursive: true })
         else if (writeOnce(vfs, `/${node.dir}/${path}`, file)) {
           stats.files++

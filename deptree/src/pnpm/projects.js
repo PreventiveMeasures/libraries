@@ -150,6 +150,13 @@ function devEnginesPackageManager(devEngines, where) {
   return { name: engine.name, onFail }
 }
 
+// The version of pnpm packageManager names, as pnpm's parsePackageManager
+// reads it, where it names pnpm at an exact version.
+export function pinnedPnpm(packageManager) {
+  const version = typeof packageManager === 'string' ? /^pnpm@([^+:@]+)(?:\+.*)?$/u.exec(packageManager)?.[1] : undefined
+  return isExactVersion(version) ? version : undefined
+}
+
 // packageManager as pnpm's parsePackageManager reads it, held to be this
 // pnpm, exactly: pnpm switches to the version it names, and one it cannot
 // switch to, or another package manager, is refused rather than run over.
@@ -167,8 +174,8 @@ function checkPackageManager(manifest, host, pmOnFail) {
   }
   if (packageManager === undefined) return
   const where = 'manifests["."].packageManager'
-  const version = typeof packageManager === 'string' ? /^pnpm@([^+:@]+)(?:\+.*)?$/u.exec(packageManager)?.[1] : undefined
-  if (!isExactVersion(version)) throw new DeptreeError(`${quote(String(packageManager))} is not pnpm at an exact version`, where)
+  const version = pinnedPnpm(packageManager)
+  if (version === undefined) throw new DeptreeError(`${quote(String(packageManager))} is not pnpm at an exact version`, where)
   if (version !== host.pnpm) throw new DeptreeError(`the project is installed by pnpm ${version}, which pnpm switches to, not ${host.pnpm}`, where)
 }
 
