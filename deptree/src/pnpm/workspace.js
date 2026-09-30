@@ -6,8 +6,7 @@
 // bower_components. Without `packages`, or without pnpm-workspace.yaml,
 // the root is the only project. pnpm finds them on disk: findProjects
 // finds them so in the directories it is given, and checkWorkspace holds
-// the lockfile's importers to them. pnpm installs every one, one the
-// lockfile has no importer for as one with an empty importer.
+// the lockfile's importers to them.
 //
 // A glob is read as tinyglobby reads it, normalized as a path first, as
 // far as `*` and `**` go: `*` any run of characters in one directory's
@@ -25,22 +24,17 @@ import { escape } from '../matcher.js'
 
 const UNSUPPORTED = /[?[\]{}()\\]/u
 
-// tinyglobby's path.posix.normalize of a glob, from the workspace's
-// directory, by its names.
-function normalizeGlob(glob, where) {
-  const path = normalize(`./${glob}`)
-  if (path === '..' || path.startsWith('../')) throw new DeptreeError(`${quote(glob)} reaches outside the workspace's directory, which is not supported`, where)
-  return path.split('/')
-}
-
 // A name's pattern: `*` any run of characters, line terminators among
 // them, but not a leading dot unless `dot`.
 const NAME = (name, dot) => new RegExp(`^${name.startsWith('*') && !dot ? '(?!\\.)' : ''}${name.split('*').map(escape).join('[^/]*')}$`, 'u')
 
-// A glob as the names of the paths it takes: each `**`, or the pattern of
-// one name; `dot` whether `**` takes a name with a leading dot.
+// A glob as the names of the paths it takes, normalized as tinyglobby
+// does: each `**`, or the pattern of one name; `dot` whether `**` takes a
+// name with a leading dot.
 function compile(glob, where, dot) {
-  const names = normalizeGlob(`${glob}/package.json`, where)
+  const path = normalize(`./${glob}/package.json`)
+  if (path.startsWith('../')) throw new DeptreeError(`${quote(glob)} reaches outside the workspace's directory, which is not supported`, where)
+  const names = path.split('/')
   if (glob === '' || glob.startsWith('/') || UNSUPPORTED.test(glob) || glob.includes('!') || names.some((name) => name !== '**' && name.includes('**'))) {
     throw new DeptreeError(`${quote(glob)} is not supported: only \`*\`, \`**\` as a whole name and a leading \`!\` are`, where)
   }
@@ -105,8 +99,9 @@ function compileAll(packages, major) {
 const IGNORED = ['node_modules', 'bower_components'].map((name) => ({ names: ['**', NAME(name, false), '**'], dot: false }))
 const ignored = (names) => IGNORED.some((glob) => takes(glob, names))
 
-// Whether the globs take the manifest at `names`.
-const taken = ({ include, exclude }, names) => include.some((glob) => takes(glob, names)) && !exclude.some((glob) => takes(glob, names)) && !ignored(names)
+// Whether the globs take the manifest at `names`. What find-packages
+// ignores it is not ignored for, in a directory tinyglobby walks into.
+const taken = ({ include, exclude }, names) => include.some((glob) => takes(glob, names)) && !exclude.some((glob) => takes(glob, names))
 
 // Whether tinyglobby walks into the directory at `names`, which it does
 // through a link to one too.
@@ -182,14 +177,14 @@ export function findProjects(vfs, packages, major = 10) {
     for (const entry of entries) {
       const at = [...names, entry]
       if (!walked(globs, at)) continue
-      const path = `/${at.join('/')}`
-      const { type } = vfs.lstat(path)
-      const linked = type === 'symlink' && typeOf(vfs, path) === 'directory'
+      const path = at.join('/')
+      const { type } = vfs.lstat(`/${path}`)
+      const linked = type === 'symlink' && typeOf(vfs, `/${path}`) === 'directory'
       if (type !== 'directory' && !linked) continue
-      if (entry === 'node_modules') throw new DeptreeError('pnpm-workspace.yaml\'s packages walk into this node_modules, which is not supported', quote(at.join('/')))
+      if (entry === 'node_modules') throw new DeptreeError('pnpm-workspace.yaml\'s packages walk into this node_modules, which is not supported', quote(path))
       if (!linked) pending.push({ names: at, link })
-      else if (link === undefined) pending.push({ names: at, link: at.join('/') })
-      else throw new DeptreeError(`a link to a directory in one tinyglobby follows, ${quote(at.join('/'))}, is not supported`, quote(link))
+      else if (link === undefined) pending.push({ names: at, link: path })
+      else throw new DeptreeError(`a link to a directory in one tinyglobby follows, ${quote(path)}, is not supported`, quote(link))
     }
   }
   return ['.', ...ids.sort()]

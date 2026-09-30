@@ -232,9 +232,7 @@ export function buildPnpmTree(options: PnpmTreeOptions): Promise<PnpmTree>
 // The directories of the projects pnpm finds for the workspace at the
 // root of `vfs`, by which buildPnpmTree takes their package.json: `.`, the
 // root, first, then in order each directory whose package.json a glob of
-// `workspace`'s `packages` takes, as pnpm `host.pnpm` finds them. Given
-// the package.json of each, buildPnpmTree holds each to its importer as
-// pnpm does, one the lockfile has none for to an empty one.
+// `workspace`'s `packages` takes, as pnpm `host.pnpm` finds them.
 //
 // `vfs` is a Vfs, or anything with its readdir, lstat and stat, such as a
 // view of a directory on disk, by paths from `/`; nothing is written. Of
@@ -243,19 +241,16 @@ export function buildPnpmTree(options: PnpmTreeOptions): Promise<PnpmTree>
 // unless a glob spells it there. A manifest is a file, or a link to one; a
 // link that leads nowhere, or to a directory, is none, as pnpm has it.
 //
-// Refused: a root with no manifest, which pnpm takes for no project, and
-// buildPnpmTree builds no workspace without; a project, the root among
-// them, whose manifest is
-// package.json5 or package.yaml, which pnpm reads where there is no
-// package.json, or is a link; a project pnpm finds through a link to a
-// directory, which it follows as it follows it, and a link to a directory
-// in one followed, which is not; a project in a directory a lockfile
-// could not key its importer by, with a control, bidirectional or
-// backslash character in its path, or a drive letter; a node_modules pnpm
-// walks into, which it does under a directory with a leading dot that a
-// glob spells, as buildPnpmTree builds no project in one; and a glob
-// buildPnpmTree refuses, or a pnpm not 10.x or 11.x. A node_modules pnpm
-// leaves out is neither read nor refused.
+// Refused: a root with no manifest, which pnpm takes for no project; a
+// project, the root among them, whose manifest is package.json5 or
+// package.yaml, which pnpm reads where there is no package.json, or is a
+// link; a project pnpm finds through a link to a directory, which it
+// follows, and a link to a directory in one followed, which is not; a
+// project in a directory a lockfile could not key its importer by, with a
+// control, bidirectional or backslash character in its path, or a drive
+// letter; a node_modules pnpm walks into, which it does only under a
+// directory with a leading dot that a glob spells; and a glob
+// buildPnpmTree refuses, or a pnpm not 10.x or 11.x.
 export interface PnpmProjectsOptions {
   workspace?: string
   host: Pick<PnpmHost, 'pnpm'>
