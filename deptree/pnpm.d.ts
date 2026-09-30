@@ -245,8 +245,9 @@ export function buildPnpmTree(options: PnpmTreeOptions): Promise<PnpmTree>
 //
 // Refused: a project, the root among them, whose manifest is
 // package.json5 or package.yaml, which pnpm reads where there is no
-// package.json, or is a link; a link to a directory a glob could take a
-// project under, which pnpm follows; a project in a directory a lockfile
+// package.json, or is a link; a project pnpm finds through a link to a
+// directory, which it follows as it follows it, and a link to a directory
+// in one followed, which is not; a project in a directory a lockfile
 // could not key its importer by, with a control, bidirectional or
 // backslash character in its path, or a drive letter; and a glob
 // buildPnpmTree refuses, or a pnpm not 10.x or 11.x.

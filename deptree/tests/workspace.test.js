@@ -77,7 +77,7 @@ describe('findProjects', () => {
       [(vfs) => vfs.writeFile('/packages/j/package.yaml', 'name: j'), /^DeptreeError: "packages\/j\/package\.yaml": pnpm reads this project's package\.yaml, which is not supported$/u],
       [(vfs) => vfs.writeFile('/packages/j/package.json5', '{}'), /package\.json5, which is not supported$/u],
       [(vfs) => vfs.symlink('../../other/e/package.json', '/packages/j/package.json'), /^DeptreeError: "packages\/j\/package\.json": a link pnpm would read a project's manifest through is not supported$/u],
-      [(vfs) => vfs.symlink('../other', '/packages/link'), /^DeptreeError: "packages\/link": a link to a directory pnpm-workspace\.yaml's packages could find a project in is not supported/u],
+      [(vfs) => vfs.symlink('../other/e', '/packages/link'), /^DeptreeError: "packages\/link": pnpm finds a project through this link, "packages\/link", which is not supported$/u],
     ]
     for (const [add, pattern] of cases) {
       const vfs = workspace()
@@ -116,6 +116,22 @@ describe('findProjects', () => {
       assert.deepEqual(findProjects(vfs, ['**'], 10), ['.', 'other/e', 'packages/a', 'packages/b', 'packages/f/sub', 'tests/t'])
       vfs.symlink('package.json', '/packages/j/package.json')
       assert.deepEqual(findProjects(vfs, ['packages/*'], 10), ['.', 'packages/a', 'packages/b'])
+    }
+    // As pnpm 10.33.4 and 11.28.2 follow a link to a directory: a link
+    // through which the globs take nothing is no project, and one through
+    // which they take one is refused; a link in one followed is not
+    // followed, and is refused where tinyglobby would walk into it.
+    for (const packages of [['packages/*', '!packages/link'], ['packages/**', '!packages/link'], ['packages/*']]) {
+      const vfs = workspace()
+      vfs.symlink(packages.length === 1 ? '../other' : '../other/e', '/packages/link')
+      assert.deepEqual(findProjects(vfs, packages, 10).filter((id) => id.startsWith('packages/')), packages[0] === 'packages/*' ? ['packages/a', 'packages/b'] : ['packages/a', 'packages/b', 'packages/f/sub'], packages.join(', '))
+    }
+    {
+      const vfs = workspace()
+      vfs.mkdir('/o')
+      vfs.symlink('../packages', '/o/back')
+      vfs.symlink('../o', '/packages/link')
+      assert.throws(() => findProjects(vfs, ['packages/**'], 10), /^DeptreeError: "packages\/link": a link to a directory in one tinyglobby follows, "packages\/link\/back", is not supported$/u)
     }
     // A failure other than a path that leads nowhere is thrown.
     {
