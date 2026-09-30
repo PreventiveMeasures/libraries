@@ -24,13 +24,16 @@ function resolverOf(root) {
   return root.workspace?.resolver ?? root.package?.resolver ?? byEdition
 }
 
-// What a [patch] offers, by the source it patches and the package's name.
+// What a [patch] offers, by the source it patches and the package's name:
+// the source it offers instead, and the versions its requirement takes
+// there, as cargo refuses a patch whose location has none of them.
 function patchesOf(root) {
   const patches = new Map()
   for (const [key, specs] of Object.entries(root.patch)) {
-    for (const spec of Object.values(specs)) {
+    for (const [name, spec] of Object.entries(specs)) {
       const target = `${patchKey(key)} ${spec.package}`
-      patches.set(target, [...(patches.get(target) ?? []), sourceIdentity(spec.source, PATH)])
+      const requirement = spec.version === undefined ? undefined : parseRequirement(spec.version, at(at('patch', key), name))
+      patches.set(target, [...(patches.get(target) ?? []), { identity: sourceIdentity(spec.source, PATH), requirement }])
     }
   }
   return patches
@@ -97,8 +100,10 @@ function candidates(dep, key, { lock, identities, patches }, where) {
   const offered = patches.get(`${patchedAs(dep.source)} ${dep.package}`) ?? []
   return lock.packages[key].dependencies.filter((edge) => {
     const { name, version, source } = lock.packages[edge]
-    if (name !== dep.package || (requirement !== undefined && !matches(requirement, parseVersion(version)))) return false
-    return identities[edge] === wanted || offered.includes(identities[edge]) || (wanted === ANY_REGISTRY && source !== undefined && !source.startsWith('git+'))
+    const within = (req) => req === undefined || matches(req, parseVersion(version))
+    if (name !== dep.package || !within(requirement)) return false
+    const patched = offered.some((patch) => patch.identity === identities[edge] && within(patch.requirement))
+    return identities[edge] === wanted || patched || (wanted === ANY_REGISTRY && source !== undefined && !source.startsWith('git+'))
   })
 }
 

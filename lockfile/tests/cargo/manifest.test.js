@@ -145,6 +145,13 @@ describe('parseCargoManifest', () => {
     assert.throws(() => parseCargoManifest(member('../other'), utilRoot), (error) => error instanceof LockfileError && error.message === message)
   })
 
+  // Cargo builds the library for the host by the flag where both are given,
+  // and by the crate type alone only where the flag is not.
+  it('reads a proc-macro by the flag before the crate type', () => {
+    const lib = (text) => parseCargoManifest(`[package]\nname = "m"\nversion = "0.1.0"\n\n[lib]\n${text}\n`).package.procMacro
+    assert.deepEqual(['proc-macro = false\ncrate-type = ["proc-macro"]', 'proc-macro = true\ncrate-type = ["lib"]', 'crate-type = ["proc-macro"]', 'crate-type = ["lib"]'].map(lib), [false, true, true, false])
+  })
+
   it('throws a TypeError for a root that is not one', () => {
     assert.throws(() => parseCargoManifest(MEMBER, parseCargoManifest('[package]\nname = "a"\n')), TypeError)
   })
