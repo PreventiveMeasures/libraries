@@ -33,9 +33,9 @@ function normalizeGlob(glob, where) {
   return path.split('/')
 }
 
-// A name's pattern: `*` any run of characters, but not a leading dot
-// unless `dot`.
-const NAME = (name, dot) => new RegExp(`^${name.startsWith('*') && !dot ? '(?!\\.)' : ''}${name.split('*').map(escape).join('.*')}$`, 'u')
+// A name's pattern: `*` any run of characters, line terminators among
+// them, but not a leading dot unless `dot`.
+const NAME = (name, dot) => new RegExp(`^${name.startsWith('*') && !dot ? '(?!\\.)' : ''}${name.split('*').map(escape).join('[^/]*')}$`, 'u')
 
 // A glob as the names of the paths it takes: each `**`, or the pattern of
 // one name; `dot` whether `**` takes a name with a leading dot.
@@ -47,13 +47,19 @@ function compile(glob, where, dot) {
   return { names: names.map((name) => (name === '**' ? name : NAME(name, dot))), dot }
 }
 
-// Whether a glob takes the path of `names`.
+// Whether a glob takes the path of `names`: from each glob name and path
+// name on, once.
 function takes({ names: glob, dot }, names) {
+  const known = new Map()
   const from = (g, n) => {
-    if (n === names.length) return glob.slice(g).every((name) => name === '**')
-    if (g === glob.length) return false
-    if (glob[g] === '**') return from(g + 1, n) || ((dot || !names[n].startsWith('.')) && from(g, n + 1))
-    return glob[g].test(names[n]) && from(g + 1, n + 1)
+    const key = g * (names.length + 1) + n
+    if (!known.has(key)) {
+      if (n === names.length) known.set(key, glob.slice(g).every((name) => name === '**'))
+      else if (g === glob.length) known.set(key, false)
+      else if (glob[g] === '**') known.set(key, from(g + 1, n) || ((dot || !names[n].startsWith('.')) && from(g, n + 1)))
+      else known.set(key, glob[g].test(names[n]) && from(g + 1, n + 1))
+    }
+    return known.get(key)
   }
   return from(0, 0)
 }

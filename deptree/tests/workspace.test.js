@@ -118,6 +118,25 @@ describe('findProjects', () => {
   })
 })
 
+describe('the globs', () => {
+  // pnpm 10.33.4 and 11.28.2 list packages/a\nb for packages/*.
+  it('take a name with a line terminator in it by `*`', () => {
+    const names = ['a\nb', 'a\rb', 'a\u2028b', 'a\u2029b']
+    // A Vfs holds no such name; a view of a disk may.
+    const dirs = new Map([['/', ['package.json', 'packages']], ['/packages', names], ...names.map((name) => [`/packages/${name}`, ['package.json']])])
+    const typeOf = (path) => ({ type: dirs.has(path) ? 'directory' : 'file' })
+    const view = { readdir: (path) => dirs.get(path), lstat: typeOf, stat: typeOf }
+    assert.deepEqual(findProjects(view, ['packages/*'], 10), ['.', ...names.map((name) => `packages/${name}`).sort()])
+    checkWorkspace(['.', ...names.map((name) => `packages/${name}`)], ['packages/a*'])
+  })
+
+  it('match as many `**` as there are names in time', () => {
+    const start = performance.now()
+    assert.throws(() => checkWorkspace(['.', 'd/'.repeat(15) + 'd'], [`${'**/'.repeat(16)}x`]), /do not take this directory/u)
+    assert.ok(performance.now() - start < 1000, `${performance.now() - start}ms`)
+  })
+})
+
 // What pnpm 10.33.4 and 11.28.2 list among directories with a leading
 // dot: tinyglobby walks into a directory only where each name down to it
 // is taken by the glob's name in the same place, a `**` there taking none
