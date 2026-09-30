@@ -47,16 +47,29 @@ function compile(glob, where, dot) {
   return { names: names.map((name) => (name === '**' ? name : NAME(name, dot))), dot }
 }
 
-// Whether a glob takes the path of `names`, or, where `partial`, a path
-// under it: tinyglobby walks only the directories one could.
-function takes({ names: glob, dot }, names, partial = false) {
+// Whether a glob takes the path of `names`.
+function takes({ names: glob, dot }, names) {
   const from = (g, n) => {
-    if (n === names.length) return partial ? g < glob.length : glob.slice(g).every((name) => name === '**')
+    if (n === names.length) return glob.slice(g).every((name) => name === '**')
     if (g === glob.length) return false
     if (glob[g] === '**') return from(g + 1, n) || ((dot || !names[n].startsWith('.')) && from(g, n + 1))
     return glob[g].test(names[n]) && from(g + 1, n + 1)
   }
   return from(0, 0)
+}
+
+// Whether tinyglobby walks into the directory at `names` for a glob, as
+// its partial matcher has it: name by name, each has to be taken by the
+// glob's name in the same place, until a `**` there takes one, which
+// takes whatever is below it. A `**` that takes none is not tried, so a
+// name with a leading dot a `**` stands before is never walked into.
+function enters({ names: glob, dot }, names) {
+  for (const [i, name] of names.entries()) {
+    if (i === glob.length) return false
+    if (glob[i] === '**') return dot || !name.startsWith('.')
+    if (!glob[i].test(name)) return false
+  }
+  return true
 }
 
 // `packages` the globs, or undefined; `major` pnpm's major version.
@@ -71,22 +84,30 @@ function compileAll(packages, major) {
 // Whether the globs take the project whose package.json is at `names`.
 const taken = (globs, names) => globs.some((glob) => !glob.exclude && takes(glob, names)) && !globs.some((glob) => glob.exclude && takes(glob, names))
 
+// What find-packages leaves out, as tinyglobby reads it, which does not
+// take a name with a leading dot for `**`: what is under node_modules or
+// bower_components.
+const IGNORED = ['node_modules', 'bower_components'].map((name) => ({ names: ['**', NAME(name, false), '**'], dot: false }))
+const ignored = (names) => IGNORED.some((glob) => takes(glob, names))
+
+// Whether tinyglobby walks into the directory at `names` for the globs.
+const walked = (globs, names) => globs.some((glob) => !glob.exclude && enters(glob, names)) && !ignored(names)
+
+// Whether pnpm finds a project in the directory at `names`: tinyglobby
+// walks into each directory down to it, and the globs take its manifest.
+const finds = (globs, names) => names.every((_, i) => walked(globs, names.slice(0, i + 1))) && taken(globs, [...names, 'package.json']) && !ignored([...names, 'package.json'])
+
 // `ids` are the projects' directories, `.` the root; `packages` the globs,
 // or undefined; `major` pnpm's major version.
 export function checkWorkspace(ids, packages, major = 10) {
   const globs = compileAll(packages, major)
   for (const id of ids) {
     if (id === '.') continue
-    if (!taken(globs, [...id.split('/'), 'package.json']) || id.split('/').includes('bower_components')) {
+    if (!finds(globs, id.split('/')) || id.split('/').includes('bower_components')) {
       throw new DeptreeError(`pnpm-workspace.yaml's packages ${packages === undefined ? 'are not set' : 'do not take this directory'}, so pnpm would not install it as a project`, `importers[${quote(id)}]`)
     }
   }
 }
-
-// What find-packages leaves out, as tinyglobby reads it, which does not
-// take a name with a leading dot for `**`: what is under node_modules or
-// bower_components.
-const IGNORED = ['node_modules', 'bower_components'].map((name) => ({ names: ['**', NAME(name, false), '**'], dot: false }))
 
 // The names pnpm reads a project's manifest by, the first of them there
 // winning.
@@ -94,15 +115,13 @@ const MANIFESTS = ['package.json', 'package.json5', 'package.yaml']
 
 // The directories of the projects pnpm finds in the workspace at the root
 // of `vfs`, `.` the root first and the rest in order, by the globs of
-// `packages` as pnpm `major` finds them. Every directory a glob could take
-// a project under is read. A project whose manifest is package.json5 or
-// package.yaml is refused, the root among them, which is not read here; so
-// is a link pnpm would read a manifest through, or one to a directory a
-// glob could take a project under, which tinyglobby follows.
+// `packages` as pnpm `major` finds them: every directory tinyglobby walks
+// into is read, and no other. A project whose manifest is package.json5
+// or package.yaml is refused, the root among them, which is not read here;
+// so is a link pnpm would read a manifest through, or one to a directory
+// tinyglobby would walk into, which it follows.
 export function findProjects(vfs, packages, major = 10) {
   const globs = compileAll(packages, major)
-  const ignored = (names) => IGNORED.some((glob) => takes(glob, names))
-  const under = (names) => globs.some((glob) => !glob.exclude && takes(glob, names, true)) && !ignored(names)
   const ids = ['.']
   const visit = (names) => {
     const entries = vfs.readdir(`/${names.join('/')}`)
@@ -120,7 +139,7 @@ export function findProjects(vfs, packages, major = 10) {
     for (const entry of entries) {
       const at = [...names, entry]
       const path = `/${at.join('/')}`
-      if (!under(at)) continue
+      if (!walked(globs, at)) continue
       const { type } = vfs.lstat(path)
       if (type === 'directory') visit(at)
       else if (type === 'symlink' && isDirectory(vfs, path)) throw new DeptreeError('a link to a directory pnpm-workspace.yaml\'s packages could find a project in is not supported: tinyglobby follows it', quote(at.join('/')))

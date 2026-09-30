@@ -53,10 +53,10 @@ export function readManifest(text, where) {
 
 // Of what @preventive/lockfile holds an importer's key to, what a project
 // under the lockfile's directory has to be: its path from there, in normal
-// form, as pnpm finds it and writes the key.
+// form, as pnpm finds it and writes the key, with no drive letter.
 const UNSAFE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}\\]/u
 function checkProjectId(id, where) {
-  if (id.split('/').some((name) => name === '' || name === '.' || name === '..' || UNSAFE.test(name))) {
+  if (id.split('/').some((name) => name === '' || name === '.' || name === '..' || UNSAFE.test(name)) || /^[A-Za-z]:/u.test(id)) {
     throw new DeptreeError('expected a directory under the lockfile\'s, by its path from there in normal form, as pnpm keys an importer', where)
   }
 }

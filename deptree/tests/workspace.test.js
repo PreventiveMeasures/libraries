@@ -57,13 +57,13 @@ describe('findProjects', () => {
     }
   })
 
-  it('reads only the directories a glob could take a project under', () => {
+  it('reads only the directories tinyglobby walks into', () => {
     const vfs = workspace()
     vfs.mkdir('/.git/objects', { recursive: true })
     const read = []
     const seen = { readdir: (path) => (read.push(path), vfs.readdir(path)), lstat: (path) => vfs.lstat(path), stat: (path) => vfs.stat(path) }
     assert.deepEqual(findProjects(seen, ['packages/*'], 10), ['.', 'packages/a', 'packages/b'])
-    assert.deepEqual(read.sort(), ['/', '/packages', '/packages/a', '/packages/b', '/packages/c', '/packages/f', '/packages/j', '/packages/k'])
+    assert.deepEqual(read.sort(), ['/', '/packages', '/packages/a', '/packages/b', '/packages/c', '/packages/f', '/packages/j', '/packages/k', '/packages/k/package.json'])
     read.length = 0
     findProjects(seen, ['**'], 10)
     assert.ok(!read.some((path) => path.startsWith('/.') || path.includes('/node_modules') || path.includes('bower_components')), read.join(', '))
@@ -106,5 +106,40 @@ describe('findProjects', () => {
     vfs.symlink('../nowhere', '/packages/gone')
     vfs.symlink('packages', '/elsewhere')
     assert.deepEqual(findProjects(vfs, ['packages/*'], 10), ['.', 'packages/a', 'packages/b'])
+  })
+})
+
+// What pnpm 10.33.4 and 11.28.2 list among directories with a leading
+// dot: tinyglobby walks into a directory only where each name down to it
+// is taken by the glob's name in the same place, a `**` there taking none
+// with a leading dot, though its whole match takes a `**` for no name.
+describe('findProjects under directories with a leading dot', () => {
+  const dirs = ['packages/a', '.hidden', 'x/.hidden', '.hidden/c', 'x/.hidden/c', '.a/.b', 'x/y/.b', 'x/.y/.b', 'x/z', '.c/d']
+  const workspace = () => createVfs(Object.fromEntries([['package.json', '{}'], ...dirs.map((dir) => [`${dir}/package.json`, '{}'])]))
+  const found = [
+    [['**/.hidden'], ['x/.hidden']],
+    [['**/.hidden/**'], ['x/.hidden', 'x/.hidden/c']],
+    [['x/**/.hidden'], []],
+    [['**/.b'], ['x/y/.b']],
+    [['**/.a/.b'], []],
+    [['x/**/.y/.b'], []],
+    [['**/d'], []],
+    [['.*/**'], ['.c/d', '.hidden', '.hidden/c']],
+    [['*/.*'], ['x/.hidden']],
+    [['.hidden', '!**/.hidden'], []],
+    [['.hidden/**', '!**/.hidden/**'], []],
+    [['**', '!**/.hidden'], ['packages/a', 'x/z']],
+  ]
+  for (const [packages, ids] of found) {
+    it(`finds ${JSON.stringify(packages)}`, () => {
+      for (const major of [10, 11]) assert.deepEqual(findProjects(workspace(), packages, major), ['.', ...ids], String(major))
+    })
+  }
+
+  it('holds the lockfile\'s importers to what tinyglobby walks into', () => {
+    checkWorkspace(['.', 'x/.hidden'], ['**/.hidden'])
+    for (const [id, packages] of [['.hidden', ['**/.hidden']], ['x/.hidden', ['x/**/.hidden']], ['.c/d', ['**/d']], ['.hidden', ['.hidden', '!**/.hidden']]]) {
+      assert.throws(() => checkWorkspace(['.', id], packages), /^DeptreeError: importers\[".*"\]: pnpm-workspace\.yaml's packages do not take this directory/u, `${id} ${packages}`)
+    }
   })
 })
