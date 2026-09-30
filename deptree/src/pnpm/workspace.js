@@ -134,6 +134,10 @@ export function checkProjectId(id, where) {
   }
 }
 
+// A manifest pnpm would read through a link, the root's among them, is
+// refused before it is read.
+export const linkedManifest = (file) => new DeptreeError('a link pnpm would read a project\'s manifest through is not supported', quote(file))
+
 // The names pnpm reads a project's manifest by, the first of them there
 // winning.
 const MANIFESTS = ['package.json', 'package.json5', 'package.yaml']
@@ -167,7 +171,7 @@ export function findProjects(project, packages, major = 10) {
     if (names.length === 0 && found === undefined) throw new DeptreeError('pnpm takes a workspace with no manifest at its root for one with no root project, which is not supported', quote('package.json'))
     if (found !== undefined) {
       const file = [...names, found].join('/')
-      if (project.lstat(`/${file}`).type === 'symlink') throw new DeptreeError('a link pnpm would read a project\'s manifest through is not supported', quote(file))
+      if (project.lstat(`/${file}`).type === 'symlink') throw linkedManifest(file)
       if (found !== 'package.json') throw new DeptreeError(`pnpm reads this project's ${found}, which is not supported`, quote(file))
       if (link !== undefined) throw new DeptreeError(`pnpm finds a project through this link, ${quote(dir)}, which is not supported`, quote(link))
       if (names.length > 0) {

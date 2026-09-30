@@ -15,13 +15,13 @@ export function checkProject(project) {
   }
 }
 
-// What `path` leads to, links followed; nothing, where it leads nowhere:
-// to no entry, through a file, or round a loop of links. Any other
-// failure is thrown.
+// What `path` leads to, links followed, or where `follow` is false, what
+// it is; nothing, where it leads nowhere: to no entry, through a file, or
+// round a loop of links. Any other failure is thrown.
 const NOWHERE = new Set(['ENOENT', 'ENOTDIR', 'ELOOP'])
-export function typeOf(project, path) {
+export function typeOf(project, path, follow = true) {
   try {
-    return project.stat(path).type
+    return (follow ? project.stat(path) : project.lstat(path)).type
   } catch (error) {
     if (NOWHERE.has(error?.code)) return undefined
     throw error

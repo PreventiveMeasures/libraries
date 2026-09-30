@@ -5,10 +5,10 @@
 import { parseYaml } from '@preventive/lockfile/yaml.js'
 import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
-import { checkProject, readManifestTexts, readPatches, readRootFiles, readText, readWorkspaceText } from './project.js'
+import { checkProject, readManifestTexts, readPatches, readRootFiles, readText, readWorkspaceText, typeOf } from './project.js'
 import { pinnedPnpm, readManifest, readManifests } from './projects.js'
 import { readers } from './readers.js'
-import { checkWorkspace, findProjects } from './workspace.js'
+import { checkWorkspace, findProjects, linkedManifest } from './workspace.js'
 
 const LIBC = new Set(['glibc', 'musl', 'unknown'])
 
@@ -48,9 +48,11 @@ export function checkHost(host) {
 // nothing, as pnpm reads it.
 export const readWorkspace = (text) => (text === undefined || /^(?:[\t ]*(?:#.*)?(?:\r?\n|$))*$/u.test(text) ? undefined : parseYaml(text))
 
-// The root package.json in `project`, as parsed, where there is one.
+// The root package.json in `project`, as parsed, where there is one; one
+// that is a link is refused unread, as findProjects refuses it.
 const ROOT = 'manifests["."]'
 function readRoot(project) {
+  if (typeOf(project, '/package.json', false) === 'symlink') throw linkedManifest('package.json')
   const text = readText(project, '/package.json', ROOT)
   return text === undefined ? undefined : readManifest(text, ROOT)
 }

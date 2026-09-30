@@ -1338,6 +1338,18 @@ describe('buildPnpmTree reading the project', () => {
     assert.deepEqual(read.filter((path) => path.startsWith('/vendor')), [])
   })
 
+  // A root package.json that is a link is refused, as any project's is,
+  // before it is read for the pnpm it pins.
+  it('reads no root package.json through a link', async () => {
+    const project = createVfs({ ...files, 'package.json': { type: 'symlink', target: 'elsewhere/package.json' }, 'elsewhere/package.json': root({ packageManager: 'pnpm@10.33.4' }) })
+    const read = []
+    const logged = { readdir: (path) => project.readdir(path), lstat: (path) => project.lstat(path), stat: (path) => { read.push(path); return project.stat(path) }, readFile: (path) => { read.push(path); return project.readFile(path) } }
+    const linked = /^DeptreeError: "package\.json": a link pnpm would read a project's manifest through is not supported$/u
+    await assert.rejects(buildPnpmTree({ project: logged, host: { ...HOST, pnpm: undefined } }), linked)
+    assert.throws(() => findPnpmProjects({ project: logged }), linked)
+    assert.deepEqual(read.filter((path) => path.endsWith('package.json')), [])
+  })
+
   it('takes a project, and nothing it reads there given besides', async () => {
     const project = createVfs(files)
     await assert.rejects(buildPnpmTree({ host: HOST }), /^TypeError: lockfile must be the text of pnpm-lock\.yaml, or left out with a project given to read it from$/u)
