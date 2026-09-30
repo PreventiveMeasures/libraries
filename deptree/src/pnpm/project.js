@@ -83,12 +83,13 @@ export function readManifestTexts(project, ids) {
 
 // The text of each patch `configured`, patchedDependencies, names, by its
 // path from the lockfile's directory; one that is not there left out.
-// One outside that directory is not in the project, and is refused.
+// One outside that directory, or absolute, is not in the project, and is
+// refused.
 export function readPatches(project, configured) {
   const texts = new Map()
   for (const [selector, spec] of Object.entries(configured ?? {})) {
     const path = normalize(spec)
-    if (path === '..' || path.startsWith('../')) throw new DeptreeError(`the patch ${quote(spec)} is not in the project: it is outside the lockfile's directory`, `patchedDependencies[${quote(selector)}]`)
+    if (path === '..' || path.startsWith('../') || path.startsWith('/')) throw new DeptreeError(`the patch ${quote(spec)} is not in the project: it is outside the lockfile's directory`, `patchedDependencies[${quote(selector)}]`)
     const text = readText(project, `/${path}`, `patches[${quote(path)}]`)
     if (text !== undefined) texts.set(path, text)
   }

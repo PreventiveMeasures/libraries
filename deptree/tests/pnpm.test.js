@@ -1282,6 +1282,14 @@ describe('buildPnpmTree reading the project', () => {
     await assert.rejects(buildPnpmTree({ project: createVfs(without('patches/p.patch')), host: HOST }), /^DeptreeError: patchedDependencies\["p@1\.0\.0"\]: the patch "patches\/p\.patch" is not given, and pnpm reads every patch it is configured with$/u)
     const outside = root({ pnpm: { patchedDependencies: { 'p@1.0.0': 'patches/../../p.patch' } } })
     await assert.rejects(fromProject({ 'package.json': outside }), /^DeptreeError: patchedDependencies\["p@1\.0\.0"\]: the patch "patches\/\.\.\/\.\.\/p\.patch" is not in the project: it is outside the lockfile's directory$/u)
+    // An absolute one, refused as a setting, before anything is read for it.
+    for (const path of ['/patches/p.patch', '//patches/p.patch']) {
+      const project = createVfs({ ...files, 'package.json': root({ pnpm: { patchedDependencies: { 'p@1.0.0': path } } }) })
+      const read = []
+      const logged = { readdir: (at) => project.readdir(at), lstat: (at) => project.lstat(at), stat: (at) => { read.push(at); return project.stat(at) }, readFile: (at) => { read.push(at); return project.readFile(at) } }
+      await assert.rejects(buildPnpmTree({ project: logged, host: HOST }), /^DeptreeError: package\.json: pnpm\.patchedDependencies\["p@1\.0\.0"\]: an absolute patch path is not supported$/u, path)
+      assert.deepEqual(read.filter((at) => at.includes('patch')), [], path)
+    }
   })
 
   it('reads the package.json of every project pnpm finds', async () => {
