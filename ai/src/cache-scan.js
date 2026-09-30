@@ -36,10 +36,10 @@ function anthropicRequestKey(req, model) {
   if (!firstMsg || firstMsg.role !== 'user') return null
   const userContent = flattenContent(firstMsg.content)
   if (!userContent) return null
-  // `{ type: 'disabled' }` is an explicit no-think (needsExplicitNoThink models), so the field's
+  // `{ type: 'disabled' }` and `{ type: 'between_tools' }` are explicit no-thinks, so the field's
   // presence alone doesn't mean thinking was on — reading it that way would rehash those entries to
   // a key no lookup generates.
-  const think = Boolean(req.thinking) && req.thinking.type !== 'disabled'
+  const think = Boolean(req.thinking) && !['disabled', 'between_tools'].includes(req.thinking.type)
   let effort
   if (req.thinking?.type === 'adaptive') {
     effort = req.output_config?.effort

@@ -142,3 +142,16 @@ suite('rehashCache: skipType', () => {
     assert.equal((await rehashCache(opts.model, {})).scanned, 1)
   })
 })
+
+suite('rehashCache: an explicit no-think', () => {
+  const uniqueModel = () => `test/rehash-off-${randomBytes(8).toString('hex')}`
+
+  for (const type of ['disabled', 'between_tools']) {
+    it(`reads thinking: { type: '${type}' } as think=false, so the entry keeps its key`, async () => {
+      const opts = uniqueCacheOpts({ model: uniqueModel() })
+      const request = { system: [{ type: 'text', text: opts.systemPrompt }], messages: [{ role: 'user', content: 'off' }], thinking: { type } }
+      await setCache('off', 'result', [{ request, response: { content: [] }, toolCalls: [], results: [] }], opts)
+      assert.deepEqual(await rehashCache(opts.model), { scanned: 1, renamed: 0, unchanged: 1, skipped: 0, errors: 0 })
+    })
+  }
+})
