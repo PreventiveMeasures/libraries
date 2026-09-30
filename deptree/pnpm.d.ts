@@ -238,17 +238,18 @@ export function buildPnpmTree(options: PnpmTreeOptions): Promise<PnpmTree>
 //
 // `vfs` is a Vfs, or anything with its readdir, lstat and stat, such as a
 // view of a directory on disk, by paths from `/`; nothing is written. Of
-// it, only the directories a glob could take a project under are read, as
-// pnpm reads them: none under node_modules or bower_components, and none
-// whose name starts with a dot unless a glob spells it. pnpm reads a
-// project's package.json5 or package.yaml where it has no package.json,
-// which is refused, as is a link to a project's manifest, or to a
-// directory a glob could take a project under, which pnpm follows; a link
-// that leads nowhere, or to a directory, is no manifest, as pnpm has it.
-// So is a project in a directory a lockfile could not key its importer by,
-// with a control, bidirectional or backslash character in its path, or a
-// drive letter. A glob buildPnpmTree refuses, or a pnpm not 10.x or 11.x,
-// is refused here too.
+// it, only the directories pnpm walks into are read: none under
+// node_modules or bower_components, and none whose name starts with a dot
+// unless a glob spells it there. A manifest is a file, or a link to one; a
+// link that leads nowhere, or to a directory, is none, as pnpm has it.
+//
+// Refused: a project, the root among them, whose manifest is
+// package.json5 or package.yaml, which pnpm reads where there is no
+// package.json, or is a link; a link to a directory a glob could take a
+// project under, which pnpm follows; a project in a directory a lockfile
+// could not key its importer by, with a control, bidirectional or
+// backslash character in its path, or a drive letter; and a glob
+// buildPnpmTree refuses, or a pnpm not 10.x or 11.x.
 export interface PnpmProjectsOptions {
   workspace?: string
   host: Pick<PnpmHost, 'pnpm'>

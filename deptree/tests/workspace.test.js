@@ -177,6 +177,10 @@ describe('findProjects under directories with a leading dot', () => {
 
   it('holds the lockfile\'s importers to what tinyglobby walks into', () => {
     checkWorkspace(['.', 'x/.hidden'], ['**/.hidden'])
+    // pnpm leaves out what is under bower_components, but not below a
+    // directory with a leading dot, which `**` does not take there.
+    checkWorkspace(['.', '.x/bower_components/y'], ['.x/**'])
+    assert.throws(() => checkWorkspace(['.', 'x/bower_components/y'], ['**']), /do not take this directory/u)
     for (const [id, packages] of [['.hidden', ['**/.hidden']], ['x/.hidden', ['x/**/.hidden']], ['.c/d', ['**/d']], ['.hidden', ['.hidden', '!**/.hidden']]]) {
       assert.throws(() => checkWorkspace(['.', id], packages), /^DeptreeError: importers\[".*"\]: pnpm-workspace\.yaml's packages do not take this directory/u, `${id} ${packages}`)
     }

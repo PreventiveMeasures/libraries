@@ -45,7 +45,8 @@ import { checkWorkspace, findProjects } from './workspace.js'
 const CONCURRENCY = 8
 const LIBC = new Set(['glibc', 'musl', 'unknown'])
 
-// What pnpm 11 does differently is read below, by `major`, where it is.
+// The major version of `pnpm`, 10 or 11: what pnpm 11 does differently is
+// read by it, where it is.
 function majorOf(pnpm) {
   const major = Number(valid(pnpm)?.split('.')[0])
   if (major !== 10 && major !== 11) throw new DeptreeError(`pnpm ${quote(pnpm)} is not supported: only pnpm 10 and 11 are`, 'host.pnpm')
