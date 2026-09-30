@@ -47,21 +47,22 @@ function compile(glob, where, dot) {
   return { names: names.map((name) => (name === '**' ? name : NAME(name, dot))), dot }
 }
 
-// Whether a glob takes the path of `names`: from each glob name and path
-// name on, once.
+// Whether a glob takes the path of `names`: whether the glob from each of
+// its names on takes the path from each of its names on, the last first,
+// once each and with no recursion, however many `**` it has.
 function takes({ names: glob, dot }, names) {
-  const known = new Map()
-  const from = (g, n) => {
-    const key = g * (names.length + 1) + n
-    if (!known.has(key)) {
-      if (n === names.length) known.set(key, glob.slice(g).every((name) => name === '**'))
-      else if (g === glob.length) known.set(key, false)
-      else if (glob[g] === '**') known.set(key, from(g + 1, n) || ((dot || !names[n].startsWith('.')) && from(g, n + 1)))
-      else known.set(key, glob[g].test(names[n]) && from(g + 1, n + 1))
+  // What the glob from each name on takes of the path from the next name.
+  let next = Array.from({ length: glob.length + 1 }, (_, g) => glob.slice(g).every((name) => name === '**'))
+  for (let n = names.length - 1; n >= 0; n--) {
+    const here = Array.from({ length: glob.length + 1 }, () => false)
+    for (let g = glob.length - 1; g >= 0; g--) {
+      here[g] = glob[g] === '**'
+        ? here[g + 1] || ((dot || !names[n].startsWith('.')) && next[g])
+        : glob[g].test(names[n]) && next[g + 1]
     }
-    return known.get(key)
+    next = here
   }
-  return from(0, 0)
+  return next[0]
 }
 
 // Whether tinyglobby walks into the directory at `names` for a glob, as
@@ -116,6 +117,17 @@ export function checkWorkspace(ids, packages, major = 10) {
   }
 }
 
+// Of what @preventive/lockfile holds an importer's key to, what a project
+// under the lockfile's directory has to be: its path from there, in normal
+// form, with no drive letter, and no control, bidirectional or backslash
+// character, which the lockfile could not name it by.
+const UNSAFE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}\\]/u
+export function checkProjectId(id, where) {
+  if (id.split('/').some((name) => name === '' || name === '.' || name === '..' || UNSAFE.test(name)) || /^[A-Za-z]:/u.test(id)) {
+    throw new DeptreeError('expected a directory under the lockfile\'s, by its path from there in normal form, as a lockfile can key an importer', where)
+  }
+}
+
 // The names pnpm reads a project's manifest by, the first of them there
 // winning.
 const MANIFESTS = ['package.json', 'package.json5', 'package.yaml']
@@ -123,7 +135,8 @@ const MANIFESTS = ['package.json', 'package.json5', 'package.yaml']
 // The directories of the projects pnpm finds in the workspace at the root
 // of `vfs`, `.` the root first and the rest in order, by the globs of
 // `packages` as pnpm `major` finds them: every directory tinyglobby walks
-// into is read, and no other. A manifest is a file there, or a link to
+// into is read, and no other. A project in a directory a lockfile could not
+// key its importer by is refused. A manifest is a file there, or a link to
 // one; a link that leads nowhere, or to a directory, is none. A project
 // whose manifest is package.json5 or package.yaml is refused, the root
 // among them, which is not read here; so is a link pnpm would read a
@@ -143,7 +156,10 @@ export function findProjects(vfs, packages, major = 10) {
       const where = quote([...names, found].join('/'))
       if (vfs.lstat(`/${[...names, found].join('/')}`).type === 'symlink') throw new DeptreeError('a link pnpm would read a project\'s manifest through is not supported', where)
       if (found !== 'package.json') throw new DeptreeError(`pnpm reads this project's ${found}, which is not supported`, where)
-      if (!root) ids.push(names.join('/'))
+      if (!root) {
+        checkProjectId(names.join('/'), quote(names.join('/')))
+        ids.push(names.join('/'))
+      }
     }
     for (const entry of entries) {
       const at = [...names, entry]

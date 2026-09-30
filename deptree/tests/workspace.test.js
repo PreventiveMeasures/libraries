@@ -119,15 +119,26 @@ describe('findProjects', () => {
 })
 
 describe('the globs', () => {
-  // pnpm 10.33.4 and 11.28.2 list packages/a\nb for packages/*.
-  it('take a name with a line terminator in it by `*`', () => {
-    const names = ['a\nb', 'a\rb', 'a\u2028b', 'a\u2029b']
+  // pnpm 10.33.4 and 11.28.2 list packages/a\nb for packages/*: a project
+  // a lockfile could not name, which @preventive/lockfile refuses.
+  it('take a name with a line terminator in it by `*`, and refuse the project', () => {
+    checkWorkspace(['.', 'packages/a\nb', 'packages/a\rb', 'packages/a\u2028b', 'packages/a\u2029b'], ['packages/a*'])
     // A Vfs holds no such name; a view of a disk may.
-    const dirs = new Map([['/', ['package.json', 'packages']], ['/packages', names], ...names.map((name) => [`/packages/${name}`, ['package.json']])])
+    for (const name of ['a\nb', 'a\rb', 'a\u2028b', 'a\u2029b', 'a\\b']) {
+      const dirs = new Map([['/', ['package.json', 'packages']], ['/packages', ['c', name]], ['/packages/c', ['package.json']], [`/packages/${name}`, ['package.json']]])
+      const typeOf = (path) => ({ type: dirs.has(path) ? 'directory' : 'file' })
+      const view = { readdir: (path) => dirs.get(path), lstat: typeOf, stat: typeOf }
+      assert.deepEqual(findProjects(view, ['packages/c'], 10), ['.', 'packages/c'], JSON.stringify(name))
+      assert.throws(() => findProjects(view, ['packages/*'], 10), /^DeptreeError: ".*": expected a directory under the lockfile's, by its path from there in normal form, as a lockfile can key an importer$/u, JSON.stringify(name))
+    }
+    const dirs = new Map([['/', ['package.json', 'C:b']], ['/C:b', ['package.json']]])
     const typeOf = (path) => ({ type: dirs.has(path) ? 'directory' : 'file' })
-    const view = { readdir: (path) => dirs.get(path), lstat: typeOf, stat: typeOf }
-    assert.deepEqual(findProjects(view, ['packages/*'], 10), ['.', ...names.map((name) => `packages/${name}`).sort()])
-    checkWorkspace(['.', ...names.map((name) => `packages/${name}`)], ['packages/a*'])
+    assert.throws(() => findProjects({ readdir: (path) => dirs.get(path), lstat: typeOf, stat: typeOf }, ['*'], 10), /as a lockfile can key an importer$/u)
+  })
+
+  it('match however many `**` a glob has, with no recursion', () => {
+    assert.throws(() => checkWorkspace(['.', 'd/d'], [`${'**/'.repeat(10_000)}x`]), /do not take this directory/u)
+    checkWorkspace(['.', 'd/d'], [`${'**/'.repeat(10_000)}d`])
   })
 
   it('match as many `**` as there are names in time', () => {

@@ -815,7 +815,7 @@ describe('buildPnpmTree with a workspace', () => {
     const workspace = 'packages:\n  - packages/**\n  - \'*\'\n'
     for (const id of ['packages//y', './packages/y', 'packages/y/', 'packages/./y', 'packages/x/../y', '/packages/y', 'packages/y\\z', '', 'C:y']) {
       const given = { '.': root(), 'packages/x': JSON.stringify({ name: 'x', dependencies: { b: '1.0.0' } }), [id]: '{"name":"y"}' }
-      await assert.rejects(buildPnpmTree({ lockfile: two, manifests: given, workspace, patches: { 'patches/p.patch': PATCH }, host: HOST }), /^DeptreeError: manifests\[".*"\]: expected a directory under the lockfile's, by its path from there in normal form, as pnpm keys an importer$/u, JSON.stringify(id))
+      await assert.rejects(buildPnpmTree({ lockfile: two, manifests: given, workspace, patches: { 'patches/p.patch': PATCH }, host: HOST }), /^DeptreeError: manifests\[".*"\]: expected a directory under the lockfile's, by its path from there in normal form, as a lockfile can key an importer$/u, JSON.stringify(id))
     }
   })
 

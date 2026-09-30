@@ -36,6 +36,7 @@ import { DeptreeError, difference, quote } from '../error.js'
 import { KINDS, checkCatalogResolutions, checkLinkTargets, checkLinkedPackages, indexProjects, resolvedOf, sameSpecifier } from './frozen.js'
 import { checkProject } from './install.js'
 import { validForOldPackages } from './overrides.js'
+import { checkProjectId } from './workspace.js'
 
 // A package.json as parsed, as pnpm reads one: a byte order mark dropped,
 // and an object.
@@ -49,16 +50,6 @@ export function readManifest(text, where) {
   }
   if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) throw new DeptreeError('expected an object', where)
   return manifest
-}
-
-// Of what @preventive/lockfile holds an importer's key to, what a project
-// under the lockfile's directory has to be: its path from there, in normal
-// form, as pnpm finds it and writes the key, with no drive letter.
-const UNSAFE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}\\]/u
-function checkProjectId(id, where) {
-  if (id.split('/').some((name) => name === '' || name === '.' || name === '..' || UNSAFE.test(name)) || /^[A-Za-z]:/u.test(id)) {
-    throw new DeptreeError('expected a directory under the lockfile\'s, by its path from there in normal form, as pnpm keys an importer', where)
-  }
 }
 
 // The manifests by project, the root one among them, as given by the
