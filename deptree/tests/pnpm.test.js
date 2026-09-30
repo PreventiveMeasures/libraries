@@ -1307,6 +1307,17 @@ describe('buildPnpmTree reading the project', () => {
     await assert.rejects(fromProject({ 'pnpm-lock.yaml': `\uFEFF${lockfile()}` }), YamlError)
   })
 
+  // The lockfile keys an importer outside its directory by a leading `..`,
+  // which is refused before anything is read for it.
+  it('reads nothing outside the lockfile\'s directory for an importer', async () => {
+    const outside = lockfile().replace('importers:\n', 'importers:\n\n  ../other: {}\n')
+    const project = createVfs({ ...files, 'pnpm-lock.yaml': outside })
+    const read = []
+    const logged = { readdir: (path) => project.readdir(path), lstat: (path) => project.lstat(path), stat: (path) => { read.push(path); return project.stat(path) }, readFile: (path) => { read.push(path); return project.readFile(path) } }
+    await assert.rejects(buildPnpmTree({ project: logged, host: HOST }), /^DeptreeError: importers\["\.\.\/other"\]: a project outside the lockfile's directory is not supported$/u)
+    assert.deepEqual(read.filter((path) => path.includes('..')), [])
+  })
+
   it('takes a project, and nothing it reads there given besides', async () => {
     const project = createVfs(files)
     await assert.rejects(buildPnpmTree({ host: HOST }), /^TypeError: lockfile must be the text of pnpm-lock\.yaml, or left out with a project given to read it from$/u)

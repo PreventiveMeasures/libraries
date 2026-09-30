@@ -232,6 +232,7 @@ export async function buildPnpmTree(options) {
   const inputs = inputsOf(options)
   const { lockfile, env } = parsePnpmLockfile(inputs.lockfile)
   if (!('.' in lockfile.importers)) throw new DeptreeError('expected the root project, whose package.json holds settings', 'importers')
+  // Before the project is read for any importer: none leads out of it.
   checkLockfile(lockfile)
   const workspace = readWorkspace(inputs.workspace)
   const { manifests, pnpm, major } = manifestsOf(inputs, workspace, lockfile, given.pnpm)
