@@ -80,6 +80,7 @@ export const MAIN_MODELS = [
   ['openai/gpt-4.1-mini', { input: 0.4, output: 1.6, cacheReadPrice: 0.1, cacheWritePrice: 0.4, maxTokens: 32768, canThink: false }],
   ['openai/gpt-4o-mini', { input: 0.15, output: 0.6, cacheReadPrice: 0.075, cacheWritePrice: 0.15, maxTokens: 16384, canThink: false }],
   ['openai/gpt-oss-120b', { input: 0.039, output: 0.19, maxTokens: 128 * 1024, canThink: false, openRouterOnly: true }],
+  ['google/gemini-4-argon', { input: 2, output: 10, cacheReadPrice: 0.1, maxTokens: 1024 * 1024, noThink: 'unsupported' }],
   ['google/gemini-3.8-flash', { input: 0.75, output: 3.75, maxTokens: 64 * 1024, noThink: 'unsupported' }],
   ['google/gemini-3.1-pro-preview', { input: 2, output: 12, maxTokens: 64 * 1024, noThink: 'unsupported' }],
   ['google/gemma-4-31b-it', { input: 0.14, output: 0.4, maxTokens: 128 * 1024 }],

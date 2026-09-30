@@ -363,6 +363,7 @@ describe('no-think wire form', () => {
     ['openai/gpt-5.4-pro', false, false],
     ['openai/gpt-5.3-codex', false, false],
     ['google/gemini-3.1-flash-lite-preview', true, true],
+    ['google/gemini-4-argon', false, false],
     ['google/gemini-3.8-flash', false, false],
     ['google/gemini-3.1-pro-preview', false, false],
     ['google/gemma-4-31b-it', false, true],
@@ -477,6 +478,29 @@ describe('gemini flash', () => {
     for (const m of ['google/gemini-3.8-flash', 'google/gemini-3.1-flash-lite-preview', 'google/gemini-3.1-pro-preview']) {
       assert.equal(canThink(m), true, m)
     }
+  })
+})
+
+describe('gemini 4 argon', () => {
+  // Provisional. Google announced it on 2026-09-30 for its Fairwind
+  // Program only, so the id and the thinking controls are guesses until the
+  // API opens and OpenRouter lists it. $2 / $10 is the introductory rate;
+  // $4 / $20 follows, on a date Google hasn't given.
+  const ARGON = 'google/gemini-4-argon'
+
+  it('prices at the introductory $2 / $10 per Mtok, with cached input 95% off', () => {
+    assert.equal(baseRate(ARGON, 'input'), 2)
+    assert.equal(baseRate(ARGON, 'output'), 10)
+    assert.equal(baseRate(ARGON, 'cacheRead'), 0.1)
+  })
+
+  it('registers the 1M output cap Google announced', () => {
+    assert.equal(getMaxTokens(ARGON), 1024 * 1024)
+  })
+
+  it('thinks with no off switch, like gemini 3.1 pro', () => {
+    assert.equal(canThink(ARGON), true)
+    assert.equal(canDisableThink(ARGON), false)
   })
 })
 
