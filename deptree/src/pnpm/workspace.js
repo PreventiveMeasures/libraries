@@ -47,25 +47,34 @@ function compile(glob, where, dot) {
   return { names: names.map((name) => (name === '**' ? name : NAME(name, dot))), dot }
 }
 
-// Whether a glob takes the path of `names`: whether the glob from each of
-// its names on takes the path from each of its names on, the last first,
-// once each and with no recursion, however many `**` it has.
-function takes({ names: glob, dot }, names) {
-  // What the glob from each name on takes of the path from the next name,
-  // and from this one: two rows, swapped for each name.
-  let next = Array.from({ length: glob.length + 1 }, () => true)
-  let here = Array.from({ length: glob.length + 1 }, () => false)
-  for (let g = glob.length - 1; g >= 0; g--) next[g] = glob[g] === '**' && next[g + 1]
-  for (let n = names.length - 1; n >= 0; n--) {
-    for (let g = glob.length - 1; g >= 0; g--) {
-      here[g] = glob[g] === '**'
-        ? here[g + 1] || ((dot || !names[n].startsWith('.')) && next[g])
-        : glob[g].test(names[n]) && next[g + 1]
-    }
-    [next, here] = [here, next]
+// Which places in a glob the path of `names` leads to: for each index,
+// whether the glob's names before it take the path, a name at a time, in
+// time the glob's length for each and with no recursion, however many
+// `**` it has. A `**` may take no name, so reaching one reaches the next.
+function reach({ names: glob, dot }, names) {
+  let here = Array.from({ length: glob.length + 1 }, (_, g) => g === 0)
+  let next = Array.from({ length: glob.length + 1 }, () => false)
+  const onward = (places) => {
+    for (let g = 0; g < glob.length; g++) if (places[g] && glob[g] === '**') places[g + 1] = true
   }
-  return next[0]
+  onward(here)
+  for (const name of names) {
+    next.fill(false)
+    for (let g = 0; g < glob.length; g++) {
+      if (!here[g]) continue
+      if (glob[g] !== '**') next[g + 1] ||= glob[g].test(name)
+      else if (dot || !name.startsWith('.')) next[g] = true
+    }
+    onward(next)
+    ;[here, next] = [next, here]
+  }
+  return here
 }
+
+// Whether a glob takes the path of `names`; and whether it could take a
+// path below it, where the path leads to a place with more of it after.
+const takes = (glob, names) => reach(glob, names)[glob.names.length]
+const leadsOn = (glob, names) => reach(glob, names).some((reached, g) => reached && g < glob.names.length)
 
 // Whether tinyglobby walks into the directory at `names` for a glob, as
 // its partial matcher has it: name by name, each has to be taken by the
@@ -101,11 +110,10 @@ const ignored = (names) => IGNORED.some((glob) => takes(glob, names))
 // Whether the globs take the manifest at `names`.
 const taken = ({ include, exclude }, names) => include.some((glob) => takes(glob, names)) && !exclude.some((glob) => takes(glob, names)) && !ignored(names)
 
-// Whether tinyglobby walks into the directory at `names`; and whether it
-// follows a link to a directory there, which it does where a glob could
-// take something below it.
+// Whether tinyglobby walks into the directory at `names`; and whether,
+// following a link to a directory there, it could find a project below.
 const walked = ({ include }, names) => include.some((glob) => enters(glob, names)) && !ignored(names)
-const followed = ({ include }, names) => include.some((glob) => enters(glob, names) && (names.length < glob.names.length || glob.names.includes('**'))) && !ignored(names)
+const followed = ({ include }, names) => include.some((glob) => enters(glob, names) && leadsOn(glob, names)) && !ignored(names)
 
 // `ids` are the projects' directories, `.` the root; `packages` the globs,
 // or undefined; `major` pnpm's major version. pnpm finds a project where
@@ -179,11 +187,15 @@ export function findProjects(vfs, packages, major = 10) {
   return ['.', ...ids.sort()]
 }
 
-// What `path` leads to, links followed; nothing, where it leads nowhere.
+// What `path` leads to, links followed; nothing, where it leads nowhere:
+// to no entry, through a file, or round a loop of links. Any other
+// failure is thrown.
+const NOWHERE = new Set(['ENOENT', 'ENOTDIR', 'ELOOP'])
 function typeOf(vfs, path) {
   try {
     return vfs.stat(path).type
-  } catch {
-    return undefined
+  } catch (error) {
+    if (NOWHERE.has(error?.code)) return undefined
+    throw error
   }
 }

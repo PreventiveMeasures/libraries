@@ -107,6 +107,22 @@ describe('findProjects', () => {
       vfs.writeFile('/packages/j/package.yaml', 'name: j')
       assert.throws(() => findProjects(vfs, ['packages/*'], 10), /^DeptreeError: "packages\/j\/package\.yaml": pnpm reads this project's package\.yaml/u, target)
     }
+    // As pnpm 10.33.4 and 11.28.2 have them: a link under a name a `**`
+    // cannot take leads nowhere a glob takes, and a loop of links is no
+    // manifest.
+    {
+      const vfs = workspace()
+      vfs.symlink('../other', '/x/.link')
+      assert.deepEqual(findProjects(vfs, ['**'], 10), ['.', 'other/e', 'packages/a', 'packages/b', 'packages/f/sub', 'tests/t'])
+      vfs.symlink('package.json', '/packages/j/package.json')
+      assert.deepEqual(findProjects(vfs, ['packages/*'], 10), ['.', 'packages/a', 'packages/b'])
+    }
+    // A failure other than a path that leads nowhere is thrown.
+    {
+      const vfs = workspace()
+      const denied = { readdir: (path) => vfs.readdir(path), lstat: (path) => vfs.lstat(path), stat: (path) => (path === '/packages/a/package.json' ? assert.fail(Object.assign(new Error('denied'), { code: 'EACCES' })) : vfs.stat(path)) }
+      assert.throws(() => findProjects(denied, ['packages/*'], 10), /^Error: denied$/u)
+    }
     const vfs = workspace()
     vfs.writeFile('/package.yaml', 'name: r')
     vfs.writeFile('/packages/a/package.yaml', 'name: a')
