@@ -72,7 +72,7 @@ describe('findProjects', () => {
   // pnpm reads a manifest through a link, and follows a link to a
   // directory; it reads package.json5 or package.yaml where there is no
   // package.json.
-  it('refuses a manifest not read here, and a link pnpm would find a project through', () => {
+  it('refuses a manifest not read here, the root\'s too, and a link pnpm would find a project through', () => {
     const cases = [
       [(vfs) => vfs.writeFile('/packages/j/package.yaml', 'name: j'), /^DeptreeError: "packages\/j\/package\.yaml": pnpm reads this project's package\.yaml, which is not supported$/u],
       [(vfs) => vfs.writeFile('/packages/j/package.json5', '{}'), /package\.json5, which is not supported$/u],
@@ -84,7 +84,22 @@ describe('findProjects', () => {
       add(vfs)
       assert.throws(() => findProjects(vfs, ['packages/*'], 10), pattern)
     }
+    const bare = () => {
+      const vfs = workspace()
+      vfs.unlink('/package.json')
+      return vfs
+    }
+    const roots = [
+      [(vfs) => vfs.writeFile('/package.yaml', 'name: r'), /^DeptreeError: "package\.yaml": pnpm reads this project's package\.yaml, which is not supported$/u],
+      [(vfs) => vfs.symlink('other/e/package.json', '/package.json'), /^DeptreeError: "package\.json": a link pnpm would read a project's manifest through is not supported$/u],
+    ]
+    for (const [add, pattern] of roots) {
+      const vfs = bare()
+      add(vfs)
+      assert.throws(() => findProjects(vfs, ['packages/*'], 10), pattern)
+    }
     const vfs = workspace()
+    vfs.writeFile('/package.yaml', 'name: r')
     vfs.writeFile('/packages/a/package.yaml', 'name: a')
     vfs.writeFile('/other/e/package.yaml', 'name: e')
     vfs.symlink('../../other/e/package.json', '/packages/a/readme.md')

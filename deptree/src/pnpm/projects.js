@@ -51,6 +51,16 @@ export function readManifest(text, where) {
   return manifest
 }
 
+// Of what @preventive/lockfile holds an importer's key to, what a project
+// under the lockfile's directory has to be: its path from there, in normal
+// form, as pnpm finds it and writes the key.
+const UNSAFE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}\\]/u
+function checkProjectId(id, where) {
+  if (id.split('/').some((name) => name === '' || name === '.' || name === '..' || UNSAFE.test(name))) {
+    throw new DeptreeError('expected a directory under the lockfile\'s, by its path from there in normal form, as pnpm keys an importer', where)
+  }
+}
+
 // The manifests by project, the root one among them, as given by the
 // project's directory relative to the lockfile's.
 export function readManifests(manifests, lockfile) {
@@ -58,7 +68,10 @@ export function readManifests(manifests, lockfile) {
   const read = new Map()
   for (const [id, text] of manifests instanceof Map ? manifests : Object.entries(manifests)) {
     const where = `manifests[${quote(id)}]`
-    lockfile.importers[id] ??= { specifiers: {}, dependencies: {}, devDependencies: {}, optionalDependencies: {}, dependenciesMeta: {}, linkDirectory: true }
+    if (!(id in lockfile.importers)) {
+      checkProjectId(id, where)
+      lockfile.importers[id] = { specifiers: {}, dependencies: {}, devDependencies: {}, optionalDependencies: {}, dependenciesMeta: {}, linkDirectory: true }
+    }
     read.set(id, readManifest(text, where))
   }
   for (const id of Object.keys(lockfile.importers)) {

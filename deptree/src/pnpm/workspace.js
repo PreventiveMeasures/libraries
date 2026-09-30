@@ -96,9 +96,9 @@ const MANIFESTS = ['package.json', 'package.json5', 'package.yaml']
 // of `vfs`, `.` the root first and the rest in order, by the globs of
 // `packages` as pnpm `major` finds them. Every directory a glob could take
 // a project under is read. A project whose manifest is package.json5 or
-// package.yaml is refused, which is not read here; so is a link pnpm
-// would read a manifest through, or one to a directory a glob could take
-// a project under, which tinyglobby follows.
+// package.yaml is refused, the root among them, which is not read here; so
+// is a link pnpm would read a manifest through, or one to a directory a
+// glob could take a project under, which tinyglobby follows.
 export function findProjects(vfs, packages, major = 10) {
   const globs = compileAll(packages, major)
   const ignored = (names) => IGNORED.some((glob) => takes(glob, names))
@@ -107,14 +107,15 @@ export function findProjects(vfs, packages, major = 10) {
   const visit = (names) => {
     const entries = vfs.readdir(`/${names.join('/')}`)
     const manifest = [...names, 'package.json']
-    const found = names.length > 0 && taken(globs, manifest) && !ignored(manifest)
+    const root = names.length === 0
+    const found = root || (taken(globs, manifest) && !ignored(manifest))
       ? MANIFESTS.find((name) => entries.includes(name) && vfs.lstat(`/${[...names, name].join('/')}`).type !== 'directory')
       : undefined
     if (found !== undefined) {
       const where = quote([...names, found].join('/'))
       if (vfs.lstat(`/${[...names, found].join('/')}`).type === 'symlink') throw new DeptreeError('a link pnpm would read a project\'s manifest through is not supported', where)
       if (found !== 'package.json') throw new DeptreeError(`pnpm reads this project's ${found}, which is not supported`, where)
-      ids.push(names.join('/'))
+      if (!root) ids.push(names.join('/'))
     }
     for (const entry of entries) {
       const at = [...names, entry]

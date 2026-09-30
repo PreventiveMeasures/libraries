@@ -809,6 +809,16 @@ describe('buildPnpmTree with a workspace', () => {
     assert.equal(stats.projects, 3)
   })
 
+  // As the lockfile's own importers are keyed: a path pnpm could find the
+  // project by, which a glob may take all the same.
+  it('refuses a project the lockfile has no importer for by a path not in normal form', async () => {
+    const workspace = 'packages:\n  - packages/**\n'
+    for (const id of ['packages//y', './packages/y', 'packages/y/', 'packages/./y', 'packages/x/../y', '/packages/y', 'packages/y\\z', '']) {
+      const given = { '.': root(), 'packages/x': JSON.stringify({ name: 'x', dependencies: { b: '1.0.0' } }), [id]: '{"name":"y"}' }
+      await assert.rejects(buildPnpmTree({ lockfile: two, manifests: given, workspace, patches: { 'patches/p.patch': PATCH }, host: HOST }), /^DeptreeError: manifests\[".*"\]: expected a directory under the lockfile's, by its path from there in normal form, as pnpm keys an importer$/u, JSON.stringify(id))
+    }
+  })
+
   it('finds the projects as it reads pnpm-workspace.yaml, and refuses what buildPnpmTree refuses of it', () => {
     const vfs = createVfs({ 'package.json': '{}', 'packages/x/package.json': '{}' })
     for (const workspace of [undefined, '', '# none\n', 'hoist: true\n', 'packages: []\n']) assert.deepEqual(findPnpmProjects({ workspace, host: HOST, vfs }), ['.'], JSON.stringify(workspace))

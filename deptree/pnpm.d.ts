@@ -47,7 +47,8 @@ export interface PnpmHost {
 // directories: findPnpmProjects finds them in those. A project the
 // lockfile has no importer for is held to an empty one, as pnpm holds it:
 // with no dependencies it is installed, and hoisted by its name, and with
-// any it is refused as not up to date.
+// any it is refused as not up to date. Its directory has to be given as
+// pnpm would key its importer: from the lockfile's, in normal form.
 //
 // Each project is held to its importer as --frozen-lockfile holds it: its
 // dependencies, devDependencies, optionalDependencies and, with
