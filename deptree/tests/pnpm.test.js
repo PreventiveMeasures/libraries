@@ -865,6 +865,12 @@ describe('buildPnpmTree with a workspace', () => {
     for (const packageManager of [undefined, 'yarn@1.22.22', 'pnpm@11', 'pnpm@^11.0.0']) {
       assert.throws(() => findPnpmProjects({ project: project(packageManager) }), /^TypeError: host\.pnpm must be given where the root package\.json's packageManager pins no pnpm$/u, packageManager)
     }
+    // Read for nothing else: with host.pnpm given, it is not parsed.
+    for (const [data, pattern] of [['{', /^DeptreeError: manifests\["\."\]: not JSON/u], [new Uint8Array([0xff]), /^DeptreeError: manifests\["\."\]: "package\.json" is not UTF-8$/u]]) {
+      const unread = createVfs({ 'package.json': data, 'pnpm-workspace.yaml': 'packages:\n  - packages/*\n', 'packages/x/package.json': '{}' })
+      assert.deepEqual(findPnpmProjects({ project: unread, host: HOST }), ['.', 'packages/x'])
+      assert.throws(() => findPnpmProjects({ project: unread }), pattern)
+    }
   })
 
   it('refuses globs it does not read as tinyglobby does', async () => {

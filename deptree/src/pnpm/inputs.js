@@ -21,11 +21,12 @@ function majorOf(pnpm) {
 }
 
 // The pnpm that installs, and its major version: `pnpm`, host.pnpm, or
-// where that is left out, the one `root`, the root package.json as
-// parsed, pins by its packageManager, which is the only one it takes.
+// where that is left out, the one the root package.json pins by its
+// packageManager, which is the only one it takes; `root` gives that
+// package.json as parsed, and is called only then.
 function pnpmOf(pnpm, root) {
   if (pnpm !== undefined && (typeof pnpm !== 'string' || pnpm === '')) throw new TypeError('host.pnpm must be a non-empty string, or left out')
-  const version = pnpm ?? pinnedPnpm(root?.packageManager)
+  const version = pnpm ?? pinnedPnpm(root()?.packageManager)
   if (version === undefined) throw new TypeError('host.pnpm must be given where the root package.json\'s packageManager pins no pnpm')
   return { pnpm: version, major: majorOf(version) }
 }
@@ -69,7 +70,7 @@ export function findPnpmProjects(options) {
   const { project, host } = options ?? {}
   checkProject(project)
   if (host !== undefined && (host === null || typeof host !== 'object')) throw new TypeError('host must be an object, or left out')
-  const { major } = pnpmOf(host?.pnpm, readRoot(project))
+  const { major } = pnpmOf(host?.pnpm, () => readRoot(project))
   return projectsIn(project, readWorkspace(readWorkspaceText(project)), major)
 }
 
@@ -100,10 +101,10 @@ export function inputsOf(options) {
 export function manifestsOf(inputs, workspace, lockfile, pnpm) {
   if (!inputs.reading) {
     const manifests = readManifests(inputs.manifests, lockfile)
-    return { manifests, ...pnpmOf(pnpm, manifests.get('.')) }
+    return { manifests, ...pnpmOf(pnpm, () => manifests.get('.')) }
   }
   const { project } = inputs
-  const installs = pnpmOf(pnpm, readRoot(project))
+  const installs = pnpmOf(pnpm, () => readRoot(project))
   const ids = new Set([...projectsIn(project, workspace, installs.major), ...Object.keys(lockfile.importers)])
   return { manifests: readManifests(readManifestTexts(project, ids), lockfile), ...installs }
 }
