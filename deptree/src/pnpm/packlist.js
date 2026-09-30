@@ -27,22 +27,26 @@
 import { join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 
-const ANYWHERE = new Set(['.git', '.svn', '.hg', 'cvs', '.npmrc', '.ds_store', 'npm-debug.log', '.npmignore', '.gitignore'])
-const leftOutAnywhere = (name) => ANYWHERE.has(name) || name.startsWith('._') || /^\..*\.swp$/u.test(name) || name.endsWith('.orig')
+// The rules each name is held to, folded, wherever it is.
+const ANYWHERE = /^(?:\.git|\.svn|\.hg|cvs|\.npmrc|\.ds_store|npm-debug\.log|\.npmignore|\.gitignore|\._.*|\..*\.swp|.*\.orig)$/u
 
-const TOP = new Set(['node_modules', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml'])
+// The rules held to the path, by its names folded, from the directory they
+// are read in: the top for npm-packlist 5, and every directory for
+// npm-packlist 10, which reads them again in each.
+const anchored = (names, directory) => (names.length === 1 && (names[0] === '.lock-wscript' || names[0].startsWith('.wafpickle-') || (directory && names[0] === 'archived-packages')))
+  || (names.length === 2 && names[0] === 'build' && names[1] === 'config.gypi')
 
-// Whether the built-in rules leave out the entry at `names`, the path of
-// it from the package's directory by name, which is a directory where
-// `directory`. npm-packlist 10 reads its rules anchored at the top again
-// in every directory it walks; npm-packlist 5 at the top alone.
+// The names left out at the top alone.
+const TOP = ['node_modules', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml']
+const TOP_11 = [...TOP, 'bun.lockb']
+
+// Whether the built-in rules leave out the entry at `names`, its path from
+// the package's directory by name, which is a directory where `directory`.
 function leftOut(names, directory, major) {
-  const name = names.at(-1).toLowerCase()
-  if (leftOutAnywhere(name)) return true
-  const top = names.length === 1
-  if ((top || major >= 11) && (name === '.lock-wscript' || name.startsWith('.wafpickle-') || (directory && name === 'archived-packages'))) return true
-  if ((names.length === 2 || (major >= 11 && names.length > 2)) && names.at(-2).toLowerCase() === 'build' && name === 'config.gypi') return true
-  return top && (TOP.has(name) || (major >= 11 && name === 'bun.lockb'))
+  const folded = names.map((name) => name.toLowerCase())
+  const readIn = major >= 11 ? folded.map((_, i) => folded.slice(i)) : [folded]
+  return ANYWHERE.test(folded.at(-1)) || readIn.some((path) => anchored(path, directory))
+    || (folded.length === 1 && (major >= 11 ? TOP_11 : TOP).includes(folded[0]))
 }
 
 // npm-packlist's names it keeps, whatever else says.
@@ -65,8 +69,7 @@ export function packDirectory(vfs, dir, manifest, major, where) {
   const named = namedByManifest(manifest)
   const files = new Map()
   const visit = (names) => {
-    const path = names.join('/')
-    for (const entry of vfs.readdir(`/${dir}${path === '' ? '' : `/${path}`}`)) {
+    for (const entry of vfs.readdir(['', dir, ...names].join('/'))) {
       const at = [...names, entry]
       const rel = at.join('/')
       const here = `${where}: ${quote(rel)}`
