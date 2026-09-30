@@ -1,6 +1,6 @@
 // Hand-written against pnpm.js; a change to either belongs with the other.
 
-import type { Vfs } from '@preventive/vfs'
+import type { NodeType, Vfs } from '@preventive/vfs'
 
 export { LockfileError, YamlError } from '@preventive/lockfile/pnpm.js'
 
@@ -38,11 +38,17 @@ export interface PnpmHost {
 
 // A view of the lockfile's directory, by paths from `/`: a Vfs, or
 // anything with its readdir, lstat, stat and readFile, such as one of a
-// directory on disk, whose stat and lstat give back a `type` — `file`,
-// `directory` or `symlink` — and a `mode`, readFile bytes, and each throws
-// an error whose `code` is ENOENT, ENOTDIR or ELOOP for a path that leads
-// nowhere. Nothing is written to it.
-export type PnpmProject = Pick<Vfs, 'readdir' | 'lstat' | 'stat' | 'readFile'>
+// directory on disk, of which only this is read: the names in a
+// directory; what a path is, `file`, `directory` or `symlink`, and its
+// mode, with lstat, and what it leads to with stat; and a file's bytes.
+// Each throws an error whose `code` is ENOENT, ENOTDIR or ELOOP for a path
+// that leads nowhere. Nothing is written to it.
+export interface PnpmProject {
+  readdir(path: string): string[]
+  lstat(path: string): { type: NodeType, mode: number }
+  stat(path: string): { type: NodeType }
+  readFile(path: string): Uint8Array
+}
 
 // The files an install reads: pnpm-lock.yaml; the package.json of every
 // project it installs; pnpm-workspace.yaml and the .npmrc, where there are
