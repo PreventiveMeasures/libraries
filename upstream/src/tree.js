@@ -6,6 +6,9 @@ import { isSha1 } from './args.js'
 
 const BLOCK = 512
 const MAX_UNPACKED_BYTES = 2 ** 30
+// The only pax records git writes. Any other, `size` above all, would be
+// read by a tar extractor as it is not read here.
+const PAX_KEYS = { x: new Set(['path', 'linkpath']), g: new Set(['comment']) }
 
 // Names are kept as latin1 strings, a char per byte, so they sort and hash
 // as the bytes git has.
@@ -19,11 +22,13 @@ const octal = (header, start, end) => {
   return /^[0-7]{1,12}$/u.test(text) ? Number.parseInt(text, 8) : Number.NaN
 }
 const objectId = (type, content) => createHash('sha1').update(`${type} ${content.length}\0`).update(content).digest()
+const checksum = (header) => header.reduce((sum, byte, i) => sum + (i >= 148 && i < 156 ? 32 : byte), 0)
+const isZero = (bytes) => bytes.every((byte) => byte === 0)
 
 // `<length> <key>=<value>\n`, the length counting the whole record.
 function paxRecords(body) {
   const text = Buffer.from(body).toString('latin1')
-  const records = {}
+  const records = new Map()
   for (let at = 0; at < text.length;) {
     const space = text.indexOf(' ', at)
     const length = text.slice(at, space)
@@ -32,7 +37,7 @@ function paxRecords(body) {
     const record = text.slice(space + 1, end - 1)
     const equals = record.indexOf('=')
     if (equals < 1) return null
-    records[record.slice(0, equals)] = record.slice(equals + 1)
+    records.set(record.slice(0, equals), record.slice(equals + 1))
     at = end
   }
   return records
@@ -69,26 +74,37 @@ export async function gitTreeOfTarball(gzipped, submodules) {
   }
   const root = new Map()
   let top
-  let pax = {}
+  let pax = null
   for (let at = 0; ;) {
     const header = bytes.subarray(at, at + BLOCK)
     if (header.length < BLOCK) return 'no tree: the tarball is cut short'
-    if (header.every((byte) => byte === 0)) break
+    if (isZero(header)) {
+      if (!isZero(bytes.subarray(at))) return 'no tree: data after the end of the tarball'
+      break
+    }
+    if (Buffer.from(header.subarray(257, 265)).toString('latin1') !== 'ustar\u000000') return 'no tree: a header that is not POSIX ustar'
+    if (octal(header, 148, 156) !== checksum(header)) return 'no tree: a header that fails its checksum'
+    const mode = octal(header, 100, 108)
+    if (!(mode <= 0o777)) return 'no tree: a mode git does not write'
     const size = octal(header, 124, 136)
     const body = bytes.subarray(at + BLOCK, at + BLOCK + size)
     if (body.length !== size) return 'no tree: the tarball is cut short'
     at += BLOCK + Math.ceil(size / BLOCK) * BLOCK
     const type = String.fromCodePoint(header[156])
-    if (type === 'g') continue // git's own: the commit, for a commit's tarball
-    if (type === 'x') {
-      pax = paxRecords(body)
-      if (pax === null) return 'no tree: a malformed pax header'
+    // `g` is git's own, naming the commit of a commit's tarball.
+    if (type === 'x' || type === 'g') {
+      const records = paxRecords(body)
+      if (records === null) return 'no tree: a malformed pax header'
+      const other = [...records.keys()].find((key) => !PAX_KEYS[type].has(key))
+      if (other !== undefined) return `no tree: a pax record git does not write, ${JSON.stringify(other)}`
+      if (type === 'x' && pax !== null) return 'no tree: two pax headers for one entry'
+      if (type === 'x') pax = records
       continue
     }
     const prefix = field(header, 345, 500)
-    const path = pax.path ?? (prefix ? `${prefix}/${field(header, 0, 100)}` : field(header, 0, 100))
-    const target = pax.linkpath ?? field(header, 157, 257)
-    pax = {}
+    const path = pax?.get('path') ?? (prefix ? `${prefix}/${field(header, 0, 100)}` : field(header, 0, 100))
+    const target = pax?.get('linkpath') ?? field(header, 157, 257)
+    pax = null
     const [first, ...parts] = path.replace(/\/$/u, '').split('/')
     top ??= first
     const name = type === '5' ? null : parts.pop()
@@ -101,7 +117,7 @@ export async function gitTreeOfTarball(gzipped, submodules) {
     }
     if (name === null) continue
     if (dir.has(name)) return `no tree: ${JSON.stringify(path)} twice`
-    if (type === '0') dir.set(name, { mode: octal(header, 100, 108) & 0o100 ? '100755' : '100644', id: objectId('blob', body) })
+    if (type === '0') dir.set(name, { mode: mode & 0o100 ? '100755' : '100644', id: objectId('blob', body) })
     else if (type === '2') dir.set(name, { mode: '120000', id: objectId('blob', Buffer.from(target, 'latin1')) })
     else return `no tree: an entry of type ${JSON.stringify(type)}`
   }

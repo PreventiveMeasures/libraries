@@ -5,15 +5,42 @@ import { describe, it } from 'node:test'
 import { gitTreeOfTarball } from '../src/tree.js'
 import { COMMIT_TGZ, SUBMODULE, SUBMODULE_COMMIT, SUBMODULE_TGZ, TREE, TREE_TGZ } from './tree-fixtures.js'
 
+// A header's checksum, over the header with the field itself read as spaces.
+const sign = (tar, start) => {
+  tar.fill(' ', start + 148, start + 156)
+  const sum = tar.subarray(start, start + 512).reduce((total, byte) => total + byte, 0)
+  tar.write(`${sum.toString(8).padStart(6, '0')}\0 `, start + 148, 'latin1')
+}
+
 // The tar inside, with `find` written over by `replace` at `offset` from
-// where it starts, gzipped again.
+// where it starts, the header that falls in signed again, gzipped again.
 const edited = (tgz, find, replace, offset = 0) => {
   const tar = Buffer.from(gunzipSync(tgz))
-  const at = tar.indexOf(find)
-  assert.notEqual(at, -1)
-  tar.write(replace, at + offset, 'latin1')
+  const at = tar.indexOf(find) + offset
+  assert.notEqual(at, offset - 1)
+  tar.write(replace, at, 'latin1')
+  const start = at - (at % 512)
+  if (tar.toString('latin1', start + 257, start + 263) === 'ustar\0') sign(tar, start)
   return gzipSync(tar)
 }
+
+const header = (name, type, size = 0, mode = 0o664) => {
+  const block = Buffer.alloc(512)
+  block.write(name, 0)
+  block.write(mode.toString(8).padStart(7, '0'), 100)
+  block.write(size.toString(8).padStart(11, '0'), 124)
+  block.write(type, 156)
+  block.write('ustar\u000000', 257, 'latin1')
+  sign(block, 0)
+  return block
+}
+const body = (text) => Buffer.concat([Buffer.from(text, 'latin1'), Buffer.alloc((512 - (text.length % 512)) % 512)])
+// Two-digit records only: the length counts itself.
+const pax = (type, records) => {
+  const text = records.map(([key, value]) => ` ${key}=${value}\n`).map((rest) => `${rest.length + 2}${rest}`).join('')
+  return [header('PaxHeader', type, text.length), body(text)]
+}
+const tarball = (...blocks) => gzipSync(Buffer.concat([...blocks.flat(), Buffer.alloc(1024)]))
 
 describe('gitTreeOfTarball', () => {
   it("is the id of the tree `git archive` wrote, a commit's included", async () => {
@@ -41,11 +68,30 @@ describe('gitTreeOfTarball', () => {
     assert.match(await gitTreeOfTarball(edited(TREE_TGZ, 'acme-app-abc1234/lib/', 'acme-app-abc1234/../')), /^no tree: an entry outside one top directory/u)
     assert.equal(await gitTreeOfTarball(edited(TREE_TGZ, 'acme-app-abc1234/run\0', '..\0', 'acme-app-abc1234/'.length)), 'no tree: an entry outside one top directory, "acme-app-abc1234/.."')
     // A file alone, with no directory over it, which would otherwise read as the empty tree.
-    const header = Buffer.alloc(512)
-    header.write('file', 0)
-    header.write('00000000000', 124)
-    header.write('0', 156)
-    assert.equal(await gitTreeOfTarball(gzipSync(Buffer.concat([header, Buffer.alloc(1024)]))), 'no tree: an entry outside one top directory, "file"')
+    assert.equal(await gitTreeOfTarball(tarball(header('file', '0'))), 'no tree: an entry outside one top directory, "file"')
+  })
+
+  it('is a reason where a tar extractor would read the tarball other than it is hashed', async () => {
+    const top = header('top/', '5', 0, 0o775)
+    const file = [header('top/f', '0', 4), body('SAFEEVIL')]
+    assert.equal(await gitTreeOfTarball(tarball(top, file)), 'ef38c2e9ebb915617fbd4a188a4c5d3ba68b8022')
+    const tampered = header('top/f', '0', 4)
+    tampered[0] = 'T'.codePointAt(0)
+    const gnu = header('top/f', '0', 4)
+    gnu.write('ustar  \0', 257, 'latin1')
+    sign(gnu, 0)
+    for (const [blocks, reason] of [
+      [[top, pax('x', [['size', 8]]), file], 'a pax record git does not write, "size"'],
+      [[pax('g', [['path', 'top/x']]), top, file], 'a pax record git does not write, "path"'],
+      [[top, pax('x', [['__proto__', 'x']]), file], 'a pax record git does not write, "__proto__"'],
+      [[top, pax('x', [['path', 'top/a']]), pax('x', [['linkpath', 'x']]), file], 'two pax headers for one entry'],
+      [[top, tampered, body('SAFE')], 'a header that fails its checksum'],
+      [[top, gnu, body('SAFE')], 'a header that is not POSIX ustar'],
+      [[top, header('top/f', '0', 4, 0o4775), body('SAFE')], 'a mode git does not write'],
+      [[top, file, Buffer.alloc(1024), header('top/g', '0')], 'data after the end of the tarball'],
+    ]) {
+      assert.equal(await gitTreeOfTarball(tarball(...blocks)), `no tree: ${reason}`, reason)
+    }
   })
 
   it("takes a submodule's commit from `submodules`, asked only for a tarball with an empty directory, and is the id only for the right one", async () => {
