@@ -70,13 +70,26 @@ async function getRepoFile(headers, options) {
 // Follows the redirect to codeload.github.com. A tree id names its content,
 // so the bytes are held to it, downloaded or cached, and cached by it alone,
 // for good. A submodule, an empty directory in a tarball, takes its commit
-// from GitHub's listing of the tree, which the id checks as well.
+// from GitHub's listings of the trees down to it, which the id checks as
+// well: one directory at a time, as a recursive listing of a large tree is
+// cut short.
 async function treeTarball(method, headers, repo, tree, ref) {
-  const submodules = async () => {
-    const listing = await call(headers, repoApi(repo, ['git', 'trees', tree], { recursive: 1 }))
-    const entries = Array.isArray(listing?.tree) ? listing.tree : []
-    return new Map(entries.filter((entry) => entry?.type === 'commit' && typeof entry.path === 'string').map((entry) => [Buffer.from(entry.path).toString('latin1'), entry.sha]))
+  const listings = new Map()
+  const list = (sha) => {
+    if (!listings.has(sha)) listings.set(sha, call(headers, repoApi(repo, ['git', 'trees', sha])).then((listing) => (Array.isArray(listing?.tree) ? listing.tree : [])))
+    return listings.get(sha)
   }
+  const commitAt = async (path) => {
+    let sha = tree
+    const parts = path.split('/')
+    for (const [i, part] of parts.entries()) {
+      const type = i === parts.length - 1 ? 'commit' : 'tree'
+      sha = (await list(sha)).find((entry) => entry?.type === type && typeof entry.path === 'string' && Buffer.from(entry.path).toString('latin1') === part)?.sha
+      if (!isSha1(sha)) return undefined
+    }
+    return sha
+  }
+  const submodules = async (paths) => new Map(await Promise.all(paths.map(async (path) => [path, await commitAt(path)])))
   const locate = () => repoApi(repo, ['tarball', ref])
   return await verifiedDownload({ method, dir: 'github/trees', what: tree, ext: 'tgz', algorithm: 'tree', expected: tree, locate, options: { headers, redirect: 'follow' }, submodules })
 }

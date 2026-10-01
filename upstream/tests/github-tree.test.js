@@ -8,7 +8,7 @@ import { gunzipSync, gzipSync } from 'node:zlib'
 import { createClient } from '../github.js'
 import { setCacheDir } from '../npm.js'
 import { SHA, forbidRequests, json, stubGitHub } from './github-stub.js'
-import { COMMIT_TGZ, SUBMODULE, SUBMODULE_COMMIT, SUBMODULE_TGZ, TREE, TREE_TGZ } from './tree-fixtures.js'
+import { COMMIT_TGZ, NESTED, NESTED_COMMIT, NESTED_LIB, NESTED_TGZ, SUBMODULE, SUBMODULE_COMMIT, SUBMODULE_TGZ, TREE, TREE_TGZ } from './tree-fixtures.js'
 
 const CACHE_DIR = join(tmpdir(), `upstream-github-tree-test-${process.pid}`)
 setCacheDir(CACHE_DIR)
@@ -28,12 +28,12 @@ function stub({ tarballs = {}, commits = {}, listings = {} } = {}) {
     const [kind, id] = [path.slice(0, path.lastIndexOf('/')), path.slice(path.lastIndexOf('/') + 1)]
     if (kind === 'tarball' && Object.hasOwn(tarballs, id)) return gzip(tarballs[id])
     if (kind === 'git/commits' && Object.hasOwn(commits, id)) return json(commits[id])
-    if (kind === 'git/trees' && search === '?recursive=1' && Object.hasOwn(listings, id)) return json(listings[id])
+    if (kind === 'git/trees' && search === '' && Object.hasOwn(listings, id)) return json(listings[id])
     return json({ message: 'Not Found' }, 404)
   })
 }
 const urls = (calls) => calls.map(({ url }) => url)
-const SUBMODULE_LISTING = { sha: SUBMODULE, truncated: false, tree: [{ path: 'run', mode: '100755', type: 'blob', sha: SHA }, { path: 'sub', mode: '160000', type: 'commit', sha: SUBMODULE_COMMIT }] }
+const SUBMODULE_LISTING = { sha: SUBMODULE, truncated: false, tree: [{ path: 'lib', mode: '040000', type: 'tree', sha: SHA }, { path: 'sub', mode: '160000', type: 'commit', sha: SUBMODULE_COMMIT }] }
 
 beforeEach(() => rm(CACHE_DIR, { recursive: true, force: true }))
 afterEach(() => {
@@ -63,10 +63,22 @@ describe('getRepoTreeTarball', () => {
   it("takes a submodule's commit from GitHub's listing of the tree, asked only for a tarball with one", async () => {
     let calls = stub({ tarballs: { [SUBMODULE]: SUBMODULE_TGZ }, listings: { [SUBMODULE]: SUBMODULE_LISTING } })
     assert.deepEqual(Buffer.from(await client().getRepoTreeTarball({ repo: 'acme/app', tree: SUBMODULE })), SUBMODULE_TGZ)
-    assert.deepEqual(urls(calls), [`${API}/tarball/${SUBMODULE}`, `${API}/git/trees/${SUBMODULE}?recursive=1`])
+    assert.deepEqual(urls(calls), [`${API}/tarball/${SUBMODULE}`, `${API}/git/trees/${SUBMODULE}`])
     calls = stub({ listings: { [SUBMODULE]: SUBMODULE_LISTING } })
     await client().getRepoTreeTarball({ repo: 'acme/app', tree: SUBMODULE })
-    assert.deepEqual(urls(calls), [`${API}/git/trees/${SUBMODULE}?recursive=1`])
+    assert.deepEqual(urls(calls), [`${API}/git/trees/${SUBMODULE}`])
+  })
+
+  it('walks down to a submodule a directory listing at a time, never by an id that is not one', async () => {
+    const lib = (sha) => ({ tree: [{ path: 'lib', mode: '040000', type: 'tree', sha }] })
+    const listings = { [NESTED]: lib(NESTED_LIB), [NESTED_LIB]: { tree: [{ path: 'a.js', mode: '100644', type: 'blob', sha: SHA }, { path: 'sub', mode: '160000', type: 'commit', sha: NESTED_COMMIT }] } }
+    let calls = stub({ tarballs: { [NESTED]: NESTED_TGZ }, listings })
+    assert.deepEqual(Buffer.from(await client().getRepoTreeTarball({ repo: 'acme/app', tree: NESTED })), NESTED_TGZ)
+    assert.deepEqual(urls(calls), [`${API}/tarball/${NESTED}`, `${API}/git/trees/${NESTED}`, `${API}/git/trees/${NESTED_LIB}`])
+    await rm(CACHE_DIR, { recursive: true, force: true })
+    calls = stub({ tarballs: { [NESTED]: NESTED_TGZ }, listings: { ...listings, [NESTED]: lib('../x') } })
+    await assert.rejects(client().getRepoTreeTarball({ repo: 'acme/app', tree: NESTED }), /got no tree: an empty directory, "lib\/sub", and no submodule there$/u)
+    assert.deepEqual(urls(calls), [`${API}/tarball/${NESTED}`, `${API}/git/trees/${NESTED}`])
   })
 
   it('refuses a submodule the listing has not, or names another commit for', async () => {
