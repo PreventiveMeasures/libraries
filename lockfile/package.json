@@ -62,6 +62,7 @@
     "src/crate/sanitize-filename.js",
     "src/crate/semver.js",
     "src/error.js",
+    "src/excerpt.js",
     "src/foundry/config.js",
     "src/foundry/gitmodules.js",
     "src/foundry/json.js",

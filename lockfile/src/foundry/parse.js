@@ -58,7 +58,8 @@ function addUrls(dependencies, gitmodules, directory) {
   for (const [key, dependency, here] of entries(dependencies, '')) {
     const path = joinRelative(directory, key)
     if (path === '..' || path.startsWith('../')) throw new LockfileError(`outside the repository, from the lockfile's directory ${quote(directory)} in it`, here)
-    if (relativeTo(directory, path) !== key) throw new LockfileError(`not as forge writes the path, ${quote(relativeTo(directory, path))}`, here)
+    const written = relativeTo(directory, path)
+    if (written !== key) throw new LockfileError(`not as forge writes the path, ${quote(written)}`, here)
     const name = names.get(path)
     if (name === undefined) throw new LockfileError(`no submodule in .gitmodules is at ${quote(path)}`, here)
     names.delete(path)

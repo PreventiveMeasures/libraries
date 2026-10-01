@@ -6,7 +6,7 @@
 
 import { LockfileError, at, quote } from '../error.js'
 import { checkIntegrity, checkRelative, checkRepo, isCommit, isHttpUrl } from '../names.js'
-import { flag, kind, record, text } from '../shape.js'
+import { flag, kind, optional, record, text } from '../shape.js'
 
 // A tarball is fetched from an absolute http(s) URL or read from a local
 // file, which pnpm writes as `file:` and a path from the lockfile's
@@ -24,7 +24,7 @@ function checkTarball(value, where) {
 
 // `path` is a subdirectory of the tarball or repository that is the
 // package, where it is not the root: a git dependency's `#path:`.
-const readPath = (resolution, where) => (resolution.path === undefined ? undefined : text(resolution.path, at(where, 'path')))
+const readPath = (resolution, where) => optional(resolution, 'path', where, text)
 
 function readTarball(resolution, where) {
   record(resolution, where, ['integrity', 'tarball', 'path', 'gitHosted'])
@@ -32,8 +32,8 @@ function readTarball(resolution, where) {
   if (integrity === undefined && tarball === undefined) throw new LockfileError('expected an integrity or a tarball', where)
   return {
     type: 'tarball',
-    integrity: integrity === undefined ? undefined : checkIntegrity(integrity, at(where, 'integrity')),
-    tarball: tarball === undefined ? undefined : checkTarball(tarball, at(where, 'tarball')),
+    integrity: optional(resolution, 'integrity', where, checkIntegrity),
+    tarball: optional(resolution, 'tarball', where, checkTarball),
     path: readPath(resolution, where),
     gitHosted: flag(resolution.gitHosted, at(where, 'gitHosted')),
   }

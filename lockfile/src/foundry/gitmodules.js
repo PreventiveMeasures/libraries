@@ -4,9 +4,10 @@
 
 import { LockfileError, at, quote } from '../error.js'
 import { checkRefName, checkRelative, checkRepo } from '../names.js'
+import { record } from '../shape.js'
 import { readConfig } from './config.js'
 
-const FIELDS = new Set(['path', 'url', 'branch', 'update', 'shallow', 'ignore', 'fetchrecursesubmodules'])
+const FIELDS = ['path', 'url', 'branch', 'update', 'shallow', 'ignore', 'fetchrecursesubmodules']
 
 // git reads these as true, false or an integer, and dies on anything else;
 // a key alone is true.
@@ -24,7 +25,7 @@ const VALUES = {
 }
 
 // git's check_submodule_name: a name is a directory under .git/modules.
-function checkName(name, where) {
+function checkSubmoduleName(name, where) {
   if (name === '' || name.split(/[/\\]/u).includes('..')) throw new LockfileError('a name git ignores the submodule for, empty or with a ".." in it', where)
   return name
 }
@@ -64,10 +65,10 @@ function group(entries, where, file) {
       const form = section.startsWith('submodule.') ? 'the form [submodule.name], whose name git lowercases,' : `[${section}${subsection === undefined ? '' : ` "${subsection}"`}]`
       throw new LockfileError(`a section of ${form} where .gitmodules has [submodule "name"] alone, at line ${header + 1}`, file)
     }
-    const here = at(where, checkName(subsection, at(where, subsection)))
+    const here = at(where, subsection)
+    checkSubmoduleName(subsection, here)
     const submodule = submodules.get(subsection) ?? submodules.set(subsection, { header, fields: Object.create(null) }).get(subsection)
     if (submodule.header !== header) throw new LockfileError(`a second section, at line ${header + 1}, where git writes one`, here)
-    if (!FIELDS.has(key)) throw new LockfileError(`unsupported field ${quote(key)}`, here)
     if (key in submodule.fields) throw new LockfileError(`twice, of which git's submodule commands read the first and git config the last, at line ${line + 1}`, at(here, key))
     submodule.fields[key] = value
   }
@@ -75,6 +76,7 @@ function group(entries, where, file) {
 }
 
 function readSubmodule(fields, where) {
+  record(fields, where, FIELDS)
   for (const key of ['path', 'url', 'branch', 'update', 'ignore']) {
     if (fields[key] === null) throw new LockfileError('a key alone, where git expects a value', at(where, key))
   }

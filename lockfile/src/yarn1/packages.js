@@ -5,7 +5,7 @@ import { fromHex } from '@exodus/bytes/hex.js'
 import { LockfileError, at, quote } from '../error.js'
 import { checkOptional } from '../graph.js'
 import { checkIntegrity, checkName, checkRelative, checkRepo, checkVersion, isCommit, isHttpUrl, joinRelative } from '../names.js'
-import { EMPTY, entries, record, string, text } from '../shape.js'
+import { EMPTY, entries, optional, record, string, text } from '../shape.js'
 
 const FIELDS = ['name', 'version', 'uid', 'resolved', 'integrity', 'dependencies', 'optionalDependencies']
 
@@ -225,7 +225,7 @@ function readPackage({ keys, fields }, where, semver) {
   const dependencies = readDependencies(fields.dependencies, at(where, 'dependencies'), requests)
   const optionalDependencies = readDependencies(fields.optionalDependencies, at(where, 'optionalDependencies'), requests)
   checkOptional(dependencies, optionalDependencies, where)
-  const uid = fields.uid === undefined ? undefined : string(fields.uid, at(where, 'uid'))
+  const uid = optional(fields, 'uid', where, string)
   if (uid === version) throw new LockfileError('the version, which yarn does not write as a uid', at(where, 'uid'))
   const pkg = { patterns: keys, name: patterns[0].name, version, uid, resolution, dependencies, optionalDependencies }
   return { pkg, patterns, handed, requests }

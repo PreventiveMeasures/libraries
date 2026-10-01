@@ -32,6 +32,9 @@ export function record(value, where, fields) {
 // A mapping's entries, each with where it is.
 export const entries = (value, where) => Object.entries(record(value, where)).map(([key, item]) => [key, item, at(where, key)])
 
+// A field that may be left out: undefined, or what `check` makes of it.
+export const optional = (holder, key, where, check) => (holder[key] === undefined ? undefined : check(holder[key], at(where, key)))
+
 export function string(value, where) {
   if (typeof value !== 'string') throw refuse('a string', value, where)
   return value
