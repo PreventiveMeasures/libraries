@@ -66,7 +66,7 @@ export interface Client {
   // The head of `branch`, or of the default branch without one.
   getRepoHead(options: { repo: RepoName; branch?: string }): Promise<{ branch: string; oid: string }>
   // The commit `tag` names: GitHub's ref for exactly that tag, an annotated
-  // one's tag object followed to the commit, through tags of tags too.
+  // one's tag object followed to the commit, through up to 8 tags of tags.
   // Refused for a tag on anything but a commit.
   getRepoTag(options: { repo: RepoName; tag: string }): Promise<{ tag: string; oid: string }>
   // The repo's gzipped tarball at the full commit `sha`, whole, in memory:
@@ -102,8 +102,9 @@ export interface Client {
   // tree's id, so none is left out or changed.
   listRepoDir(options: { repo: RepoName; sha: string; directory?: string }): Promise<RepoDirEntry[]>
   // Every page of the repo's tags, as GitHub lists them, each with the
-  // commit it names, an annotated tag's included; more than `maxPages` (100
-  // by default) pages of 100 is an error, as is a tag with no commit.
+  // commit GitHub names for it, an annotated tag's included, which
+  // getRepoTag checks is one; more than `maxPages` (100 by default) pages
+  // of 100 is an error, as is a tag with no commit.
   listRepoTags(options: { repo: RepoName; maxPages?: number }): Promise<{ tag: string; oid: string }[]>
   // Every page of `GET /user/repos`, as GitHub's repository objects; more
   // than `maxPages` (100 by default) pages of 100 is an error.

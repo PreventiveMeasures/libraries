@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 
-import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTreeId, isRefName, isSha, isSha1, optional, sameName, show } from '../args.js'
+import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTagName, assertTreeId, isSha, isSha1, isTagName, optional, sameName, show } from '../args.js'
 import { verifiedDownload } from '../download.js'
 import { decode, encodeSegment } from '../http.js'
 import { gitTreeOfListing } from '../tree.js'
@@ -49,10 +49,10 @@ export async function getRepoHead(headers, options) {
 }
 
 async function getRepoTag(headers, options) {
-  assertArgs('getRepoTag', options, { repo: assertRepo, tag: assertRef })
+  assertArgs('getRepoTag', options, { repo: assertRepo, tag: assertTagName })
   const { repo, tag } = options
   const ref = await call(headers, repoApi(repo, ['git', 'ref', 'tags', encodeSegment(tag)]))
-  assert.ok(ref?.ref === `refs/tags/${tag}`, `getRepoTag: GitHub answered for ${show(ref?.ref)}, not refs/tags/${tag}`)
+  assert.ok(ref?.ref === `refs/tags/${tag}`, `getRepoTag: GitHub answered for ${show(ref?.ref)}, not ${show(`refs/tags/${tag}`)}`)
   let { object } = ref
   for (let hops = 0; object?.type === 'tag' && isSha(object.sha) && hops < 8; hops++) {
     const annotated = await call(headers, repoApi(repo, ['git', 'tags', object.sha]))
@@ -66,9 +66,10 @@ async function getRepoTag(headers, options) {
 // GitHub lists each tag with the commit it names, an annotated one's too.
 async function listRepoTags(headers, options) {
   assertArgs('listRepoTags', options, { repo: assertRepo, maxPages: optional(assertNumber) })
-  const tags = await paginate('listRepoTags', headers, (paging) => repoApi(options.repo, ['tags'], paging), options.maxPages)
+  const { repo, maxPages } = options
+  const tags = await paginate('listRepoTags', headers, (paging) => repoApi(repo, ['tags'], paging), maxPages)
   return tags.map((entry) => {
-    assert.ok(isRefName(entry?.name) && isSha(entry.commit?.sha), `listRepoTags: GitHub listed a tag in ${options.repo} with no name or commit`)
+    assert.ok(isTagName(entry?.name) && isSha(entry.commit?.sha), `listRepoTags: GitHub listed ${show(entry?.name)} in ${repo}, which is no tag name with a commit`)
     return { tag: entry.name, oid: entry.commit.sha }
   })
 }

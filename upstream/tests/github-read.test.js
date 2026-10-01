@@ -181,7 +181,7 @@ describe('getRepoTag', () => {
   it('refuses an answer for another ref or another tag object, and tags of tags without end', async () => {
     for (const answer of [ref('v1.0', { type: 'commit', sha: SHA }), { ...ref('v1', { type: 'commit', sha: SHA }), ref: 'refs/heads/v1' }, [ref('v1', { type: 'commit', sha: SHA })]]) {
       stub({ refs: { v1: answer } })
-      await assert.rejects(client().getRepoTag({ repo: 'acme/app', tag: 'v1' }), /getRepoTag: GitHub answered for .*, not refs\/tags\/v1$/u, JSON.stringify(answer))
+      await assert.rejects(client().getRepoTag({ repo: 'acme/app', tag: 'v1' }), /getRepoTag: GitHub answered for .*, not "refs\/tags\/v1"$/u, JSON.stringify(answer))
     }
     stub({ refs: { v1: ref('v1', { type: 'tag', sha: TAG_OBJECT }) }, tags: { [TAG_OBJECT]: { sha: SHA2, object: { type: 'commit', sha: SHA } } } })
     await assert.rejects(client().getRepoTag({ repo: 'acme/app', tag: 'v1' }), new RegExp(`getRepoTag: GitHub answered for another tag object than ${TAG_OBJECT}$`, 'u'))
@@ -190,10 +190,22 @@ describe('getRepoTag', () => {
     assert.equal(calls.length, 9)
   })
 
+  it("takes a tag's name as git does, `@` and a leading `-` included, unlike a branch's", async () => {
+    const calls = stub({ refs: { '@': ref('@', { type: 'commit', sha: SHA }), '-v1': ref('-v1', { type: 'commit', sha: SHA2 }) } })
+    assert.deepEqual(await client().getRepoTag({ repo: 'acme/app', tag: '@' }), { tag: '@', oid: SHA })
+    assert.deepEqual(await client().getRepoTag({ repo: 'acme/app', tag: '-v1' }), { tag: '-v1', oid: SHA2 })
+    assert.deepEqual(calls.map((c) => c.url), [`${API}/git/ref/tags/%40`, `${API}/git/ref/tags/-v1`])
+  })
+
+  it('escapes the tag it names in an error', async () => {
+    stub({ refs: { 'v1\u202Eevil': ref('v2', { type: 'commit', sha: SHA }) } })
+    await assert.rejects(client().getRepoTag({ repo: 'acme/app', tag: 'v1\u202Eevil' }), (err) => !err.message.includes('\u202E') && err.message.endsWith('not "refs/tags/v1\\u202eevil"'))
+  })
+
   it('takes only a tag name git would take, before any request, and throws a HttpError for a tag GitHub does not have', async () => {
     const calls = forbidRequests()
-    for (const tag of [undefined, '', 'v1..2', 'v1^', '-v1', 'refs/tags/', 'v1.lock', 'a b']) {
-      await assert.rejects(client().getRepoTag({ repo: 'acme/app', tag }), /getRepoTag: tag must be a branch or tag name/u, String(tag))
+    for (const tag of [undefined, '', 'v1..2', 'v1^', 'refs/tags/', 'v1.lock', 'a b', 'v1@{0}', '.v1', 'v1/']) {
+      await assert.rejects(client().getRepoTag({ repo: 'acme/app', tag }), /getRepoTag: tag must be a tag name/u, String(tag))
     }
     await assert.rejects(client().getRepoTag({ repo: 'acme/app', tag: 'v1', sha: SHA }), /getRepoTag: unknown option sha/u)
     assert.deepEqual(calls, [])
@@ -228,8 +240,25 @@ describe('listRepoTags', () => {
   it('refuses a tag listed with no name git would take, or no commit', async () => {
     for (const change of [{ name: undefined }, { name: 'v1..2' }, { commit: null }, { commit: { sha: 'main' } }]) {
       stubGitHub(() => json([{ ...page(1, 1)[0], ...change }]))
-      await assert.rejects(client().listRepoTags({ repo: 'acme/app' }), /listRepoTags: GitHub listed a tag in acme\/app with no name or commit$/u, JSON.stringify(change))
+      await assert.rejects(client().listRepoTags({ repo: 'acme/app' }), /listRepoTags: GitHub listed .* in acme\/app, which is no tag name with a commit$/u, JSON.stringify(change))
     }
+    stubGitHub(() => json([{ ...page(1, 1)[0], name: 'v1..2' }]))
+    await assert.rejects(client().listRepoTags({ repo: 'acme/app' }), /GitHub listed "v1\.\.2" in acme\/app/u)
+  })
+
+  it('lists a tag named `@` or with a leading `-`, as git allows', async () => {
+    stubGitHub(() => json([{ ...page(1, 1)[0], name: '@' }, { ...page(1, 1)[0], name: '-v1' }]))
+    assert.deepEqual((await client().listRepoTags({ repo: 'acme/app' })).map(({ tag }) => tag), ['@', '-v1'])
+  })
+
+  it('reads every page for the repo it was asked for, whatever the options object says later', async () => {
+    const options = { repo: 'acme/app' }
+    const calls = stubGitHub(({ url }) => {
+      options.repo = 'other/thing'
+      return json(url.endsWith('page=1') ? page(1, 100) : page(2, 1))
+    })
+    assert.equal((await client().listRepoTags(options)).length, 101)
+    assert.ok(calls.every(({ url }) => url.startsWith('https://api.github.com/repos/acme/app/tags?')), calls.map(({ url }) => url).join())
   })
 
   it('takes a repo and maxPages only, before any request', async () => {
