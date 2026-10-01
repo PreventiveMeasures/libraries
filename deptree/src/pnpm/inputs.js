@@ -2,6 +2,7 @@
 // would install on, and the files an install reads — given as text, or
 // read from the project (project.js) as pnpm reads them from disk.
 
+import { LockfileError, YamlError, parsePnpmLockfile } from '@preventive/lockfile/pnpm.js'
 import { parseYaml } from '@preventive/lockfile/yaml.js'
 import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
@@ -44,9 +45,30 @@ export function checkHost(host) {
   return { node, os, cpu: host.cpu, libc }
 }
 
+// `text` as `read` reads it, what that refuses it with named by `file`,
+// and kept as the cause: pnpm-lock.yaml and pnpm-workspace.yaml are both
+// YAML, and a refusal of one would read as one of the other.
+function readNamed(file, read, text) {
+  try {
+    return read(text)
+  } catch (error) {
+    if (error instanceof LockfileError || error instanceof YamlError) throw new DeptreeError(error.message, file, { cause: error })
+    throw error
+  }
+}
+
+// pnpm-lock.yaml as the lockfile reader reads it. Before anything is
+// installed pnpm 11 may write its env document alone, which leaves a
+// frozen install no lockfile of the project's to install from.
+export function readLockfile(text) {
+  const read = readNamed('pnpm-lock.yaml', parsePnpmLockfile, text)
+  if (read.lockfile === undefined) throw new DeptreeError('it holds the env document pnpm 11 writes alone, not the project\'s lockfile, which a frozen install cannot do without', 'pnpm-lock.yaml')
+  return read
+}
+
 // pnpm-workspace.yaml as parsed; one of comments alone, or nothing, sets
 // nothing, as pnpm reads it.
-export const readWorkspace = (text) => (text === undefined || /^(?:[\t ]*(?:#.*)?(?:\r?\n|$))*$/u.test(text) ? undefined : parseYaml(text))
+export const readWorkspace = (text) => (text === undefined || /^(?:[\t ]*(?:#.*)?(?:\r?\n|$))*$/u.test(text) ? undefined : readNamed('pnpm-workspace.yaml', parseYaml, text))
 
 // The root package.json in `project`, as parsed, where there is one; one
 // that is a link is refused unread, as findProjects refuses it.

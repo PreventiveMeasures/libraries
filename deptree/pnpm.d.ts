@@ -2,6 +2,9 @@
 
 import type { NodeType, Vfs } from '@preventive/vfs'
 
+// What the lockfile reader and the YAML parser refuse with: the cause of
+// the DeptreeError that names the file they refused, pnpm-lock.yaml or
+// pnpm-workspace.yaml.
 export { LockfileError, YamlError } from '@preventive/lockfile/pnpm.js'
 
 // Where @preventive/upstream caches what it fetches, tarballs among them.
@@ -275,18 +278,21 @@ export interface PnpmTree {
 // integrity; each patch to the lockfile's hash of it, and applied only
 // where every hunk matches exactly where it says.
 //
-// Nothing is left to a guess: a lockfile the lockfile reader refuses, a
-// setting this does not know or does not build for, overrides pnpm cannot
-// read, a lockfile not resolved with these settings, a package from
-// anywhere but the registry, a pnpmfile, package extensions, an injected
-// dependency, a lockfile not up to date with a package.json, another
-// package manager, a runtime to download, two projects of one name, a
-// patch that does not hash or apply, a check above that fails, text
-// that is not well-formed where it is hashed, a patch that would change a
-// bin's file between two times pnpm links it, a file whose mode would turn
-// on the order a directory is read in — each is refused with a
-// DeptreeError, a LockfileError or a YamlError that says where. A
-// TypeError is thrown for options of the wrong type.
+// Nothing is left to a guess: a lockfile the lockfile reader refuses, or
+// one of the env document pnpm 11 writes alone before anything is
+// installed, a setting this does not know or does not build for, overrides
+// pnpm cannot read, a lockfile not resolved with these settings, a package
+// from anywhere but the registry, a pnpmfile, package extensions, an
+// injected dependency, a lockfile not up to date with a package.json,
+// another package manager, a runtime to download, two projects of one
+// name, a patch that does not hash or apply, a check above that fails,
+// text that is not well-formed where it is hashed, a patch that would
+// change a bin's file between two times pnpm links it, a file whose mode
+// would turn on the order a directory is read in — each is refused with a
+// DeptreeError that says where: where the lockfile reader or the YAML
+// parser refused pnpm-lock.yaml or pnpm-workspace.yaml, it names the file,
+// and its cause is their LockfileError or YamlError. A TypeError is thrown
+// for options of the wrong type.
 export function buildPnpmTree(options: PnpmTreeOptions): Promise<PnpmTree>
 
 // The directories of the projects pnpm finds in `project`, by which
@@ -313,7 +319,8 @@ export function buildPnpmTree(options: PnpmTreeOptions): Promise<PnpmTree>
 // letter; a node_modules pnpm walks into, which it does only under a
 // directory with a leading dot that a glob spells; a glob buildPnpmTree
 // refuses, or a pnpm not 10.x or 11.x; and a pnpm-workspace.yaml that is
-// not a mapping, is not UTF-8, or is under another name pnpm refuses.
+// not YAML, is not a mapping, is not UTF-8, or is under another name pnpm
+// refuses.
 export interface PnpmProjectsOptions {
   project: PnpmProject
   host?: Pick<PnpmHost, 'pnpm'>
@@ -322,9 +329,10 @@ export interface PnpmProjectsOptions {
 export function findPnpmProjects(options: PnpmProjectsOptions): string[]
 
 // `where` is what a refusal is about — `pnpm-workspace.yaml: nodeLinker`,
-// `.npmrc:3: node-linker`, a package's key — or undefined for the call as
-// a whole; the message leads with it. `cause` is what a package beneath
-// refused with, where one did.
+// `.npmrc:3: node-linker`, `pnpm-lock.yaml`, a package's key — or
+// undefined for the call as a whole; the message leads with it. `cause` is
+// what a package beneath refused with, where one did: the lockfile
+// reader's LockfileError, its YamlError, a fetch's failure.
 export class DeptreeError extends Error {
   constructor(detail: string, where?: string, options?: { cause?: unknown })
   where: string | undefined
