@@ -39,6 +39,7 @@ describe('gitTreeOfTarball', () => {
     assert.equal(await gitTreeOfTarball(gzipSync(Buffer.alloc(1024))), 'no tree: an empty tarball')
     assert.match(await gitTreeOfTarball(edited(TREE_TGZ, 'acme-app-abc1234/lib/', 'acme-app-abc1235/lib/')), /^no tree: an entry outside one top directory/u)
     assert.match(await gitTreeOfTarball(edited(TREE_TGZ, 'acme-app-abc1234/lib/', 'acme-app-abc1234/../')), /^no tree: an entry outside one top directory/u)
+    assert.equal(await gitTreeOfTarball(edited(TREE_TGZ, 'acme-app-abc1234/run\0', '..\0', 'acme-app-abc1234/'.length)), 'no tree: an entry outside one top directory, "acme-app-abc1234/.."')
     // A file alone, with no directory over it, which would otherwise read as the empty tree.
     const header = Buffer.alloc(512)
     header.write('file', 0)

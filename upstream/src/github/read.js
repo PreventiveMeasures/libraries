@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 
-import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTreeId, isSha, isTreeId, optional, sameName, show } from '../args.js'
+import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTreeId, isSha, isSha1, optional, sameName, show } from '../args.js'
 import { verifiedDownload } from '../download.js'
 import { decode, encodeSegment } from '../http.js'
 import { api, bindMethods, call, clientHeaders, isGone, repoApi } from './client.js'
@@ -86,7 +86,7 @@ async function getRepoTarball(headers, options) {
   assertArgs('getRepoTarball', options, { repo: assertRepo, sha: assertSha })
   const { repo, sha } = options
   const commit = await call(headers, repoApi(repo, ['git', 'commits', sha]))
-  assert.ok(commit?.sha === sha && isTreeId(commit.tree?.sha), `getRepoTarball: GitHub names no tree for ${repo}@${sha}`)
+  assert.ok(commit?.sha === sha && isSha1(commit.tree?.sha), `getRepoTarball: GitHub names no tree for ${repo}@${sha}`)
   return await treeTarball('getRepoTarball', headers, repo, commit.tree.sha, sha)
 }
 

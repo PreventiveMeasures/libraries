@@ -2,6 +2,8 @@ import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 import { gunzipSync } from 'node:zlib'
 
+import { isSha1 } from './args.js'
+
 const BLOCK = 512
 const MAX_UNPACKED_BYTES = 2 ** 30
 
@@ -24,9 +26,9 @@ function paxRecords(body) {
   const records = {}
   for (let at = 0; at < text.length;) {
     const space = text.indexOf(' ', at)
-    const length = Number(text.slice(at, space))
-    const end = at + length
-    if (!/^[1-9]\d*$/u.test(text.slice(at, space)) || end > text.length || text[end - 1] !== '\n') return null
+    const length = text.slice(at, space)
+    const end = at + Number(length)
+    if (!/^[1-9]\d*$/u.test(length) || end > text.length || text[end - 1] !== '\n') return null
     const record = text.slice(space + 1, end - 1)
     const equals = record.indexOf('=')
     if (equals < 1) return null
@@ -89,20 +91,15 @@ export async function gitTreeOfTarball(gzipped, submodules) {
     pax = {}
     const [first, ...parts] = path.replace(/\/$/u, '').split('/')
     top ??= first
-    const name = parts.pop()
-    if (first !== top || (name === undefined && type !== '5') || parts.some((part) => ['', '.', '..'].includes(part))) return `no tree: an entry outside one top directory, ${JSON.stringify(path)}`
+    const name = type === '5' ? null : parts.pop()
+    if (first !== top || name === undefined || [...parts, name].some((part) => ['', '.', '..'].includes(part))) return `no tree: an entry outside one top directory, ${JSON.stringify(path)}`
     let dir = root
     for (const part of parts) {
       if (!dir.has(part)) dir.set(part, new Map())
       dir = dir.get(part)
       if (!(dir instanceof Map)) return `no tree: a file where a directory is, ${JSON.stringify(path)}`
     }
-    if (name === undefined) continue
-    if (type === '5') {
-      if (!dir.has(name)) dir.set(name, new Map())
-      if (!(dir.get(name) instanceof Map)) return `no tree: a file where a directory is, ${JSON.stringify(path)}`
-      continue
-    }
+    if (name === null) continue
     if (dir.has(name)) return `no tree: ${JSON.stringify(path)} twice`
     if (type === '0') dir.set(name, { mode: octal(header, 100, 108) & 0o100 ? '100755' : '100644', id: objectId('blob', body) })
     else if (type === '2') dir.set(name, { mode: '120000', id: objectId('blob', Buffer.from(target, 'latin1')) })
@@ -113,7 +110,7 @@ export async function gitTreeOfTarball(gzipped, submodules) {
   const commits = empty.length > 0 && submodules ? await submodules(empty.map(([, , path]) => path)) : new Map()
   for (const [dir, name, path] of empty) {
     const commit = commits.get(path)
-    if (!/^[\da-f]{40}$/u.test(typeof commit === 'string' ? commit : '')) return `no tree: an empty directory, ${JSON.stringify(path)}, and no submodule there`
+    if (!isSha1(commit)) return `no tree: an empty directory, ${JSON.stringify(path)}, and no submodule there`
     dir.set(name, { mode: '160000', id: Buffer.from(commit, 'hex') })
   }
   return treeId(root).toString('hex')
