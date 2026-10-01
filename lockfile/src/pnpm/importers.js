@@ -8,7 +8,7 @@
 import { LockfileError, at } from '../error.js'
 import { checkName, checkRelative } from '../names.js'
 import { KINDS } from '../graph.js'
-import { EMPTY, boolean, entries, field, record, string, text } from '../shape.js'
+import { boolean, entries, field, orEmpty, record, string, text } from '../shape.js'
 import { target } from './packages.js'
 
 const FIELDS = [...KINDS, 'dependenciesMeta', 'publishDirectory', 'linkDirectory']
@@ -21,7 +21,7 @@ function readDependencies(importer, kinds, id, where, snapshots) {
   const kindOf = Object.create(null)
   for (const kind of kinds) {
     const targets = Object.create(null)
-    for (const [alias, dependency, here] of entries(importer[kind] ?? EMPTY, at(where, kind))) {
+    for (const [alias, dependency, here] of entries(orEmpty(importer[kind]), at(where, kind))) {
       checkName(alias, here)
       record(dependency, here, ['specifier', 'version'])
       if (alias in specifiers) throw new LockfileError(`listed under ${kindOf[alias]} too`, here)
@@ -41,7 +41,7 @@ function readDependencies(importer, kinds, id, where, snapshots) {
 // is not the one pnpm runs on.
 function readMeta(value, where) {
   const meta = Object.create(null)
-  for (const [name, item, here] of entries(value ?? EMPTY, where)) {
+  for (const [name, item, here] of entries(orEmpty(value), where)) {
     record(item, here, ['injected', 'node'])
     meta[checkName(name, here)] = {
       injected: item.injected === undefined ? false : boolean(item.injected, at(here, 'injected')),

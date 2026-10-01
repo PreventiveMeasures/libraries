@@ -4,7 +4,7 @@
 import { LockfileError, at, quote } from '../error.js'
 import { KINDS, reach } from '../graph.js'
 import { checkName, checkRelative, isName } from '../names.js'
-import { EMPTY, entries, record, string, text, texts } from '../shape.js'
+import { entries, orEmpty, record, string, text, texts } from '../shape.js'
 import { compile, matches } from './glob.js'
 import { isRange, resolvePath, sourceOf } from './packages.js'
 
@@ -68,7 +68,7 @@ function readTargets(manifest, dir, where, context) {
   const listed = new Map()
   const ranges = new Map()
   for (const kind of CLEANED) {
-    for (const [name, range, here] of entries(manifest[kind] ?? EMPTY, at(where, kind))) {
+    for (const [name, range, here] of entries(orEmpty(manifest[kind]), at(where, kind))) {
       if (name === '//') continue
       const value = string(range, here)
       if (!listed.has(name)) listed.set(name, { kind, value, here })
@@ -88,7 +88,7 @@ function readTargets(manifest, dir, where, context) {
 // `//`, and a range neither semver nor a source, as a tag or `npm:` alias.
 function readResolutions(value, where, semver) {
   const rules = []
-  for (const [path, range, here] of entries(value ?? EMPTY, where)) {
+  for (const [path, range, here] of entries(orEmpty(value), where)) {
     // A comment, which yarn drops first.
     if (path === '//') continue
     if (/\/$|\/\/|\*$/u.test(path)) throw new LockfileError(`${quote(path)} is a path yarn ignores`, here)
@@ -122,7 +122,7 @@ function readGlobs(root, where) {
   if (!Array.isArray(value)) {
     record(value, listAt, ['packages', 'nohoist'])
     if (value.nohoist !== undefined) texts(value.nohoist, at(listAt, 'nohoist'))
-    list = value.packages ?? []
+    list = value.packages === undefined ? [] : value.packages
     listAt = at(listAt, 'packages')
   }
   const globs = texts(list, listAt)

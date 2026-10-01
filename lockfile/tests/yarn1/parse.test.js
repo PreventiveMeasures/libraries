@@ -348,6 +348,14 @@ describe('with the manifests', () => {
     refuses(BASE, 'a field yarn does not read, for "devDependencies"', 'manifests["."].devdependencies', withRoot({ devdependencies: {} }))
   })
 
+  it('refuses a null where a manifest leaves a field out', () => {
+    for (const field of ['dependencies', 'devDependencies', 'optionalDependencies', 'resolutions', 'workspaces']) {
+      refuses(BASE, 'expected a mapping, found null', `manifests["."].${field}`, withRoot({ [field]: null }))
+    }
+    refuses(BASE, 'expected a mapping, found null', 'manifests.w.dependencies', { ...MANIFESTS, w: { ...MANIFESTS.w, dependencies: null } })
+    refuses(BASE, 'expected a sequence, found null', 'manifests["."].workspaces.packages', withRoot({ workspaces: { packages: null } }))
+  })
+
   it('refuses a dependency not given what a resolution resolves it to', () => {
     const text = edit(['b@1.0.0:', `b@2.0.0:\n  version "2.0.0"\n  resolved "https://registry.yarnpkg.com/b/-/b-2.0.0.tgz#${H}"\n\nb@1.0.0:`])
     refuses(text, '"b@1.0.0" is not given "b@2.0.0", which the resolution "**/b" resolves it to', '["d@file:./d"].dependencies.b', withRoot({ resolutions: { '**/b': '2.0.0' } }))

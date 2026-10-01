@@ -4,7 +4,7 @@
 
 import { LockfileError, at, quote } from './error.js'
 
-export const EMPTY = Object.freeze(Object.create(null))
+const EMPTY = Object.freeze(Object.create(null))
 
 export function kind(value) {
   if (value === undefined) return 'nothing'
@@ -31,6 +31,10 @@ export function record(value, where, fields) {
 
 // A mapping's entries, each with where it is.
 export const entries = (value, where) => Object.entries(record(value, where)).map(([key, item]) => [key, item, at(where, key)])
+
+// A mapping that may be left out, as an empty one then. A null is not left
+// out, and whatever reads it as a mapping refuses it.
+export const orEmpty = (value) => (value === undefined ? EMPTY : value)
 
 // A reader of a value that may be left out: undefined, or what `read`
 // makes of it.

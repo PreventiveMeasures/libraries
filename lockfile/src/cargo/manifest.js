@@ -3,7 +3,7 @@
 
 import { matches, parseVersion, parseVersionReq } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
-import { EMPTY, field, optional } from '../shape.js'
+import { field, optional, orEmpty } from '../shape.js'
 import { TomlError } from '../toml/error.js'
 import { parseToml } from '../toml/parse.js'
 import { isTable } from '../toml/value.js'
@@ -108,7 +108,7 @@ function readWorkspace(value) {
   const pkg = read('package', (item, where) => table(item, where, [...Object.keys(INHERITABLE), 'badges'])) ?? Object.create(null)
   for (const [key, item, here] of entries(pkg, 'workspace.package')) (key === 'badges' ? readBadges : INHERITABLE[key])(item, here)
   const dependencies = Object.create(null)
-  for (const [name, item, here] of entries(value.dependencies ?? EMPTY, 'workspace.dependencies')) {
+  for (const [name, item, here] of entries(orEmpty(value.dependencies), 'workspace.dependencies')) {
     checkCrateName(name, here)
     const spec = readSpec(item, here, name)
     if (spec.optional) throw new LockfileError('a workspace dependency cannot be optional', here)
@@ -127,7 +127,7 @@ function readWorkspace(value) {
 
 function readPatch(value, where = 'patch') {
   const patch = Object.create(null)
-  for (const [key, deps, here] of entries(value ?? EMPTY, where)) {
+  for (const [key, deps, here] of entries(orEmpty(value), where)) {
     patch[key] = Object.create(null)
     for (const [name, item, there] of entries(deps, here)) patch[key][checkCrateName(name, there)] = readSpec(item, there, name)
   }
