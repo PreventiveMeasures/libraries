@@ -68,7 +68,7 @@ function readResolution(fields, where) {
 const describe = (resolution) => (resolution === undefined ? 'nothing, as for a directory' : resolution.type === 'git' ? 'a git repository' : 'a file: tarball')
 
 // yarn 1.22.21 and earlier merge a tarball's patterns whatever their names and
-// install it under one alone. Registry beside source patterns: resolutions.js.
+// install it under one alone. A registry pattern beside a source goes back.
 function checkPatterns(patterns, fields, resolution, where) {
   const [first] = patterns
   for (const pattern of patterns) {

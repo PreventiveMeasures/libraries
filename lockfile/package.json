@@ -16,9 +16,9 @@
       "types": "./toml.d.ts",
       "default": "./toml.js"
     },
-    "./yarn.js": {
-      "types": "./yarn.d.ts",
-      "default": "./yarn.js"
+    "./yarn1.js": {
+      "types": "./yarn1.d.ts",
+      "default": "./yarn1.js"
     }
   },
   "files": [
@@ -40,23 +40,23 @@
     "src/yaml/error.js",
     "src/yaml/parse.js",
     "src/yaml/scalar.js",
-    "src/yarn/importers.js",
-    "src/yarn/packages.js",
-    "src/yarn/parse.js",
-    "src/yarn/resolutions.js",
-    "src/yarn/syntax.js",
+    "src/yarn1/importers.js",
+    "src/yarn1/packages.js",
+    "src/yarn1/parse.js",
+    "src/yarn1/resolutions.js",
+    "src/yarn1/syntax.js",
     "toml.d.ts",
     "toml.js",
     "yaml.d.ts",
     "yaml.js",
-    "yarn.d.ts",
-    "yarn.js"
+    "yarn1.d.ts",
+    "yarn1.js"
   ],
   "engines": {
     "node": ">=24.14.0"
   },
   "scripts": {
-    "test": "node --test ./tests/*.test.js ./tests/toml/*.test.js ./tests/yaml/*.test.js ./tests/yarn/*.test.js"
+    "test": "node --test ./tests/*.test.js ./tests/toml/*.test.js ./tests/yaml/*.test.js ./tests/yarn1/*.test.js"
   },
   "license": "MIT",
   "author": {

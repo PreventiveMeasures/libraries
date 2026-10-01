@@ -1,9 +1,9 @@
 // Records what yarn 1 writes for the projects below into
-// tests/yarn/fixtures/, each lockfile as <name>.lock and its manifests, by
+// tests/yarn1/fixtures/, each lockfile as <name>.lock and its manifests, by
 // directory, as <name>.json. Needs npm, git and network access to the npm
 // registry and github.com:
 //
-//     node lockfile/scripts/record-yarn.js [name...]
+//     node lockfile/scripts/record-yarn1.js [name...]
 //
 // Named, only those runs are recorded, and the others kept as they are.
 //
@@ -44,7 +44,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const OUT = fileURLToPath(new URL('../tests/yarn/fixtures/', import.meta.url))
+const OUT = fileURLToPath(new URL('../tests/yarn1/fixtures/', import.meta.url))
 
 const ODD = 'https://registry.npmjs.org/is-odd/-/is-odd-3.0.1.tgz'
 const GIT = 'git+https://github.com/juliangruber/isarray.git#v2.0.5'

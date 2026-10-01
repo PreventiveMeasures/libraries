@@ -26,8 +26,8 @@ const files = [
   new URL('toml.d.ts', PKG_DIR),
   new URL('yaml.js', PKG_DIR),
   new URL('yaml.d.ts', PKG_DIR),
-  new URL('yarn.js', PKG_DIR),
-  new URL('yarn.d.ts', PKG_DIR),
+  new URL('yarn1.js', PKG_DIR),
+  new URL('yarn1.d.ts', PKG_DIR),
   ...readdirSync(SRC_DIR, { recursive: true })
     .map((name) => name.split(sep).join('/'))
     .filter(sourced)

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { LockfileError, parseYarnLockfile } from '../../yarn.js'
+import { LockfileError, parseYarn1Lockfile } from '../../yarn1.js'
 
 // One small yarn.lock with a package of every kind — from the registry,
 // with patterns merged, a sha1 integrity and an npm alias; a directory, a
@@ -80,7 +80,7 @@ function edit(...edits) {
 }
 
 // `message` is the refusal's detail, which the message leads with `where`.
-const refuses = (text, message, where, manifests) => assert.throws(() => parseYarnLockfile(text, manifests), (error) => {
+const refuses = (text, message, where, manifests) => assert.throws(() => parseYarn1Lockfile(text, manifests), (error) => {
   assert.ok(error instanceof LockfileError, error.stack)
   assert.equal(error.message, where === undefined ? message : `${where}: ${message}`)
   assert.equal(error.where, where)
@@ -88,10 +88,10 @@ const refuses = (text, message, where, manifests) => assert.throws(() => parseYa
 })
 
 const plain = (value) => structuredClone(value)
-const read = (...edits) => parseYarnLockfile(edit(...edits)).packages
+const read = (...edits) => parseYarn1Lockfile(edit(...edits)).packages
 
 describe('the base lockfile', () => {
-  const lock = parseYarnLockfile(BASE, MANIFESTS)
+  const lock = parseYarn1Lockfile(BASE, MANIFESTS)
 
   it('reads, each pattern to its package', () => {
     assert.deepEqual(Object.keys(lock.packages), [
@@ -139,25 +139,25 @@ describe('the base lockfile', () => {
   })
 
   it('without the manifests, no importers', () => {
-    const alone = parseYarnLockfile(BASE)
+    const alone = parseYarn1Lockfile(BASE)
     assert.equal(alone.importers, undefined)
     assert.deepEqual(plain(alone.packages), plain(lock.packages))
   })
 
   it('with CRLF line ends too, and without the last', () => {
-    assert.deepEqual(plain(parseYarnLockfile(BASE.replaceAll('\n', '\r\n'), MANIFESTS)), plain(lock))
-    assert.deepEqual(plain(parseYarnLockfile(BASE.trimEnd(), MANIFESTS)), plain(lock))
+    assert.deepEqual(plain(parseYarn1Lockfile(BASE.replaceAll('\n', '\r\n'), MANIFESTS)), plain(lock))
+    assert.deepEqual(plain(parseYarn1Lockfile(BASE.trimEnd(), MANIFESTS)), plain(lock))
   })
 
   it('what yarn writes with nothing installed', () => {
-    assert.deepEqual(plain(parseYarnLockfile(`${HEADER}\n\n`, { '.': { name: 'e' } })), { packages: {}, importers: { '.': { dependencies: {}, devDependencies: {}, optionalDependencies: {} } } })
+    assert.deepEqual(plain(parseYarn1Lockfile(`${HEADER}\n\n`, { '.': { name: 'e' } })), { packages: {}, importers: { '.': { dependencies: {}, devDependencies: {}, optionalDependencies: {} } } })
   })
 })
 
 describe('what else yarn writes is read', () => {
   it('the versions of yarn and Node below the header, and another tool\'s line', () => {
     const header = `${HEADER}# yarn v1.22.22\n# node v24.15.0\n# bun ./bun.lockb --hash: 5BBAC8D5E5D9B1E9-1\n`
-    assert.deepEqual(plain(parseYarnLockfile(BASE.replace(HEADER, header)).packages), plain(parseYarnLockfile(BASE).packages))
+    assert.deepEqual(plain(parseYarn1Lockfile(BASE.replace(HEADER, header)).packages), plain(parseYarn1Lockfile(BASE).packages))
   })
 
   it('an empty range, and a dependency on it', () => {
@@ -193,7 +193,7 @@ describe('what else yarn writes is read', () => {
 })
 
 describe('with the manifests', () => {
-  const lock = (text, manifests) => parseYarnLockfile(text, manifests)
+  const lock = (text, manifests) => parseYarn1Lockfile(text, manifests)
   const root = MANIFESTS['.']
   const withRoot = (fields) => ({ ...MANIFESTS, '.': { ...root, ...fields } })
 
@@ -272,7 +272,7 @@ describe('refuses what yarn does not write, with the line', () => {
     refuses(edit(['  uid ""', '  uid nullish']), '"nullish" is bare, and read as null by some readers at line 38')
     refuses(edit(['  uid ""', '  uid "null"']), '"null" is quoted, where yarn writes it bare at line 38')
     const named = edit(['b@1.0.0:', 'null@1:\n  version "1.0.0"\n  resolved "https://registry.yarnpkg.com/null/-/null-1.0.0.tgz"\n\nb@1.0.0:'])
-    assert.equal(parseYarnLockfile(named).packages['null@1'].name, 'null')
+    assert.equal(parseYarn1Lockfile(named).packages['null@1'].name, 'null')
   })
 
   it('a quoted string not as JSON writes it, or that yarn ends elsewhere', () => {
@@ -390,7 +390,7 @@ describe('refuses an entry yarn does not write, or installs otherwise', () => {
   })
 
   it('anything but a string', () => {
-    assert.throws(() => parseYarnLockfile(Buffer.from(BASE)), TypeError)
+    assert.throws(() => parseYarn1Lockfile(Buffer.from(BASE)), TypeError)
   })
 })
 
@@ -400,7 +400,7 @@ describe('a resolution to a source, where it applies to every request', () => {
   // given the tarball the resolution names.
   const RESOLVED = edit(['b@1.0.0:', `b@1.0.0, "b@${URL}":`], [`"https://registry.yarnpkg.com/b/-/b-1.0.0.tgz#${H}"\n  integrity ${H1}\n\n"d`, `"${URL}#${H}"\n  integrity ${H1}\n\n"d`])
   const resolving = (resolutions, fields = {}) => ({ ...MANIFESTS, '.': { ...MANIFESTS['.'], resolutions, ...fields } })
-  const resolved = (resolutions, text = RESOLVED) => parseYarnLockfile(text, resolving(resolutions)).packages
+  const resolved = (resolutions, text = RESOLVED) => parseYarn1Lockfile(text, resolving(resolutions)).packages
   const applies = 'which yarn does not apply to it here'
 
   it('reads one that applies everywhere, or along every path it is asked for by', () => {

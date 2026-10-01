@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
-import { LockfileError, parseYarnLockfile } from '../../yarn.js'
+import { LockfileError, parseYarn1Lockfile } from '../../yarn1.js'
 
 // The baseline: real lockfiles, each with the manifests it was written
 // for, by directory. yarn 1.22.22 and 1.22.19 wrote one workspace that
@@ -10,13 +10,13 @@ import { LockfileError, parseYarnLockfile } from '../../yarn.js'
 // installing something other than its lockfile says, the aliases 1.22.19
 // merges and a resolution's tarball given to a dependency it does not
 // apply to, beside resolutions to tarballs it applies to wherever they are
-// asked for. scripts/record-yarn.js builds them; its header says what is
+// asked for. scripts/record-yarn1.js builds them; its header says what is
 // in them.
 
 const FIXTURES = new URL('fixtures/', import.meta.url)
 const text = (name) => readFileSync(new URL(`${name}.lock`, FIXTURES), 'utf8')
 const manifests = (name) => JSON.parse(readFileSync(new URL(`${name}.json`, FIXTURES), 'utf8'))
-const read = (name) => parseYarnLockfile(text(name), manifests(name))
+const read = (name) => parseYarn1Lockfile(text(name), manifests(name))
 
 const plain = (value) => structuredClone(value)
 const unique = (lock) => [...new Set(Object.values(lock.packages))]
@@ -24,7 +24,7 @@ const unique = (lock) => [...new Set(Object.values(lock.packages))]
 // Refused with the manifests with `message`, and without them with `alone`.
 const refuses = (name, message, alone = message) => {
   for (const [given, expected] of [[undefined, alone], [manifests(name), message]]) {
-    assert.throws(() => parseYarnLockfile(text(name), given), (error) => error instanceof LockfileError && error.message === expected)
+    assert.throws(() => parseYarn1Lockfile(text(name), given), (error) => error instanceof LockfileError && error.message === expected)
   }
 }
 
@@ -159,6 +159,6 @@ describe('resolutions to tarballs, where yarn applies them to every request', ()
   })
 
   it('without the manifests, refused, as it cannot say what is a resolution', () => {
-    assert.throws(() => parseYarnLockfile(text('yarn-1.22.22-resolutions')), /which only a resolution may, as the manifests would say$/u)
+    assert.throws(() => parseYarn1Lockfile(text('yarn-1.22.22-resolutions')), /which only a resolution may, as the manifests would say$/u)
   })
 })

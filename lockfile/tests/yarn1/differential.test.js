@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { LockfileError } from '../../src/error.js'
-import { readEntries } from '../../src/yarn/syntax.js'
+import { readEntries } from '../../src/yarn1/syntax.js'
 import { yarnParse } from './reference.js'
 
 // yarn 1.22.22's own reader against this one, over documents made at

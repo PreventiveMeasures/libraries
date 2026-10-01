@@ -1,4 +1,4 @@
-// Hand-written against yarn.js; a change to either belongs with the other.
+// Hand-written against yarn1.js; a change to either belongs with the other.
 
 // Reads a yarn.lock of `# yarn lockfile v1`, as yarn 1 writes it. Nothing
 // is dropped: a field this reader does not know the meaning of is refused
@@ -38,7 +38,7 @@
 //
 // Throws a TypeError for anything but a string, and a LockfileError for
 // the rest.
-export function parseYarnLockfile(text: string, manifests?: Record<string, object>): YarnLockfile
+export function parseYarn1Lockfile(text: string, manifests?: Record<string, object>): Yarn1Lockfile
 
 // `where` is the place a refusal is about, as a property path: from the
 // top of the lockfile, `["q@1.5.1"].resolved`, or from `manifests`; or
@@ -57,23 +57,23 @@ export class LockfileError extends Error {
 // manifest, `link:` and the directory of a workspace, as yarn links it.
 export type Target = string
 
-export interface YarnLockfile {
+export interface Yarn1Lockfile {
   // By pattern, `name@range` as a dependency asks for a package, the
   // package it resolved to: the patterns of one entry share one object.
-  packages: Record<string, YarnPackage>
+  packages: Record<string, Yarn1Package>
   // By project directory relative to the lockfile's, `.` for its own, as
   // `manifests` has them: what each manifest asks for, by alias. Undefined
   // where the manifests are not handed over.
-  importers: Record<string, YarnImporter> | undefined
+  importers: Record<string, Yarn1Importer> | undefined
 }
 
-export interface YarnImporter {
+export interface Yarn1Importer {
   dependencies: Record<string, Target>
   devDependencies: Record<string, Target>
   optionalDependencies: Record<string, Target>
 }
 
-export interface YarnPackage {
+export interface Yarn1Package {
   // The patterns of its entry, in the order the lockfile lists them.
   patterns: string[]
   // The name its patterns give it, which yarn installs it as: not its own
@@ -86,7 +86,7 @@ export interface YarnPackage {
   // What yarn tells two packages of one version apart by, where it wrote
   // one: `""` for a `link:`, and a commit or a hash in older lockfiles.
   uid: string | undefined
-  resolution: YarnResolution | undefined
+  resolution: Yarn1Resolution | undefined
   // By name, the pattern each dependency asks for: a key of `packages`.
   dependencies: Record<string, string>
   optionalDependencies: Record<string, string>
@@ -100,6 +100,6 @@ export interface YarnPackage {
 // full commit. Undefined where yarn wrote nothing, for a directory, `file:`
 // or `link:`, which it reads again at every install: the lockfile does not
 // lock it.
-export type YarnResolution =
+export type Yarn1Resolution =
   | { type: 'tarball', tarball: string, sha1: string | undefined, integrity: string | undefined }
   | { type: 'git', repo: string, commit: string }
