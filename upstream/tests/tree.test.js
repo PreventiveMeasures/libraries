@@ -76,7 +76,7 @@ describe('gitTreeOfTarball', () => {
     // A file alone, with no directory over it, which would otherwise read as the empty tree.
     assert.equal(await gitTreeOfTarball(tarball(header('file', '0'))), 'no tree: an entry outside one top directory, "file"')
     // A top directory that is no directory, which would otherwise hash as any other.
-    for (const top of ['..', '.', '']) {
+    for (const top of ['..', '.', '', '..\\..', 'C:', 'a\\..\\..', '-x', 'a b']) {
       const blocks = [header(`${top}/`, '5', 0, 0o775), header(`${top}/f`, '0', 4), body('SAFE')]
       assert.equal(await gitTreeOfTarball(tarball(...blocks)), `no tree: an entry outside one top directory, ${JSON.stringify(`${top}/`)}`, top)
     }

@@ -12,6 +12,10 @@ const MAX_UNPACKED_BYTES = 2 ** 30
 // a directory 0775 or 0755; a symlink 0777.
 const PAX_KEYS = new Set(['path', 'linkpath'])
 const MODES = { 0: [0o664, 0o644, 0o775, 0o755], 2: [0o777], 5: [0o775, 0o755] }
+// The top directory is not hashed, so it is held to GitHub's name for it,
+// owner-repo-id: another, `..\..` or `C:`, could take an extractor
+// elsewhere.
+const isTop = matches(/^[\dA-Za-z][\w.-]*$/u)
 
 // Names are kept as latin1 strings, a char per byte, so they sort and hash
 // as the bytes git has.
@@ -146,7 +150,7 @@ export async function gitTreeOfTarball(gzipped, { expected, list } = {}) {
     const [first, ...parts] = path.replace(/\/$/u, '').split('/')
     top ??= first
     const name = type === '5' ? null : parts.pop()
-    if (first !== top || name === undefined || [first, ...parts, name].some((part) => ['', '.', '..'].includes(part))) return `no tree: an entry outside one top directory, ${JSON.stringify(path)}`
+    if (!isTop(first) || first !== top || name === undefined || [...parts, name].some((part) => ['', '.', '..'].includes(part))) return `no tree: an entry outside one top directory, ${JSON.stringify(path)}`
     let dir = root
     for (const part of parts) {
       if (!dir.has(part)) dir.set(part, new Map())
