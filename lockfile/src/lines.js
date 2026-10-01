@@ -2,10 +2,9 @@
 // the strings in a line that JSON writes.
 
 import { LockfileError, quote } from './error.js'
+import { hex } from './excerpt.js'
 
 export const fail = (detail, number) => new LockfileError(`${detail} at line ${Math.max(number, 0) + 1}`)
-
-export const hex = (char) => `U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`
 
 // What follows `pos`, for a message.
 export const rest = (line, pos) => (pos < line.length ? quote(line.slice(pos)) : 'the end of the line')

@@ -141,7 +141,7 @@ function readDocument(doc, prefix, env) {
     patchedDependencies,
     packageExtensionsChecksum: readChecksum(doc.packageExtensionsChecksum, at(prefix, 'packageExtensionsChecksum')),
     pnpmfileChecksum: readChecksum(doc.pnpmfileChecksum, at(prefix, 'pnpmfileChecksum')),
-    ignoredOptionalDependencies: doc.ignoredOptionalDependencies === undefined ? [] : texts(doc.ignoredOptionalDependencies, at(prefix, 'ignoredOptionalDependencies')),
+    ignoredOptionalDependencies: texts(doc.ignoredOptionalDependencies ?? [], at(prefix, 'ignoredOptionalDependencies')),
     time: readTime(doc.time, at(prefix, 'time'), doc.packages ?? EMPTY),
     importers,
     packages,

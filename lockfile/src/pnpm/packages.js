@@ -67,14 +67,14 @@ function readInfo(key, entry, where) {
     name,
     version: readVersion(ref, entry, resolution, where),
     resolution,
-    engines: entry.engines === undefined ? Object.create(null) : textMap(entry.engines, at(where, 'engines')),
+    engines: textMap(entry.engines ?? EMPTY, at(where, 'engines')),
     os: optional(entry, 'os', where, texts),
     cpu: optional(entry, 'cpu', where, texts),
     libc: optional(entry, 'libc', where, texts),
     deprecated: optional(entry, 'deprecated', where, text),
     hasBin: flag(entry.hasBin, at(where, 'hasBin')),
     bundledDependencies: bundled === undefined || bundled === true ? bundled : names(bundled, at(where, 'bundledDependencies')),
-    peerDependencies: entry.peerDependencies === undefined ? Object.create(null) : textMap(entry.peerDependencies, at(where, 'peerDependencies'), checkName),
+    peerDependencies: textMap(entry.peerDependencies ?? EMPTY, at(where, 'peerDependencies'), checkName),
     peerDependenciesMeta: readPeersMeta(entry.peerDependenciesMeta, at(where, 'peerDependenciesMeta')),
   }
 }
@@ -115,12 +115,11 @@ function readSnapshot(entry, where, snapshots) {
   const dependencies = readTargets(entry.dependencies, at(where, 'dependencies'), snapshots)
   const optionalDependencies = readTargets(entry.optionalDependencies, at(where, 'optionalDependencies'), snapshots)
   checkOptional(dependencies, optionalDependencies, where)
-  const peers = entry.transitivePeerDependencies
   return {
     dependencies,
     optionalDependencies,
     optional: flag(entry.optional, at(where, 'optional')),
-    transitivePeerDependencies: peers === undefined ? [] : names(peers, at(where, 'transitivePeerDependencies')),
+    transitivePeerDependencies: names(entry.transitivePeerDependencies ?? [], at(where, 'transitivePeerDependencies')),
   }
 }
 

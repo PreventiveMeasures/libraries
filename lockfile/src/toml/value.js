@@ -1,6 +1,7 @@
 // `src` is { text, pos, line }, `line` counting from zero. Where a line's key
 // goes is parse.js's to say; an inline table's keys are set here.
 
+import { hex } from '../excerpt.js'
 import { readDateTime } from './datetime.js'
 import { EXCERPT, TomlError, assert, excerpt } from './error.js'
 import { readFloat, readInteger } from './number.js'
@@ -26,7 +27,6 @@ function found(src) {
   return rest === '' ? 'the end of the line' : excerpt(rest)
 }
 
-const hex = (char) => `U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`
 const LONE_CR = 'a carriage return must be followed by a line feed'
 
 function refuseControl(src, char, where) {
