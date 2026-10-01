@@ -37,7 +37,7 @@ function isGit(url) {
 // The resolver yarn's getExoticResolver picks for a range, in its order; a
 // version, range, tag or `npm:` alias goes to the registry.
 const SHORTHAND = /^[^:@%/\s.-][^:@%/\s]*\/[^:@\s/%]+(?:#.*)?$/u
-function sourceOf(range) {
+export function sourceOf(range) {
   if (isGit(range)) return 'git'
   if (/^https?:\/\//u.test(range) || (!range.includes('@') && /\.(?:tgz|tar\.gz)$/u.test(range))) return 'tarball'
   if (range.startsWith('github:') || SHORTHAND.test(range)) return 'github'
@@ -234,7 +234,7 @@ function readPackage({ keys, fields }, where, semver) {
 // yarn gives a registry pattern of a range the first package of its name and
 // version it resolves, of whichever entry. Without semver, a tag is a guess.
 const TAG = /^(?![vV=]?\d|[xX*](?:\.|$))[A-Za-z][\w.-]*$/u
-function isRange(range, semver) {
+export function isRange(range, semver) {
   if (semver !== undefined) return semver.validRange(range) !== null
   return !/[:/@#]/u.test(range) && !TAG.test(range)
 }

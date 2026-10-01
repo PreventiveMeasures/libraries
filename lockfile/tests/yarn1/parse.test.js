@@ -258,6 +258,19 @@ describe('with the manifests', () => {
     assert.equal(lock(text, withRoot({ resolutions: { 'x/**/a': '1.1.0', '@s/c/a': '1.1.0' } })).packages['a@1.1.0'].version, '1.1.0')
   })
 
+  // yarn's resolution-map.js passes over a range that is neither a semver
+  // range nor a source, with a warning, and requests what the resolution
+  // would have resolved as it is: refused, as the lockfile may hold it as
+  // the resolution would have, which yarn would then resolve anew.
+  it('refuses a resolution to a range yarn ignores, and drops a comment among them', () => {
+    const text = edit(['a@^1.0.0, a@^1.1.0:', 'a@^1.0.0, a@^1.1.0, a@latest:'])
+    const at = 'manifests["."].resolutions.a'
+    refuses(text, '"latest" is a range yarn ignores in a resolution: neither a semver range nor a source', at, withRoot({ resolutions: { a: 'latest' } }))
+    refuses(text, '"latest" is a range yarn ignores in a resolution: neither a semver range nor a source', at, withRoot({ resolutions: { a: 'latest' } }), { checkVersions: false, semver: undefined })
+    refuses(text, '"npm:a@1.1.0" is a range yarn ignores in a resolution: neither a semver range nor a source', at, withRoot({ resolutions: { a: 'npm:a@1.1.0' } }))
+    assert.equal(lock(BASE, withRoot({ resolutions: { '//': 'a note' } })).packages['a@^1.0.0'].version, '1.1.0')
+  })
+
   it('refuses a pattern nothing asks for', () => {
     const others = Object.fromEntries(Object.entries(root.dependencies).filter(([name]) => name !== 'w'))
     refuses(BASE, 'nothing asks for it: no manifest, no package and no resolution', '["a@^1.1.0"]', { '.': { ...root, dependencies: others } })

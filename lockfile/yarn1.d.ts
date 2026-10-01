@@ -12,7 +12,10 @@ export interface Yarn1Options {
   // Checks versions against ranges with `semver`, which it then requires.
   // On by default.
   checkVersions?: boolean
-  // The semver package.
+  // The semver package. yarn 1.22 reads ranges and versions with the
+  // semver 5.5.0 it bundles, which another release may read otherwise at
+  // the edges, and so take a lockfile yarn would not, or refuse one it
+  // would.
   semver?: Yarn1Semver
 }
 

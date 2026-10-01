@@ -6,7 +6,7 @@ import { KINDS, reach } from '../graph.js'
 import { checkName, checkRelative, isName } from '../names.js'
 import { EMPTY, entries, record, string, text, texts } from '../shape.js'
 import { compile, matches } from './glob.js'
-import { resolvePath } from './packages.js'
+import { isRange, resolvePath, sourceOf } from './packages.js'
 
 export const WHERE = 'manifests'
 
@@ -74,10 +74,14 @@ function readTargets(manifest, dir, where, context) {
 }
 
 // yarn's parsePatternInfo, which ignores a path ending in `/` or `*` or with
-// `//`, and resolves the pattern of every other.
-function readResolutions(value, where) {
+// `//`, and a range that is neither a semver range nor a source, a tag or
+// an `npm:` alias among them, and resolves the pattern of every other. A
+// `//` is a comment, which yarn drops before. Without semver, a range is
+// told from a tag by its form alone.
+function readResolutions(value, where, semver) {
   const rules = []
   for (const [path, range, here] of entries(value ?? EMPTY, where)) {
+    if (path === '//') continue
     if (/\/$|\/{2,}|\*+$/u.test(path)) throw new LockfileError(`${quote(path)} is a path yarn ignores`, here)
     const names = path.match(/(?:@[^/]+\/)?[^/]+/gu) ?? [path]
     const tests = compile(names.length === 1 ? `**/${path}` : path, here)
@@ -85,6 +89,7 @@ function readResolutions(value, where) {
     const other = names.slice(0, -1).find((segment) => segment !== '**' && !isName(segment.replaceAll(/[*?]/gu, 'x')))
     if (other !== undefined) throw new LockfileError(`${quote(other)} is not a package name, or a glob of one`, here)
     const target = string(range, here)
+    if (sourceOf(target) === 'registry' && !isRange(target, semver)) throw new LockfileError(`${quote(target)} is a range yarn ignores in a resolution: neither a semver range nor a source`, here)
     rules.push({ path, tests, name, range: target, pattern: `${name}@${target}`, where: here })
   }
   return rules
@@ -168,7 +173,7 @@ export function readImporters(manifests, packages, requests, semver) {
   const context = { packages, workspaces, semver }
   const importers = Object.create(null)
   for (const [dir, manifest, here] of entries(manifests, WHERE)) importers[dir] = readTargets(manifest, dir, here, context)
-  const rules = readResolutions(root.resolutions, at(rootAt, 'resolutions'))
+  const rules = readResolutions(root.resolutions, at(rootAt, 'resolutions'), semver)
   // yarn resolves each resolution's pattern too, linked as a request is.
   for (const rule of rules) {
     if (!(rule.pattern in packages) && !workspaces.has(rule.name)) throw new LockfileError(`${quote(rule.pattern)} is not a pattern of the lockfile, where yarn records every resolution's`, rule.where)
