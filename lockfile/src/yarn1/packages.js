@@ -30,13 +30,13 @@ const GIT_HOSTS = new Set(['github.com', 'gitlab.com', 'bitbucket.com', 'bitbuck
 // yarn's GitResolver.isVersion, on a range or on what an entry resolved to.
 function isGit(url) {
   if (/^(?:git:|git\+.+:|ssh:|https?:.+\.git(?:$|#.))/u.test(url)) return true
-  const parsed = URL.canParse(url) ? new URL(url) : undefined
-  return parsed !== undefined && GIT_HOSTS.has(parsed.hostname) && `${parsed.pathname}${parsed.search}`.split('/').filter(Boolean).length === 2
+  const parsed = URL.parse(url)
+  return parsed !== null && GIT_HOSTS.has(parsed.hostname) && `${parsed.pathname}${parsed.search}`.split('/').filter(Boolean).length === 2
 }
 
 // The resolver yarn's getExoticResolver picks for a range, in its order; a
 // version, range, tag or `npm:` alias goes to the registry.
-const SHORTHAND = /^[^:@%/\s.-][^:@%/\s]*\/[^:@\s/%]+(?:#.*)?$/u
+const SHORTHAND = /^[^:@%/\s.-][^:@%/\s]*\/[^:@\s/%][^:@\s/%#]*(?:#.*)?$/u
 export function sourceOf(range) {
   if (isGit(range)) return 'git'
   if (/^https?:\/\//u.test(range) || (!range.includes('@') && /\.(?:tgz|tar\.gz)$/u.test(range))) return 'tarball'
@@ -57,7 +57,7 @@ const HOSTED = {
 function hostedPath(range) {
   const parts = range.split('@')
   const fragment = parts.length > 2 ? `${parts[1]}@${parts[2]}` : range
-  const segments = fragment.replace(/#.*/u, '').replace(/.*:/u, '').replace(/.git$/u, '').split('/')
+  const segments = fragment.replace(/#.*/u, '').replace(/^.*:/u, '').replace(/.git$/u, '').split('/')
   return segments.length < 2 ? undefined : segments.slice(-2).join('/')
 }
 

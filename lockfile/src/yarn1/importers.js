@@ -91,7 +91,7 @@ function readResolutions(value, where, semver) {
   for (const [path, range, here] of entries(value ?? EMPTY, where)) {
     // A comment, which yarn drops first.
     if (path === '//') continue
-    if (/\/$|\/{2,}|\*+$/u.test(path)) throw new LockfileError(`${quote(path)} is a path yarn ignores`, here)
+    if (/\/$|\/\/|\*$/u.test(path)) throw new LockfileError(`${quote(path)} is a path yarn ignores`, here)
     const names = path.match(/(?:@[^/]+\/)?[^/]+/gu) ?? [path]
     const tests = compile(names.length === 1 ? `**/${path}` : path, here)
     const name = checkName(names.at(-1), here)
@@ -127,7 +127,8 @@ function readGlobs(root, where) {
   }
   const globs = texts(list, listAt)
   if (globs.length > 0 && root.private !== true) throw new LockfileError('expected true, as yarn has workspaces in a private project alone', at(where, 'private'))
-  return globs.map((glob, index) => compile(glob.replace(/^(?:\.\/)+|\/+$/gu, ''), `${listAt}[${index}]`))
+  // A run of `/` tried from its start alone, as otherwise in quadratic time.
+  return globs.map((glob, index) => compile(glob.replace(/^(?:\.\/)+/u, '').replace(/(?<!\/)\/+$/u, ''), `${listAt}[${index}]`))
 }
 
 const TYPOS = {

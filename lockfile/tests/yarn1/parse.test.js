@@ -734,3 +734,35 @@ describe('with semver, each request resolved as yarn resolves it', () => {
     }
   })
 })
+
+describe('in time linear in its length, whatever a key or a manifest holds', () => {
+  const long = 100000
+  const withRoot = (root) => ({ ...MANIFESTS, '.': { ...MANIFESTS['.'], ...root } })
+  // Read or refused, either within a second.
+  const quick = (text, manifests) => {
+    const start = performance.now()
+    try {
+      parse(text, manifests)
+    } catch (error) {
+      assert.ok(error instanceof LockfileError, error.stack)
+    }
+    const took = performance.now() - start
+    assert.ok(took < 1000, `${Math.round(took)} ms`)
+  }
+
+  it('a hosted repository with no colon in its key', () => {
+    quick(`${BASE}\nx@a/${'b'.repeat(long)}:\n  version "1.0.0"\n  resolved "https://codeload.github.com/a/b/tar.gz/${H}"\n`)
+  })
+
+  const roots = {
+    'a resolution to a run of `#`': { resolutions: { a: `a/${'#'.repeat(long)}\n` } },
+    'a resolution of a run of `*`': { resolutions: { [`${'*'.repeat(long)}x`]: '1.0.0' } },
+    'a workspace glob of a run of `/`': { workspaces: [`w${'/'.repeat(long)}x`] },
+  }
+  for (const [name, root] of Object.entries(roots)) it(name, () => quick(BASE, withRoot(root)))
+
+  it('a glob of many `*` in a workspace of a long name', () => {
+    const dir = 'a'.repeat(240)
+    quick(BASE, { ...withRoot({ workspaces: ['w', '*a*a*a*a*b'] }), [dir]: { name: 'v', version: '1.0.0' } })
+  })
+})

@@ -101,7 +101,8 @@ function parseNode(doc, indent, depth) {
   const line = peek(doc)
   if (depth > MAX_DEPTH) throw new YamlError('nested too deep', line.number)
   if (isEntry(line)) return parseSequence(doc, indent, depth)
-  if (line.text.startsWith('? ') || readKey(line.text, line.number) !== null) return parseMapping(doc, indent, depth)
+  const first = line.text.startsWith('? ') ? undefined : readKey(line.text, line.number)
+  if (first !== null) return parseMapping(doc, indent, depth, first)
   advance(doc)
   return parseInline(line.text, line.number)
 }
@@ -113,11 +114,14 @@ function parseBlock(doc, indent, entry) {
   if (line?.indent > indent) throw new YamlError('bad indentation', line.number)
 }
 
-function parseMapping(doc, indent, depth) {
+// `first`, the first line's key, read already where it has one.
+function parseMapping(doc, indent, depth, first) {
   const map = Object.create(null)
+  let read = first
   parseBlock(doc, indent, (line) => {
     if (!line.text.startsWith('? ')) {
-      const entry = readKey(line.text, line.number)
+      const entry = read ?? readKey(line.text, line.number)
+      read = undefined
       if (entry === null) throw new YamlError(`expected a mapping key, found ${excerpt(line.text)}`, line.number)
       advance(doc)
       return setKey(map, entry.key, parseValue(doc, entry.rest, indent, depth, line), line.number)
