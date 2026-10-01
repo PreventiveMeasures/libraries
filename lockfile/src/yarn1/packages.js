@@ -1,7 +1,7 @@
 // Entries into packages: one object under all patterns of an entry, as in yarn.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkIntegrity, checkName, checkRelative, joinRelative } from '../names.js'
+import { checkIntegrity, checkName, checkRelative, checkVersion, joinRelative } from '../names.js'
 import { EMPTY, entries, record, string, text } from '../shape.js'
 
 const FIELDS = ['name', 'version', 'uid', 'resolved', 'integrity', 'dependencies', 'optionalDependencies']
@@ -56,17 +56,25 @@ function directory(range) {
   return path.startsWith('/') ? `/${segments.join('/')}` : joinRelative('.', segments.join('/') || '.')
 }
 
-// Without semver, a version is held to semver's length and characters alone;
-// with it, to what semver.valid reads, or, for a manifest's, what yarn cleans.
-const VERSION = /^[\s\dA-Za-z.+=-]{1,256}$/u
+// yarn cleans a version before it writes one: SemVer 2.0.0, which semver.valid
+// reads too, with no `v` or space around it. A manifest's it cleans loosely.
+function readVersion(value, where, semver) {
+  const version = checkVersion(value, where)
+  if (semver !== undefined && semver.valid(version) === null) throw new LockfileError(`${quote(version)} is not a version semver reads`, where)
+  return version
+}
 
-export function readVersion(value, where, semver, manifest = false) {
+// Without semver, a manifest's version is held to semver's length and
+// characters alone.
+const LOOSE = /^[\s\dA-Za-z.+=-]{1,256}$/u
+
+export function readManifestVersion(value, where, semver) {
   const version = text(value, where)
-  if (!VERSION.test(version)) throw new LockfileError(`${quote(version)} is not a version`, where)
+  if (!LOOSE.test(version)) throw new LockfileError(`${quote(version)} is not a version`, where)
   if (semver === undefined) return version
-  const valid = manifest ? semver.clean(version, { loose: true }) : semver.valid(version)
-  if (valid === null) throw new LockfileError(`${quote(version)} is not a version semver reads`, where)
-  return manifest ? valid : version
+  const clean = semver.clean(version, { loose: true })
+  if (clean === null) throw new LockfileError(`${quote(version)} is not a version semver reads`, where)
+  return clean
 }
 
 const COMMIT = /^(?:[\da-f]{40}|[\da-f]{64})$/u

@@ -5,7 +5,7 @@ import { LockfileError, at, quote } from '../error.js'
 import { checkName, checkRelative, isName, joinRelative } from '../names.js'
 import { EMPTY, entries, record, string, texts } from '../shape.js'
 import { compile, matches } from './glob.js'
-import { readVersion } from './packages.js'
+import { readManifestVersion } from './packages.js'
 
 export const KINDS = ['dependencies', 'devDependencies', 'optionalDependencies']
 export const WHERE = 'manifests'
@@ -145,7 +145,7 @@ function readWorkspace(dir, manifest, here, globs, semver) {
   const nameAt = at(here, 'name')
   const name = checkName(string(manifest.name, nameAt), nameAt)
   if (manifest.version === undefined) throw new LockfileError('expected a version, without which yarn ignores the workspace', at(here, 'version'))
-  return { name, version: readVersion(manifest.version, at(here, 'version'), semver, true) }
+  return { name, version: readManifestVersion(manifest.version, at(here, 'version'), semver) }
 }
 
 // Also hands resolutions.js the workspaces by name, and the root's resolutions.

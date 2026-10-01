@@ -435,7 +435,7 @@ describe('refuses an entry yarn does not write, or installs otherwise', () => {
   })
 
   it('a version that is not SemVer, or none', () => {
-    refuses(edit(['  version "1.1.0"', '  version "1.1"']), '"1.1" is not a version semver reads', '["a@^1.0.0"].version')
+    refuses(edit(['  version "1.1.0"', '  version "1.1"']), '"1.1" is not a version', '["a@^1.0.0"].version')
     refuses(edit(['  version "1.1.0"\n', '']), 'expected a string, found nothing', '["a@^1.0.0"].version')
     refuses(edit(['  version "1.1.0"', '  version:\n    a "1"']), 'expected a string, found a mapping', '["a@^1.0.0"].version')
   })
@@ -632,20 +632,22 @@ describe('options', () => {
   })
 })
 
-describe('versions, crudely without semver, and as semver reads them with it', () => {
+describe('versions: SemVer 2.0.0, as yarn writes them, and a workspace\'s as yarn cleans it', () => {
   const crude = { checkVersions: false }
   const version = (to) => edit(['  version "4.0.0"', `  version ${to}`])
   const at = '["f@https://example.com/f.tgz"].version'
 
-  it('without semver, of the characters semver reads, at most 256 of them', () => {
-    for (const to of ['"4.0"', 'v4.0.0', '"4.0.0-01"', '" 4.0.0 "', '"=4.0.0"', '"4.0.0+build"']) assert.ok(parseYarn1Lockfile(version(to), crude).packages['f@https://example.com/f.tgz'], to)
-    for (const to of ['"4.0.0_1"', '"4.0.0~1"', '"^4.0.0"', '"4.0.0é"']) refuses(version(to), `${to} is not a version`, at, undefined, crude)
-    refuses(version(`"${'4'.repeat(257)}"`), `"${'4'.repeat(200)}…" is not a version`, at, undefined, crude)
+  it('an entry\'s, with semver or without it', () => {
+    for (const options of [{ semver }, crude]) {
+      for (const to of ['"4.0.0+build.1"', '"4.0.0-beta.01a"', '"9007199254740991.0.0"']) assert.ok(parseYarn1Lockfile(version(to), options).packages['f@https://example.com/f.tgz'], to)
+      for (const to of ['"4.0"', '"v4.0.0"', '" 4.0.0"', '"=4.0.0"', '"04.0.0"', '"4.0.0-01"', '"4.0.0_1"', '"9007199254740992.0.0"']) refuses(version(to.replace(/^"(v.*)"$/u, '$1')), `${to} is not a version`, at, undefined, options)
+      refuses(version(`"4.0.0-${'a'.repeat(251)}"`), `"4.0.0-${'a'.repeat(194)}…" is not a version`, at, undefined, options)
+    }
   })
 
-  it('with semver, what semver.valid reads, as written', () => {
-    for (const to of ['v4.0.0', '"4.0.0+build"', '" 4.0.0"']) assert.equal(parse(version(to)).packages['f@https://example.com/f.tgz'].version, JSON.parse(to.startsWith('"') ? to : `"${to}"`), to)
-    for (const to of ['"4.0"', '"4.0.0-01"', '"04.0.0"', '"=4.0.0"']) refuses(version(to), `${to} is not a version semver reads`, at)
+  it('an entry\'s, as semver.valid reads it too, with semver', () => {
+    const stub = { ...semver, valid: (to) => (to === '4.0.0' ? null : semver.valid(to)) }
+    refuses(BASE, '"4.0.0" is not a version semver reads', at, undefined, { semver: stub })
   })
 
   it('a workspace\'s, as yarn cleans it first, loosely', () => {

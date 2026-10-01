@@ -32,10 +32,13 @@
 // gives it whichever it resolves first.
 //
 // A name, of a package, an alias or a dependency, is held to npm's rule
-// for one and its 214 characters; a version, without semver, to at most
-// 256 of the characters semver reads in one: letters, digits, whitespace,
-// `.`, `+`, `-` and `=`. With `semver`, a version is one semver.valid
-// reads, and a workspace's one it reads once cleaned, as yarn does; and
+// for one and its 214 characters. An entry's version is SemVer 2.0.0, as
+// yarn writes it once cleaned: no `v` or space around it, at most 256
+// characters, and no major, minor or patch past 2^53. A workspace's,
+// which yarn cleans loosely, is held without semver to 256 of the
+// characters semver reads in one: letters, digits, whitespace, `.`, `+`,
+// `-` and `=`. With `semver`, an entry's version is one semver.valid reads
+// too, and a workspace's one it reads once cleaned, as yarn does; and
 // each range of the registry, an alias's too, has to be satisfied by the
 // version it resolved to, as yarn otherwise takes the entry as outdated
 // and resolves the range again, but where a resolution gives it. Without
@@ -131,9 +134,9 @@ export interface Yarn1Package {
   // where they alias another package, `my-q@npm:q@1.5.1`, or name a
   // tarball, a directory or a repository by another name.
   name: string
-  // As the lockfile has it: SemVer, as the package's manifest has it; for
-  // a directory, `file:` or `link:`, what yarn read there last, or `0.0.0`
-  // in its place.
+  // SemVer 2.0.0, as yarn cleans the package's manifest's; for a
+  // directory, `file:` or `link:`, what yarn read there last, or `0.0.0` in
+  // its place.
   version: string
   // What yarn tells two packages of one version apart by, where it wrote
   // one: `""` for a `link:`, and a commit or a hash in older lockfiles.
