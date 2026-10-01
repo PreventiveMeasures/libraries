@@ -248,8 +248,7 @@ class Resolver {
       ref.requests.push(request)
       ref.patterns.push(request.pattern)
       this.addPattern(request.pattern, ref)
-      if (ref.optional === null || ref.optional === undefined) ref.optional = request.optional
-      else if (!request.optional) ref.optional = false
+      if (!request.optional) ref.optional = false
     }
     for (const [request, rule] of this.diverted) this.divert(request, rule)
   }

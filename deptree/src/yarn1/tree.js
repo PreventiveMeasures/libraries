@@ -42,12 +42,12 @@ function fetchedName(ref) {
   return splitPattern(range.slice(4)).name
 }
 
-// Each registry package's files and package.json, a few at a time, every
-// tarball's URL checked before any is fetched; the first failure stops the
-// rest from starting.
+// Each registry reference's files and package.json, a few at a time,
+// every tarball's URL checked before any is fetched; the first failure
+// stops the rest from starting.
 async function fetchAll(refs) {
   const fetched = new Map()
-  const queue = refs.filter((ref) => ref.kind === 'registry').map((ref) => {
+  const queue = refs.map((ref) => {
     const where = quote(ref.patterns[0])
     return { ref, where, tarball: registryTarball(ref.entry, fetchedName(ref), where) }
   })
@@ -108,9 +108,12 @@ async function fetchChecked(resolved, host, settings) {
   const fetched = await fetchAll([...first.values()])
   const manifestOf = new Map()
   for (const ref of order) {
-    if (ref.kind === 'registry') fetched.set(ref, fetched.get(first.get(ref.loc)))
-    let manifest = ref.kind === 'workspace' ? ref.workspace.manifest : { name: ref.name, version: ref.version }
-    if (first.get(ref.loc) === ref) manifest = fixLists(fetched.get(ref).manifest)
+    let manifest = ref.workspace?.manifest
+    if (ref.kind === 'registry') {
+      const head = first.get(ref.loc)
+      fetched.set(ref, fetched.get(head))
+      manifest = head === ref ? fixLists(fetched.get(ref).manifest) : { name: ref.name, version: ref.version }
+    }
     const bundled = manifest.bundleDependencies ?? manifest.bundledDependencies
     if (bundled && !(Array.isArray(bundled) && bundled.length === 0)) throw new DeptreeError('a package with bundled dependencies is not supported', quote(ref.patterns[0]))
     manifestOf.set(ref, manifest)
@@ -119,7 +122,6 @@ async function fetchChecked(resolved, host, settings) {
     const reason = incompatibility(manifestOf.get(ref), host, quote(ref.patterns[0]), settings)
     if (reason === undefined) continue
     if (!ref.optional) throw new DeptreeError(`${reason}, and it is not optional, which yarn fails on`, quote(ref.patterns[0]))
-    ref.ignore = true
     ref.incompatible = true
   }
   return { packages: first.size, fetched, manifestOf }
@@ -202,7 +204,7 @@ export async function buildYarn1Tree(options) {
   if (folded) checkCollisions(vfs)
   const stats = {
     packages,
-    skipped: [...manifestOf.keys()].filter((ref) => ref.ignore).length,
+    skipped: [...manifestOf.keys()].filter((ref) => ref.incompatible).length,
     installed: placed.filter(({ info }) => info.ref.kind === 'registry').length,
     files,
     bytes,

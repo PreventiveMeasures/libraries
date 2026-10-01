@@ -99,8 +99,8 @@ export class Hoister {
   seedOne(pattern, { isDirectRequire, parent }) {
     const ref = this.resolved(pattern)
     let parentParts = []
-    const isIncompatible = ref.incompatible
-    let isRequired = isDirectRequire && !ref.ignore && !isIncompatible
+    const isIncompatible = ref.incompatible === true
+    let isRequired = isDirectRequire && !isIncompatible
     if (parent) {
       if (!this.tree.get(parent.key)) return null
       if (!isDirectRequire && !isIncompatible && parent.isRequired) isRequired = true
@@ -146,7 +146,6 @@ export class Hoister {
 
   newParts(key, info, parts) {
     let stepUp = false
-    const fullKey = implode(parts)
     const stack = []
     const name = parts.pop()
     for (let i = parts.length - 1; i >= 0; i--) {
@@ -155,7 +154,7 @@ export class Hoister {
       if (existing) {
         if (existing.ref.loc === info.ref.loc) {
           if (!existing.isRequired && info.isRequired) existing.isRequired = true
-          return { parts: checkParts, duplicate: true, fullKey }
+          return { parts: checkParts, duplicate: true }
         }
         break
       }
@@ -201,16 +200,9 @@ export class Hoister {
     this.tree.delete(oldKey)
     const { parts, duplicate } = this.newParts(oldKey, info, rawParts.slice())
     const newKey = implode(parts)
-    if (duplicate) {
-      this.taintParents(info, rawParts.slice(0, -1), parts.length - 1)
-      return
-    }
-    if (oldKey === newKey) {
-      this.setKey(info, oldKey, rawParts)
-      return
-    }
-    this.taintParents(info, rawParts.slice(0, -1), parts.length - 1)
-    this.setKey(info, newKey, parts)
+    // yarn's declareRename: what it passed over reserved for it.
+    if (duplicate || newKey !== oldKey) this.taintParents(info, rawParts.slice(0, -1), parts.length - 1)
+    if (!duplicate) this.setKey(info, newKey, parts)
   }
 
   taintParents(info, processParts, start) {

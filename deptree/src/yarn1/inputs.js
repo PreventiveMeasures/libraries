@@ -47,7 +47,7 @@ const yarnJson = 'a yarn.json, which yarn reads as a manifest too, is not suppor
 // node_modules. Every directory a glob may reach is read; a link in one,
 // which node-glob follows or not by where it is, is refused, and so is a
 // node_modules a glob would take, whose package.json yarn would read.
-export function findWorkspaces(project, globs) {
+function findWorkspaces(project, globs) {
   const found = []
   if (globs.length === 0) return found
   const pending = ['']
