@@ -1,15 +1,5 @@
-// The projects a yarn.lock installs, which it does not name: the manifest
-// beside it, `.`, and each workspace its `workspaces` finds, which the
-// caller reads, as yarn does with JSON.parse, and hands over by directory
-// from the lockfile's. What each asks for leads to the entry of its
-// pattern; a workspace's name the lockfile has no entry for leads to that
-// workspace, linked, as yarn records none. Whether the workspace's version
-// is in the range asked for is not checked here.
-//
-// Every pattern is then held to be asked for, as yarn writes no other: by a
-// manifest, by a package, or, beside the patterns a resolution was applied
-// to, by the root's `resolutions` as the resolution's own. Whether each
-// resolution applies where it was, resolutions.js has.
+// yarn.lock names no projects, so their manifests come by directory. A name of
+// a workspace with no entry links it, its version not held to the range.
 
 import { LockfileError, at, quote } from '../error.js'
 import { checkName, checkRelative, joinRelative } from '../names.js'
@@ -18,10 +8,8 @@ import { EMPTY, entries, record, string } from '../shape.js'
 export const KINDS = ['dependencies', 'devDependencies', 'optionalDependencies']
 export const WHERE = 'manifests'
 
-// yarn's resolveRelative: a `file:` or `link:` path in a manifest is
-// rewritten from the manifest's directory to the lockfile's, with the `./`
-// it had, as yarn records it; one that is absolute is refused, as the
-// lockfile's directory is not known here.
+// yarn's resolveRelative: `file:` and `link:` go from the manifest's directory
+// to the lockfile's, keeping `./`; absolute ones are refused, the root unknown.
 function fromLockfile(range, dir, where) {
   const prefix = /^(?:file|link):/u.exec(range)?.[0]
   if (prefix === undefined && !range.startsWith('/')) return range
@@ -33,8 +21,7 @@ function fromLockfile(range, dir, where) {
   return `${prefix}${dotted ? './' : ''}${target}`
 }
 
-// By alias, the pattern of each dependency, or `link:` and a workspace's
-// directory. yarn drops a `//` from a list, which is a comment.
+// yarn drops `//`, a comment, from a dependency list.
 function readTargets(value, dir, where, packages, workspaces) {
   const targets = Object.create(null)
   for (const [name, range, here] of entries(value ?? EMPTY, where)) {
@@ -47,8 +34,7 @@ function readTargets(value, dir, where, packages, workspaces) {
   return targets
 }
 
-// yarn's parsePackagePath and parsePatternInfo; a path that ends in `/` or
-// `*` or has `//` in it is ignored, as yarn does.
+// yarn's parsePatternInfo: it ignores a path ending in `/` or `*` or with `//`.
 function readResolutions(value, where) {
   const rules = []
   for (const [path, range, here] of entries(value ?? EMPTY, where)) {
@@ -60,7 +46,8 @@ function readResolutions(value, where) {
   return rules
 }
 
-// The patterns asked for, and the packages they lead to, each read once.
+// yarn writes no pattern nothing asks for; a resolution's own counts where its
+// entry is reached.
 function checkReached(importers, packages, resolutions) {
   const reached = new Set()
   const installed = new Set()
@@ -82,9 +69,7 @@ function checkReached(importers, packages, resolutions) {
   }
 }
 
-// `manifests` by directory, `.` among them; `packages` what packages.js
-// reads. The importers come back, and for resolutions.js the workspaces,
-// by name, and the rules of the root's `resolutions`, in order.
+// Also hands resolutions.js the workspaces by name, and the root's resolutions.
 export function readImporters(manifests, packages) {
   const workspaces = new Map()
   for (const [dir, manifest, here] of entries(manifests, WHERE)) {

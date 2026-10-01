@@ -1,23 +1,4 @@
-// The packages of a yarn.lock: one for each entry, under every pattern it
-// lists, and the same object under each, as yarn itself reads them. A
-// pattern is a dependency as a manifest asks for it, `name@range`; the
-// entry is what that resolved to, and a package's own dependencies lead on
-// to the entries of their patterns.
-//
-// An entry is held to what yarn installs as it says. yarn 1.22.21 and
-// earlier write one entry for every pattern of one tarball, whatever its
-// name: `"string-width-cjs@npm:string-width@^4.2.0", string-width@^4.2.0`.
-// yarn then gives the entry the name of the first pattern it looks up, in
-// an order its network decides, and installs the package under that name
-// alone; writing the lockfile again records it as `name`, and from then on
-// every install leaves the other name out. So an entry of two names, or
-// with a `name` its patterns do not give, is refused.
-//
-// So is an entry that gives a pattern asking for the registry what another
-// pattern names, a tarball, a directory or a repository, as yarn does for
-// a dependency that names one with the same name and version: the package
-// asked for is not the one installed. Such an entry is handed back, as the
-// other pattern may be a resolution's own, and resolutions.js decides.
+// Entries into packages: one object under all patterns of an entry, as in yarn.
 
 import { LockfileError, at, quote } from '../error.js'
 import { checkIntegrity, checkName, checkRelative, checkVersion } from '../names.js'
@@ -25,26 +6,24 @@ import { EMPTY, entries, record, string, text } from '../shape.js'
 
 const FIELDS = ['name', 'version', 'uid', 'resolved', 'integrity', 'dependencies', 'optionalDependencies']
 
-// yarn's normalizePattern: the name runs to the first `@` past a scope's.
+// As yarn's normalizePattern splits it.
 function splitPattern(pattern, where) {
   const sep = pattern.indexOf('@', 1)
   if (sep === -1) throw new LockfileError(`${quote(pattern)} is not a pattern of the form name@range`, where)
   return { name: checkName(pattern.slice(0, sep), where), range: pattern.slice(sep + 1) }
 }
 
-// A range that asks the registry: a version, a range or a tag, or `npm:`
-// and a name and one of those. Any other names where the package comes
-// from: a URL, `file:`, `link:` or a path, a git host's `user/repo`.
+// A version, range, tag or `npm:` alias; a `:` or `/` names a source instead:
+// a URL, a path, `file:`, `link:` or a git host's `user/repo`.
 const fromRegistry = (range) => range.startsWith('npm:') || !/[:/]/u.test(range)
 
-// yarn's test for a git URL, which it fetches with git whatever the pattern.
+// yarn's test: it fetches such a URL with git, whatever the pattern says.
 const GIT = /^git(?:\+[\da-z]+)?:\/\//u
 const COMMIT = /^(?:[\da-f]{40}|[\da-f]{64})$/u
 const SHA1 = /^[\da-f]{40}$/u
 
 const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
 
-// A sha1 in hex as an integrity writes it, in padded base64.
 function hexToBase64(hex) {
   let out = ''
   for (let i = 0; i < hex.length; i += 3) {
@@ -54,10 +33,8 @@ function hexToBase64(hex) {
   return out.padEnd(Math.ceil(out.length / 4) * 4, '=')
 }
 
-// A tarball is fetched from an http(s) URL, or read from `file:` and a path
-// from the lockfile's directory, which yarn writes as the manifest does,
-// `./` and all. After a `#` is the hex sha1 of the tarball, which yarn
-// checks where there is no integrity; a sha1 integrity names it again.
+// yarn writes a `file:` path as the manifest does, `./` and all; it checks the
+// sha1 after `#` where there is no integrity.
 function readTarball(tarball, sha1, integrity, resolvedAt, integrityAt) {
   if (tarball.startsWith('file:')) checkRelative(tarball.slice(tarball.startsWith('file:./') ? 7 : 5), resolvedAt)
   else if (!/^https?:\/\//u.test(tarball) || !URL.canParse(tarball)) throw new LockfileError(`${quote(tarball)} is not an http(s) URL, a file: path or a git URL`, resolvedAt)
@@ -71,8 +48,7 @@ function readTarball(tarball, sha1, integrity, resolvedAt, integrityAt) {
   return { type: 'tarball', tarball, sha1, integrity }
 }
 
-// Where the package's files come from, as `resolved` says; undefined where
-// yarn writes none, for a directory, which it reads again at every install.
+// Undefined for a directory, which yarn reads again at every install.
 function readResolution(fields, where) {
   const resolvedAt = at(where, 'resolved')
   const integrityAt = at(where, 'integrity')
@@ -89,12 +65,10 @@ function readResolution(fields, where) {
   return { type: 'git', repo: url, commit: hash }
 }
 
-// What a resolution is, for a message.
 const describe = (resolution) => (resolution === undefined ? 'nothing, as for a directory' : resolution.type === 'git' ? 'a git repository' : 'a file: tarball')
 
-// Every pattern of an entry gives it one name, and those that ask for the
-// registry are given a tarball from a URL. An entry that has them beside
-// patterns that name a source is handed back, for a resolution to explain.
+// yarn 1.22.21 and earlier merge a tarball's patterns whatever their names and
+// install it under one alone. Registry beside source patterns: resolutions.js.
 function checkPatterns(patterns, fields, resolution, where) {
   const [first] = patterns
   for (const pattern of patterns) {
@@ -115,7 +89,6 @@ function checkPatterns(patterns, fields, resolution, where) {
   return undefined
 }
 
-// By name, the pattern of each dependency, to be found among the keys.
 function readDependencies(value, where, wanted) {
   const dependencies = Object.create(null)
   for (const [name, range, here] of entries(value ?? EMPTY, where)) {
@@ -150,8 +123,7 @@ function readPackage({ keys, fields }, wanted, mixed) {
   return pkg
 }
 
-// By pattern, in the order of the file, from what syntax.js reads; and the
-// entries that give a pattern asking for the registry what others name.
+// `mixed`: the entries with a registry pattern beside a source.
 export function readPackages(list) {
   const packages = Object.create(null)
   const wanted = []

@@ -1,17 +1,5 @@
-// yarn.lock as yarn 1 writes it (its lockfile/stringify.js): two lines of
-// header, then an entry for each package, blank lines between. An entry is
-// its patterns, `, ` between them, and a `:`; below it, two spaces in, a
-// field and its value, or a field, a `:`, and below that, two spaces further
-// in, a name and its range on each line. A string is bare where yarn writes
-// it bare, and in double quotes, as JSON writes it, where yarn quotes it.
-//
-// That is what is read, and nothing looser. yarn's own reader takes more,
-// and reads some of it as no other reader does: a bare `1.0` is a number to
-// it and a bare `true` a boolean, a string with `\\\"` in it ends at the
-// wrong quote, a blank line within an entry ends it and drops the rest of
-// the file, a comment is dropped wherever it is, a file with the three
-// markers of a merge conflict is merged, and what it cannot read at all it
-// reads again as YAML. Each of these is refused.
+// yarn.lock exactly as yarn 1's stringify.js writes it: yarn's own reader takes
+// more, and reads some of it unlike other readers.
 
 import { LockfileError, quote } from '../error.js'
 
@@ -20,14 +8,10 @@ const VERSION = /^# yarn lockfile v(\d+)$/u
 
 const fail = (detail, number) => new LockfileError(`${detail} at line ${number + 1}`)
 
-// Tabs and other controls are refused everywhere, as yarn never writes them
-// raw, and a lone carriage return is a line end to yarn alone; so are a byte
-// order mark, which yarn drops, lone surrogates, U+FFFE and U+FFFF, and
-// U+2028 and U+2029, which end a line to some readers.
+// Never written raw by yarn. A lone CR ends a line to yarn alone, and U+2028
+// and U+2029 to some other readers.
 const FORBIDDEN = /[\p{Cc}\p{Cs}\uFEFF\uFFFE\uFFFF\u2028\u2029]/u
 
-// Moves `src.line` on to the next line, without its `\n` or `\r\n`, and
-// undefined past the last.
 function advance(src) {
   const { text, pos } = src
   src.line = undefined
@@ -42,17 +26,13 @@ function advance(src) {
   src.line = line
 }
 
-// yarn's maybeWrap: what it quotes. The rest starts with a letter and
-// holds nothing that ends a bare string to yarn's reader, which reads a bare
-// `true…` and `false…` as a boolean and the rest of the string after it.
+// yarn's maybeWrap; a bare `true…` or `false…` reads back as a boolean.
 const QUOTED = /[:\s\\",[\]]/u
 const quoted = (value) => value.startsWith('true') || value.startsWith('false') || QUOTED.test(value) || !/^[A-Za-z]/u.test(value)
 const BARE = /[A-Za-z][^\s:\\",[\]]*/uy
 
-// A quoted string with a backslash in it, as JSON reads it and writes it
-// back. yarn's reader ends a quoted string at the first quote with no
-// backslash before it, or with two: at a quote after a backslash the string
-// holds, which is early.
+// yarn ends a quoted string at a quote after one backslash, not two, so a
+// backslash before a quote in the value ends it early.
 function readEscaped(raw, number) {
   let value
   try {
@@ -65,7 +45,8 @@ function readEscaped(raw, number) {
   return value
 }
 
-// One with none is its text, as no control or lone surrogate is let past.
+// No backslash: the text is the value, as controls and lone surrogates are
+// refused before.
 function readQuoted(line, pos, number) {
   let end = pos + 1
   while (end < line.length && line[end] !== '"') end += line[end] === '\\' ? 2 : 1
@@ -76,7 +57,6 @@ function readQuoted(line, pos, number) {
   return [value, end]
 }
 
-// A string at `pos`, and where it ends.
 function readString(line, pos, number) {
   if (line[pos] === '"') return readQuoted(line, pos, number)
   BARE.lastIndex = pos
@@ -86,16 +66,13 @@ function readString(line, pos, number) {
   return [value, pos + value.length]
 }
 
-// A pattern, a field or a name: yarn's reader takes no empty one.
 function readKey(line, pos, number) {
   const [key, end] = readString(line, pos, number)
   if (key === '') throw fail('an empty key, which yarn does not read', number)
   return [key, end]
 }
 
-// A value after a name: a bare `null` is a string to yarn, and null to
-// @yarnpkg/parsers, which yarn 2 and later and other tools read a yarn.lock
-// of v1 with, and which reads no further than `null` in `nullish`.
+// @yarnpkg/parsers, which yarn 2+ reads v1 with, takes a bare `null…` as null.
 function readValue(line, pos, number) {
   const [value, end] = readString(line, pos, number)
   if (value.startsWith('null') && line[pos] !== '"') throw fail(`${quote(value)} is bare, and read as null by some readers`, number)
@@ -117,8 +94,7 @@ function expectHeader(src, expected) {
   advance(src)
 }
 
-// yarn's header, and the comments it may add below it: the versions of
-// yarn and Node that wrote the file, where it is set to, or another tool's.
+// Below the header yarn may write its and Node's versions, other tools theirs.
 function readHeader(src) {
   expectHeader(src, HEADER[0])
   const version = VERSION.exec(src.line ?? '')?.[1]
@@ -130,7 +106,6 @@ function readHeader(src) {
   }
 }
 
-// The names and ranges below a field, four spaces in.
 function readMap(src, field, number) {
   const map = Object.create(null)
   for (let line = src.line; line?.startsWith(' '); line = src.line) {
@@ -149,7 +124,6 @@ function readMap(src, field, number) {
   return map
 }
 
-// An entry's fields, two spaces in: a string each, or a map.
 function readFields(src, number) {
   const fields = Object.create(null)
   for (let line = src.line; line?.startsWith(' '); line = src.line) {
@@ -174,7 +148,6 @@ function readFields(src, number) {
   return fields
 }
 
-// An entry's patterns, each a key of one entry alone.
 function readEntry(src, seen) {
   const { line, number } = src
   const keys = []
@@ -196,8 +169,7 @@ function readEntry(src, seen) {
 
 const CONFLICT = ['<<<<<<<', '=======', '>>>>>>>']
 
-// The entries, in order: each with its patterns, and its fields, where a
-// field is a string or a mapping of strings, with a null prototype.
+// Each entry: its patterns, and fields that are strings or null-prototype maps.
 export function readEntries(text) {
   if (CONFLICT.every((marker) => text.includes(marker))) throw new LockfileError(`yarn reads a file with ${CONFLICT.map((marker) => quote(marker)).join(', ')} in it as a merge conflict`)
   const src = { text, pos: 0, number: -1, line: undefined }

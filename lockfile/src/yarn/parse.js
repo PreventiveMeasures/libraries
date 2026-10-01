@@ -1,8 +1,3 @@
-// A yarn.lock of `# yarn lockfile v1`, as yarn 1 writes it: syntax.js reads
-// the text, packages.js the entries, importers.js, where the manifests are
-// handed over, the projects that ask for them, and resolutions.js whether
-// the resolutions they make explain the entries packages.js hands back.
-
 import { readImporters } from './importers.js'
 import { readPackages } from './packages.js'
 import { checkResolutions } from './resolutions.js'

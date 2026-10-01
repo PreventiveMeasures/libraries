@@ -1,35 +1,16 @@
-// Resolutions as yarn applies them (its resolution-map.js). The root
-// manifest's `"path/name": "range"` resolves a request for `name` whose
-// path, the names it is requested through and its own, matches `path` as
-// minimatch reads it; the first to match does, and a path of a name alone
-// is `**/name`. A dependency of the root manifest's own has no path and is
-// resolved by none. A workspace's is requested through yarn's workspace
-// aggregator, and through the root or another workspace that asks for it.
-//
-// yarn also resolves a resolution's own pattern, from the root, and gives
-// what that resolves to to any request of the same name and version, one
-// the resolution applies to or not. So a resolution to a tarball, a
-// directory or a repository shares its entry with patterns that ask for
-// the registry, and the lockfile cannot say whether each was resolved or
-// only given it. Such an entry is read where every request of its patterns
-// is one the resolution applies to. One that is not, the root's own, a
-// dependency on what the resolution names, or another entry of the same
-// tarball, is refused, as the package installed there is not the one
-// asked for; and without the manifests, every such entry is.
+// yarn's resolution-map.js. yarn gives what a resolution resolves to to any
+// request of that name and version: each must be one the resolution matches.
 
 import { LockfileError, at, quote } from '../error.js'
 import { EMPTY } from '../shape.js'
 import { KINDS, WHERE } from './importers.js'
 
-// What yarn names its aggregator, `workspace-aggregator-` and a UUID that
-// no glob but a wildcard matches.
+// yarn asks for a workspace's dependencies via `workspace-aggregator-<uuid>`.
 const AGGREGATOR = 'workspace-aggregator-00000000-0000-0000-0000-000000000000'
 
 const WILD = { '*': '[^/]*', '?': '[^/]' }
 
-// A glob as minimatch reads it, a segment of a path at a time: null for
-// `**`, and otherwise a test of one segment, where `*` is any run of
-// characters and `?` any one. The rest of what minimatch reads is not.
+// The minimatch read here: `**` as null, and `*` and `?` within a segment.
 function compile({ glob, path, where }) {
   const segments = glob.split('/')
   if (segments.length > 30 || segments.some((segment) => segment === '' || /[[\]{}()!+\\]/u.test(segment))) {
@@ -38,8 +19,7 @@ function compile({ glob, path, where }) {
   return segments.map((segment) => (segment === '**' ? null : new RegExp(`^${segment.replaceAll(/[$.*?^|]/gu, (char) => WILD[char] ?? `\\${char}`)}$`, 'u')))
 }
 
-// The states of a glob as a mask, a bit for each segment matched so far:
-// past `**`, the next segment may match as well.
+// A bit for each segment of the glob matched; past `**`, the next may match.
 function close(tests, mask) {
   let closed = mask
   for (let i = 0; i < tests.length; i++) if ((closed & (1 << i)) !== 0 && tests[i] === null) closed |= 1 << (i + 1)
@@ -56,16 +36,14 @@ function step(tests, mask, segment) {
   return close(tests, next)
 }
 
-// Where yarn fetches a package from, as one string: a tarball, `./` or
-// not, or a repository at a commit.
+// One string for each source, `file:./x` and `file:x` alike.
 function fetchedFrom(resolution) {
   if (resolution === undefined) return undefined
   return resolution.type === 'git' ? `${resolution.repo}#${resolution.commit}` : resolution.tarball.replace(/^file:\.\//u, 'file:')
 }
 
-// Every request of the patterns of `entry`, along every path yarn may
-// request it by, is one a resolution to one of `sources` applies to. A
-// node is a package or a project, and asks for others by kind.
+// Every path yarn may request `entry` by must match a resolution to `sources`
+// first. The root's own requests have no path, so no resolution reaches them.
 function checkApplied(entry, sources, rule, packages, { importers, workspaces, rules }) {
   const own = rules.filter((item) => item.name === entry.name).map((item) => ({ pattern: item.pattern, tests: compile(item) }))
   const consume = (masks, name) => name.split('/').reduce((states, segment) => states.map((mask, i) => step(own[i].tests, mask, segment)), masks)
@@ -83,8 +61,6 @@ function checkApplied(entry, sources, rule, packages, { importers, workspaces, r
     seen.set(node, states.add(masks.join()))
     queue.push([node, masks])
   }
-  // A request of `node` along the path `masks` is at; one of the root's own
-  // has none, and is resolved by nothing.
   const root = importers['.']
   const request = (node, kind, alias, masks) => {
     const target = node[kind][alias]
@@ -100,6 +76,7 @@ function checkApplied(entry, sources, rule, packages, { importers, workspaces, r
   const initial = own.map((item) => close(item.tests, 1))
   for (const kind of KINDS) for (const alias of Object.keys(root[kind])) request(root, kind, alias, initial)
   for (const [name, dir] of workspaces) enqueue(importers[dir], consume(consume(initial, AGGREGATOR), name))
+  // yarn resolves each resolution's own pattern from the root too.
   for (const item of rules) if (item.pattern in packages) enqueue(packages[item.pattern], consume(initial, item.name))
   while (queue.length > 0) {
     const [node, masks] = queue.pop()
@@ -107,9 +84,7 @@ function checkApplied(entry, sources, rule, packages, { importers, workspaces, r
   }
 }
 
-// `mixed`: the entries packages.js hands over, each giving a pattern that
-// asks for the registry what its `sources` name. `project`: what
-// importers.js reads of the manifests, undefined where there are none.
+// `project` is undefined without manifests: no resolution explains an entry.
 export function checkResolutions(mixed, packages, project) {
   for (const { pkg, registry, sources } of mixed) {
     const where = at('', pkg.patterns[0])
