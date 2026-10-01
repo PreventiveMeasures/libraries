@@ -55,10 +55,11 @@ export interface CargoLockPackage {
 // [replace], artifact dependencies, path bases, anything only a nightly
 // cargo takes. So is a key cargo does not know, which it warns of and
 // drops, and whatever cargo refuses of a manifest that can be told without
-// a filesystem: a feature naming nothing, a dependency with two sources, an
-// optional dev-dependency, `links` with `build = false`. Sections that bear
-// on no dependency or feature — [badges], [lints], [profile], [[bin]],
-// metadata — are not looked into.
+// a filesystem: a feature naming nothing, a dependency with two sources
+// (two paths where they cannot be one directory, whatever the directories
+// are named, on Windows or elsewhere), an optional dev-dependency, `links`
+// with `build = false`. Sections that bear on no dependency or feature —
+// [badges], [lints], [profile], [[bin]], metadata — are not looked into.
 export function parseCargoManifest(text: string, workspace?: CargoManifest): CargoManifest
 
 export interface CargoManifest {

@@ -127,15 +127,20 @@ describe('parseCargoManifest', () => {
   })
 
   // lib at crates/lib, and again for unix: by other words, or by a path that
-  // climbs out of the directory, which may lead back into it.
+  // climbs out of the directory, which may lead back into it; by `\`, as on
+  // Windows, or from a drive or a server's share there.
   it('takes a path that leads to the same place, or may, as the same source', () => {
-    for (const path of ['./crates//lib/', 'crates/x/../lib', '../root/crates/lib', '/root/crates/lib']) {
+    const windows = ['crates\\\\lib', '.\\\\crates/x\\\\..\\\\lib\\\\', 'C:\\\\root\\\\crates\\\\lib', '\\\\\\\\server\\\\share\\\\crates\\\\lib']
+    for (const path of ['./crates//lib/', 'crates/x/../lib', '../root/crates/lib', '/root/crates/lib', ...windows]) {
       const pkg = parseCargoManifest(edit(ROOT, 'libc = "0.2"', `lib = { path = "${path}", version = "0.2" }`)).package
       assert.equal(pkg.dependencies.filter((dep) => dep.name === 'lib').length, 2)
     }
     // `..` stops at `/`: from /app, both are /lib.
     const shallow = parseCargoManifest(edit(edit(ROOT, 'path = "crates/lib"', 'path = "../lib"'), 'libc = "0.2"', 'lib = { path = "../../lib", version = "0.2" }')).package
     assert.equal(shallow.dependencies.filter((dep) => dep.name === 'lib').length, 2)
+    // A drive's letter in either case.
+    const drives = parseCargoManifest(edit(edit(ROOT, 'path = "crates/lib"', 'path = "C:/root/lib"'), 'libc = "0.2"', 'lib = { path = "c:\\\\root\\\\lib", version = "0.2" }')).package
+    assert.equal(drives.dependencies.filter((dep) => dep.name === 'lib').length, 2)
   })
 
   // util at crates/util of the root, inherited by crates/m, and again for
@@ -188,6 +193,9 @@ describe('parseCargoManifest', () => {
     ['two sources for one name', edit(ROOT, 'libc = "0.2"', 'itoa04 = { package = "itoa", git = "https://example.com/itoa" }'), 'target["cfg(unix)"].dependencies.itoa04: "itoa04" is given another source elsewhere, which cargo refuses'],
     ['links with no build script', edit(ROOT, 'edition = "2021"', 'edition = "2021"\nlinks = "z"\nbuild = false'), 'package.links: links to "z" with no build script, which cargo refuses'],
     ['two paths for one name', edit(ROOT, 'libc = "0.2"', 'lib = { path = "crates/other", version = "0.2" }'), 'target["cfg(unix)"].dependencies.lib: "lib" is given another source elsewhere, which cargo refuses'],
+    ['a path by `\\` that leads elsewhere', edit(ROOT, 'libc = "0.2"', 'lib = { path = "crates\\\\other", version = "0.2" }'), 'target["cfg(unix)"].dependencies.lib: "lib" is given another source elsewhere, which cargo refuses'],
+    ['paths from two drives', edit(edit(ROOT, 'path = "crates/lib"', 'path = "C:/root/lib"'), 'libc = "0.2"', 'lib = { path = "D:/root/lib", version = "0.2" }'), 'target["cfg(unix)"].dependencies.lib: "lib" is given another source elsewhere, which cargo refuses'],
+    ['a path from a server that leads elsewhere', edit(ROOT, 'libc = "0.2"', 'lib = { path = "//server/share/other", version = "0.2" }'), 'target["cfg(unix)"].dependencies.lib: "lib" is given another source elsewhere, which cargo refuses'],
     ['a path that climbs out and cannot come back to the other', edit(ROOT, 'libc = "0.2"', 'lib = { path = "../crates/other", version = "0.2" }'), 'target["cfg(unix)"].dependencies.lib: "lib" is given another source elsewhere, which cargo refuses'],
     ['a platform that is neither', edit(ROOT, "[target.'cfg(unix)'.dependencies]", "[target.'cfg(unix'.dependencies]"), 'target["cfg(unix"]: "cfg(unix" is neither a target\'s name nor a cfg(…) cargo reads'],
     ['a cfg expression cargo refuses', edit(ROOT, "[target.'cfg(unix)'.dependencies]", "[target.'cfg(not(a, b))'.dependencies]"), 'target["cfg(not(a, b))"]: "cfg(not(a, b))" is neither a target\'s name nor a cfg(…) cargo reads'],
