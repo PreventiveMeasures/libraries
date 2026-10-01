@@ -1,9 +1,9 @@
 import { parsePlatform } from '../crate/cargo-platform.js'
 import { parseVersionReq } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
-import { EMPTY } from '../shape.js'
+import { EMPTY, field, optional } from '../shape.js'
 import { isTable } from '../toml/value.js'
-import { boolean, checkFeature, checkName, entries, optional, refuse, string, strings, table } from './shape.js'
+import { boolean, checkCrateName, checkFeature, entries, refuse, string, strings, table } from './shape.js'
 import { differ, sourceOf } from './sources.js'
 
 export const NIGHTLY = 'which only a nightly cargo reads, is not supported'
@@ -62,10 +62,10 @@ export function readSpec(value, where, name, edition) {
     return { package: name, version: value, source: { type: 'registry', registry: undefined, index: undefined }, optional: false, defaultFeatures: true, features: [] }
   }
   table(value, where, DETAILED, DETAILED_REFUSED)
-  const read = (key, reader) => optional(reader)(value[key], at(where, key))
+  const read = (key, reader) => field(value, key, where, reader)
   const version = read('version', string)
   if (version !== undefined) parseRequirement(version, at(where, 'version'))
-  const registry = read('registry', checkName)
+  const registry = read('registry', checkCrateName)
   const index = read('registry-index', string)
   if (index !== undefined) checkUrl(index, at(where, 'registry-index'))
   const path = read('path', string)
@@ -90,7 +90,7 @@ export function readSpec(value, where, name, edition) {
   const features = readFeatures(value.features, at(where, 'features'))
   read('public', boolean)
   const defaultFeatures = optional(boolean)(dashed(value, where, 'default-features', edition), at(where, 'default-features')) ?? true
-  return { package: read('package', checkName) ?? name, version, source, optional: read('optional', boolean) ?? false, defaultFeatures, features }
+  return { package: read('package', checkCrateName) ?? name, version, source, optional: read('optional', boolean) ?? false, defaultFeatures, features }
 }
 
 // An inheriting entry can add features, but not turn the default ones off.
@@ -101,7 +101,7 @@ function inherit(value, where, name, context) {
   const spec = context.workspace.dependencies[name]
   if (spec === undefined) throw new LockfileError(`${quote(name)} is not in [workspace.dependencies]`, where)
   const features = readFeatures(value.features, at(where, 'features'))
-  optional(boolean)(value.public, at(where, 'public'))
+  field(value, 'public', where, boolean)
   const defaultFeatures = optional(boolean)(dashed(value, where, 'default-features', context.edition), at(where, 'default-features'))
   if (defaultFeatures === false && spec.defaultFeatures && context.edition === '2024') {
     throw new LockfileError('`default-features = false` cannot turn off the workspace\'s default features', where)
@@ -110,14 +110,14 @@ function inherit(value, where, name, context) {
     ...spec,
     features: [...spec.features, ...features],
     defaultFeatures: defaultFeatures === true || spec.defaultFeatures,
-    optional: optional(boolean)(value.optional, at(where, 'optional')) ?? false,
+    optional: field(value, 'optional', where, boolean) ?? false,
     inherited: true,
   }
 }
 
 function readDependencies(value, where, kind, target, context) {
   for (const [name, item, here] of entries(value, where)) {
-    checkName(name, here)
+    checkCrateName(name, here)
     const spec = isTable(item) && 'workspace' in item ? inherit(item, here, name, context) : { ...readSpec(item, here, name, context.edition), inherited: false }
     if (spec.optional && kind === 'dev') throw new LockfileError('a dev-dependency cannot be optional', here)
     const source = sourceOf(spec.source, spec.inherited)

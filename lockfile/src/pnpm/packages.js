@@ -7,7 +7,7 @@
 import { LockfileError, at, quote } from '../error.js'
 import { checkOptional } from '../graph.js'
 import { checkName, checkRelative, checkVersion, isVersion, joinRelative } from '../names.js'
-import { EMPTY, entries, flag, record, text, textMap, texts } from '../shape.js'
+import { EMPTY, entries, field, flag, record, text, textMap, texts } from '../shape.js'
 import { refToKey, splitPackageKey, splitSnapshotKey } from './key.js'
 import { readResolution } from './resolution.js'
 
@@ -62,17 +62,16 @@ function readInfo(key, entry, where) {
   const { name, ref } = splitPackageKey(key, where)
   if (entry.name !== undefined && entry.name !== name) throw new LockfileError(`expected the name in the key, ${quote(name)}`, at(where, 'name'))
   const resolution = readResolution(entry.resolution, at(where, 'resolution'))
-  const list = (field) => (entry[field] === undefined ? undefined : texts(entry[field], at(where, field)))
   const bundled = entry.bundledDependencies
   return {
     name,
     version: readVersion(ref, entry, resolution, where),
     resolution,
     engines: entry.engines === undefined ? Object.create(null) : textMap(entry.engines, at(where, 'engines')),
-    os: list('os'),
-    cpu: list('cpu'),
-    libc: list('libc'),
-    deprecated: entry.deprecated === undefined ? undefined : text(entry.deprecated, at(where, 'deprecated')),
+    os: field(entry, 'os', where, texts),
+    cpu: field(entry, 'cpu', where, texts),
+    libc: field(entry, 'libc', where, texts),
+    deprecated: field(entry, 'deprecated', where, text),
     hasBin: flag(entry.hasBin, at(where, 'hasBin')),
     bundledDependencies: bundled === undefined || bundled === true ? bundled : names(bundled, at(where, 'bundledDependencies')),
     peerDependencies: entry.peerDependencies === undefined ? Object.create(null) : textMap(entry.peerDependencies, at(where, 'peerDependencies'), checkName),
@@ -116,12 +115,11 @@ function readSnapshot(entry, where, snapshots) {
   const dependencies = readTargets(entry.dependencies, at(where, 'dependencies'), snapshots)
   const optionalDependencies = readTargets(entry.optionalDependencies, at(where, 'optionalDependencies'), snapshots)
   checkOptional(dependencies, optionalDependencies, where)
-  const peers = entry.transitivePeerDependencies
   return {
     dependencies,
     optionalDependencies,
     optional: flag(entry.optional, at(where, 'optional')),
-    transitivePeerDependencies: peers === undefined ? [] : names(peers, at(where, 'transitivePeerDependencies')),
+    transitivePeerDependencies: entry.transitivePeerDependencies === undefined ? [] : names(entry.transitivePeerDependencies, at(where, 'transitivePeerDependencies')),
   }
 }
 

@@ -10,6 +10,7 @@
 // there is something to lock beside the project: the env document first, the
 // project's lockfile second.
 
+import { hex } from '../excerpt.js'
 import { YamlError, excerpt } from './error.js'
 import { parseInline, readKey, setKey } from './scalar.js'
 
@@ -75,7 +76,7 @@ function advance(doc) {
   while (text[start] === ' ') start++
   const line = text.slice(start, end)
   const char = FORBIDDEN.exec(line)?.[0]
-  if (char !== undefined) throw new YamlError(`U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')} is not allowed`, number)
+  if (char !== undefined) throw new YamlError(`${hex(char)} is not allowed`, number)
   doc.line = { indent: start - pos, text: line, number }
   return doc.line
 }

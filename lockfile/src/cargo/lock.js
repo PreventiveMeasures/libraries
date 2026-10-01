@@ -3,10 +3,11 @@
 // Cargo drops an edge it cannot find that way, or finds two of; this refuses
 // it.
 
-import { parseVersion } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
+import { isCommit, isHexSha256 } from '../names.js'
+import { field } from '../shape.js'
 import { parseToml } from '../toml/parse.js'
-import { array, checkName, kind, optional, string, strings, table } from './shape.js'
+import { array, checkCrateName, checkCrateVersion, kind, string, strings, table } from './shape.js'
 
 // Two sources are one where cargo holds them so: of one kind, asking for the
 // same branch, tag or rev, at the same canonical URL (github.com's in https
@@ -14,7 +15,6 @@ import { array, checkName, kind, optional, string, strings, table } from './shap
 // `identity` is that, as a string.
 
 const REFERENCES = ['branch', 'tag', 'rev']
-const COMMIT = /^(?:[\da-f]{40}|[\da-f]{64})$/u
 
 function canonical(url) {
   const github = url.hostname === 'github.com'
@@ -45,7 +45,7 @@ export function parseLockSource(text, where, edge) {
     return { scheme, identity: identity(scheme, url) }
   }
   const [, base, query, commit] = /^([^#?]*)(?:\?([^#]*))?(?:#(.*))?$/su.exec(rest)
-  if (edge ? commit !== undefined : !COMMIT.test(commit ?? '')) fail(edge ? 'a dependency names no commit' : 'expected "#" and the commit it resolved to')
+  if (edge ? commit !== undefined : !isCommit(commit ?? '')) fail(edge ? 'a dependency names no commit' : 'expected "#" and the commit it resolved to')
   const url = parseUrl(base) ?? fail('expected a URL in normal form')
   const pairs = [...new URLSearchParams(query ?? '')]
   if (pairs.length > 1 || (pairs.length === 1 && !REFERENCES.includes(pairs[0][0]))) fail('expected at most one of branch=, tag= or rev=')
@@ -94,7 +94,6 @@ export function patchedAs(source) {
 const FIELDS = ['version', 'package', 'patch']
 const PACKAGE = ['name', 'version', 'source', 'checksum', 'dependencies']
 const UNUSED = ['name', 'version', 'source', 'checksum']
-const CHECKSUM = /^[\da-f]{64}$/u
 
 const TOP_REFUSED = {
   root: 'a [root] table is lockfile version 1, which is not read here',
@@ -113,16 +112,15 @@ export const keyOf = (name, version, source) => (source === undefined ? `${name}
 
 function readPackage(value, where, fields = PACKAGE) {
   table(value, where, fields, PACKAGE_REFUSED)
-  const name = checkName(value.name, at(where, 'name'))
-  const version = string(value.version, at(where, 'version'))
-  if (parseVersion(version) === undefined) throw new LockfileError(`${quote(version)} is not a version`, at(where, 'version'))
-  const source = optional(string)(value.source, at(where, 'source'))
+  const name = checkCrateName(value.name, at(where, 'name'))
+  const version = checkCrateVersion(value.version, at(where, 'version'))
+  const source = field(value, 'source', where, string)
   const parsed = source === undefined ? undefined : parseLockSource(source, at(where, 'source'), false)
-  const checksum = optional(string)(value.checksum, at(where, 'checksum'))
+  const checksum = field(value, 'checksum', where, string)
   if (checksum !== undefined && (parsed === undefined || parsed.scheme === 'git')) {
     throw new LockfileError(`a ${parsed === undefined ? 'path' : 'git'} package has no checksum`, at(where, 'checksum'))
   }
-  if (checksum !== undefined && !CHECKSUM.test(checksum)) throw new LockfileError(`${quote(checksum)} is not a sha256 checksum`, at(where, 'checksum'))
+  if (checksum !== undefined && !isHexSha256(checksum)) throw new LockfileError(`${quote(checksum)} is not a sha256 checksum`, at(where, 'checksum'))
   const edges = value.dependencies === undefined ? [] : strings(value.dependencies, at(where, 'dependencies'))
   return { key: keyOf(name, version, source), name, version, source, checksum, identity: parsed?.identity, edges }
 }

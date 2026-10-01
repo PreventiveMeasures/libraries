@@ -1,6 +1,6 @@
 import { matches, parseVersion } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
-import { EMPTY } from '../shape.js'
+import { EMPTY, optional } from '../shape.js'
 import { parseRequirement } from './dependency.js'
 import { ANY_REGISTRY, keyOf, parseLockSource, patchKey, patchUrl, patchedAs, sourceIdentity } from './lock.js'
 
@@ -54,7 +54,7 @@ export function readPatches(root, config) {
   return patchEntries(root, config).map(({ key, spec, where }) => {
     const table = patchKey(key)
     if (patchedAs(spec.source) === table) throw new LockfileError('patches its source with itself, which cargo refuses', where)
-    const requirement = spec.version === undefined ? undefined : parseRequirement(spec.version, where)
+    const requirement = optional(parseRequirement)(spec.version, where)
     return { table, target: `${table} ${spec.package}`, package: spec.package, identity: sourceIdentity(spec.source, PATH), requirement, where }
   })
 }

@@ -1,3 +1,4 @@
+import { parseVersion } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
 import { TomlDateTime } from '../toml/datetime.js'
 import { TomlFloat } from '../toml/number.js'
@@ -45,11 +46,14 @@ export function strings(value, where) {
   return array(value, where).map((item, index) => string(item, `${where}[${index}]`))
 }
 
-export const optional = (read) => (value, where) => (value === undefined ? undefined : read(value, where))
-
 // As cargo takes names, less what is not ASCII.
-export function checkName(value, where) {
+export function checkCrateName(value, where) {
   if (!/^[A-Z_a-z][\w-]*$/u.test(string(value, where))) throw new LockfileError(`${quote(value)} is not a package name`, where)
+  return value
+}
+
+export function checkCrateVersion(value, where) {
+  if (parseVersion(string(value, where)) === undefined) throw new LockfileError(`${quote(value)} is not a version`, where)
   return value
 }
 
