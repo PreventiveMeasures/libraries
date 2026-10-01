@@ -6,9 +6,12 @@ import { isSha1 } from './args.js'
 
 const BLOCK = 512
 const MAX_UNPACKED_BYTES = 2 ** 30
-// The only pax records git writes. Any other, `size` above all, would be
-// read by a tar extractor as it is not read here.
+// Only what git writes is read: anything else, a pax `size` or a mode of
+// 0000, would be extracted as it is not hashed. Modes are as its umask,
+// 002 or 022, leaves them: a file 0664 or 0644, 0775 or 0755 executable;
+// a directory 0775 or 0755; a symlink 0777.
 const PAX_KEYS = { x: new Set(['path', 'linkpath']), g: new Set(['comment']) }
+const MODES = { 0: [0o664, 0o644, 0o775, 0o755], 2: [0o777], 5: [0o775, 0o755] }
 
 // Names are kept as latin1 strings, a char per byte, so they sort and hash
 // as the bytes git has.
@@ -84,8 +87,6 @@ export async function gitTreeOfTarball(gzipped, submodules) {
     }
     if (Buffer.from(header.subarray(257, 265)).toString('latin1') !== 'ustar\u000000') return 'no tree: a header that is not POSIX ustar'
     if (octal(header, 148, 156) !== checksum(header)) return 'no tree: a header that fails its checksum'
-    const mode = octal(header, 100, 108)
-    if (!(mode <= 0o777)) return 'no tree: a mode git does not write'
     const size = octal(header, 124, 136)
     const body = bytes.subarray(at + BLOCK, at + BLOCK + size)
     if (body.length !== size) return 'no tree: the tarball is cut short'
@@ -105,6 +106,11 @@ export async function gitTreeOfTarball(gzipped, submodules) {
     const path = pax?.get('path') ?? (prefix ? `${prefix}/${field(header, 0, 100)}` : field(header, 0, 100))
     const target = pax?.get('linkpath') ?? field(header, 157, 257)
     pax = null
+    if (!Object.hasOwn(MODES, type)) return `no tree: an entry of type ${JSON.stringify(type)}`
+    const mode = octal(header, 100, 108)
+    const asGitWrites = MODES[type].includes(mode) && (type === '0' || size === 0) && path.endsWith('/') === (type === '5')
+      && octal(header, 108, 116) === 0 && octal(header, 116, 124) === 0 && field(header, 265, 297) === 'root' && field(header, 297, 329) === 'root'
+    if (!asGitWrites) return `no tree: a header git does not write, ${JSON.stringify(path)}`
     const [first, ...parts] = path.replace(/\/$/u, '').split('/')
     top ??= first
     const name = type === '5' ? null : parts.pop()
@@ -117,9 +123,7 @@ export async function gitTreeOfTarball(gzipped, submodules) {
     }
     if (name === null) continue
     if (dir.has(name)) return `no tree: ${JSON.stringify(path)} twice`
-    if (type === '0') dir.set(name, { mode: mode & 0o100 ? '100755' : '100644', id: objectId('blob', body) })
-    else if (type === '2') dir.set(name, { mode: '120000', id: objectId('blob', Buffer.from(target, 'latin1')) })
-    else return `no tree: an entry of type ${JSON.stringify(type)}`
+    dir.set(name, type === '0' ? { mode: mode & 0o100 ? '100755' : '100644', id: objectId('blob', body) } : { mode: '120000', id: objectId('blob', Buffer.from(target, 'latin1')) })
   }
   if (top === undefined) return 'no tree: an empty tarball'
   const empty = emptyDirs(root)

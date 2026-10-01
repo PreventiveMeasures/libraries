@@ -28,7 +28,11 @@ const header = (name, type, size = 0, mode = 0o664) => {
   const block = Buffer.alloc(512)
   block.write(name, 0)
   block.write(mode.toString(8).padStart(7, '0'), 100)
+  block.write('0000000', 108)
+  block.write('0000000', 116)
   block.write(size.toString(8).padStart(11, '0'), 124)
+  block.write('root', 265)
+  block.write('root', 297)
   block.write(type, 156)
   block.write('ustar\u000000', 257, 'latin1')
   sign(block, 0)
@@ -85,6 +89,12 @@ describe('gitTreeOfTarball', () => {
     const gnu = header('top/f', '0', 4)
     gnu.write('ustar  \0', 257, 'latin1')
     sign(gnu, 0)
+    const owned = header('top/f', '0', 4)
+    owned.write('0001750', 108)
+    sign(owned, 0)
+    const named = header('top/f', '0', 4)
+    named.write('evil', 265)
+    sign(named, 0)
     for (const [blocks, reason] of [
       [[top, pax('x', [['size', 8]]), file], 'a pax record git does not write, "size"'],
       [[pax('g', [['path', 'top/x']]), top, file], 'a pax record git does not write, "path"'],
@@ -92,7 +102,15 @@ describe('gitTreeOfTarball', () => {
       [[top, pax('x', [['path', 'top/a']]), pax('x', [['linkpath', 'x']]), file], 'two pax headers for one entry'],
       [[top, tampered, body('SAFE')], 'a header that fails its checksum'],
       [[top, gnu, body('SAFE')], 'a header that is not POSIX ustar'],
-      [[top, header('top/f', '0', 4, 0o4775), body('SAFE')], 'a mode git does not write'],
+      [[top, header('top/f', '0', 4, 0o4775), body('SAFE')], 'a header git does not write, "top/f"'],
+      [[top, header('top/f', '0', 4, 0o000), body('SAFE')], 'a header git does not write, "top/f"'],
+      [[top, header('top/d/', '5', 0, 0o700)], 'a header git does not write, "top/d/"'],
+      [[top, header('top/l', '2', 4, 0o777), body('SAFE')], 'a header git does not write, "top/l"'],
+      [[top, header('top/f/', '0', 4), body('SAFE')], 'a header git does not write, "top/f/"'],
+      [[top, header('top/d', '5', 0, 0o775)], 'a header git does not write, "top/d"'],
+      [[top, owned, body('SAFE')], 'a header git does not write, "top/f"'],
+      [[top, named, body('SAFE')], 'a header git does not write, "top/f"'],
+      [[top, header('top/h', '1', 0, 0o664)], 'an entry of type "1"'],
       [[top, file, Buffer.alloc(1024), header('top/g', '0')], 'data after the end of the tarball'],
     ]) {
       assert.equal(await gitTreeOfTarball(tarball(...blocks)), `no tree: ${reason}`, reason)
