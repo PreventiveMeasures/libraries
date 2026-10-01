@@ -127,6 +127,14 @@ describe('buildYarn1Tree', () => {
     assert.equal(stats.links, 1)
   })
 
+  // node-glob's `**` takes no name as well as several, so a glob may spell
+  // a dot directory right below where it starts.
+  it('finds a workspace in a dot directory a glob spells, as yarn does', () => {
+    const root = { name: 'root', version: '1.0.0', private: true, workspaces: ['**/.packages/*'] }
+    const files = projectOf({ 'package.json': root, '.packages/w/package.json': '{}', 'x/.packages/v/package.json': '{}', '.other/.packages/u/package.json': '{}' })
+    assert.deepEqual(findYarn1Workspaces({ project: files }), ['.', '.packages/w', 'x/.packages/v'])
+  })
+
   it('gives a dependency a resolution applies to the resolution\'s package', async () => {
     stubRegistry(TARBALLS)
     const root = { name: 'root', version: '1.0.0', dependencies: { a: '^1.0.0', b: '^2.0.0' }, resolutions: { 'a/b': '2.0.0' } }

@@ -5,7 +5,7 @@
 import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { checkProject, readText, typeOf } from '../pnpm/project.js'
-import { matchesGlob } from './glob.js'
+import { matchesGlob, reachesBelow } from './glob.js'
 import { cleanDependencies } from './requests.js'
 import { readSettings } from './settings.js'
 
@@ -58,19 +58,6 @@ export function globsOf(root) {
   return (Array.isArray(value) ? value : value?.packages ?? []).map((glob) => String(glob).replace(/^(?:\.\/)+|\/+$/gu, ''))
 }
 
-// Whether a glob, read a segment at a time, may take something under
-// `dir`: each of its names in turn taken by the glob's, until a `**`.
-function enters(glob, dir) {
-  const tests = glob.split('/')
-  const names = dir === '' ? [] : dir.split('/')
-  for (const [i, name] of names.entries()) {
-    if (i >= tests.length) return false
-    if (tests[i] === '**') return !name.startsWith('.')
-    if (!matchesGlob(tests[i], name)) return false
-  }
-  return true
-}
-
 // yarn reads a yarn.json beside each package.json it reads, or in its
 // stead, as the manifest of its own registry.
 const yarnJson = 'a yarn.json, which yarn reads as a manifest too, is not supported'
@@ -88,7 +75,7 @@ export function findWorkspaces(project, globs) {
     const dir = pending.pop()
     for (const name of project.readdir(`/${dir}`)) {
       const path = dir === '' ? name : `${dir}/${name}`
-      if (!globs.some((glob) => enters(glob, path) || matchesGlob(glob, path))) continue
+      if (!globs.some((glob) => reachesBelow(glob, path) || matchesGlob(glob, path))) continue
       const { type } = project.lstat(`/${path}`)
       if (type === 'symlink') throw new DeptreeError('a link where yarn looks for workspaces is not supported', quote(path))
       if (type !== 'directory') continue

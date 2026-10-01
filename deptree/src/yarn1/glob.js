@@ -15,9 +15,10 @@ function compile(glob) {
   })
 }
 
-// Whether `glob` takes `path`; positions in the glob a name at a time, a
-// `**` taking none or more, in time linear in both.
-export function matchesGlob(glob, path) {
+// The places in `glob` that `path` reaches, a name at a time, a `**`
+// taking none or more, in time linear in both: a place is the index of the
+// glob's next segment, its length where all are taken.
+function placesOf(glob, path) {
   if (!compiled.has(glob)) compiled.set(glob, compile(glob))
   const tests = compiled.get(glob)
   const close = (places) => {
@@ -25,7 +26,7 @@ export function matchesGlob(glob, path) {
     return places
   }
   let places = close(new Set([0]))
-  for (const segment of path.split('/')) {
+  for (const segment of path === '' ? [] : path.split('/')) {
     const next = new Set()
     for (const i of places) {
       if (i === tests.length) continue
@@ -35,5 +36,17 @@ export function matchesGlob(glob, path) {
     }
     places = close(next)
   }
-  return places.has(tests.length)
+  return { places, length: tests.length }
+}
+
+// Whether `glob` takes `path`.
+export function matchesGlob(glob, path) {
+  const { places, length } = placesOf(glob, path)
+  return places.has(length)
+}
+
+// Whether `glob` may take a path below `dir`: some of it left to take.
+export function reachesBelow(glob, dir) {
+  const { places, length } = placesOf(glob, dir)
+  return [...places].some((place) => place < length)
 }
