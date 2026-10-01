@@ -24,6 +24,8 @@ const sourced = (name) => name.endsWith('.js') || name.endsWith('.d.ts')
 const files = [
   new URL('pnpm.js', PKG_DIR),
   new URL('pnpm.d.ts', PKG_DIR),
+  new URL('soldeer.js', PKG_DIR),
+  new URL('soldeer.d.ts', PKG_DIR),
   new URL('toml.js', PKG_DIR),
   new URL('toml.d.ts', PKG_DIR),
   new URL('yaml.js', PKG_DIR),

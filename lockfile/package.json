@@ -1,12 +1,16 @@
 {
   "name": "@preventive/lockfile",
   "version": "1.0.0-alpha.2",
-  "description": "Strict lockfile readers: pnpm-lock.yaml v9 and yarn.lock v1 checked field by field, their packages and graph resolved, and the YAML and TOML parsers beside them",
+  "description": "Strict lockfile readers: pnpm-lock.yaml v9, yarn.lock v1 and soldeer.lock checked field by field, their packages and graph resolved, and the YAML and TOML parsers beside them",
   "type": "module",
   "exports": {
     "./pnpm.js": {
       "types": "./pnpm.d.ts",
       "default": "./pnpm.js"
+    },
+    "./soldeer.js": {
+      "types": "./soldeer.d.ts",
+      "default": "./soldeer.js"
     },
     "./yaml.js": {
       "types": "./yaml.d.ts",
@@ -24,6 +28,8 @@
   "files": [
     "pnpm.d.ts",
     "pnpm.js",
+    "soldeer.d.ts",
+    "soldeer.js",
     "src/error.js",
     "src/graph.js",
     "src/names.js",
@@ -33,6 +39,10 @@
     "src/pnpm/parse.js",
     "src/pnpm/resolution.js",
     "src/shape.js",
+    "src/soldeer/config.js",
+    "src/soldeer/parse.js",
+    "src/soldeer/sanitize.js",
+    "src/soldeer/semver.js",
     "src/toml/datetime.js",
     "src/toml/error.js",
     "src/toml/number.js",
@@ -58,7 +68,7 @@
     "node": ">=24.14.0"
   },
   "scripts": {
-    "test": "node --test ./tests/*.test.js ./tests/toml/*.test.js ./tests/yaml/*.test.js ./tests/yarn1/*.test.js"
+    "test": "node --test ./tests/*.test.js ./tests/soldeer/*.test.js ./tests/toml/*.test.js ./tests/yaml/*.test.js ./tests/yarn1/*.test.js"
   },
   "license": "MIT",
   "author": {
