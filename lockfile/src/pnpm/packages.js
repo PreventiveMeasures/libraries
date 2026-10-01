@@ -91,12 +91,8 @@ function readPeersMeta(value, where) {
 // What a dependency's reference leads to: the key of a snapshot, or
 // `link:` and a directory linked in place, which the lockfile does not
 // hold. A link is written relative to `base`, and handed back relative to
-// the lockfile's directory. pnpm writes one into a package's own
-// directory, which a `file:` dependency of the package asks for, as
-// `link:<root>/` and the path in it; that is refused, as no directory from
-// the lockfile's names it.
+// the lockfile's directory.
 export function target(ref, alias, base, snapshots, where) {
-  if (ref === 'link:<root>' || ref.startsWith('link:<root>/')) throw new LockfileError(`${quote(ref)} leads into the package that asks for it, which is not supported`, where)
   if (ref.startsWith('link:')) return `link:${joinRelative(base, checkRelative(ref.slice(5), where))}`
   const key = refToKey(ref, alias)
   if (!(key in snapshots)) throw new LockfileError(`${quote(ref)} leads to ${quote(key)}, which is not in snapshots`, where)
@@ -105,11 +101,17 @@ export function target(ref, alias, base, snapshots, where) {
 
 // A snapshot's links are read from the lockfile's directory, as pnpm's
 // installer reads them, although its writer leaves a `link:` a directory
-// dependency asks for as that dependency wrote it.
+// dependency asks for as that dependency wrote it. pnpm writes one into a
+// package's own directory, which a `file:` dependency of the package asks
+// for, as `link:<root>/` and the path in it; that is refused, as no
+// directory from the lockfile's names it. An importer's `link:<root>/` is
+// a directory named `<root>`, as pnpm writes one for `link:./<root>/`.
 function readTargets(value, where, snapshots) {
   const targets = Object.create(null)
   for (const [alias, ref, here] of entries(value ?? EMPTY, where)) {
-    targets[checkName(alias, here)] = target(text(ref, here), alias, '.', snapshots, here)
+    const read = text(ref, here)
+    if (read === 'link:<root>' || read.startsWith('link:<root>/')) throw new LockfileError(`${quote(read)} leads into the package that asks for it, which is not supported`, here)
+    targets[checkName(alias, here)] = target(read, alias, '.', snapshots, here)
   }
   return targets
 }
