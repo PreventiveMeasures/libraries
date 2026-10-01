@@ -162,9 +162,10 @@ export interface CargoVendored {
 // source, [patch] aside; so does this, and refuses a declaration two
 // packages could be, one the lockfile does not resolve where cargo's
 // resolver would, an edge no declaration is, a package no member depends
-// on, directly or not: a lockfile out of date with its manifests. So is a
-// feature a declaration asks of a package that has no such feature, which
-// cargo's resolver refuses.
+// on, directly or not: a lockfile out of date with its manifests. So is
+// what cargo's resolver refuses: a feature a declaration asks of a package
+// that has no such feature, a [patch] whose location has no version its
+// requirement takes, a [patch] from the source it patches.
 export function linkCargo(lock: CargoLockfile, manifests: Record<string, CargoManifest>, options: { workspace: CargoManifest, members: string[] }): CargoGraph
 
 export interface CargoGraph {

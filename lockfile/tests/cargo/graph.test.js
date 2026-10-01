@@ -177,6 +177,12 @@ describe('linkCargo with a [patch]', () => {
     assert.throws(() => patched('{ version = "1", registry = "corp" }', 'other'), refusedWith(message))
   })
 
+  it('refuses a patch from the source it patches, whatever the git reference', () => {
+    assert.throws(() => patched('"1"', 'crates-io', '"1"'), refusedWith('patch["crates-io"].x: patches its source with itself, which cargo refuses'))
+    const git = '"https://example.com/x"'
+    assert.throws(() => patched(`{ git = ${git} }`, git, '{ git = "https://example.com/x.git/", branch = "dev" }'), refusedWith('patch["https://example.com/x"].x: patches its source with itself, which cargo refuses'))
+  })
+
   // x 1.0.0 at the patch's path, which cargo refuses where the patch's own
   // requirement does not take it.
   it('takes a patch only for the versions its requirement takes', () => {

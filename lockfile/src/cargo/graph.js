@@ -26,13 +26,17 @@ function resolverOf(root) {
 
 // What a [patch] offers, by the source it patches and the package's name:
 // the source it offers instead, and the versions its requirement takes
-// there, as cargo refuses a patch whose location has none of them.
+// there, as cargo refuses a patch whose location has none of them. Cargo
+// refuses too a patch from the source it patches, whatever the git
+// reference; a path's place only a filesystem tells.
 function patchesOf(root) {
   const patches = new Map()
   for (const [key, specs] of Object.entries(root.patch)) {
     for (const [name, spec] of Object.entries(specs)) {
+      const where = at(at('patch', key), name)
+      if (patchedAs(spec.source) === patchKey(key)) throw new LockfileError('patches its source with itself, which cargo refuses', where)
       const target = `${patchKey(key)} ${spec.package}`
-      const requirement = spec.version === undefined ? undefined : parseRequirement(spec.version, at(at('patch', key), name))
+      const requirement = spec.version === undefined ? undefined : parseRequirement(spec.version, where)
       patches.set(target, [...(patches.get(target) ?? []), { identity: sourceIdentity(spec.source, PATH), requirement }])
     }
   }

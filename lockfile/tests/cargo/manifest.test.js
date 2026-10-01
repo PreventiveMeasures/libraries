@@ -133,6 +133,9 @@ describe('parseCargoManifest', () => {
       const pkg = parseCargoManifest(edit(ROOT, 'libc = "0.2"', `lib = { path = "${path}", version = "0.2" }`)).package
       assert.equal(pkg.dependencies.filter((dep) => dep.name === 'lib').length, 2)
     }
+    // `..` stops at `/`: from /app, both are /lib.
+    const shallow = parseCargoManifest(edit(edit(ROOT, 'path = "crates/lib"', 'path = "../lib"'), 'libc = "0.2"', 'lib = { path = "../../lib", version = "0.2" }')).package
+    assert.equal(shallow.dependencies.filter((dep) => dep.name === 'lib').length, 2)
   })
 
   // util at crates/util of the root, inherited by crates/m, and again for
