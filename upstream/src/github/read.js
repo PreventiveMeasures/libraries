@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 
-import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTreeId, isSha, isSha1, optional, sameName, show } from '../args.js'
+import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTagName, assertTreeId, isSha, isSha1, isTagName, optional, sameName, show } from '../args.js'
 import { verifiedDownload } from '../download.js'
 import { decode, encodeSegment } from '../http.js'
 import { gitTreeOfListing } from '../tree.js'
@@ -46,6 +46,32 @@ export async function getRepoHead(headers, options) {
   const data = await call(headers, repoApi(repo, ['git', 'ref', 'heads', encodeSegment(ref)]))
   assert.ok(isSha(data?.object?.sha), `getRepoHead: no commit sha for ${repo}@${ref}`)
   return { branch: ref, oid: data.object.sha }
+}
+
+async function getRepoTag(headers, options) {
+  assertArgs('getRepoTag', options, { repo: assertRepo, tag: assertTagName })
+  const { repo, tag } = options
+  const ref = await call(headers, repoApi(repo, ['git', 'ref', 'tags', encodeSegment(tag)]))
+  assert.ok(ref?.ref === `refs/tags/${tag}`, `getRepoTag: GitHub answered for ${show(ref?.ref)}, not ${show(`refs/tags/${tag}`)}`)
+  let { object } = ref
+  for (let hops = 0; object?.type === 'tag' && isSha(object.sha) && hops < 8; hops++) {
+    const annotated = await call(headers, repoApi(repo, ['git', 'tags', object.sha]))
+    assert.ok(annotated?.sha === object.sha, `getRepoTag: GitHub answered for another tag object than ${object.sha}`)
+    object = annotated.object
+  }
+  assert.ok(object?.type === 'commit' && isSha(object.sha), `getRepoTag: ${repo} has no commit for tag ${show(tag)}`)
+  return { tag, oid: object.sha }
+}
+
+// GitHub lists each tag with the commit it names, an annotated one's too.
+async function listRepoTags(headers, options) {
+  assertArgs('listRepoTags', options, { repo: assertRepo, maxPages: optional(assertNumber) })
+  const { repo, maxPages } = options
+  const tags = await paginate('listRepoTags', headers, (paging) => repoApi(repo, ['tags'], paging), maxPages)
+  return tags.map((entry) => {
+    assert.ok(isTagName(entry?.name) && isSha(entry.commit?.sha), `listRepoTags: GitHub listed ${show(entry?.name)} in ${repo}, which is no tag name with a commit`)
+    return { tag: entry.name, oid: entry.commit.sha }
+  })
 }
 
 // GitHub's object for the path first: a directory, symlink or submodule is
@@ -179,5 +205,5 @@ async function listRepoAdvisories(headers, options) {
   return list
 }
 
-export const readMethods = { getCurrentUser, listUserRepos, getRepo, getRepoHead, getRepoFile, getRepoTarball, getRepoTreeTarball, getRepoTreeId, listRepoDir, getPullRequest, getCollaboratorPermission, getAdvisory, listRepoAdvisories }
+export const readMethods = { getCurrentUser, listUserRepos, getRepo, getRepoHead, getRepoTag, listRepoTags, getRepoFile, getRepoTarball, getRepoTreeTarball, getRepoTreeId, listRepoDir, getPullRequest, getCollaboratorPermission, getAdvisory, listRepoAdvisories }
 export const createClient = (options) => bindMethods(clientHeaders('createClient', options, true), readMethods)

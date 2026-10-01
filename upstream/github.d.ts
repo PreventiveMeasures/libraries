@@ -65,6 +65,10 @@ export interface Client {
   getRepoFile(options: { repo: RepoName; path: string; ref?: string }): Promise<string>
   // The head of `branch`, or of the default branch without one.
   getRepoHead(options: { repo: RepoName; branch?: string }): Promise<{ branch: string; oid: string }>
+  // The commit `tag` names: GitHub's ref for exactly that tag, an annotated
+  // one's tag object followed to the commit, through up to 8 tags of tags.
+  // Refused for a tag on anything but a commit.
+  getRepoTag(options: { repo: RepoName; tag: string }): Promise<{ tag: string; oid: string }>
   // The repo's gzipped tarball at the full commit `sha`, whole, in memory:
   // getRepoTreeTarball's for the tree GitHub names for that commit, asked
   // on every call, cached or not. So its top directory is named for the
@@ -97,6 +101,11 @@ export interface Client {
   // found as getRepoTreeId finds it: GitHub's listing, hashed back to the
   // tree's id, so none is left out or changed.
   listRepoDir(options: { repo: RepoName; sha: string; directory?: string }): Promise<RepoDirEntry[]>
+  // Every page of the repo's tags, as GitHub lists them, each with the
+  // commit GitHub names for it, an annotated tag's included, which
+  // getRepoTag checks is one; more than `maxPages` (100 by default) pages
+  // of 100 is an error, as is a tag with no commit.
+  listRepoTags(options: { repo: RepoName; maxPages?: number }): Promise<{ tag: string; oid: string }[]>
   // Every page of `GET /user/repos`, as GitHub's repository objects; more
   // than `maxPages` (100 by default) pages of 100 is an error.
   listUserRepos(options?: { maxPages?: number }): Promise<any[]>

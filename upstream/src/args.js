@@ -15,7 +15,9 @@ const isLogin = matches(/^(?=.{1,39}$)[a-z\d](?:-?[a-z\d])*$/iu)
 const isRepoName = matches(/^(?!\.\.?$)[\w.-]{1,100}$/u)
 // `.git` is never in a repo's tree, and no commit should write into it.
 export const isRepoPath = (value) => isString(value, 4096) && value.split('/').every((part) => !['', '.', '..', '.git'].includes(part.toLowerCase()))
-const BAD_REF = /^$|^@$|^-|[ ~^:?*[\\]|\.\.|@\{|^\/|\/$|\/\/|(?:^|\/)\.|\.lock(?:\/|$)|\.$/u // git check-ref-format, a rule per alternative
+// git check-ref-format, a rule per alternative. A tag's name may be `@` or
+// start with `-`; a branch's may not.
+const BAD_REF = /^$|[ ~^:?*[\\]|\.\.|@\{|^\/|\/$|\/\/|(?:^|\/)\.|\.lock(?:\/|$)|\.$/u
 const isToken = matches(/^[!-~]+$/u)
 // npm's rules for existing names: capitals allowed (JSONStream), the
 // legacy `~'!()*` not.
@@ -38,7 +40,8 @@ export function isRepo(value) {
 
 export const isStrings = (value) => Array.isArray(value) && value.every((item) => typeof item === 'string')
 export const sameName = (a, b) => typeof a === 'string' && a.toLowerCase() === b.toLowerCase()
-export const isRefName = (value) => isString(value, 255) && !BAD_REF.test(value)
+export const isTagName = (value) => isString(value, 255) && !BAD_REF.test(value)
+export const isRefName = (value) => isTagName(value) && !/^(?:@$|-)/u.test(value)
 export const isSha = matches(/^(?:[\da-f]{40}|[\da-f]{64})$/u)
 export const isGhsa = matches(/^GHSA(?:-[\da-hj-km-np-tv-z]{4}){3}$/u)
 export const assertion = (must, predicate) => (method, what, value) => assert.ok(predicate(value), `${method}: ${what} must be ${must}, got ${show(value)}`)
@@ -62,6 +65,7 @@ export const assertLogin = assertion('a GitHub login', isLogin)
 export const assertRepoName = assertion('a repository name', isRepoName)
 export const assertRepo = assertion('"owner/name"', isRepo)
 export const assertRef = assertion('a branch or tag name', isRefName)
+export const assertTagName = assertion('a tag name', isTagName)
 export const assertSha = assertion('a full commit sha', isSha)
 export const isSha1 = matches(/^[\da-f]{40}$/u)
 export const assertTreeId = assertion('a full tree id', isSha1)
