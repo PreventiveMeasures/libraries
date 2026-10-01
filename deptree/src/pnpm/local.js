@@ -5,9 +5,12 @@
 // bins take their names as pnpm links them. An override to a directory is
 // read only from a project given. One by `file:` has pnpm install the
 // directory as a package, of the files npm-packlist picks (packlist.js);
-// one to a tarball is refused.
+// one to a tarball is refused. pnpm 12 holds one a project depends on to
+// the lockfile before it installs (createFreshnessCheck).
 
+import { satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
+import { localOf } from './overrides.js'
 import { packDirectory } from './packlist.js'
 import { readText, typeOf } from './project.js'
 import { readManifest } from './projects.js'
@@ -54,4 +57,78 @@ export function readLinked(links, nodes, projects, project) {
     linked.set(target, manifestAt(project, target, quote(path)))
   }
   return linked
+}
+
+// Whether pnpm 12 takes a dependency on `name` by `spec`, a specifier not
+// to a directory, to be what the lockfile resolved it to, `target`: a
+// package of the name it asks for, `npm:` aliasing another, at a version
+// in its range, where it is a range and the version is one.
+function resolvesTo(name, spec, target, packages) {
+  if (target.startsWith('link:')) return false
+  let wanted = name
+  let range = spec
+  if (spec.startsWith('npm:')) {
+    const aliased = spec.slice(4)
+    const at = aliased.lastIndexOf('@')
+    if (validRange(aliased) === null) [wanted, range] = at > 0 ? [aliased.slice(0, at), aliased.slice(at + 1)] : [aliased, '*']
+    else range = aliased
+  }
+  const locked = packages[target]
+  if (locked.name !== wanted) return false
+  const version = valid(locked.version ?? '')
+  return validRange(range) === null || version === null || satisfies(version, range)
+}
+
+const strings = (deps) => Object.fromEntries(Object.entries(deps ?? {}).filter(([, spec]) => typeof spec === 'string'))
+const optionalPeers = (meta) => Object.entries(meta ?? {}).filter(([, item]) => item?.optional === true).map(([name]) => name).sort()
+
+// pnpm 12 holds a directory a project depends on by `file:` to the
+// lockfile as it reads the directory's package.json, overridden, `read`:
+// each dependency the snapshot `pkg` has is one it asks for, a peer among
+// them, and each it asks for is there, resolved as it asks, an optional one
+// there or not; its peers are exactly what the lockfile records, and so is
+// which of them are optional. A `file:` or `link:` one is held to where it
+// leads by tarball.js's checkDependencies; a path alone, or `workspace:`,
+// is refused. `packages` is the lockfile's.
+function checkFresh(read, pkg, packages, where) {
+  const outdated = (why) => new DeptreeError(`the lockfile is not up to date with its package.json, which a frozen install of pnpm 12 refuses: ${why}`, where)
+  const wanted = { dependencies: strings(read.dependencies), optionalDependencies: strings(read.optionalDependencies) }
+  const peers = strings(read.peerDependencies)
+  for (const [kind, others] of [['dependencies', peers], ['optionalDependencies', {}]]) {
+    for (const name of Object.keys(pkg[kind])) {
+      if (!Object.hasOwn(wanted[kind], name) && !Object.hasOwn(others, name)) throw outdated(`${kind}.${name} is not one it asks for`)
+    }
+    for (const [name, spec] of Object.entries(wanted[kind])) {
+      const target = pkg[kind][name]
+      if (target === undefined) {
+        if (kind === 'optionalDependencies') continue
+        throw outdated(`${kind}.${name} is not in the lockfile`)
+      }
+      if (spec.startsWith('file:') || spec.startsWith('link:')) continue
+      if (spec.startsWith('workspace:')) throw new DeptreeError(`a workspace: dependency, ${quote(name)}, of a directory pnpm 12 holds to the lockfile is not supported`, where)
+      if (localOf(spec, where) !== undefined || !resolvesTo(name, spec, target, packages)) throw outdated(`${kind}.${name} is not resolved as it asks`)
+    }
+  }
+  const recorded = pkg.peerDependencies
+  if (Object.keys(peers).length !== Object.keys(recorded).length || Object.entries(peers).some(([name, range]) => recorded[name] !== range)) throw outdated('its peerDependencies are not the lockfile\'s')
+  if (JSON.stringify(optionalPeers(read.peerDependenciesMeta)) !== JSON.stringify(optionalPeers(pkg.peerDependenciesMeta))) throw outdated('which of its peers are optional is not the lockfile\'s')
+}
+
+// pnpm 12's check, before it installs, of each snapshot a project depends
+// on by a `file:` specifier to a directory: undefined for another pnpm.
+// It is given the node of a snapshot and its package.json as hook.js reads
+// it.
+export function createFreshnessCheck(lockfile, major) {
+  if (major < 12) return undefined
+  const direct = new Set()
+  for (const importer of Object.values(lockfile.importers)) {
+    for (const [name, target] of Object.entries({ ...importer.dependencies, ...importer.devDependencies, ...importer.optionalDependencies })) {
+      const spec = importer.specifiers[name]
+      if (target.startsWith('link:') || !spec?.startsWith('file:') || /\.(?:tgz|tar\.gz|tar)$/u.test(spec)) continue
+      if (lockfile.packages[target].resolution.type === 'directory') direct.add(target)
+    }
+  }
+  return (node, read) => {
+    if (direct.has(node.key)) checkFresh(read, node.pkg, lockfile.packages, quote(node.key))
+  }
 }

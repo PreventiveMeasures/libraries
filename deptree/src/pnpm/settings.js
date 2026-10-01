@@ -30,7 +30,8 @@
 //
 // pnpm 11 reads its settings from pnpm-workspace.yaml alone: an .npmrc
 // for credentials and registries, and the package.json for none but the
-// Node its engines.runtime pins, which it takes for nodeVersion. Of the
+// Node its engines.runtime pins, runtimeNodeVersion, which it takes where
+// nodeVersion is not set. Of the
 // yaml it passes over a key not in camelCase, and one about the machine,
 // the run or a login; it has settings pnpm 10 has not (READ_11, IGNORED_11),
 // and reads linkWorkspacePackages for a frozen install too.
@@ -176,6 +177,7 @@ function derive(get) {
     hoistWorkspacePackages: get('hoistWorkspacePackages') ?? true,
     engineStrict: get('engineStrict') ?? false,
     nodeVersion: get('nodeVersion'),
+    runtimeNodeVersion: undefined,
     supportedArchitectures: get('supportedArchitectures'),
     patchedDependencies: get('patchedDependencies'),
     overrides: get('overrides'),
@@ -231,7 +233,7 @@ export function readSettings({ workspace, npmrc, manifest, major = 10, pinned = 
   if (major >= 11) {
     if (npmrc !== undefined) checkNpmrcRegistries(npmrc)
     const settings = settle([fromYaml()], manifest)
-    settings.nodeVersion ??= runtimeNode(manifest, settings.runtimeOnFail)
+    settings.runtimeNodeVersion = runtimeNode(manifest, settings.runtimeOnFail)
     return settings
   }
   const rc = npmrc === undefined ? { settings: new Map(), environment: false } : fromNpmrc(npmrc)
@@ -244,7 +246,8 @@ export function readSettings({ workspace, npmrc, manifest, major = 10, pinned = 
 }
 
 // The Node the root package.json's devEngines.runtime or engines.runtime
-// pins, which pnpm 11 takes for nodeVersion where none is set: the first
+// pins, which pnpm 11 takes for nodeVersion where none is set, and so does
+// pnpm 12 but for a patched package's engines (install.js): the first
 // that names a range for Node decides, and gives its version where that is
 // exact. One to download, which gives the range's lowest, is refused;
 // runtimeOnFail stands for each one's onFail.

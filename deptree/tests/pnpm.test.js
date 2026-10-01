@@ -1319,6 +1319,16 @@ snapshots:
       assert.deepEqual(await twoSnapshots({}, { workspace: 'packageImportMethod: copy\n' }), shared)
     })
 
+    // pnpm 12 holds a directory a project depends on by `file:` to the
+    // lockfile, as it reads its package.json, before it installs.
+    it('refuses a directory the lockfile is not up to date with for pnpm 12', async () => {
+      stubRegistry([await app])
+      const options = { lockfile: await copied(), manifests: { '.': rootWith() }, workspace: 'overrides:\n  foo: file:./vendor/foo\n', host: { ...HOST, pnpm: '12.8.1' } }
+      const changed = (fields) => createVfs({ 'package.json': rootWith(), ...vendored, 'vendor/foo/package.json': JSON.stringify({ name: 'foo', version: '1.5.0', bin: { foo: 'cli.js' }, ...fields }) })
+      await buildPnpmTree({ ...options, project: changed({}) })
+      await assert.rejects(buildPnpmTree({ ...options, project: changed({ peerDependencies: { p: '*' } }) }), /^DeptreeError: "foo@file:vendor\/foo": the lockfile is not up to date with its package\.json, which a frozen install of pnpm 12 refuses: its peerDependencies are not the lockfile's$/u)
+    })
+
     it('refuses it without a project, or as the lockfile does not have it', async () => {
       stubRegistry([await app])
       await assert.rejects(buildPnpmTree({ lockfile: await copied(), manifests: { '.': v10 }, host: HOST }), /^DeptreeError: overrides\["foo"\]: an override to a directory, "vendor\/foo", is read only from a project given$/u)

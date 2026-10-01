@@ -166,7 +166,7 @@ const READ_11 = {
 }
 
 // What pnpm 11 has that leaves the tree as it is. The tree follows the
-// lockfile, as pnpm 11's does with trustLockfile: minimumReleaseAge and the
+// lockfile, as pnpm 11's and 12's do with trustLockfile: minimumReleaseAge and the
 // rest of what pnpm 11 checks the lockfile against the registry by before
 // it installs — each package's publish time, its tarball URL, its trust —
 // are passed over.

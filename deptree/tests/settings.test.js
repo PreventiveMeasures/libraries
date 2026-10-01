@@ -14,6 +14,7 @@ const DEFAULTS = {
   hoistWorkspacePackages: true,
   engineStrict: false,
   nodeVersion: undefined,
+  runtimeNodeVersion: undefined,
   supportedArchitectures: undefined,
   patchedDependencies: undefined,
   overrides: undefined,
@@ -138,11 +139,12 @@ describe('readSettings', () => {
   // where it pins Node exactly, devEngines first.
   it('takes nodeVersion for pnpm 11 from the Node engines.runtime pins', () => {
     const runtime = (version, onFail = 'error') => ({ name: 'node', version, onFail })
-    assert.equal(read({ manifest: { engines: { runtime: runtime('22.1.0') } }, major: 11 }).nodeVersion, '22.1.0')
-    assert.equal(read({ manifest: { devEngines: { runtime: [{ name: 'deno' }, runtime('20.0.0', 'warn')] }, engines: { runtime: runtime('22.1.0') } }, major: 11 }).nodeVersion, '20.0.0')
-    assert.equal(read({ manifest: { devEngines: { runtime: runtime('>=20') }, engines: { runtime: runtime('22.1.0') } }, major: 11 }).nodeVersion, undefined, 'a range decides, and pins nothing')
-    assert.equal(read({ manifest: { engines: { runtime: runtime('22.1.0') } }, workspace: 'nodeVersion: 24.0.0\n', major: 11 }).nodeVersion, '24.0.0')
-    assert.equal(read({ manifest: { engines: { runtime: runtime('22.1.0') } } }).nodeVersion, undefined, 'pnpm 10 takes none')
+    assert.equal(read({ manifest: { engines: { runtime: runtime('22.1.0') } }, major: 11 }).runtimeNodeVersion, '22.1.0')
+    assert.equal(read({ manifest: { devEngines: { runtime: [{ name: 'deno' }, runtime('20.0.0', 'warn')] }, engines: { runtime: runtime('22.1.0') } }, major: 11 }).runtimeNodeVersion, '20.0.0')
+    assert.equal(read({ manifest: { devEngines: { runtime: runtime('>=20') }, engines: { runtime: runtime('22.1.0') } }, major: 11 }).runtimeNodeVersion, undefined, 'a range decides, and pins nothing')
+    const both = read({ manifest: { engines: { runtime: runtime('22.1.0') } }, workspace: 'nodeVersion: 24.0.0\n', major: 11 })
+    assert.deepEqual([both.nodeVersion, both.runtimeNodeVersion], ['24.0.0', '22.1.0'], 'nodeVersion wins where it is read')
+    assert.equal(read({ manifest: { engines: { runtime: runtime('22.1.0') } } }).runtimeNodeVersion, undefined, 'pnpm 10 takes none')
     assert.throws(() => read({ manifest: { engines: { runtime: runtime('22.1.0', 'download') } }, major: 11 }), /a Node runtime to download is not supported/u)
     assert.throws(() => read({ manifest: { engines: { runtime: runtime('22.1.0') } }, workspace: 'runtimeOnFail: download\n', major: 11 }), /a Node runtime to download is not supported/u)
   })

@@ -3,7 +3,7 @@ import { describe, it } from 'node:test'
 import { parsePnpmLockfile } from '@preventive/lockfile/pnpm.js'
 import { createHook } from '../src/pnpm/hook.js'
 import * as OVERRIDES from '../src/pnpm/overrides.js'
-import { checkProjects } from '../src/pnpm/projects.js'
+import { checkProjects, readManifests } from '../src/pnpm/projects.js'
 import { HOST } from './registry.js'
 
 // A project against its importer, as `pnpm install --frozen-lockfile`
@@ -169,5 +169,37 @@ describe('checkProjects for pnpm 11', () => {
     check11(manifest(undefined), { lockfile })
     assert.throws(() => check11(manifest(false), { lockfile }), /linkDirectory is true in the lockfile and publishConfig\.linkDirectory false/u)
     check(manifest(false), { lockfile })
+  })
+})
+
+// pnpm 12 checks of a project only the root's engines.node, with
+// engineStrict, whatever its os; and holds a project the lockfile has no
+// importer for to none where it has no dependencies, peers aside.
+describe('checkProjects for pnpm 12', () => {
+  const HOST_12 = { ...HOST, pnpm: '12.8.1', major: 12 }
+  const check12 = (manifest, options) => check(manifest, { host: HOST_12, ...options })
+
+  it('holds the root alone to its engines.node, with engineStrict alone', () => {
+    check12({ ...MANIFEST, engines: { pnpm: '>=13', node: '<10' } })
+    assert.throws(() => check12({ ...MANIFEST, os: ['win32'], engines: { node: '<10' } }, { engineStrict: true }), /^DeptreeError: manifests\["\."\]: its engines\.node, "<10", does not take Node 24\.15\.0, which engineStrict refuses$/u)
+    assert.throws(() => check12({ ...MANIFEST, engines: { node: 'node >= 0.8' } }, { engineStrict: true }), /pnpm 12 reads otherwise than npm's semver/u)
+    const lockfile = structuredClone(LOCKFILE)
+    Object.setPrototypeOf(lockfile.importers, null)
+    const manifests = readManifests({ '.': JSON.stringify(MANIFEST), 'packages/x': JSON.stringify({ engines: { node: '<10', pnpm: '>=13' } }) }, lockfile)
+    checkProjects(lockfile, manifests, { hook: createHook({ overrides: [], ignored: [] }), host: HOST_12, settings: { ...SETTINGS, engineStrict: true } })
+  })
+
+  it('takes a project the lockfile has no importer for where it has no dependencies, peers aside', () => {
+    const run = (project, settings = {}) => {
+      const lockfile = structuredClone(LOCKFILE)
+      Object.setPrototypeOf(lockfile.importers, null)
+      const manifests = readManifests({ '.': JSON.stringify(MANIFEST), 'packages/x': JSON.stringify(project) }, lockfile)
+      checkProjects(lockfile, manifests, { hook: createHook({ overrides: [], ignored: [] }), host: HOST_12, settings: { ...SETTINGS, ...settings } })
+    }
+    run({ peerDependencies: { q: '^1.0.0' } })
+    run({ optionalDependencies: { gone: '1.0.0' } }, { ignoredOptionalDependencies: ['gone'] })
+    for (const kind of ['dependencies', 'devDependencies', 'optionalDependencies']) {
+      assert.throws(() => run({ [kind]: { q: '^1.0.0' } }), /^DeptreeError: manifests\["packages\/x"\]: the lockfile has no importer for this project, which has dependencies, and pnpm 12 refuses it$/u, kind)
+    }
   })
 })

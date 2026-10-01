@@ -33,6 +33,7 @@
 
 import { isExactVersion, satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, difference, quote } from '../error.js'
+import { createMatcher } from '../matcher.js'
 import { KINDS, checkCatalogResolutions, checkLinkTargets, checkLinkedPackages, indexProjects, resolvedOf, sameSpecifier } from './frozen.js'
 import { checkProject } from './install.js'
 import { validForOldPackages } from './overrides.js'
@@ -52,6 +53,10 @@ export function readManifest(text, where) {
   return manifest
 }
 
+// The importers readManifests makes, for projects the lockfile has none
+// for.
+const MADE = new WeakSet()
+
 // The manifests by project, the root one among them, as given by the
 // project's directory relative to the lockfile's.
 export function readManifests(manifests, lockfile) {
@@ -62,6 +67,7 @@ export function readManifests(manifests, lockfile) {
     if (!(id in lockfile.importers)) {
       checkProjectId(id, where)
       lockfile.importers[id] = { specifiers: {}, dependencies: {}, devDependencies: {}, optionalDependencies: {}, dependenciesMeta: {}, linkDirectory: true }
+      MADE.add(lockfile.importers[id])
     }
     read.set(id, readManifest(text, where))
   }
@@ -270,23 +276,40 @@ function checkRuntimes(manifest, where, { host, root, onFail }) {
   }
 }
 
+// Whether pnpm 12 takes a project to have dependencies, where the lockfile
+// has no importer for it: any of its devDependencies, or of its
+// dependencies and optionalDependencies, but optional ones it ignores, as
+// its package.json has them; its peers are none.
+function dependsOn(manifest, ignored) {
+  const names = (deps) => (deps !== null && typeof deps === 'object' ? Object.keys(deps) : [])
+  const optional = new Set(names(manifest.optionalDependencies).filter((name) => ignored(name)))
+  return names(manifest.devDependencies).length > 0 || [...names(manifest.dependencies), ...names(manifest.optionalDependencies)].some((name) => !optional.has(name))
+}
+
 // `hook` is hook.js's, which each package.json is read through; `host`
 // and `settings` what its engines are held to; `env` the lockfile's env
-// document, where it has one.
+// document, where it has one. pnpm 12 holds a project the lockfile has no
+// importer for to none, if it has no dependencies, and refuses it
+// otherwise; and makes none of pnpm 11's further checks.
 export function checkProjects(lockfile, manifests, { hook, host, settings, env }) {
   checkPackageManager(manifests.get('.'), host, settings.pmOnFail, env)
+  const ignored = createMatcher(settings.ignoredOptionalDependencies ?? [])
   let index
   for (const [id, manifest] of manifests) {
     const where = `manifests[${quote(id)}]`
     const root = id === '.'
-    checkProject(manifest, where, { host, settings })
+    checkProject(manifest, where, { host, settings, root })
     checkRuntimes(manifest, where, { host, root, onFail: root ? settings.runtimeOnFail : undefined })
-    const hooked = hook(manifest, where, { dir: id })
     const importer = lockfile.importers[id]
+    if (host.major >= 12 && MADE.has(importer)) {
+      if (dependsOn(manifest, ignored)) throw new DeptreeError('the lockfile has no importer for this project, which has dependencies, and pnpm 12 refuses it', where)
+      continue
+    }
+    const hooked = hook(manifest, where, { dir: id })
     const reason = mismatch(importer, hooked, settings.autoInstallPeers, host.major, where)
     if (reason !== undefined) throw new DeptreeError(`the lockfile is not up to date with this package.json, which a frozen install refuses: ${reason}`, where)
     checkLinkTargets({ id, manifest: hooked, importer }, where)
-    if (host.major < 11) continue
+    if (host.major !== 11) continue
     checkCatalogResolutions(importer, lockfile.catalogs, where)
     index ??= indexProjects(manifests)
     checkLinkedPackages({ manifest: hooked, importer, index, linkWorkspacePackages: settings.linkWorkspacePackages }, where)

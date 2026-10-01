@@ -310,6 +310,23 @@ export interface PnpmTree {
 // or at host.pnpm for a range, with its package: pnpm 12 runs that one,
 // and fails a frozen install where it is not there.
 //
+// pnpm 12 makes none of pnpm 11's further checks of a lockfile, but holds
+// a directory a project depends on by `file:` to it: each dependency the
+// snapshot has is one its package.json, overridden, asks for, a peer among
+// them; each it asks for is resolved as it asks, an optional one there or
+// not; and its peers, and which are optional, are what the lockfile
+// records. A project the lockfile has no importer for is held to none
+// where it has no dependencies but peers, and refused otherwise. It checks
+// of the projects only the root's engines.node, with engineStrict, and
+// with engineStrict refuses whatever it installs that the host cannot run,
+// though the lockfile mark it optional. An os, cpu or libc list is read
+// by its first entry that names the host's. A patched package's
+// engines.node is held to nodeVersion, or the host's Node, whatever the
+// root's engines.runtime pins. An engines.node npm's semver does not read,
+// or a range of a `-` with an `x`, pnpm 12 reads otherwise, which is
+// refused where it would decide what is installed. host.node is, for pnpm
+// 12, the `node` it finds on the PATH.
+//
 // And to more than pnpm holds it to, where a lockfile pnpm writes, or a
 // package the registry serves, always holds: each dependency linked where
 // the package.json names a directory for it, a path alone among them; each

@@ -30,7 +30,7 @@ import { REGISTRY, checkDependencies, checkManifest, fetchPackage, sameBytes, ta
 import { binTargets, checkPatchOfBins, fixBin, requiresBuild } from './bins.js'
 import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
-import { checkLocalOverrides, readDirectoryPackage, readLinked } from './local.js'
+import { checkLocalOverrides, createFreshnessCheck, readDirectoryPackage, readLinked } from './local.js'
 import { createPatchedCheck, skippedSnapshots } from './install.js'
 import { checkCollisions, checkLinks, checkOptional } from './checks.js'
 import { createHook } from './hook.js'
@@ -109,7 +109,7 @@ async function fetchAll(nodes, project, major) {
 // Each node with its package's files and package.json, by its directory:
 // its dependencies held to the package.json, as `hook` reads it once for
 // each package; and the number of tarballs fetched.
-async function fetchNodes(nodes, hook, project, major) {
+async function fetchNodes(nodes, hook, project, major, fresh) {
   const fetched = await fetchAll(nodes, project, major)
   const byDir = new Map()
   for (const node of nodes.values()) {
@@ -117,6 +117,7 @@ async function fetchNodes(nodes, hook, project, major) {
     const got = fetched.get(id)
     got.read ??= hook(got.manifest, `${quote(id)}: package.json`)
     checkDependencies(got.manifest, got.read, node.pkg, quote(node.key))
+    fresh?.(node, got.read)
     byDir.set(node.dir, { ...node, files: got.files, manifest: got.manifest })
   }
   return { byDir, tarballs: [...fetched.values()].filter((got) => !got.local).length }
@@ -252,7 +253,7 @@ export async function buildPnpmTree(options) {
   const { nodes, direct, hoisting } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, host.major)
   for (const node of nodes.values()) checkSource(node, installed)
 
-  const { byDir, tarballs } = await fetchNodes(nodes, hook, project, host.major)
+  const { byDir, tarballs } = await fetchNodes(nodes, hook, project, host.major, createFreshnessCheck(lockfile, host.major))
   const links = linksOf(byDir, direct, settings, projects, host.major, hoisting)
   const linked = readLinked(links, byDir, manifests, project)
   const targets = binTargets({

@@ -94,6 +94,39 @@ describe('skippedSnapshots for pnpm 11', () => {
   })
 })
 
+// pnpm 12 leaves out what pnpm 11 does, but refuses with engineStrict an
+// incompatible package an installed one requires though the lockfile marks
+// it optional; takes the first entry of a cpu list that names the host's;
+// and refuses an engines.node npm's semver does not read where it decides.
+describe('skippedSnapshots for pnpm 12', () => {
+  const on12 = (given = {}) => ({ host: { ...HOST, major: 12 }, settings: given })
+  const on11 = (given = {}) => ({ host: { ...HOST, major: 11 }, settings: given })
+  const optional = { 'opt@1.0.0': '    optional: true\n', 'bad@1.0.0': '    optional: true\n' }
+
+  it('refuses with engineStrict what an installed package requires that the host cannot run', () => {
+    const lock = lockfile({ root: { optionalDependencies: ['opt'] }, graph: { 'opt@1.0.0': { bad: '1.0.0' }, 'bad@1.0.0': {} }, meta: { 'bad@1.0.0': "    engines: {node: '>=99'}\n" }, snapshotMeta: optional })
+    assert.deepEqual([...skippedSnapshots(lock, on11({ engineStrict: true })).incompatible], ['bad@1.0.0'])
+    assert.throws(() => skippedSnapshots(lock, on12({ engineStrict: true })), /^DeptreeError: "bad@1\.0\.0": the host does not take its engines\.node, which engineStrict refuses$/u)
+    assert.deepEqual([...skippedSnapshots(lock, on12()).incompatible], ['bad@1.0.0'])
+  })
+
+  it('takes the first entry of a list that names the host\'s', () => {
+    const lock = lockfile({ root: { optionalDependencies: ['c'] }, graph: { 'c@1.0.0': {} }, meta: { 'c@1.0.0': "    cpu: [x64, '!x64']\n" }, snapshotMeta: { 'c@1.0.0': '    optional: true\n' } })
+    assert.deepEqual([...skippedSnapshots(lock, on12()).skipped], [])
+    assert.deepEqual([...skippedSnapshots(lock, on11()).skipped], ['c@1.0.0'])
+  })
+
+  it('refuses an engines.node npm\'s semver does not read where it decides what is installed', () => {
+    for (const range of ['node >= 0.8', '1.2.3 - x']) {
+      const lock = lockfile({ root: { optionalDependencies: ['e'] }, graph: { 'e@1.0.0': {} }, meta: { 'e@1.0.0': `    engines: {node: '${range}'}\n` }, snapshotMeta: { 'e@1.0.0': '    optional: true\n' } })
+      assert.throws(() => skippedSnapshots(lock, on12()), /^DeptreeError: "e@1\.0\.0": its engines\.node, ".+", pnpm 12 reads otherwise than npm's semver, which is not supported$/u, range)
+      skippedSnapshots(lock, on11())
+    }
+    const required = lockfile({ root: { dependencies: ['e'] }, graph: { 'e@1.0.0': {} }, meta: { 'e@1.0.0': "    engines: {node: 'node >= 0.8'}\n" } })
+    assert.deepEqual([...skippedSnapshots(required, on12()).incompatible], ['e@1.0.0'], 'it only warns of one installed anyway')
+  })
+})
+
 describe('hoist', () => {
   const hoisted = async (lock) => {
     const { nodes, direct } = await buildGraph(lock, new Set(), 120)
