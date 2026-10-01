@@ -71,6 +71,15 @@ describe('each kind of entry', () => {
     refuses(edit([`checksum = "${H}"`, `checksum = "${H.toUpperCase()}"`]), `"${H.toUpperCase()}" is not a hex sha256`, 'dependencies["a-lib"].checksum')
     refuses(edit([`rev = "${C}"`, 'rev = "bbbbbbb"']), '"bbbbbbb" is not a full commit hash, as Soldeer writes', 'dependencies["b-git"].rev')
     refuses(edit(['url = "https://soldeer', 'url = "ftp://soldeer']), '"ftp://soldeer-revisions.s3.amazonaws.com/a-lib/1_2_0_01-01-2025_00:00:00_a.zip" is not an http(s) URL', 'dependencies["a-lib"].url')
+    // An s that only Unicode folds to one, which no URL parser reads.
+    refuses(edit(['url = "https://soldeer', 'url = "httpſ://soldeer']), '"httpſ://soldeer-revisions.s3.amazonaws.com/a-lib/1_2_0_01-01-2025_00:00:00_a.zip" is not an http(s) URL', 'dependencies["a-lib"].url')
+  })
+
+  it('a custom URL as Soldeer 0.12 writes it, its scheme in any case', () => {
+    for (const scheme of ['HTTPS', 'Http']) {
+      const url = `${scheme}://soldeer-revisions.s3.amazonaws.com/a-lib/1_2_0_01-01-2025_00:00:00_a.zip`
+      assert.equal(parseSoldeerLockfile(edit(['url = "https', `url = "${scheme}`])).dependencies['a-lib'].url, url)
+    }
   })
 
   it('refuses an empty string, and one toml_edit writes in other quotes, or as its releases differ', () => {
@@ -125,7 +134,7 @@ describe('the file', () => {
   it('throws a TomlError for what is not TOML, and a TypeError for bad arguments', () => {
     assert.throws(() => parseSoldeerLockfile('[[dependencies]\n'), TomlError)
     assert.throws(() => parseSoldeerLockfile(Buffer.from(BASE)), { name: 'TypeError', message: 'expected a string' })
-    assert.throws(() => parseSoldeerLockfile(BASE, null), { name: 'TypeError', message: 'expected an options object' })
+    for (const options of [null, [], 'config']) assert.throws(() => parseSoldeerLockfile(BASE, options), { name: 'TypeError', message: 'expected an options object' })
     assert.throws(() => parseSoldeerLockfile(BASE, { dependencies: {} }), { name: 'TypeError', message: 'unknown option "dependencies", of config' })
   })
 })

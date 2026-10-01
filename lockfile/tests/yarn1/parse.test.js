@@ -651,7 +651,7 @@ describe('options', () => {
     assert.throws(() => parseYarn1Lockfile(BASE, MANIFESTS), { name: 'TypeError', message: 'unknown option ".", of manifests, checkVersions, semver' })
     assert.throws(() => parseYarn1Lockfile(BASE, { semver: { valid: semver.valid } }), { name: 'TypeError', message: 'semver: expected the semver package, with clean, satisfies, valid, validRange' })
     assert.throws(() => parseYarn1Lockfile(BASE, { checkVersions: 'no' }), { name: 'TypeError', message: 'checkVersions: expected a boolean' })
-    assert.throws(() => parseYarn1Lockfile(BASE, null), { name: 'TypeError', message: 'expected an options object' })
+    for (const options of [null, [], 'manifests']) assert.throws(() => parseYarn1Lockfile(BASE, options), { name: 'TypeError', message: 'expected an options object' })
   })
 
   it('without semver, the same packages and importers', () => {

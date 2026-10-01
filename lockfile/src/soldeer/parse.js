@@ -19,6 +19,9 @@ const HAVING = { http: 'a url', git: 'a git repository', private: 'neither a url
 
 const SHA256 = /^[\da-f]{64}$/u
 
+// Soldeer writes a custom URL as the config has it, its scheme in any case.
+const isUrl = (value) => isHttpUrl(value.replace(/^https?:/iu, (scheme) => scheme.toLowerCase()))
+
 // toml_edit writes a string with none of these as it is, in double quotes,
 // and others as its releases have differed on.
 const isPlain = (value) => value !== '' && ![...value].some((char) => char <= '\u001F' || char === '\u007F' || char === '"' || char === '\\')
@@ -28,7 +31,7 @@ function readField(entry, field, where) {
   if (!isPlain(value)) throw new LockfileError(`${quote(value)} is empty, or has a quote, backslash or control character, which this reader does not take`, where)
   if ((field === 'checksum' || field === 'integrity') && !SHA256.test(value)) throw new LockfileError(`${quote(value)} is not a hex sha256`, where)
   if (field === 'rev' && !isCommit(value)) throw new LockfileError(`${quote(value)} is not a full commit hash, as Soldeer writes`, where)
-  if (field === 'url' && !isHttpUrl(value)) throw new LockfileError(`${quote(value)} is not an http(s) URL`, where)
+  if (field === 'url' && !isUrl(value)) throw new LockfileError(`${quote(value)} is not an http(s) URL`, where)
   return value
 }
 
