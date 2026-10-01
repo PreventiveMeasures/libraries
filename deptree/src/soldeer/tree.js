@@ -5,14 +5,13 @@
 import { parseSoldeerLockfile } from '@preventive/lockfile/soldeer.js'
 import { getZip } from '@preventive/upstream/soldeer.js'
 import { Vfs, VfsError } from '@preventive/vfs'
+import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote } from '../error.js'
 import { fold, mount } from '../mount.js'
 import { checkCollisions } from '../pnpm/checks.js'
 import { configOf } from './config.js'
 import { checkHost, inputsOf } from './inputs.js'
 import { extractZip } from './zip.js'
-
-const CONCURRENCY = 8
 
 // What the registry takes, as @preventive/upstream/soldeer.js holds a name
 // and a version to: of these, Soldeer's sanitize_filename leaves a folder
@@ -53,25 +52,17 @@ function registryDependencies(lock, config, folded) {
 }
 
 // Each dependency's zip, fetched and extracted a few at a time, by its
-// folder. The first failure stops the rest from starting, and is thrown
-// once each fetch started has ended, so none goes on after it.
+// folder.
 async function fetchAll(dependencies) {
   const extracted = new Map()
-  const queue = [...dependencies]
-  let failure
-  const worker = async () => {
-    while (queue.length > 0 && failure === undefined) {
-      const { name, version, checksum, folder } = queue.shift()
-      const where = `dependencies[${quote(name)}]`
-      try {
-        extracted.set(folder, await extractZip(await getZip(name, version, checksum), where))
-      } catch (error) {
-        failure ??= error instanceof DeptreeError ? error : new DeptreeError(error.message, where, { cause: error })
-      }
+  await eachConcurrently(dependencies, async ({ name, version, checksum, folder }) => {
+    const where = `dependencies[${quote(name)}]`
+    try {
+      extracted.set(folder, await extractZip(await getZip(name, version, checksum), where))
+    } catch (error) {
+      throw error instanceof DeptreeError ? error : new DeptreeError(error.message, where, { cause: error })
     }
-  }
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker))
-  if (failure !== undefined) throw failure
+  })
   return extracted
 }
 
