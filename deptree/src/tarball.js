@@ -51,11 +51,13 @@ function nameOf(stored) {
 export const sameBytes = (a, b) => a.length === b.length && a.every((byte, i) => byte === b[i])
 const sameFile = (a, b) => a.mode === b.mode && sameBytes(a.data, b.data)
 
-// A Map of each file's path in the package to its bytes and mode.
-function filesOf(entries, where) {
+// A Map of each file's path in the package to its bytes and mode. pnpm 12
+// takes a backslash in a name for a separator, which is not supported.
+function filesOf(entries, where, major) {
   const files = new Map()
   const tops = new Set()
   for (const entry of entries) {
+    if (major >= 12 && entry.storedName.includes('\\')) throw new DeptreeError(`${quote(entry.storedName)} has a backslash, which pnpm 12 takes for a separator, and that is not supported`, where)
     if (entry.type === 'directory') continue
     if (entry.type !== 'file') throw new DeptreeError(`${quote(entry.name)} is a ${entry.type}, which is not supported`, where)
     tops.add(entry.storedName.slice(0, Math.max(entry.storedName.indexOf('/'), 0)))
@@ -81,7 +83,13 @@ const names = (value) => Object.keys(value ?? {})
 // `bin` is there and names none, and there is a directories.bin, pnpm
 // resolves it as having none and pnpm 11 rewrites a snapshot as having
 // some, so that is undefined: bins are linked as the lockfile has it.
-function hasBin({ bin, directories }) {
+// pnpm 12 records it for a `bin` that is a string or object not empty, or
+// a directories.bin that is a string not empty.
+function hasBin({ bin, directories }, major) {
+  if (major >= 12) {
+    const named = typeof bin === 'string' ? bin !== '' : bin !== null && typeof bin === 'object' && !Array.isArray(bin) && Object.keys(bin).length > 0
+    return named || (directories !== null && typeof directories === 'object' && !Array.isArray(directories) && typeof directories.bin === 'string' && directories.bin !== '')
+  }
   if (bin === undefined || bin === null) return Boolean(directories?.bin)
   if (bin && Object.keys(bin).length > 0) return true
   return directories?.bin ? undefined : false
@@ -102,11 +110,11 @@ function readManifest(files, pkg, where) {
 }
 
 // What the lockfile recorded of the package against the package.json.
-export function checkManifest(manifest, pkg, where) {
+export function checkManifest(manifest, pkg, where, major) {
   for (const field of ['os', 'cpu', 'libc']) {
     if (!same(manifest[field], pkg[field])) throw new DeptreeError(`package.json's ${field} is not the lockfile's`, where)
   }
-  const has = hasBin(manifest)
+  const has = hasBin(manifest, major)
   if (has !== undefined && has !== pkg.hasBin) throw new DeptreeError(`package.json ${pkg.hasBin ? 'has no bins, and the lockfile says it has' : 'has bins, and the lockfile says it has none'}`, where)
   if (!same(listed(bundledOf(manifest)), listed(pkg.bundledDependencies))) throw new DeptreeError('package.json bundles other than the lockfile says', where)
 }
@@ -155,10 +163,10 @@ export async function fetchTarball(name, version, integrity, where) {
 
 // A package's files, and its package.json as parsed; the package has to be
 // from the registry.
-export async function fetchPackage(pkg, where) {
+export async function fetchPackage(pkg, where, major) {
   const { entries } = await fetchTarball(pkg.name, pkg.version, pkg.resolution.integrity, where)
-  const files = filesOf(entries, where)
+  const files = filesOf(entries, where, major)
   const manifest = readManifest(files, pkg, where)
-  checkManifest(manifest, pkg, where)
+  checkManifest(manifest, pkg, where, major)
   return { files, manifest }
 }

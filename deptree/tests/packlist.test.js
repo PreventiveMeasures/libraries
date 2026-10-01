@@ -3,8 +3,8 @@ import { describe, it } from 'node:test'
 import { createVfs } from '@preventive/vfs'
 import { packDirectory } from '../src/pnpm/packlist.js'
 
-// The files of a directory npm-packlist's built-in rules keep, as pnpm 10
-// and pnpm 11 install them from a `file:` dependency.
+// The files of a directory the built-in rules keep, as pnpm 10, 11 and 12
+// install them from a `file:` dependency.
 describe('packDirectory', () => {
   const manifest = { name: 'foo', version: '1.0.0', main: 'index.js', bin: { foo: 'cli.js' } }
   const pack = (files, major, fields = {}) => {
@@ -23,6 +23,19 @@ describe('packDirectory', () => {
     const kept = ['.hidden', 'README.md', 'build/other.gypi', 'cli.js', 'index.js', 'lib/cvs2/y', 'lib/x.js', 'lib/yarn.lock', 'package.json']
     assert.deepEqual(pack(files, 10), kept)
     assert.deepEqual(pack(files, 11), kept)
+  })
+
+  // pnpm 12's rules go by the name as it is spelled, and leave out a
+  // directory only by its VCS name, or as node_modules at the top.
+  it('leaves out what pnpm 12 leaves out by its own rules', () => {
+    const files = {
+      'index.js': '', 'cli.js': '', '.git/HEAD': '', 'lib/CVS/Root': '', 'cvs/x': '', 'lib/.npmrc': '', 'lib/.DS_Store': '', '.DS_store': '',
+      'npm-debug.log': '', 'NPM-DEBUG.LOG': '', 'a.orig': '', 'X.ORIG': '', 'x.orig/a.js': '', 'yarn.lock': '', 'lib/yarn.lock': '', 'Yarn.Lock': '',
+      'pnpm-lock.yaml': '', 'yarn.lock.d/b': '', '._foo': '', '.lock-wscript': '', 'build/config.gypi': '', 'bun.lockb': '', 'star*.js': '',
+      'Node_Modules/q.js': '', 'node_modules/n/index.js': '', 'lib/README.orig': '',
+    }
+    assert.deepEqual(pack(files, 12), ['.DS_store', '.lock-wscript', 'NPM-DEBUG.LOG', 'Node_Modules/q.js', 'X.ORIG', 'Yarn.Lock', '._foo', 'build/config.gypi', 'bun.lockb', 'cli.js', 'cvs/x', 'index.js', 'package.json', 'star*.js', 'x.orig/a.js', 'yarn.lock.d/b'].sort())
+    assert.throws(() => pack({ 'node_modules/x.js': '' }, 12, { main: './node_modules/x.js' }), /turns on rules of npm-packlist not followed here/u)
   })
 
   it('leaves out bun.lockb for pnpm 11 alone, and the rules at the top in every directory', () => {

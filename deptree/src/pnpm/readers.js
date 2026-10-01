@@ -42,6 +42,10 @@ export const readers = {
     if (value !== null && typeof value === 'object' && !Array.isArray(value)) return value
     throw new DeptreeError(`expected a mapping, found ${show(value)}`, where)
   },
+  importMethod(value, where) {
+    if (IMPORT_METHODS.has(value)) return value
+    throw new DeptreeError(`expected one of ${[...IMPORT_METHODS].join(', ')}, found ${show(value)}`, where)
+  },
   onFail(value, where) {
     if (ON_FAIL.has(value)) return value
     throw new DeptreeError(`expected one of ${[...ON_FAIL].join(', ')}, found ${show(value)}`, where)
@@ -73,6 +77,7 @@ export const readers = {
 }
 
 const ON_FAIL = new Set(['download', 'error', 'warn', 'ignore'])
+const IMPORT_METHODS = new Set(['auto', 'hardlink', 'copy', 'clone', 'clone-or-copy'])
 
 const show = (value) => (typeof value === 'string' ? quote(value) : Array.isArray(value) ? 'a list' : value === null ? 'null' : typeof value === 'object' ? 'a mapping' : String(value))
 
@@ -130,6 +135,9 @@ export const READ = {
   autoInstallPeers: { kind: 'boolean' },
   dedupePeers: { kind: 'boolean' },
   peersSuffixMaxLength: { kind: 'count' },
+  // Whether a package installed from a directory has the files of each of
+  // its snapshots as one, hardlinked, or each as its own (tree.js).
+  packageImportMethod: { kind: 'importMethod' },
   // Neither pnpm's .npmrc nor ours has these.
   supportedArchitectures: { kind: 'mapping', check: checkArchitectures, rc: false },
   patchedDependencies: { kind: 'mapping', check: checkPatches, rc: false },
@@ -206,7 +214,7 @@ export const IGNORED = new Set([
   'fetchRetryMintimeout', 'fetchTimeout', 'httpProxy', 'httpsProxy', 'key', 'localAddress', 'maxsockets',
   'networkConcurrency', 'noProxy', 'noproxy', 'offline', 'preferOffline', 'proxy', 'strictSsl', 'userAgent',
   // the store, caches and state, none of it in node_modules
-  'cacheDir', 'modulesCacheMaxAge', 'packageImportMethod', 'sideEffectsCache', 'sideEffectsCacheReadonly',
+  'cacheDir', 'modulesCacheMaxAge', 'sideEffectsCache', 'sideEffectsCacheReadonly',
   'stateDir', 'storeDir', 'strictStorePkgContentCheck', 'verifyStoreIntegrity',
   // scripts, which are not run, and bins, which are not written
   'allowBuilds', 'childConcurrency', 'dangerouslyAllowAllBuilds', 'enablePrePostScripts', 'extendNodePath',

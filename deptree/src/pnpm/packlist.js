@@ -1,8 +1,9 @@
 // The files pnpm installs of a directory a `file:` dependency names: its
 // directory fetcher picks them with npm-packlist — 5.1.3 for pnpm 10,
-// 10.0.4 for pnpm 11 — and hardlinks them into the tree. Only
-// npm-packlist's built-in rules are followed here, which leave out, by
-// name and whatever its case:
+// 10.0.4 for pnpm 11, its own port of it (fs-packlist) for pnpm 12 — and
+// hardlinks or copies them into the tree (tree.js). Only the built-in
+// rules are followed here. npm-packlist's leave out, by name and whatever
+// its case:
 //
 //  - anywhere, `.git`, `.svn`, `.hg`, `CVS`, `.npmrc`, `.DS_Store`,
 //    `npm-debug.log`, `.npmignore`, `.gitignore`, and a name starting
@@ -14,15 +15,24 @@
 //  - at the top, `node_modules` and the lockfiles `package-lock.json`,
 //    `yarn.lock`, `pnpm-lock.yaml` and, with pnpm 11, `bun.lockb`;
 //
-// and every name with a `*` in it. A directory those do not describe is
-// refused: one with a .npmignore or .gitignore in it, or a package.json
-// with `files` or bundled dependencies, whose rules are not followed
-// here; one with a link in it, which the two pass over differently; and
-// one where a file those leave out is one npm-packlist would keep, a
-// readme, copying, license or licence file, or one `main`, `browser` or
-// `bin` names, as the two keep them differently. So is a file whose mode
-// is not 0o644 or 0o755, which linking a bin would change otherwise than
-// fixBin has it.
+// and every name with a `*` in it. pnpm 12's leave out, by name as it is
+// spelled:
+//
+//  - anywhere, `.git`, `.svn`, `.hg` and `CVS`, with everything in them,
+//    and a file `.npmrc`, `npm-debug.log`, `.DS_Store`,
+//    `package-lock.json`, `yarn.lock` or `pnpm-lock.yaml`, or one whose
+//    name ends in `.orig`;
+//  - at the top, `node_modules`.
+//
+// A directory those do not describe is refused: one with a .npmignore
+// or .gitignore in it, or a package.json with `files` or bundled
+// dependencies, whose rules are not followed here; one with a link in
+// it, which the two pass over differently; and one where a file those
+// leave out is one npm-packlist would keep, a readme, copying, license or
+// licence file, or one `main`, `browser` or `bin` names, as the two keep
+// them differently, or, with pnpm 12, one `main` or `bin` names, which it
+// keeps in node_modules alone. So is a file whose mode is not 0o644 or
+// 0o755, which linking a bin would change otherwise than fixBin has it.
 
 import { join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
@@ -41,9 +51,17 @@ const anchored = (names, directory) => (names.length === 1 && (names[0] === '.lo
 const TOP = ['node_modules', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml']
 const TOP_11 = [...TOP, 'bun.lockb']
 
+// pnpm 12's rules: the names left out wherever they are, and the files.
+const VCS = new Set(['.git', '.svn', '.hg', 'CVS'])
+const CRUFT = new Set(['.npmrc', 'npm-debug.log', '.DS_Store', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml'])
+
 // Whether the built-in rules leave out the entry at `names`, its path from
 // the package's directory by name, which is a directory where `directory`.
 function leftOut(names, directory, major) {
+  if (major >= 12) {
+    const name = names.at(-1)
+    return VCS.has(name) || (names.length === 1 && name === 'node_modules') || (!directory && (CRUFT.has(name) || name.endsWith('.orig')))
+  }
   const folded = names.map((name) => name.toLowerCase())
   const readIn = major >= 11 ? folded.map((_, i) => folded.slice(i)) : [folded]
   return ANYWHERE.test(folded.at(-1)) || readIn.some((path) => anchored(path, directory))
@@ -81,11 +99,11 @@ export function packDirectory(project, dir, manifest, major, where) {
       const { type, mode } = project.lstat(`/${dir}/${rel}`)
       if (type === 'symlink') throw new DeptreeError('a link in a directory pnpm installs a copy of is not supported', here)
       if (entry === '.npmignore' || entry === '.gitignore') throw new DeptreeError(`${entry}'s rules, which npm-packlist picks the files pnpm installs by, are not followed here`, here)
-      if (names.length === 0 && entry !== 'node_modules' && entry.toLowerCase() === 'node_modules') throw new DeptreeError('a name that is node_modules but for its case is kept by pnpm 10 and left out by pnpm 11', here)
-      if (entry.includes('*')) continue
+      if (major < 12 && names.length === 0 && entry !== 'node_modules' && entry.toLowerCase() === 'node_modules') throw new DeptreeError('a name that is node_modules but for its case is kept by pnpm 10 and left out by pnpm 11', here)
+      if (major < 12 && entry.includes('*')) continue
       if (leftOut(at, type === 'directory', major)) {
         const folded = rel.toLowerCase()
-        if (MUST_HAVE.test(entry) || named.some((kept) => kept === folded || kept.startsWith(`${folded}/`))) {
+        if ((major < 12 && MUST_HAVE.test(entry)) || named.some((kept) => kept === folded || kept.startsWith(`${folded}/`))) {
           throw new DeptreeError('whether pnpm installs it turns on rules of npm-packlist not followed here', here)
         }
         continue

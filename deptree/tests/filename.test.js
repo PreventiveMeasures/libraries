@@ -42,6 +42,16 @@ describe('depPathToFilename', () => {
     assert.equal(await depPathToFilename('a@1.0.0.', 120, 10), 'a@1.0.0.')
   })
 
+  // pnpm 12 counts and cuts bytes, and takes only an ASCII capital for one;
+  // each read off a real install of pnpm 12.8.1 and 11.28.2, at 45.
+  it('names a key that is not ASCII as pnpm 12 does', async () => {
+    const keys = ['a@file:vÉndor/a', `b@file:${'é'.repeat(20)}/b`, `c@file:${'😀'.repeat(10)}x/c`]
+    const PNPM_12 = ['a@file+vÉndor+a', 'b@file+éé_a1c6db2b0d3681450432ec5c1744b704', 'c@file+😀_8caa2104a3c3086ad829c3e9b763a113']
+    const PNPM_11 = ['a@file+vÉndo_7992ac4f9ecc4986d1ac5d87ff8ac9ab', `b@file+${'é'.repeat(20)}+b`, `c@file+${'😀'.repeat(10)}x+c`]
+    assert.deepEqual(await Promise.all(keys.map((key) => depPathToFilename(key, 45, 12))), PNPM_12)
+    assert.deepEqual(await Promise.all(keys.map((key) => depPathToFilename(key, 45, 11))), PNPM_11)
+  })
+
   it('cuts a long one to the length, hash included', async () => {
     const dir = await depPathToFilename(`a@1.0.0(${'b'.repeat(200)}@1.0.0)`, 120)
     assert.equal(dir.length, 120)

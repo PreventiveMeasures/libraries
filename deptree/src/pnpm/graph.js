@@ -9,6 +9,7 @@
 
 import { DeptreeError, quote } from '../error.js'
 import { depPathToFilename } from './filename.js'
+import { byBytes } from './order.js'
 
 const VIRTUAL_STORE = 'node_modules/.pnpm'
 
@@ -29,20 +30,40 @@ function childrenOf(targets, nodes, skipped) {
   return children
 }
 
+// The graph pnpm 12 hoists from: a node for every snapshot, skipped or
+// not, by its directory, its children skipped or not; and each project's
+// direct dependencies but its `link:`s, skipped or not, the projects in
+// the order of their ids' bytes. `all` holds every snapshot's node.
+function hoistingOf(lockfile, all) {
+  const none = new Set()
+  const nodes = new Map()
+  for (const node of all.values()) {
+    nodes.set(node.dir, { dir: node.dir, modules: node.modules, children: childrenOf({ ...node.pkg.dependencies, ...node.pkg.optionalDependencies }, all, none) })
+  }
+  const direct = new Map()
+  for (const id of Object.keys(lockfile.importers).sort(byBytes)) {
+    const { devDependencies, dependencies, optionalDependencies } = lockfile.importers[id]
+    direct.set(id, new Map([...childrenOf({ ...devDependencies, ...dependencies, ...optionalDependencies }, all, none)].filter(([, dir]) => nodes.has(dir))))
+  }
+  return { nodes, direct }
+}
+
 // `nodes` by snapshot key, and `direct`, by project, the children each
 // project links: devDependencies first, as pnpm spreads them, which is
-// the order hoisting walks them in.
+// the order hoisting walks them in; and, for pnpm 12, `hoisting`, the
+// graph it hoists from. No two snapshots, skipped or not, may have one
+// directory.
 export async function buildGraph(lockfile, skipped, maxLength, major = 10) {
-  const nodes = new Map()
+  const all = new Map()
   const keyByDir = new Map()
   for (const [key, pkg] of Object.entries(lockfile.packages)) {
-    if (skipped.has(key)) continue
     const store = `${VIRTUAL_STORE}/${await depPathToFilename(key, maxLength, major)}`
     const dir = `${store}/node_modules/${pkg.name}`
     if (keyByDir.has(dir)) throw new DeptreeError(`${quote(keyByDir.get(dir))} and ${quote(key)} would be installed in one directory`, quote(dir))
     keyByDir.set(dir, key)
-    nodes.set(key, { key, pkg, name: pkg.name, dir, modules: `${store}/node_modules` })
+    all.set(key, { key, pkg, name: pkg.name, dir, modules: `${store}/node_modules` })
   }
+  const nodes = new Map([...all].filter(([key]) => !skipped.has(key)))
   for (const node of nodes.values()) {
     node.children = childrenOf({ ...node.pkg.dependencies, ...node.pkg.optionalDependencies }, nodes, skipped)
   }
@@ -50,5 +71,5 @@ export async function buildGraph(lockfile, skipped, maxLength, major = 10) {
   for (const [id, importer] of Object.entries(lockfile.importers)) {
     direct.set(id, childrenOf({ ...importer.devDependencies, ...importer.dependencies, ...importer.optionalDependencies }, nodes, skipped))
   }
-  return { nodes, direct }
+  return { nodes, direct, hoisting: major >= 12 ? hoistingOf(lockfile, all) : undefined }
 }

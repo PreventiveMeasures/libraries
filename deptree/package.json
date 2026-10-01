@@ -1,7 +1,7 @@
 {
   "name": "@preventive/deptree",
   "version": "1.0.0-alpha.2",
-  "description": "A dependency tree in memory, as a package manager would install it: pnpm 10 or 11, or yarn 1.22, from its lockfile, tarballs fetched and checked, patches applied; or Soldeer 0.12, its zips fetched, checked and extracted",
+  "description": "A dependency tree in memory, as a package manager would install it: pnpm 10, 11 or 12, or yarn 1.22, from its lockfile, tarballs fetched and checked, patches applied; or Soldeer 0.12, its zips fetched, checked and extracted",
   "type": "module",
   "exports": {
     "./pnpm.js": {
@@ -32,6 +32,7 @@
     "src/patch.js",
     "src/pnpm/bins.js",
     "src/pnpm/checks.js",
+    "src/pnpm/commands.js",
     "src/pnpm/filename.js",
     "src/pnpm/frozen.js",
     "src/pnpm/graph.js",
@@ -41,6 +42,7 @@
     "src/pnpm/install.js",
     "src/pnpm/local.js",
     "src/pnpm/npmrc.js",
+    "src/pnpm/order.js",
     "src/pnpm/overrides.js",
     "src/pnpm/packlist.js",
     "src/pnpm/patches.js",

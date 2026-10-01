@@ -168,6 +168,7 @@ function derive(get) {
     linkWorkspacePackages: get('linkWorkspacePackages') ?? false,
     pmOnFail: get('pmOnFail'),
     runtimeOnFail: get('runtimeOnFail'),
+    packageImportMethod: get('packageImportMethod') ?? 'auto',
   }
 }
 

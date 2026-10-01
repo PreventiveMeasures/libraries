@@ -1,4 +1,4 @@
-// A node_modules tree as pnpm 10 or 11 installs it from a frozen lockfile
+// A node_modules tree as pnpm 10, 11 or 12 installs it from a frozen lockfile
 // with the isolated linker, held in a Vfs rooted at the lockfile's directory:
 // each package's files at node_modules/.pnpm/<its directory>/node_modules/
 // <its name>, its dependencies linked beside it, the hoisted aliases in
@@ -27,7 +27,7 @@ import { DeptreeError, quote } from '../error.js'
 import { checkNoModules, mount } from '../mount.js'
 import { applyPatch, parsePatch } from '../patch.js'
 import { REGISTRY, checkDependencies, checkManifest, fetchPackage, sameBytes, tarballUrl } from '../tarball.js'
-import { binTargets, checkPatchOfBins, fixBin } from './bins.js'
+import { binTargets, checkPatchOfBins, fixBin, requiresBuild } from './bins.js'
 import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
 import { checkLocalOverrides, readDirectoryPackage, readLinked } from './local.js'
@@ -96,9 +96,9 @@ async function fetchAll(nodes, project, major) {
     try {
       if (pkg.resolution.type === 'directory') {
         const got = readDirectoryPackage(project, pkg, quote(id), major)
-        checkManifest(got.manifest, pkg, quote(id))
+        checkManifest(got.manifest, pkg, quote(id), major)
         fetched.set(id, { ...got, local: true })
-      } else fetched.set(id, await fetchPackage(pkg, quote(id)))
+      } else fetched.set(id, await fetchPackage(pkg, quote(id), major))
     } catch (error) {
       throw error instanceof DeptreeError ? error : new DeptreeError(error.message, quote(id), { cause: error })
     }
@@ -125,19 +125,24 @@ async function fetchNodes(nodes, hook, project, major) {
 // A package installed from a directory has one file for each of its
 // files, hardlinked into each of its snapshots: fixBin makes it
 // executable in all of them, though a CRLF `#!` line it rewrites is
-// written as a file of that snapshot's own. By directory, the files a
-// snapshot has made executable by another's: `targets` is binTargets's.
-function executableElsewhere(byDir, targets) {
+// written as a file of that snapshot's own. Each snapshot has its own
+// copy instead where pnpm builds the package, or, with pnpm 11 and 12,
+// where packageImportMethod is other than auto or hardlink. By
+// directory, the files a snapshot has made executable by another's:
+// `targets` is binTargets's.
+function executableElsewhere(byDir, targets, packageImportMethod, major) {
+  const linked = major < 11 || packageImportMethod === 'auto' || packageImportMethod === 'hardlink'
+  const shared = (node) => linked && node.pkg.resolution.type === 'directory' && !requiresBuild(node.manifest, node.files, major)
   const byPackage = new Map()
   for (const node of byDir.values()) {
-    if (node.pkg.resolution.type !== 'directory') continue
+    if (!shared(node)) continue
     const id = packageKeyOf(node.key)
     if (!byPackage.has(id)) byPackage.set(id, new Set())
     for (const path of targets.get(node.dir) ?? []) byPackage.get(id).add(path)
   }
   const executable = new Map()
   for (const node of byDir.values()) {
-    if (node.pkg.resolution.type !== 'directory') continue
+    if (!shared(node)) continue
     const own = targets.get(node.dir) ?? new Set()
     executable.set(node.dir, new Set([...byPackage.get(packageKeyOf(node.key))].filter((path) => !own.has(path))))
   }
@@ -158,14 +163,14 @@ function compose(node, patches, { targets, executable }, { major, checkPatched }
     patch.parsed ??= parsePatch(patch.text, patch.path)
     // Once for each package, whatever its snapshots.
     patch.applied ??= new WeakMap()
-    if (!patch.applied.has(files)) patch.applied.set(files, applyPatch(files, patch.parsed))
+    if (!patch.applied.has(files)) patch.applied.set(files, applyPatch(files, patch.parsed, major))
     files = patch.applied.get(files)
     const manifest = checkPatchOfBins(node, files, targets, where, major)
     checkPatched?.(manifest, where)
   }
   if (targets.size === 0 && executable.size === 0) return files
   files = new Map(files)
-  for (const path of targets) files.set(path, fixBin(files.get(path), `${where}: ${quote(path)}`))
+  for (const path of targets) files.set(path, fixBin(files.get(path), `${where}: ${quote(path)}`, major))
   for (const path of executable) files.set(path, { ...files.get(path), mode: 0o755 })
   return files
 }
@@ -195,18 +200,19 @@ function linkTarget(path, target) {
   return relative(`${root}/${dirname(path)}`, `${root}/${target}`) || '.'
 }
 
-// Every link in the tree, by its path: each node's children beside it and
-// itself inside it where it depends on itself, then what is hoisted, then
-// each project's direct dependencies, which win over a hoisted alias.
-// `byDir` is the graph by directory.
-function linksOf(byDir, direct, settings, projects, major) {
+// Every link in the tree, by its path: each node's children beside it and,
+// but with pnpm 12, itself inside it where it depends on itself, then what
+// is hoisted, then each project's direct dependencies, which win over a
+// hoisted alias.
+// `byDir` is the graph by directory, and `hoisting` graph.js's.
+function linksOf(byDir, direct, settings, projects, major, hoisting) {
   const links = new Map()
   for (const node of byDir.values()) {
     for (const [alias, dir] of node.children) if (alias !== node.name) links.set(`${node.modules}/${alias}`, dir)
     const self = node.children.get(node.name)
-    if (byDir.has(self)) links.set(`${node.dir}/node_modules/${node.name}`, self)
+    if (major < 12 && byDir.has(self)) links.set(`${node.dir}/node_modules/${node.name}`, self)
   }
-  for (const [path, dir] of hoist(byDir, direct, settings, projects, major)) links.set(path, dir)
+  for (const [path, dir] of hoist(byDir, direct, settings, projects, major, hoisting)) links.set(path, dir)
   for (const [id, children] of direct) {
     for (const [alias, dir] of children) links.set(`${id === '.' ? '' : `${id}/`}node_modules/${alias}`, dir)
   }
@@ -244,11 +250,11 @@ export async function buildPnpmTree(options) {
   checkOptional(lockfile)
   const projects = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
   const { skipped, incompatible } = skippedSnapshots(lockfile, { host, settings })
-  const { nodes, direct } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, host.major)
+  const { nodes, direct, hoisting } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, host.major)
   for (const node of nodes.values()) checkSource(node, installed)
 
   const { byDir, tarballs } = await fetchNodes(nodes, hook, project, host.major)
-  const links = linksOf(byDir, direct, settings, projects, host.major)
+  const links = linksOf(byDir, direct, settings, projects, host.major, hoisting)
   const linked = readLinked(links, byDir, manifests, project)
   const targets = binTargets({
     nodes: byDir,
@@ -260,7 +266,7 @@ export async function buildPnpmTree(options) {
     peers: settings.autoInstallPeers,
     major: host.major,
   })
-  const executable = executableElsewhere(byDir, targets)
+  const executable = executableElsewhere(byDir, targets, settings.packageImportMethod, host.major)
 
   const vfs = new Vfs()
   vfs.mkdir('/node_modules/.pnpm', { recursive: true })

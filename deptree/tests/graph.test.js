@@ -119,3 +119,34 @@ describe('hoist', () => {
     assert.equal(links.q, 'q@2.0.0')
   })
 })
+
+// pnpm 12 hoists from a graph of every snapshot: it walks through opt,
+// left out, though it hoists nothing of it, so opt's d@1 comes at depth 0,
+// before g's d@2; holds back the root's s, left out, from u's s@2; and
+// takes the nodes of one depth in the order of their directories' names,
+// foo@1.0.0's before foo@1.0.0-rc.1's, which pnpm 11 has the other way.
+describe('hoist for pnpm 12', () => {
+  const graph = {
+    'a@1.0.0': { z: '1.0.0' }, 'z@1.0.0': { d: '1.0.0' }, 'f@1.0.0': { g: '1.0.0' }, 'g@1.0.0': { d: '2.0.0' },
+    'd@1.0.0': {}, 'd@2.0.0': {}, 'opt@1.0.0': { d: '1.0.0' }, 's@1.0.0': {}, 's@2.0.0': {}, 'u@1.0.0': { s: '2.0.0' },
+    'p@1.0.0': { foo: '1.0.0' }, 'q@1.0.0': { foo: '1.0.0-rc.1' }, 'foo@1.0.0': { x: '1.0.0' }, 'foo@1.0.0-rc.1': { x: '2.0.0' }, 'x@1.0.0': {}, 'x@2.0.0': {},
+  }
+  const lock = lockfile({ root: { dependencies: ['a', 'f', 'u', 'p', 'q'], optionalDependencies: ['opt', 's'] }, graph })
+  const hoisted = async (major) => {
+    const { nodes, direct, hoisting } = await buildGraph(lock, new Set(['opt@1.0.0', 's@1.0.0']), 120, major)
+    const links = hoist(new Map([...nodes.values()].map((node) => [node.dir, node])), direct, settings, new Map(), major, hoisting)
+    return Object.fromEntries([...links].map(([path, dir]) => [path.slice('node_modules/.pnpm/node_modules/'.length), dir.split('/')[2]]))
+  }
+
+  it('hoists as pnpm 12 does, and pnpm 11 otherwise', async () => {
+    const both = { z: 'z@1.0.0', g: 'g@1.0.0', foo: 'foo@1.0.0' }
+    assert.deepEqual(await hoisted(12), { ...both, d: 'd@1.0.0', x: 'x@1.0.0' })
+    assert.deepEqual(await hoisted(11), { ...both, d: 'd@2.0.0', x: 'x@2.0.0', s: 's@2.0.0' })
+  })
+
+  it('refuses two projects whose names are one folded, both hoisted', async () => {
+    const { nodes, direct, hoisting } = await buildGraph(lock, new Set(), 120, 12)
+    const projects = new Map([['packages/a', 'Tool'], ['packages/b', 'tool']])
+    assert.throws(() => hoist(nodes, direct, settings, projects, 12, hoisting), /^DeptreeError: manifests\["packages\/b"\]\.name: its name and "packages\/a"'s are one with their case folded, of which pnpm 12 hoists one by an order not known here$/u)
+  })
+})

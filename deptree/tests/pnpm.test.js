@@ -363,6 +363,32 @@ ${['c@2.0.0', 'c@2.1.0', 'x@1.0.0', 'y@1.0.0'].map((id) => `  ${id}:\n    resolu
     const v10 = (await buildPnpmTree({ ...options, host: HOST })).vfs
     assert.deepEqual([mode(v10, 'npm@1.0.0', 'n.js'), mode(v10, 'zz@1.0.0', 'z.js'), mode(v10, 'p@1.0.0', 'p.js')], [0o644, 0o755, 0o644])
   })
+
+  // pnpm 12 links p's own bins beside a's in p's .bin, where a's `x` wins,
+  // a's name sorting first, as it does beside q; where pnpm 11 links p's,
+  // whose name sorts last, beside q. It reads a null `bin` as naming none,
+  // and fails on a bin that is a directory.
+  it('links bins as pnpm 12 does', async () => {
+    const bins = await Promise.all([
+      tarball('a', '1.0.0', { 'ax.js': '#!a\n' }, { manifest: { bin: { x: 'ax.js' } } }),
+      tarball('p', '1.0.0', { 'x.js': '#!p\n' }, { manifest: { bin: { x: 'x.js' }, dependencies: { a: '1.0.0' } } }),
+      tarball('q', '1.0.0', {}, { manifest: { dependencies: { p: '1.0.0', a: '1.0.0' } } }),
+      tarball('nul', '1.0.0', { 'bin/n.js': '#!nul\n' }, { manifest: { bin: null, directories: { bin: 'bin' } } }),
+    ])
+    stubRegistry(bins)
+    const entry = (t) => `  ${t.name}@1.0.0:\n    resolution: {integrity: ${t.integrity}}\n${t.name === 'q' ? '' : '    hasBin: true\n'}`
+    const lock = small(dep('q') + dep('nul'), `${bins.map(entry).join('\n')}\n`, '  a@1.0.0: {}\n\n  nul@1.0.0: {}\n\n  p@1.0.0:\n    dependencies:\n      a: 1.0.0\n\n  q@1.0.0:\n    dependencies:\n      a: 1.0.0\n      p: 1.0.0\n')
+    const mode = (vfs, name, file) => vfs.stat(`/node_modules/.pnpm/${name}@1.0.0/node_modules/${name}/${file}`).mode
+    const options = { lockfile: lock, manifests: { '.': manifest({ q: '1.0.0', nul: '1.0.0' }) }, workspace: 'hoist: false\n' }
+    const modes = (vfs) => [mode(vfs, 'a', 'ax.js'), mode(vfs, 'p', 'x.js'), mode(vfs, 'nul', 'bin/n.js')]
+    assert.deepEqual(modes((await buildPnpmTree({ ...options, host: { ...HOST, pnpm: '12.8.1' } })).vfs), [0o755, 0o644, 0o644])
+    assert.deepEqual(modes((await buildPnpmTree({ ...options, host: { ...HOST, pnpm: '11.28.2' } })).vfs), [0o755, 0o755, 0o755])
+
+    const dir = await tarball('d', '1.0.0', { 'dir/f.js': '' }, { manifest: { bin: { d: 'dir' } } })
+    stubRegistry([dir])
+    const dirLock = small(dep('d'), `${entry(dir)}\n`, '  d@1.0.0: {}\n')
+    await assert.rejects(buildPnpmTree({ lockfile: dirLock, manifests: { '.': manifest({ d: '1.0.0' }) }, host: { ...HOST, pnpm: '12.8.1' } }), /^DeptreeError: "d@1\.0\.0": its bin "dir" is a directory, which pnpm 12 fails on$/u)
+  })
 })
 
 // Of a `bin` that names none beside a directories.bin, pnpm resolves
@@ -761,7 +787,7 @@ describe('buildPnpmTree for pnpm 11', () => {
   })
 
   it('refuses a pnpm it is not built for', async () => {
-    await assert.rejects(buildPnpmTree({ lockfile: lockfile11(), manifests: { '.': root() }, host: { ...HOST, pnpm: '12.0.0' } }), /^DeptreeError: host\.pnpm: pnpm "12\.0\.0" is not supported: only pnpm 10 and 11 are$/u)
+    await assert.rejects(buildPnpmTree({ lockfile: lockfile11(), manifests: { '.': root() }, host: { ...HOST, pnpm: '13.0.0' } }), /^DeptreeError: host\.pnpm: pnpm "13\.0\.0" is not supported: only pnpm 10, 11 and 12 are$/u)
   })
 })
 
@@ -1139,10 +1165,9 @@ snapshots:
       }
     })
 
-    // pnpm links foo's `tool` into the root's .bin, and zz's over it into
-    // app2's: fixBin's chmod reaches foo's file in every snapshot, which
-    // are hardlinks of it, and its CRLF rewrite the one it is run in alone.
-    it('makes a bin executable in every snapshot, and rewrites it in the one linking fixes it in', async () => {
+    // foo under two peers, p@1 beside the root and p@2 beside app2: pnpm
+    // links foo's `tool` into the root's .bin, and zz's over it into app2's.
+    const twoSnapshots = async (fields, { host = HOST, workspace, files = {} } = {}) => {
       const bins = await Promise.all([
         tarball('app2', '1.0.0', {}, { manifest: { dependencies: { foo: '^1.0.0', zz: '1.0.0', p: '2.0.0' } } }),
         tarball('p', '1.0.0'),
@@ -1150,8 +1175,15 @@ snapshots:
         tarball('zz', '1.0.0', { 'z.js': '#!z\n' }, { manifest: { bin: { tool: 'z.js' } } }),
       ])
       stubRegistry(bins)
-      const entry = (t, fields = '') => `  ${t.name}@${t.version}:\n    resolution: {integrity: ${t.integrity}}\n${fields}`
-      const twoPeers = `lockfileVersion: '9.0'
+      const manifest = rootWith({ dependencies: { app2: '1.0.0', foo: '^1.0.0', p: '1.0.0' }, ...host.pnpm.startsWith('10.') ? { pnpm: { overrides: { foo: 'file:./vendor/foo' } } } : {} })
+      const foo = { name: 'foo', version: '1.5.0', peerDependencies: { p: '*' }, bin: { tool: 'cli.js' }, ...fields }
+      const source = { 'vendor/foo/package.json': JSON.stringify(foo), 'vendor/foo/cli.js': '#!/usr/bin/env node\r\nrun()\n', ...files }
+      const { vfs } = await buildPnpmTree({ lockfile: twoPeers(bins), manifests: { '.': manifest }, workspace, host, project: createVfs({ 'package.json': manifest, ...source }) })
+      const cli = (peer) => `/node_modules/.pnpm/foo@file+vendor+foo_p@${peer}/node_modules/foo/cli.js`
+      return [1, 2].map((major) => [vfs.stat(cli(`${major}.0.0`)).mode, vfs.readText(cli(`${major}.0.0`))])
+    }
+    const entry = (t, fields = '') => `  ${t.name}@${t.version}:\n    resolution: {integrity: ${t.integrity}}\n${fields}`
+    const twoPeers = (bins) => `lockfileVersion: '9.0'
 
 settings:
   autoInstallPeers: true
@@ -1208,12 +1240,28 @@ snapshots:
 
   zz@1.0.0: {}
 `
-      const manifest = rootWith({ dependencies: { app2: '1.0.0', foo: '^1.0.0', p: '1.0.0' }, pnpm: { overrides: { foo: 'file:./vendor/foo' } } })
-      const source = { 'vendor/foo/package.json': '{"name":"foo","version":"1.5.0","peerDependencies":{"p":"*"},"bin":{"tool":"cli.js"}}', 'vendor/foo/cli.js': '#!/usr/bin/env node\r\nrun()\n' }
-      const { vfs } = await buildPnpmTree({ lockfile: twoPeers, manifests: { '.': manifest }, host: HOST, project: createVfs({ 'package.json': manifest, ...source }) })
-      const cli = (peer) => `/node_modules/.pnpm/foo@file+vendor+foo_p@${peer}/node_modules/foo/cli.js`
-      assert.deepEqual([vfs.stat(cli('1.0.0')).mode, vfs.readText(cli('1.0.0'))], [0o755, '#!/usr/bin/env node\nrun()\n'])
-      assert.deepEqual([vfs.stat(cli('2.0.0')).mode, vfs.readText(cli('2.0.0'))], [0o755, '#!/usr/bin/env node\r\nrun()\n'])
+
+    // fixBin's chmod reaches foo's file in every snapshot, which are
+    // hardlinks of it, and its CRLF rewrite the one it is run in alone.
+    it('makes a bin executable in every snapshot, and rewrites it in the one linking fixes it in', async () => {
+      assert.deepEqual(await twoSnapshots(), [[0o755, '#!/usr/bin/env node\nrun()\n'], [0o755, '#!/usr/bin/env node\r\nrun()\n']])
+    })
+
+    // Where pnpm builds the package — an install script, or a binding.gyp
+    // that pnpm 11 passes over with gypfile false — or, with pnpm 11,
+    // packageImportMethod asks for copies, each snapshot has its own.
+    it('makes a bin executable in its own snapshot alone where each has a copy of its own', async () => {
+      const own = [[0o755, '#!/usr/bin/env node\nrun()\n'], [0o644, '#!/usr/bin/env node\r\nrun()\n']]
+      const shared = [[0o755, '#!/usr/bin/env node\nrun()\n'], [0o755, '#!/usr/bin/env node\r\nrun()\n']]
+      const v11 = { host: { ...HOST, pnpm: '11.28.2' }, workspace: 'overrides:\n  foo: file:./vendor/foo\n' }
+      assert.deepEqual(await twoSnapshots({ scripts: { postinstall: 'x' } }), own)
+      assert.deepEqual(await twoSnapshots({ scripts: { postinstall: 'x' } }, v11), own)
+      const gyp = { files: { 'vendor/foo/binding.gyp': '{}' } }
+      assert.deepEqual(await twoSnapshots({ gypfile: false }, gyp), own)
+      assert.deepEqual(await twoSnapshots({ gypfile: false }, { ...v11, ...gyp }), shared)
+      assert.deepEqual(await twoSnapshots({}, { ...v11, workspace: `${v11.workspace}packageImportMethod: copy\n` }), own)
+      assert.deepEqual(await twoSnapshots({}, { ...v11, workspace: `${v11.workspace}packageImportMethod: hardlink\n` }), shared)
+      assert.deepEqual(await twoSnapshots({}, { workspace: 'packageImportMethod: copy\n' }), shared)
     })
 
     it('refuses it without a project, or as the lockfile does not have it', async () => {

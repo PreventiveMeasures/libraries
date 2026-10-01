@@ -13,11 +13,11 @@ import { checkWorkspace, findProjects, linkedManifest } from './workspace.js'
 
 const LIBC = new Set(['glibc', 'musl', 'unknown'])
 
-// The major version of `pnpm`, 10 or 11: what pnpm 11 does differently is
-// read by it, where it is.
+// The major version of `pnpm`, 10, 11 or 12: what pnpm 11 and 12 do
+// differently is read by it, where it is.
 function majorOf(pnpm) {
   const major = Number(valid(pnpm)?.split('.')[0])
-  if (major !== 10 && major !== 11) throw new DeptreeError(`pnpm ${quote(pnpm)} is not supported: only pnpm 10 and 11 are`, 'host.pnpm')
+  if (major !== 10 && major !== 11 && major !== 12) throw new DeptreeError(`pnpm ${quote(pnpm)} is not supported: only pnpm 10, 11 and 12 are`, 'host.pnpm')
   return major
 }
 

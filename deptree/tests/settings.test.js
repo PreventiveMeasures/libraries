@@ -27,6 +27,7 @@ const DEFAULTS = {
   linkWorkspacePackages: false,
   pmOnFail: undefined,
   runtimeOnFail: undefined,
+  packageImportMethod: 'auto',
 }
 
 describe('parseNpmrc', () => {
@@ -61,6 +62,13 @@ describe('readSettings', () => {
     assert.deepEqual(read({ workspace: 'shamefullyHoist: true\n' }).publicHoistPattern, ['*'])
     assert.equal(read({ workspace: 'shamefullyHoist: false\n' }).publicHoistPattern, undefined)
     assert.equal(read({ npmrc: 'public-hoist-pattern=\n' }).publicHoistPattern, undefined)
+  })
+
+  // Whether a package installed from a directory is one copy or many.
+  it('reads packageImportMethod', () => {
+    assert.equal(read({ npmrc: 'package-import-method=copy\n' }).packageImportMethod, 'copy')
+    assert.equal(read({ workspace: 'packageImportMethod: clone-or-copy\n', major: 11 }).packageImportMethod, 'clone-or-copy')
+    assert.throws(() => read({ workspace: 'packageImportMethod: symlink\n' }), /^DeptreeError: pnpm-workspace\.yaml: packageImportMethod: expected one of auto, hardlink, copy, clone, clone-or-copy, found "symlink"$/u)
   })
 
   it('passes over what leaves the tree as it is', () => {
