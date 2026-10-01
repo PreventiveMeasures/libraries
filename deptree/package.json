@@ -1,6 +1,6 @@
 {
   "name": "@preventive/deptree",
-  "version": "1.0.0-alpha.4",
+  "version": "1.0.0-alpha.5",
   "description": "A dependency tree in memory, as a package manager would install it: pnpm 10, 11 or 12, or yarn 1.22, from its lockfile, tarballs fetched and checked, patches applied; or Soldeer 0.12, its zips fetched, checked and extracted",
   "type": "module",
   "exports": {
@@ -98,7 +98,7 @@
     "@preventive/archive": "1.0.0-beta.3",
     "@preventive/diff": "^1.0.0",
     "@preventive/lockfile": "1.0.0-alpha.4",
-    "@preventive/upstream": "1.0.0-alpha.2",
+    "@preventive/upstream": "1.0.0-alpha.3",
     "@preventive/vfs": "1.0.0-beta.2"
   }
 }
