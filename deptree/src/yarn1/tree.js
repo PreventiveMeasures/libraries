@@ -98,12 +98,19 @@ function resolveProject(inputs, host) {
 // package.json as yarn reads it, a workspace's its own.
 async function fetchChecked(resolved, host, settings) {
   // What yarn's resolver hands its fetcher, in its order: each reference
-  // its patterns name, once.
+  // its patterns name, once. Of those its cache keeps in one place, two of
+  // one package, the fetcher fetches the first and passes over the rest,
+  // whose package.json stays their lockfile entry's: no peers, bins,
+  // platforms or engines; their files are the first's.
   const order = [...new Set(resolved.patterns.values())]
-  const fetched = await fetchAll(order)
+  const first = new Map()
+  for (const ref of order) if (ref.kind === 'registry' && !first.has(ref.loc)) first.set(ref.loc, ref)
+  const fetched = await fetchAll([...first.values()])
   const manifestOf = new Map()
   for (const ref of order) {
-    const manifest = ref.kind === 'registry' ? fixLists(fetched.get(ref).manifest) : ref.workspace.manifest
+    if (ref.kind === 'registry') fetched.set(ref, fetched.get(first.get(ref.loc)))
+    let manifest = ref.kind === 'workspace' ? ref.workspace.manifest : { name: ref.name, version: ref.version }
+    if (first.get(ref.loc) === ref) manifest = fixLists(fetched.get(ref).manifest)
     const bundled = manifest.bundleDependencies ?? manifest.bundledDependencies
     if (bundled && !(Array.isArray(bundled) && bundled.length === 0)) throw new DeptreeError('a package with bundled dependencies is not supported', quote(ref.patterns[0]))
     manifestOf.set(ref, manifest)
@@ -115,7 +122,7 @@ async function fetchChecked(resolved, host, settings) {
     ref.ignore = true
     ref.incompatible = true
   }
-  return { order, fetched, manifestOf }
+  return { packages: first.size, fetched, manifestOf }
 }
 
 // The tree as yarn hoists it, flat: each package by where it goes, in the
@@ -188,14 +195,14 @@ export async function buildYarn1Tree(options) {
   if (into !== undefined) checkNoModules(into, folded)
   checkRoot(inputs.manifests.get('.'))
   const { workspaces, topPatterns, resolved } = resolveProject(inputs, host)
-  const { order, fetched, manifestOf } = await fetchChecked(resolved, host, inputs.settings)
+  const { packages, fetched, manifestOf } = await fetchChecked(resolved, host, inputs.settings)
   const placed = layout({ resolved, manifestOf, topPatterns, workspaces })
   const { vfs, links, locations, files, bytes } = writeTree(placed, fetched)
-  markBins(vfs, { placed, patterns: resolved.patterns, fetched, locations, realOf: (path) => realOf(links, path) })
+  markBins(vfs, { placed, patterns: resolved.patterns, fetched, manifestOf, locations, realOf: (path) => realOf(links, path) })
   if (folded) checkCollisions(vfs)
   const stats = {
-    packages: order.filter((ref) => ref.kind === 'registry').length,
-    skipped: order.filter((ref) => ref.ignore).length,
+    packages,
+    skipped: [...manifestOf.keys()].filter((ref) => ref.ignore).length,
     installed: placed.filter(({ info }) => info.ref.kind === 'registry').length,
     files,
     bytes,

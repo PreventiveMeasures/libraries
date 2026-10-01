@@ -40,6 +40,7 @@ const TARBALLS = await Promise.all([
   tarball('d', '1.0.0'),
   tarball('eng', '1.0.0', {}, { manifest: { engines: { node: '>=100' } } }),
   tarball('@s/e', '1.0.0'),
+  tarball('x', '1.0.0', {}, { manifest: { dependencies: { mac: 'latest' } } }),
   dotted(await tarball('fix', '1.0.0', { '_/lib/x.js': 'x', 'test/node_modules/fixture.js': 'f' }), 'package/_/lib/x.js'),
   tarball('mac', '1.0.0', {}, { manifest: { os: ['darwin'] } }),
   tarball('p', '1.0.0', {}, { manifest: { peerDependencies: { b: '^2.0.0' } } }),
@@ -166,6 +167,20 @@ describe('buildYarn1Tree', () => {
     const root = { ...ROOT, dependencies: { ...ROOT.dependencies, b: '*' }, devDependencies: { ...ROOT.devDependencies, b: '^2.0.0', '//': 'b is for tests' } }
     const { vfs } = await build({ project: project({ 'package.json': root }) })
     assert.equal(text(vfs, '/node_modules/b/index.js'), 'b2')
+  })
+
+  // A tag never finds the package of its version resolved, so mac@latest
+  // makes a second reference of mac 1.0.0. yarn's fetcher fetches the
+  // first of two its cache keeps in one place, and leaves the second its
+  // lockfile entry for a package.json, with no os: that one is installed,
+  // and the first, which the host cannot run, is installed where it is.
+  it('installs a package the host cannot run where a second reference of it is its lockfile entry, as yarn does', async () => {
+    stubRegistry(TARBALLS)
+    const root = { name: 'root', version: '1.0.0', optionalDependencies: { mac: '1.0.0', x: '1.0.0' } }
+    const lock = lockfile(entry('mac@1.0.0, mac@latest', 'mac@1.0.0'), entry('x@1.0.0', 'x@1.0.0', '  dependencies:\n    mac latest\n'))
+    const { vfs, stats } = await buildYarn1Tree({ project: projectOf({ 'yarn.lock': lock, 'package.json': root }), host: HOST })
+    assert.deepEqual(vfs.readdir('/node_modules'), ['mac', 'x'])
+    assert.equal(stats.packages, 2)
   })
 
   it('passes over settings that only move where yarn fetches from', async () => {

@@ -25,7 +25,11 @@ export { setCacheDir } from '@preventive/upstream/npm.js'
 // A package whose os, cpu or engines the machine does not take is left
 // out where it is optional, and refused where it is not, as yarn fails
 // on it; so is the root project. ignore-platform and ignore-engines, where
-// the settings set them, have neither checked. Of engines, `node` (and `iojs`, which
+// the settings set them, have neither checked. Of two references of one
+// package, as a tag or an alias asked for twice makes, yarn fetches and
+// reads the first alone, and the second has its lockfile entry for a
+// package.json: no os, cpu, engines, peers or bins, as yarn has it, so it
+// is never left out, and links no bins. Of engines, `node` (and `iojs`, which
 // yarn takes for it) and `yarn` are checked as yarn checks them, and one
 // yarn has no version for is passed over, as yarn passes over it; one Node
 // 24 reports in process.versions, such as `v8`, which yarn would check
