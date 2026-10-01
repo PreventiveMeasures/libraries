@@ -68,10 +68,11 @@ export interface Client {
   // throws. A tarball shows a submodule as an empty directory, and leaves
   // out a subtree with no file in it: the submodule's commit and the
   // subtrees come from GitHub's listings of the trees, asked only then, and
-  // the id must still come out `tree`. Refused, as its tarball does not hold
-  // the tree: a tree with files marked `export-ignore`, which it leaves out,
-  // and a repo's set to include Git LFS objects in archives, which replace
-  // the pointers git has.
+  // the id must still come out `tree`: the bytes are the tree's own, the
+  // same for every repo. So GitHub's tarball is refused for a tree with
+  // files marked `export-ignore`, which it leaves out, and from a repo set
+  // to include Git LFS objects in archives, which replace the pointers git
+  // has; that repo still gets a tree already cached, pointers and all.
   getRepoTreeTarball(options: { repo: RepoName; tree: string }): Promise<Uint8Array>
   // The repository's published security advisories, as GitHub's
   // repository advisory objects. One page of 100: GitHub pages this list

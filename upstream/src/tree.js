@@ -13,9 +13,9 @@ const MAX_UNPACKED_BYTES = 2 ** 30
 const PAX_KEYS = new Set(['path', 'linkpath'])
 const MODES = { 0: [0o664, 0o644, 0o775, 0o755], 2: [0o777], 5: [0o775, 0o755] }
 // The top directory is not hashed, so it is held to GitHub's name for it,
-// owner-repo-id: another, `..\..` or `C:`, could take an extractor
-// elsewhere.
-const isTop = matches(/^[\dA-Za-z][\w.-]*$/u)
+// owner-repo-id: another, `..\..`, `C:` or a Windows device such as
+// `con.txt`, could take an extractor elsewhere.
+const isTop = matches(/^(?!(?:con|prn|aux|nul|com\d|lpt\d)(?:\.|$))[\da-z][\w.-]*$/iu)
 
 // Names are kept as latin1 strings, a char per byte, so they sort and hash
 // as the bytes git has.

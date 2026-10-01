@@ -75,8 +75,11 @@ describe('gitTreeOfTarball', () => {
     assert.equal(await gitTreeOfTarball(edited(TREE_TGZ, 'acme-app-abc1234/run\0', '..\0', 'acme-app-abc1234/'.length)), 'no tree: an entry outside one top directory, "acme-app-abc1234/.."')
     // A file alone, with no directory over it, which would otherwise read as the empty tree.
     assert.equal(await gitTreeOfTarball(tarball(header('file', '0'))), 'no tree: an entry outside one top directory, "file"')
+    // GitHub's name for it, capitals, dots and all, is the one taken.
+    const named = (top) => tarball(header(`${top}/`, '5', 0, 0o775), header(`${top}/f`, '0', 4), body('SAFE'))
+    assert.equal(await gitTreeOfTarball(named('PreventiveMeasures-libraries.js-da92dd7')), await gitTreeOfTarball(named('top')))
     // A top directory that is no directory, which would otherwise hash as any other.
-    for (const top of ['..', '.', '', '..\\..', 'C:', 'a\\..\\..', '-x', 'a b']) {
+    for (const top of ['..', '.', '', '..\\..', 'C:', 'a\\..\\..', '-x', 'a b', 'CON', 'nul', 'Com1', 'con.txt', 'LPT9.tar.gz']) {
       const blocks = [header(`${top}/`, '5', 0, 0o775), header(`${top}/f`, '0', 4), body('SAFE')]
       assert.equal(await gitTreeOfTarball(tarball(...blocks)), `no tree: an entry outside one top directory, ${JSON.stringify(`${top}/`)}`, top)
     }
