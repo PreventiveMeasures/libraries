@@ -1,14 +1,5 @@
-// Cargo.toml, for what resolution reads of it: a package's name, version
-// and edition, its features, its dependencies and what each asks of the
-// package it names, whether its library is a proc-macro, and a workspace
-// root's [workspace] and [patch]. Sections that bear on none of that —
-// [badges], [lints], [profile], [[bin]], metadata — are not looked into.
-//
-// What cargo reads and this does not is refused by name: cargo-features,
-// [replace], artifact dependencies, path bases, what only a nightly cargo
-// takes. So is a key cargo does not know, which it warns of and drops, and
-// what cargo refuses in a manifest it reads without a filesystem: a feature
-// that names nothing, a dependency with two sources.
+// Cargo.toml, as far as resolution reads it. Sections that bear on none of
+// it, [badges], [lints], [profile], [[bin]] and metadata, are not looked into.
 
 import { parseVersion } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
@@ -19,7 +10,6 @@ import { isTable } from '../toml/value.js'
 import { NIGHTLY, dashed, featureMap, gatherDependencies, readSpec } from './dependency.js'
 import { array, boolean, checkName, entries, kind, optional, refuse, string, strings, table } from './shape.js'
 
-// What only a package has, which a virtual manifest cannot.
 const PACKAGE_ONLY = [
   'badges', 'features', 'lib', 'bin', 'example', 'test', 'bench', 'dependencies', 'dev-dependencies',
   'dev_dependencies', 'build-dependencies', 'build_dependencies', 'target', 'lints', 'hints',
@@ -60,8 +50,8 @@ function readResolver(value, where) {
   return RESOLVERS[value]
 }
 
-// Whether a target is a proc-macro: `proc-macro = true`, or a crate type
-// of `proc-macro`, which the library takes alone.
+// The flag wins over the crate type, as in cargo's Target::proc_macro; a
+// library's proc-macro crate type is taken alone.
 function procMacroOf(value, where, edition, lib) {
   table(value, where)
   const flag = optional(boolean)(dashed(value, where, 'proc-macro', edition), at(where, 'proc-macro'))
@@ -109,10 +99,9 @@ function readPatch(value, where = 'patch') {
   return patch
 }
 
-// Cargo's merge of a config's value with that of one under it, further from
-// where cargo runs: tables key by key, arrays joined, the first's after, and
-// of two other values the first; a table or an array against another kind
-// of value is refused, as cargo refuses it.
+// Cargo's config merge, `first` the closer: tables key by key, arrays joined
+// with the closer's last, and of two other values the closer; a table or
+// array against another kind is refused, as cargo refuses it.
 function mergeConfig(first, then, where) {
   if (isTable(first) && isTable(then)) {
     const merged = Object.assign(Object.create(null), then)
@@ -126,10 +115,7 @@ function mergeConfig(first, then, where) {
   return first
 }
 
-// Cargo's configuration, for what resolution takes of it, which is its
-// [patch]: `texts` are the config files' as cargo finds them, the closest to
-// where it runs first, a `--config` value before them all, and merged as it
-// merges them. The rest of each is not looked into.
+// `texts`: the closest config file first, a `--config` value before them all.
 export function parseCargoConfig(texts) {
   if (!Array.isArray(texts) || !texts.every((text) => typeof text === 'string')) throw new TypeError('expected the texts of the config files')
   let patch
@@ -146,7 +132,6 @@ export function parseCargoConfig(texts) {
   return { patch: readPatch(patch) }
 }
 
-// A field given as `{ workspace = true }`, from [workspace.package].
 function inheritField(value, where, key, workspace) {
   if (!isTable(value)) return value
   table(value, where, ['workspace'])
@@ -176,8 +161,6 @@ function readPackage(doc, workspace) {
   return { name: checkName(value.name, at(where, 'name')), version: version ?? '0.0.0', edition, resolver, links }
 }
 
-// `workspace` is the root's manifest, read before, for a member that
-// inherits from it; a root inherits from its own [workspace].
 export function parseCargoManifest(text, workspace) {
   if (typeof text !== 'string') throw new TypeError('expected a string')
   const doc = table(parseToml(text), undefined, TOP, TOP_REFUSED)

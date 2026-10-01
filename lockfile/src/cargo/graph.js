@@ -1,14 +1,7 @@
-// The lockfile's graph with each package's manifest laid over it: every
-// dependency a manifest declares, with the package the lockfile resolves
-// it to. The lockfile names only packages; which declaration an edge is,
-// of which kind, for which platform, asking for which features, is the
-// manifest's. Cargo ties the two together by name, version requirement and
-// source; so does this, and refuses where it cannot do so one way only:
-// a declaration two edges could be, an edge no declaration is, a
-// declaration the lockfile should resolve and does not, a package no member
-// depends on, which cargo would have pruned. A declaration is
-// active where the lockfile's resolve, every member's every feature on,
-// turns it on; the lockfile's edges are the active declarations'.
+// The lockfile's edges tied to the manifests' declarations, as cargo ties
+// them: by name, version requirement and source. A declaration is active
+// where the lockfile's resolve, every member's every feature on, turns it
+// on; the lockfile's edges are exactly the active declarations'.
 
 import { LockfileError, at, quote } from '../error.js'
 import { checkOptions } from '../shape.js'
@@ -17,15 +10,12 @@ import { featureValue, parseRequirement } from './dependency.js'
 import { patchedAs, sourceIdentity } from './lock.js'
 import { checkPatches, from, identify, offers, readPatches, within } from './patch.js'
 
-// The resolver the workspace root asks for, or its edition's.
 function resolverOf(root) {
   const edition = root.package?.edition
   const byEdition = edition === '2024' ? 3 : edition === '2021' ? 2 : 1
   return root.workspace?.resolver ?? root.package?.resolver ?? byEdition
 }
 
-// Each member a path package of the lockfile, and no two of one name, as a
-// workspace holds no two packages of one name.
 function checkMembers(lock, members) {
   const named = new Map()
   for (const key of members) {
@@ -36,7 +26,6 @@ function checkMembers(lock, members) {
   }
 }
 
-// No two packages linking one native library, as cargo's resolver refuses.
 function checkLinks(packages) {
   const linked = new Map()
   for (const [key, { manifest }] of Object.entries(packages)) {
@@ -46,10 +35,9 @@ function checkLinks(packages) {
   }
 }
 
-// Each package of the lockfile with its manifest, and each declaration with
-// the package it resolves to, where the lockfile's edges from the package
-// leave it one; by `ambiguous` the declarations they leave more, and by
-// `patched` those resolved by a [patch], with the table's and package's key.
+// `ambiguous`: declarations more than one edge could be; `patched`: those
+// resolved through a [patch], by table and package key. The lockfile
+// resolves the dev-dependencies of members alone.
 function linkPackages(lock, manifests, members, context) {
   const packages = Object.create(null)
   const ambiguous = new Map()
@@ -73,8 +61,6 @@ function linkPackages(lock, manifests, members, context) {
   return { packages, ambiguous, patched }
 }
 
-// Each of the lockfile's edges a declaration turned on, and so each package
-// reached from a member.
 function checkActive(lock, packages, members) {
   const reached = new Set(members)
   for (const pkg of Object.values(packages)) for (const dep of pkg.dependencies) if (dep.active) reached.add(dep.resolved)
@@ -87,9 +73,6 @@ function checkActive(lock, packages, members) {
   }
 }
 
-// `workspace` is the root's manifest; `members` the keys of the packages in
-// the workspace, for which the lockfile resolves every dependency,
-// dev-dependencies and optional ones among them.
 export function linkCargo(lock, manifests, options) {
   const { workspace: root, members, config } = checkOptions(options, ['workspace', 'members', 'config'])
   if (root?.patch === undefined || (root.workspace === undefined && root.package === undefined)) throw new TypeError('expected the manifest of the workspace root')
@@ -117,9 +100,8 @@ export function linkCargo(lock, manifests, options) {
   return { resolver: resolverOf(root), root: rootKey, members: [...members], packages }
 }
 
-// The packages among the lockfile's edges from `key` that `dep` could be:
-// by name, by the requirement, and by source, a [patch] of the name aside;
-// each by its key, and where it is a patch's, the table's and its key.
+// The edges `dep` could be, by name, requirement and source, or as offered
+// by a [patch] of its source, which `slot` then names.
 function candidates(dep, key, { locked, patches }, where) {
   const requirement = dep.version === undefined ? undefined : parseRequirement(dep.version, where)
   const wanted = sourceIdentity(dep.source, locked.get(key).identity)

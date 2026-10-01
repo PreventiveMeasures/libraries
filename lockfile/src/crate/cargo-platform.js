@@ -1,14 +1,9 @@
 // The cargo-platform crate, 0.3: Platform::from_str, Cfg::from_str and
-// Platform::matches, as cargo reads the platform of a [target.<platform>]
-// table and the lines of `rustc --print cfg`. A platform is `cfg(` an
-// expression `)`, or a target's name; an expression is `all(…)`, `any(…)`,
-// `not(…)`, `true`, `false`, a name or `name = "value"`, with spaces and
-// nothing else between tokens. A name or target that is not ASCII is
-// refused, where the crate takes any alphanumeric character in a target.
+// Platform::matches. A name or target that is not ASCII is refused, where
+// the crate takes any alphanumeric character in a target.
 
 const TOKEN = / *(?:([(),=])|"([^"]*)"|(r#)?([A-Z_a-z]\w*)|(.|$))/suy
 
-// What the parse throws where the crate errs, and the exports catch.
 class Refused extends Error {}
 
 const refuse = () => {
@@ -32,8 +27,7 @@ function tokenize(source) {
   return tokens
 }
 
-// A name or `name="value"` as a key into a set of them: the value has no
-// `"`, and raw names match plain ones.
+// The value has no `"`, and raw names match plain ones.
 const key = (name, value) => (value === undefined ? name : `${name}="${value}"`)
 
 function parser(source) {
@@ -81,8 +75,6 @@ function parser(source) {
   return { expr, cfg, done: () => peek() === undefined }
 }
 
-// What `read` takes of `source`, which it has to take whole; undefined
-// where the crate errs.
 function parse(source, read) {
   try {
     const p = parser(source)
@@ -94,16 +86,15 @@ function parse(source, read) {
   }
 }
 
-// `{ name }` for a target's name, `{ expr }` for cfg(…); undefined where the
-// crate errs.
+// `{ name }` for a target, `{ expr }` for cfg(…); undefined where the crate errs.
 export function parsePlatform(source) {
   const inner = /^cfg\((.*)\)$/su.exec(text(source))?.[1]
   if (inner === undefined) return /^[\w.-]+$/u.test(source) ? { name: source, expr: undefined } : undefined
   return parse(inner, (p) => ({ name: undefined, expr: p.expr() }))
 }
 
-// One line of `rustc --print cfg`, a name or `name="value"`, as a key into a
-// set of them; undefined where the crate errs.
+// A line of `rustc --print cfg`, as a key into `target.cfg`; undefined
+// where the crate errs.
 export function parseCfg(source) {
   return parse(text(source), (p) => {
     const { name, value } = p.cfg()

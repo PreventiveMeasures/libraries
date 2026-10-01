@@ -1,11 +1,5 @@
-// A vendor directory as `cargo vendor` writes it and a directory source
-// reads it: a directory per package, named anything, holding the package's
-// Cargo.toml and a `.cargo-checksum.json`. Cargo finds a package by the
-// name and version its Cargo.toml gives, not by the directory's name, so
-// neither is taken here from the name: `serde` may hold 1.0.200 and
-// `serde-1.0.100` the other. Two directories that hold one version of one
-// package are refused, as cargo would read either; so is a vendored package
-// whose checksum is not the lockfile's, which cargo refuses.
+// Cargo finds a vendored package by the name and version its Cargo.toml
+// gives, not by its directory's name.
 
 import { parseVersion } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
@@ -16,9 +10,6 @@ import { checkName, string, table } from './shape.js'
 const SHA256 = /^[\da-f]{64}$/u
 const SEGMENT = /^(?!\.{1,2}$)[^\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}/\\]+$/u
 
-// The name and version a vendored Cargo.toml gives, and nothing else of it:
-// a published manifest inherits nothing, and has no version only where it
-// is 0.0.0.
 function identify(text, where) {
   const doc = table(parseToml(text), where)
   const pkg = doc.package ?? doc.project
@@ -31,7 +22,7 @@ function identify(text, where) {
   return { name, version }
 }
 
-// JSON with no key given twice, which JSON.parse would read as the last.
+// JSON.parse would take the last of a key given twice.
 function parseJson(text, where) {
   let value
   try {
@@ -39,7 +30,7 @@ function parseJson(text, where) {
   } catch (error) {
     throw new LockfileError(`not JSON: ${error.message}`, where)
   }
-  // Every string in the text, in turn; a key is one a colon follows.
+  // A key is a string a colon follows.
   const written = [...text.matchAll(/"(?:[^"\\]|\\.)*"(\s*:)?/gsu)].filter((m) => m[1] !== undefined).length
   const count = (item) => {
     if (typeof item !== 'object' || item === null) return 0
@@ -50,9 +41,7 @@ function parseJson(text, where) {
   return value
 }
 
-// `.cargo-checksum.json`: the checksum of the package as the lockfile has
-// it, null for a git one, and a sha256 of each file by its path; and, from
-// cargo 1.9x, a `$comment` on what the file is for.
+// `package` is null for a git source; cargo 1.9x adds a `$comment`.
 function readChecksum(text, where) {
   const value = parseJson(text, where)
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new LockfileError('expected an object', where)
@@ -70,8 +59,8 @@ function readChecksum(text, where) {
   return { checksum: value.package ?? undefined, files }
 }
 
-// `vendor` is by directory: every one a directory source reads, which is
-// every one not starting with `.` that holds a Cargo.toml.
+// `vendor`: the directories a directory source reads, every one not starting
+// with `.` that holds a Cargo.toml.
 export function readCargoVendor(lock, vendor) {
   if (typeof vendor !== 'object' || vendor === null) throw new TypeError('expected the vendor directory, by directory')
   const found = new Map()

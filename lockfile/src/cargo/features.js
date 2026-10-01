@@ -1,15 +1,8 @@
-// The features a build turns on, by cargo's feature resolver
-// (core/resolver/features.rs), over the graph linkCargo lays out. Resolver 2
-// and 3 keep apart what is built for the host (build scripts, proc-macros
-// and what they depend on) and what for the target, and leave out
-// dependencies for platforms not built for, and the roots' dev-dependencies
-// where no dev target is built. Resolver 1 does none of that: a package has
-// one set of features, unified across all of it.
-//
-// It walks only the declarations the build's own resolve turns on
-// (activate.js), as cargo's walks the graph its dependency resolver gives
-// it: less than the lockfile has where the command line asks for less than
-// every feature, and more is refused, where cargo would resolve anew.
+// Cargo's feature resolver (core/resolver/features.rs) over linkCargo's
+// graph. Resolver 2 and 3 keep host and target apart, and leave out
+// platforms not built for and dev-dependencies not built; resolver 1
+// unifies it all. It walks only what the build's own resolve turns on
+// (activate.js); more is refused, as cargo would resolve it anew.
 
 import { parseCfg, parsePlatform, platformMatches } from '../crate/cargo-platform.js'
 import { LockfileError, quote } from '../error.js'
@@ -17,15 +10,12 @@ import { checkOptions } from '../shape.js'
 import { featureValue } from './dependency.js'
 import { activate, requestsOf, setOf } from './activate.js'
 
-// What cargo's command line asks of each member it builds: `-p`, and
-// `--features`, `--all-features` and `--no-default-features` handed out as
-// cargo's Workspace::members_with_features does. A virtual workspace, or
-// resolver 2 or 3, gives each selected member the features it has,
-// `member/feature` as its own, and `dependency/feature` where it has that
-// dependency. Resolver 1 with a root package gives `--features` to the
-// package cargo runs in, which is resolved whether selected or not, and
-// `member/feature` to the other members selected, which keep their default
-// features.
+// Cargo's Workspace::members_with_features. A virtual workspace, or resolver
+// 2 or 3, gives each selected member the features it has, `member/feature`
+// and `dependency/feature`. Resolver 1 with a root package gives
+// `--features` to the current package, resolved even where not selected,
+// and `member/feature` to the other selected members, which keep their
+// default features.
 
 const SPACE = /\p{White_Space}+/u
 
@@ -40,9 +30,9 @@ function parseFeatures(features) {
   })
 }
 
-// A name's dependency as cargo's summary keeps it last: the top tables,
-// then each platform's in order, dependencies before build- and
-// dev-dependencies there.
+// The declaration of each name cargo's summary keeps last: the top tables
+// (dependencies, dev-, build-), then each platform's in order
+// (dependencies, build-, dev-).
 function lastDeclared(pkg) {
   const rank = (dep) => (dep.target === undefined ? ['normal', 'dev', 'build'] : ['normal', 'build', 'dev']).indexOf(dep.kind)
   // No platform is empty, so the top tables' '' comes first.
@@ -53,8 +43,6 @@ function lastDeclared(pkg) {
   return new Map(order.map((dep) => [dep.name, dep]))
 }
 
-// What of the command line a member takes: a feature it has, a feature of
-// a dependency it has, and `member/feature` as its own feature.
 function matching(pkg, values, found) {
   const deps = lastDeclared(pkg)
   const has = (feature) => feature in pkg.features || deps.get(feature)?.optional === true
@@ -71,8 +59,6 @@ function matching(pkg, values, found) {
   })
 }
 
-// Each member's share of `--features`, and whether it keeps its default
-// features.
 function share(graph, values, selected, options) {
   const result = new Map()
   if (graph.root === undefined || graph.resolver >= 2) {
@@ -99,10 +85,8 @@ function share(graph, values, selected, options) {
   return result
 }
 
-// By member built, the feature values it is asked for: its share of
-// `--features`, then its default features and all of them where the flags
-// say so. A dependency it lacks is refused, as cargo's resolver refuses it;
-// a feature it lacks, where the resolve comes to it.
+// A dependency a member lacks is refused here, as cargo's resolver refuses
+// it; a feature it lacks only where the resolve comes to it.
 function membersWithFeatures(graph, options) {
   const { packages } = options
   if (!Array.isArray(packages) || packages.length === 0) throw new TypeError('expected the packages built, as keys of members')
@@ -132,8 +116,8 @@ function readPlatform(value, where) {
 }
 
 // Cargo's FeatureResolver, method for method. `fk` is what a package is
-// built for, `normal` or `host`; the features found are kept by `saved(fk)`,
-// which is `normal` alone where resolver 1 unifies the two.
+// built for, `normal` or `host`; `saved(fk)` is `normal` alone where
+// resolver 1 unifies the two.
 class FeatureResolver {
   constructor(graph, targeted, options) {
     this.graph = graph
@@ -165,9 +149,6 @@ class FeatureResolver {
     return this.graph.packages[key].manifest.features
   }
 
-  // The declarations of `key` in the build for `fk`, each with what the
-  // package it resolves to is built for: those the build's resolve turns
-  // on, less what it does not build.
   deps(key, fk) {
     const list = []
     for (const dep of this.graph.packages[key].dependencies) {
@@ -178,7 +159,6 @@ class FeatureResolver {
     return list
   }
 
-  // Whether what `dep` resolves to is built for the host, from whatever.
   forHost(dep) {
     return dep.kind === 'build' || this.graph.packages[dep.resolved].manifest.procMacro
   }
@@ -190,7 +170,6 @@ class FeatureResolver {
     return this.targets.some((target) => platformMatches(platform, target))
   }
 
-  // A feature asked of a package from outside it, which it has to have.
   request(key, fk, feature, asker) {
     if (!(feature in this.features(key))) throw new LockfileError(`${quote(feature)} is asked of ${quote(key)}, which has no such feature`, asker)
     this.activateRec(key, fk, feature)
@@ -231,8 +210,7 @@ class FeatureResolver {
     }
   }
 
-  // `name/feature`, and `name?/feature`, which waits for `name` to be
-  // turned on by something else.
+  // `name?/feature` waits for something else to turn `name` on.
   activateDepFeature(key, fk, name, feature, weak) {
     for (const { dep, depFk } of this.deps(key, fk)) {
       if (dep.name !== name) continue
@@ -248,15 +226,14 @@ class FeatureResolver {
     }
   }
 
-  // A root with any proc-macro target is resolved for the host too, as
-  // cargo's resolver takes it.
+  // A root with any proc-macro target is resolved for the host too.
   kindsOf(key) {
     return this.graph.packages[key].manifest.procMacroTarget ? ['normal', 'host'] : ['normal']
   }
 
-  // And built for the host where its library is a proc-macro, and for the
-  // target too in case it has more targets; or, its library not one, where
-  // dev targets are built and one of them is, which pulls the library along.
+  // But built for the host only where its library is a proc-macro, or where
+  // dev targets are built and one is a proc-macro, which pulls the library
+  // along; and for the target too, in case it has more targets.
   builtKinds(key) {
     const { procMacro, procMacroTarget } = this.graph.packages[key].manifest
     return procMacro || (procMacroTarget && this.dev) ? ['normal', 'host'] : ['normal']
@@ -269,10 +246,8 @@ class FeatureResolver {
     }
   }
 
-  // What the build compiles, as cargo's unit graph reaches it: from
-  // `starts`, along what the build's resolve turns on and `follow` takes, for
-  // the platforms built, and to dev-dependencies only from a start's own
-  // targets, which are for the host too where it is a proc-macro.
+  // What cargo's unit graph reaches from `starts`, along what `follow` takes;
+  // dev-dependencies only from a start's own targets.
   reach(starts, follow) {
     const reached = new Map()
     const visit = (key, fk) => {
@@ -292,16 +267,10 @@ class FeatureResolver {
     return reached
   }
 
-  // From the packages built, which under resolver 1 may be fewer than the
-  // roots resolved. The resolver walks more under resolver 1, and so gives
-  // packages features that are not built; each package built has its
-  // features whatever the resolver.
-  //
-  // Where a crate the build compiles depends on one package by two names,
-  // cargo refuses to build it; that is looked for from each member's library
-  // or binary, and its tests where dev targets are built, for the host where
-  // it is a proc-macro, and not from what is listed for the target in case
-  // a proc-macro has more targets.
+  // Listed from the packages built, which under resolver 1 may be fewer than
+  // the roots resolved. Two names for one package are looked for from each
+  // member's library or binary, and its tests where dev targets are built, not
+  // from what is listed for the target in case a proc-macro has more targets.
   result(built) {
     const libraries = built.map((key) => [key, this.graph.packages[key].manifest.procMacro ? 'host' : 'normal'])
     this.reach(libraries, (key, dep) => this.checkNamed(key, dep))
@@ -314,10 +283,9 @@ class FeatureResolver {
     return result
   }
 
-  // A crate calls a package it depends on by one name, whichever of its
-  // declarations the build's resolve turns on names it, of any kind or
-  // platform: the name given, `-` read as `_`, or the library's, taken here
-  // to be the package's. Where two do not agree, cargo refuses to build it.
+  // Cargo refuses to build a crate whose declarations the build turns on, of
+  // any kind or platform, name one package two ways, `-` read as `_`. The
+  // library is taken to be named after its package.
   checkNamed(key, dep) {
     const named = (item) => item.name.replaceAll('-', '_')
     const other = this.graph.packages[key].dependencies.find((item) => this.targeted.has(item) && item.resolved === dep.resolved && named(item) !== named(dep))

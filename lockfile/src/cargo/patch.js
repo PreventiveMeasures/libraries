@@ -1,6 +1,3 @@
-// [patch], from the root's manifest and cargo's configuration: what each
-// offers, and how the lockfile accounts for each, used or unused.
-
 import { matches, parseVersion } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
 import { EMPTY } from '../shape.js'
@@ -9,26 +6,19 @@ import { ANY_REGISTRY, keyOf, parseLockSource, patchKey, patchUrl, patchedAs, so
 
 const PATH = 'path'
 
-// Whether `version` meets `requirement`, where there is one.
 export const within = (requirement, version) => requirement === undefined || matches(requirement, parseVersion(version))
 
-// Whether a package of the lockfile is from `wanted`: that very source, or
-// any registry where a registry is known by its name alone.
 export const from = (wanted, pkg) => pkg.identity === wanted || (wanted === ANY_REGISTRY && pkg.source !== undefined && !pkg.source.startsWith('git+'))
 
-// Whether `patch` offers a package of the lockfile.
 export const offers = (patch, pkg) => pkg.name === patch.package && from(patch.identity, pkg) && within(patch.requirement, pkg.version)
 
-// A package of the lockfile, or an unused entry, with its key and the
-// identity of its source.
 export const identify = (pkg, where) => ({
   ...pkg,
   key: keyOf(pkg.name, pkg.version, pkg.source),
   identity: pkg.source === undefined ? PATH : parseLockSource(pkg.source, where, false).identity,
 })
 
-// [patch] tables by the URL cargo keys each by: of two at one URL, the
-// later by key, as cargo replaces the one with the other.
+// Of two tables at one URL, cargo keeps the later by key.
 function tablesByUrl(patch, where, label) {
   const tables = new Map()
   for (const key of Object.keys(patch).toSorted()) {
@@ -39,10 +29,9 @@ function tablesByUrl(patch, where, label) {
   return tables
 }
 
-// The [patch] entries cargo reads, the config's and the root's: at a URL
-// both have a table at, the config's entries, then the root's of the names
-// it has none of. Two tables at one source by URLs that differ but for being
-// canonical cargo replaces one with the other in no set order: refused.
+// The config's tables override the root's entry by entry. Two tables for
+// one source by URLs that differ until canonical replace each other in
+// cargo in hash order, so they are refused.
 function patchEntries(root, config) {
   const tables = tablesByUrl(config?.patch ?? EMPTY, at('config', 'patch'), "the config's ")
   for (const [url, table] of tablesByUrl(root.patch, 'patch', '')) {
@@ -59,12 +48,8 @@ function patchEntries(root, config) {
   return [...tables.values()].flatMap((table) => table.entries)
 }
 
-// What each [patch] cargo reads offers: the package, from the source it
-// offers it from, of the versions its requirement takes there, as cargo
-// refuses a patch whose location has none of them; by `table`, the source it
-// patches, and by `target`, that and the package's name. Cargo refuses too a
-// patch from the source it patches, whatever the git reference; a path's
-// place only a filesystem tells.
+// A path's own location only a filesystem knows, so a path patch is never
+// refused as patching its own source.
 export function readPatches(root, config) {
   return patchEntries(root, config).map(({ key, spec, where }) => {
     const table = patchKey(key)
@@ -74,8 +59,7 @@ export function readPatches(root, config) {
   })
 }
 
-// The first of `items` that cannot have one of `slots` to itself, `fits`
-// saying which it can have, by a maximum matching of the two.
+// The first of `items` left without a slot by a maximum matching (Kuhn's).
 function unmatched(items, slots, fits) {
   const holder = slots.map(() => undefined)
   const take = (item, seen) => slots.some((slot, index) => {
@@ -88,21 +72,15 @@ function unmatched(items, slots, fits) {
   return items.find((item) => !take(item, new Set()))
 }
 
-// Cargo resolves every patch, used or not, to one package, and keeps it in
-// the lockfile: among the packages where it is used, and where not, once
-// under [[patch.unused]] for each patch it is the package of, so twice for
-// one two tables offer; and no two patches of one table resolve to one
-// package, as cargo refuses. So each patch has a package of its own, of the
-// lockfile's, which it shares with no patch of its table, or an unused
-// entry, which it shares with none; and each unused entry is a patch's, and
-// each package a dependency resolves to by a patch, `patched` by its table,
-// a patch's of that table. As a matching that takes every patch can be had,
-// and one that takes every entry and package that has to be taken, one that
-// takes both can be. And an unused entry is no package of the lockfile
-// too, unless both are by path, as two directories may hold one name's one
-// version. Patches by path are told apart by version and table, not by
-// path: which two paths are one directory, and what version each holds,
-// only a filesystem tells.
+// Cargo resolves every patch to one package, and no two patches of one table
+// to the same one. A used patch's package is among the lockfile's; an unused
+// one's is listed under [[patch.unused]] once per patch, so twice where two
+// tables offer it. So two matchings: each patch to a package of its own, per
+// table, or an unused entry; and each unused entry, and each package a
+// dependency reaches through a patch, to a patch. Where both exist, one
+// matching does both (Mendelsohn–Dulmage). Path patches are told apart by
+// version and table alone, and two directories may hold one version, so a
+// path package may be both used and unused.
 export function checkPatches(locked, unusedPatches, patches, patched) {
   const unused = unusedPatches.map((item) => identify(item, 'patch.unused'))
   const used = unused.find((item) => item.source !== undefined && locked.has(item.key))

@@ -1,11 +1,3 @@
-// A dependency as a manifest declares it: a version requirement alone, a
-// table, or `workspace = true` and what [workspace.dependencies] has under
-// its name; under [dependencies], [dev-dependencies], [build-dependencies]
-// and each [target.<platform>]'s.
-//
-// And a package's features, as cargo's feature map holds them, and the
-// values in a feature's list.
-
 import { parsePlatform } from '../crate/cargo-platform.js'
 import { parseVersionReq } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
@@ -16,14 +8,12 @@ import { differ, sourceOf } from './sources.js'
 
 export const NIGHTLY = 'which only a nightly cargo reads, is not supported'
 
-// A version requirement, by the semver crate cargo reads it with.
 export function parseRequirement(text, where) {
   const comparators = parseVersionReq(text)
   if (comparators === undefined) throw new LockfileError(`${quote(text)} is not a version requirement`, where)
   return comparators
 }
 
-// A [target.<platform>] table's platform, by the cargo-platform crate.
 function checkPlatform(text, where) {
   if (parsePlatform(text) === undefined) throw new LockfileError(`${quote(text)} is neither a target's name nor a cfg(…) cargo reads`, where)
 }
@@ -41,8 +31,6 @@ const DETAILED_REFUSED = {
 const INHERITED = ['workspace', 'features', 'default-features', 'default_features', 'optional', 'public']
 const KINDS = [['dependencies', 'normal'], ['dev-dependencies', 'dev'], ['build-dependencies', 'build']]
 
-// `dev_dependencies` for `dev-dependencies` and the like: gone in the 2024
-// edition, and ambiguous beside the other.
 export function dashed(value, where, key, edition) {
   const old = key.replaceAll('-', '_')
   if (old === key || value[old] === undefined) return value[key]
@@ -58,7 +46,6 @@ function checkUrl(value, where) {
   return url
 }
 
-// The features a dependency asks for: its own, by name.
 function readFeatures(value, where) {
   const features = optional(strings)(value, where) ?? []
   for (const [index, feature] of features.entries()) {
@@ -69,8 +56,6 @@ function readFeatures(value, where) {
   return features
 }
 
-// What one entry of a dependency table says, `workspace = true` aside: a
-// version requirement alone, or a table.
 export function readSpec(value, where, name, edition) {
   if (typeof value === 'string') {
     parseRequirement(value, where)
@@ -108,9 +93,7 @@ export function readSpec(value, where, name, edition) {
   return { package: read('package', checkName) ?? name, version, source, optional: read('optional', boolean) ?? false, defaultFeatures, features }
 }
 
-// `workspace = true`: the entry of [workspace.dependencies], with this
-// entry's features added, and optional where this entry says so. Default
-// features stay on where the workspace has them on.
+// An inheriting entry can add features, but not turn the default ones off.
 function inherit(value, where, name, context) {
   table(value, where, INHERITED)
   if (value.workspace !== true) throw refuse('true', value.workspace, at(where, 'workspace'))
@@ -145,8 +128,6 @@ function readDependencies(value, where, kind, target, context) {
   }
 }
 
-// Tables of dependencies at the top and under each [target.<platform>];
-// `workspace` is the root's [workspace], for what is inherited from it.
 export function gatherDependencies(doc, workspace, edition) {
   const context = { workspace, edition, list: [], sources: new Map() }
   const gather = (value, where, target) => {
@@ -164,8 +145,6 @@ export function gatherDependencies(doc, workspace, edition) {
   return context.list
 }
 
-// A value in a feature's list, or one asked for: `name`, `dep:name`,
-// `name/feature` or `name?/feature`.
 export function featureValue(text) {
   const slash = text.indexOf('/')
   if (slash !== -1) {
@@ -175,9 +154,8 @@ export function featureValue(text) {
   return text.startsWith('dep:') ? { dep: text.slice(4), feature: undefined, weak: false } : { dep: undefined, feature: text, weak: false }
 }
 
-// Cargo's feature map: the [features] table, and a feature for each
-// optional dependency that no feature is named after or enables by `dep:`,
-// as cargo's build_feature_map makes it and checks it.
+// As cargo's build_feature_map: an implicit feature for each optional
+// dependency that no feature is named after or enables by `dep:`.
 export function featureMap(value, where, dependencies) {
   const written = Object.create(null)
   for (const [name, list, here] of entries(value ?? EMPTY, where)) written[checkFeature(name, here)] = strings(list, here)
