@@ -36,7 +36,8 @@
 // too.
 //
 // A workspace named is-number, of the version to-regex-range asks for, is
-// linked for it, with no entry.
+// linked for it, with no entry. And a resolution of is-number to 7.0.0 is
+// recorded, but not applied to the project's own is-number@^6.0.0.
 //
 // Resolutions to a tarball are read where yarn applies them to every
 // request of what they resolve: a URL for is-even's is-odd, and a local
@@ -141,6 +142,10 @@ const LINKED = {
   'packages/is-number': { name: 'is-number', version: '7.0.0' },
 }
 
+const ROOT_RESOLUTION = {
+  '.': { name: 'root-resolution', version: '0.0.0', private: true, dependencies: { 'is-number': '^6.0.0' }, resolutions: { 'is-number': '7.0.0' } },
+}
+
 const RUNS = [
   { name: 'yarn-1.22.22', yarn: '1.22.22', manifests: WORKSPACE },
   { name: 'yarn-1.22.19', yarn: '1.22.19', manifests: WORKSPACE },
@@ -155,6 +160,7 @@ const RUNS = [
   { name: 'yarn-1.22.22-resolution-scoped', yarn: '1.22.22', manifests: SCOPED },
   { name: 'yarn-1.22.22-race', yarn: '1.22.22', manifests: RACE },
   { name: 'yarn-1.22.22-linked', yarn: '1.22.22', manifests: LINKED },
+  { name: 'yarn-1.22.22-resolution-root', yarn: '1.22.22', manifests: ROOT_RESOLUTION },
 ]
 
 function write(dir, name, content) {

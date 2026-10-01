@@ -8,12 +8,13 @@ import { semver } from './semver.js'
 // for, by directory. yarn 1.22.22 and 1.22.19 wrote one workspace that
 // pulls in every kind of dependency yarn 1 records; yarn 1.9.4, 1.22.19
 // and 1.22.22 a plain project; yarn 1.22.22 a workspace a package asks
-// for; and the last are yarn's three ways of installing something other
-// than its lockfile says, the aliases 1.22.19 merges, a resolution's
-// tarball given to a dependency it does not apply to, and two entries of
-// one name and version, beside resolutions to tarballs it applies to
-// wherever they are asked for. scripts/record-yarn1.js builds them; its
-// header says what is in them.
+// for, and a resolution the root's own dependency is not given; and the
+// last are yarn's three ways of installing something other than its
+// lockfile says, the aliases 1.22.19 merges, a resolution's tarball given
+// to a dependency it does not apply to, and two entries of one name and
+// version, beside resolutions to tarballs it applies to wherever they are
+// asked for. scripts/record-yarn1.js builds them; its header says what is
+// in them.
 
 const FIXTURES = new URL('fixtures/', import.meta.url)
 const parse = (text, manifests) => parseYarn1Lockfile(text, { manifests, semver })
@@ -119,6 +120,19 @@ describe('a workspace a package asks for, which yarn links and writes no entry f
   it('read with the manifests, and refused without, as nothing else says it is a workspace', () => {
     assert.equal(read('yarn-1.22.22-linked').packages['to-regex-range@5.0.1'].dependencies['is-number'], 'link:packages/is-number')
     assert.throws(() => parse(text('yarn-1.22.22-linked')), /"is-number@\^7\.0\.0" is not a pattern of the lockfile, nor a workspace's, as only the manifests may say$/u)
+  })
+})
+
+describe('a resolution, which yarn applies to no dependency of the root\'s own', () => {
+  it('recorded apart from the project\'s is-number@^6.0.0, which keeps 6.0.0', () => {
+    const { packages, importers } = read('yarn-1.22.22-resolution-root')
+    assert.equal(importers['.'].dependencies['is-number'], 'is-number@^6.0.0')
+    assert.deepEqual([packages['is-number@^6.0.0'].version, packages['is-number@7.0.0'].version], ['6.0.0', '7.0.0'])
+  })
+
+  it('refused where the resolution is given to it all the same', () => {
+    const merged = text('yarn-1.22.22-resolution-root').replace(/\n\nis-number@\^6\.0\.0:\n[^]*$/u, '\n').replace('is-number@7.0.0:', 'is-number@7.0.0, is-number@^6.0.0:')
+    assert.throws(() => parse(merged, manifests('yarn-1.22.22-resolution-root')), { message: '["is-number@^6.0.0"]: 7.0.0 does not satisfy "^6.0.0", and no resolution gives it' })
   })
 })
 

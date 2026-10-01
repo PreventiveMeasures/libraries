@@ -1,0 +1,13 @@
+{
+  ".": {
+    "name": "root-resolution",
+    "version": "0.0.0",
+    "private": true,
+    "dependencies": {
+      "is-number": "^6.0.0"
+    },
+    "resolutions": {
+      "is-number": "7.0.0"
+    }
+  }
+}
