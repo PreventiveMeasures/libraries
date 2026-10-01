@@ -13,7 +13,8 @@
 import { LockfileError, at, quote } from '../error.js'
 import { featureValue } from './dependency.js'
 import { ANY_REGISTRY, parseLockSource, patchKey, patchUrl, patchedAs, sourceIdentity } from './lock.js'
-import { matches, parseRequirement, parseVersion } from './syntax.js'
+import { matches, parseVersion } from '../crate/semver.js'
+import { parseRequirement } from './syntax.js'
 
 const PATH = 'path'
 

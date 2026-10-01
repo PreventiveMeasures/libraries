@@ -7,6 +7,7 @@
 // values in a feature's list.
 
 import { LockfileError, at, quote } from '../error.js'
+import { EMPTY } from '../shape.js'
 import { isTable } from '../toml/value.js'
 import { ANY_REGISTRY, sourceIdentity } from './lock.js'
 import { boolean, checkFeature, checkName, entries, optional, refuse, string, strings, table } from './shape.js'
@@ -178,7 +179,7 @@ export function gatherDependencies(doc, workspace, edition) {
     }
   }
   gather(doc, undefined, undefined)
-  for (const [platform, value, here] of entries(doc.target ?? Object.create(null), 'target')) {
+  for (const [platform, value, here] of entries(doc.target ?? EMPTY, 'target')) {
     parsePlatform(platform, here)
     table(value, here, KINDS.flatMap(([key]) => [key, key.replaceAll('-', '_')]))
     gather(value, here, platform)
@@ -202,7 +203,7 @@ export function featureValue(text) {
 // as cargo's build_feature_map makes it and checks it.
 export function featureMap(value, where, dependencies) {
   const written = Object.create(null)
-  for (const [name, list, here] of entries(value ?? Object.create(null), where)) written[checkFeature(name, here)] = strings(list, here)
+  for (const [name, list, here] of entries(value ?? EMPTY, where)) written[checkFeature(name, here)] = strings(list, here)
   const optionalDep = new Map()
   for (const dep of dependencies) optionalDep.set(dep.name, (optionalDep.get(dep.name) ?? false) || dep.optional)
   const values = Object.values(written).flat().map(featureValue)

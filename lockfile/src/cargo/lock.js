@@ -9,8 +9,8 @@
 // drops a dependency it cannot find that way, or finds two of; here either
 // is refused.
 
+import { parseVersion } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
-import { isVersion } from '../names.js'
 import { parseToml } from '../toml/parse.js'
 import { array, checkName, kind, optional, string, strings, table } from './shape.js'
 
@@ -132,7 +132,7 @@ function readPackage(value, where, fields = PACKAGE) {
   table(value, where, fields, PACKAGE_REFUSED)
   const name = checkName(value.name, at(where, 'name'))
   const version = string(value.version, at(where, 'version'))
-  if (!isVersion(version)) throw new LockfileError(`${quote(version)} is not a version`, at(where, 'version'))
+  if (parseVersion(version) === undefined) throw new LockfileError(`${quote(version)} is not a version`, at(where, 'version'))
   const source = optional(string)(value.source, at(where, 'source'))
   const parsed = source === undefined ? undefined : parseLockSource(source, at(where, 'source'), false)
   const checksum = optional(string)(value.checksum, at(where, 'checksum'))

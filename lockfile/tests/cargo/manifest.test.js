@@ -178,7 +178,7 @@ describe('parseCargoManifest', () => {
     ['a tag and a branch both', edit(ROOT, 'tag = "1.0.0"', 'tag = "1.0.0", branch = "main"'), 'dependencies.regex: ambiguous: only one of `branch`, `tag` or `rev` is taken'],
     ['a branch without git', edit(ROOT, 'cc = "1"', 'cc = { version = "1", branch = "main" }'), '["build-dependencies"].cc.branch: `branch` is only for a git dependency'],
     ['a git URL with a fragment', edit(ROOT, 'regex", tag', 'regex#abc", tag'), 'dependencies.regex.git: "https://github.com/rust-lang/regex#abc" has a query or a fragment, which cargo drops or misreads'],
-    ['a version requirement cargo refuses', edit(ROOT, 'cc = "1"', 'cc = ">=1 <2"'), '["build-dependencies"].cc: ">=1 <2" is not a version requirement: unexpected "<"'],
+    ['a version requirement cargo refuses', edit(ROOT, 'cc = "1"', 'cc = ">=1 <2"'), '["build-dependencies"].cc: ">=1 <2" is not a version requirement'],
     ['a dependency key it does not know', edit(ROOT, 'cc = "1"', 'cc = { version = "1", vesion = "2" }'), '["build-dependencies"].cc: unsupported key "vesion"'],
     ['an artifact dependency', edit(ROOT, 'cc = "1"', 'cc = { version = "1", artifact = "bin" }'), '["build-dependencies"].cc.artifact: an artifact dependency, which only a nightly cargo reads, is not supported'],
     ['a path base', edit(ROOT, 'cc = "1"', 'cc = { path = "cc", base = "b" }'), '["build-dependencies"].cc.base: a path base, which only a nightly cargo reads, is not supported'],

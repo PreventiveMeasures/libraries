@@ -10,8 +10,9 @@
 // what cargo refuses in a manifest it reads without a filesystem: a feature
 // that names nothing, a dependency with two sources.
 
+import { parseVersion } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
-import { isVersion } from '../names.js'
+import { EMPTY } from '../shape.js'
 import { parseToml } from '../toml/parse.js'
 import { isTable } from '../toml/value.js'
 import { NIGHTLY, dashed, featureMap, gatherDependencies, readSpec } from './dependency.js'
@@ -44,7 +45,7 @@ const EDITIONS = ['2015', '2018', '2021', '2024']
 const RESOLVERS = { __proto__: null, 1: 1, 2: 2, 3: 3 }
 
 function readVersion(value, where) {
-  if (!isVersion(string(value, where))) throw new LockfileError(`${quote(value)} is not a version`, where)
+  if (parseVersion(string(value, where)) === undefined) throw new LockfileError(`${quote(value)} is not a version`, where)
   return value
 }
 
@@ -81,7 +82,7 @@ function readWorkspace(value) {
   if (pkg.version !== undefined) readVersion(pkg.version, 'workspace.package.version')
   if (pkg.edition !== undefined) readEdition(pkg.edition, 'workspace.package.edition')
   const dependencies = Object.create(null)
-  for (const [name, item, here] of entries(value.dependencies ?? Object.create(null), 'workspace.dependencies')) {
+  for (const [name, item, here] of entries(value.dependencies ?? EMPTY, 'workspace.dependencies')) {
     checkName(name, here)
     const spec = readSpec(item, here, name)
     if (spec.optional) throw new LockfileError('a workspace dependency cannot be optional', here)
@@ -100,7 +101,7 @@ function readWorkspace(value) {
 
 function readPatch(value) {
   const patch = Object.create(null)
-  for (const [key, deps, here] of entries(value ?? Object.create(null), 'patch')) {
+  for (const [key, deps, here] of entries(value ?? EMPTY, 'patch')) {
     patch[key] = Object.create(null)
     for (const [name, item, there] of entries(deps, here)) patch[key][checkName(name, there)] = readSpec(item, there, name)
   }

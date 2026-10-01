@@ -7,8 +7,8 @@
 // package are refused, as cargo would read either; so is a vendored package
 // whose checksum is not the lockfile's, which cargo refuses.
 
+import { parseVersion } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
-import { isVersion } from '../names.js'
 import { parseToml } from '../toml/parse.js'
 import { isTable } from '../toml/value.js'
 import { checkName, string, table } from './shape.js'
@@ -27,7 +27,7 @@ function identify(text, where) {
   const name = checkName(pkg.name, at(here, 'name'))
   if (isTable(pkg.version)) throw new LockfileError('a vendored package inherits nothing from a workspace', at(here, 'version'))
   const version = pkg.version === undefined ? '0.0.0' : string(pkg.version, at(here, 'version'))
-  if (!isVersion(version)) throw new LockfileError(`${quote(version)} is not a version`, at(here, 'version'))
+  if (parseVersion(version) === undefined) throw new LockfileError(`${quote(version)} is not a version`, at(here, 'version'))
   return { name, version }
 }
 

@@ -2,11 +2,13 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { LockfileError } from '../../cargo.js'
-import { matches, parseCfg, parsePlatform, parseRequirement, parseVersion, platformMatches } from '../../src/cargo/syntax.js'
+import { matches, parseVersion } from '../../rust-semver.js'
+import { parseCfg, parsePlatform, parseRequirement, platformMatches } from '../../src/cargo/syntax.js'
 
 // Version requirements and platforms, against what the semver and
 // cargo-platform crates cargo reads them with make of each, from
-// scripts/record-cargo.js: null where the crate refuses one.
+// scripts/record-cargo.js: null where the crate refuses one. Requirements
+// are read by the semver port rust-semver.js shares, as cargo writes them.
 
 const oracle = JSON.parse(readFileSync(new URL('fixtures/oracle.json', import.meta.url), 'utf8'))
 
@@ -23,13 +25,14 @@ describe('version requirements, as the semver crate reads them', () => {
     })
   }
 
-  it('refuses a number past 2^53, where the crate reads up to 2^64', () => {
-    assert.throws(() => parseRequirement('9007199254740992', 'here'), /is past 2\^53/u)
+  it('reads a number up to 2^64 - 1, as the crate does', () => {
+    assert.equal(parseRequirement('18446744073709551615', 'here')[0].major, 18446744073709551615n)
+    assert.throws(() => parseRequirement('18446744073709551616', 'here'), LockfileError)
   })
 
   it('says where a requirement is', () => {
     assert.throws(() => parseRequirement('>=1 <2', 'dependencies.a.version'), {
-      message: 'dependencies.a.version: ">=1 <2" is not a version requirement: unexpected "<"',
+      message: 'dependencies.a.version: ">=1 <2" is not a version requirement',
     })
   })
 })
