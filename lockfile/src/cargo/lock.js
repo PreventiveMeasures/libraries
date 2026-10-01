@@ -128,7 +128,7 @@ function checkVersion(value, where) {
 
 // The key a package goes by: how a lockfile names it in full, `name
 // version` for a path package and `name version (source)` for any other.
-const keyOf = (name, version, source) => (source === undefined ? `${name} ${version}` : `${name} ${version} (${source})`)
+export const keyOf = (name, version, source) => (source === undefined ? `${name} ${version}` : `${name} ${version} (${source})`)
 
 function readPackage(value, where, fields = PACKAGE) {
   table(value, where, fields, PACKAGE_REFUSED)

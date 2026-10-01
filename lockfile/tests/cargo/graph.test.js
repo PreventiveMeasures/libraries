@@ -215,7 +215,7 @@ describe('linkCargo with an unused [patch]', () => {
     const root = parseCargoManifest(`[package]\nname = "app"\nversion = "0.1.0"\n${patch === null ? '' : `\n[patch.crates-io]\nx = ${patch}\n`}`)
     return linkCargo(lock, { 'app 0.1.0': root }, { workspace: root, members: ['app 0.1.0'] })
   }
-  const missing = refusedWith('patch["crates-io"].x: the lockfile has no package this patch offers, used or unused: is it out of date?')
+  const missing = refusedWith('patch["crates-io"].x: the lockfile has no package of its own this patch offers, used or unused: is it out of date?')
   const stray = 'patch.unused: the lockfile lists "x 1.0.0" unused where no [patch] does: is it out of date?'
 
   it('takes a patch the lockfile lists unused, of a version its requirement takes', () => {
@@ -246,6 +246,55 @@ describe('linkCargo with an unused [patch]', () => {
     const loose = parseCargoManifest('[package]\nname = "app"\nversion = "0.1.0"\n\n[patch.crates-io]\nx = { path = "x" }\n\n[patch."https://example.com/x"]\nx = { path = "y", version = "=1.0.0" }\n')
     const both = lock('', '\n[[patch.unused]]\nname = "x"\nversion = "1.0.0"\n\n[[patch.unused]]\nname = "x"\nversion = "2.0.0"\n')
     assert.deepEqual(Object.keys(check(both, loose).packages), ['app 0.1.0'])
+  })
+})
+
+// Patches of one name, each with a package of its own: two in one table,
+// which cargo resolves to two packages, using the one and listing the other
+// unused; a member beside an unused patch of its name and version, which
+// cargo lists both ways; and what a lockfile out of date has instead.
+describe('linkCargo with [patch]es of one name', () => {
+  const lock = (packages, entries = '') => parseCargoLock(`version = 4\n[[package]]\nname = "app"\nversion = "0.1.0"\n${packages}${entries}`)
+  const entry = (version, source) => `\n[[patch.unused]]\nname = "foo"\nversion = "${version}"\n${source === undefined ? '' : `source = "${source}"\n`}`
+  const foo = (version) => parseCargoManifest(`[package]\nname = "foo"\nversion = "${version}"\n`)
+  const check = (lockfile, text, extra, members = []) => {
+    const root = parseCargoManifest(`[package]\nname = "app"\nversion = "0.1.0"\n${text}`)
+    return linkCargo(lockfile, { 'app 0.1.0': root, ...extra }, { workspace: root, members: ['app 0.1.0', ...members] })
+  }
+  const used = (version) => `dependencies = ["foo"]\n[[package]]\nname = "foo"\nversion = "${version}"\n`
+  const two = '\n[dependencies]\nfoo = "1"\n\n[patch.crates-io]\nfoo = { path = "foo1" }\nfoo2 = { path = "foo2", package = "foo" }\n'
+
+  it('takes one package for each of two patches in one table, used or unused', () => {
+    assert.deepEqual(Object.keys(check(lock(used('1.0.0'), entry('2.0.0')), two, { 'foo 1.0.0': foo('1.0.0') }).packages), ['app 0.1.0', 'foo 1.0.0'])
+    const missing = 'patch["crates-io"].foo2: the lockfile has no package of its own this patch offers, used or unused: is it out of date?'
+    assert.throws(() => check(lock(used('1.0.0')), two, { 'foo 1.0.0': foo('1.0.0') }), refusedWith(missing))
+  })
+
+  it('takes an unused patch of the name and version of a path package', () => {
+    const text = '\n[dependencies]\nfoo = { path = "foo" }\n\n[patch.crates-io]\nfoo = { path = "vendor/foo" }\n'
+    const graph = check(lock(used('1.0.0'), entry('1.0.0')), text, { 'foo 1.0.0': foo('1.0.0') }, ['foo 1.0.0'])
+    assert.deepEqual(Object.keys(graph.packages), ['app 0.1.0', 'foo 1.0.0'])
+  })
+
+  it('refuses a package of another source listed unused too', () => {
+    const git = 'git+https://example.com/foo'
+    const commit = `${git}#${'0'.repeat(40)}`
+    const text = '\n[dependencies]\nfoo = { git = "https://example.com/foo" }\n\n[patch."https://example.com/other"]\nfoo = { git = "https://example.com/foo" }\n'
+    const packages = `${used('1.0.0')}source = "${commit}"\n`
+    const extra = { [`foo 1.0.0 (${commit})`]: foo('1.0.0') }
+    assert.deepEqual(Object.keys(check(lock(packages), text, extra).packages), ['app 0.1.0', `foo 1.0.0 (${commit})`])
+    assert.throws(() => check(lock(packages, entry('1.0.0', commit)), text, extra), refusedWith(`patch.unused: the lockfile lists "foo 1.0.0 (${commit})" unused, and among its packages: is it out of date?`))
+  })
+
+  // One patch, whose package a dependency resolves to, cannot be another's.
+  it('refuses a patch used and listed unused, or used for two packages', () => {
+    const one = '\n[dependencies]\nfoo = "1"\n\n[patch.crates-io]\nfoo = { path = "foo" }\n'
+    const stray = 'patch.unused: the lockfile lists "foo 3.0.0" unused where no [patch] does: is it out of date?'
+    assert.throws(() => check(lock(used('1.0.0'), entry('3.0.0')), one, { 'foo 1.0.0': foo('1.0.0') }), refusedWith(stray))
+    const both = '\n[dependencies]\nfoo = "1"\nfoo2 = { package = "foo", version = "2" }\n\n[patch.crates-io]\nfoo = { path = "foo" }\n'
+    const packages = 'dependencies = ["foo 1.0.0", "foo 2.0.0"]\n[[package]]\nname = "foo"\nversion = "1.0.0"\n[[package]]\nname = "foo"\nversion = "2.0.0"\n'
+    const message = 'foo 2.0.0: a dependency resolves to it by a [patch], and no patch is left that offers it: is the lockfile out of date?'
+    assert.throws(() => check(lock(packages), both, { 'foo 1.0.0': foo('1.0.0'), 'foo 2.0.0': foo('2.0.0') }), refusedWith(message))
   })
 })
 

@@ -14,7 +14,7 @@ import { matches, parseVersion } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
 import { EMPTY, checkOptions } from '../shape.js'
 import { featureValue, parseRequirement } from './dependency.js'
-import { ANY_REGISTRY, parseLockSource, patchKey, patchUrl, patchedAs, sourceIdentity } from './lock.js'
+import { ANY_REGISTRY, keyOf, parseLockSource, patchKey, patchUrl, patchedAs, sourceIdentity } from './lock.js'
 
 const PATH = 'path'
 
@@ -71,39 +71,61 @@ function patchEntries(root, config) {
 
 // What a [patch] offers: the package, from the source it offers it from, of
 // the versions its requirement takes there, as cargo refuses a patch whose
-// location has none of them; by `target`, the source it patches and the
-// package's name. Cargo refuses too a patch from the source it patches,
-// whatever the git reference; a path's place only a filesystem tells.
+// location has none of them; by `table`, the source it patches, and by
+// `target`, that and the package's name. Cargo refuses too a patch from the
+// source it patches, whatever the git reference; a path's place only a
+// filesystem tells.
 function readPatches(entries) {
   return entries.map(({ key, spec, where }) => {
-    if (patchedAs(spec.source) === patchKey(key)) throw new LockfileError('patches its source with itself, which cargo refuses', where)
+    const table = patchKey(key)
+    if (patchedAs(spec.source) === table) throw new LockfileError('patches its source with itself, which cargo refuses', where)
     const requirement = spec.version === undefined ? undefined : parseRequirement(spec.version, where)
-    return { target: `${patchKey(key)} ${spec.package}`, package: spec.package, identity: sourceIdentity(spec.source, PATH), requirement, where }
+    return { table, target: `${table} ${spec.package}`, package: spec.package, identity: sourceIdentity(spec.source, PATH), requirement, where }
   })
 }
 
-// Cargo resolves every patch, used or not, and keeps in the lockfile the
-// package of each: among the packages where it is used, and where not, once
-// under [[patch.unused]] for each patch that offers it, so twice for one
-// two tables offer. So each patch is used, or takes an unused entry of its
-// own, and none is left over.
-function checkPatches(locked, unusedPatches, patches) {
-  const unused = unusedPatches.map((item) => identify(item, 'patch.unused'))
-  // Which patch takes each entry, matched so that a patch taking any entry
-  // of its version leaves another patch the one it alone can take.
-  const taker = unused.map(() => undefined)
-  const take = (patch, seen) => unused.some((item, index) => {
-    if (seen.has(index) || !offers(patch, item)) return false
+// The first of `items` that cannot have one of `slots` to itself, `fits`
+// saying which it can have, by a maximum matching of the two.
+function unmatched(items, slots, fits) {
+  const holder = slots.map(() => undefined)
+  const take = (item, seen) => slots.some((slot, index) => {
+    if (seen.has(index) || !fits(item, slot)) return false
     seen.add(index)
-    if (taker[index] !== undefined && !take(taker[index], seen)) return false
-    taker[index] = patch
+    if (holder[index] !== undefined && !take(holder[index], seen)) return false
+    holder[index] = item
     return true
   })
+  return items.find((item) => !take(item, new Set()))
+}
+
+// Cargo resolves every patch, used or not, to one package, and keeps it in
+// the lockfile: among the packages where it is used, and where not, once
+// under [[patch.unused]] for each patch it is the package of, so twice for
+// one two tables offer; and no two patches of one table resolve to one
+// package, as cargo refuses. So each patch has a package of its own, of the
+// lockfile's, which it shares with no patch of its table, or an unused
+// entry, which it shares with none; and each unused entry is a patch's, and
+// each package a dependency resolves to by a patch, `patched` by its table,
+// a patch's of that table. As a matching that takes every patch can be had,
+// and one that takes every entry and package that has to be taken, one that
+// takes both can be. And an unused entry is no package of the lockfile
+// too, unless both are by path, as two directories may hold one name's one
+// version. Patches by path are told apart by version and table, not by
+// path: which two paths are one directory, and what version each holds,
+// only a filesystem tells.
+function checkPatches(locked, unusedPatches, patches, patched) {
+  const unused = unusedPatches.map((item) => identify(item, 'patch.unused'))
+  const used = unused.find((item) => item.source !== undefined && locked.has(keyOf(item.name, item.version, item.source)))
+  if (used !== undefined) throw new LockfileError(`the lockfile lists ${quote(keyOf(used.name, used.version, used.source))} unused, and among its packages: is it out of date?`, 'patch.unused')
+  const slots = new Map()
   for (const patch of patches) {
-    if ([...locked.values()].some((pkg) => offers(patch, pkg))) continue
-    if (!take(patch, new Set())) throw new LockfileError('the lockfile has no package this patch offers, used or unused: is it out of date?', patch.where)
+    for (const [key, pkg] of locked) if (offers(patch, pkg)) slots.set(`${patch.table} ${key}`, { ...pkg, key, table: patch.table })
   }
-  const stray = unused.find((item, index) => taker[index] === undefined)
+  const fits = (patch, slot) => (slot.table === undefined || slot.table === patch.table) && offers(patch, slot)
+  const lost = unmatched(patches, [...slots.values(), ...unused], fits)
+  if (lost !== undefined) throw new LockfileError('the lockfile has no package of its own this patch offers, used or unused: is it out of date?', lost.where)
+  const stray = unmatched([...[...patched].map((slot) => slots.get(slot)), ...unused], patches, (slot, patch) => fits(patch, slot))
+  if (stray?.table !== undefined) throw new LockfileError('a dependency resolves to it by a [patch], and no patch is left that offers it: is the lockfile out of date?', stray.key)
   if (stray !== undefined) throw new LockfileError(`the lockfile lists ${quote(`${stray.name} ${stray.version}`)} unused where no [patch] does: is it out of date?`, 'patch.unused')
 }
 
@@ -131,10 +153,12 @@ function checkLinks(packages) {
 
 // Each package of the lockfile with its manifest, and each declaration with
 // the package it resolves to, where the lockfile's edges from the package
-// leave it one, and by `ambiguous` the declarations they leave more.
+// leave it one; by `ambiguous` the declarations they leave more, and by
+// `patched` those resolved by a [patch], with the table's and package's key.
 function linkPackages(lock, manifests, members, context) {
   const packages = Object.create(null)
   const ambiguous = new Map()
+  const patched = new Map()
   for (const [key, pkg] of Object.entries(lock.packages)) {
     const manifest = manifests[key]?.package
     if (manifest === undefined) throw new LockfileError('no manifest of this package is given', key)
@@ -144,13 +168,14 @@ function linkPackages(lock, manifests, members, context) {
     const member = members.includes(key)
     const dependencies = manifest.dependencies.map((dep, index) => {
       const found = member || dep.kind !== 'dev' ? candidates(dep, key, context, at(at(key, 'dependencies'), String(index))) : []
-      const linked = { ...dep, resolved: found.length === 1 ? found[0] : undefined, active: false }
-      if (found.length > 1) ambiguous.set(linked, found)
+      const linked = { ...dep, resolved: found.length === 1 ? found[0].key : undefined, active: false }
+      if (found.length > 1) ambiguous.set(linked, found.map((item) => item.key))
+      if (found.length === 1 && found[0].slot !== undefined) patched.set(linked, found[0].slot)
       return linked
     })
     packages[key] = { name: pkg.name, version: pkg.version, source: pkg.source, checksum: pkg.checksum, manifest, dependencies }
   }
-  return { packages, ambiguous }
+  return { packages, ambiguous, patched }
 }
 
 // Each of the lockfile's edges a declaration turned on, and so each package
@@ -180,7 +205,7 @@ export function linkCargo(lock, manifests, options) {
   if (rootKey !== undefined && !members.includes(rootKey)) throw new LockfileError(`the root package ${quote(rootKey)} is not among the members`, 'members')
   const locked = new Map(Object.entries(lock.packages).map(([key, pkg]) => [key, identify(pkg, key)]))
   const patches = readPatches(patchEntries(root, config))
-  const { packages, ambiguous } = linkPackages(lock, manifests, members, { locked, patches: Map.groupBy(patches, (patch) => patch.target) })
+  const { packages, ambiguous, patched } = linkPackages(lock, manifests, members, { locked, patches: Map.groupBy(patches, (patch) => patch.target) })
   // The lockfile resolves what every feature of every member turns on.
   const roots = new Map(members.map((key) => [key, Object.keys(packages[key].manifest.features).map(featureValue)]))
   const why = (dep, key) => {
@@ -192,20 +217,24 @@ export function linkCargo(lock, manifests, options) {
   for (const dep of activate(packages, roots, why)) dep.active = true
   checkActive(lock, packages, members)
   checkLinks(packages)
-  checkPatches(locked, lock.unusedPatches, patches)
+  const slots = Object.values(packages).flatMap((pkg) => pkg.dependencies.filter((dep) => dep.active && patched.has(dep)).map((dep) => patched.get(dep)))
+  checkPatches(locked, lock.unusedPatches, patches, new Set(slots))
   return { resolver: resolverOf(root), root: rootKey, members: [...members], packages }
 }
 
 // The packages among the lockfile's edges from `key` that `dep` could be:
-// by name, by the requirement, and by source, a [patch] of the name aside.
+// by name, by the requirement, and by source, a [patch] of the name aside;
+// each by its key, and where it is a patch's, the table's and its key.
 function candidates(dep, key, { locked, patches }, where) {
   const requirement = dep.version === undefined ? undefined : parseRequirement(dep.version, where)
   const wanted = sourceIdentity(dep.source, locked.get(key).identity)
-  const offered = patches.get(`${patchedAs(dep.source)} ${dep.package}`) ?? []
-  return locked.get(key).dependencies.filter((edge) => {
+  const table = patchedAs(dep.source)
+  const offered = patches.get(`${table} ${dep.package}`) ?? []
+  return locked.get(key).dependencies.flatMap((edge) => {
     const pkg = locked.get(edge)
-    if (pkg.name !== dep.package || !within(requirement, pkg.version)) return false
-    return from(wanted, pkg) || offered.some((patch) => offers(patch, pkg))
+    if (pkg.name !== dep.package || !within(requirement, pkg.version)) return []
+    if (from(wanted, pkg)) return [{ key: edge, slot: undefined }]
+    return offered.some((patch) => offers(patch, pkg)) ? [{ key: edge, slot: `${table} ${edge}` }] : []
   })
 }
 

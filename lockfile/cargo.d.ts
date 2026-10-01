@@ -184,15 +184,18 @@ export interface CargoVendored {
 // source, [patch] aside; so does this, and refuses a declaration two
 // packages could be, one the lockfile does not resolve where cargo's
 // resolver would, an edge no declaration is, a package no member depends
-// on, directly or not, a [patch] it has no package of, used or unused: a
-// lockfile out of date with its manifests. So is what cargo refuses: two
-// members of one name, two packages linking one native library, a feature
-// a declaration asks of a package that has no such feature, a [patch]
-// whose location has no version its requirement takes, a [patch] from the
-// source it patches. And, as cargo would read either, two [patch] tables
-// for one source by URLs that differ but for being canonical; of two at
-// one URL, `crates-io` and crates.io's index, the later by key is read, as
-// cargo reads it.
+// on, directly or not; a [patch] with no package of its own, used or
+// unused, as no two of one table resolve to one package, an unused entry
+// no [patch] has, a package a declaration resolves to by a [patch] that no
+// [patch] is left to offer, a package of a source not a path listed unused
+// too: a lockfile out of date with its manifests. So is what cargo
+// refuses: two members of one name, two packages linking one native
+// library, a feature a declaration asks of a package that has no such
+// feature, a [patch] whose location has no version its requirement takes,
+// a [patch] from the source it patches. And, as cargo would read either,
+// two [patch] tables for one source by URLs that differ but for being
+// canonical; of two at one URL, `crates-io` and crates.io's index, the
+// later by key is read, as cargo reads it.
 export function linkCargo(lock: CargoLockfile, manifests: Record<string, CargoManifest>, options: { workspace: CargoManifest, members: string[], config?: CargoConfig }): CargoGraph
 
 export interface CargoGraph {
