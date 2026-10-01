@@ -71,6 +71,8 @@ function treeId(dir) {
 
 const EMPTY_TREE = objectId('tree', Buffer.alloc(0)).toString('hex')
 const isName = matches(/^[^\0/]+$/u)
+const isEntry = (entry) => isName(entry?.path) && isSha1(entry.sha)
+const nameOf = (path) => Buffer.from(path).toString('latin1')
 const subtree = (sha) => ({ mode: '40000', id: Buffer.from(sha, 'hex') })
 
 // A subtree with nothing in it but subtrees like it, down to the empty
@@ -163,8 +165,8 @@ export async function gitTreeOfTarball(gzipped, { expected, list } = {}) {
   }
   if (top === undefined) return 'no tree: an empty tarball'
   const listed = async (sha) => (list && isSha1(sha) ? await list(sha) : [])
-    .filter((entry) => isName(entry?.path) && isSha1(entry.sha))
-    .map((entry) => ({ ...entry, name: Buffer.from(entry.path).toString('latin1') }))
+    .filter(isEntry)
+    .map((entry) => ({ ...entry, name: nameOf(entry.path) }))
   for (const [dir, name, path] of emptyDirs(root)) {
     let sha = expected
     const parts = path.split('/')
@@ -186,7 +188,7 @@ const LISTED = new Set(['100644 blob', '100755 blob', '120000 blob', '040000 tre
 // { path, mode, type, sha }, or null where one is not an entry a tree can
 // hold, or a name is there twice.
 export function gitTreeOfListing(entries) {
-  if (!entries.every((entry) => isName(entry?.path) && LISTED.has(`${entry.mode} ${entry.type}`) && isSha1(entry.sha))) return null
-  const dir = new Map(entries.map(({ path, mode, sha }) => [Buffer.from(path).toString('latin1'), { mode: mode.replace(/^0/u, ''), id: Buffer.from(sha, 'hex') }]))
+  if (!entries.every((entry) => isEntry(entry) && LISTED.has(`${entry.mode} ${entry.type}`))) return null
+  const dir = new Map(entries.map(({ path, mode, sha }) => [nameOf(path), { mode: mode.replace(/^0/u, ''), id: Buffer.from(sha, 'hex') }]))
   return dir.size === entries.length ? treeId(dir).toString('hex') : null
 }

@@ -84,19 +84,20 @@ async function treeTarball(method, headers, repo, tree) {
   return await verifiedDownload({ method, dir: 'github/trees', what: tree, ext: 'tgz', algorithm: 'tree', expected: tree, locate, options: { headers, redirect: 'follow' }, list })
 }
 
-// A full sha only, so what is read is that commit's, not wherever a ref
-// points now.
 async function commitTree(method, headers, repo, sha) {
   const commit = await call(headers, repoApi(repo, ['git', 'commits', sha]))
   assert.ok(commit?.sha === sha && isSha1(commit.tree?.sha), `${method}: GitHub names no tree for ${repo}@${sha}`)
   return commit.tree.sha
 }
 
-// Its tree's tarball, not its own, in which `git archive` rewrites the
+// A full sha only, so the bytes are that commit's, not wherever a ref points
+// now. Its tree's tarball, not its own, in which `git archive` rewrites the
 // files marked `export-subst`.
 async function getRepoTarball(headers, options) {
   assertArgs('getRepoTarball', options, { repo: assertRepo, sha: assertSha })
-  return await treeTarball('getRepoTarball', headers, options.repo, await commitTree('getRepoTarball', headers, options.repo, options.sha))
+  const { repo, sha } = options
+  const tree = await commitTree('getRepoTarball', headers, repo, sha)
+  return await treeTarball('getRepoTarball', headers, repo, tree)
 }
 
 async function getRepoTreeTarball(headers, options) {
@@ -104,15 +105,13 @@ async function getRepoTreeTarball(headers, options) {
   return await treeTarball('getRepoTreeTarball', headers, options.repo, options.tree)
 }
 
-// One directory's listing, held to the tree's id, so nothing in it is left
-// out or changed: a recursive one of a large tree is cut short.
+// Not recursive: GitHub cuts short a recursive listing of a large tree.
 async function listTree(method, headers, repo, tree) {
   const entries = (await call(headers, repoApi(repo, ['git', 'trees', tree])))?.tree
   assert.ok(Array.isArray(entries) && gitTreeOfListing(entries) === tree, `${method}: GitHub's listing of tree ${tree} in ${repo} is not that tree`)
   return entries.map(({ path, mode, type, sha }) => ({ path, mode, type, sha }))
 }
 
-// From the commit's tree down `path`, a listing at a time.
 async function treeAt(method, headers, options) {
   assertArgs(method, options, { repo: assertRepo, sha: assertSha, path: optional(assertPath) })
   const { repo, sha, path } = options
