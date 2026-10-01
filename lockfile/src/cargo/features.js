@@ -173,10 +173,14 @@ class FeatureResolver {
     for (const dep of this.graph.packages[key].dependencies) {
       if (!this.targeted.has(dep) || (dep.kind === 'dev' && this.decoupleDev)) continue
       if (dep.target !== undefined && this.ignoreInactive && !this.activeFor(dep, fk)) continue
-      const hostDep = fk !== 'host' && this.trackForHost && (dep.kind === 'build' || this.graph.packages[dep.resolved].manifest.procMacro)
-      list.push({ dep, depFk: hostDep ? 'host' : fk })
+      list.push({ dep, depFk: this.trackForHost && this.forHost(dep) ? 'host' : fk })
     }
     return list
+  }
+
+  // Whether what `dep` resolves to is built for the host, from whatever.
+  forHost(dep) {
+    return dep.kind === 'build' || this.graph.packages[dep.resolved].manifest.procMacro
   }
 
   activeFor(dep, fk) {
@@ -282,7 +286,7 @@ class FeatureResolver {
         if (!this.targeted.has(dep) || (dep.optional && !on?.has(dep.name))) continue
         if (dep.kind === 'dev' && !(this.dev && own.has(`${fk} ${key}`))) continue
         if (dep.target !== undefined && this.host !== undefined && !this.activeFor(dep, fk)) continue
-        if (follow(key, dep)) visit(dep.resolved, fk === 'host' || dep.kind === 'build' || this.graph.packages[dep.resolved].manifest.procMacro ? 'host' : 'normal')
+        if (follow(key, dep)) visit(dep.resolved, fk === 'host' || this.forHost(dep) ? 'host' : 'normal')
       }
     }
     return reached

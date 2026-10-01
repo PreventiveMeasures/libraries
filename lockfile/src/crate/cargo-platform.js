@@ -15,15 +15,6 @@ const refuse = () => {
   throw new Refused()
 }
 
-function attempt(read) {
-  try {
-    return read()
-  } catch (error) {
-    if (error instanceof Refused) return undefined
-    throw error
-  }
-}
-
 function text(value) {
   if (typeof value !== 'string') throw new TypeError('expected a string')
   return value
@@ -87,10 +78,20 @@ function parser(source) {
     if (value === undefined && (name === 'true' || name === 'false')) return { op: name, list: [] }
     return { op: 'cfg', key: key(name, value) }
   }
-  const done = () => {
-    if (tokens[pos] !== undefined) refuse()
+  return { expr, cfg, done: () => peek() === undefined }
+}
+
+// What `read` takes of `source`, which it has to take whole; undefined
+// where the crate errs.
+function parse(source, read) {
+  try {
+    const p = parser(source)
+    const result = read(p)
+    return p.done() ? result : undefined
+  } catch (error) {
+    if (error instanceof Refused) return undefined
+    throw error
   }
-  return { expr, cfg, done }
 }
 
 // `{ name }` for a target's name, `{ expr }` for cfg(…); undefined where the
@@ -98,21 +99,14 @@ function parser(source) {
 export function parsePlatform(source) {
   const inner = /^cfg\((.*)\)$/su.exec(text(source))?.[1]
   if (inner === undefined) return /^[\w.-]+$/u.test(source) ? { name: source, expr: undefined } : undefined
-  return attempt(() => {
-    const p = parser(inner)
-    const expr = p.expr()
-    p.done()
-    return { name: undefined, expr }
-  })
+  return parse(inner, (p) => ({ name: undefined, expr: p.expr() }))
 }
 
 // One line of `rustc --print cfg`, a name or `name="value"`, as a key into a
 // set of them; undefined where the crate errs.
 export function parseCfg(source) {
-  return attempt(() => {
-    const p = parser(text(source))
+  return parse(text(source), (p) => {
     const { name, value } = p.cfg()
-    p.done()
     return key(name, value)
   })
 }

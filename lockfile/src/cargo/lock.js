@@ -87,15 +87,17 @@ export function sourceIdentity(source, parent) {
 // cargo's configuration knows its URL. `patchKey` reads the table's key;
 // `patchedAs` gives a dependency's, undefined for a path, which is patched
 // by no table.
+const tableUrl = (key) => (key === 'crates-io' ? CRATES_IO : URL.parse(key))
+
 export function patchKey(key) {
-  const url = key === 'crates-io' ? CRATES_IO : URL.parse(key)
+  const url = tableUrl(key)
   return url === null ? `registry ${key}` : canonical(url)
 }
 
 // The URL cargo first keys a [patch] table by, before it is canonical: one
 // table of two at one such URL replaces the other.
 export function patchUrl(key) {
-  return key === 'crates-io' ? CRATES_IO.href : (URL.parse(key)?.href ?? `registry ${key}`)
+  return tableUrl(key)?.href ?? `registry ${key}`
 }
 
 export function patchedAs(source) {

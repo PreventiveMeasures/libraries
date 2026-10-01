@@ -27,10 +27,15 @@ function resolverOf(root) {
 
 const within = (requirement, version) => requirement === undefined || matches(requirement, parseVersion(version))
 
-// Whether a package of `identity`, written in the lockfile as `source`, is
-// from `wanted`: that very source, or any registry where a registry is
-// known by its name alone.
-const from = (wanted, identity, source) => identity === wanted || (wanted === ANY_REGISTRY && source !== undefined && !source.startsWith('git+'))
+// Whether a package of the lockfile is from `wanted`: that very source, or
+// any registry where a registry is known by its name alone.
+const from = (wanted, pkg) => pkg.identity === wanted || (wanted === ANY_REGISTRY && pkg.source !== undefined && !pkg.source.startsWith('git+'))
+
+// Whether `patch` offers a package of the lockfile.
+const offers = (patch, pkg) => pkg.name === patch.package && from(patch.identity, pkg) && within(patch.requirement, pkg.version)
+
+// The lockfile's packages, each with the identity of its source.
+const identify = (pkg, where) => ({ ...pkg, identity: pkg.source === undefined ? PATH : parseLockSource(pkg.source, where, false).identity })
 
 // [patch] tables by the URL cargo keys each by: of two at one URL, the
 // later by key, as cargo replaces the one with the other.
@@ -82,21 +87,20 @@ function readPatches(entries) {
 // under [[patch.unused]] for each patch that offers it, so twice for one
 // two tables offer. So each patch is used, or takes an unused entry of its
 // own, and none is left over.
-function checkPatches(lock, identities, patches) {
-  const offers = (patch, name, version, identity, source) => name === patch.package && from(patch.identity, identity, source) && within(patch.requirement, version)
-  const unused = lock.unusedPatches.map((item) => ({ ...item, identity: item.source === undefined ? PATH : parseLockSource(item.source, 'patch.unused', false).identity }))
+function checkPatches(locked, unusedPatches, patches) {
+  const unused = unusedPatches.map((item) => identify(item, 'patch.unused'))
   // Which patch takes each entry, matched so that a patch taking any entry
   // of its version leaves another patch the one it alone can take.
   const taker = unused.map(() => undefined)
   const take = (patch, seen) => unused.some((item, index) => {
-    if (seen.has(index) || !offers(patch, item.name, item.version, item.identity, item.source)) return false
+    if (seen.has(index) || !offers(patch, item)) return false
     seen.add(index)
     if (taker[index] !== undefined && !take(taker[index], seen)) return false
     taker[index] = patch
     return true
   })
   for (const patch of patches) {
-    if (Object.entries(lock.packages).some(([key, pkg]) => offers(patch, pkg.name, pkg.version, identities[key], pkg.source))) continue
+    if ([...locked.values()].some((pkg) => offers(patch, pkg))) continue
     if (!take(patch, new Set())) throw new LockfileError('the lockfile has no package this patch offers, used or unused: is it out of date?', patch.where)
   }
   const stray = unused.find((item, index) => taker[index] === undefined)
@@ -125,6 +129,44 @@ function checkLinks(packages) {
   }
 }
 
+// Each package of the lockfile with its manifest, and each declaration with
+// the package it resolves to, where the lockfile's edges from the package
+// leave it one, and by `ambiguous` the declarations they leave more.
+function linkPackages(lock, manifests, members, context) {
+  const packages = Object.create(null)
+  const ambiguous = new Map()
+  for (const [key, pkg] of Object.entries(lock.packages)) {
+    const manifest = manifests[key]?.package
+    if (manifest === undefined) throw new LockfileError('no manifest of this package is given', key)
+    if (manifest.name !== pkg.name || manifest.version !== pkg.version) {
+      throw new LockfileError(`the manifest given is of ${quote(`${manifest.name} ${manifest.version}`)}`, key)
+    }
+    const member = members.includes(key)
+    const dependencies = manifest.dependencies.map((dep, index) => {
+      const found = member || dep.kind !== 'dev' ? candidates(dep, key, context, at(at(key, 'dependencies'), String(index))) : []
+      const linked = { ...dep, resolved: found.length === 1 ? found[0] : undefined, active: false }
+      if (found.length > 1) ambiguous.set(linked, found)
+      return linked
+    })
+    packages[key] = { name: pkg.name, version: pkg.version, source: pkg.source, checksum: pkg.checksum, manifest, dependencies }
+  }
+  return { packages, ambiguous }
+}
+
+// Each of the lockfile's edges a declaration turned on, and so each package
+// reached from a member.
+function checkActive(lock, packages, members) {
+  const reached = new Set(members)
+  for (const pkg of Object.values(packages)) for (const dep of pkg.dependencies) if (dep.active) reached.add(dep.resolved)
+  const lost = Object.keys(packages).find((key) => !reached.has(key))
+  if (lost !== undefined) throw new LockfileError('no member depends on it, directly or not: is the lockfile out of date?', lost)
+  for (const [key, pkg] of Object.entries(packages)) {
+    const claimed = new Set(pkg.dependencies.filter((dep) => dep.active).map((dep) => dep.resolved))
+    const stray = lock.packages[key].dependencies.find((dep) => !claimed.has(dep))
+    if (stray !== undefined) throw new LockfileError(`the lockfile's edge to ${quote(stray)} is no dependency the members' features turn on: is it out of date?`, key)
+  }
+}
+
 // `workspace` is the root's manifest; `members` the keys of the packages in
 // the workspace, for which the lockfile resolves every dependency,
 // dev-dependencies and optional ones among them.
@@ -136,28 +178,9 @@ export function linkCargo(lock, manifests, options) {
   checkMembers(lock, members)
   const rootKey = root.package === undefined ? undefined : `${root.package.name} ${root.package.version}`
   if (rootKey !== undefined && !members.includes(rootKey)) throw new LockfileError(`the root package ${quote(rootKey)} is not among the members`, 'members')
-  const identities = Object.create(null)
-  for (const [key, pkg] of Object.entries(lock.packages)) identities[key] = pkg.source === undefined ? PATH : parseLockSource(pkg.source, key, false).identity
+  const locked = new Map(Object.entries(lock.packages).map(([key, pkg]) => [key, identify(pkg, key)]))
   const patches = readPatches(patchEntries(root, config))
-  const context = { lock, identities, patches: Map.groupBy(patches, (patch) => patch.target) }
-  const packages = Object.create(null)
-  const ambiguous = new Map()
-  for (const [key, pkg] of Object.entries(lock.packages)) {
-    const manifest = manifests[key]?.package
-    if (manifest === undefined) throw new LockfileError('no manifest of this package is given', key)
-    if (manifest.name !== pkg.name || manifest.version !== pkg.version) {
-      throw new LockfileError(`the manifest given is of ${quote(`${manifest.name} ${manifest.version}`)}`, key)
-    }
-    const member = members.includes(key)
-    const dependencies = manifest.dependencies.map((dep, index) => {
-      const where = at(at(key, 'dependencies'), String(index))
-      const found = member || dep.kind !== 'dev' ? candidates(dep, key, context, where) : []
-      const linked = { ...dep, resolved: found.length === 1 ? found[0] : undefined, active: false }
-      if (found.length > 1) ambiguous.set(linked, found)
-      return linked
-    })
-    packages[key] = { name: pkg.name, version: pkg.version, source: pkg.source, checksum: pkg.checksum, manifest, dependencies }
-  }
+  const { packages, ambiguous } = linkPackages(lock, manifests, members, { locked, patches: Map.groupBy(patches, (patch) => patch.target) })
   // The lockfile resolves what every feature of every member turns on.
   const roots = new Map(members.map((key) => [key, Object.keys(packages[key].manifest.features).map(featureValue)]))
   const why = (dep, key) => {
@@ -166,33 +189,23 @@ export function linkCargo(lock, manifests, options) {
     if (named.length === 0) return `the lockfile resolves no ${quote(dep.name)}, which the members' features turn on: is it out of date?`
     return `the lockfile resolves ${quote(dep.name)} to none but ${named.map(quote).join(', ')}, of another source or version: is it out of date, or [patch]ed by a config not given?`
   }
-  const reached = new Set(members)
-  for (const dep of activate(packages, roots, why)) {
-    dep.active = true
-    reached.add(dep.resolved)
-  }
-  const lost = Object.keys(packages).find((key) => !reached.has(key))
-  if (lost !== undefined) throw new LockfileError('no member depends on it, directly or not: is the lockfile out of date?', lost)
+  for (const dep of activate(packages, roots, why)) dep.active = true
+  checkActive(lock, packages, members)
   checkLinks(packages)
-  checkPatches(lock, identities, patches)
-  for (const [key, pkg] of Object.entries(packages)) {
-    const claimed = new Set(pkg.dependencies.filter((dep) => dep.active).map((dep) => dep.resolved))
-    const stray = lock.packages[key].dependencies.find((dep) => !claimed.has(dep))
-    if (stray !== undefined) throw new LockfileError(`the lockfile's edge to ${quote(stray)} is no dependency the members' features turn on: is it out of date?`, key)
-  }
+  checkPatches(locked, lock.unusedPatches, patches)
   return { resolver: resolverOf(root), root: rootKey, members: [...members], packages }
 }
 
 // The packages among the lockfile's edges from `key` that `dep` could be:
 // by name, by the requirement, and by source, a [patch] of the name aside.
-function candidates(dep, key, { lock, identities, patches }, where) {
+function candidates(dep, key, { locked, patches }, where) {
   const requirement = dep.version === undefined ? undefined : parseRequirement(dep.version, where)
-  const wanted = sourceIdentity(dep.source, identities[key])
+  const wanted = sourceIdentity(dep.source, locked.get(key).identity)
   const offered = patches.get(`${patchedAs(dep.source)} ${dep.package}`) ?? []
-  return lock.packages[key].dependencies.filter((edge) => {
-    const { name, version, source } = lock.packages[edge]
-    if (name !== dep.package || !within(requirement, version)) return false
-    return from(wanted, identities[edge], source) || offered.some((patch) => from(patch.identity, identities[edge], source) && within(patch.requirement, version))
+  return locked.get(key).dependencies.filter((edge) => {
+    const pkg = locked.get(edge)
+    if (pkg.name !== dep.package || !within(requirement, pkg.version)) return false
+    return from(wanted, pkg) || offered.some((patch) => offers(patch, pkg))
   })
 }
 
