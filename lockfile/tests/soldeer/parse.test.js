@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { LockfileError, TomlError, parseSoldeerLockfile } from '../../soldeer.js'
-import { sanitize } from '../../src/soldeer/sanitize.js'
-import { matches, parseVersion, soldeerRequirement } from '../../src/soldeer/semver.js'
 
 const H = 'a'.repeat(64)
 const C = 'b'.repeat(40)
@@ -60,7 +58,7 @@ describe('each kind of entry', () => {
     refuses(edit([`checksum = "${H}"\nintegrity = "${H}"\n\n[[dep`, `checksum = "${H}"\n\n[[dep`]), 'expected integrity, which Soldeer requires of an entry with a url', 'dependencies["a-lib"]')
     refuses(edit([`rev = "${C}"\n`, '']), 'expected rev, which Soldeer requires of an entry with a git repository', 'dependencies["b-git"]')
     refuses(edit([`version = "2.0.0"\nchecksum = "${H}"\n`, 'version = "2.0.0"\n']), 'expected checksum, which Soldeer requires of an entry with neither a url nor a git repository', 'dependencies["c-private"]')
-    refuses(edit([`rev = "${C}"\n`, `rev = "${C}"\nchecksum = "${H}"\n`]), 'a field Soldeer does not write for a git dependency', 'dependencies["b-git"].checksum')
+    refuses(edit([`rev = "${C}"\n`, `rev = "${C}"\nchecksum = "${H}"\n`]), 'a field Soldeer does not write for an entry with a git repository', 'dependencies["b-git"].checksum')
     refuses(edit(['git = "https://example.com/b.git"\n', 'git = "https://example.com/b.git"\nurl = "https://example.com/b.zip"\n']), 'both a url and a git repository, which Soldeer refuses', 'dependencies["b-git"]')
   })
 
@@ -79,7 +77,7 @@ describe('each kind of entry', () => {
     refuses(edit(['version = "v1"', 'version = ""']), '"" is empty, or has a quote, backslash or control character, which this reader does not take', 'dependencies["b-git"].version')
     refuses(edit(['version = "v1"', 'version = "v\\"1"']), '"v\\"1" is empty, or has a quote, backslash or control character, which this reader does not take', 'dependencies["b-git"].version')
     refuses(edit(['version = "v1"', 'version = "v\\t1"']), '"v\\t1" is empty, or has a quote, backslash or control character, which this reader does not take', 'dependencies["b-git"].version')
-    refuses(edit(['version = "v1"', 'version = 1']), 'expected a string, found number', 'dependencies["b-git"].version')
+    refuses(edit(['version = "v1"', 'version = 1']), 'expected a string, found the number 1', 'dependencies["b-git"].version')
   })
 })
 
@@ -146,7 +144,7 @@ describe('the config', () => {
     refuses(BASE, 'a url beside a git repository, which Soldeer refuses', 'config.dependencies["b-git"].url', { config: config({ 'b-git': { version: 'v1', git: 'https://example.com/b.git', url: 'https://example.com/b.zip' } }) })
     refuses(BASE, 'branch and tag, of which Soldeer takes one alone', 'config.dependencies["b-git"]', { config: config({ 'b-git': { version: 'v1', git: 'https://example.com/b.git', branch: 'main', tag: 'v1' } }) })
     refuses(BASE, '"=v1" has an "=", which Soldeer refuses in the version of what it does not resolve', 'config.dependencies["b-git"].version', { config: config({ 'b-git': { version: '=v1', git: 'https://example.com/b.git' } }) })
-    refuses(BASE, 'expected a string', 'config.dependencies["a-lib"].version', { config: config({ 'a-lib': { version: 1 } }) })
+    refuses(BASE, 'expected a string, found the number 1', 'config.dependencies["a-lib"].version', { config: config({ 'a-lib': { version: 1 } }) })
   })
 
   it('refuses two names Soldeer installs in one folder', () => {
@@ -159,62 +157,15 @@ describe('the config', () => {
     refuses(lock, '"two.0", which its entry\'s version, "two/0", does not satisfy', 'config.dependencies["c-private"].version', { config: config({ 'c-private': 'two.0' }) })
   })
 
+  it('a registry version to its requirement, by semver where a comparator with no operator is exact', () => {
+    const asking = (requirement) => ({ config: config({ 'a-lib': requirement }) })
+    for (const requirement of ['1.2.0', '1.2', '1', '^1.0', '>=1.0, <2', '1.*', '*', ' =1.2.0']) assert.ok(parseSoldeerLockfile(BASE, asking(requirement)), requirement)
+    for (const requirement of ['1.0', '1.0.0', '>=1.0, 1.0', '~1.3']) {
+      refuses(BASE, `${JSON.stringify(requirement)}, which its entry's version, "1.2.0", does not satisfy`, 'config.dependencies["a-lib"].version', asking(requirement))
+    }
+  })
+
   it('refuses a private entry for a URL the config names', () => {
     refuses(BASE, 'a URL dependency, whose entry is a private registry one', 'config.dependencies["c-private"]', { config: config({ 'c-private': { version: '2.0.0', url: 'https://example.com/c.zip' } }) })
-  })
-})
-
-describe('the semver crate, as Soldeer reads a requirement', () => {
-  const satisfies = (version, requirement) => matches(soldeerRequirement(requirement), parseVersion(version))
-
-  it('no operator as the very version, but for a wildcard', () => {
-    assert.equal(satisfies('1.2.3', '1.2.3'), true)
-    assert.equal(satisfies('1.2.4', '1.2.3'), false)
-    assert.equal(satisfies('1.2.4', '^1.2.3'), true)
-    assert.equal(satisfies('1.3.0', '1.2'), false)
-    assert.equal(satisfies('1.2.9', '1.2'), true)
-    assert.equal(satisfies('1.9.0', '1.*'), true)
-    assert.equal(satisfies('9.9.9', '*'), true)
-    // Commas the comparators cannot be told apart by: as the crate reads them.
-    assert.equal(satisfies('1.3.0', '>=1.0.0, 1.2'), false)
-  })
-
-  it('a prerelease only where a comparator names its version', () => {
-    assert.equal(satisfies('1.2.3-alpha.2', '>=1.2.3-alpha.1'), true)
-    assert.equal(satisfies('1.2.4-alpha.2', '>=1.2.3-alpha.1'), false)
-    assert.equal(satisfies('1.2.3-alpha.10', '>1.2.3-alpha.9'), true)
-    assert.equal(satisfies('1.2.3-beta', '~1.2.3-alpha'), true)
-  })
-
-  it('caret and tilde below 1.0.0', () => {
-    assert.equal(satisfies('0.2.9', '^0.2.3'), true)
-    assert.equal(satisfies('0.3.0', '^0.2.3'), false)
-    assert.equal(satisfies('0.0.4', '^0.0.3'), false)
-    assert.equal(satisfies('0.0.9', '^0.0'), true)
-    assert.equal(satisfies('1.2.9', '~1.2.3'), true)
-    assert.equal(satisfies('1.3.0', '~1.2.3'), false)
-  })
-
-  it('what it does not read', () => {
-    for (const text of ['v1.2.3', '1.2.3.4', '01.2.3', '1.2.3-01', '1.2.3-', '18446744073709551616.0.0', '']) assert.equal(parseVersion(text), undefined, text)
-    for (const text of ['', 'latest', '1.*.3', '*, 1', '1 2', '=>1', Array.from({ length: 33 }, () => '>=0').join(',')]) assert.equal(soldeerRequirement(text), undefined, text)
-    assert.equal(soldeerRequirement(Array.from({ length: 32 }, () => '>=0').join(',')).length, 32)
-  })
-})
-
-describe('the sanitize-filename crate, as Soldeer names a folder', () => {
-  it('each character a file name may not hold as "-", and a name of dots', () => {
-    assert.equal(sanitize('a/b:c*d\u0085e', false), 'a-b-c-d-e')
-    assert.equal(sanitize('..', false), '-')
-  })
-
-  it('more on Windows: its device names, and a name ending in a dot or space', () => {
-    assert.equal(sanitize('CON.txt', false), 'CON.txt')
-    assert.equal(sanitize('CON.txt', true), '-')
-    assert.equal(sanitize('a. .', true), 'a-')
-  })
-
-  it('cut to 255 bytes, at a character', () => {
-    assert.equal(sanitize('é'.repeat(200), false), 'é'.repeat(127))
   })
 })

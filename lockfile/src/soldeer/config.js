@@ -1,54 +1,49 @@
 // The config's dependencies, soldeer.toml's or foundry.toml's, each held to
 // its entry as Soldeer 0.12 holds it before it installs from the lockfile.
 
+import { sanitizeWithOptions } from '../crate/sanitize-filename.js'
+import { matches, parseVersion, parseVersionReq } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
-import { EMPTY, entries, record } from '../shape.js'
-import { folders, sanitize } from './sanitize.js'
-import { matches, parseVersion, soldeerRequirement } from './semver.js'
+import { EMPTY, entries, record, string } from '../shape.js'
 
 const WHERE = 'config.dependencies'
 const OPTIONS = new Set(['version', 'url', 'git', 'rev', 'branch', 'tag', 'project_root'])
 
-function text(value, where) {
-  if (typeof value !== 'string') throw new LockfileError('expected a string', where)
+// A folder Soldeer names, on Unix and on Windows, as it runs on either.
+export const folders = (name) => [false, true].map((windows) => sanitizeWithOptions(name, { windows, truncate: true, replacement: '-' }))
+
+function readVersion(value, where) {
+  if (value === undefined || string(value, where) === '') throw new LockfileError('expected a version, which Soldeer requires', where)
   return value
 }
 
 // Soldeer's parse_dependency; what it would warn of and ignore is refused.
-function readDependency(name, value, where) {
-  if (typeof value === 'string') {
-    if (value === '') throw new LockfileError('expected a version, which Soldeer requires', where)
-    return { type: 'http', version: value }
-  }
+function readDependency(value, where) {
+  if (typeof value === 'string') return { type: 'http', version: readVersion(value, where) }
   record(value, where)
   const other = Object.keys(value).find((key) => !OPTIONS.has(key))
   if (other !== undefined) throw new LockfileError('a field Soldeer does not read', at(where, other))
-  if (value.version === undefined) throw new LockfileError('expected a version, which Soldeer requires', where)
-  const version = text(value.version, at(where, 'version'))
-  if (version === '') throw new LockfileError('expected a version, which Soldeer requires', at(where, 'version'))
-  if (value.project_root !== undefined) text(value.project_root, at(where, 'project_root'))
+  for (const key of OPTIONS) if (key !== 'version' && value[key] !== undefined) string(value[key], at(where, key))
+  const { url, git, rev } = value
+  const read = { type: git === undefined ? 'http' : 'git', version: readVersion(value.version, at(where, 'version')), url, git, rev }
   const named = ['rev', 'branch', 'tag'].filter((key) => value[key] !== undefined)
-  for (const key of named) text(value[key], at(where, key))
-  if (value.git === undefined) {
-    if (named.length > 0) throw new LockfileError('a field Soldeer ignores without a git repository', at(where, named[0]))
-    if (value.url === undefined) return { type: 'http', version }
-  } else {
-    if (value.url !== undefined) throw new LockfileError('a url beside a git repository, which Soldeer refuses', at(where, 'url'))
-    if (named.length > 1) throw new LockfileError(`${named.join(' and ')}, of which Soldeer takes one alone`, where)
-  }
-  // Soldeer names the folder after such a version, as it is.
-  if (version.includes('=')) throw new LockfileError(`${quote(version)} has an "=", which Soldeer refuses in the version of what it does not resolve`, at(where, 'version'))
-  if (value.git === undefined) return { type: 'http', version, url: text(value.url, at(where, 'url')) }
-  return { type: 'git', version, git: text(value.git, at(where, 'git')), rev: value.rev }
+  if (git === undefined && named.length > 0) throw new LockfileError('a field Soldeer ignores without a git repository', at(where, named[0]))
+  if (git !== undefined && url !== undefined) throw new LockfileError('a url beside a git repository, which Soldeer refuses', at(where, 'url'))
+  if (named.length > 1) throw new LockfileError(`${named.join(' and ')}, of which Soldeer takes one alone`, where)
+  // Soldeer names the folder after the version of what it does not resolve.
+  if ((git ?? url) !== undefined && read.version.includes('=')) throw new LockfileError(`${quote(read.version)} has an "=", which Soldeer refuses in the version of what it does not resolve`, at(where, 'version'))
+  return read
 }
 
-// Soldeer's version_matches_req: by semver where both read as it, and else
-// as the folder names they make, on Unix and on Windows alike.
-function satisfies(version, requirement) {
-  const comparators = soldeerRequirement(requirement)
-  const parsed = parseVersion(version)
+// Soldeer's version_matches_req: by semver where both read as it, a written
+// comparator with no `^` exact, and else as the folder names they make.
+function satisfies(locked, requirement) {
+  const written = requirement.split(',')
+  const comparators = parseVersionReq(requirement)?.map((cmp, index) => (cmp.op === '^' && !written[index].replace(/^ +/u, '').startsWith('^') ? { ...cmp, op: '=' } : cmp))
+  const parsed = parseVersion(locked)
   if (comparators !== undefined && parsed !== undefined) return matches(comparators, parsed)
-  return [false, true].every((windows) => sanitize(version, windows) === sanitize(requirement, windows))
+  const [a, b] = [folders(locked), folders(requirement)]
+  return a[0] === b[0] && a[1] === b[1]
 }
 
 const KIND = { http: 'a registry', git: 'a git', private: 'a private registry' }
@@ -56,7 +51,7 @@ const KIND = { http: 'a registry', git: 'a git', private: 'a private registry' }
 // Soldeer's LockEntry::matches: of what it does not resolve, the very version.
 function checkEntry(entry, dependency, where) {
   const kind = dependency.type === 'git' ? 'git' : dependency.url === undefined ? 'registry' : 'URL'
-  const fits = dependency.type === 'git' ? entry.type === 'git' : entry.type === 'http' || (entry.type === 'private' && dependency.url === undefined)
+  const fits = dependency.type === 'git' ? entry.type === 'git' : entry.type === 'http' || (entry.type === 'private' && kind === 'registry')
   if (!fits) throw new LockfileError(`a ${kind} dependency, whose entry is ${KIND[entry.type]} one`, where)
   const fixed = kind !== 'registry'
   if (fixed ? entry.version !== dependency.version : !satisfies(entry.version, dependency.version)) {
@@ -68,11 +63,10 @@ function checkEntry(entry, dependency, where) {
 }
 
 export function checkConfig(config, dependencies) {
-  record(config, 'config')
-  const table = config.dependencies ?? EMPTY
+  const table = record(config, 'config').dependencies ?? EMPTY
   const named = [new Map(), new Map()]
   for (const [name, value, here] of entries(table, WHERE)) {
-    const dependency = readDependency(name, value, here)
+    const dependency = readDependency(value, here)
     // Soldeer refuses two names it would install in one folder.
     for (const [system, folder] of folders(name).entries()) {
       const other = named[system].get(folder)

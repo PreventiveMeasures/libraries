@@ -1,7 +1,7 @@
 {
   "name": "@preventive/lockfile",
   "version": "1.0.0-alpha.2",
-  "description": "Strict lockfile readers: pnpm-lock.yaml v9, yarn.lock v1 and soldeer.lock checked field by field, their packages and graph resolved, and the YAML and TOML parsers beside them",
+  "description": "Strict lockfile readers: pnpm-lock.yaml v9, yarn.lock v1 and soldeer.lock checked field by field, their packages and graph resolved, and the YAML, TOML and Rust semver parsers beside them",
   "type": "module",
   "exports": {
     "./pnpm.js": {
@@ -23,13 +23,21 @@
     "./yarn1.js": {
       "types": "./yarn1.d.ts",
       "default": "./yarn1.js"
+    },
+    "./rust-semver.js": {
+      "types": "./rust-semver.d.ts",
+      "default": "./rust-semver.js"
     }
   },
   "files": [
     "pnpm.d.ts",
     "pnpm.js",
+    "rust-semver.d.ts",
+    "rust-semver.js",
     "soldeer.d.ts",
     "soldeer.js",
+    "src/crate/sanitize-filename.js",
+    "src/crate/semver.js",
     "src/error.js",
     "src/graph.js",
     "src/names.js",
@@ -41,8 +49,6 @@
     "src/shape.js",
     "src/soldeer/config.js",
     "src/soldeer/parse.js",
-    "src/soldeer/sanitize.js",
-    "src/soldeer/semver.js",
     "src/toml/datetime.js",
     "src/toml/error.js",
     "src/toml/number.js",

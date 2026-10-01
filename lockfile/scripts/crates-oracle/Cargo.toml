@@ -1,0 +1,9 @@
+[package]
+name = "crates-oracle"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+semver = "=1.0.28"
+sanitize-filename = "=0.6.0"

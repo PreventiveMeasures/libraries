@@ -3,9 +3,9 @@
 
 import { LockfileError, at, quote } from '../error.js'
 import { isCommit } from '../names.js'
+import { string } from '../shape.js'
 import { parseToml } from '../toml/parse.js'
-import { checkConfig } from './config.js'
-import { folders } from './sanitize.js'
+import { checkConfig, folders } from './config.js'
 
 // In the order Soldeer writes them; a dependency's kind is what it has.
 const FIELDS = ['name', 'version', 'git', 'url', 'rev', 'checksum', 'integrity']
@@ -14,6 +14,7 @@ const KINDS = {
   git: ['name', 'version', 'git', 'rev'],
   private: ['name', 'version', 'checksum', 'integrity'],
 }
+const HAVING = { http: 'a url', git: 'a git repository', private: 'neither a url nor a git repository' }
 
 const SHA256 = /^[\da-f]{64}$/u
 
@@ -22,8 +23,7 @@ const SHA256 = /^[\da-f]{64}$/u
 const isPlain = (value) => value !== '' && ![...value].some((char) => char <= '\u001F' || char === '\u007F' || char === '"' || char === '\\')
 
 function readField(entry, field, where) {
-  const value = entry[field]
-  if (typeof value !== 'string') throw new LockfileError(`expected a string, found ${typeof value}`, where)
+  const value = string(entry[field], where)
   if (!isPlain(value)) throw new LockfileError(`${quote(value)} is empty, or has a quote, backslash or control character, which this reader does not take`, where)
   if ((field === 'checksum' || field === 'integrity') && !SHA256.test(value)) throw new LockfileError(`${quote(value)} is not a hex sha256`, where)
   if (field === 'rev' && !isCommit(value)) throw new LockfileError(`${quote(value)} is not a full commit hash, as Soldeer writes`, where)
@@ -44,11 +44,11 @@ function readEntry(entry, index) {
   if (entry.url === undefined) type = entry.git === undefined ? 'private' : 'git'
   const read = { type }
   for (const field of KINDS[type]) {
-    if (entry[field] === undefined) throw new LockfileError(`expected ${field}, which Soldeer requires of ${type === 'private' ? 'an entry with neither a url nor a git repository' : `an entry with a ${type === 'git' ? 'git repository' : 'url'}`}`, where)
+    if (entry[field] === undefined) throw new LockfileError(`expected ${field}, which Soldeer requires of an entry with ${HAVING[type]}`, where)
     read[field] = readField(entry, field, at(where, field))
   }
   const other = FIELDS.find((field) => entry[field] !== undefined && !KINDS[type].includes(field))
-  if (other !== undefined) throw new LockfileError(`a field Soldeer does not write for ${type === 'private' ? 'a private' : `a ${type}`} dependency`, at(where, other))
+  if (other !== undefined) throw new LockfileError(`a field Soldeer does not write for an entry with ${HAVING[type]}`, at(where, other))
   return [read, where]
 }
 
