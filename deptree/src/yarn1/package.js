@@ -14,16 +14,12 @@
 // different files; and a package.json for exactly the name and version
 // the lockfile has.
 
-import { decompress } from '@preventive/archive/compression.js'
-import { unpack } from '@preventive/archive/tar.js'
-import { getTarball } from '@preventive/upstream/npm.js'
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
-import { matchesIntegrity, sha1Hex } from '../hash.js'
-import { REGISTRY, sameBytes, tarballUrl } from '../tarball.js'
+import { sha1Hex } from '../hash.js'
+import { REGISTRY, fetchTarball, sameBytes, tarballUrl } from '../tarball.js'
 import { readManifest } from './manifest.js'
 
-const MAX_BYTES = 512 * 1024 * 1024
 const UMASK = 0o022
 
 // yarn's mirror of npm's registry, which serves the same tarballs at the
@@ -82,11 +78,9 @@ export function registryTarball(entry, name, where) {
 
 // The package's entries, and its package.json as parsed.
 export async function fetchYarnPackage({ name, version, integrity, sha1 }, where) {
-  const bytes = await getTarball(name, version, { tarball: tarballUrl(name, version), integrity })
-  if (!await matchesIntegrity(bytes, integrity)) throw new DeptreeError(`the tarball is not ${integrity}`, where)
+  const { bytes, entries } = await fetchTarball(name, version, integrity, where)
   if (sha1 !== undefined && await sha1Hex(bytes) !== sha1) throw new DeptreeError(`the tarball's sha1 is not ${sha1}`, where)
-  if (bytes[0] !== 0x1f || bytes[1] !== 0x8b || bytes[2] !== 0x08) throw new DeptreeError('the tarball is not gzipped', where)
-  const { files, dirs } = entriesOf(unpack(await decompress(bytes, 'gzip', { limit: MAX_BYTES })), where)
+  const { files, dirs } = entriesOf(entries, where)
   const file = files.get('package.json')
   if (file === undefined) throw new DeptreeError('the tarball has no package.json', where)
   let text
@@ -105,20 +99,9 @@ export async function fetchYarnPackage({ name, version, integrity, sha1 }, where
 // scope dropped; a name that is not valid, or a target outside the
 // package, dropped; with no `bin`, each name in directories.bin but for
 // one with a leading dot. `dirs` and `files` the package's. A target is
-// normalized as Node's path.normalize does, a trailing `/` kept.
+// normalized as Node's path.normalize does it, which is as vfs's does: a
+// trailing `/` kept.
 const VALID_BIN_KEYS = /^(?!\.{0,2}$)[a-z0-9._-]+$/iu
-
-function normalizePath(path) {
-  const absolute = path.startsWith('/')
-  const out = []
-  for (const segment of path.split('/')) {
-    if (segment === '' || segment === '.') continue
-    if (segment === '..' && out.length > 0 && out.at(-1) !== '..') out.pop()
-    else if (segment !== '..' || !absolute) out.push(segment)
-  }
-  const normal = (absolute ? '/' : '') + (out.join('/') || (absolute ? '' : '.'))
-  return path.endsWith('/') && !normal.endsWith('/') ? `${normal}/` : normal
-}
 
 const outside = (path) => path.startsWith('/') || path === '..' || path.startsWith('../')
 
@@ -130,14 +113,14 @@ export function binsOf(manifest, { files, dirs }) {
     for (const [key, target] of Object.entries(bin)) {
       if (!VALID_BIN_KEYS.test(key)) continue
       if (typeof target !== 'string') throw new DeptreeError(`its bin ${quote(key)} is not a string, which yarn fails on`, quote(manifest.name))
-      const path = normalizePath(target)
+      const path = normalize(target)
       if (!outside(path)) bins.set(key, path)
     }
     return bins
   }
   const binDir = manifest.directories?.bin
   if (typeof binDir === 'string' && binDir) {
-    const dir = normalizePath(binDir).replace(/(?<=.)\/$/u, '')
+    const dir = normalize(binDir).replace(/(?<=.)\/$/u, '')
     if (outside(dir)) throw new DeptreeError(`directories.bin, ${quote(binDir)}, is outside the package, which is not supported`, quote(manifest.name))
     if (files.has(dir)) throw new DeptreeError(`directories.bin, ${quote(binDir)}, is a file, which yarn fails to read as a directory`, quote(manifest.name))
     const prefix = dir === '.' ? '' : `${dir}/`

@@ -144,14 +144,20 @@ export function checkDependencies(manifest, read, pkg, where) {
   }
 }
 
+// A version's tarball from the registry, through @preventive/upstream, held
+// to `integrity` and to be gzipped: its bytes, and its entries unpacked.
+export async function fetchTarball(name, version, integrity, where) {
+  const bytes = await getTarball(name, version, { tarball: tarballUrl(name, version), integrity })
+  if (!await matchesIntegrity(bytes, integrity)) throw new DeptreeError(`the tarball is not ${integrity}`, where)
+  if (bytes[0] !== 0x1f || bytes[1] !== 0x8b || bytes[2] !== 0x08) throw new DeptreeError('the tarball is not gzipped', where)
+  return { bytes, entries: unpack(await decompress(bytes, 'gzip', { limit: MAX_BYTES })) }
+}
+
 // A package's files, and its package.json as parsed; the package has to be
 // from the registry.
 export async function fetchPackage(pkg, where) {
-  const { integrity } = pkg.resolution
-  const bytes = await getTarball(pkg.name, pkg.version, { tarball: tarballUrl(pkg.name, pkg.version), integrity })
-  if (!await matchesIntegrity(bytes, integrity)) throw new DeptreeError(`the tarball is not ${integrity}`, where)
-  if (bytes[0] !== 0x1f || bytes[1] !== 0x8b || bytes[2] !== 0x08) throw new DeptreeError('the tarball is not gzipped', where)
-  const files = filesOf(unpack(await decompress(bytes, 'gzip', { limit: MAX_BYTES })), where)
+  const { entries } = await fetchTarball(pkg.name, pkg.version, pkg.resolution.integrity, where)
+  const files = filesOf(entries, where)
   const manifest = readManifest(files, pkg, where)
   checkManifest(manifest, pkg, where)
   return { files, manifest }

@@ -30,6 +30,9 @@ import { resolve, splitPattern } from './resolve.js'
 
 const CONCURRENCY = 8
 
+// What a refusal of a reference is about: the first pattern of it.
+const whereOf = (ref) => quote(ref.patterns[0])
+
 // The basenames yarn's copy passes over, wherever they are in a package.
 const IGNORED = new Set(['.bin', '.yarn-metadata.json', '.yarn-tarball.tgz'])
 const skipped = (path) => path.split('/').some((segment) => IGNORED.has(segment))
@@ -48,7 +51,7 @@ function fetchedName(ref) {
 async function fetchAll(refs) {
   const fetched = new Map()
   const queue = refs.map((ref) => {
-    const where = quote(ref.patterns[0])
+    const where = whereOf(ref)
     return { ref, where, tarball: registryTarball(ref.entry, fetchedName(ref), where) }
   })
   let failed = false
@@ -115,13 +118,13 @@ async function fetchChecked(resolved, host, settings) {
       manifest = head === ref ? fixLists(fetched.get(ref).manifest) : { name: ref.name, version: ref.version }
     }
     const bundled = manifest.bundleDependencies ?? manifest.bundledDependencies
-    if (bundled && !(Array.isArray(bundled) && bundled.length === 0)) throw new DeptreeError('a package with bundled dependencies is not supported', quote(ref.patterns[0]))
+    if (bundled && !(Array.isArray(bundled) && bundled.length === 0)) throw new DeptreeError('a package with bundled dependencies is not supported', whereOf(ref))
     manifestOf.set(ref, manifest)
   }
   for (const ref of order) {
-    const reason = incompatibility(manifestOf.get(ref), host, quote(ref.patterns[0]), settings)
+    const reason = incompatibility(manifestOf.get(ref), host, whereOf(ref), settings)
     if (reason === undefined) continue
-    if (!ref.optional) throw new DeptreeError(`${reason}, and it is not optional, which yarn fails on`, quote(ref.patterns[0]))
+    if (!ref.optional) throw new DeptreeError(`${reason}, and it is not optional, which yarn fails on`, whereOf(ref))
     ref.incompatible = true
   }
   return { packages: first.size, fetched, manifestOf }

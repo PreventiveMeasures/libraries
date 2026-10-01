@@ -8,16 +8,14 @@
 // yarn has no location for it. A target that is no file, or under a
 // workspace, is left as it is: the tree holds no workspace's files.
 
+import { dirname, join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { binsOf } from './package.js'
 
 // yarn's findNearestInstalledVersionOfPackage: of a package's locations,
 // the one nearest `binLoc`, a directory at a time up from it, as node would
 // find it from there; then each again from where `binLoc` really is; the
-// first of the nearest. Paths are from the lockfile's directory, `''` it.
-const join = (dir, name) => (dir === '' ? name : `${dir}/${name}`)
-const parentOf = (dir) => (dir.includes('/') ? dir.slice(0, dir.lastIndexOf('/')) : '')
-
+// first of the nearest. Paths are from the lockfile's directory, `.` it.
 function nearestLocation(ref, locations, binLocs) {
   let best
   for (const binLoc of binLocs) {
@@ -25,11 +23,11 @@ function nearestLocation(ref, locations, binLocs) {
       let current = binLoc
       let distance = 0
       while (join(current, ref.name) !== loc && join(current, `node_modules/${ref.name}`) !== loc) {
-        if (current === '') {
+        if (current === '.') {
           distance = undefined
           break
         }
-        current = parentOf(current)
+        current = dirname(current)
         distance++
       }
       if (distance !== undefined && (best === undefined || distance < best[1])) best = [loc, distance]
