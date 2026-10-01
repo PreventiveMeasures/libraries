@@ -7,8 +7,8 @@ import { gunzipSync, gzipSync } from 'node:zlib'
 
 import { createClient } from '../github.js'
 import { setCacheDir } from '../npm.js'
-import { forbidRequests, stubGitHub } from './github-stub.js'
-import { SUBMODULE, SUBMODULE_TGZ, TREE, TREE_TGZ } from './tree-fixtures.js'
+import { SHA, forbidRequests, json, stubGitHub } from './github-stub.js'
+import { COMMIT_TGZ, SUBMODULE, SUBMODULE_COMMIT, SUBMODULE_TGZ, TREE, TREE_TGZ } from './tree-fixtures.js'
 
 const CACHE_DIR = join(tmpdir(), `upstream-github-tree-test-${process.pid}`)
 setCacheDir(CACHE_DIR)
@@ -16,8 +16,24 @@ const TREES = join(CACHE_DIR, 'github', 'trees')
 
 const realFetch = globalThis.fetch
 const client = () => createClient({ token: 't0ken' })
-const serve = (bytes) => stubGitHub(() => new Response(bytes, { headers: { 'content-type': 'application/x-gzip' } }))
-const URL = `https://api.github.com/repos/acme/app/tarball/${TREE}`
+const API = 'https://api.github.com/repos/acme/app'
+const gzip = (bytes) => new Response(bytes, { headers: { 'content-type': 'application/x-gzip' } })
+
+// GitHub, for acme/app: `tarballs` by the ref asked, `commits` and
+// `listings` by id. `calls` is every URL asked for.
+function stub({ tarballs = {}, commits = {}, listings = {} } = {}) {
+  return stubGitHub(({ url }) => {
+    const { pathname, search } = new URL(url)
+    const path = pathname.slice('/repos/acme/app/'.length)
+    const [kind, id] = [path.slice(0, path.lastIndexOf('/')), path.slice(path.lastIndexOf('/') + 1)]
+    if (kind === 'tarball' && Object.hasOwn(tarballs, id)) return gzip(tarballs[id])
+    if (kind === 'git/commits' && Object.hasOwn(commits, id)) return json(commits[id])
+    if (kind === 'git/trees' && search === '?recursive=1' && Object.hasOwn(listings, id)) return json(listings[id])
+    return json({ message: 'Not Found' }, 404)
+  })
+}
+const urls = (calls) => calls.map(({ url }) => url)
+const SUBMODULE_LISTING = { sha: SUBMODULE, truncated: false, tree: [{ path: 'run', mode: '100755', type: 'blob', sha: SHA }, { path: 'sub', mode: '160000', type: 'commit', sha: SUBMODULE_COMMIT }] }
 
 beforeEach(() => rm(CACHE_DIR, { recursive: true, force: true }))
 afterEach(() => {
@@ -27,36 +43,48 @@ after(() => rm(CACHE_DIR, { recursive: true, force: true }))
 
 describe('getRepoTreeTarball', () => {
   it('fetches the tarball of a tree by its id, following the redirect, and holds it to the id', async () => {
-    const calls = serve(TREE_TGZ)
+    const calls = stub({ tarballs: { [TREE]: TREE_TGZ } })
     const bytes = await client().getRepoTreeTarball({ repo: 'acme/app', tree: TREE })
     assert.ok(bytes instanceof Uint8Array)
     assert.deepEqual(Buffer.from(bytes), TREE_TGZ)
-    assert.deepEqual(calls.map(({ url, redirect, headers }) => [url, redirect, headers.Authorization]), [[URL, 'follow', 'Bearer t0ken']])
+    assert.deepEqual(calls.map(({ url, redirect, headers }) => [url, redirect, headers.Authorization]), [[`${API}/tarball/${TREE}`, 'follow', 'Bearer t0ken']])
   })
 
   it('refuses the tarball of another tree, or of this one changed, and caches nothing', async () => {
     const tar = Buffer.from(gunzipSync(TREE_TGZ))
     tar.write('export []', tar.indexOf('export {}'), 'latin1')
     for (const [tree, served] of [[SUBMODULE, TREE_TGZ], [TREE, gzipSync(tar)]]) {
-      serve(served)
-      await assert.rejects(client().getRepoTreeTarball({ repo: 'acme/app', tree }), new RegExp(`getRepoTreeTarball: integrity mismatch for ${tree} from https://api\\.github\\.com/repos/acme/app/tarball/${tree}: expected ${tree}, got [\\da-f]{40}$`, 'u'))
+      stub({ tarballs: { [tree]: served } })
+      await assert.rejects(client().getRepoTreeTarball({ repo: 'acme/app', tree }), new RegExp(`getRepoTreeTarball: integrity mismatch for ${tree} from ${API.replaceAll('.', '\\.')}/tarball/${tree}: expected ${tree}, got [\\da-f]{40}$`, 'u'))
     }
     assert.deepEqual(await readdir(TREES).catch(() => []), [])
   })
 
-  it('refuses a tree with a submodule, which its tarball cannot show', async () => {
-    serve(SUBMODULE_TGZ)
-    await assert.rejects(client().getRepoTreeTarball({ repo: 'acme/app', tree: SUBMODULE }), /got no tree: an empty directory, as a submodule is written$/u)
+  it("takes a submodule's commit from GitHub's listing of the tree, asked only for a tarball with one", async () => {
+    let calls = stub({ tarballs: { [SUBMODULE]: SUBMODULE_TGZ }, listings: { [SUBMODULE]: SUBMODULE_LISTING } })
+    assert.deepEqual(Buffer.from(await client().getRepoTreeTarball({ repo: 'acme/app', tree: SUBMODULE })), SUBMODULE_TGZ)
+    assert.deepEqual(urls(calls), [`${API}/tarball/${SUBMODULE}`, `${API}/git/trees/${SUBMODULE}?recursive=1`])
+    calls = stub({ listings: { [SUBMODULE]: SUBMODULE_LISTING } })
+    await client().getRepoTreeTarball({ repo: 'acme/app', tree: SUBMODULE })
+    assert.deepEqual(urls(calls), [`${API}/git/trees/${SUBMODULE}?recursive=1`])
+  })
+
+  it('refuses a submodule the listing has not, or names another commit for', async () => {
+    for (const tree of [[], [{ path: 'sub', mode: '160000', type: 'commit', sha: SHA }], [{ path: 'sub', type: 'tree', sha: SUBMODULE_COMMIT }]]) {
+      stub({ tarballs: { [SUBMODULE]: SUBMODULE_TGZ }, listings: { [SUBMODULE]: { ...SUBMODULE_LISTING, tree } } })
+      await assert.rejects(client().getRepoTreeTarball({ repo: 'acme/app', tree: SUBMODULE }), /getRepoTreeTarball: integrity mismatch for [\da-f]{40} from https:/u, JSON.stringify(tree))
+    }
+    assert.deepEqual(await readdir(TREES).catch(() => []), [])
   })
 
   it('keeps it by the tree id alone, serving it again with no request, and throws on cached bytes that no longer match', async () => {
-    serve(TREE_TGZ)
+    stub({ tarballs: { [TREE]: TREE_TGZ } })
     await client().getRepoTreeTarball({ repo: 'acme/app', tree: TREE })
     assert.deepEqual(await readdir(TREES), [`${TREE}.tgz`])
     assert.deepEqual(await readFile(join(TREES, `${TREE}.tgz`)), TREE_TGZ)
     const calls = forbidRequests()
     assert.deepEqual(Buffer.from(await client().getRepoTreeTarball({ repo: 'acme/fork', tree: TREE })), TREE_TGZ)
-    await writeFile(join(TREES, `${TREE}.tgz`), SUBMODULE_TGZ)
+    await writeFile(join(TREES, `${TREE}.tgz`), COMMIT_TGZ.subarray(0, 100))
     await assert.rejects(client().getRepoTreeTarball({ repo: 'acme/app', tree: TREE }), /getRepoTreeTarball: integrity mismatch for [\da-f]{40} from the cache/u)
     assert.deepEqual(calls, [])
   })
@@ -72,7 +100,49 @@ describe('getRepoTreeTarball', () => {
   })
 
   it('throws a HttpError for a failed tarball', async () => {
-    stubGitHub(() => new Response('{"message":"Not Found"}', { status: 404 }))
-    await assert.rejects(client().getRepoTreeTarball({ repo: 'acme/app', tree: TREE }), { name: 'HttpError', status: 404, message: `GET ${URL} 404: {"message":"Not Found"}` })
+    stub()
+    await assert.rejects(client().getRepoTreeTarball({ repo: 'acme/app', tree: TREE }), { name: 'HttpError', status: 404, message: `GET ${API}/tarball/${TREE} 404: {"message":"Not Found"}` })
+  })
+})
+
+describe('getRepoTarball', () => {
+  const commit = { sha: SHA, tree: { sha: TREE } }
+
+  it("fetches the commit's tarball, following the redirect, held to the tree GitHub names for the commit", async () => {
+    const calls = stub({ commits: { [SHA]: commit }, tarballs: { [SHA]: COMMIT_TGZ } })
+    assert.deepEqual(Buffer.from(await client().getRepoTarball({ repo: 'acme/app', sha: SHA })), COMMIT_TGZ)
+    assert.deepEqual(calls.map(({ url, redirect, headers }) => [url, redirect, headers.Authorization]), [[`${API}/git/commits/${SHA}`, 'manual', 'Bearer t0ken'], [`${API}/tarball/${SHA}`, 'follow', 'Bearer t0ken']])
+    assert.deepEqual(await readdir(TREES), [`${TREE}.tgz`])
+  })
+
+  it('shares the cache with getRepoTreeTarball, asking only for the commit', async () => {
+    stub({ tarballs: { [TREE]: TREE_TGZ } })
+    await client().getRepoTreeTarball({ repo: 'acme/app', tree: TREE })
+    const calls = stub({ commits: { [SHA]: commit } })
+    assert.deepEqual(Buffer.from(await client().getRepoTarball({ repo: 'acme/app', sha: SHA })), TREE_TGZ)
+    assert.deepEqual(urls(calls), [`${API}/git/commits/${SHA}`])
+  })
+
+  it('refuses a commit GitHub answers for another sha or without a tree, and a tarball of another tree', async () => {
+    for (const answer of [{ ...commit, sha: SUBMODULE_COMMIT }, { sha: SHA }, { sha: SHA, tree: { sha: TREE.toUpperCase() } }, null]) {
+      stub({ commits: { [SHA]: answer }, tarballs: { [SHA]: COMMIT_TGZ } })
+      await assert.rejects(client().getRepoTarball({ repo: 'acme/app', sha: SHA }), new RegExp(`getRepoTarball: GitHub names no tree for acme/app@${SHA}`, 'u'), JSON.stringify(answer))
+    }
+    stub({ commits: { [SHA]: { sha: SHA, tree: { sha: SUBMODULE } } }, tarballs: { [SHA]: COMMIT_TGZ } })
+    await assert.rejects(client().getRepoTarball({ repo: 'acme/app', sha: SHA }), new RegExp(`getRepoTarball: integrity mismatch for ${SUBMODULE} from ${API.replaceAll('.', '\\.')}/tarball/${SHA}`, 'u'))
+    assert.deepEqual(await readdir(TREES).catch(() => []), [])
+  })
+
+  it('takes only a full commit sha, not a branch, a tag, a path or an abbreviation', async () => {
+    const calls = forbidRequests()
+    for (const sha of [undefined, '', 'main', 'v1.0.0', '..', 'abc123', SHA.toUpperCase(), `${SHA}/..`, `${SHA}0`, 'a'.repeat(65)]) {
+      await assert.rejects(client().getRepoTarball({ repo: 'acme/app', sha }), /getRepoTarball: sha must be a full commit sha/u, String(sha))
+    }
+    assert.deepEqual(calls, [])
+  })
+
+  it('throws a HttpError for a commit GitHub does not have', async () => {
+    stub()
+    await assert.rejects(client().getRepoTarball({ repo: 'acme/app', sha: SHA }), { name: 'HttpError', status: 404, message: `GET ${API}/git/commits/${SHA} 404: {"message":"Not Found"}` })
   })
 })

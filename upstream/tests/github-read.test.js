@@ -212,33 +212,6 @@ describe('getRepoFile', () => {
   })
 })
 
-describe('getRepoTarball', () => {
-  it('fetches the tarball at a commit, bytes intact, following the redirect', async () => {
-    // Not valid UTF-8, so a body read as text would come back different.
-    const bytes = new Uint8Array([0x1f, 0x8b, 0x08, 0x00, 0xff, 0xfe, 0x80, 0x00])
-    const calls = stubGitHub(() => new Response(bytes, { headers: { 'content-type': 'application/x-gzip' } }))
-    const tarball = await client().getRepoTarball({ repo: 'acme/app', sha: SHA })
-    assert.ok(tarball instanceof Uint8Array)
-    assert.deepEqual(tarball, bytes)
-    assert.equal(calls[0].url, `https://api.github.com/repos/acme/app/tarball/${SHA}`)
-    assert.equal(calls[0].headers.Authorization, 'Bearer t0ken')
-    assert.equal(calls[0].redirect, 'follow')
-  })
-
-  it('takes only a full commit sha, not a branch, a tag, a path or an abbreviation', async () => {
-    const calls = forbidRequests()
-    for (const sha of [undefined, '', 'main', 'v1.0.0', '..', 'abc123', SHA.toUpperCase(), `${SHA}/..`, `${SHA}0`, 'a'.repeat(65)]) {
-      await assert.rejects(client().getRepoTarball({ repo: 'acme/app', sha }), /getRepoTarball: sha must be a full commit sha/u, String(sha))
-    }
-    assert.deepEqual(calls, [])
-  })
-
-  it('throws a HttpError for a failed tarball', async () => {
-    stubGitHub(() => new Response('{"message":"No commit found"}', { status: 404 }))
-    await assert.rejects(client().getRepoTarball({ repo: 'acme/app', sha: SHA }), { name: 'HttpError', status: 404, message: `GET https://api.github.com/repos/acme/app/tarball/${SHA} 404: {"message":"No commit found"}` })
-  })
-})
-
 describe('getPullRequest', () => {
   const pr = (fields) => ({ number: 7, title: 'Fix it', state: 'open', merged: false, draft: false, base: { repo: { full_name: 'Acme/App' } }, ...fields })
 

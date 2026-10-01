@@ -55,15 +55,19 @@ export interface Client {
   getRepoFile(options: { repo: RepoName; path: string; ref?: string }): Promise<string>
   // The head of `branch`, or of the default branch without one.
   getRepoHead(options: { repo: RepoName; branch?: string }): Promise<{ branch: string; oid: string }>
-  // The repo's gzipped tarball at the full commit `sha`, whole, in memory.
+  // The repo's gzipped tarball at the full commit `sha`, whole, in memory:
+  // getRepoTreeTarball's for the tree GitHub names for that commit, asked
+  // on every call, cached or not. The cache is one for both, so the top
+  // directory may be named for the tree rather than the commit.
   getRepoTarball(options: { repo: RepoName; sha: string }): Promise<Uint8Array>
   // The gzipped tarball of a tree, the repo's own or any subdirectory's, by
   // its id, whole, in memory: GitHub's, its files under one top directory.
   // Its files are hashed back into git's tree and the id must be `tree`,
   // whether downloaded or read from setCacheDir's cache (npm.js), where it
   // is kept by the id alone, for good; a cached copy that does not match
-  // throws. A tree holding a submodule is refused: the tarball has nothing
-  // of its commit to hash.
+  // throws. A tarball shows a submodule as an empty directory: its commit
+  // comes from GitHub's listing of the tree, asked only then, and the id
+  // must still come out `tree`.
   getRepoTreeTarball(options: { repo: RepoName; tree: string }): Promise<Uint8Array>
   // The repository's published security advisories, as GitHub's
   // repository advisory objects. One page of 100: GitHub pages this list

@@ -19,23 +19,23 @@ const DIGESTS = {
 // other tools' caches (read, never written; a mismatch is passed over),
 // else ours (a mismatch throws), else what `locate` answers, checked and
 // then cached.
-export async function verifiedDownload({ method, dir, what, ext, algorithm, expected, local = [], locate, options = {} }) {
+export async function verifiedDownload({ method, dir, what, ext, algorithm, expected, local = [], locate, options = {}, submodules }) {
   assert.ok(Object.hasOwn(DIGESTS, algorithm) && typeof expected === 'string' && expected !== '', `${method}: nothing to check ${what} against`)
-  const digest = DIGESTS[algorithm]
+  const digest = (bytes) => DIGESTS[algorithm](bytes, submodules)
   for (const path of local) {
     const bytes = await readRegularFile(path)
-    if (bytes && digest(bytes) === expected) return bytes
+    if (bytes && await digest(bytes) === expected) return bytes
   }
-  const check = (bytes, from) => {
-    const actual = digest(bytes)
+  const check = async (bytes, from) => {
+    const actual = await digest(bytes)
     assert.ok(actual === expected, `${method}: integrity mismatch for ${what} from ${from}: expected ${expected}, got ${actual}`)
     return bytes
   }
   const key = `${what}.${ext}`
   const cached = await readCache(dir, key)
-  if (cached) return check(cached, 'the cache')
+  if (cached) return await check(cached, 'the cache')
   const url = await locate()
-  const bytes = check(await request(url, { ...options, as: 'bytes' }), url)
+  const bytes = await check(await request(url, { ...options, as: 'bytes' }), url)
   await writeCache(dir, key, bytes)
   return bytes
 }

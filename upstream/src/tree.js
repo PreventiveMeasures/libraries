@@ -36,25 +36,29 @@ function paxRecords(body) {
   return records
 }
 
-// A directory's id, or null for one with nothing in it, which git does not
-// keep: a submodule is written as one.
+// Git keeps no empty directory: in a tarball, one is a submodule. Each as
+// [the directory holding it, its name, its path].
+function emptyDirs(dir, prefix = '') {
+  return [...dir].flatMap(([name, entry]) => {
+    if (!(entry instanceof Map)) return []
+    const path = `${prefix}${name}`
+    return entry.size === 0 ? [[dir, name, path]] : emptyDirs(entry, `${path}/`)
+  })
+}
+
 function treeId(dir) {
-  const entries = []
-  for (const [name, entry] of dir) {
-    const id = entry instanceof Map ? treeId(entry) : entry.id
-    if (id === null) return null
-    entries.push({ mode: entry instanceof Map ? '40000' : entry.mode, name, id, key: entry instanceof Map ? `${name}/` : name })
-  }
-  if (entries.length === 0) return null
+  const entries = [...dir].map(([name, entry]) => (entry instanceof Map ? { mode: '40000', name, id: treeId(entry), key: `${name}/` } : { ...entry, name, key: name }))
   entries.sort((a, b) => (a.key < b.key ? -1 : Number(a.key > b.key)))
   return objectId('tree', Buffer.concat(entries.flatMap(({ mode, name, id }) => [Buffer.from(`${mode} ${name}\0`, 'latin1'), id])))
 }
 
 // The id of the git tree a gzipped tarball holds, as `git archive` writes
 // one, under a single top directory: a file's mode is its exec bit, a
-// symlink's blob its target. Where there is no such tree, a reason, which
-// is never an id: a tarball cannot show a submodule's commit.
-export function gitTreeOfTarball(gzipped) {
+// symlink's blob its target. A tarball cannot show a submodule's commit:
+// `submodules`, asked with the empty directories' paths, answers a Map of
+// path to commit, and the id is the asked one only if those are right.
+// Where there is no such tree, a reason, which is never an id.
+export async function gitTreeOfTarball(gzipped, submodules) {
   let bytes
   try {
     bytes = gunzipSync(gzipped, { maxOutputLength: MAX_UNPACKED_BYTES })
@@ -105,6 +109,12 @@ export function gitTreeOfTarball(gzipped) {
     else return `no tree: an entry of type ${JSON.stringify(type)}`
   }
   if (top === undefined) return 'no tree: an empty tarball'
-  const id = root.size === 0 ? objectId('tree', Buffer.alloc(0)) : treeId(root)
-  return id === null ? 'no tree: an empty directory, as a submodule is written' : id.toString('hex')
+  const empty = emptyDirs(root)
+  const commits = empty.length > 0 && submodules ? await submodules(empty.map(([, , path]) => path)) : new Map()
+  for (const [dir, name, path] of empty) {
+    const commit = commits.get(path)
+    if (!/^[\da-f]{40}$/u.test(typeof commit === 'string' ? commit : '')) return `no tree: an empty directory, ${JSON.stringify(path)}, and no submodule there`
+    dir.set(name, { mode: '160000', id: Buffer.from(commit, 'hex') })
+  }
+  return treeId(root).toString('hex')
 }

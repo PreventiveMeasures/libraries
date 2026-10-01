@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 
-import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTreeId, isSha, optional, sameName, show } from '../args.js'
+import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTreeId, isSha, isTreeId, optional, sameName, show } from '../args.js'
 import { verifiedDownload } from '../download.js'
 import { decode, encodeSegment } from '../http.js'
 import { api, bindMethods, call, clientHeaders, isGone, repoApi } from './client.js'
@@ -67,20 +67,32 @@ async function getRepoFile(headers, options) {
   return decode(bytes, url)
 }
 
-// The one request that follows a redirect, to codeload.github.com. A full
-// sha only, so the bytes are that commit's, not wherever a ref points now.
-async function getRepoTarball(headers, options) {
-  assertArgs('getRepoTarball', options, { repo: assertRepo, sha: assertSha })
-  return await call(headers, repoApi(options.repo, ['tarball', options.sha]), { as: 'bytes', redirect: 'follow' })
+// Follows the redirect to codeload.github.com. A tree id names its content,
+// so the bytes are held to it, downloaded or cached, and cached by it alone,
+// for good. A submodule, an empty directory in a tarball, takes its commit
+// from GitHub's listing of the tree, which the id checks as well.
+async function treeTarball(method, headers, repo, tree, ref) {
+  const submodules = async () => {
+    const listing = await call(headers, repoApi(repo, ['git', 'trees', tree], { recursive: 1 }))
+    const entries = Array.isArray(listing?.tree) ? listing.tree : []
+    return new Map(entries.filter((entry) => entry?.type === 'commit' && typeof entry.path === 'string').map((entry) => [Buffer.from(entry.path).toString('latin1'), entry.sha]))
+  }
+  const locate = () => repoApi(repo, ['tarball', ref])
+  return await verifiedDownload({ method, dir: 'github/trees', what: tree, ext: 'tgz', algorithm: 'tree', expected: tree, locate, options: { headers, redirect: 'follow' }, submodules })
 }
 
-// A tree id names its content: the bytes are held to it, downloaded or
-// cached, so the cache keeps them by the id alone, for good.
+// A full sha only, so the bytes are that commit's, not wherever a ref points now.
+async function getRepoTarball(headers, options) {
+  assertArgs('getRepoTarball', options, { repo: assertRepo, sha: assertSha })
+  const { repo, sha } = options
+  const commit = await call(headers, repoApi(repo, ['git', 'commits', sha]))
+  assert.ok(commit?.sha === sha && isTreeId(commit.tree?.sha), `getRepoTarball: GitHub names no tree for ${repo}@${sha}`)
+  return await treeTarball('getRepoTarball', headers, repo, commit.tree.sha, sha)
+}
+
 async function getRepoTreeTarball(headers, options) {
   assertArgs('getRepoTreeTarball', options, { repo: assertRepo, tree: assertTreeId })
-  const { repo, tree } = options
-  const locate = () => repoApi(repo, ['tarball', tree])
-  return await verifiedDownload({ method: 'getRepoTreeTarball', dir: 'github/trees', what: tree, ext: 'tgz', algorithm: 'tree', expected: tree, locate, options: { headers, redirect: 'follow' } })
+  return await treeTarball('getRepoTreeTarball', headers, options.repo, options.tree, options.tree)
 }
 
 async function getPullRequest(headers, options) {
