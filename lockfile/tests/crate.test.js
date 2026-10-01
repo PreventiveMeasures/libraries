@@ -72,13 +72,14 @@ describe('rust-semver.js, as the semver crate reads and matches', () => {
     }
     const version = parseVersion('1.0.0')
     const [comparator] = parseVersionReq('1.0.0')
-    for (const forged of [{ ...version, major: 1 }, { ...version, minor: -1n }, { ...version, patch: 2n ** 64n }, { ...version, pre: 'a..b' }, null]) {
+    for (const forged of [{ ...version, major: 1 }, { ...version, minor: -1n }, { ...version, patch: 2n ** 64n }, { ...version, pre: 'a..b' }, { ...version, build: 'a..b' }, { ...version, build: 7 }, { major: 1n, minor: 0n, patch: 0n, pre: '' }, null]) {
       assert.throws(() => matches([comparator], forged), { name: 'TypeError', message: 'expected a version, as parseVersion makes' })
     }
     for (const forged of [{ ...comparator, op: '!' }, { ...comparator, minor: undefined }, { ...comparator, patch: undefined, pre: 'rc' }, { ...comparator, pre: '01' }, '1.0.0']) {
       assert.throws(() => matches([forged], version), { name: 'TypeError', message: 'expected comparators, as parseVersionReq makes' })
     }
     assert.throws(() => matches('1.0.0', version), { name: 'TypeError', message: 'expected comparators, as parseVersionReq makes' })
+    assert.equal(matches([comparator], { ...version, build: '001.a-b' }), true)
   })
 })
 

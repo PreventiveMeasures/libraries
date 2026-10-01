@@ -12,6 +12,7 @@ const WILD = '[*Xx]'
 
 const VERSION = new RegExp(`^(${NUMBER})\\.(${NUMBER})\\.(${NUMBER})(?:-(${PRE}))?(?:\\+(${BUILD}))?$`, 'u')
 const PRERELEASE = new RegExp(`^(?:${PRE})?$`, 'u')
+const METADATA = new RegExp(`^(?:${BUILD})?$`, 'u')
 const LONE_WILD = new RegExp(`^ *${WILD} *$`, 'u')
 // One comparator, each run of spaces read one way alone, as backtracking
 // would otherwise be quadratic; a prerelease comes only after a patch.
@@ -123,7 +124,7 @@ const MATCH = new Map([
 
 // What the parsers make, or the same as they would: nothing else is read.
 function checkVersion(ver) {
-  const valid = typeof ver === 'object' && ver !== null && isU64(ver.major) && isU64(ver.minor) && isU64(ver.patch) && typeof ver.pre === 'string' && PRERELEASE.test(ver.pre)
+  const valid = typeof ver === 'object' && ver !== null && isU64(ver.major) && isU64(ver.minor) && isU64(ver.patch) && typeof ver.pre === 'string' && PRERELEASE.test(ver.pre) && typeof ver.build === 'string' && METADATA.test(ver.build)
   if (!valid) throw new TypeError('expected a version, as parseVersion makes')
 }
 
