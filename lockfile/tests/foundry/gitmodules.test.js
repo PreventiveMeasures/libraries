@@ -61,6 +61,12 @@ describe('.gitmodules, as git reads it', () => {
     }
   })
 
+  it('reads every boolean git reads, its integers among them', () => {
+    for (const value of ['', 'TRUE', 'Off', '0', '+1', '-1', '0x1F', '010', '1k', '1G', '2147483647', '-2147483647', '" 1"', '"2097151k"']) {
+      assert.equal(parseGitmodules(add(`\tshallow = ${value}\n\tfetchRecurseSubmodules = ${value}`))['lib/b'].branch, 'main', value)
+    }
+  })
+
   it('reads `.` for a branch, git\'s for the superproject\'s own', () => {
     assert.equal(parseGitmodules(add('[submodule "c"]\n\tpath = c\n\turl = https://x.example/c\n\tbranch = .')).c.branch, '.')
   })
@@ -84,6 +90,11 @@ describe('.gitmodules, of what git does not read alike', () => {
     refuses(add('\turl x'), 'expected "=" and a value after "url", found "x" at line 8')
     refuses(add('\t-url = x'), '"-", where git reads a key, a section or a comment at line 8')
     refuses(add('[submodule "c\nd"]'), 'a subsection with no closing quote at line 8')
+  })
+
+  it('refuses a NUL, where git ends a name or a value early', () => {
+    refuses(add('[submodule "c\0d"]\n\tpath = c\n\turl = https://x.example/c'), 'a NUL, where git ends the name or value it is in, at line 8')
+    refuses(BASE.replace('path = lib/a', 'path = lib/a\0b'), 'a NUL, where git ends the name or value it is in, at line 2')
   })
 
   it('refuses space within a value, which git reads one way before 2.45 and another since', () => {
@@ -116,6 +127,9 @@ describe('.gitmodules, of what git does not read alike', () => {
     refuses(add('\tupdate = none'), '["lib/b"].update: "none" is not a value git reads here')
     refuses(add('\tupdate = !rm -rf x'), '["lib/b"].update: "!rm -rf x" is not a value git reads here')
     refuses(add('\tshallow = maybe'), '["lib/b"].shallow: "maybe" is not a value git reads here')
+    for (const value of ['2147483648', '-2147483648', '08', '0x', '2g', '1.0', '1kk', '0b1']) {
+      refuses(add(`\tshallow = ${value}`), `["lib/b"].shallow: "${value}" is not a value git reads here`)
+    }
     refuses(add('\tignore = everything'), '["lib/b"].ignore: "everything" is not a value git reads here')
     refuses(add('\tfetchRecurseSubmodules = sometimes'), '["lib/b"].fetchrecursesubmodules: "sometimes" is not a value git reads here')
   })

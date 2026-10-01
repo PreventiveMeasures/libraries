@@ -122,6 +122,10 @@ function readEntry(src, first) {
 // of their header, undefined before any; and its own line. A UTF-8 byte
 // order mark git skips at the start alone.
 export function readConfig(text, where) {
+  // git reads a name or a value as a C string, which a NUL ends: what
+  // follows it is read as something else, or not at all.
+  const nul = text.indexOf('\0')
+  if (nul !== -1) throw new LockfileError(`a NUL, where git ends the name or value it is in, at line ${text.slice(0, nul).split('\n').length}`, where)
   const src = cursor(text.startsWith('\uFEFF') ? text.slice(1) : text, where)
   const entries = []
   let header = { section: undefined, subsection: undefined, header: undefined }

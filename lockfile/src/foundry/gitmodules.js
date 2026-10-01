@@ -9,10 +9,26 @@ import { readConfig } from './config.js'
 
 const FIELDS = ['path', 'url', 'branch', 'update', 'shallow', 'ignore', 'fetchrecursesubmodules']
 
-// git reads these as true, false or an integer, and dies on anything else;
-// a key alone is true.
-const BOOLEAN = /^(?:true|false|yes|no|on|off|-?\d+)?$/iu
-const isBoolean = (value) => value === null || BOOLEAN.test(value)
+// git's git_parse_int: strtoimax's integer in any base it reads, and a unit
+// of k, m or g after it, within ±(2^31 − 1) once multiplied out. Past eleven
+// digits no base is within it. A `0b`, which glibc 2.38 and later read in
+// base 0 and other C libraries do not, is refused, as git reads it two ways.
+const INT = /^[\t\n\v\f\r ]*[+-]?(0[Xx][\dA-Fa-f]+|0[0-7]*|[1-9]\d*)([GKMgkm]?)$/u
+const UNIT = { __proto__: null, '': 1, k: 1024, m: 1024 ** 2, g: 1024 ** 3 }
+
+function isInt(value) {
+  const m = INT.exec(value)
+  if (m === null) return false
+  const [, digits, unit] = m
+  const [radix, body] = /^0[Xx]/u.test(digits) ? [16, digits.slice(2)] : [digits.startsWith('0') ? 8 : 10, digits]
+  const significant = body.replace(/^0+/u, '')
+  return significant.length <= 11 && Number.parseInt(significant || '0', radix) <= Math.trunc((2 ** 31 - 1) / UNIT[unit.toLowerCase()])
+}
+
+// git's git_parse_maybe_bool: true, false and their like in any case, an
+// empty one false, or an integer; git dies on anything else. A key alone is
+// true.
+const isBoolean = (value) => value === null || /^(?:true|false|yes|no|on|off)?$/iu.test(value) || isInt(value)
 const VALUES = {
   __proto__: null,
   shallow: isBoolean,
