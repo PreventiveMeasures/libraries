@@ -5,52 +5,23 @@
 // takes more, and reads a key given twice as the last, as forge does and
 // some other readers do not.
 
-import { LockfileError, quote } from '../error.js'
-
-const fail = (detail, number) => new LockfileError(`${detail} at line ${Math.max(number, 0) + 1}`)
+import { quote } from '../error.js'
+import { advance, closeQuote, fail, lines, readJsonString, rest } from '../lines.js'
 
 // Never in a lockfile read here: a control, which serde_json escapes below
 // U+0020 and no path or name here may have above; a lone surrogate, which
 // is not UTF-8; and a byte order mark, which forge does not read at the
 // start, and is unseen anywhere else.
 const FORBIDDEN = /[\p{Cc}\p{Cs}\uFEFF]/u
-const hex = (char) => `U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`
-
-// Every line ends alike, as git may check the file out with CRLF.
-function advance(src) {
-  const { text, pos } = src
-  src.line = undefined
-  if (pos >= text.length) return
-  let end = text.indexOf('\n', pos)
-  if (end === -1) end = text.length
-  src.pos = end + 1
-  src.number++
-  const crlf = end < text.length && text[end - 1] === '\r'
-  const line = text.slice(pos, crlf ? end - 1 : end)
-  const char = FORBIDDEN.exec(line)?.[0]
-  if (char !== undefined) throw fail(`${hex(char)} is not allowed`, src.number)
-  if (end < text.length && crlf !== (src.crlf ??= crlf)) throw fail(`a ${crlf ? 'CRLF' : 'LF'} line end, after ${src.crlf ? 'CRLF' : 'LF'} ones`, src.number)
-  src.line = line
-}
-
-const rest = (line, pos) => (pos < line.length ? quote(line.slice(pos)) : 'the end of the line')
 
 // A string as serde_json writes it, which JSON.stringify does too: the
 // escapes of `"`, `\` and controls, and no others.
 function readString(line, pos, number) {
   if (line[pos] !== '"') throw fail(`expected a string, found ${rest(line, pos)}`, number)
-  let end = pos + 1
-  while (end < line.length && line[end] !== '"') end += line[end] === '\\' ? 2 : 1
-  if (end >= line.length) throw fail('a string with no closing quote', number)
-  const raw = line.slice(pos, ++end)
-  let value
-  try {
-    value = JSON.parse(raw)
-  } catch {
-    throw fail(`${quote(raw)} is not a string as JSON writes it`, number)
-  }
+  const end = closeQuote(line, pos, number)
+  const raw = line.slice(pos, end)
+  const value = readJsonString(raw, number)
   if (!value.isWellFormed()) throw fail(`${quote(raw)} escapes a lone surrogate, which forge does not read`, number)
-  if (JSON.stringify(value) !== raw) throw fail(`${quote(raw)} is not written as forge writes ${quote(value)}`, number)
   return [value, end]
 }
 
@@ -97,7 +68,7 @@ function readObject(src, indent) {
 }
 
 export function readJson(text) {
-  const src = { text, pos: 0, number: -1, line: undefined, crlf: undefined }
+  const src = lines(text, FORBIDDEN)
   advance(src)
   let root = Object.create(null)
   if (src.line === '{') {

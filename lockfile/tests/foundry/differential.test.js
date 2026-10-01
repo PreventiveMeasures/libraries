@@ -4,6 +4,7 @@ import { describe, it } from 'node:test'
 import { LockfileError } from '../../src/error.js'
 import { readConfig } from '../../src/foundry/config.js'
 import { gitConfig, hasGit } from './reference.js'
+import { random } from '../random.js'
 
 // git's own reader against this one, over documents made at random: the
 // fixtures' .gitmodules with edits, and documents put together from what git
@@ -16,13 +17,6 @@ import { gitConfig, hasGit } from './reference.js'
 const FIXTURES = new URL('fixtures/', import.meta.url)
 const FILES = readdirSync(FIXTURES).filter((name) => name.endsWith('.gitmodules')).sort()
 const TWO_WAYS = /which git reads as a space before 2\.45 and as itself since/u
-
-// A linear congruential generator, its product taken in 32 bits.
-function random(seed) {
-  let state = seed
-  const next = () => (state = (Math.imul(state, 1103515245) + 12345) & 0x7FFF_FFFF) / 2 ** 31
-  return { next, pick: (list) => list[Math.floor(next() * list.length)] }
-}
 
 const HEADERS = [
   '[submodule "lib/a"]', '[submodule "lib/b"]', '[Submodule "X"]', '[submodule  "q\\"x"]', '[submodule\t"t"]', '[submodule "a\\\\b"]',

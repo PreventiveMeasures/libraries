@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { parseToml } from '../../toml.js'
 import { hasTomllib, plain, tomllib } from './reference.js'
+import { random } from '../random.js'
 
 // Python's tomllib, a TOML 1.0 reader, against this one, over documents
 // made at random: from pieces, from TOML's grammar, from the fixtures with
@@ -32,15 +33,6 @@ const ENDS = ['\n', '\r\n', '\r']
 
 const TABLE_HEADERS = ['[a]', '[a.b]', '[[a]]', '[[a.b]]', '[b]', '[a.b.c]', '[[b.c]]', '[a.x]', '[x.y]', '[x]', '[x.y.z]', '[[x.y]]', '[b.c]', '[b.c.d]', '[a.b.d]', '["a".b]']
 const TABLE_KEYS = ['x', 'y', 'a', 'b', 'c', 'a.b', 'b.c', 'x.y', 'x.y.z', 'a.x', 'y.z', 'c.d', 'b.c.d', 'z']
-
-// A linear congruential generator, enough to spread the pieces about, its
-// product taken in 32 bits: as a double it runs past 2^53 and is rounded,
-// and the sequence falls into a cycle some ten thousand long.
-function random(seed) {
-  let state = seed
-  const next = () => (state = (Math.imul(state, 1103515245) + 12345) & 0x7FFF_FFFF) / 2 ** 31
-  return { next, pick: (list) => list[Math.floor(next() * list.length)] }
-}
 
 // Documents of anything: every piece, a line end of every kind, junk after.
 function anything({ next, pick }) {

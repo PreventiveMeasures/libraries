@@ -121,8 +121,8 @@ describe('foundry.lock, laid out otherwise than forge does', () => {
   })
 
   it('refuses a string written otherwise than serde_json writes it', () => {
-    refuses(edit('"lib/a"', '"lib\\/a"'), '"\\"lib\\\\/a\\"" is not written as forge writes "lib/a" at line 2')
-    refuses(edit('"main"', '"\\u006dain"'), '"\\"\\\\u006dain\\"" is not written as forge writes "main" at line 10')
+    refuses(edit('"lib/a"', '"lib\\/a"'), '"\\"lib\\\\/a\\"" is not written as JSON writes "lib/a" at line 2')
+    refuses(edit('"main"', '"\\u006dain"'), '"\\"\\\\u006dain\\"" is not written as JSON writes "main" at line 10')
     refuses(edit('"main"', '"ma\\ud800in"'), '"\\"ma\\\\ud800in\\"" escapes a lone surrogate, which forge does not read at line 10')
     refuses(edit('"main"', '"ma\\xin"'), '"\\"ma\\\\xin\\"" is not a string as JSON writes it at line 10')
     refuses(edit('"main"', '"main'), 'a string with no closing quote at line 10')
