@@ -73,28 +73,30 @@ async function getRepoFile(headers, options) {
 // with nothing in it, comes from GitHub's listings of the trees, which the
 // id checks as well: a directory at a time, as a recursive listing of a
 // large tree is cut short.
-async function treeTarball(method, headers, repo, tree, ref) {
+async function treeTarball(method, headers, repo, tree) {
   const listings = new Map()
   const list = (sha) => {
     if (!listings.has(sha)) listings.set(sha, call(headers, repoApi(repo, ['git', 'trees', sha])).then((listing) => (Array.isArray(listing?.tree) ? listing.tree : [])))
     return listings.get(sha)
   }
-  const locate = () => repoApi(repo, ['tarball', ref])
+  const locate = () => repoApi(repo, ['tarball', tree])
   return await verifiedDownload({ method, dir: 'github/trees', what: tree, ext: 'tgz', algorithm: 'tree', expected: tree, locate, options: { headers, redirect: 'follow' }, list })
 }
 
-// A full sha only, so the bytes are that commit's, not wherever a ref points now.
+// A full sha only, so the bytes are that commit's, not wherever a ref points
+// now. Its tree's tarball, not its own, in which `git archive` rewrites the
+// files marked `export-subst`.
 async function getRepoTarball(headers, options) {
   assertArgs('getRepoTarball', options, { repo: assertRepo, sha: assertSha })
   const { repo, sha } = options
   const commit = await call(headers, repoApi(repo, ['git', 'commits', sha]))
   assert.ok(commit?.sha === sha && isSha1(commit.tree?.sha), `getRepoTarball: GitHub names no tree for ${repo}@${sha}`)
-  return await treeTarball('getRepoTarball', headers, repo, commit.tree.sha, sha)
+  return await treeTarball('getRepoTarball', headers, repo, commit.tree.sha)
 }
 
 async function getRepoTreeTarball(headers, options) {
   assertArgs('getRepoTreeTarball', options, { repo: assertRepo, tree: assertTreeId })
-  return await treeTarball('getRepoTreeTarball', headers, options.repo, options.tree, options.tree)
+  return await treeTarball('getRepoTreeTarball', headers, options.repo, options.tree)
 }
 
 async function getPullRequest(headers, options) {

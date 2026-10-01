@@ -10,7 +10,7 @@ const MAX_UNPACKED_BYTES = 2 ** 30
 // 0000, would be extracted as it is not hashed. Modes are as its umask,
 // 002 or 022, leaves them: a file 0664 or 0644, 0775 or 0755 executable;
 // a directory 0775 or 0755; a symlink 0777.
-const PAX_KEYS = { x: new Set(['path', 'linkpath']), g: new Set(['comment']) }
+const PAX_KEYS = new Set(['path', 'linkpath'])
 const MODES = { 0: [0o664, 0o644, 0o775, 0o755], 2: [0o777], 5: [0o775, 0o755] }
 
 // Names are kept as latin1 strings, a char per byte, so they sort and hash
@@ -125,14 +125,13 @@ export async function gitTreeOfTarball(gzipped, { expected, list } = {}) {
     if (body.length !== size) return 'no tree: the tarball is cut short'
     at += BLOCK + Math.ceil(size / BLOCK) * BLOCK
     const type = String.fromCodePoint(header[156])
-    // `g` is git's own, naming the commit of a commit's tarball.
-    if (type === 'x' || type === 'g') {
+    if (type === 'x') {
       const records = paxRecords(body)
       if (records === null) return 'no tree: a malformed pax header'
-      const other = [...records.keys()].find((key) => !PAX_KEYS[type].has(key))
+      const other = [...records.keys()].find((key) => !PAX_KEYS.has(key))
       if (other !== undefined) return `no tree: a pax record git does not write, ${JSON.stringify(other)}`
-      if (type === 'x' && pax !== null) return 'no tree: two pax headers for one entry'
-      if (type === 'x') pax = records
+      if (pax !== null) return 'no tree: two pax headers for one entry'
+      pax = records
       continue
     }
     const prefix = field(header, 345, 500)

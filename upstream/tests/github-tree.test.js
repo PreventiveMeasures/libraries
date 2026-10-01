@@ -8,7 +8,7 @@ import { gunzipSync, gzipSync } from 'node:zlib'
 import { createClient } from '../github.js'
 import { setCacheDir } from '../npm.js'
 import { SHA, forbidRequests, json, stubGitHub } from './github-stub.js'
-import { COMMIT_TGZ, EMPTIES, EMPTIES_D, EMPTIES_N, EMPTIES_TGZ, NESTED, NESTED_COMMIT, NESTED_LIB, NESTED_TGZ, SUBMODULE, SUBMODULE_COMMIT, SUBMODULE_TGZ, TREE, TREE_TGZ } from './tree-fixtures.js'
+import { EMPTIES, EMPTIES_D, EMPTIES_N, EMPTIES_TGZ, NESTED, NESTED_COMMIT, NESTED_LIB, NESTED_TGZ, SUBMODULE, SUBMODULE_COMMIT, SUBMODULE_TGZ, TREE, TREE_TGZ } from './tree-fixtures.js'
 
 const CACHE_DIR = join(tmpdir(), `upstream-github-tree-test-${process.pid}`)
 setCacheDir(CACHE_DIR)
@@ -109,7 +109,7 @@ describe('getRepoTreeTarball', () => {
     assert.deepEqual(await readFile(join(TREES, `${TREE}.tgz`)), TREE_TGZ)
     const calls = forbidRequests()
     assert.deepEqual(Buffer.from(await client().getRepoTreeTarball({ repo: 'acme/fork', tree: TREE })), TREE_TGZ)
-    await writeFile(join(TREES, `${TREE}.tgz`), COMMIT_TGZ.subarray(0, 100))
+    await writeFile(join(TREES, `${TREE}.tgz`), TREE_TGZ.subarray(0, 100))
     await assert.rejects(client().getRepoTreeTarball({ repo: 'acme/app', tree: TREE }), /getRepoTreeTarball: integrity mismatch for [\da-f]{40} from the cache/u)
     assert.deepEqual(calls, [])
   })
@@ -133,10 +133,10 @@ describe('getRepoTreeTarball', () => {
 describe('getRepoTarball', () => {
   const commit = { sha: SHA, tree: { sha: TREE } }
 
-  it("fetches the commit's tarball, following the redirect, held to the tree GitHub names for the commit", async () => {
-    const calls = stub({ commits: { [SHA]: commit }, tarballs: { [SHA]: COMMIT_TGZ } })
-    assert.deepEqual(Buffer.from(await client().getRepoTarball({ repo: 'acme/app', sha: SHA })), COMMIT_TGZ)
-    assert.deepEqual(calls.map(({ url, redirect, headers }) => [url, redirect, headers.Authorization]), [[`${API}/git/commits/${SHA}`, 'manual', 'Bearer t0ken'], [`${API}/tarball/${SHA}`, 'follow', 'Bearer t0ken']])
+  it("fetches the tarball of the tree GitHub names for the commit, following the redirect, held to that tree", async () => {
+    const calls = stub({ commits: { [SHA]: commit }, tarballs: { [TREE]: TREE_TGZ } })
+    assert.deepEqual(Buffer.from(await client().getRepoTarball({ repo: 'acme/app', sha: SHA })), TREE_TGZ)
+    assert.deepEqual(calls.map(({ url, redirect, headers }) => [url, redirect, headers.Authorization]), [[`${API}/git/commits/${SHA}`, 'manual', 'Bearer t0ken'], [`${API}/tarball/${TREE}`, 'follow', 'Bearer t0ken']])
     assert.deepEqual(await readdir(TREES), [`${TREE}.tgz`])
   })
 
@@ -150,11 +150,11 @@ describe('getRepoTarball', () => {
 
   it('refuses a commit GitHub answers for another sha or without a tree, and a tarball of another tree', async () => {
     for (const answer of [{ ...commit, sha: SUBMODULE_COMMIT }, { sha: SHA }, { sha: SHA, tree: { sha: TREE.toUpperCase() } }, null]) {
-      stub({ commits: { [SHA]: answer }, tarballs: { [SHA]: COMMIT_TGZ } })
+      stub({ commits: { [SHA]: answer }, tarballs: { [TREE]: TREE_TGZ } })
       await assert.rejects(client().getRepoTarball({ repo: 'acme/app', sha: SHA }), new RegExp(`getRepoTarball: GitHub names no tree for acme/app@${SHA}`, 'u'), JSON.stringify(answer))
     }
-    stub({ commits: { [SHA]: { sha: SHA, tree: { sha: SUBMODULE } } }, tarballs: { [SHA]: COMMIT_TGZ }, listings: { [SUBMODULE]: { tree: [] } } })
-    await assert.rejects(client().getRepoTarball({ repo: 'acme/app', sha: SHA }), new RegExp(`getRepoTarball: integrity mismatch for ${SUBMODULE} from ${API.replaceAll('.', '\\.')}/tarball/${SHA}`, 'u'))
+    stub({ commits: { [SHA]: { sha: SHA, tree: { sha: SUBMODULE } } }, tarballs: { [SUBMODULE]: TREE_TGZ }, listings: { [SUBMODULE]: { tree: [] } } })
+    await assert.rejects(client().getRepoTarball({ repo: 'acme/app', sha: SHA }), new RegExp(`getRepoTarball: integrity mismatch for ${SUBMODULE} from ${API.replaceAll('.', '\\.')}/tarball/${SUBMODULE}`, 'u'))
     assert.deepEqual(await readdir(TREES).catch(() => []), [])
   })
 

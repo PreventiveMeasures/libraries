@@ -48,9 +48,8 @@ const pax = (type, records) => {
 const tarball = (...blocks) => gzipSync(Buffer.concat([...blocks.flat(), Buffer.alloc(1024)]))
 
 describe('gitTreeOfTarball', () => {
-  it("is the id of the tree `git archive` wrote, a commit's included", async () => {
+  it('is the id of the tree `git archive` wrote', async () => {
     assert.equal(await gitTreeOfTarball(TREE_TGZ), TREE)
-    assert.equal(await gitTreeOfTarball(COMMIT_TGZ), TREE)
   })
 
   it("is another id for a file changed, a file's exec bit dropped, or a symlink, short or long, pointed elsewhere", async () => {
@@ -66,6 +65,8 @@ describe('gitTreeOfTarball', () => {
   it('is a reason, never an id, where there is no tree to name', async () => {
     const tar = gunzipSync(TREE_TGZ)
     assert.equal(await gitTreeOfTarball(SUBMODULE_TGZ), 'no tree: an empty directory, "sub", and no submodule there')
+    // A commit's, in which `export-subst` files are rewritten.
+    assert.equal(await gitTreeOfTarball(COMMIT_TGZ), 'no tree: an entry of type "g"')
     assert.equal(await gitTreeOfTarball(Buffer.from('not gzip')), 'no tree: not gzip, or larger than 1 GiB unpacked')
     assert.equal(await gitTreeOfTarball(gzipSync(tar.subarray(0, 1000))), 'no tree: the tarball is cut short')
     assert.equal(await gitTreeOfTarball(gzipSync(Buffer.alloc(1024))), 'no tree: an empty tarball')
@@ -98,7 +99,6 @@ describe('gitTreeOfTarball', () => {
     sign(named, 0)
     for (const [blocks, reason] of [
       [[top, pax('x', [['size', 8]]), file], 'a pax record git does not write, "size"'],
-      [[pax('g', [['path', 'top/x']]), top, file], 'a pax record git does not write, "path"'],
       [[top, pax('x', [['__proto__', 'x']]), file], 'a pax record git does not write, "__proto__"'],
       [[top, pax('x', [['path', 'top/a']]), pax('x', [['linkpath', 'x']]), file], 'two pax headers for one entry'],
       [[top, pax('x', [['linkpath', 'f\0x']]), header('top/l', '2', 0, 0o777)], 'a malformed pax header'],
