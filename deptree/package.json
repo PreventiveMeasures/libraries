@@ -1,6 +1,6 @@
 {
   "name": "@preventive/deptree",
-  "version": "1.0.0-alpha.1",
+  "version": "1.0.0-alpha.2",
   "description": "A node_modules tree in memory, as a package manager would install it: pnpm 10 or 11, or yarn 1.22, from its lockfile, tarballs fetched and checked, patches applied",
   "type": "module",
   "exports": {
