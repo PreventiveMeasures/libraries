@@ -1,0 +1,21 @@
+{
+  ".": {
+    "name": "resolutions",
+    "version": "0.0.0",
+    "private": true,
+    "workspaces": [
+      "packages/*"
+    ],
+    "dependencies": {
+      "is-number": "6.0.0"
+    },
+    "resolutions": {
+      "is-number": "file:./vendor/is-number-6.0.0.tgz"
+    }
+  },
+  "packages/ws-a": {
+    "name": "ws-a",
+    "version": "1.0.0",
+    "dependencies": {}
+  }
+}

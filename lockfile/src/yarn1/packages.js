@@ -9,7 +9,8 @@ import { EMPTY, entries, record, string, text } from '../shape.js'
 
 const FIELDS = ['name', 'version', 'uid', 'resolved', 'integrity', 'dependencies', 'optionalDependencies']
 
-// As yarn's normalizePattern splits it.
+// As yarn's normalizePattern splits it. A bare name, which yarn writes for
+// none, it reads for the root's own request of it, whatever the range.
 function splitPattern(pattern, where) {
   const sep = pattern.indexOf('@', 1)
   if (sep === -1) throw new LockfileError(`${quote(pattern)} is not a pattern of the form name@range`, where)
@@ -36,7 +37,7 @@ function isGit(url) {
 // The resolver yarn's getExoticResolver picks for a range, in its order; a
 // version, range, tag or `npm:` alias goes to the registry.
 const SHORTHAND = /^[^:@%/\s.-][^:@%/\s]*\/[^:@\s/%]+(?:#.*)?$/u
-function sourceOf(range) {
+export function sourceOf(range) {
   if (isGit(range)) return 'git'
   if (/^https?:\/\//u.test(range) || (!range.includes('@') && /\.(?:tgz|tar\.gz)$/u.test(range))) return 'tarball'
   if (range.startsWith('github:') || SHORTHAND.test(range)) return 'github'
@@ -80,8 +81,8 @@ function readVersion(value, where, semver) {
 
 const SHA1 = /^[\da-f]{40}$/u
 
-// yarn writes a `file:` path as the manifest does, `./` and all; it checks the
-// sha1 after `#` where there is no integrity.
+// yarn writes a `file:` path as the manifest does, `./` and all; since
+// 1.19.0, it checks both the sha1 after `#` and the integrity.
 function readTarball(tarball, sha1, integrity, resolvedAt, integrityAt) {
   if (tarball.startsWith('file:')) checkRelative(tarball.slice(tarball.startsWith('file:./') ? 7 : 5), resolvedAt)
   else if (!/^https?:\/\/\S+$/u.test(tarball) || !URL.canParse(tarball)) throw new LockfileError(`${quote(tarball)} is not an http(s) URL, a file: path or a git URL`, resolvedAt)
@@ -190,6 +191,8 @@ function checkSources(patterns, resolution, { asks, version }, where) {
   }
   if (registry === undefined) return undefined
   if (sources.length > 0) return { registry: registry.key, sources: sources.map((pattern) => pattern.key) }
+  // What a resolution to a workspace gives a request, written apart.
+  if (resolution === undefined && patterns.length === 1) return { registry: registry.key, sources: [] }
   if (resolution?.type !== 'tarball' || resolution.tarball.startsWith('file:')) {
     throw new LockfileError(`${quote(registry.key)} asks for the registry, and resolves to ${describe(resolution)}`, where)
   }
@@ -231,7 +234,7 @@ function readPackage({ keys, fields }, where, semver) {
 // yarn gives a registry pattern of a range the first package of its name and
 // version it resolves, of whichever entry. Without semver, a tag is a guess.
 const TAG = /^(?![vV=]?\d|[xX*](?:\.|$))[A-Za-z][\w.-]*$/u
-function isRange(range, semver) {
+export function isRange(range, semver) {
   if (semver !== undefined) return semver.validRange(range) !== null
   return !/[:/@#]/u.test(range) && !TAG.test(range)
 }
@@ -244,11 +247,17 @@ function checkRace(pkg, patterns, prior, semver, where) {
 
 const integrities = ({ integrity }) => new Map((integrity?.split(' ') ?? []).map((part) => [part.slice(0, part.indexOf('-')), part]))
 
-// One tarball, or one commit, is one package: of one version and the same
-// hashes, whatever entry has it.
+// A dependency list, in no order.
+export const listed = (dependencies) => JSON.stringify(Object.entries(dependencies).sort(([a], [b]) => (a < b ? -1 : 1)))
+
+// One tarball, or one commit, is one package: of one version, manifest and
+// the same hashes, whatever entry has it.
 function checkSame(pkg, other, where) {
   const of = `than ${quote(other.patterns[0])}, of the same ${pkg.resolution.type === 'git' ? 'commit' : 'tarball'}`
   if (pkg.version !== other.version) throw new LockfileError(`another version ${of}`, at(where, 'version'))
+  for (const kind of ['dependencies', 'optionalDependencies']) {
+    if (listed(pkg[kind]) !== listed(other[kind])) throw new LockfileError(`other ${kind} ${of}`, at(where, kind))
+  }
   const [mine, theirs] = [pkg.resolution, other.resolution]
   if (mine.sha1 !== undefined && theirs.sha1 !== undefined && mine.sha1 !== theirs.sha1) throw new LockfileError(`another sha1 ${of}`, at(where, 'resolved'))
   const known = integrities(theirs)
@@ -257,8 +266,8 @@ function checkSame(pkg, other, where) {
   }
 }
 
-// `mixed`: entries with a registry pattern beside a source, and `other`, one
-// of the same source. yarn writes one for each `resolved`, and directory.
+// `mixed`: entries with a registry pattern beside a source, or none, and
+// `other`, one of the same source. yarn writes one for each `resolved`.
 export function readPackages(list, semver) {
   const packages = Object.create(null)
   const patterns = []
@@ -286,6 +295,8 @@ export function readPackages(list, semver) {
     if (group !== undefined) checkSame(pkg, group[0], where)
     if (group !== undefined) group.push(pkg)
     else if (source !== undefined) fetched.set(source, [pkg])
+    // yarn resolves no request to what stands in for a workspace.
+    if (read.handed?.sources.length === 0) continue
     const id = `${pkg.name}\n${pkg.version}`
     const prior = versions.get(id)
     if (prior === undefined) versions.set(id, { key, patterns: read.patterns })

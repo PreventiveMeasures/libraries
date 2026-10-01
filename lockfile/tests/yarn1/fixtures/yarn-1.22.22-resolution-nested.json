@@ -1,0 +1,14 @@
+{
+  ".": {
+    "name": "resolution-nested",
+    "version": "0.0.0",
+    "private": true,
+    "dependencies": {
+      "is-even": "1.0.0"
+    },
+    "resolutions": {
+      "**/is-odd": "3.0.1",
+      "is-odd/is-number": "7.0.0"
+    }
+  }
+}

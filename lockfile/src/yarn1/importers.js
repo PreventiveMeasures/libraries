@@ -6,7 +6,7 @@ import { KINDS, reach } from '../graph.js'
 import { checkName, checkRelative, isName } from '../names.js'
 import { EMPTY, entries, record, string, text, texts } from '../shape.js'
 import { compile, matches } from './glob.js'
-import { resolvePath } from './packages.js'
+import { isRange, resolvePath, sourceOf } from './packages.js'
 
 export const WHERE = 'manifests'
 
@@ -54,30 +54,37 @@ function resolveRequest(request, { packages, workspaces, semver }) {
   return request.pattern
 }
 
-// yarn drops `//`, a comment, from a dependency list, and keeps a name listed
-// twice in one alone.
+// yarn's cleanDependencies keeps a name listed twice in the first list of
+// these, at its first range in them that is neither '' nor '*'.
+const CLEANED = ['optionalDependencies', 'dependencies', 'devDependencies']
+
+// yarn drops `//`, a comment, from a dependency list.
 function readTargets(manifest, dir, where, context) {
-  const importer = Object.create(null)
   const listed = new Map()
-  for (const kind of KINDS) {
-    const targets = Object.create(null)
+  const ranges = new Map()
+  for (const kind of CLEANED) {
     for (const [name, range, here] of entries(manifest[kind] ?? EMPTY, at(where, kind))) {
       if (name === '//') continue
-      if (listed.has(name)) throw new LockfileError(`listed under ${listed.get(name)} too`, here)
-      listed.set(name, kind)
-      const target = fromLockfile(string(range, here), dir, here)
-      targets[name] = resolveRequest({ name, range: target, pattern: `${checkName(name, here)}@${target}`, where: here }, context)
+      const value = string(range, here)
+      if (!listed.has(name)) listed.set(name, { kind, value, here })
+      if (!ranges.has(name) && value !== '' && value !== '*') ranges.set(name, value)
     }
-    importer[kind] = targets
   }
-  return importer
+  const importer = Object.fromEntries(KINDS.map((kind) => [kind, Object.create(null)]))
+  for (const [name, { kind, value, here }] of listed) {
+    const target = fromLockfile(ranges.get(name) ?? value, dir, here)
+    importer[kind][name] = resolveRequest({ name, range: target, pattern: `${checkName(name, here)}@${target}`, where: here }, context)
+  }
+  return Object.assign(Object.create(null), importer)
 }
 
 // yarn's parsePatternInfo, which ignores a path ending in `/` or `*` or with
-// `//`, and resolves the pattern of every other.
-function readResolutions(value, where) {
+// `//`, and a range neither semver nor a source, as a tag or `npm:` alias.
+function readResolutions(value, where, semver) {
   const rules = []
   for (const [path, range, here] of entries(value ?? EMPTY, where)) {
+    // A comment, which yarn drops first.
+    if (path === '//') continue
     if (/\/$|\/{2,}|\*+$/u.test(path)) throw new LockfileError(`${quote(path)} is a path yarn ignores`, here)
     const names = path.match(/(?:@[^/]+\/)?[^/]+/gu) ?? [path]
     const tests = compile(names.length === 1 ? `**/${path}` : path, here)
@@ -85,6 +92,7 @@ function readResolutions(value, where) {
     const other = names.slice(0, -1).find((segment) => segment !== '**' && !isName(segment.replaceAll(/[*?]/gu, 'x')))
     if (other !== undefined) throw new LockfileError(`${quote(other)} is not a package name, or a glob of one`, here)
     const target = string(range, here)
+    if (sourceOf(target) === 'registry' && !isRange(target, semver)) throw new LockfileError(`${quote(target)} is a range yarn ignores in a resolution: neither a semver range nor a source`, here)
     rules.push({ path, tests, name, range: target, pattern: `${name}@${target}`, where: here })
   }
   return rules
@@ -168,12 +176,14 @@ export function readImporters(manifests, packages, requests, semver) {
   const context = { packages, workspaces, semver }
   const importers = Object.create(null)
   for (const [dir, manifest, here] of entries(manifests, WHERE)) importers[dir] = readTargets(manifest, dir, here, context)
-  const rules = readResolutions(root.resolutions, at(rootAt, 'resolutions'))
+  const rules = readResolutions(root.resolutions, at(rootAt, 'resolutions'), semver)
   // yarn resolves each resolution's pattern too, linked as a request is.
   for (const rule of rules) {
     if (!(rule.pattern in packages) && !workspaces.has(rule.name)) throw new LockfileError(`${quote(rule.pattern)} is not a pattern of the lockfile, where yarn records every resolution's`, rule.where)
-    resolveRequest(rule, context)
+    rule.target = resolveRequest(rule, context)
   }
   checkReached(importers, packages, rules)
-  return { importers, workspaces, rules }
+  // yarn asks for the root's own through an aggregator where it has workspaces.
+  const aggregated = Array.isArray(root.workspaces?.packages ?? root.workspaces)
+  return { importers, workspaces, rules, aggregated }
 }
