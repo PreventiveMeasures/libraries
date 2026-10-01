@@ -28,5 +28,6 @@ export function parseVersionReq(text: string): RustComparator[] | undefined
 
 // Whether the version satisfies every comparator, a prerelease only where
 // one names its major, minor and patch with a prerelease of its own. A
-// TypeError for a version or comparator the parsers would not make.
+// TypeError for a version, comparator or list of them the parsers would not
+// make.
 export function matches(comparators: readonly RustComparator[], version: RustVersion): boolean

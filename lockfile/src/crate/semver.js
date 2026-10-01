@@ -51,12 +51,14 @@ function comparator(source) {
   return { op: op ?? (minorStar || patchStar ? '*' : '^'), major, minor, patch, pre }
 }
 
+const MOST = 32
+
 // Comparators a comma apart, at most 32; a lone wildcard is none at all.
 // Undefined where the crate errs.
 export function parseVersionReq(source) {
   if (LONE_WILD.test(text(source))) return []
-  const written = source.split(',', 33)
-  if (written.length > 32) return undefined
+  const written = source.split(',', MOST + 1)
+  if (written.length > MOST) return undefined
   const comparators = written.map(comparator)
   return comparators.includes(undefined) ? undefined : comparators
 }
@@ -128,11 +130,12 @@ function checkVersion(ver) {
   if (!valid) throw new TypeError('expected a version, as parseVersion makes')
 }
 
-const isComparator = (cmp) => typeof cmp === 'object' && cmp !== null && MATCH.has(cmp.op) && isU64(cmp.major) && (cmp.minor === undefined || isU64(cmp.minor)) && (cmp.patch === undefined || (cmp.minor !== undefined && isU64(cmp.patch))) && typeof cmp.pre === 'string' && PRERELEASE.test(cmp.pre) && (cmp.pre === '' || cmp.patch !== undefined)
+// A patch only after a minor and with no wildcard, a prerelease only after it.
+const isComparator = (cmp) => typeof cmp === 'object' && cmp !== null && MATCH.has(cmp.op) && isU64(cmp.major) && (cmp.minor === undefined || isU64(cmp.minor)) && (cmp.patch === undefined || (cmp.minor !== undefined && cmp.op !== '*' && isU64(cmp.patch))) && typeof cmp.pre === 'string' && PRERELEASE.test(cmp.pre) && (cmp.pre === '' || cmp.patch !== undefined)
 
 // A prerelease matches only where a comparator names its very version.
 export function matches(comparators, ver) {
-  if (!Array.isArray(comparators) || !comparators.every(isComparator)) throw new TypeError('expected comparators, as parseVersionReq makes')
+  if (!Array.isArray(comparators) || comparators.length > MOST || !comparators.every(isComparator)) throw new TypeError('expected comparators, as parseVersionReq makes')
   checkVersion(ver)
   if (!comparators.every((cmp) => MATCH.get(cmp.op)(cmp, ver))) return false
   return ver.pre === '' || comparators.some((cmp) => cmp.major === ver.major && cmp.minor === ver.minor && cmp.patch === ver.patch && cmp.pre !== '')

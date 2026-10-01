@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
+import { isDeepStrictEqual } from 'node:util'
 import * as rustSemver from '../rust-semver.js'
 import { sanitizeWithOptions } from '../src/crate/sanitize-filename.js'
 
@@ -80,8 +81,52 @@ describe('rust-semver.js, as the semver crate reads and matches', () => {
     }
     assert.throws(() => matches('1.0.0', version), { name: 'TypeError', message: 'expected comparators, as parseVersionReq makes' })
     assert.equal(matches([comparator], { ...version, build: '001.a-b' }), true)
+    assert.equal(matches(Array.from({ length: 32 }, () => comparator), version), true)
+    assert.throws(() => matches(Array.from({ length: 33 }, () => comparator), version), { name: 'TypeError', message: 'expected comparators, as parseVersionReq makes' })
+  })
+
+  // Every shape in a grid, refused but where a parser reads it back the same.
+  it('a TypeError for every version and comparator but what the parsers make', () => {
+    const numbers = [0n, 1n, 1, -1n, 2n ** 64n, undefined]
+    const tags = ['', 'rc', 'rc.01', 'a..b', 7, undefined]
+    const tail = (mark, value) => (value === '' ? '' : `${mark}${value}`)
+    const show = (value) => JSON.stringify(value, (key, part) => (typeof part === 'bigint' ? `${part}n` : part))
+    let made = 0
+    for (const [major, minor, patch, pre, build] of grid([numbers, numbers, numbers, tags, tags])) {
+      const forged = { major, minor, patch, pre, build }
+      if (isDeepStrictEqual(parseVersion(`${major}.${minor}.${patch}${tail('-', pre)}${tail('+', build)}`), forged)) {
+        made += 1
+        matches([], forged)
+      } else {
+        assert.throws(() => matches([], forged), { name: 'TypeError' }, show(forged))
+      }
+    }
+    // 0n or 1n for each number, '' or 'rc' for a prerelease, and 'rc.01' too
+    // for build metadata.
+    assert.equal(made, 2 ** 4 * 3)
+    made = 0
+    const version = parseVersion('1.2.3')
+    for (const [op, major, minor, patch, pre] of grid([[...'=><~^*', '>=', '<=', '!', '', '>= '], numbers, numbers, numbers, tags])) {
+      const forged = { op, major, minor, patch, pre }
+      const named = [major, minor, patch].filter((part) => part !== undefined).join('.')
+      if (isDeepStrictEqual(parseVersionReq(op === '*' ? `${named}.*` : `${op}${named}${tail('-', pre)}`), [forged])) {
+        made += 1
+        matches([forged], version)
+      } else {
+        assert.throws(() => matches([forged], version), { name: 'TypeError' }, show(forged))
+      }
+    }
+    // Of 0n or 1n, a major, minor and patch with '' or 'rc' after it, a major
+    // and minor, or a major alone, for each of seven operators; and a major
+    // and minor, or a major alone, for a wildcard.
+    assert.equal(made, 7 * 2 * (2 * 2 * 2 + 2 + 1) + 2 * (2 + 1))
   })
 })
+
+function* grid([first, ...rest]) {
+  if (first === undefined) return yield []
+  for (const value of first) for (const others of grid(rest)) yield [value, ...others]
+}
 
 describe('the sanitize-filename crate, as Soldeer names a folder', () => {
   it('every name as the crate makes it, on Unix and on Windows', () => {
