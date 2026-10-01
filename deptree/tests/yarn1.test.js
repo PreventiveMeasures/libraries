@@ -218,6 +218,8 @@ describe('buildYarn1Tree refuses', () => {
       (name, version) => yarnpkg(name, version).replace('/@s/', '/@s%2f'),
       (name, version) => yarnpkg(name, version).replace('https://registry.yarnpkg.com', 'https://registry.npmmirror.com'),
       (name, version) => yarnpkg(name, version).replace('https:', 'http:'),
+      (name, version) => yarnpkg(name, version).replace('npmjs.org', 'npmjs.org:444').replace('yarnpkg.com', 'npmjs.org:444'),
+      (name, version) => yarnpkg(name, version).replace('yarnpkg.com', 'yarnpkg.com:443'),
     ]) await refuses(at(url), refused)
   })
 
