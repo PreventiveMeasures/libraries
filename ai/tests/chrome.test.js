@@ -4,7 +4,7 @@ import { chmodSync } from 'node:fs'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { after, before, describe, it } from 'node:test'
+import { after, before, describe, it, mock } from 'node:test'
 import { CHROME_ADAPTER, IGNORED_DEFAULT_ARGS, closeChrome, launchArgs, launchOptions, openTab, turnInPage, turnRequest } from '../src/chrome/index.js'
 import { chromePreflight, findModelDir, graftPlanIn, identifiesAs, localStateFor, portableGuide, rootOwning } from '../src/chrome/model.js'
 import { CHROME_SHAPE, explainCreateFailure, toChatCompletions, toolConstraint, toolInstructions } from '../src/chrome/wire.js'
@@ -931,35 +931,55 @@ describe('chrome idle close', () => {
   // that it takes the shared directory, so that is what says it ran.
   let restore
   let idleMs
+  const IDLE = 200
   before(() => {
     restore = isolateTmpdir('ai-chrome-test-idle-')
     idleMs = process.env.CHROME_IDLE_MS
-    process.env.CHROME_IDLE_MS = '20'
+    process.env.CHROME_IDLE_MS = String(IDLE)
+    // The clock is mocked. On the real one a 10ms wait between turns that a
+    // loaded runner fired 10ms late let a 20ms window run out between them,
+    // and widening the window enough to absorb that left the turns spanning
+    // less than one window — passing whether or not they pushed it back.
+    // Once for the whole describe, not per test: `idleClose` outlives a test,
+    // and a timer one test's mock left pending, cleared on the next one's,
+    // corrupts that mock's queue so its own close never fires — one failure
+    // would fail every test after it.
+    mock.timers.enable({ apis: ['setTimeout'] })
   })
   after(() => {
+    mock.timers.reset()
     restore()
     if (idleMs === undefined) delete process.env.CHROME_IDLE_MS
     else process.env.CHROME_IDLE_MS = idleMs
   })
 
-  const settle = (ms) => new Promise((resolve) => { setTimeout(resolve, ms) })
+  // tick() runs the close's timer synchronously, but closeChrome finishes a
+  // microtask behind it; the real setImmediate comes after both.
+  const elapse = async (ms) => {
+    mock.timers.tick(ms)
+    await new Promise(setImmediate)
+  }
 
   it('closes the browser once nothing has asked for a turn', async () => {
     scratchRoot()
     await trackTurn(() => Promise.resolve({ text: 'ok' }))
+    await elapse(IDLE - 1)
     assert.equal(existsSync(profileRoot()), true, 'closed before the idle window was up')
-    await settle(120)
+    await elapse(1)
     assert.equal(existsSync(profileRoot()), false, 'should have closed itself')
   })
 
   it('does not close while turns keep arriving', async () => {
+    // Each turn lands just inside the window the one before it opened, and
+    // together they span several windows, so only a turn that pushes the close
+    // back keeps the browser open to the end.
     scratchRoot()
     for (let i = 0; i < 4; i++) {
       await trackTurn(() => Promise.resolve({ text: 'ok' }))
-      await settle(10)
+      await elapse(IDLE - 1)
     }
     assert.equal(existsSync(profileRoot()), true, 'a turn should push the close back')
-    await settle(120)
+    await elapse(1)
     assert.equal(existsSync(profileRoot()), false)
   })
 
@@ -968,11 +988,15 @@ describe('chrome idle close', () => {
     await trackTurn(() => Promise.resolve({ text: 'ok' }))
     let answer
     const slow = trackTurn(() => new Promise((resolve) => { answer = resolve }))
-    await settle(120)
+    await elapse(3 * IDLE)
     assert.equal(existsSync(profileRoot()), true, 'closed under a turn still in flight')
     answer({ text: 'ok' })
     await slow
-    await settle(120)
+    // A whole window from the end of that turn, not whatever was left of one
+    // that ran out while it was in flight.
+    await elapse(IDLE - 1)
+    assert.equal(existsSync(profileRoot()), true, 'closed as soon as the slow turn was done')
+    await elapse(1)
     assert.equal(existsSync(profileRoot()), false, 'and closes once that one is done')
   })
 
@@ -984,7 +1008,7 @@ describe('chrome idle close', () => {
     process.env.CHROME_MODEL_DIR = join(tmpdir(), 'no-weights-here')
     scratchRoot()
     await assert.rejects(sendChromeTurn('chrome/gemini-nano-v3', {}), /CHROME_MODEL_DIR/u)
-    await settle(120)
+    await elapse(IDLE)
     assert.equal(existsSync(profileRoot()), false, 'a launch that failed should still arm the close')
   })
 })
