@@ -45,9 +45,7 @@ export function checkHost(host) {
   return { node, os, cpu: host.cpu, libc }
 }
 
-// `text` as `read` reads it, what that refuses it with named by `file`,
-// and kept as the cause: pnpm-lock.yaml and pnpm-workspace.yaml are both
-// YAML, and a refusal of one would read as one of the other.
+// Both files are YAML: unnamed, a refusal of one reads as one of the other.
 function readNamed(file, read, text) {
   try {
     return read(text)
@@ -57,9 +55,7 @@ function readNamed(file, read, text) {
   }
 }
 
-// pnpm-lock.yaml as the lockfile reader reads it. Before anything is
-// installed pnpm 11 may write its env document alone, which leaves a
-// frozen install no lockfile of the project's to install from.
+// Before any install, pnpm 11 may write the env document alone, with no lockfile to install from.
 export function readLockfile(text) {
   const read = readNamed('pnpm-lock.yaml', parsePnpmLockfile, text)
   if (read.lockfile === undefined) throw new DeptreeError('it holds the env document pnpm 11 writes alone, not the project\'s lockfile, which a frozen install cannot do without', 'pnpm-lock.yaml')
