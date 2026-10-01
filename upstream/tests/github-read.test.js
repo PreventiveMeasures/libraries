@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { afterEach, describe, it } from 'node:test'
 
 import { HttpError, createClient } from '../github.js'
-import { SHA, forbidRequests, json, stubGitHub } from './github-stub.js'
+import { SHA, SHA2, forbidRequests, json, stubGitHub } from './github-stub.js'
 
 const realFetch = globalThis.fetch
 
@@ -45,7 +45,7 @@ describe('createClient', () => {
   it('reads, and nothing else', () => {
     assert.deepEqual(Object.keys(client()).toSorted(), [
       'getAdvisory', 'getCollaboratorPermission', 'getCurrentUser', 'getPullRequest', 'getRepo',
-      'getRepoFile', 'getRepoHead', 'getRepoTarball', 'getRepoTreeId', 'getRepoTreeTarball', 'listRepoAdvisories', 'listRepoDir', 'listUserRepos',
+      'getRepoFile', 'getRepoHead', 'getRepoTag', 'getRepoTarball', 'getRepoTreeId', 'getRepoTreeTarball', 'listRepoAdvisories', 'listRepoDir', 'listRepoTags', 'listUserRepos',
     ])
   })
 })
@@ -139,6 +139,106 @@ describe('getRepoHead', () => {
     assert.deepEqual(calls, [])
     stubGitHub(() => json({ object: { sha: 'abc123' } }))
     await assert.rejects(client().getRepoHead({ repo: 'acme/app', branch: 'main' }), /getRepoHead: no commit sha for acme\/app@main/u)
+  })
+})
+
+describe('getRepoTag', () => {
+  const API = 'https://api.github.com/repos/acme/app'
+  const TAG_OBJECT = 'a'.repeat(40)
+  const ref = (tag, object) => ({ ref: `refs/tags/${tag}`, object })
+  // GitHub, for acme/app: `refs` by tag name, `tags` (annotated tag objects) by sha.
+  const stub = ({ refs = {}, tags = {} }) => stubGitHub(({ url }) => {
+    const path = decodeURIComponent(url.slice(API.length + 1))
+    if (path.startsWith('git/ref/tags/') && Object.hasOwn(refs, path.slice(13))) return json(refs[path.slice(13)])
+    if (path.startsWith('git/tags/') && Object.hasOwn(tags, path.slice(9))) return json(tags[path.slice(9)])
+    return json({ message: 'Not Found' }, 404)
+  })
+
+  it("finds a lightweight tag's commit from its ref alone, a slash in its name encoded", async () => {
+    const calls = stub({ refs: { 'release/v1': ref('release/v1', { type: 'commit', sha: SHA }) } })
+    assert.deepEqual(await client().getRepoTag({ repo: 'acme/app', tag: 'release/v1' }), { tag: 'release/v1', oid: SHA })
+    assert.deepEqual(calls.map((c) => c.url), [`${API}/git/ref/tags/release%2Fv1`])
+  })
+
+  it("follows an annotated tag's object to the commit, through a tag of a tag", async () => {
+    let calls = stub({ refs: { v1: ref('v1', { type: 'tag', sha: TAG_OBJECT }) }, tags: { [TAG_OBJECT]: { sha: TAG_OBJECT, tag: 'v1', object: { type: 'commit', sha: SHA } } } })
+    assert.deepEqual(await client().getRepoTag({ repo: 'acme/app', tag: 'v1' }), { tag: 'v1', oid: SHA })
+    assert.deepEqual(calls.map((c) => c.url), [`${API}/git/ref/tags/v1`, `${API}/git/tags/${TAG_OBJECT}`])
+    calls = stub({ refs: { v1: ref('v1', { type: 'tag', sha: SHA2 }) }, tags: { [SHA2]: { sha: SHA2, object: { type: 'tag', sha: TAG_OBJECT } }, [TAG_OBJECT]: { sha: TAG_OBJECT, object: { type: 'commit', sha: SHA } } } })
+    assert.deepEqual(await client().getRepoTag({ repo: 'acme/app', tag: 'v1' }), { tag: 'v1', oid: SHA })
+    assert.equal(calls.length, 3)
+  })
+
+  it('refuses a tag on a tree or a blob, or one GitHub names no commit for', async () => {
+    for (const object of [{ type: 'tree', sha: SHA }, { type: 'blob', sha: SHA }, { type: 'commit', sha: 'main' }, { type: 'tag' }, null]) {
+      stub({ refs: { v1: ref('v1', object) } })
+      await assert.rejects(client().getRepoTag({ repo: 'acme/app', tag: 'v1' }), /getRepoTag: acme\/app has no commit for tag "v1"$/u, JSON.stringify(object))
+    }
+    stub({ refs: { v1: ref('v1', { type: 'tag', sha: TAG_OBJECT }) }, tags: { [TAG_OBJECT]: { sha: TAG_OBJECT, object: { type: 'tree', sha: SHA } } } })
+    await assert.rejects(client().getRepoTag({ repo: 'acme/app', tag: 'v1' }), /has no commit for tag "v1"$/u)
+  })
+
+  it('refuses an answer for another ref or another tag object, and tags of tags without end', async () => {
+    for (const answer of [ref('v1.0', { type: 'commit', sha: SHA }), { ...ref('v1', { type: 'commit', sha: SHA }), ref: 'refs/heads/v1' }, [ref('v1', { type: 'commit', sha: SHA })]]) {
+      stub({ refs: { v1: answer } })
+      await assert.rejects(client().getRepoTag({ repo: 'acme/app', tag: 'v1' }), /getRepoTag: GitHub answered for .*, not refs\/tags\/v1$/u, JSON.stringify(answer))
+    }
+    stub({ refs: { v1: ref('v1', { type: 'tag', sha: TAG_OBJECT }) }, tags: { [TAG_OBJECT]: { sha: SHA2, object: { type: 'commit', sha: SHA } } } })
+    await assert.rejects(client().getRepoTag({ repo: 'acme/app', tag: 'v1' }), new RegExp(`getRepoTag: GitHub answered for another tag object than ${TAG_OBJECT}$`, 'u'))
+    const calls = stub({ refs: { v1: ref('v1', { type: 'tag', sha: TAG_OBJECT }) }, tags: { [TAG_OBJECT]: { sha: TAG_OBJECT, object: { type: 'tag', sha: TAG_OBJECT } } } })
+    await assert.rejects(client().getRepoTag({ repo: 'acme/app', tag: 'v1' }), /has no commit for tag "v1"$/u)
+    assert.equal(calls.length, 9)
+  })
+
+  it('takes only a tag name git would take, before any request, and throws a HttpError for a tag GitHub does not have', async () => {
+    const calls = forbidRequests()
+    for (const tag of [undefined, '', 'v1..2', 'v1^', '-v1', 'refs/tags/', 'v1.lock', 'a b']) {
+      await assert.rejects(client().getRepoTag({ repo: 'acme/app', tag }), /getRepoTag: tag must be a branch or tag name/u, String(tag))
+    }
+    await assert.rejects(client().getRepoTag({ repo: 'acme/app', tag: 'v1', sha: SHA }), /getRepoTag: unknown option sha/u)
+    assert.deepEqual(calls, [])
+    stub({})
+    await assert.rejects(client().getRepoTag({ repo: 'acme/app', tag: 'v1' }), { name: 'HttpError', status: 404, message: `GET ${API}/git/ref/tags/v1 404: {"message":"Not Found"}` })
+  })
+})
+
+describe('listRepoTags', () => {
+  const page = (n, count) => Array.from({ length: count }, (_, i) => ({ name: `v${n}.${i}`, commit: { sha: SHA, url: 'https://api.github.com/repos/acme/app/commits/x' }, zipball_url: 'z', tarball_url: 't', node_id: 'n' }))
+
+  it('reads every page, until a short one, each tag with its commit alone', async () => {
+    const calls = stubGitHub(({ url }) => json(url.endsWith('page=1') ? page(1, 100) : page(2, 3)))
+    const tags = await client().listRepoTags({ repo: 'acme/app' })
+    assert.equal(tags.length, 103)
+    assert.deepEqual(tags[0], { tag: 'v1.0', oid: SHA })
+    assert.deepEqual(tags.at(-1), { tag: 'v2.2', oid: SHA })
+    assert.deepEqual(calls.map((c) => c.url), [
+      'https://api.github.com/repos/acme/app/tags?per_page=100&page=1',
+      'https://api.github.com/repos/acme/app/tags?per_page=100&page=2',
+    ])
+  })
+
+  it('stops at maxPages, and refuses a page that is no list', async () => {
+    const calls = stubGitHub(() => json(page(1, 100)))
+    await assert.rejects(client().listRepoTags({ repo: 'acme/app', maxPages: 2 }), /listRepoTags: more than 2 pages/u)
+    assert.equal(calls.length, 3)
+    stubGitHub(() => json({ message: 'odd' }))
+    await assert.rejects(client().listRepoTags({ repo: 'acme/app' }), /listRepoTags: expected an array for page 1/u)
+  })
+
+  it('refuses a tag listed with no name git would take, or no commit', async () => {
+    for (const change of [{ name: undefined }, { name: 'v1..2' }, { commit: null }, { commit: { sha: 'main' } }]) {
+      stubGitHub(() => json([{ ...page(1, 1)[0], ...change }]))
+      await assert.rejects(client().listRepoTags({ repo: 'acme/app' }), /listRepoTags: GitHub listed a tag in acme\/app with no name or commit$/u, JSON.stringify(change))
+    }
+  })
+
+  it('takes a repo and maxPages only, before any request', async () => {
+    const calls = forbidRequests()
+    await assert.rejects(client().listRepoTags({ repo: 'acme' }), /listRepoTags: repo must be "owner\/name"/u)
+    await assert.rejects(client().listRepoTags({ repo: 'acme/app', maxPages: 0 }), /listRepoTags: maxPages must be a positive integer/u)
+    await assert.rejects(client().listRepoTags({ repo: 'acme/app', page: 2 }), /listRepoTags: unknown option page/u)
+    await assert.rejects(client().listRepoTags(), /listRepoTags: options must be an options object/u)
+    assert.deepEqual(calls, [])
   })
 })
 

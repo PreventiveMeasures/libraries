@@ -24,7 +24,7 @@ describe('createWriteClient', () => {
     assert.deepEqual(Object.keys(client()).toSorted(), [
       'createBranch', 'createCommit', 'createPR', 'forkRepo',
       'getAdvisory', 'getCollaboratorPermission', 'getCurrentUser', 'getPullRequest', 'getRepo',
-      'getRepoFile', 'getRepoHead', 'getRepoTarball', 'getRepoTreeId', 'getRepoTreeTarball', 'listRepoAdvisories', 'listRepoDir', 'listUserRepos',
+      'getRepoFile', 'getRepoHead', 'getRepoTag', 'getRepoTarball', 'getRepoTreeId', 'getRepoTreeTarball', 'listRepoAdvisories', 'listRepoDir', 'listRepoTags', 'listUserRepos',
     ])
     assert.equal(HttpError, ReadError)
   })
