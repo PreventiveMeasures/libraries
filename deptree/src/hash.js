@@ -21,3 +21,7 @@ export async function sha256Hex(text, where) {
 // Whether `bytes` are what a subresource integrity names: a sha512, the
 // only kind taken, in padded base64.
 export const matchesIntegrity = async (bytes, integrity) => integrity === `sha512-${base64(await digest('SHA-512', bytes))}`
+
+// The hex sha1 of bytes, as yarn 1 records a tarball's after the `#` of
+// its URL.
+export const sha1Hex = async (bytes) => hex(await digest('SHA-1', bytes))
