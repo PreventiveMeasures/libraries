@@ -637,22 +637,23 @@ describe('versions, crudely without semver, and as semver reads them with it', (
   const version = (to) => edit(['  version "4.0.0"', `  version ${to}`])
   const at = '["f@https://example.com/f.tgz"].version'
 
-  it('without semver, of a version\'s characters, at most 256 of them', () => {
-    for (const to of ['"4.0"', 'v4.0.0', '"4.0.0-01"']) assert.ok(parseYarn1Lockfile(version(to), crude).packages['f@https://example.com/f.tgz'], to)
-    for (const to of ['"4.0.0_1"', '"4.0.0 beta"', '"4.0.0="']) refuses(version(to), `${to} is not a version`, at, undefined, crude)
+  it('without semver, of the characters semver reads, at most 256 of them', () => {
+    for (const to of ['"4.0"', 'v4.0.0', '"4.0.0-01"', '" 4.0.0 "', '"=4.0.0"', '"4.0.0+build"']) assert.ok(parseYarn1Lockfile(version(to), crude).packages['f@https://example.com/f.tgz'], to)
+    for (const to of ['"4.0.0_1"', '"4.0.0~1"', '"^4.0.0"', '"4.0.0é"']) refuses(version(to), `${to} is not a version`, at, undefined, crude)
     refuses(version(`"${'4'.repeat(257)}"`), `"${'4'.repeat(200)}…" is not a version`, at, undefined, crude)
   })
 
-  it('with semver, as semver.valid writes it', () => {
-    refuses(version('v4.0.0'), '"v4.0.0" is not a version as semver writes it, "4.0.0"', at)
-    for (const to of ['"4.0"', '"4.0.0-01"', '"04.0.0"']) refuses(version(to), `${to} is not a version semver reads`, at)
+  it('with semver, what semver.valid reads, as written', () => {
+    for (const to of ['v4.0.0', '"4.0.0+build"', '" 4.0.0"']) assert.equal(parse(version(to)).packages['f@https://example.com/f.tgz'].version, JSON.parse(to.startsWith('"') ? to : `"${to}"`), to)
+    for (const to of ['"4.0"', '"4.0.0-01"', '"04.0.0"', '"=4.0.0"']) refuses(version(to), `${to} is not a version semver reads`, at)
   })
 
   it('a workspace\'s, as yarn cleans it first, loosely', () => {
     const ws = (to) => ({ ...MANIFESTS, w: { ...MANIFESTS.w, version: to } })
     assert.equal(parse(BASE, ws('v1.0.0')).importers['.'].dependencies.w, 'link:w')
     refuses(BASE, '"1.0" is not a version semver reads', 'manifests.w.version', ws('1.0'))
-    refuses(BASE, '"1.0 0" is not a version', 'manifests.w.version', ws('1.0 0'), crude)
+    assert.equal(parse(BASE, ws('=1.0.0')).importers['.'].dependencies.w, 'link:w')
+    refuses(BASE, '"1.0_0" is not a version', 'manifests.w.version', ws('1.0_0'), crude)
   })
 })
 

@@ -33,14 +33,14 @@
 //
 // A name, of a package, an alias or a dependency, is held to npm's rule
 // for one and its 214 characters; a version, without semver, to at most
-// 256 of the characters of SemVer, letters, digits, `.`, `+` and `-`.
-// With `semver`, a version is one semver.valid writes unchanged, and a
-// workspace's one it reads once cleaned, as yarn does; and each range of
-// the registry, an alias's too, has to be satisfied by the version it
-// resolved to, as yarn otherwise takes the entry as outdated and resolves
-// the range again, but where a resolution gives it. Without `semver`, a
-// tag is told from a range by its look, and a workspace's version is
-// known to satisfy a range that is that version alone.
+// 256 of the characters semver reads in one: letters, digits, whitespace,
+// `.`, `+`, `-` and `=`. With `semver`, a version is one semver.valid
+// reads, and a workspace's one it reads once cleaned, as yarn does; and
+// each range of the registry, an alias's too, has to be satisfied by the
+// version it resolved to, as yarn otherwise takes the entry as outdated
+// and resolves the range again, but where a resolution gives it. Without
+// `semver`, a tag is told from a range by its look, and a workspace's
+// version is known to satisfy a range that is that version alone.
 //
 // A yarn.lock does not say which projects ask for what: `manifests` does,
 // by directory from the lockfile's, `.` for the one beside it and the
@@ -131,8 +131,9 @@ export interface Yarn1Package {
   // where they alias another package, `my-q@npm:q@1.5.1`, or name a
   // tarball, a directory or a repository by another name.
   name: string
-  // SemVer, as the package's manifest has it; for a directory, `file:` or
-  // `link:`, what yarn read there last, or `0.0.0` in its place.
+  // As the lockfile has it: SemVer, as the package's manifest has it; for
+  // a directory, `file:` or `link:`, what yarn read there last, or `0.0.0`
+  // in its place.
   version: string
   // What yarn tells two packages of one version apart by, where it wrote
   // one: `""` for a `link:`, and a commit or a hash in older lockfiles.

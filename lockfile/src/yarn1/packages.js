@@ -56,9 +56,9 @@ function directory(range) {
   return path.startsWith('/') ? `/${segments.join('/')}` : joinRelative('.', segments.join('/') || '.')
 }
 
-// Without semver, a version is held to its length and characters alone. yarn
-// writes one as semver.valid does, and cleans a manifest's loosely first.
-const VERSION = /^[\dA-Za-z.+-]{1,256}$/u
+// Without semver, a version is held to semver's length and characters alone;
+// with it, to what semver.valid reads, or, for a manifest's, what yarn cleans.
+const VERSION = /^[\s\dA-Za-z.+=-]{1,256}$/u
 
 export function readVersion(value, where, semver, manifest = false) {
   const version = text(value, where)
@@ -66,8 +66,7 @@ export function readVersion(value, where, semver, manifest = false) {
   if (semver === undefined) return version
   const valid = manifest ? semver.clean(version, { loose: true }) : semver.valid(version)
   if (valid === null) throw new LockfileError(`${quote(version)} is not a version semver reads`, where)
-  if (!manifest && valid !== version) throw new LockfileError(`${quote(version)} is not a version as semver writes it, ${quote(valid)}`, where)
-  return valid
+  return manifest ? valid : version
 }
 
 const COMMIT = /^(?:[\da-f]{40}|[\da-f]{64})$/u
