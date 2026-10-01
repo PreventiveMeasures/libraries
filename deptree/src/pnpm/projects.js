@@ -53,10 +53,6 @@ export function readManifest(text, where) {
   return manifest
 }
 
-// The importers readManifests makes, for projects the lockfile has none
-// for.
-const MADE = new WeakSet()
-
 // The manifests by project, the root one among them, as given by the
 // project's directory relative to the lockfile's.
 export function readManifests(manifests, lockfile) {
@@ -66,8 +62,8 @@ export function readManifests(manifests, lockfile) {
     const where = `manifests[${quote(id)}]`
     if (!(id in lockfile.importers)) {
       checkProjectId(id, where)
-      lockfile.importers[id] = { specifiers: {}, dependencies: {}, devDependencies: {}, optionalDependencies: {}, dependenciesMeta: {}, linkDirectory: true }
-      MADE.add(lockfile.importers[id])
+      // `made`, as the lockfile has no importer for the project.
+      lockfile.importers[id] = { specifiers: {}, dependencies: {}, devDependencies: {}, optionalDependencies: {}, dependenciesMeta: {}, linkDirectory: true, made: true }
     }
     read.set(id, readManifest(text, where))
   }
@@ -301,7 +297,7 @@ export function checkProjects(lockfile, manifests, { hook, host, settings, env }
     checkProject(manifest, where, { host, settings, root })
     checkRuntimes(manifest, where, { host, root, onFail: root ? settings.runtimeOnFail : undefined })
     const importer = lockfile.importers[id]
-    if (host.major >= 12 && MADE.has(importer)) {
+    if (host.major >= 12 && importer.made) {
       if (dependsOn(manifest, ignored)) throw new DeptreeError('the lockfile has no importer for this project, which has dependencies, and pnpm 12 refuses it', where)
       continue
     }

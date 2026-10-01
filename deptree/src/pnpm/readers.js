@@ -7,6 +7,17 @@ import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { REGISTRY } from '../tarball.js'
 
+const ON_FAIL = new Set(['download', 'error', 'warn', 'ignore'])
+const IMPORT_METHODS = new Set(['auto', 'hardlink', 'copy', 'clone', 'clone-or-copy'])
+
+const show = (value) => (typeof value === 'string' ? quote(value) : Array.isArray(value) ? 'a list' : value === null ? 'null' : typeof value === 'object' ? 'a mapping' : String(value))
+
+// A reader of one of the values of `allowed`.
+const oneOf = (allowed) => (value, where) => {
+  if (allowed.has(value)) return value
+  throw new DeptreeError(`expected one of ${[...allowed].join(', ')}, found ${show(value)}`, where)
+}
+
 export const readers = {
   boolean(value, where) {
     if (typeof value === 'boolean') return value
@@ -42,14 +53,8 @@ export const readers = {
     if (value !== null && typeof value === 'object' && !Array.isArray(value)) return value
     throw new DeptreeError(`expected a mapping, found ${show(value)}`, where)
   },
-  importMethod(value, where) {
-    if (IMPORT_METHODS.has(value)) return value
-    throw new DeptreeError(`expected one of ${[...IMPORT_METHODS].join(', ')}, found ${show(value)}`, where)
-  },
-  onFail(value, where) {
-    if (ON_FAIL.has(value)) return value
-    throw new DeptreeError(`expected one of ${[...ON_FAIL].join(', ')}, found ${show(value)}`, where)
-  },
+  importMethod: oneOf(IMPORT_METHODS),
+  onFail: oneOf(ON_FAIL),
   linkWorkspacePackages(value, where) {
     return value === 'deep' ? true : readers.boolean(value, where)
   },
@@ -75,11 +80,6 @@ export const readers = {
     return value
   },
 }
-
-const ON_FAIL = new Set(['download', 'error', 'warn', 'ignore'])
-const IMPORT_METHODS = new Set(['auto', 'hardlink', 'copy', 'clone', 'clone-or-copy'])
-
-const show = (value) => (typeof value === 'string' ? quote(value) : Array.isArray(value) ? 'a list' : value === null ? 'null' : typeof value === 'object' ? 'a mapping' : String(value))
 
 // Read, and held to one value: the default, or the only one built for.
 const only = (kind, wanted, why) => ({ kind, check: (value, where) => {
@@ -288,20 +288,34 @@ function checkCatalogs(value, where) {
   for (const [name, catalog] of Object.entries(value)) checkCatalog(readers.mapping(catalog, `${where}.${name}`), `${where}.${name}`)
 }
 
+// What pnpm of `major` does with a setting, as far as is known here: reads
+// it, with `read`; leaves the tree as it is, with none; or for pnpm 12,
+// does not recognize it. Undefined for one not known. pnpm 12 takes a
+// pattern only as a list.
+function lookup(name, major) {
+  if (major >= 12 && UNRECOGNIZED_12.has(name)) return { unrecognized: true }
+  if (major >= 12 && name in READ_12) return { read: READ_12[name] }
+  if (major >= 11 && name in READ_11) return { read: READ_11[name] }
+  if (IGNORED.has(name) || (major >= 11 && IGNORED_11.has(name)) || (major >= 12 && IGNORED_12.has(name))) return {}
+  if (!(name in READ)) return undefined
+  return { read: major >= 12 && READ[name].kind === 'texts' ? { ...READ[name], kind: 'list' } : READ[name] }
+}
+
 // What reads a setting for pnpm of `major`, or undefined for one that
-// leaves the tree as it is; one that is neither is refused. `pinned` is
-// whether pnpm 12 fails on one it does not know. pnpm 12 takes a pattern
-// only as a list.
+// leaves the tree as it is; one not known is refused. `pinned` is whether
+// pnpm 12 fails on one it does not recognize.
 export function readerOf(name, where, major, pinned = false) {
-  if (major >= 12 && UNRECOGNIZED_12.has(name)) {
-    if (pinned) throw unrecognized12(where)
-    return undefined
-  }
-  if (major >= 12 && name in READ_12) return READ_12[name]
-  if (major >= 11 && name in READ_11) return READ_11[name]
-  if (IGNORED.has(name) || (major >= 11 && IGNORED_11.has(name)) || (major >= 12 && IGNORED_12.has(name))) return undefined
-  if (!(name in READ)) throw new DeptreeError('unsupported setting', where)
-  return major >= 12 && READ[name].kind === 'texts' ? { ...READ[name], kind: 'list' } : READ[name]
+  const found = lookup(name, major)
+  if (found === undefined) throw new DeptreeError('unsupported setting', where)
+  if (found.unrecognized && pinned) throw unrecognized12(where)
+  return found.read
+}
+
+// Whether pnpm 12 knows a setting, read or passed over, as far as is known
+// here.
+export function known12(name) {
+  const found = lookup(name, 12)
+  return found !== undefined && !found.unrecognized
 }
 
 // By selector, the patch file, relative to the workspace's directory.

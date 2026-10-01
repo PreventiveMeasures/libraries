@@ -19,15 +19,12 @@ import { sha256Hex } from '../hash.js'
 
 const HASHED = 33 // `_` and 32 hex characters
 const encoder = new TextEncoder()
-const decoder = new TextDecoder()
 
-// The name cut to `length` units: UTF-16 ones, or for pnpm 12 bytes.
+// The name cut to `length` units: UTF-16 ones, or for pnpm 12 bytes, as
+// many whole characters as fit in them.
 function cut(filename, length, major) {
   if (major < 12) return filename.slice(0, length)
-  const bytes = encoder.encode(filename)
-  let end = Math.min(length, bytes.length)
-  while (end < bytes.length && (bytes[end] & 0xc0) === 0x80) end--
-  return decoder.decode(bytes.subarray(0, end))
+  return filename.slice(0, encoder.encodeInto(filename, new Uint8Array(length)).read)
 }
 
 export async function depPathToFilename(depPath, maxLength, major = 10) {

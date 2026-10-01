@@ -91,7 +91,8 @@ const isWorkspacePath = (spec) => /^(?:[./\\]|~[/\\]|[A-Za-z]:)/u.test(spec)
 // in it.
 const within = (parent, child) => child === parent || (parent === '.' ? child !== '..' && !child.startsWith('../') : child.startsWith(`${parent}/`))
 
-function targetName(spec, alias) {
+// The name of the package a specifier asks for, under `alias`.
+export function targetName(spec, alias) {
   if (spec.startsWith('workspace:')) {
     const raw = spec.slice('workspace:'.length)
     const at = raw.lastIndexOf('@')
@@ -106,7 +107,8 @@ function targetName(spec, alias) {
   return alias
 }
 
-function versionRange(spec) {
+// The range of the version a specifier asks for.
+export function versionRange(spec) {
   if (spec.startsWith('workspace:')) {
     const raw = spec.slice('workspace:'.length)
     const at = raw.lastIndexOf('@')

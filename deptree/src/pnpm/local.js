@@ -9,7 +9,8 @@
 // the lockfile before it installs (createFreshnessCheck).
 
 import { satisfies, valid, validRange } from '@preventive/upstream/semver.js'
-import { DeptreeError, quote } from '../error.js'
+import { DeptreeError, difference, quote } from '../error.js'
+import { targetName, versionRange } from './frozen.js'
 import { localOf } from './overrides.js'
 import { packDirectory } from './packlist.js'
 import { readText, typeOf } from './project.js'
@@ -65,21 +66,13 @@ export function readLinked(links, nodes, projects, project) {
 // in its range, where it is a range and the version is one.
 function resolvesTo(name, spec, target, packages) {
   if (target.startsWith('link:')) return false
-  let wanted = name
-  let range = spec
-  if (spec.startsWith('npm:')) {
-    const aliased = spec.slice(4)
-    const at = aliased.lastIndexOf('@')
-    if (validRange(aliased) === null) [wanted, range] = at > 0 ? [aliased.slice(0, at), aliased.slice(at + 1)] : [aliased, '*']
-    else range = aliased
-  }
   const locked = packages[target]
-  if (locked.name !== wanted) return false
+  if (locked.name !== targetName(spec, name)) return false
+  const range = versionRange(spec)
   const version = valid(locked.version ?? '')
   return validRange(range) === null || version === null || satisfies(version, range)
 }
 
-const strings = (deps) => Object.fromEntries(Object.entries(deps ?? {}).filter(([, spec]) => typeof spec === 'string'))
 const optionalPeers = (meta) => Object.entries(meta ?? {}).filter(([, item]) => item?.optional === true).map(([name]) => name).sort()
 
 // pnpm 12 holds a directory a project depends on by `file:` to the
@@ -92,8 +85,8 @@ const optionalPeers = (meta) => Object.entries(meta ?? {}).filter(([, item]) => 
 // is refused. `packages` is the lockfile's.
 function checkFresh(read, pkg, packages, where) {
   const outdated = (why) => new DeptreeError(`the lockfile is not up to date with its package.json, which a frozen install of pnpm 12 refuses: ${why}`, where)
-  const wanted = { dependencies: strings(read.dependencies), optionalDependencies: strings(read.optionalDependencies) }
-  const peers = strings(read.peerDependencies)
+  const wanted = { dependencies: read.dependencies ?? {}, optionalDependencies: read.optionalDependencies ?? {} }
+  const peers = read.peerDependencies ?? {}
   for (const [kind, others] of [['dependencies', peers], ['optionalDependencies', {}]]) {
     for (const name of Object.keys(pkg[kind])) {
       if (!Object.hasOwn(wanted[kind], name) && !Object.hasOwn(others, name)) throw outdated(`${kind}.${name} is not one it asks for`)
@@ -109,8 +102,8 @@ function checkFresh(read, pkg, packages, where) {
       if (localOf(spec, where) !== undefined || !resolvesTo(name, spec, target, packages)) throw outdated(`${kind}.${name} is not resolved as it asks`)
     }
   }
-  const recorded = pkg.peerDependencies
-  if (Object.keys(peers).length !== Object.keys(recorded).length || Object.entries(peers).some(([name, range]) => recorded[name] !== range)) throw outdated('its peerDependencies are not the lockfile\'s')
+  const peersDiffer = difference(peers, pkg.peerDependencies, ['its package.json', 'the lockfile'])
+  if (peersDiffer !== undefined) throw outdated(`its peerDependencies are not the lockfile's: ${peersDiffer}`)
   if (JSON.stringify(optionalPeers(read.peerDependenciesMeta)) !== JSON.stringify(optionalPeers(pkg.peerDependenciesMeta))) throw outdated('which of its peers are optional is not the lockfile\'s')
 }
 

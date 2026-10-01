@@ -1332,7 +1332,7 @@ snapshots:
       const options = { lockfile: await copied(), manifests: { '.': rootWith() }, workspace: 'overrides:\n  foo: file:./vendor/foo\n', host: { ...HOST, pnpm: '12.8.1' } }
       const changed = (fields) => createVfs({ 'package.json': rootWith(), ...vendored, 'vendor/foo/package.json': JSON.stringify({ name: 'foo', version: '1.5.0', bin: { foo: 'cli.js' }, ...fields }) })
       await buildPnpmTree({ ...options, project: changed({}) })
-      await assert.rejects(buildPnpmTree({ ...options, project: changed({ peerDependencies: { p: '*' } }) }), /^DeptreeError: "foo@file:vendor\/foo": the lockfile is not up to date with its package\.json, which a frozen install of pnpm 12 refuses: its peerDependencies are not the lockfile's$/u)
+      await assert.rejects(buildPnpmTree({ ...options, project: changed({ peerDependencies: { p: '*' } }) }), /^DeptreeError: "foo@file:vendor\/foo": the lockfile is not up to date with its package\.json, which a frozen install of pnpm 12 refuses: its peerDependencies are not the lockfile's: "p" is "\*" in its package\.json and nothing in the lockfile$/u)
     })
 
     it('refuses it without a project, or as the lockfile does not have it', async () => {

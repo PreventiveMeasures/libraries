@@ -87,10 +87,13 @@ const takesPlatform = (pkg, host, supported) => checkList(current(host.os, suppo
 
 const takesEngine = (engines, node) => !engines.node || satisfies(node, engines.node, { includePrerelease: true })
 
-// Whether pnpm 12 may read an engines.node otherwise than npm's semver: it
-// drops what of a range it cannot parse, where npm's takes none of it, and
-// reads a `-` range with an `x` as taking nothing.
-const unsure12 = (range) => typeof range === 'string' && (validRange(range) === null || (/\s-\s/u.test(range) && /[*xX]/u.test(range)))
+// Refuses an engines.node, `what`, that pnpm 12 may read otherwise than
+// npm's semver: it drops what of a range it cannot parse, where npm's
+// takes none of it, and reads a `-` range with an `x` as taking nothing.
+function checkSure12(range, where, what = 'its engines.node') {
+  if (typeof range !== 'string' || (validRange(range) !== null && !(/\s-\s/u.test(range) && /[*xX]/u.test(range)))) return
+  throw new DeptreeError(`${what}, ${quote(range)}, pnpm 12 reads otherwise than npm's semver, which is not supported`, where)
+}
 
 // The Node pnpm checks engines.node against: nodeVersion, else the Node
 // the root's engines.runtime pins, else the host's.
@@ -116,7 +119,7 @@ function checkRoot12(manifest, where, context) {
   const range = manifest.engines?.node
   if (!context.settings.engineStrict || typeof range !== 'string' || range === '') return
   const node = nodeOf(context)
-  if (unsure12(range)) throw new DeptreeError(`its engines.node, ${quote(range)}, pnpm 12 reads otherwise than npm's semver, which is not supported`, where)
+  checkSure12(range, where)
   if (!takesEngine({ node: range }, node)) throw new DeptreeError(`its engines.node, ${quote(range)}, does not take Node ${node}, which engineStrict refuses`, where)
 }
 
@@ -147,18 +150,17 @@ export function checkProject(manifest, where, { host, settings, root }) {
 // is installed anyway. With `engineStrict` that last is refused, where the
 // lockfile does not mark the snapshot optional, or with pnpm 12. pnpm 10
 // takes a snapshot to be optional as the lockfile marks it; pnpm 11 as the
-// edge it is reached by. `defer` is whether a patched one's engines wait
-// for its package.json, patched (patchedLater).
+// edge it is reached by. A patched one's engines wait for its package.json,
+// patched (patchedLater), but where pnpm 12 is `walking` the lockfile,
+// which holds it to its published ones.
 function createCheck(context) {
   const { host, settings } = context
   const node = nodeOf(context)
   const later = patchedLater(context)
-  return (key, pkg, optional = pkg.optional, defer = true) => {
+  return (key, pkg, optional = pkg.optional, walking = false) => {
     const platform = takesPlatform(host.major >= 11 && optional ? effectivePlatform(pkg) : pkg, host, settings.supportedArchitectures)
-    const engines = later && defer && pkg.patchHash !== undefined ? {} : pkg.engines
-    if (host.major >= 12 && platform && unsure12(engines.node) && (optional || settings.engineStrict)) {
-      throw new DeptreeError(`its engines.node, ${quote(engines.node)}, pnpm 12 reads otherwise than npm's semver, which is not supported`, quote(key))
-    }
+    const engines = later && !(walking && host.major >= 12) && pkg.patchHash !== undefined ? {} : pkg.engines
+    if (host.major >= 12 && platform && (optional || settings.engineStrict)) checkSure12(engines.node, quote(key))
     if (platform && takesEngine(engines, node)) return true
     if (optional) return false
     if (settings.engineStrict && (host.major >= 12 || !pkg.optional)) throw new DeptreeError(`the host does not take its ${platform ? 'engines.node' : 'os, cpu or libc'}, which engineStrict refuses`, quote(key))
@@ -177,7 +179,7 @@ export function createPatchedCheck(context) {
   const node = host.major >= 12 ? settings.nodeVersion ?? host.node : nodeOf(context)
   return (manifest, where) => {
     if (manifest.engines === undefined || manifest.engines === null) return
-    if (host.major >= 12 && unsure12(manifest.engines.node)) throw new DeptreeError(`its package.json, patched, has an engines.node, ${quote(manifest.engines.node)}, that pnpm 12 reads otherwise than npm's semver, which is not supported`, where)
+    if (host.major >= 12) checkSure12(manifest.engines.node, where, 'the engines.node of its package.json, patched')
     if (takesEngine(manifest.engines, node)) return
     throw new DeptreeError(`its package.json, patched, has an engines.node, ${quote(String(manifest.engines.node))}, that does not take Node ${node}, which pnpm ${host.major} refuses with engineStrict, or removes the package for where it is optional`, where)
   }
@@ -210,30 +212,28 @@ function projectKeys(lockfile, ids, walked) {
 
 // pnpm 11's filterLockfileByImportersAndEngine: the snapshots left out,
 // and those installed although the host cannot run them.
-function skippedSnapshots11(lockfile, check, major) {
+function skippedSnapshots11(lockfile, check) {
   const edgesOf = (deps, optional) => Object.values(deps).filter((target) => !target.startsWith('link:')).map((key) => ({ key, optional }))
   const queue = Object.values(lockfile.importers).flatMap((importer) => [...edgesOf(importer.dependencies, false), ...edgesOf(importer.devDependencies, false), ...edgesOf(importer.optionalDependencies, true)])
   const starts = queue.map(({ key }) => key)
   const installed = new Set()
   const required = new Set()
-  const reached = new Set()
-  const incompatible = new Map()
+  // Each snapshot reached, and whether the host cannot run it, as checked
+  // where an optional edge first reaches it.
+  const reached = new Map()
   for (let i = 0; i < queue.length; i++) {
     const { key, optional } = queue[i]
     if (!optional) required.add(key)
     if (installed.has(key)) continue
-    reached.add(key)
     const pkg = lockfile.packages[key]
-    if (optional) {
-      if (!incompatible.has(key)) incompatible.set(key, check(key, pkg, true, major < 12) === false)
-      if (incompatible.get(key)) continue
-    }
+    if (!reached.has(key)) reached.set(key, optional && check(key, pkg, true, true) === false)
+    if (optional && reached.get(key)) continue
     installed.add(key)
     queue.push(...edgesOf(pkg.dependencies, false), ...edgesOf(pkg.optionalDependencies, true))
   }
   const skipped = new Set()
   const warned = new Set()
-  for (const key of reached) {
+  for (const key of reached.keys()) {
     const pkg = lockfile.packages[key]
     const ok = check(key, pkg, !installed.has(key) || !required.has(key))
     if (ok === false) skipped.add(key)
@@ -255,7 +255,7 @@ function skippedSnapshots11(lockfile, check, major) {
 // host cannot run them, the host and settings being `context`'s.
 export function skippedSnapshots(lockfile, context) {
   const check = createCheck(context)
-  if (context.host.major >= 11) return skippedSnapshots11(lockfile, check, context.host.major)
+  if (context.host.major >= 11) return skippedSnapshots11(lockfile, check)
   const ids = Object.keys(lockfile.importers)
   const walked = new Set(ids)
   const picked = new Set()

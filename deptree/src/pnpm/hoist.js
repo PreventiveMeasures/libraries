@@ -8,9 +8,9 @@
 // directories. An alias is taken with its case folded, and the root
 // project's own aliases are taken before anything, as they were spelled.
 
+import { compareNames } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { createMatcher } from '../matcher.js'
-import { byBytes } from './order.js'
 
 // pnpm's graphWalker and getDependencies: one level at a time, but each
 // level's next is walked out to the bottom before the level's second
@@ -61,7 +61,7 @@ function hoistGraph(nodes, starts, taken, typeOf, { projects = new Map(), instal
     ...major >= 12 ? [{ children: named, key: '', depth: -1 }] : [],
     ...walk(nodes, starts.map(([, dir]) => dir)).map(({ node, depth }) => ({ children: node.children, key: keyOf(node), depth })),
   ]
-  order.sort((a, b) => a.depth - b.depth || (major >= 12 ? byBytes(a.key, b.key) : lexCompare(a.key, b.key)))
+  order.sort((a, b) => a.depth - b.depth || (major >= 12 ? compareNames(a.key, b.key) : lexCompare(a.key, b.key)))
   const links = new Map()
   const hoistedProjects = new Map()
   for (const { children } of order) {

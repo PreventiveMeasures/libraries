@@ -42,7 +42,6 @@
     "src/pnpm/install.js",
     "src/pnpm/local.js",
     "src/pnpm/npmrc.js",
-    "src/pnpm/order.js",
     "src/pnpm/overrides.js",
     "src/pnpm/packlist.js",
     "src/pnpm/patches.js",

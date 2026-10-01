@@ -137,7 +137,7 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
     const manifest = projects.get(dir)
     if (manifest === undefined) return [UNKNOWN]
     const where = `manifests[${quote(dir)}]`
-    return commandsOf(dir, normalize && major < 12 ? normalized(manifest, where) : manifest, undefined, undefined, where, major)
+    return commandsOf(dir, normalize ? normalized(manifest, where) : manifest, undefined, undefined, where, major)
   }
   // Whether pnpm 12 takes a node to have bins: the lockfile says it has,
   // or it is a directory, for which the lockfile says nothing.
@@ -207,18 +207,18 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
 // no CRLF `#!` line, and not patched.
 function fixedFiles(nodes, fixed, contested, major) {
   // pnpm 12 reads the `#!` line of a file it links, and fails on one
-  // that is a directory.
-  const checkDirectory = (node, target) => {
+  // that is a directory: `path`, in the package, '' for the package itself.
+  const checkDirectory = (node, path) => {
     if (major < 12) return
-    const path = target === node.dir ? '' : target.slice(node.dir.length + 1)
-    if (path === '' || [...node.files.keys()].some((name) => name.startsWith(`${path}/`))) {
+    const prefix = `${path}/`
+    if (path === '' || node.files.keys().some((name) => name.startsWith(prefix))) {
       throw new DeptreeError(`its bin ${quote(path === '' ? '.' : path)} is a directory, which pnpm 12 fails on`, quote(node.key))
     }
   }
   for (const [target, { owner, why }] of contested) {
     const node = nodes.get(owner)
-    checkDirectory(node, target)
     const path = target.slice(owner.length + 1)
+    checkDirectory(node, path)
     const file = node.files.get(path)
     const harmless = major >= 12 ? (file?.mode & 0o111) === 0o111 : file?.mode === 0o755 && !hasCrlfShebang(file.data) && node.pkg.patchHash === undefined
     if (fixed.has(target) || file?.data === undefined || harmless) continue
@@ -226,8 +226,8 @@ function fixedFiles(nodes, fixed, contested, major) {
   }
   const byNode = new Map()
   for (const [target, owner] of fixed) {
-    checkDirectory(nodes.get(owner), target)
     const path = target.slice(owner.length + 1)
+    checkDirectory(nodes.get(owner), path)
     if (nodes.get(owner).files.get(path)?.data === undefined) continue
     if (!byNode.has(owner)) byNode.set(owner, new Set())
     byNode.get(owner).add(path)
@@ -285,7 +285,8 @@ export function checkPatchOfBins(node, patched, targets, where, major) {
     }
   }
   // pnpm 12 rewrites no bin.
-  for (const path of major >= 12 ? [] : targets) {
+  if (major >= 12) return manifest
+  for (const path of targets) {
     const before = node.files.get(path).data
     const after = patched.get(path).data
     if (before !== after && (hasCrlfShebang(before) || hasCrlfShebang(after))) throw new DeptreeError(`the patch changes ${quote(path)}, a bin with a CRLF \`#!\` line, which pnpm rewrites before and after it`, where)

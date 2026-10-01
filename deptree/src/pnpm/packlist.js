@@ -55,13 +55,16 @@ const TOP_11 = [...TOP, 'bun.lockb']
 const VCS = new Set(['.git', '.svn', '.hg', 'CVS'])
 const CRUFT = new Set(['.npmrc', 'npm-debug.log', '.DS_Store', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml'])
 
-// Whether the built-in rules leave out the entry at `names`, its path from
-// the package's directory by name, which is a directory where `directory`.
-function leftOut(names, directory, major) {
-  if (major >= 12) {
-    const name = names.at(-1)
-    return VCS.has(name) || (names.length === 1 && name === 'node_modules') || (!directory && (CRUFT.has(name) || name.endsWith('.orig')))
-  }
+// Whether pnpm 12's rules leave out the entry at `names`, its path from the
+// package's directory by name, which is a directory where `directory`.
+function leftOut12(names, directory) {
+  const name = names.at(-1)
+  return VCS.has(name) || (names.length === 1 && name === 'node_modules') || (!directory && (CRUFT.has(name) || name.endsWith('.orig')))
+}
+
+// Whether npm-packlist's built-in rules, as pnpm `major` runs it, leave out
+// the entry at `names`, as for leftOut12.
+function leftOutByNpm(names, directory, major) {
   const folded = names.map((name) => name.toLowerCase())
   const readIn = major >= 11 ? folded.map((_, i) => folded.slice(i)) : [folded]
   return ANYWHERE.test(folded.at(-1)) || readIn.some((path) => anchored(path, directory))
@@ -90,6 +93,7 @@ export function packDirectory(project, dir, manifest, major, where) {
   if (manifest.files !== undefined) throw new DeptreeError('its package.json has `files`, which npm-packlist picks the files pnpm installs by, and which is not followed here', where)
   if (bundles(manifest.bundleDependencies) || bundles(manifest.bundledDependencies)) throw new DeptreeError('a directory with bundled dependencies is not supported', where)
   const named = namedByManifest(manifest)
+  const leftOut = major >= 12 ? leftOut12 : (names, directory) => leftOutByNpm(names, directory, major)
   const files = new Map()
   const visit = (names) => {
     for (const entry of project.readdir(['', dir, ...names].join('/'))) {
@@ -101,7 +105,7 @@ export function packDirectory(project, dir, manifest, major, where) {
       if (entry === '.npmignore' || entry === '.gitignore') throw new DeptreeError(`${entry}'s rules, which npm-packlist picks the files pnpm installs by, are not followed here`, here)
       if (major < 12 && names.length === 0 && entry !== 'node_modules' && entry.toLowerCase() === 'node_modules') throw new DeptreeError('a name that is node_modules but for its case is kept by pnpm 10 and left out by pnpm 11', here)
       if (major < 12 && entry.includes('*')) continue
-      if (leftOut(at, type === 'directory', major)) {
+      if (leftOut(at, type === 'directory')) {
         const folded = rel.toLowerCase()
         if ((major < 12 && MUST_HAVE.test(entry)) || named.some((kept) => kept === folded || kept.startsWith(`${folded}/`))) {
           throw new DeptreeError('whether pnpm installs it turns on rules of npm-packlist not followed here', here)

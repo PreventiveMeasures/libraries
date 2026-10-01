@@ -17,9 +17,8 @@
 // came to.
 
 import { compareVersions, valid } from '@preventive/upstream/semver.js'
-import { basename, join } from '@preventive/vfs/path.js'
+import { basename, compareNames, join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
-import { byBytes } from './order.js'
 
 // A package whose directory has no package.json is still linked by these
 // names by pnpm 10, to the runtime's binary inside it.
@@ -59,6 +58,16 @@ function filesUnder(files, base, dir, { dots = false } = {}) {
     found.push(rest)
   }
   return found
+}
+
+// The files found under `root`, each a command by its name. Of two of one
+// name, which wins turns on the order they were found in: tinyglobby lists
+// them in the order the directories are read in.
+function filesAsCommands(found, root, common) {
+  const names = found.map((path) => basename(path))
+  const counts = new Map()
+  for (const name of names) counts.set(name, (counts.get(name) ?? 0) + 1)
+  return found.map((path, i) => ({ ...common, name: names[i], target: `${root}/${path}`, unordered: counts.get(names[i]) > 1 }))
 }
 
 // Whether pnpm takes a package to own a command, which wins it the name.
@@ -121,12 +130,10 @@ function commands12(dir, manifest, files, base, where) {
   }
   const binDir = manifest.directories?.bin
   if (typeof binDir !== 'string') return []
-  const root = binDir === '' ? dir : inPackage(dir, binDir, where)
+  const root = inPackage(dir, binDir, where)
   if (root === undefined || binDir.startsWith('/')) return []
   if (files === undefined) return [UNKNOWN]
-  const found = filesUnder(files, base, root, { dots: true }).filter((path) => safeName(basename(path)))
-  const names = found.map((path) => basename(path))
-  return found.map((path, i) => ({ ...common, name: names[i], target: path === '' ? root : `${root}/${path}`, unordered: names.indexOf(names[i]) !== names.lastIndexOf(names[i]) }))
+  return filesAsCommands(filesUnder(files, base, root, { dots: true }).filter((path) => safeName(basename(path))), root, common)
 }
 
 // A package's commands: `dir` is where the package is, `manifest` its
@@ -164,27 +171,20 @@ export function commandsOf(dir, manifest, files, base, where, major) {
   const root = inPackage(dir, binDir, where)
   if (root === undefined) return []
   if (files === undefined) return [UNKNOWN]
-  const found = filesUnder(files, base, root)
-  // tinyglobby lists them in the order the directories are read in,
-  // which decides between two of one name.
-  const names = found.map((path) => basename(path))
-  return found.map((path, i) => ({ ...common, name: names[i], target: `${root}/${path}`, unordered: names.indexOf(names[i]) !== names.lastIndexOf(names[i]) }))
+  return filesAsCommands(filesUnder(files, base, root), root, common)
 }
 
 // compareCommandsInConflict, which pnpm keeps the greater of; with pnpm 12,
 // pick_winner, whose ties keep the first.
 export function compare(a, b, where, major) {
-  if (major >= 12) {
-    const aOwns = owns(a, major, where)
-    const bOwns = owns(b, major, where)
-    if (aOwns !== bOwns) return aOwns ? 1 : -1
-    if (a.pkgName !== b.pkgName) return byBytes(b.pkgName, a.pkgName)
-    const versions = [a.pkgVersion, b.pkgVersion].map((version) => (typeof version === 'string' ? valid(version) : null))
-    return versions.includes(null) ? 0 : compareVersions(versions[0], versions[1])
-  }
   const aOwns = owns(a, major, where)
   const bOwns = owns(b, major, where)
   if (aOwns !== bOwns) return aOwns ? 1 : -1
+  if (major >= 12) {
+    if (a.pkgName !== b.pkgName) return compareNames(b.pkgName, a.pkgName)
+    const versions = [a.pkgVersion, b.pkgVersion].map((version) => (typeof version === 'string' ? valid(version) : null))
+    return versions.includes(null) ? 0 : compareVersions(versions[0], versions[1])
+  }
   if (a.pkgName !== b.pkgName) {
     if (typeof a.pkgName !== 'string' || typeof b.pkgName !== 'string') throw new DeptreeError(`two bins named ${quote(a.name)} are of packages not both named, which pnpm fails on`, where)
     return collator.compare(a.pkgName, b.pkgName)

@@ -66,7 +66,7 @@ export function readLockfile(text) {
 
 // pnpm-workspace.yaml as parsed; one of comments alone, or nothing, sets
 // nothing, as pnpm reads it.
-export const readWorkspace = (text) => (text === undefined || /^(?:[\t ]*(?:#.*)?(?:\r?\n|$))*$/u.test(text) ? undefined : readNamed('pnpm-workspace.yaml', parseYaml, text))
+const readWorkspace = (text) => (text === undefined || /^(?:[\t ]*(?:#.*)?(?:\r?\n|$))*$/u.test(text) ? undefined : readNamed('pnpm-workspace.yaml', parseYaml, text))
 
 // The root package.json in `project`, as parsed, where there is one; one
 // that is a link is refused unread, as findProjects refuses it.
@@ -131,8 +131,9 @@ export function inputsOf(options) {
 // it: as given, or read from the project for each project pnpm finds
 // there, and no other, as pnpm reads them: an importer the globs do not
 // take is refused first, and one they take that pnpm does not find has
-// none. `workspace` is pnpm-workspace.yaml as parsed; `pnpm` host.pnpm.
-export function manifestsOf(inputs, workspace, lockfile, pnpm) {
+// none. `pnpm` is host.pnpm.
+export function manifestsOf(inputs, lockfile, pnpm) {
+  const workspace = readWorkspace(inputs.workspace)
   if (!inputs.reading) {
     const manifests = readManifests(inputs.manifests, lockfile)
     const installs = pnpmOf(pnpm, () => manifests.get('.'))

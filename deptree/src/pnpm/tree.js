@@ -35,7 +35,7 @@ import { createPatchedCheck, skippedSnapshots } from './install.js'
 import { checkCollisions, checkLinks, checkOptional } from './checks.js'
 import { createHook } from './hook.js'
 import { listOverrides } from './overrides.js'
-import { checkHost, inputsOf, manifestsOf, patchesOf, readLockfile, readWorkspace } from './inputs.js'
+import { checkHost, inputsOf, manifestsOf, patchesOf, readLockfile } from './inputs.js'
 import { checkProject } from './project.js'
 import { checkProjects, pinsPnpm, workspaceNames } from './projects.js'
 import { readSettings } from './settings.js'
@@ -133,17 +133,15 @@ async function fetchNodes(nodes, hook, project, major, fresh) {
 // `targets` is binTargets's.
 function executableElsewhere(byDir, targets, packageImportMethod, major) {
   const linked = major < 11 || packageImportMethod === 'auto' || packageImportMethod === 'hardlink'
-  const shared = (node) => linked && node.pkg.resolution.type === 'directory' && !requiresBuild(node.manifest, node.files, major)
+  const shared = [...byDir.values()].filter((node) => linked && node.pkg.resolution.type === 'directory' && !requiresBuild(node.manifest, node.files, major))
   const byPackage = new Map()
-  for (const node of byDir.values()) {
-    if (!shared(node)) continue
+  for (const node of shared) {
     const id = packageKeyOf(node.key)
     if (!byPackage.has(id)) byPackage.set(id, new Set())
     for (const path of targets.get(node.dir) ?? []) byPackage.get(id).add(path)
   }
   const executable = new Map()
-  for (const node of byDir.values()) {
-    if (!shared(node)) continue
+  for (const node of shared) {
     const own = targets.get(node.dir) ?? new Set()
     executable.set(node.dir, new Set([...byPackage.get(packageKeyOf(node.key))].filter((path) => !own.has(path))))
   }
@@ -164,7 +162,7 @@ function compose(node, patches, { targets, executable }, { major, checkPatched }
     patch.parsed ??= parsePatch(patch.text, patch.path)
     // Once for each package, whatever its snapshots.
     patch.applied ??= new WeakMap()
-    if (!patch.applied.has(files)) patch.applied.set(files, applyPatch(files, patch.parsed, major))
+    if (!patch.applied.has(files)) patch.applied.set(files, applyPatch(files, patch.parsed, { createdMode: major >= 12 ? 0o644 : undefined }))
     files = patch.applied.get(files)
     const manifest = checkPatchOfBins(node, files, targets, where, major)
     checkPatched?.(manifest, where)
@@ -233,7 +231,7 @@ export async function buildPnpmTree(options) {
   if (!('.' in lockfile.importers)) throw new DeptreeError('expected the root project, whose package.json holds settings', 'importers')
   // Before the project is read for any importer: none leads out of it.
   checkLockfile(lockfile)
-  const { manifests, pnpm, major, workspace } = manifestsOf(inputs, readWorkspace(inputs.workspace), lockfile, given.pnpm)
+  const { manifests, pnpm, major, workspace } = manifestsOf(inputs, lockfile, given.pnpm)
   const host = { pnpm, major, ...machine }
   // pnpm 11 locks config dependencies there, which are refused, and the
   // pnpm a project pins, which leaves the tree as it is.

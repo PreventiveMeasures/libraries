@@ -46,7 +46,7 @@ import { valid, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { parseNpmrc } from './npmrc.js'
 import { replaceReferences } from './overrides.js'
-import { IGNORED, MANIFEST_KEYS, READ, checkRegistry, readerOf, readers, unrecognized12 } from './readers.js'
+import { IGNORED, MANIFEST_KEYS, READ, checkRegistry, known12, readerOf, readers, unrecognized12 } from './readers.js'
 
 // An .npmrc value read only where it can mean one thing: not quoted, not
 // escaped, with no `;` or `#` that ini would cut it at. Neither file's
@@ -131,17 +131,6 @@ function fromManifest(manifest) {
 // pnpm 11 passes over a key not in camelCase.
 const CAMEL = /^[a-z][\dA-Za-z]*$/u
 
-// Whether pnpm 12 knows a key not in camelCase, as far as is known here:
-// by its camelCase, read or passed over.
-function known12(name, where) {
-  try {
-    readerOf(camelCase(name), where, 12, true)
-    return true
-  } catch {
-    return false
-  }
-}
-
 // pnpm 12 passes over a key with no value. `pinned` is readerOf's.
 function fromWorkspace(workspace, major, pinned) {
   if (workspace === null || typeof workspace !== 'object' || Array.isArray(workspace)) throw new DeptreeError('expected a mapping', 'pnpm-workspace.yaml')
@@ -151,7 +140,7 @@ function fromWorkspace(workspace, major, pinned) {
     noEnvironment(name, where)
     noEnvironment(value, where)
     if (major >= 11 && !CAMEL.test(name)) {
-      if (major >= 12 && pinned && value !== null && !known12(name, where)) throw unrecognized12(where)
+      if (major >= 12 && pinned && value !== null && !known12(camelCase(name))) throw unrecognized12(where)
       continue
     }
     const read = readerOf(name, where, major, pinned && value !== null)
