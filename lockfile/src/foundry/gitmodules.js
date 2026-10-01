@@ -4,7 +4,7 @@
 
 import { LockfileError, at, quote } from '../error.js'
 import { checkRefName, checkRelative, checkRepo } from '../names.js'
-import { record } from '../shape.js'
+import { checkOptions, field, record } from '../shape.js'
 import { readConfig } from './config.js'
 
 const FIELDS = ['path', 'url', 'branch', 'update', 'shallow', 'ignore', 'fetchrecursesubmodules']
@@ -69,9 +69,15 @@ const SCP = /^(?:[^@/:\\]+@)?(?:\[[^\]/\\]+\]|[^@/:\\[\]]+):(?!:|\/\/)/u
 // both, and so is `[` and a colon, which the path after makes no path.
 const DRIVE = /^[^[]:(?!:)/u
 
-function checkUrl(value, where) {
+// What git takes for a url at all, of a host or not.
+function readUrl(value, where) {
   const url = checkRepo(value, where)
   if (url.startsWith('-')) throw new LockfileError(`${quote(url)} starts with "-", which git ignores the url for`, where)
+  return url
+}
+
+function checkUrl(value, where) {
+  const url = readUrl(value, where)
   if (DRIVE.test(url)) throw new LockfileError(`${quote(url)} is a path on a drive to git on Windows, and a host's to git elsewhere`, where)
   if (SCHEME.test(url) ? URL.canParse(url) : SCP.test(url) && !url.includes('\\')) return url
   if (/^\.\.?\//u.test(url)) throw new LockfileError(`${quote(url)} is relative to the superproject's remote, which only a clone of it knows`, where)
@@ -99,7 +105,7 @@ function group(entries, where, file) {
   return submodules
 }
 
-function readSubmodule(fields, where) {
+function readSubmodule(fields, where, checkUrls) {
   record(fields, where, FIELDS)
   for (const key of ['path', 'url', 'branch', 'update', 'ignore']) {
     if (fields[key] === null) throw new LockfileError('a key alone, where git expects a value', at(where, key))
@@ -108,10 +114,10 @@ function readSubmodule(fields, where) {
     if (key in fields && !VALUES[key](fields[key])) throw new LockfileError(`${quote(fields[key])} is not a value git reads here`, at(where, key))
   }
   if (fields.path === undefined) throw new LockfileError('expected a path, without which git has no submodule', at(where, 'path'))
-  if (fields.url === undefined) throw new LockfileError('expected a url, without which git cannot clone the submodule', at(where, 'url'))
+  if (fields.url === undefined && checkUrls) throw new LockfileError('expected a url, without which git cannot clone the submodule', at(where, 'url'))
   const path = checkSubmodulePath(fields.path, at(where, 'path'))
   if (path.startsWith('../')) throw new LockfileError(`${quote(path)} is outside the repository, where git writes no submodule`, at(where, 'path'))
-  const url = checkUrl(fields.url, at(where, 'url'))
+  const url = field(fields, 'url', where, checkUrls ? checkUrl : readUrl)
   // `.` is git's for the superproject's own branch.
   const branch = fields.branch === undefined || fields.branch === '.' ? fields.branch : checkRefName(fields.branch, at(where, 'branch'))
   return { path, url, branch }
@@ -130,13 +136,13 @@ export function findNested(paths) {
   return undefined
 }
 
-export function readGitmodules(text, where) {
+export function readGitmodules(text, where, checkUrls) {
   const file = where === '' ? undefined : where
   const submodules = Object.create(null)
   const paths = new Map()
   for (const [name, { fields }] of group(readConfig(text, file), where, file)) {
     const here = at(where, name)
-    const submodule = readSubmodule(fields, here)
+    const submodule = readSubmodule(fields, here, checkUrls)
     if (paths.has(submodule.path)) throw new LockfileError(`the path of the submodule ${quote(paths.get(submodule.path))} too`, at(here, 'path'))
     paths.set(submodule.path, name)
     submodules[name] = submodule
@@ -146,7 +152,9 @@ export function readGitmodules(text, where) {
   return submodules
 }
 
-export function parseGitmodules(text) {
+export function parseGitmodules(text, options = {}) {
   if (typeof text !== 'string') throw new TypeError('expected a string')
-  return readGitmodules(text, '')
+  const { checkUrls = true } = checkOptions(options, ['checkUrls'])
+  if (typeof checkUrls !== 'boolean') throw new TypeError('checkUrls: expected a boolean')
+  return readGitmodules(text, '', checkUrls)
 }

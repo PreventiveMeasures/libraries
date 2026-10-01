@@ -4,7 +4,7 @@ import { checkOptions, entries, record, string } from '../shape.js'
 import { checkSubmodulePath, findNested, readGitmodules } from './gitmodules.js'
 import { readJson } from './json.js'
 
-const OPTIONS = ['gitmodules', 'directory']
+const OPTIONS = ['gitmodules', 'directory', 'checkUrls']
 const TYPES = ['rev', 'tag', 'branch']
 const WHERE = 'gitmodules'
 
@@ -20,12 +20,13 @@ function isDirectory(value) {
 }
 
 function readOptions(options) {
-  const { gitmodules, directory } = checkOptions(options, OPTIONS)
+  const { gitmodules, directory = '.', checkUrls = true } = checkOptions(options, OPTIONS)
   if (gitmodules !== undefined && typeof gitmodules !== 'string') throw new TypeError('gitmodules: expected the text of .gitmodules')
-  if (directory === undefined) return { gitmodules, directory: '.' }
-  if (gitmodules === undefined) throw new TypeError('directory needs gitmodules, whose paths it is for')
+  if (gitmodules === undefined && options.directory !== undefined) throw new TypeError('directory needs gitmodules, whose paths it is for')
+  if (gitmodules === undefined && options.checkUrls !== undefined) throw new TypeError('checkUrls needs gitmodules, whose urls it is for')
   if (!isDirectory(directory)) throw new TypeError('directory: expected a path in the repository, from its root, as "." or "packages/contracts"')
-  return { gitmodules, directory }
+  if (typeof checkUrls !== 'boolean') throw new TypeError('checkUrls: expected a boolean')
+  return { gitmodules, directory, checkUrls }
 }
 
 // forge build --locked holds the commit a submodule is at to this, as git
@@ -53,8 +54,8 @@ function readDependency(value, where) {
 // lockfile's directory as forge writes it. A submodule it maps that the
 // lockfile does not record is let be: git and forge pass over a section
 // whose gitlink is gone from the index, which is not read here.
-function addUrls(dependencies, gitmodules, directory) {
-  const submodules = readGitmodules(gitmodules, WHERE)
+function addUrls(dependencies, gitmodules, directory, checkUrls) {
+  const submodules = readGitmodules(gitmodules, WHERE, checkUrls)
   const names = new Map(Object.entries(submodules).map(([name, { path }]) => [path, name]))
   for (const [key, dependency, here] of entries(dependencies, '')) {
     const path = joinRelative(directory, key)
@@ -69,7 +70,7 @@ function addUrls(dependencies, gitmodules, directory) {
 
 export function parseFoundryLockfile(source, options = {}) {
   if (typeof source !== 'string') throw new TypeError('expected a string')
-  const { gitmodules, directory } = readOptions(options)
+  const { gitmodules, directory, checkUrls } = readOptions(options)
   const dependencies = Object.create(null)
   for (const [path, value, here] of entries(readJson(source), '')) {
     checkSubmodulePath(path, here)
@@ -77,6 +78,6 @@ export function parseFoundryLockfile(source, options = {}) {
   }
   const inside = findNested(Object.keys(dependencies))
   if (inside !== undefined) throw new LockfileError(`inside the dependency ${quote(inside[1])}, whose submodules foundry.lock does not record`, at('', inside[0]))
-  if (gitmodules !== undefined) addUrls(dependencies, gitmodules, directory)
+  if (gitmodules !== undefined) addUrls(dependencies, gitmodules, directory, checkUrls)
   return { dependencies }
 }

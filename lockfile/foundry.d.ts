@@ -6,11 +6,23 @@ export function parseFoundryLockfile(text: string, options?: FoundryOptions): Fo
 
 // Reads a .gitmodules. Throws a LockfileError for what git does not read,
 // reads otherwise from one version or command to another, or ignores with a
-// warning; for a path out of the repository, and for a URL that is not of a
-// host, as a path or one relative to the superproject's remote is not.
-export function parseGitmodules(text: string): Record<string, Gitmodule>
+// warning; for a path out of the repository, and, unless checkUrls is
+// false, for a URL that is not of a host, as a path or one relative to the
+// superproject's remote is not.
+export function parseGitmodules(text: string, options?: GitmodulesOptions): Record<string, Gitmodule>
 
-export interface FoundryOptions {
+export interface GitmodulesOptions {
+  // Whether each submodule has a url, and of a host: true by default. False
+  // takes a url as written, relative to the superproject's remote or a path
+  // among them, and a submodule without one, which git reads but clones
+  // only where the clone's own config has its url. A url git ignores,
+  // starting with "-", is refused all the same, as is one with a space or a
+  // control character in it.
+  checkUrls?: boolean
+}
+
+// checkUrls, which needs gitmodules too, is for it as parseGitmodules reads it.
+export interface FoundryOptions extends GitmodulesOptions {
   // The .gitmodules of the repository the lockfile is in, as text: each
   // dependency has to be a submodule it maps, and takes its url. A submodule
   // the lockfile does not record is not refused, as .gitmodules may keep a
@@ -48,7 +60,8 @@ export interface FoundryDependency {
   name: string | undefined
   // The commit, its full hash.
   rev: string
-  // As .gitmodules has it; undefined without gitmodules.
+  // As .gitmodules has it; undefined without gitmodules, or where it has
+  // none, with checkUrls false.
   url: string | undefined
 }
 
@@ -56,8 +69,9 @@ export interface Gitmodule {
   // From the root of the repository.
   path: string
   // An http(s), ssh or git URL, or `user@host:path`, an IPv6 host in
-  // brackets.
-  url: string
+  // brackets. With checkUrls false, as written, and undefined where there
+  // is none.
+  url: string | undefined
   // What `git submodule update --remote` follows: a branch, or `.` for the
   // superproject's own. forge install records a branch it checks out here.
   branch: string | undefined

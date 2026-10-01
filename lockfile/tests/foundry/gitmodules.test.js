@@ -18,8 +18,8 @@ const BASE = `[submodule "lib/a"]
 
 const plain = (value) => structuredClone(value)
 
-const refuses = (text, message) => {
-  assert.throws(() => parseGitmodules(text), (error) => {
+const refuses = (text, message, options) => {
+  assert.throws(() => parseGitmodules(text, options), (error) => {
     assert.ok(error instanceof LockfileError, error)
     assert.equal(error.message, message)
     return true
@@ -59,6 +59,12 @@ describe('.gitmodules, as git reads it', () => {
     for (const url of ['https://github.com/o/a.git', 'http://example.com/a', 'ssh://git@github.com/o/a', 'git://example.com/a', 'git+ssh://git@example.com/a', 'github.com:o/a', 'user@host.example:/srv/a.git', 'git@x:o/a', 'xy:o/a', 'git@[2001:db8::1]:o/a.git', '[2001:db8::1]:o/a', 'git@[::1]:a', 'ssh://git@[2001:db8::1]/o/a', 'git@corp_git:o/a.git', 'corp_git:o/a', 'git@a+b:o/a']) {
       assert.equal(parseGitmodules(`[submodule "a"]\n\tpath = a\n\turl = ${url}\n`).a.url, url)
     }
+  })
+
+  it('reads any url, and none, with checkUrls false', () => {
+    const from = (lines) => parseGitmodules(add(`[submodule "c"]\n\tpath = c${lines}`), { checkUrls: false }).c
+    for (const url of ['../c.git', './c', '/srv/c.git', 'file:///srv/c.git', 'fd::17', 'c', 'x:o/a', 'https://x.example/c']) assert.equal(from(`\n\turl = ${url}`).url, url)
+    assert.deepEqual(plain(from('')), { path: 'c', url: undefined, branch: undefined })
   })
 
   it('reads every boolean git reads, its integers among them', () => {
@@ -171,12 +177,23 @@ describe('.gitmodules, of what git does not read alike', () => {
     }
   })
 
+  it('refuses a url git ignores, or does not take, with checkUrls false too', () => {
+    const loose = { checkUrls: false }
+    refuses(add('[submodule "c"]\n\tpath = c\n\turl = -x:o/a'), 'c.url: "-x:o/a" starts with "-", which git ignores the url for', loose)
+    refuses(add('[submodule "c"]\n\tpath = c\n\turl = "../c d.git"'), 'c.url: "../c d.git" is not a repository URL', loose)
+    refuses(add('[submodule "c"]\n\tpath = c\n\turl'), 'c.url: a key alone, where git expects a value', loose)
+  })
+
   it('refuses a branch name git does not take', () => {
     refuses(add('[submodule "c"]\n\tpath = c\n\turl = https://x.example/c\n\tbranch = a..b'), 'c.branch: "a..b" is not a branch or tag name git takes')
     refuses(add('[submodule "c"]\n\tpath = c\n\turl = https://x.example/c\n\tbranch = ""'), 'c.branch: expected a non-empty string')
   })
 
-  it('refuses what is not a string', () => {
-    assert.throws(() => parseGitmodules(undefined), (error) => error instanceof TypeError && error.message === 'expected a string')
+  it('refuses what is not a string, and options it does not take', () => {
+    const type = (text, options, message) => assert.throws(() => parseGitmodules(text, options), (error) => error instanceof TypeError && error.message === message)
+    type(undefined, undefined, 'expected a string')
+    type(BASE, null, 'expected an options object')
+    type(BASE, { directory: '.' }, 'unknown option "directory", of checkUrls')
+    type(BASE, { checkUrls: 'no' }, 'checkUrls: expected a boolean')
   })
 })
