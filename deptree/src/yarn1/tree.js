@@ -21,7 +21,8 @@ import { typeOf } from '../pnpm/project.js'
 import { markBins } from './bins.js'
 import { incompatibility } from './compat.js'
 import { Hoister } from './hoist.js'
-import { checkHost, checkRoot, fixLists, inputsOf } from './inputs.js'
+import { checkHost, inputsOf } from './inputs.js'
+import { checkRoot, fixLists } from './manifest.js'
 import { fetchYarnPackage, registryTarball } from './package.js'
 import { resolvePeers } from './peers.js'
 import { AGGREGATOR, aggregatorOf, rulesOf, topRequests, workspacesOf } from './requests.js'
@@ -39,12 +40,6 @@ function fetchedName(ref) {
   const { range } = splitPattern(ref.patterns[0])
   if (!range.startsWith('npm:')) return ref.name
   return splitPattern(range.slice(4)).name
-}
-
-// Each reference yarn's resolver hands to its fetcher, in its order: those
-// its patterns name, once each.
-function manifestsOrder(patterns) {
-  return [...new Set(patterns.values())]
 }
 
 // Each registry package's files and package.json, a few at a time; the
@@ -99,7 +94,9 @@ function resolveProject(inputs, host) {
 // refused where it is not, as yarn fails on it. By reference, each one's
 // package.json as yarn reads it, a workspace's its own.
 async function fetchChecked(resolved, host, settings) {
-  const order = manifestsOrder(resolved.patterns)
+  // What yarn's resolver hands its fetcher, in its order: each reference
+  // its patterns name, once.
+  const order = [...new Set(resolved.patterns.values())]
   const fetched = await fetchAll(order)
   const manifestOf = new Map()
   for (const ref of order) {
@@ -130,6 +127,13 @@ function layout({ resolved, manifestOf, topPatterns, workspaces }) {
   return placed.sort((a, b) => a.loc.localeCompare(b.loc))
 }
 
+// Where a path in the tree really is: through each workspace link on its
+// way, `links` by where each is to its target, in the order they are made.
+function realOf(links, path) {
+  for (const [link, target] of links) if (path === link || path.startsWith(`${link}/`)) path = target + path.slice(link.length)
+  return path
+}
+
 // Each package copied where it goes, and each workspace linked: where a
 // package goes beneath a workspace's link, it is copied through the link,
 // into the workspace's own node_modules. `links` each link, by where it
@@ -144,8 +148,7 @@ function writeTree(placed, fetched) {
   let bytes = 0
   for (const { loc, info } of placed) {
     const { ref } = info
-    let dest = loc
-    for (const [link, target] of links) if (dest.startsWith(`${link}/`)) dest = target + dest.slice(link.length)
+    const dest = realOf(links, loc)
     if (!locations.has(ref)) locations.set(ref, [])
     if (!locations.get(ref).includes(dest)) locations.get(ref).push(dest)
     if (ref.kind === 'workspace') {
@@ -185,7 +188,7 @@ export async function buildYarn1Tree(options) {
   const { order, fetched, manifestOf } = await fetchChecked(resolved, host, inputs.settings)
   const placed = layout({ resolved, manifestOf, topPatterns, workspaces })
   const { vfs, links, locations, files, bytes } = writeTree(placed, fetched)
-  markBins(vfs, { placed, patterns: resolved.patterns, fetched, links, locations })
+  markBins(vfs, { placed, patterns: resolved.patterns, fetched, locations, realOf: (path) => realOf(links, path) })
   if (folded) checkCollisions(vfs)
   const stats = {
     packages: order.filter((ref) => ref.kind === 'registry').length,

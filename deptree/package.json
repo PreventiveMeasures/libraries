@@ -50,6 +50,7 @@
     "src/yarn1/glob.js",
     "src/yarn1/hoist.js",
     "src/yarn1/inputs.js",
+    "src/yarn1/manifest.js",
     "src/yarn1/package.js",
     "src/yarn1/peers.js",
     "src/yarn1/requests.js",

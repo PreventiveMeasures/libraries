@@ -5,42 +5,13 @@
 
 import { DeptreeError, quote } from '../error.js'
 import { matchesGlob } from './glob.js'
+import { cleanDependencies, globsOf } from './manifest.js'
 
 // The name yarn gives the workspace aggregator is random; this stands for
 // it, and sorts where a name starting so sorts.
 export const AGGREGATOR = 'workspace-aggregator-00000000-0000-0000-0000-000000000000'
 
 const KINDS = ['dependencies', 'devDependencies', 'optionalDependencies']
-
-// cleanDependencies: a name in several kinds kept in the first of
-// optionalDependencies, dependencies and devDependencies, at the first
-// range that is neither '' nor '*'.
-export function cleanDependencies(manifest) {
-  const kinds = ['optionalDependencies', 'dependencies', 'devDependencies'].filter((kind) => manifest[kind] !== null && typeof manifest[kind] === 'object')
-  const ranges = new Map()
-  for (const kind of kinds) {
-    for (const [name, range] of Object.entries(manifest[kind])) if (!ranges.has(name) && range && range !== '*') ranges.set(name, range)
-  }
-  const seen = new Set()
-  for (const kind of kinds) {
-    const list = manifest[kind]
-    for (const name of Object.keys(list)) {
-      if (seen.has(name)) delete list[name]
-      else {
-        list[name] = ranges.get(name) ?? list[name]
-        seen.add(name)
-      }
-    }
-  }
-  return manifest
-}
-
-// The workspace globs of the root, as yarn's getWorkspaces reads them.
-function globsOf(root) {
-  const value = root.workspaces
-  if (value === undefined) return []
-  return (Array.isArray(value) ? value : value.packages ?? []).map((glob) => glob.replace(/^(?:\.\/)+|\/+$/gu, ''))
-}
 
 // The workspaces by name, in the order yarn's resolveWorkspaces finds
 // them: each glob in turn, its matches as node-glob sorts them; each with
@@ -92,26 +63,26 @@ export function rulesOf(root, semver) {
 
 // The top-level requests, as yarn makes them and in its order.
 export function topRequests(root, workspaces, rules) {
-  const requests = rules.map((rule) => ({ pattern: rule.pattern, optional: false, hint: 'resolution' }))
+  const requests = rules.map((rule) => ({ pattern: rule.pattern, optional: false }))
   const patterns = []
-  const push = (deps, { optional, hint }) => {
+  const push = (deps, optional) => {
     for (const [name, range] of Object.entries(deps ?? {})) {
       const pattern = `${name}@${range}`
       patterns.push(pattern)
-      requests.push({ pattern, optional, hint })
+      requests.push({ pattern, optional })
     }
   }
-  push(root.dependencies, { optional: false })
-  push(root.devDependencies, { optional: false, hint: 'dev' })
-  push(root.optionalDependencies, { optional: true, hint: 'optional' })
+  push(root.dependencies, false)
+  push(root.devDependencies, false)
+  push(root.optionalDependencies, true)
   if (workspaces.size > 0) {
-    push({ [AGGREGATOR]: '1.0.0' }, { optional: false, hint: 'workspaces' })
+    push({ [AGGREGATOR]: '1.0.0' }, false)
     const implicit = {}
     for (const workspace of workspaces.values()) {
       if (workspace.aggregator || KINDS.some((kind) => Object.hasOwn(root[kind] ?? {}, workspace.name))) continue
       implicit[workspace.name] = workspace.version
     }
-    push(implicit, { optional: false, hint: 'workspaces' })
+    push(implicit, false)
   }
   return { requests, patterns }
 }

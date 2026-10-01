@@ -20,14 +20,13 @@ export function satisfiesWithPrereleases(semver, version, range, loose = false) 
   } catch {
     return false
   }
-  return parsed.set.some((set) => {
-    const bounded = set.map((comparator) => {
-      if (comparator.operator !== '<' || !comparator.value || comparator.semver.prerelease.length > 0) return comparator
-      comparator.semver.inc('pre', 0)
-      return new semver.Comparator(comparator.operator + comparator.semver.version, comparator.loose)
-    })
-    return !bounded.some((comparator) => !comparator.test(actual))
-  })
+  // A `<` with no prerelease of its own made a `<` its lowest prerelease.
+  const bounded = (comparator) => {
+    if (comparator.operator !== '<' || !comparator.value || comparator.semver.prerelease.length > 0) return comparator
+    comparator.semver.inc('pre', 0)
+    return new semver.Comparator(comparator.operator + comparator.semver.version, comparator.loose)
+  }
+  return parsed.set.some((set) => set.every((comparator) => bounded(comparator).test(actual)))
 }
 
 // `resolved` is resolve.js's; `manifests` each reference's package.json,
@@ -54,12 +53,7 @@ export function resolvePeers(resolved, manifests, semver) {
     for (const [name, range] of Object.entries(peers)) {
       let best = Infinity
       let found
-      const candidates = []
-      for (const pattern of byName.get(name) ?? []) {
-        const candidate = patterns.get(pattern)
-        if (!candidates.includes(candidate)) candidates.push(candidate)
-      }
-      for (const candidate of candidates) {
+      for (const candidate of new Set((byName.get(name) ?? []).map((pattern) => patterns.get(pattern)))) {
         const d = distance(candidate)
         if (Number.isFinite(d) && d < best && (range === '*' || satisfiesWithPrereleases(semver, candidate.version, range, true))) {
           best = d

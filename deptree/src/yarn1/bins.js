@@ -39,17 +39,13 @@ function nearestLocation(ref, locations, binLocs) {
 }
 
 // `placed` the flat tree, tree.js's; `patterns` resolve.js's; `fetched`
-// each registry package; `links` and `locations` what writing the tree
-// made of it.
-export function markBins(vfs, { placed, patterns, fetched, links, locations }) {
+// each registry package; `locations` each reference's copies, where they
+// really are, and `realOf` where a path in the tree really is.
+export function markBins(vfs, { placed, patterns, fetched, locations, realOf }) {
   const bins = new Map()
   const binsFor = (ref) => {
     if (!bins.has(ref)) bins.set(ref, ref.kind === 'registry' ? binsOf(fetched.get(ref).manifest, fetched.get(ref)) : new Map())
     return bins.get(ref)
-  }
-  const realOf = (path) => {
-    for (const [link, target] of links) if (path === link || path.startsWith(`${link}/`)) return target + path.slice(link.length)
-    return path
   }
   const executable = new Set()
   const linkSelf = (ref, loc) => {

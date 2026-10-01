@@ -6,7 +6,7 @@ import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { checkProject, readText, typeOf } from '../pnpm/project.js'
 import { matchesGlob, reachesBelow } from './glob.js'
-import { cleanDependencies } from './requests.js'
+import { globsOf, readManifest } from './manifest.js'
 import { readSettings } from './settings.js'
 
 // The yarn that installs: host.yarn, or where that is left out, the one
@@ -38,26 +38,6 @@ export function checkHost(host, root) {
   return { yarn: yarnOf(host.yarn, root), node: host.node, os: host.os, cpu: host.cpu }
 }
 
-// A package.json as yarn's readJson reads it: a byte order mark dropped.
-export function readManifest(text, where) {
-  if (typeof text !== 'string') throw new TypeError(`${where} must be the text of a package.json`)
-  let manifest
-  try {
-    manifest = JSON.parse(text.replace(/^﻿/u, ''))
-  } catch (error) {
-    throw new DeptreeError(`not JSON: ${error.message}`, where, { cause: error })
-  }
-  if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) throw new DeptreeError('expected an object', where)
-  return manifest
-}
-
-// The workspace globs of the root, as yarn reads them.
-export function globsOf(root) {
-  const value = root.workspaces
-  if (value === undefined) return []
-  return (Array.isArray(value) ? value : value?.packages ?? []).map((glob) => String(glob).replace(/^(?:\.\/)+|\/+$/gu, ''))
-}
-
 // yarn reads a yarn.json beside each package.json it reads, or in its
 // stead, as the manifest of its own registry.
 const yarnJson = 'a yarn.json, which yarn reads as a manifest too, is not supported'
@@ -75,18 +55,18 @@ export function findWorkspaces(project, globs) {
     const dir = pending.pop()
     for (const name of project.readdir(`/${dir}`)) {
       const path = dir === '' ? name : `${dir}/${name}`
-      if (!globs.some((glob) => reachesBelow(glob, path) || matchesGlob(glob, path))) continue
+      const taken = globs.some((glob) => matchesGlob(glob, path))
+      if (!taken && !globs.some((glob) => reachesBelow(glob, path))) continue
       const { type } = project.lstat(`/${path}`)
       if (type === 'symlink') throw new DeptreeError('a link where yarn looks for workspaces is not supported', quote(path))
       if (type !== 'directory') continue
+      const manifest = taken && typeOf(project, `/${path}/package.json`) !== undefined
       if (name === 'node_modules') {
-        if (globs.some((glob) => matchesGlob(glob, path)) && typeOf(project, `/${path}/package.json`) !== undefined) throw new DeptreeError('yarn would read this node_modules as a workspace, which is not supported', quote(path))
+        if (manifest) throw new DeptreeError('yarn would read this node_modules as a workspace, which is not supported', quote(path))
         continue
       }
-      if (globs.some((glob) => matchesGlob(glob, path))) {
-        if (typeOf(project, `/${path}/yarn.json`) !== undefined) throw new DeptreeError(yarnJson, quote(`${path}/yarn.json`))
-        if (typeOf(project, `/${path}/package.json`) !== undefined) found.push(path)
-      }
+      if (taken && typeOf(project, `/${path}/yarn.json`) !== undefined) throw new DeptreeError(yarnJson, quote(`${path}/yarn.json`))
+      if (manifest) found.push(path)
       pending.push(path)
     }
   }
@@ -142,43 +122,4 @@ export function inputsOf(options) {
   for (const [dir, text] of manifests instanceof Map ? manifests : Object.entries(manifests)) read.set(dir, readManifest(text, `manifests[${quote(dir)}]`))
   if (!read.has('.')) throw new DeptreeError('the root package.json is not given', 'manifests["."]')
   return { lockfile, manifests: read, settings, project }
-}
-
-// The lists of a package.json this reads, as yarn's normalize-manifest
-// leaves them: a `//` key, a comment, dropped, a value that is not one
-// given as `''`, and a name in several of the dependency lists kept in
-// one (cleanDependencies). A copy; the manifest is left as it is.
-const LISTS = ['resolutions', 'devDependencies', 'dependencies', 'optionalDependencies', 'peerDependencies']
-export function fixLists(manifest) {
-  const fixed = { ...manifest }
-  for (const kind of LISTS) {
-    const list = manifest[kind]
-    if (!list || typeof list !== 'object') continue
-    const copy = Array.isArray(list) ? [...list] : { ...list }
-    delete copy['//']
-    for (const name in copy) copy[name] = copy[name] || ''
-    fixed[kind] = copy
-  }
-  return cleanDependencies(fixed)
-}
-
-// What yarn's normalize-manifest fails on in the root's name and version,
-// which the lockfile reader does not read; and what of the root yarn would
-// install otherwise than this follows.
-const NAME = /[/@\s+%:]/u
-const validName = (name) => !NAME.test(name) && encodeURIComponent(name) === name
-export function checkRoot(root) {
-  const { name, version } = root
-  for (const [key, value] of Object.entries({ name, version })) {
-    if (value && typeof value !== 'string') throw new DeptreeError('not a string, which yarn fails on', `manifests["."].${key}`)
-  }
-  if (typeof name === 'string') {
-    const parts = name.startsWith('@') ? name.slice(1).split('/') : undefined
-    const legal = parts === undefined ? validName(name) : parts.length === 2 && parts.every(validName)
-    if (name.startsWith('.') || !legal || ['node_modules', 'favicon.ico'].includes(name.toLowerCase())) throw new DeptreeError(`${quote(name)} is a name yarn fails on`, 'manifests["."].name')
-  }
-  if (root.installConfig?.pnp) throw new DeptreeError('Plug\'n\'Play is not supported', 'manifests["."].installConfig.pnp')
-  if (root.flat) throw new DeptreeError('a flat install is not supported', 'manifests["."].flat')
-  const nohoist = root.workspaces?.nohoist
-  if (Array.isArray(nohoist) && nohoist.length > 0) throw new DeptreeError('nohoist is not supported', 'manifests["."].workspaces.nohoist')
 }

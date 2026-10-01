@@ -19,6 +19,7 @@ import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { matchesIntegrity, sha1Hex } from '../hash.js'
 import { sameBytes, tarballUrl } from '../tarball.js'
+import { readManifest } from './manifest.js'
 
 const MAX_BYTES = 512 * 1024 * 1024
 const UMASK = 0o022
@@ -63,20 +64,6 @@ function entriesOf(entries, where) {
 
 const decoder = new TextDecoder('utf-8', { fatal: true })
 
-// The package.json, as yarn's readJson reads it: a byte order mark dropped.
-function readManifest(files, where) {
-  const file = files.get('package.json')
-  if (file === undefined) throw new DeptreeError('the tarball has no package.json', where)
-  let manifest
-  try {
-    manifest = JSON.parse(decoder.decode(file.data).replace(/^﻿/u, ''))
-  } catch {
-    throw new DeptreeError('package.json is not JSON', where)
-  }
-  if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) throw new DeptreeError('package.json is not an object', where)
-  return manifest
-}
-
 // The registry's tarball of a lockfile entry: its name, as an `npm:` alias
 // asks for it; held to be the registry's URL for that name and version.
 export function registryTarball(entry, name, where) {
@@ -101,7 +88,15 @@ export async function fetchYarnPackage({ name, version, integrity, sha1 }, where
   if (sha1 !== undefined && await sha1Hex(bytes) !== sha1) throw new DeptreeError(`the tarball's sha1 is not ${sha1}`, where)
   if (bytes[0] !== 0x1f || bytes[1] !== 0x8b || bytes[2] !== 0x08) throw new DeptreeError('the tarball is not gzipped', where)
   const { files, dirs } = entriesOf(unpack(await decompress(bytes, 'gzip', { limit: MAX_BYTES })), where)
-  const manifest = readManifest(files, where)
+  const file = files.get('package.json')
+  if (file === undefined) throw new DeptreeError('the tarball has no package.json', where)
+  let text
+  try {
+    text = decoder.decode(file.data)
+  } catch {
+    throw new DeptreeError('package.json is not UTF-8', where)
+  }
+  const manifest = readManifest(text, `${where}: package.json`)
   if (manifest.name !== name || manifest.version !== version) throw new DeptreeError(`package.json is for ${quote(`${manifest.name}@${manifest.version}`)}`, where)
   return { files, dirs, manifest }
 }
@@ -153,7 +148,7 @@ export function binsOf(manifest, { files, dirs }) {
       const [first] = path.slice(prefix.length).split('/')
       if (first !== '' && !first.startsWith('.')) names.add(first)
     }
-    for (const name of [...names].sort()) bins.set(name, normalizePath(`${prefix}${name}`))
+    for (const name of names) bins.set(name, `${prefix}${name}`)
   }
   return bins
 }

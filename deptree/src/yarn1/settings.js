@@ -59,8 +59,8 @@ function check(key, where) {
 // .yarnrc as yarn's parser reads it, as far as a line of a key and a value
 // goes, each bare or quoted as JSON writes it; anything else is refused.
 // Each setting by its key, the last line of a key the one yarn keeps, with
-// its value as yarn reads it: a bare true or false, a quoted string, or
-// else the text, undefined where there is none.
+// its value where it is a bare true or false, or a quoted string, as yarn
+// reads those; undefined for any other, or none.
 const TOKEN = /"(?:[^"\\]|\\.)*"|[^\s"]+/gu
 
 function unquote(token, what, where) {
@@ -71,6 +71,8 @@ function unquote(token, what, where) {
   }
 }
 
+const BARE = new Map([['true', true], ['false', false]])
+
 function readYarnrc(text) {
   const settings = new Map()
   for (const [index, raw] of text.split(/\r?\n/u).entries()) {
@@ -80,21 +82,11 @@ function readYarnrc(text) {
     if (/^\s/u.test(raw)) throw new DeptreeError('an indented line, which yarn reads into the setting above it, is not supported', where)
     const tokens = line.match(TOKEN) ?? []
     if (tokens.join(' ') !== line.replace(/\s+/gu, ' ') || tokens.length > 2) throw new DeptreeError('expected a setting and its value', where)
-    const [rawKey, rawValue] = tokens
-    const key = rawKey.startsWith('"') ? unquote(rawKey, 'a setting\'s name', where) : rawKey
-    let value = rawValue
-    if (rawValue?.startsWith('"')) value = unquote(rawValue, 'a value', where)
-    else if (rawValue === 'true' || rawValue === 'false') value = rawValue === 'true'
-    settings.set(key, { value, quoted: rawValue?.startsWith('"'), where })
+    const [key, value] = tokens.map((token) => (token.startsWith('"') ? unquote(token, 'a setting', where) : token))
+    const bare = tokens[1]?.startsWith('"') === false
+    settings.set(key, { value: bare ? BARE.get(value) : value, where })
   }
   return settings
-}
-
-// Whether an ignore-engines option is truthy, as yarn reads it from the
-// .yarnrc: a bare true or false, or a quoted string, true unless empty.
-function truthy(name, { value, quoted }, where) {
-  if (typeof value === 'boolean' || quoted) return Boolean(value)
-  throw new DeptreeError(`expected true, false or a quoted string for ${quote(name)}`, where)
 }
 
 // What the install follows of the .yarnrc and the .npmrc, either of them
@@ -107,9 +99,11 @@ export function readSettings({ yarnrc, npmrc }) {
     const name = flag?.name ?? key
     if (!FOLLOWED.has(name)) check(key, setting.where)
     else if (flag === undefined) {
-      if (name === 'ignore-engines') option = truthy(name, setting, setting.where)
+      // yarn reads the option as truthy or not, a quoted "false" as true.
+      if (setting.value === undefined) throw new DeptreeError(`expected true, false or a quoted string for ${quote(key)}`, setting.where)
+      if (name === 'ignore-engines') option = Boolean(setting.value)
     } else {
-      if (typeof setting.value !== 'boolean' || setting.quoted) throw new DeptreeError(`expected true or false for ${quote(key)}`, setting.where)
+      if (typeof setting.value !== 'boolean') throw new DeptreeError(`expected true or false for ${quote(key)}`, setting.where)
       if (setting.value && (flag.command === '*' || flag.command === 'install')) flags.add(name)
     }
   }

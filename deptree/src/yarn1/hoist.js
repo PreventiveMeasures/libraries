@@ -44,11 +44,10 @@ export class Hoister {
     return ref
   }
 
+  // A key reserved for a package, unless it is for another already.
   taintKey(key, info) {
     const existing = this.tainted.get(key)
-    if (existing && existing.ref.loc !== info.ref.loc) return false
-    this.tainted.set(key, info)
-    return true
+    if (!existing || existing.ref.loc === info.ref.loc) this.tainted.set(key, info)
   }
 
   // resolver.dedupePatterns: the first pattern of each package.

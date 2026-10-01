@@ -33,7 +33,7 @@ import { matchesGlob } from './glob.js'
 
 // The turns of the microtask queue a request takes before its check, by
 // its resolver.
-export const TURNS = { registry: 5, workspace: 3 }
+const TURNS = { registry: 5, workspace: 3 }
 
 // yarn's normalizePattern.
 export function splitPattern(pattern) {
@@ -61,18 +61,21 @@ function kindOf(range, semver, where) {
   throw new DeptreeError('only a semver range, an npm: alias or a tag is supported', where)
 }
 
-// A request's dependencies as yarn asks for them, in its order: a
-// package's dependencies, then its optional ones, then a workspace's dev
-// ones; each by its pattern, `name@range`. A lockfile entry's are the
-// lockfile reader's targets, which are their patterns; one it links to a
-// workspace has lost its range, and is refused.
+// What a request's package asks for, as yarn asks, in its order: its
+// dependencies, then its optional ones, then, a workspace's, its dev ones;
+// each by its pattern, `name@range`, optional or not, dev or not. A
+// lockfile entry's are the lockfile reader's targets, which are their
+// patterns; one it links to a workspace has lost its range, and is
+// refused.
 function asked(info, where) {
+  const workspace = info.kind === 'workspace'
+  const lists = workspace ? info.workspace.manifest : info.entry
+  const kinds = [['dependencies', false, false], ['optionalDependencies', true, false], ...workspace ? [['devDependencies', false, true]] : []]
   const out = []
-  const kinds = [['dependencies', false], ['optionalDependencies', true, 'optional'], ...info.workspace ? [['devDependencies', false, 'dev', true]] : []]
-  for (const [kind, optional, hint, dev] of kinds) {
-    for (const [name, value] of Object.entries(info[kind] ?? {})) {
-      if (!info.workspace && value.startsWith('link:')) throw new DeptreeError(`its dependency on ${quote(name)} is a workspace, which is not supported`, where)
-      out.push({ pattern: info.workspace ? `${name}@${value}` : value, optional, hint, dev })
+  for (const [kind, optional, dev] of kinds) {
+    for (const [name, value] of Object.entries(lists[kind] ?? {})) {
+      if (!workspace && value.startsWith('link:')) throw new DeptreeError(`its dependency on ${quote(name)} is a workspace, which is not supported`, where)
+      out.push({ pattern: workspace ? `${name}@${value}` : value, optional, dev })
     }
   }
   return out
@@ -90,14 +93,12 @@ function locOf({ kind, name, version, entry }) {
 
 // The requests yarn resolves, and what they make of the lockfile.
 class Resolver {
-  constructor({ lockfile, workspaces, rules, semver, isDirectory, turns }) {
-    Object.assign(this, { lockfile, workspaces, rules, semver, isDirectory, turns })
-    this.refs = []
+  constructor({ lockfile, workspaces, rules, semver, isDirectory }) {
+    Object.assign(this, { lockfile, workspaces, rules, semver, isDirectory })
     this.patterns = new Map()
     this.byName = new Map()
     this.delayed = []
     this.diverted = []
-    this.events = []
   }
 
   addPattern(pattern, ref) {
@@ -157,12 +158,10 @@ class Resolver {
     const { name, range } = splitPattern(request.pattern)
     const solved = this.semver.validRange(range) ? info.version : range
     if (this.exactMatch(name, solved) !== undefined) {
-      this.events.push({ e: 'delay', pattern: request.pattern, parents: request.parentNames })
       this.delayed.push(request)
       return []
     }
     const ref = {
-      id: this.refs.length,
       name: info.name,
       version: info.version,
       loc: locOf(info),
@@ -173,17 +172,13 @@ class Resolver {
       requests: [request],
       dependencies: [],
       optional: request.optional,
-      hint: request.hint,
     }
-    this.refs.push(ref)
-    this.events.push({ e: 'create', pattern: request.pattern, parents: request.parentNames })
     this.addPattern(request.pattern, ref)
     const parentNames = [...request.parentNames ?? [], name]
-    const source = info.kind === 'workspace' ? { ...info.workspace.manifest, workspace: true } : info.entry
     const children = []
-    for (const dep of asked(source, quote(request.pattern))) {
+    for (const dep of asked(info, quote(request.pattern))) {
       ref.dependencies.push(dep.pattern)
-      children.push({ pattern: dep.pattern, parentNames, optional: dep.optional || (!dep.dev && request.optional), hint: dep.hint })
+      children.push({ pattern: dep.pattern, parentNames, optional: dep.optional || (!dep.dev && request.optional) })
     }
     return children
   }
@@ -207,7 +202,7 @@ class Resolver {
       return undefined
     }
     const info = this.infoOf(request)
-    return { request, info, left: info.tag ? Infinity : this.turns[info.kind] }
+    return { request, info, left: info.tag ? Infinity : TURNS[info.kind] }
   }
 
   // The one request of a tag left waiting, once every other is done, let
@@ -266,10 +261,10 @@ class Resolver {
 // `rules` the root's resolutions; `top` the top-level requests in order;
 // `isDirectory(tag)` whether the project has a `<tag>/package.json`, or
 // undefined where that is not known.
-export function resolve({ top, turns = TURNS, ...options }) {
-  const resolver = new Resolver({ ...options, turns })
+export function resolve({ top, ...options }) {
+  const resolver = new Resolver(options)
   for (const request of top) resolver.run(request)
   resolver.settle()
-  const { refs, patterns, byName, events } = resolver
-  return { refs, patterns, byName, events }
+  const { patterns, byName } = resolver
+  return { patterns, byName }
 }
