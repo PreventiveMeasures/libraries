@@ -178,3 +178,15 @@ export async function gitTreeOfTarball(gzipped, { expected, list } = {}) {
   await putBackEmptyTrees(root, expected, listed)
   return treeId(root).toString('hex')
 }
+
+// GitHub lists a subtree's mode as `040000`, which git writes `40000`.
+const LISTED = new Set(['100644 blob', '100755 blob', '120000 blob', '040000 tree', '160000 commit'])
+
+// The id of the tree a listing such as GitHub's names, its entries
+// { path, mode, type, sha }, or null where one is not an entry a tree can
+// hold, or a name is there twice.
+export function gitTreeOfListing(entries) {
+  if (!entries.every((entry) => isName(entry?.path) && LISTED.has(`${entry.mode} ${entry.type}`) && isSha1(entry.sha))) return null
+  const dir = new Map(entries.map(({ path, mode, sha }) => [Buffer.from(path).toString('latin1'), { mode: mode.replace(/^0/u, ''), id: Buffer.from(sha, 'hex') }]))
+  return dir.size === entries.length ? treeId(dir).toString('hex') : null
+}
