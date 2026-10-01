@@ -41,11 +41,12 @@ export function checkSubmodulePath(value, where) {
   return path
 }
 
-// Where git fetches from: a URL of a host, or scp's `user@host:path`. Not a
+// Where git fetches from: a URL of a host, or scp's `user@host:path`, the
+// host in brackets where it has a colon, as an IPv6 address does. Not a
 // path on the machine that clones, or one relative to the superproject's
 // remote, which only its clone knows; git ignores one that starts with "-".
 const SCHEME = /^(?:https?|ssh|git|git\+ssh|ssh\+git):\/\/[^/]/u
-const SCP = /^(?:[^@/:\\]+@)?[\dA-Za-z][\dA-Za-z.-]*:(?!:|\/\/)/u
+const SCP = /^(?:[^@/:\\]+@)?(?:\[[^\]/\\]+\]|[\dA-Za-z][\dA-Za-z.-]*):(?!:|\/\/)/u
 // git on Windows reads `x:path` as a path on the drive x:, and elsewhere as
 // the host x; `user@x:path` is the host to both.
 const DRIVE = /^[\dA-Za-z]:(?!:)/u

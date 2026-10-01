@@ -55,7 +55,8 @@ export interface FoundryDependency {
 export interface Gitmodule {
   // From the root of the repository.
   path: string
-  // An http(s), ssh or git URL, or `user@host:path`.
+  // An http(s), ssh or git URL, or `user@host:path`, an IPv6 host in
+  // brackets.
   url: string
   // What `git submodule update --remote` follows: a branch, or `.` for the
   // superproject's own. forge install records a branch it checks out here.
