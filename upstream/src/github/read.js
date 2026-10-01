@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto'
 import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTreeId, isSha, isSha1, optional, sameName, show } from '../args.js'
 import { verifiedDownload } from '../download.js'
 import { decode, encodeSegment } from '../http.js'
+import { gitTreeOfListing } from '../tree.js'
 import { api, bindMethods, call, clientHeaders, isGone, repoApi } from './client.js'
 
 const PER_PAGE = 100
@@ -83,20 +84,51 @@ async function treeTarball(method, headers, repo, tree) {
   return await verifiedDownload({ method, dir: 'github/trees', what: tree, ext: 'tgz', algorithm: 'tree', expected: tree, locate, options: { headers, redirect: 'follow' }, list })
 }
 
+async function commitTree(method, headers, repo, sha) {
+  const commit = await call(headers, repoApi(repo, ['git', 'commits', sha]))
+  assert.ok(commit?.sha === sha && isSha1(commit.tree?.sha), `${method}: GitHub names no tree for ${repo}@${sha}`)
+  return commit.tree.sha
+}
+
 // A full sha only, so the bytes are that commit's, not wherever a ref points
 // now. Its tree's tarball, not its own, in which `git archive` rewrites the
 // files marked `export-subst`.
 async function getRepoTarball(headers, options) {
   assertArgs('getRepoTarball', options, { repo: assertRepo, sha: assertSha })
   const { repo, sha } = options
-  const commit = await call(headers, repoApi(repo, ['git', 'commits', sha]))
-  assert.ok(commit?.sha === sha && isSha1(commit.tree?.sha), `getRepoTarball: GitHub names no tree for ${repo}@${sha}`)
-  return await treeTarball('getRepoTarball', headers, repo, commit.tree.sha)
+  const tree = await commitTree('getRepoTarball', headers, repo, sha)
+  return await treeTarball('getRepoTarball', headers, repo, tree)
 }
 
 async function getRepoTreeTarball(headers, options) {
   assertArgs('getRepoTreeTarball', options, { repo: assertRepo, tree: assertTreeId })
   return await treeTarball('getRepoTreeTarball', headers, options.repo, options.tree)
+}
+
+// Not recursive: GitHub cuts short a recursive listing of a large tree.
+async function listTree(method, headers, repo, tree) {
+  const entries = (await call(headers, repoApi(repo, ['git', 'trees', tree])))?.tree
+  assert.ok(Array.isArray(entries) && gitTreeOfListing(entries) === tree, `${method}: GitHub's listing of tree ${tree} in ${repo} is not that tree`)
+  return entries.map(({ path, mode, type, sha }) => ({ path, mode, type, sha }))
+}
+
+async function treeAt(method, headers, options) {
+  assertArgs(method, options, { repo: assertRepo, sha: assertSha, path: optional(assertPath) })
+  const { repo, sha, path } = options
+  let tree = await commitTree(method, headers, repo, sha)
+  for (const name of path?.split('/') ?? []) {
+    const entry = (await listTree(method, headers, repo, tree)).find((candidate) => candidate.path === name)
+    assert.ok(entry?.type === 'tree', `${method}: ${repo}@${sha} has no directory at ${show(path)}`)
+    tree = entry.sha
+  }
+  return tree
+}
+
+const getRepoTreeId = (headers, options) => treeAt('getRepoTreeId', headers, options)
+
+async function listRepoDir(headers, options) {
+  const tree = await treeAt('listRepoDir', headers, options)
+  return await listTree('listRepoDir', headers, options.repo, tree)
 }
 
 async function getPullRequest(headers, options) {
@@ -146,5 +178,5 @@ async function listRepoAdvisories(headers, options) {
   return list
 }
 
-export const readMethods = { getCurrentUser, listUserRepos, getRepo, getRepoHead, getRepoFile, getRepoTarball, getRepoTreeTarball, getPullRequest, getCollaboratorPermission, getAdvisory, listRepoAdvisories }
+export const readMethods = { getCurrentUser, listUserRepos, getRepo, getRepoHead, getRepoFile, getRepoTarball, getRepoTreeTarball, getRepoTreeId, listRepoDir, getPullRequest, getCollaboratorPermission, getAdvisory, listRepoAdvisories }
 export const createClient = (options) => bindMethods(clientHeaders('createClient', options, true), readMethods)

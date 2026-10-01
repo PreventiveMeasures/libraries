@@ -25,3 +25,36 @@ export const EMPTIES = '7d53d19498b95277f1e306217f31dff5f7ea0882'
 export const EMPTIES_D = '55b3cb71b68ba275eb66fc42c482f64559ff4288'
 export const EMPTIES_N = 'c1920f2a78ad891ff74cdcf908747b48f7db546e'
 export const EMPTIES_TGZ = Buffer.from('H4sIAAAAAAACA+3VSwrDIBSFYcfdS4jX53ps2mZUEtIUuvxKhgmkFGr6+r+JooLI4WBqzscq9X2V9o0Y62r1ejqL0U9jNh+nuXjjoxPjrcvrYoMOyqsNXC9jGvKVQ9eNa+ce7c8f9yXSPP9D/Qn5O22F/N+Tf1si/xDcSv5mkb9EozT5F9fuFP7Yov+nMv//k/230QX6v4Eb/QcAAAAAAAAAAACAn3AHHD/hkAAoAAA=', 'base64')
+// GitHub's listings of TREE, its `lib` (TREE_LIB) and SUBMODULE, as
+// `git ls-tree -l` gives them: { path, mode, type, sha }, and a size for
+// a blob.
+export const TREE_LIB = '5d216e498d6125ed6472ebafd65ee273f6f362d7'
+export const LISTINGS = {
+  [TREE]: [
+    { path: 'a-b', mode: '100644', type: 'blob', sha: 'd00491fd7e5bb6fa28c517a0bb32b8b506539d4d', size: 2 },
+    { path: 'a.b', mode: '100644', type: 'blob', sha: '0cfbf08886fca9a91cb753ec8734c84fcbe52c9f', size: 2 },
+    { path: 'a', mode: '040000', type: 'tree', sha: 'b2f4425009094fc2bf650841d1150197a61c62fc' },
+    { path: 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd', mode: '040000', type: 'tree', sha: 'df4264e39e7bed033d73aa936c7325257e6dc95b' },
+    { path: 'far', mode: '120000', type: 'blob', sha: '3004006c4c7d7f8588207f327524dc9310e7508f', size: 124 },
+    { path: 'lib', mode: '040000', type: 'tree', sha: '5d216e498d6125ed6472ebafd65ee273f6f362d7' },
+    { path: 'link', mode: '120000', type: 'blob', sha: '9d64ed0490eaac97d2f2413e2dc299ee38d7a6cf', size: 8 },
+    { path: 'run', mode: '100755', type: 'blob', sha: '1a2485251c33a70432394c93fb89330ef214bfc9', size: 10 },
+    { path: 'ñ.txt', mode: '100644', type: 'blob', sha: '4ae8ef021bf6fcfff43a13be5abfa52bb6fb5dbc', size: 2 },
+  ],
+  [TREE_LIB]: [
+    { path: 'a.js', mode: '100644', type: 'blob', sha: '336ce12bb9106afdf843063ee67c0c1970f70d37', size: 10 },
+  ],
+  [SUBMODULE]: [
+    { path: '.gitmodules', mode: '100644', type: 'blob', sha: '454c1e4897c73f969927180de8349a69396de7d4', size: 126 },
+    { path: 'a-b', mode: '100644', type: 'blob', sha: 'd00491fd7e5bb6fa28c517a0bb32b8b506539d4d', size: 2 },
+    { path: 'a.b', mode: '100644', type: 'blob', sha: '0cfbf08886fca9a91cb753ec8734c84fcbe52c9f', size: 2 },
+    { path: 'a', mode: '040000', type: 'tree', sha: 'b2f4425009094fc2bf650841d1150197a61c62fc' },
+    { path: 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd', mode: '040000', type: 'tree', sha: 'df4264e39e7bed033d73aa936c7325257e6dc95b' },
+    { path: 'far', mode: '120000', type: 'blob', sha: '3004006c4c7d7f8588207f327524dc9310e7508f', size: 124 },
+    { path: 'lib', mode: '040000', type: 'tree', sha: '5d216e498d6125ed6472ebafd65ee273f6f362d7' },
+    { path: 'link', mode: '120000', type: 'blob', sha: '9d64ed0490eaac97d2f2413e2dc299ee38d7a6cf', size: 8 },
+    { path: 'run', mode: '100755', type: 'blob', sha: '1a2485251c33a70432394c93fb89330ef214bfc9', size: 10 },
+    { path: 'sub', mode: '160000', type: 'commit', sha: 'f7d16464b1328679020181c9e3e873c38a95466b' },
+    { path: 'ñ.txt', mode: '100644', type: 'blob', sha: '4ae8ef021bf6fcfff43a13be5abfa52bb6fb5dbc', size: 2 },
+  ],
+}

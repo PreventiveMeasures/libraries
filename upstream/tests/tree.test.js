@@ -3,8 +3,8 @@ import { createHash } from 'node:crypto'
 import { gunzipSync, gzipSync } from 'node:zlib'
 import { describe, it } from 'node:test'
 
-import { gitTreeOfTarball } from '../src/tree.js'
-import { COMMIT_TGZ, EMPTIES, EMPTIES_D, EMPTIES_N, EMPTIES_TGZ, SUBMODULE, SUBMODULE_COMMIT, SUBMODULE_TGZ, TREE, TREE_TGZ } from './tree-fixtures.js'
+import { gitTreeOfListing, gitTreeOfTarball } from '../src/tree.js'
+import { COMMIT_TGZ, EMPTIES, EMPTIES_D, EMPTIES_N, EMPTIES_TGZ, LISTINGS, SUBMODULE, SUBMODULE_COMMIT, SUBMODULE_TGZ, TREE, TREE_LIB, TREE_TGZ } from './tree-fixtures.js'
 
 // A header's checksum, over the header with the field itself read as spaces.
 const sign = (tar, start) => {
@@ -203,5 +203,32 @@ describe('gitTreeOfTarball', () => {
       [EMPTIES_D]: [{ path: 'e', type: 'tree', sha: EMPTY }, { path: 'g', type: 'blob', sha: 'c'.repeat(40) }],
     }
     assert.notEqual(await gitTreeOfTarball(tarball(top, f), { expected: deeper, list: (sha) => listings[sha] ?? [] }), deeper)
+  })
+})
+
+describe('gitTreeOfListing', () => {
+  const at = (entries, i, change) => entries.with(i, { ...entries[i], ...change })
+
+  it("is the id of the tree GitHub's listing names, submodules, symlinks and non-ASCII names included", () => {
+    for (const id of [TREE, TREE_LIB, SUBMODULE]) assert.equal(gitTreeOfListing(LISTINGS[id]), id)
+    assert.equal(gitTreeOfListing(LISTINGS[TREE].toReversed()), TREE)
+  })
+
+  it('is another id for an entry left out, renamed, pointed elsewhere or with its exec bit dropped', () => {
+    const entries = LISTINGS[TREE]
+    for (const changed of [entries.slice(1), at(entries, 0, { path: 'a-c' }), at(entries, 0, { sha: 'f'.repeat(40) }), at(entries, 7, { mode: '100644' })]) {
+      const id = gitTreeOfListing(changed)
+      assert.match(id, /^[\da-f]{40}$/u)
+      assert.notEqual(id, TREE)
+    }
+  })
+
+  it('is null for an entry no tree can hold, or a name there twice', () => {
+    const entries = LISTINGS[TREE]
+    for (const change of [{ type: 'blob' }, { mode: '40000' }, { mode: '100664' }, { type: undefined, mode: undefined }, { sha: 'B'.repeat(40) }, { sha: 'b'.repeat(64) }, { path: 'x/y' }, { path: 'x\0y' }, { path: '' }, { path: 42 }]) {
+      assert.equal(gitTreeOfListing(at(entries, 2, change)), null, JSON.stringify(change))
+    }
+    assert.equal(gitTreeOfListing([...entries, null]), null)
+    assert.equal(gitTreeOfListing([...entries, entries[0]]), null)
   })
 })

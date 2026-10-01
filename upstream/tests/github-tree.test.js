@@ -8,7 +8,7 @@ import { gunzipSync, gzipSync } from 'node:zlib'
 import { createClient } from '../github.js'
 import { setCacheDir } from '../npm.js'
 import { SHA, forbidRequests, json, stubGitHub } from './github-stub.js'
-import { EMPTIES, EMPTIES_D, EMPTIES_N, EMPTIES_TGZ, NESTED, NESTED_COMMIT, NESTED_LIB, NESTED_TGZ, SUBMODULE, SUBMODULE_COMMIT, SUBMODULE_TGZ, TREE, TREE_TGZ } from './tree-fixtures.js'
+import { EMPTIES, EMPTIES_D, EMPTIES_N, EMPTIES_TGZ, LISTINGS, NESTED, NESTED_COMMIT, NESTED_LIB, NESTED_TGZ, SUBMODULE, SUBMODULE_COMMIT, SUBMODULE_TGZ, TREE, TREE_LIB, TREE_TGZ } from './tree-fixtures.js'
 
 const CACHE_DIR = join(tmpdir(), `upstream-github-tree-test-${process.pid}`)
 setCacheDir(CACHE_DIR)
@@ -169,5 +169,108 @@ describe('getRepoTarball', () => {
   it('throws a HttpError for a commit GitHub does not have', async () => {
     stub()
     await assert.rejects(client().getRepoTarball({ repo: 'acme/app', sha: SHA }), { name: 'HttpError', status: 404, message: `GET ${API}/git/commits/${SHA} 404: {"message":"Not Found"}` })
+  })
+})
+
+// A commit of TREE, and GitHub's listings of it and its `lib`, as GitHub
+// answers them, a `url` on each entry.
+const answer = (id, tree = LISTINGS[id]) => ({ sha: id, url: `${API}/git/trees/${id}`, tree: tree.map((entry) => ({ ...entry, url: `${API}/git/${entry.type}s/${entry.sha}` })), truncated: false })
+const GITHUB = { commits: { [SHA]: { sha: SHA, tree: { sha: TREE } } }, listings: { [TREE]: answer(TREE), [TREE_LIB]: answer(TREE_LIB), [SUBMODULE]: answer(SUBMODULE) } }
+const A = LISTINGS[TREE].find(({ path }) => path === 'a').sha
+
+describe('getRepoTreeId', () => {
+  it("is the commit's tree without a path, asking only for the commit", async () => {
+    const calls = stub(GITHUB)
+    assert.equal(await client().getRepoTreeId({ repo: 'acme/app', sha: SHA }), TREE)
+    assert.deepEqual(urls(calls), [`${API}/git/commits/${SHA}`])
+  })
+
+  it("is a directory's tree, from the listings down to it, the last one not asked for", async () => {
+    let calls = stub(GITHUB)
+    assert.equal(await client().getRepoTreeId({ repo: 'acme/app', sha: SHA, path: 'lib' }), TREE_LIB)
+    assert.deepEqual(urls(calls), [`${API}/git/commits/${SHA}`, `${API}/git/trees/${TREE}`])
+    calls = stub(GITHUB)
+    assert.equal(await client().getRepoTreeId({ repo: 'acme/app', sha: SHA, path: 'a' }), A)
+  })
+
+  it('refuses a path that is no directory: a file, a symlink, a submodule, nothing, or under a file', async () => {
+    for (const path of ['run', 'link', 'nope', 'Lib', 'lib/a.js', 'lib/nope', 'run/x']) {
+      stub(GITHUB)
+      await assert.rejects(client().getRepoTreeId({ repo: 'acme/app', sha: SHA, path }), new RegExp(`^AssertionError.*getRepoTreeId: acme/app@${SHA} has no directory at ${JSON.stringify(path).replace('/', '\\/')}$`, 'u'), path)
+    }
+    stub({ ...GITHUB, commits: { [SHA]: { sha: SHA, tree: { sha: SUBMODULE } } } })
+    await assert.rejects(client().getRepoTreeId({ repo: 'acme/app', sha: SHA, path: 'sub' }), /getRepoTreeId: acme\/app@\w+ has no directory at "sub"$/u)
+  })
+
+  it("refuses a listing on the way that is not the tree's: an entry changed, left out or added", async () => {
+    const entries = LISTINGS[TREE]
+    for (const tree of [entries.with(5, { ...entries[5], sha: SHA }), entries.slice(0, -1), [...entries, { path: 'x', mode: '100644', type: 'blob', sha: SHA }]]) {
+      const calls = stub({ ...GITHUB, listings: { ...GITHUB.listings, [TREE]: answer(TREE, tree) } })
+      await assert.rejects(client().getRepoTreeId({ repo: 'acme/app', sha: SHA, path: 'lib' }), new RegExp(`getRepoTreeId: GitHub's listing of tree ${TREE} in acme/app is not that tree$`, 'u'))
+      assert.equal(calls.length, 2)
+    }
+    stub({ ...GITHUB, listings: { [TREE]: { message: 'no tree' } } })
+    await assert.rejects(client().getRepoTreeId({ repo: 'acme/app', sha: SHA, path: 'lib' }), /is not that tree$/u)
+  })
+
+  it('refuses a commit GitHub answers for another sha or without a tree', async () => {
+    for (const commit of [{ sha: SUBMODULE_COMMIT, tree: { sha: TREE } }, { sha: SHA }, null]) {
+      stub({ ...GITHUB, commits: { [SHA]: commit } })
+      await assert.rejects(client().getRepoTreeId({ repo: 'acme/app', sha: SHA }), new RegExp(`getRepoTreeId: GitHub names no tree for acme/app@${SHA}$`, 'u'))
+    }
+  })
+
+  it('takes only a full commit sha and a path inside the repo, before any request', async () => {
+    const calls = forbidRequests()
+    for (const sha of [undefined, 'main', SHA.slice(0, 7), SHA.toUpperCase()]) {
+      await assert.rejects(client().getRepoTreeId({ repo: 'acme/app', sha }), /getRepoTreeId: sha must be a full commit sha/u, String(sha))
+    }
+    for (const path of ['', '/', '/lib', 'lib/', 'a//b', '.', '..', 'lib/..', '.git', 42]) {
+      await assert.rejects(client().getRepoTreeId({ repo: 'acme/app', sha: SHA, path }), /getRepoTreeId: path must be a path inside a repository/u, String(path))
+    }
+    await assert.rejects(client().getRepoTreeId({ repo: 'acme/app', sha: SHA, ref: 'main' }), /getRepoTreeId: unknown option ref/u)
+    await assert.rejects(client().getRepoTreeId({ repo: 'acme', sha: SHA }), /getRepoTreeId: repo must be "owner\/name"/u)
+    assert.deepEqual(calls, [])
+  })
+
+  it('throws a HttpError for a commit or a tree GitHub does not have', async () => {
+    stub()
+    await assert.rejects(client().getRepoTreeId({ repo: 'acme/app', sha: SHA }), { name: 'HttpError', status: 404, message: `GET ${API}/git/commits/${SHA} 404: {"message":"Not Found"}` })
+    stub({ commits: GITHUB.commits })
+    await assert.rejects(client().getRepoTreeId({ repo: 'acme/app', sha: SHA, path: 'lib' }), { name: 'HttpError', status: 404, message: `GET ${API}/git/trees/${TREE} 404: {"message":"Not Found"}` })
+  })
+})
+
+describe('listRepoDir', () => {
+  const entries = (id) => LISTINGS[id].map(({ path, mode, type, sha }) => ({ path, mode, type, sha }))
+
+  it("lists the commit's root without a path, as git has it, with no size or url", async () => {
+    const calls = stub(GITHUB)
+    assert.deepEqual(await client().listRepoDir({ repo: 'acme/app', sha: SHA }), entries(TREE))
+    assert.deepEqual(urls(calls), [`${API}/git/commits/${SHA}`, `${API}/git/trees/${TREE}`])
+  })
+
+  it('lists a directory, a submodule as the commit it is at', async () => {
+    const calls = stub(GITHUB)
+    assert.deepEqual(await client().listRepoDir({ repo: 'acme/app', sha: SHA, path: 'lib' }), entries(TREE_LIB))
+    assert.deepEqual(urls(calls), [`${API}/git/commits/${SHA}`, `${API}/git/trees/${TREE}`, `${API}/git/trees/${TREE_LIB}`])
+    stub({ ...GITHUB, commits: { [SHA]: { sha: SHA, tree: { sha: SUBMODULE } } } })
+    const listed = await client().listRepoDir({ repo: 'acme/app', sha: SHA })
+    assert.deepEqual(listed.find(({ path }) => path === 'sub'), { path: 'sub', mode: '160000', type: 'commit', sha: SUBMODULE_COMMIT })
+  })
+
+  it("refuses a listing that is not the tree's, cut short included, and a path that is no directory", async () => {
+    stub({ ...GITHUB, listings: { ...GITHUB.listings, [TREE_LIB]: { ...answer(TREE_LIB, []), truncated: true } } })
+    await assert.rejects(client().listRepoDir({ repo: 'acme/app', sha: SHA, path: 'lib' }), new RegExp(`listRepoDir: GitHub's listing of tree ${TREE_LIB} in acme/app is not that tree$`, 'u'))
+    stub(GITHUB)
+    await assert.rejects(client().listRepoDir({ repo: 'acme/app', sha: SHA, path: 'run' }), new RegExp(`listRepoDir: acme/app@${SHA} has no directory at "run"$`, 'u'))
+  })
+
+  it('takes only a full commit sha and a path inside the repo, before any request', async () => {
+    const calls = forbidRequests()
+    await assert.rejects(client().listRepoDir({ repo: 'acme/app', sha: 'main' }), /listRepoDir: sha must be a full commit sha/u)
+    await assert.rejects(client().listRepoDir({ repo: 'acme/app', sha: SHA, path: '../x' }), /listRepoDir: path must be a path inside a repository/u)
+    await assert.rejects(client().listRepoDir(), /listRepoDir: options must be an options object/u)
+    assert.deepEqual(calls, [])
   })
 })
