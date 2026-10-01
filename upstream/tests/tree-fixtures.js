@@ -18,3 +18,10 @@ export const NESTED = '874f3a1f1e72dc7705dc93544b98bc923a8bbfa9'
 export const NESTED_LIB = '8804c58ad81297708f853c08b6c0060251ea8f2c'
 export const NESTED_COMMIT = 'e962c7c6eabb10a32b4e9659c89fe5a82648a968'
 export const NESTED_TGZ = Buffer.from('H4sIAAAAAAACA+3V3UrDMBwF8N5uT1F2H/PRJK0XPol48U/WuUlHS5LCQHx349SbipNB3RTO7yZNGijlNKfk9y2jYWDkvFSV5sX8RFbX5jhm0/F4LY0ytZZCK5vXZWWFLkxxAWNMFPIjQ9+nU/t+uj99uX+CpvnfPO7Svl+PXRvnzN9a/W3+Sthp/qY2dSGQ/6+7j6N7j7tcdTvH83T1sFwMlLblXfmxslyMoctTnvYD9x2N65YJzrZ9/nbG2AaW9wUKuzbyyirtjbXMN7eOmYYMc6ZSrHbkZGNVYzbEow+U/HagNd8cKh6WBfyV8/8W+fX7X1dGof+vlT/dPMWZ8z/V/0KqL/0vlUT/X0B7GPqQyucXdDD6//P8518+n/n8n9n/Jv8B0P8AAAAAAAAAAAAAAAAAZ3oFia/T3AAoAAA=', 'base64')
+// EMPTIES: `f`, `d/g`, and subtrees with no file in them, which git
+// archive leaves out: `empty` and `d/e`, the empty tree, and `n`,
+// holding only `n/m`, the empty tree too.
+export const EMPTIES = '7d53d19498b95277f1e306217f31dff5f7ea0882'
+export const EMPTIES_D = '55b3cb71b68ba275eb66fc42c482f64559ff4288'
+export const EMPTIES_N = 'c1920f2a78ad891ff74cdcf908747b48f7db546e'
+export const EMPTIES_TGZ = Buffer.from('H4sIAAAAAAACA+3VSwrDIBSFYcfdS4jX53ps2mZUEtIUuvxKhgmkFGr6+r+JooLI4WBqzscq9X2V9o0Y62r1ejqL0U9jNh+nuXjjoxPjrcvrYoMOyqsNXC9jGvKVQ9eNa+ce7c8f9yXSPP9D/Qn5O22F/N+Tf1si/xDcSv5mkb9EozT5F9fuFP7Yov+nMv//k/230QX6v4Eb/QcAAAAAAAAAAACAn3AHHD/hkAAoAAA=', 'base64')

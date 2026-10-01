@@ -3,7 +3,7 @@ import { gunzipSync, gzipSync } from 'node:zlib'
 import { describe, it } from 'node:test'
 
 import { gitTreeOfTarball } from '../src/tree.js'
-import { COMMIT_TGZ, SUBMODULE, SUBMODULE_COMMIT, SUBMODULE_TGZ, TREE, TREE_TGZ } from './tree-fixtures.js'
+import { COMMIT_TGZ, EMPTIES, EMPTIES_D, EMPTIES_N, EMPTIES_TGZ, SUBMODULE, SUBMODULE_COMMIT, SUBMODULE_TGZ, TREE, TREE_TGZ } from './tree-fixtures.js'
 
 // A header's checksum, over the header with the field itself read as spaces.
 const sign = (tar, start) => {
@@ -117,21 +117,74 @@ describe('gitTreeOfTarball', () => {
     }
   })
 
-  it("takes a submodule's commit from `submodules`, asked only for a tarball with an empty directory, and is the id only for the right one", async () => {
+  it("takes a submodule's commit from `list`, asked only for a tarball with an empty directory, and is the id only for the right one", async () => {
     const asked = []
-    const submodules = (commit) => (paths) => {
-      asked.push(paths)
-      return new Map([['sub', commit]])
+    const list = (commit) => (sha) => {
+      asked.push(sha)
+      return [{ path: 'sub', type: 'commit', sha: commit }]
     }
-    assert.equal(await gitTreeOfTarball(SUBMODULE_TGZ, submodules(SUBMODULE_COMMIT)), SUBMODULE)
-    assert.deepEqual(asked, [['sub']])
-    assert.equal(await gitTreeOfTarball(TREE_TGZ, submodules(SUBMODULE_COMMIT)), TREE)
+    assert.equal(await gitTreeOfTarball(SUBMODULE_TGZ, { expected: SUBMODULE, list: list(SUBMODULE_COMMIT) }), SUBMODULE)
+    assert.deepEqual(asked, [SUBMODULE])
+    assert.equal(await gitTreeOfTarball(TREE_TGZ, { expected: TREE, list: list(SUBMODULE_COMMIT) }), TREE)
     assert.equal(asked.length, 1)
-    const other = await gitTreeOfTarball(SUBMODULE_TGZ, submodules(TREE))
+    const other = await gitTreeOfTarball(SUBMODULE_TGZ, { expected: SUBMODULE, list: list(TREE) })
     assert.match(other, /^[\da-f]{40}$/u)
     assert.notEqual(other, SUBMODULE)
     for (const commit of [undefined, SUBMODULE_COMMIT.toUpperCase(), SUBMODULE_COMMIT.slice(1), 42]) {
-      assert.equal(await gitTreeOfTarball(SUBMODULE_TGZ, submodules(commit)), 'no tree: an empty directory, "sub", and no submodule there', String(commit))
+      assert.equal(await gitTreeOfTarball(SUBMODULE_TGZ, { expected: SUBMODULE, list: list(commit) }), 'no tree: an empty directory, "sub", and no submodule there', String(commit))
     }
+  })
+
+  it('puts back the subtrees with no file in them that `git archive` leaves out, listed and shown to hold nothing', async () => {
+    const EMPTY = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+    const tree = (path, sha) => ({ path, type: 'tree', sha })
+    const listings = {
+      [EMPTIES]: [{ path: 'd', type: 'tree', sha: EMPTIES_D }, tree('empty', EMPTY), { path: 'f', type: 'blob', sha: 'b'.repeat(40) }, tree('n', EMPTIES_N)],
+      [EMPTIES_D]: [tree('e', EMPTY), { path: 'g', type: 'blob', sha: 'c'.repeat(40) }],
+      [EMPTIES_N]: [tree('m', EMPTY)],
+    }
+    const asked = []
+    const list = (sha) => {
+      asked.push(sha)
+      return listings[sha] ?? []
+    }
+    assert.notEqual(await gitTreeOfTarball(EMPTIES_TGZ), EMPTIES)
+    assert.equal(await gitTreeOfTarball(EMPTIES_TGZ, { expected: EMPTIES, list }), EMPTIES)
+    assert.deepEqual(asked.toSorted(), [EMPTIES, EMPTIES_D, EMPTIES_N].toSorted())
+    // A file left out is never asked after as a subtree.
+    asked.length = 0
+    const left = tarball(header('top/', '5', 0, 0o775), header('top/d/', '5', 0, 0o775), header('top/d/g', '0', 2), body('g\n'))
+    assert.notEqual(await gitTreeOfTarball(left, { expected: EMPTIES, list }), EMPTIES)
+    assert.deepEqual(asked.toSorted(), [EMPTIES, EMPTIES_D, EMPTIES_N].toSorted())
+    // Listed where nothing is missing, so never asked.
+    asked.length = 0
+    assert.equal(await gitTreeOfTarball(TREE_TGZ, { expected: TREE, list }), TREE)
+    assert.deepEqual(asked, [])
+    // Nor is a subtree whose listing is not its id's.
+    for (const n of [[{ path: 'm', type: 'blob', sha: 'b'.repeat(40) }], [tree('m', EMPTY), tree('k', EMPTY)], [tree('m', 42)], [null], []]) {
+      const id = await gitTreeOfTarball(EMPTIES_TGZ, { expected: EMPTIES, list: (sha) => (sha === EMPTIES_N ? n : list(sha)) })
+      assert.match(id, /^[\da-f]{40}$/u)
+      assert.notEqual(id, EMPTIES)
+    }
+  })
+
+  it('puts back no subtree a file is in, where the tarball has it or not', async () => {
+    const EMPTY = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+    const top = header('top/', '5', 0, 0o775)
+    const f = [header('top/f', '0', 2), body('x\n')]
+    // {f, empty: the empty tree}, with `empty` a file in the tarball.
+    const withFile = '1fa92f070ee4fa03ec6dab55560a3a8d0456e264'
+    const files = { [withFile]: [{ path: 'f', type: 'blob', sha: 'b'.repeat(40) }, { path: 'empty', type: 'tree', sha: EMPTY }] }
+    assert.equal(await gitTreeOfTarball(tarball(top, f), { expected: withFile, list: (sha) => files[sha] }), withFile)
+    assert.notEqual(await gitTreeOfTarball(tarball(top, f, header('top/empty', '0')), { expected: withFile, list: (sha) => files[sha] }), withFile)
+    // {f, x: {sub: EMPTIES_D}}, `x` holding only a subtree, which holds `g`.
+    const deeper = '93c4c8cc3e271464294ca228764424b6be154d44'
+    const x = '4e12ab93d049e20500805196eb7ac3913da9d20d'
+    const listings = {
+      [deeper]: [{ path: 'f', type: 'blob', sha: 'b'.repeat(40) }, { path: 'x', type: 'tree', sha: x }],
+      [x]: [{ path: 'sub', type: 'tree', sha: EMPTIES_D }],
+      [EMPTIES_D]: [{ path: 'e', type: 'tree', sha: EMPTY }, { path: 'g', type: 'blob', sha: 'c'.repeat(40) }],
+    }
+    assert.notEqual(await gitTreeOfTarball(tarball(top, f), { expected: deeper, list: (sha) => listings[sha] ?? [] }), deeper)
   })
 })

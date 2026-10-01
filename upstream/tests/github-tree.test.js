@@ -8,7 +8,7 @@ import { gunzipSync, gzipSync } from 'node:zlib'
 import { createClient } from '../github.js'
 import { setCacheDir } from '../npm.js'
 import { SHA, forbidRequests, json, stubGitHub } from './github-stub.js'
-import { COMMIT_TGZ, NESTED, NESTED_COMMIT, NESTED_LIB, NESTED_TGZ, SUBMODULE, SUBMODULE_COMMIT, SUBMODULE_TGZ, TREE, TREE_TGZ } from './tree-fixtures.js'
+import { COMMIT_TGZ, EMPTIES, EMPTIES_D, EMPTIES_N, EMPTIES_TGZ, NESTED, NESTED_COMMIT, NESTED_LIB, NESTED_TGZ, SUBMODULE, SUBMODULE_COMMIT, SUBMODULE_TGZ, TREE, TREE_TGZ } from './tree-fixtures.js'
 
 const CACHE_DIR = join(tmpdir(), `upstream-github-tree-test-${process.pid}`)
 setCacheDir(CACHE_DIR)
@@ -54,7 +54,7 @@ describe('getRepoTreeTarball', () => {
     const tar = Buffer.from(gunzipSync(TREE_TGZ))
     tar.write('export []', tar.indexOf('export {}'), 'latin1')
     for (const [tree, served] of [[SUBMODULE, TREE_TGZ], [TREE, gzipSync(tar)]]) {
-      stub({ tarballs: { [tree]: served } })
+      stub({ tarballs: { [tree]: served }, listings: { [tree]: { tree: [] } } })
       await assert.rejects(client().getRepoTreeTarball({ repo: 'acme/app', tree }), new RegExp(`getRepoTreeTarball: integrity mismatch for ${tree} from ${API.replaceAll('.', '\\.')}/tarball/${tree}: expected ${tree}, got [\\da-f]{40}$`, 'u'))
     }
     assert.deepEqual(await readdir(TREES).catch(() => []), [])
@@ -79,6 +79,19 @@ describe('getRepoTreeTarball', () => {
     calls = stub({ tarballs: { [NESTED]: NESTED_TGZ }, listings: { ...listings, [NESTED]: lib('../x') } })
     await assert.rejects(client().getRepoTreeTarball({ repo: 'acme/app', tree: NESTED }), /got no tree: an empty directory, "lib\/sub", and no submodule there$/u)
     assert.deepEqual(urls(calls), [`${API}/tarball/${NESTED}`, `${API}/git/trees/${NESTED}`])
+  })
+
+  it('puts back the subtrees with no file in them that the tarball leaves out, from the listings of those whose id differs', async () => {
+    const EMPTY = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+    const tree = (path, sha) => ({ path, mode: '040000', type: 'tree', sha })
+    const listings = {
+      [EMPTIES]: { tree: [tree('d', EMPTIES_D), tree('empty', EMPTY), { path: 'f', mode: '100644', type: 'blob', sha: SHA }, tree('n', EMPTIES_N)] },
+      [EMPTIES_D]: { tree: [tree('e', EMPTY), { path: 'g', mode: '100644', type: 'blob', sha: SHA }] },
+      [EMPTIES_N]: { tree: [tree('m', EMPTY)] },
+    }
+    const calls = stub({ tarballs: { [EMPTIES]: EMPTIES_TGZ }, listings })
+    assert.deepEqual(Buffer.from(await client().getRepoTreeTarball({ repo: 'acme/app', tree: EMPTIES })), EMPTIES_TGZ)
+    assert.deepEqual(urls(calls), [`${API}/tarball/${EMPTIES}`, ...[EMPTIES, EMPTIES_D, EMPTIES_N].map((id) => `${API}/git/trees/${id}`)])
   })
 
   it('refuses a submodule the listing has not, or names another commit for', async () => {
@@ -140,7 +153,7 @@ describe('getRepoTarball', () => {
       stub({ commits: { [SHA]: answer }, tarballs: { [SHA]: COMMIT_TGZ } })
       await assert.rejects(client().getRepoTarball({ repo: 'acme/app', sha: SHA }), new RegExp(`getRepoTarball: GitHub names no tree for acme/app@${SHA}`, 'u'), JSON.stringify(answer))
     }
-    stub({ commits: { [SHA]: { sha: SHA, tree: { sha: SUBMODULE } } }, tarballs: { [SHA]: COMMIT_TGZ } })
+    stub({ commits: { [SHA]: { sha: SHA, tree: { sha: SUBMODULE } } }, tarballs: { [SHA]: COMMIT_TGZ }, listings: { [SUBMODULE]: { tree: [] } } })
     await assert.rejects(client().getRepoTarball({ repo: 'acme/app', sha: SHA }), new RegExp(`getRepoTarball: integrity mismatch for ${SUBMODULE} from ${API.replaceAll('.', '\\.')}/tarball/${SHA}`, 'u'))
     assert.deepEqual(await readdir(TREES).catch(() => []), [])
   })

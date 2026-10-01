@@ -65,9 +65,10 @@ export interface Client {
   // Its files are hashed back into git's tree and the id must be `tree`,
   // whether downloaded or read from setCacheDir's cache (npm.js), where it
   // is kept by the id alone, for good; a cached copy that does not match
-  // throws. A tarball shows a submodule as an empty directory: its commit
-  // comes from GitHub's listings of the trees down to it, asked only then,
-  // and the id must still come out `tree`.
+  // throws. A tarball shows a submodule as an empty directory, and leaves
+  // out a subtree with no file in it: the submodule's commit and the
+  // subtrees come from GitHub's listings of the trees, asked only then, and
+  // the id must still come out `tree`.
   getRepoTreeTarball(options: { repo: RepoName; tree: string }): Promise<Uint8Array>
   // The repository's published security advisories, as GitHub's
   // repository advisory objects. One page of 100: GitHub pages this list

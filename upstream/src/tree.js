@@ -56,19 +56,50 @@ function emptyDirs(dir, prefix = '') {
   })
 }
 
+// Git sorts a subtree as if its name ended in `/`.
 function treeId(dir) {
-  const entries = [...dir].map(([name, entry]) => (entry instanceof Map ? { mode: '40000', name, id: treeId(entry), key: `${name}/` } : { ...entry, name, key: name }))
-  entries.sort((a, b) => (a.key < b.key ? -1 : Number(a.key > b.key)))
+  const entries = [...dir].map(([name, entry]) => (entry instanceof Map ? { mode: '40000', name, id: treeId(entry) } : { ...entry, name }))
+  const key = ({ mode, name }) => (mode === '40000' ? `${name}/` : name)
+  entries.sort((a, b) => (key(a) < key(b) ? -1 : Number(key(a) > key(b))))
   return objectId('tree', Buffer.concat(entries.flatMap(({ mode, name, id }) => [Buffer.from(`${mode} ${name}\0`, 'latin1'), id])))
+}
+
+const EMPTY_TREE = objectId('tree', Buffer.alloc(0)).toString('hex')
+const subtree = (sha) => ({ mode: '40000', id: Buffer.from(sha, 'hex') })
+
+// A subtree with nothing in it but subtrees like it, down to the empty
+// tree: its listing, read as subtrees alone, hashes to its id.
+async function holdsNothing(sha, listed) {
+  if (sha === EMPTY_TREE) return true
+  const entries = await listed(sha)
+  if (treeId(new Map(entries.map((entry) => [entry.name, subtree(entry.sha)]))).toString('hex') !== sha) return false
+  for (const entry of entries) if (!await holdsNothing(entry.sha, listed)) return false
+  return true
+}
+
+// `git archive` leaves out a subtree with no file in it, which only
+// plumbing makes. Where a directory's id is not the one listed, its listing
+// names any, and one is put back only once its own listings show it holds
+// nothing.
+async function putBackEmptyTrees(dir, sha, listed) {
+  if (treeId(dir).toString('hex') === sha) return
+  for (const entry of await listed(sha)) {
+    if (entry.type !== 'tree') continue
+    const here = dir.get(entry.name)
+    if (here instanceof Map) await putBackEmptyTrees(here, entry.sha, listed)
+    else if (here === undefined && await holdsNothing(entry.sha, listed)) dir.set(entry.name, subtree(entry.sha))
+  }
 }
 
 // The id of the git tree a gzipped tarball holds, as `git archive` writes
 // one, under a single top directory: a file's mode is its exec bit, a
-// symlink's blob its target. A tarball cannot show a submodule's commit:
-// `submodules`, asked with the empty directories' paths, answers a Map of
-// path to commit, and the id is the asked one only if those are right.
-// Where there is no such tree, a reason, which is never an id.
-export async function gitTreeOfTarball(gzipped, submodules) {
+// symlink's blob its target. What a tarball cannot show comes from `list`,
+// which answers a listing of a tree by its id, as GitHub's trees API does
+// ({ type, path, sha } entries), walked from `expected`: a submodule's
+// commit for an empty directory, and, where the id comes out otherwise, the
+// subtrees with nothing in them it leaves out. The id is `expected` only if
+// those are right. Where there is no such tree, a reason, never an id.
+export async function gitTreeOfTarball(gzipped, { expected, list } = {}) {
   let bytes
   try {
     bytes = gunzipSync(gzipped, { maxOutputLength: MAX_UNPACKED_BYTES })
@@ -126,12 +157,19 @@ export async function gitTreeOfTarball(gzipped, submodules) {
     dir.set(name, type === '0' ? { mode: mode & 0o100 ? '100755' : '100644', id: objectId('blob', body) } : { mode: '120000', id: objectId('blob', Buffer.from(target, 'latin1')) })
   }
   if (top === undefined) return 'no tree: an empty tarball'
-  const empty = emptyDirs(root)
-  const commits = empty.length > 0 && submodules ? await submodules(empty.map(([, , path]) => path)) : new Map()
-  for (const [dir, name, path] of empty) {
-    const commit = commits.get(path)
-    if (!isSha1(commit)) return `no tree: an empty directory, ${JSON.stringify(path)}, and no submodule there`
-    dir.set(name, { mode: '160000', id: Buffer.from(commit, 'hex') })
+  const listed = async (sha) => (list && isSha1(sha) ? await list(sha) : [])
+    .filter((entry) => typeof entry?.path === 'string' && isSha1(entry.sha))
+    .map((entry) => ({ ...entry, name: Buffer.from(entry.path).toString('latin1') }))
+  for (const [dir, name, path] of emptyDirs(root)) {
+    let sha = expected
+    const parts = path.split('/')
+    for (const [i, part] of parts.entries()) {
+      const type = i === parts.length - 1 ? 'commit' : 'tree'
+      sha = (await listed(sha)).find((entry) => entry.type === type && entry.name === part)?.sha
+    }
+    if (!isSha1(sha)) return `no tree: an empty directory, ${JSON.stringify(path)}, and no submodule there`
+    dir.set(name, { mode: '160000', id: Buffer.from(sha, 'hex') })
   }
+  await putBackEmptyTrees(root, expected, listed)
   return treeId(root).toString('hex')
 }
