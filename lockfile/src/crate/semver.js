@@ -2,7 +2,6 @@
 // VersionReq::matches. Numbers are u64, read as bigints.
 
 const MAX = 2n ** 64n - 1n
-const OPS = new Set(['=', '>', '>=', '<', '<=', '~', '^', '*'])
 
 const NUMBER = '0|[1-9]\\d*'
 // A prerelease identifier with a letter, or a number with no leading zero.
@@ -13,6 +12,7 @@ const WILD = '[*Xx]'
 
 const VERSION = new RegExp(`^(${NUMBER})\\.(${NUMBER})\\.(${NUMBER})(?:-(${PRE}))?(?:\\+(${BUILD}))?$`, 'u')
 const PRERELEASE = new RegExp(`^(?:${PRE})?$`, 'u')
+const LONE_WILD = new RegExp(`^ *${WILD} *$`, 'u')
 // One comparator, each run of spaces read one way alone, as backtracking
 // would otherwise be quadratic; a prerelease comes only after a patch.
 const COMPARATOR = new RegExp(`^ *(?:(>=|<=|=|>|<|~|\\^) *)?(${NUMBER})(?:\\.(?:(${WILD})(?:\\.${WILD})?|(${NUMBER})(?:\\.(?:(${WILD})|(${NUMBER})(?:-(${PRE}))?(?:\\+${BUILD})?))?))? *$`, 'u')
@@ -20,7 +20,8 @@ const COMPARATOR = new RegExp(`^ *(?:(>=|<=|=|>|<|~|\\^) *)?(${NUMBER})(?:\\.(?:
 // A u64, or null past it, read without a bigint of every digit.
 function u64(digits) {
   if (digits === undefined) return undefined
-  const value = digits.length > 20 ? null : BigInt(digits)
+  if (digits.length > 20) return null
+  const value = BigInt(digits)
   return value > MAX ? null : value
 }
 
@@ -46,14 +47,14 @@ function comparator(source) {
   const [, op, majorText, minorStar, minorText, patchStar, patchText, pre = ''] = match
   const [major, minor, patch] = [majorText, minorText, patchText].map(u64)
   if ([major, minor, patch].includes(null)) return undefined
-  return { op: op ?? (minorStar ?? patchStar ? '*' : '^'), major, minor, patch, pre }
+  return { op: op ?? (minorStar || patchStar ? '*' : '^'), major, minor, patch, pre }
 }
 
 // Comparators a comma apart, at most 32; a lone wildcard is none at all.
 // Undefined where the crate errs.
 export function parseVersionReq(source) {
-  if (/^ *[*Xx] *$/u.test(text(source))) return []
-  const written = source.split(',')
+  if (LONE_WILD.test(text(source))) return []
+  const written = source.split(',', 33)
   if (written.length > 32) return undefined
   const comparators = written.map(comparator)
   return comparators.includes(undefined) ? undefined : comparators
@@ -70,8 +71,10 @@ function comparePre(a, b) {
   for (const [index, x] of left.entries()) {
     const y = right[index]
     if (y === undefined) return 1
+    // A number below a word; numbers by their length first, as no zero leads.
     const [dx, dy] = [/^\d+$/u.test(x), /^\d+$/u.test(y)]
-    const order = dx && dy ? sign(x.length, y.length) || sign(x, y) : dx ? -1 : dy ? 1 : sign(x, y)
+    if (dx !== dy) return dx ? -1 : 1
+    const order = (dx && sign(x.length, y.length)) || sign(x, y)
     if (order !== 0) return order
   }
   return left.length === right.length ? 0 : -1
@@ -107,16 +110,16 @@ function caret(cmp, ver) {
   return comparePre(ver.pre, cmp.pre) >= 0
 }
 
-const MATCH = {
-  '=': exact,
-  '*': exact,
-  '>': (cmp, ver) => beyond(cmp, ver, 1),
-  '>=': (cmp, ver) => exact(cmp, ver) || beyond(cmp, ver, 1),
-  '<': (cmp, ver) => beyond(cmp, ver, -1),
-  '<=': (cmp, ver) => exact(cmp, ver) || beyond(cmp, ver, -1),
-  '~': tilde,
-  '^': caret,
-}
+const MATCH = new Map([
+  ['=', exact],
+  ['*', exact],
+  ['>', (cmp, ver) => beyond(cmp, ver, 1)],
+  ['>=', (cmp, ver) => exact(cmp, ver) || beyond(cmp, ver, 1)],
+  ['<', (cmp, ver) => beyond(cmp, ver, -1)],
+  ['<=', (cmp, ver) => exact(cmp, ver) || beyond(cmp, ver, -1)],
+  ['~', tilde],
+  ['^', caret],
+])
 
 // What the parsers make, or the same as they would: nothing else is read.
 function checkVersion(ver) {
@@ -124,16 +127,12 @@ function checkVersion(ver) {
   if (!valid) throw new TypeError('expected a version, as parseVersion makes')
 }
 
-function checkComparator(cmp) {
-  const valid = typeof cmp === 'object' && cmp !== null && OPS.has(cmp.op) && isU64(cmp.major) && (cmp.minor === undefined || isU64(cmp.minor)) && (cmp.patch === undefined || (cmp.minor !== undefined && isU64(cmp.patch))) && typeof cmp.pre === 'string' && PRERELEASE.test(cmp.pre) && (cmp.pre === '' || cmp.patch !== undefined)
-  if (!valid) throw new TypeError('expected comparators, as parseVersionReq makes')
-}
+const isComparator = (cmp) => typeof cmp === 'object' && cmp !== null && MATCH.has(cmp.op) && isU64(cmp.major) && (cmp.minor === undefined || isU64(cmp.minor)) && (cmp.patch === undefined || (cmp.minor !== undefined && isU64(cmp.patch))) && typeof cmp.pre === 'string' && PRERELEASE.test(cmp.pre) && (cmp.pre === '' || cmp.patch !== undefined)
 
 // A prerelease matches only where a comparator names its very version.
 export function matches(comparators, ver) {
-  if (!Array.isArray(comparators)) throw new TypeError('expected comparators, as parseVersionReq makes')
-  comparators.forEach(checkComparator)
+  if (!Array.isArray(comparators) || !comparators.every(isComparator)) throw new TypeError('expected comparators, as parseVersionReq makes')
   checkVersion(ver)
-  if (!comparators.every((cmp) => MATCH[cmp.op](cmp, ver))) return false
+  if (!comparators.every((cmp) => MATCH.get(cmp.op)(cmp, ver))) return false
   return ver.pre === '' || comparators.some((cmp) => cmp.major === ver.major && cmp.minor === ver.minor && cmp.patch === ver.patch && cmp.pre !== '')
 }

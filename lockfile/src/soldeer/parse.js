@@ -2,10 +2,11 @@
 // and a table for each dependency, as toml_edit lays them out.
 
 import { LockfileError, at, quote } from '../error.js'
-import { isCommit } from '../names.js'
-import { string } from '../shape.js'
+import { isCommit, isHttpUrl } from '../names.js'
+import { checkOptions, string } from '../shape.js'
 import { parseToml } from '../toml/parse.js'
-import { checkConfig, folders } from './config.js'
+import { isTable } from '../toml/value.js'
+import { checkConfig, claimFolder } from './config.js'
 
 // In the order Soldeer writes them; a dependency's kind is what it has.
 const FIELDS = ['name', 'version', 'git', 'url', 'rev', 'checksum', 'integrity']
@@ -27,13 +28,13 @@ function readField(entry, field, where) {
   if (!isPlain(value)) throw new LockfileError(`${quote(value)} is empty, or has a quote, backslash or control character, which this reader does not take`, where)
   if ((field === 'checksum' || field === 'integrity') && !SHA256.test(value)) throw new LockfileError(`${quote(value)} is not a hex sha256`, where)
   if (field === 'rev' && !isCommit(value)) throw new LockfileError(`${quote(value)} is not a full commit hash, as Soldeer writes`, where)
-  if (field === 'url' && (!/^https?:\/\//u.test(value) || !URL.canParse(value))) throw new LockfileError(`${quote(value)} is not an http(s) URL`, where)
+  if (field === 'url' && !isHttpUrl(value)) throw new LockfileError(`${quote(value)} is not an http(s) URL`, where)
   return value
 }
 
 function readEntry(entry, index) {
   let where = `dependencies[${index}]`
-  if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) throw new LockfileError('expected a table', where)
+  if (!isTable(entry)) throw new LockfileError('expected a table', where)
   if (typeof entry.name === 'string' && isPlain(entry.name)) where = at('dependencies', entry.name)
   for (const key of Object.keys(entry)) {
     if (key === 'source') throw new LockfileError('a field of Soldeer 0.3 and older, whose entries 0.4 and later do not read', at(where, key))
@@ -63,7 +64,7 @@ function compare(a, b) {
 function layout(version, entries) {
   const head = version === undefined ? [] : [`version = ${version}`]
   if (entries.length === 0) return `${[...head, 'dependencies = []'].join('\n')}\n`
-  const tables = entries.map((entry) => ['[[dependencies]]', ...FIELDS.filter((field) => field in entry).map((field) => `${field} = "${entry[field]}"`)].join('\n'))
+  const tables = entries.map((entry) => ['[[dependencies]]', ...KINDS[entry.type].map((field) => `${field} = "${entry[field]}"`)].join('\n'))
   return `${[...head, ...tables].join('\n\n')}\n`
 }
 
@@ -76,13 +77,9 @@ function checkLayout(text, expected) {
   throw new LockfileError(`line ${line + 1}: expected ${quote(want[line])}, as Soldeer writes it, found ${quote(have[line])}`)
 }
 
-const OPTIONS = ['config']
-
 export function parseSoldeerLockfile(text, options = {}) {
   if (typeof text !== 'string') throw new TypeError('expected a string')
-  if (typeof options !== 'object' || options === null) throw new TypeError('expected an options object')
-  const unknown = Object.keys(options).find((key) => !OPTIONS.includes(key))
-  if (unknown !== undefined) throw new TypeError(`unknown option ${quote(unknown)}, of ${OPTIONS.join(', ')}`)
+  const { config } = checkOptions(options, ['config'])
   const data = parseToml(text)
   const extra = Object.keys(data).find((key) => key !== 'version' && key !== 'dependencies')
   if (extra !== undefined) throw new LockfileError(`unsupported field ${quote(extra)}`, at('', extra))
@@ -90,22 +87,20 @@ export function parseSoldeerLockfile(text, options = {}) {
   if (version !== undefined && version !== 1 && version !== 2) throw new LockfileError('expected 1, for Soldeer 0.11 and older, or 2, the formats Soldeer 0.12 knows', 'version')
   if (!Array.isArray(data.dependencies)) throw new LockfileError('expected an array of tables, which Soldeer requires', 'dependencies')
   const dependencies = Object.create(null)
-  const installed = [new Map(), new Map()]
-  let last
+  const entries = []
+  const installed = new Map()
   for (const [index, entry] of data.dependencies.entries()) {
     const [read, where] = readEntry(entry, index)
     if (read.name in dependencies) throw new LockfileError('a second entry of the name, where Soldeer writes one', where)
+    const last = entries.at(-1)?.name
     if (last !== undefined && compare(last, read.name) > 0) throw new LockfileError(`after ${quote(last)}, where Soldeer sorts entries by name`, where)
-    last = read.name
     // Soldeer installs each in `dependencies/<name>-<version>`, sanitized.
-    for (const [system, folder] of folders(`${read.name}-${read.version}`).entries()) {
-      const other = installed[system].get(folder)
-      if (other !== undefined) throw new LockfileError(`installed in the folder ${quote(folder)}, as ${quote(other)} is`, where)
-      installed[system].set(folder, read.name)
-    }
+    claimFolder(installed, `${read.name}-${read.version}`, read.name, where)
     dependencies[read.name] = read
+    entries.push(read)
   }
-  checkLayout(text, layout(version, Object.values(dependencies)))
-  if (options.config !== undefined) checkConfig(options.config, dependencies)
+  // As read, as an object lists a name like `9` first.
+  checkLayout(text, layout(version, entries))
+  if (config !== undefined) checkConfig(config, dependencies)
   return { lockfileVersion: version ?? 1, dependencies }
 }

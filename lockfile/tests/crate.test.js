@@ -90,6 +90,12 @@ describe('the sanitize-filename crate, as Soldeer names a folder', () => {
     }
   })
 
+  it('in time linear in its length, a run of dots and spaces anywhere', () => {
+    const start = performance.now()
+    assert.equal(sanitizeWithOptions(`a${' '.repeat(100000)}b`, { windows: true, truncate: false, replacement: '-' }).length, 100002)
+    assert.ok(performance.now() - start < 1000)
+  })
+
   it('its other options: a replacement taken as it is, and no cut', () => {
     assert.equal(sanitizeWithOptions('a/b', { windows: false, truncate: true, replacement: '$&' }), 'a$&b')
     assert.equal(sanitizeWithOptions('a/b', { windows: false, truncate: true, replacement: '' }), 'ab')

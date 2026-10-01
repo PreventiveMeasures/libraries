@@ -5,7 +5,7 @@
 // resolver's — is refused, since what it would fetch is not read here.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkIntegrity, checkRelative, checkRepo, isCommit } from '../names.js'
+import { checkIntegrity, checkRelative, checkRepo, isCommit, isHttpUrl } from '../names.js'
 import { flag, kind, record, text } from '../shape.js'
 
 // A tarball is fetched from an absolute http(s) URL or read from a local
@@ -16,7 +16,7 @@ function checkTarball(value, where) {
   const tarball = text(value, where)
   if (tarball.startsWith('file:')) {
     checkRelative(tarball.slice(5), where)
-  } else if (!/^https?:\/\//u.test(tarball) || !URL.canParse(tarball)) {
+  } else if (!isHttpUrl(tarball)) {
     throw new LockfileError(`${quote(tarball)} is not an http(s) URL or a file: path`, where)
   }
   return tarball

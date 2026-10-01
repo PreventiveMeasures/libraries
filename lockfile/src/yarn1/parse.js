@@ -1,4 +1,4 @@
-import { quote } from '../error.js'
+import { checkOptions } from '../shape.js'
 import { linkWorkspace, readImporters } from './importers.js'
 import { readPackages } from './packages.js'
 import { checkResolutions } from './resolutions.js'
@@ -8,10 +8,7 @@ const OPTIONS = ['manifests', 'checkVersions', 'semver']
 const SEMVER = ['clean', 'satisfies', 'valid', 'validRange']
 
 function readOptions(options) {
-  if (typeof options !== 'object' || options === null) throw new TypeError('expected an options object')
-  const unknown = Object.keys(options).find((key) => !OPTIONS.includes(key))
-  if (unknown !== undefined) throw new TypeError(`unknown option ${quote(unknown)}, of ${OPTIONS.join(', ')}`)
-  const { manifests, checkVersions = true, semver } = options
+  const { manifests, checkVersions = true, semver } = checkOptions(options, OPTIONS)
   if (typeof checkVersions !== 'boolean') throw new TypeError('checkVersions: expected a boolean')
   if (semver !== undefined && !SEMVER.every((name) => typeof semver?.[name] === 'function')) {
     throw new TypeError(`semver: expected the semver package, with ${SEMVER.join(', ')}`)

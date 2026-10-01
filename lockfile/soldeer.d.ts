@@ -25,8 +25,8 @@ export interface SoldeerLockfile {
   // 1 for a lockfile of Soldeer 0.11 and older, whose integrity hashes 0.12
   // recomputes as it installs.
   lockfileVersion: 1 | 2
-  // By name, sorted, with a null prototype. Soldeer installs each in
-  // `dependencies/<name>-<version>`, sanitized as a file name.
+  // By name, with a null prototype, which lists a name like `9` first.
+  // Soldeer installs each in `dependencies/<name>-<version>`, sanitized.
   dependencies: Record<string, SoldeerDependency>
 }
 

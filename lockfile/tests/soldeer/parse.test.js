@@ -88,6 +88,12 @@ describe('the file', () => {
     refuses(edit(['version = 2', 'version = 3']), 'expected 1, for Soldeer 0.11 and older, or 2, the formats Soldeer 0.12 knows', 'version')
     refuses('version = 2\n', 'expected an array of tables, which Soldeer requires', 'dependencies')
     refuses(`${BASE}\n[extra]\n`, 'unsupported field "extra"', 'extra')
+    refuses('version = 2\ndependencies = [1.5]\n', 'expected a table', 'dependencies[0]')
+  })
+
+  it('names in the order Soldeer sorts them, whatever order an object lists them in', () => {
+    const { dependencies } = parseSoldeerLockfile(edit(['name = "a-lib"', 'name = "10"'], ['name = "b-git"', 'name = "9"']))
+    assert.deepEqual(Object.keys(dependencies), ['9', '10', 'c-private'])
   })
 
   it('refuses a name twice, or out of the order Soldeer sorts them in, by code point', () => {
