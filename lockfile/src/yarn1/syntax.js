@@ -11,7 +11,9 @@ const fail = (detail, number) => new LockfileError(`${detail} at line ${number +
 // Never written raw by yarn. A lone CR ends a line to yarn alone, and U+2028
 // and U+2029 to some other readers.
 const FORBIDDEN = /[\p{Cc}\p{Cs}\uFEFF\uFFFE\uFFFF\u2028\u2029]/u
+const hex = (char) => `U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`
 
+// yarn ends every line alike, as the file it rewrites did.
 function advance(src) {
   const { text, pos } = src
   src.line = undefined
@@ -20,9 +22,11 @@ function advance(src) {
   if (end === -1) end = text.length
   src.pos = end + 1
   src.number++
-  const line = text.slice(pos, end < text.length && text[end - 1] === '\r' ? end - 1 : end)
+  const crlf = end < text.length && text[end - 1] === '\r'
+  const line = text.slice(pos, crlf ? end - 1 : end)
   const char = FORBIDDEN.exec(line)?.[0]
-  if (char !== undefined) throw fail(`U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')} is not allowed`, src.number)
+  if (char !== undefined) throw fail(`${hex(char)} is not allowed`, src.number)
+  if (end < text.length && crlf !== (src.crlf ??= crlf)) throw fail(`a ${crlf ? 'CRLF' : 'LF'} line end, after ${src.crlf ? 'CRLF' : 'LF'} ones`, src.number)
   src.line = line
 }
 
@@ -42,6 +46,8 @@ function readEscaped(raw, number) {
   }
   if (JSON.stringify(value) !== raw) throw fail(`${quote(raw)} is not written as JSON writes ${quote(value)}`, number)
   if (value.includes('\\"')) throw fail(`${quote(value)} is a string yarn reads to another quote`, number)
+  const char = FORBIDDEN.exec(value)?.[0]
+  if (char !== undefined) throw fail(`an escape for ${hex(char)}, which is not allowed`, number)
   return value
 }
 
@@ -72,7 +78,7 @@ function readKey(line, pos, number) {
   return [key, end]
 }
 
-// @yarnpkg/parsers, which yarn 2+ reads v1 with, takes a bare `null…` as null.
+// @yarnpkg/parsers, yarn 2+'s reader of v1, takes a bare `null…` as null.
 function readValue(line, pos, number) {
   const [value, end] = readString(line, pos, number)
   if (value.startsWith('null') && line[pos] !== '"') throw fail(`${quote(value)} is bare, and read as null by some readers`, number)
@@ -172,7 +178,7 @@ const CONFLICT = ['<<<<<<<', '=======', '>>>>>>>']
 // Each entry: its patterns, and fields that are strings or null-prototype maps.
 export function readEntries(text) {
   if (CONFLICT.every((marker) => text.includes(marker))) throw new LockfileError(`yarn reads a file with ${CONFLICT.map((marker) => quote(marker)).join(', ')} in it as a merge conflict`)
-  const src = { text, pos: 0, number: -1, line: undefined }
+  const src = { text, pos: 0, number: -1, line: undefined, crlf: undefined }
   advance(src)
   readHeader(src)
   const entries = []

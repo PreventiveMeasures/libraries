@@ -167,8 +167,8 @@ describe('what else yarn writes is read', () => {
   })
 
   it('strings quoted for their spaces or escapes, and one bare with a quote in it', () => {
-    const packages = read(['  uid ""', '  uid "a \\"b\\" \\\\ \\u0001"'], ['"@s/c@^2.0.0":', '"@s/c@^2.0.0", "@s/c@>= 2.0.0 <3":'])
-    assert.equal(packages['l@link:./l'].uid, 'a "b" \\ \u0001')
+    const packages = read(['  uid ""', '  uid "a \\"b\\" \\\\"'], ['"@s/c@^2.0.0":', '"@s/c@^2.0.0", "@s/c@>= 2.0.0 <3":'])
+    assert.equal(packages['l@link:./l'].uid, 'a "b" \\')
     assert.equal(packages['@s/c@>= 2.0.0 <3'].version, '2.1.0')
     assert.equal(read(['  uid ""', "  uid it's"])['l@link:./l'].uid, "it's")
   })
@@ -180,15 +180,23 @@ describe('what else yarn writes is read', () => {
   })
 
   it('a tarball from a git host, with no sha1, and a local one', () => {
-    const packages = read(['"https://example.com/f.tgz#' + H + '"', '"https://codeload.github.com/u/f/tar.gz/' + C + '"'], [
+    const packages = read([`"f@https://example.com/f.tgz":\n  version "4.0.0"\n  resolved "https://example.com/f.tgz#${H}"`, `"f@github:u/f#v4":\n  version "4.0.0"\n  resolved "https://codeload.github.com/u/f/tar.gz/${C}"`], [
       '"l@link:./l":\n  version "0.0.0"\n  uid ""', `"l@file:vendor/l.tgz":\n  version "0.0.0"\n  resolved "file:vendor/l.tgz#${H}"`,
     ])
-    assert.deepEqual(packages['f@https://example.com/f.tgz'].resolution, { type: 'tarball', tarball: `https://codeload.github.com/u/f/tar.gz/${C}`, sha1: undefined, integrity: undefined })
+    assert.deepEqual(packages['f@github:u/f#v4'].resolution, { type: 'tarball', tarball: `https://codeload.github.com/u/f/tar.gz/${C}`, sha1: undefined, integrity: undefined })
     assert.equal(packages['l@file:vendor/l.tgz'].resolution.tarball, 'file:vendor/l.tgz')
   })
 
-  it('a name the patterns give already', () => {
-    assert.equal(read(['a@^1.0.0, a@^1.1.0:\n', 'a@^1.0.0, a@^1.1.0:\n  name a\n'])['a@^1.0.0'].name, 'a')
+  it('a repository by an https URL, which yarn fetches with git', () => {
+    for (const repo of ['https://example.com/x.git', 'https://github.com/u/x', 'ssh://git@example.com/x.git']) {
+      const packages = read(['"e@git+https://example.com/e.git#v3":\n  version "3.0.0"\n  resolved "git+https://example.com/e.git#', `"e@${repo}#v3":\n  version "3.0.0"\n  resolved "${repo}#`])
+      assert.deepEqual(packages[`e@${repo}#v3`].resolution, { type: 'git', repo, commit: C })
+    }
+  })
+
+  it('a resolution nothing asks for, which yarn records all the same', () => {
+    const text = edit(['b@1.0.0:', `z@1.0.0:\n  version "1.0.0"\n  resolved "https://registry.yarnpkg.com/z/-/z-1.0.0.tgz#${H}"\n\nb@1.0.0:`])
+    assert.equal(parseYarn1Lockfile(text, { ...MANIFESTS, '.': { ...MANIFESTS['.'], resolutions: { z: '1.0.0' } } }).packages['z@1.0.0'].version, '1.0.0')
   })
 })
 
@@ -198,7 +206,7 @@ describe('with the manifests', () => {
   const withRoot = (fields) => ({ ...MANIFESTS, '.': { ...root, ...fields } })
 
   it('a workspace\'s file: and link: are read from the lockfile\'s directory', () => {
-    const manifests = { ...MANIFESTS, w: { name: 'w', dependencies: { a: '^1.1.0', d: 'file:../d/', l: 'link:./../l' } } }
+    const manifests = { ...MANIFESTS, w: { name: 'w', version: '1.0.0', dependencies: { a: '^1.1.0', d: 'file:../d/', l: 'link:./../l' } } }
     const text = edit(['"d@file:./d":', '"d@file:./d", "d@file:d":'])
     assert.deepEqual(plain(lock(text, manifests).importers.w.dependencies), { a: 'a@^1.1.0', d: 'd@file:d', l: 'l@link:./l' })
   })
@@ -211,8 +219,8 @@ describe('with the manifests', () => {
     const text = edit(['a@^1.0.0, a@^1.1.0:', 'a@1.1.0, a@^1.0.0, a@^1.1.0:'])
     assert.equal(lock(text, withRoot({ resolutions: { '**/a': '1.1.0' } })).packages['a@1.1.0'].version, '1.1.0')
     refuses(text, 'nothing asks for it: no manifest, no package and no resolution', '["a@1.1.0"]', MANIFESTS)
-    refuses(text, 'nothing asks for it: no manifest, no package and no resolution', '["a@1.1.0"]', withRoot({ resolutions: { 'x/**/a/': '1.1.0' } }))
-    assert.equal(lock(text, withRoot({ resolutions: { 'x/**/a': '1.1.0', '@s/c/a': '2.0.0' } })).packages['a@1.1.0'].version, '1.1.0')
+    refuses(text, '"x/**/a/" is a path yarn ignores', 'manifests["."].resolutions["x/**/a/"]', withRoot({ resolutions: { 'x/**/a/': '1.1.0' } }))
+    assert.equal(lock(text, withRoot({ resolutions: { 'x/**/a': '1.1.0', '@s/c/a': '1.1.0' } })).packages['a@1.1.0'].version, '1.1.0')
   })
 
   it('refuses a pattern nothing asks for', () => {
@@ -222,7 +230,7 @@ describe('with the manifests', () => {
   })
 
   it('refuses a dependency the lockfile has no pattern for', () => {
-    refuses(BASE, '"a@^1.2.0" is not a pattern of the lockfile', 'manifests.w.dependencies.a', { ...MANIFESTS, w: { name: 'w', dependencies: { a: '^1.2.0' } } })
+    refuses(BASE, '"a@^1.2.0" is not a pattern of the lockfile', 'manifests.w.dependencies.a', { ...MANIFESTS, w: { name: 'w', version: '1.0.0', dependencies: { a: '^1.2.0' } } })
     refuses(BASE, '"x@1.0.0" is not a pattern of the lockfile', 'manifests["."].dependencies.x', withRoot({ dependencies: { x: '1.0.0' } }))
   })
 
@@ -234,11 +242,37 @@ describe('with the manifests', () => {
   it('refuses manifests that are not a project and its workspaces', () => {
     refuses(BASE, 'expected the manifest beside the lockfile, "."', 'manifests', { w: MANIFESTS.w })
     refuses(BASE, 'expected workspaces, as there are manifests of workspaces', 'manifests["."].workspaces', withRoot({ workspaces: undefined }))
-    refuses(BASE, 'the name of the workspace "w" too', 'manifests.v.name', { ...MANIFESTS, v: MANIFESTS.w })
+    refuses(BASE, 'the name of the workspace "w" too', 'manifests.v.name', { ...withRoot({ workspaces: ['w', 'v'] }), v: MANIFESTS.w })
     refuses(BASE, 'expected a string, found nothing', 'manifests.w.name', { ...MANIFESTS, w: { dependencies: { a: '^1.1.0' } } })
     refuses(BASE, 'expected a mapping, found the string "{}"', 'manifests', '{}')
     refuses(BASE, 'expected a string, found the number 1', 'manifests["."].dependencies.w', withRoot({ dependencies: { ...root.dependencies, w: 1 } }))
     refuses(BASE, '"a/./b" is not a relative path in normal form', 'manifests["a/./b"]', { ...MANIFESTS, 'a/./b': {} })
+  })
+
+  it('reads workspaces as yarn does, and refuses those it does not', () => {
+    const ws = 'manifests["."].workspaces'
+    for (const workspaces of [['./w/'], ['*'], ['**'], { packages: ['w'], nohoist: ['**/x'] }]) assert.ok(lock(BASE, withRoot({ workspaces })).importers.w)
+    refuses(BASE, 'expected true, as yarn has workspaces in a private project alone', 'manifests["."].private', withRoot({ private: undefined }))
+    refuses(BASE, 'expected a mapping, found the string "w"', ws, withRoot({ workspaces: 'w' }))
+    refuses(BASE, 'unsupported field "x"', ws, withRoot({ workspaces: { packages: ['w'], x: [] } }))
+    refuses(BASE, 'expected a string, found the number 1', `${ws}.nohoist[0]`, withRoot({ workspaces: { packages: ['w'], nohoist: [1] } }))
+    refuses(BASE, '"{w,v}" is a glob not read here', `${ws}[0]`, withRoot({ workspaces: ['{w,v}'] }))
+    const found = "not a workspace the root's `workspaces` finds"
+    refuses(BASE, found, 'manifests.v', { ...MANIFESTS, v: { name: 'v', version: '1.0.0' } })
+    refuses(BASE, found, 'manifests[".v"]', { ...withRoot({ workspaces: ['*'] }), '.v': { name: 'v', version: '1.0.0' } })
+    refuses(BASE, found, 'manifests["node_modules/x"]', { ...withRoot({ workspaces: ['w', 'node_modules/x'] }), 'node_modules/x': { name: 'x', version: '1.0.0' } })
+    refuses(BASE, 'expected a version, without which yarn ignores the workspace', 'manifests.w.version', { ...MANIFESTS, w: { name: 'w', dependencies: { a: '^1.1.0' } } })
+    refuses(BASE, "a workspace's, which yarn does not read", 'manifests.w.resolutions', { ...MANIFESTS, w: { ...MANIFESTS.w, resolutions: {} } })
+  })
+
+  it('refuses a dependency in two lists, or a list yarn does not read', () => {
+    refuses(BASE, 'listed under dependencies too', 'manifests["."].devDependencies.a', withRoot({ devDependencies: { l: 'link:./l', a: '^1.0.0' } }))
+    refuses(BASE, 'a field yarn does not read, for "devDependencies"', 'manifests["."].devdependencies', withRoot({ devdependencies: {} }))
+  })
+
+  it('refuses a dependency not given what a resolution resolves it to', () => {
+    const text = edit(['b@1.0.0:', `b@2.0.0:\n  version "2.0.0"\n  resolved "https://registry.yarnpkg.com/b/-/b-2.0.0.tgz#${H}"\n\nb@1.0.0:`])
+    refuses(text, '"b@1.0.0" is not given "b@2.0.0", which the resolution "**/b" resolves it to', '["d@file:./d"].dependencies.b', withRoot({ resolutions: { '**/b': '2.0.0' } }))
   })
 })
 
@@ -321,6 +355,11 @@ describe('refuses what yarn does not write, with the line', () => {
     refuses(edit(['  version "1.1.0"', '  version\t"1.1.0"']), 'U+0009 is not allowed at line 11')
     refuses(edit(['  version "1.1.0"\n', '  version "1.1.0"\r']), 'U+000D is not allowed at line 11')
     refuses(`${BASE}\r`, 'U+000D is not allowed at line 44')
+    refuses(BASE.replace('\n', '\r\n'), 'a LF line end, after CRLF ones at line 2')
+    refuses(edit(['  version "1.1.0"\n', '  version "1.1.0"\r\n']), 'a CRLF line end, after LF ones at line 11')
+    for (const [escape, char] of [['\\u0001', 'U+0001'], ['\\t', 'U+0009'], ['\\ud800', 'U+D800']]) {
+      refuses(edit(['  uid ""', `  uid "a${escape}"`]), `an escape for ${char}, which is not allowed at line 38`)
+    }
     refuses(edit(['  uid ""', '  uid "\u2028"']), 'U+2028 is not allowed at line 38')
     refuses(edit(['  uid ""', '  uid "<<<<<<< ======= >>>>>>>"']), 'yarn reads a file with "<<<<<<<", "=======", ">>>>>>>" in it as a merge conflict')
   })
@@ -346,10 +385,37 @@ describe('refuses an entry yarn does not write, or installs otherwise', () => {
     refuses(edit(['  version "1.1.0"', '  version:\n    a "1"']), 'expected a string, found a mapping', '["a@^1.0.0"].version')
   })
 
-  it('a name other than its patterns give it, or two', () => {
+  it('a name other than its patterns give it, or two, or the one they give', () => {
+    refuses(edit(['a@^1.0.0, a@^1.1.0:', 'a@^1.0.0, a@^1.1.0:\n  name a']), 'the name its patterns give, which yarn does not write', '["a@^1.0.0"].name')
     refuses(edit(['a@^1.0.0, a@^1.1.0:', 'a@^1.0.0, a@^1.1.0:\n  name b']), 'yarn installs this as "b", and leaves "a" out, which its patterns ask for', '["a@^1.0.0"].name')
     refuses(edit(['"my-b@npm:b@1.0.0":', '"my-b@npm:b@1.0.0", b@^1.0.0:']), '"my-b@npm:b@1.0.0" and "b@^1.0.0" give it two names, of which yarn installs it under one alone', '["my-b@npm:b@1.0.0"]')
     refuses(edit(['"f@https://example.com/f.tgz":', '"f@https://example.com/f.tgz", "g@https://example.com/f.tgz":']), '"f@https://example.com/f.tgz" and "g@https://example.com/f.tgz" give it two names, of which yarn installs it under one alone', '["f@https://example.com/f.tgz"]')
+  })
+
+  it('patterns asking for two packages of the registry, or an alias of no package', () => {
+    refuses(edit(['"my-b@npm:b@1.0.0":', '"my-b@npm:b@1.0.0", "my-b@npm:c@1.0.0":']), '"my-b@npm:b@1.0.0" and "my-b@npm:c@1.0.0" ask for two packages, "b" and "c"', '["my-b@npm:b@1.0.0"]')
+    refuses(edit(['"my-b@npm:b@1.0.0":', 'my-b@1.0.0, "my-b@npm:b@1.0.0":']), '"my-b@1.0.0" and "my-b@npm:b@1.0.0" ask for two packages, "my-b" and "b"', '["my-b@1.0.0"]')
+    refuses(edit(['"my-b@npm:b@1.0.0":', '"my-b@npm:B!@1.0.0":']), '"B!" is not a package name', '["my-b@npm:B!@1.0.0"]')
+  })
+
+  it('a pattern naming a source, resolved from another', () => {
+    const strays = (text, key) => refuses(text, `"${key}" resolves to another source than it names`, `["${key}"].resolved`)
+    strays(edit(['  uid ""', `  uid ""\n  resolved "https://example.com/l.tgz#${H}"`]), 'l@link:./l')
+    strays(edit(['  version "0.1.0"', `  version "0.1.0"\n  resolved "file:d.tgz#${H}"`]), 'd@file:./d')
+    strays(edit(['  resolved "git+https://example.com/e.git#', '  resolved "git+https://example.com/x.git#']), 'e@git+https://example.com/e.git#v3')
+    strays(edit([`  resolved "https://example.com/f.tgz#${H}"`, `  resolved "https://example.com/g.tgz#${H}"`]), 'f@https://example.com/f.tgz')
+  })
+
+  it('two entries of one name and resolved, which yarn writes as one, but not as it spells a path', () => {
+    const text = edit(['b@1.0.0:', `b@^1.0.0:\n  version "1.0.0"\n  resolved "https://registry.yarnpkg.com/b/-/b-1.0.0.tgz#${H}"\n\nb@1.0.0:`])
+    refuses(text, 'resolves as "b@^1.0.0" does, which yarn writes as one entry', '["b@1.0.0"]')
+    const tarball = `"f@https://example.com/f.tgz":\n  version "4.0.0"\n  resolved "https://example.com/f.tgz#${H}"`
+    const local = (path) => `"l@file:${path}":\n  version "0.0.0"\n  resolved "file:${path}#${H}"`
+    assert.ok(read([tarball, `${local('./v/l.tgz')}\n\n${local('v/l.tgz')}`])['l@file:v/l.tgz'])
+  })
+
+  it('a uid that is the version, which yarn leaves out', () => {
+    refuses(edit(['  uid ""', '  uid "0.0.0"']), 'the version, which yarn does not write as a uid', '["l@link:./l"].uid')
   })
 
   it('a pattern asking for the registry given another source, which only the manifests may say a resolution does', () => {
@@ -387,6 +453,7 @@ describe('refuses an entry yarn does not write, or installs otherwise', () => {
     refuses(edit([`b-1.0.0.tgz#${H}"`, `b-1.0.0.tgz#${C}"`]), `"${H1}" is not the sha1 after the "#" of resolved`, '["b@1.0.0"].integrity')
     refuses(edit([`  integrity ${I}\n\na@`, '  integrity sha512-x\n\na@']), '"sha512-x" is not a sha1, sha256, sha384 or sha512 integrity', '["@s/c@^2.0.0"].integrity')
     refuses(edit([`  integrity ${I}\n\na@`, `  integrity "${I}  ${I}"\n\na@`]), 'expected a non-empty string', '["@s/c@^2.0.0"].integrity')
+    refuses(edit([`  integrity ${I}\n\na@`, `  integrity "${I} ${I}"\n\na@`]), 'two sha512 integrities', '["@s/c@^2.0.0"].integrity')
   })
 
   it('anything but a string', () => {
@@ -444,6 +511,6 @@ describe('a resolution to a source, where it applies to every request', () => {
     const text = RESOLVED
     refuses(text, `"b@1.0.0" asks for the registry, and is given what "b@${URL}" names, which no resolution does`, '["b@1.0.0"]', resolving(undefined, { dependencies: { ...MANIFESTS['.'].dependencies, b: URL } }))
     refuses(text, '"**/{a,d}/b" is a glob not read here', 'manifests["."].resolutions["**/{a,d}/b"]', resolving({ '**/{a,d}/b': URL }))
-    refuses(text, 'nothing asks for it: no manifest, no package and no resolution', `["b@${URL}"]`, resolving({ '**/b': 'https://example.com/other.tgz' }))
+    refuses(text, '"b@https://example.com/other.tgz" is not a pattern of the lockfile, where yarn records every resolution\'s', 'manifests["."].resolutions["**/b"]', resolving({ '**/b': 'https://example.com/other.tgz' }))
   })
 })

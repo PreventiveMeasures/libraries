@@ -40,6 +40,7 @@
     "src/yaml/error.js",
     "src/yaml/parse.js",
     "src/yaml/scalar.js",
+    "src/yarn1/glob.js",
     "src/yarn1/importers.js",
     "src/yarn1/packages.js",
     "src/yarn1/parse.js",

@@ -10,21 +10,29 @@
 //
 // So is a lockfile that contradicts itself, or that yarn installs
 // otherwise than it says: a pattern twice, a dependency whose pattern is
-// not there, a sha1 integrity that is not the one after `resolved`'s `#`;
-// an entry whose patterns give it two names, which yarn 1.22.21 and
-// earlier write for one tarball, and a `name` other than its patterns',
-// which they go on to write, as yarn installs such a package under one of
-// its names alone; and an entry that gives a pattern asking for the
-// registry a tarball, a directory or a repository that another pattern
-// names, as yarn does for a dependency on one with the same name and
-// version.
+// not there, a sha1 integrity that is not the one after `resolved`'s `#`,
+// two integrities of one algorithm, a uid that is the version, line ends
+// of both kinds; a pattern that names a tarball, a directory or a
+// repository and resolved from another, registry patterns of one entry
+// that ask for two packages, and two entries of one name and `resolved`,
+// which yarn writes as one; an entry whose patterns give it two names, which
+// yarn 1.22.21 and earlier write for one tarball, and any `name`, which
+// they go on to write, as yarn installs such a package under one of its
+// names alone; and an entry that gives a pattern asking for the registry a
+// tarball, a directory or a repository that another pattern names, as
+// yarn does for a dependency on one with the same name and version. No
+// range is held to the version it resolved to.
 //
 // A yarn.lock does not say which projects ask for what: `manifests` does,
 // by directory from the lockfile's, `.` for the one beside it and the
 // others its workspaces, each as JSON.parse reads its package.json. With
 // them, `importers` is read, and every pattern is held to be asked for, by
-// a manifest, a package or the root's `resolutions`; without, `importers`
-// is undefined.
+// a manifest, a package or the root's `resolutions`, the pattern of each
+// of which has to be there. A workspace has to be one yarn reads: in a
+// private root, found by its `workspaces` outside node_modules, with a
+// name and a version, and no `resolutions`; a manifest has no dependency
+// in two lists, nor a list yarn only warns of, `devdependencies` and the
+// like. Without them, `importers` is undefined.
 //
 // A resolution to a tarball, a directory or a repository shares its entry
 // with the patterns it was applied to, which ask for the registry, and is
@@ -34,7 +42,8 @@
 // the resolution names to a request the resolution does not apply to: a
 // dependency of the root manifest's own, a dependency on the tarball
 // itself, or another entry of it. Without the manifests, such an entry is
-// refused, as nothing says a resolution made it.
+// refused, as nothing says a resolution made it. Nor is a request read
+// that the first resolution to match it does not give its pattern.
 //
 // Throws a TypeError for anything but a string, and a LockfileError for
 // the rest.
