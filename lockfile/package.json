@@ -1,12 +1,16 @@
 {
   "name": "@preventive/lockfile",
   "version": "1.0.0-alpha.4",
-  "description": "Strict lockfile readers: pnpm-lock.yaml v9, yarn.lock v1, soldeer.lock, foundry.lock, Cargo.lock v3 and v4, uv.lock, poetry.lock and pylock.toml, checked field by field, their packages and graphs resolved, with Cargo.toml, vendored copies and cargo's features, and the YAML, TOML and Rust semver parsers beside them",
+  "description": "Strict lockfile readers: pnpm-lock.yaml v9, package-lock.json v3, yarn.lock v1, soldeer.lock, foundry.lock, Cargo.lock v3 and v4, uv.lock, poetry.lock and pylock.toml, checked field by field, their packages and graphs resolved, with Cargo.toml, vendored copies and cargo's features, and the YAML, TOML and Rust semver parsers beside them",
   "type": "module",
   "exports": {
     "./foundry.js": {
       "types": "./foundry.d.ts",
       "default": "./foundry.js"
+    },
+    "./npm.js": {
+      "types": "./npm.d.ts",
+      "default": "./npm.js"
     },
     "./pnpm.js": {
       "types": "./pnpm.d.ts",
@@ -56,6 +60,8 @@
     "cargo.js",
     "foundry.d.ts",
     "foundry.js",
+    "npm.d.ts",
+    "npm.js",
     "pnpm.d.ts",
     "pnpm.js",
     "poetry.d.ts",
@@ -88,6 +94,14 @@
     "src/graph.js",
     "src/lines.js",
     "src/names.js",
+    "src/npm/entries.js",
+    "src/npm/flags.js",
+    "src/npm/hosted.js",
+    "src/npm/json.js",
+    "src/npm/parse.js",
+    "src/npm/spec.js",
+    "src/npm/tree.js",
+    "src/npm/valid.js",
     "src/pnpm/importers.js",
     "src/pnpm/key.js",
     "src/pnpm/packages.js",
@@ -136,7 +150,7 @@
     "node": ">=24.14.0"
   },
   "scripts": {
-    "test": "node --test ./tests/*.test.js ./tests/cargo/*.test.js ./tests/foundry/*.test.js ./tests/poetry/*.test.js ./tests/pylock/*.test.js ./tests/python/*.test.js ./tests/soldeer/*.test.js ./tests/toml/*.test.js ./tests/uv/*.test.js ./tests/yaml/*.test.js ./tests/yarn1/*.test.js"
+    "test": "node --test ./tests/*.test.js ./tests/cargo/*.test.js ./tests/foundry/*.test.js ./tests/npm/*.test.js ./tests/poetry/*.test.js ./tests/pylock/*.test.js ./tests/python/*.test.js ./tests/soldeer/*.test.js ./tests/toml/*.test.js ./tests/uv/*.test.js ./tests/yaml/*.test.js ./tests/yarn1/*.test.js"
   },
   "license": "MIT OR Apache-2.0",
   "author": {
