@@ -155,6 +155,10 @@ describe('integrities', () => {
     'md5-1B2M2Y8AsgTpgAmY7PhCfg==',
     'sha1-2jmj7l5rSw0yVb/vlWAYkK/YBwk=?opt',
     'sha1-2jmj7l5rSw0yVb_vlWAYkK-YBwk=',
+    'sha1-2jmj7l5rSw0yVb/vlWAYkK/YBwl=',
+    'sha1-2jmj7l5rSw0yVb/vlWA YkK/YBwk=',
+    'sha1-',
+    'sha1',
     '__proto__-x',
   ]) {
     it(`refuses ${integrity.slice(0, 16)}…`, () => assert.throws(() => checkIntegrity(integrity, 'here'), LockfileError))

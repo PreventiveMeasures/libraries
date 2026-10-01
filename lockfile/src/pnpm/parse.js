@@ -10,10 +10,13 @@
 // document.
 
 import { parseYamlStream } from '../yaml/parse.js'
+import { fromBase32 } from '@exodus/bytes/base32.js'
+import { fromHex } from '@exodus/bytes/hex.js'
 import { LockfileError, at, quote } from '../error.js'
+import { KINDS, reach } from '../graph.js'
 import { checkIntegrity, checkName, checkRelative } from '../names.js'
 import { EMPTY, boolean, count, entries, kind, record, string, text, textMap, texts } from '../shape.js'
-import { ENV_KINDS, KINDS, readImporters } from './importers.js'
+import { ENV_KINDS, readImporters } from './importers.js'
 import { readPackages } from './packages.js'
 
 const FIELDS = [
@@ -53,8 +56,20 @@ function readCatalogs(value, where) {
   return catalogs
 }
 
+// A bare hash as pnpm writes one: lowercase hex, or base32 unpadded, of so
+// many bytes. Either decoder takes either case, and refuses all else.
+const fromBase32Bare = (hash) => fromBase32(hash, { padding: false })
+
+function isHash(hash, bytes, decode) {
+  try {
+    return hash === hash.toLowerCase() && decode(hash).length === bytes
+  } catch {
+    return false
+  }
+}
+
 // pnpm 9 and 10 write a patch as its hash and the path of its file; pnpm 11
-// and later as the hash alone.
+// and later as the hash alone: an md5 in base32 from pnpm 9, a sha256 in hex.
 function readPatches(value, where) {
   const patches = Object.create(null)
   for (const [selector, item, here] of entries(value ?? EMPTY, where)) {
@@ -62,18 +77,18 @@ function readPatches(value, where) {
     if (full) record(item, here, ['hash', 'path'])
     const hashAt = full ? at(here, 'hash') : here
     const hash = text(full ? item.hash : item, hashAt)
-    if (!/^[\da-z]+$/u.test(hash)) throw new LockfileError(`${quote(hash)} is not a patch hash`, hashAt)
+    if (!isHash(hash, 32, fromHex) && !isHash(hash, 16, fromBase32Bare)) throw new LockfileError(`${quote(hash)} is not a patch hash`, hashAt)
     patches[text(selector, here)] = { hash, path: full ? checkRelative(item.path, at(here, 'path')) : undefined }
   }
   return patches
 }
 
 // A digest of what rewrote the manifests pnpm resolved from: pnpm 9 writes
-// it bare, in hex or base32, and pnpm 10 and later as a sha256 integrity.
+// an md5 bare, in hex or base32, and pnpm 10 and later a sha256 integrity.
 function readChecksum(value, where) {
   if (value === undefined) return undefined
   const checksum = text(value, where)
-  if (/^[\da-z]+$/u.test(checksum)) return checksum
+  if (isHash(checksum, 16, fromHex) || isHash(checksum, 16, fromBase32Bare)) return checksum
   if (!checksum.startsWith('sha256-')) throw new LockfileError(`${quote(checksum)} is not a checksum`, where)
   return checkIntegrity(checksum, where)
 }
@@ -101,21 +116,7 @@ function readTime(value, where, packages) {
 // Every snapshot is reached from an importer, as pnpm prunes the rest: one
 // that is not would be listed as installed when nothing installs it.
 function checkReached(importers, packages, where) {
-  const reached = new Set()
-  const queue = []
-  const visit = (targets = EMPTY) => {
-    for (const key of Object.values(targets)) {
-      if (key.startsWith('link:') || reached.has(key)) continue
-      reached.add(key)
-      queue.push(key)
-    }
-  }
-  for (const importer of Object.values(importers)) for (const field of [...KINDS, ...ENV_KINDS]) visit(importer[field])
-  while (queue.length > 0) {
-    const pkg = packages[queue.pop()]
-    visit(pkg.dependencies)
-    visit(pkg.optionalDependencies)
-  }
+  const reached = reach(Object.values(importers).flatMap((importer) => [...KINDS, ...ENV_KINDS].map((field) => importer[field])), packages)
   for (const key of Object.keys(packages)) {
     if (!reached.has(key)) throw new LockfileError('no importer depends on it, directly or not', at(at(where, 'snapshots'), key))
   }

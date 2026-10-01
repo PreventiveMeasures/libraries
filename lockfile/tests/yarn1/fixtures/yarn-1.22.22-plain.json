@@ -1,0 +1,18 @@
+{
+  ".": {
+    "name": "plain",
+    "version": "0.0.0",
+    "private": true,
+    "dependencies": {
+      "is-odd": "3.0.1",
+      "isarray": "git+https://github.com/juliangruber/isarray.git#v2.0.5",
+      "react-dom": "18.2.0"
+    },
+    "devDependencies": {
+      "mkdirp": "1.0.4"
+    },
+    "optionalDependencies": {
+      "fsevents": "2.3.3"
+    }
+  }
+}

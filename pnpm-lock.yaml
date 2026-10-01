@@ -51,7 +51,11 @@ importers:
 
   diff: {}
 
-  lockfile: {}
+  lockfile:
+    dependencies:
+      '@exodus/bytes':
+        specifier: ^1.16.0
+        version: 1.16.0
 
   upstream: {}
 

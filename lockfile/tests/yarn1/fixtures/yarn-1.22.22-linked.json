@@ -1,0 +1,17 @@
+{
+  ".": {
+    "name": "linked",
+    "version": "0.0.0",
+    "private": true,
+    "workspaces": [
+      "packages/*"
+    ],
+    "dependencies": {
+      "to-regex-range": "5.0.1"
+    }
+  },
+  "packages/is-number": {
+    "name": "is-number",
+    "version": "7.0.0"
+  }
+}

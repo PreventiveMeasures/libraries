@@ -1,0 +1,24 @@
+{
+  ".": {
+    "name": "resolutions",
+    "version": "0.0.0",
+    "private": true,
+    "workspaces": [
+      "packages/*"
+    ],
+    "dependencies": {
+      "is-even": "1.0.0"
+    },
+    "resolutions": {
+      "is-even/is-odd": "https://registry.npmjs.org/is-odd/-/is-odd-3.0.1.tgz",
+      "**/is-number": "file:./vendor/is-number-6.0.0.tgz"
+    }
+  },
+  "packages/ws-a": {
+    "name": "ws-a",
+    "version": "1.0.0",
+    "dependencies": {
+      "is-number": "^6.0.0"
+    }
+  }
+}
