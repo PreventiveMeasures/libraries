@@ -57,8 +57,8 @@ export interface CargoLockPackage {
 // drops, and whatever cargo refuses of a manifest that can be told without
 // a filesystem: a feature naming nothing, a dependency with two sources, an
 // optional dev-dependency, `links` with `build = false`. Sections that bear
-// on no dependency or feature —
-// [badges], [lints], [profile], [[bin]], metadata — are not looked into.
+// on no dependency or feature — [badges], [lints], [profile], [[bin]],
+// metadata — are not looked into.
 export function parseCargoManifest(text: string, workspace?: CargoManifest): CargoManifest
 
 export interface CargoManifest {
