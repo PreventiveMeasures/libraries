@@ -83,6 +83,16 @@ describe('rust-semver.js, as the semver crate reads and matches', () => {
     assert.equal(matches([comparator], { ...version, build: '001.a-b' }), true)
     assert.equal(matches(Array.from({ length: 32 }, () => comparator), version), true)
     assert.throws(() => matches(Array.from({ length: 33 }, () => comparator), version), { name: 'TypeError', message: 'expected comparators, as parseVersionReq makes' })
+    // A hole is no comparator, where every and some would pass it by.
+    for (const forged of [[], [comparator]]) {
+      forged.length += 1
+      assert.throws(() => matches(forged, version), { name: 'TypeError', message: 'expected comparators, as parseVersionReq makes' })
+    }
+    // Each field read once, so what is matched is what was checked.
+    let reads = 0
+    const shifty = Object.defineProperty({ ...comparator }, 'op', { enumerable: true, get: () => ((reads += 1) === 1 ? '>' : '!') })
+    assert.equal(matches([shifty], version), false)
+    assert.equal(reads, 1)
   })
 
   // Every shape in a grid, refused but where a parser reads it back the same.

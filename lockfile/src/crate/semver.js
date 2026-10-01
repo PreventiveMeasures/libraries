@@ -124,19 +124,36 @@ const MATCH = new Map([
   ['^', caret],
 ])
 
-// What the parsers make, or the same as they would: nothing else is read.
-function checkVersion(ver) {
-  const valid = typeof ver === 'object' && ver !== null && isU64(ver.major) && isU64(ver.minor) && isU64(ver.patch) && typeof ver.pre === 'string' && PRERELEASE.test(ver.pre) && typeof ver.build === 'string' && METADATA.test(ver.build)
-  if (!valid) throw new TypeError('expected a version, as parseVersion makes')
+// Copies of what the parsers make, each field read once, so that what is
+// matched is what was checked; undefined for anything else.
+function versionOf(value) {
+  const { major, minor, patch, pre, build } = value ?? {}
+  const valid = isU64(major) && isU64(minor) && isU64(patch) && typeof pre === 'string' && PRERELEASE.test(pre) && typeof build === 'string' && METADATA.test(build)
+  return valid ? { major, minor, patch, pre, build } : undefined
 }
 
 // A patch only after a minor and with no wildcard, a prerelease only after it.
-const isComparator = (cmp) => typeof cmp === 'object' && cmp !== null && MATCH.has(cmp.op) && isU64(cmp.major) && (cmp.minor === undefined || isU64(cmp.minor)) && (cmp.patch === undefined || (cmp.minor !== undefined && cmp.op !== '*' && isU64(cmp.patch))) && typeof cmp.pre === 'string' && PRERELEASE.test(cmp.pre) && (cmp.pre === '' || cmp.patch !== undefined)
+function comparatorOf(value) {
+  const { op, major, minor, patch, pre } = value ?? {}
+  const valid = MATCH.has(op) && isU64(major) && (minor === undefined || isU64(minor)) && (patch === undefined || (minor !== undefined && op !== '*' && isU64(patch))) && typeof pre === 'string' && PRERELEASE.test(pre) && (pre === '' || patch !== undefined)
+  return valid ? { op, major, minor, patch, pre } : undefined
+}
+
+// Every slot, a hole too, by its index.
+function comparatorsOf(value) {
+  if (!Array.isArray(value)) return undefined
+  const { length } = value
+  if (length > MOST) return undefined
+  const list = Array.from({ length }, (_, index) => comparatorOf(value[index]))
+  return list.includes(undefined) ? undefined : list
+}
 
 // A prerelease matches only where a comparator names its very version.
-export function matches(comparators, ver) {
-  if (!Array.isArray(comparators) || comparators.length > MOST || !comparators.every(isComparator)) throw new TypeError('expected comparators, as parseVersionReq makes')
-  checkVersion(ver)
-  if (!comparators.every((cmp) => MATCH.get(cmp.op)(cmp, ver))) return false
-  return ver.pre === '' || comparators.some((cmp) => cmp.major === ver.major && cmp.minor === ver.minor && cmp.patch === ver.patch && cmp.pre !== '')
+export function matches(comparators, version) {
+  const list = comparatorsOf(comparators)
+  if (list === undefined) throw new TypeError('expected comparators, as parseVersionReq makes')
+  const ver = versionOf(version)
+  if (ver === undefined) throw new TypeError('expected a version, as parseVersion makes')
+  if (!list.every((cmp) => MATCH.get(cmp.op)(cmp, ver))) return false
+  return ver.pre === '' || list.some((cmp) => cmp.major === ver.major && cmp.minor === ver.minor && cmp.patch === ver.patch && cmp.pre !== '')
 }
