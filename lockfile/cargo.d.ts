@@ -170,7 +170,10 @@ export interface CargoVendored {
 // members of one name, two packages linking one native library, a feature
 // a declaration asks of a package that has no such feature, a [patch]
 // whose location has no version its requirement takes, a [patch] from the
-// source it patches.
+// source it patches. And, as cargo would read either, two [patch] tables
+// for one source by URLs that differ but for being canonical; of two at
+// one URL, `crates-io` and crates.io's index, the later by key is read, as
+// cargo reads it.
 export function linkCargo(lock: CargoLockfile, manifests: Record<string, CargoManifest>, options: { workspace: CargoManifest, members: string[] }): CargoGraph
 
 export interface CargoGraph {

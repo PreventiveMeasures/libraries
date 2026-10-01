@@ -249,6 +249,25 @@ describe('linkCargo with an unused [patch]', () => {
   })
 })
 
+// crates.io patched by two tables: foo by `crates-io`, bar by an index URL.
+describe('linkCargo with two [patch] tables for one source', () => {
+  const tables = (url, unused) => {
+    const lock = parseCargoLock(`version = 4\n[[package]]\nname = "app"\nversion = "0.1.0"\n${unused.map((name) => `\n[[patch.unused]]\nname = "${name}"\nversion = "1.0.0"\n`).join('')}`)
+    const root = parseCargoManifest(`[package]\nname = "app"\nversion = "0.1.0"\n\n[patch.crates-io]\nfoo = { path = "foo" }\n\n[patch."${url}"]\nbar = { path = "bar" }\n`)
+    return linkCargo(lock, { 'app 0.1.0': root }, { workspace: root, members: ['app 0.1.0'] })
+  }
+
+  it('reads the later of two at one URL, as cargo replaces the one with the other', () => {
+    assert.deepEqual(Object.keys(tables('https://github.com/rust-lang/crates.io-index', ['bar']).packages), ['app 0.1.0'])
+    assert.throws(() => tables('https://github.com/rust-lang/crates.io-index', ['bar', 'foo']), refusedWith('patch.unused: the lockfile lists "foo 1.0.0" unused where no [patch] does: is it out of date?'))
+  })
+
+  it('refuses two at one source by URLs that differ, of which cargo would take either', () => {
+    const url = 'https://github.com/rust-lang/crates.io-index/'
+    assert.throws(() => tables(url, ['bar']), refusedWith(`patch["${url}"]: patches the source [patch.crates-io] does by another URL, and cargo would take either table`))
+  })
+})
+
 describe('resolveCargoFeatures', () => {
   const graph = link()
   const build = (options) => resolveCargoFeatures(graph, { packages: ['app 0.1.0'], host: HOST, ...options })

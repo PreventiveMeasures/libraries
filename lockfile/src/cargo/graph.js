@@ -12,7 +12,7 @@
 
 import { LockfileError, at, quote } from '../error.js'
 import { featureValue } from './dependency.js'
-import { ANY_REGISTRY, parseLockSource, patchKey, patchedAs, sourceIdentity } from './lock.js'
+import { ANY_REGISTRY, parseLockSource, patchKey, patchUrl, patchedAs, sourceIdentity } from './lock.js'
 import { matches, parseRequirement, parseVersion } from './syntax.js'
 
 const PATH = 'path'
@@ -31,13 +31,29 @@ const within = (requirement, version) => requirement === undefined || matches(re
 // known by its name alone.
 const from = (wanted, identity, source) => identity === wanted || (wanted === ANY_REGISTRY && source !== undefined && !source.startsWith('git+'))
 
+// The [patch] tables cargo reads: of two at one URL, the later by key, as
+// cargo replaces one with the other; two at one source by URLs that differ
+// but for being canonical cargo replaces one with the other in no set
+// order, and are refused.
+function patchTables(root) {
+  const tables = new Map()
+  for (const key of Object.keys(root.patch).toSorted()) {
+    const other = tables.get(patchKey(key))
+    if (other !== undefined && patchUrl(other) !== patchUrl(key)) {
+      throw new LockfileError(`patches the source [patch.${other}] does by another URL, and cargo would take either table`, at('patch', key))
+    }
+    tables.set(patchKey(key), key)
+  }
+  return [...tables.values()]
+}
+
 // What a [patch] offers: the package, from the source it offers it from, of
 // the versions its requirement takes there, as cargo refuses a patch whose
 // location has none of them; by `target`, the source it patches and the
 // package's name. Cargo refuses too a patch from the source it patches,
 // whatever the git reference; a path's place only a filesystem tells.
 function readPatches(root) {
-  return Object.entries(root.patch).flatMap(([key, specs]) => Object.entries(specs).map(([name, spec]) => {
+  return patchTables(root).flatMap((key) => Object.entries(root.patch[key]).map(([name, spec]) => {
     const where = at(at('patch', key), name)
     if (patchedAs(spec.source) === patchKey(key)) throw new LockfileError('patches its source with itself, which cargo refuses', where)
     const requirement = spec.version === undefined ? undefined : parseRequirement(spec.version, where)

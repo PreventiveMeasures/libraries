@@ -92,6 +92,12 @@ export function patchKey(key) {
   return url === null ? `registry ${key}` : canonical(url)
 }
 
+// The URL cargo first keys a [patch] table by, before it is canonical: one
+// table of two at one such URL replaces the other.
+export function patchUrl(key) {
+  return key === 'crates-io' ? CRATES_IO.href : (URL.parse(key)?.href ?? `registry ${key}`)
+}
+
 export function patchedAs(source) {
   if (source.type === 'path') return undefined
   if (source.type === 'git') return canonical(new URL(source.url))
