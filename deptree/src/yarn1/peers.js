@@ -28,10 +28,7 @@ export function satisfiesWithPrereleases(version, range, loose = false) {
 // by reference, as fetched or as the workspace has it.
 export function resolvePeers(resolved, manifests) {
   const { patterns, byName } = resolved
-  const seen = new Set()
-  for (const ref of patterns.values()) {
-    if (seen.has(ref)) continue
-    seen.add(ref)
+  for (const ref of new Set(patterns.values())) {
     const manifest = manifests.get(ref)
     const peers = manifest?.peerDependencies
     if (!peers) continue

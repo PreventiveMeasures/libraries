@@ -102,7 +102,9 @@ class Resolver {
     this.diverted = []
   }
 
+  // A pattern named for a reference.
   addPattern(pattern, ref) {
+    ref.patterns.push(pattern)
     this.patterns.set(pattern, ref)
     if (!this.byName.has(ref.name)) this.byName.set(ref.name, [])
     const list = this.byName.get(ref.name)
@@ -168,7 +170,7 @@ class Resolver {
       kind: info.kind,
       entry: info.entry,
       workspace: info.workspace,
-      patterns: [request.pattern],
+      patterns: [],
       requests: [request],
       dependencies: [],
       optional: request.optional,
@@ -187,7 +189,6 @@ class Resolver {
   divert(request, rule) {
     const target = this.patterns.get(rule.pattern)
     if (target === undefined) throw new DeptreeError(`the resolution ${quote(rule.path)} applies to it, and yarn never resolves ${quote(rule.pattern)}`, quote(request.pattern))
-    target.patterns.push(request.pattern)
     this.addPattern(request.pattern, target)
   }
 
@@ -246,7 +247,6 @@ class Resolver {
       const { name } = splitPattern(request.pattern)
       const ref = this.exactMatch(name, this.infoOf(request).version)
       ref.requests.push(request)
-      ref.patterns.push(request.pattern)
       this.addPattern(request.pattern, ref)
       if (!request.optional) ref.optional = false
     }

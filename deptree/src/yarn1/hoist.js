@@ -12,10 +12,6 @@
 // compares where its cache keeps two packages, this compares their
 // references' `loc`; where it compares two manifests, the references.
 
-// A package where the tree has it: by its key, the names from the top
-// down to it joined by `#`.
-const placed = (key, parts, ref, isDirectRequire, isRequired, isIncompatible) => ({ key, parts, ref, isDirectRequire, isRequired, isIncompatible })
-
 // yarn's sortAlpha: by UTF-16 code units, then by length.
 export function sortAlpha(a, b) {
   const length = Math.min(a.length, b.length)
@@ -106,18 +102,14 @@ export class Hoister {
       if (!isDirectRequire && !isIncompatible && parent.isRequired) isRequired = true
       parentParts = parent.parts
     }
+    // A package where the tree has it: by its key, the names from the top
+    // down to it joined by `#`.
     const parts = parentParts.concat(ref.name)
     const key = implode(parts)
-    const info = placed(key, parts, ref, isDirectRequire, isRequired, isIncompatible)
+    const info = { key, parts, ref, isDirectRequire, isRequired, isIncompatible }
     this.tree.set(key, info)
     this.taintKey(key, info)
-    const pushed = new Set()
-    for (const dependency of ref.dependencies) {
-      if (!pushed.has(dependency)) {
-        this.levelQueue.push([dependency, info])
-        pushed.add(dependency)
-      }
-    }
+    for (const dependency of new Set(ref.dependencies)) this.levelQueue.push([dependency, info])
     return info
   }
 
@@ -200,16 +192,11 @@ export class Hoister {
     this.tree.delete(oldKey)
     const { parts, duplicate } = this.newParts(oldKey, info, rawParts.slice())
     const newKey = implode(parts)
-    // yarn's declareRename: what it passed over reserved for it.
-    if (duplicate || newKey !== oldKey) this.taintParents(info, rawParts.slice(0, -1), parts.length - 1)
-    if (!duplicate) this.setKey(info, newKey, parts)
-  }
-
-  taintParents(info, processParts, start) {
-    for (let i = start; i < processParts.length; i++) this.taintKey(implode(processParts.slice(0, i).concat(info.ref.name)), info)
-  }
-
-  setKey(info, newKey, parts) {
+    // yarn's declareRename: each key it passed over reserved for it.
+    if (duplicate || newKey !== oldKey) {
+      for (let i = parts.length - 1; i < rawParts.length - 1; i++) this.taintKey(implode(rawParts.slice(0, i).concat(info.ref.name)), info)
+    }
+    if (duplicate) return
     info.key = newKey
     info.parts = parts
     this.tree.set(newKey, info)
