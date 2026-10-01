@@ -187,10 +187,15 @@ export interface Yarn1Tree {
 //
 // Scripts are always ignored, as `--ignore-scripts` has yarn ignore them,
 // whatever the settings say. No .bin is written, nor yarn's own
-// .yarn-integrity; but each file a bin yarn links runs is made executable,
-// chmod 755, as linking it does, from the copy yarn links it from. Those
-// of a workspace's bins are the workspace's own, which the tree does not
-// hold, and are left as they are. Each file's mode is the tarball's, with
+// .yarn-integrity; but each bin's target is made executable, chmod 755, in
+// every copy of its package, as yarn's fetcher makes it in its cache,
+// whether yarn links the bin or not. Linking makes no file of the tree
+// executable that the fetcher has not: a bin in its package's own
+// node_modules, where yarn installs its dependencies, is refused, as
+// linking it would make the file there executable, and so is a package
+// with bins and a .bin file, where yarn fails to make a directory for
+// them; a workspace's bins are its own files, which the tree does not
+// hold. Each file's mode is the tarball's, with
 // read for all added and a umask of 0o022 taken off, as yarn unpacks it;
 // .bin, .yarn-metadata.json and .yarn-tarball.tgz in a package are left
 // out, as yarn's copy leaves them out.

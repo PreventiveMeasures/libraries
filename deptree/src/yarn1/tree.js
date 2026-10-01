@@ -4,8 +4,9 @@
 // resolves it (resolve.js), each package's peers looked for as yarn looks
 // (peers.js), each package left out that the host cannot run and that is
 // optional (compat.js), and the tree laid out as yarn hoists it (hoist.js):
-// each package's files copied where it lands, each workspace linked where
-// it lands, and each file a bin that yarn links runs made executable.
+// each package's files copied where it lands, as yarn's fetcher leaves
+// them, each bin's target executable, and each workspace linked where it
+// lands.
 //
 // Not written: bins themselves (node_modules/.bin), yarn's own
 // .yarn-integrity, and anything a script would build.
@@ -18,7 +19,7 @@ import { DeptreeError, quote } from '../error.js'
 import { checkNoModules, mount } from '../mount.js'
 import { checkCollisions } from '../pnpm/checks.js'
 import { typeOf } from '../pnpm/project.js'
-import { markBins } from './bins.js'
+import { checkBinLinks } from './bins.js'
 import { incompatibility } from './compat.js'
 import { Hoister } from './hoist.js'
 import { checkHost, inputsOf } from './inputs.js'
@@ -203,7 +204,7 @@ export async function buildYarn1Tree(options) {
   const { packages, fetched, manifestOf } = await fetchChecked(resolved, host, inputs.settings)
   const placed = layout({ resolved, manifestOf, topPatterns, workspaces })
   const { vfs, links, locations, files, bytes } = writeTree(placed, fetched)
-  markBins(vfs, { placed, patterns: resolved.patterns, fetched, manifestOf, locations, realOf: (path) => realOf(links, path) })
+  checkBinLinks({ placed, patterns: resolved.patterns, fetched, manifestOf, locations, realOf: (path) => realOf(links, path) })
   if (folded) checkCollisions(vfs)
   const stats = {
     packages,

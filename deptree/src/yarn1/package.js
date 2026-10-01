@@ -76,7 +76,8 @@ export function registryTarball(entry, name, where) {
   return { name, version: entry.version, integrity: sha512, sha1: resolution.sha1 }
 }
 
-// The package's entries, and its package.json as parsed.
+// The package's entries, as yarn's fetcher leaves them, and its
+// package.json as parsed.
 export async function fetchYarnPackage({ name, version, integrity, sha1 }, where) {
   const { bytes, entries } = await fetchTarball(name, version, integrity, where)
   if (sha1 !== undefined && await sha1Hex(bytes) !== sha1) throw new DeptreeError(`the tarball's sha1 is not ${sha1}`, where)
@@ -91,6 +92,17 @@ export async function fetchYarnPackage({ name, version, integrity, sha1 }, where
   }
   const manifest = readManifest(text, `${where}: package.json`)
   if (manifest.name !== name || manifest.version !== version) throw new DeptreeError(`package.json is for ${quote(`${manifest.name}@${manifest.version}`)}`, where)
+  // As yarn's fetcher leaves the package in its cache, from which it copies
+  // it wherever it goes (base-fetcher.js): each bin's target made
+  // executable, chmod 755, a trailing `/` of it dropped; and a .bin made
+  // for links to them, which it fails to make over a file.
+  const bins = binsOf(manifest, { files, dirs })
+  if (bins.size > 0 && files.has('.bin')) throw new DeptreeError('.bin is a file, where yarn fails to make a directory for the bins', where)
+  for (const target of bins.values()) {
+    if (target.split('/')[0] === 'node_modules') throw new DeptreeError(`its bin ${quote(target)} is in its own node_modules, where yarn installs its dependencies, which is not supported`, where)
+    const script = files.get(target.replace(/\/$/u, ''))
+    if (script !== undefined) script.mode = 0o755
+  }
   return { files, dirs, manifest }
 }
 

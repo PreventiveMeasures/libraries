@@ -43,6 +43,10 @@ const TARBALLS = await Promise.all([
   tarball('x', '1.0.0', {}, { manifest: { dependencies: { mac: 'latest' } } }),
   dotted(await tarball('fix', '1.0.0', { '_/lib/x.js': 'x', 'test/node_modules/fixture.js': 'f' }), 'package/_/lib/x.js'),
   tarball('mac', '1.0.0', {}, { manifest: { os: ['darwin'] } }),
+  tarball('loop1', '2.0.0', { 'run.js': { data: 'r', mode: 0o600 }, 'more.js': { data: 'm', mode: 0o600 } }, { manifest: { bin: { loop1: 'run.js', more: 'more.js/' }, dependencies: { loop2: '1.1.0' } } }),
+  tarball('loop2', '1.1.0', {}, { manifest: { dependencies: { loop1: '^2.0.0' } } }),
+  tarball('dotbin', '1.0.0', { '.bin': 'x', 'cli.js': 'c' }, { manifest: { bin: 'cli.js' } }),
+  tarball('inner', '1.0.0', {}, { manifest: { bin: 'node_modules/b/index.js', dependencies: { b: '^1.0.0' } } }),
   tarball('p', '1.0.0', {}, { manifest: { peerDependencies: { b: '^2.0.0' } } }),
 ])
 const T = Object.fromEntries(TARBALLS.map((t) => [`${t.name}@${t.version}`, t]))
@@ -183,6 +187,22 @@ describe('buildYarn1Tree', () => {
     assert.equal(stats.packages, 2)
   })
 
+  // loop1@latest makes a second reference of loop1 2.0.0, placed where
+  // the first would go, which has no bins, so yarn links none of loop1's;
+  // its fetcher has made their targets executable all the same, a `/`
+  // after one dropped.
+  it('makes each bin\'s target executable as yarn\'s fetcher does, where yarn links none', async () => {
+    stubRegistry(TARBALLS)
+    const root = { name: 'root', version: '1.0.0', dependencies: { loop2: '^1.0.0' }, devDependencies: { loop1: 'latest' } }
+    const lock = lockfile(
+      entry('loop1@^2.0.0, loop1@latest', 'loop1@2.0.0', '  dependencies:\n    loop2 "1.1.0"\n'),
+      entry('loop2@1.1.0, loop2@^1.0.0', 'loop2@1.1.0', '  dependencies:\n    loop1 "^2.0.0"\n'),
+    )
+    const { vfs } = await buildYarn1Tree({ project: projectOf({ 'yarn.lock': lock, 'package.json': root }), host: HOST })
+    assert.equal(mode(vfs, '/node_modules/loop1/run.js'), 0o755)
+    assert.equal(mode(vfs, '/node_modules/loop1/more.js'), 0o755)
+  })
+
   it('passes over settings that only move where yarn fetches from', async () => {
     stubRegistry(TARBALLS)
     const files = {
@@ -253,6 +273,13 @@ describe('buildYarn1Tree refuses', () => {
     stubRegistry(TARBALLS)
     const lock = LOCKFILE.replace(sha1(T['d@1.0.0'].bytes), sha1(T['p@1.0.0'].bytes))
     await refuses({ project: project({ 'yarn.lock': lock }) }, /^DeptreeError: "d@latest": the tarball's sha1 is not [\da-f]{40}$/u)
+  })
+
+  it('a package with bins and a .bin file, or a bin in its own node_modules', async () => {
+    stubRegistry(TARBALLS)
+    const at = (name, lock) => ({ project: projectOf({ 'yarn.lock': lockfile(...lock), 'package.json': { name: 'root', version: '1.0.0', dependencies: { [name]: '1.0.0' } } }) })
+    await refuses(at('dotbin', [entry('dotbin@1.0.0', 'dotbin@1.0.0')]), /^DeptreeError: "dotbin@1\.0\.0": \.bin is a file, where yarn fails to make a directory for the bins$/u)
+    await refuses(at('inner', [entry('inner@1.0.0', 'inner@1.0.0', '  dependencies:\n    b "^1.0.0"\n'), entry('b@^1.0.0', 'b@1.0.0')]), /^DeptreeError: "inner@1\.0\.0": its bin "node_modules\/b\/index\.js" is in its own node_modules, where yarn installs its dependencies, which is not supported$/u)
   })
 
   it('a package the host cannot run, where it is not optional', async () => {
