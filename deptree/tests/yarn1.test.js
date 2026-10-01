@@ -317,6 +317,10 @@ describe('buildYarn1Tree refuses', () => {
     await refuses({ project: project({ '.npmrc': 'ignore-optional=true\n' }) }, /^DeptreeError: \.npmrc:1: "ignore-optional" is a setting not supported here/u)
     await refuses({ project: project({ '.yarnrc': 'yarn-path ".yarn/releases/yarn-1.22.19.js"\n' }) }, /^DeptreeError: \.yarnrc:1: "yarn-path" is a setting not supported here/u)
     await refuses({ project: project({ '.yarnrc': '--add.modules-folder lib\n' }) }, /^DeptreeError: \.yarnrc:1: "--add\.modules-folder" is a setting not supported here/u)
+    for (const key of ['--no-lockfile', '--install.no-lockfile', '--global-folder']) {
+      await refuses({ project: project({ '.yarnrc': `${key} true\n` }) }, new RegExp(`^DeptreeError: \\.yarnrc:1: "${key.replace('.', '\\.')}" is a setting not supported here`, 'u'))
+    }
+    await refuses({ project: project({ '.yarnrc': 'global-folder "."\n' }) }, /^DeptreeError: \.yarnrc:1: "global-folder" is a setting not supported here/u)
   })
 
   it('a yarn this does not build for, or another than the project pins', async () => {

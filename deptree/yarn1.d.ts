@@ -92,15 +92,17 @@ export interface Yarn1Project {
 // ignore-platform, by its flag alone, as yarn does not act on the option.
 // Options yarn reads that change what it installs are refused —
 // ignore-optional, production, bin-links, workspaces-experimental and the
-// like — and so is yarn-path, which has another yarn run; any other option
+// like — and so is yarn-path, which has another yarn run, and
+// global-folder, which, where it is the project's own directory, has yarn
+// read its package.json files otherwise; any other option
 // is passed over, as yarn reads it only for where it fetches from, how,
 // and what it keeps, which the tree is held to the lockfile's integrities
 // against whatever serves it, or for no install at all, as with most of
 // npm's own. A flag is passed over where it does not change the tree —
 // --registry, --frozen-lockfile, --network-timeout and the like — and
 // refused where it may or is not known here: --production, --flat,
-// --modules-folder, --ignore-optional, --no-bin-links, --cwd and the
-// rest. A .yarnrc line indented under another, which yarn reads into it,
+// --modules-folder, --ignore-optional, --no-bin-links, --no-lockfile,
+// which has yarn read no yarn.lock, --global-folder, --cwd and the rest. A .yarnrc line indented under another, which yarn reads into it,
 // is refused too, and so is a value of those two followed that is not true
 // or false, or for the .yarnrc's option a quoted string.
 //

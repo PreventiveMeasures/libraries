@@ -12,7 +12,8 @@
 // the .npmrc (config.getOption): those that change the tree are refused
 // rather than followed — ignore-optional, production, bin-links, the
 // workspaces' switches and the like — and so is yarn-path, which has
-// another yarn run; one yarn reads only for where it fetches from, how,
+// another yarn run, and global-folder, which, where it is the project's
+// own directory, has yarn read its package.json files otherwise; one yarn reads only for where it fetches from, how,
 // and what it keeps, or reads for no install at all, as most of npm's,
 // is passed over, as the tree is held to the lockfile's integrities
 // whatever serves it. A `--` line of .yarnrc is a flag yarn adds to its
@@ -28,15 +29,19 @@ import { parseNpmrc } from '../pnpm/npmrc.js'
 const PASSED = new Set([
   'verbose', 'silent', 'json', 'har', 'emoji', 'no-emoji', 'progress', 'no-progress', 'non-interactive', 'no-node-version-check',
   'offline', 'prefer-offline', 'registry', 'proxy', 'https-proxy', 'network-concurrency', 'network-timeout', 'otp', 'mutex',
-  'cache-folder', 'preferred-cache-folder', 'global-folder', 'ignore-scripts', 'scripts-prepend-node-path', 'force',
-  'skip-integrity-check', 'check-files', 'no-lockfile', 'pure-lockfile', 'frozen-lockfile', 'audit', 'disable-pnp',
+  'cache-folder', 'preferred-cache-folder', 'ignore-scripts', 'scripts-prepend-node-path', 'force', 'skip-integrity-check',
+  'check-files', 'pure-lockfile', 'frozen-lockfile', 'audit', 'disable-pnp',
 ])
 
 // Options yarn reads that change the tree, by name: of all yarn 1.22
-// reads by config.getOption, and yarn-path, which it reads first.
+// reads by config.getOption, and yarn-path, which it reads first. Where
+// global-folder is the project's directory, as a relative one in its
+// .yarnrc may be, yarn reads no package.json with validate(), which drops
+// a name listed twice from all but one of its lists.
 const REFUSED = new Set([
   'ignore-optional', 'production', 'bin-links', 'workspaces-experimental', 'workspaces-nohoist-experimental', 'plugnplay-override',
-  'yarn-link-file-dependencies', 'enable-meta-folder', 'experimental-pack-script-packages-in-mirror', 'yarn-path', 'yarnPath',
+  'yarn-link-file-dependencies', 'enable-meta-folder', 'experimental-pack-script-packages-in-mirror', 'global-folder', 'yarn-path',
+  'yarnPath',
 ])
 
 // Settings followed, by name.
