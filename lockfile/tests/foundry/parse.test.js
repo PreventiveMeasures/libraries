@@ -213,12 +213,22 @@ describe('foundry.lock, against .gitmodules', () => {
     refuses(BASE, 'gitmodules["lib/b"].url: "../b.git" is relative to the superproject\'s remote, which only a clone of it knows', { gitmodules: GITMODULES.replace('git@github.com:o/b.git', '../b.git') })
   })
 
+  it('takes a url as written, and a submodule without one, with checkUrls false', () => {
+    const gitmodules = GITMODULES.replace('git@github.com:o/b.git', '../b.git').replace('\turl = https://example.com/c.git\n', '')
+    const { dependencies } = parse(BASE, { gitmodules, checkUrls: false })
+    assert.deepEqual(Object.values(dependencies).map((dependency) => dependency.url), ['https://github.com/o/a', '../b.git', undefined])
+    refuses(BASE, 'gitmodules["lib/b"].url: "../b.git" is relative to the superproject\'s remote, which only a clone of it knows', { gitmodules })
+    refuses(BASE, 'gitmodules["lib/b"].url: "../b.git" is relative to the superproject\'s remote, which only a clone of it knows', { gitmodules, checkUrls: true })
+  })
+
   it('refuses options it does not take', () => {
     const type = (options, message) => assert.throws(() => parse(BASE, options), (error) => error instanceof TypeError && error.message === message)
     type(null, 'expected an options object')
-    type({ manifests: {} }, 'unknown option "manifests", of gitmodules, directory')
+    type({ manifests: {} }, 'unknown option "manifests", of gitmodules, directory, checkUrls')
     type({ gitmodules: {} }, 'gitmodules: expected the text of .gitmodules')
     type({ directory: 'p' }, 'directory needs gitmodules, whose paths it is for')
+    type({ checkUrls: false }, 'checkUrls needs gitmodules, whose urls it is for')
+    type({ gitmodules: GITMODULES, checkUrls: 'no' }, 'checkUrls: expected a boolean')
     for (const directory of ['', '/p', 'p/', '../p', 'p/../q', './p', 1]) {
       type({ gitmodules: GITMODULES, directory }, 'directory: expected a path in the repository, from its root, as "." or "packages/contracts"')
     }
