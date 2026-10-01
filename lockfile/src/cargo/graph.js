@@ -24,23 +24,64 @@ function resolverOf(root) {
   return root.workspace?.resolver ?? root.package?.resolver ?? byEdition
 }
 
-// What a [patch] offers, by the source it patches and the package's name:
-// the source it offers instead, and the versions its requirement takes
-// there, as cargo refuses a patch whose location has none of them. Cargo
-// refuses too a patch from the source it patches, whatever the git
-// reference; a path's place only a filesystem tells.
-function patchesOf(root) {
-  const patches = new Map()
-  for (const [key, specs] of Object.entries(root.patch)) {
-    for (const [name, spec] of Object.entries(specs)) {
-      const where = at(at('patch', key), name)
-      if (patchedAs(spec.source) === patchKey(key)) throw new LockfileError('patches its source with itself, which cargo refuses', where)
-      const target = `${patchKey(key)} ${spec.package}`
-      const requirement = spec.version === undefined ? undefined : parseRequirement(spec.version, where)
-      patches.set(target, [...(patches.get(target) ?? []), { identity: sourceIdentity(spec.source, PATH), requirement }])
+const within = (requirement, version) => requirement === undefined || matches(requirement, parseVersion(version))
+
+// Whether a package of `identity`, written in the lockfile as `source`, is
+// from `wanted`: that very source, or any registry where a registry is
+// known by its name alone.
+const from = (wanted, identity, source) => identity === wanted || (wanted === ANY_REGISTRY && source !== undefined && !source.startsWith('git+'))
+
+// What a [patch] offers: the package, from the source it offers it from, of
+// the versions its requirement takes there, as cargo refuses a patch whose
+// location has none of them; by `target`, the source it patches and the
+// package's name. Cargo refuses too a patch from the source it patches,
+// whatever the git reference; a path's place only a filesystem tells.
+function readPatches(root) {
+  return Object.entries(root.patch).flatMap(([key, specs]) => Object.entries(specs).map(([name, spec]) => {
+    const where = at(at('patch', key), name)
+    if (patchedAs(spec.source) === patchKey(key)) throw new LockfileError('patches its source with itself, which cargo refuses', where)
+    const requirement = spec.version === undefined ? undefined : parseRequirement(spec.version, where)
+    return { target: `${patchKey(key)} ${spec.package}`, package: spec.package, identity: sourceIdentity(spec.source, PATH), requirement, where }
+  }))
+}
+
+// Cargo resolves every patch, used or not, and keeps in the lockfile the
+// package of each: among the packages where it is used, under
+// [[patch.unused]] where not. So each patch has to be one of those, and
+// each unused one a patch's.
+function checkPatches(lock, identities, patches) {
+  const offers = (patch, name, version, identity, source) => name === patch.package && from(patch.identity, identity, source) && within(patch.requirement, version)
+  const unused = lock.unusedPatches.map((item) => ({ ...item, identity: item.source === undefined ? PATH : parseLockSource(item.source, 'patch.unused', false).identity }))
+  for (const patch of patches) {
+    const used = Object.entries(lock.packages).some(([key, pkg]) => offers(patch, pkg.name, pkg.version, identities[key], pkg.source))
+    if (!used && !unused.some((item) => offers(patch, item.name, item.version, item.identity, item.source))) {
+      throw new LockfileError('the lockfile has no package this patch offers, used or unused: is it out of date?', patch.where)
     }
   }
-  return patches
+  const stray = unused.find((item) => !patches.some((patch) => offers(patch, item.name, item.version, item.identity, item.source)))
+  if (stray !== undefined) throw new LockfileError(`no [patch] offers ${quote(`${stray.name} ${stray.version}`)}: is the lockfile out of date?`, 'patch.unused')
+}
+
+// Each member a path package of the lockfile, and no two of one name, as a
+// workspace holds no two packages of one name.
+function checkMembers(lock, members) {
+  const named = new Map()
+  for (const key of members) {
+    if (!(key in lock.packages) || lock.packages[key].source !== undefined) throw new LockfileError(`${quote(key)} is not a path package in the lockfile`, 'members')
+    const { name } = lock.packages[key]
+    if (named.has(name) && named.get(name) !== key) throw new LockfileError(`${quote(named.get(name))} and ${quote(key)} are two members of one name, which cargo refuses`, 'members')
+    named.set(name, key)
+  }
+}
+
+// No two packages linking one native library, as cargo's resolver refuses.
+function checkLinks(packages) {
+  const linked = new Map()
+  for (const [key, { manifest }] of Object.entries(packages)) {
+    if (manifest.links === undefined) continue
+    if (linked.has(manifest.links)) throw new LockfileError(`links the native library ${quote(manifest.links)}, as ${quote(linked.get(manifest.links))} does, which cargo refuses`, key)
+    linked.set(manifest.links, key)
+  }
 }
 
 // `workspace` is the root's manifest; `members` the keys of the packages in
@@ -50,14 +91,13 @@ export function linkCargo(lock, manifests, options) {
   const { workspace: root, members } = options ?? {}
   if (root?.patch === undefined || (root.workspace === undefined && root.package === undefined)) throw new TypeError('expected the manifest of the workspace root')
   if (!Array.isArray(members)) throw new TypeError('expected the members of the workspace')
-  for (const key of members) {
-    if (!(key in lock.packages) || lock.packages[key].source !== undefined) throw new LockfileError(`${quote(key)} is not a path package in the lockfile`, 'members')
-  }
+  checkMembers(lock, members)
   const rootKey = root.package === undefined ? undefined : `${root.package.name} ${root.package.version}`
   if (rootKey !== undefined && !members.includes(rootKey)) throw new LockfileError(`the root package ${quote(rootKey)} is not among the members`, 'members')
   const identities = Object.create(null)
   for (const [key, pkg] of Object.entries(lock.packages)) identities[key] = pkg.source === undefined ? PATH : parseLockSource(pkg.source, key, false).identity
-  const context = { lock, identities, patches: patchesOf(root) }
+  const patches = readPatches(root)
+  const context = { lock, identities, patches: Map.groupBy(patches, (patch) => patch.target) }
   const packages = Object.create(null)
   const ambiguous = new Map()
   for (const [key, pkg] of Object.entries(lock.packages)) {
@@ -88,6 +128,8 @@ export function linkCargo(lock, manifests, options) {
   }
   const lost = Object.keys(packages).find((key) => !reached.has(key))
   if (lost !== undefined) throw new LockfileError('no member depends on it, directly or not: is the lockfile out of date?', lost)
+  checkLinks(packages)
+  checkPatches(lock, identities, patches)
   for (const [key, pkg] of Object.entries(packages)) {
     const claimed = new Set(pkg.dependencies.filter((dep) => dep.active).map((dep) => dep.resolved))
     const stray = lock.packages[key].dependencies.find((dep) => !claimed.has(dep))
@@ -104,10 +146,8 @@ function candidates(dep, key, { lock, identities, patches }, where) {
   const offered = patches.get(`${patchedAs(dep.source)} ${dep.package}`) ?? []
   return lock.packages[key].dependencies.filter((edge) => {
     const { name, version, source } = lock.packages[edge]
-    const within = (req) => req === undefined || matches(req, parseVersion(version))
-    if (name !== dep.package || !within(requirement)) return false
-    const patched = offered.some((patch) => patch.identity === identities[edge] && within(patch.requirement))
-    return identities[edge] === wanted || patched || (wanted === ANY_REGISTRY && source !== undefined && !source.startsWith('git+'))
+    if (name !== dep.package || !within(requirement, version)) return false
+    return from(wanted, identities[edge], source) || offered.some((patch) => from(patch.identity, identities[edge], source) && within(patch.requirement, version))
   })
 }
 

@@ -139,6 +139,17 @@ describe('linkCargo', () => {
     it(`refuses ${title}`, () => assert.throws(() => link(input), refusedWith(message)))
   }
 
+  it('refuses two packages linking one native library', () => {
+    const links = (text) => text.replace(/^(version = "[^"]*"\n)/mu, '$1links = "z"\n')
+    assert.throws(() => link({ change: { [B1]: links(MANIFESTS[B1]), [B2]: links(MANIFESTS[B2]) } }), refusedWith(`${B2}: links the native library "z", as "${B1}" does, which cargo refuses`))
+  })
+
+  it('refuses two members of one name', () => {
+    const lock = parseCargoLock('version = 4\n[[package]]\nname = "app"\nversion = "0.1.0"\ndependencies = ["x 1.0.0", "x 2.0.0"]\n[[package]]\nname = "x"\nversion = "1.0.0"\n[[package]]\nname = "x"\nversion = "2.0.0"\n')
+    const root = parseCargoManifest('[package]\nname = "app"\nversion = "0.1.0"\n')
+    assert.throws(() => linkCargo(lock, {}, { workspace: root, members: ['app 0.1.0', 'x 1.0.0', 'x 2.0.0'] }), refusedWith('members: "x 1.0.0" and "x 2.0.0" are two members of one name, which cargo refuses'))
+  })
+
   it('refuses a manifest of another package', () => {
     assert.throws(() => link({ change: { [C]: '[package]\nname = "c"\nversion = "1.0.1"\n' } }), refusedWith(`${C}: the manifest given is of "c 1.0.1"`))
   })
@@ -193,6 +204,27 @@ describe('linkCargo with a [patch]', () => {
     for (const version of ['=1.0.1', '2']) {
       assert.throws(() => patched('"1"', 'crates-io', `{ path = "x", version = "${version}" }`), refusedWith(message))
     }
+  })
+})
+
+// A [patch] of x that nothing depends on, which the lockfile lists unused,
+// and its requirement.
+describe('linkCargo with an unused [patch]', () => {
+  const unused = (version, patch = `{ path = "x", version = "${version}" }`) => {
+    const lock = parseCargoLock(`version = 4\n[[package]]\nname = "app"\nversion = "0.1.0"\n${version === undefined ? '' : '\n[[patch.unused]]\nname = "x"\nversion = "1.0.0"\n'}`)
+    const root = parseCargoManifest(`[package]\nname = "app"\nversion = "0.1.0"\n${patch === null ? '' : `\n[patch.crates-io]\nx = ${patch}\n`}`)
+    return linkCargo(lock, { 'app 0.1.0': root }, { workspace: root, members: ['app 0.1.0'] })
+  }
+  const missing = refusedWith('patch["crates-io"].x: the lockfile has no package this patch offers, used or unused: is it out of date?')
+
+  it('takes a patch the lockfile lists unused, of a version its requirement takes', () => {
+    assert.deepEqual(Object.keys(unused('=1.0.0').packages), ['app 0.1.0'])
+    assert.throws(() => unused('=2.0.0'), missing)
+  })
+
+  it('refuses a patch the lockfile has no package of, and an unused one no patch offers', () => {
+    assert.throws(() => unused(undefined, '{ path = "x" }'), missing)
+    assert.throws(() => unused('1', null), refusedWith('patch.unused: no [patch] offers "x 1.0.0": is the lockfile out of date?'))
   })
 })
 

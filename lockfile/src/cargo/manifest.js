@@ -132,7 +132,8 @@ function readPackage(doc, workspace) {
   }
   const resolver = optional(readResolver)(value.resolver, at(where, 'resolver'))
   if (resolver !== undefined && doc.workspace?.resolver !== undefined) throw new LockfileError('`resolver` is given in [workspace] too', at(where, 'resolver'))
-  return { name: checkName(value.name, at(where, 'name')), version: version ?? '0.0.0', edition, resolver }
+  const links = optional(string)(value.links, at(where, 'links'))
+  return { name: checkName(value.name, at(where, 'name')), version: version ?? '0.0.0', edition, resolver, links }
 }
 
 // `workspace` is the root's manifest, read before, for a member that

@@ -75,6 +75,8 @@ export interface CargoPackage {
   edition: '2015' | '2018' | '2021' | '2024'
   // As [package] gives it; the workspace root's decides.
   resolver: 1 | 2 | 3 | undefined
+  // The native library it links, which no other package of one graph may.
+  links: string | undefined
   // Cargo's feature map: the [features] table, as written, and a feature
   // for each optional dependency that no `dep:` names and no feature is
   // named after, which turns it on (`name = ["dep:name"]`).
@@ -162,10 +164,12 @@ export interface CargoVendored {
 // source, [patch] aside; so does this, and refuses a declaration two
 // packages could be, one the lockfile does not resolve where cargo's
 // resolver would, an edge no declaration is, a package no member depends
-// on, directly or not: a lockfile out of date with its manifests. So is
-// what cargo's resolver refuses: a feature a declaration asks of a package
-// that has no such feature, a [patch] whose location has no version its
-// requirement takes, a [patch] from the source it patches.
+// on, directly or not, a [patch] it has no package of, used or unused: a
+// lockfile out of date with its manifests. So is what cargo refuses: two
+// members of one name, two packages linking one native library, a feature
+// a declaration asks of a package that has no such feature, a [patch]
+// whose location has no version its requirement takes, a [patch] from the
+// source it patches.
 export function linkCargo(lock: CargoLockfile, manifests: Record<string, CargoManifest>, options: { workspace: CargoManifest, members: string[] }): CargoGraph
 
 export interface CargoGraph {
