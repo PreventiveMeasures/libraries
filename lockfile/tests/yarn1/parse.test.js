@@ -686,6 +686,15 @@ describe('with semver, each request resolved as yarn resolves it', () => {
     assert.equal(parseYarn1Lockfile(w, { manifests: asking('^1.0.0'), checkVersions: false }).importers['.'].dependencies.w, 'w@^1.0.0')
   })
 
+  it('a resolution of a workspace\'s name, linked where its version satisfies the range, and otherwise refused', () => {
+    assert.ok(parse(BASE, resolving({ w: '^1.0.0' })).importers.w)
+    refuses(BASE, '"w@^2.0.0" is not a pattern of the lockfile, nor satisfied by the workspace "w", 1.0.0', 'manifests["."].resolutions.w', resolving({ w: '^2.0.0' }))
+    const w = edit(['"l@link:./l":', `w@^1.0.0:\n  version "1.0.0"\n  resolved "https://registry.yarnpkg.com/w/-/w-1.0.0.tgz#${H}"\n\n"l@link:./l":`])
+    refuses(w, '"w@^1.0.0" is satisfied by the workspace "w", which yarn links instead', 'manifests["."].resolutions.w', resolving({ w: '^1.0.0' }))
+    // Without semver, a range is known to be satisfied by its very version alone.
+    assert.ok(parseYarn1Lockfile(BASE, { manifests: resolving({ w: '^2.0.0' }), checkVersions: false }).importers.w)
+  })
+
   it('a tag aside, and an alias, beside another entry of the name and version, by semver or without it', () => {
     const f = (range) => edit(['"f@https://example.com/f.tgz":', `f@${range}:\n  version "4.0.0"\n  resolved "https://registry.yarnpkg.com/f/-/f-4.0.0.tgz#${H}"\n\n"f@https://example.com/f.tgz":`])
     for (const options of [{ semver }, { checkVersions: false }]) {

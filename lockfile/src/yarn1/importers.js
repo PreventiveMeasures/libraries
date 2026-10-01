@@ -83,7 +83,7 @@ function readResolutions(value, where) {
     const name = checkName(names.at(-1), here)
     const other = names.slice(0, -1).find((segment) => segment !== '**' && !isName(segment.replaceAll(/[*?]/gu, 'x')))
     if (other !== undefined) throw new LockfileError(`${quote(other)} is not a package name, or a glob of one`, here)
-    rules.push({ path, tests, name, pattern: `${name}@${string(range, here)}`, where: here })
+    rules.push({ path, tests, name, range: string(range, here), pattern: `${name}@${range}`, where: here })
   }
   return rules
 }
@@ -166,8 +166,12 @@ export function readImporters(manifests, packages, requests, semver) {
   const importers = Object.create(null)
   for (const [dir, manifest, here] of entries(manifests, WHERE)) importers[dir] = readTargets(manifest, dir, here, { packages, workspaces, semver })
   const rules = readResolutions(root.resolutions, at(rootAt, 'resolutions'))
-  const missing = rules.find((rule) => !(rule.pattern in packages) && !workspaces.has(rule.name))
-  if (missing !== undefined) throw new LockfileError(`${quote(missing.pattern)} is not a pattern of the lockfile, where yarn records every resolution's`, missing.where)
+  // yarn resolves each resolution's pattern too: a request like any other.
+  for (const rule of rules) {
+    if (rule.pattern in packages) checkLinked(rule, workspaces, semver)
+    else if (workspaces.has(rule.name)) linkWorkspace(rule, workspaces, semver)
+    else throw new LockfileError(`${quote(rule.pattern)} is not a pattern of the lockfile, where yarn records every resolution's`, rule.where)
+  }
   checkReached(importers, packages, rules)
   return { importers, workspaces, rules }
 }
