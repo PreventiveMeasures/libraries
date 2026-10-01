@@ -530,6 +530,8 @@ describe('snapshots and the graph are held together', () => {
     refuses(edit(['      c: 2.0.0\n', '      c: 2.0.0\n    optionalDependencies:\n      c: 2.0.0\n']), 'snapshots["a@1.0.0(c@2.0.0)"].optionalDependencies.c: listed under dependencies too')
     refuses(edit(['      c: 2.0.0\n', '      ../c: 2.0.0\n']), 'snapshots["a@1.0.0(c@2.0.0)"].dependencies["../c"]: "../c" is not a package name')
     refuses(edit(['      c: 2.0.0\n', '      c: link:/c\n      x: 2.0.0\n']), 'snapshots["a@1.0.0(c@2.0.0)"].dependencies.c: "/c" is not a relative path in normal form')
+    // pnpm's link into the package's own directory, for its `file:./c`.
+    refuses(edit(['      c: 2.0.0\n', '      c: link:<root>/c\n      x: 2.0.0\n']), 'snapshots["a@1.0.0(c@2.0.0)"].dependencies.c: "link:<root>/c" leads into the package that asks for it, which is not supported')
   })
 
   it('every snapshot is reached from an importer', () => {

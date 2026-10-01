@@ -91,8 +91,12 @@ function readPeersMeta(value, where) {
 // What a dependency's reference leads to: the key of a snapshot, or
 // `link:` and a directory linked in place, which the lockfile does not
 // hold. A link is written relative to `base`, and handed back relative to
-// the lockfile's directory.
+// the lockfile's directory. pnpm writes one into a package's own
+// directory, which a `file:` dependency of the package asks for, as
+// `link:<root>/` and the path in it; that is refused, as no directory from
+// the lockfile's names it.
 export function target(ref, alias, base, snapshots, where) {
+  if (ref === 'link:<root>' || ref.startsWith('link:<root>/')) throw new LockfileError(`${quote(ref)} leads into the package that asks for it, which is not supported`, where)
   if (ref.startsWith('link:')) return `link:${joinRelative(base, checkRelative(ref.slice(5), where))}`
   const key = refToKey(ref, alias)
   if (!(key in snapshots)) throw new LockfileError(`${quote(ref)} leads to ${quote(key)}, which is not in snapshots`, where)
