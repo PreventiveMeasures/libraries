@@ -48,12 +48,14 @@ function hoistingOf(lockfile, all) {
 // `nodes` by snapshot key, and `direct`, by project, the children each
 // project links: devDependencies first, as pnpm spreads them, which is
 // the order hoisting walks them in; and, for pnpm 12, `hoisting`, the
-// graph it hoists from. No two snapshots, skipped or not, may have one
-// directory.
+// graph it hoists from. No two snapshots pnpm places may have one
+// directory: those it installs, and with pnpm 12, which hoists from them
+// too, those it skips.
 export async function buildGraph(lockfile, skipped, maxLength, major = 10) {
   const all = new Map()
   const keyByDir = new Map()
   for (const [key, pkg] of Object.entries(lockfile.packages)) {
+    if (major < 12 && skipped.has(key)) continue
     const store = `${VIRTUAL_STORE}/${await depPathToFilename(key, maxLength, major)}`
     const dir = `${store}/node_modules/${pkg.name}`
     if (keyByDir.has(dir)) throw new DeptreeError(`${quote(keyByDir.get(dir))} and ${quote(key)} would be installed in one directory`, quote(dir))

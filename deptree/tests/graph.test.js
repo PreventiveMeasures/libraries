@@ -127,6 +127,19 @@ describe('skippedSnapshots for pnpm 12', () => {
   })
 })
 
+// `file:a:b` and `file:a?b` are one directory under node_modules/.pnpm,
+// both `:` and `?` made `+`; pnpm 10 and 11 place no snapshot they skip,
+// and pnpm 12 hoists from those too.
+describe('buildGraph', () => {
+  it('holds to one directory each only the snapshots pnpm places', async () => {
+    const lock = { packages: { 'a@file:a:b': { name: 'a' }, 'a@file:a?b': { name: 'a' } }, importers: { '.': {} } }
+    const skipped = new Set(['a@file:a?b'])
+    for (const major of [10, 11]) assert.deepEqual([...(await buildGraph(lock, skipped, 120, major)).nodes.keys()], ['a@file:a:b'], `pnpm ${major}`)
+    await assert.rejects(buildGraph(lock, skipped, 120, 12), /^DeptreeError: "node_modules\/\.pnpm\/a@file\+a\+b\/node_modules\/a": "a@file:a:b" and "a@file:a\?b" would be installed in one directory$/u)
+    await assert.rejects(buildGraph(lock, new Set(), 120, 10), /would be installed in one directory/u)
+  })
+})
+
 describe('hoist', () => {
   const hoisted = async (lock) => {
     const { nodes, direct } = await buildGraph(lock, new Set(), 120)
