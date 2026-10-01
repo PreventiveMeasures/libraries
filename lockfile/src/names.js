@@ -70,7 +70,27 @@ export function joinRelative(base, path) {
   return segments.length === 0 ? '.' : segments.join('/')
 }
 
+// `path`, relative to what `base` is relative to, as a path from `base`;
+// neither leaves the directory they are relative to.
+export function relativeTo(base, path) {
+  const from = base === '.' ? [] : base.split('/')
+  const to = path === '.' ? [] : path.split('/')
+  let common = 0
+  while (common < from.length && common < to.length && from[common] === to[common]) common++
+  return [...from.slice(common).map(() => '..'), ...to.slice(common)].join('/') || '.'
+}
+
 export const isCommit = (hash) => /^(?:[\da-f]{40}|[\da-f]{64})$/u.test(hash)
+
+// A branch or tag name, as git check-ref-format takes one under refs/heads/
+// or refs/tags/: a rule for each alternative. A leading `-` git branch
+// refuses, and git checkout reads as an option.
+const BAD_REF = /^$|^@$|^-|[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control} ~^:?*[\\]|\.\.|@\{|^\/|\/$|\/\/|(?:^|\/)\.|\.lock(?:\/|$)|\.$/u
+
+export function checkRefName(value, where) {
+  if (BAD_REF.test(text(value, where))) throw new LockfileError(`${quote(value)} is not a branch or tag name git takes`, where)
+  return value
+}
 
 export function checkRepo(value, where) {
   const repo = text(value, where)

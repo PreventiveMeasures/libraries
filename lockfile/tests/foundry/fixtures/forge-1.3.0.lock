@@ -1,0 +1,23 @@
+{
+  "lib/pinned": {
+    "rev": "c93f7716c9909175d45f6ef80a34a650e2d24e56"
+  },
+  "lib/forge-std": {
+    "tag": {
+      "name": "v1.9.7",
+      "rev": "77041d2ce690e692d6e03cc812b57d1ddaa4d505"
+    }
+  },
+  "lib/v6": {
+    "tag": {
+      "name": "v6",
+      "rev": "a9e3ea26a2dc73bfa87f0cb189687d029028e0c5"
+    }
+  },
+  "lib/solmate": {
+    "branch": {
+      "name": "main",
+      "rev": "89365b880c4f3c786bdd453d4b8e8fe410344a69"
+    }
+  }
+}

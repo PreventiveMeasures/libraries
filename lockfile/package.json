@@ -1,9 +1,13 @@
 {
   "name": "@preventive/lockfile",
   "version": "1.0.0-alpha.2",
-  "description": "Strict lockfile readers: pnpm-lock.yaml v9, yarn.lock v1, soldeer.lock and Cargo.lock v3 and v4, checked field by field, their packages and graphs resolved, with Cargo.toml, vendored copies and cargo's features, and the YAML, TOML and Rust semver parsers beside them",
+  "description": "Strict lockfile readers: pnpm-lock.yaml v9, yarn.lock v1, soldeer.lock, foundry.lock and Cargo.lock v3 and v4, checked field by field, their packages and graphs resolved, with Cargo.toml, vendored copies and cargo's features, and the YAML, TOML and Rust semver parsers beside them",
   "type": "module",
   "exports": {
+    "./foundry.js": {
+      "types": "./foundry.d.ts",
+      "default": "./foundry.js"
+    },
     "./pnpm.js": {
       "types": "./pnpm.d.ts",
       "default": "./pnpm.js"
@@ -36,6 +40,8 @@
   "files": [
     "cargo.d.ts",
     "cargo.js",
+    "foundry.d.ts",
+    "foundry.js",
     "pnpm.d.ts",
     "pnpm.js",
     "rust-semver.d.ts",
@@ -56,6 +62,10 @@
     "src/crate/sanitize-filename.js",
     "src/crate/semver.js",
     "src/error.js",
+    "src/foundry/config.js",
+    "src/foundry/gitmodules.js",
+    "src/foundry/json.js",
+    "src/foundry/parse.js",
     "src/graph.js",
     "src/names.js",
     "src/pnpm/importers.js",
@@ -91,7 +101,7 @@
     "node": ">=24.14.0"
   },
   "scripts": {
-    "test": "node --test ./tests/*.test.js ./tests/cargo/*.test.js ./tests/soldeer/*.test.js ./tests/toml/*.test.js ./tests/yaml/*.test.js ./tests/yarn1/*.test.js"
+    "test": "node --test ./tests/*.test.js ./tests/cargo/*.test.js ./tests/foundry/*.test.js ./tests/soldeer/*.test.js ./tests/toml/*.test.js ./tests/yaml/*.test.js ./tests/yarn1/*.test.js"
   },
   "license": "MIT",
   "author": {
