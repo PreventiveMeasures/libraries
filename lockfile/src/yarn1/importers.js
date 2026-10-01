@@ -54,12 +54,11 @@ function resolveRequest(request, { packages, workspaces, semver }) {
   return request.pattern
 }
 
-// yarn drops `//`, a comment, from a dependency list; and a name listed in
-// more than one it keeps in the first of optionalDependencies, dependencies
-// and devDependencies, at the first of its ranges in that order that is
-// neither '' nor '*', or else at that list's (cleanDependencies).
+// yarn's cleanDependencies keeps a name listed twice in the first list of
+// these, at its first range in them that is neither '' nor '*'.
 const CLEANED = ['optionalDependencies', 'dependencies', 'devDependencies']
 
+// yarn drops `//`, a comment, from a dependency list.
 function readTargets(manifest, dir, where, context) {
   const listed = new Map()
   const ranges = new Map()
@@ -80,13 +79,11 @@ function readTargets(manifest, dir, where, context) {
 }
 
 // yarn's parsePatternInfo, which ignores a path ending in `/` or `*` or with
-// `//`, and a range that is neither a semver range nor a source, a tag or
-// an `npm:` alias among them, and resolves the pattern of every other. A
-// `//` is a comment, which yarn drops before. Without semver, a range is
-// told from a tag by its form alone.
+// `//`, and a range neither semver nor a source, as a tag or `npm:` alias.
 function readResolutions(value, where, semver) {
   const rules = []
   for (const [path, range, here] of entries(value ?? EMPTY, where)) {
+    // A comment, which yarn drops first.
     if (path === '//') continue
     if (/\/$|\/{2,}|\*+$/u.test(path)) throw new LockfileError(`${quote(path)} is a path yarn ignores`, here)
     const names = path.match(/(?:@[^/]+\/)?[^/]+/gu) ?? [path]
