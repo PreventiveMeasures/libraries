@@ -74,3 +74,11 @@ export function count(value, where) {
   if (!Number.isSafeInteger(value) || value < 0) throw refuse('a non-negative integer', value, where)
   return value
 }
+
+// The options object a reader takes, of the `names` alone.
+export function checkOptions(options, names) {
+  if (typeof options !== 'object' || options === null || Array.isArray(options)) throw new TypeError('expected an options object')
+  const unknown = Object.keys(options).find((key) => !names.includes(key))
+  if (unknown !== undefined) throw new TypeError(`unknown option ${quote(unknown)}, of ${names.join(', ')}`)
+  return options
+}

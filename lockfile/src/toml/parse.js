@@ -7,7 +7,7 @@
 // crate Cargo reads with does not.
 
 import { TomlError, assert, excerpt } from './error.js'
-import { endLine, isTable, readLine, setKey } from './value.js'
+import { endLine, isTable, putDotted, readLine } from './value.js'
 
 function kind(state, value) {
   if (state.arrays.has(value)) return 'an array of tables'
@@ -50,15 +50,8 @@ function throughRefused(state, key, next) {
   return `${excerpt(key)} is a table declared elsewhere, which a dotted key cannot add to`
 }
 
-function putDotted(state, src, keys, value) {
-  let table = state.current
-  for (const key of keys.slice(0, -1)) {
-    if (!(key in table)) state.pending.add(table[key] = Object.create(null))
-    const next = table[key]
-    assert(state.pending.has(next), src, () => throughRefused(state, key, next))
-    table = next
-  }
-  setKey(src, table, keys.at(-1), value)
+function putPending(state, src, keys, value) {
+  putDotted(src, state.current, state.pending, keys, value, (key, next) => throughRefused(state, key, next))
   if (isTable(value)) state.fixed.add(value)
 }
 
@@ -82,7 +75,7 @@ export function parseToml(text) {
   while (src.pos < text.length) {
     const line = readLine(src)
     if (line?.header === true) putHeader(state, src, line.keys, line.array)
-    else if (line !== undefined) putDotted(state, src, line.keys, line.value)
+    else if (line !== undefined) putPending(state, src, line.keys, line.value)
     endLine(src)
   }
   return root

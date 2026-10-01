@@ -99,3 +99,5 @@ export function checkIntegrity(value, where) {
   }
   return value
 }
+
+export const isHttpUrl = (value) => /^https?:\/\//u.test(value) && URL.canParse(value)

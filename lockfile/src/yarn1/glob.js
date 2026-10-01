@@ -3,7 +3,27 @@
 
 import { LockfileError, quote } from '../error.js'
 
-const WILD = { '*': '[^/]*', '?': '[^/]' }
+// Whether the code points of `name` match those of `pattern`, `*` any run
+// and `?` any one: the last `*` taken one further at a time, in O(n·m).
+function wildcard(pattern, name) {
+  let [i, j, star, mark] = [0, 0, -1, 0]
+  while (j < name.length) {
+    if (pattern[i] === '*') {
+      star = i++
+      mark = j
+    } else if (pattern[i] === '?' || pattern[i] === name[j]) {
+      i++
+      j++
+    } else if (star === -1) {
+      return false
+    } else {
+      i = star + 1
+      j = ++mark
+    }
+  }
+  while (pattern[i] === '*') i++
+  return i === pattern.length
+}
 
 export function compile(glob, where) {
   const segments = glob.split('/')
@@ -12,8 +32,9 @@ export function compile(glob, where) {
   }
   return segments.map((segment) => {
     if (segment === '**') return null
-    const dot = segment.startsWith('.') || !/[*?]/u.test(segment) ? '' : '(?!\\.)'
-    return new RegExp(`^${dot}${segment.replaceAll(/[$.*?^|]/gu, (char) => WILD[char] ?? `\\${char}`)}$`, 'u')
+    const dot = !segment.startsWith('.') && /[*?]/u.test(segment)
+    const pattern = [...segment]
+    return (name) => !(dot && name.startsWith('.')) && wildcard(pattern, [...name])
   })
 }
 
@@ -29,7 +50,7 @@ export function step(tests, mask, segment) {
   for (let i = 0; i < tests.length; i++) {
     if ((mask & (1 << i)) === 0) continue
     if (tests[i] === null) next |= segment.startsWith('.') ? 0 : 1 << i
-    else if (tests[i].test(segment)) next |= 1 << (i + 1)
+    else if (tests[i](segment)) next |= 1 << (i + 1)
   }
   return close(tests, next)
 }

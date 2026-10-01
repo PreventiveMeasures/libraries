@@ -1,0 +1,6 @@
+[soldeer]
+remappings_generate = false
+
+[dependencies]
+forge-std = "1.9.4"
+solady = "0.0.238"

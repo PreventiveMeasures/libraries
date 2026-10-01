@@ -170,7 +170,7 @@ function readToken(src) {
 }
 
 // Tables have no prototype and no value is undefined: this is `key in table`.
-export function setKey(src, table, key, value) {
+function setKey(src, table, key, value) {
   assert(table[key] === undefined, src, () => `duplicate key ${excerpt(key)}`)
   table[key] = value
 }
@@ -199,20 +199,22 @@ function readArray(src, depth) {
 
 export const isTable = (value) => typeof value === 'object' && value !== null && Object.getPrototypeOf(value) === null
 
-// A dotted key in an inline table only goes through tables that inline
-// table's own dotted keys made, which are `open`.
-const inlineKind = (value) => (Array.isArray(value) ? 'an array' : isTable(value) ? 'an inline table' : 'a value')
-
-function putInline(src, table, open, keys, value) {
+// A dotted key goes only through tables dotted keys made, which are `made`;
+// `refused` says why another is not one.
+export function putDotted(src, table, made, keys, value, refused) {
   let at = table
   for (const key of keys.slice(0, -1)) {
-    if (!(key in at)) open.add(at[key] = Object.create(null))
+    if (!(key in at)) made.add(at[key] = Object.create(null))
     const next = at[key]
-    assert(open.has(next), src, () => `${excerpt(key)} is ${inlineKind(next)}, which a dotted key cannot add to`)
+    assert(made.has(next), src, () => refused(key, next))
     at = next
   }
   setKey(src, at, keys.at(-1), value)
 }
+
+// An inline table's dotted keys go only through tables they made, `open`.
+const inlineKind = (value) => (Array.isArray(value) ? 'an array' : isTable(value) ? 'an inline table' : 'a value')
+const inlineRefused = (key, next) => `${excerpt(key)} is ${inlineKind(next)}, which a dotted key cannot add to`
 
 // An inline table across lines, with comments or a trailing comma, is 1.1.
 function sameLine(src) {
@@ -233,7 +235,7 @@ function readInline(src, depth) {
     sameLine(src)
     assert(src.text[src.pos] !== '}', src, 'a trailing comma in an inline table is not supported')
     const { keys, value } = readKeyValue(src, depth + 1)
-    putInline(src, table, open, keys, value)
+    putDotted(src, table, open, keys, value, inlineRefused)
     sameLine(src)
     const char = src.text[src.pos]
     assert(char === ',' || char === '}', src, () => `expected "," or "}" on the inline table's line, found ${found(src)}`)

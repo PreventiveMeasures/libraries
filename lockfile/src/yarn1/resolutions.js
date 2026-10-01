@@ -6,7 +6,7 @@ import { KINDS } from '../graph.js'
 import { EMPTY } from '../shape.js'
 import { accepts, close, step } from './glob.js'
 import { WHERE } from './importers.js'
-import { listed } from './packages.js'
+import { checkLists } from './packages.js'
 
 // yarn asks for a workspace's dependencies via `workspace-aggregator-<uuid>`.
 const AGGREGATOR = 'workspace-aggregator-00000000-0000-0000-0000-000000000000'
@@ -29,9 +29,10 @@ function checkApplied(packages, { importers, workspaces, rules, aggregated }, ex
   // a rule rewrites it to another pattern and another where none does.
   const mark = (node, kind, alias, rule) => {
     const target = node[kind][alias]
-    const other = rule === undefined || rule.pattern === target ? rewritten.get(target) : plain.has(target) ? rule : undefined
+    const unwritten = rule === undefined || rule.pattern === target
+    const other = unwritten ? rewritten.get(target) : plain.has(target) ? rule : undefined
     if (other !== undefined) throw refuse(node, kind, alias, `is asked for both where the resolution ${quote(other.path)} applies and where none does, and yarn writes one entry for both`)
-    if (rule === undefined || rule.pattern === target) plain.add(target)
+    if (unwritten) plain.add(target)
     else rewritten.set(target, rule)
   }
   // yarn reads a package's dependencies once, from the first request of it
@@ -119,15 +120,13 @@ function checkRanges(packages, patterns, applied, semver, manifests) {
 // workspace's version and dependencies, resolving nothing, but links it.
 function standsIn(pkg, project, where) {
   const workspace = project?.workspaces.get(pkg.name)
-  const rule = project?.rules.find((item) => item.target === `link:${workspace?.dir}`)
+  if (workspace === undefined) return undefined
+  const rule = project.rules.find((item) => item.target === `link:${workspace.dir}`)
   if (rule === undefined) return undefined
   const of = `than the workspace ${quote(workspace.dir)}, which the resolution ${quote(rule.path)} gives it`
   if (pkg.version !== workspace.version) throw new LockfileError(`another version ${of}, ${workspace.version}`, at(where, 'version'))
   // Both read as requests are, a workspace's linked.
-  const importer = project.importers[workspace.dir]
-  for (const kind of ['dependencies', 'optionalDependencies']) {
-    if (listed(pkg[kind]) !== listed(importer[kind])) throw new LockfileError(`other ${kind} ${of}`, at(where, kind))
-  }
+  checkLists(pkg, project.importers[workspace.dir], of, where)
   return rule
 }
 

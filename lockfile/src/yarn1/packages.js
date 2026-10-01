@@ -4,7 +4,7 @@ import { toBase64 } from '@exodus/bytes/base64.js'
 import { fromHex } from '@exodus/bytes/hex.js'
 import { LockfileError, at, quote } from '../error.js'
 import { checkOptional } from '../graph.js'
-import { checkIntegrity, checkName, checkRelative, checkRepo, checkVersion, isCommit, joinRelative } from '../names.js'
+import { checkIntegrity, checkName, checkRelative, checkRepo, checkVersion, isCommit, isHttpUrl, joinRelative } from '../names.js'
 import { EMPTY, entries, record, string, text } from '../shape.js'
 
 const FIELDS = ['name', 'version', 'uid', 'resolved', 'integrity', 'dependencies', 'optionalDependencies']
@@ -30,13 +30,13 @@ const GIT_HOSTS = new Set(['github.com', 'gitlab.com', 'bitbucket.com', 'bitbuck
 // yarn's GitResolver.isVersion, on a range or on what an entry resolved to.
 function isGit(url) {
   if (/^(?:git:|git\+.+:|ssh:|https?:.+\.git(?:$|#.))/u.test(url)) return true
-  const parsed = URL.canParse(url) ? new URL(url) : undefined
-  return parsed !== undefined && GIT_HOSTS.has(parsed.hostname) && `${parsed.pathname}${parsed.search}`.split('/').filter(Boolean).length === 2
+  const parsed = URL.parse(url)
+  return parsed !== null && GIT_HOSTS.has(parsed.hostname) && `${parsed.pathname}${parsed.search}`.split('/').filter(Boolean).length === 2
 }
 
 // The resolver yarn's getExoticResolver picks for a range, in its order; a
 // version, range, tag or `npm:` alias goes to the registry.
-const SHORTHAND = /^[^:@%/\s.-][^:@%/\s]*\/[^:@\s/%]+(?:#.*)?$/u
+const SHORTHAND = /^[^:@%/\s.-][^:@%/\s]*\/[^:@\s/%][^:@\s/%#]*(?:#.*)?$/u
 export function sourceOf(range) {
   if (isGit(range)) return 'git'
   if (/^https?:\/\//u.test(range) || (!range.includes('@') && /\.(?:tgz|tar\.gz)$/u.test(range))) return 'tarball'
@@ -57,7 +57,7 @@ const HOSTED = {
 function hostedPath(range) {
   const parts = range.split('@')
   const fragment = parts.length > 2 ? `${parts[1]}@${parts[2]}` : range
-  const segments = fragment.replace(/#.*/u, '').replace(/.*:/u, '').replace(/.git$/u, '').split('/')
+  const segments = fragment.replace(/#.*/u, '').replace(/^.*:/u, '').replace(/.git$/u, '').split('/')
   return segments.length < 2 ? undefined : segments.slice(-2).join('/')
 }
 
@@ -85,7 +85,7 @@ const SHA1 = /^[\da-f]{40}$/u
 // 1.19.0, it checks both the sha1 after `#` and the integrity.
 function readTarball(tarball, sha1, integrity, resolvedAt, integrityAt) {
   if (tarball.startsWith('file:')) checkRelative(tarball.slice(tarball.startsWith('file:./') ? 7 : 5), resolvedAt)
-  else if (!/^https?:\/\/\S+$/u.test(tarball) || !URL.canParse(tarball)) throw new LockfileError(`${quote(tarball)} is not an http(s) URL, a file: path or a git URL`, resolvedAt)
+  else if (/\s/u.test(tarball) || !isHttpUrl(tarball)) throw new LockfileError(`${quote(tarball)} is not an http(s) URL, a file: path or a git URL`, resolvedAt)
   if (sha1 !== undefined && !SHA1.test(sha1)) throw new LockfileError(`${quote(sha1)} is not the hex sha1 of a tarball`, resolvedAt)
   const algorithms = new Set()
   for (const part of integrity === undefined ? [] : text(integrity, integrityAt).split(' ')) {
@@ -248,16 +248,20 @@ function checkRace(pkg, patterns, prior, semver, where) {
 const integrities = ({ integrity }) => new Map((integrity?.split(' ') ?? []).map((part) => [part.slice(0, part.indexOf('-')), part]))
 
 // A dependency list, in no order.
-export const listed = (dependencies) => JSON.stringify(Object.entries(dependencies).sort(([a], [b]) => (a < b ? -1 : 1)))
+const listed = (dependencies) => JSON.stringify(Object.entries(dependencies).sort(([a], [b]) => (a < b ? -1 : 1)))
+
+export function checkLists(pkg, other, of, where) {
+  for (const kind of ['dependencies', 'optionalDependencies']) {
+    if (listed(pkg[kind]) !== listed(other[kind])) throw new LockfileError(`other ${kind} ${of}`, at(where, kind))
+  }
+}
 
 // One tarball, or one commit, is one package: of one version, manifest and
 // the same hashes, whatever entry has it.
 function checkSame(pkg, other, where) {
   const of = `than ${quote(other.patterns[0])}, of the same ${pkg.resolution.type === 'git' ? 'commit' : 'tarball'}`
   if (pkg.version !== other.version) throw new LockfileError(`another version ${of}`, at(where, 'version'))
-  for (const kind of ['dependencies', 'optionalDependencies']) {
-    if (listed(pkg[kind]) !== listed(other[kind])) throw new LockfileError(`other ${kind} ${of}`, at(where, kind))
-  }
+  checkLists(pkg, other, of, where)
   const [mine, theirs] = [pkg.resolution, other.resolution]
   if (mine.sha1 !== undefined && theirs.sha1 !== undefined && mine.sha1 !== theirs.sha1) throw new LockfileError(`another sha1 ${of}`, at(where, 'resolved'))
   const known = integrities(theirs)
@@ -292,9 +296,12 @@ export function readPackages(list, semver) {
     if (same !== undefined) merged.set(same, key)
     const source = fetchedFrom(pkg.resolution)
     const group = fetched.get(source)
-    if (group !== undefined) checkSame(pkg, group[0], where)
-    if (group !== undefined) group.push(pkg)
-    else if (source !== undefined) fetched.set(source, [pkg])
+    if (group !== undefined) {
+      checkSame(pkg, group[0], where)
+      group.push(pkg)
+    } else if (source !== undefined) {
+      fetched.set(source, [pkg])
+    }
     // yarn resolves no request to what stands in for a workspace.
     if (read.handed?.sources.length === 0) continue
     const id = `${pkg.name}\n${pkg.version}`

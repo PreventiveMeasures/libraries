@@ -1,0 +1,10 @@
+[soldeer]
+remappings_generate = false
+
+[dependencies]
+forge-std = "1.9.4"
+"@openzeppelin-contracts" = "~5.1.0"
+solady = { version = "0.0.238" }
+isarray = { version = "2.0.5", git = "https://github.com/juliangruber/isarray.git", tag = "v2.0.5" }
+is-number = { version = "7.0.0", git = "https://github.com/jonschlinkert/is-number.git", rev = "98e8ff1da1a89f93d1397a24d7413ed15421c139" }
+oz = { version = "5.1.0", url = "https://soldeer-revisions.s3.amazonaws.com/@openzeppelin-contracts/5_1_0_19-10-2024_10:28:52_contracts.zip" }

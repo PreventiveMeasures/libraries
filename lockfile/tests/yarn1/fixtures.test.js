@@ -176,6 +176,13 @@ describe('a resolution to a workspace, which yarn links, and writes an entry for
     assert.throws(() => parse(text(name)), { message: '["is-number@^6.0.0"].dependencies.other: "other@1.0.0" is not a pattern of the lockfile, nor a workspace\'s, as only the manifests may say' })
   })
 
+  it('refused where it is of no workspace, one in the folder "undefined" though', () => {
+    const { 'packages/is-number': workspace, ...others } = manifests(name)
+    const root = { ...others['.'], workspaces: ['packages/*', 'undefined'], dependencies: { ...others['.'].dependencies, bar: '^1.0.0' } }
+    const lone = `${text(name)}\nbar@^1.0.0:\n  version "1.0.0"\n`
+    assert.throws(() => parse(lone, { ...others, '.': root, undefined: workspace }), { message: '["bar@^1.0.0"]: "bar@^1.0.0" asks for the registry, and resolves to nothing, as for a directory' })
+  })
+
   it('refused where the root asks for it too, which the aggregator asks for as the workspace instead', () => {
     const asked = manifests(name)
     asked['.'].dependencies['is-number'] = '^6.0.0'

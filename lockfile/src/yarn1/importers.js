@@ -38,13 +38,18 @@ function checkLinked({ name, range, pattern, where }, workspaces, semver) {
 }
 
 // A request with no entry is for a workspace, which only the manifests name.
-export function linkWorkspace({ name, range, pattern, where }, workspaces, semver) {
+function linkWorkspace({ name, range, pattern, where }, workspaces, semver) {
   const workspace = workspaces?.get(name)
   if (workspace === undefined) throw new LockfileError(`${quote(pattern)} is not a pattern of the lockfile${workspaces === undefined ? ", nor a workspace's, as only the manifests may say" : ''}`, where)
   if (links(workspace, range, semver) === false) {
     throw new LockfileError(`${quote(pattern)} is not a pattern of the lockfile, nor satisfied by the workspace ${quote(workspace.dir)}, ${workspace.version}`, where)
   }
   return `link:${workspace.dir}`
+}
+
+// Every request with no entry, linked; refused where there are no manifests.
+export function linkRequests(requests, packages, workspaces, semver) {
+  for (const request of requests) if (!(request.pattern in packages)) request.targets[request.name] = linkWorkspace(request, workspaces, semver)
 }
 
 // What a request leads to: its entry, or the workspace yarn links for it.
@@ -70,12 +75,13 @@ function readTargets(manifest, dir, where, context) {
       if (!ranges.has(name) && value !== '' && value !== '*') ranges.set(name, value)
     }
   }
-  const importer = Object.fromEntries(KINDS.map((kind) => [kind, Object.create(null)]))
+  const importer = Object.create(null)
+  for (const kind of KINDS) importer[kind] = Object.create(null)
   for (const [name, { kind, value, here }] of listed) {
     const target = fromLockfile(ranges.get(name) ?? value, dir, here)
     importer[kind][name] = resolveRequest({ name, range: target, pattern: `${checkName(name, here)}@${target}`, where: here }, context)
   }
-  return Object.assign(Object.create(null), importer)
+  return importer
 }
 
 // yarn's parsePatternInfo, which ignores a path ending in `/` or `*` or with
@@ -85,7 +91,7 @@ function readResolutions(value, where, semver) {
   for (const [path, range, here] of entries(value ?? EMPTY, where)) {
     // A comment, which yarn drops first.
     if (path === '//') continue
-    if (/\/$|\/{2,}|\*+$/u.test(path)) throw new LockfileError(`${quote(path)} is a path yarn ignores`, here)
+    if (/\/$|\/\/|\*$/u.test(path)) throw new LockfileError(`${quote(path)} is a path yarn ignores`, here)
     const names = path.match(/(?:@[^/]+\/)?[^/]+/gu) ?? [path]
     const tests = compile(names.length === 1 ? `**/${path}` : path, here)
     const name = checkName(names.at(-1), here)
@@ -121,7 +127,8 @@ function readGlobs(root, where) {
   }
   const globs = texts(list, listAt)
   if (globs.length > 0 && root.private !== true) throw new LockfileError('expected true, as yarn has workspaces in a private project alone', at(where, 'private'))
-  return globs.map((glob, index) => compile(glob.replace(/^(?:\.\/)+|\/+$/gu, ''), `${listAt}[${index}]`))
+  // A run of `/` tried from its start alone, as otherwise in quadratic time.
+  return globs.map((glob, index) => compile(glob.replace(/^(?:\.\/)+/u, '').replace(/(?<!\/)\/+$/u, ''), `${listAt}[${index}]`))
 }
 
 const TYPOS = {
@@ -172,7 +179,7 @@ export function readImporters(manifests, packages, requests, semver) {
     workspaces.set(workspace.name, workspace)
   }
   for (const request of requests) if (request.pattern in packages) checkLinked(request, workspaces, semver)
-  for (const request of requests) if (!(request.pattern in packages)) request.targets[request.name] = linkWorkspace(request, workspaces, semver)
+  linkRequests(requests, packages, workspaces, semver)
   const context = { packages, workspaces, semver }
   const importers = Object.create(null)
   for (const [dir, manifest, here] of entries(manifests, WHERE)) importers[dir] = readTargets(manifest, dir, here, context)

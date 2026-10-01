@@ -651,7 +651,7 @@ describe('options', () => {
     assert.throws(() => parseYarn1Lockfile(BASE, MANIFESTS), { name: 'TypeError', message: 'unknown option ".", of manifests, checkVersions, semver' })
     assert.throws(() => parseYarn1Lockfile(BASE, { semver: { valid: semver.valid } }), { name: 'TypeError', message: 'semver: expected the semver package, with clean, satisfies, valid, validRange' })
     assert.throws(() => parseYarn1Lockfile(BASE, { checkVersions: 'no' }), { name: 'TypeError', message: 'checkVersions: expected a boolean' })
-    assert.throws(() => parseYarn1Lockfile(BASE, null), { name: 'TypeError', message: 'expected an options object' })
+    for (const options of [null, [], 'manifests']) assert.throws(() => parseYarn1Lockfile(BASE, options), { name: 'TypeError', message: 'expected an options object' })
   })
 
   it('without semver, the same packages and importers', () => {
@@ -732,5 +732,37 @@ describe('with semver, each request resolved as yarn resolves it', () => {
       assert.ok(parseYarn1Lockfile(f('latest'), options).packages['f@latest'])
       refuses(f('4.x'), 'is f 4.0.0, as "f@4.x" is, and yarn gives "f@4.x" whichever it resolves first', '["f@https://example.com/f.tgz"]', undefined, options)
     }
+  })
+})
+
+describe('in time linear in its length, whatever a key or a manifest holds', () => {
+  const long = 100000
+  const withRoot = (root) => ({ ...MANIFESTS, '.': { ...MANIFESTS['.'], ...root } })
+  // Read or refused, either within a second.
+  const quick = (text, manifests) => {
+    const start = performance.now()
+    try {
+      parse(text, manifests)
+    } catch (error) {
+      assert.ok(error instanceof LockfileError, error.stack)
+    }
+    const took = performance.now() - start
+    assert.ok(took < 1000, `${Math.round(took)} ms`)
+  }
+
+  it('a hosted repository with no colon in its key', () => {
+    quick(`${BASE}\nx@a/${'b'.repeat(long)}:\n  version "1.0.0"\n  resolved "https://codeload.github.com/a/b/tar.gz/${H}"\n`)
+  })
+
+  const roots = {
+    'a resolution to a run of `#`': { resolutions: { a: `a/${'#'.repeat(long)}\n` } },
+    'a resolution of a run of `*`': { resolutions: { [`${'*'.repeat(long)}x`]: '1.0.0' } },
+    'a workspace glob of a run of `/`': { workspaces: [`w${'/'.repeat(long)}x`] },
+  }
+  for (const [name, root] of Object.entries(roots)) it(name, () => quick(BASE, withRoot(root)))
+
+  it('a glob of many `*` in a workspace of a long name', () => {
+    const dir = 'a'.repeat(240)
+    quick(BASE, { ...withRoot({ workspaces: ['w', '*a*a*a*a*b'] }), [dir]: { name: 'v', version: '1.0.0' } })
   })
 })
