@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
+import { parsePnpmLockfile } from '../../pnpm.js'
 import { parseYaml, parseYamlStream } from '../../yaml.js'
 
 // The baseline: real lockfiles, one per format pnpm has written — 5.4 (pnpm
@@ -111,5 +112,13 @@ describe('the older formats', () => {
     const v54 = parseYaml(fixture('lockfile-v5.4.yaml')).packages['/q/1.5.1'].deprecated
     assert.equal(v6, v54)
     assert.match(v6, /each other\.\n\n\(For a CapTP/u)
+  })
+})
+
+// What the YAML parser refuses, parsePnpmLockfile hands on as it is.
+describe('a refusal, through parsePnpmLockfile', () => {
+  it('quotes the line with its bidi control escaped', () => {
+    const message = 'expected a mapping key, found "\\u202eabc" at line 2'
+    assert.throws(() => parsePnpmLockfile("lockfileVersion: '9.0'\n\u202Eabc\n"), { name: 'YamlError', message, line: 1 })
   })
 })
