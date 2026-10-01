@@ -9,6 +9,7 @@ export { DeptreeError } from './src/error.js'
 // Where @preventive/upstream caches what it fetches, tarballs among it;
 // unset, it keeps no cache of its own, and writes nothing.
 export { setCacheDir } from '@preventive/upstream/npm.js'
-// What the inputs beneath are refused with: the lockfile, and the YAML of
-// it and of pnpm-workspace.yaml.
+// What the readers beneath refuse the lockfile with, and the YAML of it
+// and of pnpm-workspace.yaml: the cause of a DeptreeError that names the
+// file.
 export { LockfileError, YamlError } from '@preventive/lockfile/pnpm.js'

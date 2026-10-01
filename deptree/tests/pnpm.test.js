@@ -657,8 +657,13 @@ describe('buildPnpmTree refuses', () => {
     await refuses({ workspace: 'packageExtensions:\n  a:\n    dependencies:\n      b: 1.0.0\n' }, /^packageExtensions: package extensions are not supported/u)
   })
 
-  it('a lockfile the lockfile reader refuses', async () => {
-    await refuses({ lockfile: "lockfileVersion: '6.0'\n" }, /unsupported version/u, LockfileError)
+  // Both files are YAML: a refusal of either names it, and keeps the
+  // reader's own as its cause.
+  it('a lockfile the lockfile reader refuses, or YAML it cannot read', async () => {
+    const named = (pattern, Cause) => (error) => error instanceof DeptreeError && pattern.test(error.message) && error.cause instanceof Cause
+    await assert.rejects(build({ lockfile: "lockfileVersion: '6.0'\n" }), named(/^pnpm-lock\.yaml: lockfileVersion: unsupported version/u, LockfileError))
+    await assert.rejects(build({ lockfile: 'a:\n   b: 1\n  c: 2\n' }), named(/^pnpm-lock\.yaml: bad indentation at line 3$/u, YamlError))
+    await assert.rejects(build({ workspace: 'a:\n   b: 1\n  c: 2\n' }), named(/^pnpm-workspace\.yaml: bad indentation at line 3$/u, YamlError))
   })
 
   // pnpm installs the projects it finds, and holds each to its importer:
@@ -728,6 +733,21 @@ describe('buildPnpmTree for pnpm 11', () => {
     await assert.rejects(built(PATCH), /^DeptreeError: "p@1\.0\.0\(patch_hash=[\da-f]{64}\)": its package\.json, patched, has an engines\.node, ">=99", that does not take Node 24\.15\.0, which pnpm 11 refuses with engineStrict/u)
     assert.equal(text((await built(PATCH, { workspace: patchedInYaml })).vfs, '/node_modules/p/index.js'), 'module.exports = 2\n')
     await assert.rejects(built(ANY, { host: HOST }), /^DeptreeError: "p@1\.0\.0\(patch_hash=[\da-f]{64}\)": the host does not take its engines\.node, which engineStrict refuses$/u)
+  })
+
+  // pnpm 11 writes an env document before the lockfile, for config
+  // dependencies and the pnpm a project pins; before anything is installed,
+  // the env document alone.
+  it('reads the env document before the lockfile, and refuses it alone', async () => {
+    stubRegistry(TARBALLS)
+    const env = (config = '') => `---\nlockfileVersion: '9.0'\n\nimporters:\n\n  .:\n${config}    packageManagerDependencies:\n      pnpm:\n        specifier: 11.28.2\n        version: 11.28.2\n\npackages:\n\n${config && `  c@2.0.0:\n    resolution: {integrity: ${I.c}}\n\n`}  pnpm@11.28.2:\n    resolution: {integrity: ${I.p}}\n\nsnapshots:\n\n${config && '  c@2.0.0: {}\n\n'}  pnpm@11.28.2: {}\n\n---\n`
+    const built = (locked, host = HOST_11) => buildPnpmTree({ lockfile: locked, manifests: { '.': root({ pnpm: { patchedDependencies: undefined } }) }, workspace: patchedInYaml, patches: { 'patches/p.patch': PATCH }, host })
+    assert.equal(text((await built(`${env()}${lockfile11()}`)).vfs, '/node_modules/p/index.js'), 'module.exports = 2\n')
+    await assert.rejects(built(env()), /^DeptreeError: pnpm-lock\.yaml: it holds the env document pnpm 11 writes alone, not the project's lockfile, which a frozen install cannot do without$/u)
+    await assert.rejects(built(env(), HOST), /^DeptreeError: pnpm-lock\.yaml: it holds the env document pnpm 11 writes alone/u)
+    await assert.rejects(built(`${env()}${lockfile11()}`, HOST), /^DeptreeError: env: the env document pnpm 11 writes is not supported$/u)
+    const config = '    configDependencies:\n      c:\n        specifier: 2.0.0\n        version: 2.0.0\n'
+    await assert.rejects(built(`${env(config)}${lockfile11()}`), /^DeptreeError: env\.importers\["\."\]\.configDependencies: config dependencies are not supported$/u)
   })
 
   it('reads no setting of the package.json', async () => {
@@ -832,6 +852,7 @@ describe('buildPnpmTree with a workspace', () => {
       [{ 'pnpm-workspace.yaml': "packages:\n  - 'packages/{x,y}'\n" }, /^DeptreeError: pnpm-workspace\.yaml: packages: "packages\/\{x,y\}" is not supported/u],
       [{ 'pnpm-workspace.yaml': new Uint8Array([0xff]) }, /^DeptreeError: "pnpm-workspace\.yaml" is not UTF-8$/u],
       [{ 'pnpm-workspace.yaml': { type: 'directory' } }, /^DeptreeError: "pnpm-workspace\.yaml" is a directory, not a file$/u],
+      [{ 'pnpm-workspace.yaml': 'packages:\n    - packages/*\n  - other/*\n' }, /^DeptreeError: pnpm-workspace\.yaml: bad indentation at line 3$/u],
     ]
     for (const [files, pattern] of refused) assert.throws(() => findPnpmProjects({ project: projectWith(files), host: HOST }), pattern, JSON.stringify(files))
     const wrong = [
@@ -1312,7 +1333,8 @@ describe('buildPnpmTree reading the project', () => {
     await assert.rejects(fromProject({ 'package.json': new Uint8Array([0xc3]) }), /^DeptreeError: manifests\["\."\]: "package\.json" is not UTF-8$/u)
     await assert.rejects(fromProject({ '.npmrc': { type: 'directory' } }), /^DeptreeError: "\.npmrc" is a directory, not a file$/u)
     await assert.rejects(fromProject({ 'pnpm-workspace.yml': '' }), /^DeptreeError: "pnpm-workspace\.yml": pnpm refuses a workspace manifest not named pnpm-workspace\.yaml$/u)
-    await assert.rejects(fromProject({ 'pnpm-lock.yaml': `\uFEFF${lockfile()}` }), YamlError)
+    await assert.rejects(fromProject({ 'pnpm-lock.yaml': `\uFEFF${lockfile()}` }), (error) => error instanceof DeptreeError && error.message === 'pnpm-lock.yaml: U+FEFF is not allowed at line 1' && error.cause instanceof YamlError)
+    await assert.rejects(fromProject({ 'pnpm-workspace.yaml': 'packages:\n    - packages/*\n  - other/*\n' }), /^DeptreeError: pnpm-workspace\.yaml: bad indentation at line 3$/u)
   })
 
   // The lockfile keys an importer outside its directory by a leading `..`,

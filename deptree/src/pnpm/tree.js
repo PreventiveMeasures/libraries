@@ -19,7 +19,7 @@
 // Each package is fetched once, and each snapshot's files composed in
 // memory — its package's, patched, bins fixed — before one write of each.
 
-import { packageKeyOf, parsePnpmLockfile } from '@preventive/lockfile/pnpm.js'
+import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { Vfs, VfsError } from '@preventive/vfs'
 import { dirname, relative } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
@@ -34,7 +34,7 @@ import { createPatchedCheck, skippedSnapshots } from './install.js'
 import { checkCollisions, checkLinks, checkOptional } from './checks.js'
 import { createHook } from './hook.js'
 import { listOverrides } from './overrides.js'
-import { checkHost, inputsOf, manifestsOf, patchesOf, readWorkspace } from './inputs.js'
+import { checkHost, inputsOf, manifestsOf, patchesOf, readLockfile, readWorkspace } from './inputs.js'
 import { checkProject } from './project.js'
 import { checkProjects, workspaceNames } from './projects.js'
 import { readSettings } from './settings.js'
@@ -230,7 +230,7 @@ export async function buildPnpmTree(options) {
   // Refused before anything is fetched; mount checks again.
   if (into !== undefined) checkNoModules(into, folded)
   const inputs = inputsOf(options)
-  const { lockfile, env } = parsePnpmLockfile(inputs.lockfile)
+  const { lockfile, env } = readLockfile(inputs.lockfile)
   if (!('.' in lockfile.importers)) throw new DeptreeError('expected the root project, whose package.json holds settings', 'importers')
   // Before the project is read for any importer: none leads out of it.
   checkLockfile(lockfile)

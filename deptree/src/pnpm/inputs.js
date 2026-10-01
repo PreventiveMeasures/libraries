@@ -2,6 +2,7 @@
 // would install on, and the files an install reads — given as text, or
 // read from the project (project.js) as pnpm reads them from disk.
 
+import { LockfileError, YamlError, parsePnpmLockfile } from '@preventive/lockfile/pnpm.js'
 import { parseYaml } from '@preventive/lockfile/yaml.js'
 import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
@@ -44,9 +45,26 @@ export function checkHost(host) {
   return { node, os, cpu: host.cpu, libc }
 }
 
+// Both files are YAML: unnamed, a refusal of one reads as one of the other.
+function readNamed(file, read, text) {
+  try {
+    return read(text)
+  } catch (error) {
+    if (error instanceof LockfileError || error instanceof YamlError) throw new DeptreeError(error.message, file, { cause: error })
+    throw error
+  }
+}
+
+// Before any install, pnpm 11 may write the env document alone, with no lockfile to install from.
+export function readLockfile(text) {
+  const read = readNamed('pnpm-lock.yaml', parsePnpmLockfile, text)
+  if (read.lockfile === undefined) throw new DeptreeError('it holds the env document pnpm 11 writes alone, not the project\'s lockfile, which a frozen install cannot do without', 'pnpm-lock.yaml')
+  return read
+}
+
 // pnpm-workspace.yaml as parsed; one of comments alone, or nothing, sets
 // nothing, as pnpm reads it.
-export const readWorkspace = (text) => (text === undefined || /^(?:[\t ]*(?:#.*)?(?:\r?\n|$))*$/u.test(text) ? undefined : parseYaml(text))
+export const readWorkspace = (text) => (text === undefined || /^(?:[\t ]*(?:#.*)?(?:\r?\n|$))*$/u.test(text) ? undefined : readNamed('pnpm-workspace.yaml', parseYaml, text))
 
 // The root package.json in `project`, as parsed, where there is one; one
 // that is a link is refused unread, as findProjects refuses it.
