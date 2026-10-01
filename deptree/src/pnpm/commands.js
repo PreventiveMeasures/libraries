@@ -95,10 +95,18 @@ const safeName = (name) => name === '$' || (name !== '.' && name !== '..' && /^[
 // under it, dotfiles and those in dot directories among them, by its
 // name. A scoped command drops its scope; a name that is not safe, or a
 // target that is absolute or out of the package, is passed over.
+//
+// pnpm 12 reads a package's own bins off what its store holds of its
+// package.json where it has the package already, which leaves out a null
+// `bin`, and off the package.json where it fetches the package, which
+// keeps one: so a null `bin` beside a directories.bin is refused.
 function commands12(dir, manifest, files, base, where) {
   const name = typeof manifest.name === 'string' ? manifest.name : undefined
   const common = { pkgName: name ?? '', pkgVersion: manifest.version, owner: base }
   const { bin } = manifest
+  if (bin === null && typeof manifest.directories?.bin === 'string' && files !== undefined && dir === base) {
+    throw new DeptreeError('its bin is null beside a directories.bin, which pnpm 12 links as its store has the package or not', where)
+  }
   if (bin !== undefined && bin !== '') {
     const entries = typeof bin === 'string' ? (name === undefined ? [] : [[name, bin]])
       : bin !== null && typeof bin === 'object' && !Array.isArray(bin) ? Object.entries(bin).filter(([, rel]) => typeof rel === 'string') : []

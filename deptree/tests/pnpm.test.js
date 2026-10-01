@@ -366,23 +366,29 @@ ${['c@2.0.0', 'c@2.1.0', 'x@1.0.0', 'y@1.0.0'].map((id) => `  ${id}:\n    resolu
 
   // pnpm 12 links p's own bins beside a's in p's .bin, where a's `x` wins,
   // a's name sorting first, as it does beside q; where pnpm 11 links p's,
-  // whose name sorts last, beside q. It reads a null `bin` as naming none,
-  // and fails on a bin that is a directory.
+  // whose name sorts last, beside q. Beside a directories.bin, it reads a
+  // null `bin` as its store has the package or not, and it fails on a bin
+  // that is a directory.
   it('links bins as pnpm 12 does', async () => {
     const bins = await Promise.all([
       tarball('a', '1.0.0', { 'ax.js': '#!a\n' }, { manifest: { bin: { x: 'ax.js' } } }),
       tarball('p', '1.0.0', { 'x.js': '#!p\n' }, { manifest: { bin: { x: 'x.js' }, dependencies: { a: '1.0.0' } } }),
       tarball('q', '1.0.0', {}, { manifest: { dependencies: { p: '1.0.0', a: '1.0.0' } } }),
-      tarball('nul', '1.0.0', { 'bin/n.js': '#!nul\n' }, { manifest: { bin: null, directories: { bin: 'bin' } } }),
     ])
     stubRegistry(bins)
     const entry = (t) => `  ${t.name}@1.0.0:\n    resolution: {integrity: ${t.integrity}}\n${t.name === 'q' ? '' : '    hasBin: true\n'}`
-    const lock = small(dep('q') + dep('nul'), `${bins.map(entry).join('\n')}\n`, '  a@1.0.0: {}\n\n  nul@1.0.0: {}\n\n  p@1.0.0:\n    dependencies:\n      a: 1.0.0\n\n  q@1.0.0:\n    dependencies:\n      a: 1.0.0\n      p: 1.0.0\n')
+    const lock = small(dep('q'), `${bins.map(entry).join('\n')}\n`, '  a@1.0.0: {}\n\n  p@1.0.0:\n    dependencies:\n      a: 1.0.0\n\n  q@1.0.0:\n    dependencies:\n      a: 1.0.0\n      p: 1.0.0\n')
     const mode = (vfs, name, file) => vfs.stat(`/node_modules/.pnpm/${name}@1.0.0/node_modules/${name}/${file}`).mode
-    const options = { lockfile: lock, manifests: { '.': manifest({ q: '1.0.0', nul: '1.0.0' }) }, workspace: 'hoist: false\n' }
-    const modes = (vfs) => [mode(vfs, 'a', 'ax.js'), mode(vfs, 'p', 'x.js'), mode(vfs, 'nul', 'bin/n.js')]
-    assert.deepEqual(modes((await buildPnpmTree({ ...options, host: { ...HOST, pnpm: '12.8.1' } })).vfs), [0o755, 0o644, 0o644])
-    assert.deepEqual(modes((await buildPnpmTree({ ...options, host: { ...HOST, pnpm: '11.28.2' } })).vfs), [0o755, 0o755, 0o755])
+    const options = { lockfile: lock, manifests: { '.': manifest({ q: '1.0.0' }) }, workspace: 'hoist: false\n' }
+    const modes = (vfs) => [mode(vfs, 'a', 'ax.js'), mode(vfs, 'p', 'x.js')]
+    assert.deepEqual(modes((await buildPnpmTree({ ...options, host: { ...HOST, pnpm: '12.8.1' } })).vfs), [0o755, 0o644])
+    assert.deepEqual(modes((await buildPnpmTree({ ...options, host: { ...HOST, pnpm: '11.28.2' } })).vfs), [0o755, 0o755])
+
+    const nul = await tarball('nul', '1.0.0', { 'bin/n.js': '#!nul\n' }, { manifest: { bin: null, directories: { bin: 'bin' } } })
+    stubRegistry([nul])
+    const nulOptions = { lockfile: small(dep('nul'), `${entry(nul)}\n`, '  nul@1.0.0: {}\n'), manifests: { '.': manifest({ nul: '1.0.0' }) } }
+    await assert.rejects(buildPnpmTree({ ...nulOptions, host: { ...HOST, pnpm: '12.8.1' } }), /^DeptreeError: "nul@1\.0\.0": its bin is null beside a directories\.bin, which pnpm 12 links as its store has the package or not$/u)
+    assert.equal(mode((await buildPnpmTree({ ...nulOptions, host: { ...HOST, pnpm: '11.28.2' } })).vfs, 'nul', 'bin/n.js'), 0o755)
 
     const dir = await tarball('d', '1.0.0', { 'dir/f.js': '' }, { manifest: { bin: { d: 'dir' } } })
     stubRegistry([dir])

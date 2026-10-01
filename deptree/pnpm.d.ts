@@ -266,7 +266,9 @@ export interface PnpmTree {
 // keeps the one of the package whose name sorts first by its bytes; makes
 // a file a bin runs executable without rewriting a CRLF `#!` line, and
 // fails on a bin that is a directory, which is refused; reads `bin` and
-// directories.bin otherwise, dotfiles among them. It links no package to
+// directories.bin otherwise, dotfiles among them, and a package's null
+// `bin` beside a directories.bin as its store has the package or not,
+// which is refused. It links no package to
 // a dependency of its own name, and writes a file a patch makes as
 // 0o644, whatever mode the patch gives it. It hoists from a graph of every
 // snapshot, those left out walked through but not hoisted, keeps from
