@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { after, beforeEach, describe, it } from 'node:test'
 
-import { getCrate } from '../cargo.js'
+import { getCrate, resolveCrateRepos, verifyChecksum } from '../cargo.js'
 import { setCacheDir } from '../npm.js'
 
 const CACHE_DIR = join(tmpdir(), `upstream-cargo-test-${process.pid}`)
@@ -131,6 +131,91 @@ describe('getCrate', () => {
       await assert.rejects(getCrate(...args), /getCrate: (?:name|version|checksum) must be/u, JSON.stringify(args))
       assert.deepEqual(calls, [])
     }
+  })
+})
+
+describe('verifyChecksum', () => {
+  it("passes a checksum that is the index's, asking for the index alone", async () => {
+    const calls = stubCratesIo({ versions: [{ vers: '0.9.0', cksum: sha256(new Uint8Array([1])) }, { vers: '1.0.0' }] })
+    await verifyChecksum('crate', '1.0.0', sha256(BYTES))
+    assert.deepEqual(calls, [INDEX])
+  })
+
+  it("throws for a checksum that is not the index's, naming both", async () => {
+    const other = sha256(new Uint8Array([1]))
+    stubCratesIo()
+    await assert.rejects(verifyChecksum('crate', '1.0.0', other), { message: `verifyChecksum: crate@1.0.0 is ${sha256(BYTES)} on crates.io, not ${other}` })
+  })
+
+  it('holds the index to what getCrate does, and caches nothing', async () => {
+    stubCratesIo({ versions: [{ vers: '1.0.1' }] })
+    await assert.rejects(verifyChecksum('crate', '1.0.0', sha256(BYTES)), /verifyChecksum: the index has no crate@1\.0\.0/u)
+    stubCratesIo()
+    await assert.rejects(verifyChecksum('Crate', '1.0.0', sha256(BYTES)), /verifyChecksum: the index answered for "crate", not Crate/u)
+    stubCratesIo({ versions: [{ vers: '1.0.0', cksum: null }] })
+    await assert.rejects(verifyChecksum('crate', '1.0.0', sha256(BYTES)), /verifyChecksum: the index cksum must be a sha256 in lowercase hex/u)
+    stubCratesIo()
+    await assert.rejects(verifyChecksum('other', '1.0.0', sha256(BYTES)), { name: 'HttpError', status: 404 })
+    assert.deepEqual(await readdir(CACHE_DIR).catch(() => []), [])
+  })
+
+  it('refuses a malformed name, version or checksum before any request', async () => {
+    for (const args of [['1crate', '1.0.0', sha256(BYTES)], ['crate', '1.0', sha256(BYTES)], ['crate', '1.0.0'], ['crate', '1.0.0', sha256(BYTES).toUpperCase()]]) {
+      const calls = stubCratesIo()
+      await assert.rejects(verifyChecksum(...args), /verifyChecksum: (?:name|version|checksum) must be/u, JSON.stringify(args))
+      assert.deepEqual(calls, [])
+    }
+  })
+})
+
+// crates.io's API for many crates at once, answering for those in
+// `crates`, each its `repository`; `calls` is every name list asked for.
+function stubCratesApi(crates) {
+  const calls = []
+  globalThis.fetch = (url, init) => {
+    const asked = new URL(String(url))
+    assert.equal(`${asked.origin}${asked.pathname}`, 'https://crates.io/api/v1/crates')
+    assert.match(new Headers(init?.headers).get('user-agent'), /^@preventive\/upstream /u)
+    const ids = asked.searchParams.getAll('ids[]')
+    calls.push(ids)
+    if (crates instanceof Response) return Promise.resolve(crates.clone())
+    return Promise.resolve(Response.json({ crates: ids.filter((id) => Object.hasOwn(crates, id)).map((id) => ({ id, repository: crates[id] })) }))
+  }
+  return calls
+}
+
+describe('resolveCrateRepos', () => {
+  it("maps each crate to the GitHub repo its repository names, leaving out those that name none or crates.io has not", async () => {
+    const calls = stubCratesApi({ serde: 'https://github.com/serde-rs/serde', local: null, gitlab: 'https://gitlab.com/a/b' })
+    const repos = await resolveCrateRepos(['serde', 'local', 'gitlab', 'missing', 'serde'])
+    assert.deepEqual([...repos], [['serde', { github: 'serde-rs/serde' }]])
+    assert.deepEqual(calls, [['serde', 'local', 'gitlab', 'missing']])
+  })
+
+  it('caches a repo found, and with cachedOnly answers from the cache alone', async () => {
+    stubCratesApi({ serde: 'https://github.com/serde-rs/serde', local: null })
+    await resolveCrateRepos(['serde', 'local'])
+    const calls = stubCratesApi({})
+    assert.deepEqual([...await resolveCrateRepos(['serde', 'local'], { cachedOnly: true })], [['serde', { github: 'serde-rs/serde' }]])
+    assert.deepEqual(calls, [])
+    assert.deepEqual([...await resolveCrateRepos(['local', 'serde'])], [['serde', { github: 'serde-rs/serde' }]])
+    assert.deepEqual(calls, [['local']], 'only the crate with no repo is asked again')
+  })
+
+  it('is fail-soft: a request that fails leaves its crates out', async () => {
+    stubCratesApi(Response.json({ errors: [{ detail: 'too many' }] }, { status: 500 }))
+    assert.deepEqual([...await resolveCrateRepos(['serde'])], [])
+    stubCratesApi(Response.json({ crates: [{ id: 'other', repository: 'https://github.com/a/b' }] }))
+    assert.deepEqual([...await resolveCrateRepos(['serde'])], [])
+  })
+
+  it('refuses a malformed name, a string, or an unknown option, before any request', async () => {
+    const calls = stubCratesApi({})
+    await assert.rejects(resolveCrateRepos(['serde', '1crate']), /resolveCrateRepos: name must be a crate name/u)
+    await assert.rejects(resolveCrateRepos('serde'), /crateNames must be an iterable of names/u)
+    await assert.rejects(resolveCrateRepos(['serde'], { cached: true }), /resolveCrateRepos: unknown option cached/u)
+    await assert.rejects(resolveCrateRepos(['serde'], { cachedOnly: 'yes' }), /cachedOnly must be a boolean/u)
+    assert.deepEqual(calls, [])
   })
 })
 
