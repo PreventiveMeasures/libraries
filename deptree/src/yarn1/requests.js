@@ -3,6 +3,7 @@
 // aggregator it makes of them; the root's resolutions, as resolution-map.js
 // reads them; and the top-level requests, in order.
 
+import { clean, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { matchesGlob } from './glob.js'
 import { cleanDependencies, globsOf } from './manifest.js'
@@ -18,7 +19,7 @@ const KINDS = ['dependencies', 'devDependencies', 'optionalDependencies']
 // its directory, its version as yarn cleans it, and its manifest.
 // `manifests` by directory, the root's `.` among them, as the lockfile
 // reader has held them to the globs.
-export function workspacesOf(manifests, semver) {
+export function workspacesOf(manifests) {
   const root = manifests.get('.')
   const workspaces = new Map()
   for (const glob of globsOf(root)) {
@@ -27,7 +28,7 @@ export function workspacesOf(manifests, semver) {
     for (const dir of dirs) {
       const manifest = manifests.get(dir)
       if ([...workspaces.values()].some((workspace) => workspace.dir === dir)) continue
-      const version = semver.clean(manifest.version, true) || manifest.version
+      const version = clean(manifest.version, { loose: true }) || manifest.version
       workspaces.set(manifest.name, { name: manifest.name, dir, version, manifest })
     }
   }
@@ -48,12 +49,12 @@ export function aggregatorOf(root, workspaces) {
 // resolved, to a range or another source. One to another source is
 // refused here, as no source but the registry is supported; one to what
 // is neither, which yarn passes over, the lockfile reader has refused.
-export function rulesOf(root, semver) {
+export function rulesOf(root) {
   const byName = new Map()
   for (const [path, range] of Object.entries(root.resolutions ?? {})) {
     const names = path.match(/(?:@[^/]+\/)?[^/]+/gu) ?? [path]
     const name = names.at(-1)
-    if (semver.validRange(range) === null) throw new DeptreeError(`a resolution to ${quote(range)}, no semver range, is not supported`, `manifests["."].resolutions[${quote(path)}]`)
+    if (validRange(range) === null) throw new DeptreeError(`a resolution to ${quote(range)}, no semver range, is not supported`, `manifests["."].resolutions[${quote(path)}]`)
     const glob = names.length === 1 ? `**/${path}` : path
     if (!byName.has(name)) byName.set(name, [])
     byName.get(name).push({ path, name, range, glob, pattern: `${name}@${range}` })

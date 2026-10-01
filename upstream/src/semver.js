@@ -40,6 +40,5 @@ export const intersects = (...args) => semver().intersects(...args)
 export const compareVersions = (...args) => semver().compare(...args)
 export const valid = (version, ...rest) => (rest.length === 0 && typeof version === 'string' && PLAIN_RELEASE.test(version) ? version : semver().valid(version, ...rest))
 export const isExactVersion = (version) => typeof version === 'string' && valid(version) === version
-// npm's semver itself, for what the calls above leave out: its other
-// functions and its classes, as it has them.
-export const npmSemver = () => semver()
+export const clean = (...args) => semver().clean(...args)
+export const major = (...args) => semver().major(...args)

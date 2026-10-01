@@ -28,6 +28,7 @@
 // finds a package of its version, so each request of one makes a reference
 // of its own, the last of which its pattern names.
 
+import { satisfies, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { matchesGlob } from './glob.js'
 
@@ -54,8 +55,8 @@ export function splitPattern(pattern) {
 // yarn's resolvers, which are not followed; it is refused, as is any other
 // with a `:` or an `@`, and a tag that is not a plain name.
 const TAG = /^[\w~-][\w.~-]*$/u
-function kindOf(range, semver, where) {
-  if (semver.validRange(range)) return 'range'
+function kindOf(range, where) {
+  if (validRange(range)) return 'range'
   if (range.startsWith('npm:')) return 'alias'
   if (TAG.test(range) && !/\.(?:tgz|tar\.gz)$/u.test(range)) return 'tag'
   throw new DeptreeError('only a semver range, an npm: alias or a tag is supported', where)
@@ -93,8 +94,8 @@ function locOf({ kind, name, version, entry }) {
 
 // The requests yarn resolves, and what they make of the lockfile.
 class Resolver {
-  constructor({ lockfile, workspaces, rules, semver, isDirectory }) {
-    Object.assign(this, { lockfile, workspaces, rules, semver, isDirectory })
+  constructor({ lockfile, workspaces, rules, isDirectory }) {
+    Object.assign(this, { lockfile, workspaces, rules, isDirectory })
     this.patterns = new Map()
     this.byName = new Map()
     this.delayed = []
@@ -112,7 +113,7 @@ class Resolver {
   workspaceOf(pattern) {
     const { name, range } = splitPattern(pattern)
     const workspace = this.workspaces.get(name)
-    return workspace !== undefined && this.semver.satisfies(workspace.version, range, true) ? workspace : undefined
+    return workspace !== undefined && satisfies(workspace.version, range, { loose: true }) ? workspace : undefined
   }
 
   // What a request finds before it checks: a workspace's manifest, or the
@@ -123,13 +124,12 @@ class Resolver {
   infoOf(request) {
     const workspace = this.workspaceOf(request.pattern)
     if (workspace !== undefined) return { kind: 'workspace', name: workspace.name, version: workspace.version, workspace }
-    const { semver } = this
     const where = quote(request.pattern)
     const { name, range, hasVersion } = splitPattern(request.pattern)
-    const tag = kindOf(range, semver, where) === 'tag'
+    const tag = kindOf(range, where) === 'tag'
     const entry = this.lockfile.packages[request.pattern]
     if (entry === undefined) throw new DeptreeError('yarn would resolve this pattern anew: the lockfile has no entry for it', where)
-    if (hasVersion && semver.validRange(range) && !semver.satisfies(entry.version, range)) {
+    if (hasVersion && validRange(range) && !satisfies(entry.version, range)) {
       throw new DeptreeError(`yarn would resolve this pattern anew: the lockfile has ${entry.version}, which the range does not take`, where)
     }
     return { kind: 'registry', name, version: entry.version, entry, tag }
@@ -156,7 +156,7 @@ class Resolver {
   // the reference, its own requests handed back.
   check(request, info) {
     const { name, range } = splitPattern(request.pattern)
-    const solved = this.semver.validRange(range) ? info.version : range
+    const solved = validRange(range) ? info.version : range
     if (this.exactMatch(name, solved) !== undefined) {
       this.delayed.push(request)
       return []

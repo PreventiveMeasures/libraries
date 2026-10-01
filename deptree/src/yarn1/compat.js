@@ -8,6 +8,7 @@
 // refused. One yarn knows of no version for is passed over, as yarn
 // passes over it.
 
+import { compareVersions, major, satisfies, valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { satisfiesWithPrereleases } from './peers.js'
 
@@ -36,14 +37,16 @@ function isValid(items, actual) {
 
 // yarn's testEngine: yarn's own version taken with its prereleases, and
 // Node's versions before 1.0.0 taken for its majors.
-function testEngine(semver, name, range, versions) {
+const LOOSE = { loose: true }
+
+function testEngine(name, range, versions) {
   const actual = versions[name]
-  if (!actual || !semver.valid(actual, true)) return false
-  if (semver.satisfies(actual, range, true)) return true
-  if (name === 'yarn' && satisfiesWithPrereleases(semver, actual, range, true)) return true
-  if (name === 'node' && semver.gt(actual, '1.0.0', true)) {
-    const major = semver.major(actual, true)
-    return [`0.10.${major}`, `0.11.${major}`, `0.12.${major}`, `0.13.${major}`].some((fake) => semver.satisfies(fake, range, true))
+  if (!actual || !valid(actual, LOOSE)) return false
+  if (satisfies(actual, range, LOOSE)) return true
+  if (name === 'yarn' && satisfiesWithPrereleases(actual, range, true)) return true
+  if (name === 'node' && compareVersions(actual, '1.0.0', LOOSE) > 0) {
+    const of = major(actual, LOOSE)
+    return [`0.10.${of}`, `0.11.${of}`, `0.12.${of}`, `0.13.${of}`].some((fake) => satisfies(fake, range, LOOSE))
   }
   return false
 }
@@ -52,7 +55,7 @@ function testEngine(semver, name, range, versions) {
 // os and cpu not checked with ignorePlatform, and its engines not with
 // ignoreEngines. A manifest's engines may be a list of `name range`
 // strings, which yarn reads into a mapping first.
-export function incompatibility(manifest, host, semver, where, { ignoreEngines, ignorePlatform }) {
+export function incompatibility(manifest, host, where, { ignoreEngines, ignorePlatform }) {
   const { os, cpu } = manifest
   let { engines } = manifest
   if (!ignorePlatform && Array.isArray(os) && os.length > 0 && !isValid(os, host.os)) return `its os, ${JSON.stringify(os)}, does not take ${quote(host.os)}`
@@ -73,7 +76,7 @@ export function incompatibility(manifest, host, semver, where, { ignoreEngines, 
     if (name === 'iojs') name = 'node'
     if (typeof range !== 'string' && (Object.hasOwn(versions, name) || REPORTED.has(name))) throw new DeptreeError(`engines.${name} is not a string, which yarn fails on`, where)
     if (Object.hasOwn(versions, name)) {
-      if (!testEngine(semver, name, range, versions)) return `its engines.${name}, ${quote(String(range))}, does not take ${versions[name]}`
+      if (!testEngine(name, range, versions)) return `its engines.${name}, ${quote(String(range))}, does not take ${versions[name]}`
     } else if (REPORTED.has(name)) {
       throw new DeptreeError(`yarn checks engines.${name} against the Node it runs on, which is not known here`, where)
     }

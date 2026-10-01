@@ -4,34 +4,29 @@
 // peer's range is added to its dependencies, by all of that version's
 // patterns. Where none is found, nothing is added, and yarn warns.
 
-// yarn's satisfiesWithPrereleases (util/semver.js): an upper bound
-// excludes its own prereleases.
-export function satisfiesWithPrereleases(semver, version, range, loose = false) {
-  let parsed
-  try {
-    parsed = new semver.Range(range, loose)
-  } catch {
-    return false
-  }
-  if (!version) return false
-  let actual
-  try {
-    actual = new semver.SemVer(version, parsed.loose)
-  } catch {
-    return false
-  }
-  // A `<` with no prerelease of its own made a `<` its lowest prerelease.
-  const bounded = (comparator) => {
-    if (comparator.operator !== '<' || !comparator.value || comparator.semver.prerelease.length > 0) return comparator
-    comparator.semver.inc('pre', 0)
-    return new semver.Comparator(comparator.operator + comparator.semver.version, comparator.loose)
-  }
-  return parsed.set.some((set) => set.every((comparator) => bounded(comparator).test(actual)))
+import { compareVersions, valid, validRange } from '@preventive/upstream/semver.js'
+
+// yarn's satisfiesWithPrereleases (util/semver.js): each comparator of a
+// set tested on its own, with no say of semver's over prereleases, and a
+// `<` with no prerelease of its own made a `<` its lowest one, so that
+// `<2.0.0` takes no 2.0.0-rc.1; read off the range as semver normalizes it.
+const OPERATORS = /^(<=|>=|<|>|=)?(.*)$/u
+
+export function satisfiesWithPrereleases(version, range, loose = false) {
+  const options = { loose }
+  const normalized = validRange(range, options)
+  if (normalized === null || !version || valid(version, options) === null) return false
+  return normalized.split('||').some((set) => set.split(' ').every((comparator) => {
+    const [, operator = '=', bound] = OPERATORS.exec(comparator)
+    if (bound === '' || bound === '*') return true
+    const order = compareVersions(version, operator === '<' && !bound.includes('-') ? `${bound}-0` : bound, options)
+    return { '<': order < 0, '<=': order <= 0, '>': order > 0, '>=': order >= 0, '=': order === 0 }[operator]
+  }))
 }
 
 // `resolved` is resolve.js's; `manifests` each reference's package.json,
 // by reference, as fetched or as the workspace has it.
-export function resolvePeers(resolved, manifests, semver) {
+export function resolvePeers(resolved, manifests) {
   const { patterns, byName } = resolved
   const seen = new Set()
   for (const ref of patterns.values()) {
@@ -55,7 +50,7 @@ export function resolvePeers(resolved, manifests, semver) {
       let found
       for (const candidate of new Set((byName.get(name) ?? []).map((pattern) => patterns.get(pattern)))) {
         const d = distance(candidate)
-        if (Number.isFinite(d) && d < best && (range === '*' || satisfiesWithPrereleases(semver, candidate.version, range, true))) {
+        if (Number.isFinite(d) && d < best && (range === '*' || satisfiesWithPrereleases(candidate.version, range, true))) {
           best = d
           found = candidate
         }
