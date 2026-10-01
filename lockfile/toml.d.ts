@@ -14,6 +14,11 @@ export type TomlValue = string | number | bigint | boolean | TomlFloat | TomlDat
 // `new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })`.
 export function parseToml(text: string): TomlTable
 
+// Whether parseToml read `value` as a table written inline, `{ ... }`, as
+// some readers take one apart from a table a header or a dotted key makes:
+// toml_edit, for one, gives it as a value rather than as a table.
+export function isInlineTable(value: unknown): boolean
+
 // `text` as written, toDate() to the millisecond. Frozen; the constructor
 // throws a TypeError for what the parser would not read.
 export class TomlDateTime {

@@ -199,6 +199,10 @@ function readArray(src, depth) {
 
 export const isTable = (value) => typeof value === 'object' && value !== null && Object.getPrototypeOf(value) === null
 
+// Every table written inline, `{ ... }`, wherever it is.
+const INLINE = new WeakSet()
+export const isInlineTable = (value) => INLINE.has(value)
+
 // A dotted key goes only through tables dotted keys made, which are `made`;
 // `refused` says why another is not one.
 export function putDotted(src, table, made, keys, value, refused) {
@@ -225,6 +229,7 @@ function sameLine(src) {
 function readInline(src, depth) {
   src.pos++
   const table = Object.create(null)
+  INLINE.add(table)
   const open = new Set()
   sameLine(src)
   if (src.text[src.pos] === '}') {
