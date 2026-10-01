@@ -4,14 +4,16 @@ import { sep } from 'node:path'
 import { describe, it } from 'node:test'
 
 // `lockfile/` is a package of its own, and the point of it is that it can
-// be dropped into anything: nothing in it may reach outside itself, and
-// nothing in it may assume a filesystem, a terminal, a locale or a host of
-// any kind. A reader of untrusted files, its YAML and TOML parsers among them, has one
-// more reason than most to have no dependencies at all — not even node:
+// be dropped into anything: nothing in it may reach outside itself but for
+// the one dependency package.json declares, @exodus/bytes, and nothing in
+// it may assume a filesystem, a terminal, a locale or a host of any kind.
+// A reader of untrusted files, its YAML and TOML parsers among them, has
+// one more reason than most to keep its dependencies few — and no node:
 // builtins, which it does not need.
 //
-// Enforced here rather than left to review because a single `../` is all it
-// takes to undo, and it reads as harmless in a diff.
+// Enforced here rather than left to review because a single `../`, or one
+// more dependency, is all it takes to undo, and it reads as harmless in a
+// diff.
 const PKG_DIR = new URL('../', import.meta.url)
 const SRC_DIR = new URL('src/', PKG_DIR)
 
@@ -73,21 +75,24 @@ describe('lockfile/ ships every module it has', () => {
   }
 })
 
-describe('lockfile/ imports nothing at all from outside', () => {
+describe('lockfile/ imports nothing from outside but @exodus/bytes', () => {
   it('has files to check', () => {
     assert.ok(files.length >= 10, `expected the lockfile/ modules, found ${files.length}`)
   })
 
-  it('declares no dependencies', () => {
-    assert.equal(manifest.dependencies, undefined)
+  it('declares @exodus/bytes alone', () => {
+    assert.deepEqual(Object.keys(manifest.dependencies ?? {}), ['@exodus/bytes'])
     assert.equal(manifest.peerDependencies, undefined)
   })
 
   for (const file of files) {
     const name = file.href.slice(PKG_DIR.href.length)
-    it(`${name} imports only within lockfile/`, () => {
+    it(`${name} imports only within lockfile/ and what it declares`, () => {
       for (const spec of specifiersOf(readFileSync(file, 'utf8'))) {
-        assert.ok(spec.startsWith('.'), `${name} imports ${spec} — lockfile/ may only import its own modules`)
+        if (!spec.startsWith('.')) {
+          assert.ok(spec.startsWith('@exodus/bytes/'), `${name} imports ${spec} — lockfile/ may only import its own modules and @exodus/bytes`)
+          continue
+        }
         assert.ok(new URL(spec, file).href.startsWith(PKG_DIR.href), `${name} imports ${spec}, which is outside lockfile/`)
       }
     })

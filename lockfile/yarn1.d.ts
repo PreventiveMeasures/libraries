@@ -82,7 +82,7 @@ export interface Yarn1Options {
   // On by default, which needs semver; off, versions are read without it,
   // unless it is passed all the same.
   checkVersions?: boolean
-  // The semver package, npm's: this reader depends on no package itself.
+  // The semver package, npm's, which this reader does not depend on.
   semver?: Yarn1Semver
 }
 

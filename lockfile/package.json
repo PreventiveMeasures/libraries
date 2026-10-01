@@ -77,5 +77,8 @@
   "homepage": "https://github.com/PreventiveMeasures/libraries/tree/main/lockfile",
   "publishConfig": {
     "access": "public"
+  },
+  "dependencies": {
+    "@exodus/bytes": "^1.16.0"
   }
 }

@@ -1,5 +1,7 @@
 // Entries into packages: one object under all patterns of an entry, as in yarn.
 
+import { toBase64 } from '@exodus/bytes/base64.js'
+import { fromHex } from '@exodus/bytes/hex.js'
 import { LockfileError, at, quote } from '../error.js'
 import { checkOptional } from '../graph.js'
 import { checkIntegrity, checkName, checkRelative, checkRepo, checkVersion, isCommit, joinRelative } from '../names.js'
@@ -77,7 +79,6 @@ function readVersion(value, where, semver) {
 }
 
 const SHA1 = /^[\da-f]{40}$/u
-const hexToBase64 = (hex) => btoa(String.fromCodePoint(...hex.match(/../gu).map((pair) => Number.parseInt(pair, 16))))
 
 // yarn writes a `file:` path as the manifest does, `./` and all; it checks the
 // sha1 after `#` where there is no integrity.
@@ -91,7 +92,7 @@ function readTarball(tarball, sha1, integrity, resolvedAt, integrityAt) {
     const algorithm = part.slice(0, part.indexOf('-'))
     if (algorithms.has(algorithm)) throw new LockfileError(`two ${algorithm} integrities`, integrityAt)
     algorithms.add(algorithm)
-    if (sha1 !== undefined && algorithm === 'sha1' && part.slice(5) !== hexToBase64(sha1)) {
+    if (sha1 !== undefined && algorithm === 'sha1' && part.slice(5) !== toBase64(fromHex(sha1))) {
       throw new LockfileError(`${quote(part)} is not the sha1 after the "#" of resolved`, integrityAt)
     }
   }
