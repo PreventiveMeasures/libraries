@@ -383,6 +383,21 @@ describe('what it refuses', () => {
     refuses(`a: 'x' ${'y'.repeat(100)}`, /^unexpected " y{63}"\.\.\. after the value at line 1$/u, 0)
   })
 
+  // The line filter lets bidi controls through, and escapes in a quoted
+  // scalar make C1 controls and line separators it does refuse; JSON
+  // leaves all of them raw.
+  it('messages quote the text with controls, separators and bidi controls escaped, and cut between characters', () => {
+    refuses('a: 1\n\u202Eabc\n', 'expected a mapping key, found "\\u202eabc" at line 2', 1)
+    for (const char of ['\u061C', '\u200E', '\u200F', '\u202A', '\u202B', '\u202C', '\u202D', '\u202E', '\u2066', '\u2067', '\u2068', '\u2069']) {
+      const escaped = `\\u${char.codePointAt(0).toString(16).padStart(4, '0')}`
+      refuses(`a: 'x' ${char}y`, `unexpected " ${escaped}y" after the value at line 1`, 0)
+    }
+    refuses('"k\\N\\L\\P\\u202E\\x9B": 1\n"k\\N\\L\\P\\u202E\\x9B": 2\n', 'duplicate key "k\\u0085\\u2028\\u2029\\u202e\\u009b" at line 2', 1)
+    refuses(`a: 'x' ${'y'.repeat(62)}\u202Etail`, `unexpected " ${'y'.repeat(62)}\\u202e"... after the value at line 1`, 0)
+    refuses(`a: 'x' ${'y'.repeat(62)}😀tail`, `unexpected " ${'y'.repeat(62)}"... after the value at line 1`, 0)
+    refuses(`a: 'x' ${'y'.repeat(61)}😀tail`, `unexpected " ${'y'.repeat(61)}😀"... after the value at line 1`, 0)
+  })
+
   it('anything but a string', () => {
     assert.throws(() => parseYaml(Buffer.from('a: 1')), TypeError)
     assert.throws(() => parseYaml(), TypeError)
