@@ -7,6 +7,17 @@ import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { REGISTRY } from '../tarball.js'
 
+const ON_FAIL = new Set(['download', 'error', 'warn', 'ignore'])
+const IMPORT_METHODS = new Set(['auto', 'hardlink', 'copy', 'clone', 'clone-or-copy'])
+
+const show = (value) => (typeof value === 'string' ? quote(value) : Array.isArray(value) ? 'a list' : value === null ? 'null' : typeof value === 'object' ? 'a mapping' : String(value))
+
+// A reader of one of the values of `allowed`.
+const oneOf = (allowed) => (value, where) => {
+  if (allowed.has(value)) return value
+  throw new DeptreeError(`expected one of ${[...allowed].join(', ')}, found ${show(value)}`, where)
+}
+
 export const readers = {
   boolean(value, where) {
     if (typeof value === 'boolean') return value
@@ -42,10 +53,8 @@ export const readers = {
     if (value !== null && typeof value === 'object' && !Array.isArray(value)) return value
     throw new DeptreeError(`expected a mapping, found ${show(value)}`, where)
   },
-  onFail(value, where) {
-    if (ON_FAIL.has(value)) return value
-    throw new DeptreeError(`expected one of ${[...ON_FAIL].join(', ')}, found ${show(value)}`, where)
-  },
+  importMethod: oneOf(IMPORT_METHODS),
+  onFail: oneOf(ON_FAIL),
   linkWorkspacePackages(value, where) {
     return value === 'deep' ? true : readers.boolean(value, where)
   },
@@ -71,10 +80,6 @@ export const readers = {
     return value
   },
 }
-
-const ON_FAIL = new Set(['download', 'error', 'warn', 'ignore'])
-
-const show = (value) => (typeof value === 'string' ? quote(value) : Array.isArray(value) ? 'a list' : value === null ? 'null' : typeof value === 'object' ? 'a mapping' : String(value))
 
 // Read, and held to one value: the default, or the only one built for.
 const only = (kind, wanted, why) => ({ kind, check: (value, where) => {
@@ -130,6 +135,9 @@ export const READ = {
   autoInstallPeers: { kind: 'boolean' },
   dedupePeers: { kind: 'boolean' },
   peersSuffixMaxLength: { kind: 'count' },
+  // Whether a package installed from a directory has the files of each of
+  // its snapshots as one, hardlinked, or each as its own (tree.js).
+  packageImportMethod: { kind: 'importMethod' },
   // Neither pnpm's .npmrc nor ours has these.
   supportedArchitectures: { kind: 'mapping', check: checkArchitectures, rc: false },
   patchedDependencies: { kind: 'mapping', check: checkPatches, rc: false },
@@ -158,7 +166,7 @@ const READ_11 = {
 }
 
 // What pnpm 11 has that leaves the tree as it is. The tree follows the
-// lockfile, as pnpm 11's does with trustLockfile: minimumReleaseAge and the
+// lockfile, as pnpm 11's and 12's do with trustLockfile: minimumReleaseAge and the
 // rest of what pnpm 11 checks the lockfile against the registry by before
 // it installs — each package's publish time, its tarball URL, its trust —
 // are passed over.
@@ -177,6 +185,34 @@ const IGNORED_11 = new Set([
   'prodAllProjectsGraph', 'prodOnlySelectedProjectDirs', 'rootProjectManifest', 'enginePinManifest',
   'nodeVersionFromEnginesRuntime', 'cliOptions', 'explicitlySetKeys', 'packageManager', 'wantedPackageManager',
 ])
+
+// What pnpm 12 has that pnpm 11 has not: those that leave an isolated
+// tree as it is — resolution's, the hoisted linker's, the tasks of
+// `pnpm run`, the global install's — and a Cargo or Python install beside
+// the tree's, which is refused where it is enabled.
+const IGNORED_12 = new Set([
+  'autoDedupe', 'autoInstallPeersFromHighestMatch', 'externalDependencies', 'hoistingLimits', 'globalShims',
+  'concurrencyGroups', 'pipelines', 'pipelineBase', 'publishWaitTimeout', 'saveTypes', 'tools', 'macosBackup',
+])
+const notEnabled = (value, where) => {
+  if (value.enabled !== undefined && value.enabled !== null && value.enabled !== false) never('an install of Cargo or Python packages beside the tree is not supported')(value.enabled, `${where}.enabled`)
+}
+const READ_12 = {
+  __proto__: null,
+  cargo: { kind: 'mapping', check: notEnabled },
+  python: { kind: 'mapping', check: notEnabled },
+}
+
+// What pnpm 11 reads or passes over that pnpm 12 does not know: it drops
+// each, and fails on one where the root package.json pins the pnpm that
+// runs.
+const UNRECOGNIZED_12 = new Set([
+  'allowNonAppliedPatches', 'alwaysAuth', 'email', 'enginePinManifest', 'ignoreDepScripts', 'ignorePatchFailures',
+  'lockfileDirectory', 'managePackageManagerVersions', 'nodeVersionFromEnginesRuntime', 'packageManagerStrict',
+  'packageManagerStrictVersion', 'shamefullyFlatten', 'useNodeVersion',
+])
+
+export const unrecognized12 = (where) => new DeptreeError('pnpm 12 does not know it, and fails on it where the root package.json pins the pnpm that runs', where)
 
 // The keys of the root package.json's `pnpm` field pnpm 10 reads; it
 // passes over any other there.
@@ -206,7 +242,7 @@ export const IGNORED = new Set([
   'fetchRetryMintimeout', 'fetchTimeout', 'httpProxy', 'httpsProxy', 'key', 'localAddress', 'maxsockets',
   'networkConcurrency', 'noProxy', 'noproxy', 'offline', 'preferOffline', 'proxy', 'strictSsl', 'userAgent',
   // the store, caches and state, none of it in node_modules
-  'cacheDir', 'modulesCacheMaxAge', 'packageImportMethod', 'sideEffectsCache', 'sideEffectsCacheReadonly',
+  'cacheDir', 'modulesCacheMaxAge', 'sideEffectsCache', 'sideEffectsCacheReadonly',
   'stateDir', 'storeDir', 'strictStorePkgContentCheck', 'verifyStoreIntegrity',
   // scripts, which are not run, and bins, which are not written
   'allowBuilds', 'childConcurrency', 'dangerouslyAllowAllBuilds', 'enablePrePostScripts', 'extendNodePath',
@@ -252,13 +288,34 @@ function checkCatalogs(value, where) {
   for (const [name, catalog] of Object.entries(value)) checkCatalog(readers.mapping(catalog, `${where}.${name}`), `${where}.${name}`)
 }
 
+// What pnpm of `major` does with a setting, as far as is known here: reads
+// it, with `read`; leaves the tree as it is, with none; or for pnpm 12,
+// does not recognize it. Undefined for one not known. pnpm 12 takes a
+// pattern only as a list.
+function lookup(name, major) {
+  if (major >= 12 && UNRECOGNIZED_12.has(name)) return { unrecognized: true }
+  if (major >= 12 && name in READ_12) return { read: READ_12[name] }
+  if (major >= 11 && name in READ_11) return { read: READ_11[name] }
+  if (IGNORED.has(name) || (major >= 11 && IGNORED_11.has(name)) || (major >= 12 && IGNORED_12.has(name))) return {}
+  if (!(name in READ)) return undefined
+  return { read: major >= 12 && READ[name].kind === 'texts' ? { ...READ[name], kind: 'list' } : READ[name] }
+}
+
 // What reads a setting for pnpm of `major`, or undefined for one that
-// leaves the tree as it is; one that is neither is refused.
-export function readerOf(name, where, major) {
-  if (major >= 11 && name in READ_11) return READ_11[name]
-  if (IGNORED.has(name) || (major >= 11 && IGNORED_11.has(name))) return undefined
-  if (!(name in READ)) throw new DeptreeError('unsupported setting', where)
-  return READ[name]
+// leaves the tree as it is; one not known is refused. `pinned` is whether
+// pnpm 12 fails on one it does not recognize.
+export function readerOf(name, where, major, pinned = false) {
+  const found = lookup(name, major)
+  if (found === undefined) throw new DeptreeError('unsupported setting', where)
+  if (found.unrecognized && pinned) throw unrecognized12(where)
+  return found.read
+}
+
+// Whether pnpm 12 knows a setting, read or passed over, as far as is known
+// here.
+export function known12(name) {
+  const found = lookup(name, 12)
+  return found !== undefined && !found.unrecognized
 }
 
 // By selector, the patch file, relative to the workspace's directory.

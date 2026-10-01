@@ -94,6 +94,52 @@ describe('skippedSnapshots for pnpm 11', () => {
   })
 })
 
+// pnpm 12 leaves out what pnpm 11 does, but refuses with engineStrict an
+// incompatible package an installed one requires though the lockfile marks
+// it optional; takes the first entry of a cpu list that names the host's;
+// and refuses an engines.node npm's semver does not read where it decides.
+describe('skippedSnapshots for pnpm 12', () => {
+  const on12 = (given = {}) => ({ host: { ...HOST, major: 12 }, settings: given })
+  const on11 = (given = {}) => ({ host: { ...HOST, major: 11 }, settings: given })
+  const optional = { 'opt@1.0.0': '    optional: true\n', 'bad@1.0.0': '    optional: true\n' }
+
+  it('refuses with engineStrict what an installed package requires that the host cannot run', () => {
+    const lock = lockfile({ root: { optionalDependencies: ['opt'] }, graph: { 'opt@1.0.0': { bad: '1.0.0' }, 'bad@1.0.0': {} }, meta: { 'bad@1.0.0': "    engines: {node: '>=99'}\n" }, snapshotMeta: optional })
+    assert.deepEqual([...skippedSnapshots(lock, on11({ engineStrict: true })).incompatible], ['bad@1.0.0'])
+    assert.throws(() => skippedSnapshots(lock, on12({ engineStrict: true })), /^DeptreeError: "bad@1\.0\.0": the host does not take its engines\.node, which engineStrict refuses$/u)
+    assert.deepEqual([...skippedSnapshots(lock, on12()).incompatible], ['bad@1.0.0'])
+  })
+
+  it('takes the first entry of a list that names the host\'s', () => {
+    const lock = lockfile({ root: { optionalDependencies: ['c'] }, graph: { 'c@1.0.0': {} }, meta: { 'c@1.0.0': "    cpu: [x64, '!x64']\n" }, snapshotMeta: { 'c@1.0.0': '    optional: true\n' } })
+    assert.deepEqual([...skippedSnapshots(lock, on12()).skipped], [])
+    assert.deepEqual([...skippedSnapshots(lock, on11()).skipped], ['c@1.0.0'])
+  })
+
+  it('refuses an engines.node npm\'s semver does not read where it decides what is installed', () => {
+    for (const range of ['node >= 0.8', '1.2.3 - x']) {
+      const lock = lockfile({ root: { optionalDependencies: ['e'] }, graph: { 'e@1.0.0': {} }, meta: { 'e@1.0.0': `    engines: {node: '${range}'}\n` }, snapshotMeta: { 'e@1.0.0': '    optional: true\n' } })
+      assert.throws(() => skippedSnapshots(lock, on12()), /^DeptreeError: "e@1\.0\.0": its engines\.node, ".+", pnpm 12 reads otherwise than npm's semver, which is not supported$/u, range)
+      skippedSnapshots(lock, on11())
+    }
+    const required = lockfile({ root: { dependencies: ['e'] }, graph: { 'e@1.0.0': {} }, meta: { 'e@1.0.0': "    engines: {node: 'node >= 0.8'}\n" } })
+    assert.deepEqual([...skippedSnapshots(required, on12()).incompatible], ['e@1.0.0'], 'it only warns of one installed anyway')
+  })
+})
+
+// `file:a:b` and `file:a?b` are one directory under node_modules/.pnpm,
+// both `:` and `?` made `+`; pnpm 10 and 11 place no snapshot they skip,
+// and pnpm 12 hoists from those too.
+describe('buildGraph', () => {
+  it('holds to one directory each only the snapshots pnpm places', async () => {
+    const lock = { packages: { 'a@file:a:b': { name: 'a' }, 'a@file:a?b': { name: 'a' } }, importers: { '.': {} } }
+    const skipped = new Set(['a@file:a?b'])
+    for (const major of [10, 11]) assert.deepEqual([...(await buildGraph(lock, skipped, 120, major)).nodes.keys()], ['a@file:a:b'], `pnpm ${major}`)
+    await assert.rejects(buildGraph(lock, skipped, 120, 12), /^DeptreeError: "node_modules\/\.pnpm\/a@file\+a\+b\/node_modules\/a": "a@file:a:b" and "a@file:a\?b" would be installed in one directory$/u)
+    await assert.rejects(buildGraph(lock, new Set(), 120, 10), /would be installed in one directory/u)
+  })
+})
+
 describe('hoist', () => {
   const hoisted = async (lock) => {
     const { nodes, direct } = await buildGraph(lock, new Set(), 120)
@@ -117,5 +163,40 @@ describe('hoist', () => {
     }
     const links = await hoisted(lockfile({ root: { dependencies: ['a', 'b'] }, graph }))
     assert.equal(links.q, 'q@2.0.0')
+  })
+})
+
+// pnpm 12 hoists from a graph of every snapshot: it walks through opt,
+// left out, though it hoists nothing of it, so opt's d@1 comes at depth 0,
+// before g's d@2; holds back the root's s, left out, from u's s@2; and
+// takes the nodes of one depth in the order of their directories' names,
+// foo@1.0.0's before foo@1.0.0-rc.1's, which pnpm 11 has the other way.
+describe('hoist for pnpm 12', () => {
+  const graph = {
+    'a@1.0.0': { z: '1.0.0' }, 'z@1.0.0': { d: '1.0.0' }, 'f@1.0.0': { g: '1.0.0' }, 'g@1.0.0': { d: '2.0.0' },
+    'd@1.0.0': {}, 'd@2.0.0': {}, 'opt@1.0.0': { d: '1.0.0' }, 's@1.0.0': {}, 's@2.0.0': {}, 'u@1.0.0': { s: '2.0.0' },
+    'p@1.0.0': { foo: '1.0.0' }, 'q@1.0.0': { foo: '1.0.0-rc.1' }, 'foo@1.0.0': { x: '1.0.0' }, 'foo@1.0.0-rc.1': { x: '2.0.0' }, 'x@1.0.0': {}, 'x@2.0.0': {},
+  }
+  const lock = lockfile({ root: { dependencies: ['a', 'f', 'u', 'p', 'q'], optionalDependencies: ['opt', 's'] }, graph })
+  const hoisted = async (major) => {
+    const { nodes, direct, hoisting } = await buildGraph(lock, new Set(['opt@1.0.0', 's@1.0.0']), 120, major)
+    const links = hoist(new Map([...nodes.values()].map((node) => [node.dir, node])), direct, settings, new Map(), major, hoisting)
+    return Object.fromEntries([...links].map(([path, dir]) => [path.slice('node_modules/.pnpm/node_modules/'.length), dir.split('/')[2]]))
+  }
+
+  it('hoists as pnpm 12 does, and pnpm 11 otherwise', async () => {
+    const both = { z: 'z@1.0.0', g: 'g@1.0.0', foo: 'foo@1.0.0' }
+    assert.deepEqual(await hoisted(12), { ...both, d: 'd@1.0.0', x: 'x@1.0.0' })
+    assert.deepEqual(await hoisted(11), { ...both, d: 'd@2.0.0', x: 'x@2.0.0', s: 's@2.0.0' })
+  })
+
+  it('refuses two projects whose names are one folded, both hoisted', async () => {
+    const { nodes, direct, hoisting } = await buildGraph(lock, new Set(), 120, 12)
+    const projects = new Map([['packages/a', 'Tool'], ['packages/b', 'tool']])
+    assert.throws(() => hoist(nodes, direct, settings, projects, 12, hoisting), /^DeptreeError: manifests\["packages\/b"\]\.name: its name and "packages\/a"'s are one with their case folded, of which pnpm 12 hoists one by an order not known here$/u)
+    // Where its patterns leave one out, pnpm 12 hoists the other.
+    const one = hoist(nodes, direct, { ...settings, hoistPattern: ['*', '!tool'] }, new Map([['packages/a', 'tool'], ['packages/b', 'Tool']]), 12, hoisting)
+    assert.equal(one.get('node_modules/.pnpm/node_modules/Tool'), 'packages/b')
+    assert.equal(one.has('node_modules/.pnpm/node_modules/tool'), false)
   })
 })

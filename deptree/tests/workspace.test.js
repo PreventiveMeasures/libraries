@@ -88,6 +88,31 @@ describe('findProjects', () => {
     assert.deepEqual(findProjects(workspace(), ['**', '.hidden/d'], 10), ['.', '.hidden/d', 'other/e', 'packages/a', 'packages/b', 'packages/f/sub', 'tests/t'])
   })
 
+  // pnpm 12.8.1 lists the same where no glob with a `*` reaches
+  // packages/k, whose package.json is a directory, which fails it; and
+  // never walks into a node_modules, wherever it is.
+  it('finds them as pnpm 12 does', () => {
+    const vfs = changed((v) => v.rm('/packages/k', { recursive: true }))
+    for (const [packages, ids] of found) assert.deepEqual(findProjects(vfs, packages, 12), ['.', ...ids], JSON.stringify(packages))
+    for (const packages of [['packages/*'], ['*/*'], ['**'], ['p*/*']]) {
+      assert.throws(() => findProjects(workspace(), packages, 12), /^DeptreeError: "packages\/k\/package\.json": pnpm 12 reads this as a manifest, and fails on it as a directory$/u, packages.join(', '))
+    }
+    assert.deepEqual(findProjects(workspace(), ['packages/k', 'packages/a'], 12), ['.', 'packages/a'])
+    assert.deepEqual(findProjects(workspace(), ['.hidden/**'], 12), ['.', '.hidden/d'])
+    assert.deepEqual(findProjects(workspace(), ['.hidden/node_modules/*'], 12), ['.'])
+  })
+
+  // A `**` takes no name before one spelled with a leading dot, as with
+  // pnpm 12.8.1, where 11.28.2 does not; and the projects come by name.
+  it('takes a dot directory a `**` stands before for pnpm 12 alone', () => {
+    const vfs = createVfs({ 'package.json': '{}', '.hid/c/package.json': '{}', 'a/.x/b/package.json': '{}', '.x/package.json': '{}', 'q/.hid/r/package.json': '{}', 'a/b/package.json': '{}', 'a-b/package.json': '{}' })
+    assert.deepEqual(findProjects(vfs, ['**/.hid/*', '**/.x', 'a/**/.x/*'], 12), ['.', '.hid/c', '.x', 'a/.x/b', 'q/.hid/r'])
+    assert.deepEqual(findProjects(vfs, ['**/.hid/*', '**/.x', 'a/**/.x/*'], 11), ['.', 'a/.x/b', 'q/.hid/r'])
+    assert.deepEqual(findProjects(vfs, ['*'], 12), ['.', 'a-b'])
+    assert.deepEqual(findProjects(vfs, ['a', 'a-b', 'a/b'], 12), ['.', 'a/b', 'a-b'])
+    assert.deepEqual(findProjects(vfs, ['a', 'a-b', 'a/b'], 11), ['.', 'a-b', 'a/b'])
+  })
+
   it('leaves out what a `!` glob takes under a dot directory for pnpm 11 alone', () => {
     const vfs = changed((v) => v.rm('/.hidden/node_modules', { recursive: true }))
     for (const packages of [['.hidden/**', '!**/d'], ['.hidden/*', '!*/d']]) {

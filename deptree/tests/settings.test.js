@@ -14,6 +14,7 @@ const DEFAULTS = {
   hoistWorkspacePackages: true,
   engineStrict: false,
   nodeVersion: undefined,
+  runtimeNodeVersion: undefined,
   supportedArchitectures: undefined,
   patchedDependencies: undefined,
   overrides: undefined,
@@ -27,6 +28,7 @@ const DEFAULTS = {
   linkWorkspacePackages: false,
   pmOnFail: undefined,
   runtimeOnFail: undefined,
+  packageImportMethod: 'auto',
 }
 
 describe('parseNpmrc', () => {
@@ -61,6 +63,13 @@ describe('readSettings', () => {
     assert.deepEqual(read({ workspace: 'shamefullyHoist: true\n' }).publicHoistPattern, ['*'])
     assert.equal(read({ workspace: 'shamefullyHoist: false\n' }).publicHoistPattern, undefined)
     assert.equal(read({ npmrc: 'public-hoist-pattern=\n' }).publicHoistPattern, undefined)
+  })
+
+  // Whether a package installed from a directory is one copy or many.
+  it('reads packageImportMethod', () => {
+    assert.equal(read({ npmrc: 'package-import-method=copy\n' }).packageImportMethod, 'copy')
+    assert.equal(read({ workspace: 'packageImportMethod: clone-or-copy\n', major: 11 }).packageImportMethod, 'clone-or-copy')
+    assert.throws(() => read({ workspace: 'packageImportMethod: symlink\n' }), /^DeptreeError: pnpm-workspace\.yaml: packageImportMethod: expected one of auto, hardlink, copy, clone, clone-or-copy, found "symlink"$/u)
   })
 
   it('passes over what leaves the tree as it is', () => {
@@ -130,11 +139,12 @@ describe('readSettings', () => {
   // where it pins Node exactly, devEngines first.
   it('takes nodeVersion for pnpm 11 from the Node engines.runtime pins', () => {
     const runtime = (version, onFail = 'error') => ({ name: 'node', version, onFail })
-    assert.equal(read({ manifest: { engines: { runtime: runtime('22.1.0') } }, major: 11 }).nodeVersion, '22.1.0')
-    assert.equal(read({ manifest: { devEngines: { runtime: [{ name: 'deno' }, runtime('20.0.0', 'warn')] }, engines: { runtime: runtime('22.1.0') } }, major: 11 }).nodeVersion, '20.0.0')
-    assert.equal(read({ manifest: { devEngines: { runtime: runtime('>=20') }, engines: { runtime: runtime('22.1.0') } }, major: 11 }).nodeVersion, undefined, 'a range decides, and pins nothing')
-    assert.equal(read({ manifest: { engines: { runtime: runtime('22.1.0') } }, workspace: 'nodeVersion: 24.0.0\n', major: 11 }).nodeVersion, '24.0.0')
-    assert.equal(read({ manifest: { engines: { runtime: runtime('22.1.0') } } }).nodeVersion, undefined, 'pnpm 10 takes none')
+    assert.equal(read({ manifest: { engines: { runtime: runtime('22.1.0') } }, major: 11 }).runtimeNodeVersion, '22.1.0')
+    assert.equal(read({ manifest: { devEngines: { runtime: [{ name: 'deno' }, runtime('20.0.0', 'warn')] }, engines: { runtime: runtime('22.1.0') } }, major: 11 }).runtimeNodeVersion, '20.0.0')
+    assert.equal(read({ manifest: { devEngines: { runtime: runtime('>=20') }, engines: { runtime: runtime('22.1.0') } }, major: 11 }).runtimeNodeVersion, undefined, 'a range decides, and pins nothing')
+    const both = read({ manifest: { engines: { runtime: runtime('22.1.0') } }, workspace: 'nodeVersion: 24.0.0\n', major: 11 })
+    assert.deepEqual([both.nodeVersion, both.runtimeNodeVersion], ['24.0.0', '22.1.0'], 'nodeVersion wins where it is read')
+    assert.equal(read({ manifest: { engines: { runtime: runtime('22.1.0') } } }).runtimeNodeVersion, undefined, 'pnpm 10 takes none')
     assert.throws(() => read({ manifest: { engines: { runtime: runtime('22.1.0', 'download') } }, major: 11 }), /a Node runtime to download is not supported/u)
     assert.throws(() => read({ manifest: { engines: { runtime: runtime('22.1.0') } }, workspace: 'runtimeOnFail: download\n', major: 11 }), /a Node runtime to download is not supported/u)
   })

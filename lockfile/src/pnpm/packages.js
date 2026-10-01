@@ -101,11 +101,17 @@ export function target(ref, alias, base, snapshots, where) {
 
 // A snapshot's links are read from the lockfile's directory, as pnpm's
 // installer reads them, although its writer leaves a `link:` a directory
-// dependency asks for as that dependency wrote it.
+// dependency asks for as that dependency wrote it. pnpm writes one into a
+// package's own directory, which a `file:` dependency of the package asks
+// for, as `link:<root>/` and the path in it; that is refused, as no
+// directory from the lockfile's names it. An importer's `link:<root>/` is
+// a directory named `<root>`, as pnpm writes one for `link:./<root>/`.
 function readTargets(value, where, snapshots) {
   const targets = Object.create(null)
   for (const [alias, ref, here] of entries(value ?? EMPTY, where)) {
-    targets[checkName(alias, here)] = target(text(ref, here), alias, '.', snapshots, here)
+    const read = text(ref, here)
+    if (read === 'link:<root>' || read.startsWith('link:<root>/')) throw new LockfileError(`${quote(read)} leads into the package that asks for it, which is not supported`, here)
+    targets[checkName(alias, here)] = target(read, alias, '.', snapshots, here)
   }
   return targets
 }

@@ -30,16 +30,23 @@
 //
 // pnpm 11 reads its settings from pnpm-workspace.yaml alone: an .npmrc
 // for credentials and registries, and the package.json for none but the
-// Node its engines.runtime pins, which it takes for nodeVersion. Of the
+// Node its engines.runtime pins, runtimeNodeVersion, which it takes where
+// nodeVersion is not set. Of the
 // yaml it passes over a key not in camelCase, and one about the machine,
 // the run or a login; it has settings pnpm 10 has not (READ_11, IGNORED_11),
 // and reads linkWorkspacePackages for a frozen install too.
+//
+// pnpm 12 reads them as pnpm 11 does, and has settings of its own (READ_12,
+// IGNORED_12); where the root package.json pins the pnpm that runs, it
+// fails on a key of pnpm-workspace.yaml with a value it does not know,
+// pnpm 11's that it has not among them (UNRECOGNIZED_12), which it drops
+// otherwise.
 
 import { valid, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { parseNpmrc } from './npmrc.js'
 import { replaceReferences } from './overrides.js'
-import { IGNORED, MANIFEST_KEYS, READ, checkRegistry, readerOf, readers } from './readers.js'
+import { IGNORED, MANIFEST_KEYS, READ, checkRegistry, known12, readerOf, readers, unrecognized12 } from './readers.js'
 
 // An .npmrc value read only where it can mean one thing: not quoted, not
 // escaped, with no `;` or `#` that ini would cut it at. Neither file's
@@ -124,15 +131,19 @@ function fromManifest(manifest) {
 // pnpm 11 passes over a key not in camelCase.
 const CAMEL = /^[a-z][\dA-Za-z]*$/u
 
-function fromWorkspace(workspace, major) {
+// pnpm 12 passes over a key with no value. `pinned` is readerOf's.
+function fromWorkspace(workspace, major, pinned) {
   if (workspace === null || typeof workspace !== 'object' || Array.isArray(workspace)) throw new DeptreeError('expected a mapping', 'pnpm-workspace.yaml')
   const settings = new Map()
   for (const [name, value] of Object.entries(workspace)) {
     const where = `pnpm-workspace.yaml: ${name}`
     noEnvironment(name, where)
     noEnvironment(value, where)
-    if (major >= 11 && !CAMEL.test(name)) continue
-    const read = readerOf(name, where, major)
+    if (major >= 11 && !CAMEL.test(name)) {
+      if (major >= 12 && pinned && value !== null && !known12(camelCase(name))) throw unrecognized12(where)
+      continue
+    }
+    const read = readerOf(name, where, major, pinned && value !== null)
     if (read !== undefined) settings.set(name, { value, where, read })
   }
   return settings
@@ -155,6 +166,7 @@ function derive(get) {
     hoistWorkspacePackages: get('hoistWorkspacePackages') ?? true,
     engineStrict: get('engineStrict') ?? false,
     nodeVersion: get('nodeVersion'),
+    runtimeNodeVersion: undefined,
     supportedArchitectures: get('supportedArchitectures'),
     patchedDependencies: get('patchedDependencies'),
     overrides: get('overrides'),
@@ -168,6 +180,7 @@ function derive(get) {
     linkWorkspacePackages: get('linkWorkspacePackages') ?? false,
     pmOnFail: get('pmOnFail'),
     runtimeOnFail: get('runtimeOnFail'),
+    packageImportMethod: get('packageImportMethod') ?? 'auto',
   }
 }
 
@@ -199,16 +212,17 @@ function settle(layers, manifest) {
 
 // `workspace` is pnpm-workspace.yaml as parsed and `npmrc` the text of the
 // .npmrc, either of which may be undefined; `manifest` the root
-// package.json as parsed. Overrides that name nothing are none, and leave
+// package.json as parsed; `pinned` whether it pins the pnpm that runs,
+// which pnpm 12 holds pnpm-workspace.yaml's keys to. Overrides that name nothing are none, and leave
 // those below them.
-export function readSettings({ workspace, npmrc, manifest, major = 10 }) {
-  const fromYaml = () => (workspace === undefined ? new Map() : fromWorkspace(workspace, major))
+export function readSettings({ workspace, npmrc, manifest, major = 10, pinned = false }) {
+  const fromYaml = () => (workspace === undefined ? new Map() : fromWorkspace(workspace, major, pinned))
   // pnpm 11 reads its settings from pnpm-workspace.yaml alone, and none
   // from the package.json, its `resolutions` none.
   if (major >= 11) {
     if (npmrc !== undefined) checkNpmrcRegistries(npmrc)
     const settings = settle([fromYaml()], manifest)
-    settings.nodeVersion ??= runtimeNode(manifest, settings.runtimeOnFail)
+    settings.runtimeNodeVersion = runtimeNode(manifest, settings.runtimeOnFail)
     return settings
   }
   const rc = npmrc === undefined ? { settings: new Map(), environment: false } : fromNpmrc(npmrc)
@@ -221,7 +235,8 @@ export function readSettings({ workspace, npmrc, manifest, major = 10 }) {
 }
 
 // The Node the root package.json's devEngines.runtime or engines.runtime
-// pins, which pnpm 11 takes for nodeVersion where none is set: the first
+// pins, which pnpm 11 takes for nodeVersion where none is set, and so does
+// pnpm 12 but for a patched package's engines (install.js): the first
 // that names a range for Node decides, and gives its version where that is
 // exact. One to download, which gives the range's lowest, is refused;
 // runtimeOnFail stands for each one's onFail.
