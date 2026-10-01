@@ -165,6 +165,35 @@ describe('buildSoldeerTree', () => {
     const calls = stubSoldeer(zips)
     await assert.rejects(buildSoldeerTree({ lockfile: lockOf(zips), soldeer: configOf(zips), host: HOST }), /^DeptreeError: dependencies\["foo"\]: its zip is downloaded as "foo-1-0\.zip", a folder Soldeer installs another dependency in$/u)
     assert.deepEqual(calls, [])
+    // On macOS, a folder of another case is the zip's too.
+    const cased = [zips[0], dependency('foo-1', '0.ZIP', [{ name: 'a', data: 'a' }])]
+    await build(cased)
+    await assert.rejects(build(cased, { host: { ...HOST, os: 'darwin' } }), /^DeptreeError: dependencies\["foo"\]: its zip is downloaded as "foo-1-0\.zip", a folder Soldeer installs another dependency in$/u)
+  })
+
+  it('refuses a zip whose entries come to more than 512 MiB', async () => {
+    const zip = dependency('big-pkg', '1.0.0', [{ name: 'a', data: 'a', deflate: true, size: 512 * 1024 * 1024 + 1 }])
+    await assert.rejects(build([zip]), /^DeptreeError: dependencies\["big-pkg"\]: its zip cannot be read: the entries come to more than 536870912 bytes/u)
+  })
+
+  it('fetches eight zips at a time', async () => {
+    const zips = Array.from({ length: 12 }, (_, i) => dependency(`pkg-${String.fromCodePoint(108 - i)}`, '1.0.0', [{ name: 'a', data: String(i) }]))
+    stubSoldeer(zips)
+    const served = globalThis.fetch
+    let open = 0
+    let most = 0
+    globalThis.fetch = async (input) => {
+      most = Math.max(most, ++open)
+      await new Promise((resolve) => {
+        setTimeout(resolve, 5)
+      })
+      open--
+      return await served(input)
+    }
+    const { vfs, stats } = await buildSoldeerTree({ lockfile: lockOf(zips), soldeer: configOf(zips), host: HOST })
+    assert.equal(most, 8)
+    assert.equal(stats.dependencies, 12)
+    assert.deepEqual(vfs.readdir('/dependencies'), zips.map((z) => `${z.name}-1.0.0`).sort())
   })
 
   it('refuses on macOS two names that are one there', async () => {

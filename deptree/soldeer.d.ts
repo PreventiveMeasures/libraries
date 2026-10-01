@@ -133,7 +133,8 @@ export interface SoldeerTree {
 // read — a `..`, absolute or backslashed name, one starting with a drive
 // letter, zip64, encryption, an entry inside one that is not a directory,
 // two entries of one name that differ, a directory by its name or its
-// attributes and not by the other — where Soldeer would take some of it;
+// attributes and not by the other, entries that come to more than 512
+// MiB — where Soldeer would take some of it;
 // and what the zip crate reads otherwise than the archive reader is
 // refused: a name with a byte past ASCII that is not flagged UTF-8, which
 // it reads as CP437, and an AES or a Unicode comment extra field. What
@@ -141,7 +142,8 @@ export interface SoldeerTree {
 // field or an extended timestamp the zip crate does not read. A folder
 // Soldeer downloads another dependency's zip into, `<folder>.zip`, is
 // refused. On macOS, two names in one directory that differ only in case
-// or normalization are refused, as they would be one name there.
+// or normalization are refused, as they would be one name there, and so
+// is a folder that is one there with another dependency's zip.
 //
 // Dependencies come from Soldeer's registry alone, each by a name and a
 // version the registry takes: a dependency from a git repository, which

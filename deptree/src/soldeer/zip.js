@@ -25,6 +25,10 @@ const UTF8 = 0x0800
 const S_IFLNK = 0o120000
 const [NTFS, TIMESTAMP, UNICODE_COMMENT, AES] = [0x000a, 0x5455, 0x6375, 0x9901]
 
+// What a zip may extract to, as a tarball may unpack to (../tarball.js):
+// the archive reader makes room for what each entry declares.
+const MAX_BYTES = 512 * 1024 * 1024
+
 const decoder = new TextDecoder()
 const encoder = new TextEncoder()
 
@@ -95,7 +99,7 @@ const isGit = (component) => component.replace(/[. ]+$/u, '').replace(/[A-Z]/gu,
 export async function extractZip(bytes, where) {
   let entries
   try {
-    entries = await unzip(bytes)
+    entries = await unzip(bytes, { limit: MAX_BYTES })
   } catch (error) {
     if (error instanceof ArchiveError) throw new DeptreeError(`its zip cannot be read: ${error.message}`, where, { cause: error })
     throw error
