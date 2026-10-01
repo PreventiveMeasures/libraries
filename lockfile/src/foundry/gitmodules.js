@@ -45,10 +45,14 @@ export function checkSubmodulePath(value, where) {
 // path on the machine that clones, or one relative to the superproject's
 // remote, which only its clone knows; git ignores one that starts with "-".
 const SCHEME = /^(?:https?|ssh|git|git\+ssh|ssh\+git):\/\/[^/]/u
-const SCP = /^(?:[^@/:\\]+@)?[\dA-Za-z][\dA-Za-z.-]+:(?!:|\/\/)/u
+const SCP = /^(?:[^@/:\\]+@)?[\dA-Za-z][\dA-Za-z.-]*:(?!:|\/\/)/u
+// git on Windows reads `x:path` as a path on the drive x:, and elsewhere as
+// the host x; `user@x:path` is the host to both.
+const DRIVE = /^[\dA-Za-z]:(?!:)/u
 
 function checkUrl(value, where) {
   const url = checkRepo(value, where)
+  if (DRIVE.test(url)) throw new LockfileError(`${quote(url)} is a path on a drive to git on Windows, and a host's to git elsewhere`, where)
   if (SCHEME.test(url) ? URL.canParse(url) : SCP.test(url) && !url.includes('\\')) return url
   if (/^\.\.?\//u.test(url)) throw new LockfileError(`${quote(url)} is relative to the superproject's remote, which only a clone of it knows`, where)
   throw new LockfileError(`${quote(url)} is not a URL of a host that git fetches from: http(s), ssh, git, or user@host:path`, where)

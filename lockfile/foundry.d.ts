@@ -11,10 +11,11 @@ export function parseFoundryLockfile(text: string, options?: FoundryOptions): Fo
 export function parseGitmodules(text: string): Record<string, Gitmodule>
 
 export interface FoundryOptions {
-  // The .gitmodules of the repository the lockfile is in, as text. forge
-  // records every submodule of the repository, so each has to be in the
-  // lockfile, and each dependency a submodule; without it, no dependency
-  // has a url.
+  // The .gitmodules of the repository the lockfile is in, as text: each
+  // dependency has to be a submodule it maps, and takes its url. A submodule
+  // the lockfile does not record is not refused, as .gitmodules may keep a
+  // section whose gitlink is gone, which git and forge pass over. Without
+  // it, no dependency has a url.
   gitmodules?: string
   // The lockfile's directory, from the root of the repository, where
   // .gitmodules is: `.` by default.

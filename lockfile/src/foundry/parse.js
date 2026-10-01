@@ -49,9 +49,10 @@ function readDependency(value, where) {
   return { type, name, rev: readRev(pinned.rev, at(here, 'rev')), url: undefined }
 }
 
-// forge records every submodule `git submodule status` lists in the
-// project, by its path from there, and build --locked refuses one it does
-// not; each lockfile path has to be one of them, as forge writes it.
+// Each dependency is a submodule .gitmodules maps, by its path from the
+// lockfile's directory as forge writes it. A submodule it maps that the
+// lockfile does not record is let be: git and forge pass over a section
+// whose gitlink is gone from the index, which is not read here.
 function addUrls(dependencies, gitmodules, directory) {
   const submodules = readGitmodules(gitmodules, WHERE)
   const names = new Map(Object.entries(submodules).map(([name, { path }]) => [path, name]))
@@ -62,11 +63,8 @@ function addUrls(dependencies, gitmodules, directory) {
     if (written !== key) throw new LockfileError(`not as forge writes the path, ${quote(written)}`, here)
     const name = names.get(path)
     if (name === undefined) throw new LockfileError(`no submodule in .gitmodules is at ${quote(path)}`, here)
-    names.delete(path)
     dependency.url = submodules[name].url
   }
-  const [stray] = names
-  if (stray !== undefined) throw new LockfileError(`not in the lockfile, where forge records every submodule of the repository, as ${quote(relativeTo(directory, stray[0]))}`, at(at(WHERE, stray[1]), 'path'))
 }
 
 export function parseFoundryLockfile(source, options = {}) {

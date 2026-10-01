@@ -19,8 +19,10 @@
 // submodule's commit, and a branch for one .gitmodules gives a branch.
 // monorepo: a project in packages/contracts of a repository with a
 // submodule of its own outside it, which forge records by a path up and
-// out of the project. removed: every dependency removed again, which
-// leaves `{}`. short: a commit given by a short hash, which forge install
+// out of the project. stale: a section of .gitmodules whose gitlink is not
+// in the index, which git submodule status, and so forge, passes over, the
+// lockfile written again by forge install. removed: every dependency
+// removed again, which leaves `{}`. short: a commit given by a short hash, which forge install
 // writes as it is given, and forge build --locked then refuses.
 //
 // Each lockfile but short's is one forge build --locked takes.
@@ -105,6 +107,15 @@ const RUNS = {
     const repo = repository('monorepo', '1.8.3', 'packages/contracts')
     run('git', ['submodule', 'add', '-q', `https://github.com/${SOLMATE}`, 'other/lib/solmate'], repo.root)
     repo.forge('install', 'foundry-rs/forge-std@v1.9.7')
+    locked(repo, true)
+    return repo
+  },
+  'forge-1.8.3-stale': () => {
+    const repo = repository('stale', '1.8.3')
+    repo.forge('install', 'foundry-rs/forge-std@v1.9.7')
+    writeFileSync(join(repo.root, '.gitmodules'), `${readFileSync(join(repo.root, '.gitmodules'), 'utf8')}[submodule "lib/stale"]\n\tpath = lib/stale\n\turl = https://github.com/${SOLMATE}\n`)
+    rmSync(join(repo.dir, 'foundry.lock'))
+    repo.forge('install')
     locked(repo, true)
     return repo
   },

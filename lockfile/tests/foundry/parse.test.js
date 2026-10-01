@@ -191,10 +191,15 @@ describe('foundry.lock, of entries forge does not write', () => {
 })
 
 describe('foundry.lock, against .gitmodules', () => {
-  it('refuses a dependency that is no submodule, and a submodule that is no dependency', () => {
+  it('refuses a dependency that is no submodule', () => {
     refuses(BASE, '["lib/c"]: no submodule in .gitmodules is at "lib/c"', { gitmodules: GITMODULES.replace(/\[submodule "lib\/c"\][^[]*/u, '') })
-    refuses(BASE, 'gitmodules["lib/d"].path: not in the lockfile, where forge records every submodule of the repository, as "lib/d"', { gitmodules: `${GITMODULES}[submodule "lib/d"]\n\tpath = lib/d\n\turl = https://x.example/d\n` })
-    refuses(BASE, 'gitmodules.d.path: not in the lockfile, where forge records every submodule of the repository, as "../x/lib/d"', { gitmodules: `${GITMODULES.replaceAll('= lib/', '= p/lib/')}[submodule "d"]\n\tpath = x/lib/d\n\turl = https://x.example/d\n`, directory: 'p' })
+  })
+
+  it('reads a submodule the lockfile does not record, as a section whose gitlink is gone may be', () => {
+    const stale = `${GITMODULES}[submodule "lib/d"]\n\tpath = lib/d\n\turl = https://x.example/d\n`
+    assert.deepEqual(Object.keys(parse(BASE, { gitmodules: stale }).dependencies), ['lib/a', 'lib/b', 'lib/c'])
+    const elsewhere = `${GITMODULES.replaceAll('= lib/', '= p/lib/')}[submodule "d"]\n\tpath = x/lib/d\n\turl = https://x.example/d\n`
+    assert.deepEqual(Object.keys(parse(BASE, { gitmodules: elsewhere, directory: 'p' }).dependencies), ['lib/a', 'lib/b', 'lib/c'])
   })
 
   it('refuses a path out of the repository, or up and back into the project', () => {

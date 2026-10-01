@@ -56,7 +56,7 @@ describe('.gitmodules, as git reads it', () => {
   })
 
   it('reads URLs of every kind git fetches from a host', () => {
-    for (const url of ['https://github.com/o/a.git', 'http://example.com/a', 'ssh://git@github.com/o/a', 'git://example.com/a', 'git+ssh://git@example.com/a', 'github.com:o/a', 'user@host.example:/srv/a.git']) {
+    for (const url of ['https://github.com/o/a.git', 'http://example.com/a', 'ssh://git@github.com/o/a', 'git://example.com/a', 'git+ssh://git@example.com/a', 'github.com:o/a', 'user@host.example:/srv/a.git', 'git@x:o/a', 'xy:o/a']) {
       assert.equal(parseGitmodules(`[submodule "a"]\n\tpath = a\n\turl = ${url}\n`).a.url, url)
     }
   })
@@ -146,11 +146,14 @@ describe('.gitmodules, of what git does not read alike', () => {
     const from = (url) => add(`[submodule "c"]\n\tpath = c\n\turl = ${url}`)
     refuses(from('../c.git'), 'c.url: "../c.git" is relative to the superproject\'s remote, which only a clone of it knows')
     refuses(from('./c'), 'c.url: "./c" is relative to the superproject\'s remote, which only a clone of it knows')
-    for (const url of ['/srv/c.git', 'file:///srv/c.git', 'ext::sh -c x', 'fd::17', 'C:\\\\c', 'c', '-uhttps://x.example/c', 'ftp://x.example/c']) {
+    for (const url of ['/srv/c.git', 'file:///srv/c.git', 'ext::sh -c x', 'fd::17', 'x::y', 'c', '-uhttps://x.example/c', 'ftp://x.example/c']) {
       const shown = JSON.stringify(url.replaceAll('\\\\', '\\'))
       refuses(from(url.includes(' ') ? `"${url}"` : url), url.includes(' ') ? `c.url: ${shown} is not a repository URL` : `c.url: ${shown} is not a URL of a host that git fetches from: http(s), ssh, git, or user@host:path`)
     }
     refuses(from('"https://x.example/c "'), 'c.url: "https://x.example/c " is not a repository URL')
+    for (const url of ['x:o/a', 'C:\\\\c', '1:/srv/a']) {
+      refuses(from(url), `c.url: ${JSON.stringify(url.replaceAll('\\\\', '\\'))} is a path on a drive to git on Windows, and a host's to git elsewhere`)
+    }
   })
 
   it('refuses a branch name git does not take', () => {

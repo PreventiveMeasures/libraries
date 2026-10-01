@@ -7,7 +7,8 @@ import { LockfileError, parseFoundryLockfile, parseGitmodules } from '../../foun
 // forge 1.3.0, which writes its keys in no order, and 1.8.3 wrote a project
 // of a tag, a branch, a commit and a tag under another directory; 1.8.3 the
 // same written again by forge install after its lockfile was deleted, a
-// project in a monorepo with a submodule outside it, one with everything
+// project in a monorepo with a submodule outside it, one beside a section
+// of .gitmodules whose gitlink is gone, one with everything
 // removed again, and one with a commit given by a short hash, which its own
 // build --locked refuses. scripts/record-foundry.js builds them; its header
 // says what is in them.
@@ -95,6 +96,13 @@ describe('a project in a monorepo, as forge 1.8.3 writes it', () => {
 })
 
 describe('what forge leaves', () => {
+  it('a section of .gitmodules with no gitlink, which forge does not record, nor build --locked ask for', () => {
+    assert.deepEqual(plain(read('forge-1.8.3-stale').dependencies), {
+      'lib/forge-std': { type: 'rev', name: undefined, rev: V1_9_7, url: FORGE_STD },
+    })
+    assert.deepEqual(Object.keys(parseGitmodules(gitmodules('forge-1.8.3-stale'))), ['lib/forge-std', 'lib/stale'])
+  })
+
   it('every dependency removed: no dependencies, and an empty .gitmodules', () => {
     assert.deepEqual(plain(read('forge-1.8.3-removed')), { dependencies: {} })
     assert.deepEqual(plain(parseGitmodules(gitmodules('forge-1.8.3-removed'))), {})
