@@ -17,7 +17,7 @@ settings:
   autoInstallPeers: true
 
 patchedDependencies:
-  b@1.0.0: abc123
+  b@1.0.0: 25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342
 
 importers:
 
@@ -68,10 +68,10 @@ snapshots:
 
   a@1.0.0(c@2.0.0):
     dependencies:
-      b: 1.0.0(patch_hash=abc123)
+      b: 1.0.0(patch_hash=25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342)
       c: 2.0.0
 
-  b@1.0.0(patch_hash=abc123): {}
+  b@1.0.0(patch_hash=25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342): {}
 
   c@2.0.0: {}
 
@@ -115,15 +115,15 @@ describe('the base lockfile', () => {
   const lock = parse(BASE)
 
   it('reads', () => {
-    assert.deepEqual(Object.keys(lock.packages), ['a@1.0.0(c@2.0.0)', 'b@1.0.0(patch_hash=abc123)', 'c@2.0.0', 'd@file:d', `e@git+https://example.com/e.git#${C}`, 'f@https://example.com/f.tgz'])
+    assert.deepEqual(Object.keys(lock.packages), ['a@1.0.0(c@2.0.0)', 'b@1.0.0(patch_hash=25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342)', 'c@2.0.0', 'd@file:d', `e@git+https://example.com/e.git#${C}`, 'f@https://example.com/f.tgz'])
     assert.deepEqual(plain(lock.importers['.'].dependencies), {
       a: 'a@1.0.0(c@2.0.0)',
       e: `e@git+https://example.com/e.git#${C}`,
       f: 'f@https://example.com/f.tgz',
       l: 'link:../l',
     })
-    assert.deepEqual(plain(lock.patchedDependencies), { 'b@1.0.0': { hash: 'abc123', path: undefined } })
-    assert.equal(lock.packages['b@1.0.0(patch_hash=abc123)'].patchHash, 'abc123')
+    assert.deepEqual(plain(lock.patchedDependencies), { 'b@1.0.0': { hash: '25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342', path: undefined } })
+    assert.equal(lock.packages['b@1.0.0(patch_hash=25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342)'].patchHash, '25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342')
     assert.equal(lock.packages['c@2.0.0'].resolution.tarball, 'https://registry.npmjs.org/c/-/c-2.0.0.tgz')
     assert.deepEqual(lock.packages['f@https://example.com/f.tgz'].resolution, { type: 'tarball', integrity: undefined, tarball: 'https://example.com/f.tgz', path: undefined, gitHosted: false })
     assert.equal(parsePnpmLockfile(BASE).env, undefined)
@@ -187,13 +187,13 @@ describe('what else pnpm writes is read', () => {
   })
 
   it('a patch with its path, as pnpm 9 and 10 write it', () => {
-    const lock = read(['  b@1.0.0: abc123', '  b@1.0.0:\n    hash: abc123\n    path: patches/b@1.0.0.patch'])
-    assert.deepEqual(plain(lock.patchedDependencies), { 'b@1.0.0': { hash: 'abc123', path: 'patches/b@1.0.0.patch' } })
+    const lock = read(['  b@1.0.0: 25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342', '  b@1.0.0:\n    hash: 25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342\n    path: patches/b@1.0.0.patch'])
+    assert.deepEqual(plain(lock.patchedDependencies), { 'b@1.0.0': { hash: '25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342', path: 'patches/b@1.0.0.patch' } })
   })
 
   it('each integrity algorithm', () => {
     for (const integrity of ['sha1-2jmj7l5rSw0yVb/vlWAYkK/YBwk=', 'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=', 'sha384-OLBgp1GsljhM2TJ+sbHjaiH9txEUvgdDTAzHv2P24donTt6/529l+9Ua0vFImLlb']) {
-      assert.equal(read([`  b@1.0.0:\n    resolution: {integrity: ${I}}`, `  b@1.0.0:\n    resolution: {integrity: ${integrity}}`]).packages['b@1.0.0(patch_hash=abc123)'].resolution.integrity, integrity)
+      assert.equal(read([`  b@1.0.0:\n    resolution: {integrity: ${I}}`, `  b@1.0.0:\n    resolution: {integrity: ${integrity}}`]).packages['b@1.0.0(patch_hash=25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342)'].resolution.integrity, integrity)
     }
   })
 
@@ -228,7 +228,7 @@ describe('what else pnpm writes is read', () => {
     assert.deepEqual(plain(pkg.peerDependenciesMeta), { c: { optional: true } })
     assert.deepEqual(plain(pkg.engines), { 0: 'node >=0.6.0', node: '>=18' })
     assert.deepEqual([pkg.os, pkg.cpu, pkg.libc, pkg.deprecated, pkg.hasBin, pkg.bundledDependencies], [['linux', '!win32'], ['x64'], ['musl'], 'gone', true, ['x', '@s/y']])
-    assert.equal(read(['  b@1.0.0:\n', '  b@1.0.0:\n    bundledDependencies: true\n']).packages['b@1.0.0(patch_hash=abc123)'].bundledDependencies, true)
+    assert.equal(read(['  b@1.0.0:\n', '  b@1.0.0:\n    bundledDependencies: true\n']).packages['b@1.0.0(patch_hash=25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342)'].bundledDependencies, true)
   })
 
   it('what a snapshot says', () => {
@@ -272,8 +272,8 @@ describe('what else pnpm writes is read', () => {
   })
 
   it('names a prototype has are names like any other', () => {
-    const lock = read(['      e:\n', '      constructor:\n        specifier: 1.0.0\n        version: b@1.0.0(patch_hash=abc123)\n      e:\n'])
-    assert.equal(lock.importers['.'].dependencies.constructor, 'b@1.0.0(patch_hash=abc123)')
+    const lock = read(['      e:\n', '      constructor:\n        specifier: 1.0.0\n        version: b@1.0.0(patch_hash=25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342)\n      e:\n'])
+    assert.equal(lock.importers['.'].dependencies.constructor, 'b@1.0.0(patch_hash=25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342)')
     assert.equal(lock.importers['.'].specifiers.constructor, '1.0.0')
   })
 
@@ -360,16 +360,22 @@ describe('the header is held to what pnpm writes', () => {
   })
 
   it('patches', () => {
-    refuses(edit(['  b@1.0.0: abc123', '  b@1.0.0: ABC']), 'patchedDependencies["b@1.0.0"]: "ABC" is not a patch hash')
-    refuses(edit(['  b@1.0.0: abc123', '  b@1.0.0:\n    hash: abc123']), 'patchedDependencies["b@1.0.0"].path: expected a string, found nothing')
-    refuses(edit(['  b@1.0.0: abc123', '  b@1.0.0:\n    hash: abc123\n    path: /abs.patch']), 'patchedDependencies["b@1.0.0"].path: "/abs.patch" is not a relative path in normal form')
-    refuses(edit(['  b@1.0.0: abc123', '  b@1.0.0:\n    hash: abc123\n    path: p\n    extra: 1']), 'patchedDependencies["b@1.0.0"]: unsupported field "extra"')
-    refuses(edit(['  b@1.0.0: abc123', '  b@1.0.0: abc124']), 'snapshots["b@1.0.0(patch_hash=abc123)"]: the patch hash "abc123" is not in patchedDependencies')
+    refuses(edit(['  b@1.0.0: 25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342', '  b@1.0.0: ABC']), 'patchedDependencies["b@1.0.0"]: "ABC" is not a patch hash')
+    for (const hash of ['abc123', '25BECA4D543C6A7BA195F72529648450ABD9451553893A0DFA5A5FDA314BF342', '25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf3', 'zrvjrhdgfsy5o3tngjlyoyyjcf', 'ZRVJRHDGFSY5O3TNGJLYOYYJCE']) {
+      refuses(edit(['  b@1.0.0: 25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342', `  b@1.0.0: ${hash}`]), `patchedDependencies["b@1.0.0"]: "${hash}" is not a patch hash`)
+    }
+    refuses(edit(['  b@1.0.0: 25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342', '  b@1.0.0:\n    hash: 25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342']), 'patchedDependencies["b@1.0.0"].path: expected a string, found nothing')
+    refuses(edit(['  b@1.0.0: 25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342', '  b@1.0.0:\n    hash: 25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342\n    path: /abs.patch']), 'patchedDependencies["b@1.0.0"].path: "/abs.patch" is not a relative path in normal form')
+    refuses(edit(['  b@1.0.0: 25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342', '  b@1.0.0:\n    hash: 25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342\n    path: p\n    extra: 1']), 'patchedDependencies["b@1.0.0"]: unsupported field "extra"')
+    refuses(edit(['  b@1.0.0: 25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342', '  b@1.0.0: 25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf343']), 'snapshots["b@1.0.0(patch_hash=25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342)"]: the patch hash "25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342" is not in patchedDependencies')
   })
 
   it('checksums and ignored optional dependencies', () => {
     const header = (line) => edit(['settings:', `${line}\n\nsettings:`])
     refuses(header('pnpmfileChecksum: ABC'), 'pnpmfileChecksum: "ABC" is not a checksum')
+    for (const checksum of ['16a1ed6e7ce817a90048c6de502598a', '16A1ED6E7CE817A90048C6DE502598AF', '4v4g43vz4g3vbbdiawo2fhluvr', '4v4g43vz4g3vbbdiawo2fhluvq======']) {
+      refuses(header(`pnpmfileChecksum: ${checksum}`), `pnpmfileChecksum: "${checksum}" is not a checksum`)
+    }
     refuses(header('pnpmfileChecksum: sha512-abc'), 'pnpmfileChecksum: "sha512-abc" is not a checksum')
     refuses(header('pnpmfileChecksum: sha256-abc'), 'pnpmfileChecksum: "sha256-abc" is not a sha1, sha256, sha384 or sha512 integrity')
     refuses(header('packageExtensionsChecksum: 12'), 'packageExtensionsChecksum: expected a string, found the number 12')
@@ -506,7 +512,7 @@ describe('snapshots and the graph are held together', () => {
   it('a snapshot key ends in its patch hash and peers, or nothing', () => {
     for (const [key, message] of [
       ['c@2.0.0()', '"c@2.0.0()" does not end in peers in parentheses'],
-      ['c@2.0.0(x)(patch_hash=abc123)', '"c@2.0.0(x)(patch_hash=abc123)" does not end in peers in parentheses'],
+      ['c@2.0.0(x)(patch_hash=25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342)', '"c@2.0.0(x)(patch_hash=25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342)" does not end in peers in parentheses'],
       ['c@2.0.0(patch_hash=ABC)', '"(patch_hash=ABC)" is not a patch hash'],
       ['c@2.0.0(patch_hash=a(b))', '"(patch_hash=a" is not a patch hash'],
     ]) {
@@ -515,7 +521,7 @@ describe('snapshots and the graph are held together', () => {
   })
 
   it('a dependency leads to a snapshot, under one kind', () => {
-    refuses(edit(['      b: 1.0.0(patch_hash=abc123)', '      b: 1.0.0']), 'snapshots["a@1.0.0(c@2.0.0)"].dependencies.b: "1.0.0" leads to "b@1.0.0", which is not in snapshots')
+    refuses(edit(['      b: 1.0.0(patch_hash=25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342)', '      b: 1.0.0']), 'snapshots["a@1.0.0(c@2.0.0)"].dependencies.b: "1.0.0" leads to "b@1.0.0", which is not in snapshots')
     refuses(edit(['      c: 2.0.0\n', '      c: 2.0.0\n    optionalDependencies:\n      c: 2.0.0\n']), 'snapshots["a@1.0.0(c@2.0.0)"].optionalDependencies.c: listed under dependencies too')
     refuses(edit(['      c: 2.0.0\n', '      ../c: 2.0.0\n']), 'snapshots["a@1.0.0(c@2.0.0)"].dependencies["../c"]: "../c" is not a package name')
     refuses(edit(['      c: 2.0.0\n', '      c: link:/c\n      x: 2.0.0\n']), 'snapshots["a@1.0.0(c@2.0.0)"].dependencies.c: "/c" is not a relative path in normal form')
@@ -523,7 +529,7 @@ describe('snapshots and the graph are held together', () => {
 
   it('every snapshot is reached from an importer', () => {
     refuses(edit(['      a:\n        specifier: ^1.0.0\n        version: 1.0.0(c@2.0.0)\n', '']), 'snapshots["a@1.0.0(c@2.0.0)"]: no importer depends on it, directly or not')
-    refuses(edit(['      b: 1.0.0(patch_hash=abc123)\n', '']), 'snapshots["b@1.0.0(patch_hash=abc123)"]: no importer depends on it, directly or not')
+    refuses(edit(['      b: 1.0.0(patch_hash=25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342)\n', '']), 'snapshots["b@1.0.0(patch_hash=25beca4d543c6a7ba195f72529648450abd9451553893a0dfa5a5fda314bf342)"]: no importer depends on it, directly or not')
   })
 })
 

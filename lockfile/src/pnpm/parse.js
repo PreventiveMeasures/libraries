@@ -10,6 +10,8 @@
 // document.
 
 import { parseYamlStream } from '../yaml/parse.js'
+import { fromBase32, toBase32 } from '@exodus/bytes/base32.js'
+import { fromHex, toHex } from '@exodus/bytes/hex.js'
 import { LockfileError, at, quote } from '../error.js'
 import { KINDS, reach } from '../graph.js'
 import { checkIntegrity, checkName, checkRelative } from '../names.js'
@@ -54,8 +56,22 @@ function readCatalogs(value, where) {
   return catalogs
 }
 
+// A bare hash as pnpm writes one, in lowercase: its size in bytes, read back
+// as it is written, in hex or in base32 unpadded; else undefined.
+const HEX = { decode: fromHex, encode: toHex }
+const BASE32 = { decode: (hash) => fromBase32(hash, { padding: false }), encode: (bytes) => toBase32(bytes).toLowerCase() }
+
+function sizeIn(encoding, hash) {
+  try {
+    const bytes = encoding.decode(hash)
+    return encoding.encode(bytes) === hash ? bytes.length : undefined
+  } catch {
+    return undefined
+  }
+}
+
 // pnpm 9 and 10 write a patch as its hash and the path of its file; pnpm 11
-// and later as the hash alone.
+// and later as the hash alone: an md5 in base32 from pnpm 9, a sha256 in hex.
 function readPatches(value, where) {
   const patches = Object.create(null)
   for (const [selector, item, here] of entries(value ?? EMPTY, where)) {
@@ -63,18 +79,18 @@ function readPatches(value, where) {
     if (full) record(item, here, ['hash', 'path'])
     const hashAt = full ? at(here, 'hash') : here
     const hash = text(full ? item.hash : item, hashAt)
-    if (!/^[\da-z]+$/u.test(hash)) throw new LockfileError(`${quote(hash)} is not a patch hash`, hashAt)
+    if (sizeIn(HEX, hash) !== 32 && sizeIn(BASE32, hash) !== 16) throw new LockfileError(`${quote(hash)} is not a patch hash`, hashAt)
     patches[text(selector, here)] = { hash, path: full ? checkRelative(item.path, at(here, 'path')) : undefined }
   }
   return patches
 }
 
 // A digest of what rewrote the manifests pnpm resolved from: pnpm 9 writes
-// it bare, in hex or base32, and pnpm 10 and later as a sha256 integrity.
+// an md5 bare, in hex or base32, and pnpm 10 and later a sha256 integrity.
 function readChecksum(value, where) {
   if (value === undefined) return undefined
   const checksum = text(value, where)
-  if (/^[\da-z]+$/u.test(checksum)) return checksum
+  if (sizeIn(HEX, checksum) === 16 || sizeIn(BASE32, checksum) === 16) return checksum
   if (!checksum.startsWith('sha256-')) throw new LockfileError(`${quote(checksum)} is not a checksum`, where)
   return checkIntegrity(checksum, where)
 }

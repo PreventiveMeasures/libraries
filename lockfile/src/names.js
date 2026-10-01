@@ -2,6 +2,7 @@
 // is held to the form the lockfiles write and no looser one, so a value
 // read here means one thing to every reader downstream.
 
+import { fromBase64 } from '@exodus/bytes/base64.js'
 import { LockfileError, quote } from './error.js'
 import { text } from './shape.js'
 
@@ -78,13 +79,22 @@ export function checkRepo(value, where) {
 }
 
 // Subresource integrity with one hash, as pnpm writes it: the algorithm, a
-// dash, and the digest in padded base64 of exactly the length it has.
-const DIGEST = { __proto__: null, sha1: 27, sha256: 43, sha384: 64, sha512: 86 }
-const INTEGRITY = /^([\da-z]+)-([\d+/A-Za-z]+)(=*)$/u
+// dash, and the digest of its size in base64, padded, each byte one way.
+const DIGEST = { __proto__: null, sha1: 20, sha256: 32, sha384: 48, sha512: 64 }
+
+function digestSize(base64) {
+  try {
+    return fromBase64(base64, { padding: true }).length
+  } catch {
+    return undefined
+  }
+}
 
 export function checkIntegrity(value, where) {
-  const m = INTEGRITY.exec(text(value, where))
-  if (m === null || DIGEST[m[1]] !== m[2].length || m[3].length !== (4 - (m[2].length % 4)) % 4) {
+  const integrity = text(value, where)
+  const sep = integrity.indexOf('-')
+  const size = sep === -1 ? undefined : DIGEST[integrity.slice(0, sep)]
+  if (size === undefined || digestSize(integrity.slice(sep + 1)) !== size) {
     throw new LockfileError(`${quote(value)} is not a sha1, sha256, sha384 or sha512 integrity`, where)
   }
   return value
