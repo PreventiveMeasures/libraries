@@ -8,14 +8,16 @@ import { semver } from './semver.js'
 // for, by directory. yarn 1.22.22 and 1.22.19 wrote one workspace that
 // pulls in every kind of dependency yarn 1 records; yarn 1.9.4, 1.22.19
 // and 1.22.22 a plain project; yarn 1.22.22 a workspace a package asks
-// for; and the last are yarn's ways of installing something other than
-// its lockfile says, the aliases 1.22.19 merges, a resolution the root's
-// own dependency is not given, one entry for a request a resolution
-// rewrites and one it does not, a resolution's tarball given to a
-// dependency it does not apply to, and two entries of one name and
-// version, beside resolutions to tarballs it applies to wherever they are
-// asked for. scripts/record-yarn1.js builds them; its header says what is
-// in them.
+// for, a resolution of the root's own through the workspaces' aggregator,
+// one of what another rewrites, and one to a workspace; and the last are
+// yarn's ways of installing something other than its lockfile says, the
+// aliases 1.22.19 merges, a resolution the root's own dependency is not
+// given, or given where its range does not take it, one entry for a
+// request a resolution rewrites and one it does not, a resolution's
+// tarball given to a dependency it does not apply to, and two entries of
+// one name and version, beside resolutions to tarballs it applies to
+// wherever they are asked for. scripts/record-yarn1.js builds them; its
+// header says what is in them.
 
 const FIXTURES = new URL('fixtures/', import.meta.url)
 const parse = (text, manifests) => parseYarn1Lockfile(text, { manifests, semver })
@@ -137,6 +139,53 @@ describe('a resolution, which yarn applies to no dependency of the root\'s own, 
   it('refused where the resolution is given to it all the same', () => {
     const merged = text('yarn-1.22.22-resolution-root').replace(/\n\nis-number@\^6\.0\.0:\n[^]*$/u, '\n').replace('is-number@7.0.0:', 'is-number@7.0.0, is-number@^6.0.0:')
     assert.throws(() => parse(merged, manifests('yarn-1.22.22-resolution-root')), { message: '["is-number@^6.0.0"]: 7.0.0 does not satisfy "^6.0.0", and no resolution gives it' })
+  })
+})
+
+describe('a resolution of the root\'s own, which yarn applies through the workspaces\' aggregator', () => {
+  it('the project\'s is-number@6.0.0 given the tarball, with workspaces, and refused without', () => {
+    const { packages, importers } = read('yarn-1.22.22-resolution-aggregated')
+    assert.equal(importers['.'].dependencies['is-number'], 'is-number@6.0.0')
+    assert.equal(packages['is-number@6.0.0'].resolution.tarball, 'file:./vendor/is-number-6.0.0.tgz')
+    const root = { ...manifests('yarn-1.22.22-resolution-aggregated')['.'], workspaces: undefined }
+    assert.throws(() => parse(text('yarn-1.22.22-resolution-aggregated'), { '.': root }), { message: 'manifests["."].dependencies["is-number"]: "is-number@6.0.0" is given what the resolution "is-number" resolves to, which yarn applies to no dependency of the root\'s own' })
+  })
+
+  it('refused where the version does not satisfy the range, which the root asks for first', () => {
+    refuses('yarn-1.22.22-resolution-root-aggregated', '["is-number@^6.0.0"]: 7.0.0 does not satisfy "^6.0.0", which the root asks for before the resolution "is-number" applies, so yarn takes it as outdated', '["is-number@^6.0.0"]: 7.0.0 does not satisfy "^6.0.0", which only a resolution may excuse, as the manifests would say')
+  })
+})
+
+describe('a resolution to a workspace, which yarn links, and writes an entry for apart', () => {
+  const name = 'yarn-1.22.22-resolution-workspace'
+
+  it('is-odd\'s is-number@^6.0.0 linked as to-regex-range\'s is-number@^7.0.0 is, its entry left out', () => {
+    const { packages } = read(name)
+    assert.equal(packages['is-odd@3.0.1'].dependencies['is-number'], 'link:packages/is-number')
+    assert.equal(packages['to-regex-range@5.0.1'].dependencies['is-number'], 'link:packages/is-number')
+    assert.deepEqual(Object.keys(packages), ['is-odd@3.0.1', 'isarray@2.0.5', 'to-regex-range@5.0.1'])
+  })
+
+  it('refused where the entry is not of the workspace, or without the manifests', () => {
+    const stale = text(name).replace('  version "7.0.0"', '  version "6.0.0"')
+    assert.throws(() => parse(stale, manifests(name)), { message: '["is-number@^6.0.0"].version: another version than the workspace "packages/is-number", which the resolution "is-number" gives it, 7.0.0' })
+    const other = text(name).replace('    isarray "2.0.5"\n\nis-odd', '    is-odd "3.0.1"\n    isarray "2.0.5"\n\nis-odd')
+    assert.throws(() => parse(other, manifests(name)), { message: '["is-number@^6.0.0"].dependencies: other dependencies than the workspace "packages/is-number", which the resolution "is-number" gives it' })
+    assert.throws(() => parse(text(name)), { message: '["to-regex-range@5.0.1"].dependencies["is-number"]: "is-number@^7.0.0" is not a pattern of the lockfile, nor a workspace\'s, as only the manifests may say' })
+  })
+
+  it('refused where the root asks for it too, which the aggregator asks for as the workspace instead', () => {
+    const asked = manifests(name)
+    asked['.'].dependencies['is-number'] = '^6.0.0'
+    assert.throws(() => parse(text(name), asked), { message: 'manifests["."].dependencies["is-number"]: "is-number@^6.0.0" is given what the resolution "is-number" resolves to, which yarn applies to no dependency of the root\'s own' })
+  })
+})
+
+describe('a resolution of what one rewrites, which yarn reads from the root alone', () => {
+  it('is-even\'s is-odd given 3.0.1, whose is-number is-odd/is-number gives 7.0.0', () => {
+    const { packages } = read('yarn-1.22.22-resolution-nested')
+    assert.equal(packages['is-odd@^0.1.2'].version, '3.0.1')
+    assert.equal(packages['is-number@^6.0.0'].version, '7.0.0')
   })
 })
 

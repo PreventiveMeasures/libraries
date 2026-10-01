@@ -37,6 +37,8 @@ export type Target = string
 
 export interface Yarn1Lockfile {
   // By pattern, `name@range`; the patterns of one entry share one object.
+  // The entry yarn writes for a request a resolution gives a workspace is
+  // left out: the request leads to the workspace.
   packages: Record<string, Yarn1Package>
   // By directory, as `manifests` has them; undefined without them.
   importers: Record<string, Yarn1Importer> | undefined

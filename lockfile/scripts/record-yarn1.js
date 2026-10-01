@@ -38,12 +38,25 @@
 // A workspace named is-number, of the version to-regex-range asks for, is
 // linked for it, with no entry.
 //
-// yarn applies a resolution to no dependency of the root's own, and says
-// nothing of it: is-number resolved to 7.0.0 is recorded, but the
-// project's is-number@^6.0.0 keeps 6.0.0. Asked for by is-odd too, with
-// the same range, one entry has to serve both: the project is given 7.0.0
-// or is-odd 6.0.0, by which yarn resolves first, which varies from run to
-// run, and yarn under --frozen-lockfile refuses what it has just written.
+// Without workspaces, yarn applies a resolution to no dependency of the
+// root's own, and says nothing of it: is-number resolved to 7.0.0 is
+// recorded, but the project's is-number@^6.0.0 keeps 6.0.0. Asked for by
+// is-odd too, with the same range, one entry has to serve both: the
+// project is given 7.0.0 or is-odd 6.0.0, by which yarn resolves first,
+// which varies from run to run, and yarn under --frozen-lockfile refuses
+// what it has just written. With workspaces, even none, yarn asks for the
+// root's own again through the workspaces' aggregator, where resolutions
+// apply: the project's is-number@6.0.0 is given a local tarball, and its
+// is-number@^6.0.0 7.0.0, which yarn, asking for it first as it is, takes
+// as outdated, and under --frozen-lockfile refuses.
+//
+// A resolution to a workspace links what it applies to, though yarn writes
+// each such request an entry of the workspace's version and dependencies,
+// resolving nothing: is-odd's is-number@^6.0.0, given is-number@^7.0.0.
+//
+// A resolution of what another rewrites applies where yarn resolves it,
+// from the root alone: is-odd/is-number, to the is-number of is-even's
+// is-odd, which **/is-odd rewrites.
 //
 // Resolutions to a tarball are read where yarn applies them to every
 // request of what they resolve: a URL for is-even's is-odd, and a local
@@ -152,6 +165,18 @@ const ROOT_RESOLUTION = {
   '.': { name: 'root-resolution', version: '0.0.0', private: true, dependencies: { 'is-number': '^6.0.0' }, resolutions: { 'is-number': '7.0.0' } },
 }
 
+const WORKSPACE_RESOLUTION = {
+  '.': { name: 'resolution-workspace', version: '0.0.0', private: true, workspaces: ['packages/*'], dependencies: { 'is-odd': '3.0.1', 'to-regex-range': '5.0.1' }, resolutions: { 'is-number': '^7.0.0' } },
+  'packages/is-number': { name: 'is-number', version: '7.0.0', dependencies: { isarray: '2.0.5' } },
+}
+
+const NESTED = {
+  '.': { name: 'resolution-nested', version: '0.0.0', private: true, dependencies: { 'is-even': '1.0.0' }, resolutions: { '**/is-odd': '3.0.1', 'is-odd/is-number': '7.0.0' } },
+}
+
+const AGGREGATED = workspace({ dependencies: { 'is-number': '6.0.0' }, resolutions: { 'is-number': PATCHED } }, {})
+const ROOT_AGGREGATED = { '.': { ...ROOT_RESOLUTION['.'], name: 'root-aggregated', workspaces: [] } }
+
 const sameRange = (dependencies) => ({
   '.': { name: 'same-range', version: '0.0.0', private: true, dependencies, resolutions: { 'is-number': '^7.0.0' } },
 })
@@ -172,6 +197,10 @@ const RUNS = [
   { name: 'yarn-1.22.22-linked', yarn: '1.22.22', manifests: LINKED },
   { name: 'yarn-1.22.22-resolution-root', yarn: '1.22.22', manifests: ROOT_RESOLUTION },
   { name: 'yarn-1.22.22-resolution-same-range', yarn: '1.22.22', manifests: sameRange({ 'is-number': '^6.0.0', 'is-odd': '3.0.1' }) },
+  { name: 'yarn-1.22.22-resolution-nested', yarn: '1.22.22', manifests: NESTED },
+  { name: 'yarn-1.22.22-resolution-aggregated', yarn: '1.22.22', manifests: AGGREGATED },
+  { name: 'yarn-1.22.22-resolution-root-aggregated', yarn: '1.22.22', manifests: ROOT_AGGREGATED },
+  { name: 'yarn-1.22.22-resolution-workspace', yarn: '1.22.22', manifests: WORKSPACE_RESOLUTION },
 ]
 
 function write(dir, name, content) {
@@ -196,7 +225,7 @@ function lay(dir, manifests) {
     write(dir, 'local-dir/package.json', { name: 'local-dir', version: '0.1.0', dependencies: { 'is-number': '^7.0.0' } })
     pack(dir, { name: 'local-tgz', version: '1.0.0', dependencies: { 'is-number': '^7.0.0' } }, { 'index.js': 'module.exports = 1\n' })
   }
-  if ([RESOLUTION, RESOLVED, SHARED, SCOPED].includes(manifests)) pack(dir, { name: 'is-number', version: '6.0.0' }, { 'index.js': 'module.exports = "patched"\n' })
+  if ([RESOLUTION, RESOLVED, SHARED, SCOPED, AGGREGATED].includes(manifests)) pack(dir, { name: 'is-number', version: '6.0.0' }, { 'index.js': 'module.exports = "patched"\n' })
   if (manifests === RACE) pack(dir, { name: 'is-number', version: '7.0.0' }, { 'index.js': 'module.exports = "patched"\n' })
 }
 

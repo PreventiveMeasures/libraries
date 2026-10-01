@@ -146,7 +146,7 @@ function readWorkspace(dir, manifest, here, globs, semver) {
   const nameAt = at(here, 'name')
   const name = checkName(string(manifest.name, nameAt), nameAt)
   if (manifest.version === undefined) throw new LockfileError('expected a version, without which yarn ignores the workspace', at(here, 'version'))
-  return { name, dir, version: readVersion(manifest.version, at(here, 'version'), semver) }
+  return { name, dir, version: readVersion(manifest.version, at(here, 'version'), semver), manifest }
 }
 
 // Also hands resolutions.js the workspaces by name, and the root's resolutions.
@@ -172,8 +172,10 @@ export function readImporters(manifests, packages, requests, semver) {
   // yarn resolves each resolution's pattern too, linked as a request is.
   for (const rule of rules) {
     if (!(rule.pattern in packages) && !workspaces.has(rule.name)) throw new LockfileError(`${quote(rule.pattern)} is not a pattern of the lockfile, where yarn records every resolution's`, rule.where)
-    resolveRequest(rule, context)
+    rule.target = resolveRequest(rule, context)
   }
   checkReached(importers, packages, rules)
-  return { importers, workspaces, rules }
+  // yarn asks for the root's own through an aggregator where it has workspaces.
+  const aggregated = Array.isArray(root.workspaces?.packages ?? root.workspaces)
+  return { importers, workspaces, rules, aggregated }
 }

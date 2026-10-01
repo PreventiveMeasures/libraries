@@ -492,8 +492,9 @@ describe('refuses an entry yarn does not write, or installs otherwise', () => {
     refuses(edit(['"f@https://example.com/f.tgz":', f]), 'is f 4.0.0, as "f@^4.0.0" is, and yarn gives "f@^4.0.0" whichever it resolves first', '["f@https://example.com/f.tgz"]')
   })
 
-  it('entries of one tarball, of another version or hash', () => {
-    const g = (version, hash) => edit(['"l@link:./l":', `"g@https://example.com/f.tgz":\n  version "${version}"\n  resolved "https://example.com/f.tgz#${hash}"\n\n"l@link:./l":`])
+  it('entries of one tarball, of another version, manifest or hash', () => {
+    const g = (version, hash, fields = '') => edit(['"l@link:./l":', `"g@https://example.com/f.tgz":\n  version "${version}"\n  resolved "https://example.com/f.tgz#${hash}"\n${fields}\n"l@link:./l":`])
+    refuses(g('4.0.0', H, '  dependencies:\n    b "1.0.0"\n'), 'other dependencies than "f@https://example.com/f.tgz", of the same tarball', '["g@https://example.com/f.tgz"].dependencies')
     refuses(g('4.0.1', H), 'another version than "f@https://example.com/f.tgz", of the same tarball', '["g@https://example.com/f.tgz"].version')
     refuses(g('4.0.0', C), 'another sha1 than "f@https://example.com/f.tgz", of the same tarball', '["g@https://example.com/f.tgz"].resolved')
     refuses(edit([`  integrity ${H1}\n\n"d`, `  integrity "${H1} ${I}"\n\n"d`], [`  integrity ${H1}\n`, `  integrity "${H1} ${I2}"\n`]), 'another sha512 integrity than "b@1.0.0", of the same tarball', '["my-b@npm:b@1.0.0"].integrity')
@@ -518,7 +519,8 @@ describe('refuses an entry yarn does not write, or installs otherwise', () => {
     refuses(edit(['"f@https://example.com/f.tgz":', 'f@4.0.0, "f@https://example.com/f.tgz":']), `"f@4.0.0" asks for the registry, and is given what "f@https://example.com/f.tgz" names, ${only}`, '["f@4.0.0"]')
     refuses(edit(['"d@file:./d":', 'd@^0.1.0, "d@file:./d":']), `"d@^0.1.0" asks for the registry, and is given what "d@file:./d" names, ${only}`, '["d@^0.1.0"]')
     refuses(edit(['"e@git+https://example.com/e.git#v3":', 'e@3.0.0:']), '"e@3.0.0" asks for the registry, and resolves to a git repository', '["e@3.0.0"]')
-    refuses(edit(['"d@file:./d":', 'd@0.1.0:']), '"d@0.1.0" asks for the registry, and resolves to nothing, as for a directory', '["d@0.1.0"]')
+    refuses(edit(['"d@file:./d":', 'd@0.1.0:']), '"d@0.1.0" asks for the registry, and resolves to nothing, which only a resolution to a workspace may, as the manifests would say', '["d@0.1.0"]')
+    refuses(edit(['"d@file:./d":', 'd@0.1.0:']), '"d@0.1.0" asks for the registry, and resolves to nothing, as for a directory', '["d@0.1.0"]', { ...MANIFESTS, '.': { ...MANIFESTS['.'], dependencies: { ...MANIFESTS['.'].dependencies, d: '0.1.0' } } })
     refuses(edit([`"https://example.com/f.tgz#${H}"`, `"file:vendor/f.tgz#${H}"`], ['"f@https://example.com/f.tgz":', 'f@4.0.0:']), '"f@4.0.0" asks for the registry, and resolves to a file: tarball', '["f@4.0.0"]')
   })
 
@@ -599,9 +601,10 @@ describe('a resolution to a source, where it applies to every request', () => {
     refuses(RESOLVED, '"b@1.0.0" is asked for both where the resolution "**/b" applies and where none does, and yarn writes one entry for both', '["d@file:./d"].dependencies.b', resolving({ '**/b': URL, 'd/b': '1.0.0' }))
   })
 
-  it('refuses the root\'s own dependency given it, which no resolution applies to', () => {
-    const manifests = resolving({ '**/b': URL }, { dependencies: { ...MANIFESTS['.'].dependencies, b: '1.0.0' } })
-    refuses(RESOLVED, '"b@1.0.0" is given what the resolution "**/b" resolves to, which yarn applies to no dependency of the root\'s own', 'manifests["."].dependencies.b', manifests)
+  it('the root\'s own dependency given it, as yarn asks for it again through the workspaces\' aggregator', () => {
+    const asking = (resolutions) => resolving(resolutions, { dependencies: { ...MANIFESTS['.'].dependencies, b: '1.0.0' } })
+    for (const path of ['b', '**/b']) assert.equal(parse(RESOLVED, asking({ [path]: URL })).importers['.'].dependencies.b, 'b@1.0.0')
+    refuses(RESOLVED, `"b@1.0.0" is given what the resolution "a/b" resolves to, ${applies}`, 'manifests["."].dependencies.b', asking({ 'a/b': URL, 'd/b': URL }))
   })
 
   it('refuses a dependency on what it resolves to, or another entry of that tarball', () => {
