@@ -1,17 +1,23 @@
 {
   "name": "@preventive/deptree",
   "version": "1.0.0-alpha.1",
-  "description": "A node_modules tree in memory, as a package manager would install it: pnpm 10 or 11 from its lockfile, tarballs fetched and checked, patches applied",
+  "description": "A node_modules tree in memory, as a package manager would install it: pnpm 10 or 11, or yarn 1.22, from its lockfile, tarballs fetched and checked, patches applied",
   "type": "module",
   "exports": {
     "./pnpm.js": {
       "types": "./pnpm.d.ts",
       "default": "./pnpm.js"
+    },
+    "./yarn1.js": {
+      "types": "./yarn1.d.ts",
+      "default": "./yarn1.js"
     }
   },
   "files": [
     "pnpm.d.ts",
     "pnpm.js",
+    "yarn1.d.ts",
+    "yarn1.js",
     "src/error.js",
     "src/hash.js",
     "src/matcher.js",
@@ -38,7 +44,18 @@
     "src/pnpm/tree.js",
     "src/pnpm/uptodate.js",
     "src/pnpm/workspace.js",
-    "src/tarball.js"
+    "src/tarball.js",
+    "src/yarn1/bins.js",
+    "src/yarn1/compat.js",
+    "src/yarn1/glob.js",
+    "src/yarn1/hoist.js",
+    "src/yarn1/inputs.js",
+    "src/yarn1/package.js",
+    "src/yarn1/peers.js",
+    "src/yarn1/requests.js",
+    "src/yarn1/resolve.js",
+    "src/yarn1/settings.js",
+    "src/yarn1/tree.js"
   ],
   "engines": {
     "node": ">=24.14.0"
@@ -69,6 +86,7 @@
     "@preventive/diff": "^1.0.0",
     "@preventive/lockfile": "1.0.0-alpha.1",
     "@preventive/upstream": "1.0.0-alpha.1",
-    "@preventive/vfs": "1.0.0-beta.1"
+    "@preventive/vfs": "1.0.0-beta.1",
+    "semver": "5.5.0"
   }
 }

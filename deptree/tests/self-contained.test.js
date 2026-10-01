@@ -64,9 +64,16 @@ describe('deptree/ imports nothing from outside but what it declares', () => {
   })
 
   // The manifest is published as written: a pre-release is pinned, as the
-  // next one may change its API, and a release takes a caret.
+  // next one may change its API, and a release takes a caret; but for
+  // semver, pinned to the release yarn 1.22 bundles, as yarn's ranges are
+  // read as that one reads them.
+  const PINNED = new Map([['semver', '5.5.0']])
   it('pins a pre-release, and takes a release with a caret', () => {
     for (const [name, spec] of Object.entries(manifest.dependencies)) {
+      if (PINNED.has(name)) {
+        assert.equal(spec, PINNED.get(name), `${name} is ${spec}, not the release it is pinned to`)
+        continue
+      }
       const m = /^(\^?)\d+\.\d+\.\d+(-[\d.A-Za-z-]+)?$/u.exec(spec)
       assert.ok(m !== null, `${name} is ${spec}, not a version or a caret on one`)
       const [, caret, prerelease] = m
