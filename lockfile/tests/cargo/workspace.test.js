@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { describe, it } from 'node:test'
-import { LockfileError, linkCargo, parseCargoLock, parseCargoManifest, readCargoVendor, resolveCargoFeatures } from '../../cargo.js'
+import { LockfileError, linkCargo, parseCargoConfig, parseCargoLock, parseCargoManifest, readCargoVendor, resolveCargoFeatures } from '../../cargo.js'
 
 // A workspace cargo locked and vendored, and what cargo made of it, from
 // scripts/record-cargo.js: which vendored directory each package is read
@@ -19,17 +19,20 @@ const vendor = Object.fromEntries(readdirSync(new URL('vendor/', DIR)).map((name
 ]))
 const vendored = readCargoVendor(lock, vendor)
 
-// The root's text with a resolver named, as the recording has it.
-function load(resolver) {
-  const text = read('Cargo.toml')
+// The root's text with a resolver named, as the recording has it; or
+// another text, and cargo's configuration.
+function load(resolver, text = read('Cargo.toml'), config = undefined) {
   const root = parseCargoManifest(resolver === undefined ? text : text.replace('[workspace]\n', `[workspace]\nresolver = "${resolver}"\n`))
   const manifests = {}
   for (const [key, path] of Object.entries(expected.manifests)) {
     manifests[key] = path === 'Cargo.toml' ? root : parseCargoManifest(read(path), path.startsWith('crates/') && key !== 'extra 0.3.0' ? root : undefined)
   }
   for (const [key, { directory }] of Object.entries(vendored)) manifests[key] = parseCargoManifest(vendor[directory].manifest)
-  return linkCargo(lock, manifests, { workspace: root, members: expected.members })
+  return linkCargo(lock, manifests, { workspace: root, members: expected.members, ...(config === undefined ? {} : { config: parseCargoConfig(config) }) })
 }
+
+// The root's [patch], moved to .cargo/config.toml, which cargo locks the same.
+const PATCH = '\n[patch.crates-io]\ncfg-if = { path = "patched/cfg-if" }\n'
 
 const norm = (list) => list.map((item) => item.replaceAll(' ', '')).sort()
 
@@ -48,6 +51,13 @@ describe('a workspace cargo locked and vendored', () => {
   it('gives each vendored file its checksum', () => {
     const memchr = Object.entries(vendored).find(([key]) => key.startsWith('memchr '))[1]
     assert.match(memchr.files['Cargo.toml'], /^[\da-f]{64}$/u)
+  })
+
+  it('reads the [patch] from cargo\'s configuration where it is there', () => {
+    const moved = read('Cargo.toml').replace(PATCH, '\n')
+    assert.notEqual(moved, read('Cargo.toml'))
+    assert.deepEqual(load(undefined, moved, [PATCH]), load())
+    assert.throws(() => load(undefined, moved), (error) => error instanceof LockfileError && /resolves "cfg-if" to none but .*, or \[patch\]ed by a config not given\?$/u.test(error.message))
   })
 
   it('lays the manifests over the lockfile as cargo does', () => {

@@ -130,6 +130,22 @@ export interface CargoWorkspace {
   dependencies: Record<string, CargoDependencySpec>
 }
 
+// Reads cargo's configuration for what resolution takes of it: [patch],
+// which cargo reads beside the root manifest's. `texts` are the config
+// files', as cargo finds them, the closest to where it runs first:
+// `.cargo/config.toml` there, then in each directory up, then the one in
+// cargo's home, with a `--config` value before them all. They are merged as
+// cargo merges them: tables key by key, arrays joined, and of two other
+// values the closer; a table or array against another kind of value is
+// refused. The rest of each is not looked into: [source] replaces where a
+// package is fetched from, not what the lockfile names it by.
+export function parseCargoConfig(texts: string[]): CargoConfig
+
+export interface CargoConfig {
+  // [patch.<registry or URL>], by the name each is patched under.
+  patch: Record<string, Record<string, CargoDependencySpec>>
+}
+
 // Which vendored copy is which package, as a directory source finds it: by
 // the name and version in its Cargo.toml, not by the directory's name, so
 // `rand` may hold 0.8.5 and `rand-0.7.3` the other, or the other way
@@ -159,7 +175,10 @@ export interface CargoVendored {
 // `manifests` is by key, one for every package of the lockfile: a
 // member's own, a vendored package's from its directory. `workspace` is
 // the root's manifest; `members` the keys of the members, which the
-// lockfile resolves with every feature on, dev-dependencies and all.
+// lockfile resolves with every feature on, dev-dependencies and all;
+// `config` what parseCargoConfig gives of cargo's configuration, whose
+// [patch] cargo reads with the root's: at a source both patch, the config's
+// entries, and the root's of other names.
 //
 // Cargo ties a declaration to a package by name, version requirement and
 // source, [patch] aside; so does this, and refuses a declaration two
@@ -174,7 +193,7 @@ export interface CargoVendored {
 // for one source by URLs that differ but for being canonical; of two at
 // one URL, `crates-io` and crates.io's index, the later by key is read, as
 // cargo reads it.
-export function linkCargo(lock: CargoLockfile, manifests: Record<string, CargoManifest>, options: { workspace: CargoManifest, members: string[] }): CargoGraph
+export function linkCargo(lock: CargoLockfile, manifests: Record<string, CargoManifest>, options: { workspace: CargoManifest, members: string[], config?: CargoConfig }): CargoGraph
 
 export interface CargoGraph {
   // The workspace's: [workspace] resolver, the root package's, or its

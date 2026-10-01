@@ -10,10 +10,11 @@
 // active where the lockfile's resolve, every member's every feature on,
 // turns it on; the lockfile's edges are the active declarations'.
 
+import { matches, parseVersion } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
+import { EMPTY, checkOptions } from '../shape.js'
 import { featureValue } from './dependency.js'
 import { ANY_REGISTRY, parseLockSource, patchKey, patchUrl, patchedAs, sourceIdentity } from './lock.js'
-import { matches, parseVersion } from '../crate/semver.js'
 import { parseRequirement } from './syntax.js'
 
 const PATH = 'path'
@@ -32,20 +33,36 @@ const within = (requirement, version) => requirement === undefined || matches(re
 // known by its name alone.
 const from = (wanted, identity, source) => identity === wanted || (wanted === ANY_REGISTRY && source !== undefined && !source.startsWith('git+'))
 
-// The [patch] tables cargo reads: of two at one URL, the later by key, as
-// cargo replaces one with the other; two at one source by URLs that differ
-// but for being canonical cargo replaces one with the other in no set
-// order, and are refused.
-function patchTables(root) {
+// [patch] tables by the URL cargo keys each by: of two at one URL, the
+// later by key, as cargo replaces the one with the other.
+function tablesByUrl(patch, where, label) {
   const tables = new Map()
-  for (const key of Object.keys(root.patch).toSorted()) {
-    const other = tables.get(patchKey(key))
-    if (other !== undefined && patchUrl(other) !== patchUrl(key)) {
-      throw new LockfileError(`patches the source [patch.${other}] does by another URL, and cargo would take either table`, at('patch', key))
-    }
-    tables.set(patchKey(key), key)
+  for (const key of Object.keys(patch).toSorted()) {
+    const here = at(where, key)
+    const entries = Object.entries(patch[key]).map(([name, spec]) => ({ key, name, spec, where: at(here, name) }))
+    tables.set(patchUrl(key), { key, where: here, label: `${label}[patch.${key}]`, entries })
   }
-  return [...tables.values()]
+  return tables
+}
+
+// The [patch] entries cargo reads, the config's and the root's: at a URL
+// both have a table at, the config's entries, then the root's of the names
+// it has none of. Two tables at one source by URLs that differ but for being
+// canonical cargo replaces one with the other in no set order: refused.
+function patchEntries(root, config) {
+  const tables = tablesByUrl(config?.patch ?? EMPTY, at('config', 'patch'), "the config's ")
+  for (const [url, table] of tablesByUrl(root.patch, 'patch', '')) {
+    const given = tables.get(url)
+    if (given === undefined) tables.set(url, table)
+    else given.entries.push(...table.entries.filter((entry) => !given.entries.some((other) => other.name === entry.name)))
+  }
+  const sources = new Map()
+  for (const { key, where, label } of tables.values()) {
+    const other = sources.get(patchKey(key))
+    if (other !== undefined) throw new LockfileError(`patches the source ${other} does by another URL, and cargo would take either table`, where)
+    sources.set(patchKey(key), label)
+  }
+  return [...tables.values()].flatMap((table) => table.entries)
 }
 
 // What a [patch] offers: the package, from the source it offers it from, of
@@ -53,13 +70,12 @@ function patchTables(root) {
 // location has none of them; by `target`, the source it patches and the
 // package's name. Cargo refuses too a patch from the source it patches,
 // whatever the git reference; a path's place only a filesystem tells.
-function readPatches(root) {
-  return patchTables(root).flatMap((key) => Object.entries(root.patch[key]).map(([name, spec]) => {
-    const where = at(at('patch', key), name)
+function readPatches(entries) {
+  return entries.map(({ key, spec, where }) => {
     if (patchedAs(spec.source) === patchKey(key)) throw new LockfileError('patches its source with itself, which cargo refuses', where)
     const requirement = spec.version === undefined ? undefined : parseRequirement(spec.version, where)
     return { target: `${patchKey(key)} ${spec.package}`, package: spec.package, identity: sourceIdentity(spec.source, PATH), requirement, where }
-  }))
+  })
 }
 
 // Cargo resolves every patch, used or not, and keeps in the lockfile the
@@ -114,15 +130,16 @@ function checkLinks(packages) {
 // the workspace, for which the lockfile resolves every dependency,
 // dev-dependencies and optional ones among them.
 export function linkCargo(lock, manifests, options) {
-  const { workspace: root, members } = options ?? {}
+  const { workspace: root, members, config } = checkOptions(options, ['workspace', 'members', 'config'])
   if (root?.patch === undefined || (root.workspace === undefined && root.package === undefined)) throw new TypeError('expected the manifest of the workspace root')
   if (!Array.isArray(members)) throw new TypeError('expected the members of the workspace')
+  if (config !== undefined && config?.patch === undefined) throw new TypeError('expected the config, as parseCargoConfig gives it')
   checkMembers(lock, members)
   const rootKey = root.package === undefined ? undefined : `${root.package.name} ${root.package.version}`
   if (rootKey !== undefined && !members.includes(rootKey)) throw new LockfileError(`the root package ${quote(rootKey)} is not among the members`, 'members')
   const identities = Object.create(null)
   for (const [key, pkg] of Object.entries(lock.packages)) identities[key] = pkg.source === undefined ? PATH : parseLockSource(pkg.source, key, false).identity
-  const patches = readPatches(root)
+  const patches = readPatches(patchEntries(root, config))
   const context = { lock, identities, patches: Map.groupBy(patches, (patch) => patch.target) }
   const packages = Object.create(null)
   const ambiguous = new Map()
@@ -144,9 +161,12 @@ export function linkCargo(lock, manifests, options) {
   }
   // The lockfile resolves what every feature of every member turns on.
   const roots = new Map(members.map((key) => [key, Object.keys(packages[key].manifest.features).map(featureValue)]))
-  const why = (dep) => (ambiguous.has(dep)
-    ? `${quote(dep.name)} could be any of ${ambiguous.get(dep).map(quote).join(', ')}`
-    : `the lockfile resolves no ${quote(dep.name)}, which the members' features turn on: is it out of date?`)
+  const why = (dep, key) => {
+    if (ambiguous.has(dep)) return `${quote(dep.name)} could be any of ${ambiguous.get(dep).map(quote).join(', ')}`
+    const named = lock.packages[key].dependencies.filter((edge) => lock.packages[edge].name === dep.package)
+    if (named.length === 0) return `the lockfile resolves no ${quote(dep.name)}, which the members' features turn on: is it out of date?`
+    return `the lockfile resolves ${quote(dep.name)} to none but ${named.map(quote).join(', ')}, of another source or version: is it out of date, or [patch]ed by a config not given?`
+  }
   const reached = new Set(members)
   for (const dep of activate(packages, roots, why)) {
     dep.active = true
@@ -254,7 +274,7 @@ class Activation {
 
   // Asks `dep`'s package for what `dep` and `extra` ask.
   ask(dep, extra, key) {
-    if (dep.resolved === undefined) throw new LockfileError(this.why(dep), key)
+    if (dep.resolved === undefined) throw new LockfileError(this.why(dep, key), key)
     this.active.add(dep)
     const target = this.requestOf(dep.resolved)
     for (const feature of [...requestsOf(this.packages, dep), ...extra]) this.require(dep.resolved, target, feature, key)

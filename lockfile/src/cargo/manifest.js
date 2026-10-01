@@ -13,10 +13,11 @@
 import { parseVersion } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
 import { EMPTY } from '../shape.js'
+import { TomlError } from '../toml/error.js'
 import { parseToml } from '../toml/parse.js'
 import { isTable } from '../toml/value.js'
 import { NIGHTLY, dashed, featureMap, gatherDependencies, readSpec } from './dependency.js'
-import { array, boolean, checkName, entries, optional, refuse, string, strings, table } from './shape.js'
+import { array, boolean, checkName, entries, kind, optional, refuse, string, strings, table } from './shape.js'
 
 // What only a package has, which a virtual manifest cannot.
 const PACKAGE_ONLY = [
@@ -99,13 +100,50 @@ function readWorkspace(value) {
   }
 }
 
-function readPatch(value) {
+function readPatch(value, where = 'patch') {
   const patch = Object.create(null)
-  for (const [key, deps, here] of entries(value ?? EMPTY, 'patch')) {
+  for (const [key, deps, here] of entries(value ?? EMPTY, where)) {
     patch[key] = Object.create(null)
     for (const [name, item, there] of entries(deps, here)) patch[key][checkName(name, there)] = readSpec(item, there, name)
   }
   return patch
+}
+
+// Cargo's merge of a config's value with that of one under it, further from
+// where cargo runs: tables key by key, arrays joined, the first's after, and
+// of two other values the first; a table or an array against another kind
+// of value is refused, as cargo refuses it.
+function mergeConfig(first, then, where) {
+  if (isTable(first) && isTable(then)) {
+    const merged = Object.assign(Object.create(null), then)
+    for (const [key, value] of Object.entries(first)) merged[key] = Object.hasOwn(then, key) ? mergeConfig(value, then[key], at(where, key)) : value
+    return merged
+  }
+  if (Array.isArray(first) && Array.isArray(then)) return [...then, ...first]
+  if ([first, then].some((value) => isTable(value) || Array.isArray(value))) {
+    throw new LockfileError(`${kind(first)} in one config and ${kind(then)} in one under it, which cargo does not merge`, where)
+  }
+  return first
+}
+
+// Cargo's configuration, for what resolution takes of it, which is its
+// [patch]: `texts` are the config files' as cargo finds them, the closest to
+// where it runs first, a `--config` value before them all, and merged as it
+// merges them. The rest of each is not looked into.
+export function parseCargoConfig(texts) {
+  if (!Array.isArray(texts) || !texts.every((text) => typeof text === 'string')) throw new TypeError('expected the texts of the config files')
+  let patch
+  for (const [index, text] of texts.entries()) {
+    let doc
+    try {
+      doc = parseToml(text)
+    } catch (error) {
+      if (error instanceof TomlError) error.message = `texts[${index}]: ${error.message}`
+      throw error
+    }
+    if (doc.patch !== undefined) patch = patch === undefined ? doc.patch : mergeConfig(patch, doc.patch, 'patch')
+  }
+  return { patch: readPatch(patch) }
 }
 
 // A field given as `{ workspace = true }`, from [workspace.package].

@@ -12,6 +12,7 @@
 // every feature, and more is refused, where cargo would resolve anew.
 
 import { LockfileError, quote } from '../error.js'
+import { checkOptions } from '../shape.js'
 import { featureValue } from './dependency.js'
 import { activate, requestsOf, setOf } from './graph.js'
 import { parseCfg, parsePlatform, platformMatches } from './syntax.js'
@@ -317,7 +318,7 @@ class FeatureResolver {
 }
 
 export function resolveCargoFeatures(graph, options) {
-  if (typeof options !== 'object' || options === null) throw new TypeError('expected the build')
+  checkOptions(options, ['packages', 'features', 'allFeatures', 'noDefaultFeatures', 'current', 'dev', 'host', 'targets'])
   const roots = membersWithFeatures(graph, options)
   const why = (dep) => `the build turns on ${quote(dep.name)}, which the lockfile does not resolve to one package, and cargo would anew`
   const resolver = new FeatureResolver(graph, activate(graph.packages, roots, why), options)

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { LockfileError, linkCargo, parseCargoLock, parseCargoManifest, resolveCargoFeatures } from '../../cargo.js'
+import { LockfileError, TomlError, linkCargo, parseCargoConfig, parseCargoLock, parseCargoManifest, resolveCargoFeatures } from '../../cargo.js'
 
 // A workspace of two members that depend on two versions of b, one renamed,
 // and b asking for c by a feature; then one change at a time to the
@@ -182,7 +182,7 @@ describe('linkCargo with a [patch]', () => {
   })
 
   it('refuses a dependency on a source no patch is for', () => {
-    const message = 'app 0.1.0: the lockfile resolves no "x", which the members\' features turn on: is it out of date?'
+    const message = 'app 0.1.0: the lockfile resolves "x" to none but "x 1.0.0", of another source or version: is it out of date, or [patch]ed by a config not given?'
     assert.throws(() => patched('"1"', '"https://example.com/index"'), refusedWith(message))
     assert.throws(() => patched('{ version = "1", registry-index = "https://example.com/index" }', 'crates-io'), refusedWith(message))
     assert.throws(() => patched('{ version = "1", registry = "corp" }', 'other'), refusedWith(message))
@@ -200,7 +200,7 @@ describe('linkCargo with a [patch]', () => {
     for (const version of ['1', '=1.0.0']) {
       assert.equal(patched('"1"', 'crates-io', `{ path = "x", version = "${version}" }`).packages['app 0.1.0'].dependencies[0].resolved, 'x 1.0.0')
     }
-    const message = 'app 0.1.0: the lockfile resolves no "x", which the members\' features turn on: is it out of date?'
+    const message = 'app 0.1.0: the lockfile resolves "x" to none but "x 1.0.0", of another source or version: is it out of date, or [patch]ed by a config not given?'
     for (const version of ['=1.0.1', '2']) {
       assert.throws(() => patched('"1"', 'crates-io', `{ path = "x", version = "${version}" }`), refusedWith(message))
     }
@@ -265,6 +265,60 @@ describe('linkCargo with two [patch] tables for one source', () => {
   it('refuses two at one source by URLs that differ, of which cargo would take either', () => {
     const url = 'https://github.com/rust-lang/crates.io-index/'
     assert.throws(() => tables(url, ['bar']), refusedWith(`patch["${url}"]: patches the source [patch.crates-io] does by another URL, and cargo would take either table`))
+  })
+})
+
+// x 1.0.0 at a path, patched in for crates.io by the config, the root, or
+// both; the root's other patch y, which the lockfile lists unused.
+describe('linkCargo with a [patch] in the config', () => {
+  const lock = parseCargoLock('version = 4\n[[package]]\nname = "app"\nversion = "0.1.0"\ndependencies = ["x"]\n[[package]]\nname = "x"\nversion = "1.0.0"\n\n[[patch.unused]]\nname = "y"\nversion = "1.0.0"\n')
+  const x = parseCargoManifest('[package]\nname = "x"\nversion = "1.0.0"\n')
+  const configured = (patch, config) => {
+    const root = parseCargoManifest(`[package]\nname = "app"\nversion = "0.1.0"\n\n[dependencies]\nx = "1"\n\n[patch.crates-io]\ny = { path = "y" }\n${patch}`)
+    const options = { workspace: root, members: ['app 0.1.0'], ...(config === undefined ? {} : { config: parseCargoConfig(config) }) }
+    return linkCargo(lock, { 'app 0.1.0': root, 'x 1.0.0': x }, options)
+  }
+  const resolved = (graph) => graph.packages['app 0.1.0'].dependencies[0].resolved
+
+  it('reads the config\'s patch, as cargo does, and keeps the root\'s of other names', () => {
+    assert.equal(resolved(configured('', ['[patch.crates-io]\nx = { path = "x" }\n'])), 'x 1.0.0')
+    assert.throws(() => configured(''), refusedWith('app 0.1.0: the lockfile resolves "x" to none but "x 1.0.0", of another source or version: is it out of date, or [patch]ed by a config not given?'))
+  })
+
+  it('takes the config\'s entry before the root\'s of its name', () => {
+    const strict = 'x = { path = "x", version = "=2.0.0" }\n'
+    assert.throws(() => configured(strict), refusedWith('app 0.1.0: the lockfile resolves "x" to none but "x 1.0.0", of another source or version: is it out of date, or [patch]ed by a config not given?'))
+    assert.equal(resolved(configured(strict, ['[patch.crates-io]\nx = { path = "x" }\n'])), 'x 1.0.0')
+    assert.equal(resolved(configured('', ['[patch."https://github.com/rust-lang/crates.io-index"]\nx = { path = "x" }\n'])), 'x 1.0.0')
+  })
+
+  it('refuses a config\'s table and the root\'s at one source by two URLs, of which cargo would take either', () => {
+    const config = ['[patch."https://github.com/rust-lang/crates.io-index/"]\nx = { path = "x" }\n']
+    assert.throws(() => configured('', config), refusedWith('patch["crates-io"]: patches the source the config\'s [patch.https://github.com/rust-lang/crates.io-index/] does by another URL, and cargo would take either table'))
+  })
+
+  it('refuses an option it does not know', () => {
+    assert.throws(() => linkCargo(lock, {}, { workspace: x, members: [], configs: [] }), { name: 'TypeError', message: 'unknown option "configs", of workspace, members, config' })
+  })
+})
+
+describe('parseCargoConfig', () => {
+  const patchOf = (...texts) => parseCargoConfig(texts).patch
+
+  it('merges the configs as cargo does: tables key by key, the closer value first', () => {
+    const merged = patchOf('[patch.crates-io]\nx = { path = "near" }\n', '[patch.crates-io]\nx = { path = "far", version = "1" }\ny = "2"\n')
+    assert.deepEqual({ ...merged['crates-io'].x.source, version: merged['crates-io'].x.version }, { type: 'path', path: 'near', version: '1' })
+    assert.equal(merged['crates-io'].y.version, '2')
+  })
+
+  it('looks into nothing but [patch]', () => {
+    assert.deepEqual({ ...patchOf('[build]\ntarget = "x86_64-unknown-linux-gnu"\n\n[source.crates-io]\nreplace-with = "vendored"\n') }, {})
+  })
+
+  it('refuses a table under a value of another kind, and says which text is not TOML', () => {
+    assert.throws(() => patchOf('[patch.crates-io]\nx = "1"\n', '[patch.crates-io]\nx = { path = "x" }\n'), refusedWith('patch["crates-io"].x: the string "1" in one config and a table in one under it, which cargo does not merge'))
+    assert.throws(() => patchOf('', '[patch'), (error) => error instanceof TomlError && error.message.startsWith('texts[1]: '))
+    assert.throws(() => parseCargoConfig('[patch]'), TypeError)
   })
 })
 
