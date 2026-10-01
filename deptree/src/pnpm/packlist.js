@@ -30,9 +30,10 @@
 // it, which the two pass over differently; and one where a file those
 // leave out is one npm-packlist would keep, a readme, copying, license or
 // licence file, or one `main`, `browser` or `bin` names, as the two keep
-// them differently, or, with pnpm 12, one `main` or `bin` names, which it
-// keeps in node_modules alone. So is a file whose mode is not 0o644 or
-// 0o755, which linking a bin would change otherwise than fixBin has it.
+// them differently, or, with pnpm 12, one in node_modules that `main` or
+// `bin` names, the only file it keeps of those its rules leave out. So is
+// a file whose mode is not 0o644 or 0o755, which linking a bin would
+// change otherwise than fixBin has it.
 
 import { join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
@@ -62,6 +63,14 @@ function leftOut12(names, directory) {
   return VCS.has(name) || (names.length === 1 && name === 'node_modules') || (!directory && (CRUFT.has(name) || name.endsWith('.orig')))
 }
 
+// Whether pnpm 12 leaves out the file at `path` even where `main` or `bin`
+// names it: by all its rules but node_modules's.
+function alwaysLeftOut12(path) {
+  const names = path.split('/')
+  const name = names.at(-1)
+  return names.some((each) => VCS.has(each)) || CRUFT.has(name) || name.endsWith('.orig')
+}
+
 // Whether npm-packlist's built-in rules, as pnpm `major` runs it, leave out
 // the entry at `names`, as for leftOut12.
 function leftOutByNpm(names, directory, major) {
@@ -75,11 +84,14 @@ function leftOutByNpm(names, directory, major) {
 const MUST_HAVE = /^(?:readme|copying|license|licence)(?:\..*[^~$])?$/iu
 
 // The paths a package.json's main, browser and bin name, from its
-// directory, whatever their case.
-function namedByManifest(manifest) {
+// directory, whatever their case, that pnpm `major` may keep whatever its
+// rules say: with pnpm 12, those main and bin name that its rules but
+// node_modules's do not leave out.
+function namedByManifest(manifest, major) {
   const { main, browser, bin } = manifest
-  const paths = [main, browser, ...typeof bin === 'string' ? [bin] : Object.values(bin ?? {})]
-  return paths.filter((path) => typeof path === 'string').map((path) => join('.', path).toLowerCase())
+  const bins = typeof bin === 'string' ? [bin] : Object.values(bin ?? {})
+  const paths = (major >= 12 ? [main, ...bins] : [main, browser, ...bins]).filter((path) => typeof path === 'string').map((path) => join('.', path))
+  return (major >= 12 ? paths.filter((path) => !alwaysLeftOut12(path)) : paths).map((path) => path.toLowerCase())
 }
 
 // Whether a package.json's list of bundled dependencies may name any: an
@@ -92,7 +104,7 @@ const bundles = (list) => Boolean(list) && !(Array.isArray(list) && list.length 
 export function packDirectory(project, dir, manifest, major, where) {
   if (manifest.files !== undefined) throw new DeptreeError('its package.json has `files`, which npm-packlist picks the files pnpm installs by, and which is not followed here', where)
   if (bundles(manifest.bundleDependencies) || bundles(manifest.bundledDependencies)) throw new DeptreeError('a directory with bundled dependencies is not supported', where)
-  const named = namedByManifest(manifest)
+  const named = namedByManifest(manifest, major)
   const leftOut = major >= 12 ? leftOut12 : (names, directory) => leftOutByNpm(names, directory, major)
   const files = new Map()
   const visit = (names) => {

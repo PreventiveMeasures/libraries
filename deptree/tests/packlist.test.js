@@ -38,6 +38,16 @@ describe('packDirectory', () => {
     assert.throws(() => pack({ 'node_modules/x.js': '' }, 12, { main: './node_modules/x.js' }), /turns on rules of npm-packlist not followed here/u)
   })
 
+  // Of what its rules leave out, pnpm 12 keeps only a file in node_modules
+  // that main or bin names: not one browser names, nor one its other rules
+  // leave out whatever names it.
+  it('leaves out for pnpm 12 a file main, browser or bin names elsewhere', () => {
+    const files = { 'index.js': '', '.npmrc': '', 'x.orig': '', 'yarn.lock': '', '.git/a.js': '' }
+    const fields = { browser: '.npmrc', main: 'x.orig', bin: { foo: 'yarn.lock', bar: './.git/a.js' } }
+    assert.deepEqual(pack(files, 12, fields), ['index.js', 'package.json'])
+    assert.throws(() => pack(files, 11, fields), /turns on rules of npm-packlist not followed here/u)
+  })
+
   it('leaves out bun.lockb for pnpm 11 alone, and the rules at the top in every directory', () => {
     const files = { 'bun.lockb': '', 'lib/.lock-wscript': '', 'lib/.wafpickle-1': '', 'lib/build/config.gypi': '', 'lib/archived-packages/y': '' }
     assert.deepEqual(pack(files, 10), ['bun.lockb', 'lib/.lock-wscript', 'lib/.wafpickle-1', 'lib/archived-packages/y', 'lib/build/config.gypi', 'package.json'])
@@ -59,6 +69,7 @@ describe('packDirectory', () => {
     ['bundled dependencies beside an empty list', {}, { bundleDependencies: [], bundledDependencies: ['a'] }, /bundled dependencies is not supported/u],
     ['a readme the rules would leave out', { 'lib/README.orig': '' }, {}, /turns on rules of npm-packlist not followed here/u],
     ['a bin the rules would leave out', { 'npm-debug.log': '' }, { bin: { foo: 'npm-debug.log' } }, /turns on rules of npm-packlist not followed here/u],
+    ['a browser file the rules would leave out', { '.npmrc': '' }, { browser: '.npmrc' }, /turns on rules of npm-packlist not followed here/u],
     ['node_modules but for its case', { 'Node_Modules/x': '' }, {}, /node_modules but for its case/u],
   ]
   for (const [what, files, fields, pattern] of refused) {
