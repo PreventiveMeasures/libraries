@@ -1,6 +1,6 @@
 // What a name, a version, a path and an integrity have to look like. Each
-// is held to the form pnpm writes and no looser one, so a value read here
-// means one thing to every reader downstream.
+// is held to the form the lockfiles write and no looser one, so a value
+// read here means one thing to every reader downstream.
 
 import { LockfileError, quote } from './error.js'
 import { text } from './shape.js'
@@ -67,6 +67,14 @@ export function joinRelative(base, path) {
     else segments.push(segment)
   }
   return segments.length === 0 ? '.' : segments.join('/')
+}
+
+export const isCommit = (hash) => /^(?:[\da-f]{40}|[\da-f]{64})$/u.test(hash)
+
+export function checkRepo(value, where) {
+  const repo = text(value, where)
+  if (/[\s\p{Cc}]/u.test(repo)) throw new LockfileError(`${quote(repo)} is not a repository URL`, where)
+  return repo
 }
 
 // Subresource integrity with one hash, as pnpm writes it: the algorithm, a

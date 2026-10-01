@@ -7,10 +7,10 @@
 
 import { LockfileError, at } from '../error.js'
 import { checkName, checkRelative } from '../names.js'
+import { KINDS } from '../graph.js'
 import { EMPTY, boolean, entries, record, string, text } from '../shape.js'
 import { target } from './packages.js'
 
-export const KINDS = ['dependencies', 'devDependencies', 'optionalDependencies']
 const FIELDS = [...KINDS, 'dependenciesMeta', 'publishDirectory', 'linkDirectory']
 export const ENV_KINDS = ['configDependencies', 'packageManagerDependencies']
 

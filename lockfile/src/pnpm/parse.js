@@ -11,9 +11,10 @@
 
 import { parseYamlStream } from '../yaml/parse.js'
 import { LockfileError, at, quote } from '../error.js'
+import { KINDS, reach } from '../graph.js'
 import { checkIntegrity, checkName, checkRelative } from '../names.js'
 import { EMPTY, boolean, count, entries, kind, record, string, text, textMap, texts } from '../shape.js'
-import { ENV_KINDS, KINDS, readImporters } from './importers.js'
+import { ENV_KINDS, readImporters } from './importers.js'
 import { readPackages } from './packages.js'
 
 const FIELDS = [
@@ -101,21 +102,7 @@ function readTime(value, where, packages) {
 // Every snapshot is reached from an importer, as pnpm prunes the rest: one
 // that is not would be listed as installed when nothing installs it.
 function checkReached(importers, packages, where) {
-  const reached = new Set()
-  const queue = []
-  const visit = (targets = EMPTY) => {
-    for (const key of Object.values(targets)) {
-      if (key.startsWith('link:') || reached.has(key)) continue
-      reached.add(key)
-      queue.push(key)
-    }
-  }
-  for (const importer of Object.values(importers)) for (const field of [...KINDS, ...ENV_KINDS]) visit(importer[field])
-  while (queue.length > 0) {
-    const pkg = packages[queue.pop()]
-    visit(pkg.dependencies)
-    visit(pkg.optionalDependencies)
-  }
+  const reached = reach(Object.values(importers).flatMap((importer) => [...KINDS, ...ENV_KINDS].map((field) => importer[field])), packages)
   for (const key of Object.keys(packages)) {
     if (!reached.has(key)) throw new LockfileError('no importer depends on it, directly or not', at(at(where, 'snapshots'), key))
   }

@@ -2,12 +2,12 @@
 // a workspace with no entry links it, held to the range only with semver.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkName, checkRelative, isName, joinRelative } from '../names.js'
-import { EMPTY, entries, record, string, texts } from '../shape.js'
+import { KINDS, reach } from '../graph.js'
+import { checkName, checkRelative, isName } from '../names.js'
+import { EMPTY, entries, record, string, text, texts } from '../shape.js'
 import { compile, matches } from './glob.js'
-import { readManifestVersion } from './packages.js'
+import { resolvePath } from './packages.js'
 
-export const KINDS = ['dependencies', 'devDependencies', 'optionalDependencies']
 export const WHERE = 'manifests'
 
 // yarn's resolveRelative: `file:` and `link:` go from the manifest's directory
@@ -17,8 +17,7 @@ function fromLockfile(range, dir, where) {
   if (prefix === undefined && !range.startsWith('/')) return range
   const path = range.slice(prefix?.length ?? 0)
   if (path.startsWith('/') || /^[A-Za-z]:/u.test(path)) throw new LockfileError(`${quote(range)} is an absolute path`, where)
-  const segments = path.split('/').filter((segment) => segment !== '' && segment !== '.')
-  const target = checkRelative(joinRelative(dir, segments.length === 0 ? '.' : segments.join('/')), where)
+  const target = checkRelative(resolvePath(dir, path), where)
   const dotted = target !== '.' && /^\.(?:\/|$)/u.test(path) && !/^\.{0,2}\//u.test(target)
   return `${prefix}${dotted ? './' : ''}${target}`
 }
@@ -31,28 +30,26 @@ function links(workspace, range, semver) {
 }
 
 // yarn writes no entry for what it links.
-function checkLinked(name, range, workspaces, semver, where) {
+function checkLinked({ name, range, pattern, where }, workspaces, semver) {
   const workspace = workspaces.get(name)
   if (workspace !== undefined && links(workspace, range, semver) === true) {
-    throw new LockfileError(`${quote(`${name}@${range}`)} is satisfied by the workspace ${quote(workspace.dir)}, which yarn links instead`, where)
+    throw new LockfileError(`${quote(pattern)} is satisfied by the workspace ${quote(workspace.dir)}, which yarn links instead`, where)
   }
 }
 
 // A request with no entry is for a workspace, which only the manifests name.
-export function linkWorkspaces(unresolved, workspaces, semver) {
-  for (const { targets, name, pattern, where } of unresolved) {
-    const workspace = workspaces?.get(name)
-    if (workspace === undefined) throw new LockfileError(`${quote(pattern)} is not a pattern of the lockfile${workspaces === undefined ? ", nor a workspace's, as only the manifests may say" : ''}`, where)
-    if (links(workspace, pattern.slice(name.length + 1), semver) === false) {
-      throw new LockfileError(`${quote(pattern)} is not a pattern of the lockfile, nor satisfied by the workspace ${quote(workspace.dir)}, ${workspace.version}`, where)
-    }
-    targets[name] = `link:${workspace.dir}`
+export function linkWorkspace({ name, range, pattern, where }, workspaces, semver) {
+  const workspace = workspaces?.get(name)
+  if (workspace === undefined) throw new LockfileError(`${quote(pattern)} is not a pattern of the lockfile${workspaces === undefined ? ", nor a workspace's, as only the manifests may say" : ''}`, where)
+  if (links(workspace, range, semver) === false) {
+    throw new LockfileError(`${quote(pattern)} is not a pattern of the lockfile, nor satisfied by the workspace ${quote(workspace.dir)}, ${workspace.version}`, where)
   }
+  return `link:${workspace.dir}`
 }
 
 // yarn drops `//`, a comment, from a dependency list, and keeps a name listed
 // twice in one alone.
-function readTargets(manifest, dir, where, packages, workspaces, semver) {
+function readTargets(manifest, dir, where, { packages, workspaces, semver }) {
   const importer = Object.create(null)
   const listed = new Map()
   for (const kind of KINDS) {
@@ -62,11 +59,13 @@ function readTargets(manifest, dir, where, packages, workspaces, semver) {
       if (listed.has(name)) throw new LockfileError(`listed under ${listed.get(name)} too`, here)
       listed.set(name, kind)
       const target = fromLockfile(string(range, here), dir, here)
-      const pattern = `${checkName(name, here)}@${target}`
-      if (pattern in packages) {
-        checkLinked(name, target, workspaces, semver, here)
-        targets[name] = pattern
-      } else linkWorkspaces([{ targets, name, pattern, where: here }], workspaces, semver)
+      const request = { name, range: target, pattern: `${checkName(name, here)}@${target}`, where: here }
+      if (!(request.pattern in packages)) {
+        targets[name] = linkWorkspace(request, workspaces, semver)
+        continue
+      }
+      checkLinked(request, workspaces, semver)
+      targets[name] = request.pattern
     }
     importer[kind] = targets
   }
@@ -91,21 +90,8 @@ function readResolutions(value, where) {
 
 // yarn writes no pattern that nothing asks for, a resolution among what asks.
 function checkReached(importers, packages, rules) {
-  const reached = new Set()
-  const installed = new Set()
-  const visit = (targets) => {
-    for (const target of targets) {
-      if (target.startsWith('link:') || reached.has(target)) continue
-      reached.add(target)
-      installed.add(packages[target])
-    }
-  }
-  visit(rules.map((rule) => rule.pattern).filter((pattern) => pattern in packages))
-  for (const importer of Object.values(importers)) for (const kind of KINDS) visit(Object.values(importer[kind]))
-  for (const pkg of installed) {
-    visit(Object.values(pkg.dependencies))
-    visit(Object.values(pkg.optionalDependencies))
-  }
+  const starts = Object.values(importers).flatMap((importer) => KINDS.map((kind) => importer[kind]))
+  const reached = reach([rules.map((rule) => rule.pattern).filter((pattern) => pattern in packages), ...starts], packages)
   const stray = Object.keys(packages).find((pattern) => !reached.has(pattern))
   if (stray !== undefined) throw new LockfileError('nothing asks for it: no manifest, no package and no resolution', at('', stray))
 }
@@ -134,6 +120,19 @@ const TYPOS = {
   'dev-dependencies': 'devDependencies', devDependences: 'devDependencies', devDepenencies: 'devDependencies', devEependencies: 'devDependencies', devdependencies: 'devDependencies',
 }
 
+// Without semver, a manifest's version, which yarn cleans loosely, is held to
+// semver's length and characters alone.
+const LOOSE = /^[\s\dA-Za-z.+=-]{1,256}$/u
+
+function readVersion(value, where, semver) {
+  const version = text(value, where)
+  if (!LOOSE.test(version)) throw new LockfileError(`${quote(version)} is not a version`, where)
+  if (semver === undefined) return version
+  const clean = semver.clean(version, { loose: true })
+  if (clean === null) throw new LockfileError(`${quote(version)} is not a version semver reads`, where)
+  return clean
+}
+
 // yarn reads a workspace that its globs find, outside node_modules, with a
 // name and a version; it reads no field of these typos, but warns.
 function readWorkspace(dir, manifest, here, globs, semver) {
@@ -145,11 +144,11 @@ function readWorkspace(dir, manifest, here, globs, semver) {
   const nameAt = at(here, 'name')
   const name = checkName(string(manifest.name, nameAt), nameAt)
   if (manifest.version === undefined) throw new LockfileError('expected a version, without which yarn ignores the workspace', at(here, 'version'))
-  return { name, version: readManifestVersion(manifest.version, at(here, 'version'), semver) }
+  return { name, dir, version: readVersion(manifest.version, at(here, 'version'), semver) }
 }
 
 // Also hands resolutions.js the workspaces by name, and the root's resolutions.
-export function readImporters(manifests, packages, unresolved, semver) {
+export function readImporters(manifests, packages, requests, semver) {
   record(manifests, WHERE)
   const rootAt = at(WHERE, '.')
   const root = manifests['.']
@@ -160,18 +159,12 @@ export function readImporters(manifests, packages, unresolved, semver) {
     const workspace = readWorkspace(dir, record(manifest, here), here, globs, semver)
     if (workspace === undefined) continue
     if (workspaces.has(workspace.name)) throw new LockfileError(`the name of the workspace ${quote(workspaces.get(workspace.name).dir)} too`, at(here, 'name'))
-    workspaces.set(workspace.name, { dir, version: workspace.version })
+    workspaces.set(workspace.name, workspace)
   }
-  for (const pkg of new Set(Object.values(packages))) {
-    for (const kind of ['dependencies', 'optionalDependencies']) {
-      for (const [name, pattern] of Object.entries(pkg[kind])) {
-        if (pattern in packages) checkLinked(name, pattern.slice(name.length + 1), workspaces, semver, at(at(at('', pkg.patterns[0]), kind), name))
-      }
-    }
-  }
-  linkWorkspaces(unresolved, workspaces, semver)
+  for (const request of requests) if (request.pattern in packages) checkLinked(request, workspaces, semver)
+  for (const request of requests) if (!(request.pattern in packages)) request.targets[request.name] = linkWorkspace(request, workspaces, semver)
   const importers = Object.create(null)
-  for (const [dir, manifest, here] of entries(manifests, WHERE)) importers[dir] = readTargets(manifest, dir, here, packages, workspaces, semver)
+  for (const [dir, manifest, here] of entries(manifests, WHERE)) importers[dir] = readTargets(manifest, dir, here, { packages, workspaces, semver })
   const rules = readResolutions(root.resolutions, at(rootAt, 'resolutions'))
   const missing = rules.find((rule) => !(rule.pattern in packages) && !workspaces.has(rule.name))
   if (missing !== undefined) throw new LockfileError(`${quote(missing.pattern)} is not a pattern of the lockfile, where yarn records every resolution's`, missing.where)

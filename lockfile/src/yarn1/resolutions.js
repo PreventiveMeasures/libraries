@@ -2,10 +2,10 @@
 // request of that name and version: each must be one the resolution matches.
 
 import { LockfileError, at, quote } from '../error.js'
+import { KINDS } from '../graph.js'
 import { EMPTY } from '../shape.js'
 import { accepts, close, step } from './glob.js'
-import { KINDS, WHERE } from './importers.js'
-import { fetchedFrom } from './packages.js'
+import { WHERE } from './importers.js'
 
 // yarn asks for a workspace's dependencies via `workspace-aggregator-<uuid>`.
 const AGGREGATOR = 'workspace-aggregator-00000000-0000-0000-0000-000000000000'
@@ -25,8 +25,9 @@ function checkApplied(packages, { importers, workspaces, rules }, explained) {
   const plain = new Set()
   const enqueue = (node, masks) => {
     const states = seen.get(node) ?? new Set()
-    if (states.has(masks.join())) return
-    seen.set(node, states.add(masks.join()))
+    const id = masks.join()
+    if (states.has(id)) return
+    seen.set(node, states.add(id))
     queue.push([node, masks])
   }
   const root = importers['.']
@@ -43,7 +44,7 @@ function checkApplied(packages, { importers, workspaces, rules }, explained) {
     }
     const rule = rules.find((item, i) => item.name === alias && accepts(tests[i], next[i]))
     if (rule === undefined) plain.add(target)
-    if (rule !== undefined && packages[rule.pattern] !== entry) throw refuse(node, kind, alias, `is not given ${quote(rule.pattern)}, which the resolution ${quote(rule.path)} resolves it to`)
+    else if (packages[rule.pattern] !== entry) throw refuse(node, kind, alias, `is not given ${quote(rule.pattern)}, which the resolution ${quote(rule.path)} resolves it to`)
     if (mixed?.sources.includes(target)) throw refuse(node, kind, alias, `asks for what ${by}, as a dependency of its own`)
     if (mixed !== undefined && !mixed.sources.includes(rule?.pattern)) throw refuse(node, kind, alias, `is given what ${by}, which yarn does not apply to it here`)
     return enqueue(lead(target), next)
@@ -64,39 +65,31 @@ function checkApplied(packages, { importers, workspaces, rules }, explained) {
   return plain
 }
 
+// yarn takes an entry whose version a range of it does not satisfy as
+// outdated, where no resolution applies: in `plain`, where there is one.
+function checkRanges(packages, patterns, plain, semver, manifests) {
+  for (const { key, range, source, alias } of patterns) {
+    if (source !== 'registry' || plain?.has(key) === false) continue
+    const wanted = alias?.range ?? range
+    const { version } = packages[key]
+    if (wanted === '' || semver.satisfies(version, wanted) || semver.validRange(wanted) === null) continue
+    const why = manifests ? 'and no resolution gives it' : 'which only a resolution may excuse, as the manifests would say'
+    throw new LockfileError(`${version} does not satisfy ${quote(wanted)}, ${why}`, at('', key))
+  }
+}
+
 // `project` is undefined without manifests: no resolution explains an entry.
-// Hands back the patterns some request reaches with no resolution, if any.
-export function checkResolutions(mixed, packages, project) {
+export function checkResolutions({ packages, patterns, mixed }, project, semver) {
   const explained = new Map()
-  for (const { pkg, registry, sources } of mixed) {
+  for (const { pkg, registry, sources, other } of mixed) {
     const where = at('', pkg.patterns[0])
     if (project === undefined) throw new LockfileError(`${quote(registry)} asks for the registry, and is given what ${quote(sources[0])} names, which only a resolution may, as the manifests would say`, where)
     const unnamed = sources.find((source) => !project.rules.some((rule) => rule.pattern === source))
     if (unnamed !== undefined) throw new LockfileError(`${quote(registry)} asks for the registry, and is given what ${quote(unnamed)} names, which no resolution does`, where)
     const rule = project.rules.find((item) => sources.includes(item.pattern))
-    const source = fetchedFrom(pkg.resolution)
-    const other = source === undefined ? undefined : Object.values(packages).find((item) => item !== pkg && fetchedFrom(item.resolution) === source)
     if (other !== undefined) throw new LockfileError(`asks for what the resolution ${quote(rule.path)} resolves to, as a dependency of its own`, at('', other.patterns[0]))
     explained.set(pkg, { sources, rule })
   }
-  return project !== undefined && project.rules.length > 0 ? checkApplied(packages, project, explained) : undefined
-}
-
-// The range an `npm:` alias asks for, after the name.
-function aliased(range) {
-  const target = range.slice(4)
-  const sep = target.indexOf('@', 1)
-  return sep === -1 ? '' : target.slice(sep + 1)
-}
-
-// yarn takes an entry whose version a range of it does not satisfy as
-// outdated, where no resolution applies: in `plain`, where there is one.
-export function checkRanges(patterns, plain, semver, manifests) {
-  for (const { key, range, source, pkg } of patterns) {
-    if (source !== 'registry' || plain?.has(key) === false) continue
-    const wanted = range.startsWith('npm:') ? aliased(range) : range
-    if (wanted === '' || semver.validRange(wanted) === null || semver.satisfies(pkg.version, wanted)) continue
-    const why = manifests ? 'and no resolution gives it' : 'which only a resolution may excuse, as the manifests would say'
-    throw new LockfileError(`${pkg.version} does not satisfy ${quote(wanted)}, ${why}`, at('', key))
-  }
+  const plain = project !== undefined && project.rules.length > 0 ? checkApplied(packages, project, explained) : undefined
+  if (semver !== undefined) checkRanges(packages, patterns, plain, semver, project !== undefined)
 }

@@ -5,6 +5,7 @@
 // wherever it is. Every snapshot has its entry and every entry a snapshot.
 
 import { LockfileError, at, quote } from '../error.js'
+import { checkOptional } from '../graph.js'
 import { checkName, checkRelative, checkVersion, isVersion, joinRelative } from '../names.js'
 import { EMPTY, entries, flag, record, text, textMap, texts } from '../shape.js'
 import { refToKey, splitPackageKey, splitSnapshotKey } from './key.js'
@@ -114,9 +115,7 @@ function readSnapshot(entry, where, snapshots) {
   record(entry, where, SNAPSHOT)
   const dependencies = readTargets(entry.dependencies, at(where, 'dependencies'), snapshots)
   const optionalDependencies = readTargets(entry.optionalDependencies, at(where, 'optionalDependencies'), snapshots)
-  for (const alias of Object.keys(optionalDependencies)) {
-    if (alias in dependencies) throw new LockfileError('listed under dependencies too', at(at(where, 'optionalDependencies'), alias))
-  }
+  checkOptional(dependencies, optionalDependencies, where)
   const peers = entry.transitivePeerDependencies
   return {
     dependencies,

@@ -5,7 +5,7 @@
 // resolver's — is refused, since what it would fetch is not read here.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkIntegrity, checkRelative } from '../names.js'
+import { checkIntegrity, checkRelative, checkRepo, isCommit } from '../names.js'
 import { flag, kind, record, text } from '../shape.js'
 
 // A tarball is fetched from an absolute http(s) URL or read from a local
@@ -26,8 +26,6 @@ function checkTarball(value, where) {
 // package, where it is not the root: a git dependency's `#path:`.
 const readPath = (resolution, where) => (resolution.path === undefined ? undefined : text(resolution.path, at(where, 'path')))
 
-const COMMIT = /^(?:[\da-f]{40}|[\da-f]{64})$/u
-
 function readTarball(resolution, where) {
   record(resolution, where, ['integrity', 'tarball', 'path', 'gitHosted'])
   const { integrity, tarball } = resolution
@@ -44,9 +42,8 @@ function readTarball(resolution, where) {
 function readGit(resolution, where) {
   record(resolution, where, ['type', 'repo', 'commit', 'path'])
   const commit = text(resolution.commit, at(where, 'commit'))
-  if (!COMMIT.test(commit)) throw new LockfileError(`${quote(commit)} is not a full commit hash`, at(where, 'commit'))
-  const repo = text(resolution.repo, at(where, 'repo'))
-  if (/[\s\p{Cc}]/u.test(repo)) throw new LockfileError(`${quote(repo)} is not a repository URL`, at(where, 'repo'))
+  if (!isCommit(commit)) throw new LockfileError(`${quote(commit)} is not a full commit hash`, at(where, 'commit'))
+  const repo = checkRepo(resolution.repo, at(where, 'repo'))
   return { type: 'git', repo, commit, path: readPath(resolution, where) }
 }
 

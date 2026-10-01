@@ -1,7 +1,8 @@
 // Entries into packages: one object under all patterns of an entry, as in yarn.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkIntegrity, checkName, checkRelative, checkVersion, joinRelative } from '../names.js'
+import { checkOptional } from '../graph.js'
+import { checkIntegrity, checkName, checkRelative, checkRepo, checkVersion, isCommit, joinRelative } from '../names.js'
 import { EMPTY, entries, record, string, text } from '../shape.js'
 
 const FIELDS = ['name', 'version', 'uid', 'resolved', 'integrity', 'dependencies', 'optionalDependencies']
@@ -11,6 +12,14 @@ function splitPattern(pattern, where) {
   const sep = pattern.indexOf('@', 1)
   if (sep === -1) throw new LockfileError(`${quote(pattern)} is not a pattern of the form name@range`, where)
   return { name: checkName(pattern.slice(0, sep), where), range: pattern.slice(sep + 1) }
+}
+
+// What an `npm:` alias asks for, split as a pattern is; its name unchecked.
+function aliasOf(range) {
+  if (!range.startsWith('npm:')) return undefined
+  const target = range.slice(4)
+  const sep = target.indexOf('@', 1)
+  return sep === -1 ? { name: target, range: '' } : { name: target.slice(0, sep), range: target.slice(sep + 1) }
 }
 
 const GIT_HOSTS = new Set(['github.com', 'gitlab.com', 'bitbucket.com', 'bitbucket.org'])
@@ -49,11 +58,14 @@ function hostedPath(range) {
   return segments.length < 2 ? undefined : segments.slice(-2).join('/')
 }
 
+// `path` from `base`, with no empty or `.` segment, its `..` resolved.
+const segments = (path) => path.split('/').filter((segment) => segment !== '' && segment !== '.').join('/')
+export const resolvePath = (base, path) => joinRelative(base, segments(path) || '.')
+
 // The directory a `file:` or `link:` range names, from the lockfile's.
 function directory(range) {
   const path = range.replace(/^(?:file|link):/u, '')
-  const segments = path.split('/').filter((segment) => segment !== '' && segment !== '.')
-  return path.startsWith('/') ? `/${segments.join('/')}` : joinRelative('.', segments.join('/') || '.')
+  return path.startsWith('/') ? `/${segments(path)}` : resolvePath('.', path)
 }
 
 // yarn cleans a version before it writes one: SemVer 2.0.0, which semver.valid
@@ -64,32 +76,8 @@ function readVersion(value, where, semver) {
   return version
 }
 
-// Without semver, a manifest's version is held to semver's length and
-// characters alone.
-const LOOSE = /^[\s\dA-Za-z.+=-]{1,256}$/u
-
-export function readManifestVersion(value, where, semver) {
-  const version = text(value, where)
-  if (!LOOSE.test(version)) throw new LockfileError(`${quote(version)} is not a version`, where)
-  if (semver === undefined) return version
-  const clean = semver.clean(version, { loose: true })
-  if (clean === null) throw new LockfileError(`${quote(version)} is not a version semver reads`, where)
-  return clean
-}
-
-const COMMIT = /^(?:[\da-f]{40}|[\da-f]{64})$/u
 const SHA1 = /^[\da-f]{40}$/u
-
-const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-
-function hexToBase64(hex) {
-  let out = ''
-  for (let i = 0; i < hex.length; i += 3) {
-    const group = Number.parseInt(hex.slice(i, i + 3).padEnd(3, '0'), 16)
-    out += BASE64[group >> 6] + (i + 2 < hex.length ? BASE64[group & 63] : '')
-  }
-  return out.padEnd(Math.ceil(out.length / 4) * 4, '=')
-}
+const hexToBase64 = (hex) => btoa(String.fromCodePoint(...hex.match(/../gu).map((pair) => Number.parseInt(pair, 16))))
 
 // yarn writes a `file:` path as the manifest does, `./` and all; it checks the
 // sha1 after `#` where there is no integrity.
@@ -122,26 +110,17 @@ function readResolution(fields, where) {
   if (rest.length > 0) throw new LockfileError('more than one "#", of which yarn reads the first alone', resolvedAt)
   if (!isGit(url)) return readTarball(url, hash, fields.integrity, resolvedAt, integrityAt)
   if (fields.integrity !== undefined) throw new LockfileError('an integrity, which yarn does not check for a git repository', integrityAt)
-  if (hash === undefined || !COMMIT.test(hash)) throw new LockfileError(`expected a full commit hash after the "#" of ${quote(url)}`, resolvedAt)
-  if (/[\s\p{Cc}]/u.test(url)) throw new LockfileError(`${quote(url)} is not a repository URL`, resolvedAt)
-  return { type: 'git', repo: url, commit: hash }
+  if (hash === undefined || !isCommit(hash)) throw new LockfileError(`expected a full commit hash after the "#" of ${quote(url)}`, resolvedAt)
+  return { type: 'git', repo: checkRepo(url, resolvedAt), commit: hash }
 }
 
 // One string for each source, `file:./x` and `file:x` alike.
-export function fetchedFrom(resolution) {
+function fetchedFrom(resolution) {
   if (resolution === undefined) return undefined
   return resolution.type === 'git' ? `${resolution.repo}#${resolution.commit}` : resolution.tarball.replace(/^file:\.\//u, 'file:')
 }
 
 const describe = (resolution) => (resolution === undefined ? 'nothing, as for a directory' : resolution.type === 'git' ? 'a git repository' : 'a file: tarball')
-
-// The package a registry pattern asks for: an `npm:` alias's, or its own.
-function asked({ name, range }, where) {
-  if (!range.startsWith('npm:')) return name
-  const target = range.slice(4)
-  const sep = target.indexOf('@', 1)
-  return checkName(sep === -1 ? target : target.slice(0, sep), where)
-}
 
 // yarn 1.22.21 and earlier merge a tarball's patterns whatever their names and
 // install it under one alone, writing `name`; yarn 1.22.22 writes no `name`.
@@ -154,7 +133,7 @@ function checkNames(patterns, fields, where) {
     const detail = name === first.name ? 'the name its patterns give, which yarn does not write' : `yarn installs this as ${quote(name)}, and leaves ${quote(first.name)} out, which its patterns ask for`
     throw new LockfileError(detail, at(where, 'name'))
   }
-  const registry = patterns.filter((pattern) => pattern.source === 'registry').map((pattern) => [pattern.key, asked(pattern, where)])
+  const registry = patterns.filter((pattern) => pattern.source === 'registry').map(({ key, name, alias }) => [key, alias === undefined ? name : checkName(alias.name, where)])
   const two = registry.find(([, name]) => name !== registry[0][1])
   if (two !== undefined) throw new LockfileError(`${quote(registry[0][0])} and ${quote(two[0])} ask for two packages, ${quote(registry[0][1])} and ${quote(two[1])}`, where)
   return registry[0]?.[1]
@@ -174,7 +153,7 @@ function resolvesFrom({ range, source }, resolution) {
   if (resolution.type === 'git') return resolution.repo === `git+ssh://git@${host}/${path}.git`
   const [prefix, suffix] = archive(path)
   const { tarball } = resolution
-  return tarball.startsWith(prefix) && tarball.endsWith(suffix) && COMMIT.test(tarball.slice(prefix.length, tarball.length - suffix.length))
+  return tarball.startsWith(prefix) && tarball.endsWith(suffix) && isCommit(tarball.slice(prefix.length, tarball.length - suffix.length))
 }
 
 // yarn gives the `file:` patterns of a name and directory one entry, and a
@@ -199,11 +178,11 @@ function checkRegistry(name, version, { tarball }, where) {
 // Registry patterns are given a tarball from a URL. An entry that has them
 // beside patterns that name a source goes back, for a resolution to explain.
 function checkSources(patterns, resolution, { asks, version }, where) {
-  const strayed = patterns.find((pattern) => pattern.source !== 'registry' && !resolvesFrom(pattern, resolution))
+  const sources = patterns.filter((pattern) => pattern.source !== 'registry')
+  const strayed = sources.find((pattern) => !resolvesFrom(pattern, resolution))
   if (strayed !== undefined) throw new LockfileError(`${quote(strayed.key)} resolves to another source than it names`, at(where, 'resolved'))
   checkDirectories(patterns, where)
   const registry = patterns.find((pattern) => pattern.source === 'registry')
-  const sources = patterns.filter((pattern) => pattern.source !== 'registry')
   const hashed = sources.length === 0 || sources.some((pattern) => pattern.source === 'tarball')
   if (hashed && resolution?.type === 'tarball' && resolution.sha1 === undefined && resolution.integrity === undefined) {
     throw new LockfileError('a tarball with no hash, neither a sha1 after "#" nor an integrity, where yarn writes the sha1', at(where, 'resolved'))
@@ -217,38 +196,35 @@ function checkSources(patterns, resolution, { asks, version }, where) {
   return undefined
 }
 
-function readDependencies(value, where, wanted) {
+// A request: a dependency of an entry, its pattern, and where it is listed.
+function readDependencies(value, where, requests) {
   const dependencies = Object.create(null)
   for (const [name, range, here] of entries(value ?? EMPTY, where)) {
     const pattern = `${checkName(name, here)}@${string(range, here)}`
     dependencies[name] = pattern
-    wanted.push({ targets: dependencies, name, pattern, where: here })
+    requests.push({ targets: dependencies, name, range, pattern, where: here })
   }
   return dependencies
 }
 
-function readPackage({ keys, fields }, wanted, mixed, semver) {
-  const where = at('', keys[0])
+function readPackage({ keys, fields }, where, semver) {
   record(fields, where, FIELDS)
   const patterns = keys.map((key) => {
-    const pattern = splitPattern(key, at('', key))
-    return { key, ...pattern, source: sourceOf(pattern.range) }
+    const { name, range } = splitPattern(key, at('', key))
+    return { key, name, range, source: sourceOf(range), alias: aliasOf(range) }
   })
   const asks = checkNames(patterns, fields, where)
   const version = readVersion(fields.version, at(where, 'version'), semver)
   const resolution = readResolution(fields, where)
   const handed = checkSources(patterns, resolution, { asks, version }, where)
-  const dependencies = readDependencies(fields.dependencies, at(where, 'dependencies'), wanted)
-  const optionalDependencies = readDependencies(fields.optionalDependencies, at(where, 'optionalDependencies'), wanted)
-  for (const name of Object.keys(optionalDependencies)) {
-    if (name in dependencies) throw new LockfileError('listed under dependencies too', at(at(where, 'optionalDependencies'), name))
-  }
+  const requests = []
+  const dependencies = readDependencies(fields.dependencies, at(where, 'dependencies'), requests)
+  const optionalDependencies = readDependencies(fields.optionalDependencies, at(where, 'optionalDependencies'), requests)
+  checkOptional(dependencies, optionalDependencies, where)
   const uid = fields.uid === undefined ? undefined : string(fields.uid, at(where, 'uid'))
   if (uid === version) throw new LockfileError('the version, which yarn does not write as a uid', at(where, 'uid'))
   const pkg = { patterns: keys, name: patterns[0].name, version, uid, resolution, dependencies, optionalDependencies }
-  if (handed !== undefined) mixed.push({ pkg, ...handed })
-  for (const pattern of patterns) pattern.pkg = pkg
-  return [pkg, patterns]
+  return { pkg, patterns, handed, requests }
 }
 
 // yarn gives a registry pattern of a range the first package of its name and
@@ -257,6 +233,12 @@ const TAG = /^(?![vV=]?\d|[xX*](?:\.|$))[A-Za-z][\w.-]*$/u
 function isRange(range, semver) {
   if (semver !== undefined) return semver.validRange(range) !== null
   return !/[:/@#]/u.test(range) && !TAG.test(range)
+}
+
+function checkRace(pkg, patterns, prior, semver, where) {
+  const ranged = (pattern) => pattern.source === 'registry' && isRange(pattern.range, semver)
+  const asking = patterns.find(ranged) ?? prior.patterns.find(ranged)
+  if (asking !== undefined) throw new LockfileError(`is ${pkg.name} ${pkg.version}, as ${quote(prior.key)} is, and yarn gives ${quote(asking.key)} whichever it resolves first`, where)
 }
 
 const integrities = ({ integrity }) => new Map((integrity?.split(' ') ?? []).map((part) => [part.slice(0, part.indexOf('-')), part]))
@@ -274,37 +256,40 @@ function checkSame(pkg, other, where) {
   }
 }
 
-// `mixed`: the entries with a registry pattern beside a source. yarn writes
-// an entry for each `resolved` of a name, as spelled, and each directory.
+// `mixed`: entries with a registry pattern beside a source, and `other`, one
+// of the same source. yarn writes one for each `resolved`, and directory.
 export function readPackages(list, semver) {
   const packages = Object.create(null)
-  const all = []
-  const wanted = []
+  const patterns = []
+  const requests = []
   const mixed = []
   const merged = new Map()
   const fetched = new Map()
   const versions = new Map()
   for (const entry of list) {
-    const [pkg, patterns] = readPackage(entry, wanted, mixed, semver)
-    all.push(...patterns)
     const [key] = entry.keys
     const where = at('', key)
+    const read = readPackage(entry, where, semver)
+    const { pkg } = read
     for (const pattern of entry.keys) packages[pattern] = pkg
-    const dir = patterns.find((pattern) => pattern.source === 'file')
+    patterns.push(...read.patterns)
+    requests.push(...read.requests)
+    if (read.handed !== undefined) mixed.push({ pkg, ...read.handed })
+    const dir = read.patterns.find((pattern) => pattern.source === 'file')
     const one = entry.fields.resolved ?? (dir === undefined ? undefined : `\n${directory(dir.range)}`)
     const same = one === undefined ? undefined : `${pkg.name}\n${one}`
     if (merged.has(same)) throw new LockfileError(`resolves as ${quote(merged.get(same))} does, which yarn writes as one entry`, where)
     if (same !== undefined) merged.set(same, key)
     const source = fetchedFrom(pkg.resolution)
-    if (fetched.has(source)) checkSame(pkg, fetched.get(source), where)
-    else if (source !== undefined) fetched.set(source, pkg)
+    const group = fetched.get(source)
+    if (group !== undefined) checkSame(pkg, group[0], where)
+    if (group !== undefined) group.push(pkg)
+    else if (source !== undefined) fetched.set(source, [pkg])
     const id = `${pkg.name}\n${pkg.version}`
-    const asking = patterns.find((pattern) => pattern.source === 'registry' && isRange(pattern.range, semver))
     const prior = versions.get(id)
-    if (prior === undefined) versions.set(id, { key, asking })
-    else if ((asking ?? prior.asking) !== undefined) {
-      throw new LockfileError(`is ${pkg.name} ${pkg.version}, as ${quote(prior.key)} is, and yarn gives ${quote((asking ?? prior.asking).key)} whichever it resolves first`, where)
-    }
+    if (prior === undefined) versions.set(id, { key, patterns: read.patterns })
+    else checkRace(pkg, read.patterns, prior, semver, where)
   }
-  return { packages, patterns: all, mixed, unresolved: wanted.filter(({ pattern }) => !(pattern in packages)) }
+  for (const item of mixed) item.other = fetched.get(fetchedFrom(item.pkg.resolution))?.find((pkg) => pkg !== item.pkg)
+  return { packages, patterns, requests, mixed }
 }

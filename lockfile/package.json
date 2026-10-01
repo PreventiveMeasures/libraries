@@ -25,6 +25,7 @@
     "pnpm.d.ts",
     "pnpm.js",
     "src/error.js",
+    "src/graph.js",
     "src/names.js",
     "src/pnpm/importers.js",
     "src/pnpm/key.js",

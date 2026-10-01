@@ -1,7 +1,7 @@
 import { quote } from '../error.js'
-import { linkWorkspaces, readImporters } from './importers.js'
+import { linkWorkspace, readImporters } from './importers.js'
 import { readPackages } from './packages.js'
-import { checkRanges, checkResolutions } from './resolutions.js'
+import { checkResolutions } from './resolutions.js'
 import { readEntries } from './syntax.js'
 
 const OPTIONS = ['manifests', 'checkVersions', 'semver']
@@ -23,10 +23,10 @@ function readOptions(options) {
 export function parseYarn1Lockfile(source, options = {}) {
   if (typeof source !== 'string') throw new TypeError('expected a string')
   const { manifests, semver } = readOptions(options)
-  const { packages, patterns, mixed, unresolved } = readPackages(readEntries(source), semver)
-  if (manifests === undefined) linkWorkspaces(unresolved, undefined, semver)
-  const project = manifests === undefined ? undefined : readImporters(manifests, packages, unresolved, semver)
-  const plain = checkResolutions(mixed, packages, project)
-  if (semver !== undefined) checkRanges(patterns, plain, semver, project !== undefined)
+  const read = readPackages(readEntries(source), semver)
+  const { packages, requests } = read
+  if (manifests === undefined) for (const request of requests) if (!(request.pattern in packages)) linkWorkspace(request)
+  const project = manifests === undefined ? undefined : readImporters(manifests, packages, requests, semver)
+  checkResolutions(read, project, semver)
   return { packages, importers: project?.importers }
 }
