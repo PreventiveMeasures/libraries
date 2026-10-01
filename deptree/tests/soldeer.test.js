@@ -86,6 +86,15 @@ describe('buildSoldeerTree', () => {
     assert.deepEqual(stats, { dependencies: 1, files: 12, bytes: 28 })
   })
 
+  it('lists what it installs, as an SBOM would take it, in the lockfile\'s order', async () => {
+    const zips = [dependency('solady', '0.1.0', [{ name: 'a', data: 'a' }]), dependency('forge-std', '1.9.4', [{ name: 'b', data: 'b' }])]
+    const { installed } = await build(zips)
+    assert.deepEqual(installed, [
+      { path: 'dependencies/forge-std-1.9.4', name: 'forge-std', version: '1.9.4', checksum: sha256(zips[1].bytes) },
+      { path: 'dependencies/solady-0.1.0', name: 'solady', version: '0.1.0', checksum: sha256(zips[0].bytes) },
+    ])
+  })
+
   // The zip crate keys entries by name: of two, the later is read, where
   // the first was. The archive reader takes both, as it reads one mode of
   // them, from neither's Unix attributes.

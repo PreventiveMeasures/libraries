@@ -17,7 +17,8 @@
 // the same, as pnpm applies them before any script.
 //
 // Each package is fetched once, and each snapshot's files composed in
-// memory — its package's, patched, bins fixed — before one write of each.
+// memory — its package's, patched, bins fixed — before one write of each;
+// each written is listed, as an SBOM would take it.
 
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { Vfs, VfsError } from '@preventive/vfs'
@@ -199,6 +200,41 @@ function linkTarget(path, target) {
   return relative(`${root}/${dirname(path)}`, `${root}/${target}`) || '.'
 }
 
+// The directories of the snapshots installed that a project's dependencies
+// or optionalDependencies reach, through those installed: each other is
+// reached by devDependencies alone, which `pnpm install --prod` leaves out.
+// `nodes` is graph.js's, by key, and `byDir` by directory.
+function reachedInProd(importers, nodes, byDir) {
+  const queue = Object.values(importers)
+    .flatMap(({ dependencies, optionalDependencies }) => [...Object.values(dependencies), ...Object.values(optionalDependencies)])
+    .map((target) => nodes.get(target)?.dir)
+  const reached = new Set()
+  while (queue.length > 0) {
+    const dir = queue.pop()
+    if (!byDir.has(dir) || reached.has(dir)) continue
+    reached.add(dir)
+    queue.push(...byDir.get(dir).children.values())
+  }
+  return reached
+}
+
+// A snapshot as the list of what is installed has it. `patches` is
+// checkUpToDate's, by hash.
+function installedOf(node, dev, patches) {
+  const { key, name, dir, pkg: { version, resolution, optional, patchHash } } = node
+  return {
+    path: dir,
+    key,
+    name,
+    version,
+    integrity: resolution.integrity,
+    directory: resolution.directory,
+    dev,
+    optional,
+    patch: patchHash === undefined ? undefined : { hash: patchHash, path: patches.get(patchHash).path },
+  }
+}
+
 // Every link in the tree, by its path: each node's children beside it and,
 // but with pnpm 12, itself inside it where it depends on itself, then what
 // is hoisted, then each project's direct dependencies, which win over a
@@ -265,10 +301,12 @@ export async function buildPnpmTree(options) {
     major: host.major,
   })
   const executable = executableElsewhere(byDir, targets, settings.packageImportMethod, host.major)
+  const prod = reachedInProd(lockfile.importers, nodes, byDir)
 
   const vfs = new Vfs()
   vfs.mkdir('/node_modules/.pnpm', { recursive: true })
   const stats = { projects: manifests.size, snapshots: Object.keys(lockfile.packages).length, installed: nodes.size, skipped: skipped.size, incompatible: incompatible.size, tarballs, patched: 0, files: 0, bytes: 0, links: links.size }
+  const listed = []
   const composing = { major: host.major, checkPatched: createPatchedCheck({ host, settings }) }
   // Each node is let go once written, and a package's files with its last.
   for (const node of byDir.values()) {
@@ -287,6 +325,7 @@ export async function buildPnpmTree(options) {
       if (error instanceof DeptreeError) throw error
       throw new DeptreeError(error.message, quote(node.key), { cause: error })
     }
+    listed.push(installedOf(node, !prod.has(node.dir), patched))
   }
   for (const [path, target] of links) {
     try {
@@ -298,7 +337,7 @@ export async function buildPnpmTree(options) {
   }
   checkLinks(vfs, links)
   if (folded) checkCollisions(vfs)
-  if (into === undefined) return { vfs, stats }
+  if (into === undefined) return { vfs, stats, installed: listed }
   mount(vfs, into, folded)
-  return { vfs: into, stats }
+  return { vfs: into, stats, installed: listed }
 }

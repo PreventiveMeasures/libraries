@@ -63,19 +63,16 @@ export function rulesOf(root) {
   return [...byName.values()].flat()
 }
 
-// The top-level requests, as yarn makes them and in its order.
+// The top-level requests, as yarn makes them and in its order; and of
+// them, `asked`, those the project makes, the resolutions' aside, each
+// optional or not, dev or not.
 export function topRequests(root, workspaces, rules) {
-  const requests = rules.map((rule) => ({ pattern: rule.pattern, optional: false }))
-  const patterns = []
-  const push = (deps, optional) => {
-    for (const [name, range] of Object.entries(deps ?? {})) {
-      const pattern = `${name}@${range}`
-      patterns.push(pattern)
-      requests.push({ pattern, optional })
-    }
+  const asked = []
+  const push = (deps, optional, dev = false) => {
+    for (const [name, range] of Object.entries(deps ?? {})) asked.push({ pattern: `${name}@${range}`, optional, dev })
   }
   push(root.dependencies, false)
-  push(root.devDependencies, false)
+  push(root.devDependencies, false, true)
   push(root.optionalDependencies, true)
   if (workspaces.size > 0) {
     push({ [AGGREGATOR]: '1.0.0' }, false)
@@ -86,5 +83,6 @@ export function topRequests(root, workspaces, rules) {
     }
     push(implicit, false)
   }
-  return { requests, patterns }
+  const requests = [...rules.map((rule) => ({ pattern: rule.pattern, optional: false })), ...asked.map(({ pattern, optional }) => ({ pattern, optional }))]
+  return { requests, patterns: asked.map(({ pattern }) => pattern), asked }
 }

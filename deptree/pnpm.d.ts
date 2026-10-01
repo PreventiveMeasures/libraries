@@ -230,10 +230,39 @@ export interface PnpmTreeStats {
   links: number
 }
 
+// A snapshot in the tree, as an SBOM would list it: `path` is where its
+// files are, from the lockfile's directory, which is `/` of the Vfs —
+// node_modules/.pnpm/<dir>/node_modules/<name>; `key` the lockfile's
+// snapshot key, its peers and patch hash in it. `name` and `version` are
+// the package's own, which its package.json is held to, and `integrity`
+// the sha512 its tarball is held to; one a `file:` override has pnpm
+// install from a directory has `directory`, from the lockfile's, and
+// neither a version nor an integrity, as the lockfile records none.
+// `dev` is whether devDependencies alone reach it: no project's
+// dependencies or optionalDependencies do, through what is installed, so
+// `pnpm install --prod` would leave it out. `optional` is whether optional
+// dependencies alone reach it, as the lockfile records it. `patch` is the
+// patch applied to it, by pnpm's hash of it and the path the settings name
+// it by: of two patches of one text, the first they name.
+export interface PnpmInstalled {
+  path: string
+  key: string
+  name: string
+  version: string | undefined
+  integrity: string | undefined
+  directory: string | undefined
+  dev: boolean
+  optional: boolean
+  patch: { hash: string, path: string } | undefined
+}
+
 // `vfs` is the one given, the tree mounted into it, or a new one.
+// `installed` is each snapshot in the tree, one for each `stats.installed`
+// counts, in the lockfile's order.
 export interface PnpmTree {
   vfs: Vfs
   stats: PnpmTreeStats
+  installed: PnpmInstalled[]
 }
 
 // The node_modules tree `pnpm install --frozen-lockfile --ignore-scripts`

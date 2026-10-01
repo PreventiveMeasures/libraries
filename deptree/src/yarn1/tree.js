@@ -45,8 +45,9 @@ function fetchedName(ref) {
   return splitPattern(range.slice(4)).name
 }
 
-// Each registry reference's files and package.json, a few at a time,
-// every tarball's URL checked before any is fetched.
+// Each registry reference's files, package.json and the integrity its
+// tarball is held to, a few at a time, every tarball's URL checked before
+// any is fetched.
 async function fetchAll(refs) {
   const fetched = new Map()
   const tarballs = refs.map((ref) => {
@@ -55,7 +56,7 @@ async function fetchAll(refs) {
   })
   await eachConcurrently(tarballs, async ({ ref, where, tarball }) => {
     try {
-      fetched.set(ref, await fetchYarnPackage(tarball, where))
+      fetched.set(ref, { ...await fetchYarnPackage(tarball, where), integrity: tarball.integrity })
     } catch (error) {
       throw error instanceof DeptreeError ? error : new DeptreeError(error.message, where, { cause: error })
     }
@@ -72,7 +73,8 @@ function locationOf(names, workspaces) {
 }
 
 // The lockfile resolved as yarn resolves it for the project: the
-// workspaces, the root's patterns, and resolve.js's result.
+// workspaces, the root's patterns, the project's requests, as topRequests
+// has them, and resolve.js's result.
 function resolveProject(inputs, host) {
   const lockfile = parseYarn1Lockfile(inputs.lockfile, { manifests: Object.fromEntries(inputs.manifests), semver: { clean, satisfies, valid, validRange } })
   const manifests = new Map([...inputs.manifests].map(([dir, manifest]) => [dir, fixLists(manifest)]))
@@ -80,12 +82,12 @@ function resolveProject(inputs, host) {
   const workspaces = workspacesOf(manifests)
   if (workspaces.size > 0) workspaces.set(AGGREGATOR, aggregatorOf(root, workspaces))
   const rules = rulesOf(root)
-  const { requests, patterns } = topRequests(root, workspaces, rules)
+  const { requests, patterns, asked } = topRequests(root, workspaces, rules)
   const reason = incompatibility(root, host, 'manifests["."]', inputs.settings)
   if (reason !== undefined) throw new DeptreeError(reason, 'manifests["."]')
   const { project } = inputs
   const isDirectory = project === undefined ? () => undefined : (tag) => typeOf(project, `/${tag}/package.json`) !== undefined
-  return { workspaces, topPatterns: patterns, resolved: resolve({ lockfile, workspaces, rules, top: requests, isDirectory }) }
+  return { workspaces, topPatterns: patterns, asked, resolved: resolve({ lockfile, workspaces, rules, top: requests, isDirectory }) }
 }
 
 // Every package fetched, as yarn fetches each before it checks any, and
@@ -150,12 +152,13 @@ function realOf(links, path) {
 // package goes beneath a workspace's link, it is copied through the link,
 // into the workspace's own node_modules. `links` each link, by where it
 // is, to its target; `locations` each reference's copies, where they
-// really are.
+// really are; `copies` the reference of each copy, by where it really is.
 function writeTree(placed, fetched) {
   const vfs = new Vfs()
   vfs.mkdir('/node_modules', { recursive: true })
   const links = new Map()
   const locations = new Map()
+  const copies = new Map()
   let files = 0
   let bytes = 0
   for (const { loc, info } of placed) {
@@ -170,6 +173,7 @@ function writeTree(placed, fetched) {
       continue
     }
     const pkg = fetched.get(ref)
+    copies.set(dest, ref)
     vfs.mkdir(`/${dest}`, { recursive: true })
     for (const dir of pkg.dirs) if (!skipped(dir)) vfs.mkdir(`/${dest}/${dir}`, { recursive: true })
     for (const [path, file] of pkg.files) {
@@ -184,7 +188,35 @@ function writeTree(placed, fetched) {
       bytes += file.data.length
     }
   }
-  return { vfs, links, locations, files, bytes }
+  return { vfs, links, locations, copies, files, bytes }
+}
+
+// The references the project's requests reach, `asked` as topRequests has
+// them, through what each asks for, the peers found for it among that,
+// and past none the host cannot run; by requests whose `kind`, `dev` or
+// `optional`, is not set. Each other is reached by dev dependencies alone,
+// or by optional ones alone.
+function reachedBut(kind, asked, patterns) {
+  const queue = asked.filter((request) => !request[kind]).map(({ pattern }) => patterns.get(pattern))
+  const reached = new Set()
+  while (queue.length > 0) {
+    const ref = queue.pop()
+    if (reached.has(ref) || ref.incompatible) continue
+    reached.add(ref)
+    for (const dep of ref.asked) if (!dep[kind]) queue.push(patterns.get(dep.pattern))
+  }
+  return reached
+}
+
+// Each copy of a registry package as the list of what is installed has it,
+// in the order the copies are made. `copies` is writeTree's.
+function listInstalled(copies, fetched, asked, patterns) {
+  const prod = reachedBut('dev', asked, patterns)
+  const required = reachedBut('optional', asked, patterns)
+  return [...copies].map(([path, ref]) => {
+    const { manifest, integrity } = fetched.get(ref)
+    return { path, name: manifest.name, version: manifest.version, integrity, dev: !prod.has(ref), optional: !required.has(ref) }
+  })
 }
 
 export async function buildYarn1Tree(options) {
@@ -196,10 +228,10 @@ export async function buildYarn1Tree(options) {
   // Refused before anything is fetched; mount checks again.
   if (into !== undefined) checkNoModules(into, folded)
   checkRoot(inputs.manifests.get('.'))
-  const { workspaces, topPatterns, resolved } = resolveProject(inputs, host)
+  const { workspaces, topPatterns, asked, resolved } = resolveProject(inputs, host)
   const { packages, fetched, manifestOf } = await fetchChecked(resolved, host, inputs.settings)
   const placed = layout({ resolved, manifestOf, topPatterns, workspaces })
-  const { vfs, links, locations, files, bytes } = writeTree(placed, fetched)
+  const { vfs, links, locations, copies, files, bytes } = writeTree(placed, fetched)
   checkBinLinks({ placed, patterns: resolved.patterns, fetched, manifestOf, locations, realOf: (path) => realOf(links, path) })
   if (folded) checkCollisions(vfs)
   const stats = {
@@ -210,7 +242,8 @@ export async function buildYarn1Tree(options) {
     bytes,
     links: links.size,
   }
-  if (into === undefined) return { vfs, stats }
+  const installed = listInstalled(copies, fetched, asked, resolved.patterns)
+  if (into === undefined) return { vfs, stats, installed }
   mount(vfs, into, folded)
-  return { vfs: into, stats }
+  return { vfs: into, stats, installed }
 }

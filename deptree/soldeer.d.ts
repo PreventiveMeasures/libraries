@@ -94,10 +94,23 @@ export interface SoldeerTreeStats {
   bytes: number
 }
 
+// A dependency in the tree, as an SBOM would list it: `path` is its
+// folder, from the project's root, which is `/` of the Vfs —
+// dependencies/<name>-<version>; `name` and `version` the lockfile's, as
+// the registry has them; `checksum` the hex sha256 its zip is held to.
+export interface SoldeerInstalled {
+  path: string
+  name: string
+  version: string
+  checksum: string
+}
+
 // `vfs` is the one given, the tree mounted into it, or a new one.
+// `installed` is each dependency, in the lockfile's order.
 export interface SoldeerTree {
   vfs: Vfs
   stats: SoldeerTreeStats
+  installed: SoldeerInstalled[]
 }
 
 // The dependencies folder `soldeer install` makes from the lockfile, with

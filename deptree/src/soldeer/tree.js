@@ -105,7 +105,8 @@ export async function buildSoldeerTree(options) {
   const { vfs, files, bytes } = writeTree(dependencies.map(({ folder }) => [folder, extracted.get(folder)]))
   if (folded) checkCollisions(vfs)
   const stats = { dependencies: dependencies.length, files, bytes }
-  if (into === undefined) return { vfs, stats }
+  const installed = dependencies.map(({ name, version, checksum, folder }) => ({ path: `dependencies/${folder}`, name, version, checksum }))
+  if (into === undefined) return { vfs, stats, installed }
   mount(vfs, into, folded, checkNoDependencies)
-  return { vfs: into, stats }
+  return { vfs: into, stats, installed }
 }

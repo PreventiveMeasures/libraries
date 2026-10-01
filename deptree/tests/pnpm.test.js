@@ -218,6 +218,81 @@ describe('buildPnpmTree', () => {
     assert.deepEqual({ ...stats, bytes: 0 }, { projects: 1, snapshots: 9, installed: 8, skipped: 1, incompatible: 0, tarballs: 8, patched: 1, files: 12, bytes: 0, links: 13 })
   })
 
+  it('lists what it installs, as an SBOM would take it', async () => {
+    stubRegistry(TARBALLS)
+    const listed = (name, version, { key = `${name}@${version}`, dir = key, dev = false, optional = false, patch } = {}) => ({
+      path: `node_modules/.pnpm/${dir}/node_modules/${name}`, key, name, version, integrity: I[name], directory: undefined, dev, optional, patch,
+    })
+    const { installed, stats } = await buildResult()
+    assert.deepEqual(installed, [
+      listed('Up', '1.0.0', { dir: UP }),
+      listed('a', '1.0.0', { key: 'a@1.0.0(c@2.0.0)', dir: 'a@1.0.0_c@2.0.0' }),
+      listed('b', '1.0.0'),
+      listed('c', '2.0.0'),
+      listed('d', '1.0.0'),
+      listed('e', '1.0.0', { dev: true }),
+      listed('lodash', '4.17.21'),
+      listed('p', '1.0.0', { key: `p@1.0.0(patch_hash=${H})`, dir: P, patch: { hash: H, path: 'patches/p.patch' } }),
+    ])
+    assert.equal(installed.length, stats.installed)
+    const { installed: wider } = await buildResult({ workspace: 'supportedArchitectures:\n  os: [current, darwin]\n' })
+    assert.deepEqual(wider.find(({ name }) => name === 'mac'), listed('mac', '1.0.0', { optional: true }))
+  })
+
+  // z is reached by y, a devDependency, and by x, a dependency: only w,
+  // which y alone reaches, is dev.
+  it('lists as dev only what devDependencies alone reach', async () => {
+    const more = await Promise.all([
+      tarball('w', '1.0.0'),
+      tarball('x', '1.0.0', {}, { manifest: { dependencies: { z: '1.0.0' } } }),
+      tarball('y', '1.0.0', {}, { manifest: { dependencies: { w: '1.0.0', z: '1.0.0' } } }),
+      tarball('z', '1.0.0'),
+    ])
+    stubRegistry(more)
+    const resolution = (name) => `  ${name}@1.0.0:\n    resolution: {integrity: ${more.find((t) => t.name === name).integrity}}\n`
+    const { installed } = await buildPnpmTree({
+      lockfile: `lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      x:
+        specifier: 1.0.0
+        version: 1.0.0
+    devDependencies:
+      y:
+        specifier: 1.0.0
+        version: 1.0.0
+
+packages:
+
+${['w', 'x', 'y', 'z'].map(resolution).join('\n')}
+snapshots:
+
+  w@1.0.0: {}
+
+  x@1.0.0:
+    dependencies:
+      z: 1.0.0
+
+  y@1.0.0:
+    dependencies:
+      w: 1.0.0
+      z: 1.0.0
+
+  z@1.0.0: {}
+`,
+      manifests: { '.': JSON.stringify({ name: 'root', dependencies: { x: '1.0.0' }, devDependencies: { y: '1.0.0' } }) },
+      host: HOST,
+    })
+    assert.deepEqual(installed.map(({ name, dev }) => [name, dev]), [['w', true], ['x', false], ['y', true], ['z', false]])
+  })
+
   it('names long directories as pnpm 10 does', async () => {
     stubRegistry(TARBALLS)
     const vfs = await build({ workspace: 'virtualStoreDirMaxLength: 40\n' })
@@ -869,6 +944,15 @@ describe('buildPnpmTree with a workspace', () => {
     assert.equal(off.isSymlink('/node_modules/.pnpm/node_modules/@w/x'), false)
   })
 
+  // e is the root's devDependency, and packages/x's dependency: no project
+  // installed with --prod would leave it out.
+  it('lists as dev only what no project\'s dependencies reach', async () => {
+    stubRegistry(TARBALLS)
+    const e = two.replace('      b:\n        specifier: 1.0.0\n        version: 1.0.0\n', '      e:\n        specifier: 1.0.0\n        version: 1.0.0\n')
+    const { installed } = await buildPnpmTree({ lockfile: e, manifests: manifests({ name: '@w/x', dependencies: { e: '1.0.0' } }), workspace: WORKSPACE, patches: { 'patches/p.patch': PATCH }, host: HOST })
+    assert.equal(installed.find(({ name }) => name === 'e').dev, false)
+  })
+
   // A project hoisted by its name does not take it: a package of that name
   // is hoisted there too, and the project wins, as pnpm has it.
   it('hoists a project over a package of its name', async () => {
@@ -1212,6 +1296,14 @@ snapshots:
         assert.equal(vfs.stat('/vendor/foo/cli.js').mode, 0o644, 'nothing outside node_modules is written')
         assert.equal(stats.tarballs, 1)
       }
+    })
+
+    it('lists it by its directory, with no version or integrity, as the lockfile has none', async () => {
+      stubRegistry([await app])
+      const { installed } = await buildPnpmTree({ lockfile: await copied(), manifests: { '.': v10 }, host: HOST, ...both({ 'package.json': v10, ...vendored }) })
+      assert.deepEqual(installed.find(({ name }) => name === 'foo'), {
+        path: FOO.slice(1), key: 'foo@file:vendor/foo', name: 'foo', version: undefined, integrity: undefined, directory: 'vendor/foo', dev: false, optional: false, patch: undefined,
+      })
     })
 
     // pnpm 10 records an empty list of bundled dependencies, and pnpm 11

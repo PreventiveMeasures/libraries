@@ -111,6 +111,39 @@ describe('buildYarn1Tree', () => {
     assert.deepEqual({ ...stats, bytes: 0 }, { packages: 7, skipped: 1, installed: 6, files: 11, bytes: 0, links: 0 })
   })
 
+  it('lists what it installs, as an SBOM would take it', async () => {
+    stubRegistry(TARBALLS)
+    const listed = (path, id, { dev = false, optional = false } = {}) => ({ path, name: T[id].name, version: T[id].version, integrity: T[id].integrity, dev, optional })
+    const { installed } = await build()
+    assert.deepEqual(installed, [
+      listed('node_modules/a', 'a@1.0.0'),
+      listed('node_modules/a/node_modules/b', 'b@1.0.0'),
+      listed('node_modules/b', 'b@2.0.0'),
+      listed('node_modules/d', 'd@1.0.0', { dev: true }),
+      listed('node_modules/my-c', 'c@1.0.0'),
+      listed('node_modules/p', 'p@1.0.0'),
+    ])
+    const ignored = await buildYarn1Tree({ project: project({ '.yarnrc': '--ignore-platform true\n' }), host: HOST })
+    assert.deepEqual(ignored.installed.find(({ name }) => name === 'mac'), listed('node_modules/mac', 'mac@1.0.0', { optional: true }))
+  })
+
+  // d is w's devDependency alone, and b@^1.0.0 w's devDependency and a's
+  // dependency; each copy is listed where it really is, beneath w's link.
+  it('lists as dev only what dev dependencies alone reach, a workspace\'s among them', async () => {
+    stubRegistry(TARBALLS)
+    const root = { name: 'root', version: '1.0.0', private: true, workspaces: ['packages/*'], dependencies: { b: '^2.0.0' } }
+    const w = { name: 'w', version: '1.0.0', dependencies: { a: '1.0.0' }, devDependencies: { b: '^1.0.0', d: 'latest' } }
+    const lock = lockfile(entry('a@1.0.0', 'a@1.0.0', '  dependencies:\n    b "^1.0.0"\n'), entry('b@^1.0.0', 'b@1.0.0'), entry('b@^2.0.0', 'b@2.0.0'), entry('d@latest', 'd@1.0.0'))
+    const { installed } = await buildYarn1Tree({ project: projectOf({ 'yarn.lock': lock, 'package.json': root, 'packages/w/package.json': w }), host: HOST })
+    assert.deepEqual(installed.map(({ path, dev }) => [path, dev]), [
+      ['node_modules/a', false],
+      ['node_modules/a/node_modules/b', false],
+      ['node_modules/b', false],
+      ['node_modules/d', true],
+      ['packages/w/node_modules/b', false],
+    ])
+  })
+
   it('refuses once every fetch started has ended', async () => {
     const open = stubFailingRegistry(TARBALLS, 'd', '1.0.0')
     await assert.rejects(build(), /^DeptreeError: "d@/u)
