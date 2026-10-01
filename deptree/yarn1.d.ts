@@ -31,9 +31,9 @@ export { setCacheDir } from '@preventive/upstream/npm.js'
 // package.json: no os, cpu, engines, peers or bins, as yarn has it, so it
 // is never left out, and links no bins. Of engines, `node` (and `iojs`, which
 // yarn takes for it) and `yarn` are checked as yarn checks them, and one
-// yarn has no version for is passed over, as yarn passes over it; one Node
-// 24 reports in process.versions, such as `v8`, which yarn would check
-// against the Node it runs on, is refused.
+// yarn has no version for is passed over, as yarn passes over it; one any
+// Node reports in process.versions, such as `v8` or `merve`, which yarn
+// would check against the Node it runs on, is refused.
 export interface Yarn1Host {
   yarn?: string
   node: string

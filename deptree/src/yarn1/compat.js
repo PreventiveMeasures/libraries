@@ -12,11 +12,12 @@ import { compareVersions, major, satisfies, valid } from '@preventive/upstream/s
 import { DeptreeError, quote } from '../error.js'
 import { satisfiesWithPrereleases } from './peers.js'
 
-// What Node has reported in process.versions, by release.
+// What Node reports in process.versions, but `node`, in any release or
+// build of it from 12 on (src/node_metadata.h).
 const REPORTED = new Set([
-  'acorn', 'ada', 'amaro', 'ares', 'brotli', 'cjs_module_lexer', 'cldr', 'http_parser', 'icu', 'llhttp', 'modules', 'napi',
-  'nbytes', 'ncrypto', 'nghttp2', 'nghttp3', 'ngtcp2', 'openssl', 'simdjson', 'simdutf', 'sqlite', 'tz', 'undici', 'unicode',
-  'uv', 'uvwasi', 'v8', 'zlib', 'zstd',
+  'acorn', 'ada', 'amaro', 'ares', 'base64', 'brotli', 'cjs_module_lexer', 'cldr', 'http_parser', 'icu', 'libffi', 'lief',
+  'llhttp', 'merve', 'modules', 'napi', 'nbytes', 'ncrypto', 'nghttp2', 'nghttp3', 'ngtcp2', 'openssl', 'simdjson', 'simdutf',
+  'sqlite', 'tz', 'undici', 'unicode', 'uv', 'uvwasi', 'v8', 'zlib', 'zstd',
 ])
 
 // yarn's isValid: an os or cpu list of names, `!` before one to exclude.

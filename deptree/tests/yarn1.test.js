@@ -300,6 +300,18 @@ describe('buildYarn1Tree refuses', () => {
     await refuses({ project: projectOf(files({ '.yarnrc': '--ignore-engines yes\n' })) }, /^DeptreeError: \.yarnrc:1: expected true or false for "--ignore-engines"$/u)
   })
 
+  // yarn checks an engine against process.versions of the Node it runs
+  // on, which host.node alone does not tell; one Node never reports, such
+  // as npm, it passes over.
+  it('an engine yarn checks against the Node it runs on, one this Node reports among them', async () => {
+    const engines = (name) => project({ 'package.json': { ...ROOT, engines: { [name]: '>=0' } } })
+    for (const name of Object.keys(process.versions).filter((key) => key !== 'node')) {
+      await refuses({ project: engines(name) }, new RegExp(`^DeptreeError: manifests\\["\\."\\]: yarn checks engines\\.${name} against the Node it runs on, which is not known here$`, 'u'))
+    }
+    stubRegistry(TARBALLS)
+    await buildYarn1Tree({ project: engines('npm'), host: HOST })
+  })
+
   it('a setting that may change what yarn installs', async () => {
     await refuses({ project: project({ '.yarnrc': '--install.production true\n' }) }, /^DeptreeError: \.yarnrc:1: "--install\.production" is a setting not supported here/u)
     await refuses({ project: project({ '.npmrc': 'ignore-optional=true\n' }) }, /^DeptreeError: \.npmrc:1: "ignore-optional" is a setting not supported here/u)
