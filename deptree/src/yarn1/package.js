@@ -6,11 +6,13 @@
 // and masked by a umask of 0o022; and its package.json read as yarn's
 // normalize-manifest reads the fields it installs by.
 //
-// Held to more than yarn holds it to, to what npm packs: a gzipped
-// tarball, every entry under one directory, none in the package's own
-// node_modules, which npm packs only for bundled dependencies, no link of
-// either kind or device, no name twice as two different files; and a
-// package.json for exactly the name and version the lockfile has.
+// Held to more than yarn holds it to: a lockfile's URL of it that is the
+// registry's own, as npm spells it, or that on yarn's mirror; and to what
+// npm packs: a gzipped tarball, every entry under one directory, none in
+// the package's own node_modules, which npm packs only for bundled
+// dependencies, no link of either kind or device, no name twice as two
+// different files; and a package.json for exactly the name and version
+// the lockfile has.
 
 import { decompress } from '@preventive/archive/compression.js'
 import { unpack } from '@preventive/archive/tar.js'
@@ -18,15 +20,15 @@ import { getTarball } from '@preventive/upstream/npm.js'
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { matchesIntegrity, sha1Hex } from '../hash.js'
-import { sameBytes, tarballUrl } from '../tarball.js'
+import { REGISTRY, sameBytes, tarballUrl } from '../tarball.js'
 import { readManifest } from './manifest.js'
 
 const MAX_BYTES = 512 * 1024 * 1024
 const UMASK = 0o022
 
-// The registries yarn and npm write tarball URLs of, which serve the same
-// tarballs.
-const REGISTRIES = new Set(['registry.yarnpkg.com', 'registry.npmjs.org'])
+// yarn's mirror of npm's registry, which serves the same tarballs at the
+// same paths.
+const YARNPKG = 'https://registry.yarnpkg.com/'
 
 // Each entry by its path in the package, as tar-fs writes it with
 // `strip: 1`: its first segment dropped, and the rest joined to the
@@ -65,17 +67,14 @@ function entriesOf(entries, where) {
 const decoder = new TextDecoder('utf-8', { fatal: true })
 
 // The registry's tarball of a lockfile entry: its name, as an `npm:` alias
-// asks for it; held to be the registry's URL for that name and version.
+// asks for it; held to be the registry's own URL for that name and
+// version, exactly as npm spells it, yarn's mirror taken for npm's.
 export function registryTarball(entry, name, where) {
   const { resolution } = entry
   if (resolution === undefined) throw new DeptreeError('a directory, by file: or link:, is not supported', where)
-  if (resolution.type !== 'tarball' || resolution.tarball.startsWith('file:')) throw new DeptreeError(`only packages from ${[...REGISTRIES].join(' or ')} are supported`, where)
-  const url = new URL(resolution.tarball)
-  if (url.protocol !== 'https:' || !REGISTRIES.has(url.hostname) || url.search !== '' || url.hash !== '') {
-    throw new DeptreeError(`only packages from ${[...REGISTRIES].join(' or ')} are supported`, where)
-  }
-  const expected = new URL(tarballUrl(name, entry.version))
-  if (url.pathname.replace(/^(\/@[^/]+)%2f/iu, '$1/') !== expected.pathname) throw new DeptreeError(`${quote(resolution.tarball)} is not the registry's tarball of ${name}@${entry.version}`, where)
+  const expected = tarballUrl(name, entry.version)
+  const url = resolution.type === 'tarball' && resolution.tarball.startsWith(YARNPKG) ? `${REGISTRY}${resolution.tarball.slice(YARNPKG.length)}` : resolution.tarball
+  if (url !== expected) throw new DeptreeError(`only the registry's own tarball of ${name}@${entry.version}, ${expected}, is supported`, where)
   const sha512 = resolution.integrity?.split(' ').find((part) => part.startsWith('sha512-'))
   if (sha512 === undefined) throw new DeptreeError('a tarball with no sha512 integrity is not supported', where)
   return { name, version: entry.version, integrity: sha512, sha1: resolution.sha1 }

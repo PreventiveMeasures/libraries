@@ -39,6 +39,7 @@ const TARBALLS = await Promise.all([
   tarball('c', '1.0.0', { 'cli.js': { data: 'c', mode: 0o600 } }, { manifest: { bin: 'cli.js' } }),
   tarball('d', '1.0.0'),
   tarball('eng', '1.0.0', {}, { manifest: { engines: { node: '>=100' } } }),
+  tarball('@s/e', '1.0.0'),
   dotted(await tarball('fix', '1.0.0', { '_/lib/x.js': 'x', 'test/node_modules/fixture.js': 'f' }), 'package/_/lib/x.js'),
   tarball('mac', '1.0.0', {}, { manifest: { os: ['darwin'] } }),
   tarball('p', '1.0.0', {}, { manifest: { peerDependencies: { b: '^2.0.0' } } }),
@@ -48,11 +49,12 @@ const sha1 = (bytes) => createHash('sha1').update(bytes).digest('hex')
 
 // An entry as yarn writes it: its patterns, then the package's version,
 // tarball and integrity, then its dependencies.
-const entry = (keys, id, dependencies = '', { hash = sha1(T[id].bytes) } = {}) => {
+const yarnpkg = (name, version) => `https://registry.yarnpkg.com/${name}/-/${name.split('/').at(-1)}-${version}.tgz`
+const entry = (keys, id, dependencies = '', { hash = sha1(T[id].bytes), url = yarnpkg } = {}) => {
   const { name, version, integrity } = T[id]
   return `${keys}:
   version "${version}"
-  resolved "https://registry.yarnpkg.com/${name}/-/${name}-${version}.tgz#${hash}"
+  resolved "${url(name, version)}#${hash}"
   integrity ${integrity}
 ${dependencies}`
 }
@@ -201,6 +203,22 @@ describe('buildYarn1Tree refuses', () => {
     const lock = lockfile(entry(`"d@${url}"`, 'd@1.0.0'))
     await refuses({ project: projectOf({ 'yarn.lock': lock, 'package.json': root }) }, new RegExp(`^DeptreeError: "d@${url.replaceAll('.', '\\.')}": only a semver range, an npm: alias or a tag is supported$`, 'u'))
     assert.equal(calls.length, 0)
+  })
+
+  it('a tarball by any URL but the registry\'s own, or yarn\'s mirror of it', async () => {
+    stubRegistry(TARBALLS)
+    const root = { name: 'root', version: '1.0.0', dependencies: { '@s/e': '1.0.0' } }
+    const at = (url) => ({ project: projectOf({ 'yarn.lock': lockfile(entry('"@s/e@1.0.0"', '@s/e@1.0.0', '', { url })), 'package.json': root }) })
+    for (const url of [yarnpkg, (name, version) => yarnpkg(name, version).replace('yarnpkg.com', 'npmjs.org')]) {
+      const { vfs } = await buildYarn1Tree({ ...at(url), host: HOST })
+      assert.equal(vfs.isFile('/node_modules/@s/e/package.json'), true)
+    }
+    const refused = /^DeptreeError: "@s\/e@1\.0\.0": only the registry's own tarball of @s\/e@1\.0\.0, https:\/\/registry\.npmjs\.org\/@s\/e\/-\/e-1\.0\.0\.tgz, is supported$/u
+    for (const url of [
+      (name, version) => yarnpkg(name, version).replace('/@s/', '/@s%2f'),
+      (name, version) => yarnpkg(name, version).replace('https://registry.yarnpkg.com', 'https://registry.npmmirror.com'),
+      (name, version) => yarnpkg(name, version).replace('https:', 'http:'),
+    ]) await refuses(at(url), refused)
   })
 
   it('a tarball that is not the one the lockfile pins', async () => {
