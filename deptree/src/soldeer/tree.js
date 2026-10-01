@@ -53,24 +53,25 @@ function registryDependencies(lock, config, folded) {
 }
 
 // Each dependency's zip, fetched and extracted a few at a time, by its
-// folder; the first failure stops the rest from starting.
+// folder. The first failure stops the rest from starting, and is thrown
+// once each fetch started has ended, so none goes on after it.
 async function fetchAll(dependencies) {
   const extracted = new Map()
   const queue = [...dependencies]
-  let failed = false
+  let failure
   const worker = async () => {
-    while (queue.length > 0 && !failed) {
+    while (queue.length > 0 && failure === undefined) {
       const { name, version, checksum, folder } = queue.shift()
       const where = `dependencies[${quote(name)}]`
       try {
         extracted.set(folder, await extractZip(await getZip(name, version, checksum), where))
       } catch (error) {
-        failed = true
-        throw error instanceof DeptreeError ? error : new DeptreeError(error.message, where, { cause: error })
+        failure ??= error instanceof DeptreeError ? error : new DeptreeError(error.message, where, { cause: error })
       }
     }
   }
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker))
+  if (failure !== undefined) throw failure
   return extracted
 }
 

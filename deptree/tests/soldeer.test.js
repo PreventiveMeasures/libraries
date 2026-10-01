@@ -177,6 +177,25 @@ describe('buildSoldeerTree', () => {
     await assert.rejects(build([zip]), /^DeptreeError: dependencies\["big-pkg"\]: its zip cannot be read: the entries come to more than 536870912 bytes/u)
   })
 
+  it('refuses once every fetch started has ended', async () => {
+    const zips = [dependency('aaa-pkg', '1.0.0', [{ name: 'a', data: 'a' }]), dependency('bbb-pkg', '1.0.0', [{ name: 'b', data: 'b' }])]
+    stubSoldeer(zips)
+    const served = globalThis.fetch
+    let open = 0
+    globalThis.fetch = async (input) => {
+      // aaa-pkg's registry answers it has none, at once; bbb-pkg's zip comes late.
+      if (String(input).includes('aaa-pkg')) return Response.json({ status: 'success', data: [] })
+      open++
+      await new Promise((resolve) => {
+        setTimeout(resolve, 20)
+      })
+      open--
+      return await served(input)
+    }
+    await assert.rejects(buildSoldeerTree({ lockfile: lockOf(zips), soldeer: configOf(zips), host: HOST }), /^DeptreeError: dependencies\["aaa-pkg"\]: /u)
+    assert.equal(open, 0)
+  })
+
   it('fetches eight zips at a time', async () => {
     const zips = Array.from({ length: 12 }, (_, i) => dependency(`pkg-${String.fromCodePoint(108 - i)}`, '1.0.0', [{ name: 'a', data: String(i) }]))
     stubSoldeer(zips)
