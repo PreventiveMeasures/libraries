@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 
-import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, isSha, optional, sameName, show } from '../args.js'
+import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTreeId, isSha, isSha1, optional, sameName, show } from '../args.js'
+import { verifiedDownload } from '../download.js'
 import { decode, encodeSegment } from '../http.js'
 import { api, bindMethods, call, clientHeaders, isGone, repoApi } from './client.js'
 
@@ -66,11 +67,36 @@ async function getRepoFile(headers, options) {
   return decode(bytes, url)
 }
 
-// The one request that follows a redirect, to codeload.github.com. A full
-// sha only, so the bytes are that commit's, not wherever a ref points now.
+// Follows the redirect to codeload.github.com. A tree id names its content,
+// so the bytes are held to it, downloaded or cached, and cached by it alone,
+// for good. What a tarball cannot show, a submodule's commit or a subtree
+// with nothing in it, comes from GitHub's listings of the trees, which the
+// id checks as well: a directory at a time, as a recursive listing of a
+// large tree is cut short.
+async function treeTarball(method, headers, repo, tree) {
+  const listings = new Map()
+  const list = (sha) => {
+    if (!listings.has(sha)) listings.set(sha, call(headers, repoApi(repo, ['git', 'trees', sha])).then((listing) => (Array.isArray(listing?.tree) ? listing.tree : [])))
+    return listings.get(sha)
+  }
+  const locate = () => repoApi(repo, ['tarball', tree])
+  return await verifiedDownload({ method, dir: 'github/trees', what: tree, ext: 'tgz', algorithm: 'tree', expected: tree, locate, options: { headers, redirect: 'follow' }, list })
+}
+
+// A full sha only, so the bytes are that commit's, not wherever a ref points
+// now. Its tree's tarball, not its own, in which `git archive` rewrites the
+// files marked `export-subst`.
 async function getRepoTarball(headers, options) {
   assertArgs('getRepoTarball', options, { repo: assertRepo, sha: assertSha })
-  return await call(headers, repoApi(options.repo, ['tarball', options.sha]), { as: 'bytes', redirect: 'follow' })
+  const { repo, sha } = options
+  const commit = await call(headers, repoApi(repo, ['git', 'commits', sha]))
+  assert.ok(commit?.sha === sha && isSha1(commit.tree?.sha), `getRepoTarball: GitHub names no tree for ${repo}@${sha}`)
+  return await treeTarball('getRepoTarball', headers, repo, commit.tree.sha)
+}
+
+async function getRepoTreeTarball(headers, options) {
+  assertArgs('getRepoTreeTarball', options, { repo: assertRepo, tree: assertTreeId })
+  return await treeTarball('getRepoTreeTarball', headers, options.repo, options.tree)
 }
 
 async function getPullRequest(headers, options) {
@@ -120,5 +146,5 @@ async function listRepoAdvisories(headers, options) {
   return list
 }
 
-export const readMethods = { getCurrentUser, listUserRepos, getRepo, getRepoHead, getRepoFile, getRepoTarball, getPullRequest, getCollaboratorPermission, getAdvisory, listRepoAdvisories }
+export const readMethods = { getCurrentUser, listUserRepos, getRepo, getRepoHead, getRepoFile, getRepoTarball, getRepoTreeTarball, getPullRequest, getCollaboratorPermission, getAdvisory, listRepoAdvisories }
 export const createClient = (options) => bindMethods(clientHeaders('createClient', options, true), readMethods)

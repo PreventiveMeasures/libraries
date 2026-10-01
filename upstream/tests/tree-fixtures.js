@@ -1,0 +1,27 @@
+import { Buffer } from 'node:buffer'
+
+// Made by `git archive --prefix=acme-app-abc1234/ <tree> | gzip -9n`. TREE:
+// an executable, symlinks with short and long targets, a path over 255
+// bytes, a non-ASCII name, and `a-b`, `a.b` and `a/` side by side, which
+// git sorts with a `/` after a directory's name. SUBMODULE: the same, and
+// a submodule, `sub` at SUBMODULE_COMMIT. COMMIT: TREE's commit, with git's
+// global header naming it.
+export const TREE = '1931efbe24f8fa66c420dea924166a279ca3f3a7'
+export const SUBMODULE = '08e030b01c9c789f8e7e6570a3e40948b6f27ea7'
+export const SUBMODULE_COMMIT = 'f7d16464b1328679020181c9e3e873c38a95466b'
+export const TREE_TGZ = Buffer.from('H4sIAAAAAAACA+2a346aQBjFue5T2PRamZlv/sBFH2YYhmh3qwTZhKTpQ/UZ+mId3KuF1C1bGNz1/GKCARM1J+d850Ot++63tq63tnBckEyT+WEBY9TlGBgeL8+5EspIJg2T4TwnzXSikgg8nVvbhLdsTqf22uteuz78cu8EO9Tfbosl9NdaXtFfDPWXXIfr0H9x+KcE3DFj/+9uxP8c/o+AgP/h/xf+n78BvqH/SSbQ/1bS391G/hPyPwKE/L9rykoKLT3l3hS+ZESlIWtz0s6Q6D3pdelyVexq2+29LX3zVv/rv/pf8KH/BVNESQf/L7//Ubapbbv/OhoEZVRS5NBt+7+0rY3X/wwZif4XAZUF3XUhHVV5/3Ayyx3jnBeFVSrXXBortFs0/6Ua539/DvkfYf/PbyT//Y3zQefTP/v/P/N/4v5nhDHY/yLQoXfdNRTGb3Cnk86UpspUlglmKhJGCRmKH3HmjWJZFXv/YxrzP9b+93g4Plw6wOOhSLuVQA6twqj2VbaZ+z2e9z8zYf8TZARLxNn7zdIBhfv/L/XvM2AR/af9/kMK+/9q+tvdt/PM+l/t/6P5z1X4LOj/EfBdfWrazY+fmL+Y/8/+Pz6sPv+5ZkwlYoEsgv9f0b95Oi7T/9SU/JdE+P9XDL58TovDMT3vkf/I/97/v3/t2q6d3f8T7/8qEc7B/xG+PnwPAAAAAAAAAAAAAAAAAAAAAAAfgj+Oj7D2AFAAAA==', 'base64')
+export const SUBMODULE_TGZ = Buffer.from('H4sIAAAAAAACA+2azW7aQBSFvQ1PQdO18fyPvciTVF3MjMeFhh/LP5Klqg/VZ+iLdSCrgEJKigc3OZ+QPBhLxjqcc++1MW7jU1PXqbGOMi6y5PqQgNbysA0cbw9rKpnUgghNRNhPuSIqkUkE+rYzTThls9t154577fPji/tPMMf6L76tus2u7Ne+vab+SokX9adaHesvtdIJgf6j86Xt7ZPc8/uwvP86u6tNt5w/zMO72V3frMMy6zZ15tamL31KsnS5C7+ZvvVNul7ZxjQr32ZcMeGkUqnLC5vK3MjUSs5SbY2luWK5rEzWusZ0blmbMqsGljWzBEzN/ya1Y+T/Of8Two79L6gi8H8EKDwI/z/z/2Ii/qfwfwQY/A//P/P/9SfAN8x/gjDMfzfS300j/znyPwIc+f+hKSvBlPC88Nr6knBeam5MwZXTnO096VXpCmkXtRmW3pS+eav/1Yv+Z/TY/4xIzpMB/h9//uP5fH/D5+GkEJRRyZBD0/Z/aToTr//TXAv0fxGQedBdWeF4VexfTuSFI5RSa42UhaJCG6bcqPkv5Gn+7/ch/yPM/8VE8t9PnHdan/7a//+Y/xfOf5ppPP+LwYC+60PDQ/kN7nTC6VJXucxzRnTFmZZMhMaPU+K1JHkVe/4jCvU/1vy3Xm0fDz3AemWz4UYgh27CSdtXmeba53ia//QF8x/jmpGEtd7Pxw4o3P9/rv8+A0bR/7LnP1xi/r+Z/mbxvb2y/mf7/5P6T2X4Luj/I+CHetd08x8/UX9R/5/8v328ef2nihCZsBGyCP5/Rf+m347T/8lL8l9wjv9/xeDzp8yutlm7RP4j//f+b/tp9P+hXqD/v4H+v38tuqG7uv4X3v+XLOxD/ke4fOQ+AAAAAAAAAAAAAAAAAPDu+APnjPc8AFAAAA==', 'base64')
+export const COMMIT_TGZ = Buffer.from('H4sIAAAAAAACA+2a3Y7aMBCFc92noOo1YM/4J7nYZ1nZjrPQ5U+QlSJVfag+Q1+sZvcKUKFsiWHZ8wkpyEaCaHTOnDFZue7xabb0bvY4ia6O6+LyiIQx5vWa2L+mTVVITdoqoaxQaV0qTVQ8FRl42bRunb5yvVy2xz53an//5j4ImgZhOZ/HRfvQ2FoaZZSXTKWxlSAhSxmqyLG0HLh0lVbG+C8FuBtcmMehW62GzgdJrMY96d9a/Xf9p/d7+mcjTKGh//z1d0Pfj/+rI/WnA/+XJu2j/r0j4ebw/x39j25E/xL6zwBB/9D/jv4vnwDfkf+UIOS/K9U/3Ib/M/w/Awz//9TUjSKjIlfR+lgL5tqycxWbYJm2moymDpX2o5Xr3ntAeOr8j+S+/klo5qKD/vuf/7gcrFw7eThoBHVWxvCh29Z/7VqXL/9Ztgr5LwO6THU3XgVuqu0rqLIKQkrpvdO6MlJZRyb06v9KH/r/dg3+n2H+r27E/+ONc6f96Z/1/5/+f+b8Z8lazH8Z6JC7PjWc2m9SZ1DB1rYpdVmSsA2T1aRS8GMpotWibHLPf8Kg/+ea/2bTxfNrBphN/bi7EvChq3AQ+xp38UfA3uY/e8b8R2xJFLSJcdC3QeH8f7f+Ww/opf7n/f/DGvP/1ervRt83F67/0fx/0P+lTr8F+T8DsVst1+3gx0/0X/T/N/0vnq/e/6URQhfUgxdB/yfqv35Z9JP/9Dn+r5jx/FcOvn0d++livJnA/+H/W/3//jVqu/bi+j/z/FdTWoP+M9w+dA8AAAAAAAAAAAAAAAAAAHBX/AGduPxdAFAAAA==', 'base64')
+// NESTED: `lib/a.js`, and a submodule at `lib/sub`, NESTED_COMMIT, in the
+// tree NESTED_LIB.
+export const NESTED = '874f3a1f1e72dc7705dc93544b98bc923a8bbfa9'
+export const NESTED_LIB = '8804c58ad81297708f853c08b6c0060251ea8f2c'
+export const NESTED_COMMIT = 'e962c7c6eabb10a32b4e9659c89fe5a82648a968'
+export const NESTED_TGZ = Buffer.from('H4sIAAAAAAACA+3V3UrDMBwF8N5uT1F2H/PRJK0XPol48U/WuUlHS5LCQHx349SbipNB3RTO7yZNGijlNKfk9y2jYWDkvFSV5sX8RFbX5jhm0/F4LY0ytZZCK5vXZWWFLkxxAWNMFPIjQ9+nU/t+uj99uX+CpvnfPO7Svl+PXRvnzN9a/W3+Sthp/qY2dSGQ/6+7j6N7j7tcdTvH83T1sFwMlLblXfmxslyMoctTnvYD9x2N65YJzrZ9/nbG2AaW9wUKuzbyyirtjbXMN7eOmYYMc6ZSrHbkZGNVYzbEow+U/HagNd8cKh6WBfyV8/8W+fX7X1dGof+vlT/dPMWZ8z/V/0KqL/0vlUT/X0B7GPqQyucXdDD6//P8518+n/n8n9n/Jv8B0P8AAAAAAAAAAAAAAAAAZ3oFia/T3AAoAAA=', 'base64')
+// EMPTIES: `f`, `d/g`, and subtrees with no file in them, which git
+// archive leaves out: `empty` and `d/e`, the empty tree, and `n`,
+// holding only `n/m`, the empty tree too.
+export const EMPTIES = '7d53d19498b95277f1e306217f31dff5f7ea0882'
+export const EMPTIES_D = '55b3cb71b68ba275eb66fc42c482f64559ff4288'
+export const EMPTIES_N = 'c1920f2a78ad891ff74cdcf908747b48f7db546e'
+export const EMPTIES_TGZ = Buffer.from('H4sIAAAAAAACA+3VSwrDIBSFYcfdS4jX53ps2mZUEtIUuvxKhgmkFGr6+r+JooLI4WBqzscq9X2V9o0Y62r1ejqL0U9jNh+nuXjjoxPjrcvrYoMOyqsNXC9jGvKVQ9eNa+ce7c8f9yXSPP9D/Qn5O22F/N+Tf1si/xDcSv5mkb9EozT5F9fuFP7Yov+nMv//k/230QX6v4Eb/QcAAAAAAAAAAACAn3AHHD/hkAAoAAA=', 'base64')
