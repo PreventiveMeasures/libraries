@@ -186,6 +186,34 @@ const IGNORED_11 = new Set([
   'nodeVersionFromEnginesRuntime', 'cliOptions', 'explicitlySetKeys', 'packageManager', 'wantedPackageManager',
 ])
 
+// What pnpm 12 has that pnpm 11 has not: those that leave an isolated
+// tree as it is — resolution's, the hoisted linker's, the tasks of
+// `pnpm run`, the global install's — and a Cargo or Python install beside
+// the tree's, which is refused where it is enabled.
+const IGNORED_12 = new Set([
+  'autoDedupe', 'autoInstallPeersFromHighestMatch', 'externalDependencies', 'hoistingLimits', 'globalShims',
+  'concurrencyGroups', 'pipelines', 'pipelineBase', 'publishWaitTimeout', 'saveTypes', 'tools', 'macosBackup',
+])
+const notEnabled = (value, where) => {
+  if (value.enabled !== undefined && value.enabled !== null && value.enabled !== false) never('an install of Cargo or Python packages beside the tree is not supported')(value.enabled, `${where}.enabled`)
+}
+const READ_12 = {
+  __proto__: null,
+  cargo: { kind: 'mapping', check: notEnabled },
+  python: { kind: 'mapping', check: notEnabled },
+}
+
+// What pnpm 11 reads or passes over that pnpm 12 does not know: it drops
+// each, and fails on one where the root package.json pins the pnpm that
+// runs.
+const UNRECOGNIZED_12 = new Set([
+  'allowNonAppliedPatches', 'alwaysAuth', 'email', 'enginePinManifest', 'ignoreDepScripts', 'ignorePatchFailures',
+  'lockfileDirectory', 'managePackageManagerVersions', 'nodeVersionFromEnginesRuntime', 'packageManagerStrict',
+  'packageManagerStrictVersion', 'shamefullyFlatten', 'useNodeVersion',
+])
+
+export const unrecognized12 = (where) => new DeptreeError('pnpm 12 does not know it, and fails on it where the root package.json pins the pnpm that runs', where)
+
 // The keys of the root package.json's `pnpm` field pnpm 10 reads; it
 // passes over any other there.
 export const MANIFEST_KEYS = [
@@ -261,12 +289,19 @@ function checkCatalogs(value, where) {
 }
 
 // What reads a setting for pnpm of `major`, or undefined for one that
-// leaves the tree as it is; one that is neither is refused.
-export function readerOf(name, where, major) {
+// leaves the tree as it is; one that is neither is refused. `pinned` is
+// whether pnpm 12 fails on one it does not know. pnpm 12 takes a pattern
+// only as a list.
+export function readerOf(name, where, major, pinned = false) {
+  if (major >= 12 && UNRECOGNIZED_12.has(name)) {
+    if (pinned) throw unrecognized12(where)
+    return undefined
+  }
+  if (major >= 12 && name in READ_12) return READ_12[name]
   if (major >= 11 && name in READ_11) return READ_11[name]
-  if (IGNORED.has(name) || (major >= 11 && IGNORED_11.has(name))) return undefined
+  if (IGNORED.has(name) || (major >= 11 && IGNORED_11.has(name)) || (major >= 12 && IGNORED_12.has(name))) return undefined
   if (!(name in READ)) throw new DeptreeError('unsupported setting', where)
-  return READ[name]
+  return major >= 12 && READ[name].kind === 'texts' ? { ...READ[name], kind: 'list' } : READ[name]
 }
 
 // By selector, the patch file, relative to the workspace's directory.

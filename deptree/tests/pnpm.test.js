@@ -791,6 +791,61 @@ describe('buildPnpmTree for pnpm 11', () => {
   })
 })
 
+describe('buildPnpmTree for pnpm 12', () => {
+  const HOST_12 = { ...HOST, pnpm: '12.8.1' }
+  const lockfile12 = () => lockfile().replace(`  p@1.0.0:\n    hash: ${H}\n    path: patches/p.patch\n`, `  p@1.0.0: ${H}\n`)
+  const patchedInYaml = 'patchedDependencies:\n  p@1.0.0: patches/p.patch\n'
+  const env = (version = '12.8.1') => `---\nlockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    configDependencies: {}\n    packageManagerDependencies:\n      pnpm:\n        specifier: ${version}\n        version: ${version}\n\npackages:\n\n  pnpm@${version}:\n    resolution: {integrity: ${I.p}}\n\nsnapshots:\n\n  pnpm@${version}: {}\n\n---\n`
+  const built = ({ locked = lockfile12(), fields = {}, workspace = patchedInYaml, host = HOST_12 } = {}) => buildPnpmTree({ lockfile: locked, manifests: { '.': root({ pnpm: { patchedDependencies: undefined }, ...fields }) }, workspace, patches: { 'patches/p.patch': PATCH }, host })
+  const pinned = { packageManager: 'pnpm@12.8.1' }
+
+  // pnpm 12 records a pin of pnpm 12 in the lockfile's env document, and a
+  // frozen install fails where it is not there, or is another pnpm.
+  it('holds the pnpm the root pins to the lockfile\'s record of it', async () => {
+    stubRegistry(TARBALLS)
+    assert.equal(text((await built({ locked: `${env()}${lockfile12()}`, fields: pinned })).vfs, '/node_modules/p/index.js'), 'module.exports = 2\n')
+    await assert.rejects(built({ fields: pinned }), /^DeptreeError: env\.importers\["\."\]\.packageManagerDependencies: the lockfile records no pnpm for manifests\["\."\]\.packageManager, which a frozen install of pnpm 12 fails on$/u)
+    await assert.rejects(built({ locked: `${env('12.8.0')}${lockfile12()}`, fields: pinned }), /^DeptreeError: env\.importers\["\."\]\.packageManagerDependencies\.pnpm: "pnpm@12\.8\.0" is not pnpm 12\.8\.1, which pnpm 12 would run or fail on$/u)
+    const ranged = { devEngines: { packageManager: { name: 'pnpm', version: '^12.0.0' } } }
+    assert.equal(text((await built({ locked: `${env()}${lockfile12()}`, fields: ranged })).vfs, '/node_modules/p/index.js'), 'module.exports = 2\n')
+    await assert.rejects(built({ fields: { devEngines: { packageManager: { name: 'pnpm', version: '^11.0.0', onFail: 'error' } } } }), /^DeptreeError: manifests\["\."\]\.devEngines\.packageManager: pnpm 12\.8\.1 is not in "\^11\.0\.0", which pnpm 12 switches from or refuses$/u)
+    await assert.rejects(built({ fields: { devEngines: { packageManager: [{ name: 'yarn' }] } } }), /^DeptreeError: manifests\["\."\]\.devEngines\.packageManager: the project is installed by "yarn", which pnpm 12 refuses$/u)
+    await built({ fields: { devEngines: { packageManager: [{ name: 'yarn' }, { name: 'npm' }] } } })
+  })
+
+  // pnpm 12 fails on a setting it does not know where the root pins the
+  // pnpm that runs, and drops it otherwise.
+  it('refuses a setting pnpm 12 does not know where the root pins it', async () => {
+    stubRegistry(TARBALLS)
+    for (const setting of ['shamefullyFlatten: false\n', 'alwaysAuth: true\n', 'foo-bar: 1\n']) {
+      await assert.rejects(built({ locked: `${env()}${lockfile12()}`, fields: pinned, workspace: `${patchedInYaml}${setting}` }), /^DeptreeError: pnpm-workspace\.yaml: [\w-]+: pnpm 12 does not know it, and fails on it where the root package\.json pins the pnpm that runs$/u, setting)
+      await built({ workspace: `${patchedInYaml}${setting}` })
+    }
+    await built({ locked: `${env()}${lockfile12()}`, fields: pinned, workspace: `${patchedInYaml}node-linker: isolated\nautoDedupe: true\ncargo:\n  enabled: false\n` })
+    await assert.rejects(built({ workspace: `${patchedInYaml}cargo:\n  enabled: true\n` }), /^DeptreeError: pnpm-workspace\.yaml: cargo\.enabled: true is not supported: an install of Cargo or Python packages beside the tree is not supported$/u)
+    await assert.rejects(built({ workspace: `${patchedInYaml}hoistPattern: '*'\n` }), /^DeptreeError: pnpm-workspace\.yaml: hoistPattern: expected a list of strings, found "\*"$/u)
+  })
+
+  // pnpm 12 makes a workspace of the root package.json's `workspaces`
+  // where there is no pnpm-workspace.yaml; pnpm 11 installs the root alone.
+  it('takes the root package.json\'s workspaces where there is no pnpm-workspace.yaml', async () => {
+    stubRegistry(TARBALLS)
+    const dependency = `    dependencies:\n      b:\n        specifier: 1.0.0\n        version: 1.0.0\n`
+    const locked = `lockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\n\nimporters:\n\n  .: {}\n\n  packages/x:\n${dependency}\npackages:\n\n  b@1.0.0:\n    resolution: {integrity: ${I.b}}\n\nsnapshots:\n\n  b@1.0.0: {}\n`
+    const manifests = { '.': JSON.stringify({ name: 'root', workspaces: ['packages/*', ''] }), 'packages/x': JSON.stringify({ name: 'x', dependencies: { b: '1.0.0' } }) }
+    const { vfs } = await buildPnpmTree({ lockfile: locked, manifests, host: HOST_12 })
+    assert.equal(vfs.realpath('/packages/x/node_modules/b'), '/node_modules/.pnpm/b@1.0.0/node_modules/b')
+    assert.equal(vfs.realpath('/node_modules/.pnpm/node_modules/x'), '/packages/x')
+    const notSet = /^DeptreeError: importers\["packages\/x"\]: pnpm-workspace\.yaml's packages are not set, so pnpm would not install it as a project$/u
+    await assert.rejects(buildPnpmTree({ lockfile: locked, manifests, workspace: '', host: HOST_12 }), notSet)
+    await assert.rejects(buildPnpmTree({ lockfile: locked, manifests, host: { ...HOST, pnpm: '11.28.2' } }), notSet)
+  })
+
+  it('refuses a pnpm 12 before 12.8.1', async () => {
+    await assert.rejects(built({ host: { ...HOST, pnpm: '12.8.0' } }), /^DeptreeError: host\.pnpm: pnpm "12\.8\.0" is not supported: pnpm 12 is from 12\.8\.1 on$/u)
+  })
+})
+
 describe('buildPnpmTree with a workspace', () => {
   const two = lockfile().replace('importers:\n', 'importers:\n\n  packages/x:\n    dependencies:\n      b:\n        specifier: 1.0.0\n        version: 1.0.0\n')
   const manifests = (x) => ({ '.': root(), 'packages/x': JSON.stringify(x) })

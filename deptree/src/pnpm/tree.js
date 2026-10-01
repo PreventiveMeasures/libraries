@@ -37,7 +37,7 @@ import { createHook } from './hook.js'
 import { listOverrides } from './overrides.js'
 import { checkHost, inputsOf, manifestsOf, patchesOf, readLockfile, readWorkspace } from './inputs.js'
 import { checkProject } from './project.js'
-import { checkProjects, workspaceNames } from './projects.js'
+import { checkProjects, pinsPnpm, workspaceNames } from './projects.js'
 import { readSettings } from './settings.js'
 import { checkUpToDate } from './uptodate.js'
 import { checkWorkspace } from './workspace.js'
@@ -232,21 +232,20 @@ export async function buildPnpmTree(options) {
   if (!('.' in lockfile.importers)) throw new DeptreeError('expected the root project, whose package.json holds settings', 'importers')
   // Before the project is read for any importer: none leads out of it.
   checkLockfile(lockfile)
-  const workspace = readWorkspace(inputs.workspace)
-  const { manifests, pnpm, major } = manifestsOf(inputs, workspace, lockfile, given.pnpm)
+  const { manifests, pnpm, major, workspace } = manifestsOf(inputs, readWorkspace(inputs.workspace), lockfile, given.pnpm)
   const host = { pnpm, major, ...machine }
   // pnpm 11 locks config dependencies there, which are refused, and the
   // pnpm a project pins, which leaves the tree as it is.
   if (env !== undefined && host.major < 11) throw new DeptreeError('the env document pnpm 11 writes is not supported', 'env')
   if (env !== undefined && Object.keys(env.importers['.'].configDependencies).length > 0) throw new DeptreeError('config dependencies are not supported', 'env.importers["."].configDependencies')
-  const settings = readSettings({ workspace, npmrc: inputs.npmrc, manifest: manifests.get('.'), major: host.major })
+  const settings = readSettings({ workspace, npmrc: inputs.npmrc, manifest: manifests.get('.'), major: host.major, pinned: pinsPnpm(manifests.get('.'), host.pnpm) })
   checkWorkspace(Object.keys(lockfile.importers), settings.packages, host.major)
   const overrides = listOverrides(settings.overrides, settings.catalogs, host.major)
   const installed = checkLocalOverrides(overrides, project)
   const patches = patchesOf(inputs, settings.patchedDependencies)
   const patched = await checkUpToDate(lockfile, settings, overrides, patches, host.major)
   const hook = createHook({ overrides, ignored: settings.ignoredOptionalDependencies, major: host.major })
-  checkProjects(lockfile, manifests, { hook, host, settings })
+  checkProjects(lockfile, manifests, { hook, host, settings, env })
   checkOptional(lockfile)
   const projects = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
   const { skipped, incompatible } = skippedSnapshots(lockfile, { host, settings })

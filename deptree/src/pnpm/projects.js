@@ -157,13 +157,73 @@ export function pinnedPnpm(packageManager) {
   return isExactVersion(version) ? version : undefined
 }
 
+// The package manager the root package.json pins as pnpm 12 reads it
+// (wanted_package_manager): devEngines.packageManager over packageManager,
+// the pnpm one of a list, else its first, whose own onFail it takes, else
+// `error` for the last of a list and `ignore` for another; a version that
+// is not a range is none, and packageManager's has to be exact.
+function wantedPackageManager(manifest) {
+  const declared = manifest.devEngines?.packageManager
+  const list = Array.isArray(declared) ? declared : declared === undefined || declared === null ? [] : [declared]
+  const index = Array.isArray(declared) ? Math.max(list.findIndex((entry) => entry?.name === 'pnpm'), 0) : 0
+  const entry = list[index]
+  if (typeof entry?.name === 'string') {
+    const onFail = typeof entry.onFail === 'string' ? entry.onFail : Array.isArray(declared) ? (index === list.length - 1 ? 'error' : 'ignore') : undefined
+    const version = typeof entry.version === 'string' && validRange(entry.version) !== null ? entry.version : undefined
+    return { name: entry.name, version, devEngines: true, onFail }
+  }
+  if (typeof manifest.packageManager !== 'string') return undefined
+  const [, name, version] = /^(@?[^@]*)(?:@(.*))?$/u.exec(manifest.packageManager)
+  const exact = version === undefined ? undefined : version.replace(/\+.*$/u, '')
+  return { name, version: isExactVersion(exact) && valid(exact) === exact ? exact : undefined, devEngines: false, onFail: undefined }
+}
+
+// Whether the root package.json pins a pnpm that `pnpm` is, which makes
+// pnpm 12 fail on a setting it does not know.
+export function pinsPnpm(manifest, pnpm) {
+  const wanted = wantedPackageManager(manifest)
+  return wanted?.name === 'pnpm' && wanted.version !== undefined && satisfies(pnpm, wanted.version, { includePrerelease: true })
+}
+
+// pnpm 12 runs, of a pin that is not to be ignored, the pnpm the lockfile's
+// env document records for it; it records a devEngines one, or a
+// packageManager one of 12 or later, and a frozen install fails where it
+// has none: there has to be one, of `pnpm` alone at the pinned version, or
+// at the running one for a range it is in, and its package. The pnpm that
+// runs has to be in the pin, which it would be switched from or refused
+// by, unless it is only to warn. Another package manager fails it unless
+// it is only to warn.
+function checkPackageManager12(manifest, host, pmOnFail, env) {
+  const wanted = wantedPackageManager(manifest)
+  if (wanted === undefined) return
+  const where = `manifests["."].${wanted.devEngines ? 'devEngines.packageManager' : 'packageManager'}`
+  const onFail = pmOnFail ?? wanted.onFail ?? 'download'
+  if (onFail === 'ignore' || (onFail === 'warn' && wanted.name !== 'pnpm')) return
+  if (wanted.name !== 'pnpm') throw new DeptreeError(`the project is installed by ${quote(wanted.name)}, which pnpm 12 refuses`, where)
+  if (wanted.version === undefined) throw new DeptreeError('it names no version of pnpm, or none pnpm takes, which is not supported', where)
+  const running = satisfies(host.pnpm, wanted.version, { includePrerelease: true })
+  if (!running && onFail !== 'warn') throw new DeptreeError(`pnpm ${host.pnpm} is not in ${quote(wanted.version)}, which pnpm 12 switches from or refuses`, where)
+  if (!wanted.devEngines && Number(wanted.version.split('.')[0]) < 12) return
+  const version = isExactVersion(wanted.version) ? wanted.version : running ? host.pnpm : undefined
+  if (version === undefined) return
+  const recorded = env?.importers['.'].packageManagerDependencies ?? {}
+  const here = 'env.importers["."].packageManagerDependencies'
+  if (recorded.pnpm === undefined) throw new DeptreeError(`the lockfile records no pnpm for ${where}, which a frozen install of pnpm 12 fails on`, here)
+  for (const [name, key] of Object.entries(recorded)) {
+    if (key !== `${name}@${version}`) throw new DeptreeError(`${quote(key)} is not ${name} ${version}, which pnpm 12 would run or fail on`, `${here}.${name}`)
+    if (env.packages[key] === undefined) throw new DeptreeError(`the lockfile records no package ${quote(key)}, which a frozen install of pnpm 12 fails on`, `${here}.${name}`)
+  }
+}
+
 // packageManager as pnpm's parsePackageManager reads it, held to be this
 // pnpm, exactly: pnpm switches to the version it names, and one it cannot
 // switch to, or another package manager, is refused rather than run over.
 // pnpm 11 reads devEngines.packageManager over it, and switches to the
 // pnpm the lockfile pins for that, which is refused; either is passed
 // over where what to do on a mismatch, or pmOnFail, is to warn or ignore.
-function checkPackageManager(manifest, host, pmOnFail) {
+// pnpm 12's are checkPackageManager12's.
+function checkPackageManager(manifest, host, pmOnFail, env) {
+  if (host.major >= 12) return checkPackageManager12(manifest, host, pmOnFail, env)
   const { packageManager } = manifest
   if (host.major >= 11) {
     const where = 'manifests["."].devEngines.packageManager'
@@ -211,9 +271,10 @@ function checkRuntimes(manifest, where, { host, root, onFail }) {
 }
 
 // `hook` is hook.js's, which each package.json is read through; `host`
-// and `settings` what its engines are held to.
-export function checkProjects(lockfile, manifests, { hook, host, settings }) {
-  checkPackageManager(manifests.get('.'), host, settings.pmOnFail)
+// and `settings` what its engines are held to; `env` the lockfile's env
+// document, where it has one.
+export function checkProjects(lockfile, manifests, { hook, host, settings, env }) {
+  checkPackageManager(manifests.get('.'), host, settings.pmOnFail, env)
   let index
   for (const [id, manifest] of manifests) {
     const where = `manifests[${quote(id)}]`

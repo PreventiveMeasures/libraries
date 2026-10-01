@@ -17,10 +17,19 @@
 // refused, and so is a glob reaching outside the workspace's directory.
 // pnpm 11 leaves out what a `!` glob takes with micromatch too, a name
 // starting with a dot and all.
+//
+// pnpm 12 finds them its own way (its projects walk, with wax), and the
+// same but in four places: a `**` may take no name before one a glob
+// spells with a leading dot; nothing under a node_modules or a
+// bower_components is walked into or taken, wherever it is; where a glob
+// with a `*` takes a directory, the first of its manifests that is there
+// is read, which fails where it is not a file; and the projects come in
+// the order of their paths by name.
 
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { escape } from '../matcher.js'
+import { byBytes } from './order.js'
 import { typeOf } from './project.js'
 
 const UNSUPPORTED = /[?[\]{}()\\]/u
@@ -86,12 +95,36 @@ function enters({ names: glob, dot }, names) {
 // `packages`, the globs or undefined, as the globs that take and those
 // that leave out; `major` pnpm's major version.
 function compileAll(packages, major) {
-  const globs = { include: [], exclude: [] }
+  const globs = { include: [], exclude: [], major }
   for (const glob of packages ?? []) {
     const exclude = glob.startsWith('!')
-    globs[exclude ? 'exclude' : 'include'].push(compile(exclude ? glob.slice(1) : glob, 'pnpm-workspace.yaml: packages', exclude && major >= 11))
+    const compiled = compile(exclude ? glob.slice(1) : glob, 'pnpm-workspace.yaml: packages', exclude && major >= 11)
+    globs[exclude ? 'exclude' : 'include'].push({ ...compiled, wild: glob.includes('*') })
   }
   return globs
+}
+
+// The manifest pnpm reads of the directory at `names`, given the names in
+// it: the first of them there that is a file, a link that leads nowhere
+// passed over. pnpm 12 reads the first there, where a glob with a `*`
+// takes the directory, and fails where that is not a file.
+function manifestOf(project, globs, names, entries) {
+  const wild = globs.major >= 12 && globs.include.some((glob) => glob.wild && takes(glob, [...names, 'package.json']))
+  for (const name of MANIFESTS) {
+    if (!entries.includes(name)) continue
+    const type = typeOf(project, `/${[...names, name].join('/')}`)
+    if (type === 'file') return name
+    if (type !== undefined && wild) throw new DeptreeError(`pnpm 12 reads this as a manifest, and fails on it as a ${type}`, quote([...names, name].join('/')))
+  }
+  return undefined
+}
+
+// Two paths in the order of their names, as pnpm 12 has them.
+function byNames(a, b) {
+  const x = a.split('/')
+  const y = b.split('/')
+  for (let i = 0; i < Math.min(x.length, y.length); i++) if (x[i] !== y[i]) return byBytes(x[i], y[i])
+  return x.length - y.length
 }
 
 // What find-packages leaves out, as tinyglobby reads it, which does not
@@ -100,13 +133,23 @@ function compileAll(packages, major) {
 const IGNORED = ['node_modules', 'bower_components'].map((name) => ({ names: ['**', NAME(name, false), '**'], dot: false }))
 const ignored = (names) => IGNORED.some((glob) => takes(glob, names))
 
+// What pnpm 12 never walks into or takes: anything with a node_modules or
+// bower_components in its path.
+const ignored12 = (names) => names.some((name) => name === 'node_modules' || name === 'bower_components')
+
+// Whether pnpm 12 walks into the directory at `names` for a glob: where
+// the glob's names before its last may take it.
+const enters12 = (glob, names) => reach(glob, names).slice(0, glob.names.length).some(Boolean)
+
 // Whether the globs take the manifest at `names`. What find-packages
 // ignores it is not ignored for, in a directory tinyglobby walks into.
-const taken = ({ include, exclude }, names) => include.some((glob) => takes(glob, names)) && !exclude.some((glob) => takes(glob, names))
+const taken = ({ include, exclude, major }, names) => include.some((glob) => takes(glob, names)) && !exclude.some((glob) => takes(glob, names)) && !(major >= 12 && ignored12(names))
 
 // Whether tinyglobby walks into the directory at `names`, which it does
-// through a link to one too.
-const walked = ({ include }, names) => include.some((glob) => enters(glob, names)) && !ignored(names)
+// through a link to one too; or pnpm 12.
+const walked = ({ include, major }, names) => (major >= 12
+  ? include.some((glob) => enters12(glob, names)) && !ignored12(names)
+  : include.some((glob) => enters(glob, names)) && !ignored(names))
 
 // `ids` are the projects' directories, `.` the root; `packages` the globs,
 // or undefined; `major` pnpm's major version. pnpm finds a project where
@@ -165,9 +208,7 @@ export function findProjects(project, packages, major = 10) {
     const { names, link } = pending.pop()
     const dir = names.join('/')
     const entries = project.readdir(`/${dir}`)
-    const found = names.length === 0 || taken(globs, [...names, 'package.json'])
-      ? MANIFESTS.find((name) => entries.includes(name) && typeOf(project, `/${[...names, name].join('/')}`) === 'file')
-      : undefined
+    const found = names.length === 0 || taken(globs, [...names, 'package.json']) ? manifestOf(project, globs, names, entries) : undefined
     if (names.length === 0 && found === undefined) throw new DeptreeError('pnpm takes a workspace with no manifest at its root for one with no root project, which is not supported', quote('package.json'))
     if (found !== undefined) {
       const file = [...names, found].join('/')
@@ -192,5 +233,5 @@ export function findProjects(project, packages, major = 10) {
       else throw new DeptreeError(`a link to a directory in one tinyglobby follows, ${quote(path)}, is not supported`, quote(link))
     }
   }
-  return ['.', ...ids.sort()]
+  return ['.', ...globs.major >= 12 ? ids.sort(byNames) : ids.sort()]
 }
