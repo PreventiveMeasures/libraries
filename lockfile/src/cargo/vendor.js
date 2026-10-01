@@ -1,24 +1,20 @@
 // Cargo finds a vendored package by the name and version its Cargo.toml
 // gives, not by its directory's name.
 
-import { parseVersion } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
+import { isHexSha256, isSegment } from '../names.js'
 import { parseToml } from '../toml/parse.js'
 import { isTable } from '../toml/value.js'
-import { checkName, string, table } from './shape.js'
-
-const SHA256 = /^[\da-f]{64}$/u
-const SEGMENT = /^(?!\.{1,2}$)[^\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}/\\]+$/u
+import { checkCrateName, checkCrateVersion, table } from './shape.js'
 
 function identify(text, where) {
   const doc = table(parseToml(text), where)
   const pkg = doc.package ?? doc.project
   const here = at(where, doc.package === undefined ? 'project' : 'package')
   table(pkg, here)
-  const name = checkName(pkg.name, at(here, 'name'))
+  const name = checkCrateName(pkg.name, at(here, 'name'))
   if (isTable(pkg.version)) throw new LockfileError('a vendored package inherits nothing from a workspace', at(here, 'version'))
-  const version = pkg.version === undefined ? '0.0.0' : string(pkg.version, at(here, 'version'))
-  if (parseVersion(version) === undefined) throw new LockfileError(`${quote(version)} is not a version`, at(here, 'version'))
+  const version = pkg.version === undefined ? '0.0.0' : checkCrateVersion(pkg.version, at(here, 'version'))
   return { name, version }
 }
 
@@ -48,12 +44,12 @@ function readChecksum(text, where) {
   if (value.$comment !== undefined && typeof value.$comment !== 'string') throw new LockfileError('expected "$comment" to be a string', where)
   const keys = Object.keys(value).filter((key) => key !== '$comment').sort().join()
   if (keys !== 'files,package') throw new LockfileError('expected "files" and "package", and nothing else', where)
-  if (value.package !== null && !SHA256.test(value.package)) throw new LockfileError('expected "package" to be a sha256 or null', where)
+  if (value.package !== null && !isHexSha256(value.package)) throw new LockfileError('expected "package" to be a sha256 or null', where)
   if (typeof value.files !== 'object' || value.files === null || Array.isArray(value.files)) throw new LockfileError('expected "files" to be an object', where)
   const files = Object.create(null)
   for (const [path, sum] of Object.entries(value.files)) {
-    if (!path.split('/').every((segment) => SEGMENT.test(segment))) throw new LockfileError(`${quote(path)} is not a path within the package`, where)
-    if (typeof sum !== 'string' || !SHA256.test(sum)) throw new LockfileError(`expected a sha256 for ${quote(path)}`, where)
+    if (!path.split('/').every(isSegment)) throw new LockfileError(`${quote(path)} is not a path within the package`, where)
+    if (typeof sum !== 'string' || !isHexSha256(sum)) throw new LockfileError(`expected a sha256 for ${quote(path)}`, where)
     files[path] = sum
   }
   return { checksum: value.package ?? undefined, files }
@@ -65,7 +61,7 @@ export function readCargoVendor(lock, vendor) {
   if (typeof vendor !== 'object' || vendor === null) throw new TypeError('expected the vendor directory, by directory')
   const found = new Map()
   for (const [directory, entry] of Object.entries(vendor)) {
-    if (!SEGMENT.test(directory) || directory.startsWith('.')) throw new LockfileError(`${quote(directory)} is not a directory a directory source reads`, directory)
+    if (!isSegment(directory) || directory.startsWith('.')) throw new LockfileError(`${quote(directory)} is not a directory a directory source reads`, directory)
     if (typeof entry?.manifest !== 'string' || typeof entry.checksum !== 'string') throw new TypeError(`expected the manifest and checksum texts of ${quote(directory)}`)
     const { name, version } = identify(entry.manifest, at(directory, 'Cargo.toml'))
     const id = `${name} ${version}`

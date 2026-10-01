@@ -4,10 +4,10 @@
 // on; the lockfile's edges are exactly the active declarations'.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkOptions } from '../shape.js'
+import { checkOptions, optional } from '../shape.js'
 import { activate } from './activate.js'
 import { featureValue, parseRequirement } from './dependency.js'
-import { patchedAs, sourceIdentity } from './lock.js'
+import { keyOf, patchedAs, sourceIdentity } from './lock.js'
 import { checkPatches, from, identify, offers, readPatches, within } from './patch.js'
 
 function resolverOf(root) {
@@ -79,7 +79,7 @@ export function linkCargo(lock, manifests, options) {
   if (!Array.isArray(members)) throw new TypeError('expected the members of the workspace')
   if (config !== undefined && config?.patch === undefined) throw new TypeError('expected the config, as parseCargoConfig gives it')
   checkMembers(lock, members)
-  const rootKey = root.package === undefined ? undefined : `${root.package.name} ${root.package.version}`
+  const rootKey = root.package === undefined ? undefined : keyOf(root.package.name, root.package.version)
   if (rootKey !== undefined && !members.includes(rootKey)) throw new LockfileError(`the root package ${quote(rootKey)} is not among the members`, 'members')
   const locked = new Map(Object.entries(lock.packages).map(([key, pkg]) => [key, identify(pkg, key)]))
   const patches = readPatches(root, config)
@@ -103,7 +103,7 @@ export function linkCargo(lock, manifests, options) {
 // The edges `dep` could be, by name, requirement and source, or as offered
 // by a [patch] of its source, which `slot` then names.
 function candidates(dep, key, { locked, patches }, where) {
-  const requirement = dep.version === undefined ? undefined : parseRequirement(dep.version, where)
+  const requirement = optional(parseRequirement)(dep.version, where)
   const wanted = sourceIdentity(dep.source, locked.get(key).identity)
   const table = patchedAs(dep.source)
   const offered = patches.get(`${table} ${dep.package}`) ?? []

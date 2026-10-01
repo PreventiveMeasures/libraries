@@ -44,6 +44,9 @@ export function checkVersion(value, where) {
 // bidirectional character either.
 const UNSAFE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}\\]/u
 
+// One directory's or file's name in such a path.
+export const isSegment = (segment) => segment !== '' && segment !== '.' && segment !== '..' && !UNSAFE.test(segment)
+
 export function checkRelative(value, where) {
   const path = text(value, where)
   if (path === '.') return path
@@ -51,7 +54,7 @@ export function checkRelative(value, where) {
   for (const segment of path.split('/')) {
     if (segment === '..' && climbing) continue
     climbing = false
-    if (segment === '' || segment === '.' || segment === '..' || UNSAFE.test(segment)) {
+    if (!isSegment(segment)) {
       throw new LockfileError(`${quote(path)} is not a relative path in normal form`, where)
     }
   }
@@ -81,6 +84,9 @@ export function relativeTo(base, path) {
 }
 
 export const isCommit = (hash) => /^(?:[\da-f]{40}|[\da-f]{64})$/u.test(hash)
+
+// A sha256 in lowercase hex, as Cargo.lock and soldeer.lock write a checksum.
+export const isHexSha256 = (value) => /^[\da-f]{64}$/u.test(value)
 
 // A branch or tag name, as git check-ref-format takes one under refs/heads/
 // or refs/tags/: a rule for each alternative. A leading `-` git branch

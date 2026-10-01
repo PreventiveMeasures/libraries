@@ -2,7 +2,7 @@
 // and a table for each dependency, as toml_edit lays them out.
 
 import { LockfileError, at, quote } from '../error.js'
-import { isCommit, isHttpUrl } from '../names.js'
+import { isCommit, isHexSha256, isHttpUrl } from '../names.js'
 import { checkOptions, string } from '../shape.js'
 import { parseToml } from '../toml/parse.js'
 import { isTable } from '../toml/value.js'
@@ -17,8 +17,6 @@ const KINDS = {
 }
 const HAVING = { http: 'a url', git: 'a git repository', private: 'neither a url nor a git repository' }
 
-const SHA256 = /^[\da-f]{64}$/u
-
 // Soldeer writes a custom URL as the config has it, its scheme in any case.
 const isUrl = (value) => isHttpUrl(value.replace(/^https?:/iu, (scheme) => scheme.toLowerCase()))
 
@@ -29,7 +27,7 @@ const isPlain = (value) => value !== '' && ![...value].some((char) => char <= '\
 function readField(entry, field, where) {
   const value = string(entry[field], where)
   if (!isPlain(value)) throw new LockfileError(`${quote(value)} is empty, or has a quote, backslash or control character, which this reader does not take`, where)
-  if ((field === 'checksum' || field === 'integrity') && !SHA256.test(value)) throw new LockfileError(`${quote(value)} is not a hex sha256`, where)
+  if ((field === 'checksum' || field === 'integrity') && !isHexSha256(value)) throw new LockfileError(`${quote(value)} is not a hex sha256`, where)
   if (field === 'rev' && !isCommit(value)) throw new LockfileError(`${quote(value)} is not a full commit hash, as Soldeer writes`, where)
   if (field === 'url' && !isUrl(value)) throw new LockfileError(`${quote(value)} is not an http(s) URL`, where)
   return value

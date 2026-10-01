@@ -8,7 +8,7 @@
 import { LockfileError, at } from '../error.js'
 import { checkName, checkRelative } from '../names.js'
 import { KINDS } from '../graph.js'
-import { EMPTY, boolean, entries, optional, record, string, text } from '../shape.js'
+import { EMPTY, boolean, entries, field, record, string, text } from '../shape.js'
 import { target } from './packages.js'
 
 const FIELDS = [...KINDS, 'dependenciesMeta', 'publishDirectory', 'linkDirectory']
@@ -45,7 +45,7 @@ function readMeta(value, where) {
     record(item, here, ['injected', 'node'])
     meta[checkName(name, here)] = {
       injected: item.injected === undefined ? false : boolean(item.injected, at(here, 'injected')),
-      node: optional(item, 'node', here, text),
+      node: field(item, 'node', here, text),
     }
   }
   return meta
@@ -61,7 +61,7 @@ function readImporter(importer, id, where, snapshots) {
   return {
     ...readDependencies(importer, KINDS, id, where, snapshots),
     dependenciesMeta: readMeta(importer.dependenciesMeta, at(where, 'dependenciesMeta')),
-    publishDirectory: optional(importer, 'publishDirectory', where, checkRelative),
+    publishDirectory: field(importer, 'publishDirectory', where, checkRelative),
     linkDirectory: importer.linkDirectory !== false,
   }
 }

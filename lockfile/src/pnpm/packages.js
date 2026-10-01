@@ -7,7 +7,7 @@
 import { LockfileError, at, quote } from '../error.js'
 import { checkOptional } from '../graph.js'
 import { checkName, checkRelative, checkVersion, isVersion, joinRelative } from '../names.js'
-import { EMPTY, entries, flag, optional, record, text, textMap, texts } from '../shape.js'
+import { EMPTY, entries, field, flag, record, text, textMap, texts } from '../shape.js'
 import { refToKey, splitPackageKey, splitSnapshotKey } from './key.js'
 import { readResolution } from './resolution.js'
 
@@ -68,10 +68,10 @@ function readInfo(key, entry, where) {
     version: readVersion(ref, entry, resolution, where),
     resolution,
     engines: entry.engines === undefined ? Object.create(null) : textMap(entry.engines, at(where, 'engines')),
-    os: optional(entry, 'os', where, texts),
-    cpu: optional(entry, 'cpu', where, texts),
-    libc: optional(entry, 'libc', where, texts),
-    deprecated: optional(entry, 'deprecated', where, text),
+    os: field(entry, 'os', where, texts),
+    cpu: field(entry, 'cpu', where, texts),
+    libc: field(entry, 'libc', where, texts),
+    deprecated: field(entry, 'deprecated', where, text),
     hasBin: flag(entry.hasBin, at(where, 'hasBin')),
     bundledDependencies: bundled === undefined || bundled === true ? bundled : names(bundled, at(where, 'bundledDependencies')),
     peerDependencies: entry.peerDependencies === undefined ? Object.create(null) : textMap(entry.peerDependencies, at(where, 'peerDependencies'), checkName),

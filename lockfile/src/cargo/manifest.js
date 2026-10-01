@@ -3,12 +3,12 @@
 
 import { matches, parseVersion, parseVersionReq } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
-import { EMPTY } from '../shape.js'
+import { EMPTY, field, optional } from '../shape.js'
 import { TomlError } from '../toml/error.js'
 import { parseToml } from '../toml/parse.js'
 import { isTable } from '../toml/value.js'
 import { NIGHTLY, dashed, featureMap, gatherDependencies, readSpec } from './dependency.js'
-import { array, boolean, checkName, entries, kind, optional, refuse, string, strings, table } from './shape.js'
+import { array, boolean, checkCrateName, checkCrateVersion, entries, kind, refuse, string, strings, table } from './shape.js'
 
 const PACKAGE_ONLY = [
   'badges', 'features', 'lib', 'bin', 'example', 'test', 'bench', 'dependencies', 'dev-dependencies',
@@ -27,11 +27,6 @@ const WORKSPACE = ['members', 'exclude', 'default-members', 'resolver', 'metadat
 const EDITIONS = ['2015', '2018', '2021', '2024']
 const FIRST_RUST = { __proto__: null, 2018: '1.31.0', 2021: '1.56.0', 2024: '1.85.0' }
 const RESOLVERS = { __proto__: null, 1: 1, 2: 2, 3: 3 }
-
-function readVersion(value, where) {
-  if (parseVersion(string(value, where)) === undefined) throw new LockfileError(`${quote(value)} is not a version`, where)
-  return value
-}
 
 function readEdition(value, where) {
   if (!EDITIONS.includes(string(value, where))) throw new LockfileError(`${quote(value)} is not an edition: expected one of ${EDITIONS.join(', ')}`, where)
@@ -79,10 +74,10 @@ function readPublish(value, where) {
 const INHERITABLE = {
   authors: strings, categories: strings, description: string, documentation: string, edition: readEdition,
   exclude: strings, homepage: string, include: strings, keywords: strings, license: string, 'license-file': string,
-  publish: readPublish, readme: pathOrFlag, repository: string, 'rust-version': readRustVersion, version: readVersion,
+  publish: readPublish, readme: pathOrFlag, repository: string, 'rust-version': readRustVersion, version: checkCrateVersion,
 }
 const PACKAGE = {
-  ...INHERITABLE, name: checkName, build: readBuild, links: string, workspace: string, autolib: boolean, autobins: boolean,
+  ...INHERITABLE, name: checkCrateName, build: readBuild, links: string, workspace: string, autolib: boolean, autobins: boolean,
   autoexamples: boolean, autotests: boolean, autobenches: boolean, 'default-run': string, resolver: readResolver, metadata: (value) => value,
 }
 
@@ -109,12 +104,12 @@ function procMacroTargets(doc, edition) {
 
 function readWorkspace(value) {
   table(value, 'workspace', WORKSPACE)
-  const read = (key, reader) => optional(reader)(value[key], at('workspace', key))
+  const read = (key, reader) => field(value, key, 'workspace', reader)
   const pkg = read('package', (item, where) => table(item, where, [...Object.keys(INHERITABLE), 'badges'])) ?? Object.create(null)
   for (const [key, item, here] of entries(pkg, 'workspace.package')) (key === 'badges' ? readBadges : INHERITABLE[key])(item, here)
   const dependencies = Object.create(null)
   for (const [name, item, here] of entries(value.dependencies ?? EMPTY, 'workspace.dependencies')) {
-    checkName(name, here)
+    checkCrateName(name, here)
     const spec = readSpec(item, here, name)
     if (spec.optional) throw new LockfileError('a workspace dependency cannot be optional', here)
     if (isTable(item) && item.public !== undefined) throw new LockfileError('a workspace dependency cannot be public', here)
@@ -134,7 +129,7 @@ function readPatch(value, where = 'patch') {
   const patch = Object.create(null)
   for (const [key, deps, here] of entries(value ?? EMPTY, where)) {
     patch[key] = Object.create(null)
-    for (const [name, item, there] of entries(deps, here)) patch[key][checkName(name, there)] = readSpec(item, there, name)
+    for (const [name, item, there] of entries(deps, here)) patch[key][checkCrateName(name, there)] = readSpec(item, there, name)
   }
   return patch
 }
@@ -205,7 +200,7 @@ function readPackage(doc, workspace) {
   const { resolver, links } = fields
   if (resolver !== undefined && doc.workspace?.resolver !== undefined) throw new LockfileError('`resolver` is given in [workspace] too', at(where, 'resolver'))
   if (links !== undefined && fields.build === false) throw new LockfileError(`links to ${quote(links)} with no build script, which cargo refuses`, at(where, 'links'))
-  return { name: checkName(value.name, at(where, 'name')), version: version ?? '0.0.0', edition, resolver, links }
+  return { name: checkCrateName(value.name, at(where, 'name')), version: version ?? '0.0.0', edition, resolver, links }
 }
 
 export function parseCargoManifest(text, workspace) {
