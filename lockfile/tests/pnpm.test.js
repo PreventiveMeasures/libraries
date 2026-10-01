@@ -384,6 +384,7 @@ describe('the header is held to what pnpm writes', () => {
     refuses(header('packageExtensionsChecksum: 12'), 'packageExtensionsChecksum: expected a string, found the number 12')
     refuses(header('ignoredOptionalDependencies: fsevents'), 'ignoredOptionalDependencies: expected a sequence, found the string "fsevents"')
     refuses(header("ignoredOptionalDependencies: ['']"), 'ignoredOptionalDependencies[0]: expected a non-empty string')
+    refuses(header('ignoredOptionalDependencies: null'), 'ignoredOptionalDependencies: expected a sequence, found null')
   })
 
   it('time', () => {
@@ -498,6 +499,7 @@ describe('a package is held to what pnpm writes', () => {
     refuses(add('    bundledDependencies: false\n'), 'packages["b@1.0.0"].bundledDependencies: expected a sequence, found the boolean false')
     refuses(add('    bundledDependencies: [x, ../y]\n'), 'packages["b@1.0.0"].bundledDependencies[1]: "../y" is not a package name')
     refuses(add('    peerDependencies: {../x: 1.0.0}\n'), 'packages["b@1.0.0"].peerDependencies["../x"]: "../x" is not a package name')
+    for (const field of ['engines', 'peerDependencies']) refuses(add(`    ${field}: null\n`), `packages["b@1.0.0"].${field}: expected a mapping, found null`)
     refuses(add('    peerDependenciesMeta:\n      c: {optional: false}\n'), 'packages["b@1.0.0"].peerDependenciesMeta.c.optional: expected true, found the boolean false')
     refuses(add('    peerDependenciesMeta:\n      c: {optional: true, extra: true}\n'), 'packages["b@1.0.0"].peerDependenciesMeta.c: unsupported field "extra"')
   })

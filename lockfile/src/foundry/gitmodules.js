@@ -41,18 +41,21 @@ export function checkSubmodulePath(value, where) {
   return path
 }
 
-// Where git fetches from: a URL of a host, or scp's `user@host:path`, the
-// host in brackets where it has a colon, as an IPv6 address does. Not a
-// path on the machine that clones, or one relative to the superproject's
-// remote, which only its clone knows; git ignores one that starts with "-".
+// Where git fetches from: a URL of a host, or scp's `user@host:path`, which
+// git tells from a path by a colon before any slash, the host anything up to
+// it, an ssh config's alias too, or in brackets where it has a colon, as an
+// IPv6 address does. Not a path on the machine that clones, or one relative
+// to the superproject's remote, which only its clone knows.
 const SCHEME = /^(?:https?|ssh|git|git\+ssh|ssh\+git):\/\/[^/]/u
-const SCP = /^(?:[^@/:\\]+@)?(?:\[[^\]/\\]+\]|[\dA-Za-z][\dA-Za-z.-]*):(?!:|\/\/)/u
-// git on Windows reads `x:path` as a path on the drive x:, and elsewhere as
-// the host x; `user@x:path` is the host to both.
-const DRIVE = /^[\dA-Za-z]:(?!:)/u
+const SCP = /^(?:[^@/:\\]+@)?(?:\[[^\]/\\]+\]|[^@/:\\[\]]+):(?!:|\/\/)/u
+// git on Windows reads one character and a colon, `x:path`, as a path on
+// the drive x:, and elsewhere as the host x; `user@x:path` is the host to
+// both, and so is `[` and a colon, which the path after makes no path.
+const DRIVE = /^[^[]:(?!:)/u
 
 function checkUrl(value, where) {
   const url = checkRepo(value, where)
+  if (url.startsWith('-')) throw new LockfileError(`${quote(url)} starts with "-", which git ignores the url for`, where)
   if (DRIVE.test(url)) throw new LockfileError(`${quote(url)} is a path on a drive to git on Windows, and a host's to git elsewhere`, where)
   if (SCHEME.test(url) ? URL.canParse(url) : SCP.test(url) && !url.includes('\\')) return url
   if (/^\.\.?\//u.test(url)) throw new LockfileError(`${quote(url)} is relative to the superproject's remote, which only a clone of it knows`, where)
