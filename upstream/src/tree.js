@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 import { gunzipSync } from 'node:zlib'
 
-import { isSha1 } from './args.js'
+import { isSha1, matches } from './args.js'
 
 const BLOCK = 512
 const MAX_UNPACKED_BYTES = 2 ** 30
@@ -28,7 +28,8 @@ const objectId = (type, content) => createHash('sha1').update(`${type} ${content
 const checksum = (header) => header.reduce((sum, byte, i) => sum + (i >= 148 && i < 156 ? 32 : byte), 0)
 const isZero = (bytes) => bytes.every((byte) => byte === 0)
 
-// `<length> <key>=<value>\n`, the length counting the whole record.
+// `<length> <key>=<value>\n`, the length counting the whole record. A NUL
+// would end a path for an extractor, and a name in a tree for git.
 function paxRecords(body) {
   const text = Buffer.from(body).toString('latin1')
   const records = new Map()
@@ -39,7 +40,7 @@ function paxRecords(body) {
     if (!/^[1-9]\d*$/u.test(length) || end > text.length || text[end - 1] !== '\n') return null
     const record = text.slice(space + 1, end - 1)
     const equals = record.indexOf('=')
-    if (equals < 1) return null
+    if (equals < 1 || record.includes('\0')) return null
     records.set(record.slice(0, equals), record.slice(equals + 1))
     at = end
   }
@@ -65,6 +66,7 @@ function treeId(dir) {
 }
 
 const EMPTY_TREE = objectId('tree', Buffer.alloc(0)).toString('hex')
+const isName = matches(/^[^\0/]+$/u)
 const subtree = (sha) => ({ mode: '40000', id: Buffer.from(sha, 'hex') })
 
 // A subtree with nothing in it but subtrees like it, down to the empty
@@ -158,7 +160,7 @@ export async function gitTreeOfTarball(gzipped, { expected, list } = {}) {
   }
   if (top === undefined) return 'no tree: an empty tarball'
   const listed = async (sha) => (list && isSha1(sha) ? await list(sha) : [])
-    .filter((entry) => typeof entry?.path === 'string' && isSha1(entry.sha))
+    .filter((entry) => isName(entry?.path) && isSha1(entry.sha))
     .map((entry) => ({ ...entry, name: Buffer.from(entry.path).toString('latin1') }))
   for (const [dir, name, path] of emptyDirs(root)) {
     let sha = expected

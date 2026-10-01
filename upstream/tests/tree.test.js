@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { gunzipSync, gzipSync } from 'node:zlib'
 import { describe, it } from 'node:test'
 
@@ -100,6 +101,7 @@ describe('gitTreeOfTarball', () => {
       [[pax('g', [['path', 'top/x']]), top, file], 'a pax record git does not write, "path"'],
       [[top, pax('x', [['__proto__', 'x']]), file], 'a pax record git does not write, "__proto__"'],
       [[top, pax('x', [['path', 'top/a']]), pax('x', [['linkpath', 'x']]), file], 'two pax headers for one entry'],
+      [[top, pax('x', [['linkpath', 'f\0x']]), header('top/l', '2', 0, 0o777)], 'a malformed pax header'],
       [[top, tampered, body('SAFE')], 'a header that fails its checksum'],
       [[top, gnu, body('SAFE')], 'a header that is not POSIX ustar'],
       [[top, header('top/f', '0', 4, 0o4775), body('SAFE')], 'a header git does not write, "top/f"'],
@@ -115,6 +117,15 @@ describe('gitTreeOfTarball', () => {
     ]) {
       assert.equal(await gitTreeOfTarball(tarball(...blocks)), `no tree: ${reason}`, reason)
     }
+  })
+
+  it('refuses a NUL in a pax path, which hashes as the entries after it and extracts as the name before it', async () => {
+    const top = header('top/', '5', 0, 0o775)
+    const twoFiles = tarball(top, header('top/f', '0', 4), body('SAFE'), header('top/g', '0', 4), body('EVIL'))
+    assert.match(await gitTreeOfTarball(twoFiles), /^[\da-f]{40}$/u)
+    // `f`, its blob id, then `g`'s mode and name: as git serializes the two.
+    const name = `top/f\0${createHash('sha1').update('blob 4\0SAFE').digest('latin1')}100644 g`
+    assert.equal(await gitTreeOfTarball(tarball(top, pax('x', [['path', name]]), header('top/x', '0', 4), body('EVIL'))), 'no tree: a malformed pax header')
   })
 
   it("takes a submodule's commit from `list`, asked only for a tarball with an empty directory, and is the id only for the right one", async () => {
@@ -151,6 +162,9 @@ describe('gitTreeOfTarball', () => {
     assert.notEqual(await gitTreeOfTarball(EMPTIES_TGZ), EMPTIES)
     assert.equal(await gitTreeOfTarball(EMPTIES_TGZ, { expected: EMPTIES, list }), EMPTIES)
     assert.deepEqual(asked.toSorted(), [EMPTIES, EMPTIES_D, EMPTIES_N].toSorted())
+    // A name no tree has is passed over.
+    const odd = (sha) => (sha === EMPTIES ? [...list(sha), tree('x\0y', EMPTY), tree('x/y', EMPTY), tree('', EMPTY)] : list(sha))
+    assert.equal(await gitTreeOfTarball(EMPTIES_TGZ, { expected: EMPTIES, list: odd }), EMPTIES)
     // A file left out is never asked after as a subtree.
     asked.length = 0
     const left = tarball(header('top/', '5', 0, 0o775), header('top/d/', '5', 0, 0o775), header('top/d/g', '0', 2), body('g\n'))
