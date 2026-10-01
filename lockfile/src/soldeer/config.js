@@ -4,7 +4,7 @@
 import { sanitizeWithOptions } from '../crate/sanitize-filename.js'
 import { matches, parseVersion, parseVersionReq } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
-import { EMPTY, entries, record, string } from '../shape.js'
+import { entries, orEmpty, record, string } from '../shape.js'
 
 const OPTIONS = new Set(['version', 'url', 'git', 'rev', 'branch', 'tag', 'project_root'])
 
@@ -73,7 +73,7 @@ function checkEntry(entry, dependency, where) {
 }
 
 export function checkConfig(config, dependencies) {
-  const table = record(config, 'config').dependencies ?? EMPTY
+  const table = orEmpty(record(config, 'config').dependencies)
   const named = new Map()
   for (const [name, value, here] of entries(table, 'config.dependencies')) {
     const dependency = readDependency(value, here)

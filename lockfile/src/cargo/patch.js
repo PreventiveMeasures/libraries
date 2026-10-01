@@ -1,6 +1,6 @@
 import { matches, parseVersion } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
-import { EMPTY, optional } from '../shape.js'
+import { optional, orEmpty } from '../shape.js'
 import { parseRequirement } from './dependency.js'
 import { ANY_REGISTRY, keyOf, parseLockSource, patchKey, patchUrl, patchedAs, sourceIdentity } from './lock.js'
 
@@ -33,7 +33,7 @@ function tablesByUrl(patch, where, label) {
 // one source by URLs that differ until canonical replace each other in
 // cargo in hash order, so they are refused.
 function patchEntries(root, config) {
-  const tables = tablesByUrl(config?.patch ?? EMPTY, at('config', 'patch'), "the config's ")
+  const tables = tablesByUrl(orEmpty(config?.patch), at('config', 'patch'), "the config's ")
   for (const [url, table] of tablesByUrl(root.patch, 'patch', '')) {
     const given = tables.get(url)
     if (given === undefined) tables.set(url, table)

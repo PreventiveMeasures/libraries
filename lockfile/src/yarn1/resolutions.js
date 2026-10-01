@@ -3,7 +3,7 @@
 
 import { LockfileError, at, quote } from '../error.js'
 import { KINDS } from '../graph.js'
-import { EMPTY } from '../shape.js'
+import { orEmpty } from '../shape.js'
 import { accepts, close, step } from './glob.js'
 import { WHERE } from './importers.js'
 import { checkLists } from './packages.js'
@@ -83,7 +83,7 @@ function checkApplied(packages, { importers, workspaces, rules, aggregated }, ex
   const drain = () => {
     while (queue.length > 0) {
       const [node, masks] = queue.pop()
-      for (const kind of KINDS) for (const alias of Object.keys(node[kind] ?? EMPTY)) request(node, kind, alias, masks)
+      for (const kind of KINDS) for (const alias of Object.keys(orEmpty(node[kind]))) request(node, kind, alias, masks)
     }
   }
   // yarn resolves each resolution's own pattern from the root first.

@@ -7,7 +7,7 @@
 import { LockfileError, at, quote } from '../error.js'
 import { checkOptional } from '../graph.js'
 import { checkName, checkRelative, checkVersion, isVersion, joinRelative } from '../names.js'
-import { EMPTY, entries, field, flag, record, text, textMap, texts } from '../shape.js'
+import { entries, field, flag, orEmpty, record, text, textMap, texts } from '../shape.js'
 import { refToKey, splitPackageKey, splitSnapshotKey } from './key.js'
 import { readResolution } from './resolution.js'
 
@@ -74,14 +74,14 @@ function readInfo(key, entry, where) {
     deprecated: field(entry, 'deprecated', where, text),
     hasBin: flag(entry.hasBin, at(where, 'hasBin')),
     bundledDependencies: bundled === undefined || bundled === true ? bundled : names(bundled, at(where, 'bundledDependencies')),
-    peerDependencies: entry.peerDependencies === undefined ? Object.create(null) : textMap(entry.peerDependencies, at(where, 'peerDependencies'), checkName),
+    peerDependencies: textMap(orEmpty(entry.peerDependencies), at(where, 'peerDependencies'), checkName),
     peerDependenciesMeta: readPeersMeta(entry.peerDependenciesMeta, at(where, 'peerDependenciesMeta')),
   }
 }
 
 function readPeersMeta(value, where) {
   const meta = Object.create(null)
-  for (const [name, item, here] of entries(value ?? EMPTY, where)) {
+  for (const [name, item, here] of entries(orEmpty(value), where)) {
     record(item, here, ['optional'])
     meta[checkName(name, here)] = { optional: flag(item.optional, at(here, 'optional')) }
   }
@@ -108,7 +108,7 @@ export function target(ref, alias, base, snapshots, where) {
 // a directory named `<root>`, as pnpm writes one for `link:./<root>/`.
 function readTargets(value, where, snapshots) {
   const targets = Object.create(null)
-  for (const [alias, ref, here] of entries(value ?? EMPTY, where)) {
+  for (const [alias, ref, here] of entries(orEmpty(value), where)) {
     const read = text(ref, here)
     if (read === 'link:<root>' || read.startsWith('link:<root>/')) throw new LockfileError(`${quote(read)} leads into the package that asks for it, which is not supported`, here)
     targets[checkName(alias, here)] = target(read, alias, '.', snapshots, here)
@@ -134,9 +134,9 @@ function readSnapshot(entry, where, snapshots) {
 export function readPackages(doc, prefix, patches) {
   const infos = new Map()
   const packagesAt = at(prefix, 'packages')
-  for (const [key, entry, where] of entries(doc.packages ?? EMPTY, packagesAt)) infos.set(key, readInfo(key, entry, where))
+  for (const [key, entry, where] of entries(orEmpty(doc.packages), packagesAt)) infos.set(key, readInfo(key, entry, where))
   const snapshotsAt = at(prefix, 'snapshots')
-  const snapshots = record(doc.snapshots ?? EMPTY, snapshotsAt)
+  const snapshots = record(orEmpty(doc.snapshots), snapshotsAt)
   const packages = Object.create(null)
   const seen = new Set()
   for (const [key, entry, where] of entries(snapshots, snapshotsAt)) {

@@ -1,7 +1,7 @@
 import { parsePlatform } from '../crate/cargo-platform.js'
 import { parseVersionReq } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
-import { EMPTY, field, optional } from '../shape.js'
+import { field, optional, orEmpty } from '../shape.js'
 import { isTable } from '../toml/value.js'
 import { boolean, checkCrateName, checkFeature, entries, refuse, string, strings, table } from './shape.js'
 import { differ, sourceOf } from './sources.js'
@@ -137,7 +137,7 @@ export function gatherDependencies(doc, workspace, edition) {
     }
   }
   gather(doc, undefined, undefined)
-  for (const [platform, value, here] of entries(doc.target ?? EMPTY, 'target')) {
+  for (const [platform, value, here] of entries(orEmpty(doc.target), 'target')) {
     checkPlatform(platform, here)
     table(value, here, KINDS.flatMap(([key]) => [key, key.replaceAll('-', '_')]))
     gather(value, here, platform)
@@ -158,7 +158,7 @@ export function featureValue(text) {
 // dependency that no feature is named after or enables by `dep:`.
 export function featureMap(value, where, dependencies) {
   const written = Object.create(null)
-  for (const [name, list, here] of entries(value ?? EMPTY, where)) written[checkFeature(name, here)] = strings(list, here)
+  for (const [name, list, here] of entries(orEmpty(value), where)) written[checkFeature(name, here)] = strings(list, here)
   const optionalDep = new Map()
   for (const dep of dependencies) optionalDep.set(dep.name, (optionalDep.get(dep.name) ?? false) || dep.optional)
   const values = Object.values(written).flat().map(featureValue)

@@ -15,7 +15,7 @@ import { fromHex } from '@exodus/bytes/hex.js'
 import { LockfileError, at, quote } from '../error.js'
 import { KINDS, reach } from '../graph.js'
 import { checkIntegrity, checkName, checkRelative } from '../names.js'
-import { EMPTY, boolean, count, entries, kind, record, string, text, textMap, texts } from '../shape.js'
+import { boolean, count, entries, kind, orEmpty, record, string, text, textMap, texts } from '../shape.js'
 import { ENV_KINDS, readImporters } from './importers.js'
 import { readPackages } from './packages.js'
 
@@ -37,7 +37,7 @@ const SETTINGS = {
 
 function readSettings(value, where) {
   const settings = Object.create(null)
-  for (const [key, item, here] of entries(record(value ?? EMPTY, where, Object.keys(SETTINGS)), where)) settings[key] = SETTINGS[key](item, here)
+  for (const [key, item, here] of entries(record(orEmpty(value), where, Object.keys(SETTINGS)), where)) settings[key] = SETTINGS[key](item, here)
   return settings
 }
 
@@ -45,7 +45,7 @@ function readSettings(value, where) {
 // catalog gives it and the version that resolved to.
 function readCatalogs(value, where) {
   const catalogs = Object.create(null)
-  for (const [catalog, names, here] of entries(value ?? EMPTY, where)) {
+  for (const [catalog, names, here] of entries(orEmpty(value), where)) {
     const entriesOf = Object.create(null)
     for (const [name, item, there] of entries(names, here)) {
       record(item, there, ['specifier', 'version'])
@@ -72,7 +72,7 @@ function isHash(hash, bytes, decode) {
 // and later as the hash alone: an md5 in base32 from pnpm 9, a sha256 in hex.
 function readPatches(value, where) {
   const patches = Object.create(null)
-  for (const [selector, item, here] of entries(value ?? EMPTY, where)) {
+  for (const [selector, item, here] of entries(orEmpty(value), where)) {
     const full = typeof item !== 'string'
     if (full) record(item, here, ['hash', 'path'])
     const hashAt = full ? at(here, 'hash') : here
@@ -101,7 +101,7 @@ const TIMESTAMP = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/u
 
 function readTime(value, where, packages) {
   const time = Object.create(null)
-  for (const [key, item, here] of entries(value ?? EMPTY, where)) {
+  for (const [key, item, here] of entries(orEmpty(value), where)) {
     if (!(key in packages)) throw new LockfileError(`${quote(key)} is not in packages`, here)
     const stamp = text(item, here)
     const ms = TIMESTAMP.test(stamp) ? Date.parse(stamp) : Number.NaN
@@ -137,12 +137,12 @@ function readDocument(doc, prefix, env) {
     lockfileVersion: version,
     settings: readSettings(doc.settings, at(prefix, 'settings')),
     catalogs: readCatalogs(doc.catalogs, at(prefix, 'catalogs')),
-    overrides: textMap(doc.overrides ?? EMPTY, at(prefix, 'overrides'), text),
+    overrides: textMap(orEmpty(doc.overrides), at(prefix, 'overrides'), text),
     patchedDependencies,
     packageExtensionsChecksum: readChecksum(doc.packageExtensionsChecksum, at(prefix, 'packageExtensionsChecksum')),
     pnpmfileChecksum: readChecksum(doc.pnpmfileChecksum, at(prefix, 'pnpmfileChecksum')),
     ignoredOptionalDependencies: doc.ignoredOptionalDependencies === undefined ? [] : texts(doc.ignoredOptionalDependencies, at(prefix, 'ignoredOptionalDependencies')),
-    time: readTime(doc.time, at(prefix, 'time'), doc.packages ?? EMPTY),
+    time: readTime(doc.time, at(prefix, 'time'), orEmpty(doc.packages)),
     importers,
     packages,
   }

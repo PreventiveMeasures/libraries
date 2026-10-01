@@ -335,6 +335,22 @@ describe('the document is refused', () => {
     refuses(`lockfileVersion: '9.0'\n`, 'importers: expected a mapping, found nothing')
   })
 
+  it('with a null where pnpm leaves a field out', () => {
+    const doc = (header, importer = ' {}') => `lockfileVersion: '9.0'\n\n${header}importers:\n\n  .:${importer}\n`
+    for (const field of ['settings', 'catalogs', 'overrides', 'patchedDependencies', 'time', 'packages', 'snapshots']) {
+      refuses(doc(`${field}: null\n\n`), `${field}: expected a mapping, found null`, field)
+    }
+    for (const field of ['dependencies', 'devDependencies', 'optionalDependencies', 'dependenciesMeta']) {
+      refuses(doc('', `\n    ${field}: null`), `importers["."].${field}: expected a mapping, found null`, `importers["."].${field}`)
+    }
+    for (const field of ['dependencies', 'optionalDependencies']) {
+      refuses(edit(['  c@2.0.0: {}\n', `  c@2.0.0:\n    ${field}: null\n`]), `snapshots["c@2.0.0"].${field}: expected a mapping, found null`)
+    }
+    for (const kind of ['configDependencies', 'packageManagerDependencies']) {
+      refuses(`---\nlockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    ${kind}: null\n\n---\n`, `env.importers["."].${kind}: expected a mapping, found null`)
+    }
+  })
+
   it('as more than one document, but for the env document first', () => {
     refuses(`${BASE}---\n${BASE}`, 'expected one document, found 2')
     // A `---` with nothing after it is an empty document to YAML.
@@ -499,7 +515,7 @@ describe('a package is held to what pnpm writes', () => {
     refuses(add('    bundledDependencies: false\n'), 'packages["b@1.0.0"].bundledDependencies: expected a sequence, found the boolean false')
     refuses(add('    bundledDependencies: [x, ../y]\n'), 'packages["b@1.0.0"].bundledDependencies[1]: "../y" is not a package name')
     refuses(add('    peerDependencies: {../x: 1.0.0}\n'), 'packages["b@1.0.0"].peerDependencies["../x"]: "../x" is not a package name')
-    for (const field of ['engines', 'peerDependencies']) refuses(add(`    ${field}: null\n`), `packages["b@1.0.0"].${field}: expected a mapping, found null`)
+    for (const field of ['engines', 'peerDependencies', 'peerDependenciesMeta']) refuses(add(`    ${field}: null\n`), `packages["b@1.0.0"].${field}: expected a mapping, found null`)
     refuses(add('    peerDependenciesMeta:\n      c: {optional: false}\n'), 'packages["b@1.0.0"].peerDependenciesMeta.c.optional: expected true, found the boolean false')
     refuses(add('    peerDependenciesMeta:\n      c: {optional: true, extra: true}\n'), 'packages["b@1.0.0"].peerDependenciesMeta.c: unsupported field "extra"')
   })

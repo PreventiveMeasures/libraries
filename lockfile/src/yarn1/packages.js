@@ -5,7 +5,7 @@ import { fromHex } from '@exodus/bytes/hex.js'
 import { LockfileError, at, quote } from '../error.js'
 import { checkOptional } from '../graph.js'
 import { checkIntegrity, checkName, checkRelative, checkRepo, checkVersion, isCommit, isHttpUrl, joinRelative } from '../names.js'
-import { EMPTY, entries, field, record, string, text } from '../shape.js'
+import { entries, field, orEmpty, record, string, text } from '../shape.js'
 
 const FIELDS = ['name', 'version', 'uid', 'resolved', 'integrity', 'dependencies', 'optionalDependencies']
 
@@ -203,7 +203,7 @@ function checkSources(patterns, resolution, { asks, version }, where) {
 // A request: a dependency of an entry, its pattern, and where it is listed.
 function readDependencies(value, where, requests) {
   const dependencies = Object.create(null)
-  for (const [name, range, here] of entries(value ?? EMPTY, where)) {
+  for (const [name, range, here] of entries(orEmpty(value), where)) {
     const pattern = `${checkName(name, here)}@${string(range, here)}`
     dependencies[name] = pattern
     requests.push({ targets: dependencies, name, range, pattern, where: here })
