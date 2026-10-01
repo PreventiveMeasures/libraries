@@ -7,7 +7,7 @@
 // one set of features, unified across all of it.
 //
 // It walks only the declarations the build's own resolve turns on
-// (graph.js), as cargo's walks the graph its dependency resolver gives
+// (activate.js), as cargo's walks the graph its dependency resolver gives
 // it: less than the lockfile has where the command line asks for less than
 // every feature, and more is refused, where cargo would resolve anew.
 
@@ -15,7 +15,7 @@ import { parseCfg, parsePlatform, platformMatches } from '../crate/cargo-platfor
 import { LockfileError, quote } from '../error.js'
 import { checkOptions } from '../shape.js'
 import { featureValue } from './dependency.js'
-import { activate, requestsOf, setOf } from './graph.js'
+import { activate, requestsOf, setOf } from './activate.js'
 
 // What cargo's command line asks of each member it builds: `-p`, and
 // `--features`, `--all-features` and `--no-default-features` handed out as
