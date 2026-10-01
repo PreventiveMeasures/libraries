@@ -1,21 +1,13 @@
-// Hand-written against yaml.js; a change to either belongs with the other.
-
 export type YamlValue = string | number | boolean | null | YamlValue[] | YamlMapping
 
-// Mappings have a null prototype: `__proto__`, `constructor` and the like are
-// ordinary keys, and an absent key reads as undefined.
+// Mappings have a null prototype: `__proto__` and the like are ordinary keys.
 export interface YamlMapping {
   [key: string]: YamlValue
 }
 
-// The subset of YAML pnpm writes lockfiles in (src/yaml/parse.js lists it); a
-// YamlError at anything else, a document that is a lone scalar included, and
-// at nesting past 64 levels, a line past 2^20 characters, or a block
-// mapping key past 1024 characters that is not written after `? `.
-// `parseYaml` reads exactly one document, with or without a leading `---`.
-// `parseYamlStream` reads every document of a stream, each after a `---`
-// line: pnpm 11 and later write two where there is something to lock
-// beside the project, the env document before the project's lockfile.
+// Reads the YAML pnpm writes lockfiles in; throws a YamlError for anything
+// else, a lone scalar, or nesting past 64 levels. parseYaml reads one
+// document; parseYamlStream every one, each after `---`.
 export function parseYaml(text: string): YamlMapping | YamlValue[]
 export function parseYamlStream(text: string): (YamlMapping | YamlValue[])[]
 

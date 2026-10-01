@@ -47,9 +47,16 @@ export function linkWorkspace({ name, range, pattern, where }, workspaces, semve
   return `link:${workspace.dir}`
 }
 
+// What a request leads to: its entry, or the workspace yarn links for it.
+function resolveRequest(request, { packages, workspaces, semver }) {
+  if (!(request.pattern in packages)) return linkWorkspace(request, workspaces, semver)
+  checkLinked(request, workspaces, semver)
+  return request.pattern
+}
+
 // yarn drops `//`, a comment, from a dependency list, and keeps a name listed
 // twice in one alone.
-function readTargets(manifest, dir, where, { packages, workspaces, semver }) {
+function readTargets(manifest, dir, where, context) {
   const importer = Object.create(null)
   const listed = new Map()
   for (const kind of KINDS) {
@@ -59,13 +66,7 @@ function readTargets(manifest, dir, where, { packages, workspaces, semver }) {
       if (listed.has(name)) throw new LockfileError(`listed under ${listed.get(name)} too`, here)
       listed.set(name, kind)
       const target = fromLockfile(string(range, here), dir, here)
-      const request = { name, range: target, pattern: `${checkName(name, here)}@${target}`, where: here }
-      if (!(request.pattern in packages)) {
-        targets[name] = linkWorkspace(request, workspaces, semver)
-        continue
-      }
-      checkLinked(request, workspaces, semver)
-      targets[name] = request.pattern
+      targets[name] = resolveRequest({ name, range: target, pattern: `${checkName(name, here)}@${target}`, where: here }, context)
     }
     importer[kind] = targets
   }
@@ -83,7 +84,8 @@ function readResolutions(value, where) {
     const name = checkName(names.at(-1), here)
     const other = names.slice(0, -1).find((segment) => segment !== '**' && !isName(segment.replaceAll(/[*?]/gu, 'x')))
     if (other !== undefined) throw new LockfileError(`${quote(other)} is not a package name, or a glob of one`, here)
-    rules.push({ path, tests, name, range: string(range, here), pattern: `${name}@${range}`, where: here })
+    const target = string(range, here)
+    rules.push({ path, tests, name, range: target, pattern: `${name}@${target}`, where: here })
   }
   return rules
 }
@@ -163,14 +165,14 @@ export function readImporters(manifests, packages, requests, semver) {
   }
   for (const request of requests) if (request.pattern in packages) checkLinked(request, workspaces, semver)
   for (const request of requests) if (!(request.pattern in packages)) request.targets[request.name] = linkWorkspace(request, workspaces, semver)
+  const context = { packages, workspaces, semver }
   const importers = Object.create(null)
-  for (const [dir, manifest, here] of entries(manifests, WHERE)) importers[dir] = readTargets(manifest, dir, here, { packages, workspaces, semver })
+  for (const [dir, manifest, here] of entries(manifests, WHERE)) importers[dir] = readTargets(manifest, dir, here, context)
   const rules = readResolutions(root.resolutions, at(rootAt, 'resolutions'))
-  // yarn resolves each resolution's pattern too: a request like any other.
+  // yarn resolves each resolution's pattern too, linked as a request is.
   for (const rule of rules) {
-    if (rule.pattern in packages) checkLinked(rule, workspaces, semver)
-    else if (workspaces.has(rule.name)) linkWorkspace(rule, workspaces, semver)
-    else throw new LockfileError(`${quote(rule.pattern)} is not a pattern of the lockfile, where yarn records every resolution's`, rule.where)
+    if (!(rule.pattern in packages) && !workspaces.has(rule.name)) throw new LockfileError(`${quote(rule.pattern)} is not a pattern of the lockfile, where yarn records every resolution's`, rule.where)
+    resolveRequest(rule, context)
   }
   checkReached(importers, packages, rules)
   return { importers, workspaces, rules }

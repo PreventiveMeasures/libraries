@@ -10,8 +10,8 @@
 // document.
 
 import { parseYamlStream } from '../yaml/parse.js'
-import { fromBase32, toBase32 } from '@exodus/bytes/base32.js'
-import { fromHex, toHex } from '@exodus/bytes/hex.js'
+import { fromBase32 } from '@exodus/bytes/base32.js'
+import { fromHex } from '@exodus/bytes/hex.js'
 import { LockfileError, at, quote } from '../error.js'
 import { KINDS, reach } from '../graph.js'
 import { checkIntegrity, checkName, checkRelative } from '../names.js'
@@ -56,17 +56,15 @@ function readCatalogs(value, where) {
   return catalogs
 }
 
-// A bare hash as pnpm writes one, in lowercase: its size in bytes, read back
-// as it is written, in hex or in base32 unpadded; else undefined.
-const HEX = { decode: fromHex, encode: toHex }
-const BASE32 = { decode: (hash) => fromBase32(hash, { padding: false }), encode: (bytes) => toBase32(bytes).toLowerCase() }
+// A bare hash as pnpm writes one: lowercase hex, or base32 unpadded, of so
+// many bytes. Either decoder takes either case, and refuses all else.
+const fromBase32Bare = (hash) => fromBase32(hash, { padding: false })
 
-function sizeIn(encoding, hash) {
+function isHash(hash, bytes, decode) {
   try {
-    const bytes = encoding.decode(hash)
-    return encoding.encode(bytes) === hash ? bytes.length : undefined
+    return hash === hash.toLowerCase() && decode(hash).length === bytes
   } catch {
-    return undefined
+    return false
   }
 }
 
@@ -79,7 +77,7 @@ function readPatches(value, where) {
     if (full) record(item, here, ['hash', 'path'])
     const hashAt = full ? at(here, 'hash') : here
     const hash = text(full ? item.hash : item, hashAt)
-    if (sizeIn(HEX, hash) !== 32 && sizeIn(BASE32, hash) !== 16) throw new LockfileError(`${quote(hash)} is not a patch hash`, hashAt)
+    if (!isHash(hash, 32, fromHex) && !isHash(hash, 16, fromBase32Bare)) throw new LockfileError(`${quote(hash)} is not a patch hash`, hashAt)
     patches[text(selector, here)] = { hash, path: full ? checkRelative(item.path, at(here, 'path')) : undefined }
   }
   return patches
@@ -90,7 +88,7 @@ function readPatches(value, where) {
 function readChecksum(value, where) {
   if (value === undefined) return undefined
   const checksum = text(value, where)
-  if (sizeIn(HEX, checksum) === 16 || sizeIn(BASE32, checksum) === 16) return checksum
+  if (isHash(checksum, 16, fromHex) || isHash(checksum, 16, fromBase32Bare)) return checksum
   if (!checksum.startsWith('sha256-')) throw new LockfileError(`${quote(checksum)} is not a checksum`, where)
   return checkIntegrity(checksum, where)
 }

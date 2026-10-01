@@ -85,15 +85,15 @@ describe('lockfile/ imports nothing from outside but @exodus/bytes', () => {
     assert.equal(manifest.peerDependencies, undefined)
   })
 
+  const declared = new Set(Object.keys(manifest.dependencies ?? {}))
+  const packageOf = (spec) => spec.split('/').slice(0, spec.startsWith('@') ? 2 : 1).join('/')
+
   for (const file of files) {
     const name = file.href.slice(PKG_DIR.href.length)
     it(`${name} imports only within lockfile/ and what it declares`, () => {
       for (const spec of specifiersOf(readFileSync(file, 'utf8'))) {
-        if (!spec.startsWith('.')) {
-          assert.ok(spec.startsWith('@exodus/bytes/'), `${name} imports ${spec} — lockfile/ may only import its own modules and @exodus/bytes`)
-          continue
-        }
-        assert.ok(new URL(spec, file).href.startsWith(PKG_DIR.href), `${name} imports ${spec}, which is outside lockfile/`)
+        if (spec.startsWith('.')) assert.ok(new URL(spec, file).href.startsWith(PKG_DIR.href), `${name} imports ${spec}, which is outside lockfile/`)
+        else assert.ok(declared.has(packageOf(spec)), `${name} imports ${spec}, which package.json does not declare`)
       }
     })
   }

@@ -1,58 +1,30 @@
-// Hand-written against pnpm.js; a change to either belongs with the other.
-
 export { YamlError } from './yaml.js'
 
 // Reads a pnpm-lock.yaml of `lockfileVersion: '9.0'`, as pnpm 9 to 12 write
-// it, one document or two. Nothing is dropped: an older format is refused,
-// and so is anything in this one the reader does not know the meaning of —
-// a field, at any depth, a resolution `type` (`binary`, `variations`, a
-// `custom:` one), a tarball `revision`, a named registry, a runtime.
-//
-// So is a lockfile that contradicts itself or could be read two ways: a
-// snapshot without its package or a package without a snapshot, a
-// reference to a snapshot that is not there, a snapshot no importer
-// reaches, a key that disagrees with its resolution, a patch hash
-// patchedDependencies does not hold, an alias listed under two kinds.
-//
-// Throws a TypeError for anything but a string, a YamlError where the text
-// is not the YAML pnpm writes, and a LockfileError where it is but is not a
-// lockfile read here.
+// it. Throws a YamlError for YAML pnpm would not write, a LockfileError for
+// anything this reader does not know or a lockfile that contradicts itself,
+// and a TypeError for anything but a string.
 export function parsePnpmLockfile(text: string): PnpmLockfileFile
 
-// The package key under a snapshot key, as pnpm reads it (its
-// removeSuffix): a key of `packages` here with its patch hash and peers
-// dropped, `react-dom@18.2.0(react@18.2.0)` to `react-dom@18.2.0`, which is
-// how the `packages:` section of the file and `time` name a package, and
-// what every snapshot of one package shares. A key with no suffix comes
-// back as it is; nothing is checked but that it is a string.
+// The key in `packages` of a snapshot key, its patch hash and peers dropped:
+// `react-dom@18.2.0(react@18.2.0)` to `react-dom@18.2.0`.
 export function packageKeyOf(key: string): string
 
-// `where` is the place in the lockfile a refusal is about, as a property
-// path from its top — `packages["q@1.5.1"].resolution`, and under `env` for
-// the env document — or undefined for the file as a whole; the message
-// leads with it.
+// `where` is a property path into the result, `packages["q@1.5.1"].resolution`,
+// under `env` for the env document; undefined for the file as a whole.
 export class LockfileError extends Error {
   constructor(detail: string, where?: string)
   where: string | undefined
 }
 
-// Every Record below has a null prototype: a key is only ever a key, and an
-// absent one reads as undefined. Each is in the order the lockfile has it.
+// Each Record has a null prototype, and keeps the lockfile's order.
 
-// What a dependency leads to: the key of one of `packages`, or `link:` and
-// a directory linked in place, which the lockfile does not hold, as a path
-// from the lockfile's directory (`.` for that one). An importer writes a
-// link from its own directory and a snapshot from the lockfile's, as pnpm's
-// installer reads them; both come back from the lockfile's.
+// A key of `packages`, or `link:` and a directory from the lockfile's.
 export type Target = string
 
-// What a pnpm-lock.yaml holds. pnpm 11 and later lead it with the env
-// document where there is something to lock beside the project: config
-// dependencies, and from pnpm 12 the package manager a project pins. `env`
-// is that document, undefined where the file does not start with it.
-// `lockfile` is the project's, undefined where the file holds the env
-// document alone, as pnpm writes it when config dependencies are added
-// before anything is installed: no lockfile for the project at all.
+// `env` is the document pnpm 11 and later write first, for config
+// dependencies and the package manager a project pins; `lockfile` the
+// project's. Either may be absent.
 export interface PnpmLockfileFile {
   lockfile: PnpmLockfile | undefined
   env: PnpmEnvLockfile | undefined
@@ -61,29 +33,22 @@ export interface PnpmLockfileFile {
 export interface PnpmLockfile {
   lockfileVersion: '9.0'
   settings: PnpmSettings
-  // By catalog, `default` among them, then by name.
+  // By catalog, then by name.
   catalogs: Record<string, Record<string, PnpmCatalogEntry>>
   // By selector (`foo`, `foo@1`, `bar>foo`), what to install instead.
   overrides: Record<string, string>
-  // By selector, the patch: `path` is its file, relative to the lockfile's
-  // directory, which pnpm 11 and later leave out.
+  // By selector; `path` is from the lockfile's directory, absent from pnpm 11.
   patchedDependencies: Record<string, { hash: string, path: string | undefined }>
-  // Set where `packageExtensions` or a pnpmfile's hooks rewrote the
-  // manifests pnpm resolved from, so a package's dependencies here may not
-  // be what it publishes: a digest of each, bare from pnpm 9, `sha256-`
-  // from pnpm 10.
+  // Set where packageExtensions or a pnpmfile rewrote manifests: then a
+  // package's dependencies here may not be what it publishes.
   packageExtensionsChecksum: string | undefined
   pnpmfileChecksum: string | undefined
-  // Names and patterns (`@esbuild/*`) of optional dependencies not installed.
   ignoredOptionalDependencies: string[]
-  // By package key, when each direct dependency was published, where pnpm
-  // resolved by time (`resolution-mode=time-based`): a UTC timestamp.
+  // By package key, publish times, with `resolution-mode=time-based`.
   time: Record<string, string>
-  // By project directory relative to the lockfile's, `.` for its own.
+  // By directory from the lockfile's, `.` for its own.
   importers: Record<string, PnpmImporter>
-  // By snapshot key: `name@version`, or `name@` and a source, then the
-  // patch hash and the peers in parentheses. One package resolved with two
-  // sets of peers is two entries.
+  // By snapshot key: a package with two sets of peers is two entries.
   packages: Record<string, PnpmPackage>
 }
 
@@ -93,7 +58,7 @@ export interface PnpmEnvLockfile {
   packages: Record<string, PnpmPackage>
 }
 
-// As written; pnpm leaves out a setting at its default.
+// A setting at its default is absent.
 export interface PnpmSettings {
   autoInstallPeers?: boolean
   dedupePeers?: boolean
@@ -107,19 +72,15 @@ export interface PnpmCatalogEntry {
   version: string
 }
 
-// `specifiers` is what the manifest asks for, by alias, over every kind;
-// each kind maps the aliases listed under it to their targets.
+// `specifiers` is what the manifest asks for, by alias, over every kind.
 export interface PnpmImporter {
   specifiers: Record<string, string>
   dependencies: Record<string, Target>
   devDependencies: Record<string, Target>
   optionalDependencies: Record<string, Target>
-  // `injected`: installed as a copy, a `file:` package, not linked.
-  // `node`: the Node executable the dependency's bins are run with, where
-  // the manifest names one.
+  // `injected`: copied rather than linked; `node`: the Node its bins run on.
   dependenciesMeta: Record<string, { injected: boolean, node: string | undefined }>
-  // Linked by this subdirectory of the project rather than the project,
-  // unless linkDirectory is false.
+  // Linked by this subdirectory, unless `linkDirectory` is false.
   publishDirectory: string | undefined
   linkDirectory: boolean
 }
@@ -130,25 +91,23 @@ export interface PnpmEnvImporter {
   packageManagerDependencies: Record<string, Target>
 }
 
-// Two snapshots of one package, peers apart, share what its entry in
-// `packages` says: the resolution, the engines and the like are the same
-// objects in both.
+// Snapshots of one package share its resolution and manifest fields, as the
+// same objects.
 export interface PnpmPackage {
   name: string
-  // SemVer, always, but for a directory, which has none in the lockfile.
+  // Undefined for a directory.
   version: string | undefined
   resolution: PnpmResolution
-  // From the snapshot key, when the package is patched; one of the hashes
-  // in patchedDependencies.
+  // Where patched, one of the hashes in patchedDependencies.
   patchHash: string | undefined
-  // By alias. A peer resolved for this snapshot is among these.
+  // By alias, the peers resolved for this snapshot among them.
   dependencies: Record<string, Target>
   optionalDependencies: Record<string, Target>
   // Installed only as an optional dependency.
   optional: boolean
   transitivePeerDependencies: string[]
-  // What the package's manifest says, as pnpm records it. Absent `os`,
-  // `cpu` and `libc` mean any; `bundledDependencies` true means all.
+  // As the manifest says: absent `os`, `cpu` or `libc` means any, and
+  // `bundledDependencies` true means all.
   engines: Record<string, string>
   os: string[] | undefined
   cpu: string[] | undefined
@@ -160,14 +119,10 @@ export interface PnpmPackage {
   peerDependenciesMeta: Record<string, { optional: boolean }>
 }
 
-// A registry package is a tarball with an integrity and, unless the
-// lockfile was written with `lockfileIncludeTarballUrl`, no URL: it comes
-// from the registry configured for its name, at its version. Otherwise
-// `tarball` is an http(s) URL or `file:` and a path from the lockfile's
-// directory; a URL is what an install fetches, and is not checked against
-// the name and version here. `path` is the package's subdirectory, where
-// it is not the root; `gitHosted` is what pnpm 11 and later mark a tarball
-// of a git host's with, which earlier versions leave to the URL.
+// A registry package's tarball usually has no URL: it comes from the
+// registry for its name. Otherwise `tarball` is an http(s) URL, not checked
+// against the name and version, or `file:` and a path from the lockfile's
+// directory. `path` is the package's subdirectory, if not the root.
 export type PnpmResolution =
   | { type: 'tarball', integrity: string | undefined, tarball: string | undefined, path: string | undefined, gitHosted: boolean }
   | { type: 'git', repo: string, commit: string, path: string | undefined }
