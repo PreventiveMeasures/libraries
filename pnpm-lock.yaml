@@ -33,6 +33,9 @@ importers:
 
   deptree:
     dependencies:
+      '@chalker/queue':
+        specifier: ^1.0.1
+        version: 1.0.1
       '@preventive/archive':
         specifier: 1.0.0-beta.3
         version: link:../archive
