@@ -113,12 +113,13 @@ async function listTree(method, headers, repo, tree) {
 }
 
 async function treeAt(method, headers, options) {
-  assertArgs(method, options, { repo: assertRepo, sha: assertSha, path: optional(assertPath) })
-  const { repo, sha, path } = options
+  assertArgs(method, options, { repo: assertRepo, sha: assertSha, directory: optional(assertPath), path: optional(assertPath) })
+  assert.ok(options.directory === undefined || options.path === undefined, `${method}: directory and path are one option, pass directory alone`)
+  const { repo, sha, directory = options.path } = options
   let tree = await commitTree(method, headers, repo, sha)
-  for (const name of path?.split('/') ?? []) {
+  for (const name of directory?.split('/') ?? []) {
     const entry = (await listTree(method, headers, repo, tree)).find((candidate) => candidate.path === name)
-    assert.ok(entry?.type === 'tree', `${method}: ${repo}@${sha} has no directory at ${show(path)}`)
+    assert.ok(entry?.type === 'tree', `${method}: ${repo}@${sha} has no directory at ${show(directory)}`)
     tree = entry.sha
   }
   return tree

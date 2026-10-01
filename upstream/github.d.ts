@@ -25,6 +25,14 @@ export interface ClientOptions {
 
 export type PullRequestStatus = 'open' | 'draft' | 'closed' | 'merged'
 
+export interface RepoDirOptions {
+  repo: RepoName
+  sha: string
+  directory?: string
+  /** @deprecated The old name for `directory`, refused with it. */
+  path?: string
+}
+
 // An entry of a directory, as git has it, `path` its name: a file
 // (`100644`, `100755` executable) or a symlink (`120000`) is a blob, a
 // directory (`040000`) a tree, a submodule (`160000`) the commit it is at.
@@ -70,11 +78,11 @@ export interface Client {
   // on every call, cached or not. So its top directory is named for the
   // tree, and files marked `export-subst` are as committed, not rewritten.
   getRepoTarball(options: { repo: RepoName; sha: string }): Promise<Uint8Array>
-  // The id of the tree at `path`, a directory, in the full commit `sha`, or
-  // of its root without one: from the tree GitHub names for the commit,
-  // down GitHub's listings a directory at a time, each hashed back to its
-  // id. Refused where `path` is no directory.
-  getRepoTreeId(options: { repo: RepoName; sha: string; path?: string }): Promise<string>
+  // The id of the tree at `directory`, `/`-separated as npm's is, in the
+  // full commit `sha`, or of its root without one: from the tree GitHub
+  // names for the commit, down GitHub's listings a directory at a time,
+  // each hashed back to its id. Refused where `directory` is none.
+  getRepoTreeId(options: RepoDirOptions): Promise<string>
   // The gzipped tarball of a tree, the repo's own or any subdirectory's, by
   // its id, whole, in memory: GitHub's, its files under one top directory.
   // Its files are hashed back into git's tree and the id must be `tree`,
@@ -93,10 +101,10 @@ export interface Client {
   // repository advisory objects. One page of 100: GitHub pages this list
   // by cursor, so a repository with a full page is refused.
   listRepoAdvisories(options: { repo: RepoName }): Promise<any[]>
-  // The entries of the directory at `path` in the full commit `sha`, or of
-  // its root, found as getRepoTreeId finds it: GitHub's listing, hashed
-  // back to the tree's id, so none is left out or changed.
-  listRepoDir(options: { repo: RepoName; sha: string; path?: string }): Promise<RepoDirEntry[]>
+  // The entries of `directory` in the full commit `sha`, or of its root,
+  // found as getRepoTreeId finds it: GitHub's listing, hashed back to the
+  // tree's id, so none is left out or changed.
+  listRepoDir(options: RepoDirOptions): Promise<RepoDirEntry[]>
   // Every page of `GET /user/repos`, as GitHub's repository objects; more
   // than `maxPages` (100 by default) pages of 100 is an error.
   listUserRepos(options?: { maxPages?: number }): Promise<any[]>
