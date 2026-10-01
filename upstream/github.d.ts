@@ -25,14 +25,6 @@ export interface ClientOptions {
 
 export type PullRequestStatus = 'open' | 'draft' | 'closed' | 'merged'
 
-export interface RepoDirOptions {
-  repo: RepoName
-  sha: string
-  directory?: string
-  /** @deprecated The old name for `directory`, refused with it. */
-  path?: string
-}
-
 // An entry of a directory, as git has it, `path` its name: a file
 // (`100644`, `100755` executable) or a symlink (`120000`) is a blob, a
 // directory (`040000`) a tree, a submodule (`160000`) the commit it is at.
@@ -82,7 +74,7 @@ export interface Client {
   // full commit `sha`, or of its root without one: from the tree GitHub
   // names for the commit, down GitHub's listings a directory at a time,
   // each hashed back to its id. Refused where `directory` is none.
-  getRepoTreeId(options: RepoDirOptions): Promise<string>
+  getRepoTreeId(options: { repo: RepoName; sha: string; directory?: string }): Promise<string>
   // The gzipped tarball of a tree, the repo's own or any subdirectory's, by
   // its id, whole, in memory: GitHub's, its files under one top directory.
   // Its files are hashed back into git's tree and the id must be `tree`,
@@ -104,7 +96,7 @@ export interface Client {
   // The entries of `directory` in the full commit `sha`, or of its root,
   // found as getRepoTreeId finds it: GitHub's listing, hashed back to the
   // tree's id, so none is left out or changed.
-  listRepoDir(options: RepoDirOptions): Promise<RepoDirEntry[]>
+  listRepoDir(options: { repo: RepoName; sha: string; directory?: string }): Promise<RepoDirEntry[]>
   // Every page of `GET /user/repos`, as GitHub's repository objects; more
   // than `maxPages` (100 by default) pages of 100 is an error.
   listUserRepos(options?: { maxPages?: number }): Promise<any[]>
