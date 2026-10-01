@@ -69,6 +69,11 @@ describe('gitTreeOfTarball', () => {
     assert.equal(await gitTreeOfTarball(edited(TREE_TGZ, 'acme-app-abc1234/run\0', '..\0', 'acme-app-abc1234/'.length)), 'no tree: an entry outside one top directory, "acme-app-abc1234/.."')
     // A file alone, with no directory over it, which would otherwise read as the empty tree.
     assert.equal(await gitTreeOfTarball(tarball(header('file', '0'))), 'no tree: an entry outside one top directory, "file"')
+    // A top directory that is no directory, which would otherwise hash as any other.
+    for (const top of ['..', '.', '']) {
+      const blocks = [header(`${top}/`, '5', 0, 0o775), header(`${top}/f`, '0', 4), body('SAFE')]
+      assert.equal(await gitTreeOfTarball(tarball(...blocks)), `no tree: an entry outside one top directory, ${JSON.stringify(`${top}/`)}`, top)
+    }
   })
 
   it('is a reason where a tar extractor would read the tarball other than it is hashed', async () => {

@@ -108,7 +108,7 @@ export async function gitTreeOfTarball(gzipped, submodules) {
     const [first, ...parts] = path.replace(/\/$/u, '').split('/')
     top ??= first
     const name = type === '5' ? null : parts.pop()
-    if (first !== top || name === undefined || [...parts, name].some((part) => ['', '.', '..'].includes(part))) return `no tree: an entry outside one top directory, ${JSON.stringify(path)}`
+    if (first !== top || name === undefined || [first, ...parts, name].some((part) => ['', '.', '..'].includes(part))) return `no tree: an entry outside one top directory, ${JSON.stringify(path)}`
     let dir = root
     for (const part of parts) {
       if (!dir.has(part)) dir.set(part, new Map())
