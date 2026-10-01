@@ -11,8 +11,10 @@ import { text } from './shape.js'
 // No name starts with `.` or `_`, so none is `..` or `__proto__`.
 const NAME = /^(?:@[a-z0-9~-][\w.~-]*\/)?[a-z0-9~-][\w.~-]*$/iu
 
+export const isName = (name) => name.length <= 214 && NAME.test(name)
+
 export function checkName(name, where) {
-  if (name.length > 214 || !NAME.test(name)) throw new LockfileError(`${quote(name)} is not a package name`, where)
+  if (!isName(name)) throw new LockfileError(`${quote(name)} is not a package name`, where)
   return name
 }
 

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { LockfileError, parseYarn1Lockfile } from '../../yarn1.js'
+import { semver } from './semver.js'
 
 // The baseline: real lockfiles, each with the manifests it was written
 // for, by directory. yarn 1.22.22 and 1.22.19 wrote one workspace that
@@ -15,9 +16,10 @@ import { LockfileError, parseYarn1Lockfile } from '../../yarn1.js'
 // header says what is in them.
 
 const FIXTURES = new URL('fixtures/', import.meta.url)
+const parse = (text, manifests) => parseYarn1Lockfile(text, { manifests, semver })
 const text = (name) => readFileSync(new URL(`${name}.lock`, FIXTURES), 'utf8')
 const manifests = (name) => JSON.parse(readFileSync(new URL(`${name}.json`, FIXTURES), 'utf8'))
-const read = (name) => parseYarn1Lockfile(text(name), manifests(name))
+const read = (name) => parse(text(name), manifests(name))
 
 const plain = (value) => structuredClone(value)
 const unique = (lock) => [...new Set(Object.values(lock.packages))]
@@ -25,7 +27,7 @@ const unique = (lock) => [...new Set(Object.values(lock.packages))]
 // Refused with the manifests with `message`, and without them with `alone`.
 const refuses = (name, message, alone = message) => {
   for (const [given, expected] of [[undefined, alone], [manifests(name), message]]) {
-    assert.throws(() => parseYarn1Lockfile(text(name), given), (error) => error instanceof LockfileError && error.message === expected)
+    assert.throws(() => parse(text(name), given), (error) => error instanceof LockfileError && error.message === expected)
   }
 }
 
@@ -116,7 +118,7 @@ describe('a plain project, as yarn 1.9.4, 1.22.19 and 1.22.22 write it', () => {
 describe('a workspace a package asks for, which yarn links and writes no entry for', () => {
   it('read with the manifests, and refused without, as nothing else says it is a workspace', () => {
     assert.equal(read('yarn-1.22.22-linked').packages['to-regex-range@5.0.1'].dependencies['is-number'], 'link:packages/is-number')
-    assert.throws(() => parseYarn1Lockfile(text('yarn-1.22.22-linked')), /"is-number@\^7\.0\.0" is not a pattern of the lockfile, nor a workspace's, as only the manifests may say$/u)
+    assert.throws(() => parse(text('yarn-1.22.22-linked')), /"is-number@\^7\.0\.0" is not a pattern of the lockfile, nor a workspace's, as only the manifests may say$/u)
   })
 })
 
@@ -171,6 +173,6 @@ describe('resolutions to tarballs, where yarn applies them to every request', ()
   })
 
   it('without the manifests, refused, as it cannot say what is a resolution', () => {
-    assert.throws(() => parseYarn1Lockfile(text('yarn-1.22.22-resolutions')), /which only a resolution may, as the manifests would say$/u)
+    assert.throws(() => parse(text('yarn-1.22.22-resolutions')), /which only a resolution may, as the manifests would say$/u)
   })
 })

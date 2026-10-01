@@ -29,8 +29,18 @@
 // `resolved`, or of one name and directory, which yarn writes as one; two
 // of one tarball or commit, of two versions or hashes; and two of one
 // name and version where a range of the registry asks for either, as yarn
-// gives it whichever it resolves first. No range is held to the version
-// it resolved to.
+// gives it whichever it resolves first.
+//
+// A name, of a package, an alias or a dependency, is held to npm's rule
+// for one and its 214 characters; a version, without semver, to at most
+// 256 of the characters of SemVer, letters, digits, `.`, `+` and `-`.
+// With `semver`, a version is one semver.valid writes unchanged, and a
+// workspace's one it reads once cleaned, as yarn does; and each range of
+// the registry, an alias's too, has to be satisfied by the version it
+// resolved to, as yarn otherwise takes the entry as outdated and resolves
+// the range again, but where a resolution gives it. Without `semver`, a
+// tag is told from a range by its look, and a workspace's version is
+// known to satisfy a range that is that version alone.
 //
 // A yarn.lock does not say which projects ask for what: `manifests` does,
 // by directory from the lockfile's, `.` for the one beside it and the
@@ -41,8 +51,10 @@
 // private root, found by its `workspaces` outside node_modules, with a
 // name and a version, and no `resolutions`; a manifest has no dependency
 // in two lists, nor a list yarn only warns of, `devdependencies` and the
-// like; and no entry is of a workspace's name and its very version, as
-// yarn links the workspace. Without them, `importers` is undefined.
+// like; and no entry is of a workspace's name and a range its version
+// satisfies, and none missing for one it does not, as yarn links the
+// workspace for the one and the other not. Without them, `importers` is
+// undefined.
 //
 // A resolution to a tarball, a directory or a repository shares its entry
 // with the patterns it was applied to, which ask for the registry, and is
@@ -55,9 +67,29 @@
 // refused, as nothing says a resolution made it. Nor is a request read
 // that the first resolution to match it does not give its pattern.
 //
-// Throws a TypeError for anything but a string, and a LockfileError for
-// the rest.
-export function parseYarn1Lockfile(text: string, manifests?: Record<string, object>): Yarn1Lockfile
+// Throws a TypeError for anything but a string, for options it does not
+// know or of the wrong type, and for checkVersions without semver; and a
+// LockfileError for the rest.
+export function parseYarn1Lockfile(text: string, options?: Yarn1Options): Yarn1Lockfile
+
+export interface Yarn1Options {
+  // By directory from the lockfile's, `.` for its own, each as JSON.parse
+  // reads its package.json.
+  manifests?: Record<string, object>
+  // On by default, which needs semver; off, versions are read without it,
+  // unless it is passed all the same.
+  checkVersions?: boolean
+  // The semver package, npm's: this reader depends on no package itself.
+  semver?: Yarn1Semver
+}
+
+// What this reader calls of semver.
+export interface Yarn1Semver {
+  valid(version: string): string | null
+  clean(version: string, options: { loose: boolean }): string | null
+  validRange(range: string): string | null
+  satisfies(version: string, range: string, options?: { loose: boolean }): boolean
+}
 
 // `where` is the place a refusal is about, as a property path: from the
 // top of the lockfile, `["q@1.5.1"].resolved`, or from `manifests`; or

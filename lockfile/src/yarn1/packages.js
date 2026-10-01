@@ -1,7 +1,7 @@
 // Entries into packages: one object under all patterns of an entry, as in yarn.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkIntegrity, checkName, checkRelative, checkVersion, joinRelative } from '../names.js'
+import { checkIntegrity, checkName, checkRelative, joinRelative } from '../names.js'
 import { EMPTY, entries, record, string, text } from '../shape.js'
 
 const FIELDS = ['name', 'version', 'uid', 'resolved', 'integrity', 'dependencies', 'optionalDependencies']
@@ -54,6 +54,20 @@ function directory(range) {
   const path = range.replace(/^(?:file|link):/u, '')
   const segments = path.split('/').filter((segment) => segment !== '' && segment !== '.')
   return path.startsWith('/') ? `/${segments.join('/')}` : joinRelative('.', segments.join('/') || '.')
+}
+
+// Without semver, a version is held to its length and characters alone. yarn
+// writes one as semver.valid does, and cleans a manifest's loosely first.
+const VERSION = /^[\dA-Za-z.+-]{1,256}$/u
+
+export function readVersion(value, where, semver, manifest = false) {
+  const version = text(value, where)
+  if (!VERSION.test(version)) throw new LockfileError(`${quote(version)} is not a version`, where)
+  if (semver === undefined) return version
+  const valid = manifest ? semver.clean(version, { loose: true }) : semver.valid(version)
+  if (valid === null) throw new LockfileError(`${quote(version)} is not a version semver reads`, where)
+  if (!manifest && valid !== version) throw new LockfileError(`${quote(version)} is not a version as semver writes it, ${quote(valid)}`, where)
+  return valid
 }
 
 const COMMIT = /^(?:[\da-f]{40}|[\da-f]{64})$/u
@@ -206,7 +220,7 @@ function readDependencies(value, where, wanted) {
   return dependencies
 }
 
-function readPackage({ keys, fields }, wanted, mixed) {
+function readPackage({ keys, fields }, wanted, mixed, semver) {
   const where = at('', keys[0])
   record(fields, where, FIELDS)
   const patterns = keys.map((key) => {
@@ -214,7 +228,7 @@ function readPackage({ keys, fields }, wanted, mixed) {
     return { key, ...pattern, source: sourceOf(pattern.range) }
   })
   const asks = checkNames(patterns, fields, where)
-  const version = checkVersion(fields.version, at(where, 'version'))
+  const version = readVersion(fields.version, at(where, 'version'), semver)
   const resolution = readResolution(fields, where)
   const handed = checkSources(patterns, resolution, { asks, version }, where)
   const dependencies = readDependencies(fields.dependencies, at(where, 'dependencies'), wanted)
@@ -226,13 +240,17 @@ function readPackage({ keys, fields }, wanted, mixed) {
   if (uid === version) throw new LockfileError('the version, which yarn does not write as a uid', at(where, 'uid'))
   const pkg = { patterns: keys, name: patterns[0].name, version, uid, resolution, dependencies, optionalDependencies }
   if (handed !== undefined) mixed.push({ pkg, ...handed })
+  for (const pattern of patterns) pattern.pkg = pkg
   return [pkg, patterns]
 }
 
-// Tags and aliases aside, yarn gives a registry pattern the first package of
-// its name and version it resolves, of whichever entry.
+// yarn gives a registry pattern of a range the first package of its name and
+// version it resolves, of whichever entry. Without semver, a tag is a guess.
 const TAG = /^(?![vV=]?\d|[xX*](?:\.|$))[A-Za-z][\w.-]*$/u
-const ranged = ({ range, source }) => source === 'registry' && !/[:/@#]/u.test(range) && !TAG.test(range)
+function isRange(range, semver) {
+  if (semver !== undefined) return semver.validRange(range) !== null
+  return !/[:/@#]/u.test(range) && !TAG.test(range)
+}
 
 const integrities = ({ integrity }) => new Map((integrity?.split(' ') ?? []).map((part) => [part.slice(0, part.indexOf('-')), part]))
 
@@ -251,15 +269,17 @@ function checkSame(pkg, other, where) {
 
 // `mixed`: the entries with a registry pattern beside a source. yarn writes
 // an entry for each `resolved` of a name, as spelled, and each directory.
-export function readPackages(list) {
+export function readPackages(list, semver) {
   const packages = Object.create(null)
+  const all = []
   const wanted = []
   const mixed = []
   const merged = new Map()
   const fetched = new Map()
   const versions = new Map()
   for (const entry of list) {
-    const [pkg, patterns] = readPackage(entry, wanted, mixed)
+    const [pkg, patterns] = readPackage(entry, wanted, mixed, semver)
+    all.push(...patterns)
     const [key] = entry.keys
     const where = at('', key)
     for (const pattern of entry.keys) packages[pattern] = pkg
@@ -272,22 +292,12 @@ export function readPackages(list) {
     if (fetched.has(source)) checkSame(pkg, fetched.get(source), where)
     else if (source !== undefined) fetched.set(source, pkg)
     const id = `${pkg.name}\n${pkg.version}`
-    const asking = patterns.find(ranged)
+    const asking = patterns.find((pattern) => pattern.source === 'registry' && isRange(pattern.range, semver))
     const prior = versions.get(id)
     if (prior === undefined) versions.set(id, { key, asking })
     else if ((asking ?? prior.asking) !== undefined) {
       throw new LockfileError(`is ${pkg.name} ${pkg.version}, as ${quote(prior.key)} is, and yarn gives ${quote((asking ?? prior.asking).key)} whichever it resolves first`, where)
     }
   }
-  return { packages, mixed, unresolved: wanted.filter(({ pattern }) => !(pattern in packages)) }
-}
-
-// yarn writes no entry for a request a workspace's version satisfies, but
-// links the workspace; only the manifests name the workspaces.
-export function linkUnresolved(unresolved, workspaces) {
-  for (const { targets, name, pattern, where } of unresolved) {
-    const workspace = workspaces?.get(name)
-    if (workspace === undefined) throw new LockfileError(`${quote(pattern)} is not a pattern of the lockfile${workspaces === undefined ? ', nor a workspace\'s, as only the manifests may say' : ''}`, where)
-    targets[name] = `link:${workspace.dir}`
-  }
+  return { packages, patterns: all, mixed, unresolved: wanted.filter(({ pattern }) => !(pattern in packages)) }
 }

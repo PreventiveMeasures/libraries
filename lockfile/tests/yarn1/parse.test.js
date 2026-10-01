@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { LockfileError, parseYarn1Lockfile } from '../../yarn1.js'
+import { semver } from './semver.js'
 
 // One small yarn.lock with a package of every kind — from the registry,
 // with patterns merged, a sha1 integrity and an npm alias; a directory, a
@@ -83,8 +84,11 @@ function edit(...edits) {
   return text
 }
 
+// Read as by default, versions checked with semver.
+const parse = (text, manifests) => parseYarn1Lockfile(text, { manifests, semver })
+
 // `message` is the refusal's detail, which the message leads with `where`.
-const refuses = (text, message, where, manifests) => assert.throws(() => parseYarn1Lockfile(text, manifests), (error) => {
+const refuses = (text, message, where, manifests, options) => assert.throws(() => parseYarn1Lockfile(text, { manifests, ...(options ?? { semver }) }), (error) => {
   assert.ok(error instanceof LockfileError, error.stack)
   assert.equal(error.message, where === undefined ? message : `${where}: ${message}`)
   assert.equal(error.where, where)
@@ -92,10 +96,10 @@ const refuses = (text, message, where, manifests) => assert.throws(() => parseYa
 })
 
 const plain = (value) => structuredClone(value)
-const read = (...edits) => parseYarn1Lockfile(edit(...edits)).packages
+const read = (...edits) => parse(edit(...edits)).packages
 
 describe('the base lockfile', () => {
-  const lock = parseYarn1Lockfile(BASE, MANIFESTS)
+  const lock = parse(BASE, MANIFESTS)
 
   it('reads, each pattern to its package', () => {
     assert.deepEqual(Object.keys(lock.packages), [
@@ -143,25 +147,25 @@ describe('the base lockfile', () => {
   })
 
   it('without the manifests, no importers', () => {
-    const alone = parseYarn1Lockfile(BASE)
+    const alone = parse(BASE)
     assert.equal(alone.importers, undefined)
     assert.deepEqual(plain(alone.packages), plain(lock.packages))
   })
 
   it('with CRLF line ends too, and without the last', () => {
-    assert.deepEqual(plain(parseYarn1Lockfile(BASE.replaceAll('\n', '\r\n'), MANIFESTS)), plain(lock))
-    assert.deepEqual(plain(parseYarn1Lockfile(BASE.trimEnd(), MANIFESTS)), plain(lock))
+    assert.deepEqual(plain(parse(BASE.replaceAll('\n', '\r\n'), MANIFESTS)), plain(lock))
+    assert.deepEqual(plain(parse(BASE.trimEnd(), MANIFESTS)), plain(lock))
   })
 
   it('what yarn writes with nothing installed', () => {
-    assert.deepEqual(plain(parseYarn1Lockfile(`${HEADER}\n\n`, { '.': { name: 'e' } })), { packages: {}, importers: { '.': { dependencies: {}, devDependencies: {}, optionalDependencies: {} } } })
+    assert.deepEqual(plain(parse(`${HEADER}\n\n`, { '.': { name: 'e' } })), { packages: {}, importers: { '.': { dependencies: {}, devDependencies: {}, optionalDependencies: {} } } })
   })
 })
 
 describe('what else yarn writes is read', () => {
   it('the versions of yarn and Node below the header, and another tool\'s line', () => {
     const header = `${HEADER}# yarn v1.22.22\n# node v24.15.0\n# bun ./bun.lockb --hash: 5BBAC8D5E5D9B1E9-1\n`
-    assert.deepEqual(plain(parseYarn1Lockfile(BASE.replace(HEADER, header)).packages), plain(parseYarn1Lockfile(BASE).packages))
+    assert.deepEqual(plain(parse(BASE.replace(HEADER, header)).packages), plain(parse(BASE).packages))
   })
 
   it('an empty range, and a dependency on it', () => {
@@ -227,12 +231,12 @@ describe('what else yarn writes is read', () => {
 
   it('a resolution nothing asks for, which yarn records all the same', () => {
     const text = edit(['b@1.0.0:', `z@1.0.0:\n  version "1.0.0"\n  resolved "https://registry.yarnpkg.com/z/-/z-1.0.0.tgz#${H}"\n\nb@1.0.0:`])
-    assert.equal(parseYarn1Lockfile(text, { ...MANIFESTS, '.': { ...MANIFESTS['.'], resolutions: { z: '1.0.0' } } }).packages['z@1.0.0'].version, '1.0.0')
+    assert.equal(parse(text, { ...MANIFESTS, '.': { ...MANIFESTS['.'], resolutions: { z: '1.0.0' } } }).packages['z@1.0.0'].version, '1.0.0')
   })
 })
 
 describe('with the manifests', () => {
-  const lock = (text, manifests) => parseYarn1Lockfile(text, manifests)
+  const lock = (text, manifests) => parse(text, manifests)
   const root = MANIFESTS['.']
   const withRoot = (fields) => ({ ...MANIFESTS, '.': { ...root, ...fields } })
 
@@ -258,6 +262,7 @@ describe('with the manifests', () => {
     const others = Object.fromEntries(Object.entries(root.dependencies).filter(([name]) => name !== 'w'))
     refuses(BASE, 'nothing asks for it: no manifest, no package and no resolution', '["a@^1.1.0"]', { '.': { ...root, dependencies: others } })
     refuses(edit(['"@s/c@^2.0.0":', '"@s/c@^1.0.0", "@s/c@^2.0.0":']), 'nothing asks for it: no manifest, no package and no resolution', '["@s/c@^1.0.0"]', MANIFESTS)
+    refuses(edit(['"@s/c@^2.0.0":', '"@s/c@^1.0.0", "@s/c@^2.0.0":']), 'nothing asks for it: no manifest, no package and no resolution', '["@s/c@^1.0.0"]', MANIFESTS, { checkVersions: false })
   })
 
   it('a package\'s dependency on a workspace, which yarn links and writes no entry for', () => {
@@ -304,9 +309,15 @@ describe('with the manifests', () => {
 
   it('refuses an entry of a workspace\'s name and version, as yarn links the workspace', () => {
     const w = `w@1.0.0:\n  version "1.0.0"\n  resolved "https://registry.yarnpkg.com/w/-/w-1.0.0.tgz#${H}"\n\n"l@link:./l":`
-    const message = '"w@1.0.0" asks for the version of the workspace "w", which yarn links instead'
+    const message = '"w@1.0.0" is satisfied by the workspace "w", which yarn links instead'
     refuses(edit(['"l@link:./l":', w]), message, 'manifests["."].dependencies.w', MANIFESTS)
     refuses(edit(['"l@link:./l":', w], ['    b "1.0.0"\n\nb@', '    b "1.0.0"\n    w "1.0.0"\n\nb@']), message, '["a@^1.0.0"].dependencies.w', MANIFESTS)
+  })
+
+  it('refuses a resolution\'s path of what is not a name, or a glob of one', () => {
+    const text = edit(['a@^1.0.0, a@^1.1.0:', 'a@1.1.0, a@^1.0.0, a@^1.1.0:'])
+    assert.equal(lock(text, withRoot({ resolutions: { '@s/*/a': '1.1.0', '**/?/a': '1.1.0' } })).packages['a@1.1.0'].version, '1.1.0')
+    refuses(text, '"x y" is not a package name, or a glob of one', 'manifests["."].resolutions["x y/a"]', withRoot({ resolutions: { 'x y/a': '1.1.0' } }))
   })
 
   it('refuses a dependency in two lists, or a list yarn does not read', () => {
@@ -350,7 +361,7 @@ describe('refuses what yarn does not write, with the line', () => {
     refuses(edit(['  uid ""', '  uid nullish']), '"nullish" is bare, and read as null by some readers at line 38')
     refuses(edit(['  uid ""', '  uid "null"']), '"null" is quoted, where yarn writes it bare at line 38')
     const named = edit(['b@1.0.0:', `null@1:\n  version "1.0.0"\n  resolved "https://registry.yarnpkg.com/null/-/null-1.0.0.tgz#${H}"\n\nb@1.0.0:`])
-    assert.equal(parseYarn1Lockfile(named).packages['null@1'].name, 'null')
+    assert.equal(parse(named).packages['null@1'].name, 'null')
   })
 
   it('a quoted string not as JSON writes it, or that yarn ends elsewhere', () => {
@@ -424,7 +435,7 @@ describe('refuses an entry yarn does not write, or installs otherwise', () => {
   })
 
   it('a version that is not SemVer, or none', () => {
-    refuses(edit(['  version "1.1.0"', '  version "1.1"']), '"1.1" is not a version', '["a@^1.0.0"].version')
+    refuses(edit(['  version "1.1.0"', '  version "1.1"']), '"1.1" is not a version semver reads', '["a@^1.0.0"].version')
     refuses(edit(['  version "1.1.0"\n', '']), 'expected a string, found nothing', '["a@^1.0.0"].version')
     refuses(edit(['  version "1.1.0"', '  version:\n    a "1"']), 'expected a string, found a mapping', '["a@^1.0.0"].version')
   })
@@ -552,7 +563,7 @@ describe('a resolution to a source, where it applies to every request', () => {
   // given the tarball the resolution names.
   const RESOLVED = edit(['b@1.0.0:', `b@1.0.0, "b@${URL}":`], [`"https://registry.yarnpkg.com/b/-/b-1.0.0.tgz#${H}"\n  integrity ${H1}\n\n"d`, `"${URL}#${H}"\n  integrity ${H1}\n\n"d`])
   const resolving = (resolutions, fields = {}) => ({ ...MANIFESTS, '.': { ...MANIFESTS['.'], resolutions, ...fields } })
-  const resolved = (resolutions, text = RESOLVED) => parseYarn1Lockfile(text, resolving(resolutions)).packages
+  const resolved = (resolutions, text = RESOLVED) => parse(text, resolving(resolutions)).packages
   const applies = 'which yarn does not apply to it here'
 
   it('reads one that applies everywhere, or along every path it is asked for by', () => {
@@ -566,7 +577,7 @@ describe('a resolution to a source, where it applies to every request', () => {
   it('reads one to a repository of a git host, whose tarball has no hash', () => {
     const tarball = `https://codeload.github.com/u/b/tar.gz/${C}`
     const text = edit(['b@1.0.0:', 'b@1.0.0, "b@github:u/b#v1":'], [`"https://registry.yarnpkg.com/b/-/b-1.0.0.tgz#${H}"\n  integrity ${H1}\n\n"d`, `"${tarball}"\n\n"d`])
-    assert.equal(parseYarn1Lockfile(text, resolving({ b: 'github:u/b#v1' })).packages['b@1.0.0'].resolution.tarball, tarball)
+    assert.equal(parse(text, resolving({ b: 'github:u/b#v1' })).packages['b@1.0.0'].resolution.tarball, tarball)
   })
 
   it('refuses one that does not apply along a path it is asked for by', () => {
@@ -603,5 +614,80 @@ describe('a resolution to a source, where it applies to every request', () => {
     refuses(text, `"b@1.0.0" asks for the registry, and is given what "b@${URL}" names, which no resolution does`, '["b@1.0.0"]', resolving(undefined, { dependencies: { ...MANIFESTS['.'].dependencies, b: URL } }))
     refuses(text, '"**/{a,d}/b" is a glob not read here', 'manifests["."].resolutions["**/{a,d}/b"]', resolving({ '**/{a,d}/b': URL }))
     refuses(text, '"b@https://example.com/other.tgz" is not a pattern of the lockfile, where yarn records every resolution\'s', 'manifests["."].resolutions["**/b"]', resolving({ '**/b': 'https://example.com/other.tgz' }))
+  })
+})
+
+describe('options', () => {
+  it('semver, which checking versions, the default, needs; and nothing else', () => {
+    assert.throws(() => parseYarn1Lockfile(BASE), { name: 'TypeError', message: 'checkVersions needs semver: pass it as semver, or set checkVersions to false' })
+    assert.throws(() => parseYarn1Lockfile(BASE, { validateVersions: false }), { name: 'TypeError', message: 'unknown option "validateVersions", of manifests, checkVersions, semver' })
+    assert.throws(() => parseYarn1Lockfile(BASE, MANIFESTS), { name: 'TypeError', message: 'unknown option ".", of manifests, checkVersions, semver' })
+    assert.throws(() => parseYarn1Lockfile(BASE, { semver: { valid: semver.valid } }), { name: 'TypeError', message: 'semver: expected the semver package, with clean, satisfies, valid, validRange' })
+    assert.throws(() => parseYarn1Lockfile(BASE, { checkVersions: 'no' }), { name: 'TypeError', message: 'checkVersions: expected a boolean' })
+    assert.throws(() => parseYarn1Lockfile(BASE, null), { name: 'TypeError', message: 'expected an options object' })
+  })
+
+  it('without semver, the same packages and importers', () => {
+    assert.deepEqual(plain(parseYarn1Lockfile(BASE, { manifests: MANIFESTS, checkVersions: false })), plain(parse(BASE, MANIFESTS)))
+  })
+})
+
+describe('versions, crudely without semver, and as semver reads them with it', () => {
+  const crude = { checkVersions: false }
+  const version = (to) => edit(['  version "4.0.0"', `  version ${to}`])
+  const at = '["f@https://example.com/f.tgz"].version'
+
+  it('without semver, of a version\'s characters, at most 256 of them', () => {
+    for (const to of ['"4.0"', 'v4.0.0', '"4.0.0-01"']) assert.ok(parseYarn1Lockfile(version(to), crude).packages['f@https://example.com/f.tgz'], to)
+    for (const to of ['"4.0.0_1"', '"4.0.0 beta"', '"4.0.0="']) refuses(version(to), `${to} is not a version`, at, undefined, crude)
+    refuses(version(`"${'4'.repeat(257)}"`), `"${'4'.repeat(200)}…" is not a version`, at, undefined, crude)
+  })
+
+  it('with semver, as semver.valid writes it', () => {
+    refuses(version('v4.0.0'), '"v4.0.0" is not a version as semver writes it, "4.0.0"', at)
+    for (const to of ['"4.0"', '"4.0.0-01"', '"04.0.0"']) refuses(version(to), `${to} is not a version semver reads`, at)
+  })
+
+  it('a workspace\'s, as yarn cleans it first, loosely', () => {
+    const ws = (to) => ({ ...MANIFESTS, w: { ...MANIFESTS.w, version: to } })
+    assert.equal(parse(BASE, ws('v1.0.0')).importers['.'].dependencies.w, 'link:w')
+    refuses(BASE, '"1.0" is not a version semver reads', 'manifests.w.version', ws('1.0'))
+    refuses(BASE, '"1.0 0" is not a version', 'manifests.w.version', ws('1.0 0'), crude)
+  })
+})
+
+describe('with semver, each request resolved as yarn resolves it', () => {
+  // b@1.0.0, which a and d ask for, given 2.0.0 as `b@2.0.0`.
+  const b2 = edit(['b@1.0.0:\n  version "1.0.0"\n  resolved "https://registry.yarnpkg.com/b/-/b-1.0.0.tgz#', 'b@1.0.0, b@2.0.0:\n  version "2.0.0"\n  resolved "https://registry.yarnpkg.com/b/-/b-2.0.0.tgz#'])
+  const resolving = (resolutions) => ({ ...MANIFESTS, '.': { ...MANIFESTS['.'], resolutions } })
+
+  it('a version that does not satisfy a range, where a resolution gives it to every request', () => {
+    assert.equal(parse(b2, resolving({ '**/b': '2.0.0' })).packages['b@1.0.0'].version, '2.0.0')
+  })
+
+  it('refuses one some request is given with no resolution', () => {
+    refuses(b2, '2.0.0 does not satisfy "1.0.0", which only a resolution may excuse, as the manifests would say', '["b@1.0.0"]')
+    refuses(b2, '2.0.0 does not satisfy "1.0.0", and no resolution gives it', '["b@1.0.0"]', resolving({ 'd/b': '2.0.0' }))
+    refuses(edit(['"my-b@npm:b@1.0.0":', '"my-b@npm:b@^2.0.0":']), '1.0.0 does not satisfy "^2.0.0", which only a resolution may excuse, as the manifests would say', '["my-b@npm:b@^2.0.0"]')
+    assert.ok(parseYarn1Lockfile(b2, { checkVersions: false }).packages['b@1.0.0'])
+  })
+
+  it('a workspace linked where its version satisfies the range, and otherwise refused', () => {
+    const asking = (range) => ({ ...MANIFESTS, '.': { ...MANIFESTS['.'], dependencies: { ...MANIFESTS['.'].dependencies, w: range } } })
+    assert.equal(parse(BASE, asking('^1.0.0')).importers['.'].dependencies.w, 'link:w')
+    refuses(BASE, '"w@^2.0.0" is not a pattern of the lockfile, nor satisfied by the workspace "w", 1.0.0', 'manifests["."].dependencies.w', asking('^2.0.0'))
+    const w = edit(['"l@link:./l":', `w@^1.0.0:\n  version "1.0.0"\n  resolved "https://registry.yarnpkg.com/w/-/w-1.0.0.tgz#${H}"\n\n"l@link:./l":`])
+    refuses(w, '"w@^1.0.0" is satisfied by the workspace "w", which yarn links instead', 'manifests["."].dependencies.w', asking('^1.0.0'))
+    // Without semver, a range is known to be satisfied by its very version alone.
+    assert.equal(parseYarn1Lockfile(BASE, { manifests: asking('^2.0.0'), checkVersions: false }).importers['.'].dependencies.w, 'link:w')
+    assert.equal(parseYarn1Lockfile(w, { manifests: asking('^1.0.0'), checkVersions: false }).importers['.'].dependencies.w, 'w@^1.0.0')
+  })
+
+  it('a tag aside, and an alias, beside another entry of the name and version, by semver or without it', () => {
+    const f = (range) => edit(['"f@https://example.com/f.tgz":', `f@${range}:\n  version "4.0.0"\n  resolved "https://registry.yarnpkg.com/f/-/f-4.0.0.tgz#${H}"\n\n"f@https://example.com/f.tgz":`])
+    for (const options of [{ semver }, { checkVersions: false }]) {
+      assert.ok(parseYarn1Lockfile(f('latest'), options).packages['f@latest'])
+      refuses(f('4.x'), 'is f 4.0.0, as "f@4.x" is, and yarn gives "f@4.x" whichever it resolves first', '["f@https://example.com/f.tgz"]', undefined, options)
+    }
   })
 })

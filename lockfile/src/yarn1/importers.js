@@ -1,11 +1,11 @@
 // yarn.lock names no projects, so their manifests come by directory. A name of
-// a workspace with no entry links it, its version not held to the range.
+// a workspace with no entry links it, held to the range only with semver.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkName, checkRelative, joinRelative } from '../names.js'
-import { EMPTY, entries, record, string, text, texts } from '../shape.js'
+import { checkName, checkRelative, isName, joinRelative } from '../names.js'
+import { EMPTY, entries, record, string, texts } from '../shape.js'
 import { compile, matches } from './glob.js'
-import { linkUnresolved } from './packages.js'
+import { readVersion } from './packages.js'
 
 export const KINDS = ['dependencies', 'devDependencies', 'optionalDependencies']
 export const WHERE = 'manifests'
@@ -23,16 +23,36 @@ function fromLockfile(range, dir, where) {
   return `${prefix}${dotted ? './' : ''}${target}`
 }
 
-// yarn links a workspace for a request its version satisfies, entry or not;
-// a range that is that version satisfies it, whatever reads ranges.
-function checkLinked(name, range, workspaces, where) {
+// Whether yarn links a workspace for a range, as it does where its version
+// satisfies the range; without semver, known of that very version alone.
+function links(workspace, range, semver) {
+  if (semver !== undefined) return semver.satisfies(workspace.version, range, { loose: true })
+  return workspace.version === range ? true : undefined
+}
+
+// yarn writes no entry for what it links.
+function checkLinked(name, range, workspaces, semver, where) {
   const workspace = workspaces.get(name)
-  if (workspace?.version === range) throw new LockfileError(`${quote(`${name}@${range}`)} asks for the version of the workspace ${quote(workspace.dir)}, which yarn links instead`, where)
+  if (workspace !== undefined && links(workspace, range, semver) === true) {
+    throw new LockfileError(`${quote(`${name}@${range}`)} is satisfied by the workspace ${quote(workspace.dir)}, which yarn links instead`, where)
+  }
+}
+
+// A request with no entry is for a workspace, which only the manifests name.
+export function linkWorkspaces(unresolved, workspaces, semver) {
+  for (const { targets, name, pattern, where } of unresolved) {
+    const workspace = workspaces?.get(name)
+    if (workspace === undefined) throw new LockfileError(`${quote(pattern)} is not a pattern of the lockfile${workspaces === undefined ? ", nor a workspace's, as only the manifests may say" : ''}`, where)
+    if (links(workspace, pattern.slice(name.length + 1), semver) === false) {
+      throw new LockfileError(`${quote(pattern)} is not a pattern of the lockfile, nor satisfied by the workspace ${quote(workspace.dir)}, ${workspace.version}`, where)
+    }
+    targets[name] = `link:${workspace.dir}`
+  }
 }
 
 // yarn drops `//`, a comment, from a dependency list, and keeps a name listed
 // twice in one alone.
-function readTargets(manifest, dir, where, packages, workspaces) {
+function readTargets(manifest, dir, where, packages, workspaces, semver) {
   const importer = Object.create(null)
   const listed = new Map()
   for (const kind of KINDS) {
@@ -44,10 +64,9 @@ function readTargets(manifest, dir, where, packages, workspaces) {
       const target = fromLockfile(string(range, here), dir, here)
       const pattern = `${checkName(name, here)}@${target}`
       if (pattern in packages) {
-        checkLinked(name, target, workspaces, here)
+        checkLinked(name, target, workspaces, semver, here)
         targets[name] = pattern
-      } else if (workspaces.has(name)) targets[name] = `link:${workspaces.get(name).dir}`
-      else throw new LockfileError(`${quote(pattern)} is not a pattern of the lockfile`, here)
+      } else linkWorkspaces([{ targets, name, pattern, where: here }], workspaces, semver)
     }
     importer[kind] = targets
   }
@@ -61,8 +80,11 @@ function readResolutions(value, where) {
   for (const [path, range, here] of entries(value ?? EMPTY, where)) {
     if (/\/$|\/{2,}|\*+$/u.test(path)) throw new LockfileError(`${quote(path)} is a path yarn ignores`, here)
     const names = path.match(/(?:@[^/]+\/)?[^/]+/gu) ?? [path]
+    const tests = compile(names.length === 1 ? `**/${path}` : path, here)
     const name = checkName(names.at(-1), here)
-    rules.push({ path, glob: names.length === 1 ? `**/${path}` : path, name, pattern: `${name}@${string(range, here)}`, where: here })
+    const other = names.slice(0, -1).find((segment) => segment !== '**' && !isName(segment.replaceAll(/[*?]/gu, 'x')))
+    if (other !== undefined) throw new LockfileError(`${quote(other)} is not a package name, or a glob of one`, here)
+    rules.push({ path, tests, name, pattern: `${name}@${string(range, here)}`, where: here })
   }
   return rules
 }
@@ -114,7 +136,7 @@ const TYPOS = {
 
 // yarn reads a workspace that its globs find, outside node_modules, with a
 // name and a version; it reads no field of these typos, but warns.
-function readWorkspace(dir, manifest, here, globs) {
+function readWorkspace(dir, manifest, here, globs, semver) {
   for (const typo of Object.keys(TYPOS)) if (Object.hasOwn(manifest, typo)) throw new LockfileError(`a field yarn does not read, for ${quote(TYPOS[typo])}`, at(here, typo))
   if (checkRelative(dir, here) === '.') return undefined
   if (globs.length === 0) throw new LockfileError('expected workspaces, as there are manifests of workspaces', at(at(WHERE, '.'), 'workspaces'))
@@ -123,11 +145,11 @@ function readWorkspace(dir, manifest, here, globs) {
   const nameAt = at(here, 'name')
   const name = checkName(string(manifest.name, nameAt), nameAt)
   if (manifest.version === undefined) throw new LockfileError('expected a version, without which yarn ignores the workspace', at(here, 'version'))
-  return { name, version: text(manifest.version, at(here, 'version')) }
+  return { name, version: readVersion(manifest.version, at(here, 'version'), semver, true) }
 }
 
 // Also hands resolutions.js the workspaces by name, and the root's resolutions.
-export function readImporters(manifests, packages, unresolved) {
+export function readImporters(manifests, packages, unresolved, semver) {
   record(manifests, WHERE)
   const rootAt = at(WHERE, '.')
   const root = manifests['.']
@@ -135,19 +157,21 @@ export function readImporters(manifests, packages, unresolved) {
   const globs = readGlobs(record(root, rootAt), rootAt)
   const workspaces = new Map()
   for (const [dir, manifest, here] of entries(manifests, WHERE)) {
-    const workspace = readWorkspace(dir, record(manifest, here), here, globs)
+    const workspace = readWorkspace(dir, record(manifest, here), here, globs, semver)
     if (workspace === undefined) continue
     if (workspaces.has(workspace.name)) throw new LockfileError(`the name of the workspace ${quote(workspaces.get(workspace.name).dir)} too`, at(here, 'name'))
     workspaces.set(workspace.name, { dir, version: workspace.version })
   }
   for (const pkg of new Set(Object.values(packages))) {
     for (const kind of ['dependencies', 'optionalDependencies']) {
-      for (const [name, pattern] of Object.entries(pkg[kind])) checkLinked(name, pattern.slice(name.length + 1), workspaces, at(at(at('', pkg.patterns[0]), kind), name))
+      for (const [name, pattern] of Object.entries(pkg[kind])) {
+        if (pattern in packages) checkLinked(name, pattern.slice(name.length + 1), workspaces, semver, at(at(at('', pkg.patterns[0]), kind), name))
+      }
     }
   }
-  linkUnresolved(unresolved, workspaces)
+  linkWorkspaces(unresolved, workspaces, semver)
   const importers = Object.create(null)
-  for (const [dir, manifest, here] of entries(manifests, WHERE)) importers[dir] = readTargets(manifest, dir, here, packages, workspaces)
+  for (const [dir, manifest, here] of entries(manifests, WHERE)) importers[dir] = readTargets(manifest, dir, here, packages, workspaces, semver)
   const rules = readResolutions(root.resolutions, at(rootAt, 'resolutions'))
   const missing = rules.find((rule) => !(rule.pattern in packages) && !workspaces.has(rule.name))
   if (missing !== undefined) throw new LockfileError(`${quote(missing.pattern)} is not a pattern of the lockfile, where yarn records every resolution's`, missing.where)
