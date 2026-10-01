@@ -595,7 +595,8 @@ describe('a resolution to a source, where it applies to every request', () => {
 
   it('refuses one that another resolution comes before, as the first to match applies', () => {
     refuses(RESOLVED, `"b@1.0.0" is given what the resolution "**/b" resolves to, ${applies}`, '["d@file:./d"].dependencies.b', resolving({ 'd/b': '1.0.0', '**/b': URL }))
-    assert.equal(resolved({ '**/b': URL, 'd/b': '1.0.0' })['b@1.0.0'].resolution.tarball, URL)
+    // d/b's own b@1.0.0, which yarn resolves from the root, is rewritten too.
+    refuses(RESOLVED, '"b@1.0.0" is asked for both where the resolution "**/b" applies and where none does, and yarn writes one entry for both', '["d@file:./d"].dependencies.b', resolving({ '**/b': URL, 'd/b': '1.0.0' }))
   })
 
   it('refuses the root\'s own dependency given it, which no resolution applies to', () => {
@@ -670,7 +671,11 @@ describe('with semver, each request resolved as yarn resolves it', () => {
 
   it('refuses one some request is given with no resolution', () => {
     refuses(b2, '2.0.0 does not satisfy "1.0.0", which only a resolution may excuse, as the manifests would say', '["b@1.0.0"]')
-    refuses(b2, '2.0.0 does not satisfy "1.0.0", and no resolution gives it', '["b@1.0.0"]', resolving({ 'd/b': '2.0.0' }))
+    // One entry for d's b, which the resolution rewrites, and a's, which it
+    // does not: yarn gives both one or the other, with semver or without.
+    for (const options of [{ semver }, { checkVersions: false }]) {
+      refuses(b2, '"b@1.0.0" is asked for both where the resolution "d/b" applies and where none does, and yarn writes one entry for both', '["a@^1.0.0"].dependencies.b', resolving({ 'd/b': '2.0.0' }), options)
+    }
     refuses(edit(['"my-b@npm:b@1.0.0":', '"my-b@npm:b@^2.0.0":']), '1.0.0 does not satisfy "^2.0.0", which only a resolution may excuse, as the manifests would say', '["my-b@npm:b@^2.0.0"]')
     assert.ok(parseYarn1Lockfile(b2, { checkVersions: false }).packages['b@1.0.0'])
   })

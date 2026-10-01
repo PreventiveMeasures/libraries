@@ -8,10 +8,11 @@ import { semver } from './semver.js'
 // for, by directory. yarn 1.22.22 and 1.22.19 wrote one workspace that
 // pulls in every kind of dependency yarn 1 records; yarn 1.9.4, 1.22.19
 // and 1.22.22 a plain project; yarn 1.22.22 a workspace a package asks
-// for, and a resolution the root's own dependency is not given; and the
-// last are yarn's three ways of installing something other than its
-// lockfile says, the aliases 1.22.19 merges, a resolution's tarball given
-// to a dependency it does not apply to, and two entries of one name and
+// for; and the last are yarn's ways of installing something other than
+// its lockfile says, the aliases 1.22.19 merges, a resolution the root's
+// own dependency is not given, one entry for a request a resolution
+// rewrites and one it does not, a resolution's tarball given to a
+// dependency it does not apply to, and two entries of one name and
 // version, beside resolutions to tarballs it applies to wherever they are
 // asked for. scripts/record-yarn1.js builds them; its header says what is
 // in them.
@@ -123,11 +124,14 @@ describe('a workspace a package asks for, which yarn links and writes no entry f
   })
 })
 
-describe('a resolution, which yarn applies to no dependency of the root\'s own', () => {
-  it('recorded apart from the project\'s is-number@^6.0.0, which keeps 6.0.0', () => {
-    const { packages, importers } = read('yarn-1.22.22-resolution-root')
-    assert.equal(importers['.'].dependencies['is-number'], 'is-number@^6.0.0')
-    assert.deepEqual([packages['is-number@^6.0.0'].version, packages['is-number@7.0.0'].version], ['6.0.0', '7.0.0'])
+describe('a resolution, which yarn applies to no dependency of the root\'s own, and does not say so', () => {
+  it('refused where it would apply to the project\'s is-number@^6.0.0, which keeps 6.0.0', () => {
+    assert.deepEqual(Object.keys(parse(text('yarn-1.22.22-resolution-root')).packages), ['is-number@7.0.0', 'is-number@^6.0.0'])
+    assert.throws(() => read('yarn-1.22.22-resolution-root'), { message: 'manifests["."].dependencies["is-number"]: "is-number@^6.0.0" is not given "is-number@7.0.0" as the resolution "is-number" says, which yarn ignores for the root\'s own dependencies' })
+  })
+
+  it('refused where one entry of the same range serves the project and is-odd, which it applies to', () => {
+    refuses('yarn-1.22.22-resolution-same-range', '["is-odd@3.0.1"].dependencies["is-number"]: "is-number@^6.0.0" is asked for both where the resolution "is-number" applies and where none does, and yarn writes one entry for both', '["is-number@^6.0.0"]: 7.0.0 does not satisfy "^6.0.0", which only a resolution may excuse, as the manifests would say')
   })
 
   it('refused where the resolution is given to it all the same', () => {

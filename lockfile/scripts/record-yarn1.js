@@ -36,8 +36,14 @@
 // too.
 //
 // A workspace named is-number, of the version to-regex-range asks for, is
-// linked for it, with no entry. And a resolution of is-number to 7.0.0 is
-// recorded, but not applied to the project's own is-number@^6.0.0.
+// linked for it, with no entry.
+//
+// yarn applies a resolution to no dependency of the root's own, and says
+// nothing of it: is-number resolved to 7.0.0 is recorded, but the
+// project's is-number@^6.0.0 keeps 6.0.0. Asked for by is-odd too, with
+// the same range, one entry has to serve both: the project is given 7.0.0
+// or is-odd 6.0.0, by which yarn resolves first, which varies from run to
+// run, and yarn under --frozen-lockfile refuses what it has just written.
 //
 // Resolutions to a tarball are read where yarn applies them to every
 // request of what they resolve: a URL for is-even's is-odd, and a local
@@ -146,6 +152,10 @@ const ROOT_RESOLUTION = {
   '.': { name: 'root-resolution', version: '0.0.0', private: true, dependencies: { 'is-number': '^6.0.0' }, resolutions: { 'is-number': '7.0.0' } },
 }
 
+const sameRange = (dependencies) => ({
+  '.': { name: 'same-range', version: '0.0.0', private: true, dependencies, resolutions: { 'is-number': '^7.0.0' } },
+})
+
 const RUNS = [
   { name: 'yarn-1.22.22', yarn: '1.22.22', manifests: WORKSPACE },
   { name: 'yarn-1.22.19', yarn: '1.22.19', manifests: WORKSPACE },
@@ -161,6 +171,7 @@ const RUNS = [
   { name: 'yarn-1.22.22-race', yarn: '1.22.22', manifests: RACE },
   { name: 'yarn-1.22.22-linked', yarn: '1.22.22', manifests: LINKED },
   { name: 'yarn-1.22.22-resolution-root', yarn: '1.22.22', manifests: ROOT_RESOLUTION },
+  { name: 'yarn-1.22.22-resolution-same-range', yarn: '1.22.22', manifests: sameRange({ 'is-number': '^6.0.0', 'is-odd': '3.0.1' }) },
 ]
 
 function write(dir, name, content) {
