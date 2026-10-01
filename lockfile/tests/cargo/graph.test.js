@@ -312,7 +312,34 @@ describe('parseCargoConfig', () => {
   })
 
   it('looks into nothing but [patch]', () => {
-    assert.deepEqual({ ...patchOf('[build]\ntarget = "x86_64-unknown-linux-gnu"\n\n[source.crates-io]\nreplace-with = "vendored"\n') }, {})
+    const config = `[alias]
+b = "build"
+xtask = ["run", "--package", "xtask", "--"]
+
+[build]
+target = "x86_64-unknown-linux-gnu"
+rustflags = ["-C", "target-cpu=native"]
+
+[target.'cfg(unix)']
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+[registries.corp]
+index = "sparse+https://corp.example.com/index/"
+
+[env]
+OPENSSL_DIR = { value = "vendor/openssl", relative = true }
+
+[net]
+git-fetch-with-cli = true
+
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
+`
+    assert.deepEqual({ ...patchOf(config) }, {})
+    assert.equal(patchOf(config, '[patch.crates-io]\nx = { path = "x" }\n')['crates-io'].x.source.path, 'x')
   })
 
   it('refuses a table under a value of another kind, and says which text is not TOML', () => {

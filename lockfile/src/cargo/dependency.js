@@ -6,14 +6,27 @@
 // And a package's features, as cargo's feature map holds them, and the
 // values in a feature's list.
 
+import { parsePlatform } from '../crate/cargo-platform.js'
+import { parseVersionReq } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
 import { EMPTY } from '../shape.js'
 import { isTable } from '../toml/value.js'
 import { ANY_REGISTRY, sourceIdentity } from './lock.js'
 import { boolean, checkFeature, checkName, entries, optional, refuse, string, strings, table } from './shape.js'
-import { parsePlatform, parseRequirement } from './syntax.js'
 
 export const NIGHTLY = 'which only a nightly cargo reads, is not supported'
+
+// A version requirement, by the semver crate cargo reads it with.
+export function parseRequirement(text, where) {
+  const comparators = parseVersionReq(text)
+  if (comparators === undefined) throw new LockfileError(`${quote(text)} is not a version requirement`, where)
+  return comparators
+}
+
+// A [target.<platform>] table's platform, by the cargo-platform crate.
+function checkPlatform(text, where) {
+  if (parsePlatform(text) === undefined) throw new LockfileError(`${quote(text)} is neither a target's name nor a cfg(…) cargo reads`, where)
+}
 
 const DETAILED = [
   'version', 'registry', 'registry-index', 'path', 'git', 'branch', 'tag', 'rev', 'features', 'optional',
@@ -180,7 +193,7 @@ export function gatherDependencies(doc, workspace, edition) {
   }
   gather(doc, undefined, undefined)
   for (const [platform, value, here] of entries(doc.target ?? EMPTY, 'target')) {
-    parsePlatform(platform, here)
+    checkPlatform(platform, here)
     table(value, here, KINDS.flatMap(([key]) => [key, key.replaceAll('-', '_')]))
     gather(value, here, platform)
   }

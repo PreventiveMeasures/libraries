@@ -11,11 +11,11 @@
 // it: less than the lockfile has where the command line asks for less than
 // every feature, and more is refused, where cargo would resolve anew.
 
+import { parseCfg, parsePlatform, platformMatches } from '../crate/cargo-platform.js'
 import { LockfileError, quote } from '../error.js'
 import { checkOptions } from '../shape.js'
 import { featureValue } from './dependency.js'
 import { activate, requestsOf, setOf } from './graph.js'
-import { parseCfg, parsePlatform, platformMatches } from './syntax.js'
 
 // What cargo's command line asks of each member it builds: `-p`, and
 // `--features`, `--all-features` and `--no-default-features` handed out as
@@ -121,9 +121,14 @@ function membersWithFeatures(graph, options) {
   return roots
 }
 
+const fail = (message, where) => {
+  throw new LockfileError(message, where)
+}
+
 function readPlatform(value, where) {
   if (typeof value?.name !== 'string' || !Array.isArray(value.cfg)) throw new TypeError(`expected ${where} as { name, cfg }`)
-  return { name: value.name, cfg: new Set(value.cfg.map((line) => parseCfg(line, where))) }
+  const keys = value.cfg.map((line) => parseCfg(line) ?? fail(`${quote(line)} is not a line of \`rustc --print cfg\``, where))
+  return { name: value.name, cfg: new Set(keys) }
 }
 
 // Cargo's FeatureResolver, method for method. `fk` is what a package is

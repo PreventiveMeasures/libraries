@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { LockfileError } from '../../cargo.js'
 import { matches, parseVersion } from '../../rust-semver.js'
-import { parseCfg, parsePlatform, parseRequirement, platformMatches } from '../../src/cargo/syntax.js'
+import { parseRequirement } from '../../src/cargo/dependency.js'
+import { parseCfg, parsePlatform, platformMatches } from '../../src/crate/cargo-platform.js'
 
 // Version requirements and platforms, against what the semver and
 // cargo-platform crates cargo reads them with make of each, from
@@ -43,14 +44,19 @@ describe('platforms, as the cargo-platform crate reads them', () => {
   // refused, below.
   for (const [text, expected] of Object.entries(oracle.platforms).filter(([platform]) => platform !== '')) {
     it(JSON.stringify(text), () => {
-      if (expected === null) assert.throws(() => parsePlatform(text, 'here'), LockfileError)
-      else assert.equal(platformMatches(parsePlatform(text, 'here'), host), expected)
+      if (expected === null) assert.equal(parsePlatform(text), undefined)
+      else assert.equal(platformMatches(parsePlatform(text), host), expected)
     })
   }
 
   it('refuses a target name that is empty or not ASCII, which the crate takes', () => {
     assert.equal(oracle.platforms[''], false)
-    assert.throws(() => parsePlatform('', 'here'), /is neither a target's name nor cfg/u)
-    assert.throws(() => parsePlatform('ünix', 'here'), /is neither a target's name nor cfg/u)
+    assert.equal(parsePlatform(''), undefined)
+    assert.equal(parsePlatform('ünix'), undefined)
+  })
+
+  it('throws a TypeError for anything but a string', () => {
+    assert.throws(() => parsePlatform(1), TypeError)
+    assert.throws(() => parseCfg(undefined), TypeError)
   })
 })
