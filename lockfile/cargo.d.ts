@@ -210,7 +210,9 @@ export interface CargoLinkedDependency extends CargoDependency {
 // A package is listed as cargo's unit graph reaches it, but for what only a
 // filesystem tells, which targets a package has: a proc-macro member, and
 // what it depends on, is listed for the target too, in case it has more
-// targets than its library; a build-dependency, though the package may have
+// targets than its library; a member with a proc-macro example, test or
+// bench for the host too where dev targets are built, though `cargo test`
+// builds no bench; a build-dependency, though the package may have
 // no build script; and what a member depends on, though it may have no
 // library or binary for `cargo build` to build. So is a build-dependency
 // that a package built for the target turns on and the same package built

@@ -209,6 +209,18 @@ describe('resolveCargoFeatures', () => {
     assert.equal(build({ features: ['extra'] })['a 0.1.0'].normal.includes('b'), false)
   })
 
+  // A proc-macro integration test of app, which only a dev build compiles,
+  // and for the host, the library and what it depends on with it.
+  it('builds for the host what only a proc-macro test of it pulls there, where dev targets are built', () => {
+    const tested = link({ change: { 'app 0.1.0': `${MANIFESTS['app 0.1.0']}\n[[test]]\nname = "t"\nproc-macro = true\n` } })
+    const hosted = (dev) => {
+      const result = resolveCargoFeatures(tested, { packages: ['app 0.1.0'], host: HOST, dev })
+      return [result['app 0.1.0'].host, result[B2].host]
+    }
+    assert.deepEqual(hosted(false), [undefined, undefined])
+    assert.deepEqual(hosted(true), [[], ['fast']])
+  })
+
   it('takes an empty list of targets as none: the host', () => {
     const b1 = 'b1 = { package = "b", version = "1" }\n'
     const unix = link({ change: { 'app 0.1.0': `${MANIFESTS['app 0.1.0'].replace(b1, '')}\n[target.'cfg(unix)'.dependencies]\n${b1}` } })

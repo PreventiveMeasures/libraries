@@ -238,10 +238,18 @@ class FeatureResolver {
     }
   }
 
-  // A proc-macro root is built for the host, and for the target too where
-  // it has more targets than its library.
+  // A root with any proc-macro target is resolved for the host too, as
+  // cargo's resolver takes it.
   kindsOf(key) {
     return this.graph.packages[key].manifest.procMacroTarget ? ['normal', 'host'] : ['normal']
+  }
+
+  // And built for the host where its library is a proc-macro, and for the
+  // target too in case it has more targets; or, its library not one, where
+  // dev targets are built and one of them is, which pulls the library along.
+  builtKinds(key) {
+    const { procMacro, procMacroTarget } = this.graph.packages[key].manifest
+    return procMacro || (procMacroTarget && this.dev) ? ['normal', 'host'] : ['normal']
   }
 
   resolveRoot(key, values) {
@@ -287,7 +295,7 @@ class FeatureResolver {
   result(built) {
     const libraries = built.map((key) => [key, this.graph.packages[key].manifest.procMacro ? 'host' : 'normal'])
     this.reach(libraries, (key, dep) => this.checkNamed(key, dep))
-    const reached = this.reach(built.flatMap((key) => this.kindsOf(key).map((fk) => [key, fk])), () => true)
+    const reached = this.reach(built.flatMap((key) => this.builtKinds(key).map((fk) => [key, fk])), () => true)
     const result = Object.create(null)
     for (const key of Object.keys(this.graph.packages)) {
       const [normal, host] = ['normal', 'host'].map((fk) => (reached.has(`${fk} ${key}`) ? [...this.enabled(key, fk)].sort() : undefined))
