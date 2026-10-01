@@ -3,13 +3,18 @@ import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { describe, it } from 'node:test'
 
-import { compareVersions, intersects, isExactVersion, satisfies, valid, validRange } from '../semver.js'
+import { compareVersions, intersects, isExactVersion, npmSemver, satisfies, valid, validRange } from '../semver.js'
 
 // Against the npm that ships beside the node running this, which every
 // install these tests run on has.
 const semver = createRequire(import.meta.url)(resolve(dirname(process.argv[0]), '../lib/node_modules/npm/node_modules/semver'))
 
 describe("npm's semver, borrowed", () => {
+  it('hands over the module itself', () => {
+    assert.equal(npmSemver().SemVer, semver.SemVer)
+    assert.equal(npmSemver().clean(' =v1.2.3 ', true), '1.2.3')
+  })
+
   it("answers as semver does, options and all", () => {
     assert.equal(satisfies('4.17.20', '<4.17.21'), true)
     assert.equal(satisfies('4.17.21', '<4.17.21'), false)

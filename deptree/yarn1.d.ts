@@ -207,14 +207,22 @@ export interface Yarn1Tree {
 // directory that differ only in case or normalization are refused, as
 // they would be one name there.
 //
-// Packages come from https://registry.yarnpkg.com/ or
-// https://registry.npmjs.org/ alone, which serve the same tarballs,
-// fetched from the second through @preventive/upstream; each by a semver
+// Packages come from npm's registry alone: each lockfile entry's
+// `resolved` has to be the registry's own URL of its tarball, exactly as
+// npm spells it, https://registry.npmjs.org/<name>/-/<base>-<version>.tgz
+// (a `#` and the sha1 after it aside), or that same URL on yarn's mirror,
+// https://registry.yarnpkg.com/, which is taken for npm's; it is fetched
+// from npm's through @preventive/upstream. Each is asked for by a semver
 // range, an `npm:` alias, or a tag — the last only where the project is
 // given, and a directory of the project of that name is not there, which
 // yarn would install instead, and only where yarn would not have two
 // requests of tags wait on the filesystem at once, which it answers in no
 // set order.
+//
+// Ranges and versions are read with npm's own semver, borrowed from the
+// npm beside node as @preventive/upstream borrows it, without which this
+// throws. yarn 1.22 reads them with the semver 5.5.0 it bundles, which
+// reads alike all but the edges of what a range may spell.
 //
 // Nothing is left to a guess: a lockfile the lockfile reader refuses, a
 // setting this does not know or does not build for, a package from

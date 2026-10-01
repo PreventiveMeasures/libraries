@@ -13,7 +13,7 @@
 import { parseYarn1Lockfile } from '@preventive/lockfile/yarn1.js'
 import { Vfs, VfsError } from '@preventive/vfs'
 import { dirname, relative } from '@preventive/vfs/path.js'
-import semver from 'semver'
+import { npmSemver } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { checkNoModules, mount } from '../mount.js'
 import { checkCollisions } from '../pnpm/checks.js'
@@ -74,7 +74,7 @@ function locationOf(names, workspaces) {
 
 // The lockfile resolved as yarn resolves it for the project: the
 // workspaces, the root's patterns, and resolve.js's result.
-function resolveProject(inputs, host) {
+function resolveProject(inputs, host, semver) {
   const lockfile = parseYarn1Lockfile(inputs.lockfile, { manifests: Object.fromEntries(inputs.manifests), semver })
   const manifests = new Map([...inputs.manifests].map(([dir, manifest]) => [dir, fixLists(manifest)]))
   const root = manifests.get('.')
@@ -93,7 +93,7 @@ function resolveProject(inputs, host) {
 // read; then each the host cannot run left out where it is optional, and
 // refused where it is not, as yarn fails on it. By reference, each one's
 // package.json as yarn reads it, a workspace's its own.
-async function fetchChecked(resolved, host, settings) {
+async function fetchChecked(resolved, host, settings, semver) {
   // What yarn's resolver hands its fetcher, in its order: each reference
   // its patterns name, once.
   const order = [...new Set(resolved.patterns.values())]
@@ -118,7 +118,7 @@ async function fetchChecked(resolved, host, settings) {
 // The tree as yarn hoists it, flat: each package by where it goes, in the
 // order yarn sorts them, by the absolute paths it compares, all under the
 // lockfile's directory.
-function layout({ resolved, manifestOf, topPatterns, workspaces }) {
+function layout({ resolved, manifestOf, topPatterns, workspaces }, semver) {
   resolvePeers(resolved, manifestOf, semver)
   const hoister = new Hoister(resolved.patterns, (ref) => Object.keys(manifestOf.get(ref)?.peerDependencies ?? {}))
   hoister.seed(topPatterns)
@@ -184,9 +184,12 @@ export async function buildYarn1Tree(options) {
   // Refused before anything is fetched; mount checks again.
   if (into !== undefined) checkNoModules(into, folded)
   checkRoot(inputs.manifests.get('.'))
-  const { workspaces, topPatterns, resolved } = resolveProject(inputs, host)
-  const { order, fetched, manifestOf } = await fetchChecked(resolved, host, inputs.settings)
-  const placed = layout({ resolved, manifestOf, topPatterns, workspaces })
+  // yarn reads ranges with the semver it bundles; npm's own is borrowed,
+  // as @preventive/upstream borrows it.
+  const semver = npmSemver()
+  const { workspaces, topPatterns, resolved } = resolveProject(inputs, host, semver)
+  const { order, fetched, manifestOf } = await fetchChecked(resolved, host, inputs.settings, semver)
+  const placed = layout({ resolved, manifestOf, topPatterns, workspaces }, semver)
   const { vfs, links, locations, files, bytes } = writeTree(placed, fetched)
   markBins(vfs, { placed, patterns: resolved.patterns, fetched, locations, realOf: (path) => realOf(links, path) })
   if (folded) checkCollisions(vfs)

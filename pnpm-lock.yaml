@@ -48,9 +48,6 @@ importers:
       '@preventive/vfs':
         specifier: 1.0.0-beta.1
         version: link:../vfs
-      semver:
-        specifier: 5.5.0
-        version: 5.5.0
 
   diff: {}
 
@@ -222,10 +219,6 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
-  semver@5.5.0:
-    resolution: {integrity: sha512-4SJ3dm0WAwWy/NVeioZh5AntkdJoWKxHxcmyP622fOkgHa4z3R0TdBJICINyaSDE6uNwVc8gZr+ZinwZAH4xIA==, tarball: https://registry.npmjs.org/semver/-/semver-5.5.0.tgz}
-    hasBin: true
-
   undici@8.10.2:
     resolution: {integrity: sha512-/y4/bH9YNU5hi9NIrpOuvGXFcxrj3CMrV+/AYpowAYTpHn8gX/XPFjNy766FPoYY0miQhdW977JFWKGNhBdwyQ==, tarball: https://registry.npmjs.org/undici/-/undici-8.10.2.tgz}
     engines: {node: '>=22.19.0'}
@@ -316,7 +309,5 @@ snapshots:
       '@oxlint/binding-win32-x64-msvc': 1.82.0
 
   playwright-core@1.63.0: {}
-
-  semver@5.5.0: {}
 
   undici@8.10.2: {}

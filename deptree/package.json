@@ -87,7 +87,6 @@
     "@preventive/diff": "^1.0.0",
     "@preventive/lockfile": "1.0.0-alpha.1",
     "@preventive/upstream": "1.0.0-alpha.1",
-    "@preventive/vfs": "1.0.0-beta.1",
-    "semver": "5.5.0"
+    "@preventive/vfs": "1.0.0-beta.1"
   }
 }
