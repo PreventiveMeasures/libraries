@@ -50,8 +50,7 @@ function readNamed(file, read, text) {
   try {
     return read(text)
   } catch (error) {
-    if (error instanceof LockfileError || error instanceof YamlError) throw new DeptreeError(error.message, file, { cause: error })
-    throw error
+    throw error instanceof LockfileError || error instanceof YamlError ? new DeptreeError(error.message, file, { cause: error }) : error
   }
 }
 
