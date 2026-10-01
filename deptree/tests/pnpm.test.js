@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { afterEach, describe, it } from 'node:test'
 import { createVfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, YamlError, buildPnpmTree, findPnpmProjects } from '../pnpm.js'
-import { HOST, stubRegistry, tarball } from './registry.js'
+import { HOST, stubFailingRegistry, stubRegistry, tarball } from './registry.js'
 
 // One small lockfile with a package of every kind this builds — a peer, an
 // alias, a capital in a name, a patch, a dev and an optional dependency,
@@ -203,6 +203,12 @@ describe('buildPnpmTree', () => {
     stubRegistry(TARBALLS)
     const vfs = await build({ workspace: 'supportedArchitectures:\n  os: [current, darwin]\n' })
     assert.equal(vfs.readlink('/node_modules/mac'), '.pnpm/mac@1.0.0/node_modules/mac')
+  })
+
+  it('refuses once every fetch started has ended', async () => {
+    const open = stubFailingRegistry(TARBALLS, 'a', '1.0.0')
+    await assert.rejects(build(), /^DeptreeError: "a@1\.0\.0": /u)
+    assert.equal(open(), 0)
   })
 
   it('counts what it installs', async () => {

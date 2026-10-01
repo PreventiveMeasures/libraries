@@ -18,6 +18,7 @@
     "pnpm.js",
     "yarn1.d.ts",
     "yarn1.js",
+    "src/concurrent.js",
     "src/error.js",
     "src/hash.js",
     "src/matcher.js",

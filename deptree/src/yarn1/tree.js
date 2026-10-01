@@ -15,6 +15,7 @@ import { parseYarn1Lockfile } from '@preventive/lockfile/yarn1.js'
 import { Vfs, VfsError } from '@preventive/vfs'
 import { dirname, relative } from '@preventive/vfs/path.js'
 import { clean, satisfies, valid, validRange } from '@preventive/upstream/semver.js'
+import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote } from '../error.js'
 import { checkNoModules, mount } from '../mount.js'
 import { checkCollisions } from '../pnpm/checks.js'
@@ -28,8 +29,6 @@ import { fetchYarnPackage, registryTarball } from './package.js'
 import { resolvePeers } from './peers.js'
 import { AGGREGATOR, aggregatorOf, rulesOf, topRequests, workspacesOf } from './requests.js'
 import { resolve, splitPattern } from './resolve.js'
-
-const CONCURRENCY = 8
 
 // What a refusal of a reference is about: the first pattern of it.
 const whereOf = (ref) => quote(ref.patterns[0])
@@ -47,27 +46,20 @@ function fetchedName(ref) {
 }
 
 // Each registry reference's files and package.json, a few at a time,
-// every tarball's URL checked before any is fetched; the first failure
-// stops the rest from starting.
+// every tarball's URL checked before any is fetched.
 async function fetchAll(refs) {
   const fetched = new Map()
-  const queue = refs.map((ref) => {
+  const tarballs = refs.map((ref) => {
     const where = whereOf(ref)
     return { ref, where, tarball: registryTarball(ref.entry, fetchedName(ref), where) }
   })
-  let failed = false
-  const worker = async () => {
-    while (queue.length > 0 && !failed) {
-      const { ref, where, tarball } = queue.shift()
-      try {
-        fetched.set(ref, await fetchYarnPackage(tarball, where))
-      } catch (error) {
-        failed = true
-        throw error instanceof DeptreeError ? error : new DeptreeError(error.message, where, { cause: error })
-      }
+  await eachConcurrently(tarballs, async ({ ref, where, tarball }) => {
+    try {
+      fetched.set(ref, await fetchYarnPackage(tarball, where))
+    } catch (error) {
+      throw error instanceof DeptreeError ? error : new DeptreeError(error.message, where, { cause: error })
     }
-  }
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker))
+  })
   return fetched
 }
 
