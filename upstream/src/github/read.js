@@ -48,18 +48,13 @@ export async function getRepoHead(headers, options) {
   return { branch: ref, oid: data.object.sha }
 }
 
-const MAX_TAG_HOPS = 8
-
-// An annotated tag's ref names the tag object, which names the commit, or
-// another tag in turn.
 async function getRepoTag(headers, options) {
   assertArgs('getRepoTag', options, { repo: assertRepo, tag: assertRef })
   const { repo, tag } = options
   const ref = await call(headers, repoApi(repo, ['git', 'ref', 'tags', encodeSegment(tag)]))
   assert.ok(ref?.ref === `refs/tags/${tag}`, `getRepoTag: GitHub answered for ${show(ref?.ref)}, not refs/tags/${tag}`)
   let { object } = ref
-  for (let hops = 0; object?.type === 'tag'; hops++) {
-    assert.ok(hops < MAX_TAG_HOPS && isSha(object.sha), `getRepoTag: ${repo} has no commit for tag ${show(tag)}`)
+  for (let hops = 0; object?.type === 'tag' && isSha(object.sha) && hops < 8; hops++) {
     const annotated = await call(headers, repoApi(repo, ['git', 'tags', object.sha]))
     assert.ok(annotated?.sha === object.sha, `getRepoTag: GitHub answered for another tag object than ${object.sha}`)
     object = annotated.object
