@@ -133,6 +133,7 @@ function readPackage(doc, workspace) {
   const resolver = optional(readResolver)(value.resolver, at(where, 'resolver'))
   if (resolver !== undefined && doc.workspace?.resolver !== undefined) throw new LockfileError('`resolver` is given in [workspace] too', at(where, 'resolver'))
   const links = optional(string)(value.links, at(where, 'links'))
+  if (links !== undefined && value.build === false) throw new LockfileError(`links to ${quote(links)} with no build script, which cargo refuses`, at(where, 'links'))
   return { name: checkName(value.name, at(where, 'name')), version: version ?? '0.0.0', edition, resolver, links }
 }
 

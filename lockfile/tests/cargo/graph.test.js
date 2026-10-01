@@ -216,6 +216,7 @@ describe('linkCargo with an unused [patch]', () => {
     return linkCargo(lock, { 'app 0.1.0': root }, { workspace: root, members: ['app 0.1.0'] })
   }
   const missing = refusedWith('patch["crates-io"].x: the lockfile has no package this patch offers, used or unused: is it out of date?')
+  const stray = 'patch.unused: the lockfile lists "x 1.0.0" unused where no [patch] does: is it out of date?'
 
   it('takes a patch the lockfile lists unused, of a version its requirement takes', () => {
     assert.deepEqual(Object.keys(unused('=1.0.0').packages), ['app 0.1.0'])
@@ -224,7 +225,27 @@ describe('linkCargo with an unused [patch]', () => {
 
   it('refuses a patch the lockfile has no package of, and an unused one no patch offers', () => {
     assert.throws(() => unused(undefined, '{ path = "x" }'), missing)
-    assert.throws(() => unused('1', null), refusedWith('patch.unused: no [patch] offers "x 1.0.0": is the lockfile out of date?'))
+    assert.throws(() => unused('1', null), refusedWith(stray))
+  })
+
+  // The same patch in two tables, which cargo lists unused twice; and an
+  // entry listed twice for one patch, or for a patch that is used.
+  it('takes one unused entry for each patch that is not used, and leaves none', () => {
+    const twice = '\n[[patch.unused]]\nname = "x"\nversion = "1.0.0"\n'.repeat(2)
+    const lock = (packages, entries) => parseCargoLock(`version = 4\n[[package]]\nname = "app"\nversion = "0.1.0"\n${packages}${entries}`)
+    const root = (tables) => parseCargoManifest(`[package]\nname = "app"\nversion = "0.1.0"\n${tables.map((table) => `\n[patch.${table}]\nx = { path = "x" }\n`).join('')}`)
+    const check = (lockfile, manifest, x) => linkCargo(lockfile, { 'app 0.1.0': manifest, ...x }, { workspace: manifest, members: ['app 0.1.0'] })
+    assert.deepEqual(Object.keys(check(lock('', twice), root(['crates-io', '"https://example.com/x"'])).packages), ['app 0.1.0'])
+    assert.throws(() => check(lock('', twice), root(['crates-io'])), refusedWith(stray))
+    const used = parseCargoManifest('[package]\nname = "app"\nversion = "0.1.0"\n\n[dependencies]\nx = "1"\n\n[patch.crates-io]\nx = { path = "x" }\n')
+    const x = { 'x 1.0.0': parseCargoManifest('[package]\nname = "x"\nversion = "1.0.0"\n') }
+    const usedLock = parseCargoLock('version = 4\n[[package]]\nname = "app"\nversion = "0.1.0"\ndependencies = ["x"]\n[[package]]\nname = "x"\nversion = "1.0.0"\n\n[[patch.unused]]\nname = "x"\nversion = "1.0.0"\n')
+    assert.throws(() => check(usedLock, used, x), refusedWith(stray))
+    // Taking 1.0.0 for the patch that takes any version would leave the
+    // other none.
+    const loose = parseCargoManifest('[package]\nname = "app"\nversion = "0.1.0"\n\n[patch.crates-io]\nx = { path = "x" }\n\n[patch."https://example.com/x"]\nx = { path = "y", version = "=1.0.0" }\n')
+    const both = lock('', '\n[[patch.unused]]\nname = "x"\nversion = "1.0.0"\n\n[[patch.unused]]\nname = "x"\nversion = "2.0.0"\n')
+    assert.deepEqual(Object.keys(check(both, loose).packages), ['app 0.1.0'])
   })
 })
 

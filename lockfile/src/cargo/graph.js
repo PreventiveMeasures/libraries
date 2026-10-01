@@ -46,20 +46,29 @@ function readPatches(root) {
 }
 
 // Cargo resolves every patch, used or not, and keeps in the lockfile the
-// package of each: among the packages where it is used, under
-// [[patch.unused]] where not. So each patch has to be one of those, and
-// each unused one a patch's.
+// package of each: among the packages where it is used, and where not, once
+// under [[patch.unused]] for each patch that offers it, so twice for one
+// two tables offer. So each patch is used, or takes an unused entry of its
+// own, and none is left over.
 function checkPatches(lock, identities, patches) {
   const offers = (patch, name, version, identity, source) => name === patch.package && from(patch.identity, identity, source) && within(patch.requirement, version)
   const unused = lock.unusedPatches.map((item) => ({ ...item, identity: item.source === undefined ? PATH : parseLockSource(item.source, 'patch.unused', false).identity }))
+  // Which patch takes each entry, matched so that a patch taking any entry
+  // of its version leaves another patch the one it alone can take.
+  const taker = unused.map(() => undefined)
+  const take = (patch, seen) => unused.some((item, index) => {
+    if (seen.has(index) || !offers(patch, item.name, item.version, item.identity, item.source)) return false
+    seen.add(index)
+    if (taker[index] !== undefined && !take(taker[index], seen)) return false
+    taker[index] = patch
+    return true
+  })
   for (const patch of patches) {
-    const used = Object.entries(lock.packages).some(([key, pkg]) => offers(patch, pkg.name, pkg.version, identities[key], pkg.source))
-    if (!used && !unused.some((item) => offers(patch, item.name, item.version, item.identity, item.source))) {
-      throw new LockfileError('the lockfile has no package this patch offers, used or unused: is it out of date?', patch.where)
-    }
+    if (Object.entries(lock.packages).some(([key, pkg]) => offers(patch, pkg.name, pkg.version, identities[key], pkg.source))) continue
+    if (!take(patch, new Set())) throw new LockfileError('the lockfile has no package this patch offers, used or unused: is it out of date?', patch.where)
   }
-  const stray = unused.find((item) => !patches.some((patch) => offers(patch, item.name, item.version, item.identity, item.source)))
-  if (stray !== undefined) throw new LockfileError(`no [patch] offers ${quote(`${stray.name} ${stray.version}`)}: is the lockfile out of date?`, 'patch.unused')
+  const stray = unused.find((item, index) => taker[index] === undefined)
+  if (stray !== undefined) throw new LockfileError(`the lockfile lists ${quote(`${stray.name} ${stray.version}`)} unused where no [patch] does: is it out of date?`, 'patch.unused')
 }
 
 // Each member a path package of the lockfile, and no two of one name, as a

@@ -186,6 +186,7 @@ describe('parseCargoManifest', () => {
     ['a dependency feature with dep:', edit(ROOT, 'cc = "1"', 'cc = { version = "1", features = ["dep:y"] }'), '["build-dependencies"].cc.features[0]: "dep:y": a dependency\'s feature cannot be `dep:`'],
     ['an optional dev-dependency', edit(ROOT, 'log = { workspace = true }', 'log = { workspace = true, optional = true }'), '["dev-dependencies"].log: a dev-dependency cannot be optional'],
     ['two sources for one name', edit(ROOT, 'libc = "0.2"', 'itoa04 = { package = "itoa", git = "https://example.com/itoa" }'), 'target["cfg(unix)"].dependencies.itoa04: "itoa04" is given another source elsewhere, which cargo refuses'],
+    ['links with no build script', edit(ROOT, 'edition = "2021"', 'edition = "2021"\nlinks = "z"\nbuild = false'), 'package.links: links to "z" with no build script, which cargo refuses'],
     ['two paths for one name', edit(ROOT, 'libc = "0.2"', 'lib = { path = "crates/other", version = "0.2" }'), 'target["cfg(unix)"].dependencies.lib: "lib" is given another source elsewhere, which cargo refuses'],
     ['a path that climbs out and cannot come back to the other', edit(ROOT, 'libc = "0.2"', 'lib = { path = "../crates/other", version = "0.2" }'), 'target["cfg(unix)"].dependencies.lib: "lib" is given another source elsewhere, which cargo refuses'],
     ['a platform that is neither', edit(ROOT, "[target.'cfg(unix)'.dependencies]", "[target.'cfg(unix'.dependencies]"), 'target["cfg(unix"]: "cfg(unix" is neither a target\'s name nor cfg(…)'],
