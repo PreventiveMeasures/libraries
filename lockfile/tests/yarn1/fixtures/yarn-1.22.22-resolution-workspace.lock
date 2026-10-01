@@ -6,6 +6,7 @@ is-number@^6.0.0:
   version "7.0.0"
   dependencies:
     isarray "2.0.5"
+    other "1.0.0"
 
 is-odd@3.0.1:
   version "3.0.1"

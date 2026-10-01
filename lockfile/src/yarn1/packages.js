@@ -247,7 +247,8 @@ function checkRace(pkg, patterns, prior, semver, where) {
 
 const integrities = ({ integrity }) => new Map((integrity?.split(' ') ?? []).map((part) => [part.slice(0, part.indexOf('-')), part]))
 
-const listed = (dependencies) => JSON.stringify(Object.entries(dependencies).sort(([a], [b]) => (a < b ? -1 : 1)))
+// A dependency list, in no order.
+export const listed = (dependencies) => JSON.stringify(Object.entries(dependencies).sort(([a], [b]) => (a < b ? -1 : 1)))
 
 // One tarball, or one commit, is one package: of one version, manifest and
 // the same hashes, whatever entry has it.

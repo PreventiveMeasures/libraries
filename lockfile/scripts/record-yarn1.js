@@ -52,7 +52,8 @@
 //
 // A resolution to a workspace links what it applies to, though yarn writes
 // each such request an entry of the workspace's version and dependencies,
-// resolving nothing: is-odd's is-number@^6.0.0, given is-number@^7.0.0.
+// resolving nothing: is-odd's is-number@^6.0.0, given is-number@^7.0.0,
+// which asks for another workspace.
 //
 // A resolution of what another rewrites applies where yarn resolves it,
 // from the root alone: is-odd/is-number, to the is-number of is-even's
@@ -167,7 +168,8 @@ const ROOT_RESOLUTION = {
 
 const WORKSPACE_RESOLUTION = {
   '.': { name: 'resolution-workspace', version: '0.0.0', private: true, workspaces: ['packages/*'], dependencies: { 'is-odd': '3.0.1', 'to-regex-range': '5.0.1' }, resolutions: { 'is-number': '^7.0.0' } },
-  'packages/is-number': { name: 'is-number', version: '7.0.0', dependencies: { isarray: '2.0.5' } },
+  'packages/is-number': { name: 'is-number', version: '7.0.0', dependencies: { isarray: '2.0.5', other: '1.0.0' } },
+  'packages/other': { name: 'other', version: '1.0.0' },
 }
 
 const NESTED = {

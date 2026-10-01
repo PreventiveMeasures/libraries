@@ -146,7 +146,7 @@ function readWorkspace(dir, manifest, here, globs, semver) {
   const nameAt = at(here, 'name')
   const name = checkName(string(manifest.name, nameAt), nameAt)
   if (manifest.version === undefined) throw new LockfileError('expected a version, without which yarn ignores the workspace', at(here, 'version'))
-  return { name, dir, version: readVersion(manifest.version, at(here, 'version'), semver), manifest }
+  return { name, dir, version: readVersion(manifest.version, at(here, 'version'), semver) }
 }
 
 // Also hands resolutions.js the workspaces by name, and the root's resolutions.

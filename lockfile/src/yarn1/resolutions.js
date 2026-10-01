@@ -6,6 +6,7 @@ import { KINDS } from '../graph.js'
 import { EMPTY } from '../shape.js'
 import { accepts, close, step } from './glob.js'
 import { WHERE } from './importers.js'
+import { listed } from './packages.js'
 
 // yarn asks for a workspace's dependencies via `workspace-aggregator-<uuid>`.
 const AGGREGATOR = 'workspace-aggregator-00000000-0000-0000-0000-000000000000'
@@ -122,9 +123,10 @@ function standsIn(pkg, project, where) {
   if (rule === undefined) return undefined
   const of = `than the workspace ${quote(workspace.dir)}, which the resolution ${quote(rule.path)} gives it`
   if (pkg.version !== workspace.version) throw new LockfileError(`another version ${of}, ${workspace.version}`, at(where, 'version'))
+  // Both read as requests are, a workspace's linked.
+  const importer = project.importers[workspace.dir]
   for (const kind of ['dependencies', 'optionalDependencies']) {
-    const listed = Object.entries(workspace.manifest[kind] ?? EMPTY).filter(([name]) => name !== '//').map(([name, range]) => `${name}@${range}`)
-    if (Object.values(pkg[kind]).sort().join('\n') !== listed.sort().join('\n')) throw new LockfileError(`other ${kind} ${of}`, at(where, kind))
+    if (listed(pkg[kind]) !== listed(importer[kind])) throw new LockfileError(`other ${kind} ${of}`, at(where, kind))
   }
   return rule
 }

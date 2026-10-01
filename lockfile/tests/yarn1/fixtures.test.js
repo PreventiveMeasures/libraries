@@ -160,7 +160,8 @@ describe('a resolution to a workspace, which yarn links, and writes an entry for
   const name = 'yarn-1.22.22-resolution-workspace'
 
   it('is-odd\'s is-number@^6.0.0 linked as to-regex-range\'s is-number@^7.0.0 is, its entry left out', () => {
-    const { packages } = read(name)
+    const { packages, importers } = read(name)
+    assert.equal(importers['packages/is-number'].dependencies.other, 'link:packages/other')
     assert.equal(packages['is-odd@3.0.1'].dependencies['is-number'], 'link:packages/is-number')
     assert.equal(packages['to-regex-range@5.0.1'].dependencies['is-number'], 'link:packages/is-number')
     assert.deepEqual(Object.keys(packages), ['is-odd@3.0.1', 'isarray@2.0.5', 'to-regex-range@5.0.1'])
@@ -169,9 +170,10 @@ describe('a resolution to a workspace, which yarn links, and writes an entry for
   it('refused where the entry is not of the workspace, or without the manifests', () => {
     const stale = text(name).replace('  version "7.0.0"', '  version "6.0.0"')
     assert.throws(() => parse(stale, manifests(name)), { message: '["is-number@^6.0.0"].version: another version than the workspace "packages/is-number", which the resolution "is-number" gives it, 7.0.0' })
-    const other = text(name).replace('    isarray "2.0.5"\n\nis-odd', '    is-odd "3.0.1"\n    isarray "2.0.5"\n\nis-odd')
+    const other = text(name).replace('    isarray "2.0.5"\n', '    is-odd "3.0.1"\n    isarray "2.0.5"\n')
+    assert.notEqual(other, text(name))
     assert.throws(() => parse(other, manifests(name)), { message: '["is-number@^6.0.0"].dependencies: other dependencies than the workspace "packages/is-number", which the resolution "is-number" gives it' })
-    assert.throws(() => parse(text(name)), { message: '["to-regex-range@5.0.1"].dependencies["is-number"]: "is-number@^7.0.0" is not a pattern of the lockfile, nor a workspace\'s, as only the manifests may say' })
+    assert.throws(() => parse(text(name)), { message: '["is-number@^6.0.0"].dependencies.other: "other@1.0.0" is not a pattern of the lockfile, nor a workspace\'s, as only the manifests may say' })
   })
 
   it('refused where the root asks for it too, which the aggregator asks for as the workspace instead', () => {
