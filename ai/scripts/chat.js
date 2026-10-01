@@ -9,7 +9,7 @@ import process from 'node:process'
 import { createInterface } from 'node:readline/promises'
 import { parseArgs, styleText } from 'node:util'
 import {
-  DEFAULT_MODEL, KNOWN_MODELS, ask, closeProvider, getMaxTokens,
+  DEFAULT_MODEL, KNOWN_MODELS, RETRIES, ask, closeProvider, getMaxTokens,
   isRecognizedModel, resolveModel, resolveThinkEffort, setProvider, turnCost,
 } from '../index.js'
 
@@ -28,6 +28,9 @@ positional argument, or piped in on stdin.
       --think           enable thinking
       --effort <level>  low, medium, high, xhigh, max, manual
       --max-tokens <n>  output cap (default: the model's registry value)
+      --retries <n>     re-asks of a failed request (default: ${RETRIES}); a rate
+                        limit or 5xx gets up to n, anything else at most
+                        ${RETRIES}, and 0 turns them off. chrome never retries
       --tools           offer the demo tools below and report what gets called
       --repl            read prompts a line at a time until EOF or Ctrl+C.
                         Each line is its own request — no history is carried
@@ -105,6 +108,7 @@ async function main(argv) {
         model: { type: 'string', short: 'm' },
         provider: { type: 'string', short: 'p' },
         repl: { type: 'boolean' },
+        retries: { type: 'string' },
         system: { type: 'string', short: 's' },
         think: { type: 'boolean' },
         tools: { type: 'boolean' },
@@ -121,6 +125,11 @@ async function main(argv) {
   // a provider error, which reads as the model's fault rather than the
   // spelling's.
   if (!isRecognizedModel(model)) fail(`chat.js: unknown model ${model}. --list shows what the registry knows.\n`)
+
+  // Digits only, rather than whatever Number() makes of it: that reads
+  // `--retries ''` as zero and `--retries 1e3` as a thousand, and ask() would
+  // take either without complaint.
+  if (values.retries !== undefined && !/^\d+$/u.test(values.retries)) fail(`chat.js: --retries takes a whole number, got ${values.retries}\n`)
 
   // --repl reads its prompts from stdin itself, one request per line, so
   // there is nothing to drain here and nothing to insist on.
@@ -176,6 +185,7 @@ async function turn({ model, provider, userContent, values, think }) {
   const { text, error, usage } = await ask({
     model,
     maxTokens: values['max-tokens'] ? Number(values['max-tokens']) : getMaxTokens(model),
+    retries: values.retries ? Number(values.retries) : undefined,
     systemPrompt: values.system ?? 'You are a helpful assistant.',
     userContent,
     tools,

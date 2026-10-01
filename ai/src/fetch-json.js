@@ -16,20 +16,6 @@ export function setFetchConcurrency(limit) {
   queue = new Queue(limit)
 }
 
-// How many times a TRANSIENT upstream failure is re-asked. Everything else keeps the flat RETRIES
-// budget — see fetchJSON. Narrowed at startup, like the concurrency above. A caller's own default
-// lives with the flag that sets it rather than being copied here, so a caller that never calls the
-// setter keeps RETRIES instead of inheriting a second, drifting copy of the number.
-let transientRetries = RETRIES
-
-export function setFetchRetries(n) {
-  // Guarded, because the budget below is a Math.max: handed a non-integer — `parsePositiveInt`
-  // returns undefined for a flag that isn't set — it would evaluate to NaN, `used < NaN` would be
-  // false, and every transient failure would get ZERO retries, the exact inverse of the floor this
-  // is supposed to hold.
-  transientRetries = Number.isSafeInteger(n) && n > 0 ? n : RETRIES
-}
-
 // The failure that ends a long run when the model is fine and the road to it is not: a gateway that
 // cannot reach its upstream right now. It arrives under more than one status — 429 from a rate
 // limiter, 5xx from a proxy, and (seen from the Moonshot route on kimi-k3) a plain 400 whose BODY
@@ -139,7 +125,11 @@ function retryReason(err) {
   return `API ${err.status}: ${err.body.slice(0, LOG_BODY_LIMIT)}…`
 }
 
-export async function fetchJSON(url, options, { debug, label } = {}) {
+// `retries` is how many times a failed request is re-asked, per request rather than per process:
+// one run can hold a batch that should outlast a flaky upstream and an interactive request that
+// should fail at once. Omitted, it is RETRIES. ask() checks it is a count before anything is sent;
+// nothing else reaches this with one.
+export async function fetchJSON(url, options, { debug, label, retries = RETRIES } = {}) {
   await queue.claim()
   try {
     // Each class counts its OWN re-asks. A single shared counter let a transient prelude spend the
@@ -153,20 +143,21 @@ export async function fetchJSON(url, options, { debug, label } = {}) {
         if (!res.ok) {
           // Read outside the throw. Inside the argument list, a body that fails mid-stream (an
           // overloaded gateway dropping the socket after its headers) rejects before the error
-          // exists at all, and the 503 that would have earned the `--retries` budget arrives as a
+          // exists at all, and the 503 that would have earned the `retries` budget arrives as a
           // bare transport failure that does not.
           const body = await res.text().catch(() => '')
           throw new UpstreamError(res.status, body, res.headers.get('retry-after'))
         }
         return await res.json()
       } catch (err) {
-        // A transient upstream failure gets the `--retries` budget and backs off; everything else —
+        // A transient upstream failure gets the `retries` budget and backs off; everything else —
         // a malformed request, a bad key, a dropped socket — keeps the flat second and the two
-        // tries RETRIES gives it. Never FEWER than RETRIES either way, whatever `--retries` says.
+        // tries RETRIES gives it. A larger budget buys only the transient class more; a smaller
+        // one caps both, so `retries: 0` retries nothing at all.
         const transient = err instanceof UpstreamError && isTransientHttpFailure(err.status, err.body)
         const kind = transient ? 'transient' : 'other'
         const attempt = used[kind]
-        const budget = transient ? Math.max(RETRIES, transientRetries) : RETRIES
+        const budget = transient ? retries : Math.min(retries, RETRIES)
         if (attempt < budget) {
           used[kind] = attempt + 1
           const wait = transient ? retryDelayMs(attempt, err.retryAfter) : BASE_DELAY

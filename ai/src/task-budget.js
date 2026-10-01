@@ -18,12 +18,12 @@ export function resolveTaskBudget(model, mode) {
 // `{ request, response, error, failedAttemptResponse }` — `failedAttemptResponse` is non-null when
 // the retry path fired, so the caller can still account for the failed attempt's usage in its
 // running totals.
-export async function issueTurn({ model, maxTokens, systemPrompt, messages, think, effort, tools, label, turn, taskBudgetAlways, taskBudgetOnError, debug }) {
+export async function issueTurn({ model, maxTokens, systemPrompt, messages, think, effort, tools, label, turn, taskBudgetAlways, taskBudgetOnError, debug, retries }) {
   const send = async (useTaskBudget, suffix) => {
     const req = buildRequestBody(model, maxTokens, systemPrompt, messages, { think, effort, tools, taskBudget: useTaskBudget, turn })
     // Not fetchJSON directly: one provider serves its turns out of a browser rather than over HTTP,
     // and which it is belongs to the adapter.
-    const res = await sendRequest(model, req, { taskBudget: useTaskBudget, debug, label: `${label} (turn ${turn}${suffix})` })
+    const res = await sendRequest(model, req, { taskBudget: useTaskBudget, debug, retries, label: `${label} (turn ${turn}${suffix})` })
     return { request: req, response: res }
   }
 
