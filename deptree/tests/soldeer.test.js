@@ -239,6 +239,12 @@ describe('buildSoldeerTree', () => {
     assert.deepEqual(project.readdir('/').sort(), ['dependencies', 'node_modules', 'soldeer.lock', 'soldeer.toml'])
     assert.equal(new TextDecoder().decode(project.readFile('/dependencies/forge-std-1.9.4/a')), 'a')
     await assert.rejects(buildSoldeerTree({ project, host: HOST, vfs: project }), /^DeptreeError: vfs\["\/dependencies"\]: a dependencies folder is there already, which is neither kept beside the tree nor removed$/u)
+    // soldeer.toml is not read where foundry.toml is, whatever it is.
+    const foundry = new Vfs()
+    foundry.writeFile('/foundry.toml', configOf([zip]))
+    foundry.writeFile('/soldeer.lock', lockOf([zip]))
+    foundry.mkdir('/soldeer.toml')
+    assert.equal((await buildSoldeerTree({ project: foundry, host: HOST })).stats.dependencies, 1)
     project.unlink('/soldeer.lock')
     await assert.rejects(buildSoldeerTree({ project, host: HOST }), /^DeptreeError: the project has no soldeer\.lock, without which Soldeer resolves each dependency anew$/u)
   })

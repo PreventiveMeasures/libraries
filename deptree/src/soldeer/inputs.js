@@ -15,7 +15,6 @@ export function checkHost(host) {
   return { soldeer: host.soldeer, os: host.os }
 }
 
-const FILES = { lockfile: 'soldeer.lock', foundry: 'foundry.toml', soldeer: 'soldeer.toml' }
 const LOCKFILE = 'lockfile must be the soldeer.lock text, or left out where project is given'
 
 export function inputsOf(options) {
@@ -26,9 +25,11 @@ export function inputsOf(options) {
     for (const [name, value] of Object.entries({ foundry, soldeer })) {
       if (value !== undefined) throw new TypeError(`${name} must be left out where lockfile is: all are read from project`)
     }
-    const read = Object.fromEntries(Object.entries(FILES).map(([key, file]) => [key, readText(project, `/${file}`, file)]))
-    if (read.lockfile === undefined) throw new DeptreeError('the project has no soldeer.lock, without which Soldeer resolves each dependency anew')
-    return read
+    const lock = readText(project, '/soldeer.lock', 'soldeer.lock')
+    if (lock === undefined) throw new DeptreeError('the project has no soldeer.lock, without which Soldeer resolves each dependency anew')
+    // Soldeer reads soldeer.toml only where it cannot read foundry.toml.
+    const foundryText = readText(project, '/foundry.toml', 'foundry.toml')
+    return { lockfile: lock, foundry: foundryText, soldeer: foundryText === undefined ? readText(project, '/soldeer.toml', 'soldeer.toml') : undefined }
   }
   if (typeof lockfile !== 'string') throw new TypeError(LOCKFILE)
   if (project !== undefined) throw new TypeError('project must be left out where lockfile is given')

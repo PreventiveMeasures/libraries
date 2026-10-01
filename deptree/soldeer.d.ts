@@ -25,9 +25,9 @@ export interface SoldeerHost {
 
 // A view of the project's root, by paths from `/`: a Vfs, or anything
 // with its readdir, lstat, stat and readFile, such as one of a directory
-// on disk, of which only foundry.toml, soldeer.toml and soldeer.lock are
-// read there, each as UTF-8, and refused where it is not. Nothing is
-// written to it.
+// on disk, of which only soldeer.lock, foundry.toml and, where there is
+// no foundry.toml, soldeer.toml are read there, as Soldeer reads them,
+// each as UTF-8, and refused where it is not. Nothing is written to it.
 export interface SoldeerProject {
   readdir(path: string): string[]
   lstat(path: string): { type: NodeType }
