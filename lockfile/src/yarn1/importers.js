@@ -5,6 +5,7 @@ import { LockfileError, at, quote } from '../error.js'
 import { checkName, checkRelative, joinRelative } from '../names.js'
 import { EMPTY, entries, record, string, text, texts } from '../shape.js'
 import { compile, matches } from './glob.js'
+import { linkUnresolved } from './packages.js'
 
 export const KINDS = ['dependencies', 'devDependencies', 'optionalDependencies']
 export const WHERE = 'manifests'
@@ -22,6 +23,13 @@ function fromLockfile(range, dir, where) {
   return `${prefix}${dotted ? './' : ''}${target}`
 }
 
+// yarn links a workspace for a request its version satisfies, entry or not;
+// a range that is that version satisfies it, whatever reads ranges.
+function checkLinked(name, range, workspaces, where) {
+  const workspace = workspaces.get(name)
+  if (workspace?.version === range) throw new LockfileError(`${quote(`${name}@${range}`)} asks for the version of the workspace ${quote(workspace.dir)}, which yarn links instead`, where)
+}
+
 // yarn drops `//`, a comment, from a dependency list, and keeps a name listed
 // twice in one alone.
 function readTargets(manifest, dir, where, packages, workspaces) {
@@ -33,9 +41,12 @@ function readTargets(manifest, dir, where, packages, workspaces) {
       if (name === '//') continue
       if (listed.has(name)) throw new LockfileError(`listed under ${listed.get(name)} too`, here)
       listed.set(name, kind)
-      const pattern = `${checkName(name, here)}@${fromLockfile(string(range, here), dir, here)}`
-      if (pattern in packages) targets[name] = pattern
-      else if (workspaces.has(name)) targets[name] = `link:${workspaces.get(name)}`
+      const target = fromLockfile(string(range, here), dir, here)
+      const pattern = `${checkName(name, here)}@${target}`
+      if (pattern in packages) {
+        checkLinked(name, target, workspaces, here)
+        targets[name] = pattern
+      } else if (workspaces.has(name)) targets[name] = `link:${workspaces.get(name).dir}`
       else throw new LockfileError(`${quote(pattern)} is not a pattern of the lockfile`, here)
     }
     importer[kind] = targets
@@ -112,12 +123,11 @@ function readWorkspace(dir, manifest, here, globs) {
   const nameAt = at(here, 'name')
   const name = checkName(string(manifest.name, nameAt), nameAt)
   if (manifest.version === undefined) throw new LockfileError('expected a version, without which yarn ignores the workspace', at(here, 'version'))
-  text(manifest.version, at(here, 'version'))
-  return name
+  return { name, version: text(manifest.version, at(here, 'version')) }
 }
 
 // Also hands resolutions.js the workspaces by name, and the root's resolutions.
-export function readImporters(manifests, packages) {
+export function readImporters(manifests, packages, unresolved) {
   record(manifests, WHERE)
   const rootAt = at(WHERE, '.')
   const root = manifests['.']
@@ -125,11 +135,17 @@ export function readImporters(manifests, packages) {
   const globs = readGlobs(record(root, rootAt), rootAt)
   const workspaces = new Map()
   for (const [dir, manifest, here] of entries(manifests, WHERE)) {
-    const name = readWorkspace(dir, record(manifest, here), here, globs)
-    if (name === undefined) continue
-    if (workspaces.has(name)) throw new LockfileError(`the name of the workspace ${quote(workspaces.get(name))} too`, at(here, 'name'))
-    workspaces.set(name, dir)
+    const workspace = readWorkspace(dir, record(manifest, here), here, globs)
+    if (workspace === undefined) continue
+    if (workspaces.has(workspace.name)) throw new LockfileError(`the name of the workspace ${quote(workspaces.get(workspace.name).dir)} too`, at(here, 'name'))
+    workspaces.set(workspace.name, { dir, version: workspace.version })
   }
+  for (const pkg of new Set(Object.values(packages))) {
+    for (const kind of ['dependencies', 'optionalDependencies']) {
+      for (const [name, pattern] of Object.entries(pkg[kind])) checkLinked(name, pattern.slice(name.length + 1), workspaces, at(at(at('', pkg.patterns[0]), kind), name))
+    }
+  }
+  linkUnresolved(unresolved, workspaces)
   const importers = Object.create(null)
   for (const [dir, manifest, here] of entries(manifests, WHERE)) importers[dir] = readTargets(manifest, dir, here, packages, workspaces)
   const rules = readResolutions(root.resolutions, at(rootAt, 'resolutions'))

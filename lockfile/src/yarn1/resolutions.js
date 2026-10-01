@@ -47,7 +47,7 @@ function checkApplied(packages, { importers, workspaces, rules }, explained) {
   }
   const initial = tests.map((item) => close(item, 1))
   for (const kind of KINDS) for (const alias of Object.keys(root[kind])) request(root, kind, alias, initial)
-  for (const [name, dir] of workspaces) enqueue(importers[dir], consume(consume(initial, AGGREGATOR), name))
+  for (const [name, { dir }] of workspaces) enqueue(importers[dir], consume(consume(initial, AGGREGATOR), name))
   // yarn resolves each resolution's own pattern from the root too.
   for (const item of rules) if (item.pattern in packages) enqueue(packages[item.pattern], consume(initial, item.name))
   while (queue.length > 0) {

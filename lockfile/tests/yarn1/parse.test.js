@@ -10,6 +10,7 @@ import { LockfileError, parseYarn1Lockfile } from '../../yarn1.js'
 
 const I = 'sha512-z4PhNX7vuL3xVChQ1m2AB9Yg5AULVxXcg/SpIdNs6c5H0NE8XYXysP+DGNKHfuwvY7kxvUdBeoGlODJ6+SfaPg=='
 const H = '0123456789abcdef0123456789abcdef01234567'
+const I2 = `sha512-${Buffer.alloc(64, 1).toString('base64')}`
 const H1 = `sha1-${Buffer.from(H, 'hex').toString('base64')}`
 const C = 'fedcba9876543210fedcba9876543210fedcba98'
 
@@ -68,6 +69,9 @@ const MANIFESTS = {
   },
   w: { name: 'w', version: '1.0.0', dependencies: { a: '^1.1.0' } },
 }
+
+// A key as yarn writes it: quoted where yarn's maybeWrap quotes it.
+const keyed = (key) => (/[:\s\\",[\]]/u.test(key) ? JSON.stringify(key) : key)
 
 // BASE with each `[from, to]` replaced, once; `from` has to be there.
 function edit(...edits) {
@@ -194,6 +198,33 @@ describe('what else yarn writes is read', () => {
     }
   })
 
+  it('a repository of a git host, by its tarball or by ssh, as yarn fetches it', () => {
+    const resolved = [
+      ['github:u/e#v3', `https://codeload.github.com/u/e/tar.gz/${C}`],
+      ['u/e#v3', `https://codeload.github.com/u/e/tar.gz/${C}`],
+      ['github:u/e.git#v3', `git+ssh://git@github.com/u/e.git#${C}`],
+      ['gitlab:u/e#v3', `https://gitlab.com/u/e/repository/archive.tar.gz?ref=${C}`],
+      ['bitbucket:u/e#v3', `https://bitbucket.org/u/e/get/${C}.tar.gz`],
+      ['gist:abc#v3', `https://gist.github.com/abc.git#${C}`],
+    ]
+    for (const [range, url] of resolved) {
+      const packages = read([`"e@git+https://example.com/e.git#v3":\n  version "3.0.0"\n  resolved "git+https://example.com/e.git#${C}"`, `${keyed(`e@${range}`)}:\n  version "3.0.0"\n  resolved "${url}"`])
+      assert.ok(packages[`e@${range}`].resolution, range)
+    }
+  })
+
+  it('a registry\'s tarball with an integrity alone, as other tools rewrite it, from another registry, or by an older spelling', () => {
+    assert.equal(read([`b-1.0.0.tgz#${H}"\n  integrity ${H1}\n\n"d`, `b-1.0.0.tgz"\n  integrity ${H1}\n\n"d`])['b@1.0.0'].resolution.sha1, undefined)
+    assert.equal(read([`"https://registry.yarnpkg.com/b/-/b-1.0.0.tgz#${H}"\n  integrity ${H1}\n\n"d`, `"https://npm.example.com/b.tgz#${H}"\n  integrity ${H1}\n\n"d`])['b@1.0.0'].resolution.tarball, 'https://npm.example.com/b.tgz')
+    assert.equal(read(['/@s/c/-/c-2.1.0.tgz', '/@s%2fc/-/c-2.1.0.tgz'])['@s/c@^2.0.0'].resolution.tarball, 'https://registry.yarnpkg.com/@s%2fc/-/c-2.1.0.tgz')
+  })
+
+  it('a tag or an alias beside another entry of its name and version, which yarn does not give either', () => {
+    const tagged = read(['"f@https://example.com/f.tgz":', `f@latest:\n  version "4.0.0"\n  resolved "https://registry.yarnpkg.com/f/-/f-4.0.0.tgz#${H}"\n\n"f@https://example.com/f.tgz":`])
+    assert.notEqual(tagged['f@latest'], tagged['f@https://example.com/f.tgz'])
+    assert.ok(read(['"l@link:./l":', `"my-b@https://example.com/b.tgz":\n  version "1.0.0"\n  resolved "https://example.com/b.tgz#${H}"\n\n"l@link:./l":`])['my-b@https://example.com/b.tgz'])
+  })
+
   it('a resolution nothing asks for, which yarn records all the same', () => {
     const text = edit(['b@1.0.0:', `z@1.0.0:\n  version "1.0.0"\n  resolved "https://registry.yarnpkg.com/z/-/z-1.0.0.tgz#${H}"\n\nb@1.0.0:`])
     assert.equal(parseYarn1Lockfile(text, { ...MANIFESTS, '.': { ...MANIFESTS['.'], resolutions: { z: '1.0.0' } } }).packages['z@1.0.0'].version, '1.0.0')
@@ -227,6 +258,12 @@ describe('with the manifests', () => {
     const others = Object.fromEntries(Object.entries(root.dependencies).filter(([name]) => name !== 'w'))
     refuses(BASE, 'nothing asks for it: no manifest, no package and no resolution', '["a@^1.1.0"]', { '.': { ...root, dependencies: others } })
     refuses(edit(['"@s/c@^2.0.0":', '"@s/c@^1.0.0", "@s/c@^2.0.0":']), 'nothing asks for it: no manifest, no package and no resolution', '["@s/c@^1.0.0"]', MANIFESTS)
+  })
+
+  it('a package\'s dependency on a workspace, which yarn links and writes no entry for', () => {
+    const text = edit(['    b "1.0.0"\n\nb@', '    b "1.0.0"\n    w "^1.0.0"\n\nb@'])
+    assert.equal(lock(text, MANIFESTS).packages['a@^1.0.0'].dependencies.w, 'link:w')
+    refuses(edit(['    b "1.0.0"\n\nb@', '    b "1.0.0"\n    x "^1.0.0"\n\nb@']), '"x@^1.0.0" is not a pattern of the lockfile', '["a@^1.0.0"].dependencies.x', MANIFESTS)
   })
 
   it('refuses a dependency the lockfile has no pattern for', () => {
@@ -263,6 +300,13 @@ describe('with the manifests', () => {
     refuses(BASE, found, 'manifests["node_modules/x"]', { ...withRoot({ workspaces: ['w', 'node_modules/x'] }), 'node_modules/x': { name: 'x', version: '1.0.0' } })
     refuses(BASE, 'expected a version, without which yarn ignores the workspace', 'manifests.w.version', { ...MANIFESTS, w: { name: 'w', dependencies: { a: '^1.1.0' } } })
     refuses(BASE, "a workspace's, which yarn does not read", 'manifests.w.resolutions', { ...MANIFESTS, w: { ...MANIFESTS.w, resolutions: {} } })
+  })
+
+  it('refuses an entry of a workspace\'s name and version, as yarn links the workspace', () => {
+    const w = `w@1.0.0:\n  version "1.0.0"\n  resolved "https://registry.yarnpkg.com/w/-/w-1.0.0.tgz#${H}"\n\n"l@link:./l":`
+    const message = '"w@1.0.0" asks for the version of the workspace "w", which yarn links instead'
+    refuses(edit(['"l@link:./l":', w]), message, 'manifests["."].dependencies.w', MANIFESTS)
+    refuses(edit(['"l@link:./l":', w], ['    b "1.0.0"\n\nb@', '    b "1.0.0"\n    w "1.0.0"\n\nb@']), message, '["a@^1.0.0"].dependencies.w', MANIFESTS)
   })
 
   it('refuses a dependency in two lists, or a list yarn does not read', () => {
@@ -305,7 +349,7 @@ describe('refuses what yarn does not write, with the line', () => {
     refuses(edit(['  uid ""', '  uid null']), '"null" is bare, and read as null by some readers at line 38')
     refuses(edit(['  uid ""', '  uid nullish']), '"nullish" is bare, and read as null by some readers at line 38')
     refuses(edit(['  uid ""', '  uid "null"']), '"null" is quoted, where yarn writes it bare at line 38')
-    const named = edit(['b@1.0.0:', 'null@1:\n  version "1.0.0"\n  resolved "https://registry.yarnpkg.com/null/-/null-1.0.0.tgz"\n\nb@1.0.0:'])
+    const named = edit(['b@1.0.0:', `null@1:\n  version "1.0.0"\n  resolved "https://registry.yarnpkg.com/null/-/null-1.0.0.tgz#${H}"\n\nb@1.0.0:`])
     assert.equal(parseYarn1Lockfile(named).packages['null@1'].name, 'null')
   })
 
@@ -404,6 +448,46 @@ describe('refuses an entry yarn does not write, or installs otherwise', () => {
     strays(edit(['  version "0.1.0"', `  version "0.1.0"\n  resolved "file:d.tgz#${H}"`]), 'd@file:./d')
     strays(edit(['  resolved "git+https://example.com/e.git#', '  resolved "git+https://example.com/x.git#']), 'e@git+https://example.com/e.git#v3')
     strays(edit([`  resolved "https://example.com/f.tgz#${H}"`, `  resolved "https://example.com/g.tgz#${H}"`]), 'f@https://example.com/f.tgz')
+    strays(edit(['  version "0.1.0"', `  version "0.1.0"\n  resolved "file:./d#${H}"`]), 'd@file:./d')
+    strays(edit(['"l@link:./l":\n  version "0.0.0"\n  uid ""', '"l@file:vendor/l.tgz":\n  version "0.0.0"']), 'l@file:vendor/l.tgz')
+    const host = (range, url) => strays(edit([`"e@git+https://example.com/e.git#v3":\n  version "3.0.0"\n  resolved "git+https://example.com/e.git#${C}"`, `${keyed(`e@${range}`)}:\n  version "3.0.0"\n  resolved "${url}"`]), `e@${range}`)
+    host('github:u/e#v3', `https://codeload.github.com/u/f/tar.gz/${C}`)
+    host('github:u/e#v3', 'https://codeload.github.com/u/e/tar.gz/v3')
+    host('u/e#v3', `git+ssh://git@github.com/v/e.git#${C}`)
+    host('gitlab:u/e#v3', `https://codeload.github.com/u/e/tar.gz/${C}`)
+    host('gist:abc#v3', `https://gist.github.com/xyz.git#${C}`)
+  })
+
+  it('patterns of directories yarn writes an entry for each of', () => {
+    refuses(edit(['"d@file:./d":', '"d@file:./d", "d@file:./e":']), '"d@file:./d" and "d@file:./e" share an entry, where yarn writes one for each', '["d@file:./d"]')
+    refuses(edit(['"l@link:./l":', '"l@link:./l", "l@link:l":']), '"l@link:./l" and "l@link:l" share an entry, where yarn writes one for each', '["l@link:./l"]')
+    refuses(edit(['"d@file:./d":', '"d@file:./d", "d@link:./d":']), '"d@file:./d" and "d@link:./d" share an entry, where yarn writes one for each', '["d@file:./d"]')
+    refuses(edit(['"e@git', '"d@file:d":\n  version "0.1.0"\n\n"e@git']), 'resolves as "d@file:./d" does, which yarn writes as one entry', '["d@file:d"]')
+  })
+
+  it('a tarball of the registry for another package or version, or of no hash', () => {
+    refuses(edit([`b/-/b-1.0.0.tgz#${H}"\n  integrity ${H1}\n\n"d`, `c/-/c-1.0.0.tgz#${H}"\n  integrity ${H1}\n\n"d`]), '"https://registry.yarnpkg.com/c/-/c-1.0.0.tgz" is not the registry\'s tarball of b@1.0.0', '["b@1.0.0"].resolved')
+    refuses(edit(['  version "1.1.0"', '  version "1.2.0"']), '"https://registry.yarnpkg.com/a/-/a-1.1.0.tgz" is not the registry\'s tarball of a@1.2.0', '["a@^1.0.0"].resolved')
+    refuses(edit(['/@s/c/-/c-2.1.0.tgz', '/@s/c/-/s-c-2.1.0.tgz']), '"https://registry.yarnpkg.com/@s/c/-/s-c-2.1.0.tgz" is not the registry\'s tarball of @s/c@2.1.0', '["@s/c@^2.0.0"].resolved')
+    const none = 'a tarball with no hash, neither a sha1 after "#" nor an integrity, where yarn writes the sha1'
+    refuses(edit([`b-1.0.0.tgz#${H}"\n  integrity ${H1}\n\n"d`, 'b-1.0.0.tgz"\n\n"d']), none, '["b@1.0.0"].resolved')
+    refuses(edit([`f.tgz#${H}"`, 'f.tgz"']), none, '["f@https://example.com/f.tgz"].resolved')
+  })
+
+  it('two entries of one name and version, of which yarn gives a range of the registry whichever it resolves first', () => {
+    const b = `"b@https://example.com/b.tgz":\n  version "1.0.0"\n  resolved "https://example.com/b.tgz#${H}"\n\n"l@link:./l":`
+    refuses(edit(['"l@link:./l":', b]), 'is b 1.0.0, as "b@1.0.0" is, and yarn gives "b@1.0.0" whichever it resolves first', '["b@https://example.com/b.tgz"]')
+    const f = `f@^4.0.0:\n  version "4.0.0"\n  resolved "https://registry.yarnpkg.com/f/-/f-4.0.0.tgz#${H}"\n\n"f@https://example.com/f.tgz":`
+    refuses(edit(['"f@https://example.com/f.tgz":', f]), 'is f 4.0.0, as "f@^4.0.0" is, and yarn gives "f@^4.0.0" whichever it resolves first', '["f@https://example.com/f.tgz"]')
+  })
+
+  it('entries of one tarball, of another version or hash', () => {
+    const g = (version, hash) => edit(['"l@link:./l":', `"g@https://example.com/f.tgz":\n  version "${version}"\n  resolved "https://example.com/f.tgz#${hash}"\n\n"l@link:./l":`])
+    refuses(g('4.0.1', H), 'another version than "f@https://example.com/f.tgz", of the same tarball', '["g@https://example.com/f.tgz"].version')
+    refuses(g('4.0.0', C), 'another sha1 than "f@https://example.com/f.tgz", of the same tarball', '["g@https://example.com/f.tgz"].resolved')
+    refuses(edit([`  integrity ${H1}\n\n"d`, `  integrity "${H1} ${I}"\n\n"d`], [`  integrity ${H1}\n`, `  integrity "${H1} ${I2}"\n`]), 'another sha512 integrity than "b@1.0.0", of the same tarball', '["my-b@npm:b@1.0.0"].integrity')
+    const e = edit(['"f@https://example.com/f.tgz":', `"e2@git+https://example.com/e.git#v3":\n  version "3.0.1"\n  resolved "git+https://example.com/e.git#${C}"\n\n"f@https://example.com/f.tgz":`])
+    refuses(e, 'another version than "e@git+https://example.com/e.git#v3", of the same commit', '["e2@git+https://example.com/e.git#v3"].version')
   })
 
   it('two entries of one name and resolved, which yarn writes as one, but not as it spells a path', () => {
@@ -428,7 +512,7 @@ describe('refuses an entry yarn does not write, or installs otherwise', () => {
   })
 
   it('a dependency whose pattern is not there, or listed twice', () => {
-    refuses(edit(['    b "1.0.0"\n\nb@', '    b "^1.0.0"\n\nb@']), '"b@^1.0.0" is not a pattern of the lockfile', '["a@^1.0.0"].dependencies.b')
+    refuses(edit(['    b "1.0.0"\n\nb@', '    b "^1.0.0"\n\nb@']), '"b@^1.0.0" is not a pattern of the lockfile, nor a workspace\'s, as only the manifests may say', '["a@^1.0.0"].dependencies.b')
     refuses(edit(['    b "1.0.0"\n\nb@', '    b "1.0.0"\n  optionalDependencies:\n    b "1.0.0"\n\nb@']), 'listed under dependencies too', '["a@^1.0.0"].optionalDependencies.b')
     refuses(edit(['    b "1.0.0"\n\nb@', '    B! "1.0.0"\n\nb@']), '"B!" is not a package name', '["a@^1.0.0"].dependencies["B!"]')
   })
@@ -445,6 +529,7 @@ describe('refuses an entry yarn does not write, or installs otherwise', () => {
     refuses(edit([`"https://example.com/f.tgz#${H}"`, '"file:/vendor/f.tgz"']), '"/vendor/f.tgz" is not a relative path in normal form', at('f@https://example.com/f.tgz'))
     refuses(edit([`"https://example.com/f.tgz#${H}"`, '"file:vendor/../f.tgz"']), '"vendor/../f.tgz" is not a relative path in normal form', at('f@https://example.com/f.tgz'))
     refuses(edit(['  resolved "https://example.com/f.tgz', '  resolved "https://example.com:x/f.tgz']), '"https://example.com:x/f.tgz" is not an http(s) URL, a file: path or a git URL', at('f@https://example.com/f.tgz'))
+    refuses(edit(['  resolved "https://example.com/f.tgz', '  resolved "https://example.com/f .tgz']), '"https://example.com/f .tgz" is not an http(s) URL, a file: path or a git URL', at('f@https://example.com/f.tgz'))
   })
 
   it('an integrity yarn does not check, or that names another sha1', () => {
@@ -476,6 +561,12 @@ describe('a resolution to a source, where it applies to every request', () => {
       assert.equal(packages['b@1.0.0'], packages[`b@${URL}`], JSON.stringify(resolutions))
       assert.deepEqual(packages['b@1.0.0'].resolution, { type: 'tarball', tarball: URL, sha1: H, integrity: H1 })
     }
+  })
+
+  it('reads one to a repository of a git host, whose tarball has no hash', () => {
+    const tarball = `https://codeload.github.com/u/b/tar.gz/${C}`
+    const text = edit(['b@1.0.0:', 'b@1.0.0, "b@github:u/b#v1":'], [`"https://registry.yarnpkg.com/b/-/b-1.0.0.tgz#${H}"\n  integrity ${H1}\n\n"d`, `"${tarball}"\n\n"d`])
+    assert.equal(parseYarn1Lockfile(text, resolving({ b: 'github:u/b#v1' })).packages['b@1.0.0'].resolution.tarball, tarball)
   })
 
   it('refuses one that does not apply along a path it is asked for by', () => {

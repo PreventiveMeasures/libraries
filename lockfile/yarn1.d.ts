@@ -9,19 +9,28 @@
 // the header, the markers of a merge conflict.
 //
 // So is a lockfile that contradicts itself, or that yarn installs
-// otherwise than it says: a pattern twice, a dependency whose pattern is
-// not there, a sha1 integrity that is not the one after `resolved`'s `#`,
-// two integrities of one algorithm, a uid that is the version, line ends
-// of both kinds; a pattern that names a tarball, a directory or a
-// repository and resolved from another, registry patterns of one entry
-// that ask for two packages, and two entries of one name and `resolved`,
-// which yarn writes as one; an entry whose patterns give it two names, which
-// yarn 1.22.21 and earlier write for one tarball, and any `name`, which
-// they go on to write, as yarn installs such a package under one of its
-// names alone; and an entry that gives a pattern asking for the registry a
-// tarball, a directory or a repository that another pattern names, as
-// yarn does for a dependency on one with the same name and version. No
-// range is held to the version it resolved to.
+// otherwise than it says, and line ends of both kinds. Within an entry: a
+// pattern twice, a dependency whose pattern is not there, but for a
+// workspace the manifests name, two integrities of one algorithm, a sha1
+// integrity that is not the one after `resolved`'s `#`, a uid that is the
+// version, and a tarball with no hash at all; a pattern that resolved
+// from another source than it names, as yarn picks a resolver for it: a
+// tarball's URL or path, a repository at a commit, a git host's
+// `user/repo` by its tarball or by ssh, nothing for a directory; `file:`
+// patterns of two directories, or a `link:` beside another; registry
+// patterns that ask for two packages, or a tarball of npm's registry, or
+// yarn's, of another package or version than the entry's. An entry whose
+// patterns give it two names, which yarn 1.22.21 and earlier write for one
+// tarball, and any `name`, which they go on to write, as yarn installs
+// such a package under one of its names alone; an entry that gives a
+// pattern asking for the registry a tarball, a directory or a repository
+// that another pattern names, as yarn does for a dependency on one with
+// the same name and version. Across entries: two of one name and
+// `resolved`, or of one name and directory, which yarn writes as one; two
+// of one tarball or commit, of two versions or hashes; and two of one
+// name and version where a range of the registry asks for either, as yarn
+// gives it whichever it resolves first. No range is held to the version
+// it resolved to.
 //
 // A yarn.lock does not say which projects ask for what: `manifests` does,
 // by directory from the lockfile's, `.` for the one beside it and the
@@ -32,7 +41,8 @@
 // private root, found by its `workspaces` outside node_modules, with a
 // name and a version, and no `resolutions`; a manifest has no dependency
 // in two lists, nor a list yarn only warns of, `devdependencies` and the
-// like. Without them, `importers` is undefined.
+// like; and no entry is of a workspace's name and its very version, as
+// yarn links the workspace. Without them, `importers` is undefined.
 //
 // A resolution to a tarball, a directory or a repository shares its entry
 // with the patterns it was applied to, which ask for the registry, and is
@@ -62,8 +72,8 @@ export class LockfileError extends Error {
 // absent one reads as undefined. Each is in the order the lockfile, or the
 // manifest, has it.
 
-// What a dependency leads to: a pattern, a key of `packages`; or, from a
-// manifest, `link:` and the directory of a workspace, as yarn links it.
+// What a dependency leads to: a pattern, a key of `packages`; or `link:`
+// and the directory of a workspace, as yarn links it.
 export type Target = string
 
 export interface Yarn1Lockfile {
@@ -96,9 +106,11 @@ export interface Yarn1Package {
   // one: `""` for a `link:`, and a commit or a hash in older lockfiles.
   uid: string | undefined
   resolution: Yarn1Resolution | undefined
-  // By name, the pattern each dependency asks for: a key of `packages`.
-  dependencies: Record<string, string>
-  optionalDependencies: Record<string, string>
+  // By name, what each dependency leads to: the pattern it asks for, or,
+  // where the lockfile has none, a workspace the manifests name, which
+  // yarn links for a range its version satisfies.
+  dependencies: Record<string, Target>
+  optionalDependencies: Record<string, Target>
 }
 
 // Where the package's files come from, as `resolved` says. A tarball is

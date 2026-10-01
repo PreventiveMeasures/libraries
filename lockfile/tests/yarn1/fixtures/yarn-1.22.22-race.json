@@ -1,0 +1,11 @@
+{
+  ".": {
+    "name": "race",
+    "version": "0.0.0",
+    "private": true,
+    "dependencies": {
+      "to-regex-range": "5.0.1",
+      "is-number": "file:./vendor/is-number-7.0.0.tgz"
+    }
+  }
+}

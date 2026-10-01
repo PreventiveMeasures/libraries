@@ -29,6 +29,15 @@
 // its own is given to the project's is-number too, of the same version,
 // which then installs that tarball in place of the registry's.
 //
+// And a race: a project asks for a tarball of is-number 7.0.0 after
+// to-regex-range, whose range of the registry's is-number yarn resolves
+// first, to an entry apart. Asked for in the other order, yarn gives that
+// range the tarball, of the same name and version, under --frozen-lockfile
+// too.
+//
+// A workspace named is-number, of the version to-regex-range asks for, is
+// linked for it, with no entry.
+//
 // Resolutions to a tarball are read where yarn applies them to every
 // request of what they resolve: a URL for is-even's is-odd, and a local
 // tarball for is-number wherever it is asked for, a workspace's own among
@@ -123,6 +132,15 @@ const RESOLVED = workspace({ dependencies: { 'is-even': '1.0.0' }, resolutions: 
 const SHARED = workspace({ dependencies: { 'is-odd': '3.0.1', num: PATCHED }, resolutions: { 'is-number': PATCHED } }, { 'is-odd': '3.0.1' })
 const SCOPED = workspace({ resolutions: { 'ws-a/is-number': PATCHED } }, { 'is-number': '^6.0.0' })
 
+const RACE = {
+  '.': { name: 'race', version: '0.0.0', private: true, dependencies: { 'to-regex-range': '5.0.1', 'is-number': 'file:./vendor/is-number-7.0.0.tgz' } },
+}
+
+const LINKED = {
+  '.': { name: 'linked', version: '0.0.0', private: true, workspaces: ['packages/*'], dependencies: { 'to-regex-range': '5.0.1' } },
+  'packages/is-number': { name: 'is-number', version: '7.0.0' },
+}
+
 const RUNS = [
   { name: 'yarn-1.22.22', yarn: '1.22.22', manifests: WORKSPACE },
   { name: 'yarn-1.22.19', yarn: '1.22.19', manifests: WORKSPACE },
@@ -135,6 +153,8 @@ const RUNS = [
   { name: 'yarn-1.22.22-resolutions', yarn: '1.22.22', manifests: RESOLVED },
   { name: 'yarn-1.22.22-resolution-shared', yarn: '1.22.22', manifests: SHARED },
   { name: 'yarn-1.22.22-resolution-scoped', yarn: '1.22.22', manifests: SCOPED },
+  { name: 'yarn-1.22.22-race', yarn: '1.22.22', manifests: RACE },
+  { name: 'yarn-1.22.22-linked', yarn: '1.22.22', manifests: LINKED },
 ]
 
 function write(dir, name, content) {
@@ -160,6 +180,7 @@ function lay(dir, manifests) {
     pack(dir, { name: 'local-tgz', version: '1.0.0', dependencies: { 'is-number': '^7.0.0' } }, { 'index.js': 'module.exports = 1\n' })
   }
   if ([RESOLUTION, RESOLVED, SHARED, SCOPED].includes(manifests)) pack(dir, { name: 'is-number', version: '6.0.0' }, { 'index.js': 'module.exports = "patched"\n' })
+  if (manifests === RACE) pack(dir, { name: 'is-number', version: '7.0.0' }, { 'index.js': 'module.exports = "patched"\n' })
 }
 
 const only = process.argv.slice(2)

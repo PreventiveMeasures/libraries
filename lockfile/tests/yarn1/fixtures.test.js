@@ -6,12 +6,13 @@ import { LockfileError, parseYarn1Lockfile } from '../../yarn1.js'
 // The baseline: real lockfiles, each with the manifests it was written
 // for, by directory. yarn 1.22.22 and 1.22.19 wrote one workspace that
 // pulls in every kind of dependency yarn 1 records; yarn 1.9.4, 1.22.19
-// and 1.22.22 a plain project; and the last are yarn's two ways of
-// installing something other than its lockfile says, the aliases 1.22.19
-// merges and a resolution's tarball given to a dependency it does not
-// apply to, beside resolutions to tarballs it applies to wherever they are
-// asked for. scripts/record-yarn1.js builds them; its header says what is
-// in them.
+// and 1.22.22 a plain project; yarn 1.22.22 a workspace a package asks
+// for; and the last are yarn's three ways of installing something other
+// than its lockfile says, the aliases 1.22.19 merges, a resolution's
+// tarball given to a dependency it does not apply to, and two entries of
+// one name and version, beside resolutions to tarballs it applies to
+// wherever they are asked for. scripts/record-yarn1.js builds them; its
+// header says what is in them.
 
 const FIXTURES = new URL('fixtures/', import.meta.url)
 const text = (name) => readFileSync(new URL(`${name}.lock`, FIXTURES), 'utf8')
@@ -112,6 +113,13 @@ describe('a plain project, as yarn 1.9.4, 1.22.19 and 1.22.22 write it', () => {
   })
 })
 
+describe('a workspace a package asks for, which yarn links and writes no entry for', () => {
+  it('read with the manifests, and refused without, as nothing else says it is a workspace', () => {
+    assert.equal(read('yarn-1.22.22-linked').packages['to-regex-range@5.0.1'].dependencies['is-number'], 'link:packages/is-number')
+    assert.throws(() => parseYarn1Lockfile(text('yarn-1.22.22-linked')), /"is-number@\^7\.0\.0" is not a pattern of the lockfile, nor a workspace's, as only the manifests may say$/u)
+  })
+})
+
 describe('what yarn installs otherwise than it says is refused', () => {
   it('the workspace as yarn 1.22.19 writes it, an alias in one entry with the package', () => {
     refuses('yarn-1.22.19', '["is-odd@https://registry.npmjs.org/is-odd/-/is-odd-3.0.1.tgz"]: "is-odd@https://registry.npmjs.org/is-odd/-/is-odd-3.0.1.tgz" and "odd-alias@https://registry.npmjs.org/is-odd/-/is-odd-3.0.1.tgz" give it two names, of which yarn installs it under one alone')
@@ -137,6 +145,10 @@ describe('what yarn installs otherwise than it says is refused', () => {
 
   it('a resolution\'s tarball, which a dependency asks for as well', () => {
     refuses('yarn-1.22.22-resolution-shared', '["num@file:./vendor/is-number-6.0.0.tgz"]: asks for what the resolution "is-number" resolves to, as a dependency of its own', `["is-number@^6.0.0"]: ${unresolved}`)
+  })
+
+  it('two entries of is-number 7.0.0, of which yarn gives the registry\'s range whichever it resolves first', () => {
+    refuses('yarn-1.22.22-race', '["is-number@file:./vendor/is-number-7.0.0.tgz"]: is is-number 7.0.0, as "is-number@^7.0.0" is, and yarn gives "is-number@^7.0.0" whichever it resolves first')
   })
 
   it('a resolution of a workspace\'s is-number that does not reach it, as yarn asks through its aggregator', () => {
