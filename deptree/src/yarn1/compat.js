@@ -36,10 +36,10 @@ function isValid(items, actual) {
   return isBlacklist && isNotWhitelist
 }
 
-// yarn's testEngine: yarn's own version taken with its prereleases, and
-// Node's versions before 1.0.0 taken for its majors.
 const LOOSE = { loose: true }
 
+// yarn's testEngine: yarn's own version taken with its prereleases, and
+// Node's versions before 1.0.0 taken for its majors.
 function testEngine(name, range, versions) {
   const actual = versions[name]
   if (!actual || !valid(actual, LOOSE)) return false

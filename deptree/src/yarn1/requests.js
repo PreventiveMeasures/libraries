@@ -22,12 +22,13 @@ const KINDS = ['dependencies', 'devDependencies', 'optionalDependencies']
 export function workspacesOf(manifests) {
   const root = manifests.get('.')
   const workspaces = new Map()
+  const found = new Set()
   for (const glob of globsOf(root)) {
-    const dirs = [...manifests.keys()].filter((dir) => dir !== '.' && matchesGlob(glob, dir))
+    const dirs = [...manifests.keys()].filter((dir) => dir !== '.' && !found.has(dir) && matchesGlob(glob, dir))
     dirs.sort((a, b) => `${a}/package.json`.localeCompare(`${b}/package.json`, 'en'))
     for (const dir of dirs) {
+      found.add(dir)
       const manifest = manifests.get(dir)
-      if ([...workspaces.values()].some((workspace) => workspace.dir === dir)) continue
       const version = clean(manifest.version, { loose: true }) || manifest.version
       workspaces.set(manifest.name, { name: manifest.name, dir, version, manifest })
     }

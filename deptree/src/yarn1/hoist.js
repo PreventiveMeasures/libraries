@@ -13,7 +13,7 @@
 // references' `loc`; where it compares two manifests, the references.
 
 // yarn's sortAlpha: by UTF-16 code units, then by length.
-export function sortAlpha(a, b) {
+function sortAlpha(a, b) {
   const length = Math.min(a.length, b.length)
   for (let i = 0; i < length; i++) {
     if (a[i] !== b[i]) return a[i] < b[i] ? -1 : 1

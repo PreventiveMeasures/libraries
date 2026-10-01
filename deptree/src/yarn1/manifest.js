@@ -5,18 +5,9 @@
 
 import { DeptreeError, quote } from '../error.js'
 
-// A package.json as yarn's readJson reads it: a byte order mark dropped.
-export function readManifest(text, where) {
-  if (typeof text !== 'string') throw new TypeError(`${where} must be the text of a package.json`)
-  let manifest
-  try {
-    manifest = JSON.parse(text.replace(/^﻿/u, ''))
-  } catch (error) {
-    throw new DeptreeError(`not JSON: ${error.message}`, where, { cause: error })
-  }
-  if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) throw new DeptreeError('expected an object', where)
-  return manifest
-}
+// yarn's readJson reads a package.json as pnpm does: a byte order mark
+// dropped.
+export { readManifest } from '../pnpm/projects.js'
 
 // yarn's cleanDependencies: a name in several of the dependency lists kept
 // in the first of optionalDependencies, dependencies and devDependencies,
