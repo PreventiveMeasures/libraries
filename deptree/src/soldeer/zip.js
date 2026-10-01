@@ -29,7 +29,8 @@ const [NTFS, TIMESTAMP, UNICODE_COMMENT, AES] = [0x000a, 0x5455, 0x6375, 0x9901]
 // the archive reader makes room for what each entry declares.
 const MAX_BYTES = 512 * 1024 * 1024
 
-const decoder = new TextDecoder()
+// As the archive reader decodes a name: a leading U+FEFF is part of it.
+const decoder = new TextDecoder('utf-8', { ignoreBOM: true })
 const encoder = new TextEncoder()
 
 const ones = (byte) => [...byte.toString(2)].filter((bit) => bit === '1').length

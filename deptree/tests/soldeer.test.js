@@ -140,9 +140,10 @@ describe('buildSoldeerTree', () => {
     await refused({ name: 'a', data: '', extra: Buffer.from([0x01, 0x99, 0, 0]) }, /: an AES extra field, which has the zip crate decrypt the entry, which Soldeer fails on$/u)
     await refused({ name: 'é', data: '' }, /: a name not flagged UTF-8, which Soldeer reads as CP437, is not supported$/u)
     await refused({ name: '../a', data: '' }, /^DeptreeError: dependencies\["zip-pkg"\]: its zip cannot be read: /u)
-    const fine = [{ name: 'é', data: '', flags: 0x800 }, { name: 'a', data: '', extra: Buffer.concat([timestamp([1, 0, 0, 0, 0]), timestamp([3, 0, 0, 0, 0, 0, 0, 0, 0]), ntfs(1)]) }]
+    // A leading U+FEFF is part of a name, as Soldeer extracts it.
+    const fine = [{ name: 'é', data: '', flags: 0x800 }, { name: '\uFEFFb', data: '', flags: 0x800 }, { name: 'a', data: '', extra: Buffer.concat([timestamp([1, 0, 0, 0, 0]), timestamp([3, 0, 0, 0, 0, 0, 0, 0, 0]), ntfs(1)]) }]
     const { vfs } = await build([dependency('zip-pkg', '2.0.0', fine)])
-    assert.deepEqual(vfs.readdir('/dependencies/zip-pkg-2.0.0').sort(), ['a', 'é'])
+    assert.deepEqual(vfs.readdir('/dependencies/zip-pkg-2.0.0').sort(), ['a', 'é', '\uFEFFb'])
   })
 
   it('refuses a dependency from anywhere but the registry', async () => {
