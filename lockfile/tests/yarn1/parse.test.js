@@ -333,8 +333,18 @@ describe('with the manifests', () => {
     refuses(text, '"x y" is not a package name, or a glob of one', 'manifests["."].resolutions["x y/a"]', withRoot({ resolutions: { 'x y/a': '1.1.0' } }))
   })
 
-  it('refuses a dependency in two lists, or a list yarn does not read', () => {
-    refuses(BASE, 'listed under dependencies too', 'manifests["."].devDependencies.a', withRoot({ devDependencies: { l: 'link:./l', a: '^1.0.0' } }))
+  // yarn's cleanDependencies, as it reads a manifest.
+  it('keeps a dependency in two lists in the first, at the first range that is not "" or "*"', () => {
+    const both = lock(BASE, withRoot({ dependencies: { ...root.dependencies, a: '*' }, devDependencies: { l: 'link:./l', a: '^1.0.0' } })).importers['.']
+    assert.equal(both.dependencies.a, 'a@^1.0.0')
+    assert.equal('a' in both.devDependencies, false)
+    const optional = lock(BASE, withRoot({ devDependencies: { l: 'link:./l', a: '^1.1.0' }, optionalDependencies: { a: '' } })).importers['.']
+    assert.equal(optional.optionalDependencies.a, 'a@^1.0.0')
+    assert.equal('a' in optional.dependencies, false)
+    assert.equal('a' in optional.devDependencies, false)
+  })
+
+  it('refuses a list yarn does not read', () => {
     refuses(BASE, 'a field yarn does not read, for "devDependencies"', 'manifests["."].devdependencies', withRoot({ devdependencies: {} }))
   })
 

@@ -54,23 +54,29 @@ function resolveRequest(request, { packages, workspaces, semver }) {
   return request.pattern
 }
 
-// yarn drops `//`, a comment, from a dependency list, and keeps a name listed
-// twice in one alone.
+// yarn drops `//`, a comment, from a dependency list; and a name listed in
+// more than one it keeps in the first of optionalDependencies, dependencies
+// and devDependencies, at the first of its ranges in that order that is
+// neither '' nor '*', or else at that list's (cleanDependencies).
+const CLEANED = ['optionalDependencies', 'dependencies', 'devDependencies']
+
 function readTargets(manifest, dir, where, context) {
-  const importer = Object.create(null)
   const listed = new Map()
-  for (const kind of KINDS) {
-    const targets = Object.create(null)
+  const ranges = new Map()
+  for (const kind of CLEANED) {
     for (const [name, range, here] of entries(manifest[kind] ?? EMPTY, at(where, kind))) {
       if (name === '//') continue
-      if (listed.has(name)) throw new LockfileError(`listed under ${listed.get(name)} too`, here)
-      listed.set(name, kind)
-      const target = fromLockfile(string(range, here), dir, here)
-      targets[name] = resolveRequest({ name, range: target, pattern: `${checkName(name, here)}@${target}`, where: here }, context)
+      const value = string(range, here)
+      if (!listed.has(name)) listed.set(name, { kind, value, here })
+      if (!ranges.has(name) && value !== '' && value !== '*') ranges.set(name, value)
     }
-    importer[kind] = targets
   }
-  return importer
+  const importer = Object.fromEntries(KINDS.map((kind) => [kind, Object.create(null)]))
+  for (const [name, { kind, value, here }] of listed) {
+    const target = fromLockfile(ranges.get(name) ?? value, dir, here)
+    importer[kind][name] = resolveRequest({ name, range: target, pattern: `${checkName(name, here)}@${target}`, where: here }, context)
+  }
+  return Object.assign(Object.create(null), importer)
 }
 
 // yarn's parsePatternInfo, which ignores a path ending in `/` or `*` or with
