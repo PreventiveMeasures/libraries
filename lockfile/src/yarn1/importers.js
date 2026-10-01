@@ -38,13 +38,18 @@ function checkLinked({ name, range, pattern, where }, workspaces, semver) {
 }
 
 // A request with no entry is for a workspace, which only the manifests name.
-export function linkWorkspace({ name, range, pattern, where }, workspaces, semver) {
+function linkWorkspace({ name, range, pattern, where }, workspaces, semver) {
   const workspace = workspaces?.get(name)
   if (workspace === undefined) throw new LockfileError(`${quote(pattern)} is not a pattern of the lockfile${workspaces === undefined ? ", nor a workspace's, as only the manifests may say" : ''}`, where)
   if (links(workspace, range, semver) === false) {
     throw new LockfileError(`${quote(pattern)} is not a pattern of the lockfile, nor satisfied by the workspace ${quote(workspace.dir)}, ${workspace.version}`, where)
   }
   return `link:${workspace.dir}`
+}
+
+// Every request with no entry, linked; refused where there are no manifests.
+export function linkRequests(requests, packages, workspaces, semver) {
+  for (const request of requests) if (!(request.pattern in packages)) request.targets[request.name] = linkWorkspace(request, workspaces, semver)
 }
 
 // What a request leads to: its entry, or the workspace yarn links for it.
@@ -70,12 +75,13 @@ function readTargets(manifest, dir, where, context) {
       if (!ranges.has(name) && value !== '' && value !== '*') ranges.set(name, value)
     }
   }
-  const importer = Object.fromEntries(KINDS.map((kind) => [kind, Object.create(null)]))
+  const importer = Object.create(null)
+  for (const kind of KINDS) importer[kind] = Object.create(null)
   for (const [name, { kind, value, here }] of listed) {
     const target = fromLockfile(ranges.get(name) ?? value, dir, here)
     importer[kind][name] = resolveRequest({ name, range: target, pattern: `${checkName(name, here)}@${target}`, where: here }, context)
   }
-  return Object.assign(Object.create(null), importer)
+  return importer
 }
 
 // yarn's parsePatternInfo, which ignores a path ending in `/` or `*` or with
@@ -172,7 +178,7 @@ export function readImporters(manifests, packages, requests, semver) {
     workspaces.set(workspace.name, workspace)
   }
   for (const request of requests) if (request.pattern in packages) checkLinked(request, workspaces, semver)
-  for (const request of requests) if (!(request.pattern in packages)) request.targets[request.name] = linkWorkspace(request, workspaces, semver)
+  linkRequests(requests, packages, workspaces, semver)
   const context = { packages, workspaces, semver }
   const importers = Object.create(null)
   for (const [dir, manifest, here] of entries(manifests, WHERE)) importers[dir] = readTargets(manifest, dir, here, context)

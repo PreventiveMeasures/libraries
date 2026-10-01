@@ -6,7 +6,6 @@ import { matches, parseVersion, parseVersionReq } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
 import { EMPTY, entries, record, string } from '../shape.js'
 
-const WHERE = 'config.dependencies'
 const OPTIONS = new Set(['version', 'url', 'git', 'rev', 'branch', 'tag', 'project_root'])
 
 // A folder Soldeer names, on Unix and on Windows, as it runs on either.
@@ -76,7 +75,7 @@ function checkEntry(entry, dependency, where) {
 export function checkConfig(config, dependencies) {
   const table = record(config, 'config').dependencies ?? EMPTY
   const named = new Map()
-  for (const [name, value, here] of entries(table, WHERE)) {
+  for (const [name, value, here] of entries(table, 'config.dependencies')) {
     const dependency = readDependency(value, here)
     // Soldeer refuses two names it would install in one folder.
     claimFolder(named, name, name, here)

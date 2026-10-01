@@ -2,7 +2,6 @@
 // alias, of its dependencies and its optional ones; a `link:` is no key.
 
 import { LockfileError, at } from './error.js'
-import { EMPTY } from './shape.js'
 
 export const KINDS = ['dependencies', 'devDependencies', 'optionalDependencies']
 
@@ -17,7 +16,7 @@ export function checkOptional(dependencies, optionalDependencies, where) {
 export function reach(starts, packages) {
   const reached = new Set()
   const queue = []
-  const visit = (targets = EMPTY) => {
+  const visit = (targets) => {
     for (const key of Object.values(targets)) {
       if (key.startsWith('link:') || reached.has(key)) continue
       reached.add(key)

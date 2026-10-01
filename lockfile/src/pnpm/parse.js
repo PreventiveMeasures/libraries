@@ -115,8 +115,8 @@ function readTime(value, where, packages) {
 
 // Every snapshot is reached from an importer, as pnpm prunes the rest: one
 // that is not would be listed as installed when nothing installs it.
-function checkReached(importers, packages, where) {
-  const reached = reach(Object.values(importers).flatMap((importer) => [...KINDS, ...ENV_KINDS].map((field) => importer[field])), packages)
+function checkReached(importers, packages, where, kinds) {
+  const reached = reach(Object.values(importers).flatMap((importer) => kinds.map((field) => importer[field])), packages)
   for (const key of Object.keys(packages)) {
     if (!reached.has(key)) throw new LockfileError('no importer depends on it, directly or not', at(at(where, 'snapshots'), key))
   }
@@ -131,7 +131,7 @@ function readDocument(doc, prefix, env) {
   const hashes = new Set(Object.values(patchedDependencies).map((patch) => patch.hash))
   const { packages, snapshots } = readPackages(doc, prefix, hashes)
   const importers = readImporters(doc.importers, at(prefix, 'importers'), snapshots, env)
-  checkReached(importers, packages, prefix)
+  checkReached(importers, packages, prefix, env ? ENV_KINDS : KINDS)
   if (env) return { lockfileVersion: version, importers, packages }
   return {
     lockfileVersion: version,

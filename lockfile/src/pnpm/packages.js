@@ -131,10 +131,11 @@ export function readPackages(doc, prefix, patches) {
   const infos = new Map()
   const packagesAt = at(prefix, 'packages')
   for (const [key, entry, where] of entries(doc.packages ?? EMPTY, packagesAt)) infos.set(key, readInfo(key, entry, where))
-  const snapshots = record(doc.snapshots ?? EMPTY, at(prefix, 'snapshots'))
+  const snapshotsAt = at(prefix, 'snapshots')
+  const snapshots = record(doc.snapshots ?? EMPTY, snapshotsAt)
   const packages = Object.create(null)
   const seen = new Set()
-  for (const [key, entry, where] of entries(snapshots, at(prefix, 'snapshots'))) {
+  for (const [key, entry, where] of entries(snapshots, snapshotsAt)) {
     const { base, patchHash } = splitSnapshotKey(key, where)
     const info = infos.get(base)
     if (info === undefined) throw new LockfileError(`${quote(base)} is not in packages`, where)

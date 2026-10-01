@@ -1,5 +1,5 @@
 import { checkOptions } from '../shape.js'
-import { linkWorkspace, readImporters } from './importers.js'
+import { linkRequests, readImporters } from './importers.js'
 import { readPackages } from './packages.js'
 import { checkResolutions } from './resolutions.js'
 import { readEntries } from './syntax.js'
@@ -22,7 +22,7 @@ export function parseYarn1Lockfile(source, options = {}) {
   const { manifests, semver } = readOptions(options)
   const read = readPackages(readEntries(source), semver)
   const { packages, requests } = read
-  if (manifests === undefined) for (const request of requests) if (!(request.pattern in packages)) linkWorkspace(request)
+  if (manifests === undefined) linkRequests(requests, packages)
   const project = manifests === undefined ? undefined : readImporters(manifests, packages, requests, semver)
   checkResolutions(read, project, semver)
   return { packages, importers: project?.importers }
