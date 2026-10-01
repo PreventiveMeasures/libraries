@@ -42,18 +42,21 @@ function fetchedName(ref) {
   return splitPattern(range.slice(4)).name
 }
 
-// Each registry package's files and package.json, a few at a time; the
-// first failure stops the rest from starting.
+// Each registry package's files and package.json, a few at a time, every
+// tarball's URL checked before any is fetched; the first failure stops the
+// rest from starting.
 async function fetchAll(refs) {
   const fetched = new Map()
-  const queue = refs.filter((ref) => ref.kind === 'registry')
+  const queue = refs.filter((ref) => ref.kind === 'registry').map((ref) => {
+    const where = quote(ref.patterns[0])
+    return { ref, where, tarball: registryTarball(ref.entry, fetchedName(ref), where) }
+  })
   let failed = false
   const worker = async () => {
     while (queue.length > 0 && !failed) {
-      const ref = queue.shift()
-      const where = quote(ref.patterns[0])
+      const { ref, where, tarball } = queue.shift()
       try {
-        fetched.set(ref, await fetchYarnPackage(registryTarball(ref.entry, fetchedName(ref), where), where))
+        fetched.set(ref, await fetchYarnPackage(tarball, where))
       } catch (error) {
         failed = true
         throw error instanceof DeptreeError ? error : new DeptreeError(error.message, where, { cause: error })

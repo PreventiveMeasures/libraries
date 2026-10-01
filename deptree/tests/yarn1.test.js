@@ -223,6 +223,17 @@ describe('buildYarn1Tree refuses', () => {
     ]) await refuses(at(url), refused)
   })
 
+  // More packages before it than are fetched at once, so that one would be
+  // fetched before its turn came.
+  it('a tarball\'s URL before fetching any', async () => {
+    const calls = stubRegistry(TARBALLS)
+    const root = { ...ROOT, dependencies: { ...ROOT.dependencies, eng: '1.0.0', fix: '1.0.0' }, optionalDependencies: { mac: '1.0.0', '@s/e': '1.0.0' } }
+    const http = (name, version) => yarnpkg(name, version).replace('https:', 'http:')
+    const lock = LOCKFILE.replace('\n"my-c', `\n${entry('eng@1.0.0', 'eng@1.0.0')}\n${entry('fix@1.0.0', 'fix@1.0.0')}\n"my-c`) + `\n${entry('"@s/e@1.0.0"', '@s/e@1.0.0', '', { url: http })}`
+    await refuses({ project: project({ 'yarn.lock': lock, 'package.json': root }) }, /^DeptreeError: "@s\/e@1\.0\.0": only the registry's own tarball/u)
+    assert.deepEqual(calls, [])
+  })
+
   it('a tarball that is not the one the lockfile pins', async () => {
     stubRegistry(TARBALLS)
     const lock = LOCKFILE.replace(sha1(T['d@1.0.0'].bytes), sha1(T['p@1.0.0'].bytes))
