@@ -34,7 +34,7 @@ while (versions.size < 180) versions.add(`${pick(numbers.slice(0, 4))}.${pick(nu
 
 const ops = ['', '=', '>', '>=', '<', '<=', '~', '^', '= ', '>= ', '==', '=>']
 const parts = ['1', '1.2', '1.1.1', '0', '0.0', '0.0.1', '0.1', '0.1.2', '1.1.1-alpha', '1.1.1-alpha.1', '0.0.1-beta', '1.*', '1.1.*', '1.x', '1.X', '1.*.*', '1.*.1', '2', '2.0.0-rc-1', '1.2-pre', '01.2', '1.1.1+meta', '18446744073709551616']
-const requirements = new Set(['*', 'x', 'X', ' * ', '*, 1', '', ',', '1,', ', 1', '>= 1.1, < 2', 'latest', 'v1', '1 2', Array.from({ length: 33 }, () => '>=0').join(','), Array.from({ length: 32 }, () => '>=0').join(',')])
+const requirements = new Set(['*', 'x', 'X', ' * ', '*, 1', '1.*.*', '1.x.X', '1.*.1', '', ',', '1,', ', 1', '>= 1.1, < 2', 'latest', 'v1', '1 2', Array.from({ length: 33 }, () => '>=0').join(','), Array.from({ length: 32 }, () => '>=0').join(',')])
 while (requirements.size < 260) {
   const items = Array.from({ length: 1 + random(3) }, () => `${pick([' ', '', ''])}${pick(ops)}${pick(parts)}${pick(['', '', ' '])}`)
   requirements.add(items.join(pick([',', ', ', ' ,'])))

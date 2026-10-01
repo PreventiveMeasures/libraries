@@ -44,6 +44,9 @@ describe('rust-semver.js, as the semver crate reads and matches', () => {
       { op: '~', major: 0n, minor: 1n, patch: 2n, pre: 'rc' },
     ])
     assert.deepEqual(parseVersionReq('X'), [])
+    // A wildcard patch after a wildcard minor, but no number after either.
+    for (const text of ['1.*.*', '1.x.X']) assert.deepEqual(parseVersionReq(text), [{ op: '*', major: 1n, minor: undefined, patch: undefined, pre: '' }])
+    assert.equal(parseVersionReq('1.*.3'), undefined)
   })
 
   it('numbers up to u64, read as bigints', () => {
