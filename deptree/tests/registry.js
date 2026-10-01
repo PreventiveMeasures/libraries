@@ -44,4 +44,23 @@ export function stubRegistry(tarballs) {
   return calls
 }
 
+// The registry as stubRegistry's, but for the tarball of `name` and
+// `version`, which is not found at once, while every other comes late;
+// what is returned tells how many are still coming.
+export function stubFailingRegistry(tarballs, name, version) {
+  stubRegistry(tarballs)
+  const served = globalThis.fetch
+  let open = 0
+  globalThis.fetch = async (input) => {
+    if (String(input) === url(name, version)) return Response.json({ error: 'Not found' }, { status: 404 })
+    open++
+    await new Promise((resolve) => {
+      setTimeout(resolve, 100)
+    })
+    open--
+    return await served(input)
+  }
+  return () => open
+}
+
 export const HOST = Object.freeze({ pnpm: '10.33.4', node: '24.15.0', os: 'linux', cpu: 'x64', libc: 'glibc' })

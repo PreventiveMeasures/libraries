@@ -22,6 +22,7 @@
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { Vfs, VfsError } from '@preventive/vfs'
 import { dirname, relative } from '@preventive/vfs/path.js'
+import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote } from '../error.js'
 import { checkNoModules, mount } from '../mount.js'
 import { applyPatch, parsePatch } from '../patch.js'
@@ -40,8 +41,6 @@ import { checkProjects, workspaceNames } from './projects.js'
 import { readSettings } from './settings.js'
 import { checkUpToDate } from './uptodate.js'
 import { checkWorkspace } from './workspace.js'
-
-const CONCURRENCY = 8
 
 // What the lockfile holds that no tree is built for here.
 function checkLockfile(lockfile) {
@@ -82,9 +81,9 @@ const PACKAGE_FIELDS = ['resolution', 'os', 'cpu', 'libc', 'hasBin', 'bundledDep
 const packageFields = (pkg) => JSON.stringify(PACKAGE_FIELDS.map((field) => pkg[field]))
 
 // Each package's files and package.json, by its name and version: a
-// package is fetched once however many snapshots it has, a few at a time,
-// and the first failure stops the rest from starting. One installed from
-// a directory is read from `project`, as npm-packlist picks its files.
+// package is fetched once however many snapshots it has, a few at a time.
+// One installed from a directory is read from `project`, as npm-packlist
+// picks its files.
 async function fetchAll(nodes, project, major) {
   const packages = new Map()
   for (const { key, pkg } of nodes.values()) {
@@ -92,25 +91,18 @@ async function fetchAll(nodes, project, major) {
     if (!packages.has(id)) packages.set(id, pkg)
     else if (packageFields(packages.get(id)) !== packageFields(pkg)) throw new DeptreeError(`its snapshots differ on what the package is: ${PACKAGE_FIELDS.join(', ')}`, quote(id))
   }
-  const queue = [...packages]
   const fetched = new Map()
-  let failed = false
-  const worker = async () => {
-    while (queue.length > 0 && !failed) {
-      const [id, pkg] = queue.shift()
-      try {
-        if (pkg.resolution.type === 'directory') {
-          const got = readDirectoryPackage(project, pkg, quote(id), major)
-          checkManifest(got.manifest, pkg, quote(id))
-          fetched.set(id, { ...got, local: true })
-        } else fetched.set(id, await fetchPackage(pkg, quote(id)))
-      } catch (error) {
-        failed = true
-        throw error instanceof DeptreeError ? error : new DeptreeError(error.message, quote(id), { cause: error })
-      }
+  await eachConcurrently(packages, async ([id, pkg]) => {
+    try {
+      if (pkg.resolution.type === 'directory') {
+        const got = readDirectoryPackage(project, pkg, quote(id), major)
+        checkManifest(got.manifest, pkg, quote(id))
+        fetched.set(id, { ...got, local: true })
+      } else fetched.set(id, await fetchPackage(pkg, quote(id)))
+    } catch (error) {
+      throw error instanceof DeptreeError ? error : new DeptreeError(error.message, quote(id), { cause: error })
     }
-  }
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker))
+  })
   return fetched
 }
 

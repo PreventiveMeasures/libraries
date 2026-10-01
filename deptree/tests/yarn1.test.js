@@ -4,7 +4,7 @@ import { afterEach, describe, it } from 'node:test'
 import { compress, decompress } from '@preventive/archive/compression.js'
 import { createVfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, buildYarn1Tree, findYarn1Workspaces } from '../yarn1.js'
-import { sri, stubRegistry, tarball } from './registry.js'
+import { sri, stubFailingRegistry, stubRegistry, tarball } from './registry.js'
 
 // Small projects whose yarn.lock real yarn 1.22.22 wrote, and whose trees
 // it installed as the first tests expect, against a registry stubbed with
@@ -109,6 +109,12 @@ describe('buildYarn1Tree', () => {
     assert.equal(mode(vfs, '/node_modules/a/package.json'), 0o644)
     assert.ok(stats.bytes > 0)
     assert.deepEqual({ ...stats, bytes: 0 }, { packages: 7, skipped: 1, installed: 6, files: 11, bytes: 0, links: 0 })
+  })
+
+  it('refuses once every fetch started has ended', async () => {
+    const open = stubFailingRegistry(TARBALLS, 'd', '1.0.0')
+    await assert.rejects(build(), /^DeptreeError: "d@/u)
+    assert.equal(open(), 0)
   })
 
   it('builds the same tree from the files given', async () => {
