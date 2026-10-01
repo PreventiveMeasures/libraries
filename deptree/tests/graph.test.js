@@ -181,5 +181,9 @@ describe('hoist for pnpm 12', () => {
     const { nodes, direct, hoisting } = await buildGraph(lock, new Set(), 120, 12)
     const projects = new Map([['packages/a', 'Tool'], ['packages/b', 'tool']])
     assert.throws(() => hoist(nodes, direct, settings, projects, 12, hoisting), /^DeptreeError: manifests\["packages\/b"\]\.name: its name and "packages\/a"'s are one with their case folded, of which pnpm 12 hoists one by an order not known here$/u)
+    // Where its patterns leave one out, pnpm 12 hoists the other.
+    const one = hoist(nodes, direct, { ...settings, hoistPattern: ['*', '!tool'] }, new Map([['packages/a', 'tool'], ['packages/b', 'Tool']]), 12, hoisting)
+    assert.equal(one.get('node_modules/.pnpm/node_modules/Tool'), 'packages/b')
+    assert.equal(one.has('node_modules/.pnpm/node_modules/tool'), false)
   })
 })

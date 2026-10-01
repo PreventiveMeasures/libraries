@@ -108,18 +108,21 @@ function hoistGraph(nodes, starts, taken, typeOf, { projects = new Map(), instal
 // them is hoisted; its projects' direct dependencies are taken in the
 // order of their ids, and those of the root project but its `link:`s,
 // skipped or not, are taken from the start. Of two projects whose names
-// are one folded, which it hoists turns on an order not known here, which
-// is refused.
+// are one folded, both of which its patterns take, which it hoists turns
+// on an order not known here, which is refused.
 export function hoist(nodes, direct, { hoistPattern, publicHoistPattern }, projects = new Map(), major = 10, hoisting = undefined) {
   if (hoistPattern === undefined && publicHoistPattern === undefined) return new Map()
   const isPublic = createMatcher(publicHoistPattern ?? [])
   const isPrivate = createMatcher(hoistPattern ?? [])
   const typeOf = (alias) => (isPublic(alias) ? 'node_modules' : isPrivate(alias) ? 'node_modules/.pnpm/node_modules' : undefined)
   if (major >= 12) {
+    // Only a project a pattern takes is one pnpm 12 would hoist.
     const folded = new Map()
     for (const [id, name] of projects) {
-      if (typeOf(name) !== undefined && folded.has(name.toLowerCase())) throw new DeptreeError(`its name and ${quote(folded.get(name.toLowerCase()))}'s are one with their case folded, of which pnpm 12 hoists one by an order not known here`, `manifests[${quote(id)}].name`)
-      folded.set(name.toLowerCase(), id)
+      if (typeOf(name) === undefined) continue
+      const key = name.toLowerCase()
+      if (folded.has(key)) throw new DeptreeError(`its name and ${quote(folded.get(key))}'s are one with their case folded, of which pnpm 12 hoists one by an order not known here`, `manifests[${quote(id)}].name`)
+      folded.set(key, id)
     }
     const starts = [...hoisting.direct.values()].flatMap((children) => [...children])
     const taken = new Set([...hoisting.direct.get('.')?.keys() ?? []].map((alias) => alias.toLowerCase()))
