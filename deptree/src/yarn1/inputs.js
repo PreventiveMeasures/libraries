@@ -6,7 +6,8 @@ import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { checkProject, readText, typeOf } from '../pnpm/project.js'
 import { matchesGlob } from './glob.js'
-import { checkNpmrc, checkYarnrc } from './settings.js'
+import { cleanDependencies } from './requests.js'
+import { readSettings } from './settings.js'
 
 // The yarn that installs: host.yarn, or where that is left out, the one
 // the root package.json's packageManager pins, as corepack runs that one;
@@ -123,8 +124,8 @@ export function findYarn1Workspaces(options) {
 const LOCKFILE = 'lockfile must be the text of yarn.lock, or left out with a project given to read it from'
 
 // The files an install reads, given or read from the project: yarn.lock,
-// each package.json by directory, the root's `.` among them, and the
-// .yarnrc and .npmrc, checked.
+// each package.json by directory, the root's `.` among them, and what of
+// the .yarnrc and .npmrc the install follows.
 export function inputsOf(options) {
   const { lockfile, manifests, yarnrc, npmrc, project } = options
   if (project !== undefined) checkProject(project)
@@ -142,26 +143,24 @@ export function inputsOf(options) {
     if (typeOf(project, '/.yarnrc.yml') !== undefined) throw new DeptreeError('a .yarnrc.yml, whose yarnPath yarn 1.22 runs in its stead, is not supported', '.yarnrc.yml')
     const rc = readText(project, '/.yarnrc')
     const npm = readText(project, '/.npmrc')
-    if (rc !== undefined) checkYarnrc(rc)
-    if (npm !== undefined) checkNpmrc(npm)
-    return { lockfile: text, manifests: read, project }
+    return { lockfile: text, manifests: read, settings: readSettings({ yarnrc: rc, npmrc: npm }), project }
   }
   if (typeof lockfile !== 'string') throw new TypeError(LOCKFILE)
   if (manifests === null || typeof manifests !== 'object') throw new TypeError('manifests must map each project\'s directory to its package.json')
   for (const [name, value] of Object.entries({ yarnrc, npmrc })) {
     if (value !== undefined && typeof value !== 'string') throw new TypeError(`${name} must be a string, or left out`)
   }
-  if (yarnrc !== undefined) checkYarnrc(yarnrc)
-  if (npmrc !== undefined) checkNpmrc(npmrc)
+  const settings = readSettings({ yarnrc, npmrc })
   const read = new Map()
   for (const [dir, text] of manifests instanceof Map ? manifests : Object.entries(manifests)) read.set(dir, readManifest(text, `manifests[${quote(dir)}]`))
   if (!read.has('.')) throw new DeptreeError('the root package.json is not given', 'manifests["."]')
-  return { lockfile, manifests: read, project }
+  return { lockfile, manifests: read, settings, project }
 }
 
 // The lists of a package.json this reads, as yarn's normalize-manifest
-// leaves them: a `//` key, a comment, dropped, and a value that is not one
-// given as `''`. A copy; the manifest is left as it is.
+// leaves them: a `//` key, a comment, dropped, a value that is not one
+// given as `''`, and a name in several of the dependency lists kept in
+// one (cleanDependencies). A copy; the manifest is left as it is.
 const LISTS = ['resolutions', 'devDependencies', 'dependencies', 'optionalDependencies', 'peerDependencies']
 export function fixLists(manifest) {
   const fixed = { ...manifest }
@@ -173,7 +172,7 @@ export function fixLists(manifest) {
     for (const name in copy) copy[name] = copy[name] || ''
     fixed[kind] = copy
   }
-  return fixed
+  return cleanDependencies(fixed)
 }
 
 // What yarn's normalize-manifest fails on in the root's name and version,

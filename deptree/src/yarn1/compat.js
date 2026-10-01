@@ -48,14 +48,16 @@ function testEngine(semver, name, range, versions) {
   return false
 }
 
-// Why the host does not take `manifest`, or undefined where it does. A
-// manifest's engines may be a list of `name range` strings, which yarn
-// reads into a mapping first.
-export function incompatibility(manifest, host, semver, where) {
+// Why the host does not take `manifest`, or undefined where it does; its
+// os and cpu not checked with ignorePlatform, and its engines not with
+// ignoreEngines. A manifest's engines may be a list of `name range`
+// strings, which yarn reads into a mapping first.
+export function incompatibility(manifest, host, semver, where, { ignoreEngines, ignorePlatform }) {
   const { os, cpu } = manifest
   let { engines } = manifest
-  if (Array.isArray(os) && os.length > 0 && !isValid(os, host.os)) return `its os, ${JSON.stringify(os)}, does not take ${quote(host.os)}`
-  if (Array.isArray(cpu) && cpu.length > 0 && !isValid(cpu, host.cpu)) return `its cpu, ${JSON.stringify(cpu)}, does not take ${quote(host.cpu)}`
+  if (!ignorePlatform && Array.isArray(os) && os.length > 0 && !isValid(os, host.os)) return `its os, ${JSON.stringify(os)}, does not take ${quote(host.os)}`
+  if (!ignorePlatform && Array.isArray(cpu) && cpu.length > 0 && !isValid(cpu, host.cpu)) return `its cpu, ${JSON.stringify(cpu)}, does not take ${quote(host.cpu)}`
+  if (ignoreEngines) return undefined
   if (Array.isArray(engines)) {
     const read = {}
     for (const item of engines) {

@@ -24,7 +24,8 @@ export { setCacheDir } from '@preventive/upstream/npm.js'
 // there with shims, and workspaces with junctions.
 // A package whose os, cpu or engines the machine does not take is left
 // out where it is optional, and refused where it is not, as yarn fails
-// on it; so is the root project. Of engines, `node` (and `iojs`, which
+// on it; so is the root project. ignore-platform and ignore-engines, where
+// the settings set them, have neither checked. Of engines, `node` (and `iojs`, which
 // yarn takes for it) and `yarn` are checked as yarn checks them, and one
 // yarn has no version for is passed over, as yarn passes over it; one Node
 // 24 reports in process.versions, such as `v8`, which yarn would check
@@ -78,17 +79,26 @@ export interface Yarn1Project {
 // in the home directory, the environment, the command line — are not read,
 // and are taken to be at their defaults.
 //
-// Of the .yarnrc and the .npmrc, each line a setting, a `--` one a flag
-// yarn adds to its command line, read alike: what only moves where yarn
-// fetches from, how, and what it keeps — the registry, a scope's registry,
-// credentials, the network, its caches, the offline mirror — is passed
-// over, as the tree is held to the lockfile's integrities whatever serves
-// it, and so are settings of other commands, such as `yarn version`'s.
-// Every other setting is refused: those that change what yarn installs —
-// ignore-optional, ignore-engines, ignore-platform, production, flat,
-// modules-folder, link-duplicates, bin-links, yarn-path, workspaces and
-// the like — and any not known here. A .yarnrc line indented under
-// another, which yarn reads into it, is refused too.
+// Of the .yarnrc and the .npmrc, as yarn 1.22 reads them: yarn reads an
+// option by its name from the .yarnrc, or else from the .npmrc, and takes
+// a `--` line of the .yarnrc as a flag on its command line. Two settings
+// are followed as yarn follows them: ignore-engines, by the flag
+// `--ignore-engines true` or `--install.ignore-engines true`, or by the
+// option where it is truthy as yarn reads it — a quoted "false" is; and
+// ignore-platform, by its flag alone, as yarn does not act on the option.
+// Options yarn reads that change what it installs are refused —
+// ignore-optional, production, bin-links, workspaces-experimental and the
+// like — and so is yarn-path, which has another yarn run; any other option
+// is passed over, as yarn reads it only for where it fetches from, how,
+// and what it keeps, which the tree is held to the lockfile's integrities
+// against whatever serves it, or for no install at all, as with most of
+// npm's own. A flag is passed over where it does not change the tree —
+// --registry, --frozen-lockfile, --network-timeout and the like — and
+// refused where it may or is not known here: --production, --flat,
+// --modules-folder, --ignore-optional, --no-bin-links, --cwd and the
+// rest. A .yarnrc line indented under another, which yarn reads into it,
+// is refused too, and so is a value of those two followed that is not true
+// or false, or for the .yarnrc's option a quoted string.
 //
 // A workspace project is the root, marked private, and every directory its
 // `workspaces` globs take — `*`, `?` and `**`, as the lockfile reader takes
@@ -190,11 +200,12 @@ export interface Yarn1Tree {
 //
 // And to more than yarn holds it to, where a lockfile yarn writes, or a
 // package the registry serves, always holds: each tarball gzipped, every
-// file under one directory, none in a node_modules, no link or device in
-// it, and a package.json for exactly its name and version; each with the
-// sha512 integrity and the sha1 the lockfile records. On macOS, two names
-// in one directory that differ only in case or normalization are refused,
-// as they would be one name there.
+// file under one directory, none in the package's own node_modules, where
+// yarn installs its dependencies, no link or device in it, and a
+// package.json for exactly its name and version; each with the sha512
+// integrity and the sha1 the lockfile records. On macOS, two names in one
+// directory that differ only in case or normalization are refused, as
+// they would be one name there.
 //
 // Packages come from https://registry.yarnpkg.com/ or
 // https://registry.npmjs.org/ alone, which serve the same tarballs,

@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { afterEach, describe, it } from 'node:test'
+import { compress, decompress } from '@preventive/archive/compression.js'
 import { createVfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, buildYarn1Tree, findYarn1Workspaces } from '../yarn1.js'
-import { stubRegistry, tarball } from './registry.js'
+import { sri, stubRegistry, tarball } from './registry.js'
 
 // Small projects whose yarn.lock real yarn 1.22.22 wrote, and whose trees
 // it installed as the first tests expect, against a registry stubbed with
@@ -15,12 +16,30 @@ afterEach(() => { globalThis.fetch = realFetch })
 
 const HOST = Object.freeze({ yarn: '1.22.22', node: '24.15.0', os: 'linux', cpu: 'x64' })
 
+// A tarball as some packers write one, an entry's name with a `.` segment
+// in it, which pack() would clean: `_` in `name` made `.` where it is
+// stored, and the header's checksum made again.
+async function dotted(packed, name) {
+  const tar = await decompress(packed.bytes, 'gzip', { limit: 1 << 24 })
+  const encoded = new TextEncoder().encode(name)
+  let at = 0
+  while (!encoded.every((byte, i) => tar[at + i] === byte)) at += 512
+  tar[at + name.indexOf('_')] = 0x2e
+  tar.fill(0x20, at + 148, at + 156)
+  const sum = tar.subarray(at, at + 512).reduce((a, b) => a + b, 0)
+  tar.set(new TextEncoder().encode(`${sum.toString(8).padStart(6, '0')}\0 `), at + 148)
+  const bytes = await compress(tar, 'gzip')
+  return { ...packed, bytes, integrity: sri(bytes) }
+}
+
 const TARBALLS = await Promise.all([
   tarball('a', '1.0.0', { 'bin/a.js': { data: '#!/usr/bin/env node\n', mode: 0o644 }, 'x.sh': { data: 'x', mode: 0o700 }, '.bin/hidden': 'hidden' }, { manifest: { dependencies: { b: '^1.0.0' }, bin: { a: 'bin/a.js' } } }),
   tarball('b', '1.0.0', { 'index.js': 'b1' }),
   tarball('b', '2.0.0', { 'index.js': 'b2' }),
   tarball('c', '1.0.0', { 'cli.js': { data: 'c', mode: 0o600 } }, { manifest: { bin: 'cli.js' } }),
   tarball('d', '1.0.0'),
+  tarball('eng', '1.0.0', {}, { manifest: { engines: { node: '>=100' } } }),
+  dotted(await tarball('fix', '1.0.0', { '_/lib/x.js': 'x', 'test/node_modules/fixture.js': 'f' }), 'package/_/lib/x.js'),
   tarball('mac', '1.0.0', {}, { manifest: { os: ['darwin'] } }),
   tarball('p', '1.0.0', {}, { manifest: { peerDependencies: { b: '^2.0.0' } } }),
 ])
@@ -116,9 +135,35 @@ describe('buildYarn1Tree', () => {
     assert.deepEqual(vfs.readdir('/node_modules/a'), ['bin', 'package.json', 'x.sh'])
   })
 
+  it('installs a package the host cannot run where the settings say to ignore its platform', async () => {
+    stubRegistry(TARBALLS)
+    const { vfs } = await buildYarn1Tree({ project: project({ '.yarnrc': '--ignore-platform true\n' }), host: HOST })
+    assert.equal(vfs.isDirectory('/node_modules/mac'), true)
+    const option = await buildYarn1Tree({ project: project({ '.yarnrc': 'ignore-platform true\n' }), host: HOST })
+    assert.equal(option.vfs.isDirectory('/node_modules/mac'), false, 'yarn does not act on the option')
+  })
+
+  it('unpacks a tarball as tar-fs does for yarn, a `.` folded, and a node_modules below its own copied', async () => {
+    stubRegistry(TARBALLS)
+    const root = { name: 'root', version: '1.0.0', dependencies: { fix: '1.0.0' } }
+    const { vfs } = await buildYarn1Tree({ project: projectOf({ 'yarn.lock': lockfile(entry('fix@1.0.0', 'fix@1.0.0')), 'package.json': root }), host: HOST })
+    assert.equal(text(vfs, '/node_modules/fix/lib/x.js'), 'x')
+    assert.equal(text(vfs, '/node_modules/fix/test/node_modules/fixture.js'), 'f')
+  })
+
+  it('reads a dependency listed twice as yarn does, in the first list, at the first range that is not "*"', async () => {
+    stubRegistry(TARBALLS)
+    const root = { ...ROOT, dependencies: { ...ROOT.dependencies, b: '*' }, devDependencies: { ...ROOT.devDependencies, b: '^2.0.0', '//': 'b is for tests' } }
+    const { vfs } = await build({ project: project({ 'package.json': root }) })
+    assert.equal(text(vfs, '/node_modules/b/index.js'), 'b2')
+  })
+
   it('passes over settings that only move where yarn fetches from', async () => {
     stubRegistry(TARBALLS)
-    const files = { '.yarnrc': 'registry "https://registry.npmjs.org/"\n--install.frozen-lockfile true\n', '.npmrc': '//registry.npmjs.org/:_authToken=${TOKEN}\n' }
+    const files = {
+      '.yarnrc': 'registry "https://registry.npmjs.org/"\n--install.frozen-lockfile true\nlastUpdateCheck 1700000000000\n',
+      '.npmrc': '//registry.npmjs.org/:_authToken=${TOKEN}\npackage-lock=false\nlegacy-peer-deps=true\n',
+    }
     await buildYarn1Tree({ project: project(files), host: HOST })
   })
 })
@@ -162,9 +207,23 @@ describe('buildYarn1Tree refuses', () => {
     await refuses({ project: project({ 'package.json': root }) }, /^DeptreeError: "mac@1\.0\.0": its os, \["darwin"\], does not take "linux", and it is not optional, which yarn fails on$/u)
   })
 
+  it('a package whose engines the host does not take, unless the settings say to ignore them', async () => {
+    stubRegistry(TARBALLS)
+    const files = (rc) => ({ 'yarn.lock': lockfile(entry('eng@1.0.0', 'eng@1.0.0')), 'package.json': { name: 'root', version: '1.0.0', dependencies: { eng: '1.0.0' } }, ...rc })
+    await refuses({ project: projectOf(files({})) }, /^DeptreeError: "eng@1\.0\.0": its engines\.node, ">=100", does not take 24\.15\.0, and it is not optional, which yarn fails on$/u)
+    await refuses({ project: projectOf(files({ '.yarnrc': 'ignore-engines false\n', '.npmrc': 'ignore-engines=true\n' })) }, /does not take 24\.15\.0/u)
+    for (const rc of [{ '.yarnrc': 'ignore-engines true\n' }, { '.yarnrc': 'ignore-engines "false"\n' }, { '.yarnrc': '--install.ignore-engines true\n' }, { '.npmrc': 'ignore-engines=true\n' }]) {
+      const { vfs } = await buildYarn1Tree({ project: projectOf(files(rc)), host: HOST })
+      assert.equal(vfs.isDirectory('/node_modules/eng'), true, JSON.stringify(rc))
+    }
+    await refuses({ project: projectOf(files({ '.yarnrc': '--ignore-engines yes\n' })) }, /^DeptreeError: \.yarnrc:1: expected true or false for "--ignore-engines"$/u)
+  })
+
   it('a setting that may change what yarn installs', async () => {
     await refuses({ project: project({ '.yarnrc': '--install.production true\n' }) }, /^DeptreeError: \.yarnrc:1: "--install\.production" is a setting not supported here/u)
     await refuses({ project: project({ '.npmrc': 'ignore-optional=true\n' }) }, /^DeptreeError: \.npmrc:1: "ignore-optional" is a setting not supported here/u)
+    await refuses({ project: project({ '.yarnrc': 'yarn-path ".yarn/releases/yarn-1.22.19.js"\n' }) }, /^DeptreeError: \.yarnrc:1: "yarn-path" is a setting not supported here/u)
+    await refuses({ project: project({ '.yarnrc': '--add.modules-folder lib\n' }) }, /^DeptreeError: \.yarnrc:1: "--add\.modules-folder" is a setting not supported here/u)
   })
 
   it('a yarn this does not build for, or another than the project pins', async () => {

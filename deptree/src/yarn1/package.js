@@ -7,14 +7,15 @@
 // normalize-manifest reads the fields it installs by.
 //
 // Held to more than yarn holds it to, to what npm packs: a gzipped
-// tarball, every entry under one directory, by a name with no `.` or `..`
-// segment, none in a node_modules, no link of either kind or device, no
-// name twice as two different files; and a package.json for exactly the
-// name and version the lockfile has.
+// tarball, every entry under one directory, none in the package's own
+// node_modules, which npm packs only for bundled dependencies, no link of
+// either kind or device, no name twice as two different files; and a
+// package.json for exactly the name and version the lockfile has.
 
 import { decompress } from '@preventive/archive/compression.js'
 import { unpack } from '@preventive/archive/tar.js'
 import { getTarball } from '@preventive/upstream/npm.js'
+import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { matchesIntegrity, sha1Hex } from '../hash.js'
 import { sameBytes, tarballUrl } from '../tarball.js'
@@ -27,22 +28,20 @@ const UMASK = 0o022
 const REGISTRIES = new Set(['registry.yarnpkg.com', 'registry.npmjs.org'])
 
 // Each entry by its path in the package, as tar-fs writes it with
-// `strip: 1`: files with their bytes and mode, and directories.
+// `strip: 1`: its first segment dropped, and the rest joined to the
+// package's directory as a path from `/`, so `.`, `..` and empty segments
+// folded; files with their bytes and mode, and directories.
 function entriesOf(entries, where) {
   const files = new Map()
   const dirs = new Set()
   let top
   for (const entry of entries) {
-    const segments = entry.storedName.split('/')
-    if (segments.at(-1) === '' && entry.type === 'directory') segments.pop()
-    const [first, ...rest] = segments
+    const slash = entry.storedName.indexOf('/')
+    const first = slash === -1 ? entry.storedName : entry.storedName.slice(0, slash)
     if (top !== undefined && first !== top) throw new DeptreeError('the tarball has entries under more than one directory', where)
     top = first
-    if (first === '' || first === '.' || first === '..' || rest.some((segment) => segment === '' || segment === '.' || segment === '..')) {
-      throw new DeptreeError(`${quote(entry.storedName)} is a name not read here`, where)
-    }
-    const path = rest.join('/')
-    if (rest.includes('node_modules')) throw new DeptreeError(`${quote(entry.storedName)} is in a node_modules, which yarn copies into the tree as it is, and which is not supported`, where)
+    const path = slash === -1 ? '' : normalize(`/${entry.storedName.slice(slash + 1)}`).slice(1).replace(/\/$/u, '')
+    if (path.split('/')[0] === 'node_modules') throw new DeptreeError(`${quote(entry.storedName)} is in the package's own node_modules, where yarn installs its dependencies, which is not supported`, where)
     if (entry.type === 'directory') {
       if (path !== '') dirs.add(path)
       continue

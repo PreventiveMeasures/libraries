@@ -18,10 +18,10 @@ import { DeptreeError, quote } from '../error.js'
 import { checkNoModules, mount } from '../mount.js'
 import { checkCollisions } from '../pnpm/checks.js'
 import { typeOf } from '../pnpm/project.js'
+import { markBins } from './bins.js'
 import { incompatibility } from './compat.js'
 import { Hoister } from './hoist.js'
 import { checkHost, checkRoot, fixLists, inputsOf } from './inputs.js'
-import { markBins } from './bins.js'
 import { fetchYarnPackage, registryTarball } from './package.js'
 import { resolvePeers } from './peers.js'
 import { AGGREGATOR, aggregatorOf, rulesOf, topRequests, workspacesOf } from './requests.js'
@@ -87,7 +87,7 @@ function resolveProject(inputs, host) {
   if (workspaces.size > 0) workspaces.set(AGGREGATOR, aggregatorOf(root, workspaces))
   const rules = rulesOf(root, semver)
   const { requests, patterns } = topRequests(root, workspaces, rules)
-  const reason = incompatibility(root, host, semver, 'manifests["."]')
+  const reason = incompatibility(root, host, semver, 'manifests["."]', inputs.settings)
   if (reason !== undefined) throw new DeptreeError(reason, 'manifests["."]')
   const { project } = inputs
   const isDirectory = project === undefined ? () => undefined : (tag) => typeOf(project, `/${tag}/package.json`) !== undefined
@@ -98,7 +98,7 @@ function resolveProject(inputs, host) {
 // read; then each the host cannot run left out where it is optional, and
 // refused where it is not, as yarn fails on it. By reference, each one's
 // package.json as yarn reads it, a workspace's its own.
-async function fetchChecked(resolved, host) {
+async function fetchChecked(resolved, host, settings) {
   const order = manifestsOrder(resolved.patterns)
   const fetched = await fetchAll(order)
   const manifestOf = new Map()
@@ -109,7 +109,7 @@ async function fetchChecked(resolved, host) {
     manifestOf.set(ref, manifest)
   }
   for (const ref of order) {
-    const reason = incompatibility(manifestOf.get(ref), host, semver, quote(ref.patterns[0]))
+    const reason = incompatibility(manifestOf.get(ref), host, semver, quote(ref.patterns[0]), settings)
     if (reason === undefined) continue
     if (!ref.optional) throw new DeptreeError(`${reason}, and it is not optional, which yarn fails on`, quote(ref.patterns[0]))
     ref.ignore = true
@@ -182,7 +182,7 @@ export async function buildYarn1Tree(options) {
   if (into !== undefined) checkNoModules(into, folded)
   checkRoot(inputs.manifests.get('.'))
   const { workspaces, topPatterns, resolved } = resolveProject(inputs, host)
-  const { order, fetched, manifestOf } = await fetchChecked(resolved, host)
+  const { order, fetched, manifestOf } = await fetchChecked(resolved, host, inputs.settings)
   const placed = layout({ resolved, manifestOf, topPatterns, workspaces })
   const { vfs, links, locations, files, bytes } = writeTree(placed, fetched)
   markBins(vfs, { placed, patterns: resolved.patterns, fetched, links, locations })
