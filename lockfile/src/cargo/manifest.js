@@ -1,7 +1,7 @@
 // Cargo.toml, as far as resolution reads it. Sections that bear on none of
 // it, [badges], [lints], [profile], [[bin]] and metadata, are not looked into.
 
-import { parseVersion } from '../crate/semver.js'
+import { matches, parseVersion, parseVersionReq } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
 import { EMPTY } from '../shape.js'
 import { TomlError } from '../toml/error.js'
@@ -16,14 +16,6 @@ const PACKAGE_ONLY = [
 ]
 const TOP = [...PACKAGE_ONLY, 'package', 'project', 'workspace', 'profile', 'patch']
 const TOP_REFUSED = { 'cargo-features': `cargo-features, ${NIGHTLY}`, replace: '[replace] is not supported' }
-const INHERITABLE = [
-  'authors', 'categories', 'description', 'documentation', 'edition', 'exclude', 'homepage', 'include',
-  'keywords', 'license', 'license-file', 'publish', 'readme', 'repository', 'rust-version', 'version',
-]
-const PACKAGE = [
-  ...INHERITABLE, 'name', 'build', 'links', 'workspace', 'autolib', 'autobins', 'autoexamples', 'autotests',
-  'autobenches', 'default-run', 'resolver', 'metadata',
-]
 const PACKAGE_REFUSED = {
   metabuild: `metabuild, ${NIGHTLY}`,
   'default-target': `a per-package target, ${NIGHTLY}`,
@@ -33,6 +25,7 @@ const PACKAGE_REFUSED = {
 }
 const WORKSPACE = ['members', 'exclude', 'default-members', 'resolver', 'metadata', 'package', 'dependencies', 'lints']
 const EDITIONS = ['2015', '2018', '2021', '2024']
+const FIRST_RUST = { __proto__: null, 2018: '1.31.0', 2021: '1.56.0', 2024: '1.85.0' }
 const RESOLVERS = { __proto__: null, 1: 1, 2: 2, 3: 3 }
 
 function readVersion(value, where) {
@@ -48,6 +41,54 @@ function readEdition(value, where) {
 function readResolver(value, where) {
   if (!(string(value, where) in RESOLVERS)) throw new LockfileError(`${quote(value)} is not a resolver: expected "1", "2" or "3"`, where)
   return RESOLVERS[value]
+}
+
+// As cargo's RustVersion: a version, or a bare `1` or `1.70`, with no
+// pre-release or build metadata; as a version, the parts not given 0.
+function rustVersion(text) {
+  const version = parseVersion(text)
+  if (version !== undefined) return version.pre === '' && version.build === '' ? version : undefined
+  const partial = parseVersionReq(text)
+  if (partial?.length !== 1 || partial[0].op !== '^' || partial[0].pre !== '' || text.startsWith('^')) return undefined
+  const { major, minor, patch } = partial[0]
+  return parseVersion(`${major}.${minor ?? 0}.${patch ?? 0}`)
+}
+
+function readRustVersion(value, where) {
+  if (rustVersion(string(value, where)) === undefined) throw new LockfileError(`${quote(value)} is not a Rust version`, where)
+  return value
+}
+
+function pathOrFlag(value, where) {
+  if (typeof value !== 'boolean' && typeof value !== 'string') throw refuse('true, false or a path', value, where)
+  return value
+}
+
+function readBuild(value, where) {
+  if (Array.isArray(value)) throw new LockfileError(`several build scripts, ${NIGHTLY}`, where)
+  return pathOrFlag(value, where)
+}
+
+function readPublish(value, where) {
+  if (typeof value === 'boolean') return value
+  if (!Array.isArray(value)) throw refuse('true, false or registry names', value, where)
+  return strings(value, where)
+}
+
+// Each key's type in cargo's schema; INHERITABLE's may be `{ workspace = true }`.
+const INHERITABLE = {
+  authors: strings, categories: strings, description: string, documentation: string, edition: readEdition,
+  exclude: strings, homepage: string, include: strings, keywords: strings, license: string, 'license-file': string,
+  publish: readPublish, readme: pathOrFlag, repository: string, 'rust-version': readRustVersion, version: readVersion,
+}
+const PACKAGE = {
+  ...INHERITABLE, name: checkName, build: readBuild, links: string, workspace: string, autolib: boolean, autobins: boolean,
+  autoexamples: boolean, autotests: boolean, autobenches: boolean, 'default-run': string, resolver: readResolver, metadata: (value) => value,
+}
+
+function readBadges(value, where) {
+  for (const [, badge, here] of entries(value, where)) for (const [, item, there] of entries(badge, here)) string(item, there)
+  return value
 }
 
 // The flag wins over the crate type, as in cargo's Target::proc_macro; a
@@ -69,9 +110,8 @@ function procMacroTargets(doc, edition) {
 function readWorkspace(value) {
   table(value, 'workspace', WORKSPACE)
   const read = (key, reader) => optional(reader)(value[key], at('workspace', key))
-  const pkg = read('package', (item, where) => table(item, where, [...INHERITABLE, 'badges'])) ?? Object.create(null)
-  if (pkg.version !== undefined) readVersion(pkg.version, 'workspace.package.version')
-  if (pkg.edition !== undefined) readEdition(pkg.edition, 'workspace.package.edition')
+  const pkg = read('package', (item, where) => table(item, where, [...Object.keys(INHERITABLE), 'badges'])) ?? Object.create(null)
+  for (const [key, item, here] of entries(pkg, 'workspace.package')) (key === 'badges' ? readBadges : INHERITABLE[key])(item, here)
   const dependencies = Object.create(null)
   for (const [name, item, here] of entries(value.dependencies ?? EMPTY, 'workspace.dependencies')) {
     checkName(name, here)
@@ -144,20 +184,27 @@ function inheritField(value, where, key, workspace) {
 function readPackage(doc, workspace) {
   if (doc.package !== undefined && doc.project !== undefined) throw new LockfileError('[project] beside [package]', 'project')
   const where = doc.package === undefined ? 'project' : 'package'
-  const value = table(doc[where], where, PACKAGE, PACKAGE_REFUSED)
+  const value = table(doc[where], where, Object.keys(PACKAGE), PACKAGE_REFUSED)
+  const fields = Object.create(null)
+  for (const [key, read] of Object.entries(PACKAGE)) {
+    const here = at(where, key)
+    fields[key] = optional(read)(key in INHERITABLE ? inheritField(value[key], here, key, workspace) : value[key], here)
+  }
   if (value.workspace !== undefined && doc.workspace !== undefined) throw new LockfileError('a workspace root names no other root', at(where, 'workspace'))
-  const fields = Object.fromEntries(INHERITABLE.map((key) => [key, inheritField(value[key], at(where, key), key, workspace)]))
-  const edition = optional(readEdition)(fields.edition, at(where, 'edition')) ?? '2015'
+  const edition = fields.edition ?? '2015'
   if (where === 'project' && edition === '2024') throw new LockfileError('not supported in the 2024 edition: use [package]', where)
-  const version = optional(readVersion)(fields.version, at(where, 'version'))
-  const { publish } = fields
+  // Cargo holds rust-version to `^` the edition's first Rust, so 2.0 fails it too.
+  const msrv = fields['rust-version']
+  if (msrv !== undefined && edition in FIRST_RUST && !matches(parseVersionReq(`^${FIRST_RUST[edition]}`), rustVersion(msrv))) {
+    throw new LockfileError(`rust-version ${quote(msrv)} is incompatible with ${FIRST_RUST[edition]}, which the ${edition} edition requires`, at(where, 'rust-version'))
+  }
+  const { version, publish } = fields
   if (version === undefined && publish !== undefined && publish !== false && !(Array.isArray(publish) && publish.length === 0)) {
     throw new LockfileError('`publish` needs a `version`', at(where, 'publish'))
   }
-  const resolver = optional(readResolver)(value.resolver, at(where, 'resolver'))
+  const { resolver, links } = fields
   if (resolver !== undefined && doc.workspace?.resolver !== undefined) throw new LockfileError('`resolver` is given in [workspace] too', at(where, 'resolver'))
-  const links = optional(string)(value.links, at(where, 'links'))
-  if (links !== undefined && value.build === false) throw new LockfileError(`links to ${quote(links)} with no build script, which cargo refuses`, at(where, 'links'))
+  if (links !== undefined && fields.build === false) throw new LockfileError(`links to ${quote(links)} with no build script, which cargo refuses`, at(where, 'links'))
   return { name: checkName(value.name, at(where, 'name')), version: version ?? '0.0.0', edition, resolver, links }
 }
 

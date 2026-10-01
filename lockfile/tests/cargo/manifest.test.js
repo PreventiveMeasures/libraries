@@ -122,6 +122,12 @@ describe('parseCargoManifest', () => {
     assert.deepEqual([virtual.package, virtual.workspace.resolver], [undefined, 2])
   })
 
+  it('reads each [package] key of a type cargo takes', () => {
+    const keys = 'build = "build.rs"\nlinks = "z"\nreadme = false\npublish = ["crates-io"]\nrust-version = "1.70"\nautolib = true\nmetadata = { any = [1] }'
+    assert.equal(parseCargoManifest(edit(ROOT, 'edition = "2021"', `edition = "2021"\n${keys}`)).package.links, 'z')
+    for (const version of ['1.56', '1.85.0', ' 1.70 ']) parseCargoManifest(edit(ROOT, 'edition = "2021"', `edition = "2021"\nrust-version = "${version}"`))
+  })
+
   it('reads a package with no version as 0.0.0', () => {
     assert.equal(parseCargoManifest('[package]\nname = "a"\npublish = false\n').package.version, '0.0.0')
   })
@@ -192,6 +198,15 @@ describe('parseCargoManifest', () => {
     ['an optional dev-dependency', edit(ROOT, 'log = { workspace = true }', 'log = { workspace = true, optional = true }'), '["dev-dependencies"].log: a dev-dependency cannot be optional'],
     ['two sources for one name', edit(ROOT, 'libc = "0.2"', 'itoa04 = { package = "itoa", git = "https://example.com/itoa" }'), 'target["cfg(unix)"].dependencies.itoa04: "itoa04" is given another source elsewhere, which cargo refuses'],
     ['links with no build script', edit(ROOT, 'edition = "2021"', 'edition = "2021"\nlinks = "z"\nbuild = false'), 'package.links: links to "z" with no build script, which cargo refuses'],
+    ['links with a build of another type', edit(ROOT, 'edition = "2021"', 'edition = "2021"\nlinks = "z"\nbuild = 1'), 'package.build: expected true, false or a path, found the integer 1'],
+    ['several build scripts', edit(ROOT, 'edition = "2021"', 'edition = "2021"\nbuild = ["a.rs", "b.rs"]'), 'package.build: several build scripts, which only a nightly cargo reads, is not supported'],
+    ['a package key of another type', edit(ROOT, 'edition = "2021"', 'edition = "2021"\nautolib = "yes"'), 'package.autolib: expected true or false, found the string "yes"'],
+    ['publish of another type', edit(ROOT, 'edition = "2021"', 'edition = "2021"\npublish = "crates-io"'), 'package.publish: expected true, false or registry names, found the string "crates-io"'],
+    ['a rust-version cargo refuses', edit(ROOT, 'edition = "2021"', 'edition = "2021"\nrust-version = "1.70.0-beta"'), 'package["rust-version"]: "1.70.0-beta" is not a Rust version'],
+    ['a rust-version the edition rules out', edit(ROOT, 'edition = "2021"', 'edition = "2021"\nrust-version = "1.50"'), 'package["rust-version"]: rust-version "1.50" is incompatible with 1.56.0, which the 2021 edition requires'],
+    ['an inherited edition the rust-version rules out', edit(MEMBER, 'license.workspace = true', 'license.workspace = true\nrust-version = "1.80"'), 'package["rust-version"]: rust-version "1.80" is incompatible with 1.85.0, which the 2024 edition requires'],
+    ['a [workspace.package] key of another type', edit(ROOT, 'license = "MIT"', 'license = "MIT"\nreadme = 1'), 'workspace.package.readme: expected true, false or a path, found the integer 1'],
+    ['badges of another type', edit(ROOT, 'license = "MIT"', 'license = "MIT"\nbadges = { maintenance = { status = 1 } }'), 'workspace.package.badges.maintenance.status: expected a string, found the integer 1'],
     ['two paths for one name', edit(ROOT, 'libc = "0.2"', 'lib = { path = "crates/other", version = "0.2" }'), 'target["cfg(unix)"].dependencies.lib: "lib" is given another source elsewhere, which cargo refuses'],
     ['a path by `\\` that leads elsewhere', edit(ROOT, 'libc = "0.2"', 'lib = { path = "crates\\\\other", version = "0.2" }'), 'target["cfg(unix)"].dependencies.lib: "lib" is given another source elsewhere, which cargo refuses'],
     ['paths from two drives', edit(edit(ROOT, 'path = "crates/lib"', 'path = "C:/root/lib"'), 'libc = "0.2"', 'lib = { path = "D:/root/lib", version = "0.2" }'), 'target["cfg(unix)"].dependencies.lib: "lib" is given another source elsewhere, which cargo refuses'],

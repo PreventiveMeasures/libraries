@@ -58,8 +58,10 @@ export interface CargoLockPackage {
 // a filesystem: a feature naming nothing, a dependency with two sources
 // (two paths where they cannot be one directory, whatever the directories
 // are named, on Windows or elsewhere), an optional dev-dependency, `links`
-// with `build = false`. Sections that bear on no dependency or feature —
-// [badges], [lints], [profile], [[bin]], metadata — are not looked into.
+// with `build = false`, a [package] or [workspace.package] key of a type
+// cargo does not take, a `rust-version` its edition rules out. Sections
+// that bear on no dependency or feature — [badges], [lints], [profile],
+// [[bin]], metadata — are not looked into.
 export function parseCargoManifest(text: string, workspace?: CargoManifest): CargoManifest
 
 export interface CargoManifest {
