@@ -24,6 +24,7 @@
     "path.js",
     "src/entries.js",
     "src/error.js",
+    "src/mount.js",
     "src/path.js",
     "src/vfs.js",
     "vfs.d.ts",

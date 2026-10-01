@@ -16,6 +16,7 @@
 // target's length is what a lookup can be made to cost.
 
 import { VfsError, wrongType } from './error.js'
+import { checkMount, merge } from './mount.js'
 import { compareNames } from './path.js'
 
 const LINK_LIMIT = 40
@@ -273,6 +274,25 @@ export class Vfs {
 
   chmod(path, mode) { this.#node(path, true).mode = checkMode(mode) }
   utimes(path, mtime) { this.#node(path, true).mtime = checkTime(mtime) }
+
+  // Merges a copy of `tree` into the directory `path` leads to: a directory
+  // of the tree into one there under the same name, which keeps its own
+  // mode and mtime, and anything else beside what is there. Anything else
+  // under a name taken is a clash, and `clash` settles it: 'error' refuses
+  // it, 'keep' leaves the tree's entry out, and 'replace' takes away what
+  // is there, a directory with all under it, for the tree's entry. `fold`
+  // takes a name to the key a filesystem knows it by, as one that ignores
+  // case does: a name of the tree there under no spelling of its own is one
+  // with every name there of its key that the tree does not spell too.
+  // Names side by side in one tree are that tree's to judge. What is copied
+  // is the tree as it was when called, which is left as it is.
+  mount(tree, path = '/', options = {}) {
+    if (tree === null || typeof tree !== 'object' || !(#root in tree)) throw wrongType('a tree', tree, 'a Vfs')
+    const checked = checkMount(options)
+    const found = this.#found(path)
+    if (found.node.type !== 'directory') throw new VfsError('ENOTDIR', path)
+    merge(found.node, tree.#root, pathOf(found), checked, (...inode) => this.#inode(...inode))
+  }
 
   // From what `path` leads to, resolved when called, as entries is too: a
   // wrong start throws here and not at the first step.
