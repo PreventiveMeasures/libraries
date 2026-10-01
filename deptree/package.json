@@ -1,7 +1,7 @@
 {
   "name": "@preventive/deptree",
   "version": "1.0.0-alpha.2",
-  "description": "A node_modules tree in memory, as a package manager would install it: pnpm 10 or 11, or yarn 1.22, from its lockfile, tarballs fetched and checked, patches applied",
+  "description": "A dependency tree in memory, as a package manager would install it: pnpm 10 or 11, or yarn 1.22, from its lockfile, tarballs fetched and checked, patches applied; or Soldeer 0.12, its zips fetched, checked and extracted",
   "type": "module",
   "exports": {
     "./pnpm.js": {
@@ -11,11 +11,17 @@
     "./yarn1.js": {
       "types": "./yarn1.d.ts",
       "default": "./yarn1.js"
+    },
+    "./soldeer.js": {
+      "types": "./soldeer.d.ts",
+      "default": "./soldeer.js"
     }
   },
   "files": [
     "pnpm.d.ts",
     "pnpm.js",
+    "soldeer.d.ts",
+    "soldeer.js",
     "yarn1.d.ts",
     "yarn1.js",
     "src/concurrent.js",
@@ -45,6 +51,10 @@
     "src/pnpm/tree.js",
     "src/pnpm/uptodate.js",
     "src/pnpm/workspace.js",
+    "src/soldeer/config.js",
+    "src/soldeer/inputs.js",
+    "src/soldeer/tree.js",
+    "src/soldeer/zip.js",
     "src/tarball.js",
     "src/yarn1/bins.js",
     "src/yarn1/compat.js",

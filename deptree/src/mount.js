@@ -1,9 +1,10 @@
 // A tree built on its own, mounted into a Vfs the caller already has, at
 // its root: the lockfile's directory. Nothing there is written over or
-// removed. A node_modules there already, anywhere, is refused: kept beside
-// the tree, Node would read it as the tree's, and removed, it would be the
-// caller's lost; neither is safe. Everything is checked before anything
-// is written, so a refusal leaves the Vfs as it was.
+// removed. A node_modules there already, anywhere, is refused, or for
+// another tree what its `check` refuses: kept beside the tree, Node would
+// read it as the tree's, and removed, it would be the caller's lost;
+// neither is safe. Everything is checked before anything is written, so a
+// refusal leaves the Vfs as it was.
 
 import { basename, dirname } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from './error.js'
@@ -37,8 +38,8 @@ function typeAt(vfs, path) {
 // already or is made, and each file and link is written where nothing is,
 // and where names are `folded`, none beside a name it would be one with.
 // Each file is taken out of `tree` as it is written.
-export function mount(tree, target, folded) {
-  checkNoModules(target, folded)
+export function mount(tree, target, folded, check = checkNoModules) {
+  check(target, folded)
   // The tree's entries, parents first, each with what is there already;
   // under a directory that is not there, nothing is.
   const absent = new Set()

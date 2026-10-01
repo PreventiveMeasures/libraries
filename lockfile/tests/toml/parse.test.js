@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { TomlDateTime, TomlError, TomlFloat, parseToml } from '../../toml.js'
+import { TomlDateTime, TomlError, TomlFloat, isInlineTable, parseToml } from '../../toml.js'
 
 // Tables come back with a null prototype, which strict deepEqual holds
 // against a literal; structuredClone gives them Object.prototype back and
@@ -118,6 +118,12 @@ describe('what is read', () => {
     // One line, but for an array within, which may run on as arrays do.
     assert.deepEqual(parse('a = { b = [\n  1,\n  # c\n  2 ] }\n'), { a: { b: [1, 2] } })
     refuses('a = { b = [\n1 ]\n}\n', 'an inline table across lines is not supported', 1)
+  })
+
+  it('tells a table written inline from one a header or a dotted key makes', () => {
+    const doc = parseToml('a = { b = { c = 1 } }\nd = [{ e = 1 }]\nf.g = 1\n[h]\n[i.j]\n[[k]]\n')
+    assert.deepEqual([doc.a, doc.a.b, doc.d[0]].map(isInlineTable), [true, true, true])
+    assert.deepEqual([doc, doc.f, doc.h, doc.i, doc.i.j, doc.k[0], doc.k, 1, null].map(isInlineTable), [false, false, false, false, false, false, false, false, false])
   })
 
   it('tables, and a table declared after one beneath it', () => {
