@@ -1,16 +1,17 @@
 // Hand-written against github.js; a change to either belongs with the other.
 //
-// Every method checks its arguments hard before any request is built:
-// an options object holding only the keys listed here, a repo that is
+// Every method checks its arguments hard before any request is built: an
+// options object holding only the keys listed here, a repo that is
 // `owner/name` by GitHub's rules, branches and tags that git would take,
-// full commit shas, paths with no empty, `.` or `..` component, titles
-// and headlines on one line. A bad one is a rejection naming the method;
-// nothing is sent. Every URL is built from checked, encoded segments and
-// has to come back out of URL parsing unchanged. Redirects are refused,
-// except the tarball's, so an answer is about the repo asked for. A
-// response is read up to a size limit (64 MiB of JSON, 128 MiB of a file,
-// 512 MiB of a tarball) and within a timeout (30 seconds, 5 minutes for a
-// tarball), and what it says goes into an error message escaped.
+// full commit shas and tree ids, paths with no empty, `.` or `..`
+// component, titles and headlines on one line. A bad one is a rejection
+// naming the method; nothing is sent. Every URL is built from checked,
+// encoded segments and has to come back out of URL parsing unchanged.
+// Redirects are refused, except the tarballs', so an answer is about the
+// repo asked for. A response is read up to a size limit (64 MiB of JSON,
+// 128 MiB of a file, 512 MiB of a tarball) and within a timeout (30
+// seconds, 5 minutes for a tarball), and what it says goes into an error
+// message escaped.
 
 // `owner/name`.
 export type RepoName = string
@@ -56,6 +57,14 @@ export interface Client {
   getRepoHead(options: { repo: RepoName; branch?: string }): Promise<{ branch: string; oid: string }>
   // The repo's gzipped tarball at the full commit `sha`, whole, in memory.
   getRepoTarball(options: { repo: RepoName; sha: string }): Promise<Uint8Array>
+  // The gzipped tarball of a tree, the repo's own or any subdirectory's, by
+  // its id, whole, in memory: GitHub's, its files under one top directory.
+  // Its files are hashed back into git's tree and the id must be `tree`,
+  // whether downloaded or read from setCacheDir's cache (npm.js), where it
+  // is kept by the id alone, for good; a cached copy that does not match
+  // throws. A tree holding a submodule is refused: the tarball has nothing
+  // of its commit to hash.
+  getRepoTreeTarball(options: { repo: RepoName; tree: string }): Promise<Uint8Array>
   // The repository's published security advisories, as GitHub's
   // repository advisory objects. One page of 100: GitHub pages this list
   // by cursor, so a repository with a full page is refused.

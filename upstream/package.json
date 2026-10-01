@@ -81,6 +81,7 @@
     "src/pool.js",
     "src/remote.js",
     "src/semver.js",
+    "src/tree.js",
     "src/soldeer.js"
   ],
   "engines": {

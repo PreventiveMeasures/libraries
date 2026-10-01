@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 
-import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, isSha, optional, sameName, show } from '../args.js'
+import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTreeId, isSha, optional, sameName, show } from '../args.js'
+import { verifiedDownload } from '../download.js'
 import { decode, encodeSegment } from '../http.js'
 import { api, bindMethods, call, clientHeaders, isGone, repoApi } from './client.js'
 
@@ -73,6 +74,15 @@ async function getRepoTarball(headers, options) {
   return await call(headers, repoApi(options.repo, ['tarball', options.sha]), { as: 'bytes', redirect: 'follow' })
 }
 
+// A tree id names its content: the bytes are held to it, downloaded or
+// cached, so the cache keeps them by the id alone, for good.
+async function getRepoTreeTarball(headers, options) {
+  assertArgs('getRepoTreeTarball', options, { repo: assertRepo, tree: assertTreeId })
+  const { repo, tree } = options
+  const locate = () => repoApi(repo, ['tarball', tree])
+  return await verifiedDownload({ method: 'getRepoTreeTarball', dir: 'github/trees', what: tree, ext: 'tgz', algorithm: 'tree', expected: tree, locate, options: { headers, redirect: 'follow' } })
+}
+
 async function getPullRequest(headers, options) {
   assertArgs('getPullRequest', options, { repo: assertRepo, number: assertNumber })
   const { repo, number } = options
@@ -120,5 +130,5 @@ async function listRepoAdvisories(headers, options) {
   return list
 }
 
-export const readMethods = { getCurrentUser, listUserRepos, getRepo, getRepoHead, getRepoFile, getRepoTarball, getPullRequest, getCollaboratorPermission, getAdvisory, listRepoAdvisories }
+export const readMethods = { getCurrentUser, listUserRepos, getRepo, getRepoHead, getRepoFile, getRepoTarball, getRepoTreeTarball, getPullRequest, getCollaboratorPermission, getAdvisory, listRepoAdvisories }
 export const createClient = (options) => bindMethods(clientHeaders('createClient', options, true), readMethods)
