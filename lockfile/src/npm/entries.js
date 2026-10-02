@@ -4,8 +4,8 @@
 // where it has a value: no empty list, no false flag, no empty string.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkIntegrity, checkName, checkRelative, checkRepo, checkVersion, isCommit, isHttpUrl } from '../names.js'
-import { boolean, entries, field, flag, kind, record, text, textMap, texts } from '../shape.js'
+import { checkName, checkRegistryTarball, checkRelative, checkRepo, checkVersion, isCommit, isHttpUrl, readIntegrities } from '../names.js'
+import { boolean, field, flag, mapping, record, refuse, text, textMap, texts } from '../shape.js'
 import { fromHostedUrl } from './hosted.js'
 import { isTarball } from './spec.js'
 
@@ -25,14 +25,8 @@ const FIELDS = {
 
 // Fields npm writes that are refused here, and why.
 const REFUSED = {
-  __proto__: null,
   hasShrinkwrap: 'a shrinkwrap of its own, which is not supported',
   extraneous: 'nothing leads to it, and npm prunes it rather than install it',
-}
-
-function checkFields(entry, where, fields) {
-  for (const key of Object.keys(record(entry, where))) if (key in REFUSED) throw new LockfileError(REFUSED[key], at(where, key))
-  record(entry, where, fields)
 }
 
 // A list or mapping, which npm leaves out where it is empty.
@@ -43,15 +37,11 @@ function filled(value, where) {
   return value
 }
 
-const mapping = (read) => (value, where) => {
-  const map = Object.create(null)
-  for (const [key, item, here] of entries(filled(value, where), where)) map[key] = read(item, here, key)
-  return map
-}
+const filledMapping = (read) => (value, where) => mapping(filled(value, where), where, read)
 
 const specs = (value, where) => textMap(filled(value, where), where, checkName)
 const readName = (value, where) => checkName(text(value, where), where)
-const names = (value, where) => texts(filled(value, where), where).map((name, index) => checkName(name, `${where}[${index}]`))
+const names = (value, where) => texts(filled(value, where), where, checkName)
 const strings = (value, where) => texts(filled(value, where), where)
 
 // A sequence of strings, which old manifests have, or what `read` reads.
@@ -59,13 +49,13 @@ const stringsOr = (read) => (value, where) => (Array.isArray(value) ? strings(va
 
 // Of a peer, whether it is optional: what else the package.json says of
 // it, npm writes as it is and passes over.
-const peersMeta = mapping((item, where, name) => {
+const peersMeta = filledMapping((item, where, name) => {
   checkName(name, where)
   return { optional: field(record(item, where), 'optional', where, boolean) ?? false }
 })
 
 // A URL, a mapping of a type and a URL, or a sequence of either.
-const funding = (value, where) => (typeof value === 'string' ? text(value, where) : mapping(text)(value, where))
+const funding = (value, where) => (typeof value === 'string' ? text(value, where) : filledMapping(text)(value, where))
 const readFunding = (value, where) => (Array.isArray(value) ? filled(value, where).map((item, index) => funding(item, `${where}[${index}]`)) : funding(value, where))
 
 // Globs, or the `packages` of them, which @npmcli/map-workspaces reads.
@@ -92,7 +82,7 @@ const READERS = {
   cpu: strings,
   libc: strings,
   license: stringsOr(text),
-  bin: mapping(text),
+  bin: filledMapping(text),
   deprecated: text,
   workspaces: readWorkspaces,
 }
@@ -104,26 +94,9 @@ function readFlags(entry, where) {
   return flags
 }
 
-// A registry keeps a package's tarball under its name, a scope's `/` once
-// written `%2f`, and named after its version.
-const REGISTRIES = new Set(['registry.npmjs.org', 'registry.yarnpkg.com'])
-
-function checkRegistry(tarball, name, version, where) {
-  const url = new URL(tarball)
-  if (REGISTRIES.has(url.hostname) && url.pathname.replace(/^(\/@[^/]+)%2f/iu, '$1/') !== `/${name}/-/${name.slice(name.indexOf('/') + 1)}-${version}.tgz`) {
-    throw new LockfileError(`${quote(tarball)} is not the registry's tarball of ${name}@${version}`, where)
-  }
-}
-
-// Subresource integrity, of one hash or more, a space apart, of no
-// algorithm twice: npm checks a tarball with the strongest.
+// npm checks a tarball with the strongest of its integrities.
 function readIntegrity(value, where) {
-  const algorithms = new Set()
-  for (const part of text(value, where).split(' ')) {
-    const algorithm = checkIntegrity(part, where).slice(0, part.indexOf('-'))
-    if (algorithms.has(algorithm)) throw new LockfileError(`two ${algorithm} integrities`, where)
-    algorithms.add(algorithm)
-  }
+  readIntegrities(value, where)
   return value
 }
 
@@ -137,7 +110,7 @@ function checkTarball(tarball, name, version, where) {
   }
   if (!isHttpUrl(tarball) || /\s/u.test(tarball)) throw new LockfileError(`${quote(tarball)} is not an http(s) URL, a file: tarball or a git URL`, where)
   if (fromHostedUrl(tarball) !== undefined) throw new LockfileError(`${quote(tarball)} is a repository to npm, which it reads as one on a git host`, where)
-  checkRegistry(tarball, name, version, where)
+  checkRegistryTarball(tarball, name, version, where)
 }
 
 const GIT = /^git(?:\+[a-z]+)?:/u
@@ -172,8 +145,8 @@ export function folderName(location) {
 
 // A link: where it leads, from the lockfile's directory.
 export function readLink(entry, where) {
-  checkFields(entry, where, FIELDS.link)
-  if (entry.link !== true) throw new LockfileError(`expected true, found ${kind(entry.link)}`, at(where, 'link'))
+  record(entry, where, FIELDS.link, REFUSED)
+  if (entry.link !== true) throw refuse('true', entry.link, at(where, 'link'))
   return checkRelative(entry.resolved, at(where, 'resolved'))
 }
 
@@ -181,7 +154,7 @@ export function readLink(entry, where) {
 // gives it, undefined for the project's own. A bundle of a directory but
 // the project's is not supported.
 export function readEntry(entry, where, kindOf, folder) {
-  checkFields(entry, where, FIELDS[kindOf])
+  record(entry, where, FIELDS[kindOf], REFUSED)
   const read = Object.create(null)
   for (const key of Object.keys(READERS)) read[key] = field(entry, key, where, READERS[key])
   if (kindOf === 'importer' && folder !== undefined && read.bundleDependencies !== undefined) {

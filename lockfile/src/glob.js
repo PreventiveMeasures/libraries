@@ -1,7 +1,8 @@
-// The minimatch read here, a path segment at a time: `**` as null, and `*`
-// and `?` within one, which, as `**`, match no segment that starts with `.`.
+// The minimatch yarn 1 and npm read globs of workspaces with, read here a
+// path segment at a time: `**` as null, and `*` and `?` within one, which,
+// as `**`, match no segment that starts with `.`.
 
-import { LockfileError, quote } from '../error.js'
+import { LockfileError, quote } from './error.js'
 
 // Whether the code points of `name` match those of `pattern`, `*` any run
 // and `?` any one: the last `*` taken one further at a time, in O(n·m).

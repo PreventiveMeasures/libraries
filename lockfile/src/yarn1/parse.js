@@ -1,4 +1,4 @@
-import { checkOptions } from '../shape.js'
+import { checkOptions, checkSemver } from '../shape.js'
 import { linkRequests, readImporters } from './importers.js'
 import { readPackages } from './packages.js'
 import { checkResolutions } from './resolutions.js'
@@ -7,13 +7,10 @@ import { readEntries } from './syntax.js'
 const OPTIONS = ['manifests', 'checkVersions', 'semver']
 const SEMVER = ['clean', 'satisfies', 'valid', 'validRange']
 
+// semver is taken where it is given, checkVersions or not.
 function readOptions(options) {
-  const { manifests, checkVersions = true, semver } = checkOptions(options, OPTIONS)
-  if (typeof checkVersions !== 'boolean') throw new TypeError('checkVersions: expected a boolean')
-  if (semver !== undefined && !SEMVER.every((name) => typeof semver?.[name] === 'function')) {
-    throw new TypeError(`semver: expected the semver package, with ${SEMVER.join(', ')}`)
-  }
-  if (checkVersions && semver === undefined) throw new TypeError('checkVersions needs semver: pass it as semver, or set checkVersions to false')
+  const { manifests, semver } = checkOptions(options, OPTIONS)
+  checkSemver(options, SEMVER)
   return { manifests, semver }
 }
 

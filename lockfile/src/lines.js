@@ -6,6 +6,16 @@ import { hex } from './excerpt.js'
 
 export const fail = (detail, number) => new LockfileError(`${detail} at line ${Math.max(number, 0) + 1}`)
 
+// npm and yarn read a file with all three of these anywhere in it, in a
+// string too, as a merge conflict, and merge its sides into one.
+const CONFLICT = ['<<<<<<<', '=======', '>>>>>>>']
+
+export function checkConflict(text, tool) {
+  if (CONFLICT.every((marker) => text.includes(marker))) {
+    throw new LockfileError(`${tool} reads a file with ${CONFLICT.map((marker) => quote(marker)).join(', ')} in it as a merge conflict`)
+  }
+}
+
 // What follows `pos`, for a message.
 export const rest = (line, pos) => (pos < line.length ? quote(line.slice(pos)) : 'the end of the line')
 

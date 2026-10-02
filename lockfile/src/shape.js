@@ -15,15 +15,15 @@ export function kind(value) {
   return `the ${typeof value} ${String(value)}`
 }
 
-const refuse = (expected, value, where) => new LockfileError(`expected ${expected}, found ${kind(value)}`, where)
+export const refuse = (expected, value, where) => new LockfileError(`expected ${expected}, found ${kind(value)}`, where)
 
 // A mapping with only the `fields` named, when named: any other key is one
 // this reader does not know the meaning of, and it is refused rather than
-// dropped.
-export function record(value, where, fields) {
+// dropped. `refused` names a key with the reason it is not read.
+export function record(value, where, fields, refused = {}) {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw refuse('a mapping', value, where)
-  if (fields === undefined) return value
-  for (const key of Object.keys(value)) {
+  for (const key of fields === undefined ? [] : Object.keys(value)) {
+    if (Object.hasOwn(refused, key)) throw new LockfileError(refused[key], at(where, key))
     if (!fields.includes(key)) throw new LockfileError(`unsupported field ${quote(key)}`, where)
   }
   return value
@@ -53,29 +53,33 @@ export function text(value, where) {
   return value
 }
 
-// A list of non-empty strings, as a fresh array.
-export function texts(value, where) {
+// A list of non-empty strings, as a fresh array; `check` holds each to more
+// than that.
+export function texts(value, where, check = (item) => item) {
   if (!Array.isArray(value)) throw refuse('a sequence', value, where)
-  return value.map((item, index) => text(item, `${where}[${index}]`))
+  return value.map((item, index) => check(text(item, `${where}[${index}]`), `${where}[${index}]`))
+}
+
+// A mapping, as a fresh one of what `read(item, where, key)` makes of each.
+export function mapping(value, where, read) {
+  const map = Object.create(null)
+  for (const [key, item, here] of entries(value, where)) map[key] = read(item, here, key)
+  return map
 }
 
 // A mapping of strings to strings, as a fresh mapping; `check` holds each
 // key to more than being a string.
-export function textMap(value, where, check = () => {}) {
-  const map = Object.create(null)
-  for (const [key, item, here] of entries(value, where)) {
-    check(key, here)
-    map[key] = string(item, here)
-  }
-  return map
-}
+export const textMap = (value, where, check = () => {}) => mapping(value, where, (item, here, key) => {
+  check(key, here)
+  return string(item, here)
+})
 
 export function boolean(value, where) {
   if (typeof value !== 'boolean') throw refuse('true or false', value, where)
   return value
 }
 
-// A flag pnpm writes only when it is set: `true`, or absent.
+// A flag written only where it is set: `true`, or absent.
 export function flag(value, where) {
   if (value !== undefined && value !== true) throw refuse('true', value, where)
   return value === true
@@ -92,4 +96,15 @@ export function checkOptions(options, names) {
   const unknown = Object.keys(options).find((key) => !names.includes(key))
   if (unknown !== undefined) throw new TypeError(`unknown option ${quote(unknown)}, of ${names.join(', ')}`)
   return options
+}
+
+// `checkVersions`, on by default, and the semver package it needs, which
+// has the `functions` named; whether to check versions.
+export function checkSemver({ checkVersions = true, semver }, functions) {
+  if (typeof checkVersions !== 'boolean') throw new TypeError('checkVersions: expected a boolean')
+  if (semver !== undefined && !functions.every((name) => typeof semver?.[name] === 'function')) {
+    throw new TypeError(`semver: expected the semver package, with ${functions.join(', ')}`)
+  }
+  if (checkVersions && semver === undefined) throw new TypeError('checkVersions needs semver: pass it as semver, or set checkVersions to false')
+  return checkVersions
 }

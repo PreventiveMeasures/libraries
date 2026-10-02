@@ -8,7 +8,7 @@
 import { LockfileError, at } from '../error.js'
 import { checkName, checkRelative } from '../names.js'
 import { KINDS } from '../graph.js'
-import { boolean, entries, field, orEmpty, record, string, text } from '../shape.js'
+import { boolean, entries, field, mapping, orEmpty, record, string, text } from '../shape.js'
 import { target } from './packages.js'
 
 const FIELDS = [...KINDS, 'dependenciesMeta', 'publishDirectory', 'linkDirectory']
@@ -39,17 +39,11 @@ function readDependencies(importer, kinds, id, where, snapshots) {
 // workspace package installed as a copy, a `file:` snapshot, rather than
 // linked; and `node`, the Node executable its bins are run with, where it
 // is not the one pnpm runs on.
-function readMeta(value, where) {
-  const meta = Object.create(null)
-  for (const [name, item, here] of entries(orEmpty(value), where)) {
-    record(item, here, ['injected', 'node'])
-    meta[checkName(name, here)] = {
-      injected: item.injected === undefined ? false : boolean(item.injected, at(here, 'injected')),
-      node: field(item, 'node', here, text),
-    }
-  }
-  return meta
-}
+const readMeta = (value, where) => mapping(orEmpty(value), where, (item, here, name) => {
+  record(item, here, ['injected', 'node'])
+  checkName(name, here)
+  return { injected: field(item, 'injected', here, boolean) ?? false, node: field(item, 'node', here, text) }
+})
 
 // `publishDirectory` is the subdirectory a project is linked by instead of
 // its own, unless `linkDirectory` is false.

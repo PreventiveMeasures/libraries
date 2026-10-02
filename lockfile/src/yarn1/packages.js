@@ -4,7 +4,7 @@ import { toBase64 } from '@exodus/bytes/base64.js'
 import { fromHex } from '@exodus/bytes/hex.js'
 import { LockfileError, at, quote } from '../error.js'
 import { checkOptional } from '../graph.js'
-import { checkIntegrity, checkName, checkRelative, checkRepo, checkVersion, isCommit, isHttpUrl, joinRelative } from '../names.js'
+import { checkName, checkRegistryTarball, checkRelative, checkRepo, checkVersion, isCommit, isHttpUrl, readIntegrities, resolvePath } from '../names.js'
 import { entries, field, orEmpty, record, string, text } from '../shape.js'
 
 const FIELDS = ['name', 'version', 'uid', 'resolved', 'integrity', 'dependencies', 'optionalDependencies']
@@ -61,14 +61,10 @@ function hostedPath(range) {
   return segments.length < 2 ? undefined : segments.slice(-2).join('/')
 }
 
-// `path` from `base`, with no empty or `.` segment, its `..` resolved.
-const segments = (path) => path.split('/').filter((segment) => segment !== '' && segment !== '.').join('/')
-export const resolvePath = (base, path) => joinRelative(base, segments(path) || '.')
-
 // The directory a `file:` or `link:` range names, from the lockfile's.
 function directory(range) {
   const path = range.replace(/^(?:file|link):/u, '')
-  return path.startsWith('/') ? `/${segments(path)}` : resolvePath('.', path)
+  return path.startsWith('/') ? `/${path.split('/').filter((segment) => segment !== '' && segment !== '.').join('/')}` : resolvePath('.', path)
 }
 
 // yarn cleans a version before it writes one: SemVer 2.0.0, which semver.valid
@@ -87,15 +83,9 @@ function readTarball(tarball, sha1, integrity, resolvedAt, integrityAt) {
   if (tarball.startsWith('file:')) checkRelative(tarball.slice(tarball.startsWith('file:./') ? 7 : 5), resolvedAt)
   else if (/\s/u.test(tarball) || !isHttpUrl(tarball)) throw new LockfileError(`${quote(tarball)} is not an http(s) URL, a file: path or a git URL`, resolvedAt)
   if (sha1 !== undefined && !SHA1.test(sha1)) throw new LockfileError(`${quote(sha1)} is not the hex sha1 of a tarball`, resolvedAt)
-  const algorithms = new Set()
-  for (const part of integrity === undefined ? [] : text(integrity, integrityAt).split(' ')) {
-    checkIntegrity(part, integrityAt)
-    const algorithm = part.slice(0, part.indexOf('-'))
-    if (algorithms.has(algorithm)) throw new LockfileError(`two ${algorithm} integrities`, integrityAt)
-    algorithms.add(algorithm)
-    if (sha1 !== undefined && algorithm === 'sha1' && part.slice(5) !== toBase64(fromHex(sha1))) {
-      throw new LockfileError(`${quote(part)} is not the sha1 after the "#" of resolved`, integrityAt)
-    }
+  const part = integrity === undefined ? undefined : readIntegrities(integrity, integrityAt).get('sha1')
+  if (sha1 !== undefined && part !== undefined && part.slice(5) !== toBase64(fromHex(sha1))) {
+    throw new LockfileError(`${quote(part)} is not the sha1 after the "#" of resolved`, integrityAt)
   }
   return { type: 'tarball', tarball, sha1, integrity }
 }
@@ -166,17 +156,6 @@ function checkDirectories(patterns, where) {
   if (other !== undefined) throw new LockfileError(`${quote(first.key)} and ${quote(other.key)} share an entry, where yarn writes one for each`, where)
 }
 
-// npm's registry, and yarn's mirror of it, keep a package's tarball under its
-// name, a scope's `/` once written `%2f`, and named after its version.
-const REGISTRIES = new Set(['registry.npmjs.org', 'registry.yarnpkg.com'])
-
-function checkRegistry(name, version, { tarball }, where) {
-  const url = new URL(tarball)
-  if (REGISTRIES.has(url.hostname) && url.pathname.replace(/^(\/@[^/]+)%2f/iu, '$1/') !== `/${name}/-/${name.slice(name.indexOf('/') + 1)}-${version}.tgz`) {
-    throw new LockfileError(`${quote(tarball)} is not the registry's tarball of ${name}@${version}`, where)
-  }
-}
-
 // Registry patterns are given a tarball from a URL. An entry that has them
 // beside patterns that name a source goes back, for a resolution to explain.
 function checkSources(patterns, resolution, { asks, version }, where) {
@@ -196,7 +175,7 @@ function checkSources(patterns, resolution, { asks, version }, where) {
   if (resolution?.type !== 'tarball' || resolution.tarball.startsWith('file:')) {
     throw new LockfileError(`${quote(registry.key)} asks for the registry, and resolves to ${describe(resolution)}`, where)
   }
-  checkRegistry(asks, version, resolution, at(where, 'resolved'))
+  checkRegistryTarball(resolution.tarball, asks, version, at(where, 'resolved'))
   return undefined
 }
 
@@ -245,7 +224,7 @@ function checkRace(pkg, patterns, prior, semver, where) {
   if (asking !== undefined) throw new LockfileError(`is ${pkg.name} ${pkg.version}, as ${quote(prior.key)} is, and yarn gives ${quote(asking.key)} whichever it resolves first`, where)
 }
 
-const integrities = ({ integrity }) => new Map((integrity?.split(' ') ?? []).map((part) => [part.slice(0, part.indexOf('-')), part]))
+const integrities = ({ integrity }) => (integrity === undefined ? new Map() : readIntegrities(integrity))
 
 // A dependency list, in no order.
 const listed = (dependencies) => JSON.stringify(Object.entries(dependencies).sort(([a], [b]) => (a < b ? -1 : 1)))

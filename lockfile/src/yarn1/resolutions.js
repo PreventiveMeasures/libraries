@@ -4,7 +4,7 @@
 import { LockfileError, at, quote } from '../error.js'
 import { KINDS } from '../graph.js'
 import { orEmpty } from '../shape.js'
-import { accepts, close, step } from './glob.js'
+import { accepts, close, step } from '../glob.js'
 import { WHERE } from './importers.js'
 import { checkLists } from './packages.js'
 

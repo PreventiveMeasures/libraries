@@ -5,12 +5,7 @@
 // file it reads here is the one npm would write back.
 
 import { LockfileError, quote } from '../error.js'
-import { fail } from '../lines.js'
-
-// parse-conflict-json, which npm reads the lockfile with, takes a file with
-// all three of these anywhere in it, in a string too, as a merge conflict,
-// and merges its sides into one.
-const CONFLICT = ['<<<<<<<', '=======', '>>>>>>>']
+import { checkConflict, fail } from '../lines.js'
 
 // The line end after the opening brace and the indentation of the line
 // after, as json-parse-even-better-errors finds them for npm to write the
@@ -41,10 +36,9 @@ function difference(text, written) {
   return fail(`expected ${line < expected.length ? quote(expected[line]) : 'the end of the file'}, as npm writes it, found ${found}`, line)
 }
 
+// npm reads the lockfile with parse-conflict-json.
 export function readJson(text) {
-  if (CONFLICT.every((marker) => text.includes(marker))) {
-    throw new LockfileError(`npm reads a file with ${CONFLICT.map((marker) => quote(marker)).join(', ')} in it as a merge conflict`)
-  }
+  checkConflict(text, 'npm')
   const format = FORMAT.exec(text)
   if (format === null) throw fail('expected "{" alone on the first line and an indented key on the next, as npm writes the file', 0)
   let value

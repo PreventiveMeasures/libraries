@@ -8,7 +8,7 @@
 import { LockfileError, at, quote } from '../error.js'
 import { checkName, checkRelative } from '../names.js'
 import { entries, record } from '../shape.js'
-import { compile, matches } from '../yarn1/glob.js'
+import { compile, matches } from '../glob.js'
 import { folderName, readEntry, readLink } from './entries.js'
 
 const WHERE = 'packages'

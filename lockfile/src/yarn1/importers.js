@@ -3,10 +3,10 @@
 
 import { LockfileError, at, quote } from '../error.js'
 import { KINDS, reach } from '../graph.js'
-import { checkName, checkRelative, isName } from '../names.js'
+import { checkName, checkRelative, isName, resolvePath } from '../names.js'
 import { entries, orEmpty, record, string, text, texts } from '../shape.js'
-import { compile, matches } from './glob.js'
-import { isRange, resolvePath, sourceOf } from './packages.js'
+import { compile, matches } from '../glob.js'
+import { isRange, sourceOf } from './packages.js'
 
 export const WHERE = 'manifests'
 

@@ -5,7 +5,7 @@
 // it asks for. Paths come back from the lockfile's directory, as `from` is.
 
 import { LockfileError, quote } from '../error.js'
-import { checkName, joinRelative } from '../names.js'
+import { checkName, resolvePath } from '../names.js'
 import { fromHostedUrl } from './hosted.js'
 
 const URL_SPEC = /^(?:git\+)?[a-z]+:/iu
@@ -26,8 +26,7 @@ function fromFile(spec, from) {
   if (/^file:/iu.test(spec) && !spec.startsWith('file:')) throw unread(spec, 'a path whose "file:" npm reads in another case otherwise')
   const path = spec.startsWith('file:') ? spec.slice(5) : spec
   if (/^(?:[/~]|[A-Za-z]:)/u.test(path)) throw unread(spec, 'a path from the root, a drive or the home directory, which a lockfile does not hold')
-  const segments = path.split('/').filter((segment) => segment !== '' && segment !== '.')
-  return { type, path: joinRelative(from, segments.join('/') || '.') }
+  return { type, path: resolvePath(from, path) }
 }
 
 // setGitAttrs: a committish, a `semver:` range, a `path:` in the

@@ -5,7 +5,7 @@
 // and a package with a shrinkwrap of its own are refused.
 
 import { LockfileError, quote } from '../error.js'
-import { checkOptions, kind, record, text } from '../shape.js'
+import { checkOptions, checkSemver, kind, record, refuse, text } from '../shape.js'
 import { checkBundles } from './bundles.js'
 import { checkFlags } from './flags.js'
 import { readJson } from './json.js'
@@ -17,13 +17,9 @@ const SEMVER = ['satisfies', 'valid', 'validRange']
 const FIELDS = ['name', 'version', 'lockfileVersion', 'requires', 'packages']
 
 function readOptions(options) {
-  const { checkVersions = true, semver, legacyPeerDeps = false } = checkOptions(options, OPTIONS)
-  if (typeof checkVersions !== 'boolean') throw new TypeError('checkVersions: expected a boolean')
+  const { semver, legacyPeerDeps = false } = checkOptions(options, OPTIONS)
+  const checkVersions = checkSemver(options, SEMVER)
   if (typeof legacyPeerDeps !== 'boolean') throw new TypeError('legacyPeerDeps: expected a boolean')
-  if (semver !== undefined && !SEMVER.every((name) => typeof semver?.[name] === 'function')) {
-    throw new TypeError(`semver: expected the semver package, with ${SEMVER.join(', ')}`)
-  }
-  if (checkVersions && semver === undefined) throw new TypeError('checkVersions needs semver: pass it as semver, or set checkVersions to false')
   return { semver: checkVersions ? semver : undefined, legacyPeerDeps }
 }
 
@@ -32,7 +28,7 @@ function readOptions(options) {
 function readVersion(doc) {
   if (record(doc, undefined).lockfileVersion !== 3) throw new LockfileError(`unsupported version: expected 3, found ${kind(doc.lockfileVersion)}`, 'lockfileVersion')
   record(doc, undefined, FIELDS)
-  if (doc.requires !== true) throw new LockfileError(`expected true, found ${kind(doc.requires)}`, 'requires')
+  if (doc.requires !== true) throw refuse('true', doc.requires, 'requires')
 }
 
 // The name and version npm writes above the packages are the project's: its
