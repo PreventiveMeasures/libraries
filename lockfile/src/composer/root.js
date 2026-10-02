@@ -7,6 +7,7 @@
 // to the lockfile.
 
 import { LockfileError, at, quote } from '../error.js'
+import { refuse, string } from '../shape.js'
 import { decodeJson, encodeJson } from './json.js'
 import { md5 } from './md5.js'
 import { LINKS, checkName, plain, readVersion } from './package.js'
@@ -27,18 +28,19 @@ function contentHash(config) {
 
 const ALIAS = /^([^,\t\n\v\f\r #]+)(?:#[^ ]+)? +as +([^,\t\n\v\f\r ]+)$/u
 
-// ArrayLoader::parseLinks of the root's, with what RootPackageLoader refuses
-// of a requirement: an alias that is not of two versions, and the root
-// itself.
+// ArrayLoader::parseLinks of the root's, of an object of strings, as
+// Composer's schema holds composer.json to before it is loaded, with what
+// RootPackageLoader refuses of a requirement: an alias that is not of two
+// versions, and the root itself.
 function readLinks(config, key, name, version) {
   const value = config.get(key)
-  if (!(value instanceof Map)) return []
+  if (value === undefined) return []
+  if (!(value instanceof Map)) throw refuse('a mapping', value, at(WHERE, key))
   const byTarget = new Map()
   for (const [written, constraint] of value) {
-    if (typeof constraint !== 'string') continue
     const target = lower(written)
     const where = at(at(WHERE, key), written)
-    plain(constraint, where)
+    plain(string(constraint, where), where)
     const parsed = constraint === 'self.version' ? (version === undefined ? { all: true } : parseConstraints(version.pretty)) : parseConstraints(constraint)
     if (parsed === undefined) throw new LockfileError(`${quote(constraint)} is not a version constraint Composer reads`, where)
     if (key === 'require' || key === 'require-dev') {
@@ -64,16 +66,13 @@ export const contentHashOf = (text) => contentHash(decode(text))
 export function readComposerJson(text) {
   const config = decode(text)
   let name = '__root__'
-  if (config.get('name') !== undefined && config.get('name') !== null) {
+  if (config.has('name')) {
     name = checkName(config.get('name'), at(WHERE, 'name'))
     if (lower(name) !== name) throw new LockfileError(`${quote(name)} has capitals, which Composer refuses of the root`, at(WHERE, 'name'))
   }
   let version
-  const written = config.get('version')
-  if (written !== undefined && written !== null) {
-    // A scalar, as a string as PHP casts it.
-    const pretty = typeof written === 'boolean' ? (written ? '1' : '') : typeof written === 'bigint' || typeof written === 'number' ? String(written) : written
-    if (typeof pretty !== 'string') throw new LockfileError('expected a version, which Composer reads of a string or a number', at(WHERE, 'version'))
+  if (config.has('version')) {
+    const pretty = string(config.get('version'), at(WHERE, 'version'))
     version = { pretty, normalized: readVersion(pretty, at(WHERE, 'version')) }
   }
   const links = Object.create(null)

@@ -237,10 +237,11 @@ function readDist(value, where) {
 }
 
 // A bin Composer links from the package's directory: ArrayLoader strips a
-// leading `/`, and Composer 2.10 refuses a `..` in it.
+// leading `/`, Composer 2.10 refuses a `..` in it, and on Windows one from
+// a drive, `C:\x`, or a share, `\\server\x`, is out of the package too.
 function checkBin(value, where) {
   const bin = plain(value, where)
-  if (bin === '' || bin.startsWith('/') || /(?:^|[\\/])\.\.(?:[\\/]|$)/u.test(bin)) throw new LockfileError(`${quote(bin)} is not a path in the package, as Composer installs a bin from`, where)
+  if (bin === '' || /^(?:[\\/]|[A-Za-z]:)/u.test(bin) || /(?:^|[\\/])\.\.(?:[\\/]|$)/u.test(bin)) throw new LockfileError(`${quote(bin)} is not a path in the package, as Composer installs a bin from`, where)
   return bin
 }
 

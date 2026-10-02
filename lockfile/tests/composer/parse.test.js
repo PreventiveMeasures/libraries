@@ -268,6 +268,10 @@ describe('a package', () => {
     refuses(edit((doc) => (doc['packages-dev'][0].bin = 'bin/tool')), 'expected a sequence, found the string "bin/tool"', 'packages-dev[0].bin')
     refuses(edit((doc) => (doc['packages-dev'][0].bin = ['/bin/tool'])), '"/bin/tool" is not a path in the package, as Composer installs a bin from', 'packages-dev[0].bin[0]')
     refuses(edit((doc) => (doc['packages-dev'][0].bin = ['../../x'])), '"../../x" is not a path in the package, as Composer installs a bin from', 'packages-dev[0].bin[0]')
+    for (const bin of ['C:\\outside\\tool', 'c:tool', '\\\\server\\share\\tool', '\\tool', 'bin\\..\\..\\tool']) {
+      refuses(edit((doc) => (doc['packages-dev'][0].bin = [bin])), `${JSON.stringify(bin)} is not a path in the package, as Composer installs a bin from`, 'packages-dev[0].bin[0]')
+    }
+    parseComposerLock(edit((doc) => (doc['packages-dev'][0].bin = ['bin\\tool', './bin/tool'])))
     refuses(edit((doc) => (doc['packages-dev'][0].keywords = ['10', '9'])), 'out of the order Composer sorts keywords in, after "10"', 'packages-dev[0].keywords[1]')
     refuses(edit((doc) => (doc['packages-dev'][0].abandoned = '')), '"", which Composer reads as no value and does not write', 'packages-dev[0].abandoned')
     refuses(edit((doc) => put(doc.packages[0], 'license', 'MIT')), 'expected a sequence, found the string "MIT"', at(0, '.license'))
@@ -372,6 +376,12 @@ describe('with composer.json', () => {
     refuses(encode(BASE), '"Fixture/Root" has capitals, which Composer refuses of the root', 'composerJson.name', { composerJson: root((json) => (json.name = 'Fixture/Root')) })
     refuses(encode(BASE), 'the root itself, which Composer refuses', 'composerJson.require["fixture/root"]', { composerJson: root((json) => (json.require['fixture/root'] = '*')) })
     refuses(encode(BASE), '"dev-main as foo" is not an alias of one version as another, which Composer refuses', 'composerJson.require["b/lib"]', { composerJson: root((json) => (json.require['b/lib'] = 'dev-main as foo')) })
+    refuses(encode(BASE), 'expected a mapping, found the string "oops"', 'composerJson.require', { composerJson: '{"require": "oops"}' })
+    refuses(encode(BASE), 'expected a mapping, found a sequence', 'composerJson.replace', { composerJson: '{"replace": []}' })
+    refuses(encode(BASE), 'expected a mapping, found null', 'composerJson["require-dev"]', { composerJson: '{"require-dev": null}' })
+    refuses(encode(BASE), 'expected a string, found the bigint 3', 'composerJson.conflict["a/b"]', { composerJson: '{"conflict": {"a/b": 3}}' })
+    refuses(encode(BASE), 'expected a string, found null', 'composerJson.name', { composerJson: '{"name": null}' })
+    refuses(encode(BASE), 'expected a string, found the bigint 1', 'composerJson.version', { composerJson: '{"version": 1}' })
     assert.throws(() => parseComposerLock(encode(BASE), { composerJson: {} }), TypeError)
     assert.throws(() => parseComposerLock(encode(BASE), { composer: '{}' }), TypeError)
   })

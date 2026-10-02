@@ -8,7 +8,7 @@
 // list; a number past what PHP holds as it is.
 
 import { LockfileError, quote } from '../error.js'
-import { fail as failAt } from '../lines.js'
+import { fail as failAt, take } from '../lines.js'
 import { fitsLong } from './php.js'
 
 // PHP's json_decode reads no deeper, nor json_encode writes.
@@ -111,8 +111,7 @@ const isLong = ([raw, fraction, exponent]) => fraction === undefined && exponent
 // past that; either is written back in one way alone. One past what a
 // number holds exactly is refused, where it would not read the same here.
 function readNumber(src) {
-  NUMBER.lastIndex = src.pos
-  const match = NUMBER.exec(src.text)
+  const match = take(src, NUMBER)
   if (match === null) throw fail(src, `expected a value, found ${found(src)}`)
   const [raw] = match
   const integer = isLong(match)
@@ -121,7 +120,6 @@ function readNumber(src) {
   const written = integer ? BigInt(raw).toString() : phpFloat(value)
   if (written !== raw) throw fail(src, `${raw} is not written as Composer writes it, ${written}`)
   if (integer && !Number.isSafeInteger(value)) throw fail(src, `${raw} is past what a JavaScript number holds exactly`)
-  src.pos += raw.length
   return value
 }
 
@@ -216,16 +214,13 @@ export function readJson(text) {
 }
 
 // composer.json as json_decode reads it, written as anyone may: of each
-// key given twice the last, in the first's place, and every object and
-// array an array of PHP's, a Map here by its keys as strings, an array's
-// "0" to n; an integer a bigint where 64 bits hold it, any other number a
-// double.
+// key given twice the last, in the first's place; an object a Map by its
+// keys as strings, as PHP's array has them, and an array an array, which
+// Composer's schema tells apart; an integer a bigint where 64 bits hold
+// it, any other number a double.
 const SPACE = /[ \t\n\r]*/uy
 
-function skip(src) {
-  SPACE.lastIndex = src.pos
-  src.pos += SPACE.exec(src.text)[0].length
-}
+const skip = (src) => take(src, SPACE)
 
 const syntax = (src, detail) => new LockfileError(`not JSON as PHP reads it: ${detail} at line ${lineOf(src.text, src.pos)}`, src.where)
 
@@ -250,39 +245,39 @@ function decodeValue(src, depth) {
   const char = src.text[src.pos]
   if (char === '{' || char === '[') {
     if (depth === DEPTH) throw syntax(src, `nested more than ${DEPTH} deep`)
-    const close = char === '{' ? '}' : ']'
-    const array = new Map()
+    const object = char === '{'
+    const close = object ? '}' : ']'
+    const items = object ? new Map() : []
     src.pos++
     skip(src)
     if (src.text[src.pos] === close) {
       src.pos++
-      return array
+      return items
     }
     for (;;) {
-      let key = String(array.size)
-      if (close === '}') {
+      if (object) {
         skip(src)
         if (src.text[src.pos] !== '"') throw syntax(src, `expected a key, found ${found(src)}`)
-        key = decodeString(src)
+        const key = decodeString(src)
         skip(src)
         if (src.text[src.pos] !== ':') throw syntax(src, `expected ":", found ${found(src)}`)
         src.pos++
+        items.set(key, decodeValue(src, depth + 1))
+      } else {
+        items.push(decodeValue(src, depth + 1))
       }
-      array.set(key, decodeValue(src, depth + 1))
       skip(src)
       const next = src.text[src.pos]
       if (next !== close && next !== ',') throw syntax(src, `expected "," or ${quote(close)}, found ${found(src)}`)
       src.pos++
-      if (next === close) return array
+      if (next === close) return items
     }
   }
   if (char === '"') return decodeString(src)
   const literal = readLiteral(src)
   if (literal !== undefined) return literal[1]
-  NUMBER.lastIndex = src.pos
-  const match = NUMBER.exec(src.text)
+  const match = take(src, NUMBER)
   if (match === null) throw syntax(src, `expected a value, found ${found(src)}`)
-  src.pos += match[0].length
   return isLong(match) ? BigInt(match[0]) : Number(match[0])
 }
 
@@ -316,6 +311,7 @@ export function encodeJson(value) {
   if (typeof value === 'bigint') return value.toString()
   if (typeof value === 'number') return phpFloat(value)
   if (typeof value === 'string') return escapeUnicode(JSON.stringify(value).replaceAll('/', '\\/'))
+  if (Array.isArray(value)) return `[${value.map(encodeJson).join(',')}]`
   const keys = [...value.keys()]
   if (keys.every((key, index) => key === String(index))) return `[${[...value.values()].map(encodeJson).join(',')}]`
   return `{${keys.map((key) => `${encodeJson(key)}:${encodeJson(value.get(key))}`).join(',')}}`
