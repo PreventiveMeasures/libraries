@@ -28,6 +28,8 @@ const files = [
   new URL('cargo.d.ts', PKG_DIR),
   new URL('cocoapods.js', PKG_DIR),
   new URL('cocoapods.d.ts', PKG_DIR),
+  new URL('composer.js', PKG_DIR),
+  new URL('composer.d.ts', PKG_DIR),
   new URL('foundry.js', PKG_DIR),
   new URL('foundry.d.ts', PKG_DIR),
   new URL('npm.js', PKG_DIR),
@@ -63,9 +65,10 @@ const manifest = JSON.parse(readFileSync(new URL('package.json', PKG_DIR), 'utf8
 const LICENSES = new Set(['LICENSE-APACHE', 'LICENSE-MIT'])
 
 // Every way a module specifier can be written: static import/export-from,
-// dynamic import(), and CJS require(). A template literal is read only after
+// dynamic import(), and CJS require(), only where called, as a field named
+// `require` in quotes is not a module. A template literal is read only after
 // `import(` or `require(`, because prose quotes a module name in backticks.
-const SPECIFIER_RE = /(?:\bfrom|\bimport|\brequire)\s*\(?\s*(?<quote>['"])(?<spec>[^'"\n]+)\k<quote>/gu
+const SPECIFIER_RE = /(?:\bfrom|\bimport|\brequire(?=\s*\())\s*\(?\s*(?<quote>['"])(?<spec>[^'"\n]+)\k<quote>/gu
 const TEMPLATE_RE = /(?:\bimport|\brequire)\s*\(\s*`(?<spec>[^`$\n]+)`/gu
 
 const specifiersOf = (source) => [SPECIFIER_RE, TEMPLATE_RE].flatMap((re) => [...source.matchAll(re)].map((m) => m.groups.spec))
