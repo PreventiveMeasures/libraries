@@ -1,41 +1,34 @@
-// Which snapshots a pnpm 10 install from a frozen lockfile leaves out: an
-// optional one that the host cannot run — its `os`, `cpu` or `libc` do not
-// take the host's, or its `engines.node` does not take the Node pnpm runs
-// on — and an optional one first reached, depth first from the projects,
-// through a snapshot that is not installed. That first reach decides it,
-// as it does for pnpm (@pnpm/lockfile.filtering's pkgAllDeps, then
-// @pnpm/deps.graph-builder checking every snapshot again), so a snapshot
-// reached both ways is left out or not by which way is walked first.
-// Anything else incompatible is installed, as pnpm installs it with a
-// warning, or refused where `engineStrict` has pnpm refuse it.
+// Which snapshots a pnpm 10 frozen install leaves out: an optional one the
+// host cannot run (by its os, cpu, libc or engines.node), and an optional
+// one first reached, depth first from the projects, through one that is
+// not installed. The first reach decides, as for pnpm
+// (@pnpm/lockfile.filtering's pkgAllDeps, then @pnpm/deps.graph-builder
+// checking each snapshot again), so one reached both ways is left out or
+// not by which way is walked first. Anything else incompatible is
+// installed with a warning, or refused under engineStrict.
 //
-// The projects are walked in the lockfile's order, which is the order of
-// their directories; pnpm walks them in the order it finds them on disk,
-// which only a snapshot reached both ways as above can tell apart.
+// Projects are walked in the lockfile's order, by directory, where pnpm
+// walks them in the order it finds them on disk; only a snapshot reached
+// both ways can tell.
 //
-// pnpm 11 walks breadth first, and by the kind of each edge rather than of
+// pnpm 11 walks breadth first, by the kind of each edge rather than of
 // each snapshot: an optional dependency the host cannot run is not taken,
-// and what a taken package requires is taken whether the host can run it
-// or not, with a warning; each reachable snapshot not taken is left out.
-// Where a package of an optional edge names no os, cpu or libc, pnpm 11
-// infers them from its name, as `@nx/nx-win32-arm64-msvc` names win32.
+// what a taken package requires is taken anyway, with a warning, and each
+// reachable snapshot not taken is left out. Where an optional edge's
+// package names no os, cpu or libc, it infers them from its name, as
+// `@nx/nx-win32-arm64-msvc` names win32.
 //
-// pnpm 12 leaves out the same, but refuses with engineStrict whatever it
-// installs that the host cannot run, the lockfile's optional mark or not,
-// and holds a patched package's published engines to the host as it walks
-// it. Of a project it checks only the root's engines.node, and only with
-// engineStrict. It reads an engines.node npm's semver does not, or a
-// range of a `-` with an `x`, otherwise than npm's semver, which is
-// refused where it would decide what is installed.
+// pnpm 12 leaves out the same, but with engineStrict refuses whatever it
+// installs that the host cannot run, optional mark or not, and holds a
+// patched package's published engines to the host as it walks it.
 
 import { satisfies, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 
-// pnpm's checkList: `any` alone is anything, `!x` excludes, and a list of
-// exclusions alone takes what none of them names. pnpm 10 counts the
-// exclusions over every value the host is taken to be, so a list of them
-// takes nothing where the host is taken to be more than one thing; pnpm 11
-// does not. pnpm 12 takes, of each value, the first item that names it.
+// pnpm's checkList. pnpm 10 counts the exclusions over every value the
+// host is taken to be, so a list of them alone takes nothing where there
+// is more than one; pnpm 11 does not. pnpm 12 takes, of each value, the
+// first item that names it.
 function checkList(values, list, major) {
   if (list.length === 1 && list[0] === 'any') return true
   let match = false
@@ -54,8 +47,7 @@ function checkList(values, list, major) {
   return match || (major >= 11 ? list.every((item) => item.startsWith('!')) : excluded === list.length)
 }
 
-// pnpm 11's inferPlatformFromPackageName: the os, cpu and libc the words
-// of a package's name, less its scope, say it is for.
+// pnpm 11's inferPlatformFromPackageName, from the unscoped name's words.
 const OS_WORDS = { __proto__: null, aix: 'aix', android: 'android', darwin: 'darwin', macos: 'darwin', osx: 'darwin', freebsd: 'freebsd', linux: 'linux', netbsd: 'netbsd', openbsd: 'openbsd', openharmony: 'openharmony', sunos: 'sunos', win32: 'win32', windows: 'win32' }
 const CPU_WORDS = { __proto__: null, arm: 'arm', armv6: 'arm', armv7: 'arm', arm64: 'arm64', aarch64: 'arm64', ia32: 'ia32', loong64: 'loong64', mips64el: 'mips64el', ppc64: 'ppc64', ppc64le: 'ppc64', riscv64: 'riscv64', s390x: 's390x', x64: 'x64', amd64: 'x64', wasm32: 'wasm32' }
 const LIBC_WORDS = { __proto__: null, glibc: 'glibc', gnu: 'glibc', gnueabihf: 'glibc', musl: 'musl', musleabihf: 'musl' }
@@ -87,9 +79,8 @@ const takesPlatform = (pkg, host, supported) => checkList(current(host.os, suppo
 
 const takesEngine = (engines, node) => !engines.node || satisfies(node, engines.node, { includePrerelease: true })
 
-// Refuses an engines.node, `what`, that pnpm 12 may read otherwise than
-// npm's semver: it drops what of a range it cannot parse, where npm's
-// takes none of it, and reads a `-` range with an `x` as taking nothing.
+// pnpm 12 drops what of a range it cannot parse, where npm's semver takes
+// none of it, and reads a `-` range with an `x` as taking nothing.
 function checkSure12(range, where, what = 'its engines.node') {
   if (typeof range !== 'string' || (validRange(range) !== null && !(/\s-\s/u.test(range) && /[*xX]/u.test(range)))) return
   throw new DeptreeError(`${what}, ${quote(range)}, pnpm 12 reads otherwise than npm's semver, which is not supported`, where)
@@ -99,13 +90,11 @@ function checkSure12(range, where, what = 'its engines.node') {
 // the root's engines.runtime pins, else the host's.
 const nodeOf = ({ host, settings }) => settings.nodeVersion ?? settings.runtimeNodeVersion ?? host.node
 
-// With engineStrict, pnpm 11 passes over the engines the lockfile records
-// of a patched snapshot, and holds those of its package.json, once
-// patched, to the Node instead.
+// With engineStrict, pnpm 11 checks a patched snapshot's engines from its
+// package.json, once patched, rather than from the lockfile.
 const patchedLater = ({ host, settings }) => host.major >= 11 && settings.engineStrict === true
 
-// A package.json's os, cpu or libc as pnpm's checkList reads one: a string
-// is a list of it, and what is not a string in a list is passed over.
+// A package.json's os, cpu or libc as pnpm's checkList reads one.
 function platformList(value, where) {
   if (value == null) return undefined
   if (typeof value === 'string') return [value]
@@ -113,8 +102,7 @@ function platformList(value, where) {
   throw new DeptreeError('expected a string or a list of them', where)
 }
 
-// pnpm 12 checks the root project's engines.node, where it is text, with
-// engineStrict alone.
+// pnpm 12 checks only the root's engines.node, and only with engineStrict.
 function checkRoot12(manifest, where, context) {
   const range = manifest.engines?.node
   if (!context.settings.engineStrict || typeof range !== 'string' || range === '') return
@@ -123,12 +111,9 @@ function checkRoot12(manifest, where, context) {
   if (!takesEngine({ node: range }, node)) throw new DeptreeError(`its engines.node, ${quote(range)}, does not take Node ${node}, which engineStrict refuses`, where)
 }
 
-// A project as pnpm's packageIsInstallable holds it when it reads its
-// package.json: a platform the host is not only warns, and so does an
-// engines.node it does not take, unless engineStrict; an engines.pnpm it
-// does not take is always refused. As pnpm has it, a platform that does
-// not match is found first, and the engines are then not looked at.
-// pnpm 12's is checkRoot12, of the root alone.
+// A project as pnpm's packageIsInstallable holds it: a platform the host is
+// not only warns, and is found first, so the engines are then not checked;
+// an engines.node the host's Node is not in warns too, unless engineStrict.
 export function checkProject(manifest, where, { host, settings, root }) {
   if (host.major >= 12) {
     if (root) checkRoot12(manifest, where, { host, settings })
@@ -146,13 +131,12 @@ export function checkProject(manifest, where, { host, settings, root }) {
 }
 
 // A check of one snapshot: true where the host can run it, false where it
-// is optional and cannot, and null where it cannot but is not optional and
-// is installed anyway. With `engineStrict` that last is refused, where the
-// lockfile does not mark the snapshot optional, or with pnpm 12. pnpm 10
-// takes a snapshot to be optional as the lockfile marks it; pnpm 11 as the
-// edge it is reached by. A patched one's engines wait for its package.json,
-// patched (patchedLater), but where pnpm 12 is `walking` the lockfile,
-// which holds it to its published ones.
+// is optional and cannot, and null where it cannot but is installed
+// anyway, which engineStrict refuses where the lockfile does not mark it
+// optional, or with pnpm 12. pnpm 11 and 12 take it to be optional as the
+// edge it is reached by. A patched one's engines are checked later
+// (patchedLater), but pnpm 12 `walking` the lockfile holds it to its
+// published ones.
 function createCheck(context) {
   const { host, settings } = context
   const node = nodeOf(context)
@@ -168,11 +152,9 @@ function createCheck(context) {
   }
 }
 
-// A check of a patched package's package.json, once patched, where pnpm
-// makes one (patchedLater): it fails where the Node is not taken; where
-// the package is optional, it removes it from the tree it has linked,
-// which is refused too. pnpm 12 holds it to nodeVersion, else the host's
-// Node, whatever the root's engines.runtime pins.
+// Where pnpm checks a patched package.json (patchedLater), it removes an
+// optional package that fails from the tree already linked, also refused.
+// pnpm 12 uses nodeVersion or the host's Node, not engines.runtime's.
 export function createPatchedCheck(context) {
   if (!patchedLater(context)) return undefined
   const { host, settings } = context
@@ -196,9 +178,8 @@ function split(targets, lockfile) {
   return { keys, projects }
 }
 
-// Every snapshot a project depends on, then those of the projects it
-// links to that were not walked yet, as pnpm's toImporterDepPaths lists
-// them: dependencies, devDependencies, optionalDependencies.
+// A project's snapshots, then those of projects it links to not walked
+// yet, as pnpm's toImporterDepPaths lists them.
 function projectKeys(lockfile, ids, walked) {
   const targets = ids.flatMap((id) => {
     const importer = lockfile.importers[id]
@@ -210,8 +191,7 @@ function projectKeys(lockfile, ids, walked) {
   return more.length === 0 ? keys : [...keys, ...projectKeys(lockfile, more, walked)]
 }
 
-// pnpm 11's filterLockfileByImportersAndEngine: the snapshots left out,
-// and those installed although the host cannot run them.
+// pnpm 11's filterLockfileByImportersAndEngine.
 function skippedSnapshots11(lockfile, check) {
   const edgesOf = (deps, optional) => Object.values(deps).filter((target) => !target.startsWith('link:')).map((key) => ({ key, optional }))
   const queue = Object.values(lockfile.importers).flatMap((importer) => [...edgesOf(importer.dependencies, false), ...edgesOf(importer.devDependencies, false), ...edgesOf(importer.optionalDependencies, true)])

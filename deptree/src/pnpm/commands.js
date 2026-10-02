@@ -1,20 +1,11 @@
 // A package's commands, as pnpm reads them to link its bins
 // (@pnpm/package-bins; with pnpm 12, its bin_resolver crate), and which of
-// two of one name in a .bin directory pnpm links.
-//
-// A package's bins are its `bin` — a path, or paths by command — or, with
-// none, every file under `directories.bin` that is not a dotfile or in a
-// dot directory, each by its name. A command that is not a name, or a
-// path that leads out of the package, is passed over, as pnpm 11 passes
-// over one named `.` or `..` or nothing. pnpm 12 reads a package.json as it
-// is, and its bins otherwise: see commands12.
-//
-// Of two commands of one name, pnpm links the one the package of that
-// name has (with pnpm 11 and 12, or npm's `npx`, and pnpm's `pn`, `pnpx`,
-// `pnx` and `pnpm`), else the one of the package whose name sorts last (by
-// `localeCompare`, read here as English; with pnpm 12, the one whose name
-// sorts first by its bytes), else of the later version, else the first it
-// came to.
+// two of one name in a .bin directory pnpm links: the one a package owns
+// (by its name, or with pnpm 11 and 12 by OWNERS), else that of the
+// package whose name sorts last (by `localeCompare`, read here as English;
+// with pnpm 12, the one sorting first by its bytes), else of the later
+// version, else the first it came to. pnpm 12 reads a package.json as it
+// is, unnormalized, and its bins otherwise (commands12).
 
 import { compareVersions, valid } from '@preventive/upstream/semver.js'
 import { basename, compareNames, join } from '@preventive/vfs/path.js'
@@ -30,9 +21,8 @@ const OWNERS = { __proto__: null, npx: ['npm'], pn: ['pnpm', '@pnpm/exe'], pnpm:
 const collator = new Intl.Collator('en')
 const decoder = new TextDecoder('utf-8', { fatal: true })
 
-// The path `rel` names in the package at `dir`, as path.join spells it, or
-// undefined where it is not in the package, as is-subdir tells; the
-// package itself is `dir`, which is `.` for the root project.
+// `rel` joined to `dir` as path.join spells it, or undefined where
+// is-subdir finds it out of the package; `dir` is `.` for the root project.
 function inPackage(dir, rel, where) {
   if (typeof rel !== 'string') throw new DeptreeError(`${quote(String(rel))} is not a path, which pnpm fails on`, where)
   const path = join(dir, rel)
@@ -45,9 +35,8 @@ function inPackage(dir, rel, where) {
 // here, which may take any name.
 export const UNKNOWN = { unknown: true }
 
-// The files of `files` under `dir`, as tinyglobby's `**` finds them: none
-// a dotfile or in a dot directory, unless `dots`, as pnpm 12's walk finds
-// them. `files` holds paths relative to `base`.
+// As tinyglobby's `**` finds them, none a dotfile or in a dot directory,
+// or with `dots` as pnpm 12's walk does. `files` has paths under `base`.
 function filesUnder(files, base, dir, { dots = false } = {}) {
   const prefix = dir === base ? '' : `${dir.slice(base.length + 1)}/`
   const found = []
@@ -60,9 +49,8 @@ function filesUnder(files, base, dir, { dots = false } = {}) {
   return found
 }
 
-// The files found under `root`, each a command by its name. Of two of one
-// name, which wins turns on the order they were found in: tinyglobby lists
-// them in the order the directories are read in.
+// Of two of one name, which wins turns on the order they were found in,
+// as tinyglobby lists them in the order directories are read in.
 function filesAsCommands(found, root, common) {
   const names = found.map((path) => basename(path))
   const counts = new Map()
@@ -70,7 +58,6 @@ function filesAsCommands(found, root, common) {
   return found.map((path, i) => ({ ...common, name: names[i], target: `${root}/${path}`, unordered: counts.get(names[i]) > 1 }))
 }
 
-// Whether pnpm takes a package to own a command, which wins it the name.
 // pnpm 11 looks a name up among OWNERS as a plain object's key, and fails
 // on one that Object.prototype has.
 function owns({ name, pkgName, own }, major, where) {
@@ -80,9 +67,7 @@ function owns({ name, pkgName, own }, major, where) {
   return OWNERS[name]?.includes(pkgName) === true
 }
 
-// pnpm's runtimeHasNodeDownloaded: whether engines.runtime asks for a Node
-// to download, the first runtime of a list named node deciding. pnpm fails
-// on a list with nothing in it where it reads one, before that.
+// pnpm's runtimeHasNodeDownloaded: the first runtime named node decides.
 function downloadsNode(runtime, where) {
   if (!runtime) return false
   if (!Array.isArray(runtime)) return runtime.name === 'node' && runtime.onFail === 'download'
@@ -93,22 +78,15 @@ function downloadsNode(runtime, where) {
   return false
 }
 
-// What pnpm 12 takes for a command's name: one encodeURIComponent leaves
-// as it is, or `$`, but neither `.` nor `..`.
+// pnpm 12's command names: those encodeURIComponent leaves as they are.
 const safeName = (name) => name === '$' || (name !== '.' && name !== '..' && /^[\w\-.!~*'()]+$/u.test(name))
 
-// A package's commands as pnpm 12 reads them: a string `bin` names one
-// after the package, where it has a name; an object names each of its
-// string values; any other `bin` but '' names none, and only '' or none
-// at all leaves directories.bin, where it is a string, to name each file
-// under it, dotfiles and those in dot directories among them, by its
-// name. A scoped command drops its scope; a name that is not safe, or a
-// target that is absolute or out of the package, is passed over.
-//
-// pnpm 12 reads a package's own bins off what its store holds of its
-// package.json where it has the package already, which leaves out a null
-// `bin`, and off the package.json where it fetches the package, which
-// keeps one: so a null `bin` beside a directories.bin is refused.
+// pnpm 12 reads `bin` as it is: only '' or none at all leaves
+// directories.bin to name its files, and one neither a string nor an
+// object names none. For a package's own bins it reads package.json from
+// its store where it has the package, which drops a null `bin`, and as
+// fetched otherwise, which keeps it; so a null `bin` beside a
+// directories.bin is refused.
 function commands12(dir, manifest, files, base, where) {
   const name = typeof manifest.name === 'string' ? manifest.name : undefined
   const common = { pkgName: name ?? '', pkgVersion: manifest.version, owner: base }
@@ -136,12 +114,9 @@ function commands12(dir, manifest, files, base, where) {
   return filesAsCommands(filesUnder(files, base, root, { dots: true }).filter((path) => safeName(basename(path))), root, common)
 }
 
-// A package's commands: `dir` is where the package is, `manifest` its
-// package.json, `files` the files of the package holding it (itself, or
-// the one that bundles it), by their paths under `base`. Both are
-// undefined for a directory outside the tree, a project or one a `link:`
-// leads to, whose commands are known only where its package.json names
-// them, and whose files are not fixed.
+// `files` are those of the package holding it (itself, or the one that
+// bundles it), by path under `base`; both are undefined for a project or
+// `link:` target outside the tree, whose files are not fixed.
 export function commandsOf(dir, manifest, files, base, where, major) {
   if (major >= 12) return commands12(dir, manifest, files, base, where)
   const common = { pkgName: manifest.name, pkgVersion: manifest.version, owner: base }
@@ -193,9 +168,8 @@ export function compare(a, b, where, major) {
   return compareVersions(a.pkgVersion, b.pkgVersion)
 }
 
-// A package.json as normalize-package-data leaves one, or refuses it,
-// where pnpm reads one with readPackageJson: its name trimmed, and each
-// of its name and version one npm takes.
+// A package.json as normalize-package-data leaves it where pnpm reads one
+// with readPackageJson, or refused where that fails.
 export function normalized(manifest, where) {
   const name = manifest.name || ''
   if (typeof name !== 'string') throw new DeptreeError('its package.json\'s name is not a string, which pnpm fails on', where)
@@ -210,9 +184,7 @@ export function normalized(manifest, where) {
   return { ...manifest, name: trimmed, version }
 }
 
-// The packages a package bundles, as pnpm's readModulesDir finds them in
-// its node_modules: each directory there not named with a leading dot,
-// and each in a scope's directory.
+// The packages a package bundles, as pnpm's readModulesDir finds them.
 function bundledIn(files) {
   const names = new Set()
   for (const path of files.keys()) {
@@ -234,10 +206,9 @@ export function parseManifest(file, where) {
   }
 }
 
-// The commands of the packages `node` bundles. For one with no
-// package.json pnpm 11 reads the bins of the package.json of the nearest
-// directory above it whose publishConfig.directory it is, as far up as the
-// filesystem goes, which is refused.
+// For a bundled package with no package.json, pnpm 11 reads the bins of
+// the nearest directory above it whose publishConfig.directory it is, as
+// far up as the filesystem goes, which is refused.
 export function bundledCommands(node, where, major) {
   const commands = []
   for (const name of bundledIn(node.files)) {
@@ -256,10 +227,9 @@ export function bundledCommands(node, where, major) {
   return commands
 }
 
-// Every path the package at `node` and those it bundles name as bins,
-// relative to it, whether pnpm links them or not, where its package.json
-// is `manifest` and its files are `files`: each with the commands that
-// name it and the package name and version each is ranked by.
+// Every path the package and those it bundles name as bins, linked or
+// not, relative to it, with the commands naming it and the package name
+// and version each is ranked by.
 export function binsOf(node, manifest, files, major) {
   const where = quote(node.key)
   const bins = new Map()

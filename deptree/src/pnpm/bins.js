@@ -1,53 +1,30 @@
-// What pnpm does to the files its bins run (@pnpm/link-bins, and
-// bin-links' fixBin): no .bin directory is written here, but each file a
-// bin pnpm links runs is left as linking leaves it, executable and, where
-// it starts with a `#!` line that ends in CRLF, with that line ending in
-// LF instead. pnpm 10 gives it mode 0o755, and pnpm 11 adds 0o111 to its
-// mode where that lacks any of it, which for the 0o644 and 0o755 a
-// package's files have here is the same.
+// Which files pnpm's bin linking fixes (@pnpm/link-bins, and bin-links'
+// fixBin): no .bin is written here, but each file a linked bin runs is
+// made executable, and a CRLF ending its `#!` line made LF. pnpm 10 sets
+// mode 0o755 and pnpm 11 adds the 0o111 a mode lacks, the same for the
+// 0o644 and 0o755 files have here.
 //
-// pnpm links a package's commands (commands.js) into many .bin
-// directories, and runs fixBin on a file only where its command is the
-// one linked by that name there and the file is there:
+// pnpm runs fixBin only on the file of the command it links by a name, in
+// each package's .bin (for its children's and bundled packages' bins),
+// the private hoist's, and each project's (for its direct dependencies',
+// at the root all that is publicly hoisted, and, with pnpm 11 and
+// autoInstallPeers, its dependencies' peers). Where any patch is
+// configured, each package patched or with an install script is built,
+// which links its own bins beside its children's before the patch.
 //
-//  - each package's own node_modules/.bin, for its children's bins (or,
-//    where a child is a `link:`, for whatever is beside it), and for those
-//    of the packages it bundles;
-//  - node_modules/.pnpm/node_modules/.bin, for what is privately hoisted;
-//  - each project's node_modules/.bin, for its direct dependencies' bins,
-//    and at the root, where anything is publicly hoisted, for all it holds,
-//    a direct dependency's command over a hoisted one's; with pnpm 11 and
-//    autoInstallPeers, then for the bins of each peer a direct dependency
-//    requires, by names not linked there yet;
-//  - where any patch is configured, each package that is patched or has
-//    an install script is built, scripts or not, which links its own bins
-//    beside its children's in its own .bin before its patch is applied.
+// A fix that would turn on the order a directory is read in, which
+// varies, or on bins not known here, is refused (fixedFiles), as is a
+// patch that would change one between two links (checkPatchOfBins).
 //
-// Where the command linked of two of one name is the first pnpm came to
-// by the order a directory is read in, which varies, and a file's mode or
-// text would turn on it, the tree is refused; so it is where that would
-// turn on the commands of a directory outside the tree that are not known
-// here, which may take any name: those of one a `link:` leads to whose
-// package.json is not given (local.js), or of a project or such a
-// directory by the files of its directories.bin. So is a patch that
-// would be applied between two links of a file whose fix it would
-// change: one that makes or removes a file a bin names, or one under a
-// directories.bin, changes a bin file with a CRLF `#!` line, or changes
-// the bins a package.json names, its own or a bundled package's, or the
-// name or version they are ranked by.
+// pnpm 12 (its cmd-shim crate) only adds the 0o111 a file lacks and
+// rewrites no `#!` line. It links a package's own bins into its own .bin,
+// beside its children's the lockfile says have some and its bundled
+// packages', in one go with no build pass; `link:` children take no part.
 //
-// pnpm 12 (its cmd-shim crate) only adds the 0o111 a file lacks, and
-// rewrites no `#!` line. It links each package's own bins into its own
-// .bin, beside its children's that the lockfile says have some and those
-// of the packages it bundles, in one go and with no build pass; a `link:`
-// child's take no part. A bin it links whose target is a directory fails
-// the install.
-//
-// pnpm 11 and 12 link a command named `node` without making its file
-// executable; but pnpm 12 links a project's bins again after it has
-// patched any package, publicly hoisted any with bins, or where its
-// dependencies' peers it installs have some, and there makes the file of
-// a direct dependency's `node` executable, where its link leads to it
+// pnpm 11 and 12 link a `node` command without fixing its file, but
+// pnpm 12 fixes a direct dependency's `node` already linked when it links
+// a project's bins again, as it does after patching any package, publicly
+// hoisting any with bins, or installing peers with some.
 // already.
 
 import { DeptreeError, quote } from '../error.js'
@@ -55,10 +32,9 @@ import { UNKNOWN, binsOf, bundledCommands, commandsOf, compare, normalized, pars
 
 const decoder = new TextDecoder('utf-8', { fatal: true })
 
-// Where the peers pnpm 11 links the bins of into a project's .bin lead:
-// each peer a direct dependency has that is not optional and that its
-// snapshot resolves, by the path of its link beside the dependency, in
-// the order of those paths.
+// The peers whose bins pnpm 11 links into a project's .bin: each one a
+// direct dependency has that is not optional and that its snapshot
+// resolves, in the order of the paths of their links beside it.
 function peersOf(children, nodes) {
   const byPath = new Map()
   for (const dir of children.values()) {
@@ -74,19 +50,16 @@ function peersOf(children, nodes) {
   return [...byPath.keys()].sort().map((path) => byPath.get(path))
 }
 
-// Whether pnpm builds a package, as its pkgRequiresBuild tells: an
-// install script, a binding.gyp, which pnpm 11 and 12 pass over where
-// package.json's gypfile is false, or a .hooks directory.
+// pnpm's pkgRequiresBuild; pnpm 11 and 12 pass over a binding.gyp where
+// package.json's gypfile is false.
 export const requiresBuild = (manifest, files, major) => Boolean((manifest.scripts != null && (manifest.scripts.preinstall || manifest.scripts.install || manifest.scripts.postinstall))
   || (files.has('binding.gyp') && !(major >= 11 && manifest.gypfile === false)) || files.keys().some((path) => /^\.hooks[\\/]/u.test(path)))
 
-// What linking commands into .bin directories fixes: `fixed`, by each
-// file's path in the tree, the package it is in, and `contested`, of those
-// that may be fixed or not, the package and why. `link` links commands
-// into one directory, where `ordered` says whether the order they come in
-// is one pnpm always has, and `fixNode` whether pnpm 12 fixes the file of
-// a direct dependency's `node`; it gives back the names linked, and
-// whether others may be.
+// `fixed` holds each fixed file's package by the file's path in the tree,
+// `contested` the package and why of each that may be fixed or not.
+// `link` links commands into one .bin, `ordered` if pnpm always comes to
+// them in this order, `fixNode` if pnpm 12 fixes a direct dependency's
+// `node`; it returns the names linked and whether unknown ones may be.
 function linker(major) {
   const fixed = new Map()
   const contested = new Map()
@@ -116,13 +89,10 @@ function linker(major) {
   return { fixed, contested, link }
 }
 
-// The files pnpm runs fixBin on, by the directory of the package they
-// are in: `nodes` is the graph by directory, each node with its package's
-// `files` and `manifest`; `projects` each project's package.json by its
-// directory, `direct` each project's direct dependencies, `links` every
-// link in the tree, `publicHoist` whether anything is publicly hoisted,
-// `building` whether any patch is configured, `peers` whether peers are
-// installed automatically, and `major` pnpm's major version.
+// The files pnpm runs fixBin on, as sets of paths by package directory.
+// `nodes` is the graph by directory, each node with its package's `files`
+// and `manifest`; `projects` each project's package.json by directory;
+// `building` whether any patch is configured; `peers` autoInstallPeers.
 export function binTargets({ nodes, projects, direct, links, publicHoist, building, peers, major }) {
   const commandCache = new Map()
   const commandsOfDir = (dir, { normalize = false } = {}) => {
@@ -131,16 +101,14 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
       if (!commandCache.has(dir)) commandCache.set(dir, commandsOf(dir, node.manifest, node.files, dir, quote(node.key), major))
       return commandCache.get(dir)
     }
-    // A project, or a directory a `link:` leads to, whose bins are outside
-    // the tree but may take a name; one whose package.json is not given
-    // (local.js) may take any.
+    // A project or `link:` target, outside the tree: its bins may take a
+    // name, and any name where its package.json is not given (local.js).
     const manifest = projects.get(dir)
     if (manifest === undefined) return [UNKNOWN]
     const where = `manifests[${quote(dir)}]`
     return commandsOf(dir, normalize ? normalized(manifest, where) : manifest, undefined, undefined, where, major)
   }
-  // Whether pnpm 12 takes a node to have bins: the lockfile says it has,
-  // or it is a directory, for which the lockfile says nothing.
+  // The lockfile has no hasBin for a directory, whose bins pnpm 12 reads.
   const mayHaveBin = (dir) => nodes.get(dir)?.pkg.hasBin === true || nodes.get(dir)?.pkg.resolution.type === 'directory'
 
   const { fixed, contested, link } = linker(major)
@@ -202,10 +170,8 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
   return fixedFiles(nodes, fixed, contested, major)
 }
 
-// The files `fixed` has fixBin run on, by the directory of their package.
-// One `contested` may be or not, which is refused, unless it is fixed
-// anyway, is not there, or is one fixBin leaves as it is: executable, with
-// no CRLF `#!` line, and not patched.
+// A `contested` file is refused unless it is fixed anyway, is not there,
+// or is one fixBin leaves as it is (`harmless`).
 function fixedFiles(nodes, fixed, contested, major) {
   // pnpm 12 reads the `#!` line of a file it links, and fails on one
   // that is a directory: `path`, in the package, '' for the package itself.
@@ -236,17 +202,15 @@ function fixedFiles(nodes, fixed, contested, major) {
   return byNode
 }
 
-// Whether a file starts with a `#!` line ending in CRLF, as fixBin reads
-// its first 2048 bytes to tell.
+// As fixBin tells it, reading only the first 2048 bytes.
 function hasCrlfShebang(data) {
   if (data[0] !== 0x23 || data[1] !== 0x21) return false
   const newline = data.subarray(0, 2048).indexOf(0x0a)
   return newline >= 4 && data[newline - 1] === 0x0d
 }
 
-// fixBin on a file: mode 0o755, and a CRLF ending the `#!` line made LF.
-// pnpm reads and writes the file as UTF-8 to do that, which would change
-// one that is not; that is refused. pnpm 12 only adds the 0o111 it lacks.
+// pnpm rewrites the `#!` line by reading and writing the file as UTF-8,
+// which would change one that is not.
 export function fixBin(file, where, major) {
   if (major >= 12) return { data: file.data, mode: file.mode | 0o111 }
   if (!hasCrlfShebang(file.data)) return { data: file.data, mode: 0o755 }
@@ -264,12 +228,9 @@ export function fixBin(file, where, major) {
 
 const BIN_FIELDS = (manifest) => JSON.stringify([manifest.name, manifest.version, manifest.bin, manifest.directories?.bin])
 
-// A patch is applied between two times its package's bins are linked,
-// so it may not change what either does: `patched` is the package's files
-// with the patch applied, `targets` those that fixBin is run on. pnpm
-// reads package.json again after it, for the name and version a command
-// is taken by as well as the bins. It gives back the package's
-// package.json, patched, as parsed.
+// A patch is applied between two links of its package's bins, so it may
+// not change what either does. `patched` is the package's files, patched;
+// `targets` those fixBin runs on. It gives back the patched package.json.
 export function checkPatchOfBins(node, patched, targets, where, major) {
   const file = patched.get('package.json')
   if (file?.data === undefined) throw new DeptreeError('the patch removes package.json', where)
