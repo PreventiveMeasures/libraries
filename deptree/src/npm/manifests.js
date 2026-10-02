@@ -1,9 +1,5 @@
-// The project's package.json files, held to the lockfile: npm ci reads the
-// root's, and each workspace's, from disk, and installs by what they ask
-// for where the lockfile meets it, refusing what it does not. Each has to
-// ask for what the lockfile's entry of its directory does, by the same
-// names, lists and specs, so that the tree npm builds is the lockfile's;
-// and each workspace has the name and version the lockfile gives it.
+// The project's package.json files, which npm ci reads from disk in place
+// of the lockfile's entries, held to ask for exactly what those entries do.
 
 import { join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
@@ -20,9 +16,8 @@ function specsOf(manifest, list, at) {
   return specs
 }
 
-// Node#loadDeps: a name's one edge is of the last list that has it, of the
-// peers, the optional ones after, then dependencies, optional ones and dev
-// ones; the root's workspaces before all, which none takes over.
+// Node#loadDeps: a name's edge is of the last list that has it, but a
+// workspace's, which none takes over.
 function edgesOf(manifest, at, workspaces, legacyPeerDeps) {
   const edges = new Map()
   const add = (name, type, spec) => {
@@ -54,12 +49,9 @@ function compareEdges(edges, importer, at) {
   }
 }
 
-// #checkRootEdges of npm 10, which takes the lockfile's flags as written
-// only where the root's edges are the lockfile's lists of it to the letter;
-// where a name is in two of them, or a peer under legacy-peer-deps, or
-// the root asks for a workspace by name too, it works every flag out
-// again, and prunes what none reaches. `lists` is the lockfile's entry of
-// the root, as written.
+// npm 10's #checkRootEdges: unless the root's edges are its lockfile lists
+// to the letter (no name in two lists, no peer under legacy-peer-deps, no
+// workspace asked for by name too), npm 10 works every flag out again.
 export function recalculates(lists, edges) {
   const { dependencies = {}, devDependencies = {}, optionalDependencies = {}, peerDependencies = {}, peerDependenciesMeta = {} } = lists
   const byType = { dev: devDependencies, optional: optionalDependencies, peer: { ...peerDependencies }, peerOptional: {}, prod: { ...dependencies } }
@@ -80,8 +72,7 @@ export function recalculates(lists, edges) {
   return left.size > 0
 }
 
-// The workspaces as map-workspaces names them: by their package.json, or
-// else their folder, as the lockfile reader names them too.
+// map-workspaces names a workspace by its package.json, or its folder.
 function workspacesOf(manifests) {
   const workspaces = new Map()
   for (const [dir, manifest] of manifests) {
@@ -94,14 +85,11 @@ function workspacesOf(manifests) {
   return workspaces
 }
 
-// The root's edges, as npm builds them from its package.json and the
-// workspaces it finds.
 export const rootEdgesOf = (manifests, settings) => edgesOf(manifests.get('.'), where('.'), workspacesOf(manifests), settings.legacyPeerDeps)
 
 // A workspace's name is held to the lockfile's by the root's edge to it.
-// Its bins npm links from its package.json, after every package's, so they
-// change nothing of the tree but where one leads into its node_modules;
-// and a directories.bin npm globs for otherwise across its releases.
+// npm links its bins after every package's, so only one into its own
+// node_modules changes the tree.
 function checkWorkspace(dir, manifest, importer) {
   if (/[#%]/u.test(dir)) throw new DeptreeError('a workspace whose directory has a "#" or "%", which npm escapes in one place and not another, is not supported', where(dir))
   if (manifest.version !== importer.version) throw new DeptreeError(`is ${quote(String(manifest.version))}, and the lockfile has ${quote(String(importer.version))}, which npm ci refuses`, `${where(dir)}.version`)
@@ -113,8 +101,7 @@ function checkWorkspace(dir, manifest, importer) {
   }
 }
 
-// The root and each workspace are never left out: a platform they do not
-// take fails npm, and so do engines, with engine-strict, but the root's
+// The root and workspaces are never left out; npm skips the root's engines
 // where it has devEngines.
 function checkHostOf(dir, manifest, host, settings) {
   const reason = checkPlatform(manifest, host, where(dir))
@@ -124,7 +111,6 @@ function checkHostOf(dir, manifest, host, settings) {
   if (engine !== undefined) throw new DeptreeError(`${engine}, which npm fails on with engine-strict`, where(dir))
 }
 
-// `rootEdges` are the root's, as rootEdgesOf builds them.
 export function checkManifests({ lockfile, manifests, settings, host, rootEdges }) {
   const root = manifests.get('.')
   if (root.overrides != null && (typeof root.overrides !== 'object' || Object.keys(root.overrides).length > 0)) {

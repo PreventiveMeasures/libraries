@@ -1,26 +1,13 @@
-// Overrides as pnpm reads them. pnpm 10 takes the root package.json's
-// `resolutions` and `pnpm.overrides`, the second winning a selector both
-// name, and pnpm-workspace.yaml's `overrides` only where those name none;
-// pnpm 11 reads pnpm-workspace.yaml's alone. A value of `$name` is the
-// specifier the root package.json gives its dependency `name`, and
-// `catalog:` or `catalog:<name>` what that catalog gives the selector's
-// package. A selector is `name` or `name@range`, optionally led by a
-// parent and `>` (`bar@2>foo@1`). Whatever pnpm cannot read is refused.
-//
-// The lockfile was resolved with them, so a frozen install only holds
-// them to its `overrides` (uptodate.js). A directory override (`link:`,
-// `file:` or a path like `./vendor/foo`) is from the lockfile's directory
-// and read from the project given (local.js). pnpm 11 also trims each
-// selector, takes a catalog's `workspace:` entry, and reads `name@` with
-// an exact version as converging: a dependency on `name` whose range
-// takes that version is given it, where no other override is chosen.
+// Overrides as pnpm's parseOverrides reads them. A frozen install holds them
+// only to the lockfile's `overrides`, which they were resolved with. pnpm 11
+// reads `name@` and an exact version as converging: a dependency on `name`
+// whose range takes that version is given it where no override is chosen.
 
 import { valid } from '@preventive/upstream/semver.js'
 import { join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 
-// validate-npm-package-name 5's validForOldPackages, by which pnpm reads a
-// selector's name.
+// From validate-npm-package-name 5, by which pnpm reads a selector's name.
 const SCOPED = /^(?:@([^/]+?)\/)?([^/]+?)$/u
 export function validForOldPackages(name) {
   if (name === '' || name.startsWith('.') || name.startsWith('_') || name.trim() !== name) return false
@@ -30,16 +17,14 @@ export function validForOldPackages(name) {
   return m !== null && encodeURIComponent(m[1]) === m[1] && encodeURIComponent(m[2]) === m[2]
 }
 
-// @pnpm/parse-wanted-dependency: the name is what precedes the first `@`
-// past the start, where that is a valid name, and the range what follows.
+// @pnpm/parse-wanted-dependency.
 function parseWanted(raw) {
   const at = raw.indexOf('@', 1)
   const name = at === -1 ? raw : raw.slice(0, at)
   return validForOldPackages(name) ? { name, range: at === -1 ? undefined : raw.slice(at + 1) } : undefined
 }
 
-// A `>` after anything but a space, `|` or `@` splits the parent from the
-// package, as pnpm's DELIMITER_REGEX has it; `foo@>1` is one package.
+// pnpm's DELIMITER_REGEX: `foo@>1` is one package, `bar@2>foo@1` two.
 const DELIMITER = /[^ @|]>/u
 
 export function parseSelector(selector, where) {
@@ -67,8 +52,6 @@ export function replaceReferences(overrides, manifest, where) {
 
 const CATALOG = 'catalog:'
 
-// The catalog a `catalog:` specifier names, `default` where it names none,
-// or undefined for another specifier.
 export const catalogOf = (spec) => (spec.startsWith(CATALOG) ? spec.slice(CATALOG.length).trim() || 'default' : undefined)
 
 export const catalogEntry = (catalogs, catalog, name) => (Object.hasOwn(catalogs, catalog) && Object.hasOwn(catalogs[catalog], name) ? catalogs[catalog][name] : undefined)
@@ -86,8 +69,7 @@ function fromCatalog(catalogs, spec, name, where, major) {
   return found
 }
 
-// The directory an override names and its protocol, as pnpm's local
-// resolver reads a specifier, or undefined where it names none.
+// As pnpm's local resolver reads a specifier.
 export function localOf(spec, where) {
   const protocol = ['file:', 'link:'].find((prefix) => spec.startsWith(prefix)) ?? (/^(?:[./]|~\/)/u.test(spec) ? '' : undefined)
   if (protocol === undefined) return undefined
@@ -97,9 +79,6 @@ export function localOf(spec, where) {
   return { protocol, dir }
 }
 
-// The overrides in order, as pnpm's parseOverrides has them, any catalog
-// resolved and `local` the directory named. By selector, they are what
-// the lockfile's `overrides` is held to.
 export function listOverrides(overrides, catalogs, major = 10) {
   const seen = new Set()
   return Object.entries(overrides ?? {}).map(([raw, given]) => {

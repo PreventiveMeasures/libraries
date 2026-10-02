@@ -1,15 +1,8 @@
-// The project's .npmrc, as far as `npm ci` reads it. npm hands its settings
-// to the install as ini reads them, before it validates them: `bin-links=0`
-// links bins, as "0" is truthy, though `npm config get` says false. So a
-// setting that can change what npm installs, or whether it does, is read
-// here only in a form with one reading, and refused in any other.
-//
-// Three are followed: legacy-peer-deps, engine-strict and bin-links, each
-// true or false. Of the rest that can change the tree, a few are taken at
-// their default (DEFAULTS) and the others refused whatever their value
-// (REFUSED). Any other setting is about where npm fetches from, how, what
-// it prints, or another command, and is passed over: the tree is held to
-// the lockfile's integrities whatever serves it.
+// The project's .npmrc. npm hands the install its settings as ini reads
+// them, before validating them (`bin-links=0` links bins, "0" being
+// truthy), so one that can change the tree is read only in a form with one
+// reading. The rest only change where and how npm fetches, which the
+// lockfile's integrities make moot, or what it prints.
 
 import { DeptreeError, quote } from '../error.js'
 import { parseNpmrc } from '../npmrc.js'
@@ -34,18 +27,15 @@ const DEFAULTS = {
   'lockfile-version': ['1', '2', '3'],
 }
 
-// omit and the rest leave packages out; os, cpu and libc stand in for the
-// host's; the workspace filters leave workspaces out; location, umask,
-// prefix and the config files change what npm reads, or how it writes; a
-// credential not scoped to a registry, which npm ci fails on; and
-// allow-scripts, which npm 11.16 on fails on or reads for bins.
+// A credential not scoped to a registry fails npm ci; allow-scripts fails
+// npm 11.16 on, or picks whose bins it links.
 const REFUSED = new Set([
   'omit', 'include', 'production', 'dev', 'only', 'also', 'optional', 'os', 'cpu', 'libc', 'workspace', 'workspaces',
   'location', 'umask', 'prefix', 'globalconfig', 'userconfig', '_auth', '_authToken', '_authtoken', '-authtoken', 'username',
   '_password', 'allow-scripts',
 ])
 
-// Pairs npm fails on, both set: any two of the save-* among them.
+// Pairs npm fails on, both set.
 const SAVES = ['save-dev', 'save-optional', 'save-peer', 'save-prod']
 const EXCLUSIVE = [
   ['before', 'min-release-age'], ['expect-results', 'expect-result-count'], ['provenance', 'provenance-file'], ['prefer-online', 'prefer-offline'],

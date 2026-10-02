@@ -1,13 +1,7 @@
 // pnpm's read-package hook (@pnpm/hooks.read-package-hook), less package
 // extensions and a pnpmfile's readPackage, refused elsewhere, and Yarn's
-// compatibility database, not reproduced. Overrides replace, or as `-`
-// remove, what a package asks for (createVersionsOverrider), and
-// ignoredOptionalDependencies drops the optional ones it names. pnpm runs
-// it on every package and on each project's package.json before holding
-// it to its importer. A `link:` or `file:` override is written into a
-// project relative to it, as is a path alone with pnpm 11; pnpm 10 writes
-// that as it is. pnpm 11 also converges where no override is chosen
-// (overrides.js).
+// compatibility database, not reproduced. pnpm runs it on every package and on
+// each project's package.json before holding it to its importer.
 
 import { intersects, satisfies, validRange } from '@preventive/upstream/semver.js'
 import { relative } from '@preventive/vfs/path.js'
@@ -25,7 +19,6 @@ const mostSpecific = (overrides) => overrides.sort((a, b) => (meets(b.target.ran
 
 const isPeerRange = (spec) => validRange(spec) !== null || spec.includes('workspace:') || spec.includes('catalog:')
 
-// A directory override as pnpm writes it into the project at `dir`.
 function localSpec({ protocol, dir: to }, dir) {
   const path = relative(dir, to) || '.'
   return protocol === '' && !path.startsWith('.') ? `./${path}` : `${protocol}${path}`
@@ -41,11 +34,9 @@ function checkFields(manifest, where) {
   }
 }
 
-// The hook returns a changed copy of a package.json. `dir` is a project's
-// directory, which directory overrides are written relative to, and
-// undefined for a package, whose specifiers are not read.
+// The hook's `dir` is a project's directory, which directory overrides are
+// written relative to; undefined for a package.
 export function createHook({ overrides, ignored, major = 10 }) {
-  // Each list by the name it overrides, in order.
   const byName = (list) => Map.groupBy(list, ({ target }) => target.name)
   const withParent = overrides.filter(({ parent }) => parent !== undefined)
   const generic = byName(overrides.filter(({ parent, converge }) => parent === undefined && !converge))

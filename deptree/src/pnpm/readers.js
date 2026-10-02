@@ -40,7 +40,6 @@ export const readers = {
     if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) throw new DeptreeError(`expected ${expected}, found ${show(value)}`, where)
     return [...value]
   },
-  // pnpm-workspace.yaml's `packages`, held to what pnpm accepts.
   globs(value, where) {
     if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || item === '')) throw new DeptreeError(`expected a list of non-empty strings, found ${show(value)}`, where)
     return [...value]
@@ -54,14 +53,12 @@ export const readers = {
   linkWorkspacePackages(value, where) {
     return value === 'deep' ? true : readers.boolean(value, where)
   },
-  // true, false, or a mapping of what to read and write.
   sideEffectsCache(value, where) {
     if (typeof value === 'boolean') return value
     if (readers.mapping(value, where).remote != null) never('what a build left in a remote cache is not restored here')(value.remote, `${where}.remote`)
     return value
   },
-  // pnpm 11's per-project settings, which pnpm 10 took from a project's own
-  // .npmrc: by project name, or as a list each with the names it `match`es.
+  // pnpm 11's per-project settings: by project name, or a list with `match`.
   packageConfigs(value, where) {
     const configs = Array.isArray(value) ? value.map((item, i) => [i, item]) : Object.entries(readers.mapping(value, where))
     for (const [key, config] of configs) {
@@ -75,12 +72,10 @@ export const readers = {
   },
 }
 
-// Read, and held to one value: the default, or the only one built for.
 const only = (kind, wanted, why) => ({ kind, check: (value, where) => {
   if (value !== wanted) throw new DeptreeError(`${show(value)} is not supported: ${why}`, where)
 } })
 
-// Read, and refused whatever it is.
 const never = (why) => (value, where) => {
   throw new DeptreeError(`${show(value)} is not supported: ${why}`, where)
 }
@@ -158,10 +153,8 @@ const READ_11 = {
   linkWorkspacePackages: { kind: 'linkWorkspacePackages' },
 }
 
-// What pnpm 11 has that leaves the tree as it is. The tree follows the
-// lockfile, as pnpm 11's and 12's do with trustLockfile, so what pnpm 11
-// checks the lockfile against the registry by (minimumReleaseAge, publish
-// times, tarball URLs, trust) is passed over.
+// The tree follows the lockfile, as pnpm 11's and 12's do with trustLockfile,
+// so what pnpm 11 checks the lockfile against the registry by is passed over.
 const IGNORED_11 = new Set([
   'minimumReleaseAgeIgnoreMissingTime', 'minimumReleaseAgeStrict', 'minimumReleaseAgeExcludePrune', 'trustLockfile',
   'trustPolicy', 'trustPolicyExclude', 'trustPolicyExcludePrune', 'trustPolicyIgnoreAfter', 'pnprServer',
@@ -178,9 +171,7 @@ const IGNORED_11 = new Set([
   'nodeVersionFromEnginesRuntime', 'cliOptions', 'explicitlySetKeys', 'packageManager', 'wantedPackageManager',
 ])
 
-// What pnpm 12 adds that leaves an isolated tree as it is (resolution, the
-// hoisted linker, `pnpm run` tasks, global installs), and its Cargo and
-// Python installs, refused where enabled.
+// What pnpm 12 adds that leaves an isolated tree as it is.
 const IGNORED_12 = new Set([
   'autoDedupe', 'autoInstallPeersFromHighestMatch', 'externalDependencies', 'hoistingLimits', 'globalShims',
   'concurrencyGroups', 'pipelines', 'pipelineBase', 'publishWaitTimeout', 'saveTypes', 'tools', 'macosBackup',
@@ -194,8 +185,6 @@ const READ_12 = {
   python: { kind: 'mapping', check: notEnabled },
 }
 
-// What pnpm 11 has that pnpm 12 does not know: it drops each, but fails on
-// one where the root package.json pins the pnpm that runs.
 const UNRECOGNIZED_12 = new Set([
   'allowNonAppliedPatches', 'alwaysAuth', 'email', 'enginePinManifest', 'ignoreDepScripts', 'ignorePatchFailures',
   'lockfileDirectory', 'managePackageManagerVersions', 'nodeVersionFromEnginesRuntime', 'packageManagerStrict',
@@ -204,8 +193,7 @@ const UNRECOGNIZED_12 = new Set([
 
 export const unrecognized12 = (where) => new DeptreeError('pnpm 12 does not know it, and fails on it where the root package.json pins the pnpm that runs', where)
 
-// The keys of the root package.json's `pnpm` field pnpm 10 reads; it
-// passes over any other there.
+// The keys of package.json's `pnpm` pnpm 10 reads, passing over any other.
 export const MANIFEST_KEYS = [
   'allowBuilds', 'allowNonAppliedPatches', 'allowUnusedPatches', 'allowedDeprecatedVersions', 'auditConfig',
   'configDependencies', 'executionEnv', 'ignorePatchFailures', 'ignoredBuiltDependencies', 'ignoredOptionalDependencies',
@@ -213,10 +201,8 @@ export const MANIFEST_KEYS = [
   'patchedDependencies', 'peerDependencyRules', 'requiredScripts', 'supportedArchitectures', 'updateConfig',
 ]
 
-// Settings that leave the tree as it is. A frozen install holds the
-// lockfile to none of the resolution settings here (uptodate.js has those
-// it does), and fetching goes through @preventive/upstream, network and
-// credentials included.
+// A frozen install holds the lockfile to none of the resolution settings
+// here (uptodate.js has those it does).
 export const IGNORED = new Set([
   // resolution, already in the lockfile
   'allowNonAppliedPatches', 'allowUnusedPatches', 'allowedDeprecatedVersions', 'blockExoticSubdeps', 'catalogMode',
@@ -224,7 +210,7 @@ export const IGNORED = new Set([
   'minimumReleaseAge', 'minimumReleaseAgeExclude', 'peerDependencyRules', 'preferWorkspacePackages',
   'registrySupportsTimeField', 'resolutionMode', 'resolvePeersFromWorkspaceRoot', 'saveExact', 'savePrefix',
   'saveWorkspaceProtocol', 'strictPeerDependencies',
-  // the network, and credentials for it
+  // the network and its credentials, which @preventive/upstream handles
   'alwaysAuth', 'ca', 'cafile', 'cert', 'email', 'fetchRetries', 'fetchRetryFactor', 'fetchRetryMaxtimeout',
   'fetchRetryMintimeout', 'fetchTimeout', 'httpProxy', 'httpsProxy', 'key', 'localAddress', 'maxsockets',
   'networkConcurrency', 'noProxy', 'noproxy', 'offline', 'preferOffline', 'proxy', 'strictSsl', 'userAgent',
@@ -249,7 +235,6 @@ export function checkRegistry(value, where) {
   if ((value.endsWith('/') ? value : `${value}/`) !== REGISTRY) throw new DeptreeError(`${quote(value)} is not supported: packages are fetched from ${REGISTRY} alone`, where)
 }
 
-// pnpm 11's registries: by scope, or `default`, the registry's URL.
 function checkRegistries(value, where) {
   for (const [scope, url] of Object.entries(value)) checkRegistry(readers.text(url, `${where}.${scope}`), `${where}.${scope}`)
 }
@@ -266,7 +251,6 @@ function checkArchitectures(value, where) {
   }
 }
 
-// A catalog: by name, the specifier it gives the package.
 function checkCatalog(value, where) {
   for (const [name, spec] of Object.entries(value)) readers.text(spec, `${where}.${name}`)
 }
@@ -275,9 +259,8 @@ function checkCatalogs(value, where) {
   for (const [name, catalog] of Object.entries(value)) checkCatalog(readers.mapping(catalog, `${where}.${name}`), `${where}.${name}`)
 }
 
-// What pnpm `major` does with a setting: `{ read }`, `{}` where it leaves
-// the tree as it is, `{ unrecognized }` for pnpm 12, or undefined where
-// not known here. pnpm 12 takes a pattern only as a list.
+// `{}` where a setting leaves the tree as it is, undefined where not known
+// here. pnpm 12 takes a pattern only as a list.
 function lookup(name, major) {
   if (major >= 12 && UNRECOGNIZED_12.has(name)) return { unrecognized: true }
   if (major >= 12 && name in READ_12) return { read: READ_12[name] }
@@ -287,8 +270,6 @@ function lookup(name, major) {
   return { read: major >= 12 && READ[name].kind === 'texts' ? { ...READ[name], kind: 'list' } : READ[name] }
 }
 
-// Undefined for a setting that leaves the tree as it is. `pinned` is
-// whether pnpm 12 fails on one it does not recognize.
 export function readerOf(name, where, major, pinned = false) {
   const found = lookup(name, major)
   if (found === undefined) throw new DeptreeError('unsupported setting', where)
@@ -296,13 +277,11 @@ export function readerOf(name, where, major, pinned = false) {
   return found.read
 }
 
-// Whether pnpm 12 knows a setting, read or passed over.
 export function known12(name) {
   const found = lookup(name, 12)
   return found !== undefined && !found.unrecognized
 }
 
-// By selector, the patch file, relative to the workspace's directory.
 function checkPatches(value, where) {
   for (const [selector, path] of Object.entries(value)) {
     const here = `${where}[${quote(selector)}]`

@@ -1,18 +1,9 @@
 // The project's .yarnrc and .npmrc, as far as yarn 1 reads them for an
-// install. Two settings are followed as yarn follows them: ignore-engines,
-// by a `--ignore-engines` or `--install.ignore-engines` flag that is true,
-// or by the option, the .yarnrc's where it has one, else the .npmrc's,
-// where truthy as yarn reads it; and ignore-platform, by a flag alone, as
-// yarn reads the option and does not act on it.
-//
-// Of the other options, which yarn reads from the .yarnrc, else the .npmrc
-// (config.getOption), those that change the tree are refused (REFUSED), and
-// the rest passed over: yarn reads them for where it fetches from, how, and
-// what it keeps, or for no install at all, and the tree is held to the
-// lockfile's integrities whatever serves it. A `--` line of .yarnrc is a
-// flag yarn adds to its command line, for every command or, after
-// `<command>.`, that one; one that does not change the tree is passed over,
-// any other refused, whatever its command.
+// install, the .yarnrc's options over the .npmrc's. ignore-platform is
+// followed only as a flag, as yarn reads the option and does not act on it.
+// Options that change the tree are refused; the rest are for where and how
+// yarn fetches, and the tree is held to the lockfile's integrities. A `--`
+// line of .yarnrc is a flag yarn adds to its command line.
 
 import { DeptreeError, quote } from '../error.js'
 import { parseNpmrc } from '../npmrc.js'
@@ -26,10 +17,9 @@ const PASSED = new Set([
 ])
 
 // Of the options yarn 1.22 reads by config.getOption, those that change the
-// tree, and yarn-path, which it reads first and which runs another yarn.
-// Where global-folder is the project's directory, as a relative one may be,
-// yarn reads no package.json with validate(), which drops a name listed
-// twice from all but one of its lists.
+// tree, and yarn-path, which runs another yarn. global-folder may be the
+// project's directory, where yarn reads no package.json with validate(),
+// which drops a name listed twice from all but one of its lists.
 const REFUSED = new Set([
   'ignore-optional', 'production', 'bin-links', 'workspaces-experimental', 'workspaces-nohoist-experimental', 'plugnplay-override',
   'yarn-link-file-dependencies', 'enable-meta-folder', 'experimental-pack-script-packages-in-mirror', 'global-folder', 'yarn-path',
@@ -38,7 +28,6 @@ const REFUSED = new Set([
 
 const FOLLOWED = new Set(['ignore-engines', 'ignore-platform'])
 
-// A flag's command, `*` for every one, and name; undefined for an option.
 function flagOf(key) {
   const match = /^--(?:(.*?)\.)?(.*)$/u.exec(key)
   return match === null ? undefined : { command: match[1] ?? '*', name: match[2] }
@@ -50,8 +39,8 @@ function check(key, where) {
 }
 
 // .yarnrc as yarn's parser reads it, as far as a key and a value per line
-// go, each bare or quoted as JSON writes it. yarn keeps the last line of a
-// key; a bare value but true or false, or none, is undefined.
+// go, each bare or quoted as JSON writes it. The last line of a key wins; a
+// bare value but true or false, or none, is undefined.
 const TOKEN = /"(?:[^"\\]|\\.)*"|[^\s"]+/gu
 
 function unquote(token, what, where) {

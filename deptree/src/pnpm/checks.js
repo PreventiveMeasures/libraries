@@ -1,13 +1,10 @@
-// Checks pnpm does not make, of what a lockfile pnpm writes always holds
-// to or a tree it installs always is: where one fails, the lockfile was
-// not written by pnpm as it stands, or the tree would differ by where it
-// is installed.
+// Checks pnpm does not make, of what a lockfile pnpm writes always holds to or
+// a tree it installs always is.
 
 import { DeptreeError, quote } from '../error.js'
 
-// pnpm marks a snapshot optional exactly where no importer reaches it
-// through dependencies and devDependencies alone; one marked otherwise
-// would be left out, or kept, where it should not be.
+// pnpm marks a snapshot optional exactly where no importer requires it; one
+// marked otherwise would be left out, or kept, where it should not be.
 export function checkOptional(lockfile) {
   const required = new Set()
   const reach = (targets) => {

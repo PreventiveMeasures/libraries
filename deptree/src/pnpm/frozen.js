@@ -1,8 +1,5 @@
-// What pnpm 11's frozen install holds each project to beyond pnpm 10's
-// (@pnpm/lockfile.verification): git specifiers of one repository and
-// commit are the same, a catalog dependency has the version the lockfile's
-// catalog records, and a workspace package is linked exactly where its
-// version is in range, which pnpm 10 checks only when it resolves.
+// What pnpm 11's frozen install checks of each project that pnpm 10 checks only
+// when it resolves (@pnpm/lockfile.verification).
 
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { satisfies, valid, validRange } from '@preventive/upstream/semver.js'
@@ -44,8 +41,7 @@ function gitSpecifier(specifier) {
   return gitUrl(host, path, committish)
 }
 
-// dependencySpecifiersAreEqual: pnpm 11 takes git specifiers of one
-// repository and commit as the same however spelled; pnpm 10 does not.
+// dependencySpecifiersAreEqual: pnpm 11 matches git specifiers however spelled.
 export function sameSpecifier(a, b, major) {
   if (a === b) return true
   if (major < 11 || a === undefined || b === undefined) return false
@@ -53,8 +49,7 @@ export function sameSpecifier(a, b, major) {
   return git !== undefined && git === gitSpecifier(b)
 }
 
-// The version an importer's target resolved to, peers left out; a target
-// under the alias's own name is spelled as its version alone.
+// A target under the alias's own name is spelled as its version alone.
 export const resolvedOf = (alias, target) => packageKeyOf(target.startsWith(`${alias}@`) ? target.slice(alias.length + 1) : target)
 
 const targetOf = (importer, alias) => importer.dependencies[alias] ?? importer.devDependencies[alias] ?? importer.optionalDependencies[alias]
@@ -72,8 +67,7 @@ export function checkCatalogResolutions(importer, catalogs, where) {
   }
 }
 
-// A path from project `dir`, relative to the lockfile's directory as its
-// links are; one from the home directory or the root cannot be told here.
+// Relative to the lockfile's directory, as the lockfile's links are.
 function specPath(dir, path, where) {
   const clean = path.startsWith('./') ? path.slice(2) : path
   if (/^(?:~[/\\]|[/\\]|[A-Za-z]:)/u.test(clean) || clean.includes('\\')) throw new DeptreeError(`${quote(path)} is not a path from the project, which is not supported`, where)
@@ -81,10 +75,8 @@ function specPath(dir, path, where) {
 }
 
 const isWorkspacePath = (spec) => /^(?:[./\\]|~[/\\]|[A-Za-z]:)/u.test(spec)
-// Whether `child` is `parent` or in it, both in the lockfile's form.
 const within = (parent, child) => child === parent || (parent === '.' ? child !== '..' && !child.startsWith('../') : child.startsWith(`${parent}/`))
 
-// The package name and version range a specifier under `alias` asks for.
 export function parseSpec(spec, alias) {
   if (spec.startsWith('workspace:')) {
     const raw = spec.slice('workspace:'.length)
@@ -108,21 +100,17 @@ const isTag = (range) => valid(range, { loose: true }) === null && validRange(ra
 
 export const KINDS = ['optionalDependencies', 'dependencies', 'devDependencies']
 
-// The directory a specifier names by `link:`, `file:`, a `workspace:` path
-// or a path alone, as pnpm reads one. One led by a backslash, a path only
-// on Windows, is taken too for specPath to refuse, as a lockfile pnpm
-// writes elsewhere never links it.
+// A path led by a backslash, a path only on Windows, is taken too for specPath
+// to refuse, as a lockfile pnpm writes elsewhere never links it.
 function pathOf(spec) {
   if (spec.startsWith('link:') || spec.startsWith('file:')) return spec.slice(5)
   const path = spec.startsWith('workspace:') ? spec.slice('workspace:'.length) : spec
   return isWorkspacePath(path) ? path : undefined
 }
 
-// A linked dependency must lead where the package.json, through the
-// read-package hook, names a directory for it, as a lockfile pnpm writes
-// always has it. pnpm 11 checks a `link:` or `workspace:` path; pnpm 10,
-// or pnpm 11 for a path alone, would link whatever the lockfile says. A
-// `file:` one is pnpm's to link.
+// Stricter than pnpm, which checks only a `link:` or `workspace:` path, and
+// only from pnpm 11: a lockfile pnpm writes always links where the hooked
+// package.json names a directory.
 export function checkLinkTargets({ id, manifest, importer }, where) {
   for (const kind of KINDS) {
     for (const [alias, target] of Object.entries(importer[kind])) {
@@ -137,8 +125,7 @@ export function checkLinkTargets({ id, manifest, importer }, where) {
   }
 }
 
-// Projects by directory, and by the publishConfig.directory pnpm 11 links
-// one from; and their directories by name and version.
+// pnpm 11 links a project from its publishConfig.directory too.
 export function indexProjects(projects) {
   const byName = new Map()
   const byDir = new Map()
@@ -155,9 +142,8 @@ export function indexProjects(projects) {
   return { projects, byName, byDir }
 }
 
-// checkLinkedPackagesAreUpToDate, less the directories a package.json
-// names, which checkLinkTargets checks. `manifest` is read through the
-// read-package hook, and `index` is indexProjects's.
+// checkLinkedPackagesAreUpToDate on the hooked package.json, less the
+// directories it names, which checkLinkTargets checks.
 export function checkLinkedPackages({ manifest, importer, index: { projects, byName, byDir }, linkWorkspacePackages }, where) {
   const outdated = (detail) => new DeptreeError(`the lockfile is not up to date with this package.json, which pnpm 11 refuses a frozen install for: ${detail}`, where)
   for (const kind of KINDS) {
@@ -169,8 +155,7 @@ export function checkLinkedPackages({ manifest, importer, index: { projects, byN
       const here = `${where}.${kind}.${alias}`
       const workspaceRange = spec.startsWith('workspace:') && !isWorkspacePath(spec.slice('workspace:'.length))
       const linked = target.startsWith('link:')
-      // pnpm 11's frozen install skips a local directory or tarball;
-      // tree.js's checkSource limits which may be installed.
+      // pnpm 11's frozen install skips a local directory or tarball.
       if (importer.specifiers[alias].startsWith('file:') || packageKeyOf(target).includes('@file:')) continue
       if (linked && pathOf(spec) !== undefined) continue
       const { name, range } = parseSpec(spec, alias)

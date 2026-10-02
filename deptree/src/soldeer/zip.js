@@ -1,18 +1,8 @@
 // A registry zip as Soldeer 0.12 extracts it (download.rs's
-// extract_dependency_archive, over the zip crate 8.6), entries in central
-// directory order. @preventive/archive/zip.js refuses what it does not read
-// (`..`, absolute and backslashed names, zip64, encryption, two different
-// entries of one name), some of which Soldeer would take; what the two
-// would read otherwise and the archive reader takes is refused here.
-//
-// A name with a `.git` component, as Windows reads one (trailing dots and
-// spaces dropped, ASCII letters in either case), is passed over with all
-// beneath it; one with a `:` in it is refused, as Soldeer fails on it.
-// Every directory is 0o755, whatever the archive says. A file's mode is its
-// Unix mode as the zip crate reads it, less the type, setuid, setgid,
-// sticky, and group and other write bits, or 0o644 where it reads none; a
-// symlink is a 0o644 file holding its target. Both are as a umask of 0o022
-// leaves them.
+// extract_dependency_archive, zip crate 8.6); what the archive reader takes
+// and the two would read otherwise is refused. As a 0o022 umask leaves them,
+// every directory is 0o755, and a file's mode its Unix mode as the zip crate
+// reads it, or 0o644 where it reads none; a symlink is a file of its target.
 
 import { ArchiveError, unzip } from '@preventive/archive/zip.js'
 import { DeptreeError, quote } from '../error.js'
@@ -23,8 +13,7 @@ const UTF8 = 0x0800
 const S_IFLNK = 0o120000
 const [NTFS, TIMESTAMP, UNICODE_COMMENT, AES] = [0x000a, 0x5455, 0x6375, 0x9901]
 
-// As a tarball is bounded (../tarball.js): the archive reader makes room
-// for what each entry declares.
+// As in ../tarball.js: the archive reader makes room for what entries declare.
 const MAX_BYTES = 512 * 1024 * 1024
 
 // As the archive reader decodes a name: a leading U+FEFF is part of it.
@@ -33,9 +22,8 @@ const encoder = new TextEncoder()
 
 const ones = (byte) => [...byte.toString(2)].filter((bit) => bit === '1').length
 
-// Why the zip crate would fail on an entry's extra fields, which it reads
-// from the central directory, or undefined; an AES or a Unicode comment
-// field is refused here.
+// Why the zip crate would fail on an entry's extra fields, or undefined; an
+// AES or a Unicode comment field is refused here.
 function extraRefusal(view, at, length) {
   for (let pos = at; pos < at + length;) {
     const id = view.getUint16(pos, true)
@@ -50,9 +38,8 @@ function extraRefusal(view, at, length) {
   return undefined
 }
 
-// What the zip crate reads of each entry that the archive reader does not
-// hand out, in central directory order. unzip has checked the layout whole,
-// so each record is where it says.
+// What the zip crate reads of each entry that unzip does not hand out. unzip
+// has checked the layout whole, so each record is where it says.
 function centralRecords(bytes) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   let end = bytes.length - 22
@@ -98,9 +85,8 @@ export async function extractZip(bytes, where) {
     throw error
   }
   const records = centralRecords(bytes)
-  // The zip crate keys entries by their names' bytes, which unzip has read
-  // as UTF-8, so by their stored names: of two of one name, the later is
-  // extracted, where the first was.
+  // The zip crate keys entries by their names' bytes, here the stored names:
+  // of two of one name, the later is extracted where the first was.
   const last = new Map()
   for (const [index, entry] of entries.entries()) {
     const record = records[index]

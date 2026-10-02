@@ -1,17 +1,12 @@
 // pnpm's name patterns (@pnpm/matcher), as `hoist-pattern` and
-// `public-hoist-pattern` read them: `*` for any run of characters and
-// nothing else special, `!` in front to exclude. In a list, an exclusion
-// cancels what matched before it, and only a later inclusion matches again;
-// a list of exclusions alone matches what none of them does. And the walk
-// of a path through a glob, which pnpm's workspace globs and yarn's share
-// (pnpm/workspace.js, glob.js).
+// `public-hoist-pattern` read them; and the walk of a path through a glob,
+// which pnpm's workspace globs and yarn's share.
 
 export const escape = (text) => text.replace(/[$()+.?[\\\]^{|}]/gu, '\\$&')
 
-// For each place in `glob`, a regexp per name or `**`, whether the path of
-// `names` reaches it, the last being a full match; in time linear in the
-// glob's length per name, with no recursion however many `**` it has. A
-// `**` may take no name, and takes none with a leading dot unless `dot`.
+// For each place in `glob`, a regexp per name or `**`, whether `names` reach
+// it, the last being a full match; linear per name, with no recursion however
+// many `**`. A `**` takes no name with a leading dot unless `dot`.
 export function reach(glob, names, dot = false) {
   let here = Array.from({ length: glob.length + 1 }, (_, g) => g === 0)
   let next = Array.from({ length: glob.length + 1 }, () => false)

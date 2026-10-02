@@ -1,9 +1,6 @@
-// Refuses a lockfile `pnpm install --frozen-lockfile` would refuse as out
-// of date with the settings that shaped its resolution
-// (@pnpm/lockfile.settings-checker's getOutdatedLockfileSetting), naming
-// the setting as pnpm names it. Every configured patch is hashed, as pnpm
-// reads each whether or not a package uses it; only those used are parsed,
-// where they are applied.
+// Refuses a lockfile a frozen install would refuse as out of date with the
+// settings (@pnpm/lockfile.settings-checker's getOutdatedLockfileSetting),
+// naming the setting as pnpm names it.
 
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, difference, quote } from '../error.js'
@@ -15,8 +12,7 @@ const outdated = (name, detail) => new DeptreeError(`${detail}, which a frozen i
 
 const SIDES = ['the lockfile', 'the settings']
 
-// `hashes`, { hash, path } by selector, and `byHash`, { text, path } by
-// hash; `given` is the patch texts by path.
+// `hashes` is { hash, path } by selector, `byHash` { text, path } by hash.
 async function hashPatches(configured, given) {
   const texts = new Map()
   for (const [key, text] of given) {
@@ -49,8 +45,6 @@ function checkPatches(locked, hashes, major) {
   if (detail !== undefined) throw outdated('patchedDependencies', `the patches differ: ${detail}`)
 }
 
-// Returns the patches by hash, { text, path }, to apply where a snapshot
-// names one.
 export async function checkUpToDate(lockfile, settings, overrides, given, major) {
   const { hashes, byHash } = await hashPatches(settings.patchedDependencies, given)
   for (const [name, catalog] of Object.entries(lockfile.catalogs)) {

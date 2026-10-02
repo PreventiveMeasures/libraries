@@ -1,11 +1,7 @@
-// The lockfile's tree as Arborist holds it: a node for each location, the
-// project's at '', and each dependency an edge to where npm finds it, a
-// link where it finds one, from which optionalSet walks (compat.js).
+// The lockfile's tree as Arborist holds it, for optionalSet to walk.
 
 const IN_NODE_MODULES = /^(?:(.+)\/)?node_modules\/(?:@[^/]+\/)?[^/]+$/u
 
-// The location of the node_modules a package is in, or of the nearest
-// directory of the tree a directory is in.
 function parentOf(location, nodes) {
   const found = IN_NODE_MODULES.exec(location)
   if (found !== null) return found[1] ?? ''
@@ -17,8 +13,6 @@ function parentOf(location, nodes) {
   return ''
 }
 
-// The link npm finds `name` at from `from`, the first in the node_modules
-// of each node up the tree.
 function linkOf(from, name, nodes) {
   for (let location = from.location; ; location = nodes.get(location).parent) {
     const node = nodes.get(location === '' ? `node_modules/${name}` : `${location}/node_modules/${name}`)
@@ -26,10 +20,8 @@ function linkOf(from, name, nodes) {
   }
 }
 
-// The nodes by location: the project's and its workspaces', then each
-// package in the lockfile's order, which npm checks them in, then the
-// links. `manifests` are the project's package.json files, which npm reads
-// for the project and its workspaces in place of the lockfile's entries.
+// Packages in lockfile order, which npm checks them in. npm reads the
+// project's and workspaces' package.json in place of their entries.
 export function graphOf(lockfile, manifests) {
   const nodes = new Map()
   const add = (location, kind, pkg) => nodes.set(location, { location, kind, pkg, parent: undefined, edgesOut: [], edgesIn: [] })
