@@ -124,6 +124,7 @@
     "src/composer/schema.js",
     "src/composer/semver.js",
     "src/crate/cargo-platform.js",
+    "src/crate/path.js",
     "src/crate/sanitize-filename.js",
     "src/crate/semver.js",
     "src/error.js",

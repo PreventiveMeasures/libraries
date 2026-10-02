@@ -2,6 +2,7 @@
 // script it names. Sections that bear on none of it, [badges], [lints],
 // [profile], [[bin]] and metadata, are not looked into.
 
+import { fileName } from '../crate/path.js'
 import { matches, parseVersion, parseVersionReq } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
 import { field, optional, orEmpty } from '../shape.js'
@@ -53,10 +54,8 @@ function pathOrFlag(value, where) {
 
 // Cargo names a build script's target after its file, and crashes on a path
 // that names none, on Windows or elsewhere: one that is empty, or ends in
-// `..` or a root, `\` a separator on Windows, or a drive or share alone.
-const WINDOWS_PREFIX = /^(?:[A-Za-z]:|[\\/]{2}[^\\/]+(?:[\\/]+[^\\/]*)?)/u
-const lastName = (path, separator) => path.split(separator).findLast((part) => part !== '' && part !== '.')
-const namesFile = (path) => [lastName(path, '/'), lastName(path.replace(WINDOWS_PREFIX, ''), /[\\/]/u)].every((name) => name !== undefined && name !== '..')
+// `..`, a root, or on Windows a drive, a share or another prefix.
+const namesFile = (path) => [false, true].every((windows) => fileName(path, windows) !== undefined)
 
 function readBuild(value, where) {
   if (Array.isArray(value)) throw new LockfileError(`several build scripts, ${NIGHTLY}`, where)

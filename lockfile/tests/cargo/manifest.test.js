@@ -180,6 +180,9 @@ describe('parseCargoManifest', () => {
     assert.deepEqual(['', 'build = true', 'build = false', 'build = "src/build.rs"', 'build = "scripts/"'].map(build), [undefined, 'build.rs', false, 'src/build.rs', 'scripts/'])
     // From a drive's directory, or a share's, on Windows.
     assert.deepEqual(["build = 'C:build.rs'", "build = 'scripts\\build.rs'", "build = '//server/share/build.rs'"].map(build), ['C:build.rs', 'scripts\\build.rs', '//server/share/build.rs'])
+    // A verbatim share's file, and a server with no share, which Windows
+    // reads as a root and a name.
+    assert.deepEqual(["build = '\\\\?\\UNC\\server\\share\\build.rs'", "build = '\\\\server'"].map(build), ['\\\\?\\UNC\\server\\share\\build.rs', '\\\\server'])
   })
 
   it('throws a TypeError for a root that is not one', () => {
@@ -224,6 +227,9 @@ describe('parseCargoManifest', () => {
     ['a build script that is a drive\'s root', edit(ROOT, 'edition = "2021"', 'edition = "2021"\nbuild = "C:/"'), 'package.build: "C:/" names no file, which cargo crashes on'],
     ['a build script that is a drive', edit(ROOT, 'edition = "2021"', 'edition = "2021"\nbuild = "c:"'), 'package.build: "c:" names no file, which cargo crashes on'],
     ['a build script that is a share', edit(ROOT, 'edition = "2021"', "edition = \"2021\"\nbuild = '\\\\server\\share\\'"), 'package.build: "\\\\\\\\server\\\\share\\\\" names no file, which cargo crashes on'],
+    ['a build script that is a verbatim share', edit(ROOT, 'edition = "2021"', "edition = \"2021\"\nbuild = '\\\\?\\UNC\\server\\share\\'"), 'package.build: "\\\\\\\\?\\\\UNC\\\\server\\\\share\\\\" names no file, which cargo crashes on'],
+    ['a build script that is `.` after a verbatim prefix', edit(ROOT, 'edition = "2021"', "edition = \"2021\"\nbuild = '\\\\?\\C:\\scripts\\.'"), 'package.build: "\\\\\\\\?\\\\C:\\\\scripts\\\\." names no file, which cargo crashes on'],
+    ['a build script that is a device', edit(ROOT, 'edition = "2021"', 'edition = "2021"\nbuild = "//./COM1"'), 'package.build: "//./COM1" names no file, which cargo crashes on'],
     ['a library named with a "-"', edit(ROOT, 'proc-macro = true', 'name = "a-b"'), 'lib.name: "a-b": a library\'s name cannot have a "-", which cargo refuses'],
     ['a library named by blanks', edit(ROOT, 'proc-macro = true', 'name = " \\t"'), 'lib.name: a library\'s name cannot be empty, which cargo refuses'],
     ['a library\'s name of another type', edit(ROOT, 'proc-macro = true', 'name = 1'), 'lib.name: expected a string, found the integer 1'],
