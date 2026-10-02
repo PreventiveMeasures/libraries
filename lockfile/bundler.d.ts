@@ -20,16 +20,19 @@ export { LockfileError } from './pnpm.js'
 // or s3: URL not in the normal form a URL parser writes, whose `..` one
 // reader resolves and another does not; a directory by an absolute path; a
 // git source of a remote with a `/` at the end, which Bundler 2.4 and later
-// drop as they read it and 2.2 and 2.3 keep, or without the full commit it
-// resolved to, or a `ref` of a full commit that is another one; a
-// dependency of a gem that names no gem locked, or a requirement any gem
-// locked under its name does not meet, as a lockfile edited by hand may
-// have; a gem nothing depends on; one name from two sources, or two gems of
-// one name for one platform, or a gem of a platform no platform of
-// PLATFORMS takes, of its OS, CPU and libc; what the Gemfile asks for
-// without its `!` from other than one default source, a git one never; a
-// checksum not sha256 in lowercase hex, of a gem from a git or a path
-// source, or of no gem, and a gem without its line in CHECKSUMS.
+// drop as they read it and 2.2 and 2.3 keep, or in which git or ssh would
+// read an option, or that names a remote helper, as Bundler before 2.2.33
+// clones it with no `--` before it; one without the full commit it resolved
+// to, or a `ref` of a full commit that is another one, or that starts with
+// `-`; a glob that reaches out of its source, by a `..`, or a `/` or a
+// drive first; a dependency of a gem that names no gem locked, or a
+// requirement any gem locked under its name does not meet, as a lockfile
+// edited by hand may have; a gem nothing depends on; one name from two
+// sources, or two gems of one name for one platform, or a gem of a platform
+// no platform of PLATFORMS takes, of its OS, CPU and libc; what the Gemfile
+// asks for without its `!` from other than one default source, a git one
+// never; a checksum not sha256 in lowercase hex, of a gem from a git or a
+// path source, or of no gem, and a gem without its line in CHECKSUMS.
 export function parseGemfileLock(text: string): GemfileLock
 
 // Every Record has a null prototype, and is in the order the file has it.
@@ -97,7 +100,7 @@ export interface BundlerDependency {
 }
 
 // `glob`, of a git or a path source, is what Bundler finds the gemspecs
-// by, where not its default, `{,*,*/*}.gemspec`.
+// by, where not its default, `{,*,*/*}.gemspec`, within the source.
 export type BundlerSource =
   // A server of the gem API, by its URL, a directory of gems, by a
   // `file:///` one, or an S3 bucket of them, by an `s3://` one, with a `/`

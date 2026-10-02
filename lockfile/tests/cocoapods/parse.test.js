@@ -338,6 +338,19 @@ describe('external sources', () => {
     assert.throws(() => describedBy(`{:http=>"${URL}", :type=>"zip", :headers=>["Accept: */*", "X-Token: a+b"]}`), /is not the options of EXTERNAL SOURCES/u)
   })
 
+  it('refuses an argument of hg or svn either reads as an option, as cocoapods-downloader refuses one of hg\'s', () => {
+    const at = '["EXTERNAL SOURCES"].Git'
+    for (const [type, option, value] of [['hg', 'branch', '--config=x'], ['hg', 'revision', '-r'], ['hg', 'tag', 'v1 --config=x'], ['svn', 'folder', '-x'], ['svn', 'tag', '--depth=empty']]) {
+      refuses(external({ [type]: GIT, [option]: `'${value}'` }, `\`${GIT}\``, { [type]: GIT, [option]: `'${value}'` }), `${JSON.stringify(value)} starts with "-", or has " --" in it, which ${type} would read as an option`, `${at}[":${option}"]`)
+    }
+    assert.equal(parsePodfileLock(external({ hg: GIT, branch: 'a-b' }, `\`${GIT}\``, { hg: GIT, revision: 'x - y' })).roots.Git.checkout.revision, 'x - y')
+  })
+
+  it('refuses a spec repo git reads otherwise than as one', () => {
+    refuses(edit(['  https://example.com/specs.git:', '  ssh://-oProxyCommand=x/specs.git:']), '"ssh://-oProxyCommand=x/specs.git" has a "-" where git or ssh would read an option', '["SPEC REPOS"]["ssh://-oProxyCommand=x/specs.git"]')
+    refuses(edit(['  https://example.com/specs.git:', '  ext::sh:']), '"ext::sh" names a remote helper of git\'s, which is not supported', '["SPEC REPOS"]["ext::sh"]')
+  })
+
   it('refuses options CocoaPods does not take, or reads as no source', () => {
     const at = '["EXTERNAL SOURCES"].Git'
     refuses(external({ git: GIT, rev: 'x' }, `\`${GIT}\``, { git: GIT, commit: COMMIT }), 'an option cocoapods-downloader does not take of :git', `${at}[":rev"]`)

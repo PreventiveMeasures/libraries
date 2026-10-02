@@ -125,15 +125,20 @@ const AS_OPTION = /^(?:[^/:]*:\/\/)?(?:[^/@]*@)?-/u
 // `ext::` runs a command.
 const HELPER = /^[\dA-Za-z][\d+.A-Za-z-]*::/u
 
-// A repository's URL, or scp's `user@host:path`, as a tool writes the one
-// it clones: no space or control, and read by git as a place to fetch from
-// and as nothing else.
-export function checkRepo(value, where) {
+// A repository, by URL or by path, that git reads as a place to fetch from
+// and as nothing else, whatever else it has in it: a path may have a space.
+export function checkRemote(value, where) {
   const repo = text(value, where)
-  if (/[\s\p{Cc}]/u.test(repo)) throw new LockfileError(`${quote(repo)} is not a repository URL`, where)
   if (AS_OPTION.test(repo)) throw new LockfileError(`${quote(repo)} has a "-" where git or ssh would read an option`, where)
   if (HELPER.test(repo)) throw new LockfileError(`${quote(repo)} names a remote helper of git's, which is not supported`, where)
   return repo
+}
+
+// A repository's URL, or scp's `user@host:path`, as a tool writes the one
+// it clones: as above, and with no space or control.
+export function checkRepo(value, where) {
+  if (/[\s\p{Cc}]/u.test(text(value, where))) throw new LockfileError(`${quote(value)} is not a repository URL`, where)
+  return checkRemote(value, where)
 }
 
 // Subresource integrity with one hash, as pnpm writes it: the algorithm, a

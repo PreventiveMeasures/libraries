@@ -15,6 +15,7 @@
 
 import { LockfileError, at, quote } from '../error.js'
 import { fail } from '../lines.js'
+import { checkRepo } from '../names.js'
 import { checkOptions, field } from '../shape.js'
 import { checkCheckout, checkDescription } from './external.js'
 import { SECTIONS, checkLayout, rulesOf } from './layout.js'
@@ -93,7 +94,7 @@ const readRepo = checker((repo) => !/\s/u.test(repo), 'a spec repo\'s URL or nam
 function readSpecRepos(node) {
   const repos = new Map()
   for (const [key, list, here] of entriesOf(node, where('SPEC REPOS'))) {
-    const repo = readRepo(key, here)
+    const repo = checkRepo(readRepo(key, here), here)
     if (isEmpty(list)) throw new LockfileError('no pod of the spec repo, where CocoaPods leaves it out', here)
     for (const [index, item] of itemsOf(list, here).entries()) {
       const there = `${here}[${index}]`
