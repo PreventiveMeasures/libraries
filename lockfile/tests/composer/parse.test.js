@@ -218,8 +218,11 @@ describe('the top of the file', () => {
     assert.deepEqual(plain(lock.platformOverrides), { php: '8.3.0', 'ext-xdebug': false })
     refuses(edit((doc) => put(doc, 'platform-overrides', { php: false }, TOP)), 'false, which Composer refuses of php, as it cannot be missing', 'platform-overrides.php')
     refuses(edit((doc) => put(doc, 'platform-overrides', { php: true }, TOP)), 'expected a version, or false, found the boolean true', 'platform-overrides.php')
-    // PlatformRepository refuses `false` of "php" alone, as it is written.
-    assert.equal(parseComposerLock(edit((doc) => put(doc, 'platform-overrides', { PHP: false }, TOP))).platformOverrides.PHP, false)
+    // PlatformRepository refuses `false` of "php" as written, and keys the
+    // rest in lowercase, the last of a name counting.
+    refuses(edit((doc) => put(doc, 'platform-overrides', { PHP: false }, TOP)), 'false, which Composer refuses of php, as it cannot be missing', 'platform-overrides.PHP')
+    refuses(edit((doc) => put(doc, 'platform-overrides', { php: '8.3.0', Php: false }, TOP)), 'false, which Composer refuses of php, as it cannot be missing', 'platform-overrides.Php')
+    assert.deepEqual(plain(parseComposerLock(edit((doc) => put(doc, 'platform-overrides', { PHP: false, php: '8.3.0' }, TOP))).platformOverrides), { PHP: false, php: '8.3.0' })
   })
 })
 

@@ -113,12 +113,19 @@ function readOverrides(value) {
   const overrides = Object.create(null)
   if (value === undefined) return overrides
   if (!isRecord(value) || isEmptyObject(value)) throw refuse('a non-empty mapping, as Composer writes it where there are any', value, where)
+  // PlatformRepository refuses false of `php` as written, and keys each
+  // override by its name in lowercase, the last of it; false of PHP so, it
+  // disables php, which no install gets past.
+  const missing = (here) => new LockfileError('false, which Composer refuses of php, as it cannot be missing', here)
+  let php
   for (const [name, version, here] of entriesOf(value, where)) {
     if (!isPlatform(name)) throw new LockfileError(`${quote(name)} is not a platform package's name`, here)
     if (version !== false && (typeof version !== 'string' || normalize(plain(version, here)) === undefined)) throw refuse('a version, or false', version, here)
-    if (name === 'php' && version === false) throw new LockfileError('false, which Composer refuses of php, as it cannot be missing', here)
+    if (name === 'php' && version === false) throw missing(here)
+    if (lower(name) === 'php') php = { version, here }
     overrides[name] = version
   }
+  if (php?.version === false) throw missing(php.here)
   return overrides
 }
 
