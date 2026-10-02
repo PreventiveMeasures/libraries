@@ -6,18 +6,19 @@ import { LockfileError, at, quote } from '../error.js'
 import { fail } from '../lines.js'
 import { isGemName, isPlatform } from '../rubygems/gem.js'
 import { compareVersions, isVersion, parseRequirement } from '../rubygems/version.js'
-import { indentOf, splitLockName } from './syntax.js'
+import { splitLockName } from './syntax.js'
 
-export function checkGemName(name, where) {
+function checkGemName(name, where) {
   if (!isGemName(name)) throw new LockfileError(`${quote(name)} is not a gem name`, where)
   return name
 }
 
-export const fullName = ({ name, version, platform }) => (platform === 'ruby' ? `${name}-${version}` : `${name}-${version}-${platform}`)
+// Of a gem as written, of no platform where none is written.
+const fullName = ({ name, version, platform = 'ruby' }) => (platform === 'ruby' ? `${name}-${version}` : `${name}-${version}-${platform}`)
 
 // A gem's name, version and platform as written, each held to RubyGems'
 // form: `ruby`, the platform of a gem of none, Bundler leaves out.
-export function readLockName({ name, version, platform }, where) {
+function readLockName({ name, version, platform }, where) {
   checkGemName(name, where)
   if (!isVersion(version)) throw new LockfileError(`${quote(version)} is not a version as RubyGems writes one`, where)
   if (platform === 'ruby') throw new LockfileError('the platform ruby, which Bundler leaves out of a gem of no platform', where)
@@ -27,7 +28,7 @@ export function readLockName({ name, version, platform }, where) {
 
 // Each `op version`, in the order Bundler writes them, which is backwards;
 // none for any version, which `>= 0` alone is.
-export function readRequirements(list, where) {
+function readRequirements(list, where) {
   for (const [index, text] of list.entries()) {
     if (parseRequirement(text) === undefined) throw new LockfileError(`${quote(text)} is not a requirement as Bundler writes one, "op version"`, where)
     if (index > 0 && text >= list[index - 1]) throw new LockfileError(`${quote(text)} after ${quote(list[index - 1])}, where Bundler sorts them backwards, each once`, where)
@@ -37,18 +38,19 @@ export function readRequirements(list, where) {
   return list
 }
 
-// By name, sorted, each name once.
-function readSpecDependencies(list, where) {
-  const dependencies = Object.create(null)
+// Dependencies by name, sorted, each name once, as Bundler writes a gem's
+// and the Gemfile's, `what`: what `read` makes of each one's requirements.
+export function readNamed(list, where, what, read = (requirements) => requirements) {
+  const named = Object.create(null)
   let prior
-  for (const { name, requirements } of list) {
-    const here = at(where, name)
-    checkGemName(name, here)
-    if (prior !== undefined && name <= prior) throw new LockfileError(`${name === prior ? 'listed twice' : `after ${quote(prior)}`}, where Bundler sorts a gem's dependencies by name`, here)
-    prior = name
-    dependencies[name] = readRequirements(requirements, here)
+  for (const item of list) {
+    const here = at(where, item.name)
+    checkGemName(item.name, here)
+    if (prior !== undefined && item.name <= prior) throw new LockfileError(`${item.name === prior ? 'listed twice' : `after ${quote(prior)}`}, where Bundler sorts ${what} by name`, here)
+    prior = item.name
+    named[item.name] = read(readRequirements(item.requirements, here), item)
   }
-  return dependencies
+  return named
 }
 
 // Every source's specs, by full name, each with the index of its source.
@@ -57,7 +59,7 @@ export function readSpecs(raw, sources) {
   for (const [index, { specs: list }] of raw.entries()) {
     let prior
     for (const item of list) {
-      const key = fullName({ ...item, platform: item.platform ?? 'ruby' })
+      const key = fullName(item)
       const where = at('specs', key)
       const { name, version, platform } = readLockName(item, where)
       if (name === 'bundler') throw new LockfileError('Bundler itself, which Bundler leaves out of the sources', where)
@@ -67,7 +69,7 @@ export function readSpecs(raw, sources) {
       if (sources[index].type === 'gem' && sources[index].remote === undefined) {
         throw new LockfileError(`from sources[${index}], which has no remote: Bundler takes it from the gems installed where it runs`, where)
       }
-      specs[key] = { name, version, platform, source: index, dependencies: readSpecDependencies(item.dependencies, at(where, 'dependencies')), checksum: undefined }
+      specs[key] = { name, version, platform, source: index, dependencies: readNamed(item.dependencies, at(where, 'dependencies'), 'a gem\'s dependencies'), checksum: undefined }
     }
   }
   return specs
@@ -87,9 +89,7 @@ export function readChecksums(lines, specs, sources) {
   let bundler
   let prior
   const listed = new Set()
-  for (const { text, number } of lines) {
-    if (indentOf(text) !== 2) throw fail(`expected 2 spaces of indentation, found ${indentOf(text)}`, number)
-    const line = text.slice(2)
+  for (const { text: line, number } of lines) {
     if (prior !== undefined && line <= prior) throw fail(`${quote(line)} after ${quote(prior)}, where Bundler sorts the checksums, each once`, number)
     prior = line
     const item = splitLockName(line, number, true)
@@ -99,14 +99,15 @@ export function readChecksums(lines, specs, sources) {
       bundler = { version, checksum: readChecksum(item.checksum, at('bundlerChecksum', 'checksum')) }
       continue
     }
-    const key = fullName({ ...item, platform: item.platform ?? 'ruby' })
+    const key = fullName(item)
     if (!(key in specs)) throw fail(`${quote(line.split(' ', 2).join(' '))} is no gem of the sources`, number)
     const spec = specs[key]
     if (listed.has(key)) throw fail(`${quote(line.split(' ', 2).join(' '))} a second time, where Bundler lists each gem once`, number)
     listed.add(key)
     if (item.checksum === undefined) continue
-    if (sources[spec.source].type !== 'gem') throw new LockfileError(`a checksum of a gem from a ${sources[spec.source].type} source, which has no .gem to check`, at(at('specs', key), 'checksum'))
-    spec.checksum = readChecksum(item.checksum, at(at('specs', key), 'checksum'))
+    const here = at(at('specs', key), 'checksum')
+    if (sources[spec.source].type !== 'gem') throw new LockfileError(`a checksum of a gem from a ${sources[spec.source].type} source, which has no .gem to check`, here)
+    spec.checksum = readChecksum(item.checksum, here)
   }
   const missing = Object.keys(specs).find((key) => !listed.has(key))
   if (missing !== undefined) throw new LockfileError('not in CHECKSUMS, where Bundler lists every gem', at('specs', missing))

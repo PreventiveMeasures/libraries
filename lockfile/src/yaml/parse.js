@@ -11,6 +11,7 @@
 // project's lockfile second.
 
 import { hex } from '../excerpt.js'
+import { UNWRITTEN } from '../lines.js'
 import { YamlError, excerpt } from './error.js'
 import { parseInline, readKey, setKey } from './scalar.js'
 
@@ -53,12 +54,6 @@ function parseDocument(doc) {
   return value
 }
 
-// Tabs and other control characters are refused everywhere: pnpm never
-// writes them raw, and a byte order mark would read as part of the first key.
-// So are the lone surrogates, U+FFFE and U+FFFF that js-yaml refuses, and
-// U+2028 and U+2029, which end a line to a YAML 1.1 reader.
-const FORBIDDEN = /[\p{Cc}\p{Cs}\uFEFF\uFFFE\uFFFF\u2028\u2029]/u
-
 // Moves `doc.line` on to the next line, undefined past the last, and returns
 // it. Lines are read only as the parser gets to them, so what a text costs
 // in memory is what the document holds, not an object for each of its lines.
@@ -75,7 +70,8 @@ function advance(doc) {
   let start = pos
   while (text[start] === ' ') start++
   const line = text.slice(start, end)
-  const char = FORBIDDEN.exec(line)?.[0]
+  // Refused everywhere, tabs and other control characters among them.
+  const char = UNWRITTEN.exec(line)?.[0]
   if (char !== undefined) throw new YamlError(`${hex(char)} is not allowed`, number)
   doc.line = { indent: start - pos, text: line, number }
   return doc.line

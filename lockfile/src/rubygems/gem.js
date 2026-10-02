@@ -79,7 +79,9 @@ function readOs(os, rubygems) {
 // with its libc a part of the OS, and darwin-23 with its version apart.
 function split3(text) {
   const parts = split(text)
-  if (parts.length > 2 && !/\d+(?:\.\d+)?$/u.test(parts.at(-1))) {
+  // RubyGems tests /\d+(\.\d+)?$/, which a part takes where it ends in a
+  // digit, and which a regex engine tries from every digit.
+  if (parts.length > 2 && !/\d$/u.test(parts.at(-1))) {
     const extra = parts.pop()
     parts[parts.length - 1] += `-${extra}`
   }
@@ -88,9 +90,11 @@ function split3(text) {
   return { cpu, os: parts[0] }
 }
 
-// RubyGems 4: the CPU, and all after it.
+// RubyGems 4: the CPU, and all after it, less any `-` at the end.
 function split4(text) {
-  const trimmed = text.replace(/-+$/u, '')
+  let end = text.length
+  while (text[end - 1] === '-') end--
+  const trimmed = text.slice(0, end)
   const sep = trimmed.indexOf('-')
   return sep === -1 ? { cpu: trimmed || undefined } : { cpu: trimmed.slice(0, sep), os: trimmed.slice(sep + 1) }
 }
@@ -103,10 +107,9 @@ export function platformOf(text, rubygems) {
   const { cpu, os, version } = rubygems === 3 ? split3(text) : split4(text)
   let platformCpu = cpu !== undefined && /i\d86/u.test(cpu) ? 'x86' : cpu
   if (version !== undefined) return [platformCpu, os, version].join('-')
-  let read = os
   // A lone part is the OS, as `java` is.
-  if (os === undefined) [platformCpu, read] = [undefined, cpu]
-  const [name, osVersion, lone] = readOs(read, rubygems)
+  if (os === undefined) platformCpu = undefined
+  const [name, osVersion, lone] = readOs(os ?? cpu, rubygems)
   platformCpu ??= lone
   return [platformCpu, name, osVersion].filter((part) => part !== undefined).join(rubygems === 4 && platformCpu === undefined ? '' : '-')
 }

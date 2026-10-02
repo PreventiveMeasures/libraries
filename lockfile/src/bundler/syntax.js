@@ -5,19 +5,19 @@
 // which the readers beside this one hold to what they are.
 
 import { LockfileError, quote } from '../error.js'
-import { advance, fail, lines } from '../lines.js'
-
-// Never written by Bundler; a lone CR ends a line to some other readers.
-const FORBIDDEN = /[\p{Cc}\p{Cs}\uFEFF\uFFFE\uFFFF\u2028\u2029]/u
+import { UNWRITTEN, advance, fail, lines } from '../lines.js'
 
 // What Bundler refuses a lockfile for wherever it is, as a merge conflict.
 const CONFLICT = /<<<<<<<|=======|>>>>>>>|\|{7}/u
 
-// GEM's after the others, then the sections, in the order Bundler writes them.
+// GEM's after the others, then the sections, in the order Bundler writes
+// them, each with the indentations of its lines: RUBY VERSION's and BUNDLED
+// WITH's three spaces in from Bundler 2, which Bundler 4 writes two in.
 const SOURCES = new Set(['GIT', 'PATH', 'GEM'])
-const SECTIONS = ['PLATFORMS', 'DEPENDENCIES', 'CHECKSUMS', 'RUBY VERSION', 'BUNDLED WITH']
+const SECTIONS = { PLATFORMS: [2], DEPENDENCIES: [2], CHECKSUMS: [2], 'RUBY VERSION': [2, 3], 'BUNDLED WITH': [2, 3] }
+const ORDER = Object.keys(SECTIONS)
 
-export const indentOf = (line) => /^ */u.exec(line)[0].length
+const indentOf = (line) => /^ */u.exec(line)[0].length
 
 function expectIndent(line, expected, number) {
   const indent = indentOf(line)
@@ -43,7 +43,7 @@ const DEPENDENCY = /^([^\s()!]+)(?: \(([^()]+)\))?(!)?$/u
 export function splitDependency(text, number, pinned) {
   const match = DEPENDENCY.exec(text)
   if (match === null || (!pinned && match[3] !== undefined)) throw fail(`expected a dependency as "name" or "name (requirement)", found ${quote(text)}`, number)
-  return { name: match[1], requirements: match[2]?.split(', ') ?? [], pinned: match[3] !== undefined, number }
+  return { name: match[1], requirements: match[2]?.split(', ') ?? [], pinned: match[3] !== undefined }
 }
 
 // `key: value`, two spaces in.
@@ -54,15 +54,16 @@ const OPTION = /^ {2}([a-z]+): (.+)$/u
 function readSource(src) {
   const { line: type, number } = src
   const options = []
-  for (advance(src); src.line !== undefined && OPTION.test(src.line); advance(src)) {
-    const [, key, value] = OPTION.exec(src.line)
-    options.push({ key, value, number: src.number })
+  for (advance(src); ; advance(src)) {
+    const option = OPTION.exec(src.line ?? '')
+    if (option === null) break
+    options.push({ key: option[1], value: option[2], number: src.number })
   }
   if (src.line !== '  specs:') throw fail(`expected an option, "key: value", or "specs:", two spaces in, found ${src.line === undefined ? 'the end of the file' : quote(src.line)}`, src.number)
   const specs = []
   for (advance(src); src.line?.startsWith(' '); advance(src)) {
     const text = expectIndent(src.line, [4, 6], src.number)
-    if (indentOf(src.line) === 4) {
+    if (src.line.length - text.length === 4) {
       specs.push({ ...splitLockName(text, src.number, false), dependencies: [] })
       continue
     }
@@ -72,11 +73,21 @@ function readSource(src) {
   return { type, number, options, specs }
 }
 
-// A section's lines, each with its number and its indentation as written.
-function readLines(src) {
+// A section's lines, each at an indentation `indents` takes, and with it,
+// and its number.
+function readLines(src, indents) {
   const list = []
-  for (advance(src); src.line?.startsWith(' '); advance(src)) list.push({ text: src.line, number: src.number })
+  for (advance(src); src.line?.startsWith(' '); advance(src)) {
+    const text = expectIndent(src.line, indents, src.number)
+    list.push({ text, indent: src.line.length - text.length, number: src.number })
+  }
   return list
+}
+
+// RUBY VERSION and BUNDLED WITH at one indentation, as one Bundler writes both.
+function checkVersionsIndent(sections) {
+  const [ruby, bundled] = ['RUBY VERSION', 'BUNDLED WITH'].map((name) => sections.get(name)?.lines[0])
+  if (ruby !== undefined && bundled !== undefined && ruby.indent !== bundled.indent) throw fail(`${ruby.indent} spaces of indentation, and ${bundled.indent} under BUNDLED WITH`, ruby.number)
 }
 
 // The sources, then each section by its name; one blank line between two,
@@ -86,7 +97,7 @@ export function readSections(text) {
   if (conflict !== undefined) throw new LockfileError(`${quote(conflict)}, which Bundler reads as a merge conflict`)
   if (text === '') throw new LockfileError('an empty lockfile, which Bundler reads as none')
   if (!text.endsWith('\n')) throw new LockfileError('no line end after the last line, where Bundler ends every line')
-  const src = lines(text, FORBIDDEN)
+  const src = lines(text, UNWRITTEN)
   const sources = []
   const sections = new Map()
   let last
@@ -99,12 +110,12 @@ export function readSections(text) {
       if (line !== 'GEM' && sources.at(-1)?.type === 'GEM') throw fail(`a ${line} source after a GEM one, where Bundler writes the GEM sources last`, number)
       sources.push(readSource(src))
     } else {
-      const index = SECTIONS.indexOf(line)
+      const index = ORDER.indexOf(line)
       if (index === -1) throw fail(`${quote(line)} is not a section Bundler writes`, number)
       if (sections.has(line)) throw fail(`a second ${line}`, number)
-      if (index < SECTIONS.indexOf(last)) throw fail(`${line} after ${last}, where Bundler writes it before`, number)
+      if (index < ORDER.indexOf(last)) throw fail(`${line} after ${last}, where Bundler writes it before`, number)
       last = line
-      sections.set(line, { number, lines: readLines(src) })
+      sections.set(line, { number, lines: readLines(src, SECTIONS[line]) })
     }
     if (src.line === undefined) break
     if (src.line !== '') throw fail(`expected a blank line before ${quote(src.line)}`, src.number)
@@ -113,5 +124,6 @@ export function readSections(text) {
   }
   // The Gemfile's own, even of no remote and no gems.
   if (!sources.some((source) => source.type === 'GEM')) throw new LockfileError('no GEM source, which Bundler always writes')
+  checkVersionsIndent(sections)
   return { sources, sections }
 }

@@ -36,6 +36,7 @@ function readOptions({ type, number, options }) {
   return values
 }
 
+// Undefined where none is written.
 function readGlob(value, where) {
   if (value === DEFAULT_GLOB) throw new LockfileError(`${quote(value)}, which Bundler reads by where none is written, and does not write`, where)
   return value
@@ -60,7 +61,7 @@ function readGit(values, where) {
     branch: values.branch === undefined ? undefined : checkRefName(values.branch, at(where, 'branch')),
     tag: values.tag === undefined ? undefined : checkRefName(values.tag, at(where, 'tag')),
     submodules: values.submodules === 'true',
-    glob: values.glob === undefined ? undefined : readGlob(values.glob, at(where, 'glob')),
+    glob: readGlob(values.glob, at(where, 'glob')),
   }
 }
 
@@ -69,7 +70,7 @@ function readGit(values, where) {
 function readPath(values, where) {
   const here = at(where, 'path')
   if (values.remote.startsWith('/')) throw new LockfileError(`${quote(values.remote)} is an absolute path, which is the path on one machine alone`, here)
-  return { type: 'path', path: checkRelative(values.remote, here), glob: values.glob === undefined ? undefined : readGlob(values.glob, at(where, 'glob')) }
+  return { type: 'path', path: checkRelative(values.remote, here), glob: readGlob(values.glob, at(where, 'glob')) }
 }
 
 // A directory of gems, which Bundler fetches from as from a server, by a

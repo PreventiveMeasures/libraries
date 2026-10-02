@@ -6,6 +6,13 @@ import { hex } from './excerpt.js'
 
 export const fail = (detail, number) => new LockfileError(`${detail} at line ${Math.max(number, 0) + 1}`)
 
+// What none of yarn, Bundler and pnpm writes raw: controls, tabs among
+// them, lone surrogates, a byte order mark, which would read as part of the
+// first key, U+FFFE and U+FFFF, which js-yaml refuses, and U+2028 and
+// U+2029, which end a line to a YAML 1.1 reader and some others, as a lone
+// CR does to yarn.
+export const UNWRITTEN = /[\p{Cc}\p{Cs}\uFEFF\uFFFE\uFFFF\u2028\u2029]/u
+
 // npm and yarn read a file with all three of these anywhere in it, in a
 // string too, as a merge conflict, and merge its sides into one.
 const CONFLICT = ['<<<<<<<', '=======', '>>>>>>>']
