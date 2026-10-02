@@ -5,7 +5,7 @@ import { getZip } from '@preventive/upstream/soldeer.js'
 import { Vfs } from '@preventive/vfs'
 import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote } from '../error.js'
-import { fold, makeDirs, mount, writeFiles } from '../mount.js'
+import { checkNoDir, fold, makeDirs, mount, writeFiles } from '../mount.js'
 import { configOf } from './config.js'
 import { checkHost, inputsOf } from './inputs.js'
 import { extractZip } from './zip.js'
@@ -15,13 +15,7 @@ import { extractZip } from './zip.js'
 const NAME = /^(?=.{3,100}$)[@\da-z][\da-z-]*[\da-z]$/u
 const VERSION = /^(?=.{1,128}$)[\dA-Za-z][\w.+-]*$/u
 
-function checkNoDependencies(vfs, folded) {
-  for (const name of vfs.readdir('/')) {
-    if (name === 'dependencies' || (folded && fold(name) === 'dependencies')) {
-      throw new DeptreeError('a dependencies folder is there already, which is neither kept beside the tree nor removed', `vfs[${quote(`/${name}`)}]`)
-    }
-  }
-}
+const checkNoDependencies = checkNoDir('dependencies', 'a dependencies folder')
 
 const about = (name) => `dependencies[${quote(name)}]`
 

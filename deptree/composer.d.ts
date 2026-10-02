@@ -48,10 +48,9 @@ export interface ComposerProject {
 // resolves one, `vendor` where unset; bin-dir, one too, or within
 // vendor-dir by `{$vendor-dir}`, `{$vendor-dir}/bin` where unset; and
 // preferred-install, dist where unset, source, auto, or a mapping of
-// package patterns to those. Settings from
-// anywhere else — Composer's home, the environment, COMPOSER_VENDOR_DIR
-// and COMPOSER among it, the command line — are not read, and are taken to
-// be at their defaults.
+// package patterns to those. Settings from anywhere else — Composer's home,
+// the environment, COMPOSER_VENDOR_DIR and COMPOSER among it, the command
+// line — are not read, and are taken to be at their defaults.
 //
 // `github` is the client the archives of GitHub's packages are fetched
 // with, as getRepoTarball fetches them, exported, from
@@ -153,16 +152,15 @@ export interface ComposerTree {
 //
 // Of GitHub's zipball of a commit with no shasum, which is how Packagist
 // records each package on GitHub, the archive @preventive/upstream's
-// getRepoTarball fetches exported stands in, which holds the same files,
-// as `git archive` writes both, and is held to the commit's tree as the
-// tree's .gitattributes export it: what they mark export-ignore left out,
-// a file whose eol attributes have git write its line ends CRLF so
-// written, and a file git rewrites otherwise, as export-subst has it,
-// refused. As unzip
-// extracts the zipball, each directory is 0o755 and each file 0o644, as
-// git records no mode for them, but an executable, which keeps git's
-// 0o755; each link is a link; and each directory git writes is made, an
-// empty one of files it leaves out, or of a submodule, included.
+// getRepoTarball fetches exported stands in, which holds the same files, as
+// `git archive` writes both, and is held to the commit's tree as the tree's
+// .gitattributes export it: what they mark export-ignore left out, a file
+// whose eol attributes have git write its line ends CRLF so written, and a
+// file git rewrites otherwise, as export-subst has it, refused. As unzip
+// extracts the zipball, each directory is 0o755 and each file 0o644, as git
+// records no mode for them, but an executable, which keeps git's 0o755;
+// each link is a link; and each directory git writes is made, an empty one
+// of files it leaves out, or of a submodule, included.
 //
 // A dist with a shasum, which Composer holds it to, is fetched and held to
 // it by @preventive/upstream's getDist: a release zip on drupal.org, or
@@ -178,9 +176,9 @@ export interface ComposerTree {
 // And to more than Composer holds a package to: a link that leads out of
 // its package, a bin that does, a target-dir but of plain names, and a
 // package installed in bin-dir, where the proxies go, or holding it, on
-// macOS by names as it takes them, are refused. On macOS, two
-// names in one directory that differ only in case or normalization are
-// refused, as they would be one name there.
+// macOS by names as it takes them, are refused. On macOS, two names in one
+// directory that differ only in case or normalization are refused, as they
+// would be one name there.
 //
 // The lockfile is held to what the lockfile reader holds it to, with
 // composer.json; a lockfile out of date with it, which Composer warns of

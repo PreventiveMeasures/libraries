@@ -238,8 +238,8 @@ function parseLine(line, macrosAllowed) {
 // directory `base`, '' at the top: its lines up to a NUL, none of a file
 // of 100 MiB or more; and the macros it defines, the top one alone, the
 // last of a name standing.
-export function frameOf(base, text, top) {
-  const lines = text.length >= 100 * 1024 * 1024 ? [] : text.split('\0')[0].split('\n').map((line) => parseLine(line, top)).filter((line) => line !== null)
+export function frameOf(base, text) {
+  const lines = text.length >= 100 * 1024 * 1024 ? [] : text.split('\0')[0].split('\n').map((line) => parseLine(line, base === '')).filter((line) => line !== null)
   return { base, lines: lines.filter((line) => line.pattern !== undefined), macros: new Map(lines.filter((line) => line.macro !== undefined).map(({ macro, states }) => [macro, states])) }
 }
 

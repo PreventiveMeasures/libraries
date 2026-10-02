@@ -13,15 +13,17 @@ import { Buffer } from 'node:buffer'
 import { show } from './args.js'
 import { attributesOf, frameOf } from './attributes.js'
 import { lineEndsRewriter } from './eol.js'
-import { ATTRIBUTES, gitTreeOfListing, nameOf, objectId, readTarball, subtree, treeId } from './tree.js'
+import { gitTreeOfListing, nameOf, objectId, readTarball, subtree, treeId } from './tree.js'
 
 class Refusal extends Error {}
+
+const ATTRIBUTES = '.gitattributes'
 
 const isIgnored = (attributes) => attributes.get('export-ignore') === true
 // Git reads a .gitattributes from a blob, never through a symlink.
 const isAttributes = (entry) => entry?.type === 'blob' && entry.mode !== '120000'
-// The .gitattributes of the directory at `prefix`, macros in the top one.
-const frame = (prefix, bytes) => frameOf(prefix.slice(0, -1), Buffer.from(bytes).toString('latin1'), prefix === '')
+// The .gitattributes of the directory at `prefix`.
+const frame = (prefix, bytes) => frameOf(prefix.slice(0, -1), Buffer.from(bytes).toString('latin1'))
 
 // The tree's entry back where the archive leaves it out.
 const asListed = ({ mode, type, sha }) => (type === 'tree' ? subtree(sha) : { mode, id: Buffer.from(sha, 'hex') })
@@ -33,11 +35,10 @@ async function blobOf(entry, path, blob) {
   return bytes
 }
 
-// A directory's own .gitattributes on top of the stack above it, `here` the
-// archive's entries of it.
-async function withOwn(stack, prefix, here, entry, blob) {
+// A directory's own .gitattributes on top of the stack above it: the tree's
+// `entry`, read from the archive's, `archived`, where that is the same.
+async function withOwn(stack, prefix, entry, archived, blob) {
   if (!isAttributes(entry)) return stack
-  const archived = here.get(ATTRIBUTES)
   const bytes = archived?.body !== undefined && archived.id.toString('hex') === entry.sha ? archived.body : await blobOf(entry, `${prefix}${ATTRIBUTES}`, blob)
   return [...stack, frame(prefix, bytes)]
 }
@@ -76,7 +77,7 @@ async function walk(here, sha, prefix, stack, io) {
     const present = here.get(entry.name)
     if (entry.type === 'tree' && present instanceof Map && io.id(present) !== entry.sha) io.listed(entry.sha).catch(() => {})
   }
-  const inner = await withOwn(stack, prefix, here, entries.find((entry) => entry.name === ATTRIBUTES), io.blob)
+  const inner = await withOwn(stack, prefix, entries.find((entry) => entry.name === ATTRIBUTES), here.get(ATTRIBUTES), io.blob)
   const names = new Set(entries.map(({ name }) => name))
   const stray = [...here.keys()].find((name) => !names.has(name))
   if (stray !== undefined) throw new Refusal(`no tree: ${show(prefix + stray)} is in the archive, not the tree`)
@@ -115,7 +116,7 @@ async function walk(here, sha, prefix, stack, io) {
 // directory's id is worked out once, as the archive has it, before the
 // walk puts anything back in it; the whole tree's once more after.
 export async function gitTreeOfArchive(gzipped, { expected, commit, list, blob }) {
-  const root = readTarball(gzipped, { commit })
+  const root = await readTarball(gzipped, { commit, keep: (name) => name === ATTRIBUTES })
   if (typeof root === 'string') return root
   const memo = new WeakMap()
   const listed = async (sha) => {

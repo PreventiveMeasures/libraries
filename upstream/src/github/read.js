@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
-import { createHash } from 'node:crypto'
 
 import { assertArgs, assertBoolean, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTagName, assertTreeId, isSha, isSha1, isTagName, optional, sameName, show } from '../args.js'
 import { readCache, readCacheJSON, writeCache, writeCacheJSON } from '../cache.js'
@@ -109,25 +108,22 @@ async function getRepoFile(headers, options) {
   const bytes = file.encoding === 'none'
     ? await rawBlob(headers, repo, file.sha)
     : Buffer.from(file.content, 'base64')
-  const blob = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex')
+  const blob = objectId('blob', bytes).toString('hex')
   assert.ok(bytes.length === file.size && blob === file.sha, `getRepoFile: ${show(path)} came back as blob ${blob}, not ${file.sha}`)
   return decode(bytes, url)
 }
 
-// Follows the redirect to codeload.github.com. A tree id names its content,
-// so the bytes are held to it, downloaded or cached, and cached by it alone,
-// for good. What a tarball cannot show, a submodule's commit or a subtree
-// with nothing in it, comes from GitHub's listings of the trees, which the
-// id checks as well: a directory at a time, as a recursive listing of a
-// large tree is cut short.
+// The entries of GitHub's answer for a tree, as git has them.
+const entriesOf = (answer) => (Array.isArray(answer?.tree) ? answer.tree.map(({ path, mode, type, sha }) => ({ path, mode, type, sha })) : [])
+
 // A tree's listing and a blob are each kept by their id in setCacheDir's
 // cache, for good, as the id checks them: kept only once it does, and read
-// back only where it still does.
+// back only where it still does. A listing not recursive, as GitHub cuts
+// short a recursive listing of a large tree.
 async function cachedListing(headers, repo, sha) {
   const cached = await readCacheJSON('github/listings', `${sha}.json`)
   if (Array.isArray(cached) && gitTreeOfListing(cached) === sha) return cached
-  const answer = await call(headers, repoApi(repo, ['git', 'trees', sha]))
-  const entries = Array.isArray(answer?.tree) ? answer.tree.map(({ path, mode, type, sha: id }) => ({ path, mode, type, sha: id })) : []
+  const entries = entriesOf(await call(headers, repoApi(repo, ['git', 'trees', sha])))
   if (gitTreeOfListing(entries) === sha) await writeCacheJSON('github/listings', `${sha}.json`, entries)
   return entries
 }
@@ -149,6 +145,11 @@ function lister(headers, repo) {
   }
 }
 
+// Follows the redirect to codeload.github.com. A tree id names its content,
+// so the bytes are held to it, downloaded or cached, and cached by it alone,
+// for good. What a tarball cannot show, a submodule's commit or a subtree
+// with nothing in it, comes from GitHub's listings of the trees, which the
+// id checks as well, a directory at a time.
 async function treeTarball(method, headers, repo, tree) {
   const locate = () => repoApi(repo, ['tarball', tree])
   return await verifiedDownload({ method, dir: 'github/trees', what: tree, ext: 'tgz', algorithm: 'tree', expected: tree, locate, options: { headers, redirect: 'follow' }, objects: { list: lister(headers, repo) } })
@@ -187,9 +188,9 @@ async function getRepoTreeTarball(headers, options) {
 
 // Not recursive: GitHub cuts short a recursive listing of a large tree.
 async function listTree(method, headers, repo, tree) {
-  const entries = (await call(headers, repoApi(repo, ['git', 'trees', tree])))?.tree
-  assert.ok(Array.isArray(entries) && gitTreeOfListing(entries) === tree, `${method}: GitHub's listing of tree ${tree} in ${repo} is not that tree`)
-  return entries.map(({ path, mode, type, sha }) => ({ path, mode, type, sha }))
+  const entries = entriesOf(await call(headers, repoApi(repo, ['git', 'trees', tree])))
+  assert.ok(gitTreeOfListing(entries) === tree, `${method}: GitHub's listing of tree ${tree} in ${repo} is not that tree`)
+  return entries
 }
 
 async function treeAt(method, headers, options) {

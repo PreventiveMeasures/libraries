@@ -178,5 +178,11 @@ describe('gitTreeOfArchive', () => {
 
   it('refuses a directory where git writes none, and none where it writes one', async () => {
     assert.equal(await check(retar(EXPORTED_TGZ, rename('acme-app-6e456ae/docs/', 'acme-app-6e456ae/doc/'))), 'no tree: "doc" is in the archive, not the tree')
+    // docs, whose one file is left out, is written all the same.
+    const dropped = retar(EXPORTED_TGZ, (tar) => {
+      const at = tar.indexOf('acme-app-6e456ae/docs/\0')
+      return Buffer.concat([tar.subarray(0, at), tar.subarray(at + 512)])
+    })
+    assert.equal(await check(dropped), 'no tree: "docs/" is not in the archive, though git writes a directory where it reaches a file, and only there')
   })
 })

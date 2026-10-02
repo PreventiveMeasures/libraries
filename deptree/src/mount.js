@@ -21,6 +21,23 @@ export function checkNoModules(vfs, folded) {
   }
 }
 
+// A checker for mount: refuses `dir`, the folder a builder makes, where it
+// is there already, or on macOS a name that is one there with it, as the
+// package manager would keep or remove what is in it. `what` names it.
+export function checkNoDir(dir, what) {
+  return (vfs, folded) => {
+    const same = (a, b) => (folded ? fold(a) === fold(b) : a === b)
+    let at = ''
+    for (const segment of dir.split('/')) {
+      const parent = at || '/'
+      const found = vfs.isDirectory(parent) ? vfs.readdir(parent).find((name) => same(name, segment)) : undefined
+      if (found === undefined) return
+      at = `${at}/${found}`
+    }
+    throw new DeptreeError(`${what} is there already, which is neither kept beside the tree nor removed`, where(at))
+  }
+}
+
 function checkCollisions(vfs) {
   const [clash] = vfs.collisions(fold)
   if (clash !== undefined) throw new DeptreeError(`${quote(clash.names[0])} and ${quote(clash.names[1])} are one name on macOS`, quote(clash.path))
