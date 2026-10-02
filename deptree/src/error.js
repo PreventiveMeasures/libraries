@@ -10,6 +10,11 @@ export class DeptreeError extends Error {
   }
 }
 
+// What a failure beneath is refused with: itself, where it is a refusal
+// already, or else a refusal of its message that says `where`, with it as
+// the cause.
+export const refusalOf = (error, where) => (error instanceof DeptreeError ? error : new DeptreeError(error.message, where, { cause: error }))
+
 // A piece of an input for a message: quoted, cut short where it runs long,
 // and with every control, line separator and bidirectional control
 // escaped, so a name cannot act on a terminal or reorder what is shown.

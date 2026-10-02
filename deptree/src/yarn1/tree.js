@@ -16,10 +16,9 @@ import { Vfs, VfsError } from '@preventive/vfs'
 import { dirname, relative } from '@preventive/vfs/path.js'
 import { clean, satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { eachConcurrently } from '../concurrent.js'
-import { DeptreeError, quote } from '../error.js'
-import { checkNoModules, mount } from '../mount.js'
-import { checkCollisions } from '../pnpm/checks.js'
-import { typeOf } from '../pnpm/project.js'
+import { DeptreeError, quote, refusalOf } from '../error.js'
+import { checkCollisions, checkNoModules, mount } from '../mount.js'
+import { typeOf } from '../project.js'
 import { checkBinLinks } from './bins.js'
 import { incompatibility } from './compat.js'
 import { Hoister } from './hoist.js'
@@ -58,7 +57,7 @@ async function fetchAll(refs) {
     try {
       fetched.set(ref, { ...await fetchYarnPackage(tarball, where), integrity: tarball.integrity })
     } catch (error) {
-      throw error instanceof DeptreeError ? error : new DeptreeError(error.message, where, { cause: error })
+      throw refusalOf(error, where)
     }
   })
   return fetched

@@ -29,7 +29,7 @@
 import { compareNames, normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { escape } from '../matcher.js'
-import { typeOf } from './project.js'
+import { typeOf } from '../project.js'
 
 const UNSUPPORTED = /[?[\]{}()\\]/u
 

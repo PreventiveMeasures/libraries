@@ -25,6 +25,21 @@ export function checkNoModules(vfs, folded) {
   }
 }
 
+// macOS's filesystems take a name whatever its case and normalization, so
+// two names that differ only in those are one there, and one would be
+// lost: such a tree is refused where the host is macOS.
+export function checkCollisions(vfs) {
+  for (const { path, type } of vfs.walk('/')) {
+    if (type !== 'directory') continue
+    const folded = new Map()
+    for (const name of vfs.readdir(path)) {
+      const key = fold(name)
+      if (folded.has(key)) throw new DeptreeError(`${quote(folded.get(key))} and ${quote(name)} are one name on macOS`, quote(path))
+      folded.set(key, name)
+    }
+  }
+}
+
 // Mounts `tree` into `target` with Vfs.mount: each directory of the tree
 // is one there already or is made, and each file and link is put where
 // nothing is, and where names are `folded`, none beside a name it would be

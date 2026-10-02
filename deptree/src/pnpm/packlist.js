@@ -37,7 +37,7 @@
 
 import { join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
-import { readBytes } from './project.js'
+import { readBytes } from '../project.js'
 
 // The rules each name is held to, folded, wherever it is.
 const ANYWHERE = /^(?:\.git|\.svn|\.hg|cvs|\.npmrc|\.ds_store|npm-debug\.log|\.npmignore|\.gitignore|\._.*|\..*\.swp|.*\.orig)$/u

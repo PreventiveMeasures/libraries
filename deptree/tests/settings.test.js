@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { parseYaml } from '@preventive/lockfile/yaml.js'
 import { DeptreeError } from '../pnpm.js'
-import { parseNpmrc } from '../src/pnpm/npmrc.js'
+import { parseNpmrc } from '../src/npmrc.js'
 import { readSettings } from '../src/pnpm/settings.js'
 
 const read = ({ workspace, npmrc, manifest = {}, major } = {}) => readSettings({ workspace: workspace === undefined ? undefined : parseYaml(workspace), npmrc, manifest, major })

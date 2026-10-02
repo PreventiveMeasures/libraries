@@ -7,7 +7,7 @@ import { DeptreeError, quote } from '../error.js'
 
 // yarn's readJson reads a package.json as pnpm does: a byte order mark
 // dropped.
-export { readManifest } from '../pnpm/projects.js'
+export { readManifest } from '../manifest.js'
 
 // yarn's cleanDependencies: a name in several of the dependency lists kept
 // in the first of optionalDependencies, dependencies and devDependencies,

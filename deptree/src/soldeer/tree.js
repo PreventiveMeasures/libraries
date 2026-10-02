@@ -6,9 +6,8 @@ import { parseSoldeerLockfile } from '@preventive/lockfile/soldeer.js'
 import { getZip } from '@preventive/upstream/soldeer.js'
 import { Vfs, VfsError } from '@preventive/vfs'
 import { eachConcurrently } from '../concurrent.js'
-import { DeptreeError, quote } from '../error.js'
-import { fold, mount } from '../mount.js'
-import { checkCollisions } from '../pnpm/checks.js'
+import { DeptreeError, quote, refusalOf } from '../error.js'
+import { checkCollisions, fold, mount } from '../mount.js'
 import { configOf } from './config.js'
 import { checkHost, inputsOf } from './inputs.js'
 import { extractZip } from './zip.js'
@@ -60,7 +59,7 @@ async function fetchAll(dependencies) {
     try {
       extracted.set(folder, await extractZip(await getZip(name, version, checksum), where))
     } catch (error) {
-      throw error instanceof DeptreeError ? error : new DeptreeError(error.message, where, { cause: error })
+      throw refusalOf(error, where)
     }
   })
   return extracted

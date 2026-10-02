@@ -24,20 +24,21 @@ import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { Vfs, VfsError } from '@preventive/vfs'
 import { dirname, relative } from '@preventive/vfs/path.js'
 import { eachConcurrently } from '../concurrent.js'
-import { DeptreeError, quote } from '../error.js'
-import { checkNoModules, mount } from '../mount.js'
+import { DeptreeError, quote, refusalOf } from '../error.js'
+import { checkCollisions, checkNoModules, mount } from '../mount.js'
 import { applyPatch, parsePatch } from '../patch.js'
-import { REGISTRY, checkDependencies, checkManifest, fetchPackage, sameBytes, tarballUrl } from '../tarball.js'
+import { checkProject } from '../project.js'
+import { REGISTRY, sameBytes, tarballUrl } from '../tarball.js'
 import { binTargets, checkPatchOfBins, fixBin, requiresBuild } from './bins.js'
 import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
 import { checkLocalOverrides, createFreshnessCheck, readDirectoryPackage, readLinked } from './local.js'
 import { createPatchedCheck, skippedSnapshots } from './install.js'
-import { checkCollisions, checkLinks, checkOptional } from './checks.js'
+import { checkDependencies, checkManifest, fetchPackage } from './package.js'
+import { checkLinks, checkOptional } from './checks.js'
 import { createHook } from './hook.js'
 import { listOverrides } from './overrides.js'
 import { checkHost, inputsOf, manifestsOf, patchesOf, readLockfile } from './inputs.js'
-import { checkProject } from './project.js'
 import { checkProjects, pinsPnpm, workspaceNames } from './projects.js'
 import { readSettings } from './settings.js'
 import { checkUpToDate } from './uptodate.js'
@@ -101,7 +102,7 @@ async function fetchAll(nodes, project, major) {
         fetched.set(id, { ...got, local: true })
       } else fetched.set(id, await fetchPackage(pkg, quote(id), major))
     } catch (error) {
-      throw error instanceof DeptreeError ? error : new DeptreeError(error.message, quote(id), { cause: error })
+      throw refusalOf(error, quote(id))
     }
   })
   return fetched
@@ -322,8 +323,7 @@ export async function buildPnpmTree(options) {
         }
       }
     } catch (error) {
-      if (error instanceof DeptreeError) throw error
-      throw new DeptreeError(error.message, quote(node.key), { cause: error })
+      throw refusalOf(error, quote(node.key))
     }
     listed.push(installedOf(node, !prod.has(node.dir), patched))
   }

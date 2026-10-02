@@ -6,8 +6,10 @@ import { LockfileError, YamlError, parsePnpmLockfile } from '@preventive/lockfil
 import { parseYaml } from '@preventive/lockfile/yaml.js'
 import { compareVersions, valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
-import { checkProject, readManifestTexts, readPatches, readRootFiles, readText, readWorkspaceText, typeOf } from './project.js'
-import { pinnedPnpm, readManifest, readManifests } from './projects.js'
+import { readManifest } from '../manifest.js'
+import { checkProject, readText, typeOf } from '../project.js'
+import { readManifestTexts, readPatches, readRootFiles, readWorkspaceText } from './project.js'
+import { pinnedPnpm, readManifests } from './projects.js'
 import { readers } from './readers.js'
 import { checkWorkspace, findProjects, linkedManifest } from './workspace.js'
 

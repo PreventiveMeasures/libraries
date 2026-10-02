@@ -1,10 +1,10 @@
 // What buildYarn1Tree takes, checked: the host yarn would install on, and
 // the files an install reads — given as text, or read from the project
-// (../pnpm/project.js) as yarn reads them from disk.
+// (../project.js) as yarn reads them from disk.
 
 import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
-import { checkProject, readText, typeOf } from '../pnpm/project.js'
+import { checkProject, readText, typeOf } from '../project.js'
 import { matchesGlob, reachesBelow } from './glob.js'
 import { globsOf, readManifest } from './manifest.js'
 import { readSettings } from './settings.js'

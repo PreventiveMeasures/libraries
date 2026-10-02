@@ -17,7 +17,7 @@
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { sha1Hex } from '../hash.js'
-import { REGISTRY, fetchTarball, sameBytes, tarballUrl } from '../tarball.js'
+import { REGISTRY, fetchTarball, sameFile, tarballUrl } from '../tarball.js'
 import { readManifest } from './manifest.js'
 
 const UMASK = 0o022
@@ -49,7 +49,7 @@ function entriesOf(entries, where) {
     if (path === '') throw new DeptreeError(`${quote(entry.storedName)} is a file at the top of the tarball`, where)
     const file = { data: entry.data, mode: (entry.mode | 0o644) & ~UMASK & 0o777 }
     const earlier = files.get(path)
-    if (earlier !== undefined && !(earlier.mode === file.mode && sameBytes(earlier.data, file.data))) throw new DeptreeError(`${quote(path)} is in the tarball twice`, where)
+    if (earlier !== undefined && !sameFile(earlier, file)) throw new DeptreeError(`${quote(path)} is in the tarball twice`, where)
     files.set(path, file)
   }
   for (const path of files.keys()) {

@@ -44,7 +44,7 @@
 
 import { valid, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
-import { parseNpmrc } from './npmrc.js'
+import { parseNpmrc } from '../npmrc.js'
 import { replaceReferences } from './overrides.js'
 import { IGNORED, MANIFEST_KEYS, READ, checkRegistry, known12, readerOf, readers, unrecognized12 } from './readers.js'
 

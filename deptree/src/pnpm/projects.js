@@ -33,25 +33,12 @@
 
 import { isExactVersion, satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, difference, quote } from '../error.js'
+import { readManifest } from '../manifest.js'
 import { createMatcher } from '../matcher.js'
 import { KINDS, checkCatalogResolutions, checkLinkTargets, checkLinkedPackages, indexProjects, resolvedOf, sameSpecifier } from './frozen.js'
 import { checkProject } from './install.js'
 import { validForOldPackages } from './overrides.js'
 import { checkProjectId } from './workspace.js'
-
-// A package.json as parsed, as pnpm reads one: a byte order mark dropped,
-// and an object.
-export function readManifest(text, where) {
-  if (typeof text !== 'string') throw new TypeError(`${where} must be the text of a package.json`)
-  let manifest
-  try {
-    manifest = JSON.parse(text.replace(/^﻿/u, ''))
-  } catch (error) {
-    throw new DeptreeError(`not JSON: ${error.message}`, where, { cause: error })
-  }
-  if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) throw new DeptreeError('expected an object', where)
-  return manifest
-}
 
 // The manifests by project, the root one among them, as given by the
 // project's directory relative to the lockfile's.

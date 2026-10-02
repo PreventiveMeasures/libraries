@@ -5,7 +5,6 @@
 // everywhere it is installed.
 
 import { DeptreeError, quote } from '../error.js'
-import { fold } from '../mount.js'
 
 // A snapshot is optional exactly where no importer reaches it through
 // dependencies alone, its devDependencies counted among them, as pnpm
@@ -29,21 +28,6 @@ export function checkOptional(lockfile) {
   for (const [key, pkg] of Object.entries(lockfile.packages)) {
     if (pkg.optional === required.has(key)) {
       throw new DeptreeError(`marked ${pkg.optional ? 'optional where an importer requires it' : 'required where only optional dependencies reach it'}, which pnpm never writes`, `snapshots[${quote(key)}]`)
-    }
-  }
-}
-
-// macOS's filesystems take a name whatever its case and normalization, so
-// two names that differ only in those are one there, and one would be
-// lost: such a tree is refused where the host is macOS.
-export function checkCollisions(vfs) {
-  for (const { path, type } of vfs.walk('/')) {
-    if (type !== 'directory') continue
-    const folded = new Map()
-    for (const name of vfs.readdir(path)) {
-      const key = fold(name)
-      if (folded.has(key)) throw new DeptreeError(`${quote(folded.get(key))} and ${quote(name)} are one name on macOS`, quote(path))
-      folded.set(key, name)
     }
   }
 }

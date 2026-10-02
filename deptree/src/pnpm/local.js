@@ -10,11 +10,11 @@
 
 import { satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, difference, quote } from '../error.js'
+import { readManifest } from '../manifest.js'
+import { readText, typeOf } from '../project.js'
 import { targetName, versionRange } from './frozen.js'
 import { localOf } from './overrides.js'
 import { packDirectory } from './packlist.js'
-import { readText, typeOf } from './project.js'
-import { readManifest } from './projects.js'
 
 function manifestAt(project, dir, where) {
   const text = readText(project, `/${dir}/package.json`, where)
@@ -81,7 +81,7 @@ const optionalPeers = (meta) => Object.entries(meta ?? {}).filter(([, item]) => 
 // them, and each it asks for is there, resolved as it asks, an optional one
 // there or not; its peers are exactly what the lockfile records, and so is
 // which of them are optional. A `file:` or `link:` one is held to where it
-// leads by tarball.js's checkDependencies; a path alone, or `workspace:`,
+// leads by package.js's checkDependencies; a path alone, or `workspace:`,
 // is refused. `packages` is the lockfile's.
 function checkFresh(read, pkg, packages, where) {
   const outdated = (why) => new DeptreeError(`the lockfile is not up to date with its package.json, which a frozen install of pnpm 12 refuses: ${why}`, where)

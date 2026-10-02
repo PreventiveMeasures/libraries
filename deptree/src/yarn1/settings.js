@@ -22,7 +22,7 @@
 // refused, whichever command it is for.
 
 import { DeptreeError, quote } from '../error.js'
-import { parseNpmrc } from '../pnpm/npmrc.js'
+import { parseNpmrc } from '../npmrc.js'
 
 // Flags passed over, by name: of those yarn 1.22 takes, the ones that do
 // not change the tree.
