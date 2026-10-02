@@ -1,24 +1,20 @@
 // What yarn 1 asks for at the top of an install (install.js's
-// fetchRequestFromCwd): the workspaces, in the order it finds them; the
-// aggregator it makes of them; the root's resolutions, as resolution-map.js
-// reads them; and the top-level requests, in order.
+// fetchRequestFromCwd).
 
 import { clean, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { matchesGlob } from './glob.js'
 import { cleanDependencies, globsOf } from './manifest.js'
 
-// The name yarn gives the workspace aggregator is random; this stands for
-// it, and sorts where a name starting so sorts.
+// yarn names the workspace aggregator at random; this stands for it, and
+// sorts where a name starting so sorts.
 export const AGGREGATOR = 'workspace-aggregator-00000000-0000-0000-0000-000000000000'
 
 const KINDS = ['dependencies', 'devDependencies', 'optionalDependencies']
 
-// The workspaces by name, in the order yarn's resolveWorkspaces finds
-// them: each glob in turn, its matches as node-glob sorts them; each with
-// its directory, its version as yarn cleans it, and its manifest.
-// `manifests` by directory, the root's `.` among them, as the lockfile
-// reader has held them to the globs.
+// The workspaces by name, in the order yarn's resolveWorkspaces finds them:
+// glob by glob, each glob's matches as node-glob sorts them. `manifests`
+// have been held to the globs by the lockfile reader.
 export function workspacesOf(manifests) {
   const root = manifests.get('.')
   const workspaces = new Map()
@@ -36,9 +32,7 @@ export function workspacesOf(manifests) {
   return workspaces
 }
 
-// The aggregator yarn makes of the workspaces: the root's dependencies
-// and each workspace at its version, its devDependencies and
-// optionalDependencies.
+// The virtual manifest yarn makes of the root and the workspaces.
 export function aggregatorOf(root, workspaces) {
   const dependencies = { ...root.dependencies }
   for (const workspace of workspaces.values()) dependencies[workspace.name] = workspace.version
@@ -46,10 +40,10 @@ export function aggregatorOf(root, workspaces) {
   return { name: AGGREGATOR, dir: '.', version: '1.0.0', manifest: cleanDependencies(manifest), aggregator: true }
 }
 
-// The resolutions yarn reads: a path of package names, the last the one
-// resolved, to a range or another source. One to another source is
-// refused here, as no source but the registry is supported; one to what
-// is neither, which yarn passes over, the lockfile reader has refused.
+// The resolutions as resolution-map.js reads them: a path of package names,
+// the last the one resolved, to a range. One to another source is refused,
+// as only the registry is supported; one to neither, which yarn passes
+// over, the lockfile reader has refused.
 export function rulesOf(root) {
   const rules = Object.entries(root.resolutions ?? {}).map(([path, range]) => {
     const names = path.match(/(?:@[^/]+\/)?[^/]+/gu) ?? [path]
@@ -60,9 +54,8 @@ export function rulesOf(root) {
   return [...Map.groupBy(rules, ({ name }) => name).values()].flat()
 }
 
-// The top-level requests, as yarn makes them and in its order; and of
-// them, `asked`, those the project makes, the resolutions' aside, each
-// optional or not, dev or not, in its order too.
+// The top-level requests in yarn's order, and of them `asked`, those the
+// project makes, all but the resolutions'.
 export function topRequests(root, workspaces, rules) {
   const asked = []
   const push = (deps, optional, dev = false) => {

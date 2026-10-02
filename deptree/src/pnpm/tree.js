@@ -1,24 +1,12 @@
-// A node_modules tree as pnpm 10, 11 or 12 installs it from a frozen lockfile
-// with the isolated linker, held in a Vfs rooted at the lockfile's directory:
-// each package's files at node_modules/.pnpm/<its directory>/node_modules/
-// <its name>, its dependencies linked beside it, the hoisted aliases in
-// node_modules/.pnpm/node_modules and node_modules, and each project's
-// direct dependencies in its own node_modules. Every link is relative, as
-// pnpm makes them outside Windows, and a `link:` leads where the lockfile
-// says whether or not anything is there: the tree holds node_modules and
-// nothing else of the projects.
-//
-// Not written: bins and their shims (node_modules/.bin), though what
-// linking them does to the files they run is (bins.js); .modules.yaml,
-// .pnpm/lock.yaml and the workspace state, which are pnpm's own; and
-// anything a lifecycle script would build. The tree is always the one
-// `pnpm install --ignore-scripts` makes: no script is run, a project's or
-// a dependency's, whatever the settings allow, and patches are applied all
-// the same, as pnpm applies them before any script.
-//
-// Each package is fetched once, and each snapshot's files composed in
-// memory — its package's, patched, bins fixed — before one write of each;
-// each written is listed, as an SBOM would take it.
+// The node_modules tree pnpm 10, 11 or 12 installs from a frozen lockfile
+// with the isolated linker, in a Vfs rooted at the lockfile's directory.
+// It holds node_modules and nothing else of the projects: links are
+// relative, as pnpm makes them outside Windows, and a `link:` leads where
+// the lockfile says whether or not anything is there. Bins are not linked,
+// though what linking them does to their files is (bins.js), and pnpm's
+// own state (.modules.yaml, .pnpm/lock.yaml) is not written. The tree is
+// the one `pnpm install --ignore-scripts` makes, whatever the settings
+// allow; patches are still applied, as pnpm applies them before scripts.
 
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { Vfs } from '@preventive/vfs'
@@ -58,12 +46,8 @@ function checkLockfile(lockfile) {
   }
 }
 
-// A package fetched here comes from the public registry, as upstream
-// fetches it: its key is its name and version, and its resolution a
-// tarball there with a sha512. One pnpm installs from a directory is one
-// a `file:` override names, in `installed`, as local.js reads it, and is
-// not patched: pnpm installs its files by hardlinks, so a patch would be
-// applied to the directory's own.
+// Only registry tarballs with a sha512 are fetched; a directory is taken
+// only where a `file:` override names it (`installed`, from local.js).
 function checkSource(node, installed) {
   const { key, pkg } = node
   const { resolution } = pkg
@@ -78,14 +62,12 @@ function checkSource(node, installed) {
   if (!resolution.integrity?.startsWith('sha512-')) throw new DeptreeError('expected a sha512 integrity', quote(key))
 }
 
-// What a package's snapshots all have of it, and it is fetched and held to.
+// What all of a package's snapshots must agree on, as it is fetched once.
 const PACKAGE_FIELDS = ['resolution', 'os', 'cpu', 'libc', 'hasBin', 'bundledDependencies']
 const packageFields = (pkg) => JSON.stringify(PACKAGE_FIELDS.map((field) => pkg[field]))
 
-// Each package's files and package.json, by its name and version: a
-// package is fetched once however many snapshots it has, a few at a time.
-// One installed from a directory is read from `project`, as npm-packlist
-// picks its files.
+// Each package's files and package.json by name@version; a directory
+// package's are read from `project`, as npm-packlist picks them.
 async function fetchAll(nodes, project, major) {
   const packages = new Map()
   for (const { key, pkg } of nodes.values()) {
@@ -100,9 +82,8 @@ async function fetchAll(nodes, project, major) {
   return fetched
 }
 
-// Each node with its package's files and package.json, by its directory:
-// its dependencies held to the package.json, as `hook` reads it once for
-// each package; and the number of tarballs fetched.
+// Nodes by directory with their package's files, dependencies checked
+// against the package.json as `hook` reads it; and the tarball count.
 async function fetchNodes(nodes, hook, project, major, fresh) {
   const fetched = await fetchAll(nodes, project, major)
   const byDir = new Map()
@@ -117,14 +98,12 @@ async function fetchNodes(nodes, hook, project, major, fresh) {
   return { byDir, tarballs: [...fetched.values()].filter((got) => !got.local).length }
 }
 
-// A package installed from a directory has one file for each of its
-// files, hardlinked into each of its snapshots: fixBin makes it
-// executable in all of them, though a CRLF `#!` line it rewrites is
-// written as a file of that snapshot's own. Each snapshot has its own
-// copy instead where pnpm builds the package, or, with pnpm 11 and 12,
-// where packageImportMethod is other than auto or hardlink. By
-// directory, the files a snapshot has made executable by another's:
-// `targets` is binTargets's.
+// pnpm hardlinks a directory package's files into each of its snapshots,
+// so a file fixBin makes executable in one is so in all, though a CRLF
+// `#!` line it rewrites becomes that snapshot's own. Each has its own copy
+// where pnpm builds the package or, with pnpm 11 and 12, where
+// packageImportMethod is other than auto or hardlink. By directory, the
+// files made executable by another snapshot; `targets` is binTargets's.
 function executableElsewhere(byDir, targets, packageImportMethod, major) {
   if (major >= 11 && packageImportMethod !== 'auto' && packageImportMethod !== 'hardlink') return new Map()
   const shared = [...byDir.values()].filter((node) => node.pkg.resolution.type === 'directory' && !requiresBuild(node.manifest, node.files, major))
@@ -136,10 +115,8 @@ function executableElsewhere(byDir, targets, packageImportMethod, major) {
   }))
 }
 
-// A snapshot's files as pnpm leaves them: its package's, the patch the
-// snapshot names applied, and what linking bins does to them: fixBin run
-// on `targets`, and `executable` made so. `checkPatched` is
-// createPatchedCheck's.
+// A snapshot's files as pnpm leaves them: patched, then fixBin run on
+// `targets` and `executable` made executable, as linking bins does.
 function compose(node, patches, { targets, executable }, { major, checkPatched }) {
   const where = quote(node.key)
   let files = node.files
@@ -161,17 +138,14 @@ function compose(node, patches, { targets, executable }, { major, checkPatched }
   return files
 }
 
-// `dir` and each directory above it up to one `made` holds, as made.
 function addMade(made, dir) {
   for (let at = dir; !made.has(at) && at !== '/'; at = dirname(at)) made.add(at)
 }
 
-// A node's files, as compose has them, written into its own directory,
-// made for it where nothing was, and counted in `stats`. Under it is
-// nothing but what the node writes, each file once and its directories,
-// `made`, so no write replaces anything, and none needs a look first,
-// which costs a thrown error where nothing is. The tree holds no links
-// yet.
+// Writes a node's files into its own directory, where nothing may be yet.
+// Only this node writes there, so `made` knows every directory under it
+// and no write needs a look first, which costs a thrown error where
+// nothing is. The tree holds no links yet.
 function writeNode(vfs, dir, files, stats) {
   const root = `/${dir}`
   if (typeOf(vfs, root, false) !== undefined) throw new DeptreeError('would be written over with something else', quote(dir))
@@ -196,19 +170,18 @@ function writeNode(vfs, dir, files, stats) {
   }
 }
 
-// A link's target spelled from the directory the link is in, as pnpm's
-// symlink-dir spells it; a target may climb out of the tree, so both are
-// read under as many directories as it climbs.
+// A link's target relative to the link's directory, as pnpm's symlink-dir
+// spells it. A target may climb out of the tree, so both are resolved
+// under as many dummy directories as it climbs.
 function linkTarget(path, target) {
   const climbs = target.split('/').filter((segment) => segment === '..').length
   const root = '/_'.repeat(climbs)
   return relative(`${root}/${dirname(path)}`, `${root}/${target}`) || '.'
 }
 
-// The directories of the snapshots installed that a project's dependencies
-// or optionalDependencies reach, through those installed: each other is
-// reached by devDependencies alone, which `pnpm install --prod` leaves out.
-// `nodes` is graph.js's, by key, and `byDir` by directory.
+// Directories of the installed snapshots a project's dependencies or
+// optionalDependencies reach; the rest are dev-only, which
+// `pnpm install --prod` leaves out. `nodes` is graph.js's, by key.
 function reachedInProd(importers, nodes, byDir) {
   const queue = Object.values(importers)
     .flatMap(({ dependencies, optionalDependencies }) => [...Object.values(dependencies), ...Object.values(optionalDependencies)])
@@ -223,8 +196,7 @@ function reachedInProd(importers, nodes, byDir) {
   return reached
 }
 
-// A snapshot as the list of what is installed has it. `patches` is
-// checkUpToDate's, by hash.
+// A snapshot's entry in the `installed` list buildPnpmTree returns.
 function installedOf(node, dev, patches) {
   const { key, name, dir, pkg: { version, resolution, optional, patchHash } } = node
   return {
@@ -240,11 +212,9 @@ function installedOf(node, dev, patches) {
   }
 }
 
-// Every link in the tree, by its path: each node's children beside it and,
-// but with pnpm 12, itself inside it where it depends on itself, then what
-// is hoisted, then each project's direct dependencies, which win over a
-// hoisted alias.
-// `byDir` is the graph by directory, and `hoisting` graph.js's.
+// Every link in the tree by path, later ones winning: each node's children
+// beside it (and before pnpm 12, itself inside it where it depends on
+// itself), then what is hoisted, then each project's direct dependencies.
 function linksOf(byDir, direct, settings, projects, major, hoisting) {
   const links = new Map()
   for (const node of byDir.values()) {
@@ -274,8 +244,8 @@ export async function buildPnpmTree(options) {
   checkLockfile(lockfile)
   const { manifests, pnpm, major, workspace } = manifestsOf(inputs, lockfile, given.pnpm)
   const host = { pnpm, major, ...machine }
-  // pnpm 11 locks config dependencies there, which are refused, and the
-  // pnpm a project pins, which leaves the tree as it is.
+  // pnpm 11's env document locks config dependencies, refused here, and
+  // the pnpm a project pins, which leaves the tree as it is.
   if (env !== undefined && major < 11) throw new DeptreeError('the env document pnpm 11 writes is not supported', 'env')
   if (env !== undefined && Object.keys(env.importers['.'].configDependencies).length > 0) throw new DeptreeError('config dependencies are not supported', 'env.importers["."].configDependencies')
   const settings = readSettings({ workspace, npmrc: inputs.npmrc, manifest: manifests.get('.'), major, pinned: pinsPnpm(manifests.get('.'), host.pnpm) })

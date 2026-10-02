@@ -1,16 +1,16 @@
 // yarn 1's resolvePeerModules (package-linker.js), run before it hoists:
-// each package's peers are looked for along the shortest chain of names it
-// was requested by, and the nearest version found there that takes the
-// peer's range is added to what it asks for, by all of that version's
-// patterns, as neither a dev nor an optional one. Where none is found,
-// nothing is added, and yarn warns.
+// each peer is looked for along the shortest chain of names the package was
+// requested by, and the nearest version there that takes the peer's range
+// is added to what it asks for, by all of that version's patterns, as
+// neither dev nor optional. Where none is found, nothing is added, and yarn
+// warns.
 
 import { compareVersions, valid, validRange } from '@preventive/upstream/semver.js'
 
-// yarn's satisfiesWithPrereleases (util/semver.js): each comparator of a
-// set tested on its own, with no say of semver's over prereleases, and a
-// `<` with no prerelease of its own made a `<` its lowest one, so that
-// `<2.0.0` takes no 2.0.0-rc.1; read off the range as semver normalizes it.
+// yarn's satisfiesWithPrereleases (util/semver.js): each comparator of the
+// range as semver normalizes it tested on its own, with no say of semver's
+// over prereleases, and a `<` with no prerelease of its own read as `<` its
+// lowest one, so that `<2.0.0` takes no 2.0.0-rc.1.
 const OPERATORS = /^(<=|>=|<|>|=)?(.*)$/u
 
 export function satisfiesWithPrereleases(version, range, loose = false) {
@@ -25,9 +25,8 @@ export function satisfiesWithPrereleases(version, range, loose = false) {
   }))
 }
 
-// `resolved` is resolve.js's; `manifests` each reference's package.json,
-// by reference, in the order resolve.js's patterns name them, as fetched
-// or as the workspace has it.
+// `manifests` maps each reference to its package.json, in the order
+// resolve.js's patterns name them.
 export function resolvePeers(resolved, manifests) {
   const { patterns, byName } = resolved
   for (const [ref, manifest] of manifests) {

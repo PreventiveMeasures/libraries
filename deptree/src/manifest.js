@@ -1,5 +1,4 @@
-// A package.json as parsed, as pnpm reads one, and yarn 1 too: a byte
-// order mark dropped, and an object.
+// A package.json as pnpm and yarn 1 read one, a byte order mark dropped.
 
 import { DeptreeError } from './error.js'
 

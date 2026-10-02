@@ -1,50 +1,23 @@
-// The files pnpm installs of a directory a `file:` dependency names: its
-// directory fetcher picks them with npm-packlist — 5.1.3 for pnpm 10,
-// 10.0.4 for pnpm 11, its own port of it (fs-packlist) for pnpm 12 — and
-// hardlinks or copies them into the tree (tree.js). Only the built-in
-// rules are followed here. npm-packlist's leave out, by name and whatever
-// its case:
-//
-//  - anywhere, `.git`, `.svn`, `.hg`, `CVS`, `.npmrc`, `.DS_Store`,
-//    `npm-debug.log`, `.npmignore`, `.gitignore`, and a name starting
-//    with `._`, or `.` and ending in `.swp`, or ending in `.orig`, with
-//    everything in it;
-//  - at the top, and with pnpm 11 in every directory, `.lock-wscript`,
-//    `.wafpickle-*`, `build/config.gypi` and what is in
-//    `archived-packages`;
-//  - at the top, `node_modules` and the lockfiles `package-lock.json`,
-//    `yarn.lock`, `pnpm-lock.yaml` and, with pnpm 11, `bun.lockb`;
-//
-// and every name with a `*` in it. pnpm 12's leave out, by name as it is
-// spelled:
-//
-//  - anywhere, `.git`, `.svn`, `.hg` and `CVS`, with everything in them,
-//    and a file `.npmrc`, `npm-debug.log`, `.DS_Store`,
-//    `package-lock.json`, `yarn.lock` or `pnpm-lock.yaml`, or one whose
-//    name ends in `.orig`;
-//  - at the top, `node_modules`.
-//
-// A directory those do not describe is refused: one with a .npmignore
-// or .gitignore in it, or a package.json with `files` or bundled
-// dependencies, whose rules are not followed here; one with a link in
-// it, which the two pass over differently; and one where a file those
-// leave out is one npm-packlist would keep, a readme, copying, license or
-// licence file, or one `main`, `browser` or `bin` names, as the two keep
-// them differently, or, with pnpm 12, one in node_modules that `main` or
-// `bin` names, the only file it keeps of those its rules leave out. So is
-// a file whose mode is not 0o644 or 0o755, which linking a bin would
-// change otherwise than fixBin has it.
+// The files pnpm installs of a directory a `file:` dependency names, as its
+// directory fetcher picks them: with npm-packlist 5.1.3 for pnpm 10 and
+// 10.0.4 for pnpm 11, with its own port, fs-packlist, for pnpm 12. Only
+// their built-in rules are followed, case-folded for npm-packlist and as
+// spelled for pnpm 12. A directory they do not describe is refused: one
+// with ignore files, `files` or bundled dependencies; one with a link,
+// which the two pass over differently; one where a file the rules leave
+// out is kept anyway (a readme or license, or what the package.json
+// names), as the two keep those differently; and a mode other than 0o644
+// or 0o755, which linking a bin would change otherwise than fixBin does.
 
 import { join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { readBytes } from '../project.js'
 
-// The rules each name is held to, folded, wherever it is.
+// npm-packlist's names left out wherever they are, matched folded.
 const ANYWHERE = /^(?:\.git|\.svn|\.hg|cvs|\.npmrc|\.ds_store|npm-debug\.log|\.npmignore|\.gitignore|\._.*|\..*\.swp|.*\.orig)$/u
 
-// The rules held to the path, by its names folded, from the directory they
-// are read in: the top for npm-packlist 5, and every directory for
-// npm-packlist 10, which reads them again in each.
+// npm-packlist's rules anchored to the directory they are read in: the top
+// for npm-packlist 5, and every directory for 10, which rereads them.
 const anchored = (names, directory) => (names.length === 1 && (names[0] === '.lock-wscript' || names[0].startsWith('.wafpickle-') || (directory && names[0] === 'archived-packages')))
   || (names.length === 2 && names[0] === 'build' && names[1] === 'config.gypi')
 
@@ -56,8 +29,8 @@ const TOP_11 = [...TOP, 'bun.lockb']
 const VCS = new Set(['.git', '.svn', '.hg', 'CVS'])
 const CRUFT = new Set(['.npmrc', 'npm-debug.log', '.DS_Store', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml'])
 
-// Whether pnpm 12's rules leave out the entry at `names`, its path from the
-// package's directory by name, which is a directory where `directory`.
+// `names` is the entry's path from the package's directory, split, and
+// `directory` whether it is one.
 function leftOut12(names, directory) {
   const name = names.at(-1)
   return VCS.has(name) || (names.length === 1 && name === 'node_modules') || (!directory && (CRUFT.has(name) || name.endsWith('.orig')))
@@ -71,8 +44,7 @@ function alwaysLeftOut12(path) {
   return names.some((each) => VCS.has(each)) || CRUFT.has(name) || name.endsWith('.orig')
 }
 
-// Whether npm-packlist's built-in rules, as pnpm `major` runs it, leave out
-// the entry at `names`, as for leftOut12.
+// As leftOut12, for npm-packlist as pnpm `major` runs it.
 function leftOutByNpm(names, directory, major) {
   const folded = names.map((name) => name.toLowerCase())
   const readIn = major >= 11 ? folded.map((_, i) => folded.slice(i)) : [folded]
@@ -83,10 +55,9 @@ function leftOutByNpm(names, directory, major) {
 // npm-packlist's names it keeps, whatever else says.
 const MUST_HAVE = /^(?:readme|copying|license|licence)(?:\..*[^~$])?$/iu
 
-// The paths a package.json's main, browser and bin name, from its
-// directory, whatever their case, that pnpm `major` may keep whatever its
-// rules say: with pnpm 12, those main and bin name that its rules but
-// node_modules's do not leave out.
+// The paths, lowercased, a package.json names that pnpm `major` may keep
+// whatever its rules say: `main`, `browser` and `bin`, or with pnpm 12
+// `main` and `bin` where only the node_modules rule leaves them out.
 function namedByManifest(manifest, major) {
   const { main, browser, bin } = manifest
   const bins = typeof bin === 'string' ? [bin] : Object.values(bin ?? {})
@@ -94,13 +65,11 @@ function namedByManifest(manifest, major) {
   return (major >= 12 ? paths.filter((path) => !alwaysLeftOut12(path)) : paths).map((path) => path.toLowerCase())
 }
 
-// Whether a package.json's list of bundled dependencies may name any: an
-// empty one bundles none, with either npm-packlist.
+// An empty list bundles none, with either npm-packlist.
 const bundles = (list) => Boolean(list) && !(Array.isArray(list) && list.length === 0)
 
-// The files of the package at `dir` of `project` npm-packlist picks, with
-// their data and modes, by their paths from it; `manifest` is its
-// package.json as parsed.
+// The files picked of the package at `dir` in `project`, as { data, mode }
+// by their paths from it.
 export function packDirectory(project, dir, manifest, major, where) {
   if (manifest.files !== undefined) throw new DeptreeError('its package.json has `files`, which npm-packlist picks the files pnpm installs by, and which is not followed here', where)
   if (bundles(manifest.bundleDependencies) || bundles(manifest.bundledDependencies)) throw new DeptreeError('a directory with bundled dependencies is not supported', where)

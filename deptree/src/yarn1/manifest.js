@@ -1,13 +1,10 @@
-// A package.json as yarn 1 reads one (util/normalize-manifest), parsed as
-// ../manifest.js parses it: its dependency lists as yarn leaves them, its
-// workspace globs, and what of the root's yarn fails on, or would install
-// otherwise than this follows.
+// A package.json as yarn 1's util/normalize-manifest reads it, and what of
+// the root's yarn fails on, or would install otherwise than this follows.
 
 import { DeptreeError, quote } from '../error.js'
 
-// yarn's cleanDependencies: a name in several of the dependency lists kept
-// in the first of optionalDependencies, dependencies and devDependencies,
-// at the first of its ranges that is neither '' nor '*'.
+// yarn's cleanDependencies: a name in several of these lists is kept in the
+// first, at its first range that is neither '' nor '*'.
 export function cleanDependencies(manifest) {
   const kinds = ['optionalDependencies', 'dependencies', 'devDependencies'].filter((kind) => manifest[kind] !== null && typeof manifest[kind] === 'object')
   const ranges = new Map()
@@ -28,10 +25,9 @@ export function cleanDependencies(manifest) {
   return manifest
 }
 
-// The lists of a package.json this reads, as yarn's normalize-manifest
-// leaves them: a `//` key, a comment, dropped, a value that is not one
-// given as `''`, and a name in several of the dependency lists kept in
-// one (cleanDependencies). A copy; the manifest is left as it is.
+// The lists as yarn's normalize-manifest leaves them, in a copy: a `//`
+// key, a comment, dropped, a falsy value made `''`, and a name in several
+// dependency lists kept in one.
 const LISTS = ['resolutions', 'devDependencies', 'dependencies', 'optionalDependencies', 'peerDependencies']
 export function fixLists(manifest) {
   const fixed = { ...manifest }
@@ -54,8 +50,8 @@ export function globsOf(root) {
 }
 
 // What yarn's normalize-manifest fails on in the root's name and version,
-// which the lockfile reader does not read; and what of the root yarn would
-// install otherwise than this follows.
+// which the lockfile reader does not read, and what of the root this does
+// not follow.
 const NAME = /[/@\s+%:]/u
 const validName = (name) => !NAME.test(name) && encodeURIComponent(name) === name
 export function checkRoot(root) {

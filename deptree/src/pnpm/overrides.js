@@ -1,41 +1,26 @@
-// Overrides as pnpm 10 reads them. The root package.json gives Yarn's
-// `resolutions` and its own `pnpm.overrides`, the second winning a
-// selector both name; where the two name any, they are the overrides,
-// and pnpm-workspace.yaml's are passed over whole, as `pnpm install`
-// spreads the package.json's settings over the rest. Only where the
-// package.json names none are pnpm-workspace.yaml's `overrides` read. In
-// each, a value of `$name` is the specifier
-// the root package.json gives its own dependency `name` (optional over
-// regular over dev), and one of `catalog:` or `catalog:<name>` is what
-// that catalog gives the package the selector targets. A selector is a
-// package, `name` or `name@range`, and may lead with its parent and a
-// `>`: `bar@2>foo@1`. Anything pnpm cannot read — a selector it cannot
-// parse, a `$name` with no such dependency, a catalog without the entry,
-// or with one it refuses — is refused the same.
+// Overrides as pnpm reads them. pnpm 10 takes the root package.json's
+// `resolutions` and `pnpm.overrides`, the second winning a selector both
+// name, and pnpm-workspace.yaml's `overrides` only where those name none;
+// pnpm 11 reads pnpm-workspace.yaml's alone. A value of `$name` is the
+// specifier the root package.json gives its dependency `name`, and
+// `catalog:` or `catalog:<name>` what that catalog gives the selector's
+// package. A selector is `name` or `name@range`, optionally led by a
+// parent and `>` (`bar@2>foo@1`). Whatever pnpm cannot read is refused.
 //
-// The overrides are what the lockfile was resolved with, which is where
-// they did their work: with a frozen lockfile pnpm only holds them to the
-// lockfile's `overrides` (uptodate.js), and resolves anew where they
-// differ.
-//
-// An override to a directory — `link:`, `file:` or a path alone, such as
-// `./vendor/foo` — names it from the lockfile's directory, and is read
-// only from a project given that holds it (local.js): one outside the
-// lockfile's directory, or from the root or the home directory, is
-// refused.
-//
-// pnpm 11 reads them from pnpm-workspace.yaml alone, trims each selector,
-// takes a catalog's `workspace:` entry, and reads `name@` with an exact
-// version as converging: a dependency on `name` whose range takes that
-// version is given it, where no other override is chosen. It refuses one
-// with a parent and an empty range, and one whose version is not exact.
+// The lockfile was resolved with them, so a frozen install only holds
+// them to its `overrides` (uptodate.js). A directory override (`link:`,
+// `file:` or a path like `./vendor/foo`) is from the lockfile's directory
+// and read from the project given (local.js). pnpm 11 also trims each
+// selector, takes a catalog's `workspace:` entry, and reads `name@` with
+// an exact version as converging: a dependency on `name` whose range
+// takes that version is given it, where no other override is chosen.
 
 import { valid } from '@preventive/upstream/semver.js'
 import { join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 
-// validate-npm-package-name 5's validForOldPackages, which pnpm reads a
-// selector's name by: what npm ever took as a name.
+// validate-npm-package-name 5's validForOldPackages, by which pnpm reads a
+// selector's name.
 const SCOPED = /^(?:@([^/]+?)\/)?([^/]+?)$/u
 export function validForOldPackages(name) {
   if (name === '' || name.startsWith('.') || name.startsWith('_') || name.trim() !== name) return false
@@ -45,8 +30,8 @@ export function validForOldPackages(name) {
   return m !== null && encodeURIComponent(m[1]) === m[1] && encodeURIComponent(m[2]) === m[2]
 }
 
-// @pnpm/parse-wanted-dependency: a name, where what comes before the first
-// `@` past the start is one, then what follows it.
+// @pnpm/parse-wanted-dependency: the name is what precedes the first `@`
+// past the start, where that is a valid name, and the range what follows.
 function parseWanted(raw) {
   const at = raw.indexOf('@', 1)
   const name = at === -1 ? raw : raw.slice(0, at)
@@ -66,8 +51,7 @@ export function parseSelector(selector, where) {
   return parsed.length === 1 ? { target: parsed[0] } : { parent: parsed[0], target: parsed[1] }
 }
 
-// A layer's overrides with each `$name` replaced; `manifest` is the root
-// package.json as parsed.
+// A layer's overrides with each `$name` replaced from the root package.json.
 export function replaceReferences(overrides, manifest, where) {
   const own = { ...manifest.devDependencies, ...manifest.dependencies, ...manifest.optionalDependencies }
   const replaced = Object.create(null)
@@ -87,11 +71,9 @@ const CATALOG = 'catalog:'
 // or undefined for another specifier.
 export const catalogOf = (spec) => (spec.startsWith(CATALOG) ? spec.slice(CATALOG.length).trim() || 'default' : undefined)
 
-// The entry catalog `catalog` of `catalogs` has for `name`, if any.
 export const catalogEntry = (catalogs, catalog, name) => (Object.hasOwn(catalogs, catalog) && Object.hasOwn(catalogs[catalog], name) ? catalogs[catalog][name] : undefined)
 
-// @pnpm/catalogs.resolver's resolveFromCatalog: the specifier a catalog
-// gives `name`, where `spec` asks for one.
+// @pnpm/catalogs.resolver's resolveFromCatalog.
 function fromCatalog(catalogs, spec, name, where, major) {
   const catalog = catalogOf(spec)
   if (catalog === undefined) return spec
@@ -104,8 +86,8 @@ function fromCatalog(catalogs, spec, name, where, major) {
   return found
 }
 
-// The directory an override names, as pnpm's local resolver reads a
-// specifier, and by which protocol, or undefined for one that is none.
+// The directory an override names and its protocol, as pnpm's local
+// resolver reads a specifier, or undefined where it names none.
 export function localOf(spec, where) {
   const protocol = ['file:', 'link:'].find((prefix) => spec.startsWith(prefix)) ?? (/^(?:[./]|~\/)/u.test(spec) ? '' : undefined)
   if (protocol === undefined) return undefined
@@ -115,10 +97,9 @@ export function localOf(spec, where) {
   return { protocol, dir }
 }
 
-// The overrides pnpm installs with, in order, as its parseOverrides has
-// them: each selector parsed, and its specifier with any catalog resolved,
-// and `local` the directory it names, where it names one. By selector,
-// they are what the lockfile's `overrides` is held to.
+// The overrides in order, as pnpm's parseOverrides has them, any catalog
+// resolved and `local` the directory named. By selector, they are what
+// the lockfile's `overrides` is held to.
 export function listOverrides(overrides, catalogs, major = 10) {
   const seen = new Set()
   return Object.entries(overrides ?? {}).map(([raw, given]) => {

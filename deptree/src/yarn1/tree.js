@@ -1,15 +1,11 @@
-// A node_modules tree as yarn 1 installs it from yarn.lock, frozen and with
-// scripts ignored: `yarn install --frozen-lockfile --ignore-scripts`, into a
-// directory with no node_modules yet. The lockfile is resolved as yarn
-// resolves it (resolve.js), each package's peers looked for as yarn looks
-// (peers.js), each package left out that the host cannot run and that is
-// optional (compat.js), and the tree laid out as yarn hoists it (hoist.js):
-// each package's files copied where it lands, as yarn's fetcher leaves
-// them, each bin's target executable, and each workspace linked where it
-// lands.
-//
-// Not written: bins themselves (node_modules/.bin), yarn's own
-// .yarn-integrity, and anything a script would build.
+// A node_modules tree as `yarn install --frozen-lockfile --ignore-scripts`
+// makes it in a directory with no node_modules yet: the lockfile resolved
+// as yarn resolves it (resolve.js), peers looked for as yarn looks
+// (peers.js), a package the host cannot run left out where optional
+// (compat.js), and the tree laid out as yarn hoists it (hoist.js), each
+// package's files copied where it lands and each workspace linked there.
+// Not written: node_modules/.bin, yarn's .yarn-integrity, and anything a
+// script would build.
 
 import { parseYarn1Lockfile } from '@preventive/lockfile/yarn1.js'
 import { Vfs } from '@preventive/vfs'
@@ -29,24 +25,19 @@ import { resolvePeers } from './peers.js'
 import { AGGREGATOR, aggregatorOf, rulesOf, topRequests, workspacesOf } from './requests.js'
 import { resolve, splitPattern } from './resolve.js'
 
-// What a refusal of a reference is about: the first pattern of it.
 const whereOf = (ref) => quote(ref.patterns[0])
 
 // The basenames yarn's copy passes over, wherever they are in a package.
 const IGNORED = new Set(['.bin', '.yarn-metadata.json', '.yarn-tarball.tgz'])
 const skipped = (path) => path.split('/').some((segment) => IGNORED.has(segment))
 
-// The name a registry reference is fetched by: what its first pattern's
-// `npm:` alias asks for, or its own.
 function fetchedName(ref) {
   const { range } = splitPattern(ref.patterns[0])
   if (!range.startsWith('npm:')) return ref.name
   return splitPattern(range.slice(4)).name
 }
 
-// Each registry reference's files, package.json and the integrity its
-// tarball is held to, a few at a time, every tarball's URL checked before
-// any is fetched.
+// Every tarball's URL is checked before any is fetched.
 async function fetchAll(refs) {
   const fetched = new Map()
   const tarballs = refs.map((ref) => {
@@ -59,17 +50,13 @@ async function fetchAll(refs) {
   return fetched
 }
 
-// Where the hoister puts a package, from the lockfile's directory, as
-// yarn's flat tree has it: under the aggregator, in the workspace's own
-// node_modules.
+// A package under the aggregator goes in its workspace's own node_modules,
+// as in yarn's flat tree.
 function locationOf(names, workspaces) {
   if (names[0] === AGGREGATOR) return `${workspaces.get(names[1]).dir}/node_modules/${names.slice(2).join('/node_modules/')}`
   return `node_modules/${names.join('/node_modules/')}`
 }
 
-// The lockfile resolved as yarn resolves it for the project: the
-// workspaces, the project's requests, as topRequests has them, and
-// resolve.js's result.
 function resolveProject(inputs, host) {
   const lockfile = parseYarn1Lockfile(inputs.lockfile, { manifests: Object.fromEntries(inputs.manifests), semver: { clean, satisfies, valid, validRange } })
   const manifests = new Map([...inputs.manifests].map(([dir, manifest]) => [dir, fixLists(manifest)]))
@@ -85,20 +72,16 @@ function resolveProject(inputs, host) {
   return { workspaces, asked, resolved: resolve({ lockfile, workspaces, rules, top: requests, isDirectory }) }
 }
 
-// Every package fetched, as yarn fetches each before it checks any, and
-// read; then each the host cannot run left out where it is optional, and
-// refused where it is not, as yarn fails on it. By reference, each one's
-// package.json as yarn reads it, a workspace's its own; and on each
-// registry one whether it has bins, which those its fetcher passes over
-// have none of.
+// Every package is fetched and read before any is checked, as in yarn; then
+// one the host cannot run is left out where it is optional, and refused
+// where it is not, as yarn fails on it.
 async function fetchChecked(resolved, host, settings) {
-  // What yarn's resolver hands its fetcher, in its order: each reference
-  // its patterns name, once. Of those its cache keeps in one place, two of
-  // one package, the fetcher fetches the first and passes over the rest,
-  // whose package.json stays their lockfile entry's: no peers, bins,
-  // platforms or engines; their files are the first's. The sha1 after the
-  // `#` of each one's URL is held to the tarball fetched for it, the first
-  // one's or not.
+  // In the order yarn's resolver hands references to its fetcher. Of two
+  // its cache keeps in one place, the fetcher fetches the first and passes
+  // over the rest, whose package.json stays their lockfile entry's, with no
+  // peers, bins, platforms or engines, and whose files are the first's. The
+  // sha1 after the `#` of each one's URL is held to the tarball fetched for
+  // it, the first's or not.
   const order = [...new Set(resolved.patterns.values())]
   const first = new Map()
   for (const ref of order) if (ref.kind === 'registry' && !first.has(ref.loc)) first.set(ref.loc, ref)
@@ -127,13 +110,11 @@ async function fetchChecked(resolved, host, settings) {
   return { packages: first.size, fetched, manifestOf }
 }
 
-// The tree as yarn hoists it, flat: each package by where it goes, in the
-// order yarn's linker sorts them, by the absolute paths it compares, all
-// under the lockfile's directory, with localeCompare in the locale Node
-// runs in; which changes nothing written, as a link sorts before what is
-// beneath it in any locale. And the hoister that laid it out. Each reference's
-// dependencies, as yarn's hold them for its hoister, are the patterns of
-// what it asks for, its peers once found among them.
+// Sorted as yarn's linker sorts its absolute paths, which all share the
+// lockfile's directory, by localeCompare in Node's locale; that changes
+// nothing written, as a link sorts before what is beneath it in any locale.
+// A reference's dependencies, for the hoister, are the patterns of what it
+// asks for, its peers among them once found.
 function layout({ resolved, manifestOf, asked, workspaces }) {
   resolvePeers(resolved, manifestOf)
   for (const ref of manifestOf.keys()) ref.dependencies = ref.asked.map(({ pattern }) => pattern)
@@ -144,21 +125,19 @@ function layout({ resolved, manifestOf, asked, workspaces }) {
   return { placed: placed.sort((a, b) => a.loc.localeCompare(b.loc)), hoister }
 }
 
-// Where a path in the tree really is: through each workspace link on its
-// way, `links` by where each is to its target, in the order they are made.
+// Where `path` really is, through each workspace link on its way; `links`
+// maps each link to its target, in the order they are made.
 function realOf(links, path) {
   for (const [link, target] of links) if (path === link || path.startsWith(`${link}/`)) path = target + path.slice(link.length)
   return path
 }
 
-// Each package copied where it goes, and each workspace linked: where a
-// package goes beneath a workspace's link, it is copied through the link,
-// into the workspace's own node_modules. `links` each link, by where it
-// is, to its target; `locations` each reference's copies, where they
-// really are; `copies` the hoister's places of each copy, by where it
-// really is, as two places may be one through a link. A package's files
-// are let go once its last copy is written, and those of one never placed
-// at once.
+// A package beneath a workspace's link is copied through it, into the
+// workspace's own node_modules. `locations` maps each reference to its
+// copies' real paths, and `copies` each real path to the hoister's places
+// for it, as two places may be one through a link. A package's files are
+// let go once its last copy is written, and at once where it is never
+// placed.
 function writeTree(placed, fetched) {
   const vfs = new Vfs()
   vfs.mkdir('/node_modules', { recursive: true })
@@ -195,10 +174,8 @@ function writeTree(placed, fetched) {
   return { vfs, links, locations, copies, ...counted }
 }
 
-// Each copy of a registry package as the list of what is installed has it,
-// by its path, in an order no locale changes: by the places in the
-// hoister's tree that reach it, whether only dev, or only optional,
-// dependencies do. `copies` is writeTree's, and `asked` topRequests's.
+// Each registry package's copy by its path, sorted the same in any locale,
+// and whether only dev, or only optional, dependencies reach its places.
 function listInstalled(copies, fetched, asked, hoister) {
   const prod = hoister.reachedBut('dev', asked)
   const required = hoister.reachedBut('optional', asked)

@@ -1,17 +1,15 @@
-// A patch applied to a package's files, as `pnpm patch-commit`
-// writes one: a git diff, a `diff --git a/<path> b/<path>` header for each
-// file, and unified hunks, a path relative to the package's directory. A
-// file is changed, created from /dev/null or deleted; a rename, a copy, a
-// change of mode and a binary patch are refused, as is anything else
-// between one file's hunks and the next header.
+// A patch as `pnpm patch-commit` writes one: a git diff, with a
+// `diff --git a/<path> b/<path>` header per file, paths relative to the
+// package's directory, and unified hunks. A file is changed, created from
+// /dev/null or deleted; a rename, a copy, a mode change, a binary patch, or
+// anything else between one file's hunks and the next header, is refused.
 //
-// A hunk applies where it says and nowhere else, every line of context and
-// every line it removes the same, byte for byte, as the file has there.
-// pnpm (@pnpm/patch-package) would also look up to twenty lines away and
-// compare lines with their trailing whitespace dropped; a patch that needs
-// either is refused here, so a patch applied here leaves the file as pnpm
-// would. So is a hunk that inserts after a line and keeps no context,
-// which pnpm puts a line early.
+// A hunk applies where it says and nowhere else, its context and removed
+// lines the same, byte for byte, as the file's. pnpm (@pnpm/patch-package)
+// would also look up to twenty lines away and compare lines with trailing
+// whitespace dropped; a patch that needs either is refused, so one applied
+// here leaves the file as pnpm would. So is a hunk that inserts after a
+// line with no context, which pnpm puts a line early.
 
 import { applyChangeSet, parseDiff } from '@preventive/diff'
 import { DeptreeError, quote } from './error.js'
@@ -35,8 +33,7 @@ function checkPath(path, where) {
   return path
 }
 
-// One file's header: what happens to the file, and the `---`/`+++` pair
-// naming it, which a patch without hunks may leave out.
+// The `---`/`+++` pair may be left out where the file has no hunks.
 function readHeader(lines, path, where) {
   let change = 'modify'
   let mode = 0o644
@@ -57,9 +54,8 @@ function readHeader(lines, path, where) {
   return { change, mode, body: i }
 }
 
-// The hunks of one file, each line of them read: parseDiff passes over
-// what it does not read, so every line has to be one a hunk holds, and
-// every one of those in a hunk.
+// parseDiff passes over what it does not read, so every line is checked to
+// be one a hunk holds, and every one of those to be in a hunk.
 function readHunks(lines, where) {
   if (lines.length === 0) return { hunks: [], blocks: [] }
   if (!lines.every((line) => HUNK_LINE.test(line))) throw new DeptreeError('expected only hunks after the header', where)
@@ -86,8 +82,7 @@ export function parsePatch(text, where) {
   })
 }
 
-// Holds each hunk to the lines it names in `text`, and hands back what
-// applying them makes of it.
+// Each hunk is held to the lines it names before any is applied.
 function applyTo(text, { hunks, blocks, where }) {
   const records = text.split(/(?<=\n)/u)
   let end = 0
@@ -120,12 +115,11 @@ function bytesOf(text, where) {
 
 const parentsOf = (path) => path.split('/').slice(0, -1).map((_, index, names) => names.slice(0, index + 1).join('/'))
 
-// Applies a parsed patch to a package's files: a Map of each path in the
-// package to a file, `{ data, mode }`, or to `{ directory: true }` for a
-// directory. A changed file keeps its mode, and a deleted one leaves its
-// directory, empty or not, as pnpm leaves them. A file made has the mode
-// its header gives, or `createdMode` where given, as pnpm 12 writes one
-// plain. Hands back a new Map; the one given is left as it is.
+// `files` maps each path in the package to `{ data, mode }`, or to
+// `{ directory: true }`. A changed file keeps its mode, and a deleted one
+// leaves its directory, empty or not, as pnpm does. A created file has its
+// header's mode, or `createdMode` where given, as pnpm 12 writes one plain.
+// Hands back a new Map.
 export function applyPatch(files, patch, { createdMode } = {}) {
   const next = new Map(files)
   for (const file of patch) {

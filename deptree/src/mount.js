@@ -1,12 +1,10 @@
-// A tree built on its own, mounted into a Vfs the caller already has, at
-// its root: the lockfile's directory. Nothing there is written over or
-// removed. A node_modules there already, anywhere, is refused, or for
-// another tree what its `check` refuses: kept beside the tree, Node would
-// read it as the tree's, and removed, it would be the caller's lost;
-// neither is safe. Vfs.mount judges everything before anything is written,
-// so a refusal leaves the Vfs as it was. And what every tree is built with:
-// a package's files written into it, and a check of it for names macOS
-// takes for one.
+// A tree built on its own, mounted into the caller's Vfs at its root, the
+// lockfile's directory, writing over and removing nothing. A node_modules
+// there already, anywhere, is refused, or for another tree what its `check`
+// refuses: kept, Node would read it as the tree's, and removed, the
+// caller's would be lost. Vfs.mount judges everything before anything is
+// written, so a refusal leaves the Vfs as it was. And the helpers every
+// tree is built with.
 
 import { VfsError } from '@preventive/vfs'
 import { basename } from '@preventive/vfs/path.js'
@@ -17,8 +15,6 @@ export const fold = (name) => name.normalize('NFD').toLowerCase()
 
 const where = (path) => `vfs[${quote(path)}]`
 
-// Refuses a Vfs that holds a node_modules, or, where names are `folded`, a
-// name that is one there.
 export function checkNoModules(vfs, folded) {
   for (const { path } of vfs.walk('/')) {
     const name = basename(path)
@@ -28,9 +24,8 @@ export function checkNoModules(vfs, folded) {
   }
 }
 
-// macOS's filesystems take a name whatever its case and normalization, so
-// two names that differ only in those are one there, and one would be
-// lost: such a tree is refused where the host is macOS.
+// Refuses two names in a directory that macOS takes for one, as one would
+// be lost there; called where the host is macOS.
 export function checkCollisions(vfs) {
   for (const { path, type } of vfs.walk('/')) {
     if (type !== 'directory') continue
@@ -43,9 +38,7 @@ export function checkCollisions(vfs) {
   }
 }
 
-// A package's directories and files, as unpacked, written under `root`,
-// a directory of the tree, but those `skip` takes, each file counted in
-// `stats`; one the Vfs cannot write is refused by its path in the tree.
+// `root` is the package's directory in the tree, without a leading `/`.
 export function writeFiles(vfs, root, { dirs, files }, stats, skip = () => false) {
   for (const dir of dirs) if (!skip(dir)) vfs.mkdir(`/${root}/${dir}`, { recursive: true })
   for (const [path, file] of files) {

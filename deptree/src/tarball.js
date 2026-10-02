@@ -1,9 +1,7 @@
-// A registry package's tarball: fetched through @preventive/upstream,
-// which reads a cache of its own and npm's before the registry and holds
-// what it gets to the integrity it is given, then held to that integrity
-// again here, since it is the lockfile's; gunzipped and unpacked by
-// @preventive/archive, with every rule of a name that holds. What each
-// package manager makes of its entries is its own (pnpm/package.js,
+// A registry package's tarball, fetched through @preventive/upstream, which
+// checks the integrity it is given; checked again here, since that
+// integrity is the lockfile's; and unpacked by @preventive/archive. What
+// each package manager makes of its entries is its own (pnpm/package.js,
 // yarn1/package.js).
 
 import { decompress } from '@preventive/archive/compression.js'
@@ -20,11 +18,8 @@ export const REGISTRY = 'https://registry.npmjs.org/'
 export const tarballUrl = (name, version) => `${REGISTRY}${name}/-/${name.split('/').at(-1)}-${version}.tgz`
 
 const sameBytes = (a, b) => a.length === b.length && a.every((byte, i) => byte === b[i])
-// Two files of a package, by their bytes and mode.
 export const sameFile = (a, b) => a.mode === b.mode && sameBytes(a.data, b.data)
 
-// A version's tarball from the registry, through @preventive/upstream, held
-// to `integrity` and to be gzipped: its bytes, and its entries unpacked.
 export async function fetchTarball(name, version, integrity, where) {
   const bytes = await getTarball(name, version, { tarball: tarballUrl(name, version), integrity })
   if (!await matchesIntegrity(bytes, integrity)) throw new DeptreeError(`the tarball is not ${integrity}`, where)

@@ -1,8 +1,7 @@
-// The project a tree is built for: a view of the lockfile's directory, by
-// paths from `/` — a Vfs, or anything with its readdir, lstat, stat and
-// readFile, such as one of a directory on disk. It is only read, and only
-// where each builder says it reads it (pnpm/inputs.js, pnpm/workspace.js,
-// pnpm/local.js, yarn1/inputs.js, soldeer/inputs.js).
+// The project a tree is built for: the lockfile's directory as a Vfs, or
+// anything with its readdir, lstat, stat and readFile, by paths from `/`.
+// It is only read, and only where each builder says (pnpm/inputs.js,
+// pnpm/workspace.js, pnpm/local.js, yarn1/inputs.js, soldeer/inputs.js).
 
 import { DeptreeError, quote } from './error.js'
 
@@ -12,9 +11,8 @@ export function checkProject(project) {
   }
 }
 
-// What `path` leads to, links followed, or where `follow` is false, what
-// it is; nothing, where it leads nowhere: to no entry, through a file, or
-// round a loop of links. Any other failure is thrown.
+// The type `path` leads to, or with `follow` false, its own; undefined
+// where it leads to no entry, through a file, or round a loop of links.
 const NOWHERE = new Set(['ENOENT', 'ENOTDIR', 'ELOOP'])
 export function typeOf(project, path, follow = true) {
   try {
@@ -25,18 +23,15 @@ export function typeOf(project, path, follow = true) {
   }
 }
 
-// As text handed in would be: a byte order mark kept, for what reads it
-// to drop as pnpm does.
+// A BOM is kept, as in text handed in, for the reader to drop as pnpm does.
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 
-// The bytes of the file at `path`, as a Vfs gives them back.
 export function readBytes(project, path) {
   const bytes = project.readFile(path)
   if (!(bytes instanceof Uint8Array)) throw new TypeError('project.readFile must give back bytes')
   return bytes
 }
 
-// The text of the file at `path`, or undefined where nothing is.
 export function readText(project, path, where) {
   const type = typeOf(project, path)
   if (type === undefined) return undefined

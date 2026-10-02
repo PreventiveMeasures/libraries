@@ -1,21 +1,17 @@
 // Hoisting as pnpm 10 does it (@pnpm/hoist): every alias in the graph a
-// pattern matches gets a link to what it names, in node_modules/.pnpm/
-// node_modules for the private pattern and in the root node_modules for
-// the public one, which wins where both match. The first to take an alias
-// keeps it, and the order is pnpm's: the projects' direct dependencies
-// first, then the graph by depth, a node's depth being where pnpm's walk
-// first reaches it, and nodes of one depth in the order of their
-// directories. An alias is taken with its case folded, and the root
-// project's own aliases are taken before anything, as they were spelled.
+// pattern matches is linked in node_modules/.pnpm/node_modules for the
+// private pattern and node_modules for the public one, which wins where
+// both match. The first to take an alias keeps it, in pnpm's order: the
+// projects' direct dependencies, then the graph by depth (where pnpm's
+// walk first reaches a node), then by directory.
 
 import { compareNames } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { createMatcher } from '../matcher.js'
 
-// pnpm's graphWalker and getDependencies: one level at a time, but each
-// level's next is walked out to the bottom before the level's second
-// node's next is, so a node's depth is where that walk first reaches it,
-// which is not always the least.
+// pnpm's graphWalker and getDependencies: each node's children are walked
+// to the bottom before the next node's are, so a node's depth is where
+// that walk first reaches it, not always the least.
 function walk(nodes, starts) {
   const visited = new Set()
   const step = (dirs) => {
@@ -39,12 +35,11 @@ function walk(nodes, starts) {
 // UTF-16 order, as pnpm's lexCompare has it.
 const lexCompare = (a, b) => (a > b ? 1 : a < b ? -1 : 0)
 
-// The aliases hoisted from the graph, walked from `starts`: a Map of each
-// link's path to its target. `taken` holds the names none may be hoisted
-// by, each alias looked up in it folded: the root project's own aliases,
-// and those hoisted, folded. Of `nodes`, those `installed` may be hoisted.
-// With pnpm 10, `projects` are named among the top's, and hoisted last;
-// with pnpm 12, each is hoisted once the top's are, and takes its name.
+// Link path to target for what is hoisted of `installed` from the graph
+// walked from `starts`. Each alias is looked up folded in `taken`, which
+// gains each one hoisted. With pnpm 10, `projects` are listed among the
+// top's and hoisted last; with pnpm 12, each is hoisted once the top's
+// are, and takes its name.
 function hoistGraph(nodes, starts, taken, typeOf, { projects = new Map(), installed = nodes, major = 10 } = {}) {
   const named = new Map([...projects].map(([id, name]) => [name, { project: id }]))
   const root = new Map(major < 12 ? named : [])
@@ -81,35 +76,29 @@ function hoistGraph(nodes, starts, taken, typeOf, { projects = new Map(), instal
   return links
 }
 
-// Where each hoisted alias is linked, and to which directory: a Map of
-// the link's path to its target, both relative to the lockfile's
-// directory. `nodes` is the graph by directory; `direct` its projects'
-// direct dependencies, the root project's under `.`; `projects` the
-// workspace's named projects by directory, where hoistWorkspacePackages
-// has them hoisted by name too.
+// Link path to target, both relative to the lockfile's directory.
+// `direct` is each project's direct dependencies, the root's under `.`;
+// `projects` the named projects by directory, where hoistWorkspacePackages
+// hoists them by name too.
 //
-// pnpm 10 puts those names first among the root's, a direct dependency of
-// one name replacing it. Hoisting a project does not take its name, so a
-// package of that name may be hoisted to the same place too; there the
-// project wins, as pnpm replaces a link into the store with it and leaves
-// its own in place of one. It takes the root project's aliases as they are
-// spelled, and folds the case of those it hoists.
+// pnpm 10 lists those names first among the root's, a direct dependency
+// of the same name replacing one. A hoisted project does not take its
+// name; where a package of that name is hoisted to the same place, the
+// project wins, as pnpm replaces a link into the store with it but not
+// its own with one. It takes the root's aliases as spelled, and folds
+// those it hoists.
 //
-// pnpm 11 folds the root project's aliases too. It hoists the graph, then
-// each project by its name where no project's direct dependency in the
-// graph has that name, and then the graph again with those names taken
-// from it; a project hoisted is not held back by a `link:` of its name, or
-// by a package hoisted by it. (It holds back two projects of which one's
-// name is a directory of the other's, which no two names a package can
-// have are.)
+// pnpm 11 folds the root's aliases too. It hoists each project by name
+// unless a project's direct dependency in the graph has that name, and
+// the graph with those names taken; neither a `link:` of a project's name
+// nor a package hoisted by it holds the project back. (It does hold back
+// two projects where one's name is a directory of the other's, which no
+// two package names are.)
 //
-// pnpm 12 hoists from `hoisting`, graph.js's graph of every snapshot,
-// skipped or not, which it walks through those skipped, though none of
-// them is hoisted; its projects' direct dependencies are taken in the
-// order of their ids, and those of the root project but its `link:`s,
-// skipped or not, are taken from the start. Of two projects whose names
-// are one folded, both of which its patterns take, which it hoists turns
-// on an order not known here, which is refused.
+// pnpm 12 walks `hoisting`, graph.js's graph of every snapshot, through
+// the skipped ones though it hoists none of them. It takes the projects'
+// direct dependencies in the order of their ids, and the root's but its
+// `link:`s, skipped or not, from the start.
 export function hoist(nodes, direct, { hoistPattern, publicHoistPattern }, projects = new Map(), major = 10, hoisting) {
   if (hoistPattern === undefined && publicHoistPattern === undefined) return new Map()
   const isPublic = createMatcher(publicHoistPattern ?? [])

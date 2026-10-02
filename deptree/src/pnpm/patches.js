@@ -1,12 +1,9 @@
-// Which patch pnpm 10 applies to a package: not the one its snapshot key
-// names, but the one the settings' patchedDependencies pick for its name
-// and version (@pnpm/patching.config's getPatchInfo): `name@version`
-// exactly, else the one `name@range` whose range takes the version — two
-// that do are refused — else `name@*` or `name` alone. Every snapshot is
-// held to have the patch hash that pick has, so the patch applied here by
-// the key is the one pnpm applies; and, stricter than pnpm, which checks
-// this only when it resolves, every patch configured has to be the pick of
-// some snapshot.
+// pnpm 10 applies the patch patchedDependencies picks for a package's name
+// and version (@pnpm/patching.config's getPatchInfo), not the one its
+// snapshot key names: `name@version`, else the one `name@range` taking the
+// version, else `name@*` or `name`. Every snapshot must name that pick's
+// hash, so applying by key matches pnpm; and, stricter than pnpm (which
+// checks this only when resolving), every patch must be some snapshot's.
 
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { isExactVersion, satisfies, valid, validRange } from '@preventive/upstream/semver.js'
@@ -69,7 +66,7 @@ export function checkPatchUse(lockfile, hashes) {
 
 const PATCH = '(patch_hash='
 
-// A key's run of balanced groups at its end, each on its own, and what is
+// A key's trailing parenthesized groups, each on its own, and what is
 // before them; undefined where they do not balance.
 function splitSuffix(key) {
   const segments = []
@@ -99,11 +96,10 @@ function parseKey(key) {
   return { name: key.slice(0, at), version: valid(base) === null ? undefined : base, hash }
 }
 
-// pnpm 11 holds what a key names to their patches down through its peers
-// (@pnpm/lockfile.fs's checkPatchedDepPaths), where pnpm 10 holds only the
-// snapshot: a peer that names a patch hash, or, unless dedupePeers leaves
-// them out, one of a version of a patched package, has to name the hash of
-// the patch picked for it. One whose hash cannot be told is refused too.
+// pnpm 11 checks patch hashes down through a key's peers too
+// (@pnpm/lockfile.fs's checkPatchedDepPaths), pnpm 10 only the snapshot:
+// a peer that names a patch hash, or, unless dedupePeers leaves versions
+// out, one of a version of a patched package, must name its pick's hash.
 export function checkPeerPatches(lockfile, hashes) {
   const groups = group(Object.keys(hashes))
   const carried = lockfile.settings.dedupePeers !== true
