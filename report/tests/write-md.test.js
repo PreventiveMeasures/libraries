@@ -696,6 +696,9 @@ describe('md-text helpers', () => {
     // Closed as the page reads it, after the escape: an escaped heading is
     // text, which the lone tag continues, so the <?php opens a block.
     assert.equal(prose('x\n   ## in item\n<a href="x">\n<?php'), 'x\n   \\## in item\n<a href="x">\n<?php\n?>')
+    // A lone tag continues the quoted item's text, so the fence after it
+    // opens — and is closed.
+    assert.equal(prose('> 2. quoted\n<custom-tag>\n````'), '> 2. quoted\n<custom-tag>\n````\n````')
     // Inline code opening a line opens no fence, so there is none to close.
     assert.equal(prose('```x``` is inline\n## h'), '```x``` is inline\n\\## h')
     assert.equal(prose('  plain  '), 'plain')

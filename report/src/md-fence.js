@@ -31,9 +31,14 @@ const FENCE_RE = /^( *)(`{3,}|~{3,})(.*)$/u
 // blocks and list markers are asked about apart).
 const INTERRUPT_RE = /^ {0,3}(?:#{1,6}(?:[ \t]|$)|>|([-*_])(?:[ \t]*\1){2,}[ \t]*$)/u
 const THEMATIC_RE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/u
+// A setext underline, which makes the paragraph above it a heading.
+const SETEXT_RE = /^ {0,3}(?:=+|-+)[ \t]*$/u
 // A list marker and the gap to its text; `m[0].length` is the column
 // the item's continuation lines are indented to.
 export const LIST_MARKER_RE = /^( *)(?:[-*+]|\d{1,9}[.)]) +(?=\S)/u
+// A list marker with nothing after it: an empty item, whose text — on
+// the lines below — starts a column past the marker.
+const EMPTY_ITEM_RE = /^ *(?:[-*+]|\d{1,9}[.)])[ \t]*$/u
 
 // CommonMark's HTML blocks, each opener with what ends it and the text
 // that would: the first five end on a line holding their closer (which
@@ -57,11 +62,13 @@ const HTML_TAG_LINE_RE = /^(?:<[A-Za-z][\dA-Za-z-]*(?:\s+[:A-Z_a-z][\w.:-]*(?:\s
 // its marker, to where its text starts) or another block that ends a
 // paragraph (`true`); null for text. With a paragraph open, only what
 // may interrupt one counts: a lone tag is then the paragraph's text,
-// lazily or not, and an ordered item has to start at 1 — when the line
-// is in the paragraph's own item (`within`), and not short of it.
+// lazily or not; and when the line is in the paragraph's own block
+// (`within`), not short of it, an ordered item has to start at 1, and a
+// setext underline ends the paragraph as a heading — lazily, it's text.
 function opener(rest, paragraph, within = paragraph) {
   const lead = /^ */u.exec(rest)[0].length
   if (lead > 3) return null
+  if (paragraph && within && SETEXT_RE.test(rest)) return true
   const fence = FENCE_RE.exec(rest)
   if (fence && !(fence[2][0] === '`' && fence[3].includes('`'))) return { fence: fence[2] }
   const tag = rest.slice(lead)
@@ -76,11 +83,26 @@ function opener(rest, paragraph, within = paragraph) {
     const gap = / +$/u.exec(item[0])[0].length
     return { item: gap > 4 ? item[0].length - gap + 1 : item[0].length }
   }
+  // An empty item can't interrupt a paragraph.
+  const empty = THEMATIC_RE.test(rest) || (paragraph && within) ? null : EMPTY_ITEM_RE.exec(rest)
+  if (empty) return { item: empty[0].trimEnd().length + 1 }
   return INTERRUPT_RE.test(rest) || null
 }
 
 export function fenceRanges(text) {
   return readFences(text).ranges
+}
+
+// Whether a quoted line holds paragraph text, past its `>`s and any
+// list markers inside — `paragraph` if one is already open there.
+function quotedText(line, paragraph) {
+  let text = line.replace(/^(?: {0,3}> ?)+/u, '')
+  let opens = opener(text, paragraph)
+  while (opens?.item) {
+    text = text.slice(opens.item)
+    opens = opener(text, false)
+  }
+  return text.trim() !== '' && !opens && /^ */u.exec(text)[0].length < 4
 }
 
 // fenceRanges, and the line that would close what the text leaves open
@@ -101,7 +123,13 @@ export function readFences(text) {
   // Whether the line before was paragraph text, which the next line of
   // text continues wherever it starts. Nothing else is continued so: a
   // blank line, a fence, a heading or an indented code block ends it.
+  // And whether that paragraph is a quote's, which a line without the
+  // quote's `>` only ever continues lazily.
   let lazy = false
+  let quoted = false
+  // Whether the line before opened an empty item, which a blank line
+  // ends: an item starts with one blank line at most.
+  let fresh = false
   let pos = 0
   for (const line of text.split('\n')) {
     const start = pos
@@ -130,6 +158,8 @@ export function readFences(text) {
     // A blank line ends a paragraph and no item: a loose list is still
     // one list.
     if (!line.trim()) {
+      if (fresh) items.pop()
+      fresh = false
       lazy = false
       continue
     }
@@ -142,7 +172,7 @@ export function readFences(text) {
     // Plain text straight under a paragraph continues it — lazily if it
     // starts short of the paragraph's item — and every item stands.
     // Anything else leaves the items it starts short of.
-    let opens = opener(rest, lazy, depth === items.length)
+    let opens = opener(rest, lazy, depth === items.length && !quoted)
     if (lazy && !opens) continue
     items.length = depth
     // Markers open items, each in the last ("- 1. x" opens two), and
@@ -153,16 +183,20 @@ export function readFences(text) {
       items.push(margin)
       opens = opener(rest, false)
     }
+    fresh = rest.trim() === ''
     if (opens?.fence) [open, marker, inside] = [start, opens.fence, margin]
     else if (opens?.html) [html, inside] = [opens.html.test(rest) ? null : { ends: opens.html, close: opens.close }, margin]
     // Paragraph text or not: not a heading, rule or anything opened
     // above, and not four columns in, which is indented code — and for a
-    // quote, what it holds past its `>`, whose paragraph continues
-    // lazily too. (A quote's own fences aren't followed: a quoted line is
-    // never one of the document's, and the quote's end ends them.)
-    const quote = /^ {0,3}>/u.test(rest) ? rest.replace(/^(?: {0,3}> ?)+/u, '') : null
-    if (quote === null) lazy = !opens && /^ */u.exec(rest)[0].length < 4
-    else lazy = quote.trim() !== '' && !opener(quote, false) && /^ */u.exec(quote)[0].length < 4
+    // quote, what it holds past its `>` and any markers, whose paragraph
+    // continues lazily too. That is all a quote is read for: its own
+    // fences aren't followed (a quoted line is never one of the
+    // document's, and the quote's end ends them), nor the items inside
+    // it, so whether a line short of such an item still reaches its
+    // paragraph — to underline it, or start a list — is taken as yes.
+    const inQuote = lazy && quoted
+    quoted = /^ {0,3}>/u.test(rest)
+    lazy = quoted ? quotedText(rest, inQuote) : !opens && !fresh && /^ */u.exec(rest)[0].length < 4
   }
   if (open !== -1) ranges.push([open, text.length])
   const close = open === -1 ? html?.close : marker

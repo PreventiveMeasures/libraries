@@ -144,6 +144,33 @@ describe('fenceRanges — HTML blocks and list markers', () => {
   })
 })
 
+// What ends a paragraph decides what a lazy line continues: a setext
+// underline makes it a heading, which nothing continues. An empty item
+// is an item, and a blank line straight after it ends it.
+describe('fenceRanges — underlines, empty items and quotes', () => {
+  it('ends a list item\'s paragraph at its setext underline', () => {
+    const lines = ['- foo', '  ===', 'prose', '   ```sh', '# start it', 'curl', '   ```', '# after']
+    assert.deepEqual(fencedLines(lines), [false, false, false, true, true, true, true, false])
+  })
+
+  it('takes an underline short of the item for lazy text', () => {
+    assert.deepEqual(fencedLines(['- foo', '===', '   ```', '# x']), [false, false, true, false])
+  })
+
+  it('opens an item on a bare marker, and ends it at a blank line after', () => {
+    assert.deepEqual(fencedLines(['', '-', '   ```sh', '  text', '</div>']), [false, false, true, true, false])
+    assert.deepEqual(fencedLines(['-', '', '  ```', '# x']), [false, false, true, true])
+  })
+
+  it('starts a list under a quote\'s paragraph at any number', () => {
+    assert.deepEqual(fencedLines(['> q', '2. item', '    ```', '<!--', '   text']), [false, false, true, false, false])
+  })
+
+  it('continues a paragraph in a quote\'s list item lazily', () => {
+    assert.deepEqual(fencedLines(['> 2. quoted', '<custom-tag>', '````', '# x']), [false, false, true, true])
+  })
+})
+
 describe('closesFence', () => {
   it('takes the same character, at least as long, and nothing after it', () => {
     assert.ok(closesFence('```', '```'))
