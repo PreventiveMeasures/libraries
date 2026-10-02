@@ -2,7 +2,7 @@ import { parseVersion } from '../crate/semver.js'
 import { LockfileError, quote } from '../error.js'
 import { string } from '../toml/shape.js'
 
-export { array, boolean, entries, kind, refuse, string, strings, table } from '../toml/shape.js'
+export { array, boolean, checkListedOnce, entries, kind, refuse, string, strings, table, tableOf } from '../toml/shape.js'
 
 // As cargo takes names, less what is not ASCII.
 export function checkCrateName(value, where) {

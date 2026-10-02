@@ -87,7 +87,7 @@ function readExpression(tokens, pos, depth) {
   return width > 0 && operands(tokens[pos], tokens[pos + 1 + width]) ? pos + 1 + width + 1 : -1
 }
 
-export function isMarker(text) {
+function isMarker(text) {
   const tokens = /[[\p{Cc}\p{Zl}\p{Zp}]--\t]/v.test(text) ? undefined : tokenize(text)
   return tokens !== undefined && tokens.length > 0 && readOr(tokens, 0, 0) === tokens.length
 }

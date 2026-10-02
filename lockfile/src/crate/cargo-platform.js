@@ -2,17 +2,14 @@
 // Platform::matches. A name or target that is not ASCII is refused, where
 // the crate takes any alphanumeric character in a target.
 
+import { text } from './semver.js'
+
 const TOKEN = / *(?:([(),=])|"([^"]*)"|(r#)?([A-Z_a-z]\w*)|(.|$))/suy
 
 class Refused extends Error {}
 
 const refuse = () => {
   throw new Refused()
-}
-
-function text(value) {
-  if (typeof value !== 'string') throw new TypeError('expected a string')
-  return value
 }
 
 function tokenize(source) {

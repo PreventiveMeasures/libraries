@@ -28,7 +28,7 @@ function u64(digits) {
 
 const isU64 = (value) => typeof value === 'bigint' && value >= 0n && value <= MAX
 
-function text(value) {
+export function text(value) {
   if (typeof value !== 'string') throw new TypeError('expected a string')
   return value
 }

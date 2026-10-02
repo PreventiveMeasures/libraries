@@ -67,7 +67,7 @@ function readInfo(key, entry, where) {
     name,
     version: readVersion(ref, entry, resolution, where),
     resolution,
-    engines: entry.engines === undefined ? Object.create(null) : textMap(entry.engines, at(where, 'engines')),
+    engines: textMap(orEmpty(entry.engines), at(where, 'engines')),
     os: field(entry, 'os', where, texts),
     cpu: field(entry, 'cpu', where, texts),
     libc: field(entry, 'libc', where, texts),
@@ -79,11 +79,15 @@ function readInfo(key, entry, where) {
   }
 }
 
-const readPeersMeta = (value, where) => mapping(orEmpty(value), where, (item, here, name) => {
-  record(item, here, ['optional'])
+// A mapping by package name, each a record of the `fields` named, as
+// `read(item, where)` makes it.
+export const byName = (fields, read) => (value, where) => mapping(orEmpty(value), where, (item, here, name) => {
+  record(item, here, fields)
   checkName(name, here)
-  return { optional: flag(item.optional, at(here, 'optional')) }
+  return read(item, here)
 })
+
+const readPeersMeta = byName(['optional'], (item, here) => ({ optional: flag(item.optional, at(here, 'optional')) }))
 
 // What a dependency's reference leads to: the key of a snapshot, or
 // `link:` and a directory linked in place, which the lockfile does not
@@ -118,7 +122,7 @@ function readSnapshot(entry, where, snapshots) {
     dependencies,
     optionalDependencies,
     optional: flag(entry.optional, at(where, 'optional')),
-    transitivePeerDependencies: entry.transitivePeerDependencies === undefined ? [] : names(entry.transitivePeerDependencies, at(where, 'transitivePeerDependencies')),
+    transitivePeerDependencies: field(entry, 'transitivePeerDependencies', where, names) ?? [],
   }
 }
 
@@ -130,16 +134,15 @@ export function readPackages(doc, prefix, patches) {
   for (const [key, entry, where] of entries(orEmpty(doc.packages), packagesAt)) infos.set(key, readInfo(key, entry, where))
   const snapshotsAt = at(prefix, 'snapshots')
   const snapshots = record(orEmpty(doc.snapshots), snapshotsAt)
-  const packages = Object.create(null)
   const seen = new Set()
-  for (const [key, entry, where] of entries(snapshots, snapshotsAt)) {
+  const packages = mapping(snapshots, snapshotsAt, (entry, where, key) => {
     const { base, patchHash } = splitSnapshotKey(key, where)
     const info = infos.get(base)
     if (info === undefined) throw new LockfileError(`${quote(base)} is not in packages`, where)
     if (patchHash !== undefined && !patches.has(patchHash)) throw new LockfileError(`the patch hash ${quote(patchHash)} is not in patchedDependencies`, where)
     seen.add(base)
-    packages[key] = { ...info, patchHash, ...readSnapshot(entry, where, snapshots) }
-  }
+    return { ...info, patchHash, ...readSnapshot(entry, where, snapshots) }
+  })
   for (const key of infos.keys()) {
     if (!seen.has(key)) throw new LockfileError('no snapshot is of this package', at(packagesAt, key))
   }

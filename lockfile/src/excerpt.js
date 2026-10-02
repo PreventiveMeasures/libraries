@@ -21,3 +21,13 @@ export function excerpt(text) {
   const short = cut(text, EXCERPT)
   return short === text ? quoted(text) : `${quoted(short)}...`
 }
+
+// An error at `line` of the input, counted from zero; the message counts
+// from one. The YAML and TOML parsers' errors are of it.
+export class LineError extends Error {
+  constructor(detail, line) {
+    super(line === undefined ? detail : `${detail} at line ${line + 1}`)
+    this.name = new.target.name
+    this.line = line
+  }
+}

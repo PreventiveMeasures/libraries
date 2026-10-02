@@ -8,7 +8,7 @@ import { LockfileError, at, quote } from '../error.js'
 import { checkMarker, checkNormalName } from '../python/pep508.js'
 import { checkNormalVersion, checkSpecifiers, versionKeyOf } from '../python/pep440.js'
 import { field } from '../shape.js'
-import { array, kind, strings, table } from '../toml/shape.js'
+import { array, checkListedOnce, kind, strings, table } from '../toml/shape.js'
 import { parseToml } from '../toml/parse.js'
 import { readSdist, readWheels } from './artifacts.js'
 import { readConflicts, readManifest, readMetadata, readOptions } from './inputs.js'
@@ -125,18 +125,13 @@ function membersOf(manifest, read, lookup) {
 }
 
 export function parseUvLock(text) {
-  if (typeof text !== 'string') throw new TypeError('expected a string')
   const doc = table(parseToml(text), undefined, TOP, TOP_REFUSED)
   const version = checkLockVersion(doc.version, 'version')
   const revision = checkRevision(doc.revision, 'revision')
   const requiresPython = checkSpecifiers(doc['requires-python'], 'requires-python')
   const read = array(doc.package ?? [], 'package').map((item, index) => readPackage(item, `package[${index}]`))
-  const index = { byName: Map.groupBy(read, (pkg) => pkg.name), byId: new Map() }
-  for (const [i, pkg] of read.entries()) {
-    const id = idOf(pkg.name, pkg.versionKey, pkg.source.id)
-    if (index.byId.has(id)) throw new LockfileError(`${quote(pkg.key)} is listed twice, first as package[${read.indexOf(index.byId.get(id))}]`, `package[${i}]`)
-    index.byId.set(id, pkg)
-  }
+  const ids = checkListedOnce(read, (pkg) => idOf(pkg.name, pkg.versionKey, pkg.source.id), (pkg) => pkg.key)
+  const index = { byName: Map.groupBy(read, (pkg) => pkg.name), byId: new Map([...ids].map(([id, i]) => [id, read[i]])) }
   const packages = Object.create(null)
   for (const [i, pkg] of read.entries()) {
     const where = `package[${i}]`

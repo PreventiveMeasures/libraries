@@ -3,8 +3,8 @@
 // in, a path to one, and a hash in the hex a lockfile writes.
 
 import { LockfileError, quote } from '../error.js'
-import { checkRelative } from '../names.js'
-import { string } from '../toml/shape.js'
+import { checkRelative, isHttpUrl } from '../names.js'
+import { string, text } from '../toml/shape.js'
 import { normalName } from './pep508.js'
 import { parseVersion } from './pep440.js'
 
@@ -73,6 +73,11 @@ export function checkHash(value, where, sizes) {
 // A path from the lockfile's directory, `/` between segments, as one that
 // reads the same on every machine: never absolute, which pylock.toml's
 // specification takes, and which reads on one machine alone.
+export function checkHttpUrl(value, where) {
+  if (!isHttpUrl(text(value, where))) throw new LockfileError(`${quote(value)} is not an http(s) URL`, where)
+  return value
+}
+
 export function checkPath(value, where) {
   if (/^(?:\/|\\|[A-Za-z]:)/u.test(string(value, where))) throw new LockfileError(`${quote(value)} is absolute, and only reads on the machine that wrote it`, where)
   return checkRelative(value, where)

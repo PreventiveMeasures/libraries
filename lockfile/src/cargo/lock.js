@@ -7,7 +7,7 @@ import { LockfileError, at, quote } from '../error.js'
 import { isCommit, isHexSha256 } from '../names.js'
 import { field } from '../shape.js'
 import { parseToml } from '../toml/parse.js'
-import { array, checkCrateName, checkCrateVersion, kind, string, strings, table } from './shape.js'
+import { array, checkCrateName, checkCrateVersion, checkListedOnce, kind, string, strings, table } from './shape.js'
 
 // Two sources are one where cargo holds them so: of one kind, asking for the
 // same branch, tag or rev, at the same canonical URL (github.com's in https
@@ -121,7 +121,7 @@ function readPackage(value, where, fields = PACKAGE) {
     throw new LockfileError(`a ${parsed === undefined ? 'path' : 'git'} package has no checksum`, at(where, 'checksum'))
   }
   if (checksum !== undefined && !isHexSha256(checksum)) throw new LockfileError(`${quote(checksum)} is not a sha256 checksum`, at(where, 'checksum'))
-  const edges = value.dependencies === undefined ? [] : strings(value.dependencies, at(where, 'dependencies'))
+  const edges = field(value, 'dependencies', where, strings) ?? []
   return { key: keyOf(name, version, source), name, version, source, checksum, identity: parsed?.identity, edges }
 }
 
@@ -157,16 +157,10 @@ function checkReached(packages, where) {
 }
 
 export function parseCargoLock(text) {
-  if (typeof text !== 'string') throw new TypeError('expected a string')
   const doc = table(parseToml(text), undefined, FIELDS, TOP_REFUSED)
   const version = checkVersion(doc.version, 'version')
   const read = array(doc.package ?? [], 'package').map((item, index) => readPackage(item, `package[${index}]`))
-  const seen = new Map()
-  for (const [index, pkg] of read.entries()) {
-    const same = `${pkg.name} ${pkg.version} ${pkg.identity}`
-    if (seen.has(same)) throw new LockfileError(`${quote(pkg.key)} is listed twice, first as package[${seen.get(same)}]`, `package[${index}]`)
-    seen.set(same, index)
-  }
+  checkListedOnce(read, (pkg) => `${pkg.name} ${pkg.version} ${pkg.identity}`, (pkg) => pkg.key)
   const byName = Map.groupBy(read, (pkg) => pkg.name)
   for (const [index, pkg] of read.entries()) {
     const where = at(`package[${index}]`, 'dependencies')

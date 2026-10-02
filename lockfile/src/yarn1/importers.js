@@ -2,9 +2,9 @@
 // a workspace with no entry links it, held to the range only with semver.
 
 import { LockfileError, at, quote } from '../error.js'
-import { KINDS, reach } from '../graph.js'
+import { KINDS, unreached } from '../graph.js'
 import { checkName, checkRelative, isName, resolvePath } from '../names.js'
-import { entries, orEmpty, record, string, text, texts } from '../shape.js'
+import { entries, field, mapping, orEmpty, record, string, text, texts } from '../shape.js'
 import { compile, matches } from '../glob.js'
 import { isRange, sourceOf } from './packages.js'
 
@@ -107,8 +107,7 @@ function readResolutions(value, where, semver) {
 // yarn writes no pattern that nothing asks for, a resolution among what asks.
 function checkReached(importers, packages, rules) {
   const starts = Object.values(importers).flatMap((importer) => KINDS.map((kind) => importer[kind]))
-  const reached = reach([rules.map((rule) => rule.pattern).filter((pattern) => pattern in packages), ...starts], packages)
-  const stray = Object.keys(packages).find((pattern) => !reached.has(pattern))
+  const stray = unreached([rules.map((rule) => rule.pattern).filter((pattern) => pattern in packages), ...starts], packages)
   if (stray !== undefined) throw new LockfileError('nothing asks for it: no manifest, no package and no resolution', at('', stray))
 }
 
@@ -121,7 +120,7 @@ function readGlobs(root, where) {
   let list = value
   if (!Array.isArray(value)) {
     record(value, listAt, ['packages', 'nohoist'])
-    if (value.nohoist !== undefined) texts(value.nohoist, at(listAt, 'nohoist'))
+    field(value, 'nohoist', listAt, texts)
     list = value.packages === undefined ? [] : value.packages
     listAt = at(listAt, 'packages')
   }
@@ -181,8 +180,7 @@ export function readImporters(manifests, packages, requests, semver) {
   for (const request of requests) if (request.pattern in packages) checkLinked(request, workspaces, semver)
   linkRequests(requests, packages, workspaces, semver)
   const context = { packages, workspaces, semver }
-  const importers = Object.create(null)
-  for (const [dir, manifest, here] of entries(manifests, WHERE)) importers[dir] = readTargets(manifest, dir, here, context)
+  const importers = mapping(manifests, WHERE, (manifest, here, dir) => readTargets(manifest, dir, here, context))
   const rules = readResolutions(root.resolutions, at(rootAt, 'resolutions'), semver)
   // yarn resolves each resolution's pattern too, linked as a request is.
   for (const rule of rules) {

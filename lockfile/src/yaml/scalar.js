@@ -1,14 +1,7 @@
 // One line's worth of value: a scalar, or a flow collection of scalars.
 
+import { take } from '../lines.js'
 import { YamlError, excerpt } from './error.js'
-
-// Sticky regexes read at `src.pos`; `take` moves it past the match.
-const take = (src, re) => {
-  re.lastIndex = src.pos
-  const m = re.exec(src.text)
-  if (m !== null) src.pos = re.lastIndex
-  return m
-}
 
 // A plain scalar opens with anything but an indicator (`-`, `?` and `:` are
 // fine when not followed by a space), contains no `: ` and no ` #`, and ends

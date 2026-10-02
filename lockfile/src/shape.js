@@ -15,7 +15,25 @@ export function kind(value) {
   return `the ${typeof value} ${String(value)}`
 }
 
-export const refuse = (expected, value, where) => new LockfileError(`expected ${expected}, found ${kind(value)}`, where)
+// The readers of a value of a primitive kind, refusing what else they are
+// given as `describe` describes it: the YAML and JSON readers' here, TOML's in
+// toml/shape.js.
+export function primitives(describe) {
+  const refuse = (expected, value, where) => new LockfileError(`expected ${expected}, found ${describe(value)}`, where)
+  const check = (test, expected) => (value, where) => {
+    if (!test(value)) throw refuse(expected, value, where)
+    return value
+  }
+  return {
+    refuse,
+    string: check((value) => typeof value === 'string', 'a string'),
+    boolean: check((value) => typeof value === 'boolean', 'true or false'),
+    // A size in bytes, or any count: an integer a number holds exactly.
+    count: check((value) => Number.isSafeInteger(value) && value >= 0, 'a non-negative integer'),
+  }
+}
+
+export const { refuse, string, boolean, count } = primitives(kind)
 
 // A mapping with only the `fields` named, when named: any other key is one
 // this reader does not know the meaning of, and it is refused rather than
@@ -43,11 +61,6 @@ export const optional = (read) => (value, where) => (value === undefined ? undef
 // A field of `holder` that may be left out, so read.
 export const field = (holder, key, where, read) => optional(read)(holder[key], at(where, key))
 
-export function string(value, where) {
-  if (typeof value !== 'string') throw refuse('a string', value, where)
-  return value
-}
-
 export function text(value, where) {
   if (string(value, where) === '') throw new LockfileError('expected a non-empty string', where)
   return value
@@ -74,20 +87,10 @@ export const textMap = (value, where, check = () => {}) => mapping(value, where,
   return string(item, here)
 })
 
-export function boolean(value, where) {
-  if (typeof value !== 'boolean') throw refuse('true or false', value, where)
-  return value
-}
-
 // A flag written only where it is set: `true`, or absent.
 export function flag(value, where) {
   if (value !== undefined && value !== true) throw refuse('true', value, where)
   return value === true
-}
-
-export function count(value, where) {
-  if (!Number.isSafeInteger(value) || value < 0) throw refuse('a non-negative integer', value, where)
-  return value
 }
 
 // The options object a reader takes, of the `names` alone.

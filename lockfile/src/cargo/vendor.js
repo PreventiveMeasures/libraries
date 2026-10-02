@@ -3,6 +3,7 @@
 
 import { LockfileError, at, quote } from '../error.js'
 import { isHexSha256, isSegment } from '../names.js'
+import { field } from '../shape.js'
 import { parseToml } from '../toml/parse.js'
 import { isTable } from '../toml/value.js'
 import { checkCrateName, checkCrateVersion, table } from './shape.js'
@@ -14,7 +15,7 @@ function identify(text, where) {
   table(pkg, here)
   const name = checkCrateName(pkg.name, at(here, 'name'))
   if (isTable(pkg.version)) throw new LockfileError('a vendored package inherits nothing from a workspace', at(here, 'version'))
-  const version = pkg.version === undefined ? '0.0.0' : checkCrateVersion(pkg.version, at(here, 'version'))
+  const version = field(pkg, 'version', here, checkCrateVersion) ?? '0.0.0'
   return { name, version }
 }
 

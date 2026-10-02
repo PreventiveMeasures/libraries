@@ -1,6 +1,6 @@
 import { LockfileError, at, quote } from '../error.js'
 import { checkRefName, checkRelative, isCommit, joinRelative, relativeTo } from '../names.js'
-import { checkOptions, entries, record, string } from '../shape.js'
+import { checkOptions, entries, mapping, record, string } from '../shape.js'
 import { checkSubmodulePath, findNested, readGitmodules } from './gitmodules.js'
 import { readJson } from './json.js'
 
@@ -71,11 +71,10 @@ function addUrls(dependencies, gitmodules, directory, checkUrls) {
 export function parseFoundryLockfile(source, options = {}) {
   if (typeof source !== 'string') throw new TypeError('expected a string')
   const { gitmodules, directory, checkUrls } = readOptions(options)
-  const dependencies = Object.create(null)
-  for (const [path, value, here] of entries(readJson(source), '')) {
+  const dependencies = mapping(readJson(source), '', (value, here, path) => {
     checkSubmodulePath(path, here)
-    dependencies[path] = readDependency(value, here)
-  }
+    return readDependency(value, here)
+  })
   const inside = findNested(Object.keys(dependencies))
   if (inside !== undefined) throw new LockfileError(`inside the dependency ${quote(inside[1])}, whose submodules foundry.lock does not record`, at('', inside[0]))
   if (gitmodules !== undefined) addUrls(dependencies, gitmodules, directory, checkUrls)
