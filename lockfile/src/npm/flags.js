@@ -20,7 +20,7 @@ function resetParents(flags, node, flag) {
 // What an edge's type is by Edge#dev, #optional and #peer.
 const kinds = (type) => ({ dev: type === 'dev', optional: type === 'optional' || type === 'peerOptional', peer: type.startsWith('peer') })
 
-// calcDepFlags, as npm 11.7 and later have it: each node starts with every
+// calcDepFlags, as npm 11.6.3 and later have it: each node starts with every
 // flag but the project, and loses one wherever an edge without it leads to
 // it from a node without it; an optional peer leaves it extraneous, and a
 // node that is not leaves the nodes it is in not. A link takes what it
@@ -77,7 +77,7 @@ function descend(tree, visit, children) {
   }
 }
 
-// calcDepFlags, as npm 9 to 11.6 have it: one walk from the project, which
+// calcDepFlags, as npm 9 to 11.6.0 have it: one walk from the project, which
 // visits each node once, in the order of its edges, and unsets a flag of
 // what an edge leads to where the node and the edge are without it, then of
 // what that leads to by dependencies and peers but optional ones; and, of
@@ -140,14 +140,16 @@ function mismatch(nodes, flags, npm) {
 }
 
 // The ways npm's versions work the flags out, the latest first: npm 11.18
-// and later, npm 11.7 to 11.17, and npm 9 to 11.6.
+// and later, npm 11.6.3 to 11.17, and npm 9 to 11.6.0. npm 11.6.1 and
+// 11.6.2, which mark what a peer leads to peer whatever else leads to it,
+// are not read here.
 const VERSIONS = [(nodes) => calcFlags(nodes, false), (nodes) => calcFlags(nodes, true), calcFlagsBefore]
 
-// The way an npm, 9 or later, works the flags out.
+// The way an npm, 9 or later but 11.6.1 and 11.6.2, works the flags out.
 function calcOf(npm) {
-  const [major, minor] = npm.split('.').map(Number)
+  const [major, minor, patch] = npm.split('.').map(Number)
   if (major > 11 || (major === 11 && minor >= 18)) return VERSIONS[0]
-  return VERSIONS[major === 11 && minor >= 7 ? 1 : 2]
+  return VERSIONS[major === 11 && (minor > 6 || (minor === 6 && patch >= 3)) ? 1 : 2]
 }
 
 // Each node's flags as npm sets them: all as `npm` does, where given; else

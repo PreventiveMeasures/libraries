@@ -22,6 +22,7 @@ function readOptions(options) {
   const checkVersions = checkSemver(options, SEMVER)
   if (typeof legacyPeerDeps !== 'boolean') throw new TypeError('legacyPeerDeps: expected a boolean')
   if (npm !== undefined && !(/^\d+\.\d+\.\d+$/u.test(npm) && Number(npm.split('.')[0]) >= 9)) throw new TypeError('npm: expected a version of npm 9 or later, such as 11.12.1')
+  if (npm === '11.6.1' || npm === '11.6.2') throw new TypeError(`npm: ${npm} works the flags out in a way not read here`)
   return { semver: checkVersions ? semver : undefined, legacyPeerDeps, npm }
 }
 
@@ -35,7 +36,7 @@ function readVersion(doc) {
 
 // The name, version and flags npm writes above the packages are the
 // project's: its directory's name where its package.json has none, and the
-// flags a link to it gives it in npm 11.7 to 11.17.
+// flags a link to it gives it in npm 11.6.3 to 11.17.
 function readHeader(doc, root) {
   const name = text(doc.name, 'name')
   if (root.name !== undefined && root.name !== name) throw new LockfileError(`expected the project's, ${quote(root.name)}`, 'name')

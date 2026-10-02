@@ -181,7 +181,7 @@ describe('what else npm writes is read', () => {
   })
 
   it('a link to the project, which npm writes as resolved to ""', () => {
-    // npm 11.7 to 11.17 give the project the flags of a link to it, which
+    // npm 11.6.3 to 11.17 give the project the flags of a link to it, which
     // npm writes above the packages too.
     const self = (list, flags = {}, above = flags) => edit((l) => {
       l.packages[''][list] = { ...l.packages[''][list], self: 'file:.' }
@@ -517,7 +517,7 @@ describe('each dependency is met where npm looks for it', () => {
 
 describe('the flags npm writes', () => {
   // The project's x is a link to a package in the node_modules of its dev
-  // dependency dv: npm 11.7 and later leave dv dev, npm 9 to 11.6 clear
+  // dependency dv: npm 11.6.3 and later leave dv dev, npm 9 to 11.6.0 clear
   // the flags of what x is in. And a link to a, from the optional @s/o:
   // npm before 11.18 give a the link's flags, as though optional alone.
   const linked = (change) => edit((l) => {
@@ -540,8 +540,8 @@ describe('the flags npm writes', () => {
   })
 
   it('of a package nothing asks for, which a link leads into', () => {
-    // npm 11.7 and later leave every flag of dv set, which npm writes as
-    // dev, optional and peer; npm 9 to 11.6 clear them.
+    // npm 11.6.3 and later leave every flag of dv set, which npm writes as
+    // dev, optional and peer; npm 9 to 11.6.0 clear them.
     const unasked = (change) => linked((l) => {
       delete l.packages[''].devDependencies.dv
       change(l.packages['node_modules/dv'])
@@ -557,6 +557,8 @@ describe('the flags npm writes', () => {
     assert.equal(parse(lock, { semver, npm: '11.17.0' }).packages['node_modules/dv'].dev, true)
     refuses(lock, 'expected none, as npm 11.6.0 sets it from what depends on it', `${P('node_modules/dv')}.dev`, { semver, npm: '11.6.0' })
     refuses(lock, 'expected none, as npm 10.9.9 sets it from what depends on it', `${P('node_modules/dv')}.dev`, { semver, npm: '10.9.9' })
+    assert.equal(parse(lock, { semver, npm: '11.6.3' }).packages['node_modules/dv'].dev, true)
+    assert.throws(() => parse(lock, { semver, npm: '11.6.2' }), { name: 'TypeError', message: 'npm: 11.6.2 works the flags out in a way not read here' })
     const cleared = linked((l) => delete l.packages['node_modules/dv'].dev)
     assert.equal(parse(cleared, { semver, npm: '11.6.0' }).packages['node_modules/dv'].dev, false)
     assert.equal(parse(cleared, { semver, npm: '10.9.9' }).packages['node_modules/dv'].dev, false)
