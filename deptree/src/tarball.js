@@ -16,6 +16,11 @@ export const REGISTRY = 'https://registry.npmjs.org/'
 // The registry's own URL for a version's tarball, as npm and pnpm spell it.
 export const tarballUrl = (name, version) => `${REGISTRY}${name}/-/${name.split('/').at(-1)}-${version}.tgz`
 
+// yarn's mirror of npm's registry, which serves the same tarballs at the
+// same paths, taken for npm's.
+const YARNPKG = 'https://registry.yarnpkg.com/'
+export const fromMirror = (url) => (url.startsWith(YARNPKG) ? `${REGISTRY}${url.slice(YARNPKG.length)}` : url)
+
 const sameBytes = (a, b) => a.length === b.length && a.every((byte, i) => byte === b[i])
 export const sameFile = (a, b) => a.mode === b.mode && sameBytes(a.data, b.data)
 

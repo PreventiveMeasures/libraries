@@ -19,14 +19,12 @@
 // releases read otherwise.
 
 import { DeptreeError, quote } from '../error.js'
-import { REGISTRY, fetchTarball, tarballUrl } from '../tarball.js'
+import { fetchTarball, fromMirror, tarballUrl } from '../tarball.js'
 
 const UMASK = 0o022
 
-// yarn's mirror of npm's registry, which serves the same tarballs at the
-// same paths; and a scope's `/`, which npm may write `%2f`.
-const YARNPKG = 'https://registry.yarnpkg.com/'
-const asNpm = (url) => (url.startsWith(YARNPKG) ? `${REGISTRY}${url.slice(YARNPKG.length)}` : url).replace(/^(https:\/\/registry\.npmjs\.org\/@[^/]+)%2f/iu, '$1/')
+// npm's URL, a scope's `/` as `/`, which npm may write `%2f`.
+const asNpm = (url) => fromMirror(url).replace(/^(https:\/\/registry\.npmjs\.org\/@[^/]+)%2f/iu, '$1/')
 
 export function registryTarball({ name, version, resolution }, where) {
   if (resolution === undefined) throw new DeptreeError('a package bundled in another is not supported', where)
