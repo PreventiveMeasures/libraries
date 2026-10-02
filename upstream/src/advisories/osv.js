@@ -13,10 +13,12 @@ const QUERIES_PER_REQUEST = 1000
 const RECORDS_AT_ONCE = 8
 const isOsvId = matches(/^(?=.{1,128}$)[A-Z][\dA-Z]*(?:-[\dA-Za-z]+)+$/u)
 const INFORMATIONAL = new Set(['unmaintained', 'unsound', 'notice'])
-// Of the records that publish one advisory, the one ranked first stands
-// for the rest on the versions it was answered for: RustSec's, what `cargo
-// audit` reads and GitHub mirrors, then the GHSA, then any other (MAL-…).
+// Of the records that publish one advisory, the first answered for a
+// version stands for the rest on it: RustSec's, what `cargo audit` reads
+// and GitHub mirrors, then the GHSA, then any other (MAL-…), then by id.
 const rank = (id) => (id.startsWith('RUSTSEC-') ? 0 : (isGhsa(id) ? 1 : 2))
+const first = (a, b) => rank(a.id) - rank(b.id) || order(a.id, b.id)
+const named = (a, b) => a.aliases.includes(b.id) || b.aliases.includes(a.id)
 
 export const CARGO = {
   osv: 'crates.io',
@@ -75,8 +77,9 @@ function toAdvisory(ecosystem, name, versions, record) {
 // OSV's batch query matches versions on its side, but answers ids only:
 // each record is fetched once after. An advisory more than one database
 // publishes comes back under each one's id, the records naming each other
-// as aliases, either way round: each keeps only the versions none ranked
-// above it was answered for too, and has the others' ids as aliases.
+// as aliases, either way round, directly or through others: one group, in
+// which each version is reported under the first answered for it, and
+// each record has the others' ids as aliases.
 async function osvAdvisories(ecosystem, asked, options) {
   const { osv, github, lookUp, covers } = ecosystem
   const list = [...asked].flatMap(([name, versions]) => versions.map((version) => ({ name, version })))
@@ -96,11 +99,18 @@ async function osvAdvisories(ecosystem, asked, options) {
     }
   }
   const records = (await pool([...hits.keys()], RECORDS_AT_ONCE, getVuln)).filter((record) => !record.withdrawn)
+  const groups = new Map()
+  for (const record of records) {
+    if (groups.has(record)) continue
+    const group = [record]
+    for (const member of group) group.push(...records.filter((other) => !group.includes(other) && named(member, other)))
+    for (const member of group) groups.set(member, group)
+  }
   const rows = []
   for (const record of records) {
-    const linked = records.filter((other) => other !== record && (record.aliases.includes(other.id) || other.aliases.includes(record.id)))
-    const above = linked.filter((other) => rank(other.id) < rank(record.id))
-    const aliases = [...new Set([...record.aliases, ...linked.map((other) => other.id)])]
+    const group = groups.get(record)
+    const above = group.filter((other) => first(other, record) < 0)
+    const aliases = [...new Set([...record.aliases, ...group.map((other) => other.id)])].filter((id) => id !== record.id)
     for (const [name, versions] of hits.get(record.id)) {
       const rest = [...versions].filter((version) => !above.some((other) => hits.get(other.id).get(name)?.has(version)))
       if (rest.length > 0) rows.push(toAdvisory(osv, name, rest, { ...record, aliases }))

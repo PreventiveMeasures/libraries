@@ -140,6 +140,28 @@ describe('cargo', () => {
     ])
   })
 
+  it('reports a version once for records linked directly or through another, equal ranks by id', async () => {
+    stubOsv({
+      // Two GHSAs naming each other.
+      'dup@1.0.0': ['GHSA-eeee-eeee-eeee', 'GHSA-dddd-dddd-dddd'],
+      // RustSec and a MAL- record both name a GHSA answered for 2.0.0 alone.
+      'chain@1.0.0': ['RUSTSEC-2026-0002', 'MAL-2026-0003'],
+      'chain@2.0.0': ['GHSA-ffff-ffff-ffff'],
+    }, {
+      'GHSA-dddd-dddd-dddd': ghsa('GHSA-dddd-dddd-dddd', { aliases: ['GHSA-eeee-eeee-eeee'] }),
+      'GHSA-eeee-eeee-eeee': ghsa('GHSA-eeee-eeee-eeee', { aliases: ['GHSA-dddd-dddd-dddd'] }),
+      'RUSTSEC-2026-0002': rustsec('RUSTSEC-2026-0002', { aliases: ['GHSA-ffff-ffff-ffff'] }),
+      'MAL-2026-0003': { id: 'MAL-2026-0003', aliases: ['GHSA-ffff-ffff-ffff'] },
+      'GHSA-ffff-ffff-ffff': ghsa('GHSA-ffff-ffff-ffff', { aliases: [] }),
+    })
+    const found = await cargo([{ name: 'dup', version: '1.0.0' }, { name: 'chain', version: '1.0.0' }, { name: 'chain', version: '2.0.0' }])
+    assert.deepEqual(found.map(({ name, id, aliases, versions }) => [name, id, aliases, versions]), [
+      ['chain', 'GHSA-ffff-ffff-ffff', ['RUSTSEC-2026-0002', 'MAL-2026-0003'], ['2.0.0']],
+      ['chain', 'RUSTSEC-2026-0002', ['GHSA-ffff-ffff-ffff', 'MAL-2026-0003'], ['1.0.0']],
+      ['dup', 'GHSA-dddd-dddd-dddd', ['GHSA-eeee-eeee-eeee'], ['1.0.0']],
+    ])
+  })
+
   it('keeps only aliases, kinds and metrics in their documented shape, and refuses a title that is not well-formed', async () => {
     stubOsv({ 'smallvec@1.6.0': ['RUSTSEC-2021-0003'] }, {
       'RUSTSEC-2021-0003': rustsec('RUSTSEC-2021-0003', {
@@ -258,6 +280,15 @@ describe('composer', () => {
       ['acme/app', 'GHSA-aaaa-aaaa-aaaa', ['2.0.0']],
       ['acme/lib', 'CVE-2026-0002', ['1.0.0']],
     ])
+  })
+
+  it('reports a version once for two records other than a GHSA that name each other', async () => {
+    stubOsv({ 'drupal/core@9.5.0': ['PKSA-n4ry-zn1q-xn5z', 'DRUPAL-CORE-2026-001'] }, {
+      'PKSA-n4ry-zn1q-xn5z': { id: 'PKSA-n4ry-zn1q-xn5z', aliases: ['DRUPAL-CORE-2026-001'] },
+      'DRUPAL-CORE-2026-001': { id: 'DRUPAL-CORE-2026-001' },
+    })
+    const found = await composer([{ name: 'drupal/core', version: '9.5.0' }])
+    assert.deepEqual(found.map(({ id, aliases, versions }) => [id, aliases, versions]), [['DRUPAL-CORE-2026-001', ['PKSA-n4ry-zn1q-xn5z'], ['9.5.0']]])
   })
 
   it('takes Composer release versions, and refuses dev versions and malformed names, before any request', async () => {

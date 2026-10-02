@@ -49,8 +49,9 @@ export interface Advisory {
   // `registry`: npm's, as `npm audit` has it, one row per vulnerable
   // range. `osv`: OSV's records for cargo and composer, RustSec's, GitHub's
   // and malicious packages' (MAL-…) among them; of the records naming each
-  // other as aliases, a version is reported under one only, RustSec's for
-  // cargo, else the GHSA.
+  // other as aliases, directly or through others, a version is reported
+  // under one only: RustSec's, else the GHSA, else the first by id. Each
+  // has the others' ids among its aliases.
   // `repository`: published on the package's repository, one row per
   // range, holding only the versions the others' answer does not report
   // under that GHSA. The only source for `soldeer` and `github`, where
