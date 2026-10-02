@@ -26,11 +26,11 @@ export function satisfiesWithPrereleases(version, range, loose = false) {
 }
 
 // `resolved` is resolve.js's; `manifests` each reference's package.json,
-// by reference, as fetched or as the workspace has it.
+// by reference, in the order resolve.js's patterns name them, as fetched
+// or as the workspace has it.
 export function resolvePeers(resolved, manifests) {
   const { patterns, byName } = resolved
-  for (const ref of new Set(patterns.values())) {
-    const manifest = manifests.get(ref)
+  for (const [ref, manifest] of manifests) {
     const peers = manifest?.peerDependencies
     if (!peers) continue
     const chain = ref.requests.map((request) => request.parentNames ?? []).sort((a, b) => a.length - b.length)[0]

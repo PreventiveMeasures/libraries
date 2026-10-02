@@ -14,6 +14,7 @@ import { readManifest } from '../manifest.js'
 import { readText, typeOf } from '../project.js'
 import { parseSpec } from './frozen.js'
 import { localOf } from './overrides.js'
+import { checkManifest } from './package.js'
 import { packDirectory } from './packlist.js'
 
 function manifestAt(project, dir, where) {
@@ -39,12 +40,15 @@ export function checkLocalOverrides(overrides, project) {
 
 // The package at the directory a `file:` dependency names, from `project`:
 // its files as npm-packlist picks them, and its package.json, which has
-// to be for the name the lockfile has; the lockfile has no version.
+// to be for the name the lockfile has, and to agree with what it recorded
+// of the package; the lockfile has no version.
 export function readDirectoryPackage(project, pkg, where, major) {
   const { directory } = pkg.resolution
   const manifest = manifestAt(project, directory, where)
   if (manifest.name !== pkg.name) throw new DeptreeError(`its package.json is for ${quote(String(manifest.name))}`, where)
-  return { files: packDirectory(project, directory, manifest, major, where), manifest }
+  const files = packDirectory(project, directory, manifest, major, where)
+  checkManifest(manifest, pkg, where, major)
+  return { files, manifest, local: true }
 }
 
 // By directory, the package.json of each directory the tree links to that

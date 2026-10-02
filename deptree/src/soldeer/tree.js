@@ -4,10 +4,10 @@
 
 import { parseSoldeerLockfile } from '@preventive/lockfile/soldeer.js'
 import { getZip } from '@preventive/upstream/soldeer.js'
-import { Vfs, VfsError } from '@preventive/vfs'
+import { Vfs } from '@preventive/vfs'
 import { eachConcurrently } from '../concurrent.js'
-import { DeptreeError, quote, refusalOf } from '../error.js'
-import { checkCollisions, fold, mount } from '../mount.js'
+import { DeptreeError, quote } from '../error.js'
+import { checkCollisions, fold, mount, writeFiles } from '../mount.js'
 import { configOf } from './config.js'
 import { checkHost, inputsOf } from './inputs.js'
 import { extractZip } from './zip.js'
@@ -28,6 +28,9 @@ function checkNoDependencies(vfs, folded) {
   }
 }
 
+// What a refusal of a dependency is about.
+const about = (name) => `dependencies[${quote(name)}]`
+
 // The registry dependencies, each with the folder Soldeer installs it in;
 // any other kind is refused. Where names are `folded`, a folder is one
 // with another that differs from it only in case or normalization.
@@ -36,7 +39,7 @@ function registryDependencies(lock, config, folded) {
   const key = (folder) => (folded ? fold(folder) : folder)
   const folders = new Set(dependencies.map(({ folder }) => key(folder)))
   for (const { type, name, version } of dependencies) {
-    const where = `dependencies[${quote(name)}]`
+    const where = about(name)
     if (type === 'git') throw new DeptreeError('a git dependency, which Soldeer clones with its history, is not supported', where)
     if (type === 'private') throw new DeptreeError('a private dependency, which the registry hands out to those signed in alone, is not supported', where)
     if (config.dependencies?.[name]?.url !== undefined) throw new DeptreeError('a dependency from a URL of its own, rather than the registry, is not supported', where)
@@ -45,7 +48,7 @@ function registryDependencies(lock, config, folded) {
   }
   // Soldeer downloads each zip beside the folders, as `<folder>.zip`.
   for (const { name, folder } of dependencies) {
-    if (folders.has(key(`${folder}.zip`))) throw new DeptreeError(`its zip is downloaded as ${quote(`${folder}.zip`)}, a folder Soldeer installs another dependency in`, `dependencies[${quote(name)}]`)
+    if (folders.has(key(`${folder}.zip`))) throw new DeptreeError(`its zip is downloaded as ${quote(`${folder}.zip`)}, a folder Soldeer installs another dependency in`, about(name))
   }
   return dependencies
 }
@@ -55,37 +58,9 @@ function registryDependencies(lock, config, folded) {
 async function fetchAll(dependencies) {
   const extracted = new Map()
   await eachConcurrently(dependencies, async ({ name, version, checksum, folder }) => {
-    const where = `dependencies[${quote(name)}]`
-    try {
-      extracted.set(folder, await extractZip(await getZip(name, version, checksum), where))
-    } catch (error) {
-      throw refusalOf(error, where)
-    }
-  })
+    extracted.set(folder, await extractZip(await getZip(name, version, checksum), about(name)))
+  }, ({ name }) => about(name))
   return extracted
-}
-
-function writeTree(extracted) {
-  const vfs = new Vfs()
-  vfs.mkdir('/dependencies')
-  let files = 0
-  let bytes = 0
-  for (const [folder, { dirs, files: written }] of extracted) {
-    const root = `/dependencies/${folder}`
-    vfs.mkdir(root)
-    for (const dir of dirs) vfs.mkdir(`${root}/${dir}`, { recursive: true })
-    for (const [path, file] of written) {
-      try {
-        vfs.writeFile(`${root}/${path}`, file.data, { mode: file.mode })
-      } catch (error) {
-        if (error instanceof VfsError) throw new DeptreeError(`cannot be written: ${error.message}`, quote(`dependencies/${folder}/${path}`), { cause: error })
-        throw error
-      }
-      files++
-      bytes += file.data.length
-    }
-  }
-  return { vfs, files, bytes }
 }
 
 export async function buildSoldeerTree(options) {
@@ -100,12 +75,16 @@ export async function buildSoldeerTree(options) {
   const lock = parseSoldeerLockfile(inputs.lockfile, { config })
   const dependencies = registryDependencies(lock, config, folded)
   const extracted = await fetchAll(dependencies)
+  const vfs = new Vfs()
+  vfs.mkdir('/dependencies')
+  const stats = { dependencies: dependencies.length, files: 0, bytes: 0 }
   // In the lockfile's order, whatever order the fetches finished in.
-  const { vfs, files, bytes } = writeTree(dependencies.map(({ folder }) => [folder, extracted.get(folder)]))
+  for (const { folder } of dependencies) {
+    vfs.mkdir(`/dependencies/${folder}`)
+    writeFiles(vfs, `dependencies/${folder}`, extracted.get(folder), stats)
+  }
   if (folded) checkCollisions(vfs)
-  const stats = { dependencies: dependencies.length, files, bytes }
   const installed = dependencies.map(({ name, version, checksum, folder }) => ({ path: `dependencies/${folder}`, name, version, checksum }))
-  if (into === undefined) return { vfs, stats, installed }
-  mount(vfs, into, folded, checkNoDependencies)
-  return { vfs: into, stats, installed }
+  if (into !== undefined) mount(vfs, into, folded, checkNoDependencies)
+  return { vfs: into ?? vfs, stats, installed }
 }

@@ -34,7 +34,7 @@ import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
 import { checkLocalOverrides, createFreshnessCheck, readDirectoryPackage, readLinked } from './local.js'
 import { createPatchedCheck, skippedSnapshots } from './install.js'
-import { checkDependencies, checkManifest, fetchPackage } from './package.js'
+import { checkDependencies, fetchPackage } from './package.js'
 import { checkLinks, checkOptional } from './checks.js'
 import { createHook } from './hook.js'
 import { listOverrides } from './overrides.js'
@@ -95,16 +95,8 @@ async function fetchAll(nodes, project, major) {
   }
   const fetched = new Map()
   await eachConcurrently(packages, async ([id, pkg]) => {
-    try {
-      if (pkg.resolution.type === 'directory') {
-        const got = readDirectoryPackage(project, pkg, quote(id), major)
-        checkManifest(got.manifest, pkg, quote(id), major)
-        fetched.set(id, { ...got, local: true })
-      } else fetched.set(id, await fetchPackage(pkg, quote(id), major))
-    } catch (error) {
-      throw refusalOf(error, quote(id))
-    }
-  })
+    fetched.set(id, pkg.resolution.type === 'directory' ? readDirectoryPackage(project, pkg, quote(id), major) : await fetchPackage(pkg, quote(id), major))
+  }, ([id]) => quote(id))
   return fetched
 }
 
@@ -341,7 +333,6 @@ export async function buildPnpmTree(options) {
   }
   checkLinks(vfs, links)
   if (folded) checkCollisions(vfs)
-  if (into === undefined) return { vfs, stats, installed: listed }
-  mount(vfs, into, folded)
-  return { vfs: into, stats, installed: listed }
+  if (into !== undefined) mount(vfs, into, folded)
+  return { vfs: into ?? vfs, stats, installed: listed }
 }

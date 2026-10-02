@@ -12,19 +12,19 @@
 // .yarn-integrity, and anything a script would build.
 
 import { parseYarn1Lockfile } from '@preventive/lockfile/yarn1.js'
-import { Vfs, VfsError } from '@preventive/vfs'
+import { Vfs } from '@preventive/vfs'
 import { compareNames, dirname, relative } from '@preventive/vfs/path.js'
 import { clean, satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { eachConcurrently } from '../concurrent.js'
-import { DeptreeError, quote, refusalOf } from '../error.js'
-import { checkCollisions, checkNoModules, mount } from '../mount.js'
+import { DeptreeError, quote } from '../error.js'
+import { checkCollisions, checkNoModules, mount, writeFiles } from '../mount.js'
 import { typeOf } from '../project.js'
 import { checkBinLinks } from './bins.js'
 import { incompatibility } from './compat.js'
 import { Hoister } from './hoist.js'
 import { checkHost, inputsOf } from './inputs.js'
 import { checkRoot, fixLists } from './manifest.js'
-import { binsOf, fetchYarnPackage, registryTarball } from './package.js'
+import { fetchYarnPackage, registryTarball } from './package.js'
 import { resolvePeers } from './peers.js'
 import { AGGREGATOR, aggregatorOf, rulesOf, topRequests, workspacesOf } from './requests.js'
 import { resolve, splitPattern } from './resolve.js'
@@ -54,12 +54,8 @@ async function fetchAll(refs) {
     return { ref, where, tarball: registryTarball(ref.entry, fetchedName(ref), where) }
   })
   await eachConcurrently(tarballs, async ({ ref, where, tarball }) => {
-    try {
-      fetched.set(ref, { ...await fetchYarnPackage(tarball, where), integrity: tarball.integrity })
-    } catch (error) {
-      throw refusalOf(error, where)
-    }
-  })
+    fetched.set(ref, { ...await fetchYarnPackage(tarball, where), integrity: tarball.integrity })
+  }, ({ where }) => where)
   return fetched
 }
 
@@ -92,8 +88,9 @@ function resolveProject(inputs, host) {
 // Every package fetched, as yarn fetches each before it checks any, and
 // read; then each the host cannot run left out where it is optional, and
 // refused where it is not, as yarn fails on it. By reference, each one's
-// package.json as yarn reads it, a workspace's its own, and whether a
-// registry one has bins.
+// package.json as yarn reads it, a workspace's its own; and on each
+// registry one whether it has bins, which those its fetcher passes over
+// have none of.
 async function fetchChecked(resolved, host, settings) {
   // What yarn's resolver hands its fetcher, in its order: each reference
   // its patterns name, once. Of those its cache keeps in one place, two of
@@ -107,7 +104,6 @@ async function fetchChecked(resolved, host, settings) {
   for (const ref of order) if (ref.kind === 'registry' && !first.has(ref.loc)) first.set(ref.loc, ref)
   const fetched = await fetchAll([...first.values()])
   const manifestOf = new Map()
-  const hasBins = new Map()
   for (const ref of order) {
     let manifest = ref.workspace?.manifest
     if (ref.kind === 'registry') {
@@ -115,12 +111,12 @@ async function fetchChecked(resolved, host, settings) {
       const { sha1 } = ref.entry.resolution
       if (sha1 !== undefined && fetched.get(head).sha1 !== sha1) throw new DeptreeError(`the tarball's sha1 is not ${sha1}`, whereOf(ref))
       fetched.set(ref, fetched.get(head))
+      ref.hasBins = head === ref && fetched.get(ref).hasBins
       manifest = head === ref ? fixLists(fetched.get(ref).manifest) : { name: ref.name, version: ref.version }
     }
     const bundled = manifest.bundleDependencies ?? manifest.bundledDependencies
     if (bundled && !(Array.isArray(bundled) && bundled.length === 0)) throw new DeptreeError('a package with bundled dependencies is not supported', whereOf(ref))
     manifestOf.set(ref, manifest)
-    if (ref.kind === 'registry') hasBins.set(ref, binsOf(manifest, fetched.get(ref)).size > 0)
   }
   for (const ref of order) {
     const reason = incompatibility(manifestOf.get(ref), host, whereOf(ref), settings)
@@ -128,7 +124,7 @@ async function fetchChecked(resolved, host, settings) {
     if (!ref.optional) throw new DeptreeError(`${reason}, and it is not optional, which yarn fails on`, whereOf(ref))
     ref.incompatible = true
   }
-  return { packages: first.size, fetched, manifestOf, hasBins }
+  return { packages: first.size, fetched, manifestOf }
 }
 
 // The tree as yarn hoists it, flat: each package by where it goes, in the
@@ -140,7 +136,7 @@ async function fetchChecked(resolved, host, settings) {
 // what it asks for, its peers once found among them.
 function layout({ resolved, manifestOf, asked, workspaces }) {
   resolvePeers(resolved, manifestOf)
-  for (const ref of new Set(resolved.patterns.values())) ref.dependencies = ref.asked.map(({ pattern }) => pattern)
+  for (const ref of manifestOf.keys()) ref.dependencies = ref.asked.map(({ pattern }) => pattern)
   const hoister = new Hoister(resolved.patterns, (ref) => Object.keys(manifestOf.get(ref)?.peerDependencies ?? {}))
   hoister.seed(asked.map(({ pattern }) => pattern))
   const flat = hoister.flatten(workspaces.size > 0 ? AGGREGATOR : undefined)
@@ -175,8 +171,7 @@ function writeTree(placed, fetched) {
   }
   const letGo = (pkg) => Object.assign(pkg, { files: undefined, dirs: undefined })
   for (const pkg of new Set(fetched.values())) if (!left.has(pkg)) letGo(pkg)
-  let files = 0
-  let bytes = 0
+  const counted = { files: 0, bytes: 0 }
   for (const { loc, info } of placed) {
     const { ref } = info
     const dest = realOf(links, loc)
@@ -193,22 +188,11 @@ function writeTree(placed, fetched) {
     if (earlier?.[0].ref === ref) earlier.push(info)
     else copies.set(dest, [info])
     vfs.mkdir(`/${dest}`, { recursive: true })
-    for (const dir of pkg.dirs) if (!skipped(dir)) vfs.mkdir(`/${dest}/${dir}`, { recursive: true })
-    for (const [path, file] of pkg.files) {
-      if (skipped(path)) continue
-      try {
-        vfs.writeFile(`/${dest}/${path}`, file.data, { mode: file.mode })
-      } catch (error) {
-        if (error instanceof VfsError) throw new DeptreeError(`cannot be written: ${error.message}`, quote(`${dest}/${path}`), { cause: error })
-        throw error
-      }
-      files++
-      bytes += file.data.length
-    }
+    writeFiles(vfs, dest, pkg, counted, skipped)
     left.set(pkg, left.get(pkg) - 1)
     if (left.get(pkg) === 0) letGo(pkg)
   }
-  return { vfs, links, locations, copies, files, bytes }
+  return { vfs, links, locations, copies, ...counted }
 }
 
 // Each copy of a registry package as the list of what is installed has it,
@@ -234,10 +218,10 @@ export async function buildYarn1Tree(options) {
   if (into !== undefined) checkNoModules(into, folded)
   checkRoot(inputs.manifests.get('.'))
   const { workspaces, asked, resolved } = resolveProject(inputs, host)
-  const { packages, fetched, manifestOf, hasBins } = await fetchChecked(resolved, host, inputs.settings)
+  const { packages, fetched, manifestOf } = await fetchChecked(resolved, host, inputs.settings)
   const { placed, hoister } = layout({ resolved, manifestOf, asked, workspaces })
   const { vfs, links, locations, copies, files, bytes } = writeTree(placed, fetched)
-  checkBinLinks({ placed, patterns: resolved.patterns, hasBins, locations, realOf: (path) => realOf(links, path) })
+  checkBinLinks({ placed, patterns: resolved.patterns, locations, realOf: (path) => realOf(links, path) })
   if (folded) checkCollisions(vfs)
   const stats = {
     packages,
@@ -248,7 +232,6 @@ export async function buildYarn1Tree(options) {
     links: links.size,
   }
   const installed = listInstalled(copies, fetched, asked, hoister)
-  if (into === undefined) return { vfs, stats, installed }
-  mount(vfs, into, folded)
-  return { vfs: into, stats, installed }
+  if (into !== undefined) mount(vfs, into, folded)
+  return { vfs: into ?? vfs, stats, installed }
 }

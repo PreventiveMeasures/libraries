@@ -4,8 +4,11 @@
 // another tree what its `check` refuses: kept beside the tree, Node would
 // read it as the tree's, and removed, it would be the caller's lost;
 // neither is safe. Vfs.mount judges everything before anything is written,
-// so a refusal leaves the Vfs as it was.
+// so a refusal leaves the Vfs as it was. And what every tree is built with:
+// a package's files written into it, and a check of it for names macOS
+// takes for one.
 
+import { VfsError } from '@preventive/vfs'
 import { basename } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from './error.js'
 
@@ -37,6 +40,24 @@ export function checkCollisions(vfs) {
       if (folded.has(key)) throw new DeptreeError(`${quote(folded.get(key))} and ${quote(name)} are one name on macOS`, quote(path))
       folded.set(key, name)
     }
+  }
+}
+
+// A package's directories and files, as unpacked, written under `root`,
+// a directory of the tree, but those `skip` takes, each file counted in
+// `stats`; one the Vfs cannot write is refused by its path in the tree.
+export function writeFiles(vfs, root, { dirs, files }, stats, skip = () => false) {
+  for (const dir of dirs) if (!skip(dir)) vfs.mkdir(`/${root}/${dir}`, { recursive: true })
+  for (const [path, file] of files) {
+    if (skip(path)) continue
+    try {
+      vfs.writeFile(`/${root}/${path}`, file.data, { mode: file.mode })
+    } catch (error) {
+      if (error instanceof VfsError) throw new DeptreeError(`cannot be written: ${error.message}`, quote(`${root}/${path}`), { cause: error })
+      throw error
+    }
+    stats.files++
+    stats.bytes += file.data.length
   }
 }
 

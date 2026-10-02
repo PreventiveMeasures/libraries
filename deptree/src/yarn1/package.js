@@ -17,8 +17,8 @@
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { sha1Hex } from '../hash.js'
+import { readManifest } from '../manifest.js'
 import { REGISTRY, fetchTarball, sameFile, tarballUrl } from '../tarball.js'
-import { readManifest } from './manifest.js'
 
 const UMASK = 0o022
 
@@ -77,7 +77,7 @@ export function registryTarball(entry, name, where) {
 }
 
 // The package's entries, as yarn's fetcher leaves them, its package.json
-// as parsed, and the tarball's sha1 in hex.
+// as parsed, the tarball's sha1 in hex, and whether it has bins.
 export async function fetchYarnPackage({ name, version, integrity }, where) {
   const { bytes, entries } = await fetchTarball(name, version, integrity, where)
   const sha1 = await sha1Hex(bytes)
@@ -103,7 +103,7 @@ export async function fetchYarnPackage({ name, version, integrity }, where) {
     const script = files.get(target.replace(/\/$/u, ''))
     if (script !== undefined) script.mode = 0o755
   }
-  return { files, dirs, manifest, sha1 }
+  return { files, dirs, manifest, sha1, hasBins: bins.size > 0 }
 }
 
 // A bin's name, and its target as a path in the package, as yarn's
@@ -117,7 +117,7 @@ const VALID_BIN_KEYS = /^(?!\.{0,2}$)[a-z0-9._-]+$/iu
 
 const outside = (path) => path.startsWith('/') || path === '..' || path.startsWith('../')
 
-export function binsOf(manifest, { files, dirs }) {
+function binsOf(manifest, { files, dirs }) {
   let { bin } = manifest
   if (typeof manifest.name === 'string' && typeof bin === 'string' && bin.length > 0) bin = { [manifest.name.replace(/^@[^/]+\//u, '')]: bin }
   const bins = new Map()

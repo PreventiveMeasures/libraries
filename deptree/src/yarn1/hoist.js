@@ -14,14 +14,9 @@
 // reachedBut, which tells what dev or optional dependencies alone reach,
 // is this port's own.
 
-// yarn's sortAlpha: by UTF-16 code units, then by length.
-function sortAlpha(a, b) {
-  const length = Math.min(a.length, b.length)
-  for (let i = 0; i < length; i++) {
-    if (a[i] !== b[i]) return a[i] < b[i] ? -1 : 1
-  }
-  return a.length - b.length
-}
+// yarn's sortAlpha: by UTF-16 code units, then by length, as `<` compares
+// two strings.
+const sortAlpha = (a, b) => (a < b ? -1 : a > b ? 1 : 0)
 
 const implode = (parts) => parts.join('#')
 

@@ -20,17 +20,17 @@ function finds(name, loc, dir) {
   }
 }
 
-// `placed` the flat tree, tree.js's; `patterns` resolve.js's; `hasBins`
-// whether each registry package has bins, as yarn reads them from its
-// package.json and files; `locations` each reference's copies, where they
-// really are, and `realOf` where a path in the tree really is.
-export function checkBinLinks({ placed, patterns, hasBins, locations, realOf }) {
+// `placed` the flat tree, tree.js's; `patterns` resolve.js's, each
+// registry reference with whether it has bins; `locations` each
+// reference's copies, where they really are, and `realOf` where a path in
+// the tree really is.
+export function checkBinLinks({ placed, patterns, locations, realOf }) {
   for (const { loc, info } of placed) {
     const binLoc = `${loc}/node_modules`
     const realBinLoc = realOf(binLoc)
     for (const pattern of info.ref.dependencies) {
       const dep = patterns.get(pattern)
-      if (dep.kind !== 'registry' || !locations.has(dep) || !hasBins.get(dep)) continue
+      if (dep.kind !== 'registry' || !locations.has(dep) || !dep.hasBins) continue
       const found = locations.get(dep).some((at) => finds(dep.name, at, binLoc) || finds(dep.name, at, realBinLoc))
       if (!found) throw new DeptreeError(`yarn finds no copy of ${quote(dep.name)} to link the bins of`, quote(loc))
     }

@@ -1,13 +1,9 @@
-// A package.json as yarn 1 reads one (util/normalize-manifest): its text
-// parsed, its dependency lists as yarn leaves them, its workspace globs,
-// and what of the root's yarn fails on, or would install otherwise than
-// this follows.
+// A package.json as yarn 1 reads one (util/normalize-manifest), parsed as
+// ../manifest.js parses it: its dependency lists as yarn leaves them, its
+// workspace globs, and what of the root's yarn fails on, or would install
+// otherwise than this follows.
 
 import { DeptreeError, quote } from '../error.js'
-
-// yarn's readJson reads a package.json as pnpm does: a byte order mark
-// dropped.
-export { readManifest } from '../manifest.js'
 
 // yarn's cleanDependencies: a name in several of the dependency lists kept
 // in the first of optionalDependencies, dependencies and devDependencies,
