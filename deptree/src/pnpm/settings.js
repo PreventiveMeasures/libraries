@@ -1,29 +1,8 @@
-// The settings a pnpm 10 install reads from the .npmrc beside the
+// The settings an install reads. pnpm 10 reads the .npmrc beside the
 // lockfile, pnpm-workspace.yaml and the root package.json's `pnpm` field,
-// each over the one before: `pnpm install` spreads the package.json's over
-// the rest, whatever pnpm's config alone would say. Every key of the yaml
-// and the package.json is read here and held to what this package builds
-// for, or known to leave the tree as it is (a frozen lockfile already
-// settles it; it is about the network, the store, a cache, a script or a
-// bin, as no script is ever run; or it is a credential), or refused by
-// name (readers.js).
-//
-// An .npmrc is read as pnpm reads one, by the kebab-case names it has
-// types for, npm's and its own: those that can change the tree are read
-// here, and the rest passed over, as pnpm does for an install. pnpm drops
-// the whole file where a variable it names is unset, so one is taken only
-// in a line passed over, and only where dropping the file would change
-// nothing. Settings from anywhere else (a user or global .npmrc,
-// `npm_config_*`, the command line) are taken to be at their defaults.
-//
-// pnpm 11 reads settings from pnpm-workspace.yaml alone: an .npmrc only
-// for credentials and registries, the package.json only for
-// runtimeNodeVersion. It passes over a yaml key not in camelCase, or about
-// the machine, the run or a login, and reads linkWorkspacePackages for a
-// frozen install too. pnpm 12 reads them as pnpm 11 does, but where the
-// root package.json pins the pnpm that runs, it fails on a yaml key with
-// a value it does not know, and drops it otherwise. readers.js has what
-// each adds (READ_11, IGNORED_11, READ_12, IGNORED_12, UNRECOGNIZED_12).
+// each over the one before; pnpm 11 and 12 read pnpm-workspace.yaml alone.
+// Settings from anywhere else (a user or global .npmrc, `npm_config_*`, the
+// command line) are taken to be at their defaults.
 
 import { valid, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
@@ -31,8 +10,7 @@ import { parseNpmrc } from '../npmrc.js'
 import { replaceReferences } from './overrides.js'
 import { IGNORED, MANIFEST_KEYS, READ, checkRegistry, known12, readerOf, readers, unrecognized12 } from './readers.js'
 
-// An .npmrc value is read only where it can mean one thing: not quoted,
-// not escaped, with no `;` or `#` that ini would cut it at.
+// An .npmrc value can mean one thing only with no quote, escape, `;` or `#`.
 const PLAIN = /^[^"'`;#\\]*$/u
 function plain(value, where) {
   if (!PLAIN.test(value)) throw new DeptreeError(`${quote(value)} is quoted, escaped or commented, which is not read here`, where)
@@ -50,9 +28,8 @@ function noEnvironment(value, where) {
 const KEBAB = /^[a-z][\da-z]*(?:-[\da-z]+)*$/u
 const camelCase = (key) => key.replace(/-+([a-z\d])/gu, (_, char) => char.toUpperCase())
 
-// pnpm 11 reads an .npmrc for credentials and registries alone: each
-// registry has to be the public one, but one of a project's .npmrc that
-// names a variable is passed over.
+// pnpm 11 reads an .npmrc for credentials and registries alone; a registry
+// that names a variable is passed over.
 function checkNpmrcRegistries(text) {
   for (const { key, value, line } of parseNpmrc(text)) {
     if ((key !== 'registry' && !/^@[^:]+:registry$/u.test(key)) || fromEnvironment(value)) continue
@@ -61,8 +38,6 @@ function checkNpmrcRegistries(text) {
   }
 }
 
-// Each setting has to be written once, or with `[]` every time;
-// `environment` is whether a line passed over names a variable.
 function fromNpmrc(text) {
   const settings = new Map()
   let environment = false
@@ -87,8 +62,7 @@ function fromNpmrc(text) {
   return { settings, environment }
 }
 
-// The keys of `pnpm` pnpm 10 reads (MANIFEST_KEYS), and the overrides of
-// Yarn's `resolutions` and `pnpm.overrides`, the second over the first.
+// pnpm 10 takes Yarn's `resolutions` as overrides, under `pnpm.overrides`.
 function fromManifest(manifest) {
   const pnpm = manifest.pnpm === undefined ? {} : readers.mapping(manifest.pnpm, 'package.json: pnpm')
   const settings = new Map()
@@ -108,10 +82,9 @@ function fromManifest(manifest) {
   return settings
 }
 
-// pnpm 11 passes over a key not in camelCase.
 const CAMEL = /^[a-z][\dA-Za-z]*$/u
 
-// pnpm 12 passes over a key with no value. `pinned` is readerOf's.
+// pnpm 12 passes over a key with no value.
 function fromWorkspace(workspace, major, pinned) {
   if (workspace === null || typeof workspace !== 'object' || Array.isArray(workspace)) throw new DeptreeError('expected a mapping', 'pnpm-workspace.yaml')
   const settings = new Map()
@@ -129,9 +102,8 @@ function fromWorkspace(workspace, major, pinned) {
   return settings
 }
 
-// The settings as pnpm 10 derives them; a hoist pattern left undefined is
-// not hoisted to at all. virtualStoreDirMaxLength is 60 by default on
-// Windows alone, which is refused (inputs.js's checkHost).
+// A hoist pattern left undefined is not hoisted to at all. Only on Windows,
+// which checkHost refuses, is virtualStoreDirMaxLength 60 by default.
 function derive(get) {
   const shamefullyHoist = get('shamefullyHoist')
   let publicHoistPattern = get('publicHoistPattern') ?? []
@@ -162,7 +134,6 @@ function derive(get) {
   }
 }
 
-// The catalogs by name, `catalog` being `default`, as pnpm has them.
 function catalogsOf(catalog, catalogs = {}) {
   if (catalog !== undefined && Object.hasOwn(catalogs, 'default')) {
     throw new DeptreeError('the default catalog is defined twice, as catalog and as catalogs.default', 'pnpm-workspace.yaml: catalog')
@@ -170,7 +141,6 @@ function catalogsOf(catalog, catalogs = {}) {
   return Object.assign(Object.create(null), catalog === undefined ? {} : { default: catalog }, catalogs)
 }
 
-// Each layer over the one before, as `derive` has them.
 function settle(layers, manifest) {
   const values = new Map()
   for (const layer of layers) {
@@ -187,13 +157,9 @@ function settle(layers, manifest) {
   return derive((name) => values.get(name))
 }
 
-// `workspace` is pnpm-workspace.yaml as parsed and `npmrc` the .npmrc's
-// text, either possibly undefined; `pinned` whether the root package.json
-// pins the pnpm that runs (fromWorkspace). Overrides that name nothing
-// are none, and leave those below them.
+// Overrides that name nothing are none, and leave those below them.
 export function readSettings({ workspace, npmrc, manifest, major = 10, pinned = false }) {
   const fromYaml = () => (workspace === undefined ? new Map() : fromWorkspace(workspace, major, pinned))
-  // pnpm 11 reads no setting from the package.json, not even `resolutions`.
   if (major >= 11) {
     if (npmrc !== undefined) checkNpmrcRegistries(npmrc)
     const settings = settle([fromYaml()], manifest)
@@ -209,10 +175,9 @@ export function readSettings({ workspace, npmrc, manifest, major = 10, pinned = 
   return settings
 }
 
-// The Node the root's devEngines.runtime or engines.runtime pins, for
-// nodeVersion where none is set; the first naming a range for Node
-// decides, with its version where exact. One to download, which gives the
-// range's lowest, is refused.
+// The Node the root's runtime pins, for nodeVersion where none is set: the
+// first naming a range for Node decides, with its version where exact. One
+// to download, which gives the range's lowest, is refused.
 function runtimeNode(manifest, onFail) {
   for (const field of ['devEngines', 'engines']) {
     const runtime = manifest[field]?.runtime

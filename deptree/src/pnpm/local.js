@@ -1,10 +1,6 @@
-// Directories outside node_modules the tree links to or installs, read
-// from the project where one is given: those local overrides name, and
-// any other a `link:` leads to under the lockfile's directory that is no
-// project. Each must hold a package.json, whose bins take their names as
-// pnpm links them. A `file:` override has pnpm install the directory as a
-// package (packlist.js); pnpm 12 first holds one a project depends on to
-// the lockfile.
+// Directories outside node_modules the tree links to or installs, read from the
+// project given. Each must hold a package.json, whose bins take their names as
+// pnpm links them.
 
 import { satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, difference, quote } from '../error.js'
@@ -35,8 +31,7 @@ export function checkLocalOverrides(overrides, project) {
   return installed
 }
 
-// A `file:` dependency's directory as a package, its package.json checked
-// against the lockfile, which records no version for it.
+// The lockfile records no version for a `file:` dependency's directory.
 export function readDirectoryPackage(project, pkg, where, major) {
   const { directory } = pkg.resolution
   const manifest = manifestAt(project, directory, where)
@@ -46,8 +41,6 @@ export function readDirectoryPackage(project, pkg, where, major) {
   return { files, manifest, local: true }
 }
 
-// By directory, the package.json of each linked directory under the
-// lockfile's that is no node or project; none without `project`.
 export function readLinked(links, nodes, projects, project) {
   const linked = new Map()
   if (project === undefined) return linked
@@ -58,9 +51,7 @@ export function readLinked(links, nodes, projects, project) {
   return linked
 }
 
-// Whether pnpm 12 takes `target` to be what `spec`, not to a directory,
-// asks for: the package it names, `npm:` aliases included, at a version
-// in its range where both are valid.
+// Whether pnpm 12 takes `target` to be what `spec` asks for.
 function resolvesTo(name, spec, target, packages) {
   if (target.startsWith('link:')) return false
   const locked = packages[target]
@@ -72,11 +63,9 @@ function resolvesTo(name, spec, target, packages) {
 
 const optionalPeers = (meta) => Object.entries(meta ?? {}).filter(([, item]) => item?.optional === true).map(([name]) => name).sort()
 
-// pnpm 12 holds a `file:` directory a project depends on to the lockfile
-// by its overridden package.json, `read`: the snapshot's dependencies are
-// those it asks for (a peer may be among them, an optional one missing),
-// resolved as asked, and its peers and which are optional match. A `file:`
-// or `link:` one is left to package.js's checkDependencies.
+// `read` is the hooked package.json. A peer may be among the snapshot's
+// dependencies and an optional one missing; a `file:` or `link:` one is left to
+// package.js's checkDependencies.
 function checkFresh(read, pkg, packages, where) {
   const outdated = (why) => new DeptreeError(`the lockfile is not up to date with its package.json, which a frozen install of pnpm 12 refuses: ${why}`, where)
   const wanted = { dependencies: read.dependencies ?? {}, optionalDependencies: read.optionalDependencies ?? {} }
@@ -101,8 +90,8 @@ function checkFresh(read, pkg, packages, where) {
   if (JSON.stringify(optionalPeers(read.peerDependenciesMeta)) !== JSON.stringify(optionalPeers(pkg.peerDependenciesMeta))) throw outdated('which of its peers are optional is not the lockfile\'s')
 }
 
-// pnpm 12's check, before it installs, of each snapshot a project depends
-// on by a `file:` specifier to a directory; undefined for earlier pnpm.
+// pnpm 12's check, before it installs, of each snapshot a project depends on by
+// a `file:` specifier to a directory.
 export function createFreshnessCheck(lockfile, major) {
   if (major < 12) return undefined
   const direct = new Set()

@@ -1,16 +1,13 @@
-// pnpm 10 applies the patch patchedDependencies picks for a package's name
-// and version (@pnpm/patching.config's getPatchInfo), not the one its
-// snapshot key names: `name@version`, else the one `name@range` taking the
-// version, else `name@*` or `name`. Every snapshot must name that pick's
-// hash, so applying by key matches pnpm; and, stricter than pnpm (which
-// checks this only when resolving), every patch must be some snapshot's.
+// pnpm 10 applies the patch patchedDependencies picks for a package's name and
+// version (@pnpm/patching.config's getPatchInfo), not the one its snapshot key
+// names, so every snapshot must name that pick's hash. Every patch must be some
+// snapshot's, which pnpm checks only when resolving.
 
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { isExactVersion, satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 
-// dependency-path's parse of a selector: a name and an exact version, a
-// name and anything else after its `@`, or neither.
+// dependency-path's parse of a selector.
 function parseSelector(selector) {
   const at = selector.indexOf('@', 1)
   const rest = at === -1 ? '' : packageKeyOf(selector).slice(at + 1)
@@ -19,8 +16,7 @@ function parseSelector(selector) {
   return isExactVersion(rest) ? { name, version: rest } : { name, range: rest }
 }
 
-// groupPatchedDependencies: by package name, the selectors that can pick
-// it; a later one of a kind over an earlier, as pnpm assigns them.
+// groupPatchedDependencies: a later selector of a kind wins, as pnpm assigns.
 function group(selectors) {
   const groups = new Map()
   const of = (name) => {
@@ -47,7 +43,6 @@ function pick(groups, name, version, where) {
   return taking[0]?.selector ?? found.all
 }
 
-// `hashes` is the configured patches' hashes and paths, by selector.
 export function checkPatchUse(lockfile, hashes) {
   const groups = group(Object.keys(hashes))
   const used = new Set()
@@ -85,8 +80,7 @@ function splitSuffix(key) {
   return { locator: key.slice(0, end), segments }
 }
 
-// dependency-path's parse, of what is read here: the name, the version
-// where it is SemVer, and the patch hash.
+// dependency-path's parse, of the name, a SemVer version and the patch hash.
 function parseKey(key) {
   const at = key.indexOf('@', 1)
   if (at === -1 || at === key.length - 1) return {}
@@ -96,10 +90,9 @@ function parseKey(key) {
   return { name: key.slice(0, at), version: valid(base) === null ? undefined : base, hash }
 }
 
-// pnpm 11 checks patch hashes down through a key's peers too
-// (@pnpm/lockfile.fs's checkPatchedDepPaths), pnpm 10 only the snapshot:
-// a peer that names a patch hash, or, unless dedupePeers leaves versions
-// out, one of a version of a patched package, must name its pick's hash.
+// pnpm 11's checkPatchedDepPaths (@pnpm/lockfile.fs) checks hashes down through
+// a key's peers too: a peer that names one, or, unless dedupePeers leaves
+// versions out, a version of a patched package.
 export function checkPeerPatches(lockfile, hashes) {
   const groups = group(Object.keys(hashes))
   const carried = lockfile.settings.dedupePeers !== true
