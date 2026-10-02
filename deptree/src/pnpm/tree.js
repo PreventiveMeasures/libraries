@@ -1,7 +1,7 @@
-// The node_modules tree pnpm 10, 11 or 12 installs from a frozen lockfile with
-// the isolated linker and --ignore-scripts, in a Vfs rooted at the lockfile's
-// directory; patched still, as pnpm patches before scripts. Bins are not
-// linked, though what linking does to their files is (bins.js).
+// The node_modules tree pnpm 9, 10, 11 or 12 installs from a frozen lockfile
+// with the isolated linker and --ignore-scripts, in a Vfs rooted at the
+// lockfile's directory; patched still, as pnpm patches before scripts. Bins are
+// not linked, though what linking does to their files is (bins.js).
 
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { Vfs } from '@preventive/vfs'

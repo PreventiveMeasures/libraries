@@ -113,6 +113,41 @@ describe('checkProjects', () => {
   })
 })
 
+describe('checkProjects for pnpm 9', () => {
+  const HOST_9 = { ...HOST, pnpm: '9.15.9', major: 9 }
+  const CHECKS = { manage: false, strict: true, strictVersion: false }
+  const check9 = (manifest, { checks = {}, ...options } = {}) => check(manifest, { host: HOST_9, packageManagerChecks: { ...CHECKS, ...checks }, ...options })
+
+  // As real installs of pnpm 9.15.9 take, or fail on, what the root pins.
+  it('holds packageManager to the pnpm that runs as pnpm 9 does', () => {
+    for (const packageManager of ['pnpm@10.33.4', 'pnpm@9.15.9+sha512.abc', 'pnpm', 'pnpm@https://example.com/pnpm.tgz', '@yarnpkg/cli@4.0.0', '']) check9({ ...MANIFEST, packageManager })
+    assert.throws(() => check9({ ...MANIFEST, packageManager: 'yarn@1.22.22' }), /^DeptreeError: manifests\["\."\]\.packageManager: the project is installed by "yarn", which pnpm 9 refuses with packageManagerStrict$/u)
+    check9({ ...MANIFEST, packageManager: 'yarn@1.22.22' }, { checks: { strict: false } })
+    assert.throws(() => check9({ ...MANIFEST, packageManager: 'pnpm@10.33.4' }, { checks: { strictVersion: true } }), /: the project is installed by pnpm 10\.33\.4, not 9\.15\.9, which pnpm 9 refuses with packageManagerStrict and packageManagerStrictVersion$/u)
+    check9({ ...MANIFEST, packageManager: 'pnpm@10.33.4' }, { checks: { strictVersion: true, strict: false } })
+    assert.throws(() => check9({ ...MANIFEST, packageManager: 'pnpm@9.15.8' }, { checks: { manage: true } }), /: the project is installed by pnpm 9\.15\.8, which pnpm 9 switches to with managePackageManagerVersions, not 9\.15\.9$/u)
+    assert.throws(() => check9({ ...MANIFEST, packageManager: 'pnpm@v9.15.8' }, { checks: { manage: true } }), /: pnpm "v9\.15\.8" is one pnpm 9\.15\.0 switches to and a later 9\.15 does not, which is not supported$/u)
+    for (const packageManager of ['pnpm@9.15.9', 'pnpm@9.x', 'pnpm']) check9({ ...MANIFEST, packageManager }, { checks: { manage: true } })
+    assert.throws(() => check9({ ...MANIFEST, packageManager: 'yarn@1.22.22' }, { checks: { manage: true } }), /which pnpm 9 refuses with packageManagerStrict$/u)
+    assert.throws(() => check9({ ...MANIFEST, packageManager: 7 }), /: expected a string, which pnpm 9 fails on otherwise$/u)
+  })
+
+  // As a real install of pnpm 9.15.9 takes ^2.0.0 resolved to 3.0.1.
+  it('takes a version the importer resolved outside its range', () => {
+    const lockfile = cloned()
+    lockfile.importers['.'].specifiers.q = '^2.0.0'
+    check9({ ...MANIFEST, dependencies: { ...MANIFEST.dependencies, q: '^2.0.0' } }, { lockfile })
+  })
+
+  it('knows no runtime, and holds a project to the host\'s own platform', () => {
+    check9({ ...MANIFEST, devEngines: { runtime: { name: 'node', version: '24.0.0', onFail: 'download' } } })
+    const darwin = { ...MANIFEST, os: ['darwin'], engines: { pnpm: '>=11' } }
+    check9(darwin, { supportedArchitectures: { os: ['darwin'] } })
+    assert.throws(() => check(darwin, { supportedArchitectures: { os: ['darwin'] } }), /its engines\.pnpm, ">=11", does not take pnpm 10\.33\.4/u, 'pnpm 10 takes supportedArchitectures')
+    assert.throws(() => check9({ ...MANIFEST, engines: { pnpm: '>=10' } }), /its engines\.pnpm, ">=10", does not take pnpm 9\.15\.9, which pnpm refuses/u)
+  })
+})
+
 describe('checkProjects for pnpm 11', () => {
   const HOST_11 = { ...HOST, pnpm: '11.28.2', major: 11 }
   const check11 = (manifest, options) => check(manifest, { host: HOST_11, ...options })

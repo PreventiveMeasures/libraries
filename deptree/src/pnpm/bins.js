@@ -5,7 +5,8 @@
 // here; pnpm 12 (its cmd-shim crate) adds 0o111 and rewrites no `#!` line.
 // Where any patch is configured, pnpm 10 and 11 build each package patched
 // or with an install script, which links its own bins beside its children's
-// before the patch; pnpm 12 links them together, with no build pass.
+// before the patch; pnpm 12 links them together, with no build pass. pnpm 9
+// links as pnpm 10 does, but fails on a bin that is a directory.
 
 import { DeptreeError, quote } from '../error.js'
 import { UNKNOWN, binsOf, bundledCommands, commandsOf, compare, normalized, parseManifest } from './commands.js'
@@ -144,12 +145,12 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
 }
 
 function fixedFiles(nodes, fixed, contested, major) {
-  // pnpm 12 reads the `#!` line of each file it links. '' is the package.
+  // pnpm 9 and 12 read each linked file's `#!` line. '' is the package.
   const checkDirectory = (node, path) => {
-    if (major < 12) return
+    if (major >= 10 && major < 12) return
     const prefix = `${path}/`
     if (path === '' || node.files.keys().some((name) => name.startsWith(prefix))) {
-      throw new DeptreeError(`its bin ${quote(path === '' ? '.' : path)} is a directory, which pnpm 12 fails on`, quote(node.key))
+      throw new DeptreeError(`its bin ${quote(path === '' ? '.' : path)} is a directory, which pnpm ${major} fails on`, quote(node.key))
     }
   }
   for (const [target, { owner, why }] of contested) {

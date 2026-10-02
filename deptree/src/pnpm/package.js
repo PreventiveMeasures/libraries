@@ -16,10 +16,10 @@ function nameOf(stored) {
   return name.replaceAll('//', '/')
 }
 
-// pnpm 10 and 11 drop a name's first segment at a `\` as at a `/` where the
-// ustar header holds the name, and where a name has a `.\`, turn each `\`
-// into a `/` before normalizing it; pnpm 12 takes every `\` for a
-// separator, and fails on a `..` that makes.
+// pnpm 9, 10 and 11 drop a name's first segment at a `\` as at a `/` where the
+// ustar header holds the name, and pnpm 10 and 11, where a name has a `.\`,
+// turn each `\` into a `/` before normalizing it; pnpm 12 takes every `\` for
+// a separator, and fails on a `..` that makes.
 function filesOf(entries, where) {
   const files = new Map()
   const tops = new Set()

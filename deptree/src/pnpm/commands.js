@@ -1,12 +1,14 @@
 // A package's commands as @pnpm/package-bins reads them to link its bins, or
-// pnpm 12's bin_resolver crate, which reads a package.json unnormalized.
+// pnpm 12's bin_resolver crate, which reads a package.json unnormalized. pnpm 9
+// filters a command by its name before it drops the scope, and links a `bin`
+// string or a directories.bin wherever it leads.
 
 import { compareVersions, valid } from '@preventive/upstream/semver.js'
 import { basename, compareNames, join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 
 // A package whose directory has no package.json is still linked by these names
-// by pnpm 10, to the runtime's binary inside it.
+// by pnpm 10, to the runtime's binary inside it; pnpm 9 links none.
 const RUNTIMES = { __proto__: null, node: 'bin/node', deno: 'deno', bun: 'bun' }
 
 // The packages pnpm 11 and 12 take to own a command by a name not their own.
@@ -100,26 +102,36 @@ function commands12(dir, manifest, files, base, where) {
   return filesAsCommands(filesUnder(files, base, root, { dots: true }).filter((path) => safeName(basename(path))), root, common)
 }
 
+const outOf = (rel, where) => new DeptreeError(`${quote(rel)} leads out of the package, which pnpm 9 links a bin to all the same, and that is not supported`, where)
+
+const uriSafe = (name) => name === encodeURIComponent(name) || name === '$'
+
+// pnpm 9 also takes a scope with whatever follows it.
+const takes9 = (command) => uriSafe(command) || command[0] === '@'
+
 // `files` are the holding package's (itself, or the one bundling it), by path
 // under `base`; both are undefined for a project or `link:` target.
 export function commandsOf(dir, manifest, files, base, where, major) {
   if (major >= 12) return commands12(dir, manifest, files, base, where)
   const common = { pkgName: manifest.name, pkgVersion: manifest.version, owner: base }
   if (typeof manifest.bin === 'string' && !manifest.name) throw new DeptreeError('it has a bin and no name, which pnpm fails on', where)
-  if (downloadsNode(manifest.engines?.runtime, where)) {
+  // pnpm 9 knows no runtime.
+  if (major >= 10 && downloadsNode(manifest.engines?.runtime, where)) {
     throw new DeptreeError('its engines.runtime has pnpm look for a Node to run its bins with, which is not supported', where)
   }
   if (manifest.bin) {
-    const entries = typeof manifest.bin === 'string' ? [[manifest.name, manifest.bin]] : Object.entries(manifest.bin)
+    const string = typeof manifest.bin === 'string'
+    const entries = string ? [[manifest.name, manifest.bin]] : Object.entries(manifest.bin)
     const commands = []
     for (const [command, rel] of entries) {
       const name = command[0] === '@' ? command.slice(command.indexOf('/') + 1) : command
-      if (name !== encodeURIComponent(name) && name !== '$') continue
-      if (name === '' || name === '.' || name === '..') {
+      if (!(major < 10 ? string || takes9(command) : uriSafe(name))) continue
+      if (name === '' || name === '.' || name === '..' || name.includes('/')) {
         if (major >= 11) continue
         throw new DeptreeError(`a bin named ${quote(name)} is not supported`, where)
       }
       const target = inPackage(dir, rel, where)
+      if (target === undefined && major < 10 && string) throw outOf(rel, where)
       if (target !== undefined) commands.push({ ...common, name, target })
     }
     return commands
@@ -127,6 +139,7 @@ export function commandsOf(dir, manifest, files, base, where, major) {
   const binDir = manifest.directories?.bin
   if (!binDir) return []
   const root = inPackage(dir, binDir, where)
+  if (root === undefined && major < 10) throw outOf(binDir, where)
   if (root === undefined) return []
   if (files === undefined) return [UNKNOWN]
   return filesAsCommands(filesUnder(files, base, root), root, common)
@@ -202,7 +215,7 @@ export function bundledCommands(node, where, major) {
       commands.push(...commandsOf(dir, major >= 12 ? manifest : normalized(manifest, here), node.files, node.dir, here, major))
     } else if (major >= 11) {
       if (major < 12) throw new DeptreeError('it bundles a package with no package.json, whose bins pnpm 11 looks for above it', here)
-    } else if (name in RUNTIMES) {
+    } else if (major >= 10 && name in RUNTIMES) {
       commands.push({ name, target: `${dir}/${RUNTIMES[name]}`, owner: node.dir, own: true, pkgName: '', pkgVersion: '' })
     }
   }

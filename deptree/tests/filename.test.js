@@ -49,6 +49,21 @@ describe('depPathToFilename', () => {
     assert.deepEqual(await Promise.all(keys.map((key) => depPathToFilename(key, 45, 11))), PNPM_11)
   })
 
+  // Read off real installs of pnpm 9.15.9, where pnpm 10.33.4 hashes
+  // otherwise and makes a `#` a `+`.
+  it('names a directory as pnpm 9 does, with an MD5 in base32', async () => {
+    const PNPM_9 = [
+      ['is-number@7.0.0(patch_hash=l5cbnq4d35toi5hi6kae3vqd3u)', 40, 'is-number@7.0_4yotpl664fykvnrvti3b7rze7m'],
+      ['use-sync-external-store@1.2.0(react@18.3.1)', 40, 'use-sync-exte_7nxwvvblaizevku775bgkqatri'],
+      ['JSONStream@1.3.5', 120, 'JSONStream@1.3.5_r3os6ifnv5rfzwtsmjig3b325i'],
+      ['foo@file:vendor/f#o', 120, 'foo@file+vendor+f#o'],
+      ['loose-envify@1.4.0', 40, 'loose-envify@1.4.0'],
+    ]
+    for (const [key, max, dir] of PNPM_9) assert.equal(await depPathToFilename(key, max, 9), dir, key)
+    assert.equal(await depPathToFilename('foo@file:vendor/f#o', 120, 10), 'foo@file+vendor+f+o')
+    await assert.rejects(depPathToFilename('A@1.0.0(\uD800)', 120, 9), /^DeptreeError: "A@1\.0\.0\(\\ud800\)": expected well-formed text to hash$/u)
+  })
+
   it('cuts a long one to the length, hash included', async () => {
     const dir = await depPathToFilename(`a@1.0.0(${'b'.repeat(200)}@1.0.0)`, 120)
     assert.equal(dir.length, 120)

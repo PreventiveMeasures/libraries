@@ -11,14 +11,17 @@ import { HOST } from './registry.js'
 
 const I = 'sha512-z4PhNX7vuL3xVChQ1m2AB9Yg5AULVxXcg/SpIdNs6c5H0NE8XYXysP+DGNKHfuwvY7kxvUdBeoGlODJ6+SfaPg=='
 
+// A key as pnpm writes it, quoted where it starts with a scope.
+const yaml = (key) => (key.startsWith('@') ? `'${key}'` : key)
+
 // `graph` maps a key to its dependencies; `meta` to YAML for its package.
 function lockfile({ root, graph, meta = {}, snapshotMeta = {} }) {
-  const importer = Object.entries(root).map(([kind, aliases]) => `    ${kind}:\n${aliases.map((alias) => `      ${alias}:\n        specifier: 1.0.0\n        version: 1.0.0\n`).join('')}`).join('')
-  const packages = Object.keys(graph).map((key) => `  ${key}:\n    resolution: {integrity: ${I}}\n${meta[key] ?? ''}`).join('\n')
+  const importer = Object.entries(root).map(([kind, aliases]) => `    ${kind}:\n${aliases.map((alias) => `      ${yaml(alias)}:\n        specifier: 1.0.0\n        version: 1.0.0\n`).join('')}`).join('')
+  const packages = Object.keys(graph).map((key) => `  ${yaml(key)}:\n    resolution: {integrity: ${I}}\n${meta[key] ?? ''}`).join('\n')
   const snapshots = Object.entries(graph).map(([key, deps]) => {
-    const list = Object.entries(deps).map(([alias, version]) => `      ${alias}: ${version}\n`).join('')
+    const list = Object.entries(deps).map(([alias, version]) => `      ${yaml(alias)}: ${version}\n`).join('')
     const body = `${list === '' ? '' : `    dependencies:\n${list}`}${snapshotMeta[key] ?? ''}`
-    return body === '' ? `  ${key}: {}\n` : `  ${key}:\n${body}`
+    return body === '' ? `  ${yaml(key)}: {}\n` : `  ${yaml(key)}:\n${body}`
   }).join('\n')
   return parsePnpmLockfile(`lockfileVersion: '9.0'\n\nimporters:\n\n  .:\n${importer}\npackages:\n\n${packages}\nsnapshots:\n\n${snapshots}`).lockfile
 }
@@ -184,5 +187,34 @@ describe('hoist for pnpm 12', () => {
     const one = hoist(nodes, direct, { ...settings, hoistPattern: ['*', '!tool'] }, new Map([['packages/a', 'tool'], ['packages/b', 'Tool']]), 12, hoisting)
     assert.equal(one.get('node_modules/.pnpm/node_modules/Tool'), 'packages/b')
     assert.equal(one.has('node_modules/.pnpm/node_modules/tool'), false)
+  })
+})
+
+// pnpm 9 hoists from the lockfile, checked against its own
+// getHoistedDependencies (@pnpm/hoist 9.1.16, as pnpm 9.15.9 bundles it).
+describe('hoist for pnpm 9', () => {
+  const links = async (lock, { skipped = new Set(), projects = new Map(), major } = {}) => {
+    const { nodes, direct, hoisting } = await buildGraph(lock, skipped, 120, major)
+    const hoistedLinks = hoist(new Map([...nodes.values()].map((node) => [node.dir, node])), direct, settings, projects, major, hoisting)
+    return Object.fromEntries([...hoistedLinks].map(([path, dir]) => [path.slice('node_modules/.pnpm/node_modules/'.length), dir.startsWith('node_modules/') ? dir.split('/')[2] : dir]))
+  }
+
+  // `@a-c/d@1.0.0` sorts before `@a/b@1.0.0`, and its directory,
+  // `@a-c+d@1.0.0`, after `@a+b@1.0.0`.
+  it('takes the snapshots of one depth in the order of their keys', async () => {
+    const lock = lockfile({ root: { dependencies: ['@a/b', '@a-c/d'] }, graph: { '@a/b@1.0.0': { q: '1.0.0' }, '@a-c/d@1.0.0': { q: '2.0.0' }, 'q@1.0.0': {}, 'q@2.0.0': {} } })
+    assert.equal((await links(lock, { major: 9 })).q, 'q@2.0.0')
+    assert.equal((await links(lock, { major: 10 })).q, 'q@1.0.0')
+  })
+
+  it('takes an alias by a child left out, a link, or a project, though it links nothing by the first two', async () => {
+    const graph = {
+      'a@1.0.0': { o: '1.0.0', l: 'link:../l' }, 'b@1.0.0': { o: '2.0.0', l: '1.0.0', q: '1.0.0' },
+      'o@1.0.0': {}, 'o@2.0.0': {}, 'l@1.0.0': {}, 'q@1.0.0': {}, 's@1.0.0': {}, 's@2.0.0': {}, 'u@1.0.0': { s: '2.0.0' },
+    }
+    const lock = lockfile({ root: { dependencies: ['a', 'b', 'u'], optionalDependencies: ['s'] }, graph, snapshotMeta: { 's@1.0.0': '    optional: true\n' } })
+    const options = { skipped: new Set(['o@1.0.0', 's@1.0.0']), projects: new Map([['packages/x', 'Q']]) }
+    assert.deepEqual(await links(lock, { ...options, major: 9 }), { Q: 'packages/x' })
+    assert.deepEqual(await links(lock, { ...options, major: 10 }), { Q: 'packages/x', l: 'l@1.0.0', o: 'o@2.0.0', q: 'q@1.0.0', s: 's@2.0.0' })
   })
 })

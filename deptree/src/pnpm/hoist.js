@@ -69,6 +69,41 @@ function hoistGraph(nodes, starts, taken, typeOf, { projects = new Map(), instal
   return links
 }
 
+// pnpm 9's hoistGraph walks the lockfile from every project's direct
+// dependencies, the first project to list an alias keeping it. A `link:` or
+// skipped child takes its alias though nothing is linked by it, as does a
+// project, and the root's specifiers are taken from the start. Snapshots of
+// one depth are taken in the order of their keys.
+function hoist9({ lockfile, nodes }, typeOf, projects) {
+  const root = Object.create(null)
+  for (const [id, name] of projects) root[name] = { project: id }
+  const direct = Object.create(null)
+  const starts = []
+  for (const importer of Object.values(lockfile.importers)) {
+    for (const [alias, target] of Object.entries({ ...importer.devDependencies, ...importer.dependencies, ...importer.optionalDependencies })) {
+      if (target.startsWith('link:')) continue
+      starts.push(target)
+      if (!(alias in direct)) direct[alias] = target
+    }
+  }
+  Object.assign(root, direct)
+  const graph = new Map([...nodes].map(([key, { pkg }]) => [key, { key, children: new Map(Object.entries({ ...pkg.dependencies, ...pkg.optionalDependencies })) }]))
+  const order = [{ children: Object.entries(root), key: '', depth: -1 }, ...walk(graph, starts).map(({ node, depth }) => ({ children: node.children, key: node.key, depth }))]
+  order.sort((a, b) => a.depth - b.depth || lexCompare(a.key, b.key))
+  const taken = new Set(Object.keys(lockfile.importers['.']?.specifiers ?? {}))
+  const links = new Map()
+  for (const { children } of order) {
+    for (const [alias, target] of children) {
+      const where = typeOf(alias)
+      if (where === undefined || taken.has(alias.toLowerCase())) continue
+      taken.add(alias.toLowerCase())
+      if (target?.project !== undefined) links.set(`${where}/${alias}`, target.project)
+      else if (nodes.has(target)) links.set(`${where}/${alias}`, nodes.get(target).dir)
+    }
+  }
+  return links
+}
+
 // `projects` are the named projects by directory, which hoistWorkspacePackages
 // hoists by name too. pnpm 10 lists their names first among the root's aliases,
 // a direct dependency of the same name replacing one; a hoisted project takes
@@ -82,6 +117,7 @@ export function hoist(nodes, direct, { hoistPattern, publicHoistPattern }, proje
   const isPublic = createMatcher(publicHoistPattern ?? [])
   const isPrivate = createMatcher(hoistPattern ?? [])
   const typeOf = (alias) => (isPublic(alias) ? 'node_modules' : isPrivate(alias) ? 'node_modules/.pnpm/node_modules' : undefined)
+  if (major < 10) return hoist9(hoisting, typeOf, projects)
   if (major >= 12) {
     const folded = new Map()
     for (const [id, name] of projects) {
