@@ -18,6 +18,10 @@ const FOLLOWED = { __proto__: null, 'legacy-peer-deps': 'legacyPeerDeps', 'engin
 
 const DEFAULTS = {
   __proto__: null,
+  'allow-git': ['all'],
+  'allow-directory': ['all'],
+  'allow-file': ['all'],
+  'allow-remote': ['all'],
   'install-strategy': ['hoisted'],
   'install-links': ['false'],
   force: ['false'],
@@ -32,18 +36,19 @@ const DEFAULTS = {
 
 // omit and the rest leave packages out; os, cpu and libc stand in for the
 // host's; the workspace filters leave workspaces out; location, umask,
-// prefix and the config files change what npm reads, or how it writes; and
-// a credential not scoped to a registry, which npm ci fails on.
+// prefix and the config files change what npm reads, or how it writes; a
+// credential not scoped to a registry, which npm ci fails on; and
+// allow-scripts, which npm 11.16 on fails on or reads for bins.
 const REFUSED = new Set([
   'omit', 'include', 'production', 'dev', 'only', 'also', 'optional', 'os', 'cpu', 'libc', 'workspace', 'workspaces',
   'location', 'umask', 'prefix', 'globalconfig', 'userconfig', '_auth', '_authToken', '_authtoken', '-authtoken', 'username',
-  '_password',
+  '_password', 'allow-scripts',
 ])
 
 // Pairs npm fails on, both set: any two of the save-* among them.
 const SAVES = ['save-dev', 'save-optional', 'save-peer', 'save-prod']
 const EXCLUSIVE = [
-  ['before', 'min-release-age'], ['expect-results', 'expect-result-count'], ['provenance', 'provenance-file'],
+  ['before', 'min-release-age'], ['expect-results', 'expect-result-count'], ['provenance', 'provenance-file'], ['prefer-online', 'prefer-offline'],
   ...SAVES.flatMap((save, i) => SAVES.slice(i + 1).map((other) => [save, other])),
 ]
 

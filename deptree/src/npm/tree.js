@@ -34,6 +34,28 @@ function checkLinks(lockfile) {
   }
 }
 
+const LISTS = { prod: 'dependencies', optional: 'optionalDependencies', dev: 'devDependencies', peer: 'peerDependencies', peerOptional: 'peerDependencies', workspace: 'workspaces' }
+const WILDCARD = /(?:^|[^\w-])[*Xx]\.\d/u
+
+// What npm's releases read otherwise: a range with a wildcard before a
+// number, `1.x.0`, which semver 7.8.4 on, in npm 11.17 on, takes for no
+// version; and an optional peer the lockfile does not meet by a range,
+// which npm 10 resolves again where npm 11 takes it as it is.
+function checkSpecs(lockfile, host) {
+  for (const [location, pkg] of [...Object.entries(lockfile.importers), ...Object.entries(lockfile.packages)]) {
+    for (const [name, { type, spec, accept, target }] of Object.entries(pkg.edges)) {
+      const where = `packages[${quote(location === '.' ? '' : location)}].${LISTS[type]}[${quote(name)}]`
+      const ranges = [spec, accept].filter((range) => range !== undefined)
+      if (ranges.some((range) => WILDCARD.test(range))) throw new DeptreeError(`${quote(spec)} has a wildcard before a number, which npm's releases read otherwise`, where)
+      if (!host.reuse || type !== 'peerOptional' || target === undefined) continue
+      const { version } = target.startsWith('link:') ? lockfile.importers[target.slice(5)] : lockfile.packages[target]
+      if (!ranges.some((range) => validRange(range, true) !== null && satisfies(version ?? '', range, true))) {
+        throw new DeptreeError(`${quote(spec)} is an optional peer the lockfile does not meet, which npm 10 resolves again`, where)
+      }
+    }
+  }
+}
+
 // Each tarball once, every URL checked before any is fetched.
 async function fetchAll(nodes, host) {
   const tarballs = new Map()
@@ -106,6 +128,7 @@ export async function buildNpmTree(options) {
   const lockfile = parseNpmLockfile(inputs.lockfile, { semver: { satisfies, valid, validRange }, legacyPeerDeps: settings.legacyPeerDeps, npm: recalculated ? host.npm : undefined })
   checkManifests({ lockfile, manifests, settings, host, rootEdges })
   checkLinks(lockfile)
+  checkSpecs(lockfile, host)
   const nodes = graphOf(lockfile, manifests)
   const skipped = skippedOf(nodes, host, settings)
   const kept = [...nodes.values()].filter((node) => node.kind === 'package' && !skipped.has(node))

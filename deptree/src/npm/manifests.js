@@ -5,6 +5,7 @@
 // names, lists and specs, so that the tree npm builds is the lockfile's;
 // and each workspace has the name and version the lockfile gives it.
 
+import { join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { checkEngine, checkPlatform } from './compat.js'
 import { checkDevEngines } from './dev-engines.js'
@@ -98,9 +99,18 @@ function workspacesOf(manifests) {
 export const rootEdgesOf = (manifests, settings) => edgesOf(manifests.get('.'), where('.'), workspacesOf(manifests), settings.legacyPeerDeps)
 
 // A workspace's name is held to the lockfile's by the root's edge to it.
+// Its bins npm links from its package.json, after every package's, so they
+// change nothing of the tree but where one leads into its node_modules;
+// and a directories.bin npm globs for otherwise across its releases.
 function checkWorkspace(dir, manifest, importer) {
   if (/[#%]/u.test(dir)) throw new DeptreeError('a workspace whose directory has a "#" or "%", which npm escapes in one place and not another, is not supported', where(dir))
   if (manifest.version !== importer.version) throw new DeptreeError(`is ${quote(String(manifest.version))}, and the lockfile has ${quote(String(importer.version))}, which npm ci refuses`, `${where(dir)}.version`)
+  if (manifest.directories?.bin !== undefined) throw new DeptreeError('directories.bin, which npm reads otherwise across its releases, is not supported', `${where(dir)}.directories.bin`)
+  const { bin } = manifest
+  const targets = typeof bin === 'string' ? [bin] : bin !== null && typeof bin === 'object' ? Object.values(bin) : []
+  if (targets.some((target) => typeof target === 'string' && /^node_modules(?:\/|$)/u.test(join('/', target.replace(/\\/gu, '/')).slice(1)))) {
+    throw new DeptreeError('a bin in its own node_modules, which is another package\'s, is not supported', `${where(dir)}.bin`)
+  }
 }
 
 // The root and each workspace are never left out: a platform they do not
@@ -120,6 +130,7 @@ export function checkManifests({ lockfile, manifests, settings, host, rootEdges 
   if (root.overrides != null && (typeof root.overrides !== 'object' || Object.keys(root.overrides).length > 0)) {
     throw new DeptreeError('overrides, which change what npm asks for, are not supported', `${where('.')}.overrides`)
   }
+  if (host.allowScripts && root.allowScripts !== undefined) throw new DeptreeError('allowScripts, which npm reads for whose bins to link, is not supported', `${where('.')}.allowScripts`)
   checkDevEngines(root.devEngines, host, `${where('.')}.devEngines`)
   for (const [dir, importer] of Object.entries(lockfile.importers)) {
     if (dir === '.') continue

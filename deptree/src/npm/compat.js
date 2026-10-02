@@ -66,11 +66,12 @@ function gatherDepSet(set, follow) {
 
 // optionalSet: the node, and what depends on it but optionally, up to its
 // optional dependents; and what only they depend on. npm 10 gathers that
-// by edges that are not optional, npm 11 by those out of the first set.
-function optionalSet(node, reuse) {
+// by edges that are not optional, npm 11 by those out of the first set,
+// and from 11.13 not from a node an earlier set left out.
+function optionalSet(node, host, skipped) {
   const set = new Set([node])
   for (const member of set) for (const edge of member.edgesIn) if (!edge.optional) set.add(edge.from)
-  return gatherDepSet(set, reuse ? (edge) => !edge.optional : (edge) => !set.has(edge.to))
+  return gatherDepSet(set, host.reuse ? (edge) => !edge.optional : (edge) => !set.has(edge.to) && !(host.inert && skipped.has(edge.from)))
 }
 
 const whereOf = (node) => `packages[${quote(node.location)}]`
@@ -92,7 +93,7 @@ export function skippedOf(nodes, host, settings) {
     }
     if (!host.reuse && skipped.has(node)) continue
     if (checkEngine(node.manifest, host) === undefined && checkPlatform(node.manifest, host, whereOf(node)) === undefined) continue
-    for (const member of optionalSet(node, host.reuse)) skipped.add(member)
+    for (const member of optionalSet(node, host, skipped)) skipped.add(member)
   }
   for (const node of skipped) {
     if (node.kind !== 'package') throw new DeptreeError('left out with an optional package the host cannot run, which is not supported', node.kind === 'link' ? whereOf(node) : `importers[${quote(node.location)}]`)

@@ -11,9 +11,12 @@
 // bytes, as tar writes into the file it made.
 //
 // Held to more than npm holds it to, as what npm packs always is: every
-// entry under one directory, a name tar reads as it is stored, none in the
+// entry under one directory, a name tar reads as it is stored, the same in
+// every release, with no `\` and no more than 1024 segments, none in the
 // package's own node_modules (npm packs those only for bundled
-// dependencies), and no setuid, setgid or sticky bit.
+// dependencies), no setuid, setgid or sticky bit, no link name on a file,
+// and no pax header but per entry, nor one with a size, which tar's
+// releases read otherwise.
 
 import { DeptreeError, quote } from '../error.js'
 import { REGISTRY, fetchTarball, tarballUrl } from '../tarball.js'
@@ -42,12 +45,16 @@ function unpack(entries, where) {
   const files = new Map()
   const ignores = new Set()
   let top
-  for (const { storedName, type, mode, data } of entries) {
+  for (const { storedName, storedLinkname, type, mode, data, pax, globalPax } of entries) {
     const segments = storedName.replace(/(?<=.)\/$/u, '').split('/')
-    if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) throw new DeptreeError(`${quote(storedName)} is a name tar reads otherwise`, where)
+    if (segments.length > 1024 || /[\\\0]/u.test(storedName) || segments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
+      throw new DeptreeError(`${quote(storedName)} is a name tar reads otherwise`, where)
+    }
+    if (globalPax.size > 0 || pax.has('size')) throw new DeptreeError(`${quote(storedName)} has a pax header tar's releases read otherwise`, where)
     if (top !== undefined && segments[0] !== top) throw new DeptreeError('the tarball has entries under more than one directory', where)
     top = segments[0]
     if (!FILES.has(type)) continue
+    if (storedLinkname !== '') throw new DeptreeError(`${quote(storedName)} is a file with a link name, which tar's releases read otherwise`, where)
     if (segments.length === 1) throw new DeptreeError(`${quote(storedName)} is a file at the top of the tarball`, where)
     if (segments[1] === 'node_modules') throw new DeptreeError(`${quote(storedName)} is in the package's own node_modules, where npm installs its dependencies, which is not supported`, where)
     if ((mode & 0o7000) !== 0) throw new DeptreeError(`${quote(storedName)} has a setuid, setgid or sticky bit, which is not supported`, where)

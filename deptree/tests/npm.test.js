@@ -191,7 +191,7 @@ describe('read from a project', () => {
 
 describe('the host', () => {
   it('an npm supported, Linux with its libc, no Windows', async () => {
-    await refuses(given({ host: { ...HOST, npm: '9.9.4' } }), 'npm "9.9.4" is not supported: only 10.9.9, and 11.12.0 to 11.21.0', 'host.npm')
+    await refuses(given({ host: { ...HOST, npm: '9.9.4' } }), 'npm "9.9.4" is not supported: only 10.9.3 to 10.9.9, and 11.11.1 to 11.21.0', 'host.npm')
     await refuses(given({ host: { ...HOST, os: 'win32', libc: undefined } }), 'Windows is not supported: npm links bins there with shims, and workspaces with junctions', 'host.os')
     await refuses(given({ host: { ...HOST, node: '24' } }), '"24" is not an exact version', 'host.node')
     await assert.rejects(buildNpmTree(given({ host: { ...HOST, libc: undefined } })), { name: 'TypeError', message: 'host.libc must be glibc or musl on Linux' })
@@ -257,6 +257,9 @@ describe('the .npmrc', () => {
     await refuses(given({ npmrc: '${KEY}=true\n' }), '"${KEY}" is quoted, escaped, commented or taken from the environment, which is not read here', '.npmrc:1')
     await refuses(given({ npmrc: 'save-dev=true\nsave-prod=false\n' }), '"save-dev" and "save-prod" are both set, which npm fails on', '.npmrc')
     await refuses(given({ npmrc: '[section]\nx=1\n' }), 'a section is not supported', '.npmrc:1')
+    await refuses(given({ npmrc: 'allow-git=none\n' }), 'expected all for "allow-git"', '.npmrc:1')
+    await refuses(given({ npmrc: 'allow-scripts=esbuild\n' }), '"allow-scripts" is a setting not supported here: it may change what npm installs', '.npmrc:1')
+    await refuses(given({ npmrc: 'prefer-online=true\nprefer-offline=true\n' }), '"prefer-online" and "prefer-offline" are both set, which npm fails on', '.npmrc')
   })
 
   it('legacy-peer-deps, with which npm loads no peer', async () => {
@@ -278,6 +281,26 @@ describe('the project held to the lockfile', () => {
   it('each workspace its name and version', async () => {
     await refuses(given({ workspace: { ...WORKSPACE, version: '1.0.1' } }), 'is "1.0.1", and the lockfile has "1.0.0", which npm ci refuses', 'manifests["packages/w"].version')
     await refuses({ ...given(), manifests: { '.': json(ROOT) } }, 'a workspace of the lockfile npm does not find', 'manifests["packages/w"]')
+  })
+
+  it('refused: allowScripts, which npm 11.16 on reads, and workspace bins in its node_modules', async () => {
+    stubRegistry(TARBALLS)
+    await buildNpmTree(given({ root: { ...ROOT, allowScripts: { a: false } } }))
+    await refuses(given({ root: { ...ROOT, allowScripts: { a: false } }, host: { ...HOST, npm: '11.16.0' } }), 'allowScripts, which npm reads for whose bins to link, is not supported', 'manifests["."].allowScripts')
+    await refuses(given({ workspace: { ...WORKSPACE, bin: './node_modules/a/a.js' } }), 'a bin in its own node_modules, which is another package\'s, is not supported', 'manifests["packages/w"].bin')
+    await refuses(given({ workspace: { ...WORKSPACE, directories: { bin: 'bin' } } }), 'directories.bin, which npm reads otherwise across its releases, is not supported', 'manifests["packages/w"].directories.bin')
+  })
+
+  it('refused: what npm\'s releases read otherwise', async () => {
+    const wild = LOCK()
+    wild.packages['node_modules/a'].dependencies.b = '1.x.0'
+    await refuses(given({ lock: wild }), '"1.x.0" has a wildcard before a number, which npm\'s releases read otherwise', 'packages["node_modules/a"].dependencies["b"]')
+    const peer = LOCK()
+    peer.packages['node_modules/a'].peerDependencies = { x: '^2.0.0' }
+    peer.packages['node_modules/a'].peerDependenciesMeta = { x: { optional: true } }
+    await refuses(given({ lock: peer, host: NPM10 }), '"^2.0.0" is an optional peer the lockfile does not meet, which npm 10 resolves again', 'packages["node_modules/a"].peerDependencies["x"]')
+    stubRegistry(TARBALLS)
+    await buildNpmTree(given({ lock: peer }))
   })
 
   it('refused: overrides, acceptDependencies', async () => {
