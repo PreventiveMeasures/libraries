@@ -4,7 +4,7 @@
 export const SHA = '3f786850e387550fdab836ed7e6dc881de23001b'
 export const SHA2 = '89e6c98d92887913cadf06b2adb97f26cde4849b'
 
-export const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json; charset=utf-8' } })
+export const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json; charset=utf-8', ...headers } })
 
 // Answers each request with `respond(call)` and keeps every one it was
 // asked, so a test can check what went over the wire.

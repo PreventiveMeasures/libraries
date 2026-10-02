@@ -14,8 +14,9 @@ const RECORDS_AT_ONCE = 8
 const isOsvId = matches(/^(?=.{1,128}$)[A-Z][\dA-Z]*(?:-[\dA-Za-z]+)+$/u)
 const INFORMATIONAL = new Set(['unmaintained', 'unsound', 'notice'])
 // Of the records that publish one advisory, the one ranked first stands
-// for the rest on the versions it was answered for: a GHSA by default.
-const ghsaFirst = (id) => (isGhsa(id) ? 0 : 1)
+// for the rest on the versions it was answered for: RustSec's, what `cargo
+// audit` reads and GitHub mirrors, then the GHSA, then any other (MAL-…).
+const rank = (id) => (id.startsWith('RUSTSEC-') ? 0 : (isGhsa(id) ? 1 : 2))
 
 export const CARGO = {
   osv: 'crates.io',
@@ -23,9 +24,6 @@ export const CARGO = {
   lookUp: crateRepos,
   assertName: assertCrateName,
   assertVersion: assertCrateVersion,
-  // RustSec's first, what `cargo audit` reads and GitHub mirrors; a GHSA
-  // or MAL- record it does not publish is kept.
-  rank: (id) => (id.startsWith('RUSTSEC-') ? 0 : 1 + ghsaFirst(id)),
   advisories: (asked, options) => osvAdvisories(CARGO, asked, options),
 }
 // TODO: packagist.org's API, what `composer audit` reads, also has the
@@ -78,9 +76,9 @@ function toAdvisory(ecosystem, name, versions, record) {
 // each record is fetched once after. An advisory more than one database
 // publishes comes back under each one's id, the records naming each other
 // as aliases, either way round: each keeps only the versions none ranked
-// above it was answered for too.
+// above it was answered for too, and has the others' ids as aliases.
 async function osvAdvisories(ecosystem, asked, options) {
-  const { osv, github, lookUp, covers, rank = ghsaFirst } = ecosystem
+  const { osv, github, lookUp, covers } = ecosystem
   const list = [...asked].flatMap(([name, versions]) => versions.map((version) => ({ name, version })))
   const hits = new Map() // id → name → versions, in `list` order
   for (const chunk of chunks(list, QUERIES_PER_REQUEST)) {
@@ -98,19 +96,14 @@ async function osvAdvisories(ecosystem, asked, options) {
     }
   }
   const records = (await pool([...hits.keys()], RECORDS_AT_ONCE, getVuln)).filter((record) => !record.withdrawn)
-  const linked = new Map(records.map((record) => [record.id, new Set()]))
-  for (const { id, aliases } of records) {
-    for (const alias of aliases.filter((other) => linked.has(other))) {
-      linked.get(id).add(alias)
-      linked.get(alias).add(id)
-    }
-  }
   const rows = []
   for (const record of records) {
-    const above = [...linked.get(record.id)].filter((id) => rank(id) < rank(record.id))
+    const linked = records.filter((other) => other !== record && (record.aliases.includes(other.id) || other.aliases.includes(record.id)))
+    const above = linked.filter((other) => rank(other.id) < rank(record.id))
+    const aliases = [...new Set([...record.aliases, ...linked.map((other) => other.id)])]
     for (const [name, versions] of hits.get(record.id)) {
-      const rest = [...versions].filter((version) => !above.some((id) => hits.get(id).get(name)?.has(version)))
-      if (rest.length > 0) rows.push(toAdvisory(osv, name, rest, record))
+      const rest = [...versions].filter((version) => !above.some((other) => hits.get(other.id).get(name)?.has(version)))
+      if (rest.length > 0) rows.push(toAdvisory(osv, name, rest, { ...record, aliases }))
     }
   }
   rows.sort((a, b) => order(a.name, b.name) || order(a.id, b.id))

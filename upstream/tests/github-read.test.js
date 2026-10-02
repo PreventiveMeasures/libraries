@@ -438,7 +438,7 @@ describe('listRepoAdvisories', () => {
   const page = (n, count) => Array.from({ length: count }, (_, i) => ({ ghsa_id: `GHSA-${n}`, i }))
   // GitHub's links name the repository by its id, and other parameters
   // besides the cursor.
-  const linked = (body, next) => new Response(JSON.stringify(body), { headers: { link: `<https://api.github.com/repositories/1/security-advisories?per_page=100&state=published&before=x&after=${next}>; rel="next", <https://api.github.com/repositories/1/security-advisories?per_page=100&state=published&after=Zmlyc3Q>; rel="first"` } })
+  const linked = (body, next) => json(body, 200, { link: `<https://api.github.com/repositories/1/security-advisories?per_page=100&state=published&before=x&after=${next}>; rel="next", <https://api.github.com/repositories/1/security-advisories?per_page=100&state=published&after=Zmlyc3Q>; rel="first"` })
 
   it("reads every page, each by the cursor in the one before's Link header, asked of this repository's list", async () => {
     const calls = stubGitHub(({ url }) => {
@@ -459,12 +459,12 @@ describe('listRepoAdvisories', () => {
   })
 
   it('refuses a next link with no cursor, a page that is no list, and more than 100 pages', async () => {
-    stubGitHub(() => new Response('[]', { headers: { link: '<https://api.github.com/repositories/1/security-advisories?page=2>; rel="next"' } }))
-    await assert.rejects(client().listRepoAdvisories({ repo: 'acme/app' }), /listRepoAdvisories: page 1 of acme\/app links the next with no cursor/u)
+    stubGitHub(() => json([], 200, { link: '<https://api.github.com/repositories/1/security-advisories?page=2>; rel="next"' }))
+    await assert.rejects(client().listRepoAdvisories({ repo: 'acme/app' }), /listRepoAdvisories: page 1 links the next with no cursor/u)
     stubGitHub(() => json({ message: 'odd' }))
-    await assert.rejects(client().listRepoAdvisories({ repo: 'acme/app' }), /listRepoAdvisories: expected an array for acme\/app, page 1/u)
+    await assert.rejects(client().listRepoAdvisories({ repo: 'acme/app' }), /listRepoAdvisories: expected an array for page 1/u)
     const calls = stubGitHub(() => linked([], 'more'))
-    await assert.rejects(client().listRepoAdvisories({ repo: 'acme/app' }), /listRepoAdvisories: acme\/app has more than 100 pages/u)
+    await assert.rejects(client().listRepoAdvisories({ repo: 'acme/app' }), /listRepoAdvisories: more than 100 pages/u)
     assert.equal(calls.length, 100)
   })
 })

@@ -22,6 +22,24 @@ async function* pages(method, headers, pageUrl, maxPages = MAX_PAGES) {
   }
 }
 
+// A list GitHub pages by a cursor instead: the `after` of each page's
+// Link header `next` link, the one thing read off the link, so the next
+// page is asked of the list `pageUrl` names, wherever the link points. A
+// next link proves a page more.
+async function* cursorPages(method, headers, pageUrl, maxPages = MAX_PAGES) {
+  const paging = { per_page: PER_PAGE }
+  for (let page = 1; ; page++) {
+    const answer = await callWithHeaders(headers, pageUrl(paging))
+    assert.ok(Array.isArray(answer.body), `${method}: expected an array for page ${page}`)
+    yield answer.body
+    const next = /<([^>]*)>\s*;\s*rel="next"/u.exec(answer.headers.get('link') ?? '')?.[1]
+    if (next === undefined) return
+    paging.after = URL.parse(next)?.searchParams.get('after')
+    assert.ok(paging.after, `${method}: page ${page} links the next with no cursor`)
+    assert.ok(page < maxPages, `${method}: more than ${maxPages} pages`)
+  }
+}
+
 const paginate = async (...args) => (await Array.fromAsync(pages(...args))).flat()
 const getCurrentUser = (headers) => call(headers, api(['user']))
 
@@ -195,30 +213,11 @@ async function getAdvisory(headers, options) {
   return advisory
 }
 
-// The `after` cursor of a Link header's `next` link: undefined with no
-// such link, null for one without a cursor.
-function nextCursor(link) {
-  const next = /<([^>]*)>\s*;\s*rel="next"/u.exec(link ?? '')?.[1]
-  return next === undefined ? undefined : URL.parse(next)?.searchParams.get('after') ?? null
-}
-
-// GitHub pages this list by a cursor, `after` in each page's `next` link,
-// not by number. Only the cursor is read off the link, and the next page
-// asked of this repository's list, wherever the link points.
 async function listRepoAdvisories(headers, options) {
   assertArgs('listRepoAdvisories', options, { repo: assertRepo })
   const { repo } = options
-  const list = []
-  let after
-  for (let page = 1; ; page++) {
-    const answer = await callWithHeaders(headers, repoApi(repo, ['security-advisories'], { state: 'published', per_page: PER_PAGE, ...(after && { after }) }))
-    assert.ok(Array.isArray(answer.body), `listRepoAdvisories: expected an array for ${repo}, page ${page}`)
-    list.push(...answer.body)
-    after = nextCursor(answer.headers.get('link'))
-    if (after === undefined) return list
-    assert.ok(after, `listRepoAdvisories: page ${page} of ${repo} links the next with no cursor`)
-    assert.ok(page < MAX_PAGES, `listRepoAdvisories: ${repo} has more than ${MAX_PAGES} pages`)
-  }
+  const pageUrl = (paging) => repoApi(repo, ['security-advisories'], { state: 'published', ...paging })
+  return (await Array.fromAsync(cursorPages('listRepoAdvisories', headers, pageUrl))).flat()
 }
 
 export const readMethods = { getCurrentUser, listUserRepos, getRepo, getRepoHead, getRepoTag, listRepoTags, getRepoFile, getRepoTarball, getRepoTreeTarball, getRepoTreeId, listRepoDir, getPullRequest, getCollaboratorPermission, getAdvisory, listRepoAdvisories }
