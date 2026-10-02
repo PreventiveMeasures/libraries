@@ -28,7 +28,8 @@ const octal = (header, start, end) => {
   const text = field(header, start, end).trim()
   return /^[0-7]{1,12}$/u.test(text) ? Number.parseInt(text, 8) : Number.NaN
 }
-const objectId = (type, content) => createHash('sha1').update(`${type} ${content.length}\0`).update(content).digest()
+export const ATTRIBUTES = '.gitattributes'
+export const objectId = (type, content) => createHash('sha1').update(`${type} ${content.length}\0`).update(content).digest()
 const checksum = (header) => header.reduce((sum, byte, i) => sum + (i >= 148 && i < 156 ? 32 : byte), 0)
 const isZero = (bytes) => bytes.every((byte) => byte === 0)
 
@@ -62,7 +63,7 @@ function emptyDirs(dir, prefix = '') {
 }
 
 // Git sorts a subtree as if its name ended in `/`.
-function treeId(dir) {
+export function treeId(dir) {
   const entries = [...dir].map(([name, entry]) => (entry instanceof Map ? { mode: '40000', name, id: treeId(entry) } : { ...entry, name }))
   const key = ({ mode, name }) => (mode === '40000' ? `${name}/` : name)
   entries.sort((a, b) => (key(a) < key(b) ? -1 : Number(key(a) > key(b))))
@@ -72,8 +73,8 @@ function treeId(dir) {
 const EMPTY_TREE = objectId('tree', Buffer.alloc(0)).toString('hex')
 const isName = matches(/^[^\0/]+$/u)
 const isEntry = (entry) => isName(entry?.path) && isSha1(entry.sha)
-const nameOf = (path) => Buffer.from(path).toString('latin1')
-const subtree = (sha) => ({ mode: '40000', id: Buffer.from(sha, 'hex') })
+export const nameOf = (path) => Buffer.from(path).toString('latin1')
+export const subtree = (sha) => ({ mode: '40000', id: Buffer.from(sha, 'hex') })
 
 // A subtree with nothing in it but subtrees like it, down to the empty
 // tree: its listing, read as subtrees alone, hashes to its id.
@@ -99,15 +100,12 @@ async function putBackEmptyTrees(dir, sha, listed) {
   }
 }
 
-// The id of the git tree a gzipped tarball holds, as `git archive` writes
-// one, under a single top directory: a file's mode is its exec bit, a
-// symlink's blob its target. What a tarball cannot show comes from `list`,
-// which answers a listing of a tree by its id, as GitHub's trees API does
-// ({ type, path, sha } entries), walked from `expected`: a submodule's
-// commit for an empty directory, and, where the id comes out otherwise, the
-// subtrees with nothing in them it leaves out. The id is `expected` only if
-// those are right. Where there is no such tree, a reason, never an id.
-export async function gitTreeOfTarball(gzipped, { expected, list } = {}) {
+// The entries of a gzipped tarball as `git archive` writes one, under a
+// single top directory: a Map of each directory's, a file's mode its exec
+// bit and its `body` kept, a symlink's blob its target. A commit's archive
+// leads with git's global header naming it, taken only where `commit` is
+// that commit. Where there is no such tree, a reason, never entries.
+export function readTarball(gzipped, { commit } = {}) {
   let bytes
   try {
     bytes = gunzipSync(gzipped, { maxOutputLength: MAX_UNPACKED_BYTES })
@@ -129,8 +127,14 @@ export async function gitTreeOfTarball(gzipped, { expected, list } = {}) {
     const size = octal(header, 124, 136)
     const body = bytes.subarray(at + BLOCK, at + BLOCK + size)
     if (body.length !== size) return 'no tree: the tarball is cut short'
+    const first = at === 0
     at += BLOCK + Math.ceil(size / BLOCK) * BLOCK
     const type = String.fromCodePoint(header[156])
+    if (type === 'g' && first && commit !== undefined && field(header, 0, 100) === 'pax_global_header') {
+      const records = paxRecords(body)
+      if (records?.size !== 1 || records.get('comment') !== commit) return `no tree: a global header that does not name ${commit}`
+      continue
+    }
     if (type === 'x') {
       const records = paxRecords(body)
       if (records === null) return 'no tree: a malformed pax header'
@@ -149,10 +153,10 @@ export async function gitTreeOfTarball(gzipped, { expected, list } = {}) {
     const asGitWrites = MODES[type].includes(mode) && (type === '0' || size === 0) && path.endsWith('/') === (type === '5')
       && octal(header, 108, 116) === 0 && octal(header, 116, 124) === 0 && field(header, 265, 297) === 'root' && field(header, 297, 329) === 'root'
     if (!asGitWrites) return `no tree: a header git does not write, ${JSON.stringify(path)}`
-    const [first, ...parts] = path.replace(/\/$/u, '').split('/')
-    top ??= first
+    const [head, ...parts] = path.replace(/\/$/u, '').split('/')
+    top ??= head
     const name = type === '5' ? null : parts.pop()
-    if (!isTop(first) || first !== top || name === undefined || [...parts, name].some((part) => ['', '.', '..'].includes(part))) return `no tree: an entry outside one top directory, ${JSON.stringify(path)}`
+    if (!isTop(head) || head !== top || name === undefined || [...parts, name].some((part) => ['', '.', '..'].includes(part))) return `no tree: an entry outside one top directory, ${JSON.stringify(path)}`
     let dir = root
     for (const part of parts) {
       if (!dir.has(part)) dir.set(part, new Map())
@@ -161,9 +165,23 @@ export async function gitTreeOfTarball(gzipped, { expected, list } = {}) {
     }
     if (name === null) continue
     if (dir.has(name)) return `no tree: ${JSON.stringify(path)} twice`
-    dir.set(name, type === '0' ? { mode: mode & 0o100 ? '100755' : '100644', id: objectId('blob', body) } : { mode: '120000', id: objectId('blob', Buffer.from(target, 'latin1')) })
+    dir.set(name, type === '0' ? { mode: mode & 0o100 ? '100755' : '100644', id: objectId('blob', body), body } : { mode: '120000', id: objectId('blob', Buffer.from(target, 'latin1')) })
   }
   if (top === undefined) return 'no tree: an empty tarball'
+  return { root }
+}
+
+// The id of the git tree a gzipped tarball holds, as readTarball reads it.
+// What a tarball cannot show comes from `list`, which answers a listing of
+// a tree by its id, as GitHub's trees API does ({ type, path, sha }
+// entries), walked from `expected`: a submodule's commit for an empty
+// directory, and, where the id comes out otherwise, the subtrees with
+// nothing in them it leaves out. The id is `expected` only if those are
+// right. Where there is no such tree, a reason, never an id.
+export async function gitTreeOfTarball(gzipped, { expected, list } = {}) {
+  const read = readTarball(gzipped)
+  if (typeof read === 'string') return read
+  const { root } = read
   const listed = async (sha) => (list && isSha1(sha) ? await list(sha) : [])
     .filter(isEntry)
     .map((entry) => ({ ...entry, name: nameOf(entry.path) }))
