@@ -214,6 +214,10 @@ describe('the top of the file', () => {
     refuses(edit((doc) => (doc.platform = { php: '^^8' })), '"^^8" is not a version constraint Composer reads', 'platform.php')
     const lock = parseComposerLock(edit((doc) => put(doc, 'platform-overrides', { php: '8.3.0', 'ext-xdebug': false }, TOP)))
     assert.deepEqual(plain(lock.platformOverrides), { php: '8.3.0', 'ext-xdebug': false })
+    refuses(edit((doc) => put(doc, 'platform-overrides', { php: false }, TOP)), 'false, which Composer refuses of php, as it cannot be missing', 'platform-overrides.php')
+    refuses(edit((doc) => put(doc, 'platform-overrides', { php: true }, TOP)), 'expected a version, or false, found the boolean true', 'platform-overrides.php')
+    // PlatformRepository refuses `false` of "php" alone, as it is written.
+    assert.equal(parseComposerLock(edit((doc) => put(doc, 'platform-overrides', { PHP: false }, TOP))).platformOverrides.PHP, false)
   })
 })
 
@@ -375,7 +379,7 @@ describe('with composer.json', () => {
 
   it('refuses a composer.json Composer does not load', () => {
     refuses(encode(BASE), 'not JSON as PHP reads it: expected "," or "}", found the end of the file at line 1', 'composerJson', { composerJson: '{"name": "x/y"' })
-    refuses(encode(BASE), '"Fixture/Root" has capitals, which Composer refuses of the root', 'composerJson.name', { composerJson: root((json) => (json.name = 'Fixture/Root')) })
+    refuses(encode(BASE), '"Fixture/Root" has capitals, which Composer refuses in composer.json', 'composerJson.name', { composerJson: root((json) => (json.name = 'Fixture/Root')) })
     refuses(encode(BASE), 'the root itself, which Composer refuses', 'composerJson.require["fixture/root"]', { composerJson: root((json) => (json.require['fixture/root'] = '*')) })
     refuses(encode(BASE), '"dev-main as foo" is not an alias of one version as another, which Composer refuses', 'composerJson.require["b/lib"]', { composerJson: root((json) => (json.require['b/lib'] = 'dev-main as foo')) })
     refuses(encode(BASE), 'expected a mapping, found the string "oops"', 'composerJson.require', { composerJson: '{"require": "oops"}' })
@@ -384,6 +388,15 @@ describe('with composer.json', () => {
     refuses(encode(BASE), 'expected a string, found the bigint 3', 'composerJson.conflict["a/b"]', { composerJson: '{"conflict": {"a/b": 3}}' })
     refuses(encode(BASE), 'expected a string, found null', 'composerJson.name', { composerJson: '{"name": null}' })
     refuses(encode(BASE), 'expected a string, found the bigint 1', 'composerJson.version', { composerJson: '{"version": 1}' })
+  })
+
+  it('refuses a name of a link that Composer does not take, but a platform package\'s', () => {
+    const provide = (name) => ({ composerJson: root((json) => (json.provide = { [name]: '*' })) })
+    refuses(encode(BASE), '"A/B" has capitals, which Composer refuses in composer.json', 'composerJson.provide["A/B"]', provide('A/B'))
+    refuses(encode(BASE), '"BAD NAME" is not a package name, a vendor and a package as Composer takes them', 'composerJson.provide["BAD NAME"]', provide('BAD NAME'))
+    refuses(encode(BASE), '"a/b.json" ends in .json, which Composer refuses', 'composerJson.provide["a/b.json"]', provide('a/b.json'))
+    refuses(encode(BASE), '"nul/x" has a name Windows reserves in it, which Composer refuses', 'composerJson.provide["nul/x"]', provide('nul/x'))
+    assert.deepEqual(['PHP', 'ext-FOO'].map((name) => with_(encode(BASE), provide(name).composerJson).fresh), [false, false])
   })
 
   it('holds what is hashed of composer.json to Composer 2.10\'s schema', () => {

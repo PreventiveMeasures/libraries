@@ -103,8 +103,9 @@ function readPlatform(value, where) {
   return platform
 }
 
-// config.platform: a version each platform package is taken to be at, or
-// false for one taken to be missing.
+// config.platform, as PlatformRepository takes it: a version each platform
+// package is taken to be at, or false for one taken to be missing, which
+// php is not.
 function readOverrides(value) {
   const where = 'platform-overrides'
   const overrides = Object.create(null)
@@ -113,6 +114,7 @@ function readOverrides(value) {
   for (const [name, version, here] of entriesOf(value, where)) {
     if (!isPlatform(name)) throw new LockfileError(`${quote(name)} is not a platform package's name`, here)
     if (version !== false && (typeof version !== 'string' || normalize(plain(version, here)) === undefined)) throw refuse('a version, or false', version, here)
+    if (name === 'php' && version === false) throw new LockfileError('false, which Composer refuses of php, as it cannot be missing', here)
     overrides[name] = version
   }
   return overrides

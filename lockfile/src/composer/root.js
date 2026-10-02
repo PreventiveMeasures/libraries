@@ -11,7 +11,7 @@ import { LockfileError, at, quote } from '../error.js'
 import { refuse, string } from '../shape.js'
 import { decodeJson, encodeJson } from './json.js'
 import { md5 } from './md5.js'
-import { LINKS, checkName, plain, readVersion } from './package.js'
+import { LINKS, checkName, isPlatform, plain, readVersion } from './package.js'
 import { compareKeys, lower } from './php.js'
 import { checkSchema } from './schema.js'
 import { normalize, parseConstraints } from './semver.js'
@@ -28,12 +28,21 @@ function contentHash(config) {
   return md5(encodeJson(new Map([...relevant].sort(([a], [b]) => compareKeys(a, b)))))
 }
 
+// ValidatingArrayLoader::hasPackageNamingError, which RootPackageLoader
+// holds the root's name to, and each name it links to but a platform
+// package's.
+function checkRootName(value, where) {
+  const name = checkName(value, where)
+  if (/[A-Z]/u.test(name)) throw new LockfileError(`${quote(name)} has capitals, which Composer refuses in composer.json`, where)
+  return name
+}
+
 const ALIAS = /^([^,\t\n\v\f\r #]+)(?:#[^ ]+)? +as +([^,\t\n\v\f\r ]+)$/u
 
 // ArrayLoader::parseLinks of the root's, of an object of strings, as
 // Composer's schema holds composer.json to before it is loaded, with what
-// RootPackageLoader refuses of a requirement: an alias that is not of two
-// versions, and the root itself.
+// RootPackageLoader refuses: a name it does not take, and of a
+// requirement, an alias that is not of two versions, and the root itself.
 function readLinks(config, key, name, version) {
   const value = config.get(key)
   if (value === undefined) return []
@@ -42,6 +51,7 @@ function readLinks(config, key, name, version) {
   for (const [written, constraint] of value) {
     const target = lower(written)
     const where = at(at(WHERE, key), written)
+    if (!isPlatform(written)) checkRootName(written, where)
     plain(string(constraint, where), where)
     const parsed = constraint === 'self.version' ? (version === undefined ? { all: true } : parseConstraints(version.pretty)) : parseConstraints(constraint)
     if (parsed === undefined) throw new LockfileError(`${quote(constraint)} is not a version constraint Composer reads`, where)
@@ -68,11 +78,7 @@ export const contentHashOf = (text) => contentHash(decode(text))
 export function readComposerJson(text) {
   const config = decode(text)
   checkSchema(config, WHERE)
-  let name = '__root__'
-  if (config.has('name')) {
-    name = checkName(config.get('name'), at(WHERE, 'name'))
-    if (lower(name) !== name) throw new LockfileError(`${quote(name)} has capitals, which Composer refuses of the root`, at(WHERE, 'name'))
-  }
+  const name = config.has('name') ? checkRootName(config.get('name'), at(WHERE, 'name')) : '__root__'
   const pretty = config.get('version')
   const version = pretty === undefined ? undefined : { pretty, normalized: readVersion(pretty, at(WHERE, 'version')) }
   const links = Object.create(null)

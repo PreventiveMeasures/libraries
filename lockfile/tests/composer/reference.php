@@ -24,6 +24,7 @@ use Composer\Package\AliasPackage;
 use Composer\Package\CompleteAliasPackage;
 use Composer\Package\Dumper\ArrayDumper;
 use Composer\Package\Loader\ArrayLoader;
+use Composer\Package\Loader\ValidatingArrayLoader;
 use Composer\Package\Version\VersionParser;
 use Composer\Repository\LockArrayRepository;
 use Composer\Repository\RepositorySet;
@@ -141,12 +142,27 @@ $kinds = [
     'decode' => fn ($text) => json_encode(JsonFile::parseJson($text)),
     'hash' => fn ($text) => Composer\Package\Locker::getContentHash($text),
     // composer.json as Factory holds it to before it loads it, by its
-    // schema, and its version as the root's loader normalizes it.
-    'schema' => function ($text) use ($parser) {
+    // schema, and as RootPackageLoader holds its name, its version, and the
+    // names it links to, the root's own not among its requirements.
+    'root' => function ($text) use ($parser) {
         $data = json_decode($text, false, 512, JSON_THROW_ON_ERROR);
         JsonFile::validateJsonSchema('composer.json', $data, JsonFile::LAX_SCHEMA);
-        if (isset($data->version)) {
-            $parser->normalize($data->version);
+        $config = json_decode($text, true);
+        if (isset($config['name']) && ValidatingArrayLoader::hasPackageNamingError($config['name']) !== null) {
+            throw new RuntimeException('name');
+        }
+        if (isset($config['version'])) {
+            $parser->normalize($config['version']);
+        }
+        foreach (['require', 'require-dev', 'conflict', 'provide', 'replace'] as $type) {
+            foreach ($config[$type] ?? [] as $target => $constraint) {
+                if (ValidatingArrayLoader::hasPackageNamingError((string) $target, true) !== null) {
+                    throw new RuntimeException($type);
+                }
+                if (in_array($type, ['require', 'require-dev'], true) && strtolower((string) $target) === ($config['name'] ?? '__root__')) {
+                    throw new RuntimeException('itself');
+                }
+            }
         }
 
         return true;

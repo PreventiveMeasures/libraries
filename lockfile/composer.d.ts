@@ -82,8 +82,9 @@ export interface ComposerLockfile {
   // require, and in require-dev.
   platform: Record<string, string>
   platformDev: Record<string, string>
-  // config.platform: the version each platform package is taken to be at,
-  // or false for one taken to be missing.
+  // config.platform when locked, which composer install takes in its place:
+  // the version each platform package is taken to be at, or false for one
+  // taken to be missing, but php.
   platformOverrides: Record<string, string | false>
   // The root's `x as y` of each package it asks for so.
   aliases: ComposerRootAlias[]
