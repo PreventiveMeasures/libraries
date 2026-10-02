@@ -8,7 +8,7 @@
 // written.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkRefName, checkRelative, isCommit } from '../names.js'
+import { checkRefName, checkRelative, checkRemote, isCommit } from '../names.js'
 import { boolean, field, record, refuse, string } from '../shape.js'
 import { keysOf } from './json.js'
 import { compareKeys, compareStrings, empty, lower, trim } from './php.js'
@@ -78,7 +78,7 @@ export function sortedKeys(value, where, by = 'Composer sorts the keys in') {
 // or a branch names it, with no alias, stability flag or space about it.
 function checkVersion(value, where) {
   const version = plain(value, where)
-  const normalized = /\s|@(?:stable|RC|beta|alpha|dev)$/iu.test(version) || version === '0' ? undefined : normalize(version)
+  const normalized = /\s|@(?:stable|rc|beta|alpha|dev)$/u.test(lower(version)) || version === '0' ? undefined : normalize(version)
   if (normalized === undefined) throw new LockfileError(`${quote(version)} is not a version Composer locks a package at`, where)
   return normalized
 }
@@ -102,12 +102,15 @@ export function readConstraint(value, where, version) {
 // A name as ValidatingArrayLoader::hasPackageNamingError takes one, which
 // Composer 2.10 holds every package it installs to: a vendor and a
 // package, capitals let be, as Composer goes by the name in lowercase.
-const NAME = /^[a-z0-9](?:[_.-]?[a-z0-9]+)*\/[a-z0-9](?:(?:[_.]|-{1,2})?[a-z0-9]+)*$/iu
+// Composer's caseless regexes are of ASCII alone, as PCRE's without /u:
+// here, of the name as strtolower lowers it, as JavaScript's `iu` would
+// take ſ for s, and the Kelvin sign for k.
+const NAME = /^[a-z0-9](?:[_.-]?[a-z0-9]+)*\/[a-z0-9](?:(?:[_.]|-{1,2})?[a-z0-9]+)*$/u
 const RESERVED = new Set(['nul', 'con', 'prn', 'aux', ...['com', 'lpt'].flatMap((device) => Array.from({ length: 9 }, (_, i) => `${device}${i + 1}`))])
 
 export function checkName(value, where) {
   const name = string(value, where)
-  if (!NAME.test(name)) throw new LockfileError(`${quote(name)} is not a package name, a vendor and a package as Composer takes them`, where)
+  if (!NAME.test(lower(name))) throw new LockfileError(`${quote(name)} is not a package name, a vendor and a package as Composer takes them`, where)
   if (lower(name).split('/').some((part) => RESERVED.has(part))) throw new LockfileError(`${quote(name)} has a name Windows reserves in it, which Composer refuses`, where)
   if (name.endsWith('.json')) throw new LockfileError(`${quote(name)} ends in .json, which Composer refuses`, where)
   return name
@@ -117,9 +120,9 @@ export function checkName(value, where) {
 // ValidatingArrayLoader takes in one.
 const TARGET = /^[a-z0-9_./-]+$/u
 
-const PLATFORM = /^(?:php(?:-64bit|-ipv6|-zts|-debug)?|hhvm|(?:ext|lib)-[a-z0-9](?:[_.-]?[a-z0-9]+)*|composer(?:-(?:plugin|runtime)-api)?)$/iu
+const PLATFORM = /^(?:php(?:-64bit|-ipv6|-zts|-debug)?|hhvm|(?:ext|lib)-[a-z0-9](?:[_.-]?[a-z0-9]+)*|composer(?:-(?:plugin|runtime)-api)?)$/u
 
-export const isPlatform = (name) => PLATFORM.test(name)
+export const isPlatform = (name) => PLATFORM.test(lower(name))
 
 // The links of one type, as written, by target, and as Composer parses
 // them, `{ target, pretty, constraint }`.
@@ -161,18 +164,21 @@ const REMOTE = {
 
 // P4PORT as Perforce::isValidPort takes it: `[tcp|ssl:][host:]port`, where
 // `rsh:` and `jsh:` would run a command.
-const P4PORT = /^(?:(?:tcp|ssl)(?:4|6|46|64)?:)?(?:\[[0-9a-f:.]+\]|[a-z0-9._][a-z0-9._-]*)(?::[a-z0-9._][a-z0-9._-]*)?$/iu
+const P4PORT = /^(?:(?:tcp|ssl)(?:4|6|46|64)?:)?(?:\[[0-9a-f:.]+\]|[a-z0-9._][a-z0-9._-]*)(?::[a-z0-9._][a-z0-9._-]*)?$/u
 
 // A repository to clone: a URL of a scheme its tool fetches over, git's
-// `user@host:path`, or a path from the lockfile's directory. An absolute
-// path, or a file: URL, is of the machine the lockfile was written on.
+// `user@host:path`, or a path from the lockfile's directory, which its tool
+// reads as nothing but a place. An absolute path, or a file: URL, is of the
+// machine the lockfile was written on.
 function checkSourceUrl(value, where, type) {
   const url = notOption(value, where)
   if (type === 'perforce') {
-    if (!P4PORT.test(url) || /^\s*(?:rsh|jsh)\s*:/iu.test(url)) throw new LockfileError(`${quote(url)} is not a Perforce port, [tcp|ssl:][host:]port, as Composer takes one`, where)
+    const port = lower(url)
+    if (!P4PORT.test(port) || /^\s*(?:rsh|jsh)\s*:/u.test(port)) throw new LockfileError(`${quote(url)} is not a Perforce port, [tcp|ssl:][host:]port, as Composer takes one`, where)
     return url
   }
-  if (/^[a-z][a-z0-9+.-]*:/iu.test(url) && !(type === 'git' && /^[\w.-]+@[\w.-]+:/u.test(url))) {
+  checkRemote(url, where)
+  if (/^[A-Za-z][\d+.A-Za-z-]*:/u.test(url) && !(type === 'git' && /^[\w.-]+@[\w.-]+:/u.test(url))) {
     const parsed = URL.parse(url)
     if (parsed === null || !REMOTE[type].includes(parsed.protocol) || /\s/u.test(url)) throw new LockfileError(`${quote(url)} is not a URL ${type} fetches from, ${REMOTE[type].join(' ')}`, where)
     return url
@@ -187,14 +193,14 @@ function checkReference(value, where, type) {
   return reference
 }
 
-// A mirror Composer tries before or after the URL, with %package%,
-// %version%, %reference% and %type% in it.
-function readMirrors(value, where) {
+// A mirror Composer tries before or after the URL, Package::getUrls, held
+// to what the URL is held to, `check`, as it stands in for it.
+function readMirrors(value, where, check) {
   return list(value, where).map((item, index) => {
     const here = `${where}[${index}]`
     ordered(item, here, ['url', 'preferred'])
     const preferred = boolean(item.preferred, at(here, 'preferred'))
-    return { url: notOption(item.url, at(here, 'url')), preferred }
+    return { url: check(item.url, at(here, 'url')), preferred }
   })
 }
 
@@ -205,18 +211,28 @@ function readSource(value, where) {
   const type = string(value.type, at(where, 'type'))
   if (!SOURCES.includes(type)) throw new LockfileError(`expected one of ${SOURCES.join(', ')}, which Composer clones from`, at(where, 'type'))
   if (value.reference === undefined) throw new LockfileError('expected a reference, without which Composer does not read a source', where)
+  const check = (url, here) => checkSourceUrl(url, here, type)
   return {
     type,
-    url: checkSourceUrl(value.url, at(where, 'url'), type),
+    url: check(value.url, at(where, 'url')),
     reference: checkReference(value.reference, at(where, 'reference'), type),
-    mirrors: field(value, 'mirrors', where, readMirrors) ?? [],
+    mirrors: field(value, 'mirrors', where, (mirrors, here) => readMirrors(mirrors, here, check)) ?? [],
   }
 }
 
 const ARCHIVES = ['zip', 'tar', 'gzip', 'xz', 'rar', 'phar', 'file']
 
-// What HttpDownloader fetches: an http(s) URL, of its scheme in any case.
-const isHttpUrl = (value) => /^https?:\/\//iu.test(value) && URL.canParse(value)
+// What HttpDownloader fetches: an http(s) URL, of its scheme in any case,
+// fetched as written, of no space or control the URL parser would drop.
+const isHttpUrl = (value) => /^https?:\/\//u.test(lower(value)) && !/[\s\p{Cc}]/u.test(value) && URL.canParse(value)
+
+// A dist's URL, or its mirror's: an http(s) one, but of a path dist, or a
+// path.
+function checkDistUrl(value, where, type) {
+  const url = notOption(value, where)
+  if (type === 'path' || !isHttpUrl(url)) checkPath(url, where)
+  return url
+}
 
 // An archive by URL, or by path, as an artifact repository has it; a
 // directory by path. FileDownloader holds what it fetches to the sha1, in
@@ -225,17 +241,15 @@ function readDist(value, where) {
   ordered(value, where, ['type', 'url', 'reference', 'shasum', 'mirrors'])
   const type = string(value.type, at(where, 'type'))
   if (type !== 'path' && !ARCHIVES.includes(type)) throw new LockfileError(`expected path or one of ${ARCHIVES.join(', ')}, which Composer installs from`, at(where, 'type'))
-  const here = at(where, 'url')
-  const url = notOption(value.url, here)
-  if (type === 'path' || !isHttpUrl(url)) checkPath(url, here)
+  const check = (url, here) => checkDistUrl(url, here, type)
   const shasum = field(value, 'shasum', where, string)
   if (shasum !== undefined && shasum !== '' && !/^[\da-f]{40}$/u.test(shasum)) throw new LockfileError(`${quote(shasum)} is not a sha1 in lowercase hex, which Composer compares the download's with`, at(where, 'shasum'))
   return {
     type,
-    url,
+    url: check(value.url, at(where, 'url')),
     reference: field(value, 'reference', where, notOption),
     shasum: shasum || undefined,
-    mirrors: field(value, 'mirrors', where, readMirrors) ?? [],
+    mirrors: field(value, 'mirrors', where, (mirrors, here) => readMirrors(mirrors, here, check)) ?? [],
   }
 }
 

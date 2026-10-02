@@ -33,10 +33,10 @@ function flaw(text, { next, pick }, pieces) {
 
 const PREFIX = ['', '', 'v', 'V', '~', '^', '>=', '<', '<=', '>', '!=', '==', '=', '<>', '~>']
 const NUMBERS = ['0', '1', '2', '10', '01', '1.0', '1.2', '0.1', '1.2.3', '1.2.3.4', '0.0.1', '1.x', '1.*', '2.0.x', '*', 'x', '2026.01.02', '20260102', '1.2.3.4.5']
-const SUFFIX = ['', '', '', '-dev', '-beta', '-beta1', 'beta.2', '-RC1', 'rc', '-alpha', 'a1', 'b2', '-patch1', 'pl3', 'p', '-stable', '.x-dev', '-x-dev', '@dev', '@beta', '@stable', '+build', '-dev#abc', ' as 1.0', 'STABLE']
+const SUFFIX = ['', '', '', '-dev', '-beta', '-beta1', 'beta.2', '-RC1', 'rc', '-alpha', 'a1', 'b2', '-patch1', 'pl3', 'p', '-stable', '.x-dev', '-x-dev', '@dev', '@beta', '@stable', '+build', '-dev#abc', ' as 1.0', 'STABLE', '-ſtable', '@ſtable']
 const BRANCHES = ['dev-main', 'dev-master', 'master', 'trunk', 'dev-feature/x', 'feature-dev', '1.0.x-dev', 'dev-1.0', 'foo', '']
 const SEPARATORS = [' ', ',', ', ', ' || ', '|', ' - ']
-const PIECES = ['.', '-', ' ', ',', '|', '*', 'x', '@', '#', '1', 'v', '  ', ' - ', '||', 'é']
+const PIECES = ['.', '-', ' ', ',', '|', '*', 'x', '@', '#', '1', 'v', '  ', ' - ', '||', 'é', 'ſ', '\u212A']
 
 const one = ({ next, pick }) => (next() < 0.15 ? pick(BRANCHES) : `${pick(PREFIX)}${pick(NUMBERS)}${pick(SUFFIX)}`)
 
@@ -190,7 +190,7 @@ describe('against Composer', { skip: !hasComposer() && 'no php, or no Composer p
       'stable', 'RC', 'Stable', 'dev', 'composer', 'vcs', 'git', 'forgejo', 'path', 'package', 'artifact', 'pear', 'nope', 'none', 'auto', 'https://example.com', '', '1.0.0', 'v2.0-beta1', '1.x-dev', 'master', 'dev-main', 'dev-x as 1.0', '1.0@beta', '1.0.0-foo',
       true, false, null, 3, 1.5, [], {}, ['a'], [1], { a: true }, { a: 1 }, { name: 'a/b', version: '1.0' }, [{ name: 'a/b', version: '1.0' }], [{ name: 'a/b' }], { type: 'path', url: 'x' }, { 'packagist.org': false },
     ]
-    const NAMES = ['a/b', 'A/B', 'Fixture/Project', 'BAD NAME', 'a/b.json', 'nul/x', 'a/con', 'PHP', 'ext-FOO', 'lib-x', 'php-64bit', 'composer-plugin-api', '__root__', 'fixture/project', 'guzzlehttp/guzzle', '123', 'a//b', 'a/b-', 'a/b--c', 'a/b---c', 'é/x', '']
+    const NAMES = ['a/b', 'A/B', 'Fixture/Project', 'BAD NAME', 'a/b.json', 'nul/x', 'a/con', 'PHP', 'ext-FOO', 'lib-x', 'php-64bit', 'composer-plugin-api', '__root__', 'fixture/project', 'guzzlehttp/guzzle', '123', 'a//b', 'a/b-', 'a/b--c', 'a/b---c', 'é/x', 'ſ/x', 'a/\u212A', 'ext-ſ', '']
     const BASE = JSON.parse(fixture('composer-2.10.3.json'))
     const edit = (doc) => {
       if (generator.next() < 0.25) {

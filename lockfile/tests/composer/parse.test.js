@@ -238,6 +238,12 @@ describe('a package', () => {
   it('a name, and a version, as Composer takes them', () => {
     refuses(edit((doc) => (doc.packages[0].name = 'app')), '"app" is not a package name, a vendor and a package as Composer takes them', at(0, '.name'))
     refuses(edit((doc) => (doc.packages[0].name = 'a/con')), '"a/con" has a name Windows reserves in it, which Composer refuses', at(0, '.name'))
+    // Caseless of ASCII alone, as PCRE without /u: not ſ for s, nor the
+    // Kelvin sign for k.
+    for (const name of ['ſymfony/app', 'a/\u212Aelvin']) {
+      refuses(edit((doc) => (doc.packages[0].name = name)), `${JSON.stringify(name)} is not a package name, a vendor and a package as Composer takes them`, at(0, '.name'))
+    }
+    refuses(edit((doc) => (doc.packages[0].version = '1.0-ſtable')), '"1.0-ſtable" is not a version Composer locks a package at', at(0, '.version'))
     refuses(edit((doc) => (doc.packages[0].version = '1.0 as 2.0')), '"1.0 as 2.0" is not a version Composer locks a package at', at(0, '.version'))
     refuses(edit((doc) => (doc.packages[0].version = 'one')), '"one" is not a version Composer locks a package at', at(0, '.version'))
     refuses(edit((doc) => (doc.packages[0].type = 'Library')), '"Library", which Composer writes in lowercase', at(0, '.type'))
@@ -249,7 +255,11 @@ describe('a package', () => {
     refuses(edit((doc) => delete doc.packages[0].source.reference), 'expected a reference, without which Composer does not read a source', at(0, '.source'))
     refuses(edit((doc) => (doc.packages[0].source.type = 'cvs')), 'expected one of git, hg, svn, fossil, perforce, which Composer clones from', at(0, '.source.type'))
     refuses(edit((doc) => (doc.packages[0].source.url = '--upload-pack=x')), '"--upload-pack=x" starts with "-", which a tool would read as an option and Composer refuses', at(0, '.source.url'))
-    refuses(edit((doc) => (doc.packages[0].source.url = 'ext::sh -c x')), '"ext::sh -c x" is not a URL git fetches from, https: http: ssh: git: git+ssh:', at(0, '.source.url'))
+    refuses(edit((doc) => (doc.packages[0].source.url = 'ext::sh -c x')), '"ext::sh -c x" names a remote helper of git\'s, which is not supported', at(0, '.source.url'))
+    refuses(edit((doc) => (doc.packages[0].source.url = 'file:///srv/git/app')), '"file:///srv/git/app" is not a URL git fetches from, https: http: ssh: git: git+ssh:', at(0, '.source.url'))
+    for (const url of ['ssh://-oProxyCommand=x/app', 'ssh://%2doProxyCommand=x/app', 'git@-oProxyCommand=x:app']) {
+      refuses(edit((doc) => (doc.packages[0].source.url = url)), `${JSON.stringify(url)} has a "-" where git or ssh would read an option`, at(0, '.source.url'))
+    }
     refuses(edit((doc) => (doc.packages[0].source.url = '/srv/git/app')), '"/srv/git/app" is an absolute path, of the machine the lockfile was written on', at(0, '.source.url'))
     refuses(edit((doc) => (doc.packages[0].source.reference = 'main..x')), '"main..x" is not a branch or tag name git takes', at(0, '.source.reference'))
     refuses(edit((doc) => (doc.packages[0].source.type = 'perforce')), '"https://example.com/a/app.git" is not a Perforce port, [tcp|ssl:][host:]port, as Composer takes one', at(0, '.source.url'))
@@ -262,6 +272,16 @@ describe('a package', () => {
       put(doc.packages[0], 'notification-url', 'Http://example.com/downloads/')
     }))
     assert.deepEqual([upper.packages['a/app'].dist.url, upper.packages['a/app'].notificationUrl], ['HTTPS://example.com/a/app.zip', 'Http://example.com/downloads/'])
+    // A mirror, which Composer may try first, held to what the URL is.
+    const mirror = (url) => [{ url, preferred: true }]
+    refuses(edit((doc) => (doc.packages[0].dist.mirrors = mirror('/srv/private/%package%'))), '"/srv/private/%package%" is an absolute path, of the machine the lockfile was written on', at(0, '.dist.mirrors[0].url'))
+    refuses(edit((doc) => (doc.packages[0].source.mirrors = mirror('file:///srv/%package%.git'))), '"file:///srv/%package%.git" is not a URL git fetches from, https: http: ssh: git: git+ssh:', at(0, '.source.mirrors[0].url'))
+    refuses(edit((doc) => (doc.packages[0].source.mirrors = mirror('ssh://-oProxyCommand=x/%package%'))), '"ssh://-oProxyCommand=x/%package%" has a "-" where git or ssh would read an option', at(0, '.source.mirrors[0].url'))
+    const local = parseComposerLock(edit((doc) => {
+      doc.packages[0].source.mirrors = mirror('git@mirror.example.com:%package%.git')
+      doc.packages[2].dist.mirrors = mirror('../mirror/%package%')
+    }))
+    assert.deepEqual([local.packages['a/app'].source.mirrors[0].url, local.packages['c/new'].dist.mirrors[0].url], ['git@mirror.example.com:%package%.git', '../mirror/%package%'])
     const mirrored = parseComposerLock(edit((doc) => (doc.packages[0].dist.mirrors = [{ url: 'https://mirror.example.com/%package%/%reference%.%type%', preferred: true }])))
     assert.deepEqual(plain(mirrored.packages['a/app'].dist.mirrors), [{ url: 'https://mirror.example.com/%package%/%reference%.%type%', preferred: true }])
   })

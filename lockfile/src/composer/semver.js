@@ -16,7 +16,11 @@ const WORD = '[^,\\t\\n\\v\\f\\r ]'
 
 export const DEFAULT_BRANCH_ALIAS = '9999999-dev'
 
-const regex = (source, flags = '') => new RegExp(source, `${flags}u`)
+// Caseless as PCRE is without /u, of ASCII alone: JavaScript's `iu` takes
+// ſ for s and the Kelvin sign for k, as `i` alone does not. The ones
+// written out below have no s, k or class of letters, which alone ſ and
+// the Kelvin sign fold into.
+const regex = (source, flags = '') => new RegExp(source, flags || 'u')
 
 const AS = regex(`^(${WORD}+) +as +(${WORD}+)$`)
 const FLAG = regex(`@(?:${STABILITIES})$`, 'i')

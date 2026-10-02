@@ -203,7 +203,10 @@ export interface ComposerDist {
 }
 
 // A URL Composer tries before the package's own, where preferred, or
-// after: %package%, %version%, %reference% and %type% in it are filled in.
+// after, held to what that URL is: a dist's with %package%, %version%,
+// %prettyVersion%, %reference% and %type% filled in, a git or hg source's
+// with %package%, %normalizedUrl% and %type%. Composer tries no other
+// source's.
 export interface ComposerMirror {
   url: string
   preferred: boolean
