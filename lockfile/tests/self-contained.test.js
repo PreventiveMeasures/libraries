@@ -28,6 +28,8 @@ const files = [
   new URL('cargo.d.ts', PKG_DIR),
   new URL('cocoapods.js', PKG_DIR),
   new URL('cocoapods.d.ts', PKG_DIR),
+  new URL('composer.js', PKG_DIR),
+  new URL('composer.d.ts', PKG_DIR),
   new URL('foundry.js', PKG_DIR),
   new URL('foundry.d.ts', PKG_DIR),
   new URL('npm.js', PKG_DIR),

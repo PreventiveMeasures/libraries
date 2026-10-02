@@ -1,0 +1,7 @@
+{
+    "name": "fixture/empty",
+    "description": "Asks for nothing.",
+    "require": {
+        "psr/container": "^2.0"
+    }
+}
