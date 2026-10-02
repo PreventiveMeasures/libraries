@@ -1,21 +1,19 @@
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { parseComposerLock } from '../../composer.js'
+import { fixtureNames, fixture as text } from './fixtures.js'
 
 // Real lockfiles, as Composer writes them, each beside the composer.json it
 // was written for: one project with every kind of package a lockfile
 // records, locked by Composer 2.10, 2.8, 2.7, 2.2 and 2.0; a project that
 // asks for nothing, by 2.10 and 2.2; and one indented with tabs, which
-// 2.10 keeps. scripts/record-composer.js records them; its header says
-// how.
+// 2.10 keeps. scripts/record-composer.js records them into
+// fixtures.json.br; its header says how.
 
-const FIXTURES = new URL('fixtures/', import.meta.url)
-const text = (name) => readFileSync(new URL(name, FIXTURES), 'utf8')
 const read = (name, options) => parseComposerLock(text(`${name}.lock`), options)
 const plain = (value) => JSON.parse(JSON.stringify(value))
 
-const NAMES = readdirSync(FIXTURES).filter((name) => name.endsWith('.lock')).map((name) => name.slice(0, -'.lock'.length))
+const NAMES = fixtureNames.filter((name) => name.endsWith('.lock')).map((name) => name.slice(0, -'.lock'.length))
 
 describe('every fixture', () => {
   it('has them all', () => assert.equal(NAMES.length, 8))

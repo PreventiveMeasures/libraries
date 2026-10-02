@@ -1,6 +1,8 @@
 // Records what Composer writes for the projects below into
-// tests/composer/fixtures/, each composer.lock as <name>.lock, beside the
-// composer.json it was written for as <name>.json. Needs php,
+// tests/composer/fixtures.json.br, each composer.lock as <name>.lock,
+// beside the composer.json it was written for as <name>.json: one JSON
+// object of each file's text by its name, compressed with brotli, which
+// tests/composer/fixtures.js reads. Needs php,
 // git, and network access to getcomposer.org, which each Composer is taken
 // from, and to repo.packagist.org; nothing is installed, so GitHub is not
 // asked for anything:
@@ -34,12 +36,23 @@
 // that day.
 
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { brotliCompressSync, brotliDecompressSync, constants } from 'node:zlib'
 
-const OUT = fileURLToPath(new URL('../tests/composer/fixtures/', import.meta.url))
+const OUT = new URL('../tests/composer/fixtures.json.br', import.meta.url)
+
+// The fixtures there already, which a run named replaces its own of.
+const fixtures = existsSync(OUT) ? JSON.parse(brotliDecompressSync(readFileSync(OUT)).toString('utf8')) : {}
+
+// By name, at brotli's best, with a window wide enough to take the five
+// lockfiles of one project as the near copies they are.
+function save() {
+  const text = JSON.stringify(Object.fromEntries(Object.entries(fixtures).sort(([a], [b]) => (a < b ? -1 : 1))))
+  const params = { [constants.BROTLI_PARAM_MODE]: constants.BROTLI_MODE_TEXT, [constants.BROTLI_PARAM_QUALITY]: 11, [constants.BROTLI_PARAM_LGWIN]: 24, [constants.BROTLI_PARAM_SIZE_HINT]: text.length }
+  writeFileSync(OUT, brotliCompressSync(text, { params }))
+}
 
 const quiet = process.env.VERBOSE ? 'inherit' : 'ignore'
 const run = (command, args, options) => execFileSync(command, args, { stdio: ['ignore', quiet, quiet], ...options })
@@ -164,9 +177,11 @@ for (const entry of RUNS.filter(({ name }) => only.length === 0 || only.includes
     entry.lay(dir)
     composer(...UPDATE)
     entry.after?.(dir, composer)
-    write(OUT, `${entry.name}.lock`, readFileSync(join(dir, 'composer.lock'), 'utf8'))
-    write(OUT, `${entry.name}.json`, readFileSync(join(dir, 'composer.json'), 'utf8'))
+    fixtures[`${entry.name}.lock`] = readFileSync(join(dir, 'composer.lock'), 'utf8')
+    fixtures[`${entry.name}.json`] = readFileSync(join(dir, 'composer.json'), 'utf8')
   } finally {
     rmSync(top, { recursive: true, force: true })
   }
 }
+
+save()

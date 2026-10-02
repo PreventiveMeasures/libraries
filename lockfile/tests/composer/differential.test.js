@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { parseComposerLock } from '../../composer.js'
 import { decodeJson, encodeJson, phpFloat, readJson } from '../../src/composer/json.js'
@@ -7,6 +6,7 @@ import { compareKeys, compareStrings, compareVersions } from '../../src/composer
 import { contentHashOf } from '../../src/composer/root.js'
 import { allows, constraintString, matches, normalize, normalizeBranch, parseConstraints, parseNumericAliasPrefix, parseStability } from '../../src/composer/semver.js'
 import { random } from '../random.js'
+import { fixture } from './fixtures.js'
 import { composer, hasComposer } from './reference.js'
 
 // Composer itself, from the phar reference.js finds, against the ports
@@ -127,7 +127,7 @@ describe('against Composer', { skip: !hasComposer() && 'no php, or no Composer p
   })
 
   it('the text: read where json_encode writes back what PHP decodes of it', () => {
-    const base = readFileSync(new URL('fixtures/composer-2.10.3-tabs.lock', import.meta.url), 'utf8').replaceAll('\t', '    ')
+    const base = fixture('composer-2.10.3-tabs.lock').replaceAll('\t', '    ')
     const pieces = [' ', '\n', '\t', '{', '}', '[', ']', ',', '"', '\\', '\\/', '\\u00e9', 'é', '1', '1.0', '1e2', '-0', '.', ':', 'true', 'null', '\u2028', '\\u2028']
     const texts = Array.from({ length: 2000 }, () => flaw(flaw(base, generator, pieces), generator, pieces))
     const results = composer(texts.map((text) => ['json', text]))
@@ -169,7 +169,7 @@ describe('against Composer', { skip: !hasComposer() && 'no php, or no Composer p
   })
 
   describe('the fixture, edited', { skip: compareVersions(VERSION, '2.7.0') < 0 && `Composer ${VERSION}, which writes no php-ext` }, () => {
-    const BASE = readFileSync(new URL('fixtures/composer-2.10.3.lock', import.meta.url), 'utf8')
+    const BASE = fixture('composer-2.10.3.lock')
     const encode = (value) => `${JSON.stringify(value, null, 4).replaceAll('\u2028', '\\u2028').replaceAll('\u2029', '\\u2029')}\n`
     const edits = editor(generator)
     const docs = Array.from({ length: 700 }, () => {
