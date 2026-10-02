@@ -1,10 +1,9 @@
 // An .npmrc read as the `ini` package reads it for npm and pnpm, as far as
 // a key and the text after its `=` go: `key[]` adds to a list, and a key
-// with no `=` is true. The settings that read a value (pnpm/settings.js,
-// yarn1/settings.js) take it only in a form with one reading, refusing one
-// ini would unquote, unescape, cut at a `;` or `#`, or fill in from the
-// environment. A section, which npm reads under a prefix no setting here
-// has, is refused.
+// with no `=` is true. Each builder's settings.js takes a value only in a
+// form with one reading, refusing one ini would unquote, unescape, cut at
+// a `;` or `#`, or fill in from the environment. A section, which npm
+// reads under a prefix no setting here has, is refused.
 
 import { DeptreeError } from './error.js'
 

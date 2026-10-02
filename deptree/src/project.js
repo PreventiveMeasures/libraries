@@ -1,7 +1,6 @@
 // The project a tree is built for: the lockfile's directory as a Vfs, or
 // anything with its readdir, lstat, stat and readFile, by paths from `/`.
-// It is only read, and only where each builder says (pnpm/inputs.js,
-// pnpm/workspace.js, pnpm/local.js, yarn1/inputs.js, soldeer/inputs.js).
+// It is only read, and only where each builder says.
 
 import { DeptreeError, quote } from './error.js'
 

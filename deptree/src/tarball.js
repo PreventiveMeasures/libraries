@@ -1,8 +1,7 @@
 // A registry package's tarball, fetched through @preventive/upstream, which
 // checks the integrity it is given; checked again here, since that
 // integrity is the lockfile's; and unpacked by @preventive/archive. What
-// each package manager makes of its entries is its own (pnpm/package.js,
-// yarn1/package.js).
+// each package manager makes of its entries is its own package.js's.
 
 import { decompress } from '@preventive/archive/compression.js'
 import { unpack } from '@preventive/archive/tar.js'
