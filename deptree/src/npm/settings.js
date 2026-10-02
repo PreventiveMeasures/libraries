@@ -40,11 +40,11 @@ const REFUSED = new Set([
   '_password',
 ])
 
-// Pairs npm fails on, both set.
+// Pairs npm fails on, both set: any two of the save-* among them.
+const SAVES = ['save-dev', 'save-optional', 'save-peer', 'save-prod']
 const EXCLUSIVE = [
   ['before', 'min-release-age'], ['expect-results', 'expect-result-count'], ['provenance', 'provenance-file'],
-  ['save-dev', 'save-optional'], ['save-dev', 'save-peer'], ['save-dev', 'save-prod'], ['save-optional', 'save-peer'],
-  ['save-optional', 'save-prod'], ['save-peer', 'save-prod'],
+  ...SAVES.flatMap((save, i) => SAVES.slice(i + 1).map((other) => [save, other])),
 ]
 
 // ini unquotes, unescapes and cuts at `;` or `#` a key as it does a value,
@@ -62,7 +62,7 @@ export function readSettings(text) {
     if (REFUSED.has(key)) throw new DeptreeError(`${quote(key)} is a setting not supported here: it may change what npm installs`, where)
     const accepted = key in FOLLOWED ? ['true', 'false'] : DEFAULTS[key]
     if (accepted === undefined) continue
-    if (list || !plain(value) || !accepted.includes(value)) throw new DeptreeError(`expected ${accepted.join(' or ')} for ${quote(key)}`, where)
+    if (list || !accepted.includes(value)) throw new DeptreeError(`expected ${accepted.join(' or ')} for ${quote(key)}`, where)
     if (key in FOLLOWED) settings[FOLLOWED[key]] = value === 'true'
   }
   for (const pair of EXCLUSIVE) {

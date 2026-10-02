@@ -36,9 +36,9 @@ function edgesOf(manifest, at, workspaces, legacyPeerDeps) {
     for (const [name, spec] of peers) if (!meta[name]?.optional) add(name, 'peer', spec)
     for (const [name, spec] of peers) if (meta[name]?.optional) add(name, 'peerOptional', spec)
   }
-  for (const [name, spec] of Object.entries(specsOf(manifest, 'dependencies', at))) add(name, 'prod', spec)
-  for (const [name, spec] of Object.entries(specsOf(manifest, 'optionalDependencies', at))) add(name, 'optional', spec)
-  for (const [name, spec] of Object.entries(specsOf(manifest, 'devDependencies', at))) add(name, 'dev', spec)
+  for (const [list, type] of [['dependencies', 'prod'], ['optionalDependencies', 'optional'], ['devDependencies', 'dev']]) {
+    for (const [name, spec] of Object.entries(specsOf(manifest, list, at))) add(name, type, spec)
+  }
   return edges
 }
 
@@ -97,10 +97,9 @@ function workspacesOf(manifests) {
 // workspaces it finds.
 export const rootEdgesOf = (manifests, settings) => edgesOf(manifests.get('.'), where('.'), workspacesOf(manifests), settings.legacyPeerDeps)
 
+// A workspace's name is held to the lockfile's by the root's edge to it.
 function checkWorkspace(dir, manifest, importer) {
   if (/[#%]/u.test(dir)) throw new DeptreeError('a workspace whose directory has a "#" or "%", which npm escapes in one place and not another, is not supported', where(dir))
-  const name = typeof manifest.name === 'string' && manifest.name !== '' ? manifest.name : undefined
-  if ((name ?? importer.name) !== importer.name) throw new DeptreeError(`is named ${quote(name)}, and the lockfile names it ${quote(importer.name)}`, `${where(dir)}.name`)
   if (manifest.version !== importer.version) throw new DeptreeError(`is ${quote(String(manifest.version))}, and the lockfile has ${quote(String(importer.version))}, which npm ci refuses`, `${where(dir)}.version`)
 }
 

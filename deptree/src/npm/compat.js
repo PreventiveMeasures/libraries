@@ -13,15 +13,9 @@ import { DeptreeError, quote } from '../error.js'
 function takes(value, list) {
   const values = typeof list === 'string' ? [list] : list
   if (values.length === 1 && values[0] === 'any') return true
-  let negated = 0
-  let match = false
-  for (const entry of values) {
-    if (entry.startsWith('!')) {
-      negated++
-      if (value === entry.slice(1)) return false
-    } else match ||= value === entry
-  }
-  return match || negated === values.length
+  const negated = (entry) => entry.startsWith('!')
+  if (values.includes(`!${value}`)) return false
+  return values.some((entry) => !negated(entry) && entry === value) || values.every(negated)
 }
 
 // A list as npm reads it: none where falsy, a string, or a sequence of
@@ -100,9 +94,9 @@ export function skippedOf(nodes, host, settings) {
     if (checkEngine(node.manifest, host) === undefined && checkPlatform(node.manifest, host, whereOf(node)) === undefined) continue
     for (const member of optionalSet(node, host.reuse)) skipped.add(member)
   }
-  const under = (node) => node.parent !== undefined && (skipped.has(nodes.get(node.parent)) || under(nodes.get(node.parent)))
-  for (const node of nodes.values()) {
-    if (skipped.has(node) && node.kind !== 'package') throw new DeptreeError('left out with an optional package the host cannot run, which is not supported', node.kind === 'link' ? whereOf(node) : `importers[${quote(node.location)}]`)
+  for (const node of skipped) {
+    if (node.kind !== 'package') throw new DeptreeError('left out with an optional package the host cannot run, which is not supported', node.kind === 'link' ? whereOf(node) : `importers[${quote(node.location)}]`)
   }
+  const under = (node) => node.parent !== undefined && (skipped.has(nodes.get(node.parent)) || under(nodes.get(node.parent)))
   return new Set([...nodes.values()].filter((node) => skipped.has(node) || under(node)))
 }

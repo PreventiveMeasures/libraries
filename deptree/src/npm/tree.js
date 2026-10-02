@@ -114,7 +114,8 @@ export async function buildNpmTree(options) {
   const residue = host.reuse ? residueOf(nodes, skipped) : new Set()
   const { vfs, stats: written } = writeTree({ lockfile, kept, fetched, changed, residue })
   if (folded) checkCollisions(vfs)
-  const stats = { packages: Object.keys(lockfile.packages).length, installed: kept.length, skipped: Object.keys(lockfile.packages).length - kept.length, tarballs, ...written }
+  const packages = Object.keys(lockfile.packages).length
+  const stats = { packages, installed: kept.length, skipped: packages - kept.length, tarballs, ...written }
   const installed = kept.map((node) => {
     const { name, version, dev, optional, devOptional, peer } = node.pkg
     return { path: node.location, name, version, integrity: fetched.get(node).integrity, dev, optional, devOptional, peer }

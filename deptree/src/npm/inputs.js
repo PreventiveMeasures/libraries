@@ -27,7 +27,7 @@ export function checkHost(host) {
 // The root's workspace globs as @npmcli/map-workspaces reads them: a
 // sequence, or one under `packages`, a leading `./` or `/` dropped. One
 // that negates is refused, as the lockfile reader refuses it.
-export function globsOf(root) {
+function globsOf(root) {
   const { workspaces = [] } = root
   const globs = Array.isArray(workspaces?.packages) ? workspaces.packages : workspaces
   if (!Array.isArray(globs) || globs.some((glob) => typeof glob !== 'string')) throw new DeptreeError('expected a sequence of globs, which npm fails without', 'manifests["."].workspaces')
@@ -47,8 +47,9 @@ function findWorkspaces(project, globs, nocase) {
     const dir = pending.pop()
     for (const name of project.readdir(`/${dir}`)) {
       const path = dir === '' ? name : `${dir}/${name}`
-      const taken = folded.some((glob) => matchesGlob(glob, fold(path)))
-      if (name === 'node_modules' || (!taken && !folded.some((glob) => reachesBelow(glob, fold(path))))) continue
+      const key = fold(path)
+      const taken = folded.some((glob) => matchesGlob(glob, key))
+      if (name === 'node_modules' || (!taken && !folded.some((glob) => reachesBelow(glob, key)))) continue
       const { type } = project.lstat(`/${path}`)
       if (type === 'symlink') throw new DeptreeError('a link where npm looks for workspaces is not supported', quote(path))
       if (type !== 'directory') continue
