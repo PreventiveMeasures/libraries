@@ -204,7 +204,6 @@ function readPackage(doc, workspace) {
 }
 
 export function parseCargoManifest(text, workspace) {
-  if (typeof text !== 'string') throw new TypeError('expected a string')
   const doc = table(parseToml(text), undefined, TOP, TOP_REFUSED)
   const own = doc.workspace === undefined ? undefined : readWorkspace(doc.workspace)
   if (own !== undefined && workspace !== undefined) throw new LockfileError('a workspace root inherits from its own [workspace], not another', 'workspace')

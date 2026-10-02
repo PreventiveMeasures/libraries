@@ -3,6 +3,7 @@
 // pylock.toml. A table has a null prototype, so a key is only ever a key.
 
 import { LockfileError, at, quote } from '../error.js'
+import { primitives } from '../shape.js'
 import { TomlDateTime } from './datetime.js'
 import { TomlFloat } from './number.js'
 import { isTable } from './value.js'
@@ -17,7 +18,7 @@ export function kind(value) {
   return `the ${typeof value === 'boolean' ? 'boolean' : 'integer'} ${String(value)}`
 }
 
-export const refuse = (expected, value, where) => new LockfileError(`expected ${expected}, found ${kind(value)}`, where)
+export const { refuse, string, boolean, count: size } = primitives(kind)
 
 // A table with only the `fields` named, when named; `refused` names a key
 // with the reason it is not read.
@@ -31,16 +32,6 @@ export function table(value, where, fields, refused = {}) {
 }
 
 export const entries = (value, where) => Object.entries(table(value, where)).map(([key, item]) => [key, item, at(where, key)])
-
-export function string(value, where) {
-  if (typeof value !== 'string') throw refuse('a string', value, where)
-  return value
-}
-
-export function boolean(value, where) {
-  if (typeof value !== 'boolean') throw refuse('true or false', value, where)
-  return value
-}
 
 export function array(value, where) {
   if (!Array.isArray(value)) throw refuse('an array', value, where)
@@ -59,8 +50,35 @@ export function text(value, where) {
   return value
 }
 
-// A size in bytes, or any count: an integer a number holds exactly.
-export function size(value, where) {
-  if (!Number.isSafeInteger(value) || value < 0) throw refuse('a non-negative integer', value, where)
-  return value
+// Each item of an array, as `read(item, where)` makes it.
+export const arrayOf = (read) => (value, where) => array(value, where).map((item, index) => read(item, `${where}[${index}]`))
+
+// Strings, each held to `check`.
+export const stringsOf = (check) => (value, where) => strings(value, where, check)
+
+// A table that may be left out, as an empty one then, of keys `checkKey`
+// holds, each item as `read(item, where)` makes it.
+export function tableOf(value, where, checkKey, read) {
+  const map = Object.create(null)
+  if (value !== undefined) for (const [key, item, here] of entries(value, where)) map[checkKey(key, here)] = read(item, here)
+  return map
+}
+
+// The one of `keys` a table has, where it has exactly one.
+export function oneOf(value, keys, where) {
+  const found = keys.filter((key) => value[key] !== undefined)
+  if (found.length !== 1) throw new LockfileError(`expected one of ${keys.join(', ')}, found ${found.length === 0 ? 'none' : found.join(' and ')}`, where)
+  return found[0]
+}
+
+// Each of a lockfile's `package` array once, by what `idOf` makes of it,
+// `shown` as it says; the index of each by that.
+export function checkListedOnce(packages, idOf, shown) {
+  const seen = new Map()
+  for (const [index, pkg] of packages.entries()) {
+    const id = idOf(pkg)
+    if (seen.has(id)) throw new LockfileError(`${quote(shown(pkg))} is listed twice, first as package[${seen.get(id)}]`, `package[${index}]`)
+    seen.set(id, index)
+  }
+  return seen
 }

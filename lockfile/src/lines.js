@@ -16,6 +16,14 @@ export function checkConflict(text, tool) {
   }
 }
 
+// A sticky `re` read at `src.pos`, which it moves past the match.
+export function take(src, re) {
+  re.lastIndex = src.pos
+  const m = re.exec(src.text)
+  if (m !== null) src.pos = re.lastIndex
+  return m
+}
+
 // What follows `pos`, for a message.
 export const rest = (line, pos) => (pos < line.length ? quote(line.slice(pos)) : 'the end of the line')
 

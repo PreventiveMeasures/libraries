@@ -6,7 +6,8 @@
 import { LockfileError, at, quote } from '../error.js'
 import { checkRelative, isCommit } from '../names.js'
 import { checkPath } from '../python/files.js'
-import { string, table } from '../toml/shape.js'
+import { optional } from '../shape.js'
+import { oneOf, string, table } from '../toml/shape.js'
 import { checkUrl } from './shape.js'
 
 const KINDS = ['registry', 'git', 'url', 'path', 'directory', 'editable', 'virtual']
@@ -67,16 +68,14 @@ function readKind(type, value, subdirectory, where) {
   }
   if (type === 'url') {
     if (checkUrl(value, here, ['https:', 'http:']).hash !== '') throw new LockfileError(`${quote(value)} has a fragment, which uv drops`, here)
-    return { type, url: value, subdirectory: subdirectory === undefined ? undefined : checkPath(subdirectory, at(where, 'subdirectory')) }
+    return { type, url: value, subdirectory: optional(checkPath)(subdirectory, at(where, 'subdirectory')) }
   }
   return { type, path: checkPath(value, here) }
 }
 
 export function readSource(value, where) {
   table(value, where, [...KINDS, 'subdirectory'])
-  const kinds = KINDS.filter((key) => value[key] !== undefined)
-  if (kinds.length !== 1) throw new LockfileError(`expected one of ${KINDS.join(', ')}, found ${kinds.length === 0 ? 'none' : kinds.join(' and ')}`, where)
-  const [type] = kinds
+  const type = oneOf(value, KINDS, where)
   if (value.subdirectory !== undefined && type !== 'url') throw new LockfileError('a subdirectory, which uv reads of a URL alone', at(where, 'subdirectory'))
   const source = readKind(type, value[type], value.subdirectory, where)
   return { ...source, id: idOf(source) }

@@ -12,22 +12,17 @@ export function checkOptional(dependencies, optionalDependencies, where) {
   }
 }
 
-// The keys the targets in `starts` lead to, through the packages.
-export function reach(starts, packages) {
+// The first of the packages the targets in `starts` lead to none of,
+// through the packages.
+export function unreached(starts, packages) {
   const reached = new Set()
-  const queue = []
   const visit = (targets) => {
-    for (const key of Object.values(targets)) {
-      if (key.startsWith('link:') || reached.has(key)) continue
-      reached.add(key)
-      queue.push(key)
-    }
+    for (const key of Object.values(targets)) if (!key.startsWith('link:')) reached.add(key)
   }
   for (const targets of starts) visit(targets)
-  while (queue.length > 0) {
-    const pkg = packages[queue.pop()]
-    visit(pkg.dependencies)
-    visit(pkg.optionalDependencies)
+  for (const key of reached) {
+    visit(packages[key].dependencies)
+    visit(packages[key].optionalDependencies)
   }
-  return reached
+  return Object.keys(packages).find((key) => !reached.has(key))
 }

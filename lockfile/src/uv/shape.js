@@ -4,7 +4,7 @@
 import { LockfileError, quote } from '../error.js'
 import { checkNormalName } from '../python/pep508.js'
 import { isDateTime } from '../toml/datetime.js'
-import { entries, string, strings } from '../toml/shape.js'
+import { string, stringsOf, tableOf } from '../toml/shape.js'
 
 // A URL as the url crate writes it, as uv writes one: with no credentials,
 // which uv strips, and of a scheme it fetches over.
@@ -23,12 +23,8 @@ export function checkTime(value, where) {
   return value
 }
 
-export const names = (value, where) => strings(value, where, checkNormalName)
+export const names = stringsOf(checkNormalName)
 
 // A table by name in normal form, each item as `read` makes it; empty where
 // there is none.
-export function byName(value, where, read) {
-  const map = Object.create(null)
-  if (value !== undefined) for (const [name, item, here] of entries(value, where)) map[checkNormalName(name, here)] = read(item, here)
-  return map
-}
+export const byName = (value, where, read) => tableOf(value, where, checkNormalName, read)

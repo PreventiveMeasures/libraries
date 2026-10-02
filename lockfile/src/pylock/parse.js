@@ -4,14 +4,14 @@
 // by key; each has to find one, though no installer reads them.
 
 import { LockfileError, at, quote } from '../error.js'
-import { isHttpUrl } from '../names.js'
+import { checkHttpUrl } from '../python/files.js'
 import { checkSpecifiers, checkVersion, versionKeyOf } from '../python/pep440.js'
 import { checkMarker, checkName, checkNormalName } from '../python/pep508.js'
 import { field } from '../shape.js'
 import { TomlDateTime } from '../toml/datetime.js'
 import { TomlFloat } from '../toml/number.js'
 import { parseToml } from '../toml/parse.js'
-import { array, string, strings, table, text } from '../toml/shape.js'
+import { array, string, stringsOf, table, text } from '../toml/shape.js'
 import { isTable } from '../toml/value.js'
 import { readArchive, readAttestations, readDirectory, readSdist, readVcs, readWheels } from './package.js'
 
@@ -22,12 +22,6 @@ const PACKAGE = ['name', 'version', 'marker', 'requires-python', 'dependencies',
 // past 0 may add keys, which are refused as any unknown key is.
 function checkLockVersion(value, where) {
   if (!/^1\.\d+$/u.test(string(value, where))) throw new LockfileError(`unsupported lock-version: expected "1.0", found ${quote(value)}`, where)
-  return value
-}
-
-// The base URL of a simple repository API.
-function checkIndex(value, where) {
-  if (!isHttpUrl(text(value, where))) throw new LockfileError(`${quote(value)} is not an http(s) URL`, where)
   return value
 }
 
@@ -44,7 +38,7 @@ function readOrigin(value, where, pkg) {
     vcs: field(value, 'vcs', where, readVcs),
     directory: field(value, 'directory', where, readDirectory),
     archive: field(value, 'archive', where, readArchive),
-    index: field(value, 'index', where, checkIndex),
+    index: field(value, 'index', where, checkHttpUrl),
     sdist,
     wheels,
   }
@@ -101,10 +95,7 @@ function checkUnambiguous(packages) {
   }
 }
 
-const listOf = (check) => (value, where) => strings(value, where, check)
-
 export function parsePylock(text_) {
-  if (typeof text_ !== 'string') throw new TypeError('expected a string')
   const doc = table(parseToml(text_), undefined, TOP)
   const lockVersion = checkLockVersion(doc['lock-version'], 'lock-version')
   const raw = array(doc.packages, 'packages')
@@ -114,11 +105,11 @@ export function parsePylock(text_) {
   for (const [index, pkg] of packages.entries()) pkg.dependencies = resolveDependencies(raw[index].dependencies, `packages[${index}].dependencies`, raw, byName)
   return {
     lockVersion,
-    environments: field(doc, 'environments', '', listOf(checkMarker)),
+    environments: field(doc, 'environments', '', stringsOf(checkMarker)),
     requiresPython: field(doc, 'requires-python', '', checkSpecifiers),
-    extras: field(doc, 'extras', '', listOf(checkNormalName)) ?? [],
-    dependencyGroups: field(doc, 'dependency-groups', '', listOf(checkName)) ?? [],
-    defaultGroups: field(doc, 'default-groups', '', listOf(checkName)) ?? [],
+    extras: field(doc, 'extras', '', stringsOf(checkNormalName)) ?? [],
+    dependencyGroups: field(doc, 'dependency-groups', '', stringsOf(checkName)) ?? [],
+    defaultGroups: field(doc, 'default-groups', '', stringsOf(checkName)) ?? [],
     createdBy: text(doc['created-by'], 'created-by'),
     packages,
     tool: field(doc, 'tool', '', table),

@@ -7,7 +7,7 @@
 
 import { LockfileError, at, quote } from '../error.js'
 import { checkName, checkRelative } from '../names.js'
-import { entries, record } from '../shape.js'
+import { entries } from '../shape.js'
 import { compile, matches } from '../glob.js'
 import { folderName, readEntry, readLink } from './entries.js'
 
@@ -95,7 +95,7 @@ function resolve(node, name) {
 // has something to say, among them.
 export function readNodes(packages) {
   const nodes = new Map()
-  for (const [location, entry, where] of entries(record(packages, WHERE), WHERE)) nodes.set(location, readNode(location, entry, where))
+  for (const [location, entry, where] of entries(packages, WHERE)) nodes.set(location, readNode(location, entry, where))
   if (!nodes.has('')) nodes.set('', readNode('', Object.create(null), at(WHERE, '')))
   for (const node of nodes.values()) {
     if (node.parentLocation !== undefined) place(node, nodes)

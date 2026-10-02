@@ -2,19 +2,12 @@
 // goes is parse.js's to say; an inline table's keys are set here.
 
 import { hex } from '../excerpt.js'
+import { take } from '../lines.js'
 import { readDateTime } from './datetime.js'
 import { EXCERPT, TomlError, assert, excerpt } from './error.js'
 import { readFloat, readInteger } from './number.js'
 
 const MAX_DEPTH = 64
-
-// `re` must be sticky.
-function take(src, re) {
-  re.lastIndex = src.pos
-  const m = re.exec(src.text)
-  if (m !== null) src.pos = re.lastIndex
-  return m
-}
 
 function skipSpaces(src) {
   while (src.text[src.pos] === ' ' || src.text[src.pos] === '\t') src.pos++

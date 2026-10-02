@@ -9,7 +9,7 @@ import { DIGESTS, checkDigest, checkPath, fileNameOf, parseSdistName, parseWheel
 import { versionKey } from '../python/pep440.js'
 import { field } from '../shape.js'
 import { TomlDateTime } from '../toml/datetime.js'
-import { array, boolean, entries, refuse, size, string, table, text } from '../toml/shape.js'
+import { array, arrayOf, boolean, entries, refuse, size, string, table, text } from '../toml/shape.js'
 
 const FILE_SCHEMES = ['https:', 'http:', 'file:']
 
@@ -46,7 +46,7 @@ function readFile(value, where, fields) {
   if (value.url === undefined && value.path === undefined) throw new LockfileError('expected a url or a path', where)
   const url = field(value, 'url', where, parseUrl)
   const file = {
-    url: url === undefined ? undefined : value.url,
+    url: value.url,
     path: field(value, 'path', where, checkPath),
     size: field(value, 'size', where, size),
     uploadTime: field(value, 'upload-time', where, readTime),
@@ -117,9 +117,8 @@ export function readVcs(value, where) {
 // Each of a publisher's identities, its `kind` and its own keys as written.
 export function readAttestations(value, where) {
   if (value === undefined) return []
-  return array(value, where).map((item, index) => {
-    const here = `${where}[${index}]`
+  return arrayOf((item, here) => {
     text(table(item, here).kind, at(here, 'kind'))
     return item
-  })
+  })(value, where)
 }

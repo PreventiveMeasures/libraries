@@ -8,7 +8,7 @@ import { isHexSha256 } from '../names.js'
 import { checkVersion, versionKeyOf } from '../python/pep440.js'
 import { checkMarker, checkName, normalName } from '../python/pep508.js'
 import { field } from '../shape.js'
-import { array, boolean, entries, kind, string, strings, table, text } from '../toml/shape.js'
+import { array, boolean, checkListedOnce, entries, kind, string, strings, stringsOf, table, tableOf, text } from '../toml/shape.js'
 import { parseToml } from '../toml/parse.js'
 import { isTable } from '../toml/value.js'
 import { readDependencies, readExtras, readFiles, readSource } from './package.js'
@@ -85,31 +85,22 @@ function readPackage(value, where, lockVersion) {
 
 // The root's extras: the packages, by name, each turns on.
 function readRootExtras(value, names) {
-  const extras = Object.create(null)
-  if (value === undefined) return extras
   const known = (name, where) => {
     if (!names.has(normalName(checkName(name, where)))) throw new LockfileError(`${quote(name)} names no package in the lockfile`, where)
     return name
   }
-  for (const [extra, list, here] of entries(value, 'extras')) extras[checkName(extra, here)] = strings(list, here, known)
-  return extras
+  return tableOf(value, 'extras', checkName, stringsOf(known))
 }
 
 // Poetry's identity of a package: its name, version and source.
 const identity = (pkg) => JSON.stringify([normalName(pkg.name), versionKeyOf(pkg.version), pkg.source ?? null])
 
 export function parsePoetryLock(text_) {
-  if (typeof text_ !== 'string') throw new TypeError('expected a string')
   const doc = table(parseToml(text_), undefined, TOP)
   if (!isTable(doc.metadata)) throw new LockfileError('expected a [metadata] table, which Poetry requires', 'metadata')
   const { lockVersion, pythonVersions, contentHash } = readMetadata(doc.metadata)
   const packages = array(doc.package ?? [], 'package').map((item, index) => readPackage(item, `package[${index}]`, lockVersion))
-  const seen = new Map()
-  for (const [index, pkg] of packages.entries()) {
-    const id = identity(pkg)
-    if (seen.has(id)) throw new LockfileError(`${quote(`${pkg.name} ${pkg.version}`)} is listed twice, first as package[${seen.get(id)}]`, `package[${index}]`)
-    seen.set(id, index)
-  }
+  checkListedOnce(packages, identity, (pkg) => `${pkg.name} ${pkg.version}`)
   const extras = readRootExtras(doc.extras, new Set(packages.map((pkg) => normalName(pkg.name))))
   return { lockVersion, pythonVersions, contentHash, extras, packages }
 }

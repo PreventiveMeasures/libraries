@@ -13,11 +13,11 @@ import { parseYamlStream } from '../yaml/parse.js'
 import { fromBase32 } from '@exodus/bytes/base32.js'
 import { fromHex } from '@exodus/bytes/hex.js'
 import { LockfileError, at, quote } from '../error.js'
-import { KINDS, reach } from '../graph.js'
-import { checkIntegrity, checkName, checkRelative } from '../names.js'
-import { boolean, count, kind, mapping, orEmpty, record, string, text, textMap, texts } from '../shape.js'
+import { KINDS, unreached } from '../graph.js'
+import { checkIntegrity, checkRelative } from '../names.js'
+import { boolean, count, field, kind, mapping, orEmpty, record, string, text, textMap, texts } from '../shape.js'
 import { ENV_KINDS, readImporters } from './importers.js'
-import { readPackages } from './packages.js'
+import { byName, readPackages } from './packages.js'
 
 const FIELDS = [
   'lockfileVersion', 'settings', 'catalogs', 'overrides', 'patchedDependencies',
@@ -41,11 +41,7 @@ const readSettings = (value, where) => mapping(record(orEmpty(value), where, Obj
 // catalog gives it and the version that resolved to.
 const readCatalogs = (value, where) => mapping(orEmpty(value), where, (names, here, catalog) => {
   text(catalog, here)
-  return mapping(names, here, (item, there, name) => {
-    record(item, there, ['specifier', 'version'])
-    checkName(name, there)
-    return { specifier: string(item.specifier, at(there, 'specifier')), version: text(item.version, at(there, 'version')) }
-  })
+  return byName(['specifier', 'version'], (item, there) => ({ specifier: string(item.specifier, at(there, 'specifier')), version: text(item.version, at(there, 'version')) }))(names, here)
 })
 
 // A bare hash as pnpm writes one: lowercase hex, or base32 unpadded, of so
@@ -75,7 +71,6 @@ const readPatches = (value, where) => mapping(orEmpty(value), where, (item, here
 // A digest of what rewrote the manifests pnpm resolved from: pnpm 9 writes
 // an md5 bare, in hex or base32, and pnpm 10 and later a sha256 integrity.
 function readChecksum(value, where) {
-  if (value === undefined) return undefined
   const checksum = text(value, where)
   if (isHash(checksum, 16, fromHex) || isHash(checksum, 16, fromBase32Bare)) return checksum
   if (!checksum.startsWith('sha256-')) throw new LockfileError(`${quote(checksum)} is not a checksum`, where)
@@ -101,10 +96,8 @@ const readTime = (value, where, packages) => mapping(orEmpty(value), where, (ite
 // Every snapshot is reached from an importer, as pnpm prunes the rest: one
 // that is not would be listed as installed when nothing installs it.
 function checkReached(importers, packages, where, kinds) {
-  const reached = reach(Object.values(importers).flatMap((importer) => kinds.map((field) => importer[field])), packages)
-  for (const key of Object.keys(packages)) {
-    if (!reached.has(key)) throw new LockfileError('no importer depends on it, directly or not', at(at(where, 'snapshots'), key))
-  }
+  const stray = unreached(Object.values(importers).flatMap((importer) => kinds.map((list) => importer[list])), packages)
+  if (stray !== undefined) throw new LockfileError('no importer depends on it, directly or not', at(at(where, 'snapshots'), stray))
 }
 
 function readDocument(doc, prefix, env) {
@@ -124,9 +117,9 @@ function readDocument(doc, prefix, env) {
     catalogs: readCatalogs(doc.catalogs, at(prefix, 'catalogs')),
     overrides: textMap(orEmpty(doc.overrides), at(prefix, 'overrides'), text),
     patchedDependencies,
-    packageExtensionsChecksum: readChecksum(doc.packageExtensionsChecksum, at(prefix, 'packageExtensionsChecksum')),
-    pnpmfileChecksum: readChecksum(doc.pnpmfileChecksum, at(prefix, 'pnpmfileChecksum')),
-    ignoredOptionalDependencies: doc.ignoredOptionalDependencies === undefined ? [] : texts(doc.ignoredOptionalDependencies, at(prefix, 'ignoredOptionalDependencies')),
+    packageExtensionsChecksum: field(doc, 'packageExtensionsChecksum', prefix, readChecksum),
+    pnpmfileChecksum: field(doc, 'pnpmfileChecksum', prefix, readChecksum),
+    ignoredOptionalDependencies: field(doc, 'ignoredOptionalDependencies', prefix, texts) ?? [],
     time: readTime(doc.time, at(prefix, 'time'), orEmpty(doc.packages)),
     importers,
     packages,

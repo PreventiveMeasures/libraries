@@ -3,7 +3,7 @@ import { parseVersionReq } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
 import { field, optional, orEmpty } from '../shape.js'
 import { isTable } from '../toml/value.js'
-import { boolean, checkCrateName, checkFeature, entries, refuse, string, strings, table } from './shape.js'
+import { boolean, checkCrateName, checkFeature, entries, refuse, string, strings, table, tableOf } from './shape.js'
 import { differ, sourceOf } from './sources.js'
 
 export const NIGHTLY = 'which only a nightly cargo reads, is not supported'
@@ -157,8 +157,7 @@ export function featureValue(text) {
 // As cargo's build_feature_map: an implicit feature for each optional
 // dependency that no feature is named after or enables by `dep:`.
 export function featureMap(value, where, dependencies) {
-  const written = Object.create(null)
-  for (const [name, list, here] of entries(orEmpty(value), where)) written[checkFeature(name, here)] = strings(list, here)
+  const written = tableOf(value, where, checkFeature, strings)
   const optionalDep = new Map()
   for (const dep of dependencies) optionalDep.set(dep.name, (optionalDep.get(dep.name) ?? false) || dep.optional)
   const values = Object.values(written).flat().map(featureValue)

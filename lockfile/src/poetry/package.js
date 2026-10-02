@@ -5,11 +5,11 @@
 // here.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkRepo, isCommit, isHttpUrl } from '../names.js'
-import { DIGESTS, checkHash, checkPath } from '../python/files.js'
+import { checkRepo, isCommit } from '../names.js'
+import { DIGESTS, checkHash, checkHttpUrl, checkPath } from '../python/files.js'
 import { checkMarker, checkName, checkRequirementText, normalName } from '../python/pep508.js'
 import { field } from '../shape.js'
-import { array, boolean, entries, string, strings, table, text } from '../toml/shape.js'
+import { array, boolean, entries, oneOf, string, stringsOf, table, tableOf, text } from '../toml/shape.js'
 
 // The hashes Poetry takes from an index: hashlib's, by name.
 const HASHES = Object.fromEntries(['md5', 'sha1', 'sha224', 'sha256', 'sha384', 'sha512'].map((algorithm) => [algorithm, DIGESTS[algorithm]]))
@@ -18,11 +18,6 @@ const HASHES = Object.fromEntries(['md5', 'sha1', 'sha224', 'sha256', 'sha384', 
 function checkRepository(value, where) {
   const url = URL.parse(checkRepo(text(value, where), where))
   if (!/^[\w.-]+@[\w.-]+:./u.test(value) && (url === null || !['https:', 'http:', 'ssh:', 'git:', 'file:'].includes(url.protocol))) throw new LockfileError(`${quote(value)} is not a repository URL`, where)
-  return value
-}
-
-function checkHttpUrl(value, where) {
-  if (!isHttpUrl(text(value, where))) throw new LockfileError(`${quote(value)} is not an http(s) URL`, where)
   return value
 }
 
@@ -52,15 +47,13 @@ function readKind(type, value, where) {
 function readConstraint(value, where) {
   if (typeof value === 'string') return { type: 'version', version: text(value, where), extras: [], optional: false, markers: undefined }
   table(value, where, DEPENDENCY)
-  const kinds = KINDS.filter((key) => value[key] !== undefined)
-  if (kinds.length !== 1) throw new LockfileError(`expected one of ${KINDS.join(', ')}, found ${kinds.length === 0 ? 'none' : kinds.join(' and ')}`, where)
-  const [type] = kinds
+  const type = oneOf(value, KINDS, where)
   const stray = DEPENDENCY.find((key) => value[key] !== undefined && !OWN[type].includes(key) && !COMMON.has(key))
   if (stray !== undefined) throw new LockfileError(`a field Poetry does not write for a ${type} dependency`, at(where, stray))
   return {
     type,
     ...readKind(type, value, where),
-    extras: field(value, 'extras', where, (list, here) => strings(list, here, checkName)) ?? [],
+    extras: field(value, 'extras', where, stringsOf(checkName)) ?? [],
     optional: field(value, 'optional', where, boolean) ?? false,
     markers: field(value, 'markers', where, checkMarker),
   }
@@ -100,11 +93,7 @@ export function readFiles(value, where) {
 // What each extra adds, in PEP 508's text, as Poetry writes it from the
 // package's metadata. Poetry reads one that is not PEP 508 with a fallback
 // that takes nearly anything; it is refused here.
-export function readExtras(value, where) {
-  const extras = Object.create(null)
-  if (value !== undefined) for (const [extra, list, here] of entries(value, where)) extras[checkName(extra, here)] = strings(list, here, checkRequirementText)
-  return extras
-}
+export const readExtras = (value, where) => tableOf(value, where, checkName, stringsOf(checkRequirementText))
 
 const SOURCES = {
   legacy: ['url', 'reference'],
