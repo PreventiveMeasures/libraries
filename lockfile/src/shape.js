@@ -15,17 +15,31 @@ export function kind(value) {
   return `the ${typeof value} ${String(value)}`
 }
 
-// The readers of a value of a primitive kind, refusing what else they are
-// given as `describe` describes it: the YAML and JSON readers' here, TOML's in
-// toml/shape.js.
-export function primitives(describe) {
+// The readers of a value of a primitive kind and of a mapping, refusing what
+// else they are given as `describe` describes it: the YAML and JSON readers'
+// here, TOML's in toml/shape.js, whose mapping is a table of keys.
+export function primitives(describe, isMapping, noun, key) {
   const refuse = (expected, value, where) => new LockfileError(`expected ${expected}, found ${describe(value)}`, where)
   const check = (test, expected) => (value, where) => {
     if (!test(value)) throw refuse(expected, value, where)
     return value
   }
+  // A mapping with only the `fields` named, when named: any other key is
+  // one this reader does not know the meaning of, and it is refused rather
+  // than dropped. `refused` names a key with the reason it is not read.
+  const record = (value, where, fields, refused = {}) => {
+    if (!isMapping(value)) throw refuse(noun, value, where)
+    for (const name of fields === undefined ? [] : Object.keys(value)) {
+      if (Object.hasOwn(refused, name)) throw new LockfileError(refused[name], at(where ?? '', name))
+      if (!fields.includes(name)) throw new LockfileError(`unsupported ${key} ${quote(name)}`, where)
+    }
+    return value
+  }
   return {
     refuse,
+    record,
+    // A mapping's entries, each with where it is.
+    entries: (value, where) => Object.entries(record(value, where)).map(([name, item]) => [name, item, at(where, name)]),
     string: check((value) => typeof value === 'string', 'a string'),
     boolean: check((value) => typeof value === 'boolean', 'true or false'),
     // A size in bytes, or any count: an integer a number holds exactly.
@@ -33,22 +47,8 @@ export function primitives(describe) {
   }
 }
 
-export const { refuse, string, boolean, count } = primitives(kind)
-
-// A mapping with only the `fields` named, when named: any other key is one
-// this reader does not know the meaning of, and it is refused rather than
-// dropped. `refused` names a key with the reason it is not read.
-export function record(value, where, fields, refused = {}) {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw refuse('a mapping', value, where)
-  for (const key of fields === undefined ? [] : Object.keys(value)) {
-    if (Object.hasOwn(refused, key)) throw new LockfileError(refused[key], at(where, key))
-    if (!fields.includes(key)) throw new LockfileError(`unsupported field ${quote(key)}`, where)
-  }
-  return value
-}
-
-// A mapping's entries, each with where it is.
-export const entries = (value, where) => Object.entries(record(value, where)).map(([key, item]) => [key, item, at(where, key)])
+const isMapping = (value) => typeof value === 'object' && value !== null && !Array.isArray(value)
+export const { refuse, record, entries, string, boolean, count } = primitives(kind, isMapping, 'a mapping', 'field')
 
 // A mapping that may be left out, as an empty one then. A null is not left
 // out, and whatever reads it as a mapping refuses it.
