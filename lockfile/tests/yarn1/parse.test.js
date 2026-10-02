@@ -152,6 +152,10 @@ describe('the base lockfile', () => {
     assert.deepEqual(plain(alone.packages), plain(lock.packages))
   })
 
+  it('refuses a line longer than 2^20 characters, as yarn writes none', () => {
+    refuses(`${HEADER}\n\n"a@${'x'.repeat(2 ** 20)}":\n  version "1.0.0"\n`, 'a line longer than 1048576 characters at line 5')
+  })
+
   it('with CRLF line ends too, and without the last', () => {
     assert.deepEqual(plain(parse(BASE.replaceAll('\n', '\r\n'), MANIFESTS)), plain(lock))
     assert.deepEqual(plain(parse(BASE.trimEnd(), MANIFESTS)), plain(lock))

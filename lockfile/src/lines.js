@@ -34,6 +34,11 @@ export function take(src, re) {
 // What follows `pos`, for a message.
 export const rest = (line, pos) => (pos < line.length ? quote(line.slice(pos)) : 'the end of the line')
 
+// A line some 2^23 characters long runs V8's regex engine out of
+// backtracking stack, which is a RangeError, so a line is held to well
+// below that, as yaml/parse.js holds one: no tool writes one near it.
+const MAX_LINE = 2 ** 20
+
 // `forbidden` is what no line may have, refused by its code point.
 export const lines = (text, forbidden) => ({ text, forbidden, pos: 0, number: -1, line: undefined, crlf: undefined })
 
@@ -50,6 +55,7 @@ export function advance(src) {
   src.number++
   const crlf = end < text.length && text[end - 1] === '\r'
   const line = text.slice(pos, crlf ? end - 1 : end)
+  if (line.length > MAX_LINE) throw fail(`a line longer than ${MAX_LINE} characters`, src.number)
   const char = src.forbidden.exec(line)?.[0]
   if (char !== undefined) throw fail(`${hex(char)} is not allowed`, src.number)
   if (end < text.length && crlf !== (src.crlf ??= crlf)) throw fail(`a ${crlf ? 'CRLF' : 'LF'} line end, after ${src.crlf ? 'CRLF' : 'LF'} ones`, src.number)

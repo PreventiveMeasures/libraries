@@ -130,6 +130,11 @@ describe('the layout', () => {
     refuses('', 'an empty lockfile, which Bundler reads as none')
   })
 
+  it('a line of 2^20 characters at most, as no tool writes a longer one, which a regex would run out of stack on', () => {
+    refuses(edit(['  t\n', `  t (>= 1.${'1.'.repeat(2 ** 22)}1)\n`]), 'a line longer than 1048576 characters at line 32')
+    refuses(edit(['  ruby 3.3.6\n', `  ruby ${'3.'.repeat(2 ** 22)}3\n`]), 'a line longer than 1048576 characters at line 43')
+  })
+
   it('refuses a character Bundler does not write, and a merge conflict', () => {
     refuses(edit(['    a (1.2.0)', '\ta (1.2.0)']), 'U+0009 is not allowed at line 18')
     refuses(edit(['  t\n', '<<<<<<< HEAD\n  t\n']), '"<<<<<<<", which Bundler reads as a merge conflict')

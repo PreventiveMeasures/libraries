@@ -29,17 +29,12 @@ const FORBIDDEN = /[^\p{L}\p{M}\p{N}\p{P}\p{S}\p{Zs}]/u
 const DOUBLE = /^"((?:[^"\\]|\\.)*)"/u
 const SINGLE = /^'((?:[^']|'')*)'/u
 const MAX_DEPTH = 8
-// A scalar some 2^23 characters long runs V8's regex engine out of
-// backtracking stack, which is a RangeError, so a line is held to well
-// below that, as yaml/parse.js holds one.
-const MAX_LINE = 2 ** 20
 
 const isEntry = (text) => text === '-' || text.startsWith('- ')
 
 // The next line with anything on it, as `{ indent, text, number }`.
 function next(src) {
   for (advance(src); src.line !== undefined; advance(src)) {
-    if (src.line.length > MAX_LINE) throw fail(`a line longer than ${MAX_LINE} characters`, src.number)
     const indent = /^ */u.exec(src.line)[0].length
     const text = src.line.slice(indent)
     if (text === '') continue
