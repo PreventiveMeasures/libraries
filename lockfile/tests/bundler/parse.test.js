@@ -177,6 +177,7 @@ describe('sources', () => {
     refuses(edit(['  branch: main', `  ref: ${'d'.repeat(40)}`]), `the commit ${'d'.repeat(40)}, and the revision another`, 'sources[0].ref')
     refuses(edit(['  branch: main', '  ref: a b']), '"a b" is not a reference git reads', 'sources[0].ref')
     refuses(edit(['  branch: main', '  branch: a..b']), '"a..b" is not a branch or tag name git takes', 'sources[0].branch')
+    assert.equal(parseGemfileLock(edit(['remote: https://github.com/o/g.git', 'remote: ../my repo'])).sources[0].remote, '../my repo')
     refuses(edit(['g.git\n', 'g.git/\n']), '"https://github.com/o/g.git/" ends in "/", which Bundler leaves out of a repository', 'sources[0].remote')
     refuses(edit(['  branch: main', '  submodules: false']), 'expected "true", found "false"', 'sources[0].submodules')
     refuses(edit(['  branch: main', '  glob: {,*,*/*}.gemspec']), '"{,*,*/*}.gemspec", which Bundler reads by where none is written, and does not write', 'sources[0].glob')
@@ -192,14 +193,22 @@ describe('sources', () => {
   it('a gem server, by one URL, with a "/" at the end', () => {
     assert.equal(parseGemfileLock(edit(['https://rubygems.org/', 'https://user:secret@gems.example.com/private/'])).sources[2].remote, 'https://user:secret@gems.example.com/private/')
     refuses(edit(['https://rubygems.org/', 'https://rubygems.org']), '"https://rubygems.org" does not end in "/", as Bundler writes a source', 'sources[2].remote')
-    refuses(edit(['https://rubygems.org/', 'ftp://rubygems.org/']), '"ftp://rubygems.org/" is not an http(s) URL, or a file: URL in normal form', 'sources[2].remote')
+    refuses(edit(['https://rubygems.org/', 'ftp://rubygems.org/']), '"ftp://rubygems.org/" is not an http(s) URL, or a file: or s3: URL in normal form', 'sources[2].remote')
+  })
+
+  it('an S3 bucket of gems, by an s3: URL in normal form, as `source "s3://bucket/gems"` writes it', () => {
+    assert.equal(parseGemfileLock(edit(['https://rubygems.org/', 's3://bucket/gems/'])).sources[2].remote, 's3://bucket/gems/')
+    for (const remote of ['s3:///gems/', 'S3://bucket/gems/', 's3://bucket/a/../gems/', 's3://bucket/my gems/']) {
+      refuses(edit(['https://rubygems.org/', remote]), `${JSON.stringify(remote)} is not an http(s) URL, or a file: or s3: URL in normal form`, 'sources[2].remote')
+    }
+    refuses(edit(['https://rubygems.org/', 's3://bucket/gems']), '"s3://bucket/gems" does not end in "/", as Bundler writes a source', 'sources[2].remote')
   })
 
   it('a directory of gems, by a file: URL in normal form, as `source "file:///srv/gems"` writes it', () => {
     assert.equal(parseGemfileLock(edit(['https://rubygems.org/', 'file:///srv/gems/'])).sources[2].remote, 'file:///srv/gems/')
     assert.equal(parseGemfileLock(edit(['https://rubygems.org/', 'file:///srv/my%20gems/'])).sources[2].remote, 'file:///srv/my%20gems/')
     for (const remote of ['file://localhost/srv/gems/', 'file:/srv/gems/', 'file://host/srv/gems/', 'file:///srv/my gems/', 'file:///srv/../gems/']) {
-      refuses(edit(['https://rubygems.org/', remote]), `${JSON.stringify(remote)} is not an http(s) URL, or a file: URL in normal form`, 'sources[2].remote')
+      refuses(edit(['https://rubygems.org/', remote]), `${JSON.stringify(remote)} is not an http(s) URL, or a file: or s3: URL in normal form`, 'sources[2].remote')
     }
     refuses(edit(['https://rubygems.org/', 'file:///srv/gems']), '"file:///srv/gems" does not end in "/", as Bundler writes a source', 'sources[2].remote')
     refuses(edit(['  remote: https://rubygems.org/\n', '  remote: https://rubygems.org/\n  remote: https://gem.coop/\n']), 'a second remote: Bundler fetches each gem of the source from either, and the lockfile does not say which at line 17')
@@ -262,12 +271,19 @@ describe('gems', () => {
   it('a gem of a platform one of PLATFORMS takes, as Bundler matches them', () => {
     const listed = (locked) => ['ruby', locked].sort().map((platform) => `  ${platform}\n`).join('')
     const variant = (platform, locked = 'x86_64-linux') => BASE.replaceAll('1.0.0-x86_64-linux', `1.0.0-${platform}`).replace('  ruby\n  x86_64-linux\n', listed(locked))
-    for (const [platform, locked] of [['x86_64-linux-gnu'], ['x86_64-linux', 'x86_64-linux-musl'], ['arm64-darwin', 'arm64-darwin-23'], ['universal-darwin', 'x86_64-darwin'], ['universal-java-11', 'java'], ['arm-linux', 'armv7l-linux'], ['universal-mingw', 'x64-mingw-ucrt']]) {
+    const accepted = [
+      ['x86_64-linux-gnu'], ['x86_64-linux', 'x86_64-linux-musl'], ['x86_64-linux-musl'], ['x86_64-linux-gnu', 'x86_64-linux-gnu'],
+      ['arm-linux-gnueabihf', 'arm-linux-gnu'], ['arm-linux-eabihf', 'arm-linux-musleabihf'], ['arm64-darwin', 'arm64-darwin-23'],
+      ['arm64-darwin-23', 'arm64-darwin'], ['universal-darwin', 'x86_64-darwin'], ['universal-java-11', 'java'],
+      ['universal-java-11', 'universal-java-17'], ['arm-linux', 'armv7l-linux'], ['arm-linux', 'arm64-linux'], ['universal-mingw', 'x64-mingw-ucrt'],
+    ]
+    for (const [platform, locked] of accepted) {
       assert.equal(parseGemfileLock(variant(platform, locked)).specs[`n-1.0.0-${platform}`].platform, platform, `${platform} for ${locked}`)
     }
     refuses(edit(['  x86_64-linux\n\nDEPENDENCIES', '\nDEPENDENCIES']), 'of the platform "x86_64-linux", which no platform of PLATFORMS takes, where Bundler locks a gem for one', 'specs["n-1.0.0-x86_64-linux"]')
-    refuses(variant('aarch64-linux'), 'of the platform "aarch64-linux", which no platform of PLATFORMS takes, where Bundler locks a gem for one', 'specs["n-1.0.0-aarch64-linux"]')
-    refuses(variant('x64-mingw32', 'x64-mingw-ucrt'), 'of the platform "x64-mingw32", which no platform of PLATFORMS takes, where Bundler locks a gem for one', 'specs["n-1.0.0-x64-mingw32"]')
+    for (const [platform, locked] of [['aarch64-linux'], ['x64-mingw32', 'x64-mingw-ucrt'], ['x86_64-linux-gnu', 'x86_64-linux-musl'], ['x86_64-linux-musl', 'x86_64-linux-gnu'], ['arm64-darwin-22', 'arm64-darwin-23'], ['armv7l-linux', 'arm-linux']]) {
+      refuses(variant(platform, locked), `of the platform "${platform}", which no platform of PLATFORMS takes, where Bundler locks a gem for one`, `specs["n-1.0.0-${platform}"]`)
+    }
   })
 
   it('one version of a gem for each platform', () => {

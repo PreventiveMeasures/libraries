@@ -123,32 +123,70 @@ export function platformOf(text, rubygems) {
 // written back the same, and so the platform a gem's file is named by.
 export const isPlatform = (text) => text !== 'ruby' && text !== 'current' && /^[\w.-]+$/u.test(text) && platformOf(text, 3) === text && platformOf(text, 4) === text
 
-// Platforms as what a gem's is held to: by OS, the CPUs of each, and
-// whether one is an ARM of a version, `armv7l`.
+// Gem::Platform#normalized_linux_version: a libc less a `gnu` at its start
+// and an `eabi` or `eabihf` at its end; undefined where none is left.
+function libcOf(version) {
+  const rest = version?.replace(/^gnu/u, '').replace(/eabi(?:hf)?$/u, '')
+  return rest === '' ? undefined : rest
+}
+
+// The keys of every CPU of an OS, and of every ARM: RubyGems 3.4 takes a
+// gem of `arm` for any CPU of `arm` at its start, and 3.5 and later for
+// one of a version, `armv7l`.
+const ALL = Symbol('all')
+const ARM = Symbol('arm')
+
+// Platforms as what a gem's is held to: by OS, then by CPU, and of all and
+// of the ARMs, the versions there are, and the libcs of them.
 export function platformSet(platforms) {
   const byOs = new Map()
   for (const platform of platforms) {
     if (platform === 'ruby') continue
-    const [cpu, os] = platformParts(platform, 3)
-    if (!byOs.has(os)) byOs.set(os, { cpus: new Set(), armv: false })
-    const entry = byOs.get(os)
-    entry.cpus.add(cpu)
-    entry.armv ||= cpu?.startsWith('armv') ?? false
+    const [cpu, os, version] = platformParts(platform, 3)
+    const cpus = byOs.get(os) ?? byOs.set(os, new Map()).get(os)
+    for (const key of [cpu, ALL, ...(cpu?.startsWith('arm') ? [ARM] : [])]) {
+      const locked = cpus.get(key) ?? cpus.set(key, { versions: new Set(), libcs: new Set() }).get(key)
+      locked.versions.add(version)
+      locked.libcs.add(libcOf(version))
+    }
   }
   return byOs
 }
 
-// Whether Bundler may install a gem of `platform` for one of a set, as
-// Gem::Platform#=== matches them: of one OS, and a CPU that takes it, any
-// where one is none or universal, an ARM any ARM of a version; or of a
-// universal mingw and any mingw. Of the OS's version, which each RubyGems
-// compares its own way, and Bundler's generic platforms take more of, it
-// takes any.
+// Whether a gem's version of its OS is one of `locked` takes, as RubyGems
+// older than 3.3.23, or since, compares them: where either is none, or both
+// the same; or of Linux, the same libc but for `gnu` and `eabi`, or a musl
+// one of the gem's, `musleabihf` of `eabihf`.
+function takesVersion(locked, os, version) {
+  if (locked === undefined) return false
+  if (version === undefined || locked.versions.has(undefined) || locked.versions.has(version)) return true
+  return os === 'linux' && (locked.libcs.has(libcOf(version)) || ['musl', 'musleabi', 'musleabihf'].some((libc) => locked.versions.has(`${libc}${version}`)))
+}
+
+// The platform Bundler 2.2 takes a gem as of too, of its OS's version
+// none, where GemHelpers.generic has one: [cpu, os].
+function genericOf(cpu, os) {
+  if (os === 'java' || os === 'mswin64') return [undefined, os]
+  if (os === 'mswin32' && cpu === 'x86') return [cpu, os]
+  if (os === 'mingw32') return [cpu === 'universal' || cpu === 'x64' ? cpu : cpu === 'x86_64' ? 'x64' : 'x86', os]
+  return undefined
+}
+
+// Whether a platform of these parts is one of a set takes, as
+// Gem::Platform#=== matches them: of one OS, a CPU that takes it, any
+// where one is none or universal, an ARM any ARM, and a version that takes
+// it; or of a universal mingw and any mingw.
+function takes(set, cpu, os, version) {
+  const cpus = set.get(os)
+  const keys = cpu === undefined || cpu === 'universal' ? [ALL] : [cpu, undefined, 'universal', ...(cpu === 'arm' ? [ARM] : [])]
+  if (cpus !== undefined && keys.some((key) => takesVersion(cpus.get(key), os, version))) return true
+  return os.startsWith('mingw') && ['mingw', 'mingw32'].some((name) => set.get(name)?.has(cpu === 'universal' ? ALL : 'universal'))
+}
+
+// Whether Bundler may install a gem of `platform` for one of a set: as
+// RubyGems takes it, or Bundler 2.2 its generic platform.
 export function platformServed(set, platform) {
-  const [cpu, os] = platformParts(platform, 3)
-  const { cpus, armv } = set.get(os) ?? { cpus: new Set(), armv: false }
-  const anyCpu = cpu === undefined || cpu === 'universal' ? cpus.size > 0 : cpus.has(cpu) || cpus.has(undefined) || cpus.has('universal')
-  if (anyCpu || (cpu === 'arm' && armv) || (cpu?.startsWith('armv') && cpus.has('arm'))) return true
-  const mingws = ['mingw', 'mingw32'].map((name) => set.get(name)?.cpus).filter((others) => others !== undefined)
-  return os.startsWith('mingw') && mingws.some((others) => cpu === 'universal' || others.has('universal'))
+  const [cpu, os, version] = platformParts(platform, 3)
+  const generic = genericOf(cpu, os)
+  return takes(set, cpu, os, version) || (generic !== undefined && takes(set, ...generic, undefined))
 }

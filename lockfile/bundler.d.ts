@@ -23,7 +23,7 @@ export { LockfileError } from './pnpm.js'
 // locked under its name does not meet, as a lockfile edited by hand may
 // have; a gem nothing depends on; one name from two sources, or two gems
 // of one name for one platform, or a gem of a platform no platform of
-// PLATFORMS takes, of its OS and CPU; what the Gemfile asks for without its `!`
+// PLATFORMS takes, of its OS, CPU and libc; what the Gemfile asks for without its `!`
 // from other than one default source, a git one never; a checksum
 // not sha256 in lowercase hex, of a gem from a git or a path source, or of
 // no gem, and a gem without its line in CHECKSUMS.
@@ -43,7 +43,8 @@ export interface GemfileLock {
   gems: Record<string, string[]>
   // Sorted; `ruby` where the gems of no platform are locked as such. Each
   // gem of a platform is one of them takes: `x86_64-linux-gnu`, say, of
-  // `x86_64-linux`, or `arm64-darwin` of `arm64-darwin-23`.
+  // `x86_64-linux`, not `x86_64-linux-musl`, or `arm64-darwin` of
+  // `arm64-darwin-23`.
   platforms: string[]
   // What the Gemfile asks for, by name. One for a platform not locked, as
   // `platforms: [:jruby]` is with no Java platform, has no gem.
@@ -95,9 +96,10 @@ export interface BundlerDependency {
 // `glob`, of a git or a path source, is what Bundler finds the gemspecs
 // by, where not its default, `{,*,*/*}.gemspec`.
 export type BundlerSource =
-  // A server of the gem API, by its URL, or a directory of gems, by a
-  // `file:///` one, with a `/` at the end; undefined for the source of a
-  // Gemfile that names none, and so has no gems.
+  // A server of the gem API, by its URL, a directory of gems, by a
+  // `file:///` one, or an S3 bucket of them, by an `s3://` one, with a `/`
+  // at the end; undefined for the source of a Gemfile that names none, and
+  // so has no gems.
   | { type: 'gem', remote: string | undefined }
   // A repository by URL, or by path, as the Gemfile has it; `revision` the
   // commit it resolved to, and each of `ref`, `branch` and `tag` what was

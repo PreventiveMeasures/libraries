@@ -4,7 +4,7 @@
 
 import { LockfileError, at, quote } from '../error.js'
 import { fail } from '../lines.js'
-import { checkRefName, checkRelative, checkRepo, isCommit, isHttpUrl } from '../names.js'
+import { checkRefName, checkRelative, isCommit, isHttpUrl } from '../names.js'
 
 // The options of each, in the order Bundler writes them; the first are
 // always written.
@@ -42,11 +42,12 @@ function readGlob(value, where) {
   return value
 }
 
-// A repository by URL, or by path, as the Gemfile has it, less a `/` at the
-// end; `ref` what was asked for, which is a commit, a branch, a tag or
-// anything else git reads, and `revision` the commit it was.
+// A repository by URL, or by path, as the Gemfile has it, a space and all,
+// less a `/` at the end; `ref` what was asked for, which is a commit, a
+// branch, a tag or anything else git reads, and `revision` the commit it
+// was.
 function readGit(values, where) {
-  const remote = checkRepo(values.remote, at(where, 'remote'))
+  const { remote } = values
   if (remote.endsWith('/')) throw new LockfileError(`${quote(remote)} ends in "/", which Bundler leaves out of a repository`, at(where, 'remote'))
   const { revision, ref } = values
   if (!isCommit(revision)) throw new LockfileError(`${quote(revision)} is not a full commit hash`, at(where, 'revision'))
@@ -73,22 +74,22 @@ function readPath(values, where) {
   return { type: 'path', path: checkRelative(values.remote, here), glob: readGlob(values.glob, at(where, 'glob')) }
 }
 
-// A directory of gems, which Bundler fetches from as from a server, by a
-// file: URL: in the normal form, of no host, so that it is one path to
-// every reader.
-function isFileUrl(remote) {
+// What else RubyGems fetches gems from as from a server, by a URL in the
+// normal form: a directory, by a file: URL of no host, so that it is one
+// path to every reader, or an S3 bucket, by an s3: URL of the bucket.
+function isNormalUrl(remote) {
   const url = URL.parse(remote)
-  return url !== null && url.protocol === 'file:' && url.host === '' && url.href === remote
+  return url !== null && url.href === remote && (url.protocol === 'file:' ? url.host === '' : url.protocol === 's3:' && url.host !== '')
 }
 
-// A server of the gem API by its URL, or a directory of gems, as Bundler
-// writes it: with a `/` at the end. Bundler 2.4 and older write the
-// credentials the Gemfile gives it.
+// A server of the gem API by its URL, or a directory or a bucket of gems,
+// as Bundler writes it: with a `/` at the end. Bundler 2.4 and older write
+// the credentials the Gemfile gives it.
 function readGem(values, where) {
   const { remote } = values
   if (remote === undefined) return { type: 'gem', remote }
-  const url = (isHttpUrl(remote) || isFileUrl(remote)) && !/\s/u.test(remote)
-  if (!url) throw new LockfileError(`${quote(remote)} is not an http(s) URL, or a file: URL in normal form`, at(where, 'remote'))
+  const url = (isHttpUrl(remote) || isNormalUrl(remote)) && !/\s/u.test(remote)
+  if (!url) throw new LockfileError(`${quote(remote)} is not an http(s) URL, or a file: or s3: URL in normal form`, at(where, 'remote'))
   if (!remote.endsWith('/')) throw new LockfileError(`${quote(remote)} does not end in "/", as Bundler writes a source`, at(where, 'remote'))
   return { type: 'gem', remote }
 }
