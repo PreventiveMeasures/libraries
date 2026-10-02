@@ -97,9 +97,11 @@ export interface PodRoot {
   // What CocoaPods downloaded it by, to download it again. Of a pod by
   // `:podspec`, by the source its podspec names, where CocoaPods resolved
   // that to a commit or a revision: a branch, or no reference at all. Of
-  // one by `:path`, nothing. Of any other, by `external`'s options where
-  // they name what to download, a commit, a revision or a tag, or a file;
-  // else by the commit or the revision they came to.
+  // one by `:path`, nothing. Of a file, by `external`'s options. Of any
+  // other, by `external`'s options where they name what to download, a
+  // commit, a revision or a tag, and else by the commit or the revision
+  // they came to, with git's `:submodules` where they ask for them; a git
+  // branch is resolved to a commit first, where git finds it.
   checkout: PodDownload | undefined
 }
 

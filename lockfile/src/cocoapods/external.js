@@ -74,13 +74,38 @@ export function checkDescription(description, source, where) {
 }
 
 const PINS = { git: 'commit', hg: 'revision', svn: 'revision' }
+// Any value, where CocoaPods keeps what the download came to.
+const ANY = Symbol('any')
 
-// CocoaPods keeps the options a pod was downloaded by where they name
-// what to download, a commit or a revision, or a tag, and those of a file
-// always; else what the download came to, by the same URL: a commit or a
-// revision, and with git, submodules where they were asked for. A branch
-// git resolves to a commit first. A pod by `:path` it downloads not at all,
-// and a pod by `:podspec` by whatever source the podspec names.
+// What CocoaPods may keep of a download by `external`: its options, where
+// they name what to download, a commit or a revision, or a tag; else the
+// commit or the revision it came to, and with git, `:submodules` where
+// they were asked for. A git branch is resolved to a commit first where
+// git finds it, and kept where it does not.
+function keptOf(external) {
+  const pin = PINS[external.type]
+  const resolved = external.type === 'git' && external.branch !== undefined ? [{ ...external, branch: undefined, commit: ANY }] : []
+  return [...resolved, external].map((options) => {
+    if (options[pin] !== undefined || options.tag !== undefined) return options
+    return { type: external.type, url: external.url, [pin]: ANY, submodules: options.submodules ? true : undefined }
+  })
+}
+
+// The first option `checkout` has otherwise than `kept`, and how.
+function differenceOf(checkout, kept) {
+  for (const option of DOWNLOADS[checkout.type]) {
+    const [have, want] = [checkout[fieldOf(option)], kept[fieldOf(option)]]
+    if (want === ANY ? have !== undefined : have === want) continue
+    if (have === undefined) return `no :${option}, which CocoaPods keeps of this download`
+    if (want === undefined) return `a :${option}, which CocoaPods does not keep of this download`
+    return `another :${option} than EXTERNAL SOURCES has`
+  }
+  return undefined
+}
+
+// CocoaPods keeps the options a file was downloaded by as they are, and of
+// git, hg and svn what keptOf says. A pod by `:path` it downloads not at
+// all, and a pod by `:podspec` by whatever source the podspec names.
 export function checkCheckout(external, checkout, where, externalWhere) {
   if (external.type === 'path') {
     if (checkout !== undefined) throw new LockfileError('checkout options of a pod by :path, which CocoaPods keeps none of', where)
@@ -89,15 +114,11 @@ export function checkCheckout(external, checkout, where, externalWhere) {
   if (external.type === 'podspec') return
   if (checkout === undefined) throw new LockfileError(`no checkout options, which CocoaPods keeps of a pod by :${external.type}`, externalWhere)
   if (checkout.type !== external.type || checkout.url !== external.url) throw new LockfileError(`not by the :${external.type} and URL EXTERNAL SOURCES has`, where)
-  const fields = DOWNLOADS[external.type].map(fieldOf)
-  const pin = PINS[external.type]
-  if (pin === undefined) {
+  if (PINS[external.type] === undefined) {
+    const fields = DOWNLOADS[external.type].map(fieldOf)
     if (fields.some((field) => JSON.stringify(checkout[field]) !== JSON.stringify(external[field]))) throw new LockfileError('other than the options EXTERNAL SOURCES has, which CocoaPods keeps as they are of a file', where)
     return
   }
-  if (checkout[pin] === undefined && checkout.tag === undefined) throw new LockfileError(`neither a ${pin} nor a tag, one of which CocoaPods keeps`, where)
-  const other = fields.find((field) => field !== pin && checkout[field] !== undefined && checkout[field] !== external[field])
-  if (other !== undefined) throw new LockfileError(`another ${other} than EXTERNAL SOURCES has`, where)
-  if (external[pin] !== undefined && external.branch === undefined && checkout[pin] !== external[pin]) throw new LockfileError(`another ${pin} than EXTERNAL SOURCES has`, where)
-  if (external.submodules === true && checkout.submodules !== true) throw new LockfileError('without submodules, which EXTERNAL SOURCES asks for', where)
+  const differences = keptOf(external).map((kept) => differenceOf(checkout, kept))
+  if (!differences.includes(undefined)) throw new LockfileError(differences[0], where)
 }

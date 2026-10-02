@@ -376,15 +376,31 @@ describe('checkout options', () => {
   it('refuses ones that are not what the source came to', () => {
     const git = (checkout, options) => {
       const given = options ?? { git: GIT, tag: 'v1' }
-      return external(given, `\`${GIT}\`${given.tag === undefined ? '' : ', tag `v1`'}`, checkout)
+      const refs = ['commit', 'branch', 'tag'].filter((ref) => given[ref] !== undefined).map((ref) => `, ${ref} \`${given[ref]}\``).join('')
+      return external(given, `\`${GIT}\`${refs}`, checkout)
     }
     refuses(git({ git: 'https://example.com/other.git', tag: 'v1' }), 'not by the :git and URL EXTERNAL SOURCES has', at)
-    refuses(git({ git: GIT }), 'neither a commit nor a tag, one of which CocoaPods keeps', at)
-    refuses(git({ git: GIT, tag: 'v2' }), 'another tag than EXTERNAL SOURCES has', at)
-    refuses(git({ git: GIT, commit: COMMIT }, { git: GIT, commit: 'abc1234' }).replace(`\`${GIT}\``, `\`${GIT}\`, commit \`abc1234\``), 'another commit than EXTERNAL SOURCES has', at)
-    refuses(git({ git: GIT, commit: COMMIT }, { git: GIT, submodules: 'true' }), 'without submodules, which EXTERNAL SOURCES asks for', at)
+    refuses(git({ git: GIT }), 'no :tag, which CocoaPods keeps of this download', at)
+    refuses(git({ git: GIT, tag: 'v2' }), 'another :tag than EXTERNAL SOURCES has', at)
+    refuses(git({ git: GIT, commit: COMMIT }), 'a :commit, which CocoaPods does not keep of this download', at)
+    refuses(git({ git: GIT, commit: COMMIT, tag: 'v1' }), 'a :commit, which CocoaPods does not keep of this download', at)
+    refuses(git({ git: GIT, commit: COMMIT }, { git: GIT, commit: 'abc1234' }), 'another :commit than EXTERNAL SOURCES has', at)
+    refuses(git({ git: GIT, commit: COMMIT }, { git: GIT, submodules: 'true' }), 'no :submodules, which CocoaPods keeps of this download', at)
+    refuses(git({ git: GIT, branch: 'main' }, { git: GIT, branch: 'main' }), 'no :commit, which CocoaPods keeps of this download', at)
+    refuses(git({ git: GIT, commit: COMMIT, tag: 'v1' }, { git: GIT, commit: 'abc1234', tag: 'v1' }), 'another :commit than EXTERNAL SOURCES has', at)
     const zip = { http: 'https://example.com/Git.zip' }
     refuses(external(zip, '`{:http=>"https://example.com/Git.zip"}`', { ...zip, type: 'zip' }), 'other than the options EXTERNAL SOURCES has, which CocoaPods keeps as they are of a file', at)
+  })
+
+  it('takes what a branch came to, resolved to a commit or kept where git does not find it', () => {
+    const branched = (checkout) => parsePodfileLock(external({ git: GIT, branch: 'main', tag: 'v1' }, `\`${GIT}\`, branch \`main\`, tag \`v1\``, checkout)).roots.Git.checkout
+    assert.deepEqual([branched({ git: GIT, commit: COMMIT, tag: 'v1' }).commit, branched({ git: GIT, branch: 'main', tag: 'v1' }).branch], [COMMIT, 'main'])
+    refuses(external({ git: GIT, branch: 'main', tag: 'v1' }, `\`${GIT}\`, branch \`main\`, tag \`v1\``, { git: GIT, commit: COMMIT }), 'no :tag, which CocoaPods keeps of this download', at)
+    const hg = (checkout) => external({ hg: GIT, branch: 'default' }, `\`${GIT}\``, checkout)
+    refuses(hg({ hg: GIT, revision: COMMIT, branch: 'default' }), 'a :branch, which CocoaPods does not keep of this download', at)
+    const svn = (checkout) => external({ svn: GIT, folder: 'trunk' }, `\`${GIT}\``, checkout)
+    assert.equal(parsePodfileLock(svn({ svn: GIT, revision: "'42'" })).roots.Git.checkout.revision, '42')
+    refuses(svn({ svn: GIT, revision: "'42'", folder: 'trunk' }), 'a :folder, which CocoaPods does not keep of this download', at)
   })
 })
 
