@@ -8,7 +8,10 @@
 // string, is refused; so is an escape but `\"` and `\\` in a quoted one,
 // such as the `\#` CocoaPods writes before `{`, `$` and `@`, which Psych
 // does not read. So is a control, format, private-use or unassigned
-// character anywhere, and a line end of another kind than the first.
+// character anywhere, a line end of another kind than the first, and a
+// line longer than 2^20 characters. So is a key longer than 1024
+// characters, its quotes counted, which Psych does not read; and a pod's
+// name longer than that, as a root's is a key in SPEC CHECKSUMS.
 //
 // Each section is held to the others, as Lockfile.generate writes them:
 // every pod is reached from the Podfile's dependencies; each root is at one

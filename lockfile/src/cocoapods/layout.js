@@ -42,8 +42,9 @@ function resolved(text, rules) {
 }
 
 // Ruby's String#inspect of a string of printable characters alone, which
-// is all yaml.js reads.
-export const inspect = (text) => `"${text.replace(/["\\]/gu, '\\$&').replace(/#(?=[{$@])/gu, '\\#')}"`
+// is all yaml.js reads: as JSON writes it, but for a `#` before `{`, `$`
+// or `@`, which Ruby escapes.
+export const inspect = (text) => JSON.stringify(text).replace(/#(?=[{$@])/gu, '\\#')
 
 function processString(text, rules) {
   if (resolved(text, rules)) return `'${text}'`

@@ -13,11 +13,20 @@ const checker = checkerOf(string)
 // ASCII but for spaces, parentheses, slashes and backslashes, and no `.`
 // first, which the spec linter refuses of a root. A space would read as
 // the end of the name, and a parenthesis as its version.
-const SEGMENT = /^(?!\.)[!-'*-.0-[\]-~]+$/u
+const SEGMENT = String.raw`(?!\.)[!-'*-.0-[\]-~]+`
+const NAME = new RegExp(`^${SEGMENT}(?:/${SEGMENT})*$`, 'u')
 
-export const rootOf = (name) => name.split('/')[0]
+// At most 1024 characters, as a root's name is a key in SPEC CHECKSUMS,
+// which Psych reads no longer, and so is a pod's in PODS where it has
+// dependencies. A subspec's of none could be longer, but none comes near
+// it, and V8 hashes a string past 16383 characters by its length alone,
+// so a table of many names that long would take quadratic time.
+const checkPodName = checker((name) => name.length <= 1024 && NAME.test(name), 'a pod\'s name')
 
-const checkPodName = checker((name) => name.split('/').every((segment) => SEGMENT.test(segment)), 'a pod\'s name')
+export function rootOf(name) {
+  const slash = name.indexOf('/')
+  return slash === -1 ? name : name.slice(0, slash)
+}
 
 export function checkRootName(name, where) {
   if (checkPodName(name, where).includes('/')) throw new LockfileError(`${quote(name)} is a subspec's name, where a root's is`, where)

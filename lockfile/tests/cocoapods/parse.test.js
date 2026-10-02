@@ -152,6 +152,15 @@ describe('the YAML CocoaPods writes', () => {
     refuses('- COCOAPODS\n', 'expected a mapping at column 0 at line 1')
   })
 
+  it('refuses a key longer than 1024 characters, its quotes counted, which Psych does not read', () => {
+    const repo = (url) => edit(['  https://example.com/specs.git:', `  ${url}:`])
+    // 1024 characters, in more UTF-16 code units than that.
+    const url = `https://example.com/${'\u{1F600}'.repeat(1002)}`
+    assert.equal(parsePodfileLock(repo(JSON.stringify(url))).roots['A+B'].repo, url)
+    refuses(repo(JSON.stringify(`${url}x`)), 'a key longer than 1024 characters, which Psych does not read at line 19')
+    refuses(repo(`https://example.com/${'x'.repeat(1005)}`), 'a key longer than 1024 characters, which Psych does not read at line 19')
+  })
+
   it('refuses an escape but \\" and \\\\, as \\# which Psych does not read', () => {
     const message = (escape) => `"${escape}", an escape this reader does not take: CocoaPods writes \\# before {, $ and @, which Psych does not read back at line 30`
     refuses(edit([':path: "../Local"', ':path: "../\\#{Local}"']), message('\\\\#'))
@@ -221,6 +230,10 @@ describe('pods', () => {
     refuses(edit(['  - Other (1.2.3)', '  - Other']), '"Other" is not a pod and its version, as CocoaPods writes them', 'PODS[5]')
     refuses(edit(['  - Other (1.2.3)', '  - Other (v1.2.3)']), '"v1.2.3" is not a version', 'PODS[5]')
     refuses(edit(['  - Other (1.2.3)', '  - ".Other (1.2.3)"']), '".Other" is not a pod\'s name', 'PODS[5]')
+    // A name of 1024 characters is read, to be refused for what follows.
+    const subspec = (length) => `Other/${'x'.repeat(length - 6)}`
+    assert.throws(() => parsePodfileLock(edit(['  - Other (1.2.3)', `  - ${subspec(1024)} (1.2.3)`])), /^LockfileError: PODS\[5\]: "Other\/x+…" is not one the Podfile's dependencies lead to/u)
+    assert.throws(() => parsePodfileLock(edit(['  - Other (1.2.3)', `  - ${subspec(1025)} (1.2.3)`])), /^LockfileError: PODS\[5\]: "Other\/x+…" is not a pod's name$/u)
     refuses(edit(['    - Other (~> 1.0)', '    - Other (~> 1.0):\n      - Deeper']), 'expected a string, found a mapping', 'PODS[2]["Core/Base (2.0.0)"][0]')
   })
 
@@ -240,6 +253,23 @@ describe('pods', () => {
   it('refuses a pod the Podfile\'s dependencies do not lead to', () => {
     const text = edit(['  - Other (1.2.3)', '  - Other (1.2.3)\n  - Stray (1.0)'], ['    - Other\n', '    - Other\n    - Stray\n'], [`  Other: ${sha('e')}`, `  Other: ${sha('e')}\n  Stray: ${sha('e')}`])
     refuses(text, '"Stray" is not one the Podfile\'s dependencies lead to, which CocoaPods would not install', 'PODS[6]')
+  })
+})
+
+describe('in time linear in its length', () => {
+  // Refused within a second: V8 hashes a string past 16383 characters by
+  // its length alone, so a table of thousands of them took seconds.
+  const quick = (text) => {
+    const start = performance.now()
+    assert.throws(() => parsePodfileLock(text), LockfileError)
+    const took = performance.now() - start
+    assert.ok(took < 1000, `${Math.round(took)} ms`)
+  }
+  const long = (index) => `P${'x'.repeat(16400)}${index}`
+
+  it('many keys, or names, past 16383 characters', () => {
+    quick(`SPEC CHECKSUMS:\n${Array.from({ length: 2000 }, (_, index) => `  ${long(index)}: ${sha('a')}`).join('\n')}\n`)
+    quick(`PODS:\n${Array.from({ length: 2000 }, (_, index) => `  - ${long(index)} (1.0)`).join('\n')}\n`)
   })
 })
 
