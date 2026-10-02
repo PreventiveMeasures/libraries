@@ -681,6 +681,29 @@ describe('md-text helpers', () => {
     assert.equal(prose('~~~\nrun()\n```'), '~~~\nrun()\n```\n~~~')
     assert.equal(prose('text\n\n````\nrun()'), 'text\n\n````\nrun()\n````')
     assert.equal(prose('```js\nrun()\n```'), '```js\nrun()\n```')
+    // A ``` example closed inside a ```` block leaves the ```` open: the
+    // close is the opener's run, or the next finding goes under the fence.
+    assert.equal(prose('````md\n```sh\nx\n```'), '````md\n```sh\nx\n```\n````')
+    // Closed at the opener's indent: a fence in a list item closes inside
+    // it, where a closer at the margin would end the item and open anew.
+    assert.equal(prose('1. Run:\n\n   ```sh\n   curl'), '1. Run:\n\n   ```sh\n   curl\n   ```')
+    // Unindented prose after an indented code block has left the list, so
+    // the fence after it is the document's — open, and closed here.
+    assert.equal(prose('- item\n\n      indented code\nprose\n   ```sh\ncurl'), '- item\n\n      indented code\nprose\n   ```sh\ncurl\n```')
+    // An HTML block a line can end is closed too, at its item's margin.
+    assert.equal(prose('<!--\nhidden'), '<!--\nhidden\n-->')
+    // A declaration with a comment, which ends it where it is open
+    // (CommonMark 0.30+) and is nothing where it is text (GFM, 0.29).
+    assert.equal(prose('x\n\n<!doctype html'), 'x\n\n<!doctype html\n<!-- -->')
+    assert.equal(prose('  - <pre>\n    x'), '- <pre>\n    x\n  </pre>')
+    // Closed as the page reads it, after the escape: an escaped heading is
+    // text, which the lone tag continues, so the <?php opens a block.
+    assert.equal(prose('x\n   ## in item\n<a href="x">\n<?php'), 'x\n   \\## in item\n<a href="x">\n<?php\n?>')
+    // A lone tag continues the quoted item's text, so the fence after it
+    // opens — and is closed.
+    assert.equal(prose('> 2. quoted\n<custom-tag>\n````'), '> 2. quoted\n<custom-tag>\n````\n````')
+    // Inline code opening a line opens no fence, so there is none to close.
+    assert.equal(prose('```x``` is inline\n## h'), '```x``` is inline\n\\## h')
     assert.equal(prose('  plain  '), 'plain')
     assert.equal(prose(null), '')
   })
@@ -688,6 +711,7 @@ describe('md-text helpers', () => {
   it('escapes heading lines in prose, and takes the escape back off', () => {
     assert.equal(prose('## a\n  ### b\n#c\n\\## d\ntext # e'), '\\## a\n  \\### b\n\\#c\n\\\\## d\ntext # e')
     assert.equal(prose('```\n## a\n```'), '```\n## a\n```')
+    assert.equal(prose('````md\n```sh\n## a\n```\n````'), '````md\n```sh\n## a\n```\n````')
     for (const text of ['## a\n\n\\## b\n\n\\\\# c', '```\n## a\n```\n#### b', 'plain']) {
       assert.equal(unescapeHeadings(prose(text)), text)
     }

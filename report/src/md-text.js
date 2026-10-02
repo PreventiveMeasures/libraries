@@ -4,7 +4,7 @@
 // writing-side sibling of md-structure.js, which reads. Pure string
 // work; nothing here knows what a finding is.
 
-import { fenceRanges, inFence, normalizeNewlines } from './md-structure.js'
+import { fenceRanges, inFence, normalizeNewlines, readFences } from './md-structure.js'
 
 // Parseable http:// / https:// only. What gets linked comes from reports
 // and from the user's own notes, where a fix reference can be "internal
@@ -105,13 +105,18 @@ export function joinBlocks(blocks) {
 }
 
 // A run of a report's own markdown as it lands in the document: line
-// endings normalised, edges trimmed, an open fence closed, a line that
-// would read as a heading escaped.
+// endings normalised, edges trimmed, a line that would read as a
+// heading escaped, an open fence closed — in that order, since the
+// closer is the page's: an escaped heading is text, which a lone tag
+// after it continues where it would have opened a block.
 //
 // A dangling fence runs to the end of the FINDING for every parser — a
 // card's reader sees the snippet, not a problem — but in a document it
 // would swallow every finding after it, so it is closed with the marker
-// that opened it.
+// that opened it, at its item's margin: a fence in a list item closes
+// inside the item, where a closer at the page's margin would end the
+// item and open a fence of its own. An HTML comment, <pre> and the like
+// left open would swallow the rest the same way, and are closed alike.
 //
 // A `## Internal detail` line in an analyzer's prose is text the card
 // shows, not a section: written bare, a renderer and the document's own
@@ -120,22 +125,16 @@ export function joinBlocks(blocks) {
 // (unescapeHeadings), with a line already opening on a backslash getting
 // one more, so that strip is exact whatever the prose held. Fenced code
 // is left alone — a `#` there is code.
-const FENCE_OPEN_RE = /^ *(`{3,}|~{3,})/u
 const HEADING_LINE_RE = /^( {0,3})(\\*#)/u
 
 export function prose(text) {
-  const s = closeFence(normalizeNewlines(text).trim())
-  return s ? escapeHeadings(s) : ''
+  const s = normalizeNewlines(text).trim()
+  return s ? closeFence(escapeHeadings(s)) : ''
 }
 
 function closeFence(s) {
-  if (!s) return ''
-  const last = fenceRanges(s).at(-1)
-  if (!last || last[1] < s.length) return s
-  const lines = s.slice(last[0]).split('\n')
-  const marker = FENCE_OPEN_RE.exec(lines[0])?.[1] ?? '```'
-  const closed = lines.length > 1 && FENCE_OPEN_RE.exec(lines.at(-1))?.[1]?.startsWith(marker.slice(0, 3))
-  return closed ? s : `${s}\n${marker}`
+  const { closer } = readFences(s)
+  return closer === null ? s : `${s}\n${closer}`
 }
 
 // `fn` over every line of `s` outside a fence, in place.

@@ -31,7 +31,7 @@
 
 import { frozenIdBasis } from './parse-md-id.js'
 import { normalizeFindingSeverity } from './severity.js'
-import { LIST_MARKER_RE, findMdLink, normalizeNewlines, splitHeadingLine, unescapeMd } from './md-structure.js'
+import { LIST_MARKER_RE, fenceRanges, findMdLink, inFence, normalizeNewlines, splitHeadingLine, unescapeMd } from './md-structure.js'
 
 const VALID_SEVERITIES = new Set(['critical', 'high', 'medium', 'low', 'high_bug', 'bug', 'informational', 'informative'])
 
@@ -42,9 +42,12 @@ export function parseMarkdownFindings(content) {
   // than a misleading markdown one.
   if (!text.startsWith('# ')) return null
 
-  // Each finding starts at a line beginning with `# `; whatever
-  // preceded the first one is preamble, and empty chunks drop out.
-  const blocks = text.split(/^# /mu).filter((b) => b.trim().length > 0)
+  // Each finding starts at a line beginning with `# ` outside fenced
+  // code — a `# comment` in a shell or Python snippet is the snippet's,
+  // not a finding of its own. Empty chunks drop out.
+  const ranges = fenceRanges(text)
+  const starts = [...text.matchAll(/^# /gmu)].map((m) => m.index).filter((at) => !inFence(ranges, at))
+  const blocks = starts.map((at, i) => text.slice(at + 2, starts[i + 1])).filter((b) => b.trim().length > 0)
 
   const findings = []
   for (const block of blocks) {
@@ -113,7 +116,15 @@ function parseBlock(block) {
   // not the fields above: those are presentation and free to change, it
   // is not. Nothing this parser resolved is passed in. Read that
   // module's header before touching either side.
-  const idBasis = frozenIdBasis(block)
+  //
+  // It reads the block as the fence-blind split cut it, which ended a
+  // finding at any `# ` line, a snippet's comment included. For a block
+  // with no such line that is the whole block; for one it cut short, it
+  // is the part that split kept — so the finding keeps the id its
+  // triage was stored under. The block's own first line is the title,
+  // never a cut, whatever it starts with.
+  const cut = block.indexOf('\n# ')
+  const idBasis = frozenIdBasis(cut === -1 ? block : block.slice(0, cut + 1))
   if (idBasis) finding._idBasis = idBasis
 
   return normalizeFindingSeverity(finding)

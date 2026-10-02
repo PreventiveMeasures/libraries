@@ -351,3 +351,52 @@ describe('markdown finding ids — a run-in reproduction list', () => {
     assert.match(single._idBasis.description, /Reproduction: 1\. Open the report with no session cookie\.$/u)
   })
 })
+
+// A `# ` line inside fenced code — a shell or Python comment — used to
+// end the finding there and open a fabricated one under the comment's
+// text. The split reads fences now; the ids of the real findings do not
+// move. Golden values, captured from the fence-blind parser before that
+// change: the finding it cut short, and the one after it.
+describe('markdown finding ids — a `# ` line in fenced code', () => {
+  const FENCED_REPORT = [
+    '# SQL injection in search',
+    '',
+    '## Details',
+    'The query is built by concatenation.',
+    '',
+    '## Reproduction steps',
+    '```sh',
+    '# start the server',
+    'npm start',
+    '```',
+    '',
+    '---',
+    '**Severity:** high',
+    '**Status:** Open',
+    '**Repository:** acme/app',
+    '',
+    '# Second finding',
+    '',
+    '## Details',
+    'Plain.',
+    '',
+    '---',
+    '**Severity:** low',
+  ].join('\n')
+
+  const FENCE_BLIND_IDS = [
+    '94571df6-8414-45bd-a79a-c4fa09f81b60',
+    '25610890-0a2c-440c-bc05-f49fecb83a94',
+  ]
+
+  it('derives the ids the fence-blind split gave the real findings', async () => {
+    assert.deepEqual(await idsOf(FENCED_REPORT), FENCE_BLIND_IDS)
+  })
+
+  // The title line is never a cut: the fence-blind split never cut a
+  // heading's own text, even one that opens on `# ` again.
+  it('keeps the id of a finding whose title opens on `# `', async () => {
+    const md = ['# # Title', '', '## Details', '**Bold** detail.', '', '```sh', '# comment', '```', '', '---', '**Severity:** high'].join('\n')
+    assert.deepEqual(await idsOf(md), ['32d366c7-6cef-4dbc-af04-7f8a64683b3a'])
+  })
+})

@@ -29,7 +29,8 @@
 // Returns `{ type, source: 'deepsec', findings }`, or null when no
 // `## SEVERITY (n)` header appears and the chain moves on.
 
-import { normalizeNewlines, splitHeadingLine } from './md-structure.js'
+import { fingerprintOf } from './finding-id.js'
+import { fenceRanges, inFence, normalizeNewlines, splitHeadingLine } from './md-structure.js'
 import { normalizeFindingSeverity } from './severity.js'
 
 // The `## SEVERITY (n)` header that marks a DeepSec document. Splitting
@@ -120,10 +121,19 @@ export function parseDeepsecFindings(content) {
   const findings = []
   for (let i = 1; i < parts.length; i += 2) {
     const sev = mapSeverity(parts[i])
-    // Each finding inside a severity section starts with `### Title`.
-    for (const block of parts[i + 1].split(/^### /mu).slice(1)) {
+    for (const block of findingBlocks(parts[i + 1])) {
       const f = parseBlock(block, sev)
-      if (f) findings.push(f)
+      if (!f) continue
+      // The id is hashed from what the finding says (finding-id.js), and
+      // the fence-blind split this replaced ended a finding at any `### `
+      // line, a snippet's included. Where it cut one short, the id is
+      // still the one that shorter finding hashed to, so the triage
+      // stored under it stays on the finding; anywhere else the two
+      // blocks are the same text and nothing is stamped. The title line
+      // is never a cut, whatever it starts with.
+      const cut = block.indexOf('\n### ')
+      if (cut !== -1) f._idBasis = fingerprintOf(parseBlock(block.slice(0, cut + 1), sev))
+      findings.push(f)
     }
   }
   if (findings.length === 0) return null
@@ -133,6 +143,15 @@ export function parseDeepsecFindings(content) {
   // does, and ingest.js's `data.source` gate keeps the report-level one
   // off the findings.
   return { type: 'security', source: 'deepsec', findings }
+}
+
+// The findings of a severity section, each the text after its `### `
+// up to the next: a `### ` line outside fenced code, since a heading in
+// a markdown snippet is the snippet's. What precedes the first is shed.
+function findingBlocks(section) {
+  const ranges = fenceRanges(section)
+  const starts = [...section.matchAll(/^### /gmu)].map((m) => m.index).filter((at) => !inFence(ranges, at))
+  return starts.map((at, i) => section.slice(at + 4, starts[i + 1]))
 }
 
 function parseBlock(block, severity) {

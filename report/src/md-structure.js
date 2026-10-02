@@ -6,68 +6,11 @@
 // first, since ids derive from parser output and a drift in parsing
 // silently re-keys stored triage.
 
-// Byte ranges of fenced code blocks (``` / ~~~), fences included, read
-// once per text so no structural splitter takes a code line for a `## `
-// heading or a `| ` row. A closing fence must use the opening marker,
-// and a dangling one runs to end of input — the reading markdown gives.
-//
-// A fence may be INDENTED: three spaces at the top level (markdown's
-// own limit, past which a line is indented code), and three past the
-// content column of the innermost open list item, which is how a
-// snippet under a numbered step is written. Tracking that column — a
-// `10.` or a nested bullet pushes it out — is what keeps a block
-// indented FURTHER than its item's text an indented code block, with
-// its ``` lines content.
-const FENCE_RE = /^( *)(```|~~~)/u
-// A list marker and the gap to its text; `m[0].length` is the column
-// the item's continuation lines are indented to.
-export const LIST_MARKER_RE = /^( *)(?:[-*+]|\d{1,9}[.)]) +(?=\S)/u
+// The fence reader lives in md-fence.js; its surface is this module's
+// too, for the readers that take it from here.
+import { fenceRanges, inFence } from './md-fence.js'
 
-export function fenceRanges(text) {
-  const ranges = []
-  let open = -1
-  let marker = ''
-  let openIndent = 0
-  // Content column of the innermost open list item; 0 outside a list.
-  let itemIndent = 0
-  let pos = 0
-  for (const line of text.split('\n')) {
-    const start = pos
-    pos += line.length + 1
-    const fence = FENCE_RE.exec(line)
-    if (open !== -1) {
-      // A closing fence carries the item's indentation too, and needn't
-      // match the opening one's exactly — but the MARKER still has to,
-      // so a ``` inside a ~~~ block stays content.
-      if (fence && fence[2] === marker && fence[1].length <= openIndent + 3) {
-        ranges.push([open, start + line.length])
-        open = -1
-      }
-      continue
-    }
-    if (fence && fence[1].length <= itemIndent + 3) {
-      open = start
-      marker = fence[2]
-      openIndent = fence[1].length
-      continue
-    }
-    // List bookkeeping. A blank line doesn't end an item (a loose list
-    // is still one list); a marker opens or re-opens one at its own
-    // column, and any other line that starts LEFT of the open item's
-    // text has left it.
-    if (!line.trim()) continue
-    const item = LIST_MARKER_RE.exec(line)
-    const indent = /^ */u.exec(line)[0].length
-    if (item && item[1].length <= itemIndent + 3) itemIndent = item[0].length
-    else if (indent < itemIndent) itemIndent = 0
-  }
-  if (open !== -1) ranges.push([open, text.length])
-  return ranges
-}
-
-export function inFence(ranges, index) {
-  return ranges.some(([start, end]) => index >= start && index < end)
-}
+export { LIST_MARKER_RE, closesFence, fenceRanges, inFence, readFences } from './md-fence.js'
 
 // Line endings normalised — what every parser does before reading a
 // line, and the writer before putting prose on the page.
