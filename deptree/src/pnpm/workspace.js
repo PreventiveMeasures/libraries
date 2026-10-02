@@ -28,7 +28,7 @@
 
 import { compareNames, normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
-import { escape } from '../matcher.js'
+import { escape, reach } from '../matcher.js'
 import { typeOf } from '../project.js'
 
 const UNSUPPORTED = /[?[\]{}()\\]/u
@@ -50,32 +50,8 @@ function compile(glob, where, dot) {
   return { names: names.map((name) => (name === '**' ? name : NAME(name, dot))), dot }
 }
 
-// Which places in a glob the path of `names` leads to: for each index,
-// whether the glob's names before it take the path, a name at a time, in
-// time the glob's length for each and with no recursion, however many
-// `**` it has. A `**` may take no name, so reaching one reaches the next.
-function reach({ names: glob, dot }, names) {
-  let here = Array.from({ length: glob.length + 1 }, (_, g) => g === 0)
-  let next = Array.from({ length: glob.length + 1 }, () => false)
-  const onward = (places) => {
-    for (let g = 0; g < glob.length; g++) if (places[g] && glob[g] === '**') places[g + 1] = true
-  }
-  onward(here)
-  for (const name of names) {
-    next.fill(false)
-    for (let g = 0; g < glob.length; g++) {
-      if (!here[g]) continue
-      if (glob[g] !== '**') next[g + 1] ||= glob[g].test(name)
-      else if (dot || !name.startsWith('.')) next[g] = true
-    }
-    onward(next)
-    ;[here, next] = [next, here]
-  }
-  return here
-}
-
 // Whether a glob takes the path of `names`.
-const takes = (glob, names) => reach(glob, names)[glob.names.length]
+const takes = (glob, names) => reach(glob.names, names, glob.dot).at(-1)
 
 // Whether tinyglobby walks into the directory at `names` for a glob, as
 // its partial matcher has it: name by name, each has to be taken by the
@@ -143,7 +119,7 @@ const ignored12 = (names) => names.some((name) => LEFT_OUT.includes(name))
 
 // Whether pnpm 12 walks into the directory at `names` for a glob: where
 // the glob's names before its last may take it.
-const enters12 = (glob, names) => reach(glob, names).slice(0, glob.names.length).some(Boolean)
+const enters12 = (glob, names) => reach(glob.names, names, glob.dot).slice(0, -1).some(Boolean)
 
 // Whether the globs take the manifest at `names`. What find-packages
 // ignores it is not ignored for, in a directory tinyglobby walks into.
