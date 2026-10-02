@@ -1,0 +1,98 @@
+GIT
+  remote: https://github.com/rack/rack-test.git
+  revision: 81a2ea15e107785d3692b81d7fa2bef969acc88f
+  tag: v2.1.0
+  specs:
+    rack-test (2.1.0)
+      rack (>= 1.3)
+
+GIT
+  remote: https://github.com/ruby/tsort.git
+  revision: 90166c8135b0cf96667291aaadb20c0c453656a3
+  branch: master
+  submodules: true
+  specs:
+    tsort (0.2.0)
+
+GIT
+  remote: https://github.com/sinatra/sinatra.git
+  revision: 7b50a1bbb5324838908dfaa00ec53ad322673a29
+  ref: 7b50a1bbb5324838908dfaa00ec53ad322673a29
+  glob: {,*/}*.gemspec
+  specs:
+    rack-protection (4.1.1)
+      base64 (>= 0.1.0)
+      logger (>= 1.6.0)
+      rack (>= 3.0.0, < 4)
+    sinatra (4.1.1)
+      logger (>= 1.6.0)
+      mustermann (~> 3.0)
+      rack (>= 3.0.0, < 4)
+      rack-protection (= 4.1.1)
+      rack-session (>= 2.0.0, < 3)
+      tilt (~> 2.0)
+
+PATH
+  remote: .
+  specs:
+    myapp (0.1.0)
+      racc (~> 1.4)
+
+PATH
+  remote: vendor/localgem
+  glob: *.gemspec
+  specs:
+    localgem (0.1.0)
+      rack (>= 2.2)
+
+GEM
+  remote: https://gem.coop/
+  specs:
+    rainbow (3.1.1)
+
+GEM
+  remote: https://rubygems.org/
+  specs:
+    base64 (0.3.0)
+    logger (1.7.0)
+    mini_portile2 (2.8.9)
+    minitest (5.27.0)
+    mustermann (3.1.1)
+    nokogiri (1.16.7)
+      mini_portile2 (~> 2.8.2)
+      racc (~> 1.4)
+    nokogiri (1.16.7-arm64-darwin)
+      racc (~> 1.4)
+    nokogiri (1.16.7-x86_64-linux)
+      racc (~> 1.4)
+    racc (1.8.1)
+    rack (3.2.7)
+    rack-session (2.1.2)
+      base64 (>= 0.1.0)
+      rack (>= 3.0.0)
+    rake (13.4.2)
+    tilt (2.9.0)
+
+PLATFORMS
+  arm64-darwin
+  ruby
+  x86_64-linux
+
+DEPENDENCIES
+  localgem!
+  minitest (~> 5.0)
+  myapp!
+  nokogiri (= 1.16.7)
+  rack (>= 2.2, < 4, != 3.0.0)
+  rack-test!
+  rainbow (= 3.1.1)!
+  rake (~> 13.0)
+  sinatra!
+  tsort!
+  tzinfo-data
+
+RUBY VERSION
+   ruby 3.3.6p108
+
+BUNDLED WITH
+   2.4.22

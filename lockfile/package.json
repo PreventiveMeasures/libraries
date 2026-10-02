@@ -1,9 +1,13 @@
 {
   "name": "@preventive/lockfile",
   "version": "1.0.0-alpha.4",
-  "description": "Strict lockfile readers: pnpm-lock.yaml v9, package-lock.json v3, yarn.lock v1, soldeer.lock, foundry.lock, Cargo.lock v3 and v4, uv.lock, poetry.lock and pylock.toml, checked field by field, their packages and graphs resolved, with Cargo.toml, vendored copies and cargo's features, and the YAML, TOML and Rust semver parsers beside them",
+  "description": "Strict lockfile readers: pnpm-lock.yaml v9, package-lock.json v3, yarn.lock v1, soldeer.lock, foundry.lock, Cargo.lock v3 and v4, uv.lock, poetry.lock, pylock.toml and Gemfile.lock, checked field by field, their packages and graphs resolved, with Cargo.toml, vendored copies and cargo's features, and the YAML, TOML and Rust semver parsers beside them",
   "type": "module",
   "exports": {
+    "./bundler.js": {
+      "types": "./bundler.d.ts",
+      "default": "./bundler.js"
+    },
     "./foundry.js": {
       "types": "./foundry.d.ts",
       "default": "./foundry.js"
@@ -56,6 +60,8 @@
   "files": [
     "LICENSE-APACHE",
     "LICENSE-MIT",
+    "bundler.d.ts",
+    "bundler.js",
     "cargo.d.ts",
     "cargo.js",
     "foundry.d.ts",
@@ -72,6 +78,10 @@
     "rust-semver.js",
     "soldeer.d.ts",
     "soldeer.js",
+    "src/bundler/parse.js",
+    "src/bundler/sources.js",
+    "src/bundler/specs.js",
+    "src/bundler/syntax.js",
     "src/cargo/activate.js",
     "src/cargo/dependency.js",
     "src/cargo/features.js",
@@ -116,6 +126,8 @@
     "src/python/files.js",
     "src/python/pep440.js",
     "src/python/pep508.js",
+    "src/rubygems/gem.js",
+    "src/rubygems/version.js",
     "src/shape.js",
     "src/soldeer/config.js",
     "src/soldeer/parse.js",
@@ -151,7 +163,7 @@
     "node": ">=24.14.0"
   },
   "scripts": {
-    "test": "node --test ./tests/*.test.js ./tests/cargo/*.test.js ./tests/foundry/*.test.js ./tests/npm/*.test.js ./tests/poetry/*.test.js ./tests/pylock/*.test.js ./tests/python/*.test.js ./tests/soldeer/*.test.js ./tests/toml/*.test.js ./tests/uv/*.test.js ./tests/yaml/*.test.js ./tests/yarn1/*.test.js"
+    "test": "node --test ./tests/*.test.js ./tests/bundler/*.test.js ./tests/cargo/*.test.js ./tests/foundry/*.test.js ./tests/npm/*.test.js ./tests/poetry/*.test.js ./tests/pylock/*.test.js ./tests/python/*.test.js ./tests/soldeer/*.test.js ./tests/toml/*.test.js ./tests/uv/*.test.js ./tests/yaml/*.test.js ./tests/yarn1/*.test.js"
   },
   "license": "MIT OR Apache-2.0",
   "author": {

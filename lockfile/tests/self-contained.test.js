@@ -22,6 +22,8 @@ const sourced = (name) => name.endsWith('.js') || name.endsWith('.d.ts')
 // The front doors plus the modules behind them. `tests/` and `scripts/` are
 // left out: neither ships, and each may reach for whatever drives it.
 const files = [
+  new URL('bundler.js', PKG_DIR),
+  new URL('bundler.d.ts', PKG_DIR),
   new URL('cargo.js', PKG_DIR),
   new URL('cargo.d.ts', PKG_DIR),
   new URL('foundry.js', PKG_DIR),
