@@ -83,7 +83,8 @@
         "deptree/tests/**",
         "lockfile/tests/**",
         "upstream/tests/**",
-        "vfs/tests/**"
+        "vfs/tests/**",
+        "report/tests/**"
       ],
       "rules": {
         "max-lines-per-function": "off",
