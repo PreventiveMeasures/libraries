@@ -185,7 +185,7 @@ describe('read from a project', () => {
 
 describe('the host', () => {
   it('an npm supported, Linux with its libc, no Windows', async () => {
-    await refuses(given({ host: { ...HOST, npm: '9.9.4' } }), 'npm "9.9.4" is not supported: only 10.9.9 to 10.9.9, 11.12.0 to 11.21.0', 'host.npm')
+    await refuses(given({ host: { ...HOST, npm: '9.9.4' } }), 'npm "9.9.4" is not supported: only 10.9.9, and 11.12.0 to 11.21.0', 'host.npm')
     await refuses(given({ host: { ...HOST, os: 'win32', libc: undefined } }), 'Windows is not supported: npm links bins there with shims, and workspaces with junctions', 'host.os')
     await refuses(given({ host: { ...HOST, node: '24' } }), '"24" is not an exact version', 'host.node')
     await assert.rejects(buildNpmTree(given({ host: { ...HOST, libc: undefined } })), { name: 'TypeError', message: 'host.libc must be glibc or musl on Linux' })

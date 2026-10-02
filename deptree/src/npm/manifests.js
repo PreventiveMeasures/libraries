@@ -104,9 +104,9 @@ function checkWorkspace(dir, manifest, importer) {
   if (manifest.version !== importer.version) throw new DeptreeError(`is ${quote(String(manifest.version))}, and the lockfile has ${quote(String(importer.version))}, which npm ci refuses`, `${where(dir)}.version`)
 }
 
-// The root and each workspace are installed whatever they ask of the host:
-// a platform they do not take fails npm, and engines, where engine-strict
-// is set, and the root's are passed over where it has devEngines.
+// The root and each workspace are never left out: a platform they do not
+// take fails npm, and so do engines, with engine-strict, but the root's
+// where it has devEngines.
 function checkHostOf(dir, manifest, host, settings) {
   const reason = checkPlatform(manifest, host, where(dir))
   if (reason !== undefined) throw new DeptreeError(`${reason}, which npm fails on`, where(dir))
