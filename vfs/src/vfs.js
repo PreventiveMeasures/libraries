@@ -16,8 +16,7 @@
 // target's length is what a lookup can be made to cost.
 
 import { VfsError, wrongType } from './error.js'
-import { checkMount, merge } from './mount.js'
-import { compareNames } from './path.js'
+import { checkMount, descend, merge, namesOf } from './tree.js'
 
 const LINK_LIMIT = 40
 const NAME_MAX = 255
@@ -39,7 +38,7 @@ export class Vfs {
     this.#root = this.#directory()
   }
 
-  #inode(type, contents, mode, mtime) { return { ino: ++this.#inodes, type, ...meta(mode, mtime, { mode: MODE[type], mtime: 0 }), ...contents } }
+  #inode(type, contents, mode = MODE[type], mtime = 0) { return { ino: ++this.#inodes, type, mode: checkMode(mode), mtime: checkTime(mtime), ...contents } }
   #directory(mode, mtime) { return this.#inode('directory', { entries: new Map() }, mode, mtime) }
 
   // Where `path` leads: `dir`, the directory its last name is in; `name`; and
@@ -169,7 +168,7 @@ export class Vfs {
   readdir(path) {
     const node = this.#node(path, true)
     if (node.type !== 'directory') throw new VfsError('ENOTDIR', path)
-    return [...node.entries.keys()].sort(compareNames)
+    return namesOf(node)
   }
 
   // Where a write lands: through a link, the file the link names, made of
@@ -280,7 +279,9 @@ export class Vfs {
   // mode and mtime, and anything else beside what is there. Anything else
   // under a name taken is a clash, and `clash` settles it: 'error' refuses
   // it, 'keep' leaves the tree's entry out, and 'replace' takes away what
-  // is there, a directory with all under it, for the tree's entry. `fold`
+  // is there, a directory with all under it, for the tree's entry; a
+  // function says which of those for each clash, given where the tree's
+  // entry would go and what is there, before anything changes. `fold`
   // takes a name to the key a filesystem knows it by, as one that ignores
   // case does: a name of the tree there under no spelling of its own is one
   // with every name there of its key that the tree does not spell too.
@@ -291,7 +292,7 @@ export class Vfs {
     const checked = checkMount(options)
     const found = this.#found(path)
     if (found.node.type !== 'directory') throw new VfsError('ENOTDIR', path)
-    merge(found.node, tree.#root, pathOf(found), checked, (...inode) => this.#inode(...inode))
+    merge(found.node, tree.#root, pathOf(found), checked, (node) => this.#inode(node.type, contentsOf(node), node.mode, node.mtime))
   }
 
   // From what `path` leads to, resolved when called, as entries is too: a
@@ -319,23 +320,6 @@ export class Vfs {
       else if (node.type === 'file') { named.set(node, name); entry.data = node.bytes }
       return entry
     })
-  }
-}
-
-// Every inode at or under `top`, depth first, siblings in name order, a
-// link named but not crossed, as `shape` has it; `name` is the way down
-// from `top`, '' for it.
-function* descend(top, shape) {
-  const stack = [{ name: '', node: top, depth: 0 }]
-  while (stack.length > 0) {
-    const entry = stack.pop()
-    yield shape(entry)
-    if (entry.node.type !== 'directory') continue
-    const names = [...entry.node.entries.keys()].sort(compareNames)
-    for (let i = names.length - 1; i >= 0; i--) {
-      const name = entry.name === '' ? names[i] : `${entry.name}/${names[i]}`
-      stack.push({ name, node: entry.node.entries.get(names[i]), depth: entry.depth + 1 })
-    }
   }
 }
 
@@ -386,8 +370,9 @@ function utf8Length(text) {
 }
 
 // Whether text is more than `max` bytes of UTF-8. A code unit is at least
-// a byte, so text of more units than that is over without being counted.
-export const tooLong = (text, max) => text.length > max || utf8Length(text) > max
+// a byte and at most three, so text of more units than `max` is over, and
+// of a third as many is not, without being counted.
+export const tooLong = (text, max) => text.length > max || (text.length * 3 > max && utf8Length(text) > max)
 
 export function checkMode(mode) {
   if (!Number.isInteger(mode) || mode < 0 || mode > 0o7777) throw new RangeError(`a mode must be an integer from 0 to 0o7777, not ${mode}`)
@@ -407,6 +392,17 @@ export function encode(data, path) {
   }
   if (data instanceof Uint8Array) return new Uint8Array(data)
   throw wrongType('file contents', data, 'a string or a Uint8Array')
+}
+
+// What a copy of an inode holds, its entries left to fill if it is a
+// directory. A file's bytes are shared, as nothing writes into bytes once
+// stored, unless their buffer has room past them, which append below
+// would grow either inode into.
+function contentsOf(node) {
+  if (node.type === 'directory') return { entries: new Map() }
+  if (node.type === 'symlink') return { target: node.target, size: node.size }
+  const { bytes } = node
+  return { bytes: bytes.byteOffset + bytes.length === bytes.buffer.byteLength ? bytes : bytes.slice() }
 }
 
 // Appends in amortized linear time: a file that grows gets a buffer with

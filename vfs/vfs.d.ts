@@ -14,6 +14,9 @@ export interface Stat {
   size: number
 }
 
+// How Vfs.mount settles a name the tree has where one is taken already.
+export type Clash = 'error' | 'keep' | 'replace'
+
 export interface WalkEntry {
   path: string
   type: NodeType
@@ -109,7 +112,10 @@ export class Vfs {
   // mtime and hard links. Anything else under a name taken is a clash:
   // 'error' throws EEXIST at it, 'keep' leaves the tree's entry out, and
   // 'replace' removes what is there, a directory with all under it, for the
-  // tree's. `fold` takes a name to the key a filesystem knows it by, as one
+  // tree's. A function says which of those for each clash, in walk order,
+  // or throws: it is given the path the tree's entry would take and those
+  // there it clashes with, spelled as walk spells them, before anything
+  // changes. `fold` takes a name to the key a filesystem knows it by, as one
   // that ignores case does: a name of the tree there under no spelling of
   // its own clashes with every name there of its key that the tree does not
   // spell too, a directory as well. Names side by side in one tree are that
@@ -117,7 +123,7 @@ export class Vfs {
   // judged before anything changes, so a refusal changes nothing; `tree` is
   // copied as it was when called, itself included, and left as it is, its
   // files' bytes shared rather than copied.
-  mount(tree: Vfs, path?: string, options?: { clash?: 'error' | 'keep' | 'replace'; fold?: (name: string) => string }): void
+  mount(tree: Vfs, path?: string, options?: { clash?: Clash | ((path: string, there: string[]) => Clash); fold?: (name: string) => string }): void
   // Depth first from what `path` leads to, siblings in code point order,
   // links named but not crossed. `path` is resolved when this is called, so
   // a wrong one throws here rather than on the first step.

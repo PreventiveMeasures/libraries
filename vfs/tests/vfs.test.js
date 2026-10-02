@@ -645,6 +645,26 @@ describe('mount', () => {
     assert.notEqual(fs.stat('/h').ino, fs.stat('/a/x').ino)
   })
 
+  it('asks a function of each clash in walk order, before anything changes', () => {
+    const fs = createVfs({ 'd/a': 'there', 'd/b': 'there', 'd/Fold': 'there', 'd/keep': 'there', 'l': { type: 'symlink', target: 'd' } })
+    const before = tar(fs)
+    const tree = createVfs({ 'a': 'tree', 'b/x': 'tree', 'fold': 'tree', 'keep': 'tree', 'new': 'tree' })
+    const fold = (name) => name.toLowerCase()
+    const asked = []
+    const clash = (path, there) => {
+      asked.push([path, there])
+      return path === '/d/keep' ? 'keep' : 'replace'
+    }
+    for (const how of [() => 'skip', () => 42]) assert.throws(() => fs.mount(tree, '/l', { clash: how }), how() === 42 ? TypeError : RangeError)
+    assert.throws(() => fs.mount(tree, '/l', { clash: (path) => { if (path === '/d/keep') throw new Error('refused'); return 'replace' } }), /refused/u)
+    fails(() => fs.mount(tree, '/l', { clash: () => 'error' }), 'EEXIST', '/d/a')
+    assert.deepEqual(tar(fs), before, 'nothing changed by a refused mount')
+    fs.mount(tree, '/l', { clash, fold })
+    assert.deepEqual(asked, [['/d/a', ['/d/a']], ['/d/b', ['/d/b']], ['/d/fold', ['/d/Fold']], ['/d/keep', ['/d/keep']]])
+    assert.deepEqual(paths(fs, '/d'), ['/d', '/d/a', '/d/b', '/d/b/x', '/d/fold', '/d/keep', '/d/new'])
+    assert.deepEqual(['/d/a', '/d/fold', '/d/keep', '/d/new'].map((path) => fs.readText(path)), ['tree', 'tree', 'there', 'tree'])
+  })
+
   it('folds names where told to, as a filesystem that ignores case does', () => {
     const fold = (name) => name.normalize('NFD').toLowerCase()
     const fs = createVfs({ 'Dir/x': '', 'File': 'there', 'café': '', 'same/x': '', 'SAME': 'there' })

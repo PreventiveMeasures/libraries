@@ -6,8 +6,7 @@
 // neither is safe. Vfs.mount judges everything before anything is written,
 // so a refusal leaves the Vfs as it was.
 
-import { VfsError } from '@preventive/vfs'
-import { basename, dirname } from '@preventive/vfs/path.js'
+import { basename } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from './error.js'
 
 // As macOS takes a name, whatever its case and normalization.
@@ -26,36 +25,17 @@ export function checkNoModules(vfs, folded) {
   }
 }
 
-function typeAt(vfs, path) {
-  try {
-    return vfs.lstat(path).type
-  } catch (error) {
-    if (error.code === 'ENOENT') return undefined
-    throw error
-  }
-}
-
 // Mounts `tree` into `target` with Vfs.mount: each directory of the tree
 // is one there already or is made, and each file and link is put where
 // nothing is, and where names are `folded`, none beside a name it would be
-// one with. A clash is refused by what is there. The tree's bytes are
-// shared with `target`, not copied, and the tree is left as it is.
+// one with. A clash is refused by what is there, before anything is
+// written; at the root, a path there is the tree's too. The tree's bytes
+// are shared with `target`, not copied, and the tree is left as it is.
 export function mount(tree, target, folded, check = checkNoModules) {
   check(target, folded)
-  try {
-    target.mount(tree, '/', { fold: folded ? fold : undefined })
-  } catch (error) {
-    if (!(error instanceof VfsError) || error.code !== 'EEXIST') throw error
-    throw new DeptreeError(clashAt(tree, target, error.path), where(error.path), { cause: error })
+  const clash = (path, [there]) => {
+    if (there !== path) throw new DeptreeError(`${quote(basename(there))} is there already, which is one name with ${quote(basename(path))} on macOS`, where(path))
+    throw new DeptreeError(`a ${target.lstat(path).type} is there already, where the tree has a ${tree.lstat(path).type}`, where(path))
   }
-}
-
-// What Vfs.mount found at `path`, where the tree has an entry: a name
-// spelled as the tree's, or one that is one with it on macOS.
-function clashAt(tree, target, path) {
-  const existing = typeAt(target, path)
-  if (existing !== undefined) return `a ${existing} is there already, where the tree has a ${tree.lstat(path).type}`
-  const name = basename(path)
-  const clash = target.readdir(dirname(path)).find((other) => fold(other) === fold(name))
-  return `${quote(clash)} is there already, which is one name with ${quote(name)} on macOS`
+  target.mount(tree, '/', { clash, fold: folded ? fold : undefined })
 }

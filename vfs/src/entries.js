@@ -54,14 +54,18 @@ function sourceEntry([key, value]) {
 // name and its target's name are one inode there. A mode or mtime given is
 // checked as given, whatever it is then compared with, so null is no more
 // "not given" for a repeat or a hard link than for a first declaration.
+// `parent` is the directory the last entry was placed in, which stays one:
+// no entry takes a name away, so entries side by side, as an archive lists
+// them, have it made and checked once.
 export function vfsFromEntries(entries) {
   const vfs = new Vfs()
-  const declared = new Map()
-  for (const entry of entries) place(vfs, declared, entry)
+  const placed = { declared: new Map(), parent: undefined }
+  for (const entry of entries) place(vfs, placed, entry)
   return vfs
 }
 
-function place(vfs, declared, { name, type = 'file', data, mode, mtime, linkname = '' }) {
+function place(vfs, placed, { name, type = 'file', data, mode, mtime, linkname = '' }) {
+  const { declared } = placed
   const path = `/${checkName(name, type === 'directory')}`
   const file = type === 'file' || type === 'contiguous-file'
   if ((!file && !noData(data)) || (linkname !== '' && type !== 'hardlink' && type !== 'symlink')) throw new VfsError('EINVAL', name)
@@ -76,8 +80,11 @@ function place(vfs, declared, { name, type = 'file', data, mode, mtime, linkname
   }
   declared.set(path, type)
   const parent = dirname(path)
-  vfs.mkdir(parent, { recursive: true })
-  if (vfs.realpath(parent) !== parent) throw new VfsError('ENOTDIR', name)
+  if (parent !== placed.parent) {
+    vfs.mkdir(parent, { recursive: true })
+    if (vfs.realpath(parent) !== parent) throw new VfsError('ENOTDIR', name)
+    placed.parent = parent
+  }
   if (file) vfs.writeFile(path, data ?? '', { mode, mtime })
   else if (type === 'symlink') vfs.symlink(source, path, { mode, mtime })
   else if (type === 'directory') {

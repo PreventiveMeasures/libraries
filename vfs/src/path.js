@@ -7,10 +7,12 @@
 // working directory puts it in front (`${cwd}/${path}`) rather than folding
 // the two together.
 
+import { wrongType } from './error.js'
+
 export const sep = '/'
 
 const string = (value, name = 'path') => {
-  if (typeof value !== 'string') throw new TypeError(`${name} must be a string, not ${value === null ? 'null' : typeof value}`)
+  if (typeof value !== 'string') throw wrongType(name, value)
   return value
 }
 
