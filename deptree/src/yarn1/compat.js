@@ -58,25 +58,16 @@ export function incompatibility(manifest, host, where, { ignoreEngines, ignorePl
   if (!ignorePlatform && Array.isArray(os) && os.length > 0 && !isValid(os, host.os)) return `its os, ${JSON.stringify(os)}, does not take ${quote(host.os)}`
   if (!ignorePlatform && Array.isArray(cpu) && cpu.length > 0 && !isValid(cpu, host.cpu)) return `its cpu, ${JSON.stringify(cpu)}, does not take ${quote(host.cpu)}`
   if (ignoreEngines) return undefined
-  if (Array.isArray(engines)) {
-    const read = {}
-    for (const item of engines) {
-      if (typeof item !== 'string') continue
-      const [name, ...rest] = item.trim().split(/ +/gu)
-      read[name] = rest.join(' ')
-    }
-    engines = read
-  }
+  if (Array.isArray(engines)) engines = Object.fromEntries(engines.filter((item) => typeof item === 'string').map((item) => item.trim().split(/ +/gu)).map(([name, ...rest]) => [name, rest.join(' ')]))
   if (engines === null || typeof engines !== 'object') return undefined
   const versions = { node: host.node, yarn: host.yarn }
   for (let [name, range] of Object.entries(engines)) {
     if (name === 'iojs') name = 'node'
-    if (typeof range !== 'string' && (Object.hasOwn(versions, name) || REPORTED.has(name))) throw new DeptreeError(`engines.${name} is not a string, which yarn fails on`, where)
-    if (Object.hasOwn(versions, name)) {
-      if (!testEngine(name, range, versions)) return `its engines.${name}, ${quote(String(range))}, does not take ${versions[name]}`
-    } else if (REPORTED.has(name)) {
-      throw new DeptreeError(`yarn checks engines.${name} against the Node it runs on, which is not known here`, where)
-    }
+    const known = Object.hasOwn(versions, name)
+    if (!known && !REPORTED.has(name)) continue
+    if (typeof range !== 'string') throw new DeptreeError(`engines.${name} is not a string, which yarn fails on`, where)
+    if (!known) throw new DeptreeError(`yarn checks engines.${name} against the Node it runs on, which is not known here`, where)
+    if (!testEngine(name, range, versions)) return `its engines.${name}, ${quote(range)}, does not take ${versions[name]}`
   }
   return undefined
 }

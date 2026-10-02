@@ -33,20 +33,16 @@ const skipped = (path) => path.split('/').some((segment) => IGNORED.has(segment)
 
 function fetchedName(ref) {
   const { range } = splitPattern(ref.patterns[0])
-  if (!range.startsWith('npm:')) return ref.name
-  return splitPattern(range.slice(4)).name
+  return range.startsWith('npm:') ? splitPattern(range.slice(4)).name : ref.name
 }
 
 // Every tarball's URL is checked before any is fetched.
 async function fetchAll(refs) {
   const fetched = new Map()
-  const tarballs = refs.map((ref) => {
-    const where = whereOf(ref)
-    return { ref, where, tarball: registryTarball(ref.entry, fetchedName(ref), where) }
-  })
-  await eachConcurrently(tarballs, async ({ ref, where, tarball }) => {
-    fetched.set(ref, { ...await fetchYarnPackage(tarball, where), integrity: tarball.integrity })
-  }, ({ where }) => where)
+  const tarballs = refs.map((ref) => ({ ref, tarball: registryTarball(ref.entry, fetchedName(ref), whereOf(ref)) }))
+  await eachConcurrently(tarballs, async ({ ref, tarball }) => {
+    fetched.set(ref, { ...await fetchYarnPackage(tarball, whereOf(ref)), integrity: tarball.integrity })
+  }, ({ ref }) => whereOf(ref))
   return fetched
 }
 

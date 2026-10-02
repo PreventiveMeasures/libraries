@@ -26,6 +26,12 @@ export interface NpmOptions {
   semver?: NpmSemver
   // npm's legacy-peer-deps, with which npm loads no peer dependency.
   legacyPeerDeps?: boolean
+  // A version of npm, 9 or later, such as 11.12.1, whose way of working
+  // the flags out they are all held to: as npm 11.11.1 and later work them
+  // out again at every install, and earlier ones where the project's
+  // package.json asks for other than the lockfile's entry of it. Without
+  // it, they are held to any one version's. 11.6.1 and 11.6.2 are refused.
+  npm?: string
 }
 
 export interface NpmSemver {
@@ -87,9 +93,10 @@ export interface NpmEdge {
 // what depends on each: under --omit, `dev` and `optional` leave a node
 // out, and `devOptional` where both are omitted. `devOptional` is set
 // where either other is. Versions of npm work them out otherwise now and
-// then: npm 9 to 11.6 clear a flag of what a package is in too, and npm
-// before 11.18 have a link give what it leads to its own. A lockfile is
-// read where its flags are all as one of them sets them.
+// then: npm 9 to 11.6.0 clear a flag of what a package is in too, and npm
+// 11.6.3 to 11.17 have a link give what it leads to its own. A lockfile is
+// read where its flags are all as one of them sets them, or with `npm`,
+// as that one does; npm 11.6.1 and 11.6.2 are not read as.
 export interface NpmManifest {
   // The name a package is published under: an alias's is not its folder's.
   name: string

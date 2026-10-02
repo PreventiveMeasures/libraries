@@ -62,19 +62,11 @@ function checkSource(node, installed) {
   if (!resolution.integrity?.startsWith('sha512-')) throw new DeptreeError('expected a sha512 integrity', quote(key))
 }
 
-// What all of a package's snapshots must agree on, as it is fetched once.
-const PACKAGE_FIELDS = ['resolution', 'os', 'cpu', 'libc', 'hasBin', 'bundledDependencies']
-const packageFields = (pkg) => JSON.stringify(PACKAGE_FIELDS.map((field) => pkg[field]))
-
-// Each package's files and package.json by name@version; a directory
-// package's are read from `project`, as npm-packlist picks them.
+// Each package's files and package.json by name@version, fetched once, as
+// the lockfile reader gives its snapshots one resolution and manifest; a
+// directory package's are read from `project`, as npm-packlist picks them.
 async function fetchAll(nodes, project, major) {
-  const packages = new Map()
-  for (const { key, pkg } of nodes.values()) {
-    const id = packageKeyOf(key)
-    if (!packages.has(id)) packages.set(id, pkg)
-    else if (packageFields(packages.get(id)) !== packageFields(pkg)) throw new DeptreeError(`its snapshots differ on what the package is: ${PACKAGE_FIELDS.join(', ')}`, quote(id))
-  }
+  const packages = new Map([...nodes.values()].map(({ key, pkg }) => [packageKeyOf(key), pkg]))
   const fetched = new Map()
   await eachConcurrently(packages, async ([id, pkg]) => {
     fetched.set(id, pkg.resolution.type === 'directory' ? readDirectoryPackage(project, pkg, quote(id), major) : await fetchPackage(pkg, quote(id), major))
@@ -183,15 +175,12 @@ function linkTarget(path, target) {
 // optionalDependencies reach; the rest are dev-only, which
 // `pnpm install --prod` leaves out. `nodes` is graph.js's, by key.
 function reachedInProd(importers, nodes, byDir) {
-  const queue = Object.values(importers)
+  const reached = new Set(Object.values(importers)
     .flatMap(({ dependencies, optionalDependencies }) => [...Object.values(dependencies), ...Object.values(optionalDependencies)])
     .map((target) => nodes.get(target)?.dir)
-  const reached = new Set()
-  while (queue.length > 0) {
-    const dir = queue.pop()
-    if (!byDir.has(dir) || reached.has(dir)) continue
-    reached.add(dir)
-    queue.push(...byDir.get(dir).children.values())
+    .filter((dir) => byDir.has(dir)))
+  for (const dir of reached) {
+    for (const child of byDir.get(dir).children.values()) if (byDir.has(child)) reached.add(child)
   }
   return reached
 }

@@ -32,7 +32,7 @@ function unsetBy(own, type) {
   }
 }
 
-// calcDepFlags, as npm 11.7 and later have it: each node starts with every
+// calcDepFlags, as npm 11.6.3 and later have it: each node starts with every
 // flag but the project, and loses one wherever an edge without it leads to
 // it from a node without it; an optional peer leaves it extraneous, and a
 // node that is not leaves the nodes it is in not. A link takes what it
@@ -82,7 +82,7 @@ function descend(tree, visit, children) {
   }
 }
 
-// calcDepFlags, as npm 9 to 11.6 have it: one walk from the project, which
+// calcDepFlags, as npm 9 to 11.6.0 have it: one walk from the project, which
 // visits each node once, in the order of its edges, and unsets a flag of
 // what an edge leads to where the node and the edge are without it, then of
 // what that leads to by dependencies and peers but optional ones; and, of
@@ -124,26 +124,38 @@ function calcFlagsBefore(nodes) {
 
 // The first node whose flags are not those `flags` gives it, as npm writes
 // them, and why: devOptional, of the dependencies both of dev and of
-// optional ones, only where neither dev nor optional is.
-function mismatch(nodes, flags) {
+// optional ones, only where neither dev nor optional is. `npm` names the
+// npm that sets them.
+function mismatch(nodes, flags, npm) {
   for (const node of nodes.values()) {
     const own = flags.get(node)
-    if (own.extraneous) return new LockfileError('nothing installed leads to it, so npm takes it as extraneous, and prunes it', node.where)
+    if (own.extraneous) return new LockfileError(`nothing installed leads to it, so ${npm} takes it as extraneous, and prunes it`, node.where)
     if (node.kind === 'link') continue
     const written = { ...own, devOptional: own.devOptional && !own.dev && !own.optional }
     const flag = FLAGS.find((name) => node.flags[name] !== written[name])
-    if (flag !== undefined) return new LockfileError(`expected ${written[flag] ? 'true' : 'none'}, as npm sets it from what depends on it`, at(node.where, flag))
+    if (flag !== undefined) return new LockfileError(`expected ${written[flag] ? 'true' : 'none'}, as ${npm} sets it from what depends on it`, at(node.where, flag))
   }
   return undefined
 }
 
 // The ways npm's versions work the flags out, the latest first: npm 11.18
-// and later, npm 11.7 to 11.17, and npm 9 to 11.6.
+// and later, npm 11.6.3 to 11.17, and npm 9 to 11.6.0. npm 11.6.1 and
+// 11.6.2, which mark what a peer leads to peer whatever else leads to it,
+// are not read here.
 const VERSIONS = [(nodes) => calcFlags(nodes, false), (nodes) => calcFlags(nodes, true), calcFlagsBefore]
 
-// Each node's flags as npm sets them, all as one version of npm does.
-// Where none, the refusal is the latest version's.
-export function checkFlags(nodes) {
-  const error = mismatch(nodes, VERSIONS[0](nodes))
-  if (error !== undefined && VERSIONS.slice(1).every((calc) => mismatch(nodes, calc(nodes)) !== undefined)) throw error
+// The way an npm, 9 or later but 11.6.1 and 11.6.2, works the flags out.
+function calcOf(npm) {
+  const [major, minor, patch] = npm.split('.').map(Number)
+  if (major > 11 || (major === 11 && minor >= 18)) return VERSIONS[0]
+  return VERSIONS[major === 11 && (minor > 6 || (minor === 6 && patch >= 3)) ? 1 : 2]
+}
+
+// Each node's flags as npm sets them: all as `npm` does, where given; else
+// as one version of npm does, and where none, the refusal is the latest
+// version's.
+export function checkFlags(nodes, npm) {
+  const calc = npm === undefined ? VERSIONS[0] : calcOf(npm)
+  const error = mismatch(nodes, calc(nodes), npm === undefined ? 'npm' : `npm ${npm}`)
+  if (error !== undefined && (npm !== undefined || VERSIONS.slice(1).every((other) => mismatch(nodes, other(nodes), 'npm') !== undefined))) throw error
 }

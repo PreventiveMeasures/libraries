@@ -1,7 +1,7 @@
 {
   "name": "@preventive/deptree",
   "version": "1.0.0-alpha.5",
-  "description": "A dependency tree in memory, as a package manager would install it: pnpm 10, 11 or 12, or yarn 1.22, from its lockfile, tarballs fetched and checked, patches applied; or Soldeer 0.12, its zips fetched, checked and extracted",
+  "description": "A dependency tree in memory, as a package manager would install it: pnpm 10, 11 or 12, yarn 1.22, or npm 10 or 11, from its lockfile, tarballs fetched and checked, patches applied; or Soldeer 0.12, its zips fetched, checked and extracted",
   "type": "module",
   "exports": {
     "./pnpm.js": {
@@ -12,6 +12,10 @@
       "types": "./yarn1.d.ts",
       "default": "./yarn1.js"
     },
+    "./npm.js": {
+      "types": "./npm.d.ts",
+      "default": "./npm.js"
+    },
     "./soldeer.js": {
       "types": "./soldeer.d.ts",
       "default": "./soldeer.js"
@@ -20,6 +24,8 @@
   "files": [
     "LICENSE-APACHE",
     "LICENSE-MIT",
+    "npm.d.ts",
+    "npm.js",
     "pnpm.d.ts",
     "pnpm.js",
     "soldeer.d.ts",
@@ -28,10 +34,22 @@
     "yarn1.js",
     "src/concurrent.js",
     "src/error.js",
+    "src/glob.js",
     "src/hash.js",
     "src/manifest.js",
     "src/matcher.js",
     "src/mount.js",
+    "src/npm/bins.js",
+    "src/npm/compat.js",
+    "src/npm/dev-engines.js",
+    "src/npm/graph.js",
+    "src/npm/inputs.js",
+    "src/npm/manifests.js",
+    "src/npm/package.js",
+    "src/npm/ratio.js",
+    "src/npm/settings.js",
+    "src/npm/tree.js",
+    "src/npm/versions.js",
     "src/npmrc.js",
     "src/patch.js",
     "src/pnpm/bins.js",
@@ -63,7 +81,6 @@
     "src/tarball.js",
     "src/yarn1/bins.js",
     "src/yarn1/compat.js",
-    "src/yarn1/glob.js",
     "src/yarn1/hoist.js",
     "src/yarn1/inputs.js",
     "src/yarn1/manifest.js",

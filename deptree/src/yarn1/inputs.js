@@ -5,7 +5,7 @@ import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { readManifest } from '../manifest.js'
 import { checkProject, readText, typeOf } from '../project.js'
-import { matchesGlob, reachesBelow } from './glob.js'
+import { matchesGlob, reachesBelow } from '../glob.js'
 import { globsOf } from './manifest.js'
 import { readSettings } from './settings.js'
 

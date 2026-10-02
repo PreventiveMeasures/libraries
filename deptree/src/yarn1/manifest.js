@@ -43,10 +43,8 @@ export function fixLists(manifest) {
 }
 
 // The workspace globs of the root, as yarn reads them.
-export function globsOf(root) {
-  const value = root.workspaces
-  if (value === undefined) return []
-  return (Array.isArray(value) ? value : value?.packages ?? []).map((glob) => String(glob).replace(/^(?:\.\/)+|\/+$/gu, ''))
+export function globsOf({ workspaces }) {
+  return (Array.isArray(workspaces) ? workspaces : workspaces?.packages ?? []).map((glob) => String(glob).replace(/^(?:\.\/)+|\/+$/gu, ''))
 }
 
 // What normalize-manifest fails on in the root's name and version, which
