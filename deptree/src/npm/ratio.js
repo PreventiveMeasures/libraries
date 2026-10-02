@@ -1,23 +1,22 @@
-// The tar of npm 10.9.9 gives up on a gzipped tarball once what it has
-// inflated is more than 1000 times what it has read, which it checks as
-// each piece of output comes: so a tarball that inflates that far at any
-// point fails npm, though it may inflate less in all. Where it reads the
-// pieces from, and so where it checks, is not known here; so a tarball is
-// refused that inflates 900 times its length at any prefix found below.
+// The tar of npm 10.9.9 and 11.18 on gives up on a gzipped tarball once
+// what it has inflated is more than 1000 times what it has read, which it
+// checks as each piece of output comes: a tarball that inflates that far
+// from some prefix fails npm, though it inflates less in all. Where the
+// pieces it reads end, and so where it checks, is not known here; so a
+// tarball is refused that inflates 900 times any prefix found below.
 //
-// The largest prefix that could inflate so far is no longer than 1/900 of
-// all it inflates to, which the gzip trailer gives; and none can be longer
-// than 1/900 of what that prefix inflates to, a bound that shrinks each
-// time it is taken again, until it is too short to matter.
+// No prefix that inflates so far is longer than 1/900 of what all of it
+// inflates to; and none longer than 1/900 of what the longest such prefix
+// could be inflates to, a bound that shrinks each time it is taken again.
 
 import { decompress } from '@preventive/archive/compression.js'
 import { DeptreeError } from '../error.js'
 
 const RATIO = 900
-const STEPS = 64
+const STEPS = 32
 
 // What the first `length` bytes inflate to, as far as they go.
-async function inflated(bytes, length) {
+async function inflatedFrom(bytes, length) {
   try {
     return (await decompress(bytes.subarray(0, length), 'gzip')).length
   } catch (error) {
@@ -26,16 +25,17 @@ async function inflated(bytes, length) {
   }
 }
 
-export async function checkRatio(bytes, where) {
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-  let bound = Math.floor(view.getUint32(bytes.length - 4, true) / RATIO)
-  for (let step = 0; step < STEPS && bound > 0; step++) {
-    const length = Math.min(bound, bytes.length)
-    const out = await inflated(bytes, length)
-    if (out >= RATIO * length) throw new DeptreeError(`the tarball inflates ${Math.floor(out / length)} times its first ${length} bytes, past what npm's tar gives up at`, where)
-    const next = Math.floor(out / RATIO)
-    if (next >= bound) break
-    bound = next
+// `inflated` is what all of `bytes` inflates to.
+export async function checkRatio(bytes, inflated, where) {
+  const refuse = (detail) => {
+    throw new DeptreeError(`the tarball ${detail}, which npm's tar may give up at`, where)
   }
-  if (bound > 0 && STEPS === 0) throw new DeptreeError('the tarball could not be held to what npm\'s tar gives up at', where)
+  if (inflated >= RATIO * bytes.length) refuse(`inflates ${Math.floor(inflated / bytes.length)} times its length`)
+  let bound = Math.min(Math.floor(inflated / RATIO), bytes.length - 1)
+  for (let step = 0; bound > 0; step++) {
+    if (step === STEPS) refuse('inflates close to as far from some prefix')
+    const out = await inflatedFrom(bytes, bound)
+    if (out >= RATIO * bound) refuse(`inflates ${Math.floor(out / bound)} times its first ${bound} bytes`)
+    bound = Math.min(Math.floor(out / RATIO), bound - 1)
+  }
 }

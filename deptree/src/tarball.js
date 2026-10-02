@@ -24,5 +24,6 @@ export async function fetchTarball(name, version, integrity, where) {
   const bytes = await getTarball(name, version, { tarball: tarballUrl(name, version), integrity })
   if (!await matchesIntegrity(bytes, integrity)) throw new DeptreeError(`the tarball is not ${integrity}`, where)
   if (bytes[0] !== 0x1f || bytes[1] !== 0x8b || bytes[2] !== 0x08) throw new DeptreeError('the tarball is not gzipped', where)
-  return { bytes, entries: unpack(await decompress(bytes, 'gzip', { limit: MAX_BYTES })) }
+  const tar = await decompress(bytes, 'gzip', { limit: MAX_BYTES })
+  return { bytes, entries: unpack(tar), inflated: tar.length }
 }

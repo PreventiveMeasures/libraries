@@ -351,7 +351,7 @@ describe('the packages', () => {
 
   it('a tarball npm 10.9.9\'s tar gives up on', async () => {
     const options = await one({ zeros: { data: new Uint8Array(4 * 1024 * 1024) } })
-    await assert.rejects(buildNpmTree({ ...options, host: NPM10 }), { name: 'DeptreeError', where: 'packages["node_modules/b"]', message: /^packages\["node_modules\/b"\]: the tarball inflates \d+ times its first \d+ bytes, past what npm's tar gives up at$/u })
+    await assert.rejects(buildNpmTree({ ...options, host: NPM10 }), { name: 'DeptreeError', where: 'packages["node_modules/b"]', message: /^packages\["node_modules\/b"\]: the tarball inflates \d+ times its (?:length|first \d+ bytes), which npm's tar may give up at$/u })
     await buildNpmTree(options)
   })
 })
