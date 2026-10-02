@@ -300,14 +300,27 @@ describe('packDirectory refuses', () => {
     for (const pnpm of [V10, V11, V12]) assert.throws(() => pack({ '.npmignore/x': '' }, pnpm), /^DeptreeError: x: "\.npmignore": it is not a file, which pnpm fails to read$/u, pnpm)
   })
 
-  it('a link, and a mode linking a bin would change otherwise', () => {
+  it('a link, and a mode a checkout does not have', () => {
     const manifest = { name: 'foo', version: '1.0.0' }
     const vfs = createVfs({ 'd/package.json': JSON.stringify(manifest), 'd/a.js': '' })
     vfs.symlink('a.js', '/d/b.js')
     for (const pnpm of [V10, V11, V12]) assert.throws(() => packDirectory(vfs, 'd', manifest, pnpm, 'x'), /^DeptreeError: x: "b\.js": a link in a directory pnpm installs a copy of is not supported$/u, pnpm)
     const odd = createVfs({ 'd/package.json': JSON.stringify(manifest), 'd/a.js': '' })
     odd.chmod('/d/a.js', 0o600)
-    assert.throws(() => packDirectory(odd, 'd', manifest, V10, 'x'), /its mode, 600, is not 644 or 755/u)
+    assert.throws(() => packDirectory(odd, 'd', manifest, V10, 'x'), /^DeptreeError: x: "a\.js": its mode, 600, is not 644, 664, 755 or 775, which is not supported$/u)
+  })
+
+  // Not refused: a checkout's modes under umask 002, kept as they are.
+  it('nothing of 664 or 775', () => {
+    const manifest = { name: 'foo', version: '1.0.0' }
+    const vfs = createVfs({ 'd/package.json': JSON.stringify(manifest), 'd/a.js': '', 'd/b.sh': '' })
+    vfs.chmod('/d/package.json', 0o664)
+    vfs.chmod('/d/a.js', 0o664)
+    vfs.chmod('/d/b.sh', 0o775)
+    for (const pnpm of [V10, V11, V12]) {
+      const modes = [...packDirectory(vfs, 'd', manifest, pnpm, 'x')].map(([path, { mode }]) => [path, mode])
+      assert.deepEqual(modes, [['a.js', 0o664], ['b.sh', 0o775], ['package.json', 0o664]], pnpm)
+    }
   })
 
   // A link the rules leave out is never looked at.

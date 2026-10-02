@@ -4,8 +4,7 @@
 // `bin`, the .npmignore and .gitignore files where they read them, and their
 // own rules. Of glob syntax only `*`, `?` and `**` are followed, which they
 // all read alike. Refused are a link the walk comes on, which they treat
-// differently, and a mode other than 0o644 or 0o755, which linking a bin
-// would change otherwise than fixBin does.
+// differently, and a mode a checkout does not have under umask 022 or 002.
 
 import { compareVersions, valid } from '@preventive/upstream/semver.js'
 import { normalize } from '@preventive/vfs/path.js'
@@ -15,6 +14,8 @@ import { bytesOf, gitignoreGlob, matched, matchedOrParents } from './gitignore.j
 import { pack10, pack11 } from './npm-packlist.js'
 
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
+
+const MODES = new Set([0o644, 0o664, 0o755, 0o775])
 
 // How deep a directory is walked: each entry is matched against the rules
 // of every directory above it, which takes time growing with the cube.
@@ -186,7 +187,7 @@ export function packDirectory(project, dir, manifest, version, where) {
     const here = `${where}: ${quote(rel)}`
     if (rel.split('/').some((part) => part === '' || part === '.')) throw new DeptreeError('pnpm keeps it as a pattern spells it, which is not supported', here)
     const { mode } = view.lstat(rel)
-    if (mode !== 0o644 && mode !== 0o755) throw new DeptreeError(`its mode, ${mode.toString(8)}, is not 644 or 755, which is not supported`, here)
+    if (!MODES.has(mode)) throw new DeptreeError(`its mode, ${mode.toString(8)}, is not 644, 664, 755 or 775, which is not supported`, here)
     files.set(rel, { data: view.bytes(rel), mode })
   }
   return files
