@@ -16,11 +16,15 @@ function nameOf(stored) {
   return name.replaceAll('//', '/')
 }
 
-function filesOf(entries, where, major) {
+// pnpm 10 and 11 drop a name's first segment at a `\` as at a `/` where the
+// ustar header holds the name, and where a name has a `.\`, turn each `\`
+// into a `/` before normalizing it; pnpm 12 takes every `\` for a
+// separator, and fails on a `..` that makes.
+function filesOf(entries, where) {
   const files = new Map()
   const tops = new Set()
   for (const entry of entries) {
-    if (major >= 12 && entry.storedName.includes('\\')) throw new DeptreeError(`${quote(entry.storedName)} has a backslash, which pnpm 12 takes for a separator, and that is not supported`, where)
+    if (entry.storedName.includes('\\')) throw new DeptreeError(`${quote(entry.storedName)} has a backslash, which pnpm may take for a separator, and that is not supported`, where)
     if (entry.type === 'directory') continue
     if (entry.type !== 'file') throw new DeptreeError(`${quote(entry.name)} is a ${entry.type}, which is not supported`, where)
     tops.add(entry.storedName.slice(0, Math.max(entry.storedName.indexOf('/'), 0)))
@@ -107,7 +111,7 @@ export function checkDependencies(manifest, read, pkg, where) {
 
 export async function fetchPackage(pkg, where, major) {
   const { entries } = await fetchTarball(pkg.name, pkg.version, pkg.resolution.integrity, where)
-  const files = filesOf(entries, where, major)
+  const files = filesOf(entries, where)
   const manifest = readManifest(files, pkg, where)
   checkManifest(manifest, pkg, where, major)
   return { files, manifest }
