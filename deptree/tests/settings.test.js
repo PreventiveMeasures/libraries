@@ -102,6 +102,21 @@ describe('readSettings', () => {
     assert.throws(() => read({ npmrc: 'registry=${REGISTRY}\n' }), /^DeptreeError: \.npmrc:1: registry: "\$\{REGISTRY\}" is taken from the environment/u)
   })
 
+  // pnpm 9 reads of pnpm-workspace.yaml its projects and catalogs alone,
+  // and of an .npmrc and the package.json what it has settings for.
+  it('reads settings as pnpm 9 does', () => {
+    const DEFAULTS_9 = { ...DEFAULTS, publicHoistPattern: ['*eslint*', '*prettier*'], packageManagerChecks: { manage: false, strict: true, strictVersion: false } }
+    assert.deepEqual(read({ major: 9 }), DEFAULTS_9)
+    const settings = read({ workspace: 'packages: [a]\nnodeLinker: hoisted\nhoist: false\noverrides:\n  ms: 1.0.0\ncatalog:\n  ms: 2.1.3\ncatalogs: null\n', major: 9 })
+    assert.deepEqual({ ...settings, catalogs: { ...settings.catalogs.default } }, { ...DEFAULTS_9, packages: ['a'], catalogs: { ms: '2.1.3' } })
+    assert.throws(() => read({ workspace: 'packages: [a]\ncatalog: [ms]\n', major: 9 }), /^DeptreeError: pnpm-workspace\.yaml: catalog: expected a mapping, found a list$/u)
+    const npmrc = 'dedupe-peers=true\nenable-global-virtual-store=true\ninject-workspace-packages=true\npackage-manager-strict=false\nmanage-package-manager-versions=true\n'
+    assert.deepEqual(read({ npmrc, major: 9 }), { ...DEFAULTS_9, packageManagerChecks: { manage: true, strict: false, strictVersion: false } })
+    assert.throws(() => read({ npmrc: 'enable-global-virtual-store=true\n' }), /a global virtual store is not built/u, 'pnpm 10 reads it')
+    const manifest = { resolutions: { a: '1' }, pnpm: { configDependencies: { c: '1' }, ignorePatchFailures: true, allowUnusedPatches: true, supportedArchitectures: { os: ['darwin'] } } }
+    assert.deepEqual({ ...read({ manifest, major: 9 }), overrides: { ...read({ manifest, major: 9 }).overrides } }, { ...DEFAULTS_9, overrides: { a: '1' }, supportedArchitectures: { os: ['darwin'] } })
+  })
+
   // pnpm 11 reads settings from pnpm-workspace.yaml alone: an .npmrc for
   // its registries, and nothing of the package.json, `resolutions` none.
   it('reads settings as pnpm 11 does', () => {

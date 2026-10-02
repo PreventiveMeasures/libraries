@@ -148,6 +148,7 @@ const root = ({ pnpm = {}, ...fields } = {}) => JSON.stringify({
 
 const buildResult = ({ manifest = root(), ...options } = {}) => buildPnpmTree({ lockfile: lockfile(), manifests: { '.': manifest }, patches: { 'patches/p.patch': PATCH }, host: HOST, ...options })
 const build = async (options) => (await buildResult(options)).vfs
+const HOST_9 = { ...HOST, pnpm: '9.15.9' }
 const HOST_11 = { ...HOST, pnpm: '11.28.2' }
 const HOST_12 = { ...HOST, pnpm: '12.8.1' }
 const UP = `Up@1.0.0_${hex('Up@1.0.0').slice(0, 32)}`
@@ -439,6 +440,28 @@ ${['c@2.0.0', 'c@2.1.0', 'x@1.0.0', 'y@1.0.0'].map((id) => `  ${id}:\n    resolu
     const dir = await tarball('d', '1.0.0', { 'dir/f.js': '' }, { manifest: { bin: { d: 'dir' } } })
     await assert.rejects(only([dir], { ...BIN, host: HOST_12 }), /^DeptreeError: "d@1\.0\.0": its bin "dir" is a directory, which pnpm 12 fails on$/u)
   })
+
+  // pnpm 9 takes a command by its name before it drops the scope, so links
+  // `@x/y z` as `y z`; links a `bin` string or a directories.bin wherever
+  // it leads; reads no engines.runtime; and fails on a bin that is a
+  // directory, which pnpm 10 passes over. Each as real installs of pnpm
+  // 9.15.9 and 10.33.4 have it.
+  it('links bins as pnpm 9 does', async () => {
+    const mode = (vfs, name, file) => vfs.stat(`/node_modules/${name}/${file}`).mode
+    const spaced = await tarball('s', '1.0.0', { 's.js': '#!s\n' }, { manifest: { bin: { '@x/y z': 's.js' } } })
+    assert.equal(mode((await only([spaced], { ...BIN, host: HOST_9 })).vfs, 's', 's.js'), 0o755)
+    assert.equal(mode((await only([spaced], BIN)).vfs, 's', 's.js'), 0o644)
+    const runtime = await tarball('r', '1.0.0', { 'r.js': '#!r\n' }, { manifest: { bin: { r: 'r.js' }, engines: { runtime: { name: 'node', onFail: 'download' } } } })
+    assert.equal(mode((await only([runtime], { ...BIN, host: HOST_9 })).vfs, 'r', 'r.js'), 0o755)
+    const out = await tarball('o', '1.0.0', {}, { manifest: { bin: '../o.js' } })
+    await assert.rejects(only([out], { ...BIN, host: HOST_9 }), /^DeptreeError: "o@1\.0\.0": "\.\.\/o\.js" leads out of the package, which pnpm 9 links a bin to all the same, and that is not supported$/u)
+    await only([out], BIN)
+    const outDir = await tarball('od', '1.0.0', {}, { manifest: { directories: { bin: '../x' } } })
+    await assert.rejects(only([outDir], { ...BIN, host: HOST_9 }), /^DeptreeError: "od@1\.0\.0": "\.\.\/x" leads out of the package/u)
+    const dir = await tarball('d', '1.0.0', { 'dir/f.js': '' }, { manifest: { bin: { d: 'dir' } } })
+    await assert.rejects(only([dir], { ...BIN, host: HOST_9 }), /^DeptreeError: "d@1\.0\.0": its bin "dir" is a directory, which pnpm 9 fails on$/u)
+    await only([dir], BIN)
+  })
 })
 
 // For a `bin` naming none beside a directories.bin, pnpm resolves hasBin
@@ -559,13 +582,14 @@ describe('buildPnpmTree refuses', () => {
 
   // Real installs of pnpm 10.33.4 and 11.28.2 put `a\..\b` at `b`, `x.\y`
   // at `x./y`, `c\d` at `c\d` and `pkg\sub/w` at `sub/w`; 12.8.1 fails on
-  // the first, and puts `c\d` at `c/d`. @preventive/archive refuses each
+  // the first, and puts `c\d` at `c/d`; 9.15.9 keeps the first three as they
+  // are, and puts `pkg\sub/w` at `sub/w`. @preventive/archive refuses each
   // first, and package.js would after it.
   it('a name with a backslash, which pnpm may take for a separator', async () => {
     for (const name of ['package/a\\..\\b', 'package/x.\\y', 'package/c\\d', 'pkg\\sub/w']) {
       const bytes = await compress(rawTar([{ name: 'package/package.json', data: '{"name":"b","version":"1.0.0"}' }, { name, data: '' }]), 'gzip')
       const pattern = new RegExp(`^DeptreeError: "b@1\\.0\\.0": .*${RegExp.escape(JSON.stringify(name))}.* backslash`, 'u')
-      for (const host of [HOST, HOST_11, HOST_12]) await assert.rejects(only([{ name: 'b', version: '1.0.0', bytes, integrity: sri(bytes) }], { host }), pattern)
+      for (const host of [HOST_9, HOST, HOST_11, HOST_12]) await assert.rejects(only([{ name: 'b', version: '1.0.0', bytes, integrity: sri(bytes) }], { host }), pattern)
     }
   })
 
@@ -642,7 +666,7 @@ describe('buildPnpmTree refuses', () => {
   })
 
   it('a host this does not build for', async () => {
-    await refuses({ host: { ...HOST, pnpm: '9.15.9' } }, /^host\.pnpm: pnpm "9\.15\.9" is not supported/u)
+    await refuses({ host: { ...HOST, pnpm: '8.15.9' } }, /^host\.pnpm: pnpm "8\.15\.9" is not supported: only pnpm 9, 10, 11 and 12 are$/u)
     await refuses({ host: { ...HOST, os: 'win32' } }, /^host\.os: Windows is not supported/u)
     await assert.rejects(build({ host: { ...HOST, libc: undefined } }), TypeError)
   })
@@ -709,6 +733,81 @@ const flatLockfile = ({ patchHash = H } = {}) => lockfile({ patchHash }).replace
 const PATCHED_IN_YAML = 'patchedDependencies:\n  p@1.0.0: patches/p.patch\n'
 const UNPATCHED = root({ pnpm: { patchedDependencies: undefined } })
 
+// pnpm 9 reads its settings from the .npmrc and the package.json, and of
+// pnpm-workspace.yaml the projects and the catalogs alone; hashes a patch,
+// and cuts a long directory's name, with MD5 in base32; and hoists
+// `*eslint*` and `*prettier*` publicly by default. Each as real installs of
+// pnpm 9.15.9 have it.
+describe('buildPnpmTree for pnpm 9', () => {
+  const md5 = (text) => {
+    let bits = ''
+    for (const byte of createHash('md5').update(text).digest()) bits += byte.toString(2).padStart(8, '0')
+    return bits.padEnd(130, '0').match(/.{5}/gu).map((chunk) => 'abcdefghijklmnopqrstuvwxyz234567'[Number.parseInt(chunk, 2)]).join('')
+  }
+  const H9 = md5(PATCH)
+  const lockfile9 = () => lockfile({ patchHash: H9 })
+  const built = (options = {}) => buildResult({ lockfile: lockfile9(), host: HOST_9, ...options })
+
+  it('builds the tree pnpm 9 installs', async () => {
+    stubRegistry(TARBALLS)
+    const { vfs } = await built()
+    assert.equal(vfs.readText('/node_modules/p/index.js'), 'module.exports = 2\n')
+    assert.deepEqual(vfs.readdir('/node_modules/.pnpm'), [`Up@1.0.0_${md5('Up@1.0.0')}`, 'a@1.0.0_c@2.0.0', 'b@1.0.0', 'c@2.0.0', 'd@1.0.0', 'e@1.0.0', 'lodash@4.17.21', 'node_modules', `p@1.0.0_patch_hash=${H9}`])
+    assert.deepEqual(vfs.readdir('/node_modules/.pnpm/node_modules'), ['Up', 'b', 'c', 'd'])
+    await assert.rejects(built({ lockfile: lockfile() }), /^DeptreeError: patchedDependencies: the patches differ: "p@1\.0\.0" is "[\da-f]{64} patches\/p\.patch" in the lockfile and "[a-z2-7]{26} patches\/p\.patch" in the settings, which a frozen install refuses$/u)
+  })
+
+  it('hoists *eslint* and *prettier* publicly by default', async () => {
+    const more = await Promise.all([tarball('w', '1.0.0', {}, { manifest: { dependencies: { 'eslint-z': '1.0.0', y: '1.0.0' } } }), tarball('eslint-z', '1.0.0'), tarball('y', '1.0.0')])
+    stubRegistry(more)
+    const lock = small(dep('w'), `${more.map((t) => entry(t)).join('\n')}\n`, '  eslint-z@1.0.0: {}\n\n  w@1.0.0:\n    dependencies:\n      eslint-z: 1.0.0\n      y: 1.0.0\n\n  y@1.0.0: {}\n')
+    const options = { lockfile: lock, manifests: { '.': JSON.stringify({ name: 'root', dependencies: { w: '1.0.0' } }) } }
+    const { vfs } = await buildPnpmTree({ ...options, host: HOST_9 })
+    assert.equal(vfs.readlink('/node_modules/eslint-z'), '.pnpm/eslint-z@1.0.0/node_modules/eslint-z')
+    assert.deepEqual(vfs.readdir('/node_modules/.pnpm/node_modules'), ['y'])
+    assert.equal((await buildPnpmTree({ ...options, host: HOST })).vfs.isSymlink('/node_modules/eslint-z'), false)
+    assert.equal((await buildPnpmTree({ ...options, host: HOST_9, npmrc: 'public-hoist-pattern=\n' })).vfs.isSymlink('/node_modules/eslint-z'), false)
+  })
+
+  it('reads no setting of pnpm-workspace.yaml, nor one pnpm 9 has not', async () => {
+    stubRegistry(TARBALLS)
+    const { vfs } = await built({ workspace: 'packages: []\nhoist: false\nnodeLinker: hoisted\npatchedDependencies:\n  q: patches/q.patch\n' })
+    assert.deepEqual(vfs.readdir('/node_modules/.pnpm/node_modules'), ['Up', 'b', 'c', 'd'])
+    await assert.rejects(built({ workspace: 'hoist: false\n' }), /^DeptreeError: pnpm-workspace\.yaml: packages: pnpm 9 fails on a workspace manifest that sets anything and no packages$/u)
+    await built({ npmrc: 'dedupe-peers=true\nenable-global-virtual-store=true\n', manifest: root({ pnpm: { configDependencies: { c: '2.0.0' }, allowBuilds: { a: true } } }) })
+  })
+
+  it('takes a project anywhere for a pnpm-workspace.yaml that sets nothing', async () => {
+    stubRegistry(TARBALLS)
+    const manifests = { '.': root(), 'packages/x': JSON.stringify({ name: 'x', dependencies: { b: '1.0.0' } }) }
+    const two = TWO.replace(`hash: ${H}`, `hash: ${H9}`).replaceAll(`patch_hash=${H}`, `patch_hash=${H9}`)
+    const { vfs } = await built({ lockfile: two, manifests, workspace: '' })
+    assert.equal(vfs.realpath('/packages/x/node_modules/b'), '/node_modules/.pnpm/b@1.0.0/node_modules/b')
+    await assert.rejects(buildResult({ lockfile: TWO, manifests, workspace: '' }), /^DeptreeError: importers\["packages\/x"\]: pnpm-workspace\.yaml's packages are not set/u)
+  })
+
+  it('holds the lockfile to neither the catalogs nor dedupePeers', async () => {
+    stubRegistry(TARBALLS)
+    const deduped = (locked) => locked.replace('  autoInstallPeers: true\n', '  autoInstallPeers: true\n  dedupePeers: true\n')
+    const cataloged = (locked) => locked.replace('\nimporters:\n', '\ncatalogs:\n  default:\n    ms:\n      specifier: 2.1.3\n      version: 2.1.3\n\nimporters:\n')
+    for (const change of [deduped, cataloged]) {
+      await built({ lockfile: change(lockfile9()) })
+      await assert.rejects(buildResult({ lockfile: change(lockfile()) }), /^DeptreeError: (?:settings\.dedupePeers|catalogs): /u)
+    }
+  })
+
+  it('installs with itself the project another pnpm is pinned for', async () => {
+    stubRegistry(TARBALLS)
+    await built({ manifest: root({ packageManager: 'pnpm@10.33.4' }) })
+    await assert.rejects(built({ manifest: root({ packageManager: 'pnpm@10.33.4' }), npmrc: 'package-manager-strict-version=true\n' }), /which pnpm 9 refuses with packageManagerStrict and packageManagerStrictVersion$/u)
+    await assert.rejects(built({ manifest: root({ packageManager: 'yarn@1.22.22' }) }), /which pnpm 9 refuses with packageManagerStrict$/u)
+  })
+
+  it('refuses a pnpm 9 before 9.15.0', async () => {
+    await assert.rejects(built({ host: { ...HOST, pnpm: '9.14.4' } }), /^DeptreeError: host\.pnpm: pnpm "9\.14\.4" is not supported: pnpm 9 is from 9\.15\.0 on$/u)
+  })
+})
+
 // pnpm 11 reads its settings from pnpm-workspace.yaml alone.
 describe('buildPnpmTree for pnpm 11', () => {
 
@@ -773,7 +872,7 @@ describe('buildPnpmTree for pnpm 11', () => {
   })
 
   it('refuses a pnpm it is not built for', async () => {
-    await assert.rejects(buildPnpmTree({ lockfile: flatLockfile(), manifests: { '.': root() }, host: { ...HOST, pnpm: '13.0.0' } }), /^DeptreeError: host\.pnpm: pnpm "13\.0\.0" is not supported: only pnpm 10, 11 and 12 are$/u)
+    await assert.rejects(buildPnpmTree({ lockfile: flatLockfile(), manifests: { '.': root() }, host: { ...HOST, pnpm: '13.0.0' } }), /^DeptreeError: host\.pnpm: pnpm "13\.0\.0" is not supported: only pnpm 9, 10, 11 and 12 are$/u)
   })
 })
 
@@ -925,7 +1024,7 @@ describe('buildPnpmTree with a workspace', () => {
     ]
     for (const [files, pattern] of refused) assert.throws(() => findPnpmProjects({ project: projectWith(files), host: HOST }), pattern, JSON.stringify(files))
     const wrong = [
-      [{ host: { pnpm: '9.15.9' } }, /^DeptreeError: host\.pnpm: pnpm "9\.15\.9" is not supported/u],
+      [{ host: { pnpm: '9.14.4' } }, /^DeptreeError: host\.pnpm: pnpm "9\.14\.4" is not supported: pnpm 9 is from 9\.15\.0 on$/u],
       [{ host: { pnpm: '' } }, /^TypeError: host\.pnpm must be a non-empty string, or left out$/u],
       [{ host: null }, /^TypeError: host must be an object, or left out$/u],
       [{ host: {} }, /^TypeError: host\.pnpm must be given where the root package\.json's packageManager pins no pnpm$/u],
@@ -933,6 +1032,20 @@ describe('buildPnpmTree with a workspace', () => {
     ]
     for (const [options, pattern] of wrong) assert.throws(() => findPnpmProjects({ project, host: HOST, ...options }), pattern, JSON.stringify(options))
     assert.throws(() => findPnpmProjects(), /^TypeError: project must be a Vfs/u)
+  })
+
+  // pnpm 9 finds projects everywhere for a pnpm-workspace.yaml that sets
+  // nothing, fails on one that sets anything else and no packages, and
+  // refuses no other name but pnpm-workspace.yml, as 9.15.9 does.
+  it('finds the projects as pnpm 9 does', () => {
+    const projectWith = (files) => createVfs({ 'package.json': '{}', 'packages/x/package.json': '{}', ...files })
+    const find9 = (files) => findPnpmProjects({ project: projectWith(files), host: HOST_9 })
+    for (const workspace of ['', '# none\n', '{}\n']) assert.deepEqual(find9({ 'pnpm-workspace.yaml': workspace }), ['.', 'packages/x'], JSON.stringify(workspace))
+    assert.deepEqual(find9({}), ['.'])
+    assert.deepEqual(find9({ 'pnpm-workspace.yaml': 'packages: []\n' }), ['.'])
+    assert.throws(() => find9({ 'pnpm-workspace.yaml': 'hoist: true\n' }), /^DeptreeError: pnpm-workspace\.yaml: packages: pnpm 9 fails on a workspace manifest that sets anything and no packages$/u)
+    assert.deepEqual(find9({ '.pnpm-workspaces.yaml': WORKSPACE }), ['.'])
+    assert.throws(() => find9({ 'pnpm-workspace.yml': WORKSPACE }), /^DeptreeError: "pnpm-workspace\.yml": pnpm refuses a workspace manifest not named pnpm-workspace\.yaml$/u)
   })
 
   // pnpm finds pnpm-workspace.yaml under other names too, and refuses it

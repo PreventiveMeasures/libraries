@@ -1,6 +1,7 @@
 // Each setting pnpm reads, by its pnpm-workspace.yaml name, is either read
-// and checked (READ, READ_11, READ_12) or passed over as leaving the tree
-// as it is (IGNORED, IGNORED_11, IGNORED_12); any other is refused.
+// and checked (READ, READ_9, READ_11, READ_12) or passed over as leaving
+// the tree as it is (IGNORED, NOT_9, IGNORED_11, IGNORED_12); any other is
+// refused.
 
 import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
@@ -193,6 +194,25 @@ const UNRECOGNIZED_12 = new Set([
 
 export const unrecognized12 = (where) => new DeptreeError('pnpm 12 does not know it, and fails on it where the root package.json pins the pnpm that runs', where)
 
+// What pnpm 9 reads that pnpm 10 passes over: how it holds the root
+// package.json's packageManager to the pnpm that runs (projects.js).
+const READ_9 = {
+  __proto__: null,
+  managePackageManagerVersions: { kind: 'boolean' },
+  packageManagerStrict: { kind: 'boolean' },
+  packageManagerStrictVersion: { kind: 'boolean' },
+}
+
+// What pnpm 10 reads that pnpm 9 has no setting for, and passes over.
+const NOT_9 = new Set(['dedupePeers', 'enableGlobalVirtualStore', 'injectWorkspacePackages'])
+
+// The keys of package.json's `pnpm` pnpm 9 reads, passing over any other.
+export const MANIFEST_KEYS_9 = [
+  'allowNonAppliedPatches', 'allowedDeprecatedVersions', 'ignoredOptionalDependencies', 'neverBuiltDependencies',
+  'onlyBuiltDependencies', 'onlyBuiltDependenciesFile', 'overrides', 'packageExtensions', 'patchedDependencies',
+  'peerDependencyRules', 'supportedArchitectures',
+]
+
 // The keys of package.json's `pnpm` pnpm 10 reads, passing over any other.
 export const MANIFEST_KEYS = [
   'allowBuilds', 'allowNonAppliedPatches', 'allowUnusedPatches', 'allowedDeprecatedVersions', 'auditConfig',
@@ -203,7 +223,7 @@ export const MANIFEST_KEYS = [
 
 // A frozen install holds the lockfile to none of the resolution settings
 // here (uptodate.js has those it does).
-export const IGNORED = new Set([
+const IGNORED = new Set([
   // resolution, already in the lockfile
   'allowNonAppliedPatches', 'allowUnusedPatches', 'allowedDeprecatedVersions', 'blockExoticSubdeps', 'catalogMode',
   'dedupeInjectedDeps', 'dedupePeerDependents', 'linkWorkspacePackages', 'lockfileIncludeTarballUrl',
@@ -259,15 +279,23 @@ function checkCatalogs(value, where) {
   for (const [name, catalog] of Object.entries(value)) checkCatalog(readers.mapping(catalog, `${where}.${name}`), `${where}.${name}`)
 }
 
-// `{}` where a setting leaves the tree as it is, undefined where not known
-// here. pnpm 12 takes a pattern only as a list.
+// `{}` where a setting leaves the tree as it is or pnpm 9 has no such setting,
+// undefined where not known here. pnpm 12 takes a pattern only as a list.
 function lookup(name, major) {
+  if (major < 10 && name in READ_9) return { read: READ_9[name] }
+  if (major < 10 && NOT_9.has(name)) return {}
   if (major >= 12 && UNRECOGNIZED_12.has(name)) return { unrecognized: true }
   if (major >= 12 && name in READ_12) return { read: READ_12[name] }
   if (major >= 11 && name in READ_11) return { read: READ_11[name] }
   if (IGNORED.has(name) || (major >= 11 && IGNORED_11.has(name)) || (major >= 12 && IGNORED_12.has(name))) return {}
   if (!(name in READ)) return undefined
   return { read: major >= 12 && READ[name].kind === 'texts' ? { ...READ[name], kind: 'list' } : READ[name] }
+}
+
+// An .npmrc setting pnpm passes over is undefined.
+export function npmrcReader(name, major) {
+  const read = lookup(name, major)?.read
+  return read?.rc === false ? undefined : read
 }
 
 export function readerOf(name, where, major, pinned = false) {

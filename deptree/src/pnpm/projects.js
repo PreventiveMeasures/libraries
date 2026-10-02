@@ -50,6 +50,7 @@ function wantedOf(manifest, autoInstallPeers, unresolved) {
 // it is not set.
 const metaOf = (meta) => JSON.stringify(Object.entries(meta).map(([name, item]) => [name, item?.injected === true, item?.node]).sort())
 
+// pnpm 9 does not hold what a dependency resolved to to its range.
 function checkKind(importer, kinds, kind, unresolved, major) {
   const locked = importer[kind]
   const wanted = kind === 'devDependencies' ? kinds[kind] : omit(kinds[kind], unresolved)
@@ -60,7 +61,7 @@ function checkKind(importer, kinds, kind, unresolved, major) {
   for (const name of names) {
     if (!locked[name] || !sameSpecifier(importer.specifiers[name], wanted[name], major)) return `${kind}.${name} is not what package.json asks for`
     const spec = importer.specifiers[name]
-    if (validRange(spec) === null) continue
+    if (major < 10 || validRange(spec) === null) continue
     const version = resolvedOf(name, locked[name])
     if (valid(version) !== null && !satisfies(version, spec)) return `${kind}.${name} resolved to ${quote(version)}, which is not in ${quote(spec)}`
   }
@@ -159,7 +160,37 @@ function checkPackageManager12(manifest, host, pmOnFail, env) {
   }
 }
 
-function checkPackageManager(manifest, host, pmOnFail, env) {
+// pnpm 9's parsePackageManager.
+function parsePackageManager(packageManager) {
+  if (!packageManager.includes('@')) return { name: packageManager, version: undefined }
+  const [name, reference] = packageManager.split('@')
+  return { name, version: reference.includes(':') ? undefined : reference.split('+')[0] }
+}
+
+// pnpm 9 switches to the pnpm packageManager pins only with
+// managePackageManagerVersions; otherwise it refuses another package
+// manager with packageManagerStrict, and another pnpm with that and
+// packageManagerStrictVersion, and installs with itself. 9.15.0 switches
+// to a version semver reads but spells otherwise, and later 9.15s do not.
+function checkPackageManager9(manifest, host, { manage, strict, strictVersion }) {
+  const { packageManager } = manifest
+  if (!packageManager) return
+  const where = 'manifests["."].packageManager'
+  if (typeof packageManager !== 'string') throw new DeptreeError('expected a string, which pnpm 9 fails on otherwise', where)
+  const { name, version } = parsePackageManager(packageManager)
+  if (manage && name === 'pnpm') {
+    const exact = version === undefined ? null : valid(version)
+    if (version === undefined || version === host.pnpm || exact === null) return
+    if (exact !== version.trim()) throw new DeptreeError(`pnpm ${quote(version)} is one pnpm 9.15.0 switches to and a later 9.15 does not, which is not supported`, where)
+    throw new DeptreeError(`the project is installed by pnpm ${version}, which pnpm 9 switches to with managePackageManagerVersions, not ${host.pnpm}`, where)
+  }
+  if (name && name !== 'pnpm' && strict) throw new DeptreeError(`the project is installed by ${quote(name)}, which pnpm 9 refuses with packageManagerStrict`, where)
+  if (name === 'pnpm' && strict && strictVersion && version && version !== host.pnpm) throw new DeptreeError(`the project is installed by pnpm ${version}, not ${host.pnpm}, which pnpm 9 refuses with packageManagerStrict and packageManagerStrictVersion`, where)
+}
+
+function checkPackageManager(manifest, host, settings, env) {
+  const { pmOnFail } = settings
+  if (host.major < 10) return checkPackageManager9(manifest, host, settings.packageManagerChecks)
   if (host.major >= 12) return checkPackageManager12(manifest, host, pmOnFail, env)
   const { packageManager } = manifest
   if (host.major >= 11) {
@@ -181,6 +212,8 @@ function checkPackageManager(manifest, host, pmOnFail, env) {
 const RUNTIMES = [['devEngines', 'devDependencies'], ['engines', 'dependencies']]
 const RUNTIME_NAMES = ['node', 'deno', 'bun']
 function checkRuntimes(manifest, where, { host, root, onFail }) {
+  // pnpm 9 knows no runtime.
+  if (host.major < 10) return
   const checked = new Set()
   for (const [field, kind] of RUNTIMES) {
     const runtime = manifest[field]?.runtime
@@ -213,7 +246,7 @@ function dependsOn(manifest, ignored) {
 }
 
 export function checkProjects(lockfile, manifests, { hook, host, settings, env }) {
-  checkPackageManager(manifests.get('.'), host, settings.pmOnFail, env)
+  checkPackageManager(manifests.get('.'), host, settings, env)
   const ignored = createMatcher(settings.ignoredOptionalDependencies ?? [])
   let index
   for (const [id, manifest] of manifests) {

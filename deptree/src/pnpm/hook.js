@@ -68,7 +68,11 @@ export function createHook({ overrides, ignored, major = 10 }) {
         }
       }
       for (const kind of KINDS) if (copy[kind] !== undefined) override(copy[kind])
-      if (copy.peerDependencies !== undefined) override(copy.dependencies ??= {}, copy.peerDependencies)
+      if (copy.peerDependencies !== undefined) {
+        // pnpm 9 overrides a peer in place whatever the override is.
+        if (major < 10) override(copy.peerDependencies)
+        else override(copy.dependencies ??= {}, copy.peerDependencies)
+      }
     }
     for (const name of Object.keys(copy.optionalDependencies ?? {})) {
       if (!isIgnored(name)) continue

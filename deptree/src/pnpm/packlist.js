@@ -1,5 +1,5 @@
 // The files pnpm's directory fetcher installs of a `file:` dependency, by the
-// built-in rules of npm-packlist 5.1.3 (pnpm 10), 10.0.4 (pnpm 11) or
+// built-in rules of npm-packlist 5.1.3 (pnpm 9 and 10), 10.0.4 (pnpm 11) or
 // fs-packlist (pnpm 12). Refused are a link and a file kept despite the rules,
 // which npm-packlist and fs-packlist treat differently, and a mode other than
 // 0o644 or 0o755, which linking a bin would change otherwise than fixBin does.

@@ -273,3 +273,70 @@ describe('findProjects under directories with a leading dot', () => {
     }
   })
 })
+
+// As fast-glob 3.3.3 finds them with pnpm 9.15.9's options, which this
+// was fuzzed against: under a `**` it walks into every directory, those
+// with a leading dot among them, though it takes no name with one there,
+// and a `!` glob leaves out what it takes, leading dots and all.
+describe('findProjects for pnpm 9', () => {
+  const files = [
+    'packages/a', 'packages/b', 'packages/b/node_modules/x', 'packages/c/bower_components/y', '.hidden/d', 'packages/.dot',
+    'other/e', 'packages/f/sub', 'node_modules/g', 'x/.y/z', 'bower_components/w', 'tests/t',
+  ].map((dir) => [`${dir}/package.json`, '{}'])
+  const workspace = (more = []) => createVfs(Object.fromEntries([['package.json', '{}'], ['packages/j/readme', ''], ['packages/k/package.json/x', ''], ...files, ...more]))
+  const found = [
+    [['packages/*'], ['packages/a', 'packages/b']],
+    [['packages/**'], ['packages/a', 'packages/b', 'packages/f/sub']],
+    [['**'], ['other/e', 'packages/a', 'packages/b', 'packages/f/sub', 'tests/t']],
+    [['**', '!**/b'], ['other/e', 'packages/a', 'packages/f/sub', 'tests/t']],
+    [['packages/.*'], ['packages/.dot']],
+    [['*/*'], ['other/e', 'packages/a', 'packages/b', 'tests/t']],
+    [['./packages/*/', '!.hidden/**'], ['packages/a', 'packages/b']],
+    [['**/node_modules/**'], []],
+    [['x/.y/*'], ['x/.y/z']],
+    [['x/**'], []],
+    [['!packages/a', 'packages/*'], ['packages/b']],
+    [['*', 'packages/k'], []],
+    [['*s/*', '!*s/a'], ['packages/b', 'tests/t']],
+    [['.hidden/*'], ['.hidden/d']],
+    [['tests/t', '**/z'], ['tests/t']],
+    [[], []],
+  ]
+  for (const [packages, ids] of found) {
+    it(`finds ${JSON.stringify(packages)}`, () => {
+      assert.deepEqual(findProjects(workspace(), packages, 9), ['.', ...ids])
+    })
+  }
+
+  // pnpm 10 walks into no directory with a leading dot for a `**`.
+  it('refuses a node_modules it walks into under a directory with a leading dot', () => {
+    const cached = () => workspace([['.cache/node_modules/y/package.json', '{}']])
+    assert.throws(() => findProjects(cached(), ['**'], 9), /^DeptreeError: "\.cache\/node_modules": pnpm-workspace\.yaml's packages walk into this node_modules, which is not supported$/u)
+    assert.deepEqual(findProjects(cached(), ['**'], 10), ['.', 'other/e', 'packages/a', 'packages/b', 'packages/f/sub', 'tests/t'])
+    assert.deepEqual(findProjects(cached(), ['packages/*'], 9), ['.', 'packages/a', 'packages/b'])
+  })
+
+  // pnpm 9 reads every manifest a directory has, pnpm 10 the first.
+  it('refuses a project with a package.yaml beside its package.json', () => {
+    const both = () => workspace([['packages/a/package.yaml', '{}']])
+    assert.throws(() => findProjects(both(), ['packages/*'], 9), /^DeptreeError: "packages\/a\/package\.yaml": pnpm reads this project's package\.yaml, which is not supported$/u)
+    assert.deepEqual(findProjects(both(), ['packages/*'], 10), ['.', 'packages/a', 'packages/b'])
+  })
+
+  // fast-glob fails reading a directory that is a file.
+  it('refuses a glob that leads through a file', () => {
+    const filed = () => workspace([['afile', '']])
+    for (const packages of [['afile/*'], ['afile/x/*'], ['afile']]) {
+      assert.throws(() => findProjects(filed(), packages, 9), /^DeptreeError: "afile": a glob leads through this file, which pnpm 9 fails on$/u, packages.join(', '))
+      findProjects(filed(), packages, 10)
+    }
+    assert.deepEqual(findProjects(filed(), ['nothere/*'], 9), ['.'])
+  })
+
+  it('holds the lockfile\'s importers to what fast-glob takes', () => {
+    checkWorkspace(['.', 'x/.y/z'], ['x/.y/*'], 9)
+    assert.throws(() => checkWorkspace(['.', '.hidden/x'], ['.hidden/*', '!**/x'], 9), /do not take this directory/u)
+    checkWorkspace(['.', '.hidden/x'], ['.hidden/*', '!**/x'], 10)
+    assert.throws(() => checkWorkspace(['.', 'x/.y/z'], ['**'], 9), /do not take this directory/u)
+  })
+})
