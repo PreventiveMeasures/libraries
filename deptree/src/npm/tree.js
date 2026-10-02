@@ -123,7 +123,7 @@ export async function buildNpmTree(options) {
   const skipped = skippedOf(nodes, host, settings)
   const kept = [...nodes.values()].filter((node) => node.kind === 'package' && !skipped.has(node))
   const { fetched, tarballs } = await fetchAll(kept, host)
-  const changed = settings.binLinks ? fixBins(new Map(kept.map((node) => [node.location, { pkg: node.pkg, ...fetched.get(node) }]))) : new Map()
+  const changed = settings.binLinks ? fixBins(kept, fetched) : new Map()
   const residue = host.reuse ? residueOf(nodes, skipped) : new Set()
   const { vfs, stats: written } = writeTree({ lockfile, kept, fetched, changed, residue })
   if (folded) checkCollisions(vfs)

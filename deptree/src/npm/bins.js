@@ -42,15 +42,13 @@ function fixed({ data }, where) {
   return { data: unix, mode: 0o755 }
 }
 
-// By location: each package's lockfile entry and files in; the files it
-// has otherwise out.
-export function fixBins(installed) {
-  const order = [...installed.keys()].filter((location) => Object.keys(installed.get(location).pkg.bin).length > 0)
-  order.sort((a, b) => collator.compare(a, b))
+// The files linking changes, by each package's location.
+export function fixBins(nodes, fetched) {
   const seen = new Set()
   const changed = new Map()
-  for (const location of order) {
-    const { pkg, files, dirs } = installed.get(location)
+  for (const node of nodes.toSorted((a, b) => collator.compare(a.location, b.location))) {
+    const { location, pkg } = node
+    const { files, dirs } = fetched.get(node)
     const where = `packages[${quote(location)}].bin`
     for (const [name, path] of binsOf(pkg.bin)) {
       const link = `${modulesOf(location)}/.bin/${name}`

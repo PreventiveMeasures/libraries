@@ -72,15 +72,16 @@ export function skippedOf(nodes, host, settings) {
   const skipped = new Set()
   for (const node of nodes.values()) {
     if (node.kind !== 'package') continue
+    const where = whereOf(node)
     if (!node.pkg.optional) {
-      const platform = checkPlatform(node.manifest, host, whereOf(node))
-      if (platform !== undefined) throw new DeptreeError(`${platform}, and it is not optional, which npm fails on`, whereOf(node))
+      const platform = checkPlatform(node.manifest, host, where)
+      if (platform !== undefined) throw new DeptreeError(`${platform}, and it is not optional, which npm fails on`, where)
       const engine = settings.engineStrict ? checkEngine(node.manifest, host) : undefined
-      if (engine !== undefined) throw new DeptreeError(`${engine}, and it is not optional, which npm fails on with engine-strict`, whereOf(node))
+      if (engine !== undefined) throw new DeptreeError(`${engine}, and it is not optional, which npm fails on with engine-strict`, where)
       continue
     }
     if (!host.reuse && skipped.has(node)) continue
-    if (checkEngine(node.manifest, host) === undefined && checkPlatform(node.manifest, host, whereOf(node)) === undefined) continue
+    if (checkEngine(node.manifest, host) === undefined && checkPlatform(node.manifest, host, where) === undefined) continue
     for (const member of optionalSet(node, host, skipped)) skipped.add(member)
   }
   for (const node of skipped) {
