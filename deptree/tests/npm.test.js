@@ -308,6 +308,10 @@ describe('the packages', () => {
     const lock = LOCK()
     lock.packages['node_modules/b'] = { resolved: 'node_modules/x', link: true }
     await refuses(given({ lock }), 'a link to a package is not supported', 'packages["node_modules/b"]')
+    const self = LOCK()
+    self.packages[''].dependencies = { ...ROOT.dependencies, proj: 'file:.' }
+    self.packages['node_modules/proj'] = { resolved: '', link: true }
+    await refuses(given({ lock: self, root: { ...ROOT, dependencies: self.packages[''].dependencies } }), 'a link to the project is not supported', 'packages["node_modules/proj"]')
   })
 
   const one = async (files, manifest = {}, top = 'package') => {

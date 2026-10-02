@@ -27,9 +27,10 @@ const whereOf = (node) => `packages[${quote(node.location)}]`
 // Only a workspace, linked in the project's own node_modules by its name.
 function checkLinks(lockfile) {
   for (const [location, target] of Object.entries(lockfile.links)) {
+    const where = `packages[${quote(location)}]`
     const importer = lockfile.importers[target]
-    if (importer === undefined) throw new DeptreeError('a link to a package is not supported', `packages[${quote(location)}]`)
-    if (location !== `node_modules/${importer.name}`) throw new DeptreeError(`a workspace linked other than as node_modules/${importer.name} is not supported`, `packages[${quote(location)}]`)
+    if (!importer?.workspace) throw new DeptreeError(`a link to ${importer === undefined ? 'a package' : 'the project'} is not supported`, where)
+    if (location !== `node_modules/${importer.name}`) throw new DeptreeError(`a workspace linked other than as node_modules/${importer.name} is not supported`, where)
   }
 }
 
