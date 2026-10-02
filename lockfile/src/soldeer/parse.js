@@ -3,6 +3,7 @@
 
 import { LockfileError, at, quote } from '../error.js'
 import { checkRepo, isCommit, isHexSha256, isHttpUrl } from '../names.js'
+import { compareCodePoints } from '../order.js'
 import { checkOptions, string } from '../shape.js'
 import { parseToml } from '../toml/parse.js'
 import { isTable } from '../toml/value.js'
@@ -56,13 +57,6 @@ function readEntry(entry, index) {
   return [read, where]
 }
 
-// Rust sorts strings by their bytes, as code points sort.
-function compare(a, b) {
-  const [x, y] = [[...a], [...b]]
-  for (let i = 0; i < Math.min(x.length, y.length); i++) if (x[i] !== y[i]) return x[i].codePointAt(0) - y[i].codePointAt(0)
-  return x.length - y.length
-}
-
 // The text toml_edit's to_string_pretty makes of what was read.
 function layout(version, entries) {
   const head = version === undefined ? [] : [`version = ${version}`]
@@ -96,7 +90,7 @@ export function parseSoldeerLockfile(text, options = {}) {
     const [read, where] = readEntry(entry, index)
     if (read.name in dependencies) throw new LockfileError('a second entry of the name, where Soldeer writes one', where)
     const last = entries.at(-1)?.name
-    if (last !== undefined && compare(last, read.name) > 0) throw new LockfileError(`after ${quote(last)}, where Soldeer sorts entries by name`, where)
+    if (last !== undefined && compareCodePoints(last, read.name) > 0) throw new LockfileError(`after ${quote(last)}, where Soldeer sorts entries by name`, where)
     // Soldeer installs each in `dependencies/<name>-<version>`, sanitized.
     claimFolder(installed, `${read.name}-${read.version}`, read.name, where)
     dependencies[read.name] = read

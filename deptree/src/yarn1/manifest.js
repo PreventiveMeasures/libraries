@@ -1,5 +1,4 @@
-// A package.json as yarn 1's util/normalize-manifest reads it, and what of
-// the root's yarn fails on, or would install otherwise than this follows.
+// A package.json as yarn 1's util/normalize-manifest reads it.
 
 import { DeptreeError, quote } from '../error.js'
 
@@ -25,9 +24,7 @@ export function cleanDependencies(manifest) {
   return manifest
 }
 
-// The lists as yarn's normalize-manifest leaves them, in a copy: a `//`
-// key, a comment, dropped, a falsy value made `''`, and a name in several
-// dependency lists kept in one.
+// The lists as normalize-manifest leaves them, a `//` key, a comment, dropped.
 const LISTS = ['resolutions', 'devDependencies', 'dependencies', 'optionalDependencies', 'peerDependencies']
 export function fixLists(manifest) {
   const fixed = { ...manifest }
@@ -42,7 +39,6 @@ export function fixLists(manifest) {
   return cleanDependencies(fixed)
 }
 
-// The workspace globs of the root, as yarn reads them.
 export function globsOf({ workspaces }) {
   return (Array.isArray(workspaces) ? workspaces : workspaces?.packages ?? []).map((glob) => String(glob).replace(/^(?:\.\/)+|\/+$/gu, ''))
 }

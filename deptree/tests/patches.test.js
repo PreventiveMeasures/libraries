@@ -26,6 +26,17 @@ describe('checkPatchUse', () => {
   })
 })
 
+// pnpm 9's getPatchInfo looks a package up by `name@version` as spelled,
+// then by `name`: a range, `*` among them, picks nothing.
+describe('checkPatchUse for pnpm 9', () => {
+  it('takes an exact version over a name, and no range', () => {
+    checkPatchUse(lockfile([['a', '1.0.0', 'e'], ['a', '2.0.0', 'n']]), hashes({ 'a@1.0.0': 'e', a: 'n' }), 9)
+    assert.throws(() => checkPatchUse(lockfile([['a', '1.5.0', 'r']]), hashes({ 'a@^1': 'r' }), 9), /^DeptreeError: "a@1\.5\.0\(patch_hash=r\)": pnpm applies no patch to it, and the lockfile names the patch r$/u)
+    assert.throws(() => checkPatchUse(lockfile([['b', '1.0.0']]), hashes({ 'b@*': 's' }), 9), /^DeptreeError: patchedDependencies\["b@\*"\]: patches no package in the lockfile$/u)
+    assert.throws(() => checkPatchUse(lockfile([['a', '1.0.0']]), hashes({ 'a@latest': 'x' }), 9), /patches no package in the lockfile/u, 'not refused as a range')
+  })
+})
+
 // pnpm 11 holds the peers in a key to their patches too.
 describe('checkPeerPatches', () => {
   const keys = (list, dedupePeers) => ({ settings: { dedupePeers }, packages: Object.fromEntries(list.map((key) => [key, {}])) })

@@ -1,14 +1,11 @@
-// yarn 1's resolvePeerModules (package-linker.js), run before it hoists:
-// each peer is looked for along the shortest chain of names the package was
-// requested by, and the nearest version there in the peer's range is added
-// to what it asks for, by all its patterns, as neither dev nor optional.
-// Where none is found, nothing is added; yarn warns.
+// yarn 1's resolvePeerModules (package-linker.js), run before it hoists: a
+// peer is looked for along the shortest chain of names the package was asked
+// for by, and the nearest in range added; where none is, yarn only warns.
 
 import { compareVersions, valid, validRange } from '@preventive/upstream/semver.js'
 
-// yarn's satisfiesWithPrereleases (util/semver.js): each comparator of the
-// normalized range tested alone, ignoring semver's prerelease rule, and
-// `<x` with no prerelease read as `<x-0`, so `<2.0.0` takes no 2.0.0-rc.1.
+// yarn's util/semver.js: semver's prerelease rule ignored, and `<x` with no
+// prerelease read as `<x-0`, so `<2.0.0` takes no 2.0.0-rc.1.
 const OPERATORS = /^(<=|>=|<|>|=)?(.*)$/u
 
 export function satisfiesWithPrereleases(version, range, loose = false) {
@@ -23,8 +20,6 @@ export function satisfiesWithPrereleases(version, range, loose = false) {
   }))
 }
 
-// `manifests` maps each reference to its package.json, in the order
-// resolve.js's patterns name them.
 export function resolvePeers(resolved, manifests) {
   const { patterns, byName } = resolved
   for (const [ref, manifest] of manifests) {

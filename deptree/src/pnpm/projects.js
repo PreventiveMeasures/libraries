@@ -1,22 +1,9 @@
-// The projects a lockfile installs, each held by its package.json to its
-// importer as `pnpm install --frozen-lockfile` holds them
-// (@pnpm/lockfile.verification's satisfiesPackageManifest). pnpm refuses
-// a mismatch as not up to date, and resolves anew without the flag, so it
-// is refused here. Every importer has to be a project, or pnpm would leave
-// it out; a project with no importer is held to an empty one.
-//
-// Each package.json is held to the host by its engines (install.js's
-// checkProject), and read as pnpm reads it: through its read-package hook
-// (hook.js), so a direct dependency is held to the importer as overridden,
-// or left out where ignored. The root's packageManager has to name the
-// pnpm the tree is built for, as pnpm 10 would run that one instead.
-//
-// pnpm 11 lets an optional dependency with no specifier in the importer go
-// unresolved, takes git specifiers of one commit as the same however
-// spelled, holds publishConfig.linkDirectory to the importer too, and
-// makes frozen.js's further checks. Installs are always frozen, so the
-// check pnpm 10 makes only without --frozen-lockfile, that workspace
-// packages are linked exactly where their version is in range, is not made.
+// Each project's package.json, read through its read-package hook (hook.js),
+// held to its importer as a frozen install holds it
+// (@pnpm/lockfile.verification's satisfiesPackageManifest). Every importer
+// has to be a project, or pnpm would leave it out. The check pnpm 10 makes
+// only when not frozen, that workspace packages are linked exactly where
+// their version is in range, is not made.
 
 import { isExactVersion, satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, difference, quote } from '../error.js'
@@ -27,8 +14,6 @@ import { checkProject } from './install.js'
 import { validForOldPackages } from './overrides.js'
 import { checkProjectId } from './workspace.js'
 
-// The manifests by project, the root one among them, as given by the
-// project's directory relative to the lockfile's.
 export function readManifests(manifests, lockfile) {
   if (manifests === null || typeof manifests !== 'object') throw new TypeError('manifests must map each project\'s directory to its package.json')
   const read = new Map()
@@ -36,7 +21,6 @@ export function readManifests(manifests, lockfile) {
     const where = `manifests[${quote(id)}]`
     if (!(id in lockfile.importers)) {
       checkProjectId(id, where)
-      // `made`, as the lockfile has no importer for the project.
       lockfile.importers[id] = { specifiers: {}, dependencies: {}, devDependencies: {}, optionalDependencies: {}, dependenciesMeta: {}, linkDirectory: true, made: true }
     }
     read.set(id, readManifest(text, where))
@@ -49,8 +33,7 @@ export function readManifests(manifests, lockfile) {
 
 const omit = (deps, names) => Object.fromEntries(Object.entries(deps).filter(([name]) => !names.has(name)))
 
-// With autoInstallPeers, a peer not listed elsewhere is a dependency; the
-// hook has held each of these fields to a mapping of strings.
+// The hook has held each of these fields to a mapping of strings.
 function wantedOf(manifest, autoInstallPeers, unresolved) {
   const kinds = Object.fromEntries(KINDS.map((kind) => [kind, manifest[kind] ?? {}]))
   let all = omit({ ...kinds.devDependencies, ...kinds.dependencies, ...kinds.optionalDependencies }, unresolved)
@@ -63,10 +46,11 @@ function wantedOf(manifest, autoInstallPeers, unresolved) {
   return { kinds, all }
 }
 
-// dependenciesMeta as the lockfile reader hands it back: `injected` false
-// where it is not set.
+// As the lockfile reader hands dependenciesMeta back: `injected` false where
+// it is not set.
 const metaOf = (meta) => JSON.stringify(Object.entries(meta).map(([name, item]) => [name, item?.injected === true, item?.node]).sort())
 
+// pnpm 9 does not hold what a dependency resolved to to its range.
 function checkKind(importer, kinds, kind, unresolved, major) {
   const locked = importer[kind]
   const wanted = kind === 'devDependencies' ? kinds[kind] : omit(kinds[kind], unresolved)
@@ -77,15 +61,15 @@ function checkKind(importer, kinds, kind, unresolved, major) {
   for (const name of names) {
     if (!locked[name] || !sameSpecifier(importer.specifiers[name], wanted[name], major)) return `${kind}.${name} is not what package.json asks for`
     const spec = importer.specifiers[name]
-    if (validRange(spec) === null) continue
+    if (major < 10 || validRange(spec) === null) continue
     const version = resolvedOf(name, locked[name])
     if (valid(version) !== null && !satisfies(version, spec)) return `${kind}.${name} resolved to ${quote(version)}, which is not in ${quote(spec)}`
   }
   return undefined
 }
 
-// Why pnpm finds `importer` out of date with `manifest`, or undefined; of
-// the specifiers, the first difference, as pnpm's diffFlatRecords finds.
+// Why pnpm finds `importer` out of date: of the specifiers, the first
+// difference, as pnpm's diffFlatRecords finds.
 function mismatch(importer, manifest, autoInstallPeers, major, where) {
   const unresolved = new Set(major >= 11 ? Object.keys(manifest.optionalDependencies ?? {}).filter((name) => importer.specifiers[name] === undefined) : [])
   const { kinds, all } = wantedOf(manifest, autoInstallPeers, unresolved)
@@ -105,8 +89,7 @@ function mismatch(importer, manifest, autoInstallPeers, major, where) {
   return undefined
 }
 
-// devEngines.packageManager as pnpm 11 reads it: the pnpm one of a list,
-// else its first, and what to do where it does not match.
+// devEngines.packageManager as pnpm 11 reads it.
 function devEnginesPackageManager(devEngines, where) {
   const engines = devEngines?.packageManager
   if (!engines) return undefined
@@ -122,16 +105,13 @@ function devEnginesPackageManager(devEngines, where) {
   return { name: engine.name, onFail }
 }
 
-// The version of pnpm packageManager names, as pnpm's parsePackageManager
-// reads it, where it names pnpm at an exact version.
+// The exact pnpm version packageManager names, per pnpm's parsePackageManager.
 export function pinnedPnpm(packageManager) {
   const version = typeof packageManager === 'string' ? /^pnpm@([^+:@]+)(?:\+.*)?$/u.exec(packageManager)?.[1] : undefined
   return isExactVersion(version) ? version : undefined
 }
 
-// The root's pinned package manager, as pnpm 12's wanted_package_manager
-// reads it: a version that is not a range is none, and packageManager's
-// has to be exact.
+// The root's pin, as pnpm 12's wanted_package_manager reads it.
 function wantedPackageManager(manifest) {
   const declared = manifest.devEngines?.packageManager
   const list = Array.isArray(declared) ? declared : declared == null ? [] : [declared]
@@ -155,10 +135,9 @@ export function pinsPnpm(manifest, pnpm) {
   return wanted?.name === 'pnpm' && wanted.version !== undefined && satisfies(pnpm, wanted.version, { includePrerelease: true })
 }
 
-// pnpm 12 runs the pnpm the lockfile's env document records for a pin not
-// to be ignored. It records one for a devEngines pin, or a packageManager
-// one of 12 or later: `pnpm` alone, with its package, at the pinned
-// version, or for a range, at the running one.
+// pnpm 12 runs the pnpm the lockfile's env document records for a pin. It
+// records one for a devEngines pin, or a packageManager one of 12 or later,
+// at the pinned version or, for a range, the running one.
 function checkPackageManager12(manifest, host, pmOnFail, env) {
   const wanted = wantedPackageManager(manifest)
   if (wanted === undefined) return
@@ -181,11 +160,37 @@ function checkPackageManager12(manifest, host, pmOnFail, env) {
   }
 }
 
-// packageManager has to be this pnpm exactly, since pnpm switches to the
-// version it names. pnpm 11 reads devEngines.packageManager over it and
-// switches to the pnpm the lockfile pins for that, which is refused; it
-// checks neither where onFail, or pmOnFail, is to warn or ignore.
-function checkPackageManager(manifest, host, pmOnFail, env) {
+// pnpm 9's parsePackageManager.
+function parsePackageManager(packageManager) {
+  if (!packageManager.includes('@')) return { name: packageManager, version: undefined }
+  const [name, reference] = packageManager.split('@')
+  return { name, version: reference.includes(':') ? undefined : reference.split('+')[0] }
+}
+
+// pnpm 9 switches to the pnpm packageManager pins only with
+// managePackageManagerVersions; otherwise it refuses another package
+// manager with packageManagerStrict, and another pnpm with that and
+// packageManagerStrictVersion, and installs with itself. 9.15.0 switches
+// to a version semver reads but spells otherwise, and later 9.15s do not.
+function checkPackageManager9(manifest, host, { manage, strict, strictVersion }) {
+  const { packageManager } = manifest
+  if (!packageManager) return
+  const where = 'manifests["."].packageManager'
+  if (typeof packageManager !== 'string') throw new DeptreeError('expected a string, which pnpm 9 fails on otherwise', where)
+  const { name, version } = parsePackageManager(packageManager)
+  if (manage && name === 'pnpm') {
+    const exact = version === undefined ? null : valid(version)
+    if (version === undefined || version === host.pnpm || exact === null) return
+    if (exact !== version.trim()) throw new DeptreeError(`pnpm ${quote(version)} is one pnpm 9.15.0 switches to and a later 9.15 does not, which is not supported`, where)
+    throw new DeptreeError(`the project is installed by pnpm ${version}, which pnpm 9 switches to with managePackageManagerVersions, not ${host.pnpm}`, where)
+  }
+  if (name && name !== 'pnpm' && strict) throw new DeptreeError(`the project is installed by ${quote(name)}, which pnpm 9 refuses with packageManagerStrict`, where)
+  if (name === 'pnpm' && strict && strictVersion && version && version !== host.pnpm) throw new DeptreeError(`the project is installed by pnpm ${version}, not ${host.pnpm}, which pnpm 9 refuses with packageManagerStrict and packageManagerStrictVersion`, where)
+}
+
+function checkPackageManager(manifest, host, settings, env) {
+  const { pmOnFail } = settings
+  if (host.major < 10) return checkPackageManager9(manifest, host, settings.packageManagerChecks)
   if (host.major >= 12) return checkPackageManager12(manifest, host, pmOnFail, env)
   const { packageManager } = manifest
   if (host.major >= 11) {
@@ -202,12 +207,13 @@ function checkPackageManager(manifest, host, pmOnFail, env) {
   if (version !== host.pnpm) throw new DeptreeError(`the project is installed by pnpm ${version}, which pnpm switches to, not ${host.pnpm}`, where)
 }
 
-// A runtime pnpm would download as a dependency is refused, as the
-// lockfile reader refuses a `runtime:` one. For the root, runtimeOnFail
-// stands for each one's onFail; pnpm 11 holds an `error` one to the host.
+// A runtime pnpm would download as a dependency is refused, as the lockfile
+// reader refuses a `runtime:` one.
 const RUNTIMES = [['devEngines', 'devDependencies'], ['engines', 'dependencies']]
 const RUNTIME_NAMES = ['node', 'deno', 'bun']
 function checkRuntimes(manifest, where, { host, root, onFail }) {
+  // pnpm 9 knows no runtime.
+  if (host.major < 10) return
   const checked = new Set()
   for (const [field, kind] of RUNTIMES) {
     const runtime = manifest[field]?.runtime
@@ -232,18 +238,15 @@ function checkRuntimes(manifest, where, { host, root, onFail }) {
   }
 }
 
-// Whether pnpm 12 takes a project with no importer to have dependencies,
-// as its package.json has them: ignored optional ones and peers are none.
+// pnpm 12 counts no ignored optional dependency, nor any peer.
 function dependsOn(manifest, ignored) {
   const names = (deps) => (deps !== null && typeof deps === 'object' ? Object.keys(deps) : [])
   const optional = new Set(names(manifest.optionalDependencies).filter((name) => ignored(name)))
   return names(manifest.devDependencies).length > 0 || [...names(manifest.dependencies), ...names(manifest.optionalDependencies)].some((name) => !optional.has(name))
 }
 
-// `hook` is hook.js's, which each package.json is read through; `env` the
-// lockfile's env document, where it has one.
 export function checkProjects(lockfile, manifests, { hook, host, settings, env }) {
-  checkPackageManager(manifests.get('.'), host, settings.pmOnFail, env)
+  checkPackageManager(manifests.get('.'), host, settings, env)
   const ignored = createMatcher(settings.ignoredOptionalDependencies ?? [])
   let index
   for (const [id, manifest] of manifests) {
@@ -267,9 +270,8 @@ export function checkProjects(lockfile, manifests, { hook, host, settings, env }
   }
 }
 
-// Each project's name but the root's, by directory, for
-// hoistWorkspacePackages to link it by. Two of one name are refused, as
-// which is hoisted would turn on the order pnpm finds them in.
+// The names hoistWorkspacePackages links projects by. Two of one name are
+// refused, as which is hoisted would turn on the order pnpm finds them in.
 export function workspaceNames(manifests) {
   const names = new Map()
   const taken = new Set()

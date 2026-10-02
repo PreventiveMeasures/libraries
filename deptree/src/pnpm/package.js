@@ -1,13 +1,7 @@
-// A registry package as pnpm installs it from its tarball, whose entries
-// are read as @pnpm/store.cafs reads them: the first segment of each name
-// dropped whatever it is, only files kept, executable by all or by none.
-// It is held to what npm packs, more than pnpm holds it to: a gzipped
-// tarball, every file under one directory, no links or devices, and no
-// name twice as different files. Its package.json must agree with what
-// the lockfile recorded, and every dependency it asks for (through the
-// read-package hook, hook.js) must be among each of its snapshots',
-// bundled or optional ones aside: a lockfile that left one out would leave
-// the package to find it wherever it is hoisted, if anywhere.
+// A registry package as pnpm installs it: its tarball read as @pnpm/store.cafs
+// reads it, and held to what npm packs, more than pnpm holds it to. A
+// dependency the lockfile left out of a snapshot would leave the package to
+// find it wherever it is hoisted, if anywhere.
 
 import { normalize } from '@preventive/vfs/path.js'
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
@@ -15,8 +9,6 @@ import { DeptreeError, quote } from '../error.js'
 import { fetchTarball, sameFile } from '../tarball.js'
 import { localOf } from './overrides.js'
 
-// pnpm's name for an entry: past the first `/` of the name as stored,
-// normalized where it has a `./` in it, a `//` made one.
 function nameOf(stored) {
   const slash = stored.indexOf('/')
   let name = slash === -1 ? stored : stored.slice(slash + 1)
@@ -24,12 +16,15 @@ function nameOf(stored) {
   return name.replaceAll('//', '/')
 }
 
-// Each file's path in the package to its { data, mode }.
-function filesOf(entries, where, major) {
+// pnpm 9, 10 and 11 drop a name's first segment at a `\` as at a `/` where the
+// ustar header holds the name, and pnpm 10 and 11, where a name has a `.\`,
+// turn each `\` into a `/` before normalizing it; pnpm 12 takes every `\` for
+// a separator, and fails on a `..` that makes.
+function filesOf(entries, where) {
   const files = new Map()
   const tops = new Set()
   for (const entry of entries) {
-    if (major >= 12 && entry.storedName.includes('\\')) throw new DeptreeError(`${quote(entry.storedName)} has a backslash, which pnpm 12 takes for a separator, and that is not supported`, where)
+    if (entry.storedName.includes('\\')) throw new DeptreeError(`${quote(entry.storedName)} has a backslash, which pnpm may take for a separator, and that is not supported`, where)
     if (entry.type === 'directory') continue
     if (entry.type !== 'file') throw new DeptreeError(`${quote(entry.name)} is a ${entry.type}, which is not supported`, where)
     tops.add(entry.storedName.slice(0, Math.max(entry.storedName.indexOf('/'), 0)))
@@ -50,10 +45,9 @@ const decoder = new TextDecoder('utf-8', { fatal: true })
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b)
 const names = (value) => Object.keys(value ?? {})
 
-// Whether a package.json has bins, as the lockfile's hasBin records it.
-// Where `bin` names none and there is a directories.bin, pnpm resolves it
-// as having none and pnpm 11 rewrites a snapshot as having some, so it is
-// undefined and bins are linked as the lockfile has it.
+// Undefined where `bin` names none beside a directories.bin: pnpm resolves that
+// as having no bins and pnpm 11 rewrites a snapshot as having some, so bins are
+// linked as the lockfile has it.
 function hasBin({ bin, directories }, major) {
   if (major >= 12) {
     const named = typeof bin === 'string' ? bin !== '' : bin !== null && typeof bin === 'object' && !Array.isArray(bin) && Object.keys(bin).length > 0
@@ -78,7 +72,6 @@ function readManifest(files, pkg, where) {
   return manifest
 }
 
-// What the lockfile recorded of the package against the package.json.
 export function checkManifest(manifest, pkg, where, major) {
   for (const field of ['os', 'cpu', 'libc']) {
     if (!same(manifest[field], pkg[field])) throw new DeptreeError(`package.json's ${field} is not the lockfile's`, where)
@@ -90,13 +83,10 @@ export function checkManifest(manifest, pkg, where, major) {
 
 const bundledOf = (manifest) => manifest.bundleDependencies ?? manifest.bundledDependencies
 
-// Bundled dependencies as the lockfile records them, where pnpm 10 writes
-// an empty list and pnpm 11 leaves it out.
+// pnpm 10 writes an empty list of bundled dependencies, pnpm 11 none.
 const listed = (bundled) => (Array.isArray(bundled) && bundled.length === 0 ? undefined : bundled)
 
-// A snapshot's dependencies against its package.json, `read` being it as
-// hook.js's hook has it. One the overridden package.json names a directory
-// for must be linked there, as pnpm writes it.
+// `read` is the package.json as hook.js's hook has it.
 export function checkDependencies(manifest, read, pkg, where) {
   const bundled = bundledOf(manifest)
   const given = new Set([...names(pkg.dependencies), ...names(pkg.optionalDependencies)])
@@ -111,19 +101,17 @@ export function checkDependencies(manifest, read, pkg, where) {
     if (local === undefined || target === `link:${local.dir}` || (local.protocol === 'file:' && packageKeyOf(target).endsWith(`@file:${local.dir}`))) continue
     throw new DeptreeError(`the lockfile gives it ${quote(name)} as ${quote(target)}, and its package.json, overridden, names ${quote(local.dir)}`, where)
   }
-  // A resolved optional peer is filed as optional; pnpm's compatibility
-  // database adds peers to a few packages, which the lockfile records and
-  // the package.json does not.
+  // A resolved optional peer is filed as optional, and pnpm's compatibility
+  // database adds peers to a few packages that their package.json lacks.
   const optional = new Set([...names(read.optionalDependencies), ...names(manifest.peerDependencies), ...names(manifest.peerDependenciesMeta), ...names(pkg.peerDependencies), ...names(pkg.peerDependenciesMeta)])
   for (const name of names(pkg.optionalDependencies)) {
     if (!optional.has(name)) throw new DeptreeError(`the lockfile gives it ${quote(name)} as optional, which its package.json does not`, where)
   }
 }
 
-// A registry package's files and its package.json as parsed.
 export async function fetchPackage(pkg, where, major) {
   const { entries } = await fetchTarball(pkg.name, pkg.version, pkg.resolution.integrity, where)
-  const files = filesOf(entries, where, major)
+  const files = filesOf(entries, where)
   const manifest = readManifest(files, pkg, where)
   checkManifest(manifest, pkg, where, major)
   return { files, manifest }

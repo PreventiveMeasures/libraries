@@ -1,6 +1,5 @@
-// The project a tree is built for: the lockfile's directory as a Vfs, or
-// anything with its readdir, lstat, stat and readFile, by paths from `/`.
-// It is only read, and only where each builder says.
+// The project, the lockfile's directory, as a Vfs or anything with its
+// methods, by paths from `/`; it is only read, and only where a builder says.
 
 import { DeptreeError, quote } from './error.js'
 
@@ -10,8 +9,6 @@ export function checkProject(project) {
   }
 }
 
-// The type `path` leads to, or with `follow` false, its own; undefined
-// where it leads to no entry, through a file, or round a loop of links.
 const NOWHERE = new Set(['ENOENT', 'ENOTDIR', 'ELOOP'])
 export function typeOf(project, path, follow = true) {
   try {

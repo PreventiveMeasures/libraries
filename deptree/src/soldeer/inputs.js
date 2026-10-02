@@ -1,5 +1,4 @@
-// What buildSoldeerTree takes, checked: the host, and the files
-// `soldeer install` reads, given as text or read from the project's root.
+// What buildSoldeerTree takes, as text or read from the project's root.
 
 import { DeptreeError, quote } from '../error.js'
 import { checkProject, readText } from '../project.js'
@@ -26,7 +25,6 @@ export function inputsOf(options) {
     }
     const lock = readText(project, '/soldeer.lock', 'soldeer.lock')
     if (lock === undefined) throw new DeptreeError('the project has no soldeer.lock, without which Soldeer resolves each dependency anew')
-    // Soldeer reads soldeer.toml only where it cannot read foundry.toml.
     const foundryText = readText(project, '/foundry.toml', 'foundry.toml')
     return { lockfile: lock, foundry: foundryText, soldeer: foundryText === undefined ? readText(project, '/soldeer.toml', 'soldeer.toml') : undefined }
   }

@@ -4,7 +4,7 @@ import { toBase64 } from '@exodus/bytes/base64.js'
 import { fromHex } from '@exodus/bytes/hex.js'
 import { LockfileError, at, quote } from '../error.js'
 import { checkOptional } from '../graph.js'
-import { checkName, checkRegistryTarball, checkRelative, checkRepo, checkVersion, isCommit, isHttpUrl, readIntegrities, resolvePath } from '../names.js'
+import { checkName, checkRegistryTarball, checkRelative, checkRepo, checkVersion, isCommit, isHexSha1, isHttpUrl, readIntegrities, resolvePath } from '../names.js'
 import { entries, field, orEmpty, record, string, text } from '../shape.js'
 
 const FIELDS = ['name', 'version', 'uid', 'resolved', 'integrity', 'dependencies', 'optionalDependencies']
@@ -75,14 +75,12 @@ function readVersion(value, where, semver) {
   return version
 }
 
-const SHA1 = /^[\da-f]{40}$/u
-
 // yarn writes a `file:` path as the manifest does, `./` and all; since
 // 1.19.0, it checks both the sha1 after `#` and the integrity.
 function readTarball(tarball, sha1, integrity, resolvedAt, integrityAt) {
   if (tarball.startsWith('file:')) checkRelative(tarball.slice(tarball.startsWith('file:./') ? 7 : 5), resolvedAt)
   else if (/\s/u.test(tarball) || !isHttpUrl(tarball)) throw new LockfileError(`${quote(tarball)} is not an http(s) URL, a file: path or a git URL`, resolvedAt)
-  if (sha1 !== undefined && !SHA1.test(sha1)) throw new LockfileError(`${quote(sha1)} is not the hex sha1 of a tarball`, resolvedAt)
+  if (sha1 !== undefined && !isHexSha1(sha1)) throw new LockfileError(`${quote(sha1)} is not the hex sha1 of a tarball`, resolvedAt)
   const part = integrity === undefined ? undefined : readIntegrities(integrity, integrityAt).get('sha1')
   if (sha1 !== undefined && part !== undefined && part.slice(5) !== toBase64(fromHex(sha1))) {
     throw new LockfileError(`${quote(part)} is not the sha1 after the "#" of resolved`, integrityAt)

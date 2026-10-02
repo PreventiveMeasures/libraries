@@ -3,11 +3,9 @@ import { refusalOf } from './error.js'
 
 const CONCURRENCY = 8
 
-// Runs `job` on each of `items`, a few at a time, so that a large lockfile
-// does not start a request for each at once. The first failure stops the
-// rest from starting, and is thrown once every started job has ended, so
-// that none goes on fetching or writing a cache after the call returns.
-// `whereOf(item)`, where given, is the `where` for refusalOf.
+// A few at a time, so a large lockfile does not start every request at once.
+// The first failure is thrown once every started job has ended, so that none
+// goes on fetching or writing a cache after the call returns.
 export async function eachConcurrently(items, job, whereOf) {
   const queue = new Queue(CONCURRENCY)
   let failure

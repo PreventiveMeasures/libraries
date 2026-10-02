@@ -1,6 +1,5 @@
-// What buildPnpmTree and findPnpmProjects take, checked: the host, and the
-// files an install reads, given as text or read from the project as pnpm
-// reads them from disk.
+// The host and the files an install reads, checked, as given or read from the
+// project as pnpm reads them from disk.
 
 import { LockfileError, YamlError, parsePnpmLockfile } from '@preventive/lockfile/pnpm.js'
 import { parseYaml } from '@preventive/lockfile/yaml.js'
@@ -15,22 +14,22 @@ import { checkWorkspace, findProjects, linkedManifest } from './workspace.js'
 
 const LIBC = new Set(['glibc', 'musl', 'unknown'])
 
-// pnpm also finds pnpm-workspace.yaml under these names, and refuses it.
 const MISNAMED = ['pnpm-workspaces.yaml', 'pnpm-workspaces.yml', 'pnpm-workspace.yml', '.pnpm-workspace.yaml', '.pnpm-workspace.yml', '.pnpm-workspaces.yaml', '.pnpm-workspaces.yml']
-function readWorkspaceText(project) {
+const MISNAMED_9 = ['pnpm-workspace.yml']
+function readWorkspaceText(project, major) {
   const text = readText(project, '/pnpm-workspace.yaml')
-  const misnamed = text === undefined ? MISNAMED.find((name) => typeOf(project, `/${name}`) === 'file') : undefined
+  const misnamed = text === undefined ? (major < 10 ? MISNAMED_9 : MISNAMED).find((name) => typeOf(project, `/${name}`) === 'file') : undefined
   if (misnamed !== undefined) throw new DeptreeError('pnpm refuses a workspace manifest not named pnpm-workspace.yaml', quote(misnamed))
   return text
 }
 
+// pnpm-workspace.yaml is read once the pnpm that installs is known.
 function readRootFiles(project) {
   const lockfile = readText(project, '/pnpm-lock.yaml')
   if (lockfile === undefined) throw new DeptreeError('the project has no pnpm-lock.yaml, which a frozen install cannot do without')
-  return { lockfile, workspace: readWorkspaceText(project), npmrc: readText(project, '/.npmrc') }
+  return { lockfile, npmrc: readText(project, '/.npmrc') }
 }
 
-// `ids` are the projects' directories.
 function readManifestTexts(project, ids) {
   const texts = new Map()
   for (const id of ids) {
@@ -39,8 +38,7 @@ function readManifestTexts(project, ids) {
   return texts
 }
 
-// Each patch patchedDependencies (`configured`) names, by its path from
-// the lockfile's directory; one that is not there is left out.
+// By path from the lockfile's directory; one that is not there is left out.
 function readPatches(project, configured) {
   const texts = new Map()
   for (const [selector, spec] of Object.entries(configured ?? {})) {
@@ -52,16 +50,17 @@ function readPatches(project, configured) {
   return texts
 }
 
-// pnpm 12 before 12.8.1 installs otherwise in places, and is refused.
+// pnpm 9 before 9.15.0, and pnpm 12 before 12.8.1, install otherwise in
+// places, and are refused.
+const SINCE = { 9: '9.15.0', 12: '12.8.1' }
 function majorOf(pnpm) {
   const major = Number(valid(pnpm)?.split('.')[0])
-  if (major !== 10 && major !== 11 && major !== 12) throw new DeptreeError(`pnpm ${quote(pnpm)} is not supported: only pnpm 10, 11 and 12 are`, 'host.pnpm')
-  if (major === 12 && compareVersions(pnpm, '12.8.1') < 0) throw new DeptreeError(`pnpm ${quote(pnpm)} is not supported: pnpm 12 is from 12.8.1 on`, 'host.pnpm')
+  if (major < 9 || major > 12 || !Number.isInteger(major)) throw new DeptreeError(`pnpm ${quote(pnpm)} is not supported: only pnpm 9, 10, 11 and 12 are`, 'host.pnpm')
+  if (major in SINCE && compareVersions(pnpm, SINCE[major]) < 0) throw new DeptreeError(`pnpm ${quote(pnpm)} is not supported: pnpm ${major} is from ${SINCE[major]} on`, 'host.pnpm')
   return major
 }
 
-// host.pnpm, or where it is left out the pnpm the root package.json's
-// packageManager pins; `root` reads that package.json, called only then.
+// `root` reads the root package.json, only where host.pnpm is left out.
 function pnpmOf(pnpm, root) {
   if (pnpm !== undefined && (typeof pnpm !== 'string' || pnpm === '')) throw new TypeError('host.pnpm must be a non-empty string, or left out')
   const version = pnpm ?? pinnedPnpm(root()?.packageManager)
@@ -92,7 +91,6 @@ function readNamed(file, read, text) {
   }
 }
 
-// pnpm 11 may write the env document alone, before any install.
 export function readLockfile(text) {
   const read = readNamed('pnpm-lock.yaml', parsePnpmLockfile, text)
   if (read.lockfile === undefined) throw new DeptreeError('it holds the env document pnpm 11 writes alone, not the project\'s lockfile, which a frozen install cannot do without', 'pnpm-lock.yaml')
@@ -102,8 +100,7 @@ export function readLockfile(text) {
 // One of comments alone, or empty, sets nothing, as pnpm reads it.
 const readWorkspace = (text) => (text === undefined || /^(?:[\t ]*(?:#.*)?(?:\r?\n|$))*$/u.test(text) ? undefined : readNamed('pnpm-workspace.yaml', parseYaml, text))
 
-// A root package.json that is a link is refused unread, as findProjects
-// refuses it.
+// A root package.json that is a link is refused unread, as findProjects does.
 const ROOT = 'manifests["."]'
 function readRoot(project) {
   if (typeOf(project, '/package.json', false) === 'symlink') throw linkedManifest('package.json')
@@ -111,9 +108,16 @@ function readRoot(project) {
   return text === undefined ? undefined : readManifest(text, ROOT)
 }
 
-// Where there is no pnpm-workspace.yaml, pnpm 12 writes one whose packages
-// are the root package.json's non-empty `workspaces` strings.
+// Where there is no pnpm-workspace.yaml, pnpm 12 writes one whose packages are
+// the root package.json's non-empty `workspaces` strings. pnpm 9 takes one that
+// sets nothing for `**`.
 function workspaceOf(workspace, text, major, root) {
+  if (major < 10) {
+    const mapping = workspace !== null && typeof workspace === 'object' && !Array.isArray(workspace)
+    if (text !== undefined && (workspace == null || (mapping && Object.keys(workspace).length === 0))) return { packages: ['**'] }
+    if (mapping && !workspace.packages) throw new DeptreeError('pnpm 9 fails on a workspace manifest that sets anything and no packages', 'pnpm-workspace.yaml: packages')
+    return workspace
+  }
   if (major < 12 || text !== undefined) return workspace
   const listed = root()?.workspaces
   const packages = Array.isArray(listed) ? listed.filter((pattern) => typeof pattern === 'string' && pattern !== '') : []
@@ -126,20 +130,18 @@ function packagesOf(workspace) {
   return workspace?.packages === undefined ? undefined : readers.globs(workspace.packages, 'pnpm-workspace.yaml: packages')
 }
 
-// The directories of the projects pnpm finds in `project`: those whose
-// package.json buildPnpmTree takes.
+// The directories of the projects whose package.json buildPnpmTree takes.
 export function findPnpmProjects(options) {
   const { project, host } = options ?? {}
   checkProject(project)
   if (host !== undefined && (host === null || typeof host !== 'object')) throw new TypeError('host must be an object, or left out')
   const { major } = pnpmOf(host?.pnpm, () => readRoot(project))
-  const text = readWorkspaceText(project)
+  const text = readWorkspaceText(project, major)
   return findProjects(project, packagesOf(workspaceOf(readWorkspace(text), text, major, () => readRoot(project))), major)
 }
 
 const LOCKFILE = 'lockfile must be the text of pnpm-lock.yaml, or left out with a project given to read it from'
 
-// The root files, given with `lockfile` or read from `project` without it.
 export function inputsOf(options) {
   const { lockfile, manifests, workspace, npmrc, patches, project } = options
   if (lockfile === undefined) {
@@ -156,27 +158,25 @@ export function inputsOf(options) {
   return { reading: false, lockfile, manifests, workspace, npmrc, patches }
 }
 
-// Each project's package.json, the pnpm that installs and the workspace:
-// as given, or read for each project pnpm finds and no other. An importer
-// the globs do not take is refused first; one they take that pnpm does
-// not find has no package.json.
+// An importer the globs do not take is refused first; one they take that pnpm
+// does not find has no package.json.
 export function manifestsOf(inputs, lockfile, pnpm) {
-  const workspace = readWorkspace(inputs.workspace)
   if (!inputs.reading) {
+    const workspace = readWorkspace(inputs.workspace)
     const manifests = readManifests(inputs.manifests, lockfile)
     const installs = pnpmOf(pnpm, () => manifests.get('.'))
     return { manifests, ...installs, workspace: workspaceOf(workspace, inputs.workspace, installs.major, () => manifests.get('.')) }
   }
   const { project } = inputs
   const installs = pnpmOf(pnpm, () => readRoot(project))
-  const effective = workspaceOf(workspace, inputs.workspace, installs.major, () => readRoot(project))
+  const text = readWorkspaceText(project, installs.major)
+  const effective = workspaceOf(readWorkspace(text), text, installs.major, () => readRoot(project))
   const packages = packagesOf(effective)
   checkWorkspace(Object.keys(lockfile.importers), packages, installs.major)
   const ids = findProjects(project, packages, installs.major)
   return { manifests: readManifests(readManifestTexts(project, ids), lockfile), ...installs, workspace: effective }
 }
 
-// The patch texts by path, as given or read for patchedDependencies.
 export function patchesOf(inputs, configured) {
   if (inputs.reading) return readPatches(inputs.project, configured)
   const entries = inputs.patches instanceof Map ? [...inputs.patches] : Object.entries(inputs.patches ?? {})

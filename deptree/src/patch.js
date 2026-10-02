@@ -1,15 +1,9 @@
-// A patch as `pnpm patch-commit` writes one: a git diff, with a
-// `diff --git a/<path> b/<path>` header per file, paths relative to the
-// package's directory, and unified hunks. A file is changed, created from
-// /dev/null or deleted; a rename, a copy, a mode change, a binary patch, or
-// anything else between one file's hunks and the next header, is refused.
-//
-// A hunk applies where it says and nowhere else, its context and removed
-// lines the same, byte for byte, as the file's. pnpm (@pnpm/patch-package)
-// would also look up to twenty lines away and compare lines with trailing
-// whitespace dropped; a patch that needs either is refused, so one applied
-// here leaves the file as pnpm would. So is a hunk that inserts after a
-// line with no context, which pnpm puts a line early.
+// A patch as `pnpm patch-commit` writes one: a git diff of files changed,
+// created or deleted. A hunk applies where it says, its context and removed
+// lines the same byte for byte. pnpm (@pnpm/patch-package) would also look
+// up to twenty lines away and drop trailing whitespace, and puts a hunk that
+// inserts after a line with no context a line early; a patch that needs any
+// of that is refused, so one applied here leaves the file as pnpm would.
 
 import { applyChangeSet, parseDiff } from '@preventive/diff'
 import { DeptreeError, quote } from './error.js'
@@ -19,7 +13,6 @@ const MODE = /^(?:new|deleted) file mode (100644|100755)$/u
 const INDEX = /^index [\da-f]+\.\.[\da-f]+(?: 100644| 100755)?$/u
 const HUNK_LINE = /^(?:@@ |[ +\\-]|$)/u
 
-// The path a header names on both sides, or undefined where the two differ.
 function pathOf(header) {
   const rest = header.slice(HEADER.length)
   const path = rest.slice(0, (rest.length - 3) / 2)
@@ -82,7 +75,6 @@ export function parsePatch(text, where) {
   })
 }
 
-// Each hunk is held to the lines it names before any is applied.
 function applyTo(text, { hunks, blocks, where }) {
   const records = text.split(/(?<=\n)/u)
   let end = 0
@@ -115,11 +107,9 @@ function bytesOf(text, where) {
 
 const parentsOf = (path) => path.split('/').slice(0, -1).map((_, index, names) => names.slice(0, index + 1).join('/'))
 
-// `files` maps each path in the package to `{ data, mode }`, or to
-// `{ directory: true }`. A changed file keeps its mode, and a deleted one
-// leaves its directory, empty or not, as pnpm does. A created file has its
-// header's mode, or `createdMode` where given, as pnpm 12 writes one plain.
-// Hands back a new Map.
+// `files` maps each path to `{ data, mode }` or `{ directory: true }`. A
+// deleted file leaves its directory, empty or not, as pnpm does; a created
+// one has `createdMode` where given, as pnpm 12 writes one plain.
 export function applyPatch(files, patch, { createdMode } = {}) {
   const next = new Map(files)
   for (const file of patch) {

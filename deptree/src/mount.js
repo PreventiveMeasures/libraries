@@ -1,10 +1,7 @@
-// A tree built on its own, mounted into the caller's Vfs at its root, the
-// lockfile's directory, writing over and removing nothing. A node_modules
-// there already, anywhere, is refused, or for another tree what its `check`
-// refuses: kept, Node would read it as the tree's, and removed, the
-// caller's would be lost. Vfs.mount judges everything before anything is
-// written, so a refusal leaves the Vfs as it was. And the helpers every
-// tree is built with.
+// A tree mounted into the caller's Vfs at the lockfile's directory, writing
+// over and removing nothing; Vfs.mount judges it whole first, so a refusal
+// leaves the Vfs as it was. A node_modules there already is refused: kept,
+// Node would read it as the tree's, and removed, the caller's would be lost.
 
 import { VfsError } from '@preventive/vfs'
 import { basename } from '@preventive/vfs/path.js'
@@ -24,9 +21,7 @@ export function checkNoModules(vfs, folded) {
   }
 }
 
-// Refuses two names in a directory that macOS takes for one, as one would
-// be lost there; called where the host is macOS.
-export function checkCollisions(vfs) {
+function checkCollisions(vfs) {
   const [clash] = vfs.collisions(fold)
   if (clash !== undefined) throw new DeptreeError(`${quote(clash.names[0])} and ${quote(clash.names[1])} are one name on macOS`, quote(clash.path))
 }
@@ -47,17 +42,18 @@ export function writeFiles(vfs, root, { dirs, files }, stats, skip = () => false
   }
 }
 
-// Mounts `tree` into `target` with Vfs.mount: each directory of the tree
-// is one there already or is made, and each file and link is put where
-// nothing is, and where names are `folded`, none beside a name it would be
-// one with. A clash is refused by what is there, before anything is
-// written; at the root, a path there is the tree's too. The tree's bytes
-// are shared with `target`, not copied, and the tree is left as it is.
+// `target` with `tree` in it, or `tree` where there is none; on macOS, two
+// names that are one there are refused first. A clash is refused by what is
+// there; at the root, a path there is the tree's too. The tree's bytes are
+// shared with `target`, not copied.
 export function mount(tree, target, folded, check = checkNoModules) {
+  if (folded) checkCollisions(tree)
+  if (target === undefined) return tree
   check(target, folded)
   const clash = (path, [there]) => {
     if (there !== path) throw new DeptreeError(`${quote(basename(there))} is there already, which is one name with ${quote(basename(path))} on macOS`, where(path))
     throw new DeptreeError(`a ${target.lstat(path).type} is there already, where the tree has a ${tree.lstat(path).type}`, where(path))
   }
   target.mount(tree, '/', { clash, fold: folded ? fold : undefined })
+  return target
 }

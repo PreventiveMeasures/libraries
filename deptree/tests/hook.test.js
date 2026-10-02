@@ -26,6 +26,14 @@ describe('createHook', () => {
     assert.deepEqual(read, { peerDependencies: { react: '18.2.0', 'react-dom': '^18.0.0' }, dependencies: { 'react-dom': 'npm:react-dom@18.2.0' } })
   })
 
+  // As a real install of pnpm 9.15.9 records use-sync-external-store's peer
+  // on react overridden to 18.3.1.
+  it('overrides a peer in place for pnpm 9, whatever the override is', () => {
+    const hook9 = (overrides) => createHook({ overrides: listOverrides(overrides, {}, 9), ignored: [], major: 9 })
+    const read = hook9({ react: '18.2.0', 'react-dom': 'npm:react-dom@18.2.0', gone: '-' })({ peerDependencies: { react: '^18.0.0', 'react-dom': '^18.0.0', gone: '*' } }, 'x')
+    assert.deepEqual(read, { peerDependencies: { react: '18.2.0', 'react-dom': 'npm:react-dom@18.2.0' } })
+  })
+
   it('removes an ignored optional dependency, from dependencies too', () => {
     const read = hook({}, ['fsevents', '@esbuild/*'])({ dependencies: { fsevents: '2', a: '1' }, optionalDependencies: { fsevents: '2', '@esbuild/linux-x64': '1', b: '1' } }, 'x')
     assert.deepEqual(read, { dependencies: { a: '1' }, optionalDependencies: { b: '1' } })

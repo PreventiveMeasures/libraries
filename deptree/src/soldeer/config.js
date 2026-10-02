@@ -1,17 +1,12 @@
-// The config `soldeer install` reads, as Soldeer 0.12 finds it:
-// foundry.toml where it has a [dependencies] table, else soldeer.toml where
-// there is no foundry.toml; where neither holds, Soldeer asks which to make
-// its config, which is refused. Refused too: what Soldeer fails on as it
-// adds `dependencies` to the default profile's libs, [soldeer] settings it
-// fails on, and recursive_deps.
+// The config Soldeer 0.12 reads: foundry.toml where it has a [dependencies]
+// table, else soldeer.toml where there is no foundry.toml.
 
 import { TomlError, isInlineTable, parseToml } from '@preventive/lockfile/toml.js'
 import { DeptreeError } from '../error.js'
 
 const isTable = (value) => typeof value === 'object' && value !== null && Object.getPrototypeOf(value) === null
-// A table toml_edit gives as one, from a header or a dotted key; one
-// written inline it gives as a value, which Soldeer reads no dependencies
-// from, and fails on for a profile.
+// A table toml_edit gives as one, from a header or a dotted key, not inline:
+// Soldeer reads no dependencies from that, and fails on it for a profile.
 const isTableItem = (value) => isTable(value) && !isInlineTable(value)
 
 function parse(text, file) {
@@ -38,8 +33,7 @@ function checkLibs(doc) {
 
 const BOOLEANS = ['remappings_generate', 'remappings_regenerate', 'remappings_version', 'recursive_deps']
 
-// read_soldeer_config's SoldeerConfig, by serde: each field of its type,
-// any other passed over.
+// read_soldeer_config's SoldeerConfig, by serde; unknown fields passed over.
 function checkSettings(settings, file) {
   if (settings === undefined) return
   const where = `${file}: soldeer`

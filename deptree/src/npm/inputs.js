@@ -1,10 +1,9 @@
-// What buildNpmTree takes, checked: the host, and the files an install
-// reads, given as text or read from the project as npm reads them.
+// The host, and the files `npm ci` reads, given or read from the project.
 
 import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
-import { matchesGlob, reachesBelow } from '../glob.js'
-import { readManifest } from '../manifest.js'
+import { walkWorkspaces } from '../glob.js'
+import { readManifest, readManifests } from '../manifest.js'
 import { checkProject, readText, typeOf } from '../project.js'
 import { readSettings } from './settings.js'
 import { profileOf } from './versions.js'
@@ -24,9 +23,8 @@ export function checkHost(host) {
   return { ...profileOf(host.npm), node: host.node, os: host.os, cpu: host.cpu, libc: host.libc }
 }
 
-// The root's workspace globs as @npmcli/map-workspaces reads them: a
-// sequence, or one under `packages`, a leading `./` or `/` dropped. One
-// that negates is refused, as the lockfile reader refuses it.
+// As @npmcli/map-workspaces reads them; the lockfile reader refuses one
+// that negates.
 function globsOf(root) {
   const { workspaces = [] } = root
   const globs = Array.isArray(workspaces?.packages) ? workspaces.packages : workspaces
@@ -34,30 +32,9 @@ function globsOf(root) {
   return globs.map((glob) => glob.replace(/^\.?\/+/u, ''))
 }
 
-// The workspace directories as map-workspaces globs for them: those a glob
-// takes that have a package.json, outside node_modules, which it ignores;
-// on macOS, whatever the case, as glob matches there. A link where a glob
-// may reach is refused, as glob follows it or not by where it is.
+// As map-workspaces globs, ignoring node_modules, and on macOS case.
 function findWorkspaces(project, globs, nocase) {
-  const fold = nocase ? (text) => text.toLowerCase() : (text) => text
-  const folded = globs.map(fold)
-  const found = []
-  const pending = globs.length === 0 ? [] : ['']
-  while (pending.length > 0) {
-    const dir = pending.pop()
-    for (const name of project.readdir(`/${dir}`)) {
-      const path = dir === '' ? name : `${dir}/${name}`
-      const key = fold(path)
-      const taken = folded.some((glob) => matchesGlob(glob, key))
-      if (name === 'node_modules' || (!taken && !folded.some((glob) => reachesBelow(glob, key)))) continue
-      const { type } = project.lstat(`/${path}`)
-      if (type === 'symlink') throw new DeptreeError('a link where npm looks for workspaces is not supported', quote(path))
-      if (type !== 'directory') continue
-      if (taken && typeOf(project, `/${path}/package.json`) !== undefined) found.push(path)
-      pending.push(path)
-    }
-  }
-  return found.sort()
+  return walkWorkspaces(project, globs, { manager: 'npm', fold: nocase ? (path) => path.toLowerCase() : undefined, skip: (name) => name === 'node_modules' })
 }
 
 const where = (dir) => `manifests[${quote(dir)}]`
@@ -85,7 +62,6 @@ function readProject(project, nocase) {
   return { lockfile, manifests, settings: readSettings(readText(project, '/.npmrc', '.npmrc')) }
 }
 
-// `nocase` is whether npm globs case-insensitively, as on macOS.
 export function inputsOf(options, nocase) {
   const { lockfile, manifests, npmrc, project } = options
   if (lockfile === undefined) {
@@ -100,8 +76,5 @@ export function inputsOf(options, nocase) {
   if (typeof lockfile !== 'string') throw new TypeError(LOCKFILE)
   if (manifests === null || typeof manifests !== 'object') throw new TypeError('manifests must map each project\'s directory to its package.json')
   if (npmrc !== undefined && typeof npmrc !== 'string') throw new TypeError('npmrc must be a string, or left out')
-  const read = new Map()
-  for (const [dir, text] of manifests instanceof Map ? manifests : Object.entries(manifests)) read.set(dir, readManifest(text, where(dir)))
-  if (!read.has('.')) throw new DeptreeError('the root package.json is not given', where('.'))
-  return { lockfile, manifests: read, settings: readSettings(npmrc) }
+  return { lockfile, manifests: readManifests(manifests), settings: readSettings(npmrc) }
 }
