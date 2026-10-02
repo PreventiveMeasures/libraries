@@ -51,12 +51,13 @@ const rustsec = (id, overrides = {}) => ({
 })
 
 describe('cargo', () => {
-  it('reads RustSec records only, one entry per crate and record, with the versions each affects', async () => {
+  it('answers one entry per crate and record, with the versions each affects, RustSec standing for the GHSA it is published as', async () => {
     const calls = stubOsv({
       'smallvec@1.6.0': ['GHSA-43w2-9j62-hq99', 'RUSTSEC-2021-0003'],
       'smallvec@0.6.10': ['RUSTSEC-2021-0003', 'RUSTSEC-2018-0018'],
       'openssl-src@111.10.0+1.1.1g': ['RUSTSEC-2021-0055'],
     }, {
+      'GHSA-43w2-9j62-hq99': { id: 'GHSA-43w2-9j62-hq99', aliases: ['CVE-2021-25900', 'RUSTSEC-2021-0003'], summary: 'Advisory GHSA-43w2-9j62-hq99' },
       'RUSTSEC-2021-0003': rustsec('RUSTSEC-2021-0003'),
       'RUSTSEC-2018-0018': rustsec('RUSTSEC-2018-0018', {
         aliases: ['CVE-2018-25023', 'GHSA-55m5-whcv-c49c', 'GHSA-66p5-j55p-32r9'],
@@ -81,7 +82,7 @@ describe('cargo', () => {
         { package: { name: 'smallvec', ecosystem: 'crates.io' }, version: '1.6.0' },
       ] },
     })
-    assert.deepEqual(calls.slice(1).map((call) => call.url).toSorted(), [`${VULN}RUSTSEC-2018-0018`, `${VULN}RUSTSEC-2021-0003`, `${VULN}RUSTSEC-2021-0055`])
+    assert.deepEqual(calls.slice(1).map((call) => call.url).toSorted(), [`${VULN}GHSA-43w2-9j62-hq99`, `${VULN}RUSTSEC-2018-0018`, `${VULN}RUSTSEC-2021-0003`, `${VULN}RUSTSEC-2021-0055`])
     const common = { ecosystem: 'cargo', source: 'osv', cwe: [] }
     assert.deepEqual(found, [
       { ...common, name: 'openssl-src', id: 'RUSTSEC-2021-0055', aliases: [], title: 'Advisory RUSTSEC-2021-0055', cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', versions: ['111.10.0+1.1.1g'] },
@@ -91,6 +92,44 @@ describe('cargo', () => {
         cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', versions: ['0.6.10', '1.6.0'],
       },
     ])
+  })
+
+  it('keeps a GHSA or MAL- record RustSec does not publish, or for the versions it was not answered for', async () => {
+    const ghsa = (id, aliases) => ({ id, aliases, summary: `Advisory ${id}`, database_specific: { severity: 'HIGH' } })
+    stubOsv({
+      // GitHub's own, and a malicious crate's.
+      'ghsa-only@1.0.0': ['GHSA-aaaa-aaaa-aaaa'],
+      'typosquat@0.1.0': ['MAL-2026-0001'],
+      // Named as an alias by the GHSA alone; the GHSA's range is wider.
+      'smallvec@1.6.0': ['RUSTSEC-2021-0003', 'GHSA-43w2-9j62-hq99'],
+      'smallvec@1.7.0': ['GHSA-43w2-9j62-hq99'],
+      // A MAL- record that GitHub also publishes.
+      'evil@1.0.0': ['MAL-2026-0002', 'GHSA-bbbb-bbbb-bbbb'],
+      // Beside a withdrawn RUSTSEC record.
+      'other@1.0.0': ['RUSTSEC-2026-0001', 'GHSA-cccc-cccc-cccc'],
+    }, {
+      'GHSA-aaaa-aaaa-aaaa': ghsa('GHSA-aaaa-aaaa-aaaa', ['CVE-2026-0001']),
+      'MAL-2026-0001': { id: 'MAL-2026-0001', summary: 'Malicious code in typosquat (crates.io)' },
+      'RUSTSEC-2021-0003': rustsec('RUSTSEC-2021-0003', { aliases: ['CVE-2021-25900'] }),
+      'GHSA-43w2-9j62-hq99': ghsa('GHSA-43w2-9j62-hq99', ['CVE-2021-25900', 'RUSTSEC-2021-0003']),
+      'MAL-2026-0002': { id: 'MAL-2026-0002', aliases: ['GHSA-bbbb-bbbb-bbbb'] },
+      'GHSA-bbbb-bbbb-bbbb': ghsa('GHSA-bbbb-bbbb-bbbb', []),
+      'RUSTSEC-2026-0001': rustsec('RUSTSEC-2026-0001', { aliases: ['GHSA-cccc-cccc-cccc'], withdrawn: '2026-01-01T00:00:00Z' }),
+      'GHSA-cccc-cccc-cccc': ghsa('GHSA-cccc-cccc-cccc', ['RUSTSEC-2026-0001']),
+    })
+    const found = await cargo(['ghsa-only@1.0.0', 'typosquat@0.1.0', 'smallvec@1.6.0', 'smallvec@1.7.0', 'evil@1.0.0', 'other@1.0.0'].map((spec) => {
+      const [name, version] = spec.split('@')
+      return { name, version }
+    }))
+    assert.deepEqual(found.map(({ name, id, versions }) => [name, id, versions]), [
+      ['evil', 'GHSA-bbbb-bbbb-bbbb', ['1.0.0']],
+      ['ghsa-only', 'GHSA-aaaa-aaaa-aaaa', ['1.0.0']],
+      ['other', 'GHSA-cccc-cccc-cccc', ['1.0.0']],
+      ['smallvec', 'GHSA-43w2-9j62-hq99', ['1.7.0']],
+      ['smallvec', 'RUSTSEC-2021-0003', ['1.6.0']],
+      ['typosquat', 'MAL-2026-0001', ['0.1.0']],
+    ])
+    assert.deepEqual(found[1], { ecosystem: 'cargo', name: 'ghsa-only', source: 'osv', id: 'GHSA-aaaa-aaaa-aaaa', ghsa: 'GHSA-aaaa-aaaa-aaaa', aliases: ['CVE-2026-0001'], title: 'Advisory GHSA-aaaa-aaaa-aaaa', severity: 'high', cwe: [], versions: ['1.0.0'] })
   })
 
   it('keeps only aliases, kinds and metrics in their documented shape, and refuses a title that is not well-formed', async () => {

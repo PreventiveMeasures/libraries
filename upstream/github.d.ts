@@ -94,8 +94,9 @@ export interface Client {
   // has; that repo still gets a tree already cached, pointers and all.
   getRepoTreeTarball(options: { repo: RepoName; tree: string }): Promise<Uint8Array>
   // The repository's published security advisories, as GitHub's
-  // repository advisory objects. One page of 100: GitHub pages this list
-  // by cursor, so a repository with a full page is refused.
+  // repository advisory objects: every page of 100, each found by the
+  // cursor in the one before's Link header. More than 100 pages is an
+  // error.
   listRepoAdvisories(options: { repo: RepoName }): Promise<any[]>
   // The entries of `directory` in the full commit `sha`, or of its root,
   // found as getRepoTreeId finds it: GitHub's listing, hashed back to the

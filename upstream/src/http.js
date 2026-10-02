@@ -101,22 +101,27 @@ export async function readBody(res, limit, { truncate = false } = {}) {
   return new Uint8Array(await new Blob(chunks).arrayBuffer(), 0, Math.min(size, limit))
 }
 
-// Read as the caller says, not by content type, which proxies drop or
-// rewrite.
-export async function request(url, options) {
-  const res = await send(url, options)
-  if (!res.ok) {
-    // A stream decode holds back a character cut at the limit rather than refusing it.
-    const text = await readBody(res, 4096, { truncate: true }).then((bytes) => new TextDecoder('utf-8', { fatal: true }).decode(bytes, { stream: true })).catch(() => '')
-    throw new HttpError(res.status, `${options.method ?? 'GET'} ${url} ${res.status}: ${printable(text)}`)
-  }
-  const bytes = await readBody(res, LIMITS[options.as].bytes)
-  if (options.as === 'bytes') return bytes
+function parse(bytes, url, as) {
+  if (as === 'bytes') return bytes
   const text = decode(bytes, url)
-  if (options.as === 'text') return text
+  if (as === 'text') return text
   try {
     return JSON.parse(text)
   } catch (cause) {
     throw new Error(`Malformed JSON from ${url}: ${printable(text.slice(0, 200))}`, { cause })
   }
 }
+
+// Read as the caller says, not by content type, which proxies drop or
+// rewrite; answered with the response's headers.
+export async function requestWithHeaders(url, options) {
+  const res = await send(url, options)
+  if (!res.ok) {
+    // A stream decode holds back a character cut at the limit rather than refusing it.
+    const text = await readBody(res, 4096, { truncate: true }).then((bytes) => new TextDecoder('utf-8', { fatal: true }).decode(bytes, { stream: true })).catch(() => '')
+    throw new HttpError(res.status, `${options.method ?? 'GET'} ${url} ${res.status}: ${printable(text)}`)
+  }
+  return { body: parse(await readBody(res, LIMITS[options.as].bytes), url, options.as), headers: res.headers }
+}
+
+export const request = async (url, options) => (await requestWithHeaders(url, options)).body

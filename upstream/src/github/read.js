@@ -6,7 +6,7 @@ import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRe
 import { verifiedDownload } from '../download.js'
 import { decode, encodeSegment } from '../http.js'
 import { gitTreeOfListing } from '../tree.js'
-import { api, bindMethods, call, clientHeaders, isGone, repoApi } from './client.js'
+import { api, bindMethods, call, callWithHeaders, clientHeaders, isGone, repoApi } from './client.js'
 
 const PER_PAGE = 100
 const MAX_PAGES = 100
@@ -195,14 +195,30 @@ async function getAdvisory(headers, options) {
   return advisory
 }
 
-// One page: GitHub pages this list by a cursor in the Link header, which
-// `call` does not read, so a full page is refused rather than cut short.
+// The `after` cursor of a Link header's `next` link: undefined with no
+// such link, null for one without a cursor.
+function nextCursor(link) {
+  const next = /<([^>]*)>\s*;\s*rel="next"/u.exec(link ?? '')?.[1]
+  return next === undefined ? undefined : URL.parse(next)?.searchParams.get('after') ?? null
+}
+
+// GitHub pages this list by a cursor, `after` in each page's `next` link,
+// not by number. Only the cursor is read off the link, and the next page
+// asked of this repository's list, wherever the link points.
 async function listRepoAdvisories(headers, options) {
   assertArgs('listRepoAdvisories', options, { repo: assertRepo })
-  const list = await call(headers, repoApi(options.repo, ['security-advisories'], { state: 'published', per_page: PER_PAGE }))
-  assert.ok(Array.isArray(list), `listRepoAdvisories: expected an array for ${options.repo}`)
-  assert.ok(list.length < PER_PAGE, `listRepoAdvisories: ${options.repo} has ${PER_PAGE} or more published advisories, more than a page`)
-  return list
+  const { repo } = options
+  const list = []
+  let after
+  for (let page = 1; ; page++) {
+    const answer = await callWithHeaders(headers, repoApi(repo, ['security-advisories'], { state: 'published', per_page: PER_PAGE, ...(after && { after }) }))
+    assert.ok(Array.isArray(answer.body), `listRepoAdvisories: expected an array for ${repo}, page ${page}`)
+    list.push(...answer.body)
+    after = nextCursor(answer.headers.get('link'))
+    if (after === undefined) return list
+    assert.ok(after, `listRepoAdvisories: page ${page} of ${repo} links the next with no cursor`)
+    assert.ok(page < MAX_PAGES, `listRepoAdvisories: ${repo} has more than ${MAX_PAGES} pages`)
+  }
 }
 
 export const readMethods = { getCurrentUser, listUserRepos, getRepo, getRepoHead, getRepoTag, listRepoTags, getRepoFile, getRepoTarball, getRepoTreeTarball, getRepoTreeId, listRepoDir, getPullRequest, getCollaboratorPermission, getAdvisory, listRepoAdvisories }

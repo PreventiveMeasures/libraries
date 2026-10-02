@@ -13,6 +13,9 @@ const QUERIES_PER_REQUEST = 1000
 const RECORDS_AT_ONCE = 8
 const isOsvId = matches(/^(?=.{1,128}$)[A-Z][\dA-Z]*(?:-[\dA-Za-z]+)+$/u)
 const INFORMATIONAL = new Set(['unmaintained', 'unsound', 'notice'])
+// Of the records that publish one advisory, the one ranked first stands
+// for the rest on the versions it was answered for: a GHSA by default.
+const ghsaFirst = (id) => (isGhsa(id) ? 0 : 1)
 
 export const CARGO = {
   osv: 'crates.io',
@@ -20,7 +23,9 @@ export const CARGO = {
   lookUp: crateRepos,
   assertName: assertCrateName,
   assertVersion: assertCrateVersion,
-  keep: (id) => id.startsWith('RUSTSEC-'), // What `cargo audit` reads; the GHSA records mirror it.
+  // RustSec's first, what `cargo audit` reads and GitHub mirrors; a GHSA
+  // or MAL- record it does not publish is kept.
+  rank: (id) => (id.startsWith('RUSTSEC-') ? 0 : 1 + ghsaFirst(id)),
   advisories: (asked, options) => osvAdvisories(CARGO, asked, options),
 }
 // TODO: packagist.org's API, what `composer audit` reads, also has the
@@ -70,11 +75,12 @@ function toAdvisory(ecosystem, name, versions, record) {
 }
 
 // OSV's batch query matches versions on its side, but answers ids only:
-// each record is fetched once after. A record another database also
-// publishes comes back under both ids, so one that aliases a GHSA keeps
-// only the versions that GHSA was not answered for.
+// each record is fetched once after. An advisory more than one database
+// publishes comes back under each one's id, the records naming each other
+// as aliases, either way round: each keeps only the versions none ranked
+// above it was answered for too.
 async function osvAdvisories(ecosystem, asked, options) {
-  const { osv, github, lookUp, covers, keep = () => true } = ecosystem
+  const { osv, github, lookUp, covers, rank = ghsaFirst } = ecosystem
   const list = [...asked].flatMap(([name, versions]) => versions.map((version) => ({ name, version })))
   const hits = new Map() // id → name → versions, in `list` order
   for (const chunk of chunks(list, QUERIES_PER_REQUEST)) {
@@ -85,20 +91,25 @@ async function osvAdvisories(ecosystem, asked, options) {
       const { name, version } = chunk[j]
       const vulns = result?.vulns ?? []
       assert.ok(result && result.next_page_token === undefined && Array.isArray(vulns) && vulns.every((vuln) => isOsvId(vuln?.id)), `advisories: malformed OSV result for ${name}@${version}`)
-      for (const { id } of vulns.filter((vuln) => keep(vuln.id))) {
+      for (const { id } of vulns) {
         const byName = hits.get(id) ?? hits.set(id, new Map()).get(id)
         byName.set(name, (byName.get(name) ?? new Set()).add(version))
       }
     }
   }
   const records = (await pool([...hits.keys()], RECORDS_AT_ONCE, getVuln)).filter((record) => !record.withdrawn)
-  const live = new Set(records.map((record) => record.id))
+  const linked = new Map(records.map((record) => [record.id, new Set()]))
+  for (const { id, aliases } of records) {
+    for (const alias of aliases.filter((other) => linked.has(other))) {
+      linked.get(id).add(alias)
+      linked.get(alias).add(id)
+    }
+  }
   const rows = []
   for (const record of records) {
+    const above = [...linked.get(record.id)].filter((id) => rank(id) < rank(record.id))
     for (const [name, versions] of hits.get(record.id)) {
-      // Only the versions a live GHSA it aliases answered for too.
-      const shadowed = isGhsa(record.id) ? [] : record.aliases.filter((alias) => isGhsa(alias) && live.has(alias)).flatMap((alias) => [...(hits.get(alias).get(name) ?? [])])
-      const rest = [...versions].filter((version) => !shadowed.includes(version))
+      const rest = [...versions].filter((version) => !above.some((id) => hits.get(id).get(name)?.has(version)))
       if (rest.length > 0) rows.push(toAdvisory(osv, name, rest, record))
     }
   }

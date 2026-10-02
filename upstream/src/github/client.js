@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 
 import { assertArgs, assertToken, assertTokenOrNull, assertUserAgent, optional } from '../args.js'
-import { GITHUB_API, HttpError, buildUrl, request } from '../http.js'
+import { GITHUB_API, HttpError, buildUrl, request, requestWithHeaders } from '../http.js'
 
 export const api = (segments, query) => buildUrl(GITHUB_API, segments, query)
 export const repoApi = (repo, segments = [], query) => api(['repos', ...repo.split('/'), ...segments], query)
 export const call = (headers, url, options) => request(url, { as: 'json', headers, ...options })
+export const callWithHeaders = (headers, url, options) => requestWithHeaders(url, { as: 'json', headers, ...options })
 // A repository renamed (a redirect, refused), deleted or blocked, not a
 // failure that could pass.
 export const isGone = (err) => err instanceof HttpError && [301, 404, 410, 451].includes(err.status)

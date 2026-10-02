@@ -47,14 +47,17 @@ export interface Advisory {
   ecosystem: Ecosystem
   name: string
   // `registry`: npm's, as `npm audit` has it, one row per vulnerable
-  // range. `osv`: RustSec for cargo, OSV's Packagist records for composer.
+  // range. `osv`: OSV's records for cargo and composer, RustSec's, GitHub's
+  // and malicious packages' (MAL-…) among them; of the records naming each
+  // other as aliases, a version is reported under one only, RustSec's for
+  // cargo, else the GHSA.
   // `repository`: published on the package's repository, one row per
   // range, holding only the versions the others' answer does not report
   // under that GHSA. The only source for `soldeer` and `github`, where
   // every range counts, whichever package it names.
   source: 'registry' | 'osv' | 'repository'
-  // A GHSA, RUSTSEC-…, DRUPAL-CORE-…, or npm:<id> for a registry row
-  // without a GHSA.
+  // A GHSA, RUSTSEC-…, MAL-…, DRUPAL-CORE-… or another OSV id, or
+  // npm:<id> for a registry row without a GHSA.
   id: string
   // The id itself, or an OSV record's one GHSA alias.
   ghsa?: string

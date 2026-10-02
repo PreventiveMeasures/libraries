@@ -303,8 +303,18 @@ describe('npm, with a GitHub client', () => {
     }
     stubAll({ github: { [REPO_ADVISORIES]: [{ ghsa_id: 'GHSA-aaaa-aaaa-aaaa', state: 'draft', summary: 'x' }] } })
     await assert.rejects(npm(one, options), /advisories: malformed advisory from acme\/mono/u)
-    stubAll({ github: { [REPO_ADVISORIES]: Array.from({ length: 100 }, (_, i) => repoAdvisory(`GHSA-aaaa-aaaa-${String(i).padStart(4, '2')}`, [])) } })
-    await assert.rejects(npm(one, options), /listRepoAdvisories: acme\/mono has 100 or more published advisories/u)
+  })
+
+  it("reads every page of a repository's advisories", async () => {
+    const link = '<https://api.github.com/repositories/1/security-advisories?per_page=100&state=published&after=Y3Vyc29y>; rel="next"'
+    stubAll({
+      github: {
+        [REPO_ADVISORIES]: Response.json([repoAdvisory('GHSA-aaaa-aaaa-aaaa', [vuln('mono-a', '< 2.0.0')])], { headers: { link } }),
+        [`${REPO_ADVISORIES}&after=Y3Vyc29y`]: [repoAdvisory('GHSA-bbbb-bbbb-bbbb', [vuln('mono-a', '< 2.0.0')])],
+      },
+    })
+    const found = await npm([{ name: 'mono-a', version: '1.0.0', github: 'acme/mono' }], { github, repoAdvisories: true })
+    assert.deepEqual(found.map(({ id }) => id), ['GHSA-aaaa-aaaa-aaaa', 'GHSA-bbbb-bbbb-bbbb'])
   })
 
   it("throws when a package's repository cannot be looked up, and skips one the registry does not have", async () => {
