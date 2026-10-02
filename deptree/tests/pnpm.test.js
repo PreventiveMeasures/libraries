@@ -1335,25 +1335,34 @@ describe('buildPnpmTree into a given Vfs', () => {
       await assert.rejects(buildPnpmTree({ lockfile: await copied({ override: false }), manifests: { '.': direct }, host: HOST, project: createVfs({ 'package.json': direct, ...vendored }) }), /^DeptreeError: "foo@file:vendor\/foo": a dependency on a local directory is supported only where a file: override names it$/u)
     })
 
-    // pnpm 10 and 11 write the lockfile's own directory, which the root
-    // project's `file:.` names, as an empty path; its snapshot depends on
-    // what the root does. pnpm 12 refuses that lockfile as broken.
-    it('installs the lockfile\'s own directory, as pnpm 10 and 11 do, and refuses it for pnpm 12', async () => {
-      stubRegistry([await app])
-      const own = small(dep('app'), `${entry(await app)}\n  'foo@file:':\n    resolution: {directory: '', type: directory}\n`, "  app@1.0.0:\n    dependencies:\n      foo: 'file:'\n\n  'foo@file:':\n    dependencies:\n      app: 1.0.0\n", '  app>foo: file:.\n')
+    // pnpm 9, 10 and 11 write the lockfile's own directory, which the root
+    // project's `file:.` names, as an empty path, which pnpm 12 refuses as
+    // broken; all of them take it written as `.`, and pnpm 11 and 12 name
+    // its directory with a hash then. Its snapshot depends on what the root does.
+    it('installs the lockfile\'s own directory as pnpm does, written empty or as `.`', async () => {
+      const served = await app
+      stubRegistry([served])
+      const own = (path) => small(dep('app'), `${entry(served)}\n  'foo@file:${path}':\n    resolution: {directory: '${path}', type: directory}\n`, `  app@1.0.0:\n    dependencies:\n      foo: 'file:${path}'\n\n  'foo@file:${path}':\n    dependencies:\n      app: 1.0.0\n`, '  app>foo: file:.\n')
       const rootOf = (fields) => JSON.stringify({ name: 'foo', version: '1.5.0', dependencies: { app: '1.0.0' }, ...fields })
-      const SELF = '/node_modules/.pnpm/foo@file+/node_modules/foo'
-      for (const [host, manifest, workspace] of [[HOST, rootOf({ pnpm: { overrides: { 'app>foo': 'file:.' } } }), undefined], [HOST_11, rootOf(), 'overrides:\n  app>foo: file:.\n']]) {
-        const { vfs, installed } = await buildPnpmTree({ lockfile: own, manifests: { '.': manifest }, workspace, host, ...both({ 'package.json': manifest, 'index.js': 'foo', 'pnpm-lock.yaml': own }) })
-        assert.deepEqual(vfs.readdir(SELF), ['index.js', 'package.json'], host.pnpm)
-        assert.equal(vfs.realpath('/node_modules/.pnpm/app@1.0.0/node_modules/foo'), SELF)
-        assert.equal(vfs.realpath('/node_modules/.pnpm/foo@file+/node_modules/app'), '/node_modules/.pnpm/app@1.0.0/node_modules/app')
+      const early = (host) => [host, rootOf({ pnpm: { overrides: { 'app>foo': 'file:.' } } }), undefined]
+      const later = (host) => [host, rootOf(), 'overrides:\n  app>foo: file:.\n']
+      const hashed = `foo@file++_${hex('foo@file+.').slice(0, 32)}`
+      for (const [path, dir, host, manifest, workspace] of [
+        ['', 'foo@file+', ...early(HOST_9)], ['', 'foo@file+', ...early(HOST)], ['', 'foo@file+', ...later(HOST_11)],
+        ['.', 'foo@file+.', ...early(HOST_9)], ['.', 'foo@file+.', ...early(HOST)], ['.', hashed, ...later(HOST_11)], ['.', hashed, ...later(HOST_12)],
+      ]) {
+        const locked = own(path)
+        const { vfs, installed } = await buildPnpmTree({ lockfile: locked, manifests: { '.': manifest }, workspace, host, ...both({ 'package.json': manifest, 'index.js': 'foo', 'pnpm-lock.yaml': locked }) })
+        const self = `/node_modules/.pnpm/${dir}/node_modules/foo`
+        assert.deepEqual(vfs.readdir(self), ['index.js', 'package.json'], `${host.pnpm} ${path}`)
+        assert.equal(vfs.realpath('/node_modules/.pnpm/app@1.0.0/node_modules/foo'), self)
+        assert.equal(vfs.realpath(`/node_modules/.pnpm/${dir}/node_modules/app`), '/node_modules/.pnpm/app@1.0.0/node_modules/app')
         assert.deepEqual(installed.find(({ name }) => name === 'foo'), {
-          path: SELF.slice(1), key: 'foo@file:', name: 'foo', version: undefined, integrity: undefined, directory: '.', dev: false, optional: false, patch: undefined,
+          path: self.slice(1), key: `foo@file:${path}`, name: 'foo', version: undefined, integrity: undefined, directory: '.', dev: false, optional: false, patch: undefined,
         })
       }
-      const v12 = { lockfile: own, manifests: { '.': rootOf() }, workspace: 'overrides:\n  app>foo: file:.\n', host: HOST_12, project: createVfs({ 'package.json': rootOf() }) }
-      await assert.rejects(buildPnpmTree(v12), /^DeptreeError: "foo@file:": pnpm 12 refuses as broken a lockfile with `file:` and an empty path, the lockfile's own directory$/u)
+      const v12 = { lockfile: own(''), manifests: { '.': rootOf() }, workspace: 'overrides:\n  app>foo: file:.\n', host: HOST_12, project: createVfs({ 'package.json': rootOf() }) }
+      await assert.rejects(buildPnpmTree(v12), /^DeptreeError: "foo@file:": pnpm 12 refuses as broken a lockfile with `file:` and an empty path$/u)
     })
   })
 

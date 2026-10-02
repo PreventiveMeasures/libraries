@@ -79,10 +79,6 @@ export function localOf(spec, where) {
   return { protocol, dir }
 }
 
-// A directory as a key has it after `file:`, as pnpm writes it by
-// path.relative: empty for the lockfile's own, which is `.` here.
-export const fileRefOf = (dir) => `file:${dir === '.' ? '' : dir}`
-
 export function listOverrides(overrides, catalogs, major = 10) {
   const seen = new Set()
   return Object.entries(overrides ?? {}).map(([raw, given]) => {

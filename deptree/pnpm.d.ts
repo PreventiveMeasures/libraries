@@ -124,9 +124,9 @@ export interface PnpmProject {
 // .hooks directory — or, with pnpm 11 and 12, where packageImportMethod is
 // other than auto or hardlink, each snapshot has a copy of its own
 // instead. One by `file:` to a tarball is refused, and so is a `file:`
-// dependency no override names. One to the lockfile's own directory, which
-// pnpm 10 and 11 write as an empty path, is refused for pnpm 12, which
-// fails on that lockfile.
+// dependency no override names. One to the lockfile's own directory that
+// the lockfile has as `file:` and an empty path, as pnpm 9, 10 and 11
+// write it, is refused for pnpm 12, which fails on that lockfile.
 //
 // pnpm 9 reads its settings as pnpm 10 does, but none of
 // pnpm-workspace.yaml: of that it reads the projects and the catalogs

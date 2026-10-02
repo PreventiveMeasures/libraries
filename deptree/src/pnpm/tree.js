@@ -20,7 +20,7 @@ import { createPatchedCheck, skippedSnapshots } from './install.js'
 import { checkDependencies, fetchPackage } from './package.js'
 import { checkLinks, checkOptional } from './checks.js'
 import { createHook } from './hook.js'
-import { fileRefOf, listOverrides } from './overrides.js'
+import { listOverrides } from './overrides.js'
 import { checkHost, inputsOf, manifestsOf, patchesOf, readLockfile } from './inputs.js'
 import { checkProjects, pinsPnpm, workspaceNames } from './projects.js'
 import { readSettings } from './settings.js'
@@ -40,11 +40,12 @@ function checkLockfile(lockfile) {
   }
 }
 
+// The lockfile reader holds a directory's key to it.
 function checkSource(node, installed) {
   const { key, pkg } = node
   const { resolution } = pkg
   if (resolution.type === 'directory') {
-    if (packageKeyOf(key) !== `${pkg.name}@${fileRefOf(resolution.directory)}` || !installed.has(resolution.directory)) throw new DeptreeError('a dependency on a local directory is supported only where a file: override names it', quote(key))
+    if (!installed.has(resolution.directory)) throw new DeptreeError('a dependency on a local directory is supported only where a file: override names it', quote(key))
     if (pkg.patchHash !== undefined) throw new DeptreeError('a patch to a package pnpm installs from a directory is not supported: it would be applied to the directory\'s own files, which pnpm hardlinks', quote(key))
     return
   }
@@ -65,14 +66,15 @@ async function fetchAll(nodes, project, major) {
   return fetched
 }
 
-async function fetchNodes(nodes, hook, project, major, fresh) {
+async function fetchNodes(nodes, lockfile, hook, project, major) {
   const fetched = await fetchAll(nodes, project, major)
+  const fresh = createFreshnessCheck(lockfile, major)
   const byDir = new Map()
   for (const node of nodes.values()) {
     const id = packageKeyOf(node.key)
     const got = fetched.get(id)
     got.read ??= hook(got.manifest, `${quote(id)}: package.json`)
-    checkDependencies(got.manifest, got.read, node.pkg, quote(node.key))
+    checkDependencies(got.manifest, got.read, node.pkg, lockfile.packages, quote(node.key))
     fresh?.(node, got.read)
     byDir.set(node.dir, { ...node, files: got.files, manifest: got.manifest })
   }
@@ -215,9 +217,9 @@ export async function buildPnpmTree(options) {
   // pins, which leaves the tree as it is.
   if (env !== undefined && major < 11) throw new DeptreeError('the env document pnpm 11 writes is not supported', 'env')
   if (env !== undefined && Object.keys(env.importers['.'].configDependencies).length > 0) throw new DeptreeError('config dependencies are not supported', 'env.importers["."].configDependencies')
-  // pnpm 10 and 11 write the lockfile's own directory as `file:` and no path.
-  const own = major >= 12 ? Object.keys(lockfile.packages).find((key) => lockfile.packages[key].resolution.directory === '.') : undefined
-  if (own !== undefined) throw new DeptreeError('pnpm 12 refuses as broken a lockfile with `file:` and an empty path, the lockfile\'s own directory', quote(own))
+  // As pnpm 9, 10 and 11 write the lockfile's own directory.
+  const empty = major >= 12 ? Object.keys(lockfile.packages).find((key) => packageKeyOf(key).endsWith('@file:')) : undefined
+  if (empty !== undefined) throw new DeptreeError('pnpm 12 refuses as broken a lockfile with `file:` and an empty path', quote(empty))
   const settings = readSettings({ workspace, npmrc: inputs.npmrc, manifest: manifests.get('.'), major, pinned: pinsPnpm(manifests.get('.'), host.pnpm) })
   checkWorkspace(Object.keys(lockfile.importers), settings.packages, major)
   const overrides = listOverrides(settings.overrides, settings.catalogs, major)
@@ -232,7 +234,7 @@ export async function buildPnpmTree(options) {
   const { nodes, direct, hoisting } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, major)
   for (const node of nodes.values()) checkSource(node, installed)
 
-  const { byDir, tarballs } = await fetchNodes(nodes, hook, project, major, createFreshnessCheck(lockfile, major))
+  const { byDir, tarballs } = await fetchNodes(nodes, lockfile, hook, project, major)
   const links = linksOf(byDir, direct, settings, projects, major, hoisting)
   const linked = readLinked(links, byDir, manifests, project)
   const targets = binTargets({
