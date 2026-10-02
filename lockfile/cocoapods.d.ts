@@ -115,7 +115,9 @@ export type PodExternalSource =
   | PodDownload
 
 // By one of cocoapods-downloader's strategies, an option left out
-// undefined. A commit is in lowercase hex, and may be short; a sha1 or a
+// undefined. A commit is a hash, in hex of either case, and may be short:
+// a revision of another form, `main` or `v1~2`, which git checks out and
+// CocoaPods keeps as it is, is refused, as it locks no commit. A sha1 or a
 // sha256 is the file's, in hex; `fileType` is RemoteFile's `:type`.
 export type PodDownload =
   | { type: 'git', url: string, commit: string | undefined, tag: string | undefined, branch: string | undefined, submodules: boolean | undefined }

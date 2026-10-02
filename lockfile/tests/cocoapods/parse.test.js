@@ -299,6 +299,8 @@ describe('external sources', () => {
     assert.deepEqual([tag.external.tag, tag.checkout.tag, tag.checkout.commit], ['v1', 'v1', undefined])
     const short = parsePodfileLock(external({ git: GIT, commit: 'abc1234' }, `\`${GIT}\`, commit \`abc1234\``, { git: GIT, commit: 'abc1234' })).roots.Git
     assert.equal(short.checkout.commit, 'abc1234')
+    const upper = COMMIT.toUpperCase()
+    assert.equal(parsePodfileLock(external({ git: GIT, commit: upper }, `\`${GIT}\`, commit \`${upper}\``, { git: GIT, commit: upper })).roots.Git.checkout.commit, upper)
     const sub = parsePodfileLock(external({ git: GIT, submodules: 'true' }, `\`${GIT}\``, { git: GIT, commit: COMMIT, submodules: 'true' })).roots.Git
     assert.deepEqual([sub.external.submodules, sub.checkout.submodules], [true, true])
   })
@@ -352,7 +354,8 @@ describe('external sources', () => {
     refuses(external({ podspec: '"/specs/Git.podspec"' }, '`/specs/Git.podspec`'), '"/specs/Git.podspec" is absolute, and only reads on the machine that wrote it', `${at}[":podspec"]`)
     refuses(external({ path: 'a//Git' }, '`a//Git`'), '"a//Git" is not a path from the Podfile\'s directory', `${at}[":path"]`)
     refuses(external({ http: 'ftp://example.com/Git.zip' }, '`ftp://example.com/Git.zip`'), '"ftp://example.com/Git.zip" is not an http(s) URL', `${at}[":http"]`)
-    refuses(external({ git: GIT, commit: 'ABC1234' }, `\`${GIT}\`, commit \`ABC1234\``, { git: GIT, commit: 'ABC1234' }), '"ABC1234" is not a commit in lowercase hex', `${at}[":commit"]`)
+    refuses(external({ git: GIT, commit: 'main' }, `\`${GIT}\`, commit \`main\``, { git: GIT, commit: 'main' }), '"main" is not a commit\'s hash, and locks no commit', `${at}[":commit"]`)
+    refuses(external({ git: GIT, commit: 'abc' }, `\`${GIT}\`, commit \`abc\``, { git: GIT, commit: 'abc' }), '"abc" is not a commit\'s hash, and locks no commit', `${at}[":commit"]`)
     refuses(external({ git: GIT, branch: 'a..b' }, `\`${GIT}\`, branch \`a..b\``, { git: GIT, commit: COMMIT }), '"a..b" is not a branch or tag name git takes', `${at}[":branch"]`)
     refuses(external({ git: GIT, submodules: "'true'" }, `\`${GIT}\``, { git: GIT, commit: COMMIT }), 'expected a boolean, found the string "true"', `${at}[":submodules"]`)
     refuses(external({ http: 'https://example.com/a.rar', type: 'rar' }, '`x`'), '"rar" is not a type of file CocoaPods extracts', `${at}[":type"]`)

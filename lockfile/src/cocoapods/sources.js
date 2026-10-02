@@ -26,8 +26,13 @@ export const fieldOf = (option) => (option === 'type' ? 'fileType' : option)
 const BOOLEANS = new Set(['submodules', 'flatten', 'externals', 'checkout'])
 // What RemoteFile extracts, by `:type`.
 const FILE_TYPES = new Set(['zip', 'tgz', 'tar', 'tbz', 'txz', 'dmg'])
-// In lowercase hex: a commit, which git takes short, and a file's digests.
-const HEX = { __proto__: null, commit: (value) => /^[\da-f]{4,64}$/u.test(value), sha1: isHexSha1, sha256: isHexSha256 }
+// A file's digests, in lowercase hex.
+const HEX = { __proto__: null, sha1: isHexSha1, sha256: isHexSha256 }
+// A commit's hash, in hex of either case, which git takes short too. Git
+// checks out any revision, and CocoaPods keeps it as it is, but a name,
+// `main` or `v1~2`, can come to another commit at each install: it is
+// refused, as it locks nothing.
+const isHash = (value) => /^[\da-f]{4,64}$/iu.test(value)
 
 // A path from the Podfile's directory, as the Podfile has it: CocoaPods
 // takes `./`, `..` and a `/` at the end as they are. It takes an absolute
@@ -45,6 +50,7 @@ function readOption(strategy, option, node, where) {
   if (option === 'headers') return itemsOf(node, where).map((item, index) => textOf(item, `${where}[${index}]`))
   const value = textOf(node, where)
   if (option in HEX && !HEX[option](value)) throw new LockfileError(`${quote(value)} is not a ${option} in lowercase hex`, where)
+  if (strategy === 'git' && option === 'commit' && !isHash(value)) throw new LockfileError(`${quote(value)} is not a commit's hash, and locks no commit`, where)
   if (option === 'type' && !FILE_TYPES.has(value)) throw new LockfileError(`${quote(value)} is not a type of file CocoaPods extracts`, where)
   if (strategy === 'git' && (option === 'branch' || option === 'tag')) checkRefName(value, where)
   return value
