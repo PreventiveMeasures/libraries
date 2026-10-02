@@ -22,5 +22,6 @@ packages:
   - "lockfile"
   - "upstream"
   - "vfs"
+  - "report"
 
 preferWorkspacePackages: true

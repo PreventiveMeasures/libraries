@@ -60,7 +60,8 @@ export interface Yarn1Project {
 //
 // With `lockfile`, they are given as text: `manifests` by the project's
 // directory relative to the lockfile's (`.` for the root, then each
-// workspace's, as findYarn1Workspaces lists them). Every workspace yarn
+// workspace's, as findYarn1Workspaces lists them: a directory under the
+// lockfile's, with no `.`, `..` or empty segment). Every workspace yarn
 // would find has to be given, which buildYarn1Tree cannot check where it
 // is given them, as it is not given the directories; and the lockfile
 // reader refuses a manifest of any directory the root's `workspaces` do

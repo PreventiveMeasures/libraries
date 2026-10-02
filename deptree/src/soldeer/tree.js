@@ -5,7 +5,7 @@ import { getZip } from '@preventive/upstream/soldeer.js'
 import { Vfs } from '@preventive/vfs'
 import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote } from '../error.js'
-import { fold, mount, writeFiles } from '../mount.js'
+import { fold, makeDirs, mount, writeFiles } from '../mount.js'
 import { configOf } from './config.js'
 import { checkHost, inputsOf } from './inputs.js'
 import { extractZip } from './zip.js'
@@ -46,7 +46,7 @@ function registryDependencies(lock, config, folded) {
 async function fetchAll(dependencies) {
   const extracted = new Map()
   await eachConcurrently(dependencies, async ({ name, version, checksum, folder }) => {
-    extracted.set(folder, await extractZip(await getZip(name, version, checksum), about(name)))
+    extracted.set(folder, await extractZip(await getZip(name, version, checksum), checksum, about(name)))
   }, ({ name }) => about(name))
   return extracted
 }
@@ -64,11 +64,10 @@ export async function buildSoldeerTree(options) {
   const dependencies = registryDependencies(lock, config, folded)
   const extracted = await fetchAll(dependencies)
   const vfs = new Vfs()
-  vfs.mkdir('/dependencies')
+  makeDirs(vfs, 'dependencies')
   const stats = { dependencies: dependencies.length, files: 0, bytes: 0 }
   // In the lockfile's order, whatever order the fetches finished in.
   for (const { folder } of dependencies) {
-    vfs.mkdir(`/dependencies/${folder}`)
     writeFiles(vfs, `dependencies/${folder}`, extracted.get(folder), stats)
   }
   const installed = dependencies.map(({ name, version, checksum, folder }) => ({ path: `dependencies/${folder}`, name, version, checksum }))

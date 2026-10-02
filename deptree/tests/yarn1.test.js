@@ -45,6 +45,7 @@ const TARBALLS = await Promise.all([
   tarball('loop2', '1.1.0', {}, { manifest: { dependencies: { loop1: '^2.0.0' } } }),
   tarball('dotbin', '1.0.0', { '.bin': 'x', 'cli.js': 'c' }, { manifest: { bin: 'cli.js' } }),
   tarball('inner', '1.0.0', {}, { manifest: { bin: 'node_modules/b/index.js', dependencies: { b: '^1.0.0' } } }),
+  tarball('shadow', '1.0.0', { 'Node_Modules/b/index.js': 'b' }, { manifest: { dependencies: { b: '^1.0.0' } } }),
   tarball('p', '1.0.0', {}, { manifest: { peerDependencies: { b: '^2.0.0' } } }),
   tarball('q', '1.0.0', {}, { manifest: { dependencies: { b: '^1.0.0' } } }),
   tarball('aab', '1.0.0'),
@@ -381,6 +382,8 @@ describe('buildYarn1Tree refuses', () => {
     const at = (name, lock) => ({ project: projectOf({ 'yarn.lock': lockfile(...lock), 'package.json': { name: 'root', version: '1.0.0', dependencies: { [name]: '1.0.0' } } }) })
     await refuses(at('dotbin', [entry('dotbin@1.0.0', 'dotbin@1.0.0')]), /^DeptreeError: "dotbin@1\.0\.0": \.bin is a file, where yarn fails to make a directory for the bins$/u)
     await refuses(at('inner', [entry('inner@1.0.0', 'inner@1.0.0', '  dependencies:\n    b "^1.0.0"\n'), entry('b@^1.0.0', 'b@1.0.0')]), /^DeptreeError: "inner@1\.0\.0": its bin "node_modules\/b\/index\.js" is in its own node_modules, where yarn installs its dependencies, which is not supported$/u)
+    // macOS takes Node_Modules for node_modules.
+    await refuses(at('shadow', [entry('shadow@1.0.0', 'shadow@1.0.0', '  dependencies:\n    b "^1.0.0"\n'), entry('b@^1.0.0', 'b@1.0.0')]), /^DeptreeError: "shadow@1\.0\.0": "package\/Node_Modules\/b\/index\.js" is in the package's own node_modules, where yarn installs its dependencies, which is not supported$/u)
   })
 
   it('a package the host cannot run, where it is not optional', async () => {

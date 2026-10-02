@@ -6,7 +6,7 @@
 // otherwise, or npm never packs, is refused.
 
 import { DeptreeError, quote } from '../error.js'
-import { fetchTarball, fromMirror, ownTarball, withDirs } from '../tarball.js'
+import { fetchTarball, fromMirror, isModules, ownTarball, withDirs } from '../tarball.js'
 
 const UMASK = 0o022
 
@@ -37,7 +37,7 @@ function unpack(entries, where) {
     if (!FILES.has(type)) continue
     if (storedLinkname !== '') throw new DeptreeError(`${quote(storedName)} is a file with a link name, which tar's releases read otherwise`, where)
     if (segments.length === 1) throw new DeptreeError(`${quote(storedName)} is a file at the top of the tarball`, where)
-    if (segments[1] === 'node_modules') throw new DeptreeError(`${quote(storedName)} is in the package's own node_modules, where npm installs its dependencies, which is not supported`, where)
+    if (isModules(segments[1])) throw new DeptreeError(`${quote(storedName)} is in the package's own node_modules, where npm installs its dependencies, which is not supported`, where)
     if ((mode & 0o7000) !== 0) throw new DeptreeError(`${quote(storedName)} has a setuid, setgid or sticky bit, which is not supported`, where)
     let path = segments.slice(1).join('/')
     if (segments.at(-1) === '.npmignore') ignores.add(path)

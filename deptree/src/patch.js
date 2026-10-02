@@ -19,8 +19,15 @@ function pathOf(header) {
   return rest === `${path} b/${path}` ? path : undefined
 }
 
+// git quotes a path with a control character, and by default one with any
+// other non-ASCII one. Of what it may leave unquoted, a backslash, a
+// separator on Windows, and what reads otherwise than it is written (a line
+// or paragraph separator, a bidirectional control) are refused, as the
+// lockfile reader refuses them in a path.
+const UNSAFE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}\\]/u
+
 function checkPath(path, where) {
-  if (path === undefined || path.startsWith('"') || path.split('/').some((segment) => segment === '' || segment === '.' || segment === '..')) {
+  if (path === undefined || path.startsWith('"') || UNSAFE.test(path) || path.split('/').some((segment) => segment === '' || segment === '.' || segment === '..')) {
     throw new DeptreeError('expected a header naming one relative path on both sides', where)
   }
   return path

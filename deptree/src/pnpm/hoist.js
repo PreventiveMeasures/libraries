@@ -8,7 +8,9 @@ import { DeptreeError, quote } from '../error.js'
 import { createMatcher } from '../matcher.js'
 
 // pnpm's graphWalker: each node's children are walked to the bottom before the
-// next node's, so a node's depth is not always its least.
+// next node's, so a node's depth is not always its least. A level's nodes are
+// listed, and all their children stepped to, before the first child's are;
+// on a stack of its own, where pnpm recurses, so a long chain runs out of none.
 function walk(nodes, starts) {
   const visited = new Set()
   const step = (dirs) => {
@@ -21,12 +23,18 @@ function walk(nodes, starts) {
     }
     return found
   }
-  const levels = (depth, found) => {
-    const listed = found.map((node) => ({ node, depth }))
-    const next = found.map((node) => step(node.children.values()))
-    return [...listed, ...next.flatMap((level) => levels(depth + 1, level))]
+  const walked = []
+  const level = (depth, found) => {
+    for (const node of found) walked.push({ node, depth })
+    return { depth: depth + 1, next: found.map((node) => step(node.children.values())), i: 0 }
   }
-  return levels(0, step(starts))
+  const stack = [level(0, step(starts))]
+  while (stack.length > 0) {
+    const top = stack.at(-1)
+    if (top.i === top.next.length) stack.pop()
+    else stack.push(level(top.depth, top.next[top.i++]))
+  }
+  return walked
 }
 
 // UTF-16 order, as pnpm's lexCompare has it.

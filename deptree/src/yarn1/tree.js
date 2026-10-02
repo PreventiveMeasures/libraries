@@ -8,7 +8,7 @@ import { compareNames, dirname, relative } from '@preventive/vfs/path.js'
 import { clean, satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote } from '../error.js'
-import { checkNoModules, mount, writeFiles } from '../mount.js'
+import { checkNoModules, isInside, makeDirs, mount, writeFiles, writeLink } from '../mount.js'
 import { typeOf } from '../project.js'
 import { checkBinLinks } from './bins.js'
 import { incompatibility } from './compat.js'
@@ -118,7 +118,7 @@ function realOf(links, path) {
 // hoister's places may be one real path, which `copies` maps to both.
 function writeTree(placed, fetched) {
   const vfs = new Vfs()
-  vfs.mkdir('/node_modules', { recursive: true })
+  makeDirs(vfs, 'node_modules')
   const links = new Map()
   const locations = new Map()
   const copies = new Map()
@@ -135,16 +135,16 @@ function writeTree(placed, fetched) {
     if (!locations.has(ref)) locations.set(ref, [])
     if (!locations.get(ref).includes(dest)) locations.get(ref).push(dest)
     if (ref.kind === 'workspace') {
+      // readManifests has each workspace in the project.
+      if (!isInside(ref.workspace.dir)) throw new DeptreeError('links out of the project', whereOf(ref))
       links.set(dest, ref.workspace.dir)
-      vfs.mkdir(`/${dirname(dest)}`, { recursive: true })
-      vfs.symlink(relative(`/${dirname(dest)}`, `/${ref.workspace.dir}`) || '.', `/${dest}`)
+      writeLink(vfs, dest, relative(`/${dirname(dest)}`, `/${ref.workspace.dir}`) || '.')
       continue
     }
     const pkg = fetched.get(ref)
     const earlier = copies.get(dest)
     if (earlier?.[0].ref === ref) earlier.push(info)
     else copies.set(dest, [info])
-    vfs.mkdir(`/${dest}`, { recursive: true })
     writeFiles(vfs, dest, pkg, counted, skipped)
     left.set(pkg, left.get(pkg) - 1)
     if (left.get(pkg) === 0) letGo(pkg)

@@ -7,6 +7,7 @@ import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, difference, quote } from '../error.js'
 import { md5Base32, sha256Hex } from '../hash.js'
 import { sameSpecifier } from './frozen.js'
+import { catalogEntry } from './overrides.js'
 import { checkPatchUse, checkPeerPatches } from './patches.js'
 
 const outdated = (name, detail) => new DeptreeError(`${detail}, which a frozen install refuses`, name)
@@ -52,7 +53,7 @@ export async function checkUpToDate(lockfile, settings, overrides, given, major)
   const { hashes, byHash } = await hashPatches(settings.patchedDependencies, given, major)
   for (const [name, catalog] of major < 10 ? [] : Object.entries(lockfile.catalogs)) {
     for (const [alias, { specifier }] of Object.entries(catalog)) {
-      const configured = settings.catalogs[name]?.[alias]
+      const configured = catalogEntry(settings.catalogs, name, alias)
       if (!sameSpecifier(specifier, configured, major)) throw outdated('catalogs', `${quote(alias)} is ${quote(specifier)} in the lockfile's catalog ${quote(name)}, and ${configured === undefined ? 'nothing' : quote(configured)} in the settings`)
     }
   }
