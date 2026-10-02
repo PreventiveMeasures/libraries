@@ -51,16 +51,13 @@ export function aggregatorOf(root, workspaces) {
 // refused here, as no source but the registry is supported; one to what
 // is neither, which yarn passes over, the lockfile reader has refused.
 export function rulesOf(root) {
-  const byName = new Map()
-  for (const [path, range] of Object.entries(root.resolutions ?? {})) {
+  const rules = Object.entries(root.resolutions ?? {}).map(([path, range]) => {
     const names = path.match(/(?:@[^/]+\/)?[^/]+/gu) ?? [path]
     const name = names.at(-1)
     if (validRange(range) === null) throw new DeptreeError(`a resolution to ${quote(range)}, no semver range, is not supported`, `manifests["."].resolutions[${quote(path)}]`)
-    const glob = names.length === 1 ? `**/${path}` : path
-    if (!byName.has(name)) byName.set(name, [])
-    byName.get(name).push({ path, name, range, glob, pattern: `${name}@${range}` })
-  }
-  return [...byName.values()].flat()
+    return { path, name, glob: names.length === 1 ? `**/${path}` : path, pattern: `${name}@${range}` }
+  })
+  return [...Map.groupBy(rules, ({ name }) => name).values()].flat()
 }
 
 // The top-level requests, as yarn makes them and in its order; and of

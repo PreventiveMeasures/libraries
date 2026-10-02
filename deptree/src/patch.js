@@ -76,8 +76,7 @@ function readHunks(lines, where) {
 export function parsePatch(text, where) {
   if (text.includes('\r')) throw new DeptreeError('a carriage return is not supported', where)
   if (!text.startsWith(HEADER)) throw new DeptreeError(`expected ${quote(HEADER)} first`, where)
-  const sections = text.split(/\n(?=diff --git )/u)
-  return sections.map((section) => {
+  return text.split(/\n(?=diff --git )/u).map((section) => {
     const lines = section.split('\n')
     if (lines.at(-1) === '') lines.pop()
     const path = checkPath(pathOf(lines[0]), `${where}: ${quote(lines[0])}`)

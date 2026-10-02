@@ -103,8 +103,7 @@ function checkKind(importer, kinds, kind, unresolved, major) {
 // undefined where it is; of the specifiers, the first difference, as
 // pnpm's diffFlatRecords finds.
 function mismatch(importer, manifest, autoInstallPeers, major, where) {
-  const optional = manifest.optionalDependencies ?? {}
-  const unresolved = new Set(major >= 11 ? Object.keys(optional).filter((name) => importer.specifiers[name] === undefined) : [])
+  const unresolved = new Set(major >= 11 ? Object.keys(manifest.optionalDependencies ?? {}).filter((name) => importer.specifiers[name] === undefined) : [])
   const { kinds, all } = wantedOf(manifest, autoInstallPeers, unresolved)
   const specified = difference(importer.specifiers, all, ['the lockfile', 'package.json'], (a, b) => sameSpecifier(a, b, major))
   if (specified !== undefined) return `the specifiers differ: ${specified}`
@@ -153,7 +152,7 @@ export function pinnedPnpm(packageManager) {
 // is not a range is none, and packageManager's has to be exact.
 function wantedPackageManager(manifest) {
   const declared = manifest.devEngines?.packageManager
-  const list = Array.isArray(declared) ? declared : declared === undefined || declared === null ? [] : [declared]
+  const list = Array.isArray(declared) ? declared : declared == null ? [] : [declared]
   const index = Array.isArray(declared) ? Math.max(list.findIndex((entry) => entry?.name === 'pnpm'), 0) : 0
   const entry = list[index]
   if (typeof entry?.name === 'string') {
@@ -238,7 +237,7 @@ function checkRuntimes(manifest, where, { host, root, onFail }) {
   const checked = new Set()
   for (const [field, kind] of RUNTIMES) {
     const runtime = manifest[field]?.runtime
-    if (runtime === undefined || runtime === null) continue
+    if (runtime == null) continue
     const here = `${where}.${field}.runtime`
     const runtimes = Array.isArray(runtime) ? runtime : [runtime]
     for (const name of RUNTIME_NAMES) {

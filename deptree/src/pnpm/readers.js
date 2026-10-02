@@ -197,7 +197,7 @@ const IGNORED_12 = new Set([
   'concurrencyGroups', 'pipelines', 'pipelineBase', 'publishWaitTimeout', 'saveTypes', 'tools', 'macosBackup',
 ])
 const notEnabled = (value, where) => {
-  if (value.enabled !== undefined && value.enabled !== null && value.enabled !== false) never('an install of Cargo or Python packages beside the tree is not supported')(value.enabled, `${where}.enabled`)
+  if (value.enabled != null && value.enabled !== false) never('an install of Cargo or Python packages beside the tree is not supported')(value.enabled, `${where}.enabled`)
 }
 const READ_12 = {
   __proto__: null,

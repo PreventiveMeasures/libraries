@@ -91,36 +91,22 @@ const isWorkspacePath = (spec) => /^(?:[./\\]|~[/\\]|[A-Za-z]:)/u.test(spec)
 // in it.
 const within = (parent, child) => child === parent || (parent === '.' ? child !== '..' && !child.startsWith('../') : child.startsWith(`${parent}/`))
 
-// The name of the package a specifier asks for, under `alias`.
-export function targetName(spec, alias) {
+// The name of the package a specifier asks for, under `alias`, and the
+// range of the version.
+export function parseSpec(spec, alias) {
   if (spec.startsWith('workspace:')) {
     const raw = spec.slice('workspace:'.length)
     const at = raw.lastIndexOf('@')
-    return isWorkspacePath(raw) || at <= 0 ? alias : raw.slice(0, at)
+    return { name: isWorkspacePath(raw) || at <= 0 ? alias : raw.slice(0, at), range: at > 0 ? raw.slice(at + 1) || '*' : raw }
   }
   if (spec.startsWith('npm:')) {
     const raw = spec.slice('npm:'.length)
-    if (validRange(raw) !== null) return alias
-    const at = raw.lastIndexOf('@')
-    return at > 0 ? raw.slice(0, at) : raw
+    if (validRange(raw) !== null) return { name: alias, range: raw }
+    const last = raw.lastIndexOf('@')
+    const first = raw.indexOf('@', 1)
+    return { name: last > 0 ? raw.slice(0, last) : raw, range: first === -1 ? '*' : raw.slice(first + 1) || '*' }
   }
-  return alias
-}
-
-// The range of the version a specifier asks for.
-export function versionRange(spec) {
-  if (spec.startsWith('workspace:')) {
-    const raw = spec.slice('workspace:'.length)
-    const at = raw.lastIndexOf('@')
-    return at > 0 ? raw.slice(at + 1) || '*' : raw
-  }
-  if (spec.startsWith('npm:')) {
-    const raw = spec.slice('npm:'.length)
-    if (validRange(raw) !== null) return raw
-    const at = raw.indexOf('@', 1)
-    return at === -1 ? '*' : raw.slice(at + 1) || '*'
-  }
-  return spec
+  return { name: alias, range: spec }
 }
 
 const inRange = (version, range) => range === '*' || range === '^' || range === '~' || (typeof version === 'string' && satisfies(version, range, { loose: true }))
@@ -198,11 +184,9 @@ export function checkLinkedPackages({ manifest, importer, index: { projects, byN
       // A local directory or tarball is up to date where the lockfile has
       // it, as pnpm 11's frozen install skips its own dependencies; which
       // is installed is held to tree.js's checkSource.
-      const local = importer.specifiers[alias].startsWith('file:') || packageKeyOf(target).includes('@file:')
-      if (local) continue
+      if (importer.specifiers[alias].startsWith('file:') || packageKeyOf(target).includes('@file:')) continue
       if (linked && pathOf(spec) !== undefined) continue
-      const name = targetName(spec, alias)
-      const range = versionRange(spec)
+      const { name, range } = parseSpec(spec, alias)
       if (linked && isTag(range)) continue
       const named = byName.get(name)
       const dir = linked ? target.slice('link:'.length) : named?.get(resolvedOf(alias, target))

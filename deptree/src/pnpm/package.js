@@ -74,7 +74,7 @@ function hasBin({ bin, directories }, major) {
     const named = typeof bin === 'string' ? bin !== '' : bin !== null && typeof bin === 'object' && !Array.isArray(bin) && Object.keys(bin).length > 0
     return named || (directories !== null && typeof directories === 'object' && !Array.isArray(directories) && typeof directories.bin === 'string' && directories.bin !== '')
   }
-  if (bin === undefined || bin === null) return Boolean(directories?.bin)
+  if (bin == null) return Boolean(directories?.bin)
   if (bin && Object.keys(bin).length > 0) return true
   return directories?.bin ? undefined : false
 }

@@ -220,9 +220,7 @@ function listInstalled(copies, fetched, asked, hoister) {
   const required = hoister.reachedBut('optional', asked)
   return [...copies].map(([path, places]) => {
     const { manifest, integrity } = fetched.get(places[0].ref)
-    const dev = !places.some((info) => prod.has(info))
-    const optional = !places.some((info) => required.has(info))
-    return { path, name: manifest.name, version: manifest.version, integrity, dev, optional }
+    return { path, name: manifest.name, version: manifest.version, integrity, dev: !places.some((info) => prod.has(info)), optional: !places.some((info) => required.has(info)) }
   }).sort((a, b) => compareNames(a.path, b.path))
 }
 

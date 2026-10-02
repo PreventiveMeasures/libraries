@@ -107,7 +107,7 @@ const patchedLater = ({ host, settings }) => host.major >= 11 && settings.engine
 // A package.json's os, cpu or libc as pnpm's checkList reads one: a string
 // is a list of it, and what is not a string in a list is passed over.
 function platformList(value, where) {
-  if (value === undefined || value === null) return undefined
+  if (value == null) return undefined
   if (typeof value === 'string') return [value]
   if (Array.isArray(value)) return value.filter((item) => typeof item === 'string')
   throw new DeptreeError('expected a string or a list of them', where)
@@ -136,8 +136,8 @@ export function checkProject(manifest, where, { host, settings, root }) {
   }
   const platform = { os: platformList(manifest.os, `${where}.os`), cpu: platformList(manifest.cpu, `${where}.cpu`), libc: platformList(manifest.libc, `${where}.libc`) }
   if (!takesPlatform(platform, host, settings.supportedArchitectures)) return
-  const engines = manifest.engines
-  if (engines === undefined || engines === null) return
+  const { engines } = manifest
+  if (engines == null) return
   const node = nodeOf({ host, settings })
   if (engines.pnpm && !satisfies(host.pnpm, engines.pnpm, { includePrerelease: true })) {
     throw new DeptreeError(`its engines.pnpm, ${quote(String(engines.pnpm))}, does not take pnpm ${host.pnpm}, which pnpm refuses`, where)
@@ -178,7 +178,7 @@ export function createPatchedCheck(context) {
   const { host, settings } = context
   const node = host.major >= 12 ? settings.nodeVersion ?? host.node : nodeOf(context)
   return (manifest, where) => {
-    if (manifest.engines === undefined || manifest.engines === null) return
+    if (manifest.engines == null) return
     if (host.major >= 12) checkSure12(manifest.engines.node, where, 'the engines.node of its package.json, patched')
     if (takesEngine(manifest.engines, node)) return
     throw new DeptreeError(`its package.json, patched, has an engines.node, ${quote(String(manifest.engines.node))}, that does not take Node ${node}, which pnpm ${host.major} refuses with engineStrict, or removes the package for where it is optional`, where)
@@ -232,12 +232,11 @@ function skippedSnapshots11(lockfile, check) {
     queue.push(...edgesOf(pkg.dependencies, false), ...edgesOf(pkg.optionalDependencies, true))
   }
   const skipped = new Set()
-  const warned = new Set()
+  const incompatible = new Set()
   for (const key of reached.keys()) {
-    const pkg = lockfile.packages[key]
-    const ok = check(key, pkg, !installed.has(key) || !required.has(key))
+    const ok = check(key, lockfile.packages[key], !installed.has(key) || !required.has(key))
     if (ok === false) skipped.add(key)
-    if (ok === null) warned.add(key)
+    if (ok === null) incompatible.add(key)
   }
   const seen = new Set()
   for (let i = 0; i < starts.length; i++) {
@@ -248,7 +247,7 @@ function skippedSnapshots11(lockfile, check) {
     if (!installed.has(key) && pkg.optional) skipped.add(key)
     starts.push(...[...edgesOf(pkg.dependencies), ...edgesOf(pkg.optionalDependencies)].map((edge) => edge.key))
   }
-  return { skipped, incompatible: warned }
+  return { skipped, incompatible }
 }
 
 // The keys of the snapshots left out, and of those installed although the

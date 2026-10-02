@@ -108,9 +108,7 @@ export function inputsOf(options) {
       read.set(dir, readManifest(readText(project, `/${dir}/package.json`, `manifests[${quote(dir)}]`), `manifests[${quote(dir)}]`))
     }
     if (typeOf(project, '/.yarnrc.yml') !== undefined) throw new DeptreeError('a .yarnrc.yml, whose yarnPath yarn 1.22 runs in its stead, is not supported', '.yarnrc.yml')
-    const rc = readText(project, '/.yarnrc')
-    const npm = readText(project, '/.npmrc')
-    return { lockfile: text, manifests: read, settings: readSettings({ yarnrc: rc, npmrc: npm }), project }
+    return { lockfile: text, manifests: read, settings: readSettings({ yarnrc: readText(project, '/.yarnrc'), npmrc: readText(project, '/.npmrc') }), project }
   }
   if (typeof lockfile !== 'string') throw new TypeError(LOCKFILE)
   if (manifests === null || typeof manifests !== 'object') throw new TypeError('manifests must map each project\'s directory to its package.json')

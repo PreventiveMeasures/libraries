@@ -87,7 +87,7 @@ function downloadsNode(runtime, where) {
   if (!runtime) return false
   if (!Array.isArray(runtime)) return runtime.name === 'node' && runtime.onFail === 'download'
   for (const item of runtime) {
-    if (item === null || item === undefined) throw new DeptreeError('its engines.runtime lists nothing where pnpm reads a runtime, which pnpm fails on', where)
+    if (item == null) throw new DeptreeError('its engines.runtime lists nothing where pnpm reads a runtime, which pnpm fails on', where)
     if (item.name === 'node') return item.onFail === 'download'
   }
   return false
@@ -247,10 +247,8 @@ export function bundledCommands(node, where, major) {
     if (file !== undefined) {
       const manifest = parseManifest(file, here)
       commands.push(...commandsOf(dir, major >= 12 ? manifest : normalized(manifest, here), node.files, node.dir, here, major))
-    } else if (major >= 12) {
-      continue
     } else if (major >= 11) {
-      throw new DeptreeError('it bundles a package with no package.json, whose bins pnpm 11 looks for above it', here)
+      if (major < 12) throw new DeptreeError('it bundles a package with no package.json, whose bins pnpm 11 looks for above it', here)
     } else if (name in RUNTIMES) {
       commands.push({ name, target: `${dir}/${RUNTIMES[name]}`, owner: node.dir, own: true, pkgName: '', pkgVersion: '' })
     }

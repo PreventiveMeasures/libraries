@@ -185,7 +185,7 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
       const commands = entries.flatMap(([path, dir]) => commandsOfDir(dir).map((command) => ({ ...command, direct: isOwn(path) })))
       const names = new Set(commands.filter((command) => command.direct).map(({ name }) => name))
       relink ||= major >= 12 && entries.some(([path, dir]) => !isOwn(path) && mayHaveBin(dir))
-      linked = link([...commands.filter((command) => command.direct), ...commands.filter((command) => !command.direct && !names.has(command.name))], { ordered: false, where, fixNode: relink })
+      linked = link([...commands.filter((command) => command.direct), ...commands.filter((command) => !names.has(command.name))], { ordered: false, where, fixNode: relink })
     } else {
       // pnpm 11 reads the bins only of what the lockfile says has some.
       const dirs = [...children.values()].filter((dir) => major < 11 || !nodes.has(dir) || (major >= 12 ? mayHaveBin(dir) : nodes.get(dir).pkg.hasBin))
@@ -235,7 +235,6 @@ function fixedFiles(nodes, fixed, contested, major) {
   }
   return byNode
 }
-
 
 // Whether a file starts with a `#!` line ending in CRLF, as fixBin reads
 // its first 2048 bytes to tell.

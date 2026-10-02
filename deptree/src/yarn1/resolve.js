@@ -39,13 +39,9 @@ const TURNS = { registry: 5, workspace: 3 }
 // yarn's normalizePattern.
 export function splitPattern(pattern) {
   const scoped = pattern.startsWith('@')
-  const parts = (scoped ? pattern.slice(1) : pattern).split('@')
-  let name = parts.shift()
-  let range = 'latest'
-  const hasVersion = parts.length > 0 && parts.join('@') !== ''
-  if (parts.length > 0) range = parts.join('@') || '*'
-  if (scoped) name = `@${name}`
-  return { name, range, hasVersion }
+  const [name, ...parts] = (scoped ? pattern.slice(1) : pattern).split('@')
+  const version = parts.join('@')
+  return { name: scoped ? `@${name}` : name, range: parts.length === 0 ? 'latest' : version || '*', hasVersion: version !== '' }
 }
 
 // How yarn's registry resolver reads a range before it looks the pattern
@@ -72,14 +68,10 @@ function asked(info, where) {
   const workspace = info.kind === 'workspace'
   const lists = workspace ? info.workspace.manifest : info.entry
   const kinds = [['dependencies', false, false], ['optionalDependencies', true, false], ...workspace ? [['devDependencies', false, true]] : []]
-  const out = []
-  for (const [kind, optional, dev] of kinds) {
-    for (const [name, value] of Object.entries(lists[kind] ?? {})) {
-      if (!workspace && value.startsWith('link:')) throw new DeptreeError(`its dependency on ${quote(name)} is a workspace, which is not supported`, where)
-      out.push({ pattern: workspace ? `${name}@${value}` : value, optional, dev })
-    }
-  }
-  return out
+  return kinds.flatMap(([kind, optional, dev]) => Object.entries(lists[kind] ?? {}).map(([name, value]) => {
+    if (!workspace && value.startsWith('link:')) throw new DeptreeError(`its dependency on ${quote(name)} is a workspace, which is not supported`, where)
+    return { pattern: workspace ? `${name}@${value}` : value, optional, dev }
+  }))
 }
 
 // Where yarn's cache keeps a package (generateModuleCachePath), which is
@@ -172,17 +164,12 @@ class Resolver {
       workspace: info.workspace,
       patterns: [],
       requests: [request],
-      asked: [],
+      asked: asked(info, quote(request.pattern)),
       optional: request.optional,
     }
     this.addPattern(request.pattern, ref)
     const parentNames = [...request.parentNames ?? [], name]
-    const children = []
-    for (const dep of asked(info, quote(request.pattern))) {
-      ref.asked.push(dep)
-      children.push({ pattern: dep.pattern, parentNames, optional: dep.optional || (!dep.dev && request.optional) })
-    }
-    return children
+    return ref.asked.map((dep) => ({ pattern: dep.pattern, parentNames, optional: dep.optional || (!dep.dev && request.optional) }))
   }
 
   // A request a resolution applies to, given the resolution's package.
@@ -264,6 +251,5 @@ export function resolve({ top, ...options }) {
   const resolver = new Resolver(options)
   for (const request of top) resolver.run(request)
   resolver.settle()
-  const { patterns, byName } = resolver
-  return { patterns, byName }
+  return { patterns: resolver.patterns, byName: resolver.byName }
 }

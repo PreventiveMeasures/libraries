@@ -21,13 +21,13 @@
 // each written is listed, as an SBOM would take it.
 
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
-import { Vfs, VfsError } from '@preventive/vfs'
+import { Vfs } from '@preventive/vfs'
 import { dirname, relative } from '@preventive/vfs/path.js'
 import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote, refusalOf } from '../error.js'
 import { checkCollisions, checkNoModules, mount } from '../mount.js'
 import { applyPatch, parsePatch } from '../patch.js'
-import { checkProject } from '../project.js'
+import { checkProject, typeOf } from '../project.js'
 import { REGISTRY, tarballUrl } from '../tarball.js'
 import { binTargets, checkPatchOfBins, fixBin, requiresBuild } from './bins.js'
 import { buildGraph } from './graph.js'
@@ -136,18 +136,12 @@ async function fetchNodes(nodes, hook, project, major, fresh) {
 function executableElsewhere(byDir, targets, packageImportMethod, major) {
   if (major >= 11 && packageImportMethod !== 'auto' && packageImportMethod !== 'hardlink') return new Map()
   const shared = [...byDir.values()].filter((node) => node.pkg.resolution.type === 'directory' && !requiresBuild(node.manifest, node.files, major))
-  const byPackage = new Map()
-  for (const node of shared) {
-    const id = packageKeyOf(node.key)
-    if (!byPackage.has(id)) byPackage.set(id, new Set())
-    for (const path of targets.get(node.dir) ?? []) byPackage.get(id).add(path)
-  }
-  const executable = new Map()
-  for (const node of shared) {
+  const byPackage = Map.groupBy(shared, (node) => packageKeyOf(node.key))
+  return new Map(shared.map((node) => {
     const own = targets.get(node.dir) ?? new Set()
-    executable.set(node.dir, new Set([...byPackage.get(packageKeyOf(node.key))].filter((path) => !own.has(path))))
-  }
-  return executable
+    const all = byPackage.get(packageKeyOf(node.key)).flatMap((other) => [...targets.get(other.dir) ?? []])
+    return [node.dir, new Set(all.filter((path) => !own.has(path)))]
+  }))
 }
 
 // A snapshot's files as pnpm leaves them: its package's, the patch the
@@ -159,7 +153,6 @@ function compose(node, patches, { targets, executable }, { major, checkPatched }
   let files = node.files
   const { patchHash } = node.pkg
   if (patchHash !== undefined) {
-    if (!patches.has(patchHash)) throw new DeptreeError(`the patch ${patchHash} is not given`, where)
     const patch = patches.get(patchHash)
     patch.parsed ??= parsePatch(patch.text, patch.path)
     // Once for each package, whatever its snapshots.
@@ -176,17 +169,6 @@ function compose(node, patches, { targets, executable }, { major, checkPatched }
   return files
 }
 
-// Whether anything is at `path`, by its name.
-function isThere(vfs, path) {
-  try {
-    vfs.lstat(path)
-  } catch (error) {
-    if (error instanceof VfsError) return false
-    throw error
-  }
-  return true
-}
-
 // `dir` and each directory above it up to one `made` holds, as made.
 function addMade(made, dir) {
   for (let at = dir; !made.has(at) && at !== '/'; at = dirname(at)) made.add(at)
@@ -200,7 +182,7 @@ function addMade(made, dir) {
 // yet.
 function writeNode(vfs, dir, files, stats) {
   const root = `/${dir}`
-  if (isThere(vfs, root)) throw new DeptreeError('would be written over with something else', quote(dir))
+  if (typeOf(vfs, root, false) !== undefined) throw new DeptreeError('would be written over with something else', quote(dir))
   vfs.mkdir(root, { recursive: true })
   const made = new Set([root])
   for (const [path, file] of files) {
@@ -302,24 +284,24 @@ export async function buildPnpmTree(options) {
   const host = { pnpm, major, ...machine }
   // pnpm 11 locks config dependencies there, which are refused, and the
   // pnpm a project pins, which leaves the tree as it is.
-  if (env !== undefined && host.major < 11) throw new DeptreeError('the env document pnpm 11 writes is not supported', 'env')
+  if (env !== undefined && major < 11) throw new DeptreeError('the env document pnpm 11 writes is not supported', 'env')
   if (env !== undefined && Object.keys(env.importers['.'].configDependencies).length > 0) throw new DeptreeError('config dependencies are not supported', 'env.importers["."].configDependencies')
-  const settings = readSettings({ workspace, npmrc: inputs.npmrc, manifest: manifests.get('.'), major: host.major, pinned: pinsPnpm(manifests.get('.'), host.pnpm) })
-  checkWorkspace(Object.keys(lockfile.importers), settings.packages, host.major)
-  const overrides = listOverrides(settings.overrides, settings.catalogs, host.major)
+  const settings = readSettings({ workspace, npmrc: inputs.npmrc, manifest: manifests.get('.'), major, pinned: pinsPnpm(manifests.get('.'), host.pnpm) })
+  checkWorkspace(Object.keys(lockfile.importers), settings.packages, major)
+  const overrides = listOverrides(settings.overrides, settings.catalogs, major)
   const installed = checkLocalOverrides(overrides, project)
   const patches = patchesOf(inputs, settings.patchedDependencies)
-  const patched = await checkUpToDate(lockfile, settings, overrides, patches, host.major)
-  const hook = createHook({ overrides, ignored: settings.ignoredOptionalDependencies, major: host.major })
+  const patched = await checkUpToDate(lockfile, settings, overrides, patches, major)
+  const hook = createHook({ overrides, ignored: settings.ignoredOptionalDependencies, major })
   checkProjects(lockfile, manifests, { hook, host, settings, env })
   checkOptional(lockfile)
   const projects = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
   const { skipped, incompatible } = skippedSnapshots(lockfile, { host, settings })
-  const { nodes, direct, hoisting } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, host.major)
+  const { nodes, direct, hoisting } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, major)
   for (const node of nodes.values()) checkSource(node, installed)
 
-  const { byDir, tarballs } = await fetchNodes(nodes, hook, project, host.major, createFreshnessCheck(lockfile, host.major))
-  const links = linksOf(byDir, direct, settings, projects, host.major, hoisting)
+  const { byDir, tarballs } = await fetchNodes(nodes, hook, project, major, createFreshnessCheck(lockfile, major))
+  const links = linksOf(byDir, direct, settings, projects, major, hoisting)
   const linked = readLinked(links, byDir, manifests, project)
   const targets = binTargets({
     nodes: byDir,
@@ -329,20 +311,19 @@ export async function buildPnpmTree(options) {
     publicHoist: settings.publicHoistPattern?.length > 0,
     building: Object.keys(settings.patchedDependencies ?? {}).length > 0,
     peers: settings.autoInstallPeers,
-    major: host.major,
+    major,
   })
-  const executable = executableElsewhere(byDir, targets, settings.packageImportMethod, host.major)
+  const executable = executableElsewhere(byDir, targets, settings.packageImportMethod, major)
   const prod = reachedInProd(lockfile.importers, nodes, byDir)
 
   const vfs = new Vfs()
   vfs.mkdir('/node_modules/.pnpm', { recursive: true })
-  const stats = { projects: manifests.size, snapshots: Object.keys(lockfile.packages).length, installed: nodes.size, skipped: skipped.size, incompatible: incompatible.size, tarballs, patched: 0, files: 0, bytes: 0, links: links.size }
+  const stats = { projects: manifests.size, snapshots: Object.keys(lockfile.packages).length, installed: nodes.size, skipped: skipped.size, incompatible: incompatible.size, tarballs, patched: [...nodes.values()].filter((node) => node.pkg.patchHash !== undefined).length, files: 0, bytes: 0, links: links.size }
   const listed = []
-  const composing = { major: host.major, checkPatched: createPatchedCheck({ host, settings }) }
+  const composing = { major, checkPatched: createPatchedCheck({ host, settings }) }
   // Each node is let go once written, and a package's files with its last.
   for (const node of byDir.values()) {
     byDir.delete(node.dir)
-    if (node.pkg.patchHash !== undefined) stats.patched++
     try {
       writeNode(vfs, node.dir, compose(node, patched, { targets: targets.get(node.dir) ?? new Set(), executable: executable.get(node.dir) ?? new Set() }, composing), stats)
     } catch (error) {

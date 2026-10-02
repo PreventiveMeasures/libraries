@@ -12,7 +12,7 @@ import { satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, difference, quote } from '../error.js'
 import { readManifest } from '../manifest.js'
 import { readText, typeOf } from '../project.js'
-import { targetName, versionRange } from './frozen.js'
+import { parseSpec } from './frozen.js'
 import { localOf } from './overrides.js'
 import { packDirectory } from './packlist.js'
 
@@ -67,8 +67,8 @@ export function readLinked(links, nodes, projects, project) {
 function resolvesTo(name, spec, target, packages) {
   if (target.startsWith('link:')) return false
   const locked = packages[target]
-  if (locked.name !== targetName(spec, name)) return false
-  const range = versionRange(spec)
+  const { name: wanted, range } = parseSpec(spec, name)
+  if (locked.name !== wanted) return false
   const version = valid(locked.version ?? '')
   return validRange(range) === null || version === null || satisfies(version, range)
 }

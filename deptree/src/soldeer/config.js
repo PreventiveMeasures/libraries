@@ -37,12 +37,6 @@ function checkLibs(doc) {
   if (libs !== undefined && (!Array.isArray(libs) || isTableItem(libs[0]))) throw new DeptreeError('not an array, which Soldeer fails on', 'foundry.toml: profile.default.libs')
 }
 
-function checkDependencies(doc, file) {
-  if (doc.dependencies !== undefined && !isTableItem(doc.dependencies)) {
-    throw new DeptreeError('not a table, which Soldeer reads no dependencies from, is not supported', `${file}: dependencies`)
-  }
-}
-
 const BOOLEANS = ['remappings_generate', 'remappings_regenerate', 'remappings_version', 'recursive_deps']
 
 // read_soldeer_config's SoldeerConfig, by serde: each field of its type,
@@ -69,7 +63,7 @@ export function configOf({ foundry, soldeer }) {
   const file = foundry === undefined ? 'soldeer.toml' : 'foundry.toml'
   const config = parse(foundry ?? soldeer, file)
   if (foundry === undefined) {
-    checkDependencies(config, file)
+    if (config.dependencies !== undefined && !isTableItem(config.dependencies)) throw new DeptreeError('not a table, which Soldeer reads no dependencies from, is not supported', 'soldeer.toml: dependencies')
   } else {
     if (!isTableItem(config.dependencies)) throw new DeptreeError(`no [dependencies] table, so ${ASKS}`, file)
     checkLibs(config)

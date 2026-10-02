@@ -19,29 +19,18 @@ const VIRTUAL_STORE = 'node_modules/.pnpm'
 // The lockfile reader holds every other target to be a snapshot.
 const childOf = (target, nodes) => (target.startsWith('link:') ? target.slice(5) : nodes.get(target)?.dir)
 
-function childrenOf(targets, nodes) {
-  const children = new Map()
-  for (const [alias, target] of Object.entries(targets)) {
-    const dir = childOf(target, nodes)
-    if (dir !== undefined) children.set(alias, dir)
-  }
-  return children
-}
+const childrenOf = (targets, nodes) => new Map(Object.entries(targets).map(([alias, target]) => [alias, childOf(target, nodes)]).filter(([, dir]) => dir !== undefined))
 
 // The graph pnpm 12 hoists from: a node for every snapshot, skipped or
 // not, by its directory, its children skipped or not; and each project's
 // direct dependencies but its `link:`s, skipped or not, the projects in
 // the order of their ids' bytes. `all` holds every snapshot's node.
 function hoistingOf(lockfile, all) {
-  const nodes = new Map()
-  for (const node of all.values()) {
-    nodes.set(node.dir, { dir: node.dir, modules: node.modules, children: childrenOf({ ...node.pkg.dependencies, ...node.pkg.optionalDependencies }, all) })
-  }
-  const direct = new Map()
-  for (const id of Object.keys(lockfile.importers).sort(compareNames)) {
+  const nodes = new Map([...all.values()].map((node) => [node.dir, { modules: node.modules, children: childrenOf({ ...node.pkg.dependencies, ...node.pkg.optionalDependencies }, all) }]))
+  const direct = new Map(Object.keys(lockfile.importers).sort(compareNames).map((id) => {
     const { devDependencies, dependencies, optionalDependencies } = lockfile.importers[id]
-    direct.set(id, new Map([...childrenOf({ ...devDependencies, ...dependencies, ...optionalDependencies }, all)].filter(([, dir]) => nodes.has(dir))))
-  }
+    return [id, new Map([...childrenOf({ ...devDependencies, ...dependencies, ...optionalDependencies }, all)].filter(([, dir]) => nodes.has(dir)))]
+  }))
   return { nodes, direct }
 }
 
@@ -66,9 +55,6 @@ export async function buildGraph(lockfile, skipped, maxLength, major = 10) {
   for (const node of nodes.values()) {
     node.children = childrenOf({ ...node.pkg.dependencies, ...node.pkg.optionalDependencies }, nodes)
   }
-  const direct = new Map()
-  for (const [id, importer] of Object.entries(lockfile.importers)) {
-    direct.set(id, childrenOf({ ...importer.devDependencies, ...importer.dependencies, ...importer.optionalDependencies }, nodes))
-  }
+  const direct = new Map(Object.entries(lockfile.importers).map(([id, importer]) => [id, childrenOf({ ...importer.devDependencies, ...importer.dependencies, ...importer.optionalDependencies }, nodes)]))
   return { nodes, direct, hoisting: major >= 12 ? hoistingOf(lockfile, all) : undefined }
 }
