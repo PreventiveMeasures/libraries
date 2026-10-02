@@ -313,7 +313,13 @@ describe('a package', () => {
     refuses(edit((doc) => put(doc.packages[0], 'extra', [])), 'expected a non-empty mapping or sequence, found a sequence', at(0, '.extra'))
     refuses(edit((doc) => put(doc.packages[0], 'scripts', { test: 'phpunit' })), 'expected a sequence, as Composer writes even one listener, found the string "phpunit"', at(0, '.scripts.test'))
     refuses(edit((doc) => put(doc.packages[0], 'notification-url', 'x')), '"x" is not an http(s) URL, which Composer posts installs to', at(0, '["notification-url"]'))
-    refuses(edit((doc) => put(doc.packages[0], 'target-dir', '../x')), '"../x" leads out of the package\'s directory', at(0, '["target-dir"]'))
+    // As Package::getTargetDir leaves it, `.` and `..` dropped: `""` of `.`,
+    // as Composer 2.7 and later write it.
+    refuses(edit((doc) => put(doc.packages[0], 'target-dir', '../x')), '"../x" is not written as Composer writes a target-dir, "x"', at(0, '["target-dir"]'))
+    refuses(edit((doc) => put(doc.packages[0], 'target-dir', './x/../y')), '"./x/../y" is not written as Composer writes a target-dir, "x/y"', at(0, '["target-dir"]'))
+    refuses(edit((doc) => put(doc.packages[0], 'target-dir', '.')), '"." is not written as Composer writes a target-dir, ""', at(0, '["target-dir"]'))
+    refuses(edit((doc) => put(doc.packages[0], 'target-dir', 'C:/x')), '"C:/x" is an absolute path, of the machine the lockfile was written on', at(0, '["target-dir"]'))
+    assert.deepEqual(['', 'x/y'].map((dir) => parseComposerLock(edit((doc) => put(doc.packages[0], 'target-dir', dir))).packages['a/app'].targetDir), ['', 'x/y'])
   })
 
   it('a time as DATE_RFC3339 writes it, of a real date', () => {

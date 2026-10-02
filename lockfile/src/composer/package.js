@@ -266,11 +266,16 @@ function checkBin(value, where) {
   return bin
 }
 
-// target-dir, under the package's directory: no `..`, nothing absolute.
+// Package::getTargetDir: each `.` and `..` segment dropped, and a leading
+// `/`, so that the directory is under the package's.
+const targetDirOf = (dir) => dir.replace(/(?:^|[\\/]+)\.\.?(?:[\\/]+|$)(?:\.\.?(?:[\\/]+|$))*/gu, '/').replace(/^\/+/u, '')
+
+// target-dir as Composer writes it, of getTargetDir: empty for the
+// package's directory itself, `.`, which Composer 2.7 and later write.
 function checkTargetDir(value, where) {
-  const path = checkPath(value, where)
-  if (path.split('/').includes('..')) throw new LockfileError(`${quote(path)} leads out of the package's directory`, where)
-  return path
+  const dir = plain(value, where)
+  if (targetDirOf(dir) !== dir) throw new LockfileError(`${quote(dir)} is not written as Composer writes a target-dir, ${quote(targetDirOf(dir))}`, where)
+  return dir === '' ? dir : checkPath(dir, where)
 }
 
 function readSuggest(value, where) {
