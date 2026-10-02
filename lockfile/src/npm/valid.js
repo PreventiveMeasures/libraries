@@ -53,10 +53,13 @@ function gitValid(child, requested, semver) {
     ? resolved.hosted === undefined && resolved.fetchSpec === requested.fetchSpec
     : resolved.hosted !== undefined && sshOf(requested.hosted, commit) === sshOf(resolved.hosted, commit)
   if (!same) return `asks for another repository than ${describe(child)} is from${commit ? ', or another commit' : ''}`
-  // npm passes over the commit of a repository on no host it knows.
-  if (commit && requested.committish.toLowerCase() !== resolution.commit) return `asks for another commit than ${describe(child)} is of`
-  if (requested.range === null || semver === undefined || semver.satisfies(version, requested.range, true)) return undefined
-  return `asks for a version of the repository ${describe(child)} is not, ${version}`
+  // npm passes over the commit of a repository on no host it knows, which
+  // is held to it here all the same.
+  if (commit && requested.committish.toLowerCase() !== resolution.commit) {
+    return `asks for another commit than ${describe(child)} is of, which npm does not check of a repository on no host it knows`
+  }
+  if (requested.range === null || semver === undefined || semver.satisfies(version ?? '', requested.range, true)) return undefined
+  return `asks for a version of the repository ${describe(child)} is not, ${version ?? 'of no version'}`
 }
 
 // Why a node does not meet a spec, or undefined where it does: depValid,

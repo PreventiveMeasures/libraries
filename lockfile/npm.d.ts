@@ -5,7 +5,9 @@
 // carries the tree again as npm 6 reads it, and npm 12's version 4, for
 // patches and package extensions, are refused; so is a package with a
 // shrinkwrap of its own, and one the lockfile does not say where it comes
-// from, which npm fetches by its name and version, unchecked.
+// from, which npm fetches by its name and version, unchecked. An alias is
+// held to the package it names, and a repository on a host npm does not
+// know to the commit asked for, which npm leaves unchecked.
 //
 // What npm reads beside the lockfile is not: the overrides of package.json,
 // which change what a dependency asks for, and npm's config, of which only
@@ -91,7 +93,9 @@ export interface NpmEdge {
 export interface NpmManifest {
   // The name a package is published under: an alias's is not its folder's.
   name: string
-  version: string
+  // None where the package.json has none: a directory's, or a git
+  // repository's.
+  version: string | undefined
   // By name.
   edges: Record<string, NpmEdge>
   bundleDependencies: string[]
@@ -115,11 +119,10 @@ export interface NpmManifest {
 
 export type NpmFunding = string | Record<string, string>
 
-export interface NpmImporter extends Omit<NpmManifest, 'name' | 'version'> {
+export interface NpmImporter extends Omit<NpmManifest, 'name'> {
   // The project's may have none; any other's is its folder's where npm
   // writes none.
   name: string | undefined
-  version: string | undefined
   // One of the project's workspaces.
   workspace: boolean
   // Its globs of workspaces, as written; npm reads the project's alone.

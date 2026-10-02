@@ -299,7 +299,8 @@ describe('the lockfile npm writes, and no other', () => {
 
   it('a version of a package', () => {
     refuses(edit((l) => (l.packages['node_modules/b'].version = 'v1.0.0')), '"v1.0.0" is not a version', `${P('node_modules/b')}.version`)
-    refuses(edit((l) => delete l.packages['node_modules/b'].version), 'expected a string, found nothing', `${P('node_modules/b')}.version`)
+    refuses(edit((l) => delete l.packages['node_modules/b'].version), 'expected a version, which only a package from a git repository is read without', `${P('node_modules/b')}.version`)
+    refuses(edit((l) => delete l.packages['node_modules/f'].version), 'expected a version, which only a package from a git repository is read without', `${P('node_modules/f')}.version`)
   })
 
   it('devOptional where neither dev nor optional is', () => {
@@ -433,9 +434,25 @@ describe('each dependency is met where npm looks for it', () => {
     refuses(edit((l) => (l.packages[''].dependencies.e = 'github:user/e#semver:^4.0.0')), '"github:user/e#semver:^4.0.0" asks for a version of the repository "node_modules/e" is not, 3.0.0, so npm would install another', e)
     refuses(edit((l) => (l.packages[''].dependencies.e = 'git+https://example.com/e.git')), '"git+https://example.com/e.git" asks for another repository than "node_modules/e" is from, so npm would install another', e)
     refuses(edit((l) => (l.packages[''].dependencies.b = 'github:user/b')), '"github:user/b" asks for a git repository, and "node_modules/b" is from none, so npm would install another', `${P('')}.dependencies.b`)
+    // npm takes another commit of a repository on no host it knows.
+    const elsewhere = (spec) => edit((l) => {
+      l.packages[''].dependencies.e = spec
+      l.packages['node_modules/e'].resolved = `git+https://example.com/e.git#${C}`
+    })
+    assert.equal(parse(elsewhere('git+https://example.com/e.git')).packages['node_modules/e'].resolution.commit, C)
+    refuses(elsewhere(`git+https://example.com/e.git#${'f'.repeat(40)}`), `"git+https://example.com/e.git#${'f'.repeat(40)}" asks for another commit than "node_modules/e" is of, which npm does not check of a repository on no host it knows, so npm would install another`, e)
     for (const spec of ['user/e', 'git+ssh://git@github.com/user/e.git', 'https://github.com/user/e', `github:user/e#${C}`, 'git@github.com:user/e.git#main']) {
       assert.equal(parse(edit((l) => (l.packages[''].dependencies.e = spec))).importers['.'].edges.e.target, 'node_modules/e', spec)
     }
+  })
+
+  it('of a repository whose package.json has no version', () => {
+    const versionless = (spec) => edit((l) => {
+      l.packages[''].dependencies.e = spec
+      delete l.packages['node_modules/e'].version
+    })
+    assert.equal(parse(versionless('github:user/e')).packages['node_modules/e'].version, undefined)
+    refuses(versionless('github:user/e#semver:^3.0.0'), '"github:user/e#semver:^3.0.0" asks for a version of the repository "node_modules/e" is not, of no version, so npm would install another', `${P('')}.dependencies.e`)
   })
 
   it('by what npm reads as a spec', () => {

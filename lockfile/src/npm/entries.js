@@ -139,6 +139,8 @@ function checkTarball(tarball, name, version, where) {
   checkRegistry(tarball, name, version, where)
 }
 
+const GIT = /^git(?:\+[a-z]+)?:/u
+
 // Where a package's files come from: a tarball, by URL, by a `file:` path
 // from the lockfile's directory, or from the registry for its name and
 // version where npm leaves the URL out; or a commit of a repository.
@@ -148,7 +150,7 @@ function readResolution(entry, where, name, version) {
   const resolved = field(entry, 'resolved', where, text)
   const integrity = field(entry, 'integrity', where, readIntegrity)
   if (resolved === undefined) return integrity === undefined ? undefined : { type: 'tarball', tarball: undefined, integrity }
-  if (/^git(?:\+[a-z]+)?:/u.test(resolved)) {
+  if (GIT.test(resolved)) {
     if (integrity !== undefined) throw new LockfileError('an integrity, which npm does not check for a git repository', at(where, 'integrity'))
     const sep = resolved.lastIndexOf('#')
     if (sep === -1 || !isCommit(resolved.slice(sep + 1))) throw new LockfileError(`expected a full commit hash after the "#" of ${quote(resolved)}`, resolvedAt)
@@ -186,7 +188,11 @@ export function readEntry(entry, where, kindOf, folder) {
   }
   const name = field(entry, 'name', where, readName)
   if (name !== undefined && name === folder) throw new LockfileError('the name of its folder, which npm leaves out', at(where, 'name'))
-  const version = kindOf === 'package' ? checkVersion(entry.version, at(where, 'version')) : field(entry, 'version', where, text)
+  const version = field(entry, 'version', where, kindOf === 'package' ? checkVersion : text)
+  // npm leaves out the version of a repository's package.json that has none.
+  if (kindOf === 'package' && version === undefined && !GIT.test(entry.resolved ?? '')) {
+    throw new LockfileError('expected a version, which only a package from a git repository is read without', at(where, 'version'))
+  }
   const pkg = { name: name ?? folder, version, ...read, hasInstallScript: flag(entry.hasInstallScript, at(where, 'hasInstallScript')), flags: readFlags(entry, where) }
   if (kindOf === 'package') {
     pkg.resolution = readResolution(entry, where, pkg.name, version)
