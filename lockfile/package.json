@@ -1,7 +1,7 @@
 {
   "name": "@preventive/lockfile",
   "version": "1.0.0-alpha.4",
-  "description": "Strict lockfile readers: pnpm-lock.yaml v9, yarn.lock v1, soldeer.lock, foundry.lock and Cargo.lock v3 and v4, checked field by field, their packages and graphs resolved, with Cargo.toml, vendored copies and cargo's features, and the YAML, TOML and Rust semver parsers beside them",
+  "description": "Strict lockfile readers: pnpm-lock.yaml v9, yarn.lock v1, soldeer.lock, foundry.lock, Cargo.lock v3 and v4, uv.lock, poetry.lock and pylock.toml, checked field by field, their packages and graphs resolved, with Cargo.toml, vendored copies and cargo's features, and the YAML, TOML and Rust semver parsers beside them",
   "type": "module",
   "exports": {
     "./foundry.js": {
@@ -16,9 +16,21 @@
       "types": "./cargo.d.ts",
       "default": "./cargo.js"
     },
+    "./poetry.js": {
+      "types": "./poetry.d.ts",
+      "default": "./poetry.js"
+    },
+    "./pylock.js": {
+      "types": "./pylock.d.ts",
+      "default": "./pylock.js"
+    },
     "./soldeer.js": {
       "types": "./soldeer.d.ts",
       "default": "./soldeer.js"
+    },
+    "./uv.js": {
+      "types": "./uv.d.ts",
+      "default": "./uv.js"
     },
     "./yaml.js": {
       "types": "./yaml.d.ts",
@@ -46,6 +58,10 @@
     "foundry.js",
     "pnpm.d.ts",
     "pnpm.js",
+    "poetry.d.ts",
+    "poetry.js",
+    "pylock.d.ts",
+    "pylock.js",
     "rust-semver.d.ts",
     "rust-semver.js",
     "soldeer.d.ts",
@@ -77,6 +93,13 @@
     "src/pnpm/packages.js",
     "src/pnpm/parse.js",
     "src/pnpm/resolution.js",
+    "src/poetry/lock.js",
+    "src/poetry/package.js",
+    "src/pylock/package.js",
+    "src/pylock/parse.js",
+    "src/python/files.js",
+    "src/python/pep440.js",
+    "src/python/pep508.js",
     "src/shape.js",
     "src/soldeer/config.js",
     "src/soldeer/parse.js",
@@ -84,7 +107,13 @@
     "src/toml/error.js",
     "src/toml/number.js",
     "src/toml/parse.js",
+    "src/toml/shape.js",
     "src/toml/value.js",
+    "src/uv/artifacts.js",
+    "src/uv/inputs.js",
+    "src/uv/lock.js",
+    "src/uv/shape.js",
+    "src/uv/source.js",
     "src/yaml/error.js",
     "src/yaml/parse.js",
     "src/yaml/scalar.js",
@@ -96,6 +125,8 @@
     "src/yarn1/syntax.js",
     "toml.d.ts",
     "toml.js",
+    "uv.d.ts",
+    "uv.js",
     "yaml.d.ts",
     "yaml.js",
     "yarn1.d.ts",
@@ -105,7 +136,7 @@
     "node": ">=24.14.0"
   },
   "scripts": {
-    "test": "node --test ./tests/*.test.js ./tests/cargo/*.test.js ./tests/foundry/*.test.js ./tests/soldeer/*.test.js ./tests/toml/*.test.js ./tests/yaml/*.test.js ./tests/yarn1/*.test.js"
+    "test": "node --test ./tests/*.test.js ./tests/cargo/*.test.js ./tests/foundry/*.test.js ./tests/poetry/*.test.js ./tests/pylock/*.test.js ./tests/python/*.test.js ./tests/soldeer/*.test.js ./tests/toml/*.test.js ./tests/uv/*.test.js ./tests/yaml/*.test.js ./tests/yarn1/*.test.js"
   },
   "license": "MIT OR Apache-2.0",
   "author": {
