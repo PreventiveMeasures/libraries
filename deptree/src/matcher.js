@@ -4,7 +4,7 @@
 // cancels what matched before it, and only a later inclusion matches again;
 // a list of exclusions alone matches what none of them does. And the walk
 // of a path through a glob, which pnpm's workspace globs and yarn's share
-// (pnpm/workspace.js, yarn1/glob.js).
+// (pnpm/workspace.js, glob.js).
 
 export const escape = (text) => text.replace(/[$()+.?[\\\]^{|}]/gu, '\\$&')
 

@@ -552,6 +552,18 @@ describe('the flags npm writes', () => {
     refuses(unasked((entry) => Object.assign(entry, { dev: undefined, devOptional: true, peer: true })), 'expected true, as npm sets it from what depends on it', `${P('node_modules/dv')}.dev`)
   })
 
+  it('as the npm that installs sets them, where given', () => {
+    const lock = linked(() => {})
+    assert.equal(parse(lock, { semver, npm: '11.17.0' }).packages['node_modules/dv'].dev, true)
+    refuses(lock, 'expected none, as npm 11.6.0 sets it from what depends on it', `${P('node_modules/dv')}.dev`, { semver, npm: '11.6.0' })
+    refuses(lock, 'expected none, as npm 10.9.9 sets it from what depends on it', `${P('node_modules/dv')}.dev`, { semver, npm: '10.9.9' })
+    const cleared = linked((l) => delete l.packages['node_modules/dv'].dev)
+    assert.equal(parse(cleared, { semver, npm: '11.6.0' }).packages['node_modules/dv'].dev, false)
+    assert.equal(parse(cleared, { semver, npm: '10.9.9' }).packages['node_modules/dv'].dev, false)
+    refuses(cleared, 'expected true, as npm 11.18.0 sets it from what depends on it', `${P('node_modules/dv')}.dev`, { semver, npm: '11.18.0' })
+    refuses(cleared, 'expected true, as npm 12.2.0 sets it from what depends on it', `${P('node_modules/dv')}.dev`, { semver, npm: '12.2.0' })
+  })
+
   it('refused where no version sets them so, as the latest would', () => {
     refuses(linked((l) => (l.packages['node_modules/dv'].optional = true)), 'expected none, as npm sets it from what depends on it', `${P('node_modules/dv')}.optional`)
   })
@@ -578,8 +590,10 @@ describe('arguments', () => {
     assert.throws(() => parseNpmLockfile(Buffer.from(write(BASE))), { name: 'TypeError', message: 'expected a string' })
     assert.throws(() => parseNpmLockfile(write(BASE)), { name: 'TypeError', message: 'checkVersions needs semver: pass it as semver, or set checkVersions to false' })
     assert.throws(() => parseNpmLockfile(write(BASE), { semver: {} }), { name: 'TypeError', message: 'semver: expected the semver package, with satisfies, valid, validRange' })
-    assert.throws(() => parseNpmLockfile(write(BASE), { manifests: {} }), { name: 'TypeError', message: 'unknown option "manifests", of checkVersions, semver, legacyPeerDeps' })
+    assert.throws(() => parseNpmLockfile(write(BASE), { manifests: {} }), { name: 'TypeError', message: 'unknown option "manifests", of checkVersions, semver, legacyPeerDeps, npm' })
     assert.throws(() => parseNpmLockfile(write(BASE), { checkVersions: 0 }), { name: 'TypeError', message: 'checkVersions: expected a boolean' })
+    assert.throws(() => parseNpmLockfile(write(BASE), { checkVersions: false, npm: 'v11.12.1' }), { name: 'TypeError', message: 'npm: expected a version of npm 9 or later, such as 11.12.1' })
+    assert.throws(() => parseNpmLockfile(write(BASE), { checkVersions: false, npm: '8.19.4' }), { name: 'TypeError', message: 'npm: expected a version of npm 9 or later, such as 11.12.1' })
   })
 })
 

@@ -13,15 +13,16 @@ import { readJson } from './json.js'
 import { directoryOf, loadGraph, readNodes, readWorkspaces } from './tree.js'
 import { checkEdges } from './valid.js'
 
-const OPTIONS = ['checkVersions', 'semver', 'legacyPeerDeps']
+const OPTIONS = ['checkVersions', 'semver', 'legacyPeerDeps', 'npm']
 const SEMVER = ['satisfies', 'valid', 'validRange']
 const FIELDS = ['name', 'version', 'lockfileVersion', 'requires', 'packages', ...FLAGS]
 
 function readOptions(options) {
-  const { semver, legacyPeerDeps = false } = checkOptions(options, OPTIONS)
+  const { semver, legacyPeerDeps = false, npm } = checkOptions(options, OPTIONS)
   const checkVersions = checkSemver(options, SEMVER)
   if (typeof legacyPeerDeps !== 'boolean') throw new TypeError('legacyPeerDeps: expected a boolean')
-  return { semver: checkVersions ? semver : undefined, legacyPeerDeps }
+  if (npm !== undefined && !(/^\d+\.\d+\.\d+$/u.test(npm) && Number(npm.split('.')[0]) >= 9)) throw new TypeError('npm: expected a version of npm 9 or later, such as 11.12.1')
+  return { semver: checkVersions ? semver : undefined, legacyPeerDeps, npm }
 }
 
 // lockfileVersion 2 is the same with the tree again beside it, as npm 6
@@ -82,7 +83,7 @@ function manifestOf(node) {
 
 export function parseNpmLockfile(source, options = {}) {
   if (typeof source !== 'string') throw new TypeError('expected a string')
-  const { semver, legacyPeerDeps } = readOptions(options)
+  const { semver, legacyPeerDeps, npm } = readOptions(options)
   const doc = readJson(source)
   readVersion(doc)
   const nodes = readNodes(doc.packages)
@@ -90,7 +91,7 @@ export function parseNpmLockfile(source, options = {}) {
   const workspaces = readWorkspaces(nodes)
   loadGraph(nodes, workspaces, legacyPeerDeps)
   checkEdges(nodes, semver)
-  checkFlags(nodes)
+  checkFlags(nodes, npm)
   checkBundles(nodes)
   const header = readHeader(doc, root)
   const workspaceOf = new Set(workspaces.values())

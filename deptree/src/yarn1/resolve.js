@@ -23,7 +23,7 @@
 
 import { satisfies, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
-import { matchesGlob } from './glob.js'
+import { matchesGlob } from '../glob.js'
 
 // The microtask turns a request takes before its check, by its resolver.
 const TURNS = { registry: 5, workspace: 3 }

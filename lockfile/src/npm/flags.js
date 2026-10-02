@@ -125,15 +125,16 @@ function calcFlagsBefore(nodes) {
 
 // The first node whose flags are not those `flags` gives it, as npm writes
 // them, and why: devOptional, of the dependencies both of dev and of
-// optional ones, only where neither dev nor optional is.
-function mismatch(nodes, flags) {
+// optional ones, only where neither dev nor optional is. `npm` names the
+// npm that sets them.
+function mismatch(nodes, flags, npm) {
   for (const node of nodes.values()) {
     const own = flags.get(node)
-    if (own.extraneous) return new LockfileError('nothing installed leads to it, so npm takes it as extraneous, and prunes it', node.where)
+    if (own.extraneous) return new LockfileError(`nothing installed leads to it, so ${npm} takes it as extraneous, and prunes it`, node.where)
     if (node.kind === 'link') continue
     const written = { ...own, devOptional: own.devOptional && !own.dev && !own.optional }
     const flag = FLAGS.find((name) => node.flags[name] !== written[name])
-    if (flag !== undefined) return new LockfileError(`expected ${written[flag] ? 'true' : 'none'}, as npm sets it from what depends on it`, at(node.where, flag))
+    if (flag !== undefined) return new LockfileError(`expected ${written[flag] ? 'true' : 'none'}, as ${npm} sets it from what depends on it`, at(node.where, flag))
   }
   return undefined
 }
@@ -142,9 +143,18 @@ function mismatch(nodes, flags) {
 // and later, npm 11.7 to 11.17, and npm 9 to 11.6.
 const VERSIONS = [(nodes) => calcFlags(nodes, false), (nodes) => calcFlags(nodes, true), calcFlagsBefore]
 
-// Each node's flags as npm sets them, all as one version of npm does.
-// Where none, the refusal is the latest version's.
-export function checkFlags(nodes) {
-  const error = mismatch(nodes, VERSIONS[0](nodes))
-  if (error !== undefined && VERSIONS.slice(1).every((calc) => mismatch(nodes, calc(nodes)) !== undefined)) throw error
+// The way an npm, 9 or later, works the flags out.
+function calcOf(npm) {
+  const [major, minor] = npm.split('.').map(Number)
+  if (major > 11 || (major === 11 && minor >= 18)) return VERSIONS[0]
+  return VERSIONS[major === 11 && minor >= 7 ? 1 : 2]
+}
+
+// Each node's flags as npm sets them: all as `npm` does, where given; else
+// as one version of npm does, and where none, the refusal is the latest
+// version's.
+export function checkFlags(nodes, npm) {
+  const calc = npm === undefined ? VERSIONS[0] : calcOf(npm)
+  const error = mismatch(nodes, calc(nodes), npm === undefined ? 'npm' : `npm ${npm}`)
+  if (error !== undefined && (npm !== undefined || VERSIONS.slice(1).every((other) => mismatch(nodes, other(nodes), 'npm') !== undefined))) throw error
 }
