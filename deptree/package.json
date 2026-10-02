@@ -123,8 +123,8 @@
     "@chalker/queue": "^1.0.1",
     "@preventive/archive": "1.0.0-beta.3",
     "@preventive/diff": "^1.0.0",
-    "@preventive/lockfile": "1.0.0-alpha.4",
-    "@preventive/upstream": "1.0.0-alpha.3",
-    "@preventive/vfs": "1.0.0-beta.2"
+    "@preventive/lockfile": "1.0.0-alpha.5",
+    "@preventive/upstream": "1.0.0-alpha.4",
+    "@preventive/vfs": "1.0.0-beta.3"
   }
 }
