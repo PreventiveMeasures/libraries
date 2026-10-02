@@ -4,6 +4,10 @@
   "description": "A dependency tree in memory, as a package manager would install it",
   "type": "module",
   "exports": {
+    "./composer.js": {
+      "types": "./composer.d.ts",
+      "default": "./composer.js"
+    },
     "./pnpm.js": {
       "types": "./pnpm.d.ts",
       "default": "./pnpm.js"
@@ -24,6 +28,8 @@
   "files": [
     "LICENSE-APACHE",
     "LICENSE-MIT",
+    "composer.d.ts",
+    "composer.js",
     "npm.d.ts",
     "npm.js",
     "pnpm.d.ts",
@@ -32,6 +38,12 @@
     "soldeer.js",
     "yarn1.d.ts",
     "yarn1.js",
+    "src/composer/bins.js",
+    "src/composer/config.js",
+    "src/composer/extract.js",
+    "src/composer/inputs.js",
+    "src/composer/packages.js",
+    "src/composer/tree.js",
     "src/concurrent.js",
     "src/error.js",
     "src/glob.js",
@@ -93,7 +105,8 @@
     "src/yarn1/requests.js",
     "src/yarn1/resolve.js",
     "src/yarn1/settings.js",
-    "src/yarn1/tree.js"
+    "src/yarn1/tree.js",
+    "src/zipdir.js"
   ],
   "engines": {
     "node": ">=24.14.0"
