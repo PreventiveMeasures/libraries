@@ -27,6 +27,7 @@
     "src/entries.js",
     "src/error.js",
     "src/path.js",
+    "src/tree.js",
     "src/vfs.js",
     "vfs.d.ts",
     "vfs.js"

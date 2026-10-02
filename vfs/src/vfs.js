@@ -16,7 +16,7 @@
 // target's length is what a lookup can be made to cost.
 
 import { VfsError, wrongType } from './error.js'
-import { compareNames } from './path.js'
+import { checkMount, descend, merge, namesOf } from './tree.js'
 
 const LINK_LIMIT = 40
 const NAME_MAX = 255
@@ -38,7 +38,7 @@ export class Vfs {
     this.#root = this.#directory()
   }
 
-  #inode(type, contents, mode, mtime) { return { ino: ++this.#inodes, type, ...meta(mode, mtime, { mode: MODE[type], mtime: 0 }), ...contents } }
+  #inode(type, contents, mode = MODE[type], mtime = 0) { return { ino: ++this.#inodes, type, mode: checkMode(mode), mtime: checkTime(mtime), ...contents } }
   #directory(mode, mtime) { return this.#inode('directory', { entries: new Map() }, mode, mtime) }
 
   // Where `path` leads: `dir`, the directory its last name is in; `name`; and
@@ -168,7 +168,7 @@ export class Vfs {
   readdir(path) {
     const node = this.#node(path, true)
     if (node.type !== 'directory') throw new VfsError('ENOTDIR', path)
-    return [...node.entries.keys()].sort(compareNames)
+    return namesOf(node)
   }
 
   // Where a write lands: through a link, the file the link names, made of
@@ -186,7 +186,7 @@ export class Vfs {
 
   // Creates the file or truncates it; the inode stays, so a hard link sees it.
   writeFile(path, data, { mode, mtime } = {}) {
-    this.#write(path, data, (node, bytes) => Object.assign(node, { bytes }, meta(mode, mtime, node)), mode, mtime)
+    this.#write(path, data, (node, bytes) => Object.assign(node, { bytes, ...meta(node, mode, mtime) }), mode, mtime)
   }
 
   appendFile(path, data) { this.#write(path, data, (node, bytes) => { node.bytes = append(node.bytes, bytes) }) }
@@ -274,6 +274,27 @@ export class Vfs {
   chmod(path, mode) { this.#node(path, true).mode = checkMode(mode) }
   utimes(path, mtime) { this.#node(path, true).mtime = checkTime(mtime) }
 
+  // Merges a copy of `tree` into the directory `path` leads to: a directory
+  // of the tree into one there under the same name, which keeps its own
+  // mode and mtime, and anything else beside what is there. Anything else
+  // under a name taken is a clash, and `clash` settles it: 'error' refuses
+  // it, 'keep' leaves the tree's entry out, and 'replace' takes away what
+  // is there, a directory with all under it, for the tree's entry; a
+  // function says which of those for each clash, given where the tree's
+  // entry would go and what is there, before anything changes. `fold`
+  // takes a name to the key a filesystem knows it by, as one that ignores
+  // case does: a name of the tree there under no spelling of its own is one
+  // with every name there of its key that the tree does not spell too.
+  // Names side by side in one tree are that tree's to judge. What is copied
+  // is the tree as it was when called, which is left as it is.
+  mount(tree, path = '/', options = {}) {
+    if (tree === null || typeof tree !== 'object' || !(#root in tree)) throw wrongType('a tree', tree, 'a Vfs')
+    const checked = checkMount(options)
+    const found = this.#found(path)
+    if (found.node.type !== 'directory') throw new VfsError('ENOTDIR', path)
+    merge(found.node, tree.#root, pathOf(found), checked, { copy: copyOf, number: (node) => { node.ino ||= ++this.#inodes } })
+  }
+
   // From what `path` leads to, resolved when called, as entries is too: a
   // wrong start throws here and not at the first step.
   walk(path = '/') {
@@ -302,23 +323,6 @@ export class Vfs {
   }
 }
 
-// Every inode at or under `top`, depth first, siblings in name order, a
-// link named but not crossed, as `shape` has it; `name` is the way down
-// from `top`, '' for it.
-function* descend(top, shape) {
-  const stack = [{ name: '', node: top, depth: 0 }]
-  while (stack.length > 0) {
-    const entry = stack.pop()
-    yield shape(entry)
-    if (entry.node.type !== 'directory') continue
-    const names = [...entry.node.entries.keys()].sort(compareNames)
-    for (let i = names.length - 1; i >= 0; i--) {
-      const name = entry.name === '' ? names[i] : `${entry.name}/${names[i]}`
-      stack.push({ name, node: entry.node.entries.get(names[i]), depth: entry.depth + 1 })
-    }
-  }
-}
-
 // A spelling read a name at a time, slashes skipped, holding no more than
 // where it is. A link's target that ends in a slash reads as a final `.`,
 // so what it leads to has to be a directory, as a caller's trailing slash
@@ -342,10 +346,7 @@ const pathOf = ({ chain, name }) => `/${[...chain.slice(1).map((step) => step.na
 const statOf = (node) => ({ type: node.type, ino: node.ino, mode: node.mode, mtime: node.mtime, size: node.bytes?.length ?? node.size ?? 0 })
 
 // Metadata as given and checked, or as it stands in `current`.
-const meta = (mode, mtime, current) => ({
-  mode: mode === undefined ? current.mode : checkMode(mode),
-  mtime: mtime === undefined ? current.mtime : checkTime(mtime),
-})
+const meta = (current, mode = current.mode, mtime = current.mtime) => ({ mode: checkMode(mode), mtime: checkTime(mtime) })
 
 // What a name may be when it is made: text with an encoding, and at most
 // NAME_MAX bytes of it, as every filesystem bounds a name.
@@ -366,8 +367,9 @@ function utf8Length(text) {
 }
 
 // Whether text is more than `max` bytes of UTF-8. A code unit is at least
-// a byte, so text of more units than that is over without being counted.
-export const tooLong = (text, max) => text.length > max || utf8Length(text) > max
+// a byte and at most three, so text of more units than `max` is over, and
+// of a third as many is not, without being counted.
+export const tooLong = (text, max) => text.length > max || (text.length * 3 > max && utf8Length(text) > max)
 
 export function checkMode(mode) {
   if (!Number.isInteger(mode) || mode < 0 || mode > 0o7777) throw new RangeError(`a mode must be an integer from 0 to 0o7777, not ${mode}`)
@@ -387,6 +389,19 @@ export function encode(data, path) {
   }
   if (data instanceof Uint8Array) return new Uint8Array(data)
   throw wrongType('file contents', data, 'a string or a Uint8Array')
+}
+
+// A copy of an inode, numbered 0 until a mount puts it in place, so one
+// refused takes no number, and its entries left to fill if it is a
+// directory. A file's bytes are shared, as nothing writes into bytes once
+// stored, unless their buffer has room past them, which append below
+// would grow either inode into.
+function copyOf({ type, mode, mtime, bytes, target, size }) {
+  const copy = { ino: 0, type, mode, mtime }
+  if (type === 'directory') copy.entries = new Map()
+  else if (type === 'symlink') Object.assign(copy, { target, size })
+  else copy.bytes = bytes.byteOffset + bytes.length === bytes.buffer.byteLength ? bytes : bytes.slice()
+  return copy
 }
 
 // Appends in amortized linear time: a file that grows gets a buffer with

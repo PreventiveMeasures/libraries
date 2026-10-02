@@ -563,6 +563,226 @@ describe('rename', () => {
   })
 })
 
+describe('mount', () => {
+  const paths = (fs, path) => [...fs.walk(path)].map((entry) => entry.path)
+  const tar = (fs) => [...fs.entries()]
+
+  it('merges a copy of a tree in, beside what is there, each directory keeping its own mode and mtime', () => {
+    const fs = createVfs({ 'a': { type: 'directory', mode: 0o700, mtime: 7 }, 'a/x': 'x', 'keep': 'k' })
+    const tree = createVfs({
+      '/': { type: 'directory', mode: 0o711, mtime: 9 },
+      'a': { type: 'directory', mode: 0o750, mtime: 1 },
+      'a/y': { type: 'file', data: 'y', mode: 0o600, mtime: 2 },
+      'b/c': 'c',
+      'l': { type: 'symlink', target: 'a/../b', mode: 0o755, mtime: 3 },
+    })
+    const before = tar(tree)
+    assert.equal(fs.mount(tree), undefined)
+    assert.deepEqual(paths(fs), ['/', '/a', '/a/x', '/a/y', '/b', '/b/c', '/keep', '/l'])
+    assert.deepEqual([fs.stat('/').mode, fs.stat('/').mtime], [0o755, 0])
+    assert.deepEqual([fs.stat('/a').mode, fs.stat('/a').mtime], [0o700, 7])
+    assert.deepEqual([fs.stat('/a/y').mode, fs.stat('/a/y').mtime, fs.readText('/a/y')], [0o600, 2, 'y'])
+    assert.equal(fs.stat('/b').mode, 0o755)
+    assert.equal(fs.readlink('/l'), 'a/../b', 'a target as spelled')
+    assert.deepEqual([fs.lstat('/l').mode, fs.lstat('/l').mtime], [0o755, 3])
+    assert.deepEqual(tar(tree), before, 'the tree is left as it was')
+  })
+
+  it('goes into the directory a path leads to, and takes only a Vfs', () => {
+    const fs = createVfs({ 'd/x': '', 'd/s': { type: 'directory' }, 'l': { type: 'symlink', target: 'd' }, 'f': '' })
+    fs.mount(createVfs({ 'y': '' }), '/l')
+    assert.deepEqual(paths(fs, '/d'), ['/d', '/d/s', '/d/x', '/d/y'])
+    assert.equal(fs.isSymlink('/l'), true)
+    fs.mount(createVfs({ 'z': '' }), 'l/s/..')
+    assert.equal(fs.isFile('/d/z'), true)
+    const tree = createVfs({ 'n': '' })
+    fails(() => fs.mount(tree, '/missing'), 'ENOENT', '/missing')
+    fails(() => fs.mount(tree, '/f'), 'ENOTDIR', '/f')
+    fails(() => fs.mount(tree, '/f/'), 'ENOTDIR', '/f/')
+    assert.throws(() => fs.mount(), TypeError)
+    assert.throws(() => fs.mount({}), TypeError)
+    assert.throws(() => fs.mount(Object.create(Vfs.prototype)), TypeError)
+    assert.throws(() => fs.mount(tree, 42), TypeError)
+    assert.throws(() => fs.mount(tree, '/', { clash: 'skip' }), RangeError)
+    assert.throws(() => fs.mount(tree, '/', { clash: null }), TypeError)
+    assert.throws(() => fs.mount(tree, '/', { fold: 'nfd' }), TypeError)
+    assert.equal(fs.isFile('/n'), false, 'nothing mounted by a refused call')
+  })
+
+  it('refuses a clash unless told otherwise, at the first in walk order, before anything changes', () => {
+    const fs = createVfs({ 'a/x': 'there', 'f': 'there', 'd/z': 'there', 'l': { type: 'symlink', target: 'd' } })
+    const before = tar(fs)
+    const cases = [
+      [{ 'a/new': '', 'f': 'tree' }, '/f', 'a file onto a file'],
+      [{ 'f/g': '' }, '/f', 'a directory onto a file'],
+      [{ 'a': 'tree' }, '/a', 'a file onto a directory'],
+      [{ 'l/y': '' }, '/l', 'a directory onto a link to one, which is not followed'],
+      [{ 'a': { type: 'symlink', target: 'd' } }, '/a', 'a link onto a directory'],
+      [{ 'a/x/deeper': '', 'b': '', 'f': '' }, '/a/x', 'the first of two clashes'],
+    ]
+    for (const [sources, path, what] of cases) {
+      fails(() => fs.mount(createVfs(sources)), 'EEXIST', path)
+      assert.deepEqual(tar(fs), before, what)
+    }
+    fails(() => fs.mount(createVfs({ 'z': '' }), '/l'), 'EEXIST', '/d/z')
+    fails(() => fs.mount(createVfs({ 'f': '' }), '/', { clash: 'error' }), 'EEXIST', '/f')
+    assert.deepEqual(tar(fs), before)
+  })
+
+  it('takes no inode number for a refused mount, and numbers what it puts in place in walk order', () => {
+    const fs = createVfs({ 'a': '' })
+    const tree = createVfs({ 'a': '', 'b/c': '', 'h': { type: 'hardlink', target: 'b/c' } })
+    fails(() => fs.mount(tree), 'EEXIST', '/a')
+    assert.throws(() => fs.mount(tree, '/', { clash: () => { throw new Error('refused') } }), /refused/u)
+    assert.throws(() => fs.mount(tree, '/', { clash: 'keep', fold: () => { throw new Error('folded') } }), /folded/u)
+    fs.writeFile('/n', '')
+    assert.equal(fs.stat('/n').ino, createVfs({ 'a': '', 'n': '' }).stat('/n').ino)
+    fs.mount(tree, '/', { clash: 'keep' })
+    const next = fs.stat('/n').ino + 1
+    assert.deepEqual(['/b', '/b/c', '/h'].map((path) => fs.lstat(path).ino), [next, next + 1, next + 1])
+  })
+
+  it('keeps what is there, leaving the tree\'s entry out with all under it', () => {
+    const fs = createVfs({ 'a/x': 'there', 'f': 'there', 'l': { type: 'symlink', target: 'a' } })
+    fs.mount(createVfs({ 'a/x/y': 'tree', 'a/new': 'tree', 'f/g': 'tree', 'l': 'tree', 'n': 'tree' }), '/', { clash: 'keep' })
+    assert.deepEqual(paths(fs), ['/', '/a', '/a/new', '/a/x', '/f', '/l', '/n'])
+    assert.deepEqual([fs.readText('/a/x'), fs.readText('/f'), fs.readlink('/l')], ['there', 'there', 'a'])
+  })
+
+  it('replaces what is there, a directory with all under it, and only that name', () => {
+    const fs = createVfs({ 'a/x': 'there', 'a/keep': 'there', 'd/deep/er': 'there', 'f': 'there', 'h': { type: 'hardlink', target: 'a/x' }, 'l': { type: 'symlink', target: 'a' } })
+    fs.mount(createVfs({ 'a/x': 'tree', 'd': 'tree', 'f/g': 'tree', 'l/m': 'tree' }), '/', { clash: 'replace' })
+    assert.deepEqual(paths(fs), ['/', '/a', '/a/keep', '/a/x', '/d', '/f', '/f/g', '/h', '/l', '/l/m'])
+    assert.deepEqual([fs.readText('/a/x'), fs.readText('/a/keep'), fs.readText('/d')], ['tree', 'there', 'tree'])
+    assert.equal(fs.readText('/h'), 'there', 'a second name of what was replaced keeps it')
+    assert.notEqual(fs.stat('/h').ino, fs.stat('/a/x').ino)
+  })
+
+  it('asks a function of each clash in walk order, before anything changes', () => {
+    const fs = createVfs({ 'd/a': 'there', 'd/b': 'there', 'd/Fold': 'there', 'd/keep': 'there', 'l': { type: 'symlink', target: 'd' } })
+    const before = tar(fs)
+    const tree = createVfs({ 'a': 'tree', 'b/x': 'tree', 'fold': 'tree', 'keep': 'tree', 'new': 'tree' })
+    const fold = (name) => name.toLowerCase()
+    const asked = []
+    const clash = (path, there) => {
+      asked.push([path, there])
+      return path === '/d/keep' ? 'keep' : 'replace'
+    }
+    for (const how of [() => 'skip', () => 42]) assert.throws(() => fs.mount(tree, '/l', { clash: how }), how() === 42 ? TypeError : RangeError)
+    assert.throws(() => fs.mount(tree, '/l', { clash: (path) => { if (path === '/d/keep') throw new Error('refused'); return 'replace' } }), /refused/u)
+    fails(() => fs.mount(tree, '/l', { clash: () => 'error' }), 'EEXIST', '/d/a')
+    assert.deepEqual(tar(fs), before, 'nothing changed by a refused mount')
+    fs.mount(tree, '/l', { clash, fold })
+    assert.deepEqual(asked, [['/d/a', ['/d/a']], ['/d/b', ['/d/b']], ['/d/fold', ['/d/Fold']], ['/d/keep', ['/d/keep']]])
+    assert.deepEqual(paths(fs, '/d'), ['/d', '/d/a', '/d/b', '/d/b/x', '/d/fold', '/d/keep', '/d/new'])
+    assert.deepEqual(['/d/a', '/d/fold', '/d/keep', '/d/new'].map((path) => fs.readText(path)), ['tree', 'tree', 'there', 'tree'])
+  })
+
+  it('copies the tree as it was, whatever a function given does to it', () => {
+    const fs = createVfs({ 'a': 'there', 'd/x': 'there' })
+    const tree = createVfs({ 'a': 'old', 'd/y': 'old', 'z': 'old' })
+    fs.mount(tree, '/', {
+      clash: () => {
+        tree.writeFile('/a', 'new')
+        tree.rm('/z')
+        return 'replace'
+      },
+      fold: (name) => {
+        if (tree.isDirectory('/d')) tree.rm('/d', { recursive: true })
+        return name
+      },
+    })
+    assert.deepEqual(paths(fs), ['/', '/a', '/d', '/d/x', '/d/y', '/z'])
+    assert.deepEqual(['/a', '/d/y', '/z'].map((path) => fs.readText(path)), ['old', 'old', 'old'])
+    assert.deepEqual(paths(tree), ['/', '/a'])
+  })
+
+  it('folds names where told to, as a filesystem that ignores case does', () => {
+    const fold = (name) => name.normalize('NFD').toLowerCase()
+    const fs = createVfs({ 'Dir/x': '', 'File': 'there', 'café': '', 'same/x': '', 'SAME': 'there' })
+    const before = tar(fs)
+    fails(() => fs.mount(createVfs({ 'file': 'tree' }), '/', { fold }), 'EEXIST', '/file')
+    fails(() => fs.mount(createVfs({ 'dir/y': '' }), '/', { fold }), 'EEXIST', '/dir')
+    fails(() => fs.mount(createVfs({ 'café': '' }), '/', { fold }), 'EEXIST', '/café')
+    fails(() => fs.mount(createVfs({ 'Same': '' }), '/', { fold }), 'EEXIST', '/Same')
+    assert.throws(() => fs.mount(createVfs({ 'dir': '' }), '/', { fold: () => { throw new Error('folded') } }), /folded/u)
+    assert.deepEqual(tar(fs), before, 'nothing changed by a refused mount')
+
+    fs.mount(createVfs({ 'same/y': '' }), '/', { fold })
+    assert.deepEqual(paths(fs, '/same'), ['/same', '/same/x', '/same/y'], 'a name spelled as it is there is that one, whatever else folds with it')
+    fs.mount(createVfs({ 'FILE': 'tree', 'dir/y': '', 'new': '' }), '/', { fold, clash: 'keep' })
+    assert.deepEqual(fs.readdir('/'), ['Dir', 'File', 'SAME', 'café', 'new', 'same'])
+    assert.deepEqual(fs.readdir('/Dir'), ['x'])
+
+    const replaced = createVfs({ 'Foo': '', 'FOO/x': '', 'other': '' })
+    replaced.mount(createVfs({ 'foo': 'tree' }), '/', { fold, clash: 'replace' })
+    assert.deepEqual(replaced.readdir('/'), ['foo', 'other'], 'every name of its key')
+
+    const sideBySide = createVfs({ 'foo/x': '' })
+    sideBySide.mount(createVfs({ 'foo/y': '', 'Foo': '' }), '/', { fold })
+    assert.deepEqual(paths(sideBySide), ['/', '/Foo', '/foo', '/foo/x', '/foo/y'], 'the tree\'s own names are its own to judge')
+
+    const asked = []
+    createVfs({ 'a/x': '' }).mount(createVfs({ 'a/y': '', 'b/c/d': '' }), '/', { fold: (name) => { asked.push(name); return name } })
+    assert.deepEqual(asked.sort(), ['b', 'x', 'y'], 'only in a directory both trees hold')
+    fs.mount(createVfs({ 'file': 'tree' }))
+    assert.deepEqual(fs.readdir('/').slice(0, 3), ['Dir', 'File', 'SAME'], 'and nothing folds unless told to')
+    assert.equal(fs.isFile('/file'), true)
+  })
+
+  it('makes a hard link a hard link, and shares bytes that no write to either reaches', () => {
+    const tree = createVfs({ 'a': 'one', 'h': { type: 'hardlink', target: 'a' }, 'd/l': { type: 'symlink', target: '../a' } })
+    tree.appendFile('/grown', 'x')
+    tree.appendFile('/grown', 'y')
+    const fs = new Vfs()
+    fs.writeFile('/mine', 'm')
+    fs.mount(tree)
+    const inos = ['/', '/mine', '/a', '/d', '/d/l', '/grown'].map((path) => fs.lstat(path).ino)
+    assert.equal(new Set(inos).size, inos.length, 'every inode numbered apart from those there')
+    assert.equal(fs.stat('/h').ino, fs.stat('/a').ino)
+    assert.equal(fs.readText('/d/l'), 'one')
+    assert.deepEqual(tar(fs).find((entry) => entry.name === 'h'), { name: 'h', type: 'hardlink', mode: 0o644, mtime: 0, linkname: 'a', data: new Uint8Array() })
+    assert.equal(fs.readFile('/a'), tree.readFile('/a'), 'bytes held once')
+    fs.appendFile('/grown', 'z')
+    tree.appendFile('/grown', 'w')
+    assert.deepEqual([fs.readText('/grown'), tree.readText('/grown')], ['xyz', 'xyw'])
+    fs.appendFile('/a', '!')
+    assert.deepEqual([fs.readText('/h'), tree.readText('/a')], ['one!', 'one'])
+    tree.writeFile('/h', 'two')
+    assert.deepEqual([fs.readText('/a'), tree.readText('/a')], ['one!', 'two'])
+    const again = new Vfs()
+    again.mount(tree)
+    assert.deepEqual(tar(again).map((entry) => entry.name), ['.', 'a', 'd', 'd/l', 'grown', 'h'])
+    assert.equal(again.readText('/a'), 'two')
+  })
+
+  it('copies a Vfs mounted into itself as it was when called', () => {
+    const fs = createVfs({ 'a/x': 'x', 'b': 'b' })
+    fs.mount(fs, '/a')
+    assert.deepEqual(paths(fs), ['/', '/a', '/a/a', '/a/a/x', '/a/b', '/a/x', '/b'])
+    const before = tar(fs)
+    fails(() => fs.mount(fs), 'EEXIST', '/a/a/x')
+    fs.mount(fs, '/', { clash: 'keep' })
+    assert.deepEqual(tar(fs), before)
+    fs.mount(fs, '/', { clash: 'replace' })
+    assert.deepEqual(tar(fs), before)
+  })
+
+  it('survives trees deeper than any stack', () => {
+    const deep = 'd/'.repeat(20000)
+    const fs = new Vfs()
+    fs.mkdir(deep, { recursive: true })
+    fs.writeFile(`${deep}there`, '')
+    const tree = new Vfs()
+    tree.mkdir(deep, { recursive: true })
+    tree.writeFile(`${deep}leaf`, 'x')
+    fs.mount(tree)
+    assert.deepEqual(fs.readdir(deep), ['leaf', 'there'])
+    fs.mount(tree, deep)
+    assert.equal(fs.readText(`${deep}${deep}leaf`), 'x')
+  })
+})
+
 describe('walk', () => {
   it('goes depth first, siblings in code point order, and names a link without crossing it', () => {
     const fs = createVfs({ 'b/y': '', 'b/x/deep': '', 'a': '', 'B': '', 'l': { type: 'symlink', target: 'b' } })

@@ -3,10 +3,10 @@
 // removed. A node_modules there already, anywhere, is refused, or for
 // another tree what its `check` refuses: kept beside the tree, Node would
 // read it as the tree's, and removed, it would be the caller's lost;
-// neither is safe. Everything is checked before anything is written, so a
-// refusal leaves the Vfs as it was.
+// neither is safe. Vfs.mount judges everything before anything is written,
+// so a refusal leaves the Vfs as it was.
 
-import { basename, dirname } from '@preventive/vfs/path.js'
+import { basename } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from './error.js'
 
 // As macOS takes a name, whatever its case and normalization.
@@ -25,47 +25,17 @@ export function checkNoModules(vfs, folded) {
   }
 }
 
-function typeAt(vfs, path) {
-  try {
-    return vfs.lstat(path).type
-  } catch (error) {
-    if (error.code === 'ENOENT') return undefined
-    throw error
-  }
-}
-
-// Moves `tree` into `target`: each directory of the tree is one there
-// already or is made, and each file and link is written where nothing is,
-// and where names are `folded`, none beside a name it would be one with.
-// Each file is taken out of `tree` as it is written.
+// Mounts `tree` into `target` with Vfs.mount: each directory of the tree
+// is one there already or is made, and each file and link is put where
+// nothing is, and where names are `folded`, none beside a name it would be
+// one with. A clash is refused by what is there, before anything is
+// written; at the root, a path there is the tree's too. The tree's bytes
+// are shared with `target`, not copied, and the tree is left as it is.
 export function mount(tree, target, folded, check = checkNoModules) {
   check(target, folded)
-  // The tree's entries, parents first, each with what is there already;
-  // under a directory that is not there, nothing is.
-  const absent = new Set()
-  const entries = []
-  for (const { path, type } of tree.walk('/')) {
-    if (path === '/') continue
-    const parent = dirname(path)
-    const existing = absent.has(parent) ? undefined : typeAt(target, path)
-    if (existing === undefined && type === 'directory') absent.add(path)
-    entries.push({ path, type, existing })
-    if (existing !== undefined && (type !== 'directory' || existing !== 'directory')) {
-      throw new DeptreeError(`a ${existing} is there already, where the tree has a ${type}`, where(path))
-    }
-    if (!folded || existing !== undefined || absent.has(parent)) continue
-    const name = basename(path)
-    const clash = target.readdir(parent).find((other) => fold(other) === fold(name))
-    if (clash !== undefined) throw new DeptreeError(`${quote(clash)} is there already, which is one name with ${quote(name)} on macOS`, where(path))
+  const clash = (path, [there]) => {
+    if (there !== path) throw new DeptreeError(`${quote(basename(there))} is there already, which is one name with ${quote(basename(path))} on macOS`, where(path))
+    throw new DeptreeError(`a ${target.lstat(path).type} is there already, where the tree has a ${tree.lstat(path).type}`, where(path))
   }
-  for (const { path, type, existing } of entries) {
-    if (type === 'directory') {
-      if (existing === undefined) target.mkdir(path)
-    } else if (type === 'symlink') {
-      target.symlink(tree.readlink(path), path)
-    } else {
-      target.writeFile(path, tree.readFile(path), { mode: tree.lstat(path).mode })
-      tree.unlink(path)
-    }
-  }
+  target.mount(tree, '/', { clash, fold: folded ? fold : undefined })
 }
