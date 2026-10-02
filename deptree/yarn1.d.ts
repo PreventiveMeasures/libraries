@@ -169,10 +169,13 @@ export interface Yarn1TreeStats {
 // in that workspace's own node_modules. `name` and `version` are the
 // package's own, which its package.json is held to, whatever alias it is
 // installed as; `integrity` the sha512 its tarball is held to. `dev` is
-// whether dev dependencies alone reach it, the root's and the workspaces'
-// devDependencies: nothing else does, through what is installed and the
-// peers yarn finds for it, so `yarn install --production` would leave it
-// out. `optional` is whether optional dependencies alone reach it.
+// whether dev dependencies alone reach this copy, the root's and the
+// workspaces' devDependencies: nothing else does, each dependency, and
+// each peer yarn finds, looked for from where what asks for it is, as Node
+// finds it and yarn marks what an install requires, past what the host
+// cannot run. Two copies of one package may differ: one beneath a
+// devDependency that only it needs is dev. `optional` is whether optional
+// dependencies alone reach this copy, so.
 export interface Yarn1Installed {
   path: string
   name: string

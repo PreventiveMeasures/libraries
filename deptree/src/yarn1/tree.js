@@ -131,14 +131,14 @@ async function fetchChecked(resolved, host, settings) {
 
 // The tree as yarn hoists it, flat: each package by where it goes, in the
 // order yarn sorts them, by the absolute paths it compares, all under the
-// lockfile's directory.
+// lockfile's directory; and the hoister that laid it out.
 function layout({ resolved, manifestOf, topPatterns, workspaces }) {
   resolvePeers(resolved, manifestOf)
   const hoister = new Hoister(resolved.patterns, (ref) => Object.keys(manifestOf.get(ref)?.peerDependencies ?? {}))
   hoister.seed(topPatterns)
   const flat = hoister.flatten(workspaces.size > 0 ? AGGREGATOR : undefined)
   const placed = flat.map(({ names, info }) => ({ loc: locationOf(names, workspaces), info }))
-  return placed.sort((a, b) => a.loc.localeCompare(b.loc))
+  return { placed: placed.sort((a, b) => a.loc.localeCompare(b.loc)), hoister }
 }
 
 // Where a path in the tree really is: through each workspace link on its
@@ -152,7 +152,8 @@ function realOf(links, path) {
 // package goes beneath a workspace's link, it is copied through the link,
 // into the workspace's own node_modules. `links` each link, by where it
 // is, to its target; `locations` each reference's copies, where they
-// really are; `copies` the reference of each copy, by where it really is.
+// really are; `copies` the hoister's places of each copy, by where it
+// really is, as two places may be one through a link.
 function writeTree(placed, fetched) {
   const vfs = new Vfs()
   vfs.mkdir('/node_modules', { recursive: true })
@@ -173,7 +174,8 @@ function writeTree(placed, fetched) {
       continue
     }
     const pkg = fetched.get(ref)
-    copies.set(dest, ref)
+    const earlier = copies.get(dest)
+    copies.set(dest, earlier?.[0].ref === ref ? [...earlier, info] : [info])
     vfs.mkdir(`/${dest}`, { recursive: true })
     for (const dir of pkg.dirs) if (!skipped(dir)) vfs.mkdir(`/${dest}/${dir}`, { recursive: true })
     for (const [path, file] of pkg.files) {
@@ -191,31 +193,38 @@ function writeTree(placed, fetched) {
   return { vfs, links, locations, copies, files, bytes }
 }
 
-// The references the project's requests reach, `asked` as topRequests has
-// them, through what each asks for, the peers found for it among that,
-// and past none the host cannot run; by requests whose `kind`, `dev` or
-// `optional`, is not set. Each other is reached by dev dependencies alone,
-// or by optional ones alone.
-function reachedBut(kind, asked, patterns) {
-  const queue = asked.filter((request) => !request[kind]).map(({ pattern }) => patterns.get(pattern))
+// The places in the hoister's tree the project's requests reach, `asked`
+// as topRequests has them, through what each place's package asks for, the
+// peers found for it among that, each found from where the place is, as
+// yarn marks what an install requires; past none the host cannot run, and
+// by requests whose `kind`, `dev` or `optional`, is not set. Each other
+// place is reached by dev dependencies alone, or by optional ones alone.
+function reachedBut(kind, asked, hoister) {
+  const queue = [{ parts: [], ref: { asked } }]
   const reached = new Set()
   while (queue.length > 0) {
-    const ref = queue.pop()
-    if (reached.has(ref) || ref.incompatible) continue
-    reached.add(ref)
-    for (const dep of ref.asked) if (!dep[kind]) queue.push(patterns.get(dep.pattern))
+    const info = queue.pop()
+    for (const dep of info.ref.asked) {
+      if (dep[kind]) continue
+      const found = hoister.lookupDependency(info, dep.pattern)
+      if (found === null || found.isIncompatible || reached.has(found)) continue
+      reached.add(found)
+      queue.push(found)
+    }
   }
   return reached
 }
 
 // Each copy of a registry package as the list of what is installed has it,
 // in the order the copies are made. `copies` is writeTree's.
-function listInstalled(copies, fetched, asked, patterns) {
-  const prod = reachedBut('dev', asked, patterns)
-  const required = reachedBut('optional', asked, patterns)
-  return [...copies].map(([path, ref]) => {
-    const { manifest, integrity } = fetched.get(ref)
-    return { path, name: manifest.name, version: manifest.version, integrity, dev: !prod.has(ref), optional: !required.has(ref) }
+function listInstalled(copies, fetched, asked, hoister) {
+  const prod = reachedBut('dev', asked, hoister)
+  const required = reachedBut('optional', asked, hoister)
+  return [...copies].map(([path, places]) => {
+    const { manifest, integrity } = fetched.get(places[0].ref)
+    const dev = !places.some((info) => prod.has(info))
+    const optional = !places.some((info) => required.has(info))
+    return { path, name: manifest.name, version: manifest.version, integrity, dev, optional }
   })
 }
 
@@ -230,7 +239,7 @@ export async function buildYarn1Tree(options) {
   checkRoot(inputs.manifests.get('.'))
   const { workspaces, topPatterns, asked, resolved } = resolveProject(inputs, host)
   const { packages, fetched, manifestOf } = await fetchChecked(resolved, host, inputs.settings)
-  const placed = layout({ resolved, manifestOf, topPatterns, workspaces })
+  const { placed, hoister } = layout({ resolved, manifestOf, topPatterns, workspaces })
   const { vfs, links, locations, copies, files, bytes } = writeTree(placed, fetched)
   checkBinLinks({ placed, patterns: resolved.patterns, fetched, manifestOf, locations, realOf: (path) => realOf(links, path) })
   if (folded) checkCollisions(vfs)
@@ -242,7 +251,7 @@ export async function buildYarn1Tree(options) {
     bytes,
     links: links.size,
   }
-  const installed = listInstalled(copies, fetched, asked, resolved.patterns)
+  const installed = listInstalled(copies, fetched, asked, hoister)
   if (into === undefined) return { vfs, stats, installed }
   mount(vfs, into, folded)
   return { vfs: into, stats, installed }

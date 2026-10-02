@@ -48,6 +48,7 @@ const TARBALLS = await Promise.all([
   tarball('dotbin', '1.0.0', { '.bin': 'x', 'cli.js': 'c' }, { manifest: { bin: 'cli.js' } }),
   tarball('inner', '1.0.0', {}, { manifest: { bin: 'node_modules/b/index.js', dependencies: { b: '^1.0.0' } } }),
   tarball('p', '1.0.0', {}, { manifest: { peerDependencies: { b: '^2.0.0' } } }),
+  tarball('q', '1.0.0', {}, { manifest: { dependencies: { b: '^1.0.0' } } }),
 ])
 const T = Object.fromEntries(TARBALLS.map((t) => [`${t.name}@${t.version}`, t]))
 const sha1 = (bytes) => createHash('sha1').update(bytes).digest('hex')
@@ -127,8 +128,9 @@ describe('buildYarn1Tree', () => {
     assert.deepEqual(ignored.installed.find(({ name }) => name === 'mac'), listed('node_modules/mac', 'mac@1.0.0', { optional: true }))
   })
 
-  // d is w's devDependency alone, and b@^1.0.0 w's devDependency and a's
-  // dependency; each copy is listed where it really is, beneath w's link.
+  // d is w's devDependency alone; b 1.0.0 is copied beneath a, for a, and
+  // beneath w's link, where it really is in w's own node_modules, for w's
+  // devDependency alone.
   it('lists as dev only what dev dependencies alone reach, a workspace\'s among them', async () => {
     stubRegistry(TARBALLS)
     const root = { name: 'root', version: '1.0.0', private: true, workspaces: ['packages/*'], dependencies: { b: '^2.0.0' } }
@@ -140,8 +142,27 @@ describe('buildYarn1Tree', () => {
       ['node_modules/a/node_modules/b', false],
       ['node_modules/b', false],
       ['node_modules/d', true],
-      ['packages/w/node_modules/b', false],
+      ['packages/w/node_modules/b', true],
     ])
+  })
+
+  // b 2.0.0 takes the top, so b 1.0.0 is copied beneath a, a dependency,
+  // and beneath q: each copy is listed as what reaches it from where it is.
+  it('lists each copy of one package as what reaches that copy', async () => {
+    stubRegistry(TARBALLS)
+    const lock = lockfile(A, entry('b@^1.0.0', 'b@1.0.0'), entry('b@^2.0.0', 'b@2.0.0'), entry('q@1.0.0', 'q@1.0.0', '  dependencies:\n    b "^1.0.0"\n'))
+    for (const kind of ['devDependencies', 'optionalDependencies']) {
+      const root = { name: 'root', version: '1.0.0', dependencies: { a: '^1.0.0', b: '^2.0.0' }, [kind]: { q: '1.0.0' } }
+      const { installed } = await buildYarn1Tree({ project: projectOf({ 'yarn.lock': lock, 'package.json': root }), host: HOST })
+      const flag = kind === 'devDependencies' ? 'dev' : 'optional'
+      assert.deepEqual(installed.map((copy) => [copy.path, copy[flag]]), [
+        ['node_modules/a', false],
+        ['node_modules/a/node_modules/b', false],
+        ['node_modules/b', false],
+        ['node_modules/q', true],
+        ['node_modules/q/node_modules/b', true],
+      ], kind)
+    }
   })
 
   it('refuses once every fetch started has ended', async () => {
