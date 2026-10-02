@@ -77,12 +77,4 @@ export function splitPackageKey(key, where) {
 // names. A bare version is the alias's own (`react: 18.2.0`); one that
 // names its package first is an alias for that package (`my-q: q@1.5.1`),
 // told apart by an `@` before any `:` or `(`.
-export function refToKey(ref, alias) {
-  if (ref.startsWith('@')) return ref
-  const sep = ref.indexOf('@')
-  if (sep === -1) return `${alias}@${ref}`
-  const colon = ref.indexOf(':')
-  const paren = ref.indexOf('(')
-  if ((colon === -1 || sep < colon) && (paren === -1 || sep < paren)) return ref
-  return `${alias}@${ref}`
-}
+export const refToKey = (ref, alias) => (/^[^:(]*@/u.test(ref) ? ref : `${alias}@${ref}`)

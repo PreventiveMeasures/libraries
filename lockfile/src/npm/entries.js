@@ -100,10 +100,7 @@ function readFlags(entry, where) {
 }
 
 // npm checks a tarball with the strongest of its integrities.
-function readIntegrity(value, where) {
-  readIntegrities(value, where)
-  return value
-}
+const readIntegrity = (value, where) => readIntegrities(value, where) && value
 
 // A tarball on disk, from the lockfile's directory, or by an http(s) URL,
 // which npm reads as a repository where it is one on a git host.

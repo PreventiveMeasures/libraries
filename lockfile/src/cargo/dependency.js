@@ -14,10 +14,6 @@ export function parseRequirement(text, where) {
   return comparators
 }
 
-function checkPlatform(text, where) {
-  if (parsePlatform(text) === undefined) throw new LockfileError(`${quote(text)} is neither a target's name nor a cfg(…) cargo reads`, where)
-}
-
 const DETAILED = [
   'version', 'registry', 'registry-index', 'path', 'git', 'branch', 'tag', 'rev', 'features', 'optional',
   'default-features', 'default_features', 'package', 'public',
@@ -46,14 +42,17 @@ function checkUrl(value, where) {
   return url
 }
 
-function readFeatures(value, where) {
-  const features = optional(strings)(value, where) ?? []
+// A dependency's features, `public`, which is read and dropped, and its
+// default features.
+function readFeatures(value, where, edition) {
+  const features = field(value, 'features', where, strings) ?? []
   for (const [index, feature] of features.entries()) {
-    const here = `${where}[${index}]`
+    const here = `${at(where, 'features')}[${index}]`
     if (feature.includes('/')) throw new LockfileError(`${quote(feature)}: a dependency's feature cannot name another's`, here)
     if (feature.startsWith('dep:')) throw new LockfileError(`${quote(feature)}: a dependency's feature cannot be \`dep:\``, here)
   }
-  return features
+  field(value, 'public', where, boolean)
+  return { features, defaultFeatures: optional(boolean)(dashed(value, where, 'default-features', edition), at(where, 'default-features')) }
 }
 
 export function readSpec(value, where, name, edition) {
@@ -87,9 +86,7 @@ export function readSpec(value, where, name, edition) {
     if (url.search !== '' || url.hash !== '') throw new LockfileError(`${quote(git)} has a query or a fragment, which cargo drops or misreads`, at(where, 'git'))
     source = { type: 'git', url: git, branch: read('branch', string), tag: read('tag', string), rev: read('rev', string) }
   }
-  const features = readFeatures(value.features, at(where, 'features'))
-  read('public', boolean)
-  const defaultFeatures = optional(boolean)(dashed(value, where, 'default-features', edition), at(where, 'default-features')) ?? true
+  const { features, defaultFeatures = true } = readFeatures(value, where, edition)
   return { package: read('package', checkCrateName) ?? name, version, source, optional: read('optional', boolean) ?? false, defaultFeatures, features }
 }
 
@@ -100,9 +97,7 @@ function inherit(value, where, name, context) {
   if (context.workspace === undefined) throw new LockfileError('inherits from a workspace, and no workspace root is given', where)
   const spec = context.workspace.dependencies[name]
   if (spec === undefined) throw new LockfileError(`${quote(name)} is not in [workspace.dependencies]`, where)
-  const features = readFeatures(value.features, at(where, 'features'))
-  field(value, 'public', where, boolean)
-  const defaultFeatures = optional(boolean)(dashed(value, where, 'default-features', context.edition), at(where, 'default-features'))
+  const { features, defaultFeatures } = readFeatures(value, where, context.edition)
   if (defaultFeatures === false && spec.defaultFeatures && context.edition === '2024') {
     throw new LockfileError('`default-features = false` cannot turn off the workspace\'s default features', where)
   }
@@ -138,7 +133,7 @@ export function gatherDependencies(doc, workspace, edition) {
   }
   gather(doc, undefined, undefined)
   for (const [platform, value, here] of entries(orEmpty(doc.target), 'target')) {
-    checkPlatform(platform, here)
+    if (parsePlatform(platform) === undefined) throw new LockfileError(`${quote(platform)} is neither a target's name nor a cfg(…) cargo reads`, here)
     table(value, here, KINDS.flatMap(([key]) => [key, key.replaceAll('-', '_')]))
     gather(value, here, platform)
   }
@@ -160,8 +155,7 @@ export function featureMap(value, where, dependencies) {
   const written = tableOf(value, where, checkFeature, strings)
   const optionalDep = new Map()
   for (const dep of dependencies) optionalDep.set(dep.name, (optionalDep.get(dep.name) ?? false) || dep.optional)
-  const values = Object.values(written).flat().map(featureValue)
-  const explicit = new Set(values.filter((item) => item.feature === undefined).map((item) => item.dep))
+  const explicit = new Set(Object.values(written).flat().map(featureValue).filter((item) => item.feature === undefined).map((item) => item.dep))
   const map = Object.assign(Object.create(null), written)
   for (const dep of dependencies) {
     if (dep.optional && !(dep.name in written) && !explicit.has(dep.name)) map[dep.name] = [`dep:${dep.name}`]

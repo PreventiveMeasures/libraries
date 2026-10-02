@@ -50,10 +50,7 @@ class Activation {
   // `name/feature` turns on `name`, and its feature of that name where it
   // has one; `name?/feature` only `name`.
   requireValue(key, into, value, asker) {
-    if (value.dep === undefined) {
-      this.require(key, into, value.feature, asker)
-      return
-    }
+    if (value.dep === undefined) return this.require(key, into, value.feature, asker)
     const { features, dependencies } = this.packages[key].manifest
     const isOptional = dependencies.some((dep) => dep.name === value.dep && dep.optional)
     if (value.feature !== undefined && !value.weak && isOptional && value.dep in features) this.require(key, into, value.dep, asker)

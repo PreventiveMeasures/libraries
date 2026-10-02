@@ -9,15 +9,15 @@ import { DIGESTS, checkDigest, checkPath, fileNameOf, parseSdistName, parseWheel
 import { versionKey } from '../python/pep440.js'
 import { field } from '../shape.js'
 import { TomlDateTime } from '../toml/datetime.js'
-import { array, arrayOf, boolean, entries, refuse, size, string, table, text } from '../toml/shape.js'
+import { arrayOf, boolean, entries, refuse, size, string, table, text } from '../toml/shape.js'
 
 const FILE_SCHEMES = ['https:', 'http:', 'file:']
 
 // A URL, as written, of the schemes a file is fetched by, or, for a VCS,
-// any; parsed, for its path.
+// `schemes` null, any; parsed, for its path.
 function parseUrl(value, where, schemes = FILE_SCHEMES) {
   const url = URL.parse(text(value, where))
-  if (url === null || (schemes !== undefined && !schemes.includes(url.protocol))) throw new LockfileError(`${quote(value)} is not a URL${schemes === undefined ? '' : ` of ${schemes.map((scheme) => scheme.slice(0, -1)).join(', ')}`}`, where)
+  if (url === null || (schemes !== null && !schemes.includes(url.protocol))) throw new LockfileError(`${quote(value)} is not a URL${schemes === null ? '' : ` of ${schemes.map((scheme) => scheme.slice(0, -1)).join(', ')}`}`, where)
   return url
 }
 
@@ -74,13 +74,12 @@ export const readSdist = (value, where, pkg) => (value === undefined ? undefined
 export function readWheels(value, where, pkg) {
   if (value === undefined) return []
   const seen = new Set()
-  return array(value, where).map((item, index) => {
-    const here = `${where}[${index}]`
+  return arrayOf((item, here) => {
     const file = readDistribution(item, here, pkg, true)
     if (seen.has(file.name)) throw new LockfileError(`${quote(file.name)} is listed twice`, here)
     seen.add(file.name)
     return file
-  })
+  })(value, where)
 }
 
 export const readArchive = (value, where) => ({ ...readFile(value, where, ['subdirectory']).file, subdirectory: field(value, 'subdirectory', where, checkPath) })
@@ -106,7 +105,7 @@ export function readVcs(value, where) {
   if ((type === 'git' || type === 'hg') && !isCommit(commitId)) throw new LockfileError(`${quote(commitId)} is not a full commit hash, which the spec requires`, at(where, 'commit-id'))
   return {
     type,
-    url: field(value, 'url', where, (url, here) => parseUrl(url, here, undefined) && url),
+    url: field(value, 'url', where, (url, here) => parseUrl(url, here, null) && url),
     path: field(value, 'path', where, checkPath),
     requestedRevision: field(value, 'requested-revision', where, text),
     commitId,

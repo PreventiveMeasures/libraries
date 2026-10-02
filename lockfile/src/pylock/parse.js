@@ -11,7 +11,7 @@ import { field } from '../shape.js'
 import { TomlDateTime } from '../toml/datetime.js'
 import { TomlFloat } from '../toml/number.js'
 import { parseToml } from '../toml/parse.js'
-import { array, string, stringsOf, table, text } from '../toml/shape.js'
+import { array, arrayOf, string, stringsOf, table, text } from '../toml/shape.js'
 import { isTable } from '../toml/value.js'
 import { readArchive, readAttestations, readDirectory, readSdist, readVcs, readWheels } from './package.js'
 
@@ -74,14 +74,13 @@ function same(a, b) {
 // has the index of each entry, by its name.
 function resolveDependencies(value, where, raw, byName) {
   if (value === undefined) return []
-  return array(value, where).map((item, index) => {
-    const here = `${where}[${index}]`
+  return arrayOf((item, here) => {
     if (table(item, here).name === undefined) throw new LockfileError('expected a name', here)
     const keys = Object.entries(item)
     const found = (byName.get(item.name) ?? []).filter((i) => keys.every(([key, part]) => same(part, raw[i][key])))
     if (found.length !== 1) throw new LockfileError(found.length === 0 ? 'names no entry of packages' : `could be any of ${found.length} entries of packages`, here)
     return found[0]
-  })
+  })(value, where)
 }
 
 // Two entries of a name and no marker are both installed everywhere, which

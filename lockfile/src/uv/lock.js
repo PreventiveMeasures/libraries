@@ -7,7 +7,7 @@
 import { LockfileError, at, quote } from '../error.js'
 import { checkMarker, checkNormalName } from '../python/pep508.js'
 import { checkNormalVersion, checkSpecifiers, versionKeyOf } from '../python/pep440.js'
-import { field } from '../shape.js'
+import { field, mapping } from '../shape.js'
 import { array, checkListedOnce, kind, strings, table } from '../toml/shape.js'
 import { parseToml } from '../toml/parse.js'
 import { readSdist, readWheels } from './artifacts.js'
@@ -107,11 +107,7 @@ function resolveAll(list, index, where) {
   return resolved
 }
 
-function resolveLists(lists, index, where) {
-  const resolved = Object.create(null)
-  for (const [key, list] of Object.entries(lists)) resolved[key] = resolveAll(list, index, at(where, key))
-  return resolved
-}
+const resolveLists = (lists, index, where) => mapping(lists, where, (list, here) => resolveAll(list, index, here))
 
 // The workspace's own packages: its members, each a source tree, or the
 // one at its root where it names none.

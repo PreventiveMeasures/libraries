@@ -70,14 +70,14 @@ export function checkHash(value, where, sizes) {
   return value
 }
 
-// A path from the lockfile's directory, `/` between segments, as one that
-// reads the same on every machine: never absolute, which pylock.toml's
-// specification takes, and which reads on one machine alone.
 export function checkHttpUrl(value, where) {
   if (!isHttpUrl(text(value, where))) throw new LockfileError(`${quote(value)} is not an http(s) URL`, where)
   return value
 }
 
+// A path from the lockfile's directory, `/` between segments, as one that
+// reads the same on every machine: never absolute, which pylock.toml's
+// specification takes, and which reads on one machine alone.
 export function checkPath(value, where) {
   if (/^(?:\/|\\|[A-Za-z]:)/u.test(string(value, where))) throw new LockfileError(`${quote(value)} is absolute, and only reads on the machine that wrote it`, where)
   return checkRelative(value, where)

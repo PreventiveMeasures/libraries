@@ -9,7 +9,7 @@ import { checkRepo, isCommit } from '../names.js'
 import { DIGESTS, checkHash, checkHttpUrl, checkPath } from '../python/files.js'
 import { checkMarker, checkName, checkRequirementText, normalName } from '../python/pep508.js'
 import { field } from '../shape.js'
-import { array, boolean, entries, oneOf, string, stringsOf, table, tableOf, text } from '../toml/shape.js'
+import { arrayOf, boolean, checker, entries, oneOf, string, stringsOf, table, tableOf, text } from '../toml/shape.js'
 
 // The hashes Poetry takes from an index: hashlib's, by name.
 const HASHES = Object.fromEntries(['md5', 'sha1', 'sha224', 'sha256', 'sha384', 'sha512'].map((algorithm) => [algorithm, DIGESTS[algorithm]]))
@@ -69,9 +69,8 @@ export function readDependencies(value, where) {
     const normal = normalName(checkName(name, here))
     if (seen.has(normal)) throw new LockfileError(`${quote(name)} and ${quote(seen.get(normal))} are one name`, here)
     seen.set(normal, name)
-    const list = Array.isArray(item) ? item : [item]
-    if (list.length === 0) throw new LockfileError('an empty array, where Poetry writes a constraint', here)
-    dependencies[name] = list.map((constraint, index) => readConstraint(constraint, Array.isArray(item) ? `${here}[${index}]` : here))
+    if (Array.isArray(item) && item.length === 0) throw new LockfileError('an empty array, where Poetry writes a constraint', here)
+    dependencies[name] = Array.isArray(item) ? arrayOf(readConstraint)(item, here) : [readConstraint(item, here)]
   }
   return dependencies
 }
@@ -79,15 +78,14 @@ export function readDependencies(value, where) {
 // Each file by its name, with its hash.
 export function readFiles(value, where) {
   const seen = new Set()
-  return array(value, where).map((item, index) => {
-    const here = `${where}[${index}]`
+  return arrayOf((item, here) => {
     table(item, here, ['file', 'hash'])
     const file = text(item.file, at(here, 'file'))
     if (file.includes('/') || file.includes('\\')) throw new LockfileError(`${quote(file)} is not a file's name`, at(here, 'file'))
     if (seen.has(file)) throw new LockfileError(`${quote(file)} is listed twice`, here)
     seen.add(file)
     return { file, hash: checkHash(item.hash, at(here, 'hash'), HASHES) }
-  })
+  })(value, where)
 }
 
 // What each extra adds, in PEP 508's text, as Poetry writes it from the
@@ -103,10 +101,7 @@ const SOURCES = {
   directory: ['url'],
 }
 
-function readCommit(value, where) {
-  if (!isCommit(string(value, where))) throw new LockfileError(`${quote(value)} is not a full commit hash, as Poetry writes`, where)
-  return value
-}
+const readCommit = checker(isCommit, 'a full commit hash, as Poetry writes')
 
 // Where a package comes from, if not PyPI: an index by its URL and name, a
 // git repository at a commit, an archive by URL, or by path, or a

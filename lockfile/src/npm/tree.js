@@ -115,15 +115,13 @@ export function readWorkspaces(nodes) {
   const root = nodes.get('')
   const where = at(root.where, 'workspaces')
   const found = new Map()
-  const matched = new Set()
   for (const [index, glob] of (root.workspaces ?? []).entries()) {
     const tests = compile(glob.replace(/^\.?\/+/u, ''), `${where}[${index}]`)
     for (const node of nodes.values()) {
-      if (node.kind !== 'importer' || matched.has(node) || !matches(tests, node.location)) continue
+      if (node.kind !== 'importer' || found.get(node.name) === node || !matches(tests, node.location)) continue
       const name = checkName(node.name, at(node.where, 'name'))
       if (found.has(name)) throw new LockfileError(`the name of the workspace ${quote(found.get(name).location)} too, of which npm keeps one`, node.where)
       found.set(name, node)
-      matched.add(node)
     }
   }
   return found

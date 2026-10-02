@@ -10,13 +10,11 @@ import { checkCrateName, checkCrateVersion, table } from './shape.js'
 
 function identify(text, where) {
   const doc = table(parseToml(text), where)
-  const pkg = doc.package ?? doc.project
   const here = at(where, doc.package === undefined ? 'project' : 'package')
-  table(pkg, here)
+  const pkg = table(doc.package ?? doc.project, here)
   const name = checkCrateName(pkg.name, at(here, 'name'))
   if (isTable(pkg.version)) throw new LockfileError('a vendored package inherits nothing from a workspace', at(here, 'version'))
-  const version = field(pkg, 'version', here, checkCrateVersion) ?? '0.0.0'
-  return { name, version }
+  return { name, version: field(pkg, 'version', here, checkCrateVersion) ?? '0.0.0' }
 }
 
 // JSON.parse would take the last of a key given twice.

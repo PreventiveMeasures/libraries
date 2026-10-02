@@ -70,14 +70,9 @@ function readObject(src, indent) {
 export function readJson(text) {
   const src = lines(text, FORBIDDEN)
   advance(src)
-  let root = Object.create(null)
-  if (src.line === '{') {
-    const [object, comma] = readObject(src, 0)
-    if (comma) throw fail('a comma after the last "}"', src.number)
-    root = object
-  } else if (src.line !== '{}') {
-    throw fail(`expected "{", or "{}" for no dependencies, found ${src.line === undefined ? 'nothing' : quote(src.line)}`, src.number)
-  }
+  if (src.line !== '{' && src.line !== '{}') throw fail(`expected "{", or "{}" for no dependencies, found ${src.line === undefined ? 'nothing' : quote(src.line)}`, src.number)
+  const [root, comma] = src.line === '{' ? readObject(src, 0) : [Object.create(null), false]
+  if (comma) throw fail('a comma after the last "}"', src.number)
   for (advance(src); src.line !== undefined; advance(src)) {
     if (src.line !== '') throw fail(`expected the end of the file after the last "}", found ${quote(src.line)}`, src.number)
   }

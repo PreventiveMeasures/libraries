@@ -88,10 +88,7 @@ function calcFlagsBefore(nodes) {
   const flags = initial(nodes)
   const unsetFlag = (start, flag) => {
     if (!flags.get(start)[flag]) return
-    const unset = (node) => {
-      flags.get(node).extraneous = false
-      flags.get(node)[flag] = false
-    }
+    const unset = (node) => Object.assign(flags.get(node), { extraneous: false, [flag]: false })
     descend(start, (node) => {
       unset(node)
       if (node.kind === 'link') unset(node.target)
@@ -111,11 +108,10 @@ function calcFlagsBefore(nodes) {
       if (to === undefined) continue
       flags.get(to).extraneous = false
       const { dev, optional, peer } = kinds(type)
-      const unsetDevOptional = !own.devOptional && !own.dev && !own.optional && !dev && !optional
       if (!own.peer && !peer) unsetFlag(to, 'peer')
-      if (unsetDevOptional) unsetFlag(to, 'devOptional')
-      if (unsetDevOptional || (!own.dev && !dev)) unsetFlag(to, 'dev')
-      if (unsetDevOptional || (!own.optional && !optional)) unsetFlag(to, 'optional')
+      if (!own.devOptional && !own.dev && !own.optional && !dev && !optional) unsetFlag(to, 'devOptional')
+      if (!own.dev && !dev) unsetFlag(to, 'dev')
+      if (!own.optional && !optional) unsetFlag(to, 'optional')
     }
     return node
   }
