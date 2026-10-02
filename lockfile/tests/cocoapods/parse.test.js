@@ -257,19 +257,17 @@ describe('pods', () => {
 })
 
 describe('in time linear in its length', () => {
-  // Refused within a second: V8 hashes a string past 16383 characters by
-  // its length alone, so a table of thousands of them took seconds.
-  const quick = (text) => {
+  // V8 hashes a string past 16383 characters by its length alone, so a
+  // table of thousands of keys that long took seconds to fill. Such a key
+  // is refused at once, as a name that long is.
+  it('many keys past 16383 characters, refused at the first', () => {
+    const line = (index) => `  P${'x'.repeat(16400)}${index}: ${sha('a')}`
+    // One flat string, so that the time is the reader's alone.
+    const text = ['SPEC CHECKSUMS:', ...Array.from({ length: 2000 }, (_, index) => line(index)), ''].join('\n')
     const start = performance.now()
-    assert.throws(() => parsePodfileLock(text), LockfileError)
+    refuses(text, 'a key longer than 1024 characters, which Psych does not read at line 2')
     const took = performance.now() - start
     assert.ok(took < 1000, `${Math.round(took)} ms`)
-  }
-  const long = (index) => `P${'x'.repeat(16400)}${index}`
-
-  it('many keys, or names, past 16383 characters', () => {
-    quick(`SPEC CHECKSUMS:\n${Array.from({ length: 2000 }, (_, index) => `  ${long(index)}: ${sha('a')}`).join('\n')}\n`)
-    quick(`PODS:\n${Array.from({ length: 2000 }, (_, index) => `  - ${long(index)} (1.0)`).join('\n')}\n`)
   })
 })
 
