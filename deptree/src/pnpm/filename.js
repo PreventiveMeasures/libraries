@@ -6,13 +6,10 @@
 // short and ended with `_` and 32 hex characters of its SHA-256.
 // `a@1.0.0(b@2.0.0)` is `a@1.0.0_b@2.0.0`, `@s/a@1.0.0` `@s+a@1.0.0`.
 //
-// pnpm 11 escapes a trailing dot or space as well, each made `+`, and then
-// hashes the name whatever its length; a snapshot of the registry never
-// ends in either. pnpm 9 hashed with MD5 in base32, which is not done here.
-//
-// pnpm 12 measures and cuts the name by its UTF-8 bytes, back to where a
-// character starts, and takes only an ASCII capital for one; a name not
-// all ASCII, as a `file:` path may have, is the only one that tells.
+// pnpm 11 also makes a trailing dot or space `+`, and then always hashes;
+// no registry snapshot ends in either. pnpm 12 measures and cuts by UTF-8
+// bytes, back to where a character starts, and counts only ASCII capitals;
+// only a name not all ASCII, as a `file:` path may have, tells.
 
 import { quote } from '../error.js'
 import { sha256Hex } from '../hash.js'

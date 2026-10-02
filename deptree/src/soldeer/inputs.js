@@ -1,9 +1,8 @@
-// What buildSoldeerTree takes, checked: the host Soldeer runs on, and the
-// files `soldeer install` reads — given as text, or read from the project
-// (../pnpm/project.js) as Soldeer reads them at the project's root.
+// What buildSoldeerTree takes, checked: the host, and the files
+// `soldeer install` reads, given as text or read from the project's root.
 
 import { DeptreeError, quote } from '../error.js'
-import { checkProject, readText } from '../pnpm/project.js'
+import { checkProject, readText } from '../project.js'
 
 export function checkHost(host) {
   if (host === null || typeof host !== 'object') throw new TypeError('host must be an object with soldeer and os')

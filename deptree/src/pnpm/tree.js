@@ -1,42 +1,32 @@
-// A node_modules tree as pnpm 10, 11 or 12 installs it from a frozen lockfile
-// with the isolated linker, held in a Vfs rooted at the lockfile's directory:
-// each package's files at node_modules/.pnpm/<its directory>/node_modules/
-// <its name>, its dependencies linked beside it, the hoisted aliases in
-// node_modules/.pnpm/node_modules and node_modules, and each project's
-// direct dependencies in its own node_modules. Every link is relative, as
-// pnpm makes them outside Windows, and a `link:` leads where the lockfile
-// says whether or not anything is there: the tree holds node_modules and
-// nothing else of the projects.
-//
-// Not written: bins and their shims (node_modules/.bin), though what
-// linking them does to the files they run is (bins.js); .modules.yaml,
-// .pnpm/lock.yaml and the workspace state, which are pnpm's own; and
-// anything a lifecycle script would build. The tree is always the one
-// `pnpm install --ignore-scripts` makes: no script is run, a project's or
-// a dependency's, whatever the settings allow, and patches are applied all
-// the same, as pnpm applies them before any script.
-//
-// Each package is fetched once, and each snapshot's files composed in
-// memory — its package's, patched, bins fixed — before one write of each.
+// The node_modules tree pnpm 10, 11 or 12 installs from a frozen lockfile
+// with the isolated linker, in a Vfs rooted at the lockfile's directory.
+// It holds node_modules and nothing else of the projects: links are
+// relative, as pnpm makes them outside Windows, and a `link:` leads where
+// the lockfile says whether or not anything is there. Bins are not linked,
+// though what linking them does to their files is (bins.js), and pnpm's
+// own state (.modules.yaml, .pnpm/lock.yaml) is not written. The tree is
+// the one `pnpm install --ignore-scripts` makes, whatever the settings
+// allow; patches are still applied, as pnpm applies them before scripts.
 
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
-import { Vfs, VfsError } from '@preventive/vfs'
+import { Vfs } from '@preventive/vfs'
 import { dirname, relative } from '@preventive/vfs/path.js'
 import { eachConcurrently } from '../concurrent.js'
-import { DeptreeError, quote } from '../error.js'
-import { checkNoModules, mount } from '../mount.js'
+import { DeptreeError, quote, refusalOf } from '../error.js'
+import { checkCollisions, checkNoModules, mount } from '../mount.js'
 import { applyPatch, parsePatch } from '../patch.js'
-import { REGISTRY, checkDependencies, checkManifest, fetchPackage, sameBytes, tarballUrl } from '../tarball.js'
+import { checkProject, typeOf } from '../project.js'
+import { REGISTRY, tarballUrl } from '../tarball.js'
 import { binTargets, checkPatchOfBins, fixBin, requiresBuild } from './bins.js'
 import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
 import { checkLocalOverrides, createFreshnessCheck, readDirectoryPackage, readLinked } from './local.js'
 import { createPatchedCheck, skippedSnapshots } from './install.js'
-import { checkCollisions, checkLinks, checkOptional } from './checks.js'
+import { checkDependencies, fetchPackage } from './package.js'
+import { checkLinks, checkOptional } from './checks.js'
 import { createHook } from './hook.js'
 import { listOverrides } from './overrides.js'
 import { checkHost, inputsOf, manifestsOf, patchesOf, readLockfile } from './inputs.js'
-import { checkProject } from './project.js'
 import { checkProjects, pinsPnpm, workspaceNames } from './projects.js'
 import { readSettings } from './settings.js'
 import { checkUpToDate } from './uptodate.js'
@@ -56,12 +46,8 @@ function checkLockfile(lockfile) {
   }
 }
 
-// A package fetched here comes from the public registry, as upstream
-// fetches it: its key is its name and version, and its resolution a
-// tarball there with a sha512. One pnpm installs from a directory is one
-// a `file:` override names, in `installed`, as local.js reads it, and is
-// not patched: pnpm installs its files by hardlinks, so a patch would be
-// applied to the directory's own.
+// Only registry tarballs with a sha512 are fetched; a directory is taken
+// only where a `file:` override names it (`installed`, from local.js).
 function checkSource(node, installed) {
   const { key, pkg } = node
   const { resolution } = pkg
@@ -76,14 +62,12 @@ function checkSource(node, installed) {
   if (!resolution.integrity?.startsWith('sha512-')) throw new DeptreeError('expected a sha512 integrity', quote(key))
 }
 
-// What a package's snapshots all have of it, and it is fetched and held to.
+// What all of a package's snapshots must agree on, as it is fetched once.
 const PACKAGE_FIELDS = ['resolution', 'os', 'cpu', 'libc', 'hasBin', 'bundledDependencies']
 const packageFields = (pkg) => JSON.stringify(PACKAGE_FIELDS.map((field) => pkg[field]))
 
-// Each package's files and package.json, by its name and version: a
-// package is fetched once however many snapshots it has, a few at a time.
-// One installed from a directory is read from `project`, as npm-packlist
-// picks its files.
+// Each package's files and package.json by name@version; a directory
+// package's are read from `project`, as npm-packlist picks them.
 async function fetchAll(nodes, project, major) {
   const packages = new Map()
   for (const { key, pkg } of nodes.values()) {
@@ -93,22 +77,13 @@ async function fetchAll(nodes, project, major) {
   }
   const fetched = new Map()
   await eachConcurrently(packages, async ([id, pkg]) => {
-    try {
-      if (pkg.resolution.type === 'directory') {
-        const got = readDirectoryPackage(project, pkg, quote(id), major)
-        checkManifest(got.manifest, pkg, quote(id), major)
-        fetched.set(id, { ...got, local: true })
-      } else fetched.set(id, await fetchPackage(pkg, quote(id), major))
-    } catch (error) {
-      throw error instanceof DeptreeError ? error : new DeptreeError(error.message, quote(id), { cause: error })
-    }
-  })
+    fetched.set(id, pkg.resolution.type === 'directory' ? readDirectoryPackage(project, pkg, quote(id), major) : await fetchPackage(pkg, quote(id), major))
+  }, ([id]) => quote(id))
   return fetched
 }
 
-// Each node with its package's files and package.json, by its directory:
-// its dependencies held to the package.json, as `hook` reads it once for
-// each package; and the number of tarballs fetched.
+// Nodes by directory with their package's files, dependencies checked
+// against the package.json as `hook` reads it; and the tarball count.
 async function fetchNodes(nodes, hook, project, major, fresh) {
   const fetched = await fetchAll(nodes, project, major)
   const byDir = new Map()
@@ -123,41 +98,30 @@ async function fetchNodes(nodes, hook, project, major, fresh) {
   return { byDir, tarballs: [...fetched.values()].filter((got) => !got.local).length }
 }
 
-// A package installed from a directory has one file for each of its
-// files, hardlinked into each of its snapshots: fixBin makes it
-// executable in all of them, though a CRLF `#!` line it rewrites is
-// written as a file of that snapshot's own. Each snapshot has its own
-// copy instead where pnpm builds the package, or, with pnpm 11 and 12,
-// where packageImportMethod is other than auto or hardlink. By
-// directory, the files a snapshot has made executable by another's:
-// `targets` is binTargets's.
+// pnpm hardlinks a directory package's files into each of its snapshots,
+// so a file fixBin makes executable in one is so in all, though a CRLF
+// `#!` line it rewrites becomes that snapshot's own. Each has its own copy
+// where pnpm builds the package or, with pnpm 11 and 12, where
+// packageImportMethod is other than auto or hardlink. By directory, the
+// files made executable by another snapshot; `targets` is binTargets's.
 function executableElsewhere(byDir, targets, packageImportMethod, major) {
-  const linked = major < 11 || packageImportMethod === 'auto' || packageImportMethod === 'hardlink'
-  const shared = [...byDir.values()].filter((node) => linked && node.pkg.resolution.type === 'directory' && !requiresBuild(node.manifest, node.files, major))
-  const byPackage = new Map()
-  for (const node of shared) {
-    const id = packageKeyOf(node.key)
-    if (!byPackage.has(id)) byPackage.set(id, new Set())
-    for (const path of targets.get(node.dir) ?? []) byPackage.get(id).add(path)
-  }
-  const executable = new Map()
-  for (const node of shared) {
+  if (major >= 11 && packageImportMethod !== 'auto' && packageImportMethod !== 'hardlink') return new Map()
+  const shared = [...byDir.values()].filter((node) => node.pkg.resolution.type === 'directory' && !requiresBuild(node.manifest, node.files, major))
+  const byPackage = Map.groupBy(shared, (node) => packageKeyOf(node.key))
+  return new Map(shared.map((node) => {
     const own = targets.get(node.dir) ?? new Set()
-    executable.set(node.dir, new Set([...byPackage.get(packageKeyOf(node.key))].filter((path) => !own.has(path))))
-  }
-  return executable
+    const all = byPackage.get(packageKeyOf(node.key)).flatMap((other) => [...targets.get(other.dir) ?? []])
+    return [node.dir, new Set(all.filter((path) => !own.has(path)))]
+  }))
 }
 
-// A snapshot's files as pnpm leaves them: its package's, the patch the
-// snapshot names applied, and what linking bins does to them: fixBin run
-// on `targets`, and `executable` made so. `checkPatched` is
-// createPatchedCheck's.
+// A snapshot's files as pnpm leaves them: patched, then fixBin run on
+// `targets` and `executable` made executable, as linking bins does.
 function compose(node, patches, { targets, executable }, { major, checkPatched }) {
   const where = quote(node.key)
   let files = node.files
   const { patchHash } = node.pkg
   if (patchHash !== undefined) {
-    if (!patches.has(patchHash)) throw new DeptreeError(`the patch ${patchHash} is not given`, where)
     const patch = patches.get(patchHash)
     patch.parsed ??= parsePatch(patch.text, patch.path)
     // Once for each package, whatever its snapshots.
@@ -174,36 +138,83 @@ function compose(node, patches, { targets, executable }, { major, checkPatched }
   return files
 }
 
-// Writes a file where nothing is, or the same file is: a write never
-// replaces anything else. The tree holds no links yet.
-function writeOnce(vfs, path, { data, mode }) {
-  let there
-  try {
-    there = vfs.lstat(path)
-  } catch (error) {
-    if (!(error instanceof VfsError)) throw error
-    vfs.mkdir(dirname(path), { recursive: true })
-    vfs.writeFile(path, data, { mode })
-    return true
-  }
-  if (there.type === 'file' && there.mode === mode && sameBytes(vfs.readFile(path), data)) return false
-  throw new DeptreeError('would be written over with something else', quote(path.slice(1)))
+function addMade(made, dir) {
+  for (let at = dir; !made.has(at) && at !== '/'; at = dirname(at)) made.add(at)
 }
 
-// A link's target spelled from the directory the link is in, as pnpm's
-// symlink-dir spells it; a target may climb out of the tree, so both are
-// read under as many directories as it climbs.
+// Writes a node's files into its own directory, where nothing may be yet.
+// Only this node writes there, so `made` knows every directory under it
+// and no write needs a look first, which costs a thrown error where
+// nothing is. The tree holds no links yet.
+function writeNode(vfs, dir, files, stats) {
+  const root = `/${dir}`
+  if (typeOf(vfs, root, false) !== undefined) throw new DeptreeError('would be written over with something else', quote(dir))
+  vfs.mkdir(root, { recursive: true })
+  const made = new Set([root])
+  for (const [path, file] of files) {
+    const at = `${root}/${path}`
+    if (file.directory) {
+      vfs.mkdir(at, { recursive: true })
+      addMade(made, at)
+      continue
+    }
+    if (made.has(at)) throw new DeptreeError('would be written over with something else', quote(at.slice(1)))
+    const parent = dirname(at)
+    if (!made.has(parent)) {
+      vfs.mkdir(parent, { recursive: true })
+      addMade(made, parent)
+    }
+    vfs.writeFile(at, file.data, { mode: file.mode })
+    stats.files++
+    stats.bytes += file.data.length
+  }
+}
+
+// A link's target relative to the link's directory, as pnpm's symlink-dir
+// spells it. A target may climb out of the tree, so both are resolved
+// under as many dummy directories as it climbs.
 function linkTarget(path, target) {
   const climbs = target.split('/').filter((segment) => segment === '..').length
   const root = '/_'.repeat(climbs)
   return relative(`${root}/${dirname(path)}`, `${root}/${target}`) || '.'
 }
 
-// Every link in the tree, by its path: each node's children beside it and,
-// but with pnpm 12, itself inside it where it depends on itself, then what
-// is hoisted, then each project's direct dependencies, which win over a
-// hoisted alias.
-// `byDir` is the graph by directory, and `hoisting` graph.js's.
+// Directories of the installed snapshots a project's dependencies or
+// optionalDependencies reach; the rest are dev-only, which
+// `pnpm install --prod` leaves out. `nodes` is graph.js's, by key.
+function reachedInProd(importers, nodes, byDir) {
+  const queue = Object.values(importers)
+    .flatMap(({ dependencies, optionalDependencies }) => [...Object.values(dependencies), ...Object.values(optionalDependencies)])
+    .map((target) => nodes.get(target)?.dir)
+  const reached = new Set()
+  while (queue.length > 0) {
+    const dir = queue.pop()
+    if (!byDir.has(dir) || reached.has(dir)) continue
+    reached.add(dir)
+    queue.push(...byDir.get(dir).children.values())
+  }
+  return reached
+}
+
+// A snapshot's entry in the `installed` list buildPnpmTree returns.
+function installedOf(node, dev, patches) {
+  const { key, name, dir, pkg: { version, resolution, optional, patchHash } } = node
+  return {
+    path: dir,
+    key,
+    name,
+    version,
+    integrity: resolution.integrity,
+    directory: resolution.directory,
+    dev,
+    optional,
+    patch: patchHash === undefined ? undefined : { hash: patchHash, path: patches.get(patchHash).path },
+  }
+}
+
+// Every link in the tree by path, later ones winning: each node's children
+// beside it (and before pnpm 12, itself inside it where it depends on
+// itself), then what is hoisted, then each project's direct dependencies.
 function linksOf(byDir, direct, settings, projects, major, hoisting) {
   const links = new Map()
   for (const node of byDir.values()) {
@@ -233,26 +244,26 @@ export async function buildPnpmTree(options) {
   checkLockfile(lockfile)
   const { manifests, pnpm, major, workspace } = manifestsOf(inputs, lockfile, given.pnpm)
   const host = { pnpm, major, ...machine }
-  // pnpm 11 locks config dependencies there, which are refused, and the
-  // pnpm a project pins, which leaves the tree as it is.
-  if (env !== undefined && host.major < 11) throw new DeptreeError('the env document pnpm 11 writes is not supported', 'env')
+  // pnpm 11's env document locks config dependencies, refused here, and
+  // the pnpm a project pins, which leaves the tree as it is.
+  if (env !== undefined && major < 11) throw new DeptreeError('the env document pnpm 11 writes is not supported', 'env')
   if (env !== undefined && Object.keys(env.importers['.'].configDependencies).length > 0) throw new DeptreeError('config dependencies are not supported', 'env.importers["."].configDependencies')
-  const settings = readSettings({ workspace, npmrc: inputs.npmrc, manifest: manifests.get('.'), major: host.major, pinned: pinsPnpm(manifests.get('.'), host.pnpm) })
-  checkWorkspace(Object.keys(lockfile.importers), settings.packages, host.major)
-  const overrides = listOverrides(settings.overrides, settings.catalogs, host.major)
+  const settings = readSettings({ workspace, npmrc: inputs.npmrc, manifest: manifests.get('.'), major, pinned: pinsPnpm(manifests.get('.'), host.pnpm) })
+  checkWorkspace(Object.keys(lockfile.importers), settings.packages, major)
+  const overrides = listOverrides(settings.overrides, settings.catalogs, major)
   const installed = checkLocalOverrides(overrides, project)
   const patches = patchesOf(inputs, settings.patchedDependencies)
-  const patched = await checkUpToDate(lockfile, settings, overrides, patches, host.major)
-  const hook = createHook({ overrides, ignored: settings.ignoredOptionalDependencies, major: host.major })
+  const patched = await checkUpToDate(lockfile, settings, overrides, patches, major)
+  const hook = createHook({ overrides, ignored: settings.ignoredOptionalDependencies, major })
   checkProjects(lockfile, manifests, { hook, host, settings, env })
   checkOptional(lockfile)
   const projects = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
   const { skipped, incompatible } = skippedSnapshots(lockfile, { host, settings })
-  const { nodes, direct, hoisting } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, host.major)
+  const { nodes, direct, hoisting } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, major)
   for (const node of nodes.values()) checkSource(node, installed)
 
-  const { byDir, tarballs } = await fetchNodes(nodes, hook, project, host.major, createFreshnessCheck(lockfile, host.major))
-  const links = linksOf(byDir, direct, settings, projects, host.major, hoisting)
+  const { byDir, tarballs } = await fetchNodes(nodes, hook, project, major, createFreshnessCheck(lockfile, major))
+  const links = linksOf(byDir, direct, settings, projects, major, hoisting)
   const linked = readLinked(links, byDir, manifests, project)
   const targets = binTargets({
     nodes: byDir,
@@ -262,31 +273,25 @@ export async function buildPnpmTree(options) {
     publicHoist: settings.publicHoistPattern?.length > 0,
     building: Object.keys(settings.patchedDependencies ?? {}).length > 0,
     peers: settings.autoInstallPeers,
-    major: host.major,
+    major,
   })
-  const executable = executableElsewhere(byDir, targets, settings.packageImportMethod, host.major)
+  const executable = executableElsewhere(byDir, targets, settings.packageImportMethod, major)
+  const prod = reachedInProd(lockfile.importers, nodes, byDir)
 
   const vfs = new Vfs()
   vfs.mkdir('/node_modules/.pnpm', { recursive: true })
-  const stats = { projects: manifests.size, snapshots: Object.keys(lockfile.packages).length, installed: nodes.size, skipped: skipped.size, incompatible: incompatible.size, tarballs, patched: 0, files: 0, bytes: 0, links: links.size }
-  const composing = { major: host.major, checkPatched: createPatchedCheck({ host, settings }) }
+  const stats = { projects: manifests.size, snapshots: Object.keys(lockfile.packages).length, installed: nodes.size, skipped: skipped.size, incompatible: incompatible.size, tarballs, patched: [...nodes.values()].filter((node) => node.pkg.patchHash !== undefined).length, files: 0, bytes: 0, links: links.size }
+  const listed = []
+  const composing = { major, checkPatched: createPatchedCheck({ host, settings }) }
   // Each node is let go once written, and a package's files with its last.
   for (const node of byDir.values()) {
     byDir.delete(node.dir)
-    if (node.pkg.patchHash !== undefined) stats.patched++
     try {
-      vfs.mkdir(`/${node.dir}`, { recursive: true })
-      for (const [path, file] of compose(node, patched, { targets: targets.get(node.dir) ?? new Set(), executable: executable.get(node.dir) ?? new Set() }, composing)) {
-        if (file.directory) vfs.mkdir(`/${node.dir}/${path}`, { recursive: true })
-        else if (writeOnce(vfs, `/${node.dir}/${path}`, file)) {
-          stats.files++
-          stats.bytes += file.data.length
-        }
-      }
+      writeNode(vfs, node.dir, compose(node, patched, { targets: targets.get(node.dir) ?? new Set(), executable: executable.get(node.dir) ?? new Set() }, composing), stats)
     } catch (error) {
-      if (error instanceof DeptreeError) throw error
-      throw new DeptreeError(error.message, quote(node.key), { cause: error })
+      throw refusalOf(error, quote(node.key))
     }
+    listed.push(installedOf(node, !prod.has(node.dir), patched))
   }
   for (const [path, target] of links) {
     try {
@@ -298,7 +303,6 @@ export async function buildPnpmTree(options) {
   }
   checkLinks(vfs, links)
   if (folded) checkCollisions(vfs)
-  if (into === undefined) return { vfs, stats }
-  mount(vfs, into, folded)
-  return { vfs: into, stats }
+  if (into !== undefined) mount(vfs, into, folded)
+  return { vfs: into ?? vfs, stats, installed: listed }
 }

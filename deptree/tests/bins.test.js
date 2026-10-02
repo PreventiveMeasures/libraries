@@ -7,6 +7,14 @@ const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 const file = (text, mode = 0o644) => ({ data: typeof text === 'string' ? encoder.encode(text) : text, mode })
 const filesOf = (entries) => new Map(Object.entries(entries).map(([path, text]) => [path, file(text)]))
+const patched = (files, changes) => {
+  const all = new Map(files)
+  for (const [path, text] of Object.entries(changes)) {
+    if (text === undefined) all.delete(path)
+    else all.set(path, file(text))
+  }
+  return all
+}
 
 describe('fixBin', () => {
   it('makes a file executable, and a CRLF ending its #! line LF', () => {
@@ -26,15 +34,7 @@ describe('fixBin', () => {
 describe('checkPatchOfBins', () => {
   const manifest = { name: 'x', version: '1.0.0', bin: { x: 'cli.js' }, directories: { doc: 'doc' } }
   const node = { key: 'x@1.0.0', dir: 'node_modules/.pnpm/x@1.0.0/node_modules/x', manifest, files: filesOf({ 'package.json': JSON.stringify(manifest), 'cli.js': '#!/usr/bin/env node\n', 'lib.js': '' }) }
-  const patched = (changes) => {
-    const files = new Map(node.files)
-    for (const [path, text] of Object.entries(changes)) {
-      if (text === undefined) files.delete(path)
-      else files.set(path, file(text))
-    }
-    return files
-  }
-  const check = (changes) => checkPatchOfBins(node, patched(changes), new Set(['cli.js']), 'x', 10)
+  const check = (changes) => checkPatchOfBins(node, patched(node.files, changes), new Set(['cli.js']), 'x', 10)
 
   it('lets a patch change what of package.json linking bins does not read', () => {
     check({ 'lib.js': 'changed', 'cli.js': '#!/usr/bin/env node\nchanged\n', 'package.json': JSON.stringify({ ...manifest, description: 'd', directories: { doc: 'docs' } }) })
@@ -59,16 +59,11 @@ describe('checkPatchOfBins', () => {
     assert.equal(check({}), manifest)
   })
 
-  // Bins by the files of a directories.bin, and a bundled package's.
   const other = { name: 'y', version: '1.0.0', directories: { bin: 'bin' } }
   const bundledOf = (fields) => JSON.stringify({ name: 'q', version: '1.0.0', bin: { q: 'q.js', r: 'r.js' }, ...fields })
   const bundled = bundledOf({})
   const y = { key: 'y@1.0.0', dir: 'node_modules/.pnpm/y@1.0.0/node_modules/y', manifest: other, files: filesOf({ 'package.json': JSON.stringify(other), 'bin/y.js': '', 'node_modules/q/package.json': bundled, 'node_modules/q/q.js': '', 'node_modules/q/r.js': '' }) }
-  const checkY = (changes) => {
-    const files = new Map(y.files)
-    for (const [path, text] of Object.entries(changes)) files.set(path, file(text))
-    return checkPatchOfBins(y, files, new Set(), 'y', 10)
-  }
+  const checkY = (changes) => checkPatchOfBins(y, patched(y.files, changes), new Set(), 'y', 10)
 
   it('lets a patch make a file outside directories.bin', () => {
     checkY({ 'lib/new.js': '', 'bin/.hidden': '' })

@@ -1,10 +1,8 @@
-// What pnpm 11's frozen install holds each project to beyond what pnpm
-// 10's does (@pnpm/lockfile.verification): specifiers that name one git
-// repository and commit alike are the same; a catalog dependency has to
-// have resolved to the version the lockfile's catalog records; and a
-// dependency on a workspace package has to be linked exactly where the
-// package's version is in its range — which pnpm 10 checks only when it
-// resolves.
+// What pnpm 11's frozen install holds each project to beyond pnpm 10's
+// (@pnpm/lockfile.verification): git specifiers of one repository and
+// commit are the same, a catalog dependency has the version the lockfile's
+// catalog records, and a workspace package is linked exactly where its
+// version is in range, which pnpm 10 checks only when it resolves.
 
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { satisfies, valid, validRange } from '@preventive/upstream/semver.js'
@@ -22,8 +20,7 @@ function gitUrl(host, path, committish) {
   return `git+https://${host}/${repository}.git${committish ? `#${committish}` : ''}`
 }
 
-// A git specifier as one URL, as gitSpecifiersAreEquivalent spells it, or
-// undefined for one that is not.
+// A git specifier as one URL, as gitSpecifiersAreEquivalent spells it.
 function gitSpecifier(specifier) {
   const hash = specifier.indexOf('#')
   const committish = hash === -1 ? undefined : specifier.slice(hash + 1)
@@ -47,9 +44,8 @@ function gitSpecifier(specifier) {
   return gitUrl(host, path, committish)
 }
 
-// dependencySpecifiersAreEqual: pnpm 11 takes two specifiers of one git
-// repository and commit, however spelled, to be the same; pnpm 10 only
-// two spelled the same.
+// dependencySpecifiersAreEqual: pnpm 11 takes git specifiers of one
+// repository and commit as the same however spelled; pnpm 10 does not.
 export function sameSpecifier(a, b, major) {
   if (a === b) return true
   if (major < 11 || a === undefined || b === undefined) return false
@@ -57,9 +53,8 @@ export function sameSpecifier(a, b, major) {
   return git !== undefined && git === gitSpecifier(b)
 }
 
-// The version an importer's target resolved to, as the lockfile spells
-// it, peers and all left out: a key of the alias's own name is its
-// version.
+// The version an importer's target resolved to, peers left out; a target
+// under the alias's own name is spelled as its version alone.
 export const resolvedOf = (alias, target) => packageKeyOf(target.startsWith(`${alias}@`) ? target.slice(alias.length + 1) : target)
 
 const targetOf = (importer, alias) => importer.dependencies[alias] ?? importer.devDependencies[alias] ?? importer.optionalDependencies[alias]
@@ -77,9 +72,8 @@ export function checkCatalogResolutions(importer, catalogs, where) {
   }
 }
 
-// A path pnpm resolves from a directory, `./` and all, relative to the
-// lockfile's directory as the lockfile's links are; one from the home
-// directory or the root cannot be told here.
+// A path from project `dir`, relative to the lockfile's directory as its
+// links are; one from the home directory or the root cannot be told here.
 function specPath(dir, path, where) {
   const clean = path.startsWith('./') ? path.slice(2) : path
   if (/^(?:~[/\\]|[/\\]|[A-Za-z]:)/u.test(clean) || clean.includes('\\')) throw new DeptreeError(`${quote(path)} is not a path from the project, which is not supported`, where)
@@ -87,40 +81,24 @@ function specPath(dir, path, where) {
 }
 
 const isWorkspacePath = (spec) => /^(?:[./\\]|~[/\\]|[A-Za-z]:)/u.test(spec)
-// Of two paths in the lockfile's normal form, whether one is the other or
-// in it.
+// Whether `child` is `parent` or in it, both in the lockfile's form.
 const within = (parent, child) => child === parent || (parent === '.' ? child !== '..' && !child.startsWith('../') : child.startsWith(`${parent}/`))
 
-// The name of the package a specifier asks for, under `alias`.
-export function targetName(spec, alias) {
+// The package name and version range a specifier under `alias` asks for.
+export function parseSpec(spec, alias) {
   if (spec.startsWith('workspace:')) {
     const raw = spec.slice('workspace:'.length)
     const at = raw.lastIndexOf('@')
-    return isWorkspacePath(raw) || at <= 0 ? alias : raw.slice(0, at)
+    return { name: isWorkspacePath(raw) || at <= 0 ? alias : raw.slice(0, at), range: at > 0 ? raw.slice(at + 1) || '*' : raw }
   }
   if (spec.startsWith('npm:')) {
     const raw = spec.slice('npm:'.length)
-    if (validRange(raw) !== null) return alias
-    const at = raw.lastIndexOf('@')
-    return at > 0 ? raw.slice(0, at) : raw
+    if (validRange(raw) !== null) return { name: alias, range: raw }
+    const last = raw.lastIndexOf('@')
+    const first = raw.indexOf('@', 1)
+    return { name: last > 0 ? raw.slice(0, last) : raw, range: first === -1 ? '*' : raw.slice(first + 1) || '*' }
   }
-  return alias
-}
-
-// The range of the version a specifier asks for.
-export function versionRange(spec) {
-  if (spec.startsWith('workspace:')) {
-    const raw = spec.slice('workspace:'.length)
-    const at = raw.lastIndexOf('@')
-    return at > 0 ? raw.slice(at + 1) || '*' : raw
-  }
-  if (spec.startsWith('npm:')) {
-    const raw = spec.slice('npm:'.length)
-    if (validRange(raw) !== null) return raw
-    const at = raw.indexOf('@', 1)
-    return at === -1 ? '*' : raw.slice(at + 1) || '*'
-  }
-  return spec
+  return { name: alias, range: spec }
 }
 
 const inRange = (version, range) => range === '*' || range === '^' || range === '~' || (typeof version === 'string' && satisfies(version, range, { loose: true }))
@@ -130,23 +108,21 @@ const isTag = (range) => valid(range, { loose: true }) === null && validRange(ra
 
 export const KINDS = ['optionalDependencies', 'dependencies', 'devDependencies']
 
-// The directory a specifier names, where it names one: by `link:`,
-// `file:`, a `workspace:` path, or a path alone, as pnpm reads one. One
-// led by a backslash, a path to pnpm on Windows alone, is taken for one
-// too, for specPath to refuse, as a lockfile pnpm writes elsewhere never
-// links it.
+// The directory a specifier names by `link:`, `file:`, a `workspace:` path
+// or a path alone, as pnpm reads one. One led by a backslash, a path only
+// on Windows, is taken too for specPath to refuse, as a lockfile pnpm
+// writes elsewhere never links it.
 function pathOf(spec) {
   if (spec.startsWith('link:') || spec.startsWith('file:')) return spec.slice(5)
   const path = spec.startsWith('workspace:') ? spec.slice('workspace:'.length) : spec
   return isWorkspacePath(path) ? path : undefined
 }
 
-// A dependency the lockfile links has to be linked where the project's
-// package.json, read through the read-package hook, names a directory for
-// it, as a lockfile pnpm writes always has it: pnpm 11 holds a `link:` or
-// `workspace:` path to that, and pnpm 10, or pnpm 11 a path alone, would
-// link whatever the lockfile says. A `file:` one is pnpm's to link, where
-// it does.
+// A linked dependency must lead where the package.json, through the
+// read-package hook, names a directory for it, as a lockfile pnpm writes
+// always has it. pnpm 11 checks a `link:` or `workspace:` path; pnpm 10,
+// or pnpm 11 for a path alone, would link whatever the lockfile says. A
+// `file:` one is pnpm's to link.
 export function checkLinkTargets({ id, manifest, importer }, where) {
   for (const kind of KINDS) {
     for (const [alias, target] of Object.entries(importer[kind])) {
@@ -161,9 +137,8 @@ export function checkLinkTargets({ id, manifest, importer }, where) {
   }
 }
 
-// Every project's package.json, as given, by its directory, and by where
-// pnpm 11 links it from, its publishConfig.directory among them; and the
-// directory of each by name and version, of which no two may be one.
+// Projects by directory, and by the publishConfig.directory pnpm 11 links
+// one from; and their directories by name and version.
 export function indexProjects(projects) {
   const byName = new Map()
   const byDir = new Map()
@@ -181,9 +156,8 @@ export function indexProjects(projects) {
 }
 
 // checkLinkedPackagesAreUpToDate, less the directories a package.json
-// names, which checkLinkTargets holds links to: `manifest` is the
-// project's package.json as read through the read-package hook, `index`
-// indexProjects's, and `linkWorkspacePackages` the setting.
+// names, which checkLinkTargets checks. `manifest` is read through the
+// read-package hook, and `index` is indexProjects's.
 export function checkLinkedPackages({ manifest, importer, index: { projects, byName, byDir }, linkWorkspacePackages }, where) {
   const outdated = (detail) => new DeptreeError(`the lockfile is not up to date with this package.json, which pnpm 11 refuses a frozen install for: ${detail}`, where)
   for (const kind of KINDS) {
@@ -195,14 +169,11 @@ export function checkLinkedPackages({ manifest, importer, index: { projects, byN
       const here = `${where}.${kind}.${alias}`
       const workspaceRange = spec.startsWith('workspace:') && !isWorkspacePath(spec.slice('workspace:'.length))
       const linked = target.startsWith('link:')
-      // A local directory or tarball is up to date where the lockfile has
-      // it, as pnpm 11's frozen install skips its own dependencies; which
-      // is installed is held to tree.js's checkSource.
-      const local = importer.specifiers[alias].startsWith('file:') || packageKeyOf(target).includes('@file:')
-      if (local) continue
+      // pnpm 11's frozen install skips a local directory or tarball;
+      // tree.js's checkSource limits which may be installed.
+      if (importer.specifiers[alias].startsWith('file:') || packageKeyOf(target).includes('@file:')) continue
       if (linked && pathOf(spec) !== undefined) continue
-      const name = targetName(spec, alias)
-      const range = versionRange(spec)
+      const { name, range } = parseSpec(spec, alias)
       if (linked && isTag(range)) continue
       const named = byName.get(name)
       const dir = linked ? target.slice('link:'.length) : named?.get(resolvedOf(alias, target))

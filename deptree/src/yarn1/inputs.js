@@ -1,17 +1,16 @@
-// What buildYarn1Tree takes, checked: the host yarn would install on, and
-// the files an install reads — given as text, or read from the project
-// (../pnpm/project.js) as yarn reads them from disk.
+// What buildYarn1Tree takes, checked: the host, and the files an install
+// reads, given as text or read from the project as yarn reads them.
 
 import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
-import { checkProject, readText, typeOf } from '../pnpm/project.js'
+import { readManifest } from '../manifest.js'
+import { checkProject, readText, typeOf } from '../project.js'
 import { matchesGlob, reachesBelow } from './glob.js'
-import { globsOf, readManifest } from './manifest.js'
+import { globsOf } from './manifest.js'
 import { readSettings } from './settings.js'
 
-// The yarn that installs: host.yarn, or where that is left out, the one
-// the root package.json's packageManager pins, as corepack runs that one;
-// a 1.22.x, the line this follows.
+// The yarn that installs: host.yarn, or else the one the root's
+// packageManager pins, as corepack runs that one.
 function yarnOf(yarn, root) {
   if (yarn !== undefined && (typeof yarn !== 'string' || yarn === '')) throw new TypeError('host.yarn must be a non-empty string, or left out')
   const { packageManager } = root
@@ -42,11 +41,10 @@ export function checkHost(host, root) {
 // stead, as the manifest of its own registry.
 const yarnJson = 'a yarn.json, which yarn reads as a manifest too, is not supported'
 
-// The directories of the workspaces in `project` as yarn's resolveWorkspaces
-// finds them: each with a package.json that a glob takes, outside
-// node_modules. Every directory a glob may reach is read; a link in one,
-// which node-glob follows or not by where it is, is refused, and so is a
-// node_modules a glob would take, whose package.json yarn would read.
+// The workspace directories as yarn's resolveWorkspaces finds them. A link
+// where a glob may reach is refused, as node-glob follows it or not by
+// where it is, and so is a node_modules a glob takes, whose package.json
+// yarn would read.
 function findWorkspaces(project, globs) {
   const found = []
   if (globs.length === 0) return found
@@ -80,8 +78,6 @@ function readRoot(project) {
   return readManifest(text, 'manifests["."]')
 }
 
-// The directories of the projects yarn installs in `project`: `.`, then
-// each workspace's, as buildYarn1Tree takes their package.json given.
 export function findYarn1Workspaces(options) {
   const { project } = options ?? {}
   checkProject(project)
@@ -90,9 +86,6 @@ export function findYarn1Workspaces(options) {
 
 const LOCKFILE = 'lockfile must be the text of yarn.lock, or left out with a project given to read it from'
 
-// The files an install reads, given or read from the project: yarn.lock,
-// each package.json by directory, the root's `.` among them, and what of
-// the .yarnrc and .npmrc the install follows.
 export function inputsOf(options) {
   const { lockfile, manifests, yarnrc, npmrc, project } = options
   if (project !== undefined) checkProject(project)
@@ -108,9 +101,7 @@ export function inputsOf(options) {
       read.set(dir, readManifest(readText(project, `/${dir}/package.json`, `manifests[${quote(dir)}]`), `manifests[${quote(dir)}]`))
     }
     if (typeOf(project, '/.yarnrc.yml') !== undefined) throw new DeptreeError('a .yarnrc.yml, whose yarnPath yarn 1.22 runs in its stead, is not supported', '.yarnrc.yml')
-    const rc = readText(project, '/.yarnrc')
-    const npm = readText(project, '/.npmrc')
-    return { lockfile: text, manifests: read, settings: readSettings({ yarnrc: rc, npmrc: npm }), project }
+    return { lockfile: text, manifests: read, settings: readSettings({ yarnrc: readText(project, '/.yarnrc'), npmrc: readText(project, '/.npmrc') }), project }
   }
   if (typeof lockfile !== 'string') throw new TypeError(LOCKFILE)
   if (manifests === null || typeof manifests !== 'object') throw new TypeError('manifests must map each project\'s directory to its package.json')

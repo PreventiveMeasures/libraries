@@ -3,7 +3,6 @@ import { describe, it } from 'node:test'
 import { createVfs } from '@preventive/vfs'
 import { checkWorkspace, findProjects } from '../src/pnpm/workspace.js'
 
-// What findProjects reads a Vfs by: `vfs`'s calls, any of them replaced.
 const viewOf = (vfs, calls = {}) => ({
   readdir: (path) => vfs.readdir(path),
   lstat: (path) => vfs.lstat(path),
@@ -11,8 +10,6 @@ const viewOf = (vfs, calls = {}) => ({
   ...calls,
 })
 
-// A view of the directories `dirs` maps by path to their entries, as a
-// disk's may be, with names a Vfs holds none of: any other path a file.
 function viewOfDirs(dirs) {
   const typeOf = (path) => ({ type: dirs.has(path) ? 'directory' : 'file' })
   return { readdir: (path) => dirs.get(path), lstat: typeOf, stat: typeOf }
@@ -31,15 +28,13 @@ describe('checkWorkspace', () => {
   })
 })
 
-// What pnpm 10.33.4 and 11.28.2 list, `pnpm ls -r`, in a workspace of
-// these directories by these globs.
+// As `pnpm ls -r` lists them, with pnpm 10.33.4 and 11.28.2.
 describe('findProjects', () => {
   const files = [
     'packages/a', 'packages/b', 'packages/b/node_modules/x', 'packages/c/bower_components/y', '.hidden/d', 'packages/.dot',
     'other/e', 'packages/f/sub', 'node_modules/g', '.hidden/node_modules/h', 'x/.y/z', 'bower_components/w', 'tests/t',
   ].map((dir) => [`${dir}/package.json`, '{}'])
   const workspace = () => createVfs(Object.fromEntries([['package.json', '{}'], ['packages/j/readme', ''], ['packages/k/package.json/x', ''], ...files]))
-  // The workspace, `change` made to it.
   const changed = (change) => {
     const vfs = workspace()
     change(vfs)
@@ -132,9 +127,8 @@ describe('findProjects', () => {
     assert.ok(!read.some((path) => path.startsWith('/.') || path.includes('/node_modules') || path.includes('bower_components')), read.join(', '))
   })
 
-  // pnpm reads a manifest through a link, and follows a link to a
-  // directory; it reads package.json5 or package.yaml where there is no
-  // package.json.
+  // pnpm reads a manifest through a link, follows a link to a directory,
+  // and reads package.json5 or package.yaml where there is no package.json.
   it('refuses a manifest not read here, the root\'s too, and a link pnpm would find a project through', () => {
     const cases = [
       [(vfs) => vfs.writeFile('/packages/j/package.yaml', 'name: j'), /^DeptreeError: "packages\/j\/package\.yaml": pnpm reads this project's package\.yaml, which is not supported$/u],
@@ -164,9 +158,8 @@ describe('findProjects', () => {
       vfs.writeFile('/packages/j/package.yaml', 'name: j')
       assert.throws(() => findProjects(vfs, ['packages/*'], 10), /^DeptreeError: "packages\/j\/package\.yaml": pnpm reads this project's package\.yaml/u, target)
     }
-    // As pnpm 10.33.4 and 11.28.2 have them: a link under a name a `**`
-    // cannot take leads nowhere a glob takes, and a loop of links is no
-    // manifest.
+    // As pnpm 10.33.4 and 11.28.2 have them: a link under a name `**` cannot
+    // take leads nowhere a glob takes; a loop of links is no manifest.
     const underDot = changed((v) => v.symlink('../other', '/x/.link'))
     assert.deepEqual(findProjects(underDot, ['**'], 10), ['.', 'other/e', 'packages/a', 'packages/b', 'packages/f/sub', 'tests/t'])
     const loop = changed((v) => v.symlink('package.json', '/packages/j/package.json'))
@@ -215,7 +208,6 @@ describe('the globs', () => {
     assert.throws(() => findProjects(viewOfDirs(new Map([['/', ['package.json', 'C:b']], ['/C:b', ['package.json']]])), ['*'], 10), /as a lockfile can key an importer$/u)
   })
 
-  // The call stack is as deep reading the deepest directory as the top.
   it('walk however deep a tree is, with no recursion', () => {
     const leaf = `/${'d/'.repeat(200).slice(0, -1)}`
     const depths = new Map()

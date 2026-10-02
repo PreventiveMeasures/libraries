@@ -3,8 +3,7 @@ import { describe, it } from 'node:test'
 import { createVfs } from '@preventive/vfs'
 import { packDirectory } from '../src/pnpm/packlist.js'
 
-// The files of a directory the built-in rules keep, as pnpm 10, 11 and 12
-// install them from a `file:` dependency.
+// What pnpm 10, 11 and 12 install of a `file:` dependency's directory.
 describe('packDirectory', () => {
   const manifest = { name: 'foo', version: '1.0.0', main: 'index.js', bin: { foo: 'cli.js' } }
   const pack = (files, major, fields = {}) => {
@@ -38,9 +37,8 @@ describe('packDirectory', () => {
     assert.throws(() => pack({ 'node_modules/x.js': '' }, 12, { main: './node_modules/x.js' }), /turns on rules of npm-packlist not followed here/u)
   })
 
-  // Of what its rules leave out, pnpm 12 keeps only a file in node_modules
-  // that main or bin names: not one browser names, nor one its other rules
-  // leave out whatever names it.
+  // pnpm 12 keeps a file its rules leave out only where it is in
+  // node_modules and main or bin, not browser, names it.
   it('leaves out for pnpm 12 a file main, browser or bin names elsewhere', () => {
     const files = { 'index.js': '', '.npmrc': '', 'x.orig': '', 'yarn.lock': '', '.git/a.js': '' }
     const fields = { browser: '.npmrc', main: 'x.orig', bin: { foo: 'yarn.lock', bar: './.git/a.js' } }

@@ -3,9 +3,8 @@ import { describe, it } from 'node:test'
 import { createHook } from '../src/pnpm/hook.js'
 import { listOverrides } from '../src/pnpm/overrides.js'
 
-// pnpm's read-package hook, as far as it is reproduced: checked here case
-// by case, and against pnpm 10.33.4's own createVersionsOverrider on the
-// cases in the commit that brought it, with no difference.
+// Checked against pnpm 10.33.4's own createVersionsOverrider on the cases
+// in the commit that brought it, with no difference.
 const hook = (overrides, ignored = []) => createHook({ overrides: listOverrides(overrides, {}), ignored })
 
 describe('createHook', () => {
@@ -32,8 +31,7 @@ describe('createHook', () => {
     assert.deepEqual(read, { dependencies: { a: '1' }, optionalDependencies: { b: '1' } })
   })
 
-  // pnpm writes an override to a directory into a project relative to
-  // it, and a path alone, which pnpm 10 does not take for one, as it is.
+  // pnpm 10 does not take a path alone for a directory, so leaves it.
   it('writes an override to a directory into a project relative to it, and refuses a malformed package.json', () => {
     const local = hook({ a: 'link:vendor/a', b: 'file:./b/', c: './c' })
     assert.deepEqual(local({ dependencies: { a: '1', b: '1', c: '1' } }, 'x', { dir: 'packages/x' }).dependencies, { a: 'link:../../vendor/a', b: 'file:../../b', c: './c' })
@@ -43,8 +41,7 @@ describe('createHook', () => {
   })
 
   // pnpm 11 converges where no other override is chosen, drops a peer's
-  // meta with the peer, and writes an override to a path into a project
-  // relative to it.
+  // meta with the peer, and writes a path alone relative to a project too.
   it('reads overrides as pnpm 11 does', () => {
     const hook11 = (overrides) => createHook({ overrides: listOverrides(overrides, {}, 11), ignored: [], major: 11 })
     const converging = hook11({ 'foo@': '1.2.3', 'bar@': '2.0.0', bar: '3.0.0' })({ dependencies: { foo: '^1.0.0', bar: '^2.0.0' }, devDependencies: { foo: '^2.0.0' }, peerDependencies: { foo: '1.x' } }, 'x')

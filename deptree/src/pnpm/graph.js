@@ -1,11 +1,9 @@
 // The graph a pnpm 10 install links, as @pnpm/deps.graph-builder builds it
-// from a frozen lockfile: a node for each snapshot installed, at
-// node_modules/.pnpm/<its directory>/node_modules/<its name>, with its
-// dependencies and optional dependencies as children by alias; and, for
-// each project, its direct dependencies by alias. A child left out of the
-// install is left out of its parent's children too. A `link:` child is the
-// directory it names, which is no node. Paths here are relative to the
-// lockfile's directory, the root of the tree.
+// from a frozen lockfile: a node per installed snapshot with children by
+// alias, and each project's direct dependencies by alias. A child left out
+// of the install is left out of its parent's children; a `link:` child is
+// the directory it names, which is no node. Paths are relative to the
+// lockfile's directory.
 
 import { compareNames } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
@@ -13,44 +11,29 @@ import { depPathToFilename } from './filename.js'
 
 const VIRTUAL_STORE = 'node_modules/.pnpm'
 
-// A target as a path: where a link leads, which may climb out of the
-// lockfile's directory, or the directory of its node in `nodes`; none
-// where it has no node, as a snapshot left out of the install has none.
-// The lockfile reader holds every other target to be a snapshot.
+// A `link:` target may climb out of the lockfile's directory. Every other
+// target is a snapshot, as the lockfile reader ensures, with no node where
+// it is left out of the install.
 const childOf = (target, nodes) => (target.startsWith('link:') ? target.slice(5) : nodes.get(target)?.dir)
 
-function childrenOf(targets, nodes) {
-  const children = new Map()
-  for (const [alias, target] of Object.entries(targets)) {
-    const dir = childOf(target, nodes)
-    if (dir !== undefined) children.set(alias, dir)
-  }
-  return children
-}
+const childrenOf = (targets, nodes) => new Map(Object.entries(targets).map(([alias, target]) => [alias, childOf(target, nodes)]).filter(([, dir]) => dir !== undefined))
 
-// The graph pnpm 12 hoists from: a node for every snapshot, skipped or
-// not, by its directory, its children skipped or not; and each project's
-// direct dependencies but its `link:`s, skipped or not, the projects in
-// the order of their ids' bytes. `all` holds every snapshot's node.
+// The graph pnpm 12 hoists from: every snapshot's node by directory,
+// skipped or not, and each project's direct dependencies but its
+// `link:`s, projects ordered by their ids' bytes.
 function hoistingOf(lockfile, all) {
-  const nodes = new Map()
-  for (const node of all.values()) {
-    nodes.set(node.dir, { dir: node.dir, modules: node.modules, children: childrenOf({ ...node.pkg.dependencies, ...node.pkg.optionalDependencies }, all) })
-  }
-  const direct = new Map()
-  for (const id of Object.keys(lockfile.importers).sort(compareNames)) {
+  const nodes = new Map([...all.values()].map((node) => [node.dir, { modules: node.modules, children: childrenOf({ ...node.pkg.dependencies, ...node.pkg.optionalDependencies }, all) }]))
+  const direct = new Map(Object.keys(lockfile.importers).sort(compareNames).map((id) => {
     const { devDependencies, dependencies, optionalDependencies } = lockfile.importers[id]
-    direct.set(id, new Map([...childrenOf({ ...devDependencies, ...dependencies, ...optionalDependencies }, all)].filter(([, dir]) => nodes.has(dir))))
-  }
+    return [id, new Map([...childrenOf({ ...devDependencies, ...dependencies, ...optionalDependencies }, all)].filter(([, dir]) => nodes.has(dir)))]
+  }))
   return { nodes, direct }
 }
 
-// `nodes` by snapshot key, and `direct`, by project, the children each
-// project links: devDependencies first, as pnpm spreads them, which is
-// the order hoisting walks them in; and, for pnpm 12, `hoisting`, the
-// graph it hoists from. No two snapshots pnpm places may have one
-// directory: those it installs, and with pnpm 12, which hoists from them
-// too, those it skips.
+// `nodes` by snapshot key; `direct` each project's children,
+// devDependencies first as pnpm spreads them, the order hoisting walks
+// them in; and for pnpm 12, `hoisting`. No two snapshots may share a
+// directory, counting with pnpm 12 those skipped, which it hoists from.
 export async function buildGraph(lockfile, skipped, maxLength, major = 10) {
   const all = new Map()
   const keyByDir = new Map()
@@ -66,9 +49,6 @@ export async function buildGraph(lockfile, skipped, maxLength, major = 10) {
   for (const node of nodes.values()) {
     node.children = childrenOf({ ...node.pkg.dependencies, ...node.pkg.optionalDependencies }, nodes)
   }
-  const direct = new Map()
-  for (const [id, importer] of Object.entries(lockfile.importers)) {
-    direct.set(id, childrenOf({ ...importer.devDependencies, ...importer.dependencies, ...importer.optionalDependencies }, nodes))
-  }
+  const direct = new Map(Object.entries(lockfile.importers).map(([id, importer]) => [id, childrenOf({ ...importer.devDependencies, ...importer.dependencies, ...importer.optionalDependencies }, nodes)]))
   return { nodes, direct, hoisting: major >= 12 ? hoistingOf(lockfile, all) : undefined }
 }

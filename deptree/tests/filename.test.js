@@ -3,8 +3,7 @@ import { describe, it } from 'node:test'
 import { createMatcher } from '../src/matcher.js'
 import { depPathToFilename } from '../src/pnpm/filename.js'
 
-// Each pair is a snapshot key and the directory pnpm 10.33.4 made of it
-// under node_modules/.pnpm, read off a real install.
+// Read off a real install of pnpm 10.33.4, under node_modules/.pnpm.
 const REAL = [
   ['react@18.2.0', 120, 'react@18.2.0'],
   ['@testing-library/dom@9.3.4', 120, '@testing-library+dom@9.3.4'],
@@ -22,14 +21,12 @@ describe('depPathToFilename', () => {
     })
   }
 
-  // TextEncoder writes a lone surrogate as U+FFFD, so it would hash as
-  // another key does.
+  // TextEncoder writes a lone surrogate as U+FFFD, hashing as another key.
   it('refuses to hash a key that is not well-formed text', async () => {
     await assert.rejects(depPathToFilename('A@1.0.0(\uD800)', 120), /^DeptreeError: "A@1\.0\.0\(\\ud800\)": expected well-formed text to hash$/u)
   })
 
-  // pnpm 11 makes a trailing dot or space `+` and hashes, as its own
-  // depPathToFilename answers for these; pnpm 10 leaves them.
+  // Answers from pnpm 11's own depPathToFilename; pnpm 10 leaves them.
   it('escapes a trailing dot or space as pnpm 11 does', async () => {
     const PNPM_11 = [
       ['a@1.0.0.', 120, 'a@1.0.0+_f24ca05381a71dc7fd19078ac0a6a304'],

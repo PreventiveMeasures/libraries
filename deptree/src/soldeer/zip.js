@@ -1,20 +1,18 @@
 // A registry zip as Soldeer 0.12 extracts it (download.rs's
-// extract_dependency_archive, over the zip crate 8.6): every entry in the
-// order the central directory lists them, read with
-// @preventive/archive/zip.js, which refuses what it does not read — `..`,
-// absolute and backslashed names, zip64, encryption, two different entries
-// of one name — where Soldeer would take some of it otherwise; what the two
+// extract_dependency_archive, over the zip crate 8.6), entries in central
+// directory order. @preventive/archive/zip.js refuses what it does not read
+// (`..`, absolute and backslashed names, zip64, encryption, two different
+// entries of one name), some of which Soldeer would take; what the two
 // would read otherwise and the archive reader takes is refused here.
 //
-// A name a component of which is `.git`, as Windows reads one — trailing
-// dots and spaces dropped, ASCII letters in either case — is passed over,
-// with all beneath it; one with a `:` in it is refused, as Soldeer fails on
-// it. A directory is made 0o755, whatever the archive says, and so is every
-// directory on the way to an entry. A file's mode is its Unix mode as the
-// zip crate reads it, without the type, setuid, setgid, sticky and group
-// and other write bits, or 0o644 where it reads none; a symlink is a file,
-// 0o644, holding its target. Both modes are as a umask of 0o022 leaves
-// them.
+// A name with a `.git` component, as Windows reads one (trailing dots and
+// spaces dropped, ASCII letters in either case), is passed over with all
+// beneath it; one with a `:` in it is refused, as Soldeer fails on it.
+// Every directory is 0o755, whatever the archive says. A file's mode is its
+// Unix mode as the zip crate reads it, less the type, setuid, setgid,
+// sticky, and group and other write bits, or 0o644 where it reads none; a
+// symlink is a 0o644 file holding its target. Both are as a umask of 0o022
+// leaves them.
 
 import { ArchiveError, unzip } from '@preventive/archive/zip.js'
 import { DeptreeError, quote } from '../error.js'
@@ -25,8 +23,8 @@ const UTF8 = 0x0800
 const S_IFLNK = 0o120000
 const [NTFS, TIMESTAMP, UNICODE_COMMENT, AES] = [0x000a, 0x5455, 0x6375, 0x9901]
 
-// What a zip may extract to, as a tarball may unpack to (../tarball.js):
-// the archive reader makes room for what each entry declares.
+// As a tarball is bounded (../tarball.js): the archive reader makes room
+// for what each entry declares.
 const MAX_BYTES = 512 * 1024 * 1024
 
 // As the archive reader decodes a name: a leading U+FEFF is part of it.
@@ -36,9 +34,8 @@ const encoder = new TextEncoder()
 const ones = (byte) => [...byte.toString(2)].filter((bit) => bit === '1').length
 
 // Why the zip crate would fail on an entry's extra fields, which it reads
-// from the central directory, or undefined: an NTFS field, or an extended
-// timestamp, it does not read; or an AES field, which has it decrypt the
-// entry, or a Unicode comment field, which it checks, both refused here.
+// from the central directory, or undefined; an AES or a Unicode comment
+// field is refused here.
 function extraRefusal(view, at, length) {
   for (let pos = at; pos < at + length;) {
     const id = view.getUint16(pos, true)
@@ -54,9 +51,8 @@ function extraRefusal(view, at, length) {
 }
 
 // What the zip crate reads of each entry that the archive reader does not
-// hand out, in the central directory's order: the system that made it, its
-// flags, its external attributes, its name's bytes. The layout has been
-// checked whole by unzip, so each record is where it says.
+// hand out, in central directory order. unzip has checked the layout whole,
+// so each record is where it says.
 function centralRecords(bytes) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   let end = bytes.length - 22
@@ -78,9 +74,7 @@ function centralRecords(bytes) {
   return records
 }
 
-// The zip crate's ZipFileData::unix_mode: the upper half of the external
-// attributes, by whatever system; else for MS-DOS its directory and
-// read-only bits; else for Unix none at all, 0; else nothing.
+// The zip crate's ZipFileData::unix_mode; system 0 is MS-DOS, and 3 Unix.
 function unixMode({ system, attributes }) {
   if (attributes === 0) return undefined
   const upper = attributes >>> 16
@@ -95,8 +89,6 @@ function unixMode({ system, attributes }) {
 // a component Soldeer holds to `.git`.
 const isGit = (component) => component.replace(/[. ]+$/u, '').replace(/[A-Z]/gu, (char) => char.toLowerCase()) === '.git'
 
-// The directories and files of the zip, by their paths under the folder
-// Soldeer extracts it in, files with their bytes and modes.
 export async function extractZip(bytes, where) {
   let entries
   try {
@@ -115,7 +107,6 @@ export async function extractZip(bytes, where) {
     if (decoder.decode(record.name) !== entry.storedName) throw new Error('unreachable: unzip lists entries out of the central directory\'s order')
     const here = `${where}: ${quote(entry.storedName)}`
     if (record.extra !== undefined) throw new DeptreeError(`${record.extra}, which Soldeer fails on`, here)
-    // The zip crate reads a name not flagged UTF-8 as CP437.
     if (!(record.flags & UTF8) && record.name.some((byte) => byte >= 0x80)) throw new DeptreeError('a name not flagged UTF-8, which Soldeer reads as CP437, is not supported', here)
     last.set(entry.storedName, index)
   }

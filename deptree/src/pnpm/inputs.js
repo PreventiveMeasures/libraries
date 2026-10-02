@@ -1,21 +1,58 @@
-// What buildPnpmTree and findPnpmProjects take, checked: the host pnpm
-// would install on, and the files an install reads — given as text, or
-// read from the project (project.js) as pnpm reads them from disk.
+// What buildPnpmTree and findPnpmProjects take, checked: the host, and the
+// files an install reads, given as text or read from the project as pnpm
+// reads them from disk.
 
 import { LockfileError, YamlError, parsePnpmLockfile } from '@preventive/lockfile/pnpm.js'
 import { parseYaml } from '@preventive/lockfile/yaml.js'
 import { compareVersions, valid } from '@preventive/upstream/semver.js'
+import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
-import { checkProject, readManifestTexts, readPatches, readRootFiles, readText, readWorkspaceText, typeOf } from './project.js'
-import { pinnedPnpm, readManifest, readManifests } from './projects.js'
+import { readManifest } from '../manifest.js'
+import { checkProject, readText, typeOf } from '../project.js'
+import { pinnedPnpm, readManifests } from './projects.js'
 import { readers } from './readers.js'
 import { checkWorkspace, findProjects, linkedManifest } from './workspace.js'
 
 const LIBC = new Set(['glibc', 'musl', 'unknown'])
 
-// The major version of `pnpm`, 10, 11 or 12: what pnpm 11 and 12 do
-// differently is read by it, where it is. pnpm 12 before 12.8.1 installs
-// otherwise in places, and is refused.
+// pnpm also finds pnpm-workspace.yaml under these names, and refuses it.
+const MISNAMED = ['pnpm-workspaces.yaml', 'pnpm-workspaces.yml', 'pnpm-workspace.yml', '.pnpm-workspace.yaml', '.pnpm-workspace.yml', '.pnpm-workspaces.yaml', '.pnpm-workspaces.yml']
+function readWorkspaceText(project) {
+  const text = readText(project, '/pnpm-workspace.yaml')
+  const misnamed = text === undefined ? MISNAMED.find((name) => typeOf(project, `/${name}`) === 'file') : undefined
+  if (misnamed !== undefined) throw new DeptreeError('pnpm refuses a workspace manifest not named pnpm-workspace.yaml', quote(misnamed))
+  return text
+}
+
+function readRootFiles(project) {
+  const lockfile = readText(project, '/pnpm-lock.yaml')
+  if (lockfile === undefined) throw new DeptreeError('the project has no pnpm-lock.yaml, which a frozen install cannot do without')
+  return { lockfile, workspace: readWorkspaceText(project), npmrc: readText(project, '/.npmrc') }
+}
+
+// `ids` are the projects' directories.
+function readManifestTexts(project, ids) {
+  const texts = new Map()
+  for (const id of ids) {
+    texts.set(id, readText(project, id === '.' ? '/package.json' : `/${id}/package.json`, `manifests[${quote(id)}]`))
+  }
+  return texts
+}
+
+// Each patch patchedDependencies (`configured`) names, by its path from
+// the lockfile's directory; one that is not there is left out.
+function readPatches(project, configured) {
+  const texts = new Map()
+  for (const [selector, spec] of Object.entries(configured ?? {})) {
+    const path = normalize(spec)
+    if (path === '..' || path.startsWith('../') || path.startsWith('/')) throw new DeptreeError(`the patch ${quote(spec)} is not in the project: it is outside the lockfile's directory`, `patchedDependencies[${quote(selector)}]`)
+    const text = readText(project, `/${path}`, `patches[${quote(path)}]`)
+    if (text !== undefined) texts.set(path, text)
+  }
+  return texts
+}
+
+// pnpm 12 before 12.8.1 installs otherwise in places, and is refused.
 function majorOf(pnpm) {
   const major = Number(valid(pnpm)?.split('.')[0])
   if (major !== 10 && major !== 11 && major !== 12) throw new DeptreeError(`pnpm ${quote(pnpm)} is not supported: only pnpm 10, 11 and 12 are`, 'host.pnpm')
@@ -23,10 +60,8 @@ function majorOf(pnpm) {
   return major
 }
 
-// The pnpm that installs, and its major version: `pnpm`, host.pnpm, or
-// where that is left out, the one the root package.json pins by its
-// packageManager, which is the only one it takes; `root` gives that
-// package.json as parsed, and is called only then.
+// host.pnpm, or where it is left out the pnpm the root package.json's
+// packageManager pins; `root` reads that package.json, called only then.
 function pnpmOf(pnpm, root) {
   if (pnpm !== undefined && (typeof pnpm !== 'string' || pnpm === '')) throw new TypeError('host.pnpm must be a non-empty string, or left out')
   const version = pnpm ?? pinnedPnpm(root()?.packageManager)
@@ -57,19 +92,18 @@ function readNamed(file, read, text) {
   }
 }
 
-// Before any install, pnpm 11 may write the env document alone, with no lockfile to install from.
+// pnpm 11 may write the env document alone, before any install.
 export function readLockfile(text) {
   const read = readNamed('pnpm-lock.yaml', parsePnpmLockfile, text)
   if (read.lockfile === undefined) throw new DeptreeError('it holds the env document pnpm 11 writes alone, not the project\'s lockfile, which a frozen install cannot do without', 'pnpm-lock.yaml')
   return read
 }
 
-// pnpm-workspace.yaml as parsed; one of comments alone, or nothing, sets
-// nothing, as pnpm reads it.
+// One of comments alone, or empty, sets nothing, as pnpm reads it.
 const readWorkspace = (text) => (text === undefined || /^(?:[\t ]*(?:#.*)?(?:\r?\n|$))*$/u.test(text) ? undefined : readNamed('pnpm-workspace.yaml', parseYaml, text))
 
-// The root package.json in `project`, as parsed, where there is one; one
-// that is a link is refused unread, as findProjects refuses it.
+// A root package.json that is a link is refused unread, as findProjects
+// refuses it.
 const ROOT = 'manifests["."]'
 function readRoot(project) {
   if (typeOf(project, '/package.json', false) === 'symlink') throw linkedManifest('package.json')
@@ -77,10 +111,8 @@ function readRoot(project) {
   return text === undefined ? undefined : readManifest(text, ROOT)
 }
 
-// pnpm-workspace.yaml as pnpm 12 has it where there is none: of the root
-// package.json's `workspaces` list, its strings but empty ones are the
-// packages, as pnpm 12 writes a pnpm-workspace.yaml of them. `text` is
-// pnpm-workspace.yaml's, and `workspace` as parsed.
+// Where there is no pnpm-workspace.yaml, pnpm 12 writes one whose packages
+// are the root package.json's non-empty `workspaces` strings.
 function workspaceOf(workspace, text, major, root) {
   if (major < 12 || text !== undefined) return workspace
   const listed = root()?.workspaces
@@ -88,15 +120,14 @@ function workspaceOf(workspace, text, major, root) {
   return packages.length === 0 ? workspace : { packages }
 }
 
-// The packages of `workspace`, pnpm-workspace.yaml as parsed, read here
-// before the rest of it is, to find the projects by.
+// Read before the rest of pnpm-workspace.yaml, to find the projects by.
 function packagesOf(workspace) {
   if (workspace !== undefined && (workspace === null || typeof workspace !== 'object' || Array.isArray(workspace))) throw new DeptreeError('expected a mapping', 'pnpm-workspace.yaml')
   return workspace?.packages === undefined ? undefined : readers.globs(workspace.packages, 'pnpm-workspace.yaml: packages')
 }
 
-// The directories of the projects pnpm finds in `project`, which
-// buildPnpmTree takes the package.json of each of.
+// The directories of the projects pnpm finds in `project`: those whose
+// package.json buildPnpmTree takes.
 export function findPnpmProjects(options) {
   const { project, host } = options ?? {}
   checkProject(project)
@@ -108,8 +139,7 @@ export function findPnpmProjects(options) {
 
 const LOCKFILE = 'lockfile must be the text of pnpm-lock.yaml, or left out with a project given to read it from'
 
-// The files an install reads but the package.json and the patches: given,
-// with `lockfile`, or read from `project` without it.
+// The root files, given with `lockfile` or read from `project` without it.
 export function inputsOf(options) {
   const { lockfile, manifests, workspace, npmrc, patches, project } = options
   if (lockfile === undefined) {
@@ -126,12 +156,10 @@ export function inputsOf(options) {
   return { reading: false, lockfile, manifests, workspace, npmrc, patches }
 }
 
-// The package.json of every project, the pnpm that installs as pnpmOf
-// reads it from the root one, and pnpm-workspace.yaml as workspaceOf has
-// it: as given, or read from the project for each project pnpm finds
-// there, and no other, as pnpm reads them: an importer the globs do not
-// take is refused first, and one they take that pnpm does not find has
-// none. `pnpm` is host.pnpm.
+// Each project's package.json, the pnpm that installs and the workspace:
+// as given, or read for each project pnpm finds and no other. An importer
+// the globs do not take is refused first; one they take that pnpm does
+// not find has no package.json.
 export function manifestsOf(inputs, lockfile, pnpm) {
   const workspace = readWorkspace(inputs.workspace)
   if (!inputs.reading) {
@@ -148,8 +176,7 @@ export function manifestsOf(inputs, lockfile, pnpm) {
   return { manifests: readManifests(readManifestTexts(project, ids), lockfile), ...installs, workspace: effective }
 }
 
-// The patch files, by path: as given, or read from the project, each that
-// `configured`, patchedDependencies, names.
+// The patch texts by path, as given or read for patchedDependencies.
 export function patchesOf(inputs, configured) {
   if (inputs.reading) return readPatches(inputs.project, configured)
   const entries = inputs.patches instanceof Map ? [...inputs.patches] : Object.entries(inputs.patches ?? {})

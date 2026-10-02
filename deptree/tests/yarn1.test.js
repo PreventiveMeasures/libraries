@@ -4,21 +4,19 @@ import { afterEach, describe, it } from 'node:test'
 import { compress, decompress } from '@preventive/archive/compression.js'
 import { createVfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, buildYarn1Tree, findYarn1Workspaces } from '../yarn1.js'
-import { sri, stubFailingRegistry, stubRegistry, tarball } from './registry.js'
+import { paths, sri, stubFailingRegistry, stubRegistry, tarball } from './registry.js'
 
 // Small projects whose yarn.lock real yarn 1.22.22 wrote, and whose trees
-// it installed as the first tests expect, against a registry stubbed with
-// the same tarballs made here; then one change at a time, each refused with
-// where and why.
+// it installed as the first tests expect, from the tarballs made here;
+// then one change at a time, each refused with where and why.
 
 const realFetch = globalThis.fetch
 afterEach(() => { globalThis.fetch = realFetch })
 
 const HOST = Object.freeze({ yarn: '1.22.22', node: '24.15.0', os: 'linux', cpu: 'x64' })
 
-// A tarball as some packers write one, an entry's name with a `.` segment
-// in it, which pack() would clean: `_` in `name` made `.` where it is
-// stored, and the header's checksum made again.
+// As some packers write one, with a `.` segment pack() would clean: the
+// `_` in `name` made `.` in place, and the header's checksum made again.
 async function dotted(packed, name) {
   const tar = await decompress(packed.bytes, 'gzip', { limit: 1 << 24 })
   const encoded = new TextEncoder().encode(name)
@@ -48,12 +46,13 @@ const TARBALLS = await Promise.all([
   tarball('dotbin', '1.0.0', { '.bin': 'x', 'cli.js': 'c' }, { manifest: { bin: 'cli.js' } }),
   tarball('inner', '1.0.0', {}, { manifest: { bin: 'node_modules/b/index.js', dependencies: { b: '^1.0.0' } } }),
   tarball('p', '1.0.0', {}, { manifest: { peerDependencies: { b: '^2.0.0' } } }),
+  tarball('q', '1.0.0', {}, { manifest: { dependencies: { b: '^1.0.0' } } }),
+  tarball('aab', '1.0.0'),
+  tarball('ab', '1.0.0'),
 ])
 const T = Object.fromEntries(TARBALLS.map((t) => [`${t.name}@${t.version}`, t]))
 const sha1 = (bytes) => createHash('sha1').update(bytes).digest('hex')
 
-// An entry as yarn writes it: its patterns, then the package's version,
-// tarball and integrity, then its dependencies.
 const yarnpkg = (name, version) => `https://registry.yarnpkg.com/${name}/-/${name.split('/').at(-1)}-${version}.tgz`
 const entry = (keys, id, dependencies = '', { hash = sha1(T[id].bytes), url = yarnpkg } = {}) => {
   const { name, version, integrity } = T[id]
@@ -90,7 +89,6 @@ const ROOT = {
 const projectOf = (files) => createVfs(Object.fromEntries(Object.entries(files).map(([path, text]) => [path, typeof text === 'string' ? text : JSON.stringify(text)])))
 const project = (files = {}) => projectOf({ 'yarn.lock': LOCKFILE, 'package.json': ROOT, ...files })
 const build = (options = {}) => buildYarn1Tree({ project: project(), host: HOST, ...options })
-const text = (vfs, path) => new TextDecoder().decode(vfs.readFile(path))
 const mode = (vfs, path) => vfs.stat(path).mode
 
 describe('buildYarn1Tree', () => {
@@ -101,14 +99,84 @@ describe('buildYarn1Tree', () => {
     assert.deepEqual(vfs.readdir('/node_modules'), ['a', 'b', 'd', 'my-c', 'p'])
     assert.deepEqual(vfs.readdir('/node_modules/a'), ['bin', 'node_modules', 'package.json', 'x.sh'])
     assert.deepEqual(vfs.readdir('/node_modules/a/node_modules'), ['b'])
-    assert.equal(text(vfs, '/node_modules/a/node_modules/b/index.js'), 'b1')
-    assert.equal(text(vfs, '/node_modules/b/index.js'), 'b2')
+    assert.equal(vfs.readText('/node_modules/a/node_modules/b/index.js'), 'b1')
+    assert.equal(vfs.readText('/node_modules/b/index.js'), 'b2')
     assert.equal(mode(vfs, '/node_modules/a/bin/a.js'), 0o755)
     assert.equal(mode(vfs, '/node_modules/a/x.sh'), 0o744)
     assert.equal(mode(vfs, '/node_modules/my-c/cli.js'), 0o755)
     assert.equal(mode(vfs, '/node_modules/a/package.json'), 0o644)
     assert.ok(stats.bytes > 0)
     assert.deepEqual({ ...stats, bytes: 0 }, { packages: 7, skipped: 1, installed: 6, files: 11, bytes: 0, links: 0 })
+  })
+
+  it('lists what it installs, as an SBOM would take it', async () => {
+    stubRegistry(TARBALLS)
+    const listed = (path, id, { dev = false, optional = false } = {}) => ({ path, name: T[id].name, version: T[id].version, integrity: T[id].integrity, dev, optional })
+    const { installed } = await build()
+    assert.deepEqual(installed, [
+      listed('node_modules/a', 'a@1.0.0'),
+      listed('node_modules/a/node_modules/b', 'b@1.0.0'),
+      listed('node_modules/b', 'b@2.0.0'),
+      listed('node_modules/d', 'd@1.0.0', { dev: true }),
+      listed('node_modules/my-c', 'c@1.0.0'),
+      listed('node_modules/p', 'p@1.0.0'),
+    ])
+    const ignored = await buildYarn1Tree({ project: project({ '.yarnrc': '--ignore-platform true\n' }), host: HOST })
+    assert.deepEqual(ignored.installed.find(({ name }) => name === 'mac'), listed('node_modules/mac', 'mac@1.0.0', { optional: true }))
+  })
+
+  // d is w's devDependency alone; b 1.0.0 is copied beneath a, for a, and
+  // beneath w's link, where it really is in w's own node_modules, for w's
+  // devDependency alone.
+  it('lists as dev only what dev dependencies alone reach, a workspace\'s among them', async () => {
+    stubRegistry(TARBALLS)
+    const root = { name: 'root', version: '1.0.0', private: true, workspaces: ['packages/*'], dependencies: { b: '^2.0.0' } }
+    const w = { name: 'w', version: '1.0.0', dependencies: { a: '1.0.0' }, devDependencies: { b: '^1.0.0', d: 'latest' } }
+    const lock = lockfile(entry('a@1.0.0', 'a@1.0.0', '  dependencies:\n    b "^1.0.0"\n'), entry('b@^1.0.0', 'b@1.0.0'), entry('b@^2.0.0', 'b@2.0.0'), entry('d@latest', 'd@1.0.0'))
+    const { installed } = await buildYarn1Tree({ project: projectOf({ 'yarn.lock': lock, 'package.json': root, 'packages/w/package.json': w }), host: HOST })
+    assert.deepEqual(installed.map(({ path, dev }) => [path, dev]), [
+      ['node_modules/a', false],
+      ['node_modules/a/node_modules/b', false],
+      ['node_modules/b', false],
+      ['node_modules/d', true],
+      ['packages/w/node_modules/b', true],
+    ])
+  })
+
+  // b 2.0.0 takes the top, so b 1.0.0 is copied beneath a, a dependency,
+  // and beneath q: each copy is listed as what reaches it from where it is.
+  it('lists each copy of one package as what reaches that copy', async () => {
+    stubRegistry(TARBALLS)
+    const lock = lockfile(A, entry('b@^1.0.0', 'b@1.0.0'), entry('b@^2.0.0', 'b@2.0.0'), entry('q@1.0.0', 'q@1.0.0', '  dependencies:\n    b "^1.0.0"\n'))
+    for (const kind of ['devDependencies', 'optionalDependencies']) {
+      const root = { name: 'root', version: '1.0.0', dependencies: { a: '^1.0.0', b: '^2.0.0' }, [kind]: { q: '1.0.0' } }
+      const { installed } = await buildYarn1Tree({ project: projectOf({ 'yarn.lock': lock, 'package.json': root }), host: HOST })
+      const flag = kind === 'devDependencies' ? 'dev' : 'optional'
+      assert.deepEqual(installed.map((copy) => [copy.path, copy[flag]]), [
+        ['node_modules/a', false],
+        ['node_modules/a/node_modules/b', false],
+        ['node_modules/b', false],
+        ['node_modules/q', true],
+        ['node_modules/q/node_modules/b', true],
+      ], kind)
+    }
+  })
+
+  // yarn's linker sorts where each package goes with localeCompare, in the
+  // locale Node runs in, and so does this; in Danish, `aa` sorts after `z`.
+  it('builds one tree, and lists it in one order, whatever the locale', async (t) => {
+    stubRegistry(TARBALLS)
+    const root = { name: 'root', version: '1.0.0', dependencies: { aab: '1.0.0', ab: '1.0.0', d: 'latest' } }
+    const lock = lockfile(entry('aab@1.0.0', 'aab@1.0.0'), entry('ab@1.0.0', 'ab@1.0.0'), entry('d@latest', 'd@1.0.0'))
+    const built = () => buildYarn1Tree({ project: projectOf({ 'yarn.lock': lock, 'package.json': root }), host: HOST })
+    const danish = new Intl.Collator('da')
+    t.mock.method(String.prototype, 'localeCompare', function (that) { return danish.compare(this, that) })
+    const da = await built()
+    t.mock.restoreAll()
+    const en = await built()
+    assert.deepEqual(da.installed.map(({ path }) => path), ['node_modules/aab', 'node_modules/ab', 'node_modules/d'])
+    assert.deepEqual(da.installed, en.installed)
+    assert.deepEqual(paths(da.vfs), paths(en.vfs))
   })
 
   it('refuses once every fetch started has ended', async () => {
@@ -121,7 +189,7 @@ describe('buildYarn1Tree', () => {
     stubRegistry(TARBALLS)
     const read = await build()
     const given = await buildYarn1Tree({ lockfile: LOCKFILE, manifests: { '.': JSON.stringify(ROOT) }, project: projectOf({}), host: HOST })
-    assert.deepEqual([...given.vfs.walk('/')].map(({ path }) => path), [...read.vfs.walk('/')].map(({ path }) => path))
+    assert.deepEqual(paths(given.vfs), paths(read.vfs))
   })
 
   it('links a workspace, and installs what yarn hoists beneath it in its own node_modules', async () => {
@@ -133,10 +201,10 @@ describe('buildYarn1Tree', () => {
     assert.deepEqual(findYarn1Workspaces({ project: files }), ['.', 'packages/w'])
     const { vfs, stats } = await buildYarn1Tree({ project: files, host: HOST, vfs: files })
     assert.equal(vfs.readlink('/node_modules/w'), '../packages/w')
-    assert.equal(text(vfs, '/node_modules/w/index.js'), 'w')
-    assert.equal(text(vfs, '/packages/w/node_modules/b/index.js'), 'b1')
-    assert.equal(text(vfs, '/node_modules/a/node_modules/b/index.js'), 'b1')
-    assert.equal(text(vfs, '/node_modules/b/index.js'), 'b2')
+    assert.equal(vfs.readText('/node_modules/w/index.js'), 'w')
+    assert.equal(vfs.readText('/packages/w/node_modules/b/index.js'), 'b1')
+    assert.equal(vfs.readText('/node_modules/a/node_modules/b/index.js'), 'b1')
+    assert.equal(vfs.readText('/node_modules/b/index.js'), 'b2')
     assert.equal(stats.links, 1)
   })
 
@@ -168,15 +236,15 @@ describe('buildYarn1Tree', () => {
     stubRegistry(TARBALLS)
     const root = { name: 'root', version: '1.0.0', dependencies: { fix: '1.0.0' } }
     const { vfs } = await buildYarn1Tree({ project: projectOf({ 'yarn.lock': lockfile(entry('fix@1.0.0', 'fix@1.0.0')), 'package.json': root }), host: HOST })
-    assert.equal(text(vfs, '/node_modules/fix/lib/x.js'), 'x')
-    assert.equal(text(vfs, '/node_modules/fix/test/node_modules/fixture.js'), 'f')
+    assert.equal(vfs.readText('/node_modules/fix/lib/x.js'), 'x')
+    assert.equal(vfs.readText('/node_modules/fix/test/node_modules/fixture.js'), 'f')
   })
 
   it('reads a dependency listed twice as yarn does, in the first list, at the first range that is not "*"', async () => {
     stubRegistry(TARBALLS)
     const root = { ...ROOT, dependencies: { ...ROOT.dependencies, b: '*' }, devDependencies: { ...ROOT.devDependencies, b: '^2.0.0', '//': 'b is for tests' } }
     const { vfs } = await build({ project: project({ 'package.json': root }) })
-    assert.equal(text(vfs, '/node_modules/b/index.js'), 'b2')
+    assert.equal(vfs.readText('/node_modules/b/index.js'), 'b2')
   })
 
   // A tag never finds the package of its version resolved, so mac@latest

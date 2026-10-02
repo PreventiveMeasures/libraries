@@ -1,16 +1,13 @@
-// Checks of a lockfile and of the tree built from it that pnpm does not
-// make, each of something a lockfile pnpm writes always holds to, or a
-// tree it installs always is: where one fails, the lockfile was not
-// written by pnpm as it stands, or the tree would not be one tree
-// everywhere it is installed.
+// Checks pnpm does not make, of what a lockfile pnpm writes always holds
+// to or a tree it installs always is: where one fails, the lockfile was
+// not written by pnpm as it stands, or the tree would differ by where it
+// is installed.
 
 import { DeptreeError, quote } from '../error.js'
-import { fold } from '../mount.js'
 
-// A snapshot is optional exactly where no importer reaches it through
-// dependencies alone, its devDependencies counted among them, as pnpm
-// marks it: one marked otherwise would be left out, or kept, where it
-// should not be.
+// pnpm marks a snapshot optional exactly where no importer reaches it
+// through dependencies and devDependencies alone; one marked otherwise
+// would be left out, or kept, where it should not be.
 export function checkOptional(lockfile) {
   const required = new Set()
   const queue = []
@@ -33,24 +30,8 @@ export function checkOptional(lockfile) {
   }
 }
 
-// macOS's filesystems take a name whatever its case and normalization, so
-// two names that differ only in those are one there, and one would be
-// lost: such a tree is refused where the host is macOS.
-export function checkCollisions(vfs) {
-  for (const { path, type } of vfs.walk('/')) {
-    if (type !== 'directory') continue
-    const folded = new Map()
-    for (const name of vfs.readdir(path)) {
-      const key = fold(name)
-      if (folded.has(key)) throw new DeptreeError(`${quote(folded.get(key))} and ${quote(name)} are one name on macOS`, quote(path))
-      folded.set(key, name)
-    }
-  }
-}
-
-// Every link into node_modules leads to a directory in the tree; a link
-// out of it leads to a project or a `link:` directory, which the tree
-// does not hold.
+// Only links into node_modules are checked: a link out of it leads to a
+// project or a `link:` directory, which the tree does not hold.
 export function checkLinks(vfs, links) {
   for (const [path, target] of links) {
     if (!target.startsWith('node_modules/') && !target.includes('/node_modules/')) continue

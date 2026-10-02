@@ -1,12 +1,10 @@
-// yarn 1's package-compatibility.js: a package whose os, cpu or engines
-// the host does not take is left out where it is optional, and fails the
-// install otherwise; so does the root project, checked as yarn checks it
-// before anything is resolved. Engines are checked against the Node yarn
-// runs on and yarn itself; any other engine Node reports a version of in
-// process.versions — v8, uv, openssl and the rest — would be checked
-// against the Node that runs yarn, which is not known here, and is
-// refused. One yarn knows of no version for is passed over, as yarn
-// passes over it.
+// yarn 1's package-compatibility.js: a package whose os, cpu or engines the
+// host does not take is left out where it is optional, and fails the
+// install otherwise; so does the root project. Engines are checked against
+// host.node and host.yarn; any other engine Node reports in
+// process.versions (v8, uv, openssl and the rest) is refused, as yarn
+// checks it against the Node that runs it, which is not known here. One
+// yarn knows no version of is passed over, as yarn passes over it.
 
 import { compareVersions, major, satisfies, valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
@@ -52,10 +50,8 @@ function testEngine(name, range, versions) {
   return false
 }
 
-// Why the host does not take `manifest`, or undefined where it does; its
-// os and cpu not checked with ignorePlatform, and its engines not with
-// ignoreEngines. A manifest's engines may be a list of `name range`
-// strings, which yarn reads into a mapping first.
+// Why the host does not take `manifest`, or undefined; engines may be a
+// list of `name range` strings, which yarn reads into a mapping.
 export function incompatibility(manifest, host, where, { ignoreEngines, ignorePlatform }) {
   const { os, cpu } = manifest
   let { engines } = manifest

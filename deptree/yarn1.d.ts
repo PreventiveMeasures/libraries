@@ -163,10 +163,36 @@ export interface Yarn1TreeStats {
   links: number
 }
 
+// A copy of a registry package in the tree, as an SBOM would list it:
+// `path` is where its files really are, from the lockfile's directory,
+// which is `/` of the Vfs — node_modules/<alias>, or beneath a workspace,
+// in that workspace's own node_modules. `name` and `version` are the
+// package's own, which its package.json is held to, whatever alias it is
+// installed as; `integrity` the sha512 its tarball is held to. `dev` is
+// whether dev dependencies alone reach this copy, the root's and the
+// workspaces' devDependencies: nothing else does, each dependency, and
+// each peer yarn finds, looked for from where what asks for it is, as Node
+// finds it and yarn marks what an install requires, past what the host
+// cannot run. Two copies of one package may differ: one beneath a
+// devDependency that only it needs is dev. `optional` is whether optional
+// dependencies alone reach this copy, so.
+export interface Yarn1Installed {
+  path: string
+  name: string
+  version: string
+  integrity: string
+  dev: boolean
+  optional: boolean
+}
+
 // `vfs` is the one given, the tree mounted into it, or a new one.
+// `installed` is each copy in the tree, once for each path, by path in
+// the order of its code points, whatever the locale; a workspace, whose
+// files the tree does not hold, is not among them.
 export interface Yarn1Tree {
   vfs: Vfs
   stats: Yarn1TreeStats
+  installed: Yarn1Installed[]
 }
 
 // The node_modules tree `yarn install --frozen-lockfile --ignore-scripts`

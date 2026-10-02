@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { parseYaml } from '@preventive/lockfile/yaml.js'
 import { DeptreeError } from '../pnpm.js'
-import { parseNpmrc } from '../src/pnpm/npmrc.js'
+import { parseNpmrc } from '../src/npmrc.js'
 import { readSettings } from '../src/pnpm/settings.js'
 
 const read = ({ workspace, npmrc, manifest = {}, major } = {}) => readSettings({ workspace: workspace === undefined ? undefined : parseYaml(workspace), npmrc, manifest, major })
@@ -84,9 +84,8 @@ describe('readSettings', () => {
     assert.deepEqual(read({ npmrc: 'packages=a\n' }), DEFAULTS)
   })
 
-  // pnpm reads an .npmrc's settings by their kebab-case names, those it has
-  // types for alone: npm's own, publishing's, and any other name or
-  // spelling are passed over for an install.
+  // pnpm reads only the kebab-case names it has types for: npm's own,
+  // publishing's, and any other name or spelling are passed over.
   it('passes over in an .npmrc what pnpm does not read for an install', () => {
     const npmrc = 'fund=false\naudit=false\nlegacy-peer-deps=true\naccess=public\nprovenance=true\nignore-compatibility-db=true\nsome-new-setting=1\npublicHoistPattern=*\nNODE_LINKER=hoisted\nsave-exact=true\n'
     assert.deepEqual(read({ npmrc }), DEFAULTS)
@@ -113,9 +112,8 @@ describe('readSettings', () => {
     assert.throws(() => read({ npmrc: 'registry=https://npm.example.com/\n', major: 11 }), /packages are fetched from https:\/\/registry\.npmjs\.org\/ alone/u)
   })
 
-  // pnpm 11 passes over a kebab-case key of pnpm-workspace.yaml, and has
-  // settings of its own: those that leave the tree as it is are passed
-  // over, and the rest held to what is built here.
+  // pnpm 11 passes over a kebab-case key of pnpm-workspace.yaml; of its own
+  // settings, those that leave the tree as it is are passed over.
   it('reads pnpm 11\'s own settings', () => {
     const workspace = 'node-linker: hoisted\ntrustLockfile: false\nminimumReleaseAge: 1440\noptimisticRepeatInstall: true\nignorePatchFailures: true\nstoreDir: /s\nvirtualStoreType: project\nregistries:\n  default: https://registry.npmjs.org/\nsideEffectsCache: false\npackageConfigs:\n  root:\n    saveExact: true\n'
     assert.deepEqual(read({ workspace, major: 11 }), DEFAULTS)
@@ -135,8 +133,7 @@ describe('readSettings', () => {
     for (const [text, pattern] of refused) assert.throws(() => read({ workspace: text, major: 11 }), pattern, text)
   })
 
-  // pnpm 11 takes nodeVersion from the root package.json's engines.runtime
-  // where it pins Node exactly, devEngines first.
+  // From the root package.json, devEngines first.
   it('takes nodeVersion for pnpm 11 from the Node engines.runtime pins', () => {
     const runtime = (version, onFail = 'error') => ({ name: 'node', version, onFail })
     assert.equal(read({ manifest: { engines: { runtime: runtime('22.1.0') } }, major: 11 }).runtimeNodeVersion, '22.1.0')
@@ -149,8 +146,7 @@ describe('readSettings', () => {
     assert.throws(() => read({ manifest: { engines: { runtime: runtime('22.1.0') } }, workspace: 'runtimeOnFail: download\n', major: 11 }), /a Node runtime to download is not supported/u)
   })
 
-  // Scripts are never run, as with --ignore-scripts: what a setting would
-  // allow to build is built by nothing here.
+  // Scripts are never run, as with --ignore-scripts.
   it('passes over what would allow a script to run', () => {
     const workspace = 'allowBuilds:\n  esbuild: true\nonlyBuiltDependencies: [esbuild]\nneverBuiltDependencies: [x]\ndangerouslyAllowAllBuilds: true\n'
     assert.deepEqual(read({ workspace, npmrc: 'ignore-scripts=false\n' }), DEFAULTS)
@@ -190,8 +186,7 @@ describe('readSettings', () => {
 
   it('reads the root package.json\'s pnpm field, over pnpm-workspace.yaml', () => {
     const manifest = { pnpm: { supportedArchitectures: { os: ['current', 'darwin'] }, ignoredOptionalDependencies: ['x'] } }
-    assert.deepEqual(read({ manifest }).supportedArchitectures, { os: ['current', 'darwin'] })
-    assert.deepEqual(read({ manifest }).ignoredOptionalDependencies, ['x'])
+    assert.deepEqual(read({ manifest }), { ...DEFAULTS, supportedArchitectures: { os: ['current', 'darwin'] }, ignoredOptionalDependencies: ['x'] })
     assert.deepEqual(read({ manifest, workspace: 'supportedArchitectures:\n  os: [linux]\n' }).supportedArchitectures.os, ['current', 'darwin'])
     assert.deepEqual(read({ workspace: 'supportedArchitectures:\n  os: [linux]\n' }).supportedArchitectures.os, ['linux'])
     // A hoist pattern alone is a list of it, as pnpm reads one.
@@ -212,7 +207,6 @@ describe('readSettings', () => {
     [{ workspace: 'someNewSetting: 1\n' }, /^pnpm-workspace\.yaml: someNewSetting: unsupported setting$/u],
     [{ npmrc: 'registry=https://npm.example.com/\n' }, /packages are fetched from https:\/\/registry\.npmjs\.org\/ alone/u],
     [{ npmrc: '@s:registry=https://npm.example.com/\n' }, /^\.npmrc:1: @s:registry:/u],
-    // What pnpm reads from an .npmrc that would change the tree.
     [{ npmrc: 'force=true\n' }, /^\.npmrc:1: force: true is not supported: optional packages the host cannot run are left out$/u],
     [{ npmrc: 'recursive-install=false\n' }, /every project is installed/u],
     [{ npmrc: 'lockfile-dir=..\n' }, /the lockfile is the one given/u],

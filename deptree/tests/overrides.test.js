@@ -2,9 +2,8 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { listOverrides, parseSelector } from '../src/pnpm/overrides.js'
 
-// Selectors as pnpm 10 parses them (@pnpm/parse-overrides): a package, a
-// range after its `@`, and a parent before a `>` that follows anything but
-// a space, `|` or `@`.
+// As pnpm 10 parses them (@pnpm/parse-overrides): a parent ends at a `>`
+// that follows anything but a space, `|` or `@`.
 describe('parseSelector', () => {
   const read = [
     ['foo', { target: { name: 'foo', range: undefined } }],
@@ -21,8 +20,7 @@ describe('parseSelector', () => {
     it(selector, () => assert.deepEqual(parseSelector(selector, 'x'), parsed))
   }
 
-  // Yarn's globs among them, which pnpm reads resolutions as selectors and
-  // cannot parse.
+  // Yarn's globs among them, as pnpm reads `resolutions` as selectors.
   for (const selector of ['**/foo', 'foo/**/bar', '.foo', '_foo', 'node_modules', ' foo', 'a>b>c', '@s/', 'f o o']) {
     it(`refuses ${JSON.stringify(selector)}`, () => {
       assert.throws(() => parseSelector(selector, 'x'), /^DeptreeError: x: pnpm cannot parse the selector/u)
@@ -47,8 +45,6 @@ describe('listOverrides', () => {
   })
 })
 
-// pnpm 11 trims selectors, takes a catalog's `workspace:` entry, and reads
-// `name@` as converging on an exact version.
 describe('listOverrides for pnpm 11', () => {
   const list = (overrides, catalogs = {}) => listOverrides(overrides, catalogs, 11)
 

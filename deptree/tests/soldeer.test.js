@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { Vfs } from '@preventive/vfs'
+import { createVfs } from '@preventive/vfs'
 import { LockfileError, buildSoldeerTree } from '../soldeer.js'
-import { rawZip, sha256, stubSoldeer } from './registry.js'
+import { rawZip, sha256, slowed, stubSoldeer } from './registry.js'
 
 const HOST = Object.freeze({ soldeer: '0.12.0', os: 'linux' })
 const ZERO = '0'.repeat(64)
 
 const dependency = (name, version, entries) => ({ name, version, bytes: rawZip(entries) })
 
-// soldeer.lock for the zips, as Soldeer 0.12 writes it, sorted by name.
+// As Soldeer 0.12 writes soldeer.lock, sorted by name.
 function lockOf(zips, extra = []) {
   const entries = [
     ...zips.map((z) => ({ name: z.name, text: `name = "${z.name}"\nversion = "${z.version}"\nurl = "https://soldeer-revisions.s3.amazonaws.com/${z.name}/x.zip"\nchecksum = "${sha256(z.bytes)}"\nintegrity = "${ZERO}"` })),
@@ -25,7 +25,7 @@ function listing(vfs) {
   for (const { path, type } of vfs.walk('/')) {
     if (path === '/') continue
     const { mode } = vfs.lstat(path)
-    out[path.slice(1)] = type === 'directory' ? `dir ${mode.toString(8)}` : `${mode.toString(8)} ${new TextDecoder().decode(vfs.readFile(path))}`
+    out[path.slice(1)] = type === 'directory' ? `dir ${mode.toString(8)}` : `${mode.toString(8)} ${vfs.readText(path)}`
   }
   return out
 }
@@ -84,6 +84,15 @@ describe('buildSoldeerTree', () => {
       'dependencies/forge-std-1.9.4/.gitx': 'dir 755',
     })
     assert.deepEqual(stats, { dependencies: 1, files: 12, bytes: 28 })
+  })
+
+  it('lists what it installs, as an SBOM would take it, in the lockfile\'s order', async () => {
+    const zips = [dependency('solady', '0.1.0', [{ name: 'a', data: 'a' }]), dependency('forge-std', '1.9.4', [{ name: 'b', data: 'b' }])]
+    const { installed } = await build(zips)
+    assert.deepEqual(installed, [
+      { path: 'dependencies/forge-std-1.9.4', name: 'forge-std', version: '1.9.4', checksum: sha256(zips[1].bytes) },
+      { path: 'dependencies/solady-0.1.0', name: 'solady', version: '0.1.0', checksum: sha256(zips[0].bytes) },
+    ])
   })
 
   // The zip crate keys entries by name: of two, the later is read, where
@@ -180,38 +189,17 @@ describe('buildSoldeerTree', () => {
   it('refuses once every fetch started has ended', async () => {
     const zips = [dependency('aaa-pkg', '1.0.0', [{ name: 'a', data: 'a' }]), dependency('bbb-pkg', '1.0.0', [{ name: 'b', data: 'b' }])]
     stubSoldeer(zips)
-    const served = globalThis.fetch
-    let open = 0
-    globalThis.fetch = async (input) => {
-      // aaa-pkg's registry answers it has none, at once; bbb-pkg's zip comes late.
-      if (String(input).includes('aaa-pkg')) return Response.json({ status: 'success', data: [] })
-      open++
-      await new Promise((resolve) => {
-        setTimeout(resolve, 20)
-      })
-      open--
-      return await served(input)
-    }
+    const count = slowed(20, (input) => (input.includes('aaa-pkg') ? Response.json({ status: 'success', data: [] }) : undefined))
     await assert.rejects(buildSoldeerTree({ lockfile: lockOf(zips), soldeer: configOf(zips), host: HOST }), /^DeptreeError: dependencies\["aaa-pkg"\]: /u)
-    assert.equal(open, 0)
+    assert.equal(count.open, 0)
   })
 
   it('fetches eight zips at a time', async () => {
     const zips = Array.from({ length: 12 }, (_, i) => dependency(`pkg-${String.fromCodePoint(108 - i)}`, '1.0.0', [{ name: 'a', data: String(i) }]))
     stubSoldeer(zips)
-    const served = globalThis.fetch
-    let open = 0
-    let most = 0
-    globalThis.fetch = async (input) => {
-      most = Math.max(most, ++open)
-      await new Promise((resolve) => {
-        setTimeout(resolve, 5)
-      })
-      open--
-      return await served(input)
-    }
+    const count = slowed(5)
     const { vfs, stats } = await buildSoldeerTree({ lockfile: lockOf(zips), soldeer: configOf(zips), host: HOST })
-    assert.equal(most, 8)
+    assert.equal(count.most, 8)
     assert.equal(stats.dependencies, 12)
     assert.deepEqual(vfs.readdir('/dependencies'), zips.map((z) => `${z.name}-1.0.0`).sort())
   })
@@ -229,21 +217,15 @@ describe('buildSoldeerTree', () => {
     await assert.rejects(buildSoldeerTree({ host: HOST }), TypeError)
     await assert.rejects(buildSoldeerTree({ lockfile: lockOf([zip]), soldeer: 1, host: HOST }), TypeError)
 
-    const project = new Vfs()
-    project.writeFile('/soldeer.toml', configOf([zip]))
-    project.writeFile('/soldeer.lock', lockOf([zip]))
-    project.mkdir('/node_modules')
+    const project = createVfs({ 'soldeer.toml': configOf([zip]), 'soldeer.lock': lockOf([zip]), node_modules: { type: 'directory' } })
     stubSoldeer([zip])
     const { vfs } = await buildSoldeerTree({ project, host: HOST, vfs: project })
     assert.equal(vfs, project)
     assert.deepEqual(project.readdir('/').sort(), ['dependencies', 'node_modules', 'soldeer.lock', 'soldeer.toml'])
-    assert.equal(new TextDecoder().decode(project.readFile('/dependencies/forge-std-1.9.4/a')), 'a')
+    assert.equal(project.readText('/dependencies/forge-std-1.9.4/a'), 'a')
     await assert.rejects(buildSoldeerTree({ project, host: HOST, vfs: project }), /^DeptreeError: vfs\["\/dependencies"\]: a dependencies folder is there already, which is neither kept beside the tree nor removed$/u)
     // soldeer.toml is not read where foundry.toml is, whatever it is.
-    const foundry = new Vfs()
-    foundry.writeFile('/foundry.toml', configOf([zip]))
-    foundry.writeFile('/soldeer.lock', lockOf([zip]))
-    foundry.mkdir('/soldeer.toml')
+    const foundry = createVfs({ 'foundry.toml': configOf([zip]), 'soldeer.lock': lockOf([zip]), 'soldeer.toml': { type: 'directory' } })
     assert.equal((await buildSoldeerTree({ project: foundry, host: HOST })).stats.dependencies, 1)
     project.unlink('/soldeer.lock')
     await assert.rejects(buildSoldeerTree({ project, host: HOST }), /^DeptreeError: the project has no soldeer\.lock, without which Soldeer resolves each dependency anew$/u)

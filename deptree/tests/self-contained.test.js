@@ -3,13 +3,10 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { sep } from 'node:path'
 import { describe, it } from 'node:test'
 
-// `deptree/` builds a tree in memory from what it is handed, and reaches
-// the network only through @preventive/upstream: nothing in it may import
-// anything but its own modules and the packages it declares — no node:
-// builtin, and so no filesystem of its own.
-//
-// Enforced here rather than left to review because a single `../` or
-// `node:fs` is all it takes to undo, and it reads as harmless in a diff.
+// `deptree/` builds its tree in memory and reaches the network only
+// through @preventive/upstream, so it imports only its own modules and the
+// packages it declares: no node: builtin, and so no filesystem of its own.
+// A test, as one `../` or `node:fs` undoes it and reads as harmless.
 const PKG_DIR = new URL('../', import.meta.url)
 const SRC_DIR = new URL('src/', PKG_DIR)
 
@@ -24,19 +21,16 @@ const files = [
     .map((name) => new URL(name, SRC_DIR)),
 ]
 
-// The license texts ship beside the modules. They are named in `files`
-// because npm, unlike pnpm, packs a LICENSE-MIT only when `files` says so.
+// npm, unlike pnpm, packs a LICENSE-MIT only when `files` names it.
 const LICENSES = new Set(['LICENSE-APACHE', 'LICENSE-MIT'])
 
-// Every way a module specifier can be written: static import/export-from,
-// dynamic import(), and CJS require(). A template literal is read only after
-// `import(` or `require(`, because prose quotes a module name in backticks.
+// A template literal is read only after `import(` or `require(`, because
+// prose quotes a module name in backticks.
 const SPECIFIER_RE = /(?:\bfrom|\bimport|\brequire)\s*\(?\s*(?<quote>['"])(?<spec>[^'"\n]+)\k<quote>/gu
 const TEMPLATE_RE = /(?:\bimport|\brequire)\s*\(\s*`(?<spec>[^`$\n]+)`/gu
 
 const specifiersOf = (source) => [SPECIFIER_RE, TEMPLATE_RE].flatMap((re) => [...source.matchAll(re)].map((m) => m.groups.spec))
 
-// A bare specifier's package: `@scope/name` or `name`, less any subpath.
 const packageOf = (spec) => spec.split('/').slice(0, spec.startsWith('@') ? 2 : 1).join('/')
 
 describe('deptree/ ships every module it has', () => {
@@ -74,8 +68,7 @@ describe('deptree/ imports nothing from outside but what it declares', () => {
     assert.equal(manifest.peerDependencies, undefined)
   })
 
-  // The manifest is published as written: a pre-release is pinned, as the
-  // next one may change its API, and a release takes a caret.
+  // Published as written; the next pre-release may change its API.
   it('pins a pre-release, and takes a release with a caret', () => {
     for (const [name, spec] of Object.entries(manifest.dependencies)) {
       const m = /^(\^?)\d+\.\d+\.\d+(-[\d.A-Za-z-]+)?$/u.exec(spec)

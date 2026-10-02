@@ -1,24 +1,22 @@
-// A registry package as yarn 1 installs it: its tarball fetched through
-// @preventive/upstream and held to the lockfile's sha512 integrity, its
-// sha1 taken for tree.js to hold the one after the `#` of each entry's URL
-// to, as yarn checks both; unpacked as yarn's tarball fetcher unpacks it, with tar-fs, the
-// first segment of each name dropped, each file's mode with 0o644 added
-// and masked by a umask of 0o022; and its package.json read as yarn's
-// normalize-manifest reads the fields it installs by.
+// A registry package as yarn 1 installs it: its tarball held to the
+// lockfile's sha512, and its sha1 taken for tree.js to check the one after
+// the `#` of each entry's URL against, as yarn checks both; unpacked as
+// yarn's tarball fetcher does with tar-fs, each name's first segment
+// dropped and each mode given 0o644 and masked by a 0o022 umask; and its
+// package.json read as normalize-manifest reads it.
 //
-// Held to more than yarn holds it to: a lockfile's URL of it that is the
-// registry's own, as npm spells it, or that on yarn's mirror; and to what
-// npm packs: a gzipped tarball, every entry under one directory, none in
-// the package's own node_modules, which npm packs only for bundled
-// dependencies, no link of either kind or device, no name twice as two
-// different files; and a package.json for exactly the name and version
-// the lockfile has.
+// Held to more than yarn holds it to: a lockfile URL that is the registry's
+// own, as npm spells it, or yarn's mirror's; and what npm packs, a gzipped
+// tarball with every entry under one directory, none in its own
+// node_modules (npm packs those only for bundled dependencies), no link or
+// device, no name twice as two different files, and a package.json of the
+// lockfile's name and version.
 
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { sha1Hex } from '../hash.js'
-import { REGISTRY, fetchTarball, sameBytes, tarballUrl } from '../tarball.js'
-import { readManifest } from './manifest.js'
+import { readManifest } from '../manifest.js'
+import { REGISTRY, fetchTarball, sameFile, tarballUrl } from '../tarball.js'
 
 const UMASK = 0o022
 
@@ -26,10 +24,8 @@ const UMASK = 0o022
 // same paths.
 const YARNPKG = 'https://registry.yarnpkg.com/'
 
-// Each entry by its path in the package, as tar-fs writes it with
-// `strip: 1`: its first segment dropped, and the rest joined to the
-// package's directory as a path from `/`, so `.`, `..` and empty segments
-// folded; files with their bytes and mode, and directories.
+// Paths as tar-fs with `strip: 1` writes them: the first segment dropped,
+// and `.`, `..` and empty segments folded.
 function entriesOf(entries, where) {
   const files = new Map()
   const dirs = new Set()
@@ -49,7 +45,7 @@ function entriesOf(entries, where) {
     if (path === '') throw new DeptreeError(`${quote(entry.storedName)} is a file at the top of the tarball`, where)
     const file = { data: entry.data, mode: (entry.mode | 0o644) & ~UMASK & 0o777 }
     const earlier = files.get(path)
-    if (earlier !== undefined && !(earlier.mode === file.mode && sameBytes(earlier.data, file.data))) throw new DeptreeError(`${quote(path)} is in the tarball twice`, where)
+    if (earlier !== undefined && !sameFile(earlier, file)) throw new DeptreeError(`${quote(path)} is in the tarball twice`, where)
     files.set(path, file)
   }
   for (const path of files.keys()) {
@@ -62,9 +58,7 @@ function entriesOf(entries, where) {
 
 const decoder = new TextDecoder('utf-8', { fatal: true })
 
-// The registry's tarball of a lockfile entry: its name, as an `npm:` alias
-// asks for it; held to be the registry's own URL for that name and
-// version, exactly as npm spells it, yarn's mirror taken for npm's.
+// `name` is the one fetched, as an `npm:` alias asks for it.
 export function registryTarball(entry, name, where) {
   const { resolution } = entry
   if (resolution === undefined) throw new DeptreeError('a directory, by file: or link:, is not supported', where)
@@ -76,8 +70,6 @@ export function registryTarball(entry, name, where) {
   return { name, version: entry.version, integrity: sha512 }
 }
 
-// The package's entries, as yarn's fetcher leaves them, its package.json
-// as parsed, and the tarball's sha1 in hex.
 export async function fetchYarnPackage({ name, version, integrity }, where) {
   const { bytes, entries } = await fetchTarball(name, version, integrity, where)
   const sha1 = await sha1Hex(bytes)
@@ -92,10 +84,9 @@ export async function fetchYarnPackage({ name, version, integrity }, where) {
   }
   const manifest = readManifest(text, `${where}: package.json`)
   if (manifest.name !== name || manifest.version !== version) throw new DeptreeError(`package.json is for ${quote(`${manifest.name}@${manifest.version}`)}`, where)
-  // As yarn's fetcher leaves the package in its cache, from which it copies
-  // it wherever it goes (base-fetcher.js): each bin's target made
-  // executable, chmod 755, a trailing `/` of it dropped; and a .bin made
-  // for links to them, which it fails to make over a file.
+  // As yarn's fetcher leaves the package in the cache it copies it from
+  // (base-fetcher.js): each bin's target chmod 755, and a .bin made for the
+  // links, which it fails to make over a file.
   const bins = binsOf(manifest, { files, dirs })
   if (bins.size > 0 && files.has('.bin')) throw new DeptreeError('.bin is a file, where yarn fails to make a directory for the bins', where)
   for (const target of bins.values()) {
@@ -103,21 +94,19 @@ export async function fetchYarnPackage({ name, version, integrity }, where) {
     const script = files.get(target.replace(/\/$/u, ''))
     if (script !== undefined) script.mode = 0o755
   }
-  return { files, dirs, manifest, sha1 }
+  return { files, dirs, manifest, sha1, hasBins: bins.size > 0 }
 }
 
-// A bin's name, and its target as a path in the package, as yarn's
-// normalize-manifest has them: a string `bin` named for the package, its
-// scope dropped; a name that is not valid, or a target outside the
-// package, dropped; with no `bin`, each name in directories.bin but for
-// one with a leading dot. `dirs` and `files` the package's. A target is
-// normalized as Node's path.normalize does it, which is as vfs's does: a
-// trailing `/` kept.
+// Bins as yarn's normalize-manifest reads them: a string `bin` named for
+// the package without its scope; an invalid name, or a target outside the
+// package, dropped; with no `bin`, each name in directories.bin but one
+// with a leading dot. Targets are normalized as Node's path.normalize, and
+// vfs's, do it: a trailing `/` kept.
 const VALID_BIN_KEYS = /^(?!\.{0,2}$)[a-z0-9._-]+$/iu
 
 const outside = (path) => path.startsWith('/') || path === '..' || path.startsWith('../')
 
-export function binsOf(manifest, { files, dirs }) {
+function binsOf(manifest, { files, dirs }) {
   let { bin } = manifest
   if (typeof manifest.name === 'string' && typeof bin === 'string' && bin.length > 0) bin = { [manifest.name.replace(/^@[^/]+\//u, '')]: bin }
   const bins = new Map()

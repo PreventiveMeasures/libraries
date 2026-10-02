@@ -1,18 +1,9 @@
-// Whether the lockfile is the one pnpm would install as it is. Before a
-// frozen install pnpm holds it to the settings that shaped its resolution
-// (@pnpm/lockfile.settings-checker's getOutdatedLockfileSetting): the
-// catalogs, the overrides, the package extensions' checksum, the optional
-// dependencies left out, the patches, and a few of its own settings. Where
-// one differs, `--frozen-lockfile` refuses to install, and so does this,
-// naming the setting as pnpm names it. An install here is always frozen.
-// pnpm 11 takes two git specifiers of one commit in a catalog alike, and
-// holds the patch hashes in the peers of a key to the patches too.
-//
-// The patches are hashed here, all of them, as pnpm reads every one it is
-// configured with, whether or not a package installed uses it; each has to
-// be given, by the path the settings name it by, and nothing else may be.
-// Only one a package installed uses is read as a patch, where it is
-// applied, as pnpm reads it.
+// Refuses a lockfile `pnpm install --frozen-lockfile` would refuse as out
+// of date with the settings that shaped its resolution
+// (@pnpm/lockfile.settings-checker's getOutdatedLockfileSetting), naming
+// the setting as pnpm names it. Every configured patch is hashed, as pnpm
+// reads each whether or not a package uses it; only those used are parsed,
+// where they are applied.
 
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, difference, quote } from '../error.js'
@@ -24,8 +15,8 @@ const outdated = (name, detail) => new DeptreeError(`${detail}, which a frozen i
 
 const SIDES = ['the lockfile', 'the settings']
 
-// By selector, the hash and path pnpm computes of each configured patch,
-// and by hash, the patch's text and path. `given` is the files by path.
+// `hashes`, { hash, path } by selector, and `byHash`, { text, path } by
+// hash; `given` is the patch texts by path.
 async function hashPatches(configured, given) {
   const texts = new Map()
   for (const [key, text] of given) {
@@ -58,9 +49,8 @@ function checkPatches(locked, hashes, major) {
   if (detail !== undefined) throw outdated('patchedDependencies', `the patches differ: ${detail}`)
 }
 
-// Throws where pnpm would not install the lockfile as it is; hands back the
-// patches by hash, their text and path, to apply where a snapshot names one.
-// `overrides` is listOverrides's.
+// Returns the patches by hash, { text, path }, to apply where a snapshot
+// names one.
 export async function checkUpToDate(lockfile, settings, overrides, given, major) {
   const { hashes, byHash } = await hashPatches(settings.patchedDependencies, given)
   for (const [name, catalog] of Object.entries(lockfile.catalogs)) {
