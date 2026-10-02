@@ -163,7 +163,7 @@ const REMOTE = {
   git: ['https:', 'http:', 'ssh:', 'git:', 'git+ssh:'],
   hg: ['https:', 'http:', 'ssh:'],
   svn: ['https:', 'http:', 'svn:', 'svn+ssh:'],
-  fossil: ['https:', 'http:'],
+  fossil: ['https:', 'http:', 'ssh:'],
 }
 
 // P4PORT as Perforce::isValidPort takes it: `[tcp|ssl:][host:]port`, where
