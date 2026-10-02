@@ -37,7 +37,9 @@ function checkRootName(value, where) {
   return name
 }
 
-const ALIAS = /^([^,\t\n\v\f\r #]+)(?:#[^ ]+)? +as +([^,\t\n\v\f\r ]+)$/u
+// RootPackageLoader::extractAliases: the first `version as alias` of a
+// requirement, the whole of it or a part of it `|` or `,` sets apart.
+const ALIAS = /(?:^|\| *|, *)([^,\t\n\v\f\r #|]+)(?:#[^ ]+)? +as +([^,\t\n\v\f\r |]+)(?:$| *\|| *,)/u
 
 // ArrayLoader::parseLinks of the root's, of an object of strings, as
 // Composer's schema holds composer.json to before it is loaded, with what

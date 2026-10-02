@@ -24,6 +24,7 @@ use Composer\Package\AliasPackage;
 use Composer\Package\CompleteAliasPackage;
 use Composer\Package\Dumper\ArrayDumper;
 use Composer\Package\Loader\ArrayLoader;
+use Composer\Package\Loader\RootPackageLoader;
 use Composer\Package\Loader\ValidatingArrayLoader;
 use Composer\Package\Version\VersionParser;
 use Composer\Repository\LockArrayRepository;
@@ -143,9 +144,13 @@ $kinds = [
     'decode' => fn ($text) => json_encode(JsonFile::parseJson($text), JSON_THROW_ON_ERROR),
     'hash' => fn ($text) => Composer\Package\Locker::getContentHash($text),
     // composer.json as Factory holds it to before it loads it, by its
-    // schema, and as RootPackageLoader holds its name, its version, and the
-    // names it links to, the root's own not among its requirements.
+    // schema, and as RootPackageLoader holds its name, its version, the
+    // names it links to and their constraints, the root's own not among
+    // its requirements, and their aliases, by its own extractAliases.
     'root' => function ($text) use ($parser) {
+        $loader = (new ReflectionClass(RootPackageLoader::class))->newInstanceWithoutConstructor();
+        (new ReflectionProperty(ArrayLoader::class, 'versionParser'))->setValue($loader, $parser);
+        $extractAliases = new ReflectionMethod(RootPackageLoader::class, 'extractAliases');
         $data = json_decode($text, false, 512, JSON_THROW_ON_ERROR);
         JsonFile::validateJsonSchema('composer.json', $data, JsonFile::LAX_SCHEMA);
         $config = json_decode($text, true);
@@ -163,6 +168,10 @@ $kinds = [
                 if (in_array($type, ['require', 'require-dev'], true) && strtolower((string) $target) === ($config['name'] ?? '__root__')) {
                     throw new RuntimeException('itself');
                 }
+                $parser->parseConstraints($constraint);
+            }
+            if (in_array($type, ['require', 'require-dev'], true)) {
+                $extractAliases->invoke($loader, $config[$type] ?? [], []);
             }
         }
 

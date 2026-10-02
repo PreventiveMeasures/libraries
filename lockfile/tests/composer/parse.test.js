@@ -328,9 +328,18 @@ describe('the packages together', () => {
 
   it('aliases of the root\'s, as Composer writes them', () => {
     refuses(edit((doc) => (doc.aliases[0].package = 'z/none')), '"z/none" is not a package in the lockfile, by its name in lowercase', 'aliases[0].package')
-    refuses(edit((doc) => (doc.aliases[0].version = '2.0.x-dev')), 'expected "dev-main", the version b/lib is locked at, as Composer writes it', 'aliases[0].version')
+    refuses(edit((doc) => (doc.aliases[0].version = '2.0.x-dev')), '"2.0.x-dev" is not a version normalized, as Composer writes it', 'aliases[0].version')
+    refuses(edit((doc) => (doc.aliases[0].version = 'dev-master')), '"dev-master", which Composer writes as 9999999-dev', 'aliases[0].version')
     refuses(edit((doc) => (doc.aliases[0].alias_normalized = '2.0.1')), 'expected "2.0.1.0", the alias normalized', 'aliases[0].alias_normalized')
-    refuses(edit((doc) => doc.aliases.push({ ...doc.aliases[0] })), '"b/lib" is aliased twice', 'aliases[1]')
+    refuses(edit((doc) => doc.aliases.unshift({ ...doc.aliases[0], package: 'd/tool' })), 'out of the order Composer sorts aliases in, by package, after "d/tool"', 'aliases[1]')
+    // Of a package in require and in require-dev both, and of its branch
+    // alias's version: each an alias of the package, whatever its version.
+    const lock = parseComposerLock(edit((doc) => {
+      doc.aliases.push({ ...doc.aliases[0], alias: '3.0.0', alias_normalized: '3.0.0.0' })
+      doc.aliases.push({ ...doc.aliases[0], version: '2.0.9999999.9999999-dev', alias: '4.0.0', alias_normalized: '4.0.0.0' })
+    }))
+    assert.deepEqual(lock.packages['b/lib'].aliases.filter((alias) => alias.root).map((alias) => alias.version), ['2.0.1', '3.0.0', '4.0.0'])
+    assert.deepEqual(lock.aliases.map((alias) => alias.version), ['dev-main', 'dev-main', '2.0.9999999.9999999-dev'])
   })
 
   it('refuses a stability the lockfile does not take', () => {
@@ -410,6 +419,10 @@ describe('with composer.json', () => {
     refuses(encode(BASE), '"Fixture/Root" has capitals, which Composer refuses in composer.json', 'composerJson.name', { composerJson: root((json) => (json.name = 'Fixture/Root')) })
     refuses(encode(BASE), 'the root itself, which Composer refuses', 'composerJson.require["fixture/root"]', { composerJson: root((json) => (json.require['fixture/root'] = '*')) })
     refuses(encode(BASE), '"dev-main as foo" is not an alias of one version as another, which Composer refuses', 'composerJson.require["b/lib"]', { composerJson: root((json) => (json.require['b/lib'] = 'dev-main as foo')) })
+    // RootPackageLoader::extractAliases takes the first alias in a part `|`
+    // or `,` sets apart, and the rest as constraints.
+    with_(encode(BASE), root((json) => (json.require['b/lib'] = '^3.0 || dev-main as 2.0.1')))
+    refuses(encode(BASE), '"^3.0 || dev-main as foo" is not an alias of one version as another, which Composer refuses', 'composerJson.require["b/lib"]', { composerJson: root((json) => (json.require['b/lib'] = '^3.0 || dev-main as foo')) })
     refuses(encode(BASE), 'expected a mapping, found the string "oops"', 'composerJson.require', { composerJson: '{"require": "oops"}' })
     refuses(encode(BASE), 'expected a mapping, found a sequence', 'composerJson.replace', { composerJson: '{"replace": []}' })
     refuses(encode(BASE), 'expected a mapping, found null', 'composerJson["require-dev"]', { composerJson: '{"require-dev": null}' })

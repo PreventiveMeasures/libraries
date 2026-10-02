@@ -86,7 +86,8 @@ export interface ComposerLockfile {
   // the version each platform package is taken to be at, or false for one
   // taken to be missing, but php.
   platformOverrides: Record<string, string | false>
-  // The root's `x as y` of each package it asks for so.
+  // The root's `x as y` of each package it asks for so, in require and in
+  // require-dev alike, by package.
   aliases: ComposerRootAlias[]
   // By name, in lowercase as Composer goes by it: of `packages` in their
   // order, then of `packages-dev`, which `composer install --no-dev`
@@ -97,8 +98,9 @@ export interface ComposerLockfile {
 export interface ComposerRootAlias {
   // A key of `packages`.
   package: string
-  // The version aliased, normalized: the package's, or 9999999-dev for a
-  // default branch of dev-master, dev-trunk or dev-default.
+  // The version the root aliased, normalized, 9999999-dev of dev-master,
+  // dev-trunk and dev-default: the package's, or its branch alias's.
+  // Composer aliases the package so whatever it is.
   version: string
   alias: string
   aliasNormalized: string

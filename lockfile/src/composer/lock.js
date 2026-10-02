@@ -139,25 +139,25 @@ function checkSorted(items) {
 
 const ALIAS = ['package', 'version', 'alias', 'alias_normalized']
 
-// The root's, of `name as alias`, used: of a package locked, at the version
-// it is locked at, with the default branch's as 9999999-dev, as Composer 1
-// wrote them, by package as strcmp sorts them.
+// The root's, of `version as alias`, LockTransaction::getAliases: each of a
+// package locked, the root's in require and in require-dev alike, by
+// package as strcmp sorts them. Its version is the root's, normalized,
+// which Locker::setLockData writes as 9999999-dev of dev-master, dev-trunk
+// and dev-default, and which a branch alias's may be: Locker's locked
+// repository makes each an alias of its package, whatever its version.
 function readAliases(value, byName) {
   const where = 'aliases'
   if (!Array.isArray(value)) throw refuse('a sequence', value, where)
-  const seen = new Set()
   return value.map((item, index) => {
     const here = `${where}[${index}]`
     ordered(item, here, ALIAS)
     for (const key of ALIAS) if (item[key] === undefined) throw new LockfileError(`expected ${key}`, here)
     const name = string(item.package, at(here, 'package'))
-    const pkg = byName.get(name)
-    if (pkg === undefined) throw new LockfileError(`${quote(name)} is not a package in the lockfile, by its name in lowercase`, at(here, 'package'))
-    if (seen.has(name)) throw new LockfileError(`${quote(name)} is aliased twice`, here)
+    if (!byName.has(name)) throw new LockfileError(`${quote(name)} is not a package in the lockfile, by its name in lowercase`, at(here, 'package'))
     if (index > 0 && compareBytes(value[index - 1].package, name) > 0) throw new LockfileError(`out of the order Composer sorts aliases in, by package, after ${quote(value[index - 1].package)}`, here)
-    seen.add(name)
-    const version = ['dev-master', 'dev-trunk', 'dev-default'].includes(pkg.normalized) ? DEFAULT_BRANCH_ALIAS : pkg.normalized
-    if (item.version !== version) throw new LockfileError(`expected ${quote(version)}, the version ${pkg.name} is locked at, as Composer writes it`, at(here, 'version'))
+    const version = string(item.version, at(here, 'version'))
+    if (readVersion(version, at(here, 'version')) !== version) throw new LockfileError(`${quote(version)} is not a version normalized, as Composer writes it`, at(here, 'version'))
+    if (['dev-master', 'dev-trunk', 'dev-default'].includes(version)) throw new LockfileError(`${quote(version)}, which Composer writes as ${DEFAULT_BRANCH_ALIAS}`, at(here, 'version'))
     const alias = string(item.alias, at(here, 'alias'))
     const normalized = readVersion(alias, at(here, 'alias'))
     if (item.alias_normalized !== normalized) throw new LockfileError(`expected ${quote(normalized)}, the alias normalized`, at(here, 'alias_normalized'))

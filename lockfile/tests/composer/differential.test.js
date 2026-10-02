@@ -190,14 +190,15 @@ describe('against Composer', { skip: !hasComposer() && 'no php, or no Composer p
       'stable', 'RC', 'Stable', 'dev', 'composer', 'vcs', 'git', 'forgejo', 'path', 'package', 'artifact', 'pear', 'nope', 'none', 'auto', 'https://example.com', '', '1.0.0', 'v2.0-beta1', '1.x-dev', 'master', 'dev-main', 'dev-x as 1.0', '1.0@beta', '1.0.0-foo',
       true, false, null, 3, 1.5, [], {}, ['a'], [1], { a: true }, { a: 1 }, { name: 'a/b', version: '1.0' }, [{ name: 'a/b', version: '1.0' }], [{ name: 'a/b' }], { type: 'path', url: 'x' }, { 'packagist.org': false },
     ]
+    const CONSTRAINTS = ['*', '*', '*', 'dev-main as 1.0', 'dev-main as 1.0 || ^2.0', '^2.0 || dev-main as 1.0', '^2.0 | 1.0 as 1.1', '>=1, 1.0 as 1.1', 'dev-main#abc as 1.0', 'dev-main as foo', 'foo as 1.0', 'dev-main as 1.0 as 2.0', '^1 as 2', 'dev-main  as  1.0', 'dev-main as 1.0 || foo as 2.0', 'dev-main as 1.0@dev', '^2.0 || nope']
     const NAMES = ['a/b', 'A/B', 'Fixture/Project', 'BAD NAME', 'a/b.json', 'nul/x', 'a/con', 'PHP', 'ext-FOO', 'lib-x', 'php-64bit', 'composer-plugin-api', '__root__', 'fixture/project', 'guzzlehttp/guzzle', '123', 'a//b', 'a/b-', 'a/b--c', 'a/b---c', 'é/x', 'ſ/x', 'a/\u212A', 'ext-ſ', '']
     const BASE = JSON.parse(fixture('composer-2.10.3.json'))
     const edit = (doc) => {
       if (generator.next() < 0.25) {
-        const [type, name] = [generator.pick(['name', 'require', 'require-dev', 'conflict', 'provide', 'replace']), generator.pick(NAMES)]
+        const [type, name, constraint] = [generator.pick(['name', 'require', 'require-dev', 'conflict', 'provide', 'replace']), generator.pick(NAMES), generator.pick(CONSTRAINTS)]
         if (type === 'name') doc.name = name
-        else (doc[type] ??= {})[name] = '*'
-        return type === 'name' ? `name = ${JSON.stringify(name)}` : `${type}[${JSON.stringify(name)}]`
+        else (doc[type] ??= {})[name] = constraint
+        return type === 'name' ? `name = ${JSON.stringify(name)}` : `${type}[${JSON.stringify(name)}] = ${JSON.stringify(constraint)}`
       }
       const path = generator.pick(PATHS)
       const where = typeof path[0] === 'number' ? ['repositories', ...path] : path
@@ -260,14 +261,15 @@ describe('against Composer', { skip: !hasComposer() && 'no php, or no Composer p
     // What is refused here, and not by Composer's loader and dumper or its
     // solver, on purpose: the root's aliases and versions as Composer never
     // writes them, a type of source or dist, a sha1, a mirror or a URL it
-    // fetches nothing from, and `{}` where it writes `[]`, which it decodes
-    // alike. Composer before 2.10 does not refuse a name, a URL or a
+    // fetches nothing from, `{}` where it writes `[]`, which it decodes
+    // alike, and a list of suggestions, whose keys are no names. Composer
+    // before 2.10 does not refuse a name, a URL or a
     // reference it would not install either.
     const DELIBERATE = [
       /^aliases\[0\]/u, /is not a version Composer locks a package at/u, /\.(?:source|dist)\.type: expected/u, /dist\.shasum: /u,
       /is not an http\(s\) URL/u, /fetches nothing/u, /starts with "-"/u, /mirrors/u, /an empty object, which Composer writes as/u,
       /expected a sequence, found a mapping/u, /is not a URL \w+ fetches from/u, /an absolute path/u, /not a relative path in normal form/u,
-      /not a branch or tag name git takes/u, /is not a package name/u,
+      /not a branch or tag name git takes/u, /is not a package name/u, /\.suggest: expected a mapping, found a sequence/u,
     ]
 
     it('read only where Composer writes each package back and installs from it, and refused only on purpose where not', () => {
@@ -363,7 +365,9 @@ function editor({ next, pick }) {
     }
     if (r < 0.82) {
       const key = pick(['package', 'version', 'alias', 'alias_normalized'])
-      doc.aliases = [{ ...doc.aliases[0], [key]: pick(['fixture/vcs', 'psr/log', 'dev-main', '9999999-dev', '1.1.0', '1.1.0.0', '2.0', '2.0.0.0', 'nope']) }]
+      doc.aliases = [{ ...doc.aliases[0], [key]: pick(['fixture/vcs', 'psr/log', 'dev-main', '9999999-dev', '1.0.9999999.9999999-dev', 'dev-master', '1.1.0', '1.1.0.0', '2.0', '2.0.0.0', 'nope']) }]
+      // As require and require-dev both alias it.
+      if (next() < 0.3) doc.aliases.push({ ...doc.aliases[0], alias: '0.5.0', alias_normalized: '0.5.0.0' })
       return `alias ${key}`
     }
     if (r < 0.87) {
