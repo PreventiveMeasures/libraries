@@ -7,9 +7,8 @@
 import { ArchiveError, unzip } from '@preventive/archive/zip.js'
 import { DeptreeError, quote } from '../error.js'
 import { bytesSha256Hex } from '../hash.js'
+import { centralRecords } from '../zipdir.js'
 
-const END = 0x06054b50
-const CENTRAL = 0x02014b50
 const UTF8 = 0x0800
 const S_IFLNK = 0o120000
 const [NTFS, TIMESTAMP, UNICODE_COMMENT, AES] = [0x000a, 0x5455, 0x6375, 0x9901]
@@ -39,29 +38,6 @@ function extraRefusal(view, at, length) {
   return undefined
 }
 
-// What the zip crate reads of each entry that unzip does not hand out. unzip
-// has checked the layout whole, so each record is where it says.
-function centralRecords(bytes) {
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-  let end = bytes.length - 22
-  while (view.getUint32(end, true) !== END || end + 22 + view.getUint16(end + 20, true) !== bytes.length) end--
-  const records = []
-  let at = view.getUint32(end + 16, true)
-  for (let i = 0; i < view.getUint16(end + 10, true); i++) {
-    if (view.getUint32(at, true) !== CENTRAL) throw new Error('unreachable: a central record where unzip found none')
-    const [nameLength, extraLength, commentLength] = [at + 28, at + 30, at + 32].map((field) => view.getUint16(field, true))
-    records.push({
-      system: view.getUint8(at + 5),
-      flags: view.getUint16(at + 8, true),
-      attributes: view.getUint32(at + 38, true),
-      name: bytes.subarray(at + 46, at + 46 + nameLength),
-      extra: extraRefusal(view, at + 46 + nameLength, extraLength),
-    })
-    at += 46 + nameLength + extraLength + commentLength
-  }
-  return records
-}
-
 // The zip crate's ZipFileData::unix_mode; system 0 is MS-DOS, and 3 Unix.
 function unixMode({ system, attributes }) {
   if (attributes === 0) return undefined
@@ -88,7 +64,7 @@ export async function extractZip(bytes, checksum, where) {
     if (error instanceof ArchiveError) throw new DeptreeError(`its zip cannot be read: ${error.message}`, where, { cause: error })
     throw error
   }
-  const records = centralRecords(bytes)
+  const records = centralRecords(bytes, extraRefusal)
   // The zip crate keys entries by their names' bytes, here the stored names:
   // of two of one name, the later is extracted where the first was.
   const last = new Map()
