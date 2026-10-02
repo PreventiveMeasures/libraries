@@ -839,3 +839,37 @@ describe('parseMarkdownFindings — reproduction steps', () => {
     assert.equal(repro('1. 1) A 2) B\nTrailing prose.'), '1. A\n2. B\nTrailing prose.')
   })
 })
+
+// A `# comment` in a fenced shell or Python snippet is code. Read as a
+// heading, it ended the finding there — the metadata after the fence
+// went to a fabricated finding named after the comment, and the real
+// one fell back to medium with no repository.
+describe('parseMarkdownFindings — a `# ` line in fenced code', () => {
+  const md = [
+    '# SQL injection in search',
+    '',
+    '## Reproduction steps',
+    '```sh',
+    '# start the server',
+    'npm start',
+    '```',
+    '',
+    '---',
+    '**Severity:** high',
+    '**Repository:** acme/app',
+    '',
+    '# Second finding',
+    '',
+    '---',
+    '**Severity:** low',
+  ].join('\n')
+
+  it('stays in its finding, and the finding keeps what follows the fence', () => {
+    const { findings } = parseMarkdownFindings(md)
+    assert.deepEqual(findings.map((f) => f.description.split('\n')[0]), ['SQL injection in search', 'Second finding'])
+    assert.equal(findings[0].severity, 'high')
+    assert.deepEqual(findings[0].repo, { github: 'acme/app' })
+    assert.match(findings[0].reproduction, /^# start the server$/mu)
+    assert.equal(findings[1].severity, 'low')
+  })
+})

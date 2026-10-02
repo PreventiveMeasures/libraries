@@ -4,7 +4,7 @@
 // writing-side sibling of md-structure.js, which reads. Pure string
 // work; nothing here knows what a finding is.
 
-import { fenceRanges, inFence, normalizeNewlines } from './md-structure.js'
+import { closesFence, fenceRanges, inFence, normalizeNewlines } from './md-structure.js'
 
 // Parseable http:// / https:// only. What gets linked comes from reports
 // and from the user's own notes, where a fix reference can be "internal
@@ -134,7 +134,7 @@ function closeFence(s) {
   if (!last || last[1] < s.length) return s
   const lines = s.slice(last[0]).split('\n')
   const marker = FENCE_OPEN_RE.exec(lines[0])?.[1] ?? '```'
-  const closed = lines.length > 1 && FENCE_OPEN_RE.exec(lines.at(-1))?.[1]?.startsWith(marker.slice(0, 3))
+  const closed = lines.length > 1 && closesFence(marker, lines.at(-1))
   return closed ? s : `${s}\n${marker}`
 }
 

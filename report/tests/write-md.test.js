@@ -681,6 +681,9 @@ describe('md-text helpers', () => {
     assert.equal(prose('~~~\nrun()\n```'), '~~~\nrun()\n```\n~~~')
     assert.equal(prose('text\n\n````\nrun()'), 'text\n\n````\nrun()\n````')
     assert.equal(prose('```js\nrun()\n```'), '```js\nrun()\n```')
+    // A ``` example closed inside a ```` block leaves the ```` open: the
+    // close is the opener's run, or the next finding goes under the fence.
+    assert.equal(prose('````md\n```sh\nx\n```'), '````md\n```sh\nx\n```\n````')
     assert.equal(prose('  plain  '), 'plain')
     assert.equal(prose(null), '')
   })
@@ -688,6 +691,7 @@ describe('md-text helpers', () => {
   it('escapes heading lines in prose, and takes the escape back off', () => {
     assert.equal(prose('## a\n  ### b\n#c\n\\## d\ntext # e'), '\\## a\n  \\### b\n\\#c\n\\\\## d\ntext # e')
     assert.equal(prose('```\n## a\n```'), '```\n## a\n```')
+    assert.equal(prose('````md\n```sh\n## a\n```\n````'), '````md\n```sh\n## a\n```\n````')
     for (const text of ['## a\n\n\\## b\n\n\\\\# c', '```\n## a\n```\n#### b', 'plain']) {
       assert.equal(unescapeHeadings(prose(text)), text)
     }

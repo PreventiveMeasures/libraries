@@ -356,3 +356,57 @@ describe('parseDeepsecFindings — multi-finding + multi-section', () => {
     assert.equal(parsed.source, 'deepsec')
   })
 })
+
+// A `### ` line in a fenced snippet — a markdown example — is code. Read
+// as a heading, it ended the finding there and opened a fabricated one
+// that took the real one's recommendation. The ids below are golden,
+// captured from the fence-blind parser before the split read fences:
+// the finding it cut short keeps the id its triage is stored under.
+describe('parseDeepsecFindings — a `### ` line in fenced code', () => {
+  const finding = (title, file) => [
+    `### ${title}`,
+    '',
+    `- **File:** \`${file}\``,
+    '- **Lines:** 12',
+    '',
+    'A crafted README injects script:',
+    '',
+    '```md',
+    '### <img src=x onerror=alert(1)>',
+    '```',
+    '',
+    '**Recommendation:** Sanitize the HTML.',
+  ].join('\n')
+
+  it('stays in its finding, recommendation and all', () => {
+    const { findings } = parseDeepsecFindings(build('HIGH (1)', finding('XSS in README renderer', 'src/render.js')))
+    assert.equal(findings.length, 1)
+    assert.equal(findings[0].file, 'src/render.js')
+    assert.match(findings[0].description, /^### <img src=x onerror=alert\(1\)>$/mu)
+    assert.equal(findings[0].recommendation, 'Sanitize the HTML.')
+  })
+
+  it('keeps the id the fence-blind split gave it', async () => {
+    const [high] = parseDeepsecFindings(build('HIGH (1)', finding('XSS in README renderer', 'src/render.js'))).findings
+    assert.equal(await deriveFindingId(high), 'a9b4c515-7936-44b7-8d2e-74df408b4ecc')
+    // Through the informative tier too, whose id already rides an
+    // `_idBasis` (severity.js) — the earlier cut's, not the whole block's.
+    const [info] = parseDeepsecFindings(build('INFORMATIVE (1)', finding('Debug flag', 'src/a.js'))).findings
+    assert.equal(info.severity, 'informational')
+    assert.equal(await deriveFindingId(info), '1c596741-8e16-46ec-aad9-a51e00e1c3a1')
+  })
+
+  // The title line is never a cut: the fence-blind split never cut a
+  // heading's own text, even one that opens on `### ` again.
+  it('keeps the id of a finding whose title opens on `### `', async () => {
+    const md = build('HIGH (1)', ['### ### Title', '', '- **File:** `src/a.js`', '- **Lines:** 3', '', '```md', '### in the snippet', '```'].join('\n'))
+    const { findings } = parseDeepsecFindings(md)
+    assert.equal(findings.length, 1)
+    assert.equal(await deriveFindingId(findings[0]), '27697093-087f-4a81-997f-27ea6174d04a')
+  })
+
+  it('stamps nothing on a finding the fence-blind split read whole', () => {
+    const [f] = parseDeepsecFindings(build('HIGH (1)', '### Plain\n\n- **File:** `src/b.js`\n\nNothing fenced.')).findings
+    assert.equal(f._idBasis, undefined)
+  })
+})

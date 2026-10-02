@@ -8,8 +8,11 @@
 
 // Byte ranges of fenced code blocks (``` / ~~~), fences included, read
 // once per text so no structural splitter takes a code line for a `## `
-// heading or a `| ` row. A closing fence must use the opening marker,
-// and a dangling one runs to end of input — the reading markdown gives.
+// heading or a `| ` row. A fence is a run of three or more of one
+// character, and only a run of that character at least as long, with
+// nothing after it, closes it (closesFence) — so a ```` block holds a
+// ``` example whole, and a ```js line inside a ``` block is code. A
+// dangling fence runs to end of input — the reading markdown gives.
 //
 // A fence may be INDENTED: three spaces at the top level (markdown's
 // own limit, past which a line is indented code), and three past the
@@ -18,7 +21,7 @@
 // `10.` or a nested bullet pushes it out — is what keeps a block
 // indented FURTHER than its item's text an indented code block, with
 // its ``` lines content.
-const FENCE_RE = /^( *)(```|~~~)/u
+const FENCE_RE = /^( *)(`{3,}|~{3,})(.*)$/u
 // A list marker and the gap to its text; `m[0].length` is the column
 // the item's continuation lines are indented to.
 export const LIST_MARKER_RE = /^( *)(?:[-*+]|\d{1,9}[.)]) +(?=\S)/u
@@ -37,9 +40,9 @@ export function fenceRanges(text) {
     const fence = FENCE_RE.exec(line)
     if (open !== -1) {
       // A closing fence carries the item's indentation too, and needn't
-      // match the opening one's exactly — but the MARKER still has to,
-      // so a ``` inside a ~~~ block stays content.
-      if (fence && fence[2] === marker && fence[1].length <= openIndent + 3) {
+      // match the opening one's exactly — but the RUN still has to, so
+      // a ``` inside a ~~~ or a ```` block stays content.
+      if (fence && fence[1].length <= openIndent + 3 && closesFence(marker, line)) {
         ranges.push([open, start + line.length])
         open = -1
       }
@@ -63,6 +66,14 @@ export function fenceRanges(text) {
   }
   if (open !== -1) ranges.push([open, text.length])
   return ranges
+}
+
+// Whether `line` closes a fence opened with the run `marker`: the same
+// character, a run at least as long, and nothing after it but spaces —
+// a closing fence carries no info string. Indentation is the caller's.
+export function closesFence(marker, line) {
+  const fence = FENCE_RE.exec(line)
+  return fence !== null && fence[2][0] === marker[0] && fence[2].length >= marker.length && !fence[3].trim()
 }
 
 export function inFence(ranges, index) {
