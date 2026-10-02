@@ -50,9 +50,8 @@ function testEngine(name, range, versions) {
   return false
 }
 
-// Why the host does not take `manifest`, or undefined where it does. yarn
-// reads engines given as a list of `name range` strings into a mapping
-// first.
+// Why the host does not take `manifest`, or undefined; engines may be a
+// list of `name range` strings, which yarn reads into a mapping.
 export function incompatibility(manifest, host, where, { ignoreEngines, ignorePlatform }) {
   const { os, cpu } = manifest
   let { engines } = manifest

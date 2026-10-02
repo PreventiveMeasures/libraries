@@ -77,11 +77,10 @@ function resolveProject(inputs, host) {
 // where it is not, as yarn fails on it.
 async function fetchChecked(resolved, host, settings) {
   // In the order yarn's resolver hands references to its fetcher. Of two
-  // its cache keeps in one place, the fetcher fetches the first and passes
-  // over the rest, whose package.json stays their lockfile entry's, with no
-  // peers, bins, platforms or engines, and whose files are the first's. The
-  // sha1 after the `#` of each one's URL is held to the tarball fetched for
-  // it, the first's or not.
+  // its cache keeps in one place, the fetcher fetches only the first; the
+  // rest keep their lockfile entry as package.json, with no peers, bins,
+  // platforms or engines, and the first's files. The sha1 in each one's URL
+  // is held to the tarball fetched for it, the first's or not.
   const order = [...new Set(resolved.patterns.values())]
   const first = new Map()
   for (const ref of order) if (ref.kind === 'registry' && !first.has(ref.loc)) first.set(ref.loc, ref)
@@ -136,8 +135,7 @@ function realOf(links, path) {
 // workspace's own node_modules. `locations` maps each reference to its
 // copies' real paths, and `copies` each real path to the hoister's places
 // for it, as two places may be one through a link. A package's files are
-// let go once its last copy is written, and at once where it is never
-// placed.
+// let go once its last copy is written, or at once if it is never placed.
 function writeTree(placed, fetched) {
   const vfs = new Vfs()
   vfs.mkdir('/node_modules', { recursive: true })

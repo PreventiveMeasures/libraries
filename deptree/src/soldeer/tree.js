@@ -12,14 +12,12 @@ import { configOf } from './config.js'
 import { checkHost, inputsOf } from './inputs.js'
 import { extractZip } from './zip.js'
 
-// What the registry takes, as @preventive/upstream/soldeer.js holds a name
-// and a version to: of these, Soldeer's sanitize_filename leaves a folder
+// What the registry takes, as @preventive/upstream/soldeer.js checks a name
+// and version; of these, Soldeer's sanitize_filename leaves
 // `<name>-<version>` as it is on Unix.
 const NAME = /^(?=.{3,100}$)[@\da-z][\da-z-]*[\da-z]$/u
 const VERSION = /^(?=.{1,128}$)[\dA-Za-z][\w.+-]*$/u
 
-// Refuses a Vfs that holds a dependencies folder at its root, or, where
-// names are `folded`, a name that is one there.
 function checkNoDependencies(vfs, folded) {
   for (const name of vfs.readdir('/')) {
     if (name === 'dependencies' || (folded && fold(name) === 'dependencies')) {
@@ -28,12 +26,9 @@ function checkNoDependencies(vfs, folded) {
   }
 }
 
-// What a refusal of a dependency is about.
 const about = (name) => `dependencies[${quote(name)}]`
 
-// The registry dependencies, each with the folder Soldeer installs it in;
-// any other kind is refused. Where names are `folded`, a folder is one
-// with another that differs from it only in case or normalization.
+// Where names are `folded`, folders are compared as macOS compares names.
 function registryDependencies(lock, config, folded) {
   const dependencies = Object.values(lock.dependencies).map((dependency) => ({ ...dependency, folder: `${dependency.name}-${dependency.version}` }))
   const key = (folder) => (folded ? fold(folder) : folder)
@@ -53,8 +48,6 @@ function registryDependencies(lock, config, folded) {
   return dependencies
 }
 
-// Each dependency's zip, fetched and extracted a few at a time, by its
-// folder.
 async function fetchAll(dependencies) {
   const extracted = new Map()
   await eachConcurrently(dependencies, async ({ name, version, checksum, folder }) => {

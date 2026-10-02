@@ -5,15 +5,14 @@
 // where truthy as yarn reads it; and ignore-platform, by a flag alone, as
 // yarn reads the option and does not act on it.
 //
-// Of the other options, which yarn reads by name from the .yarnrc, or else
-// the .npmrc (config.getOption), those that change the tree are refused
-// (REFUSED); one yarn reads only for where it fetches from, how, and what
-// it keeps, or for no install at all, as most of npm's, is passed over, as
-// the tree is held to the lockfile's integrities whatever serves it. A `--`
-// line of .yarnrc is a flag yarn adds to its command line, for every
-// command or, with one before a dot, for that one: one that does not change
-// the tree is passed over, and any other refused, whichever command it is
-// for.
+// Of the other options, which yarn reads from the .yarnrc, else the .npmrc
+// (config.getOption), those that change the tree are refused (REFUSED), and
+// the rest passed over: yarn reads them for where it fetches from, how, and
+// what it keeps, or for no install at all, and the tree is held to the
+// lockfile's integrities whatever serves it. A `--` line of .yarnrc is a
+// flag yarn adds to its command line, for every command or, after
+// `<command>.`, that one; one that does not change the tree is passed over,
+// any other refused, whatever its command.
 
 import { DeptreeError, quote } from '../error.js'
 import { parseNpmrc } from '../npmrc.js'
@@ -50,10 +49,9 @@ function check(key, where) {
   if (flag === undefined ? REFUSED.has(key) : !PASSED.has(flag.name)) throw new DeptreeError(`${quote(key)} is a setting not supported here: it may change what yarn installs`, where)
 }
 
-// .yarnrc as yarn's parser reads it, as far as a line of a key and a value
-// goes, each bare or quoted as JSON writes it. The last line of a key is
-// the one yarn keeps; a value but a bare true or false, or a quoted string,
-// is undefined.
+// .yarnrc as yarn's parser reads it, as far as a key and a value per line
+// go, each bare or quoted as JSON writes it. yarn keeps the last line of a
+// key; a bare value but true or false, or none, is undefined.
 const TOKEN = /"(?:[^"\\]|\\.)*"|[^\s"]+/gu
 
 function unquote(token, what, where) {

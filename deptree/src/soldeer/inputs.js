@@ -1,6 +1,5 @@
-// What buildSoldeerTree takes, checked: the host Soldeer runs on, and the
-// files `soldeer install` reads — given as text, or read from the project
-// (../project.js) as Soldeer reads them at the project's root.
+// What buildSoldeerTree takes, checked: the host, and the files
+// `soldeer install` reads, given as text or read from the project's root.
 
 import { DeptreeError, quote } from '../error.js'
 import { checkProject, readText } from '../project.js'

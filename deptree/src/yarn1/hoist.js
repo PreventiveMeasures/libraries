@@ -108,8 +108,7 @@ export class Hoister {
 
   propagateRequired() {
     const toVisit = [...this.tree.values()].filter((info) => info.isRequired)
-    // In yarn's order, but by an index: a long array's shift copies the
-    // rest.
+    // In yarn's order, but by index, as shift() copies a long array.
     for (let i = 0; i < toVisit.length; i++) {
       const info = toVisit[i]
       for (const dependency of info.ref.dependencies) {
@@ -264,9 +263,8 @@ export class Hoister {
     }
   }
 
-  // Each required package by its names from the top down; as in yarn, not
-  // `aggregator`, if given, nor what was left directly beneath it, not
-  // hoisted to the top.
+  // Each required package by its names from the top down, but, as in yarn,
+  // not `aggregator`, if given, nor what stayed directly beneath it.
   flatten(aggregator) {
     const flat = []
     for (const [key, info] of this.tree) {

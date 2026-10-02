@@ -49,9 +49,8 @@ export function globsOf(root) {
   return (Array.isArray(value) ? value : value?.packages ?? []).map((glob) => String(glob).replace(/^(?:\.\/)+|\/+$/gu, ''))
 }
 
-// What yarn's normalize-manifest fails on in the root's name and version,
-// which the lockfile reader does not read, and what of the root this does
-// not follow.
+// What normalize-manifest fails on in the root's name and version, which
+// the lockfile reader does not read; and what of the root is not followed.
 const NAME = /[/@\s+%:]/u
 const validName = (name) => !NAME.test(name) && encodeURIComponent(name) === name
 export function checkRoot(root) {

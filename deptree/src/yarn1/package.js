@@ -1,17 +1,16 @@
 // A registry package as yarn 1 installs it: its tarball held to the
-// lockfile's sha512 integrity, and its sha1 taken for tree.js to hold the
-// one after the `#` of each entry's URL to, as yarn checks both; unpacked
-// as yarn's tarball fetcher unpacks it with tar-fs, the first segment of
-// each name dropped and each file's mode with 0o644 added and masked by a
-// 0o022 umask; and its package.json read as yarn's normalize-manifest reads
-// the fields it installs by.
+// lockfile's sha512, and its sha1 taken for tree.js to check the one after
+// the `#` of each entry's URL against, as yarn checks both; unpacked as
+// yarn's tarball fetcher does with tar-fs, each name's first segment
+// dropped and each mode given 0o644 and masked by a 0o022 umask; and its
+// package.json read as normalize-manifest reads it.
 //
 // Held to more than yarn holds it to: a lockfile URL that is the registry's
-// own, as npm spells it, or yarn's mirror of it; and what npm packs: a
-// gzipped tarball, every entry under one directory, none in the package's
-// own node_modules, which npm packs only for bundled dependencies, no link
-// or device, no name twice as two different files, and a package.json for
-// the lockfile's name and version.
+// own, as npm spells it, or yarn's mirror's; and what npm packs, a gzipped
+// tarball with every entry under one directory, none in its own
+// node_modules (npm packs those only for bundled dependencies), no link or
+// device, no name twice as two different files, and a package.json of the
+// lockfile's name and version.
 
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
@@ -25,9 +24,8 @@ const UMASK = 0o022
 // same paths.
 const YARNPKG = 'https://registry.yarnpkg.com/'
 
-// Paths as tar-fs writes them with `strip: 1`: the first segment dropped,
-// and the rest joined to the package's directory, so `.`, `..` and empty
-// segments are folded.
+// Paths as tar-fs with `strip: 1` writes them: the first segment dropped,
+// and `.`, `..` and empty segments folded.
 function entriesOf(entries, where) {
   const files = new Map()
   const dirs = new Set()
@@ -101,9 +99,9 @@ export async function fetchYarnPackage({ name, version, integrity }, where) {
 
 // Bins as yarn's normalize-manifest reads them: a string `bin` named for
 // the package without its scope; an invalid name, or a target outside the
-// package, dropped; with no `bin`, each name in directories.bin but a
-// dotted one. A target is normalized as Node's path.normalize does, which
-// vfs's matches: a trailing `/` kept.
+// package, dropped; with no `bin`, each name in directories.bin but one
+// with a leading dot. Targets are normalized as Node's path.normalize, and
+// vfs's, do it: a trailing `/` kept.
 const VALID_BIN_KEYS = /^(?!\.{0,2}$)[a-z0-9._-]+$/iu
 
 const outside = (path) => path.startsWith('/') || path === '..' || path.startsWith('../')

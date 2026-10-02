@@ -1,16 +1,14 @@
 // yarn 1's resolvePeerModules (package-linker.js), run before it hoists:
 // each peer is looked for along the shortest chain of names the package was
-// requested by, and the nearest version there that takes the peer's range
-// is added to what it asks for, by all of that version's patterns, as
-// neither dev nor optional. Where none is found, nothing is added, and yarn
-// warns.
+// requested by, and the nearest version there in the peer's range is added
+// to what it asks for, by all its patterns, as neither dev nor optional.
+// Where none is found, nothing is added; yarn warns.
 
 import { compareVersions, valid, validRange } from '@preventive/upstream/semver.js'
 
 // yarn's satisfiesWithPrereleases (util/semver.js): each comparator of the
-// range as semver normalizes it tested on its own, with no say of semver's
-// over prereleases, and a `<` with no prerelease of its own read as `<` its
-// lowest one, so that `<2.0.0` takes no 2.0.0-rc.1.
+// normalized range tested alone, ignoring semver's prerelease rule, and
+// `<x` with no prerelease read as `<x-0`, so `<2.0.0` takes no 2.0.0-rc.1.
 const OPERATORS = /^(<=|>=|<|>|=)?(.*)$/u
 
 export function satisfiesWithPrereleases(version, range, loose = false) {

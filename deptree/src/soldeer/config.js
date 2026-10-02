@@ -1,18 +1,17 @@
-// The config `soldeer install` reads, as Soldeer 0.12 finds and reads it:
-// foundry.toml where it has a [dependencies] table; else soldeer.toml,
-// where there is no foundry.toml. Where neither holds, Soldeer asks which
-// one to make its config, which is refused. Of foundry.toml, what Soldeer
-// would fail on as it adds `dependencies` to the default profile's libs is
-// refused; of the config, its [soldeer] settings where Soldeer would fail
-// on them, and recursive_deps.
+// The config `soldeer install` reads, as Soldeer 0.12 finds it:
+// foundry.toml where it has a [dependencies] table, else soldeer.toml where
+// there is no foundry.toml; where neither holds, Soldeer asks which to make
+// its config, which is refused. Refused too: what Soldeer fails on as it
+// adds `dependencies` to the default profile's libs, [soldeer] settings it
+// fails on, and recursive_deps.
 
 import { TomlError, isInlineTable, parseToml } from '@preventive/lockfile/toml.js'
 import { DeptreeError } from '../error.js'
 
 const isTable = (value) => typeof value === 'object' && value !== null && Object.getPrototypeOf(value) === null
-// A table toml_edit gives as one, as a header or a dotted key makes it:
-// one written inline it gives as a value, which Soldeer reads no
-// dependencies from, and fails on for a profile.
+// A table toml_edit gives as one, from a header or a dotted key; one
+// written inline it gives as a value, which Soldeer reads no dependencies
+// from, and fails on for a profile.
 const isTableItem = (value) => isTable(value) && !isInlineTable(value)
 
 function parse(text, file) {
@@ -57,7 +56,6 @@ function checkSettings(settings, file) {
 
 const ASKS = 'Soldeer asks which file to make its config, which is not supported'
 
-// The config Soldeer reads, parsed, from whichever file it reads it from.
 export function configOf({ foundry, soldeer }) {
   if (foundry === undefined && soldeer === undefined) throw new DeptreeError(`neither foundry.toml nor soldeer.toml is there, so ${ASKS}`)
   const file = foundry === undefined ? 'soldeer.toml' : 'foundry.toml'

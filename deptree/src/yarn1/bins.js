@@ -1,10 +1,9 @@
 // Where yarn 1 fails as it links bins (package-linker.js): each package
-// links each dependency's bins from its copy nearest the package's
-// node_modules, as node would find it, and yarn fails where there is none.
-// What linking does to the tree, each target made executable, package.js
-// has done already. A dependency with no copy of its own reference in the
-// tree, as one deduplicated into another's, links none, as yarn has no
-// location for it.
+// links each dependency's bins from the copy node would find from its
+// node_modules, and yarn fails where there is none. The one change linking
+// makes to the tree, each target made executable, package.js has made. A
+// dependency deduplicated into another's reference has no location of its
+// own, and links none.
 
 import { dirname, join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'

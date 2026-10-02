@@ -1,6 +1,5 @@
 // What buildYarn1Tree takes, checked: the host, and the files an install
-// reads, given as text or read from the project as yarn reads them from
-// disk.
+// reads, given as text or read from the project as yarn reads them.
 
 import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'

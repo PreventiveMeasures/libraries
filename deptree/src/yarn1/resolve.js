@@ -1,24 +1,21 @@
 // What yarn 1's resolver makes of a lockfile it installs frozen
-// (package-resolver.js, package-request.js): a reference for each package,
-// with the requests that led to it, the patterns that name it, and the
-// patterns it asks for. Which request makes a package's reference, and so
-// whose names its own requests carry, turns on the order yarn resolves
-// requests in, which this follows.
+// (package-resolver.js, package-request.js): a reference per package, with
+// the requests that led to it, the patterns that name it, and those it asks
+// for. Which request makes a reference, and so whose names its requests
+// carry, turns on yarn's order, which this follows.
 //
-// The top-level requests run one after another, each with all it leads to:
+// Top-level requests run one after another, each with all it leads to:
 // resolutions' patterns, the root's dependencies, devDependencies and
-// optionalDependencies, the workspace aggregator, then the workspaces the
-// root does not depend on. Beneath one, every request runs at once, each
-// taking as many microtask turns as its resolver does (TURNS) before it
-// checks for a package of its name and version already resolved: one that
-// finds none makes the reference and starts its own requests in its place
-// in the queue; one that finds one waits, and is added to it once all are
-// resolved. A request a resolution applies to is given the resolution's
-// package, at once, or once all are resolved where the resolution's own
-// pattern is not yet. A request of a tag first asks the filesystem whether
-// the tag is a directory of the project, which yarn would install instead,
-// and so waits for every other request: one alone is checked then, and two
-// at once, which the filesystem answers in no set order, are refused.
+// optionalDependencies, the aggregator, then the workspaces the root does
+// not depend on. Beneath one, all run at once, each taking TURNS microtask
+// turns before it checks for a package of its name and version: finding
+// none, it makes the reference and starts its own requests in its place in
+// the queue; finding one, it waits to be added to it once all are resolved.
+// A request a resolution applies to is given that package at once, or once
+// all are resolved where the resolution's own pattern is not yet. A tag's
+// request first asks the filesystem whether the tag is a directory of the
+// project, which yarn would install instead, so waits for all else: one
+// alone is checked then; two, answered in no set order, are refused.
 //
 // A range that is no semver range, a dist-tag or an `npm:` alias, never
 // finds a package of its version, so each request of one makes a reference
@@ -40,11 +37,10 @@ export function splitPattern(pattern) {
 }
 
 // How yarn's registry resolver reads a range (normalizeRange): a semver
-// range, or one with a `:`, an `npm:` alias among them, as it is; any other
-// as a tag, a directory first. One that names another source, a URL, a path
-// or a git host, goes to another of yarn's resolvers, not followed here,
-// and is refused, as is any other with a `:` or `@`, and a tag that is not
-// a plain name.
+// range, or one with a `:` such as an `npm:` alias, as it is, and any other
+// as a tag, a directory first. One naming another source (a URL, a path, a
+// git host) goes to another resolver, not followed here, and is refused, as
+// is any other with a `:` or `@`, and a tag that is not a plain name.
 const TAG = /^[\w~-][\w.~-]*$/u
 function kindOf(range, where) {
   if (validRange(range)) return 'range'
@@ -99,10 +95,9 @@ class Resolver {
     return workspace !== undefined && satisfies(workspace.version, range, { loose: true }) ? workspace : undefined
   }
 
-  // A workspace, or the pattern's lockfile entry. yarn drops an entry whose
-  // version a semver range of its pattern does not take
-  // (isLockfileEntryOutdated) and resolves the pattern anew, which
-  // --frozen-lockfile fails on only for a top-level one.
+  // A workspace, or the pattern's lockfile entry. yarn resolves anew an
+  // entry out of its pattern's semver range (isLockfileEntryOutdated),
+  // which --frozen-lockfile fails on only at the top level.
   infoOf(request) {
     const workspace = this.workspaceOf(request.pattern)
     if (workspace !== undefined) return { kind: 'workspace', name: workspace.name, version: workspace.version, workspace }
@@ -178,8 +173,7 @@ class Resolver {
     return { request, info, left: info.tag ? Infinity : TURNS[info.kind] }
   }
 
-  // Once all else is done, lets the one waiting tag request on to its
-  // check.
+  // Once all else is done, lets the one waiting tag request on.
   answer(waiting) {
     if (waiting.length > 1) throw new DeptreeError(`yarn resolves these in the order the filesystem answers it, which is not set: ${waiting.map(({ request }) => quote(request.pattern)).join(', ')}`)
     const [strand] = waiting
@@ -210,8 +204,7 @@ class Resolver {
     }
   }
 
-  // resolveToExistingVersion for each waiting request, in turn; then each a
-  // resolution applies to that waited.
+  // yarn's resolveToExistingVersion for the delayed, then the diverted.
   settle() {
     for (const request of this.delayed) {
       const { name } = splitPattern(request.pattern)
