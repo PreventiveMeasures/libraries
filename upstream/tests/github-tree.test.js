@@ -100,10 +100,16 @@ describe('getRepoTreeTarball', () => {
     assert.deepEqual(Buffer.from(await client().getRepoTreeTarball({ repo: 'acme/app', tree: CRLF })), CRLF_TGZ)
     const asked = [CRLF, CRLF_ANDROID].map((id) => `${API}/git/trees/${id}`)
     assert.deepEqual(urls(calls), [`${API}/tarball/${CRLF}`, ...asked])
-    // Cached as GitHub has it, so held to the listings again when read back.
+    // Cached as GitHub has it, so held to the listings again when read back,
+    // which are kept by their ids too: nothing is asked.
     calls = stub({ listings })
     assert.deepEqual(Buffer.from(await client().getRepoTreeTarball({ repo: 'acme/app', tree: CRLF })), CRLF_TGZ)
-    assert.deepEqual(urls(calls), asked)
+    assert.deepEqual(urls(calls), [])
+    // A listing kept that is not its tree is asked for again.
+    await writeFile(join(CACHE_DIR, 'github', 'listings', `${CRLF}.json`), '[]')
+    calls = stub({ listings })
+    assert.deepEqual(Buffer.from(await client().getRepoTreeTarball({ repo: 'acme/app', tree: CRLF })), CRLF_TGZ)
+    assert.deepEqual(urls(calls), [asked[0]])
   })
 
   it('refuses a submodule the listing has not, or names another commit for', async () => {

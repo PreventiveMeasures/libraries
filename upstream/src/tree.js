@@ -63,12 +63,16 @@ function emptyDirs(dir, prefix = '') {
   })
 }
 
-// Git sorts a subtree as if its name ended in `/`.
-export function treeId(dir) {
-  const entries = [...dir].map(([name, entry]) => (entry instanceof Map ? { mode: '40000', name, id: treeId(entry) } : { ...entry, name }))
+// Git sorts a subtree as if its name ended in `/`. With `memo`, each
+// directory's id is kept there, for one that does not change after.
+export function treeId(dir, memo) {
+  if (memo?.has(dir)) return memo.get(dir)
+  const entries = [...dir].map(([name, entry]) => (entry instanceof Map ? { mode: '40000', name, id: treeId(entry, memo) } : { ...entry, name }))
   const keyed = entries.map((entry) => [entry.mode === '40000' ? `${entry.name}/` : entry.name, entry])
   keyed.sort(([a], [b]) => (a < b ? -1 : Number(a > b)))
-  return objectId('tree', Buffer.concat(keyed.flatMap(([, { mode, name, id }]) => [Buffer.from(`${mode} ${name}\0`, 'latin1'), id])))
+  const tree = objectId('tree', Buffer.concat(keyed.flatMap(([, { mode, name, id }]) => [Buffer.from(`${mode} ${name}\0`, 'latin1'), id])))
+  memo?.set(dir, tree)
+  return tree
 }
 
 const EMPTY_TREE = objectId('tree', Buffer.alloc(0)).toString('hex')
@@ -142,10 +146,12 @@ async function mend(dir, sha, listed, base = '', above = []) {
 
 // The entries of a gzipped tarball as `git archive` writes one, under a
 // single top directory: a Map of each directory's, a file's mode its exec
-// bit and its `body` kept, a symlink's blob its target. A commit's archive
-// leads with git's global header naming it, taken only where `commit` is
-// that commit. Where there is no such tree, a reason, never entries.
-export function readTarball(gzipped, { commit } = {}) {
+// bit, a .gitattributes file's `body` kept, a symlink's blob its target, as
+// a Map of the top directory's; with `bodies`, every file's body, as the
+// tarball has it. A commit's archive leads with git's global header naming
+// it, taken only where `commit` is that commit. Where there is no such
+// tree, a reason, never entries.
+export function readTarball(gzipped, { commit, bodies = false } = {}) {
   let bytes
   try {
     bytes = gunzipSync(gzipped, { maxOutputLength: MAX_UNPACKED_BYTES })
@@ -205,10 +211,12 @@ export function readTarball(gzipped, { commit } = {}) {
     }
     if (name === null) continue
     if (dir.has(name)) return `no tree: ${JSON.stringify(path)} twice`
-    dir.set(name, type === '0' ? { mode: mode & 0o100 ? '100755' : '100644', id: objectId('blob', body), body } : { mode: '120000', id: objectId('blob', Buffer.from(target, 'latin1')) })
+    // A copy, so the tarball itself is not kept for it.
+    const kept = type !== '0' ? {} : bodies ? { body } : name === ATTRIBUTES ? { body: Buffer.from(body) } : {}
+    dir.set(name, type === '0' ? { mode: mode & 0o100 ? '100755' : '100644', id: objectId('blob', body), ...kept } : { mode: '120000', id: objectId('blob', Buffer.from(target, 'latin1')) })
   }
   if (top === undefined) return 'no tree: an empty tarball'
-  return { root }
+  return root
 }
 
 // The id of the git tree a gzipped tarball holds, as readTarball reads it.
@@ -220,9 +228,8 @@ export function readTarball(gzipped, { commit } = {}) {
 // CRLF for `eol=crlf`. The id is `expected` only if those are right. Where
 // there is no such tree, a reason, never an id.
 export async function gitTreeOfTarball(gzipped, { expected, list } = {}) {
-  const read = readTarball(gzipped)
-  if (typeof read === 'string') return read
-  const { root } = read
+  const root = readTarball(gzipped, { bodies: true })
+  if (typeof root === 'string') return root
   const listed = async (sha) => (list && isSha1(sha) ? await list(sha) : [])
     .filter(isEntry)
     .map((entry) => ({ ...entry, name: nameOf(entry.path) }))

@@ -28,6 +28,8 @@ function checkCollisions(vfs) {
 
 // A path within a directory: no segment of it empty, `.` or `..`.
 export const isInside = (path) => path !== '' && path.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..')
+// The directories a path is in, the top one first.
+export const parentsOf = (path) => path.split('/').slice(0, -1).map((_, index, names) => names.slice(0, index + 1).join('/'))
 
 // Whether `child` is `parent` or under it, both paths from one directory in
 // normal form, `.` being that one.
@@ -115,6 +117,7 @@ export function writeFiles(vfs, root, { dirs, files, links = new Map(), modes = 
     stats.bytes += file.data.length
   }
   for (const [path, target] of links) {
+    if (skip(path)) continue
     const at = checkWrite(vfs, root, path, real)
     try {
       vfs.symlink(target, at)

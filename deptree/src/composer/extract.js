@@ -8,13 +8,12 @@
 // own.
 
 import { decompress } from '@preventive/archive/compression.js'
-import { ArchiveError as TarError, unpack } from '@preventive/archive/tar.js'
-import { ArchiveError, unzip } from '@preventive/archive/zip.js'
+import { ArchiveError, unpack } from '@preventive/archive/tar.js'
 import { DeptreeError, quote } from '../error.js'
-import { centralRecords } from '../zipdir.js'
+import { parentsOf } from '../mount.js'
+import { isUnflagged, unzipEntries } from '../zipdir.js'
 
 const MAX_BYTES = 512 * 1024 * 1024
-const UTF8 = 0x0800
 const S_IFMT = 0o170000
 const S_IFLNK = 0o120000
 const UMASK = 0o022
@@ -24,7 +23,7 @@ const [FAT, UNIX] = [0, 3]
 const LIKE_FAT = new Set([FAT, 6, 11, 14])
 const MAX_HOPS = 40
 
-const decoder = new TextDecoder('utf-8', { ignoreBOM: true })
+const emptyTree = () => ({ dirs: new Set(), files: new Map(), links: new Map(), modes: new Map() })
 
 // Where `path` is in a package, its links followed, as realpath finds it:
 // a path within it, `''` the package itself; OUT where it leads out of it;
@@ -65,8 +64,6 @@ function checkLinks(tree, where) {
   return tree
 }
 
-const parentsOf = (path) => path.split('/').slice(0, -1).map((_, i, parts) => parts.slice(0, i + 1).join('/'))
-
 // GitHub's archive of a commit, which @preventive/upstream has held to the
 // commit's tree, as unzip extracts GitHub's zipball of it, which holds the
 // same, as `git archive` writes it: each directory 0o755 and each file
@@ -78,12 +75,12 @@ export async function fromArchive(bytes, where) {
   try {
     entries = unpack(await decompress(bytes, 'gzip', { limit: MAX_BYTES }))
   } catch (error) {
-    if (error instanceof TarError) throw new DeptreeError(`GitHub's archive cannot be read: ${error.message}`, where, { cause: error })
+    if (error instanceof ArchiveError) throw new DeptreeError(`GitHub's archive cannot be read: ${error.message}`, where, { cause: error })
     throw error
   }
   const top = entries[0]?.name
   if (entries[0]?.type !== 'directory' || top.includes('/')) throw new DeptreeError('GitHub\'s archive does not start with its top directory', where)
-  const tree = { dirs: new Set(), files: new Map(), links: new Map(), modes: new Map() }
+  const tree = emptyTree()
   for (const entry of entries.slice(1)) {
     if (!entry.name.startsWith(`${top}/`)) throw new DeptreeError(`${quote(entry.name)} is outside the top directory of GitHub's archive`, where)
     const path = entry.name.slice(top.length + 1)
@@ -136,21 +133,11 @@ function topDir(tree, where) {
 // two ways it reads them, an entry with no mode or of a system it reads by
 // an extra field, and a link not made on Unix, which it writes as a file.
 export async function fromZip(bytes, where) {
-  let entries
-  try {
-    entries = await unzip(bytes, { limit: MAX_BYTES })
-  } catch (error) {
-    if (error instanceof ArchiveError) throw new DeptreeError(`its zip cannot be read: ${error.message}`, where, { cause: error })
-    throw error
-  }
-  const records = centralRecords(bytes)
-  const tree = { dirs: new Set(), files: new Map(), links: new Map(), modes: new Map() }
+  const tree = emptyTree()
   const seen = new Set()
-  for (const [index, entry] of entries.entries()) {
-    const record = records[index]
+  for (const { entry, record } of await unzipEntries(bytes, where)) {
     const here = `${where}: ${quote(entry.storedName)}`
-    if (decoder.decode(record.name) !== entry.storedName) throw new Error('unreachable: unzip lists entries out of the central directory\'s order')
-    if (!(record.flags & UTF8) && record.name.some((byte) => byte >= 0x80)) throw new DeptreeError('a name not flagged UTF-8, which unzip reads by the system that made it, is not supported', here)
+    if (isUnflagged(record)) throw new DeptreeError('a name not flagged UTF-8, which unzip reads by the system that made it, is not supported', here)
     if (seen.has(entry.name)) throw new DeptreeError('a name twice in the zip, which unzip asks whether to replace, is not supported', here)
     seen.add(entry.name)
     if (entry.name === '.') continue

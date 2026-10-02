@@ -43,10 +43,12 @@ export interface ComposerProject {
 // with `project` and neither of them.
 //
 // Of composer.json, what the lockfile reader holds it to, with the
-// lockfile; and two settings of its config: vendor-dir, a directory within
-// the project by plain names, as Composer neither expands nor resolves
-// one, `vendor` where unset; and preferred-install, dist where unset,
-// source, auto, or a mapping of package patterns to those. Settings from
+// lockfile; and three settings of its config: vendor-dir, a directory
+// within the project by plain names, as Composer neither expands nor
+// resolves one, `vendor` where unset; bin-dir, one too, or within
+// vendor-dir by `{$vendor-dir}`, `{$vendor-dir}/bin` where unset; and
+// preferred-install, dist where unset, source, auto, or a mapping of
+// package patterns to those. Settings from
 // anywhere else — Composer's home, the environment, COMPOSER_VENDOR_DIR
 // and COMPOSER among it, the command line — are not read, and are taken to
 // be at their defaults.
@@ -175,7 +177,8 @@ export interface ComposerTree {
 //
 // And to more than Composer holds a package to: a link that leads out of
 // its package, a bin that does, a target-dir but of plain names, and a
-// package in vendor/bin, where the proxies go, are refused. On macOS, two
+// package installed in bin-dir, where the proxies go, or holding it, on
+// macOS by names as it takes them, are refused. On macOS, two
 // names in one directory that differ only in case or normalization are
 // refused, as they would be one name there.
 //

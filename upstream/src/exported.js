@@ -10,17 +10,18 @@
 
 import { Buffer } from 'node:buffer'
 
-import { attributesOf, parseAttributes } from './attr.js'
-import { lineEndsToWorktree, mayRewriteLineEnds } from './eol.js'
+import { show } from './args.js'
+import { attributesOf, frameOf } from './attr.js'
+import { lineEndsRewriter } from './eol.js'
 import { ATTRIBUTES, gitTreeOfListing, nameOf, objectId, readTarball, subtree, treeId } from './tree.js'
 
 class Refusal extends Error {}
 
-const show = JSON.stringify
-const hex = (dir) => treeId(dir).toString('hex')
-const isIgnored = (stack, path) => attributesOf(stack, path).get('export-ignore') === true
+const isIgnored = (attributes) => attributes.get('export-ignore') === true
 // Git reads a .gitattributes from a blob, never through a symlink.
 const isAttributes = (entry) => entry?.type === 'blob' && entry.mode !== '120000'
+// The .gitattributes of the directory at `prefix`, macros in the top one.
+const frame = (prefix, bytes) => frameOf(prefix.slice(0, -1), Buffer.from(bytes).toString('latin1'), prefix === '')
 
 // The tree's entry back where the archive leaves it out.
 const asListed = ({ mode, type, sha }) => (type === 'tree' ? subtree(sha) : { mode, id: Buffer.from(sha, 'hex') })
@@ -38,14 +39,14 @@ async function withOwn(stack, prefix, here, entry, blob) {
   if (!isAttributes(entry)) return stack
   const archived = here.get(ATTRIBUTES)
   const bytes = archived?.body !== undefined && archived.id.toString('hex') === entry.sha ? archived.body : await blobOf(entry, `${prefix}${ATTRIBUTES}`, blob)
-  return [...stack, { base: prefix.slice(0, -1), lines: parseAttributes(Buffer.from(bytes).toString('latin1'), prefix === '') }]
+  return [...stack, frame(prefix, bytes)]
 }
 
-// A file the archive has otherwise than its blob: the blob, its line ends
-// written as its attributes have git write them.
+// A file, never a link, the archive has otherwise than its blob: the blob,
+// its line ends written as its attributes have git write them.
 async function isRewritten(present, entry, path, attributes, blob) {
-  if (present instanceof Map || present.mode !== entry.mode || !mayRewriteLineEnds(attributes)) return false
-  return Buffer.from(lineEndsToWorktree(await blobOf(entry, path, blob), attributes)).equals(present.body)
+  const rewrite = entry.mode === '120000' ? null : lineEndsRewriter(attributes)
+  return rewrite !== null && objectId('blob', rewrite(await blobOf(entry, path, blob))).equals(present.id)
 }
 
 // A directory the archive has whole, as its id shows: none of it may be
@@ -53,11 +54,11 @@ async function isRewritten(present, entry, path, attributes, blob) {
 // git writes a directory only on reaching one. Whether it holds one.
 function checkWhole(here, prefix, stack) {
   const own = here.get(ATTRIBUTES)
-  const inner = own?.body === undefined ? stack : [...stack, { base: prefix.slice(0, -1), lines: parseAttributes(Buffer.from(own.body).toString('latin1'), prefix === '') }]
+  const inner = own?.body === undefined ? stack : [...stack, frame(prefix, own.body)]
   for (const [name, entry] of here) {
     const isDir = entry instanceof Map
     const path = `${prefix}${name}${isDir ? '/' : ''}`
-    if (isIgnored(inner, path)) throw new Refusal(`no tree: ${show(path)} is in the archive, though the tree's .gitattributes mark it export-ignore`)
+    if (isIgnored(attributesOf(inner, path))) throw new Refusal(`no tree: ${show(path)} is in the archive, though the tree's .gitattributes mark it export-ignore`)
     if (isDir && !checkWhole(entry, path, inner)) throw new Refusal(`no tree: ${show(path)} is in the archive, though git writes no directory it reaches no file in`)
   }
   return here.size > 0
@@ -65,10 +66,16 @@ function checkWhole(here, prefix, stack) {
 
 // The tree `sha` at `prefix` put back together in `here`, the archive's
 // entries of it: whether git reaches a file in it, a submodule or a file
-// it leaves out among them, which has it write the directory.
+// it leaves out among them, which has it write the directory. The
+// listings of the subtrees the archive has otherwise are asked for at
+// once, rather than one after another.
 async function walk(here, sha, prefix, stack, io) {
-  if (hex(here) === sha) return checkWhole(here, prefix, stack)
+  if (io.id(here) === sha) return checkWhole(here, prefix, stack)
   const entries = await io.listed(sha)
+  for (const entry of entries) {
+    const present = here.get(entry.name)
+    if (entry.type === 'tree' && present instanceof Map && io.id(present) !== entry.sha) io.listed(entry.sha).catch(() => {})
+  }
   const inner = await withOwn(stack, prefix, here, entries.find((entry) => entry.name === ATTRIBUTES), io.blob)
   const names = new Set(entries.map(({ name }) => name))
   const stray = [...here.keys()].find((name) => !names.has(name))
@@ -77,8 +84,9 @@ async function walk(here, sha, prefix, stack, io) {
   for (const entry of entries) {
     const present = here.get(entry.name)
     const path = `${prefix}${entry.name}${entry.type === 'blob' ? '' : '/'}`
+    const attributes = attributesOf(inner, path)
     reached ||= entry.type !== 'tree'
-    if (isIgnored(inner, path)) {
+    if (isIgnored(attributes)) {
       if (present !== undefined) throw new Refusal(`no tree: ${show(path)} is in the archive, though the tree's .gitattributes mark it export-ignore`)
       here.set(entry.name, asListed(entry))
     } else if (entry.type === 'tree') {
@@ -93,8 +101,9 @@ async function walk(here, sha, prefix, stack, io) {
       here.set(entry.name, asListed(entry))
     } else if (present === undefined) {
       throw new Refusal(`no tree: ${show(path)} is not in the archive`)
-    } else if (present instanceof Map || present.mode !== entry.mode || present.id.toString('hex') !== entry.sha) {
-      if (!await isRewritten(present, entry, path, attributesOf(inner, path), io.blob)) throw new Refusal(`no tree: ${show(path)} is not the tree's, as git rewrites a file marked export-subst or ident, or for its working-tree-encoding`)
+    } else if (present instanceof Map || present.mode !== entry.mode || (present.id.toString('hex') !== entry.sha && !await isRewritten(present, entry, path, attributes, io.blob))) {
+      throw new Refusal(`no tree: ${show(path)} is not the tree's, as git rewrites a file marked export-subst or ident, or for its working-tree-encoding`)
+    } else {
       here.set(entry.name, asListed(entry))
     }
   }
@@ -102,20 +111,23 @@ async function walk(here, sha, prefix, stack, io) {
 }
 
 // `list` answers GitHub's listing of a tree by its id, `blob` a blob's
-// bytes by its id; `commit` is the commit whose archive it is.
+// bytes by its id; `commit` is the commit whose archive it is. Each
+// directory's id is worked out once, as the archive has it, before the
+// walk puts anything back in it; the whole tree's once more after.
 export async function gitTreeOfArchive(gzipped, { expected, commit, list, blob }) {
-  const read = readTarball(gzipped, { commit })
-  if (typeof read === 'string') return read
+  const root = readTarball(gzipped, { commit })
+  if (typeof root === 'string') return root
+  const memo = new WeakMap()
   const listed = async (sha) => {
     const entries = await list(sha)
     if (!Array.isArray(entries) || gitTreeOfListing(entries) !== sha) throw new Refusal(`no tree: GitHub's listing of tree ${sha} is not that tree`)
     return entries.map((entry) => ({ ...entry, name: nameOf(entry.path) }))
   }
   try {
-    await walk(read.root, expected, '', [], { listed, blob })
+    await walk(root, expected, '', [], { listed, blob, id: (dir) => treeId(dir, memo).toString('hex') })
   } catch (error) {
     if (error instanceof Refusal) return error.message
     throw error
   }
-  return hex(read.root)
+  return treeId(root).toString('hex')
 }

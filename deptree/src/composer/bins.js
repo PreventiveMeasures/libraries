@@ -5,12 +5,10 @@
 // Composer passes it over; one that leads out of the package is refused,
 // which Composer 2.10 passes over and others before it follow.
 
+import { basename } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { OUT, realpathIn } from './extract.js'
 import { about } from './packages.js'
-
-// PHP's basename, of a path with `/` alone between its names.
-const basenameOf = (bin) => bin.replace(/\/+$/u, '').split('/').at(-1)
 
 // `trees` by each plan's key. Two packages' bins of one name are proxied in
 // the order Composer installs them in, the first alone, and only it made
@@ -24,7 +22,7 @@ export function makeBinsExecutable(plans, trees) {
     for (const each of bin) {
       const real = realpathIn(tree, each)
       if (real === OUT) throw new DeptreeError(`bin ${quote(each)} leads out of the package, which is not supported`, about(key))
-      const name = basenameOf(each)
+      const name = basename(each)
       if (real === undefined || !tree.files.has(real) || proxied.has(name)) continue
       proxied.add(name)
       claims.set(name, [...claims.get(name) ?? [], { key, file: tree.files.get(real) }])

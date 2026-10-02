@@ -59,7 +59,7 @@ function bracket(p, at, char) {
       } else {
         const name = p.slice(start, end - 1)
         if (!Object.hasOwn(CLASSES, name)) return ABORT_ALL
-        if (char !== undefined && CLASSES[name](char)) matched = true
+        if (CLASSES[name](char)) matched = true
         i = end
         pch = ''
       }
@@ -146,7 +146,7 @@ function dowild(p, start, t, ti, pathname) {
   return ti < t.length ? NOMATCH : MATCH
 }
 
-export const wildmatch = (pattern, text, pathname) => dowild(pattern, 0, text, 0, pathname) === MATCH
+const wildmatch = (pattern, text, pathname) => dowild(pattern, 0, text, 0, pathname) === MATCH
 
 // quote.c's unquote_c_style of a pattern from its opening `"`: the pattern
 // and what follows its closing one, or null where it is not C-quoted.
@@ -173,14 +173,10 @@ function unquote(text) {
   return null
 }
 
-const span = (text, at, chars) => {
+// strspn from `at`, or strcspn where `within` is false.
+const span = (text, at, chars, within = true) => {
   let end = at
-  while (end < text.length && chars.includes(text[end])) end++
-  return end
-}
-const cspan = (text, at, chars) => {
-  let end = at
-  while (end < text.length && !chars.includes(text[end])) end++
+  while (end < text.length && chars.includes(text[end]) === within) end++
   return end
 }
 const isAttrName = (name) => /^[\w.][\w.-]*$/u.test(name)
@@ -191,7 +187,7 @@ const isAttrName = (name) => /^[\w.][\w.-]*$/u.test(name)
 function parseStates(text) {
   const states = []
   for (let at = span(text, 0, BLANK); at < text.length;) {
-    const end = cspan(text, at, BLANK)
+    const end = span(text, at, BLANK, false)
     const word = text.slice(at, end)
     const equals = word.indexOf('=')
     const sign = word[0] === '-' || word[0] === '!' ? word[0] : ''
@@ -226,25 +222,25 @@ function parseLine(line, macrosAllowed) {
   const start = span(line, 0, BLANK)
   if (start === line.length || line[start] === '#' || line.length >= MAX_LINE) return null
   const quoted = line[start] === '"' ? unquote(line.slice(start)) : null
-  const end = quoted === null ? cspan(line, start, BLANK) : null
+  const end = quoted === null ? span(line, start, BLANK, false) : null
   const name = quoted?.pattern ?? line.slice(start, end)
-  const rest = quoted?.rest ?? line.slice(end)
+  const states = parseStates(quoted?.rest ?? line.slice(end))
+  if (states === null) return null
   if (name.length > '[attr]'.length && name.startsWith('[attr]')) {
     const at = span(name, '[attr]'.length, BLANK)
-    const macro = name.slice(at, cspan(name, at, BLANK))
-    const states = parseStates(rest)
-    return macrosAllowed && isAttrName(macro) && states !== null ? { macro, states } : null
+    const macro = name.slice(at, span(name, at, BLANK, false))
+    return macrosAllowed && isAttrName(macro) ? { macro, states } : null
   }
-  const states = parseStates(rest)
-  if (states === null || name.startsWith('!')) return null
-  return { pattern: parsePattern(name), states }
+  return name.startsWith('!') ? null : { pattern: parsePattern(name), states }
 }
 
-// A .gitattributes as read from a blob: lines up to a NUL, and none of a
-// file of 100 MiB or more. `macrosAllowed` for the top one alone.
-export function parseAttributes(text, macrosAllowed) {
-  if (text.length >= 100 * 1024 * 1024) return []
-  return text.split('\0')[0].split('\n').map((line) => parseLine(line, macrosAllowed)).filter((line) => line !== null)
+// A .gitattributes as read from a blob, `text` a char per byte, in the
+// directory `base`, '' at the top: its lines up to a NUL, none of a file
+// of 100 MiB or more; and the macros it defines, the top one alone, the
+// last of a name standing.
+export function frameOf(base, text, top) {
+  const lines = text.length >= 100 * 1024 * 1024 ? [] : text.split('\0')[0].split('\n').map((line) => parseLine(line, top)).filter((line) => line !== null)
+  return { base, lines: lines.filter((line) => line.pattern !== undefined), macros: new Map(lines.filter((line) => line.macro !== undefined).map(({ macro, states }) => [macro, states])) }
 }
 
 // dir.c's match_basename and match_pathname, past the directory check.
@@ -270,33 +266,34 @@ function matchPathname(path, base, { text, prefix }) {
   return wildmatch(pattern.slice(fixed), name.slice(fixed), true)
 }
 
-function pathMatches(path, basenameAt, pattern, base) {
-  const isDir = path.endsWith('/')
-  const end = path.length - Number(isDir)
-  if (pattern.mustBeDir && !isDir) return false
-  return pattern.noDir ? matchBasename(path.slice(basenameAt, end), pattern) : matchPathname(path.slice(0, end), base, pattern)
+// `target` is the path as attributesOf reads it once: whether a directory,
+// without its `/`, and its last name.
+function pathMatches(target, pattern, base) {
+  if (pattern.mustBeDir && !target.isDir) return false
+  return pattern.noDir ? matchBasename(target.basename, pattern) : matchPathname(target.bare, base, pattern)
 }
 
-// What `stack` says of `path`: the files of its directory and each above
-// it, the top one first, each { base, lines }, `base` its directory, ''
-// at the top. A Map of each attribute given a value to the value.
+// What `stack` says of `path`: frameOf each .gitattributes of its directory
+// and each above it, the top one first. A Map of each attribute given a
+// value to the value: the deepest file's last line up, the first value an
+// attribute is given standing, and a macro's own when it is set.
 export function attributesOf(stack, path) {
-  let slash = -1
-  for (let i = 0; i < path.length - 1; i++) if (path[i] === '/') slash = i
-  const macros = new Map()
-  for (const { lines } of stack.toReversed()) {
-    for (const line of lines.toReversed()) if (line.macro !== undefined && !macros.has(line.macro)) macros.set(line.macro, line.states)
-  }
+  const isDir = path.endsWith('/')
+  const bare = isDir ? path.slice(0, -1) : path
+  const target = { isDir, bare, basename: bare.slice(bare.lastIndexOf('/') + 1) }
+  const macros = stack[0]?.macros ?? new Map()
   const values = new Map()
   const fill = (states) => {
-    for (const { name, value } of states.toReversed()) {
+    for (let i = states.length - 1; i >= 0; i--) {
+      const { name, value } = states[i]
       if (values.has(name)) continue
       values.set(name, value)
       if (value === true && macros.has(name)) fill(macros.get(name))
     }
   }
-  for (const { base, lines } of stack.toReversed()) {
-    for (const line of lines.toReversed()) if (line.pattern !== undefined && pathMatches(path, slash + 1, line.pattern, base)) fill(line.states)
+  for (let s = stack.length - 1; s >= 0; s--) {
+    const { base, lines } = stack[s]
+    for (let i = lines.length - 1; i >= 0; i--) if (pathMatches(target, lines[i].pattern, base)) fill(lines[i].states)
   }
   return values
 }

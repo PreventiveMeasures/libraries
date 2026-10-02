@@ -8,7 +8,7 @@ import { gunzipSync, gzipSync } from 'node:zlib'
 import { createClient } from '../github.js'
 import { setCacheDir } from '../npm.js'
 import { gitTreeOfArchive } from '../src/exported.js'
-import { EOL, EOL_BLOB, EOL_COMMIT, EOL_LISTING, EOL_TGZ, EXPORTED, EXPORTED_BLOBS, EXPORTED_COMMIT, EXPORTED_LISTINGS, EXPORTED_TGZ, SUBST, SUBST_COMMIT, SUBST_TGZ } from './archive-fixtures.js'
+import { EOL, EOL_BLOB, EOL_COMMIT, EOL_LISTING, EOL_TGZ, EXPORTED, EXPORTED_BLOBS, EXPORTED_COMMIT, EXPORTED_LISTINGS, EXPORTED_TGZ, LINK, LINK_COMMIT, LINK_LISTING, LINK_TGZ, SUBST, SUBST_COMMIT, SUBST_TGZ } from './archive-fixtures.js'
 import { forbidRequests, json, stubGitHub } from './github-stub.js'
 import { COMMIT_TGZ, SUBMODULE_COMMIT, TREE, TREE_TGZ } from './tree-fixtures.js'
 
@@ -49,10 +49,11 @@ describe('getRepoTarball exported', () => {
   it("fetches the commit's own archive, held to its tree as its .gitattributes leave things out", async () => {
     const calls = stub()
     assert.deepEqual(Buffer.from(await exported()), EXPORTED_TGZ)
-    // The listings of the directories missing something, and the blob of
-    // the top .gitattributes, which is left out; src's own is read from the
-    // archive. tests, left out whole, is never listed.
-    assert.deepEqual(urls(calls), [`git/commits/${EXPORTED_COMMIT}`, `tarball/${EXPORTED_COMMIT}`, `git/trees/${EXPORTED}`, 'git/blobs/fde205cf5791114e567d38892489a81a0039188a', 'git/trees/d184003c45e7e16dffd8be2c94ba48f842a945d8', 'git/trees/d38020b6559d20f8b70255b55ff42a980d9cb01b'])
+    // The listings of the directories missing something, those beneath the
+    // top asked for at once, and the blob of the top .gitattributes, which
+    // is left out; src's own is read from the archive. tests, left out
+    // whole, is never listed.
+    assert.deepEqual(urls(calls), [`git/commits/${EXPORTED_COMMIT}`, `tarball/${EXPORTED_COMMIT}`, `git/trees/${EXPORTED}`, 'git/trees/d184003c45e7e16dffd8be2c94ba48f842a945d8', 'git/trees/d38020b6559d20f8b70255b55ff42a980d9cb01b', 'git/blobs/fde205cf5791114e567d38892489a81a0039188a'])
     assert.equal(calls[1].redirect, 'follow')
     assert.deepEqual(await readdir(ARCHIVES), [`${EXPORTED_COMMIT}.tgz`])
   })
@@ -63,12 +64,19 @@ describe('getRepoTarball exported', () => {
     assert.deepEqual(urls(calls), [`git/commits/${SUBMODULE_COMMIT}`, `tarball/${SUBMODULE_COMMIT}`])
   })
 
-  it('holds a cached archive to the tree again, and throws on one that is not', async () => {
+  it('holds a cached archive to the tree again, from cached listings and blobs, and throws on one that is not', async () => {
     stub()
     await exported()
     const calls = stub({ tarballs: {} })
     assert.deepEqual(Buffer.from(await exported()), EXPORTED_TGZ)
-    assert.ok(!urls(calls).includes(`tarball/${EXPORTED_COMMIT}`))
+    // The listings and blobs are kept by their ids too: only the commit is
+    // asked, and one kept that is not what its id names is asked again.
+    assert.deepEqual(urls(calls), [`git/commits/${EXPORTED_COMMIT}`])
+    await writeFile(join(CACHE_DIR, 'github', 'listings', `${EXPORTED}.json`), '[]')
+    await writeFile(join(CACHE_DIR, 'github', 'blobs', 'fde205cf5791114e567d38892489a81a0039188a'), '* export-ignore\n')
+    const again = stub({ tarballs: {} })
+    assert.deepEqual(Buffer.from(await exported()), EXPORTED_TGZ)
+    assert.deepEqual(urls(again), [`git/commits/${EXPORTED_COMMIT}`, `git/trees/${EXPORTED}`, 'git/blobs/fde205cf5791114e567d38892489a81a0039188a'])
     await writeFile(join(ARCHIVES, `${EXPORTED_COMMIT}.tgz`), COMMIT_TGZ)
     await assert.rejects(exported(), new RegExp(`getRepoTarball: integrity mismatch for ${EXPORTED_COMMIT} from the cache: expected ${EXPORTED}, got no tree: a global header that does not name ${EXPORTED_COMMIT}$`, 'u'))
   })
@@ -154,6 +162,18 @@ describe('gitTreeOfArchive', () => {
       return tar
     })
     assert.equal(await gitTreeOfArchive(edited, { ...objects, blob: served }), 'no tree: "a.txt" is not the tree\'s, as git rewrites a file marked export-subst or ident, or for its working-tree-encoding')
+  })
+
+  it('holds a link to its blob as it is, whatever eol attributes say of it', async () => {
+    const blobs = { '92be83e26d2715c1f096e9e9d666ff9a67837a81': '* text eol=crlf\n', '78981922613b2afb6025042ff6bd878ac1994e85': 'a\n' }
+    const objects = { expected: LINK, commit: LINK_COMMIT, list: (sha) => (sha === LINK ? LINK_LISTING : []), blob: (sha) => new TextEncoder().encode(blobs[sha] ?? '') }
+    assert.equal(await gitTreeOfArchive(LINK_TGZ, objects), LINK)
+    const relinked = retar(LINK_TGZ, (tar) => {
+      const at = tar.indexOf(`acme-app-${LINK_COMMIT.slice(0, 7)}/l\0`)
+      tar.write('b', at + 157, 'latin1')
+      return sum(tar, at)
+    })
+    assert.equal(await gitTreeOfArchive(relinked, objects), 'no tree: "l" is not the tree\'s, as git rewrites a file marked export-subst or ident, or for its working-tree-encoding')
   })
 
   it('refuses a directory where git writes none, and none where it writes one', async () => {

@@ -55,3 +55,13 @@ export const EOL_LISTING = [
   { path: 'a.txt', mode: '100644', type: 'blob', sha: '422c2b7ab3b3c668038da977e4e93a5fc623169c', size: 4 },
 ]
 export const EOL_BLOB = ['422c2b7ab3b3c668038da977e4e93a5fc623169c', 'a\nb\n']
+// LINK: l, a link to a.txt, both of * text eol=crlf, which git writes a
+// file's line ends by and never a link's.
+export const LINK_COMMIT = '9ca7732198d15713269c108f24cdda423b9b1c67'
+export const LINK = '64b1d34af54b41e55b337d858034be4337cc8852'
+export const LINK_TGZ = Buffer.from('H4sIAAAAAAACA+3WzWqDQBQF4FkX+g6uC0m98xsXeZYwjhMb0CrmBnz8DCGLIk1KIQpNz7cZUUHkcC639+OubrrSN7uP6Ks4iMfLE2vt5UymZ3qoBRmSVklrL/dJG1KiFgs4HdkP6ZND1/G99356Pv25P8LILHRtGz95WwTvnJJUbCoyjlIYRaB8s5c6VJXXUpVFScG6FwFPw4c2rnzfr67pv8/Uf+fM7f6n60n/lVFOGPR/+fzX9YE983AoTxyPD5z/+nb+kqb52zRuRI78Z/eWcRw5i12zDUOzf8Vw/+fz36955Dn2vzv9z9U3+x+h/0vkj8aj/1/738y1/7nf7H/aOhJyhlmE/gMAAAAAAAAAAAAAwLM7A+aHHeMAKAAA', 'base64')
+export const LINK_LISTING = [
+  { path: '.gitattributes', mode: '100644', type: 'blob', sha: '92be83e26d2715c1f096e9e9d666ff9a67837a81' },
+  { path: 'a.txt', mode: '100644', type: 'blob', sha: '78981922613b2afb6025042ff6bd878ac1994e85' },
+  { path: 'l', mode: '120000', type: 'blob', sha: '8d14cbf983b3fad683171c9418998d9f68340823' },
+]

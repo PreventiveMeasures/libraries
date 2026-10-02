@@ -50,7 +50,7 @@ export async function buildComposerTree(options) {
   const checkVfs = noVendor(config.vendorDir, folded)
   // Refused before anything is fetched; mount checks again.
   if (into !== undefined) checkVfs(into)
-  const plans = planOf(lock, config)
+  const plans = planOf(lock, config, folded)
   const trees = await fetchAll(plans, inputs.github)
   makeBinsExecutable(plans, trees)
   const vfs = new Vfs()

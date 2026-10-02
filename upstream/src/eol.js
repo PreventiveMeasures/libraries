@@ -57,22 +57,21 @@ function statsOf(bytes) {
 
 const isBinary = ({ lonecr, nul, printable, nonprintable }) => lonecr > 0 || nul > 0 || (printable >> 7) < nonprintable
 
-// What crlf_to_worktree makes of a blob at a path of `attributes`, or the
-// blob itself where it leaves it be.
-export function lineEndsToWorktree(bytes, attributes) {
+// What crlf_to_worktree makes of a blob at a path of `attributes`: null
+// where it never writes CRLF there, else a function of the blob, which it
+// may leave be.
+export function lineEndsRewriter(attributes) {
   const action = crlfAction(attributes)
-  if (bytes.length === 0 || (action !== TEXT_CRLF && action !== AUTO_CRLF)) return bytes
-  const stats = statsOf(bytes)
-  if (stats.lonelf === 0 || (action === AUTO_CRLF && (stats.lonecr > 0 || stats.crlf > 0 || isBinary(stats)))) return bytes
-  const out = new Uint8Array(bytes.length + stats.lonelf)
-  let at = 0
-  for (const [i, byte] of bytes.entries()) {
-    if (byte === 0x0a && bytes[i - 1] !== 0x0d) out[at++] = 0x0d
-    out[at++] = byte
+  if (action !== TEXT_CRLF && action !== AUTO_CRLF) return null
+  return (bytes) => {
+    const stats = statsOf(bytes)
+    if (stats.lonelf === 0 || (action === AUTO_CRLF && (stats.lonecr > 0 || stats.crlf > 0 || isBinary(stats)))) return bytes
+    const out = new Uint8Array(bytes.length + stats.lonelf)
+    let at = 0
+    for (let i = 0; i < bytes.length; i++) {
+      if (bytes[i] === 0x0a && bytes[i - 1] !== 0x0d) out[at++] = 0x0d
+      out[at++] = bytes[i]
+    }
+    return out
   }
-  return out
 }
-
-// Whether git might write the file otherwise than its blob for its line
-// ends, before the blob is read to see.
-export const mayRewriteLineEnds = (attributes) => [TEXT_CRLF, AUTO_CRLF].includes(crlfAction(attributes))

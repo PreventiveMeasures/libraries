@@ -73,7 +73,7 @@ function project(packages, dev = [], config) {
     'platform-dev': {},
     'plugin-api-version': '2.9.0',
   }
-  const asks = (list) => Object.fromEntries(list.map(({ name, version }) => [name, version]))
+  const asks = (list) => Object.fromEntries(list.map(({ name, version }) => [name.toLowerCase(), version]))
   const root = { name: 'acme/app', require: asks(packages), ...(dev.length > 0 ? { 'require-dev': asks(dev) } : {}), 'minimum-stability': stability, ...(config === undefined ? {} : { config }) }
   return { lockfile: `${JSON.stringify(lock, null, 4)}\n`, composerJson: JSON.stringify(root) }
 }
@@ -145,6 +145,18 @@ describe('buildComposerTree', () => {
       await assert.rejects(buildComposerTree({ ...project([pkg], [], { 'vendor-dir': dir }), host: HOST, github: client }), { name: 'DeptreeError', where: 'composer.json: config.vendor-dir' }, dir)
     }
     await assert.rejects(buildComposerTree({ ...project([{ ...pkg, 'target-dir': 'A\\B' }]), host: HOST, github: client }), /target-dir "A\\\\B" is not supported/u)
+  })
+
+  it('refuses a package where Composer proxies the bins, bin-dir, on macOS by names as it takes them', async () => {
+    const client = github({ [`acme/lib@${SHA}`]: await archive({ 'a.php': 'a' }) })
+    const binned = (name, config, host = HOST) => buildComposerTree({ ...project([{ ...LIB, name, bin: undefined }], [], config), host, github: client })
+    const refused = { name: 'DeptreeError', message: /a package installed where Composer proxies the bins, "vendor\/bin", is not supported/u }
+    await assert.rejects(binned('bin/tool'), refused)
+    await assert.rejects(binned('Bin/tool', undefined, { ...HOST, os: 'darwin' }), refused)
+    assert.ok((await binned('Bin/tool')).vfs.isFile('/vendor/Bin/tool/a.php'))
+    assert.ok((await binned('bin/tool', { 'bin-dir': 'tools' })).vfs.isFile('/vendor/bin/tool/a.php'))
+    await assert.rejects(binned('acme/lib', { 'bin-dir': '{$vendor-dir}/acme/lib/bin' }), /proxies the bins, "vendor\/acme\/lib\/bin"/u)
+    await assert.rejects(binned('acme/lib', { 'bin-dir': '{$home}/bin' }), { where: 'composer.json: config.bin-dir' })
   })
 
   it('refuses a package Composer would clone, by preferred-install or for want of a dist', async () => {

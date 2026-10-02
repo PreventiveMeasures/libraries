@@ -18,3 +18,8 @@ export { HttpError } from './npm.js'
 // credentials. Anything else, a malformed shasum among it, is refused
 // before any request.
 export function getDist(url: string, shasum: string): Promise<Uint8Array>
+
+// What getDist takes `url` as, without fetching it: `redirect`, whether its
+// redirect is followed, and of a GitHub zipball its `repo` and `commit`;
+// null for any URL getDist refuses.
+export function readDistUrl(url: string): { redirect: 'manual' | 'follow'; repo?: string; commit?: string } | null
