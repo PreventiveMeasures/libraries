@@ -4,7 +4,7 @@ import { describe, it } from 'node:test'
 import { parsePodfileLock } from '../../cocoapods.js'
 import { checkDescription } from '../../src/cocoapods/external.js'
 import { layout } from '../../src/cocoapods/layout.js'
-import { psychType } from '../../src/cocoapods/psych.js'
+import { psychRead } from '../../src/cocoapods/psych.js'
 import { readExternalSource } from '../../src/cocoapods/sources.js'
 import { parseCocoaYaml } from '../../src/cocoapods/yaml.js'
 import { random } from '../random.js'
@@ -120,7 +120,7 @@ describe('against cocoapods-core', { skip: SKIP }, () => {
         continue
       }
       assert.ok(typeof doc !== 'string', `refused, where Psych reads back what was written: ${doc}\n${text}\n${JSON.stringify(trees[index])}`)
-      assert.equal(layout(doc.root, RULES, false), text)
+      assert.equal(layout(doc.root, RULES), text)
       taken++
     }
     assert.ok(taken > 1000 && cautious < taken / 20, `${taken} taken, ${cautious} refused as cautious`)
@@ -133,7 +133,7 @@ describe('against cocoapods-core', { skip: SKIP }, () => {
     const loose = { 'a date': ['Date', 'String'], 'a time': ['Time', 'String'], 'an integer': ['Integer', 'String'], 'a float': ['Float', 'String'], 'a number': ['Integer', 'Float'] }
     for (const [index, text] of texts.entries()) {
       const ruby = results[index].value
-      const ours = psychType(text)
+      const ours = psychRead(text).type
       if (ours === 'string') assert.equal(ruby, 'String', JSON.stringify(text))
       else if (ours === 'boolean') assert.ok(ruby === 'TrueClass' || ruby === 'FalseClass', JSON.stringify(text))
       else if (ours === 'null') assert.equal(ruby, 'NilClass', JSON.stringify(text))
@@ -183,15 +183,15 @@ describe('against cocoapods-core', { skip: SKIP }, () => {
     const results = cocoapods(sources.map((entries) => ['describe', ['A', { m: entries }]]))
     for (const [index, entries] of sources.entries()) {
       const node = { kind: 'map', entries: entries.map(([key, item]) => ({ key: { kind: 'scalar', type: 'symbol', value: key.y }, value: item.a === undefined ? { kind: 'scalar', type: item.b === undefined ? 'string' : 'boolean', value: item.s ?? item.b } : { kind: 'seq', items: item.a.map((header) => ({ kind: 'scalar', type: 'string', value: header.s })) } })) }
-      let read
+      let source
       try {
-        read = readExternalSource(node, 'here')
+        source = readExternalSource(node, 'here')
       } catch {
         continue
       }
       const description = results[index].value.replace(/^A \((.*)\)$/su, '$1')
-      checkDescription(description, read.source, read.options, 'here')
-      assert.throws(() => checkDescription(`${description.slice(0, -2)}x${description.slice(-1)}`, read.source, read.options, 'here'), /as CocoaPods describes the external source/u)
+      checkDescription(description, source, 'here')
+      assert.throws(() => checkDescription(`${description.slice(0, -2)}x${description.slice(-1)}`, source, 'here'), /as CocoaPods describes the external source/u)
     }
   })
 })

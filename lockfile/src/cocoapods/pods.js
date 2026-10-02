@@ -13,7 +13,7 @@ const SEGMENT = /^(?!\.)[!-'*-.0-[\]-~]+$/u
 
 export const rootOf = (name) => name.split('/')[0]
 
-export function checkPodName(name, where) {
+function checkPodName(name, where) {
   if (!name.split('/').every((segment) => SEGMENT.test(segment))) throw new LockfileError(`${quote(name)} is not a pod's name`, where)
   return name
 }
@@ -55,13 +55,18 @@ function readRequirements(text, where) {
 }
 
 // `Name` or `Name (requirements)`; of the Podfile's, `Name (from ...)` too,
-// with what follows `from`, for sources.js to hold to the external source.
-export function readDependency(text, where, podfile) {
+// with what follows `from`, for external.js to hold to the external source.
+export function readPodfileDependency(text, where) {
   const m = /^(\S+)(?: \((.+)\))?$/u.exec(text)
   if (m === null) throw new LockfileError(`${quote(text)} is not a dependency, as CocoaPods writes one`, where)
   const name = checkPodName(m[1], where)
-  if (m[2] === undefined) return { name, requirements: [], external: false, description: undefined }
-  if (!m[2].startsWith('from `')) return { name, requirements: readRequirements(m[2], where), external: false, description: undefined }
-  if (!podfile) throw new LockfileError(`${quote(text)} names an external source, which only the Podfile's dependencies do`, where)
-  return { name, requirements: [], external: true, description: m[2] }
+  if (m[2]?.startsWith('from `')) return { name, requirements: [], description: m[2] }
+  return { name, requirements: m[2] === undefined ? [] : readRequirements(m[2], where), description: undefined }
+}
+
+// A podspec's dependency, which names no external source.
+export function readDependency(text, where) {
+  const { name, requirements, description } = readPodfileDependency(text, where)
+  if (description !== undefined) throw new LockfileError(`${quote(text)} names an external source, which only the Podfile's dependencies do`, where)
+  return { name, requirements }
 }

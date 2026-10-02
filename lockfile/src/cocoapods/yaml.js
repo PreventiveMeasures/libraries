@@ -12,11 +12,12 @@
 //
 // A mapping is `{ kind: 'map', entries: [{ key, value }] }`, its keys
 // scalars; a sequence `{ kind: 'seq', items }`; a scalar `{ kind:
-// 'scalar', type, value }`. Each has the `line` it starts on, from zero.
+// 'scalar', type, value, line }`, of the line it is on, from zero.
 
 import { quote } from '../error.js'
 import { advance, fail, lines } from '../lines.js'
-import { psychType } from './psych.js'
+import { PLAIN, SYMBOL } from './layout.js'
+import { psychRead } from './psych.js'
 
 // What YAMLHelper writes raw, all else being escaped or refused: letters,
 // marks, numbers, punctuation, symbols and spaces. So no control, format,
@@ -24,9 +25,6 @@ import { psychType } from './psych.js'
 // which Ruby's String#inspect escapes, if it does not write it raw.
 const FORBIDDEN = /[^\p{L}\p{M}\p{N}\p{P}\p{S}\p{Zs}]/u
 
-// A string YAMLHelper writes plain, and a symbol as YAML.dump writes one.
-const PLAIN = /^\w[\w/ ()~<>=.:`,-]*$/u
-const SYMBOL = /^:[a-z_][a-z0-9_]*$/u
 const DOUBLE = /^"((?:[^"\\]|\\.)*)"/u
 const SINGLE = /^'((?:[^']|'')*)'/u
 const MAX_DEPTH = 8
@@ -69,14 +67,16 @@ function readQuoted(text, number) {
   throw fail(`a quoted scalar with no closing quote in ${quote(text)}`, number)
 }
 
+// A plain scalar, of the characters YAMLHelper writes plain, as Psych
+// reads it: not where it would read the end of one, or a mapping.
 function readPlain(text, number) {
   if (SYMBOL.test(text)) return scalar('symbol', text.slice(1), number)
   if (!PLAIN.test(text) || text.endsWith(' ') || text.endsWith(':') || text.includes(': ')) {
     throw fail(`${quote(text)} is not a scalar as CocoaPods writes one`, number)
   }
-  const type = psychType(text)
-  if (type === 'string' || type === 'boolean') return scalar(type, type === 'boolean' ? /^(?:yes|true|on)$/iu.test(text) : text, number)
-  throw fail(`${quote(text)}, which Psych reads as ${type}, where a Podfile.lock holds a string, a symbol, true or false`, number)
+  const { type, value } = psychRead(text)
+  if (type !== 'string' && type !== 'boolean') throw fail(`${quote(text)}, which Psych reads as ${type}, where a Podfile.lock holds a string, a symbol, true or false`, number)
+  return scalar(type, value, number)
 }
 
 // A value on the line, after `key: ` or `- `.
@@ -89,8 +89,8 @@ function readValue(text, number) {
   return readPlain(text, number)
 }
 
-// `key:` or `key: value` at the start of `text`, or null where `text` is
-// not a mapping entry.
+// `key:` or `key: value` at the start of `text`, with the text of the
+// value, or null where `text` is not a mapping entry.
 function readKey(text, number) {
   let key
   let rest
@@ -105,42 +105,47 @@ function readKey(text, number) {
   }
   const value = rest.slice(2)
   if (value.startsWith(' ')) throw fail('more than one space after ":"', number)
-  return { key, rest: value }
+  return { key, value }
 }
 
-const keyOf = (key) => `${key.type}:${key.value}`
-
-// A mapping at `indent`, its first entry already read where `first` is,
-// as in a sequence's entry. A sequence under a key may sit at the key's
-// own column.
-function deep(src, depth) {
+function checkDepth(src, depth) {
   if (depth > MAX_DEPTH) throw fail('nested deeper than a Podfile.lock is', src.current.number)
 }
 
-function parseMap(src, indent, depth, first) {
-  deep(src, depth)
-  const map = { kind: 'map', entries: [], line: src.current.number }
+// A mapping or a sequence whose lines are at `indent`.
+const parseNode = (src, indent, depth) => (isEntry(src.current.text) ? parseSeq : parseMap)(src, indent, depth)
+
+// A mapping at `indent`, its first entry already read where `entry` is, as
+// in a sequence's entry. A sequence under a key may sit at the key's own
+// column. A line deeper than the mapping ends it, and the file's end
+// refuses it.
+function parseMap(src, indent, depth, entry) {
+  checkDepth(src, depth)
+  const map = { kind: 'map', entries: [] }
   const seen = new Set()
-  for (let entry = first; entry !== undefined || src.current?.indent === indent; entry = undefined) {
+  do {
     const { number, text } = src.current
     entry ??= readKey(text, number)
     if (entry === null) throw fail(`expected a mapping key, found ${quote(text)}`, number)
-    if (seen.has(keyOf(entry.key))) throw fail(`a second ${quote(String(entry.key.value))}`, number)
-    seen.add(keyOf(entry.key))
+    const { key } = entry
+    const id = `${key.type}:${key.value}`
+    if (seen.has(id)) throw fail(`a second ${quote(String(key.value))}`, number)
+    seen.add(id)
     next(src)
     let value
-    if (entry.rest !== '') value = readValue(entry.rest, number)
-    else if (src.current?.indent > indent) value = parseBlock(src, src.current.indent, depth + 1)
+    if (entry.value !== '') value = readValue(entry.value, number)
+    else if (src.current?.indent > indent) value = parseNode(src, src.current.indent, depth + 1)
     else if (src.current?.indent === indent && isEntry(src.current.text)) value = parseSeq(src, indent, depth + 1)
-    else throw fail(`nothing under ${quote(String(entry.key.value))}`, number)
-    map.entries.push({ key: entry.key, value })
-  }
+    else throw fail(`nothing under ${quote(String(key.value))}`, number)
+    map.entries.push({ key, value })
+    entry = undefined
+  } while (src.current?.indent === indent)
   return map
 }
 
 function parseSeq(src, indent, depth) {
-  deep(src, depth)
-  const seq = { kind: 'seq', items: [], line: src.current.number }
+  checkDepth(src, depth)
+  const seq = { kind: 'seq', items: [] }
   while (src.current?.indent === indent && isEntry(src.current.text)) {
     const { number, text } = src.current
     const rest = text.slice(2)
@@ -156,19 +161,13 @@ function parseSeq(src, indent, depth) {
   return seq
 }
 
-function parseBlock(src, indent, depth) {
-  const block = isEntry(src.current.text) ? parseSeq(src, indent, depth) : parseMap(src, indent, depth)
-  if (src.current?.indent > indent) throw fail('bad indentation', src.current.number)
-  return block
-}
-
 // The mapping a Podfile.lock is, and whether its lines end in CRLF.
 export function parseCocoaYaml(text) {
   const src = lines(text, FORBIDDEN)
   next(src)
   if (src.current === undefined) throw fail('an empty file, where CocoaPods writes its version at least', 0)
   if (src.current.indent !== 0 || isEntry(src.current.text)) throw fail('expected a mapping at column 0', src.current.number)
-  const root = parseBlock(src, 0, 0)
+  const root = parseMap(src, 0, 0)
   if (src.current !== undefined) throw fail('bad indentation', src.current.number)
   return { root, crlf: src.crlf === true }
 }

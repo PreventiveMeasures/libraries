@@ -21,7 +21,7 @@ const INTEGERS = [
 ]
 
 // `string`, `boolean`, or what else Psych reads `text` as, for a message.
-export function psychType(text) {
+function typeOf(text) {
   if (text === '') return 'null'
   if (WORDY.test(text) || text.includes('\n')) {
     if (text.length > 5 || /^[^ytonf~]/iu.test(text)) return 'string'
@@ -36,4 +36,11 @@ export function psychType(text) {
   if (FLOAT.test(text) && !/^[-+]?\.$/u.test(text)) return 'a float'
   if (INTEGERS.some((re) => re.test(text))) return 'an integer'
   return 'string'
+}
+
+// What Psych reads `text` as: its type, as above, and of a string or a
+// boolean, its value.
+export function psychRead(text) {
+  const type = typeOf(text)
+  return { type, value: type === 'boolean' ? /^(?:yes|true|on)$/iu.test(text) : text }
 }

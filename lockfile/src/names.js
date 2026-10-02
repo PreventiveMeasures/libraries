@@ -91,6 +91,9 @@ export const isCommit = (hash) => /^(?:[\da-f]{40}|[\da-f]{64})$/u.test(hash)
 // A sha256 in lowercase hex, as Cargo.lock and soldeer.lock write a checksum.
 export const isHexSha256 = (value) => /^[\da-f]{64}$/u.test(value)
 
+// A sha1 in lowercase hex, as yarn.lock and Podfile.lock write one.
+export const isHexSha1 = (value) => /^[\da-f]{40}$/u.test(value)
+
 // A branch or tag name, as git check-ref-format takes one under refs/heads/
 // or refs/tags/: a rule for each alternative. A leading `-` git branch
 // refuses, and git checkout reads as an option.
@@ -134,6 +137,8 @@ export function readIntegrities(value, where) {
 }
 
 export const isHttpUrl = (value) => /^https?:\/\//u.test(value) && URL.canParse(value)
+
+export const checkHttpUrl = checker(isHttpUrl, 'an http(s) URL')
 
 // npm's registry, and yarn's mirror of it, keep a package's tarball under
 // its name, a scope's `/` once written `%2f`, and named after its version.

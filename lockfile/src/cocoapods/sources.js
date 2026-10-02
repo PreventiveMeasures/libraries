@@ -6,17 +6,19 @@
 // anything else beside a `:podspec` or a `:path` CocoaPods carries along,
 // and passes over, and it is handed back as `options`.
 
-import { LockfileError, at, quote } from '../error.js'
-import { checkRefName, checkRepo, isHttpUrl } from '../names.js'
+import { LockfileError, quote } from '../error.js'
+import { checkHttpUrl, checkRefName, checkRepo, isHexSha1, isHexSha256 } from '../names.js'
+import { entriesOf, itemsOf, scalarOf, textOf } from './shape.js'
 
 // cocoapods-downloader's strategies, each with the options it takes, and
 // the field each is handed back as.
+const FILE = ['type', 'flatten', 'sha1', 'sha256', 'headers']
 export const DOWNLOADS = {
   __proto__: null,
   git: ['commit', 'tag', 'branch', 'submodules'],
   hg: ['revision', 'tag', 'branch'],
-  http: ['type', 'flatten', 'sha1', 'sha256', 'headers'],
-  scp: ['type', 'flatten', 'sha1', 'sha256', 'headers'],
+  http: FILE,
+  scp: FILE,
   svn: ['revision', 'tag', 'folder', 'externals', 'checkout'],
 }
 export const fieldOf = (option) => (option === 'type' ? 'fileType' : option)
@@ -24,19 +26,8 @@ export const fieldOf = (option) => (option === 'type' ? 'fileType' : option)
 const BOOLEANS = new Set(['submodules', 'flatten', 'externals', 'checkout'])
 // What RemoteFile extracts, by `:type`.
 const FILE_TYPES = new Set(['zip', 'tgz', 'tar', 'tbz', 'txz', 'dmg'])
-
-const kindOf = (node) => (node.kind === 'scalar' ? (node.type === 'string' ? `the string ${quote(node.value)}` : `the ${node.type} ${String(node.value)}`) : `a ${node.kind === 'map' ? 'mapping' : 'sequence'}`)
-
-export function scalarOf(node, type, where) {
-  if (node.kind !== 'scalar' || node.type !== type) throw new LockfileError(`expected a ${type}, found ${kindOf(node)}`, where)
-  return node.value
-}
-
-export function textOf(node, where) {
-  const value = scalarOf(node, 'string', where)
-  if (value === '') throw new LockfileError('expected a non-empty string', where)
-  return value
-}
+// In lowercase hex: a commit, which git takes short, and a file's digests.
+const HEX = { __proto__: null, commit: (value) => /^[\da-f]{4,64}$/u.test(value), sha1: isHexSha1, sha256: isHexSha256 }
 
 // A path from the Podfile's directory, as the Podfile has it: CocoaPods
 // takes `./`, `..` and a `/` at the end as they are, but nothing absolute,
@@ -48,16 +39,11 @@ function checkPath(path, where) {
   return path
 }
 
-const HEX = { commit: /^[\da-f]{4,64}$/u, sha1: /^[\da-f]{40}$/u, sha256: /^[\da-f]{64}$/u }
-
 function readOption(strategy, option, node, where) {
   if (BOOLEANS.has(option)) return scalarOf(node, 'boolean', where)
-  if (option === 'headers') {
-    if (node.kind !== 'seq') throw new LockfileError(`expected a sequence, found ${kindOf(node)}`, where)
-    return node.items.map((item, index) => textOf(item, `${where}[${index}]`))
-  }
+  if (option === 'headers') return itemsOf(node, where).map((item, index) => textOf(item, `${where}[${index}]`))
   const value = textOf(node, where)
-  if (option in HEX && !HEX[option].test(value)) throw new LockfileError(`${quote(value)} is not a ${option === 'commit' ? 'commit' : option} in lowercase hex`, where)
+  if (option in HEX && !HEX[option](value)) throw new LockfileError(`${quote(value)} is not a ${option} in lowercase hex`, where)
   if (option === 'type' && !FILE_TYPES.has(value)) throw new LockfileError(`${quote(value)} is not a type of file CocoaPods extracts`, where)
   if (strategy === 'git' && (option === 'branch' || option === 'tag')) checkRefName(value, where)
   return value
@@ -65,18 +51,15 @@ function readOption(strategy, option, node, where) {
 
 function readUrl(strategy, node, where) {
   const url = textOf(node, where)
-  if (strategy === 'http' ? !isHttpUrl(url) : strategy === 'scp' && !(url.startsWith('scp://') && URL.canParse(url))) {
-    throw new LockfileError(`${quote(url)} is not an ${strategy === 'http' ? 'http(s)' : 'scp://'} URL`, where)
-  }
+  if (strategy === 'http') checkHttpUrl(url, where)
+  if (strategy === 'scp' && !(url.startsWith('scp://') && URL.canParse(url))) throw new LockfileError(`${quote(url)} is not an scp:// URL`, where)
   return checkRepo(url, where)
 }
 
 // The options of a mapping, by name, each with its node and where it is.
 function readOptions(node, where) {
-  if (node.kind !== 'map') throw new LockfileError(`expected a mapping, found ${kindOf(node)}`, where)
   const options = Object.create(null)
-  for (const { key, value } of node.entries) {
-    const here = at(where, key.type === 'symbol' ? `:${key.value}` : String(key.value))
+  for (const [key, value, here] of entriesOf(node, where)) {
     if (key.type !== 'symbol') throw new LockfileError('a key that is not a symbol, where CocoaPods reads options by symbol', here)
     options[key.value] = { node: value, where: here }
   }
@@ -105,7 +88,7 @@ function readDownload(options, where) {
 export function readExternalSource(node, where) {
   const options = readOptions(node, where)
   const type = 'podspec' in options ? 'podspec' : 'path' in options ? 'path' : undefined
-  if (type === undefined) return { source: readDownload(options, where), options }
+  if (type === undefined) return readDownload(options, where)
   const carried = Object.create(null)
   for (const [name, { node: value, where: here }] of Object.entries(options)) {
     if (name === type) continue
@@ -114,9 +97,9 @@ export function readExternalSource(node, where) {
   }
   const { node: value, where: here } = options[type]
   const location = textOf(value, here)
-  if (type === 'path' || !/^https?:/iu.test(location)) checkPath(location, here)
-  else if (!isHttpUrl(location)) throw new LockfileError(`${quote(location)} is not an http(s) URL`, here)
-  return { source: { type, [type]: location, options: carried }, options }
+  if (type === 'podspec' && /^https?:/iu.test(location)) checkHttpUrl(location, here)
+  else checkPath(location, here)
+  return { type, [type]: location, options: carried }
 }
 
 // CHECKOUT OPTIONS's entry of a root.

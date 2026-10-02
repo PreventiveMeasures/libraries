@@ -6,7 +6,8 @@
 // leaves each value one way to be written.
 
 import { LockfileError, quote } from '../error.js'
-import { compareCodePoints } from './order.js'
+import { fail } from '../lines.js'
+import { compareCodePoints } from '../order.js'
 
 // The sections a Podfile.lock lays out first, in this order, a blank line
 // between each.
@@ -14,7 +15,8 @@ export const SECTIONS = ['PODS', 'DEPENDENCIES', 'SPEC REPOS', 'EXTERNAL SOURCES
 
 // The strings YAMLHelper single-quotes, as YAML would type them: from 1.5,
 // null, booleans and numbers; from 1.10, yes, no, on and off; from 1.13,
-// dates and times.
+// dates and times. `rulesOf` says which, of CocoaPods 1.`minor`.
+export const rulesOf = (minor) => ({ yesNo: minor >= 10, dates: minor >= 13 })
 const TAGS = new Set(['null', 'Null', 'NULL', '~', '', 'true', 'True', 'TRUE', 'false', 'False', 'FALSE'])
 const YES_NO = new Set(['yes', 'Yes', 'YES', 'no', 'No', 'NO', 'on', 'On', 'ON', 'off', 'Off', 'OFF'])
 const NUMBERS = [
@@ -30,7 +32,9 @@ const NUMBERS = [
 const DATES = /^(?:\d{4}-\d\d-\d\d|\d{4}-\d\d?-\d\d?(?:[Tt]|[ \t]+)\d\d?:\d\d:\d\d(?:.\d*)?(?:[ \t]*(?:Z|[-+]\d\d?(?::\d\d)?))?)$/u
 
 const INDICATOR = /^[-?:,[\]{}#&*!|>'"%@`]/u
-const PLAIN = /^\w[\w/ ()~<>=.:`,-]*$/u
+// A string YAMLHelper writes plain, and a symbol as YAML.dump writes one.
+export const PLAIN = /^\w[\w/ ()~<>=.:`,-]*$/u
+export const SYMBOL = /^:[a-z_][a-z0-9_]*$/u
 
 function resolved(text, rules) {
   if (TAGS.has(text) || NUMBERS.some((re) => re.test(text))) return true
@@ -48,23 +52,25 @@ function processString(text, rules) {
 }
 
 // YAMLHelper's sorting_string: what an entry sorts by, its case folded as
-// Ruby's String#downcase folds it, a character at a time.
-const downcase = (text) => Array.from(text, (char) => char.toLowerCase()).join('')
+// Ruby's String#downcase folds it, a character at a time. Of JS's case
+// mappings only a final sigma's depends on what is around it, and Ruby's
+// does not: Σ is σ, wherever it is.
+const downcase = (text) => text.replaceAll('Σ', 'σ').toLowerCase()
 
 function sortingString(node) {
   if (node.kind === 'seq') return node.items.length === 0 ? '' : sortingString(node.items[0])
   if (node.kind === 'map') return node.entries.map(({ key }) => downcase(String(key.value))).sort(compareCodePoints)[0] ?? ''
   if (node.type === 'boolean') {
-    if (node.value) throw new LockfileError(`true at line ${node.line + 1}, which YAMLHelper fails to sort`)
+    if (node.value) throw fail('true, which YAMLHelper fails to sort', node.line)
     return ''
   }
   return downcase(node.value)
 }
 
-// Sorted by what each sorts by, and as they were where that is the same.
-function sorted(nodes) {
-  const keyed = nodes.map((node, index) => [sortingString(node), index, node])
-  return keyed.sort((a, b) => compareCodePoints(a[0], b[0]) || a[1] - b[1]).map((item) => item[2])
+// Sorted by what the node of each sorts by, and as they were where that
+// is the same, as JS sorts.
+function sorted(list, nodeOf = (item) => item) {
+  return list.map((item) => [sortingString(nodeOf(item)), item]).sort((a, b) => compareCodePoints(a[0], b[0])).map(([, item]) => item)
 }
 
 function processScalar(node, rules) {
@@ -75,6 +81,8 @@ function processScalar(node, rules) {
 
 const isCollection = (node) => node.kind !== 'scalar'
 const size = (node) => (node.kind === 'seq' ? node.items.length : node.entries.length)
+// Every line but the first two spaces deeper.
+const indent = (text) => text.replaceAll('\n', '\n  ')
 
 // Each of YAMLHelper's process_ methods ends with a strip, of no effect on
 // what yaml.js reads.
@@ -88,37 +96,30 @@ function processArray(items, rules) {
   if (items.length === 0) return '[]'
   const result = sorted(items).map((item) => {
     const processed = processNode(item, rules)
-    if (!isCollection(item) || size(item) <= 1) return processed
-    const [head, ...rest] = processed.split('\n')
-    return [head, ...rest.map((line) => `  ${line}`)].join('\n')
+    return isCollection(item) && size(item) > 1 ? indent(processed) : processed
   })
   return `- ${result.join('\n- ')}`
 }
 
 function processHash(entries, rules, hint, separator = '\n') {
   if (entries.length === 0) return '{}'
-  const byKey = new Map(entries.map((entry) => [entry.key, entry]))
-  let keys = sorted(entries.map((entry) => entry.key))
+  let ordered = sorted(entries, (entry) => entry.key)
   if (hint !== undefined) {
-    const hinted = hint.flatMap((name) => keys.filter((key) => key.type === 'string' && key.value === name))
-    keys = [...hinted, ...keys.filter((key) => !hinted.includes(key))]
+    const hinted = hint.flatMap((name) => ordered.filter(({ key }) => key.type === 'string' && key.value === name))
+    ordered = [...hinted, ...ordered.filter((entry) => !hinted.includes(entry))]
   }
-  return keys.map((key) => {
-    const { value } = byKey.get(key)
+  return ordered.map(({ key, value }) => {
     const processed = processNode(value, rules)
-    if (!isCollection(value)) return `${processScalar(key, rules)}: ${processed}`
-    return `${processScalar(key, rules)}:\n${processed.split('\n').map((line) => `  ${line}`).join('\n')}`
+    return isCollection(value) ? `${processScalar(key, rules)}:\n  ${indent(processed)}` : `${processScalar(key, rules)}: ${processed}`
   }).join(separator)
 }
 
-// The text the CocoaPods of `rules` writes for `root`, with its line ends.
-export function layout(root, rules, crlf) {
-  const text = `${processHash(root.entries, rules, SECTIONS, '\n\n')}\n`
-  return crlf ? text.replaceAll('\n', '\r\n') : text
-}
+// The text the CocoaPods of `rules` writes for `root`.
+export const layout = (root, rules) => `${processHash(root.entries, rules, SECTIONS, '\n\n')}\n`
 
 export function checkLayout(text, root, rules, crlf, writer) {
-  const expected = layout(root, rules, crlf)
+  const written = layout(root, rules)
+  const expected = crlf ? written.replaceAll('\n', '\r\n') : written
   if (text === expected) return
   const end = crlf ? '\r\n' : '\n'
   const [have, want] = [text.split(end), expected.split(end)]

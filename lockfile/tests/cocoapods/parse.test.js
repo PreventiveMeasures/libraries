@@ -203,7 +203,7 @@ describe('the sections', () => {
   it('refuses a section of another shape', () => {
     refuses(edit(['COCOAPODS: 1.17.0', 'COCOAPODS:\n  - 1.17.0']), 'expected a string, found a sequence', 'COCOAPODS')
     refuses(edit([`PODFILE CHECKSUM: ${sha('f')}`, 'PODFILE CHECKSUM: F00']), '"F00" is not a sha1 in lowercase hex', '["PODFILE CHECKSUM"]')
-    refuses(BASE.replace(/^PODS:\n[^]*?\n\n/u, 'PODS:\n  A: B\n\n'), 'expected a sequence', 'PODS')
+    refuses(BASE.replace(/^PODS:\n[^]*?\n\n/u, 'PODS:\n  A: B\n\n'), 'expected a sequence, found a mapping', 'PODS')
     refuses(edit(['COCOAPODS: 1.17.0', "COCOAPODS: '1.17'"]), '"1.17" is not a version of CocoaPods from 1.5 to 1.x, which this reader reads', 'COCOAPODS')
   })
 })
