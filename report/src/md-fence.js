@@ -45,12 +45,18 @@ const EMPTY_ITEM_RE = /^ *(?:[-*+]|\d{1,9}[.)])[ \t]*$/u
 // may be the opening line), the sixth at a blank line. The seventh — a
 // lone complete tag — also ends at a blank line, but can't interrupt a
 // paragraph.
+//
+// A declaration opens on `<!` and any letter since CommonMark 0.30; GFM,
+// which GitHub renders, keeps 0.29's capital. So one is closed with a
+// comment, not a bare `>`: the comment holds the `>` that ends it where
+// it is open, and is nothing where `<!doctype` was text — where a `>`
+// line would be an empty quote.
 const BLANK_RE = /^\s*$/u
 const HTML_BLOCKS = [
   [/^<(script|pre|textarea|style)(?:\s|>|$)/iu, /<\/(?:script|pre|textarea|style)>/iu, (m) => `</${m[1].toLowerCase()}>`],
   [/^<!--/u, /-->/u, '-->'],
   [/^<\?/u, /\?>/u, '?>'],
-  [/^<![A-Za-z]/u, />/u, '>'],
+  [/^<![A-Za-z]/u, />/u, '<!-- -->'],
   [/^<!\[CDATA\[/u, /\]\]>/u, ']]>'],
   [/^<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|section|search|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:\s|\/?>|$)/iu, BLANK_RE, null],
 ]

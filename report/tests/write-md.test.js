@@ -692,6 +692,9 @@ describe('md-text helpers', () => {
     assert.equal(prose('- item\n\n      indented code\nprose\n   ```sh\ncurl'), '- item\n\n      indented code\nprose\n   ```sh\ncurl\n```')
     // An HTML block a line can end is closed too, at its item's margin.
     assert.equal(prose('<!--\nhidden'), '<!--\nhidden\n-->')
+    // A declaration with a comment, which ends it where it is open
+    // (CommonMark 0.30+) and is nothing where it is text (GFM, 0.29).
+    assert.equal(prose('x\n\n<!doctype html'), 'x\n\n<!doctype html\n<!-- -->')
     assert.equal(prose('  - <pre>\n    x'), '- <pre>\n    x\n  </pre>')
     // Closed as the page reads it, after the escape: an escaped heading is
     // text, which the lone tag continues, so the <?php opens a block.
