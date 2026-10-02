@@ -80,18 +80,28 @@ function writeTree({ lockfile, kept, fetched, changed, residue }) {
   return { vfs, stats }
 }
 
+// The lockfile's entry of the project as written; any that is not, the
+// lockfile reader refuses.
+function rootListsOf(text) {
+  try {
+    return JSON.parse(text)?.packages?.[''] ?? {}
+  } catch {
+    return {}
+  }
+}
+
 export async function buildNpmTree(options) {
   const { host: given, vfs: into } = options ?? {}
   if (into !== undefined && !(into instanceof Vfs)) throw new TypeError('vfs must be a Vfs, or left out')
-  const inputs = inputsOf(options ?? {})
   const host = checkHost(given)
   const folded = host.os === 'darwin'
+  const inputs = inputsOf(options ?? {}, folded)
   // Refused before anything is fetched; mount checks again.
   if (into !== undefined) checkNoModules(into, folded)
   const { settings, manifests } = inputs
   const rootEdges = rootEdgesOf(manifests, settings)
   // npm 10 takes the lockfile's flags as written, where it can.
-  const recalculated = !host.reuse || recalculates(JSON.parse(inputs.lockfile).packages?.[''] ?? {}, rootEdges)
+  const recalculated = !host.reuse || recalculates(rootListsOf(inputs.lockfile), rootEdges)
   const lockfile = parseNpmLockfile(inputs.lockfile, { semver: { satisfies, valid, validRange }, legacyPeerDeps: settings.legacyPeerDeps, npm: recalculated ? host.npm : undefined })
   checkManifests({ lockfile, manifests, settings, host, rootEdges })
   checkLinks(lockfile)

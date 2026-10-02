@@ -35,18 +35,20 @@ export function globsOf(root) {
 }
 
 // The workspace directories as map-workspaces globs for them: those a glob
-// takes that have a package.json, outside node_modules, which it ignores.
-// A link where a glob may reach is refused, as glob follows it or not by
-// where it is.
-function findWorkspaces(project, globs) {
+// takes that have a package.json, outside node_modules, which it ignores;
+// on macOS, whatever the case, as glob matches there. A link where a glob
+// may reach is refused, as glob follows it or not by where it is.
+function findWorkspaces(project, globs, nocase) {
+  const fold = nocase ? (text) => text.toLowerCase() : (text) => text
+  const folded = globs.map(fold)
   const found = []
   const pending = globs.length === 0 ? [] : ['']
   while (pending.length > 0) {
     const dir = pending.pop()
     for (const name of project.readdir(`/${dir}`)) {
       const path = dir === '' ? name : `${dir}/${name}`
-      const taken = globs.some((glob) => matchesGlob(glob, path))
-      if (name === 'node_modules' || (!taken && !globs.some((glob) => reachesBelow(glob, path)))) continue
+      const taken = folded.some((glob) => matchesGlob(glob, fold(path)))
+      if (name === 'node_modules' || (!taken && !folded.some((glob) => reachesBelow(glob, fold(path))))) continue
       const { type } = project.lstat(`/${path}`)
       if (type === 'symlink') throw new DeptreeError('a link where npm looks for workspaces is not supported', quote(path))
       if (type !== 'directory') continue
@@ -66,23 +68,24 @@ function readManifestAt(project, dir) {
 }
 
 export function findNpmWorkspaces(options) {
-  const { project } = options ?? {}
+  const { project, os } = options ?? {}
   checkProject(project)
-  return ['.', ...findWorkspaces(project, globsOf(readManifestAt(project, '.')))]
+  return ['.', ...findWorkspaces(project, globsOf(readManifestAt(project, '.')), os === 'darwin')]
 }
 
 const LOCKFILE = 'lockfile must be the text of package-lock.json, or left out with a project given to read it from'
 
-function readProject(project) {
+function readProject(project, nocase) {
   if (typeOf(project, '/npm-shrinkwrap.json', false) !== undefined) throw new DeptreeError('an npm-shrinkwrap.json, which npm reads in place of package-lock.json, is not supported', 'npm-shrinkwrap.json')
   const lockfile = readText(project, '/package-lock.json')
   if (lockfile === undefined) throw new DeptreeError('the project has no package-lock.json, which npm ci cannot do without')
   const manifests = new Map([['.', readManifestAt(project, '.')]])
-  for (const dir of findWorkspaces(project, globsOf(manifests.get('.')))) manifests.set(dir, readManifestAt(project, dir))
+  for (const dir of findWorkspaces(project, globsOf(manifests.get('.')), nocase)) manifests.set(dir, readManifestAt(project, dir))
   return { lockfile, manifests, settings: readSettings(readText(project, '/.npmrc', '.npmrc')) }
 }
 
-export function inputsOf(options) {
+// `nocase` is whether npm globs case-insensitively, as on macOS.
+export function inputsOf(options, nocase) {
   const { lockfile, manifests, npmrc, project } = options
   if (lockfile === undefined) {
     if (project === undefined) throw new TypeError(LOCKFILE)
@@ -90,7 +93,7 @@ export function inputsOf(options) {
     for (const [name, value] of Object.entries({ manifests, npmrc })) {
       if (value !== undefined) throw new TypeError(`${name} must be left out where lockfile is: both are read from project`)
     }
-    return readProject(project)
+    return readProject(project, nocase)
   }
   if (project !== undefined) throw new TypeError('project must be left out where lockfile is given')
   if (typeof lockfile !== 'string') throw new TypeError(LOCKFILE)

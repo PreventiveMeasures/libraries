@@ -65,11 +65,11 @@ export interface NpmProject {
 // none of them may be given: package-lock.json, which has to be there; the
 // root package.json, which has to be there too; the package.json of every
 // directory the root's `workspaces` globs take, as npm globs for them,
-// outside node_modules; and the .npmrc. Each is read as UTF-8, and refused
-// where it is not. A refusal names each as it would given:
-// `manifests["packages/x"]`. Refused there: an npm-shrinkwrap.json, which
-// npm reads in the lockfile's stead; and a link anywhere the globs reach,
-// which glob follows or not by where it is.
+// outside node_modules, on macOS whatever the case; and the .npmrc. Each
+// is read as UTF-8, and refused where it is not. A refusal names each as
+// it would given: `manifests["packages/x"]`. Refused there: an
+// npm-shrinkwrap.json, which npm reads in the lockfile's stead; and a link
+// anywhere the globs reach, which glob follows or not by where it is.
 //
 // Settings from anywhere else — an .npmrc in the home directory or npm's
 // own, the environment, NODE_ENV among it, the command line — are not
@@ -254,10 +254,12 @@ export function buildNpmTree(options: NpmTreeOptions): Promise<NpmTree>
 // buildNpmTree takes their package.json given: `.`, the root, first, then
 // each directory with a package.json that a glob of the root's
 // `workspaces` takes, outside node_modules, as npm finds them, and as
-// buildNpmTree reads them from a project. Refused as buildNpmTree refuses
+// buildNpmTree reads them from a project; with `os` darwin, whatever the
+// case, as npm's glob matches on macOS. Refused as buildNpmTree refuses
 // it: a link where the globs reach; and a root with no package.json.
 export interface NpmWorkspacesOptions {
   project: NpmProject
+  os?: string
 }
 
 export function findNpmWorkspaces(options: NpmWorkspacesOptions): string[]

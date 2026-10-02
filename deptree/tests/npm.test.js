@@ -176,6 +176,12 @@ describe('read from a project', () => {
     await refuses({ project: linked, host: HOST }, 'a link where npm looks for workspaces is not supported', '"packages/u"')
   })
 
+  it('found whatever the case on macOS, as glob finds them there', () => {
+    const vfs = project({ 'packages/w/package.json': undefined, 'Packages/W/package.json': json(WORKSPACE) })
+    assert.deepEqual(findNpmWorkspaces({ project: vfs }), ['.'])
+    assert.deepEqual(findNpmWorkspaces({ project: vfs, os: 'darwin' }), ['.', 'Packages/W'])
+  })
+
   it('not given with it', async () => {
     await assert.rejects(buildNpmTree({ project: project(), lockfile: write(LOCK()), host: HOST }), { name: 'TypeError', message: 'project must be left out where lockfile is given' })
     await assert.rejects(buildNpmTree({ project: project(), npmrc: '', host: HOST }), { name: 'TypeError', message: 'npmrc must be left out where lockfile is: both are read from project' })
@@ -357,5 +363,11 @@ describe('the Vfs mounted into', () => {
     const calls = stubRegistry(TARBALLS)
     await refuses(given({ vfs }), 'a node_modules is there already, which is neither kept beside the tree nor removed', 'vfs["/packages/w/node_modules"]')
     assert.deepEqual(calls, [])
+  })
+})
+
+describe('the lockfile', () => {
+  it('refused as the lockfile reader refuses it', async () => {
+    await refuses({ ...given({ host: NPM10 }), lockfile: '{' }, 'expected "{" alone on the first line and an indented key on the next, as npm writes the file at line 1', undefined, LockfileError)
   })
 })
