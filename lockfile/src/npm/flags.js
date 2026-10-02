@@ -17,10 +17,22 @@ function resetParents(flags, node, flag) {
   for (let parent = resolveParent(node); parent !== undefined && flags.get(parent)[flag]; parent = resolveParent(parent)) flags.get(parent)[flag] = false
 }
 
-// What an edge's type is by Edge#dev, #optional and #peer.
-const kinds = (type) => ({ dev: type === 'dev', optional: type === 'optional' || type === 'peerOptional', peer: type.startsWith('peer') })
+// What an edge of `type` from a node of the flags `own` unsets of what it
+// leads to, by Edge#dev, #optional and #peer: a flag both are without, and
+// devOptional where neither is dev or optional. An optional peer leaves it
+// extraneous.
+function unsetBy(own, type) {
+  const [dev, optional, peer] = [type === 'dev', type === 'optional' || type === 'peerOptional', type.startsWith('peer')]
+  return {
+    extraneous: !own.extraneous && !(peer && optional),
+    dev: !own.dev && !dev,
+    optional: !own.optional && !optional,
+    devOptional: !own.devOptional && !own.dev && !own.optional && !dev && !optional,
+    peer: !own.peer && !peer,
+  }
+}
 
-// calcDepFlags, as npm 11.7 and later have it: each node starts with every
+// calcDepFlags, as npm 11.6.3 and later have it: each node starts with every
 // flag but the project, and loses one wherever an edge without it leads to
 // it from a node without it; an optional peer leaves it extraneous, and a
 // node that is not leaves the nodes it is in not. A link takes what it
@@ -46,14 +58,7 @@ function calcFlags(nodes, assign) {
     }
     for (const { type, to } of node.edges.values()) {
       if (to === undefined) continue
-      const { dev, optional, peer } = kinds(type)
-      const unset = {
-        extraneous: !own.extraneous && !(peer && optional),
-        dev: !own.dev && !dev,
-        optional: !own.optional && !optional,
-        devOptional: !own.devOptional && !own.dev && !own.optional && !dev && !optional,
-        peer: !own.peer && !peer,
-      }
+      const unset = unsetBy(own, type)
       const theirs = flags.get(to)
       const changed = ALL.filter((flag) => theirs[flag] && unset[flag])
       for (const flag of changed) theirs[flag] = false
@@ -77,7 +82,7 @@ function descend(tree, visit, children) {
   }
 }
 
-// calcDepFlags, as npm 9 to 11.6 have it: one walk from the project, which
+// calcDepFlags, as npm 9 to 11.6.0 have it: one walk from the project, which
 // visits each node once, in the order of its edges, and unsets a flag of
 // what an edge leads to where the node and the edge are without it, then of
 // what that leads to by dependencies and peers but optional ones; and, of
@@ -107,11 +112,9 @@ function calcFlagsBefore(nodes) {
     for (const { type, to } of node.edges.values()) {
       if (to === undefined) continue
       flags.get(to).extraneous = false
-      const { dev, optional, peer } = kinds(type)
-      if (!own.peer && !peer) unsetFlag(to, 'peer')
-      if (!own.devOptional && !own.dev && !own.optional && !dev && !optional) unsetFlag(to, 'devOptional')
-      if (!own.dev && !dev) unsetFlag(to, 'dev')
-      if (!own.optional && !optional) unsetFlag(to, 'optional')
+      // None of these unsets a flag one after it is decided by.
+      const unset = unsetBy(own, type)
+      for (const flag of ['peer', 'devOptional', 'dev', 'optional']) if (unset[flag]) unsetFlag(to, flag)
     }
     return node
   }
@@ -121,26 +124,38 @@ function calcFlagsBefore(nodes) {
 
 // The first node whose flags are not those `flags` gives it, as npm writes
 // them, and why: devOptional, of the dependencies both of dev and of
-// optional ones, only where neither dev nor optional is.
-function mismatch(nodes, flags) {
+// optional ones, only where neither dev nor optional is. `npm` names the
+// npm that sets them.
+function mismatch(nodes, flags, npm) {
   for (const node of nodes.values()) {
     const own = flags.get(node)
-    if (own.extraneous) return new LockfileError('nothing installed leads to it, so npm takes it as extraneous, and prunes it', node.where)
+    if (own.extraneous) return new LockfileError(`nothing installed leads to it, so ${npm} takes it as extraneous, and prunes it`, node.where)
     if (node.kind === 'link') continue
     const written = { ...own, devOptional: own.devOptional && !own.dev && !own.optional }
     const flag = FLAGS.find((name) => node.flags[name] !== written[name])
-    if (flag !== undefined) return new LockfileError(`expected ${written[flag] ? 'true' : 'none'}, as npm sets it from what depends on it`, at(node.where, flag))
+    if (flag !== undefined) return new LockfileError(`expected ${written[flag] ? 'true' : 'none'}, as ${npm} sets it from what depends on it`, at(node.where, flag))
   }
   return undefined
 }
 
 // The ways npm's versions work the flags out, the latest first: npm 11.18
-// and later, npm 11.7 to 11.17, and npm 9 to 11.6.
+// and later, npm 11.6.3 to 11.17, and npm 9 to 11.6.0. npm 11.6.1 and
+// 11.6.2, which mark what a peer leads to peer whatever else leads to it,
+// are not read here.
 const VERSIONS = [(nodes) => calcFlags(nodes, false), (nodes) => calcFlags(nodes, true), calcFlagsBefore]
 
-// Each node's flags as npm sets them, all as one version of npm does.
-// Where none, the refusal is the latest version's.
-export function checkFlags(nodes) {
-  const error = mismatch(nodes, VERSIONS[0](nodes))
-  if (error !== undefined && VERSIONS.slice(1).every((calc) => mismatch(nodes, calc(nodes)) !== undefined)) throw error
+// The way an npm, 9 or later but 11.6.1 and 11.6.2, works the flags out.
+function calcOf(npm) {
+  const [major, minor, patch] = npm.split('.').map(Number)
+  if (major > 11 || (major === 11 && minor >= 18)) return VERSIONS[0]
+  return VERSIONS[major === 11 && (minor > 6 || (minor === 6 && patch >= 3)) ? 1 : 2]
+}
+
+// Each node's flags as npm sets them: all as `npm` does, where given; else
+// as one version of npm does, and where none, the refusal is the latest
+// version's.
+export function checkFlags(nodes, npm) {
+  const calc = npm === undefined ? VERSIONS[0] : calcOf(npm)
+  const error = mismatch(nodes, calc(nodes), npm === undefined ? 'npm' : `npm ${npm}`)
+  if (error !== undefined && (npm !== undefined || VERSIONS.slice(1).every((other) => mismatch(nodes, other(nodes), 'npm') !== undefined))) throw error
 }

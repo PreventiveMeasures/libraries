@@ -3,7 +3,7 @@
 
 import { clean, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
-import { matchesGlob } from './glob.js'
+import { matchesGlob } from '../glob.js'
 import { cleanDependencies, globsOf } from './manifest.js'
 
 // yarn names the workspace aggregator at random; this stands for it, and

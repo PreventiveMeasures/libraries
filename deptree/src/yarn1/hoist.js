@@ -42,27 +42,16 @@ export class Hoister {
 
   // resolver.dedupePatterns: the first pattern of each package.
   dedupe(patterns) {
-    const seen = new Set()
-    return patterns.filter((pattern) => {
-      const ref = this.resolved(pattern)
-      if (seen.has(ref)) return false
-      seen.add(ref)
-      return true
-    })
+    return [...Map.groupBy(patterns, (pattern) => this.resolved(pattern)).values()].map(([first]) => first)
   }
 
   seed(patterns) {
     this.prepass(patterns)
     for (const pattern of this.dedupe(patterns)) this.seedOne(pattern, { isDirectRequire: true })
-    while (true) {
-      let queue = this.levelQueue
-      if (queue.length === 0) {
-        this.propagateRequired()
-        return
-      }
+    while (this.levelQueue.length > 0) {
+      let queue = this.levelQueue.sort(([a], [b]) => sortAlpha(a, b))
       this.levelQueue = []
-      queue = queue.sort(([a], [b]) => sortAlpha(a, b))
-      let sorted = []
+      const sorted = []
       const available = new Set()
       let changed = true
       while (queue.length > 0 && changed) {
@@ -78,26 +67,21 @@ export class Hoister {
           } else queue.push(item)
         }
       }
-      sorted = sorted.concat(queue)
-      for (const [pattern, parent] of sorted) {
+      for (const [pattern, parent] of sorted.concat(queue)) {
         const info = this.seedOne(pattern, { isDirectRequire: false, parent })
         if (info) this.hoist(info)
       }
     }
+    this.propagateRequired()
   }
 
   seedOne(pattern, { isDirectRequire, parent }) {
     const ref = this.resolved(pattern)
-    let parentParts = []
+    if (parent && !this.tree.get(parent.key)) return null
     const isIncompatible = ref.incompatible === true
-    let isRequired = isDirectRequire && !isIncompatible
-    if (parent) {
-      if (!this.tree.get(parent.key)) return null
-      if (!isDirectRequire && !isIncompatible && parent.isRequired) isRequired = true
-      parentParts = parent.parts
-    }
+    const isRequired = !isIncompatible && (isDirectRequire || parent?.isRequired === true)
     // A key is the names from the top down to the package, joined by `#`.
-    const parts = parentParts.concat(ref.name)
+    const parts = (parent?.parts ?? []).concat(ref.name)
     const key = implode(parts)
     const info = { key, parts, ref, isDirectRequire, isRequired, isIncompatible }
     this.tree.set(key, info)
@@ -169,16 +153,9 @@ export class Hoister {
       if (taint && taint.ref.loc !== info.ref.loc) break
     }
     const peers = this.peersOf(info.ref)
-    hoistLoop: while (parts.length > 0) {
-      for (const peer of peers) {
-        if (this.tree.get(implode(parts.concat(peer)))) break hoistLoop
-      }
+    while (parts.length > 0 && !peers.some((peer) => this.tree.get(implode(parts.concat(peer))))) {
       const checkKey = implode(parts.concat(name))
-      if (this.tree.get(checkKey)) {
-        stepUp = true
-        break
-      }
-      if (key !== checkKey && this.tainted.has(checkKey)) {
+      if (this.tree.get(checkKey) || (key !== checkKey && this.tainted.has(checkKey))) {
         stepUp = true
         break
       }
@@ -186,12 +163,10 @@ export class Hoister {
     }
     parts.push(name)
     const isValidPosition = (candidate) => {
-      if (candidate.length <= 0) return false
       const candidateKey = implode(candidate)
-      const existing = this.tree.get(candidateKey)
-      if (existing && existing.ref.loc === info.ref.loc) return true
+      if (this.tree.get(candidateKey)?.ref.loc === info.ref.loc) return true
       const taint = this.tainted.get(candidateKey)
-      return !(taint && taint.ref.loc !== info.ref.loc)
+      return !taint || taint.ref.loc === info.ref.loc
     }
     if (!isValidPosition(parts)) stepUp = true
     while (stepUp && stack.length > 0) {

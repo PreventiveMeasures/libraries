@@ -23,7 +23,7 @@
 
 import { satisfies, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
-import { matchesGlob } from './glob.js'
+import { matchesGlob } from '../glob.js'
 
 // The microtask turns a request takes before its check, by its resolver.
 const TURNS = { registry: 5, workspace: 3 }
@@ -89,20 +89,14 @@ class Resolver {
     if (!list.includes(pattern)) list.push(pattern)
   }
 
-  workspaceOf(pattern) {
-    const { name, range } = splitPattern(pattern)
-    const workspace = this.workspaces.get(name)
-    return workspace !== undefined && satisfies(workspace.version, range, { loose: true }) ? workspace : undefined
-  }
-
   // A workspace, or the pattern's lockfile entry. yarn resolves anew an
   // entry out of its pattern's semver range (isLockfileEntryOutdated),
   // which --frozen-lockfile fails on only at the top level.
   infoOf(request) {
-    const workspace = this.workspaceOf(request.pattern)
-    if (workspace !== undefined) return { kind: 'workspace', name: workspace.name, version: workspace.version, workspace }
-    const where = quote(request.pattern)
     const { name, range, hasVersion } = splitPattern(request.pattern)
+    const workspace = this.workspaces.get(name)
+    if (workspace !== undefined && satisfies(workspace.version, range, { loose: true })) return { kind: 'workspace', name: workspace.name, version: workspace.version, workspace }
+    const where = quote(request.pattern)
     const tag = kindOf(range, where) === 'tag'
     const entry = this.lockfile.packages[request.pattern]
     if (entry === undefined) throw new DeptreeError('yarn would resolve this pattern anew: the lockfile has no entry for it', where)
@@ -121,11 +115,7 @@ class Resolver {
   }
 
   exactMatch(name, version) {
-    for (const pattern of this.byName.get(name) ?? []) {
-      const ref = this.patterns.get(pattern)
-      if (ref.version === version) return ref
-    }
-    return undefined
+    return this.byName.get(name)?.map((pattern) => this.patterns.get(pattern)).find((ref) => ref.version === version)
   }
 
   // Waits where a package of its name and version is resolved already; else

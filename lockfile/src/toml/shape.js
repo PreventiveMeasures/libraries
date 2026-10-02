@@ -2,8 +2,8 @@
 // is read, for the readers of Cargo.lock, uv.lock, poetry.lock and
 // pylock.toml. A table has a null prototype, so a key is only ever a key.
 
-import { LockfileError, at, quote } from '../error.js'
-import { primitives } from '../shape.js'
+import { LockfileError, quote } from '../error.js'
+import { checkerOf, primitives } from '../shape.js'
 import { TomlDateTime } from './datetime.js'
 import { TomlFloat } from './number.js'
 import { isTable } from './value.js'
@@ -18,30 +18,15 @@ export function kind(value) {
   return `the ${typeof value === 'boolean' ? 'boolean' : 'integer'} ${String(value)}`
 }
 
-export const { refuse, string, boolean, count: size } = primitives(kind)
-
 // A table with only the `fields` named, when named; `refused` names a key
 // with the reason it is not read.
-export function table(value, where, fields, refused = {}) {
-  if (!isTable(value)) throw refuse('a table', value, where)
-  for (const key of fields === undefined ? [] : Object.keys(value)) {
-    if (Object.hasOwn(refused, key)) throw new LockfileError(refused[key], at(where ?? '', key))
-    if (!fields.includes(key)) throw new LockfileError(`unsupported key ${quote(key)}`, where)
-  }
-  return value
-}
-
-export const entries = (value, where) => Object.entries(table(value, where)).map(([key, item]) => [key, item, at(where, key)])
+export const { refuse, record: table, entries, string, boolean, count: size } = primitives(kind, isTable, 'a table', 'key')
 
 export function array(value, where) {
   if (!Array.isArray(value)) throw refuse('an array', value, where)
   return value
 }
 
-// Strings, each held to `check` where given, as `check(item, where)` does.
-export function strings(value, where, check = string) {
-  return array(value, where).map((item, index) => check(string(item, `${where}[${index}]`), `${where}[${index}]`))
-}
 
 // A string as a tool writes one given to it, with nothing in it that is
 // not shown: not empty, and no control character or line separator.
@@ -51,16 +36,14 @@ export function text(value, where) {
 }
 
 // A check of a string `is` holds, refusing any other as not `what`.
-export const checker = (is, what) => (value, where) => {
-  if (!is(string(value, where))) throw new LockfileError(`${quote(value)} is not ${what}`, where)
-  return value
-}
+export const checker = checkerOf(string)
 
 // Each item of an array, as `read(item, where)` makes it.
 export const arrayOf = (read) => (value, where) => array(value, where).map((item, index) => read(item, `${where}[${index}]`))
 
-// Strings, each held to `check`.
-export const stringsOf = (check) => (value, where) => strings(value, where, check)
+// Strings, each held to `check` where given, as `check(item, where)` does.
+export const stringsOf = (check = string) => arrayOf((item, here) => check(string(item, here), here))
+export const strings = (value, where, check) => stringsOf(check)(value, where)
 
 // A table that may be left out, as an empty one then, of keys `checkKey`
 // holds, each item as `read(item, where)` makes it.

@@ -192,8 +192,7 @@ class FeatureResolver {
     setOf(this.activatedDeps, `${this.saved(fk)} ${key}`).add(name)
     const waiting = this.deferred.get(`${fk} ${key} ${name}`) ?? []
     this.deferred.delete(`${fk} ${key} ${name}`)
-    for (const { dep, depFk } of this.deps(key, fk)) {
-      if (dep.name !== name) continue
+    for (const { dep, depFk } of this.deps(key, fk).filter((item) => item.dep.name === name)) {
       for (const feature of waiting) this.request(dep.resolved, depFk, feature, key)
       this.activatePkg(dep.resolved, depFk, requestsOf(this.graph.packages, dep), key)
     }
@@ -201,8 +200,7 @@ class FeatureResolver {
 
   // `name?/feature` waits for something else to turn `name` on.
   activateDepFeature(key, fk, name, feature, weak) {
-    for (const { dep, depFk } of this.deps(key, fk)) {
-      if (dep.name !== name) continue
+    for (const { dep, depFk } of this.deps(key, fk).filter((item) => item.dep.name === name)) {
       if (dep.optional) {
         if (weak && !this.activatedDeps.get(`${this.saved(fk)} ${key}`)?.has(name)) {
           setOf(this.deferred, `${fk} ${key} ${name}`).add(feature)

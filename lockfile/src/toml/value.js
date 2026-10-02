@@ -70,19 +70,6 @@ function readEscape(src) {
   return String.fromCodePoint(code)
 }
 
-// A literal string's run takes backslashes in, so only a basic one stops.
-function readString(src, quote) {
-  src.pos++
-  let value = ''
-  for (;;) {
-    value += take(src, RUN[quote])[0]
-    assert(!atLineEnd(src), src, 'unterminated string')
-    const char = src.text[src.pos++]
-    if (char === quote) return value
-    if (char === '\\') value += readEscape(src)
-    else refuseControl(src, char, 'a string')
-  }
-}
 
 // A backslash that ends a line trims the whitespace after it, line breaks
 // and all; any other is an escape.
@@ -94,30 +81,34 @@ function readMultilineEscape(src) {
   return ''
 }
 
-// A line break just after the opening quotes is dropped, and CRLF is read as
-// LF, as tomllib does; up to two quotes before the closing three are content.
-const CLOSE = { __proto__: null, '"': /"{3,5}/uy, "'": /'{3,5}/uy }
-function readMultiline(src, quote) {
-  src.pos += 3
-  takeNewline(src)
+const tripled = (src, quote) => src.text[src.pos + 1] === quote && src.text[src.pos + 2] === quote
+
+// A literal string's run takes backslashes in, so only a basic one stops. A
+// multi-line string drops a line break just after its opening quotes, and
+// reads CRLF as LF, as tomllib does; up to two quotes before the closing
+// three are content.
+const CLOSE = { __proto__: null, '"': /"/uy, "'": /'/uy, '"""': /"{3,5}/uy, "'''": /'{3,5}/uy }
+function readString(src, quote) {
+  const multiline = tripled(src, quote)
+  const close = CLOSE[multiline ? quote.repeat(3) : quote]
+  src.pos += multiline ? 3 : 1
+  if (multiline) takeNewline(src)
   let value = ''
   for (;;) {
     value += take(src, RUN[quote])[0]
-    if (takeNewline(src)) {
+    if (multiline && takeNewline(src)) {
       value += '\n'
       continue
     }
-    assert(src.pos < src.text.length, src, 'unterminated string')
-    const close = take(src, CLOSE[quote])
-    if (close !== null) return value + close[0].slice(3)
+    assert(!atLineEnd(src), src, 'unterminated string')
+    const end = take(src, close)
+    if (end !== null) return value + end[0].slice(3)
     const char = src.text[src.pos++]
     if (char === quote) value += char
-    else if (char === '\\') value += readMultilineEscape(src)
+    else if (char === '\\') value += multiline ? readMultilineEscape(src) : readEscape(src)
     else refuseControl(src, char, 'a string')
   }
 }
-
-const tripled = (src, quote) => src.text[src.pos + 1] === quote && src.text[src.pos + 2] === quote
 
 const BARE = /[\w-]+/uy
 function readSimpleKey(src) {
@@ -220,27 +211,25 @@ function readInline(src, depth) {
   INLINE.add(table)
   const open = new Set()
   sameLine(src)
-  if (src.text[src.pos] === '}') {
-    src.pos++
-    return table
+  if (src.text[src.pos] === '}') src.pos++
+  else {
+    do {
+      sameLine(src)
+      assert(src.text[src.pos] !== '}', src, 'a trailing comma in an inline table is not supported')
+      const { keys, value } = readKeyValue(src, depth + 1)
+      putDotted(src, table, open, keys, value, inlineRefused)
+      sameLine(src)
+      const char = src.text[src.pos]
+      assert(char === ',' || char === '}', src, () => `expected "," or "}" on the inline table's line, found ${found(src)}`)
+    } while (src.text[src.pos++] === ',')
   }
-  for (;;) {
-    sameLine(src)
-    assert(src.text[src.pos] !== '}', src, 'a trailing comma in an inline table is not supported')
-    const { keys, value } = readKeyValue(src, depth + 1)
-    putDotted(src, table, open, keys, value, inlineRefused)
-    sameLine(src)
-    const char = src.text[src.pos]
-    assert(char === ',' || char === '}', src, () => `expected "," or "}" on the inline table's line, found ${found(src)}`)
-    src.pos++
-    if (char === '}') return table
-  }
+  return table
 }
 
 function readValue(src, depth) {
   assert(depth <= MAX_DEPTH, src, 'nested too deep')
   const char = src.text[src.pos]
-  if (char === '"' || char === "'") return tripled(src, char) ? readMultiline(src, char) : readString(src, char)
+  if (char === '"' || char === "'") return readString(src, char)
   if (char === '[') return readArray(src, depth)
   if (char === '{') return readInline(src, depth)
   return readToken(src)

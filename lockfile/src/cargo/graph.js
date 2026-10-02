@@ -7,7 +7,7 @@ import { LockfileError, at, quote } from '../error.js'
 import { checkOptions, optional } from '../shape.js'
 import { activate } from './activate.js'
 import { featureValue, parseRequirement } from './dependency.js'
-import { keyOf, patchedAs, sourceIdentity } from './lock.js'
+import { keyOf, lockedOf, patchedAs, sourceIdentity } from './lock.js'
 import { checkPatches, from, identify, offers, readPatches, within } from './patch.js'
 
 function resolverOf(root) {
@@ -55,7 +55,7 @@ function linkPackages(lock, manifests, members, context) {
       if (found.length === 1 && found[0].slot !== undefined) patched.set(linked, found[0].slot)
       return linked
     })
-    packages[key] = { name: pkg.name, version: pkg.version, source: pkg.source, checksum: pkg.checksum, manifest, dependencies }
+    packages[key] = { ...lockedOf(pkg), manifest, dependencies }
   }
   return { packages, ambiguous, patched }
 }

@@ -77,49 +77,40 @@ function comparePre(a, b) {
     // A number below a word; numbers by their length first, as no zero leads.
     const [dx, dy] = [/^\d+$/u.test(x), /^\d+$/u.test(y)]
     if (dx !== dy) return dx ? -1 : 1
-    const order = (dx && sign(x.length, y.length)) || sign(x, y)
-    if (order !== 0) return order
+    const by = (dx && sign(x.length, y.length)) || sign(x, y)
+    if (by !== 0) return by
   }
   return left.length === right.length ? 0 : -1
 }
 
-const exact = (cmp, ver) => ver.major === cmp.major && (cmp.minor === undefined || ver.minor === cmp.minor) && (cmp.patch === undefined || ver.patch === cmp.patch) && ver.pre === cmp.pre
-
-// Past what the comparator names, the way `way` says: 1 above, -1 below.
-function beyond(cmp, ver, way) {
+// How the version stands to what the comparator names, as `sign` says:
+// past a part the comparator leaves out, 0 for the same prerelease, and
+// NaN, which no comparison holds, for another. A comparator with no patch
+// has no prerelease.
+function order(cmp, ver) {
   for (const part of ['major', 'minor', 'patch']) {
-    if (cmp[part] === undefined) return false
-    if (ver[part] !== cmp[part]) return sign(ver[part], cmp[part]) === way
+    if (cmp[part] === undefined) return ver.pre === cmp.pre ? 0 : Number.NaN
+    if (ver[part] !== cmp[part]) return sign(ver[part], cmp[part])
   }
-  return comparePre(ver.pre, cmp.pre) === way
+  return comparePre(ver.pre, cmp.pre)
 }
 
-function tilde(cmp, ver) {
-  if (ver.major !== cmp.major || (cmp.minor !== undefined && ver.minor !== cmp.minor)) return false
-  if (cmp.patch !== undefined && ver.patch !== cmp.patch) return ver.patch > cmp.patch
-  return comparePre(ver.pre, cmp.pre) >= 0
-}
+const tilde = (cmp, ver) => ver.major === cmp.major && (cmp.minor === undefined || ver.minor === cmp.minor) && order(cmp, ver) >= 0
 
 function caret(cmp, ver) {
   if (ver.major !== cmp.major) return false
   if (cmp.minor === undefined) return true
   if (cmp.patch === undefined) return cmp.major > 0n ? ver.minor >= cmp.minor : ver.minor === cmp.minor
-  if (cmp.major > 0n || cmp.minor > 0n) {
-    if (ver.minor !== cmp.minor) return cmp.major > 0n && ver.minor > cmp.minor
-    if (ver.patch !== cmp.patch) return ver.patch > cmp.patch
-  } else if (ver.minor !== cmp.minor || ver.patch !== cmp.patch) {
-    return false
-  }
-  return comparePre(ver.pre, cmp.pre) >= 0
+  return (cmp.major > 0n || (ver.minor === cmp.minor && (cmp.minor > 0n || ver.patch === cmp.patch))) && order(cmp, ver) >= 0
 }
 
 const MATCH = new Map([
-  ['=', exact],
-  ['*', exact],
-  ['>', (cmp, ver) => beyond(cmp, ver, 1)],
-  ['>=', (cmp, ver) => exact(cmp, ver) || beyond(cmp, ver, 1)],
-  ['<', (cmp, ver) => beyond(cmp, ver, -1)],
-  ['<=', (cmp, ver) => exact(cmp, ver) || beyond(cmp, ver, -1)],
+  ['=', (cmp, ver) => order(cmp, ver) === 0],
+  ['*', (cmp, ver) => order(cmp, ver) === 0],
+  ['>', (cmp, ver) => order(cmp, ver) > 0],
+  ['>=', (cmp, ver) => order(cmp, ver) >= 0],
+  ['<', (cmp, ver) => order(cmp, ver) < 0],
+  ['<=', (cmp, ver) => order(cmp, ver) <= 0],
   ['~', tilde],
   ['^', caret],
 ])
