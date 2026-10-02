@@ -94,10 +94,11 @@ const OPERATORS = {
 // and one space.
 const REQUIREMENT = /^(=|!=|>|<|>=|<=|~>) (\S+)$/u
 
-// [operator, version], or undefined for what Bundler does not write.
-export function parseRequirement(text) {
+// [operator, version], or undefined for what Bundler does not write; or,
+// of another version's form, CocoaPods.
+export function parseRequirement(text, isValid = isVersion) {
   const match = REQUIREMENT.exec(text)
-  return match === null || !isVersion(match[2]) ? undefined : [match[1], match[2]]
+  return match === null || !isValid(match[2]) ? undefined : [match[1], match[2]]
 }
 
 // Gem::Requirement#satisfied_by?, of one requirement: `~>` is at least the
