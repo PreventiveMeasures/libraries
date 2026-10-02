@@ -16,8 +16,10 @@ export { LockfileError } from '@preventive/lockfile/npm.js'
 export { setCacheDir } from '@preventive/upstream/npm.js'
 
 // The machine npm would install on, which a tree depends on. `npm` is the
-// version that installs, exact: 10.9.9, or 11.12.0 to 11.21.0; npm reads no
-// packageManager field, so the root package.json's is not read. `node` is
+// version that installs, exact: 10.9.3 to 10.9.9, or 11.11.1 to 11.21.0
+// (10.9.0 to 10.9.2 escape a `#` in the project's path, which is not known
+// here); npm reads no packageManager field, so the root package.json's is
+// not read. `node` is
 // the Node npm runs on, an exact version; `os` and `cpu` as Node names
 // them — `linux`, `x64`; and `libc` the C library npm finds on Linux,
 // `glibc` or `musl`, and left out elsewhere, where npm finds none. Windows
@@ -83,15 +85,17 @@ export interface NpmProject {
 // escaped, cut at a `;` or `#`, nor filled in from the environment, and
 // refused in any other. Three are followed: legacy-peer-deps, engine-strict
 // and bin-links, each true or false. install-strategy is taken as hoisted,
-// lockfile-version as 1, 2 or 3, and install-links, force, dry-run, global,
+// lockfile-version as 1, 2 or 3, allow-git, allow-directory, allow-file
+// and allow-remote as all, and install-links, force, dry-run, global,
 // package-lock-only, usage and include-workspace-root as false, and refused
 // otherwise. omit, include, production, dev, only, also, optional, os,
 // cpu, libc, workspace, workspaces, location, umask, prefix, globalconfig,
-// userconfig and a credential not scoped to a registry are refused,
-// whatever their value; so are two settings npm takes as exclusive, set
-// together, and a section. Any other setting is passed over: npm reads it
-// for where it fetches from, how, what it prints, or another command, and
-// the tree is held to the lockfile's integrities whatever serves it.
+// userconfig, allow-scripts and a credential not scoped to a registry are
+// refused, whatever their value; so are two settings npm takes as
+// exclusive, set together, and a section. Any other setting is passed
+// over: npm reads it for where it fetches from, how, what it prints, or
+// another command, and the tree is held to the lockfile's integrities
+// whatever serves it.
 //
 // `vfs` is a Vfs to mount the tree into, at its root, which is taken to
 // be the lockfile's directory, beside whatever it holds, such as the
@@ -201,14 +205,18 @@ export interface NpmTree {
 // target that is a directory, runs through a file, or is in the package's
 // own node_modules is refused, and one with such a line that is not UTF-8,
 // which npm rewrites with replacement characters. A workspace's bins are
-// its own files, which the tree does not hold.
+// its own files, which the tree does not hold; one in the workspace's own
+// node_modules, or by directories.bin, is refused. So is the root's
+// allowScripts, which npm 11.16 and later read for whose bins to link.
 //
-// npm 10.9.9 leaves out an optional package the host cannot run only once
-// it has made directories for every package, and so leaves the directories
+// npm 10 leaves out an optional package the host cannot run only once it
+// has made directories for every package, and so leaves the directories
 // it was in, a scope's or another package's node_modules, which the tree
-// has too, empty. Its tar gives up on a tarball that inflates more than
-// 1000 times what it has read at any point, which is refused where it may,
-// with a margin, as where it checks depends on how the bytes come.
+// has too, empty. Of what only such a package needs, npm 11.13 and later
+// leave out too what another left out needs as well. The tar of npm 10.9.9
+// and 11.18 on gives up on a tarball that inflates more than 1000 times
+// what it has read at any point, which is refused where it may, with a
+// margin, as where it checks depends on how the bytes come.
 //
 // The lockfile is held to what the lockfile reader holds it to, with the
 // flags npm installs by: npm 11 works them out again at every install, and
@@ -220,12 +228,17 @@ export interface NpmTree {
 // otherwise resolve them anew or refuse; and each workspace to the name
 // and version the lockfile gives it. The root's devEngines are checked as
 // npm checks them, against the host, which has no os version to check.
+// Refused too, as npm's releases read them otherwise: a range with a
+// wildcard before a number, `1.x.0`, and for npm 10 an optional peer the
+// lockfile does not meet by a range, which it resolves again.
 //
 // And to more than npm holds it to, where a lockfile npm writes, or a
 // package the registry serves, always holds: each tarball gzipped, every
-// entry under one directory, named as tar reads it, none in the package's
-// own node_modules, where npm installs its dependencies, no setuid, setgid
-// or sticky bit; each with the sha512 integrity the lockfile records. On
+// entry under one directory, named as tar reads it, with no `\` and no
+// more than 1024 segments, none in the package's own node_modules, where
+// npm installs its dependencies, no setuid, setgid or sticky bit, no link
+// name on a file, no global pax header nor a pax size, which tar's releases
+// read otherwise; each with the sha512 integrity the lockfile records. On
 // macOS, two names in one directory that differ only in case or
 // normalization are refused, as they would be one name there.
 //
