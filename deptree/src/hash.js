@@ -73,3 +73,6 @@ export const matchesIntegrity = async (bytes, integrity) => integrity === `sha51
 
 // As yarn 1 records a tarball's after the `#` of its URL.
 export const sha1Hex = async (bytes) => hex(await digest('SHA-1', bytes))
+
+// As soldeer.lock records a zip's checksum.
+export const bytesSha256Hex = async (bytes) => hex(await digest('SHA-256', bytes))

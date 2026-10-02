@@ -6,6 +6,7 @@
 import { compareVersions, valid } from '@preventive/upstream/semver.js'
 import { basename, compareNames, join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
+import { checkNesting } from '../manifest.js'
 
 // A package whose directory has no package.json is still linked by these names
 // by pnpm 10, to the runtime's binary inside it; pnpm 9 links none.
@@ -196,8 +197,9 @@ export function parseManifest(file, where) {
   try {
     const manifest = JSON.parse(decoder.decode(file.data))
     if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) throw new Error('not an object')
-    return manifest
-  } catch {
+    return checkNesting(manifest, where)
+  } catch (error) {
+    if (error instanceof DeptreeError) throw error
     throw new DeptreeError('a package.json pnpm reads for its bins is not JSON, which pnpm fails on', where)
   }
 }

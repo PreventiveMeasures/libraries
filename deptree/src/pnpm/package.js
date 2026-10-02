@@ -5,6 +5,7 @@
 
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
+import { checkNesting } from '../manifest.js'
 import { fetchTarball, sameFile } from '../tarball.js'
 import { localOf } from './overrides.js'
 
@@ -67,6 +68,7 @@ function readManifest(files, pkg, where) {
     throw new DeptreeError('package.json is not JSON', where)
   }
   if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) throw new DeptreeError('package.json is not an object', where)
+  checkNesting(manifest, `${where}: package.json`)
   if (manifest.name !== pkg.name || manifest.version !== pkg.version) throw new DeptreeError(`package.json is for ${quote(`${manifest.name}@${manifest.version}`)}`, where)
   return manifest
 }

@@ -2,7 +2,36 @@
 // `public-hoist-pattern` read them; and the walk of a path through a glob,
 // which pnpm's workspace globs and yarn's share.
 
-export const escape = (text) => text.replace(/[$()+.?[\\\]^{|}]/gu, '\\$&')
+// Whether a text matches `pattern`, `*` any run of what `any` takes and,
+// with `one`, `?` any one code point; anything else itself. The places of
+// `pattern` a text reaches are kept a code point at a time, in O(n·m) for
+// any pattern, where a regexp of k `*`s backtracks in O(n^k): a glob from a
+// project's own files is no one's to stall.
+export function wildcard(pattern, { one = false, any = () => true } = {}) {
+  const parts = [...pattern]
+  const end = parts.length
+  const onward = (places) => {
+    for (let i = 0; i < end; i++) if (places[i] === 1 && parts[i] === '*') places[i + 1] = 1
+  }
+  return (text) => {
+    let here = new Uint8Array(end + 1)
+    let next = new Uint8Array(end + 1)
+    here[0] = 1
+    onward(here)
+    for (const char of text) {
+      next.fill(0)
+      for (let i = 0; i < end; i++) {
+        if (here[i] === 0) continue
+        if (parts[i] === '*') {
+          if (any(char)) next[i] = 1
+        } else if (parts[i] === char || (one && parts[i] === '?')) next[i + 1] = 1
+      }
+      onward(next)
+      ;[here, next] = [next, here]
+    }
+    return here[end] === 1
+  }
+}
 
 // For each place in `glob`, a regexp per name or `**`, whether `names` reach
 // it, the last being a full match; linear per name, with no recursion however
@@ -27,11 +56,13 @@ export function reach(glob, names, dot = false) {
   return here
 }
 
+// pnpm's `*` is a regexp's `.*`, which takes no line terminator.
+const LINE = new Set(['\n', '\r', '\u2028', '\u2029'])
+
 function matcherOf(pattern) {
   if (pattern === '*') return () => true
   if (!pattern.includes('*')) return (input) => input === pattern
-  const regexp = new RegExp(`^${pattern.split('*').map(escape).join('.*')}$`, 'u')
-  return (input) => regexp.test(input)
+  return wildcard(pattern, { any: (char) => !LINE.has(char) })
 }
 
 export function createMatcher(patterns) {

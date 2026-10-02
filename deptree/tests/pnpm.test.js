@@ -619,6 +619,13 @@ describe('buildPnpmTree refuses', () => {
   it('a project inside node_modules', async () => {
     const inside = lockfile().replace('importers:\n', 'importers:\n\n  node_modules/x: {}\n')
     await refuses({ lockfile: inside, manifests: { '.': root(), 'node_modules/x': '{}' } }, /^importers\["node_modules\/x"\]: a project inside node_modules/u)
+    // macOS takes Node_Modules for node_modules.
+    const mac = { ...HOST, os: 'darwin', libc: 'unknown' }
+    const cased = lockfile().replace('importers:\n', 'importers:\n\n  Node_Modules/x: {}\n')
+    const workspace = 'packages:\n  - "**"\n'
+    await refuses({ lockfile: cased, manifests: { '.': root(), 'Node_Modules/x': '{}' }, host: mac, workspace }, /^importers\["Node_Modules\/x"\]: a project inside node_modules/u)
+    // A project given with no importer, as pnpm 12 takes, too.
+    await refuses({ manifests: { '.': root(), 'packages/node_modules/x': '{}' }, workspace }, /^importers\["packages\/node_modules\/x"\]: a project inside node_modules/u)
   })
 
   it('names that are one name on macOS, where the host is macOS', async () => {

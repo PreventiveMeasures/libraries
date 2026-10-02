@@ -3,6 +3,7 @@
 
 import { join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
+import { own } from '../manifest.js'
 import { checkEngine, checkPlatform } from './compat.js'
 import { checkDevEngines } from './dev-engines.js'
 
@@ -29,8 +30,8 @@ function edgesOf(manifest, at, workspaces, legacyPeerDeps) {
   const peers = Object.entries(specsOf(manifest, 'peerDependencies', at))
   const meta = manifest.peerDependenciesMeta || {}
   if (!legacyPeerDeps) {
-    for (const [name, spec] of peers) if (!meta[name]?.optional) add(name, 'peer', spec)
-    for (const [name, spec] of peers) if (meta[name]?.optional) add(name, 'peerOptional', spec)
+    for (const [name, spec] of peers) if (!own(meta, name)?.optional) add(name, 'peer', spec)
+    for (const [name, spec] of peers) if (own(meta, name)?.optional) add(name, 'peerOptional', spec)
   }
   for (const [list, type] of [['dependencies', 'prod'], ['optionalDependencies', 'optional'], ['devDependencies', 'dev']]) {
     for (const [name, spec] of Object.entries(specsOf(manifest, list, at))) add(name, type, spec)
@@ -56,7 +57,7 @@ export function recalculates(lists, edges) {
   const { dependencies = {}, devDependencies = {}, optionalDependencies = {}, peerDependencies = {}, peerDependenciesMeta = {} } = lists
   const byType = { dev: devDependencies, optional: optionalDependencies, peer: { ...peerDependencies }, peerOptional: {}, prod: { ...dependencies } }
   for (const [name, meta] of Object.entries(peerDependenciesMeta)) {
-    if (meta?.optional && byType.peer[name] !== undefined) {
+    if (meta?.optional && own(byType.peer, name) !== undefined) {
       byType.peerOptional[name] = byType.peer[name]
       delete byType.peer[name]
     }

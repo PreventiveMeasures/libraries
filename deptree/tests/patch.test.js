@@ -85,6 +85,7 @@ describe('applyPatch', () => {
     ['a mode change', MODIFY.replace('index 1111', 'old mode 100644\nnew mode 100755\nindex 1111'), /"old mode 100644" is not supported/u],
     ['a binary patch', `diff --git a/b.bin b/b.bin\nindex 1..2 100644\nGIT binary patch\nliteral 1\n`, /"GIT binary patch" is not supported/u],
     ['a path that climbs', MODIFY.replaceAll('lib/x.js', '../x.js'), /expected a header naming one relative path/u],
+    ...[['a backslash', '..\\x.js'], ['a bidirectional control', 'a\u202Egnp.js'], ['a control', 'a\u0007b'], ['a line separator', 'a\u2028b']].map(([what, path]) => [`a path with ${what}`, CREATE.replaceAll('new.js', path), /expected a header naming one relative path/u]),
     ['a line between hunks', `${MODIFY}garbage\n`, /expected only hunks after the header/u],
     ['a line past a hunk\'s count', `${MODIFY} extra\n`, /expected unified hunks and nothing between them/u],
     ['a preamble', `From: someone\n${MODIFY}`, /expected "diff --git a\/" first/u],

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { createVfs } from '@preventive/vfs'
-import { LockfileError, buildSoldeerTree } from '../soldeer.js'
+import { DeptreeError, LockfileError, buildSoldeerTree } from '../soldeer.js'
+import { extractZip } from '../src/soldeer/zip.js'
 import { rawZip, sha256, slowed, stubSoldeer } from './registry.js'
 
 const HOST = Object.freeze({ soldeer: '0.12.0', os: 'linux' })
@@ -229,5 +230,14 @@ describe('buildSoldeerTree', () => {
     assert.equal((await buildSoldeerTree({ project: foundry, host: HOST })).stats.dependencies, 1)
     project.unlink('/soldeer.lock')
     await assert.rejects(buildSoldeerTree({ project, host: HOST }), /^DeptreeError: the project has no soldeer\.lock, without which Soldeer resolves each dependency anew$/u)
+  })
+})
+
+// getZip holds a zip to its checksum; unpacking holds it to it again.
+describe('a zip', () => {
+  it('unpacked only as the checksum it is fetched by', async () => {
+    const bytes = rawZip([{ name: 'x.sol', data: 'x' }])
+    assert.deepEqual([...(await extractZip(bytes, sha256(bytes), 'w')).files.keys()], ['x.sol'])
+    await assert.rejects(extractZip(bytes, sha256(rawZip([])), 'w'), (error) => error instanceof DeptreeError && error.message === `w: its zip's sha256 is not ${sha256(rawZip([]))}`)
   })
 })

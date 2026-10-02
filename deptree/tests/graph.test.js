@@ -157,6 +157,15 @@ describe('hoist', () => {
     const links = await hoisted(lockfile({ root: { dependencies: ['a', 'b'] }, graph }))
     assert.equal(links.q, 'q@2.0.0')
   })
+
+  // pnpm recurses down each, and would run out of stack; these do not.
+  it('walks, and leaves out of, a chain longer than a stack takes', async () => {
+    const N = 20_000
+    const graph = Object.fromEntries(Array.from({ length: N }, (_, i) => [`p${i}@1.0.0`, i + 1 < N ? { [`p${i + 1}`]: '1.0.0' } : {}]))
+    const lock = lockfile({ root: { dependencies: ['p0'] }, graph, meta: { [`p${N - 1}@1.0.0`]: '    os: [darwin]\n' }, snapshotMeta: { [`p${N - 1}@1.0.0`]: '    optional: true\n' } })
+    assert.deepEqual([...skippedSnapshots(lock, on10).skipped], [`p${N - 1}@1.0.0`])
+    for (const major of [10, 11, 12]) assert.equal(Object.keys(await hoisted(lock, { major, skipped: new Set([`p${N - 1}@1.0.0`]) })).length, N - 2, `pnpm ${major}`)
+  })
 })
 
 // pnpm 12 hoists from a graph of every snapshot: it walks through opt,

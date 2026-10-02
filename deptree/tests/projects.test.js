@@ -111,6 +111,16 @@ describe('checkProjects', () => {
     lockfile.importers['.'].specifiers.q = '^2.0.0'
     assert.throws(() => check({ ...MANIFEST, dependencies: { ...MANIFEST.dependencies, q: '^2.0.0' } }, { lockfile }), /dependencies\.q resolved to "1\.2\.0", which is not in "\^2\.0\.0"/u)
   })
+
+  // A package.json is a plain object, with Object.prototype's names in it.
+  it('reads a dependency by a name Object.prototype has as package.json lists it', () => {
+    const importer = (kind, version) => parsePnpmLockfile(`lockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    ${kind}:\n      constructor:\n        specifier: ${version}\n        version: ${version}\n${version.startsWith('link:') ? '' : `\npackages:\n\n  constructor@1.0.0:\n    resolution: {integrity: ${I}}\n\nsnapshots:\n\n  constructor@1.0.0: {}\n`}`).lockfile
+    for (const host of [{ ...HOST, major: 10 }, { ...HOST, pnpm: '11.28.2', major: 11 }]) {
+      check({ devDependencies: { constructor: '1.0.0' } }, { lockfile: importer('devDependencies', '1.0.0'), host })
+      check({ dependencies: { constructor: 'link:c' } }, { lockfile: importer('dependencies', 'link:c'), host })
+      assert.throws(() => check({ devDependencies: { constructor: 'link:c' } }, { lockfile: importer('dependencies', 'link:c'), host }), /^DeptreeError: manifests\["\."\]: the lockfile is not up to date with this package\.json, which a frozen install refuses: devDependencies in the lockfile do not match the same field in package\.json$/u)
+    }
+  })
 })
 
 describe('checkProjects for pnpm 9', () => {

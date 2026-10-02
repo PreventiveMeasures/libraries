@@ -69,4 +69,21 @@ describe('createHook', () => {
     hook({ chalk: '4.1.1' })(manifest, 'x')
     assert.deepEqual(manifest, { dependencies: { chalk: '4.1.2' } })
   })
+
+  // semver throws a TypeError on such a version, as pnpm then fails.
+  it('refuses a version that is no string where an override names the package with a range', () => {
+    const scoped = hook({ 'root@^1>ms': '1.0.0' })
+    for (const version of [1, { major: 1 }, true]) {
+      assert.throws(() => scoped({ name: 'root', version, dependencies: { ms: '2.0.0' } }, 'x'), /^DeptreeError: x\.version: not a string, which pnpm fails on where an override names this package with a range$/u)
+    }
+    assert.deepEqual(scoped({ name: 'root', dependencies: { ms: '2.0.0' } }, 'x').dependencies, { ms: '2.0.0' })
+    assert.deepEqual(hook({ 'root>ms': '1.0.0' })({ name: 'root', version: 1, dependencies: { ms: '2.0.0' } }, 'x').dependencies, { ms: '1.0.0' })
+  })
+
+  // structuredClone recurses, and runs out of stack on one some thousands deep.
+  it('refuses a package.json nested deeper than any is, before it copies it', () => {
+    let deep = {}
+    for (let i = 0; i < 20_000; i++) deep = { x: deep }
+    assert.throws(() => hook({})({ name: 'a', deep }, 'x'), /^DeptreeError: x: nested more than 100 deep, which is not supported$/u)
+  })
 })

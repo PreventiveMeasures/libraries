@@ -8,7 +8,7 @@ import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { sha1Hex } from '../hash.js'
 import { readManifest } from '../manifest.js'
-import { fetchTarball, fromMirror, ownTarball, sameFile, withDirs } from '../tarball.js'
+import { fetchTarball, fromMirror, isModules, ownTarball, sameFile, withDirs } from '../tarball.js'
 
 const UMASK = 0o022
 
@@ -23,7 +23,7 @@ function entriesOf(entries, where) {
     if (top !== undefined && first !== top) throw new DeptreeError('the tarball has entries under more than one directory', where)
     top = first
     const path = slash === -1 ? '' : normalize(`/${entry.storedName.slice(slash + 1)}`).slice(1).replace(/\/$/u, '')
-    if (path.split('/')[0] === 'node_modules') throw new DeptreeError(`${quote(entry.storedName)} is in the package's own node_modules, where yarn installs its dependencies, which is not supported`, where)
+    if (isModules(path.split('/')[0])) throw new DeptreeError(`${quote(entry.storedName)} is in the package's own node_modules, where yarn installs its dependencies, which is not supported`, where)
     if (entry.type === 'directory') {
       if (path !== '') dirs.add(path)
       continue
@@ -67,7 +67,7 @@ export async function fetchYarnPackage({ name, version, integrity }, where) {
   const bins = binsOf(manifest, { files, dirs })
   if (bins.size > 0 && files.has('.bin')) throw new DeptreeError('.bin is a file, where yarn fails to make a directory for the bins', where)
   for (const target of bins.values()) {
-    if (target.split('/')[0] === 'node_modules') throw new DeptreeError(`its bin ${quote(target)} is in its own node_modules, where yarn installs its dependencies, which is not supported`, where)
+    if (isModules(target.split('/')[0])) throw new DeptreeError(`its bin ${quote(target)} is in its own node_modules, where yarn installs its dependencies, which is not supported`, where)
     const script = files.get(target.replace(/\/$/u, ''))
     if (script !== undefined) script.mode = 0o755
   }

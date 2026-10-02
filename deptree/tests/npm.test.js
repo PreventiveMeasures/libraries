@@ -4,6 +4,7 @@ import { compress } from '@preventive/archive/compression.js'
 import { pack } from '@preventive/archive/tar.js'
 import { Vfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, buildNpmTree, findNpmWorkspaces } from '../npm.js'
+import { recalculates } from '../src/npm/manifests.js'
 import { sri, stubRegistry, tarball, url } from './registry.js'
 
 // A small project whose lockfile npm's own Arborist wrote, and whose tree
@@ -362,6 +363,7 @@ describe('the packages', () => {
   it('refused: what npm never packs', async () => {
     await refuses(await one({ 'x.js': { data: 'x', mode: 0o4755 } }), '"package/x.js" has a setuid, setgid or sticky bit, which is not supported', 'packages["node_modules/b"]')
     await refuses(await one({ 'node_modules/y/index.js': 'y' }), '"package/node_modules/y/index.js" is in the package\'s own node_modules, where npm installs its dependencies, which is not supported', 'packages["node_modules/b"]')
+    await refuses(await one({ 'Node_Modules/y/index.js': 'y' }), '"package/Node_Modules/y/index.js" is in the package\'s own node_modules, where npm installs its dependencies, which is not supported', 'packages["node_modules/b"]')
     const split = await compress(pack([{ name: 'package/package.json', data: new TextEncoder().encode('{}') }, { name: 'other/x', data: new Uint8Array(1) }]), 'gzip')
     const lock = LOCK()
     lock.packages['node_modules/b'].integrity = sri(split)
@@ -373,7 +375,18 @@ describe('the packages', () => {
     await refuses(await one({ 'b.js': 'x' }, { bin: { b: 'b.js/x' } }), '"b.js/x" runs through a file, which npm fails on', 'packages["node_modules/b"].bin')
     await refuses(await one({ 'lib/x.js': 'x' }, { bin: { b: 'lib' } }), '"lib" is a directory, which is not supported', 'packages["node_modules/b"].bin')
     await refuses(await one({}, { bin: { b: 'node_modules/c/c.js' } }), '"node_modules/c/c.js" is in the package\'s own node_modules, where npm installs its dependencies, which is not supported', 'packages["node_modules/b"].bin')
+    await refuses(await one({}, { bin: { b: 'NODE_MODULES/c/c.js' } }), '"NODE_MODULES/c/c.js" is in the package\'s own node_modules, where npm installs its dependencies, which is not supported', 'packages["node_modules/b"].bin')
     await refuses(await one({ 'b.js': { data: new Uint8Array([0x23, 0x21, 0x78, 0x0d, 0x0a, 0xff]) } }, { bin: { b: 'b.js' } }), 'a bin with a CRLF shebang that is not UTF-8, which npm rewrites with replacement characters, is not supported', 'packages["node_modules/b"].bin')
+  })
+
+  // npm finds a child whatever the case of its name: b's optional peer W is
+  // the link w, walked to as such.
+  it('a peer met in another case', async () => {
+    const peer = { peerDependencies: { W: '*' }, peerDependenciesMeta: { W: { optional: true } } }
+    const options = await one({}, peer)
+    const lock = JSON.parse(options.lockfile)
+    Object.assign(lock.packages['node_modules/b'], peer)
+    for (const host of [HOST, NPM10]) assert.deepEqual(listing((await buildNpmTree({ ...options, lockfile: write(lock), host })).vfs).filter((line) => line.startsWith('node_modules/w')), ['node_modules/w -> ../packages/w'])
   })
 
   it('a tarball npm 10.9.9\'s tar gives up on', async () => {
@@ -396,5 +409,16 @@ describe('the Vfs mounted into', () => {
 describe('the lockfile', () => {
   it('refused as the lockfile reader refuses it', async () => {
     await refuses({ ...given({ host: NPM10 }), lockfile: '{' }, 'expected "{" alone on the first line and an indented key on the next, as npm writes the file at line 1', undefined, LockfileError)
+  })
+})
+
+// npm 10 works every flag out again unless the root's edges are its lists to
+// the letter; a list is a plain object, with Object.prototype's names in it.
+describe('the root\'s lists', () => {
+  it('read for their own names alone', () => {
+    const edges = new Map([['a', { type: 'prod', spec: '1.0.0' }]])
+    assert.equal(recalculates(JSON.parse('{"dependencies":{"a":"1.0.0"}}'), edges), false)
+    assert.equal(recalculates(JSON.parse('{"dependencies":{"a":"1.0.0"},"peerDependenciesMeta":{"constructor":{"optional":true}}}'), edges), false)
+    assert.equal(recalculates(JSON.parse('{"dependencies":{"a":"1.0.0"},"peerDependencies":{"b":"1"}}'), edges), true)
   })
 })

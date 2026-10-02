@@ -60,7 +60,8 @@ export interface NpmProject {
 //
 // With `lockfile`, they are given as text: `manifests` by the project's
 // directory relative to the lockfile's (`.` for the root, then each
-// workspace's, as findNpmWorkspaces lists them). Every workspace npm would
+// workspace's, as findNpmWorkspaces lists them: a directory under the
+// lockfile's, with no `.`, `..` or empty segment). Every workspace npm would
 // find has to be given, and none else: the lockfile's have to be those.
 //
 // Without it, they are read from `project`, as npm reads them there, and

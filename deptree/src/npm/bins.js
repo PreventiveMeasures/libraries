@@ -6,6 +6,7 @@
 
 import { basename, dirname, join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
+import { isModules } from '../tarball.js'
 
 const collator = new Intl.Collator('en')
 
@@ -55,7 +56,7 @@ export function fixBins(nodes, fetched) {
       if (seen.has(link)) continue
       seen.add(link)
       const segments = path.split('/')
-      if (segments[0] === 'node_modules') throw new DeptreeError(`${quote(path)} is in the package's own node_modules, where npm installs its dependencies, which is not supported`, where)
+      if (isModules(segments[0])) throw new DeptreeError(`${quote(path)} is in the package's own node_modules, where npm installs its dependencies, which is not supported`, where)
       if (segments.slice(1).some((_, i) => files.has(segments.slice(0, i + 1).join('/')))) throw new DeptreeError(`${quote(path)} runs through a file, which npm fails on`, where)
       const file = files.get(path)
       if (file === undefined) {
