@@ -8,7 +8,7 @@ import { TomlError } from '../toml/error.js'
 import { parseToml } from '../toml/parse.js'
 import { isTable } from '../toml/value.js'
 import { NIGHTLY, dashed, featureMap, gatherDependencies, readSpec } from './dependency.js'
-import { array, boolean, checkCrateName, checkCrateVersion, entries, kind, refuse, string, strings, table } from './shape.js'
+import { array, boolean, checkCrateName, checkCrateVersion, checker, entries, kind, refuse, string, strings, table } from './shape.js'
 
 const PACKAGE_ONLY = [
   'badges', 'features', 'lib', 'bin', 'example', 'test', 'bench', 'dependencies', 'dev-dependencies',
@@ -28,15 +28,9 @@ const EDITIONS = ['2015', '2018', '2021', '2024']
 const FIRST_RUST = { __proto__: null, 2018: '1.31.0', 2021: '1.56.0', 2024: '1.85.0' }
 const RESOLVERS = { __proto__: null, 1: 1, 2: 2, 3: 3 }
 
-function readEdition(value, where) {
-  if (!EDITIONS.includes(string(value, where))) throw new LockfileError(`${quote(value)} is not an edition: expected one of ${EDITIONS.join(', ')}`, where)
-  return value
-}
-
-function readResolver(value, where) {
-  if (!(string(value, where) in RESOLVERS)) throw new LockfileError(`${quote(value)} is not a resolver: expected "1", "2" or "3"`, where)
-  return RESOLVERS[value]
-}
+const readEdition = checker((text) => EDITIONS.includes(text), `an edition: expected one of ${EDITIONS.join(', ')}`)
+const checkResolver = checker((text) => text in RESOLVERS, 'a resolver: expected "1", "2" or "3"')
+const readResolver = (value, where) => RESOLVERS[checkResolver(value, where)]
 
 // As cargo's RustVersion: a version, or a bare `1` or `1.70`, with no
 // pre-release or build metadata; as a version, the parts not given 0.
@@ -49,10 +43,7 @@ function rustVersion(text) {
   return parseVersion(`${major}.${minor ?? 0}.${patch ?? 0}`)
 }
 
-function readRustVersion(value, where) {
-  if (rustVersion(string(value, where)) === undefined) throw new LockfileError(`${quote(value)} is not a Rust version`, where)
-  return value
-}
+const readRustVersion = checker((text) => rustVersion(text) !== undefined, 'a Rust version')
 
 function pathOrFlag(value, where) {
   if (typeof value !== 'boolean' && typeof value !== 'string') throw refuse('true, false or a path', value, where)

@@ -17,8 +17,20 @@ function resetParents(flags, node, flag) {
   for (let parent = resolveParent(node); parent !== undefined && flags.get(parent)[flag]; parent = resolveParent(parent)) flags.get(parent)[flag] = false
 }
 
-// What an edge's type is by Edge#dev, #optional and #peer.
-const kinds = (type) => ({ dev: type === 'dev', optional: type === 'optional' || type === 'peerOptional', peer: type.startsWith('peer') })
+// What an edge of `type` from a node of the flags `own` unsets of what it
+// leads to, by Edge#dev, #optional and #peer: a flag both are without, and
+// devOptional where neither is dev or optional. An optional peer leaves it
+// extraneous.
+function unsetBy(own, type) {
+  const [dev, optional, peer] = [type === 'dev', type === 'optional' || type === 'peerOptional', type.startsWith('peer')]
+  return {
+    extraneous: !own.extraneous && !(peer && optional),
+    dev: !own.dev && !dev,
+    optional: !own.optional && !optional,
+    devOptional: !own.devOptional && !own.dev && !own.optional && !dev && !optional,
+    peer: !own.peer && !peer,
+  }
+}
 
 // calcDepFlags, as npm 11.7 and later have it: each node starts with every
 // flag but the project, and loses one wherever an edge without it leads to
@@ -46,14 +58,7 @@ function calcFlags(nodes, assign) {
     }
     for (const { type, to } of node.edges.values()) {
       if (to === undefined) continue
-      const { dev, optional, peer } = kinds(type)
-      const unset = {
-        extraneous: !own.extraneous && !(peer && optional),
-        dev: !own.dev && !dev,
-        optional: !own.optional && !optional,
-        devOptional: !own.devOptional && !own.dev && !own.optional && !dev && !optional,
-        peer: !own.peer && !peer,
-      }
+      const unset = unsetBy(own, type)
       const theirs = flags.get(to)
       const changed = ALL.filter((flag) => theirs[flag] && unset[flag])
       for (const flag of changed) theirs[flag] = false
@@ -107,11 +112,9 @@ function calcFlagsBefore(nodes) {
     for (const { type, to } of node.edges.values()) {
       if (to === undefined) continue
       flags.get(to).extraneous = false
-      const { dev, optional, peer } = kinds(type)
-      if (!own.peer && !peer) unsetFlag(to, 'peer')
-      if (!own.devOptional && !own.dev && !own.optional && !dev && !optional) unsetFlag(to, 'devOptional')
-      if (!own.dev && !dev) unsetFlag(to, 'dev')
-      if (!own.optional && !optional) unsetFlag(to, 'optional')
+      // None of these unsets a flag one after it is decided by.
+      const unset = unsetBy(own, type)
+      for (const flag of ['peer', 'devOptional', 'dev', 'optional']) if (unset[flag]) unsetFlag(to, flag)
     }
     return node
   }

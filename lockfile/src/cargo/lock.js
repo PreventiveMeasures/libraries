@@ -169,17 +169,15 @@ export function parseCargoLock(text) {
   }
   checkReached(read, 'package')
   const packages = Object.create(null)
-  for (const pkg of read) {
-    packages[pkg.key] = { name: pkg.name, version: pkg.version, source: pkg.source, checksum: pkg.checksum, dependencies: pkg.resolved.map((dep) => dep.key) }
-  }
+  for (const pkg of read) packages[pkg.key] = { ...lockedOf(pkg), dependencies: pkg.resolved.map((dep) => dep.key) }
   return { version, packages, unusedPatches: readUnused(doc.patch) }
 }
 
 function readUnused(value) {
   if (value === undefined) return []
   table(value, 'patch', ['unused'])
-  return array(value.unused, 'patch.unused').map((item, index) => {
-    const { name, version, source, checksum } = readPackage(item, `patch.unused[${index}]`, UNUSED)
-    return { name, version, source, checksum }
-  })
+  return array(value.unused, 'patch.unused').map((item, index) => lockedOf(readPackage(item, `patch.unused[${index}]`, UNUSED)))
 }
+
+// What Cargo.lock says of a package.
+export const lockedOf = ({ name, version, source, checksum }) => ({ name, version, source, checksum })

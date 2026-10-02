@@ -151,9 +151,9 @@ function loadEdges(node, workspaces, legacyPeerDeps) {
   const peers = legacyPeerDeps ? [] : Object.entries(node.peerDependencies ?? {})
   for (const [name, spec] of peers) if (!meta[name]?.optional) add(name, 'peer', spec)
   for (const [name, spec] of peers) if (meta[name]?.optional) add(name, 'peerOptional', spec)
-  for (const [name, spec] of Object.entries(node.dependencies ?? {})) add(name, 'prod', spec)
-  for (const [name, spec] of Object.entries(node.optionalDependencies ?? {})) add(name, 'optional', spec)
-  if (node.parent === undefined) for (const [name, spec] of Object.entries(node.devDependencies ?? {})) add(name, 'dev', spec)
+  for (const type of node.parent === undefined ? ['prod', 'optional', 'dev'] : ['prod', 'optional']) {
+    for (const [name, spec] of Object.entries(node[LISTS[type]] ?? {})) add(name, type, spec)
+  }
 }
 
 // Each node's edges, and where each leads: a node, or nothing.
