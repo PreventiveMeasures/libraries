@@ -49,6 +49,8 @@ const TARBALLS = await Promise.all([
   tarball('inner', '1.0.0', {}, { manifest: { bin: 'node_modules/b/index.js', dependencies: { b: '^1.0.0' } } }),
   tarball('p', '1.0.0', {}, { manifest: { peerDependencies: { b: '^2.0.0' } } }),
   tarball('q', '1.0.0', {}, { manifest: { dependencies: { b: '^1.0.0' } } }),
+  tarball('aab', '1.0.0'),
+  tarball('ab', '1.0.0'),
 ])
 const T = Object.fromEntries(TARBALLS.map((t) => [`${t.name}@${t.version}`, t]))
 const sha1 = (bytes) => createHash('sha1').update(bytes).digest('hex')
@@ -163,6 +165,24 @@ describe('buildYarn1Tree', () => {
         ['node_modules/q/node_modules/b', true],
       ], kind)
     }
+  })
+
+  // yarn's linker sorts where each package goes with localeCompare, in the
+  // locale Node runs in, and so does this; in Danish, `aa` sorts after `z`.
+  // Neither the tree nor the list of what it installs changes with it.
+  it('builds one tree, and lists it in one order, whatever the locale', async (t) => {
+    stubRegistry(TARBALLS)
+    const root = { name: 'root', version: '1.0.0', dependencies: { aab: '1.0.0', ab: '1.0.0', d: 'latest' } }
+    const lock = lockfile(entry('aab@1.0.0', 'aab@1.0.0'), entry('ab@1.0.0', 'ab@1.0.0'), entry('d@latest', 'd@1.0.0'))
+    const built = () => buildYarn1Tree({ project: projectOf({ 'yarn.lock': lock, 'package.json': root }), host: HOST })
+    const danish = new Intl.Collator('da')
+    t.mock.method(String.prototype, 'localeCompare', function (that) { return danish.compare(this, that) })
+    const da = await built()
+    t.mock.restoreAll()
+    const en = await built()
+    assert.deepEqual(da.installed.map(({ path }) => path), ['node_modules/aab', 'node_modules/ab', 'node_modules/d'])
+    assert.deepEqual(da.installed, en.installed)
+    assert.deepEqual([...da.vfs.walk('/')].map(({ path }) => path), [...en.vfs.walk('/')].map(({ path }) => path))
   })
 
   it('refuses once every fetch started has ended', async () => {

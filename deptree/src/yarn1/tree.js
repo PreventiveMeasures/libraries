@@ -13,7 +13,7 @@
 
 import { parseYarn1Lockfile } from '@preventive/lockfile/yarn1.js'
 import { Vfs, VfsError } from '@preventive/vfs'
-import { dirname, relative } from '@preventive/vfs/path.js'
+import { compareNames, dirname, relative } from '@preventive/vfs/path.js'
 import { clean, satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote, refusalOf } from '../error.js'
@@ -132,8 +132,10 @@ async function fetchChecked(resolved, host, settings) {
 }
 
 // The tree as yarn hoists it, flat: each package by where it goes, in the
-// order yarn sorts them, by the absolute paths it compares, all under the
-// lockfile's directory; and the hoister that laid it out. Each reference's
+// order yarn's linker sorts them, by the absolute paths it compares, all
+// under the lockfile's directory, with localeCompare in the locale Node
+// runs in; which changes nothing written, as a link sorts before what is
+// beneath it in any locale. And the hoister that laid it out. Each reference's
 // dependencies, as yarn's hold them for its hoister, are the patterns of
 // what it asks for, its peers once found among them.
 function layout({ resolved, manifestOf, asked, workspaces }) {
@@ -210,9 +212,9 @@ function writeTree(placed, fetched) {
 }
 
 // Each copy of a registry package as the list of what is installed has it,
-// in the order the copies are made: by the places in the hoister's tree
-// that reach it, whether only dev, or only optional, dependencies do.
-// `copies` is writeTree's, and `asked` topRequests's.
+// by its path, in an order no locale changes: by the places in the
+// hoister's tree that reach it, whether only dev, or only optional,
+// dependencies do. `copies` is writeTree's, and `asked` topRequests's.
 function listInstalled(copies, fetched, asked, hoister) {
   const prod = hoister.reachedBut('dev', asked)
   const required = hoister.reachedBut('optional', asked)
@@ -221,7 +223,7 @@ function listInstalled(copies, fetched, asked, hoister) {
     const dev = !places.some((info) => prod.has(info))
     const optional = !places.some((info) => required.has(info))
     return { path, name: manifest.name, version: manifest.version, integrity, dev, optional }
-  })
+  }).sort((a, b) => compareNames(a.path, b.path))
 }
 
 export async function buildYarn1Tree(options) {

@@ -186,9 +186,9 @@ export interface Yarn1Installed {
 }
 
 // `vfs` is the one given, the tree mounted into it, or a new one.
-// `installed` is each copy in the tree, once for each path, in the order
-// yarn sorts where they go; a workspace, whose files the tree does not
-// hold, is not among them.
+// `installed` is each copy in the tree, once for each path, by path in
+// the order of its code points, whatever the locale; a workspace, whose
+// files the tree does not hold, is not among them.
 export interface Yarn1Tree {
   vfs: Vfs
   stats: Yarn1TreeStats
