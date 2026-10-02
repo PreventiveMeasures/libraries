@@ -197,7 +197,7 @@ export function compare(a, b, where, major) {
 // where pnpm reads one with readPackageJson: its name trimmed, and each
 // of its name and version one npm takes.
 export function normalized(manifest, where) {
-  const name = manifest.name ? manifest.name : ''
+  const name = manifest.name || ''
   if (typeof name !== 'string') throw new DeptreeError('its package.json\'s name is not a string, which pnpm fails on', where)
   const trimmed = name.trim()
   const scoped = /^@([^/]+)\/([^/]+)$/u.exec(trimmed)

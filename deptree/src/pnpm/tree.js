@@ -133,8 +133,8 @@ async function fetchNodes(nodes, hook, project, major, fresh) {
 // directory, the files a snapshot has made executable by another's:
 // `targets` is binTargets's.
 function executableElsewhere(byDir, targets, packageImportMethod, major) {
-  const linked = major < 11 || packageImportMethod === 'auto' || packageImportMethod === 'hardlink'
-  const shared = [...byDir.values()].filter((node) => linked && node.pkg.resolution.type === 'directory' && !requiresBuild(node.manifest, node.files, major))
+  if (major >= 11 && packageImportMethod !== 'auto' && packageImportMethod !== 'hardlink') return new Map()
+  const shared = [...byDir.values()].filter((node) => node.pkg.resolution.type === 'directory' && !requiresBuild(node.manifest, node.files, major))
   const byPackage = new Map()
   for (const node of shared) {
     const id = packageKeyOf(node.key)

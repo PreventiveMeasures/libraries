@@ -178,12 +178,13 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
     if (id === '.' && publicHoist) {
       const manifest = projects.get('.')
       const own = new Set(Object.keys({ ...manifest.devDependencies, ...manifest.dependencies, ...manifest.optionalDependencies }))
+      const isOwn = (path) => own.has(path.slice('node_modules/'.length))
       // pnpm 12 links what it hoists of the projects apart, before.
       const entries = [...links].filter(([path, dir]) => /^node_modules\/(?:@[^/]+\/)?[^/@.][^/]*$/u.test(path)
-        && (major < 12 || own.has(path.slice('node_modules/'.length)) || mayHaveBin(dir)))
-      const commands = entries.flatMap(([path, dir]) => commandsOfDir(dir).map((command) => ({ ...command, direct: own.has(path.slice('node_modules/'.length)) })))
+        && (major < 12 || isOwn(path) || mayHaveBin(dir)))
+      const commands = entries.flatMap(([path, dir]) => commandsOfDir(dir).map((command) => ({ ...command, direct: isOwn(path) })))
       const names = new Set(commands.filter((command) => command.direct).map(({ name }) => name))
-      relink ||= major >= 12 && entries.some(([path, dir]) => !own.has(path.slice('node_modules/'.length)) && mayHaveBin(dir))
+      relink ||= major >= 12 && entries.some(([path, dir]) => !isOwn(path) && mayHaveBin(dir))
       linked = link([...commands.filter((command) => command.direct), ...commands.filter((command) => !command.direct && !names.has(command.name))], { ordered: false, where, fixNode: relink })
     } else {
       // pnpm 11 reads the bins only of what the lockfile says has some.

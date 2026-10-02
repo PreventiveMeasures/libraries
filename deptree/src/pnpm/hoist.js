@@ -110,7 +110,7 @@ function hoistGraph(nodes, starts, taken, typeOf, { projects = new Map(), instal
 // skipped or not, are taken from the start. Of two projects whose names
 // are one folded, both of which its patterns take, which it hoists turns
 // on an order not known here, which is refused.
-export function hoist(nodes, direct, { hoistPattern, publicHoistPattern }, projects = new Map(), major = 10, hoisting = undefined) {
+export function hoist(nodes, direct, { hoistPattern, publicHoistPattern }, projects = new Map(), major = 10, hoisting) {
   if (hoistPattern === undefined && publicHoistPattern === undefined) return new Map()
   const isPublic = createMatcher(publicHoistPattern ?? [])
   const isPrivate = createMatcher(hoistPattern ?? [])

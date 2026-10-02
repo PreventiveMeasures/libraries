@@ -20,8 +20,9 @@
 //
 // An override to a directory — `link:`, `file:` or a path alone, such as
 // `./vendor/foo` — names it from the lockfile's directory, and is read
-// only from a Vfs given that holds it (tree.js): one outside the lockfile's
-// directory, or from the root or the home directory, is refused.
+// only from a project given that holds it (local.js): one outside the
+// lockfile's directory, or from the root or the home directory, is
+// refused.
 //
 // pnpm 11 reads them from pnpm-workspace.yaml alone, trims each selector,
 // takes a catalog's `workspace:` entry, and reads `name@` with an exact

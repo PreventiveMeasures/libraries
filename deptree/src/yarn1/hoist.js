@@ -11,6 +11,8 @@
 // --focus and --flat; and the record yarn keeps of each step. Where yarn
 // compares where its cache keeps two packages, this compares their
 // references' `loc`; where it compares two manifests, the references.
+// reachedBut, which tells what dev or optional dependencies alone reach,
+// is this port's own.
 
 // yarn's sortAlpha: by UTF-16 code units, then by length.
 function sortAlpha(a, b) {
@@ -125,6 +127,28 @@ export class Hoister {
         }
       }
     }
+  }
+
+  // Not yarn's: the places the project's requests reach, `asked` as
+  // topRequests has them, through what each place's package asks for, its
+  // peers among that, each found as propagateRequired finds it, past none
+  // the host cannot run; by requests whose `kind`, `dev` or `optional`, is
+  // not set. Each other place is reached by dev, or optional, dependencies
+  // alone.
+  reachedBut(kind, asked) {
+    const queue = [{ parts: [], ref: { asked } }]
+    const reached = new Set()
+    while (queue.length > 0) {
+      const info = queue.pop()
+      for (const dep of info.ref.asked) {
+        if (dep[kind]) continue
+        const found = this.lookupDependency(info, dep.pattern)
+        if (found === null || found.isIncompatible || reached.has(found)) continue
+        reached.add(found)
+        queue.push(found)
+      }
+    }
+    return reached
   }
 
   lookupDependency(info, pattern) {

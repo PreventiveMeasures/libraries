@@ -1,7 +1,9 @@
 // How each setting pnpm reads is read: by its name, as pnpm-workspace.yaml
-// spells it, its kind and what it is held to (READ, READ_11), or passed
-// over as leaving the tree as it is (IGNORED, IGNORED_11); a name that is
-// neither is refused, as is a value read that is not one built for.
+// spells it, its kind and what it is held to (READ, READ_11, READ_12), or
+// passed over as leaving the tree as it is (IGNORED, IGNORED_11,
+// IGNORED_12); a name that is neither is refused, as is a value read that
+// is not one built for, and, where the root package.json pins the pnpm
+// that runs, one pnpm 12 does not know (UNRECOGNIZED_12).
 
 import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'

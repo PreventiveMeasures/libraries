@@ -63,7 +63,7 @@ function checkSettings(settings, file) {
 
 const ASKS = 'Soldeer asks which file to make its config, which is not supported'
 
-// The file Soldeer reads its config from, and that config, parsed.
+// The config Soldeer reads, parsed, from whichever file it reads it from.
 export function configOf({ foundry, soldeer }) {
   if (foundry === undefined && soldeer === undefined) throw new DeptreeError(`neither foundry.toml nor soldeer.toml is there, so ${ASKS}`)
   const file = foundry === undefined ? 'soldeer.toml' : 'foundry.toml'
@@ -75,5 +75,5 @@ export function configOf({ foundry, soldeer }) {
     checkLibs(config)
   }
   checkSettings(config.soldeer, file)
-  return { file, config }
+  return config
 }

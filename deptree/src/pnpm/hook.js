@@ -71,8 +71,10 @@ export function createHook({ overrides, ignored, major = 10 }) {
         for (const [name, spec] of Object.entries(peers ?? deps)) {
           const chosen = pick(scoped.get(name), spec) ?? pick(generic.get(name), spec)
           const version = converging.get(name)
-          if (chosen === undefined && version !== undefined && validRange(spec, { loose: true }) !== null && satisfies(version, spec, { loose: true })) (peers ?? deps)[name] = version
-          if (chosen === undefined) continue
+          if (chosen === undefined) {
+            if (version !== undefined && validRange(spec, { loose: true }) !== null && satisfies(version, spec, { loose: true })) (peers ?? deps)[name] = version
+            continue
+          }
           if (chosen.spec === '-') {
             delete (peers ?? deps)[name]
             if (peers !== undefined && major >= 11) delete copy.peerDependenciesMeta?.[name]

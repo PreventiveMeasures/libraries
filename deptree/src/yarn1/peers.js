@@ -1,9 +1,9 @@
 // yarn 1's resolvePeerModules (package-linker.js), run before it hoists:
 // each package's peers are looked for along the shortest chain of names it
 // was requested by, and the nearest version found there that takes the
-// peer's range is added to its dependencies, by all of that version's
-// patterns, and to what it asks for, as neither a dev nor an optional one.
-// Where none is found, nothing is added, and yarn warns.
+// peer's range is added to what it asks for, by all of that version's
+// patterns, as neither a dev nor an optional one. Where none is found,
+// nothing is added, and yarn warns.
 
 import { compareVersions, valid, validRange } from '@preventive/upstream/semver.js'
 
@@ -53,9 +53,7 @@ export function resolvePeers(resolved, manifests) {
           found = candidate
         }
       }
-      if (found === undefined) continue
-      ref.dependencies.push(...found.patterns)
-      ref.asked.push(...found.patterns.map((pattern) => ({ pattern, optional: false, dev: false })))
+      if (found !== undefined) ref.asked.push(...found.patterns.map((pattern) => ({ pattern, optional: false, dev: false })))
     }
   }
 }

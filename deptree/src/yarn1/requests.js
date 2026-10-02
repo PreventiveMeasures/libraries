@@ -65,7 +65,7 @@ export function rulesOf(root) {
 
 // The top-level requests, as yarn makes them and in its order; and of
 // them, `asked`, those the project makes, the resolutions' aside, each
-// optional or not, dev or not.
+// optional or not, dev or not, in its order too.
 export function topRequests(root, workspaces, rules) {
   const asked = []
   const push = (deps, optional, dev = false) => {
@@ -83,6 +83,5 @@ export function topRequests(root, workspaces, rules) {
     }
     push(implicit, false)
   }
-  const requests = [...rules.map((rule) => ({ pattern: rule.pattern, optional: false })), ...asked.map(({ pattern, optional }) => ({ pattern, optional }))]
-  return { requests, patterns: asked.map(({ pattern }) => pattern), asked }
+  return { requests: [...rules.map((rule) => ({ pattern: rule.pattern, optional: false })), ...asked], asked }
 }

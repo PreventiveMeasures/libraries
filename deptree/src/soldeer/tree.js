@@ -97,7 +97,7 @@ export async function buildSoldeerTree(options) {
   const folded = host.os === 'darwin'
   // Refused before anything is fetched; mount checks again.
   if (into !== undefined) checkNoDependencies(into, folded)
-  const { config } = configOf(inputs)
+  const config = configOf(inputs)
   const lock = parseSoldeerLockfile(inputs.lockfile, { config })
   const dependencies = registryDependencies(lock, config, folded)
   const extracted = await fetchAll(dependencies)

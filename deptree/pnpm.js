@@ -1,5 +1,5 @@
-// A node_modules tree built in memory from a pnpm lockfile, as pnpm 10 or
-// 11 installs it with the isolated linker: pnpm.d.ts says what it takes and
+// A node_modules tree built in memory from a pnpm lockfile, as pnpm 10, 11
+// or 12 installs it with the isolated linker: pnpm.d.ts says what it takes and
 // what comes back. The project is read through the view given, and the
 // tree built in a Vfs; the one filesystem touched is that of the tarball
 // caches @preventive/upstream reads, and writes where it keeps its own.

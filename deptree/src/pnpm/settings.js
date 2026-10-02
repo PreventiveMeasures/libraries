@@ -153,7 +153,7 @@ function fromWorkspace(workspace, major, pinned) {
 // drops the private pattern, `shamefullyHoist` sets or drops the public
 // one, and an empty public pattern is none. A pattern left undefined is
 // not hoisted to at all. virtualStoreDirMaxLength is 60 by default on
-// Windows alone, which is refused (tree.js's checkHost).
+// Windows alone, which is refused (inputs.js's checkHost).
 function derive(get) {
   const shamefullyHoist = get('shamefullyHoist')
   let publicHoistPattern = get('publicHoistPattern') ?? []

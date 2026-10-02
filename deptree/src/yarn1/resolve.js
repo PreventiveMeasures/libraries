@@ -172,7 +172,6 @@ class Resolver {
       workspace: info.workspace,
       patterns: [],
       requests: [request],
-      dependencies: [],
       asked: [],
       optional: request.optional,
     }
@@ -180,7 +179,6 @@ class Resolver {
     const parentNames = [...request.parentNames ?? [], name]
     const children = []
     for (const dep of asked(info, quote(request.pattern))) {
-      ref.dependencies.push(dep.pattern)
       ref.asked.push(dep)
       children.push({ pattern: dep.pattern, parentNames, optional: dep.optional || (!dep.dev && request.optional) })
     }

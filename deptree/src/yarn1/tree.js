@@ -73,8 +73,8 @@ function locationOf(names, workspaces) {
 }
 
 // The lockfile resolved as yarn resolves it for the project: the
-// workspaces, the root's patterns, the project's requests, as topRequests
-// has them, and resolve.js's result.
+// workspaces, the project's requests, as topRequests has them, and
+// resolve.js's result.
 function resolveProject(inputs, host) {
   const lockfile = parseYarn1Lockfile(inputs.lockfile, { manifests: Object.fromEntries(inputs.manifests), semver: { clean, satisfies, valid, validRange } })
   const manifests = new Map([...inputs.manifests].map(([dir, manifest]) => [dir, fixLists(manifest)]))
@@ -82,12 +82,12 @@ function resolveProject(inputs, host) {
   const workspaces = workspacesOf(manifests)
   if (workspaces.size > 0) workspaces.set(AGGREGATOR, aggregatorOf(root, workspaces))
   const rules = rulesOf(root)
-  const { requests, patterns, asked } = topRequests(root, workspaces, rules)
+  const { requests, asked } = topRequests(root, workspaces, rules)
   const reason = incompatibility(root, host, 'manifests["."]', inputs.settings)
   if (reason !== undefined) throw new DeptreeError(reason, 'manifests["."]')
   const { project } = inputs
   const isDirectory = project === undefined ? () => undefined : (tag) => typeOf(project, `/${tag}/package.json`) !== undefined
-  return { workspaces, topPatterns: patterns, asked, resolved: resolve({ lockfile, workspaces, rules, top: requests, isDirectory }) }
+  return { workspaces, asked, resolved: resolve({ lockfile, workspaces, rules, top: requests, isDirectory }) }
 }
 
 // Every package fetched, as yarn fetches each before it checks any, and
@@ -131,11 +131,14 @@ async function fetchChecked(resolved, host, settings) {
 
 // The tree as yarn hoists it, flat: each package by where it goes, in the
 // order yarn sorts them, by the absolute paths it compares, all under the
-// lockfile's directory; and the hoister that laid it out.
-function layout({ resolved, manifestOf, topPatterns, workspaces }) {
+// lockfile's directory; and the hoister that laid it out. Each reference's
+// dependencies, as yarn's hold them for its hoister, are the patterns of
+// what it asks for, its peers once found among them.
+function layout({ resolved, manifestOf, asked, workspaces }) {
   resolvePeers(resolved, manifestOf)
+  for (const ref of new Set(resolved.patterns.values())) ref.dependencies = ref.asked.map(({ pattern }) => pattern)
   const hoister = new Hoister(resolved.patterns, (ref) => Object.keys(manifestOf.get(ref)?.peerDependencies ?? {}))
-  hoister.seed(topPatterns)
+  hoister.seed(asked.map(({ pattern }) => pattern))
   const flat = hoister.flatten(workspaces.size > 0 ? AGGREGATOR : undefined)
   const placed = flat.map(({ names, info }) => ({ loc: locationOf(names, workspaces), info }))
   return { placed: placed.sort((a, b) => a.loc.localeCompare(b.loc)), hoister }
@@ -175,7 +178,8 @@ function writeTree(placed, fetched) {
     }
     const pkg = fetched.get(ref)
     const earlier = copies.get(dest)
-    copies.set(dest, earlier?.[0].ref === ref ? [...earlier, info] : [info])
+    if (earlier?.[0].ref === ref) earlier.push(info)
+    else copies.set(dest, [info])
     vfs.mkdir(`/${dest}`, { recursive: true })
     for (const dir of pkg.dirs) if (!skipped(dir)) vfs.mkdir(`/${dest}/${dir}`, { recursive: true })
     for (const [path, file] of pkg.files) {
@@ -193,33 +197,13 @@ function writeTree(placed, fetched) {
   return { vfs, links, locations, copies, files, bytes }
 }
 
-// The places in the hoister's tree the project's requests reach, `asked`
-// as topRequests has them, through what each place's package asks for, the
-// peers found for it among that, each found from where the place is, as
-// yarn marks what an install requires; past none the host cannot run, and
-// by requests whose `kind`, `dev` or `optional`, is not set. Each other
-// place is reached by dev dependencies alone, or by optional ones alone.
-function reachedBut(kind, asked, hoister) {
-  const queue = [{ parts: [], ref: { asked } }]
-  const reached = new Set()
-  while (queue.length > 0) {
-    const info = queue.pop()
-    for (const dep of info.ref.asked) {
-      if (dep[kind]) continue
-      const found = hoister.lookupDependency(info, dep.pattern)
-      if (found === null || found.isIncompatible || reached.has(found)) continue
-      reached.add(found)
-      queue.push(found)
-    }
-  }
-  return reached
-}
-
 // Each copy of a registry package as the list of what is installed has it,
-// in the order the copies are made. `copies` is writeTree's.
+// in the order the copies are made: by the places in the hoister's tree
+// that reach it, whether only dev, or only optional, dependencies do.
+// `copies` is writeTree's, and `asked` topRequests's.
 function listInstalled(copies, fetched, asked, hoister) {
-  const prod = reachedBut('dev', asked, hoister)
-  const required = reachedBut('optional', asked, hoister)
+  const prod = hoister.reachedBut('dev', asked)
+  const required = hoister.reachedBut('optional', asked)
   return [...copies].map(([path, places]) => {
     const { manifest, integrity } = fetched.get(places[0].ref)
     const dev = !places.some((info) => prod.has(info))
@@ -237,9 +221,9 @@ export async function buildYarn1Tree(options) {
   // Refused before anything is fetched; mount checks again.
   if (into !== undefined) checkNoModules(into, folded)
   checkRoot(inputs.manifests.get('.'))
-  const { workspaces, topPatterns, asked, resolved } = resolveProject(inputs, host)
+  const { workspaces, asked, resolved } = resolveProject(inputs, host)
   const { packages, fetched, manifestOf } = await fetchChecked(resolved, host, inputs.settings)
-  const { placed, hoister } = layout({ resolved, manifestOf, topPatterns, workspaces })
+  const { placed, hoister } = layout({ resolved, manifestOf, asked, workspaces })
   const { vfs, links, locations, copies, files, bytes } = writeTree(placed, fetched)
   checkBinLinks({ placed, patterns: resolved.patterns, fetched, manifestOf, locations, realOf: (path) => realOf(links, path) })
   if (folded) checkCollisions(vfs)
