@@ -11,9 +11,9 @@ import { decompress } from '@preventive/archive/compression.js'
 import { ArchiveError, unpack } from '@preventive/archive/tar.js'
 import { DeptreeError, quote } from '../error.js'
 import { parentsOf } from '../mount.js'
+import { MAX_BYTES } from '../tarball.js'
 import { isUnflagged, unzipEntries } from '../zipdir.js'
 
-const MAX_BYTES = 512 * 1024 * 1024
 const S_IFMT = 0o170000
 const S_IFLNK = 0o120000
 const UMASK = 0o022
@@ -78,19 +78,15 @@ export async function fromArchive(bytes, where) {
     if (error instanceof ArchiveError) throw new DeptreeError(`GitHub's archive cannot be read: ${error.message}`, where, { cause: error })
     throw error
   }
-  const top = entries[0]?.name
-  if (entries[0]?.type !== 'directory' || top.includes('/')) throw new DeptreeError('GitHub\'s archive does not start with its top directory', where)
   const tree = emptyTree()
-  for (const entry of entries.slice(1)) {
-    if (!entry.name.startsWith(`${top}/`)) throw new DeptreeError(`${quote(entry.name)} is outside the top directory of GitHub's archive`, where)
-    const path = entry.name.slice(top.length + 1)
-    for (const dir of parentsOf(path)) tree.dirs.add(dir)
-    if (entry.type === 'directory') tree.dirs.add(path)
-    else if (entry.type === 'file') tree.files.set(path, { data: entry.data, mode: entry.mode & 0o100 ? 0o755 : 0o644 })
-    else if (entry.type === 'symlink') tree.links.set(path, entry.linkname)
-    else throw new DeptreeError(`${quote(path)} is a ${entry.type} in GitHub's archive`, where)
+  for (const { name, type, mode, data, linkname } of entries) {
+    for (const dir of parentsOf(name)) tree.dirs.add(dir)
+    if (type === 'directory') tree.dirs.add(name)
+    else if (type === 'file') tree.files.set(name, { data, mode: mode & 0o100 ? 0o755 : 0o644 })
+    else if (type === 'symlink') tree.links.set(name, linkname)
+    else throw new DeptreeError(`${quote(name)} is a ${type} in GitHub's archive`, where)
   }
-  return checkLinks(tree, where)
+  return checkLinks(topDir(tree, where), where)
 }
 
 // unix/unix.c's mapattr, of UnZip 6.0: a mode made on Unix as it is, but
@@ -119,7 +115,7 @@ function topDir(tree, where) {
   if (tops.size === 1 && tree.links.has(top)) throw new DeptreeError(`its zip holds the link ${quote(top)} alone, which Composer would install in the package's place, which is not supported`, where)
   if (tops.size !== 1 || !tree.dirs.has(top)) return tree
   const inside = (path) => (path.startsWith(`${top}/`) ? path.slice(top.length + 1) : undefined)
-  const under = (map) => new Map([...map].flatMap(([path, value]) => (inside(path) === undefined ? [] : [[inside(path), value]])))
+  const under = (map) => new Map([...map].map(([path, value]) => [inside(path), value]).filter(([path]) => path !== undefined))
   const modes = under(tree.modes)
   if (tree.modes.has(top)) modes.set('', tree.modes.get(top))
   return { dirs: new Set([...tree.dirs].map(inside).filter((path) => path !== undefined)), files: under(tree.files), links: under(tree.links), modes }

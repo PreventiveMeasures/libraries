@@ -74,19 +74,18 @@ export interface Client {
   // on every call, cached or not. So its top directory is named for the
   // tree, and files marked `export-subst` are as committed, not rewritten.
   //
-  // With `exported`, GitHub's archive of the commit itself instead, as
-  // `git archive` exports it, and as package managers that take it
-  // install it, Composer from its zipball: led by git's global header
-  // naming the commit, under a top directory named for it, and without
-  // what the tree's .gitattributes mark export-ignore. It is held to the
-  // tree all the same: each file in it has to be the tree's own, but for
-  // its line ends, as below, every directory has to be there just where
-  // git writes one, on reaching a
-  // file in it, and what is missing has to be what the .gitattributes
-  // leave out, read as git 2.43 reads them from the tree, the top one
-  // alone with macros, never through a symlink. What is missing is read
-  // off GitHub's listings of each directory missing anything, and of
-  // those above it, each hashed back to its id, and a .gitattributes the
+  // With `exported`, GitHub's archive of the commit itself instead, as `git
+  // archive` exports it, and as package managers that take it install it,
+  // Composer from its zipball: led by git's global header naming the
+  // commit, under a top directory named for it, and without what the tree's
+  // .gitattributes mark export-ignore. It is held to the tree all the same:
+  // each file in it has to be the tree's own, but for its line ends, as
+  // below, every directory has to be there just where git writes one, on
+  // reaching a file in it, and what is missing has to be what the
+  // .gitattributes leave out, read as git 2.43 reads them from the tree,
+  // the top one alone with macros, never through a symlink. What is missing
+  // is read off GitHub's listings of each directory missing anything, and
+  // of those above it, each hashed back to its id, and a .gitattributes the
   // archive leaves out off GitHub's blob of it, hashed to its id too. A
   // file whose text, crlf and eol attributes have git write its line ends
   // CRLF is held to GitHub's blob of it so written, as git 2.43 writes them

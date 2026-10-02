@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
-import { gunzipSync } from 'node:zlib'
+import { promisify } from 'node:util'
+import { gunzip } from 'node:zlib'
 
 import { isSha1, matches } from './args.js'
 import { withAttributes, writtenWithCrlf } from './attributes.js'
@@ -21,23 +22,26 @@ const isTop = matches(/^(?!(?:con|prn|aux|nul|com\d|lpt\d)(?:\.|$))[\da-z][\w.-]
 // Names are kept as latin1 strings, a char per byte, so they sort and hash
 // as the bytes git has.
 const field = (header, start, end) => {
-  const bytes = header.subarray(start, end)
-  const nul = bytes.indexOf(0)
-  return Buffer.from(nul === -1 ? bytes : bytes.subarray(0, nul)).toString('latin1')
+  const nul = header.indexOf(0, start)
+  return header.toString('latin1', start, nul === -1 || nul > end ? end : nul)
 }
 const octal = (header, start, end) => {
   const text = field(header, start, end).trim()
   return /^[0-7]{1,12}$/u.test(text) ? Number.parseInt(text, 8) : Number.NaN
 }
-export const ATTRIBUTES = '.gitattributes'
 export const objectId = (type, content) => createHash('sha1').update(`${type} ${content.length}\0`).update(content).digest()
-const checksum = (header) => header.reduce((sum, byte, i) => sum + (i >= 148 && i < 156 ? 32 : byte), 0)
+// The checksum field itself counts as spaces.
+function checksum(header) {
+  let sum = 8 * 0x20
+  for (let i = 0; i < BLOCK; i++) if (i < 148 || i >= 156) sum += header[i]
+  return sum
+}
 const isZero = (bytes) => bytes.every((byte) => byte === 0)
 
 // `<length> <key>=<value>\n`, the length counting the whole record. A NUL
 // would end a path for an extractor, and a name in a tree for git.
 function paxRecords(body) {
-  const text = Buffer.from(body).toString('latin1')
+  const text = body.toString('latin1')
   const records = new Map()
   for (let at = 0; at < text.length;) {
     const space = text.indexOf(' ', at)
@@ -144,17 +148,19 @@ async function mend(dir, sha, listed, base = '', above = []) {
   }
 }
 
+const gunzipped = promisify(gunzip)
+
 // The entries of a gzipped tarball as `git archive` writes one, under a
-// single top directory: a Map of each directory's, a file's mode its exec
-// bit, a .gitattributes file's `body` kept, a symlink's blob its target, as
-// a Map of the top directory's; with `bodies`, every file's body, as the
-// tarball has it. A commit's archive leads with git's global header naming
-// it, taken only where `commit` is that commit. Where there is no such
-// tree, a reason, never entries.
-export function readTarball(gzipped, { commit, bodies = false } = {}) {
+// single top directory, as a Map of its entries: a Map of each directory's,
+// a file's mode its exec bit, a symlink's blob its target, and a copy of
+// the `body` of each file `keep` takes by its name; with `bodies`, every
+// file's body, as the tarball has it. A commit's archive leads with git's
+// global header naming it, taken only where `commit` is that commit. Where
+// there is no such tree, a reason, never entries.
+export async function readTarball(gzipped, { commit, keep = () => false, bodies = false } = {}) {
   let bytes
   try {
-    bytes = gunzipSync(gzipped, { maxOutputLength: MAX_UNPACKED_BYTES })
+    bytes = await gunzipped(gzipped, { maxOutputLength: MAX_UNPACKED_BYTES })
   } catch {
     return 'no tree: not gzip, or larger than 1 GiB unpacked'
   }
@@ -168,7 +174,7 @@ export function readTarball(gzipped, { commit, bodies = false } = {}) {
       if (!isZero(bytes.subarray(at))) return 'no tree: data after the end of the tarball'
       break
     }
-    if (Buffer.from(header.subarray(257, 265)).toString('latin1') !== 'ustar\u000000') return 'no tree: a header that is not POSIX ustar'
+    if (header.toString('latin1', 257, 265) !== 'ustar\u000000') return 'no tree: a header that is not POSIX ustar'
     if (octal(header, 148, 156) !== checksum(header)) return 'no tree: a header that fails its checksum'
     const size = octal(header, 124, 136)
     const body = bytes.subarray(at + BLOCK, at + BLOCK + size)
@@ -211,9 +217,8 @@ export function readTarball(gzipped, { commit, bodies = false } = {}) {
     }
     if (name === null) continue
     if (dir.has(name)) return `no tree: ${JSON.stringify(path)} twice`
-    // A copy, so the tarball itself is not kept for it.
-    const kept = type !== '0' ? {} : bodies ? { body } : name === ATTRIBUTES ? { body: Buffer.from(body) } : {}
-    dir.set(name, type === '0' ? { mode: mode & 0o100 ? '100755' : '100644', id: objectId('blob', body), ...kept } : { mode: '120000', id: objectId('blob', Buffer.from(target, 'latin1')) })
+    // A copy, but for `bodies`, so the tarball itself is not kept for it.
+    dir.set(name, type === '0' ? { mode: mode & 0o100 ? '100755' : '100644', id: objectId('blob', body), ...(bodies ? { body } : keep(name) && { body: Buffer.from(body) }) } : { mode: '120000', id: objectId('blob', Buffer.from(target, 'latin1')) })
   }
   if (top === undefined) return 'no tree: an empty tarball'
   return root
@@ -228,7 +233,7 @@ export function readTarball(gzipped, { commit, bodies = false } = {}) {
 // CRLF for `eol=crlf`. The id is `expected` only if those are right. Where
 // there is no such tree, a reason, never an id.
 export async function gitTreeOfTarball(gzipped, { expected, list } = {}) {
-  const root = readTarball(gzipped, { bodies: true })
+  const root = await readTarball(gzipped, { bodies: true })
   if (typeof root === 'string') return root
   const listed = async (sha) => (list && isSha1(sha) ? await list(sha) : [])
     .filter(isEntry)

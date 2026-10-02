@@ -6,12 +6,11 @@
 
 import { ArchiveError, unzip } from '@preventive/archive/zip.js'
 import { DeptreeError } from './error.js'
+import { MAX_BYTES } from './tarball.js'
 
 const END = 0x06054b50
 const CENTRAL = 0x02014b50
 const UTF8 = 0x0800
-// As in ./tarball.js: the archive reader makes room for what entries declare.
-const MAX_BYTES = 512 * 1024 * 1024
 
 // As the archive reader decodes a name: a leading U+FEFF is part of it.
 const decoder = new TextDecoder('utf-8', { ignoreBOM: true })

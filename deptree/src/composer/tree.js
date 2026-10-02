@@ -5,28 +5,13 @@ import { parseComposerLock } from '@preventive/lockfile/composer.js'
 import { getDist } from '@preventive/upstream/composer.js'
 import { Vfs } from '@preventive/vfs'
 import { eachConcurrently } from '../concurrent.js'
-import { DeptreeError, quote } from '../error.js'
-import { fold, makeDirs, mount, writeFiles } from '../mount.js'
+import { quote } from '../error.js'
+import { checkNoDir, makeDirs, mount, writeFiles } from '../mount.js'
 import { makeBinsExecutable } from './bins.js'
 import { configOf } from './config.js'
 import { fromArchive, fromZip } from './extract.js'
 import { checkHost, inputsOf } from './inputs.js'
 import { about, planOf } from './packages.js'
-
-// A vendor directory there already, as Composer would keep what is in it,
-// or on macOS a name that is one there with it, is refused.
-function noVendor(vendorDir, folded) {
-  const same = (a, b) => (folded ? fold(a) === fold(b) : a === b)
-  return (vfs) => {
-    let at = ''
-    for (const segment of vendorDir.split('/')) {
-      const found = vfs.isDirectory(at || '/') ? vfs.readdir(at || '/').find((name) => same(name, segment)) : undefined
-      if (found === undefined) return
-      at = `${at}/${found}`
-    }
-    throw new DeptreeError(`the vendor directory, ${quote(vendorDir)}, is there already, which is neither kept beside the tree nor removed`, `vfs[${quote(at)}]`)
-  }
-}
 
 async function fetchAll(plans, github) {
   const trees = new Map()
@@ -47,9 +32,9 @@ export async function buildComposerTree(options) {
   const folded = host.os === 'darwin'
   const lock = parseComposerLock(inputs.lockfile, { composerJson: inputs.composerJson })
   const config = configOf(inputs.composerJson)
-  const checkVfs = noVendor(config.vendorDir, folded)
+  const checkVfs = checkNoDir(config.vendorDir, `the vendor directory, ${quote(config.vendorDir)},`)
   // Refused before anything is fetched; mount checks again.
-  if (into !== undefined) checkVfs(into)
+  if (into !== undefined) checkVfs(into, folded)
   const plans = planOf(lock, config, folded)
   const trees = await fetchAll(plans, inputs.github)
   makeBinsExecutable(plans, trees)

@@ -6,6 +6,7 @@
 
 import { DeptreeError, quote } from '../error.js'
 import { bytesSha256Hex } from '../hash.js'
+import { parentsOf } from '../mount.js'
 import { isUnflagged, unzipEntries } from '../zipdir.js'
 
 const S_IFLNK = 0o120000
@@ -68,7 +69,7 @@ export async function extractZip(bytes, checksum, where) {
     const components = entry.name.split('/')
     if (components.some((component) => component.includes(':'))) throw new DeptreeError('a name with a ":" in it, which Soldeer fails on', `${where}: ${quote(entry.storedName)}`)
     if (components.some(isGit)) continue
-    for (let i = 1; i < components.length; i++) dirs.add(components.slice(0, i).join('/'))
+    for (const dir of parentsOf(entry.name)) dirs.add(dir)
     if (entry.type === 'directory') {
       dirs.add(entry.name)
       continue
