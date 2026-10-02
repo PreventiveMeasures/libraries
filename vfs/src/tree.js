@@ -14,13 +14,14 @@ export const namesOf = (dir) => [...dir.entries.keys()].sort(compareNames)
 
 // Every inode at or under `top`, depth first, siblings in name order, a
 // link named but not crossed, as `shape` has it: `name` is the way down
-// from `top`, '' for it, and `leaf` the last name on it, in `parent`.
-export function* descend(top, shape = (entry) => entry) {
+// from `top`, '' for it, and `leaf` the last name on it, in `parent`. A
+// directory is gone into if `within` says so once what it yielded is taken.
+export function* descend(top, shape = (entry) => entry, within = () => true) {
   const stack = [{ name: '', node: top, depth: 0 }]
   while (stack.length > 0) {
     const entry = stack.pop()
     yield shape(entry)
-    if (entry.node.type !== 'directory') continue
+    if (entry.node.type !== 'directory' || !within(entry)) continue
     const names = namesOf(entry.node)
     for (let i = names.length - 1; i >= 0; i--) {
       const name = entry.name === '' ? names[i] : `${entry.name}/${names[i]}`
@@ -38,40 +39,38 @@ function settled(clash, what, expected = "'error', 'keep' or 'replace'") {
   return clash
 }
 
+// The options of a mount, checked, and `settle`, which says how a clash is
+// settled.
 export function checkMount({ clash = 'error', fold }) {
   if (typeof clash !== 'function') settled(clash, 'clash', "'error', 'keep', 'replace' or a function")
   if (fold !== undefined && typeof fold !== 'function') throw wrongType('fold', fold, 'a function')
-  return { clash, fold }
+  return { fold, settle: typeof clash === 'function' ? (path, there) => settled(clash(path, there), 'what clash returns') : () => clash }
 }
 
 // Merges the directory `from` into the directory `into`, which is at
 // `base`; `copyOf` makes a copy of an inode, its entries yet to be filled.
-export function merge(into, from, base, { clash, fold }, copyOf) {
-  const settle = typeof clash === 'function' ? (path, there) => settled(clash(path, there), 'what clash returns') : () => clash
-  // The tree's entries left to judge, in walk order, each with the pair of
-  // directories it is judged in; a pair holds its keys once `fold` is asked.
-  const pending = []
-  const enter = (pair) => {
-    const names = namesOf(pair.from)
-    for (let i = names.length - 1; i >= 0; i--) pending.push({ pair, name: names[i], node: pair.from.entries.get(names[i]) })
-  }
-  enter({ into, from, at: base === '/' ? '' : base })
+export function merge(into, from, base, { settle, fold }, copyOf) {
+  const under = base === '/' ? '/' : `${base}/`
+  // Each directory of the tree merged into one there, the only ones the
+  // walk goes into, with the keys `fold` takes the names there to, once asked.
+  const merged = new Map([[from, { into }]])
   const plan = []
-  while (pending.length > 0) {
-    const { pair, name, node } = pending.pop()
-    const there = pair.into.entries.get(name)
+  for (const { name, leaf, parent, node } of descend(from, undefined, (entry) => merged.has(entry.node))) {
+    if (parent === undefined) continue
+    const pair = merged.get(parent)
+    const there = pair.into.entries.get(leaf)
     if (there?.type === 'directory' && node.type === 'directory') {
-      enter({ into: there, from: node, at: `${pair.at}/${name}` })
+      merged.set(node, { into: there })
       continue
     }
-    const taken = there === undefined ? folded(pair, name, fold) : [name]
+    const taken = there === undefined ? folded(pair, parent, leaf, fold) : [leaf]
     if (taken.length > 0) {
-      const path = `${pair.at}/${name}`
-      const how = settle(path, taken.map((other) => `${pair.at}/${other}`))
+      const path = under + name
+      const how = settle(path, taken.map((other) => path.slice(0, -leaf.length) + other))
       if (how === 'error') throw new VfsError('EEXIST', path)
       if (how === 'keep') continue
     }
-    plan.push({ dir: pair.into, name, node, taken })
+    plan.push({ dir: pair.into, name: leaf, node, taken })
   }
   // Every copy is made before any is put in place, so a tree merged into
   // itself is copied as it was.
@@ -89,21 +88,17 @@ export function merge(into, from, base, { clash, fold }, copyOf) {
 // it.
 function copy(top, copies, copyOf) {
   for (const { node, parent, leaf } of descend(top)) {
-    let made = copies.get(node)
-    if (made === undefined) {
-      made = copyOf(node)
-      copies.set(node, made)
-    }
-    if (parent !== undefined) copies.get(parent).entries.set(leaf, made)
+    if (!copies.has(node)) copies.set(node, copyOf(node))
+    if (parent !== undefined) copies.get(parent).entries.set(leaf, copies.get(node))
   }
   return copies.get(top)
 }
 
 // The names there that are one with `name` by `fold`'s keys, none without
-// it, leaving out those the tree spells there too: each of those is judged
-// against the tree's entry of its own spelling.
-function folded(pair, name, fold) {
+// it, leaving out those the tree spells there too, in `from`: each of those
+// is judged against the tree's entry of its own spelling.
+function folded(pair, from, name, fold) {
   if (fold === undefined) return []
-  pair.keys ??= Map.groupBy(namesOf(pair.into).filter((other) => !pair.from.entries.has(other)), (other) => fold(other))
+  pair.keys ??= Map.groupBy(namesOf(pair.into).filter((other) => !from.entries.has(other)), (other) => fold(other))
   return pair.keys.get(fold(name)) ?? []
 }

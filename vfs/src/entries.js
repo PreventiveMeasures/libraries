@@ -65,20 +65,19 @@ export function vfsFromEntries(entries) {
 }
 
 function place(vfs, placed, { name, type = 'file', data, mode, mtime, linkname = '' }) {
-  const { declared } = placed
   const path = `/${checkName(name, type === 'directory')}`
   const file = type === 'file' || type === 'contiguous-file'
   if ((!file && !noData(data)) || (linkname !== '' && type !== 'hardlink' && type !== 'symlink')) throw new VfsError('EINVAL', name)
   if (mode !== undefined) checkMode(mode)
   if (mtime !== undefined) checkTime(mtime)
   const source = type === 'hardlink' ? `/${checkName(linkname, false)}` : linkname
-  if (type === 'hardlink' && !declared.has(source)) throw new VfsError('ENOENT', linkname)
-  const before = declared.get(path)
+  if (type === 'hardlink' && !placed.declared.has(source)) throw new VfsError('ENOENT', linkname)
+  const before = placed.declared.get(path)
   if (before !== undefined) {
     if (before === type && same(vfs, path, type, data, mode, mtime, source)) return
     throw new VfsError('EEXIST', name)
   }
-  declared.set(path, type)
+  placed.declared.set(path, type)
   const parent = dirname(path)
   if (parent !== placed.parent) {
     vfs.mkdir(parent, { recursive: true })

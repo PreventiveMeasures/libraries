@@ -186,7 +186,7 @@ export class Vfs {
 
   // Creates the file or truncates it; the inode stays, so a hard link sees it.
   writeFile(path, data, { mode, mtime } = {}) {
-    this.#write(path, data, (node, bytes) => Object.assign(node, { bytes }, meta(mode, mtime, node)), mode, mtime)
+    this.#write(path, data, (node, bytes) => Object.assign(node, { bytes, ...meta(node, mode, mtime) }), mode, mtime)
   }
 
   appendFile(path, data) { this.#write(path, data, (node, bytes) => { node.bytes = append(node.bytes, bytes) }) }
@@ -346,10 +346,7 @@ const pathOf = ({ chain, name }) => `/${[...chain.slice(1).map((step) => step.na
 const statOf = (node) => ({ type: node.type, ino: node.ino, mode: node.mode, mtime: node.mtime, size: node.bytes?.length ?? node.size ?? 0 })
 
 // Metadata as given and checked, or as it stands in `current`.
-const meta = (mode, mtime, current) => ({
-  mode: mode === undefined ? current.mode : checkMode(mode),
-  mtime: mtime === undefined ? current.mtime : checkTime(mtime),
-})
+const meta = (current, mode = current.mode, mtime = current.mtime) => ({ mode: checkMode(mode), mtime: checkTime(mtime) })
 
 // What a name may be when it is made: text with an encoding, and at most
 // NAME_MAX bytes of it, as every filesystem bounds a name.
