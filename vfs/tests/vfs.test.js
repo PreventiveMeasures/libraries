@@ -665,6 +665,25 @@ describe('mount', () => {
     assert.deepEqual(['/d/a', '/d/fold', '/d/keep', '/d/new'].map((path) => fs.readText(path)), ['tree', 'tree', 'there', 'tree'])
   })
 
+  it('copies the tree as it was, whatever a function given does to it', () => {
+    const fs = createVfs({ 'a': 'there', 'd/x': 'there' })
+    const tree = createVfs({ 'a': 'old', 'd/y': 'old', 'z': 'old' })
+    fs.mount(tree, '/', {
+      clash: () => {
+        tree.writeFile('/a', 'new')
+        tree.rm('/z')
+        return 'replace'
+      },
+      fold: (name) => {
+        if (tree.isDirectory('/d')) tree.rm('/d', { recursive: true })
+        return name
+      },
+    })
+    assert.deepEqual(paths(fs), ['/', '/a', '/d', '/d/x', '/d/y', '/z'])
+    assert.deepEqual(['/a', '/d/y', '/z'].map((path) => fs.readText(path)), ['old', 'old', 'old'])
+    assert.deepEqual(paths(tree), ['/', '/a'])
+  })
+
   it('folds names where told to, as a filesystem that ignores case does', () => {
     const fold = (name) => name.normalize('NFD').toLowerCase()
     const fs = createVfs({ 'Dir/x': '', 'File': 'there', 'café': '', 'same/x': '', 'SAME': 'there' })

@@ -1,11 +1,11 @@
 // A tree of inodes taken whole: walked depth first, siblings in code point
-// order, and merged into another as Vfs.mount does it — judged entry by
-// entry in that order, a directory into one there under the same name and
-// anything else beside what is there, then copied in once all is judged,
-// so a refusal changes nothing. Links are names here like any other, never
-// followed in either tree, so nothing lands outside the directory merged
-// into. Only a directory's entries are read here: what any inode holds
-// besides is the Vfs's own, and so is a copy of it.
+// order, and merged into another as Vfs.mount does it — copied, then judged
+// entry by entry in that order, a directory into one there under the same
+// name and anything else beside what is there, and put in place once all
+// is judged, so a refusal changes nothing. Links are names here like any
+// other, never followed in either tree, so nothing lands outside the
+// directory merged into. Only a directory's entries are read here: what
+// any inode holds besides is the Vfs's own, and so is a copy of it.
 
 import { VfsError, wrongType } from './error.js'
 import { compareNames } from './path.js'
@@ -47,15 +47,19 @@ export function checkMount({ clash = 'error', fold }) {
   return { fold, settle: typeof clash === 'function' ? (path, there) => settled(clash(path, there), 'what clash returns') : () => clash }
 }
 
-// Merges the directory `from` into the directory `into`, which is at
-// `base`; `copyOf` makes a copy of an inode, its entries yet to be filled.
+// Merges a copy of the directory `from` into the directory `into`, which
+// is at `base`; `copyOf` makes a copy of an inode, its entries yet to be
+// filled. The copy is made before anything is judged, so it is the tree as
+// it was, whatever a function given does to it, a tree merged into itself
+// among them, and no one else holds what is put in place.
 export function merge(into, from, base, { settle, fold }, copyOf) {
+  const tree = copy(from, copyOf)
   const under = base === '/' ? '/' : `${base}/`
   // Each directory of the tree merged into one there, the only ones the
   // walk goes into, with the keys `fold` takes the names there to, once asked.
-  const merged = new Map([[from, { into }]])
+  const merged = new Map([[tree, { into }]])
   const plan = []
-  for (const { name, leaf, parent, node } of descend(from, undefined, (entry) => merged.has(entry.node))) {
+  for (const { name, leaf, parent, node } of descend(tree, undefined, (entry) => merged.has(entry.node))) {
     if (parent === undefined) continue
     const pair = merged.get(parent)
     const there = pair.into.entries.get(leaf)
@@ -72,21 +76,17 @@ export function merge(into, from, base, { settle, fold }, copyOf) {
     }
     plan.push({ dir: pair.into, name: leaf, node, taken })
   }
-  // Every copy is made before any is put in place, so a tree merged into
-  // itself is copied as it was.
-  const copies = new Map()
-  for (const step of plan) step.made = copy(step.node, copies, copyOf)
-  for (const { dir, name, taken, made } of plan) {
+  for (const { dir, name, node, taken } of plan) {
     for (const other of taken) dir.entries.delete(other)
-    dir.entries.set(name, made)
+    dir.entries.set(name, node)
   }
 }
 
 // A copy of `top` and all under it, its inodes made in walk order: one for
-// each of the tree's, which `copies` holds, so two names of one file are
-// two names of one copy, and a directory's copy is there for what is under
-// it.
-function copy(top, copies, copyOf) {
+// each of the tree's, so two names of one file are two names of one copy,
+// and a directory's copy is there for what is under it.
+function copy(top, copyOf) {
+  const copies = new Map()
   for (const { node, parent, leaf } of descend(top)) {
     if (!copies.has(node)) copies.set(node, copyOf(node))
     if (parent !== undefined) copies.get(parent).entries.set(leaf, copies.get(node))
