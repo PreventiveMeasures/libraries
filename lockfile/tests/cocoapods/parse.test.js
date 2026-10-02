@@ -193,6 +193,14 @@ describe('the sections', () => {
     refuses(edit(['\n\nCOCOAPODS: 1.17.0', '']), 'expected COCOAPODS, the version of CocoaPods that wrote the file, which it always writes')
   })
 
+  it('refuses an empty section, list of dependencies or spec repo, which CocoaPods leaves out', () => {
+    refuses(edit([`CHECKOUT OPTIONS:\n  Git:\n    :commit: ${COMMIT}\n    :git: https://example.com/git.git`, 'CHECKOUT OPTIONS:\n  {}']), 'an empty CHECKOUT OPTIONS, which CocoaPods leaves out at line 32')
+    refuses(edit(['DEPENDENCIES:\n', 'OTHER:\n  []\n\nDEPENDENCIES:\n']), 'unsupported section "OTHER" at line 12')
+    refuses(edit(['  - Other (1.2.3)', '  - Other (1.2.3):\n    []']), 'nothing under "Other (1.2.3)" at line 10')
+    refuses(edit(['  - Other (1.2.3)', '  - Other (1.2.3):\n      []']), 'none it depends on, where CocoaPods writes the pod alone', 'PODS[5]["Other (1.2.3)"]')
+    refuses(edit(['    - "A+B"\n', '    - "A+B"\n  other:\n    []\n']), 'no pod of the spec repo, where CocoaPods leaves it out', '["SPEC REPOS"].other')
+  })
+
   it('refuses a CocoaPods before 1.5 or after 1.x', () => {
     for (const version of ['1.4.0', '2.0.0', '0.39.0', '1.17.0.1', 'nope']) {
       refuses(edit(['COCOAPODS: 1.17.0', `COCOAPODS: ${version}`]), `"${version}" is not a version of CocoaPods from 1.5 to 1.x, which this reader reads`, 'COCOAPODS')
@@ -309,6 +317,13 @@ describe('external sources', () => {
     assert.deepEqual([svn.checkout.tag, svn.checkout.folder, svn.checkout.revision], ['1.0', 'trunk', undefined])
   })
 
+  it('a file over http with no headers, as YAMLHelper writes an empty sequence', () => {
+    const zip = { http: 'https://example.com/Git.zip', headers: '\n      []' }
+    const git = parsePodfileLock(external(zip, '`{:http=>"https://example.com/Git.zip", :headers=>[]}`', zip)).roots.Git
+    assert.deepEqual([git.external.headers, git.checkout.headers], [[], []])
+    refuses(external({ http: 'https://example.com/Git.zip', headers: '[]' }, '`{:http=>"https://example.com/Git.zip", :headers=>[]}`', zip), 'line 27: expected "    :headers:", as CocoaPods 1.17.0 writes it, found "    :headers: []"')
+  })
+
   it('a file over http, described with Hash#inspect, of Ruby 3.3 and of 3.4', () => {
     const URL = 'https://example.com/Git.zip'
     const options = { http: URL, type: 'zip', flatten: 'false', headers: '\n      - "Accept: */*"\n      - "X-Token: a+b"' }
@@ -332,8 +347,10 @@ describe('external sources', () => {
 
   it('refuses a value of a kind or a form CocoaPods would not download by', () => {
     const at = '["EXTERNAL SOURCES"].Git'
-    refuses(external({ path: '"/Users/me/Git"' }, '`/Users/me/Git`'), '"/Users/me/Git" is not a path from the Podfile\'s directory', `${at}[":path"]`)
-    refuses(external({ path: '"~/Git"' }, '`~/Git`'), '"~/Git" is not a path from the Podfile\'s directory', `${at}[":path"]`)
+    refuses(external({ path: '"/Users/me/Git"' }, '`/Users/me/Git`'), '"/Users/me/Git" is absolute, and only reads on the machine that wrote it', `${at}[":path"]`)
+    refuses(external({ path: '"~/Git"' }, '`~/Git`'), '"~/Git" is from a home directory, and only reads on the machine that wrote it', `${at}[":path"]`)
+    refuses(external({ podspec: '"/specs/Git.podspec"' }, '`/specs/Git.podspec`'), '"/specs/Git.podspec" is absolute, and only reads on the machine that wrote it', `${at}[":podspec"]`)
+    refuses(external({ path: 'a//Git' }, '`a//Git`'), '"a//Git" is not a path from the Podfile\'s directory', `${at}[":path"]`)
     refuses(external({ http: 'ftp://example.com/Git.zip' }, '`ftp://example.com/Git.zip`'), '"ftp://example.com/Git.zip" is not an http(s) URL', `${at}[":http"]`)
     refuses(external({ git: GIT, commit: 'ABC1234' }, `\`${GIT}\`, commit \`ABC1234\``, { git: GIT, commit: 'ABC1234' }), '"ABC1234" is not a commit in lowercase hex', `${at}[":commit"]`)
     refuses(external({ git: GIT, branch: 'a..b' }, `\`${GIT}\`, branch \`a..b\``, { git: GIT, commit: COMMIT }), '"a..b" is not a branch or tag name git takes', `${at}[":branch"]`)

@@ -30,12 +30,13 @@ const FILE_TYPES = new Set(['zip', 'tgz', 'tar', 'tbz', 'txz', 'dmg'])
 const HEX = { __proto__: null, commit: (value) => /^[\da-f]{4,64}$/u.test(value), sha1: isHexSha1, sha256: isHexSha256 }
 
 // A path from the Podfile's directory, as the Podfile has it: CocoaPods
-// takes `./`, `..` and a `/` at the end as they are, but nothing absolute,
-// from home, or with a backslash.
+// takes `./`, `..` and a `/` at the end as they are. It takes an absolute
+// path and one from home too, which are refused, as each reads on the
+// machine that wrote it alone; and so is a backslash, or an empty segment.
 function checkPath(path, where) {
-  if (/^(?:[/~]|[A-Za-z]:)/u.test(path) || path.includes('\\') || path.includes('//')) {
-    throw new LockfileError(`${quote(path)} is not a path from the Podfile's directory`, where)
-  }
+  if (/^(?:\/|[A-Za-z]:)/u.test(path)) throw new LockfileError(`${quote(path)} is absolute, and only reads on the machine that wrote it`, where)
+  if (path.startsWith('~')) throw new LockfileError(`${quote(path)} is from a home directory, and only reads on the machine that wrote it`, where)
+  if (path.includes('\\') || path.includes('//')) throw new LockfileError(`${quote(path)} is not a path from the Podfile's directory`, where)
   return path
 }
 

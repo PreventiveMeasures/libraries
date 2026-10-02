@@ -20,7 +20,10 @@
 // Requirements are read, not held to the versions they ask for.
 //
 // Throws a LockfileError for anything CocoaPods would not write, or would
-// read otherwise, and a TypeError for bad arguments.
+// read otherwise, and a TypeError for bad arguments. CocoaPods writes an
+// absolute path and one from a home directory, `~/MyPod`, as a Podfile
+// gives either for `:path` or `:podspec`; each is refused, as a lockfile
+// with one reads on the machine that wrote it alone.
 export function parsePodfileLock(text: string, options?: PodfileLockOptions): PodfileLock
 
 export interface PodfileLockOptions {
@@ -100,8 +103,9 @@ export interface PodRoot {
   checkout: PodDownload | undefined
 }
 
-// By `:path`, from the Podfile's directory, or by `:podspec`, a path from
-// there or an http(s) URL. `options` are the others given beside it,
+// By `:path`, from the Podfile's directory, as the Podfile gives it, `./`
+// and a `/` at the end kept; or by `:podspec`, such a path or an http(s)
+// URL. `options` are the others given beside it,
 // strings all, which CocoaPods carries and does not read.
 export type PodExternalSource =
   | { type: 'path', path: string, options: Record<string, string> }

@@ -6,8 +6,8 @@
 // `\\` alone. Each scalar is typed as Psych types it: a string, a symbol
 // (`:git`), true or false. What Psych reads as anything else, a number, a
 // date, a time or null, is refused: no field of a Podfile.lock holds one.
-// Comments, anchors, tags, flow collections and every form YAMLHelper
-// does not write are refused too; what it would lay out otherwise is for
+// Comments, anchors, tags, flow collections but an empty one, and every
+// form YAMLHelper does not write are refused too; what it would lay out otherwise is for
 // layout.js, which writes what was read back as YAMLHelper would.
 //
 // A mapping is `{ kind: 'map', entries: [{ key, value }] }`, its keys
@@ -79,8 +79,11 @@ function readPlain(text, number) {
   return scalar(type, value, number)
 }
 
-// A value on the line, after `key: ` or `- `.
+// A value on the line, after `key: ` or `- `, or on a line of its own:
+// an empty sequence or mapping, as YAMLHelper writes one, is `[]` or `{}`.
 function readValue(text, number) {
+  if (text === '[]') return { kind: 'seq', items: [] }
+  if (text === '{}') return { kind: 'map', entries: [] }
   if (text.startsWith('"') || text.startsWith("'")) {
     const [value, rest] = readQuoted(text, number)
     if (rest !== '') throw fail(`${quote(rest)} after a quoted scalar`, number)
@@ -112,8 +115,14 @@ function checkDepth(src, depth) {
   if (depth > MAX_DEPTH) throw fail('nested deeper than a Podfile.lock is', src.current.number)
 }
 
-// A mapping or a sequence whose lines are at `indent`.
-const parseNode = (src, indent, depth) => (isEntry(src.current.text) ? parseSeq : parseMap)(src, indent, depth)
+// A mapping or a sequence whose lines are at `indent`, or an empty one,
+// which YAMLHelper writes on a line of its own under its key.
+function parseNode(src, indent, depth) {
+  const { number, text } = src.current
+  if (text !== '[]' && text !== '{}') return (isEntry(text) ? parseSeq : parseMap)(src, indent, depth)
+  next(src)
+  return readValue(text, number)
+}
 
 // A mapping at `indent`, its first entry already read where `entry` is, as
 // in a sequence's entry. A sequence under a key may sit at the key's own

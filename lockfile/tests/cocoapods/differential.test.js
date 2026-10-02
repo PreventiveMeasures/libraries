@@ -60,11 +60,14 @@ function keys(generator, count, symbols) {
   return list
 }
 
-// A tree of what a Podfile.lock holds, of no empty collection, no sequence
-// in a sequence and no boolean in a sequence, none of which it does.
+// A tree of what a Podfile.lock holds, an empty collection among it, as
+// `:headers => []` is; of no sequence in a sequence, no boolean in a
+// sequence, and no empty mapping in one, none of which it holds, and the
+// last two of which YAMLHelper fails to sort.
 function made(generator, depth) {
   const roll = generator.next()
   if (depth >= 3 || roll < 0.4) return generator.next() < 0.1 ? { b: generator.next() < 0.5 } : scalar(generator)
+  if (roll < 0.45) return generator.next() < 0.5 ? { a: [] } : { m: [] }
   if (roll < 0.7) return { a: Array.from({ length: 1 + Math.floor(generator.next() * 3) }, () => listed(generator, depth + 1)) }
   return { m: keys(generator, 1 + Math.floor(generator.next() * 3), true).map((key) => [key, made(generator, depth + 1)]) }
 }

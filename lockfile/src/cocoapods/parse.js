@@ -27,10 +27,14 @@ import { parseCocoaYaml } from './yaml.js'
 
 const where = (section) => at('', section)
 
+// A sequence or a mapping CocoaPods leaves out where it would be empty.
+const isEmpty = (node) => (node.kind === 'seq' && node.items.length === 0) || (node.kind === 'map' && node.entries.length === 0)
+
 function readSections(root) {
   const sections = Object.create(null)
   for (const { key, value } of root.entries) {
     if (key.type !== 'string' || !SECTIONS.includes(key.value)) throw fail(`unsupported section ${quote(String(key.value))}`, key.line)
+    if (isEmpty(value)) throw fail(`an empty ${key.value}, which CocoaPods leaves out`, key.line)
     sections[key.value] = value
   }
   return sections
@@ -60,6 +64,7 @@ function readPods(node) {
     if (item.kind === 'seq' || (item.kind === 'map' && item.entries.length !== 1)) throw new LockfileError('expected a pod, or one pod and what it depends on', here)
     const [key, list] = item.kind === 'map' ? [item.entries[0].key, item.entries[0].value] : [item, undefined]
     const there = at(here, String(key.value))
+    if (list !== undefined && isEmpty(list)) throw new LockfileError('none it depends on, where CocoaPods writes the pod alone', there)
     const dependencies = itemsOf(list, there).map((dependency, number) => readDependency(textOf(dependency, `${there}[${number}]`), `${there}[${number}]`))
     const { name, version } = readPodString(textOf(key, here), here)
     if (name in pods) throw new LockfileError(`a second ${quote(name)}`, here)
@@ -95,6 +100,7 @@ function readSpecRepos(node) {
   for (const [key, list, here] of entriesOf(node, where('SPEC REPOS'))) {
     const repo = textOf(key, here)
     if (/\s/u.test(repo)) throw new LockfileError(`${quote(repo)} is not a spec repo's URL or name`, here)
+    if (isEmpty(list)) throw new LockfileError('no pod of the spec repo, where CocoaPods leaves it out', here)
     for (const [index, item] of itemsOf(list, here).entries()) {
       const there = `${here}[${index}]`
       const root = checkRootName(textOf(item, there), there)
