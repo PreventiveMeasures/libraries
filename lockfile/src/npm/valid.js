@@ -110,18 +110,13 @@ function check(edge, semver) {
 // What npm's Edge#valid and buildIdealTree's problem edges are, from the
 // project.
 export function checkEdges(nodes, semver) {
-  const root = nodes.get('')
-  const seen = new Set([root])
-  const queue = [root]
-  while (queue.length > 0) {
-    const node = queue.pop()
+  const reached = new Set([nodes.get('')])
+  for (const node of reached) {
     const bundled = new Set(node.kind === 'package' ? node.bundleDependencies : [])
     for (const edge of node.edges.values()) {
       if (!bundled.has(edge.name)) check(edge, semver)
       const next = edge.to === undefined ? undefined : packageOf(edge.to)
-      if (next === undefined || seen.has(next) || next.location.startsWith('../')) continue
-      seen.add(next)
-      queue.push(next)
+      if (next !== undefined && !next.location.startsWith('../')) reached.add(next)
     }
   }
 }
