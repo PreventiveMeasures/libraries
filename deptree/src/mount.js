@@ -21,6 +21,23 @@ export function checkNoModules(vfs, folded) {
   }
 }
 
+// A checker for mount: refuses `dir`, the folder a builder makes, where it
+// is there already, or on macOS a name that is one there with it, as the
+// package manager would keep or remove what is in it. `what` names it.
+export function checkNoDir(dir, what) {
+  return (vfs, folded) => {
+    const same = (a, b) => (folded ? fold(a) === fold(b) : a === b)
+    let at = ''
+    for (const segment of dir.split('/')) {
+      const parent = at || '/'
+      const found = vfs.isDirectory(parent) ? vfs.readdir(parent).find((name) => same(name, segment)) : undefined
+      if (found === undefined) return
+      at = `${at}/${found}`
+    }
+    throw new DeptreeError(`${what} is there already, which is neither kept beside the tree nor removed`, where(at))
+  }
+}
+
 function checkCollisions(vfs) {
   const [clash] = vfs.collisions(fold)
   if (clash !== undefined) throw new DeptreeError(`${quote(clash.names[0])} and ${quote(clash.names[1])} are one name on macOS`, quote(clash.path))
@@ -28,6 +45,8 @@ function checkCollisions(vfs) {
 
 // A path within a directory: no segment of it empty, `.` or `..`.
 export const isInside = (path) => path !== '' && path.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..')
+// The directories a path is in, the top one first.
+export const parentsOf = (path) => path.split('/').slice(0, -1).map((_, index, names) => names.slice(0, index + 1).join('/'))
 
 const asRefusal = (error, what, path) => {
   if (error instanceof VfsError) return new DeptreeError(`cannot be ${what}: ${error.message}`, quote(path), { cause: error })
@@ -84,7 +103,9 @@ export function writeLink(vfs, path, target) {
 }
 
 // `root` is the package's directory in the tree, without a leading `/`.
-export function writeFiles(vfs, root, { dirs, files }, stats, skip = () => false) {
+// `links` are written after every file, so none is written through one, and
+// `modes` of directories, `''` the root's, given last, as unzip gives them.
+export function writeFiles(vfs, root, { dirs, files, links = new Map(), modes = new Map() }, stats, skip = () => false) {
   const real = new Set()
   makeDirs(vfs, root, real)
   for (const dir of dirs) {
@@ -103,6 +124,17 @@ export function writeFiles(vfs, root, { dirs, files }, stats, skip = () => false
     stats.files++
     stats.bytes += file.data.length
   }
+  for (const [path, target] of links) {
+    if (skip(path)) continue
+    const at = checkWrite(vfs, root, path, real)
+    try {
+      vfs.symlink(target, at)
+    } catch (error) {
+      throw asRefusal(error, 'made', `${root}/${path}`)
+    }
+    stats.links++
+  }
+  for (const [dir, mode] of modes) vfs.chmod(dir === '' ? `/${root}` : `/${root}/${dir}`, mode)
 }
 
 // `target` with `tree` in it, or `tree` where there is none; on macOS, two

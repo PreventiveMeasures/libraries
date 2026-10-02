@@ -46,7 +46,7 @@ importers:
         specifier: 1.0.0-alpha.5
         version: link:../lockfile
       '@preventive/upstream':
-        specifier: 1.0.0-alpha.4
+        specifier: 1.0.0-alpha.5
         version: link:../upstream
       '@preventive/vfs':
         specifier: 1.0.0-beta.3
