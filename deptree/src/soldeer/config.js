@@ -48,9 +48,7 @@ function checkSettings(settings, file) {
     if (settings[key] !== undefined && typeof settings[key] !== 'boolean') throw new DeptreeError('not true or false, which Soldeer fails on', `${where}.${key}`)
   }
   if (settings.remappings_prefix !== undefined && typeof settings.remappings_prefix !== 'string') throw new DeptreeError('not a string, which Soldeer fails on', `${where}.remappings_prefix`)
-  if (settings.remappings_location !== undefined && settings.remappings_location !== 'txt' && settings.remappings_location !== 'config') {
-    throw new DeptreeError('not "txt" or "config", which Soldeer fails on', `${where}.remappings_location`)
-  }
+  if (![undefined, 'txt', 'config'].includes(settings.remappings_location)) throw new DeptreeError('not "txt" or "config", which Soldeer fails on', `${where}.remappings_location`)
   if (settings.recursive_deps === true) throw new DeptreeError('has Soldeer install what each dependency depends on too, which is not supported', `${where}.recursive_deps`)
 }
 
