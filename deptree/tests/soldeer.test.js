@@ -9,7 +9,7 @@ const ZERO = '0'.repeat(64)
 
 const dependency = (name, version, entries) => ({ name, version, bytes: rawZip(entries) })
 
-// soldeer.lock for the zips, as Soldeer 0.12 writes it, sorted by name.
+// As Soldeer 0.12 writes soldeer.lock, sorted by name.
 function lockOf(zips, extra = []) {
   const entries = [
     ...zips.map((z) => ({ name: z.name, text: `name = "${z.name}"\nversion = "${z.version}"\nurl = "https://soldeer-revisions.s3.amazonaws.com/${z.name}/x.zip"\nchecksum = "${sha256(z.bytes)}"\nintegrity = "${ZERO}"` })),
@@ -189,7 +189,6 @@ describe('buildSoldeerTree', () => {
   it('refuses once every fetch started has ended', async () => {
     const zips = [dependency('aaa-pkg', '1.0.0', [{ name: 'a', data: 'a' }]), dependency('bbb-pkg', '1.0.0', [{ name: 'b', data: 'b' }])]
     stubSoldeer(zips)
-    // aaa-pkg's registry answers it has none, at once; bbb-pkg's zip comes late.
     const count = slowed(20, (input) => (input.includes('aaa-pkg') ? Response.json({ status: 'success', data: [] }) : undefined))
     await assert.rejects(buildSoldeerTree({ lockfile: lockOf(zips), soldeer: configOf(zips), host: HOST }), /^DeptreeError: dependencies\["aaa-pkg"\]: /u)
     assert.equal(count.open, 0)

@@ -3,8 +3,7 @@ import { describe, it } from 'node:test'
 import { parsePnpmLockfile } from '@preventive/lockfile/pnpm.js'
 import { checkCatalogResolutions, checkLinkTargets, checkLinkedPackages, indexProjects, sameSpecifier } from '../src/pnpm/frozen.js'
 
-// What pnpm 11's frozen install holds a project to beyond pnpm 10's, case
-// by case.
+// What pnpm 11's frozen install holds a project to beyond pnpm 10's.
 
 describe('sameSpecifier', () => {
   it('takes two spellings of one git repository and commit alike for pnpm 11', () => {
@@ -61,7 +60,6 @@ snapshots:
 })
 
 describe('checkLinkedPackages', () => {
-  // `b` asks for `a` as `spec`, and the lockfile resolves it to `version`.
   const check = (spec, version, { linkWorkspacePackages = false } = {}) => {
     const lockfile = parsePnpmLockfile(`lockfileVersion: '9.0'
 

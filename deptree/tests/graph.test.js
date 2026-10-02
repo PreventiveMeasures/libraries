@@ -6,15 +6,12 @@ import { hoist } from '../src/pnpm/hoist.js'
 import { skippedSnapshots } from '../src/pnpm/install.js'
 import { HOST } from './registry.js'
 
-// Lockfiles of registry packages only, every snapshot a package of its own
-// name at 1.0.0 unless its key says otherwise; what is checked here is the
-// order pnpm walks them in, which decides what is left out and what is
-// hoisted.
+// What is checked here is the order pnpm walks a lockfile in, which
+// decides what is left out and what is hoisted.
 
 const I = 'sha512-z4PhNX7vuL3xVChQ1m2AB9Yg5AULVxXcg/SpIdNs6c5H0NE8XYXysP+DGNKHfuwvY7kxvUdBeoGlODJ6+SfaPg=='
 
-// `root` maps a kind to aliases; `graph` maps a key to its dependencies
-// by alias, as `alias: version`, and `meta` to more of its package entry.
+// `graph` maps a key to its dependencies; `meta` to YAML for its package.
 function lockfile({ root, graph, meta = {}, snapshotMeta = {} }) {
   const importer = Object.entries(root).map(([kind, aliases]) => `    ${kind}:\n${aliases.map((alias) => `      ${alias}:\n        specifier: 1.0.0\n        version: 1.0.0\n`).join('')}`).join('')
   const packages = Object.keys(graph).map((key) => `  ${key}:\n    resolution: {integrity: ${I}}\n${meta[key] ?? ''}`).join('\n')
@@ -28,14 +25,12 @@ function lockfile({ root, graph, meta = {}, snapshotMeta = {} }) {
 
 const settings = { hoistPattern: ['*'], publicHoistPattern: [] }
 const on10 = { host: HOST, settings: {} }
-// m cannot run here; k can, and is reached through m before n; all three
-// are optional.
+// m cannot run here; k is reached through m before n; all are optional.
 const THROUGH_M = {
   graph: { 'k@1.0.0': {}, 'm@1.0.0': { k: '1.0.0' }, 'n@1.0.0': { k: '1.0.0' } },
   meta: { 'm@1.0.0': '    os: [darwin]\n' },
   snapshotMeta: { 'k@1.0.0': '    optional: true\n', 'm@1.0.0': '    optional: true\n', 'n@1.0.0': '    optional: true\n' },
 }
-// The links hoisting makes into .pnpm/node_modules, as alias: directory.
 const hoisted = async (lock, { skipped = new Set(), major } = {}) => {
   const { nodes, direct, hoisting } = await buildGraph(lock, skipped, 120, major)
   const links = hoist(new Map([...nodes.values()].map((node) => [node.dir, node])), direct, settings, new Map(), major, hoisting)
@@ -100,10 +95,6 @@ describe('skippedSnapshots for pnpm 11', () => {
   })
 })
 
-// pnpm 12 leaves out what pnpm 11 does, but refuses with engineStrict an
-// incompatible package an installed one requires though the lockfile marks
-// it optional; takes the first entry of a cpu list that names the host's;
-// and refuses an engines.node npm's semver does not read where it decides.
 describe('skippedSnapshots for pnpm 12', () => {
   const on12 = (given = {}) => ({ host: { ...HOST, major: 12 }, settings: given })
   const on11 = (given = {}) => ({ host: { ...HOST, major: 11 }, settings: given })
@@ -133,9 +124,8 @@ describe('skippedSnapshots for pnpm 12', () => {
   })
 })
 
-// `file:a:b` and `file:a?b` are one directory under node_modules/.pnpm,
-// both `:` and `?` made `+`; pnpm 10 and 11 place no snapshot they skip,
-// and pnpm 12 hoists from those too.
+// `file:a:b` and `file:a?b` are one directory, `:` and `?` both made `+`;
+// pnpm 10 and 11 place no snapshot they skip; pnpm 12 hoists from those.
 describe('buildGraph', () => {
   it('holds to one directory each only the snapshots pnpm places', async () => {
     const lock = { packages: { 'a@file:a:b': { name: 'a' }, 'a@file:a?b': { name: 'a' } }, importers: { '.': {} } }

@@ -6,9 +6,7 @@ import { listOverrides } from '../src/pnpm/overrides.js'
 import { checkProjects, readManifests } from '../src/pnpm/projects.js'
 import { HOST } from './registry.js'
 
-// A project against its importer, as `pnpm install --frozen-lockfile`
-// holds it (satisfiesPackageManifest): one importer, `.`, of a registry
-// package `q` and an alias `r` of it, checked against package.json edits.
+// As pnpm's satisfiesPackageManifest holds a project to its importer.
 
 const I = 'sha512-z4PhNX7vuL3xVChQ1m2AB9Yg5AULVxXcg/SpIdNs6c5H0NE8XYXysP+DGNKHfuwvY7kxvUdBeoGlODJ6+SfaPg=='
 
@@ -41,7 +39,7 @@ snapshots:
 
 const MANIFEST = { dependencies: { q: '^1.0.0', r: 'npm:q@1.2.0' }, devDependencies: { l: 'link:../l' } }
 const SETTINGS = { autoInstallPeers: true, engineStrict: false }
-// LOCKFILE, to change: a copy, its importers keyed as the reader keys them.
+// structuredClone loses the null prototype the reader gives importers.
 const cloned = () => { const lockfile = structuredClone(LOCKFILE); Object.setPrototypeOf(lockfile.importers, null); return lockfile }
 const check = (manifest, { lockfile = LOCKFILE, hook = createHook({ overrides: [], ignored: [] }), host = { ...HOST, major: 10 }, ...settings } = {}) => {
   checkProjects(lockfile, new Map([['.', manifest]]), { hook, host, settings: { ...SETTINGS, ...settings } })
@@ -67,9 +65,8 @@ describe('checkProjects', () => {
     it(`refuses ${what}`, () => assert.throws(() => check(manifest), pattern))
   }
 
-  // pnpm reads a project's package.json through its read-package hook
-  // before holding it to its importer: an override of a direct dependency
-  // is what the importer records.
+  // pnpm runs package.json through its read-package hook first, so the
+  // importer records an override of a direct dependency.
   it('holds an overridden or ignored direct dependency to the importer as pnpm reads it', () => {
     const hook = createHook({ overrides: listOverrides({ q: '^1.0.0', z: '-' }, {}), ignored: ['o'] })
     check({ ...MANIFEST, dependencies: { ...MANIFEST.dependencies, q: '^1.1.0', z: '1' }, optionalDependencies: { o: '1' } }, { hook })
@@ -116,7 +113,6 @@ describe('checkProjects', () => {
   })
 })
 
-// What pnpm 11's frozen install holds a project to beyond pnpm 10's.
 describe('checkProjects for pnpm 11', () => {
   const HOST_11 = { ...HOST, pnpm: '11.28.2', major: 11 }
   const check11 = (manifest, options) => check(manifest, { host: HOST_11, ...options })
@@ -169,14 +165,10 @@ describe('checkProjects for pnpm 11', () => {
   })
 })
 
-// pnpm 12 checks of a project only the root's engines.node, with
-// engineStrict, whatever its os; and holds a project the lockfile has no
-// importer for to none where it has no dependencies, peers aside.
 describe('checkProjects for pnpm 12', () => {
   const HOST_12 = { ...HOST, pnpm: '12.8.1', major: 12 }
   const check12 = (manifest, options) => check(manifest, { host: HOST_12, ...options })
-  // The root's package.json, and `project`'s at packages/x, which the
-  // lockfile has no importer for.
+  // `project` goes at packages/x, which the lockfile has no importer for.
   const run = (project, settings = {}) => {
     const lockfile = cloned()
     const manifests = readManifests({ '.': JSON.stringify(MANIFEST), 'packages/x': JSON.stringify(project) }, lockfile)

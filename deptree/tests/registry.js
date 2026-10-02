@@ -5,9 +5,8 @@ import { crc32, deflateRawSync } from 'node:zlib'
 import { compress } from '@preventive/archive/compression.js'
 import { pack } from '@preventive/archive/tar.js'
 
-// upstream looks in npm's cache and the home directory before the
-// registry: both are pointed at a directory that is never made, so no
-// tarball on this machine answers for the stubs, and nothing is written.
+// upstream looks in npm's cache and home directory before the registry:
+// both point at a directory never made, so no local tarball answers.
 const NOWHERE = join(tmpdir(), `deptree-test-${process.pid}-nowhere`)
 process.env.HOME = NOWHERE
 process.env.npm_config_cache = NOWHERE
@@ -18,10 +17,7 @@ const encoder = new TextEncoder()
 export const sri = (bytes) => `sha512-${createHash('sha512').update(bytes).digest('base64')}`
 export const url = (name, version) => `https://registry.npmjs.org/${name}/-/${name.split('/').at(-1)}-${version}.tgz`
 
-// A package's tarball as npm packs one, everything under `package/`:
-// `files` maps a path to text, or to `{ data, mode }`, and package.json is
-// written for the name and version, and the fields of `manifest`, unless
-// given.
+// As npm packs one; `files` maps a path to text, or to `{ data, mode }`.
 export async function tarball(name, version, files = {}, { top = 'package', manifest = {} } = {}) {
   const all = { 'package.json': JSON.stringify({ name, version, ...manifest }), ...files }
   const entries = Object.entries(all).filter(([, file]) => file !== undefined).map(([path, file]) => {
@@ -32,8 +28,6 @@ export async function tarball(name, version, files = {}, { top = 'package', mani
   return { name, version, bytes, integrity: sri(bytes) }
 }
 
-// The registry, serving each tarball given at its own URL; `calls` is
-// every URL asked for.
 export function stubRegistry(tarballs) {
   const served = new Map(tarballs.map((t) => [url(t.name, t.version), t.served ?? t.bytes]))
   const calls = []
@@ -45,9 +39,8 @@ export function stubRegistry(tarballs) {
   return calls
 }
 
-// globalThis.fetch as stubbed, each answer `ms` late but those `now`
-// answers at once; what is returned counts the fetches still coming, and
-// the most there were at once.
+// The stubbed fetch, each answer `ms` late unless `now` gives one; counts
+// the fetches still coming, and the most at once.
 export function slowed(ms, now = () => undefined) {
   const served = globalThis.fetch
   const count = { open: 0, most: 0 }
@@ -64,25 +57,20 @@ export function slowed(ms, now = () => undefined) {
   return count
 }
 
-// The registry as stubRegistry's, but for the tarball of `name` and
-// `version`, which is not found at once, while every other comes late;
-// what is returned tells how many are still coming.
+// `name`@`version` is not found at once, while every other tarball comes
+// late; what is returned tells how many are still coming.
 export function stubFailingRegistry(tarballs, name, version) {
   stubRegistry(tarballs)
   const count = slowed(100, (input) => (input === url(name, version) ? Response.json({ error: 'Not found' }, { status: 404 }) : undefined))
   return () => count.open
 }
 
-// A Vfs's paths, each with its type, in the order it walks them.
 export const paths = (vfs) => [...vfs.walk('/')].map(({ path, type }) => `${path} ${type}`)
 
 export const HOST = Object.freeze({ pnpm: '10.33.4', node: '24.15.0', os: 'linux', cpu: 'x64', libc: 'glibc' })
 
-// A zip with every field as given, as a zip of Soldeer's registry may have
-// it: entries of { name, data, system (3, Unix, by default), flags, mode
-// (a Unix mode, put in the upper half of the attributes) or attributes
-// (raw), extra, deflate, size (the size declared, the data's own by
-// default) }, each stored or deflated, in order, repeats and all.
+// A zip with every field as given, as one from Soldeer's registry may have
+// it, repeats and all; `size` is the size declared, whatever the data's.
 export function rawZip(entries) {
   const locals = []
   const centrals = []
@@ -121,8 +109,6 @@ export const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex'
 const SOLDEER_API = 'https://api.soldeer.xyz/api/v1/revision-cli'
 const revisions = (name) => `https://soldeer-revisions.s3.amazonaws.com/${name}/`
 
-// Soldeer's registry, serving each zip, { name, version, bytes }, where
-// its revision says; `calls` is every URL asked for.
 export function stubSoldeer(zips) {
   const calls = []
   globalThis.fetch = (input) => {

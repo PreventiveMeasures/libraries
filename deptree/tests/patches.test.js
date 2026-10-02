@@ -2,8 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { checkPatchUse, checkPeerPatches } from '../src/pnpm/patches.js'
 
-// Which patch pnpm applies to a package, by the settings' selectors, held
-// against the patch hash its snapshot key names.
+// The patch pnpm picks by selector, held against the hash a key names.
 const lockfile = (packages) => ({ packages: Object.fromEntries(packages.map(([name, version, patchHash]) => [`${name}@${version}${patchHash ? `(patch_hash=${patchHash})` : ''}`, { name, version, patchHash }])) })
 const hashes = (selectors) => Object.fromEntries(Object.entries(selectors).map(([selector, hash]) => [selector, { hash, path: `${hash}.patch` }]))
 

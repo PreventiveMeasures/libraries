@@ -7,7 +7,6 @@ const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 const file = (text, mode = 0o644) => ({ data: typeof text === 'string' ? encoder.encode(text) : text, mode })
 const filesOf = (entries) => new Map(Object.entries(entries).map(([path, text]) => [path, file(text)]))
-// `files`, each change made: a file's text, or undefined to remove it.
 const patched = (files, changes) => {
   const all = new Map(files)
   for (const [path, text] of Object.entries(changes)) {
@@ -60,7 +59,6 @@ describe('checkPatchOfBins', () => {
     assert.equal(check({}), manifest)
   })
 
-  // Bins by the files of a directories.bin, and a bundled package's.
   const other = { name: 'y', version: '1.0.0', directories: { bin: 'bin' } }
   const bundledOf = (fields) => JSON.stringify({ name: 'q', version: '1.0.0', bin: { q: 'q.js', r: 'r.js' }, ...fields })
   const bundled = bundledOf({})

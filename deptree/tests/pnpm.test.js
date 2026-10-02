@@ -7,9 +7,7 @@ import { createVfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, YamlError, buildPnpmTree, findPnpmProjects } from '../pnpm.js'
 import { HOST, paths, sri, stubFailingRegistry, stubRegistry, tarball } from './registry.js'
 
-// One small lockfile with a package of every kind this builds — a peer, an
-// alias, a capital in a name, a patch, a dev and an optional dependency,
-// one with a bin, a link — against a registry stubbed with tarballs made
+// A lockfile with a package of every kind this builds, from tarballs made
 // here; then one change at a time, each refused with where and why.
 
 const realFetch = globalThis.fetch
@@ -139,8 +137,6 @@ snapshots:
   p@1.0.0(patch_hash=${patchHash}): {}
 `
 
-// The root package.json, which names the patch as pnpm-workspace.yaml
-// may instead.
 const root = ({ pnpm = {}, ...fields } = {}) => JSON.stringify({
   name: 'root',
   dependencies: { Up: '1.0.0', a: '1.0.0', l: 'link:../l', 'my-lodash': 'npm:lodash@4.17.21', p: '1.0.0' },
@@ -157,7 +153,6 @@ const HOST_12 = { ...HOST, pnpm: '12.8.1' }
 const UP = `Up@1.0.0_${hex('Up@1.0.0').slice(0, 32)}`
 const P = `p@1.0.0_patch_hash=${H}`
 
-// A lockfile of the root's dependencies alone, and its parts.
 const small = (importer, packages, snapshots, overrides = '') => `lockfileVersion: '9.0'
 
 settings:
@@ -175,8 +170,7 @@ snapshots:
 ${snapshots}`
 const dep = (name, version = '1.0.0', specifier = version) => `      ${name}:\n        specifier: ${specifier}\n        version: ${version}\n`
 const entry = (t, fields = '') => `  ${t.name}@${t.version}:\n    resolution: {integrity: ${t.integrity}}\n${fields}`
-// The tree of a root that depends on each tarball's package alone, each
-// package entry given `fields`, from a registry that serves them.
+// The tree of a root that depends on each tarball's package alone.
 const only = (tarballs, { fields = '', ...options } = {}) => {
   stubRegistry(tarballs)
   const locked = small(tarballs.map((t) => dep(t.name, t.version)).join(''), `${tarballs.map((t) => entry(t, fields)).join('\n')}\n`, tarballs.map((t) => `  ${t.name}@${t.version}: {}\n`).join('\n'))
@@ -203,9 +197,8 @@ describe('buildPnpmTree', () => {
     assert.equal(vfs.stat('/node_modules/.pnpm/d@1.0.0/node_modules/d/package.json').mode, 0o644)
   })
 
-  // pnpm folds an alias's case before it looks for it among the root
-  // project's, which it does not fold: `Up` is hoisted although the root
-  // project has it, as pnpm hoists JSONStream.
+  // pnpm folds an alias's case, but not the root project's, before it looks
+  // for it there: `Up` is hoisted though the root has it, as JSONStream is.
   it('hoists what the root project does not depend on into .pnpm/node_modules', async () => {
     stubRegistry(TARBALLS)
     const vfs = await build()
@@ -306,8 +299,6 @@ describe('buildPnpmTree', () => {
   })
 })
 
-// Tarballs are fetched once for each package, however many snapshots it
-// has; bins' files are left as linking them leaves them.
 describe('buildPnpmTree packages', () => {
   const BIN = { fields: '    hasBin: true\n' }
   const manifest = (dependencies) => JSON.stringify({ name: 'root', dependencies })
@@ -370,9 +361,8 @@ ${['c@2.0.0', 'c@2.1.0', 'x@1.0.0', 'y@1.0.0'].map((id) => `  ${id}:\n    resolu
     assert.equal(vfs.readText('/node_modules/.pnpm/u@1.0.0/node_modules/u/u.js'), '#!/usr/bin/env node\r\n')
   })
 
-  // pnpm reads a `bin` list as it reads any object, by its keys: the
-  // command of `["bin/foo"]` is `0`, and takes nothing from foo's `foo`,
-  // so both files are fixed.
+  // pnpm reads a `bin` list as any object, by its keys: `["bin/foo"]`'s
+  // command is `0`, and takes nothing from foo's `foo`, so both are fixed.
   it('takes a bin list\'s commands by their indexes, as pnpm does', async () => {
     const bins = await Promise.all([
       tarball('arr', '1.0.0', { 'bin/foo': '#!/usr/bin/env node\n' }, { manifest: { bin: ['bin/foo'] } }),
@@ -451,12 +441,10 @@ ${['c@2.0.0', 'c@2.1.0', 'x@1.0.0', 'y@1.0.0'].map((id) => `  ${id}:\n    resolu
   })
 })
 
-// Of a `bin` that names none beside a directories.bin, pnpm resolves
-// hasBin as none, and pnpm 11 rewrites a snapshot as some: either is
-// taken. pnpm links the files of the directories.bin where `bin` is empty
-// text, and pnpm 10 links a root project's direct dependency's bins
-// whatever hasBin says. A bundled dependency's specifier is not held to
-// its link.
+// For a `bin` naming none beside a directories.bin, pnpm resolves hasBin
+// as none, and pnpm 11 rewrites a snapshot as some: either is taken. pnpm
+// links the directories.bin where `bin` is empty text, and pnpm 10 links
+// a root project's direct dependency's bins whatever hasBin says.
 describe('buildPnpmTree reads a package.json as pnpm writes the lockfile', () => {
   it('takes either hasBin for a bin that names none beside a directories.bin', async () => {
     for (const bin of [{}, '', true]) {
@@ -487,12 +475,10 @@ describe('buildPnpmTree reads a package.json as pnpm writes the lockfile', () =>
 })
 
 // A directory outside the tree whose bins are not known here — one a
-// `link:` leads to with no package.json given, or one outside the
-// lockfile's directory, or a project by its directories.bin — may take
-// any name in a .bin it is linked into, so whether pnpm fixes the file of
-// another bin there is not known, and is refused where it would change
-// the file. t's bin is `cmd`, and so is v's, which sorts after it and
-// wins it.
+// `link:` leads to with no package.json given, one outside the lockfile's
+// directory, or a project by its directories.bin — may take any name in
+// a .bin it is linked into, so a bin beside it that linking would fix is
+// refused. t's bin is `cmd`, and so is v's, which sorts after and wins it.
 describe('buildPnpmTree beside the bins of a directory outside the tree', () => {
   const lock = (importer, t) => small(importer, `${entry(t, '    hasBin: true\n')}\n`, '  t@1.0.0: {}\n')
   const bin = async (mode) => {
@@ -546,8 +532,7 @@ describe('buildPnpmTree refuses', () => {
   const refuses = async (options, pattern, ErrorType = DeptreeError) => {
     await assert.rejects(build(options), (error) => error instanceof ErrorType && pattern.test(error.message))
   }
-  // The lockfile, from a registry that serves `served` for the tarball of
-  // its name; and a tarball of entries as they are, not as npm packs one.
+  // `packed` is a tarball of entries as they are, not as npm packs one.
   const serving = (served) => {
     stubRegistry([...TARBALLS.filter((t) => t.name !== served.name), served])
     return lockfile().replace(I[served.name], sri(served.bytes))
@@ -572,8 +557,7 @@ describe('buildPnpmTree refuses', () => {
     await refuses({ lockfile: serving(await linked('hardlink', 'package/package.json')) }, /^"c@2\.0\.0": "package\/x" is a hardlink/u)
   })
 
-  // Stricter than pnpm, which passes over most of these: what npm packs,
-  // and a package.json that says what the lockfile recorded of it.
+  // Stricter than pnpm, which passes over most of these.
   it('a tarball that is not one npm packs, or whose package.json the lockfile does not agree with', async () => {
     const json = new TextEncoder().encode('{"name":"b","version":"1.0.0"}')
     const cases = [
@@ -619,8 +603,7 @@ describe('buildPnpmTree refuses', () => {
   })
 
   // pnpm hashes every patch it is configured with, and holds the lockfile
-  // to the hashes and the paths: each has to be given, and hash as the
-  // lockfile says, under the path it says.
+  // to the hashes and the paths.
   it('a patch that is not given, does not hash as the lockfile says, or is named elsewhere', async () => {
     stubRegistry(TARBALLS)
     await refuses({ patches: {} }, /^patchedDependencies\["p@1\.0\.0"\]: the patch "patches\/p\.patch" is not given, and pnpm reads every patch/u)
@@ -682,8 +665,6 @@ describe('buildPnpmTree refuses', () => {
     await refuses({ workspace: 'packageExtensions:\n  a:\n    dependencies:\n      b: 1.0.0\n' }, /^packageExtensions: package extensions are not supported/u)
   })
 
-  // Both files are YAML: a refusal of either names it, and keeps the
-  // reader's own as its cause.
   it('a lockfile the lockfile reader refuses, or YAML it cannot read', async () => {
     const named = (pattern, Cause) => (error) => error instanceof DeptreeError && pattern.test(error.message) && error.cause instanceof Cause
     await assert.rejects(build({ lockfile: "lockfileVersion: '6.0'\n" }), named(/^pnpm-lock\.yaml: lockfileVersion: unsupported version/u, LockfileError))
@@ -708,19 +689,15 @@ describe('buildPnpmTree refuses', () => {
   })
 })
 
-// The lockfile with a second project, packages/x, depending on b; and the
-// workspace that finds it.
 const TWO = lockfile().replace('importers:\n', 'importers:\n\n  packages/x:\n    dependencies:\n      b:\n        specifier: 1.0.0\n        version: 1.0.0\n')
 const WORKSPACE = 'packages:\n  - packages/*\n'
 
-// The lockfile as pnpm 11 and 12 write it, each patch's hash alone; and
-// the patch named where they read it, in pnpm-workspace.yaml.
+// The lockfile as pnpm 11 and 12 write it, each patch's hash alone.
 const flatLockfile = ({ patchHash = H } = {}) => lockfile({ patchHash }).replace(`  p@1.0.0:\n    hash: ${patchHash}\n    path: patches/p.patch\n`, `  p@1.0.0: ${patchHash}\n`)
 const PATCHED_IN_YAML = 'patchedDependencies:\n  p@1.0.0: patches/p.patch\n'
 const UNPATCHED = root({ pnpm: { patchedDependencies: undefined } })
 
-// pnpm 11 reads its settings from pnpm-workspace.yaml alone, and writes
-// each patch's hash alone in the lockfile.
+// pnpm 11 reads its settings from pnpm-workspace.yaml alone.
 describe('buildPnpmTree for pnpm 11', () => {
 
   it('builds from settings in pnpm-workspace.yaml and pnpm 11\'s lockfile', async () => {
@@ -730,8 +707,7 @@ describe('buildPnpmTree for pnpm 11', () => {
   })
 
   // pnpm 11 checks a lockfile against the registry before it installs,
-  // unless trustLockfile: the tree here follows the lockfile, whatever
-  // minimumReleaseAge says, and asks the registry for nothing but tarballs.
+  // unless trustLockfile; this asks the registry for nothing but tarballs.
   it('follows the lockfile, whatever minimumReleaseAge says', async () => {
     const calls = stubRegistry(TARBALLS)
     const elsewhere = flatLockfile().replace(`  mac@1.0.0:\n    resolution: {integrity: ${I.mac}}`, `  mac@1.0.0:\n    resolution: {integrity: ${I.mac}, tarball: https://example.com/mac.tgz}`)
@@ -821,8 +797,7 @@ describe('buildPnpmTree for pnpm 12', () => {
     await assert.rejects(built({ workspace: `${PATCHED_IN_YAML}hoistPattern: '*'\n` }), /^DeptreeError: pnpm-workspace\.yaml: hoistPattern: expected a list of strings, found "\*"$/u)
   })
 
-  // pnpm 12 makes a workspace of the root package.json's `workspaces`
-  // where there is no pnpm-workspace.yaml; pnpm 11 installs the root alone.
+  // pnpm 11 installs the root alone.
   it('takes the root package.json\'s workspaces where there is no pnpm-workspace.yaml', async () => {
     stubRegistry(TARBALLS)
     const dependency = `    dependencies:\n      b:\n        specifier: 1.0.0\n        version: 1.0.0\n`
@@ -865,8 +840,6 @@ describe('buildPnpmTree with a workspace', () => {
     assert.equal(installed.find(({ name }) => name === 'e').dev, false)
   })
 
-  // A project hoisted by its name does not take it: a package of that name
-  // is hoisted there too, and the project wins, as pnpm has it.
   it('hoists a project over a package of its name', async () => {
     stubRegistry(TARBALLS)
     const vfs = await buildTwo({ name: 'd', dependencies: { b: '1.0.0' } })
@@ -879,8 +852,6 @@ describe('buildPnpmTree with a workspace', () => {
     await assert.rejects(buildResult({ lockfile: three, manifests: { ...manifests({ name: 'x', dependencies: { b: '1.0.0' } }), 'packages/y': '{"name":"x"}' }, workspace: WORKSPACE }), /^DeptreeError: manifests\["packages\/y"\]\.name: "x" is the name of another project too$/u)
   })
 
-  // pnpm installs the projects `packages` finds, the root always among
-  // them, and only those: a project it would not find is refused.
   it('takes only the projects pnpm-workspace.yaml\'s packages finds', async () => {
     stubRegistry(TARBALLS)
     const x = { name: 'x', dependencies: { b: '1.0.0' } }
@@ -896,9 +867,6 @@ describe('buildPnpmTree with a workspace', () => {
     await assert.rejects(buildTwo(x, { workspace: 'hoist: true\n' }), /packages are not set/u)
   })
 
-  // pnpm gives a project it finds that the lockfile has no importer for an
-  // empty one, and holds it to that: one with dependencies is refused as
-  // not up to date, and one with none installed, and hoisted by its name.
   it('holds a project findPnpmProjects finds that the lockfile has no importer for to an empty one', async () => {
     stubRegistry(TARBALLS)
     const x = JSON.stringify({ name: 'x', dependencies: { b: '1.0.0' } })
@@ -965,8 +933,7 @@ describe('buildPnpmTree with a workspace', () => {
   })
 
   // pnpm 11 leaves out what a `!` glob takes, a name with a leading dot
-  // among it, and pnpm 10 does not: the pnpm the root package.json's
-  // packageManager pins finds them where host.pnpm is left out.
+  // among it, and pnpm 10 does not.
   it('finds the projects as the pnpm the root package.json pins does, where host.pnpm is left out', () => {
     const project = (packageManager) => createVfs({ 'package.json': JSON.stringify({ packageManager }), 'pnpm-workspace.yaml': "packages:\n  - '.a/*'\n  - '!**/b'\n", '.a/b/package.json': '{}' })
     assert.deepEqual(findPnpmProjects({ project: project('pnpm@10.33.4') }), ['.', '.a/b'])
@@ -993,15 +960,10 @@ describe('buildPnpmTree with a workspace', () => {
   })
 })
 
-// A tree mounted into a Vfs that holds the projects already, beside what
-// is there: nothing is written over, and a node_modules there already is
-// refused, before anything is fetched, and whatever refuses, nothing is
-// written.
 describe('buildPnpmTree into a given Vfs', () => {
   const x = JSON.stringify({ name: 'x', dependencies: { b: '1.0.0' } })
   const sources = { 'package.json': root(), 'pnpm-lock.yaml': TWO, 'packages/x/package.json': x, 'packages/x/index.js': 'x' }
   const into = (vfs, options) => buildResult({ lockfile: TWO, manifests: { '.': root(), 'packages/x': x }, workspace: WORKSPACE, vfs, ...options })
-  // A Vfs of the project, which the tree is mounted into too.
   const both = (files) => {
     const vfs = createVfs(files)
     return { project: vfs, vfs }
@@ -1071,8 +1033,6 @@ describe('buildPnpmTree into a given Vfs', () => {
 
   const app = tarball('app', '1.0.0', { 'index.js': 'app' }, { manifest: { dependencies: { foo: '^1.0.0' } } })
 
-  // An override to a directory under the lockfile's, as pnpm links it,
-  // read from the Vfs given alone, and only where it is there.
   describe('with an override to a directory', () => {
     const linked = async (spec, specifier, { v11 = false, appFoo = 'link:vendor/foo' } = {}) => {
       const locked = small(dep('app') + dep('foo', 'link:vendor/foo', specifier), `${entry(await app)}\n`, `  app@1.0.0:\n    dependencies:\n      foo: ${appFoo}\n`, `  foo: ${spec}\n`)
@@ -1105,7 +1065,6 @@ describe('buildPnpmTree into a given Vfs', () => {
       await assert.rejects(buildLinked(given, { project: notUtf8 }), /^DeptreeError: overrides\["foo"\]: "vendor\/foo\/package\.json" is not UTF-8$/u)
     })
 
-    // pnpm drops one byte order mark, and fails on JSON after it.
     it('reads its package.json as pnpm does, one byte order mark dropped', async () => {
       stubRegistry([await app])
       const given = await linked('./vendor/foo', './vendor/foo')
@@ -1229,8 +1188,6 @@ describe('buildPnpmTree into a given Vfs', () => {
       assert.deepEqual(await twoSnapshots({}, { workspace: 'packageImportMethod: copy\n' }), shared)
     })
 
-    // pnpm 12 holds a directory a project depends on by `file:` to the
-    // lockfile, as it reads its package.json, before it installs.
     it('refuses a directory the lockfile is not up to date with for pnpm 12', async () => {
       stubRegistry([await app])
       const options = { lockfile: await copied(), manifests: { '.': rootWith() }, workspace: 'overrides:\n  foo: file:./vendor/foo\n', host: HOST_12 }
@@ -1274,14 +1231,11 @@ describe('buildPnpmTree into a given Vfs', () => {
 })
 
 // Without the lockfile given, what an install reads is read from the
-// project, as pnpm reads it from the lockfile's directory: the patches the
-// settings name, and no other, and the package.json of every project pnpm
-// finds and every importer.
+// project, as pnpm reads it from the lockfile's directory.
 describe('buildPnpmTree reading the project', () => {
   const files = { 'pnpm-lock.yaml': lockfile(), 'package.json': root(), 'patches/p.patch': PATCH }
   const without = (path) => Object.fromEntries(Object.entries(files).filter(([name]) => name !== path))
   const fromProject = (more = {}, options = {}) => buildPnpmTree({ project: createVfs({ ...files, ...more }), host: HOST, ...options })
-  // The project, each path stat or readFile is asked for put in `read`.
   const logging = (project, read = []) => ({ read, logged: { readdir: (path) => project.readdir(path), lstat: (path) => project.lstat(path), stat: (path) => { read.push(path); return project.stat(path) }, readFile: (path) => { read.push(path); return project.readFile(path) } } })
 
   it('builds the tree it builds from the same files given', async () => {
@@ -1338,8 +1292,6 @@ describe('buildPnpmTree reading the project', () => {
     await assert.rejects(fromProject({ 'pnpm-workspace.yaml': 'packages:\n    - packages/*\n  - other/*\n' }), /^DeptreeError: pnpm-workspace\.yaml: bad indentation at line 3$/u)
   })
 
-  // The lockfile keys an importer outside its directory by a leading `..`,
-  // which is refused before anything is read for it.
   it('reads nothing outside the lockfile\'s directory for an importer', async () => {
     const outside = lockfile().replace('importers:\n', 'importers:\n\n  ../other: {}\n')
     const project = createVfs({ ...files, 'pnpm-lock.yaml': outside })
@@ -1348,9 +1300,8 @@ describe('buildPnpmTree reading the project', () => {
     assert.deepEqual(read.filter((path) => path.includes('..')), [])
   })
 
-  // pnpm reads the package.json of the projects it finds, and of no other
-  // importer: one pnpm-workspace.yaml's packages do not take is refused
-  // unread, here through a link out of the lockfile's directory.
+  // pnpm reads no package.json of an importer it does not find, here one
+  // through a link out of the lockfile's directory.
   it('reads nothing for an importer pnpm does not find', async () => {
     const unlisted = lockfile().replace('importers:\n', 'importers:\n\n  vendor/x: {}\n')
     const project = createVfs({ ...files, 'pnpm-lock.yaml': unlisted, 'pnpm-workspace.yaml': WORKSPACE, vendor: { type: 'symlink', target: 'elsewhere' }, 'elsewhere/x/package.json': '{}' })
@@ -1359,8 +1310,7 @@ describe('buildPnpmTree reading the project', () => {
     assert.deepEqual(read.filter((path) => path.startsWith('/vendor')), [])
   })
 
-  // A root package.json that is a link is refused, as any project's is,
-  // before it is read for the pnpm it pins.
+  // Refused, as any project's is, before it is read for the pnpm it pins.
   it('reads no root package.json through a link', async () => {
     const project = createVfs({ ...files, 'package.json': { type: 'symlink', target: 'elsewhere/package.json' }, 'elsewhere/package.json': root({ packageManager: 'pnpm@10.33.4' }) })
     const { read, logged } = logging(project)
@@ -1381,8 +1331,7 @@ describe('buildPnpmTree reading the project', () => {
     await assert.rejects(buildPnpmTree({ project: strings, host: HOST }), /^TypeError: project\.readFile must give back bytes$/u)
   })
 
-  // pnpm switches to the pnpm packageManager pins, which is so the one
-  // that installs.
+  // pnpm switches to the pnpm packageManager pins, so that one installs.
   it('installs with the pnpm the root package.json pins, where host.pnpm is left out', async () => {
     stubRegistry(TARBALLS)
     const machine = { ...HOST, pnpm: undefined }

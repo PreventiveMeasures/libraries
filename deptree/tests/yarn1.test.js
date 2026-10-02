@@ -7,18 +7,16 @@ import { DeptreeError, LockfileError, buildYarn1Tree, findYarn1Workspaces } from
 import { paths, sri, stubFailingRegistry, stubRegistry, tarball } from './registry.js'
 
 // Small projects whose yarn.lock real yarn 1.22.22 wrote, and whose trees
-// it installed as the first tests expect, against a registry stubbed with
-// the same tarballs made here; then one change at a time, each refused with
-// where and why.
+// it installed as the first tests expect, from the tarballs made here;
+// then one change at a time, each refused with where and why.
 
 const realFetch = globalThis.fetch
 afterEach(() => { globalThis.fetch = realFetch })
 
 const HOST = Object.freeze({ yarn: '1.22.22', node: '24.15.0', os: 'linux', cpu: 'x64' })
 
-// A tarball as some packers write one, an entry's name with a `.` segment
-// in it, which pack() would clean: `_` in `name` made `.` where it is
-// stored, and the header's checksum made again.
+// As some packers write one, with a `.` segment pack() would clean: the
+// `_` in `name` made `.` in place, and the header's checksum made again.
 async function dotted(packed, name) {
   const tar = await decompress(packed.bytes, 'gzip', { limit: 1 << 24 })
   const encoded = new TextEncoder().encode(name)
@@ -55,8 +53,6 @@ const TARBALLS = await Promise.all([
 const T = Object.fromEntries(TARBALLS.map((t) => [`${t.name}@${t.version}`, t]))
 const sha1 = (bytes) => createHash('sha1').update(bytes).digest('hex')
 
-// An entry as yarn writes it: its patterns, then the package's version,
-// tarball and integrity, then its dependencies.
 const yarnpkg = (name, version) => `https://registry.yarnpkg.com/${name}/-/${name.split('/').at(-1)}-${version}.tgz`
 const entry = (keys, id, dependencies = '', { hash = sha1(T[id].bytes), url = yarnpkg } = {}) => {
   const { name, version, integrity } = T[id]
@@ -168,7 +164,6 @@ describe('buildYarn1Tree', () => {
 
   // yarn's linker sorts where each package goes with localeCompare, in the
   // locale Node runs in, and so does this; in Danish, `aa` sorts after `z`.
-  // Neither the tree nor the list of what it installs changes with it.
   it('builds one tree, and lists it in one order, whatever the locale', async (t) => {
     stubRegistry(TARBALLS)
     const root = { name: 'root', version: '1.0.0', dependencies: { aab: '1.0.0', ab: '1.0.0', d: 'latest' } }
