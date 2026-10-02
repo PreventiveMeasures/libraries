@@ -6,7 +6,7 @@
 // a constraint with a control character in it is refused before any of
 // this, where PCRE's `$` would read a line end at the end otherwise.
 
-import { compareVersions, empty, lower, trim, versionCompare } from './php.js'
+import { LONG_MAX, compareVersions, empty, lower, trim, versionCompare } from './php.js'
 
 const MODIFIER = '[._-]?(?:(stable|beta|b|RC|alpha|a|patch|pl|p)((?:[.-]?\\d+)*)?)?([.-]?dev)?'
 const STABILITIES = 'stable|RC|beta|alpha|dev'
@@ -82,7 +82,7 @@ export function normalize(input) {
     if (!empty(match[index])) {
       if (match[index] === 'stable') return version
       const number = match[index + 1]
-      version += `-${expandStability(match[index])}${number === undefined || number === '' ? '' : number.replace(/^[.-]+/u, '')}`
+      version += `-${expandStability(match[index])}${(number ?? '').replace(/^[.-]+/u, '')}`
     }
     if (!empty(match[index + 2])) version += '-dev'
     return version
@@ -116,7 +116,7 @@ function manipulate(groups, position, increment = 0) {
     if (i > position) parts[i] = '0'
     else if (i === position && increment !== 0) {
       const next = BigInt(parts[i]) + BigInt(increment)
-      if (next > 2n ** 63n - 1n) return undefined
+      if (next > LONG_MAX) return undefined
       parts[i] = String(next)
     }
   }
@@ -124,7 +124,6 @@ function manipulate(groups, position, increment = 0) {
 }
 
 const VERSION = `v?(\\d+)(?:\\.(\\d+))?(?:\\.(\\d+))?(?:\\.(\\d+))?(?:${MODIFIER}|\\.([xX*][.-]?dev))(?:\\+${NOT_S}+)?`
-const CONSTRAINT_AS = AS
 const CONSTRAINT_FLAG = regex(`^(${WORD}*?)@(${STABILITIES})$`, 'i')
 const REF = /^(dev-[^,\t\n\v\f\r @]+?|[^,\t\n\v\f\r @]+?\.x-dev)#[^\n]+$/iu
 const WILDCARD = /^(v)?[xX*](\.[xX*])*$/iu
@@ -138,7 +137,7 @@ const set = (value) => value !== undefined && value !== ''
 
 function parseOne(input) {
   let text = input
-  let match = CONSTRAINT_AS.exec(text)
+  let match = AS.exec(text)
   if (match !== null) text = match[1]
   let stabilityModifier
   match = CONSTRAINT_FLAG.exec(text)
@@ -185,19 +184,18 @@ function parseOne(input) {
     const from = normalize(match[1])
     const to = normalize(match[10])
     if (from === undefined || to === undefined) return undefined
-    const blank = (value) => value !== '0' && empty(value)
-    const lower_ = constraint('>=', `${from}${lowSuffix}`)
-    if ((!blank(match[12]) && !blank(match[13])) || !empty(match[15]) || !empty(match[17]) || !empty(match[18])) return [lower_, constraint('<=', to)]
-    const high = manipulate(['', match[11], match[12], match[13], match[14]], blank(match[12]) ? 1 : 2, 1)
+    const bottom = constraint('>=', `${from}${lowSuffix}`)
+    if ((set(match[12]) && set(match[13])) || !empty(match[15]) || !empty(match[17]) || !empty(match[18])) return [bottom, constraint('<=', to)]
+    const high = manipulate(['', match[11], match[12], match[13], match[14]], set(match[12]) ? 2 : 1, 1)
     if (high === undefined) return undefined
-    return [lower_, constraint('<', `${high}-dev`)]
+    return [bottom, constraint('<', `${high}-dev`)]
   }
 
   match = BASIC.exec(text)
   let version = normalize(match[2])
   if (version === undefined && match[2].endsWith('-dev') && /^[0-9a-zA-Z\-./]+$/u.test(match[2])) version = normalize(`dev-${match[2].slice(0, -4)}`)
   if (version === undefined) return undefined
-  const operator = match[1] === undefined || match[1] === '' ? '=' : match[1]
+  const operator = match[1] || '='
   if (operator !== '==' && operator !== '=' && !empty(stabilityModifier) && parseStability(version) === 'stable') {
     version += `-${stabilityModifier}`
   } else if ((operator === '<' || operator === '>=') && !MODIFIED.test(lower(match[2])) && !match[2].startsWith('dev-')) {

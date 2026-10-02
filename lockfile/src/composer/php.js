@@ -40,9 +40,12 @@ const formOf = (word) => FORMS.find(([name]) => word.startsWith(name))?.[1] ?? -
 
 const sign = (difference) => (difference > 0 ? 1 : difference < 0 ? -1 : 0)
 
+// PHP_INT_MAX, and whether a PHP integer holds a value.
+export const LONG_MAX = 2n ** 63n - 1n
+export const fitsLong = (value) => value <= LONG_MAX && value >= -LONG_MAX - 1n
+
 // strtol, of a part that starts with a digit: as far as the digits go, and
 // no further than PHP_INT_MAX.
-const LONG_MAX = 2n ** 63n - 1n
 const strtol = (part) => {
   const value = BigInt(/^\d+/u.exec(part)[0])
   return value > LONG_MAX ? LONG_MAX : value
@@ -95,8 +98,11 @@ const OPERATORS = {
 export const versionCompare = (version1, version2, operator) => OPERATORS[operator](compareVersions(version1, version2))
 
 // Strings in byte order, which is UTF-8's, which is code points'; a prefix
-// first.
+// first. UTF-16's order is the same where neither is past the BMP.
+const ASTRAL = /[\u{10000}-\u{10FFFF}]/u
+
 export function compareBytes(left, right) {
+  if (!ASTRAL.test(left) && !ASTRAL.test(right)) return left < right ? -1 : left > right ? 1 : 0
   const a = [...left]
   const b = [...right]
   for (let i = 0; i < a.length && i < b.length; i++) {
@@ -115,7 +121,7 @@ function numeric(text) {
   const trimmed = text.trim()
   if (!/[.eE]/u.test(trimmed)) {
     const value = BigInt(trimmed)
-    if (value <= LONG_MAX && value >= -LONG_MAX - 1n) return { long: value }
+    if (fitsLong(value)) return { long: value }
     return { double: Number(trimmed), overflow: value > 0n ? 1 : -1 }
   }
   return { double: Number(trimmed), overflow: 0 }
@@ -146,10 +152,10 @@ export function compareStrings(left, right) {
 // A key of a PHP array: an integer where the string is one as PHP writes
 // it, of 64 bits, and the string itself where not.
 const INTEGER = /^(?:0|-?[1-9]\d*)$/u
-export function keyOf(text) {
+function keyOf(text) {
   if (!INTEGER.test(text)) return text
   const value = BigInt(text)
-  return value <= LONG_MAX && value >= -LONG_MAX - 1n ? value : text
+  return fitsLong(value) ? value : text
 }
 
 // How ksort orders two keys, SORT_REGULAR: integers as numbers, strings as

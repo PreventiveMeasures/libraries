@@ -9,14 +9,14 @@
 import { LockfileError, at, quote } from '../error.js'
 import { decodeJson, encodeJson } from './json.js'
 import { md5 } from './md5.js'
-import { LINKS, checkName, plain } from './package.js'
+import { LINKS, checkName, plain, readVersion } from './package.js'
 import { compareKeys, lower } from './php.js'
 import { normalize, parseConstraints } from './semver.js'
 
 export const WHERE = 'composerJson'
 
 // Locker::getContentHash: of these keys, and config.platform.
-const RELEVANT = ['name', 'version', LINKS.require, 'require-dev', 'conflict', 'replace', 'provide', 'minimum-stability', 'prefer-stable', 'repositories', 'extra']
+const RELEVANT = ['name', 'version', 'require', 'require-dev', 'conflict', 'replace', 'provide', 'minimum-stability', 'prefer-stable', 'repositories', 'extra']
 
 function contentHash(config) {
   const relevant = new Map(RELEVANT.filter((key) => config.has(key)).map((key) => [key, config.get(key)]))
@@ -31,9 +31,8 @@ const ALIAS = /^([^,\t\n\v\f\r #]+)(?:#[^ ]+)? +as +([^,\t\n\v\f\r ]+)$/u
 // of a requirement: an alias that is not of two versions, and the root
 // itself.
 function readLinks(config, key, name, version) {
-  const links = []
   const value = config.get(key)
-  if (!(value instanceof Map)) return links
+  if (!(value instanceof Map)) return []
   const byTarget = new Map()
   for (const [written, constraint] of value) {
     if (typeof constraint !== 'string') continue
@@ -42,7 +41,7 @@ function readLinks(config, key, name, version) {
     plain(constraint, where)
     const parsed = constraint === 'self.version' ? (version === undefined ? { all: true } : parseConstraints(version.pretty)) : parseConstraints(constraint)
     if (parsed === undefined) throw new LockfileError(`${quote(constraint)} is not a version constraint Composer reads`, where)
-    if (key === LINKS.require || key === 'require-dev') {
+    if (key === 'require' || key === 'require-dev') {
       const alias = ALIAS.exec(constraint)
       if (alias === null ? constraint.includes(' as ') : normalize(alias[1]) === undefined || normalize(alias[2]) === undefined) throw new LockfileError(`${quote(constraint)} is not an alias of one version as another, which Composer refuses`, where)
       if (target === name) throw new LockfileError('the root itself, which Composer refuses', where)
@@ -75,9 +74,7 @@ export function readComposerJson(text) {
     // A scalar, as a string as PHP casts it.
     const pretty = typeof written === 'boolean' ? (written ? '1' : '') : typeof written === 'bigint' || typeof written === 'number' ? String(written) : written
     if (typeof pretty !== 'string') throw new LockfileError('expected a version, which Composer reads of a string or a number', at(WHERE, 'version'))
-    const normalized = normalize(plain(pretty, at(WHERE, 'version')))
-    if (normalized === undefined) throw new LockfileError(`${quote(pretty)} is not a version Composer reads`, at(WHERE, 'version'))
-    version = { pretty, normalized }
+    version = { pretty, normalized: readVersion(pretty, at(WHERE, 'version')) }
   }
   const links = Object.create(null)
   for (const [field, key] of Object.entries(LINKS)) links[field] = readLinks(config, key, name, version)

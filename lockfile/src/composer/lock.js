@@ -5,13 +5,13 @@
 // 1.x or none, is refused, as is a field Composer 2 does not write.
 
 import { LockfileError, at, quote } from '../error.js'
-import { isEmptyObject, keysOf, readJson } from './json.js'
-import { checkConstraint, isPlatform, ordered, plain, readPackage, string } from './package.js'
-import { compareBytes, compareKeys, lower } from './php.js'
+import { checkOptions, kind, refuse, string } from '../shape.js'
+import { isEmptyObject, readJson } from './json.js'
+import { entriesOf, isPlatform, isRecord, ordered, plain, readConstraint, readPackage, readVersion, sortedKeys } from './package.js'
+import { compareBytes, lower } from './php.js'
 import { STABILITIES, resolve } from './pool.js'
 import { readComposerJson } from './root.js'
 import { DEFAULT_BRANCH_ALIAS, normalize } from './semver.js'
-import { checkOptions, kind } from '../shape.js'
 
 const TOP = ['_readme', 'content-hash', 'packages', 'packages-dev', 'aliases', 'minimum-stability', 'stability-flags', 'prefer-stable', 'prefer-lowest', 'platform', 'platform-dev', 'platform-overrides', 'plugin-api-version']
 const TOP_REFUSED = { hash: "`hash`, the md5 of composer.json that Composer 1.2 and older wrote, which is not read here" }
@@ -30,8 +30,6 @@ const PLUGIN_APIS = ['2.0.0', '2.1.0', '2.2.0', '2.3.0', '2.6.0', '2.9.0']
 // The three Composer 2.8 and later write as `{}` where empty, and as `[]`
 // before; and sort the stability flags of.
 const EMPTIES = ['stability-flags', 'platform', 'platform-dev']
-
-const refuse = (expected, value, where) => new LockfileError(`expected ${expected}, found ${kind(value)}`, where)
 
 function readPluginApi(value) {
   const where = 'plugin-api-version'
@@ -69,17 +67,11 @@ function checkEmpties(doc, pluginApiVersion) {
   return objects.length > 0 || pluginApiVersion === '2.9.0'
 }
 
+// A mapping, or `[]` for an empty one, as Composer 2.7 and older write it.
 const map = (value, where) => {
   if (Array.isArray(value) && value.length === 0) return Object.create(null)
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw refuse('a mapping', value, where)
+  if (!isRecord(value)) throw refuse('a mapping', value, where)
   return value
-}
-
-function sortedKeys(value, where) {
-  const keys = keysOf(value)
-  for (let i = 1; i < keys.length; i++) {
-    if (compareKeys(keys[i - 1], keys[i]) > 0) throw new LockfileError(`out of the order Composer 2.8 and later sort it in, after ${quote(keys[i - 1])}`, at(where, keys[i]))
-  }
 }
 
 // RootPackageLoader's: a stability, by its number, for each name the root
@@ -88,26 +80,25 @@ function readStabilityFlags(value, sorted) {
   const where = 'stability-flags'
   const flags = Object.create(null)
   const record = map(value, where)
-  if (sorted) sortedKeys(record, where)
+  if (sorted) sortedKeys(record, where, 'Composer 2.8 and later sort it in')
   const names = Object.entries(STABILITIES)
-  for (const name of keysOf(record)) {
-    const here = at(where, name)
+  for (const [name, number, here] of entriesOf(record, where)) {
     if (lower(name) !== name) throw new LockfileError(`${quote(name)}, which Composer writes in lowercase`, here)
-    const stability = names.find(([, number]) => number === record[name])
-    if (stability === undefined) throw refuse(`one of ${names.map(([, number]) => number).join(', ')}`, record[name], here)
+    const stability = names.find(([, each]) => each === number)
+    if (stability === undefined) throw refuse(`one of ${names.map(([, each]) => each).join(', ')}`, number, here)
     flags[name] = stability[0]
   }
   return flags
 }
 
-// The root's requirements of the platform, as it writes them.
+// The root's requirements of the platform, as it writes them, which
+// Locker parses as of a root at 1.0.0.
 function readPlatform(value, where) {
   const platform = Object.create(null)
-  const record = map(value, where)
-  for (const name of keysOf(record)) {
-    const here = at(where, name)
+  for (const [name, constraint, here] of entriesOf(map(value, where), where)) {
     if (!isPlatform(name) || lower(name) !== name) throw new LockfileError(`${quote(name)} is not a platform package's name in lowercase, as Composer writes one`, here)
-    platform[name] = checkConstraint(record[name], here)
+    readConstraint(constraint, here, '1.0.0')
+    platform[name] = constraint
   }
   return platform
 }
@@ -118,12 +109,11 @@ function readOverrides(value) {
   const where = 'platform-overrides'
   const overrides = Object.create(null)
   if (value === undefined) return overrides
-  if (typeof value !== 'object' || value === null || Array.isArray(value) || isEmptyObject(value)) throw refuse('a non-empty mapping, as Composer writes it where there are any', value, where)
-  for (const name of keysOf(value)) {
-    const here = at(where, name)
+  if (!isRecord(value) || isEmptyObject(value)) throw refuse('a non-empty mapping, as Composer writes it where there are any', value, where)
+  for (const [name, version, here] of entriesOf(value, where)) {
     if (!isPlatform(name)) throw new LockfileError(`${quote(name)} is not a platform package's name`, here)
-    if (value[name] !== false && (typeof value[name] !== 'string' || normalize(plain(value[name], here)) === undefined)) throw refuse('a version, or false', value[name], here)
-    overrides[name] = value[name]
+    if (version !== false && (typeof version !== 'string' || normalize(plain(version, here)) === undefined)) throw refuse('a version, or false', version, here)
+    overrides[name] = version
   }
   return overrides
 }
@@ -145,6 +135,8 @@ function checkSorted(items) {
   }
 }
 
+const ALIAS = ['package', 'version', 'alias', 'alias_normalized']
+
 // The root's, of `name as alias`, used: of a package locked, at the version
 // it is locked at, with the default branch's as 9999999-dev, as Composer 1
 // wrote them, by package as strcmp sorts them.
@@ -154,8 +146,8 @@ function readAliases(value, byName) {
   const seen = new Set()
   return value.map((item, index) => {
     const here = `${where}[${index}]`
-    ordered(item, here, ['package', 'version', 'alias', 'alias_normalized'])
-    for (const key of ['package', 'version', 'alias', 'alias_normalized']) if (item[key] === undefined) throw new LockfileError(`expected ${key}`, here)
+    ordered(item, here, ALIAS)
+    for (const key of ALIAS) if (item[key] === undefined) throw new LockfileError(`expected ${key}`, here)
     const name = string(item.package, at(here, 'package'))
     const pkg = byName.get(name)
     if (pkg === undefined) throw new LockfileError(`${quote(name)} is not a package in the lockfile, by its name in lowercase`, at(here, 'package'))
@@ -165,8 +157,7 @@ function readAliases(value, byName) {
     const version = ['dev-master', 'dev-trunk', 'dev-default'].includes(pkg.normalized) ? DEFAULT_BRANCH_ALIAS : pkg.normalized
     if (item.version !== version) throw new LockfileError(`expected ${quote(version)}, the version ${pkg.name} is locked at, as Composer writes it`, at(here, 'version'))
     const alias = string(item.alias, at(here, 'alias'))
-    const normalized = normalize(plain(alias, at(here, 'alias')))
-    if (normalized === undefined) throw new LockfileError(`${quote(alias)} is not a version Composer reads`, at(here, 'alias'))
+    const normalized = readVersion(alias, at(here, 'alias'))
     if (item.alias_normalized !== normalized) throw new LockfileError(`expected ${quote(normalized)}, the alias normalized`, at(here, 'alias_normalized'))
     return { package: name, version, alias, aliasNormalized: normalized }
   })
@@ -184,13 +175,13 @@ export function parseComposerLock(text, options = {}) {
   for (const [key, dev] of [['packages', false], ['packages-dev', true]]) {
     for (const [index, value] of readList(doc, key).entries()) {
       const where = `${key}[${index}]`
-      items.push({ pkg: readPackage(value, where, dev), where, dev })
+      items.push({ ...readPackage(value, where, dev), where, dev })
     }
   }
   checkSorted(items)
   const byName = new Map(items.map(({ pkg }) => [lower(pkg.name), pkg]))
   const aliases = readAliases(doc.aliases, byName)
-  const resolved = resolve(items, aliases, minimumStability, Object.fromEntries(Object.entries(stabilityFlags).map(([name, stability]) => [name, STABILITIES[stability]])), root)
+  const resolved = resolve(items, aliases, minimumStability, stabilityFlags, root)
   const packages = Object.create(null)
   for (const [{ pkg }, { require, aliases: own }] of resolved) {
     packages[lower(pkg.name)] = { ...pkg, require, aliases: own }

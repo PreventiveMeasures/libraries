@@ -9,19 +9,21 @@
 
 import { LockfileError, at, quote } from '../error.js'
 import { checkRefName, checkRelative, isCommit, isHttpUrl } from '../names.js'
-import { kind } from '../shape.js'
+import { boolean, field, record, refuse, string } from '../shape.js'
 import { keysOf } from './json.js'
 import { compareKeys, compareStrings, empty, lower, trim } from './php.js'
 import { normalize, parseConstraints, parseStability } from './semver.js'
 
-const refuse = (expected, value, where) => new LockfileError(`expected ${expected}, found ${kind(value)}`, where)
+export const isRecord = (value) => typeof value === 'object' && value !== null && !Array.isArray(value)
 
-const isRecord = (value) => typeof value === 'object' && value !== null && !Array.isArray(value)
+// A mapping's entries in the file's order, each with where it is. An empty
+// one is not read here: json.js refuses `{}` below the top.
+export const entriesOf = (value, where) => keysOf(value).map((key) => [key, value[key], at(where, key)])
 
 // A mapping with the `fields` named alone, each in its place in them;
 // `where` undefined for the top of the file.
 export function ordered(value, where, fields, refused = {}) {
-  if (!isRecord(value)) throw refuse('a mapping', value, where)
+  record(value, where)
   const step = (key) => (where === undefined ? key : at(where, key))
   let last = -1
   for (const key of keysOf(value)) {
@@ -34,14 +36,9 @@ export function ordered(value, where, fields, refused = {}) {
   return value
 }
 
-export function string(value, where) {
-  if (typeof value !== 'string') throw refuse('a string', value, where)
-  return value
-}
-
 // What Composer reads only where PHP's empty() is false of it, which is of
 // "0" too, and so writes no other way.
-export function filled(value, where) {
+function filled(value, where) {
   if (empty(string(value, where))) throw new LockfileError(`${quote(value)}, which Composer reads as no value and does not write`, where)
   return value
 }
@@ -68,33 +65,38 @@ const list = (value, where) => {
 
 const strings = (value, where, check = string) => list(value, where).map((item, index) => check(item, `${where}[${index}]`))
 
-const record = (value, where) => {
-  if (!isRecord(value)) throw refuse('a mapping', value, where)
-  if (keysOf(value).length === 0) throw new LockfileError('an empty mapping, which Composer does not write', where)
-  return value
-}
-
-// Keys as ksort leaves them.
-function sortedKeys(value, where) {
+// Keys as ksort leaves them; `by` says whose sort it is.
+export function sortedKeys(value, where, by = 'Composer sorts the keys in') {
   const keys = keysOf(value)
   for (let i = 1; i < keys.length; i++) {
-    if (compareKeys(keys[i - 1], keys[i]) > 0) throw new LockfileError(`out of the order Composer sorts the keys in, after ${quote(keys[i - 1])}`, at(where, keys[i]))
+    if (compareKeys(keys[i - 1], keys[i]) > 0) throw new LockfileError(`out of the order ${by}, after ${quote(keys[i - 1])}`, at(where, keys[i]))
   }
   return keys
 }
 
 // A version as a package is locked at: one Composer normalizes, as a tag
 // or a branch names it, with no alias, stability flag or space about it.
-export function checkVersion(value, where) {
+function checkVersion(value, where) {
   const version = plain(value, where)
   const normalized = /\s|@(?:stable|RC|beta|alpha|dev)$/iu.test(version) || version === '0' ? undefined : normalize(version)
   if (normalized === undefined) throw new LockfileError(`${quote(version)} is not a version Composer locks a package at`, where)
   return normalized
 }
 
-export function checkConstraint(value, where) {
-  if (plain(value, where) !== 'self.version' && parseConstraints(value) === undefined) throw new LockfileError(`${quote(value)} is not a version constraint Composer reads`, where)
-  return value
+// Any version Composer reads, as an alias or the root's is: normalized.
+export function readVersion(value, where) {
+  const normalized = normalize(plain(value, where))
+  if (normalized === undefined) throw new LockfileError(`${quote(value)} is not a version Composer reads`, where)
+  return normalized
+}
+
+// A constraint as ArrayLoader::createLink parses it, `self.version` being
+// `version`, as written, of the package that has it.
+export function readConstraint(value, where, version) {
+  const self = plain(value, where) === 'self.version'
+  const parsed = parseConstraints(self ? version : value)
+  if (parsed !== undefined) return parsed
+  throw new LockfileError(self ? `"self.version", which is ${quote(version)}, and not a version constraint Composer reads` : `${quote(value)} is not a version constraint Composer reads`, where)
 }
 
 // A name as ValidatingArrayLoader::hasPackageNamingError takes one, which
@@ -115,23 +117,27 @@ export function checkName(value, where) {
 // ValidatingArrayLoader takes in one.
 const TARGET = /^[a-z0-9_./-]+$/u
 
-export const PLATFORM = /^(?:php(?:-64bit|-ipv6|-zts|-debug)?|hhvm|(?:ext|lib)-[a-z0-9](?:[_.-]?[a-z0-9]+)*|composer(?:-(?:plugin|runtime)-api)?)$/iu
+const PLATFORM = /^(?:php(?:-64bit|-ipv6|-zts|-debug)?|hhvm|(?:ext|lib)-[a-z0-9](?:[_.-]?[a-z0-9]+)*|composer(?:-(?:plugin|runtime)-api)?)$/iu
 
 export const isPlatform = (name) => PLATFORM.test(name)
 
-function readLinks(value, where) {
-  const links = Object.create(null)
-  for (const target of sortedKeys(record(value, where), where)) {
-    const here = at(where, target)
+// The links of one type, as written, by target, and as Composer parses
+// them, `{ target, pretty, constraint }`.
+function readLinks(value, where, version) {
+  const written = Object.create(null)
+  sortedKeys(record(value, where), where)
+  const links = entriesOf(value, where).map(([target, pretty, here]) => {
     if (!TARGET.test(target)) throw new LockfileError(`${quote(target)} is not a package name in lowercase, as Composer writes a link's`, here)
-    links[target] = checkConstraint(value[target], here)
-  }
-  return links
+    const constraint = readConstraint(pretty, here, version)
+    written[target] = pretty
+    return { target, pretty, constraint }
+  })
+  return { written, links }
 }
 
 // A path from the lockfile's directory, as Composer writes the one it was
 // given: `./` in front or not.
-export function checkPath(value, where) {
+function checkPath(value, where) {
   const path = plain(value, where)
   if (path.startsWith('/') || /^[A-Za-z]:/u.test(path)) throw new LockfileError(`${quote(path)} is an absolute path, of the machine the lockfile was written on`, where)
   checkRelative(path.startsWith('./') ? path.slice(2) : path, where)
@@ -187,8 +193,8 @@ function readMirrors(value, where) {
   return list(value, where).map((item, index) => {
     const here = `${where}[${index}]`
     ordered(item, here, ['url', 'preferred'])
-    if (item.preferred !== true && item.preferred !== false) throw refuse('true or false', item.preferred, at(here, 'preferred'))
-    return { url: notOption(item.url, at(here, 'url')), preferred: item.preferred }
+    const preferred = boolean(item.preferred, at(here, 'preferred'))
+    return { url: notOption(item.url, at(here, 'url')), preferred }
   })
 }
 
@@ -203,7 +209,7 @@ function readSource(value, where) {
     type,
     url: checkSourceUrl(value.url, at(where, 'url'), type),
     reference: checkReference(value.reference, at(where, 'reference'), type),
-    mirrors: value.mirrors === undefined ? [] : readMirrors(value.mirrors, at(where, 'mirrors')),
+    mirrors: field(value, 'mirrors', where, readMirrors) ?? [],
   }
 }
 
@@ -219,14 +225,14 @@ function readDist(value, where) {
   const here = at(where, 'url')
   const url = notOption(value.url, here)
   if (type === 'path' || !isHttpUrl(url)) checkPath(url, here)
-  const shasum = value.shasum === undefined ? undefined : string(value.shasum, at(where, 'shasum'))
+  const shasum = field(value, 'shasum', where, string)
   if (shasum !== undefined && shasum !== '' && !/^[\da-f]{40}$/u.test(shasum)) throw new LockfileError(`${quote(shasum)} is not a sha1 in lowercase hex, which Composer compares the download's with`, at(where, 'shasum'))
   return {
     type,
     url,
-    reference: value.reference === undefined ? undefined : notOption(value.reference, at(where, 'reference')),
+    reference: field(value, 'reference', where, notOption),
     shasum: shasum || undefined,
-    mirrors: value.mirrors === undefined ? [] : readMirrors(value.mirrors, at(where, 'mirrors')),
+    mirrors: field(value, 'mirrors', where, readMirrors) ?? [],
   }
 }
 
@@ -247,9 +253,9 @@ function checkTargetDir(value, where) {
 
 function readSuggest(value, where) {
   const suggest = Object.create(null)
-  for (const name of sortedKeys(record(value, where), where)) {
-    const reason = string(value[name], at(where, name))
-    if (trim(reason) === 'self.version') throw new LockfileError('"self.version", which Composer writes as the package\'s version', at(where, name))
+  sortedKeys(record(value, where), where)
+  for (const [name, reason, here] of entriesOf(value, where)) {
+    if (trim(string(reason, here)) === 'self.version') throw new LockfileError('"self.version", which Composer writes as the package\'s version', here)
     suggest[name] = reason
   }
   return suggest
@@ -257,10 +263,9 @@ function readSuggest(value, where) {
 
 function readScripts(value, where) {
   const scripts = Object.create(null)
-  for (const event of keysOf(record(value, where))) {
-    const here = at(where, event)
-    if (!Array.isArray(value[event])) throw refuse('a sequence, as Composer writes even one listener', value[event], here)
-    scripts[event] = value[event].map((item, index) => string(item, `${here}[${index}]`))
+  for (const [event, listeners, here] of entriesOf(record(value, where), where)) {
+    if (!Array.isArray(listeners)) throw refuse('a sequence, as Composer writes even one listener', listeners, here)
+    scripts[event] = listeners.map((item, index) => string(item, `${here}[${index}]`))
   }
   return scripts
 }
@@ -275,11 +280,7 @@ function readKeywords(value, where) {
 
 function readArchive(value, where) {
   ordered(value, where, ['name', 'exclude'])
-  if (keysOf(value).length === 0) throw new LockfileError('an empty mapping, which Composer does not write', where)
-  return {
-    name: value.name === undefined ? undefined : filled(value.name, at(where, 'name')),
-    exclude: value.exclude === undefined ? [] : strings(value.exclude, at(where, 'exclude')),
-  }
+  return { name: field(value, 'name', where, filled), exclude: field(value, 'exclude', where, strings) ?? [] }
 }
 
 function checkAbandoned(value, where) {
@@ -302,15 +303,11 @@ function checkTime(value, where) {
   return value
 }
 
-// In backticks, which tests/self-contained.test.js does not read as a
-// module named after require, as it reads a quoted one.
-const REQUIRE = `require`
-
 // The link types, by field of the package read and by key of the lockfile.
-export const LINKS = { require: REQUIRE, conflict: 'conflict', provide: 'provide', replace: 'replace', requireDev: 'require-dev' }
+export const LINKS = { require: 'require', conflict: 'conflict', provide: 'provide', replace: 'replace', requireDev: 'require-dev' }
 
 const FIELDS = [
-  'name', 'version', 'target-dir', 'source', 'dist', REQUIRE, 'conflict', 'provide', 'replace', 'require-dev', 'suggest', 'default-branch',
+  'name', 'version', 'target-dir', 'source', 'dist', 'require', 'conflict', 'provide', 'replace', 'require-dev', 'suggest', 'default-branch',
   'bin', 'type', 'extra', 'autoload', 'autoload-dev', 'notification-url', 'include-path', 'php-ext', 'archive', 'scripts', 'license',
   'authors', 'description', 'homepage', 'keywords', 'support', 'funding', 'abandoned', 'transport-options', 'time',
 ]
@@ -322,8 +319,7 @@ const REFUSED = {
   'minimum-stability': "`minimum-stability`, which Composer reads of the project's composer.json alone",
 }
 
-const optional = (value, key, where, read) => (value[key] === undefined ? undefined : read(value[key], at(where, key)))
-
+// The package, and its links as Composer parses them, by field.
 export function readPackage(value, where, dev) {
   ordered(value, where, FIELDS, REFUSED)
   if (value.name === undefined) throw new LockfileError('expected a name', where)
@@ -334,42 +330,43 @@ export function readPackage(value, where, dev) {
   const type = filled(plain(value.type, at(where, 'type')), at(where, 'type'))
   if (lower(type) !== type) throw new LockfileError(`${quote(type)}, which Composer writes in lowercase`, at(where, 'type'))
   if (value['default-branch'] !== undefined && value['default-branch'] !== true) throw refuse('true, as Composer writes it of the default branch alone', value['default-branch'], at(where, 'default-branch'))
-  const links = Object.fromEntries(Object.entries(LINKS).map(([field, key]) => [field, optional(value, key, where, readLinks) ?? Object.create(null)]))
-  const free = (key) => optional(value, key, where, nonEmpty)
-  return {
+  const read = Object.entries(LINKS).map(([property, key]) => [property, field(value, key, where, (links, here) => readLinks(links, here, value.version)) ?? { written: Object.create(null), links: [] }])
+  const free = (key) => field(value, key, where, nonEmpty)
+  const pkg = {
     name,
     version: value.version,
     normalized,
     stability: parseStability(normalized),
     dev,
-    source: optional(value, 'source', where, readSource),
-    dist: optional(value, 'dist', where, readDist),
-    ...links,
-    suggest: optional(value, 'suggest', where, readSuggest) ?? Object.create(null),
+    source: field(value, 'source', where, readSource),
+    dist: field(value, 'dist', where, readDist),
+    ...Object.fromEntries(read.map(([property, { written }]) => [property, written])),
+    suggest: field(value, 'suggest', where, readSuggest) ?? Object.create(null),
     defaultBranch: value['default-branch'] === true,
-    bin: optional(value, 'bin', where, (bins, here) => strings(bins, here, checkBin)) ?? [],
+    bin: field(value, 'bin', where, (bins, here) => strings(bins, here, checkBin)) ?? [],
     type,
-    targetDir: optional(value, 'target-dir', where, checkTargetDir),
+    targetDir: field(value, 'target-dir', where, checkTargetDir),
     extra: free('extra'),
     autoload: free('autoload'),
     autoloadDev: free('autoload-dev'),
-    notificationUrl: optional(value, 'notification-url', where, (url, here) => {
+    notificationUrl: field(value, 'notification-url', where, (url, here) => {
       if (!isHttpUrl(string(url, here))) throw new LockfileError(`${quote(url)} is not an http(s) URL, which Composer posts installs to`, here)
       return url
     }),
-    includePath: optional(value, 'include-path', where, (paths, here) => strings(paths, here)) ?? [],
+    includePath: field(value, 'include-path', where, strings) ?? [],
     phpExt: free('php-ext'),
-    archive: optional(value, 'archive', where, readArchive) ?? { name: undefined, exclude: [] },
-    scripts: optional(value, 'scripts', where, readScripts) ?? Object.create(null),
-    license: optional(value, 'license', where, (licenses, here) => strings(licenses, here)) ?? [],
+    archive: field(value, 'archive', where, readArchive) ?? { name: undefined, exclude: [] },
+    scripts: field(value, 'scripts', where, readScripts) ?? Object.create(null),
+    license: field(value, 'license', where, strings) ?? [],
     authors: free('authors'),
-    description: optional(value, 'description', where, filled),
-    homepage: optional(value, 'homepage', where, filled),
-    keywords: optional(value, 'keywords', where, readKeywords) ?? [],
+    description: field(value, 'description', where, filled),
+    homepage: field(value, 'homepage', where, filled),
+    keywords: field(value, 'keywords', where, readKeywords) ?? [],
     support: free('support'),
     funding: free('funding'),
-    abandoned: optional(value, 'abandoned', where, checkAbandoned),
+    abandoned: field(value, 'abandoned', where, checkAbandoned),
     transportOptions: free('transport-options'),
-    time: optional(value, 'time', where, checkTime),
+    time: field(value, 'time', where, checkTime),
   }
+  return { pkg, links: Object.fromEntries(read.map(([property, { links }]) => [property, links])) }
 }
