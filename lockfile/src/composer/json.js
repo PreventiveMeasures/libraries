@@ -11,8 +11,10 @@ import { LockfileError, at, quote } from '../error.js'
 import { fail as failAt, take } from '../lines.js'
 import { fitsLong } from './php.js'
 
-// PHP's json_decode reads no deeper, nor json_encode writes.
-const DEPTH = 512
+// Arrays and objects nested in one another as deep as PHP's json_decode
+// reads them, at its depth of 512, of which the value about them is one;
+// nor does json_encode write deeper.
+const DEPTH = 511
 
 // The line end after the opening brace and the indentation of the line
 // after, as Composer's JsonFile::detectIndenting finds them.

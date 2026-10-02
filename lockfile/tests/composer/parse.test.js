@@ -439,6 +439,10 @@ describe('with composer.json', () => {
   it('refuses a composer.json Composer does not load', () => {
     refuses(encode(BASE), 'not JSON as PHP reads it: expected "," or "}", found the end of the file at line 1', 'composerJson', { composerJson: '{"name": "x/y"' })
     refuses(encode(BASE), 'a number past what a double holds, which Composer refuses of the file', 'composerJson.extra.n[1]', { composerJson: '{"extra": {"n": [1, -1e400]}}' })
+    // As deep as json_decode reads at its depth of 512, the top one of it.
+    const nested = (depth) => `{"extra": ${'['.repeat(depth - 1)}1${']'.repeat(depth - 1)}}`
+    with_(encode(BASE), nested(511))
+    refuses(encode(BASE), 'not JSON as PHP reads it: nested more than 511 deep at line 1', 'composerJson', { composerJson: nested(512) })
     with_(encode(BASE), '{"description": 1e400, "description": "x"}')
     refuses(encode(BASE), '"Fixture/Root" has capitals, which Composer refuses in composer.json', 'composerJson.name', { composerJson: root((json) => (json.name = 'Fixture/Root')) })
     refuses(encode(BASE), 'the root itself, which Composer refuses', 'composerJson.require["fixture/root"]', { composerJson: root((json) => (json.require['fixture/root'] = '*')) })

@@ -137,6 +137,14 @@ describe('against Composer', { skip: !hasComposer() && 'no php, or no Composer p
     const base = fixture('composer-2.10.3-tabs.lock').replaceAll('\t', '    ')
     const pieces = [' ', '\n', '\t', '{', '}', '[', ']', ',', '"', '\\', '\\/', '\\u00e9', 'é', '1', '1.0', '1e2', '-0', '.', ':', 'true', 'null', '\u2028', '\\u2028']
     const texts = Array.from({ length: 2000 }, () => flaw(flaw(base, generator, pieces), generator, pieces))
+    // A package's extra as deep as PHP reads, 511 arrays and objects in
+    // all, and one deeper.
+    const deep = (depth) => {
+      const doc = JSON.parse(base)
+      doc.packages[0].extra = { x: JSON.parse(`${'['.repeat(depth - 4)}1${']'.repeat(depth - 4)}`) }
+      return `${JSON.stringify(doc, null, 4)}\n`
+    }
+    texts.push(deep(511), deep(512))
     const results = composer(texts.map((text) => ['json', text]))
     let both = 0
     for (const [index, text] of texts.entries()) {
@@ -161,6 +169,7 @@ describe('against Composer', { skip: !hasComposer() && 'no php, or no Composer p
     const values = ['"a/b"', '"^1.0"', '{}', '[]', '1', '1.0', '1e2', '-0', 'true', 'null', '"\\u00e9"', '"/x/"', '"😀"', '[1,2]', '9223372036854775808', '1e400', '-1e400', '1e-400']
     const value = (depth) => (depth > 2 || generator.next() < 0.5 ? generator.pick(values) : `{${Array.from({ length: Math.floor(generator.next() * 4) }, () => `${generator.pick(keys)}: ${value(depth + 1)}`).join(', ')}}`)
     const texts = Array.from({ length: 1500 }, () => flaw(`{${Array.from({ length: 1 + Math.floor(generator.next() * 5) }, () => `${generator.pick(keys.filter((key) => key !== '"name"'))}: ${value(1)}`).join(',\n  ')}}`, generator, [' ', ',', '{', '}', '"', ':', '\\']))
+    texts.push(...[511, 512].map((depth) => `{"extra": ${'['.repeat(depth - 1)}1${']'.repeat(depth - 1)}}`))
     const results = composer(texts.flatMap((text) => [['decode', text], ['hash', text]]))
     for (const [index, text] of texts.entries()) {
       let encoded
