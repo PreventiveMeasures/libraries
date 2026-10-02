@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { parseGemfileLock } from '../../bundler.js'
 import { isPlatform, platformOf } from '../../src/rubygems/gem.js'
 import { compareVersions, isVersion, parseRequirement, satisfies } from '../../src/rubygems/version.js'
 import { random } from '../random.js'
+import { FIXTURES } from './fixtures.js'
 import { hasBundler, ruby, versions } from './reference.js'
 
 // RubyGems and Bundler, from the ruby on PATH, against the readers here.
@@ -124,8 +124,7 @@ function expected(lock, own = true) {
   }
 }
 
-const FIXTURES = new URL('fixtures/', import.meta.url)
-const TEXTS = readdirSync(FIXTURES).filter((name) => name.endsWith('.lock')).sort().map((name) => readFileSync(new URL(name, FIXTURES), 'utf8'))
+const TEXTS = Object.values(FIXTURES)
 
 // Pieces of what Bundler writes, and of what it does not, for one to
 // stand in for another.

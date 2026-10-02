@@ -1,7 +1,8 @@
 // Records what Bundler writes for the projects below into
-// tests/bundler/fixtures/. Needs ruby and gem, which install each Bundler
-// at its version into a directory of its own, git, and network access to
-// rubygems.org, gem.coop and github.com:
+// tests/bundler/fixtures.json.br, each lockfile's text by the run's name in
+// one brotli-compressed JSON object. Needs ruby and gem, which install each
+// Bundler at its version into a directory of its own, git, and network
+// access to rubygems.org, gem.coop and github.com:
 //
 //     node lockfile/scripts/record-bundler.js [name...]
 //
@@ -28,12 +29,13 @@
 // recorded, but for the versions the Gemfile pins.
 
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { brotliCompressSync, brotliDecompressSync, constants } from 'node:zlib'
 
-const FIXTURES = fileURLToPath(new URL('../tests/bundler/fixtures/', import.meta.url))
+const FIXTURES = fileURLToPath(new URL('../tests/bundler/fixtures.json.br', import.meta.url))
 
 // Ruby's own gems, which Bundler needs some of.
 const DEFAULT_GEMS = execFileSync('ruby', ['-e', 'print Gem.default_dir'], { encoding: 'utf8' })
@@ -95,9 +97,14 @@ function project(dir) {
 
 const PLATFORMS = ['--add-platform', 'x86_64-linux', 'arm64-darwin', 'ruby']
 
+// The run's lockfile into fixtures.json.br by its name, beside the others,
+// sorted by name.
 const keep = (dir, name) => {
-  mkdirSync(FIXTURES, { recursive: true })
-  writeFileSync(join(FIXTURES, `${name}.lock`), readFileSync(join(dir, 'Gemfile.lock'), 'utf8'))
+  const fixtures = existsSync(FIXTURES) ? JSON.parse(brotliDecompressSync(readFileSync(FIXTURES)).toString('utf8')) : {}
+  fixtures[name] = readFileSync(join(dir, 'Gemfile.lock'), 'utf8')
+  const sorted = Object.fromEntries(Object.entries(fixtures).sort(([a], [b]) => (a < b ? -1 : 1)))
+  const params = { [constants.BROTLI_PARAM_MODE]: constants.BROTLI_MODE_TEXT, [constants.BROTLI_PARAM_QUALITY]: constants.BROTLI_MAX_QUALITY }
+  writeFileSync(FIXTURES, brotliCompressSync(JSON.stringify(sorted), { params }))
 }
 
 const lock = (version, checksums) => (dir, home) => {

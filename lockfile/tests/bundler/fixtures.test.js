@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { parseGemfileLock } from '../../bundler.js'
+import { FIXTURES } from './fixtures.js'
 
 // Real lockfiles, as Bundler writes them: one project with every kind of
 // source Bundler locks, by Bundler 2.2, 2.4, 2.5, 2.6, 2.7 and 4.0; one of
 // a directory alone; and the project locked by 2.7, then by 4.0.
-// scripts/record-bundler.js records them; its header says how.
+// scripts/record-bundler.js records them into fixtures.json.br; its header
+// says how.
 
-const FIXTURES = new URL('fixtures/', import.meta.url)
-const text = (name) => readFileSync(new URL(`${name}.lock`, FIXTURES), 'utf8')
+const text = (name) => FIXTURES[name]
 const read = (name) => parseGemfileLock(text(name))
 const plain = (value) => JSON.parse(JSON.stringify(value))
 
