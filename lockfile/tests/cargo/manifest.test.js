@@ -178,6 +178,8 @@ describe('parseCargoManifest', () => {
   it('reads the build script\'s path, if any is given', () => {
     const build = (text) => parseCargoManifest(edit(ROOT, 'edition = "2021"', `edition = "2021"\n${text}`)).package.build
     assert.deepEqual(['', 'build = true', 'build = false', 'build = "src/build.rs"', 'build = "scripts/"'].map(build), [undefined, 'build.rs', false, 'src/build.rs', 'scripts/'])
+    // From a drive's directory, or a share's, on Windows.
+    assert.deepEqual(["build = 'C:build.rs'", "build = 'scripts\\build.rs'", "build = '//server/share/build.rs'"].map(build), ['C:build.rs', 'scripts\\build.rs', '//server/share/build.rs'])
   })
 
   it('throws a TypeError for a root that is not one', () => {
@@ -218,6 +220,10 @@ describe('parseCargoManifest', () => {
     ['a build script that is no file', edit(ROOT, 'edition = "2021"', 'edition = "2021"\nbuild = "."'), 'package.build: "." names no file, which cargo crashes on'],
     ['a build script with an empty path', edit(ROOT, 'edition = "2021"', 'edition = "2021"\nbuild = ""'), 'package.build: "" names no file, which cargo crashes on'],
     ['a build script that is a directory up', edit(ROOT, 'edition = "2021"', 'edition = "2021"\nbuild = "scripts/.."'), 'package.build: "scripts/.." names no file, which cargo crashes on'],
+    ['a build script that is a directory up on Windows', edit(ROOT, 'edition = "2021"', "edition = \"2021\"\nbuild = 'scripts\\..'"), 'package.build: "scripts\\\\.." names no file, which cargo crashes on'],
+    ['a build script that is a drive\'s root', edit(ROOT, 'edition = "2021"', 'edition = "2021"\nbuild = "C:/"'), 'package.build: "C:/" names no file, which cargo crashes on'],
+    ['a build script that is a drive', edit(ROOT, 'edition = "2021"', 'edition = "2021"\nbuild = "c:"'), 'package.build: "c:" names no file, which cargo crashes on'],
+    ['a build script that is a share', edit(ROOT, 'edition = "2021"', "edition = \"2021\"\nbuild = '\\\\server\\share\\'"), 'package.build: "\\\\\\\\server\\\\share\\\\" names no file, which cargo crashes on'],
     ['a library named with a "-"', edit(ROOT, 'proc-macro = true', 'name = "a-b"'), 'lib.name: "a-b": a library\'s name cannot have a "-", which cargo refuses'],
     ['a library named by blanks', edit(ROOT, 'proc-macro = true', 'name = " \\t"'), 'lib.name: a library\'s name cannot be empty, which cargo refuses'],
     ['a library\'s name of another type', edit(ROOT, 'proc-macro = true', 'name = 1'), 'lib.name: expected a string, found the integer 1'],

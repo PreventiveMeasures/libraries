@@ -62,9 +62,10 @@ export interface CargoLockPackage {
 // with `build = false`, a [package] or [workspace.package] key of a type
 // cargo does not take, a `rust-version` its edition rules out, a library's
 // name that is blank or has a `-`, a build script's path that names no
-// file, which cargo crashes on. Sections that bear on no dependency or
-// feature — [badges], [lints], [profile], [[bin]], metadata — are not looked
-// into, nor [lib] but for its name, path and whether it is a proc-macro.
+// file, on Windows or elsewhere, which cargo crashes on. Sections that bear
+// on no dependency or feature — [badges], [lints], [profile], [[bin]],
+// metadata — are not looked into, nor [lib] but for its name, path and
+// whether it is a proc-macro.
 export function parseCargoManifest(text: string, workspace?: CargoManifest): CargoManifest
 
 export interface CargoManifest {
