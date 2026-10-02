@@ -24,10 +24,7 @@ function fromLockfile(range, dir, where) {
 
 // Whether yarn links a workspace for a range, as it does where its version
 // satisfies the range; without semver, known of that very version alone.
-function links(workspace, range, semver) {
-  if (semver !== undefined) return semver.satisfies(workspace.version, range, { loose: true })
-  return workspace.version === range ? true : undefined
-}
+const links = (workspace, range, semver) => (semver === undefined ? workspace.version === range || undefined : semver.satisfies(workspace.version, range, { loose: true }))
 
 // yarn writes no entry for what it links.
 function checkLinked({ name, range, pattern, where }, workspaces, semver) {

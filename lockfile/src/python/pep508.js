@@ -5,7 +5,7 @@
 // anything but a string as its readers do.
 
 import { LockfileError, quote } from '../error.js'
-import { string } from '../toml/shape.js'
+import { checker, string } from '../toml/shape.js'
 import { isSpecifiers, trimBlanks } from './pep440.js'
 
 // What a distribution's name may be, and the form PEP 503 makes of it, in
@@ -16,10 +16,7 @@ const NORMAL = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
 export const isName = (name) => NAME.test(name)
 export const normalName = (name) => name.toLowerCase().replace(/[-_.]+/gu, '-')
 
-export function checkName(value, where) {
-  if (!isName(string(value, where))) throw new LockfileError(`${quote(value)} is not a package name`, where)
-  return value
-}
+export const checkName = checker(isName, 'a package name')
 
 export function checkNormalName(value, where) {
   if (!NORMAL.test(string(value, where))) {
@@ -92,10 +89,7 @@ function isMarker(text) {
   return tokens !== undefined && tokens.length > 0 && readOr(tokens, 0, 0) === tokens.length
 }
 
-export function checkMarker(value, where) {
-  if (!isMarker(string(value, where))) throw new LockfileError(`${quote(value)} is not an environment marker`, where)
-  return value
-}
+export const checkMarker = checker(isMarker, 'an environment marker')
 
 // A requirement in PEP 508's text, as packaging reads it: a name, extras
 // in brackets, then a version specifier, in brackets or not, or `@` and a
@@ -129,7 +123,4 @@ function isRequirement(text) {
   return parts !== undefined && (parts.specifiers === undefined || isSpecifiers(parts.specifiers)) && (parts.marker === undefined || isMarker(parts.marker))
 }
 
-export function checkRequirementText(value, where) {
-  if (!isRequirement(string(value, where))) throw new LockfileError(`${quote(value)} is not a requirement`, where)
-  return value
-}
+export const checkRequirementText = checker(isRequirement, 'a requirement')

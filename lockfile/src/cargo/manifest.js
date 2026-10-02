@@ -193,11 +193,10 @@ function readPackage(doc, workspace) {
   if (msrv !== undefined && edition in FIRST_RUST && !matches(parseVersionReq(`^${FIRST_RUST[edition]}`), rustVersion(msrv))) {
     throw new LockfileError(`rust-version ${quote(msrv)} is incompatible with ${FIRST_RUST[edition]}, which the ${edition} edition requires`, at(where, 'rust-version'))
   }
-  const { version, publish } = fields
+  const { version, publish, resolver, links } = fields
   if (version === undefined && publish !== undefined && publish !== false && !(Array.isArray(publish) && publish.length === 0)) {
     throw new LockfileError('`publish` needs a `version`', at(where, 'publish'))
   }
-  const { resolver, links } = fields
   if (resolver !== undefined && doc.workspace?.resolver !== undefined) throw new LockfileError('`resolver` is given in [workspace] too', at(where, 'resolver'))
   if (links !== undefined && fields.build === false) throw new LockfileError(`links to ${quote(links)} with no build script, which cargo refuses`, at(where, 'links'))
   return { name: checkCrateName(value.name, at(where, 'name')), version: version ?? '0.0.0', edition, resolver, links }

@@ -12,8 +12,7 @@ import { checkPatches, from, identify, offers, readPatches, within } from './pat
 
 function resolverOf(root) {
   const edition = root.package?.edition
-  const byEdition = edition === '2024' ? 3 : edition === '2021' ? 2 : 1
-  return root.workspace?.resolver ?? root.package?.resolver ?? byEdition
+  return root.workspace?.resolver ?? root.package?.resolver ?? (edition === '2024' ? 3 : edition === '2021' ? 2 : 1)
 }
 
 function checkMembers(lock, members) {

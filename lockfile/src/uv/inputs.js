@@ -3,12 +3,12 @@
 // each package's [package.metadata]. A requirement is uv's own table of
 // one: a name, extras or groups, a marker, and where it may come from.
 
-import { LockfileError, at, quote } from '../error.js'
+import { LockfileError, at } from '../error.js'
 import { DIGESTS, checkHash, checkPath } from '../python/files.js'
 import { checkMarker, checkNormalName, checkRequirementText } from '../python/pep508.js'
 import { checkNormalVersion, checkSpecifiers } from '../python/pep440.js'
 import { field } from '../shape.js'
-import { arrayOf, string, stringsOf, table } from '../toml/shape.js'
+import { arrayOf, checker, string, stringsOf, table } from '../toml/shape.js'
 import { isTable } from '../toml/value.js'
 import { byName, checkTime, checkUrl, names } from './shape.js'
 import { readGit } from './source.js'
@@ -117,12 +117,7 @@ const mode = (...values) => (value, where) => {
 const prerelease = mode('disallow', 'allow', 'if-necessary', 'explicit', 'if-necessary-or-explicit')
 
 // An ISO 8601 duration, as jiff writes a span.
-function checkSpan(value, where) {
-  if (!/^P(?!$)(?:\d+Y)?(?:\d+M)?(?:\d+W)?(?:\d+D)?(?:T(?=\d)(?:\d+H)?(?:\d+M)?(?:\d+(?:\.\d{1,9})?S)?)?$/u.test(string(value, where))) {
-    throw new LockfileError(`${quote(value)} is not an ISO 8601 duration`, where)
-  }
-  return value
-}
+const checkSpan = checker((text) => /^P(?!$)(?:\d+Y)?(?:\d+M)?(?:\d+W)?(?:\d+D)?(?:T(?=\d)(?:\d+H)?(?:\d+M)?(?:\d+(?:\.\d{1,9})?S)?)?$/u.test(text), 'an ISO 8601 duration')
 
 function cutoff(value, where) {
   if (value === false) return false
@@ -133,10 +128,7 @@ function cutoff(value, where) {
 
 function libc(value, where) {
   table(value, where, ['glibc', 'musl'])
-  const version = (item, here) => {
-    if (!/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(string(item, here))) throw new LockfileError(`${quote(item)} is not a libc version`, here)
-    return item
-  }
+  const version = checker((text) => /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(text), 'a libc version')
   return { glibc: field(value, 'glibc', where, version), musl: field(value, 'musl', where, version) }
 }
 
@@ -160,11 +152,10 @@ export function readOptions(value = Object.create(null)) {
 }
 
 export function readConflicts(value) {
-  const where = 'conflicts'
   if (value === undefined) return []
   return arrayOf((set, here) => {
     const items = arrayOf(readConflictItem)(set, here)
     if (items.length < 2) throw new LockfileError('a set of conflicts of fewer than two, which uv refuses', here)
     return items
-  })(value, where)
+  })(value, 'conflicts')
 }

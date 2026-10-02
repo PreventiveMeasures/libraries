@@ -63,11 +63,7 @@ function expectEnd(line, pos, number) {
   if (pos !== line.length) throw fail(`expected the end of the line, found ${quote(line.slice(pos))}`, number)
 }
 
-function indentOf(line) {
-  let indent = 0
-  while (line[indent] === ' ') indent++
-  return indent
-}
+const indentOf = (line) => /^ */u.exec(line)[0].length
 
 function expectHeader(src, expected) {
   if (src.line !== expected) throw fail(`expected yarn's header, ${quote(expected)}`, src.number)

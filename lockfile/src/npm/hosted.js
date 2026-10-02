@@ -91,11 +91,6 @@ function correctUrl(url) {
   return corrected
 }
 
-function parseUrl(arg) {
-  const url = correctProtocol(arg)
-  return URL.parse(url) ?? URL.parse(correctUrl(url))
-}
-
 const decode = (value) => (value ? decodeURIComponent(value) : value)
 
 function fromShortcut(parsed) {
@@ -112,7 +107,8 @@ function fromShortcut(parsed) {
 // committish after `#`, or null.
 export function fromHostedUrl(arg) {
   if (!arg) return undefined
-  const parsed = parseUrl(isShorthand(arg) ? `github:${arg}` : arg)
+  const url = correctProtocol(isShorthand(arg) ? `github:${arg}` : arg)
+  const parsed = URL.parse(url) ?? URL.parse(correctUrl(url))
   if (parsed === null) return undefined
   const shortcut = BY_SHORTCUT.get(parsed.protocol)
   const type = shortcut ?? BY_DOMAIN.get(parsed.hostname.replace(/^www\./u, ''))

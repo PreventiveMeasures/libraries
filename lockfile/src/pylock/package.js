@@ -9,7 +9,7 @@ import { DIGESTS, checkDigest, checkPath, fileNameOf, parseSdistName, parseWheel
 import { versionKey } from '../python/pep440.js'
 import { field } from '../shape.js'
 import { TomlDateTime } from '../toml/datetime.js'
-import { array, arrayOf, boolean, entries, refuse, size, string, table, text } from '../toml/shape.js'
+import { arrayOf, boolean, entries, refuse, size, string, table, text } from '../toml/shape.js'
 
 const FILE_SCHEMES = ['https:', 'http:', 'file:']
 
@@ -74,13 +74,12 @@ export const readSdist = (value, where, pkg) => (value === undefined ? undefined
 export function readWheels(value, where, pkg) {
   if (value === undefined) return []
   const seen = new Set()
-  return array(value, where).map((item, index) => {
-    const here = `${where}[${index}]`
+  return arrayOf((item, here) => {
     const file = readDistribution(item, here, pkg, true)
     if (seen.has(file.name)) throw new LockfileError(`${quote(file.name)} is listed twice`, here)
     seen.add(file.name)
     return file
-  })
+  })(value, where)
 }
 
 export const readArchive = (value, where) => ({ ...readFile(value, where, ['subdirectory']).file, subdirectory: field(value, 'subdirectory', where, checkPath) })

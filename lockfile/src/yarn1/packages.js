@@ -274,12 +274,10 @@ export function readPackages(list, semver) {
     if (merged.has(same)) throw new LockfileError(`resolves as ${quote(merged.get(same))} does, which yarn writes as one entry`, where)
     if (same !== undefined) merged.set(same, key)
     const source = fetchedFrom(pkg.resolution)
-    const group = fetched.get(source)
-    if (group !== undefined) {
-      checkSame(pkg, group[0], where)
+    if (source !== undefined) {
+      const group = fetched.get(source) ?? fetched.set(source, []).get(source)
+      if (group.length > 0) checkSame(pkg, group[0], where)
       group.push(pkg)
-    } else if (source !== undefined) {
-      fetched.set(source, [pkg])
     }
     // yarn resolves no request to what stands in for a workspace.
     if (read.handed?.sources.length === 0) continue

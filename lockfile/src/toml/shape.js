@@ -50,6 +50,12 @@ export function text(value, where) {
   return value
 }
 
+// A check of a string `is` holds, refusing any other as not `what`.
+export const checker = (is, what) => (value, where) => {
+  if (!is(string(value, where))) throw new LockfileError(`${quote(value)} is not ${what}`, where)
+  return value
+}
+
 // Each item of an array, as `read(item, where)` makes it.
 export const arrayOf = (read) => (value, where) => array(value, where).map((item, index) => read(item, `${where}[${index}]`))
 

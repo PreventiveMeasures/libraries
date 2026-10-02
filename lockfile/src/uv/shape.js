@@ -4,7 +4,7 @@
 import { LockfileError, quote } from '../error.js'
 import { checkNormalName } from '../python/pep508.js'
 import { isDateTime } from '../toml/datetime.js'
-import { string, stringsOf, tableOf } from '../toml/shape.js'
+import { checker, string, stringsOf, tableOf } from '../toml/shape.js'
 
 // A URL as the url crate writes it, as uv writes one: with no credentials,
 // which uv strips, and of a scheme it fetches over.
@@ -18,10 +18,7 @@ export function checkUrl(value, where, schemes = ['https:', 'http:', 'file:']) {
 }
 
 // As jiff writes a timestamp: UTC, to the second or a fraction of it.
-export function checkTime(value, where) {
-  if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?Z$/u.test(string(value, where)) || !isDateTime(value)) throw new LockfileError(`${quote(value)} is not a UTC timestamp`, where)
-  return value
-}
+export const checkTime = checker((text) => /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?Z$/u.test(text) && isDateTime(text), 'a UTC timestamp')
 
 export const names = stringsOf(checkNormalName)
 

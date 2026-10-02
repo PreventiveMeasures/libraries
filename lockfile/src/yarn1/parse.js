@@ -7,16 +7,11 @@ import { readEntries } from './syntax.js'
 const OPTIONS = ['manifests', 'checkVersions', 'semver']
 const SEMVER = ['clean', 'satisfies', 'valid', 'validRange']
 
-// semver is taken where it is given, checkVersions or not.
-function readOptions(options) {
-  const { manifests, semver } = checkOptions(options, OPTIONS)
-  checkSemver(options, SEMVER)
-  return { manifests, semver }
-}
-
 export function parseYarn1Lockfile(source, options = {}) {
   if (typeof source !== 'string') throw new TypeError('expected a string')
-  const { manifests, semver } = readOptions(options)
+  // semver is taken where it is given, checkVersions or not.
+  const { manifests, semver } = checkOptions(options, OPTIONS)
+  checkSemver(options, SEMVER)
   const read = readPackages(readEntries(source), semver)
   const { packages, requests } = read
   if (manifests === undefined) linkRequests(requests, packages)

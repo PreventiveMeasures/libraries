@@ -19,9 +19,8 @@ const REFERENCES = ['branch', 'tag', 'rev']
 function canonical(url) {
   const github = url.hostname === 'github.com'
   const copy = new URL(github ? `https:${url.href.slice(url.protocol.length)}` : url.href)
-  let path = copy.pathname.replace(/\/$/u, '')
-  if (github) path = path.toLowerCase()
-  copy.pathname = path.replace(/\.git$/u, '')
+  const path = copy.pathname.replace(/\/$/u, '')
+  copy.pathname = (github ? path.toLowerCase() : path).replace(/\.git$/u, '')
   return copy.href
 }
 

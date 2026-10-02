@@ -34,10 +34,7 @@ function registryValid(child, { name, fetchSpec, kind }, semver, alias) {
   const pkg = packageOf(child)
   if (alias && pkg.name !== name) return `asks for ${quote(name)}, and ${describe(child)} is ${quote(pkg.name)}, which npm does not check`
   if (kind === undefined || (kind === 'range' && fetchSpec === '*')) return undefined
-  if (kind === 'tag') {
-    if (child.kind === 'link' || !/^https?:/u.test(child.resolution?.tarball ?? '')) return `is a tag, which npm holds met by a tarball from a URL alone, and ${describe(child)} is none`
-    return undefined
-  }
+  if (kind === 'tag') return child.kind === 'link' || !/^https?:/u.test(child.resolution?.tarball ?? '') ? `is a tag, which npm holds met by a tarball from a URL alone, and ${describe(child)} is none` : undefined
   return semver.satisfies(pkg.version ?? '', fetchSpec, true) ? undefined : `is not satisfied by ${describe(child)}, ${pkg.version ?? 'of no version'}`
 }
 

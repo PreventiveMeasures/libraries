@@ -62,10 +62,7 @@ const UNICODE = /u([\dA-Fa-f]{4})|U([\dA-Fa-f]{8})/uy
 
 function readEscape(src) {
   const char = src.text[src.pos]
-  if (char in ESCAPES) {
-    src.pos++
-    return ESCAPES[char]
-  }
+  if (char in ESCAPES) return ESCAPES[src.text[src.pos++]]
   const m = take(src, UNICODE)
   assert(m !== null, src, () => `unsupported escape ${excerpt(`\\${char ?? ''}`)}`)
   const code = Number.parseInt(m[1] ?? m[2], 16)
@@ -80,8 +77,7 @@ function readString(src, quote) {
   for (;;) {
     value += take(src, RUN[quote])[0]
     assert(!atLineEnd(src), src, 'unterminated string')
-    const char = src.text[src.pos]
-    src.pos++
+    const char = src.text[src.pos++]
     if (char === quote) return value
     if (char === '\\') value += readEscape(src)
     else refuseControl(src, char, 'a string')
@@ -114,8 +110,7 @@ function readMultiline(src, quote) {
     assert(src.pos < src.text.length, src, 'unterminated string')
     const close = take(src, CLOSE[quote])
     if (close !== null) return value + close[0].slice(3)
-    const char = src.text[src.pos]
-    src.pos++
+    const char = src.text[src.pos++]
     if (char === quote) value += char
     else if (char === '\\') value += readMultilineEscape(src)
     else refuseControl(src, char, 'a string')

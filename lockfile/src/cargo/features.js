@@ -17,11 +17,9 @@ import { activate, requestsOf, setOf } from './activate.js'
 // and `member/feature` to the other selected members, which keep their
 // default features.
 
-const SPACE = /\p{White_Space}+/u
-
 function parseFeatures(features) {
   if (!Array.isArray(features) || !features.every((item) => typeof item === 'string')) throw new TypeError('expected the features as strings')
-  const texts = [...new Set(features.flatMap((item) => item.split(SPACE)).flatMap((item) => item.split(',')).filter(Boolean))]
+  const texts = [...new Set(features.flatMap((item) => item.split(/[\p{White_Space},]+/u)).filter(Boolean))]
   return texts.map((text) => {
     const value = featureValue(text)
     if (value.feature === undefined) throw new LockfileError(`${quote(text)}: \`dep:\` is not taken on the command line`, 'features')
@@ -71,16 +69,11 @@ function share(graph, values, selected, options) {
   const current = options.current ?? graph.root
   if (!graph.members.includes(current)) throw new LockfileError(`${quote(current)} is not a member of the workspace`, 'current')
   const nameOf = (key) => graph.packages[key].name
-  const specific = new Map()
-  const cwd = []
-  for (const value of values) {
-    const member = value.dep !== undefined && graph.members.some((key) => key !== current && nameOf(key) === value.dep)
-    if (member && selected.some((key) => nameOf(key) === value.dep)) specific.set(value.dep, [...(specific.get(value.dep) ?? []), featureValue(value.feature)])
-    else cwd.push(value)
-  }
+  const isSpecific = (value) => value.dep !== undefined && graph.members.some((key) => key !== current && nameOf(key) === value.dep) && selected.some((key) => nameOf(key) === value.dep)
+  const specific = Map.groupBy(values.filter(isSpecific), (value) => value.dep)
   for (const key of graph.members) {
-    if (key === current) result.set(key, [cwd, !options.noDefaultFeatures])
-    else if (selected.includes(key)) result.set(key, [specific.get(nameOf(key)) ?? [], true])
+    if (key === current) result.set(key, [values.filter((value) => !isSpecific(value)), !options.noDefaultFeatures])
+    else if (selected.includes(key)) result.set(key, [(specific.get(nameOf(key)) ?? []).map((value) => featureValue(value.feature)), true])
   }
   return result
 }
@@ -150,13 +143,9 @@ class FeatureResolver {
   }
 
   deps(key, fk) {
-    const list = []
-    for (const dep of this.graph.packages[key].dependencies) {
-      if (!this.targeted.has(dep) || (dep.kind === 'dev' && this.decoupleDev)) continue
-      if (dep.target !== undefined && this.ignoreInactive && !this.activeFor(dep, fk)) continue
-      list.push({ dep, depFk: this.trackForHost && this.forHost(dep) ? 'host' : fk })
-    }
-    return list
+    return this.graph.packages[key].dependencies
+      .filter((dep) => this.targeted.has(dep) && !(dep.kind === 'dev' && this.decoupleDev) && (dep.target === undefined || !this.ignoreInactive || this.activeFor(dep, fk)))
+      .map((dep) => ({ dep, depFk: this.trackForHost && this.forHost(dep) ? 'host' : fk }))
   }
 
   forHost(dep) {
@@ -226,11 +215,6 @@ class FeatureResolver {
     }
   }
 
-  // A root with any proc-macro target is resolved for the host too.
-  kindsOf(key) {
-    return this.graph.packages[key].manifest.procMacroTarget ? ['normal', 'host'] : ['normal']
-  }
-
   // But built for the host only where its library is a proc-macro, or where
   // dev targets are built and one is a proc-macro, which pulls the library
   // along; and for the target too, in case it has more targets.
@@ -239,8 +223,9 @@ class FeatureResolver {
     return procMacro || (procMacroTarget && this.dev) ? ['normal', 'host'] : ['normal']
   }
 
+  // A root with any proc-macro target is resolved for the host too.
   resolveRoot(key, values) {
-    for (const fk of this.trackForHost ? this.kindsOf(key) : ['normal']) {
+    for (const fk of this.trackForHost && this.graph.packages[key].manifest.procMacroTarget ? ['normal', 'host'] : ['normal']) {
       for (const value of values) this.activateValue(key, fk, value)
       this.activatePkg(key, fk, [], 'roots')
     }
