@@ -192,7 +192,16 @@ describe('sources', () => {
   it('a gem server, by one URL, with a "/" at the end', () => {
     assert.equal(parseGemfileLock(edit(['https://rubygems.org/', 'https://user:secret@gems.example.com/private/'])).sources[2].remote, 'https://user:secret@gems.example.com/private/')
     refuses(edit(['https://rubygems.org/', 'https://rubygems.org']), '"https://rubygems.org" does not end in "/", as Bundler writes a source', 'sources[2].remote')
-    refuses(edit(['https://rubygems.org/', 'ftp://rubygems.org/']), '"ftp://rubygems.org/" is not an http(s) URL', 'sources[2].remote')
+    refuses(edit(['https://rubygems.org/', 'ftp://rubygems.org/']), '"ftp://rubygems.org/" is not an http(s) URL, or a file: URL in normal form', 'sources[2].remote')
+  })
+
+  it('a directory of gems, by a file: URL in normal form, as `source "file:///srv/gems"` writes it', () => {
+    assert.equal(parseGemfileLock(edit(['https://rubygems.org/', 'file:///srv/gems/'])).sources[2].remote, 'file:///srv/gems/')
+    assert.equal(parseGemfileLock(edit(['https://rubygems.org/', 'file:///srv/my%20gems/'])).sources[2].remote, 'file:///srv/my%20gems/')
+    for (const remote of ['file://localhost/srv/gems/', 'file:/srv/gems/', 'file://host/srv/gems/', 'file:///srv/my gems/', 'file:///srv/../gems/']) {
+      refuses(edit(['https://rubygems.org/', remote]), `${JSON.stringify(remote)} is not an http(s) URL, or a file: URL in normal form`, 'sources[2].remote')
+    }
+    refuses(edit(['https://rubygems.org/', 'file:///srv/gems']), '"file:///srv/gems" does not end in "/", as Bundler writes a source', 'sources[2].remote')
     refuses(edit(['  remote: https://rubygems.org/\n', '  remote: https://rubygems.org/\n  remote: https://gem.coop/\n']), 'a second remote: Bundler fetches each gem of the source from either, and the lockfile does not say which at line 17')
     refuses(edit(['  remote: https://rubygems.org/\n', '']), 'from sources[2], which has no remote: Bundler takes it from the gems installed where it runs', 'specs["a-1.2.0"]')
   })

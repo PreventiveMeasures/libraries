@@ -88,8 +88,9 @@ export interface BundlerDependency {
 // `glob`, of a git or a path source, is what Bundler finds the gemspecs
 // by, where not its default, `{,*,*/*}.gemspec`.
 export type BundlerSource =
-  // A server of the gem API, by its URL, with a `/` at the end; undefined
-  // for the source of a Gemfile that names none, and so has no gems.
+  // A server of the gem API, by its URL, or a directory of gems, by a
+  // `file:///` one, with a `/` at the end; undefined for the source of a
+  // Gemfile that names none, and so has no gems.
   | { type: 'gem', remote: string | undefined }
   // A repository by URL, or by path, as the Gemfile has it; `revision` the
   // commit it resolved to, and each of `ref`, `branch` and `tag` what was

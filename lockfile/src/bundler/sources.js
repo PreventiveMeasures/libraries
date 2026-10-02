@@ -72,12 +72,22 @@ function readPath(values, where) {
   return { type: 'path', path: checkRelative(values.remote, here), glob: values.glob === undefined ? undefined : readGlob(values.glob, at(where, 'glob')) }
 }
 
-// A server of the gem API by its URL, as Bundler writes it: with a `/` at
-// the end. Bundler 2.4 and older write the credentials the Gemfile gives it.
+// A directory of gems, which Bundler fetches from as from a server, by a
+// file: URL: in the normal form, of no host, so that it is one path to
+// every reader.
+function isFileUrl(remote) {
+  const url = URL.parse(remote)
+  return url !== null && url.protocol === 'file:' && url.host === '' && url.href === remote
+}
+
+// A server of the gem API by its URL, or a directory of gems, as Bundler
+// writes it: with a `/` at the end. Bundler 2.4 and older write the
+// credentials the Gemfile gives it.
 function readGem(values, where) {
   const { remote } = values
   if (remote === undefined) return { type: 'gem', remote }
-  if (!isHttpUrl(remote) || /\s/u.test(remote)) throw new LockfileError(`${quote(remote)} is not an http(s) URL`, at(where, 'remote'))
+  const url = (isHttpUrl(remote) || isFileUrl(remote)) && !/\s/u.test(remote)
+  if (!url) throw new LockfileError(`${quote(remote)} is not an http(s) URL, or a file: URL in normal form`, at(where, 'remote'))
   if (!remote.endsWith('/')) throw new LockfileError(`${quote(remote)} does not end in "/", as Bundler writes a source`, at(where, 'remote'))
   return { type: 'gem', remote }
 }

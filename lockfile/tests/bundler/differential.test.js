@@ -133,7 +133,7 @@ const SWAPS = [
   [' (', '('], [' (', '  ('], [')', ') '], ['!', ''], ['\n', '!\n'], [', ', ','], [', ', ' , '], ['~> ', '~>'], ['~>', '>='], ['>=', '='], ['= ', '!= '],
   ['1', '2'], ['1', '01'], ['.', '.0.'], ['.', '-'], ['3', '3.a'], ['(', '(1.0-'], ['-x86_64-linux', '-x86_64-linux-gnu'], ['-arm64-darwin', '-ruby'],
   ['-arm64-darwin', '-universal-darwin'], ['-x86_64-linux', ''], ['rack', 'Rack'], ['rack', '_rack'], ['rack', 'bundler'], ['sha256=', 'sha512='],
-  ['sha256=', 'sha256=A'], ['https://rubygems.org/', 'https://rubygems.org'], ['https://', 'http://'], ['remote: ', 'remote:  '], ['.git\n', '.git/\n'],
+  ['sha256=', 'sha256=A'], ['https://rubygems.org/', 'https://rubygems.org'], ['https://rubygems.org/', 'file:///srv/gems/'], ['https://gem.coop/', 'file://localhost/srv/gems/'], ['https://', 'http://'], ['remote: ', 'remote:  '], ['.git\n', '.git/\n'],
   ['tag: ', 'branch: '], ['branch: ', 'ref: '], ['submodules: true', 'submodules: false'], ['glob: ', 'glob:  '], ['revision: ', 'ref: '],
   ['remote: .', 'remote: ./.'], ['remote: vendor', 'remote: /vendor'], ['ruby 3', 'ruby  3'], ['p108', ''], ['p108', 'p-1'], ['ruby 3.3.6', 'ruby 3.3.6 (jruby 9.4.5.0)'],
   ['  ruby\n', '  java\n'], ['  ruby\n', '  ruby\n  x86_64-linux\n'], ['DEPENDENCIES\n', 'DEPENDENCIES\n  bundler (>= 2)\n'], ['\n  4.', '\n   4.'], ['\n   2.', '\n  2.'],
