@@ -1,14 +1,18 @@
-// What npm writes of how each node is depended on, as Arborist works it out
-// from the tree (calcDepFlags, getBundler): flags npm leaves a dependency
-// out by, under --omit, and which packages come in another's tarball.
+// The flags npm writes of how each node is depended on, which it leaves
+// one out by under --omit, as Arborist's calcDepFlags works them out from
+// the tree; in three ways, as npm's versions have had it.
 
-import { LockfileError, at, quote } from '../error.js'
+import { LockfileError, at } from '../error.js'
 import { resolveParent } from './tree.js'
 
 const FLAGS = ['dev', 'optional', 'devOptional', 'peer', 'extraneous']
 const WRITTEN = ['dev', 'optional', 'devOptional', 'peer']
 
+// Every flag set but on the project, where none is.
 const initial = (nodes) => new Map([...nodes.values()].map((node) => [node, Object.fromEntries(FLAGS.map((flag) => [flag, node.kind !== 'root']))]))
+
+// What an edge's type is by Edge#dev, #optional and #peer.
+const kinds = (type) => ({ dev: type === 'dev', optional: type === 'optional' || type === 'peerOptional', peer: type.startsWith('peer') })
 
 // calcDepFlags, as npm 11.7 and later have it: each node starts with every
 // flag but the project, and loses one wherever an edge without it leads to
@@ -37,7 +41,7 @@ function calcFlags(nodes, assign) {
     }
     for (const { type, to } of node.edges.values()) {
       if (to === undefined) continue
-      const [dev, optional, peer] = [type === 'dev', type === 'optional' || type === 'peerOptional', type.startsWith('peer')]
+      const { dev, optional, peer } = kinds(type)
       const unset = {
         extraneous: !own.extraneous && !(peer && optional),
         dev: !own.dev && !dev,
@@ -110,7 +114,7 @@ function calcFlagsBefore(nodes) {
     for (const { type, to } of node.edges.values()) {
       if (to === undefined) continue
       flags.get(to).extraneous = false
-      const [dev, optional, peer] = [type === 'dev', type === 'optional' || type === 'peerOptional', type.startsWith('peer')]
+      const { dev, optional, peer } = kinds(type)
       const unsetDevOptional = !own.devOptional && !own.dev && !own.optional && !dev && !optional
       if (!own.peer && !peer) unsetFlag(to, 'peer')
       if (unsetDevOptional) unsetFlag(to, 'devOptional')
@@ -125,44 +129,6 @@ function calcFlagsBefore(nodes) {
   return flags
 }
 
-// getBundler: the package whose tarball a node comes in, that of a node it
-// is in first; else its parent, where that bundles it by name, or where
-// what depends on it comes in the parent's tarball itself. `path` is
-// shared down the walk, which npm ends where it comes round. A bundler
-// lists what it bundles, so a node under none comes in none.
-function bundlerOf(node, path = new Set()) {
-  if (path.has(node)) return undefined
-  path.add(node)
-  const { parent } = node
-  if (parent === undefined) return undefined
-  const above = bundlerOf(parent, path)
-  if (above !== undefined) return above
-  if (parent.bundleDependencies?.includes(node.folder)) return parent
-  for (const edge of node.edgesIn) if (bundlerOf(edge.from, path) === parent) return parent
-  return undefined
-}
-
-function underBundler(node) {
-  for (let parent = node.parent; parent !== undefined; parent = parent.parent) if (parent.bundleDependencies !== undefined) return true
-  return false
-}
-
-// A package bundled in another's tarball comes from it, and from nothing
-// else; the project's own it bundles are installed as any other.
-function checkBundled(node, root) {
-  const bundler = underBundler(node) ? bundlerOf(node) : undefined
-  if (node.inBundle !== (bundler !== undefined)) {
-    throw new LockfileError(bundler === undefined ? 'set, where nothing bundles it' : `expected true, as ${quote(bundler.location)} bundles it`, at(node.where, 'inBundle'))
-  }
-  const { resolution } = node
-  if (bundler === undefined || bundler === root) {
-    if (resolution === undefined) throw new LockfileError('expected where it comes from, resolved or an integrity', node.where)
-  } else if (resolution !== undefined) {
-    const written = resolution.type === 'git' || resolution.tarball !== undefined ? 'resolved' : 'integrity'
-    throw new LockfileError(`npm takes it from the tarball of ${quote(bundler.location)}, and from nothing else`, at(node.where, written))
-  }
-}
-
 // The first node whose flags are not those `flags` gives it, and why.
 function mismatch(nodes, flags) {
   for (const node of nodes.values()) {
@@ -175,12 +141,13 @@ function mismatch(nodes, flags) {
   return undefined
 }
 
-// Each node's flags as npm sets them, all as one version of npm does, and
-// whether it comes in another's tarball. Where none, the refusal is the
-// latest version's.
+// The ways npm's versions work the flags out, the latest first: npm 11.18
+// and later, npm 11.7 to 11.17, and npm 9 to 11.6.
+const VERSIONS = [(nodes) => calcFlags(nodes, false), (nodes) => calcFlags(nodes, true), calcFlagsBefore]
+
+// Each node's flags as npm sets them, all as one version of npm does.
+// Where none, the refusal is the latest version's.
 export function checkFlags(nodes) {
-  const error = mismatch(nodes, calcFlags(nodes, false))
-  if (error !== undefined && mismatch(nodes, calcFlags(nodes, true)) !== undefined && mismatch(nodes, calcFlagsBefore(nodes)) !== undefined) throw error
-  const root = nodes.get('')
-  for (const node of nodes.values()) if (node.kind === 'package') checkBundled(node, root)
+  const error = mismatch(nodes, VERSIONS[0](nodes))
+  if (error !== undefined && VERSIONS.slice(1).every((calc) => mismatch(nodes, calc(nodes)) !== undefined)) throw error
 }

@@ -6,6 +6,7 @@
 
 import { LockfileError, at, quote } from '../error.js'
 import { checkOptions, kind, record, text } from '../shape.js'
+import { checkBundles } from './bundles.js'
 import { checkFlags } from './flags.js'
 import { readJson } from './json.js'
 import { loadGraph, readNodes, readWorkspaces } from './tree.js'
@@ -96,6 +97,7 @@ export function parseNpmLockfile(source, options = {}) {
   loadGraph(nodes, workspaces, legacyPeerDeps)
   checkEdges(nodes, semver)
   checkFlags(nodes)
+  checkBundles(nodes)
   const workspaceOf = new Set(workspaces.values())
   const importers = Object.create(null)
   const packages = Object.create(null)

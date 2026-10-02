@@ -94,6 +94,7 @@
     "src/graph.js",
     "src/lines.js",
     "src/names.js",
+    "src/npm/bundles.js",
     "src/npm/entries.js",
     "src/npm/flags.js",
     "src/npm/hosted.js",

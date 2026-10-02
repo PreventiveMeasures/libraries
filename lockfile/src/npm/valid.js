@@ -43,8 +43,10 @@ function registryValid(child, { name, fetchSpec, kind }, semver, alias) {
   return semver.satisfies(pkg.version ?? '', fetchSpec, true) ? undefined : `is not satisfied by ${describe(child)}, ${pkg.version ?? 'of no version'}`
 }
 
+// A repository, by the ssh URL of one on a host npm knows or else by its
+// URL, at a commit where it names one, and in a range of versions.
 function gitValid(child, requested, semver) {
-  const { resolution } = packageOf(child)
+  const { resolution, version } = child
   if (child.kind === 'link' || resolution?.type !== 'git') return `asks for a git repository, and ${describe(child)} is from none`
   const resolved = readResolved(`${resolution.repo}#${resolution.commit}`)
   const commit = COMMIT.test(requested.committish ?? '')
@@ -54,8 +56,8 @@ function gitValid(child, requested, semver) {
   if (!same) return `asks for another repository than ${describe(child)} is from${commit ? ', or another commit' : ''}`
   // npm passes over the commit of a repository on no host it knows.
   if (commit && requested.committish.toLowerCase() !== resolution.commit) return `asks for another commit than ${describe(child)} is of`
-  if (requested.range === null || semver === undefined || semver.satisfies(packageOf(child).version, requested.range, true)) return undefined
-  return `asks for a version of the repository ${describe(child)} is not, ${packageOf(child).version}`
+  if (requested.range === null || semver === undefined || semver.satisfies(version, requested.range, true)) return undefined
+  return `asks for a version of the repository ${describe(child)} is not, ${version}`
 }
 
 // Why a node does not meet a spec, or undefined where it does: depValid,

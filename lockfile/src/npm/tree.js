@@ -11,7 +11,7 @@ import { entries, record } from '../shape.js'
 import { compile, matches } from '../yarn1/glob.js'
 import { folderName, readEntry, readLink } from './entries.js'
 
-export const WHERE = 'packages'
+const WHERE = 'packages'
 
 const IN_NODE_MODULES = /^(?:(.+)\/)?node_modules\/((?:@[^/]+\/)?[^/]+)$/u
 
@@ -58,7 +58,9 @@ function link(node, nodes) {
   const target = nodes.get(node.targetLocation)
   const where = at(node.where, 'resolved')
   if (target === undefined) throw new LockfileError(`${quote(node.targetLocation)} is not in the lockfile, where npm looks for what a link leads to`, where)
-  if (target.kind === 'root' || target.kind === 'link') throw new LockfileError(`${quote(node.targetLocation)} is ${target.kind === 'root' ? 'the project' : 'a link'}, where npm links a directory or a package`, where)
+  if (target.kind === 'root' || target.kind === 'link') {
+    throw new LockfileError(`${quote(node.targetLocation)} is ${target.kind === 'root' ? 'the project' : 'a link'}, where npm links a directory or a package`, where)
+  }
   node.target = target
   target.links.push(node)
 }
@@ -79,7 +81,7 @@ function fsParentOf(node, nodes) {
 export const resolveParent = (node) => node.parent ?? node.fsParent
 
 // Node#resolve: the first of the name in a node_modules up the tree.
-export function resolve(node, name) {
+function resolve(node, name) {
   const key = name.toLowerCase()
   for (let from = node; from !== undefined; from = resolveParent(from)) {
     const child = from.children.get(key)

@@ -7,6 +7,7 @@ import { LockfileError, at, quote } from '../error.js'
 import { checkIntegrity, checkName, checkRelative, checkRepo, checkVersion, isCommit, isHttpUrl } from '../names.js'
 import { boolean, entries, field, flag, kind, record, string, text, texts } from '../shape.js'
 import { fromHostedUrl } from './hosted.js'
+import { isTarball } from './spec.js'
 
 const MANIFEST = [
   'name', 'version', 'dependencies', 'optionalDependencies', 'peerDependencies', 'peerDependenciesMeta',
@@ -67,11 +68,8 @@ const peersMeta = mapping((item, where, name) => {
 })
 
 // A URL, a mapping of a type and a URL, or a sequence of either.
-function readFunding(value, where) {
-  if (typeof value === 'string') return text(value, where)
-  if (!Array.isArray(value)) return mapping(text)(value, where)
-  return filled(value, where).map((item, index) => (typeof item === 'string' ? text(item, `${where}[${index}]`) : mapping(text)(item, `${where}[${index}]`)))
-}
+const funding = (value, where) => (typeof value === 'string' ? text(value, where) : mapping(text)(value, where))
+const readFunding = (value, where) => (Array.isArray(value) ? filled(value, where).map((item, index) => funding(item, `${where}[${index}]`)) : funding(value, where))
 
 // Globs, or the `packages` of them, which @npmcli/map-workspaces reads.
 function readWorkspaces(value, where) {
@@ -138,7 +136,7 @@ function readIntegrity(value, where) {
 // which npm reads as a repository where it is one on a git host.
 function checkTarball(tarball, name, version, where) {
   if (tarball.startsWith('file:')) {
-    if (!/\.(?:tgz|tar\.gz|tar)$/iu.test(tarball)) throw new LockfileError(`${quote(tarball)} is a directory, which npm packs again at every install: not supported`, where)
+    if (!isTarball(tarball)) throw new LockfileError(`${quote(tarball)} is a directory, which npm packs again at every install: not supported`, where)
     checkRelative(tarball.slice(5), where)
     return
   }

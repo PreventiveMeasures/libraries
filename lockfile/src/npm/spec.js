@@ -11,6 +11,9 @@ import { fromHostedUrl } from './hosted.js'
 const URL_SPEC = /^(?:git\+)?[a-z]+:/iu
 const SCP = /^[^@]+@[^.:]+\.[^:]+:.+$/iu
 const FILE_TYPE = /\.(?:tgz|tar\.gz|tar)$/iu
+
+// Whether npm takes a `file:` path for a tarball, or for a directory.
+export const isTarball = (path) => FILE_TYPE.test(path)
 const GIT_PROTOCOLS = new Set(['git:', 'git+http:', 'git+https:', 'git+rsync:', 'git+ftp:', 'git+ssh:'])
 
 const unread = (spec, why) => new LockfileError(`${quote(spec)} is ${why}`)
