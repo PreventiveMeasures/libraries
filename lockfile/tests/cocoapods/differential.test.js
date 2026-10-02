@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { parsePodfileLock } from '../../cocoapods.js'
 import { checkDescription } from '../../src/cocoapods/external.js'
@@ -8,6 +7,7 @@ import { psychRead } from '../../src/cocoapods/psych.js'
 import { readExternalSource } from '../../src/cocoapods/sources.js'
 import { parseCocoaYaml } from '../../src/cocoapods/yaml.js'
 import { random } from '../random.js'
+import { FIXTURES } from './fixtures.js'
 import { cocoapods, coreVersion } from './reference.js'
 
 // cocoapods-core, which writes and reads every Podfile.lock, against the
@@ -146,8 +146,7 @@ describe('against cocoapods-core', { skip: SKIP }, () => {
   })
 
   it('the fixtures read as Pod::Lockfile reads them', () => {
-    const fixtures = new URL('fixtures/', import.meta.url)
-    const texts = readdirSync(fixtures).filter((name) => name.endsWith('.lock')).map((name) => readFileSync(new URL(name, fixtures), 'utf8'))
+    const texts = Object.values(FIXTURES).map((fixture) => fixture.lock)
     const results = cocoapods(texts.map((text) => ['lockfile', text]))
     for (const [index, text] of texts.entries()) {
       const lock = parsePodfileLock(text)

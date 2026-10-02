@@ -1,6 +1,7 @@
 // Records what CocoaPods writes for the projects below into
-// tests/cocoapods/fixtures/, each Podfile.lock as <name>.lock and the
-// Podfile it was written for as <name>.podfile. Needs ruby and gem, git,
+// tests/cocoapods/fixtures.json.br: JSON, brotli-compressed, of each run
+// by name, the Podfile.lock as `lock` and the Podfile it was written for
+// as `podfile`, each as its text. Needs ruby and gem, git,
 // curl, rsync and tar, and network access to rubygems.org, the CocoaPods
 // CDN and github.com:
 //
@@ -34,8 +35,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { brotliCompressSync, brotliDecompressSync } from 'node:zlib'
 
-const OUT = fileURLToPath(new URL('../tests/cocoapods/fixtures/', import.meta.url))
+const ARCHIVE = fileURLToPath(new URL('../tests/cocoapods/fixtures.json.br', import.meta.url))
 const GEMS = process.env.COCOAPODS_GEMS ?? join(tmpdir(), 'cocoapods-gems')
 const HOME = process.env.COCOAPODS_HOME ?? join(tmpdir(), 'cocoapods-home')
 const PORT = 8137
@@ -186,6 +188,7 @@ async function serve(dir) {
   return server
 }
 
+// The Podfile.lock and the Podfile of a run.
 async function record({ name, cocoapods: version, project }) {
   const env = cocoapods(version)
   const dir = mkdtempSync(join(tmpdir(), `record-cocoapods-${name}-`))
@@ -196,9 +199,7 @@ async function record({ name, cocoapods: version, project }) {
     run('ruby', ['project.rb'], { cwd: dir, env })
     const root = process.getuid?.() === 0 ? ['--allow-root'] : []
     run('pod', ['install', ...root, ...(process.env.VERBOSE ? ['--verbose'] : [])], { cwd: dir, env })
-    mkdirSync(OUT, { recursive: true })
-    writeFileSync(join(OUT, `${name}.lock`), readFileSync(join(dir, 'Podfile.lock')))
-    writeFileSync(join(OUT, `${name}.podfile`), readFileSync(join(dir, 'Podfile')))
+    return { lock: readFileSync(join(dir, 'Podfile.lock'), 'utf8'), podfile: readFileSync(join(dir, 'Podfile'), 'utf8') }
   } finally {
     server.kill()
     rmSync(dir, { recursive: true, force: true })
@@ -207,4 +208,7 @@ async function record({ name, cocoapods: version, project }) {
 
 const only = process.argv.slice(2)
 for (const name of only) if (!RUNS.some((item) => item.name === name)) throw new Error(`no run ${name}`)
-for (const item of RUNS) if (only.length === 0 || only.includes(item.name)) await record(item)
+const recorded = existsSync(ARCHIVE) ? JSON.parse(brotliDecompressSync(readFileSync(ARCHIVE))) : {}
+for (const item of RUNS) if (only.length === 0 || only.includes(item.name)) recorded[item.name] = await record(item)
+const runs = Object.fromEntries(RUNS.filter((item) => item.name in recorded).map((item) => [item.name, recorded[item.name]]))
+writeFileSync(ARCHIVE, brotliCompressSync(`${JSON.stringify(runs, null, 2)}\n`))

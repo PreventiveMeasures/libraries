@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { parsePodfileLock } from '../../cocoapods.js'
+import { FIXTURES } from './fixtures.js'
 
 // Real lockfiles, as CocoaPods writes them: one iOS app that asks for every
 // kind of pod a Podfile.lock records, by CocoaPods 1.17, 1.16, 1.15, 1.12
 // and 1.10, and one with no pods. scripts/record-cocoapods.js records them,
-// and the Podfile of each; its header says what is in them.
+// and the Podfile of each, into fixtures.json.br; its header says what is
+// in them.
 
-const FIXTURES = new URL('fixtures/', import.meta.url)
-const text = (name) => readFileSync(new URL(`${name}.lock`, FIXTURES), 'utf8')
-const podfile = (name) => readFileSync(new URL(`${name}.podfile`, FIXTURES))
+const text = (name) => FIXTURES[name].lock
+const podfile = (name) => FIXTURES[name].podfile
 const read = (name) => parsePodfileLock(text(name), { podfile: podfile(name) })
 const VERSIONS = ['1.17.0', '1.16.2', '1.15.2', '1.12.1', '1.10.2']
 const plain = (value) => structuredClone(value)
@@ -88,7 +88,7 @@ describe('CocoaPods 1.17', () => {
   it('the Podfile it was written for, and no other', () => {
     assert.match(lock.podfileChecksum, /^[\da-f]{40}$/u)
     assert.throws(() => parsePodfileLock(text('cocoapods-1.17.0'), { podfile: podfile('cocoapods-1.17.0-empty') }), /the lockfile was written for another Podfile/u)
-    assert.equal(parsePodfileLock(text('cocoapods-1.17.0'), { podfile: podfile('cocoapods-1.17.0').toString('utf8') }).podfileChecksum, lock.podfileChecksum)
+    assert.equal(parsePodfileLock(text('cocoapods-1.17.0'), { podfile: new TextEncoder().encode(podfile('cocoapods-1.17.0')) }).podfileChecksum, lock.podfileChecksum)
   })
 })
 
