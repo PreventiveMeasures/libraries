@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { isDeepStrictEqual } from 'node:util'
 import * as rustSemver from '../rust-semver.js'
+import { fileName } from '../src/crate/path.js'
 import { sanitizeWithOptions } from '../src/crate/sanitize-filename.js'
 
 const { matches, parseVersion, parseVersionReq } = rustSemver
@@ -157,4 +158,17 @@ describe('the sanitize-filename crate, as Soldeer names a folder', () => {
     assert.equal(sanitizeWithOptions('a/b', { windows: false, truncate: true, replacement: '' }), 'ab')
     assert.equal(sanitizeWithOptions('x'.repeat(300), { windows: false, truncate: false, replacement: '-' }).length, 300)
   })
+})
+
+// std's own cases of Path::file_name, from Rust 1.97's
+// library/std/tests/path.rs: test_decompositions_unix and _windows.
+const PATHS = JSON.parse(readFileSync(new URL('fixtures/rust-path.json', import.meta.url), 'utf8'))
+
+describe('path.js, as std::path reads a file name on Unix and on Windows', () => {
+  for (const [os, cases] of Object.entries(PATHS)) {
+    it(`every case std tests on ${os}`, () => {
+      assert.ok(cases.length > 25)
+      for (const [path, name] of cases) assert.equal(fileName(path, os === 'windows') ?? null, name, JSON.stringify(path))
+    })
+  }
 })
