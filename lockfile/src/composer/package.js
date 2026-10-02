@@ -8,7 +8,7 @@
 // written.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkRefName, checkRelative, isCommit, isHttpUrl } from '../names.js'
+import { checkRefName, checkRelative, isCommit } from '../names.js'
 import { boolean, field, record, refuse, string } from '../shape.js'
 import { keysOf } from './json.js'
 import { compareKeys, compareStrings, empty, lower, trim } from './php.js'
@@ -214,6 +214,9 @@ function readSource(value, where) {
 }
 
 const ARCHIVES = ['zip', 'tar', 'gzip', 'xz', 'rar', 'phar', 'file']
+
+// What HttpDownloader fetches: an http(s) URL, of its scheme in any case.
+const isHttpUrl = (value) => /^https?:\/\//iu.test(value) && URL.canParse(value)
 
 // An archive by URL, or by path, as an artifact repository has it; a
 // directory by path. FileDownloader holds what it fetches to the sha1, in

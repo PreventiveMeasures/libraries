@@ -151,7 +151,7 @@ describe('against Composer', { skip: !hasComposer() && 'no php, or no Composer p
 
   it('composer.json: decoded, encoded and hashed alike', () => {
     const keys = ['"name"', '"require"', '"require-dev"', '"extra"', '"config"', '"platform"', '"0"', '"1"', '"a/b"', '"é/ü"', '"x"', '"repositories"', '"minimum-stability"']
-    const values = ['"a/b"', '"^1.0"', '{}', '[]', '1', '1.0', '1e2', '-0', 'true', 'null', '"\\u00e9"', '"/x/"', '"😀"', '[1,2]', '9223372036854775808']
+    const values = ['"a/b"', '"^1.0"', '{}', '[]', '1', '1.0', '1e2', '-0', 'true', 'null', '"\\u00e9"', '"/x/"', '"😀"', '[1,2]', '9223372036854775808', '1e400', '-1e400', '1e-400']
     const value = (depth) => (depth > 2 || generator.next() < 0.5 ? generator.pick(values) : `{${Array.from({ length: Math.floor(generator.next() * 4) }, () => `${generator.pick(keys)}: ${value(depth + 1)}`).join(', ')}}`)
     const texts = Array.from({ length: 1500 }, () => flaw(`{${Array.from({ length: 1 + Math.floor(generator.next() * 5) }, () => `${generator.pick(keys.filter((key) => key !== '"name"'))}: ${value(1)}`).join(',\n  ')}}`, generator, [' ', ',', '{', '}', '"', ':', '\\']))
     const results = composer(texts.flatMap((text) => [['decode', text], ['hash', text]]))

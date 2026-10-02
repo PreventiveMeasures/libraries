@@ -7,7 +7,7 @@
 // and an object of keys 0 to n, which PHP writes back as `[]` and as a
 // list; a number past what PHP holds as it is.
 
-import { LockfileError, quote } from '../error.js'
+import { LockfileError, at, quote } from '../error.js'
 import { fail as failAt, take } from '../lines.js'
 import { fitsLong } from './php.js'
 
@@ -30,7 +30,7 @@ export const isEmptyObject = (value) => typeof value === 'object' && value !== n
 
 const lineOf = (text, pos) => {
   let line = 1
-  for (let at = text.indexOf('\n'); at !== -1 && at < pos; at = text.indexOf('\n', at + 1)) line++
+  for (let end = text.indexOf('\n'); end !== -1 && end < pos; end = text.indexOf('\n', end + 1)) line++
   return line
 }
 
@@ -281,11 +281,25 @@ function decodeValue(src, depth) {
   return isLong(match) ? BigInt(match[0]) : Number(match[0])
 }
 
+// Where a double past what one holds is, which PHP reads as INF and
+// json_encode refuses, and Composer's schema check, which encodes the
+// file, with it; of a key given twice, the last is what PHP keeps.
+function findInfinite(value, where) {
+  if (typeof value === 'number') return Number.isFinite(value) ? undefined : where
+  if (!(value instanceof Map) && !Array.isArray(value)) return undefined
+  for (const [key, item] of value.entries()) {
+    const infinite = findInfinite(item, Array.isArray(value) ? `${where}[${key}]` : at(where, key))
+    if (infinite !== undefined) return infinite
+  }
+}
+
 export function decodeJson(text, where) {
   const src = { text, pos: 0, where }
   const value = decodeValue(src, 0)
   skip(src)
   if (src.pos !== text.length) throw syntax(src, `expected the end of the file, found ${found(src)}`)
+  const infinite = findInfinite(value, where)
+  if (infinite !== undefined) throw new LockfileError('a number past what a double holds, which Composer refuses of the file', infinite)
   return value
 }
 

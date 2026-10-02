@@ -256,6 +256,12 @@ describe('a package', () => {
     refuses(edit((doc) => (doc.packages[0].dist.shasum = 'A'.repeat(40))), `"${'A'.repeat(40)}" is not a sha1 in lowercase hex, which Composer compares the download's with`, at(0, '.dist.shasum'))
     refuses(edit((doc) => (doc.packages[0].dist.type = 'git')), 'expected path or one of zip, tar, gzip, xz, rar, phar, file, which Composer installs from', at(0, '.dist.type'))
     refuses(edit((doc) => (doc.packages[2].dist.url = 'https://example.com/c')), '"https://example.com/c" is not a relative path in normal form', at(2, '.dist.url'))
+    // HttpDownloader takes a scheme in any case.
+    const upper = parseComposerLock(edit((doc) => {
+      doc.packages[0].dist.url = 'HTTPS://example.com/a/app.zip'
+      put(doc.packages[0], 'notification-url', 'Http://example.com/downloads/')
+    }))
+    assert.deepEqual([upper.packages['a/app'].dist.url, upper.packages['a/app'].notificationUrl], ['HTTPS://example.com/a/app.zip', 'Http://example.com/downloads/'])
     const mirrored = parseComposerLock(edit((doc) => (doc.packages[0].dist.mirrors = [{ url: 'https://mirror.example.com/%package%/%reference%.%type%', preferred: true }])))
     assert.deepEqual(plain(mirrored.packages['a/app'].dist.mirrors), [{ url: 'https://mirror.example.com/%package%/%reference%.%type%', preferred: true }])
   })
@@ -379,6 +385,8 @@ describe('with composer.json', () => {
 
   it('refuses a composer.json Composer does not load', () => {
     refuses(encode(BASE), 'not JSON as PHP reads it: expected "," or "}", found the end of the file at line 1', 'composerJson', { composerJson: '{"name": "x/y"' })
+    refuses(encode(BASE), 'a number past what a double holds, which Composer refuses of the file', 'composerJson.extra.n[1]', { composerJson: '{"extra": {"n": [1, -1e400]}}' })
+    with_(encode(BASE), '{"description": 1e400, "description": "x"}')
     refuses(encode(BASE), '"Fixture/Root" has capitals, which Composer refuses in composer.json', 'composerJson.name', { composerJson: root((json) => (json.name = 'Fixture/Root')) })
     refuses(encode(BASE), 'the root itself, which Composer refuses', 'composerJson.require["fixture/root"]', { composerJson: root((json) => (json.require['fixture/root'] = '*')) })
     refuses(encode(BASE), '"dev-main as foo" is not an alias of one version as another, which Composer refuses', 'composerJson.require["b/lib"]', { composerJson: root((json) => (json.require['b/lib'] = 'dev-main as foo')) })

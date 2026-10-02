@@ -139,7 +139,7 @@ $kinds = [
         return JsonFile::encode($data, 448, $indent)."\n" === $text;
     },
     // composer.json as Composer decodes it and hashes it.
-    'decode' => fn ($text) => json_encode(JsonFile::parseJson($text)),
+    'decode' => fn ($text) => json_encode(JsonFile::parseJson($text), JSON_THROW_ON_ERROR),
     'hash' => fn ($text) => Composer\Package\Locker::getContentHash($text),
     // composer.json as Factory holds it to before it loads it, by its
     // schema, and as RootPackageLoader holds its name, its version, and the
