@@ -20,9 +20,9 @@ const EFFORTS_THROUGH_XHIGH = ['low', 'medium', 'high', 'xhigh']
 // rate, on the WHOLE request rather than only the tokens past the line. A row with no
 // `longContext` bills every request at its base rates.
 //
-// OpenAI's is one tier across every model that has one: 2x and 1.5x past 272K, on gpt-6-astra,
-// the gpt-5.6 trio, gpt-5.5 and gpt-5.4, and every -pro row of those. The minis, nano and codex
-// have none.
+// OpenAI's is one tier across every model that has one: 2x and 1.5x past 272K, on the gpt-6
+// trio, gpt-6.1-sol, the gpt-5.6 trio, gpt-5.5 and gpt-5.4, and every -pro row of those. The
+// minis, nano and codex have none.
 //
 // No Anthropic row takes one, and that is the published price rather than a gap: Claude 4.6 and
 // later bill the full 1M window at standard rates, and every older row here either has a 200k
@@ -55,6 +55,8 @@ export const MAIN_MODELS = [
   // it: same as its base, or not.
   ['openai/gpt-6-astra', { input: 10, output: 50, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true }],
   ['openai/gpt-6-astra-pro', { input: 10, output: 50, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, wireModel: 'openai/gpt-6-astra', reasoningMode: 'pro' }],
+  ['openai/gpt-6.1-sol', { input: 2, output: 10, cacheReadPrice: 0.1, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true }],
+  ['openai/gpt-6.1-sol-pro', { input: 2, output: 10, cacheReadPrice: 0.1, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, wireModel: 'openai/gpt-6.1-sol', reasoningMode: 'pro' }],
   ['openai/gpt-6-sol', { input: 2, output: 10, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'explicit', cacheBreakpoint: true }],
   ['openai/gpt-6-sol-pro', { input: 2, output: 10, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, wireModel: 'openai/gpt-6-sol', reasoningMode: 'pro' }],
   ['openai/gpt-6-luna', { input: 0.1, output: 0.5, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'explicit', cacheBreakpoint: true }],
