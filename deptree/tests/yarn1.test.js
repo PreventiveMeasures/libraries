@@ -281,6 +281,23 @@ describe('buildYarn1Tree refuses', () => {
     await refuses({ project: project({ 'yarn.lock': lock }) }, /^DeptreeError: "d@latest": the tarball's sha1 is not [\da-f]{40}$/u)
   })
 
+  // Two entries of one tarball and one uid are one place in yarn's cache,
+  // which it fetches once: the sha1 of each is held to the bytes, whichever
+  // is fetched.
+  it('a tarball that is not the one another entry of it pins', async () => {
+    const q = await tarball('q', '1.0.0', {}, { manifest: { dependencies: { d: 'next' } } })
+    const pinned = (keys, t, hash) => `${keys}:\n  version "${t.version}"\n  uid "1.0.0-u"\n  resolved "${yarnpkg(t.name, t.version)}${hash}"\n  integrity ${t.integrity}\n`
+    const wrong = sha1(T['p@1.0.0'].bytes)
+    const root = { ...ROOT, dependencies: { ...ROOT.dependencies, q: '1.0.0' } }
+    for (const hashed of ['d@latest', 'd@next']) {
+      const ds = ['d@latest', 'd@next'].map((keys) => pinned(keys, T['d@1.0.0'], keys === hashed ? `#${wrong}` : ''))
+      const qEntry = `q@1.0.0:\n  version "1.0.0"\n  resolved "${yarnpkg('q', '1.0.0')}#${sha1(q.bytes)}"\n  integrity ${q.integrity}\n  dependencies:\n    d next\n`
+      const lock = LOCKFILE.replace(entry('d@latest', 'd@1.0.0'), [...ds, qEntry].join('\n'))
+      stubRegistry([...TARBALLS, q])
+      await refuses({ project: project({ 'yarn.lock': lock, 'package.json': root }) }, new RegExp(`^DeptreeError: "${hashed}": the tarball's sha1 is not ${wrong}$`, 'u'))
+    }
+  })
+
   it('a package with bins and a .bin file, or a bin in its own node_modules', async () => {
     stubRegistry(TARBALLS)
     const at = (name, lock) => ({ project: projectOf({ 'yarn.lock': lockfile(...lock), 'package.json': { name: 'root', version: '1.0.0', dependencies: { [name]: '1.0.0' } } }) })

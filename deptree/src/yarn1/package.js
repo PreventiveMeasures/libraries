@@ -1,7 +1,7 @@
 // A registry package as yarn 1 installs it: its tarball fetched through
-// @preventive/upstream and held to the lockfile's sha512 integrity, and to
-// the sha1 after the `#` of its URL where there is one, as yarn checks
-// both; unpacked as yarn's tarball fetcher unpacks it, with tar-fs, the
+// @preventive/upstream and held to the lockfile's sha512 integrity, its
+// sha1 taken for tree.js to hold the one after the `#` of each entry's URL
+// to, as yarn checks both; unpacked as yarn's tarball fetcher unpacks it, with tar-fs, the
 // first segment of each name dropped, each file's mode with 0o644 added
 // and masked by a umask of 0o022; and its package.json read as yarn's
 // normalize-manifest reads the fields it installs by.
@@ -73,14 +73,14 @@ export function registryTarball(entry, name, where) {
   if (url !== expected) throw new DeptreeError(`only the registry's own tarball of ${name}@${entry.version}, ${expected}, is supported`, where)
   const sha512 = resolution.integrity?.split(' ').find((part) => part.startsWith('sha512-'))
   if (sha512 === undefined) throw new DeptreeError('a tarball with no sha512 integrity is not supported', where)
-  return { name, version: entry.version, integrity: sha512, sha1: resolution.sha1 }
+  return { name, version: entry.version, integrity: sha512 }
 }
 
-// The package's entries, as yarn's fetcher leaves them, and its
-// package.json as parsed.
-export async function fetchYarnPackage({ name, version, integrity, sha1 }, where) {
+// The package's entries, as yarn's fetcher leaves them, its package.json
+// as parsed, and the tarball's sha1 in hex.
+export async function fetchYarnPackage({ name, version, integrity }, where) {
   const { bytes, entries } = await fetchTarball(name, version, integrity, where)
-  if (sha1 !== undefined && await sha1Hex(bytes) !== sha1) throw new DeptreeError(`the tarball's sha1 is not ${sha1}`, where)
+  const sha1 = await sha1Hex(bytes)
   const { files, dirs } = entriesOf(entries, where)
   const file = files.get('package.json')
   if (file === undefined) throw new DeptreeError('the tarball has no package.json', where)
@@ -103,7 +103,7 @@ export async function fetchYarnPackage({ name, version, integrity, sha1 }, where
     const script = files.get(target.replace(/\/$/u, ''))
     if (script !== undefined) script.mode = 0o755
   }
-  return { files, dirs, manifest }
+  return { files, dirs, manifest, sha1 }
 }
 
 // A bin's name, and its target as a path in the package, as yarn's
