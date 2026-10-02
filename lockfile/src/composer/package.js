@@ -170,9 +170,13 @@ const REMOTE = {
 // `rsh:` and `jsh:` would run a command.
 const P4PORT = /^(?:(?:tcp|ssl)(?:4|6|46|64)?:)?(?:\[[0-9a-f:.]+\]|[a-z0-9._][a-z0-9._-]*)(?::[a-z0-9._][a-z0-9._-]*)?$/u
 
+// git's scp form, `[user@]host:path`, which git reaches over ssh where no
+// `://` is in it and a `:` comes before any `/`, but of a drive letter.
+const SCP = /^([\w.-]+@)?([\w.-]+):[^\s]/u
+
 // A repository to clone: a URL of a scheme its tool fetches over, git's
-// `user@host:path`, or a path from the lockfile's directory, which its tool
-// reads as nothing but a place. An absolute path, or a file: URL, is of the
+// scp form, or a path from the lockfile's directory, which its tool reads
+// as nothing but a place. An absolute path, or a file: URL, is of the
 // machine the lockfile was written on.
 function checkSourceUrl(value, where, type) {
   const url = notOption(value, where)
@@ -182,12 +186,17 @@ function checkSourceUrl(value, where, type) {
     return url
   }
   checkRemote(url, where)
-  if (/^[A-Za-z][\d+.A-Za-z-]*:/u.test(url) && !(type === 'git' && /^[\w.-]+@[\w.-]+:/u.test(url))) {
+  const scp = type === 'git' && !url.includes('://') && !/^[A-Za-z]:/u.test(url) ? SCP.exec(url) : null
+  if (scp !== null) {
+    // `file:/srv/x`, of the host file to git, is a file: URL to a parser.
+    if (scp[1] === undefined && /^(?:file|https?|ssh|git|ftps?)$/u.test(lower(scp[2]))) throw new LockfileError(`${quote(url)} is of the host ${scp[2]} to git, and a URL of ${lower(scp[2])}: to a URL parser`, where)
+    return url
+  }
+  if (/^[A-Za-z][\d+.A-Za-z-]*:/u.test(url)) {
     const parsed = URL.parse(url)
     if (parsed === null || !REMOTE[type].includes(parsed.protocol) || /\s/u.test(url)) throw new LockfileError(`${quote(url)} is not a URL ${type} fetches from, ${REMOTE[type].join(' ')}`, where)
     return url
   }
-  if (type === 'git' && /^[\w.-]+@[\w.-]+:[^\s]/u.test(url)) return url
   return checkPath(url, where)
 }
 

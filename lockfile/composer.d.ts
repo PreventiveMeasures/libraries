@@ -183,7 +183,7 @@ export interface ComposerRequire {
   targets: string[]
 }
 
-// `url` is a URL the type's tool fetches from, git's `user@host:path`, or a
+// `url` is a URL the type's tool fetches from, git's `[user@]host:path`, or a
 // path from the lockfile's directory, `./` before it or not; a Perforce
 // source's is its P4PORT. `reference` is a git source's commit, or a branch
 // or tag name for one defined inline, and anything else its tool takes of

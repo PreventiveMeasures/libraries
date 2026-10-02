@@ -257,6 +257,14 @@ describe('a package', () => {
     refuses(edit((doc) => (doc.packages[0].source.url = '--upload-pack=x')), '"--upload-pack=x" starts with "-", which a tool would read as an option and Composer refuses', at(0, '.source.url'))
     refuses(edit((doc) => (doc.packages[0].source.url = 'ext::sh -c x')), '"ext::sh -c x" names a remote helper of git\'s, which is not supported', at(0, '.source.url'))
     refuses(edit((doc) => (doc.packages[0].source.url = 'file:///srv/git/app')), '"file:///srv/git/app" is not a URL git fetches from, https: http: ssh: git: git+ssh:', at(0, '.source.url'))
+    // git's scp form, with a user or not, as of a host ssh's config names;
+    // not where a URL parser would read it as a URL of another scheme.
+    for (const url of ['example.com:a/app.git', 'github-work:org/app.git', 'git@example.com:a/app.git']) {
+      assert.equal(parseComposerLock(edit((doc) => (doc.packages[0].source.url = url))).packages['a/app'].source.url, url)
+    }
+    refuses(edit((doc) => (doc.packages[0].source.url = 'file:/srv/git/app')), '"file:/srv/git/app" is of the host file to git, and a URL of file: to a URL parser', at(0, '.source.url'))
+    refuses(edit((doc) => (doc.packages[0].source.url = 'HTTPS:example.com/app')), '"HTTPS:example.com/app" is of the host HTTPS to git, and a URL of https: to a URL parser', at(0, '.source.url'))
+    refuses(edit((doc) => Object.assign(doc.packages[0].source, { type: 'hg', url: 'example.com:a/app' })), '"example.com:a/app" is not a URL hg fetches from, https: http: ssh:', at(0, '.source.url'))
     for (const url of ['ssh://-oProxyCommand=x/app', 'ssh://%2doProxyCommand=x/app', 'git@-oProxyCommand=x:app']) {
       refuses(edit((doc) => (doc.packages[0].source.url = url)), `${JSON.stringify(url)} has a "-" where git or ssh would read an option`, at(0, '.source.url'))
     }
