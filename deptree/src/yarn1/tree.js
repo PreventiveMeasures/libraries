@@ -97,7 +97,9 @@ async function fetchChecked(resolved, host, settings) {
   // its patterns name, once. Of those its cache keeps in one place, two of
   // one package, the fetcher fetches the first and passes over the rest,
   // whose package.json stays their lockfile entry's: no peers, bins,
-  // platforms or engines; their files are the first's.
+  // platforms or engines; their files are the first's. The sha1 after the
+  // `#` of each one's URL is held to the tarball fetched for it, the first
+  // one's or not.
   const order = [...new Set(resolved.patterns.values())]
   const first = new Map()
   for (const ref of order) if (ref.kind === 'registry' && !first.has(ref.loc)) first.set(ref.loc, ref)
@@ -107,6 +109,8 @@ async function fetchChecked(resolved, host, settings) {
     let manifest = ref.workspace?.manifest
     if (ref.kind === 'registry') {
       const head = first.get(ref.loc)
+      const { sha1 } = ref.entry.resolution
+      if (sha1 !== undefined && fetched.get(head).sha1 !== sha1) throw new DeptreeError(`the tarball's sha1 is not ${sha1}`, whereOf(ref))
       fetched.set(ref, fetched.get(head))
       manifest = head === ref ? fixLists(fetched.get(ref).manifest) : { name: ref.name, version: ref.version }
     }

@@ -214,7 +214,8 @@ export interface Yarn1Tree {
 // file under one directory, none in the package's own node_modules, where
 // yarn installs its dependencies, no link or device in it, and a
 // package.json for exactly its name and version; each with the sha512
-// integrity and the sha1 the lockfile records. On macOS, two names in one
+// integrity the lockfile records, and the sha1 each of its entries does,
+// fetched or not. On macOS, two names in one
 // directory that differ only in case or normalization are refused, as
 // they would be one name there.
 //
