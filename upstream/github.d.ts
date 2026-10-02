@@ -73,7 +73,29 @@ export interface Client {
   // getRepoTreeTarball's for the tree GitHub names for that commit, asked
   // on every call, cached or not. So its top directory is named for the
   // tree, and files marked `export-subst` are as committed, not rewritten.
-  getRepoTarball(options: { repo: RepoName; sha: string }): Promise<Uint8Array>
+  //
+  // With `exported`, GitHub's archive of the commit itself instead, as
+  // `git archive` exports it, and as package managers that take it
+  // install it, Composer from its zipball: led by git's global header
+  // naming the commit, under a top directory named for it, and without
+  // what the tree's .gitattributes mark export-ignore. It is held to the
+  // tree all the same: each file in it has to be the tree's own, but for
+  // its line ends, as below, every directory has to be there just where
+  // git writes one, on reaching a
+  // file in it, and what is missing has to be what the .gitattributes
+  // leave out, read as git 2.43 reads them from the tree, the top one
+  // alone with macros, never through a symlink. What is missing is read
+  // off GitHub's listings of each directory missing anything, and of
+  // those above it, each hashed back to its id, and a .gitattributes the
+  // archive leaves out off GitHub's blob of it, hashed to its id too. A
+  // file whose text, crlf and eol attributes have git write its line ends
+  // CRLF is held to GitHub's blob of it so written, as git 2.43 writes them
+  // on a server at its defaults. It is refused for a file marked
+  // export-subst that git rewrites, for one ident or a
+  // working-tree-encoding rewrites, and from a repo set to include Git LFS
+  // objects in archives. Cached by the commit in setCacheDir's cache
+  // (npm.js), and held to the tree again whenever it is read back.
+  getRepoTarball(options: { repo: RepoName; sha: string; exported?: boolean }): Promise<Uint8Array>
   // The id of the tree at `directory`, `/`-separated as npm's is, in the
   // full commit `sha`, or of its root without one: from the tree GitHub
   // names for the commit, down GitHub's listings a directory at a time,

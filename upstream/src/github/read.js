@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 
-import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTagName, assertTreeId, isSha, isSha1, isTagName, optional, sameName, show } from '../args.js'
+import { assertArgs, assertBoolean, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTagName, assertTreeId, isSha, isSha1, isTagName, optional, sameName, show } from '../args.js'
 import { verifiedDownload } from '../download.js'
 import { decode, encodeSegment, requestWithHeaders } from '../http.js'
 import { gitTreeOfListing, objectId } from '../tree.js'
@@ -117,14 +117,27 @@ async function getRepoFile(headers, options) {
 // with nothing in it or the LF blob of a file marked `eol=crlf`, comes
 // from GitHub's listings of the trees, which the id checks as well: a
 // directory at a time, as a recursive listing of a large tree is cut short.
-async function treeTarball(method, headers, repo, tree) {
+function lister(headers, repo) {
   const listings = new Map()
-  const list = (sha) => {
+  return (sha) => {
     if (!listings.has(sha)) listings.set(sha, call(headers, repoApi(repo, ['git', 'trees', sha])).then((listing) => (Array.isArray(listing?.tree) ? listing.tree : [])))
     return listings.get(sha)
   }
+}
+
+async function treeTarball(method, headers, repo, tree) {
   const locate = () => repoApi(repo, ['tarball', tree])
-  return await verifiedDownload({ method, dir: 'github/trees', what: tree, ext: 'tgz', algorithm: 'tree', expected: tree, locate, options: { headers, redirect: 'follow' }, list })
+  return await verifiedDownload({ method, dir: 'github/trees', what: tree, ext: 'tgz', algorithm: 'tree', expected: tree, locate, options: { headers, redirect: 'follow' }, objects: { list: lister(headers, repo) } })
+}
+
+// The commit's own archive, held to its tree as the tree's .gitattributes
+// export it: listings as above, and the blobs of what says what is left
+// out. Cached by the commit, and held to its tree again when read back.
+async function exportedTarball(method, headers, repo, sha, tree) {
+  const blob = (id) => call({ ...headers, Accept: 'application/vnd.github.raw' }, repoApi(repo, ['git', 'blobs', id]), { as: 'bytes' })
+  const locate = () => repoApi(repo, ['tarball', sha])
+  const objects = { list: lister(headers, repo), blob, commit: sha }
+  return await verifiedDownload({ method, dir: 'github/archives', what: sha, ext: 'tgz', algorithm: 'archive', expected: tree, locate, options: { headers, redirect: 'follow' }, objects })
 }
 
 async function commitTree(method, headers, repo, sha) {
@@ -135,12 +148,12 @@ async function commitTree(method, headers, repo, sha) {
 
 // A full sha only, so the bytes are that commit's, not wherever a ref points
 // now. Its tree's tarball, not its own, in which `git archive` rewrites the
-// files marked `export-subst`.
+// files marked `export-subst`; or, `exported`, its own.
 async function getRepoTarball(headers, options) {
-  assertArgs('getRepoTarball', options, { repo: assertRepo, sha: assertSha })
-  const { repo, sha } = options
+  assertArgs('getRepoTarball', options, { repo: assertRepo, sha: assertSha, exported: optional(assertBoolean) })
+  const { repo, sha, exported } = options
   const tree = await commitTree('getRepoTarball', headers, repo, sha)
-  return await treeTarball('getRepoTarball', headers, repo, tree)
+  return exported ? await exportedTarball('getRepoTarball', headers, repo, sha, tree) : await treeTarball('getRepoTarball', headers, repo, tree)
 }
 
 async function getRepoTreeTarball(headers, options) {
