@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { Names, checkSymlinkTarget, cleanNames, cleanPath } from '../src/names.js'
 import { quote } from '../src/text.js'
-import { utf8 } from './helpers.js'
+import { cpuMs, utf8 } from './helpers.js'
 
 // The rules a name is held to, on their own: what is a clean relative
 // path, where a symlink may point, and what the record of names refuses.
@@ -165,13 +165,14 @@ describe('the names seen so far', () => {
   it('costs a tree the length of its names, and names the parent that is not a directory at any depth', () => {
     const names = new Names(true)
     let path = ''
-    const t0 = performance.now()
-    for (let i = 0; i < 2047; i++) {
-      path += i === 0 ? 'a' : '/a'
-      names.add(entry(path, 'directory'))
-    }
-    names.add(entry(`${path}/f`))
-    assert.ok(performance.now() - t0 < 1000, 'two thousand nested directories took a second or more')
+    const took = cpuMs(() => {
+      for (let i = 0; i < 2047; i++) {
+        path += i === 0 ? 'a' : '/a'
+        names.add(entry(path, 'directory'))
+      }
+      names.add(entry(`${path}/f`))
+    })
+    assert.ok(took < 1000, 'two thousand nested directories took a second or more')
     assert.throws(() => names.add(entry(`${path}/f/x`)), { message: `${quote(`${path}/f/x`)} is inside ${quote(`${path}/f`)}, which is not a directory` })
     assert.throws(() => after(entry('f')).add(entry(`f/${'a/'.repeat(100)}x`)), /is inside "f", which is not a directory/u)
     assert.throws(() => after(entry('d/f')).add(entry(`d/f/${'a/'.repeat(100)}x`)), /is inside "d\/f", which is not a directory/u)

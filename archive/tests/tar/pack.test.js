@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { ArchiveError, pack, unpack } from '../../tar.js'
 import { RECORDINGS, bytesOf } from './fixtures/gnu-tar.js'
-import { assertBytes, entriesOf, utf8 } from '../helpers.js'
+import { assertBytes, cpuMs, entriesOf, utf8 } from '../helpers.js'
 
 // pack() is held to GNU tar byte for byte, on every recording, and to
 // refusing what an archive could not say truthfully.
@@ -97,9 +97,7 @@ describe('what it refuses about names', () => {
       entries.push({ name: path, type: 'directory' })
     }
     entries.push({ name: `${path}/f`, data: utf8('x') })
-    const t0 = performance.now()
-    assert.equal(unpack(pack(entries)).length, 1025)
-    assert.ok(performance.now() - t0 < 2000, 'a deep tree took seconds to pack and unpack')
+    assert.ok(cpuMs(() => assert.equal(unpack(pack(entries)).length, 1025)) < 2000, 'a deep tree took seconds to pack and unpack')
   })
   it('lets a directory come after what it holds', () => {
     pack([{ name: 'a/b' }, { name: 'a', type: 'directory' }])
