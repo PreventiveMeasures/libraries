@@ -18,15 +18,16 @@
 //
 // A fence may be INDENTED: three spaces at the top level (markdown's
 // own limit, past which a line is indented code), and three past the
-// content column of the innermost open list item, which is how a
-// snippet under a numbered step is written. Tracking that column — a
-// `10.` or a nested bullet pushes it out — is what keeps a block
-// indented FURTHER than its item's text an indented code block, with
-// its ``` lines content.
+// text of the list item it sits in, which is how a snippet under a
+// numbered step is written. So the open items are tracked, each by the
+// column its text starts at — a `10.` or a nested bullet pushes it out
+// — and a line is in every item whose text it starts at or past. That
+// keeps a block indented FURTHER than its item's text an indented code
+// block, with its ``` lines content, and ends a fence with its item.
 const FENCE_RE = /^( *)(`{3,}|~{3,})(.*)$/u
 // A line that interrupts a paragraph — an ATX heading, a quote, a
-// thematic break — and so can't continue one lazily (fences are read
-// before this is asked).
+// thematic break — and so can't continue one lazily (fences and list
+// markers are read before this is asked).
 const INTERRUPT_RE = /^ {0,3}(?:#{1,6}(?:[ \t]|$)|>|([-*_])(?:[ \t]*\1){2,}[ \t]*$)/u
 // A list marker and the gap to its text; `m[0].length` is the column
 // the item's continuation lines are indented to.
@@ -36,19 +37,19 @@ export function fenceRanges(text) {
   const ranges = []
   let open = -1
   let marker = ''
-  let openIndent = 0
-  // Content column of the innermost open list item; 0 outside a list.
-  let itemIndent = 0
-  // The item an open fence sits in, by that column; 0 at the top level.
+  // The open list items, innermost last, each by the column its text
+  // starts at; and the one an open fence sits in, 0 at the top level.
+  const items = []
   let fenceItem = 0
   // Whether the line before was paragraph text, which the next line of
-  // text continues wherever it starts.
+  // text continues wherever it starts. Nothing else is continued so: a
+  // blank line, a fence, a heading or an indented code block ends it.
   let lazy = false
   let pos = 0
   for (const line of text.split('\n')) {
     const start = pos
     pos += line.length + 1
-    const fence = FENCE_RE.exec(line)
+    const indent = /^ */u.exec(line)[0].length
     if (open !== -1) {
       // A fence in a list item ends with the item, closed or not: a line
       // starting LEFT of the item's text has left it — a fence line too,
@@ -56,46 +57,54 @@ export function fenceRanges(text) {
       // continuation to keep it in. That line is read afresh below, so a
       // step whose snippet lost its closing fence doesn't take the
       // headings after it with it.
-      if (fenceItem && line.trim() && /^ */u.exec(line)[0].length < fenceItem) {
+      if (fenceItem && line.trim() && indent < fenceItem) {
         ranges.push([open, start - 1])
         open = -1
       } else {
-        // A closing fence carries the item's indentation too, and needn't
-        // match the opening one's exactly — but the RUN still has to, so
-        // a ``` inside a ~~~ or a ```` block stays content.
-        if (fence && fence[1].length <= openIndent + 3 && closesFence(marker, line)) {
+        // A closing fence sits within three columns of the fence's
+        // margin, as an opening one does, and needn't match the opening
+        // one's indent — but its RUN has to, so a ``` inside a ~~~ or a
+        // ```` block stays content.
+        if (indent <= fenceItem + 3 && closesFence(marker, line)) {
           ranges.push([open, start + line.length])
           open = -1
         }
         continue
       }
     }
-    if (fence && fence[1].length <= itemIndent + 3 && !(fence[2][0] === '`' && fence[3].includes('`'))) {
-      open = start
-      marker = fence[2]
-      openIndent = fence[1].length
-      // One starting LEFT of the open item's text has left the list.
-      if (openIndent < itemIndent) itemIndent = 0
-      fenceItem = itemIndent
-      lazy = false
-      continue
-    }
-    // List bookkeeping. A blank line doesn't end an item (a loose list
-    // is still one list); a marker opens or re-opens one at its own
-    // column, and any other line that starts LEFT of the open item's
-    // text has left it — unless it is plain text straight under the
-    // item's paragraph, which it continues lazily, so the item and its
-    // column stand.
+    // A blank line ends a paragraph and no item: a loose list is still
+    // one list.
     if (!line.trim()) {
       lazy = false
       continue
     }
-    const item = LIST_MARKER_RE.exec(line)
-    const indent = /^ */u.exec(line)[0].length
-    const interrupts = INTERRUPT_RE.test(line)
-    if (item && item[1].length <= itemIndent + 3) itemIndent = item[0].length
-    else if (indent < itemIndent && (interrupts || !lazy)) itemIndent = 0
-    lazy = !interrupts
+    // The items the line stays in, and what it holds read from the
+    // innermost one's margin.
+    let depth = items.length
+    while (depth > 0 && indent < items[depth - 1]) depth--
+    const margin = depth > 0 ? items[depth - 1] : 0
+    const rest = line.slice(margin)
+    const fence = FENCE_RE.exec(rest)
+    if (fence && fence[1].length <= 3 && !(fence[2][0] === '`' && fence[3].includes('`'))) {
+      items.length = depth
+      open = start
+      marker = fence[2]
+      fenceItem = margin
+      lazy = false
+      continue
+    }
+    // Any other line leaves the items it starts short of — unless it is
+    // plain text straight under a paragraph, which it continues lazily,
+    // so every item stands. A marker opens an item in the ones it kept.
+    const item = LIST_MARKER_RE.exec(rest)
+    const opens = item !== null && item[1].length <= 3
+    if (opens || !lazy || INTERRUPT_RE.test(rest)) items.length = depth
+    if (opens) items.push(margin + item[0].length)
+    // Paragraph text or not, read past the marker or from the margin:
+    // not a heading, quote or rule, and not four columns in, which is
+    // indented code unless a paragraph is open for it to continue.
+    const content = opens ? rest.slice(item[0].length) : rest
+    lazy = !INTERRUPT_RE.test(content) && (lazy || opens || /^ */u.exec(content)[0].length < 4)
   }
   if (open !== -1) ranges.push([open, text.length])
   return ranges

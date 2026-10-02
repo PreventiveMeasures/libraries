@@ -687,6 +687,9 @@ describe('md-text helpers', () => {
     // Closed at the opener's indent: a fence in a list item closes inside
     // it, where a closer at the margin would end the item and open anew.
     assert.equal(prose('1. Run:\n\n   ```sh\n   curl'), '1. Run:\n\n   ```sh\n   curl\n   ```')
+    // Unindented prose after an indented code block has left the list, so
+    // the fence after it is the document's — open, and closed here.
+    assert.equal(prose('- item\n\n      indented code\nprose\n   ```sh\ncurl'), '- item\n\n      indented code\nprose\n   ```sh\ncurl\n   ```')
     // Inline code opening a line opens no fence, so there is none to close.
     assert.equal(prose('```x``` is inline\n## h'), '```x``` is inline\n\\## h')
     assert.equal(prose('  plain  '), 'plain')

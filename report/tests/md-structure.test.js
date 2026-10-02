@@ -32,6 +32,12 @@ describe('fenceRanges — a fence is its whole run', () => {
     assert.deepEqual(fencedLines(lines), [false, true, true, true, true, true, false])
   })
 
+  // Within three columns of the margin, as an opener — not of the
+  // opener's own indent.
+  it('closes only on a fence within three columns of the margin', () => {
+    assert.deepEqual(fencedLines(['  ```', '     ```', '## in code']), [true, true, true])
+  })
+
   it('closes on a longer run of the same character', () => {
     assert.deepEqual(fencedLines(['```', '## In code', '````', '## B']), [true, true, true, false])
   })
@@ -75,6 +81,21 @@ describe('fenceRanges — a fence in a list item', () => {
   it('keeps the item through a lazy line of its paragraph', () => {
     const lines = ['1. step', 'lazy text', '   ```', '   code', 'Next para', '## after']
     assert.deepEqual(fencedLines(lines), [false, false, true, true, false, false])
+  })
+
+  // Only paragraph text continues lazily. An indented code block is not
+  // one: unindented prose after it has left the list, and a fence after
+  // that is the document's, running to the end.
+  it('continues no indented code block lazily', () => {
+    const lines = ['- item', '', '      indented code', 'prose', '   ```', '## heading']
+    assert.deepEqual(fencedLines(lines), [false, false, false, false, true, true])
+  })
+
+  // A line short of a nested item's text can still be in the outer item;
+  // a fence there ends with the OUTER item, not with the document.
+  it('ends a fence with the item it falls back to, when it leaves a nested one', () => {
+    const lines = ['- item', 'Some prose.', '  - nested', '   ```', '   code', '## Details']
+    assert.deepEqual(fencedLines(lines), [false, false, false, true, true, false])
   })
 
   it('reads a fence left of the list\'s text as having left the list', () => {
