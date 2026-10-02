@@ -52,6 +52,9 @@ export class TomlDateTime {
   }
 }
 
+// Whether `text` is a date-time the parser reads, its date in the calendar.
+export const isDateTime = (text) => partsOf(text)?.unsupported.length === 0
+
 // Of the reasons a date-time is not read, one alone is named.
 export function readDateTime(token, src) {
   if (!/^(?:\d{4}-\d\d-\d\d|\d\d:\d\d)/u.test(token)) return undefined

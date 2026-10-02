@@ -16,8 +16,9 @@ export { TomlError } from './toml.js'
 // marker or a specifier PEP 508 or PEP 440 does not read; an absolute path;
 // a git source without the commit it resolved to, or with a `rev` of a
 // full commit that is another one; an sdist or wheels a source of that
-// kind does not have, a hash where uv writes none or none where it writes
-// one, a wheel of another name or version than its package; a package
+// kind does not have, the file a source is without the hash uv always
+// writes of it, a file by both a URL and a path, of which uv reads the URL
+// alone, a wheel of another name or version than its package; a package
 // listed twice; an edge that names no package or could be any of two, or
 // asks for an extra its package has no dependencies for, which uv drops;
 // an override of one package's dependencies, new in uv 0.12.

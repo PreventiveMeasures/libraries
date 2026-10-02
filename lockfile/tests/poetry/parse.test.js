@@ -128,7 +128,7 @@ describe('the format', () => {
 
   it('refuses lock-version 1, its files in [metadata] and its categories, and a version after 2.1', () => {
     refuses(edit(['lock-version = "2.1"', 'lock-version = "1.1"']), 'lock-version 1.1 is Poetry 1.4\'s or older, which is not read here', 'metadata["lock-version"]')
-    refuses(edit(['lock-version = "2.1"', 'lock-version = "2.2"']), 'unsupported lock-version: expected "2.0" or "2.1", found "2.2"', 'metadata["lock-version"]')
+    refuses(edit(['lock-version = "2.1"', 'lock-version = "2.2"']), 'unsupported lock-version: expected "2.0" or "2.1", found the string "2.2"', 'metadata["lock-version"]')
     refuses(edit(['content-hash', 'files = {}\ncontent-hash']), 'metadata.files is lock-version 1, which is not read here', 'metadata.files')
     refuses(edit(['optional = false', 'category = "main"\noptional = false']), '`category` is lock-version 1, which Poetry 1.4 and older write and is not read here', 'package[0].category')
     refuses(edit(['[metadata]', '[other]']).replace(/\nlock-version.*\n.*\n.*\n$/u, '\n'), 'unsupported key "other"')

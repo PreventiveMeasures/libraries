@@ -47,8 +47,16 @@ export function array(value, where) {
   return value
 }
 
-export function strings(value, where) {
-  return array(value, where).map((item, index) => string(item, `${where}[${index}]`))
+// Strings, each held to `check` where given, as `check(item, where)` does.
+export function strings(value, where, check = string) {
+  return array(value, where).map((item, index) => check(string(item, `${where}[${index}]`), `${where}[${index}]`))
+}
+
+// A string as a tool writes one given to it, with nothing in it that is
+// not shown: not empty, and no control character or line separator.
+export function text(value, where) {
+  if (string(value, where) === '' || /[\p{Cc}\p{Zl}\p{Zp}]/u.test(value)) throw new LockfileError(`${quote(value)} is empty, or has a control character in it`, where)
+  return value
 }
 
 // A size in bytes, or any count: an integer a number holds exactly.

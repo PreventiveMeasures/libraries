@@ -1,7 +1,10 @@
 // A distribution's file: the name and version a wheel's or an sdist's name
-// gives, as packaging reads it, and a hash in the hex a lockfile writes.
+// gives, as packaging reads it, the name of the file a path or a URL ends
+// in, a path to one, and a hash in the hex a lockfile writes.
 
 import { LockfileError, quote } from '../error.js'
+import { checkRelative } from '../names.js'
+import { string } from '../toml/shape.js'
 import { normalName } from './pep508.js'
 import { parseVersion } from './pep440.js'
 
@@ -53,18 +56,39 @@ export const DIGESTS = {
 }
 
 export function checkDigest(algorithm, digest, size, where) {
-  if (typeof digest !== 'string' || digest.length !== size || !/^[\da-f]*$/u.test(digest)) {
-    throw new LockfileError(`${quote(String(digest))} is not a ${algorithm} digest in lowercase hex`, where)
-  }
+  if (digest.length !== size || !/^[\da-f]*$/u.test(digest)) throw new LockfileError(`${quote(digest)} is not a ${algorithm} digest in lowercase hex`, where)
   return digest
 }
 
 // `algorithm:digest`, as uv.lock and poetry.lock write a hash, of one of
 // the algorithms `sizes` names.
 export function checkHash(value, where, sizes) {
-  const sep = value.indexOf(':')
+  const sep = string(value, where).indexOf(':')
   const algorithm = value.slice(0, sep)
   if (sep === -1 || !Object.hasOwn(sizes, algorithm)) throw new LockfileError(`${quote(value)} is not a hash of ${Object.keys(sizes).join(', ')}`, where)
   checkDigest(algorithm, value.slice(sep + 1), sizes[algorithm], where)
   return value
+}
+
+// A path from the lockfile's directory, `/` between segments, as one that
+// reads the same on every machine: never absolute, which pylock.toml's
+// specification takes, and which reads on one machine alone.
+export function checkPath(value, where) {
+  if (/^(?:\/|\\|[A-Za-z]:)/u.test(string(value, where))) throw new LockfileError(`${quote(value)} is absolute, and only reads on the machine that wrote it`, where)
+  return checkRelative(value, where)
+}
+
+const lastSegment = (path) => path.slice(path.lastIndexOf('/') + 1)
+
+// The name of the file a lockfile gives by name, by path, or by URL, in
+// that order: the last segment of the path, or of the URL's `pathname`,
+// decoded; undefined where that does not decode.
+export function fileNameOf({ name, path, pathname }) {
+  if (name !== undefined) return name
+  if (path !== undefined) return lastSegment(path)
+  try {
+    return decodeURIComponent(lastSegment(pathname))
+  } catch {
+    return undefined
+  }
 }

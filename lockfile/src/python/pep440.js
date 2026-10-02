@@ -1,9 +1,11 @@
 // PEP 440: a version in any spelling packaging reads, the normal form
 // packaging and uv write it in, which versions are equal, and the
 // specifiers of a requirement or a requires-python. No whitespace around a
-// version is taken, which packaging would strip.
+// version is taken, which packaging would strip. A check takes a value of
+// a TOML lockfile, and refuses anything but a string as its readers do.
 
 import { LockfileError, quote } from '../error.js'
+import { string } from '../toml/shape.js'
 
 const NUMBER = '[0-9]+'
 const PRE = `[-_.]?(alpha|a|beta|b|preview|pre|c|rc)[-_.]?(${NUMBER})?`
@@ -32,8 +34,9 @@ export function parseVersion(text) {
   }
 }
 
-function format({ epoch, release, pre, post, dev, local }, withEpoch) {
-  let text = withEpoch || epoch !== '0' ? `${epoch}!` : ''
+// The normal form, as str(packaging.version.Version) and uv write it.
+export function normalVersion({ epoch, release, pre, post, dev, local }) {
+  let text = epoch === '0' ? '' : `${epoch}!`
   text += release.join('.')
   if (pre !== undefined) text += pre
   if (post !== undefined) text += `.post${post}`
@@ -42,27 +45,37 @@ function format({ epoch, release, pre, post, dev, local }, withEpoch) {
   return text
 }
 
-// The normal form, as str(packaging.version.Version) and uv write it.
-export const normalVersion = (parsed) => format(parsed, false)
-
 // Equal versions have one key: trailing zeros of the release do not count.
 export function versionKey(parsed) {
-  const release = [...parsed.release]
-  while (release.length > 1 && release.at(-1) === '0') release.pop()
-  return format({ ...parsed, release }, true)
+  let end = parsed.release.length
+  while (end > 1 && parsed.release[end - 1] === '0') end--
+  return normalVersion({ ...parsed, release: parsed.release.slice(0, end) })
 }
 
+// The key of a version known to be one.
+export const versionKeyOf = (version) => versionKey(parseVersion(version))
+
 export function checkVersion(value, where) {
-  if (parseVersion(value) === undefined) throw new LockfileError(`${quote(value)} is not a version`, where)
+  if (parseVersion(string(value, where)) === undefined) throw new LockfileError(`${quote(value)} is not a version`, where)
   return value
 }
 
 // A version in the normal form, as uv writes every one.
 export function checkNormalVersion(value, where) {
-  const parsed = parseVersion(value)
+  const parsed = parseVersion(string(value, where))
   if (parsed === undefined) throw new LockfileError(`${quote(value)} is not a version`, where)
-  if (normalVersion(parsed) !== value) throw new LockfileError(`${quote(value)} is not a version in normal form, ${quote(normalVersion(parsed))}`, where)
+  const normal = normalVersion(parsed)
+  if (normal !== value) throw new LockfileError(`${quote(value)} is not a version in normal form, ${quote(normal)}`, where)
   return value
+}
+
+// Spaces and tabs off both ends, in time linear in the length, which
+// /[ \t]+$/ is not: it starts over from each blank of a run.
+export function trimBlanks(text) {
+  let [start, end] = [0, text.length]
+  while (start < end && (text[start] === ' ' || text[start] === '\t')) start++
+  while (end > start && (text[end - 1] === ' ' || text[end - 1] === '\t')) end--
+  return text.slice(start, end)
 }
 
 // What each operator takes after it, as packaging's Specifier reads it: a
@@ -85,8 +98,9 @@ function isClause(clause) {
 
 // A list of specifiers a comma apart, spaces and tabs around each: what a
 // requires-python and a requirement's version take. Not empty.
+export const isSpecifiers = (text) => text.split(',').every((clause) => isClause(trimBlanks(clause)))
+
 export function checkSpecifiers(value, where) {
-  const clauses = value.split(',').map((clause) => clause.replace(/^[ \t]+|[ \t]+$/gu, ''))
-  if (!clauses.every(isClause)) throw new LockfileError(`${quote(value)} is not a list of version specifiers`, where)
+  if (!isSpecifiers(string(value, where))) throw new LockfileError(`${quote(value)} is not a list of version specifiers`, where)
   return value
 }

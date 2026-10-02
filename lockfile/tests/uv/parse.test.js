@@ -165,9 +165,13 @@ describe('sources', () => {
     refuses(edit([`source = { ${PYPI} }\ndependencies`, 'source = { registry = "https://u:p@pypi.org/simple" }\ndependencies']), '"https://u:p@pypi.org/simple" has credentials in it, which uv does not write', 'package[0].source.registry')
   })
 
-  it('a local registry by its path', () => {
-    const lock = parseUvLock(edit([`name = "c"\nversion = "2.0"\nsource = { ${PYPI} }`, 'name = "c"\nversion = "2.0"\nsource = { registry = "../wheels" }'], [`version = "2.0", source = { ${PYPI} }`, 'version = "2.0", source = { registry = "../wheels" }']))
-    assert.deepEqual({ ...lock.packages['c==2.0 @ registry+../wheels'].source }, { type: 'registry', url: undefined, path: '../wheels', id: 'registry+../wheels' })
+  it('a local registry by its path, its files by path or URL, and not both', () => {
+    const local = (wheel) => edit([`name = "c"\nversion = "2.0"\nsource = { ${PYPI} }`, `name = "c"\nversion = "2.0"\nsource = { registry = "../wheels" }\nwheels = [${wheel}]`], [`version = "2.0", source = { ${PYPI} }`, 'version = "2.0", source = { registry = "../wheels" }'])
+    const lock = parseUvLock(local('{ path = "c-2.0-py3-none-any.whl" }'))
+    const c = lock.packages['c==2.0 @ registry+../wheels']
+    assert.deepEqual({ ...c.source }, { type: 'registry', url: undefined, path: '../wheels', id: 'registry+../wheels' })
+    assert.deepEqual([c.wheels[0].path, c.wheels[0].filename], ['c-2.0-py3-none-any.whl', 'c-2.0-py3-none-any.whl'])
+    refuses(local('{ path = "c-2.0-py3-none-any.whl", url = "https://files.example.com/c-2.0-py3-none-any.whl" }'), 'a url and a path, of which uv reads the url alone', 'package[3].wheels[0]')
   })
 
   it('refuses a git source without its commit, or with one other than rev= names', () => {

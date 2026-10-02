@@ -65,6 +65,14 @@ describe('PEP 508', () => {
     }
   })
 
+  it('blanks around a specifier or a requirement\'s parts, in time linear in their run', () => {
+    const blanks = ' \t'.repeat(100_000)
+    assert.ok(reads(checkSpecifiers)(`>=1${blanks},<2${blanks}`))
+    assert.ok(!reads(checkSpecifiers)(`>=1${blanks}x`))
+    assert.ok(reads(checkRequirementText)(`a (>=1${blanks})${blanks};${blanks}os_name == 'nt'${blanks}`))
+    assert.ok(!reads(checkRequirementText)(`a >=1${blanks}x`))
+  })
+
   it('markers nested deep, refused past 64 brackets, in time linear in their length', () => {
     const nested = (depth) => `${'('.repeat(depth)}os_name == 'nt'${')'.repeat(depth)}`
     assert.ok(reads(checkMarker)(nested(64)))

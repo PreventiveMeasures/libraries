@@ -110,6 +110,7 @@
     "src/uv/artifacts.js",
     "src/uv/inputs.js",
     "src/uv/lock.js",
+    "src/uv/shape.js",
     "src/uv/source.js",
     "src/yaml/error.js",
     "src/yaml/parse.js",

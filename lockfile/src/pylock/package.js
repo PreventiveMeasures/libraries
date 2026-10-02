@@ -4,30 +4,21 @@
 // holds it to the package's name and version.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkRelative, isCommit } from '../names.js'
-import { DIGESTS, checkDigest, parseSdistName, parseWheelName } from '../python/files.js'
-import { parseVersion, versionKey } from '../python/pep440.js'
-import { checkName } from '../python/pep508.js'
+import { isCommit } from '../names.js'
+import { DIGESTS, checkDigest, checkPath, fileNameOf, parseSdistName, parseWheelName } from '../python/files.js'
+import { versionKey } from '../python/pep440.js'
+import { field } from '../shape.js'
 import { TomlDateTime } from '../toml/datetime.js'
-import { array, boolean, entries, refuse, size, string, table } from '../toml/shape.js'
+import { array, boolean, entries, refuse, size, string, table, text } from '../toml/shape.js'
 
-export function text(value, where) {
-  if (string(value, where) === '' || /[\p{Cc}\p{Zl}\p{Zp}]/u.test(value)) throw new LockfileError(`${quote(value)} is empty, or has a control character in it`, where)
-  return value
-}
+const FILE_SCHEMES = ['https:', 'http:', 'file:']
 
-// A URL of the schemes a file is fetched by, or, for a VCS, any.
-export function checkUrl(value, where, schemes = ['https:', 'http:', 'file:']) {
+// A URL, as written, of the schemes a file is fetched by, or, for a VCS,
+// any; parsed, for its path.
+function parseUrl(value, where, schemes = FILE_SCHEMES) {
   const url = URL.parse(text(value, where))
   if (url === null || (schemes !== undefined && !schemes.includes(url.protocol))) throw new LockfileError(`${quote(value)} is not a URL${schemes === undefined ? '' : ` of ${schemes.map((scheme) => scheme.slice(0, -1)).join(', ')}`}`, where)
-  return value
-}
-
-// A path from the lockfile's directory, `/` between segments, as one that
-// reads the same on every machine: the spec takes an absolute one too.
-export function checkPath(value, where) {
-  if (/^(?:\/|[A-Za-z]:|\\)/u.test(text(value, where))) throw new LockfileError(`${quote(value)} is absolute, and only reads on the machine that wrote it`, where)
-  return checkRelative(value, where)
+  return url
 }
 
 // By algorithm, at least one, each digest of its size in lowercase hex.
@@ -48,54 +39,40 @@ function readTime(value, where) {
   return value.text
 }
 
-const optional = (holder, key, where, read) => (holder[key] === undefined ? undefined : read(holder[key], at(where, key)))
-
-// A file by URL or path, or both, and what else `fields` names.
+// A file by URL or path, or both, and what else `fields` names; with the
+// URL's path, for the file's name.
 function readFile(value, where, fields) {
   table(value, where, ['url', 'path', 'size', 'upload-time', 'hashes', ...fields])
   if (value.url === undefined && value.path === undefined) throw new LockfileError('expected a url or a path', where)
-  return {
-    url: optional(value, 'url', where, checkUrl),
-    path: optional(value, 'path', where, checkPath),
-    size: optional(value, 'size', where, size),
-    uploadTime: optional(value, 'upload-time', where, readTime),
+  const url = field(value, 'url', where, parseUrl)
+  const file = {
+    url: url === undefined ? undefined : value.url,
+    path: field(value, 'path', where, checkPath),
+    size: field(value, 'size', where, size),
+    uploadTime: field(value, 'upload-time', where, readTime),
     hashes: readHashes(value.hashes, at(where, 'hashes')),
   }
+  return { file, pathname: url?.pathname }
 }
 
-const lastSegment = (path) => path.slice(path.lastIndexOf('/') + 1)
-
-function fileName(file, where) {
-  if (file.name !== undefined) return file.name
-  if (file.path !== undefined) return lastSegment(file.path)
-  try {
-    return decodeURIComponent(lastSegment(new URL(file.url).pathname))
-  } catch {
-    throw new LockfileError(`${quote(file.url)} names no file`, where)
-  }
-}
-
-// A file's name holds it to the package: its name, and its version, where
-// the package has one.
-function checkFileName(file, where, pkg, wheel) {
-  const name = fileName(file, where)
+// A wheel's or an sdist's name, as given, or its path's or URL's, holds it
+// to the package: its name, and its version, where the package has one.
+function readDistribution(value, where, pkg, wheel) {
+  const given = field(value, 'name', where, text)
+  const { file, pathname } = readFile(value, where, ['name'])
+  const name = fileNameOf({ name: given, path: file.path, pathname })
+  if (name === undefined) throw new LockfileError(`${quote(file.url)} names no file`, where)
   const parsed = wheel ? parseWheelName(name) : parseSdistName(name)
   if (parsed === undefined) throw new LockfileError(`${quote(name)} is not the name of ${wheel ? 'a wheel' : 'an sdist, .tar.gz or .zip'}`, where)
   if (parsed.name !== pkg.name) throw new LockfileError(`${quote(name)} is not a file of ${quote(pkg.name)}`, where)
-  if (pkg.version !== undefined && versionKey(parsed.version) !== versionKey(parseVersion(pkg.version))) throw new LockfileError(`${quote(name)} is not of version ${quote(pkg.version)}`, where)
-  return name
-}
-
-// The name of a wheel or an sdist, where given, is over its path's and URL's.
-function readDistribution(value, where, pkg, wheel) {
-  const file = { name: optional(value, 'name', where, text), ...readFile(value, where, ['name']) }
-  return { ...file, name: checkFileName(file, where, pkg, wheel) }
+  if (pkg.versionKey !== undefined && versionKey(parsed.version) !== pkg.versionKey) throw new LockfileError(`${quote(name)} is not of version ${quote(pkg.version)}`, where)
+  return { name, ...file }
 }
 
 export const readSdist = (value, where, pkg) => (value === undefined ? undefined : readDistribution(value, where, pkg, false))
 
 export function readWheels(value, where, pkg) {
-  if (value === undefined) return undefined
+  if (value === undefined) return []
   const seen = new Set()
   return array(value, where).map((item, index) => {
     const here = `${where}[${index}]`
@@ -106,14 +83,14 @@ export function readWheels(value, where, pkg) {
   })
 }
 
-export const readArchive = (value, where) => ({ ...readFile(value, where, ['subdirectory']), subdirectory: optional(value, 'subdirectory', where, checkRelative) })
+export const readArchive = (value, where) => ({ ...readFile(value, where, ['subdirectory']).file, subdirectory: field(value, 'subdirectory', where, checkPath) })
 
 export function readDirectory(value, where) {
   table(value, where, ['path', 'editable', 'subdirectory'])
   return {
     path: checkPath(value.path, at(where, 'path')),
-    editable: optional(value, 'editable', where, boolean) ?? false,
-    subdirectory: optional(value, 'subdirectory', where, checkRelative),
+    editable: field(value, 'editable', where, boolean) ?? false,
+    subdirectory: field(value, 'subdirectory', where, checkPath),
   }
 }
 
@@ -129,11 +106,11 @@ export function readVcs(value, where) {
   if ((type === 'git' || type === 'hg') && !isCommit(commitId)) throw new LockfileError(`${quote(commitId)} is not a full commit hash, which the spec requires`, at(where, 'commit-id'))
   return {
     type,
-    url: optional(value, 'url', where, (url, here) => checkUrl(url, here, undefined)),
-    path: optional(value, 'path', where, checkPath),
-    requestedRevision: optional(value, 'requested-revision', where, text),
+    url: field(value, 'url', where, (url, here) => parseUrl(url, here, undefined) && url),
+    path: field(value, 'path', where, checkPath),
+    requestedRevision: field(value, 'requested-revision', where, text),
     commitId,
-    subdirectory: optional(value, 'subdirectory', where, checkRelative),
+    subdirectory: field(value, 'subdirectory', where, checkPath),
   }
 }
 
@@ -146,5 +123,3 @@ export function readAttestations(value, where) {
     return item
   })
 }
-
-export const readGroupNames = (value, where) => array(value, where).map((name, index) => checkName(string(name, `${where}[${index}]`), `${where}[${index}]`))
