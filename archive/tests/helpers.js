@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict'
+import { cpuUsage } from 'node:process'
 
 export const utf8 = (text) => new TextEncoder().encode(text)
+
+// The milliseconds of CPU time `fn` takes this process. Test files run in
+// processes side by side, so wall-clock time stretches with whatever else
+// the runner is doing: a tenth of a second here took over one on CI.
+export function cpuMs(fn) {
+  const before = cpuUsage()
+  fn()
+  const { user, system } = cpuUsage(before)
+  return (user + system) / 1000
+}
 
 // Two byte strings, the same or the first place they are not — said in
 // blocks, since that is how an archive is read.
