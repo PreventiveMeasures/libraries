@@ -825,6 +825,49 @@ describe('walk', () => {
   })
 })
 
+describe('collisions', () => {
+  const fold = (name) => name.normalize('NFD').toLowerCase()
+
+  it('names each set of names in a directory that fold to one key, directories in walk order', () => {
+    const fs = createVfs({
+      'd/Foo': '', 'd/foo/x': '', 'd/FOO': { type: 'symlink', target: 'x' }, 'd/bar': '', 'd/Bar': '', 'd/z': '',
+      'café': '', 'café': '', 'real/A': '', 'real/a': '', 'via': { type: 'symlink', target: 'real' },
+    })
+    assert.deepEqual([...fs.collisions(fold)], [
+      { path: '/', names: ['café', 'café'] },
+      { path: '/d', names: ['Bar', 'bar'] },
+      { path: '/d', names: ['FOO', 'Foo', 'foo'] },
+      { path: '/real', names: ['A', 'a'] },
+    ])
+  })
+
+  it('starts where a path leads when called, and folds no more names than are taken', () => {
+    const fs = createVfs({ 'a/X': '', 'a/x': '', 'b/Y': '', 'b/y': '', 'l': { type: 'symlink', target: 'b' }, 'f': '' })
+    assert.deepEqual([...fs.collisions(fold, '/l')], [{ path: '/b', names: ['Y', 'y'] }])
+    assert.deepEqual([...fs.collisions(fold, '/f')], [])
+    assert.deepEqual([...fs.collisions((name) => name)], [], 'no two names are one unfolded')
+    fails(() => fs.collisions(fold, '/missing'), 'ENOENT', '/missing')
+    assert.throws(() => fs.collisions(), TypeError)
+    assert.throws(() => fs.collisions('nfd'), TypeError)
+    const asked = []
+    const [first] = fs.collisions((name) => {
+      asked.push(name)
+      return name.toLowerCase()
+    })
+    assert.deepEqual(first, { path: '/a', names: ['X', 'x'] })
+    assert.deepEqual(asked, ['a', 'b', 'f', 'l', 'X', 'x'])
+  })
+
+  it('survives a tree deeper than any stack', () => {
+    const deep = 'd/'.repeat(20000)
+    const fs = new Vfs()
+    fs.mkdir(deep, { recursive: true })
+    fs.writeFile(`${deep}A`, '')
+    fs.writeFile(`${deep}a`, '')
+    assert.deepEqual([...fs.collisions(fold)], [{ path: `/${deep.slice(0, -1)}`, names: ['A', 'a'] }])
+  })
+})
+
 describe('names', () => {
   it('may be anything a Map holds, including what an object would take for its own', () => {
     const fs = createVfs(new Map([['__proto__', 'p'], ['constructor/toString', 't'], ['hasOwnProperty', 'h']]))

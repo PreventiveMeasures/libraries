@@ -17,6 +17,13 @@ export interface Stat {
 // How Vfs.mount settles a name the tree has where one is taken already.
 export type Clash = 'error' | 'keep' | 'replace'
 
+// Names in the directory at `path` that are one by a fold, as Vfs.collisions
+// finds them, in code point order.
+export interface Collision {
+  path: string
+  names: string[]
+}
+
 export interface WalkEntry {
   path: string
   type: NodeType
@@ -124,6 +131,12 @@ export class Vfs {
   // copied as it was when called, itself included, and left as it is, its
   // files' bytes shared rather than copied.
   mount(tree: Vfs, path?: string, options?: { clash?: Clash | ((path: string, there: string[]) => Clash); fold?: (name: string) => string }): void
+  // Each set of two or more names in one directory, at or under what `path`
+  // leads to, that `fold` takes to one key, as a filesystem that ignores
+  // case takes them for one name: directories in walk order, links named
+  // but not crossed, and a directory's sets in the order of their first
+  // names. `path` is resolved when this is called, as walk's is.
+  collisions(fold: (name: string) => string, path?: string): Generator<Collision, void, undefined>
   // Depth first from what `path` leads to, siblings in code point order,
   // links named but not crossed. `path` is resolved when this is called, so
   // a wrong one throws here rather than on the first step.

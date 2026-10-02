@@ -16,7 +16,7 @@
 // target's length is what a lookup can be made to cost.
 
 import { VfsError, wrongType } from './error.js'
-import { checkMount, descend, merge, namesOf } from './tree.js'
+import { checkMount, collisionsIn, descend, merge, namesOf, spell } from './tree.js'
 
 const LINK_LIMIT = 40
 const NAME_MAX = 255
@@ -300,8 +300,17 @@ export class Vfs {
   walk(path = '/') {
     const found = this.#found(path)
     const base = pathOf(found)
-    const under = base === '/' ? '/' : `${base}/`
-    return descend(found.node, ({ name, node, depth }) => ({ path: name === '' ? base : under + name, type: node.type, depth }))
+    return descend(found.node, ({ name, node, depth }) => ({ path: spell(base, name), type: node.type, depth }))
+  }
+
+  // Each set of two or more names in one directory, at or under what `path`
+  // leads to, that `fold` takes to one key, as a filesystem that ignores
+  // case takes them for one name. Directories come in walk order, links
+  // named but not crossed, and `path` is resolved when called, as walk's.
+  collisions(fold, path = '/') {
+    if (typeof fold !== 'function') throw wrongType('fold', fold, 'a function')
+    const found = this.#found(path)
+    return collisionsIn(found.node, pathOf(found), fold)
   }
 
   // The tree as tar entries: names relative to `path`, `.` for it or a

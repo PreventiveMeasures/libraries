@@ -12,6 +12,9 @@ import { compareNames } from './path.js'
 
 export const namesOf = (dir) => [...dir.entries.keys()].sort(compareNames)
 
+// A path as walk spells it: `name` the way down from `base`, '' for it.
+export const spell = (base, name) => (name === '' ? base : base === '/' ? `/${name}` : `${base}/${name}`)
+
 // Every inode at or under `top`, depth first, siblings in name order, a
 // link named but not crossed, as `shape` has it: `name` is the way down
 // from `top`, '' for it, and `leaf` the last name on it, in `parent`. A
@@ -55,7 +58,6 @@ export function checkMount({ clash = 'error', fold }) {
 // no one else holds what is put in place.
 export function merge(into, from, base, { settle, fold }, inodes) {
   const tree = copy(from, inodes.copy)
-  const under = base === '/' ? '/' : `${base}/`
   // Each directory of the tree merged into one there, the only ones the
   // walk goes into, with the keys `fold` takes the names there to, once asked.
   const merged = new Map([[tree, { into }]])
@@ -70,7 +72,7 @@ export function merge(into, from, base, { settle, fold }, inodes) {
     }
     const taken = there === undefined ? folded(pair, parent, leaf, fold) : [leaf]
     if (taken.length > 0) {
-      const path = under + name
+      const path = spell(base, name)
       const how = settle(path, taken.map((other) => path.slice(0, -leaf.length) + other))
       if (how === 'error') throw new VfsError('EEXIST', path)
       if (how === 'keep') continue
@@ -81,6 +83,19 @@ export function merge(into, from, base, { settle, fold }, inodes) {
     for (const each of descend(node)) inodes.number(each.node)
     for (const other of taken) dir.entries.delete(other)
     dir.entries.set(name, node)
+  }
+}
+
+// Each set of two or more names in one directory at or under `top`, which
+// is at `base`, that `fold` takes to one key: the directory, as walk spells
+// it, and the names, in code point order, a directory's sets in the order
+// of their first names.
+export function* collisionsIn(top, base, fold) {
+  for (const { name, node } of descend(top)) {
+    if (node.type !== 'directory') continue
+    for (const names of Map.groupBy(namesOf(node), (other) => fold(other)).values()) {
+      if (names.length > 1) yield { path: spell(base, name), names }
+    }
   }
 }
 
