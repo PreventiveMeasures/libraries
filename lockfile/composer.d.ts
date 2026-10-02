@@ -142,8 +142,8 @@ export interface ComposerPackage {
   bin: string[]
   // `library` and the like, in lowercase, which picks the installer.
   type: string
-  // Under the package's directory, where PSR-0 code goes; empty for the
-  // directory itself.
+  // Under the package's directory, where PSR-0 code goes, of `/` or `\`
+  // between its names; empty for the directory itself.
   targetDir: string | undefined
   extra: ComposerJson | undefined
   autoload: ComposerJson | undefined

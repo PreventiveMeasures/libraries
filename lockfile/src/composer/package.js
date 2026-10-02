@@ -280,11 +280,15 @@ function checkBin(value, where) {
 const targetDirOf = (dir) => dir.replace(/(?:^|[\\/]+)\.\.?(?:[\\/]+|$)(?:\.\.?(?:[\\/]+|$))*/gu, '/').replace(/^\/+/u, '')
 
 // target-dir as Composer writes it, of getTargetDir: empty for the
-// package's directory itself, `.`, which Composer 2.7 and later write.
+// package's directory itself, `.`, which Composer 2.7 and later write. A
+// `\` is a separator to getTargetDir, as to Windows, where one that leads
+// is of the drive's root: a path of either, under the package's directory.
 function checkTargetDir(value, where) {
   const dir = plain(value, where)
   if (targetDirOf(dir) !== dir) throw new LockfileError(`${quote(dir)} is not written as Composer writes a target-dir, ${quote(targetDirOf(dir))}`, where)
-  return dir === '' ? dir : checkPath(dir, where)
+  if (dir.startsWith('\\')) throw new LockfileError(`${quote(dir)} is of the drive's root on Windows, and not under the package's directory`, where)
+  if (dir !== '') checkPath(dir.replaceAll('\\', '/'), where)
+  return dir
 }
 
 function readSuggest(value, where) {

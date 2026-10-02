@@ -343,7 +343,12 @@ describe('a package', () => {
     refuses(edit((doc) => put(doc.packages[0], 'target-dir', './x/../y')), '"./x/../y" is not written as Composer writes a target-dir, "x/y"', at(0, '["target-dir"]'))
     refuses(edit((doc) => put(doc.packages[0], 'target-dir', '.')), '"." is not written as Composer writes a target-dir, ""', at(0, '["target-dir"]'))
     refuses(edit((doc) => put(doc.packages[0], 'target-dir', 'C:/x')), '"C:/x" is an absolute path, of the machine the lockfile was written on', at(0, '["target-dir"]'))
-    assert.deepEqual(['', 'x/y'].map((dir) => parseComposerLock(edit((doc) => put(doc.packages[0], 'target-dir', dir))).packages['a/app'].targetDir), ['', 'x/y'])
+    assert.deepEqual(['', 'x/y', 'x\\y'].map((dir) => parseComposerLock(edit((doc) => put(doc.packages[0], 'target-dir', dir))).packages['a/app'].targetDir), ['', 'x/y', 'x\\y'])
+    // A `\` is a separator to getTargetDir and to Windows, where one that
+    // leads is of the drive's root.
+    refuses(edit((doc) => put(doc.packages[0], 'target-dir', 'x\\..\\y')), '"x\\\\..\\\\y" is not written as Composer writes a target-dir, "x/y"', at(0, '["target-dir"]'))
+    refuses(edit((doc) => put(doc.packages[0], 'target-dir', '\\x')), '"\\\\x" is of the drive\'s root on Windows, and not under the package\'s directory', at(0, '["target-dir"]'))
+    refuses(edit((doc) => put(doc.packages[0], 'target-dir', 'C:\\x')), '"C:/x" is an absolute path, of the machine the lockfile was written on', at(0, '["target-dir"]'))
   })
 
   it('a time as DATE_RFC3339 writes it, of a real date', () => {
