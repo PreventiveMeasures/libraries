@@ -6,6 +6,27 @@ import { ANY_REGISTRY, keyOf, parseLockSource, patchKey, patchUrl, patchedAs, so
 
 const PATH = 'path'
 
+// What parseCargoManifest gives as a dependency's source.
+const SOURCE = {
+  __proto__: null,
+  registry: { registry: false, index: false },
+  git: { url: true, branch: false, tag: false, rev: false },
+  path: { path: true },
+}
+
+function checkSource(source) {
+  const fields = SOURCE[source?.type]
+  const fits = fields !== undefined && Object.entries(fields).every(([key, needed]) => typeof source[key] === 'string' || (!needed && source[key] === undefined))
+  if (!fits) throw new TypeError('expected a source, as parseCargoManifest gives one')
+}
+
+// As linkCargo matches a [patch] table to a dependency.
+export function patchesCargoSource(key, source) {
+  if (typeof key !== 'string') throw new TypeError('expected the key of a [patch] table')
+  checkSource(source)
+  return patchedAs(source) === patchKey(key)
+}
+
 export const within = (requirement, version) => requirement === undefined || matches(requirement, parseVersion(version))
 
 export const from = (wanted, pkg) => pkg.identity === wanted || (wanted === ANY_REGISTRY && pkg.source !== undefined && !pkg.source.startsWith('git+'))

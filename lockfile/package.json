@@ -101,6 +101,7 @@
     "src/cargo/lock.js",
     "src/cargo/manifest.js",
     "src/cargo/patch.js",
+    "src/cargo/platform.js",
     "src/cargo/shape.js",
     "src/cargo/sources.js",
     "src/cargo/vendor.js",

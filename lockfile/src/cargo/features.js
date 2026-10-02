@@ -4,11 +4,12 @@
 // unifies it all. It walks only what the build's own resolve turns on
 // (activate.js); more is refused, as cargo would resolve it anew.
 
-import { parseCfg, parsePlatform, platformMatches } from '../crate/cargo-platform.js'
+import { parsePlatform, platformMatches } from '../crate/cargo-platform.js'
 import { LockfileError, quote } from '../error.js'
 import { checkOptions } from '../shape.js'
 import { featureValue } from './dependency.js'
 import { activate, requestsOf, setOf } from './activate.js'
+import { readPlatform, undecided } from './platform.js'
 
 // Cargo's Workspace::members_with_features. A virtual workspace, or resolver
 // 2 or 3, gives each selected member the features it has, `member/feature`
@@ -98,14 +99,18 @@ function membersWithFeatures(graph, options) {
   return roots
 }
 
-const fail = (message, where) => {
-  throw new LockfileError(message, where)
-}
-
-function readPlatform(value, where) {
-  if (typeof value?.name !== 'string' || !Array.isArray(value.cfg)) throw new TypeError(`expected ${where} as { name, cfg }`)
-  const keys = value.cfg.map((line) => parseCfg(line) ?? fail(`${quote(line)} is not a line of \`rustc --print cfg\``, where))
-  return { name: value.name, cfg: new Set(keys) }
+// What a table the platforms leave undecided is taken as: on, for what a
+// build may turn on, or off, for what it turns on for certain. Given only
+// with platforms, and needed where one is known in part.
+function readUndecided(options, platforms) {
+  const { undecided: given } = options
+  if (given === undefined) {
+    if (platforms.some(undecided)) throw new TypeError("expected `undecided`, 'on' or 'off', as a platform leaves cfgs undecided")
+    return false
+  }
+  if (given !== 'on' && given !== 'off') throw new TypeError("expected `undecided` to be 'on' or 'off'")
+  if (options.targets === 'all') throw new TypeError("expected no `undecided` with targets 'all', which reads every platform")
+  return given === 'on'
 }
 
 // Cargo's FeatureResolver, method for method. `fk` is what a package is
@@ -118,6 +123,7 @@ class FeatureResolver {
     const all = options.targets === 'all'
     this.host = all ? undefined : readPlatform(options.host, 'host')
     this.targets = all ? [] : (options.targets?.length > 0 ? options.targets : [options.host]).map((target, index) => readPlatform(target, `targets[${index}]`))
+    this.undecided = readUndecided(options, all ? [] : [this.host, ...this.targets])
     this.dev = options.dev === true
     this.decoupleHost = graph.resolver >= 2
     this.decoupleDev = graph.resolver >= 2 && !this.dev
@@ -155,8 +161,9 @@ class FeatureResolver {
   activeFor(dep, fk) {
     if (!this.platforms.has(dep.target)) this.platforms.set(dep.target, parsePlatform(dep.target))
     const platform = this.platforms.get(dep.target)
-    if (dep.kind === 'build' || fk === 'host') return platformMatches(platform, this.host)
-    return this.targets.some((target) => platformMatches(platform, target))
+    const holds = (target) => platformMatches(platform, target) ?? this.undecided
+    if (dep.kind === 'build' || fk === 'host') return holds(this.host)
+    return this.targets.some(holds)
   }
 
   request(key, fk, feature, asker) {
@@ -278,7 +285,7 @@ class FeatureResolver {
 }
 
 export function resolveCargoFeatures(graph, options) {
-  checkOptions(options, ['packages', 'features', 'allFeatures', 'noDefaultFeatures', 'current', 'dev', 'host', 'targets'])
+  checkOptions(options, ['packages', 'features', 'allFeatures', 'noDefaultFeatures', 'current', 'dev', 'host', 'targets', 'undecided'])
   const roots = membersWithFeatures(graph, options)
   const why = (dep) => `the build turns on ${quote(dep.name)}, which the lockfile does not resolve to one package, and cargo would anew`
   const resolver = new FeatureResolver(graph, activate(graph.packages, roots, why), options)

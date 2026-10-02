@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { LockfileError, parseCargoLock, readCargoVendor } from '../../cargo.js'
+import { LockfileError, parseCargoChecksum, parseCargoLock, readCargoVendor } from '../../cargo.js'
 
 // A lockfile with two versions of one package from crates.io, a git package
 // and a path one, and a vendor directory as `cargo vendor` writes it for
@@ -92,4 +92,36 @@ describe('readCargoVendor', () => {
       assert.throws(() => readCargoVendor(lock, present), (error) => error instanceof LockfileError && (typeof message === 'string' ? error.message === message : message.test(error.message)))
     })
   }
+})
+
+describe('parseCargoChecksum', () => {
+  it('reads a copy\'s checksums as readCargoVendor does', () => {
+    const read = parseCargoChecksum(VENDOR['rand-0.8.5'].checksum)
+    assert.deepEqual([read.checksum, { ...read.files }], [OTHER, { 'src/lib.rs': OTHER }])
+    assert.deepEqual({ ...read.files }, { ...readCargoVendor(lock, VENDOR)[`rand 0.8.5 (${CRATES})`].files })
+  })
+
+  it('reads a git checkout\'s as having no checksum of its own', () => {
+    assert.equal(parseCargoChecksum(checksum(null)).checksum, undefined)
+    assert.equal(parseCargoChecksum(JSON.stringify({ $comment: 'x', files: {}, package: null })).checksum, undefined)
+  })
+
+  // JSON.parse would take the second "a.rs", and a check of the file
+  // against a sum that is not a string would pass it.
+  const refused = [
+    ['a file given twice', `{"package":null,"files":{"a.rs":"${SUM}","a.rs":"${OTHER}"}}`, 'a key is given twice'],
+    ['a file checksum that is not a string', checksum(null, { 'a.rs': null }), 'expected a sha256 for "a.rs"'],
+    ['a path out of the directory', checksum(null, { '../a.rs': SUM }), '"../a.rs" is not a path within the package'],
+    ['no files', JSON.stringify({ package: null }), 'expected "files" and "package", and nothing else'],
+    ['text that is not JSON', '{', /^not JSON: /u],
+  ]
+  for (const [title, text, message] of refused) {
+    it(`refuses ${title}`, () => {
+      assert.throws(() => parseCargoChecksum(text), (error) => error instanceof LockfileError && (typeof message === 'string' ? error.message === message : message.test(error.message)))
+    })
+  }
+
+  it('throws a TypeError for anything but a text', () => {
+    assert.throws(() => parseCargoChecksum({ files: {}, package: null }), TypeError)
+  })
 })

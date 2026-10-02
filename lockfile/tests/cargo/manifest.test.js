@@ -166,6 +166,20 @@ describe('parseCargoManifest', () => {
     assert.deepEqual(['proc-macro = false\ncrate-type = ["proc-macro"]', 'proc-macro = true\ncrate-type = ["lib"]', 'crate-type = ["proc-macro"]', 'crate-type = ["lib"]'].map(lib), [false, true, true, false])
   })
 
+  it('names the library after the package, `-` read as `_`, or as [lib] does', () => {
+    const lib = (text) => parseCargoManifest(`[package]\nname = "my-pkg"\nversion = "0.1.0"\n${text}`).package.lib
+    assert.deepEqual([lib(''), lib('\n[lib]\nproc-macro = true\n')], [{ name: 'my_pkg', path: undefined }, { name: 'my_pkg', path: undefined }])
+    assert.deepEqual(lib('\n[lib]\nname = "core"\npath = "src/core.rs"\n'), { name: 'core', path: 'src/core.rs' })
+    assert.deepEqual(root.package.lib, { name: 'app', path: undefined })
+  })
+
+  // `build = true` is build.rs, as cargo reads it; with none given, whether
+  // there is one only a filesystem says.
+  it('reads the build script\'s path, if any is given', () => {
+    const build = (text) => parseCargoManifest(edit(ROOT, 'edition = "2021"', `edition = "2021"\n${text}`)).package.build
+    assert.deepEqual(['', 'build = true', 'build = false', 'build = "src/build.rs"', 'build = "scripts/"'].map(build), [undefined, 'build.rs', false, 'src/build.rs', 'scripts/'])
+  })
+
   it('throws a TypeError for a root that is not one', () => {
     assert.throws(() => parseCargoManifest(MEMBER, parseCargoManifest('[package]\nname = "a"\n')), TypeError)
   })
@@ -201,6 +215,13 @@ describe('parseCargoManifest', () => {
     ['links with no build script', edit(ROOT, 'edition = "2021"', 'edition = "2021"\nlinks = "z"\nbuild = false'), 'package.links: links to "z" with no build script, which cargo refuses'],
     ['links with a build of another type', edit(ROOT, 'edition = "2021"', 'edition = "2021"\nlinks = "z"\nbuild = 1'), 'package.build: expected true, false or a path, found the integer 1'],
     ['several build scripts', edit(ROOT, 'edition = "2021"', 'edition = "2021"\nbuild = ["a.rs", "b.rs"]'), 'package.build: several build scripts, which only a nightly cargo reads, is not supported'],
+    ['a build script that is no file', edit(ROOT, 'edition = "2021"', 'edition = "2021"\nbuild = "."'), 'package.build: "." names no file, which cargo crashes on'],
+    ['a build script with an empty path', edit(ROOT, 'edition = "2021"', 'edition = "2021"\nbuild = ""'), 'package.build: "" names no file, which cargo crashes on'],
+    ['a build script that is a directory up', edit(ROOT, 'edition = "2021"', 'edition = "2021"\nbuild = "scripts/.."'), 'package.build: "scripts/.." names no file, which cargo crashes on'],
+    ['a library named with a "-"', edit(ROOT, 'proc-macro = true', 'name = "a-b"'), 'lib.name: "a-b": a library\'s name cannot have a "-", which cargo refuses'],
+    ['a library named by blanks', edit(ROOT, 'proc-macro = true', 'name = " \\t"'), 'lib.name: a library\'s name cannot be empty, which cargo refuses'],
+    ['a library\'s name of another type', edit(ROOT, 'proc-macro = true', 'name = 1'), 'lib.name: expected a string, found the integer 1'],
+    ['a library\'s path of another type', edit(ROOT, 'proc-macro = true', 'path = ["src/lib.rs"]'), 'lib.path: expected a string, found an array'],
     ['a package key of another type', edit(ROOT, 'edition = "2021"', 'edition = "2021"\nautolib = "yes"'), 'package.autolib: expected true or false, found the string "yes"'],
     ['publish of another type', edit(ROOT, 'edition = "2021"', 'edition = "2021"\npublish = "crates-io"'), 'package.publish: expected true, false or registry names, found the string "crates-io"'],
     ['a rust-version cargo refuses', edit(ROOT, 'edition = "2021"', 'edition = "2021"\nrust-version = "1.70.0-beta"'), 'package["rust-version"]: "1.70.0-beta" is not a Rust version'],
