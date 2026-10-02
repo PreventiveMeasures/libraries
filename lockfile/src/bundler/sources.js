@@ -5,6 +5,7 @@
 import { LockfileError, at, quote } from '../error.js'
 import { fail } from '../lines.js'
 import { checkRefName, checkRelative, checkRemote, isCommit, isHttpUrl } from '../names.js'
+import { compareCodePoints } from '../order.js'
 
 // The options of each, in the order Bundler writes them; the first are
 // always written.
@@ -78,10 +79,13 @@ function readGit(values, where) {
 }
 
 // A directory, from the lockfile's. Bundler writes one out of the project
-// by its absolute path, which is the path on one machine alone.
+// by its absolute path, which is the path on one machine alone. One from
+// `~` it writes from the lockfile's too, and reads one so written from the
+// home directory of whoever runs it.
 function readPath(values, where) {
   const here = at(where, 'path')
   if (values.remote.startsWith('/')) throw new LockfileError(`${quote(values.remote)} is an absolute path, which is the path on one machine alone`, here)
+  if (values.remote.startsWith('~')) throw new LockfileError(`${quote(values.remote)} is a path from a home directory, which Bundler writes from the lockfile's`, here)
   return { type: 'path', path: checkRelative(values.remote, here), glob: readGlob(values.glob, at(where, 'glob')) }
 }
 
@@ -126,15 +130,16 @@ function orderKey(source) {
 const describe = (source) => `the ${source.type} source ${quote(source.remote ?? source.path)}`
 
 // The git and path sources in Bundler's order, where the lockfile says it:
-// Bundler sorts them by what identifies each. The GEM sources' order is of
-// their URLs with the credentials the Gemfile gives, which the lockfile
-// leaves out, and is not checked, but for the Gemfile's own, below.
+// Bundler sorts them by what identifies each, as Ruby compares strings, by
+// code point. The GEM sources' order is of their URLs with the credentials
+// the Gemfile gives, which the lockfile leaves out, and is not checked, but
+// for the Gemfile's own, below.
 function checkOrder(sources, raw) {
   let prior
   for (const [index, source] of sources.entries()) {
     const key = source.type === 'gem' ? undefined : orderKey(source)
     if (key === undefined) continue
-    if (prior !== undefined && key < prior.key) throw fail(`${describe(source)} after ${describe(prior.source)}, where Bundler sorts them the other way`, raw[index].number)
+    if (prior !== undefined && compareCodePoints(key, prior.key) < 0) throw fail(`${describe(source)} after ${describe(prior.source)}, where Bundler sorts them the other way`, raw[index].number)
     prior = { key, source }
   }
 }

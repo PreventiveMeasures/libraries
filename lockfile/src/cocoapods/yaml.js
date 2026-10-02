@@ -26,20 +26,21 @@ import { psychRead } from './psych.js'
 // which Ruby's String#inspect escapes, if it does not write it raw.
 const FORBIDDEN = /[^\p{L}\p{M}\p{N}\p{P}\p{S}\p{Zs}]/u
 
-const DOUBLE = /^"((?:[^"\\]|\\.)*)"/u
+// A double-quoted scalar of no escape but `\"` and `\\`, which JSON reads
+// as Psych does; and the first other escape of one, to refuse it.
+const DOUBLE = /^"(?:[^"\\]|\\["\\])*"/u
+const ESCAPE = /^"(?:[^"\\]|\\["\\])*(\\[^"\\])/u
 const SINGLE = /^'((?:[^']|'')*)'/u
 const MAX_DEPTH = 8
-// A scalar some 2^23 characters long runs V8's regex engine out of
-// backtracking stack, which is a RangeError, so a line is held to well
-// below that, as yaml/parse.js holds one.
-const MAX_LINE = 2 ** 20
+// YAML holds a key to 1024 characters, its quotes counted, and Psych reads
+// no longer one: a key CocoaPods writes so long, it does not read back.
+const MAX_KEY = 1024
 
 const isEntry = (text) => text === '-' || text.startsWith('- ')
 
 // The next line with anything on it, as `{ indent, text, number }`.
 function next(src) {
   for (advance(src); src.line !== undefined; advance(src)) {
-    if (src.line.length > MAX_LINE) throw fail(`a line longer than ${MAX_LINE} characters`, src.number)
     const indent = /^ */u.exec(src.line)[0].length
     const text = src.line.slice(indent)
     if (text === '') continue
@@ -50,21 +51,16 @@ function next(src) {
   src.current = undefined
 }
 
-function unescape(raw, number) {
-  return raw.replace(/\\(.)/gu, (escape, char) => {
-    if (char === '"' || char === '\\') return char
-    throw fail(`${quote(escape)}, an escape this reader does not take: CocoaPods writes \\# before {, $ and @, which Psych does not read back`, number)
-  })
-}
-
 const scalar = (type, value, number) => ({ kind: 'scalar', type, value, line: number })
 
 // A quoted scalar at the start of `text`, and what follows it.
 function readQuoted(text, number) {
   const double = DOUBLE.exec(text)
-  if (double !== null) return [scalar('string', unescape(double[1], number), number), text.slice(double[0].length)]
+  if (double !== null) return [scalar('string', JSON.parse(double[0]), number), text.slice(double[0].length)]
   const single = SINGLE.exec(text)
   if (single !== null) return [scalar('string', single[1].replaceAll("''", "'"), number), text.slice(single[0].length)]
+  const escape = ESCAPE.exec(text)?.[1]
+  if (escape !== undefined) throw fail(`${quote(escape)}, an escape this reader does not take: CocoaPods writes \\# before {, $ and @, which Psych does not read back`, number)
   throw fail(`a quoted scalar with no closing quote in ${quote(text)}`, number)
 }
 
@@ -107,6 +103,8 @@ function readKey(text, number) {
     key = readPlain(text.slice(0, colon.index), number)
     rest = text.slice(colon.index)
   }
+  const length = text.length - rest.length
+  if (length > MAX_KEY && [...text.slice(0, length)].length > MAX_KEY) throw fail(`a key longer than ${MAX_KEY} characters, which Psych does not read`, number)
   const value = rest.slice(2)
   if (value.startsWith(' ')) throw fail('more than one space after ":"', number)
   return { key, value }

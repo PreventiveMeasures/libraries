@@ -4,7 +4,6 @@
 // find it wherever it is hoisted, if anywhere.
 
 import { normalize } from '@preventive/vfs/path.js'
-import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { DeptreeError, quote } from '../error.js'
 import { checkNesting } from '../manifest.js'
 import { fetchTarball, sameFile } from '../tarball.js'
@@ -88,8 +87,9 @@ const bundledOf = (manifest) => manifest.bundleDependencies ?? manifest.bundledD
 // pnpm 10 writes an empty list of bundled dependencies, pnpm 11 none.
 const listed = (bundled) => (Array.isArray(bundled) && bundled.length === 0 ? undefined : bundled)
 
-// `read` is the package.json as hook.js's hook has it.
-export function checkDependencies(manifest, read, pkg, where) {
+// `read` is the package.json as hook.js's hook has it, and `packages` the
+// lockfile's, by which a `file:` target is the directory it resolves to.
+export function checkDependencies(manifest, read, pkg, packages, where) {
   const bundled = bundledOf(manifest)
   const given = new Set([...names(pkg.dependencies), ...names(pkg.optionalDependencies)])
   for (const name of [...names(read.dependencies), ...names(read.optionalDependencies)]) {
@@ -100,7 +100,7 @@ export function checkDependencies(manifest, read, pkg, where) {
     const target = pkg.dependencies[name] ?? pkg.optionalDependencies[name]
     if (target === undefined) continue
     const local = localOf(spec, `${where}: package.json`)
-    if (local === undefined || target === `link:${local.dir}` || (local.protocol === 'file:' && packageKeyOf(target).endsWith(`@file:${local.dir}`))) continue
+    if (local === undefined || target === `link:${local.dir}` || (local.protocol === 'file:' && packages[target]?.resolution.directory === local.dir)) continue
     throw new DeptreeError(`the lockfile gives it ${quote(name)} as ${quote(target)}, and its package.json, overridden, names ${quote(local.dir)}`, where)
   }
   // A resolved optional peer is filed as optional, and pnpm's compatibility

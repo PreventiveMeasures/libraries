@@ -124,7 +124,9 @@ export interface PnpmProject {
 // .hooks directory — or, with pnpm 11 and 12, where packageImportMethod is
 // other than auto or hardlink, each snapshot has a copy of its own
 // instead. One by `file:` to a tarball is refused, and so is a `file:`
-// dependency no override names.
+// dependency no override names. One to the lockfile's own directory that
+// the lockfile has as `file:` and an empty path, as pnpm 9, 10 and 11
+// write it, is refused for pnpm 12, which fails on that lockfile.
 //
 // pnpm 9 reads its settings as pnpm 10 does, but none of
 // pnpm-workspace.yaml: of that it reads the projects and the catalogs
@@ -245,8 +247,9 @@ export interface PnpmTreeStats {
 // snapshot key, its peers and patch hash in it. `name` and `version` are
 // the package's own, which its package.json is held to, and `integrity`
 // the sha512 its tarball is held to; one a `file:` override has pnpm
-// install from a directory has `directory`, from the lockfile's, and
-// neither a version nor an integrity, as the lockfile records none.
+// install from a directory has `directory`, from the lockfile's, `.` for
+// its own, and neither a version nor an integrity, as the lockfile records
+// none.
 // `dev` is whether devDependencies alone reach it: no project's
 // dependencies or optionalDependencies do, through what is installed, so
 // `pnpm install --prod` would leave it out. `optional` is whether optional

@@ -5,7 +5,7 @@
 
 import { LockfileError, quote } from '../error.js'
 import { inspect } from './layout.js'
-import { DOWNLOADS, fieldOf } from './sources.js'
+import { DOWNLOADS, PINS, fieldOf } from './sources.js'
 
 // Dependency#external_source_description, but for a source it writes with
 // Hash#inspect, whose order is the Podfile's, which the lockfile does not
@@ -70,8 +70,8 @@ export function checkDescription(description, source, where) {
   throw new LockfileError(`${quote(description)} is not ${what}, as CocoaPods describes the external source`, where)
 }
 
-const PINS = { git: 'commit', hg: 'revision', svn: 'revision' }
-// Any value, where CocoaPods keeps what the download came to.
+// What the download came to, where CocoaPods keeps that, in the form it
+// writes it in.
 const ANY = Symbol('any')
 
 // What CocoaPods may keep of a download by `external`: its options, where
@@ -81,19 +81,20 @@ const ANY = Symbol('any')
 // git finds it, and kept where it does not.
 function keptOf(external) {
   const { type, url, tag, submodules } = external
-  const pin = PINS[type]
+  const pin = PINS[type].option
   const kept = external[pin] !== undefined || tag !== undefined ? external : { type, url, [pin]: ANY, submodules: submodules || undefined }
   return type === 'git' && external.branch !== undefined ? [{ ...external, branch: undefined, commit: ANY }, kept] : [kept]
 }
 
 // The first option `checkout` has otherwise than `kept`, and how.
 function differenceOf(checkout, kept) {
+  const pin = PINS[checkout.type]
   for (const option of DOWNLOADS[checkout.type]) {
     const [have, want] = [checkout[fieldOf(option)], kept[fieldOf(option)]]
-    if (want === ANY ? have !== undefined : have === want) continue
+    if (want === ANY ? have !== undefined && pin.kept(have) : have === want) continue
     if (have === undefined) return `no :${option}, which CocoaPods keeps of this download`
     if (want === undefined) return `a :${option}, which CocoaPods does not keep of this download`
-    return `another :${option} than EXTERNAL SOURCES has`
+    return want === ANY ? `${quote(have)} is not ${pin.as}` : `another :${option} than EXTERNAL SOURCES has`
   }
   return undefined
 }
