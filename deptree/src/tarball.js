@@ -6,6 +6,7 @@ import { unpack } from '@preventive/archive/tar.js'
 import { getTarball } from '@preventive/upstream/npm.js'
 import { DeptreeError, quote } from './error.js'
 import { matchesIntegrity } from './hash.js'
+import { fold } from './mount.js'
 
 // What a tarball may unpack to, as upstream bounds what it downloads.
 const MAX_BYTES = 512 * 1024 * 1024
@@ -40,6 +41,10 @@ const YARNPKG = 'https://registry.yarnpkg.com/'
 export const fromMirror = (url) => (url.startsWith(YARNPKG) ? `${REGISTRY}${url.slice(YARNPKG.length)}` : url)
 
 const sameBytes = (a, b) => a.length === b.length && a.every((byte, i) => byte === b[i])
+// The name of a package's own node_modules, where npm and yarn install its
+// dependencies, in any case: macOS takes `Node_Modules` for it.
+export const isModules = (name) => fold(name) === 'node_modules'
+
 export const sameFile = (a, b) => a.mode === b.mode && sameBytes(a.data, b.data)
 
 // Adds to `dirs` each one `files` are in, refusing one that is a file too.

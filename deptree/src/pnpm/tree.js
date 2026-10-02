@@ -8,7 +8,7 @@ import { Vfs } from '@preventive/vfs'
 import { dirname, relative } from '@preventive/vfs/path.js'
 import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote, refusalOf } from '../error.js'
-import { checkNoModules, checkWrite, isInside, mount, writeLink } from '../mount.js'
+import { checkNoModules, checkWrite, fold, isInside, makeDirs, mount, writeLink } from '../mount.js'
 import { applyPatch, parsePatch } from '../patch.js'
 import { checkProject, typeOf } from '../project.js'
 import { REGISTRY, tarballUrl } from '../tarball.js'
@@ -27,13 +27,21 @@ import { readSettings } from './settings.js'
 import { checkUpToDate } from './uptodate.js'
 import { checkWorkspace } from './workspace.js'
 
-function checkLockfile(lockfile) {
+// A project inside a node_modules would be inside the tree; on macOS, a
+// node_modules in any case is one.
+function checkProjectsOutside(ids, folded) {
+  for (const id of ids) {
+    if (id.split('/').some((name) => name === 'node_modules' || (folded && fold(name) === 'node_modules'))) throw new DeptreeError('a project inside node_modules would be inside the tree', `importers[${quote(id)}]`)
+  }
+}
+
+function checkLockfile(lockfile, folded) {
   if (lockfile.settings.excludeLinksFromLockfile) throw new DeptreeError('links left out of the lockfile would be left out of the tree', 'settings.excludeLinksFromLockfile')
   if (lockfile.settings.injectWorkspacePackages) throw new DeptreeError('injected workspace packages are not supported', 'settings.injectWorkspacePackages')
   if (lockfile.pnpmfileChecksum !== undefined) throw new DeptreeError('a pnpmfile\'s hooks are not run here', 'pnpmfileChecksum')
+  checkProjectsOutside(Object.keys(lockfile.importers), folded)
   for (const [id, importer] of Object.entries(lockfile.importers)) {
     if (id === '..' || id.startsWith('../')) throw new DeptreeError('a project outside the lockfile\'s directory is not supported', `importers[${quote(id)}]`)
-    if (id.split('/').includes('node_modules')) throw new DeptreeError('a project inside node_modules would be inside the tree', `importers[${quote(id)}]`)
     for (const [name, meta] of Object.entries(importer.dependenciesMeta)) {
       if (meta.injected) throw new DeptreeError('an injected dependency is not supported', `importers[${quote(id)}].dependenciesMeta[${quote(name)}]`)
     }
@@ -124,21 +132,21 @@ function addMade(made, dir) {
 function writeNode(vfs, dir, files, stats) {
   const root = `/${dir}`
   if (typeOf(vfs, root, false) !== undefined) throw new DeptreeError('would be written over with something else', quote(dir))
-  vfs.mkdir(root, { recursive: true })
-  const made = new Set([root])
   const real = new Set()
+  makeDirs(vfs, dir, real)
+  const made = new Set([root])
   for (const [path, file] of files) {
     const at = `${root}/${path}`
     if (file.directory) {
       if (!isInside(path)) throw new DeptreeError('is not a path within the package', quote(at.slice(1)))
-      vfs.mkdir(at, { recursive: true })
+      makeDirs(vfs, at.slice(1), real)
       addMade(made, at)
       continue
     }
     if (made.has(at)) throw new DeptreeError('would be written over with something else', quote(at.slice(1)))
     const parent = dirname(at)
     if (!made.has(parent)) {
-      vfs.mkdir(parent, { recursive: true })
+      makeDirs(vfs, parent.slice(1), real)
       addMade(made, parent)
     }
     vfs.writeFile(checkWrite(vfs, dir, path, real), file.data, { mode: file.mode })
@@ -210,8 +218,10 @@ export async function buildPnpmTree(options) {
   const { lockfile, env } = readLockfile(inputs.lockfile)
   if (!('.' in lockfile.importers)) throw new DeptreeError('expected the root project, whose package.json holds settings', 'importers')
   // Before the project is read for any importer: none leads out of it.
-  checkLockfile(lockfile)
+  checkLockfile(lockfile, folded)
   const { manifests, pnpm, major, workspace } = manifestsOf(inputs, lockfile, given.pnpm)
+  // Again with the projects given that the lockfile has no importer for.
+  checkProjectsOutside(Object.keys(lockfile.importers), folded)
   const host = { pnpm, major, ...machine }
   // The env document locks config dependencies, refused, and the pnpm a project
   // pins, which leaves the tree as it is.
@@ -248,7 +258,7 @@ export async function buildPnpmTree(options) {
   const prod = reachedInProd(lockfile.importers, nodes, byDir)
 
   const vfs = new Vfs()
-  vfs.mkdir('/node_modules/.pnpm', { recursive: true })
+  makeDirs(vfs, 'node_modules/.pnpm')
   const stats = { projects: manifests.size, snapshots: Object.keys(lockfile.packages).length, installed: nodes.size, skipped: skipped.size, incompatible: incompatible.size, tarballs, patched: [...nodes.values()].filter((node) => node.pkg.patchHash !== undefined).length, files: 0, bytes: 0, links: links.size }
   const listed = []
   const composing = { major, checkPatched: createPatchedCheck({ host, settings }) }

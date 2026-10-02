@@ -6,6 +6,7 @@
 
 import { ArchiveError, unzip } from '@preventive/archive/zip.js'
 import { DeptreeError, quote } from '../error.js'
+import { bytesSha256Hex } from '../hash.js'
 
 const END = 0x06054b50
 const CENTRAL = 0x02014b50
@@ -76,7 +77,10 @@ function unixMode({ system, attributes }) {
 // a component Soldeer holds to `.git`.
 const isGit = (component) => component.replace(/[. ]+$/u, '').replace(/[A-Z]/gu, (char) => char.toLowerCase()) === '.git'
 
-export async function extractZip(bytes, where) {
+// getZip has held the zip to its checksum; it is held to it again where it
+// is unpacked.
+export async function extractZip(bytes, checksum, where) {
+  if (await bytesSha256Hex(bytes) !== checksum) throw new DeptreeError(`its zip's sha256 is not ${checksum}`, where)
   let entries
   try {
     entries = await unzip(bytes, { limit: MAX_BYTES })

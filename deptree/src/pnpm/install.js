@@ -150,16 +150,21 @@ function split(targets, lockfile) {
 }
 
 // As pnpm's toImporterDepPaths lists them: a project's snapshots, then those
-// of projects it links to not walked yet.
+// of projects it links to not walked yet. A loop where pnpm recurses, so a
+// long chain of projects runs out of no stack.
 function projectKeys(lockfile, ids, walked) {
-  const targets = ids.flatMap((id) => {
-    const importer = lockfile.importers[id]
-    return Object.values({ ...importer.dependencies, ...importer.devDependencies, ...importer.optionalDependencies })
-  })
-  const { keys, projects } = split(targets, lockfile)
-  const more = projects.filter((id) => !walked.has(id))
-  for (const id of more) walked.add(id)
-  return more.length === 0 ? keys : [...keys, ...projectKeys(lockfile, more, walked)]
+  const all = []
+  for (let more = ids; more.length > 0;) {
+    const targets = more.flatMap((id) => {
+      const importer = lockfile.importers[id]
+      return Object.values({ ...importer.dependencies, ...importer.devDependencies, ...importer.optionalDependencies })
+    })
+    const { keys, projects } = split(targets, lockfile)
+    for (const key of keys) all.push(key)
+    more = projects.filter((id) => !walked.has(id))
+    for (const id of more) walked.add(id)
+  }
+  return all
 }
 
 // pnpm 11's filterLockfileByImportersAndEngine, breadth first by edge kind:
@@ -206,19 +211,25 @@ export function skippedSnapshots(lockfile, context) {
   const walked = new Set(ids)
   const picked = new Set()
   const skipped = new Set()
-  const visit = (keys, parentInstallable) => {
-    for (const key of keys) {
-      if (picked.has(key)) continue
-      const pkg = lockfile.packages[key]
-      const installable = parentInstallable && check(key, pkg) !== false
-      if (!installable && pkg.optional) skipped.add(key)
-      picked.add(key)
-      const { keys: next, projects } = split(Object.values({ ...pkg.dependencies, ...pkg.optionalDependencies }), lockfile)
-      for (const id of projects) walked.add(id)
-      visit([...next, ...projectKeys(lockfile, projects, walked)], installable)
+  // Depth first, as pnpm recurses, on a stack of its own: a chain of
+  // snapshots as long as a lockfile can make runs out of none.
+  const stack = [{ keys: projectKeys(lockfile, ids, walked).values(), installable: true }]
+  while (stack.length > 0) {
+    const { keys, installable: parentInstallable } = stack.at(-1)
+    const { value: key, done } = keys.next()
+    if (done) {
+      stack.pop()
+      continue
     }
+    if (picked.has(key)) continue
+    const pkg = lockfile.packages[key]
+    const installable = parentInstallable && check(key, pkg) !== false
+    if (!installable && pkg.optional) skipped.add(key)
+    picked.add(key)
+    const { keys: next, projects } = split(Object.values({ ...pkg.dependencies, ...pkg.optionalDependencies }), lockfile)
+    for (const id of projects) walked.add(id)
+    stack.push({ keys: [...next, ...projectKeys(lockfile, projects, walked)].values(), installable })
   }
-  visit(projectKeys(lockfile, ids, walked), true)
   // @pnpm/deps.graph-builder checks the rest again, each on its own.
   const incompatible = new Set()
   for (const key of picked) {

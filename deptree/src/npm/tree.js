@@ -7,7 +7,7 @@ import { dirname, relative } from '@preventive/vfs/path.js'
 import { satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote } from '../error.js'
-import { checkNoModules, isInside, mount, writeFiles, writeLink } from '../mount.js'
+import { checkNoModules, isInside, makeDirs, mount, writeFiles, writeLink } from '../mount.js'
 import { fixBins } from './bins.js'
 import { skippedOf } from './compat.js'
 import { graphOf } from './graph.js'
@@ -82,7 +82,6 @@ function writeTree({ lockfile, kept, fetched, changed, residue }) {
   for (const node of kept) {
     const { files, dirs } = fetched.get(node)
     const fixed = changed.get(node.location)
-    vfs.mkdir(`/${node.location}`, { recursive: true })
     writeFiles(vfs, node.location, { dirs, files: fixed === undefined ? files : new Map([...files].map(([path, file]) => [path, fixed.get(path) ?? file])) }, stats)
   }
   // checkLinks has each a workspace's, in the project.
@@ -91,7 +90,7 @@ function writeTree({ lockfile, kept, fetched, changed, residue }) {
     writeLink(vfs, location, relative(`/${dirname(location)}`, `/${target}`))
     stats.links++
   }
-  for (const dir of residue) vfs.mkdir(`/${dir}`, { recursive: true })
+  for (const dir of residue) makeDirs(vfs, dir)
   return { vfs, stats }
 }
 

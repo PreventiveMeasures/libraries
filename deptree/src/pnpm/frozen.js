@@ -5,6 +5,7 @@ import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
+import { own } from '../manifest.js'
 import { catalogEntry, catalogOf } from './overrides.js'
 
 const GIT_HOSTS = new Set(['github.com', 'gitlab.com', 'bitbucket.org'])
@@ -114,7 +115,7 @@ function pathOf(spec) {
 export function checkLinkTargets({ id, manifest, importer }, where) {
   for (const kind of KINDS) {
     for (const [alias, target] of Object.entries(importer[kind])) {
-      const spec = manifest[kind]?.[alias]
+      const spec = own(manifest[kind], alias)
       if (!spec || !target.startsWith('link:') || importer.specifiers[alias].startsWith('file:')) continue
       const path = pathOf(spec)
       const linkedTo = target.slice('link:'.length)
@@ -150,7 +151,7 @@ export function checkLinkedPackages({ manifest, importer, index: { projects, byN
     const wanted = manifest[kind]
     if (wanted == null) continue
     for (const [alias, target] of Object.entries(importer[kind])) {
-      const spec = wanted[alias]
+      const spec = own(wanted, alias)
       if (!spec) continue
       const here = `${where}.${kind}.${alias}`
       const workspaceRange = spec.startsWith('workspace:') && !isWorkspacePath(spec.slice('workspace:'.length))

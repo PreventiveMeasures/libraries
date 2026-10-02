@@ -7,7 +7,7 @@
 
 import { isExactVersion, satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, difference, quote } from '../error.js'
-import { readManifest } from '../manifest.js'
+import { own, readManifest } from '../manifest.js'
 import { createMatcher } from '../matcher.js'
 import { KINDS, checkCatalogResolutions, checkLinkTargets, checkLinkedPackages, indexProjects, resolvedOf, sameSpecifier } from './frozen.js'
 import { checkProject } from './install.js'
@@ -55,7 +55,7 @@ function checkKind(importer, kinds, kind, unresolved, major) {
   const locked = importer[kind]
   const wanted = kind === 'devDependencies' ? kinds[kind] : omit(kinds[kind], unresolved)
   const names = Object.keys(wanted).filter((name) => kind === 'optionalDependencies'
-    || (!kinds.optionalDependencies[name] && (kind === 'dependencies' || !kinds.dependencies[name])))
+    || (!own(kinds.optionalDependencies, name) && (kind === 'dependencies' || !own(kinds.dependencies, name))))
   const unlinked = Object.values(locked).filter((target) => !target.includes('link:') && !target.includes('file:')).length
   if (names.length !== Object.keys(locked).length && names.length !== unlinked) return `${kind} in the lockfile do not match the same field in package.json`
   for (const name of names) {

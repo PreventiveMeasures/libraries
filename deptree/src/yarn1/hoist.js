@@ -7,6 +7,13 @@
 // yarn compares cache paths, and references where it compares manifests;
 // and in reachedBut, its own.
 
+import { DeptreeError, quote } from '../error.js'
+
+// yarn's prepass recurses down every chain of dependencies, as this one
+// does, keeping each one's ancestry: a chain deeper than this is refused
+// before it runs out of stack, or of memory.
+const DEEPEST = 1000
+
 const sortAlpha = (a, b) => (a < b ? -1 : a > b ? 1 : 0)
 
 const implode = (parts) => parts.join('#')
@@ -193,6 +200,7 @@ export class Hoister {
     const add = (pattern, ancestry, ancestryPatterns) => {
       const ref = this.resolved(pattern)
       if (ancestry.includes(ref)) return
+      if (ancestry.length === DEEPEST) throw new DeptreeError(`a chain of more than ${DEEPEST} dependencies is not supported`, quote(pattern))
       let visitedPattern = visited.get(pattern)
       if (visitedPattern) {
         for (const visit of visitedPattern) visitAdd(visit.ref, visit.ancestry, visit.pattern)

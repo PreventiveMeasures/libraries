@@ -3,7 +3,7 @@
 // takes a leading dot.
 
 import { DeptreeError, quote } from './error.js'
-import { escape, reach } from './matcher.js'
+import { reach, wildcard } from './matcher.js'
 import { typeOf } from './project.js'
 
 const compiled = new Map()
@@ -11,8 +11,9 @@ const compiled = new Map()
 function compile(glob) {
   return glob.split('/').map((segment) => {
     if (segment === '**') return segment
-    const dot = segment.startsWith('.') || !/[*?]/u.test(segment) ? '' : '(?!\\.)'
-    return new RegExp(`^${dot}${segment.split(/([*?])/u).map((part) => (part === '*' ? '[^/]*' : part === '?' ? '[^/]' : escape(part))).join('')}$`, 'u')
+    const dot = !segment.startsWith('.') && /[*?]/u.test(segment)
+    const matches = wildcard(segment, { one: true })
+    return { test: (name) => !(dot && name.startsWith('.')) && matches(name) }
   })
 }
 

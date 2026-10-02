@@ -6,13 +6,17 @@
 
 import { compareNames, normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
-import { escape, reach } from '../matcher.js'
+import { reach, wildcard } from '../matcher.js'
 import { typeOf } from '../project.js'
 
 const UNSUPPORTED = /[?[\]{}()\\]/u
 
 // `*` takes line terminators too, and a leading dot only with `dot`.
-const NAME = (name, dot) => new RegExp(`^${name.startsWith('*') && !dot ? '(?!\\.)' : ''}${name.split('*').map(escape).join('[^/]*')}$`, 'u')
+function compileName(name, dot) {
+  const matches = wildcard(name)
+  const undotted = name.startsWith('*') && !dot
+  return { test: (entry) => !(undotted && entry.startsWith('.')) && matches(entry) }
+}
 
 // A glob normalized as tinyglobby does, as `**` or a pattern per name.
 function compile(glob, where, dot) {
@@ -22,7 +26,7 @@ function compile(glob, where, dot) {
   if (glob === '' || glob.startsWith('/') || UNSUPPORTED.test(glob) || glob.includes('!') || names.some((name) => name !== '**' && name.includes('**'))) {
     throw new DeptreeError(`${quote(glob)} is not supported: only \`*\`, \`**\` as a whole name and a leading \`!\` are`, where)
   }
-  return { names: names.map((name) => (name === '**' ? name : NAME(name, dot))), dot, raw: names }
+  return { names: names.map((name) => (name === '**' ? name : compileName(name, dot))), dot, raw: names }
 }
 
 const takes = (glob, names) => reach(glob.names, names, glob.dot).at(-1)
@@ -148,7 +152,7 @@ function byNames(a, b) {
 // tinyglobby reads them, takes no name with a leading dot; as fast-glob
 // reads them for a manifest, any (underLeftOut).
 const LEFT_OUT = ['node_modules', 'bower_components']
-const IGNORED = LEFT_OUT.map((name) => ({ names: ['**', NAME(name, false), '**'], dot: false }))
+const IGNORED = LEFT_OUT.map((name) => ({ names: ['**', compileName(name, false), '**'], dot: false }))
 const ignored = (names) => IGNORED.some((glob) => takes(glob, names))
 
 const underLeftOut = (names) => names.some((name) => LEFT_OUT.includes(name))
