@@ -373,7 +373,7 @@ describe('external sources', () => {
     for (const [type, option, value] of [['hg', 'branch', '--config=x'], ['hg', 'revision', '-r'], ['hg', 'tag', 'v1 --config=x'], ['svn', 'folder', '-x'], ['svn', 'tag', '--depth=empty']]) {
       refuses(external({ [type]: GIT, [option]: `'${value}'` }, `\`${GIT}\``, { [type]: GIT, [option]: `'${value}'` }), `${JSON.stringify(value)} starts with "-", or has " --" in it, which ${type} would read as an option`, `${at}[":${option}"]`)
     }
-    assert.equal(parsePodfileLock(external({ hg: GIT, branch: 'a-b' }, `\`${GIT}\``, { hg: GIT, revision: 'x - y' })).roots.Git.checkout.revision, 'x - y')
+    assert.equal(parsePodfileLock(external({ hg: GIT, branch: 'x - y' }, `\`${GIT}\``, { hg: GIT, revision: COMMIT })).roots.Git.external.branch, 'x - y')
   })
 
   it('refuses a spec repo git reads otherwise than as one', () => {
@@ -399,6 +399,9 @@ describe('external sources', () => {
     refuses(external({ http: 'ftp://example.com/Git.zip' }, '`ftp://example.com/Git.zip`'), '"ftp://example.com/Git.zip" is not an http(s) URL', `${at}[":http"]`)
     refuses(external({ git: GIT, commit: 'main' }, `\`${GIT}\`, commit \`main\``, { git: GIT, commit: 'main' }), '"main" is not a commit\'s hash, and locks no commit', `${at}[":commit"]`)
     refuses(external({ git: GIT, commit: 'abc' }, `\`${GIT}\`, commit \`abc\``, { git: GIT, commit: 'abc' }), '"abc" is not a commit\'s hash, and locks no commit', `${at}[":commit"]`)
+    refuses(external({ hg: GIT, revision: 'tip' }, `\`${GIT}\``, { hg: GIT, revision: 'tip' }), '"tip" is not a changeset\'s hash, and locks no revision', `${at}[":revision"]`)
+    refuses(external({ svn: GIT, revision: 'HEAD' }, `\`${GIT}\``, { svn: GIT, revision: 'HEAD' }), '"HEAD" is not a revision\'s number, and locks no revision', `${at}[":revision"]`)
+    assert.equal(parsePodfileLock(external({ hg: GIT, revision: 'ABC123def456' }, `\`${GIT}\``, { hg: GIT, revision: 'ABC123def456' })).roots.Git.checkout.revision, 'ABC123def456')
     refuses(external({ git: GIT, branch: 'a..b' }, `\`${GIT}\`, branch \`a..b\``, { git: GIT, commit: COMMIT }), '"a..b" is not a branch or tag name git takes', `${at}[":branch"]`)
     refuses(external({ git: GIT, submodules: "'true'" }, `\`${GIT}\``, { git: GIT, commit: COMMIT }), 'expected a boolean, found the string "true"', `${at}[":submodules"]`)
     refuses(external({ http: 'https://example.com/a.rar', type: 'rar' }, '`x`'), '"rar" is not a type of file CocoaPods extracts', `${at}[":type"]`)
@@ -433,6 +436,12 @@ describe('checkout options', () => {
     refuses(git({ git: GIT, commit: COMMIT }, { git: GIT, commit: 'abc1234' }), 'another :commit than EXTERNAL SOURCES has', at)
     refuses(git({ git: GIT, commit: COMMIT }, { git: GIT, submodules: 'true' }), 'no :submodules, which CocoaPods keeps of this download', at)
     refuses(git({ git: GIT, branch: 'main' }, { git: GIT, branch: 'main' }), 'no :commit, which CocoaPods keeps of this download', at)
+    // What a download came to, CocoaPods keeps as git, hg and svn write it.
+    refuses(git({ git: GIT, commit: 'abc1234' }, { git: GIT }), '"abc1234" is not the full commit hash CocoaPods keeps, as git rev-parse writes it', at)
+    refuses(git({ git: GIT, commit: COMMIT.toUpperCase() }, { git: GIT }), `"${COMMIT.toUpperCase()}" is not the full commit hash CocoaPods keeps, as git rev-parse writes it`, at)
+    assert.equal(parsePodfileLock(git({ git: GIT, commit: 'a'.repeat(64) }, { git: GIT })).roots.Git.checkout.commit, 'a'.repeat(64))
+    refuses(external({ hg: GIT }, `\`${GIT}\``, { hg: GIT, revision: 'abc123def456' }), '"abc123def456" is not the full changeset hash CocoaPods keeps, as hg id writes it', at)
+    refuses(external({ svn: GIT }, `\`${GIT}\``, { svn: GIT, revision: 'HEAD' }), '"HEAD" is not a revision\'s number, and locks no revision', `${at}[":revision"]`)
     refuses(git({ git: GIT, commit: COMMIT, tag: 'v1' }, { git: GIT, commit: 'abc1234', tag: 'v1' }), 'another :commit than EXTERNAL SOURCES has', at)
     const zip = { http: 'https://example.com/Git.zip' }
     refuses(external(zip, '`{:http=>"https://example.com/Git.zip"}`', { ...zip, type: 'zip' }), 'other than the options EXTERNAL SOURCES has, which CocoaPods keeps as they are of a file', at)

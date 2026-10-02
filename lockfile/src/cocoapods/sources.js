@@ -7,7 +7,7 @@
 // and passes over, and it is handed back as `options`.
 
 import { LockfileError, quote } from '../error.js'
-import { checkRefName, checkRepo, isHexSha1, isHexSha256, isHttpUrl } from '../names.js'
+import { checkRefName, checkRepo, isCommit, isHexSha1, isHexSha256, isHttpUrl } from '../names.js'
 import { checker, entriesOf, itemsOf, scalarOf, textOf } from './shape.js'
 
 // cocoapods-downloader's strategies, each with the options it takes, and
@@ -30,17 +30,42 @@ const FILE_TYPES = new Set(['zip', 'tgz', 'tar', 'tbz', 'txz', 'dmg'])
 // A sha1 in lowercase hex: a file's, a podspec's or the Podfile's.
 export const readSha1 = checker(isHexSha1, 'a sha1 in lowercase hex')
 
-// The options of a string held to a form: a file's digests, in lowercase
-// hex, and its `:type`; and a git commit's hash, in hex of either case,
-// which git takes short too. Git checks out any revision, and CocoaPods
-// keeps it as it is, but a name, `main` or `v1~2`, can come to another
-// commit at each install: it is refused, as it locks nothing.
+// The options of a file held to a form: its digests, in lowercase hex,
+// and its `:type`.
 const FORMS = {
   __proto__: null,
   sha1: readSha1,
   sha256: checker(isHexSha256, 'a sha256 in lowercase hex'),
   type: checker((type) => FILE_TYPES.has(type), 'a type of file CocoaPods extracts'),
-  commit: checker((commit) => /^[\da-f]{4,64}$/iu.test(commit), 'a commit\'s hash, and locks no commit'),
+}
+
+// The option that pins a download to one revision, of each strategy with
+// one. Given, it is a hash, in hex of either case, which git and hg take
+// short too, or of svn a number: each checks out a name, `main`, `tip` or
+// `HEAD`, as well, and CocoaPods keeps it as it is, but it can come to
+// another revision at each install, and is refused, as it locks nothing.
+// Of what a download came to, CocoaPods keeps what `git rev-parse HEAD`,
+// `hg --debug id -i` or `svn export` write: `kept`, as `as` says.
+export const PINS = {
+  __proto__: null,
+  git: {
+    option: 'commit',
+    given: checker((commit) => /^[\da-f]{4,64}$/iu.test(commit), 'a commit\'s hash, and locks no commit'),
+    kept: isCommit,
+    as: 'the full commit hash CocoaPods keeps, as git rev-parse writes it',
+  },
+  hg: {
+    option: 'revision',
+    given: checker((revision) => /^[\da-f]{4,40}$/iu.test(revision), 'a changeset\'s hash, and locks no revision'),
+    kept: (revision) => /^[\da-f]{40}$/u.test(revision),
+    as: 'the full changeset hash CocoaPods keeps, as hg id writes it',
+  },
+  svn: {
+    option: 'revision',
+    given: checker((revision) => /^\d+$/u.test(revision), 'a revision\'s number, and locks no revision'),
+    kept: (revision) => /^\d+$/u.test(revision),
+    as: 'the revision number CocoaPods keeps, as svn export writes it',
+  },
 }
 
 // The URL of a strategy that takes one of its own form.
@@ -75,7 +100,7 @@ function readOption(strategy, option, node, where) {
   if (strategy !== 'git' && ARGUMENTS.has(option) && (value.startsWith('-') || value.includes(' --'))) {
     throw new LockfileError(`${quote(value)} starts with "-", or has " --" in it, which ${strategy} would read as an option`, where)
   }
-  return value
+  return option === PINS[strategy]?.option ? PINS[strategy].given(node, where) : value
 }
 
 const readUrl = (strategy, node, where) => checkRepo((URLS[strategy] ?? textOf)(node, where), where)

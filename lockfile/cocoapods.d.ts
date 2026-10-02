@@ -108,7 +108,9 @@ export interface PodRoot {
   // other, by `external`'s options where they name what to download, a
   // commit, a revision or a tag, and else by the commit or the revision
   // they came to, with git's `:submodules` where they ask for them; a git
-  // branch is resolved to a commit first, where git finds it.
+  // branch is resolved to a commit first, where git finds it. What they
+  // came to is as `git rev-parse HEAD`, `hg --debug id -i` and `svn
+  // export` write it: a full hash in lowercase hex, or a number.
   checkout: PodDownload | undefined
 }
 
@@ -122,10 +124,11 @@ export type PodExternalSource =
   | PodDownload
 
 // By one of cocoapods-downloader's strategies, an option left out
-// undefined. A commit is a hash, in hex of either case, and may be short:
-// a revision of another form, `main` or `v1~2`, which git checks out and
-// CocoaPods keeps as it is, is refused, as it locks no commit. A sha1 or a
-// sha256 is the file's, in hex; `fileType` is RemoteFile's `:type`.
+// undefined. A git commit or an hg revision is a hash, in hex of either
+// case, and may be short, and an svn revision a number: one of another
+// form, `main`, `v1~2`, `tip` or `HEAD`, which each checks out and
+// CocoaPods keeps as it is, is refused, as it locks no revision. A sha1
+// or a sha256 is the file's, in hex; `fileType` is RemoteFile's `:type`.
 export type PodDownload =
   | { type: 'git', url: string, commit: string | undefined, tag: string | undefined, branch: string | undefined, submodules: boolean | undefined }
   | { type: 'hg', url: string, revision: string | undefined, tag: string | undefined, branch: string | undefined }
