@@ -265,7 +265,12 @@ describe('a package', () => {
     refuses(edit((doc) => (doc.packages[0].source.type = 'perforce')), '"https://example.com/a/app.git" is not a Perforce port, [tcp|ssl:][host:]port, as Composer takes one', at(0, '.source.url'))
     refuses(edit((doc) => (doc.packages[0].dist.shasum = 'A'.repeat(40))), `"${'A'.repeat(40)}" is not a sha1 in lowercase hex, which Composer compares the download's with`, at(0, '.dist.shasum'))
     refuses(edit((doc) => (doc.packages[0].dist.type = 'git')), 'expected path or one of zip, tar, gzip, xz, rar, phar, file, which Composer installs from', at(0, '.dist.type'))
-    refuses(edit((doc) => (doc.packages[2].dist.url = 'https://example.com/c')), '"https://example.com/c" is not a relative path in normal form', at(2, '.dist.url'))
+    refuses(edit((doc) => (doc.packages[2].dist.url = 'https://example.com/c')), '"https://example.com/c" is a URL, of https:, and not a path', at(2, '.dist.url'))
+    // Of a scheme, which FileDownloader opens by PHP's stream wrappers.
+    for (const [url, scheme] of [['data:text/plain,hello', 'data:'], ['phar://x.phar/a.zip', 'phar:'], ['ftp://example.com/a.zip', 'ftp:']]) {
+      refuses(edit((doc) => (doc.packages[0].dist.url = url)), `${JSON.stringify(url)} is a URL, of ${scheme}, and not a path`, at(0, '.dist.url'))
+    }
+    assert.equal(parseComposerLock(edit((doc) => (doc.packages[0].dist.url = './data:x/a.zip'))).packages['a/app'].dist.url, './data:x/a.zip')
     // HttpDownloader takes a scheme in any case.
     const upper = parseComposerLock(edit((doc) => {
       doc.packages[0].dist.url = 'HTTPS://example.com/a/app.zip'

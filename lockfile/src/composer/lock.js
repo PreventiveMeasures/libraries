@@ -143,8 +143,9 @@ const ALIAS = ['package', 'version', 'alias', 'alias_normalized']
 // package locked, the root's in require and in require-dev alike, by
 // package as strcmp sorts them. Its version is the root's, normalized,
 // which Locker::setLockData writes as 9999999-dev of dev-master, dev-trunk
-// and dev-default, and which a branch alias's may be: Locker's locked
-// repository makes each an alias of its package, whatever its version.
+// and dev-default; a branch alias's, or of `a || b as c` where the solver
+// took a, one the package is not at. Locker's locked repository makes each
+// an alias of its package, whatever its version.
 function readAliases(value, byName) {
   const where = 'aliases'
   if (!Array.isArray(value)) throw refuse('a sequence', value, where)

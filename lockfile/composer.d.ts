@@ -99,8 +99,9 @@ export interface ComposerRootAlias {
   // A key of `packages`.
   package: string
   // The version the root aliased, normalized, 9999999-dev of dev-master,
-  // dev-trunk and dev-default: the package's, or its branch alias's.
-  // Composer aliases the package so whatever it is.
+  // dev-trunk and dev-default: the package's, its branch alias's, or, of
+  // `dev-main || dev-other as 2.0`, one the package is not at. Composer
+  // aliases the package so whatever it is.
   version: string
   alias: string
   aliasNormalized: string

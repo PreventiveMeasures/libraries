@@ -268,7 +268,7 @@ describe('against Composer', { skip: !hasComposer() && 'no php, or no Composer p
     const DELIBERATE = [
       /^aliases\[0\]/u, /is not a version Composer locks a package at/u, /\.(?:source|dist)\.type: expected/u, /dist\.shasum: /u,
       /is not an http\(s\) URL/u, /fetches nothing/u, /starts with "-"/u, /mirrors/u, /an empty object, which Composer writes as/u,
-      /expected a sequence, found a mapping/u, /is not a URL \w+ fetches from/u, /an absolute path/u, /not a relative path in normal form/u,
+      /expected a sequence, found a mapping/u, /is not a URL \w+ fetches from/u, /an absolute path/u, /not a relative path in normal form/u, /is a URL, of [\d+.A-Za-z-]+:, and not a path/u,
       /not a branch or tag name git takes/u, /is not a package name/u, /\.suggest: expected a mapping, found a sequence/u,
     ]
 

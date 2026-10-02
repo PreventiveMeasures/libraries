@@ -143,6 +143,10 @@ function readLinks(value, where, version) {
 function checkPath(value, where) {
   const path = plain(value, where)
   if (path.startsWith('/') || /^[A-Za-z]:/u.test(path)) throw new LockfileError(`${quote(path)} is an absolute path, of the machine the lockfile was written on`, where)
+  // Not a path to Filesystem::isLocalPath, and opened by a stream wrapper
+  // of PHP's: `data:`, `phar:`, `ftp:`.
+  const scheme = /^[A-Za-z][\d+.A-Za-z-]*:/u.exec(path)
+  if (scheme !== null) throw new LockfileError(`${quote(path)} is a URL, of ${scheme[0]}, and not a path`, where)
   checkRelative(path.startsWith('./') ? path.slice(2) : path, where)
   return path
 }
