@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { parsePnpmLockfile } from '@preventive/lockfile/pnpm.js'
 import { createHook } from '../src/pnpm/hook.js'
-import * as OVERRIDES from '../src/pnpm/overrides.js'
+import { listOverrides } from '../src/pnpm/overrides.js'
 import { checkProjects, readManifests } from '../src/pnpm/projects.js'
 import { HOST } from './registry.js'
 
@@ -41,6 +41,8 @@ snapshots:
 
 const MANIFEST = { dependencies: { q: '^1.0.0', r: 'npm:q@1.2.0' }, devDependencies: { l: 'link:../l' } }
 const SETTINGS = { autoInstallPeers: true, engineStrict: false }
+// LOCKFILE, to change: a copy, its importers keyed as the reader keys them.
+const cloned = () => { const lockfile = structuredClone(LOCKFILE); Object.setPrototypeOf(lockfile.importers, null); return lockfile }
 const check = (manifest, { lockfile = LOCKFILE, hook = createHook({ overrides: [], ignored: [] }), host = { ...HOST, major: 10 }, ...settings } = {}) => {
   checkProjects(lockfile, new Map([['.', manifest]]), { hook, host, settings: { ...SETTINGS, ...settings } })
 }
@@ -69,7 +71,6 @@ describe('checkProjects', () => {
   // before holding it to its importer: an override of a direct dependency
   // is what the importer records.
   it('holds an overridden or ignored direct dependency to the importer as pnpm reads it', () => {
-    const { listOverrides } = OVERRIDES
     const hook = createHook({ overrides: listOverrides({ q: '^1.0.0', z: '-' }, {}), ignored: ['o'] })
     check({ ...MANIFEST, dependencies: { ...MANIFEST.dependencies, q: '^1.1.0', z: '1' }, optionalDependencies: { o: '1' } }, { hook })
     assert.throws(() => check({ ...MANIFEST, dependencies: { ...MANIFEST.dependencies, z: '1' } }), /"z" is nothing in the lockfile and "1" in package\.json/u)
@@ -103,15 +104,13 @@ describe('checkProjects', () => {
   // pnpm 10 links what the lockfile says, but a lockfile pnpm writes links
   // a directory the package.json names there.
   it('refuses a link to another directory than the package.json names', () => {
-    const lockfile = structuredClone(LOCKFILE)
-    Object.setPrototypeOf(lockfile.importers, null)
+    const lockfile = cloned()
     lockfile.importers['.'].devDependencies.l = 'link:../m'
     assert.throws(() => check(MANIFEST, { lockfile }), /^DeptreeError: manifests\["\."\]: the lockfile is not up to date with this package\.json, which a frozen install refuses: l is linked to "\.\.\/m", which is not where "link:\.\.\/l" leads$/u)
   })
 
   it('refuses a version the importer resolved outside its range', () => {
-    const lockfile = structuredClone(LOCKFILE)
-    Object.setPrototypeOf(lockfile.importers, null)
+    const lockfile = cloned()
     lockfile.importers['.'].specifiers.q = '^2.0.0'
     assert.throws(() => check({ ...MANIFEST, dependencies: { ...MANIFEST.dependencies, q: '^2.0.0' } }, { lockfile }), /dependencies\.q resolved to "1\.2\.0", which is not in "\^2\.0\.0"/u)
   })
@@ -129,8 +128,7 @@ describe('checkProjects for pnpm 11', () => {
   })
 
   it('takes git specifiers of one repository and commit alike', () => {
-    const lockfile = structuredClone(LOCKFILE)
-    Object.setPrototypeOf(lockfile.importers, null)
+    const lockfile = cloned()
     lockfile.importers['.'].specifiers.r = 'github:o/r#v1'
     const manifest = (r) => ({ ...MANIFEST, dependencies: { ...MANIFEST.dependencies, r } })
     for (const same of ['o/r#v1', 'git+https://github.com/o/r.git#v1', 'https://github.com/o/r#v1', 'git://GitHub.com/o/r.git#v1']) check11(manifest(same), { lockfile })
@@ -162,8 +160,7 @@ describe('checkProjects for pnpm 11', () => {
   })
 
   it('holds the importer\'s linkDirectory to publishConfig', () => {
-    const lockfile = structuredClone(LOCKFILE)
-    Object.setPrototypeOf(lockfile.importers, null)
+    const lockfile = cloned()
     lockfile.importers['.'].publishDirectory = 'dist'
     const manifest = (linkDirectory) => ({ ...MANIFEST, publishConfig: { directory: 'dist', linkDirectory } })
     check11(manifest(undefined), { lockfile })
@@ -178,24 +175,22 @@ describe('checkProjects for pnpm 11', () => {
 describe('checkProjects for pnpm 12', () => {
   const HOST_12 = { ...HOST, pnpm: '12.8.1', major: 12 }
   const check12 = (manifest, options) => check(manifest, { host: HOST_12, ...options })
+  // The root's package.json, and `project`'s at packages/x, which the
+  // lockfile has no importer for.
+  const run = (project, settings = {}) => {
+    const lockfile = cloned()
+    const manifests = readManifests({ '.': JSON.stringify(MANIFEST), 'packages/x': JSON.stringify(project) }, lockfile)
+    checkProjects(lockfile, manifests, { hook: createHook({ overrides: [], ignored: [] }), host: HOST_12, settings: { ...SETTINGS, ...settings } })
+  }
 
   it('holds the root alone to its engines.node, with engineStrict alone', () => {
     check12({ ...MANIFEST, engines: { pnpm: '>=13', node: '<10' } })
     assert.throws(() => check12({ ...MANIFEST, os: ['win32'], engines: { node: '<10' } }, { engineStrict: true }), /^DeptreeError: manifests\["\."\]: its engines\.node, "<10", does not take Node 24\.15\.0, which engineStrict refuses$/u)
     assert.throws(() => check12({ ...MANIFEST, engines: { node: 'node >= 0.8' } }, { engineStrict: true }), /pnpm 12 reads otherwise than npm's semver/u)
-    const lockfile = structuredClone(LOCKFILE)
-    Object.setPrototypeOf(lockfile.importers, null)
-    const manifests = readManifests({ '.': JSON.stringify(MANIFEST), 'packages/x': JSON.stringify({ engines: { node: '<10', pnpm: '>=13' } }) }, lockfile)
-    checkProjects(lockfile, manifests, { hook: createHook({ overrides: [], ignored: [] }), host: HOST_12, settings: { ...SETTINGS, engineStrict: true } })
+    run({ engines: { node: '<10', pnpm: '>=13' } }, { engineStrict: true })
   })
 
   it('takes a project the lockfile has no importer for where it has no dependencies, peers aside', () => {
-    const run = (project, settings = {}) => {
-      const lockfile = structuredClone(LOCKFILE)
-      Object.setPrototypeOf(lockfile.importers, null)
-      const manifests = readManifests({ '.': JSON.stringify(MANIFEST), 'packages/x': JSON.stringify(project) }, lockfile)
-      checkProjects(lockfile, manifests, { hook: createHook({ overrides: [], ignored: [] }), host: HOST_12, settings: { ...SETTINGS, ...settings } })
-    }
     run({ peerDependencies: { q: '^1.0.0' } })
     run({ optionalDependencies: { gone: '1.0.0' } }, { ignoredOptionalDependencies: ['gone'] })
     for (const kind of ['dependencies', 'devDependencies', 'optionalDependencies']) {

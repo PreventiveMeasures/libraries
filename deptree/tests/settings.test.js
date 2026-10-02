@@ -190,8 +190,7 @@ describe('readSettings', () => {
 
   it('reads the root package.json\'s pnpm field, over pnpm-workspace.yaml', () => {
     const manifest = { pnpm: { supportedArchitectures: { os: ['current', 'darwin'] }, ignoredOptionalDependencies: ['x'] } }
-    assert.deepEqual(read({ manifest }).supportedArchitectures, { os: ['current', 'darwin'] })
-    assert.deepEqual(read({ manifest }).ignoredOptionalDependencies, ['x'])
+    assert.deepEqual(read({ manifest }), { ...DEFAULTS, supportedArchitectures: { os: ['current', 'darwin'] }, ignoredOptionalDependencies: ['x'] })
     assert.deepEqual(read({ manifest, workspace: 'supportedArchitectures:\n  os: [linux]\n' }).supportedArchitectures.os, ['current', 'darwin'])
     assert.deepEqual(read({ workspace: 'supportedArchitectures:\n  os: [linux]\n' }).supportedArchitectures.os, ['linux'])
     // A hoist pattern alone is a list of it, as pnpm reads one.

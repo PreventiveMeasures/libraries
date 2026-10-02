@@ -45,24 +45,36 @@ export function stubRegistry(tarballs) {
   return calls
 }
 
+// globalThis.fetch as stubbed, each answer `ms` late but those `now`
+// answers at once; what is returned counts the fetches still coming, and
+// the most there were at once.
+export function slowed(ms, now = () => undefined) {
+  const served = globalThis.fetch
+  const count = { open: 0, most: 0 }
+  globalThis.fetch = async (input) => {
+    const answer = now(String(input))
+    if (answer !== undefined) return answer
+    count.most = Math.max(count.most, ++count.open)
+    await new Promise((resolve) => {
+      setTimeout(resolve, ms)
+    })
+    count.open--
+    return await served(input)
+  }
+  return count
+}
+
 // The registry as stubRegistry's, but for the tarball of `name` and
 // `version`, which is not found at once, while every other comes late;
 // what is returned tells how many are still coming.
 export function stubFailingRegistry(tarballs, name, version) {
   stubRegistry(tarballs)
-  const served = globalThis.fetch
-  let open = 0
-  globalThis.fetch = async (input) => {
-    if (String(input) === url(name, version)) return Response.json({ error: 'Not found' }, { status: 404 })
-    open++
-    await new Promise((resolve) => {
-      setTimeout(resolve, 100)
-    })
-    open--
-    return await served(input)
-  }
-  return () => open
+  const count = slowed(100, (input) => (input === url(name, version) ? Response.json({ error: 'Not found' }, { status: 404 }) : undefined))
+  return () => count.open
 }
+
+// A Vfs's paths, each with its type, in the order it walks them.
+export const paths = (vfs) => [...vfs.walk('/')].map(({ path, type }) => `${path} ${type}`)
 
 export const HOST = Object.freeze({ pnpm: '10.33.4', node: '24.15.0', os: 'linux', cpu: 'x64', libc: 'glibc' })
 

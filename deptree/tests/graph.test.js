@@ -28,25 +28,33 @@ function lockfile({ root, graph, meta = {}, snapshotMeta = {} }) {
 
 const settings = { hoistPattern: ['*'], publicHoistPattern: [] }
 const on10 = { host: HOST, settings: {} }
+// m cannot run here; k can, and is reached through m before n; all three
+// are optional.
+const THROUGH_M = {
+  graph: { 'k@1.0.0': {}, 'm@1.0.0': { k: '1.0.0' }, 'n@1.0.0': { k: '1.0.0' } },
+  meta: { 'm@1.0.0': '    os: [darwin]\n' },
+  snapshotMeta: { 'k@1.0.0': '    optional: true\n', 'm@1.0.0': '    optional: true\n', 'n@1.0.0': '    optional: true\n' },
+}
+// The links hoisting makes into .pnpm/node_modules, as alias: directory.
+const hoisted = async (lock, { skipped = new Set(), major } = {}) => {
+  const { nodes, direct, hoisting } = await buildGraph(lock, skipped, 120, major)
+  const links = hoist(new Map([...nodes.values()].map((node) => [node.dir, node])), direct, settings, new Map(), major, hoisting)
+  return Object.fromEntries([...links].map(([path, dir]) => [path.slice('node_modules/.pnpm/node_modules/'.length), dir.split('/')[2]]))
+}
 
 describe('skippedSnapshots', () => {
-  // m cannot run here; k can, and is reached through m before n.
-  const graph = { 'k@1.0.0': {}, 'm@1.0.0': { k: '1.0.0' }, 'n@1.0.0': { k: '1.0.0' } }
-  const meta = { 'm@1.0.0': '    os: [darwin]\n' }
-  const optional = { 'k@1.0.0': '    optional: true\n', 'm@1.0.0': '    optional: true\n', 'n@1.0.0': '    optional: true\n' }
-
   it('leaves out an optional package first reached through one left out, as pnpm does', () => {
-    const lock = lockfile({ root: { optionalDependencies: ['m', 'n'] }, graph, meta, snapshotMeta: optional })
+    const lock = lockfile({ root: { optionalDependencies: ['m', 'n'] }, ...THROUGH_M })
     assert.deepEqual([...skippedSnapshots(lock, on10).skipped], ['m@1.0.0', 'k@1.0.0'])
   })
 
   it('keeps it where it is first reached through one kept', () => {
-    const lock = lockfile({ root: { dependencies: ['n'], optionalDependencies: ['m'] }, graph, meta, snapshotMeta: optional })
+    const lock = lockfile({ root: { dependencies: ['n'], optionalDependencies: ['m'] }, ...THROUGH_M })
     assert.deepEqual([...skippedSnapshots(lock, on10).skipped], ['m@1.0.0'])
   })
 
   it('installs a package that is not optional, whatever the host', () => {
-    const lock = lockfile({ root: { dependencies: ['m'] }, graph: { 'm@1.0.0': {} }, meta })
+    const lock = lockfile({ root: { dependencies: ['m'] }, graph: { 'm@1.0.0': {} }, meta: THROUGH_M.meta })
     assert.deepEqual([...skippedSnapshots(lock, on10).skipped], [])
     const strict = { host: HOST, settings: { engineStrict: true } }
     assert.throws(() => skippedSnapshots(lock, strict), /^DeptreeError: "m@1\.0\.0": the host does not take its os, cpu or libc/u)
@@ -65,11 +73,9 @@ describe('skippedSnapshots', () => {
 describe('skippedSnapshots for pnpm 11', () => {
   const on11 = { host: { ...HOST, major: 11 }, settings: {} }
   const skipped11 = (lock, on = on11) => [...skippedSnapshots(lock, on).skipped]
-  const graph = { 'k@1.0.0': {}, 'm@1.0.0': { k: '1.0.0' }, 'n@1.0.0': { k: '1.0.0' } }
-  const optional = { 'k@1.0.0': '    optional: true\n', 'm@1.0.0': '    optional: true\n', 'n@1.0.0': '    optional: true\n' }
 
   it('keeps what an installed package reaches, whichever way is walked first', () => {
-    const lock = lockfile({ root: { optionalDependencies: ['m', 'n'] }, graph, meta: { 'm@1.0.0': '    os: [darwin]\n' }, snapshotMeta: optional })
+    const lock = lockfile({ root: { optionalDependencies: ['m', 'n'] }, ...THROUGH_M })
     assert.deepEqual(skipped11(lock), ['m@1.0.0'])
   })
 
@@ -141,12 +147,6 @@ describe('buildGraph', () => {
 })
 
 describe('hoist', () => {
-  const hoisted = async (lock) => {
-    const { nodes, direct } = await buildGraph(lock, new Set(), 120)
-    const links = hoist(new Map([...nodes.values()].map((node) => [node.dir, node])), direct, settings)
-    return Object.fromEntries([...links].map(([path, dir]) => [path.slice('node_modules/.pnpm/node_modules/'.length), dir.split('/')[2]]))
-  }
-
   it('takes an alias for the shallowest parent first, then by directory', async () => {
     const lock = lockfile({ root: { dependencies: ['a', 'b'] }, graph: { 'a@1.0.0': { q: '1.0.0' }, 'b@1.0.0': { r: '1.0.0' }, 'r@1.0.0': { q: '2.0.0' }, 'q@1.0.0': {}, 'q@2.0.0': {} } })
     assert.deepEqual(await hoisted(lock), { q: 'q@1.0.0', r: 'r@1.0.0' })
@@ -178,16 +178,12 @@ describe('hoist for pnpm 12', () => {
     'p@1.0.0': { foo: '1.0.0' }, 'q@1.0.0': { foo: '1.0.0-rc.1' }, 'foo@1.0.0': { x: '1.0.0' }, 'foo@1.0.0-rc.1': { x: '2.0.0' }, 'x@1.0.0': {}, 'x@2.0.0': {},
   }
   const lock = lockfile({ root: { dependencies: ['a', 'f', 'u', 'p', 'q'], optionalDependencies: ['opt', 's'] }, graph })
-  const hoisted = async (major) => {
-    const { nodes, direct, hoisting } = await buildGraph(lock, new Set(['opt@1.0.0', 's@1.0.0']), 120, major)
-    const links = hoist(new Map([...nodes.values()].map((node) => [node.dir, node])), direct, settings, new Map(), major, hoisting)
-    return Object.fromEntries([...links].map(([path, dir]) => [path.slice('node_modules/.pnpm/node_modules/'.length), dir.split('/')[2]]))
-  }
+  const skipped = new Set(['opt@1.0.0', 's@1.0.0'])
 
   it('hoists as pnpm 12 does, and pnpm 11 otherwise', async () => {
     const both = { z: 'z@1.0.0', g: 'g@1.0.0', foo: 'foo@1.0.0' }
-    assert.deepEqual(await hoisted(12), { ...both, d: 'd@1.0.0', x: 'x@1.0.0' })
-    assert.deepEqual(await hoisted(11), { ...both, d: 'd@2.0.0', x: 'x@2.0.0', s: 's@2.0.0' })
+    assert.deepEqual(await hoisted(lock, { skipped, major: 12 }), { ...both, d: 'd@1.0.0', x: 'x@1.0.0' })
+    assert.deepEqual(await hoisted(lock, { skipped, major: 11 }), { ...both, d: 'd@2.0.0', x: 'x@2.0.0', s: 's@2.0.0' })
   })
 
   it('refuses two projects whose names are one folded, both hoisted', async () => {

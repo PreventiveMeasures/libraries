@@ -4,7 +4,7 @@ import { afterEach, describe, it } from 'node:test'
 import { compress, decompress } from '@preventive/archive/compression.js'
 import { createVfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, buildYarn1Tree, findYarn1Workspaces } from '../yarn1.js'
-import { sri, stubFailingRegistry, stubRegistry, tarball } from './registry.js'
+import { paths, sri, stubFailingRegistry, stubRegistry, tarball } from './registry.js'
 
 // Small projects whose yarn.lock real yarn 1.22.22 wrote, and whose trees
 // it installed as the first tests expect, against a registry stubbed with
@@ -93,7 +93,6 @@ const ROOT = {
 const projectOf = (files) => createVfs(Object.fromEntries(Object.entries(files).map(([path, text]) => [path, typeof text === 'string' ? text : JSON.stringify(text)])))
 const project = (files = {}) => projectOf({ 'yarn.lock': LOCKFILE, 'package.json': ROOT, ...files })
 const build = (options = {}) => buildYarn1Tree({ project: project(), host: HOST, ...options })
-const text = (vfs, path) => new TextDecoder().decode(vfs.readFile(path))
 const mode = (vfs, path) => vfs.stat(path).mode
 
 describe('buildYarn1Tree', () => {
@@ -104,8 +103,8 @@ describe('buildYarn1Tree', () => {
     assert.deepEqual(vfs.readdir('/node_modules'), ['a', 'b', 'd', 'my-c', 'p'])
     assert.deepEqual(vfs.readdir('/node_modules/a'), ['bin', 'node_modules', 'package.json', 'x.sh'])
     assert.deepEqual(vfs.readdir('/node_modules/a/node_modules'), ['b'])
-    assert.equal(text(vfs, '/node_modules/a/node_modules/b/index.js'), 'b1')
-    assert.equal(text(vfs, '/node_modules/b/index.js'), 'b2')
+    assert.equal(vfs.readText('/node_modules/a/node_modules/b/index.js'), 'b1')
+    assert.equal(vfs.readText('/node_modules/b/index.js'), 'b2')
     assert.equal(mode(vfs, '/node_modules/a/bin/a.js'), 0o755)
     assert.equal(mode(vfs, '/node_modules/a/x.sh'), 0o744)
     assert.equal(mode(vfs, '/node_modules/my-c/cli.js'), 0o755)
@@ -182,7 +181,7 @@ describe('buildYarn1Tree', () => {
     const en = await built()
     assert.deepEqual(da.installed.map(({ path }) => path), ['node_modules/aab', 'node_modules/ab', 'node_modules/d'])
     assert.deepEqual(da.installed, en.installed)
-    assert.deepEqual([...da.vfs.walk('/')].map(({ path }) => path), [...en.vfs.walk('/')].map(({ path }) => path))
+    assert.deepEqual(paths(da.vfs), paths(en.vfs))
   })
 
   it('refuses once every fetch started has ended', async () => {
@@ -195,7 +194,7 @@ describe('buildYarn1Tree', () => {
     stubRegistry(TARBALLS)
     const read = await build()
     const given = await buildYarn1Tree({ lockfile: LOCKFILE, manifests: { '.': JSON.stringify(ROOT) }, project: projectOf({}), host: HOST })
-    assert.deepEqual([...given.vfs.walk('/')].map(({ path }) => path), [...read.vfs.walk('/')].map(({ path }) => path))
+    assert.deepEqual(paths(given.vfs), paths(read.vfs))
   })
 
   it('links a workspace, and installs what yarn hoists beneath it in its own node_modules', async () => {
@@ -207,10 +206,10 @@ describe('buildYarn1Tree', () => {
     assert.deepEqual(findYarn1Workspaces({ project: files }), ['.', 'packages/w'])
     const { vfs, stats } = await buildYarn1Tree({ project: files, host: HOST, vfs: files })
     assert.equal(vfs.readlink('/node_modules/w'), '../packages/w')
-    assert.equal(text(vfs, '/node_modules/w/index.js'), 'w')
-    assert.equal(text(vfs, '/packages/w/node_modules/b/index.js'), 'b1')
-    assert.equal(text(vfs, '/node_modules/a/node_modules/b/index.js'), 'b1')
-    assert.equal(text(vfs, '/node_modules/b/index.js'), 'b2')
+    assert.equal(vfs.readText('/node_modules/w/index.js'), 'w')
+    assert.equal(vfs.readText('/packages/w/node_modules/b/index.js'), 'b1')
+    assert.equal(vfs.readText('/node_modules/a/node_modules/b/index.js'), 'b1')
+    assert.equal(vfs.readText('/node_modules/b/index.js'), 'b2')
     assert.equal(stats.links, 1)
   })
 
@@ -242,15 +241,15 @@ describe('buildYarn1Tree', () => {
     stubRegistry(TARBALLS)
     const root = { name: 'root', version: '1.0.0', dependencies: { fix: '1.0.0' } }
     const { vfs } = await buildYarn1Tree({ project: projectOf({ 'yarn.lock': lockfile(entry('fix@1.0.0', 'fix@1.0.0')), 'package.json': root }), host: HOST })
-    assert.equal(text(vfs, '/node_modules/fix/lib/x.js'), 'x')
-    assert.equal(text(vfs, '/node_modules/fix/test/node_modules/fixture.js'), 'f')
+    assert.equal(vfs.readText('/node_modules/fix/lib/x.js'), 'x')
+    assert.equal(vfs.readText('/node_modules/fix/test/node_modules/fixture.js'), 'f')
   })
 
   it('reads a dependency listed twice as yarn does, in the first list, at the first range that is not "*"', async () => {
     stubRegistry(TARBALLS)
     const root = { ...ROOT, dependencies: { ...ROOT.dependencies, b: '*' }, devDependencies: { ...ROOT.devDependencies, b: '^2.0.0', '//': 'b is for tests' } }
     const { vfs } = await build({ project: project({ 'package.json': root }) })
-    assert.equal(text(vfs, '/node_modules/b/index.js'), 'b2')
+    assert.equal(vfs.readText('/node_modules/b/index.js'), 'b2')
   })
 
   // A tag never finds the package of its version resolved, so mac@latest
