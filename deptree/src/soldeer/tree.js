@@ -5,7 +5,7 @@ import { getZip } from '@preventive/upstream/soldeer.js'
 import { Vfs } from '@preventive/vfs'
 import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote } from '../error.js'
-import { checkCollisions, fold, mount, writeFiles } from '../mount.js'
+import { fold, mount, writeFiles } from '../mount.js'
 import { configOf } from './config.js'
 import { checkHost, inputsOf } from './inputs.js'
 import { extractZip } from './zip.js'
@@ -71,8 +71,6 @@ export async function buildSoldeerTree(options) {
     vfs.mkdir(`/dependencies/${folder}`)
     writeFiles(vfs, `dependencies/${folder}`, extracted.get(folder), stats)
   }
-  if (folded) checkCollisions(vfs)
   const installed = dependencies.map(({ name, version, checksum, folder }) => ({ path: `dependencies/${folder}`, name, version, checksum }))
-  if (into !== undefined) mount(vfs, into, folded, checkNoDependencies)
-  return { vfs: into ?? vfs, stats, installed }
+  return { vfs: mount(vfs, into, folded, checkNoDependencies), stats, installed }
 }

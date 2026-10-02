@@ -8,7 +8,7 @@ import { compareNames, dirname, relative } from '@preventive/vfs/path.js'
 import { clean, satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote } from '../error.js'
-import { checkCollisions, checkNoModules, mount, writeFiles } from '../mount.js'
+import { checkNoModules, mount, writeFiles } from '../mount.js'
 import { typeOf } from '../project.js'
 import { checkBinLinks } from './bins.js'
 import { incompatibility } from './compat.js'
@@ -175,7 +175,6 @@ export async function buildYarn1Tree(options) {
   const { placed, hoister } = layout({ resolved, manifestOf, asked, workspaces })
   const { vfs, links, locations, copies, files, bytes } = writeTree(placed, fetched)
   checkBinLinks({ placed, patterns: resolved.patterns, locations, realOf: (path) => realOf(links, path) })
-  if (folded) checkCollisions(vfs)
   const stats = {
     packages,
     skipped: [...manifestOf.keys()].filter((ref) => ref.incompatible).length,
@@ -185,6 +184,5 @@ export async function buildYarn1Tree(options) {
     links: links.size,
   }
   const installed = listInstalled(copies, fetched, asked, hoister)
-  if (into !== undefined) mount(vfs, into, folded)
-  return { vfs: into ?? vfs, stats, installed }
+  return { vfs: mount(vfs, into, folded), stats, installed }
 }

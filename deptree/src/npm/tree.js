@@ -7,7 +7,7 @@ import { dirname, relative } from '@preventive/vfs/path.js'
 import { satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote } from '../error.js'
-import { checkCollisions, checkNoModules, mount, writeFiles } from '../mount.js'
+import { checkNoModules, mount, writeFiles } from '../mount.js'
 import { fixBins } from './bins.js'
 import { skippedOf } from './compat.js'
 import { graphOf } from './graph.js'
@@ -126,13 +126,11 @@ export async function buildNpmTree(options) {
   const changed = settings.binLinks ? fixBins(kept, fetched) : new Map()
   const residue = host.reuse ? residueOf(nodes, skipped) : new Set()
   const { vfs, stats: written } = writeTree({ lockfile, kept, fetched, changed, residue })
-  if (folded) checkCollisions(vfs)
   const packages = Object.keys(lockfile.packages).length
   const stats = { packages, installed: kept.length, skipped: packages - kept.length, tarballs, ...written }
   const installed = kept.map((node) => {
     const { name, version, dev, optional, devOptional, peer } = node.pkg
     return { path: node.location, name, version, integrity: fetched.get(node).integrity, dev, optional, devOptional, peer }
   })
-  if (into !== undefined) mount(vfs, into, folded)
-  return { vfs: into ?? vfs, stats, installed }
+  return { vfs: mount(vfs, into, folded), stats, installed }
 }

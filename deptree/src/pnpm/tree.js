@@ -8,7 +8,7 @@ import { Vfs } from '@preventive/vfs'
 import { dirname, relative } from '@preventive/vfs/path.js'
 import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote, refusalOf } from '../error.js'
-import { checkCollisions, checkNoModules, mount } from '../mount.js'
+import { checkNoModules, mount } from '../mount.js'
 import { applyPatch, parsePatch } from '../patch.js'
 import { checkProject, typeOf } from '../project.js'
 import { REGISTRY, tarballUrl } from '../tarball.js'
@@ -269,7 +269,5 @@ export async function buildPnpmTree(options) {
     }
   }
   checkLinks(vfs, links)
-  if (folded) checkCollisions(vfs)
-  if (into !== undefined) mount(vfs, into, folded)
-  return { vfs: into ?? vfs, stats, installed: listed }
+  return { vfs: mount(vfs, into, folded), stats, installed: listed }
 }

@@ -21,7 +21,7 @@ export function checkNoModules(vfs, folded) {
   }
 }
 
-export function checkCollisions(vfs) {
+function checkCollisions(vfs) {
   const [clash] = vfs.collisions(fold)
   if (clash !== undefined) throw new DeptreeError(`${quote(clash.names[0])} and ${quote(clash.names[1])} are one name on macOS`, quote(clash.path))
 }
@@ -42,13 +42,18 @@ export function writeFiles(vfs, root, { dirs, files }, stats, skip = () => false
   }
 }
 
-// A clash is refused by what is there; at the root, a path there is the
-// tree's too. The tree's bytes are shared with `target`, not copied.
+// `target` with `tree` in it, or `tree` where there is none; on macOS, two
+// names that are one there are refused first. A clash is refused by what is
+// there; at the root, a path there is the tree's too. The tree's bytes are
+// shared with `target`, not copied.
 export function mount(tree, target, folded, check = checkNoModules) {
+  if (folded) checkCollisions(tree)
+  if (target === undefined) return tree
   check(target, folded)
   const clash = (path, [there]) => {
     if (there !== path) throw new DeptreeError(`${quote(basename(there))} is there already, which is one name with ${quote(basename(path))} on macOS`, where(path))
     throw new DeptreeError(`a ${target.lstat(path).type} is there already, where the tree has a ${tree.lstat(path).type}`, where(path))
   }
   target.mount(tree, '/', { clash, fold: folded ? fold : undefined })
+  return target
 }

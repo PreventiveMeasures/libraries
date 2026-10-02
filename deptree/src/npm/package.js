@@ -6,7 +6,7 @@
 // otherwise, or npm never packs, is refused.
 
 import { DeptreeError, quote } from '../error.js'
-import { fetchTarball, fromMirror, tarballUrl } from '../tarball.js'
+import { fetchTarball, fromMirror, ownTarball, withDirs } from '../tarball.js'
 
 const UMASK = 0o022
 
@@ -17,11 +17,7 @@ export function registryTarball({ name, version, resolution }, where) {
   if (resolution === undefined) throw new DeptreeError('a package bundled in another is not supported', where)
   if (resolution.type === 'git') throw new DeptreeError('a git repository is not supported', where)
   if (resolution.tarball === undefined) throw new DeptreeError('a package with no resolved URL, which npm fetches by the registry\'s packument, whose bins it makes executable, is not supported', where)
-  const expected = tarballUrl(name, version)
-  if (asNpm(resolution.tarball) !== expected) throw new DeptreeError(`only the registry's own tarball of ${name}@${version}, ${expected}, is supported`, where)
-  const sha512 = resolution.integrity.split(' ').find((part) => part.startsWith('sha512-'))
-  if (sha512 === undefined) throw new DeptreeError('a tarball with no sha512 integrity is not supported', where)
-  return { name, version, integrity: sha512 }
+  return ownTarball(asNpm(resolution.tarball), name, version, resolution.integrity, where)
 }
 
 const FILES = new Set(['file', 'contiguous-file'])
@@ -51,13 +47,7 @@ function unpack(entries, where) {
     }
     files.set(path, { data, mode: files.get(path)?.mode ?? ((mode | 0o666) & ~UMASK & 0o777) })
   }
-  const dirs = new Set()
-  for (const path of files.keys()) {
-    const segments = path.split('/')
-    for (let i = 1; i < segments.length; i++) dirs.add(segments.slice(0, i).join('/'))
-  }
-  for (const dir of dirs) if (files.has(dir)) throw new DeptreeError(`${quote(dir)} is both a file and a directory in the tarball`, where)
-  return { files, dirs }
+  return withDirs(files, where)
 }
 
 export async function fetchNpmPackage({ name, version, integrity }, where, check) {

@@ -2,8 +2,8 @@
 
 import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
-import { matchesGlob, reachesBelow } from '../glob.js'
-import { readManifest } from '../manifest.js'
+import { walkWorkspaces } from '../glob.js'
+import { readManifest, readManifests } from '../manifest.js'
 import { checkProject, readText, typeOf } from '../project.js'
 import { readSettings } from './settings.js'
 import { profileOf } from './versions.js'
@@ -32,28 +32,9 @@ function globsOf(root) {
   return globs.map((glob) => glob.replace(/^\.?\/+/u, ''))
 }
 
-// As map-workspaces globs, ignoring node_modules, and on macOS case. glob
-// follows a link or not by where it is, so one the globs reach is refused.
+// As map-workspaces globs, ignoring node_modules, and on macOS case.
 function findWorkspaces(project, globs, nocase) {
-  const fold = nocase ? (text) => text.toLowerCase() : (text) => text
-  const folded = globs.map(fold)
-  const found = []
-  const pending = globs.length === 0 ? [] : ['']
-  while (pending.length > 0) {
-    const dir = pending.pop()
-    for (const name of project.readdir(`/${dir}`)) {
-      const path = dir === '' ? name : `${dir}/${name}`
-      const key = fold(path)
-      const taken = folded.some((glob) => matchesGlob(glob, key))
-      if (name === 'node_modules' || (!taken && !folded.some((glob) => reachesBelow(glob, key)))) continue
-      const { type } = project.lstat(`/${path}`)
-      if (type === 'symlink') throw new DeptreeError('a link where npm looks for workspaces is not supported', quote(path))
-      if (type !== 'directory') continue
-      if (taken && typeOf(project, `/${path}/package.json`) !== undefined) found.push(path)
-      pending.push(path)
-    }
-  }
-  return found.sort()
+  return walkWorkspaces(project, globs, { manager: 'npm', fold: nocase ? (path) => path.toLowerCase() : undefined, skip: (name) => name === 'node_modules' })
 }
 
 const where = (dir) => `manifests[${quote(dir)}]`
@@ -95,8 +76,5 @@ export function inputsOf(options, nocase) {
   if (typeof lockfile !== 'string') throw new TypeError(LOCKFILE)
   if (manifests === null || typeof manifests !== 'object') throw new TypeError('manifests must map each project\'s directory to its package.json')
   if (npmrc !== undefined && typeof npmrc !== 'string') throw new TypeError('npmrc must be a string, or left out')
-  const read = new Map()
-  for (const [dir, text] of manifests instanceof Map ? manifests : Object.entries(manifests)) read.set(dir, readManifest(text, where(dir)))
-  if (!read.has('.')) throw new DeptreeError('the root package.json is not given', where('.'))
-  return { lockfile, manifests: read, settings: readSettings(npmrc) }
+  return { lockfile, manifests: readManifests(manifests), settings: readSettings(npmrc) }
 }

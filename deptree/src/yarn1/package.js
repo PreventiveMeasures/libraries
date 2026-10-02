@@ -8,7 +8,7 @@ import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { sha1Hex } from '../hash.js'
 import { readManifest } from '../manifest.js'
-import { fetchTarball, fromMirror, sameFile, tarballUrl } from '../tarball.js'
+import { fetchTarball, fromMirror, ownTarball, sameFile, withDirs } from '../tarball.js'
 
 const UMASK = 0o022
 
@@ -35,12 +35,7 @@ function entriesOf(entries, where) {
     if (earlier !== undefined && !sameFile(earlier, file)) throw new DeptreeError(`${quote(path)} is in the tarball twice`, where)
     files.set(path, file)
   }
-  for (const path of files.keys()) {
-    const segments = path.split('/')
-    for (let i = 1; i < segments.length; i++) dirs.add(segments.slice(0, i).join('/'))
-  }
-  for (const dir of dirs) if (files.has(dir)) throw new DeptreeError(`${quote(dir)} is both a file and a directory in the tarball`, where)
-  return { files, dirs }
+  return withDirs(files, where, dirs)
 }
 
 const decoder = new TextDecoder('utf-8', { fatal: true })
@@ -49,12 +44,8 @@ const decoder = new TextDecoder('utf-8', { fatal: true })
 export function registryTarball(entry, name, where) {
   const { resolution } = entry
   if (resolution === undefined) throw new DeptreeError('a directory, by file: or link:, is not supported', where)
-  const expected = tarballUrl(name, entry.version)
   const url = resolution.type === 'tarball' ? fromMirror(resolution.tarball) : resolution.tarball
-  if (url !== expected) throw new DeptreeError(`only the registry's own tarball of ${name}@${entry.version}, ${expected}, is supported`, where)
-  const sha512 = resolution.integrity?.split(' ').find((part) => part.startsWith('sha512-'))
-  if (sha512 === undefined) throw new DeptreeError('a tarball with no sha512 integrity is not supported', where)
-  return { name, version: entry.version, integrity: sha512 }
+  return ownTarball(url, name, entry.version, resolution.integrity, where)
 }
 
 export async function fetchYarnPackage({ name, version, integrity }, where) {

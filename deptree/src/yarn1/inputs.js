@@ -2,9 +2,9 @@
 
 import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
-import { readManifest } from '../manifest.js'
+import { readManifest, readManifests } from '../manifest.js'
 import { checkProject, readText, typeOf } from '../project.js'
-import { matchesGlob, reachesBelow } from '../glob.js'
+import { walkWorkspaces } from '../glob.js'
 import { globsOf } from './manifest.js'
 import { readSettings } from './settings.js'
 
@@ -36,32 +36,16 @@ export function checkHost(host, root) {
 
 const yarnJson = 'a yarn.json, which yarn reads as a manifest too, is not supported'
 
-// As yarn's resolveWorkspaces finds them. A link where a glob may reach is
-// refused, as node-glob follows it or not by where it is.
+// As yarn's resolveWorkspaces finds them.
 function findWorkspaces(project, globs) {
-  const found = []
-  if (globs.length === 0) return found
-  const pending = ['']
-  while (pending.length > 0) {
-    const dir = pending.pop()
-    for (const name of project.readdir(`/${dir}`)) {
-      const path = dir === '' ? name : `${dir}/${name}`
-      const taken = globs.some((glob) => matchesGlob(glob, path))
-      if (!taken && !globs.some((glob) => reachesBelow(glob, path))) continue
-      const { type } = project.lstat(`/${path}`)
-      if (type === 'symlink') throw new DeptreeError('a link where yarn looks for workspaces is not supported', quote(path))
-      if (type !== 'directory') continue
-      const manifest = taken && typeOf(project, `/${path}/package.json`) !== undefined
-      if (name === 'node_modules') {
-        if (manifest) throw new DeptreeError('yarn would read this node_modules as a workspace, which is not supported', quote(path))
-        continue
-      }
-      if (taken && typeOf(project, `/${path}/yarn.json`) !== undefined) throw new DeptreeError(yarnJson, quote(`${path}/yarn.json`))
-      if (manifest) found.push(path)
-      pending.push(path)
-    }
-  }
-  return found.sort()
+  return walkWorkspaces(project, globs, {
+    manager: 'yarn',
+    enter: (path, name, taken, manifest) => {
+      if (name === 'node_modules' && manifest) throw new DeptreeError('yarn would read this node_modules as a workspace, which is not supported', quote(path))
+      if (name !== 'node_modules' && taken && typeOf(project, `/${path}/yarn.json`) !== undefined) throw new DeptreeError(yarnJson, quote(`${path}/yarn.json`))
+      return name !== 'node_modules'
+    },
+  })
 }
 
 function readRoot(project) {
@@ -102,8 +86,5 @@ export function inputsOf(options) {
     if (value !== undefined && typeof value !== 'string') throw new TypeError(`${name} must be a string, or left out`)
   }
   const settings = readSettings({ yarnrc, npmrc })
-  const read = new Map()
-  for (const [dir, text] of manifests instanceof Map ? manifests : Object.entries(manifests)) read.set(dir, readManifest(text, `manifests[${quote(dir)}]`))
-  if (!read.has('.')) throw new DeptreeError('the root package.json is not given', 'manifests["."]')
-  return { lockfile, manifests: read, settings, project }
+  return { lockfile, manifests: readManifests(manifests), settings, project }
 }
