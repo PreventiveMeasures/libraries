@@ -5,7 +5,7 @@
 // here.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkRepo, isCommit, isSegment } from '../names.js'
+import { checkRepo, isCommit, isWithin } from '../names.js'
 import { DIGESTS, checkHash, checkHttpUrl, checkPath, checkSubdirectory } from '../python/files.js'
 import { checkMarker, checkName, checkRequirementText, normalName } from '../python/pep508.js'
 import { field } from '../shape.js'
@@ -81,7 +81,7 @@ export function readFiles(value, where) {
   return arrayOf((item, here) => {
     table(item, here, ['file', 'hash'])
     const file = text(item.file, at(here, 'file'))
-    if (!isSegment(file) || file.includes('/')) throw new LockfileError(`${quote(file)} is not a file's name`, at(here, 'file'))
+    if (!isWithin(file) || file.includes('/')) throw new LockfileError(`${quote(file)} is not a file's name`, at(here, 'file'))
     if (seen.has(file)) throw new LockfileError(`${quote(file)} is listed twice`, here)
     seen.add(file)
     return { file, hash: checkHash(item.hash, at(here, 'hash'), HASHES) }

@@ -341,7 +341,8 @@ describe('the lockfile npm writes, and no other', () => {
     for (const name of ['../dv', 'a/dv', 'dv:x', 'd\\v', '.', '..', 'd\nv']) {
       refuses(bin({ [name]: 'cli.js' }), `${JSON.stringify(name)} is not the name of a bin, as npm writes one`, where(name))
     }
-    for (const target of ['../cli.js', '/cli.js', './cli.js', 'bin//cli.js', 'bin\\cli.js', 'bin/../../cli.js', 'bin/./cli.js']) {
+    // A drive Windows reads `C:/x` and `C:x` from, out of the package.
+    for (const target of ['../cli.js', '/cli.js', './cli.js', 'bin//cli.js', 'bin\\cli.js', 'bin/../../cli.js', 'bin/./cli.js', 'C:/Windows/System32/cmd.exe', 'D:tool.js', 'z:/']) {
       refuses(bin({ dv: target }), `${JSON.stringify(target)} is not a path within the package, as npm writes a bin's`, where('dv'))
     }
     assert.deepEqual(plain(parse(bin({ dv: 'bin/', 'dv-2': 'lib/cli.js' })).packages['node_modules/dv'].bin), { dv: 'bin/', 'dv-2': 'lib/cli.js' })

@@ -49,6 +49,10 @@ const UNSAFE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}\\]/u
 // One directory's or file's name in such a path.
 export const isSegment = (segment) => segment !== '' && segment !== '.' && segment !== '..' && !UNSAFE.test(segment)
 
+// A path within a directory, each of its segments one, and none of them a
+// drive, which Windows reads `C:/x` and `C:x` from, out of the directory.
+export const isWithin = (path) => !/^[A-Za-z]:/u.test(path) && path.split('/').every(isSegment)
+
 export function checkRelative(value, where) {
   const path = text(value, where)
   if (path === '.') return path

@@ -2,7 +2,7 @@
 // gives, not by its directory's name.
 
 import { LockfileError, at, quote } from '../error.js'
-import { isHexSha256, isSegment } from '../names.js'
+import { isHexSha256, isSegment, isWithin } from '../names.js'
 import { field } from '../shape.js'
 import { parseToml } from '../toml/parse.js'
 import { isTable } from '../toml/value.js'
@@ -47,7 +47,7 @@ function readChecksum(text, where) {
   if (typeof value.files !== 'object' || value.files === null || Array.isArray(value.files)) throw new LockfileError('expected "files" to be an object', where)
   const files = Object.create(null)
   for (const [path, sum] of Object.entries(value.files)) {
-    if (!path.split('/').every(isSegment)) throw new LockfileError(`${quote(path)} is not a path within the package`, where)
+    if (!isWithin(path)) throw new LockfileError(`${quote(path)} is not a path within the package`, where)
     if (typeof sum !== 'string' || !isHexSha256(sum)) throw new LockfileError(`expected a sha256 for ${quote(path)}`, where)
     files[path] = sum
   }

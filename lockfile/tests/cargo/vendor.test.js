@@ -83,6 +83,7 @@ describe('readCargoVendor', () => {
     ['a file given twice', { ...VENDOR, log: { ...VENDOR.log, checksum: `{"package":null,"files":{"a":"${SUM}","a":"${SUM}"}}` } }, 'log[".cargo-checksum.json"]: a key is given twice'],
     ['a key it does not know', { ...VENDOR, log: { ...VENDOR.log, checksum: JSON.stringify({ files: {}, package: null, signed: true }) } }, 'log[".cargo-checksum.json"]: expected "files" and "package", and nothing else'],
     ['a path out of the directory', { ...VENDOR, log: { ...VENDOR.log, checksum: checksum(null, { '../x': SUM }) } }, 'log[".cargo-checksum.json"]: "../x" is not a path within the package'],
+    ['a path on a drive, out of the directory on Windows', { ...VENDOR, log: { ...VENDOR.log, checksum: checksum(null, { 'C:x.rs': SUM }) } }, 'log[".cargo-checksum.json"]: "C:x.rs" is not a path within the package'],
     ['a file checksum that is not a sha256', { ...VENDOR, log: { ...VENDOR.log, checksum: checksum(null, { 'a.rs': 'x' }) } }, 'log[".cargo-checksum.json"]: expected a sha256 for "a.rs"'],
   ]
   for (const [title, vendor, message] of refused) {

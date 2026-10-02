@@ -177,7 +177,7 @@ describe('packages', () => {
   it('refuses a file twice, a path for its name, and a hash out of hex', () => {
     refuses(edit(['{file = "a-1.0.0.tar.gz"', '{file = "a-1.0.0-py3-none-any.whl"']), '"a-1.0.0-py3-none-any.whl" is listed twice', 'package[0].files[1]')
     refuses(edit(['{file = "a-1.0.0.tar.gz"', '{file = "dist/a-1.0.0.tar.gz"']), '"dist/a-1.0.0.tar.gz" is not a file\'s name', 'package[0].files[1].file')
-    for (const file of ['..', '.']) refuses(edit(['{file = "a-1.0.0.tar.gz"', `{file = "${file}"`]), `"${file}" is not a file's name`, 'package[0].files[1].file')
+    for (const file of ['..', '.', 'C:a-1.0.0.tar.gz']) refuses(edit(['{file = "a-1.0.0.tar.gz"', `{file = "${file}"`]), `"${file}" is not a file's name`, 'package[0].files[1].file')
     refuses(edit([`{file = "a-1.0.0.tar.gz", hash = "sha256:${H}"}`, '{file = "a-1.0.0.tar.gz", hash = "sha256:abc"}']), '"abc" is not a sha256 digest in lowercase hex', 'package[0].files[1].hash')
   })
 

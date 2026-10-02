@@ -4,7 +4,7 @@
 // where it has a value: no empty list, no false flag, no empty string.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkName, checkRegistryTarball, checkRelative, checkRepo, checkVersion, isCommit, isHttpUrl, isSegment, readIntegrities } from '../names.js'
+import { checkName, checkRegistryTarball, checkRelative, checkRepo, checkVersion, isCommit, isHttpUrl, isSegment, isWithin, readIntegrities } from '../names.js'
 import { boolean, field, flag, mapping, record, refuse, text, textMap, texts } from '../shape.js'
 import { fromHostedUrl } from './hosted.js'
 import { isTarball } from './spec.js'
@@ -65,12 +65,12 @@ const readFunding = (value, where) => (Array.isArray(value) ? filled(value, wher
 
 // A bin as npm-normalize-package-bin leaves it, which is how npm writes
 // one: its name a segment, with no `:` in it either, and its target a path
-// within the package, which a `/` may end. bin-links reads any other
-// otherwise than as written, and a reader that does not normalize it may
-// link a name or a target outside the package.
+// within the package, on Windows too, which a `/` may end. bin-links reads
+// any other otherwise than as written, and a reader that does not
+// normalize it may link a name or a target outside the package.
 function readBin(target, where, name) {
   if (!isSegment(name) || /[/:]/u.test(name)) throw new LockfileError(`${quote(name)} is not the name of a bin, as npm writes one`, where)
-  if (!text(target, where).replace(/\/$/u, '').split('/').every(isSegment)) throw new LockfileError(`${quote(target)} is not a path within the package, as npm writes a bin's`, where)
+  if (!isWithin(text(target, where).replace(/\/$/u, ''))) throw new LockfileError(`${quote(target)} is not a path within the package, as npm writes a bin's`, where)
   return target
 }
 
