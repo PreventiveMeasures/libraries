@@ -880,6 +880,12 @@ describe('parseMarkdownFindings — a `# ` line in fenced code', () => {
     assert.equal(findings[0].severity, 'high')
   })
 
+  it('ends a step at a block tag, so a fence after it holds its `# ` lines', () => {
+    const lines = ['# A', '', '## Reproduction steps', '1. Run the server', '<div>', '', '   ```sh', '# start it', 'curl', '   ```', '', '---', '**Severity:** high', '', '# B', '', '---', '**Severity:** low']
+    const { findings } = parseMarkdownFindings(lines.join('\n'))
+    assert.deepEqual(findings.map((f) => `${f.description.split('\n')[0]} ${f.severity}`), ['A high', 'B low'])
+  })
+
   it('takes a line opening on inline code for text, not a fence', () => {
     const { findings } = parseMarkdownFindings(['# A', '', '## Details', '```x``` is called on input.', '', '---', '**Severity:** high', '', '# B', '', '---', '**Severity:** low'].join('\n'))
     assert.deepEqual(findings.map((f) => f.description.split('\n')[0]), ['A', 'B'])

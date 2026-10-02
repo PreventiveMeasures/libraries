@@ -104,6 +104,46 @@ describe('fenceRanges — a fence in a list item', () => {
   })
 })
 
+// Nothing in an HTML block is markdown, so a ``` there opens no fence;
+// and a block HTML tag interrupts a paragraph, where a lone tag of any
+// other kind continues it. List markers too are read as CommonMark
+// reads them: a fence may open on the marker's own line, five spaces
+// after a marker are one and indented code, and only a `1.` starts a
+// list in the middle of a paragraph.
+describe('fenceRanges — HTML blocks and list markers', () => {
+  it('opens no fence inside an HTML comment or a <pre>', () => {
+    assert.deepEqual(fencedLines(['<!--', '```', '-->', '# heading']), [false, false, false, false])
+    assert.deepEqual(fencedLines(['<pre>', '```', '</pre>', '# heading']), [false, false, false, false])
+    assert.deepEqual(fencedLines(['<!-- note -->', '```', '# in code']), [false, true, true])
+  })
+
+  it('ends a list item\'s paragraph at a block tag, so a fence after it is the document\'s', () => {
+    const lines = ['1. Run the server', '<div>', '', '   ```sh', '# start it', 'curl', '   ```', '# after']
+    assert.deepEqual(fencedLines(lines), [false, false, false, true, true, true, true, false])
+  })
+
+  it('continues a list item\'s paragraph with a lone tag, so its fence stays the item\'s', () => {
+    const lines = ['1. step', '<span>x</span>', '   ```', '# after', 'x']
+    assert.deepEqual(fencedLines(lines), [false, false, true, false, false])
+  })
+
+  it('continues a quote\'s paragraph lazily, keeping the item it sits in', () => {
+    assert.deepEqual(fencedLines(['- a', '  > quote', 'lazy', '  ```', '# after']), [false, false, false, true, false])
+  })
+
+  it('opens a fence on a list marker\'s own line, in the item', () => {
+    assert.deepEqual(fencedLines(['1. ```sh', '   # in code', '# after']), [true, true, false])
+  })
+
+  it('takes five spaces after a marker as one, and the rest as code', () => {
+    assert.deepEqual(fencedLines(['-     wide', '   ```', '- next']), [false, true, false])
+  })
+
+  it('starts no list mid-paragraph but at 1', () => {
+    assert.deepEqual(fencedLines(['text', '2. not an item', '   ```', '# heading']), [false, false, true, true])
+  })
+})
+
 describe('closesFence', () => {
   it('takes the same character, at least as long, and nothing after it', () => {
     assert.ok(closesFence('```', '```'))

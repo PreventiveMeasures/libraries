@@ -689,7 +689,13 @@ describe('md-text helpers', () => {
     assert.equal(prose('1. Run:\n\n   ```sh\n   curl'), '1. Run:\n\n   ```sh\n   curl\n   ```')
     // Unindented prose after an indented code block has left the list, so
     // the fence after it is the document's — open, and closed here.
-    assert.equal(prose('- item\n\n      indented code\nprose\n   ```sh\ncurl'), '- item\n\n      indented code\nprose\n   ```sh\ncurl\n   ```')
+    assert.equal(prose('- item\n\n      indented code\nprose\n   ```sh\ncurl'), '- item\n\n      indented code\nprose\n   ```sh\ncurl\n```')
+    // An HTML block a line can end is closed too, at its item's margin.
+    assert.equal(prose('<!--\nhidden'), '<!--\nhidden\n-->')
+    assert.equal(prose('  - <pre>\n    x'), '- <pre>\n    x\n  </pre>')
+    // Closed as the page reads it, after the escape: an escaped heading is
+    // text, which the lone tag continues, so the <?php opens a block.
+    assert.equal(prose('x\n   ## in item\n<a href="x">\n<?php'), 'x\n   \\## in item\n<a href="x">\n<?php\n?>')
     // Inline code opening a line opens no fence, so there is none to close.
     assert.equal(prose('```x``` is inline\n## h'), '```x``` is inline\n\\## h')
     assert.equal(prose('  plain  '), 'plain')

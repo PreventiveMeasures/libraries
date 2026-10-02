@@ -44,6 +44,7 @@
     "src/severity.js",
     "src/security.js",
     "src/labels.js",
+    "src/md-fence.js",
     "src/md-structure.js",
     "src/md-text.js",
     "src/meta.js",
