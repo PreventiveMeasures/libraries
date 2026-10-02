@@ -200,6 +200,8 @@ describe('the top of the file', () => {
   it('takes `[]` and `{}` for nothing, as one Composer writes them all', () => {
     parseComposerLock(edit((doc) => Object.assign(doc, { 'platform-dev': [], 'plugin-api-version': '2.6.0' })))
     refuses(edit((doc) => (doc.platform = {})).replace('"platform-dev": {}', '"platform-dev": []'), '"[]", where "platform" is "{}", as no Composer writes them both', 'platform-dev')
+    // Of plugin-api-version 2.9.0, Composer 2.9 and later, `{}` alone.
+    refuses(edit((doc) => (doc['platform-dev'] = [])), '"[]", which Composer of plugin-api-version 2.9.0 writes as "{}"', 'platform-dev')
   })
 
   it('stability-flags: sorted by 2.8 and later, and of a stability\'s number', () => {
