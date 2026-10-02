@@ -138,8 +138,6 @@ export function readIntegrities(value, where) {
 
 export const isHttpUrl = (value) => /^https?:\/\//u.test(value) && URL.canParse(value)
 
-export const checkHttpUrl = checker(isHttpUrl, 'an http(s) URL')
-
 // npm's registry, and yarn's mirror of it, keep a package's tarball under
 // its name, a scope's `/` once written `%2f`, and named after its version.
 const REGISTRIES = new Set(['registry.npmjs.org', 'registry.yarnpkg.com'])

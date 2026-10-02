@@ -23,10 +23,7 @@ function describe(source) {
 // A file's options, as EXTERNAL SOURCES has them, by name.
 const optionsOf = (source) => [[source.type, source.url], ...DOWNLOADS[source.type].map((option) => [option, source[fieldOf(option)]])].filter(([, value]) => value !== undefined)
 
-const inspectValue = (value) => {
-  if (Array.isArray(value)) return `[${value.map(inspect).join(', ')}]`
-  return typeof value === 'boolean' ? String(value) : inspect(value)
-}
+const inspectValue = (value) => (typeof value === 'boolean' ? String(value) : inspect(value))
 
 const STRING = String.raw`"(?:[^"\\]|\\.)*"`
 const ENTRY = new RegExp(String.raw`(?::(\w+)=>|(\w+): )(${STRING}|true|false|\[(?:${STRING}(?:, ${STRING})*)?\])(?:, |$)`, 'uy')
@@ -50,7 +47,7 @@ function readInspected(inner) {
 }
 
 // A sequence's items, in any order: EXTERNAL SOURCES has them sorted.
-const sameItems = (a, b) => JSON.stringify((a.match(ITEMS) ?? []).sort()) === JSON.stringify((b.match(ITEMS) ?? []).sort())
+const sameItems = (written, values) => JSON.stringify((written.match(ITEMS) ?? []).sort()) === JSON.stringify(values.map(inspect).sort())
 
 function matchesInspected(description, source) {
   const m = /^from `\{(.+)\}`$/u.exec(description)
@@ -60,7 +57,7 @@ function matchesInspected(description, source) {
   return options.every(([name, value]) => {
     const written = entries.get(name)
     if (written === undefined) return false
-    return Array.isArray(value) ? written.startsWith('[') && sameItems(written, inspectValue(value)) : written === inspectValue(value)
+    return Array.isArray(value) ? written.startsWith('[') && sameItems(written, value) : written === inspectValue(value)
   })
 }
 
@@ -83,12 +80,10 @@ const ANY = Symbol('any')
 // they were asked for. A git branch is resolved to a commit first where
 // git finds it, and kept where it does not.
 function keptOf(external) {
-  const pin = PINS[external.type]
-  const resolved = external.type === 'git' && external.branch !== undefined ? [{ ...external, branch: undefined, commit: ANY }] : []
-  return [...resolved, external].map((options) => {
-    if (options[pin] !== undefined || options.tag !== undefined) return options
-    return { type: external.type, url: external.url, [pin]: ANY, submodules: options.submodules ? true : undefined }
-  })
+  const { type, url, tag, submodules } = external
+  const pin = PINS[type]
+  const kept = external[pin] !== undefined || tag !== undefined ? external : { type, url, [pin]: ANY, submodules: submodules || undefined }
+  return type === 'git' && external.branch !== undefined ? [{ ...external, branch: undefined, commit: ANY }, kept] : [kept]
 }
 
 // The first option `checkout` has otherwise than `kept`, and how.

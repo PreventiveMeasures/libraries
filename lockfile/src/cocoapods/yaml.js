@@ -7,8 +7,9 @@
 // (`:git`), true or false. What Psych reads as anything else, a number, a
 // date, a time or null, is refused: no field of a Podfile.lock holds one.
 // Comments, anchors, tags, flow collections but an empty one, and every
-// form YAMLHelper does not write are refused too; what it would lay out otherwise is for
-// layout.js, which writes what was read back as YAMLHelper would.
+// form YAMLHelper does not write are refused too; what it would lay out
+// otherwise is for layout.js, which writes what was read back as
+// YAMLHelper would.
 //
 // A mapping is `{ kind: 'map', entries: [{ key, value }] }`, its keys
 // scalars; a sequence `{ kind: 'seq', items }`; a scalar `{ kind:

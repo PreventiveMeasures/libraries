@@ -7,8 +7,8 @@
 // and passes over, and it is handed back as `options`.
 
 import { LockfileError, quote } from '../error.js'
-import { checkHttpUrl, checkRefName, checkRepo, isHexSha1, isHexSha256 } from '../names.js'
-import { entriesOf, itemsOf, scalarOf, textOf } from './shape.js'
+import { checkRefName, checkRepo, isHexSha1, isHexSha256, isHttpUrl } from '../names.js'
+import { checker, entriesOf, itemsOf, scalarOf, textOf } from './shape.js'
 
 // cocoapods-downloader's strategies, each with the options it takes, and
 // the field each is handed back as.
@@ -26,13 +26,29 @@ export const fieldOf = (option) => (option === 'type' ? 'fileType' : option)
 const BOOLEANS = new Set(['submodules', 'flatten', 'externals', 'checkout'])
 // What RemoteFile extracts, by `:type`.
 const FILE_TYPES = new Set(['zip', 'tgz', 'tar', 'tbz', 'txz', 'dmg'])
-// A file's digests, in lowercase hex.
-const HEX = { __proto__: null, sha1: isHexSha1, sha256: isHexSha256 }
-// A commit's hash, in hex of either case, which git takes short too. Git
-// checks out any revision, and CocoaPods keeps it as it is, but a name,
-// `main` or `v1~2`, can come to another commit at each install: it is
-// refused, as it locks nothing.
-const isHash = (value) => /^[\da-f]{4,64}$/iu.test(value)
+
+// A sha1 in lowercase hex: a file's, a podspec's or the Podfile's.
+export const readSha1 = checker(isHexSha1, 'a sha1 in lowercase hex')
+
+// The options of a string held to a form: a file's digests, in lowercase
+// hex, and its `:type`; and a git commit's hash, in hex of either case,
+// which git takes short too. Git checks out any revision, and CocoaPods
+// keeps it as it is, but a name, `main` or `v1~2`, can come to another
+// commit at each install: it is refused, as it locks nothing.
+const FORMS = {
+  __proto__: null,
+  sha1: readSha1,
+  sha256: checker(isHexSha256, 'a sha256 in lowercase hex'),
+  type: checker((type) => FILE_TYPES.has(type), 'a type of file CocoaPods extracts'),
+  commit: checker((commit) => /^[\da-f]{4,64}$/iu.test(commit), 'a commit\'s hash, and locks no commit'),
+}
+
+// The URL of a strategy that takes one of its own form.
+const URLS = {
+  __proto__: null,
+  http: checker(isHttpUrl, 'an http(s) URL'),
+  scp: checker((url) => url.startsWith('scp://') && URL.canParse(url), 'an scp:// URL'),
+}
 
 // A path from the Podfile's directory, as the Podfile has it: CocoaPods
 // takes `./`, `..` and a `/` at the end as they are. It takes an absolute
@@ -48,20 +64,13 @@ function checkPath(path, where) {
 function readOption(strategy, option, node, where) {
   if (BOOLEANS.has(option)) return scalarOf(node, 'boolean', where)
   if (option === 'headers') return itemsOf(node, where).map((item, index) => textOf(item, `${where}[${index}]`))
+  if (option in FORMS) return FORMS[option](node, where)
   const value = textOf(node, where)
-  if (option in HEX && !HEX[option](value)) throw new LockfileError(`${quote(value)} is not a ${option} in lowercase hex`, where)
-  if (strategy === 'git' && option === 'commit' && !isHash(value)) throw new LockfileError(`${quote(value)} is not a commit's hash, and locks no commit`, where)
-  if (option === 'type' && !FILE_TYPES.has(value)) throw new LockfileError(`${quote(value)} is not a type of file CocoaPods extracts`, where)
   if (strategy === 'git' && (option === 'branch' || option === 'tag')) checkRefName(value, where)
   return value
 }
 
-function readUrl(strategy, node, where) {
-  const url = textOf(node, where)
-  if (strategy === 'http') checkHttpUrl(url, where)
-  if (strategy === 'scp' && !(url.startsWith('scp://') && URL.canParse(url))) throw new LockfileError(`${quote(url)} is not an scp:// URL`, where)
-  return checkRepo(url, where)
-}
+const readUrl = (strategy, node, where) => checkRepo((URLS[strategy] ?? textOf)(node, where), where)
 
 // The options of a mapping, by name, each with its node and where it is.
 function readOptions(node, where) {
@@ -104,7 +113,7 @@ export function readExternalSource(node, where) {
   }
   const { node: value, where: here } = options[type]
   const location = textOf(value, here)
-  if (type === 'podspec' && /^https?:/iu.test(location)) checkHttpUrl(location, here)
+  if (type === 'podspec' && /^https?:/iu.test(location)) URLS.http(value, here)
   else checkPath(location, here)
   return { type, [type]: location, options: carried }
 }

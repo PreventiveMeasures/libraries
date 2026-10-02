@@ -5,9 +5,9 @@
 // mapping left out is an empty one.
 
 import { at, quote } from '../error.js'
-import { primitives, text } from '../shape.js'
+import { checkerOf, primitives, text } from '../shape.js'
 
-export function kind(node) {
+function kind(node) {
   if (node === undefined) return 'nothing'
   if (node.kind === 'seq') return 'a sequence'
   if (node.kind === 'map') return 'a mapping'
@@ -22,6 +22,9 @@ export function scalarOf(node, type, where) {
 }
 
 export const textOf = (node, where) => text(scalarOf(node, 'string', where), where)
+
+// A reader of a string that `is` holds, refusing any other as not `what`.
+export const checker = checkerOf(textOf)
 
 export function itemsOf(node, where) {
   if (node === undefined) return []

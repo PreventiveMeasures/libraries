@@ -75,7 +75,6 @@ function readVersion(value, where, semver) {
   return version
 }
 
-
 // yarn writes a `file:` path as the manifest does, `./` and all; since
 // 1.19.0, it checks both the sha1 after `#` and the integrity.
 function readTarball(tarball, sha1, integrity, resolvedAt, integrityAt) {

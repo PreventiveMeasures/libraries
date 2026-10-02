@@ -4,6 +4,10 @@
 // ...)` for one of an external source, which sources.js reads.
 
 import { LockfileError, quote } from '../error.js'
+import { parseRequirement } from '../rubygems/version.js'
+import { checkerOf, string } from '../shape.js'
+
+const checker = checkerOf(string)
 
 // A name's segments, `/` between a root's and its subspecs': printable
 // ASCII but for spaces, parentheses, slashes and backslashes, and no `.`
@@ -13,10 +17,7 @@ const SEGMENT = /^(?!\.)[!-'*-.0-[\]-~]+$/u
 
 export const rootOf = (name) => name.split('/')[0]
 
-function checkPodName(name, where) {
-  if (!name.split('/').every((segment) => SEGMENT.test(segment))) throw new LockfileError(`${quote(name)} is not a pod's name`, where)
-  return name
-}
+const checkPodName = checker((name) => name.split('/').every((segment) => SEGMENT.test(segment)), 'a pod\'s name')
 
 export function checkRootName(name, where) {
   if (checkPodName(name, where).includes('/')) throw new LockfileError(`${quote(name)} is a subspec's name, where a root's is`, where)
@@ -28,26 +29,22 @@ export function checkRootName(name, where) {
 const VERSION = /^\d+(?:\.[\dA-Za-z-]+)*(?:\+[\dA-Za-z.-]+)?$/u
 
 const isVersion = (version) => VERSION.test(version)
+const checkVersion = checker(isVersion, 'a version')
 
 // `Name (version)`, as PODS lists a pod.
 export function readPodString(text, where) {
   const m = /^(\S+) \((.+)\)$/u.exec(text)
   if (m === null) throw new LockfileError(`${quote(text)} is not a pod and its version, as CocoaPods writes them`, where)
-  if (!isVersion(m[2])) throw new LockfileError(`${quote(m[2])} is not a version`, where)
-  return { name: checkPodName(m[1], where), version: m[2] }
+  const version = checkVersion(m[2], where)
+  return { name: checkPodName(m[1], where), version }
 }
-
-const OPERATORS = new Set(['=', '!=', '>', '<', '>=', '<=', '~>'])
 
 // Each `operator version`, as Gem::Requirement#as_list writes them: sorted,
 // and not `>= 0` alone, which is every version, and written as nothing.
 function readRequirements(text, where) {
   const requirements = text.split(', ')
   for (const [index, requirement] of requirements.entries()) {
-    const [operator, version, ...rest] = requirement.split(' ')
-    if (!OPERATORS.has(operator) || version === undefined || !isVersion(version) || rest.length > 0) {
-      throw new LockfileError(`${quote(requirement)} is not a requirement, as CocoaPods writes one`, where)
-    }
+    if (parseRequirement(requirement, isVersion) === undefined) throw new LockfileError(`${quote(requirement)} is not a requirement, as CocoaPods writes one`, where)
     if (index > 0 && requirements[index - 1] > requirement) throw new LockfileError(`${quote(requirement)} after ${quote(requirements[index - 1])}, where CocoaPods sorts requirements`, where)
   }
   if (text === '>= 0') throw new LockfileError('">= 0", which CocoaPods writes as no requirement at all', where)

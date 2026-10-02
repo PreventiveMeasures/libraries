@@ -15,20 +15,19 @@
 
 import { LockfileError, at, quote } from '../error.js'
 import { fail } from '../lines.js'
-import { isHexSha1 } from '../names.js'
 import { checkOptions, field } from '../shape.js'
 import { checkCheckout, checkDescription } from './external.js'
 import { SECTIONS, checkLayout, rulesOf } from './layout.js'
 import { checkRootName, readDependency, readPodString, readPodfileDependency, rootOf } from './pods.js'
 import { sha1Hex } from './sha1.js'
-import { entriesOf, itemsOf, scalarOf, textOf } from './shape.js'
-import { readCheckout, readExternalSource } from './sources.js'
+import { checker, entriesOf, itemsOf, scalarOf, textOf } from './shape.js'
+import { readCheckout, readExternalSource, readSha1 } from './sources.js'
 import { parseCocoaYaml } from './yaml.js'
 
 const where = (section) => at('', section)
 
 // A sequence or a mapping CocoaPods leaves out where it would be empty.
-const isEmpty = (node) => (node.kind === 'seq' && node.items.length === 0) || (node.kind === 'map' && node.entries.length === 0)
+const isEmpty = (node) => (node?.items ?? node?.entries)?.length === 0
 
 function readSections(root) {
   const sections = Object.create(null)
@@ -49,12 +48,6 @@ function readVersion(node) {
   return { version, rules: rulesOf(Number(m[2])) }
 }
 
-function readSha1(node, here) {
-  const value = textOf(node, here)
-  if (!isHexSha1(value)) throw new LockfileError(`${quote(value)} is not a sha1 in lowercase hex`, here)
-  return value
-}
-
 // The pods by name, and where each is in PODS.
 function readPods(node) {
   const pods = Object.create(null)
@@ -64,7 +57,7 @@ function readPods(node) {
     if (item.kind === 'seq' || (item.kind === 'map' && item.entries.length !== 1)) throw new LockfileError('expected a pod, or one pod and what it depends on', here)
     const [key, list] = item.kind === 'map' ? [item.entries[0].key, item.entries[0].value] : [item, undefined]
     const there = at(here, String(key.value))
-    if (list !== undefined && isEmpty(list)) throw new LockfileError('none it depends on, where CocoaPods writes the pod alone', there)
+    if (isEmpty(list)) throw new LockfileError('none it depends on, where CocoaPods writes the pod alone', there)
     const dependencies = itemsOf(list, there).map((dependency, number) => readDependency(textOf(dependency, `${there}[${number}]`), `${there}[${number}]`))
     const { name, version } = readPodString(textOf(key, here), here)
     if (name in pods) throw new LockfileError(`a second ${quote(name)}`, here)
@@ -94,12 +87,13 @@ function byRoot(node, section, read) {
   return map
 }
 
+const readRepo = checker((repo) => !/\s/u.test(repo), 'a spec repo\'s URL or name')
+
 // SPEC REPOS, by root: the spec repo of each.
 function readSpecRepos(node) {
   const repos = new Map()
   for (const [key, list, here] of entriesOf(node, where('SPEC REPOS'))) {
-    const repo = textOf(key, here)
-    if (/\s/u.test(repo)) throw new LockfileError(`${quote(repo)} is not a spec repo's URL or name`, here)
+    const repo = readRepo(key, here)
     if (isEmpty(list)) throw new LockfileError('no pod of the spec repo, where CocoaPods leaves it out', here)
     for (const [index, item] of itemsOf(list, here).entries()) {
       const there = `${here}[${index}]`
@@ -128,13 +122,13 @@ function checkRoots(roots, placeOf, { checksums, repos, externals, checkouts }) 
   fill(repos, 'repo')
   fill(externals, 'external')
   fill(checkouts, 'checkout')
-  for (const [root, { where: here }] of externals) {
-    if (repos.has(root)) throw new LockfileError(`${quote(root)} is from an external source and a spec repo both`, here)
-  }
   for (const [root, { where: here }] of checkouts) {
     if (!externals.has(root)) throw new LockfileError(`${quote(root)} has no external source, and CocoaPods keeps checkout options of none other`, here)
   }
-  for (const [root, { value, where: here }] of externals) checkCheckout(value, roots[root].checkout, checkouts.get(root)?.where, here)
+  for (const [root, { value, where: here }] of externals) {
+    if (repos.has(root)) throw new LockfileError(`${quote(root)} is from an external source and a spec repo both`, here)
+    checkCheckout(value, roots[root].checkout, checkouts.get(root)?.where, here)
+  }
   for (const root of Object.values(roots)) {
     const first = placeOf.get(root.pods[0])
     if (root.checksum === undefined) throw new LockfileError(`no checksum of ${quote(root.name)} in SPEC CHECKSUMS, which CocoaPods writes of every podspec`, first)
@@ -143,8 +137,8 @@ function checkRoots(roots, placeOf, { checksums, repos, externals, checkouts }) 
 }
 
 // The Podfile's dependencies: each of a pod in PODS, each of an external
-// source as its root's is described; and the roots they describe so.
-function checkPodfileDependencies(read, pods, roots) {
+// source as its root's is described, and every external source described.
+function checkPodfileDependencies(read, pods, roots, externals) {
   const described = new Set()
   for (const { name, description, where: here } of read) {
     if (!(name in pods)) throw new LockfileError(`${quote(name)} is no pod in PODS`, here)
@@ -154,7 +148,9 @@ function checkPodfileDependencies(read, pods, roots) {
     checkDescription(description, roots[root].external, here)
     described.add(root)
   }
-  return described
+  for (const [root, { where: here }] of externals) {
+    if (!described.has(root)) throw new LockfileError(`${quote(root)} is from an external source no dependency of the Podfile names`, here)
+  }
 }
 
 // Every pod is one the Podfile's dependencies lead to, as CocoaPods
@@ -206,10 +202,7 @@ export function parsePodfileLock(text, options = {}) {
   })
   checkLayout(text, root, rules, crlf, version)
   checkRoots(roots, placeOf, byRoots)
-  const described = checkPodfileDependencies(read, pods, roots)
-  for (const [name, { where: here }] of byRoots.externals) {
-    if (!described.has(name)) throw new LockfileError(`${quote(name)} is from an external source no dependency of the Podfile names`, here)
-  }
+  checkPodfileDependencies(read, pods, roots, byRoots.externals)
   const dependencies = read.map(({ name, requirements, description }) => ({ name, requirements, external: description !== undefined }))
   checkReached(dependencies, pods, placeOf)
   if (podfile !== undefined) checkPodfile(podfile, podfileChecksum)
