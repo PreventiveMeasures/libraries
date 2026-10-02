@@ -433,6 +433,42 @@ describe('getAdvisory', () => {
   })
 })
 
+describe('listRepoAdvisories', () => {
+  const LIST = 'https://api.github.com/repos/acme/app/security-advisories?state=published&per_page=100'
+  const page = (n, count) => Array.from({ length: count }, (_, i) => ({ ghsa_id: `GHSA-${n}`, i }))
+  // GitHub's links name the repository by its id, and other parameters
+  // besides the cursor.
+  const linked = (body, next) => json(body, 200, { link: `<https://api.github.com/repositories/1/security-advisories?per_page=100&state=published&before=x&after=${next}>; rel="next", <https://api.github.com/repositories/1/security-advisories?per_page=100&state=published&after=Zmlyc3Q>; rel="first"` })
+
+  it("reads every page, each by the cursor in the one before's Link header, asked of this repository's list", async () => {
+    const calls = stubGitHub(({ url }) => {
+      if (url === LIST) return linked(page(1, 100), 'Y3Vyc29yOjE%3D')
+      if (url === `${LIST}&after=Y3Vyc29yOjE%3D`) return linked(page(2, 100), 'Y3Vyc29yOjI%3D')
+      return json(page(3, 2))
+    })
+    const list = await client().listRepoAdvisories({ repo: 'acme/app' })
+    assert.equal(list.length, 202)
+    assert.deepEqual([list[0], list.at(-1)], [{ ghsa_id: 'GHSA-1', i: 0 }, { ghsa_id: 'GHSA-3', i: 1 }])
+    assert.deepEqual(calls.map((call) => call.url), [LIST, `${LIST}&after=Y3Vyc29yOjE%3D`, `${LIST}&after=Y3Vyc29yOjI%3D`])
+  })
+
+  it('reads one page when there is no next link, however full', async () => {
+    const calls = stubGitHub(() => json(page(1, 100)))
+    assert.equal((await client().listRepoAdvisories({ repo: 'acme/app' })).length, 100)
+    assert.equal(calls.length, 1)
+  })
+
+  it('refuses a next link with no cursor, a page that is no list, and more than 100 pages', async () => {
+    stubGitHub(() => json([], 200, { link: '<https://api.github.com/repositories/1/security-advisories?page=2>; rel="next"' }))
+    await assert.rejects(client().listRepoAdvisories({ repo: 'acme/app' }), /listRepoAdvisories: page 1 links the next with no cursor/u)
+    stubGitHub(() => json({ message: 'odd' }))
+    await assert.rejects(client().listRepoAdvisories({ repo: 'acme/app' }), /listRepoAdvisories: expected an array for page 1/u)
+    const calls = stubGitHub(() => linked([], 'more'))
+    await assert.rejects(client().listRepoAdvisories({ repo: 'acme/app' }), /listRepoAdvisories: more than 100 pages/u)
+    assert.equal(calls.length, 100)
+  })
+})
+
 describe('getCollaboratorPermission', () => {
   it("answers GitHub's permission record", async () => {
     const body = { permission: 'write', role_name: 'maintain', user: { login: 'Octocat', id: 1 } }

@@ -50,13 +50,23 @@ const rustsec = (id, overrides = {}) => ({
   ...overrides,
 })
 
+const ghsa = (id, overrides = {}) => ({
+  id,
+  summary: `Advisory ${id}`,
+  aliases: ['CVE-2025-31674', 'DRUPAL-CORE-2025-003'],
+  database_specific: { severity: 'MODERATE', cwe_ids: ['CWE-913'] },
+  severity: [{ type: 'CVSS_V4', score: 'CVSS:4.0/AV:N/AC:H/AT:N/PR:H/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N/E:U' }],
+  ...overrides,
+})
+
 describe('cargo', () => {
-  it('reads RustSec records only, one entry per crate and record, with the versions each affects', async () => {
+  it('answers one entry per crate and record, with the versions each affects, RustSec standing for the GHSA it is published as', async () => {
     const calls = stubOsv({
       'smallvec@1.6.0': ['GHSA-43w2-9j62-hq99', 'RUSTSEC-2021-0003'],
       'smallvec@0.6.10': ['RUSTSEC-2021-0003', 'RUSTSEC-2018-0018'],
       'openssl-src@111.10.0+1.1.1g': ['RUSTSEC-2021-0055'],
     }, {
+      'GHSA-43w2-9j62-hq99': { id: 'GHSA-43w2-9j62-hq99', aliases: ['CVE-2021-25900', 'RUSTSEC-2021-0003'], summary: 'Advisory GHSA-43w2-9j62-hq99' },
       'RUSTSEC-2021-0003': rustsec('RUSTSEC-2021-0003'),
       'RUSTSEC-2018-0018': rustsec('RUSTSEC-2018-0018', {
         aliases: ['CVE-2018-25023', 'GHSA-55m5-whcv-c49c', 'GHSA-66p5-j55p-32r9'],
@@ -81,7 +91,7 @@ describe('cargo', () => {
         { package: { name: 'smallvec', ecosystem: 'crates.io' }, version: '1.6.0' },
       ] },
     })
-    assert.deepEqual(calls.slice(1).map((call) => call.url).toSorted(), [`${VULN}RUSTSEC-2018-0018`, `${VULN}RUSTSEC-2021-0003`, `${VULN}RUSTSEC-2021-0055`])
+    assert.deepEqual(calls.slice(1).map((call) => call.url).toSorted(), [`${VULN}GHSA-43w2-9j62-hq99`, `${VULN}RUSTSEC-2018-0018`, `${VULN}RUSTSEC-2021-0003`, `${VULN}RUSTSEC-2021-0055`])
     const common = { ecosystem: 'cargo', source: 'osv', cwe: [] }
     assert.deepEqual(found, [
       { ...common, name: 'openssl-src', id: 'RUSTSEC-2021-0055', aliases: [], title: 'Advisory RUSTSEC-2021-0055', cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', versions: ['111.10.0+1.1.1g'] },
@@ -90,6 +100,65 @@ describe('cargo', () => {
         ...common, name: 'smallvec', id: 'RUSTSEC-2021-0003', ghsa: 'GHSA-43w2-9j62-hq99', aliases: ['CVE-2021-25900', 'GHSA-43w2-9j62-hq99'], title: 'Advisory RUSTSEC-2021-0003',
         cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', versions: ['0.6.10', '1.6.0'],
       },
+    ])
+  })
+
+  it('keeps a GHSA or MAL- record RustSec does not publish, or for the versions it was not answered for', async () => {
+    stubOsv({
+      // GitHub's own, and a malicious crate's.
+      'ghsa-only@1.0.0': ['GHSA-aaaa-aaaa-aaaa'],
+      'typosquat@0.1.0': ['MAL-2026-0001'],
+      // Named as an alias by the GHSA alone; the GHSA's range is wider.
+      'smallvec@1.6.0': ['RUSTSEC-2021-0003', 'GHSA-43w2-9j62-hq99'],
+      'smallvec@1.7.0': ['GHSA-43w2-9j62-hq99'],
+      // A MAL- record that GitHub also publishes.
+      'evil@1.0.0': ['MAL-2026-0002', 'GHSA-bbbb-bbbb-bbbb'],
+      // Beside a withdrawn RUSTSEC record.
+      'other@1.0.0': ['RUSTSEC-2026-0001', 'GHSA-cccc-cccc-cccc'],
+    }, {
+      'GHSA-aaaa-aaaa-aaaa': ghsa('GHSA-aaaa-aaaa-aaaa', { aliases: ['CVE-2026-0001'] }),
+      'MAL-2026-0001': { id: 'MAL-2026-0001', summary: 'Malicious code in typosquat (crates.io)' },
+      'RUSTSEC-2021-0003': rustsec('RUSTSEC-2021-0003', { aliases: ['CVE-2021-25900'] }),
+      'GHSA-43w2-9j62-hq99': ghsa('GHSA-43w2-9j62-hq99', { aliases: ['CVE-2021-25900', 'RUSTSEC-2021-0003'] }),
+      'MAL-2026-0002': { id: 'MAL-2026-0002', aliases: ['GHSA-bbbb-bbbb-bbbb'] },
+      'GHSA-bbbb-bbbb-bbbb': ghsa('GHSA-bbbb-bbbb-bbbb', { aliases: [] }),
+      'RUSTSEC-2026-0001': rustsec('RUSTSEC-2026-0001', { aliases: ['GHSA-cccc-cccc-cccc'], withdrawn: '2026-01-01T00:00:00Z' }),
+      'GHSA-cccc-cccc-cccc': ghsa('GHSA-cccc-cccc-cccc', { aliases: ['RUSTSEC-2026-0001'] }),
+    })
+    const found = await cargo(['ghsa-only@1.0.0', 'typosquat@0.1.0', 'smallvec@1.6.0', 'smallvec@1.7.0', 'evil@1.0.0', 'other@1.0.0'].map((spec) => {
+      const [name, version] = spec.split('@')
+      return { name, version }
+    }))
+    // The RUSTSEC row has the GHSA that names it among its aliases.
+    assert.deepEqual(found.map(({ name, id, ghsa: of, aliases, versions }) => [name, id, of, aliases, versions]), [
+      ['evil', 'GHSA-bbbb-bbbb-bbbb', 'GHSA-bbbb-bbbb-bbbb', ['MAL-2026-0002'], ['1.0.0']],
+      ['ghsa-only', 'GHSA-aaaa-aaaa-aaaa', 'GHSA-aaaa-aaaa-aaaa', ['CVE-2026-0001'], ['1.0.0']],
+      ['other', 'GHSA-cccc-cccc-cccc', 'GHSA-cccc-cccc-cccc', ['RUSTSEC-2026-0001'], ['1.0.0']],
+      ['smallvec', 'GHSA-43w2-9j62-hq99', 'GHSA-43w2-9j62-hq99', ['CVE-2021-25900', 'RUSTSEC-2021-0003'], ['1.7.0']],
+      ['smallvec', 'RUSTSEC-2021-0003', 'GHSA-43w2-9j62-hq99', ['CVE-2021-25900', 'GHSA-43w2-9j62-hq99'], ['1.6.0']],
+      ['typosquat', 'MAL-2026-0001', undefined, [], ['0.1.0']],
+    ])
+  })
+
+  it('reports a version once for records linked directly or through another, equal ranks by id', async () => {
+    stubOsv({
+      // Two GHSAs naming each other.
+      'dup@1.0.0': ['GHSA-eeee-eeee-eeee', 'GHSA-dddd-dddd-dddd'],
+      // RustSec and a MAL- record both name a GHSA answered for 2.0.0 alone.
+      'chain@1.0.0': ['RUSTSEC-2026-0002', 'MAL-2026-0003'],
+      'chain@2.0.0': ['GHSA-ffff-ffff-ffff'],
+    }, {
+      'GHSA-dddd-dddd-dddd': ghsa('GHSA-dddd-dddd-dddd', { aliases: ['GHSA-eeee-eeee-eeee'] }),
+      'GHSA-eeee-eeee-eeee': ghsa('GHSA-eeee-eeee-eeee', { aliases: ['GHSA-dddd-dddd-dddd'] }),
+      'RUSTSEC-2026-0002': rustsec('RUSTSEC-2026-0002', { aliases: ['GHSA-ffff-ffff-ffff'] }),
+      'MAL-2026-0003': { id: 'MAL-2026-0003', aliases: ['GHSA-ffff-ffff-ffff'] },
+      'GHSA-ffff-ffff-ffff': ghsa('GHSA-ffff-ffff-ffff', { aliases: [] }),
+    })
+    const found = await cargo([{ name: 'dup', version: '1.0.0' }, { name: 'chain', version: '1.0.0' }, { name: 'chain', version: '2.0.0' }])
+    assert.deepEqual(found.map(({ name, id, aliases, versions }) => [name, id, aliases, versions]), [
+      ['chain', 'GHSA-ffff-ffff-ffff', ['RUSTSEC-2026-0002', 'MAL-2026-0003'], ['2.0.0']],
+      ['chain', 'RUSTSEC-2026-0002', ['GHSA-ffff-ffff-ffff', 'MAL-2026-0003'], ['1.0.0']],
+      ['dup', 'GHSA-dddd-dddd-dddd', ['GHSA-eeee-eeee-eeee'], ['1.0.0']],
     ])
   })
 
@@ -154,15 +223,6 @@ describe('cargo', () => {
 })
 
 describe('composer', () => {
-  const ghsa = (id, overrides = {}) => ({
-    id,
-    summary: `Advisory ${id}`,
-    aliases: ['CVE-2025-31674', 'DRUPAL-CORE-2025-003'],
-    database_specific: { severity: 'MODERATE', cwe_ids: ['CWE-913'] },
-    severity: [{ type: 'CVSS_V4', score: 'CVSS:4.0/AV:N/AC:H/AT:N/PR:H/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N/E:U' }],
-    ...overrides,
-  })
-
   it('leaves out a record that a GHSA answered for the same package also publishes', async () => {
     stubOsv({
       'drupal/core@9.5.0': ['DRUPAL-CORE-2025-003', 'GHSA-2qph-q8xw-gv7q', 'DRUPAL-CORE-2023-001'],
@@ -222,6 +282,15 @@ describe('composer', () => {
     ])
   })
 
+  it('reports a version once for two records other than a GHSA that name each other', async () => {
+    stubOsv({ 'drupal/core@9.5.0': ['PKSA-n4ry-zn1q-xn5z', 'DRUPAL-CORE-2026-001'] }, {
+      'PKSA-n4ry-zn1q-xn5z': { id: 'PKSA-n4ry-zn1q-xn5z', aliases: ['DRUPAL-CORE-2026-001'] },
+      'DRUPAL-CORE-2026-001': { id: 'DRUPAL-CORE-2026-001' },
+    })
+    const found = await composer([{ name: 'drupal/core', version: '9.5.0' }])
+    assert.deepEqual(found.map(({ id, aliases, versions }) => [id, aliases, versions]), [['DRUPAL-CORE-2026-001', ['PKSA-n4ry-zn1q-xn5z'], ['9.5.0']]])
+  })
+
   it('takes Composer release versions, and refuses dev versions and malformed names, before any request', async () => {
     const calls = stubOsv({}, {})
     for (const version of ['1.2.3', 'v1.2.3', '1.2.3.4', '2.0.0-beta1', '2.0.0-RC2', '1.0.0-p1', '1.0']) {
@@ -242,7 +311,7 @@ describe('cargo and composer, with a GitHub client', () => {
   const github = createClient({ token: 'test-token' })
   const CRATES = 'https://crates.io/api/v1/crates?'
   const listing = (repo) => `https://api.github.com/repos/${repo}/security-advisories?state=published&per_page=100`
-  const repoAdvisory = (ghsa, vulnerabilities, overrides = {}) => ({ ghsa_id: ghsa, state: 'published', summary: `Advisory ${ghsa}`, severity: 'medium', vulnerabilities, ...overrides })
+  const repoAdvisory = (id, vulnerabilities, overrides = {}) => ({ ghsa_id: id, state: 'published', summary: `Advisory ${id}`, severity: 'medium', vulnerabilities, ...overrides })
   const vuln = (ecosystem, name, range) => ({ package: { ecosystem, name }, vulnerable_version_range: range })
 
   // OSV, crates.io, Packagist and GitHub, each answering from what is

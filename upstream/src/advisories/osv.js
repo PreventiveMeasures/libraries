@@ -13,6 +13,12 @@ const QUERIES_PER_REQUEST = 1000
 const RECORDS_AT_ONCE = 8
 const isOsvId = matches(/^(?=.{1,128}$)[A-Z][\dA-Z]*(?:-[\dA-Za-z]+)+$/u)
 const INFORMATIONAL = new Set(['unmaintained', 'unsound', 'notice'])
+// Of the records that publish one advisory, the first answered for a
+// version stands for the rest on it: RustSec's, what `cargo audit` reads
+// and GitHub mirrors, then the GHSA, then any other (MAL-…), then by id.
+const rank = (id) => (id.startsWith('RUSTSEC-') ? 0 : (isGhsa(id) ? 1 : 2))
+const first = (a, b) => rank(a.id) - rank(b.id) || order(a.id, b.id)
+const named = (a, b) => a.aliases.includes(b.id) || b.aliases.includes(a.id)
 
 export const CARGO = {
   osv: 'crates.io',
@@ -20,7 +26,6 @@ export const CARGO = {
   lookUp: crateRepos,
   assertName: assertCrateName,
   assertVersion: assertCrateVersion,
-  keep: (id) => id.startsWith('RUSTSEC-'), // What `cargo audit` reads; the GHSA records mirror it.
   advisories: (asked, options) => osvAdvisories(CARGO, asked, options),
 }
 // TODO: packagist.org's API, what `composer audit` reads, also has the
@@ -70,11 +75,13 @@ function toAdvisory(ecosystem, name, versions, record) {
 }
 
 // OSV's batch query matches versions on its side, but answers ids only:
-// each record is fetched once after. A record another database also
-// publishes comes back under both ids, so one that aliases a GHSA keeps
-// only the versions that GHSA was not answered for.
+// each record is fetched once after. An advisory more than one database
+// publishes comes back under each one's id, the records naming each other
+// as aliases, either way round, directly or through others: one group, in
+// which each version is reported under the first answered for it, and
+// each record has the others' ids as aliases.
 async function osvAdvisories(ecosystem, asked, options) {
-  const { osv, github, lookUp, covers, keep = () => true } = ecosystem
+  const { osv, github, lookUp, covers } = ecosystem
   const list = [...asked].flatMap(([name, versions]) => versions.map((version) => ({ name, version })))
   const hits = new Map() // id → name → versions, in `list` order
   for (const chunk of chunks(list, QUERIES_PER_REQUEST)) {
@@ -85,21 +92,28 @@ async function osvAdvisories(ecosystem, asked, options) {
       const { name, version } = chunk[j]
       const vulns = result?.vulns ?? []
       assert.ok(result && result.next_page_token === undefined && Array.isArray(vulns) && vulns.every((vuln) => isOsvId(vuln?.id)), `advisories: malformed OSV result for ${name}@${version}`)
-      for (const { id } of vulns.filter((vuln) => keep(vuln.id))) {
+      for (const { id } of vulns) {
         const byName = hits.get(id) ?? hits.set(id, new Map()).get(id)
         byName.set(name, (byName.get(name) ?? new Set()).add(version))
       }
     }
   }
   const records = (await pool([...hits.keys()], RECORDS_AT_ONCE, getVuln)).filter((record) => !record.withdrawn)
-  const live = new Set(records.map((record) => record.id))
+  const groups = new Map()
+  for (const record of records) {
+    if (groups.has(record)) continue
+    const group = [record]
+    for (const member of group) group.push(...records.filter((other) => !group.includes(other) && named(member, other)))
+    for (const member of group) groups.set(member, group)
+  }
   const rows = []
   for (const record of records) {
+    const group = groups.get(record)
+    const above = group.filter((other) => first(other, record) < 0)
+    const aliases = [...new Set([...record.aliases, ...group.map((other) => other.id)])].filter((id) => id !== record.id)
     for (const [name, versions] of hits.get(record.id)) {
-      // Only the versions a live GHSA it aliases answered for too.
-      const shadowed = isGhsa(record.id) ? [] : record.aliases.filter((alias) => isGhsa(alias) && live.has(alias)).flatMap((alias) => [...(hits.get(alias).get(name) ?? [])])
-      const rest = [...versions].filter((version) => !shadowed.includes(version))
-      if (rest.length > 0) rows.push(toAdvisory(osv, name, rest, record))
+      const rest = [...versions].filter((version) => !above.some((other) => hits.get(other.id).get(name)?.has(version)))
+      if (rest.length > 0) rows.push(toAdvisory(osv, name, rest, { ...record, aliases }))
     }
   }
   rows.sort((a, b) => order(a.name, b.name) || order(a.id, b.id))
