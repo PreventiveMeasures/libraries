@@ -47,9 +47,42 @@ export function array(value, where) {
   return value
 }
 
-// Strings, each held to `check` where given, as `check(item, where)` does.
-export function strings(value, where, check = string) {
-  return array(value, where).map((item, index) => check(string(item, `${where}[${index}]`), `${where}[${index}]`))
+// An array, each item as `read` makes it.
+export const arrayOf = (read) => (value, where) => array(value, where).map((item, index) => read(item, `${where}[${index}]`))
+
+export const strings = arrayOf(string)
+
+// A table as a fresh one, each key held to `checkKey` and each item as
+// `read` makes it; empty where it is left out.
+export function tableOf(value, where, read, checkKey = (key) => key) {
+  const map = Object.create(null)
+  if (value !== undefined) for (const [key, item, here] of entries(value, where)) map[checkKey(key, here)] = read(item, here)
+  return map
+}
+
+// The one of `keys` a table has.
+export function oneOf(value, keys, where) {
+  const found = keys.filter((key) => value[key] !== undefined)
+  if (found.length !== 1) throw new LockfileError(`expected one of ${keys.join(', ')}, found ${found.length === 0 ? 'none' : found.join(' and ')}`, where)
+  return found[0]
+}
+
+// A list with no `key` twice: the item that repeats one is refused.
+export function distinct(list, where, key = (item) => item) {
+  const seen = new Set()
+  for (const [index, item] of list.entries()) {
+    const id = key(item)
+    if (seen.has(id)) throw new LockfileError(`${quote(id)} is listed twice`, `${where}[${index}]`)
+    seen.add(id)
+  }
+  return list
+}
+
+// A check of a string, as `read` takes it, that `test` holds of: any other
+// is refused as not `what`.
+export const matching = (test, what, read = string) => (value, where) => {
+  if (!test(read(value, where))) throw new LockfileError(`${quote(value)} is not ${what}`, where)
+  return value
 }
 
 // A string as a tool writes one given to it, with nothing in it that is

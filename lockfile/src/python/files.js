@@ -1,12 +1,13 @@
 // A distribution's file: the name and version a wheel's or an sdist's name
 // gives, as packaging reads it, the name of the file a path or a URL ends
-// in, a path to one, and a hash in the hex a lockfile writes.
+// in, a path or an http(s) URL to one, and a hash in the hex a lockfile
+// writes.
 
 import { LockfileError, quote } from '../error.js'
-import { checkRelative } from '../names.js'
-import { string } from '../toml/shape.js'
+import { checkRelative, isHttpUrl } from '../names.js'
+import { matching, string, text } from '../toml/shape.js'
 import { normalName } from './pep508.js'
-import { parseVersion } from './pep440.js'
+import { parseVersion, versionKey } from './pep440.js'
 
 // PEP 427, as packaging 26.3's parse_wheel_filename takes it, its
 // characters ASCII: `{name}-{version}(-{build})?-{python}-{abi}-{platform}.whl`,
@@ -60,9 +61,9 @@ export function checkDigest(algorithm, digest, size, where) {
   return digest
 }
 
-// `algorithm:digest`, as uv.lock and poetry.lock write a hash, of one of
-// the algorithms `sizes` names.
-export function checkHash(value, where, sizes) {
+// A check of `algorithm:digest`, as uv.lock and poetry.lock write a hash,
+// of one of the algorithms `sizes` names.
+export const hashOf = (sizes) => (value, where) => {
   const sep = string(value, where).indexOf(':')
   const algorithm = value.slice(0, sep)
   if (sep === -1 || !Object.hasOwn(sizes, algorithm)) throw new LockfileError(`${quote(value)} is not a hash of ${Object.keys(sizes).join(', ')}`, where)
@@ -78,17 +79,31 @@ export function checkPath(value, where) {
   return checkRelative(value, where)
 }
 
+// An index's URL, or a file's.
+export const checkHttpUrl = matching(isHttpUrl, 'an http(s) URL', text)
+
 const lastSegment = (path) => path.slice(path.lastIndexOf('/') + 1)
 
 // The name of the file a lockfile gives by name, by path, or by URL, in
-// that order: the last segment of the path, or of the URL's `pathname`,
-// decoded; undefined where that does not decode.
-export function fileNameOf({ name, path, pathname }) {
+// that order: the last segment of the path, or of the URL's path, decoded.
+export function fileNameOf(name, path, url, where) {
   if (name !== undefined) return name
   if (path !== undefined) return lastSegment(path)
   try {
-    return decodeURIComponent(lastSegment(pathname))
+    return decodeURIComponent(lastSegment(url.pathname))
   } catch {
-    return undefined
+    throw new LockfileError(`${quote(url.href)} names no file`, where)
   }
+}
+
+// A wheel's or an sdist's name, held to the package `pkg` is: to its name,
+// and to its version where it has one, or, `lax`, that less a local
+// version, as uv holds a wheel to it.
+export function checkFileOf(filename, wheel, pkg, where, lax = false) {
+  const parsed = wheel ? parseWheelName(filename) : parseSdistName(filename)
+  if (parsed === undefined) throw new LockfileError(`${quote(filename)} is not the name of ${wheel ? 'a wheel' : 'an sdist, .tar.gz or .zip'}`, where)
+  if (parsed.name !== pkg.name) throw new LockfileError(`${quote(filename)} is not a file of ${quote(pkg.name)}`, where)
+  const of = (version) => pkg.versionKey === undefined || versionKey(version) === pkg.versionKey
+  if (!of(parsed.version) && !(lax && of({ ...parsed.version, local: undefined }))) throw new LockfileError(`${quote(filename)} is not of version ${quote(pkg.version)}`, where)
+  return filename
 }

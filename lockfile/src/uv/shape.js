@@ -4,7 +4,7 @@
 import { LockfileError, quote } from '../error.js'
 import { checkNormalName } from '../python/pep508.js'
 import { isDateTime } from '../toml/datetime.js'
-import { entries, string, strings } from '../toml/shape.js'
+import { arrayOf, matching, string, tableOf } from '../toml/shape.js'
 
 // A URL as the url crate writes it, as uv writes one: with no credentials,
 // which uv strips, and of a scheme it fetches over.
@@ -18,17 +18,11 @@ export function checkUrl(value, where, schemes = ['https:', 'http:', 'file:']) {
 }
 
 // As jiff writes a timestamp: UTC, to the second or a fraction of it.
-export function checkTime(value, where) {
-  if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?Z$/u.test(string(value, where)) || !isDateTime(value)) throw new LockfileError(`${quote(value)} is not a UTC timestamp`, where)
-  return value
-}
+const TIME = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?Z$/u
+export const checkTime = matching((time) => TIME.test(time) && isDateTime(time), 'a UTC timestamp')
 
-export const names = (value, where) => strings(value, where, checkNormalName)
+export const names = arrayOf(checkNormalName)
 
 // A table by name in normal form, each item as `read` makes it; empty where
 // there is none.
-export function byName(value, where, read) {
-  const map = Object.create(null)
-  if (value !== undefined) for (const [name, item, here] of entries(value, where)) map[checkNormalName(name, here)] = read(item, here)
-  return map
-}
+export const byName = (value, where, read) => tableOf(value, where, read, checkNormalName)

@@ -107,6 +107,12 @@ describe('a multi-use lockfile', () => {
     assert.deepEqual(plain(e.archive), { url: 'https://files.example.com/e-1.0.zip', hashes: { sha256: H }, subdirectory: 'src' })
     assert.deepEqual([c.version, c.wheels, c.sdist], [undefined, [], undefined])
   })
+
+  it('a VCS by a URL of any scheme, a file by one of https, http or file', () => {
+    const ssh = 'ssh://git@github.com/o/c.git'
+    assert.equal(parsePylock(edit(['url = "https://github.com/o/c"', `url = "${ssh}"`])).packages[3].vcs.url, ssh)
+    refuses(edit(['https://files.example.com/e-1.0.zip', 'ftp://files.example.com/e-1.0.zip']), '"ftp://files.example.com/e-1.0.zip" is not a URL of https, http, file', 'packages[5].archive.url')
+  })
 })
 
 describe('the format', () => {

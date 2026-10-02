@@ -5,21 +5,14 @@
 
 import { LockfileError, at, quote } from '../error.js'
 import { isCommit } from '../names.js'
-import { DIGESTS, checkDigest, checkPath, fileNameOf, parseSdistName, parseWheelName } from '../python/files.js'
-import { versionKey } from '../python/pep440.js'
+import { DIGESTS, checkDigest, checkFileOf, checkPath, fileNameOf } from '../python/files.js'
 import { field } from '../shape.js'
 import { TomlDateTime } from '../toml/datetime.js'
-import { array, boolean, entries, refuse, size, string, table, text } from '../toml/shape.js'
+import { arrayOf, boolean, distinct, entries, matching, refuse, size, string, table, text } from '../toml/shape.js'
 
-const FILE_SCHEMES = ['https:', 'http:', 'file:']
-
-// A URL, as written, of the schemes a file is fetched by, or, for a VCS,
-// any; parsed, for its path.
-function parseUrl(value, where, schemes = FILE_SCHEMES) {
-  const url = URL.parse(text(value, where))
-  if (url === null || (schemes !== undefined && !schemes.includes(url.protocol))) throw new LockfileError(`${quote(value)} is not a URL${schemes === undefined ? '' : ` of ${schemes.map((scheme) => scheme.slice(0, -1)).join(', ')}`}`, where)
-  return url
-}
+// A file's URL, of a scheme it is fetched by; a VCS's, of any.
+const checkFileUrl = matching((url) => ['https:', 'http:', 'file:'].includes(URL.parse(url)?.protocol), 'a URL of https, http, file', text)
+const checkVcsUrl = matching((url) => URL.canParse(url), 'a URL', text)
 
 // By algorithm, at least one, each digest of its size in lowercase hex.
 function readHashes(value, where) {
@@ -39,51 +32,35 @@ function readTime(value, where) {
   return value.text
 }
 
-// A file by URL or path, or both, and what else `fields` names; with the
-// URL's path, for the file's name.
+// A file by URL or path, or both, and what else `fields` names.
 function readFile(value, where, fields) {
   table(value, where, ['url', 'path', 'size', 'upload-time', 'hashes', ...fields])
   if (value.url === undefined && value.path === undefined) throw new LockfileError('expected a url or a path', where)
-  const url = field(value, 'url', where, parseUrl)
-  const file = {
-    url: url === undefined ? undefined : value.url,
+  return {
+    url: field(value, 'url', where, checkFileUrl),
     path: field(value, 'path', where, checkPath),
     size: field(value, 'size', where, size),
     uploadTime: field(value, 'upload-time', where, readTime),
     hashes: readHashes(value.hashes, at(where, 'hashes')),
   }
-  return { file, pathname: url?.pathname }
 }
 
 // A wheel's or an sdist's name, as given, or its path's or URL's, holds it
 // to the package: its name, and its version, where the package has one.
 function readDistribution(value, where, pkg, wheel) {
-  const given = field(value, 'name', where, text)
-  const { file, pathname } = readFile(value, where, ['name'])
-  const name = fileNameOf({ name: given, path: file.path, pathname })
-  if (name === undefined) throw new LockfileError(`${quote(file.url)} names no file`, where)
-  const parsed = wheel ? parseWheelName(name) : parseSdistName(name)
-  if (parsed === undefined) throw new LockfileError(`${quote(name)} is not the name of ${wheel ? 'a wheel' : 'an sdist, .tar.gz or .zip'}`, where)
-  if (parsed.name !== pkg.name) throw new LockfileError(`${quote(name)} is not a file of ${quote(pkg.name)}`, where)
-  if (pkg.versionKey !== undefined && versionKey(parsed.version) !== pkg.versionKey) throw new LockfileError(`${quote(name)} is not of version ${quote(pkg.version)}`, where)
-  return { name, ...file }
+  const file = readFile(value, where, ['name'])
+  const name = fileNameOf(field(value, 'name', where, text), file.path, file.url && new URL(file.url), where)
+  return { name: checkFileOf(name, wheel, pkg, where), ...file }
 }
 
 export const readSdist = (value, where, pkg) => (value === undefined ? undefined : readDistribution(value, where, pkg, false))
 
 export function readWheels(value, where, pkg) {
   if (value === undefined) return []
-  const seen = new Set()
-  return array(value, where).map((item, index) => {
-    const here = `${where}[${index}]`
-    const file = readDistribution(item, here, pkg, true)
-    if (seen.has(file.name)) throw new LockfileError(`${quote(file.name)} is listed twice`, here)
-    seen.add(file.name)
-    return file
-  })
+  return distinct(arrayOf((item, here) => readDistribution(item, here, pkg, true))(value, where), where, (wheel) => wheel.name)
 }
 
-export const readArchive = (value, where) => ({ ...readFile(value, where, ['subdirectory']).file, subdirectory: field(value, 'subdirectory', where, checkPath) })
+export const readArchive = (value, where) => ({ ...readFile(value, where, ['subdirectory']), subdirectory: field(value, 'subdirectory', where, checkPath) })
 
 export function readDirectory(value, where) {
   table(value, where, ['path', 'editable', 'subdirectory'])
@@ -106,7 +83,7 @@ export function readVcs(value, where) {
   if ((type === 'git' || type === 'hg') && !isCommit(commitId)) throw new LockfileError(`${quote(commitId)} is not a full commit hash, which the spec requires`, at(where, 'commit-id'))
   return {
     type,
-    url: field(value, 'url', where, (url, here) => parseUrl(url, here, undefined) && url),
+    url: field(value, 'url', where, checkVcsUrl),
     path: field(value, 'path', where, checkPath),
     requestedRevision: field(value, 'requested-revision', where, text),
     commitId,
@@ -114,12 +91,8 @@ export function readVcs(value, where) {
   }
 }
 
-// Each of a publisher's identities, its `kind` and its own keys as written.
-export function readAttestations(value, where) {
-  if (value === undefined) return []
-  return array(value, where).map((item, index) => {
-    const here = `${where}[${index}]`
-    text(table(item, here).kind, at(here, 'kind'))
-    return item
-  })
+// One of a publisher's identities, its `kind` and its own keys as written.
+export function readAttestation(value, where) {
+  text(table(value, where).kind, at(where, 'kind'))
+  return value
 }

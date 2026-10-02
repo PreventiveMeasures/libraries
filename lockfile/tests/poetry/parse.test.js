@@ -151,7 +151,7 @@ describe('packages', () => {
   it('refuses a marker of a group the package is not in, and no group', () => {
     refuses(edit(['markers = {dev', 'markers = {test']), '"test" is not one of the package\'s groups', 'package[1].markers.test')
     refuses(edit(['groups = ["main"]', 'groups = []']), 'expected a group at least', 'package[0].groups')
-    refuses(edit(['groups = ["main"]', 'groups = ["main", "Main"]']), '"Main" is listed twice', 'package[0].groups')
+    refuses(edit(['groups = ["main"]', 'groups = ["main", "Main"]']), '"main" is listed twice', 'package[0].groups[1]')
   })
 
   it('refuses develop but of a directory or git, and its absence there', () => {

@@ -213,8 +213,8 @@ describe('files', () => {
   })
 
   it('refuses a wheel of another name or version, and takes one of a local version', () => {
-    refuses(edit(['a-1.0.0-py3-none-any.whl', 'b-1.0.0-py3-none-any.whl']), '"b-1.0.0-py3-none-any.whl" is a wheel of "b", not of "a"', 'package[0].wheels[0]')
-    refuses(edit(['a-1.0.0-py3-none-any.whl', 'a-1.0.1-py3-none-any.whl']), '"a-1.0.1-py3-none-any.whl" is a wheel of another version than "1.0.0"', 'package[0].wheels[0]')
+    refuses(edit(['a-1.0.0-py3-none-any.whl', 'b-1.0.0-py3-none-any.whl']), '"b-1.0.0-py3-none-any.whl" is not a file of "a"', 'package[0].wheels[0]')
+    refuses(edit(['a-1.0.0-py3-none-any.whl', 'a-1.0.1-py3-none-any.whl']), '"a-1.0.1-py3-none-any.whl" is not of version "1.0.0"', 'package[0].wheels[0]')
     refuses(edit(['a-1.0.0-py3-none-any.whl', 'a-1.0.0-py3-none.whl']), '"a-1.0.0-py3-none.whl" is not the name of a wheel', 'package[0].wheels[0]')
     assert.equal(parseUvLock(edit(['a-1.0.0-py3-none-any.whl', 'a-1.0.0%2Blocal-py3-none-any.whl'])).packages[A].wheels[0].filename, 'a-1.0.0+local-py3-none-any.whl')
   })
@@ -245,7 +245,7 @@ describe('edges', () => {
 
   it('refuses an extra the package has no dependencies for, which uv drops', () => {
     refuses(edit(['extra = ["x"]', 'extra = ["y"]']), `"y", an extra "${A}" has no dependencies for, which uv drops`, 'package[4].dependencies[0]')
-    refuses(edit(['extra = ["x"]', 'extra = ["x", "x"]']), '"x" is listed twice', 'package[4].dependencies[0].extra')
+    refuses(edit(['extra = ["x"]', 'extra = ["x", "x"]']), '"x" is listed twice', 'package[4].dependencies[0].extra[1]')
   })
 
   it('refuses one edge twice alike', () => {

@@ -3,12 +3,12 @@
 // each package's [package.metadata]. A requirement is uv's own table of
 // one: a name, extras or groups, a marker, and where it may come from.
 
-import { LockfileError, at, quote } from '../error.js'
-import { DIGESTS, checkHash, checkPath } from '../python/files.js'
+import { LockfileError, at } from '../error.js'
+import { DIGESTS, checkPath, hashOf } from '../python/files.js'
 import { checkMarker, checkNormalName, checkRequirementText } from '../python/pep508.js'
 import { checkNormalVersion, checkSpecifiers } from '../python/pep440.js'
-import { field } from '../shape.js'
-import { array, string, strings, table } from '../toml/shape.js'
+import { field, orEmpty } from '../shape.js'
+import { arrayOf, matching, string, table } from '../toml/shape.js'
 import { isTable } from '../toml/value.js'
 import { byName, checkTime, checkUrl, names } from './shape.js'
 import { readGit } from './source.js'
@@ -56,11 +56,10 @@ function readRequirement(value, where, fields = REQUIREMENT) {
 // A build constraint is a requirement with its `hashes`, `algorithm:digest`.
 function readBuildConstraint(value, where) {
   const requirement = readRequirement(value, where, [...REQUIREMENT, 'hashes'])
-  return { ...requirement, hashes: field(value, 'hashes', where, (list, here) => strings(list, here, (hash, place) => checkHash(hash, place, DIGESTS))) ?? [] }
+  return { ...requirement, hashes: field(value, 'hashes', where, arrayOf(hashOf(DIGESTS))) ?? [] }
 }
 
-const listOf = (read) => (value, where) => array(value, where).map((item, index) => read(item, `${where}[${index}]`))
-const requirements = listOf(readRequirement)
+const requirements = arrayOf(readRequirement)
 const groupsOf = (value, where) => byName(value, where, requirements)
 
 // What a [[manifest.dependency-metadata]] gives in place of a package's
@@ -70,7 +69,7 @@ function readStaticMetadata(value, where) {
   return {
     name: checkNormalName(value.name, at(where, 'name')),
     version: field(value, 'version', where, checkNormalVersion),
-    requiresDist: field(value, 'requires-dist', where, (list, here) => strings(list, here, checkRequirementText)) ?? [],
+    requiresDist: field(value, 'requires-dist', where, arrayOf(checkRequirementText)) ?? [],
     requiresPython: field(value, 'requires-python', where, checkSpecifiers),
     providesExtras: field(value, 'provides-extras', where, names) ?? [],
   }
@@ -78,7 +77,7 @@ function readStaticMetadata(value, where) {
 
 // uv 0.12 writes an override of one package's dependencies as a table of
 // `package` and `dependencies`; that is not read here.
-const overrides = listOf((item, where) => {
+const overrides = arrayOf((item, where) => {
   if (isTable(item) && Object.hasOwn(item, 'package')) throw new LockfileError('an override of one package\'s dependencies, which is not read here', where)
   return readRequirement(item, where)
 })
@@ -95,19 +94,18 @@ export function readManifest(value = Object.create(null)) {
     constraints: list('constraints', requirements),
     overrides: list('overrides', overrides),
     excludes: list('excludes', names),
-    buildConstraints: list('build-constraints', listOf(readBuildConstraint)),
+    buildConstraints: list('build-constraints', arrayOf(readBuildConstraint)),
     dependencyGroups: groupsOf(value['dependency-groups'], at(where, 'dependency-groups')),
-    dependencyMetadata: list('dependency-metadata', listOf(readStaticMetadata)),
+    dependencyMetadata: list('dependency-metadata', arrayOf(readStaticMetadata)),
   }
 }
 
 export function readMetadata(value, where) {
-  if (value === undefined) return { requiresDist: [], providesExtras: [], requiresDev: Object.create(null) }
-  table(value, where, ['requires-dist', 'provides-extras', 'requires-dev'])
+  const metadata = table(orEmpty(value), where, ['requires-dist', 'provides-extras', 'requires-dev'])
   return {
-    requiresDist: field(value, 'requires-dist', where, requirements) ?? [],
-    providesExtras: field(value, 'provides-extras', where, names) ?? [],
-    requiresDev: groupsOf(value['requires-dev'], at(where, 'requires-dev')),
+    requiresDist: field(metadata, 'requires-dist', where, requirements) ?? [],
+    providesExtras: field(metadata, 'provides-extras', where, names) ?? [],
+    requiresDev: groupsOf(metadata['requires-dev'], at(where, 'requires-dev')),
   }
 }
 
@@ -119,12 +117,8 @@ const mode = (...values) => (value, where) => {
 const prerelease = mode('disallow', 'allow', 'if-necessary', 'explicit', 'if-necessary-or-explicit')
 
 // An ISO 8601 duration, as jiff writes a span.
-function checkSpan(value, where) {
-  if (!/^P(?!$)(?:\d+Y)?(?:\d+M)?(?:\d+W)?(?:\d+D)?(?:T(?=\d)(?:\d+H)?(?:\d+M)?(?:\d+(?:\.\d{1,9})?S)?)?$/u.test(string(value, where))) {
-    throw new LockfileError(`${quote(value)} is not an ISO 8601 duration`, where)
-  }
-  return value
-}
+const SPAN = /^P(?!$)(?:\d+Y)?(?:\d+M)?(?:\d+W)?(?:\d+D)?(?:T(?=\d)(?:\d+H)?(?:\d+M)?(?:\d+(?:\.\d{1,9})?S)?)?$/u
+const checkSpan = matching((span) => SPAN.test(span), 'an ISO 8601 duration')
 
 function cutoff(value, where) {
   if (value === false) return false
@@ -133,13 +127,11 @@ function cutoff(value, where) {
   return { timestamp: checkTime(value.timestamp, at(where, 'timestamp')), span: checkSpan(value.span, at(where, 'span')) }
 }
 
+const libcVersion = matching((version) => /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(version), 'a libc version')
+
 function libc(value, where) {
   table(value, where, ['glibc', 'musl'])
-  const version = (item, here) => {
-    if (!/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(string(item, here))) throw new LockfileError(`${quote(item)} is not a libc version`, here)
-    return item
-  }
-  return { glibc: field(value, 'glibc', where, version), musl: field(value, 'musl', where, version) }
+  return { glibc: field(value, 'glibc', where, libcVersion), musl: field(value, 'musl', where, libcVersion) }
 }
 
 const OPTIONS = ['resolution-mode', 'prerelease-mode', 'fork-strategy', 'exclude-newer', 'exclude-newer-span', 'exclude-newer-package', 'prerelease-package', 'minimum-libc-version']
@@ -161,13 +153,8 @@ export function readOptions(value = Object.create(null)) {
   }
 }
 
-export function readConflicts(value) {
-  const where = 'conflicts'
-  if (value === undefined) return []
-  return array(value, where).map((set, index) => {
-    const here = `${where}[${index}]`
-    const items = listOf(readConflictItem)(set, here)
-    if (items.length < 2) throw new LockfileError('a set of conflicts of fewer than two, which uv refuses', here)
-    return items
-  })
-}
+export const readConflicts = arrayOf((value, where) => {
+  const items = arrayOf(readConflictItem)(value, where)
+  if (items.length < 2) throw new LockfileError('a set of conflicts of fewer than two, which uv refuses', where)
+  return items
+})

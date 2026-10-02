@@ -4,14 +4,13 @@
 // or a git archive's file by its hash alone; nothing of a source tree.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkHash, checkPath, fileNameOf, parseWheelName } from '../python/files.js'
-import { versionKey } from '../python/pep440.js'
+import { checkFileOf, checkPath, fileNameOf, hashOf } from '../python/files.js'
 import { field } from '../shape.js'
-import { array, size, string, table } from '../toml/shape.js'
+import { array, distinct, size, string, table } from '../toml/shape.js'
 import { checkTime, checkUrl } from './shape.js'
 
 // The algorithms uv's HashDigest reads, blake2b as blake2b-256.
-const HASHES = { __proto__: null, md5: 32, sha256: 64, sha384: 96, sha512: 128, blake2b: 64 }
+const checkHash = hashOf({ __proto__: null, md5: 32, sha256: 64, sha384: 96, sha512: 128, blake2b: 64 })
 
 // The path of the archive a source is itself: a URL's, a path's, or one in
 // a git repository; undefined for a registry or a source tree.
@@ -32,7 +31,8 @@ function locations(source, wheel) {
 }
 
 // A registry's file may have a hash, a size and an upload time; the file a
-// source is itself has its hash alone, always.
+// source is itself has its hash alone, always. A wheel's comes with its
+// file's name.
 function readFile(value, where, source, wheel) {
   const places = locations(source, wheel)
   const registry = source.type === 'registry'
@@ -45,21 +45,19 @@ function readFile(value, where, source, wheel) {
   const file = {
     url: url?.href,
     path: field(value, 'path', where, checkPath),
-    filename: field(value, 'filename', where, string),
-    hash: field(value, 'hash', where, (hash, here) => checkHash(hash, here, HASHES)),
+    hash: field(value, 'hash', where, checkHash),
     size: field(value, 'size', where, size),
     uploadTime: field(value, value.upload_time === undefined ? 'upload-time' : 'upload_time', where, checkTime),
   }
   if (!registry && file.hash === undefined) throw new LockfileError(`expected a hash, which uv writes for a file of a ${source.type} source`, where)
-  return { file, pathname: url?.pathname }
+  return wheel ? { ...file, filename: fileNameOf(field(value, 'filename', where, string), file.path, url, where) } : file
 }
 
 export function readSdist(value, where, source) {
   if (value === undefined) return undefined
   const kind = kindOf(archiveOf(source))
   if (source.type !== 'registry' && kind !== 'sdist') throw new LockfileError(`an sdist, which a ${source.type} source${kind === 'wheel' ? ' of a wheel' : ''} has none of`, where)
-  const { url, path, hash, size: bytes, uploadTime } = readFile(value, where, source, false).file
-  return { url, path, hash, size: bytes, uploadTime }
+  return readFile(value, where, source, false)
 }
 
 // Each wheel is of the package, and its version is the package's, or the
@@ -72,20 +70,12 @@ export function readWheels(value, where, pkg) {
   if (source.type !== 'registry' && (kind !== 'wheel' || list.length !== 1)) {
     throw new LockfileError(kind === 'wheel' ? 'expected the one wheel the source is' : `wheels, which a ${source.type} source${kind === 'sdist' ? ' of an sdist' : ''} has none of`, where)
   }
-  const seen = new Set()
-  return list.map((item, index) => {
+  const wheels = list.map((item, index) => {
     const here = `${where}[${index}]`
-    const { file, pathname } = readFile(item, here, source, true)
-    const name = fileNameOf({ name: file.filename, path: file.path, pathname })
-    const parsed = name === undefined ? undefined : parseWheelName(name)
-    if (parsed === undefined) throw new LockfileError(`${quote(String(name))} is not the name of a wheel`, here)
-    if (seen.has(name)) throw new LockfileError(`${quote(name)} is listed twice`, here)
-    seen.add(name)
-    if (parsed.name !== pkg.name) throw new LockfileError(`${quote(name)} is a wheel of ${quote(parsed.name)}, not of ${quote(pkg.name)}`, here)
-    if (pkg.versionKey !== undefined && pkg.versionKey !== versionKey(parsed.version) && pkg.versionKey !== versionKey({ ...parsed.version, local: undefined })) {
-      throw new LockfileError(`${quote(name)} is a wheel of another version than ${quote(pkg.version)}`, here)
-    }
-    if (source.type === 'url' && file.url !== source.url) throw new LockfileError(`${quote(file.url)} is not the URL the source names`, at(here, 'url'))
-    return { ...file, filename: name }
+    const wheel = readFile(item, here, source, true)
+    if (source.type === 'url' && wheel.url !== source.url) throw new LockfileError(`${quote(wheel.url)} is not the URL the source names`, at(here, 'url'))
+    checkFileOf(wheel.filename, true, pkg, here, true)
+    return wheel
   })
+  return distinct(wheels, where, (wheel) => wheel.filename)
 }

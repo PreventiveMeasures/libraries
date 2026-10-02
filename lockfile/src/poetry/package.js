@@ -5,24 +5,19 @@
 // here.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkRepo, isCommit, isHttpUrl } from '../names.js'
-import { DIGESTS, checkHash, checkPath } from '../python/files.js'
+import { checkRepo, isCommit } from '../names.js'
+import { DIGESTS, checkHttpUrl, checkPath, hashOf } from '../python/files.js'
 import { checkMarker, checkName, checkRequirementText, normalName } from '../python/pep508.js'
 import { field } from '../shape.js'
-import { array, boolean, entries, string, strings, table, text } from '../toml/shape.js'
+import { arrayOf, boolean, distinct, entries, matching, oneOf, string, table, tableOf, text } from '../toml/shape.js'
 
 // The hashes Poetry takes from an index: hashlib's, by name.
-const HASHES = Object.fromEntries(['md5', 'sha1', 'sha224', 'sha256', 'sha384', 'sha512'].map((algorithm) => [algorithm, DIGESTS[algorithm]]))
+const checkHash = hashOf(Object.fromEntries(['md5', 'sha1', 'sha224', 'sha256', 'sha384', 'sha512'].map((algorithm) => [algorithm, DIGESTS[algorithm]])))
 
 // A repository Poetry clones: a URL, or git's `user@host:path`.
 function checkRepository(value, where) {
   const url = URL.parse(checkRepo(text(value, where), where))
   if (!/^[\w.-]+@[\w.-]+:./u.test(value) && (url === null || !['https:', 'http:', 'ssh:', 'git:', 'file:'].includes(url.protocol))) throw new LockfileError(`${quote(value)} is not a repository URL`, where)
-  return value
-}
-
-function checkHttpUrl(value, where) {
-  if (!isHttpUrl(text(value, where))) throw new LockfileError(`${quote(value)} is not an http(s) URL`, where)
   return value
 }
 
@@ -51,16 +46,13 @@ function readKind(type, value, where) {
 // repository; a string is a version alone.
 function readConstraint(value, where) {
   if (typeof value === 'string') return { type: 'version', version: text(value, where), extras: [], optional: false, markers: undefined }
-  table(value, where, DEPENDENCY)
-  const kinds = KINDS.filter((key) => value[key] !== undefined)
-  if (kinds.length !== 1) throw new LockfileError(`expected one of ${KINDS.join(', ')}, found ${kinds.length === 0 ? 'none' : kinds.join(' and ')}`, where)
-  const [type] = kinds
+  const type = oneOf(table(value, where, DEPENDENCY), KINDS, where)
   const stray = DEPENDENCY.find((key) => value[key] !== undefined && !OWN[type].includes(key) && !COMMON.has(key))
   if (stray !== undefined) throw new LockfileError(`a field Poetry does not write for a ${type} dependency`, at(where, stray))
   return {
     type,
     ...readKind(type, value, where),
-    extras: field(value, 'extras', where, (list, here) => strings(list, here, checkName)) ?? [],
+    extras: field(value, 'extras', where, arrayOf(checkName)) ?? [],
     optional: field(value, 'optional', where, boolean) ?? false,
     markers: field(value, 'markers', where, checkMarker),
   }
@@ -83,28 +75,20 @@ export function readDependencies(value, where) {
   return dependencies
 }
 
-// Each file by its name, with its hash.
-export function readFiles(value, where) {
-  const seen = new Set()
-  return array(value, where).map((item, index) => {
-    const here = `${where}[${index}]`
-    table(item, here, ['file', 'hash'])
-    const file = text(item.file, at(here, 'file'))
-    if (file.includes('/') || file.includes('\\')) throw new LockfileError(`${quote(file)} is not a file's name`, at(here, 'file'))
-    if (seen.has(file)) throw new LockfileError(`${quote(file)} is listed twice`, here)
-    seen.add(file)
-    return { file, hash: checkHash(item.hash, at(here, 'hash'), HASHES) }
-  })
+const checkFileName = matching((file) => !/[/\\]/u.test(file), 'a file\'s name', text)
+
+function readFile(value, where) {
+  table(value, where, ['file', 'hash'])
+  return { file: checkFileName(value.file, at(where, 'file')), hash: checkHash(value.hash, at(where, 'hash')) }
 }
+
+// Each file by its name, with its hash.
+export const readFiles = (value, where) => distinct(arrayOf(readFile)(value, where), where, (file) => file.file)
 
 // What each extra adds, in PEP 508's text, as Poetry writes it from the
 // package's metadata. Poetry reads one that is not PEP 508 with a fallback
 // that takes nearly anything; it is refused here.
-export function readExtras(value, where) {
-  const extras = Object.create(null)
-  if (value !== undefined) for (const [extra, list, here] of entries(value, where)) extras[checkName(extra, here)] = strings(list, here, checkRequirementText)
-  return extras
-}
+export const readExtras = (value, where) => tableOf(value, where, arrayOf(checkRequirementText), checkName)
 
 const SOURCES = {
   legacy: ['url', 'reference'],
@@ -114,10 +98,7 @@ const SOURCES = {
   directory: ['url'],
 }
 
-function readCommit(value, where) {
-  if (!isCommit(string(value, where))) throw new LockfileError(`${quote(value)} is not a full commit hash, as Poetry writes`, where)
-  return value
-}
+const checkCommit = matching(isCommit, 'a full commit hash, as Poetry writes')
 
 // Where a package comes from, if not PyPI: an index by its URL and name, a
 // git repository at a commit, an archive by URL, or by path, or a
@@ -135,7 +116,7 @@ export function readSource(value, where) {
     type,
     url: checkRepository(value.url, url),
     reference: field(value, 'reference', where, text),
-    commit: readCommit(value.resolved_reference, at(where, 'resolved_reference')),
+    commit: checkCommit(value.resolved_reference, at(where, 'resolved_reference')),
     subdirectory,
   }
 }

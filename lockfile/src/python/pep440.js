@@ -5,7 +5,7 @@
 // a TOML lockfile, and refuses anything but a string as its readers do.
 
 import { LockfileError, quote } from '../error.js'
-import { string } from '../toml/shape.js'
+import { matching, string } from '../toml/shape.js'
 
 const NUMBER = '[0-9]+'
 const PRE = `[-_.]?(alpha|a|beta|b|preview|pre|c|rc)[-_.]?(${NUMBER})?`
@@ -55,10 +55,7 @@ export function versionKey(parsed) {
 // The key of a version known to be one.
 export const versionKeyOf = (version) => versionKey(parseVersion(version))
 
-export function checkVersion(value, where) {
-  if (parseVersion(string(value, where)) === undefined) throw new LockfileError(`${quote(value)} is not a version`, where)
-  return value
-}
+export const checkVersion = matching((text) => parseVersion(text) !== undefined, 'a version')
 
 // A version in the normal form, as uv writes every one.
 export function checkNormalVersion(value, where) {
@@ -100,7 +97,4 @@ function isClause(clause) {
 // requires-python and a requirement's version take. Not empty.
 export const isSpecifiers = (text) => text.split(',').every((clause) => isClause(trimBlanks(clause)))
 
-export function checkSpecifiers(value, where) {
-  if (!isSpecifiers(string(value, where))) throw new LockfileError(`${quote(value)} is not a list of version specifiers`, where)
-  return value
-}
+export const checkSpecifiers = matching(isSpecifiers, 'a list of version specifiers')

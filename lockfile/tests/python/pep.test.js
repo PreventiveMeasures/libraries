@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { DIGESTS, checkHash, parseSdistName, parseWheelName } from '../../src/python/files.js'
+import { DIGESTS, hashOf, parseSdistName, parseWheelName } from '../../src/python/files.js'
 import { checkNormalVersion, checkSpecifiers, normalVersion, parseVersion, versionKey } from '../../src/python/pep440.js'
 import { checkMarker, checkNormalName, checkRequirementText, isName, normalName } from '../../src/python/pep508.js'
 
@@ -108,8 +108,9 @@ describe('files', () => {
   })
 
   it('hashes, `algorithm:hex`, of the size each algorithm makes', () => {
-    assert.equal(checkHash(`sha256:${'a'.repeat(64)}`, 'h', DIGESTS), `sha256:${'a'.repeat(64)}`)
-    assert.throws(() => checkHash(`sha256:${'a'.repeat(63)}`, 'h', DIGESTS), /is not a sha256 digest in lowercase hex/u)
-    assert.throws(() => checkHash(`sha256=${'a'.repeat(64)}`, 'h', DIGESTS), /is not a hash of md5, sha1/u)
+    const checkHash = hashOf(DIGESTS)
+    assert.equal(checkHash(`sha256:${'a'.repeat(64)}`, 'h'), `sha256:${'a'.repeat(64)}`)
+    assert.throws(() => checkHash(`sha256:${'a'.repeat(63)}`, 'h'), /is not a sha256 digest in lowercase hex/u)
+    assert.throws(() => checkHash(`sha256=${'a'.repeat(64)}`, 'h'), /is not a hash of md5, sha1/u)
   })
 })

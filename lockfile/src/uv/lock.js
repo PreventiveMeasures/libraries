@@ -8,7 +8,7 @@ import { LockfileError, at, quote } from '../error.js'
 import { checkMarker, checkNormalName } from '../python/pep508.js'
 import { checkNormalVersion, checkSpecifiers, versionKeyOf } from '../python/pep440.js'
 import { field } from '../shape.js'
-import { array, kind, strings, table } from '../toml/shape.js'
+import { arrayOf, distinct, kind, table, tableOf } from '../toml/shape.js'
 import { parseToml } from '../toml/parse.js'
 import { readSdist, readWheels } from './artifacts.js'
 import { readConflicts, readManifest, readMetadata, readOptions } from './inputs.js'
@@ -34,43 +34,48 @@ function checkLockVersion(value, where) {
   throw new LockfileError(`unsupported version: expected 1, found ${kind(value)}`, where)
 }
 
-const markers = (value, where) => (value === undefined ? [] : strings(value, where, checkMarker))
+const markers = (value, where) => (value === undefined ? [] : arrayOf(checkMarker)(value, where))
+
+const extrasOf = (value, where) => distinct(names(value, where), where)
 
 const keyOf = (name, version, sourceId) => `${name}${version === undefined ? '' : `==${version}`} @ ${sourceId}`
 
 function readEdge(value, where) {
   table(value, where, EDGE)
-  const extras = field(value, 'extra', where, names) ?? []
-  if (new Set(extras).size !== extras.length) throw new LockfileError(`${quote(extras.find((extra, i) => extras.indexOf(extra) !== i))} is listed twice`, at(where, 'extra'))
   return {
     name: checkNormalName(value.name, at(where, 'name')),
     version: field(value, 'version', where, checkNormalVersion),
     source: field(value, 'source', where, readSource),
-    extras,
+    extras: field(value, 'extra', where, extrasOf) ?? [],
     marker: field(value, 'marker', where, checkMarker),
     where,
   }
 }
 
-const edges = (value, where) => (value === undefined ? [] : array(value, where).map((item, index) => readEdge(item, `${where}[${index}]`)))
+const edges = (value, where) => (value === undefined ? [] : arrayOf(readEdge)(value, where))
 
+// A package, with its key and its version's; its edges are as written
+// until every package is read, and parseUvLock resolves them.
 function readPackage(value, where) {
   table(value, where, PACKAGE, PACKAGE_REFUSED)
   const name = checkNormalName(value.name, at(where, 'name'))
   const source = readSource(value.source, at(where, 'source'))
   const version = field(value, 'version', where, checkNormalVersion)
   if (version === undefined && !isTree(source)) throw new LockfileError(`expected a version, which uv writes of any but a source tree's package`, where)
-  const identity = { key: keyOf(name, version, source.id), name, version, versionKey: version === undefined ? undefined : versionKeyOf(version), source }
-  return {
-    ...identity,
+  const versionKey = version === undefined ? undefined : versionKeyOf(version)
+  const pkg = {
+    name,
+    version,
+    source,
     resolutionMarkers: markers(value['resolution-markers'], at(where, 'resolution-markers')),
+    dependencies: edges(value.dependencies, at(where, 'dependencies')),
+    optionalDependencies: byName(value['optional-dependencies'], at(where, 'optional-dependencies'), edges),
+    devDependencies: byName(value['dev-dependencies'], at(where, 'dev-dependencies'), edges),
     sdist: readSdist(value.sdist, at(where, 'sdist'), source),
-    wheels: readWheels(value.wheels, at(where, 'wheels'), identity),
-    edges: edges(value.dependencies, at(where, 'dependencies')),
-    extraEdges: byName(value['optional-dependencies'], at(where, 'optional-dependencies'), edges),
-    groupEdges: byName(value['dev-dependencies'], at(where, 'dev-dependencies'), edges),
+    wheels: readWheels(value.wheels, at(where, 'wheels'), { name, version, versionKey, source }),
     metadata: readMetadata(value.metadata, at(where, 'metadata')),
   }
+  return { key: keyOf(name, version, source.id), versionKey, pkg }
 }
 
 const idOf = (name, key, sourceId) => `${name} ${key} ${sourceId}`
@@ -85,15 +90,15 @@ function resolveEdge(edge, index) {
   }
   const named = index.byName.get(edge.name) ?? fail(`${quote(edge.name)} names no package in the lockfile`)
   const only = named.length === 1 ? named[0] : undefined
-  const sourceId = edge.source?.id ?? only?.source.id ?? fail(`${quote(edge.name)} could be any of ${named.length} packages, and names no source`)
+  const sourceId = edge.source?.id ?? only?.pkg.source.id ?? fail(`${quote(edge.name)} could be any of ${named.length} packages, and names no source`)
   if (edge.version === undefined && only === undefined && !isTree(edge.source)) fail(`${quote(edge.name)} could be any of ${named.length} versions, and names none`)
-  const key = edge.version === undefined ? only?.versionKey : versionKeyOf(edge.version)
-  const found = index.byId.get(idOf(edge.name, key, sourceId)) ?? fail(`names a package the lockfile does not hold: ${quote(keyOf(edge.name, edge.version, sourceId))}`)
-  if (edge.version !== undefined && edge.version !== found.version) fail(`${quote(edge.version)}, where the package is ${quote(found.version)}`)
+  const versionKey = edge.version === undefined ? only?.versionKey : versionKeyOf(edge.version)
+  const { key, pkg } = index.byId.get(idOf(edge.name, versionKey, sourceId)) ?? fail(`names a package the lockfile does not hold: ${quote(keyOf(edge.name, edge.version, sourceId))}`)
+  if (edge.version !== undefined && edge.version !== pkg.version) fail(`${quote(edge.version)}, where the package is ${quote(pkg.version)}`)
   for (const extra of edge.extras) {
-    if (!(extra in found.extraEdges)) fail(`${quote(extra)}, an extra ${quote(found.key)} has no dependencies for, which uv drops`)
+    if (!(extra in pkg.optionalDependencies)) fail(`${quote(extra)}, an extra ${quote(key)} has no dependencies for, which uv drops`)
   }
-  return { package: found.key, extras: edge.extras, marker: edge.marker }
+  return { package: key, extras: edge.extras, marker: edge.marker }
 }
 
 function resolveAll(list, index, where) {
@@ -107,18 +112,12 @@ function resolveAll(list, index, where) {
   return resolved
 }
 
-function resolveLists(lists, index, where) {
-  const resolved = Object.create(null)
-  for (const [key, list] of Object.entries(lists)) resolved[key] = resolveAll(list, index, at(where, key))
-  return resolved
-}
-
 // The workspace's own packages: its members, each a source tree, or the
 // one at its root where it names none.
 function membersOf(manifest, read, lookup) {
-  if (manifest.members.length === 0) return read.filter((pkg) => isTree(pkg.source) && pkg.source.path === '.').map((pkg) => pkg.key)
+  if (manifest.members.length === 0) return read.filter(({ pkg }) => isTree(pkg.source) && pkg.source.path === '.').map(({ key }) => key)
   return manifest.members.map((name, index) => {
-    const found = (lookup.byName.get(name) ?? []).filter((pkg) => isTree(pkg.source))
+    const found = (lookup.byName.get(name) ?? []).filter(({ pkg }) => isTree(pkg.source))
     if (found.length !== 1) throw new LockfileError(`${quote(name)} is ${found.length === 0 ? 'no package' : 'more than one package'} of a directory in the lockfile`, `manifest.members[${index}]`)
     return found[0].key
   })
@@ -130,28 +129,21 @@ export function parseUvLock(text) {
   const version = checkLockVersion(doc.version, 'version')
   const revision = checkRevision(doc.revision, 'revision')
   const requiresPython = checkSpecifiers(doc['requires-python'], 'requires-python')
-  const read = array(doc.package ?? [], 'package').map((item, index) => readPackage(item, `package[${index}]`))
-  const index = { byName: Map.groupBy(read, (pkg) => pkg.name), byId: new Map() }
-  for (const [i, pkg] of read.entries()) {
-    const id = idOf(pkg.name, pkg.versionKey, pkg.source.id)
-    if (index.byId.has(id)) throw new LockfileError(`${quote(pkg.key)} is listed twice, first as package[${read.indexOf(index.byId.get(id))}]`, `package[${i}]`)
-    index.byId.set(id, pkg)
+  const read = arrayOf(readPackage)(doc.package ?? [], 'package')
+  const index = { byName: Map.groupBy(read, ({ pkg }) => pkg.name), byId: new Map() }
+  for (const [i, entry] of read.entries()) {
+    const id = idOf(entry.pkg.name, entry.versionKey, entry.pkg.source.id)
+    if (index.byId.has(id)) throw new LockfileError(`${quote(entry.key)} is listed twice, first as package[${read.indexOf(index.byId.get(id))}]`, `package[${i}]`)
+    index.byId.set(id, entry)
   }
+  const resolve = (list, where) => resolveAll(list, index, where)
   const packages = Object.create(null)
-  for (const [i, pkg] of read.entries()) {
+  for (const [i, { key, pkg }] of read.entries()) {
     const where = `package[${i}]`
-    packages[pkg.key] = {
-      name: pkg.name,
-      version: pkg.version,
-      source: pkg.source,
-      resolutionMarkers: pkg.resolutionMarkers,
-      dependencies: resolveAll(pkg.edges, index, at(where, 'dependencies')),
-      optionalDependencies: resolveLists(pkg.extraEdges, index, at(where, 'optional-dependencies')),
-      devDependencies: resolveLists(pkg.groupEdges, index, at(where, 'dev-dependencies')),
-      sdist: pkg.sdist,
-      wheels: pkg.wheels,
-      metadata: pkg.metadata,
-    }
+    pkg.dependencies = resolve(pkg.dependencies, at(where, 'dependencies'))
+    pkg.optionalDependencies = tableOf(pkg.optionalDependencies, at(where, 'optional-dependencies'), resolve)
+    pkg.devDependencies = tableOf(pkg.devDependencies, at(where, 'dev-dependencies'), resolve)
+    packages[key] = pkg
   }
   const manifest = readManifest(doc.manifest)
   return {
@@ -161,7 +153,7 @@ export function parseUvLock(text) {
     resolutionMarkers: markers(doc['resolution-markers'], 'resolution-markers'),
     supportedMarkers: markers(doc['supported-markers'], 'supported-markers'),
     requiredMarkers: markers(doc['required-markers'], 'required-markers'),
-    conflicts: readConflicts(doc.conflicts),
+    conflicts: field(doc, 'conflicts', '', readConflicts) ?? [],
     options: readOptions(doc.options),
     manifest,
     members: membersOf(manifest, read, index),
