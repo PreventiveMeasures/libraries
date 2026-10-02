@@ -26,6 +26,8 @@ const files = [
   new URL('cargo.d.ts', PKG_DIR),
   new URL('foundry.js', PKG_DIR),
   new URL('foundry.d.ts', PKG_DIR),
+  new URL('npm.js', PKG_DIR),
+  new URL('npm.d.ts', PKG_DIR),
   new URL('pnpm.js', PKG_DIR),
   new URL('pnpm.d.ts', PKG_DIR),
   new URL('poetry.js', PKG_DIR),
