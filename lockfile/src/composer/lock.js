@@ -55,18 +55,19 @@ function readTop(doc) {
 }
 
 // `{}` or `[]` where empty, as each Composer writes all three, and sorted
-// where Composer sorts them: by 2.8 and later, Locker::fixupJsonDataType,
-// which writes `{}`, and so by any of plugin-api-version 2.9.0, which 2.9
-// and later write; 2.6.0 is 2.8's, and 2.6's and 2.7's, which write `[]`.
+// where Composer sorts them: `[]` before 2.8, and `{}` by 2.8 and later,
+// Locker::fixupJsonDataType, which sorts. Of plugin-api-version 2.9.0,
+// Composer 2.9 and later, `{}`; of 2.6.0, 2.6 to 2.8, either; of those
+// before, `[]`.
 function checkEmpties(doc, pluginApiVersion) {
   const empty = EMPTIES.filter((key) => (Array.isArray(doc[key]) ? doc[key].length === 0 : isEmptyObject(doc[key])))
-  const objects = empty.filter((key) => isEmptyObject(doc[key]))
-  const sorted = objects.length > 0 || pluginApiVersion === '2.9.0'
+  const object = empty.find((key) => isEmptyObject(doc[key]))
   const list = empty.find((key) => !isEmptyObject(doc[key]))
-  if (sorted && list !== undefined) {
-    throw new LockfileError(objects.length > 0 ? `"[]", where ${quote(objects[0])} is "{}", as no Composer writes them both` : '"[]", which Composer of plugin-api-version 2.9.0 writes as "{}"', list)
-  }
-  return sorted
+  const writes = pluginApiVersion === '2.9.0' ? '{}' : pluginApiVersion === '2.6.0' ? undefined : '[]'
+  const unlike = writes === '{}' ? list : writes === '[]' ? object : undefined
+  if (unlike !== undefined) throw new LockfileError(`"${writes === '{}' ? '[]' : '{}'}", which Composer of plugin-api-version ${pluginApiVersion} writes as "${writes}"`, unlike)
+  if (object !== undefined && list !== undefined) throw new LockfileError(`"[]", where ${quote(object)} is "{}", as no Composer writes them both`, list)
+  return object !== undefined || pluginApiVersion === '2.9.0'
 }
 
 // A mapping, or `[]` for an empty one, as Composer 2.7 and older write it.
