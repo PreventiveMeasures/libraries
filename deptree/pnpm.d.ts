@@ -112,14 +112,23 @@ export interface PnpmProject {
 // is read only with `project` given, and only where the directory is
 // under the lockfile's and holds a package.json there. pnpm links to it by a
 // path alone or `link:`. By `file:` it installs it as a package, of the
-// files npm-packlist's built-in rules keep — with pnpm 12, its own port's
-// — which are followed here alone: a directory with a .npmignore or
-// .gitignore, a package.json with `files` or bundled dependencies, or a
-// link in it, is refused. pnpm hardlinks those files from the directory
-// into each snapshot of the package, so a file linking a bin makes
-// executable is made so in every snapshot and in the directory, which is
-// not written here; a CRLF `#!` line it rewrites is rewritten as a file of
-// that snapshot's own. Where it builds the package — an install script, a
+// files its packlist picks — npm-packlist 5.1.3 for pnpm 9 and 10, 10.0.4
+// for pnpm 11, and pnpm 12's own port of it — which each is followed here
+// as that version runs: by package.json's `files`, `main`, `bin` and, but
+// for pnpm 12, `browser`; by the .npmignore and .gitignore files where it
+// reads them; and by its own rules, case and all, odd steps among them,
+// such as pnpm 9 and 10 keeping what a `files` glob takes that their rules
+// leave out, or the minimatch pnpm 10 bundles from 10.31 matching `**`
+// otherwise. Of glob syntax only `*`, `?` and `**` are followed, which all
+// read alike: a pattern with braces, a class, an extglob or a backslash is
+// refused, and so are a link the walk comes on, bundled dependencies,
+// `files` that is not a list of strings, a file kept by a path a pattern
+// spells with a `.` part, and a package.json with a byte order mark for
+// pnpm 11 before 11.28, which fails on it. pnpm hardlinks those files from
+// the directory into each snapshot of the package, so a file linking a bin
+// makes executable is made so in every snapshot and in the directory, which
+// is not written here; a CRLF `#!` line it rewrites is rewritten as a file
+// of that snapshot's own. Where it builds the package — an install script, a
 // binding.gyp, which pnpm 11 and 12 pass over with `gypfile: false`, or a
 // .hooks directory — or, with pnpm 11 and 12, where packageImportMethod is
 // other than auto or hardlink, each snapshot has a copy of its own

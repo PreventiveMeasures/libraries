@@ -32,12 +32,12 @@ export function checkLocalOverrides(overrides, project) {
 }
 
 // The lockfile records no version for a `file:` dependency's directory.
-export function readDirectoryPackage(project, pkg, where, major) {
+export function readDirectoryPackage(project, pkg, where, host) {
   const { directory } = pkg.resolution
   const manifest = manifestAt(project, directory, where)
   if (manifest.name !== pkg.name) throw new DeptreeError(`its package.json is for ${quote(String(manifest.name))}`, where)
-  const files = packDirectory(project, directory, manifest, major, where)
-  checkManifest(manifest, pkg, where, major)
+  const files = packDirectory(project, directory, manifest, host.pnpm, where)
+  checkManifest(manifest, pkg, where, host.major)
   return { files, manifest, local: true }
 }
 

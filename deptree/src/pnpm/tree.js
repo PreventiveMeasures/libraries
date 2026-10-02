@@ -57,18 +57,18 @@ function checkSource(node, installed) {
 
 // By name@version, as the lockfile reader gives a package's snapshots one
 // resolution and manifest.
-async function fetchAll(nodes, project, major) {
+async function fetchAll(nodes, project, host) {
   const packages = new Map([...nodes.values()].map(({ key, pkg }) => [packageKeyOf(key), pkg]))
   const fetched = new Map()
   await eachConcurrently(packages, async ([id, pkg]) => {
-    fetched.set(id, pkg.resolution.type === 'directory' ? readDirectoryPackage(project, pkg, quote(id), major) : await fetchPackage(pkg, quote(id), major))
+    fetched.set(id, pkg.resolution.type === 'directory' ? readDirectoryPackage(project, pkg, quote(id), host) : await fetchPackage(pkg, quote(id), host.major))
   }, ([id]) => quote(id))
   return fetched
 }
 
-async function fetchNodes(nodes, lockfile, hook, project, major) {
-  const fetched = await fetchAll(nodes, project, major)
-  const fresh = createFreshnessCheck(lockfile, major)
+async function fetchNodes(nodes, lockfile, hook, project, host) {
+  const fetched = await fetchAll(nodes, project, host)
+  const fresh = createFreshnessCheck(lockfile, host.major)
   const byDir = new Map()
   for (const node of nodes.values()) {
     const id = packageKeyOf(node.key)
@@ -234,7 +234,7 @@ export async function buildPnpmTree(options) {
   const { nodes, direct, hoisting } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, major)
   for (const node of nodes.values()) checkSource(node, installed)
 
-  const { byDir, tarballs } = await fetchNodes(nodes, lockfile, hook, project, major)
+  const { byDir, tarballs } = await fetchNodes(nodes, lockfile, hook, project, host)
   const links = linksOf(byDir, direct, settings, projects, major, hoisting)
   const linked = readLinked(links, byDir, manifests, project)
   const targets = binTargets({
