@@ -1,15 +1,10 @@
-// What npm-install-checks makes of a package on the host: checkPlatform,
-// by its os, cpu and libc, and checkEngine, by the Node and npm that run.
-// And which packages npm leaves out for them: an optional one the host
-// cannot run, with its optionalSet, and nothing else; one not optional the
-// host cannot run fails npm, and so, with engine-strict, does one whose
-// engines it does not take.
+// npm-install-checks' checkPlatform and checkEngine, and what npm leaves out
+// for them: an optional package the host cannot run, with its optionalSet.
 
 import { satisfies } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 
-// checkList: a negated value the host has fails; else a plain one it has,
-// or none but negated ones, passes.
+// npm-install-checks' checkList.
 function takes(value, list) {
   const values = typeof list === 'string' ? [list] : list
   if (values.length === 1 && values[0] === 'any') return true
@@ -18,16 +13,13 @@ function takes(value, list) {
   return values.some((entry) => !negated(entry) && entry === value) || values.every(negated)
 }
 
-// A list as npm reads it: none where falsy, a string, or a sequence of
-// them; anything else it fails on.
 function listOf(pkg, key, at) {
   const list = pkg[key]
   if (!list || typeof list === 'string' || (Array.isArray(list) && list.every((entry) => typeof entry === 'string'))) return list || undefined
   throw new DeptreeError('expected a string or a sequence of strings, which npm fails without', `${at}.${key}`)
 }
 
-// Why the host's platform is not one `pkg` takes, or undefined where it
-// is. A libc it names fails where the host has none, whatever it names.
+// A libc fails a host with none, whatever it names.
 export function checkPlatform(pkg, host, at) {
   for (const key of ['os', 'cpu', 'libc']) {
     const list = listOf(pkg, key, at)
@@ -36,7 +28,6 @@ export function checkPlatform(pkg, host, at) {
   return undefined
 }
 
-// Why the host's Node or npm is not one `pkg` takes, or undefined.
 export function checkEngine(pkg, host) {
   const { engines } = pkg
   if (!engines) return undefined
@@ -46,8 +37,7 @@ export function checkEngine(pkg, host) {
   return undefined
 }
 
-// gatherDepSet: from `set`, every node its edges `follow` lead to, less
-// those another node leads to by such an edge, until none is.
+// Arborist's gatherDepSet.
 function gatherDepSet(set, follow) {
   const deps = new Set(set)
   for (const node of deps) for (const edge of node.edgesOut) if (follow(edge)) deps.add(edge.to)
@@ -64,10 +54,9 @@ function gatherDepSet(set, follow) {
   return deps
 }
 
-// optionalSet: the node, and what depends on it but optionally, up to its
-// optional dependents; and what only they depend on. npm 10 gathers that
-// by edges that are not optional, npm 11 by those out of the first set,
-// and from 11.13 not from a node an earlier set left out.
+// Arborist's optionalSet: npm 10 gathers by edges that are not optional,
+// npm 11 by those out of the first set, from 11.13 not from a node an
+// earlier set left out.
 function optionalSet(node, host, skipped) {
   const set = new Set([node])
   for (const member of set) for (const edge of member.edgesIn) if (!edge.optional) set.add(edge.from)
@@ -76,10 +65,9 @@ function optionalSet(node, host, skipped) {
 
 const whereOf = (node) => `packages[${quote(node.location)}]`
 
-// The nodes npm leaves out, by the flags it installs by. npm 11 checks each
-// optional package in the inventory's order, and passes over one an
-// earlier set took; npm 10 checks each as it extracts it, all at once.
-// Whatever a node left out has in its node_modules is left out too.
+// npm 11 checks optional packages in inventory order, passing over one an
+// earlier set took; npm 10 checks them all as it extracts. What is in the
+// node_modules of a node left out goes with it.
 export function skippedOf(nodes, host, settings) {
   const skipped = new Set()
   for (const node of nodes.values()) {

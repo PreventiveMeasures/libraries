@@ -1,9 +1,5 @@
-// The root package.json's devEngines, which npm checks against the host
-// before it installs (npm-install-checks' checkDevEngines): each engine a
-// dependency, or a sequence of them, one of which has to match; where none
-// does, npm fails, unless the last has onFail "warn" or "ignore". npm fails
-// too on any field it does not know; and the version of the os, which it
-// takes from the kernel, is not known here.
+// The root's devEngines, as npm-install-checks' checkDevEngines reads them
+// before an install. The os version npm takes from the kernel is unknown.
 
 import { satisfies, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
@@ -14,7 +10,6 @@ const ON_FAIL = new Set(['ignore', 'warn', 'error', 'download'])
 
 const isMapping = (value) => typeof value === 'object' && value !== null && !Array.isArray(value)
 
-// Whether `wanted` matches `current`; it throws where npm does.
 function matches(wanted, current, at) {
   const fail = (detail) => {
     throw new DeptreeError(`${detail}, which npm fails on`, at)

@@ -1,13 +1,7 @@
-// The npm releases buildNpmTree builds for, and what of each changes the
-// tree. `reuse` is npm 10's ci, which builds on the tree it loaded the
-// lockfile into: it takes the lockfile's flags as written, leaves out an
-// optional package the host cannot run only once it has made directories
-// for it, resolves again an optional peer the lockfile does not meet, and
-// runs a workspace's prepare script even with --ignore-scripts. `ratio` is
-// whether its tar, 7.5.19 or later, gives up on a tarball that inflates too
-// far; `inert` whether an optional package's set passes over what an
-// earlier one's left out; `allowScripts` whether it reads the root
-// package.json's allowScripts.
+// What changes the tree between the npm releases supported. `reuse` is npm
+// 10's ci, building on the tree it loaded the lockfile into: lockfile flags
+// as written, optional packages left out after their directories are made,
+// an unmet optional peer resolved again, a workspace's prepare script run.
 
 import { DeptreeError, quote } from '../error.js'
 

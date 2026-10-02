@@ -1,11 +1,5 @@
-// A node_modules tree as `npm ci --ignore-scripts` makes it in a project
-// with no node_modules yet: the lockfile read and held to the project's
-// package.json files (manifests.js), an optional package the host cannot
-// run left out with what only it needs (compat.js), each package's files
-// unpacked where the lockfile puts it (package.js) and its bins' targets
-// fixed as linking them fixes them (bins.js), and each workspace linked
-// where the lockfile links it. Not written: node_modules/.bin, npm's own
-// node_modules/.package-lock.json, and anything a script would build.
+// The tree `npm ci --ignore-scripts` makes, but node_modules/.bin and npm's
+// node_modules/.package-lock.json.
 
 import { parseNpmLockfile } from '@preventive/lockfile/npm.js'
 import { Vfs } from '@preventive/vfs'
@@ -24,7 +18,6 @@ import { checkRatio } from './ratio.js'
 
 const whereOf = (node) => `packages[${quote(node.location)}]`
 
-// Only a workspace, linked in the project's own node_modules by its name.
 function checkLinks(lockfile) {
   for (const [location, target] of Object.entries(lockfile.links)) {
     const where = `packages[${quote(location)}]`
@@ -37,10 +30,8 @@ function checkLinks(lockfile) {
 const LISTS = { prod: 'dependencies', optional: 'optionalDependencies', dev: 'devDependencies', peer: 'peerDependencies', peerOptional: 'peerDependencies', workspace: 'workspaces' }
 const WILDCARD = /(?:^|[^\w-])[*Xx]\.\d/u
 
-// What npm's releases read otherwise: a range with a wildcard before a
-// number, `1.x.0`, which semver 7.8.4 on, in npm 11.17 on, takes for no
-// version; and an optional peer the lockfile does not meet by a range,
-// which npm 10 resolves again where npm 11 takes it as it is.
+// semver 7.8.4 (npm 11.17 on) reads `1.x.0` otherwise; npm 10 resolves an
+// unmet optional peer again, where npm 11 takes it as it is.
 function checkSpecs(lockfile, host) {
   for (const [location, pkg] of [...Object.entries(lockfile.importers), ...Object.entries(lockfile.packages)]) {
     for (const [name, { type, spec, accept, target }] of Object.entries(pkg.edges)) {
@@ -56,7 +47,7 @@ function checkSpecs(lockfile, host) {
   }
 }
 
-// Each tarball once, every URL checked before any is fetched.
+// Every URL is checked before any is fetched.
 async function fetchAll(nodes, host) {
   const tarballs = new Map()
   for (const node of nodes) {
@@ -73,8 +64,8 @@ async function fetchAll(nodes, host) {
   return { fetched, tarballs: tarballs.size }
 }
 
-// npm 10 makes a directory for every package before it leaves out those
-// the host cannot run, and leaves the directories they were in.
+// npm 10 makes every package's directory before leaving out those the host
+// cannot run, and leaves the directories they were in.
 function residueOf(nodes, skipped) {
   const removed = [...skipped].map((node) => node.location)
   const inRemoved = (dir) => removed.some((location) => dir === location || dir.startsWith(`${location}/`))
@@ -103,8 +94,7 @@ function writeTree({ lockfile, kept, fetched, changed, residue }) {
   return { vfs, stats }
 }
 
-// The lockfile's entry of the project as written; any that is not, the
-// lockfile reader refuses.
+// The lockfile reader refuses what does not parse.
 function rootListsOf(text) {
   try {
     return JSON.parse(text)?.packages?.[''] ?? {}

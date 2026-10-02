@@ -1,22 +1,15 @@
-// What linking bins does to the packages, as bin-links does it after npm
-// unpacks them, the .bin links themselves aside. Each installed package's
-// bins, as the lockfile has them and npm-normalize-package-bin reads them,
-// are linked into the .bin of the node_modules it is in; of two packages
-// there with a bin of one name, only the first links it, in the order of
-// their paths as Intl.Collator('en') sorts them, as npm sorts its nodes.
-// The bin's target, where it links one, is made 0o755, and, where the
-// first line of its first 2048 bytes is a shebang that ends in CRLF, that
-// line's CR is dropped. A target that is missing is passed over, but takes
-// the name all the same. A workspace's bins, linked after every package's,
-// are its own files, which the tree does not hold.
+// What bin-links does to the packages' files, the .bin links aside. Bins
+// come from the lockfile; in a node_modules, the first package to claim a
+// name links it, by Intl.Collator('en') on paths, as npm sorts its nodes,
+// even where its target is missing. A linked target is made 0o755, its
+// first line's CRLF made LF where that is a shebang in the first 2048 bytes.
 
 import { basename, dirname, join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 
 const collator = new Intl.Collator('en')
 
-// npm-normalize-package-bin: each name its last segment, a `\` or `:` as a
-// `/`; each target a path within the package. Either empty is dropped.
+// npm-normalize-package-bin.
 function binsOf(bin) {
   const bins = new Map()
   for (const [key, target] of Object.entries(bin)) {
@@ -27,7 +20,6 @@ function binsOf(bin) {
   return bins
 }
 
-// The node_modules whose .bin a package's bins are linked into.
 function modulesOf(location) {
   const parent = dirname(location)
   return basename(parent) === 'node_modules' ? parent : dirname(parent)
@@ -35,7 +27,6 @@ function modulesOf(location) {
 
 const decoder = new TextDecoder('utf-8', { fatal: true })
 
-// fixBin on a file: the CR of a first line that ends in CRLF dropped, as
 // bin-links rewrites the file as UTF-8, which it has to be here.
 function fixed({ data }, where) {
   const newline = data.subarray(0, 2048).indexOf(0x0a)
@@ -51,8 +42,8 @@ function fixed({ data }, where) {
   return { data: unix, mode: 0o755 }
 }
 
-// `installed` maps each package's location to its lockfile entry and its
-// files; the files each copy has otherwise, by location and path, back.
+// By location: each package's lockfile entry and files in; the files it
+// has otherwise out.
 export function fixBins(installed) {
   const order = [...installed.keys()].filter((location) => Object.keys(installed.get(location).pkg.bin).length > 0)
   order.sort((a, b) => collator.compare(a, b))

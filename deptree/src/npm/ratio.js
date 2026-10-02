@@ -1,13 +1,8 @@
-// The tar of npm 10.9.9 and 11.18 on gives up on a gzipped tarball once
-// what it has inflated is more than 1000 times what it has read, which it
-// checks as each piece of output comes: a tarball that inflates that far
-// from some prefix fails npm, though it inflates less in all. Where the
-// pieces it reads end, and so where it checks, is not known here; so a
-// tarball is refused that inflates 900 times any prefix found below.
-//
-// No prefix that inflates so far is longer than 1/900 of what all of it
-// inflates to; and none longer than 1/900 of what the longest such prefix
-// could be inflates to, a bound that shrinks each time it is taken again.
+// tar 7.5.19 on gives up once what it has inflated is over 1000 times what
+// it has read, checked at each piece of output, so where depends on how the
+// bytes arrive: a tarball is refused if any prefix inflates 900 times. Such
+// a prefix is no longer than 1/900 of what all of it, or any longer prefix,
+// inflates to: a bound that shrinks each time it is taken again.
 
 import { decompress } from '@preventive/archive/compression.js'
 import { DeptreeError } from '../error.js'
@@ -15,7 +10,6 @@ import { DeptreeError } from '../error.js'
 const RATIO = 900
 const STEPS = 32
 
-// What the first `length` bytes inflate to, as far as they go.
 async function inflatedFrom(bytes, length) {
   try {
     return (await decompress(bytes.subarray(0, length), 'gzip')).length
@@ -25,7 +19,6 @@ async function inflatedFrom(bytes, length) {
   }
 }
 
-// `inflated` is what all of `bytes` inflates to.
 export async function checkRatio(bytes, inflated, where) {
   const refuse = (detail) => {
     throw new DeptreeError(`the tarball ${detail}, which npm's tar may give up at`, where)

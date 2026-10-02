@@ -1,5 +1,4 @@
-// What buildNpmTree takes, checked: the host, and the files an install
-// reads, given as text or read from the project as npm reads them.
+// The host, and the files `npm ci` reads, given or read from the project.
 
 import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
@@ -24,9 +23,8 @@ export function checkHost(host) {
   return { ...profileOf(host.npm), node: host.node, os: host.os, cpu: host.cpu, libc: host.libc }
 }
 
-// The root's workspace globs as @npmcli/map-workspaces reads them: a
-// sequence, or one under `packages`, a leading `./` or `/` dropped. One
-// that negates is refused, as the lockfile reader refuses it.
+// As @npmcli/map-workspaces reads them; the lockfile reader refuses one
+// that negates.
 function globsOf(root) {
   const { workspaces = [] } = root
   const globs = Array.isArray(workspaces?.packages) ? workspaces.packages : workspaces
@@ -34,10 +32,8 @@ function globsOf(root) {
   return globs.map((glob) => glob.replace(/^\.?\/+/u, ''))
 }
 
-// The workspace directories as map-workspaces globs for them: those a glob
-// takes that have a package.json, outside node_modules, which it ignores;
-// on macOS, whatever the case, as glob matches there. A link where a glob
-// may reach is refused, as glob follows it or not by where it is.
+// As map-workspaces globs, ignoring node_modules, and on macOS case. glob
+// follows a link or not by where it is, so one the globs reach is refused.
 function findWorkspaces(project, globs, nocase) {
   const fold = nocase ? (text) => text.toLowerCase() : (text) => text
   const folded = globs.map(fold)
@@ -85,7 +81,6 @@ function readProject(project, nocase) {
   return { lockfile, manifests, settings: readSettings(readText(project, '/.npmrc', '.npmrc')) }
 }
 
-// `nocase` is whether npm globs case-insensitively, as on macOS.
 export function inputsOf(options, nocase) {
   const { lockfile, manifests, npmrc, project } = options
   if (lockfile === undefined) {
