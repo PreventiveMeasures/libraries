@@ -735,15 +735,18 @@ describe('findMdLink — nothing the old expression read reads differently', () 
 // each bracket paying for the remainder of the line again. The closing
 // positions are read off the text once instead.
 //
-// The bound is deliberately loose — 50x the linear cost on this input,
-// which is ~20ms — so this fails on the shape of the work rather than
-// on how busy the machine is. Quadratic would need ~50s here.
+// The bound is the CPU time this process spends, not the time on the
+// clock: `node --run test` runs every package's suite at once, and on a
+// busy runner a line of angle brackets below, ~100ms of CPU, took 1.1s
+// to come back. It is loose, so this fails on the shape of the work
+// rather than on how busy the machine is. Quadratic would need ~50s here.
 describe('findMdLink — a malformed line is read once, not per bracket', () => {
   const under = (ms, text) => {
-    const started = process.hrtime.bigint()
+    const started = process.cpuUsage()
     assert.equal(findMdLink(text), null)
-    const took = Number(process.hrtime.bigint() - started) / 1e6
-    assert.ok(took < ms, `${text.length} characters took ${took.toFixed(0)}ms`)
+    const { user, system } = process.cpuUsage(started)
+    const took = (user + system) / 1000
+    assert.ok(took < ms, `${text.length} characters took ${took.toFixed(0)}ms of CPU`)
   }
 
   it('rejects a line of nothing but brackets', () => under(1000, '['.repeat(50_000)))
@@ -752,8 +755,9 @@ describe('findMdLink — a malformed line is read once, not per bracket', () => 
 
   it('rejects a line of angle destinations that never close', () => {
     // Read per candidate, each `<` scanned the rest of the line for a
-    // `>` that never comes: 1.5s over 800k characters.
-    under(1000, '[x](<'.repeat(160_000))
+    // `>` that never comes: ~1s of CPU over 800k characters, which a fast
+    // machine could bring under the bound, and ~4s over these 1.6M.
+    under(1000, '[x](<'.repeat(320_000))
   })
 
   it('rejects a line of code fences that never close', () => {
