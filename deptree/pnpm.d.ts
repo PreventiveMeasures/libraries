@@ -131,10 +131,12 @@ export interface PnpmProject {
 // with more than 100 `**` parts for pnpm 9 and 10, and a directory nested
 // more than 100 deep, for the time matching them takes. Matching takes
 // time linear in the path and the pattern. pnpm hardlinks those files from
-// the directory into each snapshot of the package, so a file linking a bin
-// makes executable is made so in every snapshot and in the directory, which
-// is not written here; a CRLF `#!` line it rewrites is rewritten as a file
-// of that snapshot's own. Where it builds the package — an install script, a
+// the directory into each snapshot of the package, in their modes, which
+// are refused but for a checkout's under umask 022 or 002: 0o644, 0o664,
+// 0o755 and 0o775. So a file linking a bin makes executable — 0o755 for
+// pnpm 9 and 10, its mode with 0o111 added for 11 and 12 — is made so in
+// every snapshot and in the directory, which is not written here; a CRLF
+// `#!` line it rewrites is rewritten as a file of that snapshot's own. Where it builds the package — an install script, a
 // binding.gyp, which pnpm 11 and 12 pass over with `gypfile: false`, or a
 // .hooks directory — or, with pnpm 11 and 12, where packageImportMethod is
 // other than auto or hardlink, each snapshot has a copy of its own

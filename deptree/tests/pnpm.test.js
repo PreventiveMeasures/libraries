@@ -1254,6 +1254,23 @@ describe('buildPnpmTree into a given Vfs', () => {
       }
     })
 
+    // As real installs of a checkout under umask 002 have it: each file keeps
+    // its mode, and a bin is made 0o755 by pnpm 9 and 10, 0o111 added by
+    // pnpm 11 and 12.
+    it('keeps a checkout\'s 664 and 775, and makes a bin executable as each pnpm does', async () => {
+      stubRegistry([await app])
+      const later = 'overrides:\n  foo: file:./vendor/foo\n'
+      const [LF, CRLF] = ['#!/usr/bin/env node\nrun()\n', '#!/usr/bin/env node\r\nrun()\n']
+      for (const [host, manifest, workspace, mode, text] of [[HOST_9, v10, undefined, 0o755, LF], [HOST, v10, undefined, 0o755, LF], [HOST_11, rootWith(), later, 0o775, LF], [HOST_12, rootWith(), later, 0o775, CRLF]]) {
+        const project = createVfs({ 'package.json': manifest, ...vendored, 'vendor/foo/tool.sh': '#!/bin/sh\n' })
+        for (const path of ['package.json', 'cli.js', 'index.js']) project.chmod(`/vendor/foo/${path}`, 0o664)
+        project.chmod('/vendor/foo/tool.sh', 0o775)
+        const { vfs } = await buildPnpmTree({ lockfile: await copied(), manifests: { '.': manifest }, workspace, host, project })
+        assert.deepEqual(['cli.js', 'index.js', 'package.json', 'tool.sh'].map((path) => vfs.stat(`${FOO}/${path}`).mode), [mode, 0o664, 0o664, 0o775], host.pnpm)
+        assert.equal(vfs.readText(`${FOO}/cli.js`), text, host.pnpm)
+      }
+    })
+
     it('lists it by its directory, with no version or integrity, as the lockfile has none', async () => {
       stubRegistry([await app])
       const { installed } = await buildPnpmTree({ lockfile: await copied(), manifests: { '.': v10 }, host: HOST, ...both({ 'package.json': v10, ...vendored }) })
@@ -1276,7 +1293,7 @@ describe('buildPnpmTree into a given Vfs', () => {
 
     // foo under two peers, p@1 beside the root and p@2 beside app2: pnpm
     // links foo's `tool` into the root's .bin, and zz's over it into app2's.
-    const twoSnapshots = async (fields, { host = HOST, workspace, files = {} } = {}) => {
+    const twoSnapshots = async (fields, { host = HOST, workspace, files = {}, mode } = {}) => {
       const bins = await Promise.all([
         tarball('app2', '1.0.0', {}, { manifest: { dependencies: { foo: '^1.0.0', zz: '1.0.0', p: '2.0.0' } } }),
         tarball('p', '1.0.0'),
@@ -1287,7 +1304,9 @@ describe('buildPnpmTree into a given Vfs', () => {
       const manifest = rootWith({ dependencies: { app2: '1.0.0', foo: '^1.0.0', p: '1.0.0' }, ...host.pnpm.startsWith('10.') ? { pnpm: { overrides: { foo: 'file:./vendor/foo' } } } : {} })
       const foo = { name: 'foo', version: '1.5.0', peerDependencies: { p: '*' }, bin: { tool: 'cli.js' }, ...fields }
       const source = { 'vendor/foo/package.json': JSON.stringify(foo), 'vendor/foo/cli.js': '#!/usr/bin/env node\r\nrun()\n', ...files }
-      const { vfs } = await buildPnpmTree({ lockfile: twoPeers(bins), manifests: { '.': manifest }, workspace, host, project: createVfs({ 'package.json': manifest, ...source }) })
+      const project = createVfs({ 'package.json': manifest, ...source })
+      if (mode !== undefined) project.chmod('/vendor/foo/cli.js', mode)
+      const { vfs } = await buildPnpmTree({ lockfile: twoPeers(bins), manifests: { '.': manifest }, workspace, host, project })
       const cli = (peer) => `/node_modules/.pnpm/foo@file+vendor+foo_p@${peer}/node_modules/foo/cli.js`
       return [1, 2].map((major) => [vfs.stat(cli(`${major}.0.0`)).mode, vfs.readText(cli(`${major}.0.0`))])
     }
@@ -1316,6 +1335,9 @@ describe('buildPnpmTree into a given Vfs', () => {
     // hardlinks of it, and its CRLF rewrite the one it is run in alone.
     it('makes a bin executable in every snapshot, and rewrites it in the one linking fixes it in', async () => {
       assert.deepEqual(await twoSnapshots(), [[0o755, '#!/usr/bin/env node\nrun()\n'], [0o755, '#!/usr/bin/env node\r\nrun()\n']])
+      const v11 = { host: HOST_11, workspace: 'overrides:\n  foo: file:./vendor/foo\n', mode: 0o664 }
+      assert.deepEqual(await twoSnapshots({}, v11), [[0o775, '#!/usr/bin/env node\nrun()\n'], [0o775, '#!/usr/bin/env node\r\nrun()\n']])
+      assert.deepEqual(await twoSnapshots({}, { mode: 0o664 }), [[0o755, '#!/usr/bin/env node\nrun()\n'], [0o755, '#!/usr/bin/env node\r\nrun()\n']])
     })
 
     // Where pnpm builds the package — an install script, or a binding.gyp

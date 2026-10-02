@@ -1,8 +1,8 @@
 // The files pnpm's bin linking fixes (@pnpm/link-bins, bin-links' fixBin):
 // no .bin is written, but the file of each command it links by a name is
 // made executable and a CRLF ending its `#!` line made LF. pnpm 10 sets
-// 0o755 and pnpm 11 adds 0o111, the same for the 0o644 and 0o755 files have
-// here; pnpm 12 (its cmd-shim crate) adds 0o111 and rewrites no `#!` line.
+// 0o755 and pnpm 11 adds 0o111, as pnpm 12 (its cmd-shim crate) does, which
+// rewrites no `#!` line.
 // Where any patch is configured, pnpm 10 and 11 build each package patched
 // or with an install script, which links its own bins beside its children's
 // before the patch; pnpm 12 links them together, with no build pass. pnpm 9
@@ -158,8 +158,8 @@ function fixedFiles(nodes, fixed, contested, major) {
     const path = target.slice(owner.length + 1)
     checkDirectory(node, path)
     const file = node.files.get(path)
-    const harmless = major >= 12 ? (file?.mode & 0o111) === 0o111 : file?.mode === 0o755 && !hasCrlfShebang(file.data) && node.pkg.patchHash === undefined
-    if (fixed.has(target) || file?.data === undefined || harmless) continue
+    if (fixed.has(target) || file?.data === undefined) continue
+    if (executableMode(file.mode, major) === file.mode && (major >= 12 || (!hasCrlfShebang(file.data) && node.pkg.patchHash === undefined))) continue
     throw new DeptreeError(`whether pnpm makes ${quote(path)} executable turns on ${why}`, quote(node.key))
   }
   const byNode = new Map()
@@ -180,10 +180,12 @@ function hasCrlfShebang(data) {
   return newline >= 4 && data[newline - 1] === 0x0d
 }
 
+export const executableMode = (mode, major) => (major >= 11 ? mode | 0o111 : 0o755)
+
 // pnpm reads and writes the file as UTF-8, which changes one that is not.
 export function fixBin(file, where, major) {
-  if (major >= 12) return { data: file.data, mode: file.mode | 0o111 }
-  if (!hasCrlfShebang(file.data)) return { data: file.data, mode: 0o755 }
+  const mode = executableMode(file.mode, major)
+  if (major >= 12 || !hasCrlfShebang(file.data)) return { data: file.data, mode }
   try {
     decoder.decode(file.data)
   } catch {
@@ -193,7 +195,7 @@ export function fixBin(file, where, major) {
   const data = new Uint8Array(file.data.length - 1)
   data.set(file.data.subarray(0, newline - 1))
   data.set(file.data.subarray(newline), newline - 1)
-  return { data, mode: 0o755 }
+  return { data, mode }
 }
 
 const BIN_FIELDS = (manifest) => JSON.stringify([manifest.name, manifest.version, manifest.bin, manifest.directories?.bin])

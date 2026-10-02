@@ -12,7 +12,7 @@ import { checkNoModules, checkWrite, fold, isInside, makeDirs, mount, writeLink 
 import { applyPatch, parsePatch } from '../patch.js'
 import { checkProject, typeOf } from '../project.js'
 import { REGISTRY, tarballUrl } from '../tarball.js'
-import { binTargets, checkPatchOfBins, fixBin, requiresBuild } from './bins.js'
+import { binTargets, checkPatchOfBins, executableMode, fixBin, requiresBuild } from './bins.js'
 import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
 import { checkLocalOverrides, createFreshnessCheck, readDirectoryPackage, readLinked } from './local.js'
@@ -120,7 +120,7 @@ function compose(node, patches, { targets, executable }, { major, checkPatched }
   if (targets.size === 0 && executable.size === 0) return files
   files = new Map(files)
   for (const path of targets) files.set(path, fixBin(files.get(path), `${where}: ${quote(path)}`, major))
-  for (const path of executable) files.set(path, { ...files.get(path), mode: 0o755 })
+  for (const path of executable) files.set(path, { ...files.get(path), mode: executableMode(files.get(path).mode, major) })
   return files
 }
 
