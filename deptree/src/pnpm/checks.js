@@ -10,19 +10,14 @@ import { DeptreeError, quote } from '../error.js'
 // would be left out, or kept, where it should not be.
 export function checkOptional(lockfile) {
   const required = new Set()
-  const queue = []
   const reach = (targets) => {
-    for (const target of Object.values(targets)) {
-      if (target.startsWith('link:') || required.has(target)) continue
-      required.add(target)
-      queue.push(target)
-    }
+    for (const target of Object.values(targets)) if (!target.startsWith('link:')) required.add(target)
   }
   for (const importer of Object.values(lockfile.importers)) {
     reach(importer.dependencies)
     reach(importer.devDependencies)
   }
-  while (queue.length > 0) reach(lockfile.packages[queue.pop()].dependencies)
+  for (const key of required) reach(lockfile.packages[key].dependencies)
   for (const [key, pkg] of Object.entries(lockfile.packages)) {
     if (pkg.optional === required.has(key)) {
       throw new DeptreeError(`marked ${pkg.optional ? 'optional where an importer requires it' : 'required where only optional dependencies reach it'}, which pnpm never writes`, `snapshots[${quote(key)}]`)

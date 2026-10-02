@@ -45,7 +45,7 @@ export function resolvePeers(resolved, manifests) {
       let found
       for (const candidate of new Set((byName.get(name) ?? []).map((pattern) => patterns.get(pattern)))) {
         const d = distance(candidate)
-        if (Number.isFinite(d) && d < best && (range === '*' || satisfiesWithPrereleases(candidate.version, range, true))) {
+        if (d < best && (range === '*' || satisfiesWithPrereleases(candidate.version, range, true))) {
           best = d
           found = candidate
         }

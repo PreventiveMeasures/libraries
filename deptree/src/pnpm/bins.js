@@ -25,7 +25,6 @@
 // pnpm 12 fixes a direct dependency's `node` already linked when it links
 // a project's bins again, as it does after patching any package, publicly
 // hoisting any with bins, or installing peers with some.
-// already.
 
 import { DeptreeError, quote } from '../error.js'
 import { UNKNOWN, binsOf, bundledCommands, commandsOf, compare, normalized, parseManifest } from './commands.js'

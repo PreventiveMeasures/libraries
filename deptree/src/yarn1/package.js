@@ -16,13 +16,9 @@ import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { sha1Hex } from '../hash.js'
 import { readManifest } from '../manifest.js'
-import { REGISTRY, fetchTarball, sameFile, tarballUrl } from '../tarball.js'
+import { fetchTarball, fromMirror, sameFile, tarballUrl } from '../tarball.js'
 
 const UMASK = 0o022
-
-// yarn's mirror of npm's registry, which serves the same tarballs at the
-// same paths.
-const YARNPKG = 'https://registry.yarnpkg.com/'
 
 // Paths as tar-fs with `strip: 1` writes them: the first segment dropped,
 // and `.`, `..` and empty segments folded.
@@ -63,7 +59,7 @@ export function registryTarball(entry, name, where) {
   const { resolution } = entry
   if (resolution === undefined) throw new DeptreeError('a directory, by file: or link:, is not supported', where)
   const expected = tarballUrl(name, entry.version)
-  const url = resolution.type === 'tarball' && resolution.tarball.startsWith(YARNPKG) ? `${REGISTRY}${resolution.tarball.slice(YARNPKG.length)}` : resolution.tarball
+  const url = resolution.type === 'tarball' ? fromMirror(resolution.tarball) : resolution.tarball
   if (url !== expected) throw new DeptreeError(`only the registry's own tarball of ${name}@${entry.version}, ${expected}, is supported`, where)
   const sha512 = resolution.integrity?.split(' ').find((part) => part.startsWith('sha512-'))
   if (sha512 === undefined) throw new DeptreeError('a tarball with no sha512 integrity is not supported', where)
@@ -125,13 +121,11 @@ function binsOf(manifest, { files, dirs }) {
     if (outside(dir)) throw new DeptreeError(`directories.bin, ${quote(binDir)}, is outside the package, which is not supported`, quote(manifest.name))
     if (files.has(dir)) throw new DeptreeError(`directories.bin, ${quote(binDir)}, is a file, which yarn fails to read as a directory`, quote(manifest.name))
     const prefix = dir === '.' ? '' : `${dir}/`
-    const names = new Set()
     for (const path of [...files.keys(), ...dirs]) {
       if (!path.startsWith(prefix)) continue
       const [first] = path.slice(prefix.length).split('/')
-      if (first !== '' && !first.startsWith('.')) names.add(first)
+      if (first !== '' && !first.startsWith('.')) bins.set(first, `${prefix}${first}`)
     }
-    for (const name of names) bins.set(name, `${prefix}${name}`)
   }
   return bins
 }

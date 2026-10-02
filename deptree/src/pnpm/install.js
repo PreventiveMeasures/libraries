@@ -218,14 +218,11 @@ function skippedSnapshots11(lockfile, check) {
     if (ok === false) skipped.add(key)
     if (ok === null) incompatible.add(key)
   }
-  const seen = new Set()
-  for (let i = 0; i < starts.length; i++) {
-    const key = starts[i]
-    if (seen.has(key)) continue
-    seen.add(key)
+  const seen = new Set(starts)
+  for (const key of seen) {
     const pkg = lockfile.packages[key]
     if (!installed.has(key) && pkg.optional) skipped.add(key)
-    starts.push(...[...edgesOf(pkg.dependencies), ...edgesOf(pkg.optionalDependencies)].map((edge) => edge.key))
+    for (const edge of [...edgesOf(pkg.dependencies), ...edgesOf(pkg.optionalDependencies)]) seen.add(edge.key)
   }
   return { skipped, incompatible }
 }
