@@ -23,7 +23,11 @@
 // read otherwise, and a TypeError for bad arguments. CocoaPods writes an
 // absolute path and one from a home directory, `~/MyPod`, as a Podfile
 // gives either for `:path` or `:podspec`; each is refused, as a lockfile
-// with one reads on the machine that wrote it alone.
+// with one reads on the machine that wrote it alone. So is a repository in
+// which git or ssh would read an option, or that names a remote helper, a
+// spec repo's among them, and a revision, tag, branch or folder of hg or
+// svn that starts with `-` or has ` --` in it, which hg or svn would read
+// as an option, and cocoapods-downloader refuses of hg.
 export function parsePodfileLock(text: string, options?: PodfileLockOptions): PodfileLock
 
 export interface PodfileLockOptions {

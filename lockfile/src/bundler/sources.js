@@ -4,7 +4,7 @@
 
 import { LockfileError, at, quote } from '../error.js'
 import { fail } from '../lines.js'
-import { checkRefName, checkRelative, isCommit, isHttpUrl } from '../names.js'
+import { checkRefName, checkRelative, checkRemote, isCommit, isHttpUrl } from '../names.js'
 
 // The options of each, in the order Bundler writes them; the first are
 // always written.
@@ -36,23 +36,33 @@ function readOptions({ type, number, options }) {
   return values
 }
 
+// What a glob reaches out of the repository or the directory it is of,
+// which Bundler globs it from, by: a `..`, or a `/` or a drive first, of it
+// or of an alternative in braces; and a backslash, which Ruby's glob reads
+// as an escape, and Windows as a separator.
+const OUTSIDE = /\\|(?:^|[/{,])\.\.(?=$|[/},])|(?:^|[{,])(?:\/|[A-Za-z]:)/u
+
 // Undefined where none is written.
 function readGlob(value, where) {
   if (value === DEFAULT_GLOB) throw new LockfileError(`${quote(value)}, which Bundler reads by where none is written, and does not write`, where)
+  if (value !== undefined && OUTSIDE.test(value)) throw new LockfileError(`${quote(value)} reaches out of the source, which Bundler globs its gemspecs from`, where)
   return value
 }
 
 // A repository by URL, or by path, as the Gemfile has it, a space and all,
 // less a `/` at the end, which Bundler 2.4 and later drop as they read the
-// lockfile, and 2.2 and 2.3 keep; `ref` what was asked for, which is a
-// commit, a branch, a tag or anything else git reads, and `revision` the
-// commit it was.
+// lockfile, and 2.2 and 2.3 keep; and that git reads as nothing else, as
+// Bundler before 2.2.33 clones it with no `--` before it. `ref` is what was
+// asked for, which is a commit, a branch, a tag or anything else git reads,
+// and `revision` the commit it was.
 function readGit(values, where) {
   const { remote } = values
   if (remote.endsWith('/')) throw new LockfileError(`${quote(remote)} ends in "/", which Bundler 2.4 and later drop as they read it, and 2.2 and 2.3 keep`, at(where, 'remote'))
+  checkRemote(remote, at(where, 'remote'))
   const { revision, ref } = values
   if (!isCommit(revision)) throw new LockfileError(`${quote(revision)} is not a full commit hash`, at(where, 'revision'))
   if (ref !== undefined && /\s/u.test(ref)) throw new LockfileError(`${quote(ref)} is not a reference git reads`, at(where, 'ref'))
+  if (ref?.startsWith('-')) throw new LockfileError(`${quote(ref)} starts with "-", which git reads as an option`, at(where, 'ref'))
   if (ref !== undefined && isCommit(ref) && ref !== revision) throw new LockfileError(`the commit ${ref}, and the revision another`, at(where, 'ref'))
   if (values.submodules !== undefined && values.submodules !== 'true') throw new LockfileError(`expected "true", found ${quote(values.submodules)}`, at(where, 'submodules'))
   return {

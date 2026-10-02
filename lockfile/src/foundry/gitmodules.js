@@ -27,8 +27,9 @@ function isInt(value) {
 
 // git's git_parse_maybe_bool: true, false and their like in any case, an
 // empty one false, or an integer; git dies on anything else. A key alone is
-// true.
-const isBoolean = (value) => value === null || /^(?:true|false|yes|no|on|off)?$/iu.test(value) || isInt(value)
+// true. Its case is ASCII's, where a case-insensitive Unicode match would
+// take `ſ` for `s`: no other letter lowercases into these.
+const isBoolean = (value) => value === null || /^(?:true|false|yes|no|on|off)?$/u.test(value.toLowerCase()) || isInt(value)
 const VALUES = {
   __proto__: null,
   shallow: isBoolean,
@@ -46,13 +47,20 @@ function checkSubmoduleName(name, where) {
   return name
 }
 
+// `.git` as NTFS and HFS+ read a name, which git's verify_path refuses in
+// a path wherever it runs, as core.protectNTFS is on by default: in any
+// case, with spaces and dots after it, as its 8.3 short name `git~1`, or
+// with the characters HFS+ ignores in it.
+const HFS_IGNORED = /[\u200C-\u200F\u202A-\u202E\u206A-\u206F\uFEFF]/gu
+const isDotGit = (segment) => /^(?:\.git|git~1)[ .]*$/u.test(segment.replaceAll(HFS_IGNORED, '').toLowerCase())
+
 // Below the repository's root, `.git` none of its directories; git ignores
 // one that starts with "-".
 export function checkSubmodulePath(value, where) {
   const path = checkRelative(value, where)
   const segments = path.split('/')
   if (path === '.' || segments.at(-1) === '..') throw new LockfileError(`${quote(path)} is no submodule's path, but a directory it would be in`, where)
-  if (segments.some((segment) => segment.toLowerCase() === '.git')) throw new LockfileError(`${quote(path)} is in a ".git", where git writes no submodule`, where)
+  if (segments.some(isDotGit)) throw new LockfileError(`${quote(path)} is in a ".git", where git writes no submodule`, where)
   if (path.startsWith('-')) throw new LockfileError(`${quote(path)} starts with "-", which git ignores the path for`, where)
   return path
 }
@@ -71,9 +79,8 @@ const DRIVE = /^[^[]:(?!:)/u
 
 // What git takes for a url at all, of a host or not.
 function readUrl(value, where) {
-  const url = checkRepo(value, where)
-  if (url.startsWith('-')) throw new LockfileError(`${quote(url)} starts with "-", which git ignores the url for`, where)
-  return url
+  if (typeof value === 'string' && value.startsWith('-')) throw new LockfileError(`${quote(value)} starts with "-", which git ignores the url for`, where)
+  return checkRepo(value, where)
 }
 
 function checkUrl(value, where) {

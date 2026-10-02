@@ -25,6 +25,9 @@ describe('PEP 440', () => {
     }
     for (const [text, normal] of Object.entries(cases)) assert.equal(normalVersion(parseVersion(text)), normal, text)
     for (const text of ['', '1.', '.1', '1.0-final', '1.0+', ' 1.0', '1.0 ', '1..0', '1.0.*', 'v']) assert.equal(parseVersion(text), undefined, text)
+    // ASCII alone, as uv reads one: `ſ` is `s`, and the Kelvin sign `k`, to
+    // a case-insensitive Unicode match.
+    for (const text of ['1.0.po\u017Ft1', '1.0+\u017F', '1.0+\u212A', '\u212A1.0']) assert.equal(parseVersion(text), undefined, text)
   })
 
   it('a version in normal form, as uv writes every one', () => {
@@ -50,6 +53,8 @@ describe('PEP 440', () => {
 describe('PEP 508', () => {
   it('names, and their normal form', () => {
     assert.ok(isName('zope.interface') && isName('A_b') && !isName('-a') && !isName('a b') && !isName(''))
+    // The Kelvin sign lowercases to `k`, and so would be another's name.
+    assert.ok(!isName('\u212Aeras') && !isName('\u017Fix') && !isName('a\u212A'))
     assert.equal(normalName('Zope.Interface__x'), 'zope-interface-x')
     assert.ok(reads(checkNormalName)('typing-extensions'))
     assert.throws(() => checkNormalName('typing_extensions', 'n'), /is not a name in normal form, "typing-extensions"/u)

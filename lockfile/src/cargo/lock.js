@@ -4,7 +4,7 @@
 // it.
 
 import { LockfileError, at, quote } from '../error.js'
-import { isCommit, isHexSha256 } from '../names.js'
+import { checkRepo, isCommit, isHexSha256 } from '../names.js'
 import { field } from '../shape.js'
 import { parseToml } from '../toml/parse.js'
 import { array, checkCrateName, checkCrateVersion, checkListedOnce, kind, string, strings, table } from './shape.js'
@@ -41,11 +41,14 @@ export function parseLockSource(text, where, edge) {
   if (scheme !== 'git') {
     const url = parseUrl(scheme === 'sparse' ? text : rest)
     if (url === undefined || url.search !== '' || url.hash !== '') fail('expected a URL in normal form, without a query or a fragment')
+    // A registry's index, but a sparse one's, is a repository git fetches.
+    if (scheme === 'registry') checkRepo(rest, where)
     return { scheme, identity: identity(scheme, url) }
   }
   const [, base, query, commit] = /^([^#?]*)(?:\?([^#]*))?(?:#(.*))?$/su.exec(rest)
   if (edge ? commit !== undefined : !isCommit(commit ?? '')) fail(edge ? 'a dependency names no commit' : 'expected "#" and the commit it resolved to')
   const url = parseUrl(base) ?? fail('expected a URL in normal form')
+  checkRepo(base, where)
   const pairs = [...new URLSearchParams(query ?? '')]
   if (pairs.length > 1 || (pairs.length === 1 && !REFERENCES.includes(pairs[0][0]))) fail('expected at most one of branch=, tag= or rev=')
   return { scheme, identity: identity(scheme, url, pairs[0]) }
@@ -120,6 +123,12 @@ function readPackage(value, where, fields = PACKAGE) {
     throw new LockfileError(`a ${parsed === undefined ? 'path' : 'git'} package has no checksum`, at(where, 'checksum'))
   }
   if (checksum !== undefined && !isHexSha256(checksum)) throw new LockfileError(`${quote(checksum)} is not a sha256 checksum`, at(where, 'checksum'))
+  // A registry gives each package's checksum, which cargo checks the download
+  // with, and refuses a lockfile that has none of; [[patch.unused]] may lack
+  // one.
+  if (checksum === undefined && parsed !== undefined && parsed.scheme !== 'git' && fields === PACKAGE) {
+    throw new LockfileError("expected a checksum, which cargo checks a registry's package with, and refuses the lockfile without", where)
+  }
   const edges = field(value, 'dependencies', where, strings) ?? []
   return { key: keyOf(name, version, source), name, version, source, checksum, identity: parsed?.identity, edges }
 }

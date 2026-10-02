@@ -183,6 +183,24 @@ describe('sources', () => {
     refuses(edit(['  branch: main', '  glob: {,*,*/*}.gemspec']), '"{,*,*/*}.gemspec", which Bundler reads by where none is written, and does not write', 'sources[0].glob')
   })
 
+  it('a git repository git reads as one alone, as Bundler before 2.2.33 clones it with no "--" before it', () => {
+    const remote = (value) => edit(['remote: https://github.com/o/g.git', `remote: ${value}`])
+    for (const value of ['--upload-pack=touch x', '-x', 'ssh://-oProxyCommand=x/g.git', 'git@-oProxyCommand=x:o/g.git', 'ssh://%2doProxyCommand=x/g.git']) {
+      refuses(remote(value), `${JSON.stringify(value)} has a "-" where git or ssh would read an option`, 'sources[0].remote')
+    }
+    refuses(remote('ext::sh -c x'), '"ext::sh -c x" names a remote helper of git\'s, which is not supported', 'sources[0].remote')
+    refuses(edit(['  branch: main', '  ref: --output=x']), '"--output=x" starts with "-", which git reads as an option', 'sources[0].ref')
+  })
+
+  it('a glob within the source it globs the gemspecs of', () => {
+    const glob = (value) => edit(['  branch: main', `  branch: main\n  glob: ${value}`])
+    for (const value of ['../*.gemspec', 'a/../../*.gemspec', '{..,x}/*.gemspec', '/etc/*.gemspec', '{/etc,x}/*.gemspec', 'C:/x/*.gemspec', '{a,c:x}/*.gemspec', 'a\\..\\*.gemspec']) {
+      refuses(glob(value), `${JSON.stringify(value)} reaches out of the source, which Bundler globs its gemspecs from`, 'sources[0].glob')
+    }
+    for (const value of ['*/*.gemspec', 'gems/**/*.gemspec', '{a,b}/x..y.gemspec', '...gemspec']) assert.equal(parseGemfileLock(glob(value)).sources[0].glob, value)
+    refuses(edit(['  remote: .\n', '  remote: .\n  glob: ../*.gemspec\n']), '"../*.gemspec" reaches out of the source, which Bundler globs its gemspecs from', 'sources[1].glob')
+  })
+
   it('a directory from the lockfile\'s', () => {
     assert.deepEqual(plain(parseGemfileLock(edit(['  remote: .\n', '  remote: ../vendor/app\n  glob: app.gemspec\n'])).sources[1]), { type: 'path', path: '../vendor/app', glob: 'app.gemspec' })
     refuses(edit(['  remote: .\n', '  remote: /home/app\n']), '"/home/app" is an absolute path, which is the path on one machine alone', 'sources[1].path')

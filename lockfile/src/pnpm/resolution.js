@@ -5,7 +5,7 @@
 // resolver's — is refused, since what it would fetch is not read here.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkIntegrity, checkRelative, checkRepo, isCommit, isHttpUrl } from '../names.js'
+import { checkIntegrity, checkRelative, checkRepo, checkWithin, isCommit, isHttpUrl } from '../names.js'
 import { field, flag, kind, record, text } from '../shape.js'
 
 // A tarball is fetched from an absolute http(s) URL or read from a local
@@ -23,8 +23,13 @@ function checkTarball(value, where) {
 }
 
 // `path` is a subdirectory of the tarball or repository that is the
-// package, where it is not the root: a git dependency's `#path:`.
-const readPath = (resolution, where) => field(resolution, 'path', where, text)
+// package, where it is not the root: a git dependency's `#path:`, as it
+// was given, from the root by a `/` or not. pnpm joins it to where it
+// unpacks the package, so it never climbs out of that.
+const readPath = (resolution, where) => field(resolution, 'path', where, (value, here) => {
+  checkWithin(text(value, here).replace(/^\//u, ''), here)
+  return value
+})
 
 function readTarball(resolution, where) {
   record(resolution, where, ['integrity', 'tarball', 'path', 'gitHosted'])

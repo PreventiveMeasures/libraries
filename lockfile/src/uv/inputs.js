@@ -4,7 +4,7 @@
 // one: a name, extras or groups, a marker, and where it may come from.
 
 import { LockfileError, at } from '../error.js'
-import { DIGESTS, checkHash, checkPath } from '../python/files.js'
+import { DIGESTS, checkHash, checkPath, checkSubdirectory } from '../python/files.js'
 import { checkMarker, checkNormalName, checkRequirementText } from '../python/pep508.js'
 import { checkNormalVersion, checkSpecifiers } from '../python/pep440.js'
 import { field } from '../shape.js'
@@ -41,7 +41,7 @@ function readRequirementSource(value, where) {
     }
   }
   if (type === 'git') return readGit(value.git, here)
-  if (type === 'url') return { type, url: checkUrl(value.url, here, ['https:', 'http:']).href, subdirectory: field(value, 'subdirectory', where, checkPath) }
+  if (type === 'url') return { type, url: checkUrl(value.url, here, ['https:', 'http:']).href, subdirectory: field(value, 'subdirectory', where, checkSubdirectory) }
   return { type, path: checkPath(value[type], here) }
 }
 

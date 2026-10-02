@@ -115,6 +115,8 @@ describe('the format', () => {
     assert.equal(parsePylock(edit(['lock-version = "1.0"', 'lock-version = "1.1"'])).lockVersion, '1.1')
     refuses(edit(['created-by = "test"', 'created-by = "test"\nhashes = []']), 'unsupported key "hashes"')
     refuses(edit(['created-by = "test"\n', '']), 'expected a string, found nothing', 'created-by')
+    // Nor one that reorders what is shown, as a bidirectional control does.
+    refuses(edit(['created-by = "test"', 'created-by = "te\\u202Est"']), '"te\\u202est" is empty, or has a control character in it', 'created-by')
     refuses(edit(['name = "e"', 'name = "e"\nextras = []']), 'unsupported key "extras"', 'packages[5]')
   })
 
@@ -173,7 +175,22 @@ describe('where a package comes from', () => {
       assert.equal(parsePylock(edit(['url = "https://github.com/o/c"', `url = "${url}"`])).packages[3].vcs.url, url)
     }
     refuses(edit(['url = "https://github.com/o/c"', 'url = "not a url"']), '"not a url" is not a URL', 'packages[3].vcs.url')
+    for (const url of ['ssh://-oProxyCommand=x/c', 'git+ssh://git@-oProxyCommand=x/c']) {
+      refuses(edit(['url = "https://github.com/o/c"', `url = "${url}"`]), `"${url}" has a "-" where git or ssh would read an option`, 'packages[3].vcs.url')
+    }
+    refuses(edit(['url = "https://github.com/o/c"', 'url = "ext::sh%20-c%20x"']), '"ext::sh%20-c%20x" names a remote helper of git\'s, which is not supported', 'packages[3].vcs.url')
     refuses(edit(['https://files.example.com/a-1.0.0.tar.gz', 'ssh://files.example.com/a-1.0.0.tar.gz']), '"ssh://files.example.com/a-1.0.0.tar.gz" is not a URL of https, http, file', 'packages[0].sdist.url')
+  })
+})
+
+describe('a subdirectory', () => {
+  it('within the archive, the directory or the repository it is of', () => {
+    for (const subdirectory of ['..', '../src', '../../e']) {
+      refuses(edit(['subdirectory = "src"', `subdirectory = "${subdirectory}"`]), `"${subdirectory}" climbs out of the directory it is in`, 'packages[5].archive.subdirectory')
+    }
+    refuses(edit(['requested-revision = "main"', 'subdirectory = "../x"']), '"../x" climbs out of the directory it is in', 'packages[3].vcs.subdirectory')
+    refuses(edit(['editable = true', 'editable = true, subdirectory = "../x"']), '"../x" climbs out of the directory it is in', 'packages[4].directory.subdirectory')
+    refuses(edit(['subdirectory = "src"', 'subdirectory = "/src"']), '"/src" is absolute, and only reads on the machine that wrote it', 'packages[5].archive.subdirectory')
   })
 })
 

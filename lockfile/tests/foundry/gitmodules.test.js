@@ -63,7 +63,7 @@ describe('.gitmodules, as git reads it', () => {
 
   it('reads any url, and none, with checkUrls false', () => {
     const from = (lines) => parseGitmodules(add(`[submodule "c"]\n\tpath = c${lines}`), { checkUrls: false }).c
-    for (const url of ['../c.git', './c', '/srv/c.git', 'file:///srv/c.git', 'fd::17', 'c', 'x:o/a', 'https://x.example/c']) assert.equal(from(`\n\turl = ${url}`).url, url)
+    for (const url of ['../c.git', './c', '/srv/c.git', 'file:///srv/c.git', 'c', 'x:o/a', 'https://x.example/c']) assert.equal(from(`\n\turl = ${url}`).url, url)
     assert.deepEqual(plain(from('')), { path: 'c', url: undefined, branch: undefined })
   })
 
@@ -133,6 +133,8 @@ describe('.gitmodules, of what git does not read alike', () => {
     refuses(add('\tupdate = none'), '["lib/b"].update: "none" is not a value git reads here')
     refuses(add('\tupdate = !rm -rf x'), '["lib/b"].update: "!rm -rf x" is not a value git reads here')
     refuses(add('\tshallow = maybe'), '["lib/b"].shallow: "maybe" is not a value git reads here')
+    // git's case is ASCII's: `ſ` is no `s` to it.
+    refuses(add('\tshallow = ye\u017F'), '["lib/b"].shallow: "ye\u017F" is not a value git reads here')
     for (const value of ['2147483648', '-2147483648', '08', '0x', '2g', '1.0', '1kk', '0b1']) {
       refuses(add(`\tshallow = ${value}`), `["lib/b"].shallow: "${value}" is not a value git reads here`)
     }
@@ -153,6 +155,10 @@ describe('.gitmodules, of what git does not read alike', () => {
     refuses(at('lib/c/'), 'c.path: "lib/c/" is not a relative path in normal form')
     refuses(at('/c'), 'c.path: "/c" is not a relative path in normal form')
     refuses(at('.GIT/c'), 'c.path: ".GIT/c" is in a ".git", where git writes no submodule')
+    // As NTFS and HFS+ read a name, which git refuses wherever it runs.
+    for (const path of ['.git./c', 'lib/.GIT  /c', 'GIT~1/c', 'lib/.g\u200Cit/c', '\uFEFF.git']) {
+      refuses(at(JSON.stringify(path)), `c.path: ${JSON.stringify(path)} is in a ".git", where git writes no submodule`)
+    }
     refuses(at('-c'), 'c.path: "-c" starts with "-", which git ignores the path for')
     refuses(at('"lib/c\\n"'), 'c.path: "lib/c\\n" is not a relative path in normal form')
   })
@@ -166,7 +172,7 @@ describe('.gitmodules, of what git does not read alike', () => {
     const from = (url) => add(`[submodule "c"]\n\tpath = c\n\turl = ${url}`)
     refuses(from('../c.git'), 'c.url: "../c.git" is relative to the superproject\'s remote, which only a clone of it knows')
     refuses(from('./c'), 'c.url: "./c" is relative to the superproject\'s remote, which only a clone of it knows')
-    for (const url of ['/srv/c.git', 'file:///srv/c.git', 'ext::sh -c x', 'fd::17', 'x::y', 'c', 'ftp://x.example/c', '[a/b]:c', 'git@[]:c', 'a/b:c']) {
+    for (const url of ['/srv/c.git', 'file:///srv/c.git', 'ext::sh -c x', 'c', 'ftp://x.example/c', '[a/b]:c', 'git@[]:c', 'a/b:c']) {
       const shown = JSON.stringify(url.replaceAll('\\\\', '\\'))
       refuses(from(url.includes(' ') ? `"${url}"` : url), url.includes(' ') ? `c.url: ${shown} is not a repository URL` : `c.url: ${shown} is not a URL of a host that git fetches from: http(s), ssh, git, or user@host:path`)
     }
@@ -181,6 +187,10 @@ describe('.gitmodules, of what git does not read alike', () => {
     const loose = { checkUrls: false }
     refuses(add('[submodule "c"]\n\tpath = c\n\turl = -x:o/a'), 'c.url: "-x:o/a" starts with "-", which git ignores the url for', loose)
     refuses(add('[submodule "c"]\n\tpath = c\n\turl = "../c d.git"'), 'c.url: "../c d.git" is not a repository URL', loose)
+    for (const options of [{}, loose]) {
+      for (const url of ['fd::17', 'x::y', 'ext::sh%20-c%20x']) refuses(add(`[submodule "c"]\n\tpath = c\n\turl = ${url}`), `c.url: "${url}" names a remote helper of git's, which is not supported`, options)
+      for (const url of ['ssh://-oProxyCommand=x/c', 'ssh://u@-oProxyCommand=x/c', 'git@-oProxyCommand=x:c']) refuses(add(`[submodule "c"]\n\tpath = c\n\turl = ${url}`), `c.url: "${url}" has a "-" where git or ssh would read an option`, options)
+    }
     refuses(add('[submodule "c"]\n\tpath = c\n\turl'), 'c.url: a key alone, where git expects a value', loose)
   })
 

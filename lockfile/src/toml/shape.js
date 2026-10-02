@@ -29,9 +29,10 @@ export function array(value, where) {
 
 
 // A string as a tool writes one given to it, with nothing in it that is
-// not shown: not empty, and no control character or line separator.
+// not shown, or that reorders what is: not empty, and no control character,
+// line separator or bidirectional control.
 export function text(value, where) {
-  if (string(value, where) === '' || /[\p{Cc}\p{Zl}\p{Zp}]/u.test(value)) throw new LockfileError(`${quote(value)} is empty, or has a control character in it`, where)
+  if (string(value, where) === '' || /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]/u.test(value)) throw new LockfileError(`${quote(value)} is empty, or has a control character in it`, where)
   return value
 }
 

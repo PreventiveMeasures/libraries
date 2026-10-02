@@ -61,12 +61,20 @@ function checkPath(path, where) {
   return path
 }
 
+// What hg and svn take as an argument of their own: cocoapods-downloader
+// refuses one of git's or hg's that starts with `--` or has ` --` in it,
+// as an option the command would read, and passes svn's on unread.
+const ARGUMENTS = new Set(['revision', 'tag', 'branch', 'folder'])
+
 function readOption(strategy, option, node, where) {
   if (BOOLEANS.has(option)) return scalarOf(node, 'boolean', where)
   if (option === 'headers') return itemsOf(node, where).map((item, index) => textOf(item, `${where}[${index}]`))
   if (option in FORMS) return FORMS[option](node, where)
   const value = textOf(node, where)
   if (strategy === 'git' && (option === 'branch' || option === 'tag')) checkRefName(value, where)
+  if (strategy !== 'git' && ARGUMENTS.has(option) && (value.startsWith('-') || value.includes(' --'))) {
+    throw new LockfileError(`${quote(value)} starts with "-", or has " --" in it, which ${strategy} would read as an option`, where)
+  }
   return value
 }
 

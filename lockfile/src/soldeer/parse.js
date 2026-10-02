@@ -2,7 +2,7 @@
 // and a table for each dependency, as toml_edit lays them out.
 
 import { LockfileError, at, quote } from '../error.js'
-import { isCommit, isHexSha256, isHttpUrl } from '../names.js'
+import { checkRepo, isCommit, isHexSha256, isHttpUrl } from '../names.js'
 import { compareCodePoints } from '../order.js'
 import { checkOptions, string } from '../shape.js'
 import { parseToml } from '../toml/parse.js'
@@ -31,6 +31,8 @@ function readField(entry, field, where) {
   if ((field === 'checksum' || field === 'integrity') && !isHexSha256(value)) throw new LockfileError(`${quote(value)} is not a hex sha256`, where)
   if (field === 'rev' && !isCommit(value)) throw new LockfileError(`${quote(value)} is not a full commit hash, as Soldeer writes`, where)
   if (field === 'url' && !isUrl(value)) throw new LockfileError(`${quote(value)} is not an http(s) URL`, where)
+  // Soldeer hands it to git clone, before any `--`.
+  if (field === 'git') checkRepo(value, where)
   return value
 }
 

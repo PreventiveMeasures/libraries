@@ -165,9 +165,19 @@ describe('packages', () => {
     refuses(edit(['reference = "main"', 'reference = "main"\npath = "x"']), 'unsupported key "path"', 'package[1].source')
   })
 
+  it('refuses a repository git reads otherwise than as one, and a subdirectory out of it', () => {
+    for (const url of ['ssh://git@-oProxyCommand=x/b', 'git@-oProxyCommand=x:o/b']) {
+      refuses(edit(['url = "https://github.com/o/b"', `url = "${url}"`]), `"${url}" has a "-" where git or ssh would read an option`, 'package[1].source.url')
+      refuses(edit(['b = {git = "https://github.com/o/b"', `b = {git = "${url}"`]), `"${url}" has a "-" where git or ssh would read an option`, 'package[0].dependencies.b.git')
+    }
+    refuses(edit(['reference = "main"', 'reference = "main"\nsubdirectory = "../x"']), '"../x" climbs out of the directory it is in', 'package[1].source.subdirectory')
+    refuses(edit(['branch = "main"}', 'branch = "main", subdirectory = "../x"}']), '"../x" climbs out of the directory it is in', 'package[0].dependencies.b.subdirectory')
+  })
+
   it('refuses a file twice, a path for its name, and a hash out of hex', () => {
     refuses(edit(['{file = "a-1.0.0.tar.gz"', '{file = "a-1.0.0-py3-none-any.whl"']), '"a-1.0.0-py3-none-any.whl" is listed twice', 'package[0].files[1]')
     refuses(edit(['{file = "a-1.0.0.tar.gz"', '{file = "dist/a-1.0.0.tar.gz"']), '"dist/a-1.0.0.tar.gz" is not a file\'s name', 'package[0].files[1].file')
+    for (const file of ['..', '.', 'C:a-1.0.0.tar.gz']) refuses(edit(['{file = "a-1.0.0.tar.gz"', `{file = "${file}"`]), `"${file}" is not a file's name`, 'package[0].files[1].file')
     refuses(edit([`{file = "a-1.0.0.tar.gz", hash = "sha256:${H}"}`, '{file = "a-1.0.0.tar.gz", hash = "sha256:abc"}']), '"abc" is not a sha256 digest in lowercase hex', 'package[0].files[1].hash')
   })
 

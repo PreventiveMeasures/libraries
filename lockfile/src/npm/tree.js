@@ -147,7 +147,7 @@ function loadEdges(node, workspaces, legacyPeerDeps) {
     node.edges.set(key, edge)
   }
   if (node.kind === 'root') for (const [name, { location }] of workspaces) add(name, 'workspace', `file:${location}`)
-  const meta = node.peerDependenciesMeta ?? {}
+  const meta = node.peerDependenciesMeta ?? Object.create(null)
   const peers = legacyPeerDeps ? [] : Object.entries(node.peerDependencies ?? {})
   for (const [name, spec] of peers) if (!meta[name]?.optional) add(name, 'peer', spec)
   for (const [name, spec] of peers) if (meta[name]?.optional) add(name, 'peerOptional', spec)

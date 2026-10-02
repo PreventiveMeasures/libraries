@@ -1,6 +1,7 @@
 import { parsePlatform } from '../crate/cargo-platform.js'
 import { parseVersionReq } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
+import { checkRepo } from '../names.js'
 import { field, optional, orEmpty } from '../shape.js'
 import { isTable } from '../toml/value.js'
 import { boolean, checkCrateName, checkFeature, entries, refuse, string, strings, table, tableOf } from './shape.js'
@@ -82,7 +83,7 @@ export function readSpec(value, where, name, edition) {
   let source = { type: 'registry', registry, index }
   if (path !== undefined) source = { type: 'path', path }
   if (git !== undefined) {
-    const url = checkUrl(git, at(where, 'git'))
+    const url = checkUrl(checkRepo(git, at(where, 'git')), at(where, 'git'))
     if (url.search !== '' || url.hash !== '') throw new LockfileError(`${quote(git)} has a query or a fragment, which cargo drops or misreads`, at(where, 'git'))
     source = { type: 'git', url: git, branch: read('branch', string), tag: read('tag', string), rev: read('rev', string) }
   }

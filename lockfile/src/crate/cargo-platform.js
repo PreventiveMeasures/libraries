@@ -1,10 +1,14 @@
 // The cargo-platform crate, 0.3: Platform::from_str, Cfg::from_str and
 // Platform::matches. A name or target that is not ASCII is refused, where
-// the crate takes any alphanumeric character in a target.
+// the crate takes any alphanumeric character in a target, and so is a cfg
+// nested more than 64 deep.
 
 import { text } from './semver.js'
 
 const TOKEN = / *(?:([(),=])|"([^"]*)"|(r#)?([A-Z_a-z]\w*)|(.|$))/gsuy
+// Deeper than any cfg(…) is written, and shallow enough to read and match
+// without running out of stack, as the PEP 508 marker reader holds one.
+const MAX_DEPTH = 64
 
 class Refused extends Error {}
 
@@ -41,14 +45,15 @@ function parser(source) {
     return { name: token.ident, value, key: `${token.ident}="${value}"` }
   }
   // all(…) and any(…) of any number, a comma after each; not(…) of one.
-  const expr = () => {
+  const expr = (depth = 0) => {
     const token = peek()
     if (token?.raw === false && ['all', 'any', 'not'].includes(token.ident)) {
+      if (depth >= MAX_DEPTH) refuse()
       pos++
       eat('(')
       const list = []
       while (peek()?.punct !== ')') {
-        list.push(expr())
+        list.push(expr(depth + 1))
         if (token.ident === 'not' || peek()?.punct !== ',') break
         pos++
       }

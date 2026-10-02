@@ -11,8 +11,11 @@ const checker = checkerOf(text)
 // npm's rule for a name, scoped or not, less the `~'!()*` that npm stopped
 // taking in new names: parentheses in particular would read as the start of
 // a peer suffix in a pnpm key. Capitals stay, since old names have them.
-// No name starts with `.` or `_`, so none is `..` or `__proto__`.
-const NAME = /^(?:@[a-z0-9~-][\w.~-]*\/)?[a-z0-9~-][\w.~-]*$/iu
+// No name starts with `.` or `_`, so none is `..` or `__proto__`. ASCII
+// alone, as npm takes: a case-insensitive Unicode class would take `ſ` for
+// `s` and the Kelvin sign for `k`, and the second is `K` to a file system
+// that normalizes names.
+const NAME = /^(?:@[\dA-Za-z~-][\w.~-]*\/)?[\dA-Za-z~-][\w.~-]*$/u
 
 export const isName = (name) => name.length <= 214 && NAME.test(name)
 
@@ -46,6 +49,10 @@ const UNSAFE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}\\]/u
 // One directory's or file's name in such a path.
 export const isSegment = (segment) => segment !== '' && segment !== '.' && segment !== '..' && !UNSAFE.test(segment)
 
+// A path within a directory, each of its segments one, and none of them a
+// drive, which Windows reads `C:/x` and `C:x` from, out of the directory.
+export const isWithin = (path) => !/^[A-Za-z]:/u.test(path) && path.split('/').every(isSegment)
+
 export function checkRelative(value, where) {
   const path = text(value, where)
   if (path === '.') return path
@@ -58,6 +65,15 @@ export function checkRelative(value, where) {
     }
   }
   if (/^[A-Za-z]:/u.test(path)) throw new LockfileError(`${quote(path)} starts with a drive letter`, where)
+  return path
+}
+
+// A path within a directory, a subdirectory of an archive or a repository
+// above all: one as above that never climbs out of it, whatever reads it
+// joins it to.
+export function checkWithin(value, where) {
+  const path = checkRelative(value, where)
+  if (path === '..' || path.startsWith('../')) throw new LockfileError(`${quote(path)} climbs out of the directory it is in`, where)
   return path
 }
 
@@ -100,7 +116,35 @@ export const isHexSha1 = (value) => /^[\da-f]{40}$/u.test(value)
 const BAD_REF = /^$|^@$|^-|[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control} ~^:?*[\\]|\.\.|@\{|^\/|\/$|\/\/|(?:^|\/)\.|\.lock(?:\/|$)|\.$/u
 
 export const checkRefName = checker((ref) => !BAD_REF.test(ref), 'a branch or tag name git takes')
-export const checkRepo = checker((repo) => !/[\s\p{Cc}]/u.test(repo), 'a repository URL')
+
+// A `-` that leads a repository, the user before its host or the host, which
+// git, or the ssh it runs, would read as an option where it does not refuse
+// one first: `-oProxyCommand=…` runs a command.
+const AS_OPTION = /^(?:[^/:]*:\/\/)?(?:[^/@]*@)?-/u
+// `transport::address`, which git hands to the remote helper of the name;
+// `ext::` runs a command.
+const HELPER = /^[\dA-Za-z][\d+.A-Za-z-]*::/u
+
+// Each `%XX` as the byte it stands for, as git decodes a URL before it
+// reads the user and the host in it: `ssh://%2doProxyCommand=x/repo` is of
+// the host `-oProxyCommand=x`.
+const decode = (repo) => repo.replace(/%([\dA-Fa-f]{2})/gu, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
+
+// A repository, by URL or by path, that git reads as a place to fetch from
+// and as nothing else, whatever else it has in it: a path may have a space.
+export function checkRemote(value, where) {
+  const repo = text(value, where)
+  if (AS_OPTION.test(repo) || AS_OPTION.test(decode(repo))) throw new LockfileError(`${quote(repo)} has a "-" where git or ssh would read an option`, where)
+  if (HELPER.test(repo)) throw new LockfileError(`${quote(repo)} names a remote helper of git's, which is not supported`, where)
+  return repo
+}
+
+// A repository's URL, or scp's `user@host:path`, as a tool writes the one
+// it clones: as above, and with no space or control.
+export function checkRepo(value, where) {
+  if (/[\s\p{Cc}]/u.test(text(value, where))) throw new LockfileError(`${quote(value)} is not a repository URL`, where)
+  return checkRemote(value, where)
+}
 
 // Subresource integrity with one hash, as pnpm writes it: the algorithm, a
 // dash, and the digest of its size in base64, padded, each byte one way.
@@ -136,15 +180,22 @@ export function readIntegrities(value, where) {
   return hashes
 }
 
-export const isHttpUrl = (value) => /^https?:\/\//u.test(value) && URL.canParse(value)
+// An http(s) URL that is the URL fetched as it is written: no space or
+// control, which the URL parser drops, or trims, where a reader of the
+// text would not.
+export const isHttpUrl = (value) => /^https?:\/\//u.test(value) && !/[\s\p{Cc}]/u.test(value) && URL.canParse(value)
 
-// npm's registry, and yarn's mirror of it, keep a package's tarball under
-// its name, a scope's `/` once written `%2f`, and named after its version.
-const REGISTRIES = new Set(['registry.npmjs.org', 'registry.yarnpkg.com'])
+// npm's registry, by either of its names, and yarn's mirror of it, keep a
+// package's tarball under its name, a scope's `/` once written `%2f`, and
+// named after its version.
+const REGISTRIES = new Set(['registry.npmjs.org', 'registry.npmjs.com', 'registry.yarnpkg.com'])
 
 export function checkRegistryTarball(tarball, name, version, where) {
   const url = new URL(tarball)
-  if (REGISTRIES.has(url.hostname) && url.pathname.replace(/^(\/@[^/]+)%2f/iu, '$1/') !== `/${name}/-/${name.slice(name.indexOf('/') + 1)}-${version}.tgz`) {
+  // A host a dot ends is the same host to DNS and to TLS. A run of dots is
+  // tried from its start alone, as otherwise in quadratic time.
+  const host = url.hostname.replace(/(?<!\.)\.+$/u, '')
+  if (REGISTRIES.has(host) && url.pathname.replace(/^(\/@[^/]+)%2f/iu, '$1/') !== `/${name}/-/${name.slice(name.indexOf('/') + 1)}-${version}.tgz`) {
     throw new LockfileError(`${quote(tarball)} is not the registry's tarball of ${name}@${version}`, where)
   }
 }

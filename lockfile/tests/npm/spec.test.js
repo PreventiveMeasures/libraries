@@ -36,6 +36,8 @@ const SPECS = [
   'https://github.com/user/repo/archive/v1.tar.gz', 'https://gitlab.com/g/r/-/archive/x.tar.gz', 'https://bitbucket.org/u/r/get/v1.tar.gz', 'https://gist.github.com/u/abc',
   'git@github.com:user/repo.git', 'git@github.com:user/repo.git#main', `git+ssh://git@github.com/user/repo.git#${C}`, `git+https://github.com/user/repo.git#${C}`,
   'git://github.com/user/repo', 'ssh://git@github.com/user/repo', 'git+https://user:pass@github.com/user/repo.git',
+  // npm reads the scheme's letters as ASCII, `git+ssh:` before an scp path in lower case alone.
+  'GIT+SSH://git@example.com:x/y.git', 'Git+https://example.com/x.git', 'git+\u017Fsh://git@example.com:x/y.git', '\u017F:x/y', '\u212A:x/y',
   'github:user/repo#path:sub', 'github:user/repo#semver:^1::path:x', 'github:user/repo#a::b', 'github:user/repo#foo:bar', 'github:u/r#%E0', 'github:u%E0/r',
 ]
 

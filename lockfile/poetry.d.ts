@@ -77,7 +77,10 @@ export type PoetryDependency = {
   | { type: 'git', git: string, reference: { kind: 'branch' | 'tag' | 'rev', name: string } | undefined, subdirectory: string | undefined }
 )
 
-// Paths are from the lockfile's directory, `/` between segments.
+// Paths are from the lockfile's directory, `/` between segments; a
+// subdirectory is within the repository or the archive, and climbs out of
+// it nowhere. A git repository is one in which git reads no option or
+// remote helper.
 export type PoetrySource =
   // An index other than PyPI, by its URL and the name the project gives it.
   | { type: 'legacy', url: string, name: string }

@@ -122,12 +122,15 @@ describe('parseCargoLock', () => {
     ['a replaced package', edit('name = "lib"', `name = "lib"\nreplace = "lib 0.2.0 (${CRATES})"`), 'package[4].replace: [replace] is not supported'],
     ['a name that is not a package name', edit('name = "lib"', 'name = "l/b"'), 'package[4].name: "l/b" is not a package name'],
     ['a version that is not SemVer', edit('version = "0.2.0"', 'version = "0.2"'), 'package[4].version: "0.2" is not a version'],
+    ['a git source git reads an option in', edit(`source = "${GIT}"`, `source = "git+ssh://git@-oProxyCommand=x/itoa?tag=1.0.18#${COMMIT}"`), 'package[2].source: "ssh://git@-oProxyCommand=x/itoa" has a "-" where git or ssh would read an option'],
+    ['a registry by a remote helper', edit(`source = "${CRATES}"\nchecksum = "${SUM}"\n\n[[package]]\nname = "itoa"\nversion = "1.0.18"\nsource = "${GIT}"`, `source = "registry+ext::sh"\nchecksum = "${SUM}"\n\n[[package]]\nname = "itoa"\nversion = "1.0.18"\nsource = "${GIT}"`), 'package[1].source: "ext::sh" names a remote helper of git\'s, which is not supported'],
     ['a path source', edit('source = "sparse+https://index.example.com/"', 'source = "path+file:///x"'), 'package[5].source: "path+file:///x" is not a source: expected registry+, sparse+ or git+ and a URL'],
     ['a registry URL not in normal form', edit(`source = "${CRATES}"\nchecksum = "${SUM}"\n\n[[package]]\nname = "itoa"\nversion = "1.0.18"\nsource = "${GIT}"`, `source = "registry+HTTPS://github.com/rust-lang/crates.io-index"\nchecksum = "${SUM}"\n\n[[package]]\nname = "itoa"\nversion = "1.0.18"\nsource = "${GIT}"`), 'package[1].source: "registry+HTTPS://github.com/rust-lang/crates.io-index" is not a source: expected a URL in normal form, without a query or a fragment'],
     ['a git source without its commit', edit(`source = "${GIT}"`, 'source = "git+https://github.com/dtolnay/itoa?tag=1.0.18"'), 'package[2].source: "git+https://github.com/dtolnay/itoa?tag=1.0.18" is not a source: expected "#" and the commit it resolved to'],
     ['a git source asking for two things', edit(`source = "${GIT}"`, `source = "git+https://github.com/dtolnay/itoa?tag=1.0.18&branch=x#${COMMIT}"`), `package[2].source: "git+https://github.com/dtolnay/itoa?tag=1.0.18&branch=x#${COMMIT}" is not a source: expected at most one of branch=, tag= or rev=`],
     ['a checksum on a git package', edit(`source = "${GIT}"`, `source = "${GIT}"\nchecksum = "${SUM}"`), 'package[2].checksum: a git package has no checksum'],
     ['a checksum on a path package', edit('name = "lib"', `name = "lib"\nchecksum = "${SUM}"`), 'package[4].checksum: a path package has no checksum'],
+    ['a registry package with no checksum', edit(`source = "sparse+https://index.example.com/"\nchecksum = "${SUM}"`, 'source = "sparse+https://index.example.com/"'), "package[5]: expected a checksum, which cargo checks a registry's package with, and refuses the lockfile without"],
     ['a checksum that is not a sha256', edit('source = "sparse+https://index.example.com/"\nchecksum = "b', 'source = "sparse+https://index.example.com/"\nchecksum = "B'), `package[5].checksum: "B${SUM.slice(1)}" is not a sha256 checksum`],
     ['a package listed twice', `${BASE}\n[[package]]\nname = "lib"\nversion = "0.2.0"\n`, 'package[6]: "lib 0.2.0" is listed twice, first as package[4]'],
     ['one source spelled two ways', `${BASE}\n[[package]]\nname = "itoa"\nversion = "1.0.18"\nsource = "git+https://github.com/DTolnay/itoa.git?tag=1.0.18#${COMMIT}"\n`, `package[6]: "itoa 1.0.18 (git+https://github.com/DTolnay/itoa.git?tag=1.0.18#${COMMIT})" is listed twice, first as package[2]`],
@@ -139,7 +142,7 @@ describe('parseCargoLock', () => {
     ['an edge with a commit', edit(' "itoa 1.0.18 (git+https://github.com/dtolnay/itoa?tag=1.0.18)",', ` "itoa 1.0.18 (${GIT})",`), `package[0].dependencies[1]: "${GIT}" is not a source: a dependency names no commit`],
     ['an edge spelled with two spaces', edit(' "lib",', ' "lib  0.2.0",'), 'package[0].dependencies[3]: "lib  0.2.0" is not `name`, `name version` or `name version (source)`'],
     ['an edge listed twice', edit(' "lib",', ' "lib",\n "lib 0.2.0",'), 'package[0].dependencies: "lib 0.2.0" is listed twice'],
-    ['a package nothing reaches', `${BASE}\n[[package]]\nname = "regex"\nversion = "1.0.0"\nsource = "${CRATES}"\n`, `package: nothing in the workspace depends on "regex 1.0.0 (${CRATES})", directly or not`],
+    ['a package nothing reaches', `${BASE}\n[[package]]\nname = "regex"\nversion = "1.0.0"\nsource = "${CRATES}"\nchecksum = "${SUM}"\n`, `package: nothing in the workspace depends on "regex 1.0.0 (${CRATES})", directly or not`],
   ]
   for (const [title, text, message] of refused) {
     it(`refuses ${title}`, () => {
