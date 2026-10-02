@@ -86,9 +86,7 @@ function isClause(clause) {
   if (operator === '===') return /^[^\s;)]+$/u.test(version)
   if ((operator === '==' || operator === '!=') && PREFIX.test(version)) return true
   const parsed = parseVersion(version)
-  if (parsed === undefined) return false
-  if (operator === '~=' && parsed.release.length < 2) return false
-  return parsed.local === undefined || operator === '==' || operator === '!='
+  return parsed !== undefined && (operator !== '~=' || parsed.release.length >= 2) && (parsed.local === undefined || operator === '==' || operator === '!=')
 }
 
 // A list of specifiers a comma apart, spaces and tabs around each: what a

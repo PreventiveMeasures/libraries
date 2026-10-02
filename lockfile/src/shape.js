@@ -93,6 +93,13 @@ export function flag(value, where) {
   return value === true
 }
 
+// A check of a string `read` reads that `is` holds, refusing any other as
+// not `what`.
+export const checkerOf = (read) => (is, what) => (value, where) => {
+  if (!is(read(value, where))) throw new LockfileError(`${quote(value)} is not ${what}`, where)
+  return value
+}
+
 // The options object a reader takes, of the `names` alone.
 export function checkOptions(options, names) {
   if (typeof options !== 'object' || options === null || Array.isArray(options)) throw new TypeError('expected an options object')

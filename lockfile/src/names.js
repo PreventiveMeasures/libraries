@@ -4,7 +4,9 @@
 
 import { fromBase64 } from '@exodus/bytes/base64.js'
 import { LockfileError, quote } from './error.js'
-import { text } from './shape.js'
+import { checkerOf, text } from './shape.js'
+
+const checker = checkerOf(text)
 
 // npm's rule for a name, scoped or not, less the `~'!()*` that npm stopped
 // taking in new names: parentheses in particular would read as the start of
@@ -32,10 +34,7 @@ export function isVersion(version) {
   return m !== null && m.slice(1, 4).every((part) => Number(part) <= Number.MAX_SAFE_INTEGER)
 }
 
-export function checkVersion(value, where) {
-  if (!isVersion(text(value, where))) throw new LockfileError(`${quote(value)} is not a version`, where)
-  return value
-}
+export const checkVersion = checker(isVersion, 'a version')
 
 // A path from one directory to another as pnpm writes it: `/` between
 // segments, `..` only at the start, no `.` or empty segment, or `.` alone
@@ -97,16 +96,8 @@ export const isHexSha256 = (value) => /^[\da-f]{64}$/u.test(value)
 // refuses, and git checkout reads as an option.
 const BAD_REF = /^$|^@$|^-|[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control} ~^:?*[\\]|\.\.|@\{|^\/|\/$|\/\/|(?:^|\/)\.|\.lock(?:\/|$)|\.$/u
 
-export function checkRefName(value, where) {
-  if (BAD_REF.test(text(value, where))) throw new LockfileError(`${quote(value)} is not a branch or tag name git takes`, where)
-  return value
-}
-
-export function checkRepo(value, where) {
-  const repo = text(value, where)
-  if (/[\s\p{Cc}]/u.test(repo)) throw new LockfileError(`${quote(repo)} is not a repository URL`, where)
-  return repo
-}
+export const checkRefName = checker((ref) => !BAD_REF.test(ref), 'a branch or tag name git takes')
+export const checkRepo = checker((repo) => !/[\s\p{Cc}]/u.test(repo), 'a repository URL')
 
 // Subresource integrity with one hash, as pnpm writes it: the algorithm, a
 // dash, and the digest of its size in base64, padded, each byte one way.

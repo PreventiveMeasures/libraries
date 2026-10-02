@@ -3,7 +3,7 @@
 // pylock.toml. A table has a null prototype, so a key is only ever a key.
 
 import { LockfileError, quote } from '../error.js'
-import { primitives } from '../shape.js'
+import { checkerOf, primitives } from '../shape.js'
 import { TomlDateTime } from './datetime.js'
 import { TomlFloat } from './number.js'
 import { isTable } from './value.js'
@@ -36,10 +36,7 @@ export function text(value, where) {
 }
 
 // A check of a string `is` holds, refusing any other as not `what`.
-export const checker = (is, what) => (value, where) => {
-  if (!is(string(value, where))) throw new LockfileError(`${quote(value)} is not ${what}`, where)
-  return value
-}
+export const checker = checkerOf(string)
 
 // Each item of an array, as `read(item, where)` makes it.
 export const arrayOf = (read) => (value, where) => array(value, where).map((item, index) => read(item, `${where}[${index}]`))
