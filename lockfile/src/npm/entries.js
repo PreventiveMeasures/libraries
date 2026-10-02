@@ -57,10 +57,11 @@ const strings = (value, where) => texts(filled(value, where), where)
 // A sequence of strings, which old manifests have, or what `read` reads.
 const stringsOr = (read) => (value, where) => (Array.isArray(value) ? strings(value, where) : read(value, where))
 
+// Of a peer, whether it is optional: what else the package.json says of
+// it, npm writes as it is and passes over.
 const peersMeta = mapping((item, where, name) => {
   checkName(name, where)
-  record(item, where, ['optional'])
-  return { optional: field(item, 'optional', where, boolean) ?? false }
+  return { optional: field(record(item, where), 'optional', where, boolean) ?? false }
 })
 
 // A URL, a mapping of a type and a URL, or a sequence of either.

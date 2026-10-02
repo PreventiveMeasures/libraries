@@ -123,6 +123,13 @@ describe('what else npm writes is read', () => {
     assert.deepEqual(lock.packages['node_modules/a'].edges.z, { type: 'peerOptional', spec: '1.0.0', accept: undefined, target: undefined })
   })
 
+  it('what else a package.json says of a peer, which npm passes over', () => {
+    const meta = (peersMeta) => parse(edit((l) => (l.packages['node_modules/a'].peerDependenciesMeta = peersMeta))).packages['node_modules/a'].edges.c.type
+    assert.equal(meta({ c: { custom: 'yes', optional: true } }), 'peerOptional')
+    assert.equal(meta({ c: { custom: { deep: [1] } }, z: { optional: true } }), 'peer')
+    refuses(edit((l) => (l.packages['node_modules/a'].peerDependenciesMeta = { c: { optional: 'yes' } })), 'expected true or false, found the string "yes"', `${P('node_modules/a')}.peerDependenciesMeta.c.optional`)
+  })
+
   it('a name both in dependencies and in devDependencies, as dev alone', () => {
     const lock = parse(edit((l) => (l.packages[''].dependencies.dv = '1.0.0')))
     assert.equal(lock.importers['.'].edges.dv.type, 'dev')
