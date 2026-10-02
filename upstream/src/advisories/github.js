@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 
-import { assertRepo, assertion, isGhsa, isRefName, isStrings } from '../args.js'
+import { assertRepo, assertSoldeerName, assertSoldeerVersion, assertion, isGhsa, isRefName, isStrings } from '../args.js'
 import { isGone } from '../github/client.js'
 import { recover } from '../http.js'
 import { pool } from '../pool.js'
-import { valid } from '../semver.js'
-import { covered, inRange, isText, metrics } from './common.js'
+import { covered, isText, mayBeInRange, metrics } from './common.js'
+import { soldeerRepos } from './repos.js'
 
 const REPOS_AT_ONCE = 4
 
@@ -59,6 +59,12 @@ async function repositoryAdvisories(github, asked, { repoOf, takes = () => true,
   return [...rows.values()]
 }
 
+// Each asked name's repository: as given, `known`, or else looked up.
+async function reposOf(asked, known, lookUp) {
+  const found = await lookUp([...asked.keys()].filter((name) => !known.has(name)))
+  return (name) => known.get(name) ?? found.get(name)
+}
+
 // A maintainer's advisory is on the repository before GitHub reviews it
 // into the databases the registries answer from. With `repoAdvisories`,
 // each package's repository, `known` or else looked up, adds what it
@@ -67,22 +73,32 @@ async function repositoryAdvisories(github, asked, { repoOf, takes = () => true,
 export async function withRepositories(rows, asked, { github, repoAdvisories, known }, { ecosystem, lookUp, covers }) {
   if (!repoAdvisories) return rows
   const reported = new Set(rows.flatMap((row) => [row.id, row.ghsa, ...row.aliases].filter(isGhsa).flatMap((id) => row.versions.map((version) => `${row.name} ${id} ${version}`))))
-  const found = await lookUp([...asked.keys()].filter((name) => !known.has(name)))
-  const repoOf = (name) => known.get(name) ?? found.get(name)
+  const repoOf = await reposOf(asked, known, lookUp)
   const takes = (name, pkg) => pkg?.ecosystem === ecosystem && pkg.name === name
   const added = await repositoryAdvisories(github, asked, { repoOf, takes, covers })
   return [...rows, ...added.map((row) => ({ ...row, versions: row.versions.filter((version) => !reported.has(`${row.name} ${row.id} ${version}`)) }))]
 }
 
 // stasis versions a repository with no version of its own by its branch,
-// or 0.0.0: every range covers those. Whatever semver reads is a version,
-// `v1.2.3` and `1.2.3+build` included.
-const coversPlaceholder = (version, range) => version === '0.0.0' || valid(version) === null || inRange(version, range)
+// or 0.0.0: every range covers those.
+const coversPlaceholder = (version, range) => version === '0.0.0' || mayBeInRange(version, range)
 
 // Dependencies that are GitHub repositories themselves: every range their
 // own published advisories list counts, whichever package it names.
 export const GITHUB = {
+  repositoryOnly: true,
   assertName: assertRepo,
   assertVersion: assertion('a version or a branch name', isRefName),
   advisories: (asked, { github }) => repositoryAdvisories(github, asked, { repoOf: (repo) => repo, covers: coversPlaceholder }),
+}
+
+// Soldeer packages, which no advisory database has: the repository each
+// is published from, as given or else as Soldeer's project names it, is
+// their only source, and every range its advisories list counts, whichever
+// package it names (often the npm package the same release went out as).
+export const SOLDEER = {
+  repositoryOnly: true,
+  assertName: assertSoldeerName,
+  assertVersion: assertSoldeerVersion,
+  advisories: async (asked, { github, known }) => await repositoryAdvisories(github, asked, { repoOf: await reposOf(asked, known, soldeerRepos) }),
 }

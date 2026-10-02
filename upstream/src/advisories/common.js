@@ -1,5 +1,5 @@
 import { isStrings, matches } from '../args.js'
-import { satisfies, validRange } from '../semver.js'
+import { satisfies, valid, validRange } from '../semver.js'
 
 export const order = (a, b) => (a > b) - (a < b)
 
@@ -8,9 +8,13 @@ const SEMVER = { includePrerelease: true, loose: true }
 
 export const inRange = (version, range) => satisfies(version, range, SEMVER)
 
-// The asked versions a range `covers`. One semver cannot read covers them
-// all: a missed advisory is worse than a spare one.
-export const covered = (asked, range, covers = inRange) => (validRange(range, SEMVER) === null ? [...asked] : asked.filter((version) => covers(version, range)))
+// A version semver cannot read may be in any range. Whatever it reads is
+// a version, `v1.2.3` and `1.2.3+build` included.
+export const mayBeInRange = (version, range) => valid(version) === null || inRange(version, range)
+
+// The asked versions a range `covers`. One semver cannot read, range or
+// version, covers them all: a missed advisory is worse than a spare one.
+export const covered = (asked, range, covers = mayBeInRange) => (validRange(range, SEMVER) === null ? [...asked] : asked.filter((version) => covers(version, range)))
 
 // Remote text, as long as it is well-formed; anything else is refused as
 // malformed by whoever reads it.

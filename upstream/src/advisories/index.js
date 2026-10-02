@@ -2,11 +2,11 @@ import assert from 'node:assert/strict'
 
 import { assertArgs, assertBoolean, assertRepo, assertion, optional, sameName } from '../args.js'
 import { order } from './common.js'
-import { GITHUB, assertClient } from './github.js'
+import { GITHUB, SOLDEER, assertClient } from './github.js'
 import { NPM } from './npm.js'
 import { CARGO, COMPOSER } from './osv.js'
 
-const ECOSYSTEMS = { npm: NPM, cargo: CARGO, composer: COMPOSER, github: GITHUB }
+const ECOSYSTEMS = { npm: NPM, cargo: CARGO, composer: COMPOSER, soldeer: SOLDEER, github: GITHUB }
 const byNumbers = new Intl.Collator('en', { numeric: true }).compare
 const assertEcosystem = assertion(`one of ${Object.keys(ECOSYSTEMS).join(', ')}`, (value) => typeof value === 'string' && Object.hasOwn(ECOSYSTEMS, value))
 const assertVersions = assertion('a non-empty array', (value) => Array.isArray(value) && value.length > 0)
@@ -37,7 +37,7 @@ export async function advisories(packages, options = {}) {
   assertArgs('advisories', options, { github: optional(assertClient), repoAdvisories: optional(assertBoolean) })
   assert.ok(!options.repoAdvisories || options.github, 'advisories: repoAdvisories needs a github client')
   const byEcosystem = collect(packages)
-  assert.ok(!byEcosystem.has('github') || options.github, 'advisories: github packages need a github client')
+  for (const ecosystem of byEcosystem.keys()) assert.ok(!ECOSYSTEMS[ecosystem].repositoryOnly || options.github, `advisories: ${ecosystem} packages need a github client`)
   const found = await Promise.all([...byEcosystem].map(async ([ecosystem, named]) => {
     const { compare = byNumbers, advisories: find } = ECOSYSTEMS[ecosystem]
     const names = [...named.keys()].toSorted()
