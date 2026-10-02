@@ -363,8 +363,9 @@ describe('buildRequestBody — provider-specific shapes', () => {
 
   // The Responses default retains every request and response on OpenAI's
   // servers; this tool uploads someone else's source code, so the opt-out is
-  // deliberate and worth pinning. Nothing reads that state back — tool results
-  // are replayed into the next `input` — so stateless costs us nothing.
+  // deliberate and worth pinning. Tool results are replayed into the next
+  // `input`, so nothing reads that state back — provided a reasoning item
+  // carries its own reasoning, which the next case pins.
   it('openai (Responses): opts out of server-side retention on every route', () => {
     withProvider('openai', 'OPENAI_API_KEY', () => {
       assert.equal(buildRequestBody('openai/gpt-6-astra', 1000, 'sys', messages).store, false)
@@ -372,6 +373,52 @@ describe('buildRequestBody — provider-specific shapes', () => {
     // Chat-completions backends have no such field, and must not grow one.
     withProvider('openrouter', 'OPENROUTER_API_KEY', () => {
       assert.equal('store' in buildRequestBody('openai/gpt-6-astra', 1000, 'sys', messages), false)
+    })
+  })
+
+  // With `store: false` a reasoning item is only an id the server never kept,
+  // so replaying it on the next tool turn 400s ("Item with id 'rs_…' not
+  // found") unless the encrypted reasoning travels in the item itself.
+  it('openai (Responses): asks for encrypted reasoning on every row that reasons', () => {
+    withProvider('openai', 'OPENAI_API_KEY', () => {
+      const ENCRYPTED = ['reasoning.encrypted_content']
+      assert.deepEqual(buildRequestBody('openai/gpt-5.5', 1000, 'sys', messages, { think: true }).include, ENCRYPTED)
+      // Keyed on the row, not the request: astra reasons with thinking off,
+      // and a pro row is a mode on a model that reasons.
+      assert.deepEqual(buildRequestBody('openai/gpt-6-astra', 1000, 'sys', messages).include, ENCRYPTED)
+      assert.deepEqual(buildRequestBody('openai/gpt-6-astra-pro', 1000, 'sys', messages).include, ENCRYPTED)
+      assert.deepEqual(buildRequestBody('openai/gpt-6-sol', 1000, 'sys', messages).include, ENCRYPTED)
+      // The alias resolves to the row it names.
+      assert.deepEqual(buildRequestBody('openai/gpt-5.6', 1000, 'sys', messages).include, ENCRYPTED)
+      // A model that cannot reason rejects the field outright ("Encrypted
+      // content is not supported with this model"), on the first turn.
+      for (const model of ['openai/gpt-4o-mini', 'openai/gpt-4.1-mini']) {
+        assert.equal('include' in buildRequestBody(model, 1000, 'sys', messages), false, model)
+      }
+    })
+    // Chat-completions backends have no such field either.
+    withProvider('openrouter', 'OPENROUTER_API_KEY', () => {
+      assert.equal('include' in buildRequestBody('openai/gpt-5.5', 1000, 'sys', messages, { think: true }), false)
+    })
+  })
+
+  it('openai (Responses): the next tool turn carries the encrypted reasoning back verbatim', () => {
+    withProvider('openai', 'OPENAI_API_KEY', () => {
+      const tools = [{ name: 'fn', description: 'd', input_schema: { type: 'object' } }]
+      const thread = [...messages]
+      const reasoning = { id: 'rs_1', type: 'reasoning', summary: [], encrypted_content: 'gAAAA-opaque' }
+      const call = { id: 'fc_1', type: 'function_call', call_id: 'c1', name: 'fn', arguments: '{}', status: 'completed' }
+      const json = { status: 'completed', output: [reasoning, call] }
+      appendToolResults(thread, json, extractToolCalls(json), ['result-1'])
+      const next = buildRequestBody('openai/gpt-5.5', 1000, 'sys', thread, { think: true, tools })
+      assert.equal(next.store, false)
+      assert.deepEqual(next.include, ['reasoning.encrypted_content'])
+      assert.deepEqual(next.input, [
+        messages[0],
+        reasoning,
+        call,
+        { type: 'function_call_output', call_id: 'c1', output: 'result-1' },
+      ])
     })
   })
 
@@ -1281,8 +1328,15 @@ describe('gateway — Anthropic and OpenAI natively, everything else like openro
       // The id stays namespaced: on a gateway it is the operator's routing
       // key, exactly as on the Messages route.
       assert.equal(body.model, ASTRA)
-      // Stateless on the gateway route too.
+      // Stateless on the gateway route too, and so replayable only with the
+      // reasoning carried in the item.
       assert.equal(body.store, false)
+      assert.deepEqual(body.include, ['reasoning.encrypted_content'])
+      assert.equal('include' in mod.buildRequestBody('openai/gpt-4o-mini', 1000, 'sys', messages), false)
+      // Not a field any other route takes.
+      for (const model of [CLAUDE, ...CHAT_ROUTES]) {
+        assert.equal('include' in mod.buildRequestBody(model, 1000, 'sys', messages), false, model)
+      }
       // The pro row normalizes to the base model plus the mode. The `-pro`
       // id is OpenRouter's way of asking for a mode on chat completions,
       // which has no field for one; Responses does, so sending the slug here

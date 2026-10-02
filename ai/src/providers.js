@@ -3,7 +3,7 @@ import { env } from '#env'
 import { assert } from '#assert'
 import { fetchJSON } from './fetch-json.js'
 import { ollamaOrigin, resolveOllamaTag } from './ollama.js'
-import { calculateCost, effortsFor, needsExplicitNoThink, ollamaModels, ollamaTagFor, reasoningModeFor, wireModelFor } from './models.js'
+import { calculateCost, canThink, effortsFor, needsExplicitNoThink, ollamaModels, ollamaTagFor, reasoningModeFor, resolveModel, wireModelFor } from './models.js'
 import { anthropicAuthHeader, anthropicShape, chatCompletionsBase, parseArgs, stripNamespace, toAnthropicModel, truncationError } from './wire-formats.js'
 
 export { isMaxTokensTruncation } from './wire-formats.js'
@@ -65,11 +65,22 @@ function openaiResponsesShape(modelId) {
         max_output_tokens: maxTokens,
         // Stateless. The default retains every request and response on OpenAI's servers, which for
         // a tool that uploads someone else's source code is a data-retention decision worth making
-        // on purpose. Nothing here reads that state back: appendToolResults replays every output
-        // item into the next `input`, which is exactly what stateless mode requires, so no
-        // `previous_response_id` is ever needed.
+        // on purpose. appendToolResults replays every output item into the next `input`, so no
+        // `previous_response_id` is ever needed — but see `include` below for what that replay
+        // takes on a model that reasons.
         store: false,
       }
+      // A reasoning item comes back as an id plus a summary, and the reasoning itself stays on
+      // OpenAI's side under that id. With `store: false` nothing is kept there, so replaying the
+      // item verbatim — which the next tool turn does — 400s with "Item with id 'rs_…' not found".
+      // Asking for the encrypted reasoning puts it in the item itself, which is what lets a
+      // stateless replay carry the chain of thought forward instead.
+      //
+      // Keyed on the row rather than this request's `think`: astra reasons with thinking off too,
+      // and its items need replaying all the same. A row that cannot reason must not get it —
+      // gpt-4o-mini and gpt-4.1-mini reject the field outright with "Encrypted content is not
+      // supported with this model", on the first turn of every run.
+      if (canThink(resolveModel(model))) body.include = ['reasoning.encrypted_content']
       if (tools) body.tools = tools.map(toOpenAIResponsesTool)
       // Thinking off on a row that reasons unless told not to: an omitted effort is the model's own
       // default, `medium` on every such row, so `none` has to be named.
@@ -112,6 +123,8 @@ function openaiResponsesShape(modelId) {
       // Responses replays state by feeding the previous turn's output items back as input items.
       // Push every output item (reasoning, function_call, message) verbatim so the model can pick
       // up where it left off, then pair each function_call with its function_call_output result.
+      // Verbatim includes a reasoning item's `encrypted_content`, the only copy of it there is
+      // under `store: false` (see `include` in buildRequestBody).
       for (const item of json.output ?? []) messages.push(item)
       for (let i = 0; i < toolCalls.length; i++) {
         messages.push({ type: 'function_call_output', call_id: toolCalls[i].id, output: results[i] })
