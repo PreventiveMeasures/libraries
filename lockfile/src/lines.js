@@ -49,17 +49,16 @@ export function advance(src) {
   src.line = line
 }
 
-// Past the quote that closes the string opening at `pos`; a backslash
-// escapes the character after it.
-export function closeQuote(line, pos, number) {
+// The string opening at `pos`, as JSON.stringify writes it and no other
+// way, and the position past its closing quote; a backslash escapes the
+// character after it. Without one, the text is the value, as a line's
+// controls and lone surrogates are refused before.
+export function readJsonString(line, pos, number) {
   let end = pos + 1
   while (end < line.length && line[end] !== '"') end += line[end] === '\\' ? 2 : 1
   if (end >= line.length) throw fail('a string with no closing quote', number)
-  return end + 1
-}
-
-// A quoted string with escapes, as JSON.stringify writes it and no other way.
-export function readJsonString(raw, number) {
+  const raw = line.slice(pos, ++end)
+  if (!raw.includes('\\')) return [raw.slice(1, -1), end]
   let value
   try {
     value = JSON.parse(raw)
@@ -67,5 +66,5 @@ export function readJsonString(raw, number) {
     throw fail(`${quote(raw)} is not a string as JSON writes it`, number)
   }
   if (JSON.stringify(value) !== raw) throw fail(`${quote(raw)} is not written as JSON writes ${quote(value)}`, number)
-  return value
+  return [value, end]
 }

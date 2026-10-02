@@ -52,16 +52,13 @@ function readDirectory(resolution, where) {
   return { type: 'directory', directory: checkRelative(resolution.directory, at(where, 'directory')) }
 }
 
+// By `type`, compared as `===` compares it: a key of an object would take
+// the sequence `[git]` for `git`.
+const READERS = new Map([[undefined, readTarball], ['git', readGit], ['directory', readDirectory]])
+
 export function readResolution(value, where) {
   const resolution = record(value, where)
-  switch (resolution.type) {
-    case undefined:
-      return readTarball(resolution, where)
-    case 'git':
-      return readGit(resolution, where)
-    case 'directory':
-      return readDirectory(resolution, where)
-    default:
-      throw new LockfileError(`unsupported resolution type, ${kind(resolution.type)}`, at(where, 'type'))
-  }
+  const read = READERS.get(resolution.type)
+  if (read === undefined) throw new LockfileError(`unsupported resolution type, ${kind(resolution.type)}`, at(where, 'type'))
+  return read(resolution, where)
 }

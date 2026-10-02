@@ -33,20 +33,14 @@ const VARIABLES = new Set([
 ])
 const KEYWORDS = new Set(['and', 'or', 'in', 'not'])
 
-const SPACE = /[ \t]*/uy
-const TOKEN = /([()])|('[^']*'|"[^"]*")|(===|==|!=|<=|>=|~=|<|>)|([A-Za-z_][\w.]*)/uy
+const TOKEN = /[ \t]*(?:([()])|('[^']*'|"[^"]*")|(===|==|!=|<=|>=|~=|<|>)|([A-Za-z_][\w.]*)|(.|$))/gsuy
 const MAX_DEPTH = 64
 
 // Each token by its kind: a bracket, `string`, `op`, a keyword or `variable`.
 function tokenize(text) {
   const tokens = []
-  SPACE.lastIndex = 0
-  while (SPACE.test(text) && SPACE.lastIndex < text.length) {
-    TOKEN.lastIndex = SPACE.lastIndex
-    const m = TOKEN.exec(text)
-    if (m === null) return undefined
-    SPACE.lastIndex = TOKEN.lastIndex
-    const [, bracket, quoted, operator, word] = m
+  for (const [, bracket, quoted, operator, word, end] of text.matchAll(TOKEN)) {
+    if (end === '') break
     if (bracket !== undefined) tokens.push(bracket)
     else if (quoted !== undefined) tokens.push('string')
     else if (operator !== undefined) tokens.push('op')
@@ -57,16 +51,11 @@ function tokenize(text) {
   return tokens
 }
 
-// marker_or, from tokens[pos], to the position past it, or -1.
+// marker_or, from tokens[pos], to the position past it, or -1: for whether
+// it reads, `and` and `or` are alike.
 function readOr(tokens, pos, depth) {
-  let at = readAnd(tokens, pos, depth)
-  while (at !== -1 && tokens[at] === 'or') at = readAnd(tokens, at + 1, depth)
-  return at
-}
-
-function readAnd(tokens, pos, depth) {
   let at = readExpression(tokens, pos, depth)
-  while (at !== -1 && tokens[at] === 'and') at = readExpression(tokens, at + 1, depth)
+  while (at !== -1 && (tokens[at] === 'and' || tokens[at] === 'or')) at = readExpression(tokens, at + 1, depth)
   return at
 }
 
@@ -94,33 +83,24 @@ export const checkMarker = checker(isMarker, 'an environment marker')
 // A requirement in PEP 508's text, as packaging reads it: a name, extras
 // in brackets, then a version specifier, in brackets or not, or `@` and a
 // URL, and `;` and a marker; after a URL, a space before the `;`.
-const REQUIREMENT = /^([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)[ \t]*(?:\[([^\]]*)\])?[ \t]*(.*)$/su
+const REQUIREMENT = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?[ \t]*(?:\[([^\]]*)\])?[ \t]*(.*)$/su
 
-// The specifiers and the marker after a requirement's name and extras, each
-// undefined where there is none; undefined where it does not read.
-function readTail(tail) {
+function isRequirement(text) {
+  const [, extras, tail] = REQUIREMENT.exec(text) ?? []
+  if (tail === undefined) return false
+  if (extras !== undefined && trimBlanks(extras) !== '' && !extras.split(',').every((extra) => isName(trimBlanks(extra)))) return false
   if (tail.startsWith('@')) {
     const [, url, rest] = /^@[ \t]*([^ \t]*)(.*)$/su.exec(tail)
-    if (!URL.canParse(url)) return undefined
     const marker = /^(?:[ \t]+;[ \t]*(.*))?$/su.exec(rest)
-    return marker === null ? undefined : { specifiers: undefined, marker: marker[1] }
+    return URL.canParse(url) && marker !== null && (marker[1] === undefined || isMarker(marker[1]))
   }
   const sep = tail.indexOf(';')
   let specifiers = trimBlanks(sep === -1 ? tail : tail.slice(0, sep))
   if (specifiers.startsWith('(')) {
-    if (!specifiers.endsWith(')')) return undefined
+    if (!specifiers.endsWith(')')) return false
     specifiers = specifiers.slice(1, -1)
   }
-  return { specifiers: specifiers === '' ? undefined : specifiers, marker: sep === -1 ? undefined : trimBlanks(tail.slice(sep + 1)) }
-}
-
-function isRequirement(text) {
-  const m = REQUIREMENT.exec(text)
-  if (m === null) return false
-  const [, , extras, tail] = m
-  if (extras !== undefined && trimBlanks(extras) !== '' && !extras.split(',').every((extra) => isName(trimBlanks(extra)))) return false
-  const parts = readTail(tail)
-  return parts !== undefined && (parts.specifiers === undefined || isSpecifiers(parts.specifiers)) && (parts.marker === undefined || isMarker(parts.marker))
+  return (specifiers === '' || isSpecifiers(specifiers)) && (sep === -1 || isMarker(trimBlanks(tail.slice(sep + 1))))
 }
 
 export const checkRequirementText = checker(isRequirement, 'a requirement')

@@ -6,7 +6,7 @@
 // some other readers do not.
 
 import { quote } from '../error.js'
-import { advance, closeQuote, fail, lines, readJsonString, rest } from '../lines.js'
+import { advance, fail, lines, readJsonString, rest } from '../lines.js'
 
 // Never in a lockfile read here: a control, which serde_json escapes below
 // U+0020 and no path or name here may have above; a lone surrogate, which
@@ -18,10 +18,8 @@ const FORBIDDEN = /[\p{Cc}\p{Cs}\uFEFF]/u
 // escapes of `"`, `\` and controls, and no others.
 function readString(line, pos, number) {
   if (line[pos] !== '"') throw fail(`expected a string, found ${rest(line, pos)}`, number)
-  const end = closeQuote(line, pos, number)
-  const raw = line.slice(pos, end)
-  const value = readJsonString(raw, number)
-  if (!value.isWellFormed()) throw fail(`${quote(raw)} escapes a lone surrogate, which forge does not read`, number)
+  const [value, end] = readJsonString(line, pos, number)
+  if (!value.isWellFormed()) throw fail(`${quote(line.slice(pos, end))} escapes a lone surrogate, which forge does not read`, number)
   return [value, end]
 }
 

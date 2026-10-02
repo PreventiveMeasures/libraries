@@ -8,7 +8,7 @@ import { isHexSha256 } from '../names.js'
 import { checkVersion, versionKeyOf } from '../python/pep440.js'
 import { checkMarker, checkName, normalName } from '../python/pep508.js'
 import { field } from '../shape.js'
-import { array, boolean, checkListedOnce, entries, kind, string, strings, stringsOf, table, tableOf, text } from '../toml/shape.js'
+import { array, boolean, checkListedOnce, checker, entries, kind, string, strings, stringsOf, table, tableOf, text } from '../toml/shape.js'
 import { parseToml } from '../toml/parse.js'
 import { isTable } from '../toml/value.js'
 import { readDependencies, readExtras, readFiles, readSource } from './package.js'
@@ -30,8 +30,7 @@ function readMetadata(value) {
     hashes: 'metadata.hashes is lock-version 1, which is not read here',
   })
   const here = (key) => at('metadata', key)
-  const contentHash = string(value['content-hash'], here('content-hash'))
-  if (!isHexSha256(contentHash)) throw new LockfileError(`${quote(contentHash)} is not a hex sha256`, here('content-hash'))
+  const contentHash = checker(isHexSha256, 'a hex sha256')(value['content-hash'], here('content-hash'))
   return { lockVersion: readLockVersion(value['lock-version'], here('lock-version')), pythonVersions: text(value['python-versions'], here('python-versions')), contentHash }
 }
 

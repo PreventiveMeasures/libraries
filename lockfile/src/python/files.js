@@ -4,6 +4,7 @@
 
 import { LockfileError, quote } from '../error.js'
 import { checkRelative, isHttpUrl } from '../names.js'
+import { checkerOf } from '../shape.js'
 import { string, text } from '../toml/shape.js'
 import { normalName } from './pep508.js'
 import { parseVersion } from './pep440.js'
@@ -12,18 +13,11 @@ import { parseVersion } from './pep440.js'
 // characters ASCII: `{name}-{version}(-{build})?-{python}-{abi}-{platform}.whl`,
 // the name escaped with `_`, a build tag that starts with a digit, and tags
 // of one or more names a `.` apart, a python tag's each an identifier.
-const PYTHON_TAG = /^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$/u
-const TAG = /^\w+(?:\.\w+)*$/u
+const WHEEL = /^([\w.]+)-([^-]*)(?:-\d[^-]*)?-[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*(?:-\w+(?:\.\w+)*){2}\.whl$/u
 
 export function parseWheelName(filename) {
-  if (!filename.endsWith('.whl')) return undefined
-  const parts = filename.slice(0, -4).split('-')
-  if (parts.length !== 5 && parts.length !== 6) return undefined
-  const [name, version] = parts
-  if (!/^[\w.]+$/u.test(name) || name.includes('__')) return undefined
-  if (parts.length === 6 && !/^\d/u.test(parts[2])) return undefined
-  const [python, abi, platform] = parts.slice(-3)
-  if (!PYTHON_TAG.test(python) || !TAG.test(abi) || !TAG.test(platform)) return undefined
+  const [, name, version] = WHEEL.exec(filename) ?? []
+  if (name === undefined || name.includes('__')) return undefined
   const parsed = parseVersion(version)
   return parsed === undefined ? undefined : { name: normalName(name), version: parsed }
 }
@@ -40,19 +34,8 @@ export function parseSdistName(filename) {
 
 // The size of each algorithm's digest, in hex digits.
 export const DIGESTS = {
-  __proto__: null,
-  md5: 32,
-  sha1: 40,
-  sha224: 56,
-  sha256: 64,
-  sha384: 96,
-  sha512: 128,
-  sha3_224: 56,
-  sha3_256: 64,
-  sha3_384: 96,
-  sha3_512: 128,
-  blake2b: 128,
-  blake2s: 64,
+  __proto__: null, md5: 32, sha1: 40, sha224: 56, sha256: 64, sha384: 96, sha512: 128,
+  sha3_224: 56, sha3_256: 64, sha3_384: 96, sha3_512: 128, blake2b: 128, blake2s: 64,
 }
 
 export function checkDigest(algorithm, digest, size, where) {
@@ -70,10 +53,7 @@ export function checkHash(value, where, sizes) {
   return value
 }
 
-export function checkHttpUrl(value, where) {
-  if (!isHttpUrl(text(value, where))) throw new LockfileError(`${quote(value)} is not an http(s) URL`, where)
-  return value
-}
+export const checkHttpUrl = checkerOf(text)(isHttpUrl, 'an http(s) URL')
 
 // A path from the lockfile's directory, `/` between segments, as one that
 // reads the same on every machine: never absolute, which pylock.toml's

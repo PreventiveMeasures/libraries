@@ -4,7 +4,7 @@
 
 import { text } from './semver.js'
 
-const TOKEN = / *(?:([(),=])|"([^"]*)"|(r#)?([A-Z_a-z]\w*)|(.|$))/suy
+const TOKEN = / *(?:([(),=])|"([^"]*)"|(r#)?([A-Z_a-z]\w*)|(.|$))/gsuy
 
 class Refused extends Error {}
 
@@ -14,18 +14,13 @@ const refuse = () => {
 
 function tokenize(source) {
   const tokens = []
-  TOKEN.lastIndex = 0
-  while (TOKEN.lastIndex < source.length) {
-    const [, punct, string, raw, ident, other] = TOKEN.exec(source)
+  for (const [, punct, string, raw, ident, other] of source.matchAll(TOKEN)) {
     if (other === '') break
     if (other !== undefined) refuse()
     tokens.push(ident === undefined ? { punct, string } : { ident, raw: raw !== undefined })
   }
   return tokens
 }
-
-// The value has no `"`, and raw names match plain ones.
-const key = (name, value) => (value === undefined ? name : `${name}="${value}"`)
 
 function parser(source) {
   const tokens = tokenize(source)
@@ -35,39 +30,35 @@ function parser(source) {
     if (peek()?.punct !== punct) refuse()
     pos++
   }
+  // A cfg and its key: the value has no `"`, and raw names match plain ones.
   const cfg = () => {
     const token = tokens[pos++]
     if (token?.ident === undefined) refuse()
-    if (peek()?.punct !== '=') return { name: token.ident }
+    if (peek()?.punct !== '=') return { name: token.ident, key: token.ident }
     pos++
     const value = tokens[pos++]?.string
     if (value === undefined) refuse()
-    return { name: token.ident, value }
+    return { name: token.ident, value, key: `${token.ident}="${value}"` }
   }
+  // all(…) and any(…) of any number, a comma after each; not(…) of one.
   const expr = () => {
     const token = peek()
-    if (token?.raw === false && (token.ident === 'all' || token.ident === 'any')) {
+    if (token?.raw === false && ['all', 'any', 'not'].includes(token.ident)) {
       pos++
       eat('(')
       const list = []
       while (peek()?.punct !== ')') {
         list.push(expr())
-        if (peek()?.punct !== ',') break
+        if (token.ident === 'not' || peek()?.punct !== ',') break
         pos++
       }
+      if (token.ident === 'not' && list.length === 0) refuse()
       eat(')')
       return { op: token.ident, list }
     }
-    if (token?.raw === false && token.ident === 'not') {
-      pos++
-      eat('(')
-      const inner = expr()
-      eat(')')
-      return { op: 'not', list: [inner] }
-    }
-    const { name, value } = cfg()
+    const { name, value, key } = cfg()
     if (value === undefined && (name === 'true' || name === 'false')) return { op: name, list: [] }
-    return { op: 'cfg', key: key(name, value) }
+    return { op: 'cfg', key }
   }
   return { expr, cfg, done: () => peek() === undefined }
 }
@@ -93,10 +84,7 @@ export function parsePlatform(source) {
 // A line of `rustc --print cfg`, as a key into `target.cfg`; undefined
 // where the crate errs.
 export function parseCfg(source) {
-  return parse(text(source), (p) => {
-    const { name, value } = p.cfg()
-    return key(name, value)
-  })
+  return parse(text(source), (p) => p.cfg().key)
 }
 
 const EVAL = {
