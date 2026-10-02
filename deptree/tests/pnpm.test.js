@@ -5,7 +5,7 @@ import { compress } from '@preventive/archive/compression.js'
 import { pack } from '@preventive/archive/tar.js'
 import { createVfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, YamlError, buildPnpmTree, findPnpmProjects } from '../pnpm.js'
-import { HOST, paths, sri, stubFailingRegistry, stubRegistry, tarball } from './registry.js'
+import { HOST, paths, rawTar, sri, stubFailingRegistry, stubRegistry, tarball } from './registry.js'
 
 // A lockfile with a package of every kind this builds, from tarballs made
 // here; then one change at a time, each refused with where and why.
@@ -555,6 +555,18 @@ describe('buildPnpmTree refuses', () => {
     const linked = (type, linkname) => packed('c', '2.0.0', [{ name: 'package/package.json', data: new TextEncoder().encode('{"name":"c","version":"2.0.0"}') }, { name: 'package/x', type, linkname }])
     await refuses({ lockfile: serving(await linked('symlink', 'package.json')) }, /^"c@2\.0\.0": "package\/x" is a symlink, which is not supported$/u)
     await refuses({ lockfile: serving(await linked('hardlink', 'package/package.json')) }, /^"c@2\.0\.0": "package\/x" is a hardlink/u)
+  })
+
+  // Real installs of pnpm 10.33.4 and 11.28.2 put `a\..\b` at `b`, `x.\y`
+  // at `x./y`, `c\d` at `c\d` and `pkg\sub/w` at `sub/w`; 12.8.1 fails on
+  // the first, and puts `c\d` at `c/d`. @preventive/archive refuses each
+  // first, and package.js would after it.
+  it('a name with a backslash, which pnpm may take for a separator', async () => {
+    for (const name of ['package/a\\..\\b', 'package/x.\\y', 'package/c\\d', 'pkg\\sub/w']) {
+      const bytes = await compress(rawTar([{ name: 'package/package.json', data: '{"name":"b","version":"1.0.0"}' }, { name, data: '' }]), 'gzip')
+      const pattern = new RegExp(`^DeptreeError: "b@1\\.0\\.0": .*${RegExp.escape(JSON.stringify(name))}.* backslash`, 'u')
+      for (const host of [HOST, HOST_11, HOST_12]) await assert.rejects(only([{ name: 'b', version: '1.0.0', bytes, integrity: sri(bytes) }], { host }), pattern)
+    }
   })
 
   // Stricter than pnpm, which passes over most of these.

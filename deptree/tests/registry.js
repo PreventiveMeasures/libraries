@@ -28,6 +28,22 @@ export async function tarball(name, version, files = {}, { top = 'package', mani
   return { name, version, bytes, integrity: sri(bytes) }
 }
 
+// A tar of files under their names as given, which pack would refuse: a
+// ustar header each, 0o644, owned by root, from the epoch.
+export function rawTar(entries) {
+  const blocks = []
+  for (const { name, data } of entries) {
+    const header = Buffer.alloc(512)
+    header.write(name, 0)
+    for (const [at, value, width] of [[100, 0o644, 7], [108, 0, 7], [116, 0, 7], [124, Buffer.byteLength(data), 11], [136, 0, 11]]) header.write(`${value.toString(8).padStart(width, '0')}\0`, at)
+    header.write('        0', 148)
+    header.write('ustar\u000000', 257)
+    header.write(`${header.reduce((sum, byte) => sum + byte, 0).toString(8).padStart(6, '0')}\0`, 148)
+    blocks.push(header, Buffer.from(data), Buffer.alloc(-Buffer.byteLength(data) & 511))
+  }
+  return new Uint8Array(Buffer.concat([...blocks, Buffer.alloc(1024)]))
+}
+
 export function stubRegistry(tarballs) {
   const served = new Map(tarballs.map((t) => [url(t.name, t.version), t.served ?? t.bytes]))
   const calls = []
