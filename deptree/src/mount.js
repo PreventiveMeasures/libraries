@@ -27,15 +27,8 @@ export function checkNoModules(vfs, folded) {
 // Refuses two names in a directory that macOS takes for one, as one would
 // be lost there; called where the host is macOS.
 export function checkCollisions(vfs) {
-  for (const { path, type } of vfs.walk('/')) {
-    if (type !== 'directory') continue
-    const folded = new Map()
-    for (const name of vfs.readdir(path)) {
-      const key = fold(name)
-      if (folded.has(key)) throw new DeptreeError(`${quote(folded.get(key))} and ${quote(name)} are one name on macOS`, quote(path))
-      folded.set(key, name)
-    }
-  }
+  const [clash] = vfs.collisions(fold)
+  if (clash !== undefined) throw new DeptreeError(`${quote(clash.names[0])} and ${quote(clash.names[1])} are one name on macOS`, quote(clash.path))
 }
 
 // `root` is the package's directory in the tree, without a leading `/`.
