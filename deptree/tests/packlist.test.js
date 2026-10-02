@@ -250,6 +250,14 @@ describe('packDirectory by the version that installs', () => {
     })
   })
 
+  it('reads the version as semver does, with a `v` or spaces', () => {
+    const files = ['lib/a.js', 'package.yaml', 'test/t.js']
+    for (const given of [`v${V11}`, ` ${V11} `]) assert.deepEqual(pack(files, given, { files: ['lib'] }), ['lib/a.js', 'package.json', 'package.yaml'], given)
+    assert.deepEqual(pack(files, `v${V10}`, { files: ['lib'] }), ['lib/a.js', 'package.json'])
+    assert.deepEqual(pack(files, `v${V12}`, { files: ['lib'] }), ['lib/a.js', 'package.json', 'package.yaml'])
+    assert.throws(() => pack(['a.js'], `v${V11}`, { bin: { a: 5 } }), /which pnpm 11 fails on$/u)
+  })
+
   // npm-packlist 5 fails to parse a package.json with a byte order mark, and
   // reads it then as none; pnpm 11 fails on one before 11.28.
   it('reads a package.json with a byte order mark as each does', () => {

@@ -7,7 +7,7 @@
 // differently, and a mode other than 0o644 or 0o755, which linking a bin
 // would change otherwise than fixBin does.
 
-import { compareVersions } from '@preventive/upstream/semver.js'
+import { compareVersions, valid } from '@preventive/upstream/semver.js'
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { readBytes } from '../project.js'
@@ -171,8 +171,10 @@ function checkManifest(manifest, pnpm, view, where) {
   if (compareVersions(pnpm, '11.28.0') < 0 && view.text('package.json', where).startsWith('\uFEFF')) throw new DeptreeError('its package.json starts with a byte order mark, which pnpm 11 fails on before 11.28', where)
 }
 
-// `pnpm` is the version that installs.
-export function packDirectory(project, dir, manifest, pnpm, where) {
+// `version` is the version that installs, as host.pnpm gives it: `v11.28.2`
+// is read as 11.28.2.
+export function packDirectory(project, dir, manifest, version, where) {
+  const pnpm = valid(version)
   const view = viewOf(project, dir, where)
   checkManifest(manifest, pnpm, view, where)
   const major = Number(pnpm.split('.')[0])
