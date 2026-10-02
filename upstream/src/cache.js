@@ -6,7 +6,7 @@ import { dirname, join, resolve } from 'node:path'
 import { assertDirectoryPath } from './args.js'
 import { MAX_BYTES, decode } from './http.js'
 
-const DIRS = new Set(['npm/repos', 'npm/tarballs', 'cargo/repos', 'cargo/crates', 'composer/repos', 'composer/dists', 'soldeer/repos', 'soldeer/zips', 'github/trees', 'github/archives'])
+const DIRS = new Set(['npm/repos', 'npm/tarballs', 'cargo/repos', 'cargo/crates', 'composer/repos', 'composer/dists', 'soldeer/repos', 'soldeer/zips', 'github/trees', 'github/archives', 'github/listings', 'github/blobs'])
 const RECORD_TTL_MS = 30 * 24 * 60 * 60 * 1000 // A link only moves on a transfer or rename, and GitHub redirects those.
 
 let root
