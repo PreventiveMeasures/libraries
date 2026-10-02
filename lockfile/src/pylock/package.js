@@ -14,10 +14,10 @@ import { arrayOf, boolean, entries, refuse, size, string, table, text } from '..
 const FILE_SCHEMES = ['https:', 'http:', 'file:']
 
 // A URL, as written, of the schemes a file is fetched by, or, for a VCS,
-// any; parsed, for its path.
+// `schemes` null, any; parsed, for its path.
 function parseUrl(value, where, schemes = FILE_SCHEMES) {
   const url = URL.parse(text(value, where))
-  if (url === null || (schemes !== undefined && !schemes.includes(url.protocol))) throw new LockfileError(`${quote(value)} is not a URL${schemes === undefined ? '' : ` of ${schemes.map((scheme) => scheme.slice(0, -1)).join(', ')}`}`, where)
+  if (url === null || (schemes !== null && !schemes.includes(url.protocol))) throw new LockfileError(`${quote(value)} is not a URL${schemes === null ? '' : ` of ${schemes.map((scheme) => scheme.slice(0, -1)).join(', ')}`}`, where)
   return url
 }
 
@@ -105,7 +105,7 @@ export function readVcs(value, where) {
   if ((type === 'git' || type === 'hg') && !isCommit(commitId)) throw new LockfileError(`${quote(commitId)} is not a full commit hash, which the spec requires`, at(where, 'commit-id'))
   return {
     type,
-    url: field(value, 'url', where, (url, here) => parseUrl(url, here, undefined) && url),
+    url: field(value, 'url', where, (url, here) => parseUrl(url, here, null) && url),
     path: field(value, 'path', where, checkPath),
     requestedRevision: field(value, 'requested-revision', where, text),
     commitId,

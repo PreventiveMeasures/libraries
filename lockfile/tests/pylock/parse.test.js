@@ -167,6 +167,14 @@ describe('where a package comes from', () => {
     refuses(edit([`commit-id = "${C}"`, 'commit-id = "ccccccc"']), '"ccccccc" is not a full commit hash, which the spec requires', 'packages[3].vcs["commit-id"]')
     refuses(edit(['type = "git"', 'type = "cvs"']), 'expected one of git, hg, bzr, svn', 'packages[3].vcs.type')
   })
+
+  it('a VCS by a URL of any scheme, as a file is not', () => {
+    for (const url of ['ssh://git@github.com/o/c', 'git+https://github.com/o/c.git', 'svn+ssh://example.com/c']) {
+      assert.equal(parsePylock(edit(['url = "https://github.com/o/c"', `url = "${url}"`])).packages[3].vcs.url, url)
+    }
+    refuses(edit(['url = "https://github.com/o/c"', 'url = "not a url"']), '"not a url" is not a URL', 'packages[3].vcs.url')
+    refuses(edit(['https://files.example.com/a-1.0.0.tar.gz', 'ssh://files.example.com/a-1.0.0.tar.gz']), '"ssh://files.example.com/a-1.0.0.tar.gz" is not a URL of https, http, file', 'packages[0].sdist.url')
+  })
 })
 
 describe('entries of a name', () => {
