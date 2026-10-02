@@ -1,7 +1,8 @@
 // The cargo-platform crate, 0.3: Platform::from_str, Cfg::from_str and
 // Platform::matches. A name or target that is not ASCII is refused, where
 // the crate takes any alphanumeric character in a target, and so is a cfg
-// nested more than 64 deep.
+// nested more than 64 deep. A platform matched against may be known in
+// part, which the crate's never is: then a match may be undecided.
 
 import { text } from './semver.js'
 
@@ -63,7 +64,7 @@ function parser(source) {
     }
     const { name, value, key } = cfg()
     if (value === undefined && (name === 'true' || name === 'false')) return { op: name, list: [] }
-    return { op: 'cfg', key }
+    return { op: 'cfg', name, key }
   }
   return { expr, cfg, done: () => peek() === undefined }
 }
@@ -92,21 +93,43 @@ export function parseCfg(source) {
   return parse(text(source), (p) => p.cfg().key)
 }
 
+// Kleene's three values: undefined where what is undecided could make it
+// either.
 const EVAL = {
   __proto__: null,
-  all: (e, cfg) => e.list.every((item) => evaluate(item, cfg)),
-  any: (e, cfg) => e.list.some((item) => evaluate(item, cfg)),
-  not: (e, cfg) => !evaluate(e.list[0], cfg),
+  all: (e, decide) => settle(e.list, decide, false),
+  any: (e, decide) => settle(e.list, decide, true),
+  not: (e, decide) => {
+    const value = evaluate(e.list[0], decide)
+    return value === undefined ? undefined : !value
+  },
   true: () => true,
   false: () => false,
-  cfg: (e, cfg) => cfg.has(e.key),
+  cfg: (e, decide) => decide(e),
 }
 
-function evaluate(expr, cfg) {
-  return EVAL[expr.op](expr, cfg)
+function evaluate(expr, decide) {
+  return EVAL[expr.op](expr, decide)
 }
 
-// `target` is { name, cfg }, `cfg` a Set of what parseCfg gives.
+// `settles` where any item is; the other where every item is the other.
+function settle(list, decide, settles) {
+  let open = false
+  for (const item of list) {
+    const value = evaluate(item, decide)
+    if (value === settles) return settles
+    if (value === undefined) open = true
+  }
+  return open ? undefined : !settles
+}
+
+// `target` is { name, cfg, decides }: `cfg` a Set of what parseCfg gives,
+// `decides` a Set of the names of the cfgs of which `cfg` lists every value
+// that holds, or undefined for every name's; `name` undefined where not
+// known. A cfg of another name is undecided, and so is the match where that
+// could make it either.
 export function platformMatches(platform, target) {
-  return platform.expr === undefined ? platform.name === target.name : evaluate(platform.expr, target.cfg)
+  if (platform.expr === undefined) return target.name === undefined ? undefined : platform.name === target.name
+  const decided = (name) => target.decides === undefined || target.decides.has(name)
+  return evaluate(platform.expr, (leaf) => (target.cfg.has(leaf.key) ? true : (decided(leaf.name) ? false : undefined)))
 }

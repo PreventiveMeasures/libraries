@@ -60,9 +60,12 @@ export interface CargoLockPackage {
 // (two paths where they cannot be one directory, whatever the directories
 // are named, on Windows or elsewhere), an optional dev-dependency, `links`
 // with `build = false`, a [package] or [workspace.package] key of a type
-// cargo does not take, a `rust-version` its edition rules out. Sections
-// that bear on no dependency or feature — [badges], [lints], [profile],
-// [[bin]], metadata — are not looked into.
+// cargo does not take, a `rust-version` its edition rules out, a library's
+// name that is blank or has a `-`, a build script's path that names no
+// file, on Windows or elsewhere, which cargo crashes on. Sections that bear
+// on no dependency or feature — [badges], [lints], [profile], [[bin]],
+// metadata — are not looked into, nor [lib] but for its name, path and
+// whether it is a proc-macro.
 export function parseCargoManifest(text: string, workspace?: CargoManifest): CargoManifest
 
 export interface CargoManifest {
@@ -82,12 +85,21 @@ export interface CargoPackage {
   resolver: 1 | 2 | 3 | undefined
   // The native library it links, which no other package of one graph may.
   links: string | undefined
+  // Its build script's path, relative to the manifest's directory, as
+  // written: `build.rs` for `build = true`, false for `build = false`, and
+  // undefined where neither is given, for build.rs if a filesystem has it.
+  build: string | false | undefined
   // Cargo's feature map: the [features] table, as written, and a feature
   // for each optional dependency that no `dep:` names and no feature is
   // named after, which turns it on (`name = ["dep:name"]`).
   features: Record<string, string[]>
   // Of every kind and platform, each with the features it asks for.
   dependencies: CargoDependency[]
+  // Its library's name, `[lib] name` or the package's with `-` read as `_`,
+  // and path, relative to the manifest's directory, as written: undefined
+  // where none is given, for src/lib.rs if a filesystem has it. Only a
+  // filesystem says whether there is a library at all.
+  lib: { name: string, path: string | undefined }
   // Whether its library is a proc-macro, and whether any target is.
   procMacro: boolean
   procMacroTarget: boolean
@@ -171,6 +183,21 @@ export interface CargoVendored {
   directory: string
   // The sha256 of each file, by its path within the directory, which cargo
   // checks the files against before it builds from them.
+  files: Record<string, string>
+}
+
+// Reads a vendored copy's `.cargo-checksum.json`, as readCargoVendor does:
+// refused where a key is given twice, which JSON.parse would take the last
+// of, a key other than `files`, `package` and the `$comment` cargo 1.9x
+// writes, a path out of the directory, on Windows or elsewhere, or a
+// checksum that is not a sha256.
+export function parseCargoChecksum(text: string): CargoChecksum
+
+export interface CargoChecksum {
+  // The sha256 of the .crate it was unpacked from; undefined for a copy of a
+  // git checkout, which has none.
+  checksum: string | undefined
+  // As in CargoVendored.
   files: Record<string, string>
 }
 
@@ -266,8 +293,12 @@ export function resolveCargoFeatures(graph: CargoGraph, build: CargoBuild): Reco
 // is given or the list is empty. Targets `'all'` read every platform at
 // once, as `cargo metadata` and `cargo tree --target all` do, and need no
 // host.
+//
+// Where a platform is known in part, a table may be for it or not:
+// `undecided` takes such a table as on, for what a build may turn on, or as
+// off, for what it turns on for certain, and is needed then.
 export type CargoBuild = CargoCommand & (
-  | { host: CargoPlatform, targets?: CargoPlatform[] }
+  | { host: CargoPlatform, targets?: CargoPlatform[], undecided?: 'on' | 'off' }
   | { host?: CargoPlatform, targets: 'all' }
 )
 
@@ -288,7 +319,34 @@ export interface CargoCommand {
   dev?: boolean
 }
 
+// What `rustc -vV` calls a platform, and the cfgs that hold on it, as
+// `rustc --print cfg` prints them. A platform may be known in part: `name`
+// undefined where it is not known, and `decides` the names of the cfgs of
+// which `cfg` lists every value that holds, every name's where not given. A
+// cfg of another name is undecided, and so is a table for a platform by name
+// where `name` is undefined, or by a cfg(…) that what is undecided could
+// turn either way, as Kleene's logic takes all, any and not.
 export interface CargoPlatform {
-  name: string
+  name: string | undefined
   cfg: string[]
+  decides?: string[]
 }
+
+// The rules resolveCargoFeatures holds a dependency's platform to, alone: a
+// function of the platform of a [target.<platform>] table, as written, which
+// is true where the table is for `platform`, false where it is not, and
+// undefined where what `platform` leaves undecided could make it either. A
+// LockfileError for a table's platform cargo does not read, and for a line
+// of `cfg` or a name of `decides` that is not one.
+export function matchCargoPlatform(platform: CargoPlatform): (target: string) => boolean | undefined
+
+// Whether [patch.<key>] patches a dependency of `source`, as linkCargo and
+// cargo match them: by URL, each made canonical (github.com's in https and
+// lower case, no trailing `/` or `.git`), whatever the kind or git
+// reference, `crates-io` crates.io's index. That is
+// https://github.com/rust-lang/crates.io-index, whichever protocol cargo
+// fetches it by: `sparse+https://index.crates.io` patches no dependency of
+// crates.io. A registry named by name alone is patched by a table of that
+// name alone, as which index it is only cargo's config says; a path
+// dependency by none.
+export function patchesCargoSource(key: string, source: CargoSource): boolean

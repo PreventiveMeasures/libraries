@@ -437,6 +437,32 @@ describe('resolveCargoFeatures', () => {
     assert.deepEqual(empty[B1], { normal: [], host: undefined })
   })
 
+  // b1 for unix, and b's fast for loom, which rustflags may set; on a host
+  // known in part, or not at all.
+  it('takes a table the platforms leave undecided as on or off, as asked', () => {
+    const b1 = 'b1 = { package = "b", version = "1" }\n'
+    const app = MANIFESTS['app 0.1.0'].replace(b1, '').replace(', features = ["fast"] }', ' }')
+    const gated = link({ change: { 'app 0.1.0': `${app}\n[target.'cfg(unix)'.dependencies]\n${b1}\n[target.'cfg(loom)'.dependencies]\nb = { version = "2", features = ["fast"] }\n` } })
+    const listed = (host, undecided) => {
+      const result = resolveCargoFeatures(gated, { packages: ['app 0.1.0'], host, undecided })
+      return [result[B1] !== undefined, result[B2].normal]
+    }
+    const unknown = { name: undefined, cfg: [], decides: [] }
+    assert.deepEqual([listed(unknown, 'off'), listed(unknown, 'on')], [[false, []], [true, ['fast']]])
+    const linux = { ...HOST, decides: ['unix', 'windows', 'target_os'] }
+    assert.deepEqual([listed(linux, 'off'), listed(linux, 'on')], [[true, []], [true, ['fast']]])
+    assert.deepEqual([listed(HOST, undefined), listed(HOST, 'on')], [[true, []], [true, []]])
+  })
+
+  it('throws a TypeError for platforms known in part with no `undecided`, or one that is not on or off', () => {
+    const unknown = { name: undefined, cfg: [], decides: [] }
+    assert.throws(() => build({ host: unknown }), TypeError)
+    assert.throws(() => build({ targets: [{ ...HOST, name: undefined }] }), TypeError)
+    assert.throws(() => build({ undecided: true }), TypeError)
+    assert.throws(() => build({ host: undefined, targets: 'all', undecided: 'on' }), TypeError)
+    assert.equal(build({ host: undefined, targets: 'all' })['app 0.1.0'].normal.length, 0)
+  })
+
   it('resolves the root package under resolver 1 whether built or not, and lists only what is built', () => {
     const v1 = link({ change: { 'app 0.1.0': MANIFESTS['app 0.1.0'].replace('edition = "2021"', 'edition = "2015"') } })
     assert.deepEqual({ ...resolveCargoFeatures(v1, { packages: ['a 0.1.0'], features: ['extra'], host: HOST }) }, { 'a 0.1.0': { normal: ['extra'], host: undefined } })

@@ -1,5 +1,6 @@
-// Cargo.toml, as far as resolution reads it. Sections that bear on none of
-// it, [badges], [lints], [profile], [[bin]] and metadata, are not looked into.
+// Cargo.toml, as far as resolution reads it, and the library and build
+// script it names. Sections that bear on none of it, [badges], [lints],
+// [profile], [[bin]] and metadata, are not looked into.
 
 import { matches, parseVersion, parseVersionReq } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
@@ -50,9 +51,32 @@ function pathOrFlag(value, where) {
   return value
 }
 
+// Cargo names a build script's target after its file, and crashes on a path
+// that names none, on Windows or elsewhere: one that is empty, or ends in
+// `..` or a root, `\` a separator on Windows, or a drive or share alone.
+const WINDOWS_PREFIX = /^(?:[A-Za-z]:|[\\/]{2}[^\\/]+(?:[\\/]+[^\\/]*)?)/u
+const lastName = (path, separator) => path.split(separator).findLast((part) => part !== '' && part !== '.')
+const namesFile = (path) => [lastName(path, '/'), lastName(path.replace(WINDOWS_PREFIX, ''), /[\\/]/u)].every((name) => name !== undefined && name !== '..')
+
 function readBuild(value, where) {
   if (Array.isArray(value)) throw new LockfileError(`several build scripts, ${NIGHTLY}`, where)
-  return pathOrFlag(value, where)
+  const build = pathOrFlag(value, where)
+  if (typeof build === 'string' && !namesFile(build)) throw new LockfileError(`${quote(build)} names no file, which cargo crashes on`, where)
+  return build
+}
+
+function readLibName(value, where) {
+  const name = string(value, where)
+  if (/^\p{White_Space}*$/u.test(name)) throw new LockfileError("a library's name cannot be empty, which cargo refuses", where)
+  if (name.includes('-')) throw new LockfileError(`${quote(name)}: a library's name cannot have a "-", which cargo refuses`, where)
+  return name
+}
+
+// `[lib] name`, or the package's, `-` read as `_`, as cargo names the
+// library; its path as written. A filesystem says whether there is one.
+function readLib(doc, name) {
+  const lib = doc.lib ?? Object.create(null)
+  return { name: field(lib, 'name', 'lib', readLibName) ?? name.replaceAll('-', '_'), path: field(lib, 'path', 'lib', string) }
 }
 
 function readPublish(value, where) {
@@ -190,7 +214,8 @@ function readPackage(doc, workspace) {
   }
   if (resolver !== undefined && doc.workspace?.resolver !== undefined) throw new LockfileError('`resolver` is given in [workspace] too', at(where, 'resolver'))
   if (links !== undefined && fields.build === false) throw new LockfileError(`links to ${quote(links)} with no build script, which cargo refuses`, at(where, 'links'))
-  return { name: checkCrateName(value.name, at(where, 'name')), version: version ?? '0.0.0', edition, resolver, links }
+  const build = fields.build === true ? 'build.rs' : fields.build
+  return { name: checkCrateName(value.name, at(where, 'name')), version: version ?? '0.0.0', edition, resolver, links, build }
 }
 
 export function parseCargoManifest(text, workspace) {
@@ -210,7 +235,7 @@ export function parseCargoManifest(text, workspace) {
   const dependencies = gatherDependencies(doc, root, pkg.edition)
   const targets = procMacroTargets(doc, pkg.edition)
   return {
-    package: { ...pkg, features: featureMap(doc.features, 'features', dependencies), dependencies, ...targets },
+    package: { ...pkg, features: featureMap(doc.features, 'features', dependencies), dependencies, lib: readLib(doc, pkg.name), ...targets },
     workspace: own,
     patch,
   }

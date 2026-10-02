@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
-import { LockfileError } from '../../cargo.js'
+import { LockfileError, matchCargoPlatform } from '../../cargo.js'
 import { matches, parseVersion } from '../../rust-semver.js'
 import { parseRequirement } from '../../src/cargo/dependency.js'
 import { parseCfg, parsePlatform, platformMatches } from '../../src/crate/cargo-platform.js'
@@ -48,6 +48,28 @@ describe('platforms, as the cargo-platform crate reads them', () => {
       else assert.equal(platformMatches(parsePlatform(text), host), expected)
     })
   }
+
+  // Known in part, as a build that knows only what its target is but not
+  // what rustflags add, or nothing of the host: what is decided, the crate
+  // decides the same.
+  it('matches as the crate does, and where the platform is known in part, decides only as it does', () => {
+    const decided = ['unix', 'windows', 'target_os', 'target_arch']
+    const views = [
+      { name: oracle.host.name, cfg: oracle.host.cfg },
+      { name: oracle.host.name, cfg: oracle.host.cfg.filter((line) => decided.includes(line.split('=')[0])), decides: decided },
+      { name: oracle.host.name, cfg: [], decides: [] },
+      { name: undefined, cfg: [], decides: [] },
+    ]
+    const read = Object.entries(oracle.platforms).filter(([text, expected]) => text !== '' && expected !== null)
+    const answers = views.map((view) => read.map(([text, expected]) => {
+      const answer = matchCargoPlatform(view)(text)
+      assert.ok(answer === expected || (answer === undefined && view.decides !== undefined), `${text}: ${answer}, where the crate says ${expected}`)
+      return answer
+    }))
+    // Of the 15, all(), any(), true and false need no cfg, and the 3 names
+    // need the name alone.
+    assert.deepEqual(answers.map((list) => list.filter((answer) => answer === undefined).length), [0, 0, 8, 11])
+  })
 
   it('refuses a target name that is empty or not ASCII, which the crate takes', () => {
     assert.equal(oracle.platforms[''], false)

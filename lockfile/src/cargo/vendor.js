@@ -54,6 +54,12 @@ function readChecksum(text, where) {
   return { checksum: value.package ?? undefined, files }
 }
 
+// One `.cargo-checksum.json`, as readCargoVendor reads each.
+export function parseCargoChecksum(text) {
+  if (typeof text !== 'string') throw new TypeError('expected the text of a .cargo-checksum.json')
+  return readChecksum(text, undefined)
+}
+
 // `vendor`: the directories a directory source reads, every one not starting
 // with `.` that holds a Cargo.toml.
 export function readCargoVendor(lock, vendor) {
