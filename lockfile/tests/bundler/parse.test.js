@@ -185,7 +185,7 @@ describe('sources', () => {
 
   it('a git repository git reads as one alone, as Bundler before 2.2.33 clones it with no "--" before it', () => {
     const remote = (value) => edit(['remote: https://github.com/o/g.git', `remote: ${value}`])
-    for (const value of ['--upload-pack=touch x', '-x', 'ssh://-oProxyCommand=x/g.git', 'git@-oProxyCommand=x:o/g.git']) {
+    for (const value of ['--upload-pack=touch x', '-x', 'ssh://-oProxyCommand=x/g.git', 'git@-oProxyCommand=x:o/g.git', 'ssh://%2doProxyCommand=x/g.git']) {
       refuses(remote(value), `${JSON.stringify(value)} has a "-" where git or ssh would read an option`, 'sources[0].remote')
     }
     refuses(remote('ext::sh -c x'), '"ext::sh -c x" names a remote helper of git\'s, which is not supported', 'sources[0].remote')

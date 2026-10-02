@@ -470,13 +470,14 @@ describe('a package is held to what pnpm writes', () => {
 
   it('with a repository git reads as a place alone', () => {
     const where = `packages["e@git+https://example.com/e.git#${C}"].resolution.repo`
-    for (const repo of ['-oProxyCommand=x', 'ssh://-oProxyCommand=x/e.git', 'ssh://git@-oProxyCommand=x/e.git', 'git@-oProxyCommand=x:e.git']) {
+    // git decodes a URL before it reads its host, `%2d` as `-`.
+    for (const repo of ['-oProxyCommand=x', 'ssh://-oProxyCommand=x/e.git', 'ssh://git@-oProxyCommand=x/e.git', 'git@-oProxyCommand=x:e.git', 'ssh://%2doProxyCommand=x/e.git', 'ssh://git@%2DoProxyCommand=x/e.git', 'git+ssh://%2Doo/e.git']) {
       refuses(edit(['repo: https://example.com/e.git,', `repo: '${repo}',`]), `${where}: "${repo}" has a "-" where git or ssh would read an option`)
     }
     for (const repo of ['ext::sh%20-c%20x', 'fd::17', 'x+y.z::e']) {
       refuses(edit(['repo: https://example.com/e.git,', `repo: '${repo}',`]), `${where}: "${repo}" names a remote helper of git's, which is not supported`)
     }
-    for (const repo of ['git@github.com:u/e.git', 'ssh://git@[::1]/e.git', 'https://example.com/a-b/-e.git', 'file:///srv/e.git']) {
+    for (const repo of ['git@github.com:u/e.git', 'ssh://git@[::1]/e.git', 'https://example.com/a-b/-e.git', 'file:///srv/e.git', 'https://example.com/a%2db/%2de.git']) {
       assert.equal(parse(edit(['repo: https://example.com/e.git,', `repo: '${repo}',`])).packages[`e@git+https://example.com/e.git#${C}`].resolution.repo, repo)
     }
   })

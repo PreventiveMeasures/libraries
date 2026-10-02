@@ -125,11 +125,16 @@ const AS_OPTION = /^(?:[^/:]*:\/\/)?(?:[^/@]*@)?-/u
 // `ext::` runs a command.
 const HELPER = /^[\dA-Za-z][\d+.A-Za-z-]*::/u
 
+// Each `%XX` as the byte it stands for, as git decodes a URL before it
+// reads the user and the host in it: `ssh://%2doProxyCommand=x/repo` is of
+// the host `-oProxyCommand=x`.
+const decode = (repo) => repo.replace(/%([\dA-Fa-f]{2})/gu, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
+
 // A repository, by URL or by path, that git reads as a place to fetch from
 // and as nothing else, whatever else it has in it: a path may have a space.
 export function checkRemote(value, where) {
   const repo = text(value, where)
-  if (AS_OPTION.test(repo)) throw new LockfileError(`${quote(repo)} has a "-" where git or ssh would read an option`, where)
+  if (AS_OPTION.test(repo) || AS_OPTION.test(decode(repo))) throw new LockfileError(`${quote(repo)} has a "-" where git or ssh would read an option`, where)
   if (HELPER.test(repo)) throw new LockfileError(`${quote(repo)} names a remote helper of git's, which is not supported`, where)
   return repo
 }
