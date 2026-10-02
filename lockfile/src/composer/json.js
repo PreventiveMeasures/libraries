@@ -110,8 +110,8 @@ const NUMBER = /-?(?:0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?/uy
 const isLong = ([raw, fraction, exponent]) => fraction === undefined && exponent === undefined && fitsLong(BigInt(raw))
 
 // PHP reads an integer as one where it fits in 64 bits, and as a double
-// past that; either is written back in one way alone. One past what a
-// number holds exactly is refused, where it would not read the same here.
+// past that; either is written back in one way alone. An integer is a
+// number, or a bigint past what a number holds exactly, as TOML's are.
 function readNumber(src) {
   const match = take(src, NUMBER)
   if (match === null) throw fail(src, `expected a value, found ${found(src)}`)
@@ -121,8 +121,7 @@ function readNumber(src) {
   if (!Number.isFinite(value)) throw fail(src, `${raw} is past what PHP reads as a number`)
   const written = integer ? BigInt(raw).toString() : phpFloat(value)
   if (written !== raw) throw fail(src, `${raw} is not written as Composer writes it, ${written}`)
-  if (integer && !Number.isSafeInteger(value)) throw fail(src, `${raw} is past what a JavaScript number holds exactly`)
-  return value
+  return integer && !Number.isSafeInteger(value) ? BigInt(raw) : value
 }
 
 const LITERALS = [['true', true], ['false', false], ['null', null]]

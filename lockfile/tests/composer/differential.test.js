@@ -135,7 +135,7 @@ describe('against Composer', { skip: !hasComposer() && 'no php, or no Composer p
 
   it('the text: read where json_encode writes back what PHP decodes of it', () => {
     const base = fixture('composer-2.10.3-tabs.lock').replaceAll('\t', '    ')
-    const pieces = [' ', '\n', '\t', '{', '}', '[', ']', ',', '"', '\\', '\\/', '\\u00e9', 'é', '1', '1.0', '1e2', '-0', '.', ':', 'true', 'null', '\u2028', '\\u2028']
+    const pieces = [' ', '\n', '\t', '{', '}', '[', ']', ',', '"', '\\', '\\/', '\\u00e9', 'é', '1', '1.0', '1e2', '-0', '.', ':', 'true', 'null', '\u2028', '\\u2028', '9007199254740993', '-9223372036854775808', '9223372036854775808']
     const texts = Array.from({ length: 2000 }, () => flaw(flaw(base, generator, pieces), generator, pieces))
     // A package's extra as deep as PHP reads, 511 arrays and objects in
     // all, and one deeper.
@@ -145,6 +145,12 @@ describe('against Composer', { skip: !hasComposer() && 'no php, or no Composer p
       return `${JSON.stringify(doc, null, 4)}\n`
     }
     texts.push(deep(511), deep(512))
+    // And integers of 64 bits past what a number holds, and one past.
+    for (const integer of ['9007199254740993', '-9223372036854775808', '9223372036854775808']) {
+      const doc = JSON.parse(base)
+      doc.packages[0].extra = { id: 'ID' }
+      texts.push(`${JSON.stringify(doc, null, 4)}\n`.replace('"ID"', integer))
+    }
     const results = composer(texts.map((text) => ['json', text]))
     let both = 0
     for (const [index, text] of texts.entries()) {

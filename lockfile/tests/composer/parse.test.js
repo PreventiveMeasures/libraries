@@ -312,6 +312,14 @@ describe('a package', () => {
     refuses(edit((doc) => put(doc.packages[0], 'suggest', { 'x/y': ' self.version' })), '"self.version", which Composer writes as the package\'s version', at(0, '.suggest["x/y"]'))
   })
 
+  it('an integer of 64 bits, past what a number holds, as a bigint', () => {
+    const text = edit((doc) => put(doc.packages[0], 'extra', { id: 'ID', least: 'LEAST', small: 7 })).replace('"ID"', '9007199254740993').replace('"LEAST"', '-9223372036854775808')
+    const { extra } = parseComposerLock(text).packages['a/app']
+    assert.deepEqual([extra.id, extra.least, extra.small], [9007199254740993n, -9223372036854775808n, 7])
+    // Past 64 bits, PHP reads a double, and writes it back so.
+    assert.throws(() => parseComposerLock(text.replace('9007199254740993', '9223372036854775808')), /9223372036854775808 is not written as Composer writes it, 9\.223372036854776e\+18 at line/u)
+  })
+
   it('what ArrayLoader changes, or drops, refused', () => {
     refuses(edit((doc) => (doc['packages-dev'][0].bin = 'bin/tool')), 'expected a sequence, found the string "bin/tool"', 'packages-dev[0].bin')
     refuses(edit((doc) => (doc['packages-dev'][0].bin = ['/bin/tool'])), '"/bin/tool" is not a path in the package, as Composer installs a bin from', 'packages-dev[0].bin[0]')

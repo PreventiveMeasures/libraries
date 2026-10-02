@@ -59,6 +59,8 @@ export type Stability = 'stable' | 'RC' | 'beta' | 'alpha' | 'dev'
 
 // What Composer only passes on, as the package has it: a JSON object or
 // array, never empty, with nothing in it Composer writes back otherwise.
+// An integer in it is a number, or a bigint past ±(2^53 − 1), as PHP holds
+// 64 bits.
 export type ComposerJson = Record<string, unknown> | unknown[]
 
 export interface ComposerLockfile {
