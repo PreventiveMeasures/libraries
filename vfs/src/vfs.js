@@ -292,7 +292,7 @@ export class Vfs {
     const checked = checkMount(options)
     const found = this.#found(path)
     if (found.node.type !== 'directory') throw new VfsError('ENOTDIR', path)
-    merge(found.node, tree.#root, pathOf(found), checked, (node) => this.#inode(node.type, contentsOf(node), node.mode, node.mtime))
+    merge(found.node, tree.#root, pathOf(found), checked, { copy: copyOf, number: (node) => { node.ino ||= ++this.#inodes } })
   }
 
   // From what `path` leads to, resolved when called, as entries is too: a
@@ -391,15 +391,17 @@ export function encode(data, path) {
   throw wrongType('file contents', data, 'a string or a Uint8Array')
 }
 
-// What a copy of an inode holds, its entries left to fill if it is a
+// A copy of an inode, numbered 0 until a mount puts it in place, so one
+// refused takes no number, and its entries left to fill if it is a
 // directory. A file's bytes are shared, as nothing writes into bytes once
 // stored, unless their buffer has room past them, which append below
 // would grow either inode into.
-function contentsOf(node) {
-  if (node.type === 'directory') return { entries: new Map() }
-  if (node.type === 'symlink') return { target: node.target, size: node.size }
-  const { bytes } = node
-  return { bytes: bytes.byteOffset + bytes.length === bytes.buffer.byteLength ? bytes : bytes.slice() }
+function copyOf({ type, mode, mtime, bytes, target, size }) {
+  const copy = { ino: 0, type, mode, mtime }
+  if (type === 'directory') copy.entries = new Map()
+  else if (type === 'symlink') Object.assign(copy, { target, size })
+  else copy.bytes = bytes.byteOffset + bytes.length === bytes.buffer.byteLength ? bytes : bytes.slice()
+  return copy
 }
 
 // Appends in amortized linear time: a file that grows gets a buffer with

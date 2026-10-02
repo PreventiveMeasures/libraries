@@ -629,6 +629,19 @@ describe('mount', () => {
     assert.deepEqual(tar(fs), before)
   })
 
+  it('takes no inode number for a refused mount, and numbers what it puts in place in walk order', () => {
+    const fs = createVfs({ 'a': '' })
+    const tree = createVfs({ 'a': '', 'b/c': '', 'h': { type: 'hardlink', target: 'b/c' } })
+    fails(() => fs.mount(tree), 'EEXIST', '/a')
+    assert.throws(() => fs.mount(tree, '/', { clash: () => { throw new Error('refused') } }), /refused/u)
+    assert.throws(() => fs.mount(tree, '/', { clash: 'keep', fold: () => { throw new Error('folded') } }), /folded/u)
+    fs.writeFile('/n', '')
+    assert.equal(fs.stat('/n').ino, createVfs({ 'a': '', 'n': '' }).stat('/n').ino)
+    fs.mount(tree, '/', { clash: 'keep' })
+    const next = fs.stat('/n').ino + 1
+    assert.deepEqual(['/b', '/b/c', '/h'].map((path) => fs.lstat(path).ino), [next, next + 1, next + 1])
+  })
+
   it('keeps what is there, leaving the tree\'s entry out with all under it', () => {
     const fs = createVfs({ 'a/x': 'there', 'f': 'there', 'l': { type: 'symlink', target: 'a' } })
     fs.mount(createVfs({ 'a/x/y': 'tree', 'a/new': 'tree', 'f/g': 'tree', 'l': 'tree', 'n': 'tree' }), '/', { clash: 'keep' })

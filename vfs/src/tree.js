@@ -48,12 +48,13 @@ export function checkMount({ clash = 'error', fold }) {
 }
 
 // Merges a copy of the directory `from` into the directory `into`, which
-// is at `base`; `copyOf` makes a copy of an inode, its entries yet to be
-// filled. The copy is made before anything is judged, so it is the tree as
-// it was, whatever a function given does to it, a tree merged into itself
-// among them, and no one else holds what is put in place.
-export function merge(into, from, base, { settle, fold }, copyOf) {
-  const tree = copy(from, copyOf)
+// is at `base`. `inodes` copies an inode, its entries yet to be filled,
+// and numbers a copy once all is judged, as it is put in place. The copy
+// is made before anything is judged, so it is the tree as it was, whatever
+// a function given does to it, a tree merged into itself among them, and
+// no one else holds what is put in place.
+export function merge(into, from, base, { settle, fold }, inodes) {
+  const tree = copy(from, inodes.copy)
   const under = base === '/' ? '/' : `${base}/`
   // Each directory of the tree merged into one there, the only ones the
   // walk goes into, with the keys `fold` takes the names there to, once asked.
@@ -77,6 +78,7 @@ export function merge(into, from, base, { settle, fold }, copyOf) {
     plan.push({ dir: pair.into, name: leaf, node, taken })
   }
   for (const { dir, name, node, taken } of plan) {
+    for (const each of descend(node)) inodes.number(each.node)
     for (const other of taken) dir.entries.delete(other)
     dir.entries.set(name, node)
   }
