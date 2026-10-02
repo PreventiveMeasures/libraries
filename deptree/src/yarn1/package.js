@@ -1,16 +1,8 @@
-// A registry package as yarn 1 installs it: its tarball held to the
-// lockfile's sha512, and its sha1 taken for tree.js to check the one after
-// the `#` of each entry's URL against, as yarn checks both; unpacked as
-// yarn's tarball fetcher does with tar-fs, each name's first segment
-// dropped and each mode given 0o644 and masked by a 0o022 umask; and its
-// package.json read as normalize-manifest reads it.
-//
-// Held to more than yarn holds it to: a lockfile URL that is the registry's
-// own, as npm spells it, or yarn's mirror's; and what npm packs, a gzipped
-// tarball with every entry under one directory, none in its own
-// node_modules (npm packs those only for bundled dependencies), no link or
-// device, no name twice as two different files, and a package.json of the
-// lockfile's name and version.
+// A registry package as yarn 1 installs it, each mode given 0o644 and masked
+// by a 0o022 umask as yarn's tarball fetcher does with tar-fs. Held to more
+// than yarn holds it to: what npm packs, every entry under one directory,
+// none in its own node_modules (npm packs those only for bundled
+// dependencies), and a package.json of the lockfile's name and version.
 
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
@@ -20,8 +12,7 @@ import { fetchTarball, fromMirror, sameFile, tarballUrl } from '../tarball.js'
 
 const UMASK = 0o022
 
-// Paths as tar-fs with `strip: 1` writes them: the first segment dropped,
-// and `.`, `..` and empty segments folded.
+// Paths as tar-fs with `strip: 1` writes them: `.`, `..` and `//` folded.
 function entriesOf(entries, where) {
   const files = new Map()
   const dirs = new Set()
@@ -80,9 +71,8 @@ export async function fetchYarnPackage({ name, version, integrity }, where) {
   }
   const manifest = readManifest(text, `${where}: package.json`)
   if (manifest.name !== name || manifest.version !== version) throw new DeptreeError(`package.json is for ${quote(`${manifest.name}@${manifest.version}`)}`, where)
-  // As yarn's fetcher leaves the package in the cache it copies it from
-  // (base-fetcher.js): each bin's target chmod 755, and a .bin made for the
-  // links, which it fails to make over a file.
+  // As yarn's fetcher leaves the package in its cache (base-fetcher.js): each
+  // bin's target chmod 755, and a .bin made for the links.
   const bins = binsOf(manifest, { files, dirs })
   if (bins.size > 0 && files.has('.bin')) throw new DeptreeError('.bin is a file, where yarn fails to make a directory for the bins', where)
   for (const target of bins.values()) {
@@ -93,11 +83,8 @@ export async function fetchYarnPackage({ name, version, integrity }, where) {
   return { files, dirs, manifest, sha1, hasBins: bins.size > 0 }
 }
 
-// Bins as yarn's normalize-manifest reads them: a string `bin` named for
-// the package without its scope; an invalid name, or a target outside the
-// package, dropped; with no `bin`, each name in directories.bin but one
-// with a leading dot. Targets are normalized as Node's path.normalize, and
-// vfs's, do it: a trailing `/` kept.
+// Bins as yarn's normalize-manifest reads them, targets normalized as Node's
+// path.normalize does it, a trailing `/` kept.
 const VALID_BIN_KEYS = /^(?!\.{0,2}$)[a-z0-9._-]+$/iu
 
 const outside = (path) => path.startsWith('/') || path === '..' || path.startsWith('../')

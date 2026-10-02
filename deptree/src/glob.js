@@ -1,6 +1,5 @@
-// The workspace globs yarn and npm match with minimatch's defaults, as far
-// as the lockfile reader lets them through: `**` takes whole segments, `*`
-// and `?` stay within one, and no wildcard takes a leading dot.
+// Workspace globs as yarn and npm match them, by minimatch's defaults as far
+// as the lockfile reader lets them through: no wildcard takes a leading dot.
 
 import { escape, reach } from './matcher.js'
 

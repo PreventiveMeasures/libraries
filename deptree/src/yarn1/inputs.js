@@ -1,5 +1,4 @@
-// What buildYarn1Tree takes, checked: the host, and the files an install
-// reads, given as text or read from the project as yarn reads them.
+// What buildYarn1Tree takes, as text or read from the project as yarn does.
 
 import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
@@ -9,8 +8,6 @@ import { matchesGlob, reachesBelow } from '../glob.js'
 import { globsOf } from './manifest.js'
 import { readSettings } from './settings.js'
 
-// The yarn that installs: host.yarn, or else the one the root's
-// packageManager pins, as corepack runs that one.
 function yarnOf(yarn, root) {
   if (yarn !== undefined && (typeof yarn !== 'string' || yarn === '')) throw new TypeError('host.yarn must be a non-empty string, or left out')
   const { packageManager } = root
@@ -37,14 +34,10 @@ export function checkHost(host, root) {
   return { yarn: yarnOf(host.yarn, root), node: host.node, os: host.os, cpu: host.cpu }
 }
 
-// yarn reads a yarn.json beside each package.json it reads, or in its
-// stead, as the manifest of its own registry.
 const yarnJson = 'a yarn.json, which yarn reads as a manifest too, is not supported'
 
-// The workspace directories as yarn's resolveWorkspaces finds them. A link
-// where a glob may reach is refused, as node-glob follows it or not by
-// where it is, and so is a node_modules a glob takes, whose package.json
-// yarn would read.
+// As yarn's resolveWorkspaces finds them. A link where a glob may reach is
+// refused, as node-glob follows it or not by where it is.
 function findWorkspaces(project, globs) {
   const found = []
   if (globs.length === 0) return found

@@ -1,24 +1,16 @@
-// yarn 1's PackageHoister (package-hoister.js), ported as it is, quirks and
-// all: each package is seeded beneath what asked for it, a level at a time,
-// and hoisted as high as nothing of its name in the way, and no key
-// reserved for another, lets it go. A prepass first seeds at the top, of
-// several versions of a package, the one most others depend on. A level's
-// requests are sorted by pattern, then those with peers, which a check
-// meant to put them after their peers always puts last.
-//
-// It departs from yarn only in leaving out nohoist, --focus and --flat,
-// which are refused before it runs, and yarn's record of each step; in
-// comparing references' `loc` where yarn compares where its cache keeps two
-// packages, and references where it compares manifests; and in reachedBut,
-// its own.
+// yarn 1's PackageHoister (package-hoister.js), quirks and all: a prepass
+// seeds at the top, of several versions of a package, the one most others
+// depend on, and a level's requests go by pattern, then those with peers,
+// which a check meant to put them after their peers always puts last.
+// Departs from yarn only in leaving out nohoist, --focus and --flat, refused
+// before it runs, and yarn's record of each step; in comparing `loc` where
+// yarn compares cache paths, and references where it compares manifests;
+// and in reachedBut, its own.
 
-// yarn's sortAlpha: by UTF-16 code units, as `<` compares strings.
 const sortAlpha = (a, b) => (a < b ? -1 : a > b ? 1 : 0)
 
 const implode = (parts) => parts.join('#')
 
-// `patterns` is resolve.js's, each pattern to its reference; `peersOf`
-// gives a reference's peers' names, from its package.json.
 export class Hoister {
   constructor(patterns, peersOf) {
     this.patterns = patterns
@@ -80,7 +72,6 @@ export class Hoister {
     if (parent && !this.tree.get(parent.key)) return null
     const isIncompatible = ref.incompatible === true
     const isRequired = !isIncompatible && (isDirectRequire || parent?.isRequired === true)
-    // A key is the names from the top down to the package, joined by `#`.
     const parts = (parent?.parts ?? []).concat(ref.name)
     const key = implode(parts)
     const info = { key, parts, ref, isDirectRequire, isRequired, isIncompatible }
@@ -105,11 +96,9 @@ export class Hoister {
     }
   }
 
-  // Not yarn's: the places reached from `asked`, as topRequests has it,
-  // through what each package asks for, its peers among that, by requests
-  // whose `kind`, `dev` or `optional`, is not set; each found as
-  // propagateRequired finds it, past none the host cannot run. Every other
-  // place is reached by dev, or optional, dependencies alone.
+  // Not yarn's: the places reached from `asked`, peers included, by requests
+  // whose `kind` (`dev` or `optional`) is not set, past none the host cannot
+  // run; every other place is reached by dev, or optional, dependencies alone.
   reachedBut(kind, asked) {
     const queue = [{ parts: [], ref: { asked } }]
     const reached = new Set()
@@ -238,8 +227,7 @@ export class Hoister {
     }
   }
 
-  // Each required package by its names from the top down, but, as in yarn,
-  // not `aggregator`, if given, nor what stayed directly beneath it.
+  // As in yarn, leaves out `aggregator` and what stayed directly beneath it.
   flatten(aggregator) {
     const flat = []
     for (const [key, info] of this.tree) {

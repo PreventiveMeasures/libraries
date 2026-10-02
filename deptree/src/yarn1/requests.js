@@ -1,5 +1,4 @@
-// What yarn 1 asks for at the top of an install (install.js's
-// fetchRequestFromCwd).
+// What yarn 1 asks for at the top (install.js's fetchRequestFromCwd).
 
 import { clean, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
@@ -12,9 +11,8 @@ export const AGGREGATOR = 'workspace-aggregator-00000000-0000-0000-0000-00000000
 
 const KINDS = ['dependencies', 'devDependencies', 'optionalDependencies']
 
-// The workspaces by name, in the order yarn's resolveWorkspaces finds them:
-// glob by glob, each glob's matches as node-glob sorts them. `manifests`
-// have been held to the globs by the lockfile reader.
+// In the order yarn's resolveWorkspaces finds them, glob by glob, matches as
+// node-glob sorts them; the lockfile reader has held `manifests` to the globs.
 export function workspacesOf(manifests) {
   const root = manifests.get('.')
   const workspaces = new Map()
@@ -40,10 +38,8 @@ export function aggregatorOf(root, workspaces) {
   return { name: AGGREGATOR, dir: '.', version: '1.0.0', manifest: cleanDependencies(manifest), aggregator: true }
 }
 
-// The resolutions as resolution-map.js reads them: a path of package names,
-// the last the one resolved, to a range. One to another source is refused,
-// as only the registry is supported; one to neither, which yarn passes
-// over, the lockfile reader has refused.
+// The resolutions as resolution-map.js reads them. One to neither a range
+// nor another source, which yarn passes over, the lockfile reader refuses.
 export function rulesOf(root) {
   const rules = Object.entries(root.resolutions ?? {}).map(([path, range]) => {
     const names = path.match(/(?:@[^/]+\/)?[^/]+/gu) ?? [path]
@@ -54,8 +50,7 @@ export function rulesOf(root) {
   return [...Map.groupBy(rules, ({ name }) => name).values()].flat()
 }
 
-// The top-level requests in yarn's order, and of them `asked`, those the
-// project makes, all but the resolutions'.
+// The top-level requests in yarn's order; `asked`, all but the resolutions'.
 export function topRequests(root, workspaces, rules) {
   const asked = []
   const push = (deps, optional, dev = false) => {

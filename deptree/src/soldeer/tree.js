@@ -1,6 +1,4 @@
-// The dependencies folder `soldeer install` makes from a soldeer.lock: each
-// registry dependency's zip fetched, held to the lockfile's checksum, and
-// extracted in a folder of its own (zip.js).
+// The dependencies folder `soldeer install` makes from a soldeer.lock.
 
 import { parseSoldeerLockfile } from '@preventive/lockfile/soldeer.js'
 import { getZip } from '@preventive/upstream/soldeer.js'
@@ -13,8 +11,7 @@ import { checkHost, inputsOf } from './inputs.js'
 import { extractZip } from './zip.js'
 
 // What the registry takes, as @preventive/upstream/soldeer.js checks a name
-// and version; of these, Soldeer's sanitize_filename leaves
-// `<name>-<version>` as it is on Unix.
+// and version, which Soldeer's sanitize_filename leaves as they are on Unix.
 const NAME = /^(?=.{3,100}$)[@\da-z][\da-z-]*[\da-z]$/u
 const VERSION = /^(?=.{1,128}$)[\dA-Za-z][\w.+-]*$/u
 
@@ -28,7 +25,6 @@ function checkNoDependencies(vfs, folded) {
 
 const about = (name) => `dependencies[${quote(name)}]`
 
-// Where names are `folded`, folders are compared as macOS compares names.
 function registryDependencies(lock, config, folded) {
   const dependencies = Object.values(lock.dependencies).map((dependency) => ({ ...dependency, folder: `${dependency.name}-${dependency.version}` }))
   const key = (folder) => (folded ? fold(folder) : folder)
@@ -41,7 +37,6 @@ function registryDependencies(lock, config, folded) {
     if (!NAME.test(name)) throw new DeptreeError('a name the registry does not take', where)
     if (!VERSION.test(version)) throw new DeptreeError(`${quote(version)} is a version the registry does not take`, where)
   }
-  // Soldeer downloads each zip beside the folders, as `<folder>.zip`.
   for (const { name, folder } of dependencies) {
     if (folders.has(key(`${folder}.zip`))) throw new DeptreeError(`its zip is downloaded as ${quote(`${folder}.zip`)}, a folder Soldeer installs another dependency in`, about(name))
   }

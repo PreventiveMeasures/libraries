@@ -1,5 +1,3 @@
-// Digests on Web Crypto, which every runtime this runs on has.
-
 import { DeptreeError } from './error.js'
 
 const encoder = new TextEncoder()
@@ -15,7 +13,6 @@ export async function sha256Hex(text, where) {
   return hex(await digest('SHA-256', encoder.encode(text)))
 }
 
-// Only a sha512 integrity, in padded base64, is taken.
 export const matchesIntegrity = async (bytes, integrity) => integrity === `sha512-${base64(await digest('SHA-512', bytes))}`
 
 // As yarn 1 records a tarball's after the `#` of its URL.
