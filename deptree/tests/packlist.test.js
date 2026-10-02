@@ -310,3 +310,56 @@ describe('packDirectory refuses', () => {
     assert.deepEqual([...packDirectory(vfs, 'd', manifest, V10, 'x').keys()], ['a.js', 'package.json'])
   })
 })
+
+describe('packDirectory bounds', () => {
+  const ALL = [...NPM_PACKLISTS, V12]
+  const own = (pnpm, name) => (pnpm === V12 ? [name] : [])
+
+  it('matches in time linear in the path and the pattern', () => {
+    const start = performance.now()
+    const name = 'a'.repeat(250)
+    const glob = `${'*a'.repeat(60)}b`
+    for (const pnpm of ALL) {
+      assert.deepEqual(pack({ [name]: '', b: '' }, pnpm, { files: [glob] }), ['package.json'], pnpm)
+      assert.deepEqual(pack({ [`l/${name}`]: '', '.npmignore': `${glob}\n` }, pnpm), [...own(pnpm, '.npmignore'), `l/${name}`, 'package.json'], pnpm)
+      assert.deepEqual(pack({ x: '', 'a/b/x': '', y: '', '.npmignore': `${'**/'.repeat(100)}x\n` }, pnpm), [...own(pnpm, '.npmignore'), 'package.json', 'y'], pnpm)
+    }
+    assert.ok(performance.now() - start < 1000, `${performance.now() - start}ms`)
+  })
+
+  // Past it minimatch may make too large a regexp, which pnpm 9, 10 and 11
+  // fail on, and globset one, which pnpm 12 drops with its whole file.
+  it('a pattern of up to 4096 characters', () => {
+    for (const pnpm of ALL) {
+      assert.deepEqual(pack({ x: '', ya: '', '.npmignore': `${'*a'.repeat(2048)}\n` }, pnpm), [...own(pnpm, '.npmignore'), 'package.json', 'x', 'ya'], pnpm)
+      assert.throws(() => pack({ x: '', '.npmignore': `${'*a'.repeat(2048)}b\n` }, pnpm), /^DeptreeError: x: "\.npmignore": a pattern of more than 4096 characters, which pnpm may make too large a regexp of, is not supported$/u, pnpm)
+      assert.throws(() => pack(['x'], pnpm, { files: [`${'*'.repeat(4096)}x`] }), /a pattern of more than 4096 characters/u, pnpm)
+    }
+  })
+
+  it('for pnpm 12, an ignore file or files of up to 16 KiB', () => {
+    const lines = (count) => ['y', ...Array.from({ length: count }, () => '*a')].join('\n')
+    assert.deepEqual(pack({ x: '', y: '', '.gitignore': lines(5460) }, V12), ['.gitignore', 'package.json', 'x'])
+    assert.throws(() => pack({ x: '', y: '', '.gitignore': lines(5461) }, V12), /^DeptreeError: x: "\.gitignore": an ignore file of more than 16 KiB, all of which pnpm 12 may drop as too large a regexp, is not supported$/u)
+    assert.deepEqual(pack({ x: '', y: '', '.gitignore': lines(5461) }, V11), ['package.json', 'x'])
+    const files = (count) => ['x', ...Array.from({ length: count }, () => '*a')]
+    assert.deepEqual(pack(['x', 'y'], V12, { files: files(5460) }), ['package.json', 'x'])
+    assert.throws(() => pack(['x', 'y'], V12, { files: files(5461) }), /^DeptreeError: x: its package\.json has `files` of more than 16 KiB, all of which pnpm 12 may drop/u)
+  })
+
+  it('for pnpm 9 and 10, a pattern with up to 100 ** parts, each matched in turn', () => {
+    for (const pnpm of NPM_PACKLISTS) {
+      const glob = `${'**/'.repeat(101)}x`
+      if (pnpm.startsWith('11.')) assert.deepEqual(pack(['x', 'y'], pnpm, { files: [glob] }), ['package.json', 'x'], pnpm)
+      else assert.throws(() => pack(['x', 'y'], pnpm, { files: [glob] }), /^DeptreeError: x: "(?:\*\*\/)+[^"]+" has more than 100 \*\* parts, which is not supported$/u, pnpm)
+    }
+    assert.deepEqual(pack(['x', 'y'], V12, { files: [`${'**/'.repeat(101)}x`] }), ['package.json', 'x'])
+  })
+
+  it('a directory nested up to 100 deep', () => {
+    for (const pnpm of [V10, V12]) {
+      assert.deepEqual(pack([`${'a/'.repeat(100)}x`], pnpm), [`${'a/'.repeat(100)}x`, 'package.json'], pnpm)
+      assert.throws(() => pack([`${'a/'.repeat(101)}x`], pnpm), /^DeptreeError: x: "a\/a[^"]+": a directory nested more than 100 deep/u, pnpm)
+    }
+  })
+})

@@ -124,7 +124,13 @@ export interface PnpmProject {
 // refused, and so are a link the walk comes on, bundled dependencies,
 // `files` that is not a list of strings, a file kept by a path a pattern
 // spells with a `.` part, and a package.json with a byte order mark for
-// pnpm 11 before 11.28, which fails on it. pnpm hardlinks those files from
+// pnpm 11 before 11.28, which fails on it. Refused too, where a pnpm may
+// make too large a regexp of it, failing for pnpm 9, 10 and 11 and dropping
+// it unread for 12, is a pattern of more than 4096 characters and, for pnpm
+// 12, an ignore file or `files` of more than 16 KiB; and so are a pattern
+// with more than 100 `**` parts for pnpm 9 and 10, and a directory nested
+// more than 100 deep, for the time matching them takes. Matching takes
+// time linear in the path and the pattern. pnpm hardlinks those files from
 // the directory into each snapshot of the package, so a file linking a bin
 // makes executable is made so in every snapshot and in the directory, which
 // is not written here; a CRLF `#!` line it rewrites is rewritten as a file

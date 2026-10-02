@@ -11,10 +11,14 @@ import { compareVersions } from '@preventive/upstream/semver.js'
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { readBytes } from '../project.js'
-import { gitignoreGlob, matched, matchedOrParents } from './gitignore.js'
+import { bytesOf, gitignoreGlob, matched, matchedOrParents } from './gitignore.js'
 import { pack10, pack11 } from './npm-packlist.js'
 
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
+
+// How deep a directory is walked: each entry is matched against the rules
+// of every directory above it, which takes time growing with the cube.
+const MAX_DEPTH = 100
 
 // The directory by paths from it, `.` parts and all, which refuses a link
 // on the way to anything it is asked of.
@@ -45,7 +49,11 @@ function viewOf(project, dir, where) {
       const found = parts.length === 0 ? 'directory' : type(parts.join('/'))
       return rel.endsWith('/') && found !== 'directory' ? undefined : found
     },
-    entries: (rel) => (view.type(rel) === 'directory' ? project.readdir(absolute(rel)) : undefined),
+    entries(rel) {
+      if (view.type(rel) !== 'directory') return undefined
+      if (normalize(rel).split('/').length > MAX_DEPTH) throw new DeptreeError(`a directory nested more than ${MAX_DEPTH} deep, each of whose entries the packlists match against the rules of every directory above it, is not supported`, `${where}: ${quote(normalize(rel))}`)
+      return project.readdir(absolute(rel))
+    },
     text(rel, here) {
       if (view.type(rel) !== 'file') throw new DeptreeError('it is not a file, which pnpm fails to read', here)
       try {
@@ -69,9 +77,18 @@ const alwaysIncluded = (name) => asciiLower(name) === 'package.json' || ['readme
 const ALTERNATES = new Set(['package.yaml', 'package.json5'])
 const fieldPath = (path) => path.replace(/^(?:\.\/)+/u, '').replace(/^\/+/u, '')
 
+// pnpm 12 makes one regexp of the globs of an ignore file, or of `files`,
+// and drops them all where it grows too large, which none does below twice
+// this many bytes of them.
+const MAX_GLOBS_12 = 16 * 1024
+const checkGlobs12 = (lines, what, where) => {
+  if (lines.reduce((sum, line) => sum + bytesOf(line).length + 1, 0) > MAX_GLOBS_12) throw new DeptreeError(`${what} of more than ${MAX_GLOBS_12 / 1024} KiB, all of which pnpm 12 may drop as too large a regexp, is not supported`, where)
+}
+
 // pnpm 12's `files` allowlist: its matcher, or undefined where no entry is
 // one, and the files it names outright.
 function filesOf12(view, files, where) {
+  checkGlobs12(files ?? [], 'its package.json has `files`', where)
   const globs = []
   for (const entry of files ?? []) {
     const path = fieldPath(entry)
@@ -101,7 +118,10 @@ function walk12(view, { globs }, where) {
     for (const [key, name] of [['custom', '.npmignore'], ['git', '.gitignore']]) {
       if (globs === undefined && (key === 'custom' || useGit) && names.includes(name)) {
         const path = rel === '' ? name : `${rel}/${name}`
-        own[key] = view.text(path, `${where}: ${quote(path)}`).split('\n').map((line, i) => (i === 0 ? line.replace(/^\uFEFF/u, '') : line).replace(/\r$/u, '')).map((line) => gitignoreGlob(line, `${where}: ${quote(path)}`)).filter(Boolean)
+        const here = `${where}: ${quote(path)}`
+        const lines = view.text(path, here).split('\n')
+        checkGlobs12(lines, 'an ignore file', here)
+        own[key] = lines.map((line, i) => (i === 0 ? line.replace(/^\uFEFF/u, '') : line).replace(/\r$/u, '')).map((line) => gitignoreGlob(line, here)).filter(Boolean)
       }
     }
     const chain = [own, ...stack]
