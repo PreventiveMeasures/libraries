@@ -26,6 +26,8 @@ const files = [
   new URL('bundler.d.ts', PKG_DIR),
   new URL('cargo.js', PKG_DIR),
   new URL('cargo.d.ts', PKG_DIR),
+  new URL('cocoapods.js', PKG_DIR),
+  new URL('cocoapods.d.ts', PKG_DIR),
   new URL('foundry.js', PKG_DIR),
   new URL('foundry.d.ts', PKG_DIR),
   new URL('npm.js', PKG_DIR),

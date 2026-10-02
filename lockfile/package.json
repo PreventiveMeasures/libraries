@@ -1,12 +1,16 @@
 {
   "name": "@preventive/lockfile",
   "version": "1.0.0-alpha.4",
-  "description": "Strict lockfile readers: pnpm-lock.yaml v9, package-lock.json v3, yarn.lock v1, soldeer.lock, foundry.lock, Cargo.lock v3 and v4, uv.lock, poetry.lock, pylock.toml and Gemfile.lock, checked field by field, their packages and graphs resolved, with Cargo.toml, vendored copies and cargo's features, and the YAML, TOML and Rust semver parsers beside them",
+  "description": "Strict lockfile readers: pnpm-lock.yaml v9, package-lock.json v3, yarn.lock v1, soldeer.lock, foundry.lock, Cargo.lock v3 and v4, uv.lock, poetry.lock, pylock.toml, Gemfile.lock and Podfile.lock, checked field by field, their packages and graphs resolved, with Cargo.toml, vendored copies and cargo's features, and the YAML, TOML and Rust semver parsers beside them",
   "type": "module",
   "exports": {
     "./bundler.js": {
       "types": "./bundler.d.ts",
       "default": "./bundler.js"
+    },
+    "./cocoapods.js": {
+      "types": "./cocoapods.d.ts",
+      "default": "./cocoapods.js"
     },
     "./foundry.js": {
       "types": "./foundry.d.ts",
@@ -64,6 +68,8 @@
     "bundler.js",
     "cargo.d.ts",
     "cargo.js",
+    "cocoapods.d.ts",
+    "cocoapods.js",
     "foundry.d.ts",
     "foundry.js",
     "npm.d.ts",
@@ -92,6 +98,15 @@
     "src/cargo/shape.js",
     "src/cargo/sources.js",
     "src/cargo/vendor.js",
+    "src/cocoapods/external.js",
+    "src/cocoapods/layout.js",
+    "src/cocoapods/order.js",
+    "src/cocoapods/parse.js",
+    "src/cocoapods/pods.js",
+    "src/cocoapods/psych.js",
+    "src/cocoapods/sha1.js",
+    "src/cocoapods/sources.js",
+    "src/cocoapods/yaml.js",
     "src/crate/cargo-platform.js",
     "src/crate/sanitize-filename.js",
     "src/crate/semver.js",
@@ -163,7 +178,7 @@
     "node": ">=24.14.0"
   },
   "scripts": {
-    "test": "node --test ./tests/*.test.js ./tests/bundler/*.test.js ./tests/cargo/*.test.js ./tests/foundry/*.test.js ./tests/npm/*.test.js ./tests/poetry/*.test.js ./tests/pylock/*.test.js ./tests/python/*.test.js ./tests/soldeer/*.test.js ./tests/toml/*.test.js ./tests/uv/*.test.js ./tests/yaml/*.test.js ./tests/yarn1/*.test.js"
+    "test": "node --test ./tests/*.test.js ./tests/bundler/*.test.js ./tests/cargo/*.test.js ./tests/cocoapods/*.test.js ./tests/foundry/*.test.js ./tests/npm/*.test.js ./tests/poetry/*.test.js ./tests/pylock/*.test.js ./tests/python/*.test.js ./tests/soldeer/*.test.js ./tests/toml/*.test.js ./tests/uv/*.test.js ./tests/yaml/*.test.js ./tests/yarn1/*.test.js"
   },
   "license": "MIT OR Apache-2.0",
   "author": {
