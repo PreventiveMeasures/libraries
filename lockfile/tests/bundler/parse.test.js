@@ -130,6 +130,11 @@ describe('the layout', () => {
     refuses('', 'an empty lockfile, which Bundler reads as none')
   })
 
+  it('a line of 2^20 characters at most, as no tool writes a longer one, which a regex would run out of stack on', () => {
+    refuses(edit(['  t\n', `  t (>= 1.${'1.'.repeat(2 ** 22)}1)\n`]), 'a line longer than 1048576 characters at line 32')
+    refuses(edit(['  ruby 3.3.6\n', `  ruby ${'3.'.repeat(2 ** 22)}3\n`]), 'a line longer than 1048576 characters at line 43')
+  })
+
   it('refuses a character Bundler does not write, and a merge conflict', () => {
     refuses(edit(['    a (1.2.0)', '\ta (1.2.0)']), 'U+0009 is not allowed at line 18')
     refuses(edit(['  t\n', '<<<<<<< HEAD\n  t\n']), '"<<<<<<<", which Bundler reads as a merge conflict')
@@ -204,6 +209,10 @@ describe('sources', () => {
   it('a directory from the lockfile\'s', () => {
     assert.deepEqual(plain(parseGemfileLock(edit(['  remote: .\n', '  remote: ../vendor/app\n  glob: app.gemspec\n'])).sources[1]), { type: 'path', path: '../vendor/app', glob: 'app.gemspec' })
     refuses(edit(['  remote: .\n', '  remote: /home/app\n']), '"/home/app" is an absolute path, which is the path on one machine alone', 'sources[1].path')
+    for (const path of ['~/app', '~', '~me/app']) {
+      refuses(edit(['  remote: .\n', `  remote: ${path}\n`]), `${JSON.stringify(path)} is a path from a home directory, which Bundler writes from the lockfile's`, 'sources[1].path')
+    }
+    assert.equal(parseGemfileLock(edit(['  remote: .\n', '  remote: app~\n'])).sources[1].path, 'app~')
     refuses(edit(['  remote: .\n', '  remote: ./app\n']), '"./app" is not a relative path in normal form', 'sources[1].path')
     refuses(edit(['  remote: .\n', '  remote: .\n  remote: .\n']), 'a second remote at line 11')
   })
@@ -239,6 +248,10 @@ describe('sources', () => {
       return text.replace(git, '').replace('\nGEM\n', `\n${git}GEM\n`)
     }
     refuses(moved(BASE), 'the git source "https://github.com/o/g.git" after the path source ".", where Bundler sorts them the other way at line 7')
+    // By code point, as Bundler 4.0.17 writes these: U+FF01 before U+10000.
+    const paths = (first, second) => edit(['PATH\n  remote: .\n', `PATH\n  remote: ${first}\n  specs:\n\nPATH\n  remote: ${second}\n`])
+    assert.deepEqual(parseGemfileLock(paths('a/\uFF01', 'a/\u{10000}')).sources.map((source) => source.path), [undefined, 'a/\uFF01', 'a/\u{10000}', undefined])
+    refuses(paths('a/\u{10000}', 'a/\uFF01'), 'the path source "a/\uFF01" after the path source "a/\u{10000}", where Bundler sorts them the other way at line 13')
     // Bundler sorts it by its URL less the token, which the lockfile keeps.
     assert.equal(parseGemfileLock(moved(edit(['https://github.com', 'https://user:token@github.com']))).sources[1].type, 'git')
     refuses(edit(['\nPLATFORMS\n', '\nGEM\n  specs:\n\nPLATFORMS\n']), 'a GEM source of no remote after one of a remote, where Bundler writes it first at line 24')
@@ -269,7 +282,10 @@ describe('gems', () => {
     const where = 'specs["app-0.1.0"].dependencies.a'
     refuses(edit(['(>= 1.0, < 2)', '(>=1.0, < 2)']), '">=1.0" is not a requirement as Bundler writes one, "op version"', where)
     refuses(edit(['(>= 1.0, < 2)', '(>= 1.0,< 2)']), '">= 1.0,< 2" is not a requirement as Bundler writes one, "op version"', where)
-    refuses(edit(['(>= 1.0, < 2)', '(< 2, >= 1.0)']), '">= 1.0" after "< 2", where Bundler sorts them backwards, each once', where)
+    refuses(edit(['(>= 1.0, < 2)', '(< 2, >= 1.0)']), '">= 1.0" after "< 2", where Bundler sorts them backwards', where)
+    // As Bundler 4.0.17 writes `">= 1", ">=1"`, in a gemspec or the Gemfile.
+    assert.deepEqual(parseGemfileLock(edit(['(>= 1.0, < 2)', '(>= 1.0, >= 1.0)'])).specs['app-0.1.0'].dependencies.a, ['>= 1.0', '>= 1.0'])
+    assert.deepEqual(parseGemfileLock(edit(['  n (= 1.0.0)', '  n (= 1.0.0, = 1.0.0)'])).dependencies.n.requirements, ['= 1.0.0', '= 1.0.0'])
     refuses(edit(['(>= 1.0, < 2)', '(>= 0)']), '">= 0", which Bundler leaves out, as any version', where)
     refuses(edit(['(>= 1.0, < 2)', '(>= 1.0-beta)']), '">= 1.0-beta" is not a requirement as Bundler writes one, "op version"', where)
     refuses(edit(['      a (~> 1.0)\n', '      b\n      a (~> 1.0)\n']), 'after "b", where Bundler sorts a gem\'s dependencies by name', 'specs["g-1.0.0"].dependencies.a')

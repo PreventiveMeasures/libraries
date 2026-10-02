@@ -152,6 +152,15 @@ describe('the YAML CocoaPods writes', () => {
     refuses('- COCOAPODS\n', 'expected a mapping at column 0 at line 1')
   })
 
+  it('refuses a key longer than 1024 characters, its quotes counted, which Psych does not read', () => {
+    const repo = (url) => edit(['  https://example.com/specs.git:', `  ${url}:`])
+    // 1024 characters, in more UTF-16 code units than that.
+    const url = `https://example.com/${'\u{1F600}'.repeat(1002)}`
+    assert.equal(parsePodfileLock(repo(JSON.stringify(url))).roots['A+B'].repo, url)
+    refuses(repo(JSON.stringify(`${url}x`)), 'a key longer than 1024 characters, which Psych does not read at line 19')
+    refuses(repo(`https://example.com/${'x'.repeat(1005)}`), 'a key longer than 1024 characters, which Psych does not read at line 19')
+  })
+
   it('refuses an escape but \\" and \\\\, as \\# which Psych does not read', () => {
     const message = (escape) => `"${escape}", an escape this reader does not take: CocoaPods writes \\# before {, $ and @, which Psych does not read back at line 30`
     refuses(edit([':path: "../Local"', ':path: "../\\#{Local}"']), message('\\\\#'))
@@ -221,6 +230,10 @@ describe('pods', () => {
     refuses(edit(['  - Other (1.2.3)', '  - Other']), '"Other" is not a pod and its version, as CocoaPods writes them', 'PODS[5]')
     refuses(edit(['  - Other (1.2.3)', '  - Other (v1.2.3)']), '"v1.2.3" is not a version', 'PODS[5]')
     refuses(edit(['  - Other (1.2.3)', '  - ".Other (1.2.3)"']), '".Other" is not a pod\'s name', 'PODS[5]')
+    // A name of 1024 characters is read, to be refused for what follows.
+    const subspec = (length) => `Other/${'x'.repeat(length - 6)}`
+    assert.throws(() => parsePodfileLock(edit(['  - Other (1.2.3)', `  - ${subspec(1024)} (1.2.3)`])), /^LockfileError: PODS\[5\]: "Other\/x+…" is not one the Podfile's dependencies lead to/u)
+    assert.throws(() => parsePodfileLock(edit(['  - Other (1.2.3)', `  - ${subspec(1025)} (1.2.3)`])), /^LockfileError: PODS\[5\]: "Other\/x+…" is not a pod's name$/u)
     refuses(edit(['    - Other (~> 1.0)', '    - Other (~> 1.0):\n      - Deeper']), 'expected a string, found a mapping', 'PODS[2]["Core/Base (2.0.0)"][0]')
   })
 
@@ -240,6 +253,21 @@ describe('pods', () => {
   it('refuses a pod the Podfile\'s dependencies do not lead to', () => {
     const text = edit(['  - Other (1.2.3)', '  - Other (1.2.3)\n  - Stray (1.0)'], ['    - Other\n', '    - Other\n    - Stray\n'], [`  Other: ${sha('e')}`, `  Other: ${sha('e')}\n  Stray: ${sha('e')}`])
     refuses(text, '"Stray" is not one the Podfile\'s dependencies lead to, which CocoaPods would not install', 'PODS[6]')
+  })
+})
+
+describe('in time linear in its length', () => {
+  // V8 hashes a string past 16383 characters by its length alone, so a
+  // table of thousands of keys that long took seconds to fill. Such a key
+  // is refused at once, as a name that long is.
+  it('many keys past 16383 characters, refused at the first', () => {
+    const line = (index) => `  P${'x'.repeat(16400)}${index}: ${sha('a')}`
+    // One flat string, so that the time is the reader's alone.
+    const text = ['SPEC CHECKSUMS:', ...Array.from({ length: 2000 }, (_, index) => line(index)), ''].join('\n')
+    const start = performance.now()
+    refuses(text, 'a key longer than 1024 characters, which Psych does not read at line 2')
+    const took = performance.now() - start
+    assert.ok(took < 1000, `${Math.round(took)} ms`)
   })
 })
 
@@ -343,7 +371,7 @@ describe('external sources', () => {
     for (const [type, option, value] of [['hg', 'branch', '--config=x'], ['hg', 'revision', '-r'], ['hg', 'tag', 'v1 --config=x'], ['svn', 'folder', '-x'], ['svn', 'tag', '--depth=empty']]) {
       refuses(external({ [type]: GIT, [option]: `'${value}'` }, `\`${GIT}\``, { [type]: GIT, [option]: `'${value}'` }), `${JSON.stringify(value)} starts with "-", or has " --" in it, which ${type} would read as an option`, `${at}[":${option}"]`)
     }
-    assert.equal(parsePodfileLock(external({ hg: GIT, branch: 'a-b' }, `\`${GIT}\``, { hg: GIT, revision: 'x - y' })).roots.Git.checkout.revision, 'x - y')
+    assert.equal(parsePodfileLock(external({ hg: GIT, branch: 'x - y' }, `\`${GIT}\``, { hg: GIT, revision: COMMIT })).roots.Git.external.branch, 'x - y')
   })
 
   it('refuses a spec repo git reads otherwise than as one', () => {
@@ -369,6 +397,9 @@ describe('external sources', () => {
     refuses(external({ http: 'ftp://example.com/Git.zip' }, '`ftp://example.com/Git.zip`'), '"ftp://example.com/Git.zip" is not an http(s) URL', `${at}[":http"]`)
     refuses(external({ git: GIT, commit: 'main' }, `\`${GIT}\`, commit \`main\``, { git: GIT, commit: 'main' }), '"main" is not a commit\'s hash, and locks no commit', `${at}[":commit"]`)
     refuses(external({ git: GIT, commit: 'abc' }, `\`${GIT}\`, commit \`abc\``, { git: GIT, commit: 'abc' }), '"abc" is not a commit\'s hash, and locks no commit', `${at}[":commit"]`)
+    refuses(external({ hg: GIT, revision: 'tip' }, `\`${GIT}\``, { hg: GIT, revision: 'tip' }), '"tip" is not a changeset\'s hash, and locks no revision', `${at}[":revision"]`)
+    refuses(external({ svn: GIT, revision: 'HEAD' }, `\`${GIT}\``, { svn: GIT, revision: 'HEAD' }), '"HEAD" is not a revision\'s number, and locks no revision', `${at}[":revision"]`)
+    assert.equal(parsePodfileLock(external({ hg: GIT, revision: 'ABC123def456' }, `\`${GIT}\``, { hg: GIT, revision: 'ABC123def456' })).roots.Git.checkout.revision, 'ABC123def456')
     refuses(external({ git: GIT, branch: 'a..b' }, `\`${GIT}\`, branch \`a..b\``, { git: GIT, commit: COMMIT }), '"a..b" is not a branch or tag name git takes', `${at}[":branch"]`)
     refuses(external({ git: GIT, submodules: "'true'" }, `\`${GIT}\``, { git: GIT, commit: COMMIT }), 'expected a boolean, found the string "true"', `${at}[":submodules"]`)
     refuses(external({ http: 'https://example.com/a.rar', type: 'rar' }, '`x`'), '"rar" is not a type of file CocoaPods extracts', `${at}[":type"]`)
@@ -403,6 +434,12 @@ describe('checkout options', () => {
     refuses(git({ git: GIT, commit: COMMIT }, { git: GIT, commit: 'abc1234' }), 'another :commit than EXTERNAL SOURCES has', at)
     refuses(git({ git: GIT, commit: COMMIT }, { git: GIT, submodules: 'true' }), 'no :submodules, which CocoaPods keeps of this download', at)
     refuses(git({ git: GIT, branch: 'main' }, { git: GIT, branch: 'main' }), 'no :commit, which CocoaPods keeps of this download', at)
+    // What a download came to, CocoaPods keeps as git, hg and svn write it.
+    refuses(git({ git: GIT, commit: 'abc1234' }, { git: GIT }), '"abc1234" is not the full commit hash CocoaPods keeps, as git rev-parse writes it', at)
+    refuses(git({ git: GIT, commit: COMMIT.toUpperCase() }, { git: GIT }), `"${COMMIT.toUpperCase()}" is not the full commit hash CocoaPods keeps, as git rev-parse writes it`, at)
+    assert.equal(parsePodfileLock(git({ git: GIT, commit: 'a'.repeat(64) }, { git: GIT })).roots.Git.checkout.commit, 'a'.repeat(64))
+    refuses(external({ hg: GIT }, `\`${GIT}\``, { hg: GIT, revision: 'abc123def456' }), '"abc123def456" is not the full changeset hash CocoaPods keeps, as hg id writes it', at)
+    refuses(external({ svn: GIT }, `\`${GIT}\``, { svn: GIT, revision: 'HEAD' }), '"HEAD" is not a revision\'s number, and locks no revision', `${at}[":revision"]`)
     refuses(git({ git: GIT, commit: COMMIT, tag: 'v1' }, { git: GIT, commit: 'abc1234', tag: 'v1' }), 'another :commit than EXTERNAL SOURCES has', at)
     const zip = { http: 'https://example.com/Git.zip' }
     refuses(external(zip, '`{:http=>"https://example.com/Git.zip"}`', { ...zip, type: 'zip' }), 'other than the options EXTERNAL SOURCES has, which CocoaPods keeps as they are of a file', at)

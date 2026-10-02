@@ -27,11 +27,13 @@ function readLockName({ name, version, platform }, where) {
 }
 
 // Each `op version`, in the order Bundler writes them, which is backwards;
-// none for any version, which `>= 0` alone is.
+// none for any version, which `>= 0` alone is. One may be written twice:
+// Gem::Requirement drops a requirement given twice as the same text alone,
+// and keeps both of `">= 1", ">=1"`.
 function readRequirements(list, where) {
   for (const [index, text] of list.entries()) {
     if (parseRequirement(text) === undefined) throw new LockfileError(`${quote(text)} is not a requirement as Bundler writes one, "op version"`, where)
-    if (index > 0 && text >= list[index - 1]) throw new LockfileError(`${quote(text)} after ${quote(list[index - 1])}, where Bundler sorts them backwards, each once`, where)
+    if (index > 0 && text > list[index - 1]) throw new LockfileError(`${quote(text)} after ${quote(list[index - 1])}, where Bundler sorts them backwards`, where)
   }
   const [only] = list
   if (list.length === 1 && only.startsWith('>= ') && compareVersions(only.slice(3), '0') === 0) throw new LockfileError(`${quote(only)}, which Bundler leaves out, as any version`, where)

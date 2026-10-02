@@ -113,6 +113,10 @@ describe('foundry.lock, laid out otherwise than forge does', () => {
     refuses(`${BASE.slice(0, -1)}},`, 'a comma after the last "}" at line 17')
   })
 
+  it('refuses a line longer than 2^20 characters, as forge writes none', () => {
+    refuses(BASE.replace(/"rev": "\w+"/u, `"rev": "${'a'.repeat(2 ** 20)}"`), 'a line longer than 1048576 characters at line 5')
+  })
+
   it('refuses what follows the last }, but for line ends', () => {
     refuses(`${BASE}\n \n`, 'expected the end of the file after the last "}", found " " at line 18')
     refuses(`${BASE}\n{}`, 'expected the end of the file after the last "}", found "{}" at line 18')
