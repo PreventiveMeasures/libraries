@@ -122,8 +122,6 @@ export function readSections(text) {
     advance(src)
     if (src.line === undefined) throw fail('a blank line at the end, where Bundler writes none', src.number)
   }
-  // The Gemfile's own, even of no remote and no gems.
-  if (!sources.some((source) => source.type === 'GEM')) throw new LockfileError('no GEM source, which Bundler always writes')
   checkVersionsIndent(sections)
   return { sources, sections }
 }

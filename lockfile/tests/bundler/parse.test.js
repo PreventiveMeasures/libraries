@@ -217,6 +217,7 @@ describe('sources', () => {
     refuses(edit(['\nPLATFORMS\n', '\nGEM\n  specs:\n\nPLATFORMS\n']), 'a GEM source of no remote after one of a remote, where Bundler writes it first at line 24')
     assert.deepEqual(plain(parseGemfileLock(edit(['\nGEM\n', '\nGEM\n  specs:\n\nGEM\n'], ['  n (= 1.0.0)', '  n (= 1.0.0)!'])).sources[2]), { type: 'gem' })
     refuses('PLATFORMS\n  ruby\n\nDEPENDENCIES\n', 'no GEM source, which Bundler always writes')
+    refuses(edit(['\nGEM\n', '\nGEM\n  specs:\n\nGEM\n  specs:\n\nGEM\n']), 'a second GEM source of no remote, where Bundler writes one, the Gemfile\'s own at line 18')
   })
 })
 

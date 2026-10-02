@@ -93,7 +93,7 @@ function readGem(values, where) {
   return { type: 'gem', remote }
 }
 
-export function readSource(raw, where) {
+function readSource(raw, where) {
   const values = readOptions(raw)
   if (raw.type === 'GIT') return readGit(values, where)
   if (raw.type === 'PATH') return readPath(values, where)
@@ -113,12 +113,11 @@ function orderKey(source) {
 
 const describe = (source) => `the ${source.type} source ${quote(source.remote ?? source.path)}`
 
-// The git and path sources in Bundler's order, where the lockfile says it,
-// and a GEM source of no remote first of the GEM ones: Bundler sorts each
-// group by what identifies a source, `locally installed gems` for that one.
-// The other GEM sources' order is of their URLs with the credentials the
-// Gemfile gives, which the lockfile leaves out, and is not checked.
-export function checkOrder(sources, raw) {
+// The git and path sources in Bundler's order, where the lockfile says it:
+// Bundler sorts them by what identifies each. The GEM sources' order is of
+// their URLs with the credentials the Gemfile gives, which the lockfile
+// leaves out, and is not checked, but for the Gemfile's own, below.
+function checkOrder(sources, raw) {
   let prior
   for (const [index, source] of sources.entries()) {
     const key = source.type === 'gem' ? undefined : orderKey(source)
@@ -126,6 +125,25 @@ export function checkOrder(sources, raw) {
     if (prior !== undefined && key < prior.key) throw fail(`${describe(source)} after ${describe(prior.source)}, where Bundler sorts them the other way`, raw[index].number)
     prior = { key, source }
   }
-  const local = sources.findIndex((source, index) => source.type === 'gem' && source.remote === undefined && sources[index - 1]?.type === 'gem')
-  if (local !== -1) throw fail('a GEM source of no remote after one of a remote, where Bundler writes it first', raw[local].number)
+}
+
+// The Gemfile's own GEM source, which Bundler always writes: of no remote
+// where it names none, and then the first of the GEM sources, as `locally
+// installed gems` sorts before any URL, and the one alone of no remote, as
+// any other is a `source`'s. Its index where it has none, else -1.
+function readLocal(sources, raw) {
+  const first = sources.findIndex((source) => source.type === 'gem')
+  if (first === -1) throw new LockfileError('no GEM source, which Bundler always writes')
+  const own = sources[first].remote === undefined
+  const late = sources.findIndex((source, index) => index > first && source.type === 'gem' && source.remote === undefined)
+  if (late !== -1) throw fail(own ? 'a second GEM source of no remote, where Bundler writes one, the Gemfile\'s own' : 'a GEM source of no remote after one of a remote, where Bundler writes it first', raw[late].number)
+  return own ? first : -1
+}
+
+// Each source, in Bundler's order, and the index of the Gemfile's own GEM
+// source where it has no remote, else -1.
+export function readSources(raw) {
+  const sources = raw.map((source, index) => readSource(source, `sources[${index}]`))
+  checkOrder(sources, raw)
+  return { sources, local: readLocal(sources, raw) }
 }

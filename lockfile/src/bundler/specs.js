@@ -53,8 +53,9 @@ export function readNamed(list, where, what, read = (requirements) => requiremen
   return named
 }
 
-// Every source's specs, by full name, each with the index of its source.
-export function readSpecs(raw, sources) {
+// Every source's specs, by full name, each with the index of its source;
+// none of `local`, the Gemfile's own GEM source where it has no remote.
+export function readSpecs(raw, local) {
   const specs = Object.create(null)
   for (const [index, { specs: list }] of raw.entries()) {
     let prior
@@ -66,9 +67,7 @@ export function readSpecs(raw, sources) {
       if (key in specs) throw new LockfileError(`listed twice, of which Bundler keeps the last alone, at line ${item.number + 1}`, where)
       if (prior !== undefined && key < prior) throw new LockfileError(`after ${quote(prior)}, where Bundler sorts a source's gems by full name`, where)
       prior = key
-      if (sources[index].type === 'gem' && sources[index].remote === undefined) {
-        throw new LockfileError(`from sources[${index}], which has no remote: Bundler takes it from the gems installed where it runs`, where)
-      }
+      if (index === local) throw new LockfileError(`from sources[${index}], which has no remote: Bundler takes it from the gems installed where it runs`, where)
       specs[key] = { name, version, platform, source: index, dependencies: readNamed(item.dependencies, at(where, 'dependencies'), 'a gem\'s dependencies'), checksum: undefined }
     }
   }
@@ -100,10 +99,11 @@ export function readChecksums(lines, specs, sources) {
       continue
     }
     const key = fullName(item)
-    if (!(key in specs)) throw fail(`${quote(line.split(' ', 2).join(' '))} is no gem of the sources`, number)
-    const spec = specs[key]
-    if (listed.has(key)) throw fail(`${quote(line.split(' ', 2).join(' '))} a second time, where Bundler lists each gem once`, number)
+    const named = quote(line.split(' ', 2).join(' '))
+    if (!(key in specs)) throw fail(`${named} is no gem of the sources`, number)
+    if (listed.has(key)) throw fail(`${named} a second time, where Bundler lists each gem once`, number)
     listed.add(key)
+    const spec = specs[key]
     if (item.checksum === undefined) continue
     const here = at(at('specs', key), 'checksum')
     if (sources[spec.source].type !== 'gem') throw new LockfileError(`a checksum of a gem from a ${sources[spec.source].type} source, which has no .gem to check`, here)

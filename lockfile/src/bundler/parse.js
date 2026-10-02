@@ -7,7 +7,7 @@ import { LockfileError, at, quote } from '../error.js'
 import { fail } from '../lines.js'
 import { isPlatform, platformServed, platformSet } from '../rubygems/gem.js'
 import { isVersion, parseRequirement, satisfiedByAll, satisfies, versionSet } from '../rubygems/version.js'
-import { checkOrder, readSource } from './sources.js'
+import { readSources } from './sources.js'
 import { readChecksums, readNamed, readSpecs } from './specs.js'
 import { readSections, splitDependency } from './syntax.js'
 
@@ -67,22 +67,24 @@ function readVersions(sections) {
 // at one version for each platform.
 function readGems(specs) {
   const gems = Object.create(null)
+  const byPlatform = new Map()
   for (const [key, spec] of Object.entries(specs)) {
-    const prior = gems[spec.name]?.[0]
+    const keys = (gems[spec.name] ??= [])
+    const [prior] = keys
     if (prior !== undefined && specs[prior].source !== spec.source) throw new LockfileError(`from sources[${spec.source}], and ${quote(prior)} from sources[${specs[prior].source}], where Bundler takes a gem from one source`, at('specs', key))
-    const twin = gems[spec.name]?.find((other) => specs[other].platform === spec.platform)
+    const twin = byPlatform.get(`${spec.name} ${spec.platform}`)
     if (twin !== undefined) throw new LockfileError(`for the platform of ${quote(twin)}, where Bundler locks one version of a gem for each`, at('specs', key))
-    ;(gems[spec.name] ??= []).push(key)
+    byPlatform.set(`${spec.name} ${spec.platform}`, key)
+    keys.push(key)
   }
   return gems
 }
 
 // What the Gemfile names no source of, without its `!`, Bundler takes from
-// its default source, one: the GEM one of the Gemfile's own, which is the
-// one of no remote where there is one, or, in Bundler 2, the directory of
-// a lone `path`. A git source is never the default.
-function checkDefaultSource({ specs, gems, dependencies, sources }) {
-  const local = sources.findIndex((source) => source.type === 'gem' && source.remote === undefined)
+// its default source, one: in Bundler 2, the directory of a lone `path`,
+// where there is one, else the Gemfile's own GEM source, which, where it
+// has no remote, `local`, has no gems. A git source is never the default.
+function checkDefaultSource({ specs, gems, dependencies, sources, local }) {
   let first
   for (const [name, { pinned }] of Object.entries(dependencies)) {
     if (pinned || gems[name] === undefined) continue
@@ -110,8 +112,9 @@ function checkMet(name, requirements, { specs, gems, versions }, where) {
 
 // Every edge leads to gems locked under its name, or, of the Gemfile, to
 // none where Bundler leaves out a platform's gem; every gem is reached.
-function checkGraph(lock) {
-  const { specs, gems, dependencies } = lock
+function checkGraph({ specs, gems, dependencies }) {
+  const versions = new Map(Object.entries(gems).map(([name, keys]) => [name, versionSet(keys.map((key) => specs[key].version))]))
+  const lock = { specs, gems, versions }
   const reached = new Set()
   const queue = []
   const visit = (name) => {
@@ -124,8 +127,9 @@ function checkGraph(lock) {
   }
   while (queue.length > 0) {
     for (const key of gems[queue.pop()]) {
+      const from = at(at('specs', key), 'dependencies')
       for (const [name, requirements] of Object.entries(specs[key].dependencies)) {
-        const where = at(at(at('specs', key), 'dependencies'), name)
+        const where = at(from, name)
         // Bundler, which the sources leave out, it meets with whichever
         // Bundler runs.
         if (name !== 'bundler' && !(name in gems)) throw new LockfileError('names no gem of the sources', where)
@@ -141,16 +145,14 @@ function checkGraph(lock) {
 export function parseGemfileLock(text) {
   if (typeof text !== 'string') throw new TypeError('expected a string')
   const { sources: raw, sections } = readSections(text)
-  const sources = raw.map((source, index) => readSource(source, `sources[${index}]`))
-  checkOrder(sources, raw)
-  const specs = readSpecs(raw, sources)
+  const { sources, local } = readSources(raw)
+  const specs = readSpecs(raw, local)
   const platforms = readPlatforms(required(sections, 'PLATFORMS'))
   checkPlatforms(specs, platforms)
   const dependencies = readDependencies(required(sections, 'DEPENDENCIES'))
   const gems = readGems(specs)
-  const versions = new Map(Object.entries(gems).map(([name, keys]) => [name, versionSet(keys.map((key) => specs[key].version))]))
-  checkDefaultSource({ specs, gems, dependencies, sources })
-  checkGraph({ specs, gems, versions, dependencies })
+  checkDefaultSource({ sources, local, specs, gems, dependencies })
+  checkGraph({ specs, gems, dependencies })
   const checksums = sections.has('CHECKSUMS')
   const bundlerChecksum = checksums ? readChecksums(sections.get('CHECKSUMS').lines, specs, sources) : undefined
   return { sources, specs, gems, platforms, dependencies, checksums, bundlerChecksum, ...readVersions(sections) }

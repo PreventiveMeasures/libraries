@@ -31,10 +31,10 @@ function startIn(text, [from, to], follows) {
 // first after a letter or a `.`, then, of a prerelease, the first run of
 // zeros, at the start or after a `.`, that a letter follows.
 function canonical(version) {
-  let text = version
-  const last = zeroRuns(text).at(-1)
-  const end = last?.[1] === text.length ? startIn(text, last, (char) => char !== undefined && /[A-Za-z.]/u.test(char)) : undefined
-  if (end !== undefined) text = text.slice(0, end)
+  let from = version.length
+  while (version[from - 1] === '.' || version[from - 1] === '0') from--
+  const end = from < version.length ? startIn(version, [from, version.length], (char) => char !== undefined && /[A-Za-z.]/u.test(char)) : undefined
+  const text = version.slice(0, end)
   if (!isPrerelease(version)) return partition(text)
   for (const run of zeroRuns(text)) {
     const start = /[A-Za-z]/u.test(text[run[1]] ?? '') ? startIn(text, run, (char) => char === undefined || char === '.') : undefined
@@ -107,27 +107,21 @@ export function satisfies(version, [operator, against]) {
   return OPERATORS[operator](compareVersions(version, against))
 }
 
-// Versions as what every requirement on them is held to: the least, the
-// greatest, the greatest release and each one's canonical segments, so a
-// requirement costs a comparison or two however many versions there are.
+// Versions as what every requirement on them is held to: each one's
+// canonical segments in order, and the greatest release, so a requirement
+// costs a comparison or two however many versions there are.
 export function versionSet(versions) {
-  const greatest = (list, sign = 1) => list.reduce((best, item) => (sign * compareSegments(item, best) > 0 ? item : best))
   const all = versions.map(canonical)
-  return { least: greatest(all, -1), greatest: greatest(all), release: greatest(versions.map((version) => canonical(release(version)))), keys: new Set(all.map((segments) => segments.join('.'))) }
+  const releases = versions.map((version, index) => (isPrerelease(version) ? canonical(release(version)) : all[index]))
+  return { sorted: all.sort(compareSegments), release: releases.sort(compareSegments).at(-1), keys: undefined }
 }
 
-// Whether every version of a set satisfies a requirement.
+// Whether every version of a set satisfies a requirement: of a range, `=`,
+// `<`, `>` and the rest, where the least and the greatest do.
 export function satisfiedByAll(set, [operator, against]) {
   const target = canonical(against)
-  const atLeast = (cmp) => compareSegments(set.least, target) >= cmp
-  const atMost = (cmp) => compareSegments(set.greatest, target) <= cmp
-  switch (operator) {
-    case '=': return atLeast(0) && atMost(0)
-    case '!=': return !set.keys.has(target.join('.'))
-    case '>': return atLeast(1)
-    case '>=': return atLeast(0)
-    case '<': return atMost(-1)
-    case '<=': return atMost(0)
-    default: return atLeast(0) && compareSegments(set.release, canonical(bump(against))) < 0
-  }
+  if (operator === '!=') return !(set.keys ??= new Set(set.sorted.map((segments) => segments.join('.')))).has(target.join('.'))
+  const least = compareSegments(set.sorted[0], target)
+  if (operator === '~>') return least >= 0 && compareSegments(set.release, canonical(bump(against))) < 0
+  return OPERATORS[operator](least) && OPERATORS[operator](compareSegments(set.sorted.at(-1), target))
 }
