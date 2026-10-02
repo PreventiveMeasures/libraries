@@ -102,7 +102,8 @@ export interface NpmManifest {
   cpu: string[] | undefined
   libc: string[] | undefined
   bin: Record<string, string>
-  license: string | undefined
+  // Old packages list licenses in a sequence.
+  license: string | string[] | undefined
   funding: NpmFunding | NpmFunding[] | undefined
   deprecated: string | undefined
   hasInstallScript: boolean
