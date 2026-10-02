@@ -205,6 +205,19 @@ describe('sources', () => {
     refuses(edit(['  remote: https://rubygems.org/\n', '  remote: https://rubygems.org/\n  remote: https://gem.coop/\n']), 'a second remote: Bundler fetches each gem of the source from either, and the lockfile does not say which at line 17')
     refuses(edit(['  remote: https://rubygems.org/\n', '']), 'from sources[2], which has no remote: Bundler takes it from the gems installed where it runs', 'specs["a-1.2.0"]')
   })
+
+  it('in Bundler\'s order, as far as the lockfile says it, and a GEM source always', () => {
+    const moved = (text) => {
+      const git = text.slice(0, text.indexOf('PATH\n'))
+      return text.replace(git, '').replace('\nGEM\n', `\n${git}GEM\n`)
+    }
+    refuses(moved(BASE), 'the git source "https://github.com/o/g.git" after the path source ".", where Bundler sorts them the other way at line 7')
+    // Bundler sorts it by its URL less the token, which the lockfile keeps.
+    assert.equal(parseGemfileLock(moved(edit(['https://github.com', 'https://user:token@github.com']))).sources[1].type, 'git')
+    refuses(edit(['\nPLATFORMS\n', '\nGEM\n  specs:\n\nPLATFORMS\n']), 'a GEM source of no remote after one of a remote, where Bundler writes it first at line 24')
+    assert.deepEqual(plain(parseGemfileLock(edit(['\nGEM\n', '\nGEM\n  specs:\n\nGEM\n'])).sources[2]), { type: 'gem' })
+    refuses('PLATFORMS\n  ruby\n\nDEPENDENCIES\n', 'no GEM source, which Bundler always writes')
+  })
 })
 
 describe('gems', () => {
@@ -272,6 +285,7 @@ describe('checksums', () => {
     refuses(edit([`  a (1.2.0) sha256=${H}`, `  a (1.2.0) sha512=${H}${H}`]), `"sha512=${H}${H}" is not a checksum as Bundler writes one, "sha256=" and the hex digest`, 'specs["a-1.2.0"].checksum')
     refuses(edit([`  a (1.2.0) sha256=${H}`, `  a (1.2.0) sha256=${H.toUpperCase()}`]), `"sha256=${H.toUpperCase()}" is not a checksum as Bundler writes one, "sha256=" and the hex digest`, 'specs["a-1.2.0"].checksum')
     refuses(edit(['  a (1.2.0) sha256', '   a (1.2.0) sha256']), 'expected 2 spaces of indentation, found 3 at line 35')
+    refuses(edit([`  a (1.2.0) sha256=${H}\n`, `  a (1.2.0)\n  a (1.2.0) sha256=${H}\n`]), '"a (1.2.0)" a second time, where Bundler lists each gem once at line 36')
     assert.equal(parseGemfileLock(edit([`  a (1.2.0) sha256=${H}`, '  a (1.2.0)'])).specs['a-1.2.0'].checksum, undefined)
   })
 

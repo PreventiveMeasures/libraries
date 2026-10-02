@@ -30,7 +30,8 @@ export function parseGemfileLock(text: string): GemfileLock
 // Every Record has a null prototype, and is in the order the file has it.
 
 export interface GemfileLock {
-  // As Bundler writes them: the git and path sources, then the GEM ones.
+  // As Bundler writes them: the git and path sources, then the GEM ones,
+  // of which there is one always, the Gemfile's own.
   sources: BundlerSource[]
   // By full name, as RubyGems names a gem's file: `name-version`, or
   // `name-version-platform` for a platform's own.

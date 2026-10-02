@@ -7,7 +7,7 @@ import { LockfileError, at, quote } from '../error.js'
 import { fail } from '../lines.js'
 import { isPlatform } from '../rubygems/gem.js'
 import { isVersion, parseRequirement, satisfies } from '../rubygems/version.js'
-import { readSource } from './sources.js'
+import { checkOrder, readSource } from './sources.js'
 import { checkGemName, readChecksums, readRequirements, readSpecs } from './specs.js'
 import { indentOf, readSections, splitDependency } from './syntax.js'
 
@@ -132,6 +132,7 @@ export function parseGemfileLock(text) {
   if (typeof text !== 'string') throw new TypeError('expected a string')
   const { sources: raw, sections } = readSections(text)
   const sources = raw.map((source, index) => readSource(source, `sources[${index}]`))
+  checkOrder(sources, raw)
   const specs = readSpecs(raw, sources)
   const platforms = readPlatforms(required(sections, 'PLATFORMS'))
   const dependencies = readDependencies(required(sections, 'DEPENDENCIES'))

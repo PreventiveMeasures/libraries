@@ -102,6 +102,7 @@ export function readChecksums(lines, specs, sources) {
     const key = fullName({ ...item, platform: item.platform ?? 'ruby' })
     if (!(key in specs)) throw fail(`${quote(line.split(' ', 2).join(' '))} is no gem of the sources`, number)
     const spec = specs[key]
+    if (listed.has(key)) throw fail(`${quote(line.split(' ', 2).join(' '))} a second time, where Bundler lists each gem once`, number)
     listed.add(key)
     if (item.checksum === undefined) continue
     if (sources[spec.source].type !== 'gem') throw new LockfileError(`a checksum of a gem from a ${sources[spec.source].type} source, which has no .gem to check`, at(at('specs', key), 'checksum'))

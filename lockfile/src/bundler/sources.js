@@ -98,3 +98,33 @@ export function readSource(raw, where) {
   if (raw.type === 'PATH') return readPath(values, where)
   return readGem(values, where)
 }
+
+// What Bundler sorts the git and path sources by, as far as the lockfile
+// says it: a path's identifier whole, and a repository's first part, its
+// URL and then ` (`, whatever the rest each version of Bundler writes. A
+// URL of credentials, which Bundler leaves out of it, or of a scheme in
+// capitals, which it writes in lowercase, says nothing: undefined.
+function orderKey(source) {
+  if (source.type === 'path') return `source at \`${source.path}\``
+  const url = /^([A-Za-z][\w+.-]*):\/\/([^/]*)/u.exec(source.remote)
+  return url !== null && (/[A-Z]/u.test(url[1]) || url[2].includes('@')) ? undefined : `${source.remote} (`
+}
+
+const describe = (source) => `the ${source.type} source ${quote(source.remote ?? source.path)}`
+
+// The git and path sources in Bundler's order, where the lockfile says it,
+// and a GEM source of no remote first of the GEM ones: Bundler sorts each
+// group by what identifies a source, `locally installed gems` for that one.
+// The other GEM sources' order is of their URLs with the credentials the
+// Gemfile gives, which the lockfile leaves out, and is not checked.
+export function checkOrder(sources, raw) {
+  let prior
+  for (const [index, source] of sources.entries()) {
+    const key = source.type === 'gem' ? undefined : orderKey(source)
+    if (key === undefined) continue
+    if (prior !== undefined && key < prior.key) throw fail(`${describe(source)} after ${describe(prior.source)}, where Bundler sorts them the other way`, raw[index].number)
+    prior = { key, source }
+  }
+  const local = sources.findIndex((source, index) => source.type === 'gem' && source.remote === undefined && sources[index - 1]?.type === 'gem')
+  if (local !== -1) throw fail('a GEM source of no remote after one of a remote, where Bundler writes it first', raw[local].number)
+}
