@@ -469,6 +469,33 @@ describe('each dependency is met where npm looks for it', () => {
 })
 
 describe('the flags npm writes', () => {
+  // The project's x is a link to a package in the node_modules of its dev
+  // dependency dv: npm 11.7 and later leave dv dev, npm 9 to 11.6 clear
+  // the flags of what x is in. And a link to a, from the optional @s/o:
+  // npm before 11.18 give a the link's flags, as though optional alone.
+  const linked = (change) => edit((l) => {
+    l.packages[''].dependencies.x = '1.0.0'
+    l.packages['node_modules/x'] = { resolved: 'node_modules/dv/node_modules/x', link: true }
+    l.packages['node_modules/dv/node_modules/x'] = { version: '1.0.0', resolved: registry('x', '1.0.0'), integrity: I }
+    change(l)
+  })
+
+  it('as any one version of npm sets them', () => {
+    assert.equal(parse(linked(() => {})).packages['node_modules/dv'].dev, true)
+    assert.equal(parse(linked((l) => delete l.packages['node_modules/dv'].dev)).packages['node_modules/dv'].dev, false)
+    const optional = (change) => edit((l) => {
+      l.packages['node_modules/@s/o'].dependencies = { a: '*' }
+      l.packages['node_modules/@s/o/node_modules/a'] = { resolved: 'node_modules/a', link: true }
+      change(l)
+    })
+    assert.equal(parse(optional(() => {})).packages['node_modules/a'].optional, false)
+    assert.equal(parse(optional((l) => (l.packages['node_modules/a'].optional = true))).packages['node_modules/a'].optional, true)
+  })
+
+  it('refused where no version sets them so, as the latest would', () => {
+    refuses(linked((l) => (l.packages['node_modules/dv'].optional = true)), 'expected none, as npm sets it from what depends on it', `${P('node_modules/dv')}.optional`)
+  })
+
   it('as npm sets them from what depends on each', () => {
     refuses(edit((l) => delete l.packages['node_modules/dv'].dev), 'expected true, as npm sets it from what depends on it', `${P('node_modules/dv')}.dev`)
     refuses(edit((l) => (l.packages['node_modules/b'].dev = true)), 'expected none, as npm sets it from what depends on it', `${P('node_modules/b')}.dev`)

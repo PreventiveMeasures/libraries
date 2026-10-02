@@ -10,7 +10,7 @@ import { BASE, registry, write } from './base.js'
 import { Arborist, calcDepFlags, resetDepFlags } from './reference.js'
 
 // Arborist, from the npm beside node, against this reader, over lockfiles
-// whose dependencies are edited at random: each laid out with the
+// whose dependencies and links are edited at random: each laid out with the
 // package.json files npm reads beside it, loaded into npm's tree, and
 // given the flags npm works out for it. Where npm finds every dependency
 // met, and nothing extraneous, this reads the lockfile to the same edges
@@ -105,7 +105,20 @@ function drop({ pick }, lock) {
   if (leaves.length > 0) delete lock.packages[pick(leaves)]
 }
 
+// A link, in the node_modules of a node, to a package elsewhere, which the
+// node asks for.
+function linkTo({ pick }, lock) {
+  if (installed(lock).length === 0) return
+  const target = pick(installed(lock))
+  const parent = pick(Object.keys(lock.packages).filter((location) => !lock.packages[location].link))
+  const location = `${parent === '' ? '' : `${parent}/`}node_modules/${folderOf(target)}`
+  if (location in lock.packages) return
+  lock.packages[location] = { resolved: target, link: true }
+  lock.packages[parent].dependencies = { ...lock.packages[parent].dependencies, [folderOf(target)]: '*' }
+}
+
 function change(rand, lock) {
+  if (rand.next() < 0.2) return linkTo(rand, lock)
   const r = rand.next()
   if (r < 0.5) changeDependencies(rand, lock)
   else if (r < 0.65) move(rand, lock)
@@ -220,7 +233,14 @@ describe('whatever npm installs as the lockfile says, is read to the same tree h
     for (let i = 0; i < 150; i++) {
       const lock = structuredClone(rand.pick(SOURCES))
       for (let edits = 1 + Math.floor(rand.next() * 2); edits > 0; edits--) change(rand, lock)
-      const npm = await npmOf(lock)
+      let npm
+      try {
+        npm = await npmOf(lock)
+      } catch (error) {
+        // A link to what an edit took away, which npm refuses to load.
+        assert.throws(() => parseNpmLockfile(write(lock), { semver }), LockfileError, error.message)
+        continue
+      }
       if (compare(flagged(lock, npm.nodes), npm)) read++
     }
     assert.ok(read > 30, `only ${read} lockfiles were read`)

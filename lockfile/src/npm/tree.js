@@ -132,8 +132,8 @@ const LISTS = { __proto__: null, workspace: 'workspaces', peer: 'peerDependencie
 export const edgeAt = (edge) => (edge.type === 'workspace' ? at(edge.from.where, 'workspaces') : at(at(edge.from.where, LISTS[edge.type]), edge.name))
 
 // Node#loadDeps: a name's one edge is of the last list that has it, of the
-// peer dependencies, then dependencies, optional ones and, for a node on
-// top of none, dev ones; a workspace's from the project, none but those.
+// peer dependencies, the optional ones after, then dependencies, optional
+// ones and, for a node on top of none, dev ones; a workspace's from the project, none but those.
 // npm takes two names in other cases as one there too.
 function loadEdges(node, workspaces, legacyPeerDeps) {
   const add = (name, type, spec) => {
@@ -147,7 +147,9 @@ function loadEdges(node, workspaces, legacyPeerDeps) {
   }
   if (node.kind === 'root') for (const [name, { location }] of workspaces) add(name, 'workspace', `file:${location}`)
   const meta = node.peerDependenciesMeta ?? {}
-  if (!legacyPeerDeps) for (const [name, spec] of Object.entries(node.peerDependencies ?? {})) add(name, meta[name]?.optional ? 'peerOptional' : 'peer', spec)
+  const peers = legacyPeerDeps ? [] : Object.entries(node.peerDependencies ?? {})
+  for (const [name, spec] of peers) if (!meta[name]?.optional) add(name, 'peer', spec)
+  for (const [name, spec] of peers) if (meta[name]?.optional) add(name, 'peerOptional', spec)
   for (const [name, spec] of Object.entries(node.dependencies ?? {})) add(name, 'prod', spec)
   for (const [name, spec] of Object.entries(node.optionalDependencies ?? {})) add(name, 'optional', spec)
   if (node.parent === undefined) for (const [name, spec] of Object.entries(node.devDependencies ?? {})) add(name, 'dev', spec)

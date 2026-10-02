@@ -84,7 +84,10 @@ export interface NpmEdge {
 // As the manifest has them, but for the flags, which npm works out from
 // what depends on each: under --omit, `dev` and `optional` leave a node
 // out, and `devOptional` where both are omitted. `devOptional` is set
-// where either other is.
+// where either other is. Versions of npm work them out otherwise now and
+// then: npm 9 to 11.6 clear a flag of what a package is in too, and npm
+// before 11.18 have a link give what it leads to its own. A lockfile is
+// read where its flags are all as one of them sets them.
 export interface NpmManifest {
   // The name a package is published under: an alias's is not its folder's.
   name: string
