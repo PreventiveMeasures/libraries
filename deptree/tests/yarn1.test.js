@@ -297,6 +297,16 @@ describe('buildYarn1Tree refuses', () => {
     await refuses({ project: project({ 'latest/package.json': '{}' }) }, /^DeptreeError: "d@latest": yarn installs the directory "latest" for it, which is not supported$/u)
   })
 
+  // yarn 1.22 installs a directory as a copy of all of it, whatever
+  // package.json's `files` and an ignore file say, which is not built here.
+  it('a dependency on a directory, by file: or link:', async () => {
+    const vendored = { 'vendor/foo/package.json': { name: 'foo', version: '1.5.0', files: ['/index.js'] }, 'vendor/foo/index.js': 'foo', 'vendor/foo/.gitignore': 'lib\n' }
+    for (const protocol of ['file:', 'link:']) {
+      const files = { 'yarn.lock': lockfile(`"foo@${protocol}./vendor/foo":\n  version "1.5.0"\n`), 'package.json': { name: 'root', version: '1.0.0', dependencies: { foo: `${protocol}./vendor/foo` } }, ...vendored }
+      await refuses({ project: projectOf(files) }, new RegExp(`^DeptreeError: "foo@${protocol}\\./vendor/foo": only a semver range, an npm: alias or a tag is supported$`, 'u'))
+    }
+  })
+
   it('two tags yarn would resolve in the order the filesystem answers', async () => {
     stubRegistry(TARBALLS)
     const root = { name: 'root', version: '1.0.0', private: true, workspaces: ['packages/*'], dependencies: { d: 'latest' } }

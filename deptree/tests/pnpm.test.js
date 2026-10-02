@@ -1239,6 +1239,21 @@ describe('buildPnpmTree into a given Vfs', () => {
       }
     })
 
+    // As ExodusOSS/bytes has pnpm install its own directory: `files` beside
+    // a .gitignore at the top, which none reads then, and a browser map.
+    // Real installs of each keep these files.
+    it('installs the files package.json lists, as each pnpm does', async () => {
+      stubRegistry([await app])
+      const fields = { name: 'foo', version: '1.5.0', bin: { foo: 'cli.js' }, browser: { './index.js': './browser.js' }, files: ['/index.js', '/lib/', '!/lib/*.test.js'] }
+      const listed = { ...vendored, 'vendor/foo/package.json': JSON.stringify(fields), 'vendor/foo/lib/a.js': 'a', 'vendor/foo/lib/a.test.js': 't', 'vendor/foo/test/x.js': 'x', 'vendor/foo/README.md': 'r', 'vendor/foo/.gitignore': 'lib\n' }
+      const later = 'overrides:\n  foo: file:./vendor/foo\n'
+      for (const [host, manifest, workspace] of [[HOST_9, v10], [HOST, v10], [HOST_11, rootWith(), later], [HOST_12, rootWith(), later]]) {
+        const { vfs } = await buildPnpmTree({ lockfile: await copied(), manifests: { '.': manifest }, workspace, host, project: createVfs({ 'package.json': manifest, ...listed }) })
+        assert.deepEqual(vfs.readdir(FOO), ['README.md', 'cli.js', 'index.js', 'lib', 'package.json'], host.pnpm)
+        assert.deepEqual(vfs.readdir(`${FOO}/lib`), ['a.js'], host.pnpm)
+      }
+    })
+
     it('lists it by its directory, with no version or integrity, as the lockfile has none', async () => {
       stubRegistry([await app])
       const { installed } = await buildPnpmTree({ lockfile: await copied(), manifests: { '.': v10 }, host: HOST, ...both({ 'package.json': v10, ...vendored }) })
