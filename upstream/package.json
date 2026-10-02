@@ -42,6 +42,8 @@
     }
   },
   "files": [
+    "LICENSE-APACHE",
+    "LICENSE-MIT",
     "advisories.d.ts",
     "advisories.js",
     "cargo.d.ts",
@@ -91,7 +93,7 @@
   "scripts": {
     "test": "node --test ./tests/*.test.js"
   },
-  "license": "MIT",
+  "license": "MIT OR Apache-2.0",
   "author": {
     "name": "Nikita Skovoroda",
     "email": "chalkerx@gmail.com",

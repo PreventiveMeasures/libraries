@@ -3,7 +3,7 @@
   "private": true,
   "description": "Workspace root: the packages live one directory down, this file only drives them",
   "type": "module",
-  "license": "MIT",
+  "license": "MIT OR Apache-2.0",
   "author": {
     "name": "Nikita Skovoroda",
     "email": "chalkerx@gmail.com",

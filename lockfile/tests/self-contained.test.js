@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { sep } from 'node:path'
 import { describe, it } from 'node:test'
 
@@ -46,6 +46,10 @@ const files = [
 
 const manifest = JSON.parse(readFileSync(new URL('package.json', PKG_DIR), 'utf8'))
 
+// The license texts ship beside the modules. They are named in `files`
+// because npm, unlike pnpm, packs a LICENSE-MIT only when `files` says so.
+const LICENSES = new Set(['LICENSE-APACHE', 'LICENSE-MIT'])
+
 // Every way a module specifier can be written: static import/export-from,
 // dynamic import(), and CJS require(). A template literal is read only after
 // `import(` or `require(`, because prose quotes a module name in backticks.
@@ -68,7 +72,14 @@ describe('lockfile/ ships every module it has', () => {
     })
   }
 
-  for (const name of shipped) {
+  for (const name of LICENSES) {
+    it(`files includes ${name}`, () => {
+      assert.ok(shipped.has(name), `${name} is not in package.json files, so npm would publish without it`)
+      assert.ok(existsSync(new URL(name, PKG_DIR)), `${name} is in package.json files but not in the package`)
+    })
+  }
+
+  for (const name of shipped.difference(LICENSES)) {
     it(`${name} is a module it has`, () => {
       assert.ok(files.some((file) => file.href === new URL(name, PKG_DIR).href), `${name} is in package.json files but not in the package`)
     })
