@@ -1,7 +1,7 @@
 {
   "name": "@preventive/deptree",
   "version": "1.0.0-alpha.6",
-  "description": "A dependency tree in memory, as a package manager would install it: pnpm 9, 10, 11 or 12, yarn 1.22, or npm 10 or 11, from its lockfile, tarballs fetched and checked, patches applied; or Soldeer 0.12, its zips fetched, checked and extracted",
+  "description": "A dependency tree in memory, as a package manager would install it",
   "type": "module",
   "exports": {
     "./pnpm.js": {
