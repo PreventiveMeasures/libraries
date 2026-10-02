@@ -7,8 +7,6 @@ import { NPM } from './npm.js'
 import { CARGO, COMPOSER } from './osv.js'
 
 const ECOSYSTEMS = { npm: NPM, cargo: CARGO, composer: COMPOSER, soldeer: SOLDEER, github: GITHUB }
-// Their repository's published advisories are their only source.
-const ON_GITHUB = ['soldeer', 'github']
 const byNumbers = new Intl.Collator('en', { numeric: true }).compare
 const assertEcosystem = assertion(`one of ${Object.keys(ECOSYSTEMS).join(', ')}`, (value) => typeof value === 'string' && Object.hasOwn(ECOSYSTEMS, value))
 const assertVersions = assertion('a non-empty array', (value) => Array.isArray(value) && value.length > 0)
@@ -39,7 +37,7 @@ export async function advisories(packages, options = {}) {
   assertArgs('advisories', options, { github: optional(assertClient), repoAdvisories: optional(assertBoolean) })
   assert.ok(!options.repoAdvisories || options.github, 'advisories: repoAdvisories needs a github client')
   const byEcosystem = collect(packages)
-  for (const ecosystem of ON_GITHUB) assert.ok(!byEcosystem.has(ecosystem) || options.github, `advisories: ${ecosystem} packages need a github client`)
+  for (const ecosystem of byEcosystem.keys()) assert.ok(!ECOSYSTEMS[ecosystem].repositoryOnly || options.github, `advisories: ${ecosystem} packages need a github client`)
   const found = await Promise.all([...byEcosystem].map(async ([ecosystem, named]) => {
     const { compare = byNumbers, advisories: find } = ECOSYSTEMS[ecosystem]
     const names = [...named.keys()].toSorted()
