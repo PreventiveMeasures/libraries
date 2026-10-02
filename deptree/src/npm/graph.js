@@ -17,8 +17,8 @@ function parentOf(location, nodes) {
   return ''
 }
 
-// Where npm finds `name` from `from`, a link that leads to `dir`: in the
-// node_modules of each node up the tree.
+// The link npm finds `name` at from `from`, the first in the node_modules
+// of each node up the tree.
 function linkOf(from, name, nodes) {
   for (let location = from.location; ; location = nodes.get(location).parent) {
     const node = nodes.get(location === '' ? `node_modules/${name}` : `${location}/node_modules/${name}`)
@@ -26,10 +26,10 @@ function linkOf(from, name, nodes) {
   }
 }
 
-// The nodes by location, in the order Arborist's inventory has them: the
-// project's, then each of the lockfile in its order, then its links.
-// `manifests` are the project's package.json files, which npm reads for
-// the project and its workspaces in place of the lockfile's entries.
+// The nodes by location: the project's and its workspaces', then each
+// package in the lockfile's order, which npm checks them in, then the
+// links. `manifests` are the project's package.json files, which npm reads
+// for the project and its workspaces in place of the lockfile's entries.
 export function graphOf(lockfile, manifests) {
   const nodes = new Map()
   const add = (location, kind, pkg) => nodes.set(location, { location, kind, pkg, parent: undefined, edgesOut: [], edgesIn: [] })
