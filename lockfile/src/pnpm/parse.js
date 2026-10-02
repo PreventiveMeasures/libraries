@@ -15,7 +15,7 @@ import { fromHex } from '@exodus/bytes/hex.js'
 import { LockfileError, at, quote } from '../error.js'
 import { KINDS, reach } from '../graph.js'
 import { checkIntegrity, checkName, checkRelative } from '../names.js'
-import { boolean, count, entries, kind, orEmpty, record, string, text, textMap, texts } from '../shape.js'
+import { boolean, count, kind, mapping, orEmpty, record, string, text, textMap, texts } from '../shape.js'
 import { ENV_KINDS, readImporters } from './importers.js'
 import { readPackages } from './packages.js'
 
@@ -35,26 +35,18 @@ const SETTINGS = {
   peersSuffixMaxLength: count,
 }
 
-function readSettings(value, where) {
-  const settings = Object.create(null)
-  for (const [key, item, here] of entries(record(orEmpty(value), where, Object.keys(SETTINGS)), where)) settings[key] = SETTINGS[key](item, here)
-  return settings
-}
+const readSettings = (value, where) => mapping(record(orEmpty(value), where, Object.keys(SETTINGS)), where, (item, here, key) => SETTINGS[key](item, here))
 
 // Each catalog, `default` among them, maps a name to the specifier the
 // catalog gives it and the version that resolved to.
-function readCatalogs(value, where) {
-  const catalogs = Object.create(null)
-  for (const [catalog, names, here] of entries(orEmpty(value), where)) {
-    const entriesOf = Object.create(null)
-    for (const [name, item, there] of entries(names, here)) {
-      record(item, there, ['specifier', 'version'])
-      entriesOf[checkName(name, there)] = { specifier: string(item.specifier, at(there, 'specifier')), version: text(item.version, at(there, 'version')) }
-    }
-    catalogs[text(catalog, here)] = entriesOf
-  }
-  return catalogs
-}
+const readCatalogs = (value, where) => mapping(orEmpty(value), where, (names, here, catalog) => {
+  text(catalog, here)
+  return mapping(names, here, (item, there, name) => {
+    record(item, there, ['specifier', 'version'])
+    checkName(name, there)
+    return { specifier: string(item.specifier, at(there, 'specifier')), version: text(item.version, at(there, 'version')) }
+  })
+})
 
 // A bare hash as pnpm writes one: lowercase hex, or base32 unpadded, of so
 // many bytes. Either decoder takes either case, and refuses all else.
@@ -70,18 +62,15 @@ function isHash(hash, bytes, decode) {
 
 // pnpm 9 and 10 write a patch as its hash and the path of its file; pnpm 11
 // and later as the hash alone: an md5 in base32 from pnpm 9, a sha256 in hex.
-function readPatches(value, where) {
-  const patches = Object.create(null)
-  for (const [selector, item, here] of entries(orEmpty(value), where)) {
-    const full = typeof item !== 'string'
-    if (full) record(item, here, ['hash', 'path'])
-    const hashAt = full ? at(here, 'hash') : here
-    const hash = text(full ? item.hash : item, hashAt)
-    if (!isHash(hash, 32, fromHex) && !isHash(hash, 16, fromBase32Bare)) throw new LockfileError(`${quote(hash)} is not a patch hash`, hashAt)
-    patches[text(selector, here)] = { hash, path: full ? checkRelative(item.path, at(here, 'path')) : undefined }
-  }
-  return patches
-}
+const readPatches = (value, where) => mapping(orEmpty(value), where, (item, here, selector) => {
+  const full = typeof item !== 'string'
+  if (full) record(item, here, ['hash', 'path'])
+  const hashAt = full ? at(here, 'hash') : here
+  const hash = text(full ? item.hash : item, hashAt)
+  if (!isHash(hash, 32, fromHex) && !isHash(hash, 16, fromBase32Bare)) throw new LockfileError(`${quote(hash)} is not a patch hash`, hashAt)
+  text(selector, here)
+  return { hash, path: full ? checkRelative(item.path, at(here, 'path')) : undefined }
+})
 
 // A digest of what rewrote the manifests pnpm resolved from: pnpm 9 writes
 // an md5 bare, in hex or base32, and pnpm 10 and later a sha256 integrity.
@@ -99,19 +88,15 @@ function readChecksum(value, where) {
 // is refused rather than read as another.
 const TIMESTAMP = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/u
 
-function readTime(value, where, packages) {
-  const time = Object.create(null)
-  for (const [key, item, here] of entries(orEmpty(value), where)) {
-    if (!(key in packages)) throw new LockfileError(`${quote(key)} is not in packages`, here)
-    const stamp = text(item, here)
-    const ms = TIMESTAMP.test(stamp) ? Date.parse(stamp) : Number.NaN
-    if (Number.isNaN(ms) || new Date(ms).toISOString().slice(0, 19) !== stamp.slice(0, 19)) {
-      throw new LockfileError(`${quote(stamp)} is not a UTC timestamp`, here)
-    }
-    time[key] = stamp
+const readTime = (value, where, packages) => mapping(orEmpty(value), where, (item, here, key) => {
+  if (!(key in packages)) throw new LockfileError(`${quote(key)} is not in packages`, here)
+  const stamp = text(item, here)
+  const ms = TIMESTAMP.test(stamp) ? Date.parse(stamp) : Number.NaN
+  if (Number.isNaN(ms) || new Date(ms).toISOString().slice(0, 19) !== stamp.slice(0, 19)) {
+    throw new LockfileError(`${quote(stamp)} is not a UTC timestamp`, here)
   }
-  return time
-}
+  return stamp
+})
 
 // Every snapshot is reached from an importer, as pnpm prunes the rest: one
 // that is not would be listed as installed when nothing installs it.

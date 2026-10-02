@@ -5,25 +5,22 @@
 // and a package with a shrinkwrap of its own are refused.
 
 import { LockfileError, quote } from '../error.js'
-import { checkOptions, kind, record, text } from '../shape.js'
+import { checkOptions, checkSemver, flag, kind, record, refuse, text } from '../shape.js'
 import { checkBundles } from './bundles.js'
+import { FLAGS } from './entries.js'
 import { checkFlags } from './flags.js'
 import { readJson } from './json.js'
-import { loadGraph, readNodes, readWorkspaces } from './tree.js'
+import { directoryOf, loadGraph, readNodes, readWorkspaces } from './tree.js'
 import { checkEdges } from './valid.js'
 
 const OPTIONS = ['checkVersions', 'semver', 'legacyPeerDeps']
 const SEMVER = ['satisfies', 'valid', 'validRange']
-const FIELDS = ['name', 'version', 'lockfileVersion', 'requires', 'packages']
+const FIELDS = ['name', 'version', 'lockfileVersion', 'requires', 'packages', ...FLAGS]
 
 function readOptions(options) {
-  const { checkVersions = true, semver, legacyPeerDeps = false } = checkOptions(options, OPTIONS)
-  if (typeof checkVersions !== 'boolean') throw new TypeError('checkVersions: expected a boolean')
+  const { semver, legacyPeerDeps = false } = checkOptions(options, OPTIONS)
+  const checkVersions = checkSemver(options, SEMVER)
   if (typeof legacyPeerDeps !== 'boolean') throw new TypeError('legacyPeerDeps: expected a boolean')
-  if (semver !== undefined && !SEMVER.every((name) => typeof semver?.[name] === 'function')) {
-    throw new TypeError(`semver: expected the semver package, with ${SEMVER.join(', ')}`)
-  }
-  if (checkVersions && semver === undefined) throw new TypeError('checkVersions needs semver: pass it as semver, or set checkVersions to false')
   return { semver: checkVersions ? semver : undefined, legacyPeerDeps }
 }
 
@@ -32,23 +29,26 @@ function readOptions(options) {
 function readVersion(doc) {
   if (record(doc, undefined).lockfileVersion !== 3) throw new LockfileError(`unsupported version: expected 3, found ${kind(doc.lockfileVersion)}`, 'lockfileVersion')
   record(doc, undefined, FIELDS)
-  if (doc.requires !== true) throw new LockfileError(`expected true, found ${kind(doc.requires)}`, 'requires')
+  if (doc.requires !== true) throw refuse('true', doc.requires, 'requires')
 }
 
-// The name and version npm writes above the packages are the project's: its
-// directory's name where its package.json has none.
+// The name, version and flags npm writes above the packages are the
+// project's: its directory's name where its package.json has none, and the
+// flags a link to it gives it in npm 11.7 to 11.17.
 function readHeader(doc, root) {
   const name = text(doc.name, 'name')
   if (root.name !== undefined && root.name !== name) throw new LockfileError(`expected the project's, ${quote(root.name)}`, 'name')
   if (doc.version !== root.version) {
     throw new LockfileError(root.version === undefined ? 'a version, where the project has none' : `expected the project's, ${quote(root.version)}`, 'version')
   }
+  const other = FLAGS.find((key) => flag(doc[key], key) !== root.flags[key])
+  if (other !== undefined) throw new LockfileError(`expected ${root.flags[other] ? 'true' : 'none'}, as the project's in packages`, other)
   return { name, version: root.version }
 }
 
 // A Target: a location in `packages`, or `link:` and the directory of an
 // importer.
-const targetOf = (node) => (node.kind === 'link' ? `link:${node.target.location}` : node.location)
+const targetOf = (node) => (node.kind === 'link' ? `link:${directoryOf(node.target)}` : node.location)
 
 function edgesOf(node) {
   const edges = Object.create(null)
@@ -87,21 +87,21 @@ export function parseNpmLockfile(source, options = {}) {
   readVersion(doc)
   const nodes = readNodes(doc.packages)
   const root = nodes.get('')
-  const header = readHeader(doc, root)
   const workspaces = readWorkspaces(nodes)
   loadGraph(nodes, workspaces, legacyPeerDeps)
   checkEdges(nodes, semver)
   checkFlags(nodes)
   checkBundles(nodes)
+  const header = readHeader(doc, root)
   const workspaceOf = new Set(workspaces.values())
   const importers = Object.create(null)
   const packages = Object.create(null)
   const links = Object.create(null)
   // The project first, which the lockfile may leave out.
   for (const node of new Set([root, ...nodes.values()])) {
-    if (node.kind === 'link') links[node.location] = node.target.location
+    if (node.kind === 'link') links[node.location] = directoryOf(node.target)
     else if (node.kind === 'package') packages[node.location] = { ...manifestOf(node), resolution: node.resolution, inBundle: node.inBundle }
-    else importers[node.location || '.'] = { ...manifestOf(node), workspace: workspaceOf.has(node), workspaces: node.workspaces ?? [] }
+    else importers[directoryOf(node)] = { ...manifestOf(node), workspace: workspaceOf.has(node), workspaces: node.workspaces ?? [] }
   }
   return { lockfileVersion: 3, ...header, importers, packages, links }
 }

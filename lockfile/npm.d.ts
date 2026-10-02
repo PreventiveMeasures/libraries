@@ -117,7 +117,9 @@ export interface NpmManifest {
   peer: boolean
 }
 
-export type NpmFunding = string | Record<string, string>
+// A URL, or a source's type and URL. Whatever else a package.json says of
+// a source, npm passes over, and so does this.
+export type NpmFunding = string | { type: string | undefined, url: string | undefined }
 
 export interface NpmImporter extends Omit<NpmManifest, 'name'> {
   // The project's may have none; any other's is its folder's where npm

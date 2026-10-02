@@ -73,6 +73,10 @@ export function joinRelative(base, path) {
   return segments.length === 0 ? '.' : segments.join('/')
 }
 
+// A path as a package manager reads one from `base`: no empty or `.`
+// segment, its `..` resolved.
+export const resolvePath = (base, path) => joinRelative(base, path.split('/').filter((segment) => segment !== '' && segment !== '.').join('/') || '.')
+
 // `path`, relative to what `base` is relative to, as a path from `base`;
 // neither leaves the directory they are relative to.
 export function relativeTo(base, path) {
@@ -126,4 +130,27 @@ export function checkIntegrity(value, where) {
   return value
 }
 
+// Subresource integrity of one hash or more, a space apart, as npm and yarn
+// write it, of no algorithm twice: each hash by its algorithm.
+export function readIntegrities(value, where) {
+  const hashes = new Map()
+  for (const part of text(value, where).split(' ')) {
+    const algorithm = checkIntegrity(part, where).slice(0, part.indexOf('-'))
+    if (hashes.has(algorithm)) throw new LockfileError(`two ${algorithm} integrities`, where)
+    hashes.set(algorithm, part)
+  }
+  return hashes
+}
+
 export const isHttpUrl = (value) => /^https?:\/\//u.test(value) && URL.canParse(value)
+
+// npm's registry, and yarn's mirror of it, keep a package's tarball under
+// its name, a scope's `/` once written `%2f`, and named after its version.
+const REGISTRIES = new Set(['registry.npmjs.org', 'registry.yarnpkg.com'])
+
+export function checkRegistryTarball(tarball, name, version, where) {
+  const url = new URL(tarball)
+  if (REGISTRIES.has(url.hostname) && url.pathname.replace(/^(\/@[^/]+)%2f/iu, '$1/') !== `/${name}/-/${name.slice(name.indexOf('/') + 1)}-${version}.tgz`) {
+    throw new LockfileError(`${quote(tarball)} is not the registry's tarball of ${name}@${version}`, where)
+  }
+}

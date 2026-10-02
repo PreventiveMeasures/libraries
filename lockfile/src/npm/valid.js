@@ -12,7 +12,7 @@ import { LockfileError, quote } from '../error.js'
 import { joinRelative } from '../names.js'
 import { sshOf } from './hosted.js'
 import { readResolved, readSpec } from './spec.js'
-import { edgeAt, packageOf } from './tree.js'
+import { directoryOf, edgeAt, packageOf } from './tree.js'
 
 const COMMIT = /^[\dA-Fa-f]{40,64}$/u
 
@@ -20,8 +20,7 @@ const COMMIT = /^[\dA-Fa-f]{40,64}$/u
 // directory, any other node from its own.
 function fromPath(node) {
   const tarball = node.resolution?.tarball
-  if (tarball?.startsWith('file:')) return joinRelative(tarball.slice(5), '..')
-  return node.location === '' ? '.' : node.location
+  return tarball?.startsWith('file:') ? joinRelative(tarball.slice(5), '..') : directoryOf(node)
 }
 
 const describe = (node) => quote(node.location)
@@ -72,8 +71,8 @@ function whyNot(child, edge, spec, semver) {
     case 'alias':
       return registryValid(child, requested.sub, semver, true)
     case 'directory':
-      if (child.kind === 'link' && child.target.location === requested.path) return undefined
-      return `asks for a link to ${quote(requested.path)}, and ${describe(child)} is ${child.kind === 'link' ? `one to ${quote(child.target.location)}` : 'no link'}`
+      if (child.kind === 'link' && directoryOf(child.target) === requested.path) return undefined
+      return `asks for a link to ${quote(requested.path)}, and ${describe(child)} is ${child.kind === 'link' ? `one to ${quote(directoryOf(child.target))}` : 'no link'}`
     case 'file':
     case 'remote': {
       const tarball = requested.type === 'file' ? `file:${requested.path}` : requested.url
@@ -110,18 +109,13 @@ function check(edge, semver) {
 // What npm's Edge#valid and buildIdealTree's problem edges are, from the
 // project.
 export function checkEdges(nodes, semver) {
-  const root = nodes.get('')
-  const seen = new Set([root])
-  const queue = [root]
-  while (queue.length > 0) {
-    const node = queue.pop()
+  const reached = new Set([nodes.get('')])
+  for (const node of reached) {
     const bundled = new Set(node.kind === 'package' ? node.bundleDependencies : [])
     for (const edge of node.edges.values()) {
       if (!bundled.has(edge.name)) check(edge, semver)
       const next = edge.to === undefined ? undefined : packageOf(edge.to)
-      if (next === undefined || seen.has(next) || next.location.startsWith('../')) continue
-      seen.add(next)
-      queue.push(next)
+      if (next !== undefined && !next.location.startsWith('../')) reached.add(next)
     }
   }
 }

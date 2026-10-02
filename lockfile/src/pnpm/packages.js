@@ -7,7 +7,7 @@
 import { LockfileError, at, quote } from '../error.js'
 import { checkOptional } from '../graph.js'
 import { checkName, checkRelative, checkVersion, isVersion, joinRelative } from '../names.js'
-import { entries, field, flag, orEmpty, record, text, textMap, texts } from '../shape.js'
+import { entries, field, flag, mapping, orEmpty, record, text, textMap, texts } from '../shape.js'
 import { refToKey, splitPackageKey, splitSnapshotKey } from './key.js'
 import { readResolution } from './resolution.js'
 
@@ -55,7 +55,7 @@ function readVersion(ref, entry, resolution, where) {
   return checkVersion(entry.version, at(where, 'version'))
 }
 
-const names = (value, where) => texts(value, where).map((name, index) => checkName(name, `${where}[${index}]`))
+const names = (value, where) => texts(value, where, checkName)
 
 function readInfo(key, entry, where) {
   record(entry, where, INFO)
@@ -79,14 +79,11 @@ function readInfo(key, entry, where) {
   }
 }
 
-function readPeersMeta(value, where) {
-  const meta = Object.create(null)
-  for (const [name, item, here] of entries(orEmpty(value), where)) {
-    record(item, here, ['optional'])
-    meta[checkName(name, here)] = { optional: flag(item.optional, at(here, 'optional')) }
-  }
-  return meta
-}
+const readPeersMeta = (value, where) => mapping(orEmpty(value), where, (item, here, name) => {
+  record(item, here, ['optional'])
+  checkName(name, here)
+  return { optional: flag(item.optional, at(here, 'optional')) }
+})
 
 // What a dependency's reference leads to: the key of a snapshot, or
 // `link:` and a directory linked in place, which the lockfile does not
@@ -106,15 +103,11 @@ export function target(ref, alias, base, snapshots, where) {
 // for, as `link:<root>/` and the path in it; that is refused, as no
 // directory from the lockfile's names it. An importer's `link:<root>/` is
 // a directory named `<root>`, as pnpm writes one for `link:./<root>/`.
-function readTargets(value, where, snapshots) {
-  const targets = Object.create(null)
-  for (const [alias, ref, here] of entries(orEmpty(value), where)) {
-    const read = text(ref, here)
-    if (read === 'link:<root>' || read.startsWith('link:<root>/')) throw new LockfileError(`${quote(read)} leads into the package that asks for it, which is not supported`, here)
-    targets[checkName(alias, here)] = target(read, alias, '.', snapshots, here)
-  }
-  return targets
-}
+const readTargets = (value, where, snapshots) => mapping(orEmpty(value), where, (ref, here, alias) => {
+  const read = text(ref, here)
+  if (read === 'link:<root>' || read.startsWith('link:<root>/')) throw new LockfileError(`${quote(read)} leads into the package that asks for it, which is not supported`, here)
+  return target(read, checkName(alias, here), '.', snapshots, here)
+})
 
 function readSnapshot(entry, where, snapshots) {
   record(entry, where, SNAPSHOT)
