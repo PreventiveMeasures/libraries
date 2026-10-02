@@ -108,6 +108,7 @@ function dumped(array $entry): string
 
 $kinds = [
     'version' => fn () => Composer\Composer::VERSION,
+    'php' => fn () => PHP_VERSION_ID,
     'normalize' => fn ($text) => $parser->normalize($text),
     'constraints' => fn ($text) => (string) $parser->parseConstraints($text),
     'matches' => fn ($a, $b) => $parser->parseConstraints($a)->matches($parser->parseConstraints($b)),

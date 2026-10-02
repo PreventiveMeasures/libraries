@@ -93,12 +93,19 @@ describe('against Composer', { skip: !hasComposer() && 'no php, or no Composer p
     for (const [index, [a, version]] of allowed.entries()) assert.equal(allows(parseConstraints(a), version), results[pairs.length + index].value, JSON.stringify([a, version]))
   })
 
+  // PHP before 8.4 keeps a separator at the end of a version as an empty
+  // part, which the port drops, as 8.4 and later do: a pair with one is
+  // compared there alone.
   it('version_compare alike', () => {
+    const before84 = composer([['php']])[0].value < 80400
     const words = ['1', '2', '10', '0', '00', '99999999999999999999', '.', '..', '-', '_', '+', 'a', 'b', 'alpha', 'beta', 'RC', 'rc', 'dev', 'pl', 'p', 'patch', '#', 'x', 'stable', ' ', '#N#', 'é']
     const word = () => Array.from({ length: Math.floor(generator.next() * 6) }, () => generator.pick(words)).join('')
     const pairs = Array.from({ length: 4000 }, () => [word(), generator.next() < 0.3 ? generator.pick(versions) : word()])
     const results = composer(pairs.map(([a, b]) => ['compare', a, b]))
-    for (const [index, [a, b]] of pairs.entries()) assert.equal(compareVersions(a, b), results[index].value, JSON.stringify([a, b]))
+    for (const [index, [a, b]] of pairs.entries()) {
+      if (before84 && [a, b].some((text) => /[^A-Za-z\d]$/u.test(text))) continue
+      assert.equal(compareVersions(a, b), results[index].value, JSON.stringify([a, b]))
+    }
   })
 
   it('sort and ksort order strings and keys alike', () => {

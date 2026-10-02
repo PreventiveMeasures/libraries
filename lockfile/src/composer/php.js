@@ -18,7 +18,9 @@ const isAlnum = (char) => isDigit(char) || /^[A-Za-z]$/u.test(char ?? '')
 
 // version_compare's canonical form: `-`, `_` and `+` as `.`, a `.` between
 // a run of digits and one of anything else, and any other character that is
-// not a letter or a digit as a `.`, none twice. The first is left as it is.
+// not a letter or a digit as a `.`, none twice. The first is left as it is,
+// and a `.` at the end dropped, as PHP 8.4 and later drop it: before, it
+// was an empty part, which no version Composer compares ends in.
 function canonical(version) {
   let out = version[0]
   for (let i = 1; i < version.length; i++) {
@@ -30,7 +32,7 @@ function canonical(version) {
     else if (isAlnum(char)) out += char
     else out += dot
   }
-  return out
+  return out.endsWith('.') ? out.slice(0, -1) : out
 }
 
 // The forms version_compare knows a word by, by what it starts with.
