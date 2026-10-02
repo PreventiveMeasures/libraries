@@ -283,6 +283,15 @@ dev = [{ name = "b", git = "https://github.com/o/b?tag=v2" }]
     assert.equal(lock.manifest.dependencyGroups.dev[0].source.commit, undefined)
   })
 
+  it('conflicts of whole packages, as uv writes for workspace members, and none of no package', () => {
+    const conflicts = (sets) => edit(['requires-python = ">=3.11"\n', `requires-python = ">=3.11"\nconflicts = ${sets}\n`])
+    const lock = parseUvLock(conflicts('[[{ package = "a" }, { package = "b" }]]'))
+    assert.deepEqual(structuredClone(lock.conflicts), [[{ package: 'a', extra: undefined, group: undefined }, { package: 'b', extra: undefined, group: undefined }]])
+    refuses(conflicts('[[{ extra = "x" }, { package = "b" }]]'), 'expected a string, found nothing', 'conflicts[0][0].package')
+    refuses(conflicts('[[{ package = "a", extra = "x", group = "y" }, { package = "b" }]]'), 'an extra and a group, of which uv takes one', 'conflicts[0][0]')
+    refuses(conflicts('[[{ package = "a" }]]'), 'a set of conflicts of fewer than two, which uv refuses', 'conflicts[0]')
+  })
+
   it('refuses an option it does not know, or a value uv does not write', () => {
     refuses(edit(['requires-python = ">=3.11"\n', 'requires-python = ">=3.11"\n\n[options]\nresolution-mode = "newest"\n']), 'expected one of highest, lowest, lowest-direct', 'options["resolution-mode"]')
     refuses(edit(['requires-python = ">=3.11"\n', 'requires-python = ">=3.11"\n\n[options]\nexclude-newer-span = "3 weeks"\n']), '"3 weeks" is not an ISO 8601 duration', 'options["exclude-newer-span"]')

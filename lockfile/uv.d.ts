@@ -48,6 +48,8 @@ export interface UvLockfile {
   packages: Record<string, UvPackage>
 }
 
+// Neither an extra nor a group is the package as a whole: uv 0.12 writes
+// that, as a preview, for workspace members that conflict.
 export interface UvConflictItem {
   package: string
   extra: string | undefined

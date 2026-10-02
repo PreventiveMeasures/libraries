@@ -14,7 +14,8 @@ import { checkPath, checkUrl, readGit } from './source.js'
 
 export const names = (value, where) => strings(value, where).map((name, index) => checkNormalName(name, `${where}[${index}]`))
 
-// One package, or its extra or its group.
+// One package as a whole, by `package` alone, as uv writes for workspace
+// members that conflict, or its extra or its group.
 export function readConflictItem(value, where) {
   table(value, where, ['package', 'extra', 'group'])
   if (value.extra !== undefined && value.group !== undefined) throw new LockfileError('an extra and a group, of which uv takes one', where)
