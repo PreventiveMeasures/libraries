@@ -120,6 +120,7 @@
     "src/composer/php.js",
     "src/composer/pool.js",
     "src/composer/root.js",
+    "src/composer/schema.js",
     "src/composer/semver.js",
     "src/crate/cargo-platform.js",
     "src/crate/sanitize-filename.js",

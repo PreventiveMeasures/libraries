@@ -35,8 +35,12 @@ export interface ComposerOptions {
   // requires, conflicts with, provides and replaces, which Composer holds
   // the lockfile to. A version it does not give, Composer guesses from git;
   // here, any meets a constraint on it. Its content-hash is compared, as
-  // `fresh`. Throws a LockfileError for one Composer refuses to load, of
-  // `where` composerJson.
+  // `fresh`. Throws a LockfileError, of `where` composerJson, for one
+  // Composer refuses to load by what is read or hashed of it here, as
+  // Composer 2.10's schema and its loader take it; of a package
+  // repository's package, only its name and version are checked, and
+  // what is not hashed, `autoload`, `scripts`, `config` but its platform,
+  // is not read.
   composerJson?: string
 }
 

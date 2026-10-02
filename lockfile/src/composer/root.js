@@ -1,10 +1,11 @@
 // composer.json, of what `composer install` reads of it beside the
-// lockfile: the content-hash Locker::isFresh holds the lockfile to, and
-// the root package as RootPackageLoader loads it, its name, the version it
-// gives, if any, which Composer otherwise guesses from git, and its links.
-// The root installs nothing, but what it provides and replaces meets a
-// requirement, and what it conflicts with, requires and replaces is held
-// to the lockfile.
+// lockfile, once held to Composer's schema as schema.js has it: the
+// content-hash Locker::isFresh holds the lockfile to, and the root package
+// as RootPackageLoader loads it, its name, the version it gives, if any,
+// which Composer otherwise guesses from git, and its links. The root
+// installs nothing, but what it provides and replaces meets a requirement,
+// and what it conflicts with, requires and replaces is held to the
+// lockfile.
 
 import { LockfileError, at, quote } from '../error.js'
 import { refuse, string } from '../shape.js'
@@ -12,6 +13,7 @@ import { decodeJson, encodeJson } from './json.js'
 import { md5 } from './md5.js'
 import { LINKS, checkName, plain, readVersion } from './package.js'
 import { compareKeys, lower } from './php.js'
+import { checkSchema } from './schema.js'
 import { normalize, parseConstraints } from './semver.js'
 
 export const WHERE = 'composerJson'
@@ -65,16 +67,14 @@ export const contentHashOf = (text) => contentHash(decode(text))
 
 export function readComposerJson(text) {
   const config = decode(text)
+  checkSchema(config, WHERE)
   let name = '__root__'
   if (config.has('name')) {
     name = checkName(config.get('name'), at(WHERE, 'name'))
     if (lower(name) !== name) throw new LockfileError(`${quote(name)} has capitals, which Composer refuses of the root`, at(WHERE, 'name'))
   }
-  let version
-  if (config.has('version')) {
-    const pretty = string(config.get('version'), at(WHERE, 'version'))
-    version = { pretty, normalized: readVersion(pretty, at(WHERE, 'version')) }
-  }
+  const pretty = config.get('version')
+  const version = pretty === undefined ? undefined : { pretty, normalized: readVersion(pretty, at(WHERE, 'version')) }
   const links = Object.create(null)
   for (const [field, key] of Object.entries(LINKS)) links[field] = readLinks(config, key, name, version)
   return { contentHash: contentHash(config), name, version: version?.normalized, links }

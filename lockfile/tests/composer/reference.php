@@ -140,6 +140,17 @@ $kinds = [
     // composer.json as Composer decodes it and hashes it.
     'decode' => fn ($text) => json_encode(JsonFile::parseJson($text)),
     'hash' => fn ($text) => Composer\Package\Locker::getContentHash($text),
+    // composer.json as Factory holds it to before it loads it, by its
+    // schema, and its version as the root's loader normalizes it.
+    'schema' => function ($text) use ($parser) {
+        $data = json_decode($text, false, 512, JSON_THROW_ON_ERROR);
+        JsonFile::validateJsonSchema('composer.json', $data, JsonFile::LAX_SCHEMA);
+        if (isset($data->version)) {
+            $parser->normalize($data->version);
+        }
+
+        return true;
+    },
     'package' => function ($text) {
         $entry = json_decode($text, true, 512, JSON_THROW_ON_ERROR);
 

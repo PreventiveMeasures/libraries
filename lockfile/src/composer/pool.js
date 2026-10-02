@@ -131,17 +131,14 @@ function checkNames(bases) {
   }
 }
 
-// Of each package, or of an alias where `self.version` makes its own. A
-// requirement of a name nothing in the lockfile has, of `everything`, the
-// root may provide or replace: where composer.json is not given, `lenient`,
-// it is let be.
-function checkRequires(entries, pool, mode, everything, lenient) {
+// Of each package, or of an alias where `self.version` makes its own; what
+// else of the name the lockfile has, of `everything`, is told.
+function checkRequires(entries, pool, mode, everything) {
   for (const entry of entries) {
     if (entry.alias !== undefined && !entry.selfVersionRequires) continue
     for (const link of entry.links.require) {
       if (isPlatform(link.target) || whatProvides(pool, link).length > 0) continue
       const others = named(everything, link.target).filter((other) => !other.root)
-      if (lenient && others.length === 0) continue
       const asked = entry.alias === undefined ? '' : `, as its alias ${entry.pretty} asks for ${link.target} at it`
       const has = others.length === 0 ? '' : `, of ${others.map(describe).join(', ')}, which the lockfile has`
       throw new LockfileError(`nothing ${mode} meets it${asked}${has}`, at(at(entry.where, 'require'), link.target))
@@ -215,10 +212,12 @@ export function resolve(items, aliases, minimumStability, stabilityFlags, root) 
   const nonDev = entries.filter((entry) => !isDev(entry))
   const production = poolOf([...rooted, ...nonDev])
   const all = poolOf([...rooted, ...entries])
-  checkRequires(nonDev, production, 'that composer install --no-dev installs', all, root === undefined)
-  checkRequires(entries.filter(isDev), all, 'in the lockfile', all, root === undefined)
   checkConflicts(all)
+  // Without composer.json, a requirement nothing meets the root may
+  // provide, or replace, and is let be.
   if (root !== undefined) {
+    checkRequires(nonDev, production, 'that composer install --no-dev installs', all)
+    checkRequires(entries.filter(isDev), all, 'in the lockfile', all)
     checkRoot(rooted[0], production, 'require')
     checkRoot(rooted[0], all, 'requireDev')
   }

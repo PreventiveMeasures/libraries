@@ -3,7 +3,7 @@ import { describe, it } from 'node:test'
 import { parseComposerLock } from '../../composer.js'
 import { decodeJson, encodeJson, phpFloat, readJson } from '../../src/composer/json.js'
 import { compareKeys, compareStrings, compareVersions } from '../../src/composer/php.js'
-import { contentHashOf } from '../../src/composer/root.js'
+import { contentHashOf, readComposerJson } from '../../src/composer/root.js'
 import { allows, constraintString, matches, normalize, normalizeBranch, parseConstraints, parseNumericAliasPrefix, parseStability } from '../../src/composer/semver.js'
 import { random } from '../random.js'
 import { fixture } from './fixtures.js'
@@ -166,6 +166,70 @@ describe('against Composer', { skip: !hasComposer() && 'no php, or no Composer p
       assert.equal(encoded, decoded, JSON.stringify(text))
       if (encoded !== undefined && hash !== undefined) assert.equal(contentHashOf(text), hash, JSON.stringify(text))
     }
+  })
+
+  // The fields of the fixture's composer.json held to the schema here,
+  // each set to a value of another shape, or taken out, its repositories
+  // made a map, named or not: refused alike. A package repository's
+  // package is set no field but its name and version.
+  it('composer.json: refused alike by Composer 2.10\'s schema', { skip: compareVersions(VERSION, '2.10.0') < 0 && `Composer ${VERSION}, of another schema` }, () => {
+    const PATHS = [
+      ['version'], ['minimum-stability'], ['prefer-stable'], ['extra'], ['config'], ['config', 'platform'], ['config', 'platform', 'php'], ['config', 'platform', 'ext-x'], ['repositories'],
+      ...[0, 1, 2, 3].flatMap((index) => [[index], ...['type', 'url', 'name', 'canonical', 'only', 'exclude', 'options', 'filter', 'no-api', 'trunk-path', 'package', 'vendor-alias', 'depot', 'x'].map((key) => [index, key])]),
+      ...['reference', 'symlink', 'relative', 'versions', 'x'].map((key) => [0, 'options', key]), [0, 'filter', 'x'], [2, 'package', 'name'], [2, 'package', 'version'], [2, 'package', 0],
+    ]
+    const VALUES = [
+      'stable', 'RC', 'Stable', 'dev', 'composer', 'vcs', 'git', 'forgejo', 'path', 'package', 'artifact', 'pear', 'nope', 'none', 'auto', 'https://example.com', '', '1.0.0', 'v2.0-beta1', '1.x-dev', 'master', 'dev-main', 'dev-x as 1.0', '1.0@beta', '1.0.0-foo',
+      true, false, null, 3, 1.5, [], {}, ['a'], [1], { a: true }, { a: 1 }, { name: 'a/b', version: '1.0' }, [{ name: 'a/b', version: '1.0' }], [{ name: 'a/b' }], { type: 'path', url: 'x' }, { 'packagist.org': false },
+    ]
+    const BASE = JSON.parse(fixture('composer-2.10.3.json'))
+    const edit = (doc) => {
+      const path = generator.pick(PATHS)
+      const where = typeof path[0] === 'number' ? ['repositories', ...path] : path
+      let holder = doc
+      for (const key of where.slice(0, -1)) {
+        if (typeof holder !== 'object' || holder === null) return 'none'
+        holder = holder[key] ??= {}
+      }
+      if (typeof holder !== 'object' || holder === null) return 'none'
+      const key = where.at(-1)
+      if (generator.next() < 0.2) {
+        if (Array.isArray(holder) && typeof key === 'number') holder.splice(key, 1)
+        else delete holder[key]
+        return `${where.join('.')} taken out`
+      }
+      holder[key] = structuredClone(generator.pick(VALUES))
+      return `${where.join('.')} = ${JSON.stringify(holder[key])}`
+    }
+    const docs = Array.from({ length: 1500 }, () => {
+      const doc = structuredClone(BASE)
+      const what = Array.from({ length: 1 + Math.floor(generator.next() * 2) }, () => edit(doc))
+      if (generator.next() < 0.15 && Array.isArray(doc.repositories)) {
+        const named = generator.next() < 0.5
+        doc.repositories = Object.fromEntries([...doc.repositories.entries()].map(([index, repository]) => [`r${index}`, named && typeof repository === 'object' && repository !== null ? { ...repository, name: `r${index}` } : repository]))
+        what.push(`repositories by name${named ? ', each named' : ''}`)
+      }
+      return { what, text: JSON.stringify(doc) }
+    })
+    // And what the edits above come to but seldom.
+    const path = (options) => ({ repositories: [{ type: 'path', url: 'x', options }] })
+    for (const doc of [path({ symlink: null }), path({ symlink: 'x' }), path({ reference: 'auto', versions: { 'a/b': '1.0' } }), path({ versions: { 'a/b': 1 } }), { repositories: { x: { type: 'git', url: 'x' }, y: false } }, { repositories: [{ a: false, b: false }] }]) {
+      docs.push({ what: [JSON.stringify(doc)], text: JSON.stringify(doc) })
+    }
+    const results = composer(docs.map(({ text }) => ['schema', text]))
+    const tally = { both: 0, neither: 0 }
+    for (const [index, { what, text }] of docs.entries()) {
+      let refusal
+      try {
+        readComposerJson(text)
+      } catch (error) {
+        assert.equal(error.name, 'LockfileError', error.stack)
+        refusal = error.message
+      }
+      assert.equal(refusal === undefined, results[index].value === true, `${what.join('; ')}: ${refusal ?? 'read'}; Composer: ${JSON.stringify(results[index])}`)
+      tally[refusal === undefined ? 'both' : 'neither']++
+    }
+    assert.ok(tally.both > 300 && tally.neither > 300, JSON.stringify(tally))
   })
 
   describe('the fixture, edited', { skip: compareVersions(VERSION, '2.7.0') < 0 && `Composer ${VERSION}, which writes no php-ext` }, () => {

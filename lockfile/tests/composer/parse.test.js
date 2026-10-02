@@ -326,10 +326,13 @@ describe('the packages together', () => {
     assert.deepEqual(none.packages['b/lib'].aliases.map((alias) => alias.version), ['9999999-dev', '2.0.1'])
   })
 
-  it('without composer.json, lets be a requirement of a name nothing in the lockfile has', () => {
-    const lock = parseComposerLock(edit((doc) => link(doc.packages[0], 'require', 'z/root-provides', '^1.0')))
-    assert.deepEqual(lock.packages['a/app'].require['z/root-provides'].targets, [])
-    refuses(edit((doc) => link(doc.packages[0], 'require', 'c/new', '^4.0')), 'nothing that composer install --no-dev installs meets it, of c/new v3.1.0, which the lockfile has', 'packages[0].require["c/new"]')
+  it('without composer.json, lets be a requirement nothing in the lockfile meets, as the root may provide it', () => {
+    const lock = parseComposerLock(edit((doc) => {
+      link(doc.packages[0], 'require', 'z/root-provides', '^1.0')
+      link(doc.packages[0], 'require', 'c/new', '^4.0')
+      link(doc.packages[0], 'require', 'd/tool', '*')
+    }))
+    assert.deepEqual(['z/root-provides', 'c/new', 'd/tool'].map((name) => lock.packages['a/app'].require[name].targets), [[], [], []])
   })
 })
 
@@ -363,7 +366,6 @@ describe('with composer.json', () => {
 
   it('refuses a requirement of packages only packages-dev meets', () => {
     refuses(edit((doc) => link(doc.packages[0], 'require', 'd/tool', '*')), 'nothing that composer install --no-dev installs meets it, of d/tool 1.5.0-beta1, which the lockfile has', 'packages[0].require["d/tool"]', { composerJson: JSON_ })
-    refuses(edit((doc) => link(doc.packages[0], 'require', 'd/tool', '*')), 'nothing that composer install --no-dev installs meets it, of d/tool 1.5.0-beta1, which the lockfile has', 'packages[0].require["d/tool"]')
   })
 
   it('refuses a conflict with the root, or what the root replaces in the lockfile', () => {
@@ -382,6 +384,24 @@ describe('with composer.json', () => {
     refuses(encode(BASE), 'expected a string, found the bigint 3', 'composerJson.conflict["a/b"]', { composerJson: '{"conflict": {"a/b": 3}}' })
     refuses(encode(BASE), 'expected a string, found null', 'composerJson.name', { composerJson: '{"name": null}' })
     refuses(encode(BASE), 'expected a string, found the bigint 1', 'composerJson.version', { composerJson: '{"version": 1}' })
+  })
+
+  it('holds what is hashed of composer.json to Composer 2.10\'s schema', () => {
+    const json = (value) => ({ composerJson: JSON.stringify(value) })
+    const repository = (value) => json({ repositories: [value] })
+    refuses(encode(BASE), '"master" is not as Composer\'s schema has it', 'composerJson.version', json({ version: 'master' }))
+    refuses(encode(BASE), 'expected one of "dev", "alpha", "beta", "rc", "RC", "stable", found the string "Stable"', 'composerJson["minimum-stability"]', json({ 'minimum-stability': 'Stable' }))
+    refuses(encode(BASE), 'expected true or false, found the string "yes"', 'composerJson["prefer-stable"]', json({ 'prefer-stable': 'yes' }))
+    refuses(encode(BASE), 'expected a mapping or a sequence, found the string "x"', 'composerJson.extra', json({ extra: 'x' }))
+    refuses(encode(BASE), 'expected a string or true or false, found the bigint 3', 'composerJson.config.platform.php', json({ config: { platform: { php: 3 } } }))
+    refuses(encode(BASE), 'expected a mapping, found null', 'composerJson.config.platform', json({ config: { platform: null } }))
+    refuses(encode(BASE), 'expected true or false, found the string "yes"', 'composerJson.repositories[0].canonical', repository({ type: 'composer', url: 'x', canonical: 'yes' }))
+    refuses(encode(BASE), 'expected a type of repository Composer knows, found the string "nope"', 'composerJson.repositories[0].type', repository({ type: 'nope', url: 'x' }))
+    refuses(encode(BASE), 'no "url", which Composer\'s schema requires', 'composerJson.repositories[0]', repository({ type: 'git' }))
+    refuses(encode(BASE), 'no "version", which Composer\'s schema requires', 'composerJson.repositories[0].package', repository({ type: 'package', package: { name: 'a/b' } }))
+    refuses(encode(BASE), 'a name, where the key names a repository, which Composer\'s schema refuses', 'composerJson.repositories.x.name', json({ repositories: { x: { type: 'path', url: 'x', name: 'x' } } }))
+    const lock = parseComposerLock(encode(BASE), json({ version: 'dev-x as 1.0', extra: [], config: { platform: { php: false } }, repositories: [{ 'packagist.org': false }, { type: 'path', url: 'x', name: 'x', options: { symlink: null } }, { type: 'package', package: [] }] }))
+    assert.equal(lock.fresh, false)
     assert.throws(() => parseComposerLock(encode(BASE), { composerJson: {} }), TypeError)
     assert.throws(() => parseComposerLock(encode(BASE), { composer: '{}' }), TypeError)
   })
