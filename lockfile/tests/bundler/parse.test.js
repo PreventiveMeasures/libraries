@@ -178,7 +178,7 @@ describe('sources', () => {
     refuses(edit(['  branch: main', '  ref: a b']), '"a b" is not a reference git reads', 'sources[0].ref')
     refuses(edit(['  branch: main', '  branch: a..b']), '"a..b" is not a branch or tag name git takes', 'sources[0].branch')
     assert.equal(parseGemfileLock(edit(['remote: https://github.com/o/g.git', 'remote: ../my repo'])).sources[0].remote, '../my repo')
-    refuses(edit(['g.git\n', 'g.git/\n']), '"https://github.com/o/g.git/" ends in "/", which Bundler leaves out of a repository', 'sources[0].remote')
+    refuses(edit(['g.git\n', 'g.git/\n']), '"https://github.com/o/g.git/" ends in "/", which Bundler 2.4 and later drop as they read it, and 2.2 and 2.3 keep', 'sources[0].remote')
     refuses(edit(['  branch: main', '  submodules: false']), 'expected "true", found "false"', 'sources[0].submodules')
     refuses(edit(['  branch: main', '  glob: {,*,*/*}.gemspec']), '"{,*,*/*}.gemspec", which Bundler reads by where none is written, and does not write', 'sources[0].glob')
   })

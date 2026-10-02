@@ -13,20 +13,23 @@ export { LockfileError } from './pnpm.js'
 // where it writes it, which Bundler's own reader would skip or read as
 // something else, and an option's value with a space at an end; a gem name
 // RubyGems does not take, a version or a platform not in the form RubyGems
-// writes it in, a requirement not as Bundler writes it; anything out of
-// the order Bundler sorts it in, or listed twice; a plugin source; a GEM
-// source of two remotes, either of which Bundler may fetch a gem from, or
-// of none, which takes it from the gems installed where Bundler runs; a
-// directory by an absolute path; a git source without the full commit it
+// writes it in, a requirement not as Bundler writes it; anything out of the
+// order Bundler sorts it in, or listed twice; a plugin source; a GEM source
+// of two remotes, either of which Bundler may fetch a gem from, or of none,
+// which takes it from the gems installed where Bundler runs, or of a file:
+// or s3: URL not in the normal form a URL parser writes, whose `..` one
+// reader resolves and another does not; a directory by an absolute path; a
+// git source of a remote with a `/` at the end, which Bundler 2.4 and later
+// drop as they read it and 2.2 and 2.3 keep, or without the full commit it
 // resolved to, or a `ref` of a full commit that is another one; a
 // dependency of a gem that names no gem locked, or a requirement any gem
 // locked under its name does not meet, as a lockfile edited by hand may
-// have; a gem nothing depends on; one name from two sources, or two gems
-// of one name for one platform, or a gem of a platform no platform of
-// PLATFORMS takes, of its OS, CPU and libc; what the Gemfile asks for without its `!`
-// from other than one default source, a git one never; a checksum
-// not sha256 in lowercase hex, of a gem from a git or a path source, or of
-// no gem, and a gem without its line in CHECKSUMS.
+// have; a gem nothing depends on; one name from two sources, or two gems of
+// one name for one platform, or a gem of a platform no platform of
+// PLATFORMS takes, of its OS, CPU and libc; what the Gemfile asks for
+// without its `!` from other than one default source, a git one never; a
+// checksum not sha256 in lowercase hex, of a gem from a git or a path
+// source, or of no gem, and a gem without its line in CHECKSUMS.
 export function parseGemfileLock(text: string): GemfileLock
 
 // Every Record has a null prototype, and is in the order the file has it.
@@ -101,9 +104,9 @@ export type BundlerSource =
   // at the end; undefined for the source of a Gemfile that names none, and
   // so has no gems.
   | { type: 'gem', remote: string | undefined }
-  // A repository by URL, or by path, as the Gemfile has it; `revision` the
-  // commit it resolved to, and each of `ref`, `branch` and `tag` what was
-  // asked for, as written.
+  // A repository by URL, or by path, as the Gemfile has it, less a `/` at
+  // the end; `revision` the commit it resolved to, and each of `ref`,
+  // `branch` and `tag` what was asked for, as written.
   | {
     type: 'git'
     remote: string

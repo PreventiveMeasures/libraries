@@ -43,12 +43,13 @@ function readGlob(value, where) {
 }
 
 // A repository by URL, or by path, as the Gemfile has it, a space and all,
-// less a `/` at the end; `ref` what was asked for, which is a commit, a
-// branch, a tag or anything else git reads, and `revision` the commit it
-// was.
+// less a `/` at the end, which Bundler 2.4 and later drop as they read the
+// lockfile, and 2.2 and 2.3 keep; `ref` what was asked for, which is a
+// commit, a branch, a tag or anything else git reads, and `revision` the
+// commit it was.
 function readGit(values, where) {
   const { remote } = values
-  if (remote.endsWith('/')) throw new LockfileError(`${quote(remote)} ends in "/", which Bundler leaves out of a repository`, at(where, 'remote'))
+  if (remote.endsWith('/')) throw new LockfileError(`${quote(remote)} ends in "/", which Bundler 2.4 and later drop as they read it, and 2.2 and 2.3 keep`, at(where, 'remote'))
   const { revision, ref } = values
   if (!isCommit(revision)) throw new LockfileError(`${quote(revision)} is not a full commit hash`, at(where, 'revision'))
   if (ref !== undefined && /\s/u.test(ref)) throw new LockfileError(`${quote(ref)} is not a reference git reads`, at(where, 'ref'))
