@@ -37,6 +37,12 @@ after(() => rmSync(TOP, { recursive: true, force: true }))
 const isImporter = (location) => !/(?:^|\/)node_modules\//u.test(location)
 const folderOf = (location) => location.split('/').slice(location.split('/').at(-2)?.startsWith('@') ? -2 : -1).join('/')
 
+// A dependency taken off a list, and the list where npm leaves it out empty.
+function unlist(entry, list, name) {
+  delete entry[list][name]
+  if (Object.keys(entry[list]).length === 0 && list !== 'devDependencies') delete entry[list]
+}
+
 // An edit of the dependencies of one entry: one added, of a name the
 // lockfile has, one dropped, or one moved to another list.
 function changeDependencies({ next, pick }, lock) {
@@ -55,8 +61,7 @@ function changeDependencies({ next, pick }, lock) {
   }
   const [list, name] = pick(listed)
   const spec = entry[list][name]
-  delete entry[list][name]
-  if (Object.keys(entry[list]).length === 0 && list !== 'devDependencies') delete entry[list]
+  unlist(entry, list, name)
   if (r < 0.7) return
   const other = pick(lists)
   entry[other] = { ...entry[other], [name]: spec }
@@ -117,8 +122,17 @@ function linkTo({ pick }, lock) {
   lock.packages[parent].dependencies = { ...lock.packages[parent].dependencies, [folderOf(target)]: '*' }
 }
 
+// Every dependency on one package gone, so that npm may keep it for a
+// link into its node_modules alone.
+function unask({ pick }, lock) {
+  if (installed(lock).length === 0) return
+  const name = folderOf(pick(installed(lock)))
+  for (const entry of Object.values(lock.packages)) for (const list of [...LISTS, 'devDependencies']) if (entry[list]?.[name] !== undefined) unlist(entry, list, name)
+}
+
 function change(rand, lock) {
   if (rand.next() < 0.2) return linkTo(rand, lock)
+  if (rand.next() < 0.15) return unask(rand, lock)
   const r = rand.next()
   if (r < 0.5) changeDependencies(rand, lock)
   else if (r < 0.65) move(rand, lock)

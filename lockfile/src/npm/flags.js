@@ -20,8 +20,7 @@ const kinds = (type) => ({ dev: type === 'dev', optional: type === 'optional' ||
 // node that is not leaves the nodes it is in not. A link takes what it
 // leads to with it: from npm 11.18, by the flags it is without; before,
 // `assign`, by setting it to its own, set or not, so that what it leads to
-// may have a flag again. devOptional, the dependencies both of dev and of
-// optional ones, is left set where either is.
+// may have a flag again.
 function calcFlags(nodes, assign) {
   const flags = initial(nodes)
   const seen = new Set()
@@ -54,10 +53,6 @@ function calcFlags(nodes, assign) {
       for (const flag of changed) theirs[flag] = false
       if (changed.length > 0) queue.push(to)
     }
-  }
-  for (const node of seen) {
-    const own = flags.get(node)
-    if (node.kind !== 'root' && own.devOptional && (own.dev || own.optional)) own.devOptional = false
   }
   return flags
 }
@@ -124,19 +119,20 @@ function calcFlagsBefore(nodes) {
     return node
   }
   descend(root, step, (node, stepped) => [...stepped.edges.values()].map(({ to }) => to).filter((to) => to !== undefined))
-  // npm writes devOptional where neither dev nor optional is.
-  for (const own of flags.values()) if (own.dev || own.optional) own.devOptional = false
   return flags
 }
 
-// The first node whose flags are not those `flags` gives it, and why.
+// The first node whose flags are not those `flags` gives it, as npm writes
+// them, and why: devOptional, of the dependencies both of dev and of
+// optional ones, only where neither dev nor optional is.
 function mismatch(nodes, flags) {
   for (const node of nodes.values()) {
     const own = flags.get(node)
     if (own.extraneous) return new LockfileError('nothing installed leads to it, so npm takes it as extraneous, and prunes it', node.where)
     if (node.kind === 'link') continue
-    const flag = WRITTEN.find((name) => node.flags[name] !== own[name])
-    if (flag !== undefined) return new LockfileError(`expected ${own[flag] ? 'true' : 'none'}, as npm sets it from what depends on it`, at(node.where, flag))
+    const written = { ...own, devOptional: own.devOptional && !own.dev && !own.optional }
+    const flag = WRITTEN.find((name) => node.flags[name] !== written[name])
+    if (flag !== undefined) return new LockfileError(`expected ${written[flag] ? 'true' : 'none'}, as npm sets it from what depends on it`, at(node.where, flag))
   }
   return undefined
 }

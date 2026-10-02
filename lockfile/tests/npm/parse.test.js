@@ -492,6 +492,19 @@ describe('the flags npm writes', () => {
     assert.equal(parse(optional((l) => (l.packages['node_modules/a'].optional = true))).packages['node_modules/a'].optional, true)
   })
 
+  it('of a package nothing asks for, which a link leads into', () => {
+    // npm 11.7 and later leave every flag of dv set, which npm writes as
+    // dev, optional and peer; npm 9 to 11.6 clear them.
+    const unasked = (change) => linked((l) => {
+      delete l.packages[''].devDependencies.dv
+      change(l.packages['node_modules/dv'])
+    })
+    const dv = (change) => parse(unasked(change)).packages['node_modules/dv']
+    assert.deepEqual(['dev', 'optional', 'devOptional', 'peer'].map((flag) => dv((entry) => Object.assign(entry, { optional: true, peer: true }))[flag]), [true, true, true, true])
+    assert.equal(dv((entry) => delete entry.dev).devOptional, false)
+    refuses(unasked((entry) => Object.assign(entry, { dev: undefined, devOptional: true, peer: true })), 'expected true, as npm sets it from what depends on it', `${P('node_modules/dv')}.dev`)
+  })
+
   it('refused where no version sets them so, as the latest would', () => {
     refuses(linked((l) => (l.packages['node_modules/dv'].optional = true)), 'expected none, as npm sets it from what depends on it', `${P('node_modules/dv')}.optional`)
   })
