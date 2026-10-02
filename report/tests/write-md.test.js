@@ -684,6 +684,11 @@ describe('md-text helpers', () => {
     // A ``` example closed inside a ```` block leaves the ```` open: the
     // close is the opener's run, or the next finding goes under the fence.
     assert.equal(prose('````md\n```sh\nx\n```'), '````md\n```sh\nx\n```\n````')
+    // Closed at the opener's indent: a fence in a list item closes inside
+    // it, where a closer at the margin would end the item and open anew.
+    assert.equal(prose('1. Run:\n\n   ```sh\n   curl'), '1. Run:\n\n   ```sh\n   curl\n   ```')
+    // Inline code opening a line opens no fence, so there is none to close.
+    assert.equal(prose('```x``` is inline\n## h'), '```x``` is inline\n\\## h')
     assert.equal(prose('  plain  '), 'plain')
     assert.equal(prose(null), '')
   })

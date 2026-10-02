@@ -45,8 +45,41 @@ describe('fenceRanges — a fence is its whole run', () => {
     assert.deepEqual(fencedLines(lines), [false, true, true, true, true, false])
   })
 
+  // ```x``` opening a line is an inline code span, and ```js` is text:
+  // a backtick fence's info string holds no backtick. Read as fences,
+  // either ran to the end and took every heading after it.
+  it('takes a backtick opener whose info string holds a backtick as text', () => {
+    assert.deepEqual(fencedLines(['```x``` is inline code', '## h']), [false, false])
+    assert.deepEqual(fencedLines(['```js`', '## h']), [false, false])
+    // A tilde fence's info string may hold one.
+    assert.deepEqual(fencedLines(['~~~js`', '## h', '~~~']), [true, true, true])
+  })
+
   it('runs a dangling fence to the end', () => {
     assert.deepEqual(fencedLines(['## A', '````', '```', '## In code']), [false, true, true, true])
+  })
+})
+
+// A fence inside a list item belongs to the item, and ends with it —
+// closed or not. Read as running on, one numbered step whose snippet
+// lost its closing fence took every heading after it.
+describe('fenceRanges — a fence in a list item', () => {
+  it('ends with the item, at the first line left of the item\'s text', () => {
+    assert.deepEqual(fencedLines(['1. Run:', '   ```sh', '   curl', '## Impact', 'RCE.']), [false, true, true, false, false])
+  })
+
+  it('takes a fence line left of the item\'s text as the item\'s end, and a fence of its own', () => {
+    assert.deepEqual(fencedLines(['1. item', '   ```', '  ```', '## in code']), [false, true, true, true])
+  })
+
+  it('keeps the item through a lazy line of its paragraph', () => {
+    const lines = ['1. step', 'lazy text', '   ```', '   code', 'Next para', '## after']
+    assert.deepEqual(fencedLines(lines), [false, false, true, true, false, false])
+  })
+
+  it('reads a fence left of the list\'s text as having left the list', () => {
+    const lines = ['- item', '', '```sh', 'code', '```', '   ```', '', '---', '## in code']
+    assert.deepEqual(fencedLines(lines), [false, false, true, true, true, true, true, true, true])
   })
 })
 

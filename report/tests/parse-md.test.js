@@ -872,4 +872,16 @@ describe('parseMarkdownFindings — a `# ` line in fenced code', () => {
     assert.match(findings[0].reproduction, /^# start the server$/mu)
     assert.equal(findings[1].severity, 'low')
   })
+
+  it('ends a step\'s unclosed snippet with the step, not the report', () => {
+    const lines = ['# A', '', '## Reproduction steps', '1. Run:', '', '   ```sh', '   curl -X POST /api', '', '## Impact', 'RCE.', '', '---', '**Severity:** high', '', '# B', '', '---', '**Severity:** low']
+    const { findings } = parseMarkdownFindings(lines.join('\n'))
+    assert.deepEqual(findings.map((f) => f.description.split('\n')[0]), ['A', 'B'])
+    assert.equal(findings[0].severity, 'high')
+  })
+
+  it('takes a line opening on inline code for text, not a fence', () => {
+    const { findings } = parseMarkdownFindings(['# A', '', '## Details', '```x``` is called on input.', '', '---', '**Severity:** high', '', '# B', '', '---', '**Severity:** low'].join('\n'))
+    assert.deepEqual(findings.map((f) => f.description.split('\n')[0]), ['A', 'B'])
+  })
 })

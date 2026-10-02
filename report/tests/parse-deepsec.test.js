@@ -405,6 +405,11 @@ describe('parseDeepsecFindings — a `### ` line in fenced code', () => {
     assert.equal(await deriveFindingId(findings[0]), '27697093-087f-4a81-997f-27ea6174d04a')
   })
 
+  it('takes a line opening on inline code for text, not a fence', () => {
+    const md = build('HIGH (2)', ['### A', '', '- **File:** `a.js`', '', '```x``` is called on input.', '', '---', '', '### B', '', '- **File:** `b.js`'].join('\n'))
+    assert.deepEqual(parseDeepsecFindings(md).findings.map((f) => f.file), ['a.js', 'b.js'])
+  })
+
   it('stamps nothing on a finding the fence-blind split read whole', () => {
     const [f] = parseDeepsecFindings(build('HIGH (1)', '### Plain\n\n- **File:** `src/b.js`\n\nNothing fenced.')).findings
     assert.equal(f._idBasis, undefined)
