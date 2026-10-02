@@ -117,8 +117,10 @@ export class Hoister {
 
   propagateRequired() {
     const toVisit = [...this.tree.values()].filter((info) => info.isRequired)
-    while (toVisit.length > 0) {
-      const info = toVisit.shift()
+    // In yarn's order, as it shifts each off, but read by an index: a long
+    // array's shift copies the rest of it.
+    for (let i = 0; i < toVisit.length; i++) {
+      const info = toVisit[i]
       for (const dependency of info.ref.dependencies) {
         const found = this.lookupDependency(info, dependency)
         if (found && !found.isRequired && !found.isIncompatible) {

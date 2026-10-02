@@ -19,7 +19,7 @@ export const REGISTRY = 'https://registry.npmjs.org/'
 // The registry's own URL for a version's tarball, as npm and pnpm spell it.
 export const tarballUrl = (name, version) => `${REGISTRY}${name}/-/${name.split('/').at(-1)}-${version}.tgz`
 
-export const sameBytes = (a, b) => a.length === b.length && a.every((byte, i) => byte === b[i])
+const sameBytes = (a, b) => a.length === b.length && a.every((byte, i) => byte === b[i])
 // Two files of a package, by their bytes and mode.
 export const sameFile = (a, b) => a.mode === b.mode && sameBytes(a.data, b.data)
 

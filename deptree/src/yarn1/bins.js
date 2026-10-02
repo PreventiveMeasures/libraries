@@ -8,7 +8,6 @@
 
 import { dirname, join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
-import { binsOf } from './package.js'
 
 // Whether node finds the package at `loc` by its name from `dir`, a
 // directory at a time up from it, as yarn's
@@ -21,17 +20,18 @@ function finds(name, loc, dir) {
   }
 }
 
-// `placed` the flat tree, tree.js's; `patterns` resolve.js's; `fetched`
-// each registry package's files, and `manifestOf` its package.json, as
-// yarn has them; `locations` each reference's copies, where they really
-// are, and `realOf` where a path in the tree really is.
-export function checkBinLinks({ placed, patterns, fetched, manifestOf, locations, realOf }) {
+// `placed` the flat tree, tree.js's; `patterns` resolve.js's; `hasBins`
+// whether each registry package has bins, as yarn reads them from its
+// package.json and files; `locations` each reference's copies, where they
+// really are, and `realOf` where a path in the tree really is.
+export function checkBinLinks({ placed, patterns, hasBins, locations, realOf }) {
   for (const { loc, info } of placed) {
     const binLoc = `${loc}/node_modules`
+    const realBinLoc = realOf(binLoc)
     for (const pattern of info.ref.dependencies) {
       const dep = patterns.get(pattern)
-      if (dep.kind !== 'registry' || !locations.has(dep) || binsOf(manifestOf.get(dep), fetched.get(dep)).size === 0) continue
-      const found = locations.get(dep).some((at) => finds(dep.name, at, binLoc) || finds(dep.name, at, realOf(binLoc)))
+      if (dep.kind !== 'registry' || !locations.has(dep) || !hasBins.get(dep)) continue
+      const found = locations.get(dep).some((at) => finds(dep.name, at, binLoc) || finds(dep.name, at, realBinLoc))
       if (!found) throw new DeptreeError(`yarn finds no copy of ${quote(dep.name)} to link the bins of`, quote(loc))
     }
   }

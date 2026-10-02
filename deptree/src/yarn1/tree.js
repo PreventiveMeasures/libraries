@@ -24,7 +24,7 @@ import { incompatibility } from './compat.js'
 import { Hoister } from './hoist.js'
 import { checkHost, inputsOf } from './inputs.js'
 import { checkRoot, fixLists } from './manifest.js'
-import { fetchYarnPackage, registryTarball } from './package.js'
+import { binsOf, fetchYarnPackage, registryTarball } from './package.js'
 import { resolvePeers } from './peers.js'
 import { AGGREGATOR, aggregatorOf, rulesOf, topRequests, workspacesOf } from './requests.js'
 import { resolve, splitPattern } from './resolve.js'
@@ -92,7 +92,8 @@ function resolveProject(inputs, host) {
 // Every package fetched, as yarn fetches each before it checks any, and
 // read; then each the host cannot run left out where it is optional, and
 // refused where it is not, as yarn fails on it. By reference, each one's
-// package.json as yarn reads it, a workspace's its own.
+// package.json as yarn reads it, a workspace's its own, and whether a
+// registry one has bins.
 async function fetchChecked(resolved, host, settings) {
   // What yarn's resolver hands its fetcher, in its order: each reference
   // its patterns name, once. Of those its cache keeps in one place, two of
@@ -106,6 +107,7 @@ async function fetchChecked(resolved, host, settings) {
   for (const ref of order) if (ref.kind === 'registry' && !first.has(ref.loc)) first.set(ref.loc, ref)
   const fetched = await fetchAll([...first.values()])
   const manifestOf = new Map()
+  const hasBins = new Map()
   for (const ref of order) {
     let manifest = ref.workspace?.manifest
     if (ref.kind === 'registry') {
@@ -118,6 +120,7 @@ async function fetchChecked(resolved, host, settings) {
     const bundled = manifest.bundleDependencies ?? manifest.bundledDependencies
     if (bundled && !(Array.isArray(bundled) && bundled.length === 0)) throw new DeptreeError('a package with bundled dependencies is not supported', whereOf(ref))
     manifestOf.set(ref, manifest)
+    if (ref.kind === 'registry') hasBins.set(ref, binsOf(manifest, fetched.get(ref)).size > 0)
   }
   for (const ref of order) {
     const reason = incompatibility(manifestOf.get(ref), host, whereOf(ref), settings)
@@ -125,7 +128,7 @@ async function fetchChecked(resolved, host, settings) {
     if (!ref.optional) throw new DeptreeError(`${reason}, and it is not optional, which yarn fails on`, whereOf(ref))
     ref.incompatible = true
   }
-  return { packages: first.size, fetched, manifestOf }
+  return { packages: first.size, fetched, manifestOf, hasBins }
 }
 
 // The tree as yarn hoists it, flat: each package by where it goes, in the
@@ -155,13 +158,21 @@ function realOf(links, path) {
 // into the workspace's own node_modules. `links` each link, by where it
 // is, to its target; `locations` each reference's copies, where they
 // really are; `copies` the hoister's places of each copy, by where it
-// really is, as two places may be one through a link.
+// really is, as two places may be one through a link. A package's files
+// are let go once its last copy is written, and those of one never placed
+// at once.
 function writeTree(placed, fetched) {
   const vfs = new Vfs()
   vfs.mkdir('/node_modules', { recursive: true })
   const links = new Map()
   const locations = new Map()
   const copies = new Map()
+  const left = new Map()
+  for (const { info: { ref } } of placed) {
+    if (ref.kind === 'registry') left.set(fetched.get(ref), (left.get(fetched.get(ref)) ?? 0) + 1)
+  }
+  const letGo = (pkg) => Object.assign(pkg, { files: undefined, dirs: undefined })
+  for (const pkg of new Set(fetched.values())) if (!left.has(pkg)) letGo(pkg)
   let files = 0
   let bytes = 0
   for (const { loc, info } of placed) {
@@ -192,6 +203,8 @@ function writeTree(placed, fetched) {
       files++
       bytes += file.data.length
     }
+    left.set(pkg, left.get(pkg) - 1)
+    if (left.get(pkg) === 0) letGo(pkg)
   }
   return { vfs, links, locations, copies, files, bytes }
 }
@@ -221,10 +234,10 @@ export async function buildYarn1Tree(options) {
   if (into !== undefined) checkNoModules(into, folded)
   checkRoot(inputs.manifests.get('.'))
   const { workspaces, asked, resolved } = resolveProject(inputs, host)
-  const { packages, fetched, manifestOf } = await fetchChecked(resolved, host, inputs.settings)
+  const { packages, fetched, manifestOf, hasBins } = await fetchChecked(resolved, host, inputs.settings)
   const { placed, hoister } = layout({ resolved, manifestOf, asked, workspaces })
   const { vfs, links, locations, copies, files, bytes } = writeTree(placed, fetched)
-  checkBinLinks({ placed, patterns: resolved.patterns, fetched, manifestOf, locations, realOf: (path) => realOf(links, path) })
+  checkBinLinks({ placed, patterns: resolved.patterns, hasBins, locations, realOf: (path) => realOf(links, path) })
   if (folded) checkCollisions(vfs)
   const stats = {
     packages,

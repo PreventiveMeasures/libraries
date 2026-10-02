@@ -28,7 +28,7 @@ import { DeptreeError, quote, refusalOf } from '../error.js'
 import { checkCollisions, checkNoModules, mount } from '../mount.js'
 import { applyPatch, parsePatch } from '../patch.js'
 import { checkProject } from '../project.js'
-import { REGISTRY, sameBytes, tarballUrl } from '../tarball.js'
+import { REGISTRY, tarballUrl } from '../tarball.js'
 import { binTargets, checkPatchOfBins, fixBin, requiresBuild } from './bins.js'
 import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
@@ -176,20 +176,50 @@ function compose(node, patches, { targets, executable }, { major, checkPatched }
   return files
 }
 
-// Writes a file where nothing is, or the same file is: a write never
-// replaces anything else. The tree holds no links yet.
-function writeOnce(vfs, path, { data, mode }) {
-  let there
+// Whether anything is at `path`, by its name.
+function isThere(vfs, path) {
   try {
-    there = vfs.lstat(path)
+    vfs.lstat(path)
   } catch (error) {
-    if (!(error instanceof VfsError)) throw error
-    vfs.mkdir(dirname(path), { recursive: true })
-    vfs.writeFile(path, data, { mode })
-    return true
+    if (error instanceof VfsError) return false
+    throw error
   }
-  if (there.type === 'file' && there.mode === mode && sameBytes(vfs.readFile(path), data)) return false
-  throw new DeptreeError('would be written over with something else', quote(path.slice(1)))
+  return true
+}
+
+// `dir` and each directory above it up to one `made` holds, as made.
+function addMade(made, dir) {
+  for (let at = dir; !made.has(at) && at !== '/'; at = dirname(at)) made.add(at)
+}
+
+// A node's files, as compose has them, written into its own directory,
+// made for it where nothing was, and counted in `stats`. Under it is
+// nothing but what the node writes, each file once and its directories,
+// `made`, so no write replaces anything, and none needs a look first,
+// which costs a thrown error where nothing is. The tree holds no links
+// yet.
+function writeNode(vfs, dir, files, stats) {
+  const root = `/${dir}`
+  if (isThere(vfs, root)) throw new DeptreeError('would be written over with something else', quote(dir))
+  vfs.mkdir(root, { recursive: true })
+  const made = new Set([root])
+  for (const [path, file] of files) {
+    const at = `${root}/${path}`
+    if (file.directory) {
+      vfs.mkdir(at, { recursive: true })
+      addMade(made, at)
+      continue
+    }
+    if (made.has(at)) throw new DeptreeError('would be written over with something else', quote(at.slice(1)))
+    const parent = dirname(at)
+    if (!made.has(parent)) {
+      vfs.mkdir(parent, { recursive: true })
+      addMade(made, parent)
+    }
+    vfs.writeFile(at, file.data, { mode: file.mode })
+    stats.files++
+    stats.bytes += file.data.length
+  }
 }
 
 // A link's target spelled from the directory the link is in, as pnpm's
@@ -314,14 +344,7 @@ export async function buildPnpmTree(options) {
     byDir.delete(node.dir)
     if (node.pkg.patchHash !== undefined) stats.patched++
     try {
-      vfs.mkdir(`/${node.dir}`, { recursive: true })
-      for (const [path, file] of compose(node, patched, { targets: targets.get(node.dir) ?? new Set(), executable: executable.get(node.dir) ?? new Set() }, composing)) {
-        if (file.directory) vfs.mkdir(`/${node.dir}/${path}`, { recursive: true })
-        else if (writeOnce(vfs, `/${node.dir}/${path}`, file)) {
-          stats.files++
-          stats.bytes += file.data.length
-        }
-      }
+      writeNode(vfs, node.dir, compose(node, patched, { targets: targets.get(node.dir) ?? new Set(), executable: executable.get(node.dir) ?? new Set() }, composing), stats)
     } catch (error) {
       throw refusalOf(error, quote(node.key))
     }
