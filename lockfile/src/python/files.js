@@ -3,7 +3,7 @@
 // in, a path to one, and a hash in the hex a lockfile writes.
 
 import { LockfileError, quote } from '../error.js'
-import { checkRelative, isHttpUrl } from '../names.js'
+import { checkRelative, checkWithin, isHttpUrl } from '../names.js'
 import { checkerOf } from '../shape.js'
 import { string, text } from '../toml/shape.js'
 import { normalName } from './pep508.js'
@@ -62,6 +62,10 @@ export function checkPath(value, where) {
   if (/^(?:\/|\\|[A-Za-z]:)/u.test(string(value, where))) throw new LockfileError(`${quote(value)} is absolute, and only reads on the machine that wrote it`, where)
   return checkRelative(value, where)
 }
+
+// A subdirectory of an archive or a repository, which an installer joins
+// to where it unpacks or clones it: one that never climbs out of that.
+export const checkSubdirectory = (value, where) => checkWithin(checkPath(value, where), where)
 
 const lastSegment = (path) => path.slice(path.lastIndexOf('/') + 1)
 

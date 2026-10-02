@@ -4,7 +4,7 @@
 // where it has a value: no empty list, no false flag, no empty string.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkName, checkRegistryTarball, checkRelative, checkRepo, checkVersion, isCommit, isHttpUrl, readIntegrities } from '../names.js'
+import { checkName, checkRegistryTarball, checkRelative, checkRepo, checkVersion, isCommit, isHttpUrl, isSegment, readIntegrities } from '../names.js'
 import { boolean, field, flag, mapping, record, refuse, text, textMap, texts } from '../shape.js'
 import { fromHostedUrl } from './hosted.js'
 import { isTarball } from './spec.js'
@@ -63,6 +63,17 @@ function funding(value, where) {
 }
 const readFunding = (value, where) => (Array.isArray(value) ? filled(value, where).map((item, index) => funding(item, `${where}[${index}]`)) : funding(value, where))
 
+// A bin as npm-normalize-package-bin leaves it, which is how npm writes
+// one: its name a segment, with no `:` in it either, and its target a path
+// within the package, which a `/` may end. bin-links reads any other
+// otherwise than as written, and a reader that does not normalize it may
+// link a name or a target outside the package.
+function readBin(target, where, name) {
+  if (!isSegment(name) || /[/:]/u.test(name)) throw new LockfileError(`${quote(name)} is not the name of a bin, as npm writes one`, where)
+  if (!text(target, where).replace(/\/$/u, '').split('/').every(isSegment)) throw new LockfileError(`${quote(target)} is not a path within the package, as npm writes a bin's`, where)
+  return target
+}
+
 // Globs, or the `packages` of them, which @npmcli/map-workspaces reads.
 const readWorkspaces = stringsOr((value, where) => {
   record(filled(value, where), where, ['packages', 'nohoist'])
@@ -87,7 +98,7 @@ const READERS = {
   cpu: strings,
   libc: strings,
   license: stringsOr(text),
-  bin: filledMapping(text),
+  bin: filledMapping(readBin),
   deprecated: text,
   workspaces: readWorkspaces,
 }
@@ -115,7 +126,9 @@ function checkTarball(tarball, name, version, where) {
   checkRegistryTarball(tarball, name, version, where)
 }
 
-const GIT = /^git(?:\+[a-z]+)?:/u
+// The protocols npm-package-arg reads as git's, as spec.js does: not
+// `git+file:`, nor any other, which npm reads as no repository.
+const GIT = /^git(?:\+(?:https?|rsync|ftp|ssh))?:/u
 
 // Where a package's files come from: a tarball, by URL, by a `file:` path
 // from the lockfile's directory, or from the registry for its name and

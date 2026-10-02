@@ -63,8 +63,8 @@ describe('readCargoVendor', () => {
   })
 
   it('takes a manifest with no version as 0.0.0', () => {
-    const zero = parseCargoLock(`version = 4\n[[package]]\nname = "a"\nversion = "0.1.0"\ndependencies = ["z"]\n[[package]]\nname = "z"\nversion = "0.0.0"\nsource = "${CRATES}"\n`)
-    assert.equal(readCargoVendor(zero, { z: { manifest: '[package]\nname = "z"\n', checksum: checksum(null) } })[`z 0.0.0 (${CRATES})`].directory, 'z')
+    const zero = parseCargoLock(`version = 4\n[[package]]\nname = "a"\nversion = "0.1.0"\ndependencies = ["z"]\n[[package]]\nname = "z"\nversion = "0.0.0"\nsource = "${CRATES}"\nchecksum = "${SUM}"\n`)
+    assert.equal(readCargoVendor(zero, { z: { manifest: '[package]\nname = "z"\n', checksum: checksum(SUM) } })[`z 0.0.0 (${CRATES})`].directory, 'z')
   })
 
   it('throws a TypeError for an entry that is not two texts', () => {

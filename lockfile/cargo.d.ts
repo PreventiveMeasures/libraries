@@ -40,7 +40,8 @@ export interface CargoLockPackage {
   // `?rev=` and what was asked for, and `#` and the commit; undefined for a
   // path package, which is in the workspace or a path dependency of it.
   source: string | undefined
-  // The sha256 of a registry package's .crate, where the registry has one.
+  // The sha256 of a registry package's .crate, which every registry
+  // package has; undefined for a git or path package.
   checksum: string | undefined
   // The keys of the packages it depends on, of every kind and platform.
   dependencies: string[]

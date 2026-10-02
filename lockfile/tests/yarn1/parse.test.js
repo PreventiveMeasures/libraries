@@ -566,6 +566,11 @@ describe('refuses an entry yarn does not write, or installs otherwise', () => {
     refuses(edit([`#${C}"`, '"']), 'expected a full commit hash after the "#" of "git+https://example.com/e.git"', at('e@git+https://example.com/e.git#v3'))
     refuses(edit([`#${C}"`, '#v3"']), 'expected a full commit hash after the "#" of "git+https://example.com/e.git"', at('e@git+https://example.com/e.git#v3'))
     refuses(edit(['"git+https://example.com/e.git#', '"git+https://exa mple.com/e.git#']), '"git+https://exa mple.com/e.git" is not a repository URL', at('e@git+https://example.com/e.git#v3'))
+    refuses(edit(['"git+https://example.com/e.git#', '"git+ssh://git@-oProxyCommand=x/e.git#']), '"git+ssh://git@-oProxyCommand=x/e.git" has a "-" where git or ssh would read an option', at('e@git+https://example.com/e.git#v3'))
+    refuses(edit(['"git+https://example.com/e.git#', '"git+ext::sh%20-c%20x#']), '"git+ext::sh%20-c%20x" names a remote helper of git\'s, which is not supported', at('e@git+https://example.com/e.git#v3'))
+    for (const host of ['registry.yarnpkg.com.', 'registry.npmjs.com']) {
+      refuses(edit([`"https://registry.yarnpkg.com/b/-/b-1.0.0.tgz#${H}"\n  integrity ${H1}\n\n"d`, `"https://${host}/a/-/a-1.0.0.tgz#${H}"\n  integrity ${H1}\n\n"d`]), `"https://${host}/a/-/a-1.0.0.tgz" is not the registry's tarball of b@1.0.0`, at('b@1.0.0'))
+    }
     refuses(edit([`f.tgz#${H}"`, `f.tgz#${H}#x"`]), 'more than one "#", of which yarn reads the first alone', at('f@https://example.com/f.tgz'))
     refuses(edit([`f.tgz#${H}"`, 'f.tgz#abc"']), '"abc" is not the hex sha1 of a tarball', at('f@https://example.com/f.tgz'))
     refuses(edit([`f.tgz#${H}"`, 'f.tgz#"']), '"" is not the hex sha1 of a tarball', at('f@https://example.com/f.tgz'))

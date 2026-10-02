@@ -8,7 +8,9 @@ import { LockfileError, quote } from '../error.js'
 import { checkName, resolvePath } from '../names.js'
 import { fromHostedUrl } from './hosted.js'
 
-const URL_SPEC = /^(?:git\+)?[a-z]+:/iu
+// npm-package-arg's, whose case-insensitive [a-z] is ASCII alone, where
+// a Unicode one would take `ſ` and the Kelvin sign too.
+const URL_SPEC = /^(?:[Gg][Ii][Tt]\+)?[A-Za-z]+:/u
 const SCP = /^[^@]+@[^.:]+\.[^:]+:.+$/iu
 const FILE_TYPE = /\.(?:tgz|tar\.gz|tar)$/iu
 
@@ -53,9 +55,10 @@ function decodeComponent(spec, value) {
 }
 
 // fromURL: a repository by its URL, the fetchSpec npm compares two by, or
-// a tarball by its own. An scp-style `git+ssh://user@host:path` is no URL.
+// a tarball by its own. An scp-style `git+ssh://user@host:path` is no URL,
+// which npm looks for only after `git+ssh:` in lower case.
 function fromUrl(spec) {
-  const scp = /^git\+ssh:\/\/([^:#]+:[^#]+(?:\.git)?)(?:#(.*))?$/iu.exec(spec)
+  const scp = spec.startsWith('git+ssh:') ? /^git\+ssh:\/\/([^:#]+:[^#]+(?:\.git)?)(?:#(.*))?$/iu.exec(spec) : null
   if (scp !== null && !/:\d+(?:\/|$)/u.test(scp[1])) return { type: 'git', hosted: undefined, fetchSpec: scp[1], ...gitAttributes(spec, scp[2]) }
   const url = URL.parse(spec)
   if (url === null) throw unread(spec, 'not a URL npm reads')

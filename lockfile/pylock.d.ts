@@ -66,7 +66,9 @@ export interface PylockPackage {
   tool: TomlTable | undefined
 }
 
-// Paths are from the lockfile's directory, `/` between segments.
+// Paths are from the lockfile's directory, `/` between segments; a
+// subdirectory is within what it is of, and climbs out of it nowhere. `url`
+// is one in which git reads no option or remote helper.
 export interface PylockVcs {
   type: 'git' | 'hg' | 'bzr' | 'svn'
   url: string | undefined

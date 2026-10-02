@@ -75,6 +75,14 @@ describe('each kind of entry', () => {
     refuses(edit(['url = "https://soldeer', 'url = "httpſ://soldeer']), '"httpſ://soldeer-revisions.s3.amazonaws.com/a-lib/1_2_0_01-01-2025_00:00:00_a.zip" is not an http(s) URL', 'dependencies["a-lib"].url')
   })
 
+  it('refuses a git repository that git reads otherwise than as one, as Soldeer clones it with no "--" before it', () => {
+    for (const git of ['--upload-pack=touch%20x', 'ssh://-oProxyCommand=x/b.git', 'git@-oProxyCommand=x:b.git']) {
+      refuses(edit(['git = "https://example.com/b.git"', `git = "${git}"`]), `"${git}" has a "-" where git or ssh would read an option`, 'dependencies["b-git"].git')
+    }
+    refuses(edit(['git = "https://example.com/b.git"', 'git = "ext::sh"']), '"ext::sh" names a remote helper of git\'s, which is not supported', 'dependencies["b-git"].git')
+    refuses(edit(['git = "https://example.com/b.git"', 'git = "https://example.com/b c.git"']), '"https://example.com/b c.git" is not a repository URL', 'dependencies["b-git"].git')
+  })
+
   it('a custom URL as Soldeer 0.12 writes it, its scheme in any case', () => {
     for (const scheme of ['HTTPS', 'Http']) {
       const url = `${scheme}://soldeer-revisions.s3.amazonaws.com/a-lib/1_2_0_01-01-2025_00:00:00_a.zip`

@@ -17,7 +17,9 @@ export interface GitmodulesOptions {
   // among them, and a submodule without one, which git reads but clones
   // only where the clone's own config has its url. A url git ignores,
   // starting with "-", is refused all the same, as is one with a space or a
-  // control character in it.
+  // control character in it, one with a host or a user git or ssh would
+  // read as an option, and one that names a remote helper, which git uses
+  // for a submodule only where told to.
   checkUrls?: boolean
 }
 

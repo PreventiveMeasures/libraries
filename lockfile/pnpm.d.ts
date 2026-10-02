@@ -120,9 +120,11 @@ export interface PnpmPackage {
 }
 
 // A registry package's tarball usually has no URL: it comes from the
-// registry for its name. Otherwise `tarball` is an http(s) URL, not checked
-// against the name and version, or `file:` and a path from the lockfile's
-// directory. `path` is the package's subdirectory, if not the root.
+// registry for its name. Otherwise `tarball` is an http(s) URL, checked
+// against the name and version where it is npm's registry's, or `file:` and
+// a path from the lockfile's directory. `path` is the package's
+// subdirectory, if not the root, which does not climb out of it. `repo` is
+// one in which git reads no option or remote helper.
 export type PnpmResolution =
   | { type: 'tarball', integrity: string | undefined, tarball: string | undefined, path: string | undefined, gitHosted: boolean }
   | { type: 'git', repo: string, commit: string, path: string | undefined }

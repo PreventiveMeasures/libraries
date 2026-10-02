@@ -4,8 +4,8 @@
 // one source to uv where it is one text here.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkRelative, isCommit } from '../names.js'
-import { checkPath } from '../python/files.js'
+import { checkRepo, checkWithin, isCommit } from '../names.js'
+import { checkPath, checkSubdirectory } from '../python/files.js'
 import { optional } from '../shape.js'
 import { oneOf, string, table } from '../toml/shape.js'
 import { checkUrl } from './shape.js'
@@ -22,9 +22,10 @@ const NO_COMMIT = 'expected "#" and the full commit it resolved to'
 // `git+URL`: the repository, `?branch=`, `?tag=` or `?rev=` and what was
 // asked for, `subdirectory=`, `path=` to an archive in it, `lfs=true`, and
 // `#` and the commit it resolved to, which a requirement may not have yet.
-// A full commit asked for by `rev` is that commit, as uv holds it.
+// A full commit asked for by `rev` is that commit, as uv holds it. The
+// subdirectory and the path are within the repository.
 export function readGit(value, where) {
-  const url = checkUrl(value, where, ['https:', 'http:', 'ssh:', 'file:'])
+  const url = checkUrl(checkRepo(value, where), where, ['https:', 'http:', 'ssh:', 'file:'])
   const pairs = [...url.searchParams]
   const unknown = pairs.find(([key]) => !QUERY.has(key))
   if (unknown !== undefined) throw notGit(value, `uv does not read ${quote(unknown[0])}`, where)
@@ -33,7 +34,7 @@ export function readGit(value, where) {
   if (named.length > 1) throw notGit(value, 'more than one of branch=, tag= and rev=', where)
   const query = Object.fromEntries(pairs)
   if (query.lfs !== undefined && query.lfs !== 'true') throw notGit(value, 'lfs= other than true, which uv does not write', where)
-  for (const key of ['subdirectory', 'path']) if (query[key] !== undefined) checkRelative(query[key], where)
+  for (const key of ['subdirectory', 'path']) if (query[key] !== undefined) checkWithin(query[key], where)
   const commit = url.hash === '' ? undefined : url.hash.slice(1)
   if (commit !== undefined && !isCommit(commit)) throw notGit(value, NO_COMMIT, where)
   const rev = query.rev?.toLowerCase()
@@ -68,7 +69,7 @@ function readKind(type, value, subdirectory, where) {
   }
   if (type === 'url') {
     if (checkUrl(value, here, ['https:', 'http:']).hash !== '') throw new LockfileError(`${quote(value)} has a fragment, which uv drops`, here)
-    return { type, url: value, subdirectory: optional(checkPath)(subdirectory, at(where, 'subdirectory')) }
+    return { type, url: value, subdirectory: optional(checkSubdirectory)(subdirectory, at(where, 'subdirectory')) }
   }
   return { type, path: checkPath(value, here) }
 }

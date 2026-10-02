@@ -5,8 +5,8 @@
 // here.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkRepo, isCommit } from '../names.js'
-import { DIGESTS, checkHash, checkHttpUrl, checkPath } from '../python/files.js'
+import { checkRepo, isCommit, isSegment } from '../names.js'
+import { DIGESTS, checkHash, checkHttpUrl, checkPath, checkSubdirectory } from '../python/files.js'
 import { checkMarker, checkName, checkRequirementText, normalName } from '../python/pep508.js'
 import { field } from '../shape.js'
 import { arrayOf, boolean, checker, entries, oneOf, string, stringsOf, table, tableOf, text } from '../toml/shape.js'
@@ -38,7 +38,7 @@ function readKind(type, value, where) {
   return {
     git: checkRepository(value.git, here),
     reference: named.length === 0 ? undefined : { kind: named[0], name: text(value[named[0]], at(where, named[0])) },
-    subdirectory: field(value, 'subdirectory', where, checkPath),
+    subdirectory: field(value, 'subdirectory', where, checkSubdirectory),
   }
 }
 
@@ -81,7 +81,7 @@ export function readFiles(value, where) {
   return arrayOf((item, here) => {
     table(item, here, ['file', 'hash'])
     const file = text(item.file, at(here, 'file'))
-    if (file.includes('/') || file.includes('\\')) throw new LockfileError(`${quote(file)} is not a file's name`, at(here, 'file'))
+    if (!isSegment(file) || file.includes('/')) throw new LockfileError(`${quote(file)} is not a file's name`, at(here, 'file'))
     if (seen.has(file)) throw new LockfileError(`${quote(file)} is listed twice`, here)
     seen.add(file)
     return { file, hash: checkHash(item.hash, at(here, 'hash'), HASHES) }
@@ -111,7 +111,7 @@ export function readSource(value, where) {
   if (!Object.hasOwn(SOURCES, type)) throw new LockfileError(`expected one of ${Object.keys(SOURCES).join(', ')}`, at(where, 'type'))
   table(value, where, ['type', ...SOURCES[type]])
   const url = at(where, 'url')
-  const subdirectory = field(value, 'subdirectory', where, checkPath)
+  const subdirectory = field(value, 'subdirectory', where, checkSubdirectory)
   if (type === 'legacy') return { type, url: checkHttpUrl(value.url, url), name: text(value.reference, at(where, 'reference')) }
   if (type === 'url') return { type, url: checkHttpUrl(value.url, url), subdirectory }
   if (type === 'file' || type === 'directory') return { type, path: checkPath(value.url, url) }

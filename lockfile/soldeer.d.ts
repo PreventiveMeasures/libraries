@@ -37,6 +37,8 @@ export type SoldeerDependency =
   // From the registry, or the config's URL. Soldeer 0.12 asks the registry
   // for the URL again, and 0.11 and older fetch the one here.
   | { type: 'http', name: string, version: string, url: string, checksum: string, integrity: string }
+  // `git` is one in which git reads no option or remote helper: Soldeer
+  // hands it to git clone with no `--` before it.
   | { type: 'git', name: string, version: string, git: string, rev: string }
   // From the registry, privately, at a URL it gives at each install.
   | { type: 'private', name: string, version: string, checksum: string, integrity: string }

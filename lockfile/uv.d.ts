@@ -82,9 +82,11 @@ export interface UvDependency {
   marker: string | undefined
 }
 
-// Paths are relative to the workspace root, `/` between segments. `id` is
-// the source as uv shows it: `registry+URL`, `git+URL`, `direct+URL`, a
-// subdirectory added as `#subdirectory=`, or the kind, `+`, and the path.
+// Paths are relative to the workspace root, `/` between segments; a
+// subdirectory, and a git source's `path`, are within the repository or the
+// archive, and climb out of it nowhere. `id` is the source as uv shows it:
+// `registry+URL`, `git+URL`, `direct+URL`, a subdirectory added as
+// `#subdirectory=`, or the kind, `+`, and the path.
 export type UvSource =
   // A registry by its index URL, or a local one by its directory.
   | { type: 'registry', url: string | undefined, path: string | undefined, id: string }

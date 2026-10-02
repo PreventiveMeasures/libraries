@@ -328,6 +328,23 @@ describe('the lockfile npm writes, and no other', () => {
     refuses(edit((l) => (l.packages['node_modules/my-q'].name = 'Q!')), '"Q!" is not a package name', `${P('node_modules/my-q')}.name`)
     refuses(edit((l) => (l.packages['node_modules/a'].name = 'a')), 'the name of its folder, which npm leaves out', `${P('node_modules/a')}.name`)
     refuses(edit((l) => (l.packages['node_modules/a'].dependencies = { '.b': '1' })), '".b" is not a package name', `${P('node_modules/a')}.dependencies[".b"]`)
+    // ASCII alone: to a case-insensitive Unicode match, `ſ` is `s` and the
+    // Kelvin sign `k`, which a file system that normalizes names reads as `K`.
+    for (const name of ['\u017Fafe', '\u212Aoa', '@\u017F/x']) {
+      refuses(edit((l) => (l.packages['node_modules/a'].dependencies = { [name]: '1' })), `${JSON.stringify(name)} is not a package name`, at(`${P('node_modules/a')}.dependencies`, name))
+    }
+  })
+
+  it('bins as npm normalizes them: a name, and a path within the package', () => {
+    const bin = (value) => edit((l) => (l.packages['node_modules/dv'].bin = value))
+    const where = (name) => at(`${P('node_modules/dv')}.bin`, name)
+    for (const name of ['../dv', 'a/dv', 'dv:x', 'd\\v', '.', '..', 'd\nv']) {
+      refuses(bin({ [name]: 'cli.js' }), `${JSON.stringify(name)} is not the name of a bin, as npm writes one`, where(name))
+    }
+    for (const target of ['../cli.js', '/cli.js', './cli.js', 'bin//cli.js', 'bin\\cli.js', 'bin/../../cli.js', 'bin/./cli.js']) {
+      refuses(bin({ dv: target }), `${JSON.stringify(target)} is not a path within the package, as npm writes a bin's`, where('dv'))
+    }
+    assert.deepEqual(plain(parse(bin({ dv: 'bin/', 'dv-2': 'lib/cli.js' })).packages['node_modules/dv'].bin), { dv: 'bin/', 'dv-2': 'lib/cli.js' })
   })
 
   it('a version of a package', () => {
@@ -357,6 +374,14 @@ describe('where a package comes from', () => {
     assert.equal(scoped.packages['node_modules/@s/o'].resolution.tarball, 'https://registry.npmjs.org/@s%2fo/-/o-1.0.0.tgz')
   })
 
+  it('the registry\'s by its other name, or by a name a dot ends, which DNS and TLS take for the same host', () => {
+    for (const host of ['registry.npmjs.com', 'registry.npmjs.org.', 'REGISTRY.NPMJS.ORG.', 'registry.yarnpkg.com..']) {
+      const url = `https://${host}/c/-/c-1.0.0.tgz`
+      refuses(edit((l) => (l.packages['node_modules/b'].resolved = url)), `"${url}" is not the registry's tarball of b@1.0.0`, b('resolved'))
+    }
+    assert.equal(parse(edit((l) => (l.packages['node_modules/b'].resolved = 'https://registry.npmjs.org./b/-/b-1.0.0.tgz'))).packages['node_modules/b'].resolution.tarball, 'https://registry.npmjs.org./b/-/b-1.0.0.tgz')
+  })
+
   it('a URL, a file: tarball or a git URL alone', () => {
     refuses(edit((l) => (l.packages['node_modules/b'].resolved = 'ftp://example.com/b.tgz')), '"ftp://example.com/b.tgz" is not an http(s) URL, a file: tarball or a git URL', b('resolved'))
     refuses(edit((l) => (l.packages['node_modules/b'].resolved = 'file:/abs/b.tgz')), '"/abs/b.tgz" is not a relative path in normal form', b('resolved'))
@@ -368,6 +393,16 @@ describe('where a package comes from', () => {
     const e = `${P('node_modules/e')}.resolved`
     refuses(edit((l) => (l.packages['node_modules/e'].resolved = 'git+ssh://git@github.com/user/e.git#main')), 'expected a full commit hash after the "#" of "git+ssh://git@github.com/user/e.git#main"', e)
     refuses(edit((l) => (l.packages['node_modules/e'].integrity = I)), 'an integrity, which npm does not check for a git repository', `${P('node_modules/e')}.integrity`)
+  })
+
+  it('a git repository git reads as a place alone, by a protocol npm reads as git\'s', () => {
+    const e = `${P('node_modules/e')}.resolved`
+    for (const repo of ['git+ssh://-oProxyCommand=x/e.git', 'git+ssh://git@-oProxyCommand=x/e.git']) {
+      refuses(edit((l) => (l.packages['node_modules/e'].resolved = `${repo}#${C}`)), `"${repo}" has a "-" where git or ssh would read an option`, e)
+    }
+    for (const resolved of [`git+ext::sh%20-c%20x#${C}`, `git+file:///srv/e.git#${C}`, `git+fd::17#${C}`]) {
+      refuses(edit((l) => (l.packages['node_modules/e'].resolved = resolved)), `"${resolved}" is not an http(s) URL, a file: tarball or a git URL`, e)
+    }
   })
 
   it('something, but for a package another bundles', () => {

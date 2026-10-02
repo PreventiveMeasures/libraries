@@ -112,6 +112,8 @@ export interface NpmManifest {
   os: string[] | undefined
   cpu: string[] | undefined
   libc: string[] | undefined
+  // As npm-normalize-package-bin leaves them: each name one segment, and
+  // each target a path within the package, which a `/` may end.
   bin: Record<string, string>
   // Old packages list licenses in a sequence.
   license: string | string[] | undefined
@@ -148,7 +150,9 @@ export interface NpmPackage extends NpmManifest {
 
 // `tarball` is an http(s) URL or `file:` and a path from the lockfile's
 // directory; undefined for one from the registry for its name and version,
-// as npm writes it when set to. `repo` is the URL npm clones from.
+// as npm writes it when set to. `repo` is the URL npm clones from, of a
+// protocol npm reads as git's, in which git reads no option or remote
+// helper.
 export type NpmResolution =
   | { type: 'tarball', tarball: string | undefined, integrity: string }
   | { type: 'git', repo: string, commit: string }

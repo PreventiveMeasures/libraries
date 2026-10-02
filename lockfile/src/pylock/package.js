@@ -4,8 +4,8 @@
 // holds it to the package's name and version.
 
 import { LockfileError, at, quote } from '../error.js'
-import { isCommit } from '../names.js'
-import { DIGESTS, checkDigest, checkPath, fileNameOf, parseSdistName, parseWheelName } from '../python/files.js'
+import { checkRepo, isCommit } from '../names.js'
+import { DIGESTS, checkDigest, checkPath, checkSubdirectory, fileNameOf, parseSdistName, parseWheelName } from '../python/files.js'
 import { versionKey } from '../python/pep440.js'
 import { field } from '../shape.js'
 import { TomlDateTime } from '../toml/datetime.js'
@@ -82,14 +82,14 @@ export function readWheels(value, where, pkg) {
   })(value, where)
 }
 
-export const readArchive = (value, where) => ({ ...readFile(value, where, ['subdirectory']).file, subdirectory: field(value, 'subdirectory', where, checkPath) })
+export const readArchive = (value, where) => ({ ...readFile(value, where, ['subdirectory']).file, subdirectory: field(value, 'subdirectory', where, checkSubdirectory) })
 
 export function readDirectory(value, where) {
   table(value, where, ['path', 'editable', 'subdirectory'])
   return {
     path: checkPath(value.path, at(where, 'path')),
     editable: field(value, 'editable', where, boolean) ?? false,
-    subdirectory: field(value, 'subdirectory', where, checkPath),
+    subdirectory: field(value, 'subdirectory', where, checkSubdirectory),
   }
 }
 
@@ -105,11 +105,11 @@ export function readVcs(value, where) {
   if ((type === 'git' || type === 'hg') && !isCommit(commitId)) throw new LockfileError(`${quote(commitId)} is not a full commit hash, which the spec requires`, at(where, 'commit-id'))
   return {
     type,
-    url: field(value, 'url', where, (url, here) => parseUrl(url, here, null) && url),
+    url: field(value, 'url', where, (url, here) => parseUrl(url, here, null) && checkRepo(url, here)),
     path: field(value, 'path', where, checkPath),
     requestedRevision: field(value, 'requested-revision', where, text),
     commitId,
-    subdirectory: field(value, 'subdirectory', where, checkPath),
+    subdirectory: field(value, 'subdirectory', where, checkSubdirectory),
   }
 }
 

@@ -185,6 +185,15 @@ describe('sources', () => {
     assert.equal(Object.values(lock.packages)[1].source.subdirectory, 'pkg')
   })
 
+  it('refuses a subdirectory out of the repository or the archive, and a host git reads as an option', () => {
+    const source = (text) => edit([`source = { git = "https://github.com/o/b?tag=v2#${C}" }`, `source = { ${text} }`])
+    for (const key of ['subdirectory', 'path']) {
+      refuses(source(`git = "https://github.com/o/b?${key}=../x&tag=v2#${C}"`), '"../x" climbs out of the directory it is in', 'package[1].source.git')
+    }
+    refuses(source(`git = "ssh://git@-oProxyCommand=x/b?tag=v2#${C}"`), `"ssh://git@-oProxyCommand=x/b?tag=v2#${C}" has a "-" where git or ssh would read an option`, 'package[1].source.git')
+    refuses(source('url = "https://files.example.com/b-2.0.0.tar.gz", subdirectory = "../x"'), '"../x" climbs out of the directory it is in', 'package[1].source.subdirectory')
+  })
+
   it('refuses a package without a version but of a source tree', () => {
     refuses(edit(['version = "2.0.0"\n', '']), 'expected a version, which uv writes of any but a source tree\'s package', 'package[1]')
     const lock = parseUvLock(edit(['version = "0.1.0"\nsource = { virtual = "." }', 'source = { virtual = "." }']))

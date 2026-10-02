@@ -6,7 +6,7 @@
 
 import { LockfileError, at, quote } from '../error.js'
 import { checkOptional } from '../graph.js'
-import { checkName, checkRelative, checkVersion, isVersion, joinRelative } from '../names.js'
+import { checkName, checkRegistryTarball, checkRelative, checkVersion, isVersion, joinRelative } from '../names.js'
 import { entries, field, flag, mapping, orEmpty, record, text, textMap, texts } from '../shape.js'
 import { refToKey, splitPackageKey, splitSnapshotKey } from './key.js'
 import { readResolution } from './resolution.js'
@@ -24,11 +24,12 @@ const SOURCES = new Set(['bitbucket', 'catalog', 'custom', 'file', 'git', 'githu
 // A key and its resolution say the same thing twice, and pnpm's reader
 // trusts one of them or the other depending on which case it is in, so they
 // are held to agree as its writer makes them: a registry version is a
-// tarball with an integrity and takes its version from the key; `file:` is
-// the very directory or tarball resolved; anything else is fetched from a
-// URL, a git repository or a tarball, and carries its version in a field.
-// A directory has no version in the lockfile at all.
-function readVersion(ref, entry, resolution, where) {
+// tarball with an integrity and takes its version from the key, and one
+// from npm's registry is that registry's tarball of the name and version;
+// `file:` is the very directory or tarball resolved; anything else is
+// fetched from a URL, a git repository or a tarball, and carries its
+// version in a field. A directory has no version in the lockfile at all.
+function readVersion(name, ref, entry, resolution, where) {
   const { type, tarball } = resolution
   const local = tarball?.startsWith('file:')
   if (isVersion(ref)) {
@@ -36,6 +37,7 @@ function readVersion(ref, entry, resolution, where) {
       throw new LockfileError(`expected a registry tarball with an integrity, for the version ${quote(ref)}`, at(where, 'resolution'))
     }
     if (entry.version !== undefined) throw new LockfileError('a registry package has its version in its key', at(where, 'version'))
+    if (tarball !== undefined) checkRegistryTarball(tarball, name, ref, at(at(where, 'resolution'), 'tarball'))
     return ref
   }
   const scheme = /^([A-Za-z][\w+.-]*):/u.exec(ref)?.[1]
@@ -65,7 +67,7 @@ function readInfo(key, entry, where) {
   const bundled = entry.bundledDependencies
   return {
     name,
-    version: readVersion(ref, entry, resolution, where),
+    version: readVersion(name, ref, entry, resolution, where),
     resolution,
     engines: textMap(orEmpty(entry.engines), at(where, 'engines')),
     os: field(entry, 'os', where, texts),

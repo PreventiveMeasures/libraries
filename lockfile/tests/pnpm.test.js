@@ -453,6 +453,46 @@ describe('a package is held to what pnpm writes', () => {
     }
   })
 
+  it('with a URL fetched as written, which the URL parser would not drop a tab or a space of', () => {
+    for (const tarball of ['https://registry.npmjs.org/c/-/c-2.0.0.tgz\t', 'https://registry.npm\tjs.org/c/-/c-2.0.0.tgz', 'https://registry.npmjs.org/c/-/c-2.0.0.tgz ', 'https://registry.npmjs.org/c/-/c-2.0\n.0.tgz']) {
+      refuses(edit(['tarball: https://registry.npmjs.org/c/-/c-2.0.0.tgz', `tarball: ${JSON.stringify(tarball)}`]), `packages["c@2.0.0"].resolution.tarball: ${JSON.stringify(tarball)} is not an http(s) URL or a file: path`)
+    }
+  })
+
+  it('with the registry\'s tarball of the name and version, by any name of it', () => {
+    for (const tarball of ['https://registry.npmjs.org/b/-/b-1.0.0.tgz', 'https://registry.npmjs.org/c/-/c-1.0.0.tgz', 'https://registry.npmjs.com/b/-/b-2.0.0.tgz', 'https://registry.npmjs.org./b/-/b-2.0.0.tgz', 'https://registry.yarnpkg.com/@s/c/-/c-2.0.0.tgz']) {
+      refuses(edit(['tarball: https://registry.npmjs.org/c/-/c-2.0.0.tgz', `tarball: ${tarball}`]), `packages["c@2.0.0"].resolution.tarball: "${tarball}" is not the registry's tarball of c@2.0.0`)
+    }
+    for (const tarball of ['https://registry.npmjs.com/c/-/c-2.0.0.tgz', 'https://registry.npmjs.org./c/-/c-2.0.0.tgz', 'https://npm.example.com/b/-/b-1.0.0.tgz']) {
+      assert.equal(parse(edit(['tarball: https://registry.npmjs.org/c/-/c-2.0.0.tgz', `tarball: ${tarball}`])).packages['c@2.0.0'].resolution.tarball, tarball)
+    }
+  })
+
+  it('with a repository git reads as a place alone', () => {
+    const where = `packages["e@git+https://example.com/e.git#${C}"].resolution.repo`
+    for (const repo of ['-oProxyCommand=x', 'ssh://-oProxyCommand=x/e.git', 'ssh://git@-oProxyCommand=x/e.git', 'git@-oProxyCommand=x:e.git']) {
+      refuses(edit(['repo: https://example.com/e.git,', `repo: '${repo}',`]), `${where}: "${repo}" has a "-" where git or ssh would read an option`)
+    }
+    for (const repo of ['ext::sh%20-c%20x', 'fd::17', 'x+y.z::e']) {
+      refuses(edit(['repo: https://example.com/e.git,', `repo: '${repo}',`]), `${where}: "${repo}" names a remote helper of git's, which is not supported`)
+    }
+    for (const repo of ['git@github.com:u/e.git', 'ssh://git@[::1]/e.git', 'https://example.com/a-b/-e.git', 'file:///srv/e.git']) {
+      assert.equal(parse(edit(['repo: https://example.com/e.git,', `repo: '${repo}',`])).packages[`e@git+https://example.com/e.git#${C}`].resolution.repo, repo)
+    }
+  })
+
+  it('with a subdirectory that stays within the package', () => {
+    const where = `packages["e@git+https://example.com/e.git#${C}"].resolution.path`
+    for (const path of ['/../e', '../e', '/packages/../../e', '/packages/./e', '//e', '/e/', '/', 'e\\f']) {
+      const inner = JSON.stringify(path.replace(/^\//u, ''))
+      const detail = path === '/' ? 'expected a non-empty string' : path.includes('../e') && !path.includes('packages') ? `${inner} climbs out of the directory it is in` : `${inner} is not a relative path in normal form`
+      refuses(edit(['repo: https://example.com/e.git, type: git}', `repo: https://example.com/e.git, type: git, path: '${path}'}`]), `${where}: ${detail}`)
+    }
+    for (const path of ['/packages/e', 'packages/e']) {
+      assert.equal(parse(edit(['repo: https://example.com/e.git, type: git}', `repo: https://example.com/e.git, type: git, path: ${path}}`])).packages[`e@git+https://example.com/e.git#${C}`].resolution.path, path)
+    }
+  })
+
   it('with a directory in normal form', () => {
     const where = 'packages["d@file:d"].resolution.directory'
     for (const directory of ['/d', './d', 'd/', 'd//e', 'd/../e', 'd\\e', 'C:/d', '']) {

@@ -55,6 +55,14 @@ describe('platforms, as the cargo-platform crate reads them', () => {
     assert.equal(parsePlatform('ünix'), undefined)
   })
 
+  it('refuses a cfg nested more than 64 deep, which would run out of stack, in time linear in its length', () => {
+    const nested = (depth) => `cfg(${'not('.repeat(depth)}unix${')'.repeat(depth)})`
+    assert.equal(platformMatches(parsePlatform(nested(64)), { name: 'x', cfg: new Set(['unix']) }), true)
+    assert.equal(parsePlatform(nested(65)), undefined)
+    assert.equal(parsePlatform(`cfg(${'all('.repeat(65)}${')'.repeat(65)})`), undefined)
+    assert.equal(parsePlatform(nested(100_000)), undefined)
+  })
+
   it('throws a TypeError for anything but a string', () => {
     assert.throws(() => parsePlatform(1), TypeError)
     assert.throws(() => parseCfg(undefined), TypeError)
