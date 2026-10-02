@@ -215,7 +215,7 @@ describe('sources', () => {
     // Bundler sorts it by its URL less the token, which the lockfile keeps.
     assert.equal(parseGemfileLock(moved(edit(['https://github.com', 'https://user:token@github.com']))).sources[1].type, 'git')
     refuses(edit(['\nPLATFORMS\n', '\nGEM\n  specs:\n\nPLATFORMS\n']), 'a GEM source of no remote after one of a remote, where Bundler writes it first at line 24')
-    assert.deepEqual(plain(parseGemfileLock(edit(['\nGEM\n', '\nGEM\n  specs:\n\nGEM\n'])).sources[2]), { type: 'gem' })
+    assert.deepEqual(plain(parseGemfileLock(edit(['\nGEM\n', '\nGEM\n  specs:\n\nGEM\n'], ['  n (= 1.0.0)', '  n (= 1.0.0)!'])).sources[2]), { type: 'gem' })
     refuses('PLATFORMS\n  ruby\n\nDEPENDENCIES\n', 'no GEM source, which Bundler always writes')
   })
 })
@@ -249,11 +249,24 @@ describe('gems', () => {
     assert.deepEqual(parseGemfileLock(edit(['(>= 1.0, < 2)', '(>= 0, < 2)'])).specs['app-0.1.0'].dependencies.a, ['>= 0', '< 2'])
   })
 
+  it('what the Gemfile names no source of, from one default source, as Bundler takes it', () => {
+    // A lone `path "."`, which Bundler 2 takes as the default source.
+    assert.equal(parseGemfileLock(edit(['  app!\n', '  app\n'], ['  n (= 1.0.0)', '  n (= 1.0.0)!'])).dependencies.app.pinned, false)
+    const coop = (text) => text.replace('\nGEM\n', '\nGEM\n  remote: https://gem.coop/\n  specs:\n    r (1.0.0)\n\nGEM\n').replace('  n (= 1.0.0)\n', '  n (= 1.0.0)\n  r!\n').replace(`  n (1.0.0-x86_64-linux) sha256=${H}\n`, `  n (1.0.0-x86_64-linux) sha256=${H}\n  r (1.0.0)\n`)
+    assert.equal(parseGemfileLock(coop(BASE)).specs['r-1.0.0'].source, 2)
+    refuses(coop(BASE).replace('  r!\n', '  r\n'), 'from sources[2], and "n" from sources[3], where Bundler takes what the Gemfile names no source of from its default alone', 'dependencies.r')
+    refuses(edit(['\nGEM\n', '\nGEM\n  specs:\n\nGEM\n']), 'from sources[3], where Bundler takes what the Gemfile names no source of from its default, sources[2], of no remote', 'dependencies.n')
+  })
+
+  it('one version of a gem for each platform', () => {
+    refuses(edit(['    n (1.0.0-x86_64-linux)\n      a (~> 1.2)\n', '    n (1.0.0-x86_64-linux)\n      a (~> 1.2)\n    n (1.0.1)\n'], [`  n (1.0.0-x86_64-linux) sha256=${H}\n`, `  n (1.0.0-x86_64-linux) sha256=${H}\n  n (1.0.1) sha256=${H}\n`]), 'for the platform of "n-1.0.0", where Bundler locks one version of a gem for each', 'specs["n-1.0.1"]')
+  })
+
   it('what the Gemfile asks for, sorted, and pinned where it names a git or path source', () => {
     refuses(edit(['  app!\n  g!\n', '  g!\n  app!\n']), 'after "g", where Bundler sorts the dependencies by name', 'dependencies.app')
     refuses(edit(['  t\n', '  t\n  t\n']), 'listed twice, where Bundler sorts the dependencies by name', 'dependencies.t')
     refuses(edit(['  g!\n', '  g\n']), 'from a git source, without the "!" Bundler writes of it', 'dependencies.g')
-    refuses(edit(['  app!\n', '  app\n']), 'from a path source, without the "!" Bundler writes of it', 'dependencies.app')
+    refuses(edit(['  app!\n', '  app\n']), 'from sources[2], and "app" from sources[1], where Bundler takes what the Gemfile names no source of from its default alone', 'dependencies.n')
     assert.equal(parseGemfileLock(edit(['  n (= 1.0.0)', '  n (= 1.0.0)!'])).dependencies.n.pinned, true)
     refuses(edit(['  n (= 1.0.0)', '  n!(= 1.0.0)']), 'expected a dependency as "name" or "name (requirement)", found "n!(= 1.0.0)" at line 31')
   })

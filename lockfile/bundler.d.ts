@@ -21,8 +21,9 @@ export { LockfileError } from './pnpm.js'
 // resolved to, or a `ref` of a full commit that is another one; a
 // dependency of a gem that names no gem locked, or a requirement any gem
 // locked under its name does not meet, as a lockfile edited by hand may
-// have; a gem nothing depends on; one name from two sources; a gem from a
-// git or a path source the Gemfile asks for without its `!`; a checksum
+// have; a gem nothing depends on; one name from two sources, or two gems
+// of one name for one platform; what the Gemfile asks for without its `!`
+// from other than one default source, a git one never; a checksum
 // not sha256 in lowercase hex, of a gem from a git or a path source, or of
 // no gem, and a gem without its line in CHECKSUMS.
 export function parseGemfileLock(text: string): GemfileLock
@@ -82,7 +83,9 @@ export interface BundlerSpec {
 export interface BundlerDependency {
   requirements: string[]
   // `!`: the Gemfile names its source, a git or a path one, or a `source`
-  // block's, which its gems are then from.
+  // block's, which its gems are then from. Without it, they are from
+  // Bundler's default source: the Gemfile's own GEM one, or, in Bundler 2,
+  // the directory of a lone `path`.
   pinned: boolean
 }
 

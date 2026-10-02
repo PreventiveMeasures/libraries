@@ -55,15 +55,37 @@ function readVersions(sections) {
   return { rubyVersion: ruby, bundledWith: bundled }
 }
 
-// The keys of the specs of each name, which Bundler takes from one source.
+// The keys of the specs of each name, which Bundler takes from one source,
+// at one version for each platform.
 function readGems(specs) {
   const gems = Object.create(null)
   for (const [key, spec] of Object.entries(specs)) {
     const prior = gems[spec.name]?.[0]
     if (prior !== undefined && specs[prior].source !== spec.source) throw new LockfileError(`from sources[${spec.source}], and ${quote(prior)} from sources[${specs[prior].source}], where Bundler takes a gem from one source`, at('specs', key))
+    const twin = gems[spec.name]?.find((other) => specs[other].platform === spec.platform)
+    if (twin !== undefined) throw new LockfileError(`for the platform of ${quote(twin)}, where Bundler locks one version of a gem for each`, at('specs', key))
     ;(gems[spec.name] ??= []).push(key)
   }
   return gems
+}
+
+// What the Gemfile names no source of, without its `!`, Bundler takes from
+// its default source, one: the GEM one of the Gemfile's own, which is the
+// one of no remote where there is one, or, in Bundler 2, the directory of
+// a lone `path`. A git source is never the default.
+function checkDefaultSource({ specs, gems, dependencies, sources }) {
+  const local = sources.findIndex((source) => source.type === 'gem' && source.remote === undefined)
+  let first
+  for (const [name, { pinned }] of Object.entries(dependencies)) {
+    if (pinned || gems[name] === undefined) continue
+    const where = at('dependencies', name)
+    const index = specs[gems[name][0]].source
+    const { type } = sources[index]
+    if (type === 'git') throw new LockfileError('from a git source, without the "!" Bundler writes of it', where)
+    if (type === 'gem' && local !== -1) throw new LockfileError(`from sources[${index}], where Bundler takes what the Gemfile names no source of from its default, sources[${local}], of no remote`, where)
+    first ??= { name, index }
+    if (index !== first.index) throw new LockfileError(`from sources[${index}], and ${quote(first.name)} from sources[${first.index}], where Bundler takes what the Gemfile names no source of from its default alone`, where)
+  }
 }
 
 // A requirement on a name is met by every gem locked under it, as Bundler
@@ -81,18 +103,15 @@ function checkMet(name, requirements, { specs, gems, versions }, where) {
 // Every edge leads to gems locked under its name, or, of the Gemfile, to
 // none where Bundler leaves out a platform's gem; every gem is reached.
 function checkGraph(lock) {
-  const { specs, gems, dependencies, sources } = lock
+  const { specs, gems, dependencies } = lock
   const reached = new Set()
   const queue = []
   const visit = (name) => {
     if (name in gems && !reached.has(name)) queue.push(name)
     reached.add(name)
   }
-  for (const [name, { requirements, pinned }] of Object.entries(dependencies)) {
-    const where = at('dependencies', name)
-    checkMet(name, requirements, lock, where)
-    const source = gems[name] === undefined ? undefined : sources[specs[gems[name][0]].source]
-    if (!pinned && source !== undefined && source.type !== 'gem') throw new LockfileError(`from a ${source.type} source, without the "!" Bundler writes of it`, where)
+  for (const [name, { requirements }] of Object.entries(dependencies)) {
+    checkMet(name, requirements, lock, at('dependencies', name))
     visit(name)
   }
   while (queue.length > 0) {
@@ -121,7 +140,8 @@ export function parseGemfileLock(text) {
   const dependencies = readDependencies(required(sections, 'DEPENDENCIES'))
   const gems = readGems(specs)
   const versions = new Map(Object.entries(gems).map(([name, keys]) => [name, versionSet(keys.map((key) => specs[key].version))]))
-  checkGraph({ specs, gems, versions, dependencies, sources })
+  checkDefaultSource({ specs, gems, dependencies, sources })
+  checkGraph({ specs, gems, versions, dependencies })
   const checksums = sections.has('CHECKSUMS')
   const bundlerChecksum = checksums ? readChecksums(sections.get('CHECKSUMS').lines, specs, sources) : undefined
   return { sources, specs, gems, platforms, dependencies, checksums, bundlerChecksum, ...readVersions(sections) }
