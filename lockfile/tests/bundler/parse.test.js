@@ -258,6 +258,17 @@ describe('gems', () => {
     refuses(edit(['\nGEM\n', '\nGEM\n  specs:\n\nGEM\n']), 'from sources[3], where Bundler takes what the Gemfile names no source of from its default, sources[2], of no remote', 'dependencies.n')
   })
 
+  it('a gem of a platform one of PLATFORMS takes, as Bundler matches them', () => {
+    const listed = (locked) => ['ruby', locked].sort().map((platform) => `  ${platform}\n`).join('')
+    const variant = (platform, locked = 'x86_64-linux') => BASE.replaceAll('1.0.0-x86_64-linux', `1.0.0-${platform}`).replace('  ruby\n  x86_64-linux\n', listed(locked))
+    for (const [platform, locked] of [['x86_64-linux-gnu'], ['x86_64-linux', 'x86_64-linux-musl'], ['arm64-darwin', 'arm64-darwin-23'], ['universal-darwin', 'x86_64-darwin'], ['universal-java-11', 'java'], ['arm-linux', 'armv7l-linux'], ['universal-mingw', 'x64-mingw-ucrt']]) {
+      assert.equal(parseGemfileLock(variant(platform, locked)).specs[`n-1.0.0-${platform}`].platform, platform, `${platform} for ${locked}`)
+    }
+    refuses(edit(['  x86_64-linux\n\nDEPENDENCIES', '\nDEPENDENCIES']), 'of the platform "x86_64-linux", which no platform of PLATFORMS takes, where Bundler locks a gem for one', 'specs["n-1.0.0-x86_64-linux"]')
+    refuses(variant('aarch64-linux'), 'of the platform "aarch64-linux", which no platform of PLATFORMS takes, where Bundler locks a gem for one', 'specs["n-1.0.0-aarch64-linux"]')
+    refuses(variant('x64-mingw32', 'x64-mingw-ucrt'), 'of the platform "x64-mingw32", which no platform of PLATFORMS takes, where Bundler locks a gem for one', 'specs["n-1.0.0-x64-mingw32"]')
+  })
+
   it('one version of a gem for each platform', () => {
     refuses(edit(['    n (1.0.0-x86_64-linux)\n      a (~> 1.2)\n', '    n (1.0.0-x86_64-linux)\n      a (~> 1.2)\n    n (1.0.1)\n'], [`  n (1.0.0-x86_64-linux) sha256=${H}\n`, `  n (1.0.0-x86_64-linux) sha256=${H}\n  n (1.0.1) sha256=${H}\n`]), 'for the platform of "n-1.0.0", where Bundler locks one version of a gem for each', 'specs["n-1.0.1"]')
   })

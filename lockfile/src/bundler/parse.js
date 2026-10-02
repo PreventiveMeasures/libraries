@@ -5,7 +5,7 @@
 
 import { LockfileError, at, quote } from '../error.js'
 import { fail } from '../lines.js'
-import { isPlatform } from '../rubygems/gem.js'
+import { isPlatform, platformServed, platformSet } from '../rubygems/gem.js'
 import { isVersion, parseRequirement, satisfiedByAll, satisfies, versionSet } from '../rubygems/version.js'
 import { checkOrder, readSource } from './sources.js'
 import { readChecksums, readNamed, readSpecs } from './specs.js'
@@ -27,6 +27,14 @@ function readPlatforms(section) {
     if (index > 0 && platform <= platforms[index - 1]) throw new LockfileError(`${quote(platform)} after ${quote(platforms[index - 1])}, where Bundler sorts the platforms, each once`, where)
   }
   return platforms
+}
+
+// Every gem of a platform is one Bundler locked for one of PLATFORMS.
+function checkPlatforms(specs, platforms) {
+  const set = platformSet(platforms)
+  for (const [key, { platform }] of Object.entries(specs)) {
+    if (platform !== 'ruby' && !platformServed(set, platform)) throw new LockfileError(`of the platform ${quote(platform)}, which no platform of PLATFORMS takes, where Bundler locks a gem for one`, at('specs', key))
+  }
 }
 
 // What the Gemfile asks for, by name, sorted; `!` where it names the
@@ -137,6 +145,7 @@ export function parseGemfileLock(text) {
   checkOrder(sources, raw)
   const specs = readSpecs(raw, sources)
   const platforms = readPlatforms(required(sections, 'PLATFORMS'))
+  checkPlatforms(specs, platforms)
   const dependencies = readDependencies(required(sections, 'DEPENDENCIES'))
   const gems = readGems(specs)
   const versions = new Map(Object.entries(gems).map(([name, keys]) => [name, versionSet(keys.map((key) => specs[key].version))]))

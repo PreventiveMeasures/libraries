@@ -99,21 +99,56 @@ function split4(text) {
   return sep === -1 ? { cpu: trimmed || undefined } : { cpu: trimmed.slice(0, sep), os: trimmed.slice(sep + 1) }
 }
 
-// Gem::Platform.new(text).to_s, of RubyGems 3.4 to 3.6, or 4: the parts
-// there are, `-` between them, or of a lone OS, RubyGems 4 none. `ruby` and
+// [cpu, os, version] as Gem::Platform.new(text) of RubyGems 3.4 to 3.6, or
+// of 4, reads them; each undefined where there is none. `ruby` and
 // `current`, which it reads as no platform and as the host's, are not
 // taken here.
-export function platformOf(text, rubygems) {
+function platformParts(text, rubygems) {
   const { cpu, os, version } = rubygems === 3 ? split3(text) : split4(text)
-  let platformCpu = cpu !== undefined && /i\d86/u.test(cpu) ? 'x86' : cpu
-  if (version !== undefined) return [platformCpu, os, version].join('-')
+  const x86 = cpu !== undefined && /i\d86/u.test(cpu) ? 'x86' : cpu
+  if (version !== undefined) return [x86, os, version]
   // A lone part is the OS, as `java` is.
-  if (os === undefined) platformCpu = undefined
   const [name, osVersion, lone] = readOs(os ?? cpu, rubygems)
-  platformCpu ??= lone
-  return [platformCpu, name, osVersion].filter((part) => part !== undefined).join(rubygems === 4 && platformCpu === undefined ? '' : '-')
+  return [os === undefined ? lone : x86, name, osVersion]
+}
+
+// Gem::Platform#to_s: the parts there are, `-` between them, or of a lone
+// OS, RubyGems 4 none.
+export function platformOf(text, rubygems) {
+  const parts = platformParts(text, rubygems)
+  return parts.filter((part) => part !== undefined).join(rubygems === 4 && parts[0] === undefined ? '' : '-')
 }
 
 // A platform as RubyGems writes one: what RubyGems 3 and 4 both read it as,
 // written back the same, and so the platform a gem's file is named by.
 export const isPlatform = (text) => text !== 'ruby' && text !== 'current' && /^[\w.-]+$/u.test(text) && platformOf(text, 3) === text && platformOf(text, 4) === text
+
+// Platforms as what a gem's is held to: by OS, the CPUs of each, and
+// whether one is an ARM of a version, `armv7l`.
+export function platformSet(platforms) {
+  const byOs = new Map()
+  for (const platform of platforms) {
+    if (platform === 'ruby') continue
+    const [cpu, os] = platformParts(platform, 3)
+    if (!byOs.has(os)) byOs.set(os, { cpus: new Set(), armv: false })
+    const entry = byOs.get(os)
+    entry.cpus.add(cpu)
+    entry.armv ||= cpu?.startsWith('armv') ?? false
+  }
+  return byOs
+}
+
+// Whether Bundler may install a gem of `platform` for one of a set, as
+// Gem::Platform#=== matches them: of one OS, and a CPU that takes it, any
+// where one is none or universal, an ARM any ARM of a version; or of a
+// universal mingw and any mingw. Of the OS's version, which each RubyGems
+// compares its own way, and Bundler's generic platforms take more of, it
+// takes any.
+export function platformServed(set, platform) {
+  const [cpu, os] = platformParts(platform, 3)
+  const { cpus, armv } = set.get(os) ?? { cpus: new Set(), armv: false }
+  const anyCpu = cpu === undefined || cpu === 'universal' ? cpus.size > 0 : cpus.has(cpu) || cpus.has(undefined) || cpus.has('universal')
+  if (anyCpu || (cpu === 'arm' && armv) || (cpu?.startsWith('armv') && cpus.has('arm'))) return true
+  const mingws = ['mingw', 'mingw32'].map((name) => set.get(name)?.cpus).filter((others) => others !== undefined)
+  return os.startsWith('mingw') && mingws.some((others) => cpu === 'universal' || others.has('universal'))
+}

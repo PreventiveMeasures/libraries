@@ -22,7 +22,8 @@ export { LockfileError } from './pnpm.js'
 // dependency of a gem that names no gem locked, or a requirement any gem
 // locked under its name does not meet, as a lockfile edited by hand may
 // have; a gem nothing depends on; one name from two sources, or two gems
-// of one name for one platform; what the Gemfile asks for without its `!`
+// of one name for one platform, or a gem of a platform no platform of
+// PLATFORMS takes, of its OS and CPU; what the Gemfile asks for without its `!`
 // from other than one default source, a git one never; a checksum
 // not sha256 in lowercase hex, of a gem from a git or a path source, or of
 // no gem, and a gem without its line in CHECKSUMS.
@@ -40,7 +41,9 @@ export interface GemfileLock {
   // By name: the keys of `specs` locked under it, one for each platform
   // Bundler locked it for, all from one source.
   gems: Record<string, string[]>
-  // Sorted; `ruby` where the gems of no platform are locked as such.
+  // Sorted; `ruby` where the gems of no platform are locked as such. Each
+  // gem of a platform is one of them takes: `x86_64-linux-gnu`, say, of
+  // `x86_64-linux`, or `arm64-darwin` of `arm64-darwin-23`.
   platforms: string[]
   // What the Gemfile asks for, by name. One for a platform not locked, as
   // `platforms: [:jruby]` is with no Java platform, has no gem.
