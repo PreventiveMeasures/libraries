@@ -4,7 +4,7 @@
 // Node would read it as the tree's, and removed, the caller's would be lost.
 
 import { VfsError } from '@preventive/vfs'
-import { basename } from '@preventive/vfs/path.js'
+import { basename, dirname } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from './error.js'
 
 // As macOS takes a name, whatever its case and normalization.
@@ -26,13 +26,46 @@ function checkCollisions(vfs) {
   if (clash !== undefined) throw new DeptreeError(`${quote(clash.names[0])} and ${quote(clash.names[1])} are one name on macOS`, quote(clash.path))
 }
 
+// A path within a directory: no segment of it empty, `.` or `..`.
+export const isInside = (path) => path !== '' && path.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..')
+
+// Each builder holds what a tarball names and where a package goes to that
+// first, and makes no link where a package is written after. A write is held
+// to it again, so that one slip puts nothing out of the package's directory:
+// its path within it, the directories on the way the ones it spells, which no
+// link leads elsewhere, and no link at the path itself. `real` keeps the
+// directories found so, as a package's files share them.
+export function checkWrite(vfs, root, path, real) {
+  const at = `/${root}/${path}`
+  if (!isInside(root) || !isInside(path)) throw new DeptreeError('is not a path within the package', quote(at.slice(1)))
+  const parent = dirname(at)
+  if (!real.has(parent)) {
+    if (vfs.realpath(parent) !== parent) throw new DeptreeError('would be written through a link', quote(at.slice(1)))
+    real.add(parent)
+  }
+  if (vfs.isSymlink(at)) throw new DeptreeError('would be written through a link', quote(at.slice(1)))
+  return at
+}
+
+// A link at `path`, a place within the tree under directories it spells,
+// to `target`, as given.
+export function writeLink(vfs, path, target) {
+  if (!isInside(path)) throw new DeptreeError('is not a place within the tree', quote(path))
+  const parent = dirname(`/${path}`)
+  vfs.mkdir(parent, { recursive: true })
+  if (vfs.realpath(parent) !== parent) throw new DeptreeError('would be linked through a link', quote(path))
+  vfs.symlink(target, `/${path}`)
+}
+
 // `root` is the package's directory in the tree, without a leading `/`.
 export function writeFiles(vfs, root, { dirs, files }, stats, skip = () => false) {
   for (const dir of dirs) if (!skip(dir)) vfs.mkdir(`/${root}/${dir}`, { recursive: true })
+  const real = new Set()
   for (const [path, file] of files) {
     if (skip(path)) continue
+    const at = checkWrite(vfs, root, path, real)
     try {
-      vfs.writeFile(`/${root}/${path}`, file.data, { mode: file.mode })
+      vfs.writeFile(at, file.data, { mode: file.mode })
     } catch (error) {
       if (error instanceof VfsError) throw new DeptreeError(`cannot be written: ${error.message}`, quote(`${root}/${path}`), { cause: error })
       throw error

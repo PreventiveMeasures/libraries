@@ -8,7 +8,7 @@ import { Vfs } from '@preventive/vfs'
 import { dirname, relative } from '@preventive/vfs/path.js'
 import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote, refusalOf } from '../error.js'
-import { checkNoModules, mount } from '../mount.js'
+import { checkNoModules, checkWrite, isInside, mount, writeLink } from '../mount.js'
 import { applyPatch, parsePatch } from '../patch.js'
 import { checkProject, typeOf } from '../project.js'
 import { REGISTRY, tarballUrl } from '../tarball.js'
@@ -126,9 +126,11 @@ function writeNode(vfs, dir, files, stats) {
   if (typeOf(vfs, root, false) !== undefined) throw new DeptreeError('would be written over with something else', quote(dir))
   vfs.mkdir(root, { recursive: true })
   const made = new Set([root])
+  const real = new Set()
   for (const [path, file] of files) {
     const at = `${root}/${path}`
     if (file.directory) {
+      if (!isInside(path)) throw new DeptreeError('is not a path within the package', quote(at.slice(1)))
       vfs.mkdir(at, { recursive: true })
       addMade(made, at)
       continue
@@ -139,7 +141,7 @@ function writeNode(vfs, dir, files, stats) {
       vfs.mkdir(parent, { recursive: true })
       addMade(made, parent)
     }
-    vfs.writeFile(at, file.data, { mode: file.mode })
+    vfs.writeFile(checkWrite(vfs, dir, path, real), file.data, { mode: file.mode })
     stats.files++
     stats.bytes += file.data.length
   }
@@ -262,8 +264,7 @@ export async function buildPnpmTree(options) {
   }
   for (const [path, target] of links) {
     try {
-      vfs.mkdir(dirname(`/${path}`), { recursive: true })
-      vfs.symlink(linkTarget(path, target), `/${path}`)
+      writeLink(vfs, path, linkTarget(path, target))
     } catch (error) {
       throw new DeptreeError(`cannot be linked: ${error.message}`, quote(path), { cause: error })
     }

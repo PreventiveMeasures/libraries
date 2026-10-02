@@ -8,7 +8,7 @@ import { compareNames, dirname, relative } from '@preventive/vfs/path.js'
 import { clean, satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote } from '../error.js'
-import { checkNoModules, mount, writeFiles } from '../mount.js'
+import { checkNoModules, mount, writeFiles, writeLink } from '../mount.js'
 import { typeOf } from '../project.js'
 import { checkBinLinks } from './bins.js'
 import { incompatibility } from './compat.js'
@@ -136,8 +136,7 @@ function writeTree(placed, fetched) {
     if (!locations.get(ref).includes(dest)) locations.get(ref).push(dest)
     if (ref.kind === 'workspace') {
       links.set(dest, ref.workspace.dir)
-      vfs.mkdir(`/${dirname(dest)}`, { recursive: true })
-      vfs.symlink(relative(`/${dirname(dest)}`, `/${ref.workspace.dir}`) || '.', `/${dest}`)
+      writeLink(vfs, dest, relative(`/${dirname(dest)}`, `/${ref.workspace.dir}`) || '.')
       continue
     }
     const pkg = fetched.get(ref)
