@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
-import { LockfileError, parseNpmLockfile } from '../../npm.js'
-import { semver } from '../yarn1/semver.js'
+import { LockfileError } from '../../npm.js'
+import { fixture, parse, plain } from './base.js'
 
 // The baseline: real lockfiles. npm 9, 10, 11 and 12 wrote one workspace
 // that pulls in every kind of dependency a lockfile records; npm 11 a plain
@@ -12,12 +11,9 @@ import { semver } from '../yarn1/semver.js'
 // gives a version of a package its dependent does not ask for.
 // scripts/record-npm.js builds them; its header says what is in them.
 
-const FIXTURES = new URL('fixtures/', import.meta.url)
-const text = (name) => readFileSync(new URL(`${name}.json`, FIXTURES), 'utf8')
-const read = (name, options) => parseNpmLockfile(text(name), options ?? { semver })
+const read = (name, options) => parse(fixture(name), options)
 const VERSIONS = ['npm-9', 'npm-10', 'npm-11', 'npm-12']
 
-const plain = (value) => structuredClone(value)
 const flags = (node) => ['dev', 'optional', 'devOptional', 'peer'].filter((flag) => node[flag])
 
 describe('every version reads to the same workspace', () => {
@@ -121,7 +117,7 @@ describe('a workspace, as npm 11 writes it', () => {
 
 describe('a plain project, as npm 11 writes it', () => {
   it('indented with a tab, with CRLF line ends, as its package.json is', () => {
-    assert.match(text('npm-11-plain'), /^\{\r\n\t"name": "plain",\r\n/u)
+    assert.match(fixture('npm-11-plain'), /^\{\r\n\t"name": "plain",\r\n/u)
     assert.equal(Object.keys(read('npm-11-plain').packages).length, 3)
   })
 

@@ -21,10 +21,7 @@ function bundlerOf(node, path = new Set()) {
   return undefined
 }
 
-function underBundler(node) {
-  for (let parent = node.parent; parent !== undefined; parent = parent.parent) if (parent.bundleDependencies !== undefined) return true
-  return false
-}
+const underBundler = ({ parent }) => parent !== undefined && (parent.bundleDependencies !== undefined || underBundler(parent))
 
 // A package bundled in another's tarball comes from it, and from nothing
 // else; the project's own it bundles are installed as any other.

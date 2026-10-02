@@ -4,13 +4,10 @@ import { LockfileError, parseNpmLockfile } from '../../npm.js'
 import { at } from '../../src/error.js'
 import { random } from '../random.js'
 import { semver } from '../yarn1/semver.js'
-import { BASE, C, I, S1, edit, registry, write } from './base.js'
+import { BASE, C, I, S1, edit, parse, plain, registry, write } from './base.js'
 
 // The small lockfile of base.js, and then one edit at a time, each refused
 // with a message that says where and why.
-
-const parse = (text, options) => parseNpmLockfile(text, options ?? { semver })
-const plain = (value) => structuredClone(value)
 
 const refuses = (text, message, where, options) => assert.throws(() => parse(text, options), (error) => {
   assert.ok(error instanceof LockfileError, error.stack)

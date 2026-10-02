@@ -3,13 +3,19 @@
 // the tree; in three ways, as npm's versions have had it.
 
 import { LockfileError, at } from '../error.js'
-import { resolveParent } from './tree.js'
+import { FLAGS } from './entries.js'
+import { packageOf, resolveParent } from './tree.js'
 
-const FLAGS = ['dev', 'optional', 'devOptional', 'peer', 'extraneous']
-const WRITTEN = ['dev', 'optional', 'devOptional', 'peer']
+const ALL = [...FLAGS, 'extraneous']
 
 // Every flag set but on the project, where none is.
-const initial = (nodes) => new Map([...nodes.values()].map((node) => [node, Object.fromEntries(FLAGS.map((flag) => [flag, node.kind !== 'root']))]))
+const initial = (nodes) => new Map([...nodes.values()].map((node) => [node, Object.fromEntries(ALL.map((flag) => [flag, node.kind !== 'root']))]))
+
+// resetParents: a flag a node is without, the nodes it is in are without.
+function resetParents(flags, node, flag) {
+  if (flags.get(node)[flag]) return
+  for (let parent = resolveParent(node); parent !== undefined && flags.get(parent)[flag]; parent = resolveParent(parent)) flags.get(parent)[flag] = false
+}
 
 // What an edge's type is by Edge#dev, #optional and #peer.
 const kinds = (type) => ({ dev: type === 'dev', optional: type === 'optional' || type === 'peerOptional', peer: type.startsWith('peer') })
@@ -29,10 +35,10 @@ function calcFlags(nodes, assign) {
     const node = queue.pop()
     seen.add(node)
     const own = flags.get(node)
-    for (let parent = resolveParent(node); !own.extraneous && parent !== undefined && flags.get(parent).extraneous; parent = resolveParent(parent)) flags.get(parent).extraneous = false
+    resetParents(flags, node, 'extraneous')
     if (node.kind === 'link') {
       const target = flags.get(node.target)
-      const changed = FLAGS.filter((flag) => target[flag] && !own[flag])
+      const changed = ALL.filter((flag) => target[flag] && !own[flag])
       if (assign) Object.assign(target, own)
       else for (const flag of changed) target[flag] = false
       if (assign || changed.length > 0 || !seen.has(node.target)) queue.push(node.target)
@@ -49,7 +55,7 @@ function calcFlags(nodes, assign) {
         peer: !own.peer && !peer,
       }
       const theirs = flags.get(to)
-      const changed = FLAGS.filter((flag) => theirs[flag] && unset[flag])
+      const changed = ALL.filter((flag) => theirs[flag] && unset[flag])
       for (const flag of changed) theirs[flag] = false
       if (changed.length > 0) queue.push(to)
     }
@@ -80,11 +86,6 @@ function descend(tree, visit, children) {
 // change once it is visited, the walk can leave what it leads to as it was.
 function calcFlagsBefore(nodes) {
   const flags = initial(nodes)
-  const root = nodes.get('')
-  const resetParents = (node, flag) => {
-    if (flags.get(node)[flag]) return
-    for (let parent = resolveParent(node); parent !== undefined && flags.get(parent)[flag]; parent = resolveParent(parent)) flags.get(parent)[flag] = false
-  }
   const unsetFlag = (start, flag) => {
     if (!flags.get(start)[flag]) return
     const unset = (node) => {
@@ -94,16 +95,16 @@ function calcFlagsBefore(nodes) {
     descend(start, (node) => {
       unset(node)
       if (node.kind === 'link') unset(node.target)
-    }, (node) => [...(node.kind === 'link' ? node.target : node).edges.values()]
+    }, (node) => [...packageOf(node).edges.values()]
       .filter(({ type, to }) => to !== undefined && flags.get(to)[flag] && ((flag !== 'peer' && type === 'peer') || type === 'prod'))
       .map(({ to }) => to))
   }
   const step = (node) => {
     const own = flags.get(node)
     own.extraneous = false
-    for (const flag of ['extraneous', 'dev', 'peer', 'devOptional', 'optional']) resetParents(node, flag)
+    for (const flag of ALL) resetParents(flags, node, flag)
     if (node.kind === 'link') {
-      for (const flag of WRITTEN) flags.get(node.target)[flag] = own[flag]
+      for (const flag of FLAGS) flags.get(node.target)[flag] = own[flag]
       return step(node.target)
     }
     for (const { type, to } of node.edges.values()) {
@@ -118,7 +119,7 @@ function calcFlagsBefore(nodes) {
     }
     return node
   }
-  descend(root, step, (node, stepped) => [...stepped.edges.values()].map(({ to }) => to).filter((to) => to !== undefined))
+  descend(nodes.get(''), step, (node, stepped) => [...stepped.edges.values()].map(({ to }) => to).filter((to) => to !== undefined))
   return flags
 }
 
@@ -131,7 +132,7 @@ function mismatch(nodes, flags) {
     if (own.extraneous) return new LockfileError('nothing installed leads to it, so npm takes it as extraneous, and prunes it', node.where)
     if (node.kind === 'link') continue
     const written = { ...own, devOptional: own.devOptional && !own.dev && !own.optional }
-    const flag = WRITTEN.find((name) => node.flags[name] !== written[name])
+    const flag = FLAGS.find((name) => node.flags[name] !== written[name])
     if (flag !== undefined) return new LockfileError(`expected ${written[flag] ? 'true' : 'none'}, as npm sets it from what depends on it`, at(node.where, flag))
   }
   return undefined

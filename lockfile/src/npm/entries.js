@@ -5,14 +5,17 @@
 
 import { LockfileError, at, quote } from '../error.js'
 import { checkIntegrity, checkName, checkRelative, checkRepo, checkVersion, isCommit, isHttpUrl } from '../names.js'
-import { boolean, entries, field, flag, kind, record, string, text, texts } from '../shape.js'
+import { boolean, entries, field, flag, kind, record, text, textMap, texts } from '../shape.js'
 import { fromHostedUrl } from './hosted.js'
 import { isTarball } from './spec.js'
+
+// The flags npm writes of how a node is depended on.
+export const FLAGS = ['dev', 'optional', 'devOptional', 'peer']
 
 const MANIFEST = [
   'name', 'version', 'dependencies', 'optionalDependencies', 'peerDependencies', 'peerDependenciesMeta',
   'bundleDependencies', 'acceptDependencies', 'funding', 'engines', 'os', 'cpu', 'libc', 'license',
-  'hasInstallScript', 'bin', 'deprecated', 'workspaces', 'dev', 'optional', 'devOptional', 'peer',
+  'hasInstallScript', 'bin', 'deprecated', 'workspaces', ...FLAGS,
 ]
 const FIELDS = {
   link: ['link', 'resolved'],
@@ -28,10 +31,8 @@ const REFUSED = {
 }
 
 function checkFields(entry, where, fields) {
-  for (const key of Object.keys(record(entry, where))) {
-    if (key in REFUSED) throw new LockfileError(REFUSED[key], at(where, key))
-    if (!fields.includes(key)) throw new LockfileError(`unsupported field ${quote(key)}`, where)
-  }
+  for (const key of Object.keys(record(entry, where))) if (key in REFUSED) throw new LockfileError(REFUSED[key], at(where, key))
+  record(entry, where, fields)
 }
 
 // A list or mapping, which npm leaves out where it is empty.
@@ -42,24 +43,19 @@ function filled(value, where) {
   return value
 }
 
-const mapping = (read, empty = false) => (value, where) => {
+const mapping = (read) => (value, where) => {
   const map = Object.create(null)
-  for (const [key, item, here] of entries(empty ? value : filled(value, where), where)) map[key] = read(item, here, key)
+  for (const [key, item, here] of entries(filled(value, where), where)) map[key] = read(item, here, key)
   return map
 }
 
-const spec = (value, where, name) => {
-  checkName(name, where)
-  return string(value, where)
-}
-const specs = mapping(spec)
+const specs = (value, where) => textMap(filled(value, where), where, checkName)
 const readName = (value, where) => checkName(text(value, where), where)
 const names = (value, where) => texts(filled(value, where), where).map((name, index) => checkName(name, `${where}[${index}]`))
 const strings = (value, where) => texts(filled(value, where), where)
 
-// As the manifest has them: old ones list engines in a sequence, in which
-// npm finds none.
-const readEngines = (value, where) => (Array.isArray(value) ? strings(value, where) : mapping(string)(value, where))
+// A sequence of strings, which old manifests have, or what `read` reads.
+const stringsOr = (read) => (value, where) => (Array.isArray(value) ? strings(value, where) : read(value, where))
 
 const peersMeta = mapping((item, where, name) => {
   checkName(name, where)
@@ -72,12 +68,11 @@ const funding = (value, where) => (typeof value === 'string' ? text(value, where
 const readFunding = (value, where) => (Array.isArray(value) ? filled(value, where).map((item, index) => funding(item, `${where}[${index}]`)) : funding(value, where))
 
 // Globs, or the `packages` of them, which @npmcli/map-workspaces reads.
-function readWorkspaces(value, where) {
-  if (Array.isArray(value)) return strings(value, where)
+const readWorkspaces = stringsOr((value, where) => {
   record(filled(value, where), where, ['packages', 'nohoist'])
-  if (value.nohoist !== undefined) strings(value.nohoist, at(where, 'nohoist'))
+  field(value, 'nohoist', where, strings)
   return strings(value.packages, at(where, 'packages'))
-}
+})
 
 const READERS = {
   __proto__: null,
@@ -85,17 +80,17 @@ const READERS = {
   optionalDependencies: specs,
   peerDependencies: specs,
   // Written as the manifest has it, empty too.
-  devDependencies: mapping(spec, true),
+  devDependencies: (value, where) => textMap(value, where, checkName),
   peerDependenciesMeta: peersMeta,
   acceptDependencies: specs,
   bundleDependencies: names,
   funding: readFunding,
-  engines: readEngines,
+  // Engines in a sequence npm finds none in.
+  engines: stringsOr((value, where) => textMap(filled(value, where), where)),
   os: strings,
   cpu: strings,
   libc: strings,
-  // A sequence in old packages.
-  license: (value, where) => (Array.isArray(value) ? strings(value, where) : text(value, where)),
+  license: stringsOr(text),
   bin: mapping(text),
   deprecated: text,
   workspaces: readWorkspaces,
@@ -103,8 +98,7 @@ const READERS = {
 
 // npm leaves devOptional out where dev or optional is set.
 function readFlags(entry, where) {
-  const flags = {}
-  for (const name of ['dev', 'optional', 'devOptional', 'peer']) flags[name] = flag(entry[name], at(where, name))
+  const flags = Object.fromEntries(FLAGS.map((name) => [name, flag(entry[name], at(where, name))]))
   if (flags.devOptional && (flags.dev || flags.optional)) throw new LockfileError('set beside dev or optional, where npm leaves it out', at(where, 'devOptional'))
   return flags
 }
@@ -181,11 +175,15 @@ export function readLink(entry, where) {
 }
 
 // A project's directory, or a package; `folder` the name its location
-// gives it, undefined for the project's own.
+// gives it, undefined for the project's own. A bundle of a directory but
+// the project's is not supported.
 export function readEntry(entry, where, kindOf, folder) {
   checkFields(entry, where, FIELDS[kindOf])
   const read = Object.create(null)
   for (const key of Object.keys(READERS)) read[key] = field(entry, key, where, READERS[key])
+  if (kindOf === 'importer' && folder !== undefined && read.bundleDependencies !== undefined) {
+    throw new LockfileError('a bundle of a directory, which is not supported', at(where, 'bundleDependencies'))
+  }
   const name = field(entry, 'name', where, readName)
   if (name !== undefined && name === folder) throw new LockfileError('the name of its folder, which npm leaves out', at(where, 'name'))
   const version = kindOf === 'package' ? checkVersion(entry.version, at(where, 'version')) : field(entry, 'version', where, text)

@@ -2,7 +2,16 @@
 // package and one nested under another, a peer, an alias, a git repository,
 // a tarball by URL and one on disk that bundles a package, dev and optional
 // ones, a directory linked and a workspace with its own node_modules — as
-// npm writes it; and the same with an edit, as text.
+// npm writes it; and the same with an edit, as text. And what the tests
+// share: the reader with semver, and the lockfiles npm wrote.
+
+import { readFileSync } from 'node:fs'
+import { parseNpmLockfile } from '../../npm.js'
+import { semver } from '../yarn1/semver.js'
+
+export const parse = (text, options) => parseNpmLockfile(text, options ?? { semver })
+export const fixture = (name) => readFileSync(new URL(`fixtures/${name}.json`, import.meta.url), 'utf8')
+export const plain = (value) => structuredClone(value)
 
 export const I = 'sha512-z4PhNX7vuL3xVChQ1m2AB9Yg5AULVxXcg/SpIdNs6c5H0NE8XYXysP+DGNKHfuwvY7kxvUdBeoGlODJ6+SfaPg=='
 export const C = '0123456789abcdef0123456789abcdef01234567'

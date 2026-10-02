@@ -6,6 +6,7 @@ import { sshOf } from '../../src/npm/hosted.js'
 import { readSpec } from '../../src/npm/spec.js'
 import { random } from '../random.js'
 import { semver } from '../yarn1/semver.js'
+import { C } from './base.js'
 import { npa } from './reference.js'
 
 // npm-package-arg, from the npm beside node, against the reader of specs
@@ -16,7 +17,6 @@ import { npa } from './reference.js'
 
 // Deep enough that no `..` climbs out of the filesystem's root.
 const ROOT = resolve('/a/b/c/d/e/f/g/project')
-const C = '0123456789abcdef0123456789abcdef01234567'
 
 // What is refused here that npm reads: a path out of every project, what a
 // git spec has that npm passes over or that is not supported, `FILE:`, a

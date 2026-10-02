@@ -12,7 +12,7 @@ import { LockfileError, quote } from '../error.js'
 import { joinRelative } from '../names.js'
 import { sshOf } from './hosted.js'
 import { readResolved, readSpec } from './spec.js'
-import { edgeAt } from './tree.js'
+import { edgeAt, packageOf } from './tree.js'
 
 const COMMIT = /^[\dA-Fa-f]{40,64}$/u
 
@@ -25,7 +25,6 @@ function fromPath(node) {
 }
 
 const describe = (node) => quote(node.location)
-const packageOf = (node) => (node.kind === 'link' ? node.target : node)
 
 // A version, a range or a tag of the registry: a version or a range by
 // semver, where it is given; a tag where the package came from a URL, as

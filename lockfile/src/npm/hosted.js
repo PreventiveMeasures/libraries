@@ -4,29 +4,32 @@
 // host's domain. npm holds two of these to be one repository where the ssh
 // URLs it would clone them from are one.
 
+const trimGit = (project) => (project?.endsWith('.git') ? project.slice(0, -4) : project)
+
+// The user and project, where there are both, `.git` off the project.
+function repo(user, project, committish) {
+  const trimmed = trimGit(project)
+  return user && trimmed ? { user, project: trimmed, committish } : undefined
+}
+
+// `/user/project`, but where the path goes on to `skip`.
+const userProject = (skip) => (url) => {
+  const [, user, project, aux] = url.pathname.split('/', 4)
+  return aux === skip ? undefined : repo(user, project, url.hash.slice(1))
+}
+
 const HOSTS = {
   __proto__: null,
   github: {
     protocols: ['git:', 'http:', 'git+ssh:', 'git+https:', 'ssh:', 'https:'],
     domain: 'github.com',
     extract: (url) => {
-      let [, user, project, type, committish] = url.pathname.split('/', 5)
+      const [, user, project, type, committish] = url.pathname.split('/', 5)
       if (type && type !== 'tree') return undefined
-      if (!type) committish = url.hash.slice(1)
-      if (project?.endsWith('.git')) project = project.slice(0, -4)
-      return user && project ? { user, project, committish } : undefined
+      return repo(user, project, type ? committish : url.hash.slice(1))
     },
   },
-  bitbucket: {
-    protocols: ['git+ssh:', 'git+https:', 'ssh:', 'https:'],
-    domain: 'bitbucket.org',
-    extract: (url) => {
-      let [, user, project, aux] = url.pathname.split('/', 4)
-      if (aux === 'get') return undefined
-      if (project?.endsWith('.git')) project = project.slice(0, -4)
-      return user && project ? { user, project, committish: url.hash.slice(1) } : undefined
-    },
-  },
+  bitbucket: { protocols: ['git+ssh:', 'git+https:', 'ssh:', 'https:'], domain: 'bitbucket.org', extract: userProject('get') },
   gitlab: {
     protocols: ['git+ssh:', 'git+https:', 'ssh:', 'https:'],
     domain: 'gitlab.com',
@@ -34,37 +37,21 @@ const HOSTS = {
       const path = url.pathname.slice(1)
       if (path.includes('/-/') || path.includes('/archive.tar.gz')) return undefined
       const segments = path.split('/')
-      let project = segments.pop()
-      if (project.endsWith('.git')) project = project.slice(0, -4)
-      const user = segments.join('/')
-      return user && project ? { user, project, committish: url.hash.slice(1) } : undefined
+      const project = segments.pop()
+      return repo(segments.join('/'), project, url.hash.slice(1))
     },
   },
   gist: {
     protocols: ['git:', 'git+ssh:', 'git+https:', 'ssh:', 'https:'],
     domain: 'gist.github.com',
     extract: (url) => {
-      let [, user, project, aux] = url.pathname.split('/', 4)
-      if (aux === 'raw') return undefined
-      if (!project) {
-        if (!user) return undefined
-        project = user
-        user = null
-      }
-      if (project.endsWith('.git')) project = project.slice(0, -4)
-      return { user, project, committish: url.hash.slice(1) }
+      const [, user, project, aux] = url.pathname.split('/', 4)
+      if (aux === 'raw' || !(user || project)) return undefined
+      // A gist by its id alone is of no user.
+      return { user: project ? user : null, project: trimGit(project || user), committish: url.hash.slice(1) }
     },
   },
-  sourcehut: {
-    protocols: ['git+ssh:', 'https:'],
-    domain: 'git.sr.ht',
-    extract: (url) => {
-      let [, user, project, aux] = url.pathname.split('/', 4)
-      if (aux === 'archive') return undefined
-      if (project?.endsWith('.git')) project = project.slice(0, -4)
-      return user && project ? { user, project, committish: url.hash.slice(1) } : undefined
-    },
-  },
+  sourcehut: { protocols: ['git+ssh:', 'https:'], domain: 'git.sr.ht', extract: userProject('archive') },
 }
 
 const BY_DOMAIN = new Map(Object.entries(HOSTS).map(([name, host]) => [host.domain, name]))
@@ -116,8 +103,7 @@ function fromShortcut(parsed) {
   const at = path.indexOf('@')
   if (at > -1) path = path.slice(at + 1)
   const slash = path.lastIndexOf('/')
-  let project = decode(path.slice(slash + 1))
-  if (project.endsWith('.git')) project = project.slice(0, -4)
+  const project = trimGit(decode(path.slice(slash + 1)))
   return { user: slash > -1 ? decode(path.slice(0, slash)) || null : null, project, committish: decode(parsed.hash.slice(1)) || null }
 }
 

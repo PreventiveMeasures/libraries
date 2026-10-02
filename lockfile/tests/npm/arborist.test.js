@@ -1,12 +1,11 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { after, describe, it } from 'node:test'
-import { LockfileError, parseNpmLockfile } from '../../npm.js'
+import { LockfileError } from '../../npm.js'
 import { random } from '../random.js'
-import { semver } from '../yarn1/semver.js'
-import { BASE, registry, write } from './base.js'
+import { BASE, fixture, parse, registry, write } from './base.js'
 import { Arborist, calcDepFlags, resetDepFlags } from './reference.js'
 
 // Arborist, from the npm beside node, against this reader, over lockfiles
@@ -17,9 +16,7 @@ import { Arborist, calcDepFlags, resetDepFlags } from './reference.js'
 // and flags; where it does not, this refuses it. The seed is fixed, so a
 // failure names its lockfile and comes back on a rerun.
 
-const FIXTURES = new URL('fixtures/', import.meta.url)
-const fixture = (name) => JSON.parse(readFileSync(new URL(`${name}.json`, FIXTURES), 'utf8'))
-const SOURCES = [BASE, fixture('npm-11'), fixture('npm-11-flags'), fixture('npm-11-outside')]
+const SOURCES = [BASE, ...['npm-11', 'npm-11-flags', 'npm-11-outside'].map((name) => JSON.parse(fixture(name)))]
 
 const LISTS = ['dependencies', 'optionalDependencies', 'peerDependencies']
 const FLAGS = ['dev', 'optional', 'devOptional', 'peer', 'extraneous', 'inBundle']
@@ -209,7 +206,7 @@ const targetOf = (to) => (to === null ? undefined : to.isLink ? `link:${to.targe
 function compare(lock, { nodes, met }) {
   let read
   try {
-    read = parseNpmLockfile(write(lock), { semver })
+    read = parse(write(lock))
   } catch (error) {
     if (!(error instanceof LockfileError)) throw error
     if (met) assert.match(error.message, OWN, `npm installs it as it is, refused here: ${error.message}`)
@@ -252,7 +249,7 @@ describe('whatever npm installs as the lockfile says, is read to the same tree h
         npm = await npmOf(lock)
       } catch (error) {
         // A link to what an edit took away, which npm refuses to load.
-        assert.throws(() => parseNpmLockfile(write(lock), { semver }), LockfileError, error.message)
+        assert.throws(() => parse(write(lock)), LockfileError, error.message)
         continue
       }
       if (compare(flagged(lock, npm.nodes), npm)) read++

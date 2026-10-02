@@ -4,7 +4,7 @@
 // the flags npm writes of it. Any other version, any field not read here,
 // and a package with a shrinkwrap of its own are refused.
 
-import { LockfileError, at, quote } from '../error.js'
+import { LockfileError, quote } from '../error.js'
 import { checkOptions, kind, record, text } from '../shape.js'
 import { checkBundles } from './bundles.js'
 import { checkFlags } from './flags.js'
@@ -60,25 +60,23 @@ function edgesOf(node) {
 
 // What an importer and a package have alike, as npm reads it.
 function manifestOf(node) {
-  const { name, version, flags } = node
+  const { name, version, os, cpu, libc, license, funding, deprecated, hasInstallScript, flags } = node
   return {
     name,
     version,
     edges: edgesOf(node),
     bundleDependencies: node.bundleDependencies ?? [],
     engines: node.engines ?? Object.create(null),
-    os: node.os,
-    cpu: node.cpu,
-    libc: node.libc,
+    os,
+    cpu,
+    libc,
     bin: node.bin ?? Object.create(null),
-    license: node.license,
-    funding: node.funding,
-    deprecated: node.deprecated,
-    hasInstallScript: node.hasInstallScript,
-    dev: flags.dev,
-    optional: flags.optional,
+    license,
+    funding,
+    deprecated,
+    hasInstallScript,
+    ...flags,
     devOptional: flags.devOptional || flags.dev || flags.optional,
-    peer: flags.peer,
   }
 }
 
@@ -90,9 +88,6 @@ export function parseNpmLockfile(source, options = {}) {
   const nodes = readNodes(doc.packages)
   const root = nodes.get('')
   const header = readHeader(doc, root)
-  for (const node of nodes.values()) {
-    if (node.kind === 'importer' && node.bundleDependencies !== undefined) throw new LockfileError('a bundle of a directory, which is not supported', at(node.where, 'bundleDependencies'))
-  }
   const workspaces = readWorkspaces(nodes)
   loadGraph(nodes, workspaces, legacyPeerDeps)
   checkEdges(nodes, semver)

@@ -31,12 +31,10 @@ function placeOf(location, where) {
   return { kind: 'importer', parent: undefined, folder: folderName(location) }
 }
 
-const isLink = (entry) => typeof entry === 'object' && entry !== null && !Array.isArray(entry) && 'link' in entry
-
 function readNode(location, entry, where) {
   const { kind, parent, folder } = placeOf(location, where)
   const node = { location, where, kind, parentLocation: parent, folder, parent: undefined, fsParent: undefined, children: new Map(), links: [], edges: new Map(), edgesIn: [] }
-  if (!isLink(entry)) return Object.assign(node, readEntry(entry, where, kind === 'package' ? 'package' : 'importer', folder))
+  if (entry?.link === undefined) return Object.assign(node, readEntry(entry, where, kind === 'package' ? 'package' : 'importer', folder))
   if (kind !== 'package') throw new LockfileError('a link outside a node_modules, where npm writes none', where)
   return Object.assign(node, { kind: 'link', targetLocation: readLink(entry, where), target: undefined })
 }
@@ -69,16 +67,18 @@ function link(node, nodes) {
 // project's, which npm leaves to itself.
 function fsParentOf(node, nodes) {
   const segments = node.location.split('/')
-  for (let i = segments.length - 1; i >= 0; i--) {
-    const prefix = segments.slice(0, i)
-    if (prefix.length > 0 && prefix.every((segment) => segment === '..')) return undefined
-    const parent = nodes.get(prefix.join('/'))
+  while (segments.pop() !== undefined && segments.at(-1) !== '..') {
+    const parent = nodes.get(segments.join('/'))
     if (parent !== undefined) return parent
   }
   return undefined
 }
 
 export const resolveParent = (node) => node.parent ?? node.fsParent
+
+// What a node stands for: a package, or a directory; a link's, what it
+// leads to.
+export const packageOf = (node) => (node.kind === 'link' ? node.target : node)
 
 // Node#resolve: the first of the name in a node_modules up the tree.
 function resolve(node, name) {
