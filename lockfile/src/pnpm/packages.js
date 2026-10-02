@@ -6,10 +6,10 @@
 
 import { LockfileError, at, quote } from '../error.js'
 import { checkOptional } from '../graph.js'
-import { checkName, checkRegistryTarball, checkRelative, checkVersion, isVersion, joinRelative } from '../names.js'
+import { checkName, checkRegistryTarball, checkVersion, isVersion, joinRelative } from '../names.js'
 import { entries, field, flag, mapping, orEmpty, record, text, textMap, texts } from '../shape.js'
 import { refToKey, splitPackageKey, splitSnapshotKey } from './key.js'
-import { readResolution } from './resolution.js'
+import { readRelative, readResolution } from './resolution.js'
 
 const INFO = ['resolution', 'version', 'name', 'engines', 'cpu', 'os', 'libc', 'deprecated', 'hasBin', 'bundledDependencies', 'peerDependencies', 'peerDependenciesMeta']
 const SNAPSHOT = ['dependencies', 'optionalDependencies', 'optional', 'transitivePeerDependencies']
@@ -28,7 +28,8 @@ const SOURCES = new Set(['bitbucket', 'catalog', 'custom', 'file', 'git', 'githu
 // from npm's registry is that registry's tarball of the name and version;
 // `file:` is the very directory or tarball resolved; anything else is
 // fetched from a URL, a git repository or a tarball, and carries its
-// version in a field. A directory has no version in the lockfile at all.
+// version in a field. A directory has no version in the lockfile at all,
+// and its key has the path as written, empty for the lockfile's own.
 function readVersion(name, ref, entry, resolution, where) {
   const { type, tarball } = resolution
   const local = tarball?.startsWith('file:')
@@ -46,7 +47,7 @@ function readVersion(name, ref, entry, resolution, where) {
     throw new LockfileError(`${quote(ref)} is from a runtime or a named registry, which is not supported`, where)
   }
   const agrees = scheme === 'file'
-    ? ref === (type === 'directory' ? `file:${resolution.directory}` : tarball)
+    ? ref === (type === 'directory' ? `file:${entry.resolution.directory}` : tarball)
     : type === 'git' || (type === 'tarball' && tarball !== undefined && !local)
   if (!agrees) throw new LockfileError(`${quote(ref)} is not where the resolution says the package comes from`, at(where, 'resolution'))
   if (type === 'directory') {
@@ -96,7 +97,7 @@ const readPeersMeta = byName(['optional'], (item, here) => ({ optional: flag(ite
 // hold. A link is written relative to `base`, and handed back relative to
 // the lockfile's directory.
 export function target(ref, alias, base, snapshots, where) {
-  if (ref.startsWith('link:')) return `link:${joinRelative(base, checkRelative(ref.slice(5), where))}`
+  if (ref.startsWith('link:')) return `link:${joinRelative(base, readRelative(ref.slice(5), where))}`
   const key = refToKey(ref, alias)
   if (!(key in snapshots)) throw new LockfileError(`${quote(ref)} leads to ${quote(key)}, which is not in snapshots`, where)
   return key

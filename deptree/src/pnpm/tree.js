@@ -20,7 +20,7 @@ import { createPatchedCheck, skippedSnapshots } from './install.js'
 import { checkDependencies, fetchPackage } from './package.js'
 import { checkLinks, checkOptional } from './checks.js'
 import { createHook } from './hook.js'
-import { listOverrides } from './overrides.js'
+import { fileRefOf, listOverrides } from './overrides.js'
 import { checkHost, inputsOf, manifestsOf, patchesOf, readLockfile } from './inputs.js'
 import { checkProjects, pinsPnpm, workspaceNames } from './projects.js'
 import { readSettings } from './settings.js'
@@ -44,7 +44,7 @@ function checkSource(node, installed) {
   const { key, pkg } = node
   const { resolution } = pkg
   if (resolution.type === 'directory') {
-    if (packageKeyOf(key) !== `${pkg.name}@file:${resolution.directory}` || !installed.has(resolution.directory)) throw new DeptreeError('a dependency on a local directory is supported only where a file: override names it', quote(key))
+    if (packageKeyOf(key) !== `${pkg.name}@${fileRefOf(resolution.directory)}` || !installed.has(resolution.directory)) throw new DeptreeError('a dependency on a local directory is supported only where a file: override names it', quote(key))
     if (pkg.patchHash !== undefined) throw new DeptreeError('a patch to a package pnpm installs from a directory is not supported: it would be applied to the directory\'s own files, which pnpm hardlinks', quote(key))
     return
   }
@@ -215,6 +215,9 @@ export async function buildPnpmTree(options) {
   // pins, which leaves the tree as it is.
   if (env !== undefined && major < 11) throw new DeptreeError('the env document pnpm 11 writes is not supported', 'env')
   if (env !== undefined && Object.keys(env.importers['.'].configDependencies).length > 0) throw new DeptreeError('config dependencies are not supported', 'env.importers["."].configDependencies')
+  // pnpm 10 and 11 write the lockfile's own directory as `file:` and no path.
+  const own = major >= 12 ? Object.keys(lockfile.packages).find((key) => lockfile.packages[key].resolution.directory === '.') : undefined
+  if (own !== undefined) throw new DeptreeError('pnpm 12 refuses as broken a lockfile with `file:` and an empty path, the lockfile\'s own directory', quote(own))
   const settings = readSettings({ workspace, npmrc: inputs.npmrc, manifest: manifests.get('.'), major, pinned: pinsPnpm(manifests.get('.'), host.pnpm) })
   checkWorkspace(Object.keys(lockfile.importers), settings.packages, major)
   const overrides = listOverrides(settings.overrides, settings.catalogs, major)

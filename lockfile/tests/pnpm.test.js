@@ -274,6 +274,21 @@ describe('what else pnpm writes is read', () => {
     assert.deepEqual([importer.publishDirectory, importer.linkDirectory], ['dist', false])
   })
 
+  // pnpm writes a path by path.relative, empty from a directory to itself.
+  it('a directory\'s own, as the empty path pnpm writes for it', () => {
+    const own = (directory) => [
+      ['        specifier: file:d\n        version: file:d', "        specifier: file:.\n        version: 'file:'"],
+      ['  d@file:d:\n    resolution: {directory: d, type: directory}', `  'd@file:':\n    resolution: {directory: '${directory}', type: directory}`],
+      ['  d@file:d: {}', "  'd@file:': {}"],
+    ]
+    const lock = read(...own(''), ['        specifier: link:../l\n        version: link:../l', "        specifier: link:.\n        version: 'link:'"], ['  .:\n', "  packages/p:\n    dependencies:\n      self:\n        specifier: link:.\n        version: 'link:'\n\n  .:\n"])
+    assert.deepEqual(lock.packages['d@file:'].resolution, { type: 'directory', directory: '.' })
+    assert.equal(lock.importers['.'].devDependencies.d, 'd@file:')
+    assert.equal(lock.importers['.'].dependencies.l, 'link:.')
+    assert.equal(lock.importers['packages/p'].dependencies.self, 'link:packages/p')
+    refuses(edit(...own('.')), 'packages["d@file:"].resolution: "file:" is not where the resolution says the package comes from')
+  })
+
   it('names a prototype has are names like any other', () => {
     const lock = read(['      e:\n', `      constructor:\n        specifier: 1.0.0\n        version: b@1.0.0(patch_hash=${P})\n      e:\n`])
     assert.equal(lock.importers['.'].dependencies.constructor, `b@1.0.0(patch_hash=${P})`)
@@ -496,8 +511,8 @@ describe('a package is held to what pnpm writes', () => {
 
   it('with a directory in normal form', () => {
     const where = 'packages["d@file:d"].resolution.directory'
-    for (const directory of ['/d', './d', 'd/', 'd//e', 'd/../e', 'd\\e', 'C:/d', '']) {
-      refuses(edit(['{directory: d, type: directory}', `{directory: '${directory}', type: directory}`]), directory === '' ? `${where}: expected a non-empty string` : directory.startsWith('C:') ? `${where}: "C:/d" starts with a drive letter` : `${where}: ${JSON.stringify(directory)} is not a relative path in normal form`)
+    for (const directory of ['/d', './d', 'd/', 'd//e', 'd/../e', 'd\\e', 'C:/d']) {
+      refuses(edit(['{directory: d, type: directory}', `{directory: '${directory}', type: directory}`]), directory.startsWith('C:') ? `${where}: "C:/d" starts with a drive letter` : `${where}: ${JSON.stringify(directory)} is not a relative path in normal form`)
     }
   })
 
@@ -534,6 +549,7 @@ describe('a package is held to what pnpm writes', () => {
     refuses(edit([`  b@1.0.0:\n    resolution: {integrity: ${I}}`, `  b@1.0.0:\n    resolution: {integrity: ${I}, path: /x}`]), 'packages["b@1.0.0"].resolution: expected a registry tarball with an integrity, for the version "1.0.0"')
     refuses(edit([`  b@1.0.0:\n    resolution: {integrity: ${I}}`, `  b@1.0.0:\n    resolution: {integrity: ${I}, tarball: https://example.com/b.tgz, gitHosted: true}`]), 'packages["b@1.0.0"].resolution: expected a registry tarball with an integrity, for the version "1.0.0"')
     refuses(edit(['{directory: d, type: directory}', '{directory: e, type: directory}']), 'packages["d@file:d"].resolution: "file:d" is not where the resolution says the package comes from')
+    refuses(edit(['{directory: d, type: directory}', "{directory: '', type: directory}"]), 'packages["d@file:d"].resolution: "file:d" is not where the resolution says the package comes from')
     refuses(edit(['{directory: d, type: directory}', `{integrity: ${I}, tarball: 'file:e.tgz'}\n    version: 1.0.0`]), 'packages["d@file:d"].resolution: "file:d" is not where the resolution says the package comes from')
     refuses(edit(['    resolution: {tarball: https://example.com/f.tgz}', `    resolution: {integrity: ${I}}`]), 'packages["f@https://example.com/f.tgz"].resolution: "https://example.com/f.tgz" is not where the resolution says the package comes from')
     refuses(edit(['    resolution: {tarball: https://example.com/f.tgz}', "    resolution: {tarball: 'file:f.tgz'}"]), 'packages["f@https://example.com/f.tgz"].resolution: "https://example.com/f.tgz" is not where the resolution says the package comes from')
@@ -622,7 +638,6 @@ describe('an importer is held to what pnpm writes', () => {
     refuses(edit(['      d:\n        specifier: file:d\n        version: file:d', '      d: file:d']), 'importers["."].devDependencies.d: expected a mapping, found the string "file:d"')
     refuses(edit(['      d:\n        specifier: file:d', '      a:\n        specifier: file:d']), 'importers["."].devDependencies.a: listed under dependencies too')
     refuses(edit(['        version: file:d', '        version: file:e']), 'importers["."].devDependencies.d.version: "file:e" leads to "d@file:e", which is not in snapshots')
-    refuses(edit(['        version: link:../l', "        version: 'link:'"]), 'importers["."].dependencies.l.version: expected a non-empty string')
     refuses(edit(['        version: link:../l', '        version: link:../l/']), 'importers["."].dependencies.l.version: "../l/" is not a relative path in normal form')
   })
 })

@@ -22,6 +22,10 @@ function checkTarball(value, where) {
   return tarball
 }
 
+// A path pnpm writes by path.relative, which is empty from a directory to
+// itself: that is read as `.`, as the directory itself is here.
+export const readRelative = (value, where) => (value === '' ? '.' : checkRelative(value, where))
+
 // `path` is a subdirectory of the tarball or repository that is the
 // package, where it is not the root: a git dependency's `#path:`, as it
 // was given, from the root by a `/` or not. pnpm joins it to where it
@@ -52,9 +56,11 @@ function readGit(resolution, where) {
   return { type: 'git', repo, commit, path: readPath(resolution, where) }
 }
 
+// From the lockfile's directory, empty where it is that directory, as the
+// root project's `file:.` names it.
 function readDirectory(resolution, where) {
   record(resolution, where, ['type', 'directory'])
-  return { type: 'directory', directory: checkRelative(resolution.directory, at(where, 'directory')) }
+  return { type: 'directory', directory: readRelative(resolution.directory, at(where, 'directory')) }
 }
 
 // By `type`, compared as `===` compares it: a key of an object would take

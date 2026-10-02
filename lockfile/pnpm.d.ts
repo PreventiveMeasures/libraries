@@ -124,7 +124,8 @@ export interface PnpmPackage {
 // against the name and version where it is npm's registry's, or `file:` and
 // a path from the lockfile's directory. `path` is the package's
 // subdirectory, if not the root, which does not climb out of it. `repo` is
-// one in which git reads no option or remote helper.
+// one in which git reads no option or remote helper. A `directory` is from
+// the lockfile's, `.` for its own, which pnpm writes as an empty path.
 export type PnpmResolution =
   | { type: 'tarball', integrity: string | undefined, tarball: string | undefined, path: string | undefined, gitHosted: boolean }
   | { type: 'git', repo: string, commit: string, path: string | undefined }

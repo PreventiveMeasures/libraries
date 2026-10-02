@@ -7,7 +7,7 @@ import { normalize } from '@preventive/vfs/path.js'
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { DeptreeError, quote } from '../error.js'
 import { fetchTarball, sameFile } from '../tarball.js'
-import { localOf } from './overrides.js'
+import { fileRefOf, localOf } from './overrides.js'
 
 function nameOf(stored) {
   const slash = stored.indexOf('/')
@@ -98,7 +98,7 @@ export function checkDependencies(manifest, read, pkg, where) {
     const target = pkg.dependencies[name] ?? pkg.optionalDependencies[name]
     if (target === undefined) continue
     const local = localOf(spec, `${where}: package.json`)
-    if (local === undefined || target === `link:${local.dir}` || (local.protocol === 'file:' && packageKeyOf(target).endsWith(`@file:${local.dir}`))) continue
+    if (local === undefined || target === `link:${local.dir}` || (local.protocol === 'file:' && packageKeyOf(target).endsWith(`@${fileRefOf(local.dir)}`))) continue
     throw new DeptreeError(`the lockfile gives it ${quote(name)} as ${quote(target)}, and its package.json, overridden, names ${quote(local.dir)}`, where)
   }
   // A resolved optional peer is filed as optional, and pnpm's compatibility
