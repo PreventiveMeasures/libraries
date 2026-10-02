@@ -173,6 +173,32 @@ describe('what else npm writes is read', () => {
     assert.deepEqual(plain(b.funding), [{ type: 'github', url: 'https://github.com/sponsors/b' }, 'https://b.example'])
   })
 
+  it('of funding, the type and URL npm reads', () => {
+    const funding = (value) => plain(parse(edit((l) => (l.packages['node_modules/b'].funding = value))).packages['node_modules/b'].funding)
+    assert.deepEqual(funding({ url: 'https://b.example', custom: { a: 1 } }), { type: undefined, url: 'https://b.example' })
+    assert.deepEqual(funding([{ type: 'github', url: 'https://github.com/sponsors/b', note: null }]), [{ type: 'github', url: 'https://github.com/sponsors/b' }])
+    refuses(edit((l) => (l.packages['node_modules/b'].funding = { url: 1 })), 'expected a string, found the number 1', `${P('node_modules/b')}.funding.url`)
+  })
+
+  it('a link to the project, which npm writes as resolved to ""', () => {
+    // npm 11.7 to 11.17 give the project the flags of a link to it, which
+    // npm writes above the packages too.
+    const self = (list, flags = {}, above = flags) => edit((l) => {
+      l.packages[''][list] = { ...l.packages[''][list], self: 'file:.' }
+      l.packages['node_modules/self'] = { resolved: '', link: true }
+      Object.assign(l.packages[''], flags)
+      Object.assign(l, above)
+    })
+    const lock = parse(self('dependencies'))
+    assert.equal(lock.links['node_modules/self'], '.')
+    assert.equal(lock.importers['.'].edges.self.target, 'link:.')
+    assert.equal(parse(self('devDependencies')).importers['.'].dev, false)
+    assert.equal(parse(self('devDependencies', { dev: true })).importers['.'].dev, true)
+    refuses(self('dependencies', { dev: true }), 'expected none, as npm sets it from what depends on it', `${P('')}.dev`)
+    refuses(self('devDependencies', { dev: true }, {}), 'expected true, as the project\'s in packages', 'dev')
+    refuses(self('devDependencies', {}, { dev: true }), 'expected none, as the project\'s in packages', 'dev')
+  })
+
   it('more than one integrity, a space apart', () => {
     assert.equal(parse(edit((l) => (l.packages['node_modules/b'].integrity = `${S1} ${I}`))).packages['node_modules/b'].resolution.integrity, `${S1} ${I}`)
   })
@@ -378,7 +404,7 @@ describe('the tree is npm\'s', () => {
 
   it('a link to a directory of the lockfile\'s', () => {
     refuses(edit((l) => (l.packages['node_modules/d'].resolved = 'e')), '"e" is not in the lockfile, where npm looks for what a link leads to', `${P('node_modules/d')}.resolved`)
-    refuses(edit((l) => (l.packages['node_modules/a/node_modules/x'] = { resolved: 'node_modules/d', link: true })), '"node_modules/d" is a link, where npm links a directory or a package', `${P('node_modules/a/node_modules/x')}.resolved`)
+    refuses(edit((l) => (l.packages['node_modules/a/node_modules/x'] = { resolved: 'node_modules/d', link: true })), '"node_modules/d" is a link, where npm links the project, a directory or a package', `${P('node_modules/a/node_modules/x')}.resolved`)
     refuses(edit((l) => (l.packages['node_modules/d'].link = 'yes')), 'expected true, found the string "yes"', `${P('node_modules/d')}.link`)
     refuses(edit((l) => (l.packages['node_modules/d'].version = '1.0.0')), 'unsupported field "version"', P('node_modules/d'))
     refuses(edit((l) => (l.packages.e = { resolved: 'd', link: true })), 'a link outside a node_modules, where npm writes none', P('e'))

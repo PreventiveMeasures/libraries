@@ -54,8 +54,13 @@ const peersMeta = filledMapping((item, where, name) => {
   return { optional: field(record(item, where), 'optional', where, boolean) ?? false }
 })
 
-// A URL, a mapping of a type and a URL, or a sequence of either.
-const funding = (value, where) => (typeof value === 'string' ? text(value, where) : filledMapping(text)(value, where))
+// A URL, or a type and a URL, of which npm reads those two and passes over
+// whatever else the package.json says; or a sequence of either.
+function funding(value, where) {
+  if (typeof value === 'string') return text(value, where)
+  record(filled(value, where), where)
+  return { type: field(value, 'type', where, text), url: field(value, 'url', where, text) }
+}
 const readFunding = (value, where) => (Array.isArray(value) ? filled(value, where).map((item, index) => funding(item, `${where}[${index}]`)) : funding(value, where))
 
 // Globs, or the `packages` of them, which @npmcli/map-workspaces reads.
@@ -143,11 +148,12 @@ export function folderName(location) {
   return segments.at(-2)?.startsWith('@') ? `${segments.at(-2)}/${base}` : base
 }
 
-// A link: where it leads, from the lockfile's directory.
+// A link: where it leads, from the lockfile's directory, which npm writes
+// as `''` for the project's own, as a key of `packages` is.
 export function readLink(entry, where) {
   record(entry, where, FIELDS.link, REFUSED)
   if (entry.link !== true) throw refuse('true', entry.link, at(where, 'link'))
-  return checkRelative(entry.resolved, at(where, 'resolved'))
+  return entry.resolved === '' ? '' : checkRelative(entry.resolved, at(where, 'resolved'))
 }
 
 // A project's directory, or a package; `folder` the name its location

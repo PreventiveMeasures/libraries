@@ -12,7 +12,7 @@ import { LockfileError, quote } from '../error.js'
 import { joinRelative } from '../names.js'
 import { sshOf } from './hosted.js'
 import { readResolved, readSpec } from './spec.js'
-import { edgeAt, packageOf } from './tree.js'
+import { directoryOf, edgeAt, packageOf } from './tree.js'
 
 const COMMIT = /^[\dA-Fa-f]{40,64}$/u
 
@@ -20,8 +20,7 @@ const COMMIT = /^[\dA-Fa-f]{40,64}$/u
 // directory, any other node from its own.
 function fromPath(node) {
   const tarball = node.resolution?.tarball
-  if (tarball?.startsWith('file:')) return joinRelative(tarball.slice(5), '..')
-  return node.location === '' ? '.' : node.location
+  return tarball?.startsWith('file:') ? joinRelative(tarball.slice(5), '..') : directoryOf(node)
 }
 
 const describe = (node) => quote(node.location)
@@ -72,8 +71,8 @@ function whyNot(child, edge, spec, semver) {
     case 'alias':
       return registryValid(child, requested.sub, semver, true)
     case 'directory':
-      if (child.kind === 'link' && child.target.location === requested.path) return undefined
-      return `asks for a link to ${quote(requested.path)}, and ${describe(child)} is ${child.kind === 'link' ? `one to ${quote(child.target.location)}` : 'no link'}`
+      if (child.kind === 'link' && directoryOf(child.target) === requested.path) return undefined
+      return `asks for a link to ${quote(requested.path)}, and ${describe(child)} is ${child.kind === 'link' ? `one to ${quote(directoryOf(child.target))}` : 'no link'}`
     case 'file':
     case 'remote': {
       const tarball = requested.type === 'file' ? `file:${requested.path}` : requested.url

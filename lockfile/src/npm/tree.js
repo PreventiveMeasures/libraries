@@ -56,9 +56,7 @@ function link(node, nodes) {
   const target = nodes.get(node.targetLocation)
   const where = at(node.where, 'resolved')
   if (target === undefined) throw new LockfileError(`${quote(node.targetLocation)} is not in the lockfile, where npm looks for what a link leads to`, where)
-  if (target.kind === 'root' || target.kind === 'link') {
-    throw new LockfileError(`${quote(node.targetLocation)} is ${target.kind === 'root' ? 'the project' : 'a link'}, where npm links a directory or a package`, where)
-  }
+  if (target.kind === 'link') throw new LockfileError(`${quote(node.targetLocation)} is a link, where npm links the project, a directory or a package`, where)
   node.target = target
   target.links.push(node)
 }
@@ -79,6 +77,9 @@ export const resolveParent = (node) => node.parent ?? node.fsParent
 // What a node stands for: a package, or a directory; a link's, what it
 // leads to.
 export const packageOf = (node) => (node.kind === 'link' ? node.target : node)
+
+// A node's location as a directory: `.` for the project's own.
+export const directoryOf = (node) => node.location || '.'
 
 // Node#resolve: the first of the name in a node_modules up the tree.
 function resolve(node, name) {
