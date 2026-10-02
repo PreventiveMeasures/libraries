@@ -45,7 +45,7 @@ describe('advisories', () => {
     }
     for (const [pkg, error] of [
       [null, /advisories: package must be an options object/u],
-      [{ ...ok, ecosystem: 'pypi' }, /advisories: package\.ecosystem must be one of npm, cargo, composer, github/u],
+      [{ ...ok, ecosystem: 'pypi' }, /advisories: package\.ecosystem must be one of npm, cargo, composer, soldeer, github/u],
       [{ ...ok, ecosystem: '__proto__' }, /advisories: package\.ecosystem must be one of/u],
       [{ ...ok, versions: [] }, /advisories: package\.versions must be a non-empty array/u],
       [{ ...ok, versions: '1.0.0' }, /advisories: package\.versions must be a non-empty array/u],
@@ -388,5 +388,114 @@ describe('github', () => {
       await assert.rejects(repo([version]), /advisories: package\.versions must be a version or a branch name/u, String(version))
     }
     assert.deepEqual(calls, [])
+  })
+})
+
+describe('soldeer', () => {
+  const PROJECT = 'https://api.soldeer.xyz/api/v1/project?project_name='
+  const listing = (repo) => `https://api.github.com/repos/${repo}/security-advisories?state=published&per_page=100`
+  const github = createClient({ token: 'test-token' })
+  const advisory = (ghsa, vulnerabilities, overrides = {}) => ({ ghsa_id: ghsa, state: 'published', summary: `Advisory ${ghsa}`, severity: 'high', cwe_ids: [], vulnerabilities, ...overrides })
+  const vuln = (name, range) => ({ package: { ecosystem: 'npm', name }, vulnerable_version_range: range })
+  const soldeer = (pairs, options) => advisories(pairs.map(({ name, version, ...rest }) => ({ ecosystem: 'soldeer', name, versions: [version], ...rest })), options ?? { github })
+
+  // Soldeer's projects (name → its `github_url`) and GitHub's listings,
+  // each answering from what is given.
+  function stubAll({ projects = {}, listings = {} }) {
+    const calls = []
+    globalThis.fetch = (url) => {
+      url = String(url)
+      calls.push(url)
+      if (url.startsWith(PROJECT)) {
+        const name = new URL(url).searchParams.get('project_name')
+        const answer = Object.hasOwn(projects, name) ? projects[name] : undefined
+        if (answer instanceof Response) return Promise.resolve(answer.clone())
+        return Promise.resolve(Response.json({ data: answer === undefined ? [] : [{ name, github_url: answer, deleted: false }], status: 'success' }))
+      }
+      const listed = Object.entries(listings).find(([repo]) => url === listing(repo))
+      if (listed) return Promise.resolve(listed[1] instanceof Response ? listed[1].clone() : Response.json(listed[1]))
+      return Promise.reject(new Error(`unexpected request: ${url}`))
+    }
+    return calls
+  }
+
+  it("counts every range the project's repository lists, whichever package, with the repository from Soldeer", async () => {
+    const calls = stubAll({
+      projects: { '@openzeppelin-contracts': 'https://github.com/OpenZeppelin/openzeppelin-contracts', 'forge-std': 'https://github.com/foundry-rs/forge-std', unlinked: '', elsewhere: 'https://gitlab.com/acme/elsewhere' },
+      listings: {
+        'OpenZeppelin/openzeppelin-contracts': [
+          advisory('GHSA-aaaa-aaaa-aaaa', [vuln('@openzeppelin/contracts', '>= 4.0.0, < 4.9.3'), vuln('@openzeppelin/contracts-upgradeable', '>= 4.0.0, < 4.9.3')]),
+          advisory('GHSA-bbbb-bbbb-bbbb', [vuln('@openzeppelin/contracts', '>= 5.0.0, < 5.0.2')]),
+          advisory('GHSA-cccc-cccc-cccc', [vuln('@openzeppelin/contracts', '< 9.0.0')], { withdrawn_at: '2026-01-01T00:00:00Z' }),
+        ],
+        'foundry-rs/forge-std': [],
+      },
+    })
+    const found = await advisories([
+      { ecosystem: 'soldeer', name: '@openzeppelin-contracts', versions: ['5.0.1', '4.9.0', '5.7.0-rc.0'] },
+      { ecosystem: 'soldeer', name: 'forge-std', versions: ['1.9.2'] },
+      { ecosystem: 'soldeer', name: 'unlinked', versions: ['1.0.0'] },
+      { ecosystem: 'soldeer', name: 'elsewhere', versions: ['1.0.0'] },
+      { ecosystem: 'soldeer', name: 'not-on-soldeer', versions: ['1.0.0'] },
+    ], { github })
+    assert.deepEqual(found, [
+      {
+        ecosystem: 'soldeer', name: '@openzeppelin-contracts', source: 'repository', id: 'GHSA-aaaa-aaaa-aaaa', ghsa: 'GHSA-aaaa-aaaa-aaaa', aliases: [], title: 'Advisory GHSA-aaaa-aaaa-aaaa', severity: 'high', cwe: [], range: '>= 4.0.0, < 4.9.3', versions: ['4.9.0'],
+      },
+      {
+        ecosystem: 'soldeer', name: '@openzeppelin-contracts', source: 'repository', id: 'GHSA-bbbb-bbbb-bbbb', ghsa: 'GHSA-bbbb-bbbb-bbbb', aliases: [], title: 'Advisory GHSA-bbbb-bbbb-bbbb', severity: 'high', cwe: [], range: '>= 5.0.0, < 5.0.2', versions: ['5.0.1'],
+      },
+    ])
+    assert.deepEqual(calls.filter((url) => url.startsWith(PROJECT)).toSorted(), ['@openzeppelin-contracts', 'elsewhere', 'forge-std', 'not-on-soldeer', 'unlinked'].map((name) => `${PROJECT}${encodeURIComponent(name)}`))
+    assert.deepEqual(calls.filter((url) => url.startsWith('https://api.github.com/')).toSorted(), [listing('OpenZeppelin/openzeppelin-contracts'), listing('foundry-rs/forge-std')])
+  })
+
+  it('asks a repository given without asking Soldeer', async () => {
+    const calls = stubAll({ listings: { 'acme/fork': [advisory('GHSA-aaaa-aaaa-aaaa', [vuln('anything', '< 2.0.0')])] } })
+    const found = await soldeer([{ name: 'forge-std', version: '1.9.2', github: 'acme/fork' }])
+    assert.deepEqual(found.map(({ name, id, versions }) => [name, id, versions]), [['forge-std', 'GHSA-aaaa-aaaa-aaaa', ['1.9.2']]])
+    assert.deepEqual(calls, [listing('acme/fork')])
+  })
+
+  it('takes a version semver cannot read, a bare number or a commit, as every version', async () => {
+    stubAll({
+      projects: { lib: 'https://github.com/acme/lib' },
+      listings: { 'acme/lib': [advisory('GHSA-aaaa-aaaa-aaaa', [vuln('lib', '>= 1.0.0, < 1.2.0')]), advisory('GHSA-bbbb-bbbb-bbbb', [vuln('lib', '>= 3.0.0')])] },
+    })
+    const commit = '1d9650e951204a0ddce9ff89c32f1997984cef4d'
+    const found = await advisories([{ ecosystem: 'soldeer', name: 'lib', versions: ['1.1.0', '1.2.0', 'v1.1.5', '1.0.2-solc-0.8-simulate', '2', commit] }], { github })
+    assert.deepEqual(found.map(({ id, versions }) => [id, versions]), [
+      ['GHSA-aaaa-aaaa-aaaa', ['1.0.2-solc-0.8-simulate', '1.1.0', commit, '2', 'v1.1.5']],
+      ['GHSA-bbbb-bbbb-bbbb', [commit, '2']],
+    ])
+  })
+
+  it('refuses a malformed name or version, or no GitHub client, before any request', async () => {
+    const calls = stubAll({})
+    for (const name of ['ab', 'Forge-std', 'forge-std-', '../x', 'a/b', undefined]) {
+      await assert.rejects(soldeer([{ name, version: '1.0.0' }]), /advisories: package\.name must be a Soldeer package name/u, String(name))
+    }
+    for (const version of ['', '-1', '1.0.0/x', '1 0', ['1.0.0'], undefined]) {
+      await assert.rejects(soldeer([{ name: 'forge-std', version }]), /advisories: package\.versions must be letters, digits/u, String(version))
+    }
+    await assert.rejects(soldeer([{ name: 'forge-std', version: '1.9.2' }], {}), /advisories: soldeer packages need a github client/u)
+    assert.deepEqual(calls, [])
+  })
+
+  it('throws when Soldeer fails, or answers malformed or about another project', async () => {
+    const one = [{ name: 'forge-std', version: '1.9.2' }]
+    stubAll({ projects: { 'forge-std': Response.json({ status: 'fail' }, { status: 500 }) } })
+    await assert.rejects(soldeer(one), { name: 'HttpError', status: 500 })
+    for (const [answer, error] of [
+      [{ status: 'success' }, /advisories: expected a list of projects from Soldeer for forge-std/u],
+      [{ data: {} }, /advisories: expected a list of projects from Soldeer for forge-std/u],
+      [{ data: [{ name: 'forge', github_url: 'https://github.com/acme/forge' }] }, /advisories: Soldeer answered for "forge", not forge-std/u],
+      [{ data: [null] }, /advisories: Soldeer answered for undefined, not forge-std/u],
+    ]) {
+      stubAll({ projects: { 'forge-std': Response.json(answer) } })
+      await assert.rejects(soldeer(one), error, JSON.stringify(answer))
+    }
+    stubAll({ projects: { 'forge-std': 'https://github.com/foundry-rs/forge-std' }, listings: { 'foundry-rs/forge-std': Response.json({ message: 'Not Found' }, { status: 404 }) } })
+    assert.deepEqual(await soldeer(one), [])
   })
 })

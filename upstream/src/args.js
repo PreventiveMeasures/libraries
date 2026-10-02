@@ -78,5 +78,11 @@ export const assertPackageVersion = assertion('an exact semver version', isExact
 export const assertGhsa = assertion('a GHSA id', isGhsa)
 export const assertCrateName = assertion('a crate name', matches(/^[A-Za-z][\w-]{0,63}$/u))
 export const assertCrateVersion = assertion('a semver version', matches(/^(?=.{5,256}$)(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][\dA-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][\dA-Za-z-]*))*)?(?:\+[\dA-Za-z-]+(?:\.[\dA-Za-z-]+)*)?$/u))
+// Soldeer's own rule for a name: 3 to 100 of lowercase letters, digits and
+// `-`, starting with one of them or `@`, ending with a letter or digit.
+export const assertSoldeerName = assertion('a Soldeer package name', matches(/^(?=.{3,100}$)[@\da-z][\da-z-]*[\da-z]$/u))
+// Soldeer takes any version but an empty one. Its registry has semver
+// (`5.7.0-rc.0`, `1.0.2-solc-0.8-simulate`), bare numbers and commit hashes.
+export const assertSoldeerVersion = assertion('letters, digits, `.`, `_`, `+` and `-`', matches(/^(?=.{1,128}$)[\dA-Za-z][\w.+-]*$/u))
 // As Cargo.lock and soldeer.lock write a checksum.
 export const assertSha256 = assertion('a sha256 in lowercase hex', matches(/^[\da-f]{64}$/u))
