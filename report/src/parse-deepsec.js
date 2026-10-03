@@ -30,8 +30,8 @@
 // `## SEVERITY (n)` header appears and the chain moves on.
 
 import { fingerprintOf } from './finding-id.js'
-import { normalizeNewlines, splitHeadingLine, unfencedMatches } from './md-structure.js'
-import { normalizeFindingSeverity } from './severity.js'
+import { normalizeNewlines, splitHeadingLine, splitUnfenced } from './md-structure.js'
+import { SEVERITY_WORDS, normalizeFindingSeverity } from './severity.js'
 
 // The `## SEVERITY (n)` header that marks a DeepSec document. Splitting
 // on it with the tier captured interleaves tiers and content:
@@ -43,19 +43,7 @@ const SECTION_RE = /^## ([A-Z][A-Z_]*)\s*\(\d+\)\s*\n/mu
 // `high_bug` / `bug` keep that apart so the chips count them
 // separately. Anything else falls back to medium, where a renamed or
 // new tier stays visible instead of vanishing.
-function mapSeverity(s) {
-  switch (s.toUpperCase()) {
-    case 'CRITICAL': return 'critical'
-    case 'HIGH': return 'high'
-    case 'MEDIUM': return 'medium'
-    case 'LOW': return 'low'
-    case 'HIGH_BUG': return 'high_bug'
-    case 'BUG': return 'bug'
-    case 'INFO': case 'INFORMATIONAL': return 'informational'
-    case 'INFORMATIVE': return 'informative'
-    default: return 'medium'
-  }
-}
+const TIERS = new Map([...SEVERITY_WORDS, ['HIGH_BUG', 'high_bug'], ['BUG', 'bug']])
 
 // A field's value as the word it names, whatever punctuation it arrived
 // in — the writer's `~~false positive~~`, or a hand-edited document's
@@ -120,8 +108,11 @@ export function parseDeepsecFindings(content) {
 
   const findings = []
   for (let i = 1; i < parts.length; i += 2) {
-    const sev = mapSeverity(parts[i])
-    for (const block of findingBlocks(parts[i + 1])) {
+    const sev = TIERS.get(parts[i].toUpperCase()) ?? 'medium'
+    // Each finding is the text after its `### ` up to the next: a `### `
+    // line outside fenced code, since a heading in a markdown snippet is
+    // the snippet's. What precedes the first is shed.
+    for (const block of splitUnfenced(parts[i + 1], /^### /gmu).slice(1)) {
       const f = parseBlock(block, sev)
       if (!f) continue
       // The id is hashed from what the finding says (finding-id.js), and
@@ -145,14 +136,6 @@ export function parseDeepsecFindings(content) {
   return { type: 'security', source: 'deepsec', findings }
 }
 
-// The findings of a severity section, each the text after its `### `
-// up to the next: a `### ` line outside fenced code, since a heading in
-// a markdown snippet is the snippet's. What precedes the first is shed.
-function findingBlocks(section) {
-  const starts = unfencedMatches(section, /^### /gmu).map((m) => m.index)
-  return starts.map((at, i) => section.slice(at + 4, starts[i + 1]))
-}
-
 function parseBlock(block, severity) {
   // The `---` separator after each finding in a section is shed.
   const { title, body: rawBody } = splitHeadingLine(block)
@@ -160,20 +143,13 @@ function parseBlock(block, severity) {
   const body = rawBody.replace(/\n---\s*$/u, '').trim()
 
   // Bullet metadata: `- **Field:** value`. Field names case-folded.
-  const fields = {}
-  for (const m of body.matchAll(/^- \*\*([^:*]+):\*\*\s*(.+)$/gmu)) {
-    fields[m[1].trim().toLowerCase()] = m[2].trim()
-  }
+  const fields = Object.fromEntries([...body.matchAll(/^- \*\*([^:*]+):\*\*\s*(.+)$/gmu)].map((m) => [m[1].trim().toLowerCase(), m[2].trim()]))
 
   // A bold inline label in the body, not a `## Recommended fix` H2 as
   // Claude Security writes — so the split is there.
   const recMatch = /^\*\*Recommendation:\*\*\s*/mu.exec(body)
-  let prose = body
-  let recommendation = ''
-  if (recMatch) {
-    prose = body.slice(0, recMatch.index)
-    recommendation = body.slice(recMatch.index + recMatch[0].length).trim()
-  }
+  const prose = recMatch ? body.slice(0, recMatch.index) : body
+  const recommendation = recMatch ? body.slice(recMatch.index + recMatch[0].length).trim() : ''
 
   // Prose minus the bullet metadata, with `**bold**` stripped — the
   // renderer escapes HTML, so the markers would print literally.

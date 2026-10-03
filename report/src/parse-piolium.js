@@ -62,12 +62,11 @@
 // piolium inlines PoC snippets and a fenced `## step 2` must not end a
 // section (md-structure.js).
 
-import { H2_RE, H3_RE, H4_RE, normalizeNewlines, parseCodeRef, parseLabelledFields, splitByHeading, splitLeading, tableObjects } from './md-structure.js'
-import { frozenIdBasis } from './parse-piolium-id.js'
+import { H2_RE, H3_RE, H4_RE, normalizeNewlines, parseLabelledFields, splitByHeading, splitLeading, tableObjects } from './md-structure.js'
 import { normalizeFindingSeverity } from './severity.js'
-import { fromIndexRow, indexRowOf, listFindings, variantFindings } from './parse-piolium-rows.js'
+import { fromIndexRow, indexRowOf, listFindings, locatedFinding, variantFindings } from './parse-piolium-rows.js'
 import {
-  CODE_REF_FIELDS, codeRefOf, headerSeverity, idCell, idFromToken,
+  CODE_REF_FIELDS, headerSeverity, idCell, idFromToken,
   isVariantsHeading, mapSeverity, parseHeading, preambleMeta,
   resolveSeverity, severityFromId, severityGroupOf,
 } from './parse-piolium-tokens.js'
@@ -80,15 +79,9 @@ const DETAIL_HEADERS = new Set([
   'technical findings detail', 'technical findings',
   'detailed findings', 'findings detail', 'findings',
 ])
-function isDetailHeader(header) {
-  return DETAIL_HEADERS.has(header) || header.startsWith('findings by severity')
-}
 
 // Never mined for findings, even carrying id-shaped headings or tables.
 const EXCLUDED_HEADERS = /^(?:summary of findings\b|deferred|methodolog|executive|conclusion|attack surface|coverage|discoveries|scope\b|table of contents|contents\b|appendix|recommendation|remediation)/u
-function isExcludedHeader(header) {
-  return EXCLUDED_HEADERS.test(header)
-}
 
 // Section names vary run to run ('## HIGH — 3 findings', '## Confirmed
 // Findings', emoji prefixes), so a non-excluded section whose headings
@@ -115,7 +108,9 @@ export function parsePioliumFindings(content) {
 
   const { head, subs } = splitLeading(text, H2_RE)
   const sections = parseSections(subs)
-  const index = parseIndexTable(sections['summary of findings'] || '')
+  // `## Summary of Findings` → id → row: both the gap-filler for a sparse
+  // block (PoC status, parent, verdict) and the source of last resort.
+  const index = new Map(tableObjects(sections['summary of findings'] || '').map(indexRowOf).filter((row) => row.id).map((row) => [row.id, row]))
   const meta = preambleMeta(head)
 
   const findings = []
@@ -135,9 +130,9 @@ export function parsePioliumFindings(content) {
     // content-based fallback for every other spelling a run invents,
     // where a leading severity word still supplies the tier.
     const groupSev = severityGroupOf(header)
-    if (groupSev || isDetailHeader(header)) {
+    if (groupSev || DETAIL_HEADERS.has(header) || header.startsWith('findings by severity')) {
       emit(parseFindingsBody(body, groupSev, index, pending))
-    } else if (!isExcludedHeader(header) && hasIdBlocks(body)) {
+    } else if (!EXCLUDED_HEADERS.test(header) && hasIdBlocks(body)) {
       emit(parseFindingsBody(body, headerSeverity(header), index, pending))
     }
   }
@@ -266,15 +261,12 @@ function parseFindingsBody(body, sev, index, pending) {
   // the gated fallback emits only ids no block claimed. A row with no id
   // can't be index-keyed and defers via pending, as list items do.
   const rows = tableObjects(body).map(indexRowOf).filter((r) => r.id || r.title)
-  if (rows.length > 0) {
-    for (const r of rows) {
-      if (!r.severity && sev) r.severity = sev
-      if (r.id && !index.has(r.id)) index.set(r.id, r)
-      else if (!r.id) pending.push({ id: '', finding: fromIndexRow(r, sev) })
-    }
-    return []
+  for (const r of rows) {
+    if (!r.severity && sev) r.severity = sev
+    if (r.id && !index.has(r.id)) index.set(r.id, r)
+    else if (!r.id) pending.push({ id: '', finding: fromIndexRow(r, sev) })
   }
-  pending.push(...listFindings(body, sev, index))
+  if (rows.length === 0) pending.push(...listFindings(body, sev, index))
   return []
 }
 
@@ -302,12 +294,9 @@ function parseBlock(heading, body, index, groupSeverity = '') {
     mapSeverity(fields.severity), mapSeverity(row?.severity), groupSeverity, severityFromId(id),
   )
 
-  const refText = codeRefOf(fields)
-  const ref = parseCodeRef(refText)
   // A `**Line:**` / `**Lines:**` bullet supplies the line when the
   // reference itself carries none.
   const lineBullet = /\d+/u.exec(fields.line || fields.lines || '')?.[0] ?? ''
-  const line = ref.line === '?' && lineBullet ? lineBullet : ref.line
 
   // `- **Variant of** [p10-011](#p10-011) · …` names the parent, with or
   // without the colon that would make it a labelled field; read off the
@@ -318,23 +307,9 @@ function parseBlock(heading, body, index, groupSeverity = '') {
     .filter((l) => !/^\s*<a\s[^>]*>\s*<\/a>\s*$/iu.test(l) && !/\*\*Variant of:?\*\*/iu.test(l))
     .join('\n').trim()
 
-  const finding = {
-    file: ref.file || 'unknown',
-    line,
-    severity,
+  const finding = locatedFinding({
+    ref: CODE_REF_FIELDS.map((k) => fields[k]).find(Boolean) ?? '', lineBullet, id, severity, identitySeverity,
     description: buildDescription(title || id, fields, labels, proseClean),
-  }
-  if (ref.locationLink) finding.location = ref.locationLink
-  // Last-resort fingerprint discriminator for an unlocated finding —
-  // see fromIndexRow for why.
-  else if (finding.file === 'unknown' && id) finding.location = `piolium:${id}`
-  // The id fingerprint is parse-piolium-id.js's own reading of the
-  // same reference, not the one above: what `parseCodeRef` makes of a
-  // reference is presentation and free to improve, the fingerprint is
-  // not. finding-id.js prefers `_idBasis` when deriving the uuid; read
-  // that module's header before touching either side.
-  finding._idBasis = frozenIdBasis({
-    severity: identitySeverity, description: finding.description, ref: refText, lineBullet, id,
   })
   // Auxiliary provenance, kept as plain strings so an export can cite
   // the audit's own artifacts — as parse-md.js keeps branch / status.
@@ -362,18 +337,6 @@ function parseSections(subs) {
     sections[header] = header in sections ? `${sections[header]}\n${body}` : body
   }
   return sections
-}
-
-// `## Summary of Findings` → id → row: both the gap-filler for a sparse
-// block (PoC status, parent, verdict) and the source of last resort.
-function parseIndexTable(text) {
-  const index = new Map()
-  for (const obj of tableObjects(text)) {
-    const row = indexRowOf(obj)
-    if (!row.id) continue
-    index.set(row.id, row)
-  }
-  return index
 }
 
 // Mechanical fields, which must not repeat into the description:

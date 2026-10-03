@@ -43,26 +43,26 @@ export function unfencedMatches(text, re) {
   return [...text.matchAll(re)].filter((m) => !inFence(ranges, m.index))
 }
 
-// Each heading line in `marks`, over the text up to the next.
-function sections(text, marks) {
-  return marks.map((m, i) => ({
-    heading: m[1],
-    body: text.slice(m.index + m[0].length + 1, marks[i + 1]?.index),
-  }))
+// `text` cut at each match of `re` outside a fence: the text before the first, then what follows each.
+export function splitUnfenced(text, re) {
+  const marks = unfencedMatches(text, re)
+  return [text.slice(0, marks[0]?.index), ...marks.map((m, i) => text.slice(m.index + m[0].length, marks[i + 1]?.index))]
 }
 
-// `text` split at every line matching `re` outside a fence. Content
-// before the first heading is dropped.
-export function splitByHeading(text, re) {
-  return sections(text, unfencedMatches(text, re))
-}
-
-// splitByHeading, keeping the content before the first heading — the
-// enclosing block's own body — as `head`.
+// `text` split at every line matching `re` outside a fence: the content
+// before the first heading — the enclosing block's own body — as `head`,
+// and each heading line over the text up to the next as `subs`.
 export function splitLeading(body, re) {
   const marks = unfencedMatches(body, re)
-  if (marks.length === 0) return { head: body, subs: [] }
-  return { head: body.slice(0, marks[0].index), subs: sections(body, marks) }
+  return {
+    head: body.slice(0, marks[0]?.index),
+    subs: marks.map((m, i) => ({ heading: m[1], body: body.slice(m.index + m[0].length + 1, marks[i + 1]?.index) })),
+  }
+}
+
+// splitLeading's `subs`: content before the first heading is dropped.
+export function splitByHeading(text, re) {
+  return splitLeading(text, re).subs
 }
 
 // A block split off its `# ` / `### ` marker: heading line and body.
@@ -72,38 +72,24 @@ export function splitHeadingLine(block) {
   return { title: block.slice(0, nl).trim(), body: block.slice(nl + 1) }
 }
 
-// Rows of a markdown table, as arrays of trimmed cells; the `|---|---|`
-// delimiter and any non-row line are skipped, so prose around the table
-// is ignored. The delimiter test is one character class: a
-// `[\s:|-]*\|?\s*$` shape carries two overlapping whitespace
-// quantifiers and backtracks quadratically on a padded cell.
-function tableRows(text) {
-  const rows = []
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed.startsWith('|')) continue
-    if (/^[\s:|-]+$/u.test(trimmed) && trimmed.includes('-')) continue
-    const cells = trimmed.replace(/^\|/u, '').replace(/\|$/u, '').split('|').map((c) => c.trim())
-    rows.push(cells)
-  }
-  return rows
-}
-
 // A table as `{ <column>: value }` objects keyed by its own case-folded
 // headers, so callers match columns by name rather than position. A
 // re-stated header row — how a concatenated section arrives — is chrome.
+//
+// Rows are arrays of trimmed cells; the `|---|---|` delimiter and any
+// non-row line are skipped, so prose around the table is ignored. The
+// delimiter test is one character class: a `[\s:|-]*\|?\s*$` shape
+// carries two overlapping whitespace quantifiers and backtracks
+// quadratically on a padded cell.
 export function tableObjects(text) {
-  const rows = tableRows(text)
+  const rows = text.split('\n').map((line) => line.trim())
+    .filter((row) => row.startsWith('|') && !(/^[\s:|-]+$/u.test(row) && row.includes('-')))
+    .map((row) => row.replace(/^\|/u, '').replace(/\|$/u, '').split('|').map((c) => c.trim()))
   if (rows.length < 2) return []
   const header = rows[0].map((h) => h.toLowerCase())
-  const objects = []
-  for (const cells of rows.slice(1)) {
-    if (cells.length === header.length && cells.every((c, i) => c.toLowerCase() === header[i])) continue
-    const obj = {}
-    header.forEach((name, i) => { if (name) obj[name] = cells[i] ?? '' })
-    objects.push(obj)
-  }
-  return objects
+  return rows.slice(1)
+    .filter((cells) => cells.length !== header.length || cells.some((c, i) => c.toLowerCase() !== header[i]))
+    .map((cells) => Object.fromEntries(header.flatMap((name, i) => (name ? [[name, cells[i] ?? '']] : []))))
 }
 
 // `**Field:** value` labels, with or without a `- ` bullet, keyed
@@ -201,9 +187,7 @@ export function parseCodeRef(raw) {
 
   // A `#L<n>` anchor on the link is the most reliable line source (and
   // reads the start line of a `#L88-L95` range).
-  let line = ''
-  const anchor = /#L(\d+)/u.exec(locationLink)
-  if (anchor) line = anchor[1]
+  let line = /#L(\d+)/u.exec(locationLink)?.[1] ?? ''
 
   // The first PATH-SHAPED backtick span wins when there is one: a value
   // citing a call chain — "see `src/a.js:42` and `src/b.js:9`" — locates

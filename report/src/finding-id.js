@@ -8,10 +8,6 @@
 
 import { encodeUtf8 } from './utf8.js'
 
-function toHex(bytes) {
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
-}
-
 // The file-content hash the JSON output format uses. sha512 because the
 // id below hashes a string that already includes it, so a collision here
 // would propagate into an id collision. Padded base64 with the SRI-style
@@ -32,7 +28,7 @@ async function fingerprintToId(fingerprint) {
   u[6] = (u[6] & 0x0f) | 0x40
   // variant 1: 10xxxxxx
   u[8] = (u[8] & 0x3f) | 0x80
-  const hex = toHex(u)
+  const hex = Array.from(u, (b) => b.toString(16).padStart(2, '0')).join('')
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
 }
 

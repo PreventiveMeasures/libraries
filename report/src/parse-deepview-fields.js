@@ -1,8 +1,8 @@
 // The readers for one case of the DeepView markdown document: the fact
-// list under a finding's heading, the sections under that, the evidence
-// list, the description they add up to. Which section is a finding and
-// which `####` is a case belongs to parse-deepview-md.js; this module
-// knows how write-md-finding.js spelt each value.
+// list under a finding's heading, the evidence list, the description the
+// sections add up to. Which section is a finding and which `####` is a
+// case belongs to parse-deepview-md.js; this module knows how
+// write-md-finding.js spelt each value.
 //
 // Every reader is the inverse of a writer — `readLocation` of
 // locationText, `readSeverity` of severityText, and so on — and
@@ -12,14 +12,14 @@
 
 import { REVALIDATE_KINDS, firstLine } from './finding.js'
 import { SEVERITY_LABELS, SOURCE_LABELS } from './labels.js'
-import { FILE_LINE_RE, H4_RE, H5_RE, fenceRanges, findMdLink, inFence, isCommitHash, splitLeading } from './md-structure.js'
+import { FILE_LINE_RE, fenceRanges, findMdLink, inFence, isCommitHash } from './md-structure.js'
 import { isHttpUrl, unescapeHeadings } from './md-text.js'
+import { CODE_FIELDS, PLAIN_FIELDS, NARRATIVE as WRITTEN_NARRATIVE } from './write-md-finding.js'
 
 // label (case-folded) → key, for the words the writer spells the app's
 // enumerations with (labels.js).
 const SEVERITY_KEYS = new Map(Object.entries(SEVERITY_LABELS).map(([k, v]) => [v.toLowerCase(), k]))
 const SOURCE_KEYS = new Map(Object.entries(SOURCE_LABELS).map(([k, v]) => [v.toLowerCase(), k]))
-const REVALIDATE_SET = new Set(REVALIDATE_KINDS)
 
 // ── Inline forms ─────────────────────────────────────────────────────
 
@@ -117,15 +117,8 @@ function readSeverity(value) {
   const varies = s.indexOf(VARIES)
   if (varies !== -1) s = s.slice(0, varies)
   const m = /^(.*?) — corrected (from|to) (.*)$/u.exec(s)
-  if (!m) {
-    out.severity = tierOf(s)
-  } else if (m[2] === 'from') {
-    out.severity = tierOf(m[3])
-    out.correctedSeverity = tierOf(m[1])
-  } else {
-    out.severity = tierOf(m[1])
-    out.correctedSeverity = tierOf(m[3])
-  }
+  if (m) [out.severity, out.correctedSeverity] = (m[2] === 'from' ? [m[3], m[1]] : [m[1], m[3]]).map(tierOf)
+  else out.severity = tierOf(s)
   return out
 }
 
@@ -198,7 +191,7 @@ function readPackage(value) {
 function readRevalidation(value) {
   const s = value.trim().toLowerCase()
   if (s === 'the revalidation pass itself') return 'revalidation'
-  return REVALIDATE_SET.has(s) ? s : undefined
+  return REVALIDATE_KINDS.includes(s) ? s : undefined
 }
 
 // One fact back onto the finding, keyed by the label the writer gave it.
@@ -206,7 +199,12 @@ function readRevalidation(value) {
 // once; `Triage` / `Fix` and the `Comment` section, the reader's
 // annotations, which live in the viewer's triage store and follow the
 // id; and `Report`, which names the file a case came from — now this one.
+// The plain and code facts read back as the writer spelt them
+// (write-md-finding.js PLAIN_FIELDS, CODE_FIELDS), `priority`'s reader
+// below replacing the plain one.
 const FACT_READERS = new Map([
+  ...[['Category', 'category'], ...PLAIN_FIELDS].map(([label, field]) => [label.toLowerCase(), (f, v) => { f[field] = v }]),
+  ...[...CODE_FIELDS, ['Found while analyzing', 'discoveredIn']].map(([label, field]) => [label.toLowerCase(), (f, v) => { f[field] = codeSpan(v) ?? v }]),
   ['location', (f, v) => Object.assign(f, readLocation(v))],
   ['severity', (f, v) => Object.assign(f, readSeverity(v))],
   ['confidence', (f, v) => { const m = /^(\d+(?:\.\d+)?)\/10$/u.exec(v); if (m) f.confidence = Number(m[1]) }],
@@ -216,15 +214,6 @@ const FACT_READERS = new Map([
   ['introduced in', (f, v) => { f.commitHash = readCommit(v) }],
   ['package', (f, v) => { f.package = readPackage(v) }],
   ['priority', (f, v) => { f.priority = /^-?\d+(?:\.\d+)?$/u.test(v) ? Number(v) : v }],
-  ['found while analyzing', (f, v) => { f.discoveredIn = codeSpan(v) ?? v }],
-  ['detailed report', (f, v) => { f.reportPath = codeSpan(v) ?? v }],
-  ['commit audited', (f, v) => { f.auditedCommit = codeSpan(v) ?? v }],
-  ['id', (f, v) => { f.id = codeSpan(v) ?? v }],
-  ...[
-    ['category', 'category'], ['status', 'status'], ['branch', 'branch'],
-    ['date created', 'dateCreated'], ['detected at', 'detectedAt'], ['committed at', 'committedAt'],
-    ['poc status', 'pocStatus'], ['variant of', 'parent'], ['slug', 'slug'],
-  ].map(([label, field]) => [label, (f, v) => { f[field] = v }]),
 ])
 
 export function applyFact(f, label, value) {
@@ -241,7 +230,7 @@ const FACT_RE = /^- \*\*([^*\n]+?):\*\* ?(.*)$/u
 // where a case is named differently from its group — but only when a
 // list follows, since a case with no facts keeps its opening paragraph
 // as prose. Prose comes back with the writer's heading escape off, here
-// and wherever readProse is used, so `\## Internal detail` is the
+// and wherever unescapeHeadings is used, so `\## Internal detail` is the
 // `## Internal detail` the description held.
 export function splitFacts(body) {
   const lines = body.split('\n')
@@ -249,12 +238,7 @@ export function splitFacts(body) {
   const skipBlank = () => { while (i < lines.length && !lines[i].trim()) i++ }
   const readFacts = () => {
     const facts = []
-    while (i < lines.length) {
-      const m = FACT_RE.exec(lines[i])
-      if (!m) break
-      facts.push([m[1].trim(), m[2].trim()])
-      i++
-    }
+    for (let m; (m = FACT_RE.exec(lines[i] ?? '')) !== null; i++) facts.push([m[1].trim(), m[2].trim()])
     return facts
   }
   skipBlank()
@@ -265,22 +249,7 @@ export function splitFacts(body) {
   skipBlank()
   facts = readFacts()
   if (facts.length === 0) return { title: '', facts, rest: body }
-  return { title: readProse(para.join('\n').trim()), facts, rest: lines.slice(i).join('\n') }
-}
-
-// A run of prose as the description held it: the writer's heading
-// escape off, when the document's writer put one on.
-export function readProse(text) {
-  return unescapeHeadings(text)
-}
-
-// A case's sections at `depth` (4 under a finding's heading, 5 under a
-// case's): the lead before the first heading and `[{ label, body }]`
-// after it — outside fences only, so a `#### ` line in a snippet stays
-// in the snippet.
-export function splitSections(text, depth) {
-  const { head, subs } = splitLeading(text, depth === 4 ? H4_RE : H5_RE)
-  return { lead: head.trim(), sections: subs.map((s) => ({ label: s.heading.trim(), body: s.body.trim() })) }
+  return { title: unescapeHeadings(para.join('\n').trim()), facts, rest: lines.slice(i).join('\n') }
 }
 
 const ITEM_RE = /^(\d+)\. (.*)$/u
@@ -311,7 +280,7 @@ function evidenceRow({ ref, indent, note }) {
   if (label !== null) Object.assign(row, fileLine(label))
   const url = link ? link.url : auto
   if (isHttpUrl(url)) row.url = url
-  const text = readProse(note.map((l) => l.slice(Math.min(indent, /^ */u.exec(l)[0].length))).join('\n').trim())
+  const text = unescapeHeadings(note.map((l) => l.slice(Math.min(indent, /^ */u.exec(l)[0].length))).join('\n').trim())
   if (text) row.text = text
   return row
 }
@@ -321,11 +290,7 @@ function evidenceRow({ ref, indent, note }) {
 // The narrative fields the writer gives their own sections, in the
 // order it writes them (write-md-finding.js NARRATIVE) — AFTER the
 // sections the description's own `**Label:**` paragraphs became.
-const NARRATIVE = new Map([
-  ['impact', 'impact'], ['reproduction', 'reproduction'], ['recommendation', 'recommendation'],
-  ['confidence reasoning', 'confidenceReason'], ['revalidation verdict', 'revalidateVerdict'],
-  ['revalidation recommendation', 'revalidateRecommendation'],
-])
+const NARRATIVE = new Map(WRITTEN_NARRATIVE.map(([label, field]) => [label.toLowerCase(), field]))
 const NARRATIVE_ORDER = [...NARRATIVE.keys()]
 
 // Which sections were fields and which the description's own. The writer

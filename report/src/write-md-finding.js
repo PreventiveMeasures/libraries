@@ -51,7 +51,7 @@ export function analyzerText(f, source, revalidation) {
 // in the order the card reads them: what it means, how to trigger it,
 // how to fix it, then the analyzer's and the pass's remarks. The pass's
 // two travel with the revalidation layer (ctx.revalidation).
-const NARRATIVE = [
+export const NARRATIVE = [
   ['Impact', 'impact', false],
   ['Reproduction', 'reproduction', false],
   ['Recommendation', 'recommendation', false],
@@ -66,14 +66,14 @@ const NARRATIVE = [
 // `Date created`, Codex's `detected_at`, Piolium's `PoC status` /
 // `Variant of`, DeepSec's `Slug`. Strings and numbers only — an object
 // has no line to print on.
-const PLAIN_FIELDS = [
+export const PLAIN_FIELDS = [
   ['Status', 'status'], ['Branch', 'branch'], ['Date created', 'dateCreated'],
   ['Detected at', 'detectedAt'], ['Committed at', 'committedAt'],
   ['PoC status', 'pocStatus'], ['Variant of', 'parent'], ['Slug', 'slug'],
   ['Priority', 'priority'],
 ]
-// …and the ones that are paths or hashes, set in code.
-const CODE_FIELDS = [['Detailed report', 'reportPath'], ['Commit audited', 'auditedCommit']]
+// …and the ones that are paths or hashes, set in code, the id last.
+export const CODE_FIELDS = [['Detailed report', 'reportPath'], ['Commit audited', 'auditedCommit'], ['ID', 'id']]
 
 // A fact is one line of the list, so a value that arrived with line
 // breaks (a wrapped Piolium bullet) is reflowed onto one — the break
@@ -128,15 +128,6 @@ function triageText(a) {
   return parts.join(' · ')
 }
 
-// Whose revalidation pass a stamp came from, in the words this document
-// spells a producer with; an unknown key prints as itself. Written under
-// the stamp, so it travels with the layer and says nothing where the
-// finding's own report ran the pass.
-function sourceText(source) {
-  const s = plainValue(source)
-  return s ? SOURCE_LABELS[s] ?? s : ''
-}
-
 function commitText(f, ctx) {
   const hash = plainValue(f.commitHash)
   if (!hash) return ''
@@ -159,7 +150,12 @@ function metaList(f, ctx, annotation) {
   add('Category', plainValue(f.category))
   const kind = ctx.revalidation ? revalidateKindOf(f) : ''
   if (kind) add('Revalidation', kind === 'revalidation' ? 'the revalidation pass itself' : kind)
-  if (kind) add('Revalidated by', sourceText(f.revalidateSource))
+  // Whose pass the stamp came from, in the words this document spells a
+  // producer with; an unknown key prints as itself. Written under the
+  // stamp, so it travels with the layer and says nothing where the
+  // finding's own report ran the pass.
+  const by = plainValue(f.revalidateSource)
+  if (kind) add('Revalidated by', SOURCE_LABELS[by] ?? by)
   add('Triage', triageText(annotation))
   if (annotation?.fix) add('Fix', autolink(String(annotation.fix).trim()))
   if (ctx.showReport) add('Report', code(ctx.hooks.report(f) ?? ''))
@@ -173,7 +169,6 @@ function metaList(f, ctx, annotation) {
   if (pkg) add('Package', code(plainValue(npm.version) ? `${pkg}@${plainValue(npm.version)}` : pkg))
   for (const [label, field] of PLAIN_FIELDS) add(label, plainValue(f[field]))
   for (const [label, field] of CODE_FIELDS) add(label, code(plainValue(f[field])))
-  add('ID', code(plainValue(f.id)))
   return rows.join('\n')
 }
 
