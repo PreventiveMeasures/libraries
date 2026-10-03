@@ -8,8 +8,10 @@ import { checkGlob, checkLength } from './minimatch.js'
 // What Rust's trim_end takes off: White_Space.
 const TRAILING = /[\t-\r \u0085\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]+$/u
 
+const encoder = new TextEncoder()
+
 // A path as its UTF-8 bytes, as globset matches it.
-export const bytesOf = (path) => new TextEncoder().encode(path)
+export const bytesOf = (path) => encoder.encode(path)
 
 const SLASH = 0x2F
 const NEWLINE = 0x0A

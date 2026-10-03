@@ -29,6 +29,15 @@ function checkCollisions(vfs) {
 // A path within a directory: no segment of it empty, `.` or `..`.
 export const isInside = (path) => path !== '' && path.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..')
 
+// Whether `child` is `parent` or under it, both paths from one directory in
+// normal form, `.` being that one.
+export const within = (parent, child) => child === parent || (parent === '.' ? child !== '..' && !child.startsWith('../') : child.startsWith(`${parent}/`))
+
+// What the lockfile reader refuses in a path: a backslash, a separator on
+// Windows, and what reads otherwise than it is written (a control character,
+// a line or paragraph separator, a bidirectional control).
+export const UNSAFE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}\\]/u
+
 const asRefusal = (error, what, path) => {
   if (error instanceof VfsError) return new DeptreeError(`cannot be ${what}: ${error.message}`, quote(path), { cause: error })
   return error

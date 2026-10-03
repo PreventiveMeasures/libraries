@@ -9,6 +9,7 @@
 // links as pnpm 10 does, but fails on a bin that is a directory.
 
 import { DeptreeError, quote } from '../error.js'
+import { crlfShebang, withoutCr } from '../tarball.js'
 import { UNKNOWN, binsOf, bundledCommands, commandsOf, compare, normalized, parseManifest } from './commands.js'
 
 const decoder = new TextDecoder('utf-8', { fatal: true })
@@ -173,29 +174,21 @@ function fixedFiles(nodes, fixed, contested, major) {
   return byNode
 }
 
-// As fixBin tells it, reading only the first 2048 bytes.
-function hasCrlfShebang(data) {
-  if (data[0] !== 0x23 || data[1] !== 0x21) return false
-  const newline = data.subarray(0, 2048).indexOf(0x0a)
-  return newline >= 4 && data[newline - 1] === 0x0d
-}
+const hasCrlfShebang = (data) => crlfShebang(data) !== -1
 
 export const executableMode = (mode, major) => (major >= 11 ? mode | 0o111 : 0o755)
 
 // pnpm reads and writes the file as UTF-8, which changes one that is not.
 export function fixBin(file, where, major) {
   const mode = executableMode(file.mode, major)
-  if (major >= 12 || !hasCrlfShebang(file.data)) return { data: file.data, mode }
+  const newline = major >= 12 ? -1 : crlfShebang(file.data)
+  if (newline === -1) return { data: file.data, mode }
   try {
     decoder.decode(file.data)
   } catch {
     throw new DeptreeError('a bin with a CRLF `#!` line is not UTF-8, which pnpm would rewrite', where)
   }
-  const newline = file.data.indexOf(0x0a)
-  const data = new Uint8Array(file.data.length - 1)
-  data.set(file.data.subarray(0, newline - 1))
-  data.set(file.data.subarray(newline), newline - 1)
-  return { data, mode }
+  return { data: withoutCr(file.data, newline), mode }
 }
 
 const BIN_FIELDS = (manifest) => JSON.stringify([manifest.name, manifest.version, manifest.bin, manifest.directories?.bin])

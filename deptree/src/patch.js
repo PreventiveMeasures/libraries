@@ -7,6 +7,7 @@
 
 import { applyChangeSet, parseDiff } from '@preventive/diff'
 import { DeptreeError, quote } from './error.js'
+import { UNSAFE, isInside } from './mount.js'
 
 const HEADER = 'diff --git a/'
 const MODE = /^(?:new|deleted) file mode (100644|100755)$/u
@@ -24,10 +25,8 @@ function pathOf(header) {
 // separator on Windows, and what reads otherwise than it is written (a line
 // or paragraph separator, a bidirectional control) are refused, as the
 // lockfile reader refuses them in a path.
-const UNSAFE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}\\]/u
-
 function checkPath(path, where) {
-  if (path === undefined || path.startsWith('"') || UNSAFE.test(path) || path.split('/').some((segment) => segment === '' || segment === '.' || segment === '..')) {
+  if (path === undefined || path.startsWith('"') || UNSAFE.test(path) || !isInside(path)) {
     throw new DeptreeError('expected a header naming one relative path on both sides', where)
   }
   return path

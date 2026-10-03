@@ -13,9 +13,10 @@ export function wildcard(pattern, { one = false, any = () => true } = {}) {
   const onward = (places) => {
     for (let i = 0; i < end; i++) if (places[i] === 1 && parts[i] === '*') places[i + 1] = 1
   }
+  let here = new Uint8Array(end + 1)
+  let next = new Uint8Array(end + 1)
   return (text) => {
-    let here = new Uint8Array(end + 1)
-    let next = new Uint8Array(end + 1)
+    here.fill(0)
     here[0] = 1
     onward(here)
     for (const char of text) {

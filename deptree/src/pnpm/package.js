@@ -6,6 +6,7 @@
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { checkNesting } from '../manifest.js'
+import { isInside } from '../mount.js'
 import { fetchTarball, sameFile } from '../tarball.js'
 import { localOf } from './overrides.js'
 
@@ -30,7 +31,7 @@ function filesOf(entries, where) {
     tops.add(entry.storedName.slice(0, Math.max(entry.storedName.indexOf('/'), 0)))
     if (tops.size > 1 || tops.has('')) throw new DeptreeError('the tarball has files under more than one directory, or at its top', where)
     const name = nameOf(entry.storedName)
-    if (name === '' || name.split('/').some((segment) => segment === '' || segment === '.' || segment === '..')) {
+    if (!isInside(name)) {
       throw new DeptreeError(`${quote(entry.storedName)} names no file in the package`, where)
     }
     const file = { data: entry.data, mode: (entry.mode & 0o111) === 0 ? 0o644 : 0o755 }

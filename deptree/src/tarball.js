@@ -47,6 +47,22 @@ export const isModules = (name) => fold(name) === 'node_modules'
 
 export const sameFile = (a, b) => a.mode === b.mode && sameBytes(a.data, b.data)
 
+// Where a file's first line is a `#!` one ending in a CRLF within its first
+// 2048 bytes, as bin-links' fixBin tells it, the index of its LF; else -1.
+export function crlfShebang(data) {
+  if (data[0] !== 0x23 || data[1] !== 0x21) return -1
+  const newline = data.subarray(0, 2048).indexOf(0x0a)
+  return newline >= 4 && data[newline - 1] === 0x0d ? newline : -1
+}
+
+// `data` less the CR before its LF at `newline`.
+export function withoutCr(data, newline) {
+  const copy = new Uint8Array(data.length - 1)
+  copy.set(data.subarray(0, newline - 1))
+  copy.set(data.subarray(newline), newline - 1)
+  return copy
+}
+
 // Adds to `dirs` each one `files` are in, refusing one that is a file too.
 export function withDirs(files, where, dirs = new Set()) {
   for (const path of files.keys()) {

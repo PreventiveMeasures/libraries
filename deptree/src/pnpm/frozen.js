@@ -6,6 +6,7 @@ import { satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { own } from '../manifest.js'
+import { within } from '../mount.js'
 import { catalogEntry, catalogOf } from './overrides.js'
 
 const GIT_HOSTS = new Set(['github.com', 'gitlab.com', 'bitbucket.org'])
@@ -76,7 +77,6 @@ function specPath(dir, path, where) {
 }
 
 const isWorkspacePath = (spec) => /^(?:[./\\]|~[/\\]|[A-Za-z]:)/u.test(spec)
-const within = (parent, child) => child === parent || (parent === '.' ? child !== '..' && !child.startsWith('../') : child.startsWith(`${parent}/`))
 
 export function parseSpec(spec, alias) {
   if (spec.startsWith('workspace:')) {

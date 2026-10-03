@@ -43,7 +43,7 @@ export function checkParts(pattern, parts, where) {
 // oxlint-disable-next-line require-unicode-regexp
 export const caseless = (source) => new RegExp(source, 'i')
 
-const NO_TRAVERSAL_5 = String.raw`(?!(?:^|\/)\.{1,2}(?:$|\/))`
+export const NO_TRAVERSAL_5 = String.raw`(?!(?:^|\/)\.{1,2}(?:$|\/))`
 const NO_TRAVERSAL_10 = String.raw`(?!(?:^|/)\.\.?(?:$|/))`
 
 // What a regexp with `i` and no `u` takes a code unit for: its upper case

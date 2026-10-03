@@ -8,7 +8,7 @@
 import { basename, dirname, join, normalize } from '@preventive/vfs/path.js'
 import { quote } from '../error.js'
 import { glob } from './glob.js'
-import { caseless, fromParts, rulesOf } from './minimatch.js'
+import { NO_TRAVERSAL_5, caseless, fromParts, rulesOf } from './minimatch.js'
 
 const DEFAULTS = ['.npmignore', '.gitignore', '**/.git', '**/.svn', '**/.hg', '**/CVS', '**/.git/**', '**/.svn/**', '**/.hg/**', '**/CVS/**', '/.lock-wscript', '/.wafpickle-*', '/build/config.gypi', 'npm-debug.log', '**/.npmrc', '.*.swp', '.DS_Store', '**/.DS_Store/**', '._*', '**/._*/**', '*.orig']
 
@@ -18,7 +18,6 @@ const STRICT = Symbol('strict rules')
 
 const MUST_HAVE_NAMES = ['readme', 'copying', 'license', 'licence']
 const MUST_HAVE_RE = caseless(String.raw`^(?:readme|copying|license|licence)(?:\..*[^~$])?$`)
-const NO_TRAVERSAL_5 = String.raw`(?!(?:^|\/)\.{1,2}(?:$|\/))`
 
 // npm-packlist 5's `@(readme|copying|license|licence){,.*[^~$]}`, as glob
 // and minimatch 5 read it: two patterns of one part.
@@ -29,7 +28,7 @@ const MUST_HAVES_10 = MUST_HAVE_NAMES.map((name) => fromParts(true, ['', String.
 
 const relOf = (walker, entry) => (walker.rel === '' ? entry : `${walker.rel}/${entry}`)
 
-export function readRules(view, rel, minimatch, where) {
+function readRules(view, rel, minimatch, where) {
   const here = `${where}: ${quote(rel)}`
   return rulesOf([view.text(rel, here)], minimatch, here)
 }
