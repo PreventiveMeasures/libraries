@@ -9,10 +9,8 @@
 // links as pnpm 10 does, but fails on a bin that is a directory.
 
 import { DeptreeError, quote } from '../error.js'
-import { crlfShebang, withoutCr } from '../tarball.js'
+import { crlfShebang, fixShebang } from '../tarball.js'
 import { UNKNOWN, binsOf, bundledCommands, commandsOf, compare, normalized, parseManifest } from './commands.js'
-
-const decoder = new TextDecoder('utf-8', { fatal: true })
 
 // The peers whose bins pnpm 11 links into a project's .bin.
 function peersOf(children, nodes) {
@@ -179,14 +177,7 @@ export const executableMode = (mode, major) => (major >= 11 ? mode | 0o111 : 0o7
 // pnpm reads and writes the file as UTF-8, which changes one that is not.
 export function fixBin(file, where, major) {
   const mode = executableMode(file.mode, major)
-  const newline = major >= 12 ? -1 : crlfShebang(file.data)
-  if (newline === -1) return { data: file.data, mode }
-  try {
-    decoder.decode(file.data)
-  } catch {
-    throw new DeptreeError('a bin with a CRLF `#!` line is not UTF-8, which pnpm would rewrite', where)
-  }
-  return { data: withoutCr(file.data, newline), mode }
+  return { data: major >= 12 ? file.data : fixShebang(file.data, 'a bin with a CRLF `#!` line is not UTF-8, which pnpm would rewrite', where), mode }
 }
 
 const BIN_FIELDS = (manifest) => JSON.stringify([manifest.name, manifest.version, manifest.bin, manifest.directories?.bin])

@@ -7,6 +7,7 @@ import { getTarball } from '@preventive/upstream/npm.js'
 import { DeptreeError, quote } from './error.js'
 import { matchesIntegrity } from './hash.js'
 import { fold } from './mount.js'
+import { decodeUtf8 } from './project.js'
 
 // What a tarball may unpack to, as upstream bounds what it downloads.
 const MAX_BYTES = 512 * 1024 * 1024
@@ -40,12 +41,11 @@ export function ownTarball(url, name, version, integrity, where) {
 const YARNPKG = 'https://registry.yarnpkg.com/'
 export const fromMirror = (url) => (url.startsWith(YARNPKG) ? `${REGISTRY}${url.slice(YARNPKG.length)}` : url)
 
-const sameBytes = (a, b) => a.length === b.length && a.every((byte, i) => byte === b[i])
 // The name of a package's own node_modules, where npm and yarn install its
 // dependencies, in any case: macOS takes `Node_Modules` for it.
 export const isModules = (name) => fold(name) === 'node_modules'
 
-export const sameFile = (a, b) => a.mode === b.mode && sameBytes(a.data, b.data)
+export const sameFile = (a, b) => a.mode === b.mode && a.data.length === b.data.length && a.data.every((byte, i) => byte === b.data[i])
 
 // Where a file's first line is a `#!` one ending in a CRLF within its first
 // 2048 bytes, as bin-links' fixBin tells it, the index of its LF; else -1.
@@ -55,8 +55,11 @@ export function crlfShebang(data) {
   return newline >= 4 && data[newline - 1] === 0x0d ? newline : -1
 }
 
-// `data` less the CR before its LF at `newline`.
-export function withoutCr(data, newline) {
+// `data` less such a line's CR; the file is rewritten as UTF-8, else refused with `detail`.
+export function fixShebang(data, detail, where) {
+  const newline = crlfShebang(data)
+  if (newline === -1) return data
+  decodeUtf8(data, detail, where)
   const copy = new Uint8Array(data.length - 1)
   copy.set(data.subarray(0, newline - 1))
   copy.set(data.subarray(newline), newline - 1)

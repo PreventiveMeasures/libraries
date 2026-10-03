@@ -8,6 +8,7 @@
 import { applyChangeSet, parseDiff } from '@preventive/diff'
 import { DeptreeError, quote } from './error.js'
 import { UNSAFE, isInside } from './mount.js'
+import { decodeUtf8 } from './project.js'
 
 const HEADER = 'diff --git a/'
 const MODE = /^(?:new|deleted) file mode (100644|100755)$/u
@@ -95,16 +96,7 @@ function applyTo(text, { hunks, blocks, where }) {
   return applyChangeSet(text, blocks)
 }
 
-const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 const encoder = new TextEncoder()
-
-function textOf(file, where) {
-  try {
-    return decoder.decode(file.data)
-  } catch {
-    throw new DeptreeError('changes a file that is not UTF-8', where)
-  }
-}
 
 function bytesOf(text, where) {
   if (!text.isWellFormed()) throw new DeptreeError('makes a file that is not well-formed text', where)
@@ -129,7 +121,7 @@ export function applyPatch(files, patch, { createdMode } = {}) {
     if (current?.data === undefined) throw new DeptreeError('changes a file that is not there', file.where)
     // A deletion git writes with --irreversible-delete has no hunks, and
     // says nothing of what it deletes.
-    const result = file.change === 'delete' && file.hunks.length === 0 ? '' : applyTo(textOf(current, file.where), file)
+    const result = file.change === 'delete' && file.hunks.length === 0 ? '' : applyTo(decodeUtf8(current.data, 'changes a file that is not UTF-8', file.where), file)
     if (file.change === 'delete') {
       if (result !== '') throw new DeptreeError('deletes a file it does not remove all of', file.where)
       next.delete(file.path)

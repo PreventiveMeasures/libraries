@@ -4,17 +4,17 @@
 // it, and a file named by a pattern with no part to match against names
 // found alone where it is there.
 
-import { GLOBSTAR, OBJECT_5, checkGlob, checkLength, checkParts, part5 } from './minimatch.js'
+import { GLOBSTAR, OBJECT_5, checkGlob, checkLength, checkParts, readPart } from './minimatch.js'
 
 // npm-packlist globs `[object Object]` for a `browser` or `main` that is an
 // object.
-export function globParts(pattern, where) {
+function globParts(pattern, where) {
   if (pattern === '[object Object]') return [OBJECT_5]
   checkLength(pattern, where)
   checkGlob(pattern, where)
   const parts = pattern.split(/\/+/u)
   checkParts(pattern, parts, where)
-  return parts.map(part5)
+  return parts.map((part) => readPart(part))
 }
 
 // `sets` are a pattern's sets of parts, or the pattern. glob walks one

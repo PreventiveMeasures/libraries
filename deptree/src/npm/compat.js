@@ -20,7 +20,7 @@ function listOf(pkg, key, at) {
 }
 
 // A libc fails a host with none, whatever it names.
-export function checkPlatform(pkg, host, at) {
+function checkPlatform(pkg, host, at) {
   for (const key of ['os', 'cpu', 'libc']) {
     const list = listOf(pkg, key, at)
     if (list !== undefined && (host[key] === undefined || !takes(host[key], list))) return `its ${key}, ${quote(JSON.stringify(list))}, is not the host's`
@@ -28,13 +28,21 @@ export function checkPlatform(pkg, host, at) {
   return undefined
 }
 
-export function checkEngine(pkg, host) {
+function checkEngine(pkg, host) {
   const { engines } = pkg
   if (!engines) return undefined
   const options = { includePrerelease: true }
   if (engines.node && !satisfies(`v${host.node}`, engines.node, options)) return `its engines.node, ${quote(String(engines.node))}, does not take Node ${host.node}`
   if (engines.npm && !satisfies(host.npm, engines.npm, options)) return `its engines.npm, ${quote(String(engines.npm))}, does not take npm ${host.npm}`
   return undefined
+}
+
+// What npm fails on of a package it does not leave out, `and` said of it.
+export function checkRuns(manifest, host, where, engineStrict, and = '') {
+  const platform = checkPlatform(manifest, host, where)
+  if (platform !== undefined) throw new DeptreeError(`${platform}${and}, which npm fails on`, where)
+  const engine = engineStrict ? checkEngine(manifest, host) : undefined
+  if (engine !== undefined) throw new DeptreeError(`${engine}${and}, which npm fails on with engine-strict`, where)
 }
 
 // Arborist's gatherDepSet.
@@ -74,10 +82,7 @@ export function skippedOf(nodes, host, settings) {
     if (node.kind !== 'package') continue
     const where = whereOf(node)
     if (!node.pkg.optional) {
-      const platform = checkPlatform(node.manifest, host, where)
-      if (platform !== undefined) throw new DeptreeError(`${platform}, and it is not optional, which npm fails on`, where)
-      const engine = settings.engineStrict ? checkEngine(node.manifest, host) : undefined
-      if (engine !== undefined) throw new DeptreeError(`${engine}, and it is not optional, which npm fails on with engine-strict`, where)
+      checkRuns(node.manifest, host, where, settings.engineStrict, ', and it is not optional')
       continue
     }
     if (!host.reuse && skipped.has(node)) continue

@@ -4,7 +4,7 @@
 import { join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { own } from '../manifest.js'
-import { checkEngine, checkPlatform } from './compat.js'
+import { checkRuns } from './compat.js'
 import { checkDevEngines } from './dev-engines.js'
 
 const where = (dir) => `manifests[${quote(dir)}]`
@@ -102,16 +102,6 @@ function checkWorkspace(dir, manifest, importer) {
   }
 }
 
-// The root and workspaces are never left out; npm skips the root's engines
-// where it has devEngines.
-function checkHostOf(dir, manifest, host, settings) {
-  const reason = checkPlatform(manifest, host, where(dir))
-  if (reason !== undefined) throw new DeptreeError(`${reason}, which npm fails on`, where(dir))
-  if (!settings.engineStrict || (dir === '.' && manifest.devEngines)) return
-  const engine = checkEngine(manifest, host)
-  if (engine !== undefined) throw new DeptreeError(`${engine}, which npm fails on with engine-strict`, where(dir))
-}
-
 export function checkManifests({ lockfile, manifests, settings, host, rootEdges }) {
   const root = manifests.get('.')
   if (root.overrides != null && (typeof root.overrides !== 'object' || Object.keys(root.overrides).length > 0)) {
@@ -133,6 +123,8 @@ export function checkManifests({ lockfile, manifests, settings, host, rootEdges 
     }
     compareEdges(dir === '.' ? rootEdges : edgesOf(manifest, where(dir), [], settings.legacyPeerDeps), importer, where(dir))
     if (host.reuse && dir !== '.' && manifest.scripts?.prepare) throw new DeptreeError('a workspace with a prepare script, which npm 10 runs even with --ignore-scripts, is not supported', `${where(dir)}.scripts.prepare`)
-    checkHostOf(dir, manifest, host, settings)
+    // The root and workspaces are never left out; npm skips the root's engines
+    // where it has devEngines.
+    checkRuns(manifest, host, where(dir), settings.engineStrict && !(dir === '.' && manifest.devEngines))
   }
 }

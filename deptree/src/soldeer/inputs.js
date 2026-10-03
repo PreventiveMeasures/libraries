@@ -4,8 +4,7 @@ import { DeptreeError, quote } from '../error.js'
 import { checkHostKeys, checkLeftOut, checkProject, checkTexts, readText } from '../project.js'
 
 export function checkHost(host) {
-  if (host === null || typeof host !== 'object') throw new TypeError('host must be an object with soldeer and os')
-  checkHostKeys(host, ['soldeer', 'os'])
+  checkHostKeys(host, ['soldeer', 'os'], 'soldeer and os')
   if (host.soldeer !== '0.12.0') throw new DeptreeError(`Soldeer ${quote(host.soldeer)} is not supported: only Soldeer 0.12.0 is`, 'host.soldeer')
   if (host.os === 'win32') throw new DeptreeError('Windows is not supported: Soldeer names folders otherwise there', 'host.os')
   return { soldeer: host.soldeer, os: host.os }

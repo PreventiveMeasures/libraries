@@ -33,14 +33,8 @@ export const UNKNOWN = { unknown: true }
 // As tinyglobby's `**` finds them, or with `dots` as pnpm 12's walk does.
 function filesUnder(files, base, dir, { dots = false } = {}) {
   const prefix = dir === base ? '' : `${dir.slice(base.length + 1)}/`
-  const found = []
-  for (const [path, file] of files) {
-    if (file.data === undefined || !path.startsWith(prefix)) continue
-    const rest = path.slice(prefix.length)
-    if (!dots && rest.split('/').some((name) => name.startsWith('.'))) continue
-    found.push(rest)
-  }
-  return found
+  const found = [...files].filter(([path, file]) => file.data !== undefined && path.startsWith(prefix)).map(([path]) => path.slice(prefix.length))
+  return dots ? found : found.filter((rest) => !rest.split('/').some((name) => name.startsWith('.')))
 }
 
 // Which of two of one name wins turns on the order directories are read in.

@@ -25,8 +25,7 @@ function yarnOf(yarn, root) {
 }
 
 export function checkHost(host, root) {
-  if (host === null || typeof host !== 'object') throw new TypeError('host must be an object with node, os and cpu, and yarn where it is not pinned')
-  checkHostKeys(host, ['node', 'os', 'cpu'])
+  checkHostKeys(host, ['node', 'os', 'cpu'], 'node, os and cpu, and yarn where it is not pinned')
   if (valid(host.node) !== host.node) throw new DeptreeError(`${quote(host.node)} is not an exact version`, 'host.node')
   if (host.os === 'win32') throw new DeptreeError('Windows is not supported: yarn links bins there with shims, and workspaces with junctions', 'host.os')
   return { yarn: yarnOf(host.yarn, root), node: host.node, os: host.os, cpu: host.cpu }

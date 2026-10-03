@@ -23,20 +23,7 @@ function readWorkspaceText(project, major) {
   return text
 }
 
-// pnpm-workspace.yaml is read once the pnpm that installs is known.
-function readRootFiles(project) {
-  const lockfile = readText(project, '/pnpm-lock.yaml')
-  if (lockfile === undefined) throw new DeptreeError('the project has no pnpm-lock.yaml, which a frozen install cannot do without')
-  return { lockfile, npmrc: readText(project, '/.npmrc') }
-}
-
-function readManifestTexts(project, ids) {
-  const texts = new Map()
-  for (const id of ids) {
-    texts.set(id, readText(project, id === '.' ? '/package.json' : `/${id}/package.json`, `manifests[${quote(id)}]`))
-  }
-  return texts
-}
+const readManifestTexts = (project, ids) => new Map(ids.map((id) => [id, readText(project, id === '.' ? '/package.json' : `/${id}/package.json`, `manifests[${quote(id)}]`)]))
 
 // By path from the lockfile's directory; one that is not there is left out.
 function readPatches(project, configured) {
@@ -70,8 +57,7 @@ function pnpmOf(pnpm, root) {
 
 // All of host but its pnpm, which pnpmOf reads.
 export function checkHost(host) {
-  if (host === null || typeof host !== 'object') throw new TypeError('host must be an object with node, os, cpu and libc, and pnpm where it is not pinned')
-  checkHostKeys(host, ['node', 'os', 'cpu', 'libc'])
+  checkHostKeys(host, ['node', 'os', 'cpu', 'libc'], 'node, os, cpu and libc, and pnpm where it is not pinned')
   const { node, os, libc } = host
   if (valid(node) === null) throw new DeptreeError(`${quote(node)} is not an exact version`, 'host.node')
   if (os === 'win32') throw new DeptreeError('Windows is not supported: pnpm links there with junctions to absolute paths', 'host.os')
@@ -155,7 +141,10 @@ export function inputsOf(options) {
   if (lockfile === undefined) {
     if (project === undefined) throw new TypeError(LOCKFILE)
     checkLeftOut({ manifests, workspace, npmrc, patches })
-    return { reading: true, project, ...readRootFiles(project) }
+    const text = readText(project, '/pnpm-lock.yaml')
+    if (text === undefined) throw new DeptreeError('the project has no pnpm-lock.yaml, which a frozen install cannot do without')
+    // pnpm-workspace.yaml is read once the pnpm that installs is known.
+    return { reading: true, project, lockfile: text, npmrc: readText(project, '/.npmrc') }
   }
   if (typeof lockfile !== 'string') throw new TypeError(LOCKFILE)
   checkTexts({ workspace, npmrc })

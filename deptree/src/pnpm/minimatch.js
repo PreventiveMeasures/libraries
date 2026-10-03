@@ -111,12 +111,6 @@ function partOf(text, { lookahead = false, traversal = false, empty = true } = {
 
 const foldless = (text) => text.toUpperCase() === text.toLowerCase()
 
-export function part5(text) {
-  if (text === '**') return GLOBSTAR
-  if (!/[*?]/u.test(text)) return text === '' || foldless(text) ? text : partOf(text)
-  return partOf(text, { lookahead: true, traversal: /^[*?]/u.test(text) })
-}
-
 // minimatch 10's own tests of a part, which it runs in place of its regexp.
 const FAST = [
   [/^\*+$/u, () => (f) => f.length !== 0 && f !== '.' && f !== '..'],
@@ -126,9 +120,11 @@ const FAST = [
   [/^\.\*+$/u, () => (f) => f !== '.' && f !== '..' && f.startsWith('.')],
 ]
 
-function part10(text) {
+// A part as minimatch 5 reads it, or with `ten` minimatch 10.
+export function readPart(text, ten = false) {
   if (text === '**') return GLOBSTAR
   if (!/[*?]/u.test(text)) return text === '' || foldless(text) ? text : partOf(text)
+  if (!ten) return partOf(text, { lookahead: true, traversal: /^[*?]/u.test(text) })
   const fast = FAST.find(([re]) => re.test(text))
   if (fast !== undefined) return { test: fast[1](text.match(fast[0])) }
   return partOf(text, { traversal: /^\.{0,2}[*?]/u.test(text), empty: !/^\*+$/u.test(text) })
@@ -136,11 +132,6 @@ function part10(text) {
 
 const hit = (part, name) => (typeof part === 'string' ? name === part : part.test(name))
 const traversal = (name) => name === '.' || name === '..'
-
-function traversalFrom(file, start) {
-  for (let i = start; i < file.length; i++) if (traversal(file[i])) return true
-  return false
-}
 
 // How a match ends where file, as long as `end`, or pattern runs out at
 // `fi` and `pi`.
@@ -176,7 +167,7 @@ function matchOld(file, pattern, partial) {
         if (!hit(pattern[pi], file[fi])) return false
         continue
       }
-      if (pi + 1 === pattern.length) return !traversalFrom(file, fi)
+      if (pi + 1 === pattern.length) return !file.slice(fi).some(traversal)
       let fr = fi
       for (; fr < file.length; fr++) {
         if (from(fr, pi + 1)) return true
@@ -317,7 +308,7 @@ function splitOf(path) {
 // ignore-walk 8 reads them. `test(path, partial)` is whether one matches,
 // with matchBase.
 export function fromParts(negate, globParts, minimatch) {
-  const set = globParts.map((parts) => parts.map((part) => (typeof part === 'string' ? (minimatch === '10.2' ? part10(part) : part5(part)) : part)))
+  const set = globParts.map((parts) => parts.map((part) => (typeof part === 'string' ? readPart(part, minimatch === '10.2') : part)))
   const matchOne = minimatch === '5.1.6' ? matchOld : matchNew
   const test = (path, partial = false) => {
     if (path === '/' && partial) return true

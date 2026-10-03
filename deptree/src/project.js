@@ -22,6 +22,15 @@ export function typeOf(project, path, follow = true) {
 // A BOM is kept, as in text handed in, for the reader to drop as pnpm does.
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 
+// `bytes` as text, refused with `detail` where they are not UTF-8.
+export function decodeUtf8(bytes, detail, where) {
+  try {
+    return decoder.decode(bytes)
+  } catch {
+    throw new DeptreeError(detail, where)
+  }
+}
+
 export function readBytes(project, path) {
   const bytes = project.readFile(path)
   if (!(bytes instanceof Uint8Array)) throw new TypeError('project.readFile must give back bytes')
@@ -32,16 +41,12 @@ export function readText(project, path, where) {
   const type = typeOf(project, path)
   if (type === undefined) return undefined
   if (type !== 'file') throw new DeptreeError(`${quote(path.slice(1))} is a ${type}, not a file`, where)
-  const bytes = readBytes(project, path)
-  try {
-    return decoder.decode(bytes)
-  } catch {
-    throw new DeptreeError(`${quote(path.slice(1))} is not UTF-8`, where)
-  }
+  return decodeUtf8(readBytes(project, path), `${quote(path.slice(1))} is not UTF-8`, where)
 }
 
 // The checks each manager's checkHost and inputsOf make alike.
-export function checkHostKeys(host, keys) {
+export function checkHostKeys(host, keys, wanted) {
+  if (host === null || typeof host !== 'object') throw new TypeError(`host must be an object with ${wanted}`)
   for (const key of keys) if (typeof host[key] !== 'string' || host[key] === '') throw new TypeError(`host.${key} must be a non-empty string`)
 }
 export function checkLeftOut(values, all = 'both') {

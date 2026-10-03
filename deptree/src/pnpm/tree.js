@@ -160,8 +160,7 @@ function writeNode(vfs, dir, files, stats) {
 // As pnpm's symlink-dir spells it. A target may climb out of the tree, so both
 // are resolved under as many dummy directories as it climbs.
 function linkTarget(path, target) {
-  const climbs = target.split('/').filter((segment) => segment === '..').length
-  const root = '/_'.repeat(climbs)
+  const root = '/_'.repeat(target.split('/').filter((segment) => segment === '..').length)
   return relative(`${root}/${dirname(path)}`, `${root}/${target}`) || '.'
 }
 
@@ -236,8 +235,7 @@ export async function buildPnpmTree(options) {
   checkWorkspace(Object.keys(lockfile.importers), settings.packages, major)
   const overrides = listOverrides(settings.overrides, settings.catalogs, major)
   const installed = checkLocalOverrides(overrides, project)
-  const patches = patchesOf(inputs, settings.patchedDependencies)
-  const patched = await checkUpToDate(lockfile, settings, overrides, patches, major)
+  const patched = await checkUpToDate(lockfile, settings, overrides, patchesOf(inputs, settings.patchedDependencies), major)
   const hook = createHook({ overrides, ignored: settings.ignoredOptionalDependencies, major })
   checkProjects(lockfile, manifests, { hook, host, settings, env })
   checkOptional(lockfile)

@@ -12,43 +12,31 @@ const IMPORT_METHODS = new Set(['auto', 'hardlink', 'copy', 'clone', 'clone-or-c
 
 const show = (value) => (typeof value === 'string' ? quote(value) : Array.isArray(value) ? 'a list' : value === null ? 'null' : typeof value === 'object' ? 'a mapping' : String(value))
 
-const oneOf = (allowed) => (value, where) => {
-  if (allowed.has(value)) return value
-  throw new DeptreeError(`expected one of ${[...allowed].join(', ')}, found ${show(value)}`, where)
+// `read` where `ok`, or else `value` refused as not `what`.
+function checked(ok, value, what, where, read = value) {
+  if (ok) return read
+  throw new DeptreeError(`expected ${what}, found ${show(value)}`, where)
 }
+
+const oneOf = (allowed) => (value, where) => checked(allowed.has(value), value, `one of ${[...allowed].join(', ')}`, where)
 
 export const readers = {
   boolean(value, where) {
-    if (typeof value === 'boolean') return value
-    if (value === 'true' || value === 'false') return value === 'true'
-    throw new DeptreeError(`expected true or false, found ${show(value)}`, where)
+    return value === 'true' || value === 'false' ? value === 'true' : checked(typeof value === 'boolean', value, 'true or false', where)
   },
   count(value, where) {
     const number = typeof value === 'string' && /^\d{1,9}$/u.test(value) ? Number(value) : value
-    if (Number.isSafeInteger(number) && number > 0) return number
-    throw new DeptreeError(`expected a positive integer, found ${show(value)}`, where)
+    return checked(Number.isSafeInteger(number) && number > 0, value, 'a positive integer', where, number)
   },
-  text(value, where) {
-    if (typeof value === 'string') return value
-    throw new DeptreeError(`expected a string, found ${show(value)}`, where)
-  },
+  text: (value, where) => checked(typeof value === 'string', value, 'a string', where),
   // A string alone is a list of it, as pnpm reads a hoist pattern.
   texts(value, where) {
     return readers.list(typeof value === 'string' ? [value] : value, where, 'a string or a list of strings')
   },
   // Only a list: pnpm fails on a string alone where it sorts or maps it.
-  list(value, where, expected = 'a list of strings') {
-    if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) throw new DeptreeError(`expected ${expected}, found ${show(value)}`, where)
-    return [...value]
-  },
-  globs(value, where) {
-    if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || item === '')) throw new DeptreeError(`expected a list of non-empty strings, found ${show(value)}`, where)
-    return [...value]
-  },
-  mapping(value, where) {
-    if (value !== null && typeof value === 'object' && !Array.isArray(value)) return value
-    throw new DeptreeError(`expected a mapping, found ${show(value)}`, where)
-  },
+  list: (value, where, expected = 'a list of strings') => [...checked(Array.isArray(value) && value.every((item) => typeof item === 'string'), value, expected, where)],
+  globs: (value, where) => [...checked(Array.isArray(value) && value.every((item) => typeof item === 'string' && item !== ''), value, 'a list of non-empty strings', where)],
+  mapping: (value, where) => checked(value !== null && typeof value === 'object' && !Array.isArray(value), value, 'a mapping', where),
   importMethod: oneOf(IMPORT_METHODS),
   onFail: oneOf(ON_FAIL),
   linkWorkspacePackages(value, where) {
@@ -73,9 +61,7 @@ export const readers = {
   },
 }
 
-const only = (kind, wanted, why) => ({ kind, check: (value, where) => {
-  if (value !== wanted) throw new DeptreeError(`${show(value)} is not supported: ${why}`, where)
-} })
+const only = (kind, wanted, why) => ({ kind, check: (value, where) => value === wanted || never(why)(value, where) })
 
 const never = (why) => (value, where) => {
   throw new DeptreeError(`${show(value)} is not supported: ${why}`, where)
