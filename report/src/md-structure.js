@@ -1,10 +1,10 @@
 // Shared structural-markdown helpers: fence-aware heading splitting,
 // table reading, labelled fields. parse-piolium.js reads through all of
-// them; parse-md.js and parse-deepsec.js share only the heading-line
-// split and keep their own, subtly different, section and label
-// readers — fold those in only with their behavior pinned by tests
-// first, since ids derive from parser output and a drift in parsing
-// silently re-keys stored triage.
+// them; parse-md.js and parse-deepsec.js share only the fence-aware
+// heading match and the heading-line split, and keep their own, subtly
+// different, section and label readers — fold those in only with their
+// behavior pinned by tests first, since ids derive from parser output
+// and a drift in parsing silently re-keys stored triage.
 
 // The fence reader lives in md-fence.js; its surface is this module's
 // too, for the readers that take it from here.
@@ -25,6 +25,7 @@ export function normalizeNewlines(text) {
 export const H2_RE = /^## +(.*)$/gmu
 export const H3_RE = /^### +(.*)$/gmu
 export const H4_RE = /^#### +(.*)$/gmu
+export const H5_RE = /^##### +(.*)$/gmu
 
 // `file:line`, the line a number or a `10-20` RANGE kept whole: the
 // displays print it verbatim, link anchors parseInt() it to the start.
@@ -35,24 +36,33 @@ export function isCommitHash(s) {
   return /^[0-9a-f]{7,64}$/iu.test(s)
 }
 
-// `text` split at every line matching `re` outside a fence. Content
-// before the first heading is dropped.
-export function splitByHeading(text, re) {
+// The matches of `re` (global, for `matchAll`) outside a fence: the
+// heading lines a splitter cuts at, a snippet's own left in it.
+export function unfencedMatches(text, re) {
   const ranges = fenceRanges(text)
-  const marks = [...text.matchAll(re)].filter((m) => !inFence(ranges, m.index))
+  return [...text.matchAll(re)].filter((m) => !inFence(ranges, m.index))
+}
+
+// Each heading line in `marks`, over the text up to the next.
+function sections(text, marks) {
   return marks.map((m, i) => ({
     heading: m[1],
     body: text.slice(m.index + m[0].length + 1, marks[i + 1]?.index),
   }))
 }
 
+// `text` split at every line matching `re` outside a fence. Content
+// before the first heading is dropped.
+export function splitByHeading(text, re) {
+  return sections(text, unfencedMatches(text, re))
+}
+
 // splitByHeading, keeping the content before the first heading — the
 // enclosing block's own body — as `head`.
 export function splitLeading(body, re) {
-  const ranges = fenceRanges(body)
-  const first = [...body.matchAll(re)].find((m) => !inFence(ranges, m.index))
-  if (!first) return { head: body, subs: [] }
-  return { head: body.slice(0, first.index), subs: splitByHeading(body, re) }
+  const marks = unfencedMatches(body, re)
+  if (marks.length === 0) return { head: body, subs: [] }
+  return { head: body.slice(0, marks[0].index), subs: sections(body, marks) }
 }
 
 // A block split off its `# ` / `### ` marker: heading line and body.

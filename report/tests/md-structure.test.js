@@ -182,3 +182,19 @@ describe('closesFence', () => {
     assert.ok(!closesFence('```', 'text'))
   })
 })
+
+// The splitters ask inFence per line or per match, so a scan of every
+// range per question was quadratic in the fences: these 300k lines past
+// 50k fences took ~30s. The bound is CPU time, as findMdLink's are
+// (parse-md.test.js), and loose — a search takes ~0.3s here.
+describe('inFence — a question per line, past many fences', () => {
+  it('answers every line in time', () => {
+    const lines = Array.from({ length: 50_000 }, () => ['x', '', '```', '## y', '```', '']).flat()
+    const started = process.cpuUsage()
+    const fenced = fencedLines(lines)
+    const { user, system } = process.cpuUsage(started)
+    const took = (user + system) / 1000
+    assert.ok(fenced.every((inside, i) => inside === (i % 6 >= 2 && i % 6 <= 4)))
+    assert.ok(took < 1000, `${lines.length} lines took ${took.toFixed(0)}ms of CPU`)
+  })
+})

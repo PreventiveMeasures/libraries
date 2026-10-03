@@ -106,7 +106,7 @@ function readHeader(head) {
 // `#### Case i of n` under it.
 function readEntry({ heading, body }, tier) {
   const title = heading.trim().replace(/^\d+\.\s+/u, '')
-  const cases = splitLeading(body, H4_RE).subs.filter((s) => CASE_RE.test(s.heading.trim()))
+  const cases = splitByHeading(body, H4_RE).filter((s) => CASE_RE.test(s.heading.trim()))
   if (cases.length === 0) return [readCase(body, 4, title, tier)]
   return cases.map((s) => readCase(s.body, 5, title, tier))
 }

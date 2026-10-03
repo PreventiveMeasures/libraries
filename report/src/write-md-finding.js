@@ -217,7 +217,7 @@ function descriptionBlocks(f, ctx, depth) {
   // (HEADING_MAX), where the body opens on it instead, the only place
   // the whole name appears and where the file's reader finds it.
   const title = findingTitle(f)
-  const cut = title !== '' && findingHeading(f) !== title
+  const cut = title.length > HEADING_MAX
   const stutter = !cut && !split.title && body.trim() === title
   const carried = cut && firstLine(body) !== title ? `${title}\n\n${body}` : body
   const sections = descriptionSections(stutter ? '' : carried)

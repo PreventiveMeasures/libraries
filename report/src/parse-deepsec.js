@@ -30,7 +30,7 @@
 // `## SEVERITY (n)` header appears and the chain moves on.
 
 import { fingerprintOf } from './finding-id.js'
-import { fenceRanges, inFence, normalizeNewlines, splitHeadingLine } from './md-structure.js'
+import { normalizeNewlines, splitHeadingLine, unfencedMatches } from './md-structure.js'
 import { normalizeFindingSeverity } from './severity.js'
 
 // The `## SEVERITY (n)` header that marks a DeepSec document. Splitting
@@ -149,8 +149,7 @@ export function parseDeepsecFindings(content) {
 // up to the next: a `### ` line outside fenced code, since a heading in
 // a markdown snippet is the snippet's. What precedes the first is shed.
 function findingBlocks(section) {
-  const ranges = fenceRanges(section)
-  const starts = [...section.matchAll(/^### /gmu)].map((m) => m.index).filter((at) => !inFence(ranges, at))
+  const starts = unfencedMatches(section, /^### /gmu).map((m) => m.index)
   return starts.map((at, i) => section.slice(at + 4, starts[i + 1]))
 }
 

@@ -12,7 +12,7 @@
 
 import { REVALIDATE_KINDS, firstLine } from './finding.js'
 import { SEVERITY_LABELS, SOURCE_LABELS } from './labels.js'
-import { FILE_LINE_RE, fenceRanges, findMdLink, inFence, isCommitHash } from './md-structure.js'
+import { FILE_LINE_RE, H4_RE, H5_RE, fenceRanges, findMdLink, inFence, isCommitHash, splitLeading } from './md-structure.js'
 import { isHttpUrl, unescapeHeadings } from './md-text.js'
 
 // label (case-folded) → key, for the words the writer spells the app's
@@ -279,15 +279,8 @@ export function readProse(text) {
 // after it — outside fences only, so a `#### ` line in a snippet stays
 // in the snippet.
 export function splitSections(text, depth) {
-  const re = new RegExp(`^#{${depth}} +(.*)$`, 'gmu')
-  const ranges = fenceRanges(text)
-  const marks = [...text.matchAll(re)].filter((m) => !inFence(ranges, m.index))
-  const lead = text.slice(0, marks[0]?.index ?? text.length).trim()
-  const sections = marks.map((m, i) => ({
-    label: m[1].trim(),
-    body: text.slice(m.index + m[0].length, marks[i + 1]?.index).trim(),
-  }))
-  return { lead, sections }
+  const { head, subs } = splitLeading(text, depth === 4 ? H4_RE : H5_RE)
+  return { lead: head.trim(), sections: subs.map((s) => ({ label: s.heading.trim(), body: s.body.trim() })) }
 }
 
 const ITEM_RE = /^(\d+)\. (.*)$/u

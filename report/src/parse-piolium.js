@@ -113,9 +113,10 @@ export function parsePioliumFindings(content) {
     && !/^## +Technical Findings Detail\s*$/imu.test(text)
     && !/^## +Findings by Severity\b/imu.test(text)) return null
 
-  const sections = parseSections(text)
+  const { head, subs } = splitLeading(text, H2_RE)
+  const sections = parseSections(subs)
   const index = parseIndexTable(sections['summary of findings'] || '')
-  const meta = preambleMeta(splitLeading(text, H2_RE).head)
+  const meta = preambleMeta(head)
 
   const findings = []
   const seen = new Set()
@@ -287,7 +288,13 @@ function parseBlock(heading, body, index, groupSeverity = '') {
   // block and the row are one finding; without that, the index fallback
   // would emit it a second time.
   if (!id && title) {
-    row = [...index.values()].find((r) => r.title.toLowerCase() === title.toLowerCase())
+    const wanted = title.toLowerCase()
+    for (const r of index.values()) {
+      if (r.title.toLowerCase() === wanted) {
+        row = r
+        break
+      }
+    }
     id = row?.id ?? ''
   }
 
@@ -300,7 +307,8 @@ function parseBlock(heading, body, index, groupSeverity = '') {
     mapSeverity(fields.severity), mapSeverity(row?.severity), groupSeverity, severityFromId(id),
   )
 
-  const ref = parseCodeRef(codeRefOf(fields))
+  const refText = codeRefOf(fields)
+  const ref = parseCodeRef(refText)
   // A `**Line:**` / `**Lines:**` bullet supplies the line when the
   // reference itself carries none.
   const lineBullet = /\d+/u.exec(fields.line || fields.lines || '')?.[0] ?? ''
@@ -331,7 +339,7 @@ function parseBlock(heading, body, index, groupSeverity = '') {
   // not. finding-id.js prefers `_idBasis` when deriving the uuid; read
   // that module's header before touching either side.
   finding._idBasis = frozenIdBasis({
-    severity: identitySeverity, description: finding.description, ref: codeRefOf(fields), lineBullet, id,
+    severity: identitySeverity, description: finding.description, ref: refText, lineBullet, id,
   })
   // Auxiliary provenance, kept as plain strings so an export can cite
   // the audit's own artifacts — as parse-md.js keeps branch / status.
@@ -346,13 +354,14 @@ function parseBlock(heading, body, index, groupSeverity = '') {
   return { id, finding: normalizeFindingSeverity(finding) }
 }
 
-// The `## ` sections, keyed case-folded. A repeated header CONCATENATES
-// rather than overwrites, or concatenated runs (`cat a.md b.md`) and an
-// index split across tables would keep only the last. Null-prototype, so
-// a section named after an Object.prototype member aliases nothing.
-function parseSections(text) {
+// The `## ` sections (splitLeading's `subs`), keyed case-folded. A
+// repeated header CONCATENATES rather than overwrites, or concatenated
+// runs (`cat a.md b.md`) and an index split across tables would keep
+// only the last. Null-prototype, so a section named after an
+// Object.prototype member aliases nothing.
+function parseSections(subs) {
   const sections = Object.create(null)
-  for (const { heading, body } of splitByHeading(text, H2_RE)) {
+  for (const { heading, body } of subs) {
     const header = heading.trim().toLowerCase()
     if (!header) continue
     sections[header] = header in sections ? `${sections[header]}\n${body}` : body

@@ -233,8 +233,9 @@ export function splitDescription(f) {
   const nl = text.indexOf('\n')
   if (nl < 0) return { title: '', body: text }
   // A fence opening at index 0 — the same reading codeBlockSegments
-  // gives it (format.js).
-  if (fenceRanges(text)[0]?.[0] === 0) return { title: '', body: text }
+  // gives it (format.js). The first line alone says so: a fence it
+  // opens is a range whether or not anything closes it.
+  if (fenceRanges(text.slice(0, nl))[0]?.[0] === 0) return { title: '', body: text }
   const body = text.slice(nl + 1).replace(/^\s+/u, '')
   if (!body) return { title: '', body: text }
   return { title: text.slice(0, nl).trim(), body }
