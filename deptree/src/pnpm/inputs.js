@@ -130,14 +130,24 @@ function packagesOf(workspace) {
   return workspace?.packages === undefined ? undefined : readers.globs(workspace.packages, 'pnpm-workspace.yaml: packages')
 }
 
+// The pnpm that installs and the workspace it reads, from disk, with the root
+// package.json read at most once.
+function readInstalls(project, pnpm) {
+  let read
+  const root = () => (read ??= readRoot(project))
+  const installs = pnpmOf(pnpm, root)
+  const text = readWorkspaceText(project, installs.major)
+  const workspace = workspaceOf(readWorkspace(text), text, installs.major, root)
+  return { ...installs, workspace, packages: packagesOf(workspace) }
+}
+
 // The directories of the projects whose package.json buildPnpmTree takes.
 export function findPnpmProjects(options) {
   const { project, host } = options ?? {}
   checkProject(project)
   if (host !== undefined && (host === null || typeof host !== 'object')) throw new TypeError('host must be an object, or left out')
-  const { major } = pnpmOf(host?.pnpm, () => readRoot(project))
-  const text = readWorkspaceText(project, major)
-  return findProjects(project, packagesOf(workspaceOf(readWorkspace(text), text, major, () => readRoot(project))), major)
+  const { major, packages } = readInstalls(project, host?.pnpm)
+  return findProjects(project, packages, major)
 }
 
 const LOCKFILE = 'lockfile must be the text of pnpm-lock.yaml, or left out with a project given to read it from'
@@ -168,13 +178,10 @@ export function manifestsOf(inputs, lockfile, pnpm) {
     return { manifests, ...installs, workspace: workspaceOf(workspace, inputs.workspace, installs.major, () => manifests.get('.')) }
   }
   const { project } = inputs
-  const installs = pnpmOf(pnpm, () => readRoot(project))
-  const text = readWorkspaceText(project, installs.major)
-  const effective = workspaceOf(readWorkspace(text), text, installs.major, () => readRoot(project))
-  const packages = packagesOf(effective)
+  const { packages, ...installs } = readInstalls(project, pnpm)
   checkWorkspace(Object.keys(lockfile.importers), packages, installs.major)
   const ids = findProjects(project, packages, installs.major)
-  return { manifests: readManifests(readManifestTexts(project, ids), lockfile), ...installs, workspace: effective }
+  return { manifests: readManifests(readManifestTexts(project, ids), lockfile), ...installs }
 }
 
 export function patchesOf(inputs, configured) {
