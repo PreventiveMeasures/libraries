@@ -72,6 +72,14 @@ function groupHunks(blocks, context, aLength, bLength) {
   return hunks
 }
 
+// A format that prints hunks: each one's text from `printHunk`, given what -p names it, or null.
+const hunkFormat = (printHunk) => (a, b, blocks, { context, label = null }) => {
+  let out = ''
+  for (const hunk of groupHunks(blocks, context, a.length, b.length)) out += printHunk(a, b, hunk, label ? label(hunk.a0) : null)
+  verifyRendering(a, b, blocks, out)
+  return out
+}
+
 // A line is printed as it is stored, terminator included; one without a
 // terminator can only be a file's last, and says so on the next line.
 const NO_NEWLINE = '\n\\ No newline at end of file\n'
@@ -108,22 +116,17 @@ function unifiedRange(start, end) {
 // constant the caller writes in front of this, and accepting them would mean
 // handing back bytes this cannot vouch for, since a label reading like diff
 // content would ride through the check below untouched.
-export function formatUnified(a, b, blocks, { context, label = null }) {
-  let out = ''
-  for (const hunk of groupHunks(blocks, context, a.length, b.length)) {
-    const named = label ? label(hunk.a0) : null
-    out += `@@ -${unifiedRange(hunk.a0, hunk.a1)} +${unifiedRange(hunk.b0, hunk.b1)} @@${named === null ? '' : ' ' + named}\n`
-    let ai = hunk.a0, bi = hunk.b0
-    for (const { a0, a1, b1 } of hunk.blocks) {
-      for (; ai < a0; ai++, bi++) out += printLine(' ', a[ai])
-      for (; ai < a1; ai++) out += printLine('-', a[ai])
-      for (; bi < b1; bi++) out += printLine('+', b[bi])
-    }
-    for (; ai < hunk.a1; ai++, bi++) out += printLine(' ', a[ai])
+export const formatUnified = hunkFormat((a, b, hunk, named) => {
+  let out = `@@ -${unifiedRange(hunk.a0, hunk.a1)} +${unifiedRange(hunk.b0, hunk.b1)} @@${named === null ? '' : ' ' + named}\n`
+  let ai = hunk.a0, bi = hunk.b0
+  for (const { a0, a1, b1 } of hunk.blocks) {
+    for (; ai < a0; ai++, bi++) out += printLine(' ', a[ai])
+    for (; ai < a1; ai++) out += printLine('-', a[ai])
+    for (; bi < b1; bi++) out += printLine('+', b[bi])
   }
-  verifyRendering(a, b, blocks, out)
+  for (; ai < hunk.a1; ai++, bi++) out += printLine(' ', a[ai])
   return out
-}
+})
 
 // A context range is first,last inclusive; a single line prints bare, an
 // empty range as the line before it.
@@ -132,20 +135,15 @@ function contextRange(start, end) {
   return end === start + 1 ? `${start + 1}` : `${start + 1},${end}`
 }
 
-export function formatContext(a, b, blocks, { context, label = null }) {
-  let out = ''
-  for (const hunk of groupHunks(blocks, context, a.length, b.length)) {
-    const named = label ? label(hunk.a0) : null
-    out += `***************${named === null ? '' : ' ' + named}\n`
-    out += `*** ${contextRange(hunk.a0, hunk.a1)} ****\n`
-    // A side with no changes of its own prints only its range line.
-    if (hunk.blocks.some((block) => block.a0 < block.a1)) out += contextSide(a, hunk.a0, hunk.a1, hunk.blocks, 'a')
-    out += `--- ${contextRange(hunk.b0, hunk.b1)} ----\n`
-    if (hunk.blocks.some((block) => block.b0 < block.b1)) out += contextSide(b, hunk.b0, hunk.b1, hunk.blocks, 'b')
-  }
-  verifyRendering(a, b, blocks, out)
+export const formatContext = hunkFormat((a, b, hunk, named) => {
+  let out = `***************${named === null ? '' : ' ' + named}\n`
+  out += `*** ${contextRange(hunk.a0, hunk.a1)} ****\n`
+  // A side with no changes of its own prints only its range line.
+  if (hunk.blocks.some((block) => block.a0 < block.a1)) out += contextSide(a, hunk.a0, hunk.a1, hunk.blocks, 'a')
+  out += `--- ${contextRange(hunk.b0, hunk.b1)} ----\n`
+  if (hunk.blocks.some((block) => block.b0 < block.b1)) out += contextSide(b, hunk.b0, hunk.b1, hunk.blocks, 'b')
   return out
-}
+})
 
 // `! ` marks a line whose block both deletes and inserts; `- ` or `+ ` one
 // whose block only does the one.
