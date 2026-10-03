@@ -45,6 +45,23 @@ function resolveEffort({ think, effort, model }) {
   return level
 }
 
+// The chat-completions body every such adapter builds, given the id the endpoint is to see and the
+// system message in the shape that route wants. `max_completion_tokens` rather than `max_tokens`:
+// OpenAI's schema deprecated the latter and OpenRouter's followed, so the newer name is the one a
+// compatible backend is likeliest to accept. The effort is the OpenAI-compatible flat string, not
+// OpenRouter's own `reasoning: { effort }` object — the flat one is what any chat-completions
+// backend understands — and its narrowing keys on the registry `model`, not the wire id or the
+// adapter: a gateway can route moonshotai/kimi-k3, whose three levels are the model's own.
+function chatCompletionsBody(wireModel, system, model, maxTokens, messages, { think = false, effort, tools } = {}) {
+  const body = { model: wireModel, max_completion_tokens: maxTokens, messages: [system, ...messages] }
+  if (tools) body.tools = tools.map(toChatCompletionsTool)
+  const level = resolveEffort({ think, effort, model })
+  if (level) body.reasoning_effort = level
+  return body
+}
+
+const bearerAuth = (key) => ({ Authorization: `Bearer ${key}` })
+
 // The OpenAI Responses wire format, parameterised by how the route names models. Two routes speak
 // it and differ only in the namespace: the direct adapter strips it for a bare name the API must
 // know, a gateway keeps it as the operator's routing key. Both resolve `wireModelFor` first,
@@ -172,36 +189,40 @@ function gatewayAdapter({ origin, apiUrlEnv, apiKeyEnv }) {
   // to that base — see openaiResponsesShape.
   const responses = openaiResponsesShape(wireModelFor)
   const chat = CHAT_COMPLETIONS_SHAPE
+  const shapes = { messages, responses, chat }
   // Tolerates a missing model — buildRequestHeaders is public, and a caller that omits it should
   // get the chat route rather than a TypeError.
-  const routesMessages = (model) => isAnthropicRoute(model ?? '')
+  //
   // OpenAI gets its own API too, not the compatible chat one: chat completions caps
   // `reasoning_effort` below `max` and has no `reasoning.mode` at all, so routing an openai/ model
-  // through it silently costs capabilities the model has. Same rule as the Messages route above —
-  // the namespace names the provider whose own shape the route speaks.
-  const routesResponses = (model) => isOpenAIRoute(model ?? '')
-  const shapeFor = (model) => (routesMessages(model) ? messages : routesResponses(model) ? responses : chat)
+  // through it silently costs capabilities the model has. Same rule as the Messages route — the
+  // namespace names the provider whose own shape the route speaks.
+  const routeOf = (model) => (isAnthropicRoute(model ?? '') ? 'messages' : isOpenAIRoute(model ?? '') ? 'responses' : 'chat')
+  const routesMessages = (model) => routeOf(model) === 'messages'
   const parse = (json) => (isAnthropicResponse(json) ? messages : isResponsesResponse(json) ? responses : chat)
-  const chatUrl = origin ? `${origin}/v1/chat/completions` : ''
-  const routeUrl = (model) => (routesMessages(model) ? `${origin}/v1/messages` : routesResponses(model) ? `${origin}/v1/responses` : chatUrl)
+  const urls = {
+    messages: `${origin}/v1/messages`,
+    responses: `${origin}/v1/responses`,
+    chat: origin ? `${origin}/v1/chat/completions` : '',
+  }
   return {
     // Kept for setProvider's "is this gateway configured" check; urlFor is what actually goes on
     // the wire.
-    url: chatUrl,
-    urlFor: routeUrl,
+    url: urls.chat,
+    urlFor: (model) => urls[routeOf(model)],
     apiUrlEnv,
     // Bearer always, plus Anthropic's own scheme on the Messages route: a pass-through gateway
     // forwards x-api-key to Anthropic, while LiteLLM- and Portkey-style proxies authenticate their
     // virtual keys on Authorization. Sending one would 401 against the other, and neither rejects
     // the spare.
-    authHeader: (key, model) => ({ Authorization: `Bearer ${key}`, ...(routesMessages(model) ? anthropicAuthHeader(key) : null) }),
+    authHeader: (key, model) => ({ ...bearerAuth(key), ...(routesMessages(model) ? anthropicAuthHeader(key) : null) }),
     apiKey: () => env(apiKeyEnv),
     // Names the wire format in the resumable-history stamp: one provider name covers three shapes
     // here, so the name alone can't tell a partial written on one route apart from another.
-    wireRoute: (model) => (routesMessages(model) ? 'messages' : routesResponses(model) ? 'responses' : 'chat'),
+    wireRoute: routeOf,
 
-    buildRequestBody: (model, ...rest) => shapeFor(model).buildRequestBody(model, ...rest),
-    buildInitialUserMessage: (model, ...rest) => shapeFor(model).buildInitialUserMessage(model, ...rest),
+    buildRequestBody: (model, ...rest) => shapes[routeOf(model)].buildRequestBody(model, ...rest),
+    buildInitialUserMessage: (model, ...rest) => shapes[routeOf(model)].buildInitialUserMessage(model, ...rest),
     // The task-budget beta header belongs to the Messages route only.
     extraHeaders: (opts = {}) => (routesMessages(opts.model) ? messages.extraHeaders(opts) : null),
 
@@ -217,22 +238,12 @@ function gatewayAdapter({ origin, apiUrlEnv, apiKeyEnv }) {
 const CHAT_COMPLETIONS_SHAPE = {
   ...chatCompletionsBase('max_completion_tokens'),
 
-  buildRequestBody(model, maxTokens, systemPrompt, messages, { think = false, effort, tools, turn = 0 } = {}) {
-    // `max_completion_tokens` rather than `max_tokens`: OpenAI's schema deprecated the latter and
-    // OpenRouter's followed, so the newer name is the one a compatible gateway is likeliest to
-    // accept.
-    const body = { model, max_completion_tokens: maxTokens, messages: [chatCompletionsSystemMessage(model, systemPrompt), ...messages] }
-    if (tools) body.tools = tools.map(toChatCompletionsTool)
-    // The OpenAI-compatible flat string, not OpenRouter's own `reasoning: { effort }` object — the
-    // flat one is what any chat-completions backend understands. The narrowing keys on the model,
-    // not the adapter: a gateway can route moonshotai/kimi-k3, whose three levels are the model's
-    // own.
-    const level = resolveEffort({ think, effort, model })
-    if (level) body.reasoning_effort = level
+  buildRequestBody(model, maxTokens, systemPrompt, messages, opts = {}) {
+    const body = chatCompletionsBody(model, chatCompletionsSystemMessage(model, systemPrompt), model, maxTokens, messages, opts)
     // Same request-level field the Anthropic adapter sends, gated the same way — a gateway forwards
     // it verbatim, so an Anthropic model caches its conversation identically either way it is
     // reached. Anthropic-backed routes only: no other provider we route reads this field.
-    if (isAnthropicRoute(model) && cachesConversation({ turn })) body.cache_control = { type: 'ephemeral' }
+    if (isAnthropicRoute(model) && cachesConversation({ turn: opts.turn })) body.cache_control = { type: 'ephemeral' }
     return body
   },
 
@@ -262,7 +273,7 @@ const ADAPTERS = {
     // OPENAI_API_URL replaces the origin, same split as OPENROUTER_API_URL: the variable holds
     // everything before `/v1`, so one gateway serves both adapters as e.g. http://localhost:4000.
     url: (env('OPENAI_API_URL') || 'https://api.openai.com') + '/v1/responses',
-    authHeader: (key) => ({ Authorization: `Bearer ${key}` }),
+    authHeader: bearerAuth,
     apiKey: () => env('OPENAI_API_KEY'),
 
     // The direct route resolves the registry id to a bare model name the API must know, and
@@ -279,7 +290,7 @@ const ADAPTERS = {
     // See OPENAI_API_URL above for the origin/path split these two share.
     url: (env('OPENROUTER_API_URL') || 'https://openrouter.ai/api') + '/v1/chat/completions',
     apiUrlEnv: 'OPENROUTER_API_URL',
-    authHeader: (key) => ({ Authorization: `Bearer ${key}` }),
+    authHeader: bearerAuth,
     apiKey: () => env('OPENROUTER_API_KEY'),
 
     // Thinking off on a row that reasons unless told not to. `reasoning.enabled` is OpenRouter's
@@ -319,7 +330,7 @@ const ADAPTERS = {
     apiKey: () => env('OLLAMA_API_KEY'),
     // Omitted rather than sent empty: a local server rejects nothing, but a proxy in front of one
     // can reject a Bearer with no token after it.
-    authHeader: (key) => (key ? { Authorization: `Bearer ${key}` } : {}),
+    authHeader: (key) => (key ? bearerAuth(key) : {}),
     // The default preflight demands a key, which no local server has, so selection would fail on
     // exactly the machines this is for. Nothing else is checkable here: whether the tag is pulled
     // is a question only the server can answer, and it answers it on the first turn.
@@ -327,18 +338,10 @@ const ADAPTERS = {
 
     // Ollama addresses a model by tag and keeps one per precision, so what goes on the wire is
     // never the registry id.
-    buildRequestBody(model, maxTokens, systemPrompt, messages, { think = false, effort, tools } = {}) {
+    buildRequestBody(model, maxTokens, systemPrompt, messages, opts) {
       const tag = ollamaTagFor(model)
       assert(tag, `Provider \`ollama\` has no local build for ${model}. Use one of: ${ollamaModels().join(', ')}`)
-      const body = {
-        model: tag,
-        max_completion_tokens: maxTokens,
-        messages: [{ role: 'system', content: systemPrompt }, ...messages],
-      }
-      if (tools) body.tools = tools.map(toChatCompletionsTool)
-      const level = resolveEffort({ think, effort, model })
-      if (level) body.reasoning_effort = level
-      return body
+      return chatCompletionsBody(tag, { role: 'system', content: systemPrompt }, model, maxTokens, messages, opts)
     },
 
     // Some tags have a twin that is the same model with speculative decoding switched on, and
@@ -362,28 +365,21 @@ const ADAPTERS = {
   moonshot: {
     ...chatCompletionsBase('max_completion_tokens'),
     url: 'https://api.moonshot.ai/v1/chat/completions',
-    authHeader: (key) => ({ Authorization: `Bearer ${key}` }),
+    authHeader: bearerAuth,
     apiKey: () => env('MOONSHOT_API_KEY'),
 
-    buildRequestBody(model, maxTokens, systemPrompt, messages, { think = false, effort, tools } = {}) {
-      // Same shared system-message rule as the OpenRouter body above, keyed on the namespaced id
-      // rather than the stripped one. It resolves to a plain string for everything this endpoint
-      // serves — moonshotai/* caches context automatically, so there is no breakpoint to mark — but
-      // going through the one helper keeps that decision in a single place instead of restating it
-      // as a special case here.
-      const body = {
-        model: stripNamespace(model, 'moonshotai/'),
-        max_completion_tokens: maxTokens,
-        messages: [chatCompletionsSystemMessage(model, systemPrompt), ...messages],
-      }
-      if (tools) body.tools = tools.map(toChatCompletionsTool)
-      // kimi-k3 reasons unconditionally — there is no off switch, so a think=false request simply
-      // omits the field (the registry marks it `noThink: 'unsupported'`, which is what makes the
-      // CLI reject --no-think against it up front rather than promise a non-thinking run it can't
-      // deliver).
-      const level = resolveEffort({ think, effort, model })
-      if (level) body.reasoning_effort = level
-      return body
+    // Same shared system-message rule as the OpenRouter body above, keyed on the namespaced id
+    // rather than the stripped one. It resolves to a plain string for everything this endpoint
+    // serves — moonshotai/* caches context automatically, so there is no breakpoint to mark — but
+    // going through the one helper keeps that decision in a single place instead of restating it as
+    // a special case here.
+    //
+    // kimi-k3 reasons unconditionally — there is no off switch, so a think=false request simply
+    // omits `reasoning_effort` (the registry marks it `noThink: 'unsupported'`, which is what makes
+    // the CLI reject --no-think against it up front rather than promise a non-thinking run it can't
+    // deliver).
+    buildRequestBody(model, maxTokens, systemPrompt, messages, opts) {
+      return chatCompletionsBody(stripNamespace(model, 'moonshotai/'), chatCompletionsSystemMessage(model, systemPrompt), model, maxTokens, messages, opts)
     },
   },
 }

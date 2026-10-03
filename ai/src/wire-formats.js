@@ -120,17 +120,6 @@ export function anthropicShape(modelId) {
 }
 
 
-// The initial-message shape for a provider that caches on its own side, so there's nothing for us
-// to mark up: OpenAI Responses fingerprints the input and Moonshot caches context automatically.
-// For both a block split buys nothing — concat and let the server do it. The gateway adapter
-// spreads this in for the routes it can't mark, then overrides it for the ones it can, and the
-// on-device adapter takes it because a local model caches nothing across requests at all.
-export const SERVER_SIDE_CACHING = {
-  buildInitialUserMessage(model, userContent) {
-    return { role: 'user', content: flattenUserContent(userContent) }
-  },
-}
-
 // Wire-format pieces shared by the OpenAI-style chat-completions backends (OpenRouter, Moonshot).
 // Only the endpoint, the auth header, and the request body differ between them — response parsing
 // and message threading are identical — so both adapters spread this in and override just the parts
@@ -160,6 +149,12 @@ export function chatCompletionsBase(maxTokensField) {
       }
     },
 
-    ...SERVER_SIDE_CACHING,
+    // The initial-message shape for a backend with nothing for us to mark up: Moonshot caches
+    // context automatically, and a local model (ollama, the on-device one) caches nothing across
+    // requests at all. A block split buys nothing there — concat and let the server do it.
+    // CHAT_COMPLETIONS_SHAPE overrides this for the routes whose vendors read a breakpoint.
+    buildInitialUserMessage(model, userContent) {
+      return { role: 'user', content: flattenUserContent(userContent) }
+    },
   }
 }

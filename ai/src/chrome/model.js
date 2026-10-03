@@ -208,9 +208,9 @@ export function findModelDir(baseModel) {
     return override
   }
   const all = modelComponentRoots().flatMap((root) => candidateModelDirs(root))
-  // The unnamed call is an "is there anything at all" probe, so it answers rather than throws.
-  if (!baseModel) return all.length > 0 ? all.sort((a, b) => compareVersions(a.version, b.version)).at(-1).dir : undefined
   all.sort((a, b) => compareVersions(a.version, b.version))
+  // The unnamed call is an "is there anything at all" probe, so it answers rather than throws.
+  if (!baseModel) return all.at(-1)?.dir
   const matches = all.filter(({ dir }) => identifiesAs(dir, baseModel))
   if (matches.length > 0) return matches.at(-1).dir
   throw new Error(missingModelMessage(baseModel, all))

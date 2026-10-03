@@ -71,6 +71,10 @@ export function resolveModel(model) {
   return MODEL_ALIASES.get(model) ?? model
 }
 
+function rowOf(model) {
+  return MODELS.get(resolveModel(model))
+}
+
 // Whether the registry recognises the id at all (aliases resolved first, so the bare `kimi-k3`
 // counts). Every other lookup in this module answers for an id it has never seen with a silent
 // default — canThink false, no narrowed effort ladder, the fallback output cap, a null cost — and
@@ -204,7 +208,7 @@ export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max', 'manual']
 // id. Tolerates a non-string so the server can check effort before it has validated the model
 // field's type.
 export function effortsFor(model) {
-  const row = MODELS.get(resolveModel(model))
+  const row = rowOf(model)
   return row && (row.efforts ?? EFFORTS_THROUGH_MAX)
 }
 
@@ -226,12 +230,12 @@ export function effortsFor(model) {
 // separate cache dirs (modelSubdir keys off the raw id) even though they share a price and a token
 // rate.
 export function wireModelFor(model) {
-  return MODELS.get(resolveModel(model))?.wireModel ?? model
+  return rowOf(model)?.wireModel ?? model
 }
 
 // Undefined for every hosted row, which is what tells the adapter a model is not one of Chrome's.
 export function baseModelFor(model) {
-  return MODELS.get(resolveModel(model))?.baseModel
+  return rowOf(model)?.baseModel
 }
 
 // Keyed by base model rather than registry id, so the adapter can look one up from what it already
@@ -337,14 +341,14 @@ export function ollamaModels() {
 }
 
 export function reasoningModeFor(model) {
-  return MODELS.get(resolveModel(model))?.reasoningMode
+  return rowOf(model)?.reasoningMode
 }
 
 // Whether the model reads OpenAI's explicit `prompt_cache_breakpoint` marker. Version-gated rather
 // than namespace-wide, so it lives on the row like `efforts` does: the field arrived with gpt-5.6,
 // and every earlier model rejects a request carrying it with a 400 rather than ignoring it.
 export function readsCacheBreakpoint(model) {
-  return Boolean(MODELS.get(resolveModel(model))?.cacheBreakpoint)
+  return Boolean(rowOf(model)?.cacheBreakpoint)
 }
 
 // Whether the model exposes an effort knob. All thinking-capable models EXCEPT non-adaptive
