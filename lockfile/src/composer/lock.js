@@ -5,9 +5,9 @@
 // 1.x or none, is refused, as is a field Composer 2 does not write.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkOptions, kind, refuse, string } from '../shape.js'
+import { checkOptions, isMapping, kind, record, refuse, string } from '../shape.js'
 import { isEmptyObject, readJson } from './json.js'
-import { entriesOf, isPlatform, isRecord, ordered, plain, readConstraint, readPackage, readVersion, sortedKeys } from './package.js'
+import { entriesOf, isPlatform, ordered, plain, readConstraint, readPackage, readVersion, sortedKeys } from './package.js'
 import { compareBytes, lower } from './php.js'
 import { STABILITIES, resolve } from './pool.js'
 import { readComposerJson } from './root.js'
@@ -71,21 +71,17 @@ function checkEmpties(doc, pluginApiVersion) {
 }
 
 // A mapping, or `[]` for an empty one, as Composer 2.7 and older write it.
-const map = (value, where) => {
-  if (Array.isArray(value) && value.length === 0) return Object.create(null)
-  if (!isRecord(value)) throw refuse('a mapping', value, where)
-  return value
-}
+const map = (value, where) => (Array.isArray(value) && value.length === 0 ? Object.create(null) : record(value, where))
 
 // RootPackageLoader's: a stability, by its number, for each name the root
 // asks for one of, in lowercase.
 function readStabilityFlags(value, sorted) {
   const where = 'stability-flags'
   const flags = Object.create(null)
-  const record = map(value, where)
-  if (sorted) sortedKeys(record, where, 'Composer 2.8 and later sort it in')
+  const given = map(value, where)
+  if (sorted) sortedKeys(given, where, 'Composer 2.8 and later sort it in')
   const names = Object.entries(STABILITIES)
-  for (const [name, number, here] of entriesOf(record, where)) {
+  for (const [name, number, here] of entriesOf(given, where)) {
     if (lower(name) !== name) throw new LockfileError(`${quote(name)}, which Composer writes in lowercase`, here)
     const stability = names.find(([, each]) => each === number)
     if (stability === undefined) throw refuse(`one of ${names.map(([, each]) => each).join(', ')}`, number, here)
@@ -113,7 +109,7 @@ function readOverrides(value) {
   const where = 'platform-overrides'
   const overrides = Object.create(null)
   if (value === undefined) return overrides
-  if (!isRecord(value) || isEmptyObject(value)) throw refuse('a non-empty mapping, as Composer writes it where there are any', value, where)
+  if (!isMapping(value) || isEmptyObject(value)) throw refuse('a non-empty mapping, as Composer writes it where there are any', value, where)
   // PlatformRepository refuses false of `php` as written, and keys each
   // override by its name in lowercase, the last of it; false of PHP so, it
   // disables php, which no install gets past.

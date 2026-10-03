@@ -91,11 +91,17 @@ export function readSpec(value, where, name, edition) {
   return { package: read('package', checkCrateName) ?? name, version, source, optional: read('optional', boolean) ?? false, defaultFeatures, features }
 }
 
+// A table of the `fields` alone that inherits from the workspace, by
+// `workspace = true`, which a workspace root has to be given for.
+export function checkInherits(value, where, fields, workspace) {
+  table(value, where, fields)
+  if (value.workspace !== true) throw refuse('true', value.workspace, at(where, 'workspace'))
+  if (workspace === undefined) throw new LockfileError('inherits from a workspace, and no workspace root is given', where)
+}
+
 // An inheriting entry can add features, but not turn the default ones off.
 function inherit(value, where, name, context) {
-  table(value, where, INHERITED)
-  if (value.workspace !== true) throw refuse('true', value.workspace, at(where, 'workspace'))
-  if (context.workspace === undefined) throw new LockfileError('inherits from a workspace, and no workspace root is given', where)
+  checkInherits(value, where, INHERITED, context.workspace)
   const spec = context.workspace.dependencies[name]
   if (spec === undefined) throw new LockfileError(`${quote(name)} is not in [workspace.dependencies]`, where)
   const { features, defaultFeatures } = readFeatures(value, where, context.edition)

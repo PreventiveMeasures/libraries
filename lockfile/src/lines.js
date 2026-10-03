@@ -34,10 +34,13 @@ export function take(src, re) {
 // What follows `pos`, for a message.
 export const rest = (line, pos) => (pos < line.length ? quote(line.slice(pos)) : 'the end of the line')
 
+// The spaces a line is indented by.
+export const indentOf = (line) => /^ */u.exec(line)[0].length
+
 // A line some 2^23 characters long runs V8's regex engine out of
 // backtracking stack, which is a RangeError, so a line is held to well
 // below that, as yaml/parse.js holds one: no tool writes one near it.
-const MAX_LINE = 2 ** 20
+export const MAX_LINE = 2 ** 20
 
 // `forbidden` is what no line may have, refused by its code point.
 export const lines = (text, forbidden) => ({ text, forbidden, pos: 0, number: -1, line: undefined, crlf: undefined })

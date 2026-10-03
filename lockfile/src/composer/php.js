@@ -4,6 +4,8 @@
 // alone, as PHP 8 does: no other character is a space, a digit or a
 // letter to them, which holds of a string of UTF-16 code units alike.
 
+import { compareCodePoints } from '../order.js'
+
 // trim(): of " \t\n\r\0\v", and not "\f".
 export const trim = (text) => text.replace(/^[ \t\n\r\0\v]+|[ \t\n\r\0\v]+$/gu, '')
 
@@ -100,18 +102,8 @@ const OPERATORS = {
 export const versionCompare = (version1, version2, operator) => OPERATORS[operator](compareVersions(version1, version2))
 
 // Strings in byte order, which is UTF-8's, which is code points'; a prefix
-// first. UTF-16's order is the same where neither is past the BMP.
-const ASTRAL = /[\u{10000}-\u{10FFFF}]/u
-
-export function compareBytes(left, right) {
-  if (!ASTRAL.test(left) && !ASTRAL.test(right)) return left < right ? -1 : left > right ? 1 : 0
-  const a = [...left]
-  const b = [...right]
-  for (let i = 0; i < a.length && i < b.length; i++) {
-    if (a[i] !== b[i]) return a[i].codePointAt(0) < b[i].codePointAt(0) ? -1 : 1
-  }
-  return sign(a.length - b.length)
-}
+// first: -1, 0 or 1.
+export const compareBytes = (left, right) => sign(compareCodePoints(left, right))
 
 // What is_numeric_string takes: spaces about, a sign, digits with a point
 // or an exponent, and of those, which are integers a long holds and which

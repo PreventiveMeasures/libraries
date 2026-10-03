@@ -5,7 +5,7 @@
 // which the readers beside this one hold to what they are.
 
 import { LockfileError, quote } from '../error.js'
-import { UNWRITTEN, advance, fail, lines } from '../lines.js'
+import { UNWRITTEN, advance, fail, indentOf, lines } from '../lines.js'
 
 // What Bundler refuses a lockfile for wherever it is, as a merge conflict.
 const CONFLICT = /<<<<<<<|=======|>>>>>>>|\|{7}/u
@@ -16,8 +16,6 @@ const CONFLICT = /<<<<<<<|=======|>>>>>>>|\|{7}/u
 const SOURCES = new Set(['GIT', 'PATH', 'GEM'])
 const SECTIONS = { PLATFORMS: [2], DEPENDENCIES: [2], CHECKSUMS: [2], 'RUBY VERSION': [2, 3], 'BUNDLED WITH': [2, 3] }
 const ORDER = Object.keys(SECTIONS)
-
-const indentOf = (line) => /^ */u.exec(line)[0].length
 
 function expectIndent(line, expected, number) {
   const indent = indentOf(line)

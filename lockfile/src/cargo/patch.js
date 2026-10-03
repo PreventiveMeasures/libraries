@@ -62,9 +62,10 @@ function patchEntries(root, config) {
   }
   const sources = new Map()
   for (const { key, where, label } of tables.values()) {
-    const other = sources.get(patchKey(key))
+    const source = patchKey(key)
+    const other = sources.get(source)
     if (other !== undefined) throw new LockfileError(`patches the source ${other} does by another URL, and cargo would take either table`, where)
-    sources.set(patchKey(key), label)
+    sources.set(source, label)
   }
   return [...tables.values()].flatMap((table) => table.entries)
 }

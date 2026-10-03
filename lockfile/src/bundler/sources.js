@@ -6,6 +6,7 @@ import { LockfileError, at, quote } from '../error.js'
 import { fail } from '../lines.js'
 import { checkRefName, checkRelative, checkRemote, isCommit, isHttpUrl } from '../names.js'
 import { compareCodePoints } from '../order.js'
+import { field } from '../shape.js'
 
 // The options of each, in the order Bundler writes them; the first are
 // always written.
@@ -71,8 +72,8 @@ function readGit(values, where) {
     remote,
     revision,
     ref,
-    branch: values.branch === undefined ? undefined : checkRefName(values.branch, at(where, 'branch')),
-    tag: values.tag === undefined ? undefined : checkRefName(values.tag, at(where, 'tag')),
+    branch: field(values, 'branch', where, checkRefName),
+    tag: field(values, 'tag', where, checkRefName),
     submodules: values.submodules === 'true',
     glob: readGlob(values.glob, at(where, 'glob')),
   }
@@ -103,8 +104,7 @@ function isNormalUrl(remote) {
 function readGem(values, where) {
   const { remote } = values
   if (remote === undefined) return { type: 'gem', remote }
-  const url = (isHttpUrl(remote) || isNormalUrl(remote)) && !/\s/u.test(remote)
-  if (!url) throw new LockfileError(`${quote(remote)} is not an http(s) URL, or a file: or s3: URL in normal form`, at(where, 'remote'))
+  if (!isHttpUrl(remote) && !isNormalUrl(remote)) throw new LockfileError(`${quote(remote)} is not an http(s) URL, or a file: or s3: URL in normal form`, at(where, 'remote'))
   if (!remote.endsWith('/')) throw new LockfileError(`${quote(remote)} does not end in "/", as Bundler writes a source`, at(where, 'remote'))
   return { type: 'gem', remote }
 }

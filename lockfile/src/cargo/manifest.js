@@ -9,7 +9,7 @@ import { field, optional, orEmpty } from '../shape.js'
 import { TomlError } from '../toml/error.js'
 import { parseToml } from '../toml/parse.js'
 import { isTable } from '../toml/value.js'
-import { NIGHTLY, dashed, featureMap, gatherDependencies, readSpec } from './dependency.js'
+import { NIGHTLY, checkInherits, dashed, featureMap, gatherDependencies, readSpec } from './dependency.js'
 import { array, boolean, checkCrateName, checkCrateVersion, checker, entries, kind, refuse, string, strings, table } from './shape.js'
 
 const PACKAGE_ONLY = [
@@ -183,9 +183,7 @@ export function parseCargoConfig(texts) {
 
 function inheritField(value, where, key, workspace) {
   if (!isTable(value)) return value
-  table(value, where, ['workspace'])
-  if (value.workspace !== true) throw refuse('true', value.workspace, at(where, 'workspace'))
-  if (workspace === undefined) throw new LockfileError('inherits from a workspace, and no workspace root is given', where)
+  checkInherits(value, where, ['workspace'], workspace)
   if (workspace.package[key] === undefined) throw new LockfileError(`workspace.package.${key} is not given`, where)
   return workspace.package[key]
 }

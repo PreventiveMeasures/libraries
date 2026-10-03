@@ -22,6 +22,6 @@ export function quote(text) {
 // where it does not.
 const IDENTIFIER = /^[A-Za-z_$][\w$]*$/u
 export function at(where, key) {
-  const step = IDENTIFIER.test(key) ? key : `[${quote(key)}]`
-  return where === '' || step.startsWith('[') ? `${where}${step}` : `${where}.${step}`
+  if (!IDENTIFIER.test(key)) return `${where}[${quote(key)}]`
+  return where === '' ? key : `${where}.${key}`
 }

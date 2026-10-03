@@ -173,8 +173,11 @@ export function parseCargoLock(text) {
   for (const [index, pkg] of read.entries()) {
     const where = at(`package[${index}]`, 'dependencies')
     pkg.resolved = pkg.edges.map((edge, i) => resolveEdge(edge, `${where}[${i}]`, byName))
-    const twice = pkg.resolved.find((dep, i) => pkg.resolved.indexOf(dep) !== i)
-    if (twice !== undefined) throw new LockfileError(`${quote(twice.key)} is listed twice`, where)
+    const seen = new Set()
+    for (const dep of pkg.resolved) {
+      if (seen.has(dep)) throw new LockfileError(`${quote(dep.key)} is listed twice`, where)
+      seen.add(dep)
+    }
   }
   checkReached(read, 'package')
   const packages = Object.create(null)

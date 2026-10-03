@@ -107,7 +107,8 @@ export const isCommit = (hash) => /^(?:[\da-f]{40}|[\da-f]{64})$/u.test(hash)
 // A sha256 in lowercase hex, as Cargo.lock and soldeer.lock write a checksum.
 export const isHexSha256 = (value) => /^[\da-f]{64}$/u.test(value)
 
-// A sha1 in lowercase hex, as yarn.lock and Podfile.lock write one.
+// A sha1 in lowercase hex, as yarn.lock, Podfile.lock and composer.lock write
+// one.
 export const isHexSha1 = (value) => /^[\da-f]{40}$/u.test(value)
 
 // A branch or tag name, as git check-ref-format takes one under refs/heads/
@@ -184,6 +185,10 @@ export function readIntegrities(value, where) {
 // control, which the URL parser drops, or trims, where a reader of the
 // text would not.
 export const isHttpUrl = (value) => /^https?:\/\//u.test(value) && !/[\s\p{Cc}]/u.test(value) && URL.canParse(value)
+
+// As above, of its scheme in any case, which the URL parser lowers, as a
+// tool takes one a user wrote.
+export const isHttpUrlAnyCase = (value) => isHttpUrl(value.replace(/^https?:/iu, (scheme) => scheme.toLowerCase()))
 
 // npm's registry, by either of its names, and yarn's mirror of it, keep a
 // package's tarball under its name, a scope's `/` once written `%2f`, and

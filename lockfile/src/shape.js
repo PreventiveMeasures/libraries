@@ -47,7 +47,7 @@ export function primitives(describe, isMapping, noun, key) {
   }
 }
 
-const isMapping = (value) => typeof value === 'object' && value !== null && !Array.isArray(value)
+export const isMapping = (value) => typeof value === 'object' && value !== null && !Array.isArray(value)
 export const { refuse, record, entries, string, boolean, count } = primitives(kind, isMapping, 'a mapping', 'field')
 
 // A mapping that may be left out, as an empty one then. A null is not left
@@ -59,7 +59,10 @@ export const orEmpty = (value) => (value === undefined ? EMPTY : value)
 export const optional = (read) => (value, where) => (value === undefined ? undefined : read(value, where))
 
 // A field of `holder` that may be left out, so read.
-export const field = (holder, key, where, read) => optional(read)(holder[key], at(where, key))
+export function field(holder, key, where, read) {
+  const value = holder[key]
+  return value === undefined ? undefined : read(value, at(where, key))
+}
 
 export function text(value, where) {
   if (string(value, where) === '') throw new LockfileError('expected a non-empty string', where)
@@ -103,7 +106,7 @@ export const checkerOf = (read) => (is, what) => (value, where) => {
 
 // The options object a reader takes, of the `names` alone.
 export function checkOptions(options, names) {
-  if (typeof options !== 'object' || options === null || Array.isArray(options)) throw new TypeError('expected an options object')
+  if (!isMapping(options)) throw new TypeError('expected an options object')
   const unknown = Object.keys(options).find((key) => !names.includes(key))
   if (unknown !== undefined) throw new TypeError(`unknown option ${quote(unknown)}, of ${names.join(', ')}`)
   return options

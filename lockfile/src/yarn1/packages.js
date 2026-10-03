@@ -79,7 +79,7 @@ function readVersion(value, where, semver) {
 // 1.19.0, it checks both the sha1 after `#` and the integrity.
 function readTarball(tarball, sha1, integrity, resolvedAt, integrityAt) {
   if (tarball.startsWith('file:')) checkRelative(tarball.slice(tarball.startsWith('file:./') ? 7 : 5), resolvedAt)
-  else if (/\s/u.test(tarball) || !isHttpUrl(tarball)) throw new LockfileError(`${quote(tarball)} is not an http(s) URL, a file: path or a git URL`, resolvedAt)
+  else if (!isHttpUrl(tarball)) throw new LockfileError(`${quote(tarball)} is not an http(s) URL, a file: path or a git URL`, resolvedAt)
   if (sha1 !== undefined && !isHexSha1(sha1)) throw new LockfileError(`${quote(sha1)} is not the hex sha1 of a tarball`, resolvedAt)
   const part = integrity === undefined ? undefined : readIntegrities(integrity, integrityAt).get('sha1')
   if (sha1 !== undefined && part !== undefined && part.slice(5) !== toBase64(fromHex(sha1))) {

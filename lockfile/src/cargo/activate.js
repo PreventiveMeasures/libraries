@@ -12,6 +12,11 @@ export function setOf(map, key) {
   return map.get(key)
 }
 
+// The refusals of a feature asked of a package that has none of the name,
+// and of one that enables itself.
+export const noSuchFeature = (feature, key, asker) => new LockfileError(`${quote(feature)} is asked of ${quote(key)}, which has no such feature`, asker)
+export const enablesItself = (feature, key) => new LockfileError(`feature ${quote(feature)} enables itself, which cargo refuses`, key)
+
 export function requestsOf(packages, dep) {
   return dep.defaultFeatures && 'default' in packages[dep.resolved].manifest.features ? [...dep.features, 'default'] : dep.features
 }
@@ -39,11 +44,11 @@ class Activation {
 
   require(key, into, feature, asker) {
     const map = this.packages[key].manifest.features
-    if (!(feature in map)) throw new LockfileError(`${quote(feature)} is asked of ${quote(key)}, which has no such feature`, asker)
+    if (!(feature in map)) throw noSuchFeature(feature, key, asker)
     if (into.features.has(feature)) return
     into.features.add(feature)
     this.dirty.add(key)
-    if (map[feature].includes(feature)) throw new LockfileError(`feature ${quote(feature)} enables itself, which cargo refuses`, key)
+    if (map[feature].includes(feature)) throw enablesItself(feature, key)
     for (const item of map[feature]) this.requireValue(key, into, featureValue(item), key)
   }
 

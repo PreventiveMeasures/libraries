@@ -9,6 +9,7 @@
 
 import { LockfileError, at, quote } from '../error.js'
 import { fail as failAt, take } from '../lines.js'
+import { isMapping } from '../shape.js'
 import { fitsLong } from './php.js'
 
 // Arrays and objects nested in one another as deep as PHP's json_decode
@@ -28,7 +29,7 @@ export const keysOf = (record) => ORDER.get(record) ?? Object.keys(record)
 
 // `{}`, which readObject takes at the top alone: any other object it reads
 // has a key.
-export const isEmptyObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value) && keysOf(value).length === 0
+export const isEmptyObject = (value) => isMapping(value) && keysOf(value).length === 0
 
 const lineOf = (text, pos) => {
   let line = 1

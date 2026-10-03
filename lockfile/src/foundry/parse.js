@@ -1,5 +1,5 @@
 import { LockfileError, at, quote } from '../error.js'
-import { checkRefName, checkRelative, isCommit, joinRelative, relativeTo } from '../names.js'
+import { checkRefName, checkWithin, isCommit, joinRelative, relativeTo } from '../names.js'
 import { checkOptions, entries, mapping, record, string } from '../shape.js'
 import { checkSubmodulePath, findNested, readGitmodules } from './gitmodules.js'
 import { readJson } from './json.js'
@@ -12,11 +12,11 @@ const WHERE = 'gitmodules'
 // .gitmodules has.
 function isDirectory(value) {
   try {
-    checkRelative(value, '')
+    checkWithin(value, '')
   } catch {
     return false
   }
-  return !value.split('/').includes('..')
+  return true
 }
 
 function readOptions(options) {

@@ -16,7 +16,10 @@ const FILE_TYPE = /\.(?:tgz|tar\.gz|tar)$/iu
 
 // Whether npm takes a `file:` path for a tarball, or for a directory.
 export const isTarball = (path) => FILE_TYPE.test(path)
-const GIT_PROTOCOLS = new Set(['git:', 'git+http:', 'git+https:', 'git+rsync:', 'git+ftp:', 'git+ssh:'])
+
+// The protocols npm-package-arg reads as git's: not `git+file:`, nor any
+// other, which npm reads as no repository.
+export const GIT_PROTOCOL = /^git(?:\+(?:https?|rsync|ftp|ssh))?:/u
 
 const unread = (spec, why) => new LockfileError(`${quote(spec)} is ${why}`)
 
@@ -63,7 +66,7 @@ function fromUrl(spec) {
   const url = URL.parse(spec)
   if (url === null) throw unread(spec, 'not a URL npm reads')
   if (url.protocol === 'http:' || url.protocol === 'https:') return { type: 'remote', url: spec }
-  if (!GIT_PROTOCOLS.has(url.protocol)) throw unread(spec, `of a protocol npm does not read, ${quote(url.protocol)}`)
+  if (!GIT_PROTOCOL.test(url.protocol)) throw unread(spec, `of a protocol npm does not read, ${quote(url.protocol)}`)
   const attributes = gitAttributes(spec, url.hash.slice(1))
   url.hash = ''
   return { type: 'git', hosted: undefined, fetchSpec: url.href.replace(/^git\+/u, ''), ...attributes }
