@@ -22,7 +22,7 @@
 
 import { sameBytes } from './bytes.js'
 import { ArchiveError } from './error.js'
-import { checkString, hasUnsafe, quote, utf8Length } from './text.js'
+import { checkString, hasUnsafe, quote, tooLong } from './text.js'
 
 const PATH_MAX = 4096
 const NAME_MAX = 255
@@ -38,9 +38,9 @@ function checkText(path, what) {
   // Once `.` segments are dropped, `./C:x` is `C:x`, so the first segment
   // that is not one is what a drive letter is looked for on.
   if (/^[a-zA-Z]:/u.test(segments.find((segment) => segment !== '.') ?? '')) throw new ArchiveError(`${what} ${quote(path)} starts with a drive letter`)
-  if (utf8Length(path) > PATH_MAX) throw new ArchiveError(`${what} ${quote(path)} is longer than ${PATH_MAX} bytes`)
+  if (tooLong(path, PATH_MAX)) throw new ArchiveError(`${what} ${quote(path)} is longer than ${PATH_MAX} bytes`)
   for (const segment of segments) {
-    if (utf8Length(segment) > NAME_MAX) throw new ArchiveError(`${what} ${quote(path)} has a segment longer than ${NAME_MAX} bytes`)
+    if (tooLong(segment, NAME_MAX)) throw new ArchiveError(`${what} ${quote(path)} has a segment longer than ${NAME_MAX} bytes`)
   }
   return segments
 }
@@ -68,7 +68,7 @@ export function cleanPath(path, what, directory = false) {
   const name = slash || kept.length < segments.length ? kept.join('/') : path
   // As the archive stores it, a directory's name carries its slash: what
   // pack takes, unpack then reads.
-  if (utf8Length(name) + (directory ? 1 : 0) > PATH_MAX) throw new ArchiveError(`${what} ${quote(path)} is longer than ${PATH_MAX} bytes`)
+  if (tooLong(name, PATH_MAX - (directory ? 1 : 0))) throw new ArchiveError(`${what} ${quote(path)} is longer than ${PATH_MAX} bytes`)
   return name
 }
 

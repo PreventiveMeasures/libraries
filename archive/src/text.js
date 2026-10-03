@@ -35,6 +35,11 @@ export function utf8Length(text) {
   return length
 }
 
+// Whether text is more than `max` bytes of UTF-8. A code unit is at least
+// a byte and at most three, so text of more units than `max` is over, and
+// of a third as many is not, without being counted.
+export const tooLong = (text, max) => text.length > max || (text.length * 3 > max && utf8Length(text) > max)
+
 export function encodeUtf8(text, what) {
   try {
     return utf8fromString(text)

@@ -10,6 +10,20 @@ export const BLOCK = 512
 
 export const isDevice = (type) => type === 'character-device' || type === 'block-device'
 
+// Each entry type's type flag, and each extended header's: those GNU
+// writes, under the names unpack reads them by.
+export const TYPEFLAGS = {
+  file: 0x30,
+  hardlink: 0x31,
+  symlink: 0x32,
+  'character-device': 0x33,
+  'block-device': 0x34,
+  directory: 0x35,
+  fifo: 0x36,
+  'contiguous-file': 0x37,
+}
+export const EXTENDED_TYPEFLAGS = { pax: 0x78, global: 0x67, longname: 0x4c, longlink: 0x4b }
+
 export const NAME_SIZE = 100
 export const PREFIX_SIZE = 155
 // 32 bytes, and GNU always ends them with a NUL, so 31 is the most.
@@ -135,7 +149,7 @@ export function decodeHeader(block, at) {
   if (!gnu && magic !== USTAR_MAGIC) throw new ArchiveError('header is not in the ustar, pax or gnu format', at)
   if (gnu && !isZeroBlock(block.subarray(OLD_SPARSE, OLD_SPARSE_END))) throw new ArchiveError('header carries an old GNU sparse map or real size', at)
   const typeflag = block[TYPEFLAG]
-  const device = typeflag === 0x33 || typeflag === 0x34
+  const device = typeflag === TYPEFLAGS['character-device'] || typeflag === TYPEFLAGS['block-device']
   return {
     gnu,
     typeflag,

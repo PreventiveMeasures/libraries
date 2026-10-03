@@ -6,24 +6,10 @@
 import { EMPTY, concat, isAscii } from '../bytes.js'
 import { DEFAULT_MODE, checkEntry, wireName } from '../entry.js'
 import { ArchiveError } from '../error.js'
-import { BLOCK, NAME_SIZE, OWNER_SIZE, PREFIX_SIZE, encodeHeader, fitsOctal, isDevice, octalMax } from './header.js'
+import { BLOCK, EXTENDED_TYPEFLAGS, NAME_SIZE, OWNER_SIZE, PREFIX_SIZE, TYPEFLAGS, encodeHeader, fitsOctal, isDevice, octalMax } from './header.js'
 import { Names, cleanNames } from '../names.js'
 import { encodePax } from './pax.js'
 import { checkString, encodeUtf8, hasUnsafe, quote } from '../text.js'
-
-const TYPEFLAG = {
-  file: 0x30,
-  hardlink: 0x31,
-  symlink: 0x32,
-  'character-device': 0x33,
-  'block-device': 0x34,
-  directory: 0x35,
-  fifo: 0x36,
-  'contiguous-file': 0x37,
-}
-const LONGNAME = 0x4c
-const LONGLINK = 0x4b
-const PAX = 0x78
 
 const FORMATS = new Set(['gnu', 'ustar', 'pax'])
 const SLASH = 0x2f
@@ -40,7 +26,7 @@ function ownerName(value, what) {
 }
 
 function normalize(entry) {
-  const checked = checkEntry(entry, TYPEFLAG)
+  const checked = checkEntry(entry, TYPEFLAGS)
   const { name, type } = checked
   const devmajor = integer(entry.devmajor ?? 0, 'devmajor')
   const devminor = integer(entry.devminor ?? 0, 'devminor')
@@ -82,7 +68,7 @@ function paxHeader(e, records) {
   const body = encodePax(records)
   const slash = e.name.lastIndexOf('/')
   const label = slash === -1 ? `./PaxHeaders/${e.name}` : `${e.name.slice(0, slash)}/PaxHeaders/${e.name.slice(slash + 1)}`
-  return [privateHeader(label, body.length, Math.max(0, Math.min(e.mtime, octalMax(12))), PAX, false), padded(body)]
+  return [privateHeader(label, body.length, Math.max(0, Math.min(e.mtime, octalMax(12))), EXTENDED_TYPEFLAGS.pax, false), padded(body)]
 }
 
 // GNU's split_long_name: the last slash within 155 bytes of prefix (a
@@ -112,14 +98,14 @@ function encodeEntry(e, format) {
   let prefix = EMPTY
   let link = encodeUtf8(e.linkname, `link target of ${quote(e.name)}`)
   if (link.length > NAME_SIZE) {
-    if (gnu) chunks.push(...longLink(link, LONGLINK))
+    if (gnu) chunks.push(...longLink(link, EXTENDED_TYPEFLAGS.longlink))
     else if (format === 'pax') pax.push(['linkpath', e.linkname])
     else throw new ArchiveError(`link target of ${quote(e.name)} is longer than 100 bytes, which ustar cannot hold`)
     link = link.subarray(0, NAME_SIZE)
   }
   if (format === 'pax' && (name.length > NAME_SIZE || !isAscii(name))) pax.push(['path', wire])
   if (name.length > NAME_SIZE) {
-    if (gnu) chunks.push(...longLink(name, LONGNAME))
+    if (gnu) chunks.push(...longLink(name, EXTENDED_TYPEFLAGS.longname))
     else if (format === 'ustar') ({ prefix, name } = splitName(name, e.name))
     if (name.length > NAME_SIZE) name = name.subarray(0, NAME_SIZE)
   }
@@ -142,7 +128,7 @@ function encodeEntry(e, format) {
   }
   const device = isDevice(e.type)
   const fields = {
-    gnu, name, prefix, linkname: link, typeflag: TYPEFLAG[e.type], mode: e.mode,
+    gnu, name, prefix, linkname: link, typeflag: TYPEFLAGS[e.type], mode: e.mode,
     uid: number('uid', e.uid, 8),
     gid: number('gid', e.gid, 8),
     size: number('size', e.data.length, 12),
