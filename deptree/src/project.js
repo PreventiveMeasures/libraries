@@ -39,3 +39,14 @@ export function readText(project, path, where) {
     throw new DeptreeError(`${quote(path.slice(1))} is not UTF-8`, where)
   }
 }
+
+// The checks each manager's checkHost and inputsOf make alike.
+export function checkHostKeys(host, keys) {
+  for (const key of keys) if (typeof host[key] !== 'string' || host[key] === '') throw new TypeError(`host.${key} must be a non-empty string`)
+}
+export function checkLeftOut(values, all = 'both') {
+  for (const [name, value] of Object.entries(values)) if (value !== undefined) throw new TypeError(`${name} must be left out where lockfile is: ${all} are read from project`)
+}
+export function checkTexts(values) {
+  for (const [name, value] of Object.entries(values)) if (value !== undefined && typeof value !== 'string') throw new TypeError(`${name} must be a string, or left out`)
+}

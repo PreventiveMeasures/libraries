@@ -12,8 +12,6 @@ export function setOf(map, key) {
   return map.get(key)
 }
 
-// The refusals of a feature asked of a package that has none of the name,
-// and of one that enables itself.
 export const noSuchFeature = (feature, key, asker) => new LockfileError(`${quote(feature)} is asked of ${quote(key)}, which has no such feature`, asker)
 export const enablesItself = (feature, key) => new LockfileError(`feature ${quote(feature)} enables itself, which cargo refuses`, key)
 

@@ -9,13 +9,6 @@ import { chatCompletionsBase } from '../wire-formats.js'
 // Chrome warns per SESSION on a request that names no output language. Accepts de, en, es, fr, ja.
 const outputLanguage = () => env('CHROME_OUTPUT_LANGUAGE') || 'en'
 
-// The use case a row has to name, or undefined for v3: Gemini Nano is the default one, which needs
-// no model_version at all.
-export function useCaseVersion(baseModel) {
-  const version = modelVersionFor(baseModel)
-  return version === 'v3' ? undefined : version
-}
-
 // Chrome's Prompt API documents no function calling, and unreleased `AIPromptAPIToolUse` runs the
 // tool inside the page rather than in the caller. So tools ride `responseConstraint`: prose, a list
 // of calls, or both.
@@ -148,8 +141,8 @@ export function explainCreateFailure(error, model, baseModel) {
   // That failure and no other: every create() failure carries an availability reading, so gating on
   // one would rewrite an oversized history as a model too large for the machine.
   if (error.name !== 'InvalidStateError') return
-  const version = useCaseVersion(baseModel)
-  const useCase = version ? ` (model_version/${version})` : ''
+  const version = modelVersionFor(baseModel)
+  const useCase = version && version !== 'v3' ? ` (model_version/${version})` : ''
   // Raised both for a session Chrome declines and for a service that dies starting one; only the
   // second leaves a "Session crashed" behind.
   const verdict = error.availability === 'available'

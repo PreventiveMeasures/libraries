@@ -7,7 +7,7 @@ import { compareVersions, valid } from '@preventive/upstream/semver.js'
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { readManifest } from '../manifest.js'
-import { checkProject, readText, typeOf } from '../project.js'
+import { checkHostKeys, checkLeftOut, checkProject, checkTexts, readText, typeOf } from '../project.js'
 import { pinnedPnpm, readManifests } from './projects.js'
 import { readers } from './readers.js'
 import { checkWorkspace, findProjects, linkedManifest } from './workspace.js'
@@ -71,9 +71,7 @@ function pnpmOf(pnpm, root) {
 // All of host but its pnpm, which pnpmOf reads.
 export function checkHost(host) {
   if (host === null || typeof host !== 'object') throw new TypeError('host must be an object with node, os, cpu and libc, and pnpm where it is not pinned')
-  for (const key of ['node', 'os', 'cpu', 'libc']) {
-    if (typeof host[key] !== 'string' || host[key] === '') throw new TypeError(`host.${key} must be a non-empty string`)
-  }
+  checkHostKeys(host, ['node', 'os', 'cpu', 'libc'])
   const { node, os, libc } = host
   if (valid(node) === null) throw new DeptreeError(`${quote(node)} is not an exact version`, 'host.node')
   if (os === 'win32') throw new DeptreeError('Windows is not supported: pnpm links there with junctions to absolute paths', 'host.os')
@@ -156,15 +154,11 @@ export function inputsOf(options) {
   const { lockfile, manifests, workspace, npmrc, patches, project } = options
   if (lockfile === undefined) {
     if (project === undefined) throw new TypeError(LOCKFILE)
-    for (const [name, value] of Object.entries({ manifests, workspace, npmrc, patches })) {
-      if (value !== undefined) throw new TypeError(`${name} must be left out where lockfile is: both are read from project`)
-    }
+    checkLeftOut({ manifests, workspace, npmrc, patches })
     return { reading: true, project, ...readRootFiles(project) }
   }
   if (typeof lockfile !== 'string') throw new TypeError(LOCKFILE)
-  for (const [name, value] of Object.entries({ workspace, npmrc })) {
-    if (value !== undefined && typeof value !== 'string') throw new TypeError(`${name} must be a string, or left out`)
-  }
+  checkTexts({ workspace, npmrc })
   return { reading: false, lockfile, manifests, workspace, npmrc, patches }
 }
 

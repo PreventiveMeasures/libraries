@@ -160,7 +160,7 @@ function fixedFiles(nodes, fixed, contested, major) {
     checkDirectory(node, path)
     const file = node.files.get(path)
     if (fixed.has(target) || file?.data === undefined) continue
-    if (executableMode(file.mode, major) === file.mode && (major >= 12 || (!hasCrlfShebang(file.data) && node.pkg.patchHash === undefined))) continue
+    if (executableMode(file.mode, major) === file.mode && (major >= 12 || (crlfShebang(file.data) === -1 && node.pkg.patchHash === undefined))) continue
     throw new DeptreeError(`whether pnpm makes ${quote(path)} executable turns on ${why}`, quote(node.key))
   }
   const byNode = new Map()
@@ -173,8 +173,6 @@ function fixedFiles(nodes, fixed, contested, major) {
   }
   return byNode
 }
-
-const hasCrlfShebang = (data) => crlfShebang(data) !== -1
 
 export const executableMode = (mode, major) => (major >= 11 ? mode | 0o111 : 0o755)
 
@@ -213,7 +211,7 @@ export function checkPatchOfBins(node, patched, targets, where, major) {
   for (const path of targets) {
     const before = node.files.get(path).data
     const after = patched.get(path).data
-    if (before !== after && (hasCrlfShebang(before) || hasCrlfShebang(after))) throw new DeptreeError(`the patch changes ${quote(path)}, a bin with a CRLF \`#!\` line, which pnpm rewrites before and after it`, where)
+    if (before !== after && (crlfShebang(before) !== -1 || crlfShebang(after) !== -1)) throw new DeptreeError(`the patch changes ${quote(path)}, a bin with a CRLF \`#!\` line, which pnpm rewrites before and after it`, where)
   }
   return manifest
 }

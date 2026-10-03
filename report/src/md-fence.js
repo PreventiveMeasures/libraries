@@ -217,11 +217,8 @@ export function closesFence(marker, line) {
   return fence !== null && fence[2][0] === marker[0] && fence[2].length >= marker.length && !fence[3].trim()
 }
 
-// Whether `index` is in one of fenceRanges' ranges. They come sorted and
-// disjoint, each end exclusive, so the first to end past `index` is the
-// only one that can hold it — found by halving, since the splitters ask
-// per line or per match, and a scan of every range per question was
-// quadratic in the fences.
+// fenceRanges' ranges come sorted and disjoint, each end exclusive: the
+// first to end past `index` is the only one that can hold it.
 export function inFence(ranges, index) {
   let lo = 0
   let hi = ranges.length

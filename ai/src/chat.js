@@ -143,21 +143,18 @@ export async function ask({ model, maxTokens, systemPrompt, userContent, think =
     if (failedAttemptResponse) addUsage(totalUsage, normalizeUsage(failedAttemptResponse, model))
     addUsage(totalUsage, normalizeUsage(response, model))
 
-    if (error) {
-      history.push({ request, response, messages: preMessages, toolCalls: [], results: [], error, provider: stamp })
+    const fail = async (toolCalls, failure) => {
+      history.push({ request, response, messages: preMessages, toolCalls, results: [], error: failure, provider: stamp })
       await savePartial()
-      return { text: null, error, usage: totalUsage, history }
+      return { text: null, error: failure, usage: totalUsage, history }
     }
+    if (error) return await fail([], error)
 
     texts.push(extractResponseText(response))
 
     const toolCalls = extractToolCalls(response)
     const malformed = toolCalls.find((tc) => tc.argsError)
-    if (malformed) {
-      history.push({ request, response, messages: preMessages, toolCalls, results: [], error: malformed.argsError, provider: stamp })
-      await savePartial()
-      return { text: null, error: malformed.argsError, usage: totalUsage, history }
-    }
+    if (malformed) return await fail(toolCalls, malformed.argsError)
 
     if (debugRequests && toolCalls.length > 0) console.log(`[debug] ${label} calling tool: ${JSON.stringify(toolCalls)}`)
     const results = toolCalls.length > 0 && handleToolCall ? await Promise.all(toolCalls.map((tc) => handleToolCall(tc))) : []

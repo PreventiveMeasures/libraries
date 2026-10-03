@@ -289,12 +289,7 @@ function parseBlock(heading, body, index, groupSeverity = '') {
   // would emit it a second time.
   if (!id && title) {
     const wanted = title.toLowerCase()
-    for (const r of index.values()) {
-      if (r.title.toLowerCase() === wanted) {
-        row = r
-        break
-      }
-    }
+    row = [...index.values()].find((r) => r.title.toLowerCase() === wanted)
     id = row?.id ?? ''
   }
 

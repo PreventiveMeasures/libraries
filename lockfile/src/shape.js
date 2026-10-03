@@ -59,10 +59,7 @@ export const orEmpty = (value) => (value === undefined ? EMPTY : value)
 export const optional = (read) => (value, where) => (value === undefined ? undefined : read(value, where))
 
 // A field of `holder` that may be left out, so read.
-export function field(holder, key, where, read) {
-  const value = holder[key]
-  return value === undefined ? undefined : read(value, at(where, key))
-}
+export const field = (holder, key, where, read) => (holder[key] === undefined ? undefined : read(holder[key], at(where, key)))
 
 export function text(value, where) {
   if (string(value, where) === '') throw new LockfileError('expected a non-empty string', where)

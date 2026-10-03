@@ -3,10 +3,10 @@ import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { env } from '#env'
 import { assert } from '#assert'
-import { baseModelFor } from '../models.js'
+import { baseModelFor, modelVersionFor } from '../models.js'
 import { chromePreflight, findModelDir, graftPlan } from './model.js'
 import { claimProfile, dropProfile, pruneProfileRoot } from './profile.js'
-import { CHROME_SHAPE, explainCreateFailure, toChatCompletions, useCaseVersion } from './wire.js'
+import { CHROME_SHAPE, explainCreateFailure, toChatCompletions } from './wire.js'
 
 // One entry point for the provider: CHROME_ADAPTER at the foot of this file, which providers.js takes
 // whole. model.js, profile.js and wire.js are not re-exported — a caller that wants one reaches for
@@ -43,8 +43,9 @@ const ENABLED_FEATURES = [
 const GEMMA4_FEATURES = ['OptimizationGuideManifestBroker', 'OnDeviceModelLitertLmBackend']
 
 function enabledFeatures(baseModel) {
-  const version = useCaseVersion(baseModel)
-  if (!version) return ENABLED_FEATURES
+  const version = modelVersionFor(baseModel)
+  // v3 is Gemini Nano: the default use case, which needs none of this.
+  if (!version || version === 'v3') return ENABLED_FEATURES
   return [...ENABLED_FEATURES, `AIApiFoundationalModel:model_version/${version}`, ...GEMMA4_FEATURES]
 }
 

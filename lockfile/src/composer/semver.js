@@ -139,6 +139,14 @@ const BASIC = regex(`^(<>|!=|>=?|<=?|==?)?${S}*([^\\n]*)`)
 const MODIFIED = regex(`-${MODIFIER}$`)
 const set = (value) => value !== undefined && value !== ''
 
+// `~` and `^`: from the version as written to below the next at `position`.
+function bounded(text, match, position) {
+  const suffix = empty(match[5]) && empty(match[7]) && empty(match[8]) ? '-dev' : ''
+  const low = normalize(`${text}${suffix}`.slice(1))
+  const high = manipulate(match, position, 1)
+  return low === undefined || high === undefined ? undefined : [constraint('>=', low), constraint('<', `${high}-dev`)]
+}
+
 function parseOne(input) {
   let text = input
   let match = AS.exec(text)
@@ -158,20 +166,11 @@ function parseOne(input) {
     if (text.startsWith('~>')) return undefined
     let position = set(match[4]) ? 4 : set(match[3]) ? 3 : set(match[2]) ? 2 : 1
     if (!empty(match[8])) position++
-    const suffix = empty(match[5]) && empty(match[7]) && empty(match[8]) ? '-dev' : ''
-    const low = normalize(`${text}${suffix}`.slice(1))
-    const high = manipulate(match, Math.max(1, position - 1), 1)
-    if (low === undefined || high === undefined) return undefined
-    return [constraint('>=', low), constraint('<', `${high}-dev`)]
+    return bounded(text, match, Math.max(1, position - 1))
   }
 
   if ((match = CARET.exec(text)) !== null) {
-    const position = match[1] !== '0' || !set(match[2]) ? 1 : match[2] !== '0' || !set(match[3]) ? 2 : 3
-    const suffix = empty(match[5]) && empty(match[7]) && empty(match[8]) ? '-dev' : ''
-    const low = normalize(`${text}${suffix}`.slice(1))
-    const high = manipulate(match, position, 1)
-    if (low === undefined || high === undefined) return undefined
-    return [constraint('>=', low), constraint('<', `${high}-dev`)]
+    return bounded(text, match, match[1] !== '0' || !set(match[2]) ? 1 : match[2] !== '0' || !set(match[3]) ? 2 : 3)
   }
 
   if ((match = X_RANGE.exec(text)) !== null) {
