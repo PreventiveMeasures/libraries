@@ -20,13 +20,7 @@ export function kind(value) {
 
 // A table with only the `fields` named, when named; `refused` names a key
 // with the reason it is not read.
-export const { refuse, record: table, entries, string, boolean, count: size } = primitives(kind, isTable, 'a table', 'key')
-
-export function array(value, where) {
-  if (!Array.isArray(value)) throw refuse('an array', value, where)
-  return value
-}
-
+export const { refuse, record: table, entries, sequence: array, string, boolean, count: size } = primitives(kind, isTable, 'a table', 'key', 'an array')
 
 // A string as a tool writes one given to it, with nothing in it that is
 // not shown, or that reorders what is: not empty, and no control character,
@@ -47,10 +41,10 @@ export const stringsOf = (check = string) => arrayOf((item, here) => check(strin
 export const strings = (value, where, check) => stringsOf(check)(value, where)
 
 // A table that may be left out, as an empty one then, of keys `checkKey`
-// holds, each item as `read(item, where)` makes it.
+// holds, each item as `read(item, where, key)` makes it.
 export function tableOf(value, where, checkKey, read) {
   const map = Object.create(null)
-  if (value !== undefined) for (const [key, item, here] of entries(value, where)) map[checkKey(key, here)] = read(item, here)
+  if (value !== undefined) for (const [key, item, here] of entries(value, where)) map[checkKey(key, here)] = read(item, here, key)
   return map
 }
 

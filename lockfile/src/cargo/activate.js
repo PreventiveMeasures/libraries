@@ -7,10 +7,7 @@
 import { LockfileError, quote } from '../error.js'
 import { featureValue } from './dependency.js'
 
-export function setOf(map, key) {
-  if (!map.has(key)) map.set(key, new Set())
-  return map.get(key)
-}
+export const setOf = (map, key) => map.get(key) ?? map.set(key, new Set()).get(key)
 
 export const noSuchFeature = (feature, key, asker) => new LockfileError(`${quote(feature)} is asked of ${quote(key)}, which has no such feature`, asker)
 export const enablesItself = (feature, key) => new LockfileError(`feature ${quote(feature)} enables itself, which cargo refuses`, key)

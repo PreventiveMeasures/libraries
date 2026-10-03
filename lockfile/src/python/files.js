@@ -2,7 +2,7 @@
 // gives, as packaging reads it, the name of the file a path or a URL ends
 // in, a path to one, and a hash in the hex a lockfile writes.
 
-import { LockfileError, quote } from '../error.js'
+import { LockfileError, attempt, quote } from '../error.js'
 import { checkRelative, checkWithin, isHttpUrl } from '../names.js'
 import { checkerOf } from '../shape.js'
 import { string, text } from '../toml/shape.js'
@@ -75,9 +75,5 @@ const lastSegment = (path) => path.slice(path.lastIndexOf('/') + 1)
 export function fileNameOf({ name, path, pathname }) {
   if (name !== undefined) return name
   if (path !== undefined) return lastSegment(path)
-  try {
-    return decodeURIComponent(lastSegment(pathname))
-  } catch {
-    return undefined
-  }
+  return attempt(() => decodeURIComponent(lastSegment(pathname)), () => undefined)
 }

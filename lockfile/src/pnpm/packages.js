@@ -5,7 +5,7 @@
 // wherever it is. Every snapshot has its entry and every entry a snapshot.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkOptional } from '../graph.js'
+import { readLists } from '../graph.js'
 import { checkName, checkRegistryTarball, checkVersion, isVersion, joinRelative } from '../names.js'
 import { entries, field, flag, mapping, orEmpty, record, text, textMap, texts } from '../shape.js'
 import { refToKey, splitPackageKey, splitSnapshotKey } from './key.js'
@@ -118,12 +118,8 @@ const readTargets = (value, where, snapshots) => mapping(orEmpty(value), where, 
 
 function readSnapshot(entry, where, snapshots) {
   record(entry, where, SNAPSHOT)
-  const dependencies = readTargets(entry.dependencies, at(where, 'dependencies'), snapshots)
-  const optionalDependencies = readTargets(entry.optionalDependencies, at(where, 'optionalDependencies'), snapshots)
-  checkOptional(dependencies, optionalDependencies, where)
   return {
-    dependencies,
-    optionalDependencies,
+    ...readLists(entry, where, (value, here) => readTargets(value, here, snapshots)),
     optional: flag(entry.optional, at(where, 'optional')),
     transitivePeerDependencies: field(entry, 'transitivePeerDependencies', where, names) ?? [],
   }

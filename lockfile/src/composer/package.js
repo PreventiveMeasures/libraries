@@ -9,7 +9,7 @@
 
 import { LockfileError, at, quote } from '../error.js'
 import { checkRefName, checkRelative, checkRemote, isCommit, isHexSha1, isHttpUrlAnyCase } from '../names.js'
-import { boolean, field, isMapping, record, refuse, string } from '../shape.js'
+import { boolean, field, isMapping, mapping, record, refuse, sequence, string } from '../shape.js'
 import { keysOf } from './json.js'
 import { compareKeys, compareStrings, empty, lower, trim } from './php.js'
 import { normalize, parseConstraints, parseStability } from './semver.js'
@@ -56,8 +56,7 @@ const nonEmpty = (value, where) => {
 }
 
 const list = (value, where) => {
-  if (!Array.isArray(value)) throw refuse('a sequence', value, where)
-  if (value.length === 0) throw new LockfileError('an empty sequence, which Composer does not write', where)
+  if (sequence(value, where).length === 0) throw new LockfileError('an empty sequence, which Composer does not write', where)
   return value
 }
 
@@ -286,23 +285,17 @@ function checkTargetDir(value, where) {
 }
 
 function readSuggest(value, where) {
-  const suggest = Object.create(null)
   sortedKeys(record(value, where), where)
-  for (const [name, reason, here] of entriesOf(value, where)) {
+  return mapping(value, where, (reason, here) => {
     if (trim(string(reason, here)) === 'self.version') throw new LockfileError('"self.version", which Composer writes as the package\'s version', here)
-    suggest[name] = reason
-  }
-  return suggest
+    return reason
+  }, entriesOf)
 }
 
-function readScripts(value, where) {
-  const scripts = Object.create(null)
-  for (const [event, listeners, here] of entriesOf(record(value, where), where)) {
-    if (!Array.isArray(listeners)) throw refuse('a sequence, as Composer writes even one listener', listeners, here)
-    scripts[event] = listeners.map((item, index) => string(item, `${here}[${index}]`))
-  }
-  return scripts
-}
+const readScripts = (value, where) => mapping(record(value, where), where, (listeners, here) => {
+  if (!Array.isArray(listeners)) throw refuse('a sequence, as Composer writes even one listener', listeners, here)
+  return listeners.map((item, index) => string(item, `${here}[${index}]`))
+}, entriesOf)
 
 function readKeywords(value, where) {
   const keywords = strings(value, where)

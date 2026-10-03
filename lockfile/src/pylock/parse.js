@@ -56,7 +56,7 @@ function readPackage(value, where) {
     // Resolved once every entry is read.
     dependencies: [],
     ...readOrigin(value, where, { name, version, versionKey: version === undefined ? undefined : versionKeyOf(version) }),
-    attestationIdentities: readAttestations(value['attestation-identities'], at(where, 'attestation-identities')),
+    attestationIdentities: field(value, 'attestation-identities', where, readAttestations) ?? [],
     tool: field(value, 'tool', where, table),
   }
 }

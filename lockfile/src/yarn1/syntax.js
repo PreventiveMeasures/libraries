@@ -40,10 +40,12 @@ function readKey(line, pos, number) {
 }
 
 // @yarnpkg/parsers, yarn 2+'s reader of v1, takes a bare `null…` as null.
+// The value ends the line.
 function readValue(line, pos, number) {
   const [value, end] = readString(line, pos, number)
   if (value.startsWith('null') && line[pos] !== '"') throw fail(`${quote(value)} is bare, and read as null by some readers`, number)
-  return [value, end]
+  expectEnd(line, end, number)
+  return value
 }
 
 function expectEnd(line, pos, number) {
@@ -67,47 +69,38 @@ function readHeader(src) {
   }
 }
 
-function readMap(src, field, number) {
+// The lines `indent` spaces in below line `number`, read into a fresh map.
+function readBlock(src, indent, empty, number, read) {
   const map = Object.create(null)
-  for (let line = src.line; line?.startsWith(' '); line = src.line) {
-    const indent = indentOf(line)
-    if (indent <= 2) break
-    if (indent !== 4) throw fail(`expected 4 spaces of indentation, found ${indent}`, src.number)
-    const [name, end] = readKey(line, 4, src.number)
-    if (line[end] !== ' ') throw fail(`expected a space and a range after ${quote(name)}`, src.number)
-    const [range, after] = readValue(line, end + 1, src.number)
-    expectEnd(line, after, src.number)
-    if (name in map) throw fail(`${quote(name)} is in ${quote(field)} twice`, src.number)
-    map[name] = range
-    advance(src)
+  for (let line = src.line; line?.startsWith(' ') && indentOf(line) > indent - 2; line = src.line) {
+    if (indentOf(line) !== indent) throw fail(`expected ${indent} spaces of indentation, found ${indentOf(line)}`, src.number)
+    const [key, end] = readKey(line, indent, src.number)
+    read(map, key, end, line, src.number)
   }
-  if (Object.keys(map).length === 0) throw fail(`expected what ${quote(field)} holds below it`, number)
+  if (Object.keys(map).length === 0) throw fail(empty, number)
   return map
 }
 
-function readFields(src, number) {
-  const fields = Object.create(null)
-  for (let line = src.line; line?.startsWith(' '); line = src.line) {
-    const indent = indentOf(line)
-    if (indent !== 2) throw fail(`expected 2 spaces of indentation, found ${indent}`, src.number)
-    const here = src.number
-    const [field, end] = readKey(line, 2, here)
-    if (field in fields) throw fail(`the field ${quote(field)} twice`, here)
-    if (line[end] === ':') {
-      expectEnd(line, end + 1, here)
-      advance(src)
-      fields[field] = readMap(src, field, here)
-      continue
-    }
-    if (line[end] !== ' ') throw fail(`expected a space and a value, or ":", after ${quote(field)}`, here)
-    const [value, after] = readValue(line, end + 1, here)
-    expectEnd(line, after, here)
-    fields[field] = value
+const readMap = (src, field, number) => readBlock(src, 4, `expected what ${quote(field)} holds below it`, number, (map, name, end, line, here) => {
+  if (line[end] !== ' ') throw fail(`expected a space and a range after ${quote(name)}`, here)
+  const range = readValue(line, end + 1, here)
+  if (name in map) throw fail(`${quote(name)} is in ${quote(field)} twice`, here)
+  map[name] = range
+  advance(src)
+})
+
+const readFields = (src, number) => readBlock(src, 2, 'expected the fields of the entry below it', number, (fields, field, end, line, here) => {
+  if (field in fields) throw fail(`the field ${quote(field)} twice`, here)
+  if (line[end] === ':') {
+    expectEnd(line, end + 1, here)
     advance(src)
+    fields[field] = readMap(src, field, here)
+    return
   }
-  if (Object.keys(fields).length === 0) throw fail('expected the fields of the entry below it', number)
-  return fields
-}
+  if (line[end] !== ' ') throw fail(`expected a space and a value, or ":", after ${quote(field)}`, here)
+  fields[field] = readValue(line, end + 1, here)
+  advance(src)
+})
 
 function readEntry(src, seen) {
   const { line, number } = src

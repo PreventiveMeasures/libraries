@@ -3,7 +3,7 @@
 import { toBase64 } from '@exodus/bytes/base64.js'
 import { fromHex } from '@exodus/bytes/hex.js'
 import { LockfileError, at, quote } from '../error.js'
-import { checkOptional } from '../graph.js'
+import { readLists } from '../graph.js'
 import { checkName, checkRegistryTarball, checkRelative, checkRepo, checkVersion, isCommit, isHexSha1, isHttpUrl, readIntegrities, resolvePath } from '../names.js'
 import { entries, field, orEmpty, record, string, text } from '../shape.js'
 
@@ -199,9 +199,7 @@ function readPackage({ keys, fields }, where, semver) {
   const resolution = readResolution(fields, where)
   const handed = checkSources(patterns, resolution, { asks, version }, where)
   const requests = []
-  const dependencies = readDependencies(fields.dependencies, at(where, 'dependencies'), requests)
-  const optionalDependencies = readDependencies(fields.optionalDependencies, at(where, 'optionalDependencies'), requests)
-  checkOptional(dependencies, optionalDependencies, where)
+  const { dependencies, optionalDependencies } = readLists(fields, where, (value, here) => readDependencies(value, here, requests))
   const uid = field(fields, 'uid', where, string)
   if (uid === version) throw new LockfileError('the version, which yarn does not write as a uid', at(where, 'uid'))
   const pkg = { patterns: keys, name: patterns[0].name, version, uid, resolution, dependencies, optionalDependencies }

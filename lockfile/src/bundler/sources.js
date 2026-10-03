@@ -109,12 +109,7 @@ function readGem(values, where) {
   return { type: 'gem', remote }
 }
 
-function readSource(raw, where) {
-  const values = readOptions(raw)
-  if (raw.type === 'GIT') return readGit(values, where)
-  if (raw.type === 'PATH') return readPath(values, where)
-  return readGem(values, where)
-}
+const READERS = { GIT: readGit, PATH: readPath, GEM: readGem }
 
 // What Bundler sorts the git and path sources by, as far as the lockfile
 // says it: a path's identifier whole, and a repository's first part, its
@@ -160,7 +155,7 @@ function readLocal(sources, raw) {
 // Each source, in Bundler's order, and the index of the Gemfile's own GEM
 // source where it has no remote, else -1.
 export function readSources(raw) {
-  const sources = raw.map((source, index) => readSource(source, `sources[${index}]`))
+  const sources = raw.map((source, index) => READERS[source.type](readOptions(source), `sources[${index}]`))
   checkOrder(sources, raw)
   return { sources, local: readLocal(sources, raw) }
 }

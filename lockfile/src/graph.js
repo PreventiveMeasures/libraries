@@ -5,11 +5,12 @@ import { LockfileError, at } from './error.js'
 
 export const KINDS = ['dependencies', 'devDependencies', 'optionalDependencies']
 
-// A name in both lists, which npm installs as optional, is refused.
-export function checkOptional(dependencies, optionalDependencies, where) {
-  for (const alias of Object.keys(optionalDependencies)) {
-    if (alias in dependencies) throw new LockfileError('listed under dependencies too', at(at(where, 'optionalDependencies'), alias))
-  }
+// Dependencies and optional ones, each as `read` makes it, none in both.
+export function readLists(holder, where, read) {
+  const [dependencies, optionalDependencies] = ['dependencies', 'optionalDependencies'].map((kind) => read(holder[kind], at(where, kind)))
+  const both = Object.keys(optionalDependencies).find((alias) => alias in dependencies)
+  if (both !== undefined) throw new LockfileError('listed under dependencies too', at(at(where, 'optionalDependencies'), both))
+  return { dependencies, optionalDependencies }
 }
 
 // The first of the packages the targets in `starts` lead to none of,

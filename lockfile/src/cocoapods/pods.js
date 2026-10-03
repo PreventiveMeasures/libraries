@@ -23,10 +23,7 @@ const NAME = new RegExp(`^${SEGMENT}(?:/${SEGMENT})*$`, 'u')
 // so a table of many names that long would take quadratic time.
 const checkPodName = checker((name) => name.length <= 1024 && NAME.test(name), 'a pod\'s name')
 
-export function rootOf(name) {
-  const slash = name.indexOf('/')
-  return slash === -1 ? name : name.slice(0, slash)
-}
+export const rootOf = (name) => name.split('/', 1)[0]
 
 export function checkRootName(name, where) {
   if (checkPodName(name, where).includes('/')) throw new LockfileError(`${quote(name)} is a subspec's name, where a root's is`, where)

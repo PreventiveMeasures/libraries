@@ -5,7 +5,7 @@
 // 1.x or none, is refused, as is a field Composer 2 does not write.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkOptions, isMapping, kind, record, refuse, string } from '../shape.js'
+import { checkOptions, isMapping, kind, mapping, record, refuse, sequence, string } from '../shape.js'
 import { isEmptyObject, readJson } from './json.js'
 import { entriesOf, isPlatform, ordered, plain, readConstraint, readPackage, readVersion, sortedKeys } from './package.js'
 import { compareBytes, lower } from './php.js'
@@ -77,51 +77,44 @@ const map = (value, where) => (Array.isArray(value) && value.length === 0 ? Obje
 // asks for one of, in lowercase.
 function readStabilityFlags(value, sorted) {
   const where = 'stability-flags'
-  const flags = Object.create(null)
   const given = map(value, where)
   if (sorted) sortedKeys(given, where, 'Composer 2.8 and later sort it in')
   const names = Object.entries(STABILITIES)
-  for (const [name, number, here] of entriesOf(given, where)) {
+  return mapping(given, where, (number, here, name) => {
     if (lower(name) !== name) throw new LockfileError(`${quote(name)}, which Composer writes in lowercase`, here)
     const stability = names.find(([, each]) => each === number)
     if (stability === undefined) throw refuse(`one of ${names.map(([, each]) => each).join(', ')}`, number, here)
-    flags[name] = stability[0]
-  }
-  return flags
+    return stability[0]
+  }, entriesOf)
 }
 
 // The root's requirements of the platform, as it writes them, which
 // Locker parses as of a root at 1.0.0.
-function readPlatform(value, where) {
-  const platform = Object.create(null)
-  for (const [name, constraint, here] of entriesOf(map(value, where), where)) {
-    if (!isPlatform(name) || lower(name) !== name) throw new LockfileError(`${quote(name)} is not a platform package's name in lowercase, as Composer writes one`, here)
-    readConstraint(constraint, here, '1.0.0')
-    platform[name] = constraint
-  }
-  return platform
-}
+const readPlatform = (value, where) => mapping(map(value, where), where, (constraint, here, name) => {
+  if (!isPlatform(name) || lower(name) !== name) throw new LockfileError(`${quote(name)} is not a platform package's name in lowercase, as Composer writes one`, here)
+  readConstraint(constraint, here, '1.0.0')
+  return constraint
+}, entriesOf)
 
 // config.platform, as PlatformRepository takes it: a version each platform
 // package is taken to be at, or false for one taken to be missing, which
 // php is not.
 function readOverrides(value) {
   const where = 'platform-overrides'
-  const overrides = Object.create(null)
-  if (value === undefined) return overrides
+  if (value === undefined) return Object.create(null)
   if (!isMapping(value) || isEmptyObject(value)) throw refuse('a non-empty mapping, as Composer writes it where there are any', value, where)
   // PlatformRepository refuses false of `php` as written, and keys each
   // override by its name in lowercase, the last of it; false of PHP so, it
   // disables php, which no install gets past.
   const missing = (here) => new LockfileError('false, which Composer refuses of php, as it cannot be missing', here)
   let php
-  for (const [name, version, here] of entriesOf(value, where)) {
+  const overrides = mapping(value, where, (version, here, name) => {
     if (!isPlatform(name)) throw new LockfileError(`${quote(name)} is not a platform package's name`, here)
     if (version !== false && (typeof version !== 'string' || normalize(plain(version, here)) === undefined)) throw refuse('a version, or false', version, here)
     if (name === 'php' && version === false) throw missing(here)
     if (lower(name) === 'php') php = { version, here }
-    overrides[name] = version
-  }
+    return version
+  }, entriesOf)
   if (php?.version === false) throw missing(php.here)
   return overrides
 }
@@ -129,8 +122,7 @@ function readOverrides(value) {
 function readList(doc, key) {
   const value = doc[key]
   if (key === 'packages-dev' && value === null) throw new LockfileError('null, as Composer 1 writes it after update --no-dev, which Composer 2 does not install from', key)
-  if (!Array.isArray(value)) throw refuse('a sequence', value, key)
-  return value
+  return sequence(value, key)
 }
 
 // Locker::lockPackages sorts by name, then version, as strcmp does.
@@ -154,8 +146,7 @@ const ALIAS = ['package', 'version', 'alias', 'alias_normalized']
 // an alias of its package, whatever its version.
 function readAliases(value, byName) {
   const where = 'aliases'
-  if (!Array.isArray(value)) throw refuse('a sequence', value, where)
-  return value.map((item, index) => {
+  return sequence(value, where).map((item, index) => {
     const here = `${where}[${index}]`
     ordered(item, here, ALIAS)
     for (const key of ALIAS) if (item[key] === undefined) throw new LockfileError(`expected ${key}`, here)

@@ -4,13 +4,13 @@
 
 import { fileName } from '../crate/path.js'
 import { matches, parseVersion, parseVersionReq } from '../crate/semver.js'
-import { LockfileError, at, quote } from '../error.js'
-import { field, optional, orEmpty } from '../shape.js'
+import { LockfileError, at, attempt, quote } from '../error.js'
+import { field, optional } from '../shape.js'
 import { TomlError } from '../toml/error.js'
 import { parseToml } from '../toml/parse.js'
 import { isTable } from '../toml/value.js'
 import { NIGHTLY, checkInherits, dashed, featureMap, gatherDependencies, readSpec } from './dependency.js'
-import { array, boolean, checkCrateName, checkCrateVersion, checker, entries, kind, refuse, string, strings, table } from './shape.js'
+import { array, boolean, checkCrateName, checkCrateVersion, checker, entries, kind, refuse, string, strings, table, tableOf } from './shape.js'
 
 const PACKAGE_ONLY = [
   'badges', 'features', 'lib', 'bin', 'example', 'test', 'bench', 'dependencies', 'dev-dependencies',
@@ -121,14 +121,12 @@ function readWorkspace(value) {
   const read = (key, reader) => field(value, key, 'workspace', reader)
   const pkg = read('package', (item, where) => table(item, where, [...Object.keys(INHERITABLE), 'badges'])) ?? Object.create(null)
   for (const [key, item, here] of entries(pkg, 'workspace.package')) (key === 'badges' ? readBadges : INHERITABLE[key])(item, here)
-  const dependencies = Object.create(null)
-  for (const [name, item, here] of entries(orEmpty(value.dependencies), 'workspace.dependencies')) {
-    checkCrateName(name, here)
+  const dependencies = tableOf(value.dependencies, 'workspace.dependencies', checkCrateName, (item, here, name) => {
     const spec = readSpec(item, here, name)
     if (spec.optional) throw new LockfileError('a workspace dependency cannot be optional', here)
     if (isTable(item) && item.public !== undefined) throw new LockfileError('a workspace dependency cannot be public', here)
-    dependencies[name] = spec
-  }
+    return spec
+  })
   return {
     members: read('members', strings) ?? [],
     exclude: read('exclude', strings) ?? [],
@@ -139,14 +137,7 @@ function readWorkspace(value) {
   }
 }
 
-function readPatch(value, where = 'patch') {
-  const patch = Object.create(null)
-  for (const [key, deps, here] of entries(orEmpty(value), where)) {
-    patch[key] = Object.create(null)
-    for (const [name, item, there] of entries(deps, here)) patch[key][checkCrateName(name, there)] = readSpec(item, there, name)
-  }
-  return patch
-}
+const readPatch = (value) => tableOf(value, 'patch', (key) => key, (deps, here) => tableOf(deps, here, checkCrateName, readSpec))
 
 // Cargo's config merge, `first` the closer: tables key by key, arrays joined
 // with the closer's last, and of two other values the closer; a table or
@@ -169,13 +160,10 @@ export function parseCargoConfig(texts) {
   if (!Array.isArray(texts) || !texts.every((text) => typeof text === 'string')) throw new TypeError('expected the texts of the config files')
   let patch
   for (const [index, text] of texts.entries()) {
-    let doc
-    try {
-      doc = parseToml(text)
-    } catch (error) {
+    const doc = attempt(() => parseToml(text), (error) => {
       if (error instanceof TomlError) error.message = `texts[${index}]: ${error.message}`
       throw error
-    }
+    })
     if (doc.patch !== undefined) patch = patch === undefined ? doc.patch : mergeConfig(patch, doc.patch, 'patch')
   }
   return { patch: readPatch(patch) }

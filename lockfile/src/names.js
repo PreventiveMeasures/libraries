@@ -3,7 +3,7 @@
 // read here means one thing to every reader downstream.
 
 import { fromBase64 } from '@exodus/bytes/base64.js'
-import { LockfileError, quote } from './error.js'
+import { LockfileError, attempt, quote } from './error.js'
 import { checkerOf, text } from './shape.js'
 
 const checker = checkerOf(text)
@@ -151,13 +151,7 @@ export function checkRepo(value, where) {
 // dash, and the digest of its size in base64, padded, each byte one way.
 const DIGEST = { __proto__: null, sha1: 20, sha256: 32, sha384: 48, sha512: 64 }
 
-function digestSize(base64) {
-  try {
-    return fromBase64(base64, { padding: true }).length
-  } catch {
-    return undefined
-  }
-}
+const digestSize = (base64) => attempt(() => fromBase64(base64, { padding: true }).length, () => undefined)
 
 export function checkIntegrity(value, where) {
   const integrity = text(value, where)

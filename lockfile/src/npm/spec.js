@@ -4,7 +4,7 @@
 // otherwise, or not at all, is refused, as npm then holds nothing to be what
 // it asks for. Paths come back from the lockfile's directory, as `from` is.
 
-import { LockfileError, quote } from '../error.js'
+import { LockfileError, attempt, quote } from '../error.js'
 import { checkName, resolvePath } from '../names.js'
 import { fromHostedUrl } from './hosted.js'
 
@@ -49,13 +49,9 @@ function gitAttributes(spec, committish) {
   return git
 }
 
-function decodeComponent(spec, value) {
-  try {
-    return decodeURIComponent(value)
-  } catch {
-    throw unread(spec, 'a git spec npm cannot decode')
-  }
-}
+const decodeComponent = (spec, value) => attempt(() => decodeURIComponent(value), () => {
+  throw unread(spec, 'a git spec npm cannot decode')
+})
 
 // fromURL: a repository by its URL, the fetchSpec npm compares two by, or
 // a tarball by its own. An scp-style `git+ssh://user@host:path` is no URL,

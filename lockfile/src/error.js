@@ -11,6 +11,20 @@ export class LockfileError extends Error {
   }
 }
 
+// A refusal thrown, where an expression needs one.
+export const raise = (detail, where) => {
+  throw new LockfileError(detail, where)
+}
+
+// What `run` returns, or, where it throws, what `otherwise(error)` does.
+export function attempt(run, otherwise) {
+  try {
+    return run()
+  } catch (error) {
+    return otherwise(error)
+  }
+}
+
 // A piece of the lockfile for a message, as excerpt.js shows one: at most
 // 200 code units, and `…` within the quote where cut.
 export function quote(text) {

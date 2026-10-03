@@ -7,7 +7,7 @@ import { LockfileError, at, quote } from '../error.js'
 import { isHexSha256 } from '../names.js'
 import { checkVersion, versionKeyOf } from '../python/pep440.js'
 import { checkMarker, checkName, normalName } from '../python/pep508.js'
-import { field } from '../shape.js'
+import { field, repeated } from '../shape.js'
 import { array, boolean, checkListedOnce, checker, entries, kind, string, strings, stringsOf, table, tableOf, text } from '../toml/shape.js'
 import { parseToml } from '../toml/parse.js'
 import { isTable } from '../toml/value.js'
@@ -51,11 +51,8 @@ function readMarkers(value, groups, where) {
 function readGroups(value, where) {
   const groups = strings(value, where, checkName)
   if (groups.length === 0) throw new LockfileError('expected a group at least', where)
-  const seen = new Set()
-  for (const group of groups) {
-    if (seen.has(normalName(group))) throw new LockfileError(`${quote(group)} is listed twice`, where)
-    seen.add(normalName(group))
-  }
+  const twice = repeated(groups, normalName)
+  if (twice !== undefined) throw new LockfileError(`${quote(twice)} is listed twice`, where)
   return groups
 }
 

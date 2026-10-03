@@ -151,11 +151,8 @@ export function readOptions(value = Object.create(null)) {
   }
 }
 
-export function readConflicts(value) {
-  if (value === undefined) return []
-  return arrayOf((set, here) => {
-    const items = arrayOf(readConflictItem)(set, here)
-    if (items.length < 2) throw new LockfileError('a set of conflicts of fewer than two, which uv refuses', here)
-    return items
-  })(value, 'conflicts')
-}
+export const readConflicts = arrayOf((set, here) => {
+  const items = arrayOf(readConflictItem)(set, here)
+  if (items.length < 2) throw new LockfileError('a set of conflicts of fewer than two, which uv refuses', here)
+  return items
+})

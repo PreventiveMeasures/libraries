@@ -114,10 +114,7 @@ export function readVcs(value, where) {
 }
 
 // Each of a publisher's identities, its `kind` and its own keys as written.
-export function readAttestations(value, where) {
-  if (value === undefined) return []
-  return arrayOf((item, here) => {
-    text(table(item, here).kind, at(here, 'kind'))
-    return item
-  })(value, where)
-}
+export const readAttestations = arrayOf((item, here) => {
+  text(table(item, here).kind, at(here, 'kind'))
+  return item
+})

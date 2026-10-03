@@ -1,7 +1,7 @@
 // Cargo finds a vendored package by the name and version its Cargo.toml
 // gives, not by its directory's name.
 
-import { LockfileError, at, quote } from '../error.js'
+import { LockfileError, at, attempt, quote, raise } from '../error.js'
 import { isHexSha256, isSegment, isWithin } from '../names.js'
 import { field, isMapping } from '../shape.js'
 import { parseToml } from '../toml/parse.js'
@@ -19,12 +19,7 @@ function identify(text, where) {
 
 // JSON.parse would take the last of a key given twice.
 function parseJson(text, where) {
-  let value
-  try {
-    value = JSON.parse(text)
-  } catch (error) {
-    throw new LockfileError(`not JSON: ${error.message}`, where)
-  }
+  const value = attempt(() => JSON.parse(text), (error) => raise(`not JSON: ${error.message}`, where))
   // A key is a string a colon follows.
   let written = 0
   for (const match of text.matchAll(/"(?:[^"\\]|\\.)*"(\s*:)?/gsu)) if (match[1] !== undefined) written++
