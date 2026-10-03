@@ -42,7 +42,7 @@ function stubRegistry(payloads) {
 }
 
 // The shape most packages carry: an `/issues` tracker on the repo
-// itself, which is the field this has always read.
+// itself, with no `repository` to take first.
 const tracked = (repo) => ({ bugs: { url: `https://github.com/${repo}/issues` }, homepage: `https://github.com/${repo}#readme` })
 
 // getGitHub, against one package's registry document.
@@ -87,13 +87,21 @@ describe('getGitHub — where in the repo the package sits', () => {
     assert.equal((await resolveOne(tracked('lodash/lodash'))).directory, undefined)
   })
 
-  it('drops a directory that belongs to a DIFFERENT repo', async () => {
-    // The tracker names one repo and `repository` another, so the
-    // directory is a path in the other one and says nothing about this.
+  it('keeps `repository` and its directory over a tracker naming another repo', async () => {
     const body = {
       bugs: { url: 'https://github.com/acme/app/issues' },
       homepage: 'https://github.com/acme/app#readme',
       repository: { url: 'https://github.com/other/mono.git', directory: 'packages/thing' },
+    }
+    assert.equal(await resolveRepo(body), 'other/mono @ packages/thing')
+  })
+
+  it('drops a directory that belongs to a DIFFERENT repo', async () => {
+    // `repository` names no GitHub repo, so the tracker decides, and the
+    // directory is a path in the other one that says nothing about this.
+    const body = {
+      bugs: { url: 'https://github.com/acme/app/issues' },
+      repository: { url: 'https://gitlab.com/other/mono.git', directory: 'packages/thing' },
     }
     assert.equal(await resolveRepo(body), 'acme/app')
   })
@@ -123,6 +131,23 @@ describe('getGitHub', () => {
     assert.deepEqual(await resolveOne(tracked('lodash/lodash')), { github: 'lodash/lodash', url: 'https://github.com/lodash/lodash' })
   })
 
+  it('takes `repository` over a stale or misspelt tracker', async () => {
+    // has-symbols' tracker and homepage still name its old owner.
+    const moved = {
+      repository: { url: 'git://github.com/inspect-js/has-symbols.git', type: 'git' },
+      bugs: { url: 'https://github.com/ljharb/has-symbols/issues' },
+      homepage: 'https://github.com/ljharb/has-symbols#readme',
+    }
+    assert.deepEqual(await resolveOne(moved), { github: 'inspect-js/has-symbols', url: 'https://github.com/inspect-js/has-symbols' })
+    // @exodus/test's tracker names ExodusOSS/tests, which is not its repo.
+    const typo = {
+      repository: { url: 'git+https://github.com/ExodusOSS/test.git', type: 'git' },
+      bugs: { url: 'https://github.com/ExodusOSS/tests/issues' },
+      homepage: 'https://github.com/ExodusOSS/test',
+    }
+    assert.equal((await resolveOne(typo)).github, 'ExodusOSS/test')
+  })
+
   it('upgrades an http tracker link', async () => {
     const body = { bugs: { url: 'http://github.com/lodash/lodash/issues' }, homepage: 'https://github.com/lodash/lodash#readme' }
     assert.equal((await resolveOne(body)).github, 'lodash/lodash')
@@ -141,7 +166,8 @@ describe('getGitHub', () => {
   })
 
   it('reads a canonical repository URL, in every spelling npm accepts', async () => {
-    // The common case for a package whose `bugs` npm never filled in.
+    // The field read first, and all a package whose `bugs` npm never
+    // filled in has.
     const url = async (value) => (await resolveOne({ repository: { url: value } })).github
     assert.equal(await url('git+https://github.com/acme/widget.git'), 'acme/widget')
     assert.equal(await url('https://github.com/acme/widget'), 'acme/widget')

@@ -74,7 +74,10 @@ describe('getRepo', () => {
     for (const repository of [{ url: 'https://gitlab.com/other/mono.git', directory: 'packages/x' }, { url: 'not a url', directory: 'packages/x' }, { directory: 'packages/x' }]) {
       assert.deepEqual(getRepo({ ...tracker, repository }), { github: 'acme/app', url: 'https://github.com/acme/app' }, JSON.stringify(repository))
     }
-    assert.deepEqual(getRepo({ ...tracker, repository: { url: 'git+https://github.com/Acme/App.git', directory: 'packages/x' } }), { github: 'acme/app', directory: 'packages/x', url: 'https://github.com/acme/app' })
+    // `repository` decides, down to its letter case.
+    assert.deepEqual(getRepo({ ...tracker, repository: { url: 'git+https://github.com/Acme/App.git', directory: 'packages/x' } }), { github: 'Acme/App', directory: 'packages/x', url: 'https://github.com/Acme/App' })
+    // Where it names no GitHub repo, a homepage into the tracker's repo still gives the directory.
+    assert.deepEqual(getRepo({ ...tracker, repository: 'gitlab:acme/app', homepage: 'https://github.com/Acme/App/tree/main/packages/y' }), { github: 'acme/app', directory: 'packages/y', url: 'https://github.com/acme/app' })
   })
 
   it('answers nothing, rather than throwing, where nothing names a GitHub repo', () => {

@@ -11,7 +11,7 @@ export interface PackageRepoLink {
   url?: string
 }
 
-// Read off `bugs`, `repository` and `homepage`, in that order, from a
+// Read off `repository`, `bugs` and `homepage`, in that order, from a
 // package.json or the registry's document for a version of one. Both
 // fields absent where nothing in it names a GitHub repo; a throw only
 // for something that is not an object at all.
