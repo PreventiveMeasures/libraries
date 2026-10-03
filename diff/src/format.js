@@ -55,7 +55,7 @@ function verifyRendering(a, b, blocks, body) {
 // hunk when the unchanged lines between them number at most twice the
 // context — exactly when their context lines would touch or overlap.
 
-export function groupHunks(blocks, context, aLength, bLength) {
+function groupHunks(blocks, context, aLength, bLength) {
   const hunks = []
   let i = 0
   while (i < blocks.length) {
