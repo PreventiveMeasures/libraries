@@ -1199,6 +1199,37 @@ describe('parsePioliumFindings — both forms, once', () => {
     assert.equal(parsed.findings.length, 1)
     assert.equal(parsed.findings[0].description, 'Real finding')
   })
+
+  it('nor are the index, scope and contents sections', () => {
+    // Id-shaped `### ` headings that are not findings: a recap of an
+    // indexed finding, an audit phase. The report reads exactly as it
+    // does without them, and the table beside them is still the index.
+    const blocks = [
+      '### [C1] Command injection in the build hook',
+      'Exploitable from any fork.',
+      '',
+      '### p10-001 — Build pipeline',
+      '- **Severity:** HIGH',
+      '- **Key code:** `ci/build.yml:1`',
+    ].join('\n')
+    const base = build({ index: INDEX, detail: DETAIL })
+    const expected = parsePioliumFindings(base)
+    const withSection = (header) => `${base}\n## ${header}\n\n${blocks}\n`
+
+    // Under a header the content-based fallback accepts, the same
+    // blocks are two more findings.
+    assert.equal(parsePioliumFindings(withSection('Confirmed Findings')).findings.length,
+      expected.findings.length + 2)
+
+    for (const [header, md] of [
+      ['Summary of Findings', build({ index: `${INDEX}\n\n${blocks}`, detail: DETAIL })],
+      ['Scope', withSection('Scope')],
+      ['Scope and Methodology', withSection('Scope and Methodology')],
+      ['Contents', withSection('Contents')],
+    ]) {
+      assert.deepEqual(parsePioliumFindings(md), expected, header)
+    }
+  })
 })
 
 describe('parsePioliumFindings — retained-LOW blocks and category groupings', () => {

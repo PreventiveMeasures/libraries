@@ -85,7 +85,7 @@ function isDetailHeader(header) {
 }
 
 // Never mined for findings, even carrying id-shaped headings or tables.
-const EXCLUDED_HEADERS = /^(?:summary of findings|deferred|methodolog|executive|conclusion|attack surface|coverage|discoveries|scope|table of contents|contents|appendix|recommendation|remediation)/u
+const EXCLUDED_HEADERS = /^(?:summary of findings\b|deferred|methodolog|executive|conclusion|attack surface|coverage|discoveries|scope\b|table of contents|contents\b|appendix|recommendation|remediation)/u
 function isExcludedHeader(header) {
   return EXCLUDED_HEADERS.test(header)
 }
