@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { assertSha256, assertSoldeerName, assertSoldeerVersion, show } from './args.js'
+import { assertSha256, assertSoldeerPackage, show } from './args.js'
 import { verifiedDownload } from './download.js'
 import { SOLDEER_API, SOLDEER_REVISIONS, buildUrl, request } from './http.js'
 
@@ -20,8 +20,7 @@ async function zipUrl(name, version) {
 // The registry has no hash to check a zip against, so the caller brings
 // one, as soldeer.lock records it.
 export async function getZip(name, version, checksum) {
-  assertSoldeerName('getZip', 'name', name)
-  assertSoldeerVersion('getZip', 'version', version)
+  assertSoldeerPackage('getZip', name, version)
   assertSha256('getZip', 'checksum', checksum)
   return await verifiedDownload({ method: 'getZip', dir: DIR, what: `${name}@${version}`, ext: 'zip', algorithm: 'sha256', expected: checksum, locate: () => zipUrl(name, version) })
 }

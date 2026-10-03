@@ -3,9 +3,9 @@ import { Buffer } from 'node:buffer'
 
 import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTagName, assertTreeId, isSha, isSha1, isTagName, optional, sameName, show } from '../args.js'
 import { verifiedDownload } from '../download.js'
-import { decode, encodeSegment } from '../http.js'
+import { decode, encodeSegment, requestWithHeaders } from '../http.js'
 import { gitTreeOfListing, objectId } from '../tree.js'
-import { api, bindMethods, call, callWithHeaders, clientHeaders, isGone, repoApi } from './client.js'
+import { api, bindMethods, call, clientHeaders, isGone, repoApi } from './client.js'
 
 const PER_PAGE = 100
 const MAX_PAGES = 100
@@ -28,7 +28,7 @@ async function* pages(method, headers, pageUrl, maxPages = MAX_PAGES) {
 async function* cursorPages(method, headers, pageUrl, maxPages = MAX_PAGES) {
   const paging = { per_page: PER_PAGE }
   for (let page = 1; ; page++) {
-    const answer = await callWithHeaders(headers, pageUrl(paging))
+    const answer = await requestWithHeaders(pageUrl(paging), { as: 'json', headers })
     assert.ok(Array.isArray(answer.body), `${method}: expected an array for page ${page}`)
     yield answer.body
     const next = /<([^>]*)>\s*;\s*rel="next"/u.exec(answer.headers.get('link') ?? '')?.[1]

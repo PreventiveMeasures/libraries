@@ -3,7 +3,7 @@ import { Buffer } from 'node:buffer'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import { assertArgs, assertPackageName, assertPackageVersion, assertion, matches, show } from '../args.js'
+import { assertArgs, assertPackage, assertion, matches, show } from '../args.js'
 import { verifiedDownload } from '../download.js'
 import { NPM_REGISTRY, buildUrl, request } from '../http.js'
 
@@ -12,11 +12,6 @@ const DIR = 'npm/tarballs' // No expiry: the registry never takes a version twic
 // hash or an option is refused rather than trusted. 64 bytes leave the
 // last character before `==` two bits, so only A, Q, g or w is canonical.
 const assertIntegrity = assertion('"sha512-" and a base64 sha512', matches(/^sha512-[\dA-Za-z+/]{85}[AQgw]==$/u))
-
-function assertPackage(method, name, version) {
-  assertPackageName(method, 'name', name)
-  assertPackageVersion(method, 'version', version)
-}
 
 // `{ tarball, integrity }` and nothing else, the tarball exactly the
 // registry's own URL for that version. Each field is read once, and only

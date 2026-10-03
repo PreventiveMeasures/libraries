@@ -95,5 +95,13 @@ export const assertSoldeerName = assertion('a Soldeer package name', matches(/^(
 // Soldeer takes any version but an empty one. Its registry has semver
 // (`5.7.0-rc.0`, `1.0.2-solc-0.8-simulate`), bare numbers and commit hashes.
 export const assertSoldeerVersion = assertion('letters, digits, `.`, `_`, `+` and `-`', matches(/^(?=.{1,128}$)[\dA-Za-z][\w.+-]*$/u))
+// A package's name and version, as a registry's getters take them.
+const assertNameVersion = (assertName, assertVersion) => (method, name, version) => {
+  assertName(method, 'name', name)
+  assertVersion(method, 'version', version)
+}
+export const assertCrate = assertNameVersion(assertCrateName, assertCrateVersion)
+export const assertPackage = assertNameVersion(assertPackageName, assertPackageVersion)
+export const assertSoldeerPackage = assertNameVersion(assertSoldeerName, assertSoldeerVersion)
 // As Cargo.lock and soldeer.lock write a checksum.
 export const assertSha256 = assertion('a sha256 in lowercase hex', matches(/^[\da-f]{64}$/u))

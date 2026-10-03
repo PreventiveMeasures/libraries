@@ -3,7 +3,7 @@ import { readdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import { assertCrateName, assertCrateVersion, assertSha256, printable, show } from '../args.js'
+import { assertCrate, assertSha256, printable, show } from '../args.js'
 import { verifiedDownload } from '../download.js'
 import { CRATES_INDEX, CRATES_STATIC, buildUrl, encodeSegment, request } from '../http.js'
 
@@ -35,11 +35,6 @@ async function getChecksum(method, name, version) {
 async function localPaths(name, version) {
   const root = join(resolve(process.env.CARGO_HOME || join(homedir(), '.cargo')), 'registry', 'cache')
   return (await readdir(root).catch(() => [])).map((registry) => join(root, registry, `${name}-${version}.crate`))
-}
-
-function assertCrate(method, name, version) {
-  assertCrateName(method, 'name', name)
-  assertCrateVersion(method, 'version', version)
 }
 
 export async function verifyChecksum(name, version, checksum) {
