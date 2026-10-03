@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { assertArgs, assertBoolean, assertRepo, assertion, optional, sameName } from '../args.js'
+import { assertArgs, assertBoolean, assertRepo, assertion, isIterable, optional, sameName } from '../args.js'
 import { order } from './common.js'
 import { GITHUB, SOLDEER, assertClient } from './github.js'
 import { NPM } from './npm.js'
@@ -14,7 +14,7 @@ const assertVersions = assertion('a non-empty array', (value) => Array.isArray(v
 // Ecosystem → name → { versions, github? }, a name given twice merged.
 // Every package is checked before any is used.
 function collect(packages) {
-  assert.ok(typeof packages?.[Symbol.iterator] === 'function' && typeof packages !== 'string', 'advisories: packages must be an iterable of { ecosystem, name, github?, versions }')
+  assert.ok(isIterable(packages), 'advisories: packages must be an iterable of { ecosystem, name, github?, versions }')
   const byEcosystem = new Map()
   for (const pkg of packages) {
     assertArgs('advisories', pkg, { ecosystem: assertEcosystem, name: null, github: optional(assertRepo), versions: assertVersions }, 'package')

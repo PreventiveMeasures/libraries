@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { setTimeout as sleep } from 'node:timers/promises'
 
-import { assertArgs, assertBoolean, assertCrateName, isRepo, optional, show } from '../args.js'
-import { readRecord, writeRecord } from '../cache.js'
+import { assertCrateName, assertNames, show } from '../args.js'
+import { addRepos, readRepos } from '../cache.js'
 import { CRATES_API, buildUrl, request } from '../http.js'
 import { chunks } from '../pool.js'
 import { githubRepoOfUrl } from '../remote.js'
@@ -32,11 +32,7 @@ async function askCrates(method, names) {
 // for a month. A failed request throws, or with `soft` leaves its names
 // out; `cachedOnly` asks nothing.
 export async function lookUpCrateRepos(method, names, { soft = false, cachedOnly = false } = {}) {
-  const repos = new Map()
-  for (const name of names) {
-    const entry = await readRecord(DIR, name)
-    if (isRepo(entry?.github)) repos.set(name, entry.github)
-  }
+  const repos = await readRepos(DIR, names)
   if (cachedOnly) return repos
   for (const [i, chunk] of chunks(names.filter((name) => !repos.has(name)), PER_REQUEST).entries()) {
     if (i > 0) await sleep(PACE_MS)
@@ -44,19 +40,13 @@ export async function lookUpCrateRepos(method, names, { soft = false, cachedOnly
       if (soft) return new Map()
       throw error
     })
-    for (const [name, github] of answer) {
-      repos.set(name, github)
-      if (github) await writeRecord(DIR, name, { github })
-    }
+    await addRepos(DIR, repos, answer)
   }
   return repos
 }
 
 export async function resolveCrateRepos(crateNames, options = {}) {
-  assert.ok(typeof crateNames?.[Symbol.iterator] === 'function' && typeof crateNames !== 'string', 'resolveCrateRepos: crateNames must be an iterable of names')
-  assertArgs('resolveCrateRepos', options, { cachedOnly: optional(assertBoolean) })
-  const names = [...new Set(crateNames)]
-  for (const name of names) assertCrateName('resolveCrateRepos', 'name', name)
+  const names = assertNames('resolveCrateRepos', 'crateNames', crateNames, options, assertCrateName)
   const repos = await lookUpCrateRepos('resolveCrateRepos', names, { soft: true, cachedOnly: options.cachedOnly })
   return new Map(names.flatMap((name) => (repos.get(name) ? [[name, { github: repos.get(name) }]] : [])))
 }

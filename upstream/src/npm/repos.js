@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { assertArgs, assertBoolean, assertPackageName, assertRepo, isRepo, optional, show } from '../args.js'
+import { assertNames, assertPackageName, assertRepo, isRepo, show } from '../args.js'
 import { readRecord, writeRecord } from '../cache.js'
 import { NPM_REGISTRY, buildUrl, isNotFound, recover, request } from '../http.js'
 import { assertRepoDirectory, getRepo, isRepoDirectory } from '../package.js'
@@ -42,10 +42,7 @@ export async function writePackageRepoCache(name, github, directory = '') {
 }
 
 export async function resolvePackageRepos(packageNames, options = {}) {
-  assert.ok(typeof packageNames?.[Symbol.iterator] === 'function' && typeof packageNames !== 'string', 'resolvePackageRepos: packageNames must be an iterable of names')
-  assertArgs('resolvePackageRepos', options, { cachedOnly: optional(assertBoolean) })
-  const names = [...new Set(packageNames)]
-  for (const name of names) assertPackageName('resolvePackageRepos', 'name', name)
+  const names = assertNames('resolvePackageRepos', 'packageNames', packageNames, options, assertPackageName)
   const found = await pool(names, CONCURRENCY, (name) => (options.cachedOnly ? readPackageRepoCache(name) : lookUpPackageRepo(name)).catch(() => null))
   return new Map(names.flatMap((name, i) => (found[i] ? [[name, found[i]]] : [])))
 }

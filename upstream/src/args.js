@@ -39,6 +39,7 @@ export function isRepo(value) {
 }
 
 export const isStrings = (value) => Array.isArray(value) && value.every((item) => typeof item === 'string')
+export const isIterable = (value) => typeof value?.[Symbol.iterator] === 'function' && typeof value !== 'string'
 export const sameName = (a, b) => typeof a === 'string' && a.toLowerCase() === b.toLowerCase()
 export const isTagName = (value) => isString(value, 255) && !BAD_REF.test(value)
 export const isRefName = (value) => isTagName(value) && !/^(?:@$|-)/u.test(value)
@@ -53,6 +54,16 @@ export function assertArgs(method, options, spec, name) {
   assert.ok(isPlainObject(options), `${method}: ${name ?? 'options'} must be an options object, got ${show(options)}`)
   for (const key of Reflect.ownKeys(options)) assert.ok(Object.hasOwn(spec, key), `${method}: unknown option ${label(key)}`)
   for (const [key, check] of Object.entries(spec)) check?.(method, label(key), options[key])
+}
+
+// The names a resolve*Repos call is given, each checked and given once,
+// and its options.
+export function assertNames(method, what, names, options, assertName) {
+  assert.ok(isIterable(names), `${method}: ${what} must be an iterable of names`)
+  assertArgs(method, options, { cachedOnly: optional(assertBoolean) })
+  const unique = [...new Set(names)]
+  for (const name of unique) assertName(method, 'name', name)
+  return unique
 }
 
 export const assertBoolean = assertion('a boolean', (value) => typeof value === 'boolean')
