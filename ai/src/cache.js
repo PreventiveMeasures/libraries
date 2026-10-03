@@ -92,17 +92,6 @@ export async function modelSubdir(type, model, systemPrompt) {
 // the hash and the per-entry filenames are identical — we rename the dir as a whole and let any
 // failure surface. Compatibility data, not a rule about any one caller: a `new -> old` row here is
 // what keeps a rename from orphaning a cache.
-async function migrateTypeRename(oldType, newType, model, systemPrompt) {
-  const oldDir = join(cacheDir(), await modelSubdir(oldType, model, systemPrompt))
-  const newDir = join(cacheDir(), await modelSubdir(newType, model, systemPrompt))
-  try {
-    if (!await moveIfExists(oldDir, newDir)) return
-    console.log(`[cache] migrated ${oldType} -> ${newType}`)
-  } catch (err) {
-    throw new Error(`Cache migration ${oldDir} -> ${newDir} failed: ${err.message}`, { cause: err })
-  }
-}
-
 const TYPE_RENAMES = new Map([
   ['solidity.security', 'solidity'],
 ])
@@ -112,7 +101,15 @@ export async function runTypeMigrations(type, model, systemPrompt) {
   if (migratedTypes.has(type)) return
   migratedTypes.add(type)
   const previous = TYPE_RENAMES.get(type)
-  if (previous) await migrateTypeRename(previous, type, model, systemPrompt)
+  if (!previous) return
+  const oldDir = join(cacheDir(), await modelSubdir(previous, model, systemPrompt))
+  const newDir = join(cacheDir(), await modelSubdir(type, model, systemPrompt))
+  try {
+    if (!await moveIfExists(oldDir, newDir)) return
+    console.log(`[cache] migrated ${previous} -> ${type}`)
+  } catch (err) {
+    throw new Error(`Cache migration ${oldDir} -> ${newDir} failed: ${err.message}`, { cause: err })
+  }
 }
 
 // Degrading an unreadable entry to a miss is right — a run should not die over one — but silently is

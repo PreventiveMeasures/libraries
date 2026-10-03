@@ -134,14 +134,9 @@ function compareVersions(a, b) {
 // Every component root that exists, not the first: a stale or empty stable root would otherwise
 // hide a Canary install that has the weights.
 function modelComponentRoots() {
-  const roots = []
-  for (const dir of USER_DATA_DIRS[process.platform] ?? []) {
-    for (const component of MODEL_COMPONENTS) {
-      const root = join(dir, component)
-      if (existsSync(root)) roots.push(root)
-    }
-  }
-  return roots
+  return (USER_DATA_DIRS[process.platform] ?? [])
+    .flatMap((dir) => MODEL_COMPONENTS.map((component) => join(dir, component)))
+    .filter((root) => existsSync(root))
 }
 
 // Directories holding weights, across both layouts. A superseded or interrupted install leaves one
@@ -177,17 +172,12 @@ function declaredSpec(dir) {
   } catch { return null }
 }
 
-// That name is a template, so it is derived rather than transcribed: normalised, "Optimization
-// Guide On-Device Gemma4 12B Model" is this for a baseModel of gemma4_12b, and a future size needs
-// no edit here.
-function componentNameFor(baseModel) {
-  return `optimization_guide_on-device_${baseModel}_model`
-}
-
 // Every name a row answers to: the specs its manifest may declare, and the component name it
-// carries if it declares none.
+// carries if it declares none. That name is a template, so it is derived rather than transcribed:
+// normalised, "Optimization Guide On-Device Gemma4 12B Model" is it for a baseModel of gemma4_12b,
+// and a future size needs no edit here.
 function acceptedNames(baseModel) {
-  return [...specNamesFor(baseModel), componentNameFor(baseModel)]
+  return [...specNamesFor(baseModel), `optimization_guide_on-device_${baseModel}_model`]
 }
 
 export function identifiesAs(dir, baseModel) {

@@ -6,9 +6,6 @@ import { chatCompletionsBase } from '../wire-formats.js'
 // Chat-completions, so the usage, the cache and a partial history read back like any other
 // provider's.
 
-// Chrome warns per SESSION on a request that names no output language. Accepts de, en, es, fr, ja.
-const outputLanguage = () => env('CHROME_OUTPUT_LANGUAGE') || 'en'
-
 // Chrome's Prompt API documents no function calling, and unreleased `AIPromptAPIToolUse` runs the
 // tool inside the page rather than in the caller. So tools ride `responseConstraint`: prose, a list
 // of calls, or both.
@@ -113,8 +110,9 @@ export const CHROME_SHAPE = {
     return {
       model,
       // Part of the request rather than a launch setting: it changes what the model produces, so a
-      // cached turn records which language it asked for.
-      language: outputLanguage(),
+      // cached turn records which language it asked for. Chrome warns per SESSION on a request that
+      // names none. Accepts de, en, es, fr, ja.
+      language: env('CHROME_OUTPUT_LANGUAGE') || 'en',
       initialPrompts: [{ role: 'system', content: system }, ...messages.slice(0, -1)],
       prompt: messages.at(-1).content,
       ...(offered ? { responseConstraint: toolConstraint(offered) } : null),

@@ -57,16 +57,11 @@ export const readsExplicitBreakpoint = (model) => isAnthropicRoute(model) || mod
 // routes cannot drift apart on it.
 export const ANTHROPIC_SYSTEM_CACHE = { type: 'ephemeral', ttl: '1h' }
 
-function systemMarker(model) {
-  if (isAnthropicRoute(model)) return { cache_control: ANTHROPIC_SYSTEM_CACHE }
-  // Every other route wants exactly what the prefix gets — Qwen's bare ephemeral block, gpt-5.6's
-  // breakpoint, or nothing. Deferring rather than restating the list keeps a newly added provider
-  // from being marked on the isolate prefix and silently skipped here.
-  return prefixMarker(model)
-}
-
+// Every route but Anthropic wants exactly what the prefix gets — Qwen's bare ephemeral block,
+// gpt-5.6's breakpoint, or nothing. Deferring rather than restating the list keeps a newly added
+// provider from being marked on the isolate prefix and silently skipped here.
 export function chatCompletionsSystemMessage(model, systemPrompt) {
-  const marker = systemMarker(model)
+  const marker = isAnthropicRoute(model) ? { cache_control: ANTHROPIC_SYSTEM_CACHE } : prefixMarker(model)
   if (!marker) return { role: 'system', content: systemPrompt }
   return { role: 'system', content: [{ type: 'text', text: systemPrompt, ...marker }] }
 }
@@ -112,31 +107,21 @@ export const flattenUserContent = (userContent) => (Array.isArray(userContent) ?
 //
 // Chat-completions names its text blocks `text`, Responses names them `input_text`; the split and
 // the marker are the same decision either way, so the two exported shapes differ only in that name.
-function splitInitialUserMessage(model, userContent, textType) {
+// Anthropic's Messages API names its blocks `text` too, so it takes the chat-completions shape —
+// which is the point: one place decides where the prefix ends, and the adapter it is reached
+// through only picks the spelling.
+const splitInitialUserMessage = (textType) => (model, userContent) => {
   // An empty block is not a cache boundary, it is a 400 on Anthropic — and dropping it keeps
   // `(content, '')` meaning what it always did, a message with nothing to split.
   const blocks = (Array.isArray(userContent) ? userContent : [userContent]).filter(Boolean)
-  if (blocks.length < 2) return { role: 'user', content: blocks.join('') }
-  const marker = prefixMarker(model)
+  const marker = blocks.length < 2 ? null : prefixMarker(model)
   if (!marker) return { role: 'user', content: blocks.join('') }
   const shared = blocks.length - 2 // the block the shared part ends on
   return { role: 'user', content: blocks.map((text, i) => (i === shared ? { type: textType, text, ...marker } : { type: textType, text })) }
 }
 
-export function chatCompletionsInitialUserMessage(model, userContent) {
-  return splitInitialUserMessage(model, userContent, 'text')
-}
-
-// Anthropic's Messages API names its blocks `text` too, so this is the same shape the gateway sends
-// — which is the point: one place decides where the prefix ends, and the adapter it is reached
-// through only picks the spelling.
-export function anthropicInitialUserMessage(model, userContent) {
-  return splitInitialUserMessage(model, userContent, 'text')
-}
-
-export function responsesInitialUserMessage(model, userContent) {
-  return splitInitialUserMessage(model, userContent, 'input_text')
-}
+export const chatCompletionsInitialUserMessage = splitInitialUserMessage('text')
+export const responsesInitialUserMessage = splitInitialUserMessage('input_text')
 
 // Whether this request has a conversation worth caching: only the turns after the head. A turn-0
 // request has no reader yet, and measured against real runs, most never get one.

@@ -177,7 +177,7 @@ export async function openTab(browser, profile, debug) {
     const tab = await browser.newPage()
     // evaluate() hands back the value and nothing the page logged on the way.
     if (debug) {
-      tab.on('console', (msg) => { if (!isBoilerplate(msg.text())) console.debug(`[chrome] ${msg.text()}`) })
+      tab.on('console', (msg) => { if (!BOILERPLATE.test(msg.text())) console.debug(`[chrome] ${msg.text()}`) })
       tab.on('pageerror', (err) => console.error(`[chrome] ${err}`))
     }
     await tab.goto(blankPage(profile))
@@ -205,12 +205,10 @@ const turns = new Set()
 // never reaches closeProvider stops paying for one, and node can exit, which an open browser
 // otherwise prevents. Read per arm, so a caller can set its own — 0 keeps the browser until
 // closeProvider says so.
-const idleMs = () => Number(env('CHROME_IDLE_MS') ?? 10_000)
-
 let idleClose
 function armIdleClose() {
   clearTimeout(idleClose)
-  const ms = idleMs()
+  const ms = Number(env('CHROME_IDLE_MS') ?? 10_000)
   if (!(ms > 0)) return
   // unref'd, so the timer is never itself what keeps the process alive.
   idleClose = setTimeout(() => {
@@ -266,8 +264,6 @@ export async function closeChrome() {
 // rather than by silencing the console, since a real message from the page is what --debug is for.
 const BOILERPLATE = /uses Chrome's Built-In AI features/u
 
-const isBoilerplate = (text) => BOILERPLATE.test(text)
-
 // Runs inside the page: serialized across, so it closes over nothing and takes everything as one
 // argument. Exported so a page holding a stub for `LanguageModel` can drive it; `exports` does not
 // expose this file.
@@ -279,17 +275,16 @@ export async function turnInPage(req) {
   // No availability() gate: it reports `unavailable` for a model that is merely unloaded, which
   // would refuse turns the browser can serve. A create() that cannot work fails below with the
   // browser's own reason.
+  //
+  // Without expectedOutputs Chrome warns "An output language should be specified to ensure optimal
+  // output quality and properly attest to output safety."
+  const expectedOutputs = [{ type: 'text', languages: [req.language] }]
   let ses
   const createStarted = performance.now()
   let createdAt = 0
   try {
     // The first create of a run is the load, and so the tens of seconds.
-    const creating = LanguageModel.create({
-      initialPrompts: req.initialPrompts,
-      // Without this Chrome warns "An output language should be specified to ensure optimal output
-      // quality and properly attest to output safety."
-      expectedOutputs: [{ type: 'text', languages: [req.language] }],
-    })
+    const creating = LanguageModel.create({ initialPrompts: req.initialPrompts, expectedOutputs })
     // Unbounded without one, so a stub need not supply it.
     const expired = new Promise((resolve) => {
       if (req.createTimeoutMs > 0) setTimeout(() => resolve('timeout'), req.createTimeoutMs)
@@ -307,9 +302,7 @@ export async function turnInPage(req) {
     // first", so do that and report the answer: here `unavailable` means the device will not run
     // the variant asked for. The option is repeated because a bare call logs the missing-language
     // warning.
-    const availability = await LanguageModel
-      .availability({ expectedOutputs: [{ type: 'text', languages: [req.language] }] })
-      .catch((e) => `unreadable (${e.name})`)
+    const availability = await LanguageModel.availability({ expectedOutputs }).catch((e) => `unreadable (${e.name})`)
     return { error: { name: err.name, message: `create failed: ${err.name}: ${err.message}`, availability } }
   }
   const before = ses.contextUsage ?? 0

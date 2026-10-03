@@ -395,18 +395,15 @@ export function resolveThinkEffort(model, think, effort) {
 // Canonical usage-accumulator shape — what the provider adapters' normalizeOneUsage emits and
 // calculateCost consumes. They live here, next to the price table, so a caller can sum usage
 // without pulling in the conversation loop.
+const USAGE_FIELDS = ['input', 'output', 'cacheRead', 'cacheWrite5m', 'cacheWrite1h', 'cost']
+
 export function emptyUsage() {
-  return { input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0, cost: 0 }
+  return Object.fromEntries(USAGE_FIELDS.map((field) => [field, 0]))
 }
 
 export function addUsage(total, usage) {
   if (!usage) return
-  total.input += usage.input
-  total.output += usage.output
-  total.cacheRead += usage.cacheRead
-  total.cacheWrite5m += usage.cacheWrite5m
-  total.cacheWrite1h += usage.cacheWrite1h
-  total.cost += usage.cost
+  for (const field of USAGE_FIELDS) total[field] += usage[field]
 }
 
 // Anthropic prompt-cache multipliers on base input price:

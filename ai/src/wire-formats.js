@@ -1,5 +1,5 @@
 import { canAdaptive, canTaskBudget, needsBetweenToolsNoThink, needsExplicitNoThink } from './models.js'
-import { ANTHROPIC_SYSTEM_CACHE, anthropicInitialUserMessage, cachesConversation, flattenUserContent } from './prompt-cache.js'
+import { ANTHROPIC_SYSTEM_CACHE, cachesConversation, chatCompletionsInitialUserMessage, flattenUserContent } from './prompt-cache.js'
 
 // Wire formats the adapters are assembled from, kept out of providers.js so that file stays the
 // provider registry and dispatch surface. The Anthropic Messages format lives here because two
@@ -12,9 +12,6 @@ import { ANTHROPIC_SYSTEM_CACHE, anthropicInitialUserMessage, cachesConversation
 const TRUNCATION_PREFIX = 'Response truncated: hit '
 export const truncationError = (maxTokensField) => `${TRUNCATION_PREFIX}${maxTokensField} limit`
 export const isMaxTokensTruncation = (error) => typeof error === 'string' && error.startsWith(TRUNCATION_PREFIX)
-// `anthropic-beta` value gating the `output_config.task_budget` body field. Centralised so the body
-// builder and the extra-headers method can't drift.
-const TASK_BUDGET_BETA = 'task-budgets-2026-03-13'
 // JSON-parse a model-supplied tool-call args string. A malformed string is a model hallucination,
 // not our bug — surface it via `argsError` instead of throwing so the caller's retry loop can
 // handle it gracefully. Shared: every adapter that carries tool args as a string parses them this
@@ -82,7 +79,8 @@ export function anthropicShape(modelId) {
 
     extraHeaders({ taskBudget = false } = {}) {
       if (!taskBudget) return null
-      return { 'anthropic-beta': TASK_BUDGET_BETA }
+      // The beta that gates the `output_config.task_budget` body field.
+      return { 'anthropic-beta': 'task-budgets-2026-03-13' }
     },
 
     checkResponse(json) {
@@ -110,12 +108,9 @@ export function anthropicShape(modelId) {
     },
 
     // Given blocks, mark the one before the last so multiple variants that share everything ahead
-    // of the per-request tail read a single cache entry for it. Same rule the gateway route applies
-    // — see prompt-cache.js.
-    buildInitialUserMessage(model, userContent) {
-      return anthropicInitialUserMessage(model, userContent)
-    },
-
+    // of the per-request tail read a single cache entry for it. Same rule, and the same `text`
+    // blocks, the gateway route applies — see prompt-cache.js.
+    buildInitialUserMessage: chatCompletionsInitialUserMessage,
   }
 }
 

@@ -2,6 +2,7 @@ import { mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/pro
 import { join } from 'node:path'
 
 export { join }
+export { rename as move } from 'node:fs/promises'
 
 const isMissing = (err) => err.code === 'ENOENT'
 
@@ -53,10 +54,6 @@ export async function writeAtomic(path, data) {
   const tmp = `${path}.${process.pid}.${++tmpSeq}.tmp`
   await writeFile(tmp, data)
   await rename(tmp, path)
-}
-
-export async function move(from, to) {
-  await rename(from, to)
 }
 
 export async function moveIfExists(from, to) {

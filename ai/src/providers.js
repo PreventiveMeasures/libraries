@@ -9,17 +9,9 @@ import { anthropicAuthHeader, anthropicShape, chatCompletionsBase, parseArgs, st
 export { isMaxTokensTruncation } from './wire-formats.js'
 import { cachesConversation, chatCompletionsInitialUserMessage, chatCompletionsSystemMessage, isAnthropicRoute, isOpenAIRoute, responsesInitialUserMessage } from './prompt-cache.js'
 
-// Chat-completions function-tool shape (nested `function: {...}` wrapper), shared by every
-// OpenAI-style chat backend — OpenRouter and Moonshot.
-function toChatCompletionsTool(tool) {
-  return { type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.input_schema } }
-}
-
-// OpenAI Responses API takes function tools as flat top-level objects (no nested `function: {...}`
-// wrapper as in chat completions).
-function toOpenAIResponsesTool(tool) {
-  return { type: 'function', name: tool.name, description: tool.description, parameters: tool.input_schema }
-}
+// A function tool's fields: chat completions nests them under `function: {...}`, the OpenAI
+// Responses API takes them flat.
+const functionTool = (tool) => ({ name: tool.name, description: tool.description, parameters: tool.input_schema })
 
 // Resolve the effort level a non-Anthropic request carries, or undefined for one that carries none.
 // Centralises the policy all three non-Anthropic adapters share — an effort without thinking is a
@@ -54,13 +46,15 @@ function resolveEffort({ think, effort, model }) {
 // adapter: a gateway can route moonshotai/kimi-k3, whose three levels are the model's own.
 function chatCompletionsBody(wireModel, system, model, maxTokens, messages, { think = false, effort, tools } = {}) {
   const body = { model: wireModel, max_completion_tokens: maxTokens, messages: [system, ...messages] }
-  if (tools) body.tools = tools.map(toChatCompletionsTool)
+  if (tools) body.tools = tools.map((tool) => ({ type: 'function', function: functionTool(tool) }))
   const level = resolveEffort({ think, effort, model })
   if (level) body.reasoning_effort = level
   return body
 }
 
 const bearerAuth = (key) => ({ Authorization: `Bearer ${key}` })
+// An adapter's fixed endpoint, and the key it reads from `keyEnv` for `authHeader` to send.
+const endpoint = (url, keyEnv, authHeader = bearerAuth) => ({ url, authHeader, apiKey: () => env(keyEnv) })
 
 // The OpenAI Responses wire format, parameterised by how the route names models. Two routes speak
 // it and differ only in the namespace: the direct adapter strips it for a bare name the API must
@@ -98,7 +92,7 @@ function openaiResponsesShape(modelId) {
       // gpt-4o-mini and gpt-4.1-mini reject the field outright with "Encrypted content is not
       // supported with this model", on the first turn of every run.
       if (canThink(resolveModel(model))) body.include = ['reasoning.encrypted_content']
-      if (tools) body.tools = tools.map(toOpenAIResponsesTool)
+      if (tools) body.tools = tools.map((tool) => ({ type: 'function', ...functionTool(tool) }))
       // Thinking off on a row that reasons unless told not to: an omitted effort is the model's own
       // default, `medium` on every such row, so `none` has to be named.
       const level = resolveEffort({ think, effort, model }) ?? (needsExplicitNoThink(model) ? 'none' : undefined)
@@ -150,15 +144,9 @@ function openaiResponsesShape(modelId) {
 
     // Responses carries the same split as the gateway route, in its own block naming. Only gpt-5.6
     // and later read the marker; everything else here falls through to a concatenated string.
-    buildInitialUserMessage(model, userContent) {
-      return responsesInitialUserMessage(model, userContent)
-    },
+    buildInitialUserMessage: responsesInitialUserMessage,
   }
 }
-
-// The direct route: same resolution, then the namespace comes off, since here the id has to be a
-// bare model name the API knows.
-const OPENAI_RESPONSES_SHAPE = openaiResponsesShape((model) => stripNamespace(wireModelFor(model), 'openai/'))
 
 // A Responses body, told apart from a chat-completions one for the gateway's response parsing. Both
 // spell a bare failure `{ error }`, but that case is handled identically either way, so only the
@@ -250,9 +238,7 @@ const CHAT_COMPLETIONS_SHAPE = {
   // The user message is the second shape a gateway can carry a breakpoint on, after the system
   // message built in buildRequestBody above. The concatenating version from chatCompletionsBase
   // stays right for every route that reads no breakpoint.
-  buildInitialUserMessage(model, userContent) {
-    return chatCompletionsInitialUserMessage(model, userContent)
-  },
+  buildInitialUserMessage: chatCompletionsInitialUserMessage,
 }
 
 // Per-provider adapter. Each entry bundles the wire-format details (url, auth, env-var name) and
@@ -260,9 +246,7 @@ const CHAT_COMPLETIONS_SHAPE = {
 // Adding a new provider is one new entry plus a setProvider() lookup — no scattered edits.
 const ADAPTERS = {
   anthropic: {
-    url: 'https://api.anthropic.com/v1/messages',
-    authHeader: anthropicAuthHeader,
-    apiKey: () => env('ANTHROPIC_API_KEY'),
+    ...endpoint('https://api.anthropic.com/v1/messages', 'ANTHROPIC_API_KEY', anthropicAuthHeader),
     ...anthropicShape(toAnthropicModel),
   },
 
@@ -272,14 +256,12 @@ const ADAPTERS = {
     // what OpenAI's migration guide points new integrations at.
     // OPENAI_API_URL replaces the origin, same split as OPENROUTER_API_URL: the variable holds
     // everything before `/v1`, so one gateway serves both adapters as e.g. http://localhost:4000.
-    url: (env('OPENAI_API_URL') || 'https://api.openai.com') + '/v1/responses',
-    authHeader: bearerAuth,
-    apiKey: () => env('OPENAI_API_KEY'),
+    ...endpoint((env('OPENAI_API_URL') || 'https://api.openai.com') + '/v1/responses', 'OPENAI_API_KEY'),
 
     // The direct route resolves the registry id to a bare model name the API must know, and
     // `wireModelFor` is what turns a row served as a mode on another model (astra pro) into that
-    // base name.
-    ...OPENAI_RESPONSES_SHAPE,
+    // base name; then the namespace comes off.
+    ...openaiResponsesShape((model) => stripNamespace(wireModelFor(model), 'openai/')),
   },
 
   // OpenRouter normalizes every model onto /v1/chat/completions and exposes no /v1/messages, so
@@ -288,10 +270,8 @@ const ADAPTERS = {
   openrouter: {
     ...CHAT_COMPLETIONS_SHAPE,
     // See OPENAI_API_URL above for the origin/path split these two share.
-    url: (env('OPENROUTER_API_URL') || 'https://openrouter.ai/api') + '/v1/chat/completions',
+    ...endpoint((env('OPENROUTER_API_URL') || 'https://openrouter.ai/api') + '/v1/chat/completions', 'OPENROUTER_API_KEY'),
     apiUrlEnv: 'OPENROUTER_API_URL',
-    authHeader: bearerAuth,
-    apiKey: () => env('OPENROUTER_API_KEY'),
 
     // Thinking off on a row that reasons unless told not to. `reasoning.enabled` is OpenRouter's
     // own switch, translated into each upstream's off form, which is also why it lives here rather
@@ -364,9 +344,7 @@ const ADAPTERS = {
   // chatCompletionsBase.
   moonshot: {
     ...chatCompletionsBase('max_completion_tokens'),
-    url: 'https://api.moonshot.ai/v1/chat/completions',
-    authHeader: bearerAuth,
-    apiKey: () => env('MOONSHOT_API_KEY'),
+    ...endpoint('https://api.moonshot.ai/v1/chat/completions', 'MOONSHOT_API_KEY'),
 
     // Same shared system-message rule as the OpenRouter body above, keyed on the namespaced id
     // rather than the stripped one. It resolves to a plain string for everything this endpoint
@@ -450,9 +428,9 @@ export function getProvider() {
 // Public dispatch surface — each call delegates to the active adapter. Keeping these as thin
 // re-exports lets callers stay agnostic of the adapter shape; swapping providers is
 // `setProvider(name)` and the rest of the pipeline keeps working.
-export function buildRequestBody(model, maxTokens, systemPrompt, messages, opts) {
-  return provider.buildRequestBody(model, maxTokens, systemPrompt, messages, opts)
-}
+const delegate = (method) => (...args) => provider[method](...args)
+
+export const buildRequestBody = delegate('buildRequestBody')
 
 // Per-request headers: the base set captured by setProvider plus any adapter-specific extras driven
 // by the call's opts (e.g. anthropic-beta for task_budget). Adapters opt in by exposing
@@ -488,33 +466,21 @@ export async function sendRequest(model, body, { taskBudget = false, debug, labe
   return await fetchJSON(buildRequestUrl(model), { method: 'POST', headers, body: JSON.stringify(sent) }, { debug, label, retries })
 }
 
-export function checkResponse(json) {
-  return provider.checkResponse(json)
-}
-
-export function extractResponseText(json) {
-  return provider.extractResponseText(json)
-}
+export const checkResponse = delegate('checkResponse')
+export const extractResponseText = delegate('extractResponseText')
 
 // Tool-call shape: `{ id, name, args }` on success, or `{ id, name, argsError }` when the model
 // produced malformed JSON args. `id` is whatever the provider needs back to match the tool result —
 // `tool_use_id` for Anthropic, `call_id` for OpenAI Responses, `tool_call_id` for chat-completions
 // / OpenRouter.
-export function extractToolCalls(json) {
-  return provider.extractToolCalls(json)
-}
-
-export function appendToolResults(messages, json, toolCalls, results) {
-  return provider.appendToolResults(messages, json, toolCalls, results)
-}
+export const extractToolCalls = delegate('extractToolCalls')
+export const appendToolResults = delegate('appendToolResults')
 
 // Build the initial user message in the format the active provider prefers. When `userContent` is a
 // list of blocks AND the provider's adapter knows how, a cache marker closes the block before the
 // last one, so everything ahead of that per-request tail can be reused across the variants that
 // share it without re-tokenizing each time.
-export function buildInitialUserMessage(model, userContent) {
-  return provider.buildInitialUserMessage(model, userContent)
-}
+export const buildInitialUserMessage = delegate('buildInitialUserMessage')
 
 export function normalizeOneUsage(data) {
   if (!data?.usage) return null

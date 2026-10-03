@@ -15,10 +15,6 @@ import { canAdaptive } from './models.js'
 // for a name modelSubdir didn't write, which a caller leaves alone rather than guessing about.
 const SUBDIR_RE = /^(?<type>.+)-[0-9a-f]{8}$/u
 
-function subdirType(name) {
-  return SUBDIR_RE.exec(name)?.groups.type ?? null
-}
-
 function flattenContent(content) {
   if (typeof content === 'string') return content
   if (Array.isArray(content)) return content.map((b) => b?.text ?? '').join('')
@@ -132,7 +128,7 @@ export async function rehashCache(model, { skipType = () => false } = {}) {
   const subdirs = await readDirOrEmpty(modelDir)
   for (const entry of subdirs) {
     if (!entry.isDirectory()) continue
-    const entryType = subdirType(entry.name)
+    const entryType = SUBDIR_RE.exec(entry.name)?.groups.type ?? null
     if (entryType !== null && skipType(entryType)) continue
     const dir = join(modelDir, entry.name)
     const files = await readDirOrEmpty(dir)

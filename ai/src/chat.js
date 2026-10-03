@@ -21,16 +21,11 @@ const DEFAULT_MAX_TOOL_TURNS = 30
 export function normalizeUsage(data, model) {
   // New format: array of { request, response } turns
   if (Array.isArray(data)) {
+    const usages = data.map((turn) => normalizeOneUsage(turn.response)).filter(Boolean)
+    if (usages.length === 0) return null
     const total = emptyUsage()
-    let found = false
-    for (const turn of data) {
-      const usage = normalizeOneUsage(turn.response)
-      if (usage) {
-        addUsage(total, price(usage, model))
-        found = true
-      }
-    }
-    return found ? total : null
+    for (const usage of usages) addUsage(total, price(usage, model))
+    return total
   }
   // Old format: single response object
   const usage = normalizeOneUsage(data)
@@ -71,6 +66,7 @@ export async function ask({ model, maxTokens, systemPrompt, userContent, think =
   const totalUsage = emptyUsage()
   const history = []
   const texts = []
+  const done = () => ({ text: texts.filter(Boolean).join('\n'), usage: totalUsage, history })
   // One provider and one model for the whole conversation, so the wire-format stamp every entry
   // carries is resolved once.
   const stamp = providerStamp(model)
@@ -115,9 +111,7 @@ export async function ask({ model, maxTokens, systemPrompt, userContent, think =
     // API round-trip (and the cost / nondeterministic re-roll that would come with it) when the
     // partial got persisted but the final setCache write didn't make it (process killed
     // mid-finish).
-    if (!Array.isArray(last.toolCalls) || last.toolCalls.length === 0) {
-      return { text: texts.filter(Boolean).join('\n'), usage: totalUsage, history }
-    }
+    if (!Array.isArray(last.toolCalls) || last.toolCalls.length === 0) return done()
     messages = [...last.messages]
     appendToolResults(messages, last.response, last.toolCalls, last.results)
   } else {
@@ -161,9 +155,7 @@ export async function ask({ model, maxTokens, systemPrompt, userContent, think =
     history.push({ request, response, messages: preMessages, toolCalls, results, provider: stamp })
     await savePartial()
 
-    if (toolCalls.length === 0 || !handleToolCall) {
-      return { text: texts.filter(Boolean).join('\n'), usage: totalUsage, history }
-    }
+    if (toolCalls.length === 0 || !handleToolCall) return done()
     appendToolResults(messages, response, toolCalls, results)
   }
 

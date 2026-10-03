@@ -1,7 +1,7 @@
 // The cache's filesystem over OPFS, the origin's private storage. Handle-based rather than
 // path-based, so the paths cache.js builds are walked a segment at a time; absence is a
 // NotFoundError; `..` is rejected outright and there is nothing above the root; and
-// `FileSystemHandle.move()` is not in every engine that ships OPFS — see writeAtomic and moveEntry.
+// `FileSystemHandle.move()` is not in every engine that ships OPFS — see writeAtomic and move.
 // Needs a secure context, as the digest in cache.js does.
 
 const segments = (path) => String(path).split('/').filter((part) => part && part !== '.')
@@ -13,10 +13,8 @@ export function join(...parts) {
 
 const isMissing = (err) => err?.name === 'NotFoundError'
 
-const opfsRoot = () => navigator.storage.getDirectory()
-
 async function dirAt(parts, create) {
-  let dir = await opfsRoot()
+  let dir = await navigator.storage.getDirectory()
   for (const part of parts) dir = await dir.getDirectoryHandle(part, { create })
   return dir
 }
@@ -28,13 +26,9 @@ async function placeOf(path, create) {
   return { dir: await dirAt(parts, create), name }
 }
 
-async function fileAt(path, create) {
-  const { dir, name } = await placeOf(path, create)
-  return await dir.getFileHandle(name, { create })
-}
-
 export async function readText(path) {
-  return await (await (await fileAt(path, false)).getFile()).text()
+  const { dir, name } = await placeOf(path, false)
+  return await (await (await dir.getFileHandle(name, { create: false })).getFile()).text()
 }
 
 // Null only for missing or empty, as the Node half does.
@@ -47,18 +41,14 @@ export async function readTextOrNull(path) {
   }
 }
 
-// As much of node:fs's Dirent as cache-scan.js reads.
-const direntOf = (name, handle) => ({
-  name,
-  isFile: () => handle.kind === 'file',
-  isDirectory: () => handle.kind === 'directory',
-})
-
 export async function readDirOrEmpty(path) {
   try {
     const dir = await dirAt(segments(path), false)
     const out = []
-    for await (const [name, handle] of dir.entries()) out.push(direntOf(name, handle))
+    // As much of node:fs's Dirent as cache-scan.js reads.
+    for await (const [name, handle] of dir.entries()) {
+      out.push({ name, isFile: () => handle.kind === 'file', isDirectory: () => handle.kind === 'directory' })
+    }
     return out
   } catch {
     return []
@@ -82,18 +72,14 @@ let canMove
 // than a truncated file — an engine's promise rather than a filesystem's, hence the fallback.
 let tmpSeq = 0
 
-function tmpNameFor(name) {
-  const unique = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)
-  return `${name}.${++tmpSeq}-${unique}.tmp`
-}
-
 export async function writeAtomic(path, data) {
   const { dir, name } = await placeOf(path, true)
   if (canMove === false) {
     await writeInto(await dir.getFileHandle(name, { create: true }), data)
     return
   }
-  const tmpName = tmpNameFor(name)
+  const unique = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)
+  const tmpName = `${name}.${++tmpSeq}-${unique}.tmp`
   const tmp = await dir.getFileHandle(tmpName, { create: true })
   await writeInto(tmp, data)
   try {
@@ -113,7 +99,7 @@ export async function writeAtomic(path, data) {
 // existed, so it cannot fire here.
 const canRetitle = (handle) => typeof handle.move === 'function'
 
-async function moveEntry(from, to) {
+export async function move(from, to) {
   const source = segments(from)
   const target = segments(to)
   const name = target.at(-1)
@@ -138,13 +124,9 @@ async function moveEntry(from, to) {
   await (await dirAt(source.slice(0, -1), false)).removeEntry(source.at(-1))
 }
 
-export async function move(from, to) {
-  await moveEntry(from, to)
-}
-
 export async function moveIfExists(from, to) {
   try {
-    await moveEntry(from, to)
+    await move(from, to)
     return true
   } catch (err) {
     if (isMissing(err)) return false
@@ -153,12 +135,8 @@ export async function moveIfExists(from, to) {
 }
 
 export async function removeIfExists(path) {
-  const { dir, name } = await placeOf(path, false).catch((err) => {
-    if (isMissing(err)) return {}
-    throw err
-  })
-  if (!dir) return
   try {
+    const { dir, name } = await placeOf(path, false)
     await dir.removeEntry(name)
   } catch (err) {
     if (!isMissing(err)) throw err
