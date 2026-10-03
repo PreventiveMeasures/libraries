@@ -377,6 +377,8 @@ describe('no-think wire form', () => {
     ['qwen/qwen3.8-2.4t-a95b', false, false],
     ['qwen/qwen3.8-max', false, false],
     ['deepseek/deepseek-v4-pro', true, true],
+    ['xiaomi/mimo-v2.6-pro', true, true],
+    ['xiaomi/mimo-v2.6-flash', true, true],
     ['deepseek/deepseek-v4.1-flash', true, true],
     ['x-ai/grok-4.7', false, false],
     ['z-ai/glm-5.3', false, false],
@@ -1110,6 +1112,30 @@ describe('deepseek v4', () => {
   it('takes low, high or max on flash, and high or xhigh on pro, as OpenRouter serves each id', () => {
     assert.deepEqual(effortsFor(FLASH), ['low', 'high', 'max'])
     assert.deepEqual(effortsFor(PRO), ['high', 'xhigh'])
+  })
+})
+
+describe('xiaomi mimo v2.6', () => {
+  const PRO = 'xiaomi/mimo-v2.6-pro'
+  const FLASH = 'xiaomi/mimo-v2.6-flash'
+
+  it('prices pro and flash at Xiaomi\'s published rates, with 128K of output', () => {
+    assert.equal(baseRate(PRO, 'input', 'output'), 0.435 + 0.87)
+    assert.equal(baseRate(FLASH, 'input', 'output'), 0.14 + 0.28)
+    for (const model of [PRO, FLASH]) assert.equal(getMaxTokens(model), 128 * 1024, model)
+  })
+
+  it('bills cache hits at the published rate, far under 0.10x of input', () => {
+    assert.equal(baseRate(PRO, 'cacheRead'), 0.0036)
+    assert.equal(baseRate(FLASH, 'cacheRead'), 0.0028)
+  })
+
+  it('thinks by default, and can be switched off', () => {
+    for (const model of [PRO, FLASH]) {
+      assert.equal(canThink(model), true, model)
+      assert.equal(canDisableThink(model), true, model)
+      assert.equal(needsExplicitNoThink(model), true, model)
+    }
   })
 })
 
