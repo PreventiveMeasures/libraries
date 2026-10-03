@@ -10,17 +10,28 @@ export const BLOCK = 512
 
 export const isDevice = (type) => type === 'character-device' || type === 'block-device'
 
+// Each entry type's type flag, and each extended header's: those GNU
+// writes, under the names unpack reads them by.
+export const TYPEFLAGS = {
+  file: 0x30,
+  hardlink: 0x31,
+  symlink: 0x32,
+  'character-device': 0x33,
+  'block-device': 0x34,
+  directory: 0x35,
+  fifo: 0x36,
+  'contiguous-file': 0x37,
+}
+export const EXTENDED_TYPEFLAGS = { pax: 0x78, global: 0x67, longname: 0x4c, longlink: 0x4b }
+
 export const NAME_SIZE = 100
 export const PREFIX_SIZE = 155
 // 32 bytes, and GNU always ends them with a NUL, so 31 is the most.
 export const OWNER_SIZE = 32
 
 const NAME = 0
-const MODE = 100
-const UID = 108
-const GID = 116
-const SIZE = 124
-const MTIME = 136
+// The numbers from mode to mtime, [key, offset, size], in the block's order.
+const NUMBERS = [['mode', 100, 8], ['uid', 108, 8], ['gid', 116, 8], ['size', 124, 12], ['mtime', 136, 12]]
 const CHKSUM = 148
 const TYPEFLAG = 156
 const LINKNAME = 157
@@ -110,11 +121,7 @@ export const isZeroBlock = (block) => block.every((byte) => byte === 0)
 export function encodeHeader(f) {
   const block = new Uint8Array(BLOCK)
   put(block, NAME, NAME_SIZE, f.name)
-  writeNumber(block, MODE, 8, f.mode, f.gnu)
-  writeNumber(block, UID, 8, f.uid, f.gnu)
-  writeNumber(block, GID, 8, f.gid, f.gnu)
-  writeNumber(block, SIZE, 12, f.size, f.gnu)
-  writeNumber(block, MTIME, 12, f.mtime, f.gnu)
+  for (const [key, offset, size] of NUMBERS) writeNumber(block, offset, size, f[key], f.gnu)
   block[TYPEFLAG] = f.typeflag
   put(block, LINKNAME, NAME_SIZE, f.linkname)
   put(block, MAGIC, 8, latin1(f.gnu ? GNU_MAGIC : USTAR_MAGIC))
@@ -135,7 +142,7 @@ export function decodeHeader(block, at) {
   if (!gnu && magic !== USTAR_MAGIC) throw new ArchiveError('header is not in the ustar, pax or gnu format', at)
   if (gnu && !isZeroBlock(block.subarray(OLD_SPARSE, OLD_SPARSE_END))) throw new ArchiveError('header carries an old GNU sparse map or real size', at)
   const typeflag = block[TYPEFLAG]
-  const device = typeflag === 0x33 || typeflag === 0x34
+  const device = typeflag === TYPEFLAGS['character-device'] || typeflag === TYPEFLAGS['block-device']
   return {
     gnu,
     typeflag,
@@ -145,11 +152,7 @@ export function decodeHeader(block, at) {
     linkname: field(block, LINKNAME, NAME_SIZE),
     uname: field(block, UNAME, OWNER_SIZE),
     gname: field(block, GNAME, OWNER_SIZE),
-    mode: readNumber(block, MODE, 8, 'mode', at),
-    uid: readNumber(block, UID, 8, 'uid', at),
-    gid: readNumber(block, GID, 8, 'gid', at),
-    size: readNumber(block, SIZE, 12, 'size', at),
-    mtime: readNumber(block, MTIME, 12, 'mtime', at, true),
+    ...Object.fromEntries(NUMBERS.map(([key, offset, size]) => [key, readNumber(block, offset, size, key, at, key === 'mtime')])),
     devmajor: device ? readNumber(block, DEVMAJOR, 8, 'devmajor', at) : 0,
     devminor: device ? readNumber(block, DEVMINOR, 8, 'devminor', at) : 0,
   }

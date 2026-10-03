@@ -16,7 +16,7 @@
 // 'scalar', type, value, line }`, of the line it is on, from zero.
 
 import { quote } from '../error.js'
-import { advance, fail, lines } from '../lines.js'
+import { advance, fail, indentOf, lines } from '../lines.js'
 import { PLAIN, SYMBOL } from './layout.js'
 import { psychRead } from './psych.js'
 
@@ -41,7 +41,7 @@ const isEntry = (text) => text === '-' || text.startsWith('- ')
 // The next line with anything on it, as `{ indent, text, number }`.
 function next(src) {
   for (advance(src); src.line !== undefined; advance(src)) {
-    const indent = /^ */u.exec(src.line)[0].length
+    const indent = indentOf(src.line)
     const text = src.line.slice(indent)
     if (text === '') continue
     if (text.startsWith('#')) throw fail('a comment, which CocoaPods does not write', src.number)

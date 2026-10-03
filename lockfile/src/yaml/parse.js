@@ -11,15 +11,11 @@
 // project's lockfile second.
 
 import { hex } from '../excerpt.js'
-import { UNWRITTEN } from '../lines.js'
+import { MAX_LINE, UNWRITTEN } from '../lines.js'
 import { YamlError, excerpt } from './error.js'
 import { parseInline, readKey, setKey } from './scalar.js'
 
 const MAX_DEPTH = 64
-// A scalar some 2^23 characters long runs V8's regex engine out of
-// backtracking stack, which is a RangeError rather than a YamlError, so a
-// line is held to well below that.
-const MAX_LINE = 2 ** 20
 
 export function parseYaml(text) {
   const docs = parseYamlStream(text)
@@ -66,6 +62,9 @@ function advance(doc) {
   doc.pos = end + 1
   const number = ++doc.number
   if (text[end - 1] === '\r') end--
+  // A scalar some 2^23 characters long runs V8's regex engine out of
+  // backtracking stack, a RangeError rather than a YamlError: lines.js's
+  // MAX_LINE holds a line to well below that.
   if (end - pos > MAX_LINE) throw new YamlError(`line longer than ${MAX_LINE} characters`, number)
   let start = pos
   while (text[start] === ' ') start++

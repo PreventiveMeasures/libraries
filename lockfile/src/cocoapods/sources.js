@@ -57,7 +57,7 @@ export const PINS = {
   hg: {
     option: 'revision',
     given: checker((revision) => /^[\da-f]{4,40}$/iu.test(revision), 'a changeset\'s hash, and locks no revision'),
-    kept: (revision) => /^[\da-f]{40}$/u.test(revision),
+    kept: isHexSha1,
     as: 'the full changeset hash CocoaPods keeps, as hg id writes it',
   },
   svn: {

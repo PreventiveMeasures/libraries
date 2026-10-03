@@ -8,7 +8,7 @@
 // tarball has, though npm looks into it. A directory out of the project
 // npm leaves to itself.
 
-import { LockfileError, quote } from '../error.js'
+import { LockfileError, attempt, quote } from '../error.js'
 import { joinRelative } from '../names.js'
 import { sshOf } from './hosted.js'
 import { readResolved, readSpec } from './spec.js'
@@ -92,14 +92,13 @@ function check(edge, semver) {
     throw new LockfileError(`${quote(spec)} is met in the node_modules of the package that asks for it, which npm holds a peer not to be`, where)
   }
   if (to.folder !== edge.name) throw new LockfileError(`is met by ${describe(to)}, which npm takes for it, though the names are in other cases`, where)
-  let why
-  try {
-    why = whyNot(to, edge, spec, semver)
-    if (why !== undefined && edge.accept !== undefined && whyNot(to, edge, edge.accept, semver) === undefined) why = undefined
-  } catch (error) {
+  const why = attempt(() => {
+    const first = whyNot(to, edge, spec, semver)
+    return first !== undefined && edge.accept !== undefined && whyNot(to, edge, edge.accept, semver) === undefined ? undefined : first
+  }, (error) => {
     if (error instanceof LockfileError && error.where === undefined) throw new LockfileError(error.message, where)
     throw error
-  }
+  })
   if (why !== undefined) throw new LockfileError(`${quote(spec)} ${why}, so npm would install another`, where)
 }
 

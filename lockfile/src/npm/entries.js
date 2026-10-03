@@ -7,7 +7,7 @@ import { LockfileError, at, quote } from '../error.js'
 import { checkName, checkRegistryTarball, checkRelative, checkRepo, checkVersion, isCommit, isHttpUrl, isSegment, isWithin, readIntegrities } from '../names.js'
 import { boolean, field, flag, mapping, record, refuse, text, textMap, texts } from '../shape.js'
 import { fromHostedUrl } from './hosted.js'
-import { isTarball } from './spec.js'
+import { GIT_PROTOCOL, isTarball } from './spec.js'
 
 // The flags npm writes of how a node is depended on.
 export const FLAGS = ['dev', 'optional', 'devOptional', 'peer']
@@ -121,14 +121,10 @@ function checkTarball(tarball, name, version, where) {
     checkRelative(tarball.slice(5), where)
     return
   }
-  if (!isHttpUrl(tarball) || /\s/u.test(tarball)) throw new LockfileError(`${quote(tarball)} is not an http(s) URL, a file: tarball or a git URL`, where)
+  if (!isHttpUrl(tarball)) throw new LockfileError(`${quote(tarball)} is not an http(s) URL, a file: tarball or a git URL`, where)
   if (fromHostedUrl(tarball) !== undefined) throw new LockfileError(`${quote(tarball)} is a repository to npm, which it reads as one on a git host`, where)
   checkRegistryTarball(tarball, name, version, where)
 }
-
-// The protocols npm-package-arg reads as git's, as spec.js does: not
-// `git+file:`, nor any other, which npm reads as no repository.
-const GIT = /^git(?:\+(?:https?|rsync|ftp|ssh))?:/u
 
 // Where a package's files come from: a tarball, by URL, by a `file:` path
 // from the lockfile's directory, or from the registry for its name and
@@ -139,7 +135,7 @@ function readResolution(entry, where, name, version) {
   const resolved = field(entry, 'resolved', where, text)
   const integrity = field(entry, 'integrity', where, readIntegrity)
   if (resolved === undefined) return integrity === undefined ? undefined : { type: 'tarball', tarball: undefined, integrity }
-  if (GIT.test(resolved)) {
+  if (GIT_PROTOCOL.test(resolved)) {
     if (integrity !== undefined) throw new LockfileError('an integrity, which npm does not check for a git repository', at(where, 'integrity'))
     const sep = resolved.lastIndexOf('#')
     if (sep === -1 || !isCommit(resolved.slice(sep + 1))) throw new LockfileError(`expected a full commit hash after the "#" of ${quote(resolved)}`, resolvedAt)
@@ -180,7 +176,7 @@ export function readEntry(entry, where, kindOf, folder) {
   if (name !== undefined && name === folder) throw new LockfileError('the name of its folder, which npm leaves out', at(where, 'name'))
   const version = field(entry, 'version', where, kindOf === 'package' ? checkVersion : text)
   // npm leaves out the version of a repository's package.json that has none.
-  if (kindOf === 'package' && version === undefined && !GIT.test(entry.resolved ?? '')) {
+  if (kindOf === 'package' && version === undefined && !GIT_PROTOCOL.test(entry.resolved ?? '')) {
     throw new LockfileError('expected a version, which only a package from a git repository is read without', at(where, 'version'))
   }
   const pkg = { name: name ?? folder, version, ...read, hasInstallScript: flag(entry.hasInstallScript, at(where, 'hasInstallScript')), flags: readFlags(entry, where) }

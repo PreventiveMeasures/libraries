@@ -9,9 +9,8 @@
 // links as pnpm 10 does, but fails on a bin that is a directory.
 
 import { DeptreeError, quote } from '../error.js'
+import { crlfShebang, fixShebang } from '../tarball.js'
 import { UNKNOWN, binsOf, bundledCommands, commandsOf, compare, normalized, parseManifest } from './commands.js'
-
-const decoder = new TextDecoder('utf-8', { fatal: true })
 
 // The peers whose bins pnpm 11 links into a project's .bin.
 function peersOf(children, nodes) {
@@ -159,7 +158,7 @@ function fixedFiles(nodes, fixed, contested, major) {
     checkDirectory(node, path)
     const file = node.files.get(path)
     if (fixed.has(target) || file?.data === undefined) continue
-    if (executableMode(file.mode, major) === file.mode && (major >= 12 || (!hasCrlfShebang(file.data) && node.pkg.patchHash === undefined))) continue
+    if (executableMode(file.mode, major) === file.mode && (major >= 12 || (crlfShebang(file.data) === -1 && node.pkg.patchHash === undefined))) continue
     throw new DeptreeError(`whether pnpm makes ${quote(path)} executable turns on ${why}`, quote(node.key))
   }
   const byNode = new Map()
@@ -173,29 +172,12 @@ function fixedFiles(nodes, fixed, contested, major) {
   return byNode
 }
 
-// As fixBin tells it, reading only the first 2048 bytes.
-function hasCrlfShebang(data) {
-  if (data[0] !== 0x23 || data[1] !== 0x21) return false
-  const newline = data.subarray(0, 2048).indexOf(0x0a)
-  return newline >= 4 && data[newline - 1] === 0x0d
-}
-
 export const executableMode = (mode, major) => (major >= 11 ? mode | 0o111 : 0o755)
 
 // pnpm reads and writes the file as UTF-8, which changes one that is not.
 export function fixBin(file, where, major) {
   const mode = executableMode(file.mode, major)
-  if (major >= 12 || !hasCrlfShebang(file.data)) return { data: file.data, mode }
-  try {
-    decoder.decode(file.data)
-  } catch {
-    throw new DeptreeError('a bin with a CRLF `#!` line is not UTF-8, which pnpm would rewrite', where)
-  }
-  const newline = file.data.indexOf(0x0a)
-  const data = new Uint8Array(file.data.length - 1)
-  data.set(file.data.subarray(0, newline - 1))
-  data.set(file.data.subarray(newline), newline - 1)
-  return { data, mode }
+  return { data: major >= 12 ? file.data : fixShebang(file.data, 'a bin with a CRLF `#!` line is not UTF-8, which pnpm would rewrite', where), mode }
 }
 
 const BIN_FIELDS = (manifest) => JSON.stringify([manifest.name, manifest.version, manifest.bin, manifest.directories?.bin])
@@ -220,7 +202,7 @@ export function checkPatchOfBins(node, patched, targets, where, major) {
   for (const path of targets) {
     const before = node.files.get(path).data
     const after = patched.get(path).data
-    if (before !== after && (hasCrlfShebang(before) || hasCrlfShebang(after))) throw new DeptreeError(`the patch changes ${quote(path)}, a bin with a CRLF \`#!\` line, which pnpm rewrites before and after it`, where)
+    if (before !== after && (crlfShebang(before) !== -1 || crlfShebang(after) !== -1)) throw new DeptreeError(`the patch changes ${quote(path)}, a bin with a CRLF \`#!\` line, which pnpm rewrites before and after it`, where)
   }
   return manifest
 }

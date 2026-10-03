@@ -42,10 +42,7 @@ export function parseStability(input) {
   if (version.startsWith('dev-') || version.endsWith('-dev')) return 'dev'
   const match = STABILITY.exec(lower(version))
   if (!empty(match[3])) return 'dev'
-  if (match[1] === 'beta' || match[1] === 'b') return 'beta'
-  if (match[1] === 'alpha' || match[1] === 'a') return 'alpha'
-  if (match[1] === 'rc') return 'RC'
-  return 'stable'
+  return { beta: 'beta', b: 'beta', alpha: 'alpha', a: 'alpha', rc: 'RC' }[match[1]] ?? 'stable'
 }
 
 export function normalizeBranch(input) {
@@ -139,6 +136,14 @@ const BASIC = regex(`^(<>|!=|>=?|<=?|==?)?${S}*([^\\n]*)`)
 const MODIFIED = regex(`-${MODIFIER}$`)
 const set = (value) => value !== undefined && value !== ''
 
+// `~` and `^`: from the version as written to below the next at `position`.
+function bounded(text, match, position) {
+  const suffix = empty(match[5]) && empty(match[7]) && empty(match[8]) ? '-dev' : ''
+  const low = normalize(`${text}${suffix}`.slice(1))
+  const high = manipulate(match, position, 1)
+  return low === undefined || high === undefined ? undefined : [constraint('>=', low), constraint('<', `${high}-dev`)]
+}
+
 function parseOne(input) {
   let text = input
   let match = AS.exec(text)
@@ -158,20 +163,11 @@ function parseOne(input) {
     if (text.startsWith('~>')) return undefined
     let position = set(match[4]) ? 4 : set(match[3]) ? 3 : set(match[2]) ? 2 : 1
     if (!empty(match[8])) position++
-    const suffix = empty(match[5]) && empty(match[7]) && empty(match[8]) ? '-dev' : ''
-    const low = normalize(`${text}${suffix}`.slice(1))
-    const high = manipulate(match, Math.max(1, position - 1), 1)
-    if (low === undefined || high === undefined) return undefined
-    return [constraint('>=', low), constraint('<', `${high}-dev`)]
+    return bounded(text, match, Math.max(1, position - 1))
   }
 
   if ((match = CARET.exec(text)) !== null) {
-    const position = match[1] !== '0' || !set(match[2]) ? 1 : match[2] !== '0' || !set(match[3]) ? 2 : 3
-    const suffix = empty(match[5]) && empty(match[7]) && empty(match[8]) ? '-dev' : ''
-    const low = normalize(`${text}${suffix}`.slice(1))
-    const high = manipulate(match, position, 1)
-    if (low === undefined || high === undefined) return undefined
-    return [constraint('>=', low), constraint('<', `${high}-dev`)]
+    return bounded(text, match, match[1] !== '0' || !set(match[2]) ? 1 : match[2] !== '0' || !set(match[3]) ? 2 : 3)
   }
 
   if ((match = X_RANGE.exec(text)) !== null) {
@@ -242,18 +238,9 @@ function create(constraints) {
 
 // What Composer makes of a constraint, or undefined where it throws.
 export function parseConstraints(text) {
-  const groups = []
-  for (const or of trim(text).split(OR)) {
-    const parts = or.split(AND)
-    const constraints = []
-    for (const part of parts) {
-      const parsed = parseOne(part)
-      if (parsed === undefined) return undefined
-      constraints.push(...parsed)
-    }
-    groups.push(constraints.length === 1 ? constraints[0] : { multi: constraints, conjunctive: true })
-  }
-  return create(groups)
+  const groups = trim(text).split(OR).map((or) => or.split(AND).map(parseOne))
+  if (groups.some((parts) => parts.includes(undefined))) return undefined
+  return create(groups.map((parts) => parts.flat()).map((list) => (list.length === 1 ? list[0] : { multi: list, conjunctive: true })))
 }
 
 // Constraint::versionCompare: a branch, `dev-…`, is equal to itself alone,

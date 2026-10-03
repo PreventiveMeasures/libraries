@@ -4,10 +4,10 @@
 // the source too. uv drops an extra an edge asks for that its package has
 // no list of, and takes `distribution` for `package`; this refuses both.
 
-import { LockfileError, at, quote } from '../error.js'
+import { LockfileError, at, quote, raise } from '../error.js'
 import { checkMarker, checkNormalName } from '../python/pep508.js'
 import { checkNormalVersion, checkSpecifiers, versionKeyOf } from '../python/pep440.js'
-import { field, mapping } from '../shape.js'
+import { field, mapping, repeated } from '../shape.js'
 import { array, checkListedOnce, kind, strings, table } from '../toml/shape.js'
 import { parseToml } from '../toml/parse.js'
 import { readSdist, readWheels } from './artifacts.js'
@@ -80,9 +80,7 @@ const idOf = (name, key, sourceId) => `${name} ${key} ${sourceId}`
 // for a source tree's of a dynamic version. `index` has each package by
 // name, as a list, and by its identity.
 function resolveEdge(edge, index) {
-  const fail = (why) => {
-    throw new LockfileError(why, edge.where)
-  }
+  const fail = (why) => raise(why, edge.where)
   const named = index.byName.get(edge.name) ?? fail(`${quote(edge.name)} names no package in the lockfile`)
   const only = named.length === 1 ? named[0] : undefined
   const sourceId = edge.source?.id ?? only?.source.id ?? fail(`${quote(edge.name)} could be any of ${named.length} packages, and names no source`)
@@ -98,12 +96,8 @@ function resolveEdge(edge, index) {
 
 function resolveAll(list, index, where) {
   const resolved = list.map((edge) => resolveEdge(edge, index))
-  const seen = new Set()
-  for (const edge of resolved) {
-    const id = JSON.stringify([edge.package, [...edge.extras].sort(), edge.marker])
-    if (seen.has(id)) throw new LockfileError(`${quote(edge.package)} is listed twice alike`, where)
-    seen.add(id)
-  }
+  const twice = repeated(resolved, (edge) => JSON.stringify([edge.package, [...edge.extras].sort(), edge.marker]))
+  if (twice !== undefined) throw new LockfileError(`${quote(twice.package)} is listed twice alike`, where)
   return resolved
 }
 
@@ -152,7 +146,7 @@ export function parseUvLock(text) {
     resolutionMarkers: markers(doc['resolution-markers'], 'resolution-markers'),
     supportedMarkers: markers(doc['supported-markers'], 'supported-markers'),
     requiredMarkers: markers(doc['required-markers'], 'required-markers'),
-    conflicts: readConflicts(doc.conflicts),
+    conflicts: field(doc, 'conflicts', '', readConflicts) ?? [],
     options: readOptions(doc.options),
     manifest,
     members: membersOf(manifest, read, index),

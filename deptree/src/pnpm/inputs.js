@@ -7,7 +7,7 @@ import { compareVersions, valid } from '@preventive/upstream/semver.js'
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { readManifest } from '../manifest.js'
-import { checkProject, readText, typeOf } from '../project.js'
+import { checkHostKeys, checkLeftOut, checkProject, checkTexts, readText, typeOf } from '../project.js'
 import { pinnedPnpm, readManifests } from './projects.js'
 import { readers } from './readers.js'
 import { checkWorkspace, findProjects, linkedManifest } from './workspace.js'
@@ -23,20 +23,7 @@ function readWorkspaceText(project, major) {
   return text
 }
 
-// pnpm-workspace.yaml is read once the pnpm that installs is known.
-function readRootFiles(project) {
-  const lockfile = readText(project, '/pnpm-lock.yaml')
-  if (lockfile === undefined) throw new DeptreeError('the project has no pnpm-lock.yaml, which a frozen install cannot do without')
-  return { lockfile, npmrc: readText(project, '/.npmrc') }
-}
-
-function readManifestTexts(project, ids) {
-  const texts = new Map()
-  for (const id of ids) {
-    texts.set(id, readText(project, id === '.' ? '/package.json' : `/${id}/package.json`, `manifests[${quote(id)}]`))
-  }
-  return texts
-}
+const readManifestTexts = (project, ids) => new Map(ids.map((id) => [id, readText(project, id === '.' ? '/package.json' : `/${id}/package.json`, `manifests[${quote(id)}]`)]))
 
 // By path from the lockfile's directory; one that is not there is left out.
 function readPatches(project, configured) {
@@ -70,10 +57,7 @@ function pnpmOf(pnpm, root) {
 
 // All of host but its pnpm, which pnpmOf reads.
 export function checkHost(host) {
-  if (host === null || typeof host !== 'object') throw new TypeError('host must be an object with node, os, cpu and libc, and pnpm where it is not pinned')
-  for (const key of ['node', 'os', 'cpu', 'libc']) {
-    if (typeof host[key] !== 'string' || host[key] === '') throw new TypeError(`host.${key} must be a non-empty string`)
-  }
+  checkHostKeys(host, ['node', 'os', 'cpu', 'libc'], 'node, os, cpu and libc, and pnpm where it is not pinned')
   const { node, os, libc } = host
   if (valid(node) === null) throw new DeptreeError(`${quote(node)} is not an exact version`, 'host.node')
   if (os === 'win32') throw new DeptreeError('Windows is not supported: pnpm links there with junctions to absolute paths', 'host.os')
@@ -130,14 +114,24 @@ function packagesOf(workspace) {
   return workspace?.packages === undefined ? undefined : readers.globs(workspace.packages, 'pnpm-workspace.yaml: packages')
 }
 
+// The pnpm that installs and the workspace it reads, from disk, with the root
+// package.json read at most once.
+function readInstalls(project, pnpm) {
+  let read
+  const root = () => (read ??= readRoot(project))
+  const installs = pnpmOf(pnpm, root)
+  const text = readWorkspaceText(project, installs.major)
+  const workspace = workspaceOf(readWorkspace(text), text, installs.major, root)
+  return { ...installs, workspace, packages: packagesOf(workspace) }
+}
+
 // The directories of the projects whose package.json buildPnpmTree takes.
 export function findPnpmProjects(options) {
   const { project, host } = options ?? {}
   checkProject(project)
   if (host !== undefined && (host === null || typeof host !== 'object')) throw new TypeError('host must be an object, or left out')
-  const { major } = pnpmOf(host?.pnpm, () => readRoot(project))
-  const text = readWorkspaceText(project, major)
-  return findProjects(project, packagesOf(workspaceOf(readWorkspace(text), text, major, () => readRoot(project))), major)
+  const { major, packages } = readInstalls(project, host?.pnpm)
+  return findProjects(project, packages, major)
 }
 
 const LOCKFILE = 'lockfile must be the text of pnpm-lock.yaml, or left out with a project given to read it from'
@@ -146,15 +140,14 @@ export function inputsOf(options) {
   const { lockfile, manifests, workspace, npmrc, patches, project } = options
   if (lockfile === undefined) {
     if (project === undefined) throw new TypeError(LOCKFILE)
-    for (const [name, value] of Object.entries({ manifests, workspace, npmrc, patches })) {
-      if (value !== undefined) throw new TypeError(`${name} must be left out where lockfile is: both are read from project`)
-    }
-    return { reading: true, project, ...readRootFiles(project) }
+    checkLeftOut({ manifests, workspace, npmrc, patches })
+    const text = readText(project, '/pnpm-lock.yaml')
+    if (text === undefined) throw new DeptreeError('the project has no pnpm-lock.yaml, which a frozen install cannot do without')
+    // pnpm-workspace.yaml is read once the pnpm that installs is known.
+    return { reading: true, project, lockfile: text, npmrc: readText(project, '/.npmrc') }
   }
   if (typeof lockfile !== 'string') throw new TypeError(LOCKFILE)
-  for (const [name, value] of Object.entries({ workspace, npmrc })) {
-    if (value !== undefined && typeof value !== 'string') throw new TypeError(`${name} must be a string, or left out`)
-  }
+  checkTexts({ workspace, npmrc })
   return { reading: false, lockfile, manifests, workspace, npmrc, patches }
 }
 
@@ -168,13 +161,10 @@ export function manifestsOf(inputs, lockfile, pnpm) {
     return { manifests, ...installs, workspace: workspaceOf(workspace, inputs.workspace, installs.major, () => manifests.get('.')) }
   }
   const { project } = inputs
-  const installs = pnpmOf(pnpm, () => readRoot(project))
-  const text = readWorkspaceText(project, installs.major)
-  const effective = workspaceOf(readWorkspace(text), text, installs.major, () => readRoot(project))
-  const packages = packagesOf(effective)
+  const { packages, ...installs } = readInstalls(project, pnpm)
   checkWorkspace(Object.keys(lockfile.importers), packages, installs.major)
   const ids = findProjects(project, packages, installs.major)
-  return { manifests: readManifests(readManifestTexts(project, ids), lockfile), ...installs, workspace: effective }
+  return { manifests: readManifests(readManifestTexts(project, ids), lockfile), ...installs }
 }
 
 export function patchesOf(inputs, configured) {

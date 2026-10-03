@@ -7,17 +7,15 @@
 import { EMPTY } from '../bytes.js'
 import { isFile } from '../entry.js'
 import { ArchiveError, located } from '../error.js'
-import { BLOCK, decodeHeader, isDevice, isZeroBlock, untilNul } from './header.js'
+import { BLOCK, EXTENDED_TYPEFLAGS, TYPEFLAGS, decodeHeader, isDevice, isZeroBlock, untilNul } from './header.js'
 import { Names, cleanNames } from '../names.js'
 import { Records, decodePax } from './pax.js'
 import { decodeUtf8, hasUnsafe, quote } from '../text.js'
 
-// NUL is the pre-POSIX regular file.
-const TYPES = new Map([
-  [0x30, 'file'], [0, 'file'], [0x31, 'hardlink'], [0x32, 'symlink'], [0x33, 'character-device'],
-  [0x34, 'block-device'], [0x35, 'directory'], [0x36, 'fifo'], [0x37, 'contiguous-file'],
-])
-const EXTENDED = new Map([[0x78, 'pax'], [0x67, 'global'], [0x4c, 'longname'], [0x4b, 'longlink']])
+// Type flag → name. NUL is the pre-POSIX regular file.
+const byFlag = (flags) => Object.entries(flags).map(([name, flag]) => [flag, name])
+const TYPES = new Map([...byFlag(TYPEFLAGS), [0, 'file']])
+const EXTENDED = new Map(byFlag(EXTENDED_TYPEFLAGS))
 const MAX_EXTENDED = 1 << 20
 
 // A sparse file is stored as a map and a body that is not the file, so

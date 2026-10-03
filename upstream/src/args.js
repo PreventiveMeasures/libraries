@@ -39,6 +39,7 @@ export function isRepo(value) {
 }
 
 export const isStrings = (value) => Array.isArray(value) && value.every((item) => typeof item === 'string')
+export const isIterable = (value) => typeof value?.[Symbol.iterator] === 'function' && typeof value !== 'string'
 export const sameName = (a, b) => typeof a === 'string' && a.toLowerCase() === b.toLowerCase()
 export const isTagName = (value) => isString(value, 255) && !BAD_REF.test(value)
 export const isRefName = (value) => isTagName(value) && !/^(?:@$|-)/u.test(value)
@@ -53,6 +54,16 @@ export function assertArgs(method, options, spec, name) {
   assert.ok(isPlainObject(options), `${method}: ${name ?? 'options'} must be an options object, got ${show(options)}`)
   for (const key of Reflect.ownKeys(options)) assert.ok(Object.hasOwn(spec, key), `${method}: unknown option ${label(key)}`)
   for (const [key, check] of Object.entries(spec)) check?.(method, label(key), options[key])
+}
+
+// The names a resolve*Repos call is given, each checked and given once,
+// and its options.
+export function assertNames(method, what, names, options, assertName) {
+  assert.ok(isIterable(names), `${method}: ${what} must be an iterable of names`)
+  assertArgs(method, options, { cachedOnly: optional(assertBoolean) })
+  const unique = [...new Set(names)]
+  for (const name of unique) assertName(method, 'name', name)
+  return unique
 }
 
 export const assertBoolean = assertion('a boolean', (value) => typeof value === 'boolean')
@@ -84,5 +95,13 @@ export const assertSoldeerName = assertion('a Soldeer package name', matches(/^(
 // Soldeer takes any version but an empty one. Its registry has semver
 // (`5.7.0-rc.0`, `1.0.2-solc-0.8-simulate`), bare numbers and commit hashes.
 export const assertSoldeerVersion = assertion('letters, digits, `.`, `_`, `+` and `-`', matches(/^(?=.{1,128}$)[\dA-Za-z][\w.+-]*$/u))
+// A package's name and version, as a registry's getters take them.
+const assertNameVersion = (assertName, assertVersion) => (method, name, version) => {
+  assertName(method, 'name', name)
+  assertVersion(method, 'version', version)
+}
+export const assertCrate = assertNameVersion(assertCrateName, assertCrateVersion)
+export const assertPackage = assertNameVersion(assertPackageName, assertPackageVersion)
+export const assertSoldeerPackage = assertNameVersion(assertSoldeerName, assertSoldeerVersion)
 // As Cargo.lock and soldeer.lock write a checksum.
 export const assertSha256 = assertion('a sha256 in lowercase hex', matches(/^[\da-f]{64}$/u))

@@ -1,5 +1,11 @@
 import { fingerprintOf } from './finding-id.js'
 
+// Severity words as the markdown reports spell them, upper-cased, onto the ladder.
+export const SEVERITY_WORDS = new Map([
+  ['CRITICAL', 'critical'], ['HIGH', 'high'], ['MEDIUM', 'medium'], ['LOW', 'low'],
+  ['INFO', 'informational'], ['INFORMATIONAL', 'informational'], ['INFORMATIVE', 'informative'],
+])
+
 // Informative is an input spelling of the existing Informational tier.
 export function canonicalSeverity(value) {
   return typeof value === 'string' && value.trim().toLowerCase() === 'informative' ? 'informational' : value

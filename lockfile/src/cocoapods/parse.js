@@ -106,23 +106,17 @@ function readSpecRepos(node) {
   return repos
 }
 
-function known(roots, root, here) {
-  if (!(root in roots)) throw new LockfileError(`${quote(root)} is the root of no pod in PODS`, here)
-  return roots[root]
-}
-
 // Each root's checksum, spec repo, external source and checkout options,
 // from the sections by root, held to each other: each section's of a root
 // of PODS, each root of a checksum and one source, a spec repo or an
 // external one, with the checkout options CocoaPods keeps of that.
 function checkRoots(roots, placeOf, { checksums, repos, externals, checkouts }) {
-  const fill = (map, property) => {
-    for (const [root, { value, where: here }] of map) known(roots, root, here)[property] = value
+  for (const [map, property] of [[checksums, 'checksum'], [repos, 'repo'], [externals, 'external'], [checkouts, 'checkout']]) {
+    for (const [root, { value, where: here }] of map) {
+      if (!(root in roots)) throw new LockfileError(`${quote(root)} is the root of no pod in PODS`, here)
+      roots[root][property] = value
+    }
   }
-  fill(checksums, 'checksum')
-  fill(repos, 'repo')
-  fill(externals, 'external')
-  fill(checkouts, 'checkout')
   for (const [root, { where: here }] of checkouts) {
     if (!externals.has(root)) throw new LockfileError(`${quote(root)} has no external source, and CocoaPods keeps checkout options of none other`, here)
   }

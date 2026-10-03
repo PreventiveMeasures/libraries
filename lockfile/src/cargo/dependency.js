@@ -1,10 +1,10 @@
 import { parsePlatform } from '../crate/cargo-platform.js'
 import { parseVersionReq } from '../crate/semver.js'
-import { LockfileError, at, quote } from '../error.js'
+import { LockfileError, at, quote, raise } from '../error.js'
 import { checkRepo } from '../names.js'
 import { field, optional, orEmpty } from '../shape.js'
 import { isTable } from '../toml/value.js'
-import { boolean, checkCrateName, checkFeature, entries, refuse, string, strings, table, tableOf } from './shape.js'
+import { boolean, checkCrateName, checkFeature, entries, refuse, string, strings, stringsOf, table, tableOf } from './shape.js'
 import { differ, sourceOf } from './sources.js'
 
 export const NIGHTLY = 'which only a nightly cargo reads, is not supported'
@@ -91,11 +91,17 @@ export function readSpec(value, where, name, edition) {
   return { package: read('package', checkCrateName) ?? name, version, source, optional: read('optional', boolean) ?? false, defaultFeatures, features }
 }
 
+// A table of the `fields` alone that inherits from the workspace, by
+// `workspace = true`, which a workspace root has to be given for.
+export function checkInherits(value, where, fields, workspace) {
+  table(value, where, fields)
+  if (value.workspace !== true) throw refuse('true', value.workspace, at(where, 'workspace'))
+  if (workspace === undefined) throw new LockfileError('inherits from a workspace, and no workspace root is given', where)
+}
+
 // An inheriting entry can add features, but not turn the default ones off.
 function inherit(value, where, name, context) {
-  table(value, where, INHERITED)
-  if (value.workspace !== true) throw refuse('true', value.workspace, at(where, 'workspace'))
-  if (context.workspace === undefined) throw new LockfileError('inherits from a workspace, and no workspace root is given', where)
+  checkInherits(value, where, INHERITED, context.workspace)
   const spec = context.workspace.dependencies[name]
   if (spec === undefined) throw new LockfileError(`${quote(name)} is not in [workspace.dependencies]`, where)
   const { features, defaultFeatures } = readFeatures(value, where, context.edition)
@@ -153,7 +159,7 @@ export function featureValue(text) {
 // As cargo's build_feature_map: an implicit feature for each optional
 // dependency that no feature is named after or enables by `dep:`.
 export function featureMap(value, where, dependencies) {
-  const written = tableOf(value, where, checkFeature, strings)
+  const written = tableOf(value, where, checkFeature, stringsOf())
   const optionalDep = new Map()
   for (const dep of dependencies) optionalDep.set(dep.name, (optionalDep.get(dep.name) ?? false) || dep.optional)
   const explicit = new Set(Object.values(written).flat().map(featureValue).filter((item) => item.feature === undefined).map((item) => item.dep))
@@ -164,9 +170,7 @@ export function featureMap(value, where, dependencies) {
   const used = new Set()
   for (const [feature, list] of Object.entries(map)) {
     for (const item of list) {
-      const fail = (why) => {
-        throw new LockfileError(`${quote(item)} ${why}`, at(where, feature))
-      }
+      const fail = (why) => raise(`${quote(item)} ${why}`, at(where, feature))
       const { dep, feature: named, weak } = featureValue(item)
       if (dep === undefined) {
         if (named in written) continue

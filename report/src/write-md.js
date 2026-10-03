@@ -66,14 +66,6 @@ const DEFAULT_HOOKS = {
   report: () => null,
 }
 
-function withDefaults(hooks) {
-  const out = {}
-  for (const [name, fallback] of Object.entries(DEFAULT_HOOKS)) {
-    out[name] = typeof hooks?.[name] === 'function' ? hooks[name] : fallback
-  }
-  return out
-}
-
 // Which producer a finding came from — a `source` marker, null for the
 // analyzer's own dump. Its own when it carries one: a re-imported
 // document that mixed products stamps each product's findings, and a
@@ -177,12 +169,7 @@ function headerList(doc, ctx, cases) {
 // in ladder order — an unknown tier last, as the report spelt it —
 // numbered through the document, each with its heading and anchor.
 function documentEntries(groups, ctx) {
-  const buckets = new Map()
-  for (const g of groups) {
-    const severity = displayedSeverity(g[0], ctx.severityMode) ?? 'informational'
-    if (!buckets.has(severity)) buckets.set(severity, [])
-    buckets.get(severity).push(g)
-  }
+  const buckets = Map.groupBy(groups, (g) => displayedSeverity(g[0], ctx.severityMode) ?? 'informational')
   const order = [...SEVERITIES, ...[...buckets.keys()].filter((s) => !SEVERITIES.includes(s))]
   const taken = new Set()
   const entries = []
@@ -205,23 +192,18 @@ function severityCounts(entries) {
   return counts
 }
 
+// What the summary counts of the reader's annotations, in its words.
+const ANNOTATION_COUNTS = [
+  ['flagged', (a) => a.flagged === true],
+  ['colour-marked', (a) => a.color],
+  ['commented', (a) => a.comment],
+  ['with a fix link', (a) => a.fix],
+]
+
 function annotationSummary(entries, ctx) {
-  const tally = { flagged: 0, marked: 0, commented: 0, fixed: 0 }
-  for (const { group } of entries) {
-    for (const f of group) {
-      const a = ctx.hooks.annotation(f)
-      if (!a) continue
-      if (a.flagged === true) tally.flagged++
-      if (a.color) tally.marked++
-      if (a.comment) tally.commented++
-      if (a.fix) tally.fixed++
-    }
-  }
-  const parts = []
-  if (tally.flagged) parts.push(`${tally.flagged} flagged`)
-  if (tally.marked) parts.push(`${tally.marked} colour-marked`)
-  if (tally.commented) parts.push(`${tally.commented} commented`)
-  if (tally.fixed) parts.push(`${tally.fixed} with a fix link`)
+  const annotations = entries.flatMap(({ group }) => group.map((f) => ctx.hooks.annotation(f))).filter(Boolean)
+  const parts = ANNOTATION_COUNTS.map(([words, has]) => [annotations.filter(has).length, words])
+    .filter(([n]) => n > 0).map(([n, words]) => `${n} ${words}`)
   return parts.length > 0 ? `Annotations: ${parts.join(', ')}.` : ''
 }
 
@@ -272,7 +254,7 @@ function severitySections(entries, ctx) {
 }
 
 export function writeMarkdown(doc = {}, hooks = {}) {
-  const h = withDefaults(hooks)
+  const h = Object.fromEntries(Object.entries(DEFAULT_HOOKS).map(([name, fallback]) => [name, typeof hooks?.[name] === 'function' ? hooks[name] : fallback]))
   const groups = (Array.isArray(doc.groups) ? doc.groups : [])
     .map((g) => (Array.isArray(g) ? g : [g]))
     .map((g) => g.filter((f) => f && typeof f === 'object'))

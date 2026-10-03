@@ -35,24 +35,21 @@ export function indexRowOf(obj) {
 // column, where a table has one, is parsed like any code reference.
 export function fromIndexRow(row, sevFallback = '') {
   const { severity, identitySeverity } = resolveSeverity(mapSeverity(row.severity), sevFallback, severityFromId(row.id))
-  const { file, line, locationLink } = parseCodeRef(row.location || '')
-  const finding = {
-    file: file || 'unknown',
-    line,
-    severity,
-    description: stripBold(row.title || row.id),
-  }
-  if (locationLink) finding.location = locationLink
-  else if (finding.file === 'unknown' && row.id) finding.location = `piolium:${row.id}`
-  // The fingerprint reads the same reference its own way — see
-  // parse-piolium-id.js.
-  finding._idBasis = frozenIdBasis({
-    severity: identitySeverity, description: finding.description, ref: row.location || '', id: row.id,
-  })
-  if (row.pocStatus) finding.pocStatus = row.pocStatus
-  if (row.status) finding.status = row.status
-  if (row.parent) finding.parent = row.parent
+  const finding = locatedFinding({ ref: row.location || '', id: row.id, severity, identitySeverity, description: stripBold(row.title || row.id) })
+  for (const key of ['pocStatus', 'status', 'parent']) if (row[key]) finding[key] = row[key]
   return normalizeFindingSeverity(finding)
+}
+
+// A finding at the code reference `ref` (`piolium:<id>` where it has no place — see fromIndexRow), its line from
+// `lineBullet` where `ref` has none. `_idBasis` is parse-piolium-id.js's own, frozen reading of `ref`, not
+// parseCodeRef's, which is presentation and free to improve: read that module's header before touching either.
+export function locatedFinding({ ref, lineBullet = '', id, severity, identitySeverity, description }) {
+  const { file, line, locationLink } = parseCodeRef(ref)
+  const finding = { file: file || 'unknown', line: line === '?' && lineBullet ? lineBullet : line, severity, description }
+  if (locationLink) finding.location = locationLink
+  else if (finding.file === 'unknown' && id) finding.location = `piolium:${id}`
+  finding._idBasis = frozenIdBasis({ severity: identitySeverity, description, ref, lineBullet, id })
+  return finding
 }
 
 // Findings rendered as a list: the mode outline asks for "links to
@@ -95,9 +92,7 @@ export function listFindings(body, sev, index) {
     if (id) finding.location = `piolium:${id}`
     else if (link) finding.location = link
     if (link.endsWith('report.md')) finding.reportPath = link
-    if (row?.pocStatus) finding.pocStatus = row.pocStatus
-    if (row?.status) finding.status = row.status
-    if (row?.parent) finding.parent = row.parent
+    for (const key of ['pocStatus', 'status', 'parent']) if (row?.[key]) finding[key] = row[key]
     out.push({ id, finding: normalizeFindingSeverity(finding, identitySeverity) })
   }
   return out

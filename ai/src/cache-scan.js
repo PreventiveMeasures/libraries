@@ -1,7 +1,6 @@
 import { Queue } from '@chalker/queue'
 
-import { assert } from '#assert'
-import { cacheDir, cacheKey, isInvalidEntry, modelSubdir, readCachedJSON, runTypeMigrations } from './cache.js'
+import { cacheDir, cacheKey, isInvalidEntry, modelDirName, modelSubdir, readCachedJSON, runTypeMigrations } from './cache.js'
 import { join, move, moveIfExists, readDirOrEmpty, readText } from '#fs'
 import { canAdaptive } from './models.js'
 
@@ -15,10 +14,6 @@ import { canAdaptive } from './models.js'
 // type is everything before the last dash — dashes inside a type (`null-low`) survive. Returns null
 // for a name modelSubdir didn't write, which a caller leaves alone rather than guessing about.
 const SUBDIR_RE = /^(?<type>.+)-[0-9a-f]{8}$/u
-
-function subdirType(name) {
-  return SUBDIR_RE.exec(name)?.groups.type ?? null
-}
 
 function flattenContent(content) {
   if (typeof content === 'string') return content
@@ -67,6 +62,14 @@ function requestUserContent(req) {
   return flattenContent(user.content)
 }
 
+// The request a cache entry was keyed from. Cache JSON is either a single { request, response } or
+// an array of turns, and serializeHistory nulls `request` on every entry but the first, so only
+// json[0].request is reliable — fine, the key was hashed from the first turn's request.
+function storedRequest(json) {
+  const firstTurn = Array.isArray(json) ? json[0] : json
+  return firstTurn?.request ?? firstTurn
+}
+
 // Enumerate cached request/response entries for one request config (type + model + systemPrompt +
 // think/effort), returning each entry's on-disk key alongside the userContent recovered from its
 // stored request. Only entries whose stored key reproduces from their own userContent under the
@@ -97,11 +100,7 @@ export async function listCacheEntries(type, model, systemPrompt, { think = fals
       const key = dirent.name.slice(0, -'.json'.length)
       const json = await readCachedJSON(dir, key)
       if (!json) return
-      // Cache JSON is either a single { request, response } or an array of turns. serializeHistory
-      // nulls `request` on every entry but the first, so only json[0].request is reliable here —
-      // fine, the key was hashed from the first turn's userContent.
-      const firstTurn = Array.isArray(json) ? json[0] : json
-      const userContent = requestUserContent(firstTurn?.request ?? firstTurn)
+      const userContent = requestUserContent(storedRequest(json))
       if (userContent === null) return
       if (await cacheKey(systemPrompt, userContent, { think, effort }) !== key) return
       out.push({ key, userContent })
@@ -122,15 +121,14 @@ export async function listCacheEntries(type, model, systemPrompt, { think = fals
 // holds entries this can't rehash — anything keyed on a bundleId, whose key cannot be recomputed
 // from the stored request — has to say so.
 export async function rehashCache(model, { skipType = () => false } = {}) {
-  const safeModel = model.replaceAll('/', '-')
-  assert(/^[a-zA-Z0-9._:-]+$/u.test(safeModel), `Invalid model name: ${model}`)
+  const safeModel = modelDirName(model)
   const modelDir = join(cacheDir(), safeModel)
 
   const result = { scanned: 0, renamed: 0, unchanged: 0, skipped: 0, errors: 0 }
   const subdirs = await readDirOrEmpty(modelDir)
   for (const entry of subdirs) {
     if (!entry.isDirectory()) continue
-    const entryType = subdirType(entry.name)
+    const entryType = SUBDIR_RE.exec(entry.name)?.groups.type ?? null
     if (entryType !== null && skipType(entryType)) continue
     const dir = join(modelDir, entry.name)
     const files = await readDirOrEmpty(dir)
@@ -150,11 +148,7 @@ export async function rehashCache(model, { skipType = () => false } = {}) {
         continue
       }
 
-      // Cache JSON is either a single { request, response } or an array of turns. Only
-      // json[0].request survives serializeHistory's slimming (later entries are nulled); the key
-      // recomputes from the first turn anyway.
-      const firstTurn = Array.isArray(parsed) ? parsed[0] : parsed
-      const keyInput = anthropicRequestKey(firstTurn?.request ?? firstTurn, model)
+      const keyInput = anthropicRequestKey(storedRequest(parsed), model)
       if (!keyInput) {
         result.skipped += 1
         continue

@@ -15,10 +15,10 @@ export function kind(value) {
   return `the ${typeof value} ${String(value)}`
 }
 
-// The readers of a value of a primitive kind and of a mapping, refusing what
-// else they are given as `describe` describes it: the YAML and JSON readers'
-// here, TOML's in toml/shape.js, whose mapping is a table of keys.
-export function primitives(describe, isMapping, noun, key) {
+// The readers of a primitive value, a mapping and a `list`, refusing what
+// else they are given as `describe` describes it: the YAML and JSON
+// readers' here, TOML's in toml/shape.js, of tables of keys and arrays.
+export function primitives(describe, isMapping, noun, key, list) {
   const refuse = (expected, value, where) => new LockfileError(`expected ${expected}, found ${describe(value)}`, where)
   const check = (test, expected) => (value, where) => {
     if (!test(value)) throw refuse(expected, value, where)
@@ -40,6 +40,7 @@ export function primitives(describe, isMapping, noun, key) {
     record,
     // A mapping's entries, each with where it is.
     entries: (value, where) => Object.entries(record(value, where)).map(([name, item]) => [name, item, at(where, name)]),
+    sequence: check(Array.isArray, list),
     string: check((value) => typeof value === 'string', 'a string'),
     boolean: check((value) => typeof value === 'boolean', 'true or false'),
     // A size in bytes, or any count: an integer a number holds exactly.
@@ -47,8 +48,8 @@ export function primitives(describe, isMapping, noun, key) {
   }
 }
 
-const isMapping = (value) => typeof value === 'object' && value !== null && !Array.isArray(value)
-export const { refuse, record, entries, string, boolean, count } = primitives(kind, isMapping, 'a mapping', 'field')
+export const isMapping = (value) => typeof value === 'object' && value !== null && !Array.isArray(value)
+export const { refuse, record, entries, sequence, string, boolean, count } = primitives(kind, isMapping, 'a mapping', 'field', 'a sequence')
 
 // A mapping that may be left out, as an empty one then. A null is not left
 // out, and whatever reads it as a mapping refuses it.
@@ -59,7 +60,7 @@ export const orEmpty = (value) => (value === undefined ? EMPTY : value)
 export const optional = (read) => (value, where) => (value === undefined ? undefined : read(value, where))
 
 // A field of `holder` that may be left out, so read.
-export const field = (holder, key, where, read) => optional(read)(holder[key], at(where, key))
+export const field = (holder, key, where, read) => (holder[key] === undefined ? undefined : read(holder[key], at(where, key)))
 
 export function text(value, where) {
   if (string(value, where) === '') throw new LockfileError('expected a non-empty string', where)
@@ -69,14 +70,13 @@ export function text(value, where) {
 // A list of non-empty strings, as a fresh array; `check` holds each to more
 // than that.
 export function texts(value, where, check = (item) => item) {
-  if (!Array.isArray(value)) throw refuse('a sequence', value, where)
-  return value.map((item, index) => check(text(item, `${where}[${index}]`), `${where}[${index}]`))
+  return sequence(value, where).map((item, index) => check(text(item, `${where}[${index}]`), `${where}[${index}]`))
 }
 
-// A mapping, as a fresh one of what `read(item, where, key)` makes of each.
-export function mapping(value, where, read) {
+// A fresh mapping of `read(item, where, key)` of each entry `list` gives.
+export function mapping(value, where, read, list = entries) {
   const map = Object.create(null)
-  for (const [key, item, here] of entries(value, where)) map[key] = read(item, here, key)
+  for (const [key, item, here] of list(value, where)) map[key] = read(item, here, key)
   return map
 }
 
@@ -101,9 +101,15 @@ export const checkerOf = (read) => (is, what) => (value, where) => {
   return checked
 }
 
+// The first of `items` an earlier one has the `id` of.
+export function repeated(items, id = (item) => item) {
+  const seen = new Set()
+  return items.find((item) => seen.size === seen.add(id(item)).size)
+}
+
 // The options object a reader takes, of the `names` alone.
 export function checkOptions(options, names) {
-  if (typeof options !== 'object' || options === null || Array.isArray(options)) throw new TypeError('expected an options object')
+  if (!isMapping(options)) throw new TypeError('expected an options object')
   const unknown = Object.keys(options).find((key) => !names.includes(key))
   if (unknown !== undefined) throw new TypeError(`unknown option ${quote(unknown)}, of ${names.join(', ')}`)
   return options

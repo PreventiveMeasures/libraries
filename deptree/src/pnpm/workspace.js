@@ -7,6 +7,7 @@
 import { compareNames, normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { reach, wildcard } from '../matcher.js'
+import { UNSAFE, isInside } from '../mount.js'
 import { typeOf } from '../project.js'
 
 const UNSUPPORTED = /[?[\]{}()\\]/u
@@ -172,9 +173,8 @@ export function checkWorkspace(ids, packages, major = 10) {
 }
 
 // The importer keys @preventive/lockfile takes for a project.
-const UNSAFE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}\\]/u
 export function checkProjectId(id, where) {
-  if (id.split('/').some((name) => name === '' || name === '.' || name === '..' || UNSAFE.test(name)) || /^[A-Za-z]:/u.test(id)) {
+  if (!isInside(id) || UNSAFE.test(id) || /^[A-Za-z]:/u.test(id)) {
     throw new DeptreeError('expected a directory under the lockfile\'s, by its path from there in normal form, as a lockfile can key an importer', where)
   }
 }

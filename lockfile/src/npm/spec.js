@@ -4,7 +4,7 @@
 // otherwise, or not at all, is refused, as npm then holds nothing to be what
 // it asks for. Paths come back from the lockfile's directory, as `from` is.
 
-import { LockfileError, quote } from '../error.js'
+import { LockfileError, attempt, quote } from '../error.js'
 import { checkName, resolvePath } from '../names.js'
 import { fromHostedUrl } from './hosted.js'
 
@@ -16,7 +16,10 @@ const FILE_TYPE = /\.(?:tgz|tar\.gz|tar)$/iu
 
 // Whether npm takes a `file:` path for a tarball, or for a directory.
 export const isTarball = (path) => FILE_TYPE.test(path)
-const GIT_PROTOCOLS = new Set(['git:', 'git+http:', 'git+https:', 'git+rsync:', 'git+ftp:', 'git+ssh:'])
+
+// The protocols npm-package-arg reads as git's: not `git+file:`, nor any
+// other, which npm reads as no repository.
+export const GIT_PROTOCOL = /^git(?:\+(?:https?|rsync|ftp|ssh))?:/u
 
 const unread = (spec, why) => new LockfileError(`${quote(spec)} is ${why}`)
 
@@ -46,13 +49,9 @@ function gitAttributes(spec, committish) {
   return git
 }
 
-function decodeComponent(spec, value) {
-  try {
-    return decodeURIComponent(value)
-  } catch {
-    throw unread(spec, 'a git spec npm cannot decode')
-  }
-}
+const decodeComponent = (spec, value) => attempt(() => decodeURIComponent(value), () => {
+  throw unread(spec, 'a git spec npm cannot decode')
+})
 
 // fromURL: a repository by its URL, the fetchSpec npm compares two by, or
 // a tarball by its own. An scp-style `git+ssh://user@host:path` is no URL,
@@ -63,7 +62,7 @@ function fromUrl(spec) {
   const url = URL.parse(spec)
   if (url === null) throw unread(spec, 'not a URL npm reads')
   if (url.protocol === 'http:' || url.protocol === 'https:') return { type: 'remote', url: spec }
-  if (!GIT_PROTOCOLS.has(url.protocol)) throw unread(spec, `of a protocol npm does not read, ${quote(url.protocol)}`)
+  if (!GIT_PROTOCOL.test(url.protocol)) throw unread(spec, `of a protocol npm does not read, ${quote(url.protocol)}`)
   const attributes = gitAttributes(spec, url.hash.slice(1))
   url.hash = ''
   return { type: 'git', hosted: undefined, fetchSpec: url.href.replace(/^git\+/u, ''), ...attributes }

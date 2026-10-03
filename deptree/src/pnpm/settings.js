@@ -77,9 +77,8 @@ function fromManifest(manifest, major) {
   }
   const { resolutions } = manifest
   if (resolutions !== undefined || Object.hasOwn(pnpm, 'overrides')) {
-    const where = 'package.json: resolutions and pnpm.overrides'
     const value = { ...(resolutions === undefined ? {} : readers.mapping(resolutions, 'package.json: resolutions')), ...(Object.hasOwn(pnpm, 'overrides') ? readers.mapping(pnpm.overrides, 'package.json: pnpm.overrides') : {}) }
-    settings.set('overrides', { value, where, read: READ.overrides })
+    settings.set('overrides', { value, where: 'package.json: resolutions and pnpm.overrides', read: READ.overrides })
   }
   return settings
 }
@@ -108,11 +107,8 @@ function fromWorkspace(workspace, major, pinned) {
 // among it.
 function fromWorkspace9(workspace) {
   readers.mapping(workspace, 'pnpm-workspace.yaml')
-  const settings = new Map()
-  for (const name of ['packages', 'catalog', 'catalogs']) {
-    if (workspace[name] != null) settings.set(name, { value: workspace[name], where: `pnpm-workspace.yaml: ${name}`, read: READ[name] })
-  }
-  return settings
+  const names = ['packages', 'catalog', 'catalogs'].filter((name) => workspace[name] != null)
+  return new Map(names.map((name) => [name, { value: workspace[name], where: `pnpm-workspace.yaml: ${name}`, read: READ[name] }]))
 }
 
 const PUBLIC_9 = ['*eslint*', '*prettier*']

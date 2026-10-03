@@ -217,6 +217,15 @@ export function closesFence(marker, line) {
   return fence !== null && fence[2][0] === marker[0] && fence[2].length >= marker.length && !fence[3].trim()
 }
 
+// fenceRanges' ranges come sorted and disjoint, each end exclusive: the
+// first to end past `index` is the only one that can hold it.
 export function inFence(ranges, index) {
-  return ranges.some(([start, end]) => index >= start && index < end)
+  let lo = 0
+  let hi = ranges.length
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    if (ranges[mid][1] <= index) lo = mid + 1
+    else hi = mid
+  }
+  return lo < ranges.length && index >= ranges[lo][0]
 }

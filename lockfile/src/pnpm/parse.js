@@ -12,7 +12,7 @@
 import { parseYamlStream } from '../yaml/parse.js'
 import { fromBase32 } from '@exodus/bytes/base32.js'
 import { fromHex } from '@exodus/bytes/hex.js'
-import { LockfileError, at, quote } from '../error.js'
+import { LockfileError, at, attempt, quote } from '../error.js'
 import { KINDS, unreached } from '../graph.js'
 import { checkIntegrity, checkRelative } from '../names.js'
 import { boolean, count, field, kind, mapping, orEmpty, record, string, text, textMap, texts } from '../shape.js'
@@ -48,13 +48,7 @@ const readCatalogs = (value, where) => mapping(orEmpty(value), where, (names, he
 // many bytes. Either decoder takes either case, and refuses all else.
 const fromBase32Bare = (hash) => fromBase32(hash, { padding: false })
 
-function isHash(hash, bytes, decode) {
-  try {
-    return hash === hash.toLowerCase() && decode(hash).length === bytes
-  } catch {
-    return false
-  }
-}
+const isHash = (hash, bytes, decode) => attempt(() => hash === hash.toLowerCase() && decode(hash).length === bytes, () => false)
 
 // pnpm 9 and 10 write a patch as its hash and the path of its file; pnpm 11
 // and later as the hash alone: an md5 in base32 from pnpm 9, a sha256 in hex.

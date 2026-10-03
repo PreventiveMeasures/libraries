@@ -31,9 +31,10 @@
 
 import { frozenIdBasis } from './parse-md-id.js'
 import { normalizeFindingSeverity } from './severity.js'
-import { LIST_MARKER_RE, fenceRanges, findMdLink, inFence, normalizeNewlines, splitHeadingLine, unescapeMd } from './md-structure.js'
+import { SEVERITIES } from './finding.js'
+import { LIST_MARKER_RE, findMdLink, normalizeNewlines, splitHeadingLine, splitUnfenced, unescapeMd } from './md-structure.js'
 
-const VALID_SEVERITIES = new Set(['critical', 'high', 'medium', 'low', 'high_bug', 'bug', 'informational', 'informative'])
+const VALID_SEVERITIES = new Set([...SEVERITIES, 'informative'])
 
 export function parseMarkdownFindings(content) {
   const text = normalizeNewlines(content).trim()
@@ -45,15 +46,8 @@ export function parseMarkdownFindings(content) {
   // Each finding starts at a line beginning with `# ` outside fenced
   // code — a `# comment` in a shell or Python snippet is the snippet's,
   // not a finding of its own. Empty chunks drop out.
-  const ranges = fenceRanges(text)
-  const starts = [...text.matchAll(/^# /gmu)].map((m) => m.index).filter((at) => !inFence(ranges, at))
-  const blocks = starts.map((at, i) => text.slice(at + 2, starts[i + 1])).filter((b) => b.trim().length > 0)
-
-  const findings = []
-  for (const block of blocks) {
-    const f = parseBlock(block)
-    if (f) findings.push(f)
-  }
+  const blocks = splitUnfenced(text, /^# /gmu).slice(1).filter((b) => b.trim().length > 0)
+  const findings = blocks.map((block) => parseBlock(block)).filter(Boolean)
   if (findings.length === 0) return null
 
   // `source` is what the renderer recognises the product by — the page
@@ -71,7 +65,8 @@ function parseBlock(block) {
 
   const { sectionsText, metaText } = splitBody(body)
   const sections = parseSections(sectionsText)
-  const meta = parseMeta(metaText)
+  // `**Label:** value` per line, keyed case-folded.
+  const meta = Object.fromEntries([...metaText.matchAll(/\*\*([^:]+):\*\*\s*(.+)/gu)].map((m) => [m[1].trim().toLowerCase(), m[2].trim()]))
   const evidence = evidenceRows(sections.evidence || '')
   // `## Location`, else the FIRST `## Evidence` row — the primary site
   // by the format's convention. Every row, this one included, also
@@ -146,22 +141,8 @@ function splitBody(body) {
 // Named sections, split on `## Header`. Whatever precedes the first
 // heading is dropped.
 function parseSections(sectionsText) {
-  const sections = {}
-  for (const part of sectionsText.split(/^## /mu).slice(1)) {
-    const { title, body } = splitHeadingLine(part)
-    const header = title.toLowerCase()
-    if (header) sections[header] = body.trim()
-  }
-  return sections
-}
-
-// `**Label:** value` per line, keyed case-folded.
-function parseMeta(metaText) {
-  const meta = {}
-  for (const m of metaText.matchAll(/\*\*([^:]+):\*\*\s*(.+)/gu)) {
-    meta[m[1].trim().toLowerCase()] = m[2].trim()
-  }
-  return meta
+  const parts = sectionsText.split(/^## /mu).slice(1).map((part) => splitHeadingLine(part))
+  return Object.fromEntries(parts.filter((p) => p.title).map((p) => [p.title.toLowerCase(), p.body.trim()]))
 }
 
 // One `## Location` line or one `## Evidence` row, a markdown link

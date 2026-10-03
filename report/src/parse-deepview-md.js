@@ -54,8 +54,9 @@
 // rather than as a file no format recognises.
 
 import { locationLabel } from './finding.js'
-import { H2_RE, H3_RE, H4_RE, normalizeNewlines, splitByHeading, splitLeading } from './md-structure.js'
-import { applyFact, buildDescription, narrativeSplit, readAnalyzer, readEvidence, readProse, readRepository, splitFacts, splitSections, tierOf } from './parse-deepview-fields.js'
+import { H2_RE, H3_RE, H4_RE, H5_RE, normalizeNewlines, splitByHeading, splitLeading } from './md-structure.js'
+import { applyFact, buildDescription, narrativeSplit, readAnalyzer, readEvidence, readRepository, splitFacts, tierOf } from './parse-deepview-fields.js'
+import { unescapeHeadings } from './md-text.js'
 import { normalizeFindingSeverity } from './severity.js'
 
 const MARKER_RE = /^<!--\s*DeepView findings export\b[^>]*-->/u
@@ -106,17 +107,20 @@ function readHeader(head) {
 // `#### Case i of n` under it.
 function readEntry({ heading, body }, tier) {
   const title = heading.trim().replace(/^\d+\.\s+/u, '')
-  const cases = splitLeading(body, H4_RE).subs.filter((s) => CASE_RE.test(s.heading.trim()))
-  if (cases.length === 0) return [readCase(body, 4, title, tier)]
-  return cases.map((s) => readCase(s.body, 5, title, tier))
+  const cases = splitByHeading(body, H4_RE).filter((s) => CASE_RE.test(s.heading.trim()))
+  if (cases.length === 0) return [readCase(body, H4_RE, title, tier)]
+  return cases.map((s) => readCase(s.body, H5_RE, title, tier))
 }
 
 // One case's text into a finding: the facts, the description its lead
 // and sections add up to, the evidence, the narrative fields. The
 // Analyzer fact rides beside it for `assemble` to settle report-level.
-function readCase(body, depth, entryTitle, tier) {
+function readCase(body, sectionRe, entryTitle, tier) {
   const { title, facts, rest } = splitFacts(body)
-  const { lead, sections } = splitSections(rest, depth)
+  // Its sections, `#### ` under a finding's heading and `##### ` under a
+  // case's — outside fences only, so such a line in a snippet stays there.
+  const { head, subs } = splitLeading(rest, sectionRe)
+  const sections = subs.map((s) => ({ label: s.heading.trim(), body: s.body.trim() }))
   const f = { file: 'unknown', line: '?' }
   let analyzer = null
   for (const [label, value] of facts) {
@@ -129,14 +133,14 @@ function readCase(body, depth, entryTitle, tier) {
   const name = title || entryTitle
   const named = name !== 'Untitled finding' && name !== locationLabel(f)
   const own = sections.filter((s) => !OWN_SECTIONS.has(s.label.toLowerCase()))
-    .map((s) => ({ label: s.label, body: readProse(s.body) }))
+    .map((s) => ({ label: s.label, body: unescapeHeadings(s.body) }))
   const { paragraphs, fields } = narrativeSplit(own)
-  f.description = buildDescription(named ? name : '', readProse(lead), paragraphs)
+  f.description = buildDescription(named ? name : '', unescapeHeadings(head.trim()), paragraphs)
   const evidence = sections.filter((s) => s.label.toLowerCase() === 'evidence').flatMap((s) => readEvidence(s.body))
   if (evidence.length > 0) f.evidence = evidence
   for (const [field, value] of fields) f[field] = value
   const reason = sections.find((s) => s.label.toLowerCase() === 'severity correction')
-  if (reason?.body) f.correctedSeverityReason = readProse(reason.body)
+  if (reason?.body) f.correctedSeverityReason = unescapeHeadings(reason.body)
   return { finding: normalizeFindingSeverity(f), analyzer }
 }
 

@@ -60,7 +60,7 @@ export function dropProfile(dir) {
   profiles.delete(dir)
   try { removeProfileDir(dir) } catch { /* already gone, or not ours to touch */ }
   // Nothing of ours is left in this process to clean up after.
-  if (profiles.size === 0) removeExitCleanup()
+  if (profiles.size === 0) setExitCleanup(false)
 }
 
 // Whether the process that made a profile is still running: 'alive', 'dead', or 'unknown' where
@@ -111,7 +111,7 @@ const EXIT_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP']
 // process's signals past that is not a library's to do.
 function onSignal(signal) {
   removeAllProfiles()
-  removeExitCleanup()
+  setExitCleanup(false)
   // Only with nothing left listening. An application's own handler already had this signal; sending
   // it again would run that a second time. With ours gone and no other, re-sending is what restores
   // the default.
@@ -121,18 +121,13 @@ function onSignal(signal) {
 const signalHandlers = new Map(EXIT_SIGNALS.map((signal) => [signal, () => onSignal(signal)]))
 let exitHookInstalled = false
 
-function installExitCleanup() {
-  if (exitHookInstalled) return
-  exitHookInstalled = true
-  process.on('exit', removeAllProfiles)
-  for (const [signal, handler] of signalHandlers) process.on(signal, handler)
-}
-
-function removeExitCleanup() {
-  if (!exitHookInstalled) return
-  exitHookInstalled = false
-  process.removeListener('exit', removeAllProfiles)
-  for (const [signal, handler] of signalHandlers) process.removeListener(signal, handler)
+// Installs the exit and signal hooks, or with `false` takes them out again.
+function setExitCleanup(install) {
+  if (exitHookInstalled === install) return
+  exitHookInstalled = install
+  const method = install ? 'on' : 'removeListener'
+  process[method]('exit', removeAllProfiles)
+  for (const [signal, handler] of signalHandlers) process[method](signal, handler)
 }
 
 // The root, once it is certainly ours. The mode on mkdir only lands when this creates the
@@ -157,7 +152,7 @@ function ourProfileRoot() {
 // already in place.
 export function claimProfile(modelDir, baseModel) {
   sweepStaleProfiles()
-  installExitCleanup()
+  setExitCleanup(true)
   const profile = mkdtempSync(join(ourProfileRoot(), PROFILE_PREFIX))
   profiles.add(profile)
   // Before anything slow, so a concurrent sweep can already see an owner.

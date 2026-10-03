@@ -19,8 +19,7 @@ export const sha256Hex = async (text, where) => hex(await digest('SHA-256', utf8
 const SHIFTS = [7, 12, 17, 22, 5, 9, 14, 20, 4, 11, 16, 23, 6, 10, 15, 21]
 const SINES = Array.from({ length: 64 }, (_, i) => Math.floor(Math.abs(Math.sin(i + 1)) * 2 ** 32) >>> 0)
 function md5(input) {
-  const blocks = Math.ceil((input.length + 9) / 64)
-  const padded = new Uint8Array(blocks * 64)
+  const padded = new Uint8Array(Math.ceil((input.length + 9) / 64) * 64)
   padded.set(input)
   padded[input.length] = 0x80
   const view = new DataView(padded.buffer)
@@ -38,10 +37,7 @@ function md5(input) {
       ;[a, d, c] = [d, c, b]
       b = (b + ((sum << shift) | (sum >>> (32 - shift)))) >>> 0
     }
-    state[0] = (state[0] + a) >>> 0
-    state[1] = (state[1] + b) >>> 0
-    state[2] = (state[2] + c) >>> 0
-    state[3] = (state[3] + d) >>> 0
+    for (const [i, word] of [a, b, c, d].entries()) state[i] = (state[i] + word) >>> 0
   }
   const bytes = new Uint8Array(16)
   const out = new DataView(bytes.buffer)

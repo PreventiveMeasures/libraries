@@ -80,10 +80,7 @@ function provides(entry, name, constraint) {
 function poolOf(entries) {
   const byName = new Map()
   for (const entry of entries) {
-    for (const name of namesOf(entry, true)) {
-      if (!byName.has(name)) byName.set(name, [])
-      byName.get(name).push(entry)
-    }
+    for (const name of namesOf(entry, true)) (byName.get(name) ?? byName.set(name, []).get(name)).push(entry)
   }
   return { entries, byName, provided: new Map() }
 }
@@ -105,14 +102,7 @@ function describe(entry) {
 // has one, or by minimum-stability for one that has none.
 function acceptable(entry, minimum, flags) {
   const stability = STABILITIES[entry.stability]
-  for (const name of namesOf(entry, true)) {
-    if (Object.hasOwn(flags, name)) {
-      if (stability <= STABILITIES[flags[name]]) return true
-    } else if (stability <= STABILITIES[minimum]) {
-      return true
-    }
-  }
-  return false
+  return [...namesOf(entry, true)].some((name) => stability <= STABILITIES[Object.hasOwn(flags, name) ? flags[name] : minimum])
 }
 
 // Two of one name, or of a name one replaces, Composer installs neither of.

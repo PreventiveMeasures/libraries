@@ -52,9 +52,8 @@ function effectivePlatform(pkg) {
 
 const current = (value, supported) => (supported ?? ['current']).map((item) => (item === 'current' ? value : item))
 
-const takesPlatform = (pkg, host, supported) => checkList(current(host.os, supported?.os), pkg.os ?? ['any'], host.major)
-  && checkList(current(host.cpu, supported?.cpu), pkg.cpu ?? ['any'], host.major)
-  && (host.libc === 'unknown' || checkList(current(host.libc, supported?.libc), pkg.libc ?? ['any'], host.major))
+const takesPlatform = (pkg, host, supported) => ['os', 'cpu', 'libc'].every((key) => (key === 'libc' && host.libc === 'unknown')
+  || checkList(current(host[key], supported?.[key]), pkg[key] ?? ['any'], host.major))
 
 const takesEngine = (engines, node) => !engines.node || satisfies(node, engines.node, { includePrerelease: true })
 
@@ -167,6 +166,17 @@ function projectKeys(lockfile, ids, walked) {
   return all
 }
 
+// Each key by `check`: false adds it to `skipped`, null to `incompatible`.
+function checkEach(keys, check, skipped = new Set()) {
+  const incompatible = new Set()
+  for (const key of keys) {
+    const ok = check(key)
+    if (ok === false) skipped.add(key)
+    if (ok === null) incompatible.add(key)
+  }
+  return { skipped, incompatible }
+}
+
 // pnpm 11's filterLockfileByImportersAndEngine, breadth first by edge kind:
 // an optional edge to a snapshot the host cannot run is not taken, a
 // required one is, with a warning; each reachable one not taken is left out.
@@ -187,20 +197,14 @@ function skippedSnapshots11(lockfile, check) {
     installed.add(key)
     queue.push(...edgesOf(pkg.dependencies, false), ...edgesOf(pkg.optionalDependencies, true))
   }
-  const skipped = new Set()
-  const incompatible = new Set()
-  for (const key of reached.keys()) {
-    const ok = check(key, lockfile.packages[key], !installed.has(key) || !required.has(key))
-    if (ok === false) skipped.add(key)
-    if (ok === null) incompatible.add(key)
-  }
+  const checked = checkEach(reached.keys(), (key) => check(key, lockfile.packages[key], !installed.has(key) || !required.has(key)))
   const seen = new Set(starts)
   for (const key of seen) {
     const pkg = lockfile.packages[key]
-    if (!installed.has(key) && pkg.optional) skipped.add(key)
+    if (!installed.has(key) && pkg.optional) checked.skipped.add(key)
     for (const edge of [...edgesOf(pkg.dependencies), ...edgesOf(pkg.optionalDependencies)]) seen.add(edge.key)
   }
-  return { skipped, incompatible }
+  return checked
 }
 
 // The snapshots left out, and those installed that the host cannot run.
@@ -231,12 +235,5 @@ export function skippedSnapshots(lockfile, context) {
     stack.push({ keys: [...next, ...projectKeys(lockfile, projects, walked)].values(), installable })
   }
   // @pnpm/deps.graph-builder checks the rest again, each on its own.
-  const incompatible = new Set()
-  for (const key of picked) {
-    if (skipped.has(key)) continue
-    const ok = check(key, lockfile.packages[key])
-    if (ok === false) skipped.add(key)
-    if (ok === null) incompatible.add(key)
-  }
-  return { skipped, incompatible }
+  return checkEach([...picked].filter((key) => !skipped.has(key)), (key) => check(key, lockfile.packages[key]), skipped)
 }

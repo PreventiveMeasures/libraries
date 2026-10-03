@@ -4,13 +4,8 @@
 // given twice as the last, where other readers may take the first; a
 // file it reads here is the one npm would write back.
 
-import { LockfileError, quote } from '../error.js'
-import { checkConflict, fail } from '../lines.js'
-
-// The line end after the opening brace and the indentation of the line
-// after, as json-parse-even-better-errors finds them for npm to write the
-// file again with.
-const FORMAT = /^\{(\r?\n)([\t ]+)"/u
+import { LockfileError, attempt, quote, raise } from '../error.js'
+import { checkConflict, fail, jsonLayout } from '../lines.js'
 
 // Deeper than any lockfile npm writes, and shallow enough to walk.
 const DEPTH = 16
@@ -39,16 +34,9 @@ function difference(text, written) {
 // npm reads the lockfile with parse-conflict-json.
 export function readJson(text) {
   checkConflict(text, 'npm')
-  const format = FORMAT.exec(text)
-  if (format === null) throw fail('expected "{" alone on the first line and an indented key on the next, as npm writes the file', 0)
-  let value
-  try {
-    value = JSON.parse(text)
-  } catch (error) {
-    throw new LockfileError(`not JSON: ${error.message}`)
-  }
+  const [eol, indent] = jsonLayout(text, 'npm')
+  const value = attempt(() => JSON.parse(text), (error) => raise(`not JSON: ${error.message}`))
   const records = toRecords(value, 0)
-  const [, eol, indent] = format
   const written = `${JSON.stringify(value, null, indent)}\n`.replaceAll('\n', eol)
   if (written !== text) throw difference(text, written)
   return records

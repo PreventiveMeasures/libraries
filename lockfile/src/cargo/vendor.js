@@ -1,9 +1,9 @@
 // Cargo finds a vendored package by the name and version its Cargo.toml
 // gives, not by its directory's name.
 
-import { LockfileError, at, quote } from '../error.js'
+import { LockfileError, at, attempt, quote, raise } from '../error.js'
 import { isHexSha256, isSegment, isWithin } from '../names.js'
-import { field } from '../shape.js'
+import { field, isMapping } from '../shape.js'
 import { parseToml } from '../toml/parse.js'
 import { isTable } from '../toml/value.js'
 import { checkCrateName, checkCrateVersion, table } from './shape.js'
@@ -19,14 +19,10 @@ function identify(text, where) {
 
 // JSON.parse would take the last of a key given twice.
 function parseJson(text, where) {
-  let value
-  try {
-    value = JSON.parse(text)
-  } catch (error) {
-    throw new LockfileError(`not JSON: ${error.message}`, where)
-  }
+  const value = attempt(() => JSON.parse(text), (error) => raise(`not JSON: ${error.message}`, where))
   // A key is a string a colon follows.
-  const written = [...text.matchAll(/"(?:[^"\\]|\\.)*"(\s*:)?/gsu)].filter((m) => m[1] !== undefined).length
+  let written = 0
+  for (const match of text.matchAll(/"(?:[^"\\]|\\.)*"(\s*:)?/gsu)) if (match[1] !== undefined) written++
   const count = (item) => {
     if (typeof item !== 'object' || item === null) return 0
     const values = Object.values(item)
@@ -39,12 +35,12 @@ function parseJson(text, where) {
 // `package` is null for a git source; cargo 1.9x adds a `$comment`.
 function readChecksum(text, where) {
   const value = parseJson(text, where)
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new LockfileError('expected an object', where)
+  if (!isMapping(value)) throw new LockfileError('expected an object', where)
   if (value.$comment !== undefined && typeof value.$comment !== 'string') throw new LockfileError('expected "$comment" to be a string', where)
   const keys = Object.keys(value).filter((key) => key !== '$comment').sort().join()
   if (keys !== 'files,package') throw new LockfileError('expected "files" and "package", and nothing else', where)
   if (value.package !== null && !isHexSha256(value.package)) throw new LockfileError('expected "package" to be a sha256 or null', where)
-  if (typeof value.files !== 'object' || value.files === null || Array.isArray(value.files)) throw new LockfileError('expected "files" to be an object', where)
+  if (!isMapping(value.files)) throw new LockfileError('expected "files" to be an object', where)
   const files = Object.create(null)
   for (const [path, sum] of Object.entries(value.files)) {
     if (!isWithin(path)) throw new LockfileError(`${quote(path)} is not a path within the package`, where)

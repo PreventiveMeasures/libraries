@@ -31,10 +31,7 @@ export function md5(text) {
       const next = (b + rotate((a + f + K[i] + input[block + g]) >>> 0, SHIFTS[round * 4 + (i % 4)])) >>> 0
       ;[a, b, c, d] = [d, next, b, c]
     }
-    state[0] = (state[0] + a) >>> 0
-    state[1] = (state[1] + b) >>> 0
-    state[2] = (state[2] + c) >>> 0
-    state[3] = (state[3] + d) >>> 0
+    for (const [index, word] of [a, b, c, d].entries()) state[index] = (state[index] + word) >>> 0
   }
   return state.map((word) => [0, 8, 16, 24].map((shift) => ((word >>> shift) & 0xff).toString(16).padStart(2, '0')).join('')).join('')
 }

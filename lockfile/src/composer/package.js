@@ -8,13 +8,11 @@
 // written.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkRefName, checkRelative, checkRemote, isCommit } from '../names.js'
-import { boolean, field, record, refuse, string } from '../shape.js'
+import { checkRefName, checkRelative, checkRemote, isCommit, isHexSha1, isHttpUrlAnyCase } from '../names.js'
+import { boolean, field, isMapping, mapping, record, refuse, sequence, string } from '../shape.js'
 import { keysOf } from './json.js'
 import { compareKeys, compareStrings, empty, lower, trim } from './php.js'
 import { normalize, parseConstraints, parseStability } from './semver.js'
-
-export const isRecord = (value) => typeof value === 'object' && value !== null && !Array.isArray(value)
 
 // A mapping's entries in the file's order, each with where it is. An empty
 // one is not read here: json.js refuses `{}` below the top.
@@ -53,13 +51,12 @@ export function plain(value, where) {
 }
 
 const nonEmpty = (value, where) => {
-  if (Array.isArray(value) ? value.length === 0 : !isRecord(value)) throw refuse('a non-empty mapping or sequence', value, where)
+  if (Array.isArray(value) ? value.length === 0 : !isMapping(value)) throw refuse('a non-empty mapping or sequence', value, where)
   return value
 }
 
 const list = (value, where) => {
-  if (!Array.isArray(value)) throw refuse('a sequence', value, where)
-  if (value.length === 0) throw new LockfileError('an empty sequence, which Composer does not write', where)
+  if (sequence(value, where).length === 0) throw new LockfileError('an empty sequence, which Composer does not write', where)
   return value
 }
 
@@ -235,15 +232,11 @@ function readSource(value, where) {
 
 const ARCHIVES = ['zip', 'tar', 'gzip', 'xz', 'rar', 'phar', 'file']
 
-// What HttpDownloader fetches: an http(s) URL, of its scheme in any case,
-// fetched as written, of no space or control the URL parser would drop.
-const isHttpUrl = (value) => /^https?:\/\//u.test(lower(value)) && !/[\s\p{Cc}]/u.test(value) && URL.canParse(value)
-
-// A dist's URL, or its mirror's: an http(s) one, but of a path dist, or a
-// path.
+// A dist's URL, or its mirror's: an http(s) one, of its scheme in any case,
+// as HttpDownloader fetches it, but of a path dist, or a path.
 function checkDistUrl(value, where, type) {
   const url = notOption(value, where)
-  if (type === 'path' || !isHttpUrl(url)) checkPath(url, where)
+  if (type === 'path' || !isHttpUrlAnyCase(url)) checkPath(url, where)
   return url
 }
 
@@ -256,7 +249,7 @@ function readDist(value, where) {
   if (type !== 'path' && !ARCHIVES.includes(type)) throw new LockfileError(`expected path or one of ${ARCHIVES.join(', ')}, which Composer installs from`, at(where, 'type'))
   const check = (url, here) => checkDistUrl(url, here, type)
   const shasum = field(value, 'shasum', where, string)
-  if (shasum !== undefined && shasum !== '' && !/^[\da-f]{40}$/u.test(shasum)) throw new LockfileError(`${quote(shasum)} is not a sha1 in lowercase hex, which Composer compares the download's with`, at(where, 'shasum'))
+  if (shasum !== undefined && shasum !== '' && !isHexSha1(shasum)) throw new LockfileError(`${quote(shasum)} is not a sha1 in lowercase hex, which Composer compares the download's with`, at(where, 'shasum'))
   return {
     type,
     url: check(value.url, at(where, 'url')),
@@ -292,23 +285,17 @@ function checkTargetDir(value, where) {
 }
 
 function readSuggest(value, where) {
-  const suggest = Object.create(null)
   sortedKeys(record(value, where), where)
-  for (const [name, reason, here] of entriesOf(value, where)) {
+  return mapping(value, where, (reason, here) => {
     if (trim(string(reason, here)) === 'self.version') throw new LockfileError('"self.version", which Composer writes as the package\'s version', here)
-    suggest[name] = reason
-  }
-  return suggest
+    return reason
+  }, entriesOf)
 }
 
-function readScripts(value, where) {
-  const scripts = Object.create(null)
-  for (const [event, listeners, here] of entriesOf(record(value, where), where)) {
-    if (!Array.isArray(listeners)) throw refuse('a sequence, as Composer writes even one listener', listeners, here)
-    scripts[event] = listeners.map((item, index) => string(item, `${here}[${index}]`))
-  }
-  return scripts
-}
+const readScripts = (value, where) => mapping(record(value, where), where, (listeners, here) => {
+  if (!Array.isArray(listeners)) throw refuse('a sequence, as Composer writes even one listener', listeners, here)
+  return listeners.map((item, index) => string(item, `${here}[${index}]`))
+}, entriesOf)
 
 function readKeywords(value, where) {
   const keywords = strings(value, where)
@@ -390,7 +377,7 @@ export function readPackage(value, where, dev) {
     autoload: free('autoload'),
     autoloadDev: free('autoload-dev'),
     notificationUrl: field(value, 'notification-url', where, (url, here) => {
-      if (!isHttpUrl(string(url, here))) throw new LockfileError(`${quote(url)} is not an http(s) URL, which Composer posts installs to`, here)
+      if (!isHttpUrlAnyCase(string(url, here))) throw new LockfileError(`${quote(url)} is not an http(s) URL, which Composer posts installs to`, here)
       return url
     }),
     includePath: field(value, 'include-path', where, strings) ?? [],

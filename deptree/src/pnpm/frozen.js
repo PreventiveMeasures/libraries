@@ -6,6 +6,7 @@ import { satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { own } from '../manifest.js'
+import { within } from '../mount.js'
 import { catalogEntry, catalogOf } from './overrides.js'
 
 const GIT_HOSTS = new Set(['github.com', 'gitlab.com', 'bitbucket.org'])
@@ -76,7 +77,6 @@ function specPath(dir, path, where) {
 }
 
 const isWorkspacePath = (spec) => /^(?:[./\\]|~[/\\]|[A-Za-z]:)/u.test(spec)
-const within = (parent, child) => child === parent || (parent === '.' ? child !== '..' && !child.startsWith('../') : child.startsWith(`${parent}/`))
 
 export function parseSpec(spec, alias) {
   if (spec.startsWith('workspace:')) {
@@ -148,12 +148,9 @@ export function indexProjects(projects) {
 export function checkLinkedPackages({ manifest, importer, index: { projects, byName, byDir }, linkWorkspacePackages }, where) {
   const outdated = (detail) => new DeptreeError(`the lockfile is not up to date with this package.json, which pnpm 11 refuses a frozen install for: ${detail}`, where)
   for (const kind of KINDS) {
-    const wanted = manifest[kind]
-    if (wanted == null) continue
     for (const [alias, target] of Object.entries(importer[kind])) {
-      const spec = own(wanted, alias)
+      const spec = own(manifest[kind], alias)
       if (!spec) continue
-      const here = `${where}.${kind}.${alias}`
       const workspaceRange = spec.startsWith('workspace:') && !isWorkspacePath(spec.slice('workspace:'.length))
       const linked = target.startsWith('link:')
       // pnpm 11's frozen install skips a local directory or tarball.
@@ -172,7 +169,7 @@ export function checkLinkedPackages({ manifest, importer, index: { projects, byN
       if (linked && workspaceRange && named !== undefined && ![...named.values()].some((root) => within(root, dir))) {
         throw outdated(`${alias} is linked to ${quote(dir)}, which is in no workspace package named ${quote(name)}`)
       }
-      if (!byDir.has(dir)) throw new DeptreeError(`it is linked to ${quote(dir)}, which is no project, and whose package.json pnpm 11 reads`, here)
+      if (!byDir.has(dir)) throw new DeptreeError(`it is linked to ${quote(dir)}, which is no project, and whose package.json pnpm 11 reads`, `${where}.${kind}.${alias}`)
       const { version } = byDir.get(dir)
       if (linked !== inRange(version, range)) {
         throw outdated(linked ? `the linked workspace package ${alias} (${version ?? 'unknown'}) is not in the range ${quote(spec)}` : `the workspace package ${alias} (${version ?? 'unknown'}) is in the range ${quote(spec)} and not linked`)

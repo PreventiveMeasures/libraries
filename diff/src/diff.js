@@ -14,7 +14,7 @@ import { lineComparisonKey, splitRecords } from './compare.js'
 import { formatContext, formatNormal, formatUnified } from './format.js'
 import { diffLines, sameLines } from './myers.js'
 
-const FORMAT = { unified: formatUnified, context: formatContext }
+const FORMAT = { unified: formatUnified, context: formatContext, normal: formatNormal }
 
 // -q: whether the two differ at all, which is a question the search does not
 // have to be asked. Identical text settles it without looking at lines, and
@@ -45,6 +45,5 @@ export function diff(a, b, { format = 'unified', context = 3, label = null, ...c
   const blocks = diffLines(from, to, { ...comparison, slide })
   // Two files the comparison calls the same have no diff.
   if (blocks.length === 0) return ''
-  if (format === 'normal') return formatNormal(from, to, blocks)
   return FORMAT[format](from, to, blocks, { context, label })
 }

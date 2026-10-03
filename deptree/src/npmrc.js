@@ -7,8 +7,7 @@ import { DeptreeError } from './error.js'
 
 export function parseNpmrc(text) {
   const settings = []
-  const lines = text.split(/\r\n|\r|\n/u)
-  for (const [index, raw] of lines.entries()) {
+  for (const [index, raw] of text.split(/\r\n|\r|\n/u).entries()) {
     const line = raw.trim()
     const where = `.npmrc:${index + 1}`
     if (line === '' || line.startsWith('#') || line.startsWith(';')) continue

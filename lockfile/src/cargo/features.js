@@ -8,7 +8,7 @@ import { parsePlatform, platformMatches } from '../crate/cargo-platform.js'
 import { LockfileError, quote } from '../error.js'
 import { checkOptions } from '../shape.js'
 import { featureValue } from './dependency.js'
-import { activate, requestsOf, setOf } from './activate.js'
+import { activate, enablesItself, noSuchFeature, requestsOf, setOf } from './activate.js'
 import { readPlatform, undecided } from './platform.js'
 
 // Cargo's Workspace::members_with_features. A virtual workspace, or resolver
@@ -130,6 +130,7 @@ class FeatureResolver {
     this.ignoreInactive = graph.resolver >= 2 && !all
     this.trackForHost = this.decoupleHost || this.ignoreInactive
     this.platforms = new Map()
+    this.depsOf = new Map()
     this.activated = new Map()
     this.activatedDeps = new Map()
     this.processed = new Set()
@@ -148,10 +149,16 @@ class FeatureResolver {
     return this.graph.packages[key].manifest.features
   }
 
+  // What a package built for `fk` depends on, and what each is built for:
+  // the same at every activation, so worked out once.
   deps(key, fk) {
-    return this.graph.packages[key].dependencies
-      .filter((dep) => this.targeted.has(dep) && !(dep.kind === 'dev' && this.decoupleDev) && (dep.target === undefined || !this.ignoreInactive || this.activeFor(dep, fk)))
-      .map((dep) => ({ dep, depFk: this.trackForHost && this.forHost(dep) ? 'host' : fk }))
+    const id = `${fk} ${key}`
+    if (!this.depsOf.has(id)) {
+      this.depsOf.set(id, this.graph.packages[key].dependencies
+        .filter((dep) => this.targeted.has(dep) && !(dep.kind === 'dev' && this.decoupleDev) && (dep.target === undefined || !this.ignoreInactive || this.activeFor(dep, fk)))
+        .map((dep) => ({ dep, depFk: this.trackForHost && this.forHost(dep) ? 'host' : fk })))
+    }
+    return this.depsOf.get(id)
   }
 
   forHost(dep) {
@@ -167,7 +174,7 @@ class FeatureResolver {
   }
 
   request(key, fk, feature, asker) {
-    if (!(feature in this.features(key))) throw new LockfileError(`${quote(feature)} is asked of ${quote(key)}, which has no such feature`, asker)
+    if (!(feature in this.features(key))) throw noSuchFeature(feature, key, asker)
     this.activateRec(key, fk, feature)
   }
 
@@ -191,7 +198,7 @@ class FeatureResolver {
     if (set.has(feature)) return
     set.add(feature)
     const list = this.features(key)[feature] ?? []
-    if (list.includes(feature)) throw new LockfileError(`feature ${quote(feature)} enables itself, which cargo refuses`, key)
+    if (list.includes(feature)) throw enablesItself(feature, key)
     for (const item of list) this.activateValue(key, fk, featureValue(item))
   }
 

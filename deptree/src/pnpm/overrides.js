@@ -30,8 +30,7 @@ const DELIMITER = /[^ @|]>/u
 export function parseSelector(selector, where) {
   if (!selector.isWellFormed()) throw new DeptreeError(`pnpm cannot parse the selector ${quote(selector)}`, where)
   const split = selector.search(DELIMITER)
-  const parts = split === -1 ? [selector] : [selector.slice(0, split + 1), selector.slice(split + 2)]
-  const parsed = parts.map(parseWanted)
+  const parsed = (split === -1 ? [selector] : [selector.slice(0, split + 1), selector.slice(split + 2)]).map(parseWanted)
   if (parsed.includes(undefined)) throw new DeptreeError(`pnpm cannot parse the selector ${quote(selector)}`, where)
   return parsed.length === 1 ? { target: parsed[0] } : { parent: parsed[0], target: parsed[1] }
 }

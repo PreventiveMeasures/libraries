@@ -101,8 +101,7 @@ class Resolver {
   // the last of which its pattern names.
   check(request, info) {
     const { name, range } = splitPattern(request.pattern)
-    const solved = validRange(range) ? info.version : range
-    if (this.exactMatch(name, solved) !== undefined) {
+    if (this.exactMatch(name, validRange(range) ? info.version : range) !== undefined) {
       this.delayed.push(request)
       return []
     }

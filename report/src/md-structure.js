@@ -1,10 +1,10 @@
 // Shared structural-markdown helpers: fence-aware heading splitting,
 // table reading, labelled fields. parse-piolium.js reads through all of
-// them; parse-md.js and parse-deepsec.js share only the heading-line
-// split and keep their own, subtly different, section and label
-// readers — fold those in only with their behavior pinned by tests
-// first, since ids derive from parser output and a drift in parsing
-// silently re-keys stored triage.
+// them; parse-md.js and parse-deepsec.js share only the fence-aware
+// heading match and the heading-line split, and keep their own, subtly
+// different, section and label readers — fold those in only with their
+// behavior pinned by tests first, since ids derive from parser output
+// and a drift in parsing silently re-keys stored triage.
 
 // The fence reader lives in md-fence.js; its surface is this module's
 // too, for the readers that take it from here.
@@ -25,6 +25,7 @@ export function normalizeNewlines(text) {
 export const H2_RE = /^## +(.*)$/gmu
 export const H3_RE = /^### +(.*)$/gmu
 export const H4_RE = /^#### +(.*)$/gmu
+export const H5_RE = /^##### +(.*)$/gmu
 
 // `file:line`, the line a number or a `10-20` RANGE kept whole: the
 // displays print it verbatim, link anchors parseInt() it to the start.
@@ -35,24 +36,33 @@ export function isCommitHash(s) {
   return /^[0-9a-f]{7,64}$/iu.test(s)
 }
 
-// `text` split at every line matching `re` outside a fence. Content
-// before the first heading is dropped.
-export function splitByHeading(text, re) {
+// The matches of `re` (global, for `matchAll`) outside a fence: the
+// heading lines a splitter cuts at, a snippet's own left in it.
+export function unfencedMatches(text, re) {
   const ranges = fenceRanges(text)
-  const marks = [...text.matchAll(re)].filter((m) => !inFence(ranges, m.index))
-  return marks.map((m, i) => ({
-    heading: m[1],
-    body: text.slice(m.index + m[0].length + 1, marks[i + 1]?.index),
-  }))
+  return [...text.matchAll(re)].filter((m) => !inFence(ranges, m.index))
 }
 
-// splitByHeading, keeping the content before the first heading — the
-// enclosing block's own body — as `head`.
+// `text` cut at each match of `re` outside a fence: the text before the first, then what follows each.
+export function splitUnfenced(text, re) {
+  const marks = unfencedMatches(text, re)
+  return [text.slice(0, marks[0]?.index), ...marks.map((m, i) => text.slice(m.index + m[0].length, marks[i + 1]?.index))]
+}
+
+// `text` split at every line matching `re` outside a fence: the content
+// before the first heading — the enclosing block's own body — as `head`,
+// and each heading line over the text up to the next as `subs`.
 export function splitLeading(body, re) {
-  const ranges = fenceRanges(body)
-  const first = [...body.matchAll(re)].find((m) => !inFence(ranges, m.index))
-  if (!first) return { head: body, subs: [] }
-  return { head: body.slice(0, first.index), subs: splitByHeading(body, re) }
+  const marks = unfencedMatches(body, re)
+  return {
+    head: body.slice(0, marks[0]?.index),
+    subs: marks.map((m, i) => ({ heading: m[1], body: body.slice(m.index + m[0].length + 1, marks[i + 1]?.index) })),
+  }
+}
+
+// splitLeading's `subs`: content before the first heading is dropped.
+export function splitByHeading(text, re) {
+  return splitLeading(text, re).subs
 }
 
 // A block split off its `# ` / `### ` marker: heading line and body.
@@ -62,38 +72,24 @@ export function splitHeadingLine(block) {
   return { title: block.slice(0, nl).trim(), body: block.slice(nl + 1) }
 }
 
-// Rows of a markdown table, as arrays of trimmed cells; the `|---|---|`
-// delimiter and any non-row line are skipped, so prose around the table
-// is ignored. The delimiter test is one character class: a
-// `[\s:|-]*\|?\s*$` shape carries two overlapping whitespace
-// quantifiers and backtracks quadratically on a padded cell.
-function tableRows(text) {
-  const rows = []
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed.startsWith('|')) continue
-    if (/^[\s:|-]+$/u.test(trimmed) && trimmed.includes('-')) continue
-    const cells = trimmed.replace(/^\|/u, '').replace(/\|$/u, '').split('|').map((c) => c.trim())
-    rows.push(cells)
-  }
-  return rows
-}
-
 // A table as `{ <column>: value }` objects keyed by its own case-folded
 // headers, so callers match columns by name rather than position. A
 // re-stated header row — how a concatenated section arrives — is chrome.
+//
+// Rows are arrays of trimmed cells; the `|---|---|` delimiter and any
+// non-row line are skipped, so prose around the table is ignored. The
+// delimiter test is one character class: a `[\s:|-]*\|?\s*$` shape
+// carries two overlapping whitespace quantifiers and backtracks
+// quadratically on a padded cell.
 export function tableObjects(text) {
-  const rows = tableRows(text)
+  const rows = text.split('\n').map((line) => line.trim())
+    .filter((row) => row.startsWith('|') && !(/^[\s:|-]+$/u.test(row) && row.includes('-')))
+    .map((row) => row.replace(/^\|/u, '').replace(/\|$/u, '').split('|').map((c) => c.trim()))
   if (rows.length < 2) return []
   const header = rows[0].map((h) => h.toLowerCase())
-  const objects = []
-  for (const cells of rows.slice(1)) {
-    if (cells.length === header.length && cells.every((c, i) => c.toLowerCase() === header[i])) continue
-    const obj = {}
-    header.forEach((name, i) => { if (name) obj[name] = cells[i] ?? '' })
-    objects.push(obj)
-  }
-  return objects
+  return rows.slice(1)
+    .filter((cells) => cells.length !== header.length || cells.some((c, i) => c.toLowerCase() !== header[i]))
+    .map((cells) => Object.fromEntries(header.flatMap((name, i) => (name ? [[name, cells[i] ?? '']] : []))))
 }
 
 // `**Field:** value` labels, with or without a `- ` bullet, keyed
@@ -191,9 +187,7 @@ export function parseCodeRef(raw) {
 
   // A `#L<n>` anchor on the link is the most reliable line source (and
   // reads the start line of a `#L88-L95` range).
-  let line = ''
-  const anchor = /#L(\d+)/u.exec(locationLink)
-  if (anchor) line = anchor[1]
+  let line = /#L(\d+)/u.exec(locationLink)?.[1] ?? ''
 
   // The first PATH-SHAPED backtick span wins when there is one: a value
   // citing a call chain — "see `src/a.js:42` and `src/b.js:9`" — locates

@@ -7,18 +7,15 @@
 // and an object of keys 0 to n, which PHP writes back as `[]` and as a
 // list; a number past what PHP holds as it is.
 
-import { LockfileError, at, quote } from '../error.js'
-import { fail as failAt, take } from '../lines.js'
+import { LockfileError, at, attempt, quote } from '../error.js'
+import { fail as failAt, jsonLayout, take } from '../lines.js'
+import { isMapping } from '../shape.js'
 import { fitsLong } from './php.js'
 
 // Arrays and objects nested in one another as deep as PHP's json_decode
 // reads them, at its depth of 512, of which the value about them is one;
 // nor does json_encode write deeper.
 const DEPTH = 511
-
-// The line end after the opening brace and the indentation of the line
-// after, as Composer's JsonFile::detectIndenting finds them.
-const FORMAT = /^\{(\r?\n)([\t ]+)"/u
 
 // Each object's keys in the file's order, which a record does not keep for
 // a key that reads as an integer.
@@ -28,7 +25,7 @@ export const keysOf = (record) => ORDER.get(record) ?? Object.keys(record)
 
 // `{}`, which readObject takes at the top alone: any other object it reads
 // has a key.
-export const isEmptyObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value) && keysOf(value).length === 0
+export const isEmptyObject = (value) => isMapping(value) && keysOf(value).length === 0
 
 const lineOf = (text, pos) => {
   let line = 1
@@ -75,12 +72,9 @@ function readString(src) {
   src.pos = end + 1
   // With no escape and nothing to escape in it, it is as it is written.
   if (!ESCAPED.test(raw)) return raw.slice(1, -1)
-  let value
-  try {
-    value = JSON.parse(raw)
-  } catch {
+  const value = attempt(() => JSON.parse(raw), () => {
     throw fail(src, `${quote(raw)} is not a string as JSON writes it`, pos)
-  }
+  })
   if (!value.isWellFormed()) throw fail(src, `${quote(raw)} escapes a lone surrogate, which PHP does not read`, pos)
   if (phpString(value) !== raw) throw fail(src, `${quote(raw)} is not written as Composer writes it, ${quote(phpString(value))}`, pos)
   return value
@@ -204,9 +198,7 @@ const CONFLICT = /^<<<<<<< /mu
 export function readJson(text) {
   const conflict = CONFLICT.exec(text)
   if (conflict !== null) throw new LockfileError(`a merge conflict at line ${lineOf(text, conflict.index)}, which Composer reads as a lockfile of no content-hash where its sides differ in that alone`)
-  const format = FORMAT.exec(text)
-  if (format === null) throw failAt('expected "{" alone on the first line and an indented key on the next, as Composer writes the file', 0)
-  const [, eol, indent] = format
+  const [eol, indent] = jsonLayout(text, 'Composer')
   const src = { text, pos: 0, eol, indent, lines: [] }
   const value = readObject(src, 0)
   newline(src, 0)
@@ -230,12 +222,9 @@ function decodeString(src) {
   let end = pos + 1
   while (end < text.length && text[end] !== '"') end += text[end] === '\\' ? 2 : 1
   if (end >= text.length) throw syntax(src, 'a string with no closing quote')
-  let value
-  try {
-    value = JSON.parse(text.slice(pos, end + 1))
-  } catch {
+  const value = attempt(() => JSON.parse(text.slice(pos, end + 1)), () => {
     throw syntax(src, `${quote(text.slice(pos, end + 1))} is not a string`)
-  }
+  })
   if (!value.isWellFormed()) throw syntax(src, 'a lone surrogate, which is not UTF-8')
   src.pos = end + 1
   return value

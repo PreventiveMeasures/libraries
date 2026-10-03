@@ -6,7 +6,7 @@
 
 import { basename, dirname, join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
-import { isModules } from '../tarball.js'
+import { fixShebang, isModules } from '../tarball.js'
 
 const collator = new Intl.Collator('en')
 
@@ -24,23 +24,6 @@ function binsOf(bin) {
 function modulesOf(location) {
   const parent = dirname(location)
   return basename(parent) === 'node_modules' ? parent : dirname(parent)
-}
-
-const decoder = new TextDecoder('utf-8', { fatal: true })
-
-// bin-links rewrites the file as UTF-8, which it has to be here.
-function fixed({ data }, where) {
-  const newline = data.subarray(0, 2048).indexOf(0x0a)
-  if (data[0] !== 0x23 || data[1] !== 0x21 || newline < 4 || data[newline - 1] !== 0x0d) return { data, mode: 0o755 }
-  try {
-    decoder.decode(data)
-  } catch {
-    throw new DeptreeError('a bin with a CRLF shebang that is not UTF-8, which npm rewrites with replacement characters, is not supported', where)
-  }
-  const unix = new Uint8Array(data.length - 1)
-  unix.set(data.subarray(0, newline - 1))
-  unix.set(data.subarray(newline), newline - 1)
-  return { data: unix, mode: 0o755 }
 }
 
 // The files linking changes, by each package's location.
@@ -64,7 +47,7 @@ export function fixBins(nodes, fetched) {
         throw new DeptreeError(`${quote(path)} is a directory, which is not supported`, where)
       }
       if (!changed.has(location)) changed.set(location, new Map())
-      changed.get(location).set(path, fixed(file, where))
+      changed.get(location).set(path, { data: fixShebang(file.data, 'a bin with a CRLF shebang that is not UTF-8, which npm rewrites with replacement characters, is not supported', where), mode: 0o755 })
     }
   }
   return changed

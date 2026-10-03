@@ -288,8 +288,7 @@ async function* entries(source, { limit = Infinity } = {}, keep = false) {
 
 export async function unzip(bytes, options) {
   if (!(bytes instanceof Uint8Array)) throw new ArchiveError('the archive is not a Uint8Array')
-  const out = await Array.fromAsync(entries(sourceOf(bytes), options, true))
-  return out
+  return await Array.fromAsync(entries(sourceOf(bytes), options, true))
 }
 
 export async function* unzipStream(archive, options) {

@@ -3,7 +3,7 @@
 import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { readManifest, readManifests } from '../manifest.js'
-import { checkProject, readText, typeOf } from '../project.js'
+import { checkHostKeys, checkLeftOut, checkProject, checkTexts, readText, typeOf } from '../project.js'
 import { walkWorkspaces } from '../glob.js'
 import { globsOf } from './manifest.js'
 import { readSettings } from './settings.js'
@@ -25,10 +25,7 @@ function yarnOf(yarn, root) {
 }
 
 export function checkHost(host, root) {
-  if (host === null || typeof host !== 'object') throw new TypeError('host must be an object with node, os and cpu, and yarn where it is not pinned')
-  for (const key of ['node', 'os', 'cpu']) {
-    if (typeof host[key] !== 'string' || host[key] === '') throw new TypeError(`host.${key} must be a non-empty string`)
-  }
+  checkHostKeys(host, ['node', 'os', 'cpu'], 'node, os and cpu, and yarn where it is not pinned')
   if (valid(host.node) !== host.node) throw new DeptreeError(`${quote(host.node)} is not an exact version`, 'host.node')
   if (host.os === 'win32') throw new DeptreeError('Windows is not supported: yarn links bins there with shims, and workspaces with junctions', 'host.os')
   return { yarn: yarnOf(host.yarn, root), node: host.node, os: host.os, cpu: host.cpu }
@@ -68,9 +65,7 @@ export function inputsOf(options) {
   if (project !== undefined) checkProject(project)
   if (lockfile === undefined) {
     if (project === undefined) throw new TypeError(LOCKFILE)
-    for (const [name, value] of Object.entries({ manifests, yarnrc, npmrc })) {
-      if (value !== undefined) throw new TypeError(`${name} must be left out where lockfile is: both are read from project`)
-    }
+    checkLeftOut({ manifests, yarnrc, npmrc })
     const text = readText(project, '/yarn.lock')
     if (text === undefined) throw new DeptreeError('the project has no yarn.lock, which a frozen install cannot do without')
     const read = new Map([['.', readRoot(project)]])
@@ -82,9 +77,7 @@ export function inputsOf(options) {
   }
   if (typeof lockfile !== 'string') throw new TypeError(LOCKFILE)
   if (manifests === null || typeof manifests !== 'object') throw new TypeError('manifests must map each project\'s directory to its package.json')
-  for (const [name, value] of Object.entries({ yarnrc, npmrc })) {
-    if (value !== undefined && typeof value !== 'string') throw new TypeError(`${name} must be a string, or left out`)
-  }
+  checkTexts({ yarnrc, npmrc })
   const settings = readSettings({ yarnrc, npmrc })
   return { lockfile, manifests: readManifests(manifests), settings, project }
 }

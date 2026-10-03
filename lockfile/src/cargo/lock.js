@@ -3,9 +3,9 @@
 // Cargo drops an edge it cannot find that way, or finds two of; this refuses
 // it.
 
-import { LockfileError, at, quote } from '../error.js'
+import { LockfileError, at, quote, raise } from '../error.js'
 import { checkRepo, isCommit, isHexSha256 } from '../names.js'
-import { field } from '../shape.js'
+import { field, repeated } from '../shape.js'
 import { parseToml } from '../toml/parse.js'
 import { array, checkCrateName, checkCrateVersion, checkListedOnce, kind, string, strings, table } from './shape.js'
 
@@ -34,9 +34,7 @@ const identity = (scheme, url, reference = []) => JSON.stringify([scheme, canoni
 
 // Cargo writes a source in `dependencies`, an `edge`, without the commit.
 export function parseLockSource(text, where, edge) {
-  const fail = (why) => {
-    throw new LockfileError(`${quote(text)} is not a source: ${why}`, where)
-  }
+  const fail = (why) => raise(`${quote(text)} is not a source: ${why}`, where)
   const [, scheme, rest] = /^(registry|sparse|git)\+(.*)$/su.exec(text) ?? fail('expected registry+, sparse+ or git+ and a URL')
   if (scheme !== 'git') {
     const url = parseUrl(scheme === 'sparse' ? text : rest)
@@ -136,9 +134,7 @@ function readPackage(value, where, fields = PACKAGE) {
 // Cargo's lookup_id, strict. With no source given, a path package is taken
 // over the others of its version.
 function resolveEdge(edge, where, byName) {
-  const fail = (why) => {
-    throw new LockfileError(`${quote(edge)} ${why}`, where)
-  }
+  const fail = (why) => raise(`${quote(edge)} ${why}`, where)
   const [, name, version, source] = /^([^ ]+)(?: ([^ ]+)(?: \((.+)\))?)?$/su.exec(edge) ?? fail('is not `name`, `name version` or `name version (source)`')
   const named = byName.get(name) ?? fail('names no package in the lockfile')
   const versions = version === undefined ? [...new Set(named.map((pkg) => pkg.version))] : [version]
@@ -173,7 +169,7 @@ export function parseCargoLock(text) {
   for (const [index, pkg] of read.entries()) {
     const where = at(`package[${index}]`, 'dependencies')
     pkg.resolved = pkg.edges.map((edge, i) => resolveEdge(edge, `${where}[${i}]`, byName))
-    const twice = pkg.resolved.find((dep, i) => pkg.resolved.indexOf(dep) !== i)
+    const twice = repeated(pkg.resolved)
     if (twice !== undefined) throw new LockfileError(`${quote(twice.key)} is listed twice`, where)
   }
   checkReached(read, 'package')

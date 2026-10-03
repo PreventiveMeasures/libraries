@@ -8,7 +8,7 @@
 import { basename, dirname, join, normalize } from '@preventive/vfs/path.js'
 import { quote } from '../error.js'
 import { glob } from './glob.js'
-import { caseless, fromParts, rulesOf } from './minimatch.js'
+import { NO_TRAVERSAL_5, caseless, fromParts, rulesOf } from './minimatch.js'
 
 const DEFAULTS = ['.npmignore', '.gitignore', '**/.git', '**/.svn', '**/.hg', '**/CVS', '**/.git/**', '**/.svn/**', '**/.hg/**', '**/CVS/**', '/.lock-wscript', '/.wafpickle-*', '/build/config.gypi', 'npm-debug.log', '**/.npmrc', '.*.swp', '.DS_Store', '**/.DS_Store/**', '._*', '**/._*/**', '*.orig']
 
@@ -18,7 +18,6 @@ const STRICT = Symbol('strict rules')
 
 const MUST_HAVE_NAMES = ['readme', 'copying', 'license', 'licence']
 const MUST_HAVE_RE = caseless(String.raw`^(?:readme|copying|license|licence)(?:\..*[^~$])?$`)
-const NO_TRAVERSAL_5 = String.raw`(?!(?:^|\/)\.{1,2}(?:$|\/))`
 
 // npm-packlist 5's `@(readme|copying|license|licence){,.*[^~$]}`, as glob
 // and minimatch 5 read it: two patterns of one part.
@@ -29,7 +28,7 @@ const MUST_HAVES_10 = MUST_HAVE_NAMES.map((name) => fromParts(true, ['', String.
 
 const relOf = (walker, entry) => (walker.rel === '' ? entry : `${walker.rel}/${entry}`)
 
-export function readRules(view, rel, minimatch, where) {
+function readRules(view, rel, minimatch, where) {
   const here = `${where}: ${quote(rel)}`
   return rulesOf([view.text(rel, here)], minimatch, here)
 }
@@ -83,8 +82,8 @@ function filter10(walker, entry, partial, base) {
 // A walk of one directory: its ignore files read, its entries filtered,
 // then each file kept and each directory walked. `entries` are its own, or,
 // for npm-packlist 5's root where package.json has `files`, what those take.
-function visit(view, walker, entries, engine, result) {
-  if (entries.length === 0) return
+function visit(view, walker, entries, engine, result = new Set()) {
+  if (entries.length === 0) return result
   for (const entry of entries) {
     if (walker.ignoreFiles.includes(entry)) engine.readIgnore(walker, entry)
   }
@@ -99,6 +98,7 @@ function visit(view, walker, entries, engine, result) {
       if (file) result.add(rel)
     } else if (dir) visit(view, engine.child(walker, entry, rel, file), view.entries(rel), engine, result)
   }
+  return result
 }
 
 // npm-normalize-package-bin 2's bin: an object, or nothing.
@@ -156,9 +156,7 @@ export function pack10(view, manifest, where, minimatch) {
     },
     child: (walker, entry, rel) => ({ rel, parent: walker, basename: basename(rel), isProject: false, rules: new Map(), ignoreFiles: walker.ignoreFiles }),
   }
-  const result = new Set()
-  visit(view, root, files && own.includes('package.json') ? filesEntries5(view, pkg, where) : own, engine, result)
-  return result
+  return visit(view, root, files && own.includes('package.json') ? filesEntries5(view, pkg, where) : own, engine)
 }
 
 // npm-packlist 10's processPackage: package.json's rules, and the strict ones.
@@ -215,7 +213,5 @@ export function pack11(view, manifest, where, alternates) {
       requiredFiles: parent.requiredFiles.map(normalize).filter((path) => dirname(path) === entry).map((path) => basename(path)),
     }),
   }
-  const result = new Set()
-  visit(view, root, view.entries(''), engine, result)
-  return result
+  return visit(view, root, view.entries(''), engine)
 }

@@ -67,13 +67,20 @@ async function sha256(data) {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-export async function modelSubdir(type, model, systemPrompt) {
+// The model's directory under the cache root: `/` folded to `-`, and anything else outside a
+// filename-safe charset refused.
+export function modelDirName(model) {
   const safeModel = model.replaceAll('/', '-')
   assert(/^[a-zA-Z0-9._:-]+$/u.test(safeModel), `Invalid model name: ${model}`)
-  // `.` and `..` clear the charset above — dots are legitimate inside a name — but as a whole
+  return safeModel
+}
+
+export async function modelSubdir(type, model, systemPrompt) {
+  const safeModel = modelDirName(model)
+  // `.` and `..` clear modelDirName's charset — dots are legitimate inside a name — but as a whole
   // segment they are not a directory, they are a move. `..` would put this run's cache one level
   // ABOVE the cache root it was given, which for the server means outside the per-token directory
-  // that isolates one caller's cache from another's. `/` is already folded to `-` above, so these
+  // that isolates one caller's cache from another's. `/` is already folded to `-` there, so these
   // two are the only segments that can traverse.
   assert(safeModel !== '.' && safeModel !== '..', `Invalid model name: ${model}`)
   const promptHash = (await sha256(systemPrompt)).slice(0, 8)
@@ -85,17 +92,6 @@ export async function modelSubdir(type, model, systemPrompt) {
 // the hash and the per-entry filenames are identical — we rename the dir as a whole and let any
 // failure surface. Compatibility data, not a rule about any one caller: a `new -> old` row here is
 // what keeps a rename from orphaning a cache.
-async function migrateTypeRename(oldType, newType, model, systemPrompt) {
-  const oldDir = join(cacheDir(), await modelSubdir(oldType, model, systemPrompt))
-  const newDir = join(cacheDir(), await modelSubdir(newType, model, systemPrompt))
-  try {
-    if (!await moveIfExists(oldDir, newDir)) return
-    console.log(`[cache] migrated ${oldType} -> ${newType}`)
-  } catch (err) {
-    throw new Error(`Cache migration ${oldDir} -> ${newDir} failed: ${err.message}`, { cause: err })
-  }
-}
-
 const TYPE_RENAMES = new Map([
   ['solidity.security', 'solidity'],
 ])
@@ -105,7 +101,15 @@ export async function runTypeMigrations(type, model, systemPrompt) {
   if (migratedTypes.has(type)) return
   migratedTypes.add(type)
   const previous = TYPE_RENAMES.get(type)
-  if (previous) await migrateTypeRename(previous, type, model, systemPrompt)
+  if (!previous) return
+  const oldDir = join(cacheDir(), await modelSubdir(previous, model, systemPrompt))
+  const newDir = join(cacheDir(), await modelSubdir(type, model, systemPrompt))
+  try {
+    if (!await moveIfExists(oldDir, newDir)) return
+    console.log(`[cache] migrated ${previous} -> ${type}`)
+  } catch (err) {
+    throw new Error(`Cache migration ${oldDir} -> ${newDir} failed: ${err.message}`, { cause: err })
+  }
 }
 
 // Degrading an unreadable entry to a miss is right — a run should not die over one — but silently is
@@ -243,12 +247,16 @@ export async function setCache(userContent, result, history, opts) {
 // long-running chats so an interrupted run can resume from the last completed turn. The final
 // `setCache` writes both `.md` and `.json` and naturally supersedes any partial that lives under
 // the same key — no separate finalise step needed.
-export async function getPartial(userContent, opts) {
-  const { dir, key } = await resolveCachePaths(userContent, opts)
+async function readPartial(dir, key) {
   // A `.md` companion means the cache is final — defer to getCached.
   if (await tryRead(join(dir, `${key}.md`))) return null
   const json = await readCachedJSON(dir, key)
   return Array.isArray(json) ? json : null
+}
+
+export async function getPartial(userContent, opts) {
+  const { dir, key } = await resolveCachePaths(userContent, opts)
+  return await readPartial(dir, key)
 }
 
 const taken = new Set()
@@ -257,11 +265,11 @@ const taken = new Set()
 // turn, so a caller that asks the same thing again — retrying after an answer it rejected — must
 // start fresh instead of being handed back the answer it just threw away.
 export async function takePartial(userContent, opts) {
-  const { subdir, key } = await resolveCachePaths(userContent, opts)
+  const { subdir, dir, key } = await resolveCachePaths(userContent, opts)
   const id = `${subdir}/${key}`
   if (taken.has(id)) return null
   taken.add(id)
-  return await getPartial(userContent, opts)
+  return await readPartial(dir, key)
 }
 
 export async function setPartial(userContent, history, opts) {

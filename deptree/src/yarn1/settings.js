@@ -63,8 +63,7 @@ function readYarnrc(text) {
     const tokens = line.match(TOKEN) ?? []
     if (tokens.join(' ') !== line.replace(/\s+/gu, ' ') || tokens.length > 2) throw new DeptreeError('expected a setting and its value', where)
     const [key, value] = tokens.map((token) => (token.startsWith('"') ? unquote(token, 'a setting', where) : token))
-    const bare = tokens[1]?.startsWith('"') === false
-    settings.set(key, { value: bare ? BARE.get(value) : value, where })
+    settings.set(key, { value: tokens[1]?.startsWith('"') === false ? BARE.get(value) : value, where })
   }
   return settings
 }

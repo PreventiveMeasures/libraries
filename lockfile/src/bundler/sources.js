@@ -6,6 +6,7 @@ import { LockfileError, at, quote } from '../error.js'
 import { fail } from '../lines.js'
 import { checkRefName, checkRelative, checkRemote, isCommit, isHttpUrl } from '../names.js'
 import { compareCodePoints } from '../order.js'
+import { field } from '../shape.js'
 
 // The options of each, in the order Bundler writes them; the first are
 // always written.
@@ -71,8 +72,8 @@ function readGit(values, where) {
     remote,
     revision,
     ref,
-    branch: values.branch === undefined ? undefined : checkRefName(values.branch, at(where, 'branch')),
-    tag: values.tag === undefined ? undefined : checkRefName(values.tag, at(where, 'tag')),
+    branch: field(values, 'branch', where, checkRefName),
+    tag: field(values, 'tag', where, checkRefName),
     submodules: values.submodules === 'true',
     glob: readGlob(values.glob, at(where, 'glob')),
   }
@@ -103,18 +104,12 @@ function isNormalUrl(remote) {
 function readGem(values, where) {
   const { remote } = values
   if (remote === undefined) return { type: 'gem', remote }
-  const url = (isHttpUrl(remote) || isNormalUrl(remote)) && !/\s/u.test(remote)
-  if (!url) throw new LockfileError(`${quote(remote)} is not an http(s) URL, or a file: or s3: URL in normal form`, at(where, 'remote'))
+  if (!isHttpUrl(remote) && !isNormalUrl(remote)) throw new LockfileError(`${quote(remote)} is not an http(s) URL, or a file: or s3: URL in normal form`, at(where, 'remote'))
   if (!remote.endsWith('/')) throw new LockfileError(`${quote(remote)} does not end in "/", as Bundler writes a source`, at(where, 'remote'))
   return { type: 'gem', remote }
 }
 
-function readSource(raw, where) {
-  const values = readOptions(raw)
-  if (raw.type === 'GIT') return readGit(values, where)
-  if (raw.type === 'PATH') return readPath(values, where)
-  return readGem(values, where)
-}
+const READERS = { GIT: readGit, PATH: readPath, GEM: readGem }
 
 // What Bundler sorts the git and path sources by, as far as the lockfile
 // says it: a path's identifier whole, and a repository's first part, its
@@ -160,7 +155,7 @@ function readLocal(sources, raw) {
 // Each source, in Bundler's order, and the index of the Gemfile's own GEM
 // source where it has no remote, else -1.
 export function readSources(raw) {
-  const sources = raw.map((source, index) => readSource(source, `sources[${index}]`))
+  const sources = raw.map((source, index) => READERS[source.type](readOptions(source), `sources[${index}]`))
   checkOrder(sources, raw)
   return { sources, local: readLocal(sources, raw) }
 }

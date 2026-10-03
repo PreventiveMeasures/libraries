@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
-import { isRepo, show } from '../args.js'
-import { readRecord, writeRecord } from '../cache.js'
+import { show } from '../args.js'
+import { addRepos, readRepos } from '../cache.js'
 import { lookUpCrateRepos } from '../cargo/repos.js'
 import { PACKAGIST_REPO, SOLDEER_API, buildUrl, isNotFound, recover, request } from '../http.js'
 import { lookUpPackageRepo } from '../npm/repos.js'
@@ -14,16 +14,8 @@ const PACKAGES_AT_ONCE = 8
 // or it names no GitHub repo; any other failure throws. Only a repo found
 // is cached, for a month.
 async function cachedRepos(dir, names, fetchMissing) {
-  const repos = new Map()
-  for (const name of names) {
-    const entry = await readRecord(dir, name)
-    if (isRepo(entry?.github)) repos.set(name, entry.github)
-  }
-  const missing = names.filter((name) => !repos.has(name))
-  for (const [name, github] of await fetchMissing(missing)) {
-    repos.set(name, github)
-    if (github) await writeRecord(dir, name, { github })
-  }
+  const repos = await readRepos(dir, names)
+  await addRepos(dir, repos, await fetchMissing(names.filter((name) => !repos.has(name))))
   return repos
 }
 

@@ -5,6 +5,7 @@
 
 import { isCommitHash, stripBrackets } from './md-structure.js'
 import { isRepoSlug } from './meta.js'
+import { SEVERITY_WORDS } from './severity.js'
 
 // Piolium grades findings CRITICAL / HIGH / MEDIUM — its assembler
 // rejects Low-severity leakage into `findings/` — but drafts and
@@ -17,15 +18,7 @@ import { isRepoSlug } from './meta.js'
 // so `**CRITICAL**` reads.
 export function mapSeverity(s) {
   const first = ((s || '').trim().split(/\s+/u)[0] || '').replaceAll(/[`*]+/gu, '')
-  switch (first.toUpperCase()) {
-    case 'CRITICAL': return 'critical'
-    case 'HIGH': return 'high'
-    case 'MEDIUM': return 'medium'
-    case 'LOW': return 'low'
-    case 'INFO': case 'INFORMATIONAL': return 'informational'
-    case 'INFORMATIVE': return 'informative'
-    default: return ''
-  }
+  return SEVERITY_WORDS.get(first.toUpperCase()) ?? ''
 }
 
 // Keep the pre-alias fallback for the ID fingerprint, while displaying the
@@ -52,17 +45,15 @@ export function severityFromId(id) {
 // findings. Anchored to the whole heading, so "High memory usage in
 // parser" is never mistaken for one.
 export function severityGroupOf(heading) {
-  const m = /^(critical|high|medium|low|informational|informative|info)(?:[ -](?:severity|risk))?(?:[ -]findings?)?(?:\s*\(\d+\))?$/iu
-    .exec((heading || '').trim())
-  return m ? mapSeverity(m[1]) : ''
+  return mapSeverity(/^(critical|high|medium|low|informational|informative|info)(?:[ -](?:severity|risk))?(?:[ -]findings?)?(?:\s*\(\d+\))?$/iu
+    .exec((heading || '').trim())?.[1])
 }
 
 // A leading severity word on a free-form header — `HIGH — 3 findings`,
 // `High: remaining` — for sections recognized by their CONTENT rather
 // than the anchored severityGroupOf shape.
 export function headerSeverity(header) {
-  const m = /^(critical|high|medium|low|informational|informative|info)\b/iu.exec((header || '').trim())
-  return m ? mapSeverity(m[1]) : ''
+  return mapSeverity(/^(critical|high|medium|low|informational|informative|info)\b/iu.exec((header || '').trim())?.[1])
 }
 
 // A variants heading (`#### Variants`, `### Variants (2)`), not a
@@ -156,17 +147,15 @@ export function parseHeading(headingText) {
 // are run bookkeeping with no consumer.
 export function preambleMeta(head) {
   const meta = {}
-  const value = (rest) => (/`([^`]+)`/u.exec(rest)?.[1] ?? rest.split(/\s+/u)[0] ?? '').trim()
-  const target = /^\s*(?:[-*] +)?\*\*Target:?\*\*\s*(.*)$/imu.exec(head || '')
-  if (target) {
-    const v = value(target[1])
-    if (isRepoSlug(v)) meta.repo = v
+  // The value after the first line matching `re`, '' where none does.
+  const value = (re) => {
+    const rest = re.exec(head || '')?.[1]
+    return rest === undefined ? '' : (/`([^`]+)`/u.exec(rest)?.[1] ?? rest.split(/\s+/u)[0] ?? '').trim()
   }
-  const commit = /^\s*(?:[-*] +)?\*\*Commit[^:*]*:?\*\*\s*(.*)$/imu.exec(head || '')
-  if (commit) {
-    const v = value(commit[1])
-    if (isCommitHash(v)) meta.commitHash = v
-  }
+  const repo = value(/^\s*(?:[-*] +)?\*\*Target:?\*\*\s*(.*)$/imu)
+  if (isRepoSlug(repo)) meta.repo = repo
+  const commit = value(/^\s*(?:[-*] +)?\*\*Commit[^:*]*:?\*\*\s*(.*)$/imu)
+  if (isCommitHash(commit)) meta.commitHash = commit
   return meta
 }
 
@@ -179,7 +168,3 @@ export const CODE_REF_FIELDS = [
   'key code reference', 'key code', 'code reference', 'location',
   'affected file', 'file', 'path',
 ]
-export function codeRefOf(fields) {
-  for (const k of CODE_REF_FIELDS) if (fields[k]) return fields[k]
-  return ''
-}

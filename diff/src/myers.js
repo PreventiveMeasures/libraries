@@ -79,11 +79,8 @@ function intern(a, b, key) {
     if (id === undefined) { id = ids.size; ids.set(k, id) }
     return id
   }
-  const A = new Int32Array(a.length)
-  const B = new Int32Array(b.length)
-  for (let i = 0; i < a.length; i++) A[i] = assign(a[i])
-  for (let i = 0; i < b.length; i++) B[i] = assign(b[i])
-  return { A, B }
+  const A = Int32Array.from(a, assign)
+  return { A, B: Int32Array.from(b, assign) }
 }
 
 // Explicit stack rather than recursion: the cutoff can split unevenly, and

@@ -44,12 +44,9 @@ const lexCompare = (a, b) => (a > b ? 1 : a < b ? -1 : 0)
 function hoistGraph(nodes, starts, taken, typeOf, { projects = new Map(), installed = nodes, major = 10 } = {}) {
   const named = new Map([...projects].map(([id, name]) => [name, { project: id }]))
   const root = new Map(major < 12 ? named : [])
-  const listed = new Set()
-  for (const [alias, dir] of starts) {
-    if (listed.has(alias)) continue
-    listed.add(alias)
-    root.set(alias, dir)
-  }
+  // The first of each alias in `starts`.
+  const first = new Map(starts.toReversed())
+  for (const [alias] of starts) root.set(alias, first.get(alias))
   // pnpm 12 orders the nodes of one depth by their directories' names.
   const keyOf = major >= 12 ? (node) => node.modules.slice(0, -'/node_modules'.length) : (node) => node.dir
   const order = [

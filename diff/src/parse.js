@@ -165,16 +165,14 @@ function parseContext(lines, at) {
   // have shown are that side's context lines.
   const lhs = old.lines.length === 0 ? fresh.lines.filter((l) => l.tag === ' ') : old.lines
   const rhs = fresh.lines.length === 0 ? old.lines.filter((l) => l.tag === ' ') : fresh.lines
-  const oldStart = contextStart(oldHead, lhs.length)
-  const newStart = contextStart(newHead, rhs.length)
+  // `*** 3,5 ****` is first and last inclusive and `*** 3 ****` one line,
+  // but a range covering nothing prints the line before it in that same
+  // bare form — so which one it is comes from how many lines the hunk
+  // holds, not from the range line, which cannot say.
+  const oldStart = rangeStart(oldHead[1], lhs.length)
+  const newStart = rangeStart(newHead[1], rhs.length)
   return { hunk: { oldStart, newStart, label: fence[1] || null, lines: interleave(lhs, rhs) }, next: fresh.next }
 }
-
-// `*** 3,5 ****` is first and last inclusive and `*** 3 ****` one line, but
-// a range covering nothing prints the line before it in that same bare form
-// — so which one it is comes from how many lines the hunk holds, not from
-// the range line, which cannot say.
-const contextStart = (head, count) => (count === 0 ? Number(head[1]) : Number(head[1]) - 1)
 
 function readSide(lines, at, stop, tag) {
   const out = []

@@ -55,13 +55,11 @@ export async function buildSoldeerTree(options) {
   const { host: given, vfs: into } = options ?? {}
   if (into !== undefined && !(into instanceof Vfs)) throw new TypeError('vfs must be a Vfs, or left out')
   const inputs = inputsOf(options ?? {})
-  const host = checkHost(given)
-  const folded = host.os === 'darwin'
+  const folded = checkHost(given).os === 'darwin'
   // Refused before anything is fetched; mount checks again.
   if (into !== undefined) checkNoDependencies(into, folded)
   const config = configOf(inputs)
-  const lock = parseSoldeerLockfile(inputs.lockfile, { config })
-  const dependencies = registryDependencies(lock, config, folded)
+  const dependencies = registryDependencies(parseSoldeerLockfile(inputs.lockfile, { config }), config, folded)
   const extracted = await fetchAll(dependencies)
   const vfs = new Vfs()
   makeDirs(vfs, 'dependencies')

@@ -129,12 +129,10 @@ const HEADING_LINE_RE = /^( {0,3})(\\*#)/u
 
 export function prose(text) {
   const s = normalizeNewlines(text).trim()
-  return s ? closeFence(escapeHeadings(s)) : ''
-}
-
-function closeFence(s) {
-  const { closer } = readFences(s)
-  return closer === null ? s : `${s}\n${closer}`
+  if (!s) return ''
+  const escaped = mapProseLines(s, (line) => line.replace(HEADING_LINE_RE, '$1\\$2'))
+  const { closer } = readFences(escaped)
+  return closer === null ? escaped : `${escaped}\n${closer}`
 }
 
 // `fn` over every line of `s` outside a fence, in place.
@@ -146,10 +144,6 @@ function mapProseLines(s, fn) {
     pos += line.length + 1
     return inFence(ranges, start) ? line : fn(line)
   }).join('\n')
-}
-
-function escapeHeadings(s) {
-  return mapProseLines(s, (line) => line.replace(HEADING_LINE_RE, '$1\\$2'))
 }
 
 // The inverse, for the reader: one backslash off a line that opens on

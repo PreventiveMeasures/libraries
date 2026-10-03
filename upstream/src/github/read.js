@@ -1,12 +1,11 @@
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
-import { createHash } from 'node:crypto'
 
 import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTagName, assertTreeId, isSha, isSha1, isTagName, optional, sameName, show } from '../args.js'
 import { verifiedDownload } from '../download.js'
-import { decode, encodeSegment } from '../http.js'
-import { gitTreeOfListing } from '../tree.js'
-import { api, bindMethods, call, callWithHeaders, clientHeaders, isGone, repoApi } from './client.js'
+import { decode, encodeSegment, requestWithHeaders } from '../http.js'
+import { gitTreeOfListing, objectId } from '../tree.js'
+import { api, bindMethods, call, clientHeaders, isGone, repoApi } from './client.js'
 
 const PER_PAGE = 100
 const MAX_PAGES = 100
@@ -29,7 +28,7 @@ async function* pages(method, headers, pageUrl, maxPages = MAX_PAGES) {
 async function* cursorPages(method, headers, pageUrl, maxPages = MAX_PAGES) {
   const paging = { per_page: PER_PAGE }
   for (let page = 1; ; page++) {
-    const answer = await callWithHeaders(headers, pageUrl(paging))
+    const answer = await requestWithHeaders(pageUrl(paging), { as: 'json', headers })
     assert.ok(Array.isArray(answer.body), `${method}: expected an array for page ${page}`)
     yield answer.body
     const next = /<([^>]*)>\s*;\s*rel="next"/u.exec(answer.headers.get('link') ?? '')?.[1]
@@ -107,7 +106,7 @@ async function getRepoFile(headers, options) {
   const bytes = file.encoding === 'none'
     ? await call({ ...headers, Accept: 'application/vnd.github.raw' }, repoApi(repo, ['git', 'blobs', file.sha]), { as: 'bytes' })
     : Buffer.from(file.content, 'base64')
-  const blob = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex')
+  const blob = objectId('blob', bytes).toString('hex')
   assert.ok(bytes.length === file.size && blob === file.sha, `getRepoFile: ${show(path)} came back as blob ${blob}, not ${file.sha}`)
   return decode(bytes, url)
 }

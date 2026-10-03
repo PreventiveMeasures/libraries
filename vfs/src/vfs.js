@@ -209,8 +209,7 @@ export class Vfs {
   symlink(target, path, { mode, mtime } = {}) {
     if (typeof target !== 'string') throw wrongType('a link target', target)
     if (target === '' || target.includes('\0')) throw new VfsError('EINVAL', path)
-    if (!target.isWellFormed()) throw new VfsError('EILSEQ', path)
-    if (tooLong(target, PATH_MAX)) throw new VfsError('ENAMETOOLONG', path)
+    checkName(target, path, PATH_MAX)
     this.#set(this.#newName(path), this.#inode('symlink', { target, size: utf8Length(target) }, mode, mtime), path)
   }
 
@@ -358,10 +357,10 @@ const statOf = (node) => ({ type: node.type, ino: node.ino, mode: node.mode, mti
 const meta = (current, mode = current.mode, mtime = current.mtime) => ({ mode: checkMode(mode), mtime: checkTime(mtime) })
 
 // What a name may be when it is made: text with an encoding, and at most
-// NAME_MAX bytes of it, as every filesystem bounds a name.
-function checkName(name, path) {
+// NAME_MAX bytes of it, as every filesystem bounds a name; a link's target, `max`.
+function checkName(name, path, max = NAME_MAX) {
   if (!name.isWellFormed()) throw new VfsError('EILSEQ', path)
-  if (tooLong(name, NAME_MAX)) throw new VfsError('ENAMETOOLONG', path)
+  if (tooLong(name, max)) throw new VfsError('ENAMETOOLONG', path)
 }
 
 // The UTF-8 length of text, counted rather than encoded: nothing is held

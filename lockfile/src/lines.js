@@ -1,7 +1,7 @@
 // A lockfile read a line at a time, as yarn.lock and foundry.lock are, and
 // the strings in a line that JSON writes.
 
-import { LockfileError, quote } from './error.js'
+import { LockfileError, attempt, quote } from './error.js'
 import { hex } from './excerpt.js'
 
 export const fail = (detail, number) => new LockfileError(`${detail} at line ${Math.max(number, 0) + 1}`)
@@ -23,6 +23,15 @@ export function checkConflict(text, tool) {
   }
 }
 
+// A JSON file's line end after `{` and the indentation of the line after, which
+// `tool` writes it again with: npm as json-parse-even-better-errors finds them,
+// Composer as JsonFile::detectIndenting does.
+export function jsonLayout(text, tool) {
+  const format = /^\{(\r?\n)([\t ]+)"/u.exec(text)
+  if (format === null) throw fail(`expected "{" alone on the first line and an indented key on the next, as ${tool} writes the file`, 0)
+  return format.slice(1)
+}
+
 // A sticky `re` read at `src.pos`, which it moves past the match.
 export function take(src, re) {
   re.lastIndex = src.pos
@@ -34,10 +43,13 @@ export function take(src, re) {
 // What follows `pos`, for a message.
 export const rest = (line, pos) => (pos < line.length ? quote(line.slice(pos)) : 'the end of the line')
 
+// The spaces a line is indented by.
+export const indentOf = (line) => /^ */u.exec(line)[0].length
+
 // A line some 2^23 characters long runs V8's regex engine out of
 // backtracking stack, which is a RangeError, so a line is held to well
 // below that, as yaml/parse.js holds one: no tool writes one near it.
-const MAX_LINE = 2 ** 20
+export const MAX_LINE = 2 ** 20
 
 // `forbidden` is what no line may have, refused by its code point.
 export const lines = (text, forbidden) => ({ text, forbidden, pos: 0, number: -1, line: undefined, crlf: undefined })
@@ -72,12 +84,9 @@ export function readJsonString(line, pos, number) {
   if (end >= line.length) throw fail('a string with no closing quote', number)
   const raw = line.slice(pos, ++end)
   if (!raw.includes('\\')) return [raw.slice(1, -1), end]
-  let value
-  try {
-    value = JSON.parse(raw)
-  } catch {
+  const value = attempt(() => JSON.parse(raw), () => {
     throw fail(`${quote(raw)} is not a string as JSON writes it`, number)
-  }
+  })
   if (JSON.stringify(value) !== raw) throw fail(`${quote(raw)} is not written as JSON writes ${quote(value)}`, number)
   return [value, end]
 }

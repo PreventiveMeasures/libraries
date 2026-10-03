@@ -130,7 +130,7 @@ function walk12(view, { globs }, where) {
       const path = rel === '' ? name : `${rel}/${name}`
       if ((rel === '' && name === 'node_modules') || VCS.has(name)) continue
       const isDir = view.type(path) === 'directory'
-      const verdict = (key) => chain.map((level) => level[key] === undefined ? undefined : matched(level[key], level.dir === '' ? path : path.slice(level.dir.length + 1), isDir)).find(Boolean)
+      const verdict = (key) => chain.values().map((level) => level[key] === undefined ? undefined : matched(level[key], level.dir === '' ? path : path.slice(level.dir.length + 1), isDir)).find(Boolean)
       if ((verdict('custom') ?? verdict('git')) === 'ignore') continue
       if (isDir) visit(path, chain)
       else found.push(path)

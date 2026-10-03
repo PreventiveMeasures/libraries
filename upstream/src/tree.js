@@ -28,7 +28,7 @@ const octal = (header, start, end) => {
   const text = field(header, start, end).trim()
   return /^[0-7]{1,12}$/u.test(text) ? Number.parseInt(text, 8) : Number.NaN
 }
-const objectId = (type, content) => createHash('sha1').update(`${type} ${content.length}\0`).update(content).digest()
+export const objectId = (type, content) => createHash('sha1').update(`${type} ${content.length}\0`).update(content).digest()
 const checksum = (header) => header.reduce((sum, byte, i) => sum + (i >= 148 && i < 156 ? 32 : byte), 0)
 const isZero = (bytes) => bytes.every((byte) => byte === 0)
 
@@ -64,9 +64,9 @@ function emptyDirs(dir, prefix = '') {
 // Git sorts a subtree as if its name ended in `/`.
 function treeId(dir) {
   const entries = [...dir].map(([name, entry]) => (entry instanceof Map ? { mode: '40000', name, id: treeId(entry) } : { ...entry, name }))
-  const key = ({ mode, name }) => (mode === '40000' ? `${name}/` : name)
-  entries.sort((a, b) => (key(a) < key(b) ? -1 : Number(key(a) > key(b))))
-  return objectId('tree', Buffer.concat(entries.flatMap(({ mode, name, id }) => [Buffer.from(`${mode} ${name}\0`, 'latin1'), id])))
+  const keyed = entries.map((entry) => [entry.mode === '40000' ? `${entry.name}/` : entry.name, entry])
+  keyed.sort(([a], [b]) => (a < b ? -1 : Number(a > b)))
+  return objectId('tree', Buffer.concat(keyed.flatMap(([, { mode, name, id }]) => [Buffer.from(`${mode} ${name}\0`, 'latin1'), id])))
 }
 
 const EMPTY_TREE = objectId('tree', Buffer.alloc(0)).toString('hex')
@@ -90,11 +90,10 @@ async function holdsNothing(sha, listed) {
 // names any, and one is put back only once its own listings show it holds
 // nothing.
 async function putBackEmptyTrees(dir, sha, listed) {
-  if (treeId(dir).toString('hex') === sha) return
   for (const entry of await listed(sha)) {
     if (entry.type !== 'tree') continue
     const here = dir.get(entry.name)
-    if (here instanceof Map) await putBackEmptyTrees(here, entry.sha, listed)
+    if (here instanceof Map && treeId(here).toString('hex') !== entry.sha) await putBackEmptyTrees(here, entry.sha, listed)
     else if (here === undefined && await holdsNothing(entry.sha, listed)) dir.set(entry.name, subtree(entry.sha))
   }
 }
@@ -177,6 +176,8 @@ export async function gitTreeOfTarball(gzipped, { expected, list } = {}) {
     if (!isSha1(sha)) return `no tree: an empty directory, ${JSON.stringify(path)}, and no submodule there`
     dir.set(name, { mode: '160000', id: Buffer.from(sha, 'hex') })
   }
+  const id = treeId(root).toString('hex')
+  if (id === expected) return id
   await putBackEmptyTrees(root, expected, listed)
   return treeId(root).toString('hex')
 }

@@ -30,8 +30,7 @@ function parseCsvRows(text) {
   let row = []
   let field = ''
   let inQuote = false
-  const n = text.length
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < text.length; i++) {
     const c = text[i]
     if (inQuote) {
       if (c === '"') {
@@ -83,13 +82,7 @@ export function parseCodexCsvToScans(text) {
 
   // Group rows by configured_scan_id; a row without one (a blank line
   // included) is skipped.
-  const byScan = new Map()
-  for (const record of csvRecords(header, body)) {
-    const scanId = record.configured_scan_id
-    if (!scanId) continue
-    if (!byScan.has(scanId)) byScan.set(scanId, [])
-    byScan.get(scanId).push(record)
-  }
+  const byScan = Map.groupBy(csvRecords(header, body).filter((r) => r.configured_scan_id), (r) => r.configured_scan_id)
   if (byScan.size === 0) throw new Error('Codex CSV: no rows with a configured_scan_id')
 
   const scans = []

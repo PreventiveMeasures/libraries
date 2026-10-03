@@ -6,7 +6,7 @@
 // no app state, nothing above `report/` — so a viewer switch arrives as
 // an argument (`displayedSeverity`, `runMetaLine`).
 
-import { fenceRanges, inFence } from './md-structure.js'
+import { fenceRanges, splitHeadingLine, splitUnfenced } from './md-structure.js'
 import { SOURCE_LABELS } from './labels.js'
 import { canonicalSeverity } from './severity.js'
 
@@ -194,11 +194,7 @@ export function findingDisplayName(f) {
 // comes through here, so a report's own title reaches all of them or
 // none. The export marker comes off first, being chrome.
 export function firstLine(text) {
-  if (!text) return ''
-  for (const line of text.split('\n')) {
-    if (line.trim()) return line.trim()
-  }
-  return ''
+  return text ? (text.split('\n').find((line) => line.trim())?.trim() ?? '') : ''
 }
 
 // The `title` a finding carries, trimmed — '' when there is none a
@@ -224,17 +220,15 @@ export function splitDescription(f) {
   const own = ownTitle(f)
   if (own) {
     const body = text.trim()
-    const nl = body.indexOf('\n')
-    const first = (nl < 0 ? body : body.slice(0, nl)).trim()
-    if (first !== own) return { title: own, body }
-    return { title: own, body: nl < 0 ? '' : body.slice(nl + 1).replace(/^\s+/u, '') }
+    const lines = splitHeadingLine(body)
+    return { title: own, body: lines.title === own ? lines.body.replace(/^\s+/u, '') : body }
   }
-  if (!text) return { title: '', body: '' }
   const nl = text.indexOf('\n')
   if (nl < 0) return { title: '', body: text }
   // A fence opening at index 0 — the same reading codeBlockSegments
-  // gives it (format.js).
-  if (fenceRanges(text)[0]?.[0] === 0) return { title: '', body: text }
+  // gives it (format.js). The first line alone says so: a fence it
+  // opens is a range whether or not anything closes it.
+  if (fenceRanges(text.slice(0, nl))[0]?.[0] === 0) return { title: '', body: text }
   const body = text.slice(nl + 1).replace(/^\s+/u, '')
   if (!body) return { title: '', body: text }
   return { title: text.slice(0, nl).trim(), body }
@@ -261,26 +255,12 @@ export function titledDescription(f) {
 // document order, `label` null for prose.
 const SECTION_LABEL_RE = /^\*\*([^*\n]+):\*\*[ \t]*/u
 
-// Blank lines, but only OUTSIDE a fence. A snippet's own blank line
-// would tear the block in two, leaving each half with one bare fence
-// marker and neither rendering as code.
-function paragraphs(text) {
-  const ranges = fenceRanges(text)
-  if (ranges.length === 0) return text.split(/\n{2,}/u)
-  const parts = []
-  let last = 0
-  for (const m of text.matchAll(/\n{2,}/gu)) {
-    if (inFence(ranges, m.index)) continue
-    parts.push(text.slice(last, m.index))
-    last = m.index + m[0].length
-  }
-  parts.push(text.slice(last))
-  return parts
-}
-
 export function descriptionSections(body) {
   const sections = []
-  for (const para of paragraphs(body || '')) {
+  // Blank lines, but only OUTSIDE a fence. A snippet's own blank line
+  // would tear the block in two, leaving each half with one bare fence
+  // marker and neither rendering as code.
+  for (const para of splitUnfenced(body || '', /\n{2,}/gu)) {
     if (!para.trim()) continue
     const m = SECTION_LABEL_RE.exec(para)
     if (m) {

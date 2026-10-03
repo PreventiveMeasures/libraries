@@ -17,8 +17,7 @@ function bundlerOf(node, path = new Set()) {
   const above = bundlerOf(parent, path)
   if (above !== undefined) return above
   if (parent.bundleDependencies?.includes(node.folder)) return parent
-  for (const edge of node.edgesIn) if (bundlerOf(edge.from, path) === parent) return parent
-  return undefined
+  return node.edgesIn.some((edge) => bundlerOf(edge.from, path) === parent) ? parent : undefined
 }
 
 const underBundler = ({ parent }) => parent !== undefined && (parent.bundleDependencies !== undefined || underBundler(parent))

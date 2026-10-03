@@ -39,11 +39,7 @@ export function sha1Hex(bytes) {
       b = a
       a = temp
     }
-    state[0] += a
-    state[1] += b
-    state[2] += c
-    state[3] += d
-    state[4] += e
+    for (const [index, word] of [a, b, c, d, e].entries()) state[index] += word
   }
   return Array.from(state, (word) => word.toString(16).padStart(8, '0')).join('')
 }

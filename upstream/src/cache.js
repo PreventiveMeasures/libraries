@@ -3,7 +3,7 @@ import { constants } from 'node:fs'
 import { mkdir, open, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 
-import { assertDirectoryPath } from './args.js'
+import { assertDirectoryPath, isRepo } from './args.js'
 import { MAX_BYTES, decode } from './http.js'
 
 const DIRS = new Set(['npm/repos', 'npm/tarballs', 'cargo/repos', 'cargo/crates', 'composer/repos', 'soldeer/repos', 'soldeer/zips', 'github/trees'])
@@ -93,3 +93,21 @@ export async function readRecord(dir, name) {
 }
 
 export const writeRecord = (dir, name, value) => writeCacheJSON(dir, `${name}.json`, { at: Date.now(), name, ...value })
+
+// Name → the GitHub repo cached for it, for those of `names` that have one.
+export async function readRepos(dir, names) {
+  const repos = new Map()
+  for (const name of names) {
+    const entry = await readRecord(dir, name)
+    if (isRepo(entry?.github)) repos.set(name, entry.github)
+  }
+  return repos
+}
+
+// An answer into `repos`, and into the cache where it found a repo.
+export async function addRepos(dir, repos, answer) {
+  for (const [name, github] of answer) {
+    repos.set(name, github)
+    if (github) await writeRecord(dir, name, { github })
+  }
+}

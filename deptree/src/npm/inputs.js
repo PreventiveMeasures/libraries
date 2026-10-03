@@ -4,17 +4,14 @@ import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { walkWorkspaces } from '../glob.js'
 import { readManifest, readManifests } from '../manifest.js'
-import { checkProject, readText, typeOf } from '../project.js'
+import { checkHostKeys, checkLeftOut, checkProject, checkTexts, readText, typeOf } from '../project.js'
 import { readSettings } from './settings.js'
 import { profileOf } from './versions.js'
 
 const LIBCS = new Set(['glibc', 'musl'])
 
 export function checkHost(host) {
-  if (host === null || typeof host !== 'object') throw new TypeError('host must be an object with npm, node, os and cpu, and libc on Linux')
-  for (const key of ['npm', 'node', 'os', 'cpu']) {
-    if (typeof host[key] !== 'string' || host[key] === '') throw new TypeError(`host.${key} must be a non-empty string`)
-  }
+  checkHostKeys(host, ['npm', 'node', 'os', 'cpu'], 'npm, node, os and cpu, and libc on Linux')
   if (valid(host.node) !== host.node) throw new DeptreeError(`${quote(host.node)} is not an exact version`, 'host.node')
   if (host.os === 'win32') throw new DeptreeError('Windows is not supported: npm links bins there with shims, and workspaces with junctions', 'host.os')
   if (host.os === 'linux' ? !LIBCS.has(host.libc) : host.libc !== undefined) {
@@ -67,14 +64,12 @@ export function inputsOf(options, nocase) {
   if (lockfile === undefined) {
     if (project === undefined) throw new TypeError(LOCKFILE)
     checkProject(project)
-    for (const [name, value] of Object.entries({ manifests, npmrc })) {
-      if (value !== undefined) throw new TypeError(`${name} must be left out where lockfile is: both are read from project`)
-    }
+    checkLeftOut({ manifests, npmrc })
     return readProject(project, nocase)
   }
   if (project !== undefined) throw new TypeError('project must be left out where lockfile is given')
   if (typeof lockfile !== 'string') throw new TypeError(LOCKFILE)
   if (manifests === null || typeof manifests !== 'object') throw new TypeError('manifests must map each project\'s directory to its package.json')
-  if (npmrc !== undefined && typeof npmrc !== 'string') throw new TypeError('npmrc must be a string, or left out')
+  checkTexts({ npmrc })
   return { lockfile, manifests: readManifests(manifests), settings: readSettings(npmrc) }
 }

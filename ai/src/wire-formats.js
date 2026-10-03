@@ -1,5 +1,5 @@
 import { canAdaptive, canTaskBudget, needsBetweenToolsNoThink, needsExplicitNoThink } from './models.js'
-import { ANTHROPIC_SYSTEM_CACHE, anthropicInitialUserMessage, cachesConversation, flattenUserContent } from './prompt-cache.js'
+import { ANTHROPIC_SYSTEM_CACHE, cachesConversation, chatCompletionsInitialUserMessage, flattenUserContent } from './prompt-cache.js'
 
 // Wire formats the adapters are assembled from, kept out of providers.js so that file stays the
 // provider registry and dispatch surface. The Anthropic Messages format lives here because two
@@ -12,9 +12,6 @@ import { ANTHROPIC_SYSTEM_CACHE, anthropicInitialUserMessage, cachesConversation
 const TRUNCATION_PREFIX = 'Response truncated: hit '
 export const truncationError = (maxTokensField) => `${TRUNCATION_PREFIX}${maxTokensField} limit`
 export const isMaxTokensTruncation = (error) => typeof error === 'string' && error.startsWith(TRUNCATION_PREFIX)
-// `anthropic-beta` value gating the `output_config.task_budget` body field. Centralised so the body
-// builder and the extra-headers method can't drift.
-const TASK_BUDGET_BETA = 'task-budgets-2026-03-13'
 // JSON-parse a model-supplied tool-call args string. A malformed string is a model hallucination,
 // not our bug — surface it via `argsError` instead of throwing so the caller's retry loop can
 // handle it gracefully. Shared: every adapter that carries tool args as a string parses them this
@@ -82,7 +79,8 @@ export function anthropicShape(modelId) {
 
     extraHeaders({ taskBudget = false } = {}) {
       if (!taskBudget) return null
-      return { 'anthropic-beta': TASK_BUDGET_BETA }
+      // The beta that gates the `output_config.task_budget` body field.
+      return { 'anthropic-beta': 'task-budgets-2026-03-13' }
     },
 
     checkResponse(json) {
@@ -110,26 +108,12 @@ export function anthropicShape(modelId) {
     },
 
     // Given blocks, mark the one before the last so multiple variants that share everything ahead
-    // of the per-request tail read a single cache entry for it. Same rule the gateway route applies
-    // — see prompt-cache.js.
-    buildInitialUserMessage(model, userContent) {
-      return anthropicInitialUserMessage(model, userContent)
-    },
-
+    // of the per-request tail read a single cache entry for it. Same rule, and the same `text`
+    // blocks, the gateway route applies — see prompt-cache.js.
+    buildInitialUserMessage: chatCompletionsInitialUserMessage,
   }
 }
 
-
-// The initial-message shape for a provider that caches on its own side, so there's nothing for us
-// to mark up: OpenAI Responses fingerprints the input and Moonshot caches context automatically.
-// For both a block split buys nothing — concat and let the server do it. The gateway adapter
-// spreads this in for the routes it can't mark, then overrides it for the ones it can, and the
-// on-device adapter takes it because a local model caches nothing across requests at all.
-export const SERVER_SIDE_CACHING = {
-  buildInitialUserMessage(model, userContent) {
-    return { role: 'user', content: flattenUserContent(userContent) }
-  },
-}
 
 // Wire-format pieces shared by the OpenAI-style chat-completions backends (OpenRouter, Moonshot).
 // Only the endpoint, the auth header, and the request body differ between them — response parsing
@@ -160,6 +144,12 @@ export function chatCompletionsBase(maxTokensField) {
       }
     },
 
-    ...SERVER_SIDE_CACHING,
+    // The initial-message shape for a backend with nothing for us to mark up: Moonshot caches
+    // context automatically, and a local model (ollama, the on-device one) caches nothing across
+    // requests at all. A block split buys nothing there — concat and let the server do it.
+    // CHAT_COMPLETIONS_SHAPE overrides this for the routes whose vendors read a breakpoint.
+    buildInitialUserMessage(model, userContent) {
+      return { role: 'user', content: flattenUserContent(userContent) }
+    },
   }
 }
