@@ -158,9 +158,10 @@ export interface PnpmProject {
 // by their kebab-case names, those that can change the tree held to what
 // is built here, and all else — npm's own settings, publishing's,
 // credentials, other names — passed over. A `${VAR}` pnpm would fill in is
-// taken in a line passed over, such as `//registry.npmjs.org/:_authToken`,
-// where the rest of the file would not change the tree: pnpm drops the
-// whole file where the variable is unset.
+// taken in a line passed over where the rest of the file would not change
+// the tree, as pnpm drops the whole file where the variable is unset; but
+// `//registry.npmjs.org/:_authToken=${NPM_TOKEN}`, the registry's token as
+// a project commonly gives it, is taken to be set, and the rest read.
 //
 // pnpm 11 reads its settings from pnpm-workspace.yaml alone, as this does
 // for it: of the .npmrc only its registries, and of the package.json no

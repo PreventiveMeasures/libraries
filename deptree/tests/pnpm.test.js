@@ -708,6 +708,16 @@ describe('buildPnpmTree refuses', () => {
     await refuses({ workspace: 'packageExtensions:\n  a:\n    dependencies:\n      b: 1.0.0\n' }, /^packageExtensions: package extensions are not supported/u)
   })
 
+  // NPM_TOKEN is taken to be set, so the rest of the file is read, and the
+  // lockfile held to it.
+  it('an .npmrc with the registry\'s token, read whole', async () => {
+    stubRegistry(TARBALLS)
+    const npmrc = '//registry.npmjs.org/:_authToken=${NPM_TOKEN}\nauto-install-peers=false\nhoist=false\n'
+    const vfs = await build({ npmrc, lockfile: lockfile().replace('autoInstallPeers: true', 'autoInstallPeers: false') })
+    assert.equal(vfs.isDirectory('/node_modules/.pnpm/node_modules'), false)
+    await refuses({ npmrc }, /^settings\.autoInstallPeers: autoInstallPeers is true in the lockfile, which a frozen install refuses$/u)
+  })
+
   it('a lockfile the lockfile reader refuses, or YAML it cannot read', async () => {
     const named = (pattern, Cause) => (error) => error instanceof DeptreeError && pattern.test(error.message) && error.cause instanceof Cause
     await assert.rejects(build({ lockfile: "lockfileVersion: '6.0'\n" }), named(/^pnpm-lock\.yaml: lockfileVersion: unsupported version/u, LockfileError))
