@@ -94,12 +94,23 @@ describe('readSettings', () => {
   // pnpm drops the whole .npmrc where a variable in it is unset: one in a
   // line passed over is taken where dropping the file would change nothing.
   it('takes a variable from the environment only where the rest of the file cannot turn on it', () => {
-    const token = '//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n'
+    const token = '//registry.npmjs.org/:_authToken=${TOKEN}\n'
     assert.deepEqual(read({ npmrc: `${token}_auth=\${AUTH}\nsave-exact=true\n` }), DEFAULTS)
     assert.deepEqual(read({ npmrc: `${token}auto-install-peers=true\n` }), DEFAULTS)
     assert.deepEqual(read({ npmrc: `${token}hoist=false\n`, workspace: 'hoist: false\n' }).hoistPattern, undefined)
     assert.throws(() => read({ npmrc: `${token}hoist=false\n` }), /^DeptreeError: \.npmrc: a line takes a value from the environment, which pnpm drops the whole file for where it is unset/u)
     assert.throws(() => read({ npmrc: 'registry=${REGISTRY}\n' }), /^DeptreeError: \.npmrc:1: registry: "\$\{REGISTRY\}" is taken from the environment/u)
+  })
+
+  // As @preventive/upstream takes it, where it fetches a private package.
+  it('takes NPM_TOKEN to be set for the registry\'s token', () => {
+    const npmrc = '//registry.npmjs.org/:_authToken=${NPM_TOKEN}\nauto-install-peers=false\nhoist=false\n'
+    assert.deepEqual(read({ npmrc }), { ...DEFAULTS, autoInstallPeers: false, hoistPattern: undefined })
+    const dropped = /^DeptreeError: \.npmrc: a line takes a value from the environment/u
+    assert.throws(() => read({ npmrc: `${npmrc}_auth=\${AUTH}\n` }), dropped)
+    assert.throws(() => read({ npmrc: npmrc.replace('NPM_TOKEN', 'NODE_AUTH_TOKEN') }), dropped)
+    assert.throws(() => read({ npmrc: npmrc.replace('registry.npmjs.org', 'npm.example.com') }), dropped)
+    assert.throws(() => read({ npmrc: npmrc.replace('${NPM_TOKEN}', '"${NPM_TOKEN}"') }), dropped)
   })
 
   // pnpm 9 reads of pnpm-workspace.yaml its projects and catalogs alone,

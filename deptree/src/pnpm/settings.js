@@ -39,6 +39,10 @@ function checkNpmrcRegistries(text) {
   }
 }
 
+// The registry's token as a project's .npmrc commonly gives it is taken to
+// be set, as @preventive/upstream reads it too: pnpm reads the file then.
+const isNpmToken = (key, value) => key === '//registry.npmjs.org/:_authToken' && value === '${NPM_TOKEN}'
+
 function fromNpmrc(text, major) {
   const settings = new Map()
   let environment = false
@@ -51,7 +55,7 @@ function fromNpmrc(text, major) {
     const name = KEBAB.test(key) ? camelCase(key) : undefined
     const read = name === undefined ? undefined : npmrcReader(name, major)
     if (read === undefined) {
-      environment ||= fromEnvironment(key) || fromEnvironment(value)
+      if (!isNpmToken(key, value)) environment ||= fromEnvironment(key) || fromEnvironment(value)
       continue
     }
     noEnvironment(value, where)
