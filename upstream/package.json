@@ -1,6 +1,6 @@
 {
   "name": "@preventive/upstream",
-  "version": "1.0.0-alpha.6",
+  "version": "1.0.0-alpha.7",
   "description": "Minimal npm, crates.io and Soldeer registry clients, a GitHub client, and a git checkout reader: the calls we use, nothing more",
   "type": "module",
   "exports": {
