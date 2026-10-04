@@ -83,7 +83,8 @@
     "src/package.js",
     "src/pool.js",
     "src/remote.js",
-    "src/semver.cjs",
+    "src/semver-peer.cjs",
+    "src/semver.js",
     "src/tree.js",
     "src/soldeer.js"
   ],

@@ -1,17 +1,12 @@
-'use strict'
+import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
+import { basename, dirname, resolve } from 'node:path'
+import requirePeer from './semver-peer.cjs'
 
 // npm's own semver, borrowed from the npm next to node rather than added
 // as a dependency: the same implementation `npm audit` uses. Where there is
 // no npm, as in a bundled serverless function, the `semver` package itself,
 // an optional peer dependency.
-//
-// CommonJS for a plain require('semver'), which a bundler follows. All else
-// is taken past require(), which in an ESM bundle of this is a stub that
-// throws: node's modules by process.getBuiltinModule(), npm's semver by a
-// require() of node's own making.
-const assert = process.getBuiltinModule('node:assert/strict')
-const { createRequire } = process.getBuiltinModule('node:module')
-const { basename, dirname, resolve } = process.getBuiltinModule('node:path')
 
 // Plain releases that semver.valid answers unchanged, so it need not be
 // loaded for them: no leading zeros, and at most 15 digits a part, under
@@ -34,12 +29,15 @@ function find() {
   if (['node', 'node.exe'].includes(basename(argv0 ?? ''))) {
     // POSIX keeps npm in <prefix>/lib beside <prefix>/bin/node; Windows, beside node.exe.
     for (const prefix of ['../lib', '.']) {
+      // Required from itself, which a bundle of any format leaves alone.
       const path = resolve(dirname(argv0), prefix, 'node_modules/npm/node_modules/semver')
       const lib = attempt(() => createRequire(path)(path))
       if (lib) return lib
     }
   }
-  return attempt(() => require('semver'))
+  // The peer, by the plain require() a bundler follows; or, where an ESM
+  // bundle leaves it out, by node's own require() from beside the bundle.
+  return attempt(requirePeer) ?? attempt(() => createRequire(import.meta.url)('semver'))
 }
 
 let found
@@ -50,13 +48,11 @@ function semver() {
   return found
 }
 
-const satisfies = (...args) => semver().satisfies(...args)
-const validRange = (...args) => semver().validRange(...args)
-const intersects = (...args) => semver().intersects(...args)
-const compareVersions = (...args) => semver().compare(...args)
-const valid = (version, ...rest) => (rest.length === 0 && typeof version === 'string' && PLAIN_RELEASE.test(version) ? version : semver().valid(version, ...rest))
-const isExactVersion = (version) => typeof version === 'string' && valid(version) === version
-const clean = (...args) => semver().clean(...args)
-const major = (...args) => semver().major(...args)
-
-module.exports = { clean, compareVersions, intersects, isExactVersion, major, satisfies, valid, validRange }
+export const satisfies = (...args) => semver().satisfies(...args)
+export const validRange = (...args) => semver().validRange(...args)
+export const intersects = (...args) => semver().intersects(...args)
+export const compareVersions = (...args) => semver().compare(...args)
+export const valid = (version, ...rest) => (rest.length === 0 && typeof version === 'string' && PLAIN_RELEASE.test(version) ? version : semver().valid(version, ...rest))
+export const isExactVersion = (version) => typeof version === 'string' && valid(version) === version
+export const clean = (...args) => semver().clean(...args)
+export const major = (...args) => semver().major(...args)

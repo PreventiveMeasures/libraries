@@ -30,13 +30,14 @@ const files = [
 ]
 
 // Every way a module specifier can be written: static import/export-from,
-// dynamic import(), and CJS require(). A template literal is read only after
-// `import(` or `require(`, because prose quotes a module name in backticks.
-const SPECIFIER_RE = /(?:\bfrom|\bimport|\brequire)\s*\(?\s*(?<quote>['"])(?<spec>[^'"\n]+)\k<quote>/gu
+// dynamic import(), CJS require(), and a require() createRequire() made. A
+// template literal is read only after `import(` or `require(`, because prose
+// quotes a module name in backticks.
+const SPECIFIER_RE = /(?:\bfrom|\bimport|\brequire|\bcreateRequire\([^()]*\)\s*\()\s*\(?\s*(?<quote>['"])(?<spec>[^'"\n]+)\k<quote>/gu
 const TEMPLATE_RE = /(?:\bimport|\brequire)\s*\(\s*`(?<spec>[^`$\n]+)`/gu
 
 // The bare specifiers a module may require, each an optional peer dependency.
-const PEERS = { 'src/semver.cjs': ['semver'] }
+const PEERS = { 'src/semver-peer.cjs': ['semver'], 'src/semver.js': ['semver'] }
 
 const specifiersOf = (source) => [SPECIFIER_RE, TEMPLATE_RE].flatMap((re) => [...source.matchAll(re)].map((m) => m.groups.spec))
 
