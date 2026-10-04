@@ -5,9 +5,9 @@ import { buildPnpmTree } from '../pnpm.js'
 import { hoistedTree } from '../src/pnpm/hoisted.js'
 import { HOST, stubRegistry, tarball } from './registry.js'
 
-// The trees pnpm 10's hoisted linker installs, from tarballs made here. What
-// each test holds them to is what real installs of pnpm 10 made of trees of
-// the same shape.
+// The trees pnpm 10's and 11.28's hoisted linker installs, from tarballs
+// made here. What each test holds them to is what real installs of pnpm 10
+// and 11.28 made of trees of the same shape.
 
 const realFetch = globalThis.fetch
 afterEach(() => { globalThis.fetch = realFetch })
@@ -54,14 +54,17 @@ const relative = (from, to) => {
 // A workspace: `projects` by directory, each by kind its dependencies by
 // alias, a snapshot key or `workspace:` and a directory; `snapshots` by key
 // their own, and `optional` where only optional dependencies reach them; a
-// key with a patch hash is patched by PATCH.
-function workspace({ projects, snapshots, patched }) {
+// key with a patch hash is patched by `patch`, configured as pnpm `major`
+// reads it.
+function workspace({ projects, snapshots, patched, patch = PATCH, major = 10 }) {
   const lines = ["lockfileVersion: '9.0'", '', 'settings:', '  autoInstallPeers: true', '  excludeLinksFromLockfile: false', '']
-  if (patched) lines.push('patchedDependencies:', `  ${patched}:`, `    hash: ${H}`, '    path: patches/p.patch', '')
+  const hash = createHash('sha256').update(patch).digest('hex')
+  if (patched && major >= 11) lines.push('patchedDependencies:', `  ${patched}: ${hash}`, '')
+  else if (patched) lines.push('patchedDependencies:', `  ${patched}:`, `    hash: ${hash}`, '    path: patches/p.patch', '')
   lines.push('importers:', '')
   const manifests = {}
   for (const [id, kinds] of Object.entries(projects)) {
-    lines.push(`  ${id}:`)
+    lines.push(`  ${id}:${Object.keys(kinds).length === 0 ? ' {}' : ''}`)
     const manifest = { name: id === '.' ? 'root' : id.split('/').at(-1), version: '1.0.0' }
     for (const [kind, deps] of Object.entries(kinds)) {
       lines.push(`    ${kind}:`)
@@ -73,7 +76,7 @@ function workspace({ projects, snapshots, patched }) {
         manifest[kind][alias] = specifier
       }
     }
-    if (id === '.' && patched) manifest.pnpm = { patchedDependencies: { [patched]: 'patches/p.patch' } }
+    if (id === '.' && patched && major < 11) manifest.pnpm = { patchedDependencies: { [patched]: 'patches/p.patch' } }
     manifests[id] = JSON.stringify(manifest)
     lines.push('')
   }
@@ -98,7 +101,7 @@ function workspace({ projects, snapshots, patched }) {
     if (optional) lines.push('    optional: true')
     lines.push('')
   }
-  return { lockfile: lines.join('\n'), manifests, patches: patched ? { 'patches/p.patch': PATCH } : {} }
+  return { lockfile: lines.join('\n'), manifests, patches: patched ? { 'patches/p.patch': patch } : {} }
 }
 
 // What the tarballs say of their bins and platforms, for the lockfile.
@@ -111,6 +114,17 @@ const build = async ({ host = HOST, npmrc = NPMRC, ...spec }) => {
   stubRegistry(TARBALLS)
   const { lockfile, manifests, patches } = workspace(spec)
   const { vfs, installed, stats } = await buildPnpmTree({ lockfile, manifests, patches, npmrc, workspace: Object.keys(spec.projects).length > 1 ? WORKSPACE : undefined, host })
+  return { vfs, installed, stats, version: (path) => JSON.parse(vfs.readText(`/${path}/package.json`)).version }
+}
+
+// pnpm 11 reads its settings, the patches with them, from pnpm-workspace.yaml.
+const HOST_11 = { ...HOST, pnpm: '11.28.4' }
+const build11 = async ({ host = HOST_11, settings = '', ...spec }) => {
+  stubRegistry(TARBALLS)
+  const { lockfile, manifests, patches } = workspace({ ...spec, major: 11 })
+  const patching = spec.patched ? `patchedDependencies:\n  ${spec.patched}: patches/p.patch\n` : ''
+  const workspaceYaml = `${WORKSPACE}nodeLinker: hoisted\npackageImportMethod: copy\n${patching}${settings}`
+  const { vfs, installed, stats } = await buildPnpmTree({ lockfile, manifests, patches, workspace: workspaceYaml, host })
   return { vfs, installed, stats, version: (path) => JSON.parse(vfs.readText(`/${path}/package.json`)).version }
 }
 
@@ -188,9 +202,12 @@ describe('buildPnpmTree with the hoisted linker', () => {
     }
   })
 
-  it('is refused for pnpm 9, as for 11 and 12 (settings.test.js)', async () => {
+  it('is refused for pnpm 9, as for 12 (settings.test.js), and for pnpm 11 before 11.28', async () => {
     const spec = { projects: { '.': { dependencies: { ms: 'ms@2.1.3' } } }, snapshots: { 'ms@2.1.3': {} } }
     await assert.rejects(build({ ...spec, host: { ...HOST, pnpm: '9.15.9' } }), /^DeptreeError: \.npmrc:1: node-linker: "hoisted" is not supported: only the isolated node_modules layout is built for pnpm 9$/u)
+    await assert.rejects(build11({ ...spec, host: { ...HOST, pnpm: '11.27.1' } }), /^DeptreeError: nodeLinker: the hoisted node_modules layout of pnpm 11 is built from 11\.28 alone, as it changed much before$/u)
+    const { vfs } = await build11({ ...spec, host: { ...HOST, pnpm: '11.28.0' } })
+    assert.equal(vfs.isDirectory('/node_modules/ms'), true)
   })
 })
 
@@ -243,6 +260,80 @@ describe('buildPnpmTree with the hoisted linker and a patch', () => {
   })
 })
 
+// Deletes ms@2.0.0's index.js.
+const DELETE = `diff --git a/index.js b/index.js
+deleted file mode 100644
+index 0000000..0000000
+--- a/index.js
++++ /dev/null
+@@ -1 +0,0 @@
+-module.exports = 1
+`
+const HD = createHash('sha256').update(DELETE).digest('hex')
+
+describe('buildPnpmTree with pnpm 11.28\'s hoisted linker', () => {
+  // packages/ms and packages/Debug are named as packages in the root's
+  // node_modules, and b as a dependency of the root.
+  it('links each named project into the root\'s node_modules where nothing of its name is', async () => {
+    const projects = {
+      '.': { dependencies: { debug: 'debug@2.6.9', b: 'workspace:packages/b' } },
+      'packages/a': { dependencies: { ms: 'ms@2.1.3' } },
+      'packages/b': {},
+      'packages/ms': {},
+      'packages/Debug': {},
+    }
+    const { vfs, version } = await build11({ projects, snapshots: DEBUG })
+    assert.deepEqual(vfs.readdir('/node_modules'), ['.pnpm', 'a', 'b', 'debug', 'ms'])
+    assert.equal(vfs.readlink('/node_modules/a'), '../packages/a')
+    assert.equal(vfs.readlink('/node_modules/b'), '../packages/b')
+    assert.equal(version('node_modules/ms'), '2.0.0')
+    assert.equal(version('packages/a/node_modules/ms'), '2.1.3')
+    const unhoisted = await build11({ projects, snapshots: DEBUG, settings: 'hoistWorkspacePackages: false\n' })
+    assert.deepEqual(unhoisted.vfs.readdir('/node_modules'), ['.pnpm', 'b', 'debug', 'ms'])
+    const publicOnly = await build11({ projects, snapshots: DEBUG, settings: 'hoist: false\npublicHoistPattern:\n  - b*\n' })
+    assert.deepEqual(publicOnly.vfs.readdir('/node_modules'), ['.pnpm', 'b', 'debug', 'ms'])
+  })
+
+  it('lays out a workspace as pnpm 10 does', async () => {
+    const { vfs, version } = await build11({
+      projects: {
+        '.': { dependencies: { ms: 'ms@2.1.3', a: 'workspace:packages/a' } },
+        'packages/a': { dependencies: { ms: 'ms@2.0.0', debug: 'debug@2.6.9', b: 'workspace:packages/b' } },
+        'packages/b': { dependencies: { debug: 'debug@4.3.4' } },
+      },
+      snapshots: { ...DEBUG, 'debug@4.3.4': { dependencies: { ms: 'ms@2.1.3' } } },
+    })
+    assert.deepEqual(vfs.readdir('/node_modules'), ['.pnpm', 'a', 'b', 'debug', 'ms'])
+    assert.equal(version('node_modules/debug/node_modules/ms'), '2.0.0')
+    assert.deepEqual(vfs.readdir('/packages/a/node_modules'), ['b', 'ms'])
+    assert.equal(version('packages/b/node_modules/debug'), '4.3.4')
+  })
+
+  // pnpm 11.25 links the built copy's files into each other copy in place,
+  // and keeps its node_modules.
+  it('patches every copy of a package it builds, each with its own node_modules', async () => {
+    const { vfs, version, stats } = await build11(NESTED)
+    for (const project of ['packages/a', 'packages/b']) {
+      assert.equal(vfs.readText(`/${project}/node_modules/debug/index.js`), 'module.exports = 2\n')
+      assert.equal(version(`${project}/node_modules/debug/node_modules/ms`), '2.0.0')
+    }
+    assert.equal(stats.patched, 2)
+  })
+
+  it('refuses a patch that deletes a file of a package in two places, which pnpm keeps in the copy it does not build', async () => {
+    const leaves = {
+      projects: { '.': { dependencies: { ms: 'ms@2.1.3' } }, 'packages/a': { dependencies: { ms: `ms@2.0.0(patch_hash=${HD})` } }, 'packages/b': { dependencies: { ms: `ms@2.0.0(patch_hash=${HD})` } } },
+      snapshots: { 'ms@2.1.3': {}, [`ms@2.0.0(patch_hash=${HD})`]: {} },
+      patched: 'ms@2.0.0',
+      patch: DELETE,
+    }
+    await assert.rejects(build11(leaves), /^DeptreeError: "ms@2\.0\.0\(patch_hash=[\da-f]+\)": pnpm 11 patches one of its copies, and links its files into the others, which keep "index\.js" the patch deletes, which is not supported$/u)
+    const one = { ...leaves, projects: { '.': { dependencies: { ms: `ms@2.0.0(patch_hash=${HD})` } } }, snapshots: { [`ms@2.0.0(patch_hash=${HD})`]: {} } }
+    const { vfs } = await build11(one)
+    assert.deepEqual(vfs.readdir('/node_modules/ms'), ['package.json'])
+  })
+})
+
 describe('hoistedTree', () => {
   const pkg = (name, version, dependencies = {}) => ({ name, version, resolution: { type: 'tarball' }, dependencies, optionalDependencies: {}, peerDependencies: {}, transitivePeerDependencies: [] })
   const lockfileOf = (rootDeps, packages) => ({ importers: { '.': { dependencies: rootDeps, devDependencies: {}, optionalDependencies: {} } }, packages })
@@ -252,6 +343,40 @@ describe('hoistedTree', () => {
     const packages = {}
     for (let i = 0; i < 20_000; i++) packages[`a${i}@1.0.0`] = pkg(`a${i}`, '1.0.0', i + 1 < 20_000 ? { [`a${i + 1}`]: `a${i + 1}@1.0.0` } : {})
     assert.equal(hoistedTree(lockfileOf({ a0: 'a0@1.0.0' }, packages), true).dependencies.size, 20_000)
+  })
+
+  const names = (deps) => [...deps].map((dep) => `${dep.name} ${[...dep.references][0]}`).sort()
+
+  // Two directories of one name, each under what needs it.
+  it('takes the snapshots of a package from directories for one for pnpm 10, and each for its own for pnpm 11', () => {
+    const dir = (directory) => ({ ...pkg('tool', undefined), resolution: { type: 'directory', directory } })
+    const lockfile = lockfileOf({ a: 'a@1.0.0', b: 'b@1.0.0' }, {
+      'a@1.0.0': pkg('a', '1.0.0', { tool: 'tool@file:vendor/one' }),
+      'b@1.0.0': pkg('b', '1.0.0', { tool: 'tool@file:vendor/two' }),
+      'tool@file:vendor/one': dir('vendor/one'),
+      'tool@file:vendor/two': dir('vendor/two'),
+    })
+    const tree10 = hoistedTree(lockfile, true)
+    assert.deepEqual(names(tree10.dependencies), ['a a@1.0.0', 'b b@1.0.0', 'tool tool@file:vendor/one'])
+    assert.equal([...tree10.dependencies].find((dep) => dep.name === 'b').dependencies.size, 0)
+    const tree = hoistedTree(lockfile, true, undefined, { major: 11 })
+    assert.deepEqual(names(tree.dependencies), ['a a@1.0.0', 'b b@1.0.0', 'tool tool@file:vendor/one'])
+    assert.deepEqual(names([...tree.dependencies].find((dep) => dep.name === 'b').dependencies), ['tool tool@file:vendor/two'])
+  })
+
+  // Two projects link ms, a third depends on ms 2.1.3: the links, the more,
+  // take the root's ms where pnpm hoists them.
+  it('hoists a project\'s links, but from pnpm 11.28.1 none into the project that asks for it', () => {
+    const importer = (dependencies) => ({ dependencies, devDependencies: {}, optionalDependencies: {} })
+    const lockfileOf2 = (link) => ({
+      importers: { '.': importer({}), 'packages/a': importer({ ms: `link:packages/a/${link}` }), 'packages/d': importer({ ms: `link:packages/d/${link}` }), 'packages/b': importer({ ms: 'ms@2.1.3' }) },
+      packages: { 'ms@2.1.3': pkg('ms', '2.1.3') },
+    })
+    const top = (lockfile, pnpm) => names([...hoistedTree(lockfile, true, undefined, pnpm).dependencies].filter((dep) => dep.name === 'ms'))
+    assert.deepEqual(top(lockfileOf2('<root>/ms'), { major: 10 }), ['ms link:<root>/ms'])
+    assert.deepEqual(top(lockfileOf2('<root>/ms'), { major: 11 }), ['ms link:<root>/ms'], '11.28.0')
+    assert.deepEqual(top(lockfileOf2('<root>/ms'), { major: 11, rootLinks: true }), ['ms ms@2.1.3'])
+    assert.deepEqual(top(lockfileOf2('vendor/ms'), { major: 11, rootLinks: true }), ['ms link:vendor/ms'])
   })
 
   it('refuses a graph that takes more steps, or makes more packages, than allowed', () => {

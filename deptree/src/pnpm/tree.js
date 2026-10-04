@@ -16,7 +16,7 @@ import { REGISTRY, tarballUrl } from '../tarball.js'
 import { binTargets, checkPatchOfBins, executableMode, fixBin, hoistedBinTargets, requiresBuild } from './bins.js'
 import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
-import { hoistedBuilds, hoistedLayout, hoistedModules, packageIdOf, prodPackages } from './hoisted.js'
+import { hoistedBuilds, hoistedLayout, hoistedModules, packageIdOf, prodPackages, workspaceHoists } from './hoisted.js'
 import { checkLocalOverrides, createFreshnessCheck, readDirectoryPackage, readLinked } from './local.js'
 import { createPatchedCheck, skippedSnapshots } from './install.js'
 import { checkDependencies, fetchPackage } from './package.js'
@@ -212,13 +212,15 @@ function linksOf(byDir, direct, settings, projects, major, hoisting) {
 // The import methods with which each copy of a package is its own.
 const COPYING = new Set(['copy', 'clone', 'clone-or-copy'])
 
-// pnpm 10's hoisted layout (hoisted.js).
-async function buildHoisted({ lockfile, settings, host, project, hook, installed, manifests, patched, skipped, incompatible, into, folded }) {
+// The hoisted layout of pnpm 10 and 11.28 (hoisted.js).
+async function buildHoisted({ lockfile, settings, host, project, hook, installed, manifests, names, patched, skipped, incompatible, into, folded }) {
   const { major } = host
+  if (major === 11 && compareVersions(host.pnpm, '11.28.0') < 0) throw new DeptreeError('the hoisted node_modules layout of pnpm 11 is built from 11.28 alone, as it changed much before', 'nodeLinker')
   if (!COPYING.has(settings.packageImportMethod)) {
     throw new DeptreeError(`${quote(settings.packageImportMethod)} is not supported with the hoisted layout, which is built only where each copy of a package is its own: with copy, clone or clone-or-copy`, 'packageImportMethod')
   }
-  const { placed, links, projects } = hoistedLayout(lockfile, { autoInstallPeers: settings.autoInstallPeers, skipped })
+  const { placed, links, projects } = hoistedLayout(lockfile, { autoInstallPeers: settings.autoInstallPeers, skipped, major, rootLinks: compareVersions(host.pnpm, '11.28.1') >= 0 })
+  if (major >= 11) for (const [path, id] of workspaceHoists(placed, lockfile, settings, names)) links.set(path, id)
   const nodes = new Map([...placed].map(([dir, { key, modules, alias }]) => [dir, { key, pkg: lockfile.packages[key], name: lockfile.packages[key].name, dir, modules, alias }]))
   for (const node of nodes.values()) checkSource(node, installed)
   const { byDir, tarballs } = await fetchNodes(nodes, lockfile, hook, project, host)
@@ -227,9 +229,16 @@ async function buildHoisted({ lockfile, settings, host, project, hook, installed
   const building = Object.keys(settings.patchedDependencies ?? {}).length > 0
   const projectModules = new Set(projects.map((id) => (id === '.' ? 'node_modules' : `${id}/node_modules`)))
   const hardlinks = compareVersions(host.pnpm, '10.21.0') >= 0
-  const builds = building ? hoistedBuilds(byDir, projectModules, (node) => node.pkg.patchHash !== undefined || requiresBuild(node.manifest, node.files, major), hardlinks) : []
-  const targets = hoistedBinTargets({ nodes: byDir, projects: new Map([...manifests, ...linked]), modules: hoistedModules(byDir, links, projects, manifests, lockfile), builds, hardlinks, major })
-  const prod = prodPackages(lockfile, skipped)
+  const keepsModules = major >= 11
+  const idOf = major >= 11 ? (key) => packageIdOf(key, lockfile.packages[key], major) : (key) => key
+  const changesOf = (node) => {
+    const patch = patched.get(node.pkg.patchHash)
+    patch.parsed ??= parsePatch(patch.text, patch.path)
+    return patch.parsed
+  }
+  const builds = building ? hoistedBuilds(byDir, projectModules, (node) => node.pkg.patchHash !== undefined || requiresBuild(node.manifest, node.files, major), { hardlinks, keepsModules, idOf, changesOf, major }) : []
+  const targets = hoistedBinTargets({ nodes: byDir, projects: new Map([...manifests, ...linked]), modules: hoistedModules(byDir, links, projects, manifests, lockfile), builds, hardlinks, keepsModules, idOf, major })
+  const prod = prodPackages(lockfile, skipped, major)
 
   const vfs = new Vfs()
   makeDirs(vfs, 'node_modules/.pnpm')
@@ -245,7 +254,7 @@ async function buildHoisted({ lockfile, settings, host, project, hook, installed
     } catch (error) {
       throw refusalOf(error, quote(node.key))
     }
-    listed.push(installedOf(node, !prod.has(packageIdOf(node.key, node.pkg)), patched))
+    listed.push(installedOf(node, !prod.has(packageIdOf(node.key, node.pkg, major)), patched))
   }
   for (const [path, target] of links) {
     try {
@@ -292,7 +301,7 @@ export async function buildPnpmTree(options) {
   checkOptional(lockfile)
   const projects = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
   const { skipped, incompatible } = skippedSnapshots(lockfile, { host, settings })
-  if (settings.nodeLinker === 'hoisted') return buildHoisted({ lockfile, settings, host, project, hook, installed, manifests, patched, skipped, incompatible, into, folded })
+  if (settings.nodeLinker === 'hoisted') return buildHoisted({ lockfile, settings, host, project, hook, installed, manifests, names: projects, patched, skipped, incompatible, into, folded })
   const { nodes, direct, hoisting } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, major)
   for (const node of nodes.values()) checkSource(node, installed)
 

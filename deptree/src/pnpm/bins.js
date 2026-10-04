@@ -143,13 +143,14 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
   return fixedFiles(nodes, fixed, contested, major)
 }
 
-// The copies of one package pnpm 10's build pass makes hardlinks of the one
-// it builds (hoisted.js): what is fixed in that one before, as each copy's
-// own bins are where pnpm fills its node_modules, is in all; and so is what
-// is fixed in any after. Where the copies it may build differ in what is
-// fixed before, so may the outcome. A phase's marks are `before` that, or
-// not, or a function of the package's build saying which.
-function linkCopies(builds, phases, fixed, contested) {
+// The copies of one package pnpm's build pass makes hardlinks of the one it
+// builds (hoisted.js): what is fixed in that one before, as each copy's own
+// bins are where pnpm fills its node_modules, is in all; and so is what is
+// fixed in any after. Where the copies it may build differ in what is fixed
+// before, so may the outcome. A phase's marks are `before` that, or not, or
+// a function of the package's build saying which. pnpm 11 links no file
+// under a node_modules (`keepsModules`), which each copy keeps its own of.
+function linkCopies(builds, phases, fixed, contested, { keepsModules, major }) {
   const ownerOf = new Map()
   for (const build of builds) {
     if (build.copies.length > 1) for (const copy of build.copies) ownerOf.set(copy, build)
@@ -157,7 +158,7 @@ function linkCopies(builds, phases, fixed, contested) {
   const groups = new Map()
   const mark = (target, owner, before, why) => {
     const build = ownerOf.get(owner)
-    if (build === undefined) {
+    if (build === undefined || (keepsModules && target.slice(owner.length + 1).split('/').includes('node_modules'))) {
       if (why === undefined) fixed.set(target, owner)
       else contested.set(target, { owner, why })
       return
@@ -179,7 +180,7 @@ function linkCopies(builds, phases, fixed, contested) {
       if (!after.some((item) => item.why === undefined)) {
         why = after.find((item) => item.why !== undefined)?.why ?? before.find((item) => item.why !== undefined)?.why
         if (why === undefined && beforeFixed.size === 0) continue
-        if (why === undefined && beforeFixed.size < build.candidates.length) why = 'which of its copies pnpm 10 builds, which turns on its build order and is not followed here'
+        if (why === undefined && beforeFixed.size < build.candidates.length) why = `which of its copies pnpm ${major} builds, which turns on its build order and is not followed here`
       }
       for (const copy of build.copies) {
         if (why === undefined) fixed.set(`${copy}/${rel}`, copy)
@@ -189,18 +190,20 @@ function linkCopies(builds, phases, fixed, contested) {
   }
 }
 
-// Whether `from`'s snapshot reaches `to`'s through the copies' dependencies.
-function reaches(nodes, from, to) {
-  const keys = new Map([...nodes.values()].map((node) => [node.key, node.pkg]))
-  const seen = new Set([from])
-  const pending = [from]
+// Whether `from`'s snapshot reaches `to`'s through the copies' dependencies,
+// each taken for the copies of its id.
+function reaches(nodes, from, to, idOf) {
+  const pkgs = new Map([...nodes.values()].map((node) => [idOf(node.key), node.pkg]))
+  const seen = new Set([idOf(from)])
+  const pending = [idOf(from)]
   while (pending.length > 0) {
-    const pkg = keys.get(pending.pop())
+    const pkg = pkgs.get(pending.pop())
     for (const key of Object.values({ ...pkg?.dependencies, ...pkg?.optionalDependencies })) {
-      if (key === to) return true
-      if (!seen.has(key)) {
-        seen.add(key)
-        pending.push(key)
+      const id = idOf(key)
+      if (id === idOf(to)) return true
+      if (!seen.has(id)) {
+        seen.add(id)
+        pending.push(id)
       }
     }
   }
@@ -214,7 +217,7 @@ function reaches(nodes, from, to) {
 // package.json where it is a project's. Between the two, where any patch is
 // configured, each package of `builds` links its dependencies' bins and its
 // own (hoisted.js), as the isolated linker's build does.
-export function hoistedBinTargets({ nodes, projects, modules, builds = [], hardlinks = true, major }) {
+export function hoistedBinTargets({ nodes, projects, modules, builds = [], hardlinks = true, keepsModules = false, idOf = (key) => key, major }) {
   const commandsOfDir = (dir) => {
     const node = nodes.get(dir)
     if (node !== undefined) return commandsOf(dir, node.manifest, node.files, dir, quote(node.key), major)
@@ -250,11 +253,11 @@ export function hoistedBinTargets({ nodes, projects, modules, builds = [], hardl
         for (const copy of build.candidates) contested.set(`${copy}${target.slice(owner.length)}`, { owner: copy, why: 'which of its copies pnpm 10 builds, which turns on its build order and is not followed here' })
       }
     }
-    return { fixed, contested, before: (other) => other !== build && reaches(nodes, other.key, build.key) }
+    return { fixed, contested, before: (other) => other !== build && reaches(nodes, other.key, build.key, idOf) }
   })
   const fixed = new Map()
   const contested = new Map()
-  linkCopies(hardlinks ? builds : [], [{ ...filling, before: true }, ...building, { ...projectsAgain, before: false }], fixed, contested)
+  linkCopies(hardlinks ? builds : [], [{ ...filling, before: true }, ...building, { ...projectsAgain, before: false }], fixed, contested, { keepsModules, major })
   return fixedFiles(nodes, fixed, contested, major)
 }
 

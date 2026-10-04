@@ -1,23 +1,27 @@
-// Where pnpm 10's hoisted linker (nodeLinker: hoisted) puts each package:
-// @pnpm/real-hoist makes a tree of the lockfile, the root's dependencies and
-// each other project's under the root, which @yarnpkg/nm hoists
-// (nm-hoist.js); each package is then copied to node_modules/<alias> under
-// where it landed, and each project's own lands in its node_modules. A
-// project's `link:` dependencies are linked there, as are none of a
-// package's.
+// Where the hoisted linker (nodeLinker: hoisted) of pnpm 10 and 11.28 puts
+// each package: @pnpm/real-hoist makes a tree of the lockfile, the root's
+// dependencies and each other project's under the root, which @yarnpkg/nm
+// hoists (nm-hoist.js; pnpm 11's 4.1.1 differs only with hoistingLimits,
+// which is not supported); each package is then copied to
+// node_modules/<alias> under where it landed, and each project's own lands
+// in its node_modules. A project's `link:` dependencies are linked there, as
+// are none of a package's.
 
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { valid } from '@preventive/upstream/semver.js'
 import { relative } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
+import { createMatcher } from '../matcher.js'
 import { WORKSPACE, hoist } from './nm-hoist.js'
 
 const REGULAR = 0
 
 // pnpm's name@version of a snapshot, by which it takes every snapshot of a
 // package for the first it comes to. A directory has no version in the
-// lockfile, so all of one name are one.
-export function packageIdOf(key, pkg) {
+// lockfile, so all of one name are one for pnpm 10; pnpm 11 takes each
+// snapshot of one for its own.
+export function packageIdOf(key, pkg, major = 10) {
+  if (major >= 11 && pkg.resolution.type === 'directory') return key
   const base = packageKeyOf(key)
   const name = base.slice(0, base.indexOf('@', 1))
   const version = pkg.resolution.type === 'directory' ? undefined : valid(base.slice(name.length + 1)) ?? undefined
@@ -30,10 +34,14 @@ function asWritten(id, deps) {
   return Object.fromEntries(Object.entries(deps).map(([alias, target]) => [alias, target.startsWith('link:') ? `link:${relative(`/${id}`, `/${target.slice(5)}`)}` : target]))
 }
 
+// A link pnpm from 11.28.1 takes for one into the package that asks for it,
+// which it does not hoist: `link:<root>/` and a plain path.
+const rootLink = (ref) => ref.startsWith('link:<root>/') && ref.slice('link:<root>/'.length).split('/').every((name) => name !== '' && name !== '.' && name !== '..' && !name.includes('\\') && !name.includes(':'))
+
 // real-hoist's tree: a node by alias and snapshot, each made once and with
 // its own dependencies made before the next, depth first as pnpm recurses,
 // on a stack.
-function treeOf(lockfile, autoInstallPeers) {
+function treeOf(lockfile, autoInstallPeers, { major, rootLinks }) {
   const nodes = new Map()
   const referenceById = new Map()
   const toTree = (deps) => {
@@ -51,11 +59,11 @@ function treeOf(lockfile, autoInstallPeers) {
       let node = nodes.get(key)
       if (node === undefined) {
         if (link) {
-          node = { name: alias, identName: alias, reference: ref, dependencyKind: REGULAR, dependencies: new Set(), peerNames: new Set() }
+          node = { name: alias, identName: alias, reference: ref, dependencyKind: rootLinks && rootLink(ref) ? WORKSPACE : REGULAR, dependencies: new Set(), peerNames: new Set() }
           nodes.set(key, node)
         } else {
           const pkg = lockfile.packages[ref]
-          const id = packageIdOf(ref, pkg)
+          const id = packageIdOf(ref, pkg, major)
           if (!referenceById.has(id)) referenceById.set(id, ref)
           node = {
             name: alias,
@@ -109,10 +117,10 @@ function checkNoPackageLinks(lockfile) {
 }
 
 // The tree as hoisted, of nodes with a name, an identName, references and
-// dependencies.
-export function hoistedTree(lockfile, autoInstallPeers, bounds) {
+// dependencies, as pnpm `major` hoists it; with `rootLinks` from 11.28.1.
+export function hoistedTree(lockfile, autoInstallPeers, bounds, { major = 10, rootLinks = false } = {}) {
   checkNoPackageLinks(lockfile)
-  return hoist(treeOf(lockfile, autoInstallPeers), bounds)
+  return hoist(treeOf(lockfile, autoInstallPeers, { major, rootLinks }), bounds)
 }
 
 // Each directory a package is copied to, from the lockfile's, in the order
@@ -122,8 +130,8 @@ export function hoistedTree(lockfile, autoInstallPeers, bounds) {
 // the node_modules of, the root first. `skipped` are the snapshots left out,
 // which are hoisted all the same. pnpm hoists from the importers the
 // lockfile has, not those made for projects it has none for.
-export function hoistedLayout(lockfile, { autoInstallPeers, skipped }, bounds) {
-  const tree = hoistedTree(lockfile, autoInstallPeers, bounds)
+export function hoistedLayout(lockfile, { autoInstallPeers, skipped, major = 10, rootLinks = false }, bounds) {
+  const tree = hoistedTree(lockfile, autoInstallPeers, bounds, { major, rootLinks })
   const placed = new Map()
   const place = (modules, deps) => {
     const stack = [{ modules, deps: deps.values() }]
@@ -159,25 +167,47 @@ export function hoistedLayout(lockfile, { autoInstallPeers, skipped }, bounds) {
   return { placed, links, projects }
 }
 
-// What pnpm 10's build pass does where any patch is configured, which it runs
+// pnpm 11 links each project named in `names` into the root's node_modules
+// by its name where a hoist pattern matches it, unless the root depends on
+// that name, or a package landed there by it, with their case folded.
+export function workspaceHoists(placed, lockfile, { hoistPattern, publicHoistPattern }, names) {
+  const isPublic = createMatcher(publicHoistPattern ?? [])
+  const isPrivate = createMatcher(hoistPattern ?? [])
+  const { dependencies, devDependencies, optionalDependencies } = lockfile.importers['.']
+  const taken = new Set([...Object.keys({ ...dependencies, ...devDependencies, ...optionalDependencies })].map((alias) => alias.toLowerCase()))
+  for (const { modules, alias } of placed.values()) if (modules === 'node_modules') taken.add(alias.toLowerCase())
+  const links = new Map()
+  for (const [id, name] of names) {
+    if ((!isPublic(name) && !isPrivate(name)) || taken.has(name.toLowerCase())) continue
+    taken.add(name.toLowerCase())
+    links.set(`node_modules/${name}`, id)
+  }
+  return links
+}
+
+// What pnpm's build pass does where any patch is configured, which it runs
 // though scripts are ignored: it builds each package patched or with an
 // install script in one of its copies, the first it comes to of those a
 // project's node_modules reaches through each package's dependencies, each
-// at the first copy of its snapshot. Then it links the built copy's files
-// into every other: from 10.21 (`hardlinks`), a copy of hardlinks put in
-// place of the copy, with no node_modules, which drops the copy's own (fixed
-// in pnpm 11.25); before, in place, where a file is not already, which
-// leaves the others unpatched. Which copy it builds turns on its build
-// order, which is not followed here. `projects` are the node_modules of the
-// projects; `byDir` the copies, in the order pnpm makes them.
-export function hoistedBuilds(byDir, projects, builds, hardlinks) {
+// at the first copy of its snapshot (pnpm 10) or of its package (pnpm 11,
+// `idOf`). Then it links the built copy's files into every other: pnpm 10
+// from 10.21 (`hardlinks`) puts a copy of hardlinks in place of the copy,
+// with no node_modules, which drops the copy's own; before, in place, where
+// a file is not already, which leaves the others unpatched. pnpm 11 links
+// each file but those under a node_modules in place of the copy's own, and
+// leaves the copy's node_modules and what the built one has not
+// (`keepsModules`). Which copy it builds turns on its build order, which is
+// not followed here. `projects` are the node_modules of the projects;
+// `byDir` the copies, in the order pnpm makes them; `changesOf` the changes
+// of a patched one's patch.
+export function hoistedBuilds(byDir, projects, builds, { hardlinks, keepsModules = false, idOf = (key) => key, changesOf, major = 10 }) {
   const first = new Map()
   const placedIn = new Set()
   for (const node of byDir.values()) {
-    if (!first.has(node.key)) first.set(node.key, node.dir)
+    if (!first.has(idOf(node.key))) first.set(idOf(node.key), node.dir)
     placedIn.add(node.modules)
   }
-  const childrenOf = (node) => Object.entries({ ...node.pkg.dependencies, ...node.pkg.optionalDependencies }).map(([alias, key]) => [alias, first.get(key)]).filter(([, dir]) => dir !== undefined)
+  const childrenOf = (node) => Object.entries({ ...node.pkg.dependencies, ...node.pkg.optionalDependencies }).map(([alias, key]) => [alias, first.get(idOf(key))]).filter(([, dir]) => dir !== undefined)
   const reached = new Set()
   const pending = [...byDir.values()].filter((node) => projects.has(node.modules)).map((node) => node.dir)
   while (pending.length > 0) {
@@ -191,14 +221,20 @@ export function hoistedBuilds(byDir, projects, builds, hardlinks) {
     const [node] = copies
     if (!builds(node)) continue
     const candidates = copies.filter((copy) => reached.has(copy.dir)).map((copy) => copy.dir)
+    const patched = node.pkg.patchHash !== undefined
     if (candidates.length === 0) {
-      if (node.pkg.patchHash !== undefined) throw new DeptreeError('pnpm 10 reaches none of its copies through the dependencies it builds by, and leaves it unpatched, which is not supported', quote(key))
+      if (patched) throw new DeptreeError(`pnpm ${major} reaches none of its copies through the dependencies it builds by, and leaves it unpatched, which is not supported`, quote(key))
       continue
     }
-    if (copies.length > 1 && !hardlinks && node.pkg.patchHash !== undefined) {
+    if (copies.length > 1 && !hardlinks && patched) {
       throw new DeptreeError('pnpm 10 before 10.21 patches one of its copies alone, and leaves the others as they were, which is not supported', quote(key))
     }
-    if (copies.length > 1 && hardlinks) {
+    if (copies.length > 1 && keepsModules) {
+      for (const { path, change } of patched ? changesOf(node) : []) {
+        if (change === 'delete') throw new DeptreeError(`pnpm ${major} patches one of its copies, and links its files into the others, which keep ${quote(path)} the patch deletes, which is not supported`, quote(key))
+        if (path.split('/').includes('node_modules')) throw new DeptreeError(`pnpm ${major} patches one of its copies, and links its files but those under a node_modules into the others, which leaves ${quote(path)} unpatched there, which is not supported`, quote(key))
+      }
+    } else if (copies.length > 1 && hardlinks) {
       const own = node.files.keys().find((path) => path.split('/').includes('node_modules'))
       if (own !== undefined) throw new DeptreeError(`pnpm 10 builds one of its copies where any patch is configured, and makes the others hardlinks of it, with no ${quote(own)}, which is not supported`, quote(key))
       const nested = copies.find((copy) => placedIn.has(`${copy.dir}/node_modules`))
@@ -230,7 +266,7 @@ export function hoistedModules(byDir, links, projects, manifests, lockfile) {
 }
 
 // The snapshots `pnpm install --prod` would install, by pnpm's name@version.
-export function prodPackages(lockfile, skipped) {
+export function prodPackages(lockfile, skipped, major) {
   const reached = new Set()
   const pending = Object.values(lockfile.importers).flatMap(({ dependencies, optionalDependencies }) => [...Object.values(dependencies), ...Object.values(optionalDependencies)])
   while (pending.length > 0) {
@@ -240,6 +276,6 @@ export function prodPackages(lockfile, skipped) {
     const pkg = lockfile.packages[key]
     pending.push(...Object.values(pkg.dependencies), ...Object.values(pkg.optionalDependencies))
   }
-  return new Set([...reached].map((key) => packageIdOf(key, lockfile.packages[key])))
+  return new Set([...reached].map((key) => packageIdOf(key, lockfile.packages[key], major)))
 }
 

@@ -128,7 +128,7 @@ export const READ = {
 // What pnpm 11 reads that pnpm 10 has not, or reads otherwise.
 const READ_11 = {
   __proto__: null,
-  nodeLinker: only('text', 'isolated', 'only the isolated node_modules layout is built for pnpm 11 and 12'),
+  nodeLinker: { kind: 'text', check: (value, where) => value === 'hoisted' || value === 'isolated' || never('only the isolated node_modules layout, and the hoisted one of pnpm 10 and 11.28, is built')(value, where) },
   virtualStoreType: only('text', 'project', 'a global virtual store is not built'),
   virtualStoreOnly: only('boolean', false, 'a tree without its projects\' links is not built'),
   nodeExperimentalPackageMap: only('boolean', false, 'node_modules/.package-map.json is not written'),
@@ -170,6 +170,7 @@ const notEnabled = (value, where) => {
 }
 const READ_12 = {
   __proto__: null,
+  nodeLinker: only('text', 'isolated', 'only the isolated node_modules layout is built for pnpm 12'),
   cargo: { kind: 'mapping', check: notEnabled },
   python: { kind: 'mapping', check: notEnabled },
 }

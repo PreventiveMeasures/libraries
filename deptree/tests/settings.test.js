@@ -66,10 +66,12 @@ describe('readSettings', () => {
     assert.equal(read({ npmrc: 'public-hoist-pattern=\n' }).publicHoistPattern, undefined)
   })
 
-  // Whether a package installed from a directory is one copy or many.
-  it('reads nodeLinker, hoisted for pnpm 10 alone', () => {
+  // Whether a package installed from a directory is one copy or many. Which
+  // pnpm 11 builds the hoisted layout for is held to the tree (hoisted.test.js).
+  it('reads nodeLinker, hoisted for pnpm 10 and 11', () => {
     assert.equal(read({ npmrc: 'node-linker=hoisted\n' }).nodeLinker, 'hoisted')
     assert.equal(read({ workspace: 'nodeLinker: hoisted\n' }).nodeLinker, 'hoisted')
+    assert.equal(read({ workspace: 'nodeLinker: hoisted\n', major: 11 }).nodeLinker, 'hoisted')
     assert.equal(read({ workspace: 'nodeLinker: isolated\n', major: 11 }).nodeLinker, 'isolated')
   })
 
@@ -236,8 +238,8 @@ describe('readSettings', () => {
 
   const refused = [
     [{ npmrc: 'node-linker=hoisted\n', major: 9 }, /^\.npmrc:1: node-linker: "hoisted" is not supported: only the isolated node_modules layout is built for pnpm 9$/u],
-    [{ workspace: 'nodeLinker: hoisted\n', major: 11 }, /^pnpm-workspace\.yaml: nodeLinker: "hoisted" is not supported: only the isolated node_modules layout is built for pnpm 11 and 12$/u],
-    [{ workspace: 'nodeLinker: hoisted\n', major: 12 }, /for pnpm 11 and 12$/u],
+    [{ workspace: 'nodeLinker: hoisted\n', major: 12 }, /^pnpm-workspace\.yaml: nodeLinker: "hoisted" is not supported: only the isolated node_modules layout is built for pnpm 12$/u],
+    [{ workspace: 'nodeLinker: pnp\n', major: 11 }, /^pnpm-workspace\.yaml: nodeLinker: "pnp" is not supported: only the isolated node_modules layout, and the hoisted one of pnpm 10 and 11\.28, is built$/u],
     [{ npmrc: 'node-linker=pnp\n' }, /^\.npmrc:1: node-linker: "pnp" is not supported: only the isolated node_modules layout, and the hoisted one of pnpm 10, is built$/u],
     [{ workspace: 'someNewSetting: 1\n' }, /^pnpm-workspace\.yaml: someNewSetting: unsupported setting$/u],
     [{ npmrc: 'registry=https://npm.example.com/\n' }, /packages are fetched from https:\/\/registry\.npmjs\.org\/ alone/u],
