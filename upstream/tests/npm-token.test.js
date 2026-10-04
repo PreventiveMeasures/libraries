@@ -106,6 +106,9 @@ describe('NPM_TOKEN', () => {
     assert.equal(auth('@acme/private', 'https://registry.npmjs.org/@acme/private/latest'), BEARER)
     assert.equal(auth('@acme/private', 'https://registry.npmjs.org/@acme/private/-/private-1.0.0.tgz', { method: 'GET', as: 'bytes' }), BEARER)
     assert.equal(auth('pkg', 'https://registry.npmjs.org/pkg/latest'), undefined)
+    let reads = 0
+    const shifty = { get method() { return reads++ === 0 ? 'GET' : 'POST' } }
+    assert.equal(withNpmToken('@acme/private', 'https://registry.npmjs.org/@acme/private/latest', shifty).method, 'GET')
     for (const [name, url, options] of [
       ['@acme/private', 'https://registry.npmjs.org/@acme/private/latest', { method: 'POST' }],
       ['@acme/private', 'https://registry.npmjs.org/@acme/other/latest'],

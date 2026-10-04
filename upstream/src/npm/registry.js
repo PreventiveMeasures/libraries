@@ -6,12 +6,13 @@ import { NPM_REGISTRY, buildUrl, request } from '../http.js'
 // `options` for a GET of one of `name`'s own URLs on the registry, and for
 // nothing else: with NPM_TOKEN where it is set and the name is scoped, as
 // every private package's is. The URL is held as it is spelled, so it has
-// to be normalized: a `..` or `%2e%2e` past the name would leave it.
+// to be normalized: a `..` or `%2e%2e` past the name would leave it. The
+// method checked is the one set, whatever `options` answers when read again.
 export function withNpmToken(name, url, options = {}) {
   const method = options.method ?? 'GET'
   assert.ok(method === 'GET' && `${new URL(url)}` === url && url.startsWith(`${NPM_REGISTRY}/${name}/`), `Unexpected request for ${name}: ${method} ${url}`)
   const token = process.env.NPM_TOKEN
-  return token && name.startsWith('@') ? { ...options, headers: { ...options.headers, Authorization: `Bearer ${token}` } } : options
+  return token && name.startsWith('@') ? { ...options, method, headers: { ...options.headers, Authorization: `Bearer ${token}` } } : options
 }
 
 // The version document at `spec`, a version or `latest`, refused unless it
