@@ -89,5 +89,5 @@ export interface Advisory {
 // renamed or blocked, add nothing. Any other failure, a malformed answer,
 // or one about something not asked, throws: nothing is left out quietly.
 // Sorted by ecosystem and name. Versions are matched by npm's semver, from
-// the npm beside node.
+// the npm beside node, or by the semver peer where there is no npm.
 export function advisories(packages: Iterable<Package>, options?: AdvisoryOptions): Promise<Advisory[]>

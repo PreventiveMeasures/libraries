@@ -5,9 +5,10 @@ import { describe, it } from 'node:test'
 
 // `upstream/` is a package of its own, and the point of it is that it is
 // minimal: nothing in it may reach outside itself but node: builtins, and it
-// declares no dependencies at all — the registry and the API are fetched
-// with the platform's fetch, and even semver is borrowed from the npm that
-// ships beside node rather than installed.
+// declares no dependencies — the registry and the API are fetched with the
+// platform's fetch, and even semver is borrowed from the npm that ships
+// beside node rather than installed. Its one optional peer, semver, is
+// required only where there is no npm to borrow it from.
 //
 // Enforced here rather than left to review because a single `../` is all it
 // takes to undo, and it reads as harmless in a diff.
@@ -33,6 +34,9 @@ const files = [
 // `import(` or `require(`, because prose quotes a module name in backticks.
 const SPECIFIER_RE = /(?:\bfrom|\bimport|\brequire)\s*\(?\s*(?<quote>['"])(?<spec>[^'"\n]+)\k<quote>/gu
 const TEMPLATE_RE = /(?:\bimport|\brequire)\s*\(\s*`(?<spec>[^`$\n]+)`/gu
+
+// The bare specifiers a module may require, each an optional peer dependency.
+const PEERS = { 'src/semver.js': ['semver'] }
 
 const specifiersOf = (source) => [SPECIFIER_RE, TEMPLATE_RE].flatMap((re) => [...source.matchAll(re)].map((m) => m.groups.spec))
 
@@ -66,16 +70,18 @@ describe('upstream/ imports nothing from outside but node:', () => {
     assert.ok(files.length >= 8, `expected the upstream/ modules, found ${files.length}`)
   })
 
-  it('declares no dependencies', () => {
+  it('declares no dependencies but optional peers', () => {
     assert.equal(manifest.dependencies, undefined)
-    assert.equal(manifest.peerDependencies, undefined)
+    const peers = [...new Set(Object.values(PEERS).flat())].toSorted()
+    assert.deepEqual(Object.keys(manifest.peerDependencies).toSorted(), peers)
+    for (const peer of peers) assert.equal(manifest.peerDependenciesMeta?.[peer]?.optional, true, `${peer} is not an optional peer`)
   })
 
   for (const file of files) {
     const name = file.href.slice(PKG_DIR.href.length)
     it(`${name} imports only node: and within upstream/`, () => {
       for (const spec of specifiersOf(readFileSync(file, 'utf8'))) {
-        if (spec.startsWith('node:')) continue
+        if (spec.startsWith('node:') || PEERS[name]?.includes(spec)) continue
         assert.ok(spec.startsWith('.'), `${name} imports ${spec} — upstream/ may only import node: and its own modules`)
         assert.ok(new URL(spec, file).href.startsWith(PKG_DIR.href), `${name} imports ${spec}, which is outside upstream/`)
       }

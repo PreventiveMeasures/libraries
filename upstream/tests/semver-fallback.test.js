@@ -3,16 +3,16 @@ import { describe, it } from 'node:test'
 
 // A process whose binary is not node, which is where the lookup gives up
 // before touching the filesystem: the same outcome as a Node install with
-// no npm beside it. Set before the first call, since the answer is kept
-// for the rest of the process — which is also why this is a file of its
-// own.
+// no npm beside it. The semver peer is not installed here either. Set before
+// the first call, since the answer is kept for the rest of the process —
+// which is also why this is a file of its own.
 process.argv[0] = '/nowhere/not-node'
 
 const { compareVersions, isExactVersion, satisfies, valid } = await import('../semver.js')
 
-describe('without npm beside node', () => {
+describe('without npm beside node, or the semver peer', () => {
   it('throws rather than guessing', () => {
-    assert.throws(() => satisfies('1.0.0', '^1'), /no npm beside node/u)
+    assert.throws(() => satisfies('1.0.0', '^1'), /no npm beside node to borrow it from, and the semver peer dependency is not installed/u)
     assert.throws(() => compareVersions('1.0.0', '1.0.1'), /no npm beside node/u)
     assert.throws(() => valid('1.2.3-rc.1'), /no npm beside node/u)
     assert.throws(() => valid('v1.2.3'), /no npm beside node/u)
