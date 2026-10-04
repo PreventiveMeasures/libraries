@@ -6,6 +6,9 @@
 // cache path, otherwise. Responses are read up to a size limit and within
 // a timeout, as github.d.ts describes, and lookups for many names go to
 // the registry eight at a time.
+//
+// Where NPM_TOKEN is set, it is sent with the requests for a scoped
+// package, so a private one can be read.
 
 // Where cached answers live, resolved when set. Unset by default, and
 // unset means no cache: every read misses and every write is skipped.
