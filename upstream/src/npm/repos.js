@@ -9,6 +9,9 @@ import { getDocument } from './registry.js'
 
 const DIR = 'npm/repos'
 const CONCURRENCY = 8
+// Stamped on each entry, and raised when getRepo would answer differently:
+// 2 is `repository` taking precedence over `bugs`.
+const VERSION = 2
 
 // `latest`, not the full packument, which is megabytes of version history.
 const fetchRepo = async (method, name) => getRepo(await getDocument(method, name, 'latest'))
@@ -20,12 +23,13 @@ export async function getGitHub(name) {
   return link
 }
 
-// An entry without `directory` predates the field: a miss, not a package
-// at the repo root.
+// An entry under another VERSION was resolved by other rules, and may
+// name the repo a stale tracker does: a miss, as is one without
+// `directory`, which would read as a package at the repo root.
 export async function readPackageRepoCache(name) {
   assertPackageName('readPackageRepoCache', 'name', name)
   const entry = await readRecord(DIR, name)
-  if (!isRepo(entry?.github) || !isRepoDirectory(entry.directory)) return null
+  if (entry?.v !== VERSION || !isRepo(entry.github) || !isRepoDirectory(entry.directory)) return null
   return { github: entry.github, ...(entry.directory && { directory: entry.directory }) }
 }
 
@@ -35,7 +39,7 @@ export async function writePackageRepoCache(name, github, directory = '') {
   assertPackageName('writePackageRepoCache', 'name', name)
   assertRepo('writePackageRepoCache', 'github', github)
   assertRepoDirectory('writePackageRepoCache', 'directory', directory)
-  return await writeRecord(DIR, name, { github, directory })
+  return await writeRecord(DIR, name, { v: VERSION, github, directory })
 }
 
 export async function resolvePackageRepos(packageNames, options = {}) {

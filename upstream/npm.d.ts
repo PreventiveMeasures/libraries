@@ -50,7 +50,8 @@ export interface PackageRepo {
 export function resolvePackageRepos(packageNames: Iterable<string>, options?: { cachedOnly?: boolean }): Promise<Map<string, PackageRepo>>
 
 // The disk cache resolvePackageRepos reads and writes, a month per entry.
-// A read answers null for anything but a usable entry; a write answers
+// A read answers null for anything but a usable entry, one written by a
+// release that resolved repos by other rules included; a write answers
 // false where it could not write, and never throws.
 export function readPackageRepoCache(name: string): Promise<PackageRepo | null>
 export function writePackageRepoCache(name: string, github: string, directory?: string): Promise<boolean>

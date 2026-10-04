@@ -41,7 +41,9 @@ export function getRepo(pkg) {
   const { bugs, repository } = pkg
   const declared = repositoryRepo(urlOf(repository))
   const homepage = homepageRegex.exec(homepageUrl(pkg.homepage))?.groups
-  const github = [repoIn(bugsRegex, urlOf(bugs)), declared, homepage?.repo].find(isRepo)
+  // `repository` first: it is the field a publisher maintains, where a
+  // `bugs` tracker can be left pointing at a former owner or misspelt.
+  const github = [declared, repoIn(bugsRegex, urlOf(bugs)), homepage?.repo].find(isRepo)
   if (github === undefined) return {}
   const directory = (sameName(declared, github) && repoSubdirectory(repository?.directory))
     || (sameName(homepage?.repo, github) && repoSubdirectory(decodePath(homepage.directory)))
