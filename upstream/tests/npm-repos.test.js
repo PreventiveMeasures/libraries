@@ -237,7 +237,7 @@ describe('the npm → GitHub repo cache', () => {
 
   it('misses on an entry older than the TTL, and hits on one inside it', async () => {
     await mkdir(REPOS, { recursive: true })
-    const entry = (age) => JSON.stringify({ at: Date.now() - age, name: 'lodash', github: 'lodash/lodash', directory: '' })
+    const entry = (age) => JSON.stringify({ at: Date.now() - age, v: 2, name: 'lodash', github: 'lodash/lodash', directory: '' })
     await writeFile(join(REPOS, 'lodash.json'), entry(31 * DAY))
     assert.equal(await readPackageRepoCache('lodash'), null)
     await writeFile(join(REPOS, 'lodash.json'), entry(29 * DAY))
@@ -251,9 +251,9 @@ describe('the npm → GitHub repo cache', () => {
     assert.equal(await readPackageRepoCache('lodash'), null)
     await write(JSON.stringify({ github: 'lodash/lodash' }))
     assert.equal(await readPackageRepoCache('lodash'), null)
-    await write(JSON.stringify({ at: Date.now(), github: { repo: 'lodash/lodash' }, directory: '' }))
+    await write(JSON.stringify({ at: Date.now(), v: 2, name: 'lodash', github: { repo: 'lodash/lodash' }, directory: '' }))
     assert.equal(await readPackageRepoCache('lodash'), null)
-    await write(JSON.stringify({ at: Date.now(), github: '', directory: '' }))
+    await write(JSON.stringify({ at: Date.now(), v: 2, name: 'lodash', github: '', directory: '' }))
     assert.equal(await readPackageRepoCache('lodash'), null)
   })
 })
@@ -322,6 +322,21 @@ describe('resolvePackageRepos', () => {
     assert.equal(await readPackageRepoCache('lodash'), null)
   })
 
+  it('looks up again an entry resolved before `repository` took precedence', async () => {
+    // Filed when the stale tracker won, it would keep has-symbols on its
+    // old owner for the rest of its month.
+    await mkdir(REPOS, { recursive: true })
+    const old = { at: Date.now(), name: 'has-symbols', github: 'ljharb/has-symbols', directory: '' }
+    for (const entry of [old, { ...old, v: 1 }]) {
+      await writeFile(join(REPOS, 'has-symbols.json'), JSON.stringify(entry))
+      assert.equal(await readPackageRepoCache('has-symbols'), null, JSON.stringify(entry))
+    }
+    const asked = stubRegistry({ 'has-symbols': { repository: { url: 'git://github.com/inspect-js/has-symbols.git' }, ...tracked('ljharb/has-symbols') } })
+    assert.deepEqual([...await resolvePackageRepos(['has-symbols'])], [['has-symbols', { github: 'inspect-js/has-symbols' }]])
+    assert.deepEqual(asked, ['has-symbols'])
+    assert.deepEqual(await readPackageRepoCache('has-symbols'), { github: 'inspect-js/has-symbols' })
+  })
+
   it('round-trips a root package as an empty directory, not a missing one', async () => {
     await writePackageRepoCache('lodash', 'lodash/lodash')
     assert.deepEqual(await readPackageRepoCache('lodash'), { github: 'lodash/lodash' })
@@ -376,7 +391,9 @@ describe('the npm → GitHub repo cache, held to the same formats', () => {
 
   it('misses on an entry for another name, or with a repo or directory a lookup would not give', async () => {
     await mkdir(REPOS, { recursive: true })
-    const write = (entry) => writeFile(join(REPOS, 'lodash.json'), JSON.stringify({ at: Date.now(), name: 'lodash', github: 'lodash/lodash', directory: '', ...entry }))
+    const write = (entry) => writeFile(join(REPOS, 'lodash.json'), JSON.stringify({ at: Date.now(), v: 2, name: 'lodash', github: 'lodash/lodash', directory: '', ...entry }))
+    await write({})
+    assert.deepEqual(await readPackageRepoCache('lodash'), { github: 'lodash/lodash' })
     for (const entry of [{ name: 'other' }, { github: 'lodash/..' }, { github: 'https://evil.example/x' }, { directory: '../etc' }, { directory: null }, { at: Date.now() + 60_000 }, { at: String(Date.now()) }]) {
       await write(entry)
       assert.equal(await readPackageRepoCache('lodash'), null, JSON.stringify(entry))
