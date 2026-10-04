@@ -10,24 +10,54 @@ const DEPENDS = 2
 
 const getAliasedLocator = (node) => `${node.name}@${node.locator}`
 
-// Depth first from `start`, each node once, on a stack: `visit(node, extra)`
-// runs as a node is reached, and gives the children to go on to and what
-// each is reached with.
-function walk(start, extra, visit, step) {
+// Depth first, as pnpm recurses, on a stack: each item of a frame's `items`
+// goes to `visit(item, frame)`, which gives the frame to go into, if any;
+// each frame done goes to `leave`.
+export function depthFirst(frame, visit, leave) {
+  const stack = [frame]
+  while (stack.length > 0) {
+    const top = stack.at(-1)
+    const { value, done } = top.items.next()
+    if (done) {
+      stack.pop()
+      leave?.(top)
+    } else {
+      const next = visit(value, top)
+      if (next !== undefined) stack.push(next)
+    }
+  }
+}
+
+// Depth first from `start`, each node once: `visit(node, extra)` runs as a
+// node is reached, and yields the children to go on to and what each is
+// reached with.
+export function walk(start, extra, visit, step) {
   const seen = new Set()
-  const stack = []
   const enter = (node, given) => {
     step()
-    if (seen.has(node)) return
+    if (seen.has(node)) return undefined
     seen.add(node)
-    stack.push(visit(node, given))
+    return { items: visit(node, given) }
   }
-  enter(start, extra)
-  while (stack.length > 0) {
-    const { value, done } = stack.at(-1).next()
-    if (done) stack.pop()
-    else enter(...value)
+  depthFirst(enter(start, extra), (value) => enter(...value))
+}
+
+// What `starts` reach through `next`, but where `skip` says.
+export function reachable(starts, next, skip = () => false) {
+  const reached = new Set()
+  const pending = [...starts]
+  while (pending.length > 0) {
+    const item = pending.pop()
+    if (reached.has(item) || skip(item)) continue
+    reached.add(item)
+    pending.push(...next(item))
   }
+  return reached
+}
+
+// A node's dependencies but its peers.
+export function* regularDependencies(node) {
+  for (const dep of node.dependencies.values()) if (!node.peerNames.has(dep.name)) yield dep
 }
 
 // The names used below the root: zero-round, each hoisted dependency's own;
@@ -36,7 +66,7 @@ export function getZeroRoundUsedDependencies(rootNodePath, step) {
   const used = new Map()
   walk(rootNodePath.at(-1), undefined, function* (node) {
     for (const dep of node.hoistedDependencies.values()) used.set(dep.name, dep)
-    for (const dep of node.dependencies.values()) if (!node.peerNames.has(dep.name)) yield [dep]
+    for (const dep of regularDependencies(node)) yield [dep]
   }, step)
   return used
 }
@@ -48,13 +78,12 @@ export function getUsedDependencies(rootNodePath, step) {
       if (hidden.has(dep.name)) continue
       step(rootNodePath.length)
       for (const onPath of rootNodePath) {
-        const reachable = onPath.dependencies.get(dep.name)
-        if (reachable) used.set(reachable.name, reachable)
+        const resolved = onPath.dependencies.get(dep.name)
+        if (resolved) used.set(resolved.name, resolved)
       }
     }
-    const childrenHidden = new Set()
-    for (const dep of node.dependencies.values()) childrenHidden.add(dep.name)
-    for (const dep of node.dependencies.values()) if (!node.peerNames.has(dep.name)) yield [dep, childrenHidden]
+    const childrenHidden = new Set(node.dependencies.keys())
+    for (const dep of regularDependencies(node)) yield [dep, childrenHidden]
   }, step)
   return used
 }
@@ -63,18 +92,13 @@ function decoupleGraphNode(parent, node, step) {
   if (node.decoupled) return node
   step(node.dependencies.size + node.originalDependencies.size + node.hoistedDependencies.size + 1)
   const clone = {
-    name: node.name,
+    ...node,
     references: new Set(node.references),
-    ident: node.ident,
-    locator: node.locator,
     dependencies: new Map(node.dependencies),
     originalDependencies: new Map(node.originalDependencies),
     hoistedDependencies: new Map(node.hoistedDependencies),
     peerNames: new Set(node.peerNames),
     decoupled: true,
-    isHoistBorder: node.isHoistBorder,
-    hoistPriority: node.hoistPriority,
-    dependencyKind: node.dependencyKind,
   }
   const selfDep = clone.dependencies.get(node.name)
   if (selfDep && selfDep.ident === clone.ident) clone.dependencies.set(node.name, clone)
@@ -82,61 +106,34 @@ function decoupleGraphNode(parent, node, step) {
   return clone
 }
 
-// Each package below `rootNode` by name and ident, with who depends on it.
+// Each package below `rootNode` by name and ident, with who depends on it,
+// and as a peer, but the root's peers. pnpm sets no hoist priority.
 export function buildPreferenceMap(rootNode, step) {
   const preferenceMap = new Map()
-  const seen = new Set([rootNode])
   const entryOf = (node) => {
     const key = `${node.name}@${node.ident}`
-    let entry = preferenceMap.get(key)
-    if (!entry) {
-      entry = { dependents: new Set(), peerDependents: new Set(), hoistPriority: 0 }
-      preferenceMap.set(key, entry)
-    }
-    return entry
+    if (!preferenceMap.has(key)) preferenceMap.set(key, { dependents: new Set(), peerDependents: new Set() })
+    return preferenceMap.get(key)
   }
-  const stack = []
-  const addDependent = (dependent, node) => {
-    const isSeen = seen.has(node)
-    entryOf(node).dependents.add(dependent.ident)
-    if (isSeen) return
-    seen.add(node)
-    step()
-    stack.push({ node, deps: node.dependencies.values() })
-  }
-  for (const dep of rootNode.dependencies.values()) {
-    if (rootNode.peerNames.has(dep.name)) continue
-    addDependent(rootNode, dep)
-    while (stack.length > 0) {
-      const { node, deps } = stack.at(-1)
-      const { value: child, done } = deps.next()
-      if (done) {
-        stack.pop()
-        continue
+  walk(rootNode, undefined, function* (node) {
+    for (const dep of node.dependencies.values()) {
+      if (!node.peerNames.has(dep.name)) {
+        entryOf(dep).dependents.add(node.ident)
+        yield [dep]
+      } else if (node !== rootNode) {
+        entryOf(dep).peerDependents.add(node.ident)
       }
-      step()
-      const entry = entryOf(child)
-      entry.hoistPriority = Math.max(entry.hoistPriority, child.hoistPriority)
-      if (node.peerNames.has(child.name)) entry.peerDependents.add(node.ident)
-      else addDependent(node, child)
     }
-  }
+  }, step)
   return preferenceMap
 }
 
 // By name, the idents to try at the root, the most wanted first.
 export function getHoistIdentMap(rootNode, preferenceMap) {
   const identMap = new Map([[rootNode.name, [rootNode.ident]]])
-  for (const dep of rootNode.dependencies.values()) {
-    if (!rootNode.peerNames.has(dep.name)) identMap.set(dep.name, [dep.ident])
-  }
-  const keyList = [...preferenceMap.keys()]
-  keyList.sort((key1, key2) => {
-    const entry1 = preferenceMap.get(key1)
-    const entry2 = preferenceMap.get(key2)
-    if (entry2.hoistPriority !== entry1.hoistPriority) return entry2.hoistPriority - entry1.hoistPriority
-    return (entry2.dependents.size + entry2.peerDependents.size) - (entry1.dependents.size + entry1.peerDependents.size)
-  })
+  for (const dep of regularDependencies(rootNode)) identMap.set(dep.name, [dep.ident])
+  const wanted = (key) => preferenceMap.get(key).dependents.size + preferenceMap.get(key).peerDependents.size
+  const keyList = [...preferenceMap.keys()].sort((key1, key2) => wanted(key2) - wanted(key1))
   for (const key of keyList) {
     const name = key.slice(0, key.indexOf('@', 1))
     const ident = key.slice(name.length + 1)
@@ -156,25 +153,16 @@ export function getHoistIdentMap(rootNode, preferenceMap) {
 function getSortedRegularDependencies(node, step) {
   step(node.dependencies.size + 1)
   const dependencies = new Set()
-  for (const top of node.dependencies.values()) {
-    if (node.peerNames.has(top.name)) continue
+  const frameOf = (dep) => ({ dep, items: dep.peerNames.values() })
+  for (const top of regularDependencies(node)) {
     const seenDeps = new Set([top])
-    const stack = [{ dep: top, peers: top.peerNames.values() }]
-    while (stack.length > 0) {
-      const { dep, peers } = stack.at(-1)
-      const { value: peerName, done } = peers.next()
-      if (done) {
-        dependencies.add(dep)
-        stack.pop()
-        continue
-      }
-      if (node.peerNames.has(peerName)) continue
-      const peerDep = node.dependencies.get(peerName)
-      if (!peerDep || dependencies.has(peerDep) || seenDeps.has(peerDep)) continue
+    depthFirst(frameOf(top), (peerName) => {
+      const peerDep = node.peerNames.has(peerName) ? undefined : node.dependencies.get(peerName)
+      if (!peerDep || dependencies.has(peerDep) || seenDeps.has(peerDep)) return undefined
       seenDeps.add(peerDep)
       step()
-      stack.push({ dep: peerDep, peers: peerDep.peerNames.values() })
-    }
+      return frameOf(peerDep)
+    }, ({ dep }) => dependencies.add(dep))
   }
   return dependencies
 }
@@ -213,32 +201,20 @@ function peersDependOn(rootNode, nodePath, node) {
   return dependsOn
 }
 
+// Whether `node` goes to the root, in the order the checks are made, as
+// one shadowing it is recorded as it is found. One that waits for its peers
+// to go first does so whatever its hoisted dependencies say.
 function getNodeHoistInfo(rootNode, nodePath, node, usedDependencies, hoistIdents, shadowedNodes, fastLookupPossible) {
-  let dependsOn = new Set()
-  const parentNode = nodePath.at(-1)
-  let isHoistable = node.ident !== parentNode.ident
-  if (isHoistable) isHoistable = node.dependencyKind !== WORKSPACE
-  if (isHoistable) isHoistable = !rootNode.peerNames.has(node.name)
-  if (isHoistable) {
-    const usedDep = usedDependencies.get(node.name)
-    isHoistable = (!usedDep || usedDep.ident === node.ident) && !isShadowed(nodePath, node, shadowedNodes)
-  }
-  if (isHoistable) isHoistable = hoistIdents.get(node.name) === node.ident
-  if (isHoistable) {
-    dependsOn = peersDependOn(rootNode, nodePath, node)
-    isHoistable = dependsOn !== null
-  }
-  if (isHoistable && !fastLookupPossible) {
-    for (const origDep of node.hoistedDependencies.values()) {
-      const usedDep = usedDependencies.get(origDep.name) || rootNode.dependencies.get(origDep.name)
-      if (!usedDep || origDep.ident !== usedDep.ident) {
-        isHoistable = false
-        break
-      }
-    }
-  }
-  if (dependsOn !== null && dependsOn.size > 0) return { isHoistable: DEPENDS, dependsOn }
-  return { isHoistable: isHoistable ? YES : NO }
+  const no = { isHoistable: NO }
+  if (node.ident === nodePath.at(-1).ident || node.dependencyKind === WORKSPACE || rootNode.peerNames.has(node.name)) return no
+  const usedDep = usedDependencies.get(node.name)
+  if ((usedDep && usedDep.ident !== node.ident) || isShadowed(nodePath, node, shadowedNodes) || hoistIdents.get(node.name) !== node.ident) return no
+  const dependsOn = peersDependOn(rootNode, nodePath, node)
+  if (dependsOn === null) return no
+  if (dependsOn.size > 0) return { isHoistable: DEPENDS, dependsOn }
+  const used = (dep) => usedDependencies.get(dep.name) || rootNode.dependencies.get(dep.name)
+  if (!fastLookupPossible && node.hoistedDependencies.values().some((dep) => used(dep)?.ident !== dep.ident)) return no
+  return { isHoistable: YES }
 }
 
 // hoistGraph's hoistNodeDependencies, of one parent: what of its own it
@@ -260,18 +236,9 @@ function hoistNodeDependencies(state, nodePath, parentNode, newNodes) {
       }
     }
   }
-  const unhoistableNodes = new Set()
-  for (const [start, hoistInfo] of hoistInfos) {
-    if (hoistInfo.isHoistable !== NO) continue
-    const pending = [start]
-    while (pending.length > 0) {
-      const node = pending.pop()
-      if (unhoistableNodes.has(node)) continue
-      unhoistableNodes.add(node)
-      hoistInfos.set(node, { isHoistable: NO })
-      for (const dependantName of dependantTree.get(node.name) || []) pending.push(parentNode.dependencies.get(dependantName))
-    }
-  }
+  // What cannot go, and what waits for it to.
+  const unhoistable = [...hoistInfos].filter(([, hoistInfo]) => hoistInfo.isHoistable === NO).map(([node]) => node)
+  const unhoistableNodes = reachable(unhoistable, (node) => [...dependantTree.get(node.name) ?? []].map((name) => parentNode.dependencies.get(name)))
   for (const node of hoistInfos.keys()) {
     if (unhoistableNodes.has(node)) continue
     state.isGraphChanged = true
@@ -286,38 +253,33 @@ function hoistNodeDependencies(state, nodePath, parentNode, newNodes) {
       newNodes.add(node)
     }
   }
-  return { unhoistableNodes, children: [...getSortedRegularDependencies(parentNode, step)] }
+  return { unhoistableNodes, children: getSortedRegularDependencies(parentNode, step) }
 }
 
-// hoistNodeDependencies from `start` down, through what it cannot hoist, as
-// pnpm recurses, on a stack.
+// hoistNodeDependencies from `start` down, through what it cannot hoist,
+// each parent seen while what is below it is.
 function hoistFrom(state, start, aliasedRootNodePathLocators, newNodes) {
   const { seenNodes, step } = state
-  const stack = []
   const call = (nodePath, aliasedLocatorPath, parentNode) => {
-    if (seenNodes.has(parentNode)) return
+    if (seenNodes.has(parentNode)) return undefined
     step(aliasedLocatorPath.length + 1)
     const nextAliasedLocatorPath = [...aliasedLocatorPath, getAliasedLocator(parentNode)]
-    stack.push({ nodePath, nextAliasedLocatorPath, parentNode, ...hoistNodeDependencies(state, nodePath, parentNode, newNodes), i: 0, inside: false })
+    const { unhoistableNodes, children } = hoistNodeDependencies(state, nodePath, parentNode, newNodes)
+    return { nodePath, nextAliasedLocatorPath, parentNode, unhoistableNodes, items: children.values() }
   }
-  call([], aliasedRootNodePathLocators, start)
-  while (stack.length > 0) {
-    const frame = stack.at(-1)
-    if (frame.inside) {
-      seenNodes.delete(frame.parentNode)
-      frame.inside = false
-    }
-    if (frame.i === frame.children.length) {
-      stack.pop()
-      continue
-    }
-    const node = frame.children[frame.i++]
+  const into = (node, frame) => {
     step(frame.nextAliasedLocatorPath.length)
-    if (!frame.unhoistableNodes.has(node) || node.isHoistBorder || frame.nextAliasedLocatorPath.includes(getAliasedLocator(node))) continue
+    if (!frame.unhoistableNodes.has(node) || frame.nextAliasedLocatorPath.includes(getAliasedLocator(node))) return undefined
     seenNodes.add(frame.parentNode)
-    frame.inside = true
-    call([...frame.nodePath, frame.parentNode], frame.nextAliasedLocatorPath, decoupleGraphNode(frame.parentNode, node, step))
+    const next = call([...frame.nodePath, frame.parentNode], frame.nextAliasedLocatorPath, decoupleGraphNode(frame.parentNode, node, step))
+    if (next === undefined) seenNodes.delete(frame.parentNode)
+    return next
   }
+  const first = call([], aliasedRootNodePathLocators, start)
+  if (first === undefined) return
+  depthFirst(first, into, ({ nodePath }) => {
+    if (nodePath.length > 0) seenNodes.delete(nodePath.at(-1))
+  })
 }
 
 // One pass of hoisting to the root of `rootNodePath`, from each package that
@@ -330,7 +292,7 @@ export function hoistGraph(state) {
     const newNodes = nextNewNodes
     nextNewNodes = new Set()
     for (const dep of newNodes) {
-      if (dep.locator === rootNode.locator || dep.isHoistBorder) continue
+      if (dep.locator === rootNode.locator) continue
       hoistFrom(state, decoupleGraphNode(rootNode, dep, step), aliasedRootNodePathLocators, nextNewNodes)
     }
   } while (nextNewNodes.size > 0)

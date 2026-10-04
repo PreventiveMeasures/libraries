@@ -70,7 +70,7 @@ const never = (why) => (value, where) => {
 export const READ = {
   __proto__: null,
   // pnpm 10's hoisted layout too (hoisted.js).
-  nodeLinker: { kind: 'text', check: (value, where) => value === 'hoisted' || value === 'isolated' || never('only the isolated node_modules layout, and the hoisted one of pnpm 10, is built')(value, where) },
+  nodeLinker: { kind: 'text', check: (value, where) => value === 'hoisted' || value === 'isolated' || never('only the isolated and hoisted node_modules layouts are built')(value, where) },
   symlink: only('boolean', true, 'a tree without its links is not built'),
   enableModulesDir: only('boolean', true, 'a tree without node_modules is not built'),
   modulesDir: only('text', 'node_modules', 'the modules directory is always node_modules'),
@@ -128,7 +128,6 @@ export const READ = {
 // What pnpm 11 reads that pnpm 10 has not, or reads otherwise.
 const READ_11 = {
   __proto__: null,
-  nodeLinker: { kind: 'text', check: (value, where) => value === 'hoisted' || value === 'isolated' || never('only the isolated node_modules layout, and the hoisted one of pnpm 10 and 11, is built')(value, where) },
   virtualStoreType: only('text', 'project', 'a global virtual store is not built'),
   virtualStoreOnly: only('boolean', false, 'a tree without its projects\' links is not built'),
   nodeExperimentalPackageMap: only('boolean', false, 'node_modules/.package-map.json is not written'),

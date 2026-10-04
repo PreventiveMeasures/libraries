@@ -11,6 +11,7 @@
 import { DeptreeError, quote } from '../error.js'
 import { crlfShebang, fixShebang } from '../tarball.js'
 import { UNKNOWN, binsOf, bundledCommands, commandsOf, compare, normalized, parseManifest } from './commands.js'
+import { reachable } from './nm-hoist.js'
 
 // The peers whose bins pnpm 11 links into a project's .bin.
 function peersOf(children, nodes) {
@@ -65,23 +66,38 @@ function linker(major) {
   return { fixed, contested, link }
 }
 
-// The files pnpm runs fixBin on, as sets of paths by package directory.
-// `building` is whether any patch is configured, `peers` autoInstallPeers.
-export function binTargets({ nodes, projects, direct, links, publicHoist, building, peers, major }) {
-  const commandCache = new Map()
-  const commandsOfDir = (dir, { normalize = false } = {}) => {
+// The commands of a directory, read once for each package of `nodes`. A
+// project or `link:` target, outside the tree: its bins may take any name
+// where its package.json is not given (local.js).
+function commandReader(nodes, projects, major) {
+  const cache = new Map()
+  return (dir, { normalize = false } = {}) => {
     const node = nodes.get(dir)
     if (node !== undefined) {
-      if (!commandCache.has(dir)) commandCache.set(dir, commandsOf(dir, node.manifest, node.files, dir, quote(node.key), major))
-      return commandCache.get(dir)
+      if (!cache.has(dir)) cache.set(dir, commandsOf(dir, node.manifest, node.files, dir, quote(node.key), major))
+      return cache.get(dir)
     }
-    // A project or `link:` target, outside the tree: its bins may take any
-    // name where its package.json is not given (local.js).
     const manifest = projects.get(dir)
     if (manifest === undefined) return [UNKNOWN]
     const where = `manifests[${quote(dir)}]`
     return commandsOf(dir, normalize ? normalized(manifest, where) : manifest, undefined, undefined, where, major)
   }
+}
+
+// pnpm's preferDirectCmds for a project of `manifest`: of the commands of
+// `entries`, [alias, directory], those of its own dependencies, then of the
+// others those whose names none of them has.
+function preferOwn(entries, manifest, commandsOfDir) {
+  const own = new Set(Object.keys({ ...manifest.devDependencies, ...manifest.dependencies, ...manifest.optionalDependencies }))
+  const commands = entries.flatMap(([alias, dir]) => commandsOfDir(dir).map((command) => ({ ...command, direct: own.has(alias) })))
+  const names = new Set(commands.filter((command) => command.direct).map(({ name }) => name))
+  return [...commands.filter((command) => command.direct), ...commands.filter((command) => !names.has(command.name))]
+}
+
+// The files pnpm runs fixBin on, as sets of paths by package directory.
+// `building` is whether any patch is configured, `peers` autoInstallPeers.
+export function binTargets({ nodes, projects, direct, links, publicHoist, building, peers, major }) {
+  const commandsOfDir = commandReader(nodes, projects, major)
   // The lockfile has no hasBin for a directory, whose bins pnpm 12 reads.
   const mayHaveBin = (dir) => nodes.get(dir)?.pkg.hasBin === true || nodes.get(dir)?.pkg.resolution.type === 'directory'
 
@@ -124,10 +140,8 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
       // pnpm 12 links what it hoists of the projects apart, before.
       const entries = [...links].filter(([path, dir]) => /^node_modules\/(?:@[^/]+\/)?[^/@.][^/]*$/u.test(path)
         && (major < 12 || isOwn(path) || mayHaveBin(dir)))
-      const commands = entries.flatMap(([path, dir]) => commandsOfDir(dir).map((command) => ({ ...command, direct: isOwn(path) })))
-      const names = new Set(commands.filter((command) => command.direct).map(({ name }) => name))
       relink ||= major >= 12 && entries.some(([path, dir]) => !isOwn(path) && mayHaveBin(dir))
-      linked = link([...commands.filter((command) => command.direct), ...commands.filter((command) => !names.has(command.name))], { ordered: false, where, fixNode: relink })
+      linked = link(preferOwn(entries.map(([path, dir]) => [path.slice('node_modules/'.length), dir]), manifest, commandsOfDir), { ordered: false, where, fixNode: relink })
     } else {
       const dirs = [...children.values()].filter((dir) => major < 11 || !nodes.has(dir) || (major >= 12 ? mayHaveBin(dir) : nodes.get(dir).pkg.hasBin))
       // pnpm 12 comes to them in the order of a map, which varies.
@@ -190,25 +204,6 @@ function linkCopies(builds, phases, fixed, contested, { keepsModules, major }) {
   }
 }
 
-// Whether `from`'s snapshot reaches `to`'s through the copies' dependencies,
-// each taken for the copies of its id, `pkgs` the copies' packages by it.
-function reaches(pkgs, from, to, idOf) {
-  const seen = new Set([idOf(from)])
-  const pending = [idOf(from)]
-  while (pending.length > 0) {
-    const pkg = pkgs.get(pending.pop())
-    for (const key of Object.values({ ...pkg?.dependencies, ...pkg?.optionalDependencies })) {
-      const id = idOf(key)
-      if (id === idOf(to)) return true
-      if (!seen.has(id)) {
-        seen.add(id)
-        pending.push(id)
-      }
-    }
-  }
-  return false
-}
-
 // pnpm's hoisted linker links the bins of each node_modules it fills, by
 // what it reads there, as it fills it; then each project's again, with its
 // links in, a command of its own dependencies over any other. `modules` are
@@ -217,12 +212,7 @@ function reaches(pkgs, from, to, idOf) {
 // configured, each package of `builds` links its dependencies' bins and its
 // own (hoisted.js), as the isolated linker's build does.
 export function hoistedBinTargets({ nodes, projects, modules, builds = [], hardlinks = true, keepsModules = false, idOf = (key) => key, major }) {
-  const commandsOfDir = (dir) => {
-    const node = nodes.get(dir)
-    if (node !== undefined) return commandsOf(dir, node.manifest, node.files, dir, quote(node.key), major)
-    const manifest = projects.get(dir)
-    return manifest === undefined ? [UNKNOWN] : commandsOf(dir, manifest, undefined, undefined, `manifests[${quote(dir)}]`, major)
-  }
+  const commandsOfDir = commandReader(nodes, projects, major)
   const filling = linker(major)
   const projectsAgain = linker(major)
   for (const { dir, entries, manifest } of modules) {
@@ -231,14 +221,14 @@ export function hoistedBinTargets({ nodes, projects, modules, builds = [], hardl
       filling.link(entries.flatMap(([, target]) => commandsOfDir(target)), { ordered: false, where })
       continue
     }
-    const own = new Set(Object.keys({ ...manifest.devDependencies, ...manifest.dependencies, ...manifest.optionalDependencies }))
-    const commands = entries.flatMap(([alias, target]) => commandsOfDir(target).map((command) => ({ ...command, direct: own.has(alias) })))
-    const names = new Set(commands.filter((command) => command.direct).map(({ name }) => name))
-    projectsAgain.link([...commands.filter((command) => command.direct), ...commands.filter((command) => !command.direct && !names.has(command.name))], { ordered: false, where })
+    projectsAgain.link(preferOwn(entries, manifest, commandsOfDir), { ordered: false, where })
   }
   // A package's dependencies are built first, but for those it is built
   // before or after as they depend on each other.
+  // What each snapshot reaches through the copies' dependencies, each taken
+  // for the copies of its id.
   const pkgs = new Map([...nodes.values()].map((node) => [idOf(node.key), node.pkg]))
+  const edges = (id) => Object.values({ ...pkgs.get(id)?.dependencies, ...pkgs.get(id)?.optionalDependencies }).map(idOf)
   const building = builds.map((build) => {
     const where = quote(build.key)
     const node = nodes.get(build.candidates[0])
@@ -253,7 +243,7 @@ export function hoistedBinTargets({ nodes, projects, modules, builds = [], hardl
         for (const copy of build.candidates) contested.set(`${copy}${target.slice(owner.length)}`, { owner: copy, why: 'which of its copies pnpm 10 builds, which turns on its build order and is not followed here' })
       }
     }
-    return { fixed, contested, before: (other) => other !== build && reaches(pkgs, other.key, build.key, idOf) }
+    return { fixed, contested, before: (other) => other !== build && reachable(edges(idOf(other.key)), edges).has(idOf(build.key)) }
   })
   const fixed = new Map()
   const contested = new Map()

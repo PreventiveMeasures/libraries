@@ -12,7 +12,7 @@ import { valid } from '@preventive/upstream/semver.js'
 import { relative } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { createMatcher } from '../matcher.js'
-import { REGULAR, WORKSPACE, hoist } from './nm-hoist.js'
+import { REGULAR, WORKSPACE, depthFirst, hoist, reachable } from './nm-hoist.js'
 
 // pnpm's name@version of a snapshot, by which it takes every snapshot of a
 // package for the first it comes to. A directory has no version in the
@@ -39,69 +39,39 @@ function asWritten(id, deps) {
 const rootLink = (ref) => ref.startsWith('link:<root>/') && ref.slice('link:<root>/'.length).split('/').every((name) => name !== '' && name !== '.' && name !== '..' && !name.includes('\\') && !name.includes(':'))
 
 // real-hoist's tree: a node by alias and snapshot, each made once and with
-// its own dependencies made before the next, depth first as pnpm recurses,
-// on a stack.
+// its own dependencies made before the next, depth first as pnpm recurses.
 function treeOf(lockfile, autoInstallPeers, { directories, rootLinks }) {
   const nodes = new Map()
   const referenceById = new Map()
+  const nodeOf = (alias, ref) => {
+    if (ref.startsWith('link:')) return { name: alias, identName: alias, reference: ref, dependencyKind: rootLinks && rootLink(ref) ? WORKSPACE : REGULAR, dependencies: new Set(), peerNames: new Set() }
+    const pkg = lockfile.packages[ref]
+    const id = packageIdOf(ref, pkg, directories)
+    if (!referenceById.has(id)) referenceById.set(id, ref)
+    const peerNames = new Set(autoInstallPeers ? [] : [...Object.keys(pkg.peerDependencies), ...pkg.transitivePeerDependencies])
+    return { name: alias, identName: pkg.name, reference: referenceById.get(id), dependencyKind: REGULAR, dependencies: new Set(), peerNames }
+  }
   const toTree = (deps) => {
     const top = new Set()
-    const stack = [{ entries: Object.entries(deps).values(), into: top }]
-    while (stack.length > 0) {
-      const { value, done } = stack.at(-1).entries.next()
-      if (done) {
-        stack.pop()
-        continue
-      }
-      const [alias, ref] = value
-      const link = ref.startsWith('link:')
+    depthFirst({ items: Object.entries(deps).values(), into: top }, ([alias, ref], { into }) => {
       const key = `${alias}:${ref}`
-      let node = nodes.get(key)
-      if (node === undefined) {
-        if (link) {
-          node = { name: alias, identName: alias, reference: ref, dependencyKind: rootLinks && rootLink(ref) ? WORKSPACE : REGULAR, dependencies: new Set(), peerNames: new Set() }
-          nodes.set(key, node)
-        } else {
-          const pkg = lockfile.packages[ref]
-          const id = packageIdOf(ref, pkg, directories)
-          if (!referenceById.has(id)) referenceById.set(id, ref)
-          node = {
-            name: alias,
-            identName: pkg.name,
-            reference: referenceById.get(id),
-            dependencyKind: REGULAR,
-            dependencies: new Set(),
-            peerNames: new Set(autoInstallPeers ? [] : [...Object.keys(pkg.peerDependencies), ...pkg.transitivePeerDependencies]),
-          }
-          nodes.set(key, node)
-          stack.at(-1).into.add(node)
-          stack.push({ entries: Object.entries({ ...pkg.dependencies, ...pkg.optionalDependencies }).values(), into: node.dependencies })
-          continue
-        }
-      }
-      stack.at(-1).into.add(node)
-    }
+      const made = !nodes.has(key)
+      if (made) nodes.set(key, nodeOf(alias, ref))
+      const node = nodes.get(key)
+      into.add(node)
+      if (!made || ref.startsWith('link:')) return undefined
+      const pkg = lockfile.packages[ref]
+      return { items: Object.entries({ ...pkg.dependencies, ...pkg.optionalDependencies }).values(), into: node.dependencies }
+    })
     return top
   }
-  const root = lockfile.importers['.']
-  const tree = {
-    name: '.',
-    identName: '.',
-    reference: '',
-    peerNames: new Set(),
-    dependencyKind: WORKSPACE,
-    dependencies: toTree(asWritten('.', { ...root.dependencies, ...root.devDependencies, ...root.optionalDependencies })),
+  const projectNode = (id, name, reference) => {
+    const { dependencies, devDependencies, optionalDependencies } = lockfile.importers[id]
+    return { name, identName: name, reference, peerNames: new Set(), dependencyKind: WORKSPACE, dependencies: toTree(asWritten(id, { ...dependencies, ...devDependencies, ...optionalDependencies })) }
   }
+  const tree = projectNode('.', '.', '')
   for (const [id, importer] of Object.entries(lockfile.importers)) {
-    if (id === '.' || importer.made) continue
-    tree.dependencies.add({
-      name: encodeURIComponent(id),
-      identName: encodeURIComponent(id),
-      reference: `workspace:${id}`,
-      peerNames: new Set(),
-      dependencyKind: WORKSPACE,
-      dependencies: toTree(asWritten(id, { ...importer.dependencies, ...importer.devDependencies, ...importer.optionalDependencies })),
-    })
+    if (id !== '.' && !importer.made) tree.dependencies.add(projectNode(id, encodeURIComponent(id), `workspace:${id}`))
   }
   return tree
 }
@@ -134,22 +104,14 @@ export function hoistedTree(lockfile, autoInstallPeers, bounds, { directories = 
 export function hoistedLayout(lockfile, { autoInstallPeers, skipped, directories = false, rootLinks = false }, bounds) {
   const tree = hoistedTree(lockfile, autoInstallPeers, bounds, { directories, rootLinks })
   const placed = new Map()
-  const place = (modules, deps) => {
-    const stack = [{ modules, deps: deps.values() }]
-    while (stack.length > 0) {
-      const frame = stack.at(-1)
-      const { value: dep, done } = frame.deps.next()
-      if (done) {
-        stack.pop()
-        continue
-      }
-      const [key] = dep.references
-      if (skipped.has(key) || key.startsWith('workspace:') || !(key in lockfile.packages)) continue
-      const dir = `${frame.modules}/${dep.name}`
-      placed.set(dir, { key, modules: frame.modules, alias: dep.name })
-      stack.push({ modules: `${dir}/node_modules`, deps: dep.dependencies.values() })
-    }
-  }
+  const place = (modules, deps) => depthFirst({ modules, items: deps.values() }, (dep, frame) => {
+    const [key] = dep.references
+    if (skipped.has(key) || key.startsWith('workspace:') || !(key in lockfile.packages)) return undefined
+    const dir = `${frame.modules}/${dep.name}`
+    const pkg = lockfile.packages[key]
+    placed.set(dir, { key, pkg, name: pkg.name, dir, modules: frame.modules, alias: dep.name })
+    return { modules: `${dir}/node_modules`, items: dep.dependencies.values() }
+  })
   place('node_modules', tree.dependencies)
   const projects = ['node_modules']
   for (const dep of tree.dependencies) {
@@ -176,7 +138,7 @@ export function workspaceHoists(placed, lockfile, { hoistPattern, publicHoistPat
   const isPublic = createMatcher(publicHoistPattern ?? [])
   const isPrivate = createMatcher(hoistPattern ?? [])
   const { dependencies, devDependencies, optionalDependencies } = lockfile.importers['.']
-  const taken = new Set([...Object.keys({ ...dependencies, ...devDependencies, ...optionalDependencies })].map((alias) => alias.toLowerCase()))
+  const taken = new Set(Object.keys({ ...dependencies, ...devDependencies, ...optionalDependencies }).map((alias) => alias.toLowerCase()))
   for (const { modules, alias } of placed.values()) if (modules === 'node_modules') taken.add(alias.toLowerCase())
   const links = new Map()
   for (const [id, name] of names) {
@@ -210,14 +172,8 @@ export function hoistedBuilds(byDir, projects, builds, { hardlinks, keepsModules
     placedIn.add(node.modules)
   }
   const childrenOf = (node) => Object.entries({ ...node.pkg.dependencies, ...node.pkg.optionalDependencies }).map(([alias, key]) => [alias, first.get(idOf(key))]).filter(([, dir]) => dir !== undefined)
-  const reached = new Set()
-  const pending = [...byDir.values()].filter((node) => projects.has(node.modules)).map((node) => node.dir)
-  while (pending.length > 0) {
-    const dir = pending.pop()
-    if (reached.has(dir)) continue
-    reached.add(dir)
-    for (const [, child] of childrenOf(byDir.get(dir))) pending.push(child)
-  }
+  const tops = [...byDir.values()].filter((node) => projects.has(node.modules)).map((node) => node.dir)
+  const reached = reachable(tops, (dir) => childrenOf(byDir.get(dir)).map(([, child]) => child))
   const built = []
   for (const [key, copies] of Map.groupBy(byDir.values(), (node) => node.key)) {
     const [node] = copies
@@ -271,15 +227,8 @@ export function hoistedModules(byDir, links, projects, manifests, lockfile) {
 
 // The snapshots `pnpm install --prod` would install, by pnpm's name@version.
 export function prodPackages(lockfile, skipped, directories) {
-  const reached = new Set()
-  const pending = Object.values(lockfile.importers).flatMap(({ dependencies, optionalDependencies }) => [...Object.values(dependencies), ...Object.values(optionalDependencies)])
-  while (pending.length > 0) {
-    const key = pending.pop()
-    if (key.startsWith('link:') || reached.has(key) || skipped.has(key)) continue
-    reached.add(key)
-    const pkg = lockfile.packages[key]
-    pending.push(...Object.values(pkg.dependencies), ...Object.values(pkg.optionalDependencies))
-  }
+  const edges = ({ dependencies, optionalDependencies }) => [...Object.values(dependencies), ...Object.values(optionalDependencies)]
+  const reached = reachable(Object.values(lockfile.importers).flatMap(edges), (key) => edges(lockfile.packages[key]), (key) => key.startsWith('link:') || skipped.has(key))
   return new Set([...reached].map((key) => packageIdOf(key, lockfile.packages[key], directories)))
 }
 
