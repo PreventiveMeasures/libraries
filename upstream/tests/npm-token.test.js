@@ -113,6 +113,10 @@ describe('NPM_TOKEN', () => {
       ['@acme/private', 'https://registry.npmjs.org/@acme/private'],
       ['@acme/private', 'https://registry.npmjs.org/-/npm/v1/security/advisories/bulk'],
       ['@acme/private', 'https://evil.example/@acme/private/latest'],
+      ['@acme/private', 'https://registry.npmjs.org/@acme/private/../other/latest'],
+      ['@acme/private', 'https://registry.npmjs.org/@acme/private/%2e%2e/%2E%2E/@acme/other/latest'],
+      ['@acme/private', 'https://registry.npmjs.org/@acme/private/./latest'],
+      ['@acme/private', 'https://registry.npmjs.org/@acme/private/..\\..\\@acme/other/latest'],
       ['pkg', 'https://registry.npmjs.org/other/latest'],
     ]) {
       assert.throws(() => withNpmToken(name, url, options), (err) => /Unexpected request for /u.test(err.message) && !err.message.includes(TOKEN), `${options?.method ?? 'GET'} ${url}`)
