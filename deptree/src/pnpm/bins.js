@@ -143,6 +143,33 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
   return fixedFiles(nodes, fixed, contested, major)
 }
 
+// pnpm 10's hoisted linker links the bins of each node_modules it fills, by
+// what it reads there, as it fills it; then each project's again, with its
+// links in, a command of its own dependencies over any other. `modules` are
+// those node_modules, each with its packages by alias, and its project's
+// package.json where it is a project's.
+export function hoistedBinTargets({ nodes, projects, modules, major }) {
+  const commandsOfDir = (dir) => {
+    const node = nodes.get(dir)
+    if (node !== undefined) return commandsOf(dir, node.manifest, node.files, dir, quote(node.key), major)
+    const manifest = projects.get(dir)
+    return manifest === undefined ? [UNKNOWN] : commandsOf(dir, manifest, undefined, undefined, `manifests[${quote(dir)}]`, major)
+  }
+  const { fixed, contested, link } = linker(major)
+  for (const { dir, entries, manifest } of modules) {
+    const where = quote(dir)
+    if (manifest === undefined) {
+      link(entries.flatMap(([, target]) => commandsOfDir(target)), { ordered: false, where })
+      continue
+    }
+    const own = new Set(Object.keys({ ...manifest.devDependencies, ...manifest.dependencies, ...manifest.optionalDependencies }))
+    const commands = entries.flatMap(([alias, target]) => commandsOfDir(target).map((command) => ({ ...command, direct: own.has(alias) })))
+    const names = new Set(commands.filter((command) => command.direct).map(({ name }) => name))
+    link([...commands.filter((command) => command.direct), ...commands.filter((command) => !command.direct && !names.has(command.name))], { ordered: false, where })
+  }
+  return fixedFiles(nodes, fixed, contested, major)
+}
+
 function fixedFiles(nodes, fixed, contested, major) {
   // pnpm 9 and 12 read each linked file's `#!` line. '' is the package.
   const checkDirectory = (node, path) => {

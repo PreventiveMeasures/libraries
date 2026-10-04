@@ -69,7 +69,8 @@ const never = (why) => (value, where) => {
 
 export const READ = {
   __proto__: null,
-  nodeLinker: only('text', 'isolated', 'only the isolated node_modules layout is built'),
+  // pnpm 10's hoisted layout too (hoisted.js).
+  nodeLinker: { kind: 'text', check: (value, where) => value === 'hoisted' || value === 'isolated' || never('only the isolated node_modules layout, and the hoisted one of pnpm 10, is built')(value, where) },
   symlink: only('boolean', true, 'a tree without its links is not built'),
   enableModulesDir: only('boolean', true, 'a tree without node_modules is not built'),
   modulesDir: only('text', 'node_modules', 'the modules directory is always node_modules'),
@@ -127,6 +128,7 @@ export const READ = {
 // What pnpm 11 reads that pnpm 10 has not, or reads otherwise.
 const READ_11 = {
   __proto__: null,
+  nodeLinker: only('text', 'isolated', 'only the isolated node_modules layout is built for pnpm 11 and 12'),
   virtualStoreType: only('text', 'project', 'a global virtual store is not built'),
   virtualStoreOnly: only('boolean', false, 'a tree without its projects\' links is not built'),
   nodeExperimentalPackageMap: only('boolean', false, 'node_modules/.package-map.json is not written'),
@@ -184,6 +186,7 @@ export const unrecognized12 = (where) => new DeptreeError('pnpm 12 does not know
 // package.json's packageManager to the pnpm that runs (projects.js).
 const READ_9 = {
   __proto__: null,
+  nodeLinker: only('text', 'isolated', 'only the isolated node_modules layout is built for pnpm 9'),
   managePackageManagerVersions: { kind: 'boolean' },
   packageManagerStrict: { kind: 'boolean' },
   packageManagerStrictVersion: { kind: 'boolean' },

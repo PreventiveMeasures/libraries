@@ -29,6 +29,7 @@ const DEFAULTS = {
   pmOnFail: undefined,
   runtimeOnFail: undefined,
   packageImportMethod: 'auto',
+  nodeLinker: 'isolated',
 }
 
 describe('parseNpmrc', () => {
@@ -66,6 +67,12 @@ describe('readSettings', () => {
   })
 
   // Whether a package installed from a directory is one copy or many.
+  it('reads nodeLinker, hoisted for pnpm 10 alone', () => {
+    assert.equal(read({ npmrc: 'node-linker=hoisted\n' }).nodeLinker, 'hoisted')
+    assert.equal(read({ workspace: 'nodeLinker: hoisted\n' }).nodeLinker, 'hoisted')
+    assert.equal(read({ workspace: 'nodeLinker: isolated\n', major: 11 }).nodeLinker, 'isolated')
+  })
+
   it('reads packageImportMethod', () => {
     assert.equal(read({ npmrc: 'package-import-method=copy\n' }).packageImportMethod, 'copy')
     assert.equal(read({ workspace: 'packageImportMethod: clone-or-copy\n', major: 11 }).packageImportMethod, 'clone-or-copy')
@@ -228,8 +235,10 @@ describe('readSettings', () => {
   })
 
   const refused = [
-    [{ workspace: 'nodeLinker: hoisted\n' }, /^pnpm-workspace\.yaml: nodeLinker: "hoisted" is not supported/u],
-    [{ npmrc: 'node-linker=pnp\n' }, /^\.npmrc:1: node-linker: "pnp" is not supported/u],
+    [{ npmrc: 'node-linker=hoisted\n', major: 9 }, /^\.npmrc:1: node-linker: "hoisted" is not supported: only the isolated node_modules layout is built for pnpm 9$/u],
+    [{ workspace: 'nodeLinker: hoisted\n', major: 11 }, /^pnpm-workspace\.yaml: nodeLinker: "hoisted" is not supported: only the isolated node_modules layout is built for pnpm 11 and 12$/u],
+    [{ workspace: 'nodeLinker: hoisted\n', major: 12 }, /for pnpm 11 and 12$/u],
+    [{ npmrc: 'node-linker=pnp\n' }, /^\.npmrc:1: node-linker: "pnp" is not supported: only the isolated node_modules layout, and the hoisted one of pnpm 10, is built$/u],
     [{ workspace: 'someNewSetting: 1\n' }, /^pnpm-workspace\.yaml: someNewSetting: unsupported setting$/u],
     [{ npmrc: 'registry=https://npm.example.com/\n' }, /packages are fetched from https:\/\/registry\.npmjs\.org\/ alone/u],
     [{ npmrc: '@s:registry=https://npm.example.com/\n' }, /^\.npmrc:1: @s:registry:/u],

@@ -12,9 +12,10 @@ import { checkNoModules, checkWrite, fold, isInside, makeDirs, mount, writeLink 
 import { applyPatch, parsePatch } from '../patch.js'
 import { checkProject, typeOf } from '../project.js'
 import { REGISTRY, tarballUrl } from '../tarball.js'
-import { binTargets, checkPatchOfBins, executableMode, fixBin, requiresBuild } from './bins.js'
+import { binTargets, checkPatchOfBins, executableMode, fixBin, hoistedBinTargets, requiresBuild } from './bins.js'
 import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
+import { hoistedLayout, packageIdOf, prodPackages } from './hoisted.js'
 import { checkLocalOverrides, createFreshnessCheck, readDirectoryPackage, readLinked } from './local.js'
 import { createPatchedCheck, skippedSnapshots } from './install.js'
 import { checkDependencies, fetchPackage } from './package.js'
@@ -207,6 +208,71 @@ function linksOf(byDir, direct, settings, projects, major, hoisting) {
   return links
 }
 
+// The import methods with which each copy of a package is its own.
+const COPYING = new Set(['copy', 'clone', 'clone-or-copy'])
+
+// What linkBins reads to link bins (bins.js): each node_modules pnpm fills,
+// with what it put there, then each project's with its links too.
+function hoistedModules(byDir, links, projects, manifests, lockfile) {
+  const placedIn = new Map()
+  const add = (modules, alias, dir) => {
+    if (!placedIn.has(modules)) placedIn.set(modules, [])
+    placedIn.get(modules).push([alias, dir])
+  }
+  for (const { dir, modules, alias } of byDir.values()) add(modules, alias, dir)
+  const modulesOf = (id) => (id === '.' ? 'node_modules' : `${id}/node_modules`)
+  const filled = [...projects.map(modulesOf), ...[...byDir.keys()].map((dir) => `${dir}/node_modules`)]
+  const all = filled.filter((dir) => placedIn.has(dir)).map((dir) => ({ dir, entries: placedIn.get(dir) }))
+  for (const [path, target] of links) add(path.slice(0, path.lastIndexOf('/node_modules/') + '/node_modules'.length), path.slice(path.lastIndexOf('/node_modules/') + '/node_modules/'.length), target)
+  for (const id of Object.keys(lockfile.importers)) {
+    const dir = modulesOf(id)
+    if (placedIn.has(dir)) all.push({ dir, entries: placedIn.get(dir), manifest: manifests.get(id) })
+  }
+  return all
+}
+
+// pnpm 10's hoisted layout (hoisted.js).
+async function buildHoisted({ lockfile, settings, host, project, hook, installed, manifests, patched, skipped, incompatible, into, folded }) {
+  const { major } = host
+  if (!COPYING.has(settings.packageImportMethod)) {
+    throw new DeptreeError(`${quote(settings.packageImportMethod)} is not supported with the hoisted layout, which is built only where each copy of a package is its own: with copy, clone or clone-or-copy`, 'packageImportMethod')
+  }
+  if (Object.keys(settings.patchedDependencies ?? {}).length > 0) throw new DeptreeError('patches with the hoisted layout are not supported yet', 'patchedDependencies')
+  const { placed, links, projects } = hoistedLayout(lockfile, { autoInstallPeers: settings.autoInstallPeers, skipped })
+  const nodes = new Map([...placed].map(([dir, { key, modules, alias }]) => [dir, { key, pkg: lockfile.packages[key], name: lockfile.packages[key].name, dir, modules, alias }]))
+  for (const node of nodes.values()) checkSource(node, installed)
+  const { byDir, tarballs } = await fetchNodes(nodes, lockfile, hook, project, host)
+  const linked = readLinked(links, byDir, manifests, project)
+  const targets = hoistedBinTargets({ nodes: byDir, projects: new Map([...manifests, ...linked]), modules: hoistedModules(byDir, links, projects, manifests, lockfile), major })
+  const prod = prodPackages(lockfile, skipped)
+
+  const vfs = new Vfs()
+  makeDirs(vfs, 'node_modules/.pnpm')
+  const stats = { projects: manifests.size, snapshots: Object.keys(lockfile.packages).length, installed: byDir.size, skipped: skipped.size, incompatible: incompatible.size, tarballs, patched: 0, files: 0, bytes: 0, links: links.size }
+  const listed = []
+  const composing = { major, checkPatched: createPatchedCheck({ host, settings }) }
+  // Each copy is let go once written, a parent before what lands in its
+  // node_modules.
+  for (const node of byDir.values()) {
+    byDir.delete(node.dir)
+    try {
+      writeNode(vfs, node.dir, compose(node, patched, { targets: targets.get(node.dir) ?? new Set(), executable: new Set() }, composing), stats)
+    } catch (error) {
+      throw refusalOf(error, quote(node.key))
+    }
+    listed.push(installedOf(node, !prod.has(packageIdOf(node.key, node.pkg)), patched))
+  }
+  for (const [path, target] of links) {
+    try {
+      writeLink(vfs, path, linkTarget(path, target))
+    } catch (error) {
+      throw new DeptreeError(`cannot be linked: ${error.message}`, quote(path), { cause: error })
+    }
+  }
+  checkLinks(vfs, links)
+  return { vfs: mount(vfs, into, folded), stats, installed: listed }
+}
+
 export async function buildPnpmTree(options) {
   const { project, host: given, vfs: into } = options ?? {}
   if (into !== undefined && !(into instanceof Vfs)) throw new TypeError('vfs must be a Vfs, or left out')
@@ -241,6 +307,7 @@ export async function buildPnpmTree(options) {
   checkOptional(lockfile)
   const projects = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
   const { skipped, incompatible } = skippedSnapshots(lockfile, { host, settings })
+  if (settings.nodeLinker === 'hoisted') return buildHoisted({ lockfile, settings, host, project, hook, installed, manifests, patched, skipped, incompatible, into, folded })
   const { nodes, direct, hoisting } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, major)
   for (const node of nodes.values()) checkSource(node, installed)
 
