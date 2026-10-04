@@ -2,16 +2,17 @@ import assert from 'node:assert/strict'
 
 import { assertNames, assertPackageName, assertRepo, isRepo, show } from '../args.js'
 import { readRecord, writeRecord } from '../cache.js'
-import { NPM_REGISTRY, buildUrl, isNotFound, recover, request } from '../http.js'
+import { NPM_REGISTRY, buildUrl, isNotFound, recover } from '../http.js'
 import { assertRepoDirectory, getRepo, isRepoDirectory } from '../package.js'
 import { pool } from '../pool.js'
+import { registryRequest } from './registry.js'
 
 const DIR = 'npm/repos'
 const CONCURRENCY = 8
 
 // `latest`, not the full packument, which is megabytes of version history.
 async function fetchRepo(method, name) {
-  const json = await request(buildUrl(NPM_REGISTRY, [...name.split('/'), 'latest']), { as: 'json' })
+  const json = await registryRequest(name, buildUrl(NPM_REGISTRY, [...name.split('/'), 'latest']), { as: 'json' })
   assert.ok(json?.name === name, `${method}: the registry answered for ${show(json?.name)}, not ${name}`)
   return getRepo(json)
 }

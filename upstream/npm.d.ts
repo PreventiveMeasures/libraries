@@ -6,6 +6,11 @@
 // cache path, otherwise. Responses are read up to a size limit and within
 // a timeout, as github.d.ts describes, and lookups for many names go to
 // the registry eight at a time.
+//
+// Where NPM_TOKEN is set, it goes as a bearer token with every request
+// for a scoped name, so a private package can be read: its version
+// document, its `latest` and its tarball. It never goes with an unscoped
+// name, nor with the advisories request (advisories.js), which names many.
 
 // Where cached answers live, resolved when set. Unset by default, and
 // unset means no cache: every read misses and every write is skipped.
