@@ -25,7 +25,7 @@ const files = [
   ...doors.map((door) => new URL(door, PKG_DIR)),
   ...readdirSync(SRC_DIR, { recursive: true })
     .map((name) => name.split(sep).join('/'))
-    .filter((name) => name.endsWith('.js') || name.endsWith('.d.ts'))
+    .filter((name) => name.endsWith('.js') || name.endsWith('.cjs') || name.endsWith('.d.ts'))
     .map((name) => new URL(name, SRC_DIR)),
 ]
 
@@ -36,7 +36,7 @@ const SPECIFIER_RE = /(?:\bfrom|\bimport|\brequire)\s*\(?\s*(?<quote>['"])(?<spe
 const TEMPLATE_RE = /(?:\bimport|\brequire)\s*\(\s*`(?<spec>[^`$\n]+)`/gu
 
 // The bare specifiers a module may require, each an optional peer dependency.
-const PEERS = { 'src/semver.js': ['semver'] }
+const PEERS = { 'src/semver.cjs': ['semver'] }
 
 const specifiersOf = (source) => [SPECIFIER_RE, TEMPLATE_RE].flatMap((re) => [...source.matchAll(re)].map((m) => m.groups.spec))
 

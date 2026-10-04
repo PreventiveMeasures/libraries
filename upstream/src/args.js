@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { isExactVersion } from './semver.js'
+import { isExactVersion } from './semver.cjs'
 
 const isControl = (char) => char < ' ' || (char >= '\u007F' && char <= '\u009F')
 export const matches = (regex) => (value) => typeof value === 'string' && regex.test(value)

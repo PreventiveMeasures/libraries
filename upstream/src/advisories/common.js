@@ -1,5 +1,5 @@
 import { isStrings, matches } from '../args.js'
-import { satisfies, valid, validRange } from '../semver.js'
+import { satisfies, valid, validRange } from '../semver.cjs'
 
 export const order = (a, b) => (a > b) - (a < b)
 
