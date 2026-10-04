@@ -5,7 +5,7 @@ import { DeptreeError } from '../pnpm.js'
 import { parseNpmrc } from '../src/npmrc.js'
 import { readSettings } from '../src/pnpm/settings.js'
 
-const read = ({ workspace, npmrc, manifest = {}, major } = {}) => readSettings({ workspace: workspace === undefined ? undefined : parseYaml(workspace), npmrc, manifest, major })
+const read = ({ workspace, npmrc, manifest = {}, locked, major } = {}) => readSettings({ workspace: workspace === undefined ? undefined : parseYaml(workspace), npmrc, manifest, locked, major })
 
 const DEFAULTS = {
   virtualStoreDirMaxLength: 120,
@@ -100,6 +100,24 @@ describe('readSettings', () => {
     assert.deepEqual(read({ npmrc: `${token}hoist=false\n`, workspace: 'hoist: false\n' }).hoistPattern, undefined)
     assert.throws(() => read({ npmrc: `${token}hoist=false\n` }), /^DeptreeError: \.npmrc: a line takes a value from the environment, which pnpm drops the whole file for where it is unset/u)
     assert.throws(() => read({ npmrc: 'registry=${REGISTRY}\n' }), /^DeptreeError: \.npmrc:1: registry: "\$\{REGISTRY\}" is taken from the environment/u)
+  })
+
+  // A frozen install refuses a lockfile whose own settings differ from those
+  // it reads, so where they fit the file only read or only dropped, the other
+  // installs nothing, and the whole file goes with the one that does.
+  it('reads an .npmrc pnpm may drop as the lockfile\'s settings tell', () => {
+    const token = '//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n'
+    const npmrc = `${token}auto-install-peers=false\nhoist=false\n`
+    assert.deepEqual(read({ npmrc, locked: { autoInstallPeers: false } }), { ...DEFAULTS, autoInstallPeers: false, hoistPattern: undefined })
+    assert.deepEqual(read({ npmrc, locked: { autoInstallPeers: true } }), DEFAULTS)
+    assert.deepEqual(read({ npmrc: `${token}dedupe-peers=true\n`, locked: { dedupePeers: true } }), { ...DEFAULTS, dedupePeers: true })
+    assert.deepEqual(read({ npmrc: `${token}dedupe-peers=true\n` }), DEFAULTS, 'a lockfile without dedupePeers has it false')
+    assert.deepEqual(read({ npmrc: `${token}peers-suffix-max-length=100\n`, locked: { peersSuffixMaxLength: 100 } }), { ...DEFAULTS, peersSuffixMaxLength: 100 })
+    assert.throws(() => read({ npmrc: `${token}auto-install-peers=true\nhoist=false\n`, locked: { autoInstallPeers: true } }), /, which the lockfile's settings fit read and dropped alike$/u)
+    assert.throws(() => read({ npmrc, locked: {} }), /fit read and dropped alike$/u, 'a lockfile without autoInstallPeers tells nothing of it')
+    const neither = read({ npmrc: `${token}auto-install-peers=false\ndedupe-peers=true\n`, locked: { autoInstallPeers: false } })
+    assert.deepEqual(neither, { ...DEFAULTS, autoInstallPeers: false, dedupePeers: true }, 'read, for uptodate.js to refuse')
+    assert.equal(read({ npmrc, locked: { autoInstallPeers: false }, major: 9 }).hoistPattern, undefined, 'pnpm 9 drops it alike')
   })
 
   // pnpm 9 reads of pnpm-workspace.yaml its projects and catalogs alone,

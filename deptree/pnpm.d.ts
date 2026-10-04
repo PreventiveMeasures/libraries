@@ -159,8 +159,13 @@ export interface PnpmProject {
 // is built here, and all else — npm's own settings, publishing's,
 // credentials, other names — passed over. A `${VAR}` pnpm would fill in is
 // taken in a line passed over, such as `//registry.npmjs.org/:_authToken`,
-// where the rest of the file would not change the tree: pnpm drops the
-// whole file where the variable is unset.
+// though pnpm drops the whole file where the variable is unset: where the
+// rest of the file would not change the tree, or where the lockfile's
+// autoInstallPeers, dedupePeers and peersSuffixMaxLength, which a frozen
+// install holds the settings to, fit only the file read or only the file
+// dropped — `auto-install-peers=false` beside a lockfile resolved with it
+// fits only the file read. Where they fit both, a setting the lockfile
+// does not record, such as `hoist=false`, is refused beside the variable.
 //
 // pnpm 11 reads its settings from pnpm-workspace.yaml alone, as this does
 // for it: of the .npmrc only its registries, and of the package.json no

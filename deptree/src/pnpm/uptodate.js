@@ -49,6 +49,15 @@ function checkPatches(locked, hashes, major) {
   if (detail !== undefined) throw outdated('patchedDependencies', `the patches differ: ${detail}`)
 }
 
+// The lockfile's own settings, the refusal of the first the settings differ
+// from, or undefined. An .npmrc can set each of them (settings.js).
+export function outdatedSetting(locked, settings, major) {
+  if (locked.autoInstallPeers !== undefined && locked.autoInstallPeers !== settings.autoInstallPeers) return outdated('settings.autoInstallPeers', `autoInstallPeers is ${locked.autoInstallPeers} in the lockfile`)
+  if (major >= 10 && Boolean(locked.dedupePeers) !== settings.dedupePeers) return outdated('settings.dedupePeers', `dedupePeers is ${Boolean(locked.dedupePeers)} in the lockfile`)
+  if ((locked.peersSuffixMaxLength ?? 1000) !== settings.peersSuffixMaxLength) return outdated('settings.peersSuffixMaxLength', `peersSuffixMaxLength is ${locked.peersSuffixMaxLength ?? 'left at 1000'} in the lockfile`)
+  return undefined
+}
+
 export async function checkUpToDate(lockfile, settings, overrides, given, major) {
   const { hashes, byHash } = await hashPatches(settings.patchedDependencies, given, major)
   for (const [name, catalog] of major < 10 ? [] : Object.entries(lockfile.catalogs)) {
@@ -65,10 +74,8 @@ export async function checkUpToDate(lockfile, settings, overrides, given, major)
   const ignored = (list) => JSON.stringify([...list].sort())
   if (ignored(lockfile.ignoredOptionalDependencies) !== ignored(settings.ignoredOptionalDependencies)) throw outdated('ignoredOptionalDependencies', 'the optional dependencies left out differ')
   checkPatches(lockfile.patchedDependencies, hashes, major)
-  const locked = lockfile.settings
-  if (locked.autoInstallPeers !== undefined && locked.autoInstallPeers !== settings.autoInstallPeers) throw outdated('settings.autoInstallPeers', `autoInstallPeers is ${locked.autoInstallPeers} in the lockfile`)
-  if (major >= 10 && Boolean(locked.dedupePeers) !== settings.dedupePeers) throw outdated('settings.dedupePeers', `dedupePeers is ${Boolean(locked.dedupePeers)} in the lockfile`)
-  if ((locked.peersSuffixMaxLength ?? 1000) !== settings.peersSuffixMaxLength) throw outdated('settings.peersSuffixMaxLength', `peersSuffixMaxLength is ${locked.peersSuffixMaxLength ?? 'left at 1000'} in the lockfile`)
+  const mismatch = outdatedSetting(lockfile.settings, settings, major)
+  if (mismatch !== undefined) throw mismatch
   checkPatchUse(lockfile, hashes, major)
   if (major >= 11) checkPeerPatches(lockfile, hashes)
   return byHash

@@ -10,6 +10,7 @@ import { DeptreeError, quote } from '../error.js'
 import { parseNpmrc } from '../npmrc.js'
 import { replaceReferences } from './overrides.js'
 import { MANIFEST_KEYS, MANIFEST_KEYS_9, READ, checkRegistry, known12, npmrcReader, readerOf, readers, unrecognized12 } from './readers.js'
+import { outdatedSetting } from './uptodate.js'
 
 // An .npmrc value can mean one thing only with no quote, escape, `;` or `#`.
 const PLAIN = /^[^"'`;#\\]*$/u
@@ -175,8 +176,11 @@ function settle(layers, manifest, major) {
   return derive((name) => values.get(name), major)
 }
 
-// Overrides that name nothing are none, and leave those below them.
-export function readSettings({ workspace, npmrc, manifest, major = 10, pinned = false }) {
+// Overrides that name nothing are none, and leave those below them. pnpm
+// drops the whole .npmrc where a variable it fills in is unset; where that
+// changes the tree, `locked`, the lockfile's settings, may tell which: a
+// frozen install refuses the lockfile under settings it does not fit.
+export function readSettings({ workspace, npmrc, manifest, locked = {}, major = 10, pinned = false }) {
   const fromYaml = () => {
     if (workspace === undefined) return new Map()
     return major < 10 ? fromWorkspace9(workspace) : fromWorkspace(workspace, major, pinned)
@@ -190,10 +194,13 @@ export function readSettings({ workspace, npmrc, manifest, major = 10, pinned = 
   const rc = npmrc === undefined ? { settings: new Map(), environment: false } : fromNpmrc(npmrc, major)
   const rest = [fromYaml(), fromManifest(manifest, major)]
   const settings = settle([rc.settings, ...rest], manifest, major)
-  if (rc.environment && JSON.stringify(settings) !== JSON.stringify(settle(rest, manifest, major))) {
-    throw new DeptreeError('a line takes a value from the environment, which pnpm drops the whole file for where it is unset, and the file sets what would change the tree', '.npmrc')
-  }
-  return settings
+  if (!rc.environment) return settings
+  const dropped = settle(rest, manifest, major)
+  if (JSON.stringify(settings) === JSON.stringify(dropped)) return settings
+  const fits = [settings, dropped].filter((each) => outdatedSetting(locked, each, major) === undefined)
+  // Where neither fits, uptodate.js refuses the file read as out of date.
+  if (fits.length < 2) return fits[0] ?? settings
+  throw new DeptreeError('a line takes a value from the environment, which pnpm drops the whole file for where it is unset, and the file sets what would change the tree, which the lockfile\'s settings fit read and dropped alike', '.npmrc')
 }
 
 // The Node the root's runtime pins, for nodeVersion where none is set: the

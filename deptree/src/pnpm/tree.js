@@ -231,7 +231,7 @@ export async function buildPnpmTree(options) {
   // As pnpm 9, 10 and 11 write the lockfile's own directory.
   const empty = major >= 12 ? Object.keys(lockfile.packages).find((key) => packageKeyOf(key).endsWith('@file:')) : undefined
   if (empty !== undefined) throw new DeptreeError('pnpm 12 refuses as broken a lockfile with `file:` and an empty path', quote(empty))
-  const settings = readSettings({ workspace, npmrc: inputs.npmrc, manifest: manifests.get('.'), major, pinned: pinsPnpm(manifests.get('.'), host.pnpm) })
+  const settings = readSettings({ workspace, npmrc: inputs.npmrc, manifest: manifests.get('.'), locked: lockfile.settings, major, pinned: pinsPnpm(manifests.get('.'), host.pnpm) })
   checkWorkspace(Object.keys(lockfile.importers), settings.packages, major)
   const overrides = listOverrides(settings.overrides, settings.catalogs, major)
   const installed = checkLocalOverrides(overrides, project)
