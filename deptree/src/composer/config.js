@@ -32,7 +32,10 @@ function dirOf(config, key, fallback, vendorDir) {
 const resolve = (preference, pkg) => (preference === 'auto' ? (pkg.stability === 'dev' ? 'source' : 'dist') : preference)
 
 // Each package's preference, by Composer's patterns, `*` any run of
-// characters, in either case; for no pattern, `auto`.
+// characters, in either case, the first that matches; for none, `auto`. A
+// mapping is merged over the default as Composer merges it, `*` the
+// default's dist where it does not set it, a pattern it sets again kept
+// where it was, and then `*` moved behind the rest.
 function preferenceOf(config) {
   const value = Object.hasOwn(config, 'preferred-install') ? config['preferred-install'] : 'dist'
   const where = 'composer.json: config.preferred-install'
@@ -41,10 +44,15 @@ function preferenceOf(config) {
     return (pkg) => resolve(value, pkg)
   }
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new DeptreeError('is neither a string nor a mapping, which Composer\'s schema refuses', where)
-  const patterns = Object.entries(value).map(([pattern, preference]) => {
+  const merged = new Map([['*', 'dist']])
+  for (const [pattern, preference] of Object.entries(value)) {
     if (!PREFERENCES.has(preference)) throw new DeptreeError(`${quote(String(preference))} is none of dist, source and auto`, `${where}[${quote(pattern)}]`)
-    return { matches: wildcard(lower(pattern)), preference }
-  })
+    merged.set(pattern, preference)
+  }
+  const any = merged.get('*')
+  merged.delete('*')
+  merged.set('*', any)
+  const patterns = [...merged].map(([pattern, preference]) => ({ matches: wildcard(lower(pattern)), preference }))
   return (pkg) => resolve(patterns.find(({ matches }) => matches(lower(pkg.name)))?.preference ?? 'auto', pkg)
 }
 

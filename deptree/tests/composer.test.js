@@ -164,11 +164,16 @@ describe('buildComposerTree', () => {
     const client = github({ [`acme/lib@${SHA}`]: await archive({ 'a.php': 'a' }) })
     const pkg = { ...LIB, bin: undefined, source }
     const dev = { ...pkg, version: 'dev-main' }
-    for (const [config, packages] of [[{ 'preferred-install': 'source' }, [pkg]], [{ 'preferred-install': 'auto' }, [dev]], [{ 'preferred-install': { 'ACME/*': 'source' } }, [pkg]], [{ 'preferred-install': { 'other/*': 'dist' } }, [dev]], [undefined, [{ ...pkg, dist: undefined }]]]) {
+    const cloned = [['source', pkg], ['auto', dev], [{ 'ACME/*': 'source' }, pkg], [{ 'acme/*': 'auto' }, dev], [{ '*': 'auto' }, dev]]
+    for (const [preference, packages] of [...cloned.map(([given, one]) => [given, [one]]), [undefined, [{ ...pkg, dist: undefined }]]]) {
+      const config = preference === undefined ? undefined : { 'preferred-install': preference }
       await assert.rejects(buildComposerTree({ ...project(packages, [], config), host: HOST, github: client }), /packages\["acme\/lib"\]: a package installed from source, a git clone/u, JSON.stringify(config))
     }
-    for (const config of [{ 'preferred-install': 'auto' }, { 'preferred-install': { 'acme/*': 'dist' } }, { 'preferred-install': { 'acme/*': 'auto' } }]) {
-      await buildComposerTree({ ...project([pkg], [], config), host: HOST, github: client })
+    // A mapping is merged over the default dist, with `*` matched last, as
+    // Composer 2.2 and 2.10 were seen to install each of these from its dist.
+    const unzipped = [['auto', pkg], [{ 'acme/*': 'dist' }, pkg], [{ 'acme/*': 'auto' }, pkg], [{}, dev], [{ 'other/*': 'dist' }, dev], [{ 'other/*': 'source' }, dev], [{ '*': 'source', 'acme/*': 'dist' }, dev], [{ '*': 'auto', 'ACME/*': 'dist' }, dev]]
+    for (const [preference, one] of unzipped) {
+      await buildComposerTree({ ...project([one], [], { 'preferred-install': preference }), host: HOST, github: client })
     }
     await assert.rejects(buildComposerTree({ ...project([pkg], [], { 'preferred-install': 'fast' }), host: HOST, github: client }), { where: 'composer.json: config.preferred-install' })
   })

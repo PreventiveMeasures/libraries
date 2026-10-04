@@ -48,9 +48,11 @@ export interface ComposerProject {
 // resolves one, `vendor` where unset; bin-dir, one too, or within
 // vendor-dir by `{$vendor-dir}`, `{$vendor-dir}/bin` where unset; and
 // preferred-install, dist where unset, source, auto, or a mapping of
-// package patterns to those. Settings from anywhere else — Composer's home,
-// the environment, COMPOSER_VENDOR_DIR and COMPOSER among it, the command
-// line — are not read, and are taken to be at their defaults.
+// package patterns to those, which Composer merges over the default: a
+// package no pattern matches installs from its dist, and `*` is matched
+// last, wherever it is written. Settings from anywhere else — Composer's
+// home, the environment, COMPOSER_VENDOR_DIR and COMPOSER among it, the
+// command line — are not read, and are taken to be at their defaults.
 //
 // `github` is the client the archives of GitHub's packages are fetched
 // with, as getRepoTarball fetches them, exported, from
