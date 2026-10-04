@@ -191,9 +191,8 @@ function linkCopies(builds, phases, fixed, contested, { keepsModules, major }) {
 }
 
 // Whether `from`'s snapshot reaches `to`'s through the copies' dependencies,
-// each taken for the copies of its id.
-function reaches(nodes, from, to, idOf) {
-  const pkgs = new Map([...nodes.values()].map((node) => [idOf(node.key), node.pkg]))
+// each taken for the copies of its id, `pkgs` the copies' packages by it.
+function reaches(pkgs, from, to, idOf) {
   const seen = new Set([idOf(from)])
   const pending = [idOf(from)]
   while (pending.length > 0) {
@@ -210,7 +209,7 @@ function reaches(nodes, from, to, idOf) {
   return false
 }
 
-// pnpm 10's hoisted linker links the bins of each node_modules it fills, by
+// pnpm's hoisted linker links the bins of each node_modules it fills, by
 // what it reads there, as it fills it; then each project's again, with its
 // links in, a command of its own dependencies over any other. `modules` are
 // those node_modules, each with its packages by alias, and its project's
@@ -239,6 +238,7 @@ export function hoistedBinTargets({ nodes, projects, modules, builds = [], hardl
   }
   // A package's dependencies are built first, but for those it is built
   // before or after as they depend on each other.
+  const pkgs = new Map([...nodes.values()].map((node) => [idOf(node.key), node.pkg]))
   const building = builds.map((build) => {
     const where = quote(build.key)
     const node = nodes.get(build.candidates[0])
@@ -253,7 +253,7 @@ export function hoistedBinTargets({ nodes, projects, modules, builds = [], hardl
         for (const copy of build.candidates) contested.set(`${copy}${target.slice(owner.length)}`, { owner: copy, why: 'which of its copies pnpm 10 builds, which turns on its build order and is not followed here' })
       }
     }
-    return { fixed, contested, before: (other) => other !== build && reaches(nodes, other.key, build.key, idOf) }
+    return { fixed, contested, before: (other) => other !== build && reaches(pkgs, other.key, build.key, idOf) }
   })
   const fixed = new Map()
   const contested = new Map()

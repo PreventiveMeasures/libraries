@@ -6,11 +6,10 @@
 // hoisting limits and no external soft links, which are left out too.
 
 import { DeptreeError } from '../error.js'
-import { WORKSPACE, buildPreferenceMap, getHoistIdentMap, getUsedDependencies, getZeroRoundUsedDependencies, hoistGraph } from './nm-hoist-graph.js'
+import { REGULAR, WORKSPACE, buildPreferenceMap, getHoistIdentMap, getUsedDependencies, getZeroRoundUsedDependencies, hoistGraph } from './nm-hoist-graph.js'
 
-export { WORKSPACE } from './nm-hoist-graph.js'
+export { REGULAR, WORKSPACE } from './nm-hoist-graph.js'
 
-const REGULAR = 0
 
 const makeLocator = (name, reference) => `${name}@${reference}`
 const makeIdent = (name, reference) => {
@@ -23,8 +22,8 @@ const getIdentName = (locator) => locator.slice(0, locator.indexOf('@', 1))
 // which it is refused: on a graph made to defeat it, the hoist walks each
 // path through what it cannot hoist, and the tree has a copy of a package
 // for each, of which there can be more than there is time or memory for.
-export const MAX_STEPS = 50_000_000
-export const MAX_NODES = 100_000
+const MAX_STEPS = 50_000_000
+const MAX_NODES = 100_000
 
 function counter(limit, what, stats) {
   let steps = 0

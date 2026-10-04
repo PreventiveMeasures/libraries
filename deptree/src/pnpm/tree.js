@@ -106,13 +106,19 @@ function executableElsewhere(byDir, targets, packageImportMethod, major) {
   }))
 }
 
+// A patch of `patches`, parsed once.
+function parsedPatch(patches, hash) {
+  const patch = patches.get(hash)
+  patch.parsed ??= parsePatch(patch.text, patch.path)
+  return patch
+}
+
 function compose(node, patches, { targets, executable }, { major, checkPatched }) {
   const where = quote(node.key)
   let files = node.files
   const { patchHash } = node.pkg
   if (patchHash !== undefined) {
-    const patch = patches.get(patchHash)
-    patch.parsed ??= parsePatch(patch.text, patch.path)
+    const patch = parsedPatch(patches, patchHash)
     patch.applied ??= new WeakMap()
     if (!patch.applied.has(files)) patch.applied.set(files, applyPatch(files, patch.parsed, { createdMode: major >= 12 ? 0o644 : undefined }))
     files = patch.applied.get(files)
@@ -124,6 +130,30 @@ function compose(node, patches, { targets, executable }, { major, checkPatched }
   for (const path of targets) files.set(path, fixBin(files.get(path), `${where}: ${quote(path)}`, major))
   for (const path of executable) files.set(path, { ...files.get(path), mode: executableMode(files.get(path).mode, major) })
   return files
+}
+
+// Each node's files, each node let go once written and a package's files
+// with its last, in the order given; then the links.
+function writeTree(vfs, byDir, links, { files, dev, patched, stats }) {
+  const listed = []
+  for (const node of byDir.values()) {
+    byDir.delete(node.dir)
+    try {
+      writeNode(vfs, node.dir, files(node), stats)
+    } catch (error) {
+      throw refusalOf(error, quote(node.key))
+    }
+    listed.push(installedOf(node, dev(node), patched))
+  }
+  for (const [path, target] of links) {
+    try {
+      writeLink(vfs, path, linkTarget(path, target))
+    } catch (error) {
+      throw new DeptreeError(`cannot be linked: ${error.message}`, quote(path), { cause: error })
+    }
+  }
+  checkLinks(vfs, links)
+  return listed
 }
 
 function addMade(made, dir) {
@@ -228,44 +258,25 @@ async function buildHoisted({ lockfile, settings, host, project, hook, installed
   const linked = readLinked(links, byDir, manifests, project)
   // pnpm builds where any patch is configured, though scripts are ignored.
   const building = Object.keys(settings.patchedDependencies ?? {}).length > 0
-  const projectModules = new Set(projects.map((id) => (id === '.' ? 'node_modules' : `${id}/node_modules`)))
   const hardlinks = since('10.21.0')
   const keepsModules = since('11.25.0')
   const idOf = since('11.23.0') ? (key) => packageIdOf(key, lockfile.packages[key], directories) : (key) => key
-  const changesOf = (node) => {
-    const patch = patched.get(node.pkg.patchHash)
-    patch.parsed ??= parsePatch(patch.text, patch.path)
-    return patch.parsed
-  }
-  const builds = building ? hoistedBuilds(byDir, projectModules, (node) => node.pkg.patchHash !== undefined || requiresBuild(node.manifest, node.files, major), { hardlinks, keepsModules, idOf, changesOf, pnpm: host.pnpm }) : []
+  const changesOf = (node) => parsedPatch(patched, node.pkg.patchHash).parsed
+  const builds = building ? hoistedBuilds(byDir, new Set(projects), (node) => node.pkg.patchHash !== undefined || requiresBuild(node.manifest, node.files, major), { hardlinks, keepsModules, idOf, changesOf, pnpm: host.pnpm }) : []
   const targets = hoistedBinTargets({ nodes: byDir, projects: new Map([...manifests, ...linked]), modules: hoistedModules(byDir, links, projects, manifests, lockfile), builds, hardlinks, keepsModules, idOf, major })
   const prod = prodPackages(lockfile, skipped, directories)
 
-  // Nothing but the packages and links: pnpm keeps only its state in
-  // node_modules/.pnpm.
+  // Nothing but the packages and links, each copy a parent before what lands
+  // in its node_modules: pnpm keeps only its state in node_modules/.pnpm.
   const vfs = new Vfs()
   const stats = { projects: manifests.size, snapshots: Object.keys(lockfile.packages).length, installed: byDir.size, skipped: skipped.size, incompatible: incompatible.size, tarballs, patched: [...byDir.values()].filter((node) => node.pkg.patchHash !== undefined).length, files: 0, bytes: 0, links: links.size }
-  const listed = []
   const composing = { major, checkPatched: createPatchedCheck({ host, settings }) }
-  // Each copy is let go once written, a parent before what lands in its
-  // node_modules.
-  for (const node of byDir.values()) {
-    byDir.delete(node.dir)
-    try {
-      writeNode(vfs, node.dir, compose(node, patched, { targets: targets.get(node.dir) ?? new Set(), executable: new Set() }, composing), stats)
-    } catch (error) {
-      throw refusalOf(error, quote(node.key))
-    }
-    listed.push(installedOf(node, !prod.has(packageIdOf(node.key, node.pkg, directories)), patched))
-  }
-  for (const [path, target] of links) {
-    try {
-      writeLink(vfs, path, linkTarget(path, target))
-    } catch (error) {
-      throw new DeptreeError(`cannot be linked: ${error.message}`, quote(path), { cause: error })
-    }
-  }
-  checkLinks(vfs, links)
+  const listed = writeTree(vfs, byDir, links, {
+    files: (node) => compose(node, patched, { targets: targets.get(node.dir) ?? new Set(), executable: new Set() }, composing),
+    dev: (node) => !prod.has(packageIdOf(node.key, node.pkg, directories)),
+    patched,
+    stats,
+  })
   return { vfs: mount(vfs, into, folded), stats, installed: listed }
 }
 
@@ -326,25 +337,12 @@ export async function buildPnpmTree(options) {
   const vfs = new Vfs()
   makeDirs(vfs, 'node_modules/.pnpm')
   const stats = { projects: manifests.size, snapshots: Object.keys(lockfile.packages).length, installed: nodes.size, skipped: skipped.size, incompatible: incompatible.size, tarballs, patched: [...nodes.values()].filter((node) => node.pkg.patchHash !== undefined).length, files: 0, bytes: 0, links: links.size }
-  const listed = []
   const composing = { major, checkPatched: createPatchedCheck({ host, settings }) }
-  // Each node is let go once written, and a package's files with its last.
-  for (const node of byDir.values()) {
-    byDir.delete(node.dir)
-    try {
-      writeNode(vfs, node.dir, compose(node, patched, { targets: targets.get(node.dir) ?? new Set(), executable: executable.get(node.dir) ?? new Set() }, composing), stats)
-    } catch (error) {
-      throw refusalOf(error, quote(node.key))
-    }
-    listed.push(installedOf(node, !prod.has(node.dir), patched))
-  }
-  for (const [path, target] of links) {
-    try {
-      writeLink(vfs, path, linkTarget(path, target))
-    } catch (error) {
-      throw new DeptreeError(`cannot be linked: ${error.message}`, quote(path), { cause: error })
-    }
-  }
-  checkLinks(vfs, links)
+  const listed = writeTree(vfs, byDir, links, {
+    files: (node) => compose(node, patched, { targets: targets.get(node.dir) ?? new Set(), executable: executable.get(node.dir) ?? new Set() }, composing),
+    dev: (node) => !prod.has(node.dir),
+    patched,
+    stats,
+  })
   return { vfs: mount(vfs, into, folded), stats, installed: listed }
 }

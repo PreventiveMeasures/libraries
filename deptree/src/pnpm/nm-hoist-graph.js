@@ -1,6 +1,7 @@
 // The hoisting of @yarnpkg/nm 4.0.5 to one root (nm-hoist.js): which of the
 // packages below it move up to it, one pass at a time.
 
+export const REGULAR = 0
 export const WORKSPACE = 1
 
 const YES = 0
