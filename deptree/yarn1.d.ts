@@ -259,9 +259,10 @@ export interface Yarn1Tree {
 // set order.
 //
 // Ranges and versions are read with npm's own semver, borrowed from the
-// npm beside node as @preventive/upstream borrows it, without which this
-// throws. yarn 1.22 reads them with the semver 5.5.0 it bundles, which
-// reads alike all but the edges of what a range may spell.
+// npm beside node as @preventive/upstream borrows it, or with its semver
+// peer where there is no npm, without either of which this throws. yarn
+// 1.22 reads them with the semver 5.5.0 it bundles, which reads alike all
+// but the edges of what a range may spell.
 //
 // Nothing is left to a guess: a lockfile the lockfile reader refuses, a
 // setting this does not know or does not build for, a package from

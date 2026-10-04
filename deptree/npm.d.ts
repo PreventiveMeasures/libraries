@@ -251,8 +251,8 @@ export interface NpmTree {
 // from npm's through @preventive/upstream.
 //
 // Ranges and versions are read with npm's own semver, borrowed from the
-// npm beside node as @preventive/upstream borrows it, without which this
-// throws.
+// npm beside node as @preventive/upstream borrows it, or with its semver
+// peer where there is no npm, without either of which this throws.
 //
 // Nothing is left to a guess: a lockfile the lockfile reader refuses, a
 // setting this does not know or does not build for, a package from

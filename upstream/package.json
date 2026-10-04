@@ -83,6 +83,7 @@
     "src/package.js",
     "src/pool.js",
     "src/remote.js",
+    "src/semver-peer.cjs",
     "src/semver.js",
     "src/tree.js",
     "src/soldeer.js"
@@ -110,5 +111,13 @@
   "homepage": "https://github.com/PreventiveMeasures/libraries/tree/main/upstream",
   "publishConfig": {
     "access": "public"
+  },
+  "peerDependencies": {
+    "semver": "^7.5.2"
+  },
+  "peerDependenciesMeta": {
+    "semver": {
+      "optional": true
+    }
   }
 }

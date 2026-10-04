@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { basename, dirname, resolve } from 'node:path'
+import requirePeer from './semver-peer.cjs'
 
 // npm's own semver, borrowed from the npm next to node rather than added
-// as a dependency: the same implementation `npm audit` uses.
+// as a dependency: the same implementation `npm audit` uses. Where there is
+// no npm, as in a bundled serverless function, the `semver` package itself,
+// an optional peer dependency.
 
 // Plain releases that semver.valid answers unchanged, so it need not be
 // loaded for them: no leading zeros, and at most 15 digits a part, under
@@ -11,26 +14,37 @@ import { basename, dirname, resolve } from 'node:path'
 // to semver.
 const PLAIN_RELEASE = /^(?:0|[1-9]\d{0,14})\.(?:0|[1-9]\d{0,14})\.(?:0|[1-9]\d{0,14})$/u
 
-let found
+// What load() returns if it is semver, or null if it is not or throws.
+function attempt(load) {
+  try {
+    const lib = load()
+    if (['compare', 'intersects', 'satisfies', 'valid', 'validRange'].every((name) => typeof lib?.[name] === 'function')) return lib
+  } catch {}
+  return null
+}
 
 function find() {
   const argv0 = process.argv[0]
   // Another host executable's `../lib` is not npm's.
-  if (!['node', 'node.exe'].includes(basename(argv0 ?? ''))) return null
-  const require = createRequire(import.meta.url)
-  // POSIX keeps npm in <prefix>/lib beside <prefix>/bin/node; Windows, beside node.exe.
-  for (const prefix of ['../lib', '.']) {
-    try {
-      const lib = require(resolve(dirname(argv0), prefix, 'node_modules/npm/node_modules/semver'))
-      if (['compare', 'intersects', 'satisfies', 'valid', 'validRange'].every((name) => typeof lib?.[name] === 'function')) return lib
-    } catch {}
+  if (['node', 'node.exe'].includes(basename(argv0 ?? ''))) {
+    // POSIX keeps npm in <prefix>/lib beside <prefix>/bin/node; Windows, beside node.exe.
+    for (const prefix of ['../lib', '.']) {
+      // Required from itself, which a bundle of any format leaves alone.
+      const path = resolve(dirname(argv0), prefix, 'node_modules/npm/node_modules/semver')
+      const lib = attempt(() => createRequire(path)(path))
+      if (lib) return lib
+    }
   }
-  return null
+  // The peer, by the plain require() a bundler follows; or, where an ESM
+  // bundle leaves it out, by node's own require() from beside the bundle.
+  return attempt(requirePeer) ?? attempt(() => createRequire(import.meta.url)('semver'))
 }
+
+let found
 
 function semver() {
   if (found === undefined) found = find()
-  assert.ok(found, 'semver: no npm beside node to borrow it from')
+  assert.ok(found, 'semver: no npm beside node to borrow it from, and the semver peer dependency is not installed')
   return found
 }
 

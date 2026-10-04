@@ -1,7 +1,8 @@
 // Hand-written against semver.js; a change to either belongs with the other.
 
 // npm's own semver, borrowed from the npm beside node and passed through
-// as it is. Without it, every call throws, except valid() on a plain
+// as it is; where there is no npm, the `semver` package, an optional peer
+// dependency. Without either, every call throws, except valid() on a plain
 // MAJOR.MINOR.PATCH with no options.
 export function satisfies(version: string, range: string, options?: { includePrerelease?: boolean; loose?: boolean }): boolean
 export function compareVersions(a: string, b: string, options?: { loose?: boolean }): -1 | 0 | 1
