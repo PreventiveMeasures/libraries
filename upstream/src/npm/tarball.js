@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path'
 import { assertArgs, assertPackage, assertion, matches, show } from '../args.js'
 import { verifiedDownload } from '../download.js'
 import { NPM_REGISTRY, buildUrl } from '../http.js'
-import { registryRequest } from './registry.js'
+import { getDocument, withNpmToken } from './registry.js'
 
 const DIR = 'npm/tarballs' // No expiry: the registry never takes a version twice.
 // One sha512 and nothing else, as the registry writes it: a sha1, a second
@@ -30,8 +30,8 @@ function checkedDist(method, name, version, dist) {
 }
 
 async function getDist(method, name, version) {
-  const json = await registryRequest(name, buildUrl(NPM_REGISTRY, [...name.split('/'), version]), { as: 'json' })
-  assert.ok(json?.name === name && json.version === version, `${method}: the registry answered for ${show(json?.name)}@${show(json?.version)}, not ${name}@${version}`)
+  const json = await getDocument(method, name, version)
+  assert.ok(json.version === version, `${method}: the registry answered for ${name}@${show(json.version)}, not ${name}@${version}`)
   return checkedDist(method, name, version, { tarball: json.dist?.tarball, integrity: json.dist?.integrity })
 }
 
@@ -71,5 +71,5 @@ export async function verifyDist(name, version, dist) {
 export async function getTarball(name, version, dist) {
   assertPackage('getTarball', name, version)
   const { tarball, integrity } = dist === undefined ? await getDist('getTarball', name, version) : checkedDist('getTarball', name, version, dist)
-  return await verifiedDownload({ method: 'getTarball', dir: DIR, what: `${name}@${version}`, ext: 'tgz', algorithm: 'sha512', expected: integrity, local: localPaths(name, version, integrity), locate: () => tarball, via: (url, options) => registryRequest(name, url, options) })
+  return await verifiedDownload({ method: 'getTarball', dir: DIR, what: `${name}@${version}`, ext: 'tgz', algorithm: 'sha512', expected: integrity, local: localPaths(name, version, integrity), locate: () => tarball, options: withNpmToken(name, tarball) })
 }

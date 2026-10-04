@@ -18,9 +18,8 @@ const DIGESTS = {
 // caller gives, never a disk; without it nothing is read. From `local`,
 // other tools' caches (read, never written; a mismatch is passed over),
 // else ours (a mismatch throws), else what `locate` answers, checked and
-// then cached. `via` stands in for request(), as for NPM_TOKEN on the
-// registry.
-export async function verifiedDownload({ method, dir, what, ext, algorithm, expected, local = [], locate, options = {}, list, via = request }) {
+// then cached.
+export async function verifiedDownload({ method, dir, what, ext, algorithm, expected, local = [], locate, options = {}, list }) {
   assert.ok(Object.hasOwn(DIGESTS, algorithm) && typeof expected === 'string' && expected !== '', `${method}: nothing to check ${what} against`)
   const digest = (bytes) => DIGESTS[algorithm](bytes, { expected, list })
   for (const path of local) {
@@ -36,7 +35,7 @@ export async function verifiedDownload({ method, dir, what, ext, algorithm, expe
   const cached = await readCache(dir, key)
   if (cached) return await check(cached, 'the cache')
   const url = await locate()
-  const bytes = await check(await via(url, { ...options, as: 'bytes' }), url)
+  const bytes = await check(await request(url, { ...options, as: 'bytes' }), url)
   await writeCache(dir, key, bytes)
   return bytes
 }

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, it } from 'node:test'
 
 import { advisories } from '../advisories.js'
 import { getGitHub, getMeta, getTarball, resolvePackageRepos, verifyDist } from '../npm.js'
+import { withNpmToken } from '../src/npm/registry.js'
 
 // NPM_TOKEN goes with every request for a scoped name, and with none for
 // an unscoped one. No setCacheDir, and npm's cache and the home directory
@@ -98,6 +99,24 @@ describe('NPM_TOKEN', () => {
     }
     assert.deepEqual(await advisories([{ ecosystem: 'npm', name: '@acme/private', versions: ['1.0.0'] }]), [])
     assert.deepEqual(calls, [['https://registry.npmjs.org/-/npm/v1/security/advisories/bulk', undefined]])
+  })
+
+  it("is only ever for a GET of that name's own URLs on the registry", () => {
+    const auth = (name, url, options) => withNpmToken(name, url, options).headers?.Authorization
+    assert.equal(auth('@acme/private', 'https://registry.npmjs.org/@acme/private/latest'), BEARER)
+    assert.equal(auth('@acme/private', 'https://registry.npmjs.org/@acme/private/-/private-1.0.0.tgz', { method: 'GET', as: 'bytes' }), BEARER)
+    assert.equal(auth('pkg', 'https://registry.npmjs.org/pkg/latest'), undefined)
+    for (const [name, url, options] of [
+      ['@acme/private', 'https://registry.npmjs.org/@acme/private/latest', { method: 'POST' }],
+      ['@acme/private', 'https://registry.npmjs.org/@acme/other/latest'],
+      ['@acme/private', 'https://registry.npmjs.org/@acme/private-other/latest'],
+      ['@acme/private', 'https://registry.npmjs.org/@acme/private'],
+      ['@acme/private', 'https://registry.npmjs.org/-/npm/v1/security/advisories/bulk'],
+      ['@acme/private', 'https://evil.example/@acme/private/latest'],
+      ['pkg', 'https://registry.npmjs.org/other/latest'],
+    ]) {
+      assert.throws(() => withNpmToken(name, url, options), (err) => /Unexpected request for /u.test(err.message) && !err.message.includes(TOKEN), `${options?.method ?? 'GET'} ${url}`)
+    }
   })
 
   it('stays out of an error', async () => {
