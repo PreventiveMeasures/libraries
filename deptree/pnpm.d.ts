@@ -288,7 +288,9 @@ export interface PnpmInstalled {
 
 // `vfs` is the one given, the tree mounted into it, or a new one.
 // `installed` is each snapshot in the tree, one for each `stats.installed`
-// counts, in the lockfile's order.
+// counts, in the lockfile's order; with the hoisted linker, each copy, at
+// node_modules/<alias> under where it landed, in the order pnpm makes them,
+// each with the snapshot copied there.
 export interface PnpmTree {
   vfs: Vfs
   stats: PnpmTreeStats
@@ -296,8 +298,8 @@ export interface PnpmTree {
 }
 
 // The node_modules tree `pnpm install --frozen-lockfile --ignore-scripts`
-// makes with the isolated linker of host.pnpm, 9, 10, 11 or 12, and no
-// other install: whatever the
+// makes with the isolated linker of host.pnpm, 9, 10, 11 or 12, or the
+// hoisted one of pnpm 10, and no other install: whatever the
 // settings say of frozen lockfiles, the install is frozen, which is also
 // the only one that hoists by the lockfile's graph alone. It is rooted at
 // the lockfile's directory: each package's
@@ -352,6 +354,30 @@ export interface PnpmTree {
 // shares pnpm 11's store, and takes what pnpm 11 left there, such as a
 // patched package as pnpm 11 built it, which is not followed here: the
 // tree is the one a store of pnpm 12's own gives.
+//
+// With nodeLinker: hoisted, for pnpm 10 alone, the tree is the one its
+// hoisted linker makes: nothing in node_modules/.pnpm but pnpm's state;
+// each package copied to node_modules/<alias> as near the root as
+// @yarnpkg/nm's hoist takes it, under what needs it where the name there
+// is another's, and each project's dependencies the root has another of
+// in its own node_modules; a project's `link:` dependencies linked there,
+// and a package's refused, which pnpm links nowhere. pnpm takes every
+// snapshot of one name and version for the first it comes to, and every
+// directory of one name for one, as is followed here. Every copy has to be
+// its own, so packageImportMethod has to be copy, clone or clone-or-copy:
+// any other hardlinks from pnpm's store. Bins are fixed as pnpm links
+// them: in each node_modules as it fills it, then in each project's again
+// with its links in, a command of the project's own dependencies over
+// another's. Where any patch is configured, pnpm builds each package
+// patched or with an install script in one of its copies, linking its
+// dependencies' bins and its own, and links that copy's files into the
+// others: from 10.21 a copy of hardlinks put in place of each, with no
+// node_modules, which drops the copy's own, and before, in place, which
+// leaves the others unpatched. Both are refused where they would, and so
+// is a patched package no copy of which the build reaches, which pnpm
+// leaves unpatched; which copy pnpm builds is not followed, and refused
+// where it would change a bin. Hoisting is refused past 50,000,000 steps,
+// weighted by the work each does, or a tree of 100,000 packages.
 //
 // The lockfile is held to what a frozen install holds it to, and refused
 // where pnpm would refuse it: the settings that shaped its resolution —

@@ -159,6 +159,76 @@ export function hoistedLayout(lockfile, { autoInstallPeers, skipped }, bounds) {
   return { placed, links, projects }
 }
 
+// What pnpm 10's build pass does where any patch is configured, which it runs
+// though scripts are ignored: it builds each package patched or with an
+// install script in one of its copies, the first it comes to of those a
+// project's node_modules reaches through each package's dependencies, each
+// at the first copy of its snapshot. Then it links the built copy's files
+// into every other: from 10.21 (`hardlinks`), a copy of hardlinks put in
+// place of the copy, with no node_modules, which drops the copy's own (fixed
+// in pnpm 11.25); before, in place, where a file is not already, which
+// leaves the others unpatched. Which copy it builds turns on its build
+// order, which is not followed here. `projects` are the node_modules of the
+// projects; `byDir` the copies, in the order pnpm makes them.
+export function hoistedBuilds(byDir, projects, builds, hardlinks) {
+  const first = new Map()
+  const placedIn = new Set()
+  for (const node of byDir.values()) {
+    if (!first.has(node.key)) first.set(node.key, node.dir)
+    placedIn.add(node.modules)
+  }
+  const childrenOf = (node) => Object.entries({ ...node.pkg.dependencies, ...node.pkg.optionalDependencies }).map(([alias, key]) => [alias, first.get(key)]).filter(([, dir]) => dir !== undefined)
+  const reached = new Set()
+  const pending = [...byDir.values()].filter((node) => projects.has(node.modules)).map((node) => node.dir)
+  while (pending.length > 0) {
+    const dir = pending.pop()
+    if (reached.has(dir)) continue
+    reached.add(dir)
+    for (const [, child] of childrenOf(byDir.get(dir))) pending.push(child)
+  }
+  const built = []
+  for (const [key, copies] of Map.groupBy(byDir.values(), (node) => node.key)) {
+    const [node] = copies
+    if (!builds(node)) continue
+    const candidates = copies.filter((copy) => reached.has(copy.dir)).map((copy) => copy.dir)
+    if (candidates.length === 0) {
+      if (node.pkg.patchHash !== undefined) throw new DeptreeError('pnpm 10 reaches none of its copies through the dependencies it builds by, and leaves it unpatched, which is not supported', quote(key))
+      continue
+    }
+    if (copies.length > 1 && !hardlinks && node.pkg.patchHash !== undefined) {
+      throw new DeptreeError('pnpm 10 before 10.21 patches one of its copies alone, and leaves the others as they were, which is not supported', quote(key))
+    }
+    if (copies.length > 1 && hardlinks) {
+      const own = node.files.keys().find((path) => path.split('/').includes('node_modules'))
+      if (own !== undefined) throw new DeptreeError(`pnpm 10 builds one of its copies where any patch is configured, and makes the others hardlinks of it, with no ${quote(own)}, which is not supported`, quote(key))
+      const nested = copies.find((copy) => placedIn.has(`${copy.dir}/node_modules`))
+      if (nested !== undefined) throw new DeptreeError(`pnpm 10 builds one of its copies where any patch is configured, and makes the others hardlinks of it, dropping their node_modules: ${quote(`${nested.dir}/node_modules`)} may be dropped, which is not supported`, quote(key))
+    }
+    built.push({ key, copies: copies.map((copy) => copy.dir), candidates, children: childrenOf(node) })
+  }
+  return built
+}
+
+// What linkBins reads to link bins (bins.js): each node_modules pnpm fills,
+// with what it put there, then each project's with its links too.
+export function hoistedModules(byDir, links, projects, manifests, lockfile) {
+  const placedIn = new Map()
+  const add = (modules, alias, dir) => {
+    if (!placedIn.has(modules)) placedIn.set(modules, [])
+    placedIn.get(modules).push([alias, dir])
+  }
+  for (const { dir, modules, alias } of byDir.values()) add(modules, alias, dir)
+  const modulesOf = (id) => (id === '.' ? 'node_modules' : `${id}/node_modules`)
+  const filled = [...projects.map(modulesOf), ...[...byDir.keys()].map((dir) => `${dir}/node_modules`)]
+  const all = filled.filter((dir) => placedIn.has(dir)).map((dir) => ({ dir, entries: placedIn.get(dir) }))
+  for (const [path, target] of links) add(path.slice(0, path.lastIndexOf('/node_modules/') + '/node_modules'.length), path.slice(path.lastIndexOf('/node_modules/') + '/node_modules/'.length), target)
+  for (const id of Object.keys(lockfile.importers)) {
+    const dir = modulesOf(id)
+    if (placedIn.has(dir)) all.push({ dir, entries: placedIn.get(dir), manifest: manifests.get(id) })
+  }
+  return all
+}
+
 // The snapshots `pnpm install --prod` would install, by pnpm's name@version.
 export function prodPackages(lockfile, skipped) {
   const reached = new Set()

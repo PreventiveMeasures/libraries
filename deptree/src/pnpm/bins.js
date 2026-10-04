@@ -143,30 +143,118 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
   return fixedFiles(nodes, fixed, contested, major)
 }
 
+// The copies of one package pnpm 10's build pass makes hardlinks of the one
+// it builds (hoisted.js): what is fixed in that one before, as each copy's
+// own bins are where pnpm fills its node_modules, is in all; and so is what
+// is fixed in any after. Where the copies it may build differ in what is
+// fixed before, so may the outcome. A phase's marks are `before` that, or
+// not, or a function of the package's build saying which.
+function linkCopies(builds, phases, fixed, contested) {
+  const ownerOf = new Map()
+  for (const build of builds) {
+    if (build.copies.length > 1) for (const copy of build.copies) ownerOf.set(copy, build)
+  }
+  const groups = new Map()
+  const mark = (target, owner, before, why) => {
+    const build = ownerOf.get(owner)
+    if (build === undefined) {
+      if (why === undefined) fixed.set(target, owner)
+      else contested.set(target, { owner, why })
+      return
+    }
+    if (!groups.has(build)) groups.set(build, [])
+    groups.get(build).push({ rel: target.slice(owner.length + 1), owner, before: typeof before === 'function' ? before(build) : before, why })
+  }
+  for (const { fixed: phaseFixed, contested: phaseContested, before } of phases) {
+    for (const [target, owner] of phaseFixed) mark(target, owner, before, undefined)
+    for (const [target, { owner, why }] of phaseContested) mark(target, owner, before, why)
+  }
+  for (const [build, marks] of groups) {
+    for (const rel of new Set(marks.map((item) => item.rel))) {
+      const mine = marks.filter((item) => item.rel === rel && (!item.before || build.candidates.includes(item.owner)))
+      const after = mine.filter((item) => !item.before)
+      const before = mine.filter((item) => item.before)
+      const beforeFixed = new Set(before.filter((item) => item.why === undefined).map(({ owner }) => owner))
+      let why
+      if (!after.some((item) => item.why === undefined)) {
+        why = after.find((item) => item.why !== undefined)?.why ?? before.find((item) => item.why !== undefined)?.why
+        if (why === undefined && beforeFixed.size === 0) continue
+        if (why === undefined && beforeFixed.size < build.candidates.length) why = 'which of its copies pnpm 10 builds, which turns on its build order and is not followed here'
+      }
+      for (const copy of build.copies) {
+        if (why === undefined) fixed.set(`${copy}/${rel}`, copy)
+        else contested.set(`${copy}/${rel}`, { owner: copy, why })
+      }
+    }
+  }
+}
+
+// Whether `from`'s snapshot reaches `to`'s through the copies' dependencies.
+function reaches(nodes, from, to) {
+  const keys = new Map([...nodes.values()].map((node) => [node.key, node.pkg]))
+  const seen = new Set([from])
+  const pending = [from]
+  while (pending.length > 0) {
+    const pkg = keys.get(pending.pop())
+    for (const key of Object.values({ ...pkg?.dependencies, ...pkg?.optionalDependencies })) {
+      if (key === to) return true
+      if (!seen.has(key)) {
+        seen.add(key)
+        pending.push(key)
+      }
+    }
+  }
+  return false
+}
+
 // pnpm 10's hoisted linker links the bins of each node_modules it fills, by
 // what it reads there, as it fills it; then each project's again, with its
 // links in, a command of its own dependencies over any other. `modules` are
 // those node_modules, each with its packages by alias, and its project's
-// package.json where it is a project's.
-export function hoistedBinTargets({ nodes, projects, modules, major }) {
+// package.json where it is a project's. Between the two, where any patch is
+// configured, each package of `builds` links its dependencies' bins and its
+// own (hoisted.js), as the isolated linker's build does.
+export function hoistedBinTargets({ nodes, projects, modules, builds = [], hardlinks = true, major }) {
   const commandsOfDir = (dir) => {
     const node = nodes.get(dir)
     if (node !== undefined) return commandsOf(dir, node.manifest, node.files, dir, quote(node.key), major)
     const manifest = projects.get(dir)
     return manifest === undefined ? [UNKNOWN] : commandsOf(dir, manifest, undefined, undefined, `manifests[${quote(dir)}]`, major)
   }
-  const { fixed, contested, link } = linker(major)
+  const filling = linker(major)
+  const projectsAgain = linker(major)
   for (const { dir, entries, manifest } of modules) {
     const where = quote(dir)
     if (manifest === undefined) {
-      link(entries.flatMap(([, target]) => commandsOfDir(target)), { ordered: false, where })
+      filling.link(entries.flatMap(([, target]) => commandsOfDir(target)), { ordered: false, where })
       continue
     }
     const own = new Set(Object.keys({ ...manifest.devDependencies, ...manifest.dependencies, ...manifest.optionalDependencies }))
     const commands = entries.flatMap(([alias, target]) => commandsOfDir(target).map((command) => ({ ...command, direct: own.has(alias) })))
     const names = new Set(commands.filter((command) => command.direct).map(({ name }) => name))
-    link([...commands.filter((command) => command.direct), ...commands.filter((command) => !command.direct && !names.has(command.name))], { ordered: false, where })
+    projectsAgain.link([...commands.filter((command) => command.direct), ...commands.filter((command) => !command.direct && !names.has(command.name))], { ordered: false, where })
   }
+  // A package's dependencies are built first, but for those it is built
+  // before or after as they depend on each other.
+  const building = builds.map((build) => {
+    const where = quote(build.key)
+    const node = nodes.get(build.candidates[0])
+    const { fixed, contested, link } = linker(major)
+    link([...build.children.filter(([, dir]) => nodes.get(dir)?.pkg.hasBin).flatMap(([, dir]) => commandsOfDir(dir)), ...commandsOfDir(node.dir)], { ordered: true, where })
+    if (node.pkg.bundledDependencies !== undefined) link(bundledCommands(node, where, major), { ordered: false, where })
+    // Not linked to the others, the copy built alone has its own bins fixed.
+    if (!hardlinks && build.candidates.length > 1) {
+      for (const [target, owner] of fixed) {
+        if (owner !== node.dir) continue
+        fixed.delete(target)
+        for (const copy of build.candidates) contested.set(`${copy}${target.slice(owner.length)}`, { owner: copy, why: 'which of its copies pnpm 10 builds, which turns on its build order and is not followed here' })
+      }
+    }
+    return { fixed, contested, before: (other) => other !== build && reaches(nodes, other.key, build.key) }
+  })
+  const fixed = new Map()
+  const contested = new Map()
+  linkCopies(hardlinks ? builds : [], [{ ...filling, before: true }, ...building, { ...projectsAgain, before: false }], fixed, contested)
   return fixedFiles(nodes, fixed, contested, major)
 }
 
