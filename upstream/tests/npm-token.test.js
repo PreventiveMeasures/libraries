@@ -8,9 +8,7 @@ import { advisories } from '../advisories.js'
 import { getGitHub, getMeta, getTarball, resolvePackageRepos, verifyDist } from '../npm.js'
 import { withNpmToken } from '../src/npm/registry.js'
 
-// NPM_TOKEN goes with every request for a scoped name, and with none for
-// an unscoped one. No setCacheDir, and npm's cache and the home directory
-// of this file's own, so every answer here is the stub's.
+// No cache here, so every answer is the stub's.
 process.env.HOME = join(tmpdir(), `upstream-npm-token-test-${process.pid}`)
 process.env.npm_config_cache = join(process.env.HOME, '.npm')
 delete process.env.NPM_CONFIG_CACHE
@@ -32,10 +30,7 @@ afterEach(() => {
   delete process.env.NPM_TOKEN
 })
 
-// The registry, where a scoped package is private and answers only with
-// the token, as npm's does: its version document, its `latest`, its
-// tarball. `calls` is each URL asked for, with the Authorization it came
-// with, if any.
+// Scoped packages answer only with the token.
 function stubRegistry() {
   const calls = []
   globalThis.fetch = (url, init = {}) => {

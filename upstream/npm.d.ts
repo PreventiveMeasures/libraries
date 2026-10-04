@@ -7,11 +7,8 @@
 // a timeout, as github.d.ts describes, and lookups for many names go to
 // the registry eight at a time.
 //
-// Where NPM_TOKEN is set, it goes as a bearer token with every request
-// for a scoped name, so a private package can be read: its version
-// document, its `latest` and its tarball, each a GET of that package's own
-// URL on the registry. It never goes with an unscoped name, nor with the
-// advisories request (advisories.js), which names many.
+// Where NPM_TOKEN is set, it is sent with the requests for a scoped
+// package, so a private one can be read.
 
 // Where cached answers live, resolved when set. Unset by default, and
 // unset means no cache: every read misses and every write is skipped.
