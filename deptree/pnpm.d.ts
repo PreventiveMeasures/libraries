@@ -299,7 +299,7 @@ export interface PnpmTree {
 
 // The node_modules tree `pnpm install --frozen-lockfile --ignore-scripts`
 // makes with the isolated linker of host.pnpm, 9, 10, 11 or 12, or the
-// hoisted one of pnpm 10 or 11.28, and no other install: whatever the
+// hoisted one of pnpm 10 or 11, and no other install: whatever the
 // settings say of frozen lockfiles, the install is frozen, which is also
 // the only one that hoists by the lockfile's graph alone. It is rooted at
 // the lockfile's directory: each package's
@@ -355,37 +355,39 @@ export interface PnpmTree {
 // patched package as pnpm 11 built it, which is not followed here: the
 // tree is the one a store of pnpm 12's own gives.
 //
-// With nodeLinker: hoisted, for pnpm 10 and pnpm 11 from 11.28, before
-// which it changed much, the tree is the one the hoisted linker makes:
-// nothing in node_modules/.pnpm but pnpm's state; each package copied to
-// node_modules/<alias> as near the root as @yarnpkg/nm's hoist takes it,
-// under what needs it where the name there is another's, and each project's
-// dependencies the root has another of in its own node_modules; a project's
-// `link:` dependencies linked there, and a package's refused, which pnpm
-// links nowhere. pnpm takes every snapshot of one name and version for the
-// first it comes to, and pnpm 10 every directory of one name for one, as is
-// followed here. pnpm 11 also links each named project into the root's
-// node_modules by its name, as hoistWorkspacePackages has it, where a hoist
-// pattern matches it and the root depends on nothing of that name and no
-// package landed there by it, their case folded; and from 11.28.1 does not
-// hoist a project's `link:` into itself (`link:<root>/`). Every copy has to
-// be its own, so packageImportMethod has to be copy, clone or
-// clone-or-copy: any other hardlinks from pnpm's store. Bins are fixed as
-// pnpm links them: in each node_modules as it fills it, then in each
-// project's again with its links in, a command of the project's own
-// dependencies over another's. Where any patch is configured, pnpm builds
-// each package patched or with an install script in one of its copies,
-// linking its dependencies' bins and its own, and links that copy's files
-// into the others: pnpm 10 from 10.21 a copy of hardlinks put in place of
-// each, with no node_modules, which drops the copy's own, and before, in
-// place, which leaves the others unpatched; pnpm 11 each file but those
-// under a node_modules in place of the copy's own, keeping its node_modules
-// and what the built copy has not, which leaves a file the patch deletes in
-// the others. These are refused where they would change a copy, and so is a
-// patched package no copy of which the build reaches, which pnpm leaves
-// unpatched; which copy pnpm builds is not followed, and refused where it
-// would change a bin. Hoisting is refused past 50,000,000 steps, weighted
-// by the work each does, or a tree of 100,000 packages.
+// With nodeLinker: hoisted, for pnpm 10 and 11, the tree is the one the
+// hoisted linker makes: each package copied to node_modules/<alias> as near
+// the root as @yarnpkg/nm's hoist takes it, under what needs it where the
+// name there is another's, and each project's dependencies the root has
+// another of in its own node_modules; a project's `link:` dependencies
+// linked there, and a package's refused, which pnpm links nowhere; and no
+// node_modules/.pnpm, where pnpm keeps only its state. pnpm takes every
+// snapshot of one name and version for the first it comes to, and every
+// directory of one name for one, as is followed here; from pnpm 11.24, each
+// snapshot of a directory for its own. From pnpm 11.28 it also links each
+// named project into the root's node_modules by its name, as
+// hoistWorkspacePackages has it, where a hoist pattern matches it and the
+// root depends on nothing of that name and no package landed there by it,
+// their case folded; and from 11.28.1 does not hoist a project's `link:`
+// into itself (`link:<root>/`). Every copy has to be its own, so
+// packageImportMethod has to be copy, clone or clone-or-copy: any other
+// hardlinks from pnpm's store. Bins are fixed as pnpm links them: in each
+// node_modules as it fills it, then in each project's again with its links
+// in, a command of the project's own dependencies over another's. Where any
+// patch is configured, pnpm builds each package patched or with an install
+// script in one of its copies, which it finds through the dependencies of
+// each, by snapshot or from pnpm 11.23 by package, linking its
+// dependencies' bins and its own, and links that copy's files into the
+// others: before pnpm 10.21 in place, which leaves the others unpatched;
+// from 10.21 a copy of hardlinks put in place of each, with no
+// node_modules, which drops the copy's own; and from 11.25 each file but
+// those under a node_modules in place of the copy's own, keeping its
+// node_modules and what the built copy has not, which leaves a file the
+// patch deletes in the others. These are refused where they would change a
+// copy, and so is a patched package no copy of which the build reaches,
+// which pnpm leaves unpatched; which copy pnpm builds is not followed, and
+// refused where it would change a bin. Hoisting is refused past 50,000,000
+// steps, weighted by the work each does, or a tree of 100,000 packages.
 //
 // The lockfile is held to what a frozen install holds it to, and refused
 // where pnpm would refuse it: the settings that shaped its resolution —
