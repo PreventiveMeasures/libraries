@@ -158,11 +158,14 @@ export interface ComposerTree {
 // `git archive` writes both, and is held to the commit's tree as the tree's
 // .gitattributes export it: what they mark export-ignore left out, a file
 // whose eol attributes have git write its line ends CRLF so written, and a
-// file git rewrites otherwise, as export-subst has it, refused. As unzip
-// extracts the zipball, each directory is 0o755 and each file 0o644, as git
-// records no mode for them, but an executable, which keeps git's 0o755;
-// each link is a link; and each directory git writes is made, an empty one
-// of files it leaves out, or of a submodule, included.
+// file git rewrites otherwise, as export-subst has it, refused; and so is
+// a file git-lfs has put a pointer in, which GitHub swaps for its object in
+// the zipball of a repo set to include them. As unzip extracts the zipball,
+// each directory is 0o755 and each file 0o644, as git records no mode for
+// them, but an executable, which keeps git's 0o755; each link is a link,
+// but one with no target, which git can hold and unzip writes as an empty
+// file, 0o777; and each directory git writes is made, an empty one of
+// files it leaves out, or of a submodule, included.
 //
 // A dist with a shasum, which Composer holds it to, is fetched and held to
 // it by @preventive/upstream's getDist: a release zip on drupal.org, or
@@ -170,10 +173,12 @@ export interface ComposerTree {
 // extracted as unzip extracts it: a mode made on Unix as it is but for its
 // setuid, setgid and sticky bits, one made on MS-DOS that agrees with its
 // DOS attributes as it is too, and any other of those attributes, with the
-// umask taken off. What unzip would ask about or read otherwise is refused
-// with what the archive reader refuses: a name twice, which it asks
-// whether to replace, a name past ASCII not flagged UTF-8, an entry it
-// reads no mode of, a link not made on Unix, which it writes as a file.
+// umask taken off; and a link made on Unix with no target, which unzip
+// writes as an empty file, of its mode. What unzip would ask about or read
+// otherwise is refused with what the archive reader refuses: a name twice,
+// which it asks whether to replace, a name past ASCII not flagged UTF-8,
+// an entry it reads no mode of, a link not made on Unix, which it writes
+// as a file.
 //
 // And to more than Composer holds a package to: a link that leads out of
 // its package, a bin that does, a target-dir but of plain names, and a

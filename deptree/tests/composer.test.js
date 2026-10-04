@@ -20,6 +20,19 @@ const encoder = new TextEncoder()
 const sha1 = (bytes) => createHash('sha1').update(bytes).digest('hex')
 const zipball = (repo, sha = SHA) => ({ type: 'zip', url: `https://api.github.com/repos/${repo}/zipball/${sha}`, reference: sha, shasum: '' })
 
+// git writes a link with no target, which the packer refuses, as a ustar
+// header with an empty link name: packed with this one, then emptied.
+const NO_TARGET = 'no-target'
+function emptyLinks(tar) {
+  for (let at = 0; at < tar.length; at += 512) {
+    if (tar[at + 156] !== 0x32 || Buffer.from(tar.subarray(at + 157, at + 167)).toString('latin1') !== `${NO_TARGET}\0`) continue
+    tar.fill(0, at + 157, at + 257)
+    tar.fill(0x20, at + 148, at + 156)
+    tar.set(encoder.encode(`${tar.subarray(at, at + 512).reduce((sum, byte) => sum + byte, 0).toString(8).padStart(6, '0')}\0 `), at + 148)
+  }
+  return tar
+}
+
 // GitHub's archive of a commit as git writes it: its top directory first,
 // directories 0o775, files 0o664 or 0o775. `files` maps a path to text,
 // `{ link }` or `{ exec }`; a path ending in `/` is a directory.
@@ -30,9 +43,9 @@ async function archive(files) {
     const file = typeof given === 'string' ? { text: given } : given
     if (path.endsWith('/')) entries.push({ name: `${top}/${path}`, type: 'directory', mode: 0o775 })
     else if (file.link === undefined) entries.push({ name: `${top}/${path}`, data: encoder.encode(file.exec ?? file.text), mode: file.exec === undefined ? 0o664 : 0o775 })
-    else entries.push({ name: `${top}/${path}`, type: 'symlink', linkname: file.link })
+    else entries.push({ name: `${top}/${path}`, type: 'symlink', linkname: file.link === '' ? NO_TARGET : file.link })
   }
-  return await compress(pack(entries, { format: 'pax' }), 'gzip')
+  return await compress(emptyLinks(pack(entries, { format: 'pax' })), 'gzip')
 }
 
 // A client of GitHub that answers each archive by repo@sha.
@@ -134,6 +147,17 @@ describe('buildComposerTree', () => {
     assert.deepEqual(installed[0], { path: 'vendor/drupal/admin_toolbar', name: 'drupal/admin_toolbar', version: '3.6.3', type: 'drupal-module', dev: false, url: DRUPAL, shasum: sha1(zip) })
     serve({ [DRUPAL]: rawZip([{ name: 'a', data: 'other' }]) })
     await assert.rejects(buildComposerTree({ ...project([pkg]), host: HOST }), (error) => error instanceof DeptreeError && error.where === 'packages["drupal/admin_toolbar"]' && /integrity mismatch/u.test(error.message))
+  })
+
+  it('writes a link with no target as an empty file of its mode, as unzip does', async () => {
+    const client = github({ [`acme/lib@${SHA}`]: await archive({ 'a.php': 'a', none: { link: '' }, 'sub/none': { link: '' } }) })
+    const lib = await buildComposerTree({ ...project([{ ...LIB, bin: undefined }]), host: HOST, github: client })
+    assert.deepEqual(listing(lib.vfs), { vendor: 'dir 755', 'vendor/acme': 'dir 755', 'vendor/acme/lib': 'dir 755', 'vendor/acme/lib/a.php': '644 a', 'vendor/acme/lib/none': '777 ', 'vendor/acme/lib/sub': 'dir 755', 'vendor/acme/lib/sub/none': '777 ' })
+    assert.equal(lib.stats.links, 0)
+    const zip = rawZip([{ name: 'admin_toolbar/', mode: 0o40755 }, { name: 'admin_toolbar/none', mode: 0o120755 }])
+    serve({ [DRUPAL]: zip })
+    const pkg = { name: 'drupal/admin_toolbar', version: '3.6.3', dist: { type: 'zip', url: DRUPAL, reference: '8.x-3.6.3', shasum: sha1(zip) }, type: 'drupal-module' }
+    assert.deepEqual(listing((await buildComposerTree({ ...project([pkg]), host: HOST })).vfs)['vendor/drupal/admin_toolbar/none'], '755 ')
   })
 
   it('installs into config.vendor-dir, under a target-dir', async () => {

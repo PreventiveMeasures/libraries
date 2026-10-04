@@ -7,6 +7,8 @@
 // off GitHub's listings of the trees, each held to its id, from the top down
 // to every directory missing anything, and the .gitattributes that say why,
 // and the blobs of files rewritten so, from GitHub's blobs, held to theirs.
+// An archive with a Git LFS pointer in it is refused, as it is the repo's
+// setting's, not the commit's.
 
 import { Buffer } from 'node:buffer'
 
@@ -20,6 +22,24 @@ class Refusal extends Error {}
 const ATTRIBUTES = '.gitattributes'
 
 const isIgnored = (attributes) => attributes.get('export-ignore') === true
+
+// What git-lfs commits in place of a file it keeps elsewhere, as it reads
+// one: GitHub swaps it for that file in the archive of a repo set to
+// include Git LFS objects in archives, and leaves it be in another. That
+// setting can change, and differs from fork to fork; an archive cached by
+// the commit would outlive it.
+const LFS_SPECS = ['https://git-lfs.github.com/spec/v1', 'https://hawser.github.com/spec/v1', 'http://git-media.io/v/2'].map((spec) => Buffer.from(`version ${spec}`))
+const isLfsPointer = (body) => body.length < 1024 && LFS_SPECS.some((spec) => spec.equals(body.subarray(0, spec.length)))
+// The path of a file in `dir` that is such a pointer, if any.
+function lfsPointer(dir, prefix = '') {
+  for (const [name, entry] of dir) {
+    const found = entry instanceof Map ? lfsPointer(entry, `${prefix}${name}/`) : undefined
+    if (found !== undefined) return found
+    if (entry.body !== undefined && isLfsPointer(entry.body)) return `${prefix}${name}`
+  }
+  return undefined
+}
+
 // Git reads a .gitattributes from a blob, never through a symlink.
 const isAttributes = (entry) => entry?.type === 'blob' && entry.mode !== '120000'
 // The .gitattributes of the directory at `prefix`.
@@ -116,8 +136,10 @@ async function walk(here, sha, prefix, stack, io) {
 // directory's id is worked out once, as the archive has it, before the
 // walk puts anything back in it; the whole tree's once more after.
 export async function gitTreeOfArchive(gzipped, { expected, commit, list, blob }) {
-  const root = await readTarball(gzipped, { commit, keep: (name) => name === ATTRIBUTES })
+  const root = await readTarball(gzipped, { commit, keep: (name, body) => name === ATTRIBUTES || isLfsPointer(body) })
   if (typeof root === 'string') return root
+  const pointer = lfsPointer(root)
+  if (pointer !== undefined) return `no tree: ${show(pointer)} is a Git LFS pointer, which GitHub swaps for its object in the archive of a repo set to include them, so that the archive is that setting's, not the commit's`
   const memo = new WeakMap()
   const listed = async (sha) => {
     const entries = await list(sha)

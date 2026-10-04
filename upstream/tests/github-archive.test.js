@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, afterEach, beforeEach, describe, it } from 'node:test'
@@ -8,7 +8,7 @@ import { gunzipSync, gzipSync } from 'node:zlib'
 import { createClient } from '../github.js'
 import { setCacheDir } from '../npm.js'
 import { gitTreeOfArchive } from '../src/exported.js'
-import { EOL, EOL_BLOB, EOL_COMMIT, EOL_LISTING, EOL_TGZ, EXPORTED, EXPORTED_BLOBS, EXPORTED_COMMIT, EXPORTED_LISTINGS, EXPORTED_TGZ, LINK, LINK_COMMIT, LINK_LISTING, LINK_TGZ, SUBST, SUBST_COMMIT, SUBST_TGZ } from './archive-fixtures.js'
+import { EOL, EOL_BLOB, EOL_COMMIT, EOL_LISTING, EOL_TGZ, EXPORTED, EXPORTED_BLOBS, EXPORTED_COMMIT, EXPORTED_LISTINGS, EXPORTED_TGZ, LFS, LFS_COMMIT, LFS_TGZ, LINK, LINK_COMMIT, LINK_LISTING, LINK_TGZ, SUBST, SUBST_COMMIT, SUBST_TGZ } from './archive-fixtures.js'
 import { forbidRequests, json, stubGitHub } from './github-stub.js'
 import { COMMIT_TGZ, SUBMODULE_COMMIT, TREE, TREE_TGZ } from './tree-fixtures.js'
 
@@ -19,7 +19,7 @@ const ARCHIVES = join(CACHE_DIR, 'github', 'archives')
 const realFetch = globalThis.fetch
 const client = () => createClient({ token: 't0ken' })
 const API = 'https://api.github.com/repos/acme/app'
-const COMMITS = { [EXPORTED_COMMIT]: { sha: EXPORTED_COMMIT, tree: { sha: EXPORTED } }, [SUBST_COMMIT]: { sha: SUBST_COMMIT, tree: { sha: SUBST } }, [SUBMODULE_COMMIT]: { sha: SUBMODULE_COMMIT, tree: { sha: TREE } } }
+const COMMITS = { [EXPORTED_COMMIT]: { sha: EXPORTED_COMMIT, tree: { sha: EXPORTED } }, [SUBST_COMMIT]: { sha: SUBST_COMMIT, tree: { sha: SUBST } }, [SUBMODULE_COMMIT]: { sha: SUBMODULE_COMMIT, tree: { sha: TREE } }, [LFS_COMMIT]: { sha: LFS_COMMIT, tree: { sha: LFS } } }
 const TARBALLS = { [EXPORTED_COMMIT]: EXPORTED_TGZ, [SUBST_COMMIT]: SUBST_TGZ, [SUBMODULE_COMMIT]: COMMIT_TGZ }
 
 // GitHub, for acme/app: each archive by its commit, commits, listings and
@@ -85,6 +85,17 @@ describe('getRepoTarball exported', () => {
     stub()
     await assert.rejects(exported(SUBST_COMMIT), /got no tree: "version\.txt" is not the tree's, as git rewrites a file marked export-subst or ident, or for its working-tree-encoding$/u)
     assert.deepEqual(await readdir(ARCHIVES).catch(() => []), [])
+  })
+
+  it('refuses an archive with a Git LFS pointer, fetched or cached, as it is the setting of the repo, which can change, not the commit', async () => {
+    stub({ tarballs: { [LFS_COMMIT]: LFS_TGZ } })
+    await assert.rejects(exported(LFS_COMMIT), /got no tree: "big\.bin" is a Git LFS pointer, which GitHub swaps for its object/u)
+    assert.deepEqual(await readdir(ARCHIVES).catch(() => []), [])
+    // Cached while the repo was set not to swap it: refused all the same.
+    await mkdir(ARCHIVES, { recursive: true })
+    await writeFile(join(ARCHIVES, `${LFS_COMMIT}.tgz`), LFS_TGZ)
+    stub({ tarballs: {} })
+    await assert.rejects(exported(LFS_COMMIT), /from the cache: expected \w+, got no tree: "big\.bin" is a Git LFS pointer/u)
   })
 
   it("refuses the tree's tarball, which names no commit, and an archive of another commit", async () => {
@@ -174,6 +185,19 @@ describe('gitTreeOfArchive', () => {
       return sum(tar, at)
     })
     assert.equal(await gitTreeOfArchive(relinked, objects), 'no tree: "l" is not the tree\'s, as git rewrites a file marked export-subst or ident, or for its working-tree-encoding')
+  })
+
+  it('refuses an archive with a Git LFS pointer in it, though it is the tree whole, as GitHub swaps one by a setting of the repo', async () => {
+    const message = 'no tree: "big.bin" is a Git LFS pointer, which GitHub swaps for its object in the archive of a repo set to include them, so that the archive is that setting\'s, not the commit\'s'
+    assert.equal(await gitTreeOfArchive(LFS_TGZ, { expected: LFS, commit: LFS_COMMIT, list: () => [], blob: () => new Uint8Array() }), message)
+    // Not a pointer: not the spec's line, or of a spec git-lfs does not know.
+    const edit = (at, text) => retar(LFS_TGZ, (tar) => {
+      tar.write(text, tar.indexOf('version https://git-lfs') + at, 'latin1')
+      return tar
+    })
+    for (const tgz of [edit(0, 'V'), edit(0, 'version https://git-lfs.github.com/spec/v2')]) {
+      assert.match(await gitTreeOfArchive(tgz, { expected: LFS, commit: LFS_COMMIT, list: () => [], blob: () => new Uint8Array() }), /^no tree: GitHub's listing of tree/u)
+    }
   })
 
   it('refuses a directory where git writes none, and none where it writes one', async () => {

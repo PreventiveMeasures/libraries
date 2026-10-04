@@ -153,10 +153,10 @@ const gunzipped = promisify(gunzip)
 // The entries of a gzipped tarball as `git archive` writes one, under a
 // single top directory, as a Map of its entries: a Map of each directory's,
 // a file's mode its exec bit, a symlink's blob its target, and a copy of
-// the `body` of each file `keep` takes by its name; with `bodies`, every
-// file's body, as the tarball has it. A commit's archive leads with git's
-// global header naming it, taken only where `commit` is that commit. Where
-// there is no such tree, a reason, never entries.
+// the `body` of each file `keep` takes by its name and body; with `bodies`,
+// every file's body, as the tarball has it. A commit's archive leads with
+// git's global header naming it, taken only where `commit` is that commit.
+// Where there is no such tree, a reason, never entries.
 export async function readTarball(gzipped, { commit, keep = () => false, bodies = false } = {}) {
   let bytes
   try {
@@ -218,7 +218,7 @@ export async function readTarball(gzipped, { commit, keep = () => false, bodies 
     if (name === null) continue
     if (dir.has(name)) return `no tree: ${JSON.stringify(path)} twice`
     // A copy, but for `bodies`, so the tarball itself is not kept for it.
-    dir.set(name, type === '0' ? { mode: mode & 0o100 ? '100755' : '100644', id: objectId('blob', body), ...(bodies ? { body } : keep(name) && { body: Buffer.from(body) }) } : { mode: '120000', id: objectId('blob', Buffer.from(target, 'latin1')) })
+    dir.set(name, type === '0' ? { mode: mode & 0o100 ? '100755' : '100644', id: objectId('blob', body), ...(bodies ? { body } : keep(name, body) && { body: Buffer.from(body) }) } : { mode: '120000', id: objectId('blob', Buffer.from(target, 'latin1')) })
   }
   if (top === undefined) return 'no tree: an empty tarball'
   return root

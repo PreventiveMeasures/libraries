@@ -12,7 +12,7 @@ import { ArchiveError, unpack } from '@preventive/archive/tar.js'
 import { DeptreeError, quote } from '../error.js'
 import { parentsOf } from '../mount.js'
 import { MAX_BYTES } from '../tarball.js'
-import { isUnflagged, unzipEntries } from '../zipdir.js'
+import { emptyLinksAsFiles, isUnflagged, unzipEntries } from '../zipdir.js'
 
 const S_IFMT = 0o170000
 const S_IFLNK = 0o120000
@@ -22,6 +22,9 @@ const UMASK = 0o022
 const [FAT, UNIX] = [0, 3]
 const LIKE_FAT = new Set([FAT, 6, 11, 14])
 const MAX_HOPS = 40
+const BLOCK = 512
+const decoder = new TextDecoder()
+const encoder = new TextEncoder()
 
 const emptyTree = () => ({ dirs: new Set(), files: new Map(), links: new Map(), modes: new Map() })
 
@@ -64,16 +67,49 @@ function checkLinks(tree, where) {
   return tree
 }
 
+const field = (header, start, end) => {
+  const bytes = header.subarray(start, end)
+  const nul = bytes.indexOf(0)
+  return decoder.decode(nul === -1 ? bytes : bytes.subarray(0, nul))
+}
+
+// unzip writes a link with no target, which git can hold and no
+// filesystem, as an empty file of the link's mode, which git writes 0o777
+// in a zip; the tar reader refuses it. Each such entry of the tarball, as
+// upstream has held it to what git writes, made a file where it is, its
+// name kept: a ustar header of a link with no target, but after a pax
+// header, which is left to the reader.
+function emptyTarLinksAsFiles(tar) {
+  const names = new Set()
+  for (let at = 0, pax = false; at + BLOCK <= tar.length;) {
+    const header = tar.subarray(at, at + BLOCK)
+    if (header.every((byte) => byte === 0)) break
+    if (header[156] === 0x32 && header[157] === 0 && !pax) {
+      header[156] = 0x30
+      header.fill(0x20, 148, 156)
+      header.set(encoder.encode(`${header.reduce((sum, byte) => sum + byte, 0).toString(8).padStart(6, '0')}\0 `), 148)
+      const prefix = field(header, 345, 500)
+      names.add(prefix ? `${prefix}/${field(header, 0, 100)}` : field(header, 0, 100))
+    }
+    pax = header[156] === 0x78
+    at += BLOCK + Math.ceil(Number.parseInt(field(header, 124, 136), 8) / BLOCK) * BLOCK
+  }
+  return names
+}
+
 // GitHub's archive of a commit, which @preventive/upstream has held to the
 // commit's tree, as unzip extracts GitHub's zipball of it, which holds the
 // same, as `git archive` writes it: each directory 0o755 and each file
 // 0o644, as git records no mode for them in a zip, but an executable,
-// which keeps git's 0o755; each link as a link; and every directory, empty
-// or not, made.
+// which keeps git's 0o755; each link as a link, but one with no target, an
+// empty file of 0o777; and every directory, empty or not, made.
 export async function fromArchive(bytes, where) {
   let entries
+  let emptied
   try {
-    entries = unpack(await decompress(bytes, 'gzip', { limit: MAX_BYTES }))
+    const tar = await decompress(bytes, 'gzip', { limit: MAX_BYTES })
+    emptied = emptyTarLinksAsFiles(tar)
+    entries = unpack(tar)
   } catch (error) {
     if (error instanceof ArchiveError) throw new DeptreeError(`GitHub's archive cannot be read: ${error.message}`, where, { cause: error })
     throw error
@@ -82,7 +118,7 @@ export async function fromArchive(bytes, where) {
   for (const { name, type, mode, data, linkname } of entries) {
     for (const dir of parentsOf(name)) tree.dirs.add(dir)
     if (type === 'directory') tree.dirs.add(name)
-    else if (type === 'file') tree.files.set(name, { data, mode: mode & 0o100 ? 0o755 : 0o644 })
+    else if (type === 'file') tree.files.set(name, { data, mode: emptied.has(name) ? 0o777 : mode & 0o100 ? 0o755 : 0o644 })
     else if (type === 'symlink') tree.links.set(name, linkname)
     else throw new DeptreeError(`${quote(name)} is a ${type} in GitHub's archive`, where)
   }
@@ -121,17 +157,19 @@ function topDir(tree, where) {
   return { dirs: new Set([...tree.dirs].map(inside).filter((path) => path !== undefined)), files: under(tree.files), links: under(tree.links), modes }
 }
 
-// A zip held to the shasum the lockfile records, as unzip extracts it.
-// What the archive reader refuses is refused, and what unzip would ask
-// about or read otherwise than it: a name twice, which it asks whether to
-// replace, and a name past ASCII not flagged UTF-8, which it reads by the
-// system that made it; and what it reads modes of otherwise than by the
-// two ways it reads them, an entry with no mode or of a system it reads by
-// an extra field, and a link not made on Unix, which it writes as a file.
+// A zip held to the shasum the lockfile records, as unzip extracts it, a
+// link made on Unix with no target an empty file of its mode, as unzip
+// writes one. What the archive reader refuses is refused, and what unzip
+// would ask about or read otherwise than it: a name twice, which it asks
+// whether to replace, and a name past ASCII not flagged UTF-8, which it
+// reads by the system that made it; and what it reads modes of otherwise
+// than by the two ways it reads them, an entry with no mode or of a system
+// it reads by an extra field, and a link not made on Unix, which it writes
+// as a file.
 export async function fromZip(bytes, where) {
   const tree = emptyTree()
   const seen = new Set()
-  for (const { entry, record } of await unzipEntries(bytes, where)) {
+  for (const { entry, record } of await unzipEntries(emptyLinksAsFiles(bytes), where)) {
     const here = `${where}: ${quote(entry.storedName)}`
     if (isUnflagged(record)) throw new DeptreeError('a name not flagged UTF-8, which unzip reads by the system that made it, is not supported', here)
     if (seen.has(entry.name)) throw new DeptreeError('a name twice in the zip, which unzip asks whether to replace, is not supported', here)

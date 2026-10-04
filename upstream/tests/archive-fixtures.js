@@ -65,3 +65,8 @@ export const LINK_LISTING = [
   { path: 'a.txt', mode: '100644', type: 'blob', sha: '78981922613b2afb6025042ff6bd878ac1994e85' },
   { path: 'l', mode: '120000', type: 'blob', sha: '8d14cbf983b3fad683171c9418998d9f68340823' },
 ]
+// LFS: big.bin, the pointer git-lfs commits in place of a file it keeps
+// elsewhere, which the archive holds as the tree does, and a.txt.
+export const LFS_COMMIT = 'be1532eee74b6d0c8900c9f1450fa57422c284d5'
+export const LFS = 'f205dc821c86094a92aafa455d6a7a4a45b943f8'
+export const LFS_TGZ = Buffer.from('H4sIAAAAAAACA+3X3WrCMBQH8F77FH0BbXPyZYU9i5w0JzWgtrRxyJ5+UXYxlG03Wth2fjcJTaCUw/8kHfC87fa9w/12R+hpLB6vzowx1zG7HfOiKoQWoKVU6vpcKF3boitmcJoSjvmVY9+n7/b9tH77cb+EhrLtDwc6phdHQksgIquc8XW7buq6bcKlFgG1VQAtrJXXi4L9GdgeaInDsPyofvWk/Furv85/nt/kX5oaCs35n7/+qy4mTGmM7pRoemD/V1/XX9/1f6Ns3s/1fzoXu5WLxzLEfaLxZR+m0scQrpMDjR1dZ8tE58R9/z/0f1ylc3rG/e+b/Odef3f/05LzP0f9OdWc/8/5/zgQ5sw/3Odf12A5/zN4pXGK/bHcpTRMm6rKt79lPvEvt8Ddya3yv2E1DdRWr2LRR19OOwRtNspbBKGMUOigkbptlAwN1SGYxgMQeufWQYLLRV17RNQELYLywhLIRi6m+EalAKn4b5IxxhhjjDHGGGOMMcYYe7x3r8CNeAAoAAA=', 'base64')

@@ -30,6 +30,21 @@ describe('fromZip, as unzip extracts', () => {
     ]), { dirs: ['sub'], files: { a: '644 a', group: '775 g', suid: '755 s' }, links: { 'sub/link': '../a' }, modes: { '': '700', sub: '777' } })
   })
 
+  it('writes a link made on Unix with no target as an empty file of its mode, as no link can have none', async () => {
+    assert.deepEqual(await extracted([
+      { name: 'top/', mode: 0o40755 },
+      { name: 'top/none', mode: 0o120777 },
+      { name: 'top/group', mode: 0o120775, deflate: true },
+      { name: 'top/suid', mode: 0o124755 },
+      { name: 'top/link', data: 'none', mode: 0o120777 },
+    ]), { dirs: [], files: { none: '777 ', group: '775 ', suid: '755 ' }, links: { link: 'none' }, modes: {} })
+    // Not the bytes it was given: those are left as they were.
+    const zip = rawZip([{ name: 'none', mode: 0o120777 }])
+    const before = Uint8Array.from(zip)
+    await fromZip(zip, WHERE)
+    assert.deepEqual(zip, before)
+  })
+
   it('reads the DOS attributes of what MS-DOS made, with the umask taken off, but for a Unix mode that agrees with them, and makes no link of it', async () => {
     assert.deepEqual(await extracted([
       { name: 'plain', data: 'p', system: 0, attributes: 0x20 },

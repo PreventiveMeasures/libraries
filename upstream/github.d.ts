@@ -91,12 +91,13 @@ export interface Client {
   // CRLF is held to GitHub's blob of it so written, as git 2.43 writes them
   // on a server at its defaults. It is refused for a file marked
   // export-subst that git rewrites, for one ident or a
-  // working-tree-encoding rewrites, and from a repo set to include Git LFS
-  // objects in archives. Cached by the commit in setCacheDir's cache
-  // (npm.js), and held to the tree again whenever it is read back; the
-  // listings and blobs that takes are kept there too, each by its id, and
-  // held to it again as they are read back, so a cached archive asks for
-  // the commit alone.
+  // working-tree-encoding rewrites, and for a Git LFS pointer, which GitHub
+  // swaps for its object where the repo is set to include Git LFS objects
+  // in archives: the archive would be that setting's, which can change, not
+  // the commit's. Cached by the commit in setCacheDir's cache (npm.js), and
+  // held to the tree again whenever it is read back; the listings and blobs
+  // that takes are kept there too, each by its id, and held to it again as
+  // they are read back, so a cached archive asks for the commit alone.
   getRepoTarball(options: { repo: RepoName; sha: string; exported?: boolean }): Promise<Uint8Array>
   // The id of the tree at `directory`, `/`-separated as npm's is, in the
   // full commit `sha`, or of its root without one: from the tree GitHub
