@@ -4,6 +4,7 @@
 // not linked, though what linking does to their files is (bins.js).
 
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
+import { compareVersions } from '@preventive/upstream/semver.js'
 import { Vfs } from '@preventive/vfs'
 import { dirname, relative } from '@preventive/vfs/path.js'
 import { eachConcurrently } from '../concurrent.js'
@@ -12,9 +13,10 @@ import { checkNoModules, checkWrite, fold, isInside, makeDirs, mount, writeLink 
 import { applyPatch, parsePatch } from '../patch.js'
 import { checkProject, typeOf } from '../project.js'
 import { REGISTRY, tarballUrl } from '../tarball.js'
-import { binTargets, checkPatchOfBins, executableMode, fixBin, requiresBuild } from './bins.js'
+import { binTargets, checkPatchOfBins, executableMode, fixBin, hoistedBinTargets, requiresBuild } from './bins.js'
 import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
+import { hoistedBuilds, hoistedLayout, hoistedModules, packageIdOf, prodPackages, workspaceHoists } from './hoisted.js'
 import { checkLocalOverrides, createFreshnessCheck, readDirectoryPackage, readLinked } from './local.js'
 import { createPatchedCheck, skippedSnapshots } from './install.js'
 import { checkDependencies, fetchPackage } from './package.js'
@@ -104,13 +106,19 @@ function executableElsewhere(byDir, targets, packageImportMethod, major) {
   }))
 }
 
+// A patch of `patches`, parsed once.
+function parsedPatch(patches, hash) {
+  const patch = patches.get(hash)
+  patch.parsed ??= parsePatch(patch.text, patch.path)
+  return patch
+}
+
 function compose(node, patches, { targets, executable }, { major, checkPatched }) {
   const where = quote(node.key)
   let files = node.files
   const { patchHash } = node.pkg
   if (patchHash !== undefined) {
-    const patch = patches.get(patchHash)
-    patch.parsed ??= parsePatch(patch.text, patch.path)
+    const patch = parsedPatch(patches, patchHash)
     patch.applied ??= new WeakMap()
     if (!patch.applied.has(files)) patch.applied.set(files, applyPatch(files, patch.parsed, { createdMode: major >= 12 ? 0o644 : undefined }))
     files = patch.applied.get(files)
@@ -207,6 +215,59 @@ function linksOf(byDir, direct, settings, projects, major, hoisting) {
   return links
 }
 
+// The import methods with which each copy of a package is its own.
+const COPYING = new Set(['copy', 'clone', 'clone-or-copy'])
+
+// The hoisted layout of pnpm 10 and 11 (hoisted.js): nothing but the packages
+// and links, each copy a parent before what lands in its node_modules, as
+// pnpm keeps only its state in node_modules/.pnpm.
+async function buildHoisted({ lockfile, settings, host, project, hook, installed, manifests, names, patched, skipped }) {
+  const { major } = host
+  const since = (version) => compareVersions(host.pnpm, version) >= 0
+  if (!COPYING.has(settings.packageImportMethod)) {
+    throw new DeptreeError(`${quote(settings.packageImportMethod)} is not supported with the hoisted layout, which is built only where each copy of a package is its own: with copy, clone or clone-or-copy`, 'packageImportMethod')
+  }
+  const directories = since('11.24.0')
+  const { placed, links, projects } = hoistedLayout(lockfile, { autoInstallPeers: settings.autoInstallPeers, skipped, directories, rootLinks: since('11.28.1') })
+  if (since('11.28.0')) for (const [path, id] of workspaceHoists(placed, lockfile, settings, names)) links.set(path, id)
+  for (const node of placed.values()) checkSource(node, installed)
+  const { byDir, tarballs } = await fetchNodes(placed, lockfile, hook, project, host)
+  const linked = readLinked(links, byDir, manifests, project)
+  // pnpm builds where any patch is configured, though scripts are ignored.
+  const building = Object.keys(settings.patchedDependencies ?? {}).length > 0
+  const hardlinks = since('10.21.0')
+  const keepsModules = since('11.25.0')
+  const idOf = since('11.23.0') ? (key) => packageIdOf(key, lockfile.packages[key], directories) : (key) => key
+  const changesOf = (node) => parsedPatch(patched, node.pkg.patchHash).parsed
+  const builds = building ? hoistedBuilds(byDir, new Set(projects), (node) => node.pkg.patchHash !== undefined || requiresBuild(node.manifest, node.files, major), { hardlinks, keepsModules, idOf, changesOf, pnpm: host.pnpm }) : []
+  const targets = hoistedBinTargets({ nodes: byDir, projects: new Map([...manifests, ...linked]), modules: hoistedModules(byDir, links, projects, manifests, lockfile), builds, hardlinks, keepsModules, idOf, major })
+  const prod = prodPackages(lockfile, skipped, directories)
+  return { byDir, links, targets, executable: new Map(), tarballs, dev: (node) => !prod.has(packageIdOf(node.key, node.pkg, directories)) }
+}
+
+// The isolated layout: each package in node_modules/.pnpm, linked from what
+// needs it and where it is hoisted.
+async function buildIsolated({ lockfile, settings, host, project, hook, installed, manifests, names, skipped }) {
+  const { major } = host
+  const { nodes, direct, hoisting } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, major)
+  for (const node of nodes.values()) checkSource(node, installed)
+  const { byDir, tarballs } = await fetchNodes(nodes, lockfile, hook, project, host)
+  const links = linksOf(byDir, direct, settings, names, major, hoisting)
+  const linked = readLinked(links, byDir, manifests, project)
+  const targets = binTargets({
+    nodes: byDir,
+    projects: new Map([...manifests, ...linked]),
+    direct,
+    links,
+    publicHoist: settings.publicHoistPattern?.length > 0,
+    building: Object.keys(settings.patchedDependencies ?? {}).length > 0,
+    peers: settings.autoInstallPeers,
+    major,
+  })
+  const prod = reachedInProd(lockfile.importers, nodes, byDir)
+  return { byDir, links, targets, executable: executableElsewhere(byDir, targets, settings.packageImportMethod, major), tarballs, dev: (node) => !prod.has(node.dir) }
+}
+
 export async function buildPnpmTree(options) {
   const { project, host: given, vfs: into } = options ?? {}
   if (into !== undefined && !(into instanceof Vfs)) throw new TypeError('vfs must be a Vfs, or left out')
@@ -239,30 +300,14 @@ export async function buildPnpmTree(options) {
   const hook = createHook({ overrides, ignored: settings.ignoredOptionalDependencies, major })
   checkProjects(lockfile, manifests, { hook, host, settings, env })
   checkOptional(lockfile)
-  const projects = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
+  const names = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
   const { skipped, incompatible } = skippedSnapshots(lockfile, { host, settings })
-  const { nodes, direct, hoisting } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, major)
-  for (const node of nodes.values()) checkSource(node, installed)
-
-  const { byDir, tarballs } = await fetchNodes(nodes, lockfile, hook, project, host)
-  const links = linksOf(byDir, direct, settings, projects, major, hoisting)
-  const linked = readLinked(links, byDir, manifests, project)
-  const targets = binTargets({
-    nodes: byDir,
-    projects: new Map([...manifests, ...linked]),
-    direct,
-    links,
-    publicHoist: settings.publicHoistPattern?.length > 0,
-    building: Object.keys(settings.patchedDependencies ?? {}).length > 0,
-    peers: settings.autoInstallPeers,
-    major,
-  })
-  const executable = executableElsewhere(byDir, targets, settings.packageImportMethod, major)
-  const prod = reachedInProd(lockfile.importers, nodes, byDir)
+  const hoisted = settings.nodeLinker === 'hoisted'
+  const { byDir, links, targets, executable, tarballs, dev } = await (hoisted ? buildHoisted : buildIsolated)({ lockfile, settings, host, project, hook, installed, manifests, names, patched, skipped })
 
   const vfs = new Vfs()
-  makeDirs(vfs, 'node_modules/.pnpm')
-  const stats = { projects: manifests.size, snapshots: Object.keys(lockfile.packages).length, installed: nodes.size, skipped: skipped.size, incompatible: incompatible.size, tarballs, patched: [...nodes.values()].filter((node) => node.pkg.patchHash !== undefined).length, files: 0, bytes: 0, links: links.size }
+  if (!hoisted) makeDirs(vfs, 'node_modules/.pnpm')
+  const stats = { projects: manifests.size, snapshots: Object.keys(lockfile.packages).length, installed: byDir.size, skipped: skipped.size, incompatible: incompatible.size, tarballs, patched: [...byDir.values()].filter((node) => node.pkg.patchHash !== undefined).length, files: 0, bytes: 0, links: links.size }
   const listed = []
   const composing = { major, checkPatched: createPatchedCheck({ host, settings }) }
   // Each node is let go once written, and a package's files with its last.
@@ -273,7 +318,7 @@ export async function buildPnpmTree(options) {
     } catch (error) {
       throw refusalOf(error, quote(node.key))
     }
-    listed.push(installedOf(node, !prod.has(node.dir), patched))
+    listed.push(installedOf(node, dev(node), patched))
   }
   for (const [path, target] of links) {
     try {

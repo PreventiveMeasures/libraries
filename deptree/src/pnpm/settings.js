@@ -146,6 +146,7 @@ function derive(get, major) {
     pmOnFail: get('pmOnFail'),
     runtimeOnFail: get('runtimeOnFail'),
     packageImportMethod: get('packageImportMethod') ?? 'auto',
+    nodeLinker: get('nodeLinker') ?? 'isolated',
     ...major < 10 ? {
       packageManagerChecks: {
         manage: get('managePackageManagerVersions') ?? false,
