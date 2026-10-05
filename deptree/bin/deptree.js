@@ -10,10 +10,13 @@ import { resolve } from 'node:path'
 import process from 'node:process'
 import { parseArgs, styleText } from 'node:util'
 import { buildNpmTree, findNpmWorkspaces } from '@preventive/deptree/npm.js'
-import { DeptreeError, LockfileError, YamlError, buildPnpmTree, findPnpmProjects, setCacheDir } from '@preventive/deptree/pnpm.js'
+import { DeptreeError, LockfileError, YamlError, buildPnpmTree, findPnpmProjects } from '@preventive/deptree/pnpm.js'
 import { buildYarn1Tree, findYarn1Workspaces } from '@preventive/deptree/yarn1.js'
-import { defaultCacheDir } from '@preventive/upstream/npm.js'
-import { difference, modulesOf, notBuilt, projectView, readDisk, readTree } from './compare.js'
+import { defaultCacheDir, setCacheDir } from '@preventive/upstream/npm.js'
+import { join } from '@preventive/vfs/path.js'
+import { escaped } from '../src/error.js'
+import { typeOf } from '../src/project.js'
+import { difference, leftBehind, notBuilt, projectView, readDisk, readTree } from './compare.js'
 
 const USAGE = `Usage: bin/deptree.js compare [options] [<dir>]
 
@@ -32,10 +35,7 @@ bytes are compared whole, never line by line. The .bin directories and the
 package manager's own state files, which deptree never builds, are left out
 unless --all is given.
 
-Each tarball fetched is kept for the next run in the user's cache
-directory: ~/Library/Caches/PreventiveMeasures on macOS,
-%LOCALAPPDATA%\\PreventiveMeasures\\Cache on Windows, and
-$XDG_CACHE_HOME/PreventiveMeasures or ~/.cache/PreventiveMeasures elsewhere.
+Each tarball fetched is kept for the next run in ${defaultCacheDir ?? 'no cache, as no home directory is known'}.
 
 Exits 0 where the two are the same, 1 where they differ, 2 on trouble.
 
@@ -61,22 +61,30 @@ const OPTIONS = {
 const given = (key, version) => (version === undefined ? {} : { [key]: version })
 
 // Each package manager by the flag naming its version: the lockfile it
-// installs from, the projects it finds, whose node_modules are its, and the
-// tree it makes.
+// installs from; whether a file pins its version, so the flag may be left
+// out; the host it installs on, from this machine; the projects it finds,
+// whose node_modules are its; and the tree it makes. npm takes a libc only
+// where it finds one, and yarn 1 none at all.
 const MANAGERS = {
   pnpm: {
     lockfile: 'pnpm-lock.yaml',
-    projects: (project, host) => findPnpmProjects({ project, host: given('pnpm', host.pnpm) }),
+    pinned: true,
+    host: (version, machine, libc) => ({ ...given('pnpm', version), ...machine, libc }),
+    projects: findPnpmProjects,
     build: buildPnpmTree,
   },
   yarn: {
     lockfile: 'yarn.lock',
-    projects: (project) => findYarn1Workspaces({ project }),
+    pinned: true,
+    host: (version, machine) => ({ ...given('yarn', version), ...machine }),
+    projects: findYarn1Workspaces,
     build: buildYarn1Tree,
   },
   npm: {
     lockfile: 'package-lock.json',
-    projects: (project, host) => findNpmWorkspaces({ project, os: host.os }),
+    pinned: false,
+    host: (version, machine, libc) => ({ npm: version, ...machine, ...(libc === 'unknown' ? {} : { libc }) }),
+    projects: ({ project, host }) => findNpmWorkspaces({ project, os: host.os }),
     build: buildNpmTree,
   },
 }
@@ -89,24 +97,23 @@ async function main(argv) {
   }
   const [command, dir = '.', ...rest] = positionals
   if (command !== 'compare' || rest.length > 0) return fail(USAGE)
-  const root = directoryAt(dir)
-  const manager = managerOf(root, dir, values)
+  const project = projectView(directoryAt(dir))
+  const name = managerOf(project, dir, values)
+  const manager = MANAGERS[name]
   // There is none where no home directory is known, and then nothing is kept.
   if (defaultCacheDir !== undefined) setCacheDir()
-  const project = projectView(root)
-  const host = hostOf(manager, values)
+  // This machine, which is the one that installed what is on disk.
+  const host = manager.host(values[name], { node: values.node ?? process.versions.node, os: process.platform, cpu: process.arch }, libcOf())
   // The disk first, as it is before anything is fetched.
-  const disk = readDisk(root, manager.projects(project, host).map((at) => (at === '.' ? 'node_modules' : `${at}/node_modules`)))
+  const disk = readDisk(project, manager.projects({ project, host }).map((at) => join(at, 'node_modules')))
   note(`node_modules on disk: ${sizeOf(disk)}`)
   const tree = await manager.build({ project, host })
   note(`${manager.lockfile}: ${tree.stats.files} files, ${size(tree.stats.bytes)} built`)
-  const built = readTree(tree.vfs)
-  // A node_modules of the tree's that no project has, should there be one.
-  readDisk(root, [...built.keys()].filter((path) => modulesOf(path) === path), disk)
-  const changes = difference(disk, built)
+  const changes = difference(disk, readTree(tree.vfs))
   const shown = values.all ? changes : changes.filter((change) => !notBuilt(change))
   process.stdout.write(shown.map(line).join(''))
   note(summary(shown, changes.length - shown.length))
+  if (name === 'pnpm') pruneHint(shown)
   return shown.length === 0 ? 0 : 1
 }
 
@@ -130,34 +137,16 @@ function directoryAt(dir) {
 }
 
 // The one a version flag names, or else the one whose lockfile is there.
-function managerOf(root, dir, values) {
+function managerOf(project, dir, values) {
   const names = Object.keys(MANAGERS)
   const named = names.filter((name) => values[name] !== undefined)
   if (named.length > 1) fail(`deptree.js: ${named.map((name) => `--${name}`).join(' and ')}: one package manager installed, so give one\n`)
-  const there = names.filter((name) => isFile(resolve(root, MANAGERS[name].lockfile)))
+  const there = names.filter((name) => typeOf(project, MANAGERS[name].lockfile) === 'file')
   const name = named[0] ?? (there.length === 1 ? there[0] : undefined)
   if (name === undefined && there.length === 0) fail(`deptree.js: ${dir}: no ${names.map((n) => MANAGERS[n].lockfile).join(', ')}\n`)
   if (name === undefined) fail(`deptree.js: ${dir}: ${there.map((n) => MANAGERS[n].lockfile).join(' and ')} are both there: give --${there.join(' or --')} for the one that installed\n`)
-  if (name === 'npm' && values.npm === undefined) fail('deptree.js: package-lock.json: give --npm <version>, the npm that installed, which no file pins\n')
-  return { name, ...MANAGERS[name] }
-}
-
-const isFile = (path) => {
-  try {
-    return statSync(path).isFile()
-  } catch {
-    return false
-  }
-}
-
-// This machine, which is the one that installed what is on disk; npm takes
-// a libc only where it finds one, and yarn 1 none at all.
-function hostOf({ name }, values) {
-  const machine = { node: values.node ?? process.versions.node, os: process.platform, cpu: process.arch }
-  const libc = libcOf()
-  if (name === 'pnpm') return { ...given('pnpm', values.pnpm), ...machine, libc }
-  if (name === 'npm') return { npm: values.npm, ...machine, ...(libc === 'unknown' ? {} : { libc }) }
-  return { ...given('yarn', values.yarn), ...machine }
+  if (!MANAGERS[name].pinned && values[name] === undefined) fail(`deptree.js: ${MANAGERS[name].lockfile}: give --${name} <version>, the ${name} that installed, which no file pins\n`)
+  return name
 }
 
 // As pnpm's detect-libc tells it from Node's own report: unknown where that
@@ -181,9 +170,9 @@ function libcOf() {
 const MARKS = { '+': 'green', '-': 'red', '~': 'yellow' }
 
 // A path is whatever a tarball spells: escaped, so that no name can act on a
-// terminal or break a line.
-const UNSHOWN = /[\\\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]/gu
-const shown = (text) => text.replaceAll(UNSHOWN, (char) => (char === '\\' ? '\\\\' : `\\u${char.codePointAt(0).toString(16).padStart(4, '0')}`))
+// terminal or break a line, and a backslash doubled first, so that an escape
+// reads as one.
+const shown = (text) => escaped(text.replaceAll('\\', '\\\\'))
 
 function line({ mark, path, type, what }) {
   const slash = mark !== '~' && type === 'directory' ? '/' : ''
@@ -197,9 +186,24 @@ function summary(changes, left) {
   return left === 0 ? counts : `${counts}; ${left} left out that deptree never builds (--all lists them)`
 }
 
+// pnpm keeps a package an install drops in node_modules/.pnpm for
+// modulesCacheMaxAge minutes, a week by default, and each install with it 0
+// removes it at once; `pnpm store prune` leaves it.
+function pruneHint(changes) {
+  const count = changes.filter(leftBehind).length
+  if (count === 0) return
+  const [what, them] = count === 1 ? ['a package', 'it'] : [`${count} packages`, 'them']
+  note(`${what} in node_modules/.pnpm that the lockfile no longer installs, as pnpm keeps for a while: \`pnpm prune\` removes ${them}, and so does every install with modulesCacheMaxAge: 0 in pnpm-workspace.yaml`)
+}
+
 function sizeOf(entries) {
-  const files = [...entries.values()].filter((entry) => entry.type === 'file')
-  return `${files.length} files, ${size(files.reduce((sum, entry) => sum + entry.data.length, 0))}`
+  let [files, bytes] = [0, 0]
+  for (const entry of entries.values()) {
+    if (entry.type !== 'file') continue
+    files++
+    bytes += entry.data.length
+  }
+  return `${files} files, ${size(bytes)}`
 }
 
 function size(bytes) {

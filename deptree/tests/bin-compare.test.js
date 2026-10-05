@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import process from 'node:process'
 import { after, describe, it } from 'node:test'
 import { createVfs } from '@preventive/vfs'
-import { byPath, difference, notBuilt, readDisk, readTree } from '../bin/compare.js'
+import { byPath, difference, leftBehind, notBuilt, projectView, readDisk, readTree } from '../bin/compare.js'
 import { tarball, url } from './registry.js'
 
 // The development CLI is not part of the published package and nothing
@@ -92,6 +92,17 @@ describe('notBuilt', () => {
   })
 })
 
+describe('leftBehind', () => {
+  it("takes a package's directory in node_modules/.pnpm on disk alone", () => {
+    for (const path of ['node_modules/.pnpm/debug@4.4.1', 'node_modules/.pnpm/@s+p@1.0.0_peer@2.0.0', 'packages/w/node_modules/.pnpm/a@1.0.0']) {
+      assert.equal(leftBehind({ mark: '-', type: 'directory', path }), true, path)
+      assert.equal(leftBehind({ mark: '+', type: 'directory', path }), false, path)
+      assert.equal(leftBehind({ mark: '-', type: 'file', path }), false, path)
+    }
+    for (const path of ['node_modules/.pnpm/node_modules', 'node_modules/.pnpm/a@1.0.0/node_modules/a', 'node_modules/a@1.0.0']) assert.equal(leftBehind({ mark: '-', type: 'directory', path }), false, path)
+  })
+})
+
 describe('the two sides', () => {
   const root = mkdtempSync(join(tmpdir(), 'deptree-bin-sides-'))
   after(() => rmSync(root, { recursive: true, force: true }))
@@ -110,15 +121,14 @@ describe('the two sides', () => {
 
     for (const [path, entry] of tree) {
       if (entry.type === 'directory') mkdirSync(join(root, path), { recursive: true })
-      if (entry.type === 'file') writeFileSync(join(root, path), entry.data, { mode: entry.mode })
-      if (entry.type === 'file') chmodSync(join(root, path), entry.mode)
+      if (entry.type === 'file') {
+        writeFileSync(join(root, path), entry.data)
+        chmodSync(join(root, path), entry.mode)
+      }
       if (entry.type === 'symlink') symlinkSync(entry.target, join(root, path))
     }
-    const disk = readDisk(root, ['node_modules', 'packages/w/node_modules', 'packages/v/node_modules'])
+    const disk = readDisk(projectView(root), ['node_modules', 'packages/w/node_modules', 'packages/v/node_modules'])
     assert.deepEqual(difference(disk, tree), [], 'a root not there is left out, and links are not followed')
-    writeFileSync(join(root, 'packages/w/node_modules/later'), 'later')
-    assert.equal(readDisk(root, ['packages/w/node_modules'], disk), disk)
-    assert.equal(disk.has('packages/w/node_modules/later'), false, 'a root read already is not read again')
   })
 })
 

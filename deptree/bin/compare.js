@@ -11,8 +11,9 @@ import { Buffer } from 'node:buffer'
 import { lstatSync, readFileSync, readdirSync, readlinkSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { compareNames, dirname, normalize } from '@preventive/vfs/path.js'
+import { typeOf } from '../src/project.js'
 
-const typeOf = (st) => (st.isSymbolicLink() ? 'symlink' : st.isDirectory() ? 'directory' : st.isFile() ? 'file' : 'other')
+const kindOf = (st) => (st.isSymbolicLink() ? 'symlink' : st.isDirectory() ? 'directory' : st.isFile() ? 'file' : 'other')
 
 // The project's directory as deptree reads one, by paths from `/`: never
 // above it, as `..` at `/` stays there. Names come in code point order, as a
@@ -23,61 +24,45 @@ export function projectView(root) {
     readdir: (path) => readdirSync(at(path)).sort(compareNames),
     lstat(path) {
       const st = lstatSync(at(path))
-      return { type: typeOf(st), mode: st.mode & 0o777 }
+      return { type: kindOf(st), mode: st.mode & 0o777 }
     },
-    stat: (path) => ({ type: typeOf(statSync(at(path))) }),
+    stat: (path) => ({ type: kindOf(statSync(at(path))) }),
     readFile: (path) => readFileSync(at(path)),
-  }
-}
-
-// The node_modules a path is under, the first one from the project's
-// directory, itself included; or undefined.
-export function modulesOf(path) {
-  const segments = path.split('/')
-  const at = segments.indexOf('node_modules')
-  return at === -1 ? undefined : segments.slice(0, at + 1).join('/')
-}
-
-const lstatOrNone = (path) => {
-  try {
-    return lstatSync(path)
-  } catch (error) {
-    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return undefined
-    throw error
+    readlink: (path) => readlinkSync(at(path)),
   }
 }
 
 // Everything under each of `dirs` (node_modules, by paths from the project's
-// directory `root`) as it is on disk, into `into`: links not followed, every
-// file read whole. One not there is left out, and one read already is not
-// read again.
-export function readDisk(root, dirs, into = new Map()) {
-  const stack = [...dirs].filter((dir) => !into.has(dir) && lstatOrNone(join(root, dir)) !== undefined)
+// directory) as `project` reads it from disk: links not followed, every file
+// read whole. One not there is left out.
+export function readDisk(project, dirs) {
+  const entries = new Map()
+  const stack = dirs.filter((dir) => typeOf(project, dir, false) !== undefined)
   while (stack.length > 0) {
     const path = stack.pop()
-    const full = join(root, path)
-    const st = lstatSync(full)
-    const entry = { type: typeOf(st), mode: st.mode & 0o777 }
-    if (entry.type === 'file') entry.data = readFileSync(full)
-    if (entry.type === 'symlink') entry.target = readlinkSync(full)
-    into.set(path, entry)
-    if (entry.type === 'directory') for (const name of readdirSync(full)) stack.push(`${path}/${name}`)
+    const entry = project.lstat(path)
+    if (entry.type === 'file') entry.data = project.readFile(path)
+    if (entry.type === 'symlink') entry.target = project.readlink(path)
+    entries.set(path, entry)
+    if (entry.type === 'directory') for (const name of project.readdir(path)) stack.push(`${path}/${name}`)
   }
-  return into
+  return entries
 }
+
+// Whether a path is a node_modules or under one.
+const inModules = (path) => path === 'node_modules' || path.startsWith('node_modules/') || path.endsWith('/node_modules') || path.includes('/node_modules/')
 
 // The tree deptree built, as readDisk reads the disk: what its Vfs holds
 // under a node_modules, which is all of it but the directories on the way.
 // The bytes are the Vfs's own, not copied.
 export function readTree(vfs) {
   const entries = new Map()
-  for (const { path, type } of vfs.walk('/')) {
-    const rel = path.slice(1)
-    if (modulesOf(rel) === undefined) continue
-    const entry = { type, mode: vfs.lstat(path).mode & 0o777 }
-    if (type === 'file') entry.data = vfs.readFile(path)
-    if (type === 'symlink') entry.target = vfs.readlink(path)
-    entries.set(rel, entry)
+  for (const { name, type, mode, data, linkname } of vfs.entries('/')) {
+    if (!inModules(name)) continue
+    const entry = { type, mode: mode & 0o777 }
+    if (type === 'file') entry.data = data
+    if (type === 'symlink') entry.target = linkname
+    entries.set(name, entry)
   }
   return entries
 }
@@ -89,6 +74,13 @@ const NOT_BUILT = /(?:^|\/)node_modules\/(?:\.bin|\.modules\.yaml|\.pnpm-workspa
 
 // Whether a change is only one of those on disk.
 export const notBuilt = ({ mark, path }) => mark === '-' && NOT_BUILT.test(path)
+
+// A package's directory in node_modules/.pnpm, named by its key, that pnpm
+// keeps there for a while after no install has it, and `pnpm prune` removes.
+const LEFT_BEHIND = /(?:^|\/)node_modules\/\.pnpm\/[^/]*@[^/]*$/u
+
+// Whether a change is one of those on disk alone.
+export const leftBehind = ({ mark, type, path }) => mark === '-' && type === 'directory' && LEFT_BEHIND.test(path)
 
 // Depth first, siblings in code point order, as Vfs.walk goes.
 export function byPath(a, b) {
@@ -108,7 +100,7 @@ function changeOf(disk, tree) {
   const what = []
   if (disk.type === 'symlink' && disk.target !== tree.target) what.push(`link to ${disk.target} on disk, to ${tree.target} in the tree`)
   if (disk.type === 'file') {
-    if (disk.data.length !== tree.data.length || Buffer.compare(disk.data, tree.data) !== 0) what.push('content')
+    if (Buffer.compare(disk.data, tree.data) !== 0) what.push('content')
     if (disk.mode !== tree.mode) what.push(`mode ${octal(disk.mode)} on disk, ${octal(tree.mode)} in the tree`)
   }
   return what.length === 0 ? undefined : { mark: '~', type: tree.type, what: what.join('; ') }
@@ -122,18 +114,16 @@ function changeOf(disk, tree) {
 // either is listed. A directory's own mode is not compared, as the umask
 // sets it rather than the lockfile.
 export function difference(disk, tree) {
-  // Whether what is in `dir` is set side by side: it is a directory on both
-  // sides, or on neither, being above every node_modules.
-  const sideBySide = (dir) => {
-    const [there, built] = [disk.get(dir), tree.get(dir)]
-    if (there === undefined && built === undefined) return true
-    return there?.type === 'directory' && built?.type === 'directory'
-  }
+  // What is in `dir` is set side by side where it is the same on both sides:
+  // only a directory has anything in it, and nothing is above node_modules.
+  const sideBySide = (dir) => disk.get(dir)?.type === tree.get(dir)?.type
   const changes = []
-  for (const path of new Set([...disk.keys(), ...tree.keys()])) {
-    if (!sideBySide(dirname(path))) continue
-    const change = changeOf(disk.get(path), tree.get(path))
+  const compare = (path, there, built) => {
+    if (!sideBySide(dirname(path))) return
+    const change = changeOf(there, built)
     if (change !== undefined) changes.push({ path, ...change })
   }
+  for (const [path, there] of disk) compare(path, there, tree.get(path))
+  for (const [path, built] of tree) if (!disk.has(path)) compare(path, undefined, built)
   return changes.sort((a, b) => byPath(a.path, b.path))
 }
