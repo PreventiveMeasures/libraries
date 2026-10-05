@@ -8,6 +8,7 @@ import { after, describe, it } from 'node:test'
 import { createVfs } from '@preventive/vfs'
 import { byPath, difference, emptyDirs, leftBehind, notBuilt, projectView, readDisk, readTree } from '../bin/compare.js'
 import { tokenIn, userToken } from '../bin/npmrc.js'
+import { patchOf } from '../bin/patch.js'
 import { tarball, url } from './registry.js'
 
 // The development CLI is not part of the published package and nothing
@@ -144,6 +145,30 @@ describe('emptyDirs', () => {
   })
 })
 
+describe('patchOf', () => {
+  const bytes = (text) => new TextEncoder().encode(text)
+
+  it('writes a unified diff from disk to the tree, labelled for patch -p1', () => {
+    assert.equal(patchOf('node_modules/a/x.js', bytes('one\r\ntwo\n'), bytes('one\ntwo')), [
+      '--- a/node_modules/a/x.js',
+      '+++ b/node_modules/a/x.js',
+      '@@ -1,2 +1,2 @@',
+      '-one\r',
+      '-two',
+      '+one',
+      '+two',
+      '\\ No newline at end of file',
+      '',
+    ].join('\n'))
+  })
+
+  it('says only that they differ where either is no UTF-8 text, or holds a NUL', () => {
+    const binary = 'Binary files a/node_modules/a/x.node and b/node_modules/a/x.node differ\n'
+    assert.equal(patchOf('node_modules/a/x.node', Uint8Array.of(0x61, 0x00), bytes('a')), binary)
+    assert.equal(patchOf('node_modules/a/x.node', bytes('a'), Uint8Array.of(0xff, 0xfe)), binary)
+  })
+})
+
 describe('the token in ~/.npmrc', () => {
   const T1 = `npm_${'a'.repeat(36)}`
   const T2 = `npm_${'B9'.repeat(18)}`
@@ -273,6 +298,18 @@ describe('bin/deptree.js compare', async () => {
     assert.equal(r.stdout, '~ node_modules/a/index.js  (content)\n- node_modules/extra/\n')
     assert.match(r.stderr, /^0 only in the tree, 1 only on disk, 1 different; left out 1 that/mu)
     assert.equal(r.status, 1)
+    const diffed = run('compare', '--npm', '11.12.1', '--diff', project)
+    assert.equal(diffed.stdout, [
+      '~ node_modules/a/index.js  (content)',
+      '--- a/node_modules/a/index.js',
+      '+++ b/node_modules/a/index.js',
+      '@@ -1,2 +1 @@',
+      ' a',
+      '-changed',
+      '- node_modules/extra/',
+      '',
+    ].join('\n'), 'byte for byte where stdout is no terminal, so that patch -p1 applies it')
+    assert.equal(diffed.status, 1)
     rmSync(join(project, 'node_modules'), { recursive: true })
     const gone = run('compare', '--npm', '11.12.1', project)
     assert.equal(gone.stdout, '+ node_modules/\n')

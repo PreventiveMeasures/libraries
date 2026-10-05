@@ -12,12 +12,14 @@ import { parseArgs, styleText } from 'node:util'
 import { buildNpmTree, findNpmWorkspaces } from '@preventive/deptree/npm.js'
 import { DeptreeError, LockfileError, YamlError, buildPnpmTree, findPnpmProjects } from '@preventive/deptree/pnpm.js'
 import { buildYarn1Tree, findYarn1Workspaces } from '@preventive/deptree/yarn1.js'
+import { diffLineStyles } from '@preventive/diff/color.js'
 import { defaultCacheDir, setCacheDir } from '@preventive/upstream/npm.js'
 import { join } from '@preventive/vfs/path.js'
 import { escaped } from '../src/error.js'
 import { typeOf } from '../src/project.js'
 import { difference, emptyDirs, leftBehind, notBuilt, projectView, readDisk, readTree } from './compare.js'
 import { userToken } from './npmrc.js'
+import { patchOf } from './patch.js'
 
 const USAGE = `Usage: bin/deptree.js compare [options] [<dir>]
 
@@ -32,7 +34,7 @@ install from the lockfile would change what is on disk:
              another link target
 
 A directory only one side has is one line, with a trailing slash. A file's
-bytes are compared whole, never line by line. Left out unless --all is given:
+bytes are compared whole, never line by line, unless --diff is given. Left out unless --all is given:
 the .bin directories and the package manager's own state files, which
 deptree never builds, and empty directories on disk alone, holding nothing
 but those, such as a node_modules pnpm leaves behind.
@@ -52,6 +54,10 @@ Exits 0 where the two are the same, 1 where they differ, 2 on trouble.
   --node <version>   the Node it installed with; by default this one
   --all              list the .bin directories, state files and empty
                      directories too
+  --diff             follow a file of other content with a unified diff
+                     from disk to the tree, which \`patch -p1\` in <dir>
+                     would apply, or \`Binary files … differ\` where either
+                     is no UTF-8 text
   -h, --help         show this message
 `
 
@@ -61,6 +67,7 @@ const OPTIONS = {
   npm: { type: 'string' },
   node: { type: 'string' },
   all: { type: 'boolean' },
+  diff: { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
 }
 
@@ -118,11 +125,13 @@ async function main(argv) {
   note(`node_modules on disk: ${sizeOf(disk)}`)
   const tree = await manager.build({ project, host })
   note(`${manager.lockfile}: ${tree.stats.files} files, ${size(tree.stats.bytes)} built`)
-  const changes = difference(disk, readTree(tree.vfs))
+  const built = readTree(tree.vfs)
+  const changes = difference(disk, built)
   const empty = emptyDirs(changes, disk)
   const left = (change) => !values.all && (notBuilt(change) || empty.has(change.path))
   const [shown, hidden] = [changes.filter((change) => !left(change)), changes.filter(left)]
-  process.stdout.write(shown.map(line).join(''))
+  const patch = ({ path, content }) => (values.diff && content ? painted(patchOf(path, disk.get(path).data, built.get(path).data)) : '')
+  process.stdout.write(shown.map((change) => line(change) + patch(change)).join(''))
   note(summary(shown, hidden, empty))
   if (name === 'pnpm') pruneHint(shown)
   return shown.length === 0 ? 0 : 1
@@ -192,6 +201,19 @@ function line({ mark, path, type, what }) {
 }
 
 const plural = (count, one, many) => `${count} ${count === 1 ? one : many}`
+
+// A diff's lines are whatever a tarball holds. Where stdout is a terminal,
+// each is escaped as a name is, but for a tab and a backslash, so that code
+// reads as written, and painted in diff's own colours; elsewhere they are
+// left byte for byte, so that patch applies what it is handed.
+function painted(patch) {
+  if (!process.stdout.isTTY) return patch
+  const styles = diffLineStyles(patch)
+  return patch.split('\n').map((text, i) => {
+    const plain = text.split('\t').map(escaped).join('\t')
+    return styles?.[i] ? styleText(styles[i], plain, { stream: process.stdout }) : plain
+  }).join('\n')
+}
 
 function summary(changes, hidden, empty) {
   const count = (mark) => changes.filter((change) => change.mark === mark).length

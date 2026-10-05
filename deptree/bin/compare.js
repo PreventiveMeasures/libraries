@@ -116,12 +116,11 @@ function changeOf(disk, tree) {
   if (tree === undefined) return { mark: '-', type: disk.type }
   if (disk.type !== tree.type) return { mark: '~', type: tree.type, what: `${disk.type} on disk, ${tree.type} in the tree` }
   const what = []
+  const content = disk.type === 'file' && Buffer.compare(disk.data, tree.data) !== 0
   if (disk.type === 'symlink' && disk.target !== tree.target) what.push(`link to ${disk.target} on disk, to ${tree.target} in the tree`)
-  if (disk.type === 'file') {
-    if (Buffer.compare(disk.data, tree.data) !== 0) what.push('content')
-    if (disk.mode !== tree.mode) what.push(`mode ${octal(disk.mode)} on disk, ${octal(tree.mode)} in the tree`)
-  }
-  return what.length === 0 ? undefined : { mark: '~', type: tree.type, what: what.join('; ') }
+  if (content) what.push('content')
+  if (disk.type === 'file' && disk.mode !== tree.mode) what.push(`mode ${octal(disk.mode)} on disk, ${octal(tree.mode)} in the tree`)
+  return what.length === 0 ? undefined : { mark: '~', type: tree.type, what: what.join('; '), content }
 }
 
 // What an install from the lockfile would change of what is on disk, in
