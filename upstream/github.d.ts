@@ -88,19 +88,17 @@ export interface Client {
   // a subtree with no file in it, and has a file marked `eol=crlf` with
   // CRLF where git has LF, as a checkout writes it: the submodule's commit,
   // the subtrees and the blobs come from GitHub's listings of the trees,
-  // asked only then, cached or not, a file is taken for one written with
-  // CRLF only where the tree's own .gitattributes have git write it so,
-  // and the id must still come out `tree`. The bytes are GitHub's: the
-  // tree as a checkout with no `core.autocrlf` writes it, the same for
-  // every repo. So GitHub's tarball is refused for a tree with files marked
-  // `export-ignore`, which it leaves out, or `ident`, `filter` or
-  // `working-tree-encoding` beside `eol=crlf`, or `eol=crlf` on a file git
-  // has with both CRLF and LF; for one whose .gitattributes on the way set
-  // what line endings depend on by a rule for other than `*`, `*.ext`, a
-  // name or a path, or hold what git versions read apart (see
-  // src/attributes.js); and from a repo set to include Git LFS objects in
-  // archives, which replace the pointers git has; that repo still gets a
-  // tree already cached, pointers and all.
+  // asked only then, cached or not, a CRLF file is taken only where the
+  // tree's .gitattributes have git write it so, and the id must still come
+  // out `tree`. The bytes are GitHub's: the tree as a checkout with no
+  // `core.autocrlf` writes it, the same for every repo. So GitHub's tarball
+  // is refused for a tree with files marked `export-ignore`, which it
+  // leaves out, or `ident`, `filter` or `working-tree-encoding` beside
+  // `eol=crlf`, or `eol=crlf` on a file git has with both CRLF and LF; for
+  // one with .gitattributes rules src/attributes.js does not read; and from
+  // a repo set to include Git LFS objects in archives, which replace the
+  // pointers git has; that repo still gets a tree already cached, pointers
+  // and all.
   getRepoTreeTarball(options: { repo: RepoName; tree: string }): Promise<Uint8Array>
   // The repository's published security advisories, as GitHub's
   // repository advisory objects: every page of 100, each found by the

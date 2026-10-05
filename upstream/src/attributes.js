@@ -1,74 +1,50 @@
 import { Buffer } from 'node:buffer'
 
-// Whether git writes a file out with CRLF where it has LF, from the
-// .gitattributes of the tree it is in, as `git archive` and a checkout read
-// them from a tree: no info/attributes, no config, so core.eol is LF and
-// core.autocrlf unset. Only rules for `*`, `*.ext`, a name or a path are
-// read; a .gitattributes with any other rule that sets an attribute line
-// endings depend on, or with what git versions read apart, is refused,
-// and with it every answer below it.
+// Whether git writes a file out with CRLF, from the .gitattributes in its
+// tree alone, as `git archive` and a checkout with no config read them. Only
+// `*`, `*.ext`, name and path rules are read: any other rule that sets an
+// attribute line endings depend on refuses its file, and all below it.
 
-const MAX_LINE = 2048
-const MAX_FILE = 100 * 1024 * 1024
 const RELEVANT = new Set(['text', 'crlf', 'eol', 'binary', 'ident', 'filter', 'working-tree-encoding'])
 const BINARY = [['diff', false], ['merge', false], ['text', false]]
 const GLOB = /[*?[\\]/u
-// BS, HT, FF and ESC, the controls convert.c counts as printing.
-const PRINTING = new Set([0x08, 0x09, 0x0c, 0x1b])
+const PRINTING = new Set([0x08, 0x09, 0x0c, 0x1b]) // BS, HT, FF, ESC
 
-// What a pattern matches of a path from its .gitattributes: a name with no
-// `/` that name anywhere below, one with a `/` that path, one ending in `/`
-// only a directory, and `*` or `*.ext` a name ending so; null for others.
 function matcher(pattern) {
   const name = (path) => path.slice(path.lastIndexOf('/') + 1)
-  if (pattern.endsWith('/')) return () => false
+  if (pattern.endsWith('/')) return () => false // a directory
   if (!GLOB.test(pattern)) return pattern.includes('/') ? (path) => path === pattern.replace(/^\//u, '') : (path) => name(path) === pattern
   const end = pattern.slice(1)
   return pattern[0] === '*' && !GLOB.test(end) && !end.includes('/') ? (path) => name(path).endsWith(end) : null
 }
 
-// A token's attribute: `name` set, `-name` unset, `!name` unspecified, or
-// `name=value`.
-function state([, sign, name, value = true]) {
-  if (sign === '-') return [name, false]
-  return [name, sign === '!' ? null : value]
-}
-
-// A .gitattributes to its first NUL, as attr.c reads one from a tree: the
-// rules that set a RELEVANT attribute, each { match, states }, where a line
-// with a name git takes for none, or a negative pattern, is left out as git
-// leaves it; null where one is a rule this does not read.
+// Read to the first NUL, as git reads one from a tree. A line with a name
+// git takes for none, or a negative pattern, git leaves out.
 function parseAttributes(bytes) {
-  if (bytes.length >= MAX_FILE) return null
   const nul = bytes.indexOf(0)
-  const text = Buffer.from(bytes.buffer, bytes.byteOffset, nul === -1 ? bytes.length : nul).toString('latin1')
-  if (text.startsWith('ï»¿')) return null
   const rules = []
-  for (const line of text.split('\n')) {
+  for (const line of Buffer.from(bytes.buffer, bytes.byteOffset, nul === -1 ? bytes.length : nul).toString('latin1').split('\n')) {
     const [pattern, ...tokens] = line.split(/[ \t\r]+/u).filter(Boolean)
     if (pattern?.startsWith('"')) return null
     if (pattern === undefined || pattern.startsWith('#') || pattern.startsWith('!')) continue
-    const tokenized = tokens.map((token) => /^([-!]?)([\w.][\w.-]*)(?:=(.*))?$/u.exec(token))
-    if (tokenized.includes(null) || !tokenized.some(([, , name]) => RELEVANT.has(name))) continue
+    const states = tokens.map((token) => /^([-!]?)([\w.][\w.-]*)(?:=(.*))?$/u.exec(token))
+    if (states.includes(null) || !states.some(([, , name]) => RELEVANT.has(name))) continue
     const match = matcher(pattern)
-    if (!match || line.length >= MAX_LINE || tokenized.some(([, , name]) => name.startsWith('builtin_'))) return null
-    rules.push({ match, states: tokenized.map(state) })
+    if (!match) return null
+    rules.push({ match, states: states.map(([, sign, name, value = true]) => [name, sign === '-' ? false : sign === '!' ? null : value]) })
   }
   return rules
 }
 
-// The .gitattributes from the root down to the directory at `base`, its
-// path and a `/`, or '' at the root: those `above` it, each { base, rules },
-// and its own, from `bytes`, undefined where it has none. Null from where
-// one is refused, or is no file (`bytes` null), on.
+// `base` is the directory's path and a `/`; `bytes` is undefined where it
+// has no .gitattributes, null where that is no file.
 export function withAttributes(above, base, bytes) {
   if (above === null || bytes === null) return null
   const rules = bytes === undefined ? [] : parseAttributes(bytes)
   return rules && [...above, { base, rules }]
 }
 
-// convert.c's convert_is_binary, and no CR, on the blob these bytes are
-// written from with each LF's CR taken out, as `text=auto` writes only text.
+// convert.c's text test for `text=auto`, on the blob these bytes are written from.
 function isAutoText(written) {
   let printable = 0
   let other = written.at(-1) === 0x1a ? -1 : 0
@@ -83,12 +59,8 @@ function isAutoText(written) {
   return printable >> 7 >= other
 }
 
-// Whether git writes the file at `path`, these bytes, out with a CR before
-// each LF: as attr.c fills its attributes, the deepest file and its last
-// line first, a state taken once, `binary` expanded where it is set; then
-// `eol=crlf` where `text`, or else `crlf`, is not unset, and is `auto` only
-// where the blob is text, and nothing else rewrites it, an `ident`, a
-// `filter` or a `working-tree-encoding`.
+// attr.c's order: the deepest file and its last line first. Anything else
+// rewriting the file (ident, filter, working-tree-encoding) refuses it.
 export function writtenWithCrlf(files, path, written) {
   if (files === null) return false
   const states = new Map()

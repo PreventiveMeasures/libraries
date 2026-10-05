@@ -208,8 +208,7 @@ describe('gitTreeOfTarball', () => {
 
 describe('gitTreeOfTarball with eol=crlf', () => {
   const blob = (text) => createHash('sha1').update(`blob ${text.length}\0`).update(text, 'latin1').digest('hex')
-  // A tarball of `f.bat` as `written` beside a .gitattributes of
-  // `attributes`, and the options to hold it to the tree with `committed`.
+  // `f.bat` as `written` beside a .gitattributes, to be held to `committed`.
   const crlf = (written, committed, attributes = '*.bat text eol=crlf\n') => {
     const files = [['.gitattributes', attributes, attributes], ['f.bat', written, committed]].filter(([, text]) => text !== '')
     const listing = files.map(([path, , text]) => ({ path, mode: '100644', type: 'blob', sha: blob(text) }))

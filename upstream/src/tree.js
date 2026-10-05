@@ -122,9 +122,8 @@ function crlfBlobId(written) {
 // file in it, which only plumbing makes, it leaves out: one is put back
 // only once its own listings show it holds nothing. A file marked
 // `eol=crlf` it writes with CRLF where git has LF: one is hashed as the
-// blob listed, its bytes left as written, where the .gitattributes from
-// the root down to it, carried down the walk, have git write it with CRLF
-// and that blob writes them.
+// blob listed, its bytes left as written, where that blob writes them and
+// the tree's .gitattributes have git write it so.
 async function mend(dir, sha, listed, base = '', above = []) {
   const own = dir.get('.gitattributes')
   const attributes = withAttributes(above, base, own && (own.body ?? null))

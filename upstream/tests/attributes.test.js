@@ -4,11 +4,10 @@ import { describe, it } from 'node:test'
 
 import { withAttributes, writtenWithCrlf } from '../src/attributes.js'
 
-// The .gitattributes at `base` of `text`, below those `above`.
 const below = (above, base, text) => withAttributes(above, base, Buffer.from(text, 'latin1'))
 const root = (text) => below([], '', text)
 
-// In the first three, each expectation is what `git archive` (git 2.43) wrote.
+// Expectations are what `git archive` (git 2.43) wrote, but for those refused.
 describe('writtenWithCrlf', () => {
   const CRLF = Buffer.from('one\r\ntwo\r\n', 'latin1')
 
@@ -30,7 +29,7 @@ describe('writtenWithCrlf', () => {
     ]) assert.equal(writtenWithCrlf(files, path, CRLF), expected, path)
   })
 
-  it('is true for `text=auto` only on text: no NUL, no CR but before an LF, and few bytes that do not print', () => {
+  it('is true for `text=auto` only on text', () => {
     const files = root('* text=auto eol=crlf\n')
     for (const [text, expected] of [['one\r\ntwo\u001A', true], ['one\r\n\u0000two\r\n', false], ['one\rtwo\r\n', false], [`${'\u0001'.repeat(2)}${'x'.repeat(200)}\r\n`, false], [`\u0001${'x'.repeat(200)}\r\n`, true]]) {
       assert.equal(writtenWithCrlf(files, 'f', Buffer.from(text, 'latin1')), expected, JSON.stringify(text.slice(0, 12)))
@@ -44,17 +43,14 @@ describe('writtenWithCrlf', () => {
 })
 
 describe('withAttributes', () => {
-  it('refuses a rule it does not read that sets what line endings depend on, and all below it', () => {
-    for (const text of ['**/*.bat eol=crlf\n', 'sub/*.bat -text\n', '[attr]win text eol=crlf\n', '"f.bat" -text\n', 'ï»¿f -text\n', `f -text ${'x'.repeat(2048)}\n`, 'f -text builtin_x\n']) {
-      assert.equal(root(text), null, JSON.stringify(text.slice(0, 20)))
-    }
-    assert.equal(withAttributes([], '', { length: 100 * 1024 * 1024 }), null)
+  it('refuses a rule it does not read, and all below it', () => {
+    for (const text of ['**/*.bat eol=crlf\n', 'sub/*.bat -text\n', '[attr]win text eol=crlf\n', '"f.bat" -text\n']) assert.equal(root(text), null, text)
     assert.equal(withAttributes([], '', null), null)
     assert.equal(withAttributes(null, 'sub/', Buffer.from('')), null)
   })
 
-  it('passes over a rule for other attributes, and a line git leaves out', () => {
+  it('passes over rules for other attributes, and lines git leaves out', () => {
     assert.deepEqual(withAttributes([], '', undefined), [{ base: '', rules: [] }])
-    assert.deepEqual(root('# "comment"\n**/*.png linguist-generated\n[attr]gen linguist-generated\n!f -text\nf bad/name -text\nf -text\n\0f text\n')[0].rules.length, 1)
+    assert.equal(root('# "comment"\n**/*.png linguist-generated\n[attr]gen linguist-generated\n!f -text\nf bad/name -text\nf -text\n\0f text\n')[0].rules.length, 1)
   })
 })
