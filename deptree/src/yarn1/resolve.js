@@ -7,9 +7,11 @@ import { DeptreeError, quote } from '../error.js'
 import { matchesGlob } from '../glob.js'
 
 // Beneath a top-level request, all run at once, each taking these microtask
-// turns, by its resolver, before it checks for a package of its version. A
-// directory is asked for at the top level alone, where nothing runs beside
-// it.
+// turns, by its resolver, before it checks for a package of its version: a
+// tarball URL as many as the registry. A directory is read at the top level
+// alone, where nothing runs beside it; beneath, only one read already is
+// asked for again, which yarn reads once all else has run, and takes the
+// first's package for.
 const TURNS = { registry: 5, workspace: 3, directory: 1 }
 
 // yarn's normalizePattern.
@@ -83,6 +85,7 @@ class Resolver {
     this.patterns = new Map()
     this.byName = new Map()
     this.delayed = []
+    this.late = []
     this.diverted = []
   }
 
@@ -102,18 +105,22 @@ class Resolver {
     if (workspace !== undefined && satisfies(workspace.version, range, { loose: true })) return { kind: 'workspace', name: workspace.name, version: workspace.version, workspace }
     const where = quote(request.pattern)
     const kind = kindOf(range, where)
-    // yarn reads a directory, and fetches a tarball, by a resolver whose turns
-    // beside others' are not modelled here.
-    if ((kind === 'directory' || kind === 'tarball') && request.parentNames !== undefined) {
-      throw new DeptreeError(`a ${kind === 'directory' ? 'file: directory' : 'tarball URL'} asked for beneath the top level, rather than by the root or a resolution, is not supported`, where)
-    }
     const entry = this.lockfile.packages[request.pattern]
     if (entry === undefined) throw new DeptreeError('yarn would resolve this pattern anew: the lockfile has no entry for it', where)
     if (hasVersion && validRange(range) && !satisfies(entry.version, range)) {
       throw new DeptreeError(`yarn would resolve this pattern anew: the lockfile has ${entry.version}, which the range does not take`, where)
     }
-    if (kind === 'directory') return { kind, name, version: entry.version, entry, dir: directoryOf(range, where) }
-    return { kind: 'registry', name, version: entry.version, entry, tag: kind === 'tag' }
+    if (kind !== 'directory') return { kind: 'registry', name, version: entry.version, entry, tag: kind === 'tag' }
+    const dir = directoryOf(range, where)
+    if (request.parentNames !== undefined && this.copyOf(name, dir) === undefined) {
+      throw new DeptreeError('a file: directory asked for beneath the top level, and not by the root or a resolution first, is not supported', where)
+    }
+    return { kind, name, version: entry.version, entry, dir }
+  }
+
+  // exoticRangeMatch: the package of `name` copied from `dir` already.
+  copyOf(name, dir) {
+    return this.byName.get(name)?.map((pattern) => this.patterns.get(pattern)).find((ref) => ref.kind === 'directory' && ref.dir === dir)
   }
 
   // No resolution applies to a top-level request.
@@ -134,7 +141,8 @@ class Resolver {
   // the last of which its pattern names.
   check(request, info) {
     const { name, range } = splitPattern(request.pattern)
-    if (this.exactMatch(name, validRange(range) ? info.version : range) !== undefined) {
+    const found = info.kind === 'directory' ? this.copyOf(name, info.dir) : this.exactMatch(name, validRange(range) ? info.version : range)
+    if (found !== undefined) {
       this.delayed.push(request)
       return []
     }
@@ -172,11 +180,16 @@ class Resolver {
       return undefined
     }
     const info = this.infoOf(request)
+    if (info.kind === 'directory' && request.parentNames !== undefined) {
+      this.late.push(request)
+      return undefined
+    }
     return { request, info, left: info.tag ? Infinity : TURNS[info.kind] }
   }
 
   answer(waiting) {
-    if (waiting.length > 1) throw new DeptreeError(`yarn resolves these in the order the filesystem answers it, which is not set: ${waiting.map(({ request }) => quote(request.pattern)).join(', ')}`)
+    const reading = [...waiting.map(({ request }) => request), ...this.late]
+    if (reading.length > 1) throw new DeptreeError(`yarn resolves these in the order the filesystem answers it, which is not set: ${reading.map(({ pattern }) => quote(pattern)).join(', ')}`)
     const [strand] = waiting
     const where = quote(strand.request.pattern)
     const { range } = splitPattern(strand.request.pattern)
@@ -203,13 +216,16 @@ class Resolver {
       if (strands.every((strand) => strand.left === Infinity)) strands = this.answer(strands)
       strands = this.turn(strands)
     }
+    this.delayed.push(...this.late)
+    this.late = []
   }
 
   // yarn's resolveToExistingVersion for the delayed, then the diverted.
   settle() {
     for (const request of this.delayed) {
       const { name } = splitPattern(request.pattern)
-      const ref = this.exactMatch(name, this.infoOf(request).version)
+      const info = this.infoOf(request)
+      const ref = info.kind === 'directory' ? this.copyOf(name, info.dir) : this.exactMatch(name, info.version)
       ref.requests.push(request)
       this.addPattern(request.pattern, ref)
       if (!request.optional) ref.optional = false

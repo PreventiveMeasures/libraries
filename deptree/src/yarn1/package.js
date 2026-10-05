@@ -93,6 +93,7 @@ export function readYarnDirectory(project, { name, version, entry, dir }, where)
         continue
       }
       if (type !== 'file') throw new DeptreeError(`${quote(`${dir}/${path}`)} is a ${type}, which is not supported`, where)
+      if (!Number.isInteger(mode)) throw new TypeError(`project.lstat must give a file's mode, and gives ${String(mode)} for ${quote(`/${dir}/${path}`)}`)
       if ((mode & ~0o777) !== 0) throw new DeptreeError(`${quote(`${dir}/${path}`)} has the mode ${mode.toString(8)}, which is not supported`, where)
       files.set(path, { data: readBytes(project, `/${dir}/${path}`), mode })
     }

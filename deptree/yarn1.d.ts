@@ -46,13 +46,13 @@ export interface Yarn1Host {
 // A view of the lockfile's directory, by paths from `/`: a Vfs, or
 // anything with its readdir, lstat, stat and readFile, such as one of a
 // directory on disk, of which only this is read: the names in a
-// directory; what a path is, `file`, `directory` or `symlink`, with lstat,
-// and what it leads to with stat; and a file's bytes. Each throws an error
-// whose `code` is ENOENT, ENOTDIR or ELOOP for a path that leads nowhere.
-// Nothing is written to it.
+// directory; what a path is, `file`, `directory` or `symlink`, and its
+// mode, with lstat, and what it leads to with stat; and a file's bytes.
+// Each throws an error whose `code` is ENOENT, ENOTDIR or ELOOP for a path
+// that leads nowhere. Nothing is written to it.
 export interface Yarn1Project {
   readdir(path: string): string[]
-  lstat(path: string): { type: NodeType }
+  lstat(path: string): { type: NodeType, mode: number }
   stat(path: string): { type: NodeType }
   readFile(path: string): Uint8Array
 }
@@ -267,13 +267,16 @@ export interface Yarn1Tree {
 // requests of tags wait on the filesystem at once, which it answers in no
 // set order.
 //
-// Or, by the root or as what a resolution resolves to, but not beneath
-// another package, where yarn reads it in an order not modelled here, by
-// the registry's own tarball URL, either of those above (no `#` after
-// it): the entry yarn writes for one has no integrity, so its tarball is
-// held to the sha1 after the `#` of its `resolved` and to the registry's
-// own sha512; or by a directory of the project, `file:<path>` or a path
-// starting `./`, within the project and not its root. yarn copies a
+// Or by the registry's own tarball URL, either of those above (no `#`
+// after it): the entry yarn writes for one has no integrity, so its
+// tarball is held to the sha1 after the `#` of its `resolved` and to the
+// registry's own sha512. Or, by the root or as what a resolution resolves
+// to, by a directory of the project, `file:<path>` or a path starting
+// `./`, within the project and not its root; beneath another package,
+// where yarn reads it in an order not modelled here, only one read
+// already, as the workspaces' aggregator asks for the root's again, which
+// yarn takes the first's package for, but not where a tag waits on the
+// filesystem beside it. yarn copies a
 // directory whole, whatever package.json's `files` and an ignore file
 // say, each file's mode as it is, each bin's target made executable, and
 // the tree copies it so, read from `project`, which has to be given for

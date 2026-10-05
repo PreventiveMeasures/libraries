@@ -246,6 +246,8 @@ describe('buildYarn1Tree', () => {
       assert.deepEqual(['cli.js', 'secret', '.gitignore'].map((name) => mode(vfs, `/node_modules/b/${name}`)), [0o755, 0o600, 0o644])
       assert.deepEqual(installed.find(({ path }) => path === 'node_modules/b'), { path: 'node_modules/b', name: 'b', version: '1.5.0', directory: 'local/b', dev: false, optional: false })
     }
+    const modeless = { readdir: (path) => asked.readdir(path), lstat: (path) => ({ type: asked.lstat(path).type }), stat: (path) => asked.stat(path), readFile: (path) => asked.readFile(path) }
+    await assert.rejects(buildYarn1Tree({ project: modeless, host: HOST }), /^TypeError: project\.lstat must give a file's mode, and gives undefined for "\/local\/b\/\.gitignore"$/u)
   })
 
   // yarn writes no integrity for a pattern that names a tarball's URL, but the
@@ -264,6 +266,30 @@ describe('buildYarn1Tree', () => {
     assert.ok(calls.includes('https://registry.npmjs.org/b/2.0.0'), 'the registry\'s document, for its sha512')
     const wrong = lockfile(byUrl(`"b@${b2}"`, 'b@2.0.0').replace(sha1(T['b@2.0.0'].bytes), sha1(T['b@1.0.0'].bytes)))
     await assert.rejects(buildYarn1Tree({ project: projectOf({ 'yarn.lock': wrong, 'package.json': { name: 'root', version: '1.0.0', dependencies: { b: b2 } } }), host: HOST }), /^DeptreeError: "b@https:\/\/registry\.yarnpkg\.com\/b\/-\/b-2\.0\.0\.tgz": the tarball's sha1 is not [\da-f]{40}$/u)
+  })
+
+  // yarn's workspace aggregator asks again for what the root does: for a
+  // directory, it takes the one it read; for a tarball URL, it makes the
+  // package anew, which is one package with the first.
+  it('installs the root\'s file: directory and tarball URL beside workspaces', async () => {
+    stubRegistry(TARBALLS)
+    const byUrl = (keys, id) => entry(keys, id).replace(/\n {2}integrity .*/u, '')
+    const b2 = yarnpkg('b', '2.0.0')
+    const at = (dependencies, ...entries) => projectOf({
+      'yarn.lock': lockfile(...entries, '"l@file:./local/l":\n  version "1.5.0"\n'),
+      'package.json': { name: 'root', version: '1.0.0', private: true, workspaces: ['packages/*'], dependencies: { l: 'file:./local/l', ...dependencies } },
+      'packages/w/package.json': { name: 'w', version: '1.0.0' },
+      'local/l/package.json': { name: 'l', version: '1.5.0' },
+      'local/l/i.js': 'l',
+    })
+    const { vfs, stats } = await buildYarn1Tree({ project: at({ b: b2 }, byUrl(`"b@${b2}"`, 'b@2.0.0')), host: HOST })
+    assert.equal(vfs.readText('/node_modules/l/i.js'), 'l')
+    assert.equal(vfs.readText('/node_modules/b/index.js'), 'b2')
+    assert.equal(vfs.readlink('/node_modules/w'), '../packages/w')
+    assert.equal(stats.packages, 2)
+    // A tag's, as the aggregator asks for it again too, waits on the
+    // filesystem beside the directory's.
+    await assert.rejects(buildYarn1Tree({ project: at({ d: 'latest' }, entry('d@latest', 'd@1.0.0')), host: HOST }), /^DeptreeError: yarn resolves these in the order the filesystem answers it, which is not set: "d@latest", "l@file:\.\/local\/l"$/u)
   })
 
   it('installs a package the host cannot run where the settings say to ignore its platform', async () => {
@@ -379,7 +405,7 @@ describe('buildYarn1Tree refuses', () => {
     await assert.rejects(buildAt('file:.', lockfile('"b@file:.":\n  version "1.0.0"\n')), /^DeptreeError: "b@file:\.": the project's own directory is not supported$/u)
     const nested = { 'local/b/package.json': { name: 'b', version: '1.5.0', dependencies: { c: 'file:./c' } } }
     const lock = lockfile('"b@file:./local/b":\n  version "1.5.0"\n  dependencies:\n    c "file:./c"\n', '"c@file:./c":\n  version "1.0.0"\n')
-    await assert.rejects(buildAt('file:./local/b', lock, nested), /^DeptreeError: "c@file:\.\/c": a file: directory asked for beneath the top level, rather than by the root or a resolution, is not supported$/u)
+    await assert.rejects(buildAt('file:./local/b', lock, nested), /^DeptreeError: "c@file:\.\/c": a file: directory asked for beneath the top level, and not by the root or a resolution first, is not supported$/u)
   })
 
   it('two tags yarn would resolve in the order the filesystem answers', async () => {
