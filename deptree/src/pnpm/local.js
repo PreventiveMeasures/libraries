@@ -1,9 +1,8 @@
 // Directories outside node_modules the tree links to or installs, read from the
 // project given. Each must hold a package.json, whose bins take their names as
-// pnpm links them; but one a link leads to may not be there at all.
+// pnpm links them.
 
 import { satisfies, valid, validRange } from '@preventive/upstream/semver.js'
-import { basename, dirname, resolve } from '@preventive/vfs/path.js'
 import { DeptreeError, difference, quote } from '../error.js'
 import { readManifest } from '../manifest.js'
 import { readText, typeOf } from '../project.js'
@@ -14,7 +13,7 @@ import { packDirectory } from './packlist.js'
 
 function manifestAt(project, dir, where) {
   const text = readText(project, `/${dir}/package.json`, where)
-  if (text === undefined) throw new DeptreeError(`${quote(dir)} holds no package.json in the project given`, where)
+  if (text === undefined) throw new DeptreeError(`${quote(dir)} ${typeOf(project, `/${dir}`) === undefined ? 'is not in' : 'holds no package.json in'} the project given`, where)
   return readManifest(text, where)
 }
 
@@ -42,43 +41,23 @@ export function readDirectoryPackage(project, pkg, where, host) {
   return { files, manifest, local: true }
 }
 
-// The package.json of `dir`, above a directory not there, where pnpm 11
-// looks for one whose publishConfig.directory it is, up to /, of which only
-// the project is read; a manifest of another kind is refused.
-function manifestAbove(project, dir, where) {
-  const at = (name) => (dir === '.' ? `/${name}` : `/${dir}/${name}`)
-  const text = readText(project, at('package.json'), where)
-  if (text !== undefined) return readManifest(text, where)
-  const other = ['package.json5', 'package.yaml'].find((name) => typeOf(project, at(name)) !== undefined)
-  if (other !== undefined) throw new DeptreeError(`${quote(at(other).slice(1))} is a manifest pnpm 11 may read the bins of a directory below it from, which is not supported`, where)
-  return undefined
-}
+// pnpm takes `npm:@scope/name@workspace:<range>` for a path, for its `/`,
+// which no other resolver takes, and links to a directory of that name.
+const ALIASED = /(?:^|\/)(npm:(@[^/]+\/[^/]+)@(workspace:[^/]*))$/u
 
-// pnpm links to a directory that is not there, as it warns, and reads no bins
-// of it: as of an override to `npm:@scope/name@workspace:^`, which no resolver
-// but the one for paths takes, for its `/`. Refused where pnpm 10 links a
-// runtime's binary by the directory's name, or pnpm 11 reads the bins of a
-// package.json above it whose publishConfig.directory it is.
-function missingLinked(project, projects, target, where) {
-  if (['node', 'deno', 'bun'].includes(basename(target))) throw new DeptreeError(`${quote(target)} is not in the project given, and pnpm 10 links a runtime's binary by its name, which is not supported`, where)
-  for (let dir = dirname(target); ; dir = dirname(dir)) {
-    const directory = (projects.get(dir) ?? manifestAbove(project, dir, where))?.publishConfig?.directory
-    if (typeof directory === 'string' && resolve('/', dir, directory) === `/${target}`) {
-      throw new DeptreeError(`${quote(target)} is not in the project given, and pnpm 11 reads its bins from ${quote(dir)}, whose publishConfig.directory it is, which is not supported`, where)
-    }
-    if (dir === '.') return {}
-  }
-}
-
-// A target in node_modules is the tree's, not the project's, and so is never
-// taken for one not there.
+// pnpm links to a directory that is not there all the same: pnpm 10 and 11
+// warn as they resolve, and none does as a frozen install. Refused, with the
+// project given or, for the spec it takes for a path, without.
 export function readLinked(links, nodes, projects, project) {
   const linked = new Map()
-  if (project === undefined) return linked
   for (const [path, target] of links) {
     if (nodes.has(target) || projects.has(target) || linked.has(target) || target === '..' || target.startsWith('../')) continue
-    const missing = !target.split('/').includes('node_modules') && typeOf(project, `/${target}`) === undefined
-    linked.set(target, missing ? missingLinked(project, projects, target, quote(path)) : manifestAt(project, target, quote(path)))
+    const aliased = ALIASED.exec(target)
+    if (aliased !== null) {
+      const [, spec, name, range] = aliased
+      throw new DeptreeError(`pnpm takes ${quote(spec)} for a path, for its "/", and links to ${quote(target)}, which is not there; ${quote(range.replace(':', `:${name}@`))} is the spec that links the workspace package`, quote(path))
+    }
+    if (project !== undefined) linked.set(target, manifestAt(project, target, quote(path)))
   }
   return linked
 }
