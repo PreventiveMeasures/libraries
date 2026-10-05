@@ -19,8 +19,10 @@
 // Linux and the BSDs follow that spec, so macOS and Windows take no
 // XDG_CACHE_HOME, as Go's os.UserCacheDir and Rust's dirs take none. Undefined where no absolute directory is found to start
 // from: a home directory that is relative, empty or unknown. Nothing is
-// made. `name` is one directory name: not empty, `.` or `..`, and with no
-// `/`, `\` or control character.
+// made. `name` is one directory name on every platform: not empty, and
+// with no `/`, `\`, control character, or anything Windows refuses in a
+// name: a character of `<>:"|?*`, a trailing dot or space (so not `.` or
+// `..` either), or a device name such as `con` or `nul.txt`.
 export function cacheDirFor(name: string): string | undefined
 
 // cacheDirFor('PreventiveMeasures'), read once, when this module is first
