@@ -215,7 +215,7 @@ export const MANIFEST_KEYS = [
 const IGNORED = new Set([
   // resolution, already in the lockfile
   'allowNonAppliedPatches', 'allowUnusedPatches', 'allowedDeprecatedVersions', 'blockExoticSubdeps', 'catalogMode',
-  'dedupeInjectedDeps', 'dedupePeerDependents', 'linkWorkspacePackages', 'lockfileIncludeTarballUrl',
+  'dedupeInjectedDeps', 'dedupePeerDependents', 'ignoreCompatibilityDb', 'linkWorkspacePackages', 'lockfileIncludeTarballUrl',
   'minimumReleaseAge', 'minimumReleaseAgeExclude', 'peerDependencyRules', 'preferWorkspacePackages',
   'registrySupportsTimeField', 'resolutionMode', 'resolvePeersFromWorkspaceRoot', 'saveExact', 'savePrefix',
   'saveWorkspaceProtocol', 'strictPeerDependencies',
