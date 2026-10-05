@@ -536,6 +536,28 @@ describe('buildPnpmTree beside the bins of a directory outside the tree', () => 
       assert.equal(tMode((await linkedTo(0o644, { project: given({ cmd: 'v.js' }) })).vfs), 0o644)
       assert.equal(tMode((await linkedTo(0o644, { project: given({ other: 'v.js' }) })).vfs), 0o755)
     })
+
+    // pnpm links to a directory that is not there, as it warns, with no bins.
+    it('takes no bins of a directory the project does not hold, and links it all the same', async () => {
+      const bare = (to, files = {}) => createVfs({ 'package.json': rootOf(to), ...files })
+      const { vfs } = await linkedTo(0o644, { project: bare('vendor/v') })
+      assert.equal(tMode(vfs), 0o755)
+      assert.equal(vfs.readlink('/node_modules/v'), '../vendor/v')
+      assert.equal(vfs.isDirectory('/node_modules/v'), false)
+      await assert.rejects(linkedTo(0o644, { project: bare('vendor/v', { 'vendor/v/v.js': '' }) }), /^DeptreeError: "node_modules\/v": "vendor\/v" holds no package\.json in the project given$/u)
+    })
+
+    // pnpm 10 links `node` to node/bin/node of one with no package.json, and
+    // pnpm 11 reads the bins of a package.json above it whose
+    // publishConfig.directory it is.
+    it('refuses a directory the project does not hold whose bins pnpm may find elsewhere', async () => {
+      const missing = (to, files = {}) => linkedTo(0o644, { to, project: createVfs({ 'package.json': rootOf(to), ...files }) })
+      await assert.rejects(missing('vendor/node'), /^DeptreeError: "node_modules\/v": "vendor\/node" is not in the project given, and pnpm 10 links a runtime's binary by its name, which is not supported$/u)
+      const publishing = { 'vendor/v/package.json': JSON.stringify({ name: 'v', bin: { cmd: 'cli.js' }, publishConfig: { directory: 'dist' } }) }
+      await assert.rejects(missing('vendor/v/dist', publishing), /^DeptreeError: "node_modules\/v": "vendor\/v\/dist" is not in the project given, and pnpm 11 reads its bins from "vendor\/v", whose publishConfig\.directory it is, which is not supported$/u)
+      await assert.rejects(missing('vendor/v/dist', { 'vendor/v/package.yaml': 'name: v\n' }), /^DeptreeError: "node_modules\/v": "vendor\/v\/package\.yaml" is a manifest pnpm 11 may read the bins of a directory below it from, which is not supported$/u)
+      assert.equal(tMode((await missing('vendor/v/lib', publishing)).vfs), 0o755)
+    })
   })
 
   describe('a project', () => {
@@ -1221,6 +1243,21 @@ describe('buildPnpmTree into a given Vfs', () => {
       const marked = (count) => ({ 'package.json': given.manifest, ...vendored, 'vendor/foo/package.json': `${'\uFEFF'.repeat(count)}${vendored['vendor/foo/package.json']}` })
       assert.equal((await buildLinked(given, both(marked(1)))).vfs.realpath('/node_modules/foo'), '/vendor/foo')
       await assert.rejects(buildLinked(given, both(marked(2))), /^DeptreeError: overrides\["foo"\]: not JSON/u)
+    })
+
+    // pnpm takes `npm:@scope/name@workspace:^` for a path, for its `/`, and
+    // links to a directory of that name, which is not there.
+    it('links an override to a workspace package by npm: as pnpm does, to a directory that is not there', async () => {
+      stubRegistry([await app])
+      const spec = 'npm:@repo/override.abc@workspace:^'
+      const given = {
+        lockfile: small(dep('app') + dep('foo', `link:${spec}`, spec), `${entry(await app)}\n`, `  app@1.0.0:\n    dependencies:\n      foo: link:${spec}\n`, `  foo: ${spec}\n`),
+        manifest: JSON.stringify({ name: 'root', dependencies: { app: '1.0.0', foo: '^1.0.0' }, pnpm: { overrides: { foo: spec } } }),
+      }
+      const { vfs } = await buildLinked(given, { project: createVfs({ 'package.json': given.manifest, 'tools/abc/package.json': '{"name":"@repo/override.abc","version":"0.0.0"}' }) })
+      assert.equal(vfs.readlink('/node_modules/foo'), `../${spec}`)
+      assert.equal(vfs.readlink('/node_modules/.pnpm/app@1.0.0/node_modules/foo'), `../../../../${spec}`)
+      assert.equal(vfs.isDirectory('/node_modules/.pnpm/app@1.0.0/node_modules/foo'), false)
     })
 
     // pnpm writes a package's dependency overridden to a directory as a link
