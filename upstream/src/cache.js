@@ -4,7 +4,7 @@ import { mkdir, open, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 
-import { assertDirectoryName, assertDirectoryPath, isRepo } from './args.js'
+import { assertCacheName, assertDirectoryPath, isRepo } from './args.js'
 import { MAX_BYTES, decode } from './http.js'
 
 const DIRS = new Set(['npm/repos', 'npm/tarballs', 'cargo/repos', 'cargo/crates', 'composer/repos', 'soldeer/repos', 'soldeer/zips', 'github/trees'])
@@ -28,7 +28,7 @@ function home() {
 // Windows take no XDG_CACHE_HOME, as Go's os.UserCacheDir and Rust's dirs
 // take none.
 export function cacheDirFor(name) {
-  assertDirectoryName('cacheDirFor', 'name', name)
+  assertCacheName('cacheDirFor', 'name', name)
   if (process.platform === 'darwin') return within(home(), 'Library', 'Caches', name)
   if (process.platform === 'win32') return within(absolute(process.env.LOCALAPPDATA) ?? within(home(), 'AppData', 'Local'), name, 'Cache')
   return within(absolute(process.env.XDG_CACHE_HOME) ?? within(home(), '.cache'), name)

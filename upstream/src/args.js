@@ -74,7 +74,7 @@ export const assertText = assertion('text with no control characters', (value) =
 export const assertDirectoryPath = assertion('a directory path', (value) => isString(value, 4096) && value !== '')
 // A short ASCII name, which no filesystem refuses, reads as another or takes
 // for a device: none of those is six characters of these alone.
-export const assertDirectoryName = assertion('6 to 32 of a-z, A-Z, 0-9, _ and -', matches(/^[a-zA-Z0-9_-]{6,32}$/u))
+export const assertCacheName = assertion('6 to 32 of a-z, A-Z, 0-9, _ and -', matches(/^[a-zA-Z0-9_-]{6,32}$/u))
 export const assertLogin = assertion('a GitHub login', isLogin)
 export const assertRepoName = assertion('a repository name', isRepoName)
 export const assertRepo = assertion('"owner/name"', isRepo)
