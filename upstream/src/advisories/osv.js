@@ -4,7 +4,7 @@ import { assertCrateName, assertCrateVersion, assertion, isGhsa, isStrings, matc
 import { OSV_API, buildUrl, request } from '../http.js'
 import { chunks, pool } from '../pool.js'
 import { isExactVersion } from '../semver.js'
-import { inRange, isText, metrics, order } from './common.js'
+import { advisoryUrl, inRange, isText, metrics, order } from './common.js'
 import { withRepositories } from './github.js'
 import { composerRepos, crateRepos } from './repos.js'
 
@@ -65,7 +65,7 @@ function toAdvisory(ecosystem, name, versions, record) {
     name,
     source: 'osv',
     id: record.id,
-    ...(ghsa && { ghsa }),
+    ...(ghsa && { ghsa, url: advisoryUrl(ghsa) }),
     aliases,
     ...(record.summary && { title: record.summary }),
     ...metrics({ severity: record.database_specific?.severity, vector, cwe: record.database_specific?.cwe_ids }),

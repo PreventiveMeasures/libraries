@@ -110,15 +110,16 @@ describe('npm', () => {
     ])
     assert.deepEqual(calls, [{ url: BULK, method: 'POST', body: { lodash: ['4.17.15', '4.17.21'], minimist: ['1.2.0'] } }])
     assert.deepEqual(found, [
-      { ecosystem: 'npm', name: 'lodash', source: 'registry', id: 'GHSA-35jh-r3h4-6jhm', ghsa: 'GHSA-35jh-r3h4-6jhm', aliases: [], title: 'Command Injection in lodash', severity: 'high', cwe: [], range: '<4.17.21', versions: ['4.17.15'] },
+      { ecosystem: 'npm', name: 'lodash', source: 'registry', id: 'GHSA-35jh-r3h4-6jhm', ghsa: 'GHSA-35jh-r3h4-6jhm', url: 'https://github.com/advisories/GHSA-35jh-r3h4-6jhm', aliases: [], title: 'Command Injection in lodash', severity: 'high', cwe: [], range: '<4.17.21', versions: ['4.17.15'] },
       {
-        ecosystem: 'npm', name: 'minimist', source: 'registry', id: 'GHSA-xvch-5gv4-984h', ghsa: 'GHSA-xvch-5gv4-984h', aliases: [], title: 'Prototype Pollution in minimist', severity: 'critical',
+        ecosystem: 'npm', name: 'minimist', source: 'registry', id: 'GHSA-xvch-5gv4-984h', ghsa: 'GHSA-xvch-5gv4-984h', url: 'https://github.com/advisories/GHSA-xvch-5gv4-984h', aliases: [],
+        title: 'Prototype Pollution in minimist', severity: 'critical',
         cvss: 9.8, cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', cwe: ['CWE-1321'], range: '>=1.0.0 <1.2.6', versions: ['1.2.0'],
       },
     ])
   })
 
-  it('takes a GHSA only from a GitHub advisory page, and ids a row without one by the registry', async () => {
+  it('takes a GHSA only from a GitHub advisory page, and ids a row without one by the registry, with no page', async () => {
     stubRegistry(() => ({
       pkg: [
         row({ id: 1, url: 'https://npmjs.com/advisories/1' }),
@@ -127,7 +128,7 @@ describe('npm', () => {
       ],
     }))
     const found = await npm([{ name: 'pkg', version: '1.0.0' }])
-    assert.deepEqual(found.map(({ id, ghsa }) => [id, ghsa]), [['npm:1', undefined], ['npm:2', undefined], ['npm:3', undefined]])
+    assert.deepEqual(found.map(({ id, ghsa, url }) => [id, ghsa, url]), [['npm:1', undefined, undefined], ['npm:2', undefined, undefined], ['npm:3', undefined, undefined]])
   })
 
   it('asks for 250 names at a time, in name order', async () => {
@@ -256,17 +257,20 @@ describe('npm, with a GitHub client', () => {
       { name: 'mono-a', version: '2.0.5' },
       { name: 'mono-b', version: '4.0.0' },
     ], { github, repoAdvisories: true })
+    // Its own page, which GitHub's database may not have yet.
+    const page = (ghsa) => `https://github.com/acme/mono/security/advisories/${ghsa}`
     const common = { ecosystem: 'npm', source: 'repository', aliases: [], severity: 'moderate', cvss: 6.1, cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N', cwe: ['CWE-79'] }
     assert.deepEqual(found, [
       {
-        ecosystem: 'npm', name: 'mono-a', source: 'registry', id: 'GHSA-aaaa-aaaa-aaaa', ghsa: 'GHSA-aaaa-aaaa-aaaa', aliases: [], title: 'Prototype Pollution in minimist', severity: 'critical',
+        ecosystem: 'npm', name: 'mono-a', source: 'registry', id: 'GHSA-aaaa-aaaa-aaaa', ghsa: 'GHSA-aaaa-aaaa-aaaa', url: 'https://github.com/advisories/GHSA-aaaa-aaaa-aaaa', aliases: [],
+        title: 'Prototype Pollution in minimist', severity: 'critical',
         cvss: 9.8, cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', cwe: ['CWE-1321'], range: '<1.0.1', versions: ['1.0.0'],
       },
-      { ...common, name: 'mono-a', id: 'GHSA-aaaa-aaaa-aaaa', ghsa: 'GHSA-aaaa-aaaa-aaaa', title: 'Advisory GHSA-aaaa-aaaa-aaaa', range: '< 3.0.0', versions: ['2.0.5'] },
-      { ...common, name: 'mono-a', id: 'GHSA-bbbb-bbbb-bbbb', ghsa: 'GHSA-bbbb-bbbb-bbbb', title: 'Advisory GHSA-bbbb-bbbb-bbbb', range: '>= 1.0.0, < 1.2.6', versions: ['1.0.0'] },
-      { ...common, name: 'mono-a', id: 'GHSA-bbbb-bbbb-bbbb', ghsa: 'GHSA-bbbb-bbbb-bbbb', title: 'Advisory GHSA-bbbb-bbbb-bbbb', range: '>= 2.0.0, < 2.1.0', versions: ['2.0.5'] },
+      { ...common, name: 'mono-a', id: 'GHSA-aaaa-aaaa-aaaa', ghsa: 'GHSA-aaaa-aaaa-aaaa', url: page('GHSA-aaaa-aaaa-aaaa'), title: 'Advisory GHSA-aaaa-aaaa-aaaa', range: '< 3.0.0', versions: ['2.0.5'] },
+      { ...common, name: 'mono-a', id: 'GHSA-bbbb-bbbb-bbbb', ghsa: 'GHSA-bbbb-bbbb-bbbb', url: page('GHSA-bbbb-bbbb-bbbb'), title: 'Advisory GHSA-bbbb-bbbb-bbbb', range: '>= 1.0.0, < 1.2.6', versions: ['1.0.0'] },
+      { ...common, name: 'mono-a', id: 'GHSA-bbbb-bbbb-bbbb', ghsa: 'GHSA-bbbb-bbbb-bbbb', url: page('GHSA-bbbb-bbbb-bbbb'), title: 'Advisory GHSA-bbbb-bbbb-bbbb', range: '>= 2.0.0, < 2.1.0', versions: ['2.0.5'] },
       {
-        ecosystem: 'npm', name: 'mono-b', source: 'repository', id: 'GHSA-cccc-cccc-cccc', ghsa: 'GHSA-cccc-cccc-cccc', aliases: [], title: 'Advisory GHSA-cccc-cccc-cccc', cwe: [], range: 'not a range', versions: ['4.0.0'],
+        ecosystem: 'npm', name: 'mono-b', source: 'repository', id: 'GHSA-cccc-cccc-cccc', ghsa: 'GHSA-cccc-cccc-cccc', url: page('GHSA-cccc-cccc-cccc'), aliases: [], title: 'Advisory GHSA-cccc-cccc-cccc', cwe: [], range: 'not a range', versions: ['4.0.0'],
       },
     ])
   })
@@ -343,7 +347,8 @@ describe('github', () => {
       ['GHSA-bbbb-bbbb-bbbb', '', ['4.9.0', '5.0.1']],
     ])
     assert.deepEqual(found[0], {
-      ecosystem: 'github', name: 'OpenZeppelin/openzeppelin-contracts', source: 'repository', id: 'GHSA-aaaa-aaaa-aaaa', ghsa: 'GHSA-aaaa-aaaa-aaaa', aliases: [], title: 'Advisory GHSA-aaaa-aaaa-aaaa', severity: 'high', cwe: [], range: '>= 4.0.0, < 4.9.3', versions: ['4.9.0'],
+      ecosystem: 'github', name: 'OpenZeppelin/openzeppelin-contracts', source: 'repository', id: 'GHSA-aaaa-aaaa-aaaa', ghsa: 'GHSA-aaaa-aaaa-aaaa',
+      url: 'https://github.com/OpenZeppelin/openzeppelin-contracts/security/advisories/GHSA-aaaa-aaaa-aaaa', aliases: [], title: 'Advisory GHSA-aaaa-aaaa-aaaa', severity: 'high', cwe: [], range: '>= 4.0.0, < 4.9.3', versions: ['4.9.0'],
     })
   })
 
@@ -354,7 +359,9 @@ describe('github', () => {
       { ecosystem: 'github', name: 'openzeppelin/OpenZeppelin-Contracts', versions: ['4.8.0'] },
     ], { github })
     assert.deepEqual(calls, [OZ])
-    assert.deepEqual(found.map(({ name, versions }) => [name, versions]), [['OpenZeppelin/openzeppelin-contracts', ['4.8.0', '4.9.0']]])
+    assert.deepEqual(found.map(({ name, url, versions }) => [name, url, versions]), [
+      ['OpenZeppelin/openzeppelin-contracts', 'https://github.com/OpenZeppelin/openzeppelin-contracts/security/advisories/GHSA-aaaa-aaaa-aaaa', ['4.8.0', '4.9.0']],
+    ])
   })
 
   it('takes a branch name or 0.0.0 as every version', async () => {
@@ -423,7 +430,8 @@ describe('soldeer', () => {
       ['@openzeppelin-contracts', 'GHSA-bbbb-bbbb-bbbb', '>= 5.0.0, < 5.0.2', ['5.0.1']],
     ])
     assert.deepEqual(found[0], {
-      ecosystem: 'soldeer', name: '@openzeppelin-contracts', source: 'repository', id: 'GHSA-aaaa-aaaa-aaaa', ghsa: 'GHSA-aaaa-aaaa-aaaa', aliases: [], title: 'Advisory GHSA-aaaa-aaaa-aaaa', severity: 'high', cwe: [], range: '>= 4.0.0, < 4.9.3', versions: ['4.9.0'],
+      ecosystem: 'soldeer', name: '@openzeppelin-contracts', source: 'repository', id: 'GHSA-aaaa-aaaa-aaaa', ghsa: 'GHSA-aaaa-aaaa-aaaa',
+      url: 'https://github.com/OpenZeppelin/openzeppelin-contracts/security/advisories/GHSA-aaaa-aaaa-aaaa', aliases: [], title: 'Advisory GHSA-aaaa-aaaa-aaaa', severity: 'high', cwe: [], range: '>= 4.0.0, < 4.9.3', versions: ['4.9.0'],
     })
   })
 

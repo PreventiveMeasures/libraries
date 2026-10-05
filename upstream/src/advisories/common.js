@@ -1,7 +1,17 @@
-import { isStrings, matches } from '../args.js'
+import assert from 'node:assert/strict'
+
+import { isGhsa, isRepo, isStrings, matches, show } from '../args.js'
 import { satisfies, valid, validRange } from '../semver.js'
 
 export const order = (a, b) => (a > b) - (a < b)
+
+// GitHub's page for a GHSA: the advisory database's, which has every one
+// the registry and OSV answer with, or the page of the `repo` that
+// published it, which has it before GitHub reviews it into the database.
+export function advisoryUrl(ghsa, repo) {
+  assert.ok(isGhsa(ghsa) && (repo === undefined || isRepo(repo)), `advisories: no GitHub advisory page for ${show(ghsa)} on ${show(repo)}`)
+  return repo === undefined ? `https://github.com/advisories/${ghsa}` : `https://github.com/${repo}/security/advisories/${ghsa}`
+}
 
 // As `npm audit` matches: a prerelease is in a range around it.
 const SEMVER = { includePrerelease: true, loose: true }

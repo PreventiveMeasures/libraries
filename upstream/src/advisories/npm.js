@@ -4,7 +4,7 @@ import { assertPackageName, assertPackageVersion, isGhsa, isStrings, show } from
 import { NPM_REGISTRY, buildUrl, request } from '../http.js'
 import { chunks } from '../pool.js'
 import { compareVersions } from '../semver.js'
-import { covered, isText, metrics } from './common.js'
+import { advisoryUrl, covered, isText, metrics } from './common.js'
 import { withRepositories } from './github.js'
 import { npmRepos } from './repos.js'
 
@@ -23,7 +23,7 @@ function fromRegistry(name, row, asked) {
     name,
     source: 'registry',
     id: ghsa ?? `npm:${row.id}`,
-    ...(ghsa && { ghsa }),
+    ...(ghsa && { ghsa, url: advisoryUrl(ghsa) }),
     aliases: [],
     title: row.title,
     ...metrics({ severity: row.severity, score: row.cvss?.score, vector: row.cvss?.vectorString, cwe: row.cwe }),

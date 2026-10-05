@@ -97,7 +97,7 @@ describe('cargo', () => {
       { ...common, name: 'openssl-src', id: 'RUSTSEC-2021-0055', aliases: [], title: 'Advisory RUSTSEC-2021-0055', cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', versions: ['111.10.0+1.1.1g'] },
       { ...common, name: 'smallvec', id: 'RUSTSEC-2018-0018', aliases: ['CVE-2018-25023', 'GHSA-55m5-whcv-c49c', 'GHSA-66p5-j55p-32r9'], title: 'Advisory RUSTSEC-2018-0018', informational: 'unsound', versions: ['0.6.10'] },
       {
-        ...common, name: 'smallvec', id: 'RUSTSEC-2021-0003', ghsa: 'GHSA-43w2-9j62-hq99', aliases: ['CVE-2021-25900', 'GHSA-43w2-9j62-hq99'], title: 'Advisory RUSTSEC-2021-0003',
+        ...common, name: 'smallvec', id: 'RUSTSEC-2021-0003', ghsa: 'GHSA-43w2-9j62-hq99', url: 'https://github.com/advisories/GHSA-43w2-9j62-hq99', aliases: ['CVE-2021-25900', 'GHSA-43w2-9j62-hq99'], title: 'Advisory RUSTSEC-2021-0003',
         cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', versions: ['0.6.10', '1.6.0'],
       },
     ])
@@ -252,6 +252,7 @@ describe('composer', () => {
       source: 'osv',
       id: 'GHSA-2qph-q8xw-gv7q',
       ghsa: 'GHSA-2qph-q8xw-gv7q',
+      url: 'https://github.com/advisories/GHSA-2qph-q8xw-gv7q',
       aliases: ['CVE-2025-31674', 'DRUPAL-CORE-2025-003'],
       title: 'Advisory GHSA-2qph-q8xw-gv7q',
       severity: 'moderate',
@@ -356,9 +357,9 @@ describe('cargo and composer, with a GitHub client', () => {
       },
     })
     const found = await cargo([{ name: 'smallvec', version: '1.6.0' }, { name: 'local-only', version: '0.1.0' }, { name: 'not-on-crates-io', version: '1.0.0' }], { github, repoAdvisories: true })
-    assert.deepEqual(found.map(({ source, id, range, versions }) => [source, id, range, versions]), [
-      ['osv', 'RUSTSEC-2021-0003', undefined, ['1.6.0']],
-      ['repository', 'GHSA-bbbb-bbbb-bbbb', '>= 1.0.0, < 1.7.0', ['1.6.0']],
+    assert.deepEqual(found.map(({ source, id, url, range, versions }) => [source, id, url, range, versions]), [
+      ['osv', 'RUSTSEC-2021-0003', 'https://github.com/advisories/GHSA-43w2-9j62-hq99', undefined, ['1.6.0']],
+      ['repository', 'GHSA-bbbb-bbbb-bbbb', 'https://github.com/servo/rust-smallvec/security/advisories/GHSA-bbbb-bbbb-bbbb', '>= 1.0.0, < 1.7.0', ['1.6.0']],
     ])
     const toCrates = calls.filter(({ url }) => url.startsWith(CRATES))
     assert.equal(toCrates.length, 1)

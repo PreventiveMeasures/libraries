@@ -62,6 +62,11 @@ export interface Advisory {
   id: string
   // The id itself, or an OSV record's one GHSA alias.
   ghsa?: string
+  // GitHub's page for the GHSA, with it: a `repository` row's on its
+  // repository (https://github.com/owner/name/security/advisories/GHSA-…),
+  // which has it before GitHub reviews it into its advisory database; any
+  // other's in that database (https://github.com/advisories/GHSA-…).
+  url?: string
   aliases: string[]
   title?: string
   // `critical`, `high`, `moderate`, `low`; GitHub's `medium` reads

@@ -4,7 +4,7 @@ import { assertRepo, assertSoldeerName, assertSoldeerVersion, assertion, isGhsa,
 import { isGone } from '../github/client.js'
 import { recover } from '../http.js'
 import { pool } from '../pool.js'
-import { covered, isText, mayBeInRange, metrics } from './common.js'
+import { advisoryUrl, covered, isText, mayBeInRange, metrics } from './common.js'
 import { soldeerRepos } from './repos.js'
 
 const REPOS_AT_ONCE = 4
@@ -19,14 +19,16 @@ const listAdvisories = (github, repo) => github.listRepoAdvisories({ repo }).cat
 
 // GitHub's `>= 1.0.0, < 1.2.6` is npm's with the commas dropped.
 // Maintainers write these unreviewed: one without a range, or with one
-// semver cannot read, covers every version.
-function fromRepository(name, advisory, range, asked, covers) {
+// semver cannot read, covers every version. Its page is on `repo`, which
+// may publish it long before the advisory database has one.
+function fromRepository(repo, name, advisory, range, asked, covers) {
   const cvss = [advisory.cvss_severities?.cvss_v3, advisory.cvss_severities?.cvss_v4, advisory.cvss].find((entry) => typeof entry?.vector_string === 'string')
   return {
     name,
     source: 'repository',
     id: advisory.ghsa_id,
     ghsa: advisory.ghsa_id,
+    url: advisoryUrl(advisory.ghsa_id, repo),
     aliases: [],
     title: advisory.summary,
     ...metrics({ severity: advisory.severity, score: cvss?.score, vector: cvss?.vector_string, cwe: advisory.cwe_ids }),
@@ -51,7 +53,7 @@ async function repositoryAdvisories(github, asked, { repoOf, takes = () => true,
         const range = vulnerability?.vulnerable_version_range ?? ''
         assert.ok(typeof range === 'string', `advisories: malformed range in ${advisory.ghsa_id}`)
         for (const name of names.filter((candidate) => takes(candidate, vulnerability?.package))) {
-          rows.set(`${name} ${advisory.ghsa_id} ${range}`, fromRepository(name, advisory, range, asked.get(name), covers))
+          rows.set(`${name} ${advisory.ghsa_id} ${range}`, fromRepository(repo, name, advisory, range, asked.get(name), covers))
         }
       }
     }
