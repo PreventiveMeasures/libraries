@@ -3,7 +3,7 @@
 
 import { CompressionError, decompress } from '@preventive/archive/compression.js'
 import { unpack } from '@preventive/archive/tar.js'
-import { getTarball } from '@preventive/upstream/npm.js'
+import { getMeta, getTarball } from '@preventive/upstream/npm.js'
 import { DeptreeError, quote } from './error.js'
 import { matchesIntegrity } from './hash.js'
 import { fold } from './mount.js'
@@ -27,13 +27,15 @@ function checkId(name, version, where) {
   if (!NAME.test(name) || !VERSION.test(version)) throw new DeptreeError(`${quote(`${name}@${version}`)} is no package the registry's URL names as it is`, where)
 }
 
-// The registry's own tarball, by its sha512 alone, as fetchTarball takes it.
-export function ownTarball(url, name, version, integrity, where) {
+// The registry's own tarball, by its sha512 alone, as fetchTarball takes it;
+// where `unpinned`, with none where the lockfile records none, for
+// fetchTarball to take the registry's.
+export function ownTarball(url, name, version, integrity, where, unpinned = false) {
   checkId(name, version, where)
   const expected = tarballUrl(name, version)
   if (url !== expected) throw new DeptreeError(`only the registry's own tarball of ${name}@${version}, ${expected}, is supported`, where)
   const sha512 = integrity?.split(' ').find((part) => part.startsWith('sha512-'))
-  if (sha512 === undefined) throw new DeptreeError('a tarball with no sha512 integrity is not supported', where)
+  if (sha512 === undefined && !(unpinned && integrity === undefined)) throw new DeptreeError('a tarball with no sha512 integrity is not supported', where)
   return { name, version, integrity: sha512 }
 }
 
@@ -104,6 +106,13 @@ async function gunzip(bytes) {
   }
 }
 
+// The registry's sha512 of a version, for a tarball ownTarball let through
+// unpinned.
+export async function registryIntegrity(name, version, where) {
+  checkId(name, version, where)
+  return (await getMeta(name, version)).dist.integrity
+}
+
 export async function fetchTarball(name, version, integrity, where) {
   checkId(name, version, where)
   if (!/^sha512-[\d+/A-Za-z]{86}==$/u.test(integrity)) throw new DeptreeError('a tarball with no sha512 integrity is not supported', where)
@@ -111,5 +120,5 @@ export async function fetchTarball(name, version, integrity, where) {
   if (!await matchesIntegrity(bytes, integrity)) throw new DeptreeError(`the tarball is not ${integrity}`, where)
   if (bytes[0] !== 0x1f || bytes[1] !== 0x8b || bytes[2] !== 0x08) throw new DeptreeError('the tarball is not gzipped', where)
   const tar = await gunzip(bytes)
-  return { bytes, entries: unpack(tar), inflated: tar.length }
+  return { bytes, entries: unpack(tar), inflated: tar.length, integrity }
 }

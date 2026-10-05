@@ -7,8 +7,12 @@ import { DeptreeError, quote } from '../error.js'
 import { matchesGlob } from '../glob.js'
 
 // Beneath a top-level request, all run at once, each taking these microtask
-// turns, by its resolver, before it checks for a package of its version.
-const TURNS = { registry: 5, workspace: 3 }
+// turns, by its resolver, before it checks for a package of its version: a
+// tarball URL as many as the registry. A directory is read at the top level
+// alone, where nothing runs beside it; beneath, only one read already is
+// asked for again, which yarn reads once all else has run, and takes the
+// first's package for.
+const TURNS = { registry: 5, workspace: 3, directory: 1 }
 
 // yarn's normalizePattern.
 export function splitPattern(pattern) {
@@ -19,13 +23,37 @@ export function splitPattern(pattern) {
 }
 
 // yarn's normalizeRange: any range but a semver range or one with a `:`,
-// such as an `npm:` alias, is a tag.
+// such as an `npm:` alias, is a tag. Of the sources getExoticResolver takes,
+// in its order, a tarball first, where a path ends in .tgz: the registry's
+// own tarball by its URL, on npm's registry or yarn's mirror; and a
+// directory, by `file:` or a path.
 const TAG = /^[\w~-][\w.~-]*$/u
-function kindOf(range, where) {
+const TARBALL = /^https?:\/\/|^[^@]*\.(?:tgz|tar\.gz)$/u
+const REGISTRY_TARBALL = /^https:\/\/registry\.(?:npmjs\.org|yarnpkg\.com)\/[^#?]+\.tgz$/u
+const DIRECTORY = /^(?:file:|\.{1,2}\/|\/)/u
+export function kindOf(range, where) {
   if (validRange(range)) return 'range'
   if (range.startsWith('npm:')) return 'alias'
-  if (TAG.test(range) && !/\.(?:tgz|tar\.gz)$/u.test(range)) return 'tag'
-  throw new DeptreeError('only a semver range, an npm: alias or a tag is supported', where)
+  if (TARBALL.test(range)) {
+    if (REGISTRY_TARBALL.test(range)) return 'tarball'
+  } else if (DIRECTORY.test(range)) return 'directory'
+  else if (TAG.test(range)) return 'tag'
+  throw new DeptreeError('only a semver range, an npm: alias, a tag, a file: directory or the registry\'s own tarball URL is supported', where)
+}
+
+// The directory a `file:` range names, as yarn resolves it from the
+// lockfile's: one within the project, which it is read from.
+function directoryOf(range, where) {
+  const path = range.replace(/^file:/u, '')
+  const segments = []
+  for (const segment of path.split('/')) {
+    if (segment === '..') {
+      if (segments.pop() === undefined) throw new DeptreeError(`${quote(path)} is outside the project, which is not supported`, where)
+    } else if (segment !== '' && segment !== '.') segments.push(segment)
+  }
+  if (path.startsWith('/')) throw new DeptreeError(`${quote(path)} is an absolute path, which is not supported`, where)
+  if (segments.length === 0) throw new DeptreeError('the project\'s own directory is not supported', where)
+  return segments.join('/')
 }
 
 // What a package asks for, in yarn's order. A lockfile entry's are patterns;
@@ -43,8 +71,9 @@ function asked(info, where) {
 // Where yarn's cache keeps a package (generateModuleCachePath), which is
 // what its hoister tells two references apart by: two of one package, as
 // a tag or an alias asked for twice makes, are one there.
-function locOf({ kind, name, version, entry }) {
+function locOf({ kind, name, version, entry, dir }) {
   if (kind === 'workspace') return `workspace\n${name}`
+  if (kind === 'directory') return `copy\n${dir}`
   const { uid } = entry
   const { sha1, integrity } = entry.resolution ?? {}
   return `npm\n${name}\n${version}\n${uid !== undefined && uid !== version ? uid : sha1 ?? ''}\n${integrity ? 'integrity' : ''}`
@@ -56,6 +85,7 @@ class Resolver {
     this.patterns = new Map()
     this.byName = new Map()
     this.delayed = []
+    this.late = []
     this.diverted = []
   }
 
@@ -74,13 +104,23 @@ class Resolver {
     const workspace = this.workspaces.get(name)
     if (workspace !== undefined && satisfies(workspace.version, range, { loose: true })) return { kind: 'workspace', name: workspace.name, version: workspace.version, workspace }
     const where = quote(request.pattern)
-    const tag = kindOf(range, where) === 'tag'
+    const kind = kindOf(range, where)
     const entry = this.lockfile.packages[request.pattern]
     if (entry === undefined) throw new DeptreeError('yarn would resolve this pattern anew: the lockfile has no entry for it', where)
     if (hasVersion && validRange(range) && !satisfies(entry.version, range)) {
       throw new DeptreeError(`yarn would resolve this pattern anew: the lockfile has ${entry.version}, which the range does not take`, where)
     }
-    return { kind: 'registry', name, version: entry.version, entry, tag }
+    if (kind !== 'directory') return { kind: 'registry', name, version: entry.version, entry, tag: kind === 'tag' }
+    const dir = directoryOf(range, where)
+    if (request.parentNames !== undefined && this.copyOf(name, dir) === undefined) {
+      throw new DeptreeError('a file: directory asked for beneath the top level, and not by the root or a resolution first, is not supported', where)
+    }
+    return { kind, name, version: entry.version, entry, dir }
+  }
+
+  // exoticRangeMatch: the package of `name` copied from `dir` already.
+  copyOf(name, dir) {
+    return this.byName.get(name)?.map((pattern) => this.patterns.get(pattern)).find((ref) => ref.kind === 'directory' && ref.dir === dir)
   }
 
   // No resolution applies to a top-level request.
@@ -101,7 +141,8 @@ class Resolver {
   // the last of which its pattern names.
   check(request, info) {
     const { name, range } = splitPattern(request.pattern)
-    if (this.exactMatch(name, validRange(range) ? info.version : range) !== undefined) {
+    const found = info.kind === 'directory' ? this.copyOf(name, info.dir) : this.exactMatch(name, validRange(range) ? info.version : range)
+    if (found !== undefined) {
       this.delayed.push(request)
       return []
     }
@@ -112,6 +153,7 @@ class Resolver {
       kind: info.kind,
       entry: info.entry,
       workspace: info.workspace,
+      dir: info.dir,
       patterns: [],
       requests: [request],
       asked: asked(info, quote(request.pattern)),
@@ -138,11 +180,16 @@ class Resolver {
       return undefined
     }
     const info = this.infoOf(request)
+    if (info.kind === 'directory' && request.parentNames !== undefined) {
+      this.late.push(request)
+      return undefined
+    }
     return { request, info, left: info.tag ? Infinity : TURNS[info.kind] }
   }
 
   answer(waiting) {
-    if (waiting.length > 1) throw new DeptreeError(`yarn resolves these in the order the filesystem answers it, which is not set: ${waiting.map(({ request }) => quote(request.pattern)).join(', ')}`)
+    const reading = [...waiting.map(({ request }) => request), ...this.late]
+    if (reading.length > 1) throw new DeptreeError(`yarn resolves these in the order the filesystem answers it, which is not set: ${reading.map(({ pattern }) => quote(pattern)).join(', ')}`)
     const [strand] = waiting
     const where = quote(strand.request.pattern)
     const { range } = splitPattern(strand.request.pattern)
@@ -169,13 +216,16 @@ class Resolver {
       if (strands.every((strand) => strand.left === Infinity)) strands = this.answer(strands)
       strands = this.turn(strands)
     }
+    this.delayed.push(...this.late)
+    this.late = []
   }
 
   // yarn's resolveToExistingVersion for the delayed, then the diverted.
   settle() {
     for (const request of this.delayed) {
       const { name } = splitPattern(request.pattern)
-      const ref = this.exactMatch(name, this.infoOf(request).version)
+      const info = this.infoOf(request)
+      const ref = info.kind === 'directory' ? this.copyOf(name, info.dir) : this.exactMatch(name, info.version)
       ref.requests.push(request)
       this.addPattern(request.pattern, ref)
       if (!request.optional) ref.optional = false

@@ -225,6 +225,73 @@ describe('buildYarn1Tree', () => {
     assert.deepEqual(vfs.readdir('/node_modules/a'), ['bin', 'package.json', 'x.sh'])
   })
 
+  // yarn copies a directory whole, each file's mode as it is, into its cache,
+  // makes each bin's target executable there, and copies that, but for .bin
+  // and its own metadata, wherever they are.
+  it('installs a file: directory a resolution or the root names, as yarn copies it', async () => {
+    stubRegistry(TARBALLS)
+    const local = { 'local/b/package.json': { name: 'b', version: '1.5.0', bin: { b: 'cli.js' } }, 'local/b/cli.js': '#!/usr/bin/env node\n', 'local/b/secret': 's', 'local/b/.gitignore': 'secret\n', 'local/b/sub/.bin/tool': 't', 'local/b/.yarn-metadata.json': '{}' }
+    const at = (root, lock) => {
+      const files = projectOf({ 'yarn.lock': lock, 'package.json': root, ...local })
+      files.chmod('/local/b/secret', 0o600)
+      files.mkdir('/local/b/empty')
+      return files
+    }
+    const resolved = at({ name: 'root', version: '1.0.0', dependencies: { a: '^1.0.0' }, resolutions: { b: 'file:./local/b' } }, lockfile(A, 'b@^1.0.0, "b@file:./local/b":\n  version "1.5.0"\n'))
+    const asked = at({ name: 'root', version: '1.0.0', dependencies: { b: 'file:./local/b' } }, lockfile('"b@file:./local/b":\n  version "1.5.0"\n'))
+    for (const files of [resolved, asked]) {
+      const { vfs, installed } = await buildYarn1Tree({ project: files, host: HOST })
+      assert.deepEqual(vfs.readdir('/node_modules/b'), ['.gitignore', 'cli.js', 'empty', 'package.json', 'secret', 'sub'])
+      assert.deepEqual(vfs.readdir('/node_modules/b/sub'), [])
+      assert.deepEqual(['cli.js', 'secret', '.gitignore'].map((name) => mode(vfs, `/node_modules/b/${name}`)), [0o755, 0o600, 0o644])
+      assert.deepEqual(installed.find(({ path }) => path === 'node_modules/b'), { path: 'node_modules/b', name: 'b', version: '1.5.0', directory: 'local/b', dev: false, optional: false })
+    }
+    const modeless = { readdir: (path) => asked.readdir(path), lstat: (path) => ({ type: asked.lstat(path).type }), stat: (path) => asked.stat(path), readFile: (path) => asked.readFile(path) }
+    await assert.rejects(buildYarn1Tree({ project: modeless, host: HOST }), /^TypeError: project\.lstat must give a file's mode, and gives undefined for "\/local\/b\/\.gitignore"$/u)
+  })
+
+  // yarn writes no integrity for a pattern that names a tarball's URL, but the
+  // sha1 after its `#`; the registry's sha512 is taken beside it.
+  it('installs the registry\'s own tarball a resolution or the root names by its URL', async () => {
+    const calls = stubRegistry(TARBALLS)
+    const byUrl = (keys, id) => entry(keys, id).replace(/\n {2}integrity .*/u, '')
+    const b2 = yarnpkg('b', '2.0.0')
+    const resolved = { project: projectOf({ 'yarn.lock': lockfile(A, byUrl(`b@^1.0.0, "b@${b2}"`, 'b@2.0.0')), 'package.json': { name: 'root', version: '1.0.0', dependencies: { a: '^1.0.0' }, resolutions: { b: b2 } } }) }
+    const asked = { project: projectOf({ 'yarn.lock': lockfile(byUrl(`"b@${b2}"`, 'b@2.0.0')), 'package.json': { name: 'root', version: '1.0.0', dependencies: { b: b2 } } }) }
+    for (const options of [resolved, asked]) {
+      const { vfs, installed } = await buildYarn1Tree({ ...options, host: HOST })
+      assert.equal(vfs.readText('/node_modules/b/index.js'), 'b2')
+      assert.equal(installed.find(({ path }) => path === 'node_modules/b').integrity, T['b@2.0.0'].integrity)
+    }
+    assert.ok(calls.includes('https://registry.npmjs.org/b/2.0.0'), 'the registry\'s document, for its sha512')
+    const wrong = lockfile(byUrl(`"b@${b2}"`, 'b@2.0.0').replace(sha1(T['b@2.0.0'].bytes), sha1(T['b@1.0.0'].bytes)))
+    await assert.rejects(buildYarn1Tree({ project: projectOf({ 'yarn.lock': wrong, 'package.json': { name: 'root', version: '1.0.0', dependencies: { b: b2 } } }), host: HOST }), /^DeptreeError: "b@https:\/\/registry\.yarnpkg\.com\/b\/-\/b-2\.0\.0\.tgz": the tarball's sha1 is not [\da-f]{40}$/u)
+  })
+
+  // yarn's workspace aggregator asks again for what the root does: for a
+  // directory, it takes the one it read; for a tarball URL, it makes the
+  // package anew, which is one package with the first.
+  it('installs the root\'s file: directory and tarball URL beside workspaces', async () => {
+    stubRegistry(TARBALLS)
+    const byUrl = (keys, id) => entry(keys, id).replace(/\n {2}integrity .*/u, '')
+    const b2 = yarnpkg('b', '2.0.0')
+    const at = (dependencies, ...entries) => projectOf({
+      'yarn.lock': lockfile(...entries, '"l@file:./local/l":\n  version "1.5.0"\n'),
+      'package.json': { name: 'root', version: '1.0.0', private: true, workspaces: ['packages/*'], dependencies: { l: 'file:./local/l', ...dependencies } },
+      'packages/w/package.json': { name: 'w', version: '1.0.0' },
+      'local/l/package.json': { name: 'l', version: '1.5.0' },
+      'local/l/i.js': 'l',
+    })
+    const { vfs, stats } = await buildYarn1Tree({ project: at({ b: b2 }, byUrl(`"b@${b2}"`, 'b@2.0.0')), host: HOST })
+    assert.equal(vfs.readText('/node_modules/l/i.js'), 'l')
+    assert.equal(vfs.readText('/node_modules/b/index.js'), 'b2')
+    assert.equal(vfs.readlink('/node_modules/w'), '../packages/w')
+    assert.equal(stats.packages, 2)
+    // A tag's, as the aggregator asks for it again too, waits on the
+    // filesystem beside the directory's.
+    await assert.rejects(buildYarn1Tree({ project: at({ d: 'latest' }, entry('d@latest', 'd@1.0.0')), host: HOST }), /^DeptreeError: yarn resolves these in the order the filesystem answers it, which is not set: "d@latest", "l@file:\.\/local\/l"$/u)
+  })
+
   it('installs a package the host cannot run where the settings say to ignore its platform', async () => {
     stubRegistry(TARBALLS)
     const { vfs } = await buildYarn1Tree({ project: project({ '.yarnrc': '--ignore-platform true\n' }), host: HOST })
@@ -299,12 +366,46 @@ describe('buildYarn1Tree refuses', () => {
 
   // yarn 1.22 installs a directory as a copy of all of it, whatever
   // package.json's `files` and an ignore file say, which is not built here.
-  it('a dependency on a directory, by file: or link:', async () => {
-    const vendored = { 'vendor/foo/package.json': { name: 'foo', version: '1.5.0', files: ['/index.js'] }, 'vendor/foo/index.js': 'foo', 'vendor/foo/.gitignore': 'lib\n' }
-    for (const protocol of ['file:', 'link:']) {
-      const files = { 'yarn.lock': lockfile(`"foo@${protocol}./vendor/foo":\n  version "1.5.0"\n`), 'package.json': { name: 'root', version: '1.0.0', dependencies: { foo: `${protocol}./vendor/foo` } }, ...vendored }
-      await refuses({ project: projectOf(files) }, new RegExp(`^DeptreeError: "foo@${protocol}\\./vendor/foo": only a semver range, an npm: alias or a tag is supported$`, 'u'))
+  it('a dependency on a directory by link:', async () => {
+    const files = { 'yarn.lock': lockfile('"foo@link:./vendor/foo":\n  version "0.0.0"\n'), 'package.json': { name: 'root', version: '1.0.0', dependencies: { foo: 'link:./vendor/foo' } }, 'vendor/foo/package.json': { name: 'foo', version: '1.5.0' } }
+    await refuses({ project: projectOf(files) }, /^DeptreeError: "foo@link:\.\/vendor\/foo": only a semver range, an npm: alias, a tag, a file: directory or the registry's own tarball URL is supported$/u)
+  })
+
+  // What yarn reads anew at every install, and installs whatever it says, is
+  // held to the lockfile; what it would copy beside what it installs, or as
+  // two packages, is refused.
+  it('a file: directory not as its lockfile entry has it, or not one yarn installs alone', async () => {
+    stubRegistry(TARBALLS)
+    const root = { name: 'root', version: '1.0.0', dependencies: { b: 'file:./local/b' } }
+    const lock = lockfile('"b@file:./local/b":\n  version "1.5.0"\n')
+    const at = (local, edit = () => {}, options = {}) => {
+      const files = projectOf({ 'yarn.lock': lock, 'package.json': root, ...local })
+      edit(files)
+      return { project: files, ...options }
     }
+    const manifest = (fields) => ({ 'local/b/package.json': { name: 'b', version: '1.5.0', ...fields } })
+    const where = '^DeptreeError: "b@file:\\./local/b": '
+    const cases = [
+      [at(manifest({ version: '1.6.0' })), 'package.json is for "b@1\\.6\\.0", not the lockfile\'s "b@1\\.5\\.0", which yarn reads anew, installing what it says$'],
+      [at(manifest({ name: 'c' })), 'package.json is for "c@1\\.5\\.0", not the lockfile\'s "b@1\\.5\\.0", which yarn reads anew, installing what it says$'],
+      [at(manifest({ dependencies: { d: '^1.0.0' } })), 'package.json\'s dependencies are not the lockfile\'s, which yarn reads anew, installing what it says$'],
+      [at({ 'local/b/index.js': 'b' }), '"local/b" has no package\\.json, where yarn makes one up$'],
+      [at({}), '"local/b" is not a directory of the project$'],
+      [at({ ...manifest(), 'local/b/node_modules/x/index.js': 'x' }), '"local/b/node_modules" is its own node_modules, which yarn copies beside what it installs there, and which is not supported$'],
+      [at(manifest(), (files) => files.symlink('package.json', '/local/b/again')), '"local/b/again" is a symlink, which is not supported$'],
+      [{ lockfile: lock, manifests: { '.': JSON.stringify(root) } }, 'a file: directory is read from the project, which is not given$'],
+    ]
+    for (const [options, detail] of cases) await refuses(options, new RegExp(`${where}${detail}`, 'u'))
+  })
+
+  it('a file: directory outside the project, at its root, or asked for beneath the top level', async () => {
+    stubRegistry(TARBALLS)
+    const buildAt = (range, lock, local = {}) => buildYarn1Tree({ project: projectOf({ 'yarn.lock': lock, 'package.json': { name: 'root', version: '1.0.0', dependencies: { b: range } }, ...local }), host: HOST })
+    await assert.rejects(buildAt('file:../b', lockfile('"b@file:../b":\n  version "1.5.0"\n')), /^DeptreeError: "b@file:\.\.\/b": "\.\.\/b" is outside the project, which is not supported$/u)
+    await assert.rejects(buildAt('file:.', lockfile('"b@file:.":\n  version "1.0.0"\n')), /^DeptreeError: "b@file:\.": the project's own directory is not supported$/u)
+    const nested = { 'local/b/package.json': { name: 'b', version: '1.5.0', dependencies: { c: 'file:./c' } } }
+    const lock = lockfile('"b@file:./local/b":\n  version "1.5.0"\n  dependencies:\n    c "file:./c"\n', '"c@file:./c":\n  version "1.0.0"\n')
+    await assert.rejects(buildAt('file:./local/b', lock, nested), /^DeptreeError: "c@file:\.\/c": a file: directory asked for beneath the top level, and not by the root or a resolution first, is not supported$/u)
   })
 
   it('two tags yarn would resolve in the order the filesystem answers', async () => {
@@ -316,12 +417,20 @@ describe('buildYarn1Tree refuses', () => {
     await refuses({ project: files }, /^DeptreeError: yarn resolves these in the order the filesystem answers it, which is not set: "d@latest", "p@latest"$/u)
   })
 
-  it('a package from anywhere but the registry, before fetching anything', async () => {
+  // A tarball on the project's disk, as yarn's tarball resolver takes a path
+  // ending in .tgz, among them.
+  it('a package from anywhere but the registry or the project, before fetching anything', async () => {
     const calls = stubRegistry(TARBALLS)
-    const url = 'https://registry.yarnpkg.com/d/-/d-1.0.0.tgz'
-    const root = { name: 'root', version: '1.0.0', dependencies: { d: url } }
-    const lock = lockfile(entry(`"d@${url}"`, 'd@1.0.0'))
-    await refuses({ project: projectOf({ 'yarn.lock': lock, 'package.json': root }) }, new RegExp(`^DeptreeError: "d@${url.replaceAll('.', '\\.')}": only a semver range, an npm: alias or a tag is supported$`, 'u'))
+    const only = 'only a semver range, an npm: alias, a tag, a file: directory or the registry\'s own tarball URL is supported$'
+    for (const range of ['https://example.com/d/-/d-1.0.0.tgz', 'file:./d-1.0.0.tgz', `${yarnpkg('d', '1.0.0')}#${sha1(T['d@1.0.0'].bytes)}`]) {
+      const root = { name: 'root', version: '1.0.0', dependencies: { d: range } }
+      const lock = lockfile(entry(`"d@${range}"`, 'd@1.0.0', '', { url: () => range.split('#')[0] }))
+      await refuses({ project: projectOf({ 'yarn.lock': lock, 'package.json': root }) }, new RegExp(`^DeptreeError: "d@${range.replaceAll(/[.?]/gu, '\\$&')}": ${only}`, 'u'))
+    }
+    const url = 'https://example.com/b/-/b-1.0.0.tgz'
+    const root = { name: 'root', version: '1.0.0', dependencies: { a: '^1.0.0' }, resolutions: { b: url } }
+    const lock = lockfile(A, entry(`b@^1.0.0, "b@${url}"`, 'b@1.0.0', '', { url: () => url }))
+    await refuses({ project: projectOf({ 'yarn.lock': lock, 'package.json': root }) }, new RegExp(`^DeptreeError: manifests\\["\\."\\]\\.resolutions\\["b"\\]: ${only}`, 'u'))
     assert.equal(calls.length, 0)
   })
 
