@@ -82,7 +82,7 @@ describe('readSettings', () => {
 
   it('passes over what leaves the tree as it is', () => {
     const npmrc = 'registry=https://registry.npmjs.org/\n@s:registry=https://registry.npmjs.org\n//registry.npmjs.org/:_authToken=abc\nstore-dir=/x\nauto-install-peers=true\nstrict-ssl=false\n'
-    const workspace = 'allowBuilds:\n  esbuild: false\nminimumReleaseAge: 1440\npeerDependencyRules:\n  ignoreMissing: [x]\nignoreWorkspaceRootCheck: true\n'
+    const workspace = 'allowBuilds:\n  esbuild: false\nignoreCompatibilityDb: true\nminimumReleaseAge: 1440\npeerDependencyRules:\n  ignoreMissing: [x]\nignoreWorkspaceRootCheck: true\n'
     const manifest = { name: 'x', scripts: { postinstall: 'x' }, pnpm: { nodeLinker: 'hoisted', updateConfig: {}, allowedDeprecatedVersions: {} } }
     assert.deepEqual(read({ npmrc, workspace, manifest }), DEFAULTS)
   })
