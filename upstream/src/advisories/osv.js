@@ -4,14 +4,17 @@ import { assertCrateName, assertCrateVersion, assertion, isGhsa, isStrings, matc
 import { OSV_API, buildUrl, request } from '../http.js'
 import { chunks, pool } from '../pool.js'
 import { isExactVersion } from '../semver.js'
-import { inRange, isText, metrics, order } from './common.js'
+import { advisoryUrl, detailsOf, inRange, isText, metrics, order } from './common.js'
 import { withRepositories } from './github.js'
 import { composerRepos, crateRepos } from './repos.js'
 
 const QUERY_URL = buildUrl(OSV_API, ['v1', 'querybatch'])
 const QUERIES_PER_REQUEST = 1000
-const RECORDS_AT_ONCE = 8
+export const RECORDS_AT_ONCE = 8
 const isOsvId = matches(/^(?=.{1,128}$)[A-Z][\dA-Z]*(?:-[\dA-Za-z]+)+$/u)
+// osv.dev's page for one of its records. An id that is only another's
+// alias (PKSA-…) has none, and redirects to a search.
+const osvPage = (id) => `https://osv.dev/vulnerability/${id}`
 const INFORMATIONAL = new Set(['unmaintained', 'unsound', 'notice'])
 // Of the records that publish one advisory, the first answered for a
 // version stands for the rest on it: RustSec's, what `cargo audit` reads
@@ -46,7 +49,7 @@ export const COMPOSER = {
   advisories: (asked, options) => osvAdvisories(COMPOSER, asked, options),
 }
 
-async function getVuln(id) {
+export async function getVuln(id) {
   const record = await request(buildUrl(OSV_API, ['v1', 'vulns', id]), { as: 'json' })
   assert.ok(record?.id === id, `advisories: OSV answered for ${show(record?.id)}, not ${id}`)
   assert.ok((record.aliases === undefined || isStrings(record.aliases)) && (record.summary === undefined || isText(record.summary))
@@ -54,7 +57,7 @@ async function getVuln(id) {
   return { ...record, aliases: (record.aliases ?? []).filter(isOsvId) }
 }
 
-function toAdvisory(ecosystem, name, versions, record) {
+function toAdvisory(ecosystem, name, versions, record, details) {
   const { aliases } = record
   const ghsas = aliases.filter(isGhsa)
   const ghsa = isGhsa(record.id) ? record.id : (ghsas.length === 1 ? ghsas[0] : undefined)
@@ -66,8 +69,10 @@ function toAdvisory(ecosystem, name, versions, record) {
     source: 'osv',
     id: record.id,
     ...(ghsa && { ghsa }),
+    url: ghsa ? advisoryUrl(ghsa) : osvPage(record.id),
     aliases,
     ...(record.summary && { title: record.summary }),
+    ...(details && detailsOf(record.details, record.id)),
     ...metrics({ severity: record.database_specific?.severity, vector, cwe: record.database_specific?.cwe_ids }),
     ...(INFORMATIONAL.has(informational) && { informational }),
     versions,
@@ -113,7 +118,7 @@ async function osvAdvisories(ecosystem, asked, options) {
     const aliases = [...new Set([...record.aliases, ...group.map((other) => other.id)])].filter((id) => id !== record.id)
     for (const [name, versions] of hits.get(record.id)) {
       const rest = [...versions].filter((version) => !above.some((other) => hits.get(other.id).get(name)?.has(version)))
-      if (rest.length > 0) rows.push(toAdvisory(osv, name, rest, { ...record, aliases }))
+      if (rest.length > 0) rows.push(toAdvisory(osv, name, rest, { ...record, aliases }, options.details))
     }
   }
   rows.sort((a, b) => order(a.name, b.name) || order(a.id, b.id))

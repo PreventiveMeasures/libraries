@@ -1,7 +1,17 @@
-import { isStrings, matches } from '../args.js'
+import assert from 'node:assert/strict'
+
+import { isGhsa, isRepo, isStrings, matches, show } from '../args.js'
 import { satisfies, valid, validRange } from '../semver.js'
 
 export const order = (a, b) => (a > b) - (a < b)
+
+// GitHub's page for a GHSA: the advisory database's, which has every one
+// the registry and OSV answer with, or the page of the `repo` that
+// published it, which has it before GitHub reviews it into the database.
+export function advisoryUrl(ghsa, repo) {
+  assert.ok(isGhsa(ghsa) && (repo === undefined || isRepo(repo)), `advisories: no GitHub advisory page for ${show(ghsa)} on ${show(repo)}`)
+  return repo === undefined ? `https://github.com/advisories/${ghsa}` : `https://github.com/${repo}/security/advisories/${ghsa}`
+}
 
 // As `npm audit` matches: a prerelease is in a range around it.
 const SEMVER = { includePrerelease: true, loose: true }
@@ -19,6 +29,14 @@ export const covered = (asked, range, covers = mayBeInRange) => (validRange(rang
 // Remote text, as long as it is well-formed; anything else is refused as
 // malformed by whoever reads it.
 export const isText = (value) => typeof value === 'string' && value.isWellFormed()
+
+// An advisory's full text, for `details`: none where its source has none,
+// and refused where it is not well-formed.
+export function detailsOf(text, id) {
+  if (text == null || text === '') return {}
+  assert.ok(isText(text), `advisories: malformed details in ${id}`)
+  return { details: text }
+}
 
 const SEVERITIES = new Set(['critical', 'high', 'moderate', 'low', 'info'])
 const isCvssVector = matches(/^CVSS:[34]\.\d(?:\/[A-Z]{1,4}:[A-Z]{1,2})+$/u)

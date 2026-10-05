@@ -4,7 +4,7 @@ import { assertRepo, assertSoldeerName, assertSoldeerVersion, assertion, isGhsa,
 import { isGone } from '../github/client.js'
 import { recover } from '../http.js'
 import { pool } from '../pool.js'
-import { covered, isText, mayBeInRange, metrics } from './common.js'
+import { advisoryUrl, covered, detailsOf, isText, mayBeInRange, metrics } from './common.js'
 import { soldeerRepos } from './repos.js'
 
 const REPOS_AT_ONCE = 4
@@ -19,16 +19,20 @@ const listAdvisories = (github, repo) => github.listRepoAdvisories({ repo }).cat
 
 // GitHub's `>= 1.0.0, < 1.2.6` is npm's with the commas dropped.
 // Maintainers write these unreviewed: one without a range, or with one
-// semver cannot read, covers every version.
-function fromRepository(name, advisory, range, asked, covers) {
+// semver cannot read, covers every version. Its page is on `repo`, which
+// may publish it long before the advisory database has one, and its
+// `description` is the text `details` asks for: the listing has it all.
+function fromRepository(repo, name, advisory, range, asked, { covers, details }) {
   const cvss = [advisory.cvss_severities?.cvss_v3, advisory.cvss_severities?.cvss_v4, advisory.cvss].find((entry) => typeof entry?.vector_string === 'string')
   return {
     name,
     source: 'repository',
     id: advisory.ghsa_id,
     ghsa: advisory.ghsa_id,
+    url: advisoryUrl(advisory.ghsa_id, repo),
     aliases: [],
     title: advisory.summary,
+    ...(details && detailsOf(advisory.description, advisory.ghsa_id)),
     ...metrics({ severity: advisory.severity, score: cvss?.score, vector: cvss?.vector_string, cwe: advisory.cwe_ids }),
     range,
     versions: covered(asked, range.replaceAll(',', ' '), covers),
@@ -38,8 +42,8 @@ function fromRepository(name, advisory, range, asked, covers) {
 // Each asked name's repository, `repoOf` it, is asked once, and its
 // advisories' vulnerable ranges become rows for the names that `takes` a
 // vulnerability, one per name, advisory and range, holding the asked
-// versions it `covers`.
-async function repositoryAdvisories(github, asked, { repoOf, takes = () => true, covers }) {
+// versions it `covers`, and with `details`, its text.
+async function repositoryAdvisories(github, asked, { repoOf, takes = () => true, covers, details }) {
   // GitHub's names are case-insensitive: one spelling asks for all.
   const namesOf = Map.groupBy([...asked.keys()].filter(repoOf), (name) => repoOf(name).toLowerCase())
   const listed = await pool([...namesOf.values()], REPOS_AT_ONCE, async (names) => ({ repo: repoOf(names[0]), names, list: await listAdvisories(github, repoOf(names[0])) }))
@@ -51,7 +55,7 @@ async function repositoryAdvisories(github, asked, { repoOf, takes = () => true,
         const range = vulnerability?.vulnerable_version_range ?? ''
         assert.ok(typeof range === 'string', `advisories: malformed range in ${advisory.ghsa_id}`)
         for (const name of names.filter((candidate) => takes(candidate, vulnerability?.package))) {
-          rows.set(`${name} ${advisory.ghsa_id} ${range}`, fromRepository(name, advisory, range, asked.get(name), covers))
+          rows.set(`${name} ${advisory.ghsa_id} ${range}`, fromRepository(repo, name, advisory, range, asked.get(name), { covers, details }))
         }
       }
     }
@@ -70,12 +74,12 @@ async function reposOf(asked, known, lookUp) {
 // each package's repository, `known` or else looked up, adds what it
 // publishes for GitHub's `ecosystem` entries naming the package, for the
 // versions `rows` do not already report under that GHSA.
-export async function withRepositories(rows, asked, { github, repoAdvisories, known }, { ecosystem, lookUp, covers }) {
+export async function withRepositories(rows, asked, { github, repoAdvisories, known, details }, { ecosystem, lookUp, covers }) {
   if (!repoAdvisories) return rows
   const reported = new Set(rows.flatMap((row) => [row.id, row.ghsa, ...row.aliases].filter(isGhsa).flatMap((id) => row.versions.map((version) => `${row.name} ${id} ${version}`))))
   const repoOf = await reposOf(asked, known, lookUp)
   const takes = (name, pkg) => pkg?.ecosystem === ecosystem && pkg.name === name
-  const added = await repositoryAdvisories(github, asked, { repoOf, takes, covers })
+  const added = await repositoryAdvisories(github, asked, { repoOf, takes, covers, details })
   return [...rows, ...added.map((row) => ({ ...row, versions: row.versions.filter((version) => !reported.has(`${row.name} ${row.id} ${version}`)) }))]
 }
 
@@ -89,7 +93,7 @@ export const GITHUB = {
   repositoryOnly: true,
   assertName: assertRepo,
   assertVersion: assertion('a version or a branch name', isRefName),
-  advisories: (asked, { github }) => repositoryAdvisories(github, asked, { repoOf: (repo) => repo, covers: coversPlaceholder }),
+  advisories: (asked, { github, details }) => repositoryAdvisories(github, asked, { repoOf: (repo) => repo, covers: coversPlaceholder, details }),
 }
 
 // Soldeer packages, which no advisory database has: the repository each
@@ -100,5 +104,5 @@ export const SOLDEER = {
   repositoryOnly: true,
   assertName: assertSoldeerName,
   assertVersion: assertSoldeerVersion,
-  advisories: async (asked, { github, known }) => await repositoryAdvisories(github, asked, { repoOf: await reposOf(asked, known, soldeerRepos) }),
+  advisories: async (asked, { github, known, details }) => await repositoryAdvisories(github, asked, { repoOf: await reposOf(asked, known, soldeerRepos), details }),
 }

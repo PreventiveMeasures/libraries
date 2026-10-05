@@ -39,6 +39,11 @@ export interface AdvisoryOptions {
   // the one npm's metadata, crates.io or Packagist names, looked up
   // through the cache. Needs `github`.
   repoAdvisories?: boolean
+  // Also returns each advisory's full text, as `details`. OSV's records
+  // and a repository's listing already carry it; npm's registry does not,
+  // and its rows take OSV's record of their GHSA, one more request each
+  // (no GitHub client needed).
+  details?: boolean
 }
 
 // One advisory on one package, with the versions asked about that it
@@ -62,8 +67,21 @@ export interface Advisory {
   id: string
   // The id itself, or an OSV record's one GHSA alias.
   ghsa?: string
+  // GitHub's page for the GHSA, with it: a `repository` row's on its
+  // repository (https://github.com/owner/name/security/advisories/GHSA-…),
+  // which has it before GitHub reviews it into its advisory database; any
+  // other's in that database (https://github.com/advisories/GHSA-…). An
+  // `osv` row without one has osv.dev's page for its record
+  // (https://osv.dev/vulnerability/RUSTSEC-…). Built, never fetched: only
+  // a registry row without a GHSA (npm:<id>) has none.
+  url?: string
   aliases: string[]
   title?: string
+  // With `details`, the advisory's full text, Markdown as published: an
+  // OSV record's `details`, a repository advisory's `description`, or for
+  // a registry row, OSV's record of its GHSA. Absent where there is none:
+  // a registry row without a GHSA, or with one OSV does not have yet.
+  details?: string
   // `critical`, `high`, `moderate`, `low`; GitHub's `medium` reads
   // `moderate`. RustSec has none.
   severity?: string
@@ -84,10 +102,12 @@ export interface Advisory {
 // Every package, and every one of its versions, is checked against its
 // ecosystem's rules before the first request; a name given twice is
 // merged, and must not name two repositories. npm is asked 250 names a
-// request, OSV 1000 versions, Soldeer one project; a project Soldeer does
-// not have or that names no GitHub repository, and a repository gone,
-// renamed or blocked, add nothing. Any other failure, a malformed answer,
-// or one about something not asked, throws: nothing is left out quietly.
+// request, OSV 1000 versions, Soldeer one project, and with `details`, OSV
+// one GHSA among npm's rows; a project Soldeer does not have or that names
+// no GitHub repository, and a repository gone, renamed or blocked, add
+// nothing, and a GHSA OSV does not have adds no `details`. Any other
+// failure, a malformed answer, or one about something not asked, throws:
+// nothing is left out quietly.
 // Sorted by ecosystem and name. Versions are matched by npm's semver, from
 // the npm beside node, or by the semver peer where there is no npm.
 export function advisories(packages: Iterable<Package>, options?: AdvisoryOptions): Promise<Advisory[]>

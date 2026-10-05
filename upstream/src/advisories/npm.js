@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 
 import { assertPackageName, assertPackageVersion, isGhsa, isStrings, show } from '../args.js'
-import { NPM_REGISTRY, buildUrl, request } from '../http.js'
-import { chunks } from '../pool.js'
+import { NPM_REGISTRY, buildUrl, isNotFound, recover, request } from '../http.js'
+import { chunks, pool } from '../pool.js'
 import { compareVersions } from '../semver.js'
-import { covered, isText, metrics } from './common.js'
+import { advisoryUrl, covered, detailsOf, isText, metrics } from './common.js'
 import { withRepositories } from './github.js'
+import { RECORDS_AT_ONCE, getVuln } from './osv.js'
 import { npmRepos } from './repos.js'
 
 const BULK_URL = buildUrl(NPM_REGISTRY, ['-', 'npm', 'v1', 'security', 'advisories', 'bulk'])
@@ -23,7 +24,7 @@ function fromRegistry(name, row, asked) {
     name,
     source: 'registry',
     id: ghsa ?? `npm:${row.id}`,
-    ...(ghsa && { ghsa }),
+    ...(ghsa && { ghsa, url: advisoryUrl(ghsa) }),
     aliases: [],
     title: row.title,
     ...metrics({ severity: row.severity, score: row.cvss?.score, vector: row.cvss?.vectorString, cwe: row.cwe }),
@@ -49,10 +50,23 @@ async function registryAdvisories(asked) {
   return advisories
 }
 
+// The registry's rows carry no text: each GHSA's is OSV's record of it,
+// GitHub's advisory database as published, asked once for the rows that
+// cover an asked version. One OSV does not have yet has none.
+async function withDetails(rows) {
+  const ghsas = [...new Set(rows.filter((row) => row.ghsa && row.versions.length > 0).map((row) => row.ghsa))]
+  const records = await pool(ghsas, RECORDS_AT_ONCE, (ghsa) => getVuln(ghsa).catch(recover(isNotFound, undefined)))
+  const text = new Map(ghsas.map((ghsa, i) => [ghsa, records[i]?.details]))
+  return rows.map((row) => ({ ...row, ...detailsOf(text.get(row.ghsa), row.ghsa) }))
+}
+
 // What `npm audit` asks the registry, one row per vulnerable range.
 export const NPM = {
   assertName: assertPackageName,
   assertVersion: assertPackageVersion,
   compare: compareVersions,
-  advisories: async (asked, options) => await withRepositories(await registryAdvisories(asked), asked, options, { ecosystem: 'npm', lookUp: npmRepos }),
+  advisories: async (asked, options) => {
+    const rows = await registryAdvisories(asked)
+    return await withRepositories(options.details ? await withDetails(rows) : rows, asked, options, { ecosystem: 'npm', lookUp: npmRepos })
+  },
 }

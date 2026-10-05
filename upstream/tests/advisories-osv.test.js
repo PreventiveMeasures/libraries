@@ -94,10 +94,13 @@ describe('cargo', () => {
     assert.deepEqual(calls.slice(1).map((call) => call.url).toSorted(), [`${VULN}GHSA-43w2-9j62-hq99`, `${VULN}RUSTSEC-2018-0018`, `${VULN}RUSTSEC-2021-0003`, `${VULN}RUSTSEC-2021-0055`])
     const common = { ecosystem: 'cargo', source: 'osv', cwe: [] }
     assert.deepEqual(found, [
-      { ...common, name: 'openssl-src', id: 'RUSTSEC-2021-0055', aliases: [], title: 'Advisory RUSTSEC-2021-0055', cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', versions: ['111.10.0+1.1.1g'] },
-      { ...common, name: 'smallvec', id: 'RUSTSEC-2018-0018', aliases: ['CVE-2018-25023', 'GHSA-55m5-whcv-c49c', 'GHSA-66p5-j55p-32r9'], title: 'Advisory RUSTSEC-2018-0018', informational: 'unsound', versions: ['0.6.10'] },
+      { ...common, name: 'openssl-src', id: 'RUSTSEC-2021-0055', url: 'https://osv.dev/vulnerability/RUSTSEC-2021-0055', aliases: [], title: 'Advisory RUSTSEC-2021-0055', cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', versions: ['111.10.0+1.1.1g'] },
       {
-        ...common, name: 'smallvec', id: 'RUSTSEC-2021-0003', ghsa: 'GHSA-43w2-9j62-hq99', aliases: ['CVE-2021-25900', 'GHSA-43w2-9j62-hq99'], title: 'Advisory RUSTSEC-2021-0003',
+        ...common, name: 'smallvec', id: 'RUSTSEC-2018-0018', url: 'https://osv.dev/vulnerability/RUSTSEC-2018-0018', aliases: ['CVE-2018-25023', 'GHSA-55m5-whcv-c49c', 'GHSA-66p5-j55p-32r9'], title: 'Advisory RUSTSEC-2018-0018',
+        informational: 'unsound', versions: ['0.6.10'],
+      },
+      {
+        ...common, name: 'smallvec', id: 'RUSTSEC-2021-0003', ghsa: 'GHSA-43w2-9j62-hq99', url: 'https://github.com/advisories/GHSA-43w2-9j62-hq99', aliases: ['CVE-2021-25900', 'GHSA-43w2-9j62-hq99'], title: 'Advisory RUSTSEC-2021-0003',
         cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', versions: ['0.6.10', '1.6.0'],
       },
     ])
@@ -138,6 +141,35 @@ describe('cargo', () => {
       ['smallvec', 'RUSTSEC-2021-0003', 'GHSA-43w2-9j62-hq99', ['CVE-2021-25900', 'GHSA-43w2-9j62-hq99'], ['1.6.0']],
       ['typosquat', 'MAL-2026-0001', undefined, [], ['0.1.0']],
     ])
+    // GitHub's page for a row with a GHSA; osv.dev's for one without, built
+    // from the id of the record OSV answered with, which it has a page for.
+    assert.deepEqual(found.map(({ url }) => url), [
+      'https://github.com/advisories/GHSA-bbbb-bbbb-bbbb',
+      'https://github.com/advisories/GHSA-aaaa-aaaa-aaaa',
+      'https://github.com/advisories/GHSA-cccc-cccc-cccc',
+      'https://github.com/advisories/GHSA-43w2-9j62-hq99',
+      'https://github.com/advisories/GHSA-43w2-9j62-hq99',
+      'https://osv.dev/vulnerability/MAL-2026-0001',
+    ])
+  })
+
+  it("with details, takes each record's text from the record it already fetches, and reads none without", async () => {
+    const hits = { 'smallvec@1.6.0': ['RUSTSEC-2021-0003'], 'smallvec@0.6.10': ['RUSTSEC-2018-0018'] }
+    const records = {
+      'RUSTSEC-2021-0003': rustsec('RUSTSEC-2021-0003', { details: 'Affected versions of this crate did not check bounds.' }),
+      'RUSTSEC-2018-0018': rustsec('RUSTSEC-2018-0018', { aliases: [] }),
+    }
+    const pairs = [{ name: 'smallvec', version: '1.6.0' }, { name: 'smallvec', version: '0.6.10' }]
+    let calls = stubOsv(hits, records)
+    const found = await cargo(pairs, { details: true })
+    assert.deepEqual(found.map(({ id, details }) => [id, details]), [['RUSTSEC-2018-0018', undefined], ['RUSTSEC-2021-0003', 'Affected versions of this crate did not check bounds.']])
+    assert.equal(calls.length, 3)
+    const malformed = { ...records, 'RUSTSEC-2018-0018': rustsec('RUSTSEC-2018-0018', { aliases: [], details: 'a\uD800b' }) }
+    calls = stubOsv(hits, malformed)
+    assert.ok((await cargo(pairs)).every((entry) => !Object.hasOwn(entry, 'details')))
+    assert.equal(calls.length, 3)
+    stubOsv(hits, malformed)
+    await assert.rejects(cargo(pairs, { details: true }), /advisories: malformed details in RUSTSEC-2018-0018/u)
   })
 
   it('reports a version once for records linked directly or through another, equal ranks by id', async () => {
@@ -245,13 +277,14 @@ describe('composer', () => {
       'drupal/other DRUPAL-CORE-2025-003',
       'symfony/http-kernel GHSA-6439-2f28-8p8q',
     ])
-    assert.deepEqual(found[0], { ecosystem: 'composer', name: 'drupal/core', source: 'osv', id: 'DRUPAL-CORE-2023-001', aliases: [], cwe: [], versions: ['9.5.0'] })
+    assert.deepEqual(found[0], { ecosystem: 'composer', name: 'drupal/core', source: 'osv', id: 'DRUPAL-CORE-2023-001', url: 'https://osv.dev/vulnerability/DRUPAL-CORE-2023-001', aliases: [], cwe: [], versions: ['9.5.0'] })
     assert.deepEqual(found[1], {
       ecosystem: 'composer',
       name: 'drupal/core',
       source: 'osv',
       id: 'GHSA-2qph-q8xw-gv7q',
       ghsa: 'GHSA-2qph-q8xw-gv7q',
+      url: 'https://github.com/advisories/GHSA-2qph-q8xw-gv7q',
       aliases: ['CVE-2025-31674', 'DRUPAL-CORE-2025-003'],
       title: 'Advisory GHSA-2qph-q8xw-gv7q',
       severity: 'moderate',
@@ -356,9 +389,9 @@ describe('cargo and composer, with a GitHub client', () => {
       },
     })
     const found = await cargo([{ name: 'smallvec', version: '1.6.0' }, { name: 'local-only', version: '0.1.0' }, { name: 'not-on-crates-io', version: '1.0.0' }], { github, repoAdvisories: true })
-    assert.deepEqual(found.map(({ source, id, range, versions }) => [source, id, range, versions]), [
-      ['osv', 'RUSTSEC-2021-0003', undefined, ['1.6.0']],
-      ['repository', 'GHSA-bbbb-bbbb-bbbb', '>= 1.0.0, < 1.7.0', ['1.6.0']],
+    assert.deepEqual(found.map(({ source, id, url, range, versions }) => [source, id, url, range, versions]), [
+      ['osv', 'RUSTSEC-2021-0003', 'https://github.com/advisories/GHSA-43w2-9j62-hq99', undefined, ['1.6.0']],
+      ['repository', 'GHSA-bbbb-bbbb-bbbb', 'https://github.com/servo/rust-smallvec/security/advisories/GHSA-bbbb-bbbb-bbbb', '>= 1.0.0, < 1.7.0', ['1.6.0']],
     ])
     const toCrates = calls.filter(({ url }) => url.startsWith(CRATES))
     assert.equal(toCrates.length, 1)
