@@ -32,19 +32,17 @@ export const EMPTIES_TGZ = Buffer.from('H4sIAAAAAAACA+3VSwrDIBSFYcfdS4jX53ps2mZU
 export const CRLF = '5755b783322b1e0caa98bb3ac613c74840f9174b'
 export const CRLF_ANDROID = '69327553b62c6f3abe6bd949f428ef981f26ff0f'
 export const CRLF_TGZ = Buffer.from('H4sIAAAAAAACA+2W0WqDMBSGvRb6DoHdDWqNMfFq0Ls9wq5jjF2GbSQ5UmHs3WcdbENZy4Z1zJ3vJmIE0Z/vz5Fqr9eyrtcyVzRh6SaYnrgjy3i/dgzX/pryRMSCp0madfcpE5QGPJiBxoN03SudtXDuuUv7w4/7I8hh/tHOgARwJm9A+8nyFyL9Ov9slL/gMQ1izP/q3BBfa2VKo0hpHTmaQ2GPnnjlTA2kNJX24W2USyCgWyDaVnfKVWUYIItg5L88FM6aYspz4Af9zxOG/f+r+cvoyU+Y/9n+p8mo//t9zP/q6La2DsjzCzY69v9n/3dOFpU+no7+q/sv2ND/jKUc/Z+BrdN7ct9nTU5/Apr6ffjr5sGHt3lwFW61erTEluUKi2LR/ueNqYoprP+G/4kYzX8sE+j/HP5/eK1bA2STkxgV/8f+F9ZH0MKU77jofzz2nzKG/s+R/yrM0XcEQRAEQRAEQRAEQZDl8goaly4+ACgAAA==', 'base64')
-// MIXED: a .gitattributes with `*.bat text eol=crlf`, `[attr]win text
-// eol=crlf` for `*.cmd`, `*.txt text=auto eol=crlf`, `*.bin binary` and
-// `docs/** eol=crlf`, and `sub/.gitattributes` with `*.bat -text`, over
-// files all committed with LF. `git archive` wrote `a.bat`, `c.cmd`,
-// `d.txt` and `docs/x.md` with CRLF, and as committed `sub/b.bat`,
-// `e.txt` (a NUL), `h.txt` (a lone CR), `f.bin` and `g.js`. INJECTED: the
-// same tree archived with `*.js eol=crlf` in .git/info/attributes, which no
-// checkout of the tree has, so `g.js` with CRLF too.
-export const MIXED = 'ca041eec32322df9e4fdf286bbd8640d06209b0b'
+// MIXED: a .gitattributes of `* text=auto`, `*.bat text eol=crlf`, `*.cmd
+// eol=crlf`, `*.bin binary` and `docs/x.md text eol=crlf`, and
+// `sub/.gitattributes` with `*.bat -text`, over files all committed with
+// LF, of which `git archive` wrote `a.bat`, `c.cmd` and `docs/x.md` with
+// CRLF. INJECTED: the same tree archived with `*.js eol=crlf` in
+// .git/info/attributes, which no checkout has, so `g.js` with CRLF too.
+export const MIXED = '806741b961d7f591236c5d86d0d6df7740feca86'
 const MIXED_SUB = 'e2bc20d59db3ad7ccc5ca99504c862364e51f125'
 const MIXED_DOCS = '63e18324d7a8da399104d642bba0ce3b5d598333'
-export const MIXED_TGZ = Buffer.from('H4sIAAAAAAACA+2a0WqDMBSGvRZ8h8DuCq1RE70q7D3GLmIaN4ddiqbMMfbuS9rBmLIWiosd+z8oSpNW5PAdT44RcquWYrdbilImacbiYHqopSj44WgZHg/nCU9zmuecMTcvyfIkC3jggX1nRGsv2WptTs07Nz68uT+CGMZ/9VAbYUxbl3ujusnin+fsx/gnnA/jn3NaBBTx/3XuXKzvX+pnYlRviNLNWrZNFS5WpTCj7+R2Q+xce2b64+ha7I3+9jP7V/Yj2tdwo2UXLxZfowG4ev+FC/z0+f+U/zTNh/4znibw3wO3Sj5qoqsqClVfGxKXhEYQ9f/6L12S9+x/wsb+Jxz+e2ArZKujsFMG1sN/6//GlXZX4H+Rwn8f8bflexS6Sh7+w3/nv1u0zd7/YZyh/zNf/PvVlDXg+fw/Wv/xLMP6zwc3xAU8Cpv6WeEJgPwfq2up/zL476n+Cz77tbAB/seV6+Bfgf8p+j8++FS/qhsF/+E/ix9WT13g2/905H9WUPjvAdXvdGvI2zvsh//O/8c56n+K/u9MNNqu+2UL++H/0f9uX069B/CS/i+jDP3fueI/8R7AC9Z/RYr874XjPr+lewGIZwDy/9H/cto9gOf9z8bvf7D/10/9pyoTio7UHfQHAAAAAAAAAAAAAAAAAAAAAAAA/iofHmrp7ABQAAA=', 'base64')
-export const INJECTED_TGZ = Buffer.from('H4sIAAAAAAACA+2a32rCMBSHe13oOwR2J2j/JGmvhL3H2EUa062jGmkj6xh79yU6GKtMQbpU2e8DaTGtIofv9JxjhFyrudhu56KUaUZZHIxPYikKvj9ahsf9ecqzPMlzzpi7LqV5SgMeeGDXGdHar2y1NqeuO7c+/HE3ghjGf/FUG2FMW5c7o7rR4p/n7Nf4p5wP45/zpAgSxP/PeXCxfnytN8So3hClm6VsmyqcLUphjt6T6xWx19oz0x9Wl2Jn9I/b7EfZl2jfwpWWXTybfa8G4Or9Fy7w4+f/U/4nWT70n/Eshf8euFfyWRNdVVGo+tqQuCRJBFH/r//SJXnP/qfs2P+Uw38PrIVsdRR2ysB6+G/9X7nS7gr8LzL47yP+tnyPQlfJw3/47/x3Tdvk8x/GGeY/08W/X4xZA57P/0f9H6cU/Z8P7ogLeBQ29UbhCYD8H6trqf8o/PdU/wVf81rYAP/jyk3wr8D/DPMfH3ypX9WNgv/wn8VPi5cu8O0/PfKfFqj/faD6rW4Nef9A8Q//nf/PU9T/Cea/E9Fo2/fLFvLD/4P/3a4cew/gJfNfljDMf6eK/8h7AC/o/4oM+d8Lh31+c/cHIJ4ByP8H/8tx9wBe0P9xiv2/fuo/VZlQdKTuoD8AAAAAAAAAAAAAAAAAAAAAAABwq3wC782BtwBQAAA=', 'base64')
+export const MIXED_TGZ = Buffer.from('H4sIAAAAAAACA+2a32qDMBSHvRZ8h8DuClUTNV4V9irRxs7hmqIRHGPvvsQNtunWsmHTlf0+EBv/UMrxO8k5VZQPci0Oh7UoSsqSNPKWJzbkeTbuDdP9+JlmjMc8Z4wyc5wmPKZe5jmg77RozVe2Sulj1506P/1xV4KYxj/c1Vpo3dZFr2W3WPw5T7+NP2XpNP48zakXI/5nZ0W0HPRG9Fr5q7AQehwTqZpN2TaVOVY+bD8Oi3pPzCbaR3+ryi4aQnP+8z0e8K7Wf2EfguXz/zH/Y8an/qdZnMN/B9zK8k4RVVWBL4dak6ggcQCD/6//pU34jv2n6Rf+J/DfAWbSDnzRqL2E9fDf+L8N9eB6/jfOz/zPOPx3EX+78LfLd9gP/0f/bVF38f5PmiXo/1wu/raod5n/Z/WfCT/qPxfcEBvwwG9qrACR/43/le3w/YH6j6L+c8FbK7eqGwn74X8a7cL7znPt/7z+S1D/uen/DAfVavL0DPvhv/W/64voDP7/tP5Lcob671LxX/gdgF+s/3IzQv53wOt//mt0AJH/3/0vln0H4LT/yaz/w+x8Af/PTiMr7YuO1B30BwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAroUXu9nH5wBQAAA=', 'base64')
+export const INJECTED_TGZ = Buffer.from('H4sIAAAAAAACA+2a0WqDMBSGvRb6DoHdFaomxnhV2KtEGzuHa4pGcIy9+xI32Ga3jhWbruz/oNhoSymn38k5p8ryQa3kfr+SRUlZyuNgfhJLnmfj0TI9js9pxkQicsYos+dpKhIaZIEH+s7I1n5kq7U59rqfrk+/3JUgp/GPtrWRxrR10RvVzRZ/Ifi38aeMT+MveE6DBPE/O0ti1GDWsjc6XEaFNOOaKN2sy7ap7LnyYfNxWdQ7Yh+yfQw3uuziIbLXP78nAMHV+i/dj2D+/H/M/4SJqf88S3L474FbVd5poqtqEaqhNiQuSLKAwf/X/9IlfM/+U/6F/yn894DdtBehbPROwXr4b/3fRGbwvf9b5w/8zwT89xF/V/i78h32w//Rf9fUXXz+w7MU85/Lxd819T7z/0H/Z8OP/s8HN8QFfBE2NSpA5H/rf+UmfH+g/6Po/3zwNsqt6kbBfvjP42103wW+/U8P/E8z7P9e5j/DXreGPD1j84f/zv+uL+Iz+P/b/i/NGfq/S8V/5nsATqj/crtC/vfA63/+K0wAkf/f/S/mvQfghPovY26/gP9np1GVCWVH6g76AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA18ILpQBrcABQAAA=', 'base64')
 // GitHub's listings of the trees above and their subtrees, TREE's `lib`
 // (TREE_LIB) among them, as `git ls-tree -l` gives them: { path, mode,
 // type, sha }, and a size for a blob.
@@ -75,15 +73,13 @@ export const LISTINGS = {
     { path: 'gradlew.bat', mode: '100644', type: 'blob', sha: '3442422191927c611b2dd56106d8b505df05e775', size: 49 },
   ],
   [MIXED]: [
-    { path: '.gitattributes', mode: '100644', type: 'blob', sha: 'c70e0278909c3a664806bbb2ca1e640c2254c97d', size: 109 },
+    { path: '.gitattributes', mode: '100644', type: 'blob', sha: 'a6663e033357f236ebb1c6bba14339cf99d2bc26', size: 84 },
     { path: 'a.bat', mode: '100644', type: 'blob', sha: 'c639960482b112c962c82c9839eb1b0c791fd14e', size: 20 },
-    { path: 'c.cmd', mode: '100644', type: 'blob', sha: '8b7ec2983058de5cb0ae186876c11408bb23174c', size: 10 },
+    { path: 'c.cmd', mode: '100644', type: 'blob', sha: 'bfc837e021f2309d9db11d7b503dd1c8a46f6aff', size: 10 },
     { path: 'd.txt', mode: '100644', type: 'blob', sha: 'e091cacecddd363113aa179ea7ac8850624e8ea2', size: 10 },
     { path: 'docs', mode: '040000', type: 'tree', sha: '63e18324d7a8da399104d642bba0ce3b5d598333' },
-    { path: 'e.txt', mode: '100644', type: 'blob', sha: 'a5b6fbb80e81609f427a9d5189ffff1ca42629a1', size: 12 },
     { path: 'f.bin', mode: '100644', type: 'blob', sha: '63804f7a02faa9a04563c361040bf19378a0c3dd', size: 12 },
     { path: 'g.js', mode: '100644', type: 'blob', sha: '336ce12bb9106afdf843063ee67c0c1970f70d37', size: 10 },
-    { path: 'h.txt', mode: '100644', type: 'blob', sha: '9982af127e81e3ff4420daea4a12fb2fc4af4a8c', size: 8 },
     { path: 'sub', mode: '040000', type: 'tree', sha: 'e2bc20d59db3ad7ccc5ca99504c862364e51f125' },
   ],
   [MIXED_SUB]: [

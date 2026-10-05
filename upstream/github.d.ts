@@ -95,10 +95,12 @@ export interface Client {
   // every repo. So GitHub's tarball is refused for a tree with files marked
   // `export-ignore`, which it leaves out, or `ident`, `filter` or
   // `working-tree-encoding` beside `eol=crlf`, or `eol=crlf` on a file git
-  // has with both CRLF and LF; for one whose .gitattributes on the way hold
-  // what git versions read apart (see src/attributes.js); and from a repo
-  // set to include Git LFS objects in archives, which replace the pointers
-  // git has; that repo still gets a tree already cached, pointers and all.
+  // has with both CRLF and LF; for one whose .gitattributes on the way set
+  // what line endings depend on by a rule for other than `*`, `*.ext`, a
+  // name or a path, or hold what git versions read apart (see
+  // src/attributes.js); and from a repo set to include Git LFS objects in
+  // archives, which replace the pointers git has; that repo still gets a
+  // tree already cached, pointers and all.
   getRepoTreeTarball(options: { repo: RepoName; tree: string }): Promise<Uint8Array>
   // The repository's published security advisories, as GitHub's
   // repository advisory objects: every page of 100, each found by the
