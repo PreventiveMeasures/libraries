@@ -490,6 +490,14 @@ describe('buildPnpmTree reads a package.json as pnpm writes the lockfile', () =>
     await assert.rejects(only([e], { fields: '    bundledDependencies: [x]\n' }), /^DeptreeError: "e@1\.0\.0": package\.json bundles other than the lockfile says$/u)
   })
 
+  // As react@16.14.0's package.json has it.
+  it('takes bundleDependencies: false as none bundled', async () => {
+    const e = await tarball('e', '1.0.0', {}, { manifest: { bundleDependencies: false } })
+    const { vfs } = await only([e])
+    assert.equal(vfs.readText('/node_modules/e/package.json'), '{"name":"e","version":"1.0.0","bundleDependencies":false}')
+    await assert.rejects(only([e], { fields: '    bundledDependencies: [x]\n' }), /^DeptreeError: "e@1\.0\.0": package\.json bundles other than the lockfile says$/u)
+  })
+
   it('passes over the specifier of a dependency it bundles', async () => {
     const m = await tarball('m', '1.0.0', { 'node_modules/x/package.json': '{"name":"x","version":"1.0.0"}' }, { manifest: { dependencies: { x: 'file:../../x' }, bundledDependencies: ['x'] } })
     const { vfs } = await only([m], { fields: '    bundledDependencies: [x]\n' })

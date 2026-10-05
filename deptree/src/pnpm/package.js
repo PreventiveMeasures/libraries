@@ -85,8 +85,10 @@ export function checkManifest(manifest, pkg, where, major) {
 
 const bundledOf = (manifest) => manifest.bundleDependencies ?? manifest.bundledDependencies
 
-// pnpm 10 writes an empty list of bundled dependencies, pnpm 11 none.
-const listed = (bundled) => (Array.isArray(bundled) && bundled.length === 0 ? undefined : bundled)
+// pnpm 10 writes an empty list of bundled dependencies, pnpm 11 none; for a
+// `false`, as react@16.14.0's package.json has, pnpm 10, 11 and 12 write none,
+// and npm publishes none.
+const listed = (bundled) => (bundled === false || (Array.isArray(bundled) && bundled.length === 0) ? undefined : bundled)
 
 // `read` is the package.json as hook.js's hook has it, and `packages` the
 // lockfile's, by which a `file:` target is the directory it resolves to.
