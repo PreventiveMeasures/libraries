@@ -1,18 +1,50 @@
 import assert from 'node:assert/strict'
 import { constants } from 'node:fs'
 import { mkdir, open, rename, rm, writeFile } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 
-import { assertDirectoryPath, isRepo } from './args.js'
+import { assertCacheName, assertDirectoryPath, isRepo } from './args.js'
 import { MAX_BYTES, decode } from './http.js'
 
 const DIRS = new Set(['npm/repos', 'npm/tarballs', 'cargo/repos', 'cargo/crates', 'composer/repos', 'soldeer/repos', 'soldeer/zips', 'github/trees'])
 const RECORD_TTL_MS = 30 * 24 * 60 * 60 * 1000 // A link only moves on a transfer or rename, and GitHub redirects those.
 
+// An environment variable may hold anything: only an absolute path is one.
+const absolute = (path) => (typeof path === 'string' && isAbsolute(path) ? path : undefined)
+const within = (base, ...names) => (base === undefined ? undefined : join(base, ...names))
+
+// os.homedir() takes $HOME as it is, relative or empty, and throws where
+// neither it nor the user's passwd entry has one.
+function home() {
+  try {
+    return absolute(homedir())
+  } catch {
+    return undefined
+  }
+}
+
+// Only Linux and the BSDs follow the XDG Base Directory spec, so macOS and
+// Windows take no XDG_CACHE_HOME, as Go's os.UserCacheDir and Rust's dirs
+// take none.
+export function cacheDirFor(name) {
+  assertCacheName('cacheDirFor', 'name', name)
+  if (process.platform === 'darwin') return within(home(), 'Library', 'Caches', name)
+  if (process.platform === 'win32') return within(absolute(process.env.LOCALAPPDATA) ?? within(home(), 'AppData', 'Local'), name, 'Cache')
+  return within(absolute(process.env.XDG_CACHE_HOME) ?? within(home(), '.cache'), name)
+}
+
+export const defaultCacheDir = cacheDirFor('PreventiveMeasures')
+
 let root
 let tmpSeq = 0
 
-export function setCacheDir(dir) {
+export function setCacheDir(dir = defaultCacheDir) {
+  if (dir === false) {
+    root = undefined
+    return
+  }
+  assert.ok(dir !== undefined, 'setCacheDir: there is no default cache directory, as no absolute home directory is known: give one')
   assertDirectoryPath('setCacheDir', 'dir', dir)
   root = resolve(dir)
 }
@@ -24,11 +56,17 @@ export function setCacheDir(dir) {
 // would still meet, so a capital is written `!` and the letter, and a `!`
 // as `!!`. A Windows device name (`con.json` is the console) has its first
 // letter escaped, which encodeURIComponent never does.
-function cachePath(dir, key) {
+function cachePath(dir, key, base = root) {
   assert.ok(DIRS.has(dir) && key && typeof key === 'string', `Unexpected cache entry: ${dir}`)
   const name = encodeURIComponent(key.replace(/[!A-Z]/gu, (char) => `!${char.toLowerCase()}`)).replaceAll('%40', '@').replaceAll('%2F', '+')
-  return root === undefined ? null : join(root, dir, name.replace(/^(?=(?:con|prn|aux|nul|com\d|lpt\d)(?:\.|$))./u, (char) => `%${char.codePointAt(0).toString(16).toUpperCase()}`))
+  return base === undefined ? null : join(base, dir, name.replace(/^(?=(?:con|prn|aux|nul|com\d|lpt\d)(?:\.|$))./u, (char) => `%${char.codePointAt(0).toString(16).toUpperCase()}`))
 }
+
+// Caches of ours, read whether set or not for what is checked whatever its
+// source: the default one, and stasis's, which it sets with setCacheDir.
+const OURS = [defaultCacheDir, cacheDirFor('stasis')].filter((base) => base !== undefined)
+
+export const ourCachePaths = (dir, key) => OURS.map((base) => cachePath(dir, key, base))
 
 // Only a regular file, checked on the file as opened, so one swapped in
 // after a check can't pass: a FIFO or a device would block or never end.

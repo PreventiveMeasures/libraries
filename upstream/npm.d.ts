@@ -10,8 +10,27 @@
 // Where NPM_TOKEN is set, it is sent with the requests for a scoped
 // package, so a private one can be read.
 
-// Where cached answers live, resolved when set. Unset by default, and
-// unset means no cache: every read misses and every write is skipped.
+// Where a program called `name` keeps its cache for this user, as each
+// platform has it, read from the environment when called. macOS:
+// ~/Library/Caches/<name>. Windows: %LOCALAPPDATA%\<name>\Cache, the
+// `Cache` apart from the program's other local data there. Elsewhere, the
+// XDG Base Directory spec's: $XDG_CACHE_HOME/<name>, or ~/.cache/<name>
+// where it is unset, empty or relative, which the spec has ignored.
+// Undefined where no absolute directory is found to start from: a home
+// directory that is relative, empty or unknown. Nothing is made. `name` is
+// 6 to 32 of a-z, A-Z, 0-9, `_` and `-`, so one directory name the same on
+// every platform.
+export function cacheDirFor(name: string): string | undefined
+
+// cacheDirFor('PreventiveMeasures'), read once, when this module is first
+// imported: where setCacheDir() caches.
+export const defaultCacheDir: string | undefined
+
+// Where cached answers are written and read, resolved when set: `dir`, or
+// defaultCacheDir where it is left out, which throws where there is none.
+// Unset until this is called, and unset again by `false`, which means no
+// cache: every read of it misses and every write is skipped. getTarball
+// reads ours all the same, set or not.
 //
 // The directory is trusted: a package's repo is answered from it as it
 // was written, with no request. Point it only at storage that nothing
@@ -19,7 +38,7 @@
 // restored from lower-trust jobs. Tarballs, crates (cargo.js), zips
 // (soldeer.js) and tree tarballs (github.js) don't rely on this, since
 // they are checked against their integrity on every call.
-export function setCacheDir(dir: string): void
+export function setCacheDir(dir?: string | false): void
 
 // A failed request: `status` is the HTTP status the registry answered
 // with (404 for a package or version it does not have).
@@ -85,10 +104,11 @@ export function verifyDist(name: string, version: string, dist: Dist): Promise<v
 // for. Either way the bytes are checked against `dist.integrity`, whether
 // they were downloaded (before they are cached) or read from a cache.
 //
-// Other tools' caches are read first, and never written: npm's (cacache
-// under npm_config_cache, else npm's default, `~/.npm` outside Windows;
-// and npm 4's `<name>/<version>/package.tgz` there), then
-// `~/.audit/cache/tgz/<org>:<name>-<version>.tgz`. A file there that does
-// not match is passed over. One in setCacheDir's cache that does not
-// match throws.
+// Other caches are read first, and never written: npm's (cacache under
+// npm_config_cache, else npm's default, `~/.npm` outside Windows; and npm
+// 4's `<name>/<version>/package.tgz` there), then
+// `~/.audit/cache/tgz/<org>:<name>-<version>.tgz`, then defaultCacheDir
+// and cacheDirFor('stasis'), as setCacheDir files a tarball in either,
+// whether set or not. A file there that does not match is passed over.
+// Then setCacheDir's cache, where one that does not match throws.
 export function getTarball(name: string, version: string, dist?: Dist): Promise<Uint8Array>

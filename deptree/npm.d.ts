@@ -7,12 +7,13 @@ export { LockfileError } from '@preventive/lockfile/npm.js'
 // Where @preventive/upstream caches what it fetches, tarballs among them.
 // Tarballs are fetched through it, and that is the one place anything here
 // touches a filesystem. Before the network, it takes a tarball from npm's
-// cache — under $npm_config_cache, or ~/.npm — or from ~/.audit/cache/tgz,
-// where one there has the lockfile's integrity, and writes neither; then
-// from its own cache, where one is set, which is where it writes each
-// tarball it fetches. Unset, which it is by default, it has none, and
-// writes nothing. The project is read only through the view given as
-// `project`, and the tree built in a Vfs.
+// cache — under $npm_config_cache, or ~/.npm — from ~/.audit/cache/tgz, or
+// from its own default cache directory or stasis's, where one there has the
+// lockfile's integrity, and writes none of them; then from its own cache,
+// where one is set, which is where it writes each tarball it fetches:
+// setCacheDir() sets the default one, and setCacheDir(false) unsets it.
+// Unset, which it is until set, it writes nothing. The project is read
+// only through the view given as `project`, and the tree built in a Vfs.
 export { setCacheDir } from '@preventive/upstream/npm.js'
 
 // The machine npm would install on, which a tree depends on. `npm` is the

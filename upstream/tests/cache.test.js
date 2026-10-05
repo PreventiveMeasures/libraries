@@ -86,7 +86,8 @@ describe('the cache', () => {
     assert.equal(await readCacheJSON('npm/repos', 'taken.json'), null)
   })
 
+  // Left out, it is the default directory; false, none (cache-dir.test.js).
   it('refuses a cache directory that is not a path', () => {
-    for (const dir of ['', 42, undefined, 'a\u0000b']) assert.throws(() => setCacheDir(dir), /setCacheDir: dir must be a directory path/u, String(dir))
+    for (const dir of ['', 42, null, true, 'a\u0000b']) assert.throws(() => setCacheDir(dir), /setCacheDir: dir must be a directory path/u, String(dir))
   })
 })

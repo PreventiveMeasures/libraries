@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 
-import { readCache, readRegularFile, writeCache } from './cache.js'
+import { ourCachePaths, readCache, readRegularFile, writeCache } from './cache.js'
 import { request } from './http.js'
 import { gitTreeOfTarball } from './tree.js'
 
@@ -16,13 +16,15 @@ const DIGESTS = {
 
 // Bytes whose `algorithm` hash is `expected`, which the registry or the
 // caller gives, never a disk; without it nothing is read. From `local`,
-// other tools' caches (read, never written; a mismatch is passed over),
-// else ours (a mismatch throws), else what `locate` answers, checked and
-// then cached.
-export async function verifiedDownload({ method, dir, what, ext, algorithm, expected, local = [], locate, options = {}, list }) {
+// other tools' caches, and with `ours` our default cache and stasis's,
+// whether set or not (read, never written; a mismatch is passed over),
+// else the cache set (a mismatch throws), else what `locate` answers,
+// checked and then cached.
+export async function verifiedDownload({ method, dir, what, ext, algorithm, expected, local = [], ours = false, locate, options = {}, list }) {
   assert.ok(Object.hasOwn(DIGESTS, algorithm) && typeof expected === 'string' && expected !== '', `${method}: nothing to check ${what} against`)
   const digest = (bytes) => DIGESTS[algorithm](bytes, { expected, list })
-  for (const path of local) {
+  const key = `${what}.${ext}`
+  for (const path of ours ? [...local, ...ourCachePaths(dir, key)] : local) {
     const bytes = await readRegularFile(path)
     if (bytes && await digest(bytes) === expected) return bytes
   }
@@ -31,7 +33,6 @@ export async function verifiedDownload({ method, dir, what, ext, algorithm, expe
     assert.ok(actual === expected, `${method}: integrity mismatch for ${what} from ${from}: expected ${expected}, got ${actual}`)
     return bytes
   }
-  const key = `${what}.${ext}`
   const cached = await readCache(dir, key)
   if (cached) return await check(cached, 'the cache')
   const url = await locate()
