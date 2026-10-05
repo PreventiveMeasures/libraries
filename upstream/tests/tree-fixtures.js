@@ -41,13 +41,13 @@ export const CRLF_TGZ = Buffer.from('H4sIAAAAAAACA+2W0WqDMBSGvRb6DoHdDWqNMfFq0Ls
 // same tree archived with `*.js eol=crlf` in .git/info/attributes, which no
 // checkout of the tree has, so `g.js` with CRLF too.
 export const MIXED = 'ca041eec32322df9e4fdf286bbd8640d06209b0b'
-export const MIXED_SUB = 'e2bc20d59db3ad7ccc5ca99504c862364e51f125'
-export const MIXED_DOCS = '63e18324d7a8da399104d642bba0ce3b5d598333'
+const MIXED_SUB = 'e2bc20d59db3ad7ccc5ca99504c862364e51f125'
+const MIXED_DOCS = '63e18324d7a8da399104d642bba0ce3b5d598333'
 export const MIXED_TGZ = Buffer.from('H4sIAAAAAAACA+2a0WqDMBSGvRZ8h8DuCq1RE70q7D3GLmIaN4ddiqbMMfbuS9rBmLIWiosd+z8oSpNW5PAdT44RcquWYrdbilImacbiYHqopSj44WgZHg/nCU9zmuecMTcvyfIkC3jggX1nRGsv2WptTs07Nz68uT+CGMZ/9VAbYUxbl3ujusnin+fsx/gnnA/jn3NaBBTx/3XuXKzvX+pnYlRviNLNWrZNFS5WpTCj7+R2Q+xce2b64+ha7I3+9jP7V/Yj2tdwo2UXLxZfowG4ev+FC/z0+f+U/zTNh/4znibw3wO3Sj5qoqsqClVfGxKXhEYQ9f/6L12S9+x/wsb+Jxz+e2ArZKujsFMG1sN/6//GlXZX4H+Rwn8f8bflexS6Sh7+w3/nv1u0zd7/YZyh/zNf/PvVlDXg+fw/Wv/xLMP6zwc3xAU8Cpv6WeEJgPwfq2up/zL476n+Cz77tbAB/seV6+Bfgf8p+j8++FS/qhsF/+E/ix9WT13g2/905H9WUPjvAdXvdGvI2zvsh//O/8c56n+K/u9MNNqu+2UL++H/0f9uX069B/CS/i+jDP3fueI/8R7AC9Z/RYr874XjPr+lewGIZwDy/9H/cto9gOf9z8bvf7D/10/9pyoTio7UHfQHAAAAAAAAAAAAAAAAAAAAAAAA/iofHmrp7ABQAAA=', 'base64')
 export const INJECTED_TGZ = Buffer.from('H4sIAAAAAAACA+2a32rCMBSHe13oOwR2J2j/JGmvhL3H2EUa062jGmkj6xh79yU6GKtMQbpU2e8DaTGtIofv9JxjhFyrudhu56KUaUZZHIxPYikKvj9ahsf9ecqzPMlzzpi7LqV5SgMeeGDXGdHar2y1NqeuO7c+/HE3ghjGf/FUG2FMW5c7o7rR4p/n7Nf4p5wP45/zpAgSxP/PeXCxfnytN8So3hClm6VsmyqcLUphjt6T6xWx19oz0x9Wl2Jn9I/b7EfZl2jfwpWWXTybfa8G4Or9Fy7w4+f/U/4nWT70n/Eshf8euFfyWRNdVVGo+tqQuCRJBFH/r//SJXnP/qfs2P+Uw38PrIVsdRR2ysB6+G/9X7nS7gr8LzL47yP+tnyPQlfJw3/47/x3Tdvk8x/GGeY/08W/X4xZA57P/0f9H6cU/Z8P7ogLeBQ29UbhCYD8H6trqf8o/PdU/wVf81rYAP/jyk3wr8D/DPMfH3ypX9WNgv/wn8VPi5cu8O0/PfKfFqj/faD6rW4Nef9A8Q//nf/PU9T/Cea/E9Fo2/fLFvLD/4P/3a4cew/gJfNfljDMf6eK/8h7AC/o/4oM+d8Lh31+c/cHIJ4ByP8H/8tx9wBe0P9xiv2/fuo/VZlQdKTuoD8AAAAAAAAAAAAAAAAAAAAAAABwq3wC782BtwBQAAA=', 'base64')
-// GitHub's listings of TREE, its `lib` (TREE_LIB), SUBMODULE, CRLF,
-// CRLF_ANDROID, MIXED, MIXED_SUB and MIXED_DOCS, as `git ls-tree -l` gives
-// them: { path, mode, type, sha }, and a size for a blob.
+// GitHub's listings of the trees above and their subtrees, TREE's `lib`
+// (TREE_LIB) among them, as `git ls-tree -l` gives them: { path, mode,
+// type, sha }, and a size for a blob.
 export const TREE_LIB = '5d216e498d6125ed6472ebafd65ee273f6f362d7'
 export const LISTINGS = {
   [TREE]: [

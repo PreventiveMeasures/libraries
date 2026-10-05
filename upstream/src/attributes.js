@@ -123,13 +123,11 @@ const wildmatch = (pattern, text) => walk(pattern, text, 0, 0) === MATCH
 // `name=value`; undefined for a name git takes for none, null for one only
 // some versions take.
 function parseState(token) {
-  const sign = token[0] === '-' || token[0] === '!' ? token[0] : ''
-  const equals = token.indexOf('=')
-  const name = token.slice(sign.length, equals === -1 ? token.length : equals)
+  const [, sign, name, value = true] = /^([-!]?)([^=]*)(?:=(.*))?$/u.exec(token)
   if (!isName(name)) return undefined
   if (name.startsWith('builtin_')) return null
   if (sign) return [name, sign === '-' ? false : null]
-  return [name, equals === -1 ? true : token.slice(equals + 1)]
+  return [name, value]
 }
 
 // A .gitattributes as attr.c reads one from a tree, to the first NUL: its
@@ -207,14 +205,6 @@ export function attributesOf(files, path) {
   return states
 }
 
-// convert.c's crlf_action from `text`, or else `crlf`: set, unset, or
-// `input` or `auto`; any other value is none.
-function crlfAction(value) {
-  if (value === true) return 'text'
-  if (value === false) return 'binary'
-  return value === 'input' || value === 'auto' ? value : undefined
-}
-
 // convert.c's convert_is_binary, and no CR, on the blob these bytes are
 // written from with each LF's CR taken out, as `text=auto` writes only text.
 function isAutoText(written) {
@@ -239,7 +229,8 @@ export function writtenWithCrlf(files, path, written) {
   if (files === null) return false
   const states = attributesOf(files, path)
   if (states.get('ident') === true || typeof states.get('filter') === 'string' || states.get('working-tree-encoding')) return false
-  const action = crlfAction(states.get('text')) ?? crlfAction(states.get('crlf'))
-  if (action === 'binary' || states.get('eol') !== 'crlf') return false
+  // convert.c's crlf_action: `text`, or else `crlf`, where set, unset, `input` or `auto`.
+  const action = [states.get('text'), states.get('crlf')].find((value) => typeof value === 'boolean' || value === 'input' || value === 'auto')
+  if (action === false || states.get('eol') !== 'crlf') return false
   return action !== 'auto' || isAutoText(written)
 }

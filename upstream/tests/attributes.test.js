@@ -4,9 +4,9 @@ import { describe, it } from 'node:test'
 
 import { attributesOf, withAttributes, writtenWithCrlf } from '../src/attributes.js'
 
-// The .gitattributes down to a directory, each [base, text] from the root.
-const chain = (...files) => files.reduce((above, [base, text]) => withAttributes(above, base, Buffer.from(text, 'latin1')), [])
-const root = (text) => chain(['', text])
+// The .gitattributes at `base` of `text`, below those `above`.
+const below = (above, base, text) => withAttributes(above, base, Buffer.from(text, 'latin1'))
+const root = (text) => below([], '', text)
 const states = (files, path) => Object.fromEntries(attributesOf(files, path))
 
 // Every expectation below is what `git check-attr --source` (git 2.43)
@@ -34,14 +34,14 @@ describe('attributesOf', () => {
   })
 
   it('takes each attribute from the deepest file and its last line, a macro expanded where it is set', () => {
-    const top = ['', '[attr]win text eol=crlf\n*.bat win\n*.bat -diff\n[attr]win text eol=lf\n*.cmd text binary\n*.ps1 binary text\nsub/** !eol\n']
-    const sub = chain(top, ['sub/', '[attr]local text\n*.bat local eol=crlf\n*.bad bad/name text\n!neg text\n'])
-    assert.deepEqual(states(chain(top), 'f.bat'), { diff: false, text: true, win: true, eol: 'lf' })
+    const top = root('[attr]win text eol=crlf\n*.bat win\n*.bat -diff\n[attr]win text eol=lf\n*.cmd text binary\n*.ps1 binary text\nsub/** !eol\n')
+    const sub = below(top, 'sub/', '[attr]local text\n*.bat local eol=crlf\n*.bad bad/name text\n!neg text\n')
+    assert.deepEqual(states(top, 'f.bat'), { diff: false, text: true, win: true, eol: 'lf' })
     // A macro only the root defines; a line with a name that is none, and a
     // negative pattern, left out.
     assert.deepEqual(states(sub, 'sub/f.bat'), { diff: false, text: true, win: true, eol: 'crlf', local: true })
-    assert.deepEqual(states(chain(top), 'x.cmd'), { binary: true, diff: false, merge: false, text: false })
-    assert.deepEqual(states(chain(top), 'x.ps1'), { binary: true, diff: false, merge: false, text: true })
+    assert.deepEqual(states(top, 'x.cmd'), { binary: true, diff: false, merge: false, text: false })
+    assert.deepEqual(states(top, 'x.ps1'), { binary: true, diff: false, merge: false, text: true })
     assert.deepEqual(states(sub, 'sub/x.bad'), { eol: null })
     assert.deepEqual(states(sub, 'sub/neg'), { eol: null })
   })
@@ -63,7 +63,7 @@ describe('withAttributes', () => {
     // A comment or a long blank line is none of the refused, and a `[attr]`
     // line below the root is left out as git leaves it.
     assert.deepEqual(root(`# "quoted" [[:alpha:]] builtin_x\n${' '.repeat(3000)}\n*.bat text\n`), [{ base: '', rules: [{ pattern: '*.bat', states: [['text', true]] }], macros: new Map() }])
-    assert.deepEqual(chain(['', ''], ['sub/', '[attr]win text\n'])[1], { base: 'sub/', rules: [], macros: new Map() })
+    assert.deepEqual(below(root(''), 'sub/', '[attr]win text\n')[1], { base: 'sub/', rules: [], macros: new Map() })
     // Read to the first NUL, as git does.
     assert.deepEqual(root('*.bat text\n\0*.cmd text\n')[0].rules.map(({ pattern }) => pattern), ['*.bat'])
   })
@@ -73,10 +73,10 @@ describe('writtenWithCrlf', () => {
   const CRLF = Buffer.from('one\r\ntwo\r\n', 'latin1')
 
   it('is true where git writes the file with CRLF, as `git archive` wrote each', () => {
-    const files = root('*.a crlf=input eol=crlf\n*.b text=true eol=crlf\n*.c !text eol=crlf\n*.d text=input eol=crlf\n*.e -text eol=crlf\n*.h text=auto eol=crlf\n*.i crlf eol=crlf\n*.j -crlf eol=crlf\n*.k text\n*.l eol=lf\n')
-    for (const [path, expected] of [['t.a', true], ['t.b', true], ['t.c', true], ['t.d', true], ['t.e', false], ['t.h', true], ['t.i', true], ['t.j', false], ['t.k', false], ['t.l', false], ['t.none', false]]) {
-      assert.equal(writtenWithCrlf(files, path, CRLF), expected, path)
-    }
+    for (const [attributes, expected] of [
+      ['crlf=input eol=crlf', true], ['text=true eol=crlf', true], ['!text eol=crlf', true], ['text=input eol=crlf', true], ['-text eol=crlf', false],
+      ['text=auto eol=crlf', true], ['crlf eol=crlf', true], ['-crlf eol=crlf', false], ['text', false], ['eol=lf', false], ['', false],
+    ]) assert.equal(writtenWithCrlf(root(`f ${attributes}\n`), 'f', CRLF), expected, attributes)
   })
 
   it('is true for `text=auto` only on text: no NUL, no CR but before an LF, and few bytes that do not print', () => {
@@ -87,9 +87,7 @@ describe('writtenWithCrlf', () => {
   })
 
   it('is false for what rewrites a file otherwise, and for attributes it cannot read', () => {
-    const files = root('*.f text eol=crlf ident\n*.g text eol=crlf filter=x\n*.w text eol=crlf working-tree-encoding=UTF-16\n*.bat text eol=crlf\n')
-    for (const path of ['t.f', 't.g', 't.w']) assert.equal(writtenWithCrlf(files, path, CRLF), false, path)
-    assert.equal(writtenWithCrlf(files, 'x.bat', CRLF), true)
-    assert.equal(writtenWithCrlf(null, 'x.bat', CRLF), false)
+    for (const other of ['ident', 'filter=x', 'working-tree-encoding=UTF-16']) assert.equal(writtenWithCrlf(root(`f text eol=crlf ${other}\n`), 'f', CRLF), false, other)
+    assert.equal(writtenWithCrlf(null, 'f', CRLF), false)
   })
 })

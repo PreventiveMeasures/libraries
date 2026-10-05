@@ -89,18 +89,16 @@ export interface Client {
   // CRLF where git has LF, as a checkout writes it: the submodule's commit,
   // the subtrees and the blobs come from GitHub's listings of the trees,
   // asked only then, cached or not, a file is taken for one written with
-  // CRLF only where the tree's own .gitattributes, read as git reads them
-  // from a tree, have git write it so, and the id must still come out
-  // `tree`. The bytes are GitHub's: the tree as a checkout with no
-  // `core.autocrlf` writes it, the same for every repo. So GitHub's tarball
-  // is refused for a tree with files marked `export-ignore`, which it
-  // leaves out, or `ident`, `filter` or `working-tree-encoding` beside
-  // `eol=crlf`, or `eol=crlf` on a file git has with both CRLF and LF, or
-  // with CRLF from attributes not in the tree; for one whose .gitattributes
-  // on the way hold what git versions read apart (see src/attributes.js);
-  // and from a repo set to include Git LFS objects in archives, which
-  // replace the pointers git has; that repo still gets a tree already
-  // cached, pointers and all.
+  // CRLF only where the tree's own .gitattributes have git write it so,
+  // and the id must still come out `tree`. The bytes are GitHub's: the
+  // tree as a checkout with no `core.autocrlf` writes it, the same for
+  // every repo. So GitHub's tarball is refused for a tree with files marked
+  // `export-ignore`, which it leaves out, or `ident`, `filter` or
+  // `working-tree-encoding` beside `eol=crlf`, or `eol=crlf` on a file git
+  // has with both CRLF and LF; for one whose .gitattributes on the way hold
+  // what git versions read apart (see src/attributes.js); and from a repo
+  // set to include Git LFS objects in archives, which replace the pointers
+  // git has; that repo still gets a tree already cached, pointers and all.
   getRepoTreeTarball(options: { repo: RepoName; tree: string }): Promise<Uint8Array>
   // The repository's published security advisories, as GitHub's
   // repository advisory objects: every page of 100, each found by the
