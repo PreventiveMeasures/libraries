@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { gunzipSync, gzipSync } from 'node:zlib'
 import { describe, it } from 'node:test'
 
-import { gitTreeOfListing, gitTreeOfTarball, readTreeTarball } from '../src/tree.js'
+import { gitTreeOfListing, gitTreeOfTarball } from '../src/tree.js'
 import { COMMIT_TGZ, CRLF, CRLF_ANDROID, CRLF_TGZ, EMPTIES, EMPTIES_D, EMPTIES_N, EMPTIES_TGZ, LISTINGS, SUBMODULE, SUBMODULE_COMMIT, SUBMODULE_TGZ, TREE, TREE_LIB, TREE_TGZ } from './tree-fixtures.js'
 
 // A header's checksum, over the header with the field itself read as spaces.
@@ -206,62 +206,41 @@ describe('gitTreeOfTarball', () => {
   })
 })
 
-describe('readTreeTarball', () => {
+describe('gitTreeOfTarball with eol=crlf', () => {
   const blob = (text) => createHash('sha1').update(`blob ${text.length}\0`).update(text, 'latin1').digest('hex')
-  // A file's body, by the name in its header.
-  const bodyOf = (tgz, name) => {
-    const tar = Buffer.from(gunzipSync(tgz))
-    const at = tar.indexOf(`${name}\0`)
-    assert.equal(at % 512, 0, name)
-    return tar.toString('latin1', at + 512, at + 512 + Number.parseInt(tar.toString('latin1', at + 124, at + 135), 8))
+  // A tarball of `f.bat` as `written`, and the id of the tree with `committed` there.
+  const crlf = (written, committed) => {
+    const listing = [{ path: 'f.bat', mode: '100644', type: 'blob', sha: blob(committed) }]
+    const given = tarball(header('top/', '5', 0, 0o775), header('top/f.bat', '0', written.length), body(written))
+    return { given, expected: gitTreeOfListing(listing), list: () => listing }
   }
 
-  it('takes a file `git archive` wrote with CRLF for `eol=crlf` back to LF where that is the blob listed, and repacks the tarball with it', async () => {
+  it('is the id of a tree a file of which `git archive` wrote with CRLF for `eol=crlf`, where the listing names its blob with LF', async () => {
     const asked = []
     const list = (sha) => {
       asked.push(sha)
       return LISTINGS[sha] ?? []
     }
     assert.notEqual(await gitTreeOfTarball(CRLF_TGZ), CRLF)
-    const { id, bytes } = await readTreeTarball(CRLF_TGZ, { expected: CRLF, list })
-    assert.equal(id, CRLF)
+    assert.equal(await gitTreeOfTarball(CRLF_TGZ, { expected: CRLF, list }), CRLF)
     assert.deepEqual(asked, [CRLF, CRLF_ANDROID])
-    // The tree's own, with nothing listed: each file as git has it, one
-    // committed with CRLF still so.
-    assert.equal(await gitTreeOfTarball(bytes), CRLF)
-    const top = 'acme-app-abc1234'
-    assert.equal(bodyOf(CRLF_TGZ, `${top}/build.bat`), '@echo off\r\nexit /b 0\r\n')
-    assert.equal(bodyOf(bytes, `${top}/build.bat`), '@echo off\nexit /b 0\n')
-    assert.equal(bodyOf(bytes, `${top}/android/gradlew.bat`), '@rem Gradle startup script for Windows\n@echo off\n')
-    assert.equal(bodyOf(bytes, `${top}/dos.txt`), 'a\r\nb\r\n')
+    const { given, expected, list: listed } = crlf('x\r\ny\r\n', 'x\ny\n')
+    assert.equal(await gitTreeOfTarball(given, { expected, list: listed }), expected)
   })
 
-  it('repacks a file that takes fewer blocks with LF, under a pax path, and the entries after it as they were', async () => {
-    const name = `${'d'.repeat(80)}.bat`
-    const lines = 'x\r\n'.repeat(200)
-    const given = tarball(header('top/', '5', 0, 0o775), pax('x', [['path', `top/${name}`]]), header('top/d.bat', '0', lines.length), body(lines), header('top/z', '0', 2), body('z\n'))
-    const listing = [{ path: name, mode: '100644', type: 'blob', sha: blob('x\n'.repeat(200)) }, { path: 'z', mode: '100644', type: 'blob', sha: blob('z\n') }]
-    const expected = gitTreeOfListing(listing)
-    const { id, bytes } = await readTreeTarball(given, { expected, list: (sha) => (sha === expected ? listing : []) })
-    assert.equal(id, expected)
-    assert.equal(await gitTreeOfTarball(bytes), expected)
-    assert.equal(bodyOf(bytes, 'top/d.bat'), 'x\n'.repeat(200))
-    assert.equal(bodyOf(bytes, 'top/z'), 'z\n')
-    assert.equal(gunzipSync(bytes).length, gunzipSync(given).length - 512)
-  })
-
-  it('is the tarball given where nothing is mended, or the id is not `expected` all the same', async () => {
-    assert.equal((await readTreeTarball(TREE_TGZ, { expected: TREE, list: (sha) => LISTINGS[sha] })).bytes, TREE_TGZ)
-    // `build.bat` listed as committed with CRLF and LF both, which `git
-    // archive` writes as it would the LF alone: `android` is mended, it is not.
+  it('takes a file for one written with CRLF only where its blob writes it back byte for byte', async () => {
+    // Undone to `x\r\ny\n`, which git would write as `x\r\ny\r\n`; a
+    // blob with CRLF and LF both, which comes out all CRLF; one with LF where
+    // the file has one too; and a file with no CRLF at all.
+    for (const [written, committed] of [['x\r\r\ny\r\n', 'x\r\ny\n'], ['x\r\ny\r\n', 'x\r\ny\n'], ['x\r\ny\n', 'x\ny\n'], ['x\ny\n', 'x\ny']]) {
+      const { given, expected, list } = crlf(written, committed)
+      const id = await gitTreeOfTarball(given, { expected, list })
+      assert.match(id, /^[\da-f]{40}$/u, JSON.stringify(written))
+      assert.notEqual(id, expected, JSON.stringify(written))
+    }
+    // `build.bat` listed with CRLF and LF both: `android` is mended, it is not.
     const mixed = LISTINGS[CRLF].map((entry) => (entry.path === 'build.bat' ? { ...entry, sha: blob('@echo off\r\nexit /b 0\n') } : entry))
-    const { id, bytes } = await readTreeTarball(CRLF_TGZ, { expected: CRLF, list: (sha) => (sha === CRLF ? mixed : LISTINGS[sha]) })
-    assert.match(id, /^[\da-f]{40}$/u)
-    assert.notEqual(id, CRLF)
-    assert.equal(bytes, CRLF_TGZ)
-    // A reason, with the tarball given.
-    assert.deepEqual(await readTreeTarball(SUBMODULE_TGZ, { expected: SUBMODULE }), { id: 'no tree: an empty directory, "sub", and no submodule there', bytes: SUBMODULE_TGZ })
-    assert.deepEqual(await readTreeTarball(COMMIT_TGZ), { id: 'no tree: an entry of type "g"', bytes: COMMIT_TGZ })
+    assert.notEqual(await gitTreeOfTarball(CRLF_TGZ, { expected: CRLF, list: (sha) => (sha === CRLF ? mixed : LISTINGS[sha]) }), CRLF)
   })
 })
 

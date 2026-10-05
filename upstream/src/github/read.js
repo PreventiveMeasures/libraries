@@ -114,10 +114,10 @@ async function getRepoFile(headers, options) {
 // Follows the redirect to codeload.github.com. A tree id names its content,
 // so the bytes are held to it, downloaded or cached, and cached by it alone,
 // for good. What a tarball cannot show, a submodule's commit or a subtree
-// with nothing in it, or shows otherwise, a file marked `eol=crlf` with
-// CRLF, comes from GitHub's listings of the trees, which the id checks as
-// well: a directory at a time, as a recursive listing of a large tree is
-// cut short. With such a file, what is cached is the tarball repacked.
+// with nothing in it, or shows as a checkout does, a file marked `eol=crlf`
+// with CRLF, comes from GitHub's listings of the trees, which the id checks
+// as well: a directory at a time, as a recursive listing of a large tree is
+// cut short.
 async function treeTarball(method, headers, repo, tree) {
   const listings = new Map()
   const list = (sha) => {

@@ -7,7 +7,6 @@ import { gunzipSync, gzipSync } from 'node:zlib'
 
 import { createClient } from '../github.js'
 import { setCacheDir } from '../npm.js'
-import { gitTreeOfTarball } from '../src/tree.js'
 import { SHA, forbidRequests, json, stubGitHub } from './github-stub.js'
 import { CRLF, CRLF_ANDROID, CRLF_TGZ, EMPTIES, EMPTIES_D, EMPTIES_N, EMPTIES_TGZ, LISTINGS, NESTED, NESTED_COMMIT, NESTED_LIB, NESTED_TGZ, SUBMODULE, SUBMODULE_COMMIT, SUBMODULE_TGZ, TREE, TREE_LIB, TREE_TGZ } from './tree-fixtures.js'
 
@@ -95,17 +94,17 @@ describe('getRepoTreeTarball', () => {
     assert.deepEqual(urls(calls), [`${API}/tarball/${EMPTIES}`, ...[EMPTIES, EMPTIES_D, EMPTIES_N].map((id) => `${API}/git/trees/${id}`)])
   })
 
-  it('takes a file GitHub has with CRLF for `eol=crlf` back to LF where the listing has it so, and keeps the tarball repacked with it', async () => {
-    const calls = stub({ tarballs: { [CRLF]: CRLF_TGZ }, listings: { [CRLF]: { tree: LISTINGS[CRLF] }, [CRLF_ANDROID]: { tree: LISTINGS[CRLF_ANDROID] } } })
-    const bytes = Buffer.from(await client().getRepoTreeTarball({ repo: 'acme/app', tree: CRLF }))
-    assert.deepEqual(urls(calls), [`${API}/tarball/${CRLF}`, ...[CRLF, CRLF_ANDROID].map((id) => `${API}/git/trees/${id}`)])
-    assert.notDeepEqual(bytes, CRLF_TGZ)
-    assert.equal(await gitTreeOfTarball(bytes), CRLF)
-    assert.deepEqual(await readFile(join(TREES, `${CRLF}.tgz`)), bytes)
-    // The tree's own, so served again with no listing asked.
-    const none = forbidRequests()
-    assert.deepEqual(Buffer.from(await client().getRepoTreeTarball({ repo: 'acme/fork', tree: CRLF })), bytes)
-    assert.deepEqual(none, [])
+  it('takes a file GitHub has with CRLF for `eol=crlf` as a checkout writes it, held to the blob the listing has with LF', async () => {
+    const listings = { [CRLF]: { tree: LISTINGS[CRLF] }, [CRLF_ANDROID]: { tree: LISTINGS[CRLF_ANDROID] } }
+    let calls = stub({ tarballs: { [CRLF]: CRLF_TGZ }, listings })
+    assert.deepEqual(Buffer.from(await client().getRepoTreeTarball({ repo: 'acme/app', tree: CRLF })), CRLF_TGZ)
+    const asked = [CRLF, CRLF_ANDROID].map((id) => `${API}/git/trees/${id}`)
+    assert.deepEqual(urls(calls), [`${API}/tarball/${CRLF}`, ...asked])
+    assert.deepEqual(await readFile(join(TREES, `${CRLF}.tgz`)), CRLF_TGZ)
+    // Cached as GitHub has it, so held to the listings again when read back.
+    calls = stub({ listings })
+    assert.deepEqual(Buffer.from(await client().getRepoTreeTarball({ repo: 'acme/app', tree: CRLF })), CRLF_TGZ)
+    assert.deepEqual(urls(calls), asked)
   })
 
   it('refuses a submodule the listing has not, or names another commit for', async () => {

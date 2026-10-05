@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
-import { gunzipSync, gzipSync } from 'node:zlib'
+import { gunzipSync } from 'node:zlib'
 
 import { isSha1, matches } from './args.js'
 
@@ -85,51 +85,44 @@ async function holdsNothing(sha, listed) {
   return true
 }
 
-const lf = (body) => Buffer.from(Buffer.from(body).toString('latin1').replaceAll('\r\n', '\n'), 'latin1')
+// `eol=crlf` as git writes it out, a CR before each LF with none, and its
+// undoing. Bytes are taken for written so only where undone and written
+// again they come out the same.
+const toCrlf = (text) => text.replaceAll(/(?<!\r)\n/gu, '\r\n')
+const fromCrlf = (text) => text.replaceAll('\r\n', '\n')
 
 // Where a directory's id is not the one listed, its listing names what
-// `git archive` wrote otherwise. A subtree with no file in it, which only
-// plumbing makes, it leaves out: one is put back only once its own listings
-// show it holds nothing. A file marked `eol=crlf` it writes with CRLF: one
-// is taken back to LF where that is the blob listed, and added to `mended`.
-async function mend(dir, sha, listed, mended) {
+// `git archive` wrote otherwise, as a checkout writes it. A subtree with no
+// file in it, which only plumbing makes, it leaves out: one is put back
+// only once its own listings show it holds nothing. A file marked
+// `eol=crlf` it writes with CRLF where git has LF: one is hashed as the
+// blob listed, its bytes left as written, only where they undo to that
+// blob and that blob writes them back.
+async function mend(dir, sha, listed) {
   for (const entry of await listed(sha)) {
     const here = dir.get(entry.name)
     if (entry.type === 'tree') {
-      if (here instanceof Map && treeId(here).toString('hex') !== entry.sha) await mend(here, entry.sha, listed, mended)
+      if (here instanceof Map && treeId(here).toString('hex') !== entry.sha) await mend(here, entry.sha, listed)
       else if (here === undefined && await holdsNothing(entry.sha, listed)) dir.set(entry.name, subtree(entry.sha))
     } else if (entry.type === 'blob' && here?.body && here.id.toString('hex') !== entry.sha) {
-      const body = lf(here.body)
-      const id = body.length < here.body.length ? objectId('blob', body) : here.id
-      if (id.toString('hex') !== entry.sha) continue
-      dir.set(entry.name, { ...here, id, body })
-      mended.push({ at: here.at, body })
+      const written = Buffer.from(here.body).toString('latin1')
+      const blob = fromCrlf(written)
+      if (blob === written || toCrlf(blob) !== written || objectId('blob', Buffer.from(blob, 'latin1')).toString('hex') !== entry.sha) continue
+      dir.set(entry.name, { ...here, id: Buffer.from(entry.sha, 'hex') })
     }
   }
 }
 
-// The tar again with each mended file's body in place of the one it had,
-// its header's size and checksum written over as git writes them, gzipped.
-function repack(tar, mended) {
-  const parts = []
-  let from = 0
-  for (const { at, body } of mended.toSorted((a, b) => a.at - b.at)) {
-    const header = Buffer.from(tar.subarray(at, at + BLOCK))
-    const size = octal(header, 124, 136)
-    header.write(`${body.length.toString(8).padStart(11, '0')}\0`, 124, 'latin1')
-    header.write(`${checksum(header).toString(8).padStart(7, '0')}\0`, 148, 'latin1')
-    parts.push(tar.subarray(from, at), header, body, Buffer.alloc(Math.ceil(body.length / BLOCK) * BLOCK - body.length))
-    from = at + BLOCK + Math.ceil(size / BLOCK) * BLOCK
-  }
-  parts.push(tar.subarray(from))
-  return gzipSync(Buffer.concat(parts))
-}
-
-// The entries of a gzipped tarball as `git archive` writes one, under a
-// single top directory, as nested Maps: a file's mode is its exec bit, a
-// symlink's blob its target, and a file keeps its body and where its
-// header is. Where there is no such tree, a reason.
-function readTar(gzipped) {
+// The id of the git tree a gzipped tarball holds, as `git archive` writes
+// one, under a single top directory: a file's mode is its exec bit, a
+// symlink's blob its target. What a tarball cannot show comes from `list`,
+// which answers a listing of a tree by its id, as GitHub's trees API does
+// ({ type, path, sha } entries), walked from `expected`: a submodule's
+// commit for an empty directory, and, where the id comes out otherwise, what
+// mend finds: the subtrees with nothing in them it leaves out, and the
+// files it wrote with CRLF for `eol=crlf`. The id is `expected` only if
+// those are right. Where there is no such tree, a reason, never an id.
+export async function gitTreeOfTarball(gzipped, { expected, list } = {}) {
   let bytes
   try {
     bytes = gunzipSync(gzipped, { maxOutputLength: MAX_UNPACKED_BYTES })
@@ -151,7 +144,6 @@ function readTar(gzipped) {
     const size = octal(header, 124, 136)
     const body = bytes.subarray(at + BLOCK, at + BLOCK + size)
     if (body.length !== size) return 'no tree: the tarball is cut short'
-    const start = at
     at += BLOCK + Math.ceil(size / BLOCK) * BLOCK
     const type = String.fromCodePoint(header[156])
     if (type === 'x') {
@@ -184,24 +176,9 @@ function readTar(gzipped) {
     }
     if (name === null) continue
     if (dir.has(name)) return `no tree: ${JSON.stringify(path)} twice`
-    dir.set(name, type === '0' ? { mode: mode & 0o100 ? '100755' : '100644', id: objectId('blob', body), body, at: start } : { mode: '120000', id: objectId('blob', Buffer.from(target, 'latin1')) })
+    dir.set(name, type === '0' ? { mode: mode & 0o100 ? '100755' : '100644', id: objectId('blob', body), body } : { mode: '120000', id: objectId('blob', Buffer.from(target, 'latin1')) })
   }
-  return top === undefined ? 'no tree: an empty tarball' : { root, tar: bytes }
-}
-
-// The id of the git tree a gzipped tarball holds, as `git archive` writes
-// one, and the tarball to keep. What a tarball cannot show comes from
-// `list`, which answers a listing of a tree by its id, as GitHub's trees
-// API does ({ type, path, sha } entries), walked from `expected`: a
-// submodule's commit for an empty directory, and, where the id comes out
-// otherwise, what mend finds. The id is `expected` only if those are right,
-// and then the tarball is the one given, or, with a file mended, the one
-// repacked with it, which is the tree's own. Where there is no such tree,
-// a reason, never an id.
-export async function readTreeTarball(gzipped, { expected, list } = {}) {
-  const read = readTar(gzipped)
-  if (typeof read === 'string') return { id: read, bytes: gzipped }
-  const { root, tar } = read
+  if (top === undefined) return 'no tree: an empty tarball'
   const listed = async (sha) => (list && isSha1(sha) ? await list(sha) : [])
     .filter(isEntry)
     .map((entry) => ({ ...entry, name: nameOf(entry.path) }))
@@ -212,18 +189,14 @@ export async function readTreeTarball(gzipped, { expected, list } = {}) {
       const type = i === parts.length - 1 ? 'commit' : 'tree'
       sha = (await listed(sha)).find((entry) => entry.type === type && entry.name === part)?.sha
     }
-    if (!isSha1(sha)) return { id: `no tree: an empty directory, ${JSON.stringify(path)}, and no submodule there`, bytes: gzipped }
+    if (!isSha1(sha)) return `no tree: an empty directory, ${JSON.stringify(path)}, and no submodule there`
     dir.set(name, { mode: '160000', id: Buffer.from(sha, 'hex') })
   }
   const id = treeId(root).toString('hex')
-  if (id === expected) return { id, bytes: gzipped }
-  const mended = []
-  await mend(root, expected, listed, mended)
-  const mendedId = treeId(root).toString('hex')
-  return { id: mendedId, bytes: mendedId === expected && mended.length > 0 ? repack(tar, mended) : gzipped }
+  if (id === expected) return id
+  await mend(root, expected, listed)
+  return treeId(root).toString('hex')
 }
-
-export const gitTreeOfTarball = async (gzipped, options) => (await readTreeTarball(gzipped, options)).id
 
 // GitHub lists a subtree's mode as `040000`, which git writes `40000`.
 const LISTED = new Set(['100644 blob', '100755 blob', '120000 blob', '040000 tree', '160000 commit'])
