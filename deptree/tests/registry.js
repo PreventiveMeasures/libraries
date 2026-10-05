@@ -139,3 +139,28 @@ export function stubSoldeer(zips) {
   }
   return calls
 }
+
+const GITHUB_REPOS = 'https://api.github.com/repos/'
+
+// Beside the fetch stubbed already, GitHub's API for `repos`, each by
+// `owner/name`: { commit, tree, tarball, listings }, the listings each
+// tree's entries by its id. Returns what was asked of it, from the repo on.
+export function stubGitHub(repos) {
+  const served = globalThis.fetch
+  const calls = []
+  globalThis.fetch = (input, init) => {
+    const asked = String(input)
+    if (!asked.startsWith(GITHUB_REPOS)) return served(input, init)
+    const path = asked.slice(GITHUB_REPOS.length)
+    calls.push(path)
+    const [owner, name, ...rest] = path.split('/')
+    const repo = repos[`${owner}/${name}`]
+    const [kind, id] = [rest.slice(0, -1).join('/'), rest.at(-1)]
+    let answer = Response.json({ message: 'Not Found' }, { status: 404 })
+    if (repo !== undefined && kind === 'git/commits' && id === repo.commit) answer = Response.json({ sha: repo.commit, tree: { sha: repo.tree } })
+    if (repo !== undefined && kind === 'tarball' && id === repo.tree) answer = new Response(repo.tarball)
+    if (repo !== undefined && kind === 'git/trees' && Object.hasOwn(repo.listings, id)) answer = Response.json({ sha: id, tree: repo.listings[id], truncated: false })
+    return Promise.resolve(answer)
+  }
+  return calls
+}
