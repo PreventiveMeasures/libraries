@@ -80,6 +80,18 @@ describe('readSettings', () => {
     assert.throws(() => read({ workspace: 'packageImportMethod: symlink\n' }), /^DeptreeError: pnpm-workspace\.yaml: packageImportMethod: expected one of auto, hardlink, copy, clone, clone-or-copy, found "symlink"$/u)
   })
 
+  // [] loads no pnpmfile, not even the default one; any other is refused. An
+  // .npmrc's is passed over: pnpm 9 loads none from a path that leads nowhere.
+  it('reads pnpmfile', () => {
+    for (const major of [10, 11, 12]) assert.deepEqual(read({ workspace: 'pnpmfile: []\n', major }), read({ major }))
+    assert.deepEqual(read({ npmrc: 'pnpmfile=nowhere.cjs\n', major: 9 }), read({ major: 9 }))
+    assert.deepEqual(read({ npmrc: 'pnpmfile=hooks.cjs\n' }), DEFAULTS)
+    assert.throws(() => read({ workspace: 'pnpmfile: .pnpmfile.cjs\n' }), /^DeptreeError: pnpm-workspace\.yaml: pnpmfile: "\.pnpmfile\.cjs" is not supported: a pnpmfile's hooks are not run here$/u)
+    assert.throws(() => read({ workspace: 'pnpmfile: .pnpmfile.mjs\n', major: 12 }), /pnpmfile: "\.pnpmfile\.mjs" is not supported/u, 'pnpm 12 takes a string too')
+    assert.throws(() => read({ workspace: 'pnpmfile: [hooks.cjs]\n', major: 11 }), /pnpmfile: a list is not supported/u)
+    assert.throws(() => read({ workspace: 'pnpmfile: [1]\n' }), /pnpmfile: expected a string or a list of strings, found a list/u)
+  })
+
   it('passes over what leaves the tree as it is', () => {
     const npmrc = 'registry=https://registry.npmjs.org/\n@s:registry=https://registry.npmjs.org\n//registry.npmjs.org/:_authToken=abc\nstore-dir=/x\nauto-install-peers=true\nstrict-ssl=false\n'
     const workspace = 'allowBuilds:\n  esbuild: false\nignoreCompatibilityDb: true\nminimumReleaseAge: 1440\npeerDependencyRules:\n  ignoreMissing: [x]\nignoreWorkspaceRootCheck: true\n'

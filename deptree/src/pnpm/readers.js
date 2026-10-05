@@ -42,6 +42,10 @@ export const readers = {
   linkWorkspacePackages(value, where) {
     return value === 'deep' ? true : readers.boolean(value, where)
   },
+  // A path, or a list of them, which pnpm 12 takes too.
+  pnpmfile(value, where) {
+    return typeof value === 'string' ? value : readers.list(value, where, 'a string or a list of strings')
+  },
   sideEffectsCache(value, where) {
     if (typeof value === 'boolean') return value
     if (readers.mapping(value, where).remote != null) never('what a build left in a remote cache is not restored here')(value.remote, `${where}.remote`)
@@ -100,6 +104,10 @@ export const READ = {
   filterProd: { kind: 'texts', check: never('every project is installed') },
   useNodeVersion: { kind: 'text', check: never('the Node a tree is built for is the host\'s, or nodeVersion') },
   globalPnpmfile: { kind: 'text', check: never('a pnpmfile\'s hooks are not run here') },
+  // [] loads none, not even the default one. An .npmrc's is passed over: from
+  // a path that leads nowhere pnpm 9 loads none, and a pnpmfile with hooks
+  // puts its pnpmfileChecksum in the lockfile, which is refused (tree.js).
+  pnpmfile: { kind: 'pnpmfile', check: (value, where) => (Array.isArray(value) && value.length === 0) || never('a pnpmfile\'s hooks are not run here')(value, where), rc: false },
   registry: { kind: 'text', check: checkRegistry },
   virtualStoreDirMaxLength: { kind: 'count' },
   hoist: { kind: 'boolean' },
