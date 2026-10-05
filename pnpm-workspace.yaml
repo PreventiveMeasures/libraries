@@ -14,6 +14,8 @@ minimumReleaseAgeExclude:
   - "@preventive/*"
   - "@rray/*"
 
+modulesCacheMaxAge: 0
+
 packages:
   - "ai"
   - "diff"
