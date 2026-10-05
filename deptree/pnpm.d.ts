@@ -193,7 +193,12 @@ export interface PnpmProject {
 // install reads, without `lockfile`; for the directories a `link:` or an
 // override leads to. With it given, a directory the tree links to that is
 // no project, and is under the lockfile's, has to be there with a
-// package.json, whose bins are read as pnpm reads them. Without it, or
+// package.json, whose bins are read as pnpm reads them, or not be there at
+// all: pnpm links to it all the same, with no bins, as it does for an
+// override to `npm:@scope/name@workspace:^`, which it takes for a path for
+// its `/`. One not there is refused where pnpm 10 would link a runtime's
+// binary by its name, node, deno or bun, or pnpm 11 read the bins of a
+// manifest above it whose publishConfig.directory it is. Without it, or
 // outside the lockfile's directory, such a directory's bins are not
 // known, and neither are those of a project that has them by the files of
 // its directories.bin: where one could win a command a package's file is
