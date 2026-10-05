@@ -24,16 +24,9 @@ function home() {
   }
 }
 
-// Where a program called `name` keeps its cache for this user, as each
-// platform has it, read from the environment when called. macOS:
-// ~/Library/Caches/<name>. Windows: %LOCALAPPDATA%\<name>\Cache, the
-// `Cache` apart from the program's other local data there. Elsewhere, the
-// XDG Base Directory spec's: $XDG_CACHE_HOME/<name>, or ~/.cache/<name>
-// where it is unset, empty or relative, which the spec has ignored. Only
-// Linux and the BSDs follow that spec, so macOS and Windows take no
-// XDG_CACHE_HOME, as Go's os.UserCacheDir and Rust's dirs take none.
-// Undefined where no absolute directory is found to start from. Nothing is
-// made.
+// Only Linux and the BSDs follow the XDG Base Directory spec, so macOS and
+// Windows take no XDG_CACHE_HOME, as Go's os.UserCacheDir and Rust's dirs
+// take none.
 export function cacheDirFor(name) {
   assertDirectoryName('cacheDirFor', 'name', name)
   if (process.platform === 'darwin') return within(home(), 'Library', 'Caches', name)
@@ -41,14 +34,11 @@ export function cacheDirFor(name) {
   return within(absolute(process.env.XDG_CACHE_HOME) ?? within(home(), '.cache'), name)
 }
 
-// Read once, when this module is first imported.
 export const defaultCacheDir = cacheDirFor('PreventiveMeasures')
 
 let root
 let tmpSeq = 0
 
-// `dir`, resolved now: the default cache directory where left out, and no
-// cache at all for `false`, as there is none until this is called.
 export function setCacheDir(dir = defaultCacheDir) {
   if (dir === false) {
     root = undefined
@@ -66,20 +56,17 @@ export function setCacheDir(dir = defaultCacheDir) {
 // would still meet, so a capital is written `!` and the letter, and a `!`
 // as `!!`. A Windows device name (`con.json` is the console) has its first
 // letter escaped, which encodeURIComponent never does.
-function pathIn(base, dir, key) {
+function cachePath(dir, key, base = root) {
   assert.ok(DIRS.has(dir) && key && typeof key === 'string', `Unexpected cache entry: ${dir}`)
   const name = encodeURIComponent(key.replace(/[!A-Z]/gu, (char) => `!${char.toLowerCase()}`)).replaceAll('%40', '@').replaceAll('%2F', '+')
   return base === undefined ? null : join(base, dir, name.replace(/^(?=(?:con|prn|aux|nul|com\d|lpt\d)(?:\.|$))./u, (char) => `%${char.codePointAt(0).toString(16).toUpperCase()}`))
 }
 
-const cachePath = (dir, key) => pathIn(root, dir, key)
-
 // Caches of ours, read whether set or not for what is checked whatever its
 // source: the default one, and stasis's, which it sets with setCacheDir.
 const OURS = [defaultCacheDir, cacheDirFor('stasis')].filter((base) => base !== undefined)
 
-// Where `key` is in each of those but the one set, which readCache reads.
-export const ourCachePaths = (dir, key) => OURS.filter((base) => base !== root).map((base) => pathIn(base, dir, key))
+export const ourCachePaths = (dir, key) => OURS.map((base) => cachePath(dir, key, base))
 
 // Only a regular file, checked on the file as opened, so one swapped in
 // after a check can't pass: a FIFO or a device would block or never end.

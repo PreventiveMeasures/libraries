@@ -17,7 +17,7 @@
 // XDG Base Directory spec's: $XDG_CACHE_HOME/<name>, or ~/.cache/<name>
 // where it is unset, empty or relative, which the spec has ignored. Only
 // Linux and the BSDs follow that spec, so macOS and Windows take no
-// XDG_CACHE_HOME. Undefined where no absolute directory is found to start
+// XDG_CACHE_HOME, as Go's os.UserCacheDir and Rust's dirs take none. Undefined where no absolute directory is found to start
 // from: a home directory that is relative, empty or unknown. Nothing is
 // made. `name` is one directory name: not empty, `.` or `..`, and with no
 // `/`, `\` or control character.
@@ -111,6 +111,5 @@ export function verifyDist(name: string, version: string, dist: Dist): Promise<v
 // `~/.audit/cache/tgz/<org>:<name>-<version>.tgz`, then defaultCacheDir
 // and cacheDirFor('stasis'), as setCacheDir files a tarball in either,
 // whether set or not. A file there that does not match is passed over.
-// setCacheDir's cache is read after all of these, in place of whichever of
-// ours it is, and one there that does not match throws.
+// Then setCacheDir's cache, where one that does not match throws.
 export function getTarball(name: string, version: string, dist?: Dist): Promise<Uint8Array>

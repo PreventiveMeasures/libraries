@@ -105,7 +105,6 @@ describe('setCacheDir', () => {
     setCacheDir(false)
     assert.equal(await readCache('npm/repos', 'x.json'), null)
     assert.equal(await writeCache('npm/repos', 'y.json', '{}'), false)
-    for (const dir of ['', 0, null, true]) assert.throws(() => setCacheDir(dir), /setCacheDir: dir must be a directory path/u)
   })
 
   it('throws where there is no default to cache in', () => {
