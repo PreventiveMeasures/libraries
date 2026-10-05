@@ -5,9 +5,8 @@
 import { decompress } from '@preventive/archive/compression.js'
 import { ArchiveError, unpack } from '@preventive/archive/tar.js'
 import { DeptreeError, quote } from '../error.js'
-
-// As in ../tarball.js: the archive reader makes room for what entries declare.
-const MAX_BYTES = 512 * 1024 * 1024
+import { MAX_BYTES } from '../tarball.js'
+import { isGit } from './zip.js'
 
 // A GitHub repository as git takes its URL over the protocols Soldeer has
 // it allow, https and ssh, `.git` after it or not, the scheme and host in
@@ -21,10 +20,6 @@ export function githubRepoOf(url) {
   const repo = (URL_FORM.exec(url) ?? SCP_FORM.exec(url))?.groups.repo
   return repo === undefined || /\/\.\.?$/u.test(repo) ? undefined : repo
 }
-
-// A `.git` in any case, trailing dots and spaces dropped, which git's
-// verify_path refuses to check out with core.protectNTFS, on by default.
-const isGit = (component) => component.replace(/[. ]+$/u, '').toLowerCase() === '.git'
 
 // GitHub's tarball, which upstream holds to the tree GitHub names for the
 // commit, files, symlinks and the submodules it shows as empty directories

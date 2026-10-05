@@ -5,7 +5,7 @@ import { getZip } from '@preventive/upstream/soldeer.js'
 import { Vfs } from '@preventive/vfs'
 import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote } from '../error.js'
-import { fold, makeDirs, mount, writeFiles, writeLink } from '../mount.js'
+import { fold, makeDirs, mount, writeFiles } from '../mount.js'
 import { configOf } from './config.js'
 import { checkoutOf, githubRepoOf } from './git.js'
 import { checkHost, inputsOf } from './inputs.js'
@@ -17,7 +17,8 @@ const NAME = /^(?=.{3,100}$)[@\da-z][\da-z-]*[\da-z]$/u
 const VERSION = /^(?=.{1,128}$)[\dA-Za-z][\w.+-]*$/u
 // A folder sanitize_filename leaves as it is on Unix: none of the characters
 // it replaces, and at most 255 bytes, past which it cuts the name short.
-const isKept = (folder) => !/[/?<>\\:*|"\p{Cc}]/u.test(folder) && new TextEncoder().encode(folder).length <= 255
+const encoder = new TextEncoder()
+const isKept = (folder) => !/[/?<>\\:*|"\p{Cc}]/u.test(folder) && encoder.encode(folder).length <= 255
 
 const GITHUB = 'github must be a GitHub client from createClient, which a git dependency is fetched through'
 
@@ -31,11 +32,11 @@ function checkNoDependencies(vfs, folded) {
 
 const about = (name) => `dependencies[${quote(name)}]`
 
-function checkDependency({ type, name, version, git, repo, folder }, config) {
+function checkDependency({ type, name, version, git, folder }, config) {
   const where = about(name)
   if (type === 'private') throw new DeptreeError('a private dependency, which the registry hands out to those signed in alone, is not supported', where)
   if (type === 'git') {
-    if (repo === undefined) throw new DeptreeError(`a git dependency from ${quote(git)}, not a GitHub repository over https or ssh, is not supported`, where)
+    if (githubRepoOf(git) === undefined) throw new DeptreeError(`a git dependency from ${quote(git)}, not a GitHub repository over https or ssh, is not supported`, where)
     if (!isKept(folder)) throw new DeptreeError(`its folder, ${quote(folder)}, is one Soldeer names otherwise, which is not supported`, where)
     return
   }
@@ -45,11 +46,7 @@ function checkDependency({ type, name, version, git, repo, folder }, config) {
 }
 
 function dependenciesOf(lock, config, folded) {
-  const dependencies = Object.values(lock.dependencies).map((dependency) => ({
-    ...dependency,
-    folder: `${dependency.name}-${dependency.version}`,
-    ...(dependency.type === 'git' && { repo: githubRepoOf(dependency.git) }),
-  }))
+  const dependencies = Object.values(lock.dependencies).map((dependency) => ({ ...dependency, folder: `${dependency.name}-${dependency.version}` }))
   for (const dependency of dependencies) checkDependency(dependency, config)
   const key = (folder) => (folded ? fold(folder) : folder)
   const folders = new Set(dependencies.map(({ folder }) => key(folder)))
@@ -61,9 +58,9 @@ function dependenciesOf(lock, config, folded) {
 
 async function fetchAll(dependencies, github) {
   const extracted = new Map()
-  await eachConcurrently(dependencies, async ({ type, name, version, checksum, repo, rev, folder }) => {
+  await eachConcurrently(dependencies, async ({ type, name, version, checksum, git, rev, folder }) => {
     const where = about(name)
-    extracted.set(folder, type === 'git' ? await checkoutOf(github, repo, rev, where) : await extractZip(await getZip(name, version, checksum), checksum, where))
+    extracted.set(folder, type === 'git' ? await checkoutOf(github, githubRepoOf(git), rev, where) : await extractZip(await getZip(name, version, checksum), checksum, where))
   }, ({ name }) => about(name))
   return extracted
 }
@@ -85,10 +82,7 @@ export async function buildSoldeerTree(options) {
   const stats = { dependencies: dependencies.length, files: 0, bytes: 0, links: 0 }
   // In the lockfile's order, whatever order the fetches finished in.
   for (const { folder } of dependencies) {
-    const { links = new Map(), ...tree } = extracted.get(folder)
-    writeFiles(vfs, `dependencies/${folder}`, tree, stats)
-    for (const [path, target] of links) writeLink(vfs, `dependencies/${folder}/${path}`, target)
-    stats.links += links.size
+    writeFiles(vfs, `dependencies/${folder}`, extracted.get(folder), stats)
   }
   const installed = dependencies.map(({ type, name, version, checksum, git, rev, folder }) => ({ path: `dependencies/${folder}`, name, version, ...(type === 'git' ? { git, rev } : { checksum }) }))
   return { vfs: mount(vfs, into, folded, checkNoDependencies), stats, installed }

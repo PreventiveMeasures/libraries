@@ -156,11 +156,12 @@ export function stubGitHub(repos) {
     const [owner, name, ...rest] = path.split('/')
     const repo = repos[`${owner}/${name}`]
     const [kind, id] = [rest.slice(0, -1).join('/'), rest.at(-1)]
-    let answer = Response.json({ message: 'Not Found' }, { status: 404 })
-    if (repo !== undefined && kind === 'git/commits' && id === repo.commit) answer = Response.json({ sha: repo.commit, tree: { sha: repo.tree } })
-    if (repo !== undefined && kind === 'tarball' && id === repo.tree) answer = new Response(repo.tarball)
-    if (repo !== undefined && kind === 'git/trees' && Object.hasOwn(repo.listings, id)) answer = Response.json({ sha: id, tree: repo.listings[id], truncated: false })
-    return Promise.resolve(answer)
+    const notFound = () => Promise.resolve(Response.json({ message: 'Not Found' }, { status: 404 }))
+    if (repo === undefined) return notFound()
+    if (kind === 'git/commits' && id === repo.commit) return Promise.resolve(Response.json({ sha: repo.commit, tree: { sha: repo.tree } }))
+    if (kind === 'tarball' && id === repo.tree) return Promise.resolve(new Response(repo.tarball))
+    if (kind === 'git/trees' && Object.hasOwn(repo.listings, id)) return Promise.resolve(Response.json({ sha: id, tree: repo.listings[id], truncated: false }))
+    return notFound()
   }
   return calls
 }

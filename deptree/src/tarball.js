@@ -9,8 +9,9 @@ import { matchesIntegrity } from './hash.js'
 import { fold } from './mount.js'
 import { decodeUtf8 } from './project.js'
 
-// What a tarball may unpack to, as upstream bounds what it downloads.
-const MAX_BYTES = 512 * 1024 * 1024
+// What a tarball or a zip may unpack to, as upstream bounds what it
+// downloads: the archive reader makes room for what entries declare.
+export const MAX_BYTES = 512 * 1024 * 1024
 export const REGISTRY = 'https://registry.npmjs.org/'
 
 // The registry's own URL for a version's tarball, as npm and pnpm spell it.
