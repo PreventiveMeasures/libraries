@@ -37,7 +37,7 @@ after(async () => {
 
 // cacheDirFor(name) as if on `platform`, with the environment changed by
 // `env` (undefined deletes).
-function dirOn(platform, env = {}, name = 'tool') {
+function dirOn(platform, env = {}, name = 'mytool') {
   Object.defineProperty(process, 'platform', { ...realPlatform, value: platform })
   for (const [key, value] of Object.entries(env)) {
     if (value === undefined) delete process.env[key]
@@ -57,35 +57,35 @@ function dirOn(platform, env = {}, name = 'tool') {
 // os.homedir() reads USERPROFILE on Windows, not HOME.
 describe('cacheDirFor', { skip: process.platform === 'win32' }, () => {
   it('follows XDG_CACHE_HOME where it is absolute, else ~/.cache', () => {
-    assert.equal(dirOn('linux'), join(XDG, 'tool'))
-    assert.equal(dirOn('freebsd'), join(XDG, 'tool'))
+    assert.equal(dirOn('linux'), join(XDG, 'mytool'))
+    assert.equal(dirOn('freebsd'), join(XDG, 'mytool'))
     for (const xdg of [undefined, '', 'relative/cache']) {
-      assert.equal(dirOn('linux', { XDG_CACHE_HOME: xdg }), join(HOME, '.cache', 'tool'), String(xdg))
+      assert.equal(dirOn('linux', { XDG_CACHE_HOME: xdg }), join(HOME, '.cache', 'mytool'), String(xdg))
     }
   })
 
   it('takes ~/Library/Caches on macOS, whatever XDG_CACHE_HOME says', () => {
-    assert.equal(dirOn('darwin', {}, 'Tool'), join(HOME, 'Library', 'Caches', 'Tool'))
+    assert.equal(dirOn('darwin', {}, 'MyTool'), join(HOME, 'Library', 'Caches', 'MyTool'))
   })
 
   it('takes %LOCALAPPDATA%\\<name>\\Cache on Windows, where it is absolute', () => {
-    assert.equal(dirOn('win32'), join(LOCAL, 'local', 'tool', 'Cache'))
+    assert.equal(dirOn('win32'), join(LOCAL, 'local', 'mytool', 'Cache'))
     for (const local of [undefined, '', 'relative']) {
-      assert.equal(dirOn('win32', { LOCALAPPDATA: local }), join(HOME, 'AppData', 'Local', 'tool', 'Cache'), String(local))
+      assert.equal(dirOn('win32', { LOCALAPPDATA: local }), join(HOME, 'AppData', 'Local', 'mytool', 'Cache'), String(local))
     }
   })
 
   it('answers undefined where no absolute directory is there to start from', () => {
     assert.equal(dirOn('linux', { XDG_CACHE_HOME: undefined, HOME: 'relative' }), undefined)
     assert.equal(dirOn('darwin', { HOME: 'relative' }), undefined)
-    assert.equal(dirOn('linux', { HOME: 'relative' }), join(XDG, 'tool'), 'XDG_CACHE_HOME needs no home')
+    assert.equal(dirOn('linux', { HOME: 'relative' }), join(XDG, 'mytool'), 'XDG_CACHE_HOME needs no home')
   })
 
-  it('takes one directory name, and nothing else', () => {
-    for (const name of ['', '.', '..', 'a/b', 'a\\b', 'a\nb', 1, undefined, 'CON', 'nul.txt', 'Com1', 'lpt9.log', 'COM¹', 'lpt³.txt', 'Lpt²', 'a:b', 'a?b', 'a*', 'a<b>', 'a"b', 'a|b', 'a.', 'a ']) {
-      assert.throws(() => cacheDirFor(name), /^AssertionError.*cacheDirFor: name must be a directory name/u, String(name))
+  it('takes 6 to 32 of a-z, A-Z, 0-9, _ and -, and nothing else', () => {
+    for (const name of ['stasis', 'PreventiveMeasures', 'my_tool-2', 'a'.repeat(32)]) assert.equal(dirOn('linux', {}, name), join(XDG, name), name)
+    for (const name of ['', 'tools', 'a'.repeat(33), 'my.tool', 'my tool', '.hidden', '../tool', 'my/tool', 'my\\tool', 'mytool\n', 'é'.repeat(6), 'COM¹tool', 1, undefined]) {
+      assert.throws(() => cacheDirFor(name), /^AssertionError.*cacheDirFor: name must be 6 to 32 of a-z, A-Z, 0-9, _ and -/u, String(name))
     }
-    for (const name of ['.hidden', 'console', 'com10', 'com0', 'LPT0', 'com⁴', 'nul-x', 'a b', 'a.b']) assert.equal(dirOn('linux', {}, name), join(XDG, name), name)
   })
 })
 

@@ -72,15 +72,9 @@ export const assertLine = assertion('a non-empty single line', (value) => isStri
 // 65,536 is GitHub's own limit on a body.
 export const assertText = assertion('text with no control characters', (value) => isString(value, 65_536, '\t\n\r'))
 export const assertDirectoryPath = assertion('a directory path', (value) => isString(value, 4096) && value !== '')
-// A name Windows takes for a device, with an extension or not (`con`,
-// `nul.txt`), wherever it stands in a path. Microsoft's list: con, prn, aux,
-// nul, com1 to com9 and lpt1 to lpt9, and com¹ to com³ and lpt¹ to lpt³, as
-// Windows reads ¹, ² and ³ as digits; com0 and lpt0 are no devices.
-export const isDeviceName = matches(/^(?:con|prn|aux|nul|(?:com|lpt)[1-9¹²³])(?:\.|$)/iu)
-// One name in a directory on every platform: no separator of any, and none
-// Windows refuses: `<>:"|?*`, a trailing dot or space, or a device name.
-const NOT_A_NAME = /[/\\<>:"|?*]|[. ]$/u
-export const assertDirectoryName = assertion('a directory name', (value) => isString(value, 255) && value !== '' && !NOT_A_NAME.test(value) && !isDeviceName(value))
+// A short ASCII name, which no filesystem refuses, reads as another or takes
+// for a device: none of those is six characters of these alone.
+export const assertDirectoryName = assertion('6 to 32 of a-z, A-Z, 0-9, _ and -', matches(/^[a-zA-Z0-9_-]{6,32}$/u))
 export const assertLogin = assertion('a GitHub login', isLogin)
 export const assertRepoName = assertion('a repository name', isRepoName)
 export const assertRepo = assertion('"owner/name"', isRepo)

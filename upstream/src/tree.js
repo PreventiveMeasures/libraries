@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 import { gunzipSync } from 'node:zlib'
 
-import { isDeviceName, isSha1, matches } from './args.js'
+import { isSha1, matches } from './args.js'
 import { withAttributes, writtenWithCrlf } from './attributes.js'
 
 const BLOCK = 512
@@ -16,8 +16,7 @@ const MODES = { 0: [0o664, 0o644, 0o775, 0o755], 2: [0o777], 5: [0o775, 0o755] }
 // The top directory is not hashed, so it is held to GitHub's name for it,
 // owner-repo-id: another, `..\..`, `C:` or a Windows device such as
 // `con.txt`, could take an extractor elsewhere.
-const isTopName = matches(/^[\da-z][\w.-]*$/iu)
-const isTop = (name) => isTopName(name) && !isDeviceName(name)
+const isTop = matches(/^(?!(?:con|prn|aux|nul|com\d|lpt\d)(?:\.|$))[\da-z][\w.-]*$/iu)
 
 // Names are kept as latin1 strings, a char per byte, so they sort and hash
 // as the bytes git has.

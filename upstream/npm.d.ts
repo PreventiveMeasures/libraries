@@ -18,10 +18,8 @@
 // where it is unset, empty or relative, which the spec has ignored.
 // Undefined where no absolute directory is found to start from: a home
 // directory that is relative, empty or unknown. Nothing is made. `name` is
-// one directory name on every platform: not empty, and with no `/`, `\`,
-// control character, or anything Windows refuses in a name: a character
-// of `<>:"|?*`, a trailing dot or space (so not `.` or `..` either), or a
-// device name such as `con` or `nul.txt`.
+// 6 to 32 of a-z, A-Z, 0-9, `_` and `-`, so one directory name the same on
+// every platform.
 export function cacheDirFor(name: string): string | undefined
 
 // cacheDirFor('PreventiveMeasures'), read once, when this module is first
