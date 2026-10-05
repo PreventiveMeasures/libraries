@@ -16,7 +16,7 @@ import { defaultCacheDir, setCacheDir } from '@preventive/upstream/npm.js'
 import { join } from '@preventive/vfs/path.js'
 import { escaped } from '../src/error.js'
 import { typeOf } from '../src/project.js'
-import { difference, leftBehind, notBuilt, projectView, readDisk, readTree } from './compare.js'
+import { difference, emptyDirs, leftBehind, notBuilt, projectView, readDisk, readTree } from './compare.js'
 
 const USAGE = `Usage: bin/deptree.js compare [options] [<dir>]
 
@@ -32,8 +32,9 @@ install from the lockfile would change what is on disk:
 
 A directory only one side has is one line, with a trailing slash. A file's
 bytes are compared whole, never line by line. The .bin directories and the
-package manager's own state files, which deptree never builds, are left out
-unless --all is given.
+package manager's own state files, which deptree never builds, and empty
+directories on disk, which Node finds nothing in, are left out unless --all
+is given.
 
 Each tarball fetched is kept for the next run in ${defaultCacheDir ?? 'no cache, as no home directory is known'}.
 
@@ -45,7 +46,8 @@ Exits 0 where the two are the same, 1 where they differ, 2 on trouble.
   --npm <version>    the npm that installed, which nothing pins, so it is
                      needed for a package-lock.json
   --node <version>   the Node it installed with; by default this one
-  --all              list the .bin directories and state files too
+  --all              list the .bin directories, state files and empty
+                     directories too
   -h, --help         show this message
 `
 
@@ -110,10 +112,13 @@ async function main(argv) {
   const tree = await manager.build({ project, host })
   note(`${manager.lockfile}: ${tree.stats.files} files, ${size(tree.stats.bytes)} built`)
   const changes = difference(disk, readTree(tree.vfs))
-  const shown = values.all ? changes : changes.filter((change) => !notBuilt(change))
+  const empty = emptyDirs(changes, disk)
+  const left = (change) => !values.all && (notBuilt(change) || empty.has(change.path))
+  const [shown, hidden] = [changes.filter((change) => !left(change)), changes.filter(left)]
   process.stdout.write(shown.map(line).join(''))
-  note(summary(shown, changes.length - shown.length))
+  note(summary(shown, hidden, empty))
   if (name === 'pnpm') pruneHint(shown)
+  emptyHint(empty)
   return shown.length === 0 ? 0 : 1
 }
 
@@ -180,10 +185,17 @@ function line({ mark, path, type, what }) {
   return `${styleText(MARKS[mark], `${mark} ${shown(path)}${slash}`, { stream: process.stdout })}${why}\n`
 }
 
-function summary(changes, left) {
+const plural = (count, one, many) => `${count} ${count === 1 ? one : many}`
+
+function summary(changes, hidden, empty) {
   const count = (mark) => changes.filter((change) => change.mark === mark).length
   const counts = changes.length === 0 ? 'the same' : `${count('+')} only in the tree, ${count('-')} only on disk, ${count('~')} different`
-  return left === 0 ? counts : `${counts}; ${left} left out that deptree never builds (--all lists them)`
+  const vacant = hidden.filter((change) => empty.has(change.path)).length
+  const left = [
+    ...(hidden.length > vacant ? [`${hidden.length - vacant} that deptree never builds`] : []),
+    ...(vacant > 0 ? [plural(vacant, 'empty directory', 'empty directories')] : []),
+  ]
+  return left.length === 0 ? counts : `${counts}; left out ${left.join(' and ')} (--all lists them)`
 }
 
 // pnpm keeps a package an install drops in node_modules/.pnpm for
@@ -194,6 +206,14 @@ function pruneHint(changes) {
   if (count === 0) return
   const [what, them] = count === 1 ? ['a package', 'it'] : [`${count} packages`, 'them']
   note(`${what} in node_modules/.pnpm that the lockfile no longer installs, as pnpm keeps for a while: \`pnpm prune\` removes ${them}, and so does every install with modulesCacheMaxAge: 0 in pnpm-workspace.yaml`)
+}
+
+// What pnpm leaves of a scope once the last package in it goes, which no
+// pnpm command removes: not prune, store prune, an install with
+// modulesCacheMaxAge: 0, nor install --force.
+function emptyHint(empty) {
+  if (empty.size === 0) return
+  note(`${plural(empty.size, 'empty directory', 'empty directories')} on disk, as pnpm leaves a scope's once the last package in it goes, which no pnpm command removes: \`find node_modules -type d -empty -delete\` does`)
 }
 
 function sizeOf(entries) {

@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import process from 'node:process'
 import { after, describe, it } from 'node:test'
 import { createVfs } from '@preventive/vfs'
-import { byPath, difference, leftBehind, notBuilt, projectView, readDisk, readTree } from '../bin/compare.js'
+import { byPath, difference, emptyDirs, leftBehind, notBuilt, projectView, readDisk, readTree } from '../bin/compare.js'
 import { tarball, url } from './registry.js'
 
 // The development CLI is not part of the published package and nothing
@@ -103,6 +103,26 @@ describe('leftBehind', () => {
   })
 })
 
+describe('emptyDirs', () => {
+  it('takes a directory on disk alone that holds no file and no link, as pnpm leaves a scope', () => {
+    const disk = side({
+      'node_modules/.pnpm/node_modules': dir,
+      'node_modules/.pnpm/node_modules/@babel': dir,
+      'node_modules/.pnpm/node_modules/@jest': dir,
+      'node_modules/.pnpm/node_modules/@jest/types': dir,
+      'node_modules/.pnpm/node_modules/@s': dir,
+      'node_modules/.pnpm/node_modules/@s/p': link('../../@s+p@1.0.0/node_modules/@s/p'),
+      'node_modules/z': dir,
+      'node_modules/z/deep': dir,
+      'node_modules/z/deep/f.js': file('f'),
+    })
+    const tree = side({ 'node_modules/.pnpm/node_modules': dir, 'node_modules/y': dir, 'node_modules/y/f.js': file('f') })
+    const changes = difference(disk, tree)
+    assert.deepEqual(marks(changes), ['- node_modules/.pnpm/node_modules/@babel', '- node_modules/.pnpm/node_modules/@jest', '- node_modules/.pnpm/node_modules/@s', '+ node_modules/y', '- node_modules/z'])
+    assert.deepEqual([...emptyDirs(changes, disk)].toSorted(byPath), ['node_modules/.pnpm/node_modules/@babel', 'node_modules/.pnpm/node_modules/@jest'])
+  })
+})
+
 describe('the two sides', () => {
   const root = mkdtempSync(join(tmpdir(), 'deptree-bin-sides-'))
   after(() => rmSync(root, { recursive: true, force: true }))
@@ -173,7 +193,7 @@ describe('bin/deptree.js compare', async () => {
   it('finds the tree on disk the one the lockfile installs', () => {
     const r = run('compare', '--npm', '11.12.1', project)
     assert.equal(r.stdout, '')
-    assert.match(r.stderr, /^the same; 1 left out that deptree never builds/mu)
+    assert.match(r.stderr, /^the same; left out 1 that deptree never builds \(--all lists them\)$/mu)
     assert.equal(r.status, 0)
     const all = run('compare', '--npm', '11.12.1', '--all', project)
     assert.equal(all.stdout, '- node_modules/.package-lock.json\n')
@@ -186,7 +206,7 @@ describe('bin/deptree.js compare', async () => {
     writeFileSync(join(project, 'node_modules/extra/x.js'), 'x')
     const r = run('compare', '--npm', '11.12.1', project)
     assert.equal(r.stdout, '~ node_modules/a/index.js  (content)\n- node_modules/extra/\n')
-    assert.match(r.stderr, /^0 only in the tree, 1 only on disk, 1 different; 1 left out/mu)
+    assert.match(r.stderr, /^0 only in the tree, 1 only on disk, 1 different; left out 1 that/mu)
     assert.equal(r.status, 1)
     rmSync(join(project, 'node_modules'), { recursive: true })
     const gone = run('compare', '--npm', '11.12.1', project)
