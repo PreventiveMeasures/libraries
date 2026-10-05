@@ -4,7 +4,7 @@ import { gunzipSync, gzipSync } from 'node:zlib'
 import { describe, it } from 'node:test'
 
 import { gitTreeOfListing, gitTreeOfTarball } from '../src/tree.js'
-import { COMMIT_TGZ, CRLF, CRLF_ANDROID, CRLF_TGZ, EMPTIES, EMPTIES_D, EMPTIES_N, EMPTIES_TGZ, LISTINGS, SUBMODULE, SUBMODULE_COMMIT, SUBMODULE_TGZ, TREE, TREE_LIB, TREE_TGZ } from './tree-fixtures.js'
+import { COMMIT_TGZ, CRLF, CRLF_ANDROID, CRLF_TGZ, EMPTIES, EMPTIES_D, EMPTIES_N, EMPTIES_TGZ, INJECTED_TGZ, LISTINGS, MIXED, MIXED_TGZ, SUBMODULE, SUBMODULE_COMMIT, SUBMODULE_TGZ, TREE, TREE_LIB, TREE_TGZ } from './tree-fixtures.js'
 
 // A header's checksum, over the header with the field itself read as spaces.
 const sign = (tar, start) => {
@@ -208,10 +208,13 @@ describe('gitTreeOfTarball', () => {
 
 describe('gitTreeOfTarball with eol=crlf', () => {
   const blob = (text) => createHash('sha1').update(`blob ${text.length}\0`).update(text, 'latin1').digest('hex')
-  // A tarball of `f.bat` as `written`, and the options to hold it to the tree with `committed` there.
-  const crlf = (written, committed) => {
-    const listing = [{ path: 'f.bat', mode: '100644', type: 'blob', sha: blob(committed) }]
-    return [tarball(header('top/', '5', 0, 0o775), header('top/f.bat', '0', written.length), body(written)), { expected: gitTreeOfListing(listing), list: () => listing }]
+  // A tarball of `f.bat` as `written` beside a .gitattributes of
+  // `attributes`, and the options to hold it to the tree with `committed`.
+  const crlf = (written, committed, attributes = '*.bat text eol=crlf\n') => {
+    const files = [['.gitattributes', attributes, attributes], ['f.bat', written, committed]].filter(([, text]) => text !== '')
+    const listing = files.map(([path, , text]) => ({ path, mode: '100644', type: 'blob', sha: blob(text) }))
+    const entries = files.flatMap(([path, text]) => [header(`top/${path}`, '0', text.length), body(text)])
+    return [tarball(header('top/', '5', 0, 0o775), ...entries), { expected: gitTreeOfListing(listing), list: () => listing }]
   }
 
   it('is the id of a tree a file of which `git archive` wrote with CRLF for `eol=crlf`, where the listing names its blob with LF', async () => {
@@ -230,6 +233,19 @@ describe('gitTreeOfTarball with eol=crlf', () => {
       const before = Buffer.from(given)
       assert.equal(await gitTreeOfTarball(given, options), options.expected, JSON.stringify(written.slice(0, 20)))
       assert.deepEqual(given, before)
+    }
+  })
+
+  it("takes the files `git archive` wrote with CRLF for the tree's own .gitattributes, and no other", async () => {
+    const list = (sha) => LISTINGS[sha] ?? []
+    assert.notEqual(await gitTreeOfTarball(MIXED_TGZ), MIXED)
+    assert.equal(await gitTreeOfTarball(MIXED_TGZ, { expected: MIXED, list }), MIXED)
+    // `g.js` with CRLF from .git/info/attributes, which no checkout has.
+    assert.notEqual(await gitTreeOfTarball(INJECTED_TGZ, { expected: MIXED, list }), MIXED)
+    // No .gitattributes, one for other files, or one that overrides it.
+    for (const attributes of ['', '*.txt text eol=crlf\n', '*.bat text eol=crlf\nf.bat -text\n', '*.bat eol=crlf\n*.bat eol=lf\n', '*.bat binary eol=crlf\n']) {
+      const [given, options] = crlf('x\r\ny\r\n', 'x\ny\n', attributes)
+      assert.notEqual(await gitTreeOfTarball(given, options), options.expected, JSON.stringify(attributes))
     }
   })
 

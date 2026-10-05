@@ -69,6 +69,7 @@
     "src/advisories/osv.js",
     "src/advisories/repos.js",
     "src/args.js",
+    "src/attributes.js",
     "src/cache.js",
     "src/cargo/crate.js",
     "src/cargo/repos.js",
