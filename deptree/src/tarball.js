@@ -80,9 +80,12 @@ export function withDirs(files, where, dirs = new Set()) {
 // in zeros past their gzip stream, to a whole 10240-byte record. Node's
 // zlib, which npm, pnpm and yarn unpack through, stops at a zero byte after
 // the stream; the platform's stream refuses anything there, so the zeros are
-// cut off. The stream's last four bytes are its output's length, neither 0
-// nor 2^32 or more under MAX_BYTES, so it ends within three bytes past the
-// last that is not zero, and at the one place it decompresses whole.
+// cut off. The stream's last four bytes are the length its last member
+// inflates to, under 2^32 as MAX_BYTES is, so it ends within three bytes
+// past the last that is not zero; or, where that member is empty, as zlib
+// writes one, `03 00` and eight zeros, within nine. It ends at the one place
+// it decompresses whole. Each place tried inflates it all again, which only
+// a padded tarball pays for.
 async function gunzip(bytes) {
   const inflate = (end) => decompress(bytes.subarray(0, end), 'gzip', { limit: MAX_BYTES })
   try {
@@ -90,7 +93,7 @@ async function gunzip(bytes) {
   } catch (error) {
     if (!(error instanceof CompressionError) || error.limited || bytes.at(-1) !== 0) throw error
     const last = bytes.findLastIndex((byte) => byte !== 0)
-    for (let end = last + 1; end <= Math.min(last + 4, bytes.length - 1); end++) {
+    for (let end = last + 1; end <= Math.min(last + 10, bytes.length - 1); end++) {
       try {
         return await inflate(end)
       } catch {

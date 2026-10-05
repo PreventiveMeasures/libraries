@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { compress } from '@preventive/archive/compression.js'
 import { Vfs } from '@preventive/vfs'
 import { DeptreeError } from '../src/error.js'
 import { writeFiles, writeLink } from '../src/mount.js'
@@ -104,6 +105,10 @@ describe('the registry\'s tarball', () => {
     const { entries } = await served([])
     assert.deepEqual((await served(new Uint8Array(10240 - bytes.length))).entries, entries)
     assert.deepEqual((await served([0])).entries, entries)
+    // An empty last member, as zlib writes one, ends nine bytes past its last that is not zero.
+    const empty = await compress(new Uint8Array(), 'gzip')
+    assert.deepEqual([...empty.subarray(-10)], [3, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    assert.deepEqual((await served([...empty, 0])).entries, entries)
     for (const tail of [[0, 1, 0], [1, 0, 0], [1], [0x1f, 0x8b, 0], [0, ...bytes, 0]]) await assert.rejects(served(tail), /^CompressionError: the data does not decompress$/u)
     // Its CRC, wrong.
     const corrupt = bytes.slice()
