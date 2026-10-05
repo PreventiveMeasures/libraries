@@ -84,7 +84,7 @@ describe('difference', () => {
 
 describe('notBuilt', () => {
   it('takes a .bin or a state file on disk alone', () => {
-    for (const path of ['node_modules/.bin', 'packages/w/node_modules/.bin', 'node_modules/.pnpm/node_modules/.bin', 'node_modules/.modules.yaml', 'node_modules/.pnpm/lock.yaml', 'node_modules/.pnpm-workspace-state-v1.json', 'node_modules/.package-lock.json', 'node_modules/.yarn-integrity']) {
+    for (const path of ['node_modules/.bin', 'node_modules/.bin/x', 'packages/w/node_modules/.bin', 'node_modules/.pnpm/node_modules/.bin', 'node_modules/.modules.yaml', 'node_modules/.pnpm/lock.yaml', 'node_modules/.pnpm-workspace-state-v1.json', 'node_modules/.package-lock.json', 'node_modules/.yarn-integrity']) {
       assert.equal(notBuilt({ mark: '-', path }), true, path)
       assert.equal(notBuilt({ mark: '+', path }), false, path)
       assert.equal(notBuilt({ mark: '~', path }), false, path)
@@ -105,22 +105,42 @@ describe('leftBehind', () => {
 })
 
 describe('emptyDirs', () => {
-  it('takes a directory on disk alone that holds no file and no link, as pnpm leaves a scope', () => {
+  it('takes a directory on disk alone that holds nothing but directories and what deptree never builds', () => {
     const disk = side({
+      'node_modules/.bin': dir,
+      'node_modules/.bin/x': link('../x/cli.js'),
+      'node_modules/.pnpm': dir,
+      'node_modules/.pnpm/lock.yaml': file('lockfileVersion: 9.0'),
       'node_modules/.pnpm/node_modules': dir,
       'node_modules/.pnpm/node_modules/@babel': dir,
       'node_modules/.pnpm/node_modules/@jest': dir,
       'node_modules/.pnpm/node_modules/@jest/types': dir,
       'node_modules/.pnpm/node_modules/@s': dir,
       'node_modules/.pnpm/node_modules/@s/p': link('../../@s+p@1.0.0/node_modules/@s/p'),
+      'node_modules/a': dir,
+      'node_modules/a/index.js': file('a'),
+      'node_modules/a/node_modules': dir,
+      'node_modules/a/node_modules/.bin': dir,
+      'node_modules/a/node_modules/.bin/semver': link('../semver/bin/semver.js'),
       'node_modules/z': dir,
       'node_modules/z/deep': dir,
       'node_modules/z/deep/f.js': file('f'),
     })
-    const tree = side({ 'node_modules/.pnpm/node_modules': dir, 'node_modules/y': dir, 'node_modules/y/f.js': file('f') })
+    const tree = side({ 'node_modules/.pnpm': dir, 'node_modules/.pnpm/node_modules': dir, 'node_modules/a': dir, 'node_modules/a/index.js': file('a'), 'node_modules/y': dir, 'node_modules/y/f.js': file('f') })
     const changes = difference(disk, tree)
-    assert.deepEqual(marks(changes), ['- node_modules/.pnpm/node_modules/@babel', '- node_modules/.pnpm/node_modules/@jest', '- node_modules/.pnpm/node_modules/@s', '+ node_modules/y', '- node_modules/z'])
-    assert.deepEqual([...emptyDirs(changes, disk)].toSorted(byPath), ['node_modules/.pnpm/node_modules/@babel', 'node_modules/.pnpm/node_modules/@jest'])
+    assert.deepEqual(marks(changes), [
+      '- node_modules/.bin',
+      '- node_modules/.pnpm/lock.yaml',
+      '- node_modules/.pnpm/node_modules/@babel',
+      '- node_modules/.pnpm/node_modules/@jest',
+      '- node_modules/.pnpm/node_modules/@s',
+      '- node_modules/a/node_modules',
+      '+ node_modules/y',
+      '- node_modules/z',
+    ])
+    assert.deepEqual([...emptyDirs(changes, disk)].toSorted(byPath), ['node_modules/.pnpm/node_modules/@babel', 'node_modules/.pnpm/node_modules/@jest', 'node_modules/a/node_modules'], 'a .bin is never built, not empty')
+    const hoisted = side({ 'node_modules/.pnpm': dir, 'node_modules/.pnpm/lock.yaml': file('lockfileVersion: 9.0') })
+    assert.deepEqual([...emptyDirs(difference(hoisted, new Map()), hoisted)], ['node_modules/.pnpm'], "the hoisted linker's .pnpm of its state alone")
   })
 })
 

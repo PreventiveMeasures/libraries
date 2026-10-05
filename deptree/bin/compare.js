@@ -70,7 +70,7 @@ export function readTree(vfs) {
 // What deptree never builds, as it is no part of the tree a lockfile gives:
 // the .bin directories, and each package manager's record of its install —
 // pnpm's state files, npm's hidden lockfile, yarn's integrity file.
-const NOT_BUILT = /(?:^|\/)node_modules\/(?:\.bin|\.modules\.yaml|\.pnpm-workspace-state(?:-v\d+)?\.json|\.pnpm\/lock\.yaml|\.package-lock\.json|\.yarn-integrity)$/u
+const NOT_BUILT = /(?:^|\/)node_modules\/(?:\.bin|\.modules\.yaml|\.pnpm-workspace-state(?:-v\d+)?\.json|\.pnpm\/lock\.yaml|\.package-lock\.json|\.yarn-integrity)(?:\/|$)/u
 
 // Whether a change is only one of those on disk.
 export const notBuilt = ({ mark, path }) => mark === '-' && NOT_BUILT.test(path)
@@ -82,14 +82,16 @@ const LEFT_BEHIND = /(?:^|\/)node_modules\/\.pnpm\/[^/]*@[^/]*$/u
 // Whether a change is one of those on disk alone.
 export const leftBehind = ({ mark, type, path }) => mark === '-' && type === 'directory' && LEFT_BEHIND.test(path)
 
-// Of the directories on disk alone, those that hold no file and no link,
-// which Node finds nothing in. pnpm leaves a scope's directory behind once
-// it removes the last package in it, and no pnpm command removes that.
+// Of the directories on disk alone, those that hold nothing but directories
+// and what deptree never builds, which Node finds nothing in. pnpm leaves
+// them behind: a node_modules whose packages it removed, empty or with a
+// .bin of links to them, a scope's directory once the last package in it
+// goes, and with the hoisted linker, node_modules/.pnpm of its state alone.
 export function emptyDirs(changes, disk) {
-  const dirs = new Set(changes.filter(({ mark, type }) => mark === '-' && type === 'directory').map(({ path }) => path))
+  const dirs = new Set(changes.filter(({ mark, type, path }) => mark === '-' && type === 'directory' && !NOT_BUILT.test(path)).map(({ path }) => path))
   for (const [path, { type }] of disk) {
     if (dirs.size === 0) break
-    if (type === 'directory') continue
+    if (type === 'directory' || NOT_BUILT.test(path)) continue
     // Nothing listed is under another listed, so the first one up is its.
     for (let dir = dirname(path); dir !== '.'; dir = dirname(dir)) {
       if (dirs.delete(dir)) break

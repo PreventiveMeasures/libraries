@@ -32,10 +32,10 @@ install from the lockfile would change what is on disk:
              another link target
 
 A directory only one side has is one line, with a trailing slash. A file's
-bytes are compared whole, never line by line. The .bin directories and the
-package manager's own state files, which deptree never builds, and empty
-directories on disk, which Node finds nothing in, are left out unless --all
-is given.
+bytes are compared whole, never line by line. Left out unless --all is given:
+the .bin directories and the package manager's own state files, which
+deptree never builds, and empty directories on disk alone, holding nothing
+but those, such as a node_modules pnpm leaves behind.
 
 Each tarball fetched is kept for the next run in ${defaultCacheDir ?? 'no cache, as no home directory is known'}.
 A scoped package is fetched with NPM_TOKEN, or where that is unset, with the
@@ -125,7 +125,6 @@ async function main(argv) {
   process.stdout.write(shown.map(line).join(''))
   note(summary(shown, hidden, empty))
   if (name === 'pnpm') pruneHint(shown)
-  emptyHint(empty)
   return shown.length === 0 ? 0 : 1
 }
 
@@ -213,14 +212,6 @@ function pruneHint(changes) {
   if (count === 0) return
   const [what, them] = count === 1 ? ['a package', 'it'] : [`${count} packages`, 'them']
   note(`${what} in node_modules/.pnpm that the lockfile no longer installs, as pnpm keeps for a while: \`pnpm prune\` removes ${them}, and so does every install with modulesCacheMaxAge: 0 in pnpm-workspace.yaml`)
-}
-
-// What pnpm leaves of a scope once the last package in it goes, which no
-// pnpm command removes: not prune, store prune, an install with
-// modulesCacheMaxAge: 0, nor install --force.
-function emptyHint(empty) {
-  if (empty.size === 0) return
-  note(`${plural(empty.size, 'empty directory', 'empty directories')} on disk, as pnpm leaves a scope's once the last package in it goes, which no pnpm command removes: \`find node_modules -type d -empty -delete\` does`)
 }
 
 function sizeOf(entries) {
