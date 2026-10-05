@@ -85,19 +85,35 @@ async function holdsNothing(sha, listed) {
   return true
 }
 
+const CHUNK = 64 * 1024
+
 // The id of the blob that `eol=crlf`, a CR written before each LF with
-// none, writes out as these bytes: theirs with each LF's CR taken out. Null
-// where no blob writes them so: an LF with no CR before it, a CR before
-// that CR, or no LF at all.
+// none, writes out as these bytes: theirs with each LF's CR taken out,
+// hashed a chunk at a time, the bytes only read. Null where no blob writes
+// them so: an LF with no CR before it, a CR before that CR, or no LF at
+// all. Most files are passed over at their first LF, a binary one with
+// none at once.
 function crlfBlobId(written) {
-  const parts = []
-  let from = 0
-  for (let lf = written.indexOf(0x0a); lf !== -1; lf = written.indexOf(0x0a, lf + 1)) {
-    if (written[lf - 1] !== 0x0d || written[lf - 2] === 0x0d) return null
-    parts.push(written.subarray(from, lf - 1))
-    from = lf
+  const first = written.indexOf(0x0a)
+  if (first < 1 || written[first - 1] !== 0x0d) return null
+  let lfs = 0
+  for (let i = first; i < written.length; i++) {
+    if (written[i] !== 0x0a) continue
+    if (written[i - 1] !== 0x0d || written[i - 2] === 0x0d) return null
+    lfs++
   }
-  return parts.length === 0 ? null : objectId('blob', Buffer.concat([...parts, written.subarray(from)]))
+  const hash = createHash('sha1').update(`blob ${written.length - lfs}\0`)
+  const chunk = Buffer.allocUnsafe(CHUNK)
+  let at = 0
+  for (let i = 0; i < written.length; i++) {
+    if (written[i] === 0x0d && written[i + 1] === 0x0a) continue
+    chunk[at++] = written[i]
+    if (at === CHUNK) {
+      hash.update(chunk)
+      at = 0
+    }
+  }
+  return hash.update(chunk.subarray(0, at)).digest()
 }
 
 // Where a directory's id is not the one listed, its listing names what
@@ -112,8 +128,8 @@ async function mend(dir, sha, listed) {
     if (entry.type === 'tree') {
       if (here instanceof Map && treeId(here).toString('hex') !== entry.sha) await mend(here, entry.sha, listed)
       else if (here === undefined && await holdsNothing(entry.sha, listed)) dir.set(entry.name, subtree(entry.sha))
-    } else if (entry.type === 'blob' && here?.crlf?.toString('hex') === entry.sha) {
-      dir.set(entry.name, { ...here, id: here.crlf })
+    } else if (entry.type === 'blob' && here?.body && here.id.toString('hex') !== entry.sha && crlfBlobId(here.body)?.toString('hex') === entry.sha) {
+      dir.set(entry.name, { ...here, id: Buffer.from(entry.sha, 'hex') })
     }
   }
 }
@@ -181,7 +197,7 @@ export async function gitTreeOfTarball(gzipped, { expected, list } = {}) {
     }
     if (name === null) continue
     if (dir.has(name)) return `no tree: ${JSON.stringify(path)} twice`
-    dir.set(name, type === '0' ? { mode: mode & 0o100 ? '100755' : '100644', id: objectId('blob', body), crlf: crlfBlobId(body) } : { mode: '120000', id: objectId('blob', Buffer.from(target, 'latin1')) })
+    dir.set(name, type === '0' ? { mode: mode & 0o100 ? '100755' : '100644', id: objectId('blob', body), body } : { mode: '120000', id: objectId('blob', Buffer.from(target, 'latin1')) })
   }
   if (top === undefined) return 'no tree: an empty tarball'
   const listed = async (sha) => (list && isSha1(sha) ? await list(sha) : [])

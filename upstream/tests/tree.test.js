@@ -223,8 +223,14 @@ describe('gitTreeOfTarball with eol=crlf', () => {
     assert.notEqual(await gitTreeOfTarball(CRLF_TGZ), CRLF)
     assert.equal(await gitTreeOfTarball(CRLF_TGZ, { expected: CRLF, list }), CRLF)
     assert.deepEqual(asked, [CRLF, CRLF_ANDROID])
-    const [given, options] = crlf('x\r\ny\r\n', 'x\ny\n')
-    assert.equal(await gitTreeOfTarball(given, options), options.expected)
+    // Bytes that are no UTF-8, and a file over the 64 KiB hashed at a time;
+    // the tarball read and never written.
+    for (const [written, committed] of [['x\r\ny\r\n', 'x\ny\n'], ['\u00FF\u00FE\r\n\u0080\r\u00C3\r\n', '\u00FF\u00FE\n\u0080\r\u00C3\n'], ['abc\r\n'.repeat(30_000), 'abc\n'.repeat(30_000)]]) {
+      const [given, options] = crlf(written, committed)
+      const before = Buffer.from(given)
+      assert.equal(await gitTreeOfTarball(given, options), options.expected, JSON.stringify(written.slice(0, 20)))
+      assert.deepEqual(given, before)
+    }
   })
 
   it('takes a file for one written with CRLF only where its blob writes it back byte for byte', async () => {
