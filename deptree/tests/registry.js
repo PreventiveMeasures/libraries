@@ -5,12 +5,14 @@ import { crc32, deflateRawSync } from 'node:zlib'
 import { compress } from '@preventive/archive/compression.js'
 import { pack } from '@preventive/archive/tar.js'
 
-// upstream looks in npm's cache and home directory before the registry:
-// both point at a directory never made, so no local tarball answers.
+// upstream looks in npm's and cargo's caches and the home directory before
+// the registry: all point at a directory never made, so no local tarball or
+// .crate answers.
 const NOWHERE = join(tmpdir(), `deptree-test-${process.pid}-nowhere`)
 process.env.HOME = NOWHERE
 process.env.npm_config_cache = NOWHERE
 delete process.env.NPM_CONFIG_CACHE
+delete process.env.CARGO_HOME
 
 const encoder = new TextEncoder()
 
