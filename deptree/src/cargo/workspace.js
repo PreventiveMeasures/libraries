@@ -54,6 +54,7 @@ function readRaw(project, dir) {
     if (type === undefined) return undefined
     if (type === 'symlink') throw new DeptreeError('a link where cargo reads a manifest is not supported', quote(path))
   }
+  if (typeOf(project, `/${fileOf(dir)}`, false) === 'symlink') throw new DeptreeError('a link where cargo reads a manifest is not supported', quote(fileOf(dir)))
   const text = readText(project, `/${fileOf(dir)}`, fileOf(dir))
   return text === undefined ? undefined : { text, doc: parseAs(fileOf(dir), () => parseToml(text)) }
 }

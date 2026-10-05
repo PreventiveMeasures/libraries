@@ -33,7 +33,8 @@ export interface CargoHost {
 // the root, as cargo looks there for a workspace's root; the directories
 // workspace.members takes; and .cargo/config, or else .cargo/config.toml.
 // Each is read as UTF-8, and refused where it is not. A link where cargo
-// looks for members or reads a manifest is refused. Each throws an error
+// looks for members, or where it reads a manifest, the Cargo.toml itself or
+// a directory on the way to it, is refused. Each throws an error
 // whose `code` is ENOENT, ENOTDIR or ELOOP for a path that leads nowhere.
 // Nothing is written to it.
 export interface CargoProject {
@@ -175,16 +176,22 @@ export interface CargoTree {
 // compression.js and tar.js refuse a name with a backslash, a control or
 // formatting character, an empty or `..` segment, or a drive letter, two
 // entries of one name that differ, an entry inside one that is not a
-// directory, a sparse entry, more than 512 MiB unpacked — where cargo would
-// take some of it. What cargo reads otherwise than the readers is refused:
+// directory, a sparse entry — where cargo would take some of it. What cargo
+// reads otherwise than the readers is refused:
 // a .crate of more than one gzip member, of which cargo reads the first
 // alone; a gzip header CRC or reserved flag; a pax size, which cargo 1.94.0
-// reads otherwise. What cargo refuses or fails on is refused: an entry not
-// under `<name>-<version>`, an entry not a file or directory, a .crate's
-// own .cargo-checksum.json, which cargo lists and writes over so that it
-// cannot build from it; a directory whose mode lacks the owner's rwx or a
-// file whose mode lacks the owner's read, which cargo fails on as any user
-// but root. On macOS, two names in one directory that differ only in case
+// reads otherwise. What cargo refuses or fails on is refused: a .crate that
+// unpacks to more than 512 MiB, or twenty times its size where that is
+// more; an entry not under `<name>-<version>`, an entry not a file or
+// directory, a .crate's own .cargo-checksum.json, which cargo lists and
+// writes over so that it cannot build from it. So is what cargo fails on or
+// reads otherwise as any user but root: a file whose mode lacks the owner's
+// read, which cargo cannot checksum; a directory with anything in it whose
+// mode lacks the owner's read or search, whose files cargo leaves out of
+// .cargo-checksum.json; and one whose mode lacks the owner's write where
+// anything is written into it after its own entry, as .cargo-checksum.json
+// always is into the package's. A directory with nothing in it may have any
+// mode. On macOS, two names in one directory that differ only in case
 // or normalization are refused, as they would be one name there.
 //
 // Packages come from crates.io alone: one from git, which cargo vendor

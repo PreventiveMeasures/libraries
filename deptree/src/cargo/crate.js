@@ -10,9 +10,9 @@ import { compareNames } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { bytesSha256Hex, crc32 } from '../hash.js'
 
-// As in ../tarball.js; cargo's own bound is 512 MiB, or twenty times the
+// Cargo's bound on what a .crate unpacks to: 512 MiB, or twenty times the
 // .crate where that is more.
-const MAX_BYTES = 512 * 1024 * 1024
+const unpackLimit = (bytes) => Math.max(512 * 1024 * 1024, bytes.length * 20)
 const [FTEXT, FEXTRA, FNAME, FCOMMENT] = [0x01, 0x04, 0x08, 0x10]
 
 // Where the gzip member's deflate data starts, past its header: a header CRC
@@ -40,12 +40,13 @@ function deflateStart(bytes, where) {
 // checks them.
 async function gunzip(bytes, where) {
   const start = deflateStart(bytes, where)
+  const limit = unpackLimit(bytes)
   let tar
   try {
-    tar = await decompress(bytes.subarray(start, bytes.length - 8), 'deflate-raw', { limit: MAX_BYTES })
+    tar = await decompress(bytes.subarray(start, bytes.length - 8), 'deflate-raw', { limit })
   } catch (error) {
     if (!(error instanceof CompressionError)) throw error
-    throw new DeptreeError(error.limited ? `the .crate unpacks to more than ${MAX_BYTES} bytes` : 'the .crate is not one gzip member, which cargo reads the first of alone', where, { cause: error })
+    throw new DeptreeError(error.limited ? `the .crate unpacks to more than ${limit} bytes, which cargo refuses` : 'the .crate is not one gzip member, which cargo reads the first of alone', where, { cause: error })
   }
   const trailer = new DataView(bytes.buffer, bytes.byteOffset + bytes.length - 8, 8)
   if (trailer.getUint32(0, true) !== crc32(tar) || trailer.getUint32(4, true) !== tar.length >>> 0) throw new DeptreeError('the .crate\'s gzip trailer does not match its data', where)
@@ -66,13 +67,23 @@ function entriesOf(tar, where) {
 // looked at, unlike unpack's own .cargo-ok anywhere, after it.
 const vendored = (segments, last) => !segments.includes('.git') && last !== '.gitattributes' && last !== '.gitignore' && segments.join('/') !== '.cargo-ok'
 
-// A directory cargo could not write into, or a file it could not read back to
-// checksum, as any user but root.
-function modeOf(entry, here) {
-  const mode = entry.mode & 0o777 & ~0o022
-  const needed = entry.type === 'directory' ? 0o700 : 0o400
-  if ((mode & needed) !== needed) throw new DeptreeError(`mode ${entry.mode.toString(8)}, which cargo fails on as any user but root, is not supported`, here)
-  return mode
+const modeOf = (entry) => entry.mode & 0o777 & ~0o022
+const unsupported = (entry, why, here) => new DeptreeError(`mode ${entry.mode.toString(8)}, which keeps cargo from ${why} as any user but root, is not supported`, here)
+
+// As any user but root, cargo reads back no file without its owner's read
+// bit; lists nothing in a directory without its owner's read and search
+// bits, leaving what is in it out of .cargo-checksum.json; and writes
+// nothing into one without its write bit once its entry has set it. A
+// directory nothing is in may have any mode. The package's always has
+// something written into it last, its .cargo-checksum.json.
+function fileMode(entry, here) {
+  if (!(modeOf(entry) & 0o400)) throw unsupported(entry, 'reading it back to checksum it', here)
+  return modeOf(entry)
+}
+function dirMode({ entry, here, content, after }) {
+  if (content && (modeOf(entry) & 0o500) !== 0o500) throw unsupported(entry, 'listing what is in it', here)
+  if (after && !(modeOf(entry) & 0o200)) throw unsupported(entry, 'writing into it what comes after it', here)
+  return modeOf(entry)
 }
 
 // The directory `<name>-<version>` every entry has to be in, as Rust's
@@ -86,12 +97,14 @@ function segmentsOf(entry, prefix, here) {
   return rest
 }
 
-// `root` is the mode the package's directory has where an entry gives one;
-// `dirs` maps each directory under it to its mode.
+// `root` is the mode of the package's directory; `dirs` maps each directory
+// under it to its mode, 0o755 where no entry of its own gives one.
 function vendorEntries(entries, prefix, where) {
   const dirs = new Map()
   const files = new Map()
-  let root = 0o755
+  // Each directory an entry of its own gives a mode, the package's as '', and
+  // whether anything is in it and written into it after that entry.
+  const given = new Map()
   for (const entry of entries) {
     const here = `${where}: ${quote(entry.storedName)}`
     const segments = segmentsOf(entry, prefix, here)
@@ -99,19 +112,21 @@ function vendorEntries(entries, prefix, where) {
     if (!vendored(segments, last)) continue
     if (entry.type !== 'file' && entry.type !== 'directory') throw new DeptreeError(`a ${entry.type}, which cargo refuses`, here)
     if (last === '.cargo-ok') continue
-    if (segments.length === 0) {
-      if (entry.type !== 'directory') throw new DeptreeError('the package\'s directory is not a directory', here)
-      root = modeOf(entry, here)
-      continue
-    }
+    if (segments.length === 0 && entry.type !== 'directory') throw new DeptreeError('the package\'s directory is not a directory', here)
     if (segments[0] === '.cargo-checksum.json') throw new DeptreeError('a .cargo-checksum.json of its own, which cargo vendor lists and then writes over, so that cargo cannot build from it', here)
     const path = segments.join('/')
-    for (let i = 1; i < segments.length; i++) {
+    for (let i = 0; i < segments.length; i++) {
       const dir = segments.slice(0, i).join('/')
-      if (!dirs.has(dir)) dirs.set(dir, 0o755)
+      Object.assign(given.get(dir) ?? {}, { content: true, after: true })
+      if (i > 0 && !dirs.has(dir)) dirs.set(dir, 0o755)
     }
-    if (entry.type === 'directory') dirs.set(path, modeOf(entry, here))
-    else files.set(path, { data: entry.data, mode: modeOf(entry, here) })
+    if (entry.type === 'file') files.set(path, { data: entry.data, mode: fileMode(entry, here) })
+    else if (!given.has(path)) given.set(path, { entry, here, content: path === '' || dirs.has(path), after: path === '' })
+  }
+  let root = 0o755
+  for (const [path, dir] of given) {
+    if (path === '') root = dirMode(dir)
+    else dirs.set(path, dirMode(dir))
   }
   return { root, dirs, files }
 }

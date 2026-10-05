@@ -236,6 +236,7 @@ describe('a workspace', () => {
     await refused({ 'crates/lib/Cargo.toml': files['crates/lib/Cargo.toml'].replace('"inner"', '"gone"') }, /^DeptreeError: crates\/lib\/Cargo\.toml: dependencies\.inner: "crates\/lib\/gone\/Cargo\.toml" is not there, which cargo fails on$/u)
     await refused({ 'crates/lib/Cargo.toml': `${files['crates/lib/Cargo.toml']}x = \n` }, /^DeptreeError: crates\/lib\/Cargo\.toml: /u)
     await refused({ 'crates/link': { type: 'symlink', target: 'lib' } }, /^DeptreeError: "crates\/link": a link where cargo looks for members is not supported$/u)
+    await refused({ 'crates/lib/real.toml': files['crates/lib/Cargo.toml'], 'crates/lib/Cargo.toml': { type: 'symlink', target: 'real.toml' } }, /^DeptreeError: "crates\/lib\/Cargo\.toml": a link where cargo reads a manifest is not supported$/u)
     // The default member excluded but taken by `members` is one cargo takes.
     stubCrates(crates)
     const project = createVfs({ ...files, 'Cargo.toml': root.replace('[workspace.package]', 'default-members = ["crates/extra", "crates/lib"]\n\n[workspace.package]'), 'Cargo.lock': lockfile })
@@ -277,10 +278,28 @@ describe('a .crate', () => {
     await refused(crate('bad', '1.0.3', { hard: { type: 'hardlink', linkname: 'bad-1.0.3/src/lib.rs' } }), /: "bad-1\.0\.3\/hard": a hardlink, which cargo refuses$/u)
     await refused(crate('bad', '1.0.4', { cont: { type: 'contiguous-file', data: 'c' } }), /: "bad-1\.0\.4\/cont": a contiguous-file, which cargo refuses$/u)
     await refused(crate('bad', '1.0.5', { '.cargo-checksum.json': '{}' }), /: "bad-1\.0\.5\/\.cargo-checksum\.json": a \.cargo-checksum\.json of its own, which cargo vendor lists and then writes over, so that cargo cannot build from it$/u)
-    await refused(crate('bad', '1.0.6', { ro: { type: 'directory', mode: 0o555 }, 'ro/x': 'x' }), /: "bad-1\.0\.6\/ro\/": mode 555, which cargo fails on as any user but root, is not supported$/u)
-    await refused(crate('bad', '1.0.7', { wo: { data: 'w', mode: 0o200 } }), /: "bad-1\.0\.7\/wo": mode 200, which cargo fails on as any user but root, is not supported$/u)
+    await refused(crate('bad', '1.0.6', { ro: { type: 'directory', mode: 0o555 }, 'ro/x': 'x' }), /: "bad-1\.0\.6\/ro\/": mode 555, which keeps cargo from writing into it what comes after it as any user but root, is not supported$/u)
+    await refused(crate('bad', '1.0.7', { wo: { data: 'w', mode: 0o200 } }), /: "bad-1\.0\.7\/wo": mode 200, which keeps cargo from reading it back to checksum it as any user but root, is not supported$/u)
     await refused(gzipped('bad', '1.0.8', await compress(rawTar([{ name: 'bad-1.0.8', data: 'x' }]), 'gzip')), /: "bad-1\.0\.8": the package's directory is not a directory$/u)
     await refused(rawCrate('bad', '1.0.9', [{ name: 'bad-1.0.9/a\\b', data: 'x' }]), /: the \.crate cannot be read: /u)
+  })
+
+  // As cargo 1.97 was recorded vendoring each, run as a user but root: an
+  // empty directory of any mode, and one whose mode comes after what is in it,
+  // are as root has them; one that cannot be listed is left out of the
+  // checksums, and one written into after its mode is set fails, as does a
+  // package's directory that cannot be written into.
+  it('takes a directory\'s mode where it keeps cargo from nothing, as any user but root', async () => {
+    const modes = async (version, files) => {
+      const { vfs } = await build([await crate('modes', version, files)])
+      return Object.fromEntries(Object.entries(listing(vfs, '/vendor/modes')).filter(([path]) => !/^(?:src|Cargo\.toml|\.cargo-checksum\.json)/u.test(path)))
+    }
+    assert.deepEqual(await modes('1.0.0', { ro: { type: 'directory', mode: 0o555 }, none: { type: 'directory', mode: 0o000 } }), { '.': 'dir 755', ro: 'dir 555', none: 'dir 0' })
+    assert.deepEqual(await modes('1.0.1', { 'ro/x': 'x', ro: { type: 'directory', mode: 0o555 } }), { '.': 'dir 755', ro: 'dir 555', 'ro/x': '644 x' })
+    assert.deepEqual(await modes('1.0.2', { '': { type: 'directory', mode: 0o700 } }), { '.': 'dir 700' })
+    const refused = async (version, files, message) => assert.rejects(build([await crate('modes', version, files)]), message)
+    await refused('1.0.3', { 'd/x': 'x', d: { type: 'directory', mode: 0o311 } }, /: "modes-1\.0\.3\/d\/": mode 311, which keeps cargo from listing what is in it as any user but root, is not supported$/u)
+    await refused('1.0.4', { '': { type: 'directory', mode: 0o555 } }, /: "modes-1\.0\.4\/": mode 555, which keeps cargo from writing into it what comes after it as any user but root, is not supported$/u)
   })
 
   it('passes over what cargo vendor passes over before it looks at its type', async () => {
