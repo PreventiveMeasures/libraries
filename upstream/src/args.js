@@ -72,6 +72,8 @@ export const assertLine = assertion('a non-empty single line', (value) => isStri
 // 65,536 is GitHub's own limit on a body.
 export const assertText = assertion('text with no control characters', (value) => isString(value, 65_536, '\t\n\r'))
 export const assertDirectoryPath = assertion('a directory path', (value) => isString(value, 4096) && value !== '')
+// One name in a directory on every platform: no separator of any, not `.` or `..`.
+export const assertDirectoryName = assertion('a directory name', (value) => isString(value, 255) && !['', '.', '..'].includes(value) && !/[/\\]/u.test(value))
 export const assertLogin = assertion('a GitHub login', isLogin)
 export const assertRepoName = assertion('a repository name', isRepoName)
 export const assertRepo = assertion('"owner/name"', isRepo)

@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 import { assertArgs, assertPackage, assertion, matches, show } from '../args.js'
+import { ourCachePaths } from '../cache.js'
 import { verifiedDownload } from '../download.js'
 import { NPM_REGISTRY, buildUrl } from '../http.js'
 import { getDocument, withNpmToken } from './registry.js'
@@ -46,11 +47,13 @@ function npmCacheDirs() {
 }
 
 // npm 5+ (cacache) files a tarball by its sha512, npm 4 and before as
-// <name>/<version>/package.tgz; ~/.audit as <org>:<name>-<version>.tgz.
+// <name>/<version>/package.tgz; ~/.audit as <org>:<name>-<version>.tgz;
+// our own caches, the default and stasis's, as the one set files it.
 function localPaths(name, version, integrity) {
   const hex = Buffer.from(integrity.slice('sha512-'.length), 'base64').toString('hex')
   const npm = npmCacheDirs().flatMap((root) => [join(root, '_cacache/content-v2/sha512', hex.slice(0, 2), hex.slice(2, 4), hex.slice(4)), join(root, name, version, 'package.tgz')])
-  return [...npm, join(homedir(), '.audit/cache/tgz', `${name.replace(/^@/u, '').replace('/', ':')}-${version}.tgz`)]
+  const audit = join(homedir(), '.audit/cache/tgz', `${name.replace(/^@/u, '').replace('/', ':')}-${version}.tgz`)
+  return [...npm, audit, ...ourCachePaths(DIR, `${name}@${version}.tgz`)]
 }
 
 export async function getMeta(name, version) {

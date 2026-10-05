@@ -7,8 +7,9 @@ import { after, describe, it } from 'node:test'
 import { getTarball, readPackageRepoCache, resolvePackageRepos, setCacheDir, writePackageRepoCache } from '../npm.js'
 
 // A file of its own, because the cache directory is process-wide and
-// this is what a process that never calls setCacheDir gets: no cache at
-// all, rather than one somewhere nobody chose.
+// this is what a process that never calls setCacheDir gets: no cache to
+// write, rather than one somewhere nobody chose, and none to read but ours
+// for tarballs (cache-dir.test.js).
 
 // And other tools' caches with nothing in them, as getTarball reads those
 // first: a home directory and an npm cache that do not exist.
@@ -69,7 +70,9 @@ describe('without setCacheDir', () => {
 
   it('refuses a directory that is not one, and stays without a cache', async () => {
     assert.throws(() => setCacheDir(''))
-    assert.throws(() => setCacheDir(undefined))
+    assert.throws(() => setCacheDir(null))
+    assert.equal(await writePackageRepoCache('lodash', 'lodash/lodash'), false)
+    setCacheDir(false)
     assert.equal(await writePackageRepoCache('lodash', 'lodash/lodash'), false)
   })
 })
