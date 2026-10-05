@@ -73,8 +73,10 @@ export const assertLine = assertion('a non-empty single line', (value) => isStri
 export const assertText = assertion('text with no control characters', (value) => isString(value, 65_536, '\t\n\r'))
 export const assertDirectoryPath = assertion('a directory path', (value) => isString(value, 4096) && value !== '')
 // A name Windows takes for a device, with an extension or not (`con`,
-// `nul.txt`), wherever it stands in a path.
-export const isDeviceName = matches(/^(?:con|prn|aux|nul|com\d|lpt\d)(?:\.|$)/iu)
+// `nul.txt`), wherever it stands in a path. Microsoft's list: con, prn, aux,
+// nul, com1 to com9 and lpt1 to lpt9, and com¹ to com³ and lpt¹ to lpt³, as
+// Windows reads ¹, ² and ³ as digits; com0 and lpt0 are no devices.
+export const isDeviceName = matches(/^(?:con|prn|aux|nul|(?:com|lpt)[1-9¹²³])(?:\.|$)/iu)
 // One name in a directory on every platform: no separator of any, and none
 // Windows refuses: `<>:"|?*`, a trailing dot or space, or a device name.
 const NOT_A_NAME = /[/\\<>:"|?*]|[. ]$/u

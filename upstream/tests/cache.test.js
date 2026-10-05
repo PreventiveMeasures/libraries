@@ -51,7 +51,7 @@ describe('the cache', () => {
   })
 
   it('escapes the first letter of a Windows device name, and of nothing else', async () => {
-    const keys = { 'con.json': '%63on.json', 'nul.json': '%6Eul.json', 'aux.json': '%61ux.json', 'prn.json': '%70rn.json', 'com1.json': '%63om1.json', 'lpt9.json': '%6Cpt9.json', 'con': '%63on', 'Con.json': '!con.json', 'console.json': 'console.json', 'con@1.0.0.json': 'con@1.0.0.json', 'com10.json': 'com10.json' }
+    const keys = { 'con.json': '%63on.json', 'nul.json': '%6Eul.json', 'aux.json': '%61ux.json', 'prn.json': '%70rn.json', 'com1.json': '%63om1.json', 'lpt9.json': '%6Cpt9.json', 'con': '%63on', 'Con.json': '!con.json', 'console.json': 'console.json', 'con@1.0.0.json': 'con@1.0.0.json', 'com10.json': 'com10.json', 'com0.json': 'com0.json' }
     for (const [i, key] of Object.keys(keys).entries()) assert.equal(await writeCacheJSON('cargo/repos', key, { i }), true)
     assert.deepEqual((await readdir(join(base, 'cache', 'cargo', 'repos'))).toSorted(), Object.values(keys).toSorted())
     for (const [i, key] of Object.keys(keys).entries()) assert.deepEqual(await readCacheJSON('cargo/repos', key), { i }, key)

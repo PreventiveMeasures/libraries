@@ -82,10 +82,10 @@ describe('cacheDirFor', { skip: process.platform === 'win32' }, () => {
   })
 
   it('takes one directory name, and nothing else', () => {
-    for (const name of ['', '.', '..', 'a/b', 'a\\b', 'a\nb', 1, undefined, 'CON', 'nul.txt', 'Com1', 'lpt9.log', 'a:b', 'a?b', 'a*', 'a<b>', 'a"b', 'a|b', 'a.', 'a ']) {
+    for (const name of ['', '.', '..', 'a/b', 'a\\b', 'a\nb', 1, undefined, 'CON', 'nul.txt', 'Com1', 'lpt9.log', 'COM¹', 'lpt³.txt', 'Lpt²', 'a:b', 'a?b', 'a*', 'a<b>', 'a"b', 'a|b', 'a.', 'a ']) {
       assert.throws(() => cacheDirFor(name), /^AssertionError.*cacheDirFor: name must be a directory name/u, String(name))
     }
-    for (const name of ['.hidden', 'console', 'com10', 'nul-x', 'a b', 'a.b']) assert.equal(dirOn('linux', {}, name), join(XDG, name), name)
+    for (const name of ['.hidden', 'console', 'com10', 'com0', 'LPT0', 'com⁴', 'nul-x', 'a b', 'a.b']) assert.equal(dirOn('linux', {}, name), join(XDG, name), name)
   })
 })
 
