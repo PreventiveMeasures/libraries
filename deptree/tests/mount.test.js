@@ -104,7 +104,7 @@ describe('the registry\'s tarball', () => {
     const { entries } = await served([])
     assert.deepEqual((await served(new Uint8Array(10240 - bytes.length))).entries, entries)
     assert.deepEqual((await served([0])).entries, entries)
-    for (const tail of [[0, 1, 0], [1], [0x1f, 0x8b, 0]]) await assert.rejects(served(tail), /^CompressionError: the data does not decompress$/u)
+    for (const tail of [[0, 1, 0], [1, 0, 0], [1], [0x1f, 0x8b, 0], [0, ...bytes, 0]]) await assert.rejects(served(tail), /^CompressionError: the data does not decompress$/u)
     // Its CRC, wrong.
     const corrupt = bytes.slice()
     corrupt[bytes.length - 8] ^= 1
