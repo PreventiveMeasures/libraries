@@ -1,5 +1,7 @@
 import { Buffer } from 'node:buffer'
 
+import { matches } from './args.js'
+
 // Whether git writes a file out with CRLF where it has LF, from the
 // .gitattributes of the tree it is in, as `git archive` and a checkout read
 // them from a tree: no info/attributes, no config, so core.eol is LF and
@@ -12,7 +14,7 @@ import { Buffer } from 'node:buffer'
 
 const MAX_LINE = 2048
 const MAX_FILE = 100 * 1024 * 1024
-const isName = (name) => /^[\w.][\w.-]*$/u.test(name)
+const isName = matches(/^[\w.][\w.-]*$/u)
 // BS, HT, FF and ESC, the controls convert.c counts as printing.
 const PRINTING = new Set([0x08, 0x09, 0x0c, 0x1b])
 
@@ -49,17 +51,18 @@ function matchClass(p, pi, ch) {
 
 // The rest of the pattern from p[pi], after a `*`, tried from each place
 // in `text` from ti on, past a `/` only where `crosses`; a literal next is
-// looked for first.
-function afterStar(p, text, pi, ti, crosses) {
+// looked for first. Not found, a `*` that crosses gives up altogether, and
+// one that does not leaves a `**` around it to try further on.
+function afterStar(p, text, pi, ti, crosses, memo) {
   const literal = '*?[\\'.includes(p[pi]) ? '' : p[pi]
   for (let t = ti; t < text.length; t++) {
     if (literal) {
       const found = text.indexOf(literal, t)
       const slash = crosses ? -1 : text.indexOf('/', t)
-      if (found === -1 || (slash !== -1 && slash < found)) return ABORT_ALL
+      if (found === -1 || (slash !== -1 && slash < found)) return crosses ? ABORT_ALL : NOMATCH
       t = found
     }
-    const matched = dowild(p, text, pi, t)
+    const matched = dowild(p, text, pi, t, memo)
     if (matched === NOMATCH) {
       if (!crosses && text[t] === '/') return ABORT_TO_STARSTAR
     } else if (!crosses || matched !== ABORT_TO_STARSTAR) return matched
@@ -69,25 +72,35 @@ function afterStar(p, text, pi, ti, crosses) {
 
 // A `*` at p[pi], or a run of them: `**` between slashes, or at an end,
 // crosses them, and `**/` may match no directory at all.
-function star(p, text, pi, ti) {
+function star(p, text, pi, ti, memo) {
   let at = pi + 1
   while (p[at] === '*') at++
   const crosses = at > pi + 1 && (pi === 0 || p[pi - 1] === '/') && (at === p.length || p[at] === '/' || (p[at] === '\\' && p[at + 1] === '/'))
-  if (crosses && p[at] === '/' && dowild(p, text, at + 1, ti) === MATCH) return MATCH
+  if (crosses) memo ??= new Map()
+  if (crosses && p[at] === '/' && dowild(p, text, at + 1, ti, memo) === MATCH) return MATCH
   if (at === p.length) return !crosses && text.includes('/', ti) ? NOMATCH : MATCH
   if (!crosses && p[at] === '/') {
     const slash = text.indexOf('/', ti)
-    return slash === -1 ? NOMATCH : dowild(p, text, at + 1, slash + 1)
+    return slash === -1 ? NOMATCH : dowild(p, text, at + 1, slash + 1, memo)
   }
-  return afterStar(p, text, at, ti, crosses)
+  return afterStar(p, text, at, ti, crosses, memo)
 }
 
 // A port of git's wildmatch with WM_PATHNAME, as a .gitattributes pattern
-// is matched: `*`, `?` and a class never match `/`.
-function dowild(p, text, pi, ti) {
+// is matched: `*`, `?` and a class never match `/`. Under a `**` each pair
+// of places is tried once, as a run of `**/` would try the same ones over
+// and over.
+function dowild(p, text, pi, ti, memo) {
+  if (!memo) return walk(p, text, pi, ti)
+  const key = pi * (text.length + 1) + ti
+  if (!memo.has(key)) memo.set(key, walk(p, text, pi, ti, memo))
+  return memo.get(key)
+}
+
+function walk(p, text, pi, ti, memo) {
   for (; pi < p.length; pi++, ti++) {
     const tc = text[ti]
-    if (p[pi] === '*') return star(p, text, pi, ti)
+    if (p[pi] === '*') return star(p, text, pi, ti, memo)
     if (tc === undefined) return ABORT_ALL
     if (p[pi] === '[') {
       const found = matchClass(p, pi, tc)
@@ -104,7 +117,7 @@ function dowild(p, text, pi, ti) {
   return ti < text.length ? NOMATCH : MATCH
 }
 
-const wildmatch = (pattern, text) => dowild(pattern, text, 0, 0) === MATCH
+const wildmatch = (pattern, text) => walk(pattern, text, 0, 0) === MATCH
 
 // A token's attribute: `name` set, `-name` unset, `!name` unspecified,
 // `name=value`; undefined for a name git takes for none, null for one only
@@ -122,9 +135,10 @@ function parseState(token) {
 // A .gitattributes as attr.c reads one from a tree, to the first NUL: its
 // rules, each { pattern, states }, and, at the root alone, its macros by
 // name. A line git leaves out is left out; null for any this cannot read.
-export function parseAttributes(bytes, root) {
+function parseAttributes(bytes, root) {
   if (bytes.length >= MAX_FILE) return null
-  const text = Buffer.from(bytes).toString('latin1').split('\0')[0]
+  const nul = bytes.indexOf(0)
+  const text = Buffer.from(bytes.buffer, bytes.byteOffset, nul === -1 ? bytes.length : nul).toString('latin1')
   if (text.startsWith('\u00EF\u00BB\u00BF')) return null
   const rules = []
   const macros = new Map()
@@ -163,11 +177,20 @@ function matchesFile(pattern, path) {
   return path.startsWith(glob.slice(0, literal)) && wildmatch(glob.slice(literal), path.slice(literal))
 }
 
-// Each attribute's state at `path`, from `files`, the .gitattributes from
-// the root down, each { base, rules, macros } with `base` its directory
-// and a `/`, or null where unread: as attr.c fills them, the deepest file
-// and its last line first, a state taken once, a macro set to true
-// expanded where it is set.
+// The .gitattributes from the root down to the directory at `base`, its
+// path and a `/`, or '' at the root: those `above` it, each { base,
+// rules, macros }, and its own, from `bytes`, undefined where it has none.
+// Null from where one cannot be read, or is no file (`bytes` null) on.
+export function withAttributes(above, base, bytes) {
+  if (above === null || bytes === null) return null
+  const own = bytes === undefined ? { rules: [], macros: new Map() } : parseAttributes(bytes, base === '')
+  return own && [...above, { base, ...own }]
+}
+
+// Each attribute's state at `path`, from `files`, as withAttributes lists
+// them down to its directory: as attr.c fills them, the deepest file and
+// its last line first, a state taken once, a macro set to true expanded
+// where it is set.
 export function attributesOf(files, path) {
   const macros = new Map([['binary', [['diff', false], ['merge', false], ['text', false]]], ...files[0].macros])
   const states = new Map()
@@ -213,7 +236,7 @@ function isAutoText(written) {
 // unset, and is `auto` only where the blob is text; and nothing rewrites
 // it otherwise, an `ident`, a `filter` or a `working-tree-encoding`.
 export function writtenWithCrlf(files, path, written) {
-  if (files.includes(null)) return false
+  if (files === null) return false
   const states = attributesOf(files, path)
   if (states.get('ident') === true || typeof states.get('filter') === 'string' || states.get('working-tree-encoding')) return false
   const action = crlfAction(states.get('text')) ?? crlfAction(states.get('crlf'))

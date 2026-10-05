@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { gunzipSync } from 'node:zlib'
 
 import { isSha1, matches } from './args.js'
-import { parseAttributes, writtenWithCrlf } from './attributes.js'
+import { withAttributes, writtenWithCrlf } from './attributes.js'
 
 const BLOCK = 512
 const MAX_UNPACKED_BYTES = 2 ** 30
@@ -127,15 +127,14 @@ function crlfBlobId(written) {
 // and that blob writes them.
 async function mend(dir, sha, listed, base = '', above = []) {
   const own = dir.get('.gitattributes')
-  const read = own === undefined ? { rules: [], macros: new Map() } : own.body && parseAttributes(own.body, base === '')
-  const attributes = [...above, read ? { base, ...read } : null]
+  const attributes = withAttributes(above, base, own && (own.body ?? null))
   for (const entry of await listed(sha)) {
     const here = dir.get(entry.name)
     if (entry.type === 'tree') {
       if (here instanceof Map && treeId(here).toString('hex') !== entry.sha) await mend(here, entry.sha, listed, `${base}${entry.name}/`, attributes)
       else if (here === undefined && await holdsNothing(entry.sha, listed)) dir.set(entry.name, subtree(entry.sha))
     } else if (entry.type === 'blob' && here?.body && here.id.toString('hex') !== entry.sha
-      && writtenWithCrlf(attributes, `${base}${entry.name}`, here.body) && crlfBlobId(here.body)?.toString('hex') === entry.sha) {
+      && crlfBlobId(here.body)?.toString('hex') === entry.sha && writtenWithCrlf(attributes, `${base}${entry.name}`, here.body)) {
       dir.set(entry.name, { ...here, id: Buffer.from(entry.sha, 'hex') })
     }
   }

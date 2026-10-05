@@ -216,12 +216,13 @@ describe('gitTreeOfTarball with eol=crlf', () => {
     const entries = files.flatMap(([path, text]) => [header(`top/${path}`, '0', text.length), body(text)])
     return [tarball(header('top/', '5', 0, 0o775), ...entries), { expected: gitTreeOfListing(listing), list: () => listing }]
   }
+  const listed = (sha) => LISTINGS[sha] ?? []
 
   it('is the id of a tree a file of which `git archive` wrote with CRLF for `eol=crlf`, where the listing names its blob with LF', async () => {
     const asked = []
     const list = (sha) => {
       asked.push(sha)
-      return LISTINGS[sha] ?? []
+      return listed(sha)
     }
     assert.notEqual(await gitTreeOfTarball(CRLF_TGZ), CRLF)
     assert.equal(await gitTreeOfTarball(CRLF_TGZ, { expected: CRLF, list }), CRLF)
@@ -237,11 +238,10 @@ describe('gitTreeOfTarball with eol=crlf', () => {
   })
 
   it("takes the files `git archive` wrote with CRLF for the tree's own .gitattributes, and no other", async () => {
-    const list = (sha) => LISTINGS[sha] ?? []
     assert.notEqual(await gitTreeOfTarball(MIXED_TGZ), MIXED)
-    assert.equal(await gitTreeOfTarball(MIXED_TGZ, { expected: MIXED, list }), MIXED)
+    assert.equal(await gitTreeOfTarball(MIXED_TGZ, { expected: MIXED, list: listed }), MIXED)
     // `g.js` with CRLF from .git/info/attributes, which no checkout has.
-    assert.notEqual(await gitTreeOfTarball(INJECTED_TGZ, { expected: MIXED, list }), MIXED)
+    assert.notEqual(await gitTreeOfTarball(INJECTED_TGZ, { expected: MIXED, list: listed }), MIXED)
     // No .gitattributes, one for other files, or one that overrides it.
     for (const attributes of ['', '*.txt text eol=crlf\n', '*.bat text eol=crlf\nf.bat -text\n', '*.bat eol=crlf\n*.bat eol=lf\n', '*.bat binary eol=crlf\n']) {
       const [given, options] = crlf('x\r\ny\r\n', 'x\ny\n', attributes)
