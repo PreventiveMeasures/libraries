@@ -7,8 +7,9 @@ import { gunzipSync, gzipSync } from 'node:zlib'
 
 import { createClient } from '../github.js'
 import { setCacheDir } from '../npm.js'
+import { gitTreeOfTarball } from '../src/tree.js'
 import { SHA, forbidRequests, json, stubGitHub } from './github-stub.js'
-import { EMPTIES, EMPTIES_D, EMPTIES_N, EMPTIES_TGZ, LISTINGS, NESTED, NESTED_COMMIT, NESTED_LIB, NESTED_TGZ, SUBMODULE, SUBMODULE_COMMIT, SUBMODULE_TGZ, TREE, TREE_LIB, TREE_TGZ } from './tree-fixtures.js'
+import { CRLF, CRLF_ANDROID, CRLF_TGZ, EMPTIES, EMPTIES_D, EMPTIES_N, EMPTIES_TGZ, LISTINGS, NESTED, NESTED_COMMIT, NESTED_LIB, NESTED_TGZ, SUBMODULE, SUBMODULE_COMMIT, SUBMODULE_TGZ, TREE, TREE_LIB, TREE_TGZ } from './tree-fixtures.js'
 
 const CACHE_DIR = join(tmpdir(), `upstream-github-tree-test-${process.pid}`)
 setCacheDir(CACHE_DIR)
@@ -92,6 +93,19 @@ describe('getRepoTreeTarball', () => {
     const calls = stub({ tarballs: { [EMPTIES]: EMPTIES_TGZ }, listings })
     assert.deepEqual(Buffer.from(await client().getRepoTreeTarball({ repo: 'acme/app', tree: EMPTIES })), EMPTIES_TGZ)
     assert.deepEqual(urls(calls), [`${API}/tarball/${EMPTIES}`, ...[EMPTIES, EMPTIES_D, EMPTIES_N].map((id) => `${API}/git/trees/${id}`)])
+  })
+
+  it('takes a file GitHub has with CRLF for `eol=crlf` back to LF where the listing has it so, and keeps the tarball repacked with it', async () => {
+    const calls = stub({ tarballs: { [CRLF]: CRLF_TGZ }, listings: { [CRLF]: { tree: LISTINGS[CRLF] }, [CRLF_ANDROID]: { tree: LISTINGS[CRLF_ANDROID] } } })
+    const bytes = Buffer.from(await client().getRepoTreeTarball({ repo: 'acme/app', tree: CRLF }))
+    assert.deepEqual(urls(calls), [`${API}/tarball/${CRLF}`, ...[CRLF, CRLF_ANDROID].map((id) => `${API}/git/trees/${id}`)])
+    assert.notDeepEqual(bytes, CRLF_TGZ)
+    assert.equal(await gitTreeOfTarball(bytes), CRLF)
+    assert.deepEqual(await readFile(join(TREES, `${CRLF}.tgz`)), bytes)
+    // The tree's own, so served again with no listing asked.
+    const none = forbidRequests()
+    assert.deepEqual(Buffer.from(await client().getRepoTreeTarball({ repo: 'acme/fork', tree: CRLF })), bytes)
+    assert.deepEqual(none, [])
   })
 
   it('refuses a submodule the listing has not, or names another commit for', async () => {

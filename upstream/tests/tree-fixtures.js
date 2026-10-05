@@ -25,7 +25,15 @@ export const EMPTIES = '7d53d19498b95277f1e306217f31dff5f7ea0882'
 export const EMPTIES_D = '55b3cb71b68ba275eb66fc42c482f64559ff4288'
 export const EMPTIES_N = 'c1920f2a78ad891ff74cdcf908747b48f7db546e'
 export const EMPTIES_TGZ = Buffer.from('H4sIAAAAAAACA+3VSwrDIBSFYcfdS4jX53ps2mZUEtIUuvxKhgmkFGr6+r+JooLI4WBqzscq9X2V9o0Y62r1ejqL0U9jNh+nuXjjoxPjrcvrYoMOyqsNXC9jGvKVQ9eNa+ce7c8f9yXSPP9D/Qn5O22F/N+Tf1si/xDcSv5mkb9EozT5F9fuFP7Yov+nMv//k/230QX6v4Eb/QcAAAAAAAAAAACAn3AHHD/hkAAoAAA=', 'base64')
-// GitHub's listings of TREE, its `lib` (TREE_LIB) and SUBMODULE, as
+// CRLF: `.gitattributes` marking `*.bat text eol=crlf`, and `build.bat`
+// and `android/gradlew.bat` committed with LF, which `git archive` writes
+// with CRLF; `android/a.js`; `dos.txt`, committed with CRLF, as written.
+// CRLF_ANDROID is its `android`.
+export const CRLF = '5755b783322b1e0caa98bb3ac613c74840f9174b'
+export const CRLF_ANDROID = '69327553b62c6f3abe6bd949f428ef981f26ff0f'
+export const CRLF_TGZ = Buffer.from('H4sIAAAAAAACA+2W0WqDMBSGvRb6DoHdDWqNMfFq0Ls9wq5jjF2GbSQ5UmHs3WcdbENZy4Z1zJ3vJmIE0Z/vz5Fqr9eyrtcyVzRh6SaYnrgjy3i/dgzX/pryRMSCp0madfcpE5QGPJiBxoN03SudtXDuuUv7w4/7I8hh/tHOgARwJm9A+8nyFyL9Ov9slL/gMQ1izP/q3BBfa2VKo0hpHTmaQ2GPnnjlTA2kNJX24W2USyCgWyDaVnfKVWUYIItg5L88FM6aYspz4Af9zxOG/f+r+cvoyU+Y/9n+p8mo//t9zP/q6La2DsjzCzY69v9n/3dOFpU+no7+q/sv2ND/jKUc/Z+BrdN7ct9nTU5/Apr6ffjr5sGHt3lwFW61erTEluUKi2LR/ueNqYoprP+G/4kYzX8sE+j/HP5/eK1bA2STkxgV/8f+F9ZH0MKU77jofzz2nzKG/s+R/yrM0XcEQRAEQRAEQRAEQZDl8goaly4+ACgAAA==', 'base64')
+// GitHub's listings of TREE, its `lib` (TREE_LIB), SUBMODULE, CRLF and
+// CRLF_ANDROID, as
 // `git ls-tree -l` gives them: { path, mode, type, sha }, and a size for
 // a blob.
 export const TREE_LIB = '5d216e498d6125ed6472ebafd65ee273f6f362d7'
@@ -43,6 +51,16 @@ export const LISTINGS = {
   ],
   [TREE_LIB]: [
     { path: 'a.js', mode: '100644', type: 'blob', sha: '336ce12bb9106afdf843063ee67c0c1970f70d37', size: 10 },
+  ],
+  [CRLF]: [
+    { path: '.gitattributes', mode: '100644', type: 'blob', sha: '23ac65ee5cc5bd3e888ede3cdd701a319318893d', size: 56 },
+    { path: 'android', mode: '040000', type: 'tree', sha: '69327553b62c6f3abe6bd949f428ef981f26ff0f' },
+    { path: 'build.bat', mode: '100644', type: 'blob', sha: 'c639960482b112c962c82c9839eb1b0c791fd14e', size: 20 },
+    { path: 'dos.txt', mode: '100644', type: 'blob', sha: 'c30dea8a3641ea99b125d04d599d843712292759', size: 6 },
+  ],
+  [CRLF_ANDROID]: [
+    { path: 'a.js', mode: '100644', type: 'blob', sha: '336ce12bb9106afdf843063ee67c0c1970f70d37', size: 10 },
+    { path: 'gradlew.bat', mode: '100644', type: 'blob', sha: '3442422191927c611b2dd56106d8b505df05e775', size: 49 },
   ],
   [SUBMODULE]: [
     { path: '.gitmodules', mode: '100644', type: 'blob', sha: '454c1e4897c73f969927180de8349a69396de7d4', size: 126 },
