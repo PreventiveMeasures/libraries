@@ -7,6 +7,7 @@ import process from 'node:process'
 import { after, describe, it } from 'node:test'
 import { createVfs } from '@preventive/vfs'
 import { byPath, difference, emptyDirs, leftBehind, notBuilt, projectView, readDisk, readTree } from '../bin/compare.js'
+import { tokenIn, userToken } from '../bin/npmrc.js'
 import { tarball, url } from './registry.js'
 
 // The development CLI is not part of the published package and nothing
@@ -120,6 +121,50 @@ describe('emptyDirs', () => {
     const changes = difference(disk, tree)
     assert.deepEqual(marks(changes), ['- node_modules/.pnpm/node_modules/@babel', '- node_modules/.pnpm/node_modules/@jest', '- node_modules/.pnpm/node_modules/@s', '+ node_modules/y', '- node_modules/z'])
     assert.deepEqual([...emptyDirs(changes, disk)].toSorted(byPath), ['node_modules/.pnpm/node_modules/@babel', 'node_modules/.pnpm/node_modules/@jest'])
+  })
+})
+
+describe('the token in ~/.npmrc', () => {
+  const T1 = `npm_${'a'.repeat(36)}`
+  const T2 = `npm_${'B9'.repeat(18)}`
+
+  it("takes a line that is nothing but the registry's token, the last of them", () => {
+    assert.equal(tokenIn(`//registry.npmjs.org/:_authToken=${T1}\n`), T1)
+    assert.equal(tokenIn(`a=b\r\n//registry.npmjs.org/:_authToken=${T1}\r\n//registry.npmjs.org/:_authToken=${T2}`), T2)
+  })
+
+  it('takes no other key, registry, placeholder or spelling', () => {
+    for (const line of [
+      `//registry.npmjs.org/:_auth=${T1}`,
+      `//registry.npmjs.org/:_password=${T1}`,
+      `_authToken=${T1}`,
+      `//npm.pkg.github.com/:_authToken=${T1}`,
+      `//registry.npmjs.org.evil.example/:_authToken=${T1}`,
+      `//evil.example///registry.npmjs.org/:_authToken=${T1}`,
+      `@scope:registry=https://registry.npmjs.org/\n//registry.npmjs.org:_authToken=${T1}`,
+      '//registry.npmjs.org/:_authToken=${NPM_TOKEN}',
+      '//registry.npmjs.org/:_authToken=npm_',
+      `//registry.npmjs.org/:_authToken=${T1.slice(4)}`,
+      ` //registry.npmjs.org/:_authToken=${T1}`,
+      `//registry.npmjs.org/:_authToken = ${T1}`,
+      `//registry.npmjs.org/:_authToken=${T1} `,
+      `//registry.npmjs.org/:_authToken=${T1}; comment`,
+      `//registry.npmjs.org/:_authToken="${T1}"`,
+      `//registry.npmjs.org/:_authToken=${T1}\rX-Injected: 1`,
+      `; //registry.npmjs.org/:_authToken=${T1}`,
+    ]) assert.equal(tokenIn(line), undefined, line)
+  })
+
+  it('reads one from home/.npmrc, and none where there is none or no absolute home', () => {
+    const home = mkdtempSync(join(tmpdir(), 'deptree-bin-npmrc-'))
+    try {
+      assert.equal(userToken(home), undefined)
+      writeFileSync(join(home, '.npmrc'), `registry=https://registry.npmjs.org/\n//registry.npmjs.org/:_authToken=${T1}\n`)
+      assert.equal(userToken(home), T1)
+      assert.equal(userToken('relative'), undefined)
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
   })
 })
 

@@ -17,6 +17,7 @@ import { join } from '@preventive/vfs/path.js'
 import { escaped } from '../src/error.js'
 import { typeOf } from '../src/project.js'
 import { difference, emptyDirs, leftBehind, notBuilt, projectView, readDisk, readTree } from './compare.js'
+import { userToken } from './npmrc.js'
 
 const USAGE = `Usage: bin/deptree.js compare [options] [<dir>]
 
@@ -37,6 +38,9 @@ directories on disk, which Node finds nothing in, are left out unless --all
 is given.
 
 Each tarball fetched is kept for the next run in ${defaultCacheDir ?? 'no cache, as no home directory is known'}.
+A scoped package is fetched with NPM_TOKEN, or where that is unset, with the
+token of a line of ~/.npmrc that is nothing but
+//registry.npmjs.org/:_authToken=npm_…, the last of them.
 
 Exits 0 where the two are the same, 1 where they differ, 2 on trouble.
 
@@ -104,6 +108,9 @@ async function main(argv) {
   const manager = MANAGERS[name]
   // There is none where no home directory is known, and then nothing is kept.
   if (defaultCacheDir !== undefined) setCacheDir()
+  // Read by upstream for each request, and sent for a scoped package alone.
+  const token = process.env.NPM_TOKEN ? undefined : userToken()
+  if (token !== undefined) process.env.NPM_TOKEN = token
   // This machine, which is the one that installed what is on disk.
   const host = manager.host(values[name], { node: values.node ?? process.versions.node, os: process.platform, cpu: process.arch }, libcOf())
   // The disk first, as it is before anything is fetched.
