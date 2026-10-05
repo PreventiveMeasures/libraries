@@ -8,8 +8,9 @@ export { LockfileError } from '@preventive/lockfile/composer.js'
 // Where @preventive/upstream caches what it fetches, archives and zips
 // among them. Each is fetched through it, and that is the one place
 // anything here touches a filesystem: from its cache, where one is set,
-// which is where it writes each it fetches; unset, which it is by default,
-// it has none, and writes nothing. Composer's own cache is never read. The
+// which is where it writes each it fetches: setCacheDir() sets the default
+// one, and setCacheDir(false) unsets it. Unset, which it is until set, it
+// has none, and writes nothing. Composer's own cache is never read. The
 // project is read only through the view given as `project`, and the tree
 // built in a Vfs.
 export { setCacheDir } from '@preventive/upstream/npm.js'

@@ -113,9 +113,10 @@ export interface Client {
   // a subtree with no file in it, and has a file marked `eol=crlf` with
   // CRLF where git has LF, as a checkout writes it: the submodule's commit,
   // the subtrees and the blobs come from GitHub's listings of the trees,
-  // asked only then, cached or not, a CRLF file is taken only where the
-  // tree's .gitattributes have git write it so, and the id must still come
-  // out `tree`. The bytes are GitHub's: the tree as a checkout with no
+  // asked only then, cached or not, each listing kept by its id as the
+  // exported archive's are, a CRLF file is taken only where the tree's
+  // .gitattributes have git write it so, and the id must still come out
+  // `tree`. The bytes are GitHub's: the tree as a checkout with no
   // `core.autocrlf` writes it, the same for every repo. So GitHub's tarball
   // is refused for a tree with files marked `export-ignore`, which it
   // leaves out, or `ident`, `filter` or `working-tree-encoding` beside
