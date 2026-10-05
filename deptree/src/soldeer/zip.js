@@ -7,15 +7,13 @@
 import { ArchiveError, unzip } from '@preventive/archive/zip.js'
 import { DeptreeError, quote } from '../error.js'
 import { bytesSha256Hex } from '../hash.js'
+import { MAX_BYTES } from '../tarball.js'
 
 const END = 0x06054b50
 const CENTRAL = 0x02014b50
 const UTF8 = 0x0800
 const S_IFLNK = 0o120000
 const [NTFS, TIMESTAMP, UNICODE_COMMENT, AES] = [0x000a, 0x5455, 0x6375, 0x9901]
-
-// As in ../tarball.js: the archive reader makes room for what entries declare.
-const MAX_BYTES = 512 * 1024 * 1024
 
 // As the archive reader decodes a name: a leading U+FEFF is part of it.
 const decoder = new TextDecoder('utf-8', { ignoreBOM: true })
@@ -74,8 +72,9 @@ function unixMode({ system, attributes }) {
 }
 
 // What str::trim_end_matches(['.', ' ']) and eq_ignore_ascii_case make of
-// a component Soldeer holds to `.git`.
-const isGit = (component) => component.replace(/[. ]+$/u, '').replace(/[A-Z]/gu, (char) => char.toLowerCase()) === '.git'
+// a component Soldeer holds to `.git`; git's verify_path refuses to check
+// one out, with core.protectNTFS, on by default.
+export const isGit = (component) => component.replace(/[. ]+$/u, '').replace(/[A-Z]/gu, (char) => char.toLowerCase()) === '.git'
 
 // getZip has held the zip to its checksum; it is held to it again where it
 // is unpacked.

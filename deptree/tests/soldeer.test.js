@@ -1,14 +1,46 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { compress } from '@preventive/archive/compression.js'
+import { pack } from '@preventive/archive/tar.js'
+import { createClient } from '@preventive/upstream/github.js'
 import { createVfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, buildSoldeerTree } from '../soldeer.js'
+import { githubRepoOf } from '../src/soldeer/git.js'
 import { extractZip } from '../src/soldeer/zip.js'
-import { rawZip, sha256, slowed, stubSoldeer } from './registry.js'
+import { rawZip, sha256, slowed, stubGitHub, stubSoldeer } from './registry.js'
 
 const HOST = Object.freeze({ soldeer: '0.12.0', os: 'linux' })
 const ZERO = '0'.repeat(64)
 
 const dependency = (name, version, entries) => ({ name, version, bytes: rawZip(entries) })
+
+// `git archive --prefix=acme-lib-9d9c452/ <tree> | gzip -9n` of LIB.tree, at
+// LIB.commit: README.md, run.sh executable, `link` to README.md, src/A.sol,
+// and a submodule at lib/sub, which the tarball shows as an empty directory
+// and GitHub's listings of the tree and its `lib` name.
+const LIB = {
+  commit: 'f29158afd351a4b3303825173a1c92009b0d9c85',
+  tree: '9d9c4527d22ae8801778f9b63350c15bda4a2ac7',
+  tarball: Buffer.from('H4sIAAAAAAACA+3XzY6CMBQF4K59Cieuhf43LknG5Wx8A6yTQBRIWlgZ392OS0g0Gigz4/k2bYCEkNPeXnJbfa9P5X69OWysVDwl46OBMeo2Bv3xNmeKa2qoYUKG60wooYgiEXS+zV14pWua9t5zj+73P+6PyPv577bZ59c2qQ7j5q+1vJO/6OevKA3rBflPrigXBN7XYP+H+dhnwAv1X4pQE1D/Z8rfd6OugRfyV9RI5D9P/vVxkv1vnspfa0P4BL0I8n+Qv+vqxBdx6z/jg/qvDUP/F8HqI92XdeoLtIHo/372v3f2V/R/HOf/bPlniW9OEf//mR6c/5xT1P8IbFO3LrftMlueLzgDAAAAAAAAAAAA/pUrriSacQAoAAA=', 'base64'),
+  listings: {
+    '9d9c4527d22ae8801778f9b63350c15bda4a2ac7': [
+      { path: 'README.md', mode: '100644', type: 'blob', sha: '45b983be36b73c0788dc9cbcb76cbb80fc7bb057' },
+      { path: 'lib', mode: '040000', type: 'tree', sha: 'd625e5ace9bb6b5c7334bfff5f73cd33fc7db87f' },
+      { path: 'link', mode: '120000', type: 'blob', sha: '42061c01a1c70097d1e4579f29a5adf40abdec95' },
+      { path: 'run.sh', mode: '100755', type: 'blob', sha: '1a2485251c33a70432394c93fb89330ef214bfc9' },
+      { path: 'src', mode: '040000', type: 'tree', sha: '4ac70a2ea91584782db1e175443d0dbaea4bdd82' },
+    ],
+    'd625e5ace9bb6b5c7334bfff5f73cd33fc7db87f': [
+      { path: 'sub', mode: '160000', type: 'commit', sha: '89e6c98d92887913cadf06b2adb97f26cde4849b' },
+    ],
+  },
+}
+
+// The lockfile and the config of `zips` and a git dependency at LIB.commit.
+const withGit = (zips, name, version, git) => ({
+  lockfile: lockOf(zips, [{ name, text: `name = "${name}"\nversion = "${version}"\ngit = "${git}"\nrev = "${LIB.commit}"` }]),
+  soldeer: `${configOf(zips)}${JSON.stringify(name)} = { version = "${version}", git = "${git}" }\n`,
+})
 
 // As Soldeer 0.12 writes soldeer.lock, sorted by name.
 function lockOf(zips, extra = []) {
@@ -26,17 +58,17 @@ function listing(vfs) {
   for (const { path, type } of vfs.walk('/')) {
     if (path === '/') continue
     const { mode } = vfs.lstat(path)
-    out[path.slice(1)] = type === 'directory' ? `dir ${mode.toString(8)}` : `${mode.toString(8)} ${vfs.readText(path)}`
+    out[path.slice(1)] = type === 'symlink' ? `link ${vfs.readlink(path)}` : type === 'directory' ? `dir ${mode.toString(8)}` : `${mode.toString(8)} ${vfs.readText(path)}`
   }
   return out
 }
 
 // soldeer.toml is the zips' config unless `foundry` or `soldeer` is given,
 // which is left out where it is undefined.
-async function build(zips, { foundry, lockfile = lockOf(zips), host = HOST, vfs, ...rest } = {}) {
+async function build(zips, { foundry, lockfile = lockOf(zips), host = HOST, vfs, github, ...rest } = {}) {
   stubSoldeer(zips)
   const soldeer = 'soldeer' in rest || foundry !== undefined ? rest.soldeer : configOf(zips)
-  return await buildSoldeerTree({ lockfile, foundry, soldeer, host, vfs })
+  return await buildSoldeerTree({ lockfile, foundry, soldeer, host, vfs, github })
 }
 
 describe('buildSoldeerTree', () => {
@@ -84,7 +116,7 @@ describe('buildSoldeerTree', () => {
       'dependencies/forge-std-1.9.4/.gitignore': '644 g',
       'dependencies/forge-std-1.9.4/.gitx': 'dir 755',
     })
-    assert.deepEqual(stats, { dependencies: 1, files: 12, bytes: 28 })
+    assert.deepEqual(stats, { dependencies: 1, files: 12, bytes: 28, links: 0 })
   })
 
   it('lists what it installs, as an SBOM would take it, in the lockfile\'s order', async () => {
@@ -156,13 +188,80 @@ describe('buildSoldeerTree', () => {
     assert.deepEqual(vfs.readdir('/dependencies/zip-pkg-2.0.0').sort(), ['a', 'é', '\uFEFFb'])
   })
 
-  it('refuses a dependency from anywhere but the registry', async () => {
+  it('refuses a dependency from anywhere but the registry or GitHub', async () => {
     const zip = dependency('forge-std', '1.9.4', [{ name: 'a', data: 'a' }])
-    const git = { name: 'isarray', text: `name = "isarray"\nversion = "2.0.5"\ngit = "https://github.com/juliangruber/isarray.git"\nrev = "${'6'.repeat(40)}"` }
-    await assert.rejects(build([zip], { lockfile: lockOf([zip], [git]), soldeer: `${configOf([zip])}isarray = { version = "2.0.5", git = "https://github.com/juliangruber/isarray.git" }\n` }), /^DeptreeError: dependencies\["isarray"\]: a git dependency, which Soldeer clones with its history, is not supported$/u)
+    const gitlab = 'https://gitlab.com/juliangruber/isarray.git'
+    await assert.rejects(build([zip], withGit([zip], 'isarray', '2.0.5', gitlab)), /^DeptreeError: dependencies\["isarray"\]: a git dependency from "https:\/\/gitlab\.com\/juliangruber\/isarray\.git", not a GitHub repository over https or ssh, is not supported$/u)
     const priv = { name: 'secret', text: `name = "secret"\nversion = "1.0.0"\nchecksum = "${ZERO}"\nintegrity = "${ZERO}"` }
     await assert.rejects(build([zip], { lockfile: lockOf([zip], [priv]), soldeer: `${configOf([zip])}secret = "1.0.0"\n` }), /^DeptreeError: dependencies\["secret"\]: a private dependency, which the registry hands out to those signed in alone, is not supported$/u)
     await assert.rejects(build([zip], { soldeer: '[dependencies]\nforge-std = { version = "1.9.4", url = "https://soldeer-revisions.s3.amazonaws.com/forge-std/x.zip" }\n' }), /^DeptreeError: dependencies\["forge-std"\]: a dependency from a URL of its own, rather than the registry, is not supported$/u)
+  })
+
+  it('checks a git dependency out from GitHub\'s tarball of its commit, as Soldeer\'s git checks it out', async () => {
+    const zip = dependency('forge-std', '1.9.4', [{ name: 'a', data: 'a' }])
+    const git = 'https://github.com/acme/lib.git'
+    stubSoldeer([zip])
+    const calls = stubGitHub({ 'acme/lib': LIB })
+    const { vfs, stats, installed } = await buildSoldeerTree({ ...withGit([zip], 'acme-lib', '1.0.0', git), host: HOST, github: createClient({ token: null }) })
+    // No .git: Soldeer's clone has one, which is not built. The submodule
+    // is an empty directory, as Soldeer leaves it without recursive_deps.
+    assert.deepEqual(listing(vfs), {
+      'dependencies': 'dir 755',
+      'dependencies/acme-lib-1.0.0': 'dir 755',
+      'dependencies/acme-lib-1.0.0/README.md': '644 hi\n',
+      'dependencies/acme-lib-1.0.0/lib': 'dir 755',
+      'dependencies/acme-lib-1.0.0/lib/sub': 'dir 755',
+      'dependencies/acme-lib-1.0.0/link': 'link README.md',
+      'dependencies/acme-lib-1.0.0/run.sh': '755 #!/bin/sh\n',
+      'dependencies/acme-lib-1.0.0/src': 'dir 755',
+      'dependencies/acme-lib-1.0.0/src/A.sol': '644 contract A {}\n',
+      'dependencies/forge-std-1.9.4': 'dir 755',
+      'dependencies/forge-std-1.9.4/a': '644 a',
+    })
+    assert.deepEqual(stats, { dependencies: 2, files: 4, bytes: 28, links: 1 })
+    assert.deepEqual(installed, [
+      { path: 'dependencies/acme-lib-1.0.0', name: 'acme-lib', version: '1.0.0', git, rev: LIB.commit },
+      { path: 'dependencies/forge-std-1.9.4', name: 'forge-std', version: '1.9.4', checksum: sha256(zip.bytes) },
+    ])
+    assert.equal(calls[0], `acme/lib/git/commits/${LIB.commit}`)
+  })
+
+  it('reads a GitHub repository from each URL git takes for one over https or ssh', () => {
+    for (const url of ['https://github.com/acme/lib.git', 'https://github.com/acme/lib', 'https://github.com/acme/lib/', 'HTTPS://GitHub.com/acme/lib.git', 'ssh://git@github.com/acme/lib.git', 'git@github.com:acme/lib.git', 'git@github.com:acme/lib']) {
+      assert.equal(githubRepoOf(url), 'acme/lib', url)
+    }
+    assert.equal(githubRepoOf('https://github.com/OpenZeppelin/openzeppelin-contracts.git'), 'OpenZeppelin/openzeppelin-contracts')
+    // Soldeer has git refuse http and git://; another host, a path past the
+    // repo, a user, or an owner or name GitHub does not take is no repo.
+    for (const url of ['http://github.com/acme/lib.git', 'git://github.com/acme/lib.git', 'https://gitlab.com/acme/lib.git', 'https://github.com.evil/acme/lib', 'https://github.com/acme/lib/tree/main', 'https://user@github.com/acme/lib.git', 'https://github.com/acme', 'https://github.com/acme/..', 'https://github.com/-acme/lib', 'file:///repos/acme/lib.git']) {
+      assert.equal(githubRepoOf(url), undefined, url)
+    }
+  })
+
+  it('refuses a git dependency before anything is fetched without a GitHub client, or in a folder Soldeer names otherwise', async () => {
+    const git = 'https://github.com/acme/lib.git'
+    const options = (version) => withGit([], 'acme-lib', version, git)
+    const calls = stubGitHub({})
+    await assert.rejects(buildSoldeerTree({ ...options('1.0.0'), host: HOST }), { name: 'TypeError', message: 'github must be a GitHub client from createClient, which a git dependency is fetched through' })
+    await assert.rejects(buildSoldeerTree({ ...options('1.0.0'), host: HOST, github: 't0ken' }), TypeError)
+    await assert.rejects(buildSoldeerTree({ ...options('release/1'), host: HOST }), /^DeptreeError: dependencies\["acme-lib"\]: its folder, "acme-lib-release\/1", is one Soldeer names otherwise, which is not supported$/u)
+    assert.deepEqual(calls, [])
+    // A registry dependency's build asks for no client.
+    const zip = dependency('forge-std', '1.9.4', [{ name: 'a', data: 'a' }])
+    assert.equal((await build([zip])).stats.dependencies, 1)
+  })
+
+  it('refuses a git dependency GitHub does not answer for, a tarball that cannot be read, and a .git in one', async () => {
+    const git = 'git@github.com:acme/lib.git'
+    const options = withGit([], 'acme-lib', '1.0.0', git)
+    await assert.rejects(build([], { ...options, github: createClient({ token: null }) }), new RegExp(`^DeptreeError: dependencies\\["acme-lib"\\]: GET https://api\\.github\\.com/repos/acme/lib/git/commits/${LIB.commit} 404: `, 'u'))
+    // A client that answers whatever it is given, which upstream's would not.
+    const answering = (bytes) => ({ getRepoTarball: () => Promise.resolve(bytes) })
+    await assert.rejects(build([], { ...options, github: answering(new Uint8Array([1, 2, 3])) }), /^DeptreeError: dependencies\["acme-lib"\]: its tarball from GitHub cannot be read: /u)
+    for (const name of ['top/.git/config', 'top/sub/.GIT./config']) {
+      const tarball = await compress(pack([{ name: 'top/', type: 'directory' }, { name, data: new TextEncoder().encode('x') }]), 'gzip')
+      await assert.rejects(build([], { ...options, github: answering(tarball) }), new RegExp(`^DeptreeError: dependencies\\["acme-lib"\\]: "${name.slice(4).replaceAll('.', '\\.')}": a path with a \\.git in it, which git refuses to check out$`, 'u'))
+    }
   })
 
   it('holds each zip to the lockfile\'s checksum, and the lockfile to the config', async () => {

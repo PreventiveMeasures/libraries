@@ -92,8 +92,9 @@ export function writeLink(vfs, path, target) {
   }
 }
 
-// `root` is the package's directory in the tree, without a leading `/`.
-export function writeFiles(vfs, root, { dirs, files }, stats, skip = () => false) {
+// `root` is the package's directory in the tree, without a leading `/`;
+// `links` are symlinks within it, by path, to their targets as given.
+export function writeFiles(vfs, root, { dirs, files, links = new Map() }, stats, skip = () => false) {
   const real = new Set()
   makeDirs(vfs, root, real)
   for (const dir of dirs) {
@@ -111,6 +112,16 @@ export function writeFiles(vfs, root, { dirs, files }, stats, skip = () => false
     }
     stats.files++
     stats.bytes += file.data.length
+  }
+  for (const [path, target] of links) {
+    if (skip(path)) continue
+    const at = checkWrite(vfs, root, path, real)
+    try {
+      vfs.symlink(target, at)
+    } catch (error) {
+      throw asRefusal(error, 'made', `${root}/${path}`)
+    }
+    stats.links++
   }
 }
 

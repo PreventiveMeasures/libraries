@@ -82,6 +82,7 @@
     "src/pnpm/workspace.js",
     "src/project.js",
     "src/soldeer/config.js",
+    "src/soldeer/git.js",
     "src/soldeer/inputs.js",
     "src/soldeer/tree.js",
     "src/soldeer/zip.js",
