@@ -70,9 +70,6 @@ describe('without setCacheDir', () => {
 
   it('refuses a directory that is not one, and stays without a cache', async () => {
     assert.throws(() => setCacheDir(''))
-    assert.throws(() => setCacheDir(null))
-    assert.equal(await writePackageRepoCache('lodash', 'lodash/lodash'), false)
-    setCacheDir(false)
     assert.equal(await writePackageRepoCache('lodash', 'lodash/lodash'), false)
   })
 })

@@ -15,14 +15,13 @@
 // ~/Library/Caches/<name>. Windows: %LOCALAPPDATA%\<name>\Cache, the
 // `Cache` apart from the program's other local data there. Elsewhere, the
 // XDG Base Directory spec's: $XDG_CACHE_HOME/<name>, or ~/.cache/<name>
-// where it is unset, empty or relative, which the spec has ignored. Only
-// Linux and the BSDs follow that spec, so macOS and Windows take no
-// XDG_CACHE_HOME, as Go's os.UserCacheDir and Rust's dirs take none. Undefined where no absolute directory is found to start
-// from: a home directory that is relative, empty or unknown. Nothing is
-// made. `name` is one directory name on every platform: not empty, and
-// with no `/`, `\`, control character, or anything Windows refuses in a
-// name: a character of `<>:"|?*`, a trailing dot or space (so not `.` or
-// `..` either), or a device name such as `con` or `nul.txt`.
+// where it is unset, empty or relative, which the spec has ignored.
+// Undefined where no absolute directory is found to start from: a home
+// directory that is relative, empty or unknown. Nothing is made. `name` is
+// one directory name on every platform: not empty, and with no `/`, `\`,
+// control character, or anything Windows refuses in a name: a character
+// of `<>:"|?*`, a trailing dot or space (so not `.` or `..` either), or a
+// device name such as `con` or `nul.txt`.
 export function cacheDirFor(name: string): string | undefined
 
 // cacheDirFor('PreventiveMeasures'), read once, when this module is first
@@ -32,8 +31,8 @@ export const defaultCacheDir: string | undefined
 // Where cached answers are written and read, resolved when set: `dir`, or
 // defaultCacheDir where it is left out, which throws where there is none.
 // Unset until this is called, and unset again by `false`, which means no
-// cache: every read of it misses and every write is skipped. Tarballs are
-// read from defaultCacheDir all the same (getTarball).
+// cache: every read of it misses and every write is skipped. getTarball
+// reads ours all the same, set or not.
 //
 // The directory is trusted: a package's repo is answered from it as it
 // was written, with no request. Point it only at storage that nothing

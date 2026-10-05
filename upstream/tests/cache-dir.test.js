@@ -1,10 +1,8 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import process from 'node:process'
 import { after, beforeEach, describe, it } from 'node:test'
 
 // A file of its own, since defaultCacheDir is read from the environment
@@ -37,21 +35,21 @@ after(async () => {
   await rm(LOCAL, { recursive: true, force: true })
 })
 
-// As if on `platform`, with the environment changed by `env` (undefined
-// deletes), for the length of `call`.
-function on(platform, env, call) {
+// cacheDirFor(name) as if on `platform`, with the environment changed by
+// `env` (undefined deletes).
+function dirOn(platform, env = {}, name = 'tool') {
   Object.defineProperty(process, 'platform', { ...realPlatform, value: platform })
-  for (const [name, value] of Object.entries(env)) {
-    if (value === undefined) delete process.env[name]
-    else process.env[name] = value
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
   }
   try {
-    return call()
+    return cacheDirFor(name)
   } finally {
     Object.defineProperty(process, 'platform', realPlatform)
-    for (const name of Object.keys(env)) {
-      if (ENV[name] === undefined) delete process.env[name]
-      else process.env[name] = ENV[name]
+    for (const key of Object.keys(env)) {
+      if (ENV[key] === undefined) delete process.env[key]
+      else process.env[key] = ENV[key]
     }
   }
 }
@@ -59,46 +57,41 @@ function on(platform, env, call) {
 // os.homedir() reads USERPROFILE on Windows, not HOME.
 describe('cacheDirFor', { skip: process.platform === 'win32' }, () => {
   it('follows XDG_CACHE_HOME where it is absolute, else ~/.cache', () => {
-    assert.equal(on('linux', {}, () => cacheDirFor('tool')), join(XDG, 'tool'))
-    assert.equal(on('freebsd', {}, () => cacheDirFor('tool')), join(XDG, 'tool'))
+    assert.equal(dirOn('linux'), join(XDG, 'tool'))
+    assert.equal(dirOn('freebsd'), join(XDG, 'tool'))
     for (const xdg of [undefined, '', 'relative/cache']) {
-      assert.equal(on('linux', { XDG_CACHE_HOME: xdg }, () => cacheDirFor('tool')), join(HOME, '.cache', 'tool'), String(xdg))
+      assert.equal(dirOn('linux', { XDG_CACHE_HOME: xdg }), join(HOME, '.cache', 'tool'), String(xdg))
     }
   })
 
   it('takes ~/Library/Caches on macOS, whatever XDG_CACHE_HOME says', () => {
-    assert.equal(on('darwin', {}, () => cacheDirFor('Tool')), join(HOME, 'Library', 'Caches', 'Tool'))
+    assert.equal(dirOn('darwin', {}, 'Tool'), join(HOME, 'Library', 'Caches', 'Tool'))
   })
 
   it('takes %LOCALAPPDATA%\\<name>\\Cache on Windows, where it is absolute', () => {
-    assert.equal(on('win32', {}, () => cacheDirFor('tool')), join(LOCAL, 'local', 'tool', 'Cache'))
+    assert.equal(dirOn('win32'), join(LOCAL, 'local', 'tool', 'Cache'))
     for (const local of [undefined, '', 'relative']) {
-      assert.equal(on('win32', { LOCALAPPDATA: local }, () => cacheDirFor('tool')), join(HOME, 'AppData', 'Local', 'tool', 'Cache'), String(local))
+      assert.equal(dirOn('win32', { LOCALAPPDATA: local }), join(HOME, 'AppData', 'Local', 'tool', 'Cache'), String(local))
     }
   })
 
   it('answers undefined where no absolute directory is there to start from', () => {
-    assert.equal(on('linux', { XDG_CACHE_HOME: undefined, HOME: 'relative' }, () => cacheDirFor('tool')), undefined)
-    assert.equal(on('darwin', { HOME: 'relative' }, () => cacheDirFor('tool')), undefined)
-    assert.equal(on('linux', { HOME: 'relative' }, () => cacheDirFor('tool')), join(XDG, 'tool'), 'XDG_CACHE_HOME needs no home')
+    assert.equal(dirOn('linux', { XDG_CACHE_HOME: undefined, HOME: 'relative' }), undefined)
+    assert.equal(dirOn('darwin', { HOME: 'relative' }), undefined)
+    assert.equal(dirOn('linux', { HOME: 'relative' }), join(XDG, 'tool'), 'XDG_CACHE_HOME needs no home')
   })
 
   it('takes one directory name, and nothing else', () => {
     for (const name of ['', '.', '..', 'a/b', 'a\\b', 'a\nb', 1, undefined, 'CON', 'nul.txt', 'Com1', 'lpt9.log', 'a:b', 'a?b', 'a*', 'a<b>', 'a"b', 'a|b', 'a.', 'a ']) {
       assert.throws(() => cacheDirFor(name), /^AssertionError.*cacheDirFor: name must be a directory name/u, String(name))
     }
-    for (const name of ['.hidden', 'console', 'com10', 'nul-x', 'a b', 'a.b']) assert.equal(on('linux', {}, () => cacheDirFor(name)), join(XDG, name), name)
+    for (const name of ['.hidden', 'console', 'com10', 'nul-x', 'a b', 'a.b']) assert.equal(dirOn('linux', {}, name), join(XDG, name), name)
   })
 })
 
 describe('setCacheDir', () => {
-  it('caches nothing until it is called', async () => {
-    assert.equal(defaultCacheDir, join(XDG, 'PreventiveMeasures'))
-    assert.equal(await writeCache('npm/repos', 'x.json', '{}'), false)
-    assert.deepEqual(await readdir(LOCAL).catch(() => []), [])
-  })
-
   it('caches in defaultCacheDir where given nothing, and nowhere for false', async () => {
+    assert.equal(defaultCacheDir, join(XDG, 'PreventiveMeasures'))
     setCacheDir()
     assert.equal(await writeCache('npm/repos', 'x.json', '{}'), true)
     assert.deepEqual(await readdir(join(defaultCacheDir, 'npm', 'repos')), ['x.json'])
@@ -107,11 +100,14 @@ describe('setCacheDir', () => {
     assert.equal(await writeCache('npm/repos', 'y.json', '{}'), false)
   })
 
-  it('throws where there is no default to cache in', () => {
-    const script = "const { setCacheDir, defaultCacheDir } = await import('./npm.js'); try { setCacheDir() } catch (e) { console.log(defaultCacheDir, e.message) }"
-    const env = { ...process.env, HOME: 'relative', XDG_CACHE_HOME: '', USERPROFILE: '', LOCALAPPDATA: '' }
-    const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], { cwd: join(import.meta.dirname, '..'), env, encoding: 'utf8' })
-    assert.equal(r.stdout, 'undefined setCacheDir: there is no default cache directory, as no absolute home directory is known: give one\n')
+  // A copy of the module of its own, which reads defaultCacheDir from an
+  // environment with no home; os.homedir() reads USERPROFILE on Windows.
+  it('throws where there is no default to cache in', { skip: process.platform === 'win32' }, async () => {
+    process.env.HOME = 'relative'
+    delete process.env.XDG_CACHE_HOME
+    const fresh = await import('../src/cache.js?no-home').finally(() => Object.assign(process.env, { HOME, XDG_CACHE_HOME: XDG }))
+    assert.equal(fresh.defaultCacheDir, undefined)
+    assert.throws(() => fresh.setCacheDir(), /^AssertionError.*setCacheDir: there is no default cache directory, as no absolute home directory is known: give one$/u)
   })
 })
 

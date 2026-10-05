@@ -4,7 +4,7 @@ import { mkdir, open, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 
-import { assertDirectoryName, assertDirectoryPath, isRepo } from './args.js'
+import { assertDirectoryName, assertDirectoryPath, isDeviceName, isRepo } from './args.js'
 import { MAX_BYTES, decode } from './http.js'
 
 const DIRS = new Set(['npm/repos', 'npm/tarballs', 'cargo/repos', 'cargo/crates', 'composer/repos', 'soldeer/repos', 'soldeer/zips', 'github/trees'])
@@ -59,7 +59,8 @@ export function setCacheDir(dir = defaultCacheDir) {
 function cachePath(dir, key, base = root) {
   assert.ok(DIRS.has(dir) && key && typeof key === 'string', `Unexpected cache entry: ${dir}`)
   const name = encodeURIComponent(key.replace(/[!A-Z]/gu, (char) => `!${char.toLowerCase()}`)).replaceAll('%40', '@').replaceAll('%2F', '+')
-  return base === undefined ? null : join(base, dir, name.replace(/^(?=(?:con|prn|aux|nul|com\d|lpt\d)(?:\.|$))./u, (char) => `%${char.codePointAt(0).toString(16).toUpperCase()}`))
+  const file = isDeviceName(name) ? `%${name.codePointAt(0).toString(16).toUpperCase()}${name.slice(1)}` : name
+  return base === undefined ? null : join(base, dir, file)
 }
 
 // Caches of ours, read whether set or not for what is checked whatever its
