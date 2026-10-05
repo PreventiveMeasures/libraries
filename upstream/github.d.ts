@@ -84,14 +84,18 @@ export interface Client {
   // Its files are hashed back into git's tree and the id must be `tree`,
   // whether downloaded or read from setCacheDir's cache (npm.js), where it
   // is kept by the id alone, for good; a cached copy that does not match
-  // throws. A tarball shows a submodule as an empty directory, and leaves
-  // out a subtree with no file in it: the submodule's commit and the
-  // subtrees come from GitHub's listings of the trees, asked only then, and
-  // the id must still come out `tree`: the bytes are the tree's own, the
-  // same for every repo. So GitHub's tarball is refused for a tree with
-  // files marked `export-ignore`, which it leaves out, and from a repo set
-  // to include Git LFS objects in archives, which replace the pointers git
-  // has; that repo still gets a tree already cached, pointers and all.
+  // throws. A tarball shows a submodule as an empty directory, leaves out
+  // a subtree with no file in it, and has a file marked `eol=crlf` with
+  // CRLF where git has LF, as a checkout writes it: the submodule's commit,
+  // the subtrees and the blobs come from GitHub's listings of the trees,
+  // asked only then, cached or not, and the id must still come out `tree`.
+  // The bytes are GitHub's: the tree as a checkout with no `core.autocrlf`
+  // writes it, the same for every repo. So GitHub's tarball is refused for
+  // a tree with files marked `export-ignore`, which it leaves out, or
+  // `ident` or `working-tree-encoding`, which it rewrites, or `eol=crlf` on
+  // a file git has with both CRLF and LF; and from a repo set to include
+  // Git LFS objects in archives, which replace the pointers git has; that
+  // repo still gets a tree already cached, pointers and all.
   getRepoTreeTarball(options: { repo: RepoName; tree: string }): Promise<Uint8Array>
   // The repository's published security advisories, as GitHub's
   // repository advisory objects: every page of 100, each found by the

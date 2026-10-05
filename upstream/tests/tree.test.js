@@ -4,7 +4,7 @@ import { gunzipSync, gzipSync } from 'node:zlib'
 import { describe, it } from 'node:test'
 
 import { gitTreeOfListing, gitTreeOfTarball } from '../src/tree.js'
-import { COMMIT_TGZ, EMPTIES, EMPTIES_D, EMPTIES_N, EMPTIES_TGZ, LISTINGS, SUBMODULE, SUBMODULE_COMMIT, SUBMODULE_TGZ, TREE, TREE_LIB, TREE_TGZ } from './tree-fixtures.js'
+import { COMMIT_TGZ, CRLF, CRLF_ANDROID, CRLF_TGZ, EMPTIES, EMPTIES_D, EMPTIES_N, EMPTIES_TGZ, LISTINGS, SUBMODULE, SUBMODULE_COMMIT, SUBMODULE_TGZ, TREE, TREE_LIB, TREE_TGZ } from './tree-fixtures.js'
 
 // A header's checksum, over the header with the field itself read as spaces.
 const sign = (tar, start) => {
@@ -203,6 +203,46 @@ describe('gitTreeOfTarball', () => {
       [EMPTIES_D]: [{ path: 'e', type: 'tree', sha: EMPTY }, { path: 'g', type: 'blob', sha: 'c'.repeat(40) }],
     }
     assert.notEqual(await gitTreeOfTarball(tarball(top, f), { expected: deeper, list: (sha) => listings[sha] ?? [] }), deeper)
+  })
+})
+
+describe('gitTreeOfTarball with eol=crlf', () => {
+  const blob = (text) => createHash('sha1').update(`blob ${text.length}\0`).update(text, 'latin1').digest('hex')
+  // A tarball of `f.bat` as `written`, and the options to hold it to the tree with `committed` there.
+  const crlf = (written, committed) => {
+    const listing = [{ path: 'f.bat', mode: '100644', type: 'blob', sha: blob(committed) }]
+    return [tarball(header('top/', '5', 0, 0o775), header('top/f.bat', '0', written.length), body(written)), { expected: gitTreeOfListing(listing), list: () => listing }]
+  }
+
+  it('is the id of a tree a file of which `git archive` wrote with CRLF for `eol=crlf`, where the listing names its blob with LF', async () => {
+    const asked = []
+    const list = (sha) => {
+      asked.push(sha)
+      return LISTINGS[sha] ?? []
+    }
+    assert.notEqual(await gitTreeOfTarball(CRLF_TGZ), CRLF)
+    assert.equal(await gitTreeOfTarball(CRLF_TGZ, { expected: CRLF, list }), CRLF)
+    assert.deepEqual(asked, [CRLF, CRLF_ANDROID])
+    // Bytes that are no UTF-8, and a file over the 64 KiB hashed at a time;
+    // the tarball read and never written.
+    for (const [written, committed] of [['x\r\ny\r\n', 'x\ny\n'], ['\u00FF\u00FE\r\n\u0080\r\u00C3\r\n', '\u00FF\u00FE\n\u0080\r\u00C3\n'], ['abc\r\n'.repeat(30_000), 'abc\n'.repeat(30_000)]]) {
+      const [given, options] = crlf(written, committed)
+      const before = Buffer.from(given)
+      assert.equal(await gitTreeOfTarball(given, options), options.expected, JSON.stringify(written.slice(0, 20)))
+      assert.deepEqual(given, before)
+    }
+  })
+
+  it('takes a file for one written with CRLF only where its blob writes it back byte for byte', async () => {
+    // Undone to `x\r\ny\n`, which git would write as `x\r\ny\r\n`; a
+    // blob with CRLF and LF both, which comes out all CRLF; one with LF where
+    // the file has one too; and a file with no CRLF at all.
+    for (const [written, committed] of [['x\r\r\ny\r\n', 'x\r\ny\n'], ['x\r\ny\r\n', 'x\r\ny\n'], ['x\r\ny\n', 'x\ny\n'], ['x\ny\n', 'x\ny']]) {
+      const [given, options] = crlf(written, committed)
+      const id = await gitTreeOfTarball(given, options)
+      assert.match(id, /^[\da-f]{40}$/u, JSON.stringify(written))
+      assert.notEqual(id, options.expected, JSON.stringify(written))
+    }
   })
 })
 
