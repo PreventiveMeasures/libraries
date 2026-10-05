@@ -30,6 +30,9 @@ const SOURCES = new Set(['bitbucket', 'catalog', 'custom', 'file', 'git', 'githu
 // fetched from a URL, a git repository or a tarball, and carries its
 // version in a field. A directory has no version in the lockfile at all,
 // and its key has the path as written, empty for the lockfile's own.
+// pnpm's writer also puts the version in a field for a registry package
+// whose snapshot key has a `:` in it, which a source among its peers puts
+// there; the field is then the key's version again.
 function readVersion(name, ref, entry, resolution, where) {
   const { type, tarball } = resolution
   const local = tarball?.startsWith('file:')
@@ -37,7 +40,7 @@ function readVersion(name, ref, entry, resolution, where) {
     if (type !== 'tarball' || resolution.integrity === undefined || local || resolution.gitHosted || resolution.path !== undefined) {
       throw new LockfileError(`expected a registry tarball with an integrity, for the version ${quote(ref)}`, at(where, 'resolution'))
     }
-    if (entry.version !== undefined) throw new LockfileError('a registry package has its version in its key', at(where, 'version'))
+    if (entry.version !== undefined && entry.version !== ref) throw new LockfileError(`expected the version in the key, ${quote(ref)}`, at(where, 'version'))
     if (tarball !== undefined) checkRegistryTarball(tarball, name, ref, at(at(where, 'resolution'), 'tarball'))
     return ref
   }
@@ -129,8 +132,16 @@ function readSnapshot(entry, where, snapshots) {
 // patchedDependencies hold, which a snapshot's patch hash has to be one of.
 export function readPackages(doc, prefix, patches) {
   const infos = new Map()
+  // Where a registry package has its version in a field too, until a
+  // snapshot of it is found with a source in its peers: a registry package
+  // is one whose key is its name and version.
+  const versioned = new Map()
   const packagesAt = at(prefix, 'packages')
-  for (const [key, entry, where] of entries(orEmpty(doc.packages), packagesAt)) infos.set(key, readInfo(key, entry, where))
+  for (const [key, entry, where] of entries(orEmpty(doc.packages), packagesAt)) {
+    const info = readInfo(key, entry, where)
+    infos.set(key, info)
+    if (entry.version !== undefined && key === `${info.name}@${info.version}`) versioned.set(key, at(where, 'version'))
+  }
   const snapshotsAt = at(prefix, 'snapshots')
   const snapshots = record(orEmpty(doc.snapshots), snapshotsAt)
   const seen = new Set()
@@ -140,10 +151,14 @@ export function readPackages(doc, prefix, patches) {
     if (info === undefined) throw new LockfileError(`${quote(base)} is not in packages`, where)
     if (patchHash !== undefined && !patches.has(patchHash)) throw new LockfileError(`the patch hash ${quote(patchHash)} is not in patchedDependencies`, where)
     seen.add(base)
+    if (key.includes(':')) versioned.delete(base)
     return { ...info, patchHash, ...readSnapshot(entry, where, snapshots) }
   })
   for (const key of infos.keys()) {
     if (!seen.has(key)) throw new LockfileError('no snapshot is of this package', at(packagesAt, key))
+  }
+  for (const where of versioned.values()) {
+    throw new LockfileError('a registry package has its version in its key, except where a snapshot of it has a source in its peers', where)
   }
   return { packages, snapshots }
 }

@@ -189,6 +189,17 @@ describe('what else pnpm writes is read', () => {
     assert.deepEqual(plain(lock.importers['.'].dependenciesMeta), { d: { injected: false, node: '/usr/local/bin/node18' } })
   })
 
+  it('the version of a registry package in a field too, where a snapshot of it has a source in its peers', () => {
+    const peers = [
+      ['        version: 1.0.0(c@2.0.0)', '        version: 1.0.0(d@file:d)'],
+      ['    peerDependencies:\n      c: ^2.0.0', "    version: 1.0.0\n    peerDependencies:\n      d: '*'"],
+      ['      c: 2.0.0\n\n  b@1.0.0', '      c: 2.0.0\n      d: file:d\n\n  b@1.0.0'],
+    ]
+    assert.equal(read(...peers, ['  a@1.0.0(c@2.0.0):\n', '  a@1.0.0(d@file:d):\n']).packages['a@1.0.0(d@file:d)'].version, '1.0.0')
+    const nested = read(...peers, ['  a@1.0.0(c@2.0.0):\n', '  a@1.0.0(c@2.0.0(d@file:d)):\n'], ['        version: 1.0.0(d@file:d)', '        version: 1.0.0(c@2.0.0(d@file:d))'])
+    assert.equal(nested.packages['a@1.0.0(c@2.0.0(d@file:d))'].version, '1.0.0')
+  })
+
   it('a patch with its path, as pnpm 9 and 10 write it', () => {
     const lock = read([`  b@1.0.0: ${P}`, `  b@1.0.0:\n    hash: ${P}\n    path: patches/b@1.0.0.patch`])
     assert.deepEqual(plain(lock.patchedDependencies), { 'b@1.0.0': { hash: P, path: 'patches/b@1.0.0.patch' } })
@@ -534,7 +545,8 @@ describe('a package is held to what pnpm writes', () => {
   })
 
   it('with a version where pnpm writes one', () => {
-    refuses(edit(['    peerDependencies:\n      c: ^2.0.0', '    version: 1.0.0']), 'packages["a@1.0.0"].version: a registry package has its version in its key')
+    refuses(edit(['    peerDependencies:\n      c: ^2.0.0', '    version: 1.0.0']), 'packages["a@1.0.0"].version: a registry package has its version in its key, except where a snapshot of it has a source in its peers')
+    refuses(edit(['    peerDependencies:\n      c: ^2.0.0', '    version: 1.0.1'], ['  a@1.0.0(c@2.0.0):\n', '  a@1.0.0(c@2.0.0)(d@file:d):\n']), 'packages["a@1.0.0"].version: expected the version in the key, "1.0.0"')
     refuses(edit(['    version: 3.0.0\n', '']), `packages["e@git+https://example.com/e.git#${C}"]: expected a version, for a package not from the registry`)
     for (const version of ['v3.0.0', '3.0', '03.0.0', '3.0.0-', ' 3.0.0', `3.0.${2 ** 53}`, `3.0.0-${'x'.repeat(251)}`]) {
       refuses(edit(['    version: 3.0.0', `    version: '${version}'`]), `packages["e@git+https://example.com/e.git#${C}"].version: ${shown(version)} is not a version`)
