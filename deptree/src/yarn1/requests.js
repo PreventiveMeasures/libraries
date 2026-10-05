@@ -1,9 +1,10 @@
 // What yarn 1 asks for at the top (install.js's fetchRequestFromCwd).
 
-import { clean, validRange } from '@preventive/upstream/semver.js'
-import { DeptreeError, quote } from '../error.js'
+import { clean } from '@preventive/upstream/semver.js'
+import { quote } from '../error.js'
 import { matchesGlob } from '../glob.js'
 import { cleanDependencies, globsOf } from './manifest.js'
+import { kindOf } from './resolve.js'
 
 // yarn names the workspace aggregator at random; this stands for it, and
 // sorts where a name starting so sorts.
@@ -38,13 +39,14 @@ export function aggregatorOf(root, workspaces) {
   return { name: AGGREGATOR, dir: '.', version: '1.0.0', manifest: cleanDependencies(manifest), aggregator: true }
 }
 
-// The resolutions as resolution-map.js reads them. One to neither a range
-// nor another source, which yarn passes over, the lockfile reader refuses.
+// The resolutions as resolution-map.js reads them: to a semver range, or to a
+// source, as kindOf takes one. One to neither a range nor a source, which
+// yarn passes over, the lockfile reader refuses.
 export function rulesOf(root) {
   const rules = Object.entries(root.resolutions ?? {}).map(([path, range]) => {
     const names = path.match(/(?:@[^/]+\/)?[^/]+/gu) ?? [path]
     const name = names.at(-1)
-    if (validRange(range) === null) throw new DeptreeError(`a resolution to ${quote(range)}, no semver range, is not supported`, `manifests["."].resolutions[${quote(path)}]`)
+    kindOf(range, `manifests["."].resolutions[${quote(path)}]`)
     return { path, name, glob: names.length === 1 ? `**/${path}` : path, pattern: `${name}@${range}` }
   })
   return [...Map.groupBy(rules, ({ name }) => name).values()].flat()

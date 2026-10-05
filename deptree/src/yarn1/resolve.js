@@ -7,8 +7,10 @@ import { DeptreeError, quote } from '../error.js'
 import { matchesGlob } from '../glob.js'
 
 // Beneath a top-level request, all run at once, each taking these microtask
-// turns, by its resolver, before it checks for a package of its version.
-const TURNS = { registry: 5, workspace: 3 }
+// turns, by its resolver, before it checks for a package of its version. A
+// directory is asked for at the top level alone, where nothing runs beside
+// it.
+const TURNS = { registry: 5, workspace: 3, directory: 1 }
 
 // yarn's normalizePattern.
 export function splitPattern(pattern) {
@@ -19,13 +21,37 @@ export function splitPattern(pattern) {
 }
 
 // yarn's normalizeRange: any range but a semver range or one with a `:`,
-// such as an `npm:` alias, is a tag.
+// such as an `npm:` alias, is a tag. Of the sources getExoticResolver takes,
+// in its order, a tarball first, where a path ends in .tgz: the registry's
+// own tarball by its URL, on npm's registry or yarn's mirror; and a
+// directory, by `file:` or a path.
 const TAG = /^[\w~-][\w.~-]*$/u
-function kindOf(range, where) {
+const TARBALL = /^https?:\/\/|^[^@]*\.(?:tgz|tar\.gz)$/u
+const REGISTRY_TARBALL = /^https:\/\/registry\.(?:npmjs\.org|yarnpkg\.com)\/[^#?]+\.tgz$/u
+const DIRECTORY = /^(?:file:|\.{1,2}\/|\/)/u
+export function kindOf(range, where) {
   if (validRange(range)) return 'range'
   if (range.startsWith('npm:')) return 'alias'
-  if (TAG.test(range) && !/\.(?:tgz|tar\.gz)$/u.test(range)) return 'tag'
-  throw new DeptreeError('only a semver range, an npm: alias or a tag is supported', where)
+  if (TARBALL.test(range)) {
+    if (REGISTRY_TARBALL.test(range)) return 'tarball'
+  } else if (DIRECTORY.test(range)) return 'directory'
+  else if (TAG.test(range)) return 'tag'
+  throw new DeptreeError('only a semver range, an npm: alias, a tag, a file: directory or the registry\'s own tarball URL is supported', where)
+}
+
+// The directory a `file:` range names, as yarn resolves it from the
+// lockfile's: one within the project, which it is read from.
+function directoryOf(range, where) {
+  const path = range.replace(/^file:/u, '')
+  const segments = []
+  for (const segment of path.split('/')) {
+    if (segment === '..') {
+      if (segments.pop() === undefined) throw new DeptreeError(`${quote(path)} is outside the project, which is not supported`, where)
+    } else if (segment !== '' && segment !== '.') segments.push(segment)
+  }
+  if (path.startsWith('/')) throw new DeptreeError(`${quote(path)} is an absolute path, which is not supported`, where)
+  if (segments.length === 0) throw new DeptreeError('the project\'s own directory is not supported', where)
+  return segments.join('/')
 }
 
 // What a package asks for, in yarn's order. A lockfile entry's are patterns;
@@ -43,8 +69,9 @@ function asked(info, where) {
 // Where yarn's cache keeps a package (generateModuleCachePath), which is
 // what its hoister tells two references apart by: two of one package, as
 // a tag or an alias asked for twice makes, are one there.
-function locOf({ kind, name, version, entry }) {
+function locOf({ kind, name, version, entry, dir }) {
   if (kind === 'workspace') return `workspace\n${name}`
+  if (kind === 'directory') return `copy\n${dir}`
   const { uid } = entry
   const { sha1, integrity } = entry.resolution ?? {}
   return `npm\n${name}\n${version}\n${uid !== undefined && uid !== version ? uid : sha1 ?? ''}\n${integrity ? 'integrity' : ''}`
@@ -74,13 +101,19 @@ class Resolver {
     const workspace = this.workspaces.get(name)
     if (workspace !== undefined && satisfies(workspace.version, range, { loose: true })) return { kind: 'workspace', name: workspace.name, version: workspace.version, workspace }
     const where = quote(request.pattern)
-    const tag = kindOf(range, where) === 'tag'
+    const kind = kindOf(range, where)
+    // yarn reads a directory, and fetches a tarball, by a resolver whose turns
+    // beside others' are not modelled here.
+    if ((kind === 'directory' || kind === 'tarball') && request.parentNames !== undefined) {
+      throw new DeptreeError(`a ${kind === 'directory' ? 'file: directory' : 'tarball URL'} asked for beneath the top level, rather than by the root or a resolution, is not supported`, where)
+    }
     const entry = this.lockfile.packages[request.pattern]
     if (entry === undefined) throw new DeptreeError('yarn would resolve this pattern anew: the lockfile has no entry for it', where)
     if (hasVersion && validRange(range) && !satisfies(entry.version, range)) {
       throw new DeptreeError(`yarn would resolve this pattern anew: the lockfile has ${entry.version}, which the range does not take`, where)
     }
-    return { kind: 'registry', name, version: entry.version, entry, tag }
+    if (kind === 'directory') return { kind, name, version: entry.version, entry, dir: directoryOf(range, where) }
+    return { kind: 'registry', name, version: entry.version, entry, tag: kind === 'tag' }
   }
 
   // No resolution applies to a top-level request.
@@ -112,6 +145,7 @@ class Resolver {
       kind: info.kind,
       entry: info.entry,
       workspace: info.workspace,
+      dir: info.dir,
       patterns: [],
       requests: [request],
       asked: asked(info, quote(request.pattern)),

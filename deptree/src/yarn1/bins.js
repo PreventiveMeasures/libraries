@@ -20,7 +20,7 @@ export function checkBinLinks({ placed, patterns, locations, realOf }) {
     const realBinLoc = realOf(binLoc)
     for (const pattern of info.ref.dependencies) {
       const dep = patterns.get(pattern)
-      if (dep.kind !== 'registry' || !locations.has(dep) || !dep.hasBins) continue
+      if (dep.kind === 'workspace' || !locations.has(dep) || !dep.hasBins) continue
       const found = locations.get(dep).some((at) => finds(dep.name, at, binLoc) || finds(dep.name, at, realBinLoc))
       if (!found) throw new DeptreeError(`yarn finds no copy of ${quote(dep.name)} to link the bins of`, quote(loc))
     }

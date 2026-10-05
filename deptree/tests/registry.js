@@ -44,11 +44,16 @@ export function rawTar(entries) {
   return new Uint8Array(Buffer.concat([...blocks, Buffer.alloc(1024)]))
 }
 
+// The registry: each tarball at its URL, and its version's document, with
+// the dist it is served by.
 export function stubRegistry(tarballs) {
   const served = new Map(tarballs.map((t) => [url(t.name, t.version), t.served ?? t.bytes]))
+  const documents = new Map(tarballs.map((t) => [`https://registry.npmjs.org/${t.name}/${t.version}`, { name: t.name, version: t.version, dist: { tarball: url(t.name, t.version), integrity: t.integrity } }]))
   const calls = []
   globalThis.fetch = (input) => {
     calls.push(String(input))
+    const document = documents.get(String(input))
+    if (document !== undefined) return Promise.resolve(Response.json(document))
     const bytes = served.get(String(input))
     return Promise.resolve(bytes === undefined ? Response.json({ error: 'Not found' }, { status: 404 }) : new Response(bytes))
   }

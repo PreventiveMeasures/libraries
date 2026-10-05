@@ -153,7 +153,8 @@ export interface Yarn1TreeRead {
 }
 
 // What buildYarn1Tree counts, all of it plain numbers: `packages` the
-// registry packages yarn resolves, each fetched; `skipped` the optional
+// packages yarn resolves, each fetched from the registry or read from a
+// directory of the project; `skipped` the optional
 // ones left out, as the host cannot run them; `installed` the copies of
 // them in the tree; `files` and `bytes` what is written; `links` the
 // workspaces linked.
@@ -166,12 +167,14 @@ export interface Yarn1TreeStats {
   links: number
 }
 
-// A copy of a registry package in the tree, as an SBOM would list it:
-// `path` is where its files really are, from the lockfile's directory,
-// which is `/` of the Vfs — node_modules/<alias>, or beneath a workspace,
-// in that workspace's own node_modules. `name` and `version` are the
-// package's own, which its package.json is held to, whatever alias it is
-// installed as; `integrity` the sha512 its tarball is held to. `dev` is
+// A copy of a package in the tree, as an SBOM would list it: `path` is
+// where its files really are, from the lockfile's directory, which is `/`
+// of the Vfs — node_modules/<alias>, or beneath a workspace, in that
+// workspace's own node_modules. `name` and `version` are the package's
+// own, which its package.json is held to, whatever alias it is installed
+// as; `integrity` the sha512 its tarball is held to, for a registry
+// package, and `directory` the directory of the project it is copied
+// from, for one by `file:`, in place of an integrity. `dev` is
 // whether dev dependencies alone reach this copy, the root's and the
 // workspaces' devDependencies: nothing else does, each dependency, and
 // each peer yarn finds, looked for from where what asks for it is, as Node
@@ -183,7 +186,8 @@ export interface Yarn1Installed {
   path: string
   name: string
   version: string
-  integrity: string
+  integrity?: string
+  directory?: string
   dev: boolean
   optional: boolean
 }
@@ -214,7 +218,9 @@ export interface Yarn1Tree {
 // package's peers looked for along the shortest chain of names that asked
 // for it, as yarn looks for them; and the tree laid out as yarn's hoister
 // lays it out, quirks and all. A resolution applies to a dependency by its
-// path, as yarn applies it, and not to one of the root's own.
+// path, as yarn applies it, and not to one of the root's own; it resolves
+// to a semver range, or to the registry's own tarball or a directory of
+// the project, as below.
 //
 // Scripts are always ignored, as `--ignore-scripts` has yarn ignore them,
 // whatever the settings say. No .bin is written, nor yarn's own
@@ -248,10 +254,11 @@ export interface Yarn1Tree {
 // directory that differ only in case or normalization are refused, as
 // they would be one name there.
 //
-// Packages come from npm's registry alone: each lockfile entry's
-// `resolved` has to be the registry's own URL of its tarball, exactly as
-// npm spells it, https://registry.npmjs.org/<name>/-/<base>-<version>.tgz
-// (a `#` and the sha1 after it aside), or that same URL on yarn's mirror,
+// Packages come from npm's registry, or from a directory of the project.
+// A registry entry's `resolved` has to be the registry's own URL of its
+// tarball, exactly as npm spells it,
+// https://registry.npmjs.org/<name>/-/<base>-<version>.tgz (a `#` and the
+// sha1 after it aside), or that same URL on yarn's mirror,
 // https://registry.yarnpkg.com/, which is taken for npm's; it is fetched
 // from npm's through @preventive/upstream. Each is asked for by a semver
 // range, an `npm:` alias, or a tag — the last only where the project is
@@ -259,6 +266,26 @@ export interface Yarn1Tree {
 // yarn would install instead, and only where yarn would not have two
 // requests of tags wait on the filesystem at once, which it answers in no
 // set order.
+//
+// Or, by the root or as what a resolution resolves to, but not beneath
+// another package, where yarn reads it in an order not modelled here, by
+// the registry's own tarball URL, either of those above (no `#` after
+// it): the entry yarn writes for one has no integrity, so its tarball is
+// held to the sha1 after the `#` of its `resolved` and to the registry's
+// own sha512; or by a directory of the project, `file:<path>` or a path
+// starting `./`, within the project and not its root. yarn copies a
+// directory whole, whatever package.json's `files` and an ignore file
+// say, each file's mode as it is, each bin's target made executable, and
+// the tree copies it so, read from `project`, which has to be given for
+// it: all but each `.bin`, .yarn-metadata.json and .yarn-tarball.tgz in
+// it, as yarn's copy passes them over, empty directories kept. yarn reads
+// a directory's package.json anew at every install, frozen or not, and
+// installs whatever its version and dependencies say; so it has to be of
+// the name and version its lockfile entry has, with the dependencies and
+// optionalDependencies the entry lists. Refused: a link, device or a
+// node_modules of its own in it, a mode beyond 0o777, a directory two
+// patterns ask for, which yarn copies as two packages, and a tarball on
+// the project's disk, which yarn takes for any path ending in .tgz.
 //
 // Ranges and versions are read with npm's own semver, borrowed from the
 // npm beside node as @preventive/upstream borrows it, or with its semver
@@ -268,8 +295,8 @@ export interface Yarn1Tree {
 //
 // Nothing is left to a guess: a lockfile the lockfile reader refuses, a
 // setting this does not know or does not build for, a package from
-// anywhere but the registry — git, a tarball's URL, a directory by
-// `file:` or `link:` — a range that is none of those above, a package
+// anywhere but those above — git, another tarball URL, a tarball on disk,
+// a directory by `link:` — a range that is none of those above, a package
 // with bundled dependencies, another package manager, a check above that
 // fails — each is refused with a DeptreeError or a LockfileError that says
 // where. A TypeError is thrown for options of the wrong type.

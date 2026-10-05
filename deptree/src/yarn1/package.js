@@ -3,12 +3,16 @@
 // than yarn holds it to: what npm packs, every entry under one directory,
 // none in its own node_modules (npm packs those only for bundled
 // dependencies), and a package.json of the lockfile's name and version.
+// And a directory by `file:`, as yarn's copy fetcher installs it.
 
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { sha1Hex } from '../hash.js'
 import { readManifest } from '../manifest.js'
-import { fetchTarball, fromMirror, isModules, ownTarball, sameFile, withDirs } from '../tarball.js'
+import { decodeUtf8, readBytes, typeOf } from '../project.js'
+import { fetchTarball, fromMirror, isModules, ownTarball, registryIntegrity, sameFile, withDirs } from '../tarball.js'
+import { fixLists } from './manifest.js'
+import { kindOf, splitPattern } from './resolve.js'
 
 const UMASK = 0o022
 
@@ -40,18 +44,21 @@ function entriesOf(entries, where) {
 
 const decoder = new TextDecoder('utf-8', { fatal: true })
 
-// `name` is the one fetched, as an `npm:` alias asks for it.
+// `name` is the one fetched, as an `npm:` alias asks for it. yarn writes no
+// integrity for a pattern that names the tarball's URL, but the sha1 after
+// its `#`: the tarball is held to that, and to the registry's sha512.
 export function registryTarball(entry, name, where) {
   const { resolution } = entry
   if (resolution === undefined) throw new DeptreeError('a directory, by file: or link:, is not supported', where)
   const url = resolution.type === 'tarball' ? fromMirror(resolution.tarball) : resolution.tarball
-  return ownTarball(url, name, entry.version, resolution.integrity, where)
+  const byUrl = entry.patterns.some((pattern) => kindOf(splitPattern(pattern).range, where) === 'tarball')
+  return ownTarball(url, name, entry.version, resolution.integrity, where, byUrl && resolution.sha1 !== undefined)
 }
 
 export async function fetchYarnPackage({ name, version, integrity }, where) {
-  const { bytes, entries } = await fetchTarball(name, version, integrity, where)
-  const sha1 = await sha1Hex(bytes)
-  const { files, dirs } = entriesOf(entries, where)
+  const fetched = await fetchTarball(name, version, integrity ?? await registryIntegrity(name, version, where), where)
+  const sha1 = await sha1Hex(fetched.bytes)
+  const { files, dirs } = entriesOf(fetched.entries, where)
   const file = files.get('package.json')
   if (file === undefined) throw new DeptreeError('the tarball has no package.json', where)
   let text
@@ -62,8 +69,52 @@ export async function fetchYarnPackage({ name, version, integrity }, where) {
   }
   const manifest = readManifest(text, `${where}: package.json`)
   if (manifest.name !== name || manifest.version !== version) throw new DeptreeError(`package.json is for ${quote(`${manifest.name}@${manifest.version}`)}`, where)
-  // As yarn's fetcher leaves the package in its cache (base-fetcher.js): each
-  // bin's target chmod 755, and a .bin made for the links.
+  return { ...withBins({ files, dirs }, manifest, where), sha1, integrity: fetched.integrity }
+}
+
+// A directory by `file:`, as yarn's copy fetcher installs it: all in it, each
+// file's mode as it is, but what yarn's copy passes over (tree.js); read from
+// the project, as yarn reads it again at every install. Held to more than
+// yarn holds it to: no link, device or node_modules of its own in it, and a
+// package.json of the name, version and lists its lockfile entry has, which
+// yarn reads anew, installing whatever they are.
+export function readYarnDirectory(project, { name, version, entry, dir }, where) {
+  if (typeOf(project, `/${dir}`, false) !== 'directory') throw new DeptreeError(`${quote(dir)} is not a directory of the project`, where)
+  const files = new Map()
+  const dirs = new Set()
+  const walk = (at) => {
+    for (const base of project.readdir(`/${dir}${at && `/${at}`}`)) {
+      const path = at ? `${at}/${base}` : base
+      const { type, mode } = project.lstat(`/${dir}/${path}`)
+      if (at === '' && isModules(base)) throw new DeptreeError(`${quote(`${dir}/${path}`)} is its own node_modules, which yarn copies beside what it installs there, and which is not supported`, where)
+      if (type === 'directory') {
+        dirs.add(path)
+        walk(path)
+        continue
+      }
+      if (type !== 'file') throw new DeptreeError(`${quote(`${dir}/${path}`)} is a ${type}, which is not supported`, where)
+      if ((mode & ~0o777) !== 0) throw new DeptreeError(`${quote(`${dir}/${path}`)} has the mode ${mode.toString(8)}, which is not supported`, where)
+      files.set(path, { data: readBytes(project, `/${dir}/${path}`), mode })
+    }
+  }
+  walk('')
+  const file = files.get('package.json')
+  if (file === undefined) throw new DeptreeError(`${quote(dir)} has no package.json, where yarn makes one up`, where)
+  const manifest = readManifest(decodeUtf8(file.data, 'package.json is not UTF-8', where), `${where}: package.json`)
+  const why = 'which yarn reads anew, installing what it says'
+  if (manifest.name !== name || manifest.version !== version) throw new DeptreeError(`package.json is for ${quote(`${manifest.name}@${manifest.version}`)}, not the lockfile's ${quote(`${name}@${version}`)}, ${why}`, where)
+  const fixed = fixLists(manifest)
+  for (const kind of ['dependencies', 'optionalDependencies']) {
+    const listed = Object.entries(fixed[kind] ?? {}).map(([dep, range]) => `${dep}@${range}`).sort()
+    const locked = Object.values(entry[kind] ?? {}).sort()
+    if (listed.join('\n') !== locked.join('\n')) throw new DeptreeError(`package.json's ${kind} are not the lockfile's, ${why}`, where)
+  }
+  return withBins(withDirs(files, where, dirs), manifest, where)
+}
+
+// As yarn's fetcher leaves a package in its cache (base-fetcher.js): each
+// bin's target chmod 755, and a .bin made for the links.
+function withBins({ files, dirs }, manifest, where) {
   const bins = binsOf(manifest, { files, dirs })
   if (bins.size > 0 && files.has('.bin')) throw new DeptreeError('.bin is a file, where yarn fails to make a directory for the bins', where)
   for (const target of bins.values()) {
@@ -71,7 +122,7 @@ export async function fetchYarnPackage({ name, version, integrity }, where) {
     const script = files.get(target.replace(/\/$/u, ''))
     if (script !== undefined) script.mode = 0o755
   }
-  return { files, dirs, manifest, sha1, hasBins: bins.size > 0 }
+  return { files, dirs, manifest, hasBins: bins.size > 0 }
 }
 
 // Bins as yarn's normalize-manifest reads them, targets normalized as Node's
