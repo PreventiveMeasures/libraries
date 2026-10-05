@@ -151,7 +151,8 @@ describe('bin/deptree.js compare', async () => {
     chmodSync(join(project, path), 0o644)
   }
 
-  const env = { ...process.env, HOME: home, npm_config_cache: join(home, 'cache'), NO_COLOR: '1' }
+  // The cache it keeps tarballs in is this test's too, on any platform.
+  const env = { ...process.env, HOME: home, XDG_CACHE_HOME: join(home, 'xdg'), LOCALAPPDATA: join(home, 'local'), npm_config_cache: join(home, 'cache'), NO_COLOR: '1' }
   for (const name of ['NPM_CONFIG_CACHE', 'FORCE_COLOR']) delete env[name]
   const run = (...args) => {
     const r = spawnSync(process.execPath, [CLI, ...args], { env, encoding: 'utf8', timeout: 30_000 })

@@ -12,6 +12,7 @@ import { parseArgs, styleText } from 'node:util'
 import { buildNpmTree, findNpmWorkspaces } from '@preventive/deptree/npm.js'
 import { DeptreeError, LockfileError, YamlError, buildPnpmTree, findPnpmProjects, setCacheDir } from '@preventive/deptree/pnpm.js'
 import { buildYarn1Tree, findYarn1Workspaces } from '@preventive/deptree/yarn1.js'
+import { defaultCacheDir } from '@preventive/upstream/npm.js'
 import { difference, modulesOf, notBuilt, projectView, readDisk, readTree } from './compare.js'
 
 const USAGE = `Usage: bin/deptree.js compare [options] [<dir>]
@@ -31,6 +32,11 @@ bytes are compared whole, never line by line. The .bin directories and the
 package manager's own state files, which deptree never builds, are left out
 unless --all is given.
 
+Each tarball fetched is kept for the next run in the user's cache
+directory: ~/Library/Caches/PreventiveMeasures on macOS,
+%LOCALAPPDATA%\\PreventiveMeasures\\Cache on Windows, and
+$XDG_CACHE_HOME/PreventiveMeasures or ~/.cache/PreventiveMeasures elsewhere.
+
 Exits 0 where the two are the same, 1 where they differ, 2 on trouble.
 
   --pnpm <version>   the pnpm that installed; by default the one the root
@@ -39,7 +45,6 @@ Exits 0 where the two are the same, 1 where they differ, 2 on trouble.
   --npm <version>    the npm that installed, which nothing pins, so it is
                      needed for a package-lock.json
   --node <version>   the Node it installed with; by default this one
-  --cache <dir>      keep each tarball fetched in <dir>, for the next run
   --all              list the .bin directories and state files too
   -h, --help         show this message
 `
@@ -49,7 +54,6 @@ const OPTIONS = {
   yarn: { type: 'string' },
   npm: { type: 'string' },
   node: { type: 'string' },
-  cache: { type: 'string' },
   all: { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
 }
@@ -87,7 +91,8 @@ async function main(argv) {
   if (command !== 'compare' || rest.length > 0) return fail(USAGE)
   const root = directoryAt(dir)
   const manager = managerOf(root, dir, values)
-  if (values.cache !== undefined) setCacheDir(values.cache)
+  // There is none where no home directory is known, and then nothing is kept.
+  if (defaultCacheDir !== undefined) setCacheDir()
   const project = projectView(root)
   const host = hostOf(manager, values)
   // The disk first, as it is before anything is fetched.
