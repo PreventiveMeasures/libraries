@@ -30,6 +30,14 @@ export const covered = (asked, range, covers = mayBeInRange) => (validRange(rang
 // malformed by whoever reads it.
 export const isText = (value) => typeof value === 'string' && value.isWellFormed()
 
+// An advisory's full text, for `details`: none where its source has none,
+// and refused where it is not well-formed.
+export function detailsOf(text, id) {
+  if (text == null || text === '') return {}
+  assert.ok(isText(text), `advisories: malformed details in ${id}`)
+  return { details: text }
+}
+
 const SEVERITIES = new Set(['critical', 'high', 'moderate', 'low', 'info'])
 const isCvssVector = matches(/^CVSS:[34]\.\d(?:\/[A-Z]{1,4}:[A-Z]{1,2})+$/u)
 const isCwe = matches(/^CWE-\d{1,6}$/u)
