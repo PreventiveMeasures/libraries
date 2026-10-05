@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import process from 'node:process'
 import { after, describe, it } from 'node:test'
 import { createVfs } from '@preventive/vfs'
@@ -91,6 +92,11 @@ describe('notBuilt', () => {
       assert.equal(notBuilt({ mark: '~', path }), false, path)
     }
     for (const path of ['node_modules/a/.bin', 'node_modules/.binary', 'node_modules/.cache', 'node_modules/a/.package-lock.json']) assert.equal(notBuilt({ mark: '-', path }), false, path)
+  })
+
+  it("takes the .git of a dependency Soldeer clones, and no other", () => {
+    assert.equal(notBuilt({ mark: '-', path: 'dependencies/acme-lib-1.0.0/.git' }), true)
+    for (const path of ['dependencies/.git', 'dependencies/acme-lib-1.0.0/src/.git', 'lib/dependencies/acme-lib-1.0.0/.git', 'dependencies/acme-lib-1.0.0/.github']) assert.equal(notBuilt({ mark: '-', path }), false, path)
   })
 })
 
@@ -383,5 +389,27 @@ describe('bin/deptree.js compare, with Soldeer', () => {
     assert.equal(r.stdout, '~ dependencies/forge-std-1.9.4/src/Test.sol  (content)\n- dependencies/solady-0.1.0/\n')
     assert.equal(r.status, 1)
     assert.equal(run('compare', '--soldeer', '0.11.0', project).status, 2, 'only the Soldeer deptree builds for')
+  })
+
+  it('reads a git dependency from GitHub, with GITHUB_TOKEN or GH_TOKEN where either is set', () => {
+    const [git, rev] = ['https://github.com/acme/lib.git', 'a'.repeat(40)]
+    const gitProject = join(home, 'git-project')
+    mkdirSync(gitProject)
+    writeFileSync(join(gitProject, 'soldeer.toml'), `[dependencies]\nacme-lib = { version = "1.0.0", git = "${git}" }\n`)
+    writeFileSync(join(gitProject, 'soldeer.lock'), `version = 2\n\n[[dependencies]]\nname = "acme-lib"\nversion = "1.0.0"\ngit = "${git}"\nrev = "${rev}"\n`)
+    // GitHub as the CLI asks it, in the CLI's own process: each request and
+    // the token it carries said on stderr, and nothing found.
+    const spy = join(home, 'github-spy.mjs')
+    writeFileSync(spy, "globalThis.fetch = (input, init = {}) => {\n  process.stderr.write(`asked ${input} ${new Headers(init.headers).get('authorization') ?? 'anonymously'}\\n`)\n  return Promise.resolve(Response.json({ message: 'Not Found' }, { status: 404 }))\n}\n")
+    const ask = (tokens) => {
+      const r = spawnSync(process.execPath, ['--import', pathToFileURL(spy).href, CLI, 'compare', gitProject], { env: { ...env, ...tokens }, encoding: 'utf8', timeout: 30_000 })
+      assert.equal(r.status, 2, r.stderr)
+      assert.doesNotMatch(r.stderr, /\n\s+at /u, 'a refusal, not a bug')
+      return r.stderr.match(/^asked https:\/\/api\.github\.com\/repos\/acme\/lib\/git\/commits\/a{40} (.*)$/mu)?.[1]
+    }
+    for (const name of ['GITHUB_TOKEN', 'GH_TOKEN']) delete env[name]
+    assert.equal(ask({}), 'anonymously')
+    assert.equal(ask({ GH_TOKEN: 'gho_gh' }), 'Bearer gho_gh')
+    assert.equal(ask({ GITHUB_TOKEN: 'ghp_github', GH_TOKEN: 'gho_gh' }), 'Bearer ghp_github')
   })
 })

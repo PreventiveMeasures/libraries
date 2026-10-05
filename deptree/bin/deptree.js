@@ -15,6 +15,7 @@ import { DeptreeError, LockfileError, YamlError, buildPnpmTree, findPnpmProjects
 import { TomlError, buildSoldeerTree } from '@preventive/deptree/soldeer.js'
 import { buildYarn1Tree, findYarn1Workspaces } from '@preventive/deptree/yarn1.js'
 import { diffLineStyles } from '@preventive/diff/color.js'
+import { createClient } from '@preventive/upstream/github.js'
 import { defaultCacheDir, setCacheDir } from '@preventive/upstream/npm.js'
 import { join } from '@preventive/vfs/path.js'
 import { escaped } from '../src/error.js'
@@ -45,7 +46,9 @@ alone, holding nothing but those, such as a node_modules pnpm leaves behind.
 Each tarball or zip fetched is kept for the next run in ${defaultCacheDir ?? 'no cache, as no home directory is known'}.
 A scoped package is fetched with NPM_TOKEN, or where that is unset, with the
 token of a line of ~/.npmrc that is nothing but
-//registry.npmjs.org/:_authToken=npm_…, the last of them.
+//registry.npmjs.org/:_authToken=npm_…, the last of them. A git dependency of
+Soldeer's is read from GitHub with GITHUB_TOKEN or GH_TOKEN, where either is
+set, and anonymously otherwise.
 
 Exits 0 where the two are the same, 1 where they differ, 2 on trouble.
 
@@ -109,13 +112,15 @@ const MANAGERS = {
     projects: ({ project, host }) => findNpmWorkspaces({ project, os: host.os }),
     build: buildNpmTree,
   },
-  // 0.12.0 is the one Soldeer deptree builds for, and nothing pins one.
+  // 0.12.0 is the one Soldeer deptree builds for, and nothing pins one. A
+  // git dependency comes from GitHub, through a client of a token where
+  // there is one, as `gh` takes GH_TOKEN too, and anonymous otherwise.
   soldeer: {
     lockfile: 'soldeer.lock',
     folder: 'dependencies',
     host: (version, machine) => ({ soldeer: version ?? '0.12.0', os: machine.os }),
     projects: () => ['.'],
-    build: buildSoldeerTree,
+    build: (options) => buildSoldeerTree({ ...options, github: createClient({ token: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || null }) }),
   },
 }
 

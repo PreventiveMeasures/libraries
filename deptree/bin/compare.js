@@ -69,9 +69,10 @@ export function readTree(vfs, folder) {
 }
 
 // What deptree never builds, as it is no part of the tree a lockfile gives:
-// the .bin directories, and each package manager's record of its install —
-// pnpm's state files, npm's hidden lockfile, yarn's integrity file.
-const NOT_BUILT = /(?:^|\/)node_modules\/(?:\.bin|\.modules\.yaml|\.pnpm-workspace-state(?:-v\d+)?\.json|\.pnpm\/lock\.yaml|\.package-lock\.json|\.yarn-integrity)(?:\/|$)/u
+// the .bin directories, each package manager's record of its install —
+// pnpm's state files, npm's hidden lockfile, yarn's integrity file — and
+// the .git of a dependency Soldeer clones.
+const NOT_BUILT = /(?:^|\/)node_modules\/(?:\.bin|\.modules\.yaml|\.pnpm-workspace-state(?:-v\d+)?\.json|\.pnpm\/lock\.yaml|\.package-lock\.json|\.yarn-integrity)(?:\/|$)|^dependencies\/[^/]+\/\.git(?:\/|$)/u
 
 // Whether a change is only one of those on disk.
 export const notBuilt = ({ mark, path }) => mark === '-' && NOT_BUILT.test(path)
