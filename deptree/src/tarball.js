@@ -1,7 +1,7 @@
 // A registry tarball, fetched through @preventive/upstream, which checks the
 // integrity it is given, and checked again here, as that is the lockfile's.
 
-import { decompress } from '@preventive/archive/compression.js'
+import { CompressionError, decompress } from '@preventive/archive/compression.js'
 import { unpack } from '@preventive/archive/tar.js'
 import { getTarball } from '@preventive/upstream/npm.js'
 import { DeptreeError, quote } from './error.js'
@@ -76,12 +76,37 @@ export function withDirs(files, where, dirs = new Set()) {
   return { files, dirs }
 }
 
+// Old tarballs, as npm 1.0 packed them through the system's tar, may run on
+// in zeros past their gzip stream, to a whole 10240-byte record. Node's
+// zlib, which npm, pnpm and yarn unpack through, stops at a zero byte after
+// the stream; the platform's stream refuses anything there, so the zeros are
+// cut off. The stream's last four bytes are its output's length, neither 0
+// nor 2^32 or more under MAX_BYTES, so it ends within three bytes past the
+// last that is not zero, and at the one place it decompresses whole.
+async function gunzip(bytes) {
+  const inflate = (end) => decompress(bytes.subarray(0, end), 'gzip', { limit: MAX_BYTES })
+  try {
+    return await inflate(bytes.length)
+  } catch (error) {
+    if (!(error instanceof CompressionError) || error.limited || bytes.at(-1) !== 0) throw error
+    const last = bytes.findLastIndex((byte) => byte !== 0)
+    for (let end = last + 1; end <= Math.min(last + 4, bytes.length - 1); end++) {
+      try {
+        return await inflate(end)
+      } catch {
+        // Not where the stream ends: the next byte may be.
+      }
+    }
+    throw error
+  }
+}
+
 export async function fetchTarball(name, version, integrity, where) {
   checkId(name, version, where)
   if (!/^sha512-[\d+/A-Za-z]{86}==$/u.test(integrity)) throw new DeptreeError('a tarball with no sha512 integrity is not supported', where)
   const bytes = await getTarball(name, version, { tarball: tarballUrl(name, version), integrity })
   if (!await matchesIntegrity(bytes, integrity)) throw new DeptreeError(`the tarball is not ${integrity}`, where)
   if (bytes[0] !== 0x1f || bytes[1] !== 0x8b || bytes[2] !== 0x08) throw new DeptreeError('the tarball is not gzipped', where)
-  const tar = await decompress(bytes, 'gzip', { limit: MAX_BYTES })
+  const tar = await gunzip(bytes)
   return { bytes, entries: unpack(tar), inflated: tar.length }
 }
