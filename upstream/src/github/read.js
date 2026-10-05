@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 
-import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTagName, assertTreeId, isSha, isSha1, isTagName, optional, sameName, show } from '../args.js'
+import { assertArgs, assertBoolean, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTagName, assertTreeId, isSha, isSha1, isTagName, optional, sameName, show } from '../args.js'
+import { readCache, readCacheJSON, writeCache, writeCacheJSON } from '../cache.js'
 import { verifiedDownload } from '../download.js'
 import { decode, encodeSegment, requestWithHeaders } from '../http.js'
 import { gitTreeOfListing, objectId } from '../tree.js'
@@ -40,6 +41,7 @@ async function* cursorPages(method, headers, pageUrl, maxPages = MAX_PAGES) {
 }
 
 const paginate = async (...args) => (await Array.fromAsync(pages(...args))).flat()
+const rawBlob = (headers, repo, sha) => call({ ...headers, Accept: 'application/vnd.github.raw' }, repoApi(repo, ['git', 'blobs', sha]), { as: 'bytes' })
 const getCurrentUser = (headers) => call(headers, api(['user']))
 
 // No default for `options`: bindMethods counts it to refuse extra arguments.
@@ -104,27 +106,64 @@ async function getRepoFile(headers, options) {
   assert.ok(file?.type === 'file' && file.path === path && Number.isSafeInteger(file.size) && isSha(file.sha), `getRepoFile: ${repo} has no file at ${show(path)}`)
   assert.ok(file.encoding === 'none' || (file.encoding === 'base64' && /^[\dA-Za-z+/=\n]*$/u.test(file.content ?? '')), `getRepoFile: unexpected encoding for ${show(path)}`)
   const bytes = file.encoding === 'none'
-    ? await call({ ...headers, Accept: 'application/vnd.github.raw' }, repoApi(repo, ['git', 'blobs', file.sha]), { as: 'bytes' })
+    ? await rawBlob(headers, repo, file.sha)
     : Buffer.from(file.content, 'base64')
   const blob = objectId('blob', bytes).toString('hex')
   assert.ok(bytes.length === file.size && blob === file.sha, `getRepoFile: ${show(path)} came back as blob ${blob}, not ${file.sha}`)
   return decode(bytes, url)
 }
 
+// The entries of GitHub's answer for a tree, as git has them.
+const entriesOf = (answer) => (Array.isArray(answer?.tree) ? answer.tree.map(({ path, mode, type, sha }) => ({ path, mode, type, sha })) : [])
+
+// A tree's listing and a blob are each kept by their id in setCacheDir's
+// cache, for good, as the id checks them: kept only once it does, and read
+// back only where it still does. A listing not recursive, as GitHub cuts
+// short a recursive listing of a large tree.
+async function cachedListing(headers, repo, sha) {
+  const cached = await readCacheJSON('github/listings', `${sha}.json`)
+  if (Array.isArray(cached) && gitTreeOfListing(cached) === sha) return cached
+  const entries = entriesOf(await call(headers, repoApi(repo, ['git', 'trees', sha])))
+  if (gitTreeOfListing(entries) === sha) await writeCacheJSON('github/listings', `${sha}.json`, entries)
+  return entries
+}
+
+async function cachedBlob(headers, repo, sha) {
+  const isIt = (bytes) => objectId('blob', bytes).toString('hex') === sha
+  const cached = await readCache('github/blobs', sha)
+  if (cached && isIt(cached)) return cached
+  const bytes = await rawBlob(headers, repo, sha)
+  if (isIt(bytes)) await writeCache('github/blobs', sha, bytes)
+  return bytes
+}
+
+function lister(headers, repo) {
+  const listings = new Map()
+  return (sha) => {
+    if (!listings.has(sha)) listings.set(sha, cachedListing(headers, repo, sha))
+    return listings.get(sha)
+  }
+}
+
 // Follows the redirect to codeload.github.com. A tree id names its content,
 // so the bytes are held to it, downloaded or cached, and cached by it alone,
 // for good. What a tarball cannot show, a submodule's commit, a subtree
 // with nothing in it or the LF blob of a file marked `eol=crlf`, comes
-// from GitHub's listings of the trees, which the id checks as well: a
-// directory at a time, as a recursive listing of a large tree is cut short.
+// from GitHub's listings of the trees, which the id checks as well, a
+// directory at a time.
 async function treeTarball(method, headers, repo, tree) {
-  const listings = new Map()
-  const list = (sha) => {
-    if (!listings.has(sha)) listings.set(sha, call(headers, repoApi(repo, ['git', 'trees', sha])).then((listing) => (Array.isArray(listing?.tree) ? listing.tree : [])))
-    return listings.get(sha)
-  }
   const locate = () => repoApi(repo, ['tarball', tree])
-  return await verifiedDownload({ method, dir: 'github/trees', what: tree, ext: 'tgz', algorithm: 'tree', expected: tree, locate, options: { headers, redirect: 'follow' }, list })
+  return await verifiedDownload({ method, dir: 'github/trees', what: tree, ext: 'tgz', algorithm: 'tree', expected: tree, locate, options: { headers, redirect: 'follow' }, objects: { list: lister(headers, repo) } })
+}
+
+// The commit's own archive, held to its tree as the tree's .gitattributes
+// export it: listings as above, and the blobs of what says what is left
+// out, or of files whose line ends git rewrites. Cached by the commit, and
+// held to its tree again when read back.
+async function exportedTarball(method, headers, repo, sha, tree) {
+  const locate = () => repoApi(repo, ['tarball', sha])
+  const objects = { list: lister(headers, repo), blob: (id) => cachedBlob(headers, repo, id), commit: sha }
+  return await verifiedDownload({ method, dir: 'github/archives', what: sha, ext: 'tgz', algorithm: 'archive', expected: tree, locate, options: { headers, redirect: 'follow' }, objects })
 }
 
 async function commitTree(method, headers, repo, sha) {
@@ -135,12 +174,12 @@ async function commitTree(method, headers, repo, sha) {
 
 // A full sha only, so the bytes are that commit's, not wherever a ref points
 // now. Its tree's tarball, not its own, in which `git archive` rewrites the
-// files marked `export-subst`.
+// files marked `export-subst`; or, `exported`, its own.
 async function getRepoTarball(headers, options) {
-  assertArgs('getRepoTarball', options, { repo: assertRepo, sha: assertSha })
-  const { repo, sha } = options
+  assertArgs('getRepoTarball', options, { repo: assertRepo, sha: assertSha, exported: optional(assertBoolean) })
+  const { repo, sha, exported } = options
   const tree = await commitTree('getRepoTarball', headers, repo, sha)
-  return await treeTarball('getRepoTarball', headers, repo, tree)
+  return exported ? await exportedTarball('getRepoTarball', headers, repo, sha, tree) : await treeTarball('getRepoTarball', headers, repo, tree)
 }
 
 async function getRepoTreeTarball(headers, options) {
@@ -150,9 +189,9 @@ async function getRepoTreeTarball(headers, options) {
 
 // Not recursive: GitHub cuts short a recursive listing of a large tree.
 async function listTree(method, headers, repo, tree) {
-  const entries = (await call(headers, repoApi(repo, ['git', 'trees', tree])))?.tree
-  assert.ok(Array.isArray(entries) && gitTreeOfListing(entries) === tree, `${method}: GitHub's listing of tree ${tree} in ${repo} is not that tree`)
-  return entries.map(({ path, mode, type, sha }) => ({ path, mode, type, sha }))
+  const entries = entriesOf(await call(headers, repoApi(repo, ['git', 'trees', tree])))
+  assert.ok(gitTreeOfListing(entries) === tree, `${method}: GitHub's listing of tree ${tree} in ${repo} is not that tree`)
+  return entries
 }
 
 async function treeAt(method, headers, options) {

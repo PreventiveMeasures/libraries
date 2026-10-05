@@ -1,7 +1,7 @@
 {
   "name": "@preventive/upstream",
-  "version": "1.0.0-alpha.7",
-  "description": "Minimal npm, crates.io and Soldeer registry clients, a GitHub client, and a git checkout reader: the calls we use, nothing more",
+  "version": "1.0.0-alpha.8",
+  "description": "Minimal npm, crates.io and Soldeer registry clients, Composer's dists, a GitHub client, and a git checkout reader: the calls we use, nothing more",
   "type": "module",
   "exports": {
     "./advisories.js": {
@@ -11,6 +11,10 @@
     "./cargo.js": {
       "types": "./cargo.d.ts",
       "default": "./cargo.js"
+    },
+    "./composer.js": {
+      "types": "./composer.d.ts",
+      "default": "./composer.js"
     },
     "./github.js": {
       "types": "./github.d.ts",
@@ -48,6 +52,8 @@
     "advisories.js",
     "cargo.d.ts",
     "cargo.js",
+    "composer.d.ts",
+    "composer.js",
     "github.d.ts",
     "github.js",
     "git.d.ts",
@@ -69,11 +75,15 @@
     "src/advisories/osv.js",
     "src/advisories/repos.js",
     "src/args.js",
+    "src/attr.js",
     "src/attributes.js",
     "src/cache.js",
     "src/cargo/crate.js",
     "src/cargo/repos.js",
+    "src/composer.js",
     "src/download.js",
+    "src/eol.js",
+    "src/exported.js",
     "src/git.js",
     "src/github/client.js",
     "src/github/read.js",

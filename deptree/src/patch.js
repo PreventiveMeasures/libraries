@@ -7,7 +7,7 @@
 
 import { applyChangeSet, parseDiff } from '@preventive/diff'
 import { DeptreeError, quote } from './error.js'
-import { UNSAFE, isInside } from './mount.js'
+import { UNSAFE, isInside, parentsOf } from './mount.js'
 import { decodeUtf8 } from './project.js'
 
 const HEADER = 'diff --git a/'
@@ -102,8 +102,6 @@ function bytesOf(text, where) {
   if (!text.isWellFormed()) throw new DeptreeError('makes a file that is not well-formed text', where)
   return encoder.encode(text)
 }
-
-const parentsOf = (path) => path.split('/').slice(0, -1).map((_, index, names) => names.slice(0, index + 1).join('/'))
 
 // `files` maps each path to `{ data, mode }` or `{ directory: true }`. A
 // deleted file leaves its directory, empty or not, as pnpm does; a created

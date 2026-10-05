@@ -73,7 +73,32 @@ export interface Client {
   // getRepoTreeTarball's for the tree GitHub names for that commit, asked
   // on every call, cached or not. So its top directory is named for the
   // tree, and files marked `export-subst` are as committed, not rewritten.
-  getRepoTarball(options: { repo: RepoName; sha: string }): Promise<Uint8Array>
+  //
+  // With `exported`, GitHub's archive of the commit itself instead, as `git
+  // archive` exports it, and as package managers that take it install it,
+  // Composer from its zipball: led by git's global header naming the
+  // commit, under a top directory named for it, and without what the tree's
+  // .gitattributes mark export-ignore. It is held to the tree all the same:
+  // each file in it has to be the tree's own, but for its line ends, as
+  // below, every directory has to be there just where git writes one, on
+  // reaching a file in it, and what is missing has to be what the
+  // .gitattributes leave out, read as git 2.43 reads them from the tree,
+  // the top one alone with macros, never through a symlink. What is missing
+  // is read off GitHub's listings of each directory missing anything, and
+  // of those above it, each hashed back to its id, and a .gitattributes the
+  // archive leaves out off GitHub's blob of it, hashed to its id too. A
+  // file whose text, crlf and eol attributes have git write its line ends
+  // CRLF is held to GitHub's blob of it so written, as git 2.43 writes them
+  // on a server at its defaults. It is refused for a file marked
+  // export-subst that git rewrites, for one ident or a
+  // working-tree-encoding rewrites, and for a Git LFS pointer, which GitHub
+  // swaps for its object where the repo is set to include Git LFS objects
+  // in archives: the archive would be that setting's, which can change, not
+  // the commit's. Cached by the commit in setCacheDir's cache (npm.js), and
+  // held to the tree again whenever it is read back; the listings and blobs
+  // that takes are kept there too, each by its id, and held to it again as
+  // they are read back, so a cached archive asks for the commit alone.
+  getRepoTarball(options: { repo: RepoName; sha: string; exported?: boolean }): Promise<Uint8Array>
   // The id of the tree at `directory`, `/`-separated as npm's is, in the
   // full commit `sha`, or of its root without one: from the tree GitHub
   // names for the commit, down GitHub's listings a directory at a time,
@@ -88,9 +113,10 @@ export interface Client {
   // a subtree with no file in it, and has a file marked `eol=crlf` with
   // CRLF where git has LF, as a checkout writes it: the submodule's commit,
   // the subtrees and the blobs come from GitHub's listings of the trees,
-  // asked only then, cached or not, a CRLF file is taken only where the
-  // tree's .gitattributes have git write it so, and the id must still come
-  // out `tree`. The bytes are GitHub's: the tree as a checkout with no
+  // asked only then, cached or not, each listing kept by its id as the
+  // exported archive's are, a CRLF file is taken only where the tree's
+  // .gitattributes have git write it so, and the id must still come out
+  // `tree`. The bytes are GitHub's: the tree as a checkout with no
   // `core.autocrlf` writes it, the same for every repo. So GitHub's tarball
   // is refused for a tree with files marked `export-ignore`, which it
   // leaves out, or `ident`, `filter` or `working-tree-encoding` beside
