@@ -32,9 +32,17 @@ export const EMPTIES_TGZ = Buffer.from('H4sIAAAAAAACA+3VSwrDIBSFYcfdS4jX53ps2mZU
 export const CRLF = '5755b783322b1e0caa98bb3ac613c74840f9174b'
 export const CRLF_ANDROID = '69327553b62c6f3abe6bd949f428ef981f26ff0f'
 export const CRLF_TGZ = Buffer.from('H4sIAAAAAAACA+2W0WqDMBSGvRb6DoHdDWqNMfFq0Ls9wq5jjF2GbSQ5UmHs3WcdbENZy4Z1zJ3vJmIE0Z/vz5Fqr9eyrtcyVzRh6SaYnrgjy3i/dgzX/pryRMSCp0madfcpE5QGPJiBxoN03SudtXDuuUv7w4/7I8hh/tHOgARwJm9A+8nyFyL9Ov9slL/gMQ1izP/q3BBfa2VKo0hpHTmaQ2GPnnjlTA2kNJX24W2USyCgWyDaVnfKVWUYIItg5L88FM6aYspz4Af9zxOG/f+r+cvoyU+Y/9n+p8mo//t9zP/q6La2DsjzCzY69v9n/3dOFpU+no7+q/sv2ND/jKUc/Z+BrdN7ct9nTU5/Apr6ffjr5sGHt3lwFW61erTEluUKi2LR/ueNqYoprP+G/4kYzX8sE+j/HP5/eK1bA2STkxgV/8f+F9ZH0MKU77jofzz2nzKG/s+R/yrM0XcEQRAEQRAEQRAEQZDl8goaly4+ACgAAA==', 'base64')
-// GitHub's listings of TREE, its `lib` (TREE_LIB), SUBMODULE, CRLF and
-// CRLF_ANDROID, as `git ls-tree -l` gives them: { path, mode, type, sha },
-// and a size for a blob.
+// MIXED: files committed with LF under a few .gitattributes rules, of which
+// `git archive` wrote `a.bat`, `c.cmd` and `docs/x.md` with CRLF. INJECTED:
+// the same, with `g.js` too, from .git/info/attributes, not the tree.
+export const MIXED = '806741b961d7f591236c5d86d0d6df7740feca86'
+const MIXED_SUB = 'e2bc20d59db3ad7ccc5ca99504c862364e51f125'
+const MIXED_DOCS = '63e18324d7a8da399104d642bba0ce3b5d598333'
+export const MIXED_TGZ = Buffer.from('H4sIAAAAAAACA+2a32qDMBSHvRZ8h8DuClUTNV4V9irRxs7hmqIRHGPvvsQNtunWsmHTlf0+EBv/UMrxO8k5VZQPci0Oh7UoSsqSNPKWJzbkeTbuDdP9+JlmjMc8Z4wyc5wmPKZe5jmg77RozVe2Sulj1506P/1xV4KYxj/c1Vpo3dZFr2W3WPw5T7+NP2XpNP48zakXI/5nZ0W0HPRG9Fr5q7AQehwTqZpN2TaVOVY+bD8Oi3pPzCbaR3+ryi4aQnP+8z0e8K7Wf2EfguXz/zH/Y8an/qdZnMN/B9zK8k4RVVWBL4dak6ggcQCD/6//pU34jv2n6Rf+J/DfAWbSDnzRqL2E9fDf+L8N9eB6/jfOz/zPOPx3EX+78LfLd9gP/0f/bVF38f5PmiXo/1wu/raod5n/Z/WfCT/qPxfcEBvwwG9qrACR/43/le3w/YH6j6L+c8FbK7eqGwn74X8a7cL7znPt/7z+S1D/uen/DAfVavL0DPvhv/W/64voDP7/tP5Lcob671LxX/gdgF+s/3IzQv53wOt//mt0AJH/3/0vln0H4LT/yaz/w+x8Af/PTiMr7YuO1B30BwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAroUXu9nH5wBQAAA=', 'base64')
+export const INJECTED_TGZ = Buffer.from('H4sIAAAAAAACA+2a0WqDMBSGvRb6DoHdFaomxnhV2KtEGzuHa4pGcIy9+xI32Ga3jhWbruz/oNhoSymn38k5p8ryQa3kfr+SRUlZyuNgfhJLnmfj0TI9js9pxkQicsYos+dpKhIaZIEH+s7I1n5kq7U59rqfrk+/3JUgp/GPtrWRxrR10RvVzRZ/Ifi38aeMT+MveE6DBPE/O0ti1GDWsjc6XEaFNOOaKN2sy7ap7LnyYfNxWdQ7Yh+yfQw3uuziIbLXP78nAMHV+i/dj2D+/H/M/4SJqf88S3L474FbVd5poqtqEaqhNiQuSLKAwf/X/9IlfM/+U/6F/yn894DdtBehbPROwXr4b/3fRGbwvf9b5w/8zwT89xF/V/i78h32w//Rf9fUXXz+w7MU85/Lxd819T7z/0H/Z8OP/s8HN8QFfBE2NSpA5H/rf+UmfH+g/6Po/3zwNsqt6kbBfvjP42103wW+/U8P/E8z7P9e5j/DXreGPD1j84f/zv+uL+Iz+P/b/i/NGfq/S8V/5nsATqj/crtC/vfA63/+K0wAkf/f/S/mvQfghPovY26/gP9np1GVCWVH6g76AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA18ILpQBrcABQAAA=', 'base64')
+// GitHub's listings of the trees above and their subtrees, TREE's `lib`
+// (TREE_LIB) among them, as `git ls-tree -l` gives them: { path, mode,
+// type, sha }, and a size for a blob.
 export const TREE_LIB = '5d216e498d6125ed6472ebafd65ee273f6f362d7'
 export const LISTINGS = {
   [TREE]: [
@@ -60,6 +68,23 @@ export const LISTINGS = {
   [CRLF_ANDROID]: [
     { path: 'a.js', mode: '100644', type: 'blob', sha: '336ce12bb9106afdf843063ee67c0c1970f70d37', size: 10 },
     { path: 'gradlew.bat', mode: '100644', type: 'blob', sha: '3442422191927c611b2dd56106d8b505df05e775', size: 49 },
+  ],
+  [MIXED]: [
+    { path: '.gitattributes', mode: '100644', type: 'blob', sha: 'a6663e033357f236ebb1c6bba14339cf99d2bc26', size: 84 },
+    { path: 'a.bat', mode: '100644', type: 'blob', sha: 'c639960482b112c962c82c9839eb1b0c791fd14e', size: 20 },
+    { path: 'c.cmd', mode: '100644', type: 'blob', sha: 'bfc837e021f2309d9db11d7b503dd1c8a46f6aff', size: 10 },
+    { path: 'd.txt', mode: '100644', type: 'blob', sha: 'e091cacecddd363113aa179ea7ac8850624e8ea2', size: 10 },
+    { path: 'docs', mode: '040000', type: 'tree', sha: '63e18324d7a8da399104d642bba0ce3b5d598333' },
+    { path: 'f.bin', mode: '100644', type: 'blob', sha: '63804f7a02faa9a04563c361040bf19378a0c3dd', size: 12 },
+    { path: 'g.js', mode: '100644', type: 'blob', sha: '336ce12bb9106afdf843063ee67c0c1970f70d37', size: 10 },
+    { path: 'sub', mode: '040000', type: 'tree', sha: 'e2bc20d59db3ad7ccc5ca99504c862364e51f125' },
+  ],
+  [MIXED_SUB]: [
+    { path: '.gitattributes', mode: '100644', type: 'blob', sha: '7eed146613769ef18cf120155500f18e5182c92c', size: 12 },
+    { path: 'b.bat', mode: '100644', type: 'blob', sha: 'f80181c4cbeb747e0e3230f024e722cd2cda32b6', size: 11 },
+  ],
+  [MIXED_DOCS]: [
+    { path: 'x.md', mode: '100644', type: 'blob', sha: 'b1bd6c0692e2fdf1ca6b3b39aa817443af4e9a58', size: 12 },
   ],
   [SUBMODULE]: [
     { path: '.gitmodules', mode: '100644', type: 'blob', sha: '454c1e4897c73f969927180de8349a69396de7d4', size: 126 },
