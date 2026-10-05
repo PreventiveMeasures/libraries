@@ -1,40 +1,25 @@
 // The vendor directory `cargo vendor` makes from a Cargo.lock.
 
-import { LockfileError, linkCargo, parseCargoConfig, parseCargoLock, parseCargoManifest, readCargoVendor } from '@preventive/lockfile/cargo.js'
-import { TomlError, parseToml } from '@preventive/lockfile/toml.js'
+import { linkCargo, parseCargoConfig, parseCargoLock, parseCargoManifest, readCargoVendor } from '@preventive/lockfile/cargo.js'
+import { parseToml } from '@preventive/lockfile/toml.js'
 import { Vfs } from '@preventive/vfs'
 import { DeptreeError, quote } from '../error.js'
-import { fold, makeDirs, mount, writeFiles } from '../mount.js'
+import { checkNoDir, mount, writeFiles } from '../mount.js'
 import { decodeUtf8 } from '../project.js'
 import { checkHost, inputsOf } from './inputs.js'
 import { about, fetchCrates, vendoredPackages } from './registry.js'
-import { fileOf, findWorkspace } from './workspace.js'
+import { fileOf, findWorkspace, parseAs } from './workspace.js'
 
-function checkNoVendor(vfs, folded) {
-  for (const name of vfs.readdir('/')) {
-    if (name === 'vendor' || (folded && fold(name) === 'vendor')) {
-      throw new DeptreeError('a vendor directory is there already, which is neither kept beside the tree nor removed', `vfs[${quote(`/${name}`)}]`)
-    }
-  }
-}
-
-function refusal(error, where) {
-  if (error instanceof LockfileError || error instanceof TomlError) return new DeptreeError(error.message, where, { cause: error })
-  return error
-}
+const checkNoVendor = checkNoDir('vendor', 'a vendor directory')
 
 // Of the config, [patch] is read, as cargo resolves with it; `paths`, which
 // overrides where packages come from, and `include`, which reads more
 // files, are refused; the rest bears on no package vendored.
 function configOf({ text, file }) {
   if (text === undefined) return { patch: parseCargoConfig([]).patch, file }
-  try {
-    const doc = parseToml(text)
-    for (const key of ['paths', 'include']) if (doc[key] !== undefined) throw new DeptreeError('not supported', `${file}: ${key}`)
-    return { patch: parseCargoConfig([text]).patch, file }
-  } catch (error) {
-    throw refusal(error, file)
-  }
+  const doc = parseAs(file, () => parseToml(text))
+  for (const key of ['paths', 'include']) if (doc[key] !== undefined) throw new DeptreeError('not supported', `${file}: ${key}`)
+  return { patch: parseAs(file, () => parseCargoConfig([text])).patch, file }
 }
 
 // Each path package by the key the lockfile gives it, `name version`: every
@@ -74,36 +59,33 @@ function manifestOf(crate, vendored) {
   const file = vendored.files.get('Cargo.toml')
   if (file === undefined) throw new DeptreeError('its .crate has no Cargo.toml', about(crate.key))
   const text = decodeUtf8(file.data, 'not UTF-8, which cargo fails on', where)
-  try {
-    return { text, manifest: parseCargoManifest(text) }
-  } catch (error) {
-    throw refusal(error, where)
-  }
+  return { text, manifest: parseAs(where, () => parseCargoManifest(text)) }
 }
 
 // The lockfile laid over every manifest, as linkCargo holds it to them; then
 // the vendored copies read back as cargo's directory source reads them.
 function checkLock(lock, inputs, crates, vendored) {
-  const keys = pathKeys(lock, inputs.packages)
+  const { keys } = inputs
   const manifests = Object.create(null)
   for (const [dir, key] of keys) if (key in lock.packages) manifests[key] = inputs.packages.get(dir).manifest
   const texts = new Map(crates.map((crate) => [crate.key, manifestOf(crate, vendored.get(crate.key))]))
   for (const [key, { manifest }] of texts) manifests[key] = manifest
   const members = [...inputs.packages].filter(([dir, { member }]) => member && keys.has(dir)).map(([dir]) => keys.get(dir))
-  checkPaths(linkCargo(lock, manifests, { workspace: inputs.root, members, config: { patch: inputs.config.patch } }), inputs.packages, keys)
+  checkPaths(linkCargo(lock, manifests, { workspace: inputs.root, members, config: inputs.config }), inputs.packages, keys)
   const read = readCargoVendor(lock, Object.fromEntries(crates.map((crate) => [crate.directory, { manifest: texts.get(crate.key).text, checksum: vendored.get(crate.key).checksumText }])))
   for (const crate of crates) if (read[crate.key].directory !== crate.directory) throw new Error(`unreachable: ${crate.key} read back from ${read[crate.key].directory}`)
 }
 
+// Each crate's bytes are let go once its files are written, which copies them.
 function writeTree(crates, vendored, stats) {
   const vfs = new Vfs()
-  if (crates.length > 0) makeDirs(vfs, 'vendor')
   for (const { key, directory } of crates) {
     const { root, dirs, files } = vendored.get(key)
     const path = `vendor/${directory}`
-    writeFiles(vfs, path, { dirs: new Set(dirs.keys()), files }, stats)
+    writeFiles(vfs, path, { dirs: dirs.keys(), files }, stats)
     for (const [dir, mode] of dirs) vfs.chmod(`/${path}/${dir}`, mode)
     vfs.chmod(`/${path}`, root)
+    vendored.delete(key)
   }
   return vfs
 }
@@ -123,9 +105,9 @@ export async function buildCargoTree(options) {
     if (read.get(dir) === undefined) throw new DeptreeError('given, but no manifest cargo reads', `manifests[${quote(dir)}]`)
   }
   const crates = vendoredPackages(lock)
-  pathKeys(lock, packages)
+  const keys = pathKeys(lock, packages)
   const vendored = await fetchCrates(crates, host.comment)
-  checkLock(lock, { root, packages, config }, crates, vendored)
+  checkLock(lock, { root, packages, config, keys }, crates, vendored)
   const stats = { packages: Object.keys(lock.packages).length, vendored: crates.length, files: 0, bytes: 0 }
   const vfs = writeTree(crates, vendored, stats)
   const installed = crates.map(({ key, directory, name, version, checksum }) => ({ path: `vendor/${directory}`, name, version, source: lock.packages[key].source, checksum }))

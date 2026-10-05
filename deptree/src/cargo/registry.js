@@ -2,6 +2,7 @@
 // every one of the lockfile's but a path package, which is in the project
 // already. Each is fetched from crates.io and unpacked as cargo unpacks it.
 
+import { parseVersion } from '@preventive/lockfile/rust-semver.js'
 import { getCrate } from '@preventive/upstream/cargo.js'
 import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote } from '../error.js'
@@ -12,24 +13,25 @@ const CRATES_IO = 'registry+https://github.com/rust-lang/crates.io-index'
 
 export const about = (key) => `packages[${quote(key)}]`
 
-// The semver crate's order of two versions as the lockfile holds them, but
-// for build metadata, which crates.io takes no two versions apart by.
+const sign = (a, b) => (a === b ? 0 : a < b ? -1 : 1)
+
+// The semver crate's order of two versions the lockfile reader has read, but
+// for build metadata, which crates.io takes no two versions apart by: a
+// pre-release before its release, its identifiers digits before others and
+// digits by their value.
 function compareVersions(a, b) {
-  const [, core1, pre1 = ''] = /^([^+-]+)(?:-([^+]*))?/u.exec(a)
-  const [, core2, pre2 = ''] = /^([^+-]+)(?:-([^+]*))?/u.exec(b)
-  const numbers = (core) => core.split('.').map(BigInt)
-  const [n1, n2] = [numbers(core1), numbers(core2)]
-  for (let i = 0; i < 3; i++) if (n1[i] !== n2[i]) return n1[i] < n2[i] ? -1 : 1
-  if (pre1 === '' || pre2 === '') return (pre1 === '' ? 1 : 0) - (pre2 === '' ? 1 : 0)
-  const [ids1, ids2] = [pre1.split('.'), pre2.split('.')]
+  const [x, y] = [parseVersion(a), parseVersion(b)]
+  for (const part of ['major', 'minor', 'patch']) if (x[part] !== y[part]) return sign(x[part], y[part])
+  if (x.pre === '' || y.pre === '') return sign(x.pre === '', y.pre === '')
+  const [ids1, ids2] = [x.pre.split('.'), y.pre.split('.')]
   for (let i = 0; i < Math.min(ids1.length, ids2.length); i++) {
-    const [x, y] = [ids1[i], ids2[i]]
-    const [digits1, digits2] = [/^\d+$/u.test(x), /^\d+$/u.test(y)]
+    const [p, q] = [ids1[i], ids2[i]]
+    const [digits1, digits2] = [/^\d+$/u.test(p), /^\d+$/u.test(q)]
     if (digits1 !== digits2) return digits1 ? -1 : 1
-    const order = digits1 ? x.length - y.length || (x < y ? -1 : x > y ? 1 : 0) : x < y ? -1 : x > y ? 1 : 0
+    const order = (digits1 && sign(p.length, q.length)) || sign(p, q)
     if (order !== 0) return order
   }
-  return ids1.length - ids2.length
+  return sign(ids1.length, ids2.length)
 }
 
 // vendor.rs: the greatest version of a name has a directory of the name
@@ -45,8 +47,9 @@ export function vendoredPackages(lock) {
   const greatest = new Map()
   for (const { name, version } of crates) {
     const other = greatest.get(name)
-    if (other !== undefined && compareVersions(version, other) === 0) throw new DeptreeError(`${quote(version)} and ${quote(other)} differ only in build metadata, which cargo vendors one of`, about(`${name} ${version}`))
-    if (other === undefined || compareVersions(version, other) > 0) greatest.set(name, version)
+    const order = other === undefined ? 1 : compareVersions(version, other)
+    if (order === 0) throw new DeptreeError(`${quote(version)} and ${quote(other)} differ only in build metadata, which cargo vendors one of`, about(`${name} ${version}`))
+    if (order > 0) greatest.set(name, version)
   }
   for (const crate of crates) crate.directory = crate.version === greatest.get(crate.name) ? crate.name : `${crate.name}-${crate.version}`
   return crates

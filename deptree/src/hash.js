@@ -56,3 +56,15 @@ export const sha1Hex = async (bytes) => toHex(await digest('SHA-1', bytes))
 
 // As soldeer.lock records a zip's checksum.
 export const bytesSha256Hex = async (bytes) => toHex(await digest('SHA-256', bytes))
+
+// The CRC-32 a gzip trailer records, as ISO 3309 has it.
+const CRC_TABLE = Uint32Array.from({ length: 256 }, (_, n) => {
+  let c = n
+  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+  return c
+})
+export function crc32(bytes) {
+  let crc = 0xffffffff
+  for (const byte of bytes) crc = CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8)
+  return (crc ^ 0xffffffff) >>> 0
+}

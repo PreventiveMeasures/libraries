@@ -3,7 +3,7 @@
 // a directory, one with a leading dot too; `**` and `[`, and a path that
 // leads out of the root or depends on where it is, are refused.
 
-import { compareNames } from '@preventive/vfs/path.js'
+import { compareNames, join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { wildcard } from '../matcher.js'
 import { UNSAFE, fold } from '../mount.js'
@@ -11,7 +11,6 @@ import { typeOf } from '../project.js'
 
 const WILD = /[*?]/u
 const at = (dir) => (dir === '.' ? '/' : `/${dir}`)
-const join = (dir, name) => (dir === '.' ? name : `${dir}/${name}`)
 
 // A path's components as Rust's Path has them past a root: no empty or `.`.
 export const parts = (path) => path.split('/').filter((segment) => segment !== '' && segment !== '.')
@@ -57,8 +56,9 @@ function expand(project, glob, folded, where) {
       if (typeOf(project, at(dir), false) !== 'directory') continue
       const names = project.readdir(at(dir))
       for (const name of matches === undefined ? literal(names, segment, folded, dir, where) : names.filter(matches)) {
-        if (typeOf(project, at(join(dir, name)), false) === 'symlink') throw new DeptreeError('a link where cargo looks for members is not supported', quote(join(dir, name)))
-        next.push(join(dir, name))
+        const path = join(dir, name)
+        if (typeOf(project, at(path), false) === 'symlink') throw new DeptreeError('a link where cargo looks for members is not supported', quote(path))
+        next.push(path)
       }
     }
     found = next
@@ -80,10 +80,9 @@ function pathsOf(project, globs, key, folded) {
 export const explicitMembers = (project, workspace, folded) => pathsOf(project, workspace.members, 'members', folded)
 
 // Cargo, run at the root, holds each default member to be a member, or a
-// directory `members` takes that is excluded.
-export function checkDefaultMembers(project, workspace, members, folded) {
+// directory `members` takes, `listed`, that is excluded.
+export function checkDefaultMembers(project, workspace, members, listed, folded) {
   if (workspace.defaultMembers === undefined) return
-  const listed = new Set(explicitMembers(project, workspace, folded))
   for (const dir of pathsOf(project, workspace.defaultMembers, 'default-members', folded)) {
     if (members.has(dir) || (listed.has(dir) && isExcluded(workspace, parts(dir)))) continue
     throw new DeptreeError(`${quote(dir)} is no member, which cargo refuses`, 'Cargo.toml: workspace.default-members')

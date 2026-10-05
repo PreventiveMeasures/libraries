@@ -8,7 +8,7 @@ import { CompressionError, decompress } from '@preventive/archive/compression.js
 import { ArchiveError, unpack } from '@preventive/archive/tar.js'
 import { compareNames } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
-import { bytesSha256Hex } from '../hash.js'
+import { bytesSha256Hex, crc32 } from '../hash.js'
 
 // As in ../tarball.js; cargo's own bound is 512 MiB, or twenty times the
 // .crate where that is more.
@@ -36,24 +36,19 @@ function deflateStart(bytes, where) {
 // gzip member alone, where the platform's stream reads on into any after it;
 // so the first has to be all of it. Its deflate data has to end where its
 // eight-byte trailer starts, which deflate-raw holds it to, refusing what
-// follows; and gzip then checks the trailer.
+// follows; and the trailer has to be the data's CRC-32 and length, as flate2
+// checks them.
 async function gunzip(bytes, where) {
   const start = deflateStart(bytes, where)
-  const refusal = (error, detail) => {
-    if (!(error instanceof CompressionError)) return error
-    return new DeptreeError(error.limited ? `the .crate unpacks to more than ${MAX_BYTES} bytes` : detail, where, { cause: error })
-  }
   let tar
   try {
     tar = await decompress(bytes.subarray(start, bytes.length - 8), 'deflate-raw', { limit: MAX_BYTES })
   } catch (error) {
-    throw refusal(error, 'the .crate is not one gzip member, which cargo reads the first of alone')
+    if (!(error instanceof CompressionError)) throw error
+    throw new DeptreeError(error.limited ? `the .crate unpacks to more than ${MAX_BYTES} bytes` : 'the .crate is not one gzip member, which cargo reads the first of alone', where, { cause: error })
   }
-  try {
-    if ((await decompress(bytes, 'gzip', { limit: MAX_BYTES })).length !== tar.length) throw new Error('unreachable: one gzip member read two ways')
-  } catch (error) {
-    throw refusal(error, 'the .crate\'s gzip trailer does not match its data')
-  }
+  const trailer = new DataView(bytes.buffer, bytes.byteOffset + bytes.length - 8, 8)
+  if (trailer.getUint32(0, true) !== crc32(tar) || trailer.getUint32(4, true) !== tar.length >>> 0) throw new DeptreeError('the .crate\'s gzip trailer does not match its data', where)
   return tar
 }
 
@@ -96,7 +91,7 @@ function segmentsOf(entry, prefix, here) {
 function vendorEntries(entries, prefix, where) {
   const dirs = new Map()
   const files = new Map()
-  let root
+  let root = 0o755
   for (const entry of entries) {
     const here = `${where}: ${quote(entry.storedName)}`
     const segments = segmentsOf(entry, prefix, here)
@@ -140,5 +135,5 @@ export async function vendorCrate(bytes, { name, version, checksum }, comment, w
   const { root, dirs, files } = vendorEntries(entriesOf(await gunzip(bytes, where), where), `${name}-${version}`, where)
   const text = await checksumFile(files, checksum, comment)
   files.set('.cargo-checksum.json', { data: new TextEncoder().encode(text), mode: 0o644 })
-  return { root: root ?? 0o755, dirs, files, checksumText: text }
+  return { root, dirs, files, checksumText: text }
 }

@@ -6,6 +6,7 @@
 
 import { LockfileError, parseCargoManifest } from '@preventive/lockfile/cargo.js'
 import { TomlError, parseToml } from '@preventive/lockfile/toml.js'
+import { dirname } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { UNSAFE } from '../mount.js'
 import { readText, typeOf } from '../project.js'
@@ -13,14 +14,13 @@ import { checkDefaultMembers, checkLists, explicitMembers, isExcluded, parts } f
 
 export const fileOf = (dir) => (dir === '.' ? 'Cargo.toml' : `${dir}/Cargo.toml`)
 const manifestPath = (dir) => [...parts(dir), 'Cargo.toml']
-const parent = (dir) => (dir.includes('/') ? dir.slice(0, dir.lastIndexOf('/')) : '.')
 
 // A path as a manifest writes it, from the directory `base`: `..` only ahead
 // of every name, which the filesystem would otherwise walk through a name
 // that cargo's normalize_path drops unread.
-export function resolvePath(base, path, where) {
+function resolvePath(base, path, where) {
   if (path.startsWith('/') || UNSAFE.test(path) || /^[A-Za-z]:/u.test(path)) throw new DeptreeError(`${quote(path)} is not a relative path within the project, which is all that is read`, where)
-  const segments = base === '.' ? [] : base.split('/')
+  const segments = parts(base)
   let named = false
   for (const segment of parts(path)) {
     if (segment !== '..') {
@@ -35,7 +35,7 @@ export function resolvePath(base, path, where) {
   return segments.length === 0 ? '.' : segments.join('/')
 }
 
-function parseAs(file, parse) {
+export function parseAs(file, parse) {
   try {
     return parse()
   } catch (error) {
@@ -84,10 +84,10 @@ function contextOf(project, folded) {
 // elsewhere than the root, and a [workspace] between the two, are refused.
 function workspaceOf({ raw, workspace }, dir) {
   if (raw(dir).doc.workspace !== undefined) return 'own'
-  for (let here = dir; here !== '.'; here = parent(here)) {
+  for (let here = dir; here !== '.'; here = dirname(here)) {
     const doc = raw(here)?.doc
     if (doc === undefined) continue
-    if (here !== dir && doc.workspace !== undefined) throw new DeptreeError('a [workspace] between a package and the root, one workspace in another, is not supported', fileOf(here))
+    if (doc.workspace !== undefined) throw new DeptreeError('a [workspace] between a package and the root, one workspace in another, is not supported', fileOf(here))
     const pointer = pointerOf(doc)
     if (pointer === undefined) continue
     const where = `${fileOf(here)}: package.workspace`
@@ -111,8 +111,8 @@ function load(context, dir, member, where) {
   const links = []
   for (const [index, dep] of (manifest.package?.dependencies ?? []).entries()) {
     if (dep.source.type !== 'path' || (!member && dep.kind === 'dev')) continue
-    const base = dep.inherited && inherits === 'root' ? '.' : dir
-    links.push({ index, dir: resolvePath(base, dep.source.path, depWhere(dir, dep)), where: depWhere(dir, dep) })
+    const here = depWhere(dir, dep)
+    links.push({ index, dir: resolvePath(dep.inherited && inherits === 'root' ? '.' : dir, dep.source.path, here), where: here })
   }
   packages.set(dir, { manifest, member, links })
   return links
@@ -131,8 +131,9 @@ function loadMembers(context) {
     members.add(dir)
     pending.push({ dir, where })
   }
+  const listed = workspace === undefined ? [] : explicitMembers(project, workspace, folded)
   if (workspace !== undefined) {
-    for (const dir of explicitMembers(project, workspace, folded)) if (!isExcluded(workspace, manifestPath(dir))) join({ dir, where: 'Cargo.toml: workspace.members' })
+    for (const dir of listed) if (!isExcluded(workspace, manifestPath(dir))) join({ dir, where: 'Cargo.toml: workspace.members' })
     if (isExcluded(workspace, ['Cargo.toml'])) throw new DeptreeError('the root is excluded from its own workspace, which cargo refuses', 'Cargo.toml: workspace.exclude')
   }
   join({ dir: '.', where: 'Cargo.toml' })
@@ -143,7 +144,7 @@ function loadMembers(context) {
       else others.push(link)
     }
   }
-  if (workspace !== undefined) checkDefaultMembers(project, workspace, members, folded)
+  if (workspace !== undefined) checkDefaultMembers(project, workspace, members, new Set(listed), folded)
   return others
 }
 
