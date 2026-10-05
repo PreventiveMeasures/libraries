@@ -47,15 +47,16 @@ const ALIASED = /(?:^|\/)(npm:(@[^/]+\/[^/]+)@(workspace:[^/]*))$/u
 
 // pnpm links to a directory that is not there all the same: pnpm 10 and 11
 // warn as they resolve, and none does as a frozen install. Refused, with the
-// project given or, for the spec it takes for a path, without.
+// project given or, for the spec it takes for a path, without, but where the
+// project holds a directory of that name.
 export function readLinked(links, nodes, projects, project) {
   const linked = new Map()
   for (const [path, target] of links) {
     if (nodes.has(target) || projects.has(target) || linked.has(target) || target === '..' || target.startsWith('../')) continue
     const aliased = ALIASED.exec(target)
-    if (aliased !== null) {
+    if (aliased !== null && (project === undefined || typeOf(project, `/${target}`) === undefined)) {
       const [, spec, name, range] = aliased
-      throw new DeptreeError(`pnpm takes ${quote(spec)} for a path, for its "/", and links to ${quote(target)}, which is not there; ${quote(range.replace(':', `:${name}@`))} is the spec that links the workspace package`, quote(path))
+      throw new DeptreeError(`pnpm takes ${quote(spec)} for a path, for its "/", and links to ${quote(target)}${project === undefined ? '' : ', which is not there'}; ${quote(range.replace(':', `:${name}@`))} is the spec that links the workspace package`, quote(path))
     }
     if (project !== undefined) linked.set(target, manifestAt(project, target, quote(path)))
   }

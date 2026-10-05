@@ -197,7 +197,8 @@ export interface PnpmProject {
 // that is not there all the same, warning only as pnpm 10 and 11 resolve,
 // never as a frozen install. So it does for `npm:@scope/name@workspace:^`,
 // as an override or a dependency, which it takes for a path for its `/`,
-// and that link is refused with or without `project`:
+// and that link is refused with or without `project`, but where it holds
+// a directory of that very name:
 // `workspace:@scope/name@^` is the spec that links the workspace package
 // by another name. Without it, or
 // outside the lockfile's directory, such a directory's bins are not

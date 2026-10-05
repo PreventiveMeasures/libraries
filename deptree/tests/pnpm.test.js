@@ -556,7 +556,7 @@ describe('buildPnpmTree beside the bins of a directory outside the tree', () => 
     })
 
     it('refuses the link pnpm makes of npm:@scope/name@workspace:, a path from the project', async () => {
-      await assert.rejects(inWorkspace(0o755, { to: 'npm:@repo/v@workspace:^' }), /^DeptreeError: "packages\/a\/node_modules\/v": pnpm takes "npm:@repo\/v@workspace:\^" for a path, for its "\/", and links to "packages\/a\/npm:@repo\/v@workspace:\^", which is not there; "workspace:@repo\/v@\^" is the spec that links the workspace package$/u)
+      await assert.rejects(inWorkspace(0o755, { to: 'npm:@repo/v@workspace:^' }), /^DeptreeError: "packages\/a\/node_modules\/v": pnpm takes "npm:@repo\/v@workspace:\^" for a path, for its "\/", and links to "packages\/a\/npm:@repo\/v@workspace:\^"; "workspace:@repo\/v@\^" is the spec that links the workspace package$/u)
     })
 
     it('takes the bins of the root project, where it is linked', async () => {
@@ -1246,9 +1246,12 @@ describe('buildPnpmTree into a given Vfs', () => {
         lockfile: small(dep('app') + dep('foo', `link:${spec}`, spec), `${entry(await app)}\n`, `  app@1.0.0:\n    dependencies:\n      foo: link:${spec}\n`, `  foo: ${spec}\n`),
         manifest: JSON.stringify({ name: 'root', dependencies: { app: '1.0.0', foo: '^1.0.0' }, pnpm: { overrides: { foo: spec } } }),
       }
-      const refused = /^DeptreeError: "node_modules\/\.pnpm\/app@1\.0\.0\/node_modules\/foo": pnpm takes "npm:@repo\/abc@workspace:\^" for a path, for its "\/", and links to "npm:@repo\/abc@workspace:\^", which is not there; "workspace:@repo\/abc@\^" is the spec that links the workspace package$/u
-      await assert.rejects(buildLinked(given, { project: createVfs({ 'package.json': given.manifest }) }), refused)
-      await assert.rejects(buildLinked(given), refused)
+      const refused = (there) => new RegExp(`^DeptreeError: "node_modules/\\.pnpm/app@1\\.0\\.0/node_modules/foo": pnpm takes "npm:@repo/abc@workspace:\\^" for a path, for its "/", and links to "npm:@repo/abc@workspace:\\^"${there}; "workspace:@repo/abc@\\^" is the spec that links the workspace package$`, 'u')
+      await assert.rejects(buildLinked(given, { project: createVfs({ 'package.json': given.manifest }) }), refused(', which is not there'))
+      await assert.rejects(buildLinked(given), refused(''))
+      // A directory of that very name, which pnpm links as any other.
+      const named = await buildLinked(given, { project: createVfs({ 'package.json': given.manifest, [`${spec}/package.json`]: '{"name":"foo","version":"1.0.0"}' }) })
+      assert.equal(named.vfs.readlink('/node_modules/.pnpm/app@1.0.0/node_modules/foo'), `../../../../${spec}`)
       const fixed = 'workspace:@repo/abc@^'
       const { vfs } = await buildPnpmTree({
         lockfile: small(dep('app'), `${entry(await app)}\n`, '  app@1.0.0:\n    dependencies:\n      foo: link:tools/abc\n', `  foo: ${fixed}\n`).replace('\npackages:\n', '\n  tools/abc: {}\n\npackages:\n'),
