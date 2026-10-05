@@ -4,8 +4,9 @@
 //
 // Each side is a map from a path, relative to the project's directory and
 // with no leading `/`, to what is there: its type, its mode, and a file's
-// bytes or a link's target. Only what is under a node_modules is held, so
-// the directories above, the projects' own, are never set side by side.
+// bytes or a link's target. Only what is under the folder an install makes
+// is held — a node_modules, or Soldeer's dependencies — so the directories
+// above, the projects' own, are never set side by side.
 
 import { Buffer } from 'node:buffer'
 import { lstatSync, readFileSync, readdirSync, readlinkSync, statSync } from 'node:fs'
@@ -32,9 +33,9 @@ export function projectView(root) {
   }
 }
 
-// Everything under each of `dirs` (node_modules, by paths from the project's
-// directory) as `project` reads it from disk: links not followed, every file
-// read whole. One not there is left out.
+// Everything under each of `dirs` (the folders an install makes, by paths
+// from the project's directory) as `project` reads it from disk: links not
+// followed, every file read whole. One not there is left out.
 export function readDisk(project, dirs) {
   const entries = new Map()
   const stack = dirs.filter((dir) => typeOf(project, dir, false) !== undefined)
@@ -49,16 +50,16 @@ export function readDisk(project, dirs) {
   return entries
 }
 
-// Whether a path is a node_modules or under one.
-const inModules = (path) => path === 'node_modules' || path.startsWith('node_modules/') || path.endsWith('/node_modules') || path.includes('/node_modules/')
+// Whether a path is a `folder` or under one, wherever it is.
+const isUnder = (path, folder) => path === folder || path.startsWith(`${folder}/`) || path.endsWith(`/${folder}`) || path.includes(`/${folder}/`)
 
 // The tree deptree built, as readDisk reads the disk: what its Vfs holds
-// under a node_modules, which is all of it but the directories on the way.
-// The bytes are the Vfs's own, not copied.
-export function readTree(vfs) {
+// under the folder an install makes, which is all of it but the directories
+// on the way. The bytes are the Vfs's own, not copied.
+export function readTree(vfs, folder) {
   const entries = new Map()
   for (const { name, type, mode, data, linkname } of vfs.entries('/')) {
-    if (!inModules(name)) continue
+    if (!isUnder(name, folder)) continue
     const entry = { type, mode: mode & 0o777 }
     if (type === 'file') entry.data = data
     if (type === 'symlink') entry.target = linkname

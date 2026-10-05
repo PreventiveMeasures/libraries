@@ -9,7 +9,7 @@ import { createVfs } from '@preventive/vfs'
 import { byPath, difference, emptyDirs, leftBehind, notBuilt, projectView, readDisk, readTree } from '../bin/compare.js'
 import { tokenIn, userToken } from '../bin/npmrc.js'
 import { patchOf } from '../bin/patch.js'
-import { tarball, url } from './registry.js'
+import { rawZip, sha256, tarball, url } from './registry.js'
 
 // The development CLI is not part of the published package and nothing
 // else imports it: its comparison is checked here by its own module, and
@@ -224,7 +224,7 @@ describe('the two sides', () => {
       'packages/w/node_modules/c/x': 'c',
       'packages/w/package.json': '{}',
     })
-    const tree = readTree(vfs)
+    const tree = readTree(vfs, 'node_modules')
     assert.deepEqual([...tree.keys()].toSorted(byPath), ['node_modules', 'node_modules/a', 'node_modules/a/index.js', 'node_modules/b', 'packages/w/node_modules', 'packages/w/node_modules/c', 'packages/w/node_modules/c/x'])
     assert.deepEqual({ ...tree.get('node_modules/a/index.js'), data: [...tree.get('node_modules/a/index.js').data] }, { type: 'file', mode: 0o755, data: [0x61] })
     assert.deepEqual(tree.get('node_modules/b'), { type: 'symlink', mode: 0o777, target: 'a' })
@@ -329,5 +329,59 @@ describe('bin/deptree.js compare', async () => {
     assert.equal(refused.status, 2)
     assert.equal(run('frobnicate', project).status, 2)
     assert.equal(run('compare', '--frobnicate', project).status, 2)
+  })
+})
+
+describe('bin/deptree.js compare, with Soldeer', () => {
+  const CLI = join(import.meta.dirname, '..', 'bin', 'deptree.js')
+  const home = mkdtempSync(join(tmpdir(), 'deptree-bin-soldeer-'))
+  after(() => rmSync(home, { recursive: true, force: true }))
+  const project = join(home, 'project')
+
+  // The CLI caches in the default directory, which answers a zip of the
+  // lockfile's checksum with no request: wherever that is on this platform.
+  const zip = rawZip([{ name: 'src/Test.sol', data: 'test\n' }, { name: 'run.sh', data: 'run', mode: 0o100755 }])
+  for (const cache of ['xdg/PreventiveMeasures', 'Library/Caches/PreventiveMeasures', 'local/PreventiveMeasures/Cache']) {
+    mkdirSync(join(home, cache, 'soldeer/zips'), { recursive: true })
+    writeFileSync(join(home, cache, 'soldeer/zips/forge-std@1.9.4.zip'), zip)
+  }
+  // As Soldeer 0.12 writes soldeer.lock, and extracts the zip.
+  const files = {
+    'soldeer.toml': '[dependencies]\nforge-std = "1.9.4"\n',
+    'soldeer.lock': `version = 2\n\n[[dependencies]]\nname = "forge-std"\nversion = "1.9.4"\nurl = "https://soldeer-revisions.s3.amazonaws.com/forge-std/x.zip"\nchecksum = "${sha256(zip)}"\nintegrity = "${'0'.repeat(64)}"\n`,
+    'dependencies/forge-std-1.9.4/src/Test.sol': ['test\n', 0o644],
+    'dependencies/forge-std-1.9.4/run.sh': ['run', 0o755],
+  }
+  for (const [path, written] of Object.entries(files)) {
+    const [data, mode] = Array.isArray(written) ? written : [written, 0o644]
+    mkdirSync(join(project, path, '..'), { recursive: true })
+    writeFileSync(join(project, path), data)
+    chmodSync(join(project, path), mode)
+  }
+
+  const env = { ...process.env, HOME: home, XDG_CACHE_HOME: join(home, 'xdg'), LOCALAPPDATA: join(home, 'local'), NO_COLOR: '1' }
+  delete env.FORCE_COLOR
+  const run = (...args) => {
+    const r = spawnSync(process.execPath, [CLI, ...args], { env, encoding: 'utf8', timeout: 30_000 })
+    assert.equal(r.error, undefined)
+    return { stdout: r.stdout, stderr: r.stderr, status: r.status }
+  }
+
+  it('finds the dependencies folder on disk the one soldeer.lock installs', () => {
+    const r = run('compare', project)
+    assert.equal(r.stdout, '')
+    assert.match(r.stderr, /^dependencies on disk: 2 files, /mu)
+    assert.match(r.stderr, /^the same$/mu)
+    assert.equal(r.status, 0)
+  })
+
+  it('lists what differs there, and exits 1', () => {
+    writeFileSync(join(project, 'dependencies/forge-std-1.9.4/src/Test.sol'), 'changed\n')
+    mkdirSync(join(project, 'dependencies/solady-0.1.0'))
+    writeFileSync(join(project, 'dependencies/solady-0.1.0/x.sol'), 'x')
+    const r = run('compare', '--soldeer', '0.12.0', project)
+    assert.equal(r.stdout, '~ dependencies/forge-std-1.9.4/src/Test.sol  (content)\n- dependencies/solady-0.1.0/\n')
+    assert.equal(r.status, 1)
+    assert.equal(run('compare', '--soldeer', '0.11.0', project).status, 2, 'only the Soldeer deptree builds for')
   })
 })
