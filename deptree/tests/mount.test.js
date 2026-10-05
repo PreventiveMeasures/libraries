@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { compress } from '@preventive/archive/compression.js'
 import { Vfs } from '@preventive/vfs'
 import { DeptreeError } from '../src/error.js'
 import { writeFiles, writeLink } from '../src/mount.js'
 import { fetchTarball, ownTarball, tarballUrl, withDirs } from '../src/tarball.js'
-import { stubRegistry } from './registry.js'
+import { sri, stubRegistry, tarball } from './registry.js'
 
 // What each builder holds a tarball's names and a package's place to before
 // it writes, held to again where it writes: none of these is reached through
@@ -90,5 +91,28 @@ describe('the registry\'s tarball', () => {
       await assert.rejects(fetchTarball('a', '1.0.0', integrity, 'w'), /^DeptreeError: w: a tarball with no sha512 integrity is not supported$/u)
     }
     assert.deepEqual(calls, [])
+  })
+
+  it('unpacked past zeros after its gzip stream, as Node\'s zlib stops there, and past nothing else', async () => {
+    const { bytes } = await tarball('a', '1.0.0', { 'index.js': 'x' })
+    // Its last bytes, the high ones of its output's length, are zeros too.
+    assert.equal(bytes.at(-1), 0)
+    const served = (tail, head = bytes) => {
+      const padded = new Uint8Array([...head, ...tail])
+      stubRegistry([{ name: 'a', version: '1.0.0', bytes: padded }])
+      return fetchTarball('a', '1.0.0', sri(padded), 'w')
+    }
+    const { entries } = await served([])
+    assert.deepEqual((await served(new Uint8Array(10240 - bytes.length))).entries, entries)
+    assert.deepEqual((await served([0])).entries, entries)
+    // An empty last member, as zlib writes one, ends nine bytes past its last that is not zero.
+    const empty = await compress(new Uint8Array(), 'gzip')
+    assert.deepEqual([...empty.subarray(-10)], [3, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    assert.deepEqual((await served([...empty, 0])).entries, entries)
+    for (const tail of [[0, 1, 0], [1, 0, 0], [1], [0x1f, 0x8b, 0], [0, ...bytes, 0]]) await assert.rejects(served(tail), /^CompressionError: the data does not decompress$/u)
+    // Its CRC, wrong.
+    const corrupt = bytes.slice()
+    corrupt[bytes.length - 8] ^= 1
+    await assert.rejects(served([0, 0], corrupt), /^CompressionError: the data does not decompress$/u)
   })
 })
