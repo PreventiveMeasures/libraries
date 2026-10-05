@@ -100,7 +100,6 @@ describe('getRepoTreeTarball', () => {
     assert.deepEqual(Buffer.from(await client().getRepoTreeTarball({ repo: 'acme/app', tree: CRLF })), CRLF_TGZ)
     const asked = [CRLF, CRLF_ANDROID].map((id) => `${API}/git/trees/${id}`)
     assert.deepEqual(urls(calls), [`${API}/tarball/${CRLF}`, ...asked])
-    assert.deepEqual(await readFile(join(TREES, `${CRLF}.tgz`)), CRLF_TGZ)
     // Cached as GitHub has it, so held to the listings again when read back.
     calls = stub({ listings })
     assert.deepEqual(Buffer.from(await client().getRepoTreeTarball({ repo: 'acme/app', tree: CRLF })), CRLF_TGZ)

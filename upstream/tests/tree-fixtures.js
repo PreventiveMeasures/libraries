@@ -33,9 +33,8 @@ export const CRLF = '5755b783322b1e0caa98bb3ac613c74840f9174b'
 export const CRLF_ANDROID = '69327553b62c6f3abe6bd949f428ef981f26ff0f'
 export const CRLF_TGZ = Buffer.from('H4sIAAAAAAACA+2W0WqDMBSGvRb6DoHdDWqNMfFq0Ls9wq5jjF2GbSQ5UmHs3WcdbENZy4Z1zJ3vJmIE0Z/vz5Fqr9eyrtcyVzRh6SaYnrgjy3i/dgzX/pryRMSCp0madfcpE5QGPJiBxoN03SudtXDuuUv7w4/7I8hh/tHOgARwJm9A+8nyFyL9Ov9slL/gMQ1izP/q3BBfa2VKo0hpHTmaQ2GPnnjlTA2kNJX24W2USyCgWyDaVnfKVWUYIItg5L88FM6aYspz4Af9zxOG/f+r+cvoyU+Y/9n+p8mo//t9zP/q6La2DsjzCzY69v9n/3dOFpU+no7+q/sv2ND/jKUc/Z+BrdN7ct9nTU5/Apr6ffjr5sGHt3lwFW61erTEluUKi2LR/ueNqYoprP+G/4kYzX8sE+j/HP5/eK1bA2STkxgV/8f+F9ZH0MKU77jofzz2nzKG/s+R/yrM0XcEQRAEQRAEQRAEQZDl8goaly4+ACgAAA==', 'base64')
 // GitHub's listings of TREE, its `lib` (TREE_LIB), SUBMODULE, CRLF and
-// CRLF_ANDROID, as
-// `git ls-tree -l` gives them: { path, mode, type, sha }, and a size for
-// a blob.
+// CRLF_ANDROID, as `git ls-tree -l` gives them: { path, mode, type, sha },
+// and a size for a blob.
 export const TREE_LIB = '5d216e498d6125ed6472ebafd65ee273f6f362d7'
 export const LISTINGS = {
   [TREE]: [

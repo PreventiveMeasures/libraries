@@ -85,30 +85,35 @@ async function holdsNothing(sha, listed) {
   return true
 }
 
-// `eol=crlf` as git writes it out, a CR before each LF with none, and its
-// undoing. Bytes are taken for written so only where undone and written
-// again they come out the same.
-const toCrlf = (text) => text.replaceAll(/(?<!\r)\n/gu, '\r\n')
-const fromCrlf = (text) => text.replaceAll('\r\n', '\n')
+// The id of the blob that `eol=crlf`, a CR written before each LF with
+// none, writes out as these bytes: theirs with each LF's CR taken out. Null
+// where no blob writes them so: an LF with no CR before it, a CR before
+// that CR, or no LF at all.
+function crlfBlobId(written) {
+  const parts = []
+  let from = 0
+  for (let lf = written.indexOf(0x0a); lf !== -1; lf = written.indexOf(0x0a, lf + 1)) {
+    if (written[lf - 1] !== 0x0d || written[lf - 2] === 0x0d) return null
+    parts.push(written.subarray(from, lf - 1))
+    from = lf
+  }
+  return parts.length === 0 ? null : objectId('blob', Buffer.concat([...parts, written.subarray(from)]))
+}
 
 // Where a directory's id is not the one listed, its listing names what
 // `git archive` wrote otherwise, as a checkout writes it. A subtree with no
 // file in it, which only plumbing makes, it leaves out: one is put back
 // only once its own listings show it holds nothing. A file marked
 // `eol=crlf` it writes with CRLF where git has LF: one is hashed as the
-// blob listed, its bytes left as written, only where they undo to that
-// blob and that blob writes them back.
+// blob listed, its bytes left as written, where that blob writes them.
 async function mend(dir, sha, listed) {
   for (const entry of await listed(sha)) {
     const here = dir.get(entry.name)
     if (entry.type === 'tree') {
       if (here instanceof Map && treeId(here).toString('hex') !== entry.sha) await mend(here, entry.sha, listed)
       else if (here === undefined && await holdsNothing(entry.sha, listed)) dir.set(entry.name, subtree(entry.sha))
-    } else if (entry.type === 'blob' && here?.body && here.id.toString('hex') !== entry.sha) {
-      const written = Buffer.from(here.body).toString('latin1')
-      const blob = fromCrlf(written)
-      if (blob === written || toCrlf(blob) !== written || objectId('blob', Buffer.from(blob, 'latin1')).toString('hex') !== entry.sha) continue
-      dir.set(entry.name, { ...here, id: Buffer.from(entry.sha, 'hex') })
+    } else if (entry.type === 'blob' && here?.crlf?.toString('hex') === entry.sha) {
+      dir.set(entry.name, { ...here, id: here.crlf })
     }
   }
 }
@@ -118,10 +123,10 @@ async function mend(dir, sha, listed) {
 // symlink's blob its target. What a tarball cannot show comes from `list`,
 // which answers a listing of a tree by its id, as GitHub's trees API does
 // ({ type, path, sha } entries), walked from `expected`: a submodule's
-// commit for an empty directory, and, where the id comes out otherwise, what
-// mend finds: the subtrees with nothing in them it leaves out, and the
-// files it wrote with CRLF for `eol=crlf`. The id is `expected` only if
-// those are right. Where there is no such tree, a reason, never an id.
+// commit for an empty directory, and, where the id comes out otherwise, the
+// subtrees with nothing in them it leaves out and the blobs of the files it
+// wrote with CRLF for `eol=crlf`. The id is `expected` only if those are
+// right. Where there is no such tree, a reason, never an id.
 export async function gitTreeOfTarball(gzipped, { expected, list } = {}) {
   let bytes
   try {
@@ -176,7 +181,7 @@ export async function gitTreeOfTarball(gzipped, { expected, list } = {}) {
     }
     if (name === null) continue
     if (dir.has(name)) return `no tree: ${JSON.stringify(path)} twice`
-    dir.set(name, type === '0' ? { mode: mode & 0o100 ? '100755' : '100644', id: objectId('blob', body), body } : { mode: '120000', id: objectId('blob', Buffer.from(target, 'latin1')) })
+    dir.set(name, type === '0' ? { mode: mode & 0o100 ? '100755' : '100644', id: objectId('blob', body), crlf: crlfBlobId(body) } : { mode: '120000', id: objectId('blob', Buffer.from(target, 'latin1')) })
   }
   if (top === undefined) return 'no tree: an empty tarball'
   const listed = async (sha) => (list && isSha1(sha) ? await list(sha) : [])

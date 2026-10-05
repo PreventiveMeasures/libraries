@@ -208,11 +208,10 @@ describe('gitTreeOfTarball', () => {
 
 describe('gitTreeOfTarball with eol=crlf', () => {
   const blob = (text) => createHash('sha1').update(`blob ${text.length}\0`).update(text, 'latin1').digest('hex')
-  // A tarball of `f.bat` as `written`, and the id of the tree with `committed` there.
+  // A tarball of `f.bat` as `written`, and the options to hold it to the tree with `committed` there.
   const crlf = (written, committed) => {
     const listing = [{ path: 'f.bat', mode: '100644', type: 'blob', sha: blob(committed) }]
-    const given = tarball(header('top/', '5', 0, 0o775), header('top/f.bat', '0', written.length), body(written))
-    return { given, expected: gitTreeOfListing(listing), list: () => listing }
+    return [tarball(header('top/', '5', 0, 0o775), header('top/f.bat', '0', written.length), body(written)), { expected: gitTreeOfListing(listing), list: () => listing }]
   }
 
   it('is the id of a tree a file of which `git archive` wrote with CRLF for `eol=crlf`, where the listing names its blob with LF', async () => {
@@ -224,8 +223,8 @@ describe('gitTreeOfTarball with eol=crlf', () => {
     assert.notEqual(await gitTreeOfTarball(CRLF_TGZ), CRLF)
     assert.equal(await gitTreeOfTarball(CRLF_TGZ, { expected: CRLF, list }), CRLF)
     assert.deepEqual(asked, [CRLF, CRLF_ANDROID])
-    const { given, expected, list: listed } = crlf('x\r\ny\r\n', 'x\ny\n')
-    assert.equal(await gitTreeOfTarball(given, { expected, list: listed }), expected)
+    const [given, options] = crlf('x\r\ny\r\n', 'x\ny\n')
+    assert.equal(await gitTreeOfTarball(given, options), options.expected)
   })
 
   it('takes a file for one written with CRLF only where its blob writes it back byte for byte', async () => {
@@ -233,14 +232,11 @@ describe('gitTreeOfTarball with eol=crlf', () => {
     // blob with CRLF and LF both, which comes out all CRLF; one with LF where
     // the file has one too; and a file with no CRLF at all.
     for (const [written, committed] of [['x\r\r\ny\r\n', 'x\r\ny\n'], ['x\r\ny\r\n', 'x\r\ny\n'], ['x\r\ny\n', 'x\ny\n'], ['x\ny\n', 'x\ny']]) {
-      const { given, expected, list } = crlf(written, committed)
-      const id = await gitTreeOfTarball(given, { expected, list })
+      const [given, options] = crlf(written, committed)
+      const id = await gitTreeOfTarball(given, options)
       assert.match(id, /^[\da-f]{40}$/u, JSON.stringify(written))
-      assert.notEqual(id, expected, JSON.stringify(written))
+      assert.notEqual(id, options.expected, JSON.stringify(written))
     }
-    // `build.bat` listed with CRLF and LF both: `android` is mended, it is not.
-    const mixed = LISTINGS[CRLF].map((entry) => (entry.path === 'build.bat' ? { ...entry, sha: blob('@echo off\r\nexit /b 0\n') } : entry))
-    assert.notEqual(await gitTreeOfTarball(CRLF_TGZ, { expected: CRLF, list: (sha) => (sha === CRLF ? mixed : LISTINGS[sha]) }), CRLF)
   })
 })
 

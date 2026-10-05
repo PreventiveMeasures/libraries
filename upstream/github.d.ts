@@ -88,16 +88,14 @@ export interface Client {
   // a subtree with no file in it, and has a file marked `eol=crlf` with
   // CRLF where git has LF, as a checkout writes it: the submodule's commit,
   // the subtrees and the blobs come from GitHub's listings of the trees,
-  // asked only then, cached or not, such a file is hashed as the blob
-  // listed only where its bytes undo to that blob and it writes them back,
-  // and the id must still come out `tree`. The bytes are GitHub's: the
-  // tree as a checkout with no `core.autocrlf` writes it, the same for
-  // every repo. So GitHub's tarball is refused for a tree with files
-  // marked `export-ignore`, which it leaves out, or `ident` or
-  // `working-tree-encoding`, which it rewrites, or `eol=crlf` on a file git
-  // has with both CRLF and LF; and from a repo set to include Git LFS
-  // objects in archives, which replace the pointers git has; that repo
-  // still gets a tree already cached, pointers and all.
+  // asked only then, cached or not, and the id must still come out `tree`.
+  // The bytes are GitHub's: the tree as a checkout with no `core.autocrlf`
+  // writes it, the same for every repo. So GitHub's tarball is refused for
+  // a tree with files marked `export-ignore`, which it leaves out, or
+  // `ident` or `working-tree-encoding`, which it rewrites, or `eol=crlf` on
+  // a file git has with both CRLF and LF; and from a repo set to include
+  // Git LFS objects in archives, which replace the pointers git has; that
+  // repo still gets a tree already cached, pointers and all.
   getRepoTreeTarball(options: { repo: RepoName; tree: string }): Promise<Uint8Array>
   // The repository's published security advisories, as GitHub's
   // repository advisory objects: every page of 100, each found by the
