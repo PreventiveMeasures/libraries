@@ -363,6 +363,43 @@ test('HTML comments and unused definitions cannot supply or contradict repositor
   }
 })
 
+test('raw HTML code and hidden blocks cannot supply repository links or definitions', () => {
+  for (const [open, close] of [
+    ['<pre>', '</pre>'], ['<SCRIPT type="text/javascript">', '</SCRIPT>'],
+    ['<textarea>', '</textarea>'], ['<style>', '</style>'],
+    ['<?processing', '?>'], ['<![CDATA[', ']]>'],
+  ]) {
+    const hidden = `${open}\nhttps://api.example.com\nhttps://github.com/other/repo\n[hidden]: https://github.com/other/repo\n${close}`
+    const text = document.replace('Something.', `Something.\n\n${hidden}\n\n[hidden]`)
+    const [report] = parseGenericMarkdownToReports(text)
+    assert.equal(report.data.repo.github, 'a/a')
+    assert.equal(report.data.findings[0].evidence.length, 1)
+    assert.ok(report.data.findings[0].description.includes(hidden), 'literal HTML remains in the narrative')
+    const withoutEvidence = text.replaceAll(/https:\/\/github.com\/a\/[^\n]+/gu, '')
+    assert.throws(() => parseGenericMarkdownToReports(withoutEvidence), /Product A.*found none/u)
+  }
+})
+
+test('raw HTML code respects list and quote boundaries and same-line closing tags', () => {
+  for (const snippet of [
+    '<pre>https://api.example.com</pre>',
+    '> <pre>\n> https://api.example.com\n> </pre>',
+    '- <pre>\n  https://api.example.com\n  </pre>',
+    '> <pre>\n> https://api.example.com',
+    '- <script>\n  https://api.example.com',
+    '- <pre>\n  https://api.example.com\n- https://github.com/a/a',
+  ]) {
+    assert.equal(parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${snippet}\n`))[0].data.repo.github, 'a/a')
+  }
+  for (const snippet of [
+    '<div>Raw HTML</div>\n\n[source](https://github.com/other/repo)',
+    '> <pre>\n> https://api.example.com\nhttps://github.com/other/repo',
+    '- <pre>\n  https://api.example.com\n- https://github.com/other/repo',
+  ]) {
+    assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${snippet}`)), /exactly one repository/u)
+  }
+})
+
 test('reference definitions resolve across finding partitions without attributing unused definitions', () => {
   const text = document.replace('https://github.com/a/a/blob/abcdef012345/c/d/e.js#L100-L110', '[code][a-ref]')
     + '\n\n[a-ref]: https://github.com/a/a/blob/abcdef012345/c/d/e.js#L100-L110'
@@ -378,9 +415,6 @@ for (const [label, prose] of [
   ['excess trailing parentheses', 'https://github.com/a/a' + ')'.repeat(50_000)],
   ['nested shortcut labels with an available reference', '['.repeat(32_000) + 'x' + ']'.repeat(32_000) + '\n\n[ref]: https://github.com/a/a'],
   ['nested explicit reference labels', '[label][' + '['.repeat(32_000) + 'x' + ']'.repeat(32_000) + ']\n\n[ref]: https://github.com/a/a'],
-  ['deeply nested quoted prose', '> '.repeat(32_000) + 'https://github.com/a/a'],
-  ['deeply nested quoted code', ['~~~sh', 'curl https://api.example.com', '~~~'].map(line => '> '.repeat(10_000) + line).join('\n')],
-  ['alternating nested quotes and lists', '> - '.repeat(10_000) + '> https://github.com/a/a'],
 ]) {
   test(`repository inference stays bounded for ${label}`, () => {
     const text = document.replace('Something.', prose)
@@ -391,5 +425,21 @@ for (const [label, prose] of [
     // CPU time avoids penalizing a busy CI host. The former suffix scan took
     // seconds even for 4,000 candidates; indexed collection needs one pass.
     assert.ok(took < 1000, `${text.length} characters took ${took.toFixed(0)}ms of CPU`)
+  })
+}
+
+for (const [label, prose] of [
+  ['deeply nested quoted prose', '> '.repeat(32_000) + 'https://github.com/a/a'],
+  ['deeply nested quoted code', ['~~~sh', 'curl https://api.example.com', '~~~'].map(line => '> '.repeat(10_000) + line).join('\n')],
+  ['alternating nested quotes and lists', '> - '.repeat(10_000) + '> https://github.com/a/a'],
+  ['directly nested list items', '- '.repeat(16_000) + 'https://github.com/a/a'],
+  ['directly nested quoted list items', '> ' + '* '.repeat(16_000) + 'https://github.com/a/a'],
+  ['mixed nested list items ending in a rule', '- '.repeat(16_000) + '* * *'],
+]) {
+  test(`rejects ${label} promptly without importing a partial report`, () => {
+    const started = process.cpuUsage()
+    assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', prose)), /Markdown nesting limit exceeded/u)
+    const { user, system } = process.cpuUsage(started)
+    assert.ok((user + system) / 1000 < 1000, `${label} exceeded 1 second of CPU`)
   })
 }

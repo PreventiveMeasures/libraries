@@ -244,9 +244,7 @@ export function stripBold(text) { return text.replaceAll('**', '') }
 // `index` comes back too, so a caller can ask that the value START with
 // a link (parse-deepview-fields.js readLink) rather than take the first
 // one in the line (parse-md.js).
-// Generic prose collectors opt into balanced/empty labels and optional titles;
-// legacy report readers keep their permissive, frozen path-label reading.
-export function findMdLink(s, { balancedLabels = false, allowEmptyLabel = false, allowTitle = false } = {}) {
+export function findMdLink(s) {
   const text = String(s ?? '')
   // Where each reading would CLOSE, read off the text once rather than
   // rescanned per candidate: every reading here scans to the end when
@@ -259,42 +257,15 @@ export function findMdLink(s, { balancedLabels = false, allowEmptyLabel = false,
     // The first `]` after this `[`. Carried forward, not looked up
     // again: `open` only advances, so this does too.
     while (plain !== -1 && plain <= open) plain = text.indexOf(']', plain + 1)
-    for (const close of balancedLabels ? [labels.get(open) ?? -1] : [plain, labels.get(open) ?? -1]) {
+    for (const close of [plain, labels.get(open) ?? -1]) {
       // An EMPTY label is no label: `![](badge.svg)` ahead of a
       // reference is a badge, and the link wanted is the one behind it.
-      if (close === -1 || (!allowEmptyLabel && close === open + 1) || text[close + 1] !== '(') continue
-      const link = linkDestination(text, close + 1, dests, allowTitle)
-      if (link) return { label: text.slice(open + 1, close), url: link.url, index: open, ...(allowTitle ? { end: link.end } : {}) }
+      if (close === -1 || close === open + 1 || text[close + 1] !== '(') continue
+      const url = destination(text, close + 1, dests)
+      if (url !== null) return { label: text.slice(open + 1, close), url, index: open }
     }
   }
   return null
-}
-
-// Prose collectors already know each balanced label's closing bracket. Share
-// one destination index across those candidates instead of rescanning suffixes.
-export function createMdLinkReader(text) {
-  const dests = destinationEnds(text)
-  return (close) => text[close + 1] === '(' ? linkDestination(text, close + 1, dests, true) : null
-}
-
-function linkDestination(text, open, dests, allowTitle) {
-  const url = destination(text, open, dests)
-  if (url === null) return allowTitle ? titledDestination(text, open, dests) : null
-  return { url, end: open + 2 + url.length + (text[open + 1] === '<' ? 2 : 0) }
-}
-
-function titledDestination(text, open, dests) {
-  const angled = text[open + 1] === '<'
-  const start = open + (angled ? 2 : 1)
-  const end = angled ? dests.nextAngle[start] : dests.titleStarts.get(open)
-  if (end === undefined || end === -1 || end === start) return null
-  const after = end + (angled ? 1 : 0)
-  if (!dests.titleEnds.has(after)) {
-    const title = /^\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\))\s*\)/u.exec(text.slice(after))
-    dests.titleEnds.set(after, title ? after + title[0].length : null)
-  }
-  const close = dests.titleEnds.get(after)
-  return close === null ? null : { url: text.slice(start, end), end: close }
 }
 
 // Every `[` paired with the `]` that closes it once its brackets
@@ -358,7 +329,7 @@ function destinationEnds(text) {
     nextAngle[i] = text[i] === '>' ? i : nextAngle[i + 1]
     nextLine[i] = text[i] === '\n' ? i : nextLine[i + 1]
   }
-  const balanced = new Map(), titleStarts = new Map()
+  const balanced = new Map()
   const open = []
   for (let i = 0; i < n; i++) {
     const c = text[i]
@@ -367,16 +338,11 @@ function destinationEnds(text) {
     // bare destination — read as an escape, `[badge](not\ a-url)` would
     // be a link, and a reference behind it never reached.
     if (escapes(text, i)) i++
-    else if (nextSpace[i] === i) {
-      // Only the innermost unmatched '(' has a balanced URL before this
-      // whitespace. Record that boundary once for optional link titles.
-      if (open.length) titleStarts.set(open.at(-1), i)
-      open.length = 0
-    }
+    else if (nextSpace[i] === i) open.length = 0
     else if (c === '(') open.push(i)
     else if (c === ')' && open.length > 0) balanced.set(open.pop(), i)
   }
-  return { balanced, nextClose, nextSpace, nextAngle, nextLine, titleStarts, titleEnds: new Map() }
+  return { balanced, nextClose, nextSpace, nextAngle, nextLine }
 }
 
 // The destination opened at `open`, as its url, or null: an

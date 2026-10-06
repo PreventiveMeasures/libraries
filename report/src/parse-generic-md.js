@@ -1,12 +1,22 @@
-import { genericMarkdownReferences, genericMarkdownUrls } from './parse-generic-md-links.js'
-import { genericMarkdownIdBasis } from './parse-generic-md-id.js'
+import MarkdownIt from 'markdown-it'
 import { H2_RE, H3_RE, isCommitHash, normalizeNewlines, splitLeading, unescapeMd, unfencedMatches } from './md-structure.js'
 
 const SOURCE = 'markdown-generic'
 const COLUMNS = ['#', 'id', 'product', 'priority', 'vulnerability']
 const PRIORITIES = { P0: 'critical', P1: 'high', P2: 'medium', P3: 'low', P4: 'informational' }
 
+const markdown = new MarkdownIt({ html: true, linkify: true })
+markdown.linkify.set({ fuzzyLink: false, fuzzyEmail: false })
+
 function fail(message) { throw new Error(`Markdown (generic): ${message}`) }
+
+function tokenize(text, env) {
+  const tokens = markdown.parse(text, env)
+  // The tokenizer stops at its nesting limit. Reject instead of importing a
+  // partial token stream that could omit repository links after that point.
+  if (tokens.some((token) => token.level >= markdown.options.maxNesting - 1)) fail('Markdown nesting limit exceeded')
+  return tokens
+}
 
 // Escaped pipes belong to a cell, including product names and titles.
 function cells(line) {
@@ -54,6 +64,13 @@ function indexRows(rows) {
   return byId
 }
 
+function repositoryUrls(tokens) {
+  // Images, code, raw HTML and unused definitions have no link_open tokens.
+  return [...new Set(tokens.flatMap((block) => (block.children ?? [])
+    .filter((token) => token.type === 'link_open')
+    .map((token) => token.attrGet('href'))))]
+}
+
 function repositoryLink(raw, product) {
   let url
   try { url = new URL(raw) } catch { fail(`product "${product}" has an invalid repository link: ${raw}`) }
@@ -75,12 +92,17 @@ function repositoryLink(raw, product) {
   return { repo, evidence, ref: parts[3] }
 }
 
-function findingFromBlock(row, body, rawSection, references) {
+function findingFromBlock(row, body, rawSection, env) {
   const { subs } = splitLeading(body, H3_RE)
   const title = subs.find((section) => section.heading.trim().toLowerCase() === 'title')?.body.trim()
   if (!title) fail(`finding ${row.id} has no Title section`)
   const finding = {
-    sourceId: row.id, _idBasis: genericMarkdownIdBasis(row.raw, rawSection), product: row.product, priority: row.priority.toUpperCase(),
+    sourceId: row.id,
+    // FROZEN identity contract: original row + complete raw partition, with
+    // only normalized newlines and trimmed boundaries. Keep key order stable.
+    // Severity mapping and presentation parsing must never enter this basis.
+    _idBasis: { source: SOURCE, row: row.raw.trim(), section: rawSection.trim() },
+    product: row.product, priority: row.priority.toUpperCase(),
     file: 'unknown', line: '?', severity: PRIORITIES[row.priority.toUpperCase()],
     description: title,
   }
@@ -97,7 +119,7 @@ function findingFromBlock(row, body, rawSection, references) {
     else narrative.push(key === 'description' ? content.trim() : `**${heading.trim()}:**\n${content.trim()}`)
   }
   finding.description = narrative.join('\n\n')
-  const links = genericMarkdownUrls(`${row.vulnerability}\n${body}`, references).map((url) => repositoryLink(url, row.product))
+  const links = repositoryUrls(tokenize(`${row.vulnerability}\n${body}`, env)).map((url) => repositoryLink(url, row.product))
   const evidence = links.flatMap((link) => link.evidence ? [link.evidence] : [])
   if (evidence.length) {
     const [first] = evidence
@@ -122,7 +144,9 @@ export function parseGenericMarkdownToReports(content) {
   if (!marks.some((mark) => /^\d+\.\s+\S+/u.test(mark[1])) && (marks.length || text.startsWith('# '))) return null
   const rows = summaryRows(text.slice(0, marks[0]?.index))
   if (rows === null) return null
-  const references = genericMarkdownReferences(text)
+  // Share document-level reference definitions across finding partitions.
+  const env = {}
+  tokenize(text, env)
   const byId = indexRows(rows), parsed = new Map(), seen = new Set()
   for (const [i, mark] of marks.entries()) {
     const heading = mark[1]
@@ -132,7 +156,7 @@ export function parseGenericMarkdownToReports(content) {
     if (!id || !byId.has(id)) fail(`finding section "${heading}" is not in the summary table`)
     if (seen.has(id)) fail(`duplicate finding section ${id}`)
     seen.add(id)
-    parsed.set(id, findingFromBlock(byId.get(id), body, section, references))
+    parsed.set(id, findingFromBlock(byId.get(id), body, section, env))
   }
   for (const id of byId.keys()) if (!seen.has(id)) fail(`missing finding section ${id}`)
   return [...Map.groupBy(rows, (row) => row.product)].map(([product, records]) => {

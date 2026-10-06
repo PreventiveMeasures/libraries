@@ -29,8 +29,7 @@ const FENCE_RE = /^( *)(`{3,}|~{3,})(.*)$/u
 // A line that interrupts a paragraph — an ATX heading, a quote, a
 // thematic break — and so can't continue one lazily (fences, HTML
 // blocks and list markers are asked about apart).
-const INTERRUPT_RE = /^ {0,3}(?:#{1,6}(?:[ \t]|$)|>|([-*_])(?:[ \t]*\1){2,}[ \t]*$)/u
-const THEMATIC_RE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/u
+const INTERRUPT_RE = /^ {0,3}(?:#{1,6}(?:[ \t]|$)|>)/u
 // A setext underline, which makes the paragraph above it a heading.
 const SETEXT_RE = /^ {0,3}(?:=+|-+)[ \t]*$/u
 // A list marker and the gap to its text; `m[0].length` is the column
@@ -71,7 +70,7 @@ const HTML_TAG_LINE_RE = /^(?:<[A-Za-z][\dA-Za-z-]*(?:\s+[:A-Z_a-z][\w.:-]*(?:\s
 // lazily or not; and when the line is in the paragraph's own block
 // (`within`), not short of it, an ordered item has to start at 1, and a
 // setext underline ends the paragraph as a heading — lazily, it's text.
-function opener(rest, paragraph, within = paragraph) {
+function opener(rest, paragraph, within, thematic) {
   const lead = /^ */u.exec(rest)[0].length
   if (lead > 3) return null
   if (paragraph && within && SETEXT_RE.test(rest)) return true
@@ -83,19 +82,37 @@ function opener(rest, paragraph, within = paragraph) {
     if (m) return { html: ends, close: typeof close === 'function' ? close(m) : close }
   }
   if (!paragraph && HTML_TAG_LINE_RE.test(tag)) return { html: BLANK_RE, close: null }
-  const item = THEMATIC_RE.test(rest) ? null : LIST_MARKER_RE.exec(rest)
+  const item = thematic ? null : LIST_MARKER_RE.exec(rest)
   if (item && !(paragraph && within && /^ *(?:\d*[02-9]|\d+\d)[.)]/u.test(item[0]))) {
     // Five spaces or more after the marker are one, and indented code.
     const gap = / +$/u.exec(item[0])[0].length
     return { item: gap > 4 ? item[0].length - gap + 1 : item[0].length }
   }
   // An empty item can't interrupt a paragraph.
-  const empty = THEMATIC_RE.test(rest) || (paragraph && within) ? null : EMPTY_ITEM_RE.exec(rest)
+  const empty = thematic || (paragraph && within) ? null : EMPTY_ITEM_RE.exec(rest)
   if (empty) return { item: empty[0].trimEnd().length + 1 }
-  return INTERRUPT_RE.test(rest) || null
+  return thematic || INTERRUPT_RE.test(rest) || null
 }
 
-export { opener as markdownBlockOpener }
+// Every container reads a suffix of the same line. Index its trailing run of
+// identical rule markers once, so a long list such as "- - - ... text" never
+// rescans that run at each nesting level to distinguish a rule from a list.
+function createMarkdownBlockReader(line) {
+  let count = 0, marker, start = line.length, third = -1
+  for (let i = line.length - 1; i >= 0; i--) {
+    const char = line[i]
+    if (char === ' ' || char === '\t') { start = i; continue }
+    if (!marker && (char === '-' || char === '*' || char === '_')) marker = char
+    if (char !== marker) break
+    if (++count === 3) third = i
+    start = i
+  }
+  return (rest, paragraph, within = paragraph) => {
+    const offset = line.length - rest.length
+    const thematic = offset >= start && offset <= third && /^ {0,3}[-*_]/u.test(rest)
+    return opener(rest, paragraph, within, thematic)
+  }
+}
 
 export function fenceRanges(text) {
   return readFences(text).ranges
@@ -103,12 +120,12 @@ export function fenceRanges(text) {
 
 // Whether a quoted line holds paragraph text, past its `>`s and any
 // list markers inside — `paragraph` if one is already open there.
-function quotedText(line, paragraph) {
+function quotedText(line, paragraph, readBlock) {
   let text = line.replace(/^(?: {0,3}> ?)+/u, '')
-  let opens = opener(text, paragraph)
+  let opens = readBlock(text, paragraph)
   while (opens?.item) {
     text = text.slice(opens.item)
-    opens = opener(text, false)
+    opens = readBlock(text, false)
   }
   return text.trim() !== '' && !opens && /^ */u.exec(text)[0].length < 4
 }
@@ -116,9 +133,8 @@ function quotedText(line, paragraph) {
 // fenceRanges, and the line that would close what the text leaves open
 // at its end — a fence, or an HTML block a line can end — at the margin
 // of the item it sits in; null when nothing such is open.
-export function readFences(text, { includeIndented = false, includeQuotes = false } = {}) {
+export function readFences(text) {
   const ranges = []
-  const quotes = []
   // The open fence, by where it began and its run; or the open HTML
   // block, by what ends it and the text that would; and the margin of
   // the item either sits in, 0 at the top level.
@@ -178,25 +194,22 @@ export function readFences(text, { includeIndented = false, includeQuotes = fals
     while (depth > 0 && indent < items[depth - 1]) depth--
     let margin = depth > 0 ? items[depth - 1] : 0
     let rest = line.slice(margin)
+    const readBlock = createMarkdownBlockReader(line)
     // Plain text straight under a paragraph continues it — lazily if it
     // starts short of the paragraph's item — and every item stands.
     // Anything else leaves the items it starts short of.
-    let opens = opener(rest, lazy, depth === items.length && !quoted)
+    let opens = readBlock(rest, lazy, depth === items.length && !quoted)
     if (lazy && !opens) continue
     items.length = depth
     // Markers open items, each in the last ("- 1. x" opens two), and
     // what follows is read from the innermost one's margin.
-    const newItem = Boolean(opens?.item)
     while (opens?.item) {
       margin += opens.item
       rest = rest.slice(opens.item)
       items.push(margin)
-      opens = opener(rest, false)
+      opens = readBlock(rest, false)
     }
     fresh = rest.trim() === ''
-    // Link collectors also need literal indented code. Keep the default fence
-    // contract unchanged for heading splitters and existing identity parsers.
-    if (includeIndented && /^ {4}/u.test(rest)) ranges.push([start, start + line.length])
     if (opens?.fence) [open, marker, inside] = [start, opens.fence, margin]
     else if (opens?.html) [html, inside] = [opens.html.test(rest) ? null : { ends: opens.html, close: opens.close }, margin]
     // Paragraph text or not: not a heading, rule or anything opened
@@ -209,23 +222,11 @@ export function readFences(text, { includeIndented = false, includeQuotes = fals
     // paragraph — to underline it, or start a list — is taken as yes.
     const inQuote = lazy && quoted
     quoted = /^ {0,3}>/u.test(rest)
-    if (includeQuotes && quoted) appendQuote(quotes, rest, start, start + line.length, margin, newItem)
-    lazy = quoted ? quotedText(rest, inQuote) : !opens && !fresh && /^ */u.exec(rest)[0].length < 4
+    lazy = quoted ? quotedText(rest, inQuote, readBlock) : !opens && !fresh && /^ */u.exec(rest)[0].length < 4
   }
   if (open !== -1) ranges.push([open, text.length])
   const close = open === -1 ? html?.close : marker
-  return { ranges, closer: close ? ' '.repeat(inside) + close : null, ...(includeQuotes ? { quotes } : {}) }
-}
-
-// Read quotes at their list item's margin. Sibling items start separate quote
-// blocks even at the same margin, so an unclosed fence cannot swallow a sibling.
-function appendQuote(quotes, rest, start, end, margin, newItem) {
-  const text = rest.replace(/^ {0,3}> ?/u, '')
-  const previous = quotes.at(-1)
-  if (previous && previous.end + 1 === start && previous.margin === margin && !newItem) {
-    previous.end = end
-    previous.text += '\n' + text
-  } else quotes.push({ start, end, margin, text })
+  return { ranges, closer: close ? ' '.repeat(inside) + close : null }
 }
 
 // Whether `line` closes a fence opened with the run `marker`: the same
