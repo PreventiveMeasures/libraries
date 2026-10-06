@@ -21,7 +21,7 @@ function links(text) {
     const anchor = /^#L(\d+)(?:-L?(\d+))?$/u.exec(url.hash)
     let directory = kind === 'blob' ? path.slice(0, -1) : kind === 'tree' ? path : []
     try { directory = directory.map(decodeURIComponent) } catch { requireSupported(false, 'repository directory encoding') }
-    requireSupported(directory.every((part) => part === part.trim() && !/[\\/?#\p{Cc}]/u.test(part)), 'repository directory')
+    requireSupported(directory.every((part) => part === part.trim() && !/[\\/:?#\p{Cc}]/u.test(part)), 'repository directory')
     return { repo, ref, directory, ...(kind === 'blob' && path.length && { evidence: { file: path.join('/'), line: anchor ? anchor.slice(1).filter(Boolean).join('-') : '?', url: raw } }) }
   })
 }

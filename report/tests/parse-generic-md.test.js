@@ -189,6 +189,17 @@ test('rejects empty code-reference path components while accepting repository-ro
   }
 })
 
+test('rejects Windows drive and stream syntax in repository directories', () => {
+  for (const kind of ['blob', 'tree']) {
+    for (const directory of ['C%3A/Windows/System32', 'C:/Windows/System32', 'C%3Arelative', 'src/name%3Astream']) {
+      const path = kind === 'blob' ? `${directory}/file.js` : directory
+      const text = document.replace('blob/abcdef012345/c/d/e.js', `${kind}/abcdef012345/${path}`)
+      assert.throws(() => parseGenericMarkdownToReports(text), /unsupported repository directory/u)
+      assert.equal(readReport(text).data, null)
+    }
+  }
+})
+
 test('generic findings survive a Markdown export with IDs, repositories and narratives', async () => {
   const loaded = await loadFindings(document)
   const findings = loaded.findings.map((f) => ({ ...f, source: loaded.data.source }))
