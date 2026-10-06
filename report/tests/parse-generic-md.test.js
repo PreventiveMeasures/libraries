@@ -275,8 +275,21 @@ test('quoted prose links still participate in repository validation', () => {
     '1. > https://github.com/other/repo',
     '- > ~~~sh\n  > curl https://api.example.com\n- > https://github.com/other/repo',
     '> > ~~~sh\n> > curl https://api.example.com\n> https://github.com/other/repo',
+    '> Paragraph\nlazy continuation\n>     https://github.com/other/repo',
   ]) {
     assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${snippet}`)), /exactly one repository/u)
+  }
+})
+
+test('quote and list boundaries keep literal nested markers in their code blocks', () => {
+  for (const snippet of [
+    '> ~~~sh\n> > https://api.example.com\n> ~~~',
+    '> 1. ~~~sh\n>    https://api.example.com\n> Actual prose.',
+    '> - > ~~~sh\n>   > https://api.example.com\n> - > Actual prose.',
+  ]) {
+    const [report] = parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${snippet}`))
+    assert.equal(report.data.repo.github, 'a/a')
+    assert.equal(report.data.findings[0].evidence.length, 1)
   }
 })
 
@@ -334,6 +347,8 @@ test('ordinary references, including definitions shared with images, validate re
     '[other]\n\n[other]: https://github.com/other/repo',
     '![proof][other] and [repo][other]\n\n[other]: https://github.com/other/repo',
     '[![proof][img]][other]\n\n[img]: https://images.example.com/proof.png\n[other]: https://github.com/other/repo',
+    '[nested [label]][other]\n\n[other]: https://github.com/other/repo',
+    '[escaped\\[label\\]]\n\n[escaped\\[label\\]]: https://github.com/other/repo',
   ]) {
     assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${reference}`)), /exactly one repository/u)
   }
@@ -361,6 +376,11 @@ for (const [label, prose] of [
   ['nested unclosed links before a titled link', '[a]('.repeat(12_500) + 'https://github.com/a/a "repo")'],
   ['many valid inline links', '[code](https://github.com/a/a) '.repeat(6_000)],
   ['excess trailing parentheses', 'https://github.com/a/a' + ')'.repeat(50_000)],
+  ['nested shortcut labels with an available reference', '['.repeat(32_000) + 'x' + ']'.repeat(32_000) + '\n\n[ref]: https://github.com/a/a'],
+  ['nested explicit reference labels', '[label][' + '['.repeat(32_000) + 'x' + ']'.repeat(32_000) + ']\n\n[ref]: https://github.com/a/a'],
+  ['deeply nested quoted prose', '> '.repeat(32_000) + 'https://github.com/a/a'],
+  ['deeply nested quoted code', ['~~~sh', 'curl https://api.example.com', '~~~'].map(line => '> '.repeat(10_000) + line).join('\n')],
+  ['alternating nested quotes and lists', '> - '.repeat(10_000) + '> https://github.com/a/a'],
 ]) {
   test(`repository inference stays bounded for ${label}`, () => {
     const text = document.replace('Something.', prose)

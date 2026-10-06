@@ -1,26 +1,10 @@
-import { createMdLinkReader, findMdLink, readFences, unescapeMd } from './md-structure.js'
+import { createMdLinkReader, findMdLink, unescapeMd } from './md-structure.js'
+import { withoutMarkdownCodeBlocks } from './md-prose.js'
 
 // Code examples are not report links. Pair inline backtick runs by length,
 // including multiline spans, without treating unmatched backticks as code.
 function withoutCode(text) {
-  text = text.replace(/^[ \t]+/gmu, (indent) => {
-    let columns = 0
-    for (const char of indent) columns += char === '\t' ? 4 - columns % 4 : 1
-    return ' '.repeat(columns)
-  })
-  const prose = []
-  let from = 0
-  const { ranges, quotes } = readFences(text, { includeIndented: true, includeQuotes: true })
-  const blocks = [...ranges.map(([start, end]) => ({ start, end })), ...quotes].sort((a, b) => a.start - b.start)
-  for (const { start, end, text: quote } of blocks) {
-    prose.push(text.slice(from, start))
-    // Strip one quote container at a time, keeping nested and sibling fence
-    // lifetimes separate from references outside those containers.
-    if (quote !== undefined) prose.push(withoutCode(quote))
-    from = end
-  }
-  prose.push(text.slice(from))
-  text = prose.join('\n')
+  text = withoutMarkdownCodeBlocks(text)
   const runs = [...text.matchAll(/`+/gu)]
   const closes = new Map(), next = new Map()
   for (let i = runs.length - 1; i >= 0; i--) {
@@ -29,7 +13,7 @@ function withoutCode(text) {
     next.set(length, i)
   }
   const parts = []
-  from = 0
+  let from = 0
   for (let i = 0; i < runs.length; i++) {
     if (!closes.has(i)) continue
     // Escaped backticks cannot open a span (backslashes within a span are literal).
@@ -49,7 +33,7 @@ function referenceText(text) {
   text = withoutCode(text).replace(/<!--[\s\S]*?(?:-->|$)/gu, '')
   // Definitions are not rendered links. Only ordinary references to them
   // contribute evidence; images and unused definitions do not.
-  text = text.replace(/^ {0,3}\[((?:\\.|[^\]\\\n])+)\]:[ \t]*(?:\n[ \t]*)?([^\n]+)(?:\n[ \t]+((?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\))))?$/gmu, (raw, label, destination, title) => {
+  text = text.replace(/^ {0,3}\[((?:\\.|[^\]\\\n[])+)\]:[ \t]*(?:\n[ \t]*)?([^\n]+)(?:\n[ \t]+((?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\))))?$/gmu, (raw, label, destination, title) => {
     const link = findMdLink(`[ref](${destination}${title ? ` ${title}` : ''})`, { allowTitle: true })
     if (!link) return raw
     const key = referenceKey(label)
@@ -67,7 +51,8 @@ export function genericMarkdownReferences(text) { return referenceText(text).ref
 export function genericMarkdownUrls(content, references) {
   const { refs, text } = referenceText(content)
   const urls = []
-  const ends = bracketEnds(text), plain = []
+  const { ends, nested } = bracketEnds(text)
+  const plain = []
   const readLink = createMdLinkReader(text)
   const lookup = references ?? refs
   let from = 0
@@ -83,7 +68,11 @@ export function genericMarkdownUrls(content, references) {
       if (!lookup.size) continue
       const refStart = close + 1
       const refEnd = ends.get(refStart)
-      const label = refEnd !== undefined && refEnd > refStart + 1 ? text.slice(refStart + 1, refEnd) : text.slice(i + 1, close)
+      const explicit = refEnd !== undefined && refEnd > refStart + 1
+      // Reference labels cannot contain unescaped brackets. Reject them from
+      // indexed structure, before slicing or normalizing overlapping labels.
+      if (nested.has(explicit ? refStart : i)) continue
+      const label = explicit ? text.slice(refStart + 1, refEnd) : text.slice(i + 1, close)
       const url = lookup.get(referenceKey(label))
       if (!url) continue
       link = { url }
@@ -116,11 +105,14 @@ function escaped(text, index) {
 }
 
 function bracketEnds(text) {
-  const ends = new Map(), stack = []
+  const ends = new Map(), nested = new Set(), stack = []
   for (let i = 0; i < text.length; i++) {
     if (text[i] === '\\') { i++; continue }
     if (text[i] === '[') stack.push(i)
-    else if (text[i] === ']' && stack.length) ends.set(stack.pop(), i)
+    else if (text[i] === ']' && stack.length) {
+      ends.set(stack.pop(), i)
+      if (stack.length) nested.add(stack.at(-1))
+    }
   }
-  return ends
+  return { ends, nested }
 }

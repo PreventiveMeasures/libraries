@@ -95,6 +95,8 @@ function opener(rest, paragraph, within = paragraph) {
   return INTERRUPT_RE.test(rest) || null
 }
 
+export { opener as markdownBlockOpener }
+
 export function fenceRanges(text) {
   return readFences(text).ranges
 }
