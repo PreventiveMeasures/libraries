@@ -25,6 +25,7 @@ export const SOURCE_LABELS = {
   'codex-security': 'Codex Security',
   'deepsec': 'DeepSec',
   'piolium': 'Piolium',
+  'markdown-generic': 'Markdown (generic)',
 }
 
 // An unknown tier prints as itself rather than vanishing: a report can

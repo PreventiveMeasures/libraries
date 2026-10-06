@@ -402,12 +402,16 @@ describe('the npm → GitHub repo cache, held to the same formats', () => {
 })
 
 describe('resolvePackageRepos, at the registry', () => {
-  it('asks a few at a time, not all at once', async () => {
+  it('asks a few at a time, not all at once', { timeout: 10_000 }, async () => {
     let inFlight = 0
     let most = 0
+    const firstBatch = Promise.withResolvers()
     globalThis.fetch = async (url) => {
       inFlight++
       most = Math.max(most, inFlight)
+      // Let all eight workers start, even if their cache reads take more than 5 ms.
+      if (inFlight === 8) firstBatch.resolve()
+      await firstBatch.promise
       await new Promise((resolve) => { setTimeout(resolve, 5) })
       inFlight--
       const name = decodeURIComponent(String(url).replace('https://registry.npmjs.org/', '').replace(/\/latest$/u, ''))
