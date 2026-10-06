@@ -146,6 +146,10 @@ function findingFromBlock(row, body, rawSection) {
     file: 'unknown', line: '?', severity: PRIORITIES[row.priority.toUpperCase()],
     description: title,
   }
+  // Header semantics are separate from the current format guard: if other
+  // summary headers are accepted later, Vulnerability still declares security
+  // involvement regardless of the priority-to-severity mapping.
+  if (Object.hasOwn(row, 'vulnerability')) finding.security = true
   const narrative = [title]
   for (const { heading, body: content } of subs) {
     const key = heading.trim().toLowerCase()

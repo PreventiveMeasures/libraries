@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { SOURCE_LABELS, analyzeReport, detectFormat, isAppFinding, loadFindings, parseGenericMarkdownToReports, readReport, writeMarkdown } from '../index.js'
+import { SOURCE_LABELS, analyzeReport, detectFormat, isAppFinding, isSecurityFinding, loadFindings, parseGenericMarkdownToReports, readReport, writeMarkdown } from '../index.js'
 
 const summary = `| # | ID | Product | Priority | Vulnerability |
 |---:|---|---|---|---|
@@ -207,5 +207,17 @@ test('indented paragraph and list continuations remain actual links', () => {
     '1. More evidence:\n\n    https://github.com/other/repo',
   ]) {
     assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${extra}`)), /exactly one repository/u)
+  }
+})
+
+test('Vulnerability is required and explicitly marks findings as security at every severity', () => {
+  assert.equal(parseGenericMarkdownToReports(document.replace('| Vulnerability |', '| Finding |')), null)
+  const reports = parseGenericMarkdownToReports(document.replaceAll('| P0 |', '| P4 |').replaceAll('| P1 |', '| P4 |').replace('| Title A. |', '| |'))
+  for (const { data } of reports) {
+    for (const finding of data.findings) {
+      assert.equal(finding.severity, 'informational')
+      assert.equal(finding.security, true, 'the header alone declares security, even with an empty summary cell')
+      assert.equal(isSecurityFinding(finding, data.source), true)
+    }
   }
 })

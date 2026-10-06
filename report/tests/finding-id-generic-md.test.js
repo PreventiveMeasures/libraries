@@ -39,6 +39,7 @@ test('severity mapping, field parsing and repository inference cannot re-key imp
     reproduction: 'New interpretation', recommendation: 'Different patch',
     file: 'new/path.js', line: '42', repo: { github: 'different/inference' },
     evidence: [], sourceId: 'different parsed label',
+    security: false,
   })
   assert.equal(await deriveFindingId(finding), ID)
   assert.equal((await loadFindings(JSON.stringify({ findings: [finding] }))).findings[0].id, ID)
