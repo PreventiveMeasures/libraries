@@ -40,6 +40,10 @@ describe('getRepo', () => {
       { repository: 'git@GitHub.com:acme/app.git' },
       { repository: 'ssh://git@github.com:22/acme/app.git' },
       { repository: 'https://github.com:443/acme/app.git' },
+      // The shorthand drops `.git` as the URLs do.
+      { repository: 'github:acme/app.git' },
+      { repository: 'acme/app.git' },
+      { repository: { url: 'acme/app.git#v1.2.3' } },
       { bugs: 'https://github.com:443/acme/app/issues' },
       { homepage: 'https://github.com:443/acme/app#readme' },
       { homepage: 'https://GitHub.com/acme/app#readme' },

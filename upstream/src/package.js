@@ -6,8 +6,8 @@ import { githubRepoOfUrl } from './remote.js'
 const bugsRegex = /^(?i:https?:\/\/github\.com)(?::\d{1,5})?\/(?<repo>[\w-]+\/[\w.-]+)\/issues\/?$/u
 // npm's `owner/name` shorthand means GitHub. No dots in the owner, so a
 // domain (`srvx.h3.dev/srvx`) isn't read as one; another forge's prefix
-// (`gitlab:`) can't match.
-const shorthandRegex = /^(?:github:)?(?<repo>[\w-]+\/[\w.-]+)$/u
+// (`gitlab:`) can't match. A `.git` is dropped, as the URLs drop it.
+const shorthandRegex = /^(?:github:)?(?<repo>[\w-]+\/[\w.-]+?)(?:\.git)?$/u
 // The ref is one segment: a branch with a `/` reads as part of the directory.
 const homepageRegex = /^(?:https?:\/\/)?(?:www\.)?github\.com(?::\d{1,5})?\/(?<repo>[\w-]+\/[\w.-]+?)(?:\.git)?(?:\/(?:tree\/[^/]+(?:\/(?<directory>.*))?)?)?$/iu
 const str = (value) => (typeof value === 'string' ? value : '')
