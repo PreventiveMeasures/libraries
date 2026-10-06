@@ -1,6 +1,6 @@
 {
   "name": "@preventive/lockfile",
-  "version": "1.0.0-alpha.6",
+  "version": "1.0.0-alpha.7",
   "description": "Strict lockfile readers: pnpm-lock.yaml v9, package-lock.json v3, yarn.lock v1, soldeer.lock, foundry.lock, Cargo.lock v3 and v4, uv.lock, poetry.lock, pylock.toml, Gemfile.lock, Podfile.lock and composer.lock, checked field by field, their packages and graphs resolved, with Cargo.toml, vendored copies and cargo's features, and the YAML, TOML and Rust semver parsers beside them",
   "type": "module",
   "exports": {
