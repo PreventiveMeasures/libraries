@@ -114,6 +114,24 @@ test('summary links retain inline table context and document-scoped references',
   }
 })
 
+test('escaped image markers in summary cells retain their ordinary links', () => {
+  for (const cell of ['\\![repo](https://github.com/other/repo)', '\\![repo][summary-repo]']) {
+    const text = document.replace('| Title A. |', `| ${cell} |`)
+      + '\n\n[summary-repo]: https://github.com/other/repo'
+    assert.throws(() => parseGenericMarkdownToReports(text), /Product A.*exactly one repository/u, cell)
+  }
+})
+
+test('summary images and escaped code delimiters keep their Markdown meaning', () => {
+  for (const cell of ['![repo](https://images.example.com/proof.png)', '![repo][summary-image]']) {
+    const text = document.replace('| Title A. |', `| ${cell} |`)
+      + '\n\n[summary-image]: https://images.example.com/proof.png'
+    assert.equal(parseGenericMarkdownToReports(text)[0].data.repo.github, 'a/a')
+  }
+  const text = document.replace('| Title A. |', '| \\` https://github.com/other/repo \\` |')
+  assert.throws(() => parseGenericMarkdownToReports(text), /Product A.*exactly one repository/u)
+})
+
 test('keeps fenced headings, nested steps, and arbitrary reproduction heading suffixes', () => {
   const snippet = '\n```md\n## 30. FAKE-01\n### Patch\nexample\n```\n'
   const [report] = parseGenericMarkdownToReports(document.replace('Description AAA-02.', 'Description AAA-02.' + snippet))

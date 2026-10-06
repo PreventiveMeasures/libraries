@@ -20,17 +20,17 @@ function tokenize(text, env) {
 
 // Escaped pipes belong to a cell, including product names and titles.
 function cells(line) {
-  return line.trim().replace(/^\|/u, '').replace(/\|$/u, '').split(/(?<!\\)\|/u).map((cell) => unescapeMd(cell.trim()))
+  return line.trim().replace(/^\|/u, '').replace(/\|$/u, '').split(/(?<!\\)\|/u).map((cell) => cell.trim())
 }
 
 function summaryRows(text) {
   const lines = unfencedMatches(text, /^ {0,3}\|[^\n]*$/gmu)
   const start = lines.findIndex(([line]) => {
-    const names = cells(line).map((cell) => cell.toLowerCase())
+    const names = cells(line).map((cell) => unescapeMd(cell).toLowerCase())
     return names.length === COLUMNS.length && COLUMNS.every((name) => names.includes(name))
   })
   if (start === -1) return null
-  const header = cells(lines[start][0]).map((cell) => cell.toLowerCase())
+  const header = cells(lines[start][0]).map((cell) => unescapeMd(cell).toLowerCase())
   const separator = lines[start + 1]
   if (!separator || separator.index !== lines[start].index + lines[start][0].length + 1
     || cells(separator[0]).length !== header.length || !cells(separator[0]).every((cell) => /^:?-{3,}:?$/u.test(cell))) {
@@ -41,7 +41,9 @@ function summaryRows(text) {
     if (lines[i].index !== lines[i - 1].index + lines[i - 1][0].length + 1) break
     const values = cells(lines[i][0])
     if (values.length !== header.length) fail('invalid summary table row')
-    rows.push({ ...Object.fromEntries(header.map((key, j) => [key, values[j]])), raw: lines[i][0] })
+    // Vulnerability is Markdown, while the other columns are structured values.
+    // Decoding its escapes here could change a rendered link into an image.
+    rows.push({ ...Object.fromEntries(header.map((key, j) => [key, key === 'vulnerability' ? values[j] : unescapeMd(values[j])])), raw: lines[i][0] })
   }
   if (!rows.length) fail('summary table has no findings')
   return rows
