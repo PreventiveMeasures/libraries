@@ -404,6 +404,8 @@ describe('the npm → GitHub repo cache, held to the same formats', () => {
   it('refuses to write what a lookup would never answer', async () => {
     await assert.rejects(writePackageRepoCache('lodash', 'lodash/..'), /github must be "owner\/name"/u)
     await assert.rejects(writePackageRepoCache('lodash', 'lodash'), /github must be "owner\/name"/u)
+    // The reader discards a `.git` slug, so the writer refuses one: whatever it writes reads back.
+    await assert.rejects(writePackageRepoCache('lodash', 'lodash/lodash.git'), /github must be "owner\/name" with no trailing "\.git"/u)
     await assert.rejects(writePackageRepoCache('lodash', 'lodash/lodash', '../etc'), /directory must be a path inside the repository/u)
     await assert.rejects(writePackageRepoCache('../lodash', 'lodash/lodash'), /name must be an npm package name/u)
     await assert.rejects(readPackageRepoCache(['lodash']), /name must be an npm package name/u)

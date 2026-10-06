@@ -71,7 +71,9 @@ export function resolvePackageRepos(packageNames: Iterable<string>, options?: { 
 // The disk cache resolvePackageRepos reads and writes, a month per entry.
 // A read answers null for anything but a usable entry, one written by a
 // release that resolved repos by other rules included; a write answers
-// false where it could not write, and never throws.
+// false where it could not write, and never throws. A write takes the
+// `github` a lookup gives, `owner/name` with no trailing `.git`, so what
+// it writes reads back.
 export function readPackageRepoCache(name: string): Promise<PackageRepo | null>
 export function writePackageRepoCache(name: string, github: string, directory?: string): Promise<boolean>
 

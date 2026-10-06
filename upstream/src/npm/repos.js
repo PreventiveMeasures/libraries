@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { assertNames, assertPackageName, assertRepo, isRepo } from '../args.js'
+import { assertNames, assertPackageName, assertion, isRepo } from '../args.js'
 import { readRecord, writeRecord } from '../cache.js'
 import { isNotFound, recover } from '../http.js'
 import { assertRepoDirectory, getRepo, isRepoDirectory } from '../package.js'
@@ -18,6 +18,8 @@ const VERSION = 3
 // A slug a lookup gives: getRepo answers no repo ending in `.git`, the
 // suffix it drops (withoutDotGit; `.GIT` it keeps, and so does this).
 const isLookedUpRepo = (github) => isRepo(github) && !github.endsWith('.git')
+// A write takes no slug a read would discard: whatever it writes reads back.
+const assertLookedUpRepo = assertion('"owner/name" with no trailing ".git"', isLookedUpRepo)
 
 // `latest`, not the full packument, which is megabytes of version history.
 const fetchRepo = async (method, name) => getRepo(await getDocument(method, name, 'latest'))
@@ -45,7 +47,7 @@ export async function readPackageRepoCache(name) {
 // no repo link fail alike.
 export async function writePackageRepoCache(name, github, directory = '') {
   assertPackageName('writePackageRepoCache', 'name', name)
-  assertRepo('writePackageRepoCache', 'github', github)
+  assertLookedUpRepo('writePackageRepoCache', 'github', github)
   assertRepoDirectory('writePackageRepoCache', 'directory', directory)
   return await writeRecord(DIR, name, { v: VERSION, github, directory })
 }
