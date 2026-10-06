@@ -18,7 +18,9 @@ function links(text) {
       && [owner, name].every((part) => part && /^[\w-][\w.-]*$/u.test(part)), 'repository URL')
     const repo = `${owner}/${name.replace(/\.git$/iu, '')}`.toLowerCase()
     const anchor = /^#L(\d+)(?:-L?(\d+))?$/u.exec(url.hash)
-    const directory = kind === 'blob' ? path.slice(0, -1) : kind === 'tree' ? path : []
+    let directory = kind === 'blob' ? path.slice(0, -1) : kind === 'tree' ? path : []
+    try { directory = directory.map(decodeURIComponent) } catch { requireSupported(false, 'repository directory encoding') }
+    requireSupported(directory.every((part) => part === part.trim() && !/[\\/?#\p{Cc}]/u.test(part)), 'repository directory')
     return { repo, ref, directory, ...(kind === 'blob' && path.length && { evidence: { file: path.join('/'), line: anchor ? anchor.slice(1).filter(Boolean).join('-') : '?', url: raw } }) }
   })
 }

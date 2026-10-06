@@ -150,6 +150,31 @@ test('common directories respect path segments, file parents and repository-root
   }
 })
 
+test('common directories decode URL components once before comparing references', () => {
+  for (const [path, directory] of [
+    ['packages/foo%20bar/src', 'packages/foo bar/src'],
+    ['packages/caf%C3%A9/src', 'packages/café/src'],
+    ['packages/literal%2520/src', 'packages/literal%20/src'],
+  ]) {
+    const url = `https://github.com/a/a/blob/abcdef012345/${path}/a.js#L100-L110`
+    const text = document.replace('https://github.com/a/a/blob/abcdef012345/c/d/e.js#L100-L110', url)
+      .replace('Code references:', `Code references:\n\nhttps://github.com/a/a/tree/main/${path.replace('packages', '%70ackages')}`)
+    const [report] = parseGenericMarkdownToReports(text)
+    assert.equal(report.data.repo.directory, directory)
+    assert.equal(report.data.findings[0].location, url)
+    assert.equal(report.data.findings[0].evidence[0].url, url)
+    assert.equal(report.data.findings[0]._idBasis.section, text.slice(text.indexOf('## 1.'), text.indexOf('## 2.')).trim())
+  }
+})
+
+test('rejects malformed or ambiguous encoded directories with an unsupported error', () => {
+  for (const path of ['bad%', '%FF', 'foo%2Fbar', 'foo%5Cbar', 'foo%00bar', 'foo%23bar', 'foo%3Fbar', '%20foo']) {
+    const text = document.replace('c/d/e.js', `packages/${path}/e.js`)
+    assert.throws(() => parseGenericMarkdownToReports(text), /Markdown \(generic\): unsupported repository directory/u)
+    assert.equal(readReport(text).data, null)
+  }
+})
+
 test('generic findings survive a Markdown export with IDs, repositories and narratives', async () => {
   const loaded = await loadFindings(document)
   const findings = loaded.findings.map((f) => ({ ...f, source: loaded.data.source }))
