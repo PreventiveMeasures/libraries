@@ -182,30 +182,132 @@ for (const [label, text] of invalid) {
   })
 }
 
-test('rejects unsupported Markdown instead of interpreting it', () => {
-  for (const snippet of [
-    '`code`', '```md\n## 30. FAKE-01\n```', '~~~\nexample\n~~~',
-    '<pre>example</pre>', '<!-- hidden -->', '> quoted text', '    indented code',
-    '[link](https://github.com/a/a)', '![image](https://github.com/a/a)',
-    '[ref]: https://github.com/a/a', '\\![escaped image](https://github.com/a/a)',
-    'Text with https://github.com/a/a embedded.',
-  ]) {
-    assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', snippet)), /unsupported/u, snippet)
-  }
-  for (const cell of ['<pre>', '~~~', '<!--', '`', '\\![repo](https://github.com/other/repo)']) {
-    assert.throws(() => parseGenericMarkdownToReports(document.replace('| Title A. |', `| ${cell} |`)), /unsupported/u)
+test('keeps inline code and arrows inside Attack Scenario and stops at the next section', async () => {
+  const scenario = 'Foo `code` --> something happens --> something else happens'
+  const text = document.replace('### Attack Scenario\n\nText', `### Attack Scenario\n\n${scenario}`)
+  const reports = parseGenericMarkdownToReports(text)
+  const finding = reports[0].data.findings[0]
+  assert.ok(finding.description.includes(`**Attack Scenario:**\n${scenario}`))
+  assert.equal(finding.reproduction, '1. Step 1\n2. Step 2 text\n   continuation of step 2.\n3. Step 3')
+  assert.equal(finding.recommendation, 'Text')
+  assert.equal(reports[1].data.findings[0].sourceId, 'BBB-05')
+  assert.equal(finding._idBasis.section, text.slice(text.indexOf('## 1.'), text.indexOf('## 2.')).trim())
+  const loaded = await loadFindings(text)
+  const exported = await loadFindings(writeMarkdown({ title: 'Audit', groups: loaded.findings.map(f => [{ ...f, source: loaded.data.source }]) }))
+  assert.deepEqual(exported.findings.map(f => f.id), loaded.findings.map(f => f.id))
+  assert.ok(exported.findings[0].description.includes(scenario))
+})
+
+test('fenced code remains raw section text, including tables and URLs', () => {
+  for (const fence of ['```', '~~~']) {
+    const code = `${fence}perl\n${summary}\nFoo \`code\` --> bar\nhttps://github.com/other/repo\ncurl https://api.example.com\n${fence}`
+    const text = document.replace('### Attack Scenario\n\nText', `### Attack Scenario\n\n${code}`)
+    const reports = parseGenericMarkdownToReports(text)
+    const finding = reports[0].data.findings[0]
+    assert.deepEqual(reports.map(({ data }) => data.repo.github), ['a/a', 'a/b'])
+    assert.ok(finding.description.includes(`**Attack Scenario:**\n${code}`))
+    assert.equal(finding.evidence.length, 1)
+    assert.equal(finding.recommendation, 'Text')
+    assert.equal(finding._idBasis.section, text.slice(text.indexOf('## 1.'), text.indexOf('## 2.')).trim())
+    assert.match(finding.reproduction, /^1\. Step 1/u)
   }
 })
 
-test('rejects hidden summary metadata and section headings', async () => {
-  for (const text of [
-    `<!--\n${summary}\n-->\n\n${first}\n\n${second}`,
-    document.replace('Something.', '<!--\n## 3. AAA-03\n-->'),
+test('preserves free-form section prose, inline examples and indented code', () => {
+  const prose = '> Quoted prose --> followed by `curl https://api.example.com`.\n\n    https://github.com/other/repo\n    print("<code>")\n\nBackslash: \\ and entity: &amp;'
+  const [report] = parseGenericMarkdownToReports(document.replace('Something.', prose))
+  assert.ok(report.data.findings[0].description.includes(prose))
+  assert.equal(report.data.repo.github, 'a/a')
+})
+
+test('keeps URLs inside multi-backtick and multiline code spans out of repository evidence', () => {
+  for (const code of [
+    '``https://api.example.com``',
+    '``literal `backticks` and https://api.example.com``',
+    '`curl\nhttps://api.example.com`',
+    '``curl\nhttps://github.com/other/repo``',
   ]) {
-    assert.throws(() => parseGenericMarkdownToReports(text), /unsupported/u)
-    assert.equal(readReport(text).data, null)
-    assert.equal(await loadFindings(text), null)
+    const scenario = `Run ${code} --> continue.`
+    const text = document.replace('### Attack Scenario\n\nText', `### Attack Scenario\n\n${scenario}`)
+    const [report] = parseGenericMarkdownToReports(text)
+    const finding = report.data.findings[0]
+    assert.equal(report.data.repo.github, 'a/a')
+    assert.equal(finding.evidence.length, 1)
+    assert.ok(finding.description.includes(scenario))
+    assert.ok(finding._idBasis.section.includes(scenario))
+    assert.match(finding.reproduction, /^1\. Step 1/u)
   }
+})
+
+const opaqueExamples = [
+  '[x`]: /relative\nhttps://github.com/other/repo\nmatching ` closer',
+  'Unmatched ` opener\n01. https://github.com/other/repo\n01. matching ` closer',
+  '<!foo\nhttps://github.com/other/repo\n>',
+  'Unmatched ` opener\n> https://github.com/other/repo\n> matching ` closer',
+  '- item\n\n    https://github.com/other/repo',
+  '-\titem\n\n\thttps://github.com/other/repo',
+  '| ` opener | https://github.com/other/repo | ` closer |\n|---|---|---|',
+]
+
+test('body text is opaque and only Code references determines repository evidence', () => {
+  for (const prose of opaqueExamples) {
+    const [report] = parseGenericMarkdownToReports(document.replace('Something.', prose))
+    const finding = report.data.findings[0]
+    assert.equal(report.data.repo.github, 'a/a')
+    assert.equal(finding.evidence.length, 1)
+    assert.ok(finding.description.includes(prose))
+    assert.ok(finding._idBasis.section.includes(prose))
+  }
+  const [report] = parseGenericMarkdownToReports(document.replace('| Title A. |', '| https://github.com/other/repo |'))
+  assert.equal(report.data.repo.github, 'a/a', 'summary text also cannot supply repository evidence')
+})
+
+test('Code references rejects Markdown and other non-URL text without guessing', () => {
+  for (const text of [...opaqueExamples, '`https://github.com/other/repo`', '[code](https://github.com/other/repo)', '```\nhttps://github.com/other/repo\n```', 'Explanation.']) {
+    const input = document.replace('Code references:\n', `Code references:\n${text}\n`)
+    assert.throws(() => parseGenericMarkdownToReports(input), /unsupported.*link syntax/u)
+  }
+})
+
+const requiredHeaders = ['Title', 'Description', 'Root Cause', 'Code references:', 'Attack Scenario', 'Steps to Reproduce in the test environment', 'Impact', 'Patch']
+for (const header of requiredHeaders) {
+  test(`requires exactly one ${header} header in every finding`, () => {
+    const line = header === 'Code references:' ? header : `### ${header}`
+    for (const replacement of ['', `${line}\n\n${line}`]) {
+      assert.throws(() => parseGenericMarkdownToReports(document.replace(`\n${line}\n`, `\n${replacement}\n`)), /unsupported.*(?:missing|required|duplicate)/u)
+    }
+  })
+}
+
+test('accepts plain, bold and heading forms of required headers and reproduction suffixes', () => {
+  for (const style of [label => `${label}:`, label => `**${label}:**`, label => `###### ${label.toUpperCase()}: ######`]) {
+    let input = document
+    for (const header of requiredHeaders) {
+      const line = header === 'Code references:' ? header : `### ${header}`
+      input = input.replaceAll(`\n${line}\n`, `\n${style(header.replace(/:$/u, ''))}\n`)
+    }
+    const [report] = parseGenericMarkdownToReports(input)
+    assert.equal(report.data.findings[0].recommendation, 'Text')
+    assert.match(report.data.findings[0].reproduction, /^1\. Step 1/u)
+    assert.equal(report.data.repo.github, 'a/a')
+  }
+})
+
+test('rejects header-looking body content that duplicates or invents report structure', () => {
+  for (const text of ['## 99. FAKE-01', '### Patch', 'Code references:']) {
+    for (const [open, close] of [['```md', '```'], ['<!--', '-->']]) {
+      const input = document.replace('Something.', `${open}\n${text}\n${close}`)
+      assert.throws(() => parseGenericMarkdownToReports(input), /unsupported/u)
+    }
+  }
+  assert.throws(() => parseGenericMarkdownToReports(document.replace('### Title', 'Unexpected preamble\n\n### Title')), /text before field headers/u)
+})
+
+test('hidden summary metadata cannot supply a report', async () => {
+  const text = `<!--\n${summary}\n-->\n\n${first}\n\n${second}`
+  assert.throws(() => parseGenericMarkdownToReports(text), /unsupported/u)
+  assert.equal(readReport(text).data, null)
+  assert.equal(await loadFindings(text), null)
 })
 
 test('leaves other formats alone', () => {

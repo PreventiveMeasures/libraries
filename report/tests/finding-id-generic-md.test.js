@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { deriveFindingId, loadFindings, readReport } from '../index.js'
 
-const document = `| # | ID | Product | Priority | Vulnerability |
+const legacyDocument = `| # | ID | Product | Priority | Vulnerability |
 |---:|---|---|---|---|
 | 1 | AAA-02 | Product A | P0 | Title A. |
 
@@ -18,7 +18,19 @@ Code references:
 
 https://github.com/a/a/blob/abcdef0/src/a.js#L10-L20
 `
-const ID = 'e558bcf0-cffe-4412-8182-3fbbe9590490'
+const document = legacyDocument.replace('### Root Cause', '### Description\n\nDescription.\n\n### Root Cause')
+  + '\n### Attack Scenario\n\nScenario.\n\n### Steps to Reproduce\n\n1. Reproduce.\n\n### Impact\n\nImpact.\n\n### Patch\n\nPatch.\n'
+// Captured with the old parser, before required-header assertions were added.
+const ID = '91ccbb37-63b4-4e17-bc8f-b058a3d2c59b'
+
+test('the original frozen ID remains stable for already imported incomplete reports', async () => {
+  const finding = { _idBasis: {
+    source: 'markdown-generic',
+    row: '| 1 | AAA-02 | Product A | P0 | Title A. |',
+    section: legacyDocument.slice(legacyDocument.indexOf('## 1.')).trim(),
+  } }
+  assert.equal(await deriveFindingId(finding), 'e558bcf0-cffe-4412-8182-3fbbe9590490')
+})
 
 test('generic finding IDs hash the original summary row and complete raw partition', async () => {
   const { findings } = await loadFindings(document)
