@@ -1,5 +1,5 @@
 import { genericMarkdownIdBasis } from './parse-generic-md-id.js'
-import { H2_RE, H3_RE, findMdLink, isCommitHash, normalizeNewlines, splitLeading, unescapeMd, unfencedMatches } from './md-structure.js'
+import { H2_RE, H3_RE, fenceRanges, findMdLink, isCommitHash, normalizeNewlines, splitLeading, unescapeMd, unfencedMatches } from './md-structure.js'
 
 const SOURCE = 'markdown-generic'
 const COLUMNS = ['#', 'id', 'product', 'priority', 'vulnerability']
@@ -53,11 +53,45 @@ function indexRows(rows) {
   return byId
 }
 
+// Code examples are not report links. Pair inline backtick runs by length,
+// including multiline spans, without treating unmatched backticks as code.
+function withoutCode(text) {
+  const prose = []
+  let from = 0
+  for (const [start, end] of fenceRanges(text)) {
+    prose.push(text.slice(from, start))
+    from = end
+  }
+  prose.push(text.slice(from))
+  text = prose.join('\n')
+  const runs = [...text.matchAll(/`+/gu)]
+  const closes = new Map(), next = new Map()
+  for (let i = runs.length - 1; i >= 0; i--) {
+    const length = runs[i][0].length
+    if (next.has(length)) closes.set(i, next.get(length))
+    next.set(length, i)
+  }
+  const parts = []
+  from = 0
+  for (let i = 0; i < runs.length; i++) {
+    if (!closes.has(i)) continue
+    // Escaped backticks cannot open a span (backslashes within a span are literal).
+    let slashes = 0
+    for (let j = runs[i].index - 1; text[j] === '\\'; j--) slashes++
+    if (slashes % 2) continue
+    parts.push(text.slice(from, runs[i].index))
+    i = closes.get(i)
+    from = runs[i].index + runs[i][0].length
+  }
+  parts.push(text.slice(from))
+  return parts.join(' ')
+}
+
 // Preserve Markdown link destinations with parentheses in their paths. Bare
 // URLs and autolinks are accepted too; trailing prose punctuation is not a URL.
 function urlsIn(text) {
   const urls = []
-  for (let line of text.split('\n')) {
+  for (let line of withoutCode(text).split('\n')) {
     const plain = []
     let link
     while ((link = findMdLink(line))) {

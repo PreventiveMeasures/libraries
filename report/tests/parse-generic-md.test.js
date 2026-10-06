@@ -167,3 +167,23 @@ for (const label of ['Code references:', '### Code references', '#### Code refer
     assert.deepEqual(reports.map(({ data }) => data.repo.github), ['a/a', 'a/b'])
   })
 }
+
+for (const snippet of [
+  '```sh\ncurl https://api.example.com\n```',
+  '~~~md\n[unrelated](https://github.com/other/repo/blob/main/a.js)\n~~~',
+  '`curl https://api.example.com`',
+  '``curl `https://api.example.com`\nhttps://github.com/other/repo``',
+  '1. Run the command\n   ```sh\n   curl https://api.example.com\n   ```',
+]) {
+  test(`ignores code example URLs when inferring repositories: ${snippet.split('\n')[0]}`, () => {
+    const [report] = parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${snippet}`))
+    assert.equal(report.data.repo.github, 'a/a')
+    assert.equal(report.data.findings[0].evidence.length, 1)
+    assert.ok(report.data.findings[0].description.includes(snippet), 'example remains in the finding narrative')
+  })
+}
+
+test('keeps actual Markdown links with code-formatted labels', () => {
+  const text = document.replace('https://github.com/a/a/blob/abcdef012345/c/d/e.js#L100-L110', '[`c/d/e.js`](https://github.com/a/a/blob/abcdef012345/c/d/e.js#L100-L110)')
+  assert.equal(parseGenericMarkdownToReports(text)[0].data.findings[0].file, 'c/d/e.js')
+})
