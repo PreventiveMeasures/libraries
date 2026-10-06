@@ -46,7 +46,9 @@
 // FILENAME (`.csv`) when given one; the readers are single-report and
 // don't take it. A codex export goes through `parseCodexCsvToScans`,
 // which splits it into one JSON-shaped report per scan, and each of
-// those reads through the readers like any other JSON report.
+// those reads through the readers like any other JSON report. Generic Markdown
+// can also contain multiple products: readReport reads all findings, while
+// parseGenericMarkdownToReports validates and splits it into product reports.
 //
 // THIS FILE IS THE WHOLE SURFACE. The modules live in `src/` and the
 // package exports one path — `@preventive/report`, this file — so
@@ -79,6 +81,7 @@
 
 import { parseDeepsecFindings } from './src/parse-deepsec.js'
 import { parseDeepviewMarkdown } from './src/parse-deepview-md.js'
+import { parseGenericMarkdown } from './src/parse-generic-md.js'
 import { parseMarkdownFindings } from './src/parse-md.js'
 import { parsePioliumFindings } from './src/parse-piolium.js'
 import { deriveFindingId } from './src/finding-id.js'
@@ -88,6 +91,7 @@ import { normalizeFindingSeverity } from './src/severity.js'
 // splitter, the id helpers the analyzer shares with the viewer, and the
 // run-meta projection a caller applies to the findings it loads.
 export { parseCodexCsvToScans } from './src/parse-codex.js'
+export { parseGenericMarkdownToReports } from './src/parse-generic-md.js'
 export { computeFileHash, deriveFindingId, findingId } from './src/finding-id.js'
 export { META_FIELDS, inheritReportMeta, repoDirectory, reportRepoGithub } from './src/meta.js'
 export { stampSecurityGroups } from './src/security.js'
@@ -137,6 +141,7 @@ export { isHttpUrl } from './src/md-text.js'
 // marker (the analyzer's own dump carries `type` instead).
 const MARKDOWN_FORMATS = [
   ['deepview-md', parseDeepviewMarkdown],
+  ['markdown-generic', parseGenericMarkdown],
   ['deepsec', parseDeepsecFindings],
   ['piolium', parsePioliumFindings],
   ['claude-security', parseMarkdownFindings],
@@ -163,7 +168,7 @@ export function reportEntries(data) {
 }
 
 // Which producer wrote `content` — 'json' / 'deepview-md' / 'deepsec' /
-// 'piolium' / 'claude-security' / 'codex', or null when nothing
+// 'piolium' / 'markdown-generic' / 'claude-security' / 'codex', or null when nothing
 // recognises it.
 //
 // `filename` is optional and decides only codex: a `.csv` is a codex
@@ -203,8 +208,13 @@ export function readReport(content) {
     jsonError = err
   }
   for (const [format, parse] of MARKDOWN_FORMATS) {
-    const data = parse(content)
-    if (data) return { data, format, reason: null }
+    try {
+      const data = parse(content)
+      if (data) return { data, format, reason: null }
+    } catch (err) {
+      if (format !== 'markdown-generic') throw err
+      return { data: null, format, reason: err.message }
+    }
   }
   return {
     data: null,

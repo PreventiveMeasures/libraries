@@ -19,3 +19,5 @@ export function detectFormat(content: string, filename?: string): string | null
 export function parseCodexCsvToScans(content: string): { displayName: string, data: { type: string, source: string, findings: unknown[] } }[]
 
 export function backfillFindingIds(findings: Record<string, unknown>[]): Promise<void>
+
+export function parseGenericMarkdownToReports(content: string): { displayName: string, data: { type: string, source: string, product: string, repo: { github: string }, findings: any[] } }[] | null
