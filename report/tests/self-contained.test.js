@@ -4,10 +4,10 @@ import { sep } from 'node:path'
 import { describe, it } from 'node:test'
 
 // `report/` is text in, data out — and data in, text out. It runs in the
-// triage viewer as much as under node, so it imports its own modules plus
-// markdown-it, a browser-compatible tokenizer, and no node: builtin. Keep that
-// exception explicit: an unrelated package or parent-directory import must
-// still fail this boundary check.
+// triage viewer as much as under node, so it imports only its own modules:
+// no dependency, and no node: builtin. It came here from triage, whose own
+// suite guarded the same boundary there; a single `../` or `node:` import
+// is all it takes to undo, and either reads as harmless in a diff.
 const PKG_DIR = new URL('../', import.meta.url)
 const SRC_DIR = new URL('src/', PKG_DIR)
 
@@ -79,23 +79,22 @@ describe('report/ ships every module it has', () => {
   })
 })
 
-describe('report/ keeps its browser-compatible dependency boundary', () => {
+describe('report/ is self-contained and needs no node:', () => {
   it('has files to check', () => {
     // A typo'd directory or an extension this stopped matching would make
     // every assertion below vacuously pass.
     assert.ok(files.length > 20, `expected the report/ modules, found ${files.length}`)
   })
 
-  it('declares only the Markdown tokenizer dependency', () => {
-    assert.deepEqual(Object.keys(manifest.dependencies), ['markdown-it'])
+  it('declares no dependencies', () => {
+    assert.equal(manifest.dependencies, undefined)
     assert.equal(manifest.peerDependencies, undefined)
   })
 
   for (const file of files) {
     const name = file.href.slice(PKG_DIR.href.length)
-    it(`${name} imports only local modules or its declared Markdown tokenizer`, () => {
+    it(`${name} imports nothing outside report/`, () => {
       for (const spec of specifiersOf(readFileSync(file, 'utf8'))) {
-        if (name === 'src/parse-generic-md.js' && spec === 'markdown-it') continue
         assert.ok(spec.startsWith('.'), `${name} imports ${spec}: report/ imports only its own modules`)
         assert.ok(new URL(spec, file).href.startsWith(PKG_DIR.href), `${name} imports ${spec}, which is outside report/`)
       }

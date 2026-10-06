@@ -96,61 +96,6 @@ test('infers a product repo across findings even when one has no links', () => {
   assert.equal(readReport(text).data.repo.github, 'a/a')
 })
 
-test('summary cells cannot hide a conflicting repository in their finding body', () => {
-  for (const cell of ['<pre>', '~~~', '<!--', '`']) {
-    const text = document.replace('| Title A. |', `| ${cell} |`)
-      .replace('| 8 |', '| 3 | AAA-03 | Product A | P2 | Another. |\n| 8 |')
-      .replace('https://github.com/a/a/blob/', 'https://github.com/other/repo/blob/')
-      + '\n\n' + block(3, 'AAA-03', 'Product A', 'a/a')
-    assert.throws(() => parseGenericMarkdownToReports(text), /Product A.*exactly one repository/u, cell)
-  }
-})
-
-test('summary links retain inline table context and document-scoped references', () => {
-  for (const cell of ['~~~ https://github.com/other/repo', '[source][summary-repo]']) {
-    const text = document.replace('| Title A. |', `| ${cell} |`)
-      + '\n\n[summary-repo]: https://github.com/other/repo'
-    assert.throws(() => parseGenericMarkdownToReports(text), /Product A.*exactly one repository/u, cell)
-  }
-})
-
-test('escaped image markers in summary cells retain their ordinary links', () => {
-  for (const cell of ['\\![repo](https://github.com/other/repo)', '\\![repo][summary-repo]']) {
-    const text = document.replace('| Title A. |', `| ${cell} |`)
-      + '\n\n[summary-repo]: https://github.com/other/repo'
-    assert.throws(() => parseGenericMarkdownToReports(text), /Product A.*exactly one repository/u, cell)
-  }
-})
-
-test('summary images and escaped code delimiters keep their Markdown meaning', () => {
-  for (const cell of ['![repo](https://images.example.com/proof.png)', '![repo][summary-image]']) {
-    const text = document.replace('| Title A. |', `| ${cell} |`)
-      + '\n\n[summary-image]: https://images.example.com/proof.png'
-    assert.equal(parseGenericMarkdownToReports(text)[0].data.repo.github, 'a/a')
-  }
-  const text = document.replace('| Title A. |', '| \\` https://github.com/other/repo \\` |')
-  assert.throws(() => parseGenericMarkdownToReports(text), /Product A.*exactly one repository/u)
-})
-
-test('keeps fenced headings, nested steps, and arbitrary reproduction heading suffixes', () => {
-  const snippet = '\n```md\n## 30. FAKE-01\n### Patch\nexample\n```\n'
-  const [report] = parseGenericMarkdownToReports(document.replace('Description AAA-02.', 'Description AAA-02.' + snippet))
-  assert.ok(report.data.findings[0].description.includes(snippet.trim()))
-  assert.equal(report.data.findings[0].recommendation, 'Text')
-})
-
-test('reads Markdown and angle links, parentheses in file paths, and escaped table cells', () => {
-  const text = document.replaceAll('Product A', 'Product \\| A').replace(
-    'https://github.com/a/a/blob/abcdef012345/c/d/e.js#L100-L110',
-    '[code](https://github.com/A/A/blob/main/app/(main)/[id]/page.ts#L10-L20)\n<https://github.com/a/a/blob/main/second.js#L4>',
-  )
-  const [report] = parseGenericMarkdownToReports(text)
-  assert.equal(report.displayName, 'Product | A')
-  assert.equal(report.data.findings[0].file, 'app/(main)/[id]/page.ts')
-  assert.equal(report.data.findings[0].evidence.length, 2)
-  assert.equal(report.data.findings[0].commitHash, undefined)
-})
-
 test('generic findings survive a Markdown export with IDs, repositories and narratives', async () => {
   const loaded = await loadFindings(document)
   const findings = loaded.findings.map((f) => ({ ...f, source: loaded.data.source }))
@@ -159,39 +104,6 @@ test('generic findings survive a Markdown export with IDs, repositories and narr
   assert.deepEqual(result.findings.map((f) => f.repo), findings.map((f) => f.repo))
   assert.equal(result.findings[0].reproduction, findings[0].reproduction)
   assert.equal(result.findings[0].recommendation, 'Text')
-})
-
-const invalid = [
-  ['multiple repositories', document.replace('https://github.com/a/b/blob/abcdef012345/f/g/h.js', 'https://github.com/a/other/blob/abcdef012345/f/g/h.js'), /Product B.*exactly one repository/u],
-  ['same prefix across products', document.replaceAll('BBB-05', 'AAA-05'), /prefix "AAA-" is shared/u],
-  ['multiple prefixes within a product', document.replaceAll('Product B', 'Product A'), /Product A.*multiple ID prefixes/u],
-  ['no repository', document.replaceAll(/https:\/\/[^\n]+/gu, ''), /Product A.*found none/u],
-  ['missing body', `${summary}\n\n${first}`, /missing finding section BBB-05/u],
-  ['unlisted body', `${document}\n\n${block(3, 'CCC-01', 'C', 'c/c')}`, /not in the summary/u],
-  ['duplicate body', `${document}\n\n${first}`, /duplicate finding section AAA-02/u],
-  ['duplicate summary ID', document.replace('| 8 |', '| 2 | AAA-02 | Product A | P0 | Duplicate. |\n| 8 |'), /duplicate summary ID/u],
-  ['invalid priority', document.replace('| P0 |', '| P7 |'), /unknown priority/u],
-  ['missing title', document.replace('### Title', '### Other'), /no Title section/u],
-  ['repo prefix lookalike', document.replace('https://github.com/a/b/blob/abcdef012345/f/g/h.js', 'https://github.com/a/b-other/blob/abcdef012345/f/g/h.js'), /exactly one repository/u],
-  ['external link in narrative', document.replace('### Impact', 'https://example.com/docs\n\n### Impact'), /outside a GitHub repository/u],
-  ['foreign link before Markdown link', document.replace('Something.', 'https://github.com/other/repo [code](https://github.com/a/a/blob/main/a.js)'), /exactly one repository/u],
-  ['GitHub hostname lookalike', document.replace('https://github.com/a/a/', 'https://github.com.example.com/a/a/'), /outside a GitHub repository/u],
-]
-
-for (const [label, text, error] of invalid) {
-  test(`rejects ${label} without returning partial reports`, async () => {
-    assert.throws(() => parseGenericMarkdownToReports(text), error)
-    assert.equal(readReport(text).data, null)
-    assert.match(readReport(text).reason, error)
-    assert.equal(detectFormat(text), 'markdown-generic')
-    assert.equal(await loadFindings(text), null)
-  })
-}
-
-test('leaves other formats alone, including fenced examples of the summary', () => {
-  for (const text of ['ordinary prose', '# Claude finding\n\n## Details\n\nText', `# Example\n\n\`\`\`md\n${document}\n\`\`\``]) {
-    assert.equal(parseGenericMarkdownToReports(text), null)
-  }
 })
 
 test('a generic-looking preamble table does not shadow a Claude finding', () => {
@@ -216,7 +128,7 @@ test('sectionless Claude findings retain their parser despite generic-looking ta
 
 test('bare and partially populated generic tables still diagnose missing finding bodies', () => {
   for (const text of [summary, `# Security audit\n\n${summary}\n\n${first}`]) {
-    assert.throws(() => parseGenericMarkdownToReports(text), /missing finding section/u)
+    assert.throws(() => parseGenericMarkdownToReports(text), /missing finding sections/u)
     assert.equal(readReport(text).data, null)
     assert.equal(readReport(text).format, 'markdown-generic')
   }
@@ -232,48 +144,6 @@ for (const label of ['Code references:', '### Code references', '#### Code refer
   })
 }
 
-for (const snippet of [
-  '```sh\ncurl https://api.example.com\n```',
-  '~~~md\n[unrelated](https://github.com/other/repo/blob/main/a.js)\n~~~',
-  '`curl https://api.example.com`',
-  '``curl `https://api.example.com`\nhttps://github.com/other/repo``',
-  '1. Run the command\n   ```sh\n   curl https://api.example.com\n   ```',
-]) {
-  test(`ignores code example URLs when inferring repositories: ${snippet.split('\n')[0]}`, () => {
-    const [report] = parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${snippet}`))
-    assert.equal(report.data.repo.github, 'a/a')
-    assert.equal(report.data.findings[0].evidence.length, 1)
-    assert.ok(report.data.findings[0].description.includes(snippet), 'example remains in the finding narrative')
-  })
-}
-
-test('keeps actual Markdown links with code-formatted labels', () => {
-  const text = document.replace('https://github.com/a/a/blob/abcdef012345/c/d/e.js#L100-L110', '[`c/d/e.js`](https://github.com/a/a/blob/abcdef012345/c/d/e.js#L100-L110)')
-  assert.equal(parseGenericMarkdownToReports(text)[0].data.findings[0].file, 'c/d/e.js')
-})
-
-for (const snippet of [
-  '    curl https://api.example.com\n    echo https://github.com/other/repo',
-  '\tcurl https://api.example.com',
-  '1. Run the command\n\n       curl https://api.example.com\n       echo https://github.com/other/repo',
-]) {
-  test(`ignores indented code URLs: ${snippet.split('\n')[0]}`, () => {
-    const [report] = parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${snippet}`))
-    assert.equal(report.data.repo.github, 'a/a')
-    assert.equal(report.data.findings[0].evidence.length, 1)
-  })
-}
-
-test('indented paragraph and list continuations remain actual links', () => {
-  for (const extra of [
-    'Some text\n    https://github.com/other/repo',
-    '1. More evidence:\n   https://github.com/other/repo',
-    '1. More evidence:\n\n    https://github.com/other/repo',
-  ]) {
-    assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${extra}`)), /exactly one repository/u)
-  }
-})
-
 test('Vulnerability is required and explicitly marks findings as security at every severity', () => {
   assert.equal(parseGenericMarkdownToReports(document.replace('| Vulnerability |', '| Finding |')), null)
   const reports = parseGenericMarkdownToReports(document.replaceAll('| P0 |', '| P4 |').replaceAll('| P1 |', '| P4 |').replace('| Title A. |', '| |'))
@@ -286,196 +156,60 @@ test('Vulnerability is required and explicitly marks findings as security at eve
   }
 })
 
-for (const snippet of [
-  '>     curl https://api.example.com',
-  '> ~~~sh\n> curl https://api.example.com\n> ~~~',
-  '> ```sh\n> curl https://api.example.com',
-  '> > ~~~sh\n> > curl https://api.example.com\n> > ~~~',
-  '- >     curl https://api.example.com',
-  '1. > ~~~sh\n   > curl https://api.example.com\n   > ~~~',
-  '1. > ~~~sh\n   > curl https://api.example.com',
-  '- 1. > ~~~sh\n     > curl https://api.example.com\n     > ~~~',
-  '> - > ~~~sh\n>   > curl https://api.example.com\n>   > ~~~',
-]) {
-  test(`ignores quoted code examples without consuming later links: ${snippet.split('\n')[0]}`, () => {
-    const [report] = parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${snippet}\n`))
-    assert.equal(report.data.repo.github, 'a/a')
-    assert.equal(report.data.findings[0].evidence.length, 1)
+const invalid = [
+  ['multiple repositories', document.replace('https://github.com/a/b/blob/abcdef012345/f/g/h.js', 'https://github.com/a/other/blob/abcdef012345/f/g/h.js')],
+  ['same prefix across products', document.replaceAll('BBB-05', 'AAA-05')],
+  ['multiple prefixes within a product', document.replaceAll('Product B', 'Product A')],
+  ['no repository', document.replaceAll(/https:\/\/[^\n]+/gu, '')],
+  ['missing body', `${summary}\n\n${first}`],
+  ['unlisted body', `${document}\n\n${block(3, 'CCC-01', 'C', 'c/c')}`],
+  ['duplicate body', `${document}\n\n${first}`],
+  ['duplicate summary ID', document.replace('| 8 |', '| 2 | AAA-02 | Product A | P0 | Duplicate. |\n| 8 |')],
+  ['invalid priority', document.replace('| P0 |', '| P7 |')],
+  ['missing title', document.replace('### Title', '### Other')],
+  ['duplicate field', document.replace('### Description', '### Title')],
+  ['external repository link', document.replace('https://github.com/a/a/', 'https://example.com/a/a/')],
+  ['invalid separator', document.replace('|---:|---|---|---|---|', '| invalid |')],
+  ['invalid row', document.replace('| Title A. |', '| Title | A |')],
+]
+for (const [label, text] of invalid) {
+  test(`rejects ${label} without returning partial reports`, async () => {
+    assert.throws(() => parseGenericMarkdownToReports(text), /unsupported/u)
+    assert.equal(readReport(text).data, null)
+    assert.match(readReport(text).reason, /unsupported/u)
+    assert.equal(detectFormat(text), 'markdown-generic')
+    assert.equal(await loadFindings(text), null)
   })
 }
 
-test('quoted prose links still participate in repository validation', () => {
+test('rejects unsupported Markdown instead of interpreting it', () => {
   for (const snippet of [
-    '> https://github.com/other/repo',
-    '- > https://github.com/other/repo',
-    '1. > https://github.com/other/repo',
-    '- > ~~~sh\n  > curl https://api.example.com\n- > https://github.com/other/repo',
-    '> > ~~~sh\n> > curl https://api.example.com\n> https://github.com/other/repo',
-    '> Paragraph\nlazy continuation\n>     https://github.com/other/repo',
+    '`code`', '```md\n## 30. FAKE-01\n```', '~~~\nexample\n~~~',
+    '<pre>example</pre>', '<!-- hidden -->', '> quoted text', '    indented code',
+    '[link](https://github.com/a/a)', '![image](https://github.com/a/a)',
+    '[ref]: https://github.com/a/a', '\\![escaped image](https://github.com/a/a)',
+    'Text with https://github.com/a/a embedded.',
   ]) {
-    assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${snippet}`)), /exactly one repository/u)
+    assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', snippet)), /unsupported/u, snippet)
+  }
+  for (const cell of ['<pre>', '~~~', '<!--', '`', '\\![repo](https://github.com/other/repo)']) {
+    assert.throws(() => parseGenericMarkdownToReports(document.replace('| Title A. |', `| ${cell} |`)), /unsupported/u)
   }
 })
 
-test('quote and list boundaries keep literal nested markers in their code blocks', () => {
-  for (const snippet of [
-    '> ~~~sh\n> > https://api.example.com\n> ~~~',
-    '> 1. ~~~sh\n>    https://api.example.com\n> Actual prose.',
-    '> - > ~~~sh\n>   > https://api.example.com\n> - > Actual prose.',
+test('rejects hidden summary metadata and section headings', async () => {
+  for (const text of [
+    `<!--\n${summary}\n-->\n\n${first}\n\n${second}`,
+    document.replace('Something.', '<!--\n## 3. AAA-03\n-->'),
   ]) {
-    const [report] = parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${snippet}`))
-    assert.equal(report.data.repo.github, 'a/a')
-    assert.equal(report.data.findings[0].evidence.length, 1)
+    assert.throws(() => parseGenericMarkdownToReports(text), /unsupported/u)
+    assert.equal(readReport(text).data, null)
+    assert.equal(await loadFindings(text), null)
   }
 })
 
-for (const image of [
-  '![proof](https://images.example.com/proof.png)',
-  '![](https://images.example.com/proof.png)',
-  '![proof](<https://images.example.com/proof (1).png>)',
-  '![proof](https://images.example.com/proof(1).png)',
-  '[![proof](https://images.example.com/proof.png)](https://github.com/a/a)',
-  '![https://images.example.com/alt](https://images.example.com/proof.png)',
-  '![proof](https://images.example.com/proof.png "Proof")',
-  '![](https://images.example.com/proof(1).png \'Proof\')',
-  '![proof](<https://images.example.com/proof (1).png> (Proof))',
-  '![proof](https://images.example.com/proof.png "https://images.example.com/title")',
-]) {
-  test(`ignores image destinations while retaining the narrative: ${image}`, () => {
-    const [report] = parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${image}`))
-    assert.equal(report.data.repo.github, 'a/a')
-    assert.equal(report.data.findings[0].evidence.length, 1)
-    assert.ok(report.data.findings[0].description.includes(image))
-  })
-}
-
-test('linked images and escaped exclamation marks preserve actual link destinations', () => {
-  for (const link of [
-    '[![proof](https://images.example.com/proof.png)](https://github.com/other/repo)',
-    '\\![proof](https://github.com/other/repo)',
-    '[repo](https://github.com/other/repo "Repository")',
-  ]) {
-    assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${link}`)), /exactly one repository/u)
+test('leaves other formats alone', () => {
+  for (const text of ['ordinary prose', '# Claude finding\n\n## Details\n\nText']) {
+    assert.equal(parseGenericMarkdownToReports(text), null)
   }
 })
-
-for (const reference of [
-  '![proof][img]\n\n[img]: https://images.example.com/proof.png',
-  '![img][]\n\n[img]: <https://images.example.com/proof.png>',
-  '![img]\n\n[img]: https://images.example.com/proof.png "Proof"',
-  '![proof][ IMG ]\n\n[img]:\n  https://images.example.com/proof.png',
-  '![proof][img]\n\n[img]: https://images.example.com/proof.png\n  "https://images.example.com/title"',
-  '[![proof][img]](https://github.com/a/a)\n\n[img]: https://images.example.com/proof.png',
-  '[![proof](https://images.example.com/proof.png)][repo]\n\n[repo]: https://github.com/a/a',
-]) {
-  test(`ignores reference images while preserving hyperlinks: ${reference.split('\n')[0]}`, () => {
-    const [report] = parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${reference}`))
-    assert.equal(report.data.repo.github, 'a/a')
-    assert.equal(report.data.findings[0].evidence.length, 1)
-    assert.ok(report.data.findings[0].description.includes(reference))
-  })
-}
-
-test('ordinary references, including definitions shared with images, validate repositories', () => {
-  for (const reference of [
-    '[repo][other]\n\n[other]: https://github.com/other/repo',
-    '[other][]\n\n[other]: https://github.com/other/repo',
-    '[other]\n\n[other]: https://github.com/other/repo',
-    '![proof][other] and [repo][other]\n\n[other]: https://github.com/other/repo',
-    '[![proof][img]][other]\n\n[img]: https://images.example.com/proof.png\n[other]: https://github.com/other/repo',
-    '[nested [label]][other]\n\n[other]: https://github.com/other/repo',
-    '[escaped\\[label\\]]\n\n[escaped\\[label\\]]: https://github.com/other/repo',
-  ]) {
-    assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${reference}`)), /exactly one repository/u)
-  }
-})
-
-test('HTML comments and unused definitions cannot supply or contradict repository evidence', () => {
-  for (const hidden of ['<!-- https://github.com/other/repo -->', '<!--\nhttps://github.com/other/repo\n-->', '[unused]: https://github.com/other/repo']) {
-    const text = document.replace('Something.', `Something.\n\n${hidden}`)
-    assert.equal(parseGenericMarkdownToReports(text)[0].data.repo.github, 'a/a')
-    const withoutEvidence = text.replaceAll(/https:\/\/github.com\/a\/[^\n]+/gu, '')
-    assert.throws(() => parseGenericMarkdownToReports(withoutEvidence), /Product A.*found none/u)
-  }
-})
-
-test('raw HTML code and hidden blocks cannot supply repository links or definitions', () => {
-  for (const [open, close] of [
-    ['<pre>', '</pre>'], ['<SCRIPT type="text/javascript">', '</SCRIPT>'],
-    ['<textarea>', '</textarea>'], ['<style>', '</style>'],
-    ['<?processing', '?>'], ['<![CDATA[', ']]>'],
-  ]) {
-    const hidden = `${open}\nhttps://api.example.com\nhttps://github.com/other/repo\n[hidden]: https://github.com/other/repo\n${close}`
-    const text = document.replace('Something.', `Something.\n\n${hidden}\n\n[hidden]`)
-    const [report] = parseGenericMarkdownToReports(text)
-    assert.equal(report.data.repo.github, 'a/a')
-    assert.equal(report.data.findings[0].evidence.length, 1)
-    assert.ok(report.data.findings[0].description.includes(hidden), 'literal HTML remains in the narrative')
-    const withoutEvidence = text.replaceAll(/https:\/\/github.com\/a\/[^\n]+/gu, '')
-    assert.throws(() => parseGenericMarkdownToReports(withoutEvidence), /Product A.*found none/u)
-  }
-})
-
-test('raw HTML code respects list and quote boundaries and same-line closing tags', () => {
-  for (const snippet of [
-    '<pre>https://api.example.com</pre>',
-    '> <pre>\n> https://api.example.com\n> </pre>',
-    '- <pre>\n  https://api.example.com\n  </pre>',
-    '> <pre>\n> https://api.example.com',
-    '- <script>\n  https://api.example.com',
-    '- <pre>\n  https://api.example.com\n- https://github.com/a/a',
-  ]) {
-    assert.equal(parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${snippet}\n`))[0].data.repo.github, 'a/a')
-  }
-  for (const snippet of [
-    '<div>Raw HTML</div>\n\n[source](https://github.com/other/repo)',
-    '> <pre>\n> https://api.example.com\nhttps://github.com/other/repo',
-    '- <pre>\n  https://api.example.com\n- https://github.com/other/repo',
-  ]) {
-    assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${snippet}`)), /exactly one repository/u)
-  }
-})
-
-test('reference definitions resolve across finding partitions without attributing unused definitions', () => {
-  const text = document.replace('https://github.com/a/a/blob/abcdef012345/c/d/e.js#L100-L110', '[code][a-ref]')
-    + '\n\n[a-ref]: https://github.com/a/a/blob/abcdef012345/c/d/e.js#L100-L110'
-  const reports = parseGenericMarkdownToReports(text)
-  assert.deepEqual(reports.map(({ data }) => data.repo.github), ['a/a', 'a/b'])
-  assert.equal(reports[0].data.findings[0].evidence[0].file, 'c/d/e.js')
-})
-
-for (const [label, prose] of [
-  ['unclosed inline links', '[a]('.repeat(12_500)],
-  ['nested unclosed links before a titled link', '[a]('.repeat(12_500) + 'https://github.com/a/a "repo")'],
-  ['many valid inline links', '[code](https://github.com/a/a) '.repeat(6_000)],
-  ['excess trailing parentheses', 'https://github.com/a/a' + ')'.repeat(50_000)],
-  ['nested shortcut labels with an available reference', '['.repeat(32_000) + 'x' + ']'.repeat(32_000) + '\n\n[ref]: https://github.com/a/a'],
-  ['nested explicit reference labels', '[label][' + '['.repeat(32_000) + 'x' + ']'.repeat(32_000) + ']\n\n[ref]: https://github.com/a/a'],
-]) {
-  test(`repository inference stays bounded for ${label}`, () => {
-    const text = document.replace('Something.', prose)
-    const started = process.cpuUsage()
-    assert.deepEqual(parseGenericMarkdownToReports(text).map(({ data }) => data.repo.github), ['a/a', 'a/b'])
-    const { user, system } = process.cpuUsage(started)
-    const took = (user + system) / 1000
-    // CPU time avoids penalizing a busy CI host. The former suffix scan took
-    // seconds even for 4,000 candidates; indexed collection needs one pass.
-    assert.ok(took < 1000, `${text.length} characters took ${took.toFixed(0)}ms of CPU`)
-  })
-}
-
-for (const [label, prose] of [
-  ['deeply nested quoted prose', '> '.repeat(32_000) + 'https://github.com/a/a'],
-  ['deeply nested quoted code', ['~~~sh', 'curl https://api.example.com', '~~~'].map(line => '> '.repeat(10_000) + line).join('\n')],
-  ['alternating nested quotes and lists', '> - '.repeat(10_000) + '> https://github.com/a/a'],
-  ['directly nested list items', '- '.repeat(16_000) + 'https://github.com/a/a'],
-  ['directly nested quoted list items', '> ' + '* '.repeat(16_000) + 'https://github.com/a/a'],
-  ['mixed nested list items ending in a rule', '- '.repeat(16_000) + '* * *'],
-]) {
-  test(`rejects ${label} promptly without importing a partial report`, () => {
-    const started = process.cpuUsage()
-    assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', prose)), /Markdown nesting limit exceeded/u)
-    const { user, system } = process.cpuUsage(started)
-    assert.ok((user + system) / 1000 < 1000, `${label} exceeded 1 second of CPU`)
-  })
-}
