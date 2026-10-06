@@ -114,8 +114,9 @@ function quotedText(line, paragraph) {
 // fenceRanges, and the line that would close what the text leaves open
 // at its end — a fence, or an HTML block a line can end — at the margin
 // of the item it sits in; null when nothing such is open.
-export function readFences(text, { includeIndented = false } = {}) {
+export function readFences(text, { includeIndented = false, includeQuotes = false } = {}) {
   const ranges = []
+  const quotes = []
   // The open fence, by where it began and its run; or the open HTML
   // block, by what ends it and the text that would; and the margin of
   // the item either sits in, 0 at the top level.
@@ -183,6 +184,7 @@ export function readFences(text, { includeIndented = false } = {}) {
     items.length = depth
     // Markers open items, each in the last ("- 1. x" opens two), and
     // what follows is read from the innermost one's margin.
+    const newItem = Boolean(opens?.item)
     while (opens?.item) {
       margin += opens.item
       rest = rest.slice(opens.item)
@@ -205,11 +207,23 @@ export function readFences(text, { includeIndented = false } = {}) {
     // paragraph — to underline it, or start a list — is taken as yes.
     const inQuote = lazy && quoted
     quoted = /^ {0,3}>/u.test(rest)
+    if (includeQuotes && quoted) appendQuote(quotes, rest, start, start + line.length, margin, newItem)
     lazy = quoted ? quotedText(rest, inQuote) : !opens && !fresh && /^ */u.exec(rest)[0].length < 4
   }
   if (open !== -1) ranges.push([open, text.length])
   const close = open === -1 ? html?.close : marker
-  return { ranges, closer: close ? ' '.repeat(inside) + close : null }
+  return { ranges, closer: close ? ' '.repeat(inside) + close : null, ...(includeQuotes ? { quotes } : {}) }
+}
+
+// Read quotes at their list item's margin. Sibling items start separate quote
+// blocks even at the same margin, so an unclosed fence cannot swallow a sibling.
+function appendQuote(quotes, rest, start, end, margin, newItem) {
+  const text = rest.replace(/^ {0,3}> ?/u, '')
+  const previous = quotes.at(-1)
+  if (previous && previous.end + 1 === start && previous.margin === margin && !newItem) {
+    previous.end = end
+    previous.text += '\n' + text
+  } else quotes.push({ start, end, margin, text })
 }
 
 // Whether `line` closes a fence opened with the run `marker`: the same

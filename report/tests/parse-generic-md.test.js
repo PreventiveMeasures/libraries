@@ -227,6 +227,11 @@ for (const snippet of [
   '> ~~~sh\n> curl https://api.example.com\n> ~~~',
   '> ```sh\n> curl https://api.example.com',
   '> > ~~~sh\n> > curl https://api.example.com\n> > ~~~',
+  '- >     curl https://api.example.com',
+  '1. > ~~~sh\n   > curl https://api.example.com\n   > ~~~',
+  '1. > ~~~sh\n   > curl https://api.example.com',
+  '- 1. > ~~~sh\n     > curl https://api.example.com\n     > ~~~',
+  '> - > ~~~sh\n>   > curl https://api.example.com\n>   > ~~~',
 ]) {
   test(`ignores quoted code examples without consuming later links: ${snippet.split('\n')[0]}`, () => {
     const [report] = parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${snippet}\n`))
@@ -236,5 +241,43 @@ for (const snippet of [
 }
 
 test('quoted prose links still participate in repository validation', () => {
-  assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', 'Something.\n\n> https://github.com/other/repo')), /exactly one repository/u)
+  for (const snippet of [
+    '> https://github.com/other/repo',
+    '- > https://github.com/other/repo',
+    '1. > https://github.com/other/repo',
+    '- > ~~~sh\n  > curl https://api.example.com\n- > https://github.com/other/repo',
+    '> > ~~~sh\n> > curl https://api.example.com\n> https://github.com/other/repo',
+  ]) {
+    assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${snippet}`)), /exactly one repository/u)
+  }
+})
+
+for (const image of [
+  '![proof](https://images.example.com/proof.png)',
+  '![](https://images.example.com/proof.png)',
+  '![proof](<https://images.example.com/proof (1).png>)',
+  '![proof](https://images.example.com/proof(1).png)',
+  '[![proof](https://images.example.com/proof.png)](https://github.com/a/a)',
+  '![https://images.example.com/alt](https://images.example.com/proof.png)',
+  '![proof](https://images.example.com/proof.png "Proof")',
+  '![](https://images.example.com/proof(1).png \'Proof\')',
+  '![proof](<https://images.example.com/proof (1).png> (Proof))',
+  '![proof](https://images.example.com/proof.png "https://images.example.com/title")',
+]) {
+  test(`ignores image destinations while retaining the narrative: ${image}`, () => {
+    const [report] = parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${image}`))
+    assert.equal(report.data.repo.github, 'a/a')
+    assert.equal(report.data.findings[0].evidence.length, 1)
+    assert.ok(report.data.findings[0].description.includes(image))
+  })
+}
+
+test('linked images and escaped exclamation marks preserve actual link destinations', () => {
+  for (const link of [
+    '[![proof](https://images.example.com/proof.png)](https://github.com/other/repo)',
+    '\\![proof](https://github.com/other/repo)',
+    '[repo](https://github.com/other/repo "Repository")',
+  ]) {
+    assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${link}`)), /exactly one repository/u)
+  }
 })

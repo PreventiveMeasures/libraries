@@ -63,16 +63,17 @@ function withoutCode(text) {
   })
   const prose = []
   let from = 0
-  for (const [start, end] of readFences(text, { includeIndented: true }).ranges) {
+  const { ranges, quotes } = readFences(text, { includeIndented: true, includeQuotes: true })
+  const blocks = [...ranges.map(([start, end]) => ({ start, end })), ...quotes].sort((a, b) => a.start - b.start)
+  for (const { start, end, text: quote } of blocks) {
     prose.push(text.slice(from, start))
+    // Strip one quote container at a time, keeping nested and sibling fence
+    // lifetimes separate from references outside those containers.
+    if (quote !== undefined) prose.push(withoutCode(quote))
     from = end
   }
   prose.push(text.slice(from))
-  // Quoted examples have their own fence lifetime: an unclosed quoted fence
-  // must not consume the unquoted code references that follow the quote.
-  text = prose.join('\n').replace(/^(?: {0,3}>[^\n]*(?:\n|$))+/gmu, (quote) => {
-    return withoutCode(quote.replace(/^(?: {0,3}> ?)+/gmu, '')) + '\n'
-  })
+  text = prose.join('\n')
   const runs = [...text.matchAll(/`+/gu)]
   const closes = new Map(), next = new Map()
   for (let i = runs.length - 1; i >= 0; i--) {
@@ -103,11 +104,12 @@ function urlsIn(text) {
   for (let line of withoutCode(text).split('\n')) {
     const plain = []
     let link
-    while ((link = findMdLink(line))) {
-      urls.push(link.url)
+    while ((link = findMdLink(line, { balancedLabels: true, allowEmptyLabel: true, allowTitle: true }))) {
+      let slashes = 0
+      for (let i = link.index - 2; line[i] === '\\'; i--) slashes++
+      if (line[link.index - 1] !== '!' || slashes % 2) urls.push(link.url)
       plain.push(line.slice(0, link.index))
-      const end = line.indexOf(link.url, link.index + link.label.length + 3) + link.url.length
-      line = line.slice(end)
+      line = line.slice(link.end)
     }
     plain.push(line)
     for (const [raw] of plain.join('\n').matchAll(/https?:\/\/[^\s<>"`]+/giu)) {

@@ -244,7 +244,9 @@ export function stripBold(text) { return text.replaceAll('**', '') }
 // `index` comes back too, so a caller can ask that the value START with
 // a link (parse-deepview-fields.js readLink) rather than take the first
 // one in the line (parse-md.js).
-export function findMdLink(s) {
+// Generic prose collectors opt into balanced/empty labels and optional titles;
+// legacy report readers keep their permissive, frozen path-label reading.
+export function findMdLink(s, { balancedLabels = false, allowEmptyLabel = false, allowTitle = false } = {}) {
   const text = String(s ?? '')
   // Where each reading would CLOSE, read off the text once rather than
   // rescanned per candidate: every reading here scans to the end when
@@ -257,15 +259,39 @@ export function findMdLink(s) {
     // The first `]` after this `[`. Carried forward, not looked up
     // again: `open` only advances, so this does too.
     while (plain !== -1 && plain <= open) plain = text.indexOf(']', plain + 1)
-    for (const close of [plain, labels.get(open) ?? -1]) {
+    for (const close of balancedLabels ? [labels.get(open) ?? -1] : [plain, labels.get(open) ?? -1]) {
       // An EMPTY label is no label: `![](badge.svg)` ahead of a
       // reference is a badge, and the link wanted is the one behind it.
-      if (close === -1 || close === open + 1 || text[close + 1] !== '(') continue
+      if (close === -1 || (!allowEmptyLabel && close === open + 1) || text[close + 1] !== '(') continue
       const url = destination(text, close + 1, dests)
-      if (url !== null) return { label: text.slice(open + 1, close), url, index: open }
+      const titled = url === null && allowTitle ? titledDestination(text, close + 1, dests) : null
+      if (url !== null || titled) {
+        const end = titled?.end ?? close + 3 + url.length + (text[close + 2] === '<' ? 2 : 0)
+        return { label: text.slice(open + 1, close), url: url ?? titled.url, index: open, ...(allowTitle ? { end } : {}) }
+      }
     }
   }
   return null
+}
+
+function titledDestination(text, open, dests) {
+  const angled = text[open + 1] === '<'
+  const start = open + (angled ? 2 : 1)
+  const end = angled ? dests.nextAngle[start] : dests.nextSpace[start]
+  if (end === -1 || end === start) return null
+  const url = text.slice(start, end)
+  if (!angled) {
+    let depth = 0
+    for (let i = 0; i < url.length; i++) {
+      if (escapes(url, i)) i++
+      else if (url[i] === '(') depth++
+      else if (url[i] === ')' && --depth < 0) return null
+    }
+    if (depth) return null
+  }
+  const after = end + (angled ? 1 : 0)
+  const title = /^\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\))\s*\)/u.exec(text.slice(after))
+  return title ? { url, end: after + title[0].length } : null
 }
 
 // Every `[` paired with the `]` that closes it once its brackets
