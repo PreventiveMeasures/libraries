@@ -187,3 +187,25 @@ test('keeps actual Markdown links with code-formatted labels', () => {
   const text = document.replace('https://github.com/a/a/blob/abcdef012345/c/d/e.js#L100-L110', '[`c/d/e.js`](https://github.com/a/a/blob/abcdef012345/c/d/e.js#L100-L110)')
   assert.equal(parseGenericMarkdownToReports(text)[0].data.findings[0].file, 'c/d/e.js')
 })
+
+for (const snippet of [
+  '    curl https://api.example.com\n    echo https://github.com/other/repo',
+  '\tcurl https://api.example.com',
+  '1. Run the command\n\n       curl https://api.example.com\n       echo https://github.com/other/repo',
+]) {
+  test(`ignores indented code URLs: ${snippet.split('\n')[0]}`, () => {
+    const [report] = parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${snippet}`))
+    assert.equal(report.data.repo.github, 'a/a')
+    assert.equal(report.data.findings[0].evidence.length, 1)
+  })
+}
+
+test('indented paragraph and list continuations remain actual links', () => {
+  for (const extra of [
+    'Some text\n    https://github.com/other/repo',
+    '1. More evidence:\n   https://github.com/other/repo',
+    '1. More evidence:\n\n    https://github.com/other/repo',
+  ]) {
+    assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${extra}`)), /exactly one repository/u)
+  }
+})

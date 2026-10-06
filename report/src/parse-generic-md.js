@@ -1,5 +1,5 @@
 import { genericMarkdownIdBasis } from './parse-generic-md-id.js'
-import { H2_RE, H3_RE, fenceRanges, findMdLink, isCommitHash, normalizeNewlines, splitLeading, unescapeMd, unfencedMatches } from './md-structure.js'
+import { H2_RE, H3_RE, findMdLink, isCommitHash, normalizeNewlines, readFences, splitLeading, unescapeMd, unfencedMatches } from './md-structure.js'
 
 const SOURCE = 'markdown-generic'
 const COLUMNS = ['#', 'id', 'product', 'priority', 'vulnerability']
@@ -56,9 +56,14 @@ function indexRows(rows) {
 // Code examples are not report links. Pair inline backtick runs by length,
 // including multiline spans, without treating unmatched backticks as code.
 function withoutCode(text) {
+  text = text.replace(/^[ \t]+/gmu, (indent) => {
+    let columns = 0
+    for (const char of indent) columns += char === '\t' ? 4 - columns % 4 : 1
+    return ' '.repeat(columns)
+  })
   const prose = []
   let from = 0
-  for (const [start, end] of fenceRanges(text)) {
+  for (const [start, end] of readFences(text, { includeIndented: true }).ranges) {
     prose.push(text.slice(from, start))
     from = end
   }

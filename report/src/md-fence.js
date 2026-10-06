@@ -114,7 +114,7 @@ function quotedText(line, paragraph) {
 // fenceRanges, and the line that would close what the text leaves open
 // at its end — a fence, or an HTML block a line can end — at the margin
 // of the item it sits in; null when nothing such is open.
-export function readFences(text) {
+export function readFences(text, { includeIndented = false } = {}) {
   const ranges = []
   // The open fence, by where it began and its run; or the open HTML
   // block, by what ends it and the text that would; and the margin of
@@ -190,6 +190,9 @@ export function readFences(text) {
       opens = opener(rest, false)
     }
     fresh = rest.trim() === ''
+    // Link collectors also need literal indented code. Keep the default fence
+    // contract unchanged for heading splitters and existing identity parsers.
+    if (includeIndented && /^ {4}/u.test(rest)) ranges.push([start, start + line.length])
     if (opens?.fence) [open, marker, inside] = [start, opens.fence, margin]
     else if (opens?.html) [html, inside] = [opens.html.test(rest) ? null : { ends: opens.html, close: opens.close }, margin]
     // Paragraph text or not: not a heading, rule or anything opened
