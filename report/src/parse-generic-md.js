@@ -1,3 +1,4 @@
+import { genericMarkdownIdBasis } from './parse-generic-md-id.js'
 import { H2_RE, H3_RE, findMdLink, isCommitHash, normalizeNewlines, splitLeading, unescapeMd, unfencedMatches } from './md-structure.js'
 
 const SOURCE = 'markdown-generic'
@@ -29,7 +30,7 @@ function summaryRows(text) {
     if (lines[i].index !== lines[i - 1].index + lines[i - 1][0].length + 1) break
     const values = cells(lines[i][0])
     if (values.length !== header.length) fail('invalid summary table row')
-    rows.push(Object.fromEntries(header.map((key, j) => [key, values[j]])))
+    rows.push({ ...Object.fromEntries(header.map((key, j) => [key, values[j]])), raw: lines[i][0] })
   }
   if (!rows.length) fail('summary table has no findings')
   return rows
@@ -97,12 +98,12 @@ function repositoryLink(raw, product) {
   return { repo, evidence, ref: parts[3] }
 }
 
-function findingFromBlock(row, body) {
+function findingFromBlock(row, body, rawSection) {
   const { subs } = splitLeading(body, H3_RE)
   const title = subs.find((section) => section.heading.trim().toLowerCase() === 'title')?.body.trim()
   if (!title) fail(`finding ${row.id} has no Title section`)
   const finding = {
-    id: row.id, product: row.product, priority: row.priority.toUpperCase(),
+    sourceId: row.id, _idBasis: genericMarkdownIdBasis(row.raw, rawSection), product: row.product, priority: row.priority.toUpperCase(),
     file: 'unknown', line: '?', severity: PRIORITIES[row.priority.toUpperCase()],
     description: title,
   }
@@ -133,16 +134,19 @@ function findingFromBlock(row, body) {
 // Validate the entire document before returning any product to an importer.
 export function parseGenericMarkdownToReports(content) {
   const text = normalizeNewlines(content).trim()
-  const { head, subs } = splitLeading(text, H2_RE)
-  const rows = summaryRows(head)
+  const marks = unfencedMatches(text, H2_RE)
+  const rows = summaryRows(text.slice(0, marks[0]?.index))
   if (rows === null) return null
   const byId = indexRows(rows), parsed = new Map(), seen = new Set()
-  for (const { heading, body } of subs) {
+  for (const [i, mark] of marks.entries()) {
+    const heading = mark[1]
+    const section = text.slice(mark.index, marks[i + 1]?.index)
+    const body = section.slice(mark[0].length + 1)
     const id = /^\d+\.\s+(\S+)\s*$/u.exec(heading)?.[1]
     if (!id || !byId.has(id)) fail(`finding section "${heading}" is not in the summary table`)
     if (seen.has(id)) fail(`duplicate finding section ${id}`)
     seen.add(id)
-    parsed.set(id, findingFromBlock(byId.get(id), body))
+    parsed.set(id, findingFromBlock(byId.get(id), body, section))
   }
   for (const id of byId.keys()) if (!seen.has(id)) fail(`missing finding section ${id}`)
   return [...Map.groupBy(rows, (row) => row.product)].map(([product, records]) => {

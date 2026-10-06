@@ -55,9 +55,9 @@ test('splits the generic Markdown example by product and matches IDs, not ordina
   assert.deepEqual(reports.map((report) => report.displayName), ['Product A', 'Product B'])
   assert.deepEqual(reports.map((report) => report.data.repo), [{ github: 'a/a' }, { github: 'a/b' }])
   const [a, b] = reports.map((report) => report.data.findings[0])
-  assert.equal(a.id, 'AAA-02')
+  assert.equal(a.sourceId, 'AAA-02')
   assert.equal(a.severity, 'critical')
-  assert.equal(b.id, 'BBB-05')
+  assert.equal(b.sourceId, 'BBB-05')
   assert.equal(b.severity, 'high')
   assert.equal(a.file, 'c/d/e.js')
   assert.equal(a.line, '100-110')
@@ -75,7 +75,7 @@ test('splits the generic Markdown example by product and matches IDs, not ordina
   assert.equal(isAppFinding(a, reports[0].data.source), true)
   assert.deepEqual(analyzeReport(document), { count: 2, source: 'markdown-generic', recognized: true })
   const loaded = await loadFindings(document)
-  assert.deepEqual(loaded.findings.map((f) => f.id), ['AAA-02', 'BBB-05'])
+  assert.deepEqual(loaded.findings.map((f) => f.sourceId), ['AAA-02', 'BBB-05'])
   assert.equal(loaded.data.repo, undefined, 'a multi-product document has no single report-level repo')
 })
 
@@ -83,7 +83,7 @@ test('groups repeated product rows in summary order and accepts CRLF, BOM and a 
   const extra = block(99, 'AAA-03', 'Product A', 'a/a')
   const text = document.replace('| 8 |', '| 7 | AAA-03 | Product A | P2 | Another. |\n| 8 |') + '\n\n' + extra
   const reports = parseGenericMarkdownToReports('\uFEFF# Security Audit Report\r\n\r\n' + text.replaceAll('\n', '\r\n'))
-  assert.deepEqual(reports[0].data.findings.map((f) => f.id), ['AAA-02', 'AAA-03'])
+  assert.deepEqual(reports[0].data.findings.map((f) => f.sourceId), ['AAA-02', 'AAA-03'])
   assert.equal(reports[0].data.findings[1].severity, 'medium')
 })
 
@@ -157,3 +157,13 @@ test('leaves other formats alone, including fenced examples of the summary', () 
     assert.equal(parseGenericMarkdownToReports(text), null)
   }
 })
+
+
+for (const label of ['Code references:', '### Code references', '#### Code references:', '##### CODE REFERENCES:', '**Code references:**', '### Code References: ###']) {
+  test(`reads all repository evidence beneath ${label}`, () => {
+    const reports = parseGenericMarkdownToReports(document.replaceAll('Code references:', label))
+    assert.equal(reports[0].data.findings[0].file, 'c/d/e.js')
+    assert.equal(reports[1].data.findings[0].evidence.length, 2)
+    assert.deepEqual(reports.map(({ data }) => data.repo.github), ['a/a', 'a/b'])
+  })
+}

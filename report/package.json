@@ -52,6 +52,7 @@
     "src/parse-deepsec.js",
     "src/parse-deepview-fields.js",
     "src/parse-deepview-md.js",
+    "src/parse-generic-md-id.js",
     "src/parse-generic-md.js",
     "src/parse-md-id.js",
     "src/parse-md.js",
