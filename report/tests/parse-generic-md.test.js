@@ -96,6 +96,24 @@ test('infers a product repo across findings even when one has no links', () => {
   assert.equal(readReport(text).data.repo.github, 'a/a')
 })
 
+test('summary cells cannot hide a conflicting repository in their finding body', () => {
+  for (const cell of ['<pre>', '~~~', '<!--', '`']) {
+    const text = document.replace('| Title A. |', `| ${cell} |`)
+      .replace('| 8 |', '| 3 | AAA-03 | Product A | P2 | Another. |\n| 8 |')
+      .replace('https://github.com/a/a/blob/', 'https://github.com/other/repo/blob/')
+      + '\n\n' + block(3, 'AAA-03', 'Product A', 'a/a')
+    assert.throws(() => parseGenericMarkdownToReports(text), /Product A.*exactly one repository/u, cell)
+  }
+})
+
+test('summary links retain inline table context and document-scoped references', () => {
+  for (const cell of ['~~~ https://github.com/other/repo', '[source][summary-repo]']) {
+    const text = document.replace('| Title A. |', `| ${cell} |`)
+      + '\n\n[summary-repo]: https://github.com/other/repo'
+    assert.throws(() => parseGenericMarkdownToReports(text), /Product A.*exactly one repository/u, cell)
+  }
+})
+
 test('keeps fenced headings, nested steps, and arbitrary reproduction heading suffixes', () => {
   const snippet = '\n```md\n## 30. FAKE-01\n### Patch\nexample\n```\n'
   const [report] = parseGenericMarkdownToReports(document.replace('Description AAA-02.', 'Description AAA-02.' + snippet))

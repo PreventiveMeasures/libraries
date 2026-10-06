@@ -119,7 +119,8 @@ function findingFromBlock(row, body, rawSection, env) {
     else narrative.push(key === 'description' ? content.trim() : `**${heading.trim()}:**\n${content.trim()}`)
   }
   finding.description = narrative.join('\n\n')
-  const links = repositoryUrls(tokenize(`${row.vulnerability}\n${body}`, env)).map((url) => repositoryLink(url, row.product))
+  // A table cell is inline Markdown and cannot open a block around the body.
+  const links = repositoryUrls([...markdown.parseInline(row.vulnerability, env), ...tokenize(body, env)]).map((url) => repositoryLink(url, row.product))
   const evidence = links.flatMap((link) => link.evidence ? [link.evidence] : [])
   if (evidence.length) {
     const [first] = evidence
