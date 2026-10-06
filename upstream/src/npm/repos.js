@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { assertNames, assertPackageName, assertRepo, isRepo } from '../args.js'
+import { assertNames, assertPackageName, assertion, isRepo } from '../args.js'
 import { readRecord, writeRecord } from '../cache.js'
 import { isNotFound, recover } from '../http.js'
 import { assertRepoDirectory, getRepo, isRepoDirectory } from '../package.js'
@@ -10,8 +10,16 @@ import { getDocument } from './registry.js'
 const DIR = 'npm/repos'
 const CONCURRENCY = 8
 // Stamped on each entry, and raised when getRepo would answer differently:
-// 2 is `repository` taking precedence over `bugs`.
-const VERSION = 2
+// 2 is `repository` taking precedence over `bugs`; 3 the shorthand dropping
+// a `.git`, URLs read past whitespace, and `repository.directory`'s `\` read
+// as `/`.
+const VERSION = 3
+
+// A slug a lookup gives: getRepo answers no repo ending in `.git`, the
+// suffix it drops (withoutDotGit; `.GIT` it keeps, and so does this).
+const isLookedUpRepo = (github) => isRepo(github) && !github.endsWith('.git')
+// A write takes no slug a read would discard: whatever it writes reads back.
+const assertLookedUpRepo = assertion('"owner/name" with no trailing ".git"', isLookedUpRepo)
 
 // `latest`, not the full packument, which is megabytes of version history.
 const fetchRepo = async (method, name) => getRepo(await getDocument(method, name, 'latest'))
@@ -24,12 +32,14 @@ export async function getGitHub(name) {
 }
 
 // An entry under another VERSION was resolved by other rules, and may
-// name the repo a stale tracker does: a miss, as is one without
-// `directory`, which would read as a package at the repo root.
+// name a repo getRepo no longer would (a stale tracker's, or a shorthand's
+// with its `.git`): a miss, as is one naming a repo or a directory no
+// lookup gives, or without `directory`, which would read as a package at
+// the repo root.
 export async function readPackageRepoCache(name) {
   assertPackageName('readPackageRepoCache', 'name', name)
   const entry = await readRecord(DIR, name)
-  if (entry?.v !== VERSION || !isRepo(entry.github) || !isRepoDirectory(entry.directory)) return null
+  if (entry?.v !== VERSION || !isLookedUpRepo(entry.github) || !isRepoDirectory(entry.directory)) return null
   return { github: entry.github, ...(entry.directory && { directory: entry.directory }) }
 }
 
@@ -37,7 +47,7 @@ export async function readPackageRepoCache(name) {
 // no repo link fail alike.
 export async function writePackageRepoCache(name, github, directory = '') {
   assertPackageName('writePackageRepoCache', 'name', name)
-  assertRepo('writePackageRepoCache', 'github', github)
+  assertLookedUpRepo('writePackageRepoCache', 'github', github)
   assertRepoDirectory('writePackageRepoCache', 'directory', directory)
   return await writeRecord(DIR, name, { v: VERSION, github, directory })
 }

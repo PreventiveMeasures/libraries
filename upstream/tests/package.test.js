@@ -40,6 +40,20 @@ describe('getRepo', () => {
       { repository: 'git@GitHub.com:acme/app.git' },
       { repository: 'ssh://git@github.com:22/acme/app.git' },
       { repository: 'https://github.com:443/acme/app.git' },
+      // The shorthand drops `.git` as the URLs do.
+      { repository: 'github:acme/app.git' },
+      { repository: 'acme/app.git' },
+      { repository: { url: 'acme/app.git#v1.2.3' } },
+      // Every trailing `.git`, so no answer ends in one.
+      { repository: 'acme/app.git.git' },
+      { repository: 'https://github.com/acme/app.git.git' },
+      { repository: 'git@github.com:acme/app.git.git' },
+      { homepage: 'https://github.com/acme/app.git.git' },
+      { bugs: 'https://github.com/acme/app.git/issues' },
+      // A URL is read past the whitespace around it, as `homepage` is.
+      { repository: '  https://github.com/acme/app.git  ' },
+      { repository: { url: ' acme/app\n' } },
+      { bugs: '\thttps://github.com/acme/app/issues ' },
       { bugs: 'https://github.com:443/acme/app/issues' },
       { homepage: 'https://github.com:443/acme/app#readme' },
       { homepage: 'https://GitHub.com/acme/app#readme' },
@@ -64,6 +78,13 @@ describe('getRepo', () => {
     const at = (directory) => getRepo({ repository: { url: 'https://github.com/acme/mono', directory } }).directory
     for (const directory of ['packages/@scope/pkg', 'packages/café', 'my dir/pkg', '.github/actions/x', 'a+b/c~d', ' packages/pkg', 'packages/pkg ']) assert.equal(at(directory), directory)
     assert.equal(at('./packages/pkg/'), 'packages/pkg')
+    // `repository.directory` is a path its author may write with Windows' `\`; a homepage's tree path
+    // is the one place a `\` (`%5C`) is a name's own.
+    for (const directory of ['packages\\pkg', '.\\packages\\pkg\\', 'packages/sub\\pkg']) {
+      assert.equal(at(directory), directory.includes('sub') ? 'packages/sub/pkg' : 'packages/pkg', JSON.stringify(directory))
+    }
+    assert.equal(at('..\\x'), undefined)
+    assert.equal(getRepo({ homepage: 'https://github.com/acme/app/tree/main/a%5Cb' }).directory, 'a\\b')
     for (const directory of ['../x', 'a/../b', 'a//b', 'a/./b', '.git/x', 'a/.GIT', 'a\u0000b', 'a\u0007b']) assert.equal(at(directory), undefined, JSON.stringify(directory))
   })
 
@@ -111,6 +132,15 @@ describe('getRepo', () => {
         assert.equal(link.url, `https://github.com/${link.github}`, JSON.stringify(pkg))
         assert.doesNotMatch(JSON.stringify(link), /secret|token|www\.|http:|\.git\b|git@|#/u, JSON.stringify(pkg))
       }
+    }
+  })
+
+  it('reads a long run of `.git` in linear time', { timeout: 10_000 }, () => {
+    // A registry document is the publisher's: a regex backtracking over the run would take minutes.
+    for (const repository of ['acme/app' + '.git'.repeat(200_000), 'https://github.com/acme/app' + '.git'.repeat(200_000) + '!']) {
+      const started = performance.now()
+      getRepo({ repository })
+      assert.ok(performance.now() - started < 1000, repository.slice(0, 27))
     }
   })
 
