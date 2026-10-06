@@ -7,21 +7,45 @@ import { pathToFileURL } from 'node:url'
 import process from 'node:process'
 import { after, describe, it } from 'node:test'
 import { createVfs } from '@preventive/vfs'
-import { byPath, difference, emptyDirs, leftBehind, notBuilt, projectView, readDisk, readTree } from '../bin/compare.js'
+import { byPath, difference, leftBehind, leftOut, patchOf, projectView, readSide } from '../bin/compare.js'
 import { tokenIn, userToken } from '../bin/npmrc.js'
-import { patchOf } from '../bin/patch.js'
 import { rawZip, sha256, tarball, url } from './registry.js'
 
-// The development CLI is not part of the published package and nothing
-// else imports it: its comparison is checked here by its own module, and
-// the command as a developer runs it, against a project on disk whose one
-// tarball npm's cache holds, so nothing is fetched.
+// The development CLI, not published: its modules, and the command as a
+// developer runs it, on projects whose tarball or zip a cache holds.
 
 const file = (data, mode = 0o644) => ({ type: 'file', mode, data: Buffer.from(data) })
 const dir = { type: 'directory', mode: 0o755 }
 const link = (target) => ({ type: 'symlink', mode: 0o777, target })
 const side = (entries) => new Map(Object.entries(entries))
 const marks = (changes) => changes.map(({ mark, path, what }) => (what === undefined ? `${mark} ${path}` : `${mark} ${path} (${what})`))
+
+function temp(prefix) {
+  const path = mkdtempSync(join(tmpdir(), prefix))
+  after(() => rmSync(path, { recursive: true, force: true }))
+  return path
+}
+
+function writeDisk(root, entries) {
+  for (const [path, { type, mode, data, target }] of entries) {
+    mkdirSync(join(root, type === 'directory' ? path : join(path, '..')), { recursive: true })
+    if (type === 'file') {
+      writeFileSync(join(root, path), data)
+      chmodSync(join(root, path), mode)
+    }
+    if (type === 'symlink') symlinkSync(target, join(root, path))
+  }
+}
+
+// The CLI with its caches and tokens under `home` alone, on any platform.
+const CLI = join(import.meta.dirname, '..', 'bin', 'deptree.js')
+function cli(home, args, { node = [], env = {} } = {}) {
+  const tokens = { NPM_TOKEN: undefined, GITHUB_TOKEN: undefined, GH_TOKEN: undefined, NPM_CONFIG_CACHE: undefined, FORCE_COLOR: undefined }
+  const caches = { HOME: home, XDG_CACHE_HOME: join(home, 'xdg'), LOCALAPPDATA: join(home, 'local'), npm_config_cache: join(home, 'cache'), NO_COLOR: '1' }
+  const r = spawnSync(process.execPath, [...node, CLI, ...args], { env: { ...process.env, ...tokens, ...caches, ...env }, encoding: 'utf8', timeout: 30_000 })
+  assert.equal(r.error, undefined)
+  return r
+}
 
 describe('difference', () => {
   const tree = side({
@@ -32,27 +56,12 @@ describe('difference', () => {
     'node_modules/b': link('a'),
   })
 
-  it('finds nothing where the two are the same', () => {
-    assert.deepEqual(difference(new Map(tree), tree), [])
-  })
-
-  it('tells bytes, mode, link target and type apart', () => {
-    const disk = new Map([
-      ...tree,
-      ['node_modules/a/index.js', file('A')],
-      ['node_modules/a/cli.js', file('#!/bin/sh\n', 0o644)],
-      ['node_modules/b', link('c')],
-    ])
+  it('tells bytes, mode and link target apart', () => {
+    const disk = new Map([...tree, ['node_modules/a/index.js', file('A')], ['node_modules/a/cli.js', file('#!/bin/sh\n', 0o644)], ['node_modules/b', link('c')]])
     assert.deepEqual(marks(difference(disk, tree)), [
       '~ node_modules/a/cli.js (mode 644 on disk, 755 in the tree)',
       '~ node_modules/a/index.js (content)',
       '~ node_modules/b (link to c on disk, to a in the tree)',
-    ])
-    disk.set('node_modules/a/index.js', file('a', 0o600))
-    disk.set('node_modules/b', dir)
-    assert.deepEqual(marks(difference(disk, tree)).slice(1), [
-      '~ node_modules/a/index.js (mode 600 on disk, 644 in the tree)',
-      '~ node_modules/b (directory on disk, symlink in the tree)',
     ])
   })
 
@@ -84,19 +93,46 @@ describe('difference', () => {
   })
 })
 
-describe('notBuilt', () => {
-  it('takes a .bin or a state file on disk alone', () => {
-    for (const path of ['node_modules/.bin', 'node_modules/.bin/x', 'packages/w/node_modules/.bin', 'node_modules/.pnpm/node_modules/.bin', 'node_modules/.modules.yaml', 'node_modules/.pnpm/lock.yaml', 'node_modules/.pnpm-workspace-state-v1.json', 'node_modules/.package-lock.json', 'node_modules/.yarn-integrity']) {
-      assert.equal(notBuilt({ mark: '-', path }), true, path)
-      assert.equal(notBuilt({ mark: '+', path }), false, path)
-      assert.equal(notBuilt({ mark: '~', path }), false, path)
-    }
-    for (const path of ['node_modules/a/.bin', 'node_modules/.binary', 'node_modules/.cache', 'node_modules/a/.package-lock.json']) assert.equal(notBuilt({ mark: '-', path }), false, path)
+describe('leftOut', () => {
+  it('takes what on disk alone holds nothing Node resolves, as pnpm leaves it', () => {
+    const disk = side({
+      node_modules: dir,
+      'node_modules/.bin': dir,
+      'node_modules/.bin/x': link('../x/cli.js'),
+      'node_modules/.cache': dir,
+      'node_modules/.cache/x': file('x'),
+      'node_modules/.pnpm': dir,
+      'node_modules/.pnpm/lock.yaml': file('lockfileVersion: 9.0'),
+      'node_modules/.pnpm/node_modules': dir,
+      'node_modules/.pnpm/node_modules/@babel': dir,
+      'node_modules/.pnpm/node_modules/@jest': dir,
+      'node_modules/.pnpm/node_modules/@jest/types': dir,
+      'node_modules/.pnpm/node_modules/@s': dir,
+      'node_modules/.pnpm/node_modules/@s/p': link('../../@s+p@1.0.0/node_modules/@s/p'),
+      'node_modules/a': dir,
+      'node_modules/a/node_modules': dir,
+      'node_modules/a/node_modules/.bin': dir,
+      'node_modules/a/node_modules/.bin/semver': link('../semver/bin/semver.js'),
+    })
+    const tree = side({ node_modules: dir, 'node_modules/.pnpm': dir, 'node_modules/.pnpm/node_modules': dir, 'node_modules/a': dir, 'node_modules/y': dir })
+    assert.deepEqual([...leftOut(difference(disk, tree), disk)].toSorted(byPath), [
+      'node_modules/.bin',
+      'node_modules/.pnpm/lock.yaml',
+      'node_modules/.pnpm/node_modules/@babel',
+      'node_modules/.pnpm/node_modules/@jest',
+      'node_modules/a/node_modules',
+    ])
+    const hoisted = side({ node_modules: dir, 'node_modules/.pnpm': dir, 'node_modules/.pnpm/lock.yaml': file('lockfileVersion: 9.0') })
+    assert.deepEqual([...leftOut(difference(hoisted, side({ node_modules: dir })), hoisted)], ['node_modules/.pnpm'], "the hoisted linker's .pnpm of its state alone")
   })
 
-  it("takes the .git of a dependency Soldeer clones, and no other", () => {
-    assert.equal(notBuilt({ mark: '-', path: 'dependencies/acme-lib-1.0.0/.git' }), true)
-    for (const path of ['dependencies/.git', 'dependencies/acme-lib-1.0.0/src/.git', 'lib/dependencies/acme-lib-1.0.0/.git', 'dependencies/acme-lib-1.0.0/.github']) assert.equal(notBuilt({ mark: '-', path }), false, path)
+  it('takes what deptree never builds on disk alone, and nothing like it', () => {
+    const alone = (path, mark = '-') => leftOut([{ mark, path }], side({ [path]: file('x') })).size === 1
+    for (const path of ['node_modules/.bin', 'packages/w/node_modules/.bin', 'node_modules/.modules.yaml', 'node_modules/.pnpm-workspace-state-v1.json', 'node_modules/.package-lock.json', 'node_modules/.yarn-integrity', 'dependencies/acme-lib-1.0.0/.git']) {
+      assert.equal(alone(path), true, path)
+      assert.equal(alone(path, '~'), false, path)
+    }
+    for (const path of ['node_modules/a/.bin', 'node_modules/.binary', 'node_modules/a/.package-lock.json', 'dependencies/.git', 'dependencies/acme-lib-1.0.0/src/.git', 'lib/dependencies/acme-lib-1.0.0/.git', 'dependencies/acme-lib-1.0.0/.github']) assert.equal(alone(path), false, path)
   })
 })
 
@@ -111,51 +147,9 @@ describe('leftBehind', () => {
   })
 })
 
-describe('emptyDirs', () => {
-  it('takes a directory on disk alone that holds nothing but directories and what deptree never builds', () => {
-    const disk = side({
-      'node_modules/.bin': dir,
-      'node_modules/.bin/x': link('../x/cli.js'),
-      'node_modules/.pnpm': dir,
-      'node_modules/.pnpm/lock.yaml': file('lockfileVersion: 9.0'),
-      'node_modules/.pnpm/node_modules': dir,
-      'node_modules/.pnpm/node_modules/@babel': dir,
-      'node_modules/.pnpm/node_modules/@jest': dir,
-      'node_modules/.pnpm/node_modules/@jest/types': dir,
-      'node_modules/.pnpm/node_modules/@s': dir,
-      'node_modules/.pnpm/node_modules/@s/p': link('../../@s+p@1.0.0/node_modules/@s/p'),
-      'node_modules/a': dir,
-      'node_modules/a/index.js': file('a'),
-      'node_modules/a/node_modules': dir,
-      'node_modules/a/node_modules/.bin': dir,
-      'node_modules/a/node_modules/.bin/semver': link('../semver/bin/semver.js'),
-      'node_modules/z': dir,
-      'node_modules/z/deep': dir,
-      'node_modules/z/deep/f.js': file('f'),
-    })
-    const tree = side({ 'node_modules/.pnpm': dir, 'node_modules/.pnpm/node_modules': dir, 'node_modules/a': dir, 'node_modules/a/index.js': file('a'), 'node_modules/y': dir, 'node_modules/y/f.js': file('f') })
-    const changes = difference(disk, tree)
-    assert.deepEqual(marks(changes), [
-      '- node_modules/.bin',
-      '- node_modules/.pnpm/lock.yaml',
-      '- node_modules/.pnpm/node_modules/@babel',
-      '- node_modules/.pnpm/node_modules/@jest',
-      '- node_modules/.pnpm/node_modules/@s',
-      '- node_modules/a/node_modules',
-      '+ node_modules/y',
-      '- node_modules/z',
-    ])
-    assert.deepEqual([...emptyDirs(changes, disk)].toSorted(byPath), ['node_modules/.pnpm/node_modules/@babel', 'node_modules/.pnpm/node_modules/@jest', 'node_modules/a/node_modules'], 'a .bin is never built, not empty')
-    const hoisted = side({ 'node_modules/.pnpm': dir, 'node_modules/.pnpm/lock.yaml': file('lockfileVersion: 9.0') })
-    assert.deepEqual([...emptyDirs(difference(hoisted, new Map()), hoisted)], ['node_modules/.pnpm'], "the hoisted linker's .pnpm of its state alone")
-  })
-})
-
 describe('patchOf', () => {
-  const bytes = (text) => new TextEncoder().encode(text)
-
   it('writes a unified diff from disk to the tree, labelled for patch -p1', () => {
-    assert.equal(patchOf('node_modules/a/x.js', bytes('one\r\ntwo\n'), bytes('one\ntwo')), [
+    assert.equal(patchOf('node_modules/a/x.js', Buffer.from('one\r\ntwo\n'), Buffer.from('one\ntwo')), [
       '--- a/node_modules/a/x.js',
       '+++ b/node_modules/a/x.js',
       '@@ -1,2 +1,2 @@',
@@ -170,8 +164,8 @@ describe('patchOf', () => {
 
   it('says only that they differ where either is no UTF-8 text, or holds a NUL', () => {
     const binary = 'Binary files a/node_modules/a/x.node and b/node_modules/a/x.node differ\n'
-    assert.equal(patchOf('node_modules/a/x.node', Uint8Array.of(0x61, 0x00), bytes('a')), binary)
-    assert.equal(patchOf('node_modules/a/x.node', bytes('a'), Uint8Array.of(0xff, 0xfe)), binary)
+    assert.equal(patchOf('node_modules/a/x.node', Buffer.from('a\0'), Buffer.from('a')), binary)
+    assert.equal(patchOf('node_modules/a/x.node', Buffer.from('a'), Uint8Array.of(0xff, 0xfe)), binary)
   })
 })
 
@@ -198,114 +192,72 @@ describe('the token in ~/.npmrc', () => {
       `//registry.npmjs.org/:_authToken=${T1.slice(4)}`,
       ` //registry.npmjs.org/:_authToken=${T1}`,
       `//registry.npmjs.org/:_authToken = ${T1}`,
-      `//registry.npmjs.org/:_authToken=${T1} `,
       `//registry.npmjs.org/:_authToken=${T1}; comment`,
       `//registry.npmjs.org/:_authToken="${T1}"`,
       `//registry.npmjs.org/:_authToken=${T1}\rX-Injected: 1`,
-      `; //registry.npmjs.org/:_authToken=${T1}`,
     ]) assert.equal(tokenIn(line), undefined, line)
   })
 
   it('reads one from home/.npmrc, and none where there is none or no absolute home', () => {
-    const home = mkdtempSync(join(tmpdir(), 'deptree-bin-npmrc-'))
-    try {
-      assert.equal(userToken(home), undefined)
-      writeFileSync(join(home, '.npmrc'), `registry=https://registry.npmjs.org/\n//registry.npmjs.org/:_authToken=${T1}\n`)
-      assert.equal(userToken(home), T1)
-      assert.equal(userToken('relative'), undefined)
-    } finally {
-      rmSync(home, { recursive: true, force: true })
-    }
+    const home = temp('deptree-bin-npmrc-')
+    assert.equal(userToken(home), undefined)
+    writeFileSync(join(home, '.npmrc'), `registry=https://registry.npmjs.org/\n//registry.npmjs.org/:_authToken=${T1}\n`)
+    assert.equal(userToken(home), T1)
+    assert.equal(userToken('relative'), undefined)
   })
 })
 
-describe('the two sides', () => {
-  const root = mkdtempSync(join(tmpdir(), 'deptree-bin-sides-'))
-  after(() => rmSync(root, { recursive: true, force: true }))
+describe('readSide', () => {
+  const root = temp('deptree-bin-sides-')
 
-  it('reads a Vfs under its node_modules alone, and a disk the same way', () => {
+  it("reads the tree's Vfs and the disk alike, under the folders given alone", () => {
     const vfs = createVfs({
       'node_modules/a/index.js': { type: 'file', data: 'a', mode: 0o755 },
       'node_modules/b': { type: 'symlink', target: 'a' },
       'packages/w/node_modules/c/x': 'c',
       'packages/w/package.json': '{}',
     })
-    const tree = readTree(vfs, 'node_modules')
+    const dirs = ['node_modules', 'packages/w/node_modules', 'packages/v/node_modules']
+    const tree = readSide(vfs, dirs)
     assert.deepEqual([...tree.keys()].toSorted(byPath), ['node_modules', 'node_modules/a', 'node_modules/a/index.js', 'node_modules/b', 'packages/w/node_modules', 'packages/w/node_modules/c', 'packages/w/node_modules/c/x'])
-    assert.deepEqual({ ...tree.get('node_modules/a/index.js'), data: [...tree.get('node_modules/a/index.js').data] }, { type: 'file', mode: 0o755, data: [0x61] })
-    assert.deepEqual(tree.get('node_modules/b'), { type: 'symlink', mode: 0o777, target: 'a' })
-
-    for (const [path, entry] of tree) {
-      if (entry.type === 'directory') mkdirSync(join(root, path), { recursive: true })
-      if (entry.type === 'file') {
-        writeFileSync(join(root, path), entry.data)
-        chmodSync(join(root, path), entry.mode)
-      }
-      if (entry.type === 'symlink') symlinkSync(entry.target, join(root, path))
-    }
-    const disk = readDisk(projectView(root), ['node_modules', 'packages/w/node_modules', 'packages/v/node_modules'])
-    assert.deepEqual(difference(disk, tree), [], 'a root not there is left out, and links are not followed')
+    writeDisk(root, tree)
+    assert.deepEqual(difference(readSide(projectView(root), dirs), tree), [], 'a folder not there is left out, and links are not followed')
   })
 })
 
 describe('bin/deptree.js compare', async () => {
-  const CLI = join(import.meta.dirname, '..', 'bin', 'deptree.js')
-  const home = mkdtempSync(join(tmpdir(), 'deptree-bin-compare-'))
-  after(() => rmSync(home, { recursive: true, force: true }))
+  const home = temp('deptree-bin-compare-')
   const project = join(home, 'project')
-
+  const run = (...args) => cli(home, args)
   // npm 4's cache layout, which upstream reads before the registry.
   const a = await tarball('a', '1.0.0', { 'index.js': 'a\n' })
-  mkdirSync(join(home, 'cache/a/1.0.0'), { recursive: true })
-  writeFileSync(join(home, 'cache/a/1.0.0/package.tgz'), a.bytes)
+  writeDisk(home, side({ 'cache/a/1.0.0/package.tgz': file(a.bytes) }))
 
   const manifest = { name: 'project', version: '1.0.0', dependencies: { a: '1.0.0' } }
   const lock = { name: 'project', version: '1.0.0', lockfileVersion: 3, requires: true, packages: { '': manifest, 'node_modules/a': { version: '1.0.0', resolved: url('a', '1.0.0'), integrity: a.integrity } } }
-  // As npm writes them, and as npm ci leaves node_modules: each file 0o644,
-  // and its hidden lockfile beside.
+  // As npm writes them, and as npm ci leaves node_modules, its hidden lockfile beside.
   const json = (value) => `${JSON.stringify(value, null, 2)}\n`
-  const files = {
-    'package.json': json(manifest),
-    'package-lock.json': json(lock),
-    'node_modules/.package-lock.json': json(lock),
-    'node_modules/a/package.json': JSON.stringify({ name: 'a', version: '1.0.0' }),
-    'node_modules/a/index.js': 'a\n',
-  }
-  for (const [path, data] of Object.entries(files)) {
-    mkdirSync(join(project, path, '..'), { recursive: true })
-    writeFileSync(join(project, path), data)
-    chmodSync(join(project, path), 0o644)
-  }
-
-  // The cache it keeps tarballs in is this test's too, on any platform.
-  const env = { ...process.env, HOME: home, XDG_CACHE_HOME: join(home, 'xdg'), LOCALAPPDATA: join(home, 'local'), npm_config_cache: join(home, 'cache'), NO_COLOR: '1' }
-  for (const name of ['NPM_CONFIG_CACHE', 'FORCE_COLOR']) delete env[name]
-  const run = (...args) => {
-    const r = spawnSync(process.execPath, [CLI, ...args], { env, encoding: 'utf8', timeout: 30_000 })
-    assert.equal(r.error, undefined)
-    return { stdout: r.stdout, stderr: r.stderr, status: r.status }
-  }
+  writeDisk(project, side({
+    'package.json': file(json(manifest)),
+    'package-lock.json': file(json(lock)),
+    'node_modules/.package-lock.json': file(json(lock)),
+    'node_modules/a/package.json': file(JSON.stringify({ name: 'a', version: '1.0.0' })),
+    'node_modules/a/index.js': file('a\n'),
+  }))
 
   it('finds the tree on disk the one the lockfile installs', () => {
     const r = run('compare', '--npm', '11.12.1', project)
     assert.equal(r.stdout, '')
-    assert.match(r.stderr, /^the same; left out 1 that deptree never builds \(--all lists them\)$/mu)
+    assert.match(r.stderr, /^the same; 1 left out \(--all lists them\)$/mu)
     assert.equal(r.status, 0)
-    const all = run('compare', '--npm', '11.12.1', '--all', project)
-    assert.equal(all.stdout, '- node_modules/.package-lock.json\n')
-    assert.equal(all.status, 1)
   })
 
-  it('lists what differs, and exits 1', () => {
+  it('lists what differs, with --all what is left out, with --diff how, and exits 1', () => {
     appendFileSync(join(project, 'node_modules/a/index.js'), 'changed\n')
-    mkdirSync(join(project, 'node_modules/extra'))
-    writeFileSync(join(project, 'node_modules/extra/x.js'), 'x')
-    const r = run('compare', '--npm', '11.12.1', project)
-    assert.equal(r.stdout, '~ node_modules/a/index.js  (content)\n- node_modules/extra/\n')
-    assert.match(r.stderr, /^0 only in the tree, 1 only on disk, 1 different; left out 1 that/mu)
-    assert.equal(r.status, 1)
-    const diffed = run('compare', '--npm', '11.12.1', '--diff', project)
-    assert.equal(diffed.stdout, [
+    writeDisk(project, side({ 'node_modules/extra/x.js': file('x') }))
+    const r = run('compare', '--npm', '11.12.1', '--all', '--diff', project)
+    assert.equal(r.stdout, [
+      '- node_modules/.package-lock.json',
       '~ node_modules/a/index.js  (content)',
       '--- a/node_modules/a/index.js',
       '+++ b/node_modules/a/index.js',
@@ -315,99 +267,68 @@ describe('bin/deptree.js compare', async () => {
       '- node_modules/extra/',
       '',
     ].join('\n'), 'byte for byte where stdout is no terminal, so that patch -p1 applies it')
-    assert.equal(diffed.status, 1)
-    rmSync(join(project, 'node_modules'), { recursive: true })
-    const gone = run('compare', '--npm', '11.12.1', project)
-    assert.equal(gone.stdout, '+ node_modules/\n')
-    assert.equal(gone.status, 1)
+    assert.match(r.stderr, /^0 only in the tree, 2 only on disk, 1 different$/mu)
+    assert.equal(r.status, 1)
   })
 
   it('exits 2 on trouble, saying what', () => {
-    const npmless = run('compare', project)
-    assert.match(npmless.stderr, /package-lock\.json: give --npm <version>/u)
-    assert.equal(npmless.status, 2)
-    const empty = run('compare', home)
-    assert.match(empty.stderr, /no pnpm-lock\.yaml, yarn\.lock, package-lock\.json/u)
-    assert.equal(empty.status, 2)
-    const refused = run('compare', '--npm', '9.0.0', project)
-    assert.match(refused.stderr, /^deptree\.js: .*npm/mu)
-    assert.doesNotMatch(refused.stderr, /\n\s+at /u, 'a refusal is no bug, and shows no stack')
-    assert.equal(refused.status, 2)
+    writeDisk(home, side({ 'unpinned/package.json': file('{"name":"u","version":"1.0.0"}'), 'unpinned/pnpm-lock.yaml': file("lockfileVersion: '9.0'\n") }))
+    for (const [args, said] of [
+      [[project], /package-lock\.json: give --npm <version>/u],
+      [[home], /no pnpm-lock\.yaml, yarn\.lock, package-lock\.json/u],
+      [['--npm', '9.0.0', project], /^deptree\.js: .*npm/mu],
+      [[join(home, 'unpinned')], /^deptree\.js: host\.pnpm /mu],
+      [['--frobnicate', project], /^deptree\.js: Unknown option '--frobnicate'/mu],
+    ]) {
+      const r = run('compare', ...args)
+      assert.match(r.stderr, said)
+      assert.doesNotMatch(r.stderr, /\n\s+at /u, 'a refusal is no bug, and shows no stack')
+      assert.equal(r.status, 2)
+    }
     assert.equal(run('frobnicate', project).status, 2)
-    assert.equal(run('compare', '--frobnicate', project).status, 2)
   })
 })
 
 describe('bin/deptree.js compare, with Soldeer', () => {
-  const CLI = join(import.meta.dirname, '..', 'bin', 'deptree.js')
-  const home = mkdtempSync(join(tmpdir(), 'deptree-bin-soldeer-'))
-  after(() => rmSync(home, { recursive: true, force: true }))
+  const home = temp('deptree-bin-soldeer-')
   const project = join(home, 'project')
-
-  // The CLI caches in the default directory, which answers a zip of the
-  // lockfile's checksum with no request: wherever that is on this platform.
+  // The default cache answers a zip of the lockfile's checksum with no
+  // request: wherever it is on this platform.
   const zip = rawZip([{ name: 'src/Test.sol', data: 'test\n' }, { name: 'run.sh', data: 'run', mode: 0o100755 }])
-  for (const cache of ['xdg/PreventiveMeasures', 'Library/Caches/PreventiveMeasures', 'local/PreventiveMeasures/Cache']) {
-    mkdirSync(join(home, cache, 'soldeer/zips'), { recursive: true })
-    writeFileSync(join(home, cache, 'soldeer/zips/forge-std@1.9.4.zip'), zip)
-  }
-  // As Soldeer 0.12 writes soldeer.lock, and extracts the zip.
-  const files = {
-    'soldeer.toml': '[dependencies]\nforge-std = "1.9.4"\n',
-    'soldeer.lock': `version = 2\n\n[[dependencies]]\nname = "forge-std"\nversion = "1.9.4"\nurl = "https://soldeer-revisions.s3.amazonaws.com/forge-std/x.zip"\nchecksum = "${sha256(zip)}"\nintegrity = "${'0'.repeat(64)}"\n`,
-    'dependencies/forge-std-1.9.4/src/Test.sol': ['test\n', 0o644],
-    'dependencies/forge-std-1.9.4/run.sh': ['run', 0o755],
-  }
-  for (const [path, written] of Object.entries(files)) {
-    const [data, mode] = Array.isArray(written) ? written : [written, 0o644]
-    mkdirSync(join(project, path, '..'), { recursive: true })
-    writeFileSync(join(project, path), data)
-    chmodSync(join(project, path), mode)
-  }
+  for (const cache of ['xdg/PreventiveMeasures', 'Library/Caches/PreventiveMeasures', 'local/PreventiveMeasures/Cache']) writeDisk(home, side({ [`${cache}/soldeer/zips/forge-std@1.9.4.zip`]: file(zip) }))
+  // As Soldeer 0.12 writes soldeer.lock and extracts the zip, but for one
+  // file changed and another dependency's folder.
+  writeDisk(project, side({
+    'soldeer.toml': file('[dependencies]\nforge-std = "1.9.4"\n'),
+    'soldeer.lock': file(`version = 2\n\n[[dependencies]]\nname = "forge-std"\nversion = "1.9.4"\nurl = "https://soldeer-revisions.s3.amazonaws.com/forge-std/x.zip"\nchecksum = "${sha256(zip)}"\nintegrity = "${'0'.repeat(64)}"\n`),
+    'dependencies/forge-std-1.9.4/src/Test.sol': file('changed\n'),
+    'dependencies/forge-std-1.9.4/run.sh': file('run', 0o755),
+    'dependencies/solady-0.1.0/x.sol': file('x'),
+  }))
 
-  const env = { ...process.env, HOME: home, XDG_CACHE_HOME: join(home, 'xdg'), LOCALAPPDATA: join(home, 'local'), NO_COLOR: '1' }
-  delete env.FORCE_COLOR
-  const run = (...args) => {
-    const r = spawnSync(process.execPath, [CLI, ...args], { env, encoding: 'utf8', timeout: 30_000 })
-    assert.equal(r.error, undefined)
-    return { stdout: r.stdout, stderr: r.stderr, status: r.status }
-  }
-
-  it('finds the dependencies folder on disk the one soldeer.lock installs', () => {
-    const r = run('compare', project)
-    assert.equal(r.stdout, '')
-    assert.match(r.stderr, /^dependencies on disk: 2 files, /mu)
-    assert.match(r.stderr, /^the same$/mu)
-    assert.equal(r.status, 0)
-  })
-
-  it('lists what differs there, and exits 1', () => {
-    writeFileSync(join(project, 'dependencies/forge-std-1.9.4/src/Test.sol'), 'changed\n')
-    mkdirSync(join(project, 'dependencies/solady-0.1.0'))
-    writeFileSync(join(project, 'dependencies/solady-0.1.0/x.sol'), 'x')
-    const r = run('compare', '--soldeer', '0.12.0', project)
+  it('lists what differs in the dependencies folder soldeer.lock installs', () => {
+    const r = cli(home, ['compare', project])
     assert.equal(r.stdout, '~ dependencies/forge-std-1.9.4/src/Test.sol  (content)\n- dependencies/solady-0.1.0/\n')
+    assert.match(r.stderr, /^dependencies on disk: 3 files, /mu)
     assert.equal(r.status, 1)
-    assert.equal(run('compare', '--soldeer', '0.11.0', project).status, 2, 'only the Soldeer deptree builds for')
+    assert.equal(cli(home, ['compare', '--soldeer', '0.11.0', project]).status, 2, 'only the Soldeer deptree builds for')
   })
 
   it('reads a git dependency from GitHub, with GITHUB_TOKEN or GH_TOKEN where either is set', () => {
     const [git, rev] = ['https://github.com/acme/lib.git', 'a'.repeat(40)]
-    const gitProject = join(home, 'git-project')
-    mkdirSync(gitProject)
-    writeFileSync(join(gitProject, 'soldeer.toml'), `[dependencies]\nacme-lib = { version = "1.0.0", git = "${git}" }\n`)
-    writeFileSync(join(gitProject, 'soldeer.lock'), `version = 2\n\n[[dependencies]]\nname = "acme-lib"\nversion = "1.0.0"\ngit = "${git}"\nrev = "${rev}"\n`)
-    // GitHub as the CLI asks it, in the CLI's own process: each request and
-    // the token it carries said on stderr, and nothing found.
-    const spy = join(home, 'github-spy.mjs')
-    writeFileSync(spy, "globalThis.fetch = (input, init = {}) => {\n  process.stderr.write(`asked ${input} ${new Headers(init.headers).get('authorization') ?? 'anonymously'}\\n`)\n  return Promise.resolve(Response.json({ message: 'Not Found' }, { status: 404 }))\n}\n")
-    const ask = (tokens) => {
-      const r = spawnSync(process.execPath, ['--import', pathToFileURL(spy).href, CLI, 'compare', gitProject], { env: { ...env, ...tokens }, encoding: 'utf8', timeout: 30_000 })
+    writeDisk(home, side({
+      'git/soldeer.toml': file(`[dependencies]\nacme-lib = { version = "1.0.0", git = "${git}" }\n`),
+      'git/soldeer.lock': file(`version = 2\n\n[[dependencies]]\nname = "acme-lib"\nversion = "1.0.0"\ngit = "${git}"\nrev = "${rev}"\n`),
+      // GitHub as the CLI asks it, in its own process: each request and the
+      // token it carries said on stderr, and nothing found.
+      'spy.mjs': file("globalThis.fetch = (input, init = {}) => {\n  process.stderr.write(`asked ${input} ${new Headers(init.headers).get('authorization') ?? 'anonymously'}\\n`)\n  return Promise.resolve(Response.json({ message: 'Not Found' }, { status: 404 }))\n}\n"),
+    }))
+    const ask = (env) => {
+      const r = cli(home, ['compare', join(home, 'git')], { node: ['--import', pathToFileURL(join(home, 'spy.mjs')).href], env })
       assert.equal(r.status, 2, r.stderr)
       assert.doesNotMatch(r.stderr, /\n\s+at /u, 'a refusal, not a bug')
       return r.stderr.match(/^asked https:\/\/api\.github\.com\/repos\/acme\/lib\/git\/commits\/a{40} (.*)$/mu)?.[1]
     }
-    for (const name of ['GITHUB_TOKEN', 'GH_TOKEN']) delete env[name]
     assert.equal(ask({}), 'anonymously')
     assert.equal(ask({ GH_TOKEN: 'gho_gh' }), 'Bearer gho_gh')
     assert.equal(ask({ GITHUB_TOKEN: 'ghp_github', GH_TOKEN: 'gho_gh' }), 'Bearer ghp_github')

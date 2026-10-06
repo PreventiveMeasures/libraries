@@ -1,24 +1,19 @@
-// The two sides `bin/deptree.js compare` sets beside each other, and their
-// difference. Not part of the published package: the library reads no disk,
-// and only this development CLI does.
-//
-// Each side is a map from a path, relative to the project's directory and
-// with no leading `/`, to what is there: its type, its mode, and a file's
-// bytes or a link's target. Only what is under the folder an install makes
-// is held — a node_modules, or Soldeer's dependencies — so the directories
-// above, the projects' own, are never set side by side.
+// The two sides `bin/deptree.js compare` sets beside each other, what is on
+// disk and what deptree builds, each a map from a path under the folders an
+// install makes to its type, mode, and bytes or link target; and how they
+// differ. Not part of the published package.
 
 import { Buffer } from 'node:buffer'
 import { lstatSync, readFileSync, readdirSync, readlinkSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { diff } from '@preventive/diff'
 import { compareNames, dirname, normalize } from '@preventive/vfs/path.js'
 import { typeOf } from '../src/project.js'
 
 const kindOf = (st) => (st.isSymbolicLink() ? 'symlink' : st.isDirectory() ? 'directory' : st.isFile() ? 'file' : 'other')
 
-// The project's directory as deptree reads one, by paths from `/`: never
-// above it, as `..` at `/` stays there. Names come in code point order, as a
-// Vfs lists them, whatever order the filesystem keeps.
+// The project's directory as deptree reads one, by paths from `/`, never
+// above it, and its names in code point order, as a Vfs lists them.
 export function projectView(root) {
   const at = (path) => join(root, normalize(`/${path}`))
   return {
@@ -33,83 +28,51 @@ export function projectView(root) {
   }
 }
 
-// Everything under each of `dirs` (the folders an install makes, by paths
-// from the project's directory) as `project` reads it from disk: links not
-// followed, every file read whole. One not there is left out.
-export function readDisk(project, dirs) {
+// Everything under each of `dirs` as `view` has it, the disk's projectView
+// or the tree's Vfs: links not followed, every file read whole, and a
+// folder not there left out.
+export function readSide(view, dirs) {
   const entries = new Map()
-  const stack = dirs.filter((dir) => typeOf(project, dir, false) !== undefined)
+  const stack = dirs.filter((dir) => typeOf(view, dir, false) !== undefined)
   while (stack.length > 0) {
     const path = stack.pop()
-    const entry = project.lstat(path)
-    if (entry.type === 'file') entry.data = project.readFile(path)
-    if (entry.type === 'symlink') entry.target = project.readlink(path)
-    entries.set(path, entry)
-    if (entry.type === 'directory') for (const name of project.readdir(path)) stack.push(`${path}/${name}`)
-  }
-  return entries
-}
-
-// Whether a path is a `folder` or under one, wherever it is.
-const isUnder = (path, folder) => path === folder || path.startsWith(`${folder}/`) || path.endsWith(`/${folder}`) || path.includes(`/${folder}/`)
-
-// The tree deptree built, as readDisk reads the disk: what its Vfs holds
-// under the folder an install makes, which is all of it but the directories
-// on the way. The bytes are the Vfs's own, not copied.
-export function readTree(vfs, folder) {
-  const entries = new Map()
-  for (const { name, type, mode, data, linkname } of vfs.entries('/')) {
-    if (!isUnder(name, folder)) continue
+    const { type, mode } = view.lstat(path)
     const entry = { type, mode: mode & 0o777 }
-    if (type === 'file') entry.data = data
-    if (type === 'symlink') entry.target = linkname
-    entries.set(name, entry)
+    if (type === 'file') entry.data = view.readFile(path)
+    if (type === 'symlink') entry.target = view.readlink(path)
+    entries.set(path, entry)
+    if (type === 'directory') for (const name of view.readdir(path)) stack.push(`${path}/${name}`)
   }
   return entries
 }
 
-// What deptree never builds, as it is no part of the tree a lockfile gives:
-// the .bin directories, each package manager's record of its install —
-// pnpm's state files, npm's hidden lockfile, yarn's integrity file — and
-// the .git of a dependency Soldeer clones.
+// What deptree never builds: the .bin directories, each package manager's
+// record of its install, and the .git of a dependency Soldeer clones.
 const NOT_BUILT = /(?:^|\/)node_modules\/(?:\.bin|\.modules\.yaml|\.pnpm-workspace-state(?:-v\d+)?\.json|\.pnpm\/lock\.yaml|\.package-lock\.json|\.yarn-integrity)(?:\/|$)|^dependencies\/[^/]+\/\.git(?:\/|$)/u
 
-// Whether a change is only one of those on disk.
-export const notBuilt = ({ mark, path }) => mark === '-' && NOT_BUILT.test(path)
-
-// A package's directory in node_modules/.pnpm, named by its key, that pnpm
-// keeps there for a while after no install has it, and `pnpm prune` removes.
-const LEFT_BEHIND = /(?:^|\/)node_modules\/\.pnpm\/[^/]*@[^/]*$/u
-
-// Whether a change is one of those on disk alone.
-export const leftBehind = ({ mark, type, path }) => mark === '-' && type === 'directory' && LEFT_BEHIND.test(path)
-
-// Of the directories on disk alone, those that hold nothing but directories
-// and what deptree never builds, which Node finds nothing in. pnpm leaves
-// them behind: a node_modules whose packages it removed, empty or with a
-// .bin of links to them, a scope's directory once the last package in it
-// goes, and with the hoisted linker, node_modules/.pnpm of its state alone.
-export function emptyDirs(changes, disk) {
-  const dirs = new Set(changes.filter(({ mark, type, path }) => mark === '-' && type === 'directory' && !NOT_BUILT.test(path)).map(({ path }) => path))
+// The paths on disk alone that hold nothing Node resolves: what deptree never
+// builds, and directories of nothing else, as pnpm leaves a node_modules of a
+// .bin of links to what it removed, a scope once its last package goes, or
+// the hoisted linker's .pnpm of its state alone.
+export function leftOut(changes, disk) {
+  const left = new Set(changes.filter(({ mark }) => mark === '-').map(({ path }) => path))
   for (const [path, { type }] of disk) {
-    if (dirs.size === 0) break
+    if (left.size === 0) break
     if (type === 'directory' || NOT_BUILT.test(path)) continue
     // Nothing listed is under another listed, so the first one up is its.
-    for (let dir = dirname(path); dir !== '.'; dir = dirname(dir)) {
-      if (dirs.delete(dir)) break
+    for (let at = path; at !== '.'; at = dirname(at)) {
+      if (left.delete(at)) break
     }
   }
-  return dirs
+  return left
 }
 
-// Depth first, siblings in code point order, as Vfs.walk goes.
-export function byPath(a, b) {
-  const [as, bs] = [a.split('/'), b.split('/')]
-  for (let i = 0; i < Math.min(as.length, bs.length); i++) {
-    if (as[i] !== bs[i]) return compareNames(as[i], bs[i])
-  }
-  return as.length - bs.length
-}
+// A package's directory in node_modules/.pnpm on disk alone, which pnpm keeps
+// for a while after no install has it.
+export const leftBehind = ({ mark, type, path }) => mark === '-' && type === 'directory' && /(?:^|\/)node_modules\/\.pnpm\/[^/]*@[^/]*$/u.test(path)
+
+// Walk order, as Vfs.walk goes: a `/` sorts before anything a name can hold.
+export const byPath = (a, b) => compareNames(a.replaceAll('/', '\0'), b.replaceAll('/', '\0'))
 
 const octal = (mode) => mode.toString(8).padStart(3, '0')
 
@@ -125,24 +88,33 @@ function changeOf(disk, tree) {
   return what.length === 0 ? undefined : { mark: '~', type: tree.type, what: what.join('; '), content }
 }
 
-// What an install from the lockfile would change of what is on disk, in
-// walk order: `+` a path only the tree has, `-` one only the disk has, `~`
-// one both have otherwise, by type, bytes, mode or link target. A file's
-// bytes are compared whole, never line by line. A directory only one side
-// has is one change, and so is a path whose type differs: nothing under
-// either is listed. A directory's own mode is not compared, as the umask
-// sets it rather than the lockfile.
+// How the disk differs from the tree, in walk order. Nothing is listed under
+// a path only one side has, or of another type on each, as only a directory
+// has anything in it; a directory's own mode is the umask's, not compared.
 export function difference(disk, tree) {
-  // What is in `dir` is set side by side where it is the same on both sides:
-  // only a directory has anything in it, and nothing is above node_modules.
-  const sideBySide = (dir) => disk.get(dir)?.type === tree.get(dir)?.type
   const changes = []
-  const compare = (path, there, built) => {
-    if (!sideBySide(dirname(path))) return
-    const change = changeOf(there, built)
+  for (const path of new Set([...disk.keys(), ...tree.keys()])) {
+    if (disk.get(dirname(path))?.type !== tree.get(dirname(path))?.type) continue
+    const change = changeOf(disk.get(path), tree.get(path))
     if (change !== undefined) changes.push({ path, ...change })
   }
-  for (const [path, there] of disk) compare(path, there, tree.get(path))
-  for (const [path, built] of tree) if (!disk.has(path)) compare(path, undefined, built)
   return changes.sort((a, b) => byPath(a.path, b.path))
+}
+
+// Text is UTF-8 with no NUL in it, as diff takes a NUL for a binary file's.
+const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
+function textOf(bytes) {
+  if (bytes.includes(0)) return undefined
+  try {
+    return decoder.decode(bytes)
+  } catch {
+    return undefined
+  }
+}
+
+// A unified diff from disk to the tree, labelled for `patch -p1`.
+export function patchOf(path, disk, tree) {
+  const [a, b] = [textOf(disk), textOf(tree)]
+  if (a === undefined || b === undefined) return `Binary files a/${path} and b/${path} differ\n`
+  return `--- a/${path}\n+++ b/${path}\n${diff(a, b)}`
 }
