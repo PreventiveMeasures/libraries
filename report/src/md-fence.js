@@ -111,11 +111,13 @@ function quotedText(line, paragraph) {
   return text.trim() !== '' && !opens && /^ */u.exec(text)[0].length < 4
 }
 
-// Optionally include HTML blocks so hidden text cannot become report structure.
+// In prose mode, include HTML/indented code and report inline contexts too.
+// Quotes stay separate lines: callers may reject ambiguous multiline syntax.
 // fenceRanges, and the line that would close what the text leaves open
 // at its end — a fence, or an HTML block a line can end — at the margin
 // of the item it sits in; null when nothing such is open.
-export function readFences(text, includeHtml = false) {
+export function readFences(text, prose = false) {
+  const inline = []
   const ranges = []
   // The open fence, by where it began and its run; or the open HTML
   // block, by what ends it and the text that would; and the margin of
@@ -138,9 +140,10 @@ export function readFences(text, includeHtml = false) {
   // ends: an item starts with one blank line at most.
   let fresh = false
   let pos = 0
-  for (const line of text.split('\n')) {
+  for (const raw of text.split('\n')) {
     const start = pos
-    pos += line.length + 1
+    pos += raw.length + 1
+    const line = prose ? expandTabs(raw) : raw
     const indent = /^ */u.exec(line)[0].length
     if (open !== -1 || html) {
       // A fence or HTML block in a list item ends with the item, closed
@@ -156,8 +159,8 @@ export function readFences(text, includeHtml = false) {
       // ```` block stays content.
       const closes = !left && (html ? html.ends.test(line) : indent <= inside + 3 && closesFence(marker, line))
       if (left || closes) {
-        if (open !== -1) ranges.push([open, left ? start - 1 : start + line.length])
-        else if (includeHtml) ranges.push([html.start, left ? start - 1 : start + line.length])
+        if (open !== -1) ranges.push([open, left ? start - 1 : pos - 1])
+        else if (prose) ranges.push([html.start, left ? start - 1 : pos - 1])
         open = -1
         html = null
       }
@@ -181,7 +184,13 @@ export function readFences(text, includeHtml = false) {
     // starts short of the paragraph's item — and every item stands.
     // Anything else leaves the items it starts short of.
     let opens = opener(rest, lazy, depth === items.length && !quoted)
-    if (lazy && !opens) continue
+    if (lazy && !opens) {
+      if (prose) {
+        if (quoted) inline.push([start, pos - 1])
+        else inline.at(-1)[1] = pos - 1
+      }
+      continue
+    }
     items.length = depth
     // Markers open items, each in the last ("- 1. x" opens two), and
     // what follows is read from the innermost one's margin.
@@ -195,7 +204,7 @@ export function readFences(text, includeHtml = false) {
     if (opens?.fence) [open, marker, inside] = [start, opens.fence, margin]
     else if (opens?.html) {
       const closed = opens.html.test(rest)
-      if (includeHtml && closed) ranges.push([start, start + line.length])
+      if (prose && closed) ranges.push([start, pos - 1])
       html = closed ? null : { start, ends: opens.html, close: opens.close }
       inside = margin
     }
@@ -210,11 +219,25 @@ export function readFences(text, includeHtml = false) {
     const inQuote = lazy && quoted
     quoted = /^ {0,3}>/u.test(rest)
     lazy = quoted ? quotedText(rest, inQuote) : !opens && !fresh && /^ */u.exec(rest)[0].length < 4
+    if (prose && !opens?.fence && !opens?.html) {
+      if (!opens && !fresh && !lazy) ranges.push([start, pos - 1])
+      else inline.push([start, pos - 1])
+    }
   }
   if (open !== -1) ranges.push([open, text.length])
-  else if (includeHtml && html) ranges.push([html.start, text.length])
+  else if (prose && html) ranges.push([html.start, text.length])
   const close = open === -1 ? html?.close : marker
-  return { ranges, closer: close ? ' '.repeat(inside) + close : null }
+  return { ranges, inline, closer: close ? ' '.repeat(inside) + close : null }
+}
+
+// Expand tabs for block indentation only; all ranges still address raw text.
+function expandTabs(line) {
+  let column = 0
+  return line.split('\t').map((part, i) => {
+    const gap = i ? 4 - column % 4 : 0
+    column += gap + part.length
+    return ' '.repeat(gap) + part
+  }).join('')
 }
 
 // Whether `line` closes a fence opened with the run `marker`: the same

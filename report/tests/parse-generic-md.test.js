@@ -249,6 +249,44 @@ test('code masking cannot conceal adjacent links or span paragraph boundaries', 
   }
 })
 
+test('code spans cannot hide links across list, quote or other block boundaries', () => {
+  for (const prose of [
+    'Unmatched ` opener\n- https://github.com/other/repo\n- matching ` closer',
+    '- Unmatched ` opener\n- https://github.com/other/repo\n- matching ` closer',
+    'Unmatched ` opener\n> https://github.com/other/repo\n> matching ` closer',
+    'Unmatched ` opener\n---\nhttps://github.com/other/repo\nmatching ` closer',
+    'Unmatched ` opener\n### Another section\nhttps://github.com/other/repo\nmatching ` closer',
+    '| ` opener | https://github.com/other/repo | ` closer |\n|---|---|---|',
+  ]) {
+    assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', prose)), /unsupported/u)
+  }
+})
+
+test('indented paragraph and list continuations still participate in repository validation', () => {
+  for (const prose of [
+    'Paragraph\n    https://github.com/other/repo',
+    '- item\n    https://github.com/other/repo',
+    '- item\n\n    https://github.com/other/repo',
+    '1. item\n\n    https://github.com/other/repo',
+    '-\titem\n\n\thttps://github.com/other/repo',
+  ]) {
+    assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', prose)), /exactly one repository/u)
+  }
+})
+
+test('indented code within a list is distinguished from its paragraph continuation', () => {
+  for (const prose of [
+    '- item\n\n      https://github.com/other/repo\n\n    Continued prose.',
+    '-\titem\n\n\t\thttps://github.com/other/repo\n\n\tContinued prose.',
+    '- Run `curl\n  https://api.example.com` --> continue.\n- Next step.',
+  ]) {
+    const [report] = parseGenericMarkdownToReports(document.replace('Something.', prose))
+    assert.equal(report.data.repo.github, 'a/a')
+    assert.ok(report.data.findings[0].description.includes(prose))
+    assert.ok(report.data.findings[0]._idBasis.section.includes(prose))
+  }
+})
+
 test('rejects unsupported summary structure and unclosed section blocks', () => {
   for (const cell of ['<pre>', '~~~', '<!--', '`', '\\![repo](https://github.com/other/repo)']) {
     assert.throws(() => parseGenericMarkdownToReports(document.replace('| Title A. |', `| ${cell} |`)), /unsupported/u)

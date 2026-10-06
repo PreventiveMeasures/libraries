@@ -7,9 +7,13 @@ const cells = (line) => line.trim().slice(1, -1).split('|').map((cell) => cell.t
 function requireSupported(ok, detail) { if (!ok) throw new Error(`Markdown (generic): unsupported ${detail}`) }
 
 function links(text) {
-  const lines = text.split('\n')
-  const prose = text.split(/(\n[ \t]*\n|^#{1,6} .*$)/mu).map(maskCodeSpans).join('')
-  return [...new Set(prose.split('\n').filter((line, i) => !/^(?: {4}|\t)/u.test(lines[i]) && /https?:\/\//iu.test(line)).map((line) => line.trim()))].map((raw) => {
+  const { inline } = readFences(text, true)
+  // Table-like text is uncertain: leave its URLs visible for validation.
+  const prose = inline.map(([start, end]) => {
+    const part = text.slice(start, end)
+    return part.includes('|') ? part : maskCodeSpans(part)
+  }).join('\n')
+  return [...new Set(prose.split('\n').filter((line) => /https?:\/\//iu.test(line)).map((line) => line.trim()))].map((raw) => {
     requireSupported(/^https?:\/\/[^\s()[\]{}"'<>`\\]+$/iu.test(raw) && !/[.,;!?]$/u.test(raw), 'link syntax; use bare URLs on separate lines')
     let url
     try { url = new URL(raw) } catch { requireSupported(false, 'URL') }
@@ -77,7 +81,7 @@ export function parseGenericMarkdownToReports(content) {
       else narrative.push(key === 'description' ? field.body : `**${field.heading}:**\n${field.body}`)
     }
     finding.description = narrative.join('\n\n')
-    const refs = links(`${row.vulnerability}\n${visibleBody}`); const evidence = refs.flatMap((link) => link.evidence ?? [])
+    const refs = links(`${row.vulnerability}\n\n${body}`); const evidence = refs.flatMap((link) => link.evidence ?? [])
     for (const link of refs) row.group.repos.add(link.repo)
     if (evidence.length) {
       Object.assign(finding, { file: evidence[0].file, line: evidence[0].line, location: evidence[0].url, evidence })
