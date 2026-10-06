@@ -158,6 +158,15 @@ test('leaves other formats alone, including fenced examples of the summary', () 
   }
 })
 
+test('a generic-looking preamble table does not shadow a Claude finding', () => {
+  const text = `# Claude finding\n\n${summary}\n\n## Details\n\nDescription.\n\n---\n**Severity:** high\n**Repository:** a/a`
+  assert.equal(parseGenericMarkdownToReports(text), null)
+  const result = readReport(text)
+  assert.equal(result.format, 'claude-security')
+  assert.equal(result.data.findings.length, 1)
+  assert.equal(result.data.findings[0].severity, 'high')
+})
+
 
 for (const label of ['Code references:', '### Code references', '#### Code references:', '##### CODE REFERENCES:', '**Code references:**', '### Code References: ###']) {
   test(`reads all repository evidence beneath ${label}`, () => {
@@ -280,4 +289,50 @@ test('linked images and escaped exclamation marks preserve actual link destinati
   ]) {
     assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${link}`)), /exactly one repository/u)
   }
+})
+
+for (const reference of [
+  '![proof][img]\n\n[img]: https://images.example.com/proof.png',
+  '![img][]\n\n[img]: <https://images.example.com/proof.png>',
+  '![img]\n\n[img]: https://images.example.com/proof.png "Proof"',
+  '![proof][ IMG ]\n\n[img]:\n  https://images.example.com/proof.png',
+  '![proof][img]\n\n[img]: https://images.example.com/proof.png\n  "https://images.example.com/title"',
+  '[![proof][img]](https://github.com/a/a)\n\n[img]: https://images.example.com/proof.png',
+  '[![proof](https://images.example.com/proof.png)][repo]\n\n[repo]: https://github.com/a/a',
+]) {
+  test(`ignores reference images while preserving hyperlinks: ${reference.split('\n')[0]}`, () => {
+    const [report] = parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${reference}`))
+    assert.equal(report.data.repo.github, 'a/a')
+    assert.equal(report.data.findings[0].evidence.length, 1)
+    assert.ok(report.data.findings[0].description.includes(reference))
+  })
+}
+
+test('ordinary references, including definitions shared with images, validate repositories', () => {
+  for (const reference of [
+    '[repo][other]\n\n[other]: https://github.com/other/repo',
+    '[other][]\n\n[other]: https://github.com/other/repo',
+    '[other]\n\n[other]: https://github.com/other/repo',
+    '![proof][other] and [repo][other]\n\n[other]: https://github.com/other/repo',
+    '[![proof][img]][other]\n\n[img]: https://images.example.com/proof.png\n[other]: https://github.com/other/repo',
+  ]) {
+    assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${reference}`)), /exactly one repository/u)
+  }
+})
+
+test('HTML comments and unused definitions cannot supply or contradict repository evidence', () => {
+  for (const hidden of ['<!-- https://github.com/other/repo -->', '<!--\nhttps://github.com/other/repo\n-->', '[unused]: https://github.com/other/repo']) {
+    const text = document.replace('Something.', `Something.\n\n${hidden}`)
+    assert.equal(parseGenericMarkdownToReports(text)[0].data.repo.github, 'a/a')
+    const withoutEvidence = text.replaceAll(/https:\/\/github.com\/a\/[^\n]+/gu, '')
+    assert.throws(() => parseGenericMarkdownToReports(withoutEvidence), /Product A.*found none/u)
+  }
+})
+
+test('reference definitions resolve across finding partitions without attributing unused definitions', () => {
+  const text = document.replace('https://github.com/a/a/blob/abcdef012345/c/d/e.js#L100-L110', '[code][a-ref]')
+    + '\n\n[a-ref]: https://github.com/a/a/blob/abcdef012345/c/d/e.js#L100-L110'
+  const reports = parseGenericMarkdownToReports(text)
+  assert.deepEqual(reports.map(({ data }) => data.repo.github), ['a/a', 'a/b'])
+  assert.equal(reports[0].data.findings[0].evidence[0].file, 'c/d/e.js')
 })

@@ -1,5 +1,6 @@
+import { genericMarkdownReferences, genericMarkdownUrls } from './parse-generic-md-links.js'
 import { genericMarkdownIdBasis } from './parse-generic-md-id.js'
-import { H2_RE, H3_RE, findMdLink, isCommitHash, normalizeNewlines, readFences, splitLeading, unescapeMd, unfencedMatches } from './md-structure.js'
+import { H2_RE, H3_RE, isCommitHash, normalizeNewlines, splitLeading, unescapeMd, unfencedMatches } from './md-structure.js'
 
 const SOURCE = 'markdown-generic'
 const COLUMNS = ['#', 'id', 'product', 'priority', 'vulnerability']
@@ -53,75 +54,6 @@ function indexRows(rows) {
   return byId
 }
 
-// Code examples are not report links. Pair inline backtick runs by length,
-// including multiline spans, without treating unmatched backticks as code.
-function withoutCode(text) {
-  text = text.replace(/^[ \t]+/gmu, (indent) => {
-    let columns = 0
-    for (const char of indent) columns += char === '\t' ? 4 - columns % 4 : 1
-    return ' '.repeat(columns)
-  })
-  const prose = []
-  let from = 0
-  const { ranges, quotes } = readFences(text, { includeIndented: true, includeQuotes: true })
-  const blocks = [...ranges.map(([start, end]) => ({ start, end })), ...quotes].sort((a, b) => a.start - b.start)
-  for (const { start, end, text: quote } of blocks) {
-    prose.push(text.slice(from, start))
-    // Strip one quote container at a time, keeping nested and sibling fence
-    // lifetimes separate from references outside those containers.
-    if (quote !== undefined) prose.push(withoutCode(quote))
-    from = end
-  }
-  prose.push(text.slice(from))
-  text = prose.join('\n')
-  const runs = [...text.matchAll(/`+/gu)]
-  const closes = new Map(), next = new Map()
-  for (let i = runs.length - 1; i >= 0; i--) {
-    const length = runs[i][0].length
-    if (next.has(length)) closes.set(i, next.get(length))
-    next.set(length, i)
-  }
-  const parts = []
-  from = 0
-  for (let i = 0; i < runs.length; i++) {
-    if (!closes.has(i)) continue
-    // Escaped backticks cannot open a span (backslashes within a span are literal).
-    let slashes = 0
-    for (let j = runs[i].index - 1; text[j] === '\\'; j--) slashes++
-    if (slashes % 2) continue
-    parts.push(text.slice(from, runs[i].index))
-    i = closes.get(i)
-    from = runs[i].index + runs[i][0].length
-  }
-  parts.push(text.slice(from))
-  return parts.join(' ')
-}
-
-// Preserve Markdown link destinations with parentheses in their paths. Bare
-// URLs and autolinks are accepted too; trailing prose punctuation is not a URL.
-function urlsIn(text) {
-  const urls = []
-  for (let line of withoutCode(text).split('\n')) {
-    const plain = []
-    let link
-    while ((link = findMdLink(line, { balancedLabels: true, allowEmptyLabel: true, allowTitle: true }))) {
-      let slashes = 0
-      for (let i = link.index - 2; line[i] === '\\'; i--) slashes++
-      if (line[link.index - 1] !== '!' || slashes % 2) urls.push(link.url)
-      plain.push(line.slice(0, link.index))
-      line = line.slice(link.end)
-    }
-    plain.push(line)
-    for (const [raw] of plain.join('\n').matchAll(/https?:\/\/[^\s<>"`]+/giu)) {
-      let url = raw.replace(/[.,;:!?]+$/u, '')
-      // A closing Markdown parenthesis is not part of a bare URL unless balanced.
-      while (url.endsWith(')') && url.split(')').length > url.split('(').length) url = url.slice(0, -1)
-      urls.push(url)
-    }
-  }
-  return [...new Set(urls)]
-}
-
 function repositoryLink(raw, product) {
   let url
   try { url = new URL(raw) } catch { fail(`product "${product}" has an invalid repository link: ${raw}`) }
@@ -143,7 +75,7 @@ function repositoryLink(raw, product) {
   return { repo, evidence, ref: parts[3] }
 }
 
-function findingFromBlock(row, body, rawSection) {
+function findingFromBlock(row, body, rawSection, references) {
   const { subs } = splitLeading(body, H3_RE)
   const title = subs.find((section) => section.heading.trim().toLowerCase() === 'title')?.body.trim()
   if (!title) fail(`finding ${row.id} has no Title section`)
@@ -165,7 +97,7 @@ function findingFromBlock(row, body, rawSection) {
     else narrative.push(key === 'description' ? content.trim() : `**${heading.trim()}:**\n${content.trim()}`)
   }
   finding.description = narrative.join('\n\n')
-  const links = urlsIn(`${row.vulnerability}\n${body}`).map((url) => repositoryLink(url, row.product))
+  const links = genericMarkdownUrls(`${row.vulnerability}\n${body}`, references).map((url) => repositoryLink(url, row.product))
   const evidence = links.flatMap((link) => link.evidence ? [link.evidence] : [])
   if (evidence.length) {
     const [first] = evidence
@@ -186,6 +118,10 @@ export function parseGenericMarkdownToReports(content) {
   const marks = unfencedMatches(text, H2_RE)
   const rows = summaryRows(text.slice(0, marks[0]?.index))
   if (rows === null) return null
+  // The table alone can occur in another report format. Claim documents with
+  // numbered finding sections (or no sections, which is an incomplete import).
+  if (marks.length && !marks.some((mark) => /^\d+\.\s+\S+/u.test(mark[1]))) return null
+  const references = genericMarkdownReferences(text)
   const byId = indexRows(rows), parsed = new Map(), seen = new Set()
   for (const [i, mark] of marks.entries()) {
     const heading = mark[1]
@@ -195,7 +131,7 @@ export function parseGenericMarkdownToReports(content) {
     if (!id || !byId.has(id)) fail(`finding section "${heading}" is not in the summary table`)
     if (seen.has(id)) fail(`duplicate finding section ${id}`)
     seen.add(id)
-    parsed.set(id, findingFromBlock(byId.get(id), body, section))
+    parsed.set(id, findingFromBlock(byId.get(id), body, section, references))
   }
   for (const id of byId.keys()) if (!seen.has(id)) fail(`missing finding section ${id}`)
   return [...Map.groupBy(rows, (row) => row.product)].map(([product, records]) => {
