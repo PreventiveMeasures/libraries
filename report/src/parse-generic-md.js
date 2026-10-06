@@ -18,8 +18,37 @@ function links(text) {
       && [owner, name].every((part) => part && /^[\w-][\w.-]*$/u.test(part)), 'repository URL')
     const repo = `${owner}/${name.replace(/\.git$/iu, '')}`.toLowerCase()
     const anchor = /^#L(\d+)(?:-L?(\d+))?$/u.exec(url.hash)
-    return { repo, ref, ...(kind === 'blob' && path.length && { evidence: { file: path.join('/'), line: anchor ? anchor.slice(1).filter(Boolean).join('-') : '?', url: raw } }) }
+    const directory = kind === 'blob' ? path.slice(0, -1) : kind === 'tree' ? path : []
+    return { repo, ref, directory, ...(kind === 'blob' && path.length && { evidence: { file: path.join('/'), line: anchor ? anchor.slice(1).filter(Boolean).join('-') : '?', url: raw } }) }
   })
+}
+
+function assignReferences(row, finding, text, repoPrefixes) {
+  const refs = links(text)
+  const github = refs[0]?.repo
+  requireSupported(github && refs.every((link) => link.repo === github), `repository set for finding ${row.id}; expected exactly one repository`)
+  requireSupported(!row.group.github || row.group.github === github, `repository set for product ${row.product}; expected exactly one repository`)
+  const prefix = repoPrefixes.get(github)
+  requireSupported(prefix === undefined || prefix === row.prefix, `repository ID prefixes for ${github}; expected ${prefix}, got ${row.prefix} (${row.id})`)
+  repoPrefixes.set(github, row.prefix)
+  row.group.github = github
+  row.group.directories.push(...refs.map((link) => link.directory))
+  const evidence = refs.flatMap((link) => link.evidence ?? [])
+  if (evidence.length) {
+    Object.assign(finding, { file: evidence[0].file, line: evidence[0].line, location: evidence[0].url, evidence })
+    const ref = refs.find((link) => link.evidence).ref
+    if (isCommitHash(ref)) finding.commitHash = ref
+  }
+}
+
+function commonDirectory(directories) {
+  let common = directories[0]
+  for (const directory of directories.slice(1)) {
+    let length = 0
+    while (length < common.length && common[length] === directory[length]) length++
+    common = common.slice(0, length)
+  }
+  return common.join('/').replace(/\/+$/u, '')
 }
 
 export function parseGenericMarkdownToReports(content) {
@@ -34,14 +63,13 @@ export function parseGenericMarkdownToReports(content) {
   const table = text.slice(header.index, marks[0]?.index).trim().split('\n')
   const headers = new Set(cells(table[0]).map((cell) => cell.toLowerCase()))
   requireSupported(table[1] && cells(table[1]).length === 5 && cells(table[1]).every((cell) => /^:?-{3,}:?$/u.test(cell)), 'summary separator')
-  const products = new Map(), rows = new Map()
+  const products = new Map(), repoPrefixes = new Map(), rows = new Map()
   for (const raw of table.slice(2).filter((line) => line.trim())) {
     requireSupported(/^\|.*\|$/u.test(raw) && cells(raw).length === 5, 'summary row')
     const [number, id, product, priority] = cells(raw); const prefix = /^(.+-)\d+$/u.exec(id)?.[1]
     requireSupported(/^\d+$/u.test(number) && prefix && product && Object.hasOwn(SEVERITY, priority) && !rows.has(id), `summary values for ${id}`)
-    const group = products.get(product) ?? { prefix, repos: new Set(), rows: [] }
-    requireSupported(group.prefix === prefix, `product ID prefixes for ${product}; expected ${group.prefix}, got ${prefix} (${id})`)
-    const row = { raw, id, product, priority, group }
+    const group = products.get(product) ?? { directories: [], rows: [] }
+    const row = { raw, id, prefix, product, priority, group }
     rows.set(id, row); group.rows.push(row); products.set(product, group)
   }
   requireSupported(rows.size, 'empty summary')
@@ -72,19 +100,14 @@ export function parseGenericMarkdownToReports(content) {
       else narrative.push(key === 'description' ? field.body : `**${field.heading}:**\n${field.body}`)
     }
     finding.description = narrative.join('\n\n')
-    const refs = links(fields.get('code references').body); const evidence = refs.flatMap((link) => link.evidence ?? [])
-    for (const link of refs) row.group.repos.add(link.repo)
-    if (evidence.length) {
-      Object.assign(finding, { file: evidence[0].file, line: evidence[0].line, location: evidence[0].url, evidence })
-      const ref = refs.find((link) => link.evidence).ref
-      if (isCommitHash(ref)) finding.commitHash = ref
-    }
+    assignReferences(row, finding, fields.get('code references').body, repoPrefixes)
     row.finding = finding
   }
   requireSupported([...rows.values()].every((row) => row.finding), 'missing finding sections')
   return [...products].map(([product, group]) => {
-    requireSupported(group.repos.size === 1, `repository set for ${product}; expected exactly one repository`)
-    const repo = { github: [...group.repos][0] }; const findings = group.rows.map((row) => ({ ...row.finding, repo: { ...repo } }))
+    const repo = { github: group.github, directory: commonDirectory(group.directories) }
+    // Findings keep repository-root paths; the common directory describes the listing.
+    const findings = group.rows.map(({ finding }) => ({ ...finding, repo: { github: group.github } }))
     return { displayName: product, data: { type: 'security', source: SOURCE, product, repo, findings } }
   })
 }
