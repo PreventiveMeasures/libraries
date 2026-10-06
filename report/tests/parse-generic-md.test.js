@@ -175,6 +175,20 @@ test('rejects malformed or ambiguous encoded directories with an unsupported err
   }
 })
 
+test('rejects empty code-reference path components while accepting repository-root links', () => {
+  for (const kind of ['blob', 'tree']) {
+    for (const path of ['/etc/passwd', 'src//a.js', 'src/']) {
+      const text = document.replace('blob/abcdef012345/c/d/e.js', `${kind}/abcdef012345/${path}`)
+      assert.throws(() => parseGenericMarkdownToReports(text), /unsupported repository path/u)
+      assert.equal(readReport(text).data, null)
+    }
+  }
+  for (const suffix of ['', '/tree/main']) {
+    const text = document.replace('https://github.com/a/a/blob/abcdef012345/c/d/e.js#L100-L110', `https://github.com/a/a${suffix}`)
+    assert.deepEqual(parseGenericMarkdownToReports(text)[0].data.repo, { github: 'a/a', directory: '' })
+  }
+})
+
 test('generic findings survive a Markdown export with IDs, repositories and narratives', async () => {
   const loaded = await loadFindings(document)
   const findings = loaded.findings.map((f) => ({ ...f, source: loaded.data.source }))

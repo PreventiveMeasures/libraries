@@ -16,6 +16,7 @@ function links(text) {
     const [owner, name, kind, ref, ...path] = url.pathname.slice(1).split('/')
     requireSupported(['github.com', 'www.github.com'].includes(url.hostname) && !url.username && !url.password && !url.port
       && [owner, name].every((part) => part && /^[\w-][\w.-]*$/u.test(part)), 'repository URL')
+    requireSupported(path.every(Boolean), 'repository path; empty components')
     const repo = `${owner}/${name.replace(/\.git$/iu, '')}`.toLowerCase()
     const anchor = /^#L(\d+)(?:-L?(\d+))?$/u.exec(url.hash)
     let directory = kind === 'blob' ? path.slice(0, -1) : kind === 'tree' ? path : []
@@ -50,7 +51,7 @@ function commonDirectory(directories) {
     while (length < common.length && common[length] === directory[length]) length++
     common = common.slice(0, length)
   }
-  return common.join('/').replace(/\/+$/u, '')
+  return common.join('/')
 }
 
 export function parseGenericMarkdownToReports(content) {
