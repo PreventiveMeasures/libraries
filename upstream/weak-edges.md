@@ -71,6 +71,8 @@ pnpm installations. Resolve a package's nested dependencies to their own owners;
 do not pass their paths as files of the containing package. Display names and
 shortened graph labels are not package identities. An own-source directory named
 like a package must not be classified as that installed package.
+Package-specific target selectors reject `ownSource: true`; package-agnostic
+discovery rules still allow own-source targets.
 
 Unknown edges remain eligible. The inventory does not classify every computed
 import, every config-file import, all Babel presets, or all CLI dependencies as

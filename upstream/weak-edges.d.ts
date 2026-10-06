@@ -28,6 +28,7 @@ export const weakEdges: readonly WeakEdgeRule[]
 /**
  * Returns the matching inventory rule, or undefined for an unrecognized edge.
  * Own-source importers never match. import-fresh requires to.ownSource === true.
+ * Own-source targets only match selectors without a package constraint.
  * Resolve nested installations to their actual owning package before calling;
  * absolute, non-normalized, or nested node_modules paths do not match.
  * Does not remove files, alter raw load records, or change runtime resolution.

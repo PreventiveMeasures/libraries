@@ -80,6 +80,15 @@ test('other files, package lookalikes, and ordinary plugin imports remain eligib
   }
 })
 
+test('own-source targets only match package-agnostic discovery rules', () => {
+  for (const [id, from, to] of observed) {
+    const rule = weakEdges.find(entry => entry.id === id)
+    const ownTarget = { ...to, ownSource: true }
+    const expected = rule.to.package === undefined ? id : undefined
+    assert.equal(getWeakEdge(from, ownTarget)?.id, expected, `${id}: ${to.package}/${to.path}`)
+  }
+})
+
 test('import-fresh uses affirmative per-file ownership, including colliding package display names', () => {
   for (const ownSource of [undefined, false]) {
     assert.equal(getWeakEdge(fresh, file('react-native', 'react-native.config.js', ownSource)), undefined)

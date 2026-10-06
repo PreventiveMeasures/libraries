@@ -68,7 +68,6 @@
     "soldeer.js",
     "weak-edges.d.ts",
     "weak-edges.js",
-    "weak-edges.md",
     "src/advisories/common.js",
     "src/advisories/github.js",
     "src/advisories/index.js",

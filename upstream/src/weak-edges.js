@@ -76,6 +76,7 @@ function normalizedPath(path) {
 
 function matches(selector, file) {
   const pkg = selector.package
+  if (pkg !== undefined && file.ownSource === true) return false
   return (pkg === undefined || (typeof pkg === 'string' ? pkg === file.package : pkg.test(file.package ?? '')))
     && selector.path.test(file.path)
 }
