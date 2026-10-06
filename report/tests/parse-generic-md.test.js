@@ -198,9 +198,9 @@ test('keeps inline code and arrows inside Attack Scenario and stops at the next 
   assert.ok(exported.findings[0].description.includes(scenario))
 })
 
-test('fenced code remains section text, including example headings, tables and URLs', () => {
+test('fenced code remains raw section text, including tables and URLs', () => {
   for (const fence of ['```', '~~~']) {
-    const code = `${fence}perl\n${summary}\n## 99. FAKE-01\n### Patch\nFoo \`code\` --> bar\nhttps://github.com/other/repo\ncurl https://api.example.com\n${fence}`
+    const code = `${fence}perl\n${summary}\nFoo \`code\` --> bar\nhttps://github.com/other/repo\ncurl https://api.example.com\n${fence}`
     const text = document.replace('### Attack Scenario\n\nText', `### Attack Scenario\n\n${code}`)
     const reports = parseGenericMarkdownToReports(text)
     const finding = reports[0].data.findings[0]
@@ -239,59 +239,68 @@ test('keeps URLs inside multi-backtick and multiline code spans out of repositor
   }
 })
 
-test('code masking cannot conceal adjacent links or span paragraph boundaries', () => {
-  for (const prose of [
-    '`example` https://github.com/other/repo',
-    'Unmatched `` opener\nhttps://github.com/other/repo\nsingle ` closer',
-    'Unmatched ` opener\n\nhttps://github.com/other/repo\n\nseparate ` closer',
-  ]) {
-    assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', prose)), /exactly one repository/u)
-  }
-})
+const opaqueExamples = [
+  '[x`]: /relative\nhttps://github.com/other/repo\nmatching ` closer',
+  'Unmatched ` opener\n01. https://github.com/other/repo\n01. matching ` closer',
+  '<!foo\nhttps://github.com/other/repo\n>',
+  'Unmatched ` opener\n> https://github.com/other/repo\n> matching ` closer',
+  '- item\n\n    https://github.com/other/repo',
+  '-\titem\n\n\thttps://github.com/other/repo',
+  '| ` opener | https://github.com/other/repo | ` closer |\n|---|---|---|',
+]
 
-test('code spans cannot hide links across list, quote or other block boundaries', () => {
-  for (const prose of [
-    'Unmatched ` opener\n- https://github.com/other/repo\n- matching ` closer',
-    '- Unmatched ` opener\n- https://github.com/other/repo\n- matching ` closer',
-    'Unmatched ` opener\n> https://github.com/other/repo\n> matching ` closer',
-    'Unmatched ` opener\n---\nhttps://github.com/other/repo\nmatching ` closer',
-    'Unmatched ` opener\n### Another section\nhttps://github.com/other/repo\nmatching ` closer',
-    '| ` opener | https://github.com/other/repo | ` closer |\n|---|---|---|',
-  ]) {
-    assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', prose)), /unsupported/u)
-  }
-})
-
-test('indented paragraph and list continuations still participate in repository validation', () => {
-  for (const prose of [
-    'Paragraph\n    https://github.com/other/repo',
-    '- item\n    https://github.com/other/repo',
-    '- item\n\n    https://github.com/other/repo',
-    '1. item\n\n    https://github.com/other/repo',
-    '-\titem\n\n\thttps://github.com/other/repo',
-  ]) {
-    assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', prose)), /exactly one repository/u)
-  }
-})
-
-test('indented code within a list is distinguished from its paragraph continuation', () => {
-  for (const prose of [
-    '- item\n\n      https://github.com/other/repo\n\n    Continued prose.',
-    '-\titem\n\n\t\thttps://github.com/other/repo\n\n\tContinued prose.',
-    '- Run `curl\n  https://api.example.com` --> continue.\n- Next step.',
-  ]) {
+test('body text is opaque and only Code references determines repository evidence', () => {
+  for (const prose of opaqueExamples) {
     const [report] = parseGenericMarkdownToReports(document.replace('Something.', prose))
+    const finding = report.data.findings[0]
     assert.equal(report.data.repo.github, 'a/a')
-    assert.ok(report.data.findings[0].description.includes(prose))
-    assert.ok(report.data.findings[0]._idBasis.section.includes(prose))
+    assert.equal(finding.evidence.length, 1)
+    assert.ok(finding.description.includes(prose))
+    assert.ok(finding._idBasis.section.includes(prose))
+  }
+  const [report] = parseGenericMarkdownToReports(document.replace('| Title A. |', '| https://github.com/other/repo |'))
+  assert.equal(report.data.repo.github, 'a/a', 'summary text also cannot supply repository evidence')
+})
+
+test('Code references rejects Markdown and other non-URL text without guessing', () => {
+  for (const text of [...opaqueExamples, '`https://github.com/other/repo`', '[code](https://github.com/other/repo)', '```\nhttps://github.com/other/repo\n```', 'Explanation.']) {
+    const input = document.replace('Code references:\n', `Code references:\n${text}\n`)
+    assert.throws(() => parseGenericMarkdownToReports(input), /unsupported.*link syntax/u)
   }
 })
 
-test('rejects unsupported summary structure and unclosed section blocks', () => {
-  for (const cell of ['<pre>', '~~~', '<!--', '`', '\\![repo](https://github.com/other/repo)']) {
-    assert.throws(() => parseGenericMarkdownToReports(document.replace('| Title A. |', `| ${cell} |`)), /unsupported/u)
+const requiredHeaders = ['Title', 'Description', 'Root Cause', 'Code references:', 'Attack Scenario', 'Steps to Reproduce in the test environment', 'Impact', 'Patch']
+for (const header of requiredHeaders) {
+  test(`requires exactly one ${header} header in every finding`, () => {
+    const line = header === 'Code references:' ? header : `### ${header}`
+    for (const replacement of ['', `${line}\n\n${line}`]) {
+      assert.throws(() => parseGenericMarkdownToReports(document.replace(`\n${line}\n`, `\n${replacement}\n`)), /unsupported.*(?:missing|required|duplicate)/u)
+    }
+  })
+}
+
+test('accepts plain, bold and heading forms of required headers and reproduction suffixes', () => {
+  for (const style of [label => `${label}:`, label => `**${label}:**`, label => `###### ${label.toUpperCase()}: ######`]) {
+    let input = document
+    for (const header of requiredHeaders) {
+      const line = header === 'Code references:' ? header : `### ${header}`
+      input = input.replaceAll(`\n${line}\n`, `\n${style(header.replace(/:$/u, ''))}\n`)
+    }
+    const [report] = parseGenericMarkdownToReports(input)
+    assert.equal(report.data.findings[0].recommendation, 'Text')
+    assert.match(report.data.findings[0].reproduction, /^1\. Step 1/u)
+    assert.equal(report.data.repo.github, 'a/a')
   }
-  assert.throws(() => parseGenericMarkdownToReports(document + '\n\n```perl\nopen code block'), /unsupported.*boundary/u)
+})
+
+test('rejects header-looking body content that duplicates or invents report structure', () => {
+  for (const text of ['## 99. FAKE-01', '### Patch', 'Code references:']) {
+    for (const [open, close] of [['```md', '```'], ['<!--', '-->']]) {
+      const input = document.replace('Something.', `${open}\n${text}\n${close}`)
+      assert.throws(() => parseGenericMarkdownToReports(input), /unsupported/u)
+    }
+  }
+  assert.throws(() => parseGenericMarkdownToReports(document.replace('### Title', 'Unexpected preamble\n\n### Title')), /text before field headers/u)
 })
 
 test('hidden summary metadata cannot supply a report', async () => {
@@ -299,17 +308,6 @@ test('hidden summary metadata cannot supply a report', async () => {
   assert.throws(() => parseGenericMarkdownToReports(text), /unsupported/u)
   assert.equal(readReport(text).data, null)
   assert.equal(await loadFindings(text), null)
-})
-
-test('HTML blocks inside sections cannot introduce hidden headings or repository links', () => {
-  for (const [open, close] of [['<!--', '-->'], ['<pre>', '</pre>']]) {
-    const hidden = `${open}\n## 3. AAA-03\n### Patch\nhttps://github.com/other/repo\n${close}`
-    const reports = parseGenericMarkdownToReports(document.replace('Something.', hidden))
-    assert.equal(reports[0].data.findings.length, 1)
-    assert.equal(reports[0].data.repo.github, 'a/a')
-    assert.equal(reports[0].data.findings[0].recommendation, 'Text')
-    assert.ok(reports[0].data.findings[0].description.includes(hidden))
-  }
 })
 
 test('leaves other formats alone', () => {
