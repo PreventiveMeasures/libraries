@@ -10,8 +10,13 @@ import { getDocument } from './registry.js'
 const DIR = 'npm/repos'
 const CONCURRENCY = 8
 // Stamped on each entry, and raised when getRepo would answer differently:
-// 2 is `repository` taking precedence over `bugs`.
-const VERSION = 2
+// 2 is `repository` taking precedence over `bugs`; 3 the shorthand dropping
+// a `.git`, URLs read past whitespace, and `repository.directory`'s `\` read
+// as `/`.
+const VERSION = 3
+
+// A slug a lookup gives: getRepo reads every repo with no `.git`.
+const isLookedUpRepo = (github) => isRepo(github) && !/\.git$/iu.test(github)
 
 // `latest`, not the full packument, which is megabytes of version history.
 const fetchRepo = async (method, name) => getRepo(await getDocument(method, name, 'latest'))
@@ -24,12 +29,14 @@ export async function getGitHub(name) {
 }
 
 // An entry under another VERSION was resolved by other rules, and may
-// name the repo a stale tracker does: a miss, as is one without
-// `directory`, which would read as a package at the repo root.
+// name a repo getRepo no longer would (a stale tracker's, or a shorthand's
+// with its `.git`): a miss, as is one naming a repo or a directory no
+// lookup gives, or without `directory`, which would read as a package at
+// the repo root.
 export async function readPackageRepoCache(name) {
   assertPackageName('readPackageRepoCache', 'name', name)
   const entry = await readRecord(DIR, name)
-  if (entry?.v !== VERSION || !isRepo(entry.github) || !isRepoDirectory(entry.directory)) return null
+  if (entry?.v !== VERSION || !isLookedUpRepo(entry.github) || !isRepoDirectory(entry.directory)) return null
   return { github: entry.github, ...(entry.directory && { directory: entry.directory }) }
 }
 

@@ -44,6 +44,10 @@ describe('getRepo', () => {
       { repository: 'github:acme/app.git' },
       { repository: 'acme/app.git' },
       { repository: { url: 'acme/app.git#v1.2.3' } },
+      // A URL is read past the whitespace around it, as `homepage` is.
+      { repository: '  https://github.com/acme/app.git  ' },
+      { repository: { url: ' acme/app\n' } },
+      { bugs: '\thttps://github.com/acme/app/issues ' },
       { bugs: 'https://github.com:443/acme/app/issues' },
       { homepage: 'https://github.com:443/acme/app#readme' },
       { homepage: 'https://GitHub.com/acme/app#readme' },
@@ -68,6 +72,13 @@ describe('getRepo', () => {
     const at = (directory) => getRepo({ repository: { url: 'https://github.com/acme/mono', directory } }).directory
     for (const directory of ['packages/@scope/pkg', 'packages/café', 'my dir/pkg', '.github/actions/x', 'a+b/c~d', ' packages/pkg', 'packages/pkg ']) assert.equal(at(directory), directory)
     assert.equal(at('./packages/pkg/'), 'packages/pkg')
+    // `repository.directory` is a path its author may write with Windows' `\`; a homepage's tree path
+    // is the one place a `\` (`%5C`) is a name's own.
+    for (const directory of ['packages\\pkg', '.\\packages\\pkg\\', 'packages/sub\\pkg']) {
+      assert.equal(at(directory), directory.includes('sub') ? 'packages/sub/pkg' : 'packages/pkg', JSON.stringify(directory))
+    }
+    assert.equal(at('..\\x'), undefined)
+    assert.equal(getRepo({ homepage: 'https://github.com/acme/app/tree/main/a%5Cb' }).directory, 'a\\b')
     for (const directory of ['../x', 'a/../b', 'a//b', 'a/./b', '.git/x', 'a/.GIT', 'a\u0000b', 'a\u0007b']) assert.equal(at(directory), undefined, JSON.stringify(directory))
   })
 

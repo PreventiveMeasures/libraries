@@ -4,8 +4,8 @@ export interface PackageRepoLink {
   // `owner/name`, by GitHub's own rules.
   github?: string
   // Where in that repo the package sits, `/`-separated, as the tree path
-  // itself (a homepage URL's decoded); absent at its root, and whenever
-  // `github` is.
+  // itself (a homepage URL's decoded; a `repository.directory`'s `\` read
+  // as `/`); absent at its root, and whenever `github` is.
   directory?: string
   // `https://github.com/<github>`, whenever there is a `github`.
   url?: string

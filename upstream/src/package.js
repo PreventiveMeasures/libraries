@@ -11,7 +11,8 @@ const shorthandRegex = /^(?:github:)?(?<repo>[\w-]+\/[\w.-]+?)(?:\.git)?$/u
 // The ref is one segment: a branch with a `/` reads as part of the directory.
 const homepageRegex = /^(?:https?:\/\/)?(?:www\.)?github\.com(?::\d{1,5})?\/(?<repo>[\w-]+\/[\w.-]+?)(?:\.git)?(?:\/(?:tree\/[^/]+(?:\/(?<directory>.*))?)?)?$/iu
 const str = (value) => (typeof value === 'string' ? value : '')
-const urlOf = (field) => str(field?.url ?? field)
+// Read past the whitespace around it, as `homepage` is.
+const urlOf = (field) => str(field?.url ?? field).trim()
 const homepageUrl = (homepage) => str(homepage).trim().split(/[?#]/u)[0] // npm appends `#readme`.
 const repoIn = (regex, text) => regex.exec(text)?.groups.repo
 // A URL's path spells a tree path percent-encoded; one that does not decode names none.
@@ -33,6 +34,11 @@ function repoSubdirectory(value) {
   return isRepoPath(path) ? path : undefined // No empty, `.`, `..` or `.git` part: a path inside the repo.
 }
 
+// `repository.directory` is a path its author may write with Windows' `\`.
+// A tree path is `/`-separated: a `\` is a name's own only in a homepage's
+// (`%5C`), which is the path itself.
+const declaredDirectory = (value) => repoSubdirectory(str(value).replaceAll('\\', '/'))
+
 export const isRepoDirectory = (value) => typeof value === 'string' && (value === '' || repoSubdirectory(value) === value)
 export const assertRepoDirectory = assertion('a path inside the repository', isRepoDirectory)
 
@@ -45,7 +51,7 @@ export function getRepo(pkg) {
   // `bugs` tracker can be left pointing at a former owner or misspelt.
   const github = [declared, repoIn(bugsRegex, urlOf(bugs)), homepage?.repo].find(isRepo)
   if (github === undefined) return {}
-  const directory = (sameName(declared, github) && repoSubdirectory(repository?.directory))
+  const directory = (sameName(declared, github) && declaredDirectory(repository?.directory))
     || (sameName(homepage?.repo, github) && repoSubdirectory(decodePath(homepage.directory)))
   return { github, ...(directory && { directory }), url: `https://github.com/${github}` }
 }
