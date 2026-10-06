@@ -87,6 +87,17 @@ test('groups repeated product rows in summary order and accepts CRLF, BOM and a 
   assert.equal(reports[0].data.findings[1].severity, 'medium')
 })
 
+test('products sharing an ID prefix still import as separate reports', async () => {
+  const text = document.replaceAll('BBB-05', 'AAA-05')
+  const reports = parseGenericMarkdownToReports(text)
+  assert.deepEqual(reports.map((report) => report.displayName), ['Product A', 'Product B'])
+  assert.deepEqual(reports.map(({ data }) => data.repo.github), ['a/a', 'a/b'])
+  assert.deepEqual(reports.map(({ data }) => data.findings.map((finding) => finding.sourceId)), [['AAA-02'], ['AAA-05']])
+  assert.equal(reports[1].data.findings[0].evidence.length, 2)
+  assert.equal((await loadFindings(text)).findings[0].id, (await loadFindings(document)).findings[0].id)
+  assert.throws(() => parseGenericMarkdownToReports(text.replaceAll('AAA-05', 'AAA-02')), /unsupported summary values for AAA-02/u)
+})
+
 test('infers a product repo across findings even when one has no links', () => {
   const text = `${summary.split('\n').slice(0, 3).join('\n')}\n| 2 | AAA-03 | Product A | P3 | Other. |\n\n${first}\n\n${block(2, 'AAA-03', 'Product A', 'a/a').replace(/https:\/\/[^\n]+/u, '')}`
   const [report] = parseGenericMarkdownToReports(text)
@@ -158,7 +169,6 @@ test('Vulnerability is required and explicitly marks findings as security at eve
 
 const invalid = [
   ['multiple repositories', document.replace('https://github.com/a/b/blob/abcdef012345/f/g/h.js', 'https://github.com/a/other/blob/abcdef012345/f/g/h.js')],
-  ['same prefix across products', document.replaceAll('BBB-05', 'AAA-05')],
   ['multiple prefixes within a product', document.replaceAll('Product B', 'Product A')],
   ['no repository', document.replaceAll(/https:\/\/[^\n]+/gu, '')],
   ['missing body', `${summary}\n\n${first}`],

@@ -34,15 +34,15 @@ export function parseGenericMarkdownToReports(content) {
   const table = text.slice(header.index, marks[0]?.index).trim().split('\n')
   const headers = new Set(cells(table[0]).map((cell) => cell.toLowerCase()))
   requireSupported(table[1] && cells(table[1]).length === 5 && cells(table[1]).every((cell) => /^:?-{3,}:?$/u.test(cell)), 'summary separator')
-  const prefixes = new Map(), products = new Map(), rows = new Map()
+  const products = new Map(), rows = new Map()
   for (const raw of table.slice(2).filter((line) => line.trim())) {
     requireSupported(/^\|.*\|$/u.test(raw) && cells(raw).length === 5, 'summary row')
     const [number, id, product, priority] = cells(raw); const prefix = /^(.+-)\d+$/u.exec(id)?.[1]
     requireSupported(/^\d+$/u.test(number) && prefix && product && Object.hasOwn(SEVERITY, priority) && !rows.has(id), `summary values for ${id}`)
     const group = products.get(product) ?? { prefix, repos: new Set(), rows: [] }
-    requireSupported(group.prefix === prefix && (!prefixes.has(prefix) || prefixes.get(prefix) === product), 'product ID prefixes')
+    requireSupported(group.prefix === prefix, `product ID prefixes for ${product}; expected ${group.prefix}, got ${prefix} (${id})`)
     const row = { raw, id, product, priority, group }
-    rows.set(id, row); group.rows.push(row); products.set(product, group); prefixes.set(prefix, product)
+    rows.set(id, row); group.rows.push(row); products.set(product, group)
   }
   requireSupported(rows.size, 'empty summary')
   for (const [i, mark] of marks.entries()) {
