@@ -1,4 +1,4 @@
-import { inFence, isCommitHash, normalizeNewlines, readFences } from './md-structure.js'
+import { inFence, isCommitHash, maskCodeSpans, normalizeNewlines, readFences } from './md-structure.js'
 
 const SOURCE = 'markdown-generic'
 const HEADERS = ['#', 'id', 'product', 'priority', 'vulnerability']
@@ -7,8 +7,9 @@ const cells = (line) => line.trim().slice(1, -1).split('|').map((cell) => cell.t
 function requireSupported(ok, detail) { if (!ok) throw new Error(`Markdown (generic): unsupported ${detail}`) }
 
 function links(text) {
-  const prose = text.replace(/`[^`\n]*`/gu, '')
-  return [...new Set(prose.split('\n').filter((line) => !/^(?: {4}|\t)/u.test(line) && /https?:\/\//iu.test(line)).map((line) => line.trim()))].map((raw) => {
+  const lines = text.split('\n')
+  const prose = text.split(/(\n[ \t]*\n|^#{1,6} .*$)/mu).map(maskCodeSpans).join('')
+  return [...new Set(prose.split('\n').filter((line, i) => !/^(?: {4}|\t)/u.test(lines[i]) && /https?:\/\//iu.test(line)).map((line) => line.trim()))].map((raw) => {
     requireSupported(/^https?:\/\/[^\s()[\]{}"'<>`\\]+$/iu.test(raw) && !/[.,;!?]$/u.test(raw), 'link syntax; use bare URLs on separate lines')
     let url
     try { url = new URL(raw) } catch { requireSupported(false, 'URL') }

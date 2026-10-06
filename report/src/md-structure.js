@@ -285,6 +285,21 @@ function balancedLabelEnds(text, spans) {
   return ends
 }
 
+// Hide complete inline code spans while preserving offsets and line boundaries.
+// Call on one inline context at a time; code cannot cross a paragraph boundary.
+export function maskCodeSpans(text) {
+  const parts = [], spans = codeSpanEnds(text)
+  let start = 0
+  for (let i = 0; i < text.length; i++) {
+    if (escapes(text, i)) { i++; continue }
+    const end = spans.get(i)
+    if (end === undefined) continue
+    parts.push(text.slice(start, i), text.slice(i, end + 1).replace(/[^\n]/gu, ' '))
+    start = end + 1; i = end
+  }
+  return parts.join('') + text.slice(start)
+}
+
 // Every backtick RUN that opens a code span, paired with the last
 // backtick of the run that closes it — the next run of exactly the same
 // length, which is how markdown fences one (md-text.js code writes

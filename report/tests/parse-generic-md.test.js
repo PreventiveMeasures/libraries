@@ -220,6 +220,35 @@ test('preserves free-form section prose, inline examples and indented code', () 
   assert.equal(report.data.repo.github, 'a/a')
 })
 
+test('keeps URLs inside multi-backtick and multiline code spans out of repository evidence', () => {
+  for (const code of [
+    '``https://api.example.com``',
+    '``literal `backticks` and https://api.example.com``',
+    '`curl\nhttps://api.example.com`',
+    '``curl\nhttps://github.com/other/repo``',
+  ]) {
+    const scenario = `Run ${code} --> continue.`
+    const text = document.replace('### Attack Scenario\n\nText', `### Attack Scenario\n\n${scenario}`)
+    const [report] = parseGenericMarkdownToReports(text)
+    const finding = report.data.findings[0]
+    assert.equal(report.data.repo.github, 'a/a')
+    assert.equal(finding.evidence.length, 1)
+    assert.ok(finding.description.includes(scenario))
+    assert.ok(finding._idBasis.section.includes(scenario))
+    assert.match(finding.reproduction, /^1\. Step 1/u)
+  }
+})
+
+test('code masking cannot conceal adjacent links or span paragraph boundaries', () => {
+  for (const prose of [
+    '`example` https://github.com/other/repo',
+    'Unmatched `` opener\nhttps://github.com/other/repo\nsingle ` closer',
+    'Unmatched ` opener\n\nhttps://github.com/other/repo\n\nseparate ` closer',
+  ]) {
+    assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', prose)), /exactly one repository/u)
+  }
+})
+
 test('rejects unsupported summary structure and unclosed section blocks', () => {
   for (const cell of ['<pre>', '~~~', '<!--', '`', '\\![repo](https://github.com/other/repo)']) {
     assert.throws(() => parseGenericMarkdownToReports(document.replace('| Title A. |', `| ${cell} |`)), /unsupported/u)
