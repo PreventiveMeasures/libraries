@@ -68,7 +68,11 @@ function withoutCode(text) {
     from = end
   }
   prose.push(text.slice(from))
-  text = prose.join('\n')
+  // Quoted examples have their own fence lifetime: an unclosed quoted fence
+  // must not consume the unquoted code references that follow the quote.
+  text = prose.join('\n').replace(/^(?: {0,3}>[^\n]*(?:\n|$))+/gmu, (quote) => {
+    return withoutCode(quote.replace(/^(?: {0,3}> ?)+/gmu, '')) + '\n'
+  })
   const runs = [...text.matchAll(/`+/gu)]
   const closes = new Map(), next = new Map()
   for (let i = runs.length - 1; i >= 0; i--) {

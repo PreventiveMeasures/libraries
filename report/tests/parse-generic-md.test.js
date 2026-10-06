@@ -221,3 +221,20 @@ test('Vulnerability is required and explicitly marks findings as security at eve
     }
   }
 })
+
+for (const snippet of [
+  '>     curl https://api.example.com',
+  '> ~~~sh\n> curl https://api.example.com\n> ~~~',
+  '> ```sh\n> curl https://api.example.com',
+  '> > ~~~sh\n> > curl https://api.example.com\n> > ~~~',
+]) {
+  test(`ignores quoted code examples without consuming later links: ${snippet.split('\n')[0]}`, () => {
+    const [report] = parseGenericMarkdownToReports(document.replace('Something.', `Something.\n\n${snippet}\n`))
+    assert.equal(report.data.repo.github, 'a/a')
+    assert.equal(report.data.findings[0].evidence.length, 1)
+  })
+}
+
+test('quoted prose links still participate in repository validation', () => {
+  assert.throws(() => parseGenericMarkdownToReports(document.replace('Something.', 'Something.\n\n> https://github.com/other/repo')), /exactly one repository/u)
+})
