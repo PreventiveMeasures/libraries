@@ -1,20 +1,22 @@
 import assert from 'node:assert/strict'
 
 import { assertion, isRepo, isRepoPath, sameName } from './args.js'
-import { githubRepoOfUrl } from './remote.js'
+import { githubRepoOfUrl, withoutDotGit } from './remote.js'
 
 const bugsRegex = /^(?i:https?:\/\/github\.com)(?::\d{1,5})?\/(?<repo>[\w-]+\/[\w.-]+)\/issues\/?$/u
 // npm's `owner/name` shorthand means GitHub. No dots in the owner, so a
 // domain (`srvx.h3.dev/srvx`) isn't read as one; another forge's prefix
-// (`gitlab:`) can't match. A `.git` is dropped, as the URLs drop it.
-const shorthandRegex = /^(?:github:)?(?<repo>[\w-]+\/[\w.-]+?)(?:\.git)?$/u
+// (`gitlab:`) can't match.
+const shorthandRegex = /^(?:github:)?(?<repo>[\w-]+\/[\w.-]+)$/u
 // The ref is one segment: a branch with a `/` reads as part of the directory.
 const homepageRegex = /^(?:https?:\/\/)?(?:www\.)?github\.com(?::\d{1,5})?\/(?<repo>[\w-]+\/[\w.-]+?)(?:\.git)?(?:\/(?:tree\/[^/]+(?:\/(?<directory>.*))?)?)?$/iu
 const str = (value) => (typeof value === 'string' ? value : '')
 // Read past the whitespace around it, as `homepage` is.
 const urlOf = (field) => str(field?.url ?? field).trim()
 const homepageUrl = (homepage) => str(homepage).trim().split(/[?#]/u)[0] // npm appends `#readme`.
-const repoIn = (regex, text) => regex.exec(text)?.groups.repo
+// Every trailing `.git` dropped, as the URLs' are: no answer ends in one
+// (the npm repo cache refuses one).
+const repoIn = (regex, text) => withoutDotGit(regex.exec(text)?.groups.repo)
 // A URL's path spells a tree path percent-encoded; one that does not decode names none.
 function decodePath(path = '') {
   try {
@@ -47,11 +49,12 @@ export function getRepo(pkg) {
   const { bugs, repository } = pkg
   const declared = repositoryRepo(urlOf(repository))
   const homepage = homepageRegex.exec(homepageUrl(pkg.homepage))?.groups
+  const homepageRepo = withoutDotGit(homepage?.repo)
   // `repository` first: it is the field a publisher maintains, where a
   // `bugs` tracker can be left pointing at a former owner or misspelt.
-  const github = [declared, repoIn(bugsRegex, urlOf(bugs)), homepage?.repo].find(isRepo)
+  const github = [declared, repoIn(bugsRegex, urlOf(bugs)), homepageRepo].find(isRepo)
   if (github === undefined) return {}
   const directory = (sameName(declared, github) && declaredDirectory(repository?.directory))
-    || (sameName(homepage?.repo, github) && repoSubdirectory(decodePath(homepage.directory)))
+    || (sameName(homepageRepo, github) && repoSubdirectory(decodePath(homepage.directory)))
   return { github, ...(directory && { directory }), url: `https://github.com/${github}` }
 }

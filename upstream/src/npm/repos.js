@@ -15,8 +15,9 @@ const CONCURRENCY = 8
 // as `/`.
 const VERSION = 3
 
-// A slug a lookup gives: getRepo reads every repo with no `.git`.
-const isLookedUpRepo = (github) => isRepo(github) && !/\.git$/iu.test(github)
+// A slug a lookup gives: getRepo answers no repo ending in `.git`, the
+// suffix it drops (withoutDotGit; `.GIT` it keeps, and so does this).
+const isLookedUpRepo = (github) => isRepo(github) && !github.endsWith('.git')
 
 // `latest`, not the full packument, which is megabytes of version history.
 const fetchRepo = async (method, name) => getRepo(await getDocument(method, name, 'latest'))

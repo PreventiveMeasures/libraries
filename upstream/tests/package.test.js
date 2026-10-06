@@ -44,6 +44,12 @@ describe('getRepo', () => {
       { repository: 'github:acme/app.git' },
       { repository: 'acme/app.git' },
       { repository: { url: 'acme/app.git#v1.2.3' } },
+      // Every trailing `.git`, so no answer ends in one.
+      { repository: 'acme/app.git.git' },
+      { repository: 'https://github.com/acme/app.git.git' },
+      { repository: 'git@github.com:acme/app.git.git' },
+      { homepage: 'https://github.com/acme/app.git.git' },
+      { bugs: 'https://github.com/acme/app.git/issues' },
       // A URL is read past the whitespace around it, as `homepage` is.
       { repository: '  https://github.com/acme/app.git  ' },
       { repository: { url: ' acme/app\n' } },
@@ -126,6 +132,15 @@ describe('getRepo', () => {
         assert.equal(link.url, `https://github.com/${link.github}`, JSON.stringify(pkg))
         assert.doesNotMatch(JSON.stringify(link), /secret|token|www\.|http:|\.git\b|git@|#/u, JSON.stringify(pkg))
       }
+    }
+  })
+
+  it('reads a long run of `.git` in linear time', { timeout: 10_000 }, () => {
+    // A registry document is the publisher's: a regex backtracking over the run would take minutes.
+    for (const repository of ['acme/app' + '.git'.repeat(200_000), 'https://github.com/acme/app' + '.git'.repeat(200_000) + '!']) {
+      const started = performance.now()
+      getRepo({ repository })
+      assert.ok(performance.now() - started < 1000, repository.slice(0, 27))
     }
   })
 

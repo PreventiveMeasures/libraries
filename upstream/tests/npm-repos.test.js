@@ -283,6 +283,19 @@ describe('resolvePackageRepos', () => {
     assert.deepEqual(again, [])
   })
 
+  it('serves every repo a lookup answers from disk the next run, whatever its suffix', async () => {
+    // The cache refuses a `.git` slug, so getRepo must never answer one: `.git.git` drops both, and
+    // `.GIT`, which no parser drops, is no `.git` to it either.
+    const names = new Set(['upper', 'twice'])
+    const calls = stubRegistry({ upper: { repository: 'acme/upper.GIT' }, twice: { repository: 'https://github.com/acme/twice.git.git' } })
+    const expected = { upper: { github: 'acme/upper.GIT' }, twice: { github: 'acme/twice' } }
+    assert.deepEqual(Object.fromEntries(await resolvePackageRepos(names)), expected)
+    assert.deepEqual(calls.toSorted(), ['twice', 'upper'])
+    const again = stubRegistry({})
+    assert.deepEqual(Object.fromEntries(await resolvePackageRepos(names)), expected)
+    assert.deepEqual(again, [])
+  })
+
   it('does NOT cache a failure — the next run asks again', async () => {
     // A 404, a rate limit and a package with no repo link all land here.
     // Filing any of them would cost a month of packages with no link.
