@@ -39,6 +39,10 @@
     "./soldeer.js": {
       "types": "./soldeer.d.ts",
       "default": "./soldeer.js"
+    },
+    "./weak-edges.js": {
+      "types": "./weak-edges.d.ts",
+      "default": "./weak-edges.js"
     }
   },
   "files": [
@@ -62,6 +66,9 @@
     "semver.js",
     "soldeer.d.ts",
     "soldeer.js",
+    "weak-edges.d.ts",
+    "weak-edges.js",
+    "weak-edges.md",
     "src/advisories/common.js",
     "src/advisories/github.js",
     "src/advisories/index.js",
@@ -88,7 +95,8 @@
     "src/semver-peer.cjs",
     "src/semver.js",
     "src/tree.js",
-    "src/soldeer.js"
+    "src/soldeer.js",
+    "src/weak-edges.js"
   ],
   "engines": {
     "node": ">=24.14.0"
