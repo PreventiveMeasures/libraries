@@ -1,4 +1,4 @@
-import { isCommitHash, normalizeNewlines } from './md-structure.js'
+import { inFence, isCommitHash, normalizeNewlines, readFences } from './md-structure.js'
 
 const SOURCE = 'markdown-generic'
 const HEADERS = ['#', 'id', 'product', 'priority', 'vulnerability']
@@ -7,7 +7,8 @@ const cells = (line) => line.trim().slice(1, -1).split('|').map((cell) => cell.t
 function requireSupported(ok, detail) { if (!ok) throw new Error(`Markdown (generic): unsupported ${detail}`) }
 
 function links(text) {
-  return [...new Set(text.split('\n').filter((line) => /https?:\/\//iu.test(line)).map((line) => line.trim()))].map((raw) => {
+  const prose = text.replace(/`[^`\n]*`/gu, '')
+  return [...new Set(prose.split('\n').filter((line) => !/^(?: {4}|\t)/u.test(line) && /https?:\/\//iu.test(line)).map((line) => line.trim()))].map((raw) => {
     requireSupported(/^https?:\/\/[^\s()[\]{}"'<>`\\]+$/iu.test(raw) && !/[.,;!?]$/u.test(raw), 'link syntax; use bare URLs on separate lines')
     let url
     try { url = new URL(raw) } catch { requireSupported(false, 'URL') }
@@ -22,12 +23,19 @@ function links(text) {
 
 export function parseGenericMarkdownToReports(content) {
   const text = normalizeNewlines(content).trim()
-  const marks = [...text.matchAll(/^## +(.*)$/gmu)]
+  const { ranges, closer } = readFences(text, true)
+  let end = 0
+  // Mask blocks only for structure/link discovery; every stored field stays raw.
+  const visible = ranges.map(([start, stop]) => {
+    const part = text.slice(end, start) + ' '.repeat(stop - start); end = stop; return part
+  }).join('') + text.slice(end)
+  const marks = [...visible.matchAll(/^## +(.*)$/gmu)]
   if (!marks.some((mark) => /^\d+\.\s+\S+/u.test(mark[1])) && (marks.length || text.startsWith('# '))) return null
   const header = [...text.matchAll(/^\|[^\n]*\|$/gmu)].find(([line]) => cells(line).map((cell) => cell.toLowerCase()).join() === HEADERS.join())
   if (!header) return null
-  // Reject ambiguous Markdown instead of interpreting hidden links or structure.
-  requireSupported(!/[\\`<>]|~{3}|!\[|\]\s*[([]|^\s*\[[^\n]+\]:|&(?:#\w+|\w+);|^ {4}|\t|^ +#/mu.test(text), 'Markdown syntax')
+  requireSupported(!inFence(ranges, header.index) && closer === null, 'summary or section boundary')
+  // The summary is structured; section bodies are free-form Markdown.
+  requireSupported(!/[\\`<>]|~{3}|!\[|\]\s*[([]|^\s*\[[^\n]+\]:|&(?:#\w+|\w+);|^ {4}|\t|^ +#/mu.test(text.slice(0, marks[0]?.index)), 'summary Markdown syntax')
   requireSupported(header.index < (marks[0]?.index ?? text.length), 'summary position')
   const table = text.slice(header.index, marks[0]?.index).trim().split('\n')
   const headers = new Set(cells(table[0]).map((cell) => cell.toLowerCase()))
@@ -47,11 +55,12 @@ export function parseGenericMarkdownToReports(content) {
     const id = /^\d+\.\s+(\S+)\s*$/u.exec(mark[1])?.[1], row = rows.get(id)
     requireSupported(row && !row.finding, `finding section ${mark[1]}`)
     const raw = text.slice(mark.index, marks[i + 1]?.index); const body = raw.slice(mark[0].length + 1)
-    const fields = new Map(), parts = body.split(/^### +(.*)$/gmu).slice(1)
-    for (let j = 0; j < parts.length; j += 2) {
-      const heading = parts[j].replace(/ +#+$/u, '').trim(), key = heading.toLowerCase()
+    const visibleBody = visible.slice(mark.index + mark[0].length + 1, marks[i + 1]?.index)
+    const fields = new Map(), parts = [...visibleBody.matchAll(/^### +(.*)$/gmu)]
+    for (const [j, part] of parts.entries()) {
+      const heading = part[1].replace(/ +#+$/u, '').trim(), key = heading.toLowerCase()
       requireSupported(!fields.has(key), `duplicate section ${heading}`)
-      fields.set(key, { heading, body: parts[j + 1].trim() })
+      fields.set(key, { heading, body: body.slice(part.index + part[0].length, parts[j + 1]?.index).trim() })
     }
     const title = fields.get('title')?.body
     requireSupported(title, `missing Title for ${id}`)
@@ -67,7 +76,7 @@ export function parseGenericMarkdownToReports(content) {
       else narrative.push(key === 'description' ? field.body : `**${field.heading}:**\n${field.body}`)
     }
     finding.description = narrative.join('\n\n')
-    const refs = links(`${row.vulnerability}\n${body}`); const evidence = refs.flatMap((link) => link.evidence ?? [])
+    const refs = links(`${row.vulnerability}\n${visibleBody}`); const evidence = refs.flatMap((link) => link.evidence ?? [])
     for (const link of refs) row.group.repos.add(link.repo)
     if (evidence.length) {
       Object.assign(finding, { file: evidence[0].file, line: evidence[0].line, location: evidence[0].url, evidence })

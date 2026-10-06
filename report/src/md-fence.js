@@ -111,10 +111,11 @@ function quotedText(line, paragraph) {
   return text.trim() !== '' && !opens && /^ */u.exec(text)[0].length < 4
 }
 
+// Optionally include HTML blocks so hidden text cannot become report structure.
 // fenceRanges, and the line that would close what the text leaves open
 // at its end — a fence, or an HTML block a line can end — at the margin
 // of the item it sits in; null when nothing such is open.
-export function readFences(text) {
+export function readFences(text, includeHtml = false) {
   const ranges = []
   // The open fence, by where it began and its run; or the open HTML
   // block, by what ends it and the text that would; and the margin of
@@ -156,6 +157,7 @@ export function readFences(text) {
       const closes = !left && (html ? html.ends.test(line) : indent <= inside + 3 && closesFence(marker, line))
       if (left || closes) {
         if (open !== -1) ranges.push([open, left ? start - 1 : start + line.length])
+        else if (includeHtml) ranges.push([html.start, left ? start - 1 : start + line.length])
         open = -1
         html = null
       }
@@ -191,7 +193,12 @@ export function readFences(text) {
     }
     fresh = rest.trim() === ''
     if (opens?.fence) [open, marker, inside] = [start, opens.fence, margin]
-    else if (opens?.html) [html, inside] = [opens.html.test(rest) ? null : { ends: opens.html, close: opens.close }, margin]
+    else if (opens?.html) {
+      const closed = opens.html.test(rest)
+      if (includeHtml && closed) ranges.push([start, start + line.length])
+      html = closed ? null : { start, ends: opens.html, close: opens.close }
+      inside = margin
+    }
     // Paragraph text or not: not a heading, rule or anything opened
     // above, and not four columns in, which is indented code — and for a
     // quote, what it holds past its `>` and any markers, whose paragraph
@@ -205,6 +212,7 @@ export function readFences(text) {
     lazy = quoted ? quotedText(rest, inQuote) : !opens && !fresh && /^ */u.exec(rest)[0].length < 4
   }
   if (open !== -1) ranges.push([open, text.length])
+  else if (includeHtml && html) ranges.push([html.start, text.length])
   const close = open === -1 ? html?.close : marker
   return { ranges, closer: close ? ' '.repeat(inside) + close : null }
 }
