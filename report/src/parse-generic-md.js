@@ -116,11 +116,12 @@ function findingFromBlock(row, body, rawSection, references) {
 export function parseGenericMarkdownToReports(content) {
   const text = normalizeNewlines(content).trim()
   const marks = unfencedMatches(text, H2_RE)
+  // An h1-led Claude finding may have arbitrary tables and no sections at all.
+  // Numbered sections disambiguate it; a bare table still diagnoses missing
+  // generic finding bodies instead of silently accepting an incomplete import.
+  if (!marks.some((mark) => /^\d+\.\s+\S+/u.test(mark[1])) && (marks.length || text.startsWith('# '))) return null
   const rows = summaryRows(text.slice(0, marks[0]?.index))
   if (rows === null) return null
-  // The table alone can occur in another report format. Claim documents with
-  // numbered finding sections (or no sections, which is an incomplete import).
-  if (marks.length && !marks.some((mark) => /^\d+\.\s+\S+/u.test(mark[1]))) return null
   const references = genericMarkdownReferences(text)
   const byId = indexRows(rows), parsed = new Map(), seen = new Set()
   for (const [i, mark] of marks.entries()) {

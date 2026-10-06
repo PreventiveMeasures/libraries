@@ -1,4 +1,4 @@
-import { findMdLink, readFences, unescapeMd } from './md-structure.js'
+import { createMdLinkReader, findMdLink, readFences, unescapeMd } from './md-structure.js'
 
 // Code examples are not report links. Pair inline backtick runs by length,
 // including multiline spans, without treating unmatched backticks as code.
@@ -68,20 +68,23 @@ export function genericMarkdownUrls(content, references) {
   const { refs, text } = referenceText(content)
   const urls = []
   const ends = bracketEnds(text), plain = []
+  const readLink = createMdLinkReader(text)
+  const lookup = references ?? refs
   let from = 0
   for (let i = 0; i < text.length; i++) {
     const close = ends.get(i)
     if (close === undefined) continue
     let end, link
     if (text[close + 1] === '(') {
-      link = findMdLink(text.slice(i), { balancedLabels: true, allowEmptyLabel: true, allowTitle: true })
-      if (!link || link.index !== 0) continue
-      end = i + link.end
+      link = readLink(close)
+      if (!link) continue
+      end = link.end
     } else {
+      if (!lookup.size) continue
       const refStart = close + 1
       const refEnd = ends.get(refStart)
       const label = refEnd !== undefined && refEnd > refStart + 1 ? text.slice(refStart + 1, refEnd) : text.slice(i + 1, close)
-      const url = (references ?? refs).get(referenceKey(label))
+      const url = lookup.get(referenceKey(label))
       if (!url) continue
       link = { url }
       end = refEnd === undefined ? close + 1 : refEnd + 1
@@ -95,7 +98,10 @@ export function genericMarkdownUrls(content, references) {
   for (const [raw] of plain.join('\n').matchAll(/https?:\/\/[^\s<>"`]+/giu)) {
     let url = raw.replace(/[.,;:!?]+$/u, '')
     // A closing Markdown parenthesis is not part of a bare URL unless balanced.
-    while (url.endsWith(')') && url.split(')').length > url.split('(').length) url = url.slice(0, -1)
+    let balance = 0, end = url.length
+    for (const c of url) balance += c === '(' ? 1 : c === ')' ? -1 : 0
+    while (balance < 0 && url[end - 1] === ')') { end--; balance++ }
+    url = url.slice(0, end)
     urls.push(url)
   }
   return [...new Set(urls)]

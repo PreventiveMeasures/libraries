@@ -167,6 +167,25 @@ test('a generic-looking preamble table does not shadow a Claude finding', () => 
   assert.equal(result.data.findings[0].severity, 'high')
 })
 
+test('sectionless Claude findings retain their parser despite generic-looking tables', () => {
+  for (const preamble of [summary, summary.replace('|---:|---|---|---|---|', '| invalid separator |')]) {
+    const text = `# Claude finding\n\n${preamble}\n\n---\n**Severity:** high\n**Repository:** a/a`
+    assert.equal(parseGenericMarkdownToReports(text), null)
+    const result = readReport(text)
+    assert.equal(result.format, 'claude-security')
+    assert.equal(result.data.findings.length, 1)
+    assert.equal(result.data.findings[0].severity, 'high')
+  }
+})
+
+test('bare and partially populated generic tables still diagnose missing finding bodies', () => {
+  for (const text of [summary, `# Security audit\n\n${summary}\n\n${first}`]) {
+    assert.throws(() => parseGenericMarkdownToReports(text), /missing finding section/u)
+    assert.equal(readReport(text).data, null)
+    assert.equal(readReport(text).format, 'markdown-generic')
+  }
+})
+
 
 for (const label of ['Code references:', '### Code references', '#### Code references:', '##### CODE REFERENCES:', '**Code references:**', '### Code References: ###']) {
   test(`reads all repository evidence beneath ${label}`, () => {
@@ -336,3 +355,21 @@ test('reference definitions resolve across finding partitions without attributin
   assert.deepEqual(reports.map(({ data }) => data.repo.github), ['a/a', 'a/b'])
   assert.equal(reports[0].data.findings[0].evidence[0].file, 'c/d/e.js')
 })
+
+for (const [label, prose] of [
+  ['unclosed inline links', '[a]('.repeat(12_500)],
+  ['nested unclosed links before a titled link', '[a]('.repeat(12_500) + 'https://github.com/a/a "repo")'],
+  ['many valid inline links', '[code](https://github.com/a/a) '.repeat(6_000)],
+  ['excess trailing parentheses', 'https://github.com/a/a' + ')'.repeat(50_000)],
+]) {
+  test(`repository inference stays bounded for ${label}`, () => {
+    const text = document.replace('Something.', prose)
+    const started = process.cpuUsage()
+    assert.deepEqual(parseGenericMarkdownToReports(text).map(({ data }) => data.repo.github), ['a/a', 'a/b'])
+    const { user, system } = process.cpuUsage(started)
+    const took = (user + system) / 1000
+    // CPU time avoids penalizing a busy CI host. The former suffix scan took
+    // seconds even for 4,000 candidates; indexed collection needs one pass.
+    assert.ok(took < 1000, `${text.length} characters took ${took.toFixed(0)}ms of CPU`)
+  })
+}

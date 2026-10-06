@@ -263,35 +263,38 @@ export function findMdLink(s, { balancedLabels = false, allowEmptyLabel = false,
       // An EMPTY label is no label: `![](badge.svg)` ahead of a
       // reference is a badge, and the link wanted is the one behind it.
       if (close === -1 || (!allowEmptyLabel && close === open + 1) || text[close + 1] !== '(') continue
-      const url = destination(text, close + 1, dests)
-      const titled = url === null && allowTitle ? titledDestination(text, close + 1, dests) : null
-      if (url !== null || titled) {
-        const end = titled?.end ?? close + 3 + url.length + (text[close + 2] === '<' ? 2 : 0)
-        return { label: text.slice(open + 1, close), url: url ?? titled.url, index: open, ...(allowTitle ? { end } : {}) }
-      }
+      const link = linkDestination(text, close + 1, dests, allowTitle)
+      if (link) return { label: text.slice(open + 1, close), url: link.url, index: open, ...(allowTitle ? { end: link.end } : {}) }
     }
   }
   return null
 }
 
+// Prose collectors already know each balanced label's closing bracket. Share
+// one destination index across those candidates instead of rescanning suffixes.
+export function createMdLinkReader(text) {
+  const dests = destinationEnds(text)
+  return (close) => text[close + 1] === '(' ? linkDestination(text, close + 1, dests, true) : null
+}
+
+function linkDestination(text, open, dests, allowTitle) {
+  const url = destination(text, open, dests)
+  if (url === null) return allowTitle ? titledDestination(text, open, dests) : null
+  return { url, end: open + 2 + url.length + (text[open + 1] === '<' ? 2 : 0) }
+}
+
 function titledDestination(text, open, dests) {
   const angled = text[open + 1] === '<'
   const start = open + (angled ? 2 : 1)
-  const end = angled ? dests.nextAngle[start] : dests.nextSpace[start]
-  if (end === -1 || end === start) return null
-  const url = text.slice(start, end)
-  if (!angled) {
-    let depth = 0
-    for (let i = 0; i < url.length; i++) {
-      if (escapes(url, i)) i++
-      else if (url[i] === '(') depth++
-      else if (url[i] === ')' && --depth < 0) return null
-    }
-    if (depth) return null
-  }
+  const end = angled ? dests.nextAngle[start] : dests.titleStarts.get(open)
+  if (end === undefined || end === -1 || end === start) return null
   const after = end + (angled ? 1 : 0)
-  const title = /^\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\))\s*\)/u.exec(text.slice(after))
-  return title ? { url, end: after + title[0].length } : null
+  if (!dests.titleEnds.has(after)) {
+    const title = /^\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\))\s*\)/u.exec(text.slice(after))
+    dests.titleEnds.set(after, title ? after + title[0].length : null)
+  }
+  const close = dests.titleEnds.get(after)
+  return close === null ? null : { url: text.slice(start, end), end: close }
 }
 
 // Every `[` paired with the `]` that closes it once its brackets
@@ -355,7 +358,7 @@ function destinationEnds(text) {
     nextAngle[i] = text[i] === '>' ? i : nextAngle[i + 1]
     nextLine[i] = text[i] === '\n' ? i : nextLine[i + 1]
   }
-  const balanced = new Map()
+  const balanced = new Map(), titleStarts = new Map()
   const open = []
   for (let i = 0; i < n; i++) {
     const c = text[i]
@@ -364,11 +367,16 @@ function destinationEnds(text) {
     // bare destination — read as an escape, `[badge](not\ a-url)` would
     // be a link, and a reference behind it never reached.
     if (escapes(text, i)) i++
-    else if (nextSpace[i] === i) open.length = 0
+    else if (nextSpace[i] === i) {
+      // Only the innermost unmatched '(' has a balanced URL before this
+      // whitespace. Record that boundary once for optional link titles.
+      if (open.length) titleStarts.set(open.at(-1), i)
+      open.length = 0
+    }
     else if (c === '(') open.push(i)
     else if (c === ')' && open.length > 0) balanced.set(open.pop(), i)
   }
-  return { balanced, nextClose, nextSpace, nextAngle, nextLine }
+  return { balanced, nextClose, nextSpace, nextAngle, nextLine, titleStarts, titleEnds: new Map() }
 }
 
 // The destination opened at `open`, as its url, or null: an
