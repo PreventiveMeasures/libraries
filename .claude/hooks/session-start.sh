@@ -1,79 +1,101 @@
 #!/bin/bash
-# SessionStart hook for Claude Code on the web.
-#
-# The web container ships Node 22 on PATH by default. This switches the
-# session to the Node.js version pinned in .nvmrc (currently 24) via nvm,
-# persists that PATH for every later shell command, and installs the dev
-# dependencies so `node --run lint` and `node --run test` work right away.
-set -euo pipefail
+# Drop -e so a transient failure (typically `nvm install` failing to
+# download the tarball) doesn't kill the script silently and leave the
+# session falling back to system Node without a visible reason. Each
+# step below is checked explicitly and emits a clear message before
+# either retrying, warning, or aborting.
+set -uo pipefail
 
-# Only run in remote (Claude Code on the web) sessions.
+log() { echo "session-start: $*" >&2; }
+abort() { log "ERROR: $*"; exit 1; }
+warn() { log "WARN: $*"; }
+
+# Only run inside Claude Code on the web. Locally the developer's shell
+# already manages Node via nvm/asdf/etc.
 if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
   exit 0
 fi
 
-# SessionStart stdout becomes context Claude sees, so the setup logs go to
-# stderr and only the closing summary line reaches stdout.
+# SessionStart stdout is added to Claude's context, so the nvm, corepack
+# and pnpm logs (a full install lists every package) go to stderr. Only
+# the closing summary line is written to the original stdout, kept on fd 3.
 exec 3>&1 1>&2
 
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+# Load nvm into this non-login shell.
+export NVM_DIR="${NVM_DIR:-/opt/nvm}"
+# shellcheck disable=SC1091
+if [ -s "$NVM_DIR/nvm.sh" ]; then
+  . "$NVM_DIR/nvm.sh"
+elif [ -s "$HOME/.nvm/nvm.sh" ]; then
+  export NVM_DIR="$HOME/.nvm"
+  . "$NVM_DIR/nvm.sh"
+elif [ -s /etc/profile.d/nvm.sh ]; then
+  . /etc/profile.d/nvm.sh
+else
+  abort "nvm not found (checked \$NVM_DIR=$NVM_DIR, \$HOME/.nvm, /etc/profile.d/nvm.sh)"
+fi
 
-# CLAUDE_PROJECT_DIR stays at the checkout the session started in, while the
-# input's cwd follows Claude into a worktree: set that worktree up instead
-# when it belongs to the same repository.
-if [ ! -t 0 ]; then
-  HOOK_CWD="$(node -e 'try { process.stdout.write(JSON.parse(require("fs").readFileSync(0, "utf8")).cwd ?? "") } catch {}' || true)"
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+
+# CLAUDE_PROJECT_DIR stays at the checkout the session started in, while
+# the hook input's cwd follows Claude into a worktree. Set that worktree
+# up instead when it belongs to the same repository, so it doesn't come
+# up without node_modules and nvm reads its .nvmrc. There may be no node
+# to parse the input with yet, so cwd is matched with a regex; one
+# holding `"` or `\`, like another repo, a non-git cwd or no input, keeps
+# the project dir.
+cwd_re='"cwd"[[:space:]]*:[[:space:]]*"([^"\]*)"'
+if [ ! -t 0 ] && [[ "$(cat)" =~ $cwd_re ]]; then
+  HOOK_CWD="${BASH_REMATCH[1]}"
   git_common_dir() { git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null; }
-  if [ -n "$HOOK_CWD" ] && WORKTREE="$(git -C "$HOOK_CWD" rev-parse --show-toplevel 2>/dev/null)" &&
+  if WORKTREE="$(git -C "$HOOK_CWD" rev-parse --show-toplevel 2>/dev/null)" &&
     [ "$(git_common_dir "$WORKTREE")" = "$(git_common_dir "$PROJECT_DIR")" ]; then
     PROJECT_DIR="$WORKTREE"
   fi
 fi
-cd "$PROJECT_DIR"
 
-export NVM_DIR="${NVM_DIR:-/opt/nvm}"
-if [ -s "$NVM_DIR/nvm.sh" ]; then
-  # nvm.sh is not clean under `set -u`.
-  set +u
-  # shellcheck disable=SC1091
-  . "$NVM_DIR/nvm.sh" --no-use
-  # Reads .nvmrc. Idempotent: a no-op when that version is already installed.
-  nvm install --no-progress
-  nvm use --silent
-  set -u
-else
-  echo "nvm not found at $NVM_DIR; trying $(node --version) from PATH" >&2
-  # pnpm only warns on an engines mismatch, so hold that Node to the floor
-  # package.json's engines sets. .nvmrc pins a newer patch than the floor.
-  node -e '
-    const floor = require("./package.json").engines.node.replace(/^>=\s*/, "")
-    const [have, want] = [process.version, floor].map((v) => v.replace(/^v/, "").split(".").map(Number))
-    if (have.reduce((d, n, i) => d || n - want[i], 0) < 0) {
-      console.error(`Node ${process.version} is older than ${floor} from engines in package.json`)
-      process.exit(1)
-    }
-  '
+cd "$PROJECT_DIR" || abort "cannot cd to $PROJECT_DIR"
+
+# `nvm install` (no args) reads .nvmrc from the project root. The
+# download hits nodejs.org and is the most likely failure point at
+# session start, so retry transient blips before giving up. Three
+# attempts cover the common case without dragging the session out.
+install_ok=0
+for attempt in 1 2 3; do
+  if nvm install; then
+    install_ok=1
+    break
+  fi
+  warn "nvm install attempt $attempt failed; retrying"
+  sleep $((attempt * 2))
+done
+if [ "$install_ok" -ne 1 ]; then
+  abort "nvm install failed after 3 attempts; .nvmrc=$(cat .nvmrc 2>/dev/null || echo '<missing>'). Tools will run on whatever node is on PATH ($(node --version 2>/dev/null || echo 'none'))."
 fi
 
-NODE_BIN="$(dirname "$(command -v node)")"
+nvm use || abort "nvm use failed after install (.nvmrc=$(cat .nvmrc 2>/dev/null || echo '<missing>'))"
 
-# Persist the Node version for the rest of the session.
+# Persist Node on PATH for the rest of the session so subsequent
+# tool calls (npm test, tsc, etc.) don't fall back to system Node.
+# The Claude Code harness sources $CLAUDE_ENV_FILE before every tool
+# call; without it set, the export below only lives inside this
+# script's own shell and the next Bash tool call resets to system
+# Node — log loudly so the regression is visible rather than silent.
+NODE_BIN="$(dirname "$(nvm which current)")" || abort "nvm which current failed"
 if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
-  {
-    echo "export NVM_DIR=\"$NVM_DIR\""
-    echo "export PATH=\"$NODE_BIN:\$PATH\""
-  } >> "$CLAUDE_ENV_FILE"
-fi
-
-# pnpm: the version is pinned by "packageManager" in package.json, so let
-# corepack provide it. Fall back to a global npm install of that same
-# version if corepack is unavailable in this Node build.
-if command -v corepack >/dev/null 2>&1; then
-  corepack enable --install-directory "$NODE_BIN"
+  echo "export PATH=\"$NODE_BIN:\$PATH\"" >> "$CLAUDE_ENV_FILE"
 else
-  npm install -g "$(node -p 'require("./package.json").packageManager.split("+")[0]')"
+  warn "CLAUDE_ENV_FILE unset; node $(node --version) will not persist across tool calls"
 fi
+export PATH="$NODE_BIN:$PATH"
 
-pnpm install --frozen-lockfile
+# Enable corepack so the pnpm version pinned in package.json's
+# `packageManager` field is the one that actually runs. Non-fatal —
+# a stale system pnpm still mostly works.
+corepack enable || warn "corepack enable failed; pnpm pinning may not apply"
 
-echo "Node $(node --version) from $NODE_BIN, pnpm $(pnpm --version)" >&3
+# `pnpm ci` semantics: install exactly what's in pnpm-lock.yaml, fail
+# if it would need to be updated.
+pnpm install --frozen-lockfile || abort "pnpm install --frozen-lockfile failed"
+
+echo "session-start: ready in $PROJECT_DIR: node $(node --version), pnpm $(pnpm --version)" >&3
