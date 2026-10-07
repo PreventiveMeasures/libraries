@@ -345,6 +345,19 @@ describe('buildYarn1Tree', () => {
     assert.equal(mode(vfs, '/node_modules/loop1/more.js'), 0o755)
   })
 
+  // The aggregator asks for d@latest and the workspace's p@latest at once:
+  // the filesystem answers them in an order not set, and each resolves all
+  // beneath it before the next, which changes nothing where they share none.
+  it('two tags at once where the order the filesystem answers them changes nothing', async () => {
+    stubRegistry(TARBALLS)
+    const root = { name: 'root', version: '1.0.0', private: true, workspaces: ['packages/*'], dependencies: { d: 'latest' } }
+    const w = { name: 'w', version: '1.0.0', dependencies: { p: 'latest' } }
+    const lock = lockfile(entry('d@latest', 'd@1.0.0'), entry('p@latest', 'p@1.0.0'))
+    const { vfs, stats } = await buildYarn1Tree({ project: projectOf({ 'yarn.lock': lock, 'package.json': root, 'packages/w/package.json': w }), host: HOST })
+    assert.deepEqual(vfs.readdir('/node_modules'), ['d', 'p', 'w'])
+    assert.equal(stats.packages, 2)
+  })
+
   it('passes over settings that only move where yarn fetches from', async () => {
     stubRegistry(TARBALLS)
     const files = {
@@ -408,13 +421,33 @@ describe('buildYarn1Tree refuses', () => {
     await assert.rejects(buildAt('file:./local/b', lock, nested), /^DeptreeError: "c@file:\.\/c": a file: directory asked for beneath the top level, and not by the root or a resolution first, is not supported$/u)
   })
 
-  it('two tags yarn would resolve in the order the filesystem answers', async () => {
+  // The aggregator asks for the root's tag and the workspace's at once, and
+  // the filesystem answers them in an order not set: refused where that order
+  // could change the tree.
+  it('two tags yarn would resolve in the order the filesystem answers, where that order could change the tree', async () => {
     stubRegistry(TARBALLS)
-    const root = { name: 'root', version: '1.0.0', private: true, workspaces: ['packages/*'], dependencies: { d: 'latest' } }
-    const w = { name: 'w', version: '1.0.0', dependencies: { p: 'latest' } }
-    const lock = lockfile(entry('d@latest', 'd@1.0.0'), entry('p@latest', 'p@1.0.0'))
-    const files = projectOf({ 'yarn.lock': lock, 'package.json': root, 'packages/w/package.json': w })
-    await refuses({ project: files }, /^DeptreeError: yarn resolves these in the order the filesystem answers it, which is not set: "d@latest", "p@latest"$/u)
+    const at = (dependencies, lock, files = {}, root = {}) => ({ project: projectOf({
+      'yarn.lock': lock,
+      'package.json': { name: 'root', version: '1.0.0', private: true, workspaces: ['packages/*'], dependencies: { [dependencies[0]]: 'latest' }, ...root },
+      'packages/w/package.json': { name: 'w', version: '1.0.0', dependencies: { [dependencies[1]]: 'latest' } },
+      ...files,
+    }) })
+    const b = '  dependencies:\n    b "^1.0.0"\n'
+    const race = /^DeptreeError: yarn resolves these in the order the filesystem answers it, which is not set: "a@latest", "q@latest"$/u
+    // Whichever resolves first makes b 1.0.0, with its own chain of names.
+    const shared = lockfile(entry('a@latest', 'a@1.0.0', b), entry('b@^1.0.0', 'b@1.0.0'), entry('q@latest', 'q@1.0.0', b))
+    await refuses(at(['a', 'q'], shared), race)
+    // Each adds a pattern of b 1.0.0, resolved already, in that order.
+    const resolved = lockfile(entry('a@latest', 'a@1.0.0', b), entry('b@1.0.0, b@^1.0.0', 'b@1.0.0'), entry('q@latest', 'q@1.0.0', b))
+    await refuses(at(['a', 'q'], resolved, {}, { devDependencies: { b: '1.0.0' } }), race)
+    // A resolution diverts a request where its package is resolved already,
+    // and else once all are.
+    const ruled = lockfile(entry('a@latest', 'a@1.0.0', b), entry('b@^1.0.0', 'b@1.0.0'), entry('p@latest', 'p@1.0.0'))
+    await refuses(at(['a', 'p'], ruled, {}, { resolutions: { '**/b': '^1.0.0' } }), /^DeptreeError: yarn resolves these in the order the filesystem answers it, which is not set: "a@latest", "p@latest"$/u)
+    const apart =lockfile(entry('d@latest', 'd@1.0.0'), entry('p@latest', 'p@1.0.0'))
+    await refuses(at(['d', 'p'], apart, { 'latest/package.json': '{}' }), /^DeptreeError: "d@latest": yarn installs the directory "latest" for it, which is not supported$/u)
+    const manifests = { '.': JSON.stringify({ name: 'root', version: '1.0.0', private: true, workspaces: ['packages/*'], dependencies: { d: 'latest' } }), 'packages/w': JSON.stringify({ name: 'w', version: '1.0.0', dependencies: { p: 'latest' } }) }
+    await refuses({ lockfile: apart, manifests }, /^DeptreeError: "d@latest": yarn installs the directory "latest" for it where the project has one, which is known only with the project read$/u)
   })
 
   // A tarball on the project's disk, as yarn's tarball resolver takes a path

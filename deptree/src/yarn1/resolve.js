@@ -187,17 +187,63 @@ class Resolver {
     return { request, info, left: info.tag ? Infinity : TURNS[info.kind] }
   }
 
+  // The names a request would add a package or a pattern under, through all
+  // it would resolve that is not resolved already; undefined where a
+  // resolution or a directory may come in, or something is refused.
+  namesOf(request) {
+    const names = new Set()
+    const seen = new Set()
+    const queue = [request]
+    while (queue.length > 0) {
+      const next = queue.pop()
+      if (seen.has(next.pattern)) continue
+      seen.add(next.pattern)
+      const { name, range } = splitPattern(next.pattern)
+      if (this.rules.some((rule) => rule.name === name)) return undefined
+      let deps, info
+      try {
+        info = this.infoOf(next)
+        deps = asked(info, quote(next.pattern))
+      } catch (error) {
+        if (error instanceof DeptreeError) return undefined
+        throw error
+      }
+      if (info.kind === 'directory') return undefined
+      names.add(name).add(info.name)
+      if (this.exactMatch(name, validRange(range) ? info.version : range) !== undefined) continue
+      const parentNames = [...next.parentNames ?? [], name]
+      for (const dep of deps) queue.push({ pattern: dep.pattern, parentNames })
+    }
+    return names
+  }
+
+  // A tag waits on the filesystem, and each it answers resolves all beneath
+  // it before the next: in an order not set, which changes nothing where no
+  // two would add under one name, and no resolution or directory comes in.
+  apart(waiting) {
+    if (this.late.length > 0) return false
+    const taken = new Set()
+    for (const { request } of waiting) {
+      const names = this.namesOf(request)
+      if (names === undefined || [...names].some((name) => taken.has(name))) return false
+      for (const name of names) taken.add(name)
+    }
+    return true
+  }
+
+  // Where none is a directory of the project, the first goes on.
   answer(waiting) {
     const reading = [...waiting.map(({ request }) => request), ...this.late]
-    if (reading.length > 1) throw new DeptreeError(`yarn resolves these in the order the filesystem answers it, which is not set: ${reading.map(({ pattern }) => quote(pattern)).join(', ')}`)
-    const [strand] = waiting
-    const where = quote(strand.request.pattern)
-    const { range } = splitPattern(strand.request.pattern)
-    const found = this.isDirectory(range)
-    if (found === undefined) throw new DeptreeError(`yarn installs the directory ${quote(range)} for it where the project has one, which is known only with the project read`, where)
-    if (found) throw new DeptreeError(`yarn installs the directory ${quote(range)} for it, which is not supported`, where)
-    strand.left = 1
-    return [strand]
+    if (reading.length > 1 && !this.apart(waiting)) throw new DeptreeError(`yarn resolves these in the order the filesystem answers it, which is not set: ${reading.map(({ pattern }) => quote(pattern)).join(', ')}`)
+    for (const { request } of waiting) {
+      const where = quote(request.pattern)
+      const { range } = splitPattern(request.pattern)
+      const found = this.isDirectory(range)
+      if (found === undefined) throw new DeptreeError(`yarn installs the directory ${quote(range)} for it where the project has one, which is known only with the project read`, where)
+      if (found) throw new DeptreeError(`yarn installs the directory ${quote(range)} for it, which is not supported`, where)
+    }
+    waiting[0].left = 1
+    return waiting
   }
 
   // A microtask turn: the requests a check makes start where it stood.
