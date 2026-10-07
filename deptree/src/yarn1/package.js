@@ -5,6 +5,8 @@
 // dependencies), and a package.json of the lockfile's name and version.
 // And a directory by `file:`, as yarn's copy fetcher installs it.
 
+import { fromBase64 } from '@exodus/bytes/base64.js'
+import { toHex } from '@exodus/bytes/hex.js'
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { sha1Hex } from '../hash.js'
@@ -44,20 +46,47 @@ function entriesOf(entries, where) {
 
 const decoder = new TextDecoder('utf-8', { fatal: true })
 
+// yarn writes the registry's sha512 where it has one, and else a sha1 of its
+// shasum. Since this time the registry has made one for every version as it
+// was published, by any client: firebase-tools@4.0.3, published then by npm
+// 3.10.8, is the first it signed over one it made, and superstatic@6.0.0, at
+// 2018-08-03T20:22:28.120Z, the last over none. It has since made one for
+// every version published before too.
+export const SHA512_SINCE = '2018-08-05T14:58:16.253Z'
+
+// The hex of an integrity that is a sha1 alone.
+function sha1Of(integrity) {
+  if (integrity === undefined || !/^sha1-[\d+/A-Za-z]{26}[048AEIMQUYcgkosw]=$/u.test(integrity)) return undefined
+  return toHex(fromBase64(integrity.slice(5)))
+}
+
 // `name` is the one fetched, as an `npm:` alias asks for it. yarn writes no
 // integrity for a pattern that names the tarball's URL, but the sha1 after
-// its `#`: the tarball is held to that, and to the registry's sha512.
+// its `#`: the tarball is held to that, and to the registry's sha512. One
+// with a sha1 integrity alone is held to it, and to the registry's sha512,
+// where it was published before SHA512_SINCE.
 export function registryTarball(entry, name, where) {
   const { resolution } = entry
   if (resolution === undefined) throw new DeptreeError('a directory, by file: or link:, is not supported', where)
   const url = resolution.type === 'tarball' ? fromMirror(resolution.tarball) : resolution.tarball
   const byUrl = entry.patterns.some((pattern) => kindOf(splitPattern(pattern).range, where) === 'tarball')
-  return ownTarball(url, name, entry.version, resolution.integrity, where, byUrl && resolution.sha1 !== undefined)
+  const sha1 = sha1Of(resolution.integrity)
+  if (sha1 === undefined) return ownTarball(url, name, entry.version, resolution.integrity, where, byUrl && resolution.sha1 !== undefined)
+  return { ...ownTarball(url, name, entry.version, undefined, where, true), sha1 }
 }
 
-export async function fetchYarnPackage({ name, version, integrity }, where) {
+// `timesOf` answers getPublishTimes for a name.
+async function checkPublished({ name, version }, where, timesOf) {
+  const published = (await timesOf(name)).get(version)
+  if (published === undefined) throw new DeptreeError(`a sha1 integrity alone, where the registry gives no time ${name}@${version} was published at`, where)
+  if (published >= SHA512_SINCE) throw new DeptreeError(`a sha1 integrity alone, which yarn does not write for ${name}@${version}, published at ${published}: the registry has given every version a sha512 since ${SHA512_SINCE}`, where)
+}
+
+export async function fetchYarnPackage({ name, version, integrity, sha1: pinned }, where, timesOf) {
+  if (pinned !== undefined) await checkPublished({ name, version }, where, timesOf)
   const fetched = await fetchTarball(name, version, integrity ?? await registryIntegrity(name, version, where), where)
   const sha1 = await sha1Hex(fetched.bytes)
+  if (pinned !== undefined && sha1 !== pinned) throw new DeptreeError(`the tarball's sha1 is not ${pinned}`, where)
   const { files, dirs } = entriesOf(fetched.entries, where)
   const file = files.get('package.json')
   if (file === undefined) throw new DeptreeError('the tarball has no package.json', where)

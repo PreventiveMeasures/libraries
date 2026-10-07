@@ -250,7 +250,11 @@ export interface Yarn1Tree {
 // yarn installs its dependencies, no link or device in it, and a
 // package.json for exactly its name and version; each with the sha512
 // integrity the lockfile records, and the sha1 each of its entries does,
-// fetched or not. On macOS, two names in one
+// fetched or not. yarn writes a sha1 integrity alone where the registry had
+// no sha512 for the version: taken only for one the registry says was
+// published before 2018-08-05T14:58:16.253Z, since when it has made one for
+// every version as it was published, and held to that sha1 and to the
+// registry's own sha512. On macOS, two names in one
 // directory that differ only in case or normalization are refused, as
 // they would be one name there.
 //

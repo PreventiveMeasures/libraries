@@ -48,10 +48,16 @@ export function rawTar(entries) {
 }
 
 // The registry: each tarball at its URL, npm's unless `urlOf` gives another,
-// and its version's document, with the dist it is served by.
+// its version's document, with the dist it is served by, and its package's,
+// with `time` of each version given a `published` one.
 export function stubRegistry(tarballs, urlOf = url) {
   const served = new Map(tarballs.map((t) => [urlOf(t.name, t.version), t.served ?? t.bytes]))
   const documents = new Map(tarballs.map((t) => [`https://registry.npmjs.org/${t.name}/${t.version}`, { name: t.name, version: t.version, dist: { tarball: url(t.name, t.version), integrity: t.integrity } }]))
+  for (const name of new Set(tarballs.map((t) => t.name))) {
+    const versions = tarballs.filter((t) => t.name === name)
+    const time = Object.fromEntries(versions.filter((t) => t.published !== undefined).map((t) => [t.version, t.published]))
+    documents.set(`https://registry.npmjs.org/${name}`, { name, versions: Object.fromEntries(versions.map((t) => [t.version, {}])), time })
+  }
   const calls = []
   globalThis.fetch = (input) => {
     calls.push(String(input))

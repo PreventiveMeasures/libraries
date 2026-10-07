@@ -5,6 +5,7 @@
 import { parseYarn1Lockfile } from '@preventive/lockfile/yarn1.js'
 import { Vfs } from '@preventive/vfs'
 import { compareNames, dirname, relative } from '@preventive/vfs/path.js'
+import { getPublishTimes } from '@preventive/upstream/npm.js'
 import { clean, satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote } from '../error.js'
@@ -31,11 +32,18 @@ function fetchedName(ref) {
   return range.startsWith('npm:') ? splitPattern(range.slice(4)).name : ref.name
 }
 
+// The registry's publish times are fetched once for each name a tarball with
+// a sha1 integrity alone is of.
 async function fetchAll(refs) {
   const fetched = new Map()
+  const times = new Map()
+  const timesOf = (name) => {
+    if (!times.has(name)) times.set(name, getPublishTimes(name))
+    return times.get(name)
+  }
   const tarballs = refs.map((ref) => ({ ref, tarball: registryTarball(ref.entry, fetchedName(ref), whereOf(ref)) }))
   await eachConcurrently(tarballs, async ({ ref, tarball }) => {
-    fetched.set(ref, await fetchYarnPackage(tarball, whereOf(ref)))
+    fetched.set(ref, await fetchYarnPackage(tarball, whereOf(ref), timesOf))
   }, ({ ref }) => whereOf(ref))
   return fetched
 }
