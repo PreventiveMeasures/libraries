@@ -62,7 +62,7 @@ export async function resolvePackageRepos(packageNames, options = {}) {
 
 // Through the cache. Null for a package the registry does not have, or
 // one naming no GitHub repo; any other failure throws.
-export async function lookUpPackageRepo(name) {
+async function lookUpPackageRepo(name) {
   const stored = await readPackageRepoCache(name)
   if (stored) return stored
   const { github, directory } = await fetchRepo('lookUpPackageRepo', name).catch(recover(isNotFound, {}))

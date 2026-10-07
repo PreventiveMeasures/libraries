@@ -4,7 +4,7 @@ import { show } from '../args.js'
 import { addRepos, readRepos } from '../cache.js'
 import { lookUpCrateRepos } from '../cargo/repos.js'
 import { PACKAGIST_REPO, SOLDEER_API, buildUrl, isNotFound, recover, request } from '../http.js'
-import { getVersionDocument } from '../npm/tarball.js'
+import { getVersionDocument } from '../npm/versions.js'
 import { getRepo } from '../package.js'
 import { pool } from '../pool.js'
 import { githubRepoOfUrl } from '../remote.js'
@@ -53,7 +53,7 @@ async function npmRepo(name, version, cache) {
 
 // Each takes the names to look up, the versions `asked` of each, and the
 // call's `cache`.
-export const crateRepos = (names, { cache }) => lookUpCrateRepos('advisories', names, { store: cache })
+export const crateRepos = (names, { cache }) => lookUpCrateRepos('advisories', names, { cache })
 export const composerRepos = (names, { cache }) => cachedRepos('composer/repos', names, (missing) => fetchEach(missing, fetchComposerRepo), cache)
 export const npmRepos = (names, { asked, cache }) => fetchEach(names, (name) => npmRepo(name, asked.get(name).at(-1), cache))
 export const soldeerRepos = (names, { cache }) => cachedRepos('soldeer/repos', names, (missing) => fetchEach(missing, fetchSoldeerRepo), cache)

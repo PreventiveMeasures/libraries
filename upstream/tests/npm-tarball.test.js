@@ -8,6 +8,7 @@ import { after, beforeEach, describe, it } from 'node:test'
 import { gunzipSync, gzipSync } from 'node:zlib'
 
 import { getMeta, getPublishTimes, getTarball, setCacheDir, verifyDist } from '../npm.js'
+import { mapStore } from './cache-store.js'
 
 // A cache directory of this file's own: everything below is a real disk
 // read or write, and it has to land somewhere nothing else reads.
@@ -45,6 +46,20 @@ after(async () => {
 const BYTES = new Uint8Array([0x1f, 0x8b, 0x08, 0x00, 0xff, 0xfe, 0x80, 0x00, 0x42])
 const sri = (bytes, algorithm = 'sha512') => `${algorithm}-${createHash(algorithm).update(bytes).digest('base64')}`
 const tarballUrl = (name, version) => `https://registry.npmjs.org/${name}/-/${name.split('/').at(-1)}-${version}.tgz`
+// pkg@1.0.0: its version document's URL, its dist, and an integrity it has not.
+const DOC = 'https://registry.npmjs.org/pkg/1.0.0'
+const DIST = { tarball: tarballUrl('pkg', '1.0.0'), integrity: sri(BYTES) }
+const OTHER = sri(new Uint8Array([1]))
+
+// Where cacache files bytes: by their sha512, in hex.
+const contentPath = (root, bytes) => {
+  const hex = createHash('sha512').update(bytes).digest('hex')
+  return join(root, '_cacache', 'content-v2', 'sha512', hex.slice(0, 2), hex.slice(2, 4), hex.slice(4))
+}
+const plant = async (path, bytes) => {
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(path, bytes)
+}
 
 // The registry, for one version of one package: its version document,
 // with `dist` as given and `fields` beside it, and its tarball as
@@ -59,6 +74,16 @@ function stubRegistry({ name = 'pkg', version = '1.0.0', dist = {}, fields = {},
     }
     if (String(url) === (dist.tarball ?? tarball)) return Promise.resolve(new Response(served))
     return Promise.resolve(Response.json({ error: 'Not found' }, { status: 404 }))
+  }
+  return calls
+}
+
+// No registry at all: every request refused, and `calls` every URL asked.
+function offline() {
+  const calls = []
+  globalThis.fetch = (url) => {
+    calls.push(String(url))
+    return Promise.reject(new Error(`unexpected request: ${url}`))
   }
   return calls
 }
@@ -116,7 +141,6 @@ describe('getTarball', () => {
 })
 
 describe('the tarball cache', () => {
-  const DOC = 'https://registry.npmjs.org/pkg/1.0.0'
 
   it('serves the bytes of the next call from disk, still checked against the registry', async () => {
     stubRegistry()
@@ -167,10 +191,7 @@ describe('the tarball cache', () => {
 })
 
 describe('the version document cache', () => {
-  const DOC = 'https://registry.npmjs.org/pkg/1.0.0'
   const FILE = join(VERSIONS, 'pkg@1.0.0.json.gz')
-  const DIST = { tarball: tarballUrl('pkg', '1.0.0'), integrity: sri(BYTES) }
-  const OTHER = sri(new Uint8Array([1]))
   const FIELDS = { description: 'A package', dependencies: { dep: '^1.0.0' }, _npmUser: { name: 'someone' } }
   const WHOLE = { name: 'pkg', version: '1.0.0', ...FIELDS, dist: { ...DIST, shasum: 'abc', fileCount: 3 } }
   const serveWhole = () => stubRegistry({ fields: FIELDS, dist: { shasum: 'abc', fileCount: 3 } })
@@ -179,14 +200,6 @@ describe('the version document cache', () => {
     await writeFile(FILE, bytes)
   }
   const compress = (value) => gzipSync(JSON.stringify(value))
-  const offline = () => {
-    const calls = []
-    globalThis.fetch = (url) => {
-      calls.push(String(url))
-      return Promise.reject(new Error(`unexpected request: ${url}`))
-    }
-    return calls
-  }
 
   it('keeps the whole document, compressed, from getMeta and getTarball, which ask every time', async () => {
     let calls = serveWhole()
@@ -297,43 +310,13 @@ describe('the version document cache', () => {
 })
 
 describe("a caller's store, and cache false", () => {
-  const DOC = 'https://registry.npmjs.org/pkg/1.0.0'
   const TGZ = tarballUrl('pkg', '1.0.0')
-  const DIST = { tarball: TGZ, integrity: sri(BYTES) }
-  const OTHER = sri(new Uint8Array([1]))
   const DOCUMENT = { name: 'pkg', version: '1.0.0', dist: DIST }
-  // A store over a Map, keeping a copy of what it is given by type and
-  // key, bytes as bytes; `log` is every read and write.
-  function mapStore() {
-    const entries = new Map()
-    const log = []
-    const at = (type, key) => JSON.stringify([type, key])
-    return {
-      log,
-      get: (type, key) => entries.get(at(type, key)),
-      set: (type, key, value) => entries.set(at(type, key), structuredClone(value)),
-      read(type, key) {
-        log.push(['read', type, key])
-        return Promise.resolve(structuredClone(entries.get(at(type, key))))
-      },
-      write(type, key, value) {
-        log.push(['write', type, key])
-        entries.set(at(type, key), structuredClone(value))
-        return Promise.resolve()
-      },
-    }
-  }
-  const offline = () => {
-    const calls = []
-    globalThis.fetch = (url) => {
-      calls.push(String(url))
-      return Promise.reject(new Error(`unexpected request: ${url}`))
-    }
-    return calls
-  }
+  // Bytes kept as bytes.
+  const byteStore = () => mapStore(structuredClone)
 
   it('keeps version documents and tarballs in the store, by type and name@version, and nothing on disk', async () => {
-    const store = mapStore()
+    const store = byteStore()
     let calls = stubRegistry()
     assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0', undefined, { cache: store })), BYTES)
     assert.deepEqual(calls, [DOC, TGZ])
@@ -356,7 +339,7 @@ describe("a caller's store, and cache false", () => {
   })
 
   it('throws on bytes in the store that do not match, and takes what is not bytes, or a document refused, as a miss', async () => {
-    const store = mapStore()
+    const store = byteStore()
     store.set('npm/tarballs', 'pkg@1.0.0', new Uint8Array([...BYTES, 0]))
     stubRegistry()
     await assert.rejects(getTarball('pkg', '1.0.0', DIST, { cache: store }), /getTarball: integrity mismatch for pkg@1\.0\.0 from the store/u)
@@ -392,11 +375,8 @@ describe("a caller's store, and cache false", () => {
   })
 
   it("reads other tools' caches and ours before the store", async () => {
-    const hex = createHash('sha512').update(BYTES).digest('hex')
-    const cached = join(NPM_CACHE, '_cacache', 'content-v2', 'sha512', hex.slice(0, 2), hex.slice(2, 4), hex.slice(4))
-    await mkdir(dirname(cached), { recursive: true })
-    await writeFile(cached, BYTES)
-    const store = mapStore()
+    await plant(contentPath(NPM_CACHE, BYTES), BYTES)
+    const store = byteStore()
     const calls = offline()
     assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0', DIST, { cache: store })), BYTES)
     assert.deepEqual([calls, store.log], [[], []])
@@ -443,17 +423,7 @@ describe("a caller's store, and cache false", () => {
 })
 
 describe('the caches of other tools', () => {
-  const DOC = 'https://registry.npmjs.org/pkg/1.0.0'
-  // Where cacache files bytes: by their sha512, in hex.
-  const contentPath = (root, bytes) => {
-    const hex = createHash('sha512').update(bytes).digest('hex')
-    return join(root, '_cacache', 'content-v2', 'sha512', hex.slice(0, 2), hex.slice(2, 4), hex.slice(4))
-  }
   const legacyPath = (root, name, version) => join(root, name, version, 'package.tgz')
-  const plant = async (path, bytes) => {
-    await mkdir(dirname(path), { recursive: true })
-    await writeFile(path, bytes)
-  }
 
   it('serves what cacache filed under the sha512, asking only for the version document', async () => {
     await plant(contentPath(NPM_CACHE, BYTES), BYTES)
@@ -541,9 +511,6 @@ describe('the caches of other tools', () => {
 })
 
 describe('getMeta, verifyDist, and getTarball with a dist', () => {
-  const DOC = 'https://registry.npmjs.org/pkg/1.0.0'
-  const DIST = { tarball: tarballUrl('pkg', '1.0.0'), integrity: sri(BYTES) }
-  const OTHER = sri(new Uint8Array([1]))
 
   it('answers the name, the version and a dist of only its tarball and integrity', async () => {
     const calls = stubRegistry({ dist: { shasum: 'abc', fileCount: 3, signatures: [] } })

@@ -57,14 +57,14 @@ const isDigest = (advisory) => advisory && typeof advisory === 'object' && isGhs
 // A repository's listing, digested, through the cache: GitHub's names are
 // case-insensitive, so one entry answers every spelling. A repository gone,
 // renamed or blocked has none, and that is not kept.
-async function listAdvisories(github, repo, store) {
+async function listAdvisories(github, repo, cache) {
   const name = repo.toLowerCase()
-  const entry = await readRecord(DIR, name, { ttl: LISTING_TTL_MS, store })
+  const entry = await readRecord(DIR, name, cache, LISTING_TTL_MS)
   if (entry?.v === VERSION && Array.isArray(entry.advisories) && entry.advisories.every(isDigest)) return entry.advisories
   const list = await github.listRepoAdvisories({ repo }).catch(recover(isGone, null))
   if (list === null) return []
   const advisories = digest(repo, list)
-  if (advisories.every(isDigest)) await writeRecord(DIR, name, { v: VERSION, advisories }, { store })
+  if (advisories.every(isDigest)) await writeRecord(DIR, name, { v: VERSION, advisories }, cache)
   return advisories
 }
 

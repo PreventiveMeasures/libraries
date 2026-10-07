@@ -9,6 +9,7 @@ import { gunzipSync, gzipSync } from 'node:zlib'
 import { advisories } from '../advisories.js'
 import { createClient } from '../github.js'
 import { setCacheDir } from '../npm.js'
+import { mapStore } from './cache-store.js'
 
 // A file of its own, since the cache directory is process-wide.
 
@@ -217,29 +218,9 @@ describe("a repository's listing, through the cache", () => {
 })
 
 describe("a caller's store", () => {
-  // A store over a Map, keeping what it is given as JSON by type and key,
-  // as a database would; `log` is every read and write.
+  // Where a store keeps the listing (mapStore, as JSON).
   const TYPE = 'github/advisories'
   const KEY = 'openzeppelin/openzeppelin-contracts'
-  function mapStore() {
-    const entries = new Map()
-    const log = []
-    const at = (type, key) => JSON.stringify([type, key])
-    return {
-      log,
-      get: (type, key) => entries.get(at(type, key)),
-      set: (type, key, value) => entries.set(at(type, key), JSON.stringify(value)),
-      read(type, key) {
-        log.push(['read', type, key])
-        return Promise.resolve(entries.has(at(type, key)) ? JSON.parse(entries.get(at(type, key))) : undefined)
-      },
-      write(type, key, value) {
-        log.push(['write', type, key])
-        entries.set(at(type, key), JSON.stringify(value))
-        return Promise.resolve()
-      },
-    }
-  }
 
   it('keeps listings in place of the directory, by their type and the repository in lowercase', async () => {
     const store = mapStore()
@@ -247,7 +228,7 @@ describe("a caller's store", () => {
     const fresh = await audit(undefined, { cache: store, details: true })
     assert.deepEqual(calls, [OZ])
     assert.deepEqual(store.log, [['read', TYPE, KEY], ['write', TYPE, KEY]])
-    const entry = JSON.parse(store.get(TYPE, KEY))
+    const entry = store.get(TYPE, KEY)
     assert.deepEqual([entry.name, entry.v, entry.advisories.map(({ ghsa }) => ghsa)], ['openzeppelin/openzeppelin-contracts', 1, ['GHSA-aaaa-aaaa-aaaa']])
     calls = stubUrls({})
     const respelled = (text) => text.replace('OpenZeppelin/openzeppelin-contracts', 'openzeppelin/OpenZeppelin-Contracts')
@@ -263,7 +244,7 @@ describe("a caller's store", () => {
     assert.deepEqual(calls, [BULK, NPM_DOC, OZ])
     const VERSION_KEY = '@openzeppelin/contracts@4.9.0'
     assert.deepEqual(store.log, [['read', 'npm/versions', VERSION_KEY], ['write', 'npm/versions', VERSION_KEY], ['read', TYPE, KEY], ['write', TYPE, KEY]])
-    assert.deepEqual(JSON.parse(store.get('npm/versions', VERSION_KEY)), NPM_DOCUMENT)
+    assert.deepEqual(store.get('npm/versions', VERSION_KEY), NPM_DOCUMENT)
     store.log.length = 0
     calls = stubUrls(LOOKUPS)
     await soldeerAudit({ cache: store })
