@@ -74,8 +74,13 @@ function readManifest(files, pkg, where) {
   return manifest
 }
 
+// npm's abbreviated metadata, which pnpm resolves from unless a setting such
+// as supportedArchitectures.libc has it ask for the full document, has no
+// libc, nor has the package.json pnpm 9 and 10 keep in the store: a lockfile
+// may leave out a libc the package.json has. One it names is held to it.
 export function checkManifest(manifest, pkg, where, major) {
   for (const field of ['os', 'cpu', 'libc']) {
+    if (field === 'libc' && pkg.libc === undefined) continue
     if (!same(manifest[field], pkg[field])) throw new DeptreeError(`package.json's ${field} is not the lockfile's`, where)
   }
   const has = hasBin(manifest, major)

@@ -516,6 +516,21 @@ describe('buildPnpmTree reads a package.json as pnpm writes the lockfile', () =>
     await assert.rejects(only([e], { fields: '    bundledDependencies: [x]\n' }), /^DeptreeError: "e@1\.0\.0": package\.json bundles other than the lockfile says$/u)
   })
 
+  // As pnpm 10.33.4 writes @oxfmt/binding-linux-x64-gnu@0.58.0, from npm's
+  // abbreviated metadata, which has no libc.
+  it('takes a lockfile without the libc its package.json has', async () => {
+    const g = await tarball('g', '1.0.0', {}, { manifest: { os: ['linux'], cpu: ['x64'], libc: ['glibc'] } })
+    const platform = '    cpu: [x64]\n    os: [linux]\n'
+    for (const fields of [platform, `${platform}    libc: [glibc]\n`]) {
+      const { vfs } = await only([g], { fields })
+      assert.equal(vfs.readText('/node_modules/g/package.json'), '{"name":"g","version":"1.0.0","os":["linux"],"cpu":["x64"],"libc":["glibc"]}', JSON.stringify(fields))
+    }
+    await assert.rejects(only([g], { fields: `${platform}    libc: [musl]\n` }), /^DeptreeError: "g@1\.0\.0": package\.json's libc is not the lockfile's$/u)
+    await assert.rejects(only([g], { fields: '    cpu: [x64]\n' }), /^DeptreeError: "g@1\.0\.0": package\.json's os is not the lockfile's$/u)
+    const n = await tarball('n', '1.0.0', {}, { manifest: { os: ['linux'] } })
+    await assert.rejects(only([n], { fields: '    os: [linux]\n    libc: [glibc]\n' }), /^DeptreeError: "n@1\.0\.0": package\.json's libc is not the lockfile's$/u)
+  })
+
   it('passes over the specifier of a dependency it bundles', async () => {
     const m = await tarball('m', '1.0.0', { 'node_modules/x/package.json': '{"name":"x","version":"1.0.0"}' }, { manifest: { dependencies: { x: 'file:../../x' }, bundledDependencies: ['x'] } })
     const { vfs } = await only([m], { fields: '    bundledDependencies: [x]\n' })
