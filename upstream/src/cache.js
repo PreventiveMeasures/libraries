@@ -135,13 +135,13 @@ export async function writeCacheJSON(dir, key, value, { brotli = false } = {}) {
 }
 
 // A record is kept for `ttl`, in the cache set, or with `store`, in the
-// caller's store instead, under `<dir>/<name>`, as it is: only the files
+// caller's store instead, as `dir` and `name`, as it is: only the files
 // are compressed.
 const recordFile = (dir, name) => (BROTLI_DIRS.has(dir) ? `${name}.json.br` : `${name}.json`)
 
 export async function readRecord(dir, name, { ttl = RECORD_TTL_MS, store } = {}) {
   assert.ok(DIRS.has(dir), `Unexpected cache entry: ${dir}`)
-  const record = store ? await store.read(`${dir}/${name}`) : await readCacheJSON(dir, recordFile(dir, name), { brotli: BROTLI_DIRS.has(dir) })
+  const record = store ? await store.read(dir, name) : await readCacheJSON(dir, recordFile(dir, name), { brotli: BROTLI_DIRS.has(dir) })
   const age = typeof record?.at === 'number' ? Date.now() - record.at : Number.NaN
   const fresh = age >= 0 && age <= ttl // An entry from the future is not fresh forever.
   return fresh && record.name === name ? record : null
@@ -151,7 +151,7 @@ export async function writeRecord(dir, name, value, { store } = {}) {
   assert.ok(DIRS.has(dir), `Unexpected cache entry: ${dir}`)
   const record = { at: Date.now(), name, ...value }
   if (!store) return await writeCacheJSON(dir, recordFile(dir, name), record, { brotli: BROTLI_DIRS.has(dir) })
-  await store.write(`${dir}/${name}`, record)
+  await store.write(dir, name, record)
   return true
 }
 

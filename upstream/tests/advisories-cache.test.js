@@ -160,34 +160,37 @@ describe("a repository's listing, through the cache", () => {
 })
 
 describe("a caller's store", () => {
-  // A store over a Map, keeping what it is given as JSON, as a database
-  // would; `log` is every read and write.
+  // A store over a Map, keeping what it is given as JSON by type and key,
+  // as a database would; `log` is every read and write.
+  const TYPE = 'github/advisories'
+  const KEY = 'openzeppelin/openzeppelin-contracts'
   function mapStore() {
     const entries = new Map()
     const log = []
+    const at = (type, key) => JSON.stringify([type, key])
     return {
-      entries,
       log,
-      read(key) {
-        log.push(['read', key])
-        return Promise.resolve(entries.has(key) ? JSON.parse(entries.get(key)) : undefined)
+      get: (type, key) => entries.get(at(type, key)),
+      set: (type, key, value) => entries.set(at(type, key), JSON.stringify(value)),
+      read(type, key) {
+        log.push(['read', type, key])
+        return Promise.resolve(entries.has(at(type, key)) ? JSON.parse(entries.get(at(type, key))) : undefined)
       },
-      write(key, value) {
-        log.push(['write', key])
-        entries.set(key, JSON.stringify(value))
+      write(type, key, value) {
+        log.push(['write', type, key])
+        entries.set(at(type, key), JSON.stringify(value))
         return Promise.resolve()
       },
     }
   }
 
-  it('keeps listings in place of the directory, under the kind and the repository in lowercase', async () => {
+  it('keeps listings in place of the directory, by their type and the repository in lowercase', async () => {
     const store = mapStore()
     let calls = stubUrls({ [OZ]: LIST })
     const fresh = await audit(undefined, { cache: store, details: true })
     assert.deepEqual(calls, [OZ])
-    const key = 'github/advisories/openzeppelin/openzeppelin-contracts'
-    assert.deepEqual(store.log, [['read', key], ['write', key]])
-    const entry = JSON.parse(store.entries.get(key))
+    assert.deepEqual(store.log, [['read', TYPE, KEY], ['write', TYPE, KEY]])
+    const entry = JSON.parse(store.get(TYPE, KEY))
     assert.deepEqual([entry.name, entry.v, entry.advisories.map(({ ghsa }) => ghsa)], ['openzeppelin/openzeppelin-contracts', 1, ['GHSA-aaaa-aaaa-aaaa']])
     calls = stubUrls({})
     const respelled = (text) => text.replace('OpenZeppelin/openzeppelin-contracts', 'openzeppelin/OpenZeppelin-Contracts')
@@ -198,11 +201,10 @@ describe("a caller's store", () => {
 
   it('takes what the store does not have, or has stale or malformed, as a miss', async () => {
     const store = mapStore()
-    const key = 'github/advisories/openzeppelin/openzeppelin-contracts'
     const kept = { ghsa: 'GHSA-aaaa-aaaa-aaaa', title: 'Advisory', ranges: [] }
     const entry = (at, list) => ({ at, name: 'openzeppelin/openzeppelin-contracts', v: 1, advisories: list })
     for (const stored of [null, 'text', entry(Date.now() - 91 * MINUTE, []), entry(Date.now(), [{ ...kept, description: 42 }])]) {
-      store.entries.set(key, JSON.stringify(stored))
+      store.set(TYPE, KEY, stored)
       const calls = stubUrls({ [OZ]: [] })
       assert.deepEqual(await audit(undefined, { cache: store }), [])
       assert.deepEqual(calls, [OZ])
