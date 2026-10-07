@@ -99,6 +99,7 @@ describe('NPM_TOKEN', () => {
   it("is only ever for a GET of that name's own URLs on the registry", () => {
     const auth = (name, url, options) => withNpmToken(name, url, options).headers?.Authorization
     assert.equal(auth('@acme/private', 'https://registry.npmjs.org/@acme/private/latest'), BEARER)
+    assert.equal(auth('@acme/private', 'https://registry.npmjs.org/@acme/private'), BEARER, 'the whole package\'s document, as getPublishTimes reads it')
     assert.equal(auth('@acme/private', 'https://registry.npmjs.org/@acme/private/-/private-1.0.0.tgz', { method: 'GET', as: 'bytes' }), BEARER)
     assert.equal(auth('pkg', 'https://registry.npmjs.org/pkg/latest'), undefined)
     let reads = 0
@@ -108,7 +109,8 @@ describe('NPM_TOKEN', () => {
       ['@acme/private', 'https://registry.npmjs.org/@acme/private/latest', { method: 'POST' }],
       ['@acme/private', 'https://registry.npmjs.org/@acme/other/latest'],
       ['@acme/private', 'https://registry.npmjs.org/@acme/private-other/latest'],
-      ['@acme/private', 'https://registry.npmjs.org/@acme/private'],
+      ['@acme/private', 'https://registry.npmjs.org/@acme/privat'],
+      ['@acme/private', 'https://registry.npmjs.org/@acme/private-other'],
       ['@acme/private', 'https://registry.npmjs.org/-/npm/v1/security/advisories/bulk'],
       ['@acme/private', 'https://evil.example/@acme/private/latest'],
       ['@acme/private', 'https://registry.npmjs.org/@acme/private/../other/latest'],

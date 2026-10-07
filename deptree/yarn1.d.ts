@@ -250,7 +250,11 @@ export interface Yarn1Tree {
 // yarn installs its dependencies, no link or device in it, and a
 // package.json for exactly its name and version; each with the sha512
 // integrity the lockfile records, and the sha1 each of its entries does,
-// fetched or not. On macOS, two names in one
+// fetched or not. yarn writes a sha1 integrity alone where the registry had
+// no sha512 for the version: taken only for one the registry says was
+// published before 2018-08-05T14:58:16.253Z, since when it has made one for
+// every version as it was published, and held to that sha1 and to the
+// registry's own sha512. On macOS, two names in one
 // directory that differ only in case or normalization are refused, as
 // they would be one name there.
 //
@@ -263,9 +267,11 @@ export interface Yarn1Tree {
 // from npm's through @preventive/upstream. Each is asked for by a semver
 // range, an `npm:` alias, or a tag — the last only where the project is
 // given, and a directory of the project of that name is not there, which
-// yarn would install instead, and only where yarn would not have two
-// requests of tags wait on the filesystem at once, which it answers in no
-// set order.
+// yarn would install instead. A request of a tag waits on the filesystem,
+// which answers in no set order, and each it answers resolves all beneath
+// it before the next: where two or more wait at once, only where that
+// order changes nothing, as no two would add a package or a pattern under
+// one name, and no resolution applies or directory is read beneath them.
 //
 // Or by the registry's own tarball URL, either of those above (no `#`
 // after it): the entry yarn writes for one has no integrity, so its

@@ -3,7 +3,7 @@ import { Buffer } from 'node:buffer'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import { assertArgs, assertPackage, assertion, matches, show } from '../args.js'
+import { assertArgs, assertPackage, assertPackageName, assertion, isPlainObject, matches, show } from '../args.js'
 import { verifiedDownload } from '../download.js'
 import { NPM_REGISTRY, buildUrl } from '../http.js'
 import { getDocument, withNpmToken } from './registry.js'
@@ -56,6 +56,32 @@ function localPaths(name, version, integrity) {
 export async function getMeta(name, version) {
   assertPackage('getMeta', name, version)
   return { name, version, dist: await getDist('getMeta', name, version) }
+}
+
+// Only the whole package's document has `time`: megabytes for some.
+const PUBLISHED = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d{1,3}))?Z$/u
+const record = (value) => (isPlainObject(value) ? value : {})
+
+// A time toISOString writes back as given, its milliseconds padded: none
+// Date.parse moves, as it moves 2018-02-29 to March.
+function readTime(value) {
+  const match = typeof value === 'string' ? PUBLISHED.exec(value) : null
+  if (match === null) return undefined
+  const iso = `${match[1]}.${(match[2] ?? '').padEnd(3, '0')}Z`
+  const parsed = Date.parse(iso)
+  return Number.isFinite(parsed) && new Date(parsed).toISOString() === iso ? iso : undefined
+}
+
+export async function getPublishTimes(name) {
+  assertPackageName('getPublishTimes', 'name', name)
+  const json = await getDocument('getPublishTimes', name)
+  const time = record(json.time)
+  const times = new Map()
+  for (const version of Object.keys(record(json.versions))) {
+    const at = readTime(Object.hasOwn(time, version) ? time[version] : undefined)
+    if (at !== undefined) times.set(version, at)
+  }
+  return times
 }
 
 export async function verifyDist(name, version, dist) {

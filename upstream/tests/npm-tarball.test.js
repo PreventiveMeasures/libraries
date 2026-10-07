@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { after, beforeEach, describe, it } from 'node:test'
 
-import { getMeta, getTarball, setCacheDir, verifyDist } from '../npm.js'
+import { getMeta, getPublishTimes, getTarball, setCacheDir, verifyDist } from '../npm.js'
 
 // A cache directory of this file's own: everything below is a real disk
 // read or write, and it has to land somewhere nothing else reads.
@@ -359,5 +359,43 @@ describe('getMeta, verifyDist, and getTarball with a dist', () => {
     await rm(CACHE_DIR, { recursive: true, force: true })
     stubRegistry()
     await assert.rejects(getTarball('pkg', '1.0.0', { ...DIST, integrity: OTHER }), /getTarball: integrity mismatch for pkg@1\.0\.0 from https:/u)
+  })
+})
+
+describe('getPublishTimes', () => {
+  // The whole package's document, as the registry answers for it.
+  const serve = (doc) => {
+    const calls = []
+    globalThis.fetch = (url) => {
+      calls.push(String(url))
+      return Promise.resolve(Response.json(doc))
+    }
+    return calls
+  }
+
+  it('answers each version it lists by its time, as toISOString writes it', async () => {
+    const time = { created: '2013-05-03T16:37:16.591Z', modified: '2022-06-13T06:42:08.512Z', '0.7.1': '2013-05-03T16:37:16.591Z', '0.8.0': '2014-01-02T03:04:05Z', '0.9.0': '2015-01-01T00:00:00.000Z' }
+    const calls = serve({ name: 'colour', versions: { '0.7.1': {}, '0.8.0': {} }, time })
+    assert.deepEqual(await getPublishTimes('colour'), new Map([['0.7.1', '2013-05-03T16:37:16.591Z'], ['0.8.0', '2014-01-02T03:04:05.000Z']]))
+    assert.deepEqual(calls, ['https://registry.npmjs.org/colour'])
+    serve({ name: '@scope/pkg', versions: { '1.0.0': {} }, time: { '1.0.0': '2020-02-02T02:02:02.002Z' } })
+    assert.deepEqual(await getPublishTimes('@scope/pkg'), new Map([['1.0.0', '2020-02-02T02:02:02.002Z']]))
+  })
+
+  it('leaves out a version whose time is missing or not an ISO 8601 UTC time', async () => {
+    // Date.parse would move each of the last four to another day.
+    const times = { a: '2013-05-03', b: 'Fri May 03 2013', c: '2013-13-03T16:37:16.591Z', d: 1367599036591, e: '2013-05-03T16:37:16.591+04:00', g: '2018-02-29T00:00:00Z', h: '2018-02-30T00:00:00Z', i: '2018-04-31T12:00:00.5Z', j: '2018-02-28T24:00:00Z' }
+    serve({ name: 'pkg', versions: Object.fromEntries([...Object.keys(times), 'f', 'k'].map((v) => [`1.0.0-${v}`, {}])), time: Object.fromEntries(Object.entries({ ...times, k: '2016-02-29T00:00:00.5Z' }).map(([v, t]) => [`1.0.0-${v}`, t])) })
+    assert.deepEqual(await getPublishTimes('pkg'), new Map([['1.0.0-k', '2016-02-29T00:00:00.500Z']]))
+    serve({ name: 'pkg', versions: { '1.0.0': {} } })
+    assert.deepEqual(await getPublishTimes('pkg'), new Map())
+  })
+
+  it('refuses another package\'s document, and a name npm does not take before any request', async () => {
+    serve({ name: 'other', versions: {}, time: {} })
+    await assert.rejects(getPublishTimes('pkg'), /getPublishTimes: the registry answered for "other", not pkg/u)
+    const calls = serve({})
+    await assert.rejects(getPublishTimes('../pkg'), /getPublishTimes: name must be an npm package name/u)
+    assert.deepEqual(calls, [])
   })
 })

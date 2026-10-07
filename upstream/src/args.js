@@ -7,7 +7,7 @@ export const matches = (regex) => (value) => typeof value === 'string' && regex.
 // Bidi controls can make a log line read as something it doesn't say.
 const isBidi = (char) => (char >= '\u202A' && char <= '\u202E') || (char >= '\u2066' && char <= '\u2069')
 // A prototype's properties would be read as options without being checked.
-const isPlainObject = (value) => value != null && [Object.prototype, null].includes(Object.getPrototypeOf(value))
+export const isPlainObject = (value) => value != null && [Object.prototype, null].includes(Object.getPrototypeOf(value))
 // Lone surrogates make encodeURIComponent throw.
 const isString = (value, max, allowed = '') => typeof value === 'string' && value.length <= max && value.isWellFormed()
   && ![...value].some((char) => isControl(char) && !allowed.includes(char))
