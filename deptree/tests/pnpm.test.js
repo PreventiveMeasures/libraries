@@ -1338,6 +1338,17 @@ describe('buildPnpmTree into a given Vfs', () => {
       }
     })
 
+    // pnpm writes a directory's lockfile entry from its package.json whole,
+    // so a libc left out is not pnpm's, as it may be for a registry package.
+    it('holds a directory\'s libc to the lockfile', async () => {
+      stubRegistry([await app])
+      const files = { 'package.json': v10, ...vendored, 'vendor/foo/package.json': '{"name":"foo","version":"1.5.0","bin":{"foo":"cli.js"},"libc":["glibc"]}' }
+      await assert.rejects(buildPnpmTree({ lockfile: await copied(), manifests: { '.': v10 }, host: HOST, ...both(files) }), /^DeptreeError: "foo@file:vendor\/foo": package\.json's libc is not the lockfile's$/u)
+      const locked = (await copied()).replace(DIRECTORY, `${DIRECTORY}    libc: [glibc]\n`)
+      const { vfs } = await buildPnpmTree({ lockfile: locked, manifests: { '.': v10 }, host: HOST, ...both(files) })
+      assert.deepEqual(vfs.readdir(FOO), ['cli.js', 'index.js', 'package.json'])
+    })
+
     // As ExodusOSS/bytes has pnpm install its own directory: `files` beside
     // a .gitignore at the top, which none reads then, and a browser map.
     // Real installs of each keep these files.
