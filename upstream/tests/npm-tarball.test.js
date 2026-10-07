@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { after, beforeEach, describe, it } from 'node:test'
@@ -470,6 +470,97 @@ describe("a caller's store, and cache false", () => {
       await assert.rejects(getMeta('pkg', '1.0.0', { dist }), error, JSON.stringify(dist))
     }
     await assert.rejects(getTarball('pkg', '1.0.0', undefined, null), /getTarball: options must be an options object/u)
+    assert.deepEqual(calls, [])
+  })
+})
+
+describe("npm's own cache, for getMeta given a dist", () => {
+  const keyOf = (name) => `make-fetch-happen:request-cache:https://registry.npmjs.org/${name.replace('/', '%2f')}`
+  const hash = (algorithm, data, encoding = 'hex') => createHash(algorithm).update(data).digest(encoding)
+  const shard = (hex) => [hex.slice(0, 2), hex.slice(2, 4), hex.slice(4)]
+  const contentOf = (body) => join(NPM_CACHE, '_cacache', 'content-v2', 'sha512', ...shard(hash('sha512', body)))
+  const indexOf = (name) => join(NPM_CACHE, '_cacache', 'index-v5', ...shard(hash('sha256', keyOf(name))))
+  // As npm files a response: its body by its sha512, and a line for its key
+  // added to the index, which `entry` overrides.
+  async function npmKeeps(name, packument, { contentType = 'application/json', entry = {} } = {}) {
+    const body = Buffer.from(typeof packument === 'string' ? packument : JSON.stringify(packument))
+    await plant(contentOf(body), body)
+    const url = keyOf(name).slice('make-fetch-happen:request-cache:'.length)
+    const json = JSON.stringify({ key: keyOf(name), integrity: sri(body), time: Date.now(), size: body.length, metadata: { url, reqHeaders: { accept: 'application/json' }, resHeaders: { 'content-type': contentType } }, ...entry })
+    await mkdir(dirname(indexOf(name)), { recursive: true })
+    await appendFile(indexOf(name), `\n${hash('sha1', json)}\t${json}`)
+    return body
+  }
+  const ABOUT = { gitHead: 'b'.repeat(40), repository: { type: 'git', url: 'git+https://github.com/acme/pkg.git' }, homepage: 'https://acme.example/pkg', bugs: { url: 'https://github.com/acme/pkg/issues' } }
+  const entryOf = (overrides = {}) => ({ name: 'pkg', version: '1.0.0', ...ABOUT, dist: { ...DIST, shasum: 'abc', fileCount: 3 }, ...overrides })
+  const packumentOf = (versions) => ({ _id: 'pkg', name: 'pkg', 'dist-tags': { latest: '1.0.0' }, versions: versions ?? { '1.0.0': entryOf() } })
+  const META = { name: 'pkg', version: '1.0.0', dist: DIST, gitHead: ABOUT.gitHead, repository: { ...ABOUT.repository, directory: undefined }, homepage: ABOUT.homepage, bugs: { ...ABOUT.bugs, email: undefined } }
+
+  it('answers from the full packument npm keeps where the dist matches, reading and writing no other cache, asking nothing', async () => {
+    await npmKeeps('pkg', packumentOf())
+    const store = mapStore()
+    const calls = offline()
+    assert.deepEqual(await getMeta('pkg', '1.0.0', { dist: DIST }), META)
+    assert.deepEqual(await getMeta('pkg', '1.0.0', { dist: DIST, cache: store }), META)
+    assert.deepEqual([calls, store.log], [[], []])
+    assert.deepEqual(await readdir(CACHE_DIR).catch(() => []), [])
+  })
+
+  it('finds a scoped name under its escaped URL', async () => {
+    const dist = { tarball: tarballUrl('@scope/pkg', '1.0.0'), integrity: sri(BYTES) }
+    await npmKeeps('@scope/pkg', { name: '@scope/pkg', versions: { '1.0.0': { name: '@scope/pkg', version: '1.0.0', gitHead: ABOUT.gitHead, dist } } })
+    const calls = offline()
+    assert.equal((await getMeta('@scope/pkg', '1.0.0', { dist })).gitHead, ABOUT.gitHead)
+    assert.deepEqual(calls, [])
+  })
+
+  it('is read only with a dist: getMeta without one, verifyDist and getTarball ask the registry', async () => {
+    await npmKeeps('pkg', packumentOf())
+    const calls = stubRegistry()
+    await getMeta('pkg', '1.0.0')
+    await rm(CACHE_DIR, { recursive: true, force: true })
+    await verifyDist('pkg', '1.0.0', DIST)
+    assert.deepEqual(calls, [DOC, DOC])
+  })
+
+  it('passes over a packument abbreviated, damaged, deleted, for another name or version, or with another dist', async () => {
+    const damage = async (body) => {
+      const bad = Buffer.from(body)
+      bad[bad.length - 2] ^= 1
+      await writeFile(contentOf(body), bad)
+    }
+    for (const [i, keep] of [
+      () => npmKeeps('pkg', packumentOf(), { contentType: 'application/vnd.npm.install-v1+json' }),
+      async () => damage(await npmKeeps('pkg', packumentOf())),
+      () => npmKeeps('pkg', packumentOf(), { entry: { integrity: null } }),
+      async () => {
+        await npmKeeps('pkg', packumentOf())
+        await npmKeeps('pkg', packumentOf(), { entry: { integrity: null } })
+      },
+      async () => {
+        await npmKeeps('pkg', packumentOf())
+        await writeFile(indexOf('pkg'), (await readFile(indexOf('pkg'), 'utf8')).replace(/\n(\w)/u, (line, first) => `\n${first === '0' ? '1' : '0'}`))
+      },
+      () => npmKeeps('pkg', 'not JSON'),
+      () => npmKeeps('pkg', { ...packumentOf(), name: 'other' }),
+      () => npmKeeps('pkg', packumentOf({ '1.0.1': entryOf({ version: '1.0.1' }) })),
+      () => npmKeeps('pkg', packumentOf({ '1.0.0': entryOf({ version: '1.0.1' }) })),
+      () => npmKeeps('pkg', packumentOf({ '1.0.0': entryOf({ dist: { ...DIST, integrity: OTHER } }) })),
+    ].entries()) {
+      await rm(LOCAL, { recursive: true, force: true })
+      await rm(CACHE_DIR, { recursive: true, force: true })
+      await keep()
+      const calls = stubRegistry()
+      assert.deepEqual((await getMeta('pkg', '1.0.0', { dist: DIST })).dist, DIST, String(i))
+      assert.deepEqual(calls, [DOC], String(i))
+    }
+  })
+
+  it('takes the last line the index has for the key', async () => {
+    await npmKeeps('pkg', packumentOf(), { entry: { integrity: null } })
+    await npmKeeps('pkg', packumentOf())
+    const calls = offline()
+    assert.equal((await getMeta('pkg', '1.0.0', { dist: DIST })).gitHead, ABOUT.gitHead)
     assert.deepEqual(calls, [])
   })
 })
