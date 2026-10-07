@@ -71,6 +71,7 @@ test('splits the generic Markdown example by product and matches IDs, not ordina
   assert.deepEqual(b.evidence[1], { file: 'f/g/h.js', line: '10-20', url: 'https://github.com/a/b/blob/abcdef012345/f/g/h.js#L10-L20' })
   assert.ok(a.description.startsWith('[Product A] Long title AAA-02.\n\nDescription AAA-02.'))
   for (const heading of ['Root Cause', 'Attack Scenario', 'Impact']) assert.ok(a.description.includes(`**${heading}:**`))
+  assert.doesNotMatch(b.description, /code references|https:\/\//iu, 'code references are carried as evidence, not narrative')
   assert.equal(a.reproduction, '1. Step 1\n2. Step 2 text\n   continuation of step 2.\n3. Step 3')
   assert.equal(a.recommendation, 'Text')
   assert.equal(detectFormat(document, 'anything.md'), 'markdown-generic')
@@ -203,7 +204,12 @@ test('rejects Windows drive and stream syntax in repository directories', () => 
 test('generic findings survive a Markdown export with IDs, repositories and narratives', async () => {
   const loaded = await loadFindings(document)
   const findings = loaded.findings.map((f) => ({ ...f, source: loaded.data.source }))
-  const result = await loadFindings(writeMarkdown({ title: 'Audit', groups: findings.map((f) => [f]) }))
+  const markdown = writeMarkdown({ title: 'Audit', groups: findings.map((f) => [f]) })
+  const result = await loadFindings(markdown)
+  for (const f of findings) {
+    for (const { url } of f.evidence) assert.equal(markdown.split(url).length - 1, url === f.location ? 2 : 1, `${url} is written only as Location and Evidence`)
+  }
+  assert.doesNotMatch(markdown, /code references/iu)
   assert.deepEqual(result.findings.map((f) => f.id), findings.map((f) => f.id))
   assert.deepEqual(result.findings.map((f) => f.repo), findings.map((f) => f.repo))
   assert.equal(result.findings[0].reproduction, findings[0].reproduction)

@@ -97,7 +97,8 @@ export function parseGenericMarkdownToReports(content) {
     if (headers.has('vulnerability')) finding.security = true
     const narrative = [title]
     for (const [key, field] of fields) {
-      if (key === 'title') continue
+      // Code references are bare URLs only, carried as the evidence rows.
+      if (key === 'title' || key === 'code references') continue
       if (key === 'steps to reproduce') finding.reproduction = field.body
       else if (key === 'patch') finding.recommendation = field.body
       else narrative.push(key === 'description' ? field.body : `**${field.heading}:**\n${field.body}`)
