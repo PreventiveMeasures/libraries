@@ -74,8 +74,14 @@ function readManifest(files, pkg, where) {
   return manifest
 }
 
-export function checkManifest(manifest, pkg, where, major) {
+// npm's abbreviated metadata, which pnpm resolves from unless a setting such
+// as supportedArchitectures.libc has it ask for the full document, has no
+// libc, nor has the package.json pnpm 9 and 10 keep in the store: a lockfile
+// may leave out a libc a registry package's package.json has. One it names is
+// held to it, as a directory's always is: pnpm reads that package.json whole.
+export function checkManifest(manifest, pkg, where, major, registry = false) {
   for (const field of ['os', 'cpu', 'libc']) {
+    if (registry && field === 'libc' && pkg.libc === undefined) continue
     if (!same(manifest[field], pkg[field])) throw new DeptreeError(`package.json's ${field} is not the lockfile's`, where)
   }
   const has = hasBin(manifest, major)
@@ -118,6 +124,6 @@ export async function fetchPackage(pkg, where, major, fetching) {
   const { entries, about } = await fetchTarball(pkg.name, pkg.version, pkg.resolution.integrity, where, fetching)
   const files = filesOf(entries, where)
   const manifest = readManifest(files, pkg, where)
-  checkManifest(manifest, pkg, where, major)
+  checkManifest(manifest, pkg, where, major, true)
   return { files, manifest, about }
 }
