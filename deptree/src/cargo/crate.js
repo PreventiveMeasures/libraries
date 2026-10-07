@@ -4,11 +4,13 @@
 // leaves them, each directory is 0o755 unless its own entry gives a mode, and
 // each file its mode within 0o777, both without group and other write bits.
 
+import { crc32 } from '@exodus/bytes/crc.js'
+import { utf8fromString } from '@exodus/bytes/utf8.js'
 import { CompressionError, decompress } from '@preventive/archive/compression.js'
 import { ArchiveError, unpack } from '@preventive/archive/tar.js'
 import { compareNames } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
-import { bytesSha256Hex, crc32 } from '../hash.js'
+import { bytesSha256Hex } from '../hash.js'
 
 // Cargo's bound on what a .crate unpacks to: 512 MiB, or twenty times the
 // .crate where that is more.
@@ -73,17 +75,19 @@ const unsupported = (entry, why, here) => new DeptreeError(`mode ${entry.mode.to
 // As any user but root, cargo reads back no file without its owner's read
 // bit; lists nothing in a directory without its owner's read and search
 // bits, leaving what is in it out of .cargo-checksum.json; and writes
-// nothing into one without its write bit once its entry has set it. A
-// directory nothing is in may have any mode. The package's always has
+// nothing into one without its write bit once its entry has set it, `after`.
+// A directory nothing is in may have any mode. The package's always has
 // something written into it last, its .cargo-checksum.json.
 function fileMode(entry, here) {
-  if (!(modeOf(entry) & 0o400)) throw unsupported(entry, 'reading it back to checksum it', here)
-  return modeOf(entry)
+  const mode = modeOf(entry)
+  if (!(mode & 0o400)) throw unsupported(entry, 'reading it back to checksum it', here)
+  return mode
 }
-function dirMode({ entry, here, content, after }) {
-  if (content && (modeOf(entry) & 0o500) !== 0o500) throw unsupported(entry, 'listing what is in it', here)
-  if (after && !(modeOf(entry) & 0o200)) throw unsupported(entry, 'writing into it what comes after it', here)
-  return modeOf(entry)
+function dirMode({ entry, here, after }, content) {
+  const mode = modeOf(entry)
+  if (content && (mode & 0o500) !== 0o500) throw unsupported(entry, 'listing what is in it', here)
+  if (after && !(mode & 0o200)) throw unsupported(entry, 'writing into it what comes after it', here)
+  return mode
 }
 
 // The directory `<name>-<version>` every entry has to be in, as Rust's
@@ -102,8 +106,7 @@ function segmentsOf(entry, prefix, here) {
 function vendorEntries(entries, prefix, where) {
   const dirs = new Map()
   const files = new Map()
-  // Each directory an entry of its own gives a mode, the package's as '', and
-  // whether anything is in it and written into it after that entry.
+  // Each directory an entry of its own gives a mode, the package's as ''.
   const given = new Map()
   for (const entry of entries) {
     const here = `${where}: ${quote(entry.storedName)}`
@@ -114,19 +117,22 @@ function vendorEntries(entries, prefix, where) {
     if (last === '.cargo-ok') continue
     if (segments.length === 0 && entry.type !== 'directory') throw new DeptreeError('the package\'s directory is not a directory', here)
     if (segments[0] === '.cargo-checksum.json') throw new DeptreeError('a .cargo-checksum.json of its own, which cargo vendor lists and then writes over, so that cargo cannot build from it', here)
-    const path = segments.join('/')
+    // Each directory it is written into, the package's first.
+    let dir = ''
     for (let i = 0; i < segments.length; i++) {
-      const dir = segments.slice(0, i).join('/')
-      Object.assign(given.get(dir) ?? {}, { content: true, after: true })
+      if (given.has(dir)) given.get(dir).after = true
       if (i > 0 && !dirs.has(dir)) dirs.set(dir, 0o755)
+      dir = i === 0 ? segments[0] : `${dir}/${segments[i]}`
     }
+    const path = segments.join('/')
     if (entry.type === 'file') files.set(path, { data: entry.data, mode: fileMode(entry, here) })
-    else if (!given.has(path)) given.set(path, { entry, here, content: path === '' || dirs.has(path), after: path === '' })
+    else if (!given.has(path)) given.set(path, { entry, here, after: path === '' })
   }
+  // A directory under the package's has something in it where an entry made it.
   let root = 0o755
   for (const [path, dir] of given) {
-    if (path === '') root = dirMode(dir)
-    else dirs.set(path, dirMode(dir))
+    if (path === '') root = dirMode(dir, true)
+    else dirs.set(path, dirMode(dir, dirs.has(path)))
   }
   return { root, dirs, files }
 }
@@ -149,6 +155,6 @@ export async function vendorCrate(bytes, { name, version, checksum }, comment, w
   if (await bytesSha256Hex(bytes) !== checksum) throw new DeptreeError(`its .crate's sha256 is not ${checksum}`, where)
   const { root, dirs, files } = vendorEntries(entriesOf(await gunzip(bytes, where), where), `${name}-${version}`, where)
   const text = await checksumFile(files, checksum, comment)
-  files.set('.cargo-checksum.json', { data: new TextEncoder().encode(text), mode: 0o644 })
+  files.set('.cargo-checksum.json', { data: utf8fromString(text), mode: 0o644 })
   return { root, dirs, files, checksumText: text }
 }

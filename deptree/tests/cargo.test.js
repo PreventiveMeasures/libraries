@@ -58,6 +58,12 @@ async function build(crates, options = {}) {
   return await buildCargoTree({ ...givenOf(crates), ...options })
 }
 
+// The same, read from a project of `files`.
+async function read(crates, files) {
+  stubCrates(crates)
+  return await buildCargoTree({ project: createVfs(files), host: HOST })
+}
+
 function listing(vfs, at) {
   const out = {}
   for (const { path, type } of vfs.walk(at)) {
@@ -192,12 +198,11 @@ const manifestsOf = (files) => Object.fromEntries(Object.entries(files).filter((
 describe('a workspace', () => {
   it('is read as cargo reads it, from the project or as given', async () => {
     const { crates, files, lockfile } = await workspace()
-    stubCrates(crates)
-    const read = await buildCargoTree({ project: createVfs({ ...files, 'Cargo.lock': lockfile, 'crates/lib/src/lib.rs': '' }), host: HOST })
-    assert.deepEqual(read.installed.map(({ path }) => path), ['vendor/dup-0.1.0', 'vendor/dup'])
-    assert.deepEqual(read.stats, { packages: 7, vendored: 2, files: 6, bytes: read.stats.bytes })
+    const project = await read(crates, { ...files, 'Cargo.lock': lockfile, 'crates/lib/src/lib.rs': '' })
+    assert.deepEqual(project.installed.map(({ path }) => path), ['vendor/dup-0.1.0', 'vendor/dup'])
+    assert.deepEqual(project.stats, { packages: 7, vendored: 2, files: 6, bytes: project.stats.bytes })
     const given = await build(crates, { lockfile, manifests: manifestsOf(files) })
-    assert.deepEqual(listing(given.vfs, '/vendor'), listing(read.vfs, '/vendor'))
+    assert.deepEqual(listing(given.vfs, '/vendor'), listing(project.vfs, '/vendor'))
   })
 
   it('is held to the lockfile, as cargo would resolve anew one out of date', async () => {
@@ -215,8 +220,7 @@ describe('a workspace', () => {
 
   it('refuses what cargo refuses of one, and what it reads otherwise than this', async () => {
     const { crates, files, lockfile } = await workspace()
-    const refused = (changed, message) => assert.rejects(buildCargoTree({ project: createVfs({ ...files, ...changed, 'Cargo.lock': lockfile }), host: HOST }), message)
-    stubCrates(crates)
+    const refused = (changed, message) => assert.rejects(read(crates, { ...files, ...changed, 'Cargo.lock': lockfile }), message)
     const root = files['Cargo.toml']
     await refused({ 'Cargo.toml': root.replace('crates/*', 'crates/*x') }, /^DeptreeError: Cargo\.toml: workspace\.members\[0\]: "crates\/\*x" takes nothing, which cargo fails on$/u)
     await refused({ 'crates/.cache/notes': '' }, /^DeptreeError: Cargo\.toml: workspace\.members: "crates\/\.cache\/Cargo\.toml" is not there, which cargo fails on$/u)
@@ -237,26 +241,25 @@ describe('a workspace', () => {
     await refused({ 'crates/lib/Cargo.toml': `${files['crates/lib/Cargo.toml']}x = \n` }, /^DeptreeError: crates\/lib\/Cargo\.toml: /u)
     await refused({ 'crates/link': { type: 'symlink', target: 'lib' } }, /^DeptreeError: "crates\/link": a link where cargo looks for members is not supported$/u)
     await refused({ 'crates/lib/real.toml': files['crates/lib/Cargo.toml'], 'crates/lib/Cargo.toml': { type: 'symlink', target: 'real.toml' } }, /^DeptreeError: "crates\/lib\/Cargo\.toml": a link where cargo reads a manifest is not supported$/u)
+    await assert.rejects(read(crates, { ...files, 'real.lock': lockfile, 'Cargo.lock': { type: 'symlink', target: 'real.lock' } }), /^DeptreeError: "Cargo\.lock": a link where cargo reads its lockfile is not supported$/u)
     // The default member excluded but taken by `members` is one cargo takes.
-    stubCrates(crates)
-    const project = createVfs({ ...files, 'Cargo.toml': root.replace('[workspace.package]', 'default-members = ["crates/extra", "crates/lib"]\n\n[workspace.package]'), 'Cargo.lock': lockfile })
-    assert.equal((await buildCargoTree({ project, host: HOST })).stats.vendored, 2)
+    const defaults = root.replace('[workspace.package]', 'default-members = ["crates/extra", "crates/lib"]\n\n[workspace.package]')
+    assert.equal((await read(crates, { ...files, 'Cargo.toml': defaults, 'Cargo.lock': lockfile })).stats.vendored, 2)
   })
 
   it('reads a [patch] from .cargo/config.toml, or .cargo/config where it is', async () => {
     const { crates, files, lockfile } = await workspace()
     const root = files['Cargo.toml'].replace('\n[patch.crates-io]\nleaf = { path = "patched" }\n', '')
     const patch = '[patch.crates-io]\nleaf = { path = "patched" }\n'
-    const run = (extra) => {
-      stubCrates(crates)
-      return buildCargoTree({ project: createVfs({ ...files, 'Cargo.toml': root, 'Cargo.lock': lockfile, ...extra }), host: HOST })
-    }
+    const run = (extra) => read(crates, { ...files, 'Cargo.toml': root, 'Cargo.lock': lockfile, ...extra })
     assert.equal((await run({ '.cargo/config.toml': patch })).stats.vendored, 2)
     assert.equal((await run({ '.cargo/config': patch, '.cargo/config.toml': '[patch.crates-io]\nleaf = { path = "nowhere" }\n' })).stats.vendored, 2)
     await assert.rejects(run({}), /^DeptreeError: packages\["leaf 1\.0\.5"\]: a path package that no manifest cargo reads here is: is the lockfile out of date\?$/u)
     await assert.rejects(run({ '.cargo/config.toml': `paths = ["x"]\n${patch}` }), /^DeptreeError: \.cargo\/config\.toml: paths: not supported$/u)
     await assert.rejects(run({ '.cargo/config.toml': `include = ["x.toml"]\n${patch}` }), /^DeptreeError: \.cargo\/config\.toml: include: not supported$/u)
     await assert.rejects(run({ '.cargo/config.toml': 'x = \n' }), /^DeptreeError: \.cargo\/config\.toml: /u)
+    await assert.rejects(run({ '.cargo/real.toml': patch, '.cargo/config.toml': { type: 'symlink', target: 'real.toml' } }), /^DeptreeError: "\.cargo\/config\.toml": a link where cargo reads its config is not supported$/u)
+    await assert.rejects(run({ 'cfg/config.toml': patch, '.cargo': { type: 'symlink', target: 'cfg' } }), /^DeptreeError: "\.cargo": a link where cargo reads its config is not supported$/u)
     stubCrates(crates)
     assert.equal((await buildCargoTree({ lockfile, manifests: manifestsOf({ ...files, 'Cargo.toml': root }), config: patch, host: HOST })).stats.vendored, 2)
   })
@@ -270,16 +273,15 @@ async function rawCrate(name, version, raw) {
 }
 
 describe('a .crate', () => {
+  const refused = async (made, message) => assert.rejects(build([await made]), message)
+
   it('refuses what cargo refuses or fails on, or reads otherwise than the archive reader', async () => {
-    const refused = async (made, message) => assert.rejects(build([await made]), message)
     await refused(crate('bad', '1.0.0', {}, { entries: [{ name: 'bad-1.0.0x/a', data: new Uint8Array() }] }), /^DeptreeError: packages\["bad 1\.0\.0 \(registry\+https:\/\/github\.com\/rust-lang\/crates\.io-index\)"\]: "bad-1\.0\.0x\/a": not under "bad-1\.0\.0", which cargo refuses$/u)
     await refused(rawCrate('bad', '1.0.1', [{ name: './bad-1.0.1/a', data: 'a' }]), /: "\.\/bad-1\.0\.1\/a": not under "bad-1\.0\.1", which cargo refuses$/u)
     await refused(crate('bad', '1.0.2', { link: { type: 'symlink', linkname: 'src/lib.rs' } }), /: "bad-1\.0\.2\/link": a symlink, which cargo refuses$/u)
     await refused(crate('bad', '1.0.3', { hard: { type: 'hardlink', linkname: 'bad-1.0.3/src/lib.rs' } }), /: "bad-1\.0\.3\/hard": a hardlink, which cargo refuses$/u)
     await refused(crate('bad', '1.0.4', { cont: { type: 'contiguous-file', data: 'c' } }), /: "bad-1\.0\.4\/cont": a contiguous-file, which cargo refuses$/u)
     await refused(crate('bad', '1.0.5', { '.cargo-checksum.json': '{}' }), /: "bad-1\.0\.5\/\.cargo-checksum\.json": a \.cargo-checksum\.json of its own, which cargo vendor lists and then writes over, so that cargo cannot build from it$/u)
-    await refused(crate('bad', '1.0.6', { ro: { type: 'directory', mode: 0o555 }, 'ro/x': 'x' }), /: "bad-1\.0\.6\/ro\/": mode 555, which keeps cargo from writing into it what comes after it as any user but root, is not supported$/u)
-    await refused(crate('bad', '1.0.7', { wo: { data: 'w', mode: 0o200 } }), /: "bad-1\.0\.7\/wo": mode 200, which keeps cargo from reading it back to checksum it as any user but root, is not supported$/u)
     await refused(gzipped('bad', '1.0.8', await compress(rawTar([{ name: 'bad-1.0.8', data: 'x' }]), 'gzip')), /: "bad-1\.0\.8": the package's directory is not a directory$/u)
     await refused(rawCrate('bad', '1.0.9', [{ name: 'bad-1.0.9/a\\b', data: 'x' }]), /: the \.crate cannot be read: /u)
   })
@@ -297,9 +299,10 @@ describe('a .crate', () => {
     assert.deepEqual(await modes('1.0.0', { ro: { type: 'directory', mode: 0o555 }, none: { type: 'directory', mode: 0o000 } }), { '.': 'dir 755', ro: 'dir 555', none: 'dir 0' })
     assert.deepEqual(await modes('1.0.1', { 'ro/x': 'x', ro: { type: 'directory', mode: 0o555 } }), { '.': 'dir 755', ro: 'dir 555', 'ro/x': '644 x' })
     assert.deepEqual(await modes('1.0.2', { '': { type: 'directory', mode: 0o700 } }), { '.': 'dir 700' })
-    const refused = async (version, files, message) => assert.rejects(build([await crate('modes', version, files)]), message)
-    await refused('1.0.3', { 'd/x': 'x', d: { type: 'directory', mode: 0o311 } }, /: "modes-1\.0\.3\/d\/": mode 311, which keeps cargo from listing what is in it as any user but root, is not supported$/u)
-    await refused('1.0.4', { '': { type: 'directory', mode: 0o555 } }, /: "modes-1\.0\.4\/": mode 555, which keeps cargo from writing into it what comes after it as any user but root, is not supported$/u)
+    await refused(crate('modes', '1.0.3', { 'd/x': 'x', d: { type: 'directory', mode: 0o311 } }), /: "modes-1\.0\.3\/d\/": mode 311, which keeps cargo from listing what is in it as any user but root, is not supported$/u)
+    await refused(crate('modes', '1.0.4', { '': { type: 'directory', mode: 0o555 } }), /: "modes-1\.0\.4\/": mode 555, which keeps cargo from writing into it what comes after it as any user but root, is not supported$/u)
+    await refused(crate('modes', '1.0.5', { ro: { type: 'directory', mode: 0o555 }, 'ro/x': 'x' }), /: "modes-1\.0\.5\/ro\/": mode 555, which keeps cargo from writing into it what comes after it as any user but root, is not supported$/u)
+    await refused(crate('modes', '1.0.6', { wo: { data: 'w', mode: 0o200 } }), /: "modes-1\.0\.6\/wo": mode 200, which keeps cargo from reading it back to checksum it as any user but root, is not supported$/u)
   })
 
   it('passes over what cargo vendor passes over before it looks at its type', async () => {
@@ -312,22 +315,22 @@ describe('a .crate', () => {
   it('refuses a gzip cargo reads otherwise than the platform: more than one member, a header CRC, a pax size', async () => {
     const one = await crate('gz', '1.0.0')
     const second = await compress(pack([{ name: 'gz-1.0.0/more', data: encoder.encode('more') }]), 'gzip')
-    const refused = (bytes, message) => assert.rejects(build([gzipped('gz', '1.0.0', bytes)]), message)
-    await refused(new Uint8Array([...one.bytes, ...second]), /: the \.crate is not one gzip member, which cargo reads the first of alone$/u)
-    await refused(new Uint8Array([...one.bytes, 0, 0, 0, 0]), /: the \.crate is not one gzip member/u)
+    const refusedBytes = (bytes, message) => assert.rejects(build([gzipped('gz', '1.0.0', bytes)]), message)
+    await refusedBytes(new Uint8Array([...one.bytes, ...second]), /: the \.crate is not one gzip member, which cargo reads the first of alone$/u)
+    await refusedBytes(new Uint8Array([...one.bytes, 0, 0, 0, 0]), /: the \.crate is not one gzip member/u)
     const crc = new Uint8Array(one.bytes)
     crc[3] |= 0x02
-    await refused(crc, /: a gzip header with a header CRC or a reserved flag is not supported$/u)
+    await refusedBytes(crc, /: a gzip header with a header CRC or a reserved flag is not supported$/u)
     for (const at of [8, 1]) {
       const trailer = new Uint8Array(one.bytes)
       trailer[trailer.length - at] ^= 1
-      await refused(trailer, /: the \.crate's gzip trailer does not match its data$/u)
+      await refusedBytes(trailer, /: the \.crate's gzip trailer does not match its data$/u)
     }
-    await refused(encoder.encode('not gzip at all, not at all'), /: the \.crate is not gzipped$/u)
+    await refusedBytes(encoder.encode('not gzip at all, not at all'), /: the \.crate is not gzipped$/u)
     // A pax size, even one the header agrees with, which tar 0.4.44 reads
     // where the header's is 0 alone.
     const sized = await rawCrate('gz', '1.0.0', [{ name: 'PaxHeader/p', data: '9 size=1\n', type: 'x' }, { name: 'gz-1.0.0/p', data: 'p' }])
-    await refused(sized.bytes, /: "gz-1\.0\.0\/p": a pax size, which cargo 1\.94\.0 reads otherwise, is not supported$/u)
+    await refusedBytes(sized.bytes, /: "gz-1\.0\.0\/p": a pax size, which cargo 1\.94\.0 reads otherwise, is not supported$/u)
     // A long name is a pax path, which cargo reads alike.
     const long = await crate('gz', '1.0.1', { [`${'n'.repeat(120)}`]: 'n' })
     assert.equal((await build([long])).vfs.readText(`/vendor/gz/${'n'.repeat(120)}`), 'n')

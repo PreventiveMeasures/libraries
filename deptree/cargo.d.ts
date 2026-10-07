@@ -33,8 +33,9 @@ export interface CargoHost {
 // the root, as cargo looks there for a workspace's root; the directories
 // workspace.members takes; and .cargo/config, or else .cargo/config.toml.
 // Each is read as UTF-8, and refused where it is not. A link where cargo
-// looks for members, or where it reads a manifest, the Cargo.toml itself or
-// a directory on the way to it, is refused. Each throws an error
+// looks for members, or at or on the way to any file it reads — Cargo.lock,
+// the config, a Cargo.toml — is refused, so that nothing is read from
+// outside the view. Each throws an error
 // whose `code` is ENOENT, ENOTDIR or ELOOP for a path that leads nowhere.
 // Nothing is written to it.
 export interface CargoProject {

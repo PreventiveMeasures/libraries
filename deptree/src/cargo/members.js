@@ -34,7 +34,7 @@ export function isExcluded(workspace, path) {
     const prefix = parts(entry)
     return prefix.length <= path.length && prefix.every((segment, i) => segment === path[i])
   })
-  return !under(workspace.members) && under(workspace.exclude)
+  return under(workspace.exclude) && !under(workspace.members)
 }
 
 // A name glob() checks for by a path, which on macOS takes it in any case.

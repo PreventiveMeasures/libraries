@@ -9,11 +9,14 @@ import { TomlError, parseToml } from '@preventive/lockfile/toml.js'
 import { dirname } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { UNSAFE } from '../mount.js'
-import { readText, typeOf } from '../project.js'
+import { readUnlinked } from './inputs.js'
 import { checkDefaultMembers, checkLists, explicitMembers, isExcluded, parts } from './members.js'
 
 export const fileOf = (dir) => (dir === '.' ? 'Cargo.toml' : `${dir}/Cargo.toml`)
 const manifestPath = (dir) => [...parts(dir), 'Cargo.toml']
+// Whether the root's [workspace] takes `dir` in: there is one, and it does
+// not exclude it.
+const inRoot = (workspace, dir) => workspace !== undefined && !isExcluded(workspace, manifestPath(dir))
 
 // A path as a manifest writes it, from the directory `base`: `..` only ahead
 // of every name, which the filesystem would otherwise walk through a name
@@ -44,19 +47,11 @@ export function parseAs(file, parse) {
   }
 }
 
-// A Cargo.toml's text and TOML, or undefined where there is none; a link on
-// the way to it is refused.
+// A Cargo.toml's text and TOML, or undefined where there is none.
 function readRaw(project, dir) {
-  const segments = parts(dir)
-  for (let i = 1; i <= segments.length; i++) {
-    const path = segments.slice(0, i).join('/')
-    const type = typeOf(project, `/${path}`, false)
-    if (type === undefined) return undefined
-    if (type === 'symlink') throw new DeptreeError('a link where cargo reads a manifest is not supported', quote(path))
-  }
-  if (typeOf(project, `/${fileOf(dir)}`, false) === 'symlink') throw new DeptreeError('a link where cargo reads a manifest is not supported', quote(fileOf(dir)))
-  const text = readText(project, `/${fileOf(dir)}`, fileOf(dir))
-  return text === undefined ? undefined : { text, doc: parseAs(fileOf(dir), () => parseToml(text)) }
+  const file = fileOf(dir)
+  const text = readUnlinked(project, file, 'a manifest')
+  return text === undefined ? undefined : { text, doc: parseAs(file, () => parseToml(text)) }
 }
 
 const pointerOf = (doc) => (doc.package ?? doc.project)?.workspace
@@ -95,7 +90,7 @@ function workspaceOf({ raw, workspace }, dir) {
     if (typeof pointer !== 'string' || resolvePath(here, pointer, where) !== '.' || workspace === undefined) throw new DeptreeError('a package.workspace pointing elsewhere than the root is not supported', where)
     return 'root'
   }
-  return workspace !== undefined && !isExcluded(workspace, manifestPath(dir)) ? 'root' : 'none'
+  return inRoot(workspace, dir) ? 'root' : 'none'
 }
 
 // A path package's manifest, and where its path dependencies lead: of a
@@ -134,14 +129,14 @@ function loadMembers(context) {
   }
   const listed = workspace === undefined ? [] : explicitMembers(project, workspace, folded)
   if (workspace !== undefined) {
-    for (const dir of listed) if (!isExcluded(workspace, manifestPath(dir))) join({ dir, where: 'Cargo.toml: workspace.members' })
+    for (const dir of listed) if (inRoot(workspace, dir)) join({ dir, where: 'Cargo.toml: workspace.members' })
     if (isExcluded(workspace, ['Cargo.toml'])) throw new DeptreeError('the root is excluded from its own workspace, which cargo refuses', 'Cargo.toml: workspace.exclude')
   }
   join({ dir: '.', where: 'Cargo.toml' })
   while (pending.length > 0) {
     const { dir, where } = pending.shift()
     for (const link of load(context, dir, true, where)) {
-      if (workspace !== undefined && !isExcluded(workspace, manifestPath(link.dir))) join(link)
+      if (inRoot(workspace, link.dir)) join(link)
       else others.push(link)
     }
   }
