@@ -127,9 +127,9 @@ export interface Advisory {
 // nothing is left out quietly.
 // A repository's listing is kept for 90 minutes, as one entry for every
 // spelling of its name, holding only what rows are made from, `details`
-// included: in setCacheDir's cache brotli-compressed at quality 9, or in
-// `cache` as it is. 90 minutes is how late an advisory its maintainer
-// publishes can be seen. One gone or malformed is not kept.
+// included: in setCacheDir's cache gzipped, or in `cache` as it is. 90
+// minutes is how late an advisory its maintainer publishes can be seen.
+// One gone or malformed is not kept.
 // Sorted by ecosystem and name. Versions are matched by npm's semver, from
 // the npm beside node, or by the semver peer where there is no npm.
 export function advisories(packages: Iterable<Package>, options?: AdvisoryOptions): Promise<Advisory[]>
