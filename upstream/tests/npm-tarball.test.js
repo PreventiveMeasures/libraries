@@ -520,6 +520,20 @@ describe('getMeta, verifyDist, and getTarball with a dist', () => {
     assert.deepEqual(await getMeta('@scope/pkg', '1.0.0'), { name: '@scope/pkg', version: '1.0.0', dist: { tarball: tarballUrl('@scope/pkg', '1.0.0'), integrity: sri(BYTES) } })
   })
 
+  it('answers the gitHead the document names, where it is a full commit id', async () => {
+    const answer = (gitHead) => {
+      globalThis.fetch = () => Promise.resolve(Response.json({ name: 'pkg', version: '1.0.0', dist: DIST, gitHead }))
+    }
+    for (const gitHead of ['a'.repeat(40), 'b'.repeat(64)]) {
+      answer(gitHead)
+      assert.deepEqual(await getMeta('pkg', '1.0.0'), { name: 'pkg', version: '1.0.0', dist: DIST, gitHead })
+    }
+    for (const gitHead of [undefined, null, '', 'a'.repeat(39), 'a'.repeat(41), 'A'.repeat(40), 'g'.repeat(40), ` ${'a'.repeat(40)}`, ['a'.repeat(40)], { sha: 'a'.repeat(40) }]) {
+      answer(gitHead)
+      assert.deepEqual(await getMeta('pkg', '1.0.0'), { name: 'pkg', version: '1.0.0', dist: DIST })
+    }
+  })
+
   it('refuses an answer about another version, or a dist not held to the rules', async () => {
     globalThis.fetch = () => Promise.resolve(Response.json({ name: 'pkg', version: '1.0.1', dist: DIST }))
     await assert.rejects(getMeta('pkg', '1.0.0'), /getMeta: the registry answered for .*1\.0\.1.*, not pkg@1\.0\.0/u)

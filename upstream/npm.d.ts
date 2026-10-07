@@ -118,10 +118,15 @@ export interface Dist {
   integrity: string
 }
 
+// `gitHead` is the commit the document names, as npm reads it off the git
+// checkout it publishes from, where it is a full commit id: 40 lowercase
+// hex digits, or 64. Absent where the document names none, or names
+// anything else. It is the publisher's word, held to no repository.
 export interface PackageMeta {
   name: string
   version: string
   dist: Dist
+  gitHead?: string
 }
 
 // The registry's version document, fetched on every call, refused unless
