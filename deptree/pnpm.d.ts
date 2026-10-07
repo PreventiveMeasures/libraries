@@ -1,5 +1,6 @@
 // Hand-written against pnpm.js; a change to either belongs with the other.
 
+import type { PackageBugs, PackageRepository } from '@preventive/upstream/npm.js'
 import type { NodeType, Vfs } from '@preventive/vfs'
 
 // What the lockfile reader and the YAML parser refuse with: the cause of
@@ -226,8 +227,8 @@ export interface PnpmProject {
 // name and version that no cache answers: its dist has to be the
 // lockfile's, the tarball the registry's own URL and the integrity the
 // lockfile's sha512, compared as text, with nothing hashed again, as the
-// lockfile copies the registry's; and its gitHead is the package's
-// `commit`. False fetches none, and gives no commit.
+// lockfile copies the registry's; and its gitHead, repository, homepage
+// and bugs are the package's. False fetches none, and gives none of them.
 //
 // The two ways the files come, one or the other: given, with `lockfile`
 // and `manifests`, `project` read only for directories; or read, with
@@ -287,9 +288,11 @@ export interface PnpmTreeStats {
 // install from a directory has `directory`, from the lockfile's, `.` for
 // its own, and neither a version nor an integrity, as the lockfile records
 // none. `commit` is the gitHead of a registry package's version document,
-// where `metadata` has it fetched and it is a full commit id, and
-// undefined elsewhere: the commit npm read off the checkout it published
-// from, the publisher's word, held to no repository.
+// where `metadata` has it fetched and it is a full commit id, the commit
+// npm read off the checkout it published from; `repository`, `homepage`
+// and `bugs` the document's, as getMeta of @preventive/upstream reads
+// them; each undefined elsewhere, and all of it the publisher's word, held
+// to no repository.
 // `dev` is whether devDependencies alone reach it: no project's
 // dependencies or optionalDependencies do, through what is installed, so
 // `pnpm install --prod` would leave it out. `optional` is whether optional
@@ -304,6 +307,9 @@ export interface PnpmInstalled {
   integrity: string | undefined
   directory: string | undefined
   commit: string | undefined
+  repository: string | PackageRepository | undefined
+  homepage: string | undefined
+  bugs: string | PackageBugs | undefined
   dev: boolean
   optional: boolean
   patch: { hash: string, path: string } | undefined

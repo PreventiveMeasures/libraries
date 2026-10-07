@@ -139,25 +139,27 @@ describe('the tree npm installs', () => {
     assert.equal(installed.find(({ path }) => path === 'node_modules/a').integrity, T['a@1.0.0'].integrity)
   })
 
-  it('lists the commit each version document names, with the document fetched beside each tarball', async () => {
-    const G = 'c'.repeat(40)
-    const served = TARBALLS.map((t) => (t.name === 'b' ? { ...t, gitHead: G } : t))
+  it('lists the commit, repository, homepage and bugs each version document names, with the document fetched beside each tarball', async () => {
+    const b = { gitHead: 'c'.repeat(40), repository: { type: 'git', url: 'git+https://github.com/o/b.git' }, homepage: 'https://github.com/o/b#readme', bugs: { url: 'https://github.com/o/b/issues' } }
+    const served = TARBALLS.map((t) => (t.name === 'b' ? { ...t, document: b } : t.name === 'd' ? { ...t, document: { repository: 'o/d', bugs: 'https://example.com/d' } } : t))
     const calls = stubRegistry(served)
     const { installed } = await buildNpmTree(given())
     const documents = calls.filter((call) => !call.endsWith('.tgz')).sort()
     assert.deepEqual(documents, [...new Set(installed.map(({ name, version }) => `https://registry.npmjs.org/${name}/${version}`))].sort())
-    assert.deepEqual(installed.map(({ path, commit }) => [path, commit]), [
-      ['node_modules/@s/same', undefined],
-      ['node_modules/a', undefined],
-      ['node_modules/b', G],
-      ['node_modules/d', undefined],
-      ['node_modules/x', undefined],
-      ['packages/w/node_modules/a', undefined],
+    const none = { commit: undefined, repository: undefined, homepage: undefined, bugs: undefined }
+    const about = ({ commit, repository, homepage, bugs }) => ({ commit, repository, homepage, bugs })
+    assert.deepEqual(installed.map((copy) => [copy.path, about(copy)]), [
+      ['node_modules/@s/same', none],
+      ['node_modules/a', none],
+      ['node_modules/b', { commit: b.gitHead, repository: { ...b.repository, directory: undefined }, homepage: b.homepage, bugs: { url: b.bugs.url, email: undefined } }],
+      ['node_modules/d', { ...none, repository: 'o/d', bugs: 'https://example.com/d' }],
+      ['node_modules/x', none],
+      ['packages/w/node_modules/a', none],
     ])
     const tarballsOnly = stubRegistry(served)
     const without = await buildNpmTree(given({ metadata: false }))
     assert.ok(tarballsOnly.every((call) => call.endsWith('.tgz')), tarballsOnly.join(', '))
-    assert.ok(without.installed.every(({ commit }) => commit === undefined))
+    for (const copy of without.installed) assert.deepEqual(about(copy), none, copy.path)
   })
 
   it('refused: a version document whose dist is not the lockfile\'s, unless none is fetched', async () => {

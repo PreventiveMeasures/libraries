@@ -1,5 +1,6 @@
 // Hand-written against npm.js; a change to either belongs with the other.
 
+import type { PackageBugs, PackageRepository } from '@preventive/upstream/npm.js'
 import type { NodeType, Vfs } from '@preventive/vfs'
 
 export { LockfileError } from '@preventive/lockfile/npm.js'
@@ -116,8 +117,8 @@ export interface NpmProject {
 // name and version that no cache answers: its dist has to be the
 // lockfile's, the tarball the registry's own URL and the integrity the
 // lockfile's sha512, compared as text, with nothing hashed again, as the
-// lockfile copies the registry's; and its gitHead is the package's
-// `commit`. False fetches none, and gives no commit.
+// lockfile copies the registry's; and its gitHead, repository, homepage
+// and bugs are the package's. False fetches none, and gives none of them.
 export type NpmTreeOptions = NpmTreeGiven | NpmTreeRead
 
 export interface NpmTreeGiven {
@@ -160,11 +161,13 @@ export interface NpmTreeStats {
 // which is `/` of the Vfs — node_modules/<name>, beneath another package's
 // node_modules, or beneath a workspace's. `name` and `version` are the
 // package's own, whatever alias it is installed as, as the lockfile has
-// them; `integrity` the sha512 its tarball is held to; `commit` the gitHead
-// of the registry's version document, where `metadata` has it fetched and
-// it is a full commit id, and undefined elsewhere: the commit npm read off
-// the checkout it published from, the publisher's word, held to no
-// repository. The flags are those
+// them; `integrity` the sha512 its tarball is held to. `commit` is the
+// gitHead of the registry's version document, where `metadata` has it
+// fetched and it is a full commit id, the commit npm read off the checkout
+// it published from; `repository`, `homepage` and `bugs` the document's,
+// as getMeta of @preventive/upstream reads them; each undefined elsewhere,
+// and all of it the publisher's word, held to no repository. The flags are
+// those
 // npm installs by, the lockfile's as npm 10 takes them and as npm 11 works
 // them out again: `dev` is whether dev dependencies alone reach it, which
 // --omit=dev leaves out; `optional` whether optional dependencies alone
@@ -178,6 +181,9 @@ export interface NpmInstalled {
   version: string
   integrity: string
   commit: string | undefined
+  repository: string | PackageRepository | undefined
+  homepage: string | undefined
+  bugs: string | PackageBugs | undefined
   dev: boolean
   optional: boolean
   devOptional: boolean

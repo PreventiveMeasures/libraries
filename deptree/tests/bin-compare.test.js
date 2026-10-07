@@ -280,7 +280,7 @@ describe('deptree compare', async () => {
   }))
 
   it('finds the tree on disk the one the lockfile installs', () => {
-    const r = run('compare', '--npm', '11.12.1', '--no-metadata', project)
+    const r = run('compare', '--npm', '11.12.1', project)
     assert.equal(r.stdout, '')
     assert.match(r.stderr, /^the same; 1 left out \(--all lists them\)$/mu)
     assert.equal(r.status, 0)
@@ -289,7 +289,7 @@ describe('deptree compare', async () => {
   it('lists what differs, with --all what is left out, with --diff how, and exits 1', () => {
     appendFileSync(join(project, 'node_modules/a/index.js'), 'changed\n')
     writeDisk(project, side({ 'node_modules/extra/x.js': file('x') }))
-    const r = run('compare', '--npm', '11.12.1', '--no-metadata', '--all', '--diff', project)
+    const r = run('compare', '--npm', '11.12.1', '--all', '--diff', project)
     assert.equal(r.stdout, [
       '- node_modules/.package-lock.json',
       '~ node_modules/a/index.js  (content)',

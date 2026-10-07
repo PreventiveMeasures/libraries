@@ -96,8 +96,8 @@ export async function checkShared({ name, version, integrity, sha1: pinned }, he
   if (integrity !== undefined && integrity !== head.integrity) throw new DeptreeError(`the tarball is not ${integrity}`, where)
 }
 
-// A tarball the lockfile gives no sha512 is fetched by the registry's, and its
-// commit is that document's, whatever `metadata` is.
+// A tarball the lockfile gives no sha512 is fetched by the registry's, and
+// `about` is that document's, whatever `metadata` is.
 export async function fetchYarnPackage({ name, version, integrity, sha1: pinned }, where, times, metadata) {
   if (pinned !== undefined) await checkPublished({ name, version }, where, times)
   const meta = integrity === undefined ? await registryMeta(name, version, where) : undefined
@@ -115,7 +115,7 @@ export async function fetchYarnPackage({ name, version, integrity, sha1: pinned 
   }
   const manifest = readManifest(text, `${where}: package.json`)
   if (manifest.name !== name || manifest.version !== version) throw new DeptreeError(`package.json is for ${quote(`${manifest.name}@${manifest.version}`)}`, where)
-  return { ...withBins({ files, dirs }, manifest, where), sha1, integrity: fetched.integrity, commit: meta?.commit ?? fetched.commit }
+  return { ...withBins({ files, dirs }, manifest, where), sha1, integrity: fetched.integrity, about: meta?.about ?? fetched.about }
 }
 
 // A directory by `file:`, as yarn's copy fetcher installs it: all in it, each

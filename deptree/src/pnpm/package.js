@@ -115,9 +115,9 @@ export function checkDependencies(manifest, read, pkg, packages, where) {
 }
 
 export async function fetchPackage(pkg, where, major, metadata) {
-  const { entries, commit } = await fetchTarball(pkg.name, pkg.version, pkg.resolution.integrity, where, metadata)
+  const { entries, about } = await fetchTarball(pkg.name, pkg.version, pkg.resolution.integrity, where, metadata)
   const files = filesOf(entries, where)
   const manifest = readManifest(files, pkg, where)
   checkManifest(manifest, pkg, where, major)
-  return { files, manifest, commit }
+  return { files, manifest, about }
 }

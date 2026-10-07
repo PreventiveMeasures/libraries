@@ -139,13 +139,13 @@ describe('buildYarn1Tree', () => {
   })
 
   it('lists what it installs, as an SBOM would take it', async () => {
-    const G = 'd'.repeat(64)
-    stubRegistry(TARBALLS.map((t) => (`${t.name}@${t.version}` === 'b@1.0.0' ? { ...t, gitHead: G } : t)))
-    const listed = (path, id, { dev = false, optional = false, commit } = {}) => ({ path, name: T[id].name, version: T[id].version, integrity: T[id].integrity, ...(commit === undefined ? {} : { commit }), dev, optional })
+    const b = { gitHead: 'd'.repeat(64), homepage: 'https://example.com/b', bugs: { email: 'b@example.com' } }
+    stubRegistry(TARBALLS.map((t) => (`${t.name}@${t.version}` === 'b@1.0.0' ? { ...t, document: b } : t)))
+    const listed = (path, id, { dev = false, optional = false, about = {} } = {}) => ({ path, name: T[id].name, version: T[id].version, integrity: T[id].integrity, ...about, dev, optional })
     const { installed } = await build()
     assert.deepEqual(installed, [
       listed('node_modules/a', 'a@1.0.0'),
-      listed('node_modules/a/node_modules/b', 'b@1.0.0', { commit: G }),
+      listed('node_modules/a/node_modules/b', 'b@1.0.0', { about: { commit: b.gitHead, homepage: b.homepage, bugs: { url: undefined, email: 'b@example.com' } } }),
       listed('node_modules/b', 'b@2.0.0'),
       listed('node_modules/d', 'd@1.0.0', { dev: true }),
       listed('node_modules/my-c', 'c@1.0.0'),
@@ -294,7 +294,7 @@ describe('buildYarn1Tree', () => {
     }
     assert.ok(calls.includes('https://registry.npmjs.org/b/2.0.0'), 'the registry\'s document, for its sha512')
     const G = 'e'.repeat(40)
-    const documentsOnly = stubRegistry(TARBALLS.map((t) => (`${t.name}@${t.version}` === 'b@2.0.0' ? { ...t, gitHead: G } : t)))
+    const documentsOnly = stubRegistry(TARBALLS.map((t) => (`${t.name}@${t.version}` === 'b@2.0.0' ? { ...t, document: { gitHead: G } } : t)))
     const { installed } = await buildYarn1Tree({ ...asked, host: HOST, metadata: false })
     assert.equal(installed.find(({ path }) => path === 'node_modules/b').commit, G, 'its commit, as its document is fetched all the same')
     assert.deepEqual(documentsOnly.filter((url) => !url.endsWith('.tgz')), ['https://registry.npmjs.org/b/2.0.0'])

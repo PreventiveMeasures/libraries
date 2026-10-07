@@ -12,7 +12,7 @@ import { DeptreeError, quote, refusalOf } from '../error.js'
 import { checkNoModules, checkWrite, fold, isInside, makeDirs, mount, writeLink } from '../mount.js'
 import { applyPatch, parsePatch } from '../patch.js'
 import { checkProject, typeOf } from '../project.js'
-import { REGISTRY, tarballUrl } from '../tarball.js'
+import { REGISTRY, UNKNOWN, tarballUrl } from '../tarball.js'
 import { binTargets, checkPatchOfBins, executableMode, fixBin, hoistedBinTargets, requiresBuild } from './bins.js'
 import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
@@ -86,7 +86,7 @@ async function fetchNodes(nodes, lockfile, hook, project, host, metadata) {
     got.read ??= hook(got.manifest, `${quote(id)}: package.json`)
     checkDependencies(got.manifest, got.read, node.pkg, lockfile.packages, quote(node.key))
     fresh?.(node, got.read)
-    byDir.set(node.dir, { ...node, files: got.files, manifest: got.manifest, commit: got.commit })
+    byDir.set(node.dir, { ...node, files: got.files, manifest: got.manifest, about: got.about ?? UNKNOWN })
   }
   return { byDir, tarballs: [...fetched.values()].filter((got) => !got.local).length }
 }
@@ -185,7 +185,7 @@ function reachedInProd(importers, nodes, byDir) {
 }
 
 function installedOf(node, dev, patches) {
-  const { key, name, dir, commit, pkg: { version, resolution, optional, patchHash } } = node
+  const { key, name, dir, about, pkg: { version, resolution, optional, patchHash } } = node
   return {
     path: dir,
     key,
@@ -193,7 +193,7 @@ function installedOf(node, dev, patches) {
     version,
     integrity: resolution.integrity,
     directory: resolution.directory,
-    commit,
+    ...about,
     dev,
     optional,
     patch: patchHash === undefined ? undefined : { hash: patchHash, path: patches.get(patchHash).path },

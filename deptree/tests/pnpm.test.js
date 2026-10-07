@@ -37,6 +37,9 @@ const TARBALLS = await Promise.all([
   tarball('p', '1.0.0', { 'index.js': 'module.exports = 1\n' }),
 ])
 const I = Object.fromEntries(TARBALLS.map((t) => [t.name, t.integrity]))
+// What a package's version document says of where it comes from, of one
+// that says nothing, or is not fetched.
+const ABOUT = { commit: undefined, repository: undefined, homepage: undefined, bugs: undefined }
 
 const lockfile = ({ patchHash = H, mac = '[darwin]', overrides = '' } = {}) => `lockfileVersion: '9.0'
 
@@ -243,10 +246,10 @@ describe('buildPnpmTree', () => {
   })
 
   it('lists what it installs, as an SBOM would take it', async () => {
-    const G = 'a'.repeat(40)
-    stubRegistry(TARBALLS.map((t) => (t.name === 'lodash' ? { ...t, gitHead: G } : t)))
-    const listed = (name, version, { key = `${name}@${version}`, dir = key, dev = false, optional = false, patch, commit } = {}) => ({
-      path: `node_modules/.pnpm/${dir}/node_modules/${name}`, key, name, version, integrity: I[name], directory: undefined, commit, dev, optional, patch,
+    const lodash = { gitHead: 'a'.repeat(40), repository: { type: 'git', url: 'git+https://github.com/lodash/lodash.git' }, homepage: 'https://lodash.com/' }
+    stubRegistry(TARBALLS.map((t) => (t.name === 'lodash' ? { ...t, document: lodash } : t)))
+    const listed = (name, version, { key = `${name}@${version}`, dir = key, dev = false, optional = false, patch, about = {} } = {}) => ({
+      path: `node_modules/.pnpm/${dir}/node_modules/${name}`, key, name, version, integrity: I[name], directory: undefined, ...ABOUT, ...about, dev, optional, patch,
     })
     const { installed, stats } = await buildResult()
     assert.deepEqual(installed, [
@@ -256,14 +259,14 @@ describe('buildPnpmTree', () => {
       listed('c', '2.0.0'),
       listed('d', '1.0.0'),
       listed('e', '1.0.0', { dev: true }),
-      listed('lodash', '4.17.21', { commit: G }),
+      listed('lodash', '4.17.21', { about: { commit: lodash.gitHead, repository: { ...lodash.repository, directory: undefined }, homepage: lodash.homepage } }),
       listed('p', '1.0.0', { key: `p@1.0.0(patch_hash=${H})`, dir: P, patch: { hash: H, path: 'patches/p.patch' } }),
     ])
     assert.equal(installed.length, stats.installed)
     const tarballsOnly = stubRegistry(TARBALLS)
     const { installed: without } = await buildResult({ metadata: false })
     assert.ok(tarballsOnly.every((url) => url.endsWith('.tgz')), tarballsOnly.join(', '))
-    assert.deepEqual(without, installed.map((copy) => ({ ...copy, commit: undefined })))
+    assert.deepEqual(without, installed.map((copy) => ({ ...copy, ...ABOUT })))
     const { installed: wider } = await buildResult({ workspace: 'supportedArchitectures:\n  os: [current, darwin]\n' })
     assert.deepEqual(wider.find(({ name }) => name === 'mac'), listed('mac', '1.0.0', { optional: true }))
   })
@@ -1347,7 +1350,7 @@ describe('buildPnpmTree into a given Vfs', () => {
       stubRegistry([await app])
       const { installed } = await buildPnpmTree({ lockfile: await copied(), manifests: { '.': v10 }, host: HOST, ...both({ 'package.json': v10, ...vendored }) })
       assert.deepEqual(installed.find(({ name }) => name === 'foo'), {
-        path: FOO.slice(1), key: 'foo@file:vendor/foo', name: 'foo', version: undefined, integrity: undefined, directory: 'vendor/foo', commit: undefined, dev: false, optional: false, patch: undefined,
+        path: FOO.slice(1), key: 'foo@file:vendor/foo', name: 'foo', version: undefined, integrity: undefined, directory: 'vendor/foo', ...ABOUT, dev: false, optional: false, patch: undefined,
       })
     })
 
@@ -1474,7 +1477,7 @@ describe('buildPnpmTree into a given Vfs', () => {
         assert.equal(vfs.realpath('/node_modules/.pnpm/app@1.0.0/node_modules/foo'), self)
         assert.equal(vfs.realpath(`/node_modules/.pnpm/${dir}/node_modules/app`), '/node_modules/.pnpm/app@1.0.0/node_modules/app')
         assert.deepEqual(installed.find(({ name }) => name === 'foo'), {
-          path: self.slice(1), key: `foo@file:${path}`, name: 'foo', version: undefined, integrity: undefined, directory: '.', commit: undefined, dev: false, optional: false, patch: undefined,
+          path: self.slice(1), key: `foo@file:${path}`, name: 'foo', version: undefined, integrity: undefined, directory: '.', ...ABOUT, dev: false, optional: false, patch: undefined,
         })
       }
       const v12 = { lockfile: own(''), manifests: { '.': rootOf() }, workspace: 'overrides:\n  app>foo: file:.\n', host: HOST_12, project: createVfs({ 'package.json': rootOf() }) }

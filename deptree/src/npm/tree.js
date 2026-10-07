@@ -131,8 +131,8 @@ export async function buildNpmTree(options) {
   const stats = { packages, installed: kept.length, skipped: packages - kept.length, tarballs, ...written }
   const installed = kept.map((node) => {
     const { name, version, dev, optional, devOptional, peer } = node.pkg
-    const { integrity, commit } = fetched.get(node)
-    return { path: node.location, name, version, integrity, commit, dev, optional, devOptional, peer }
+    const { integrity, about } = fetched.get(node)
+    return { path: node.location, name, version, integrity, ...about, dev, optional, devOptional, peer }
   })
   return { vfs: mount(vfs, into, folded), stats, installed }
 }

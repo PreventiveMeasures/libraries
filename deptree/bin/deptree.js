@@ -45,8 +45,8 @@ dependency with GITHUB_TOKEN or GH_TOKEN, else anonymously.
                      packageManager pins, or Soldeer 0.12.0; npm's and
                      cargo's are needed
   --node <version>   the Node it installed with; by default this one
-  --no-metadata      fetch no version document from npm's registry, which
-                     each tarball's dist is held to, beside the tarball
+  --metadata         fetch each package's version document from npm's
+                     registry too, and hold its tarball's dist to it
   --all              list what is left out too
   --diff             follow each file of other content with a unified diff,
                      for patch -p1 in <dir>
@@ -60,7 +60,7 @@ const OPTIONS = {
   soldeer: { type: 'string' },
   cargo: { type: 'string' },
   node: { type: 'string' },
-  metadata: { type: 'boolean', default: true },
+  metadata: { type: 'boolean', default: false },
   all: { type: 'boolean' },
   diff: { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
@@ -84,7 +84,7 @@ const MANAGERS = {
 }
 
 async function main(argv) {
-  const { values, positionals } = parseArgs({ args: argv, options: OPTIONS, allowPositionals: true, allowNegative: true })
+  const { values, positionals } = parseArgs({ args: argv, options: OPTIONS, allowPositionals: true })
   if (values.help) {
     process.stdout.write(USAGE)
     return 0

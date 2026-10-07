@@ -51,7 +51,7 @@ function unpack(entries, where) {
 }
 
 export async function fetchNpmPackage({ name, version, integrity }, where, check, metadata) {
-  const { bytes, entries, inflated, commit } = await fetchTarball(name, version, integrity, where, metadata)
+  const { bytes, entries, inflated, about } = await fetchTarball(name, version, integrity, where, metadata)
   await check?.(bytes, inflated, where)
-  return { ...unpack(entries, where), commit }
+  return { ...unpack(entries, where), about }
 }
