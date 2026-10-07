@@ -2,11 +2,11 @@ import { Buffer } from 'node:buffer'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import { assertArgs, assertPackage, assertPackageName, isPlainObject, optional } from '../args.js'
+import { assertArgs, assertPackage, assertPackageName, isPlainObject, isSha, optional } from '../args.js'
 import { assertCache } from '../cache.js'
 import { verifiedDownload } from '../download.js'
 import { getDocument, withNpmToken } from './registry.js'
-import { checkedDist, getDist } from './versions.js'
+import { checkedDist, fetchVersion, getDist } from './versions.js'
 
 const DIR = 'npm/tarballs' // No expiry: the registry never takes a version twice.
 
@@ -31,10 +31,33 @@ function localPaths(name, version, integrity) {
 // A call's options: `cache` alone.
 const assertOptions = (method, options) => assertArgs(method, options, { cache: optional(assertCache) })
 
+const own = (object, key) => (Object.hasOwn(object, key) ? object[key] : undefined)
+const stringOr = (value) => (typeof value === 'string' ? value : undefined)
+
+// A string as it is, or an object's strings under `keys`, the rest undefined:
+// none where it is neither, or names none of them.
+function linkOf(value, keys) {
+  if (typeof value === 'string') return value
+  if (!isPlainObject(value)) return undefined
+  const link = Object.fromEntries(keys.map((key) => [key, stringOr(own(value, key))]))
+  return keys.some((key) => link[key] !== undefined) ? link : undefined
+}
+
+// Fetched, as getDist fetches without an integrity: beside its dist, the
+// document's gitHead where that is a full commit id, and its repository,
+// homepage and bugs, in the shapes a package.json gives them. Each but dist
+// is left out where there is none.
 export async function getMeta(name, version, options = {}) {
   assertPackage('getMeta', name, version)
   assertOptions('getMeta', options)
-  return { name, version, dist: await getDist('getMeta', name, version, undefined, options.cache) }
+  const { dist, json } = await fetchVersion('getMeta', name, version, options.cache)
+  const about = {
+    gitHead: isSha(own(json, 'gitHead')) ? json.gitHead : undefined,
+    repository: linkOf(own(json, 'repository'), ['type', 'url', 'directory']),
+    homepage: stringOr(own(json, 'homepage')),
+    bugs: linkOf(own(json, 'bugs'), ['url', 'email']),
+  }
+  return { name, version, dist, ...Object.fromEntries(Object.entries(about).filter(([, value]) => value !== undefined)) }
 }
 
 // Only the whole package's document has `time`: megabytes for some.

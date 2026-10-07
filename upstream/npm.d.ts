@@ -118,10 +118,34 @@ export interface Dist {
   integrity: string
 }
 
+// `gitHead` is the commit the document names, as npm reads it off the git
+// checkout it publishes from, where it is a full commit id: 40 lowercase
+// hex digits, or 64. `repository`, `homepage` and `bugs` are the
+// document's, as the package.json published had them, or npm filled them
+// in from one another: each a string as it is, or for `repository` and
+// `bugs` an object, of which only the strings named below are read. Each is
+// absent where the document has none, or has another shape, or an object
+// with none of those strings. All of it is the publisher's word, held to no
+// repository.
 export interface PackageMeta {
   name: string
   version: string
   dist: Dist
+  gitHead?: string
+  repository?: string | PackageRepository
+  homepage?: string
+  bugs?: string | PackageBugs
+}
+
+export interface PackageRepository {
+  type: string | undefined
+  url: string | undefined
+  directory: string | undefined
+}
+
+export interface PackageBugs {
+  url: string | undefined
+  email: string | undefined
 }
 
 // The registry's version document, fetched on every call, refused unless

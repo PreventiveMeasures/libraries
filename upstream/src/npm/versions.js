@@ -67,6 +67,13 @@ export async function getVersionDocument(method, name, version, cache) {
   return json && await keepDocument(method, name, version, json, cache)
 }
 
+// A version's document as getDist without an integrity has it: fetched, and
+// kept as that keeps it, beside its dist.
+export async function fetchVersion(method, name, version, cache) {
+  const json = await fetchDocument(method, name, version, cache)
+  return { dist: distOf(method, name, version, json), json }
+}
+
 // A version's dist, from its document. The cache never supplies an
 // integrity: a kept document is read only for a caller that already has
 // the `integrity`, and one with another integrity throws, kept or fetched.
