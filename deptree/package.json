@@ -1,6 +1,6 @@
 {
   "name": "@preventive/deptree",
-  "version": "1.0.0-alpha.10",
+  "version": "1.0.0-alpha.11",
   "description": "A dependency tree in memory, as a package manager would install it",
   "type": "module",
   "exports": {
