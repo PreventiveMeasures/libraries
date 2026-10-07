@@ -2,8 +2,10 @@
 // other.
 
 import type { Client, RepoName } from './github.js'
+import type { CacheStore } from './npm.js'
 
 export { HttpError } from './npm.js'
+export type { CacheStore } from './npm.js'
 
 // As purl and stasis name them.
 export type Ecosystem = 'npm' | 'cargo' | 'composer' | 'soldeer' | 'github'
@@ -27,20 +29,6 @@ export interface Package {
   versions: string[]
 }
 
-// A store of the caller's, a database's say, for what would otherwise be
-// kept in setCacheDir's cache (npm.js): `read` answers the value last
-// written under that `type` and `key`, or null or undefined for none. A
-// `type` is what is kept, `github/advisories` for a repository's listing,
-// and a `key` which one, the repository's `owner/name` in lowercase there;
-// values are plain JSON data, which `read` may answer as written or as a
-// copy. Whatever it answers is checked as a cached file is: one malformed,
-// stale or kept differently is a miss. A rejection from either is the
-// call's. It is trusted as setCacheDir's directory is.
-export interface CacheStore {
-  read(type: string, key: string): Promise<unknown>
-  write(type: string, key: string, value: unknown): Promise<void>
-}
-
 export interface AdvisoryOptions {
   // The client every GitHub request goes through. Required for `soldeer`
   // and `github` packages, whose repository's published advisories are
@@ -50,12 +38,16 @@ export interface AdvisoryOptions {
   // Also asks each npm, cargo and composer package's GitHub repository
   // for its published advisories, which it has before GitHub reviews them
   // into the databases above: the package's `github` where given, else
-  // the one npm's metadata, crates.io or Packagist names, looked up
-  // through the cache. Needs `github`.
+  // the one looked up. An npm package's is the one the document of its
+  // newest version asked names, kept for good as getMeta keeps it (none
+  // where the registry does not have that version); a crate's and a
+  // composer package's, the one crates.io or Packagist names, kept a
+  // month. Needs `github`.
   repoAdvisories?: boolean
-  // Where a repository's listing is kept, in place of setCacheDir's cache:
-  // see `advisories`. Repository lookups still go through that cache.
-  cache?: CacheStore
+  // Where what this call caches is kept, as CacheOptions (npm.js) has it:
+  // a repository's listing, and each package's repository looked up (an
+  // npm package's as its version's document). See `advisories`.
+  cache?: CacheStore | false
   // Also returns each advisory's full text, as `details`. OSV's records
   // and a repository's listing already carry it; npm's registry does not,
   // and its rows take OSV's record of their GHSA, one more request each
@@ -127,9 +119,9 @@ export interface Advisory {
 // nothing is left out quietly.
 // A repository's listing is kept for 90 minutes, as one entry for every
 // spelling of its name, holding only what rows are made from, `details`
-// included: in setCacheDir's cache gzipped, or in `cache` as it is. 90
-// minutes is how late an advisory its maintainer publishes can be seen.
-// One gone or malformed is not kept.
+// included: in setCacheDir's cache gzipped, in a `cache` store as it is,
+// or with `cache` false, nowhere. 90 minutes is how late an advisory its
+// maintainer publishes can be seen. One gone or malformed is not kept.
 // Sorted by ecosystem and name. Versions are matched by npm's semver, from
 // the npm beside node, or by the semver peer where there is no npm.
 export function advisories(packages: Iterable<Package>, options?: AdvisoryOptions): Promise<Advisory[]>

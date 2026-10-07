@@ -32,16 +32,44 @@ export const defaultCacheDir: string | undefined
 // cache: every read of it misses and every write is skipped. getTarball
 // reads ours all the same, set or not.
 //
-// The directory is trusted: a package's repo, and for 90 minutes a
-// repository's published advisories (advisories.js), are answered from it
-// as they were written, with no request. Point it only at storage that
+// The directory is trusted: a package's repo, as recorded or as a version
+// document kept here names it, and for 90 minutes a repository's published
+// advisories (advisories.js), are answered from it as they were written,
+// with no request. Point it only at storage that
 // nothing less trusted than the caller can write, never a cache shared
 // with or restored from lower-trust jobs. Tarballs, crates (cargo.js), zips
 // (soldeer.js) and tree tarballs (github.js) don't rely on this, since
 // they are checked against their integrity on every call; and the version
 // documents kept here (getMeta) never supply an integrity, only confirm
-// one a caller gives (verifyDist).
+// one a caller gives (verifyDist). A call's `cache` option, where it has
+// one, keeps what it caches elsewhere, or writes none of it here.
 export function setCacheDir(dir?: string | false): void
+
+// A store of the caller's, a database's say, for what would otherwise be
+// kept in setCacheDir's cache: `read` answers the value last written
+// under that `type` and `key`, or null or undefined for none. A `type` is
+// what is kept and a `key` which one: `npm/versions` and `npm/tarballs`
+// with `<name>@<version>` for a version's document and tarball; and for
+// advisories.js, `github/advisories` with the repository's `owner/name` in
+// lowercase for its listing, and `cargo/repos`, `composer/repos` and
+// `soldeer/repos` with a package's name for the repository it names.
+// Values are plain JSON data, which `read` may answer as written or as a
+// copy, but a tarball's are its bytes, a Uint8Array. Whatever it answers
+// is checked as a cached file is: one malformed, stale or kept differently
+// is a miss, and a tarball's bytes that do not match throw. A rejection
+// from either is the call's. It is trusted as setCacheDir's directory is.
+export interface CacheStore {
+  read(type: string, key: string): Promise<unknown>
+  write(type: string, key: string, value: unknown): Promise<void>
+}
+
+// Where a call keeps what it caches: in setCacheDir's cache where `cache`
+// is left out; in a store of the caller's in place of it; or with `false`,
+// nowhere, though setCacheDir's cache is read all the same. Other tools'
+// caches and ours are read for tarballs whatever it is (getTarball).
+export interface CacheOptions {
+  cache?: CacheStore | false
+}
 
 // A failed request: `status` is the HTTP status the registry answered
 // with (404 for a package or version it does not have).
@@ -98,10 +126,10 @@ export interface PackageMeta {
 
 // The registry's version document, fetched on every call, refused unless
 // it is for that name and version and its dist is held to the rules above.
-// Kept whole in setCacheDir's cache, compressed, and for good once it
-// passes, as the registry never takes a version twice: one refused is not
-// kept.
-export function getMeta(name: string, version: string): Promise<PackageMeta>
+// Kept whole, as `cache` says, and for good once it passes, as the registry
+// never takes a version twice: in setCacheDir's cache, compressed, where
+// `cache` is left out. One refused is not kept.
+export function getMeta(name: string, version: string, options?: CacheOptions): Promise<PackageMeta>
 
 // When the registry says each version of a package it lists was published,
 // by version, as Date#toISOString writes it: from the whole package's
@@ -111,17 +139,18 @@ export function getMeta(name: string, version: string): Promise<PackageMeta>
 export function getPublishTimes(name: string): Promise<Map<string, string>>
 
 // Throws unless the integrity of that version is the one given, as for a
-// dist read off a lockfile: by the version document setCacheDir's cache
-// keeps, with no request, else by the registry's, kept then as getMeta
-// keeps it. Either with another integrity throws; one kept that is refused,
-// or is for another name or version, is passed over for the registry's.
-export function verifyDist(name: string, version: string, dist: Dist): Promise<void>
+// dist read off a lockfile: by the version document `cache` keeps, with no
+// request, else by the registry's, kept then as getMeta keeps it. Either
+// with another integrity throws; one kept that is refused, or is for
+// another name or version, is passed over for the registry's.
+export function verifyDist(name: string, version: string, dist: Dist, options?: CacheOptions): Promise<void>
 
 // A published version's gzipped tarball, whole, in memory. Without `dist`,
 // the version document is fetched on every call, cached tarball or not,
 // and kept as getMeta keeps it; with one, it is trusted as given and
-// nothing but the tarball is asked for. Either way the bytes are checked against `dist.integrity`, whether
-// they were downloaded (before they are cached) or read from a cache.
+// nothing but the tarball is asked for. Either way the bytes are checked
+// against `dist.integrity`, whether they were downloaded (before they are
+// cached) or read from a cache.
 //
 // Other caches are read first, and never written: npm's (cacache under
 // npm_config_cache, else npm's default, `~/.npm` outside Windows; and npm
@@ -129,5 +158,7 @@ export function verifyDist(name: string, version: string, dist: Dist): Promise<v
 // `~/.audit/cache/tgz/<org>:<name>-<version>.tgz`, then defaultCacheDir
 // and cacheDirFor('stasis'), as setCacheDir files a tarball in either,
 // whether set or not. A file there that does not match is passed over.
-// Then setCacheDir's cache, where one that does not match throws.
-export function getTarball(name: string, version: string, dist?: Dist): Promise<Uint8Array>
+// Then setCacheDir's cache, or a `cache` store in its place, where bytes
+// that do not match throw. A tarball downloaded is kept there, unless
+// `cache` is false.
+export function getTarball(name: string, version: string, dist?: Dist, options?: CacheOptions): Promise<Uint8Array>

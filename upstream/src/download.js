@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 
-import { ourCachePaths, readCache, readRegularFile, writeCache } from './cache.js'
+import { ourCachePaths, readBytes, readRegularFile, writeBytes } from './cache.js'
 import { request } from './http.js'
 import { gitTreeOfTarball } from './tree.js'
 
@@ -18,9 +18,10 @@ const DIGESTS = {
 // caller gives, never a disk; without it nothing is read. From `local`,
 // other tools' caches, and with `ours` our default cache and stasis's,
 // whether set or not (read, never written; a mismatch is passed over),
-// else the cache set (a mismatch throws), else what `locate` answers,
-// checked and then cached.
-export async function verifiedDownload({ method, dir, what, ext, algorithm, expected, local = [], ours = false, locate, options = {}, list }) {
+// else the cache set, or a `cache` store in its place (readBytes; a
+// mismatch throws), else what `locate` answers, checked and then kept as
+// writeBytes keeps it.
+export async function verifiedDownload({ method, dir, what, ext, algorithm, expected, local = [], ours = false, cache, locate, options = {}, list }) {
   assert.ok(Object.hasOwn(DIGESTS, algorithm) && typeof expected === 'string' && expected !== '', `${method}: nothing to check ${what} against`)
   const digest = (bytes) => DIGESTS[algorithm](bytes, { expected, list })
   const key = `${what}.${ext}`
@@ -33,10 +34,10 @@ export async function verifiedDownload({ method, dir, what, ext, algorithm, expe
     assert.ok(actual === expected, `${method}: integrity mismatch for ${what} from ${from}: expected ${expected}, got ${actual}`)
     return bytes
   }
-  const cached = await readCache(dir, key)
-  if (cached) return await check(cached, 'the cache')
+  const cached = await readBytes(dir, what, key, cache)
+  if (cached) return await check(cached, cache ? 'the store' : 'the cache')
   const url = await locate()
   const bytes = await check(await request(url, { ...options, as: 'bytes' }), url)
-  await writeCache(dir, key, bytes)
+  await writeBytes(dir, what, key, bytes, cache)
   return bytes
 }

@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 
 import { assertArgs, assertBoolean, assertRepo, assertion, isIterable, optional, sameName } from '../args.js'
+import { assertCache } from '../cache.js'
 import { order } from './common.js'
-import { GITHUB, SOLDEER, assertCacheStore, assertClient } from './github.js'
+import { GITHUB, SOLDEER, assertClient } from './github.js'
 import { NPM } from './npm.js'
 import { CARGO, COMPOSER } from './osv.js'
 
@@ -34,7 +35,7 @@ function collect(packages) {
 }
 
 export async function advisories(packages, options = {}) {
-  assertArgs('advisories', options, { github: optional(assertClient), repoAdvisories: optional(assertBoolean), details: optional(assertBoolean), cache: optional(assertCacheStore) })
+  assertArgs('advisories', options, { github: optional(assertClient), repoAdvisories: optional(assertBoolean), details: optional(assertBoolean), cache: optional(assertCache) })
   assert.ok(!options.repoAdvisories || options.github, 'advisories: repoAdvisories needs a github client')
   const byEcosystem = collect(packages)
   for (const ecosystem of byEcosystem.keys()) assert.ok(!ECOSYSTEMS[ecosystem].repositoryOnly || options.github, `advisories: ${ecosystem} packages need a github client`)

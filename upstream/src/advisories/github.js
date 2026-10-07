@@ -21,7 +21,6 @@ const isRepoAdvisory = (advisory) => advisory && typeof advisory === 'object' &&
   && (advisory.vulnerabilities == null || Array.isArray(advisory.vulnerabilities)) && (advisory.cwe_ids == null || isStrings(advisory.cwe_ids))
 
 export const assertClient = assertion('a GitHub client from createClient', (value) => typeof value?.listRepoAdvisories === 'function')
-export const assertCacheStore = assertion('a store with read and write', (value) => typeof value?.read === 'function' && typeof value?.write === 'function')
 
 // What rows are made from, and all that is kept of a listing: each advisory
 // not withdrawn, with its CVSS vector GitHub prefers, and each vulnerable
@@ -58,14 +57,14 @@ const isDigest = (advisory) => advisory && typeof advisory === 'object' && isGhs
 // A repository's listing, digested, through the cache: GitHub's names are
 // case-insensitive, so one entry answers every spelling. A repository gone,
 // renamed or blocked has none, and that is not kept.
-async function listAdvisories(github, repo, store) {
+async function listAdvisories(github, repo, cache) {
   const name = repo.toLowerCase()
-  const entry = await readRecord(DIR, name, { ttl: LISTING_TTL_MS, store })
+  const entry = await readRecord(DIR, name, cache, LISTING_TTL_MS)
   if (entry?.v === VERSION && Array.isArray(entry.advisories) && entry.advisories.every(isDigest)) return entry.advisories
   const list = await github.listRepoAdvisories({ repo }).catch(recover(isGone, null))
   if (list === null) return []
   const advisories = digest(repo, list)
-  if (advisories.every(isDigest)) await writeRecord(DIR, name, { v: VERSION, advisories }, { store })
+  if (advisories.every(isDigest)) await writeRecord(DIR, name, { v: VERSION, advisories }, cache)
   return advisories
 }
 
@@ -111,9 +110,10 @@ async function repositoryAdvisories(github, asked, { repoOf, takes = () => true,
   return [...rows.values()]
 }
 
-// Each asked name's repository: as given, `known`, or else looked up.
-async function reposOf(asked, known, lookUp) {
-  const found = await lookUp([...asked.keys()].filter((name) => !known.has(name)))
+// Each asked name's repository: as given, `known`, or else looked up,
+// through `cache`.
+async function reposOf(asked, known, lookUp, cache) {
+  const found = await lookUp([...asked.keys()].filter((name) => !known.has(name)), { asked, cache })
   return (name) => known.get(name) ?? found.get(name)
 }
 
@@ -125,7 +125,7 @@ async function reposOf(asked, known, lookUp) {
 export async function withRepositories(rows, asked, { github, repoAdvisories, known, details, cache }, { ecosystem, lookUp, covers }) {
   if (!repoAdvisories) return rows
   const reported = new Set(rows.flatMap((row) => [row.id, row.ghsa, ...row.aliases].filter(isGhsa).flatMap((id) => row.versions.map((version) => `${row.name} ${id} ${version}`))))
-  const repoOf = await reposOf(asked, known, lookUp)
+  const repoOf = await reposOf(asked, known, lookUp, cache)
   const takes = (name, pkg) => pkg.ecosystem === ecosystem && pkg.name === name
   const added = await repositoryAdvisories(github, asked, { repoOf, takes, covers, details, cache })
   return [...rows, ...added.map((row) => ({ ...row, versions: row.versions.filter((version) => !reported.has(`${row.name} ${row.id} ${version}`)) }))]
@@ -152,5 +152,5 @@ export const SOLDEER = {
   repositoryOnly: true,
   assertName: assertSoldeerName,
   assertVersion: assertSoldeerVersion,
-  advisories: async (asked, { github, known, details, cache }) => await repositoryAdvisories(github, asked, { repoOf: await reposOf(asked, known, soldeerRepos), details, cache }),
+  advisories: async (asked, { github, known, details, cache }) => await repositoryAdvisories(github, asked, { repoOf: await reposOf(asked, known, soldeerRepos, cache), details, cache }),
 }

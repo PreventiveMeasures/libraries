@@ -28,11 +28,11 @@ async function askCrates(method, names) {
 }
 
 // Name → its GitHub repo, or null where crates.io has no such crate or it
-// names no GitHub repo, through the cache: only a repo found is cached,
-// for a month. A failed request throws, or with `soft` leaves its names
-// out; `cachedOnly` asks nothing.
-export async function lookUpCrateRepos(method, names, { soft = false, cachedOnly = false } = {}) {
-  const repos = await readRepos(DIR, names)
+// names no GitHub repo, through the cache, or a `cache` store (readRecord):
+// only a repo found is kept, for a month. A failed request throws, or with
+// `soft` leaves its names out; `cachedOnly` asks nothing.
+export async function lookUpCrateRepos(method, names, { soft = false, cachedOnly = false, cache } = {}) {
+  const repos = await readRepos(DIR, names, cache)
   if (cachedOnly) return repos
   for (const [i, chunk] of chunks(names.filter((name) => !repos.has(name)), PER_REQUEST).entries()) {
     if (i > 0) await sleep(PACE_MS)
@@ -40,7 +40,7 @@ export async function lookUpCrateRepos(method, names, { soft = false, cachedOnly
       if (soft) return new Map()
       throw error
     })
-    await addRepos(DIR, repos, answer)
+    await addRepos(DIR, repos, answer, cache)
   }
   return repos
 }

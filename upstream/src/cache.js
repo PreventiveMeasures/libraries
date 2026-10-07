@@ -6,14 +6,17 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { gunzip, gzip } from 'node:zlib'
 
-import { assertCacheName, assertDirectoryPath, isRepo } from './args.js'
+import { assertCacheName, assertDirectoryPath, assertion, isRepo } from './args.js'
 import { MAX_BYTES, decode } from './http.js'
+import { pool } from './pool.js'
 
 const DIRS = new Set(['npm/repos', 'npm/tarballs', 'npm/versions', 'cargo/repos', 'cargo/crates', 'composer/repos', 'soldeer/repos', 'soldeer/zips', 'github/trees', 'github/advisories'])
 const RECORD_TTL_MS = 30 * 24 * 60 * 60 * 1000 // A link only moves on a transfer or rename, and GitHub redirects those.
-// Records filed gzipped, as `<name>.json.gz`: a listing carries each
-// advisory's full text, Markdown that compresses well.
-const GZIP_DIRS = new Set(['github/advisories'])
+const RECORDS_AT_ONCE = 8
+// JSON filed gzipped, as `<name>.json.gz`: a listing carries each
+// advisory's full text, Markdown that compresses well, and a version
+// document all npm has of that version.
+const GZIP_DIRS = new Set(['github/advisories', 'npm/versions'])
 const compress = promisify(gzip)
 const decompress = promisify(gunzip)
 
@@ -133,41 +136,69 @@ export async function writeCacheJSON(dir, key, value, { compressed = false } = {
   return await writeCache(dir, key, compressed ? await compress(json) : json)
 }
 
-// A record is kept for `ttl`, in the cache set, or with `store`, in the
-// caller's store instead, as `dir` and `name`, as it is: only the files
-// are compressed.
-const recordFile = (dir, name) => (GZIP_DIRS.has(dir) ? `${name}.json.gz` : `${name}.json`)
+// A call's `cache` option: a store of the caller's, with read and write,
+// to keep what the call caches in place of the cache set; or false, for
+// the cache set to be read and nothing written. `cache` below is that.
+export const assertCache = assertion('false, or a store with read and write', (value) => value === false || (typeof value?.read === 'function' && typeof value?.write === 'function'))
 
-export async function readRecord(dir, name, { ttl = RECORD_TTL_MS, store } = {}) {
+// What is kept as `dir` and `name`: in a `cache` store, else in the cache
+// set, as `fromDisk` and `toDisk` read and write it.
+async function read(dir, name, cache, fromDisk) {
   assert.ok(DIRS.has(dir), `Unexpected cache entry: ${dir}`)
-  const record = store ? await store.read(dir, name) : await readCacheJSON(dir, recordFile(dir, name), { compressed: GZIP_DIRS.has(dir) })
+  return cache ? await cache.read(dir, name) : await fromDisk()
+}
+
+async function write(dir, name, value, cache, toDisk) {
+  assert.ok(DIRS.has(dir), `Unexpected cache entry: ${dir}`)
+  if (cache === false) return false
+  if (!cache) return await toDisk()
+  await cache.write(dir, name, value)
+  return true
+}
+
+// JSON, as it is in a store, and in the cache set gzipped where `dir` is.
+const jsonFile = (dir, name) => (GZIP_DIRS.has(dir) ? { file: `${name}.json.gz`, compressed: true } : { file: `${name}.json` })
+
+export function readJSON(dir, name, cache) {
+  const { file, compressed } = jsonFile(dir, name)
+  return read(dir, name, cache, () => readCacheJSON(dir, file, { compressed }))
+}
+
+export function writeJSON(dir, name, value, cache) {
+  const { file, compressed } = jsonFile(dir, name)
+  return write(dir, name, value, cache, () => writeCacheJSON(dir, file, value, { compressed }))
+}
+
+// Bytes, in the cache set as `file`. A store may keep what it is given and
+// answer what it keeps, so bytes cross it as a copy each way; what it
+// answers that is not bytes is none.
+export async function readBytes(dir, name, file, cache) {
+  const bytes = await read(dir, name, cache, () => readCache(dir, file))
+  if (!(bytes instanceof Uint8Array)) return null
+  return cache ? new Uint8Array(bytes) : bytes
+}
+
+export const writeBytes = (dir, name, file, bytes, cache) => write(dir, name, cache ? new Uint8Array(bytes) : bytes, cache, () => writeCache(dir, file, bytes))
+
+// A record, kept as readJSON and writeJSON keep it, for `ttl`.
+export async function readRecord(dir, name, cache, ttl = RECORD_TTL_MS) {
+  const record = await readJSON(dir, name, cache)
   const age = typeof record?.at === 'number' ? Date.now() - record.at : Number.NaN
   const fresh = age >= 0 && age <= ttl // An entry from the future is not fresh forever.
   return fresh && record.name === name ? record : null
 }
 
-export async function writeRecord(dir, name, value, { store } = {}) {
-  assert.ok(DIRS.has(dir), `Unexpected cache entry: ${dir}`)
-  const record = { at: Date.now(), name, ...value }
-  if (!store) return await writeCacheJSON(dir, recordFile(dir, name), record, { compressed: GZIP_DIRS.has(dir) })
-  await store.write(dir, name, record)
-  return true
+export const writeRecord = (dir, name, value, cache) => writeJSON(dir, name, { at: Date.now(), name, ...value }, cache)
+
+// Name → the GitHub repo kept for it (readRecord), for those of `names`
+// that have one.
+export async function readRepos(dir, names, cache) {
+  const entries = await pool(names, RECORDS_AT_ONCE, (name) => readRecord(dir, name, cache))
+  return new Map(names.flatMap((name, i) => (isRepo(entries[i]?.github) ? [[name, entries[i].github]] : [])))
 }
 
-// Name → the GitHub repo cached for it, for those of `names` that have one.
-export async function readRepos(dir, names) {
-  const repos = new Map()
-  for (const name of names) {
-    const entry = await readRecord(dir, name)
-    if (isRepo(entry?.github)) repos.set(name, entry.github)
-  }
-  return repos
-}
-
-// An answer into `repos`, and into the cache where it found a repo.
-export async function addRepos(dir, repos, answer) {
-  for (const [name, github] of answer) {
-    repos.set(name, github)
-    if (github) await writeRecord(dir, name, { github })
-  }
+// An answer into `repos`, and kept (writeRecord) where it found a repo.
+export async function addRepos(dir, repos, answer, cache) {
+  for (const [name, github] of answer) repos.set(name, github)
+  await pool([...answer].filter(([, github]) => github), RECORDS_AT_ONCE, ([name, github]) => writeRecord(dir, name, { github }, cache))
 }
