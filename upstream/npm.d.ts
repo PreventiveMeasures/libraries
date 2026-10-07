@@ -32,10 +32,11 @@ export const defaultCacheDir: string | undefined
 // cache: every read of it misses and every write is skipped. getTarball
 // reads ours all the same, set or not.
 //
-// The directory is trusted: a package's repo is answered from it as it
-// was written, with no request. Point it only at storage that nothing
-// less trusted than the caller can write, never a cache shared with or
-// restored from lower-trust jobs. Tarballs, crates (cargo.js), zips
+// The directory is trusted: a package's repo, and for 90 minutes a
+// repository's published advisories (advisories.js), are answered from it
+// as they were written, with no request. Point it only at storage that
+// nothing less trusted than the caller can write, never a cache shared
+// with or restored from lower-trust jobs. Tarballs, crates (cargo.js), zips
 // (soldeer.js) and tree tarballs (github.js) don't rely on this, since
 // they are checked against their integrity on every call.
 export function setCacheDir(dir?: string | false): void

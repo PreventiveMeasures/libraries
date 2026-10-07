@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 
 import { assertArgs, assertBoolean, assertRepo, assertion, isIterable, optional, sameName } from '../args.js'
 import { order } from './common.js'
-import { GITHUB, SOLDEER, assertClient } from './github.js'
+import { GITHUB, SOLDEER, assertCacheStore, assertClient } from './github.js'
 import { NPM } from './npm.js'
 import { CARGO, COMPOSER } from './osv.js'
 
@@ -34,7 +34,7 @@ function collect(packages) {
 }
 
 export async function advisories(packages, options = {}) {
-  assertArgs('advisories', options, { github: optional(assertClient), repoAdvisories: optional(assertBoolean), details: optional(assertBoolean) })
+  assertArgs('advisories', options, { github: optional(assertClient), repoAdvisories: optional(assertBoolean), details: optional(assertBoolean), cache: optional(assertCacheStore) })
   assert.ok(!options.repoAdvisories || options.github, 'advisories: repoAdvisories needs a github client')
   const byEcosystem = collect(packages)
   for (const ecosystem of byEcosystem.keys()) assert.ok(!ECOSYSTEMS[ecosystem].repositoryOnly || options.github, `advisories: ${ecosystem} packages need a github client`)
@@ -43,7 +43,7 @@ export async function advisories(packages, options = {}) {
     const names = [...named.keys()].toSorted()
     const asked = new Map(names.map((name) => [name, [...named.get(name).versions].toSorted(compare)]))
     const known = new Map(names.filter((name) => named.get(name).github).map((name) => [name, named.get(name).github]))
-    const rows = await find(asked, { github: options.github, repoAdvisories: options.repoAdvisories === true, details: options.details === true, known })
+    const rows = await find(asked, { github: options.github, repoAdvisories: options.repoAdvisories === true, details: options.details === true, known, cache: options.cache })
     return rows.map((row) => ({ ecosystem, ...row }))
   }))
   return found.flat().filter((row) => row.versions.length > 0).toSorted((a, b) => order(a.ecosystem, b.ecosystem) || order(a.name, b.name))

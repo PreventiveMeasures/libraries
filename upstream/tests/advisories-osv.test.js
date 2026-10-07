@@ -458,7 +458,7 @@ describe('cargo and composer, with a GitHub client', () => {
       await rm(dir, { recursive: true, force: true })
     })
 
-    it("keeps a crate's repo for the next run, and not one dated in the future", async () => {
+    it("keeps a crate's repo and its listing for the next run, and not a repo dated in the future", async () => {
       dir = await mkdtemp(join(tmpdir(), 'upstream-osv-cache-'))
       setCacheDir(dir)
       const answers = { crates: { smallvec: 'https://github.com/servo/rust-smallvec' }, listings: { 'servo/rust-smallvec': [] } }
@@ -466,13 +466,13 @@ describe('cargo and composer, with a GitHub client', () => {
       await cargo([{ name: 'smallvec', version: '1.6.0' }], { github, repoAdvisories: true })
       const calls = stubAll({ ...answers, crates: Response.json({}, { status: 500 }) })
       await cargo([{ name: 'smallvec', version: '1.6.0' }], { github, repoAdvisories: true })
-      assert.deepEqual(calls.filter(({ url }) => url.startsWith(CRATES)), [])
-      assert.equal(calls.filter(({ url }) => url === listing('servo/rust-smallvec')).length, 1)
+      assert.deepEqual(calls.map(({ url }) => url), [BATCH])
       await writeFile(join(dir, 'cargo', 'repos', 'smallvec.json'), JSON.stringify({ at: Date.now() + 60_000, name: 'smallvec', github: 'evil/fork' }))
+      // evil/fork's listing is not kept, and not stubbed: asking it throws.
       const again = stubAll(answers)
       await cargo([{ name: 'smallvec', version: '1.6.0' }], { github, repoAdvisories: true })
       assert.equal(again.filter(({ url }) => url.startsWith(CRATES)).length, 1)
-      assert.deepEqual(again.filter(({ url }) => url.startsWith('https://api.github.com/')).map(({ url }) => url), [listing('servo/rust-smallvec')])
+      assert.deepEqual(again.filter(({ url }) => url.startsWith('https://api.github.com/')), [])
     })
   })
 })
