@@ -69,6 +69,10 @@ describe('getRepo', () => {
     for (const directory of ['%2e%2e/x', 'a/%2E/b', 'a%2F%2Fb', '%00x', 'caf%C3', 'a%zz']) {
       assert.deepEqual(getRepo({ homepage: `https://github.com/acme/app/tree/main/${directory}` }), { github: 'acme/app', url: 'https://github.com/acme/app' }, directory)
     }
+    // Only `repository.directory` declares the root: a homepage tree path coming to it names none.
+    for (const directory of ['.', './', '/', '%2E', '%2F', './/.']) {
+      assert.equal(getRepo({ repository: 'github:acme/app', homepage: `https://github.com/acme/app/tree/main/${directory}` }).directory, undefined, directory)
+    }
     for (const pkg of [{ homepage: 'https://github.com/acme/app/tree' }, { homepage: 'https://github.com/acme/app/blob/main/README.md' }, { bugs: 'https://github.com/acme/../issues' }, { repository: 'https://GitHub.com.evil.example/acme/app' }, { repository: 'git@GitHub.com.evil.example:acme/app' }, { repository: 'https://github.com:443@evil.example/acme/app' }, { bugs: 'https://github.com:443@evil.example/acme/app/issues' }, { homepage: 'https://github.com:443@evil.example/acme/app' }, { homepage: 'https://github.com:x/acme/app' }, { bugs: 'https://github.com:x/acme/app/issues' }, { repository: 'https://github.com:x/acme/app' }]) {
       assert.deepEqual(getRepo(pkg), {}, JSON.stringify(pkg))
     }
