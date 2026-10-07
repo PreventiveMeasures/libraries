@@ -34,8 +34,7 @@ function checkedDist(method, name, version, dist) {
 const distOf = (method, name, version, json) => checkedDist(method, name, version, { tarball: json.dist?.tarball, integrity: json.dist?.integrity })
 
 // A version document's dist, as setCacheDir's cache keeps it: none for one
-// for another name or version, or one refused, as one kept under rules
-// other than this release's may be.
+// for another name or version, or one refused.
 function keptDist(method, name, version, json) {
   if (json?.name !== name || json.version !== version) return undefined
   try {

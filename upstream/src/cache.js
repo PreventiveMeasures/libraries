@@ -12,8 +12,7 @@ import { MAX_BYTES, decode } from './http.js'
 const DIRS = new Set(['npm/repos', 'npm/tarballs', 'npm/versions', 'cargo/repos', 'cargo/crates', 'composer/repos', 'soldeer/repos', 'soldeer/zips', 'github/trees', 'github/advisories'])
 const RECORD_TTL_MS = 30 * 24 * 60 * 60 * 1000 // A link only moves on a transfer or rename, and GitHub redirects those.
 // Records filed gzipped, as `<name>.json.gz`: a listing carries each
-// advisory's full text, Markdown that compresses well. gzip, not brotli,
-// for its CRC-32: a damaged file is a miss, never a different answer.
+// advisory's full text, Markdown that compresses well.
 const GZIP_DIRS = new Set(['github/advisories'])
 const compress = promisify(gzip)
 const decompress = promisify(gunzip)
