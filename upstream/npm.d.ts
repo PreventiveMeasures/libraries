@@ -49,9 +49,9 @@ export class HttpError extends Error {
 
 // A package's GitHub repo as its registry metadata names it — getRepo
 // (package.js) over its `latest` document: `github` is `owner/name`, and
-// `directory` is where in the repo the package sits, absent for a
-// package at the repo root. Throws when the package cannot be fetched or
-// names no GitHub repo.
+// `directory` is where in the repo the package sits, `''` at the repo
+// root, absent where it declares none. Throws when the package cannot be
+// fetched or names no GitHub repo.
 export interface GitHubLink {
   github: string
   directory?: string
@@ -73,7 +73,8 @@ export function resolvePackageRepos(packageNames: Iterable<string>, options?: { 
 // release that resolved repos by other rules included; a write answers
 // false where it could not write, and never throws. A write takes the
 // `github` a lookup gives, `owner/name` with no trailing `.git`, so what
-// it writes reads back.
+// it writes reads back; a `directory` left out is unknown, and `''` the
+// repo root.
 export function readPackageRepoCache(name: string): Promise<PackageRepo | null>
 export function writePackageRepoCache(name: string, github: string, directory?: string): Promise<boolean>
 

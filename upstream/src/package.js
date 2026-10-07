@@ -38,8 +38,16 @@ function repoSubdirectory(value) {
 
 // `repository.directory` is a path its author may write with Windows' `\`.
 // A tree path is `/`-separated: a `\` is a name's own only in a homepage's
-// (`%5C`), which is the path itself.
-const declaredDirectory = (value) => repoSubdirectory(str(value).replaceAll('\\', '/'))
+// (`%5C`), which is the path itself. Its empty and `.` parts are dropped
+// (`./a//b/.` is `a/b`), and one of nothing else (`./`, `/`, `/.`, `.`, `''`)
+// declares the repo's root, `''`; one with a `..` part names none, whatever
+// it would come to. A package.json that declares none says nothing of where
+// in the repo it sits.
+function declaredDirectory(value) {
+  if (typeof value !== 'string') return undefined
+  const parts = value.replaceAll('\\', '/').split('/').filter((part) => part !== '' && part !== '.')
+  return parts.length === 0 ? '' : repoSubdirectory(parts.join('/'))
+}
 
 export const isRepoDirectory = (value) => typeof value === 'string' && (value === '' || repoSubdirectory(value) === value)
 export const assertRepoDirectory = assertion('a path inside the repository', isRepoDirectory)
@@ -54,7 +62,7 @@ export function getRepo(pkg) {
   // `bugs` tracker can be left pointing at a former owner or misspelt.
   const github = [declared, repoIn(bugsRegex, urlOf(bugs)), homepageRepo].find(isRepo)
   if (github === undefined) return {}
-  const directory = (sameName(declared, github) && declaredDirectory(repository?.directory))
-    || (sameName(homepageRepo, github) && repoSubdirectory(decodePath(homepage.directory)))
-  return { github, ...(directory && { directory }), url: `https://github.com/${github}` }
+  const directory = (sameName(declared, github) ? declaredDirectory(repository?.directory) : undefined)
+    ?? (sameName(homepageRepo, github) ? repoSubdirectory(decodePath(homepage.directory)) : undefined)
+  return { github, ...(directory !== undefined && { directory }), url: `https://github.com/${github}` }
 }

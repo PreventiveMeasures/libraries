@@ -6,8 +6,8 @@ export interface GitCheckout {
   // `owner/name`, when the origin remote is a GitHub one. Never the
   // remote's URL, which can name a private host or carry a token.
   github?: string
-  // Where the directory sits in its checkout, `/`-separated; absent at
-  // the root.
+  // Where the directory sits in its checkout, `/`-separated; `''` at the
+  // root.
   directory?: string
   // `https://github.com/<github>`, whenever there is a `github`.
   url?: string

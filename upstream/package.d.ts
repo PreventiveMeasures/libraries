@@ -5,7 +5,10 @@ export interface PackageRepoLink {
   github?: string
   // Where in that repo the package sits, `/`-separated, as the tree path
   // itself (a homepage URL's decoded; a `repository.directory`'s `\` read
-  // as `/`); absent at its root, and whenever `github` is.
+  // as `/`, its empty and `.` parts dropped); `''` at its root, where
+  // `repository.directory` declares it (`./`, `/`, `/.`, `.`, `''`). Absent
+  // where unknown: neither field names a directory in it (one with a `..`
+  // part names none), and whenever `github` is absent.
   directory?: string
   // `https://github.com/<github>`, whenever there is a `github`.
   url?: string

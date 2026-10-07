@@ -74,7 +74,7 @@ describe('getRepo', () => {
     }
   })
 
-  it('takes any directory git could have, but no traversal or empty part', () => {
+  it('takes any directory git could have, but no traversal', () => {
     const at = (directory) => getRepo({ repository: { url: 'https://github.com/acme/mono', directory } }).directory
     for (const directory of ['packages/@scope/pkg', 'packages/café', 'my dir/pkg', '.github/actions/x', 'a+b/c~d', ' packages/pkg', 'packages/pkg ']) assert.equal(at(directory), directory)
     assert.equal(at('./packages/pkg/'), 'packages/pkg')
@@ -85,7 +85,20 @@ describe('getRepo', () => {
     }
     assert.equal(at('..\\x'), undefined)
     assert.equal(getRepo({ homepage: 'https://github.com/acme/app/tree/main/a%5Cb' }).directory, 'a\\b')
-    for (const directory of ['../x', 'a/../b', 'a//b', 'a/./b', '.git/x', 'a/.GIT', 'a\u0000b', 'a\u0007b']) assert.equal(at(directory), undefined, JSON.stringify(directory))
+    // Empty and `.` parts are dropped; a `..` part names no directory, whatever it would come to.
+    for (const directory of ['a//b', 'a/./b', './a//b/.', 'a\\.\\b']) assert.equal(at(directory), 'a/b', JSON.stringify(directory))
+    for (const directory of ['../x', 'a/../b', 'a/..', 'a/../', '..', '.git/x', 'a/.GIT', 'a\u0000b', 'a\u0007b']) assert.equal(at(directory), undefined, JSON.stringify(directory))
+  })
+
+  it("answers a declared root as `''`, and leaves the directory out where none is declared", () => {
+    const at = (directory) => getRepo({ repository: { url: 'https://github.com/acme/app', directory } }).directory
+    for (const directory of ['', '.', './', '/', '/.', './.', '//', '.\\']) assert.equal(at(directory), '', JSON.stringify(directory))
+    for (const directory of [undefined, null, 42]) assert.equal(at(directory), undefined, `${directory}: unknown, not the root`)
+    assert.deepEqual(getRepo({ repository: 'github:acme/app' }), { github: 'acme/app', url: 'https://github.com/acme/app' })
+    // Declared, the root holds over a homepage naming a subdirectory.
+    const homepage = 'https://github.com/acme/app/tree/main/packages/x'
+    assert.equal(getRepo({ repository: { url: 'https://github.com/acme/app', directory: './' }, homepage }).directory, '')
+    assert.equal(getRepo({ repository: { url: 'https://github.com/acme/app' }, homepage }).directory, 'packages/x')
   })
 
   it('answers the directory with the repo, never without it', () => {

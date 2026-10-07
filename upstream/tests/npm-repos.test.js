@@ -55,7 +55,7 @@ async function resolveOne(body) {
 // package needs for a link that lands on the package.
 async function resolveRepo(body) {
   const { github, directory } = await resolveOne(body)
-  return directory ? `${github} @ ${directory}` : github
+  return directory === undefined ? github : `${github} @ ${directory || '(root)'}`
 }
 
 describe('getGitHub — where in the repo the package sits', () => {
@@ -82,8 +82,8 @@ describe('getGitHub — where in the repo the package sits', () => {
     assert.equal(await resolveRepo({ repository: { url: 'https://github.com/acme/app.git' }, homepage: 'https://github.com/acme/app/tree/HEAD/packages/web#readme' }), 'acme/app @ packages/web')
   })
 
-  it('says nothing for a package at the repo root', async () => {
-    // Absent, not empty: there is no directory to name at the root.
+  it('says nothing where the package declares no directory', async () => {
+    // Absent, not empty: unknown, not the root.
     assert.equal((await resolveOne(tracked('lodash/lodash'))).directory, undefined)
   })
 
@@ -121,7 +121,7 @@ describe('getGitHub — where in the repo the package sits', () => {
     const at = async (directory) => await resolveRepo({ repository: { url: 'https://github.com/acme/app.git', directory } })
     assert.equal(await at('./packages/web/'), 'acme/app @ packages/web')
     assert.equal(await at('/packages/web'), 'acme/app @ packages/web')
-    assert.equal(await at(''), 'acme/app')
+    for (const root of ['', '.', './', '/', '/.', './.']) assert.equal(await at(root), 'acme/app @ (root)', JSON.stringify(root))
     assert.equal(await at(42), 'acme/app')
   })
 })
@@ -237,11 +237,11 @@ describe('the npm → GitHub repo cache', () => {
 
   it('misses on an entry older than the TTL, and hits on one inside it', async () => {
     await mkdir(REPOS, { recursive: true })
-    const entry = (age) => JSON.stringify({ at: Date.now() - age, v: 3, name: 'lodash', github: 'lodash/lodash', directory: '' })
+    const entry = (age) => JSON.stringify({ at: Date.now() - age, v: 4, name: 'lodash', github: 'lodash/lodash', directory: '' })
     await writeFile(join(REPOS, 'lodash.json'), entry(31 * DAY))
     assert.equal(await readPackageRepoCache('lodash'), null)
     await writeFile(join(REPOS, 'lodash.json'), entry(29 * DAY))
-    assert.deepEqual(await readPackageRepoCache('lodash'), { github: 'lodash/lodash' })
+    assert.deepEqual(await readPackageRepoCache('lodash'), { github: 'lodash/lodash', directory: '' })
   })
 
   it('misses on an entry stamped by earlier rules, which may name a repo getRepo no longer would', async () => {
@@ -250,6 +250,9 @@ describe('the npm → GitHub repo cache', () => {
       await writeFile(join(REPOS, 'lodash.json'), JSON.stringify({ at: Date.now(), v, name: 'lodash', github: 'lodash/lodash.git', directory: '' }))
       assert.equal(await readPackageRepoCache('lodash'), null, `v${v}`)
     }
+    // v3 wrote `''` for a package that declared no directory as for one at the root.
+    await writeFile(join(REPOS, 'lodash.json'), JSON.stringify({ at: Date.now(), v: 3, name: 'lodash', github: 'lodash/lodash', directory: '' }))
+    assert.equal(await readPackageRepoCache('lodash'), null, 'v3')
   })
 
   it('misses on a half-written file, an unstamped entry, or a slug that is not a string', async () => {
@@ -259,9 +262,9 @@ describe('the npm → GitHub repo cache', () => {
     assert.equal(await readPackageRepoCache('lodash'), null)
     await write(JSON.stringify({ github: 'lodash/lodash' }))
     assert.equal(await readPackageRepoCache('lodash'), null)
-    await write(JSON.stringify({ at: Date.now(), v: 3, name: 'lodash', github: { repo: 'lodash/lodash' }, directory: '' }))
+    await write(JSON.stringify({ at: Date.now(), v: 4, name: 'lodash', github: { repo: 'lodash/lodash' }, directory: '' }))
     assert.equal(await readPackageRepoCache('lodash'), null)
-    await write(JSON.stringify({ at: Date.now(), v: 3, name: 'lodash', github: '', directory: '' }))
+    await write(JSON.stringify({ at: Date.now(), v: 4, name: 'lodash', github: '', directory: '' }))
     assert.equal(await readPackageRepoCache('lodash'), null)
   })
 })
@@ -334,6 +337,15 @@ describe('resolvePackageRepos', () => {
     assert.deepEqual([...await resolvePackageRepos(new Set(['@babel/core']))], [['@babel/core', stamp]])
   })
 
+  it('carries a declared root through the cache as `""`, and no directory declared as none', async () => {
+    const asked = stubRegistry({ root: { repository: { url: 'https://github.com/acme/root.git', directory: './' } }, unknown: tracked('acme/unknown') })
+    const answer = [['root', { github: 'acme/root', directory: '' }], ['unknown', { github: 'acme/unknown' }]]
+    assert.deepEqual([...await resolvePackageRepos(['root', 'unknown'])], answer)
+    assert.deepEqual(asked.toSorted(), ['root', 'unknown'])
+    globalThis.fetch = undefined
+    assert.deepEqual([...await resolvePackageRepos(['root', 'unknown'])], answer, 'off disk, each as it was')
+  })
+
   it('treats an entry written before `directory` existed as a miss', async () => {
     // Read leniently, it would answer with the repo and no directory,
     // and a monorepo package would quietly link to the repo root for a
@@ -358,9 +370,11 @@ describe('resolvePackageRepos', () => {
     assert.deepEqual(await readPackageRepoCache('has-symbols'), { github: 'inspect-js/has-symbols' })
   })
 
-  it('round-trips a root package as an empty directory, not a missing one', async () => {
-    await writePackageRepoCache('lodash', 'lodash/lodash')
-    assert.deepEqual(await readPackageRepoCache('lodash'), { github: 'lodash/lodash' })
+  it('round-trips a root package as an empty directory, and one whose place is unknown as none', async () => {
+    await writePackageRepoCache('lodash', 'lodash/lodash', '')
+    assert.deepEqual(await readPackageRepoCache('lodash'), { github: 'lodash/lodash', directory: '' })
+    await writePackageRepoCache('left-pad', 'stevemao/left-pad')
+    assert.deepEqual(await readPackageRepoCache('left-pad'), { github: 'stevemao/left-pad' })
     await writePackageRepoCache('@babel/core', 'babel/babel', 'packages/babel-core')
     assert.deepEqual(await readPackageRepoCache('@babel/core'), { github: 'babel/babel', directory: 'packages/babel-core' })
   })
@@ -414,9 +428,11 @@ describe('the npm → GitHub repo cache, held to the same formats', () => {
 
   it('misses on an entry for another name, or with a repo or directory a lookup would not give', async () => {
     await mkdir(REPOS, { recursive: true })
-    const write = (entry) => writeFile(join(REPOS, 'lodash.json'), JSON.stringify({ at: Date.now(), v: 3, name: 'lodash', github: 'lodash/lodash', directory: '', ...entry }))
+    const write = (entry) => writeFile(join(REPOS, 'lodash.json'), JSON.stringify({ at: Date.now(), v: 4, name: 'lodash', github: 'lodash/lodash', directory: '', ...entry }))
     await write({})
-    assert.deepEqual(await readPackageRepoCache('lodash'), { github: 'lodash/lodash' })
+    assert.deepEqual(await readPackageRepoCache('lodash'), { github: 'lodash/lodash', directory: '' })
+    await write({ directory: undefined })
+    assert.deepEqual(await readPackageRepoCache('lodash'), { github: 'lodash/lodash' }, 'none: unknown')
     for (const entry of [{ name: 'other' }, { github: 'lodash/..' }, { github: 'https://evil.example/x' }, { github: 'lodash/lodash.git' }, { directory: '../etc' }, { directory: null }, { at: Date.now() + 60_000 }, { at: String(Date.now()) }]) {
       await write(entry)
       assert.equal(await readPackageRepoCache('lodash'), null, JSON.stringify(entry))

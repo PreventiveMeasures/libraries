@@ -54,5 +54,5 @@ export async function findGitCheckout(dir) {
   const directory = relative(dirs.root, start).split(sep).join('/')
   const github = await originGitHub(dirs.commonDir)
   const commit = await headCommit(dirs.gitDir, dirs.commonDir)
-  return { ...(github && { github }), ...(directory && { directory }), ...(github && { url: `https://github.com/${github}` }), ...(commit && { commit }) }
+  return { ...(github && { github }), directory, ...(github && { url: `https://github.com/${github}` }), ...(commit && { commit }) }
 }

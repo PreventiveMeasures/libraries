@@ -37,13 +37,13 @@ describe('findGitCheckout', () => {
       'packages/pkg/src/index.js': '',
     })
     assert.deepEqual(await findGitCheckout(join(root, 'packages/pkg')), { github: 'acme/app', directory: 'packages/pkg', url: 'https://github.com/acme/app', commit: SHA })
-    // Absent at the root, as getRepo has it.
-    assert.deepEqual(await findGitCheckout(root), { github: 'acme/app', url: 'https://github.com/acme/app', commit: SHA })
+    // `''` at the root: read off the checkout itself, the root is known.
+    assert.deepEqual(await findGitCheckout(root), { github: 'acme/app', directory: '', url: 'https://github.com/acme/app', commit: SHA })
   })
 
   it('reads a detached HEAD, and a ref from packed-refs', async () => {
     const detached = await checkout({ '.git/HEAD': `${SHA2}\n` })
-    assert.deepEqual(await findGitCheckout(detached), { commit: SHA2 })
+    assert.deepEqual(await findGitCheckout(detached), { directory: '', commit: SHA2 })
     const packed = await checkout({
       '.git/HEAD': 'ref: refs/heads/main\n',
       '.git/packed-refs': `# pack-refs with: peeled fully-peeled sorted\n${SHA2} refs/heads/dev\n${SHA} refs/heads/main\n^${SHA2}\n`,
@@ -87,7 +87,7 @@ describe('findGitCheckout', () => {
     ]
     for (const url of urls) {
       const result = await findGitCheckout(await checkout({ '.git/HEAD': `${SHA}\n`, '.git/config': config(url) }))
-      assert.deepEqual(result, { github: 'acme/app', url: 'https://github.com/acme/app', commit: SHA }, url)
+      assert.deepEqual(result, { github: 'acme/app', directory: '', url: 'https://github.com/acme/app', commit: SHA }, url)
       assert.doesNotMatch(JSON.stringify(result), /secret|x-access-token|git@|\.git\b/u)
     }
   })
@@ -111,13 +111,13 @@ describe('findGitCheckout', () => {
       '',
     ]
     for (const text of configs) {
-      assert.deepEqual(await findGitCheckout(await checkout({ '.git/HEAD': `${SHA}\n`, '.git/config': text })), { commit: SHA }, text)
+      assert.deepEqual(await findGitCheckout(await checkout({ '.git/HEAD': `${SHA}\n`, '.git/config': text })), { directory: '', commit: SHA }, text)
     }
   })
 
   it('reads an origin section at the very start of the config', async () => {
     const root = await checkout({ '.git/HEAD': `${SHA}\n`, '.git/config': '[remote "origin"]\n\turl = git@github.com:acme/app.git\n' })
-    assert.deepEqual(await findGitCheckout(root), { github: 'acme/app', url: 'https://github.com/acme/app', commit: SHA })
+    assert.deepEqual(await findGitCheckout(root), { github: 'acme/app', directory: '', url: 'https://github.com/acme/app', commit: SHA })
   })
 
   it('leaves out a commit it cannot read, and keeps the rest', async () => {
