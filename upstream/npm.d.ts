@@ -7,8 +7,9 @@
 // a timeout, as github.d.ts describes, and lookups for many names go to
 // the registry eight at a time.
 //
-// Where NPM_TOKEN is set, it is sent with the requests for a scoped
-// package, so a private one can be read.
+// Where PREVENTIVE_MEASURES_NPM_TOKEN, STASIS_NPM_TOKEN or NPM_TOKEN is
+// set, the first of them not empty, in that order, is sent with the
+// requests for a scoped package, so a private one can be read.
 
 // Where a program called `name` keeps its cache for this user, as each
 // platform has it, read from the environment when called. macOS:

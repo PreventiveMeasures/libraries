@@ -12,6 +12,8 @@ import { withNpmToken } from '../src/npm/registry.js'
 process.env.HOME = join(tmpdir(), `upstream-npm-token-test-${process.pid}`)
 process.env.npm_config_cache = join(process.env.HOME, '.npm')
 delete process.env.NPM_CONFIG_CACHE
+const NAMES = ['PREVENTIVE_MEASURES_NPM_TOKEN', 'STASIS_NPM_TOKEN', 'NPM_TOKEN']
+for (const name of NAMES) delete process.env[name]
 
 const TOKEN = 'npm_TestToken0123456789'
 const BEARER = `Bearer ${TOKEN}`
@@ -27,7 +29,7 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.fetch = realFetch
-  delete process.env.NPM_TOKEN
+  for (const name of NAMES) delete process.env[name]
 })
 
 // Scoped packages answer only with the token.
@@ -120,6 +122,22 @@ describe('NPM_TOKEN', () => {
       ['pkg', 'https://registry.npmjs.org/other/latest'],
     ]) {
       assert.throws(() => withNpmToken(name, url, options), (err) => /Unexpected request for /u.test(err.message) && !err.message.includes(TOKEN), `${options?.method ?? 'GET'} ${url}`)
+    }
+  })
+
+  it('is PREVENTIVE_MEASURES_NPM_TOKEN, else STASIS_NPM_TOKEN, else NPM_TOKEN, the first set and not empty', () => {
+    const auth = () => withNpmToken('@acme/private', 'https://registry.npmjs.org/@acme/private/latest').headers?.Authorization
+    for (const [env, token] of [
+      [{ PREVENTIVE_MEASURES_NPM_TOKEN: 'npm_A', STASIS_NPM_TOKEN: 'npm_B', NPM_TOKEN: 'npm_C' }, 'npm_A'],
+      [{ STASIS_NPM_TOKEN: 'npm_B', NPM_TOKEN: 'npm_C' }, 'npm_B'],
+      [{ PREVENTIVE_MEASURES_NPM_TOKEN: '', STASIS_NPM_TOKEN: 'npm_B', NPM_TOKEN: 'npm_C' }, 'npm_B'],
+      [{ PREVENTIVE_MEASURES_NPM_TOKEN: '', STASIS_NPM_TOKEN: '', NPM_TOKEN: 'npm_C' }, 'npm_C'],
+      [{ PREVENTIVE_MEASURES_NPM_TOKEN: 'npm_A' }, 'npm_A'],
+      [{ PREVENTIVE_MEASURES_NPM_TOKEN: '', STASIS_NPM_TOKEN: '', NPM_TOKEN: '' }, undefined],
+    ]) {
+      for (const name of NAMES) delete process.env[name]
+      Object.assign(process.env, env)
+      assert.equal(auth(), token && `Bearer ${token}`, JSON.stringify(env))
     }
   })
 
