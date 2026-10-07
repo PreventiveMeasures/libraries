@@ -88,6 +88,17 @@ describe('getRepo', () => {
     for (const directory of ['../x', 'a/../b', 'a//b', 'a/./b', '.git/x', 'a/.GIT', 'a\u0000b', 'a\u0007b']) assert.equal(at(directory), undefined, JSON.stringify(directory))
   })
 
+  it("answers a declared root as `''`, and leaves the directory out where none is declared", () => {
+    const at = (directory) => getRepo({ repository: { url: 'https://github.com/acme/app', directory } }).directory
+    for (const directory of ['', '.', './', '/', '/.', './.', '//', '.\\']) assert.equal(at(directory), '', JSON.stringify(directory))
+    for (const directory of [undefined, null, 42]) assert.equal(at(directory), undefined, `${directory}: unknown, not the root`)
+    assert.deepEqual(getRepo({ repository: 'github:acme/app' }), { github: 'acme/app', url: 'https://github.com/acme/app' })
+    // Declared, the root holds over a homepage naming a subdirectory.
+    const homepage = 'https://github.com/acme/app/tree/main/packages/x'
+    assert.equal(getRepo({ repository: { url: 'https://github.com/acme/app', directory: './' }, homepage }).directory, '')
+    assert.equal(getRepo({ repository: { url: 'https://github.com/acme/app' }, homepage }).directory, 'packages/x')
+  })
+
   it('answers the directory with the repo, never without it', () => {
     assert.deepEqual(getRepo({ repository: { type: 'git', url: 'git+https://github.com/babel/babel.git', directory: 'packages/babel-core' } }), { github: 'babel/babel', directory: 'packages/babel-core', url: 'https://github.com/babel/babel' })
     assert.deepEqual(getRepo({ repository: { url: 'https://gitlab.com/acme/app.git', directory: 'packages/x' } }), {})

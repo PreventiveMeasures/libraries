@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { assertNames, assertPackageName, assertion, isRepo } from '../args.js'
+import { assertNames, assertPackageName, assertion, isRepo, optional } from '../args.js'
 import { readRecord, writeRecord } from '../cache.js'
 import { isNotFound, recover } from '../http.js'
 import { assertRepoDirectory, getRepo, isRepoDirectory } from '../package.js'
@@ -12,8 +12,9 @@ const CONCURRENCY = 8
 // Stamped on each entry, and raised when getRepo would answer differently:
 // 2 is `repository` taking precedence over `bugs`; 3 the shorthand dropping
 // a `.git`, URLs read past whitespace, and `repository.directory`'s `\` read
-// as `/`.
-const VERSION = 3
+// as `/`; 4 a declared root answered as `''`, and no directory declared left
+// out (unknown) rather than read as the root.
+const VERSION = 4
 
 // A slug a lookup gives: getRepo answers no repo ending in `.git`, the
 // suffix it drops (withoutDotGit; `.GIT` it keeps, and so does this).
@@ -33,23 +34,23 @@ export async function getGitHub(name) {
 
 // An entry under another VERSION was resolved by other rules, and may
 // name a repo getRepo no longer would (a stale tracker's, or a shorthand's
-// with its `.git`): a miss, as is one naming a repo or a directory no
-// lookup gives, or without `directory`, which would read as a package at
-// the repo root.
+// with its `.git`, or the root where a package declared no directory): a
+// miss, as is one naming a repo or a directory no lookup gives. One without
+// `directory` is a package whose place in its repo is unknown.
 export async function readPackageRepoCache(name) {
   assertPackageName('readPackageRepoCache', 'name', name)
   const entry = await readRecord(DIR, name)
-  if (entry?.v !== VERSION || !isLookedUpRepo(entry.github) || !isRepoDirectory(entry.directory)) return null
-  return { github: entry.github, ...(entry.directory && { directory: entry.directory }) }
+  if (entry?.v !== VERSION || !isLookedUpRepo(entry.github) || (entry.directory !== undefined && !isRepoDirectory(entry.directory))) return null
+  return { github: entry.github, ...(entry.directory !== undefined && { directory: entry.directory }) }
 }
 
 // Only resolved repos are cached: a 404, a rate limit and a package with
 // no repo link fail alike.
-export async function writePackageRepoCache(name, github, directory = '') {
+export async function writePackageRepoCache(name, github, directory) {
   assertPackageName('writePackageRepoCache', 'name', name)
   assertLookedUpRepo('writePackageRepoCache', 'github', github)
-  assertRepoDirectory('writePackageRepoCache', 'directory', directory)
-  return await writeRecord(DIR, name, { v: VERSION, github, directory })
+  optional(assertRepoDirectory)('writePackageRepoCache', 'directory', directory)
+  return await writeRecord(DIR, name, { v: VERSION, github, ...(directory !== undefined && { directory }) })
 }
 
 export async function resolvePackageRepos(packageNames, options = {}) {
@@ -66,5 +67,5 @@ export async function lookUpPackageRepo(name) {
   const { github, directory } = await fetchRepo('lookUpPackageRepo', name).catch(recover(isNotFound, {}))
   if (!github) return null
   await writePackageRepoCache(name, github, directory)
-  return { github, ...(directory && { directory }) }
+  return { github, ...(directory !== undefined && { directory }) }
 }
