@@ -67,19 +67,23 @@ export async function getVersionDocument(method, name, version, cache) {
   return json && await keepDocument(method, name, version, json, cache)
 }
 
-// A version's document as getDist without an integrity has it: fetched, and
-// kept as that keeps it, beside its dist.
-export async function fetchVersion(method, name, version, cache) {
+// A version's document, and its dist checked. The cache never supplies a
+// dist: a kept document is read only for a caller that already has one,
+// `given` (checkedDist), and answers with no request where its tarball and
+// integrity are the given one's. Else, or without one, the registry is
+// asked, and its document, kept in place of any other, throws where they
+// are not.
+export async function getVersion(method, name, version, given, cache) {
+  if (given !== undefined) {
+    const kept = await keptDocument(method, name, version, cache)
+    const dist = kept && distOf(method, name, version, kept)
+    if (dist && dist.integrity === given.integrity && dist.tarball === given.tarball) return { dist, json: kept }
+  }
   const json = await fetchDocument(method, name, version, cache)
-  return { dist: distOf(method, name, version, json), json }
-}
-
-// A version's dist, from its document. The cache never supplies an
-// integrity: a kept document is read only for a caller that already has
-// the `integrity`, and one with another integrity throws, kept or fetched.
-export async function getDist(method, name, version, integrity, cache) {
-  const kept = integrity === undefined ? undefined : await keptDocument(method, name, version, cache)
-  const dist = distOf(method, name, version, kept ?? await fetchDocument(method, name, version, cache))
-  assert.ok(integrity === undefined || dist.integrity === integrity, `${method}: ${name}@${version} is ${dist.integrity} ${kept ? 'in the cache' : 'on the registry'}, not ${integrity}`)
-  return dist
+  const dist = distOf(method, name, version, json)
+  if (given !== undefined) {
+    assert.ok(dist.integrity === given.integrity, `${method}: ${name}@${version} is ${dist.integrity} on the registry, not ${given.integrity}`)
+    assert.ok(dist.tarball === given.tarball, `${method}: ${name}@${version} is at ${dist.tarball} on the registry, not ${given.tarball}`)
+  }
+  return { dist, json }
 }

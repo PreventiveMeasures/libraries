@@ -234,12 +234,42 @@ describe('the version document cache', () => {
     assert.deepEqual(calls, [])
   })
 
-  it('throws where the integrity given is not the one kept, asking nothing', async () => {
+  it("asks the registry where the integrity given is not the one kept, and throws on the registry's", async () => {
     serveWhole()
     await getMeta('pkg', '1.0.0')
+    const calls = serveWhole()
+    await assert.rejects(verifyDist('pkg', '1.0.0', { ...DIST, integrity: OTHER }), (err) => err.message === `verifyDist: pkg@1.0.0 is ${sri(BYTES)} on the registry, not ${OTHER}`)
+    assert.deepEqual(calls, [DOC])
+  })
+
+  it('answers getMeta given a dist from the document kept, with no request', async () => {
+    stubRegistry({ fields: { ...FIELDS, gitHead: 'a'.repeat(40), homepage: 'https://example.com/pkg' }, dist: { shasum: 'abc', fileCount: 3 } })
+    const meta = await getMeta('pkg', '1.0.0')
     const calls = offline()
-    await assert.rejects(verifyDist('pkg', '1.0.0', { ...DIST, integrity: OTHER }), (err) => err.message === `verifyDist: pkg@1.0.0 is ${sri(BYTES)} in the cache, not ${OTHER}`)
+    assert.deepEqual(await getMeta('pkg', '1.0.0', { dist: DIST }), meta)
     assert.deepEqual(calls, [])
+  })
+
+  it('fetches and keeps the document for getMeta given a dist where none is kept, then answers from it', async () => {
+    let calls = serveWhole()
+    assert.deepEqual((await getMeta('pkg', '1.0.0', { dist: DIST })).dist, DIST)
+    assert.deepEqual(calls, [DOC])
+    assert.deepEqual(JSON.parse(gunzipSync(await readFile(FILE))), WHOLE)
+    calls = offline()
+    await getMeta('pkg', '1.0.0', { dist: DIST })
+    assert.deepEqual(calls, [])
+  })
+
+  it('passes over a kept document whose dist is not the one getMeta is given, keeping the registry\'s, which throws where it is not either', async () => {
+    const evil = new Uint8Array([0x1f, 0x8b, 0x66, 0x66])
+    await keep(compress({ ...WHOLE, dist: { ...WHOLE.dist, integrity: sri(evil) } }))
+    let calls = serveWhole()
+    assert.deepEqual((await getMeta('pkg', '1.0.0', { dist: DIST })).dist, DIST)
+    assert.deepEqual(calls, [DOC])
+    assert.deepEqual(JSON.parse(gunzipSync(await readFile(FILE))), WHOLE, 'the registry\'s kept in its place')
+    calls = serveWhole()
+    await assert.rejects(getMeta('pkg', '1.0.0', { dist: { ...DIST, integrity: OTHER } }), (err) => err.message === `getMeta: pkg@1.0.0 is ${sri(BYTES)} on the registry, not ${OTHER}`)
+    assert.deepEqual(calls, [DOC])
   })
 
   it("keeps the registry's document where it has another integrity, and throws", async () => {
@@ -329,8 +359,10 @@ describe("a caller's store, and cache false", () => {
     calls = offline()
     assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0', DIST, { cache: store })), BYTES)
     await verifyDist('pkg', '1.0.0', DIST, { cache: store })
-    await assert.rejects(verifyDist('pkg', '1.0.0', { ...DIST, integrity: OTHER }, { cache: store }), (err) => err.message === `verifyDist: pkg@1.0.0 is ${sri(BYTES)} in the cache, not ${OTHER}`)
     assert.deepEqual(calls, [])
+    calls = stubRegistry()
+    await assert.rejects(verifyDist('pkg', '1.0.0', { ...DIST, integrity: OTHER }, { cache: store }), (err) => err.message === `verifyDist: pkg@1.0.0 is ${sri(BYTES)} on the registry, not ${OTHER}`)
+    assert.deepEqual(calls, [DOC])
     store.log.length = 0
     stubRegistry()
     await getMeta('pkg', '1.0.0', { cache: store })
@@ -382,6 +414,16 @@ describe("a caller's store, and cache false", () => {
     assert.deepEqual([calls, store.log], [[], []])
   })
 
+  it('answers getMeta given a dist from the store, writing nothing', async () => {
+    const store = byteStore()
+    stubRegistry()
+    await getMeta('pkg', '1.0.0', { cache: store })
+    store.log.length = 0
+    const calls = offline()
+    assert.deepEqual((await getMeta('pkg', '1.0.0', { dist: DIST, cache: store })).dist, DIST)
+    assert.deepEqual([calls, store.log], [[], [['read', 'npm/versions', 'pkg@1.0.0']]])
+  })
+
   it("passes on the store's own failures", async () => {
     stubRegistry()
     const failing = (what) => () => Promise.reject(new Error(`${what} failed`))
@@ -417,6 +459,16 @@ describe("a caller's store, and cache false", () => {
       await assert.rejects(getTarball('pkg', '1.0.0', undefined, { cache }), error, String(cache))
     }
     await assert.rejects(getMeta('pkg', '1.0.0', { store: false }), /getMeta: unknown option store/u)
+    for (const [dist, error] of [
+      [null, /getMeta: dist must be an options object/u],
+      [DIST.integrity, /getMeta: dist must be an options object/u],
+      [{ integrity: DIST.integrity }, /getMeta: dist\.tarball must be/u],
+      [{ ...DIST, integrity: sri(BYTES, 'sha1') }, /getMeta: dist\.integrity must be "sha512-"/u],
+      [{ ...DIST, tarball: 'https://evil.example/pkg/-/pkg-1.0.0.tgz' }, /getMeta: dist\.tarball must be https:\/\/registry\.npmjs\.org\/pkg\/-\/pkg-1\.0\.0\.tgz/u],
+      [{ ...DIST, shasum: 'abc' }, /getMeta: unknown option dist\.shasum/u],
+    ]) {
+      await assert.rejects(getMeta('pkg', '1.0.0', { dist }), error, JSON.stringify(dist))
+    }
     await assert.rejects(getTarball('pkg', '1.0.0', undefined, null), /getTarball: options must be an options object/u)
     assert.deepEqual(calls, [])
   })
