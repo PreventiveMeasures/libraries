@@ -29,15 +29,16 @@ export interface Package {
 
 // A store of the caller's, a database's say, for what would otherwise be
 // kept in setCacheDir's cache (npm.js): `read` answers the value last
-// written under `key`, or null or undefined for none. Keys are
-// `<kind>/<name>`, `github/advisories/owner/name` for a repository's
-// listing, and values plain JSON data, which `read` may answer as written
-// or as a copy. Whatever it answers is checked as a cached file is: one
-// malformed, stale or kept differently is a miss. A rejection from
-// either is the call's. It is trusted as setCacheDir's directory is.
+// written under that `type` and `key`, or null or undefined for none. A
+// `type` is what is kept, `github/advisories` for a repository's listing,
+// and a `key` which one, the repository's `owner/name` in lowercase there;
+// values are plain JSON data, which `read` may answer as written or as a
+// copy. Whatever it answers is checked as a cached file is: one malformed,
+// stale or kept differently is a miss. A rejection from either is the
+// call's. It is trusted as setCacheDir's directory is.
 export interface CacheStore {
-  read(key: string): Promise<unknown>
-  write(key: string, value: unknown): Promise<void>
+  read(type: string, key: string): Promise<unknown>
+  write(type: string, key: string, value: unknown): Promise<void>
 }
 
 export interface AdvisoryOptions {
