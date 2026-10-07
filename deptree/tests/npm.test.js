@@ -5,7 +5,7 @@ import { pack } from '@preventive/archive/tar.js'
 import { Vfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, buildNpmTree, findNpmWorkspaces } from '../npm.js'
 import { recalculates } from '../src/npm/manifests.js'
-import { ABOUT, memoryStore, sri, stubRegistry, tarball, url } from './registry.js'
+import { ABOUT, memoryStore, rawTar, sri, stubRegistry, tarball, url } from './registry.js'
 
 // A small project whose lockfile npm's own Arborist wrote, and whose tree
 // real npm 11.12.1 and 10.9.9 installed with `npm ci --ignore-scripts` as
@@ -420,6 +420,51 @@ describe('the packages', () => {
     lock.packages['node_modules/b'].integrity = sri(split)
     stubRegistry([...TARBALLS.filter(({ name }) => name !== 'b'), { name: 'b', version: '1.0.0', bytes: split, integrity: sri(split) }])
     await refuses(given({ lock }), 'the tarball has entries under more than one directory', 'packages["node_modules/b"]')
+  })
+
+  // A pax header and the entry it is for, as npm's tar packs it: `size`
+  // is the header's, the pax size the data's.
+  const record = (key, value) => {
+    const rest = ` ${key}=${value}\n`
+    let length = rest.length + 1
+    while (`${length}${rest}`.length !== length) length++
+    return `${length}${rest}`
+  }
+  const MANIFEST = '{"name":"b","version":"1.0.0"}'
+  const paxed = (name, data, { size, path = true } = {}) => [
+    { name: `PaxHeader/${name}`, type: 'x', data: `${path ? record('path', name) : ''}${record('size', data.length)}` },
+    { name, data, size },
+  ]
+  const rawOne = async (entries) => {
+    const bytes = await compress(rawTar(entries), 'gzip')
+    const lock = LOCK()
+    lock.packages['node_modules/b'].integrity = sri(bytes)
+    stubRegistry([...TARBALLS.filter(({ name }) => name !== 'b'), { name: 'b', version: '1.0.0', bytes, integrity: sri(bytes) }])
+    return given({ lock })
+  }
+
+  // As every tar release npm bundles reads it, from 6.2.1 to 7.5.22.
+  it('a pax size, over the header\'s', async () => {
+    const options = await rawOne([...paxed('package/package.json', MANIFEST), ...paxed('package/index.js', 'b', { size: 0 })])
+    assert.deepEqual(listing((await buildNpmTree(options)).vfs).filter((line) => line.startsWith('node_modules/b/')), [
+      'node_modules/b/ 755',
+      'node_modules/b/index.js 644 "b"',
+      `node_modules/b/package.json 644 ${JSON.stringify(MANIFEST)}`,
+    ])
+  })
+
+  // tar 7.5.15 and before read the header between by the pax size, and the
+  // last block of index.js as a header.
+  it('refused: a pax size ahead of a long name, a long link or a global header', async () => {
+    const between = [
+      [{ name: '././@LongLink', type: 'L', data: 'package/index.js\0' }, false],
+      [{ name: '././@LongLink', type: 'K', data: '\0' }, true],
+      [{ name: 'PaxHeader/global', type: 'g', data: '' }, true],
+    ]
+    for (const [header, path] of between) {
+      const [pax, file] = paxed('package/index.js', 'b'.repeat(600), { path })
+      await refuses(await rawOne([...paxed('package/package.json', MANIFEST), pax, header, file]), '"package/index.js" has a pax size ahead of another extended header, which tar\'s releases read otherwise', 'packages["node_modules/b"]')
+    }
   })
 
   it('refused: bins npm fails on, or does not leave as here', async () => {
