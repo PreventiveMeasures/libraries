@@ -236,6 +236,12 @@ describe('readSide', () => {
     assert.deepEqual(difference(readSide(projectView(root), dirs), tree), [], 'a folder not there is left out, and links are not followed')
   })
 
+  it('reads a mode on disk with its setuid bit', () => {
+    const tree = side({ node_modules: dir, 'node_modules/a.js': file('a', 0o755) })
+    writeDisk(join(root, 'setuid'), side({ 'node_modules/a.js': file('a', 0o4755) }))
+    assert.deepEqual(marks(difference(readSide(projectView(join(root, 'setuid')), ['node_modules']), tree)), ['~ node_modules/a.js (mode 4755 on disk, 755 in the tree)'])
+  })
+
   it('takes a directory deptree never builds as one entry, not entered', () => {
     const vfs = createVfs({
       'node_modules/.bin/a': { type: 'symlink', target: '../a/cli.js' },

@@ -13,14 +13,15 @@ import { typeOf } from '../src/project.js'
 const kindOf = (st) => (st.isSymbolicLink() ? 'symlink' : st.isDirectory() ? 'directory' : st.isFile() ? 'file' : 'other')
 
 // The project's directory as deptree reads one, by paths from `/`, never
-// above it, and its names in code point order, as a Vfs lists them.
+// above it, its names in code point order, as a Vfs lists them, and its
+// modes with the setuid, setgid and sticky bits, as a Vfs keeps them.
 export function projectView(root) {
   const at = (path) => join(root, normalize(`/${path}`))
   return {
     readdir: (path) => readdirSync(at(path)).sort(compareNames),
     lstat(path) {
       const st = lstatSync(at(path))
-      return { type: kindOf(st), mode: st.mode & 0o777 }
+      return { type: kindOf(st), mode: st.mode & 0o7777 }
     },
     stat: (path) => ({ type: kindOf(statSync(at(path))) }),
     readFile: (path) => readFileSync(at(path)),
@@ -42,7 +43,7 @@ export function readSide(view, dirs) {
   while (stack.length > 0) {
     const path = stack.pop()
     const { type, mode } = view.lstat(path)
-    const entry = { type, mode: mode & 0o777 }
+    const entry = { type, mode }
     if (type === 'file') entry.data = view.readFile(path)
     if (type === 'symlink') entry.target = view.readlink(path)
     entries.set(path, entry)
