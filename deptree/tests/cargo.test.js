@@ -12,15 +12,15 @@ const CRATES_IO = 'registry+https://github.com/rust-lang/crates.io-index'
 const encoder = new TextEncoder()
 
 // As cargo package normalizes a manifest, with `extra` after it.
-const published = (name, version, extra = '') => `[package]\nedition = "2021"\nname = "${name}"\nversion = "${version}"\nbuild = false\nautobins = false\nautoexamples = false\nautotests = false\nautobenches = false\n\n[lib]\nname = "${name.replaceAll('-', '_')}"\npath = "src/lib.rs"\n${extra}`
+const published = (name, version, extra = '', packageKeys = '') => `[package]\nedition = "2021"\nname = "${name}"\nversion = "${version}"\n${packageKeys}build = false\nautobins = false\nautoexamples = false\nautotests = false\nautobenches = false\n\n[lib]\nname = "${name.replaceAll('-', '_')}"\npath = "src/lib.rs"\n${extra}`
 
 // A .crate as cargo package packs one, a GNU tar gzipped: every entry under
 // `<name>-<version>/`. `files` maps a path there to text, or to an entry's
 // fields; `entries` are entries as given, by their full names.
-async function crate(name, version, files = {}, { extra, entries = [] } = {}) {
+async function crate(name, version, files = {}, { extra, packageKeys, entries = [] } = {}) {
   const top = `${name}-${version}`
   const list = [
-    { name: `${top}/Cargo.toml`, data: encoder.encode(published(name, version, extra)) },
+    { name: `${top}/Cargo.toml`, data: encoder.encode(published(name, version, extra, packageKeys)) },
     { name: `${top}/src/lib.rs`, data: new Uint8Array() },
     ...Object.entries(files).map(([path, file]) => {
       const { data = '', ...fields } = typeof file === 'string' ? { data: file } : file
@@ -154,7 +154,17 @@ describe('buildCargoTree', () => {
     const { vfs, installed } = await build(crates)
     assert.deepEqual(vfs.readdir('/vendor').sort(), ['dup', 'dup-0.1.0', 'dup-0.2.0', 'leaf'])
     assert.equal(vfs.readText('/vendor/dup/Cargo.toml'), published('dup', '0.10.0-rc.1'))
-    assert.deepEqual(installed, crates.map((c, i) => ({ path: `vendor/${['dup-0.1.0', 'dup-0.2.0', 'dup', 'leaf'][i]}`, name: c.name, version: c.version, source: CRATES_IO, checksum: c.checksum, commit: undefined })))
+    assert.deepEqual(installed, crates.map((c, i) => ({ path: `vendor/${['dup-0.1.0', 'dup-0.2.0', 'dup', 'leaf'][i]}`, name: c.name, version: c.version, source: CRATES_IO, checksum: c.checksum, commit: undefined, repository: undefined, homepage: undefined })))
+  })
+
+  it('lists the repository and homepage its Cargo.toml gives', async () => {
+    const linksOf = async (packageKeys) => {
+      const { repository, homepage } = (await build([await crate('leaf', '1.0.0', {}, { packageKeys })])).installed[0]
+      return { repository, homepage }
+    }
+    assert.deepEqual(await linksOf('repository = "https://github.com/o/leaf"\nhomepage = "https://leaf.example"\n'), { repository: 'https://github.com/o/leaf', homepage: 'https://leaf.example' })
+    assert.deepEqual(await linksOf('repository = ""\n'), { repository: '', homepage: undefined })
+    assert.deepEqual(await linksOf(''), { repository: undefined, homepage: undefined })
   })
 
   it('lists the commit its .cargo_vcs_info.json names, where cargo found the checkout clean', async () => {

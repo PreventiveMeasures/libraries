@@ -130,8 +130,9 @@ export interface CargoTreeStats {
 // `checksum` the hex sha256 its .crate is held to; `commit` the commit its
 // .cargo_vcs_info.json names, as `cargo package` writes one where it packs
 // from a git checkout, where that is a full commit id and the checkout was
-// not dirty, and undefined elsewhere. It is the publisher's word, held to
-// no repository.
+// not dirty, and undefined elsewhere; `repository` and `homepage` those its
+// Cargo.toml's [package] gives, as cargo packed it, each undefined where it
+// gives none. All of it is the publisher's word, held to no repository.
 export interface CargoInstalled {
   path: string
   name: string
@@ -139,6 +140,8 @@ export interface CargoInstalled {
   source: string
   checksum: string
   commit: string | undefined
+  repository: string | undefined
+  homepage: string | undefined
 }
 
 // `vfs` is the one given, the tree mounted into it, or a new one.
