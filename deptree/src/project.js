@@ -1,6 +1,7 @@
 // The project, the lockfile's directory, as a Vfs or anything with its
 // methods, by paths from `/`; it is only read, and only where a builder says.
 
+import { utf8toString } from '@exodus/bytes/utf8.js'
 import { DeptreeError, quote } from './error.js'
 
 export function checkProject(project) {
@@ -19,13 +20,11 @@ export function typeOf(project, path, follow = true) {
   }
 }
 
-// A BOM is kept, as in text handed in, for the reader to drop as pnpm does.
-const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
-
-// `bytes` as text, refused with `detail` where they are not UTF-8.
+// `bytes` as text, refused with `detail` where they are not UTF-8. A BOM is
+// kept, as in text handed in, for the reader to drop as pnpm does.
 export function decodeUtf8(bytes, detail, where) {
   try {
-    return decoder.decode(bytes)
+    return utf8toString(bytes)
   } catch {
     throw new DeptreeError(detail, where)
   }

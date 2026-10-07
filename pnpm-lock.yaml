@@ -36,6 +36,9 @@ importers:
       '@chalker/queue':
         specifier: ^1.0.1
         version: 1.0.1
+      '@exodus/bytes':
+        specifier: ^1.16.0
+        version: 1.16.0
       '@preventive/archive':
         specifier: 1.0.0-beta.4
         version: link:../archive

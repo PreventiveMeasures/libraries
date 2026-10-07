@@ -3,15 +3,14 @@
 // and all, from the directory of the file it is in. Only `*`, `?` and `**`
 // are followed of glob syntax, as in minimatch.js.
 
+import { utf8fromStringLoose } from '@exodus/bytes/utf8.js'
 import { checkGlob, checkLength } from './minimatch.js'
 
 // What Rust's trim_end takes off: White_Space.
 const TRAILING = /[\t-\r \u0085\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]+$/u
 
-const encoder = new TextEncoder()
-
 // A path as its UTF-8 bytes, as globset matches it.
-export const bytesOf = (path) => encoder.encode(path)
+export const bytesOf = (path) => utf8fromStringLoose(path)
 
 const SLASH = 0x2F
 const NEWLINE = 0x0A

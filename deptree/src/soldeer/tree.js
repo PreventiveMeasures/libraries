@@ -1,5 +1,6 @@
 // The dependencies folder `soldeer install` makes from a soldeer.lock.
 
+import { utf8fromStringLoose } from '@exodus/bytes/utf8.js'
 import { parseSoldeerLockfile } from '@preventive/lockfile/soldeer.js'
 import { getZip } from '@preventive/upstream/soldeer.js'
 import { Vfs } from '@preventive/vfs'
@@ -17,8 +18,7 @@ const NAME = /^(?=.{3,100}$)[@\da-z][\da-z-]*[\da-z]$/u
 const VERSION = /^(?=.{1,128}$)[\dA-Za-z][\w.+-]*$/u
 // A folder sanitize_filename leaves as it is on Unix: none of the characters
 // it replaces, and at most 255 bytes, past which it cuts the name short.
-const encoder = new TextEncoder()
-const isKept = (folder) => !/[/?<>\\:*|"\p{Cc}]/u.test(folder) && encoder.encode(folder).length <= 255
+const isKept = (folder) => !/[/?<>\\:*|"\p{Cc}]/u.test(folder) && utf8fromStringLoose(folder).length <= 255
 
 const GITHUB = 'github must be a GitHub client from createClient, which a git dependency is fetched through'
 
