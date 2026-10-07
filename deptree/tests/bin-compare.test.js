@@ -43,7 +43,7 @@ function writeDisk(root, entries) {
 // The CLI with its caches and tokens under `home` alone, on any platform.
 const CLI = join(import.meta.dirname, '..', 'bin', 'deptree.js')
 function cli(home, args, { node = [], env = {} } = {}) {
-  const tokens = { NPM_TOKEN: undefined, GITHUB_TOKEN: undefined, GH_TOKEN: undefined, NPM_CONFIG_CACHE: undefined, CARGO_HOME: undefined, FORCE_COLOR: undefined }
+  const tokens = { PREVENTIVE_MEASURES_NPM_TOKEN: undefined, STASIS_NPM_TOKEN: undefined, NPM_TOKEN: undefined, GITHUB_TOKEN: undefined, GH_TOKEN: undefined, NPM_CONFIG_CACHE: undefined, CARGO_HOME: undefined, FORCE_COLOR: undefined }
   const caches = { HOME: home, XDG_CACHE_HOME: join(home, 'xdg'), LOCALAPPDATA: join(home, 'local'), npm_config_cache: join(home, 'cache'), NO_COLOR: '1' }
   const r = spawnSync(process.execPath, [...node, CLI, ...args], { env: { ...process.env, ...tokens, ...caches, ...env }, encoding: 'utf8', timeout: 30_000 })
   assert.equal(r.error, undefined)

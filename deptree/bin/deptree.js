@@ -36,9 +36,10 @@ disk holding nothing else. Exits 0 where the two are the same, 1 where
 they differ, 2 on trouble.
 
 Tarballs, zips and crates are kept in ${defaultCacheDir ?? 'no cache, as no home directory is known'}.
-A scoped package is fetched with NPM_TOKEN, else with a ~/.npmrc line of
-nothing but //registry.npmjs.org/:_authToken=npm_…; a Soldeer git
-dependency with GITHUB_TOKEN or GH_TOKEN, else anonymously.
+A scoped package is fetched with PREVENTIVE_MEASURES_NPM_TOKEN,
+STASIS_NPM_TOKEN or NPM_TOKEN, else with a ~/.npmrc line of nothing but
+//registry.npmjs.org/:_authToken=npm_…; a Soldeer git dependency with
+GITHUB_TOKEN or GH_TOKEN, else anonymously.
 
   --pnpm, --yarn, --npm, --soldeer, --cargo <version>
                      the one that installed: by default the one
