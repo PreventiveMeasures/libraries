@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 
 import { assertArgs, assertion, matches, show } from '../args.js'
 import { readJSON, writeJSON } from '../cache.js'
-import { NPM_REGISTRY, buildUrl } from '../http.js'
+import { NPM_REGISTRY, buildUrl, isNotFound, recover } from '../http.js'
 import { getDocument } from './registry.js'
 
 const DIR = 'npm/versions' // No expiry: the registry never takes a version twice, nor changes its dist.
@@ -48,17 +48,24 @@ async function keptDocument(method, name, version, cache) {
 
 // The registry's document, kept whole in `cache` once it is keepable; one
 // whose dist is refused is answered all the same.
-async function fetchDocument(method, name, version, cache) {
-  const json = await getDocument(method, name, version)
+async function keepDocument(method, name, version, json, cache) {
   assert.ok(json.version === version, `${method}: the registry answered for ${name}@${show(json.version)}, not ${name}@${version}`)
   if (isKeepable(method, name, version, json)) await writeJSON(DIR, `${name}@${version}`, json, cache)
   return json
 }
 
+const fetchDocument = async (method, name, version, cache) => await keepDocument(method, name, version, await getDocument(method, name, version), cache)
+
 // A version's document, kept or else fetched, for what is not an
 // integrity: a package's repo (advisories.js), as trusted as setCacheDir's
-// repo records are.
-export const getVersionDocument = async (method, name, version, cache) => await keptDocument(method, name, version, cache) ?? await fetchDocument(method, name, version, cache)
+// repo records are. Null where the registry does not have that version:
+// its 404 alone, never a failure of the cache's.
+export async function getVersionDocument(method, name, version, cache) {
+  const kept = await keptDocument(method, name, version, cache)
+  if (kept) return kept
+  const json = await getDocument(method, name, version).catch(recover(isNotFound, null))
+  return json && await keepDocument(method, name, version, json, cache)
+}
 
 // A version's dist, from its document. The cache never supplies an
 // integrity: a kept document is read only for a caller that already has

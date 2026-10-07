@@ -8,7 +8,7 @@ import { gunzipSync, gzipSync } from 'node:zlib'
 
 import { advisories } from '../advisories.js'
 import { createClient } from '../github.js'
-import { setCacheDir } from '../npm.js'
+import { HttpError, setCacheDir } from '../npm.js'
 import { mapStore } from './cache-store.js'
 
 // A file of its own, since the cache directory is process-wide.
@@ -273,6 +273,12 @@ describe("a caller's store", () => {
     stubUrls({ [OZ]: LIST })
     await assert.rejects(audit(undefined, { cache: { read: () => Promise.reject(new Error('read failed')), write: () => Promise.resolve() } }), /read failed/u)
     await assert.rejects(audit(undefined, { cache: { read: () => Promise.resolve(null), write: () => Promise.reject(new Error('write failed')) } }), /write failed/u)
+    // A store's 404 is its own failure, never a version the registry has not.
+    const gone = () => Promise.reject(new HttpError(404, 'store: gone'))
+    stubUrls(LOOKUPS)
+    await assert.rejects(npmAudit({ cache: { read: gone, write: () => Promise.resolve() } }), /store: gone/u)
+    stubUrls(LOOKUPS)
+    await assert.rejects(npmAudit({ cache: { read: () => Promise.resolve(), write: gone } }), /store: gone/u)
   })
 
   it('refuses what is neither false nor a store, before any request', async () => {

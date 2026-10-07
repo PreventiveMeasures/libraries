@@ -47,7 +47,7 @@ async function fetchSoldeerRepo(name) {
 // version's document, kept for good (getVersionDocument): null where the
 // registry does not have that version, or it names no GitHub repo.
 async function npmRepo(name, version, cache) {
-  const json = await getVersionDocument('advisories', name, version, cache).catch(recover(isNotFound, null))
+  const json = await getVersionDocument('advisories', name, version, cache)
   return (json && getRepo(json).github) ?? null
 }
 
