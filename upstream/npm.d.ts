@@ -38,7 +38,9 @@ export const defaultCacheDir: string | undefined
 // nothing less trusted than the caller can write, never a cache shared
 // with or restored from lower-trust jobs. Tarballs, crates (cargo.js), zips
 // (soldeer.js) and tree tarballs (github.js) don't rely on this, since
-// they are checked against their integrity on every call.
+// they are checked against their integrity on every call; and the version
+// documents kept here (getMeta) never supply an integrity, only confirm
+// one a caller gives (verifyDist).
 export function setCacheDir(dir?: string | false): void
 
 // A failed request: `status` is the HTTP status the registry answered
@@ -94,8 +96,11 @@ export interface PackageMeta {
   dist: Dist
 }
 
-// The registry's version document, refused unless it is for that name and
-// version and its dist is held to the rules above.
+// The registry's version document, fetched on every call, refused unless
+// it is for that name and version and its dist is held to the rules above.
+// Kept whole in setCacheDir's cache, compressed, and for good once it
+// passes, as the registry never takes a version twice: one refused is not
+// kept.
 export function getMeta(name: string, version: string): Promise<PackageMeta>
 
 // When the registry says each version of a package it lists was published,
@@ -105,14 +110,17 @@ export function getMeta(name: string, version: string): Promise<PackageMeta>
 // 2018-02-29, is left out. Refused unless the document is for that name.
 export function getPublishTimes(name: string): Promise<Map<string, string>>
 
-// Fetches the registry's dist for that version and throws unless its
-// integrity is the one given, as for a dist read off a lockfile.
+// Throws unless the integrity of that version is the one given, as for a
+// dist read off a lockfile: by the version document setCacheDir's cache
+// keeps, with no request, else by the registry's, kept then as getMeta
+// keeps it. Either with another integrity throws; one kept that is refused,
+// or is for another name or version, is passed over for the registry's.
 export function verifyDist(name: string, version: string, dist: Dist): Promise<void>
 
 // A published version's gzipped tarball, whole, in memory. Without `dist`,
-// the version document is fetched on every call, cached tarball or not;
-// with one, it is trusted as given and nothing but the tarball is asked
-// for. Either way the bytes are checked against `dist.integrity`, whether
+// the version document is fetched on every call, cached tarball or not,
+// and kept as getMeta keeps it; with one, it is trusted as given and
+// nothing but the tarball is asked for. Either way the bytes are checked against `dist.integrity`, whether
 // they were downloaded (before they are cached) or read from a cache.
 //
 // Other caches are read first, and never written: npm's (cacache under

@@ -4,6 +4,7 @@ import { mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { after, beforeEach, describe, it } from 'node:test'
+import { gzipSync } from 'node:zlib'
 
 // A file of its own, since defaultCacheDir is read from the environment
 // once, when the module is first imported: the environment is this file's
@@ -17,7 +18,7 @@ process.env.LOCALAPPDATA = join(LOCAL, 'local')
 process.env.npm_config_cache = join(LOCAL, 'npm-cache')
 delete process.env.NPM_CONFIG_CACHE
 
-const { cacheDirFor, defaultCacheDir, getTarball, setCacheDir } = await import('../npm.js')
+const { cacheDirFor, defaultCacheDir, getTarball, setCacheDir, verifyDist } = await import('../npm.js')
 const { readCache, writeCache } = await import('../src/cache.js')
 
 const realFetch = globalThis.fetch
@@ -157,6 +158,15 @@ describe('getTarball reads our caches, set or not', () => {
     assert.deepEqual(calls, [DOC])
   })
 
+  it('reads no version document from them unless set, even to confirm an integrity', async () => {
+    const OTHER = `sha512-${createHash('sha512').update(new Uint8Array([1])).digest('base64')}`
+    const kept = { name: 'pkg', version: '1.0.0', dist: { tarball: TARBALL, integrity: OTHER } }
+    await plant(join(defaultCacheDir, 'npm', 'versions', 'pkg@1.0.0.json.gz'), gzipSync(JSON.stringify(kept)))
+    const calls = stub()
+    await assert.rejects(verifyDist('pkg', '1.0.0', kept.dist), /verifyDist: pkg@1\.0\.0 is sha512-\S+ on the registry, not /u)
+    assert.deepEqual(calls, [DOC])
+  })
+
   it('writes nothing to them unless set', async () => {
     stub()
     await getTarball('pkg', '1.0.0')
@@ -164,5 +174,6 @@ describe('getTarball reads our caches, set or not', () => {
     setCacheDir()
     await getTarball('pkg', '1.0.0')
     assert.deepEqual(await readdir(join(defaultCacheDir, 'npm', 'tarballs')), ['pkg@1.0.0.tgz'])
+    assert.deepEqual(await readdir(join(defaultCacheDir, 'npm', 'versions')), ['pkg@1.0.0.json.gz'])
   })
 })

@@ -3,7 +3,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, beforeEach, describe, it } from 'node:test'
-import { brotliCompressSync, brotliDecompressSync, constants as zlib } from 'node:zlib'
+import { gunzipSync, gzipSync } from 'node:zlib'
 
 import { advisories } from '../advisories.js'
 import { createClient } from '../github.js'
@@ -13,9 +13,8 @@ import { setCacheDir } from '../npm.js'
 
 const dir = await mkdtemp(join(tmpdir(), 'upstream-advisories-cache-'))
 const LISTINGS = join(dir, 'github', 'advisories')
-const FILE = join(LISTINGS, 'openzeppelin+openzeppelin-contracts.json.br')
-const QUALITY_9 = { params: { [zlib.BROTLI_PARAM_QUALITY]: 9 } }
-const readEntry = async () => JSON.parse(brotliDecompressSync(await readFile(FILE)))
+const FILE = join(LISTINGS, 'openzeppelin+openzeppelin-contracts.json.gz')
+const readEntry = async () => JSON.parse(gunzipSync(await readFile(FILE)))
 const MINUTE = 60 * 1000
 const realFetch = globalThis.fetch
 
@@ -79,11 +78,11 @@ describe("a repository's listing, through the cache", () => {
     assert.deepEqual(calls, [])
     assert.equal(fresh[0].details, 'Details of GHSA-aaaa-aaaa-aaaa.')
     // Only what rows are made from: no withdrawn advisory, no author.
-    assert.deepEqual(await readdir(LISTINGS), ['openzeppelin+openzeppelin-contracts.json.br'])
+    assert.deepEqual(await readdir(LISTINGS), ['openzeppelin+openzeppelin-contracts.json.gz'])
     const entry = await readEntry()
-    // Brotli's output is deterministic: these are the bytes of quality 9.
-    assert.deepEqual(await readFile(FILE), brotliCompressSync(JSON.stringify(entry), QUALITY_9))
-    await writeFile(FILE, brotliCompressSync(JSON.stringify({ ...entry, at: Date.now() - 89 * MINUTE }), QUALITY_9))
+    // gzip's output is deterministic: these are the bytes of its default level.
+    assert.deepEqual(await readFile(FILE), gzipSync(JSON.stringify(entry)))
+    await writeFile(FILE, gzipSync(JSON.stringify({ ...entry, at: Date.now() - 89 * MINUTE })))
     assert.deepEqual(await audit(), fresh.map((row) => Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'details'))))
     assert.deepEqual(calls, [], 'still fresh at 89 minutes')
     assert.deepEqual({ ...entry, at: 0 }, {
@@ -107,21 +106,26 @@ describe("a repository's listing, through the cache", () => {
     assert.equal(found[0].url, 'https://github.com/openzeppelin/OpenZeppelin-Contracts/security/advisories/GHSA-aaaa-aaaa-aaaa')
   })
 
-  it('asks again past 90 minutes, for an entry dated in the future, kept differently, or not brotli', async () => {
+  it('asks again past 90 minutes, for an entry dated in the future, kept differently, or not gzip, cut short or damaged', async () => {
     stubUrls({ [OZ]: LIST })
     await audit()
     const entry = await readEntry()
-    const brotli = (value) => brotliCompressSync(JSON.stringify(value), QUALITY_9)
+    const gzip = (value) => gzipSync(JSON.stringify(value))
+    // Its CRC-32 a bit off: what decodes is the entry as it was, and the
+    // file a miss all the same.
+    const damaged = gzip(entry)
+    damaged[damaged.length - 8] ^= 1
     for (const [i, stale] of [
-      brotli({ ...entry, at: Date.now() - 91 * MINUTE }),
-      brotli({ ...entry, at: Date.now() + 60_000 }),
-      brotli({ ...entry, v: 0 }),
-      brotli({ ...entry, name: 'acme/other' }),
-      brotli({ ...entry, advisories: [{ ...entry.advisories[0], ranges: [{ range: 42 }] }] }),
-      brotli({ ...entry, advisories: [{ ...entry.advisories[0], description: 42 }] }),
-      brotli({ ...entry, advisories: {} }),
+      gzip({ ...entry, at: Date.now() - 91 * MINUTE }),
+      gzip({ ...entry, at: Date.now() + 60_000 }),
+      gzip({ ...entry, v: 0 }),
+      gzip({ ...entry, name: 'acme/other' }),
+      gzip({ ...entry, advisories: [{ ...entry.advisories[0], ranges: [{ range: 42 }] }] }),
+      gzip({ ...entry, advisories: [{ ...entry.advisories[0], description: 42 }] }),
+      gzip({ ...entry, advisories: {} }),
       JSON.stringify(entry),
-      brotli(entry).subarray(0, 20),
+      gzip(entry).subarray(0, 20),
+      damaged,
     ].entries()) {
       await writeFile(FILE, stale)
       const calls = stubUrls({ [OZ]: [] })
