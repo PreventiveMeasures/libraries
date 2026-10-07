@@ -32,7 +32,7 @@ export const defaultCacheDir: string | undefined
 // cache: every read of it misses and every write is skipped. getTarball
 // reads ours all the same, set or not.
 //
-// The directory is trusted: a package's repo, and for an hour a
+// The directory is trusted: a package's repo, and for 90 minutes a
 // repository's published advisories (advisories.js), are answered from it
 // as they were written, with no request. Point it only at storage that
 // nothing less trusted than the caller can write, never a cache shared

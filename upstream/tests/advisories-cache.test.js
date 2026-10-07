@@ -16,7 +16,7 @@ const LISTINGS = join(dir, 'github', 'advisories')
 const FILE = join(LISTINGS, 'openzeppelin+openzeppelin-contracts.json.br')
 const QUALITY_9 = { params: { [zlib.BROTLI_PARAM_QUALITY]: 9 } }
 const readEntry = async () => JSON.parse(brotliDecompressSync(await readFile(FILE)))
-const HOUR = 60 * 60 * 1000
+const MINUTE = 60 * 1000
 const realFetch = globalThis.fetch
 
 beforeEach(async () => {
@@ -69,7 +69,7 @@ function stubUrls(answers) {
 const audit = (name = 'OpenZeppelin/openzeppelin-contracts', options = {}) => advisories([{ ecosystem: 'github', name, versions: ['4.9.0'] }], { github, ...options })
 
 describe("a repository's listing, through the cache", () => {
-  it('is kept for an hour, digested, and answers as GitHub did, details and all', async () => {
+  it('is kept for 90 minutes, digested, and answers as GitHub did, details and all', async () => {
     let calls = stubUrls({ [OZ]: LIST })
     const fresh = await audit(undefined, { details: true })
     assert.deepEqual(calls, [OZ])
@@ -83,6 +83,9 @@ describe("a repository's listing, through the cache", () => {
     const entry = await readEntry()
     // Brotli's output is deterministic: these are the bytes of quality 9.
     assert.deepEqual(await readFile(FILE), brotliCompressSync(JSON.stringify(entry), QUALITY_9))
+    await writeFile(FILE, brotliCompressSync(JSON.stringify({ ...entry, at: Date.now() - 89 * MINUTE }), QUALITY_9))
+    assert.deepEqual(await audit(), fresh.map((row) => Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'details'))))
+    assert.deepEqual(calls, [], 'still fresh at 89 minutes')
     assert.deepEqual({ ...entry, at: 0 }, {
       at: 0,
       name: 'openzeppelin/openzeppelin-contracts',
@@ -104,13 +107,13 @@ describe("a repository's listing, through the cache", () => {
     assert.equal(found[0].url, 'https://github.com/openzeppelin/OpenZeppelin-Contracts/security/advisories/GHSA-aaaa-aaaa-aaaa')
   })
 
-  it('asks again past an hour, for an entry dated in the future, kept differently, or not brotli', async () => {
+  it('asks again past 90 minutes, for an entry dated in the future, kept differently, or not brotli', async () => {
     stubUrls({ [OZ]: LIST })
     await audit()
     const entry = await readEntry()
     const brotli = (value) => brotliCompressSync(JSON.stringify(value), QUALITY_9)
     for (const [i, stale] of [
-      brotli({ ...entry, at: Date.now() - HOUR - 60_000 }),
+      brotli({ ...entry, at: Date.now() - 91 * MINUTE }),
       brotli({ ...entry, at: Date.now() + 60_000 }),
       brotli({ ...entry, v: 0 }),
       brotli({ ...entry, name: 'acme/other' }),
@@ -198,7 +201,7 @@ describe("a caller's store", () => {
     const key = 'github/advisories/openzeppelin/openzeppelin-contracts'
     const kept = { ghsa: 'GHSA-aaaa-aaaa-aaaa', title: 'Advisory', ranges: [] }
     const entry = (at, list) => ({ at, name: 'openzeppelin/openzeppelin-contracts', v: 1, advisories: list })
-    for (const stored of [null, 'text', entry(Date.now() - 2 * HOUR, []), entry(Date.now(), [{ ...kept, description: 42 }])]) {
+    for (const stored of [null, 'text', entry(Date.now() - 91 * MINUTE, []), entry(Date.now(), [{ ...kept, description: 42 }])]) {
       store.entries.set(key, JSON.stringify(stored))
       const calls = stubUrls({ [OZ]: [] })
       assert.deepEqual(await audit(undefined, { cache: store }), [])

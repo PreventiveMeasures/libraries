@@ -11,8 +11,8 @@ import { soldeerRepos } from './repos.js'
 const REPOS_AT_ONCE = 4
 const DIR = 'github/advisories'
 // A maintainer publishes one whenever they are ready, and seeing it before
-// GitHub reviews it is what a repository is asked for: an hour, not a month.
-const LISTING_TTL_MS = 60 * 60 * 1000
+// GitHub reviews it is what a repository is asked for: 90 minutes, not a month.
+const LISTING_TTL_MS = 90 * 60 * 1000
 // Stamped on each entry, and raised when a listing is kept differently.
 const VERSION = 1
 
