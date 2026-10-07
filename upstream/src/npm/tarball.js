@@ -3,7 +3,7 @@ import { Buffer } from 'node:buffer'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import { assertArgs, assertPackage, assertPackageName, assertion, matches, show } from '../args.js'
+import { assertArgs, assertPackage, assertPackageName, assertion, isPlainObject, matches, show } from '../args.js'
 import { verifiedDownload } from '../download.js'
 import { NPM_REGISTRY, buildUrl } from '../http.js'
 import { getDocument, withNpmToken } from './registry.js'
@@ -60,7 +60,7 @@ export async function getMeta(name, version) {
 
 // Only the whole package's document has `time`: megabytes for some.
 const PUBLISHED = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d{1,3}))?Z$/u
-const record = (value) => (typeof value === 'object' && value !== null && !Array.isArray(value) ? value : {})
+const record = (value) => (isPlainObject(value) ? value : {})
 
 // A time toISOString writes back as given, its milliseconds padded: none
 // Date.parse moves, as it moves 2018-02-29 to March.
@@ -75,9 +75,9 @@ function readTime(value) {
 export async function getPublishTimes(name) {
   assertPackageName('getPublishTimes', 'name', name)
   const json = await getDocument('getPublishTimes', name)
-  const [versions, time] = [record(json.versions), record(json.time)]
+  const time = record(json.time)
   const times = new Map()
-  for (const version of Object.keys(versions)) {
+  for (const version of Object.keys(record(json.versions))) {
     const at = readTime(Object.hasOwn(time, version) ? time[version] : undefined)
     if (at !== undefined) times.set(version, at)
   }

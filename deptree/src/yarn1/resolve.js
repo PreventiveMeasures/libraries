@@ -131,6 +131,11 @@ class Resolver {
     return this.rules.find((rule) => rule.name === name && matchesGlob(rule.glob, path))
   }
 
+  // The package a request of `name` and `range` finds resolved already.
+  resolvedOf(name, range, info) {
+    return info.kind === 'directory' ? this.copyOf(name, info.dir) : this.exactMatch(name, validRange(range) ? info.version : range)
+  }
+
   exactMatch(name, version) {
     return this.byName.get(name)?.map((pattern) => this.patterns.get(pattern)).find((ref) => ref.version === version)
   }
@@ -141,8 +146,7 @@ class Resolver {
   // the last of which its pattern names.
   check(request, info) {
     const { name, range } = splitPattern(request.pattern)
-    const found = info.kind === 'directory' ? this.copyOf(name, info.dir) : this.exactMatch(name, validRange(range) ? info.version : range)
-    if (found !== undefined) {
+    if (this.resolvedOf(name, range, info) !== undefined) {
       this.delayed.push(request)
       return []
     }
@@ -194,25 +198,22 @@ class Resolver {
     const names = new Set()
     const seen = new Set()
     const queue = [request]
-    while (queue.length > 0) {
-      const next = queue.pop()
-      if (seen.has(next.pattern)) continue
-      seen.add(next.pattern)
-      const { name, range } = splitPattern(next.pattern)
-      if (this.rules.some((rule) => rule.name === name)) return undefined
-      let deps, info
-      try {
-        info = this.infoOf(next)
-        deps = asked(info, quote(next.pattern))
-      } catch (error) {
-        if (error instanceof DeptreeError) return undefined
-        throw error
+    try {
+      while (queue.length > 0) {
+        const next = queue.pop()
+        if (seen.has(next.pattern)) continue
+        seen.add(next.pattern)
+        const { name, range } = splitPattern(next.pattern)
+        if (this.rules.some((rule) => rule.name === name)) return undefined
+        const info = this.infoOf(next)
+        const deps = asked(info, quote(next.pattern))
+        if (info.kind === 'directory') return undefined
+        names.add(name).add(info.name)
+        if (this.resolvedOf(name, range, info) === undefined) queue.push(...deps)
       }
-      if (info.kind === 'directory') return undefined
-      names.add(name).add(info.name)
-      if (this.exactMatch(name, validRange(range) ? info.version : range) !== undefined) continue
-      const parentNames = [...next.parentNames ?? [], name]
-      for (const dep of deps) queue.push({ pattern: dep.pattern, parentNames })
+    } catch (error) {
+      if (error instanceof DeptreeError) return undefined
+      throw error
     }
     return names
   }
@@ -225,7 +226,7 @@ class Resolver {
     const taken = new Set()
     for (const { request } of waiting) {
       const names = this.namesOf(request)
-      if (names === undefined || [...names].some((name) => taken.has(name))) return false
+      if (names === undefined || !names.isDisjointFrom(taken)) return false
       for (const name of names) taken.add(name)
     }
     return true

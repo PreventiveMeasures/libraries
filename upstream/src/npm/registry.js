@@ -14,8 +14,8 @@ export function withNpmToken(name, url, options = {}) {
 
 // A version's document, or with no `spec` the whole package's, every
 // version's and `time`.
-export async function getDocument(method, name, spec) {
-  const url = buildUrl(NPM_REGISTRY, [...name.split('/'), ...spec === undefined ? [] : [spec]])
+export async function getDocument(method, name, ...spec) {
+  const url = buildUrl(NPM_REGISTRY, [...name.split('/'), ...spec])
   const json = await request(url, withNpmToken(name, url, { as: 'json' }))
   assert.ok(json?.name === name, `${method}: the registry answered for ${show(json?.name)}, not ${name}`)
   return json

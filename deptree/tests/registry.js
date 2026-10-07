@@ -16,7 +16,7 @@ delete process.env.CARGO_HOME
 
 const encoder = new TextEncoder()
 
-export const sri = (bytes) => `sha512-${createHash('sha512').update(bytes).digest('base64')}`
+export const sri = (bytes, algorithm = 'sha512') => `${algorithm}-${createHash(algorithm).update(bytes).digest('base64')}`
 export const url = (name, version) => `https://registry.npmjs.org/${name}/-/${name.split('/').at(-1)}-${version}.tgz`
 
 // As npm packs one; `files` maps a path to text, or to `{ data, mode }`.
@@ -53,9 +53,8 @@ export function rawTar(entries) {
 export function stubRegistry(tarballs, urlOf = url) {
   const served = new Map(tarballs.map((t) => [urlOf(t.name, t.version), t.served ?? t.bytes]))
   const documents = new Map(tarballs.map((t) => [`https://registry.npmjs.org/${t.name}/${t.version}`, { name: t.name, version: t.version, dist: { tarball: url(t.name, t.version), integrity: t.integrity } }]))
-  for (const name of new Set(tarballs.map((t) => t.name))) {
-    const versions = tarballs.filter((t) => t.name === name)
-    const time = Object.fromEntries(versions.filter((t) => t.published !== undefined).map((t) => [t.version, t.published]))
+  for (const [name, versions] of Map.groupBy(tarballs, (t) => t.name)) {
+    const time = Object.fromEntries(versions.map((t) => [t.version, t.published]))
     documents.set(`https://registry.npmjs.org/${name}`, { name, versions: Object.fromEntries(versions.map((t) => [t.version, {}])), time })
   }
   const calls = []

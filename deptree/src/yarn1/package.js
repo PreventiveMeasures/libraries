@@ -7,6 +7,7 @@
 
 import { fromBase64 } from '@exodus/bytes/base64.js'
 import { toHex } from '@exodus/bytes/hex.js'
+import { getPublishTimes } from '@preventive/upstream/npm.js'
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { sha1Hex } from '../hash.js'
@@ -75,29 +76,31 @@ export function registryTarball(entry, name, where) {
   return { ...ownTarball(url, name, entry.version, undefined, where, true), sha1 }
 }
 
-// `timesOf` answers getPublishTimes for a name.
-async function checkPublished({ name, version }, where, timesOf) {
-  const published = (await timesOf(name)).get(version)
+// `times` keeps getPublishTimes' answer for each name, fetched once.
+async function checkPublished({ name, version }, where, times) {
+  if (!times.has(name)) times.set(name, getPublishTimes(name))
+  const published = (await times.get(name)).get(version)
   if (published === undefined) throw new DeptreeError(`a sha1 integrity alone, where the registry gives no time ${name}@${version} was published at`, where)
   if (published >= SHA512_SINCE) throw new DeptreeError(`a sha1 integrity alone, which yarn does not write for ${name}@${version}, published at ${published}: the registry has given every version a sha512 since ${SHA512_SINCE}`, where)
 }
 
-// Another entry of a package yarn's cache keeps in one place, held to the
-// first's, `head`, as fetchYarnPackage holds that one: yarn fetches it once.
-export async function checkShared({ name, version, integrity, sha1: pinned }, head, where, timesOf) {
-  if (pinned !== undefined) {
-    await checkPublished({ name, version }, where, timesOf)
-    if (head.sha1 !== pinned) throw new DeptreeError(`the tarball's sha1 is not ${pinned}`, where)
-  } else if (integrity !== undefined && integrity !== head.integrity) {
-    throw new DeptreeError(`the tarball is not ${integrity}`, where)
-  }
+export function checkSha1(pinned, sha1, where) {
+  if (pinned !== undefined && sha1 !== pinned) throw new DeptreeError(`the tarball's sha1 is not ${pinned}`, where)
 }
 
-export async function fetchYarnPackage({ name, version, integrity, sha1: pinned }, where, timesOf) {
-  if (pinned !== undefined) await checkPublished({ name, version }, where, timesOf)
+// Another entry of a package yarn's cache keeps in one place, held to the
+// first's, `head`, as fetchYarnPackage holds that one: yarn fetches it once.
+export async function checkShared({ name, version, integrity, sha1: pinned }, head, where, times) {
+  if (pinned !== undefined) await checkPublished({ name, version }, where, times)
+  checkSha1(pinned, head.sha1, where)
+  if (integrity !== undefined && integrity !== head.integrity) throw new DeptreeError(`the tarball is not ${integrity}`, where)
+}
+
+export async function fetchYarnPackage({ name, version, integrity, sha1: pinned }, where, times) {
+  if (pinned !== undefined) await checkPublished({ name, version }, where, times)
   const fetched = await fetchTarball(name, version, integrity ?? await registryIntegrity(name, version, where), where)
   const sha1 = await sha1Hex(fetched.bytes)
-  if (pinned !== undefined && sha1 !== pinned) throw new DeptreeError(`the tarball's sha1 is not ${pinned}`, where)
+  checkSha1(pinned, sha1, where)
   const { files, dirs } = entriesOf(fetched.entries, where)
   const file = files.get('package.json')
   if (file === undefined) throw new DeptreeError('the tarball has no package.json', where)
