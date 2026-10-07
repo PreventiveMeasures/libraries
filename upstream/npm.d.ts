@@ -98,6 +98,13 @@ export interface PackageMeta {
 // version and its dist is held to the rules above.
 export function getMeta(name: string, version: string): Promise<PackageMeta>
 
+// When the registry says each version of a package it lists was published,
+// by version, as Date#toISOString writes it: from the whole package's
+// document, the only one with `time`, megabytes for some. A version whose
+// time is missing, not an ISO 8601 UTC time, or not one there is, as
+// 2018-02-29, is left out. Refused unless the document is for that name.
+export function getPublishTimes(name: string): Promise<Map<string, string>>
+
 // Fetches the registry's dist for that version and throws unless its
 // integrity is the one given, as for a dist read off a lockfile.
 export function verifyDist(name: string, version: string, dist: Dist): Promise<void>
