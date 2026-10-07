@@ -165,7 +165,7 @@ describe('the tree npm installs', () => {
   it('refused: a version document whose dist is not the lockfile\'s, unless none is fetched', async () => {
     const otherwise = (dist) => stubRegistry(TARBALLS.map((t) => (t.name === 'b' ? { ...t, dist } : t)))
     otherwise({ integrity: T['c@1.0.0'].integrity })
-    await refuses(given(), `the registry has its integrity as ${T['c@1.0.0'].integrity}, not ${T['b@1.0.0'].integrity}`, 'packages["node_modules/b"]')
+    await refuses(given(), `getMeta: b@1.0.0 is ${T['c@1.0.0'].integrity} on the registry, not ${T['b@1.0.0'].integrity}`, 'packages["node_modules/b"]')
     otherwise({ tarball: url('c', '1.0.0') })
     await assert.rejects(buildNpmTree(given()), /^DeptreeError: packages\["node_modules\/b"\]: getMeta: dist\.tarball must be https:\/\/registry\.npmjs\.org\/b\/-\/b-1\.0\.0\.tgz/u)
     otherwise({ integrity: T['c@1.0.0'].integrity })

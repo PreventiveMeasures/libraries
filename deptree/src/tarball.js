@@ -116,21 +116,12 @@ export const UNKNOWN = Object.freeze(aboutOf({}))
 
 // The registry's version document: the sha512 it gives the version, as for a
 // tarball ownTarball let through unpinned, and what it says of where the
-// package comes from. Its tarball has to be the registry's own URL, which
-// fetchTarball fetches; getMeta holds it to that too.
+// package comes from. getMeta holds its tarball to the registry's own URL,
+// which fetchTarball fetches.
 export async function registryMeta(name, version, where) {
   checkId(name, version, where)
   const meta = await getMeta(name, version)
-  if (meta.dist.tarball !== tarballUrl(name, version)) throw new DeptreeError(`the registry serves its tarball from ${quote(meta.dist.tarball)}`, where)
   return { integrity: meta.dist.integrity, about: aboutOf(meta) }
-}
-
-// Held to `integrity` as text: the registry's is the one npm, pnpm and yarn
-// copy into a lockfile, so nothing is hashed again.
-async function registryAbout(name, version, integrity, where) {
-  const meta = await registryMeta(name, version, where)
-  if (meta.integrity !== integrity) throw new DeptreeError(`the registry has its integrity as ${meta.integrity}, not ${integrity}`, where)
-  return meta.about
 }
 
 // Both at once, the first failure thrown once both have ended, so that
@@ -142,14 +133,17 @@ async function settled(promises) {
   return results.map(({ value }) => value)
 }
 
-// With `metadata`, the version's document is fetched beside the tarball, and
-// `about` is what it says; else UNKNOWN.
+// With `metadata`, the version's document is asked for beside the tarball,
+// given the dist the tarball is fetched by, which getMeta holds the
+// document's to as text, the registry's being the one a lockfile copies, so
+// nothing is hashed again; `about` is what it says. Else UNKNOWN.
 export async function fetchTarball(name, version, integrity, where, metadata = false) {
   checkId(name, version, where)
   if (!/^sha512-[\d+/A-Za-z]{86}==$/u.test(integrity)) throw new DeptreeError('a tarball with no sha512 integrity is not supported', where)
+  const dist = { tarball: tarballUrl(name, version), integrity }
   const [bytes, about] = await settled([
-    getTarball(name, version, { tarball: tarballUrl(name, version), integrity }),
-    metadata ? registryAbout(name, version, integrity, where) : UNKNOWN,
+    getTarball(name, version, dist),
+    metadata ? getMeta(name, version, { dist }).then(aboutOf) : UNKNOWN,
   ])
   if (!await matchesIntegrity(bytes, integrity)) throw new DeptreeError(`the tarball is not ${integrity}`, where)
   if (bytes[0] !== 0x1f || bytes[1] !== 0x8b || bytes[2] !== 0x08) throw new DeptreeError('the tarball is not gzipped', where)

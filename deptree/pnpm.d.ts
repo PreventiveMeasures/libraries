@@ -223,12 +223,14 @@ export interface PnpmProject {
 // directory's bins run executable too.
 //
 // `metadata`, true unless given false, has each registry package's version
-// document fetched from the registry beside its tarball, a request for each
-// name and version that no cache answers: its dist has to be the
-// lockfile's, the tarball the registry's own URL and the integrity the
-// lockfile's sha512, compared as text, with nothing hashed again, as the
-// lockfile copies the registry's; and its gitHead, repository, homepage
-// and bugs are the package's. False fetches none, and gives none of them.
+// document asked for beside its tarball, through getMeta of
+// @preventive/upstream given the lockfile's dist: the one setCacheDir's
+// cache keeps, where its dist is that one, else the registry's, a request
+// for each name and version. Its dist has to be the lockfile's, the tarball
+// the registry's own URL and the integrity the lockfile's sha512, compared
+// as text, with nothing hashed again, as the lockfile copies the
+// registry's; and its gitHead, repository, homepage and bugs are the
+// package's. False fetches none, and gives none of them.
 //
 // The two ways the files come, one or the other: given, with `lockfile`
 // and `manifests`, `project` read only for directories; or read, with

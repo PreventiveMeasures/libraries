@@ -599,7 +599,7 @@ describe('buildPnpmTree refuses', () => {
 
   it('a version document whose dist is not the lockfile\'s, unless none is fetched', async () => {
     stubRegistry(TARBALLS.map((t) => (t.name === 'b' ? { ...t, dist: { integrity: I.c } } : t)))
-    await refuses({}, new RegExp(`^"b@1\\.0\\.0": the registry has its integrity as ${RegExp.escape(I.c)}, not ${RegExp.escape(I.b)}$`, 'u'))
+    await refuses({}, new RegExp(`^"b@1\\.0\\.0": getMeta: b@1\\.0\\.0 is ${RegExp.escape(I.c)} on the registry, not ${RegExp.escape(I.b)}$`, 'u'))
     assert.equal((await buildResult({ metadata: false })).stats.installed, 8)
   })
 
