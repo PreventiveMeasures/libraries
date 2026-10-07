@@ -6,9 +6,11 @@ import { describe, it } from 'node:test'
 // `deptree/` builds its tree in memory and reaches the network only
 // through @preventive/upstream, so it imports only its own modules and the
 // packages it declares: no node: builtin, and so no filesystem of its own.
+// Its bin alone, the command that reads what is on disk, takes builtins too.
 // A test, as one `../` or `node:fs` undoes it and reads as harmless.
 const PKG_DIR = new URL('../', import.meta.url)
 const SRC_DIR = new URL('src/', PKG_DIR)
+const BIN_DIR = new URL('bin/', PKG_DIR)
 
 const manifest = JSON.parse(readFileSync(new URL('package.json', PKG_DIR), 'utf8'))
 
@@ -19,6 +21,7 @@ const files = [
     .map((name) => name.split(sep).join('/'))
     .filter((name) => name.endsWith('.js') || name.endsWith('.d.ts'))
     .map((name) => new URL(name, SRC_DIR)),
+  ...readdirSync(BIN_DIR).filter((name) => name.endsWith('.js')).map((name) => new URL(name, BIN_DIR)),
 ]
 
 // npm, unlike pnpm, packs a LICENSE-MIT only when `files` names it.
@@ -44,6 +47,13 @@ describe('deptree/ ships every module it has', () => {
     const name = file.href.slice(PKG_DIR.href.length)
     it(`files includes ${name}`, () => {
       assert.ok(shipped.has(name), `${name} is in the package but not in package.json files`)
+    })
+  }
+
+  for (const [command, target] of Object.entries(manifest.bin)) {
+    it(`the ${command} command is shipped`, () => {
+      assert.ok(shipped.has(target), `${target} is the ${command} command but not in package.json files`)
+      assert.match(readFileSync(new URL(target, PKG_DIR), 'utf8'), /^#!\/usr\/bin\/env node\n/u)
     })
   }
 
@@ -85,6 +95,8 @@ describe('deptree/ imports nothing from outside but what it declares', () => {
       for (const spec of specifiersOf(readFileSync(file, 'utf8'))) {
         if (spec.startsWith('.')) {
           assert.ok(new URL(spec, file).href.startsWith(PKG_DIR.href), `${name} imports ${spec}, which is outside deptree/`)
+        } else if (spec.startsWith('node:')) {
+          assert.ok(file.href.startsWith(BIN_DIR.href), `${name} imports ${spec}, a builtin, which only bin/ may`)
         } else {
           assert.ok(declared.has(packageOf(spec)), `${name} imports ${spec}, which is not a declared dependency`)
         }

@@ -6,13 +6,16 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import process from 'node:process'
 import { after, describe, it } from 'node:test'
+import { compress } from '@preventive/archive/compression.js'
+import { pack } from '@preventive/archive/tar.js'
 import { createVfs } from '@preventive/vfs'
+import { buildCargoTree } from '../cargo.js'
 import { byPath, difference, leftBehind, leftOut, patchOf, projectView, readSide } from '../bin/compare.js'
 import { tokenIn, userToken } from '../bin/npmrc.js'
-import { rawZip, sha256, tarball, url } from './registry.js'
+import { rawZip, sha256, stubRegistry, tarball, url } from './registry.js'
 
-// The development CLI, not published: its modules, and the command as a
-// developer runs it, on projects whose tarball or zip a cache holds.
+// The deptree command: its modules, and the command as it is run, on
+// projects whose tarball, zip or .crate a cache holds.
 
 const file = (data, mode = 0o644) => ({ type: 'file', mode, data: Buffer.from(data) })
 const dir = { type: 'directory', mode: 0o755 }
@@ -40,7 +43,7 @@ function writeDisk(root, entries) {
 // The CLI with its caches and tokens under `home` alone, on any platform.
 const CLI = join(import.meta.dirname, '..', 'bin', 'deptree.js')
 function cli(home, args, { node = [], env = {} } = {}) {
-  const tokens = { NPM_TOKEN: undefined, GITHUB_TOKEN: undefined, GH_TOKEN: undefined, NPM_CONFIG_CACHE: undefined, FORCE_COLOR: undefined }
+  const tokens = { NPM_TOKEN: undefined, GITHUB_TOKEN: undefined, GH_TOKEN: undefined, NPM_CONFIG_CACHE: undefined, CARGO_HOME: undefined, FORCE_COLOR: undefined }
   const caches = { HOME: home, XDG_CACHE_HOME: join(home, 'xdg'), LOCALAPPDATA: join(home, 'local'), npm_config_cache: join(home, 'cache'), NO_COLOR: '1' }
   const r = spawnSync(process.execPath, [...node, CLI, ...args], { env: { ...process.env, ...tokens, ...caches, ...env }, encoding: 'utf8', timeout: 30_000 })
   assert.equal(r.error, undefined)
@@ -256,7 +259,7 @@ describe('readSide', () => {
   })
 })
 
-describe('bin/deptree.js compare', async () => {
+describe('deptree compare', async () => {
   const home = temp('deptree-bin-compare-')
   const project = join(home, 'project')
   const run = (...args) => cli(home, args)
@@ -307,9 +310,9 @@ describe('bin/deptree.js compare', async () => {
     for (const [args, said] of [
       [[project], /package-lock\.json: give --npm <version>/u],
       [[home], /no pnpm-lock\.yaml, yarn\.lock, package-lock\.json/u],
-      [['--npm', '9.0.0', project], /^deptree\.js: .*npm/mu],
-      [[join(home, 'unpinned')], /^deptree\.js: host\.pnpm /mu],
-      [['--frobnicate', project], /^deptree\.js: Unknown option '--frobnicate'/mu],
+      [['--npm', '9.0.0', project], /^deptree: .*npm/mu],
+      [[join(home, 'unpinned')], /^deptree: host\.pnpm /mu],
+      [['--frobnicate', project], /^deptree: Unknown option '--frobnicate'/mu],
     ]) {
       const r = run('compare', ...args)
       assert.match(r.stderr, said)
@@ -325,16 +328,16 @@ describe('bin/deptree.js compare', async () => {
     writeDisk(home, side({ 'fault.mjs': file("import fs from 'node:fs'\nimport { syncBuiltinESMExports } from 'node:module'\nconst { readdirSync } = fs\nfs.readdirSync = (path) => (process.env.FAULT === 'bug' ? readdirSync(path, { encoding: 'bogus' }) : readdirSync(`${path}/gone`))\nsyncBuiltinESMExports()\n") }))
     const fault = (FAULT) => cli(home, ['compare', '--npm', '11.12.1', project], { node: ['--import', pathToFileURL(join(home, 'fault.mjs')).href], env: { FAULT } })
     const bug = fault('bug')
-    assert.match(bug.stderr, /^deptree\.js: TypeError \[ERR_INVALID_ARG_VALUE\]: .*\n\s+at /mu)
+    assert.match(bug.stderr, /^deptree: TypeError \[ERR_INVALID_ARG_VALUE\]: .*\n\s+at /mu)
     assert.equal(bug.status, 2)
     const gone = fault('gone')
-    assert.match(gone.stderr, /^deptree\.js: ENOENT: no such file or directory, scandir '.*\/gone'$/mu)
+    assert.match(gone.stderr, /^deptree: ENOENT: no such file or directory, scandir '.*\/gone'$/mu)
     assert.doesNotMatch(gone.stderr, /\n\s+at /u)
     assert.equal(gone.status, 2)
   })
 })
 
-describe('bin/deptree.js compare, with Soldeer', () => {
+describe('deptree compare, with Soldeer', () => {
   const home = temp('deptree-bin-soldeer-')
   const project = join(home, 'project')
   // The default cache answers a zip of the lockfile's checksum with no
@@ -377,5 +380,35 @@ describe('bin/deptree.js compare, with Soldeer', () => {
     assert.equal(ask({}), 'anonymously')
     assert.equal(ask({ GH_TOKEN: 'gho_gh' }), 'Bearer gho_gh')
     assert.equal(ask({ GITHUB_TOKEN: 'ghp_github', GH_TOKEN: 'gho_gh' }), 'Bearer ghp_github')
+  })
+})
+
+describe('deptree compare, with Cargo', async () => {
+  const home = temp('deptree-bin-cargo-')
+  const project = join(home, 'project')
+  // A .crate as cargo packs one, in cargo's own cache, which upstream reads
+  // before crates.io.
+  const crate = await compress(pack([
+    { name: 'leaf-1.0.0/Cargo.toml', data: Buffer.from('[package]\nname = "leaf"\nversion = "1.0.0"\nedition = "2021"\n') },
+    { name: 'leaf-1.0.0/src/lib.rs', data: Buffer.from('pub fn leaf() {}\n') },
+  ], { format: 'gnu' }), 'gzip')
+  writeDisk(home, side({ '.cargo/registry/cache/index.crates.io-1949cf8c6b5b557f/leaf-1.0.0.crate': file(crate) }))
+  const lockfile = `version = 4\n\n[[package]]\nname = "app"\nversion = "0.1.0"\ndependencies = [\n "leaf",\n]\n\n[[package]]\nname = "leaf"\nversion = "1.0.0"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "${sha256(crate)}"\n`
+  const manifest = '[package]\nname = "app"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\nleaf = "1"\n'
+  // vendor/ as deptree builds it, which tests/cargo.test.js holds to cargo
+  // vendor's, but for one file changed and a crate the lockfile has not.
+  stubRegistry([{ name: 'leaf', version: '1.0.0', bytes: crate }], (name, version) => `https://static.crates.io/crates/${name}/${name}-${version}.crate`)
+  const { vfs } = await buildCargoTree({ lockfile, manifests: { '.': manifest }, host: { cargo: '1.97.0', os: 'linux' } })
+  writeDisk(project, readSide(vfs, ['vendor']))
+  writeDisk(project, side({ 'Cargo.toml': file(manifest), 'Cargo.lock': file(lockfile), 'vendor/leaf/src/lib.rs': file('changed\n'), 'vendor/other/src/lib.rs': file('') }))
+
+  it('lists what differs in the vendor directory Cargo.lock makes, given the cargo', () => {
+    const r = cli(home, ['compare', '--cargo', '1.97.0', project])
+    assert.equal(r.stdout, '~ vendor/leaf/src/lib.rs  (content)\n- vendor/other/\n')
+    assert.match(r.stderr, /^vendor on disk: 4 files, /mu)
+    assert.equal(r.status, 1)
+    const unpinned = cli(home, ['compare', project])
+    assert.match(unpinned.stderr, /^deptree: Cargo\.lock: give --cargo <version>/mu)
+    assert.equal(unpinned.status, 2)
   })
 })

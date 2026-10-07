@@ -1,7 +1,7 @@
-// The two sides `bin/deptree.js compare` sets beside each other, what is on
-// disk and what deptree builds, each a map from a path under the folders an
+// The two sides `deptree compare` sets beside each other, what is on disk
+// and what deptree builds, each a map from a path under the folders an
 // install makes to its type, mode, and bytes or link target; and how they
-// differ. Not part of the published package.
+// differ.
 
 import { Buffer } from 'node:buffer'
 import { lstatSync, readFileSync, readdirSync, readlinkSync, statSync } from 'node:fs'
