@@ -4,11 +4,13 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 import { assertArgs, assertPackage, assertPackageName, assertion, isPlainObject, matches, show } from '../args.js'
+import { readCacheJSON, writeCacheJSON } from '../cache.js'
 import { verifiedDownload } from '../download.js'
 import { NPM_REGISTRY, buildUrl } from '../http.js'
 import { getDocument, withNpmToken } from './registry.js'
 
 const DIR = 'npm/tarballs' // No expiry: the registry never takes a version twice.
+const VERSIONS = 'npm/versions' // Nor here: a version's dist never changes.
 // One sha512 and nothing else, as the registry writes it: a sha1, a second
 // hash or an option is refused rather than trusted. 64 bytes leave the
 // last character before `==` two bits, so only A, Q, g or w is canonical.
@@ -29,10 +31,40 @@ function checkedDist(method, name, version, dist) {
   return { tarball, integrity }
 }
 
-async function getDist(method, name, version) {
+const distOf = (method, name, version, json) => checkedDist(method, name, version, { tarball: json.dist?.tarball, integrity: json.dist?.integrity })
+
+// A version document's dist, as setCacheDir's cache keeps it: none for one
+// for another name or version, or one refused, as one kept under rules
+// other than this release's may be.
+function keptDist(method, name, version, json) {
+  if (json?.name !== name || json.version !== version) return undefined
+  try {
+    return distOf(method, name, version, json)
+  } catch {
+    return undefined
+  }
+}
+
+// The registry's document, kept whole in setCacheDir's cache, compressed,
+// and for good once its dist passes: the registry never takes a version
+// twice.
+async function fetchDist(method, name, version, key) {
   const json = await getDocument(method, name, version)
   assert.ok(json.version === version, `${method}: the registry answered for ${name}@${show(json.version)}, not ${name}@${version}`)
-  return checkedDist(method, name, version, { tarball: json.dist?.tarball, integrity: json.dist?.integrity })
+  const dist = distOf(method, name, version, json)
+  await writeCacheJSON(VERSIONS, key, json, { compressed: true })
+  return dist
+}
+
+// A version's dist, from its document. The cache never supplies an
+// integrity: a kept document is read only for a caller that already has
+// the `integrity`, and one with another integrity throws, kept or fetched.
+async function getDist(method, name, version, integrity) {
+  const key = `${name}@${version}.json.gz`
+  const kept = integrity === undefined ? undefined : keptDist(method, name, version, await readCacheJSON(VERSIONS, key, { compressed: true }))
+  const dist = kept ?? await fetchDist(method, name, version, key)
+  assert.ok(integrity === undefined || dist.integrity === integrity, `${method}: ${name}@${version} is ${dist.integrity} ${kept ? 'in the cache' : 'on the registry'}, not ${integrity}`)
+  return dist
 }
 
 // Where npm keeps its cache, short of an .npmrc moving it: npm_config_cache,
@@ -86,9 +118,7 @@ export async function getPublishTimes(name) {
 
 export async function verifyDist(name, version, dist) {
   assertPackage('verifyDist', name, version)
-  const given = checkedDist('verifyDist', name, version, dist)
-  const { integrity } = await getDist('verifyDist', name, version)
-  assert.ok(given.integrity === integrity, `verifyDist: ${name}@${version} is ${integrity} on the registry, not ${given.integrity}`)
+  await getDist('verifyDist', name, version, checkedDist('verifyDist', name, version, dist).integrity)
 }
 
 // Without `dist`, the version document is read every time, cache or not:
