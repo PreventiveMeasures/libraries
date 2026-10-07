@@ -32,9 +32,10 @@ export const defaultCacheDir: string | undefined
 // cache: every read of it misses and every write is skipped. getTarball
 // reads ours all the same, set or not.
 //
-// The directory is trusted: a package's repo, and for 90 minutes a
-// repository's published advisories (advisories.js), are answered from it
-// as they were written, with no request. Point it only at storage that
+// The directory is trusted: a package's repo, as recorded or as a version
+// document kept here names it, and for 90 minutes a repository's published
+// advisories (advisories.js), are answered from it as they were written,
+// with no request. Point it only at storage that
 // nothing less trusted than the caller can write, never a cache shared
 // with or restored from lower-trust jobs. Tarballs, crates (cargo.js), zips
 // (soldeer.js) and tree tarballs (github.js) don't rely on this, since
@@ -48,14 +49,15 @@ export function setCacheDir(dir?: string | false): void
 // kept in setCacheDir's cache: `read` answers the value last written
 // under that `type` and `key`, or null or undefined for none. A `type` is
 // what is kept and a `key` which one: `npm/versions` and `npm/tarballs`
-// with `<name>@<version>` for a version's document and tarball, and
-// `github/advisories` with the repository's `owner/name` in lowercase for
-// its listing (advisories.js). Values are plain JSON data, which `read`
-// may answer as written or as a copy, but a tarball's are its bytes, a
-// Uint8Array. Whatever it answers is checked as a cached file is: one
-// malformed, stale or kept differently is a miss, and a tarball's bytes
-// that do not match throw. A rejection from either is the call's. It is
-// trusted as setCacheDir's directory is.
+// with `<name>@<version>` for a version's document and tarball; and for
+// advisories.js, `github/advisories` with the repository's `owner/name` in
+// lowercase for its listing, and `cargo/repos`, `composer/repos` and
+// `soldeer/repos` with a package's name for the repository it names.
+// Values are plain JSON data, which `read` may answer as written or as a
+// copy, but a tarball's are its bytes, a Uint8Array. Whatever it answers
+// is checked as a cached file is: one malformed, stale or kept differently
+// is a miss, and a tarball's bytes that do not match throw. A rejection
+// from either is the call's. It is trusted as setCacheDir's directory is.
 export interface CacheStore {
   read(type: string, key: string): Promise<unknown>
   write(type: string, key: string, value: unknown): Promise<void>

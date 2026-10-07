@@ -167,20 +167,22 @@ export async function readRecord(dir, name, { ttl = RECORD_TTL_MS, store } = {})
 
 export const writeRecord = (dir, name, value, { store } = {}) => writeJSON(dir, name, { at: Date.now(), name, ...value }, store)
 
-// Name → the GitHub repo cached for it, for those of `names` that have one.
-export async function readRepos(dir, names) {
+// Name → the GitHub repo cached for it, for those of `names` that have one,
+// as readRecord keeps it with `store`.
+export async function readRepos(dir, names, store) {
   const repos = new Map()
   for (const name of names) {
-    const entry = await readRecord(dir, name)
+    const entry = await readRecord(dir, name, { store })
     if (isRepo(entry?.github)) repos.set(name, entry.github)
   }
   return repos
 }
 
-// An answer into `repos`, and into the cache where it found a repo.
-export async function addRepos(dir, repos, answer) {
+// An answer into `repos`, and into the cache where it found a repo, as
+// writeRecord keeps it with `store`.
+export async function addRepos(dir, repos, answer, store) {
   for (const [name, github] of answer) {
     repos.set(name, github)
-    if (github) await writeRecord(dir, name, { github })
+    if (github) await writeRecord(dir, name, { github }, { store })
   }
 }

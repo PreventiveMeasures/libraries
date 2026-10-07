@@ -110,9 +110,10 @@ async function repositoryAdvisories(github, asked, { repoOf, takes = () => true,
   return [...rows.values()]
 }
 
-// Each asked name's repository: as given, `known`, or else looked up.
-async function reposOf(asked, known, lookUp) {
-  const found = await lookUp([...asked.keys()].filter((name) => !known.has(name)))
+// Each asked name's repository: as given, `known`, or else looked up,
+// through `cache`.
+async function reposOf(asked, known, lookUp, cache) {
+  const found = await lookUp([...asked.keys()].filter((name) => !known.has(name)), { asked, cache })
   return (name) => known.get(name) ?? found.get(name)
 }
 
@@ -124,7 +125,7 @@ async function reposOf(asked, known, lookUp) {
 export async function withRepositories(rows, asked, { github, repoAdvisories, known, details, cache }, { ecosystem, lookUp, covers }) {
   if (!repoAdvisories) return rows
   const reported = new Set(rows.flatMap((row) => [row.id, row.ghsa, ...row.aliases].filter(isGhsa).flatMap((id) => row.versions.map((version) => `${row.name} ${id} ${version}`))))
-  const repoOf = await reposOf(asked, known, lookUp)
+  const repoOf = await reposOf(asked, known, lookUp, cache)
   const takes = (name, pkg) => pkg.ecosystem === ecosystem && pkg.name === name
   const added = await repositoryAdvisories(github, asked, { repoOf, takes, covers, details, cache })
   return [...rows, ...added.map((row) => ({ ...row, versions: row.versions.filter((version) => !reported.has(`${row.name} ${row.id} ${version}`)) }))]
@@ -151,5 +152,5 @@ export const SOLDEER = {
   repositoryOnly: true,
   assertName: assertSoldeerName,
   assertVersion: assertSoldeerVersion,
-  advisories: async (asked, { github, known, details, cache }) => await repositoryAdvisories(github, asked, { repoOf: await reposOf(asked, known, soldeerRepos), details, cache }),
+  advisories: async (asked, { github, known, details, cache }) => await repositoryAdvisories(github, asked, { repoOf: await reposOf(asked, known, soldeerRepos, cache), details, cache }),
 }

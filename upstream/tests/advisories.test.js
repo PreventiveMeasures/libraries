@@ -274,10 +274,13 @@ describe('npm, with a GitHub client', () => {
       url = String(url)
       calls.push(url)
       if (url === BULK) return Promise.resolve(Response.json(bulk))
-      const latest = /^https:\/\/registry\.npmjs\.org\/(.+)\/latest$/u.exec(url)
-      if (latest) {
-        const name = decodeURIComponent(latest[1])
-        return Promise.resolve(Object.hasOwn(repos, name) ? Response.json({ name, repository: { url: `git+https://github.com/${repos[name]}.git` } }) : Response.json({ error: 'Not found' }, { status: 404 }))
+      // A version's document, naming the repo `repos` gives the package,
+      // or by version, the one `repos[name][version]` gives.
+      const document = /^https:\/\/registry\.npmjs\.org\/(.+)\/(\d[^/]*)$/u.exec(url)
+      if (document) {
+        const [name, version] = [decodeURIComponent(document[1]), document[2]]
+        const repo = typeof repos[name] === 'object' ? repos[name][version] : Object.hasOwn(repos, name) && repos[name]
+        return Promise.resolve(repo ? Response.json({ name, version, repository: { url: `git+https://github.com/${repo}.git` } }) : Response.json({ error: 'Not found' }, { status: 404 }))
       }
       if (Object.hasOwn(answers, url)) {
         const answer = answers[url]
@@ -336,8 +339,14 @@ describe('npm, with a GitHub client', () => {
     assert.deepEqual(calls, [BULK])
     calls = stubAll(answers)
     assert.deepEqual(await npm([...packages, { name: 'norepo', version: '1.0.0' }], { github, repoAdvisories: true }), [])
-    assert.deepEqual(calls.filter((url) => url.startsWith('https://registry.npmjs.org/') && url !== BULK).toSorted(), ['mono-a', 'mono-b', 'norepo'].map((name) => `https://registry.npmjs.org/${name}/latest`))
+    assert.deepEqual(calls.filter((url) => url.startsWith('https://registry.npmjs.org/') && url !== BULK).toSorted(), ['mono-a', 'mono-b', 'norepo'].map((name) => `https://registry.npmjs.org/${name}/1.0.0`))
     assert.deepEqual(calls.filter((url) => url.startsWith('https://api.github.com/')).toSorted(), [GIVEN, REPO_ADVISORIES])
+  })
+
+  it("takes the repository the newest version asked names, from that version's document", async () => {
+    const calls = stubAll({ repos: { 'mono-a': { '1.0.0': 'acme/old', '2.0.5': 'acme/mono' } }, github: { [REPO_ADVISORIES]: [] } })
+    assert.deepEqual(await npm([{ name: 'mono-a', version: '2.0.5' }, { name: 'mono-a', version: '1.0.0' }], { github, repoAdvisories: true }), [])
+    assert.deepEqual(calls, [BULK, 'https://registry.npmjs.org/mono-a/2.0.5', REPO_ADVISORIES])
   })
 
   it('asks one repository spelled in two cases once', async () => {
@@ -376,7 +385,7 @@ describe('npm, with a GitHub client', () => {
     const calls = stubAll(answers('### Impact\n\nEvery version before 3.0.0.'))
     const found = await npm(one, { github, repoAdvisories: true, details: true })
     assert.deepEqual(found.map(({ id, details }) => [id, details]), [['GHSA-aaaa-aaaa-aaaa', '### Impact\n\nEvery version before 3.0.0.'], ['GHSA-bbbb-bbbb-bbbb', undefined]])
-    assert.deepEqual(calls, [BULK, 'https://registry.npmjs.org/mono-a/latest', REPO_ADVISORIES])
+    assert.deepEqual(calls, [BULK, 'https://registry.npmjs.org/mono-a/1.0.0', REPO_ADVISORIES])
     stubAll(answers('a\uD800b'))
     assert.ok((await npm(one, { github, repoAdvisories: true })).every((entry) => !Object.hasOwn(entry, 'details')))
     stubAll(answers('a\uD800b'))
@@ -394,10 +403,10 @@ describe('npm, with a GitHub client', () => {
         return Promise.resolve(String(url) === BULK ? Response.json({}) : Response.json({ error: 'x' }, { status }))
       }
       await assert.rejects(npm(one, { github, repoAdvisories: true }), (err) => err instanceof HttpError && err.status === status, String(status))
-      assert.deepEqual(calls, [BULK, 'https://registry.npmjs.org/mono-a/latest'])
+      assert.deepEqual(calls, [BULK, 'https://registry.npmjs.org/mono-a/1.0.0'])
     }
     globalThis.fetch = (url) => Promise.resolve(String(url) === BULK ? Response.json({}) : Response.json({ name: 'other' }))
-    await assert.rejects(npm(one, { github, repoAdvisories: true }), /lookUpPackageRepo: the registry answered for "other", not mono-a/u)
+    await assert.rejects(npm(one, { github, repoAdvisories: true }), /advisories: the registry answered for "other", not mono-a/u)
   })
 })
 

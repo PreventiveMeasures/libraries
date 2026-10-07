@@ -4,7 +4,8 @@ import { show } from '../args.js'
 import { addRepos, readRepos } from '../cache.js'
 import { lookUpCrateRepos } from '../cargo/repos.js'
 import { PACKAGIST_REPO, SOLDEER_API, buildUrl, isNotFound, recover, request } from '../http.js'
-import { lookUpPackageRepo } from '../npm/repos.js'
+import { getVersionDocument } from '../npm/tarball.js'
+import { getRepo } from '../package.js'
 import { pool } from '../pool.js'
 import { githubRepoOfUrl } from '../remote.js'
 
@@ -12,10 +13,10 @@ const PACKAGES_AT_ONCE = 8
 
 // Name → its GitHub repo, or null where the registry has no such package
 // or it names no GitHub repo; any other failure throws. Only a repo found
-// is cached, for a month.
-async function cachedRepos(dir, names, fetchMissing) {
-  const repos = await readRepos(dir, names)
-  await addRepos(dir, repos, await fetchMissing(names.filter((name) => !repos.has(name))))
+// is cached, for a month, in the cache set or `cache` (readRecord).
+async function cachedRepos(dir, names, fetchMissing, cache) {
+  const repos = await readRepos(dir, names, cache)
+  await addRepos(dir, repos, await fetchMissing(names.filter((name) => !repos.has(name))), cache)
   return repos
 }
 
@@ -42,7 +43,17 @@ async function fetchSoldeerRepo(name) {
   return githubRepoOfUrl(answer.data[0]?.github_url) ?? null
 }
 
-export const crateRepos = (names) => lookUpCrateRepos('advisories', names)
-export const composerRepos = (names) => cachedRepos('composer/repos', names, (missing) => fetchEach(missing, fetchComposerRepo))
-export const npmRepos = (names) => fetchEach(names, async (name) => (await lookUpPackageRepo(name))?.github ?? null)
-export const soldeerRepos = (names) => cachedRepos('soldeer/repos', names, (missing) => fetchEach(missing, fetchSoldeerRepo))
+// The repo the newest version asked of each package names, from that
+// version's document, kept for good (getVersionDocument): null where the
+// registry does not have that version, or it names no GitHub repo.
+async function npmRepo(name, version, cache) {
+  const json = await getVersionDocument('advisories', name, version, cache).catch(recover(isNotFound, null))
+  return (json && getRepo(json).github) ?? null
+}
+
+// Each takes the names to look up, the versions `asked` of each, and the
+// call's `cache`.
+export const crateRepos = (names, { cache }) => lookUpCrateRepos('advisories', names, { store: cache })
+export const composerRepos = (names, { cache }) => cachedRepos('composer/repos', names, (missing) => fetchEach(missing, fetchComposerRepo), cache)
+export const npmRepos = (names, { asked, cache }) => fetchEach(names, (name) => npmRepo(name, asked.get(name).at(-1), cache))
+export const soldeerRepos = (names, { cache }) => cachedRepos('soldeer/repos', names, (missing) => fetchEach(missing, fetchSoldeerRepo), cache)

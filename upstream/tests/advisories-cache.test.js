@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -66,6 +67,22 @@ function stubUrls(answers) {
 }
 
 const audit = (name = 'OpenZeppelin/openzeppelin-contracts', options = {}) => advisories([{ ecosystem: 'github', name, versions: ['4.9.0'] }], { github, ...options })
+
+// The same repository, looked up for an npm package by its version's
+// document, and for a Soldeer project by Soldeer.
+const BULK = 'https://registry.npmjs.org/-/npm/v1/security/advisories/bulk'
+const NPM_DOC = 'https://registry.npmjs.org/@openzeppelin/contracts/4.9.0'
+const SOLDEER = 'https://api.soldeer.xyz/api/v1/project?project_name=%40openzeppelin-contracts'
+const OZ_REPO = 'https://github.com/OpenZeppelin/openzeppelin-contracts'
+const NPM_DOCUMENT = {
+  name: '@openzeppelin/contracts',
+  version: '4.9.0',
+  repository: { type: 'git', url: `git+${OZ_REPO}.git` },
+  dist: { tarball: 'https://registry.npmjs.org/@openzeppelin/contracts/-/contracts-4.9.0.tgz', integrity: `sha512-${createHash('sha512').update('tarball').digest('base64')}` },
+}
+const LOOKUPS = { [BULK]: {}, [NPM_DOC]: NPM_DOCUMENT, [SOLDEER]: { data: [{ name: '@openzeppelin-contracts', github_url: OZ_REPO }] }, [OZ]: LIST }
+const npmAudit = (options = {}) => advisories([{ ecosystem: 'npm', name: '@openzeppelin/contracts', versions: ['4.9.0'] }], { github, repoAdvisories: true, ...options })
+const soldeerAudit = (options = {}) => advisories([{ ecosystem: 'soldeer', name: '@openzeppelin-contracts', versions: ['4.9.0'] }], { github, ...options })
 
 describe("a repository's listing, through the cache", () => {
   it('is kept for 90 minutes, digested, and answers as GitHub did, details and all', async () => {
@@ -171,6 +188,23 @@ describe("a repository's listing, through the cache", () => {
     assert.notDeepEqual(kept, stale)
   })
 
+  it('with cache false, writes no repository looked up either, and reads them from the directory', async () => {
+    let calls = stubUrls(LOOKUPS)
+    await npmAudit({ cache: false })
+    await soldeerAudit({ cache: false })
+    assert.deepEqual(calls, [BULK, NPM_DOC, OZ, SOLDEER, OZ])
+    assert.deepEqual(await readdir(dir).catch(() => []), [])
+    stubUrls(LOOKUPS)
+    await npmAudit()
+    await soldeerAudit()
+    assert.deepEqual(await readdir(join(dir, 'npm', 'versions')), ['@openzeppelin+contracts@4.9.0.json.gz'])
+    assert.deepEqual(await readdir(join(dir, 'soldeer', 'repos')), ['@openzeppelin-contracts.json'])
+    calls = stubUrls({ [BULK]: {} })
+    await npmAudit({ cache: false })
+    await soldeerAudit({ cache: false })
+    assert.deepEqual(calls, [BULK])
+  })
+
   it('is asked every time with no cache set', async () => {
     setCacheDir(false)
     for (let i = 0; i < 2; i++) {
@@ -219,6 +253,26 @@ describe("a caller's store", () => {
     const respelled = (text) => text.replace('OpenZeppelin/openzeppelin-contracts', 'openzeppelin/OpenZeppelin-Contracts')
     assert.deepEqual(await audit('openzeppelin/OpenZeppelin-Contracts', { cache: store, details: true }), fresh.map((row) => ({ ...row, name: respelled(row.name), url: respelled(row.url) })))
     assert.deepEqual(calls, [])
+    assert.deepEqual(await readdir(dir).catch(() => []), [], 'nothing on disk')
+  })
+
+  it("keeps each package's repository there too, an npm package's as its version's document", async () => {
+    const store = mapStore()
+    let calls = stubUrls(LOOKUPS)
+    await npmAudit({ cache: store })
+    assert.deepEqual(calls, [BULK, NPM_DOC, OZ])
+    const VERSION_KEY = '@openzeppelin/contracts@4.9.0'
+    assert.deepEqual(store.log, [['read', 'npm/versions', VERSION_KEY], ['write', 'npm/versions', VERSION_KEY], ['read', TYPE, KEY], ['write', TYPE, KEY]])
+    assert.deepEqual(JSON.parse(store.get('npm/versions', VERSION_KEY)), NPM_DOCUMENT)
+    store.log.length = 0
+    calls = stubUrls(LOOKUPS)
+    await soldeerAudit({ cache: store })
+    assert.deepEqual(calls, [SOLDEER])
+    assert.deepEqual(store.log, [['read', 'soldeer/repos', '@openzeppelin-contracts'], ['write', 'soldeer/repos', '@openzeppelin-contracts'], ['read', TYPE, KEY]])
+    calls = stubUrls({ [BULK]: {} })
+    await npmAudit({ cache: store })
+    await soldeerAudit({ cache: store })
+    assert.deepEqual(calls, [BULK])
     assert.deepEqual(await readdir(dir).catch(() => []), [], 'nothing on disk')
   })
 

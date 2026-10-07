@@ -38,12 +38,15 @@ export interface AdvisoryOptions {
   // Also asks each npm, cargo and composer package's GitHub repository
   // for its published advisories, which it has before GitHub reviews them
   // into the databases above: the package's `github` where given, else
-  // the one npm's metadata, crates.io or Packagist names, looked up
-  // through the cache. Needs `github`.
+  // the one looked up. An npm package's is the one the document of its
+  // newest version asked names, kept for good as getMeta keeps it (none
+  // where the registry does not have that version); a crate's and a
+  // composer package's, the one crates.io or Packagist names, kept a
+  // month. Needs `github`.
   repoAdvisories?: boolean
-  // Where a repository's listing is kept, as CacheOptions (npm.js) has it:
-  // see `advisories`. Repository lookups go through setCacheDir's cache
-  // whatever it is.
+  // Where what this call caches is kept, as CacheOptions (npm.js) has it:
+  // a repository's listing, and each package's repository looked up (an
+  // npm package's as its version's document). See `advisories`.
   cache?: CacheStore | false
   // Also returns each advisory's full text, as `details`. OSV's records
   // and a repository's listing already carry it; npm's registry does not,

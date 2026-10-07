@@ -44,22 +44,33 @@ function keptDist(method, name, version, json) {
   }
 }
 
-// The registry's document, kept whole in `cache` (readJSON), and for good
-// once its dist passes: the registry never takes a version twice.
-async function fetchDist(method, name, version, cache) {
+// A version's document as `cache` keeps it (readJSON), or none.
+async function keptDocument(method, name, version, cache) {
+  const json = await readJSON(VERSIONS, `${name}@${version}`, cache)
+  return keptDist(method, name, version, json) ? json : undefined
+}
+
+// The registry's document, kept whole in `cache`, and for good once its
+// dist passes: the registry never takes a version twice. One whose dist
+// is refused is answered, but not kept.
+async function fetchDocument(method, name, version, cache) {
   const json = await getDocument(method, name, version)
   assert.ok(json.version === version, `${method}: the registry answered for ${name}@${show(json.version)}, not ${name}@${version}`)
-  const dist = distOf(method, name, version, json)
-  await writeJSON(VERSIONS, `${name}@${version}`, json, cache)
-  return dist
+  if (keptDist(method, name, version, json)) await writeJSON(VERSIONS, `${name}@${version}`, json, cache)
+  return json
 }
+
+// A version's document, kept or else fetched, for what is not an
+// integrity: a package's repo (advisories.js), as trusted as setCacheDir's
+// repo records are.
+export const getVersionDocument = async (method, name, version, cache) => await keptDocument(method, name, version, cache) ?? await fetchDocument(method, name, version, cache)
 
 // A version's dist, from its document. The cache never supplies an
 // integrity: a kept document is read only for a caller that already has
 // the `integrity`, and one with another integrity throws, kept or fetched.
 async function getDist(method, name, version, integrity, cache) {
-  const kept = integrity === undefined ? undefined : keptDist(method, name, version, await readJSON(VERSIONS, `${name}@${version}`, cache))
-  const dist = kept ?? await fetchDist(method, name, version, cache)
+  const kept = integrity === undefined ? undefined : await keptDocument(method, name, version, cache)
+  const dist = distOf(method, name, version, kept ?? await fetchDocument(method, name, version, cache))
   assert.ok(integrity === undefined || dist.integrity === integrity, `${method}: ${name}@${version} is ${dist.integrity} ${kept ? 'in the cache' : 'on the registry'}, not ${integrity}`)
   return dist
 }
