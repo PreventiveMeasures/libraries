@@ -12,8 +12,9 @@ const CONCURRENCY = 8
 // Stamped on each entry, and raised when getRepo would answer differently:
 // 2 is `repository` taking precedence over `bugs`; 3 the shorthand dropping
 // a `.git`, URLs read past whitespace, and `repository.directory`'s `\` read
-// as `/`; 4 a declared root answered as `''`, and no directory declared left
-// out (unknown) rather than read as the root.
+// as `/`; 4 a declared root answered as `''`, no directory declared left
+// out (unknown) rather than read as the root, and a declared directory's
+// empty and `.` parts dropped.
 const VERSION = 4
 
 // A slug a lookup gives: getRepo answers no repo ending in `.git`, the

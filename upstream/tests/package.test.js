@@ -74,7 +74,7 @@ describe('getRepo', () => {
     }
   })
 
-  it('takes any directory git could have, but no traversal or empty part', () => {
+  it('takes any directory git could have, but no traversal', () => {
     const at = (directory) => getRepo({ repository: { url: 'https://github.com/acme/mono', directory } }).directory
     for (const directory of ['packages/@scope/pkg', 'packages/café', 'my dir/pkg', '.github/actions/x', 'a+b/c~d', ' packages/pkg', 'packages/pkg ']) assert.equal(at(directory), directory)
     assert.equal(at('./packages/pkg/'), 'packages/pkg')
@@ -85,7 +85,9 @@ describe('getRepo', () => {
     }
     assert.equal(at('..\\x'), undefined)
     assert.equal(getRepo({ homepage: 'https://github.com/acme/app/tree/main/a%5Cb' }).directory, 'a\\b')
-    for (const directory of ['../x', 'a/../b', 'a//b', 'a/./b', '.git/x', 'a/.GIT', 'a\u0000b', 'a\u0007b']) assert.equal(at(directory), undefined, JSON.stringify(directory))
+    // Empty and `.` parts are dropped; a `..` part names no directory, whatever it would come to.
+    for (const directory of ['a//b', 'a/./b', './a//b/.', 'a\\.\\b']) assert.equal(at(directory), 'a/b', JSON.stringify(directory))
+    for (const directory of ['../x', 'a/../b', 'a/..', 'a/../', '..', '.git/x', 'a/.GIT', 'a\u0000b', 'a\u0007b']) assert.equal(at(directory), undefined, JSON.stringify(directory))
   })
 
   it("answers a declared root as `''`, and leaves the directory out where none is declared", () => {

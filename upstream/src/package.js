@@ -38,13 +38,15 @@ function repoSubdirectory(value) {
 
 // `repository.directory` is a path its author may write with Windows' `\`.
 // A tree path is `/`-separated: a `\` is a name's own only in a homepage's
-// (`%5C`), which is the path itself. One of nothing but `/` and `.` parts
-// (`./`, `/`, `/.`, `.`, `''`) declares the repo's root, `''`; a package.json
-// that declares none says nothing of where in the repo it sits.
+// (`%5C`), which is the path itself. Its empty and `.` parts are dropped
+// (`./a//b/.` is `a/b`), and one of nothing else (`./`, `/`, `/.`, `.`, `''`)
+// declares the repo's root, `''`; one with a `..` part names none, whatever
+// it would come to. A package.json that declares none says nothing of where
+// in the repo it sits.
 function declaredDirectory(value) {
   if (typeof value !== 'string') return undefined
-  const path = value.replaceAll('\\', '/')
-  return path.split('/').every((part) => part === '' || part === '.') ? '' : repoSubdirectory(path)
+  const parts = value.replaceAll('\\', '/').split('/').filter((part) => part !== '' && part !== '.')
+  return parts.length === 0 ? '' : repoSubdirectory(parts.join('/'))
 }
 
 export const isRepoDirectory = (value) => typeof value === 'string' && (value === '' || repoSubdirectory(value) === value)
