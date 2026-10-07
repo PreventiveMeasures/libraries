@@ -5,8 +5,10 @@ import { join, resolve } from 'node:path'
 import { assertArgs, assertPackage, assertPackageName, isPlainObject, isSha, optional } from '../args.js'
 import { assertCache } from '../cache.js'
 import { verifiedDownload } from '../download.js'
+import { NPM_REGISTRY, decode } from '../http.js'
+import { readNpmCached } from './cacache.js'
 import { getDocument, withNpmToken } from './registry.js'
-import { checkedDist, getVersion } from './versions.js'
+import { checkedDist, getVersion, matchingDist } from './versions.js'
 
 const DIR = 'npm/tarballs' // No expiry: the registry never takes a version twice.
 
@@ -43,15 +45,45 @@ function linkOf(value, keys) {
   return keys.some((key) => link[key] !== undefined) ? link : undefined
 }
 
-// The version's document as getVersion has it, kept where the caller gives
-// the `dist` it has: beside its dist, the document's gitHead where that is
-// a full commit id, and its repository, homepage and bugs, in the shapes a
-// package.json gives them. Each but dist is left out where there is none.
+const mediaType = (value) => (typeof value === 'string' ? value.split(';')[0].trim().toLowerCase() : undefined)
+
+function jsonOf(bytes, from) {
+  try {
+    return JSON.parse(decode(bytes, from))
+  } catch {
+    return undefined
+  }
+}
+
+// A version as npm's own cache keeps it, where it keeps its name's full
+// packument, as npm 10 and later fetch it, whose entry for the version
+// matches `given` (matchingDist): that entry is the version's document. An
+// abbreviated packument, as earlier npm fetches, has none of the rest
+// getMeta answers, and is passed over.
+async function npmCachedVersion(name, version, given) {
+  const url = `${NPM_REGISTRY}/${name.replace('/', '%2f')}`
+  for (const root of npmCacheDirs()) {
+    const cached = await readNpmCached(join(root, '_cacache'), url)
+    if (!cached || mediaType(cached.metadata?.resHeaders?.['content-type']) !== 'application/json') continue
+    const packument = jsonOf(cached.body, url)
+    const json = packument?.name === name && isPlainObject(packument.versions) ? own(packument.versions, version) : undefined
+    const dist = matchingDist('getMeta', name, version, json, given)
+    if (dist) return { dist, json }
+  }
+  return undefined
+}
+
+// The version's document: with the `dist` the caller has, npm's own cache's
+// where it matches (npmCachedVersion), and neither `cache` nor the cache
+// set is read or written; else as getVersion has it. Beside its dist, the
+// document's gitHead where that is a full commit id, and its repository,
+// homepage and bugs, in the shapes a package.json gives them. Each but
+// dist is left out where there is none.
 export async function getMeta(name, version, options = {}) {
   assertPackage('getMeta', name, version)
   assertArgs('getMeta', options, { dist: null, cache: optional(assertCache) })
   const given = options.dist === undefined ? undefined : checkedDist('getMeta', name, version, options.dist)
-  const { dist, json } = await getVersion('getMeta', name, version, given, options.cache)
+  const { dist, json } = (given && await npmCachedVersion(name, version, given)) ?? await getVersion('getMeta', name, version, given, options.cache)
   const about = {
     gitHead: isSha(own(json, 'gitHead')) ? json.gitHead : undefined,
     repository: linkOf(own(json, 'repository'), ['type', 'url', 'directory']),

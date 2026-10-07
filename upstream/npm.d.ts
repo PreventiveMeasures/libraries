@@ -155,11 +155,22 @@ export interface MetaOptions extends CacheOptions {
 }
 
 // The registry's version document, refused unless it is for that name and
-// version and its dist is held to the rules above. With `dist`, the one
-// `cache` keeps answers with no request where its tarball and integrity are
-// the given dist's; else the registry's is asked for, and throws where they
-// are not. Without `dist`, the registry is asked on every call: a cache
-// never supplies a dist. Kept whole, as `cache` says, and for good once it
+// version and its dist is held to the rules above.
+//
+// With `dist`, npm's own cache comes first, where getTarball looks for
+// npm's tarballs: where it keeps the full packument of that name, as npm 10
+// and later fetch it, and that version's entry there has the given dist's
+// tarball and integrity, that entry answers, with no request, and neither
+// `cache` nor setCacheDir's cache is read or written. An abbreviated
+// packument, as earlier npm fetches, is passed over, as is one whose
+// content does not match the sha512 npm filed it by. What it answers
+// beside the dist is taken from npm's cache as it is from setCacheDir's.
+// Else the document `cache` keeps answers, with no request, where its
+// tarball and integrity are the given dist's; else the registry's is asked
+// for, and throws where they are not.
+//
+// Without `dist`, the registry is asked on every call: a cache never
+// supplies a dist. Kept whole, as `cache` says, and for good once it
 // passes, as the registry never takes a version twice: in setCacheDir's
 // cache, compressed, where `cache` is left out. One refused is not kept.
 export function getMeta(name: string, version: string, options?: MetaOptions): Promise<PackageMeta>

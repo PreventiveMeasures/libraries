@@ -67,17 +67,25 @@ export async function getVersionDocument(method, name, version, cache) {
   return json && await keepDocument(method, name, version, json, cache)
 }
 
-// A version's document, and its dist checked. The cache never supplies a
-// dist: a kept document is read only for a caller that already has one,
-// `given` (checkedDist), and answers with no request where its tarball and
-// integrity are the given one's. Else, or without one, the registry is
-// asked, and its document, kept in place of any other, throws where they
-// are not.
+// The dist of a version document a cache answers, where it is that
+// version's, its dist passes, and its tarball and integrity are `given`'s
+// (checkedDist): a cache never supplies a dist, only confirms one.
+export function matchingDist(method, name, version, json, given) {
+  if (!isKeepable(method, name, version, json)) return undefined
+  const dist = distOf(method, name, version, json)
+  return dist.integrity === given.integrity && dist.tarball === given.tarball ? dist : undefined
+}
+
+// A version's document, and its dist checked. A kept document is read only
+// for a caller that already has a dist, `given`, and answers with no
+// request where it matches (matchingDist). Else, or without one, the
+// registry is asked, and its document, kept in place of any other, throws
+// where it does not.
 export async function getVersion(method, name, version, given, cache) {
   if (given !== undefined) {
-    const kept = await keptDocument(method, name, version, cache)
-    const dist = kept && distOf(method, name, version, kept)
-    if (dist && dist.integrity === given.integrity && dist.tarball === given.tarball) return { dist, json: kept }
+    const kept = await readJSON(DIR, `${name}@${version}`, cache)
+    const dist = matchingDist(method, name, version, kept, given)
+    if (dist) return { dist, json: kept }
   }
   const json = await fetchDocument(method, name, version, cache)
   const dist = distOf(method, name, version, json)
