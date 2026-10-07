@@ -53,13 +53,16 @@ const document = `${summary}\n\n${first}\n\n${second}`
 test('splits the generic Markdown example by product and matches IDs, not ordinal numbers', async () => {
   const reports = parseGenericMarkdownToReports(document)
   assert.deepEqual(reports.map((report) => report.displayName), ['Product A', 'Product B'])
-  assert.deepEqual(reports.map((report) => report.data.repo), [{ github: 'a/a' }, { github: 'a/b' }])
+  assert.deepEqual(reports.map((report) => report.data.repo), [{ github: 'a/a', directory: 'c/d' }, { github: 'a/b', directory: '' }])
   const [a, b] = reports.map((report) => report.data.findings[0])
   assert.equal(a.sourceId, 'AAA-02')
   assert.equal(a.severity, 'critical')
   assert.equal(b.sourceId, 'BBB-05')
   assert.equal(b.severity, 'high')
   assert.equal(a.file, 'c/d/e.js')
+  assert.deepEqual(a.repo, { github: 'a/a' })
+  assert.equal(a.evidence[0].file, 'c/d/e.js')
+  assert.ok(a.location.endsWith('/c/d/e.js#L100-L110'))
   assert.equal(a.line, '100-110')
   assert.equal(a.commitHash, 'abcdef012345')
   assert.equal(a.repo.github, 'a/a')
@@ -87,13 +90,114 @@ test('groups repeated product rows in summary order and accepts CRLF, BOM and a 
   assert.equal(reports[0].data.findings[1].severity, 'medium')
 })
 
-test('infers a product repo across findings even when one has no links', () => {
+test('products sharing an ID prefix still import as separate reports', async () => {
+  const text = document.replaceAll('BBB-05', 'AAA-05')
+  const reports = parseGenericMarkdownToReports(text)
+  assert.deepEqual(reports.map((report) => report.displayName), ['Product A', 'Product B'])
+  assert.deepEqual(reports.map(({ data }) => data.repo.github), ['a/a', 'a/b'])
+  assert.deepEqual(reports.map(({ data }) => data.findings.map((finding) => finding.sourceId)), [['AAA-02'], ['AAA-05']])
+  assert.equal(reports[1].data.findings[0].evidence.length, 2)
+  assert.equal((await loadFindings(text)).findings[0].id, (await loadFindings(document)).findings[0].id)
+  assert.throws(() => parseGenericMarkdownToReports(text.replaceAll('AAA-05', 'AAA-02')), /unsupported summary values for AAA-02/u)
+})
+
+test('every finding must name one repository, even when its product has other references', () => {
   const text = `${summary.split('\n').slice(0, 3).join('\n')}\n| 2 | AAA-03 | Product A | P3 | Other. |\n\n${first}\n\n${block(2, 'AAA-03', 'Product A', 'a/a').replace(/https:\/\/[^\n]+/u, '')}`
-  const [report] = parseGenericMarkdownToReports(text)
-  assert.equal(report.data.findings[1].repo.github, 'a/a')
-  assert.equal(report.data.findings[1].file, 'unknown')
-  assert.equal(report.data.findings[1].severity, 'low')
-  assert.equal(readReport(text).data.repo.github, 'a/a')
+  assert.throws(() => parseGenericMarkdownToReports(text), /finding AAA-03.*exactly one repository/u)
+  assert.equal(readReport(text).data, null)
+})
+
+test('one repository can contain several products under one prefix, with separate directories', () => {
+  const a = first.replaceAll('c/d/e.js', 'packages/a/src/e.js')
+  const b = block(2, 'AAA-05', 'Product B', 'a/a').replaceAll('c/d/e.js', 'packages/b/src/e.js')
+  const a2 = block(3, 'AAA-03', 'Product A', 'a/a').replaceAll('c/d/e.js', 'packages/a/test/e.js')
+  const table = summary.replace('BBB-05', 'AAA-05') + '\n| 3 | AAA-03 | Product A | P2 | Title C. |'
+  const reports = parseGenericMarkdownToReports(`${table}\n\n${a}\n\n${b}\n\n${a2}`)
+  assert.deepEqual(reports.map(({ displayName, data }) => [displayName, data.repo]), [
+    ['Product A', { github: 'a/a', directory: 'packages/a' }],
+    ['Product B', { github: 'a/a', directory: 'packages/b/src' }],
+  ])
+  assert.deepEqual(reports[0].data.findings.map(f => f.file), ['packages/a/src/e.js', 'packages/a/test/e.js'])
+  assert.equal(reports[1].data.findings[0].file, 'packages/b/src/e.js')
+  for (const { data } of reports) {
+    for (const finding of data.findings) {
+      assert.deepEqual(finding.repo, { github: data.repo.github })
+      for (const evidence of finding.evidence) assert.ok(evidence.url.includes(`/${evidence.file}#`))
+    }
+  }
+})
+
+test('repository and product mappings reject conflicts independently', () => {
+  assert.throws(() => parseGenericMarkdownToReports(document.replaceAll('a/b/blob', 'a/a/blob')), /repository ID prefixes.*a\/a/u)
+  assert.throws(() => parseGenericMarkdownToReports(document.replaceAll('Product B', 'Product A').replaceAll('BBB-05', 'AAA-05')), /product Product A.*exactly one repository/u)
+  assert.throws(() => parseGenericMarkdownToReports(document.replaceAll('Product B', 'Product A').replaceAll('a/b/blob', 'a/a/blob')), /repository ID prefixes/u)
+})
+
+test('common directories respect path segments, file parents and repository-root references', () => {
+  for (const [paths, directory] of [
+    [['packages/a/e.js', 'packages/a-extra/f.js'], 'packages'],
+    [['src/e.js', 'lib/f.js'], ''],
+    [['e.js', 'src/f.js'], ''],
+    [['packages/a/e.js', 'packages/a/sub/f.js'], 'packages/a'],
+  ]) {
+    const text = document.replace('c/d/e.js', paths[0]).replace('Code references:', `Code references:\n\nhttps://github.com/a/a/blob/abcdef012345/${paths[1]}`)
+    const [report] = parseGenericMarkdownToReports(text)
+    assert.equal(report.data.repo.directory, directory)
+  }
+  for (const [url, directory] of [['https://github.com/a/a', ''], ['https://github.com/a/a/tree/main/c', 'c']]) {
+    const [report] = parseGenericMarkdownToReports(document.replace('Code references:', `Code references:\n\n${url}`))
+    assert.equal(report.data.repo.directory, directory)
+  }
+})
+
+test('common directories decode URL components once before comparing references', () => {
+  for (const [path, directory] of [
+    ['packages/foo%20bar/src', 'packages/foo bar/src'],
+    ['packages/caf%C3%A9/src', 'packages/café/src'],
+    ['packages/literal%2520/src', 'packages/literal%20/src'],
+  ]) {
+    const url = `https://github.com/a/a/blob/abcdef012345/${path}/a.js#L100-L110`
+    const text = document.replace('https://github.com/a/a/blob/abcdef012345/c/d/e.js#L100-L110', url)
+      .replace('Code references:', `Code references:\n\nhttps://github.com/a/a/tree/main/${path.replace('packages', '%70ackages')}`)
+    const [report] = parseGenericMarkdownToReports(text)
+    assert.equal(report.data.repo.directory, directory)
+    assert.equal(report.data.findings[0].location, url)
+    assert.equal(report.data.findings[0].evidence[0].url, url)
+    assert.equal(report.data.findings[0]._idBasis.section, text.slice(text.indexOf('## 1.'), text.indexOf('## 2.')).trim())
+  }
+})
+
+test('rejects malformed or ambiguous encoded directories with an unsupported error', () => {
+  for (const path of ['bad%', '%FF', 'foo%2Fbar', 'foo%5Cbar', 'foo%00bar', 'foo%23bar', 'foo%3Fbar', '%20foo']) {
+    const text = document.replace('c/d/e.js', `packages/${path}/e.js`)
+    assert.throws(() => parseGenericMarkdownToReports(text), /Markdown \(generic\): unsupported repository directory/u)
+    assert.equal(readReport(text).data, null)
+  }
+})
+
+test('rejects empty code-reference path components while accepting repository-root links', () => {
+  for (const kind of ['blob', 'tree']) {
+    for (const path of ['/etc/passwd', 'src//a.js', 'src/']) {
+      const text = document.replace('blob/abcdef012345/c/d/e.js', `${kind}/abcdef012345/${path}`)
+      assert.throws(() => parseGenericMarkdownToReports(text), /unsupported repository path/u)
+      assert.equal(readReport(text).data, null)
+    }
+  }
+  for (const suffix of ['', '/tree/main']) {
+    const text = document.replace('https://github.com/a/a/blob/abcdef012345/c/d/e.js#L100-L110', `https://github.com/a/a${suffix}`)
+    assert.deepEqual(parseGenericMarkdownToReports(text)[0].data.repo, { github: 'a/a', directory: '' })
+  }
+})
+
+test('rejects Windows drive and stream syntax in repository directories', () => {
+  for (const kind of ['blob', 'tree']) {
+    for (const directory of ['C%3A/Windows/System32', 'C:/Windows/System32', 'C%3Arelative', 'src/name%3Astream']) {
+      const path = kind === 'blob' ? `${directory}/file.js` : directory
+      const text = document.replace('blob/abcdef012345/c/d/e.js', `${kind}/abcdef012345/${path}`)
+      assert.throws(() => parseGenericMarkdownToReports(text), /unsupported repository directory/u)
+      assert.equal(readReport(text).data, null)
+    }
+  }
 })
 
 test('generic findings survive a Markdown export with IDs, repositories and narratives', async () => {
@@ -158,7 +262,6 @@ test('Vulnerability is required and explicitly marks findings as security at eve
 
 const invalid = [
   ['multiple repositories', document.replace('https://github.com/a/b/blob/abcdef012345/f/g/h.js', 'https://github.com/a/other/blob/abcdef012345/f/g/h.js')],
-  ['same prefix across products', document.replaceAll('BBB-05', 'AAA-05')],
   ['multiple prefixes within a product', document.replaceAll('Product B', 'Product A')],
   ['no repository', document.replaceAll(/https:\/\/[^\n]+/gu, '')],
   ['missing body', `${summary}\n\n${first}`],
