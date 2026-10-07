@@ -152,6 +152,25 @@ describe("a repository's listing, through the cache", () => {
     assert.deepEqual(await readdir(dir).catch(() => []), [])
   })
 
+  it('with cache false, is read from the directory as ever, and nothing is written', async () => {
+    let calls = stubUrls({ [OZ]: LIST })
+    const fresh = await audit(undefined, { cache: false })
+    assert.deepEqual(calls, [OZ])
+    assert.deepEqual(await readdir(dir).catch(() => []), [])
+    await audit()
+    const kept = await readFile(FILE)
+    calls = stubUrls({})
+    assert.deepEqual(await audit(undefined, { cache: false }), fresh)
+    assert.deepEqual(calls, [])
+    const stale = gzipSync(JSON.stringify({ ...await readEntry(), at: Date.now() - 91 * MINUTE }))
+    await writeFile(FILE, stale)
+    calls = stubUrls({ [OZ]: LIST })
+    assert.deepEqual(await audit(undefined, { cache: false }), fresh)
+    assert.deepEqual(calls, [OZ])
+    assert.deepEqual(await readFile(FILE), stale, 'not written over')
+    assert.notDeepEqual(kept, stale)
+  })
+
   it('is asked every time with no cache set', async () => {
     setCacheDir(false)
     for (let i = 0; i < 2; i++) {
@@ -221,10 +240,10 @@ describe("a caller's store", () => {
     await assert.rejects(audit(undefined, { cache: { read: () => Promise.resolve(null), write: () => Promise.reject(new Error('write failed')) } }), /write failed/u)
   })
 
-  it('refuses what is not a store, before any request', async () => {
+  it('refuses what is neither false nor a store, before any request', async () => {
     const calls = stubUrls({})
-    for (const cache of [null, {}, { read() {} }, 'dir']) {
-      await assert.rejects(audit(undefined, { cache }), /advisories: cache must be a store with read and write/u, String(cache))
+    for (const cache of [null, true, {}, { read() {} }, 'dir']) {
+      await assert.rejects(audit(undefined, { cache }), /advisories: cache must be false, or a store with read and write/u, String(cache))
     }
     assert.deepEqual(calls, [])
   })

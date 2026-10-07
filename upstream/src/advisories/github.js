@@ -21,7 +21,6 @@ const isRepoAdvisory = (advisory) => advisory && typeof advisory === 'object' &&
   && (advisory.vulnerabilities == null || Array.isArray(advisory.vulnerabilities)) && (advisory.cwe_ids == null || isStrings(advisory.cwe_ids))
 
 export const assertClient = assertion('a GitHub client from createClient', (value) => typeof value?.listRepoAdvisories === 'function')
-export const assertCacheStore = assertion('a store with read and write', (value) => typeof value?.read === 'function' && typeof value?.write === 'function')
 
 // What rows are made from, and all that is kept of a listing: each advisory
 // not withdrawn, with its CVSS vector GitHub prefers, and each vulnerable

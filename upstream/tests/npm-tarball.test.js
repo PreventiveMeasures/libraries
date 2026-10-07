@@ -295,6 +295,137 @@ describe('the version document cache', () => {
   })
 })
 
+describe("a caller's store, and cache false", () => {
+  const DOC = 'https://registry.npmjs.org/pkg/1.0.0'
+  const TGZ = tarballUrl('pkg', '1.0.0')
+  const DIST = { tarball: TGZ, integrity: sri(BYTES) }
+  const OTHER = sri(new Uint8Array([1]))
+  const DOCUMENT = { name: 'pkg', version: '1.0.0', dist: DIST }
+  // A store over a Map, keeping a copy of what it is given by type and
+  // key, bytes as bytes; `log` is every read and write.
+  function mapStore() {
+    const entries = new Map()
+    const log = []
+    const at = (type, key) => JSON.stringify([type, key])
+    return {
+      log,
+      get: (type, key) => entries.get(at(type, key)),
+      set: (type, key, value) => entries.set(at(type, key), structuredClone(value)),
+      read(type, key) {
+        log.push(['read', type, key])
+        return Promise.resolve(structuredClone(entries.get(at(type, key))))
+      },
+      write(type, key, value) {
+        log.push(['write', type, key])
+        entries.set(at(type, key), structuredClone(value))
+        return Promise.resolve()
+      },
+    }
+  }
+  const offline = () => {
+    const calls = []
+    globalThis.fetch = (url) => {
+      calls.push(String(url))
+      return Promise.reject(new Error(`unexpected request: ${url}`))
+    }
+    return calls
+  }
+
+  it('keeps version documents and tarballs in the store, by type and name@version, and nothing on disk', async () => {
+    const store = mapStore()
+    let calls = stubRegistry()
+    assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0', undefined, { cache: store })), BYTES)
+    assert.deepEqual(calls, [DOC, TGZ])
+    assert.deepEqual(store.log, [['write', 'npm/versions', 'pkg@1.0.0'], ['read', 'npm/tarballs', 'pkg@1.0.0'], ['write', 'npm/tarballs', 'pkg@1.0.0']])
+    assert.deepEqual(store.get('npm/versions', 'pkg@1.0.0'), DOCUMENT)
+    assert.deepEqual(new Uint8Array(store.get('npm/tarballs', 'pkg@1.0.0')), BYTES)
+    calls = stubRegistry()
+    assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0', undefined, { cache: store })), BYTES)
+    assert.deepEqual(calls, [DOC])
+    calls = offline()
+    assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0', DIST, { cache: store })), BYTES)
+    await verifyDist('pkg', '1.0.0', DIST, { cache: store })
+    await assert.rejects(verifyDist('pkg', '1.0.0', { ...DIST, integrity: OTHER }, { cache: store }), (err) => err.message === `verifyDist: pkg@1.0.0 is ${sri(BYTES)} in the cache, not ${OTHER}`)
+    assert.deepEqual(calls, [])
+    store.log.length = 0
+    stubRegistry()
+    await getMeta('pkg', '1.0.0', { cache: store })
+    assert.deepEqual(store.log, [['write', 'npm/versions', 'pkg@1.0.0']], 'getMeta reads no document')
+    assert.deepEqual(await readdir(CACHE_DIR).catch(() => []), [])
+  })
+
+  it('throws on bytes in the store that do not match, and takes what is not bytes, or a document refused, as a miss', async () => {
+    const store = mapStore()
+    store.set('npm/tarballs', 'pkg@1.0.0', new Uint8Array([...BYTES, 0]))
+    stubRegistry()
+    await assert.rejects(getTarball('pkg', '1.0.0', DIST, { cache: store }), /getTarball: integrity mismatch for pkg@1\.0\.0 from the store/u)
+    for (const kept of [undefined, null, 'bytes', [...BYTES], { 0: 0x1f }]) {
+      store.set('npm/tarballs', 'pkg@1.0.0', kept)
+      const calls = stubRegistry()
+      assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0', DIST, { cache: store })), BYTES, String(kept))
+      assert.deepEqual(calls, [TGZ])
+      assert.deepEqual(new Uint8Array(store.get('npm/tarballs', 'pkg@1.0.0')), BYTES)
+    }
+    for (const kept of [null, 'text', { ...DOCUMENT, version: '1.0.1' }, { ...DOCUMENT, dist: { ...DIST, tarball: 'https://evil.example/pkg-1.0.0.tgz' } }]) {
+      store.set('npm/versions', 'pkg@1.0.0', kept)
+      const calls = stubRegistry()
+      await verifyDist('pkg', '1.0.0', DIST, { cache: store })
+      assert.deepEqual(calls, [DOC], JSON.stringify(kept))
+      assert.deepEqual(store.get('npm/versions', 'pkg@1.0.0'), DOCUMENT)
+    }
+  })
+
+  it("reads other tools' caches and ours before the store", async () => {
+    const hex = createHash('sha512').update(BYTES).digest('hex')
+    const cached = join(NPM_CACHE, '_cacache', 'content-v2', 'sha512', hex.slice(0, 2), hex.slice(2, 4), hex.slice(4))
+    await mkdir(dirname(cached), { recursive: true })
+    await writeFile(cached, BYTES)
+    const store = mapStore()
+    const calls = offline()
+    assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0', DIST, { cache: store })), BYTES)
+    assert.deepEqual([calls, store.log], [[], []])
+  })
+
+  it("passes on the store's own failures", async () => {
+    stubRegistry()
+    const failing = (what) => () => Promise.reject(new Error(`${what} failed`))
+    await assert.rejects(getTarball('pkg', '1.0.0', DIST, { cache: { read: failing('read'), write: () => Promise.resolve() } }), /read failed/u)
+    await assert.rejects(getTarball('pkg', '1.0.0', DIST, { cache: { read: () => Promise.resolve(), write: failing('write') } }), /write failed/u)
+    await assert.rejects(getMeta('pkg', '1.0.0', { cache: { read: () => Promise.resolve(), write: failing('write') } }), /write failed/u)
+    await assert.rejects(verifyDist('pkg', '1.0.0', DIST, { cache: { read: failing('read'), write: () => Promise.resolve() } }), /read failed/u)
+  })
+
+  it('with cache false, writes nothing, and reads the cache set as ever', async () => {
+    let calls = stubRegistry()
+    await getMeta('pkg', '1.0.0', { cache: false })
+    assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0', undefined, { cache: false })), BYTES)
+    assert.deepEqual(calls, [DOC, DOC, TGZ])
+    assert.deepEqual(await readdir(CACHE_DIR).catch(() => []), [])
+    stubRegistry()
+    await getTarball('pkg', '1.0.0')
+    calls = stubRegistry()
+    assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0', undefined, { cache: false })), BYTES)
+    assert.deepEqual(calls, [DOC])
+    calls = offline()
+    await verifyDist('pkg', '1.0.0', DIST, { cache: false })
+    assert.deepEqual(calls, [])
+  })
+
+  it('refuses a cache that is neither false nor a store, and any other option, before any request', async () => {
+    const calls = offline()
+    for (const cache of [null, true, {}, { read() {} }, 'dir']) {
+      const error = /cache must be false, or a store with read and write/u
+      await assert.rejects(getMeta('pkg', '1.0.0', { cache }), error, String(cache))
+      await assert.rejects(verifyDist('pkg', '1.0.0', DIST, { cache }), error, String(cache))
+      await assert.rejects(getTarball('pkg', '1.0.0', DIST, { cache }), error, String(cache))
+      await assert.rejects(getTarball('pkg', '1.0.0', undefined, { cache }), error, String(cache))
+    }
+    await assert.rejects(getMeta('pkg', '1.0.0', { store: false }), /getMeta: unknown option store/u)
+    await assert.rejects(getTarball('pkg', '1.0.0', undefined, null), /getTarball: options must be an options object/u)
+    assert.deepEqual(calls, [])
+  })
+})
+
 describe('the caches of other tools', () => {
   const DOC = 'https://registry.npmjs.org/pkg/1.0.0'
   // Where cacache files bytes: by their sha512, in hex.

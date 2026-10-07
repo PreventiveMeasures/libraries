@@ -3,8 +3,8 @@ import { Buffer } from 'node:buffer'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import { assertArgs, assertPackage, assertPackageName, assertion, isPlainObject, matches, show } from '../args.js'
-import { readCacheJSON, writeCacheJSON } from '../cache.js'
+import { assertArgs, assertPackage, assertPackageName, assertion, isPlainObject, matches, optional, show } from '../args.js'
+import { assertCache, readJSON, writeJSON } from '../cache.js'
 import { verifiedDownload } from '../download.js'
 import { NPM_REGISTRY, buildUrl } from '../http.js'
 import { getDocument, withNpmToken } from './registry.js'
@@ -33,8 +33,8 @@ function checkedDist(method, name, version, dist) {
 
 const distOf = (method, name, version, json) => checkedDist(method, name, version, { tarball: json.dist?.tarball, integrity: json.dist?.integrity })
 
-// A version document's dist, as setCacheDir's cache keeps it: none for one
-// for another name or version, or one refused.
+// A version document's dist, as a cache keeps it: none for one for
+// another name or version, or one refused.
 function keptDist(method, name, version, json) {
   if (json?.name !== name || json.version !== version) return undefined
   try {
@@ -44,24 +44,22 @@ function keptDist(method, name, version, json) {
   }
 }
 
-// The registry's document, kept whole in setCacheDir's cache, compressed,
-// and for good once its dist passes: the registry never takes a version
-// twice.
-async function fetchDist(method, name, version, key) {
+// The registry's document, kept whole in `cache` (readJSON), and for good
+// once its dist passes: the registry never takes a version twice.
+async function fetchDist(method, name, version, cache) {
   const json = await getDocument(method, name, version)
   assert.ok(json.version === version, `${method}: the registry answered for ${name}@${show(json.version)}, not ${name}@${version}`)
   const dist = distOf(method, name, version, json)
-  await writeCacheJSON(VERSIONS, key, json, { compressed: true })
+  await writeJSON(VERSIONS, `${name}@${version}`, json, cache)
   return dist
 }
 
 // A version's dist, from its document. The cache never supplies an
 // integrity: a kept document is read only for a caller that already has
 // the `integrity`, and one with another integrity throws, kept or fetched.
-async function getDist(method, name, version, integrity) {
-  const key = `${name}@${version}.json.gz`
-  const kept = integrity === undefined ? undefined : keptDist(method, name, version, await readCacheJSON(VERSIONS, key, { compressed: true }))
-  const dist = kept ?? await fetchDist(method, name, version, key)
+async function getDist(method, name, version, integrity, cache) {
+  const kept = integrity === undefined ? undefined : keptDist(method, name, version, await readJSON(VERSIONS, `${name}@${version}`, cache))
+  const dist = kept ?? await fetchDist(method, name, version, cache)
   assert.ok(integrity === undefined || dist.integrity === integrity, `${method}: ${name}@${version} is ${dist.integrity} ${kept ? 'in the cache' : 'on the registry'}, not ${integrity}`)
   return dist
 }
@@ -84,9 +82,10 @@ function localPaths(name, version, integrity) {
   return [...npm, join(homedir(), '.audit/cache/tgz', `${name.replace(/^@/u, '').replace('/', ':')}-${version}.tgz`)]
 }
 
-export async function getMeta(name, version) {
+export async function getMeta(name, version, options = {}) {
   assertPackage('getMeta', name, version)
-  return { name, version, dist: await getDist('getMeta', name, version) }
+  assertArgs('getMeta', options, { cache: optional(assertCache) })
+  return { name, version, dist: await getDist('getMeta', name, version, undefined, options.cache) }
 }
 
 // Only the whole package's document has `time`: megabytes for some.
@@ -115,16 +114,21 @@ export async function getPublishTimes(name) {
   return times
 }
 
-export async function verifyDist(name, version, dist) {
+export async function verifyDist(name, version, dist, options = {}) {
   assertPackage('verifyDist', name, version)
-  await getDist('verifyDist', name, version, checkedDist('verifyDist', name, version, dist).integrity)
+  const { integrity } = checkedDist('verifyDist', name, version, dist)
+  assertArgs('verifyDist', options, { cache: optional(assertCache) })
+  await getDist('verifyDist', name, version, integrity, options.cache)
 }
 
 // Without `dist`, the version document is read every time, cache or not:
 // bytes from a cache are checked against the registry's integrity, never
 // against anything a cache itself holds.
-export async function getTarball(name, version, dist) {
+export async function getTarball(name, version, dist, options = {}) {
   assertPackage('getTarball', name, version)
-  const { tarball, integrity } = dist === undefined ? await getDist('getTarball', name, version) : checkedDist('getTarball', name, version, dist)
-  return await verifiedDownload({ method: 'getTarball', dir: DIR, what: `${name}@${version}`, ext: 'tgz', algorithm: 'sha512', expected: integrity, local: localPaths(name, version, integrity), ours: true, locate: () => tarball, options: withNpmToken(name, tarball) })
+  const given = dist === undefined ? undefined : checkedDist('getTarball', name, version, dist)
+  assertArgs('getTarball', options, { cache: optional(assertCache) })
+  const { cache } = options
+  const { tarball, integrity } = given ?? await getDist('getTarball', name, version, undefined, cache)
+  return await verifiedDownload({ method: 'getTarball', dir: DIR, what: `${name}@${version}`, ext: 'tgz', algorithm: 'sha512', expected: integrity, local: localPaths(name, version, integrity), ours: true, store: cache, locate: () => tarball, options: withNpmToken(name, tarball) })
 }

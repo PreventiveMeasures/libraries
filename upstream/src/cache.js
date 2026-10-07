@@ -6,14 +6,15 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { gunzip, gzip } from 'node:zlib'
 
-import { assertCacheName, assertDirectoryPath, isRepo } from './args.js'
+import { assertCacheName, assertDirectoryPath, assertion, isRepo } from './args.js'
 import { MAX_BYTES, decode } from './http.js'
 
 const DIRS = new Set(['npm/repos', 'npm/tarballs', 'npm/versions', 'cargo/repos', 'cargo/crates', 'composer/repos', 'soldeer/repos', 'soldeer/zips', 'github/trees', 'github/advisories'])
 const RECORD_TTL_MS = 30 * 24 * 60 * 60 * 1000 // A link only moves on a transfer or rename, and GitHub redirects those.
-// Records filed gzipped, as `<name>.json.gz`: a listing carries each
-// advisory's full text, Markdown that compresses well.
-const GZIP_DIRS = new Set(['github/advisories'])
+// JSON filed gzipped, as `<name>.json.gz`: a listing carries each
+// advisory's full text, Markdown that compresses well, and a version
+// document all npm has of that version.
+const GZIP_DIRS = new Set(['github/advisories', 'npm/versions'])
 const compress = promisify(gzip)
 const decompress = promisify(gunzip)
 
@@ -133,26 +134,38 @@ export async function writeCacheJSON(dir, key, value, { compressed = false } = {
   return await writeCache(dir, key, compressed ? await compress(json) : json)
 }
 
-// A record is kept for `ttl`, in the cache set, or with `store`, in the
-// caller's store instead, as `dir` and `name`, as it is: only the files
-// are compressed.
-const recordFile = (dir, name) => (GZIP_DIRS.has(dir) ? `${name}.json.gz` : `${name}.json`)
+// A call's `cache` option: a store of the caller's, with read and write,
+// to keep what it governs in place of the cache set, or false for nothing
+// to be written, read as with none.
+export const assertCache = assertion('false, or a store with read and write', (value) => value === false || (typeof value?.read === 'function' && typeof value?.write === 'function'))
 
-export async function readRecord(dir, name, { ttl = RECORD_TTL_MS, store } = {}) {
+const jsonFile = (dir, name) => (GZIP_DIRS.has(dir) ? `${name}.json.gz` : `${name}.json`)
+
+// JSON kept as `dir` and `name`: with `store`, in the caller's store, as it
+// is; else in the cache set, compressed where `dir` is. `store` false
+// reads the cache set, and writes nothing.
+export async function readJSON(dir, name, store) {
   assert.ok(DIRS.has(dir), `Unexpected cache entry: ${dir}`)
-  const record = store ? await store.read(dir, name) : await readCacheJSON(dir, recordFile(dir, name), { compressed: GZIP_DIRS.has(dir) })
+  return store ? await store.read(dir, name) : await readCacheJSON(dir, jsonFile(dir, name), { compressed: GZIP_DIRS.has(dir) })
+}
+
+export async function writeJSON(dir, name, value, store) {
+  assert.ok(DIRS.has(dir), `Unexpected cache entry: ${dir}`)
+  if (store === false) return false
+  if (!store) return await writeCacheJSON(dir, jsonFile(dir, name), value, { compressed: GZIP_DIRS.has(dir) })
+  await store.write(dir, name, value)
+  return true
+}
+
+// A record is kept for `ttl`, as readJSON and writeJSON keep it.
+export async function readRecord(dir, name, { ttl = RECORD_TTL_MS, store } = {}) {
+  const record = await readJSON(dir, name, store)
   const age = typeof record?.at === 'number' ? Date.now() - record.at : Number.NaN
   const fresh = age >= 0 && age <= ttl // An entry from the future is not fresh forever.
   return fresh && record.name === name ? record : null
 }
 
-export async function writeRecord(dir, name, value, { store } = {}) {
-  assert.ok(DIRS.has(dir), `Unexpected cache entry: ${dir}`)
-  const record = { at: Date.now(), name, ...value }
-  if (!store) return await writeCacheJSON(dir, recordFile(dir, name), record, { compressed: GZIP_DIRS.has(dir) })
-  await store.write(dir, name, record)
-  return true
-}
+export const writeRecord = (dir, name, value, { store } = {}) => writeJSON(dir, name, { at: Date.now(), name, ...value }, store)
 
 // Name → the GitHub repo cached for it, for those of `names` that have one.
 export async function readRepos(dir, names) {
