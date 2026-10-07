@@ -27,6 +27,19 @@ export interface Package {
   versions: string[]
 }
 
+// A store of the caller's, a database's say, for what would otherwise be
+// kept in setCacheDir's cache (npm.js): `read` answers the value last
+// written under `key`, or null or undefined for none. Keys are
+// `<kind>/<name>`, `github/advisories/owner/name` for a repository's
+// listing, and values plain JSON data, which `read` may answer as written
+// or as a copy. Whatever it answers is checked as a cached file is: one
+// malformed, stale or kept differently is a miss. A rejection from
+// either is the call's. It is trusted as setCacheDir's directory is.
+export interface CacheStore {
+  read(key: string): Promise<unknown>
+  write(key: string, value: unknown): Promise<void>
+}
+
 export interface AdvisoryOptions {
   // The client every GitHub request goes through. Required for `soldeer`
   // and `github` packages, whose repository's published advisories are
@@ -39,6 +52,9 @@ export interface AdvisoryOptions {
   // the one npm's metadata, crates.io or Packagist names, looked up
   // through the cache. Needs `github`.
   repoAdvisories?: boolean
+  // Where a repository's listing is kept, in place of setCacheDir's cache:
+  // see `advisories`. Repository lookups still go through that cache.
+  cache?: CacheStore
   // Also returns each advisory's full text, as `details`. OSV's records
   // and a repository's listing already carry it; npm's registry does not,
   // and its rows take OSV's record of their GHSA, one more request each
@@ -108,6 +124,11 @@ export interface Advisory {
 // nothing, and a GHSA OSV does not have adds no `details`. Any other
 // failure, a malformed answer, or one about something not asked, throws:
 // nothing is left out quietly.
+// A repository's listing is kept for an hour, in setCacheDir's cache or
+// `cache`, as one entry for every spelling of its name, and holding only
+// what rows are made from, `details` included: an hour is how late an
+// advisory its maintainer publishes can be seen. One gone or malformed is
+// not kept.
 // Sorted by ecosystem and name. Versions are matched by npm's semver, from
 // the npm beside node, or by the semver peer where there is no npm.
 export function advisories(packages: Iterable<Package>, options?: AdvisoryOptions): Promise<Advisory[]>

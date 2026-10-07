@@ -7,7 +7,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { assertCacheName, assertDirectoryPath, isRepo } from './args.js'
 import { MAX_BYTES, decode } from './http.js'
 
-const DIRS = new Set(['npm/repos', 'npm/tarballs', 'cargo/repos', 'cargo/crates', 'composer/repos', 'soldeer/repos', 'soldeer/zips', 'github/trees'])
+const DIRS = new Set(['npm/repos', 'npm/tarballs', 'cargo/repos', 'cargo/crates', 'composer/repos', 'soldeer/repos', 'soldeer/zips', 'github/trees', 'github/advisories'])
 const RECORD_TTL_MS = 30 * 24 * 60 * 60 * 1000 // A link only moves on a transfer or rename, and GitHub redirects those.
 
 // An environment variable may hold anything: only an absolute path is one.
@@ -123,14 +123,23 @@ export async function writeCacheJSON(dir, key, value) {
   return await writeCache(dir, key, JSON.stringify(value))
 }
 
-export async function readRecord(dir, name) {
-  const record = await readCacheJSON(dir, `${name}.json`)
+// A record is kept for `ttl`, in the cache set, or with `store`, in the
+// caller's store instead, under `<dir>/<name>`.
+export async function readRecord(dir, name, { ttl = RECORD_TTL_MS, store } = {}) {
+  assert.ok(DIRS.has(dir), `Unexpected cache entry: ${dir}`)
+  const record = store ? await store.read(`${dir}/${name}`) : await readCacheJSON(dir, `${name}.json`)
   const age = typeof record?.at === 'number' ? Date.now() - record.at : Number.NaN
-  const fresh = age >= 0 && age <= RECORD_TTL_MS // An entry from the future is not fresh forever.
+  const fresh = age >= 0 && age <= ttl // An entry from the future is not fresh forever.
   return fresh && record.name === name ? record : null
 }
 
-export const writeRecord = (dir, name, value) => writeCacheJSON(dir, `${name}.json`, { at: Date.now(), name, ...value })
+export async function writeRecord(dir, name, value, { store } = {}) {
+  assert.ok(DIRS.has(dir), `Unexpected cache entry: ${dir}`)
+  const record = { at: Date.now(), name, ...value }
+  if (!store) return await writeCacheJSON(dir, `${name}.json`, record)
+  await store.write(`${dir}/${name}`, record)
+  return true
+}
 
 // Name → the GitHub repo cached for it, for those of `names` that have one.
 export async function readRepos(dir, names) {
