@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -373,6 +374,21 @@ describe("a caller's store, and cache false", () => {
       assert.deepEqual(calls, [DOC], JSON.stringify(kept))
       assert.deepEqual(store.get('npm/versions', 'pkg@1.0.0'), DOCUMENT)
     }
+  })
+
+  it('shares no bytes with the store, either way', async () => {
+    const entries = new Map()
+    const keeping = { read: (type, key) => Promise.resolve(entries.get(key)), write: (type, key, value) => Promise.resolve(void entries.set(key, value)) }
+    stubRegistry()
+    const fetched = await getTarball('pkg', '1.0.0', DIST, { cache: keeping })
+    fetched.fill(0)
+    assert.deepEqual(new Uint8Array(entries.get('pkg@1.0.0')), BYTES)
+    entries.set('pkg@1.0.0', Buffer.from(BYTES))
+    const kept = await getTarball('pkg', '1.0.0', DIST, { cache: keeping })
+    kept.fill(0)
+    assert.deepEqual(new Uint8Array(entries.get('pkg@1.0.0')), BYTES)
+    entries.get('pkg@1.0.0').fill(0)
+    assert.deepEqual(new Uint8Array(await getTarball('pkg', '1.0.0', DIST, { cache: { ...keeping, read: () => Promise.resolve(Buffer.from(BYTES)) } })), BYTES)
   })
 
   it("reads other tools' caches and ours before the store", async () => {
