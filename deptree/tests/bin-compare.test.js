@@ -168,9 +168,10 @@ describe('patchOf', () => {
     assert.equal(patchOf('node_modules/a/x.node', Buffer.from('a'), Uint8Array.of(0xff, 0xfe)), binary)
   })
 
-  it('spells a name as git does, for patch to read it back whole', () => {
+  it('spells a name for patch and git apply to read it back whole', () => {
     const headers = (path) => patchOf(path, Buffer.from('a\n'), Buffer.from('b\n')).split('\n').slice(0, 2)
-    assert.deepEqual(headers('node_modules/a/x y.js'), ['--- a/node_modules/a/x y.js\t', '+++ b/node_modules/a/x y.js\t'])
+    assert.deepEqual(headers('node_modules/a/x y.js'), ['--- "a/node_modules/a/x y.js"', '+++ "b/node_modules/a/x y.js"'])
+    assert.deepEqual(headers('node_modules/a/x '), ['--- "a/node_modules/a/x "', '+++ "b/node_modules/a/x "'], 'a space that ends it too')
     assert.deepEqual(headers('node_modules/a/é.js'), ['--- a/node_modules/a/é.js', '+++ b/node_modules/a/é.js'])
     assert.deepEqual(headers('node_modules/a/x y\t"\\\n\u0001\u007F\u0085.js'), [
       '--- "a/node_modules/a/x y\\t\\"\\\\\\n\\001\\177\\302\\205.js"',
@@ -233,6 +234,19 @@ describe('readSide', () => {
     assert.deepEqual([...tree.keys()].toSorted(byPath), ['node_modules', 'node_modules/a', 'node_modules/a/index.js', 'node_modules/b', 'packages/w/node_modules', 'packages/w/node_modules/c', 'packages/w/node_modules/c/x'])
     writeDisk(root, tree)
     assert.deepEqual(difference(readSide(projectView(root), dirs), tree), [], 'a folder not there is left out, and links are not followed')
+  })
+
+  it('takes a directory deptree never builds as one entry, not entered', () => {
+    const vfs = createVfs({
+      'node_modules/.bin/a': { type: 'symlink', target: '../a/cli.js' },
+      'node_modules/a/.bin/x': 'x',
+      'dependencies/lib-1.0.0/.git/objects/pack/p.pack': 'pack',
+      'dependencies/lib-1.0.0/src/.git/x': 'x',
+    })
+    assert.deepEqual([...readSide(vfs, ['node_modules', 'dependencies']).keys()].toSorted(byPath), [
+      'dependencies', 'dependencies/lib-1.0.0', 'dependencies/lib-1.0.0/.git', 'dependencies/lib-1.0.0/src', 'dependencies/lib-1.0.0/src/.git', 'dependencies/lib-1.0.0/src/.git/x',
+      'node_modules', 'node_modules/.bin', 'node_modules/a', 'node_modules/a/.bin', 'node_modules/a/.bin/x',
+    ])
   })
 })
 

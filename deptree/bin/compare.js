@@ -28,9 +28,14 @@ export function projectView(root) {
   }
 }
 
+// What deptree never builds: the .bin directories, each package manager's
+// record of its install, and the .git of a dependency Soldeer clones.
+const NOT_BUILT = /(?:^|\/)node_modules\/(?:\.bin|\.modules\.yaml|\.pnpm-workspace-state(?:-v\d+)?\.json|\.pnpm\/lock\.yaml|\.package-lock\.json|\.yarn-integrity)(?:\/|$)|^dependencies\/[^/]+\/\.git(?:\/|$)/u
+
 // Everything under each of `dirs` as `view` has it, the disk's projectView
 // or the tree's Vfs: links not followed, every file read whole, and a
-// folder not there left out.
+// folder not there left out. A directory deptree never builds is one entry,
+// not entered, as only it is ever listed.
 export function readSide(view, dirs) {
   const entries = new Map()
   const stack = dirs.filter((dir) => typeOf(view, dir, false) !== undefined)
@@ -41,14 +46,10 @@ export function readSide(view, dirs) {
     if (type === 'file') entry.data = view.readFile(path)
     if (type === 'symlink') entry.target = view.readlink(path)
     entries.set(path, entry)
-    if (type === 'directory') for (const name of view.readdir(path)) stack.push(`${path}/${name}`)
+    if (type === 'directory' && !NOT_BUILT.test(path)) for (const name of view.readdir(path)) stack.push(`${path}/${name}`)
   }
   return entries
 }
-
-// What deptree never builds: the .bin directories, each package manager's
-// record of its install, and the .git of a dependency Soldeer clones.
-const NOT_BUILT = /(?:^|\/)node_modules\/(?:\.bin|\.modules\.yaml|\.pnpm-workspace-state(?:-v\d+)?\.json|\.pnpm\/lock\.yaml|\.package-lock\.json|\.yarn-integrity)(?:\/|$)|^dependencies\/[^/]+\/\.git(?:\/|$)/u
 
 // The paths on disk alone that hold nothing Node resolves: what deptree never
 // builds, and directories of nothing else, as pnpm leaves a node_modules of a
@@ -112,20 +113,19 @@ function textOf(bytes) {
   }
 }
 
-// A name as git writes one in a diff, for patch to read back whole: in C
-// quotes where it holds a control character, a quote or a backslash, each
-// such byte escaped.
+// A name for patch and git apply to read back whole: in C quotes, as git
+// writes one, where it holds a control character, a quote or a backslash,
+// each such byte escaped; and, unlike git, where it holds a space, as patch
+// strips one that ends a name from before the tab git puts after it.
 const UNQUOTED = /[\p{Cc}"\\]/gu
 const ESCAPES = { '\t': '\\t', '\n': '\\n', '"': '\\"', '\\': '\\\\' }
 const octets = (char) => [...Buffer.from(char)].map((byte) => `\\${byte.toString(8).padStart(3, '0')}`).join('')
-const cQuoted = (name) => (/[\p{Cc}"\\]/u.test(name) ? `"${name.replaceAll(UNQUOTED, (char) => ESCAPES[char] ?? octets(char))}"` : name)
+const cQuoted = (name) => (/[\p{Cc}"\\ ]/u.test(name) ? `"${name.replaceAll(UNQUOTED, (char) => ESCAPES[char] ?? octets(char))}"` : name)
 
-// A unified diff from disk to the tree, labelled for `patch -p1`. An unquoted
-// name with a space ends in a tab, as patch otherwise ends it at the space.
+// A unified diff from disk to the tree, labelled for `patch -p1`.
 export function patchOf(path, disk, tree) {
   const [from, to] = [cQuoted(`a/${path}`), cQuoted(`b/${path}`)]
   const [a, b] = [textOf(disk), textOf(tree)]
   if (a === undefined || b === undefined) return `Binary files ${from} and ${to} differ\n`
-  const end = path.includes(' ') && !from.startsWith('"') ? '\t' : ''
-  return `--- ${from}${end}\n+++ ${to}${end}\n${diff(a, b)}`
+  return `--- ${from}\n+++ ${to}\n${diff(a, b)}`
 }
