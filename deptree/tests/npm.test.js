@@ -5,7 +5,7 @@ import { pack } from '@preventive/archive/tar.js'
 import { Vfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, buildNpmTree, findNpmWorkspaces } from '../npm.js'
 import { recalculates } from '../src/npm/manifests.js'
-import { sri, stubRegistry, tarball, url } from './registry.js'
+import { memoryStore, sri, stubRegistry, tarball, url } from './registry.js'
 
 // A small project whose lockfile npm's own Arborist wrote, and whose tree
 // real npm 11.12.1 and 10.9.9 installed with `npm ci --ignore-scripts` as
@@ -162,6 +162,21 @@ describe('the tree npm installs', () => {
     for (const copy of without.installed) assert.deepEqual(about(copy), none, copy.path)
   })
 
+  it('keeps each tarball and version document in a cache store given, and asks the registry for none it keeps', async () => {
+    const store = memoryStore()
+    const calls = stubRegistry(TARBALLS)
+    const { installed } = await buildNpmTree(given({ cache: store }))
+    const ids = [...new Set(installed.map(({ name, version }) => `${name}@${version}`))]
+    assert.deepEqual([...store.kept.keys()].sort(), ids.flatMap((id) => [`npm/tarballs ${id}`, `npm/versions ${id}`]).sort())
+    assert.equal(calls.length, ids.length * 2)
+    const again = stubRegistry(TARBALLS)
+    assert.deepEqual((await buildNpmTree(given({ cache: store }))).installed, installed)
+    assert.deepEqual(again, [])
+    const unkept = stubRegistry(TARBALLS)
+    assert.deepEqual((await buildNpmTree(given({ cache: false }))).installed, installed)
+    assert.equal(unkept.length, ids.length * 2, 'false keeps nothing, so every tarball and document is asked for')
+  })
+
   it('refused: a version document whose dist is not the lockfile\'s, unless none is fetched', async () => {
     const otherwise = (dist) => stubRegistry(TARBALLS.map((t) => (t.name === 'b' ? { ...t, dist } : t)))
     otherwise({ integrity: T['c@1.0.0'].integrity })
@@ -221,6 +236,9 @@ describe('read from a project', () => {
     await assert.rejects(buildNpmTree({ project: project(), npmrc: '', host: HOST }), { name: 'TypeError', message: 'npmrc must be left out where lockfile is: both are read from project' })
     await assert.rejects(buildNpmTree({ host: HOST }), { name: 'TypeError', message: 'lockfile must be the text of package-lock.json, or left out with a project given to read it from' })
     await assert.rejects(buildNpmTree(given({ metadata: 'no' })), { name: 'TypeError', message: 'metadata must be a boolean, or left out' })
+    for (const cache of [null, true, {}, { read() {} }]) {
+      await assert.rejects(buildNpmTree(given({ cache })), { name: 'TypeError', message: 'cache must be false, or a store with read and write, or left out' })
+    }
   })
 })
 

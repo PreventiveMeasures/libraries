@@ -4,7 +4,7 @@ import { afterEach, describe, it } from 'node:test'
 import { compress, decompress } from '@preventive/archive/compression.js'
 import { createVfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, buildYarn1Tree, findYarn1Workspaces } from '../yarn1.js'
-import { paths, sri, stubFailingRegistry, stubRegistry, tarball } from './registry.js'
+import { memoryStore, paths, sri, stubFailingRegistry, stubRegistry, tarball } from './registry.js'
 
 // Small projects whose yarn.lock real yarn 1.22.22 wrote, and whose trees
 // it installed as the first tests expect, from the tarballs made here;
@@ -136,6 +136,17 @@ describe('buildYarn1Tree', () => {
     assert.equal(mode(vfs, '/node_modules/a/package.json'), 0o644)
     assert.ok(stats.bytes > 0)
     assert.deepEqual({ ...stats, bytes: 0 }, { packages: 7, skipped: 1, installed: 6, files: 11, bytes: 0, links: 0 })
+  })
+
+  it('keeps each tarball and version document in a cache store given, and asks the registry for none it keeps', async () => {
+    const store = memoryStore()
+    const calls = stubRegistry(TARBALLS)
+    const { installed } = await buildYarn1Tree({ project: project(), host: HOST, cache: store })
+    assert.equal(store.kept.size, calls.length)
+    assert.ok(calls.length > 0)
+    const again = stubRegistry(TARBALLS)
+    assert.deepEqual((await buildYarn1Tree({ project: project(), host: HOST, cache: store })).installed, installed)
+    assert.deepEqual(again, [])
   })
 
   it('lists what it installs, as an SBOM would take it', async () => {
@@ -639,6 +650,7 @@ describe('buildYarn1Tree refuses', () => {
     await refuses({ project: project({ 'package.json': { ...ROOT, packageManager: 'yarn@1.22.19' } }) }, /^DeptreeError: manifests\["\."\]\.packageManager: the project is installed by yarn 1\.22\.19, which corepack runs, not 1\.22\.22$/u)
     await assert.rejects(buildYarn1Tree({ project: project(), host: { ...HOST, yarn: undefined } }), TypeError)
     await assert.rejects(buildYarn1Tree({ project: project(), host: HOST, metadata: 1 }), { name: 'TypeError', message: 'metadata must be a boolean, or left out' })
+    await assert.rejects(buildYarn1Tree({ project: project(), host: HOST, cache: 'store' }), { name: 'TypeError', message: 'cache must be false, or a store with read and write, or left out' })
   })
 
   it('a lockfile the lockfile reader refuses', async () => {

@@ -8,6 +8,7 @@ import { satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote } from '../error.js'
 import { checkNoModules, isInside, makeDirs, mount, writeFiles, writeLink } from '../mount.js'
+import { fetchingOf } from '../tarball.js'
 import { fixBins } from './bins.js'
 import { skippedOf } from './compat.js'
 import { graphOf } from './graph.js'
@@ -48,7 +49,7 @@ function checkSpecs(lockfile, host) {
 }
 
 // Every URL is checked before any is fetched.
-async function fetchAll(nodes, host, metadata) {
+async function fetchAll(nodes, host, fetching) {
   const tarballs = new Map()
   for (const node of nodes) {
     const tarball = registryTarball(node.pkg, whereOf(node))
@@ -58,7 +59,7 @@ async function fetchAll(nodes, host, metadata) {
   }
   const fetched = new Map()
   await eachConcurrently(tarballs.values(), async ({ tarball, where, nodes: copies }) => {
-    const pkg = { ...await fetchNpmPackage(tarball, where, host.ratio ? checkRatio : undefined, metadata), integrity: tarball.integrity }
+    const pkg = { ...await fetchNpmPackage(tarball, where, host.ratio ? checkRatio : undefined, fetching), integrity: tarball.integrity }
     for (const node of copies) fetched.set(node, pkg)
   }, ({ where }) => where)
   return { fetched, tarballs: tarballs.size }
@@ -104,9 +105,9 @@ function rootListsOf(text) {
 }
 
 export async function buildNpmTree(options) {
-  const { host: given, vfs: into, metadata = true } = options ?? {}
+  const { host: given, vfs: into } = options ?? {}
   if (into !== undefined && !(into instanceof Vfs)) throw new TypeError('vfs must be a Vfs, or left out')
-  if (typeof metadata !== 'boolean') throw new TypeError('metadata must be a boolean, or left out')
+  const fetching = fetchingOf(options ?? {})
   const host = checkHost(given)
   const folded = host.os === 'darwin'
   const inputs = inputsOf(options ?? {}, folded)
@@ -123,7 +124,7 @@ export async function buildNpmTree(options) {
   const nodes = graphOf(lockfile, manifests)
   const skipped = skippedOf(nodes, host, settings)
   const kept = [...nodes.values()].filter((node) => node.kind === 'package' && !skipped.has(node))
-  const { fetched, tarballs } = await fetchAll(kept, host, metadata)
+  const { fetched, tarballs } = await fetchAll(kept, host, fetching)
   const changed = settings.binLinks ? fixBins(kept, fetched) : new Map()
   const residue = host.reuse ? residueOf(nodes, skipped) : new Set()
   const { vfs, stats: written } = writeTree({ lockfile, kept, fetched, changed, residue })

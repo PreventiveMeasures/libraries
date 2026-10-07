@@ -97,11 +97,11 @@ export async function checkShared({ name, version, integrity, sha1: pinned }, he
 }
 
 // A tarball the lockfile gives no sha512 is fetched by the registry's, and
-// `about` is that document's, whatever `metadata` is.
-export async function fetchYarnPackage({ name, version, integrity, sha1: pinned }, where, times, metadata) {
+// `about` is that document's, whatever `fetching.metadata` is.
+export async function fetchYarnPackage({ name, version, integrity, sha1: pinned }, where, times, fetching) {
   if (pinned !== undefined) await checkPublished({ name, version }, where, times)
-  const meta = integrity === undefined ? await registryMeta(name, version, where) : undefined
-  const fetched = await fetchTarball(name, version, integrity ?? meta.integrity, where, metadata && meta === undefined)
+  const meta = integrity === undefined ? await registryMeta(name, version, where, fetching) : undefined
+  const fetched = await fetchTarball(name, version, integrity ?? meta.integrity, where, { ...fetching, metadata: fetching.metadata && meta === undefined })
   const sha1 = await sha1Hex(fetched.bytes)
   checkSha1(pinned, sha1, where)
   const { files, dirs } = entriesOf(fetched.entries, where)

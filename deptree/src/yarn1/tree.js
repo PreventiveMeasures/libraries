@@ -10,6 +10,7 @@ import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote } from '../error.js'
 import { checkNoModules, isInside, makeDirs, mount, writeFiles, writeLink } from '../mount.js'
 import { typeOf } from '../project.js'
+import { fetchingOf } from '../tarball.js'
 import { checkBinLinks } from './bins.js'
 import { incompatibility } from './compat.js'
 import { Hoister } from './hoist.js'
@@ -32,12 +33,12 @@ function fetchedName(ref) {
 }
 
 // The first of each place in `first` is fetched, and every entry held to it.
-async function fetchAll(refs, first, metadata) {
+async function fetchAll(refs, first, fetching) {
   const fetched = new Map()
   const times = new Map()
   const tarballs = new Map(refs.map((ref) => [ref, registryTarball(ref.entry, fetchedName(ref), whereOf(ref))]))
   await eachConcurrently([...first.values()], async (ref) => {
-    fetched.set(ref, await fetchYarnPackage(tarballs.get(ref), whereOf(ref), times, metadata))
+    fetched.set(ref, await fetchYarnPackage(tarballs.get(ref), whereOf(ref), times, fetching))
   }, whereOf)
   for (const ref of refs) {
     const head = first.get(ref.loc)
@@ -86,12 +87,12 @@ function resolveProject(inputs, host) {
 // first is fetched; the rest keep their lockfile entry as package.json, with
 // no peers, bins, platforms or engines, and the first's files, and their
 // hashes are held to the first's tarball.
-async function fetchChecked(resolved, host, settings, project, metadata) {
+async function fetchChecked(resolved, host, settings, project, fetching) {
   const order = [...new Set(resolved.patterns.values())]
   const registry = order.filter((ref) => ref.kind === 'registry')
   const first = new Map()
   for (const ref of registry) if (!first.has(ref.loc)) first.set(ref.loc, ref)
-  const fetched = await fetchAll(registry, first, metadata)
+  const fetched = await fetchAll(registry, first, fetching)
   const directories = readDirectories(order, project, fetched)
   const manifestOf = new Map()
   for (const ref of order) {
@@ -188,9 +189,9 @@ function listInstalled(copies, fetched, asked, hoister) {
 }
 
 export async function buildYarn1Tree(options) {
-  const { host: given, vfs: into, metadata = true } = options ?? {}
+  const { host: given, vfs: into } = options ?? {}
   if (into !== undefined && !(into instanceof Vfs)) throw new TypeError('vfs must be a Vfs, or left out')
-  if (typeof metadata !== 'boolean') throw new TypeError('metadata must be a boolean, or left out')
+  const fetching = fetchingOf(options ?? {})
   const inputs = inputsOf(options ?? {})
   const host = checkHost(given, inputs.manifests.get('.'))
   const folded = host.os === 'darwin'
@@ -198,7 +199,7 @@ export async function buildYarn1Tree(options) {
   if (into !== undefined) checkNoModules(into, folded)
   checkRoot(inputs.manifests.get('.'))
   const { workspaces, asked, resolved } = resolveProject(inputs, host)
-  const { packages, fetched, manifestOf } = await fetchChecked(resolved, host, inputs.settings, inputs.project, metadata)
+  const { packages, fetched, manifestOf } = await fetchChecked(resolved, host, inputs.settings, inputs.project, fetching)
   const { placed, hoister } = layout({ resolved, manifestOf, asked, workspaces })
   const { vfs, links, locations, copies, files, bytes } = writeTree(placed, fetched)
   checkBinLinks({ placed, patterns: resolved.patterns, locations, realOf: (path) => realOf(links, path) })

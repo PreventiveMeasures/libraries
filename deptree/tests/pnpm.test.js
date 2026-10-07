@@ -5,7 +5,7 @@ import { compress } from '@preventive/archive/compression.js'
 import { pack } from '@preventive/archive/tar.js'
 import { createVfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, YamlError, buildPnpmTree, findPnpmProjects } from '../pnpm.js'
-import { HOST, paths, rawTar, sri, stubFailingRegistry, stubRegistry, tarball } from './registry.js'
+import { HOST, memoryStore, paths, rawTar, sri, stubFailingRegistry, stubRegistry, tarball } from './registry.js'
 
 // A lockfile with a package of every kind this builds, from tarballs made
 // here; then one change at a time, each refused with where and why.
@@ -243,6 +243,17 @@ describe('buildPnpmTree', () => {
     const { stats } = await buildResult()
     assert.ok(stats.bytes > 0)
     assert.deepEqual({ ...stats, bytes: 0 }, { projects: 1, snapshots: 9, installed: 8, skipped: 1, incompatible: 0, tarballs: 8, patched: 1, files: 12, bytes: 0, links: 13 })
+  })
+
+  it('keeps each tarball and version document in a cache store given, and asks the registry for none it keeps', async () => {
+    const store = memoryStore()
+    const calls = stubRegistry(TARBALLS)
+    const { installed } = await buildResult({ cache: store })
+    assert.equal(store.kept.size, calls.length)
+    assert.ok(calls.length > 0)
+    const again = stubRegistry(TARBALLS)
+    assert.deepEqual((await buildResult({ cache: store })).installed, installed)
+    assert.deepEqual(again, [])
   })
 
   it('lists what it installs, as an SBOM would take it', async () => {
@@ -734,6 +745,7 @@ describe('buildPnpmTree refuses', () => {
     await assert.rejects(build({ manifests: undefined }), TypeError)
     await assert.rejects(build({ manifest: 7 }), TypeError)
     await assert.rejects(build({ metadata: 'no' }), { name: 'TypeError', message: 'metadata must be a boolean, or left out' })
+    await assert.rejects(build({ cache: {} }), { name: 'TypeError', message: 'cache must be false, or a store with read and write, or left out' })
   })
 
   it('a lockfile resolved with other settings', async () => {

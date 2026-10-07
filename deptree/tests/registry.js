@@ -70,6 +70,20 @@ export function stubRegistry(tarballs, urlOf = url) {
   return calls
 }
 
+// A cache store in memory, as upstream's CacheOptions take one: what is
+// written is `kept` by `<type> <key>`.
+export function memoryStore() {
+  const kept = new Map()
+  return {
+    kept,
+    read: (type, key) => Promise.resolve(kept.get(`${type} ${key}`)),
+    write: (type, key, value) => {
+      kept.set(`${type} ${key}`, value)
+      return Promise.resolve()
+    },
+  }
+}
+
 // The stubbed fetch, each answer `ms` late unless `now` gives one; counts
 // the fetches still coming, and the most at once.
 export function slowed(ms, now = () => undefined) {

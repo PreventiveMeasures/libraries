@@ -118,9 +118,9 @@ export const UNKNOWN = Object.freeze(aboutOf({}))
 // tarball ownTarball let through unpinned, and what it says of where the
 // package comes from. getMeta holds its tarball to the registry's own URL,
 // which fetchTarball fetches.
-export async function registryMeta(name, version, where) {
+export async function registryMeta(name, version, where, { cache }) {
   checkId(name, version, where)
-  const meta = await getMeta(name, version)
+  const meta = await getMeta(name, version, { cache })
   return { integrity: meta.dist.integrity, about: aboutOf(meta) }
 }
 
@@ -133,17 +133,29 @@ async function settled(promises) {
   return results.map(({ value }) => value)
 }
 
-// With `metadata`, the version's document is asked for beside the tarball,
-// given the dist the tarball is fetched by, which getMeta holds the
-// document's to as text, the registry's being the one a lockfile copies, so
-// nothing is hashed again; `about` is what it says. Else UNKNOWN.
-export async function fetchTarball(name, version, integrity, where, metadata = false) {
+// What a tree's options say of what it fetches from npm's registry:
+// `metadata`, true unless given false, and `cache`, as upstream's
+// CacheOptions take it, which keeps each version's document and tarball.
+export function fetchingOf({ metadata = true, cache }) {
+  if (typeof metadata !== 'boolean') throw new TypeError('metadata must be a boolean, or left out')
+  if (cache !== undefined && cache !== false && (typeof cache?.read !== 'function' || typeof cache?.write !== 'function')) {
+    throw new TypeError('cache must be false, or a store with read and write, or left out')
+  }
+  return { metadata, cache }
+}
+
+// Kept as `cache` says. With `metadata`, the version's document is asked for
+// beside the tarball, given the dist the tarball is fetched by, which
+// getMeta holds the document's to as text, the registry's being the one a
+// lockfile copies, so nothing is hashed again; `about` is what it says.
+// Else UNKNOWN.
+export async function fetchTarball(name, version, integrity, where, { metadata = false, cache } = {}) {
   checkId(name, version, where)
   if (!/^sha512-[\d+/A-Za-z]{86}==$/u.test(integrity)) throw new DeptreeError('a tarball with no sha512 integrity is not supported', where)
   const dist = { tarball: tarballUrl(name, version), integrity }
   const [bytes, about] = await settled([
-    getTarball(name, version, dist),
-    metadata ? getMeta(name, version, { dist }).then(aboutOf) : UNKNOWN,
+    getTarball(name, version, dist, { cache }),
+    metadata ? getMeta(name, version, { dist, cache }).then(aboutOf) : UNKNOWN,
   ])
   if (!await matchesIntegrity(bytes, integrity)) throw new DeptreeError(`the tarball is not ${integrity}`, where)
   if (bytes[0] !== 0x1f || bytes[1] !== 0x8b || bytes[2] !== 0x08) throw new DeptreeError('the tarball is not gzipped', where)

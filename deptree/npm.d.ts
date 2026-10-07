@@ -1,6 +1,6 @@
 // Hand-written against npm.js; a change to either belongs with the other.
 
-import type { PackageBugs, PackageRepository } from '@preventive/upstream/npm.js'
+import type { CacheStore, PackageBugs, PackageRepository } from '@preventive/upstream/npm.js'
 import type { NodeType, Vfs } from '@preventive/vfs'
 
 export { LockfileError } from '@preventive/lockfile/npm.js'
@@ -13,8 +13,10 @@ export { LockfileError } from '@preventive/lockfile/npm.js'
 // lockfile's integrity, and writes none of them; then from its own cache,
 // where one is set, which is where it writes each tarball it fetches:
 // setCacheDir() sets the default one, and setCacheDir(false) unsets it.
-// Unset, which it is until set, it writes nothing. The project is read
-// only through the view given as `project`, and the tree built in a Vfs.
+// Unset, which it is until set, it writes nothing. A build's `cache`, below,
+// keeps them in a store of the caller's in place of it, or nowhere. The
+// project is read only through the view given as `project`, and the tree
+// built in a Vfs.
 export { setCacheDir } from '@preventive/upstream/npm.js'
 
 // The machine npm would install on, which a tree depends on. `npm` is the
@@ -114,13 +116,20 @@ export interface NpmProject {
 //
 // `metadata`, true unless given false, has each registry package's version
 // document asked for beside its tarball, through getMeta of
-// @preventive/upstream given the lockfile's dist: the one setCacheDir's
-// cache keeps, where its dist is that one, else the registry's, a request
-// for each name and version. Its dist has to be the lockfile's, the tarball
+// @preventive/upstream given the lockfile's dist: the one `cache` keeps,
+// where its dist is that one, else the registry's, a request for each name
+// and version. Its dist has to be the lockfile's, the tarball
 // the registry's own URL and the integrity the lockfile's sha512, compared
 // as text, with nothing hashed again, as the lockfile copies the
 // registry's; and its gitHead, repository, homepage and bugs are the
 // package's. False fetches none, and gives none of them.
+//
+// `cache` is where each registry package's tarball and version document
+// are kept, as @preventive/upstream's CacheOptions take it: in setCacheDir's
+// cache where it is left out; in a store of the caller's, with `read` and
+// `write`, in place of it; or with false, nowhere, though setCacheDir's
+// cache is read all the same. Other tools' caches are read for tarballs
+// whatever it is. A TypeError is thrown for anything else.
 export type NpmTreeOptions = NpmTreeGiven | NpmTreeRead
 
 export interface NpmTreeGiven {
@@ -131,6 +140,7 @@ export interface NpmTreeGiven {
   host: NpmHost
   vfs?: Vfs
   metadata?: boolean
+  cache?: CacheStore | false
 }
 
 export interface NpmTreeRead {
@@ -141,6 +151,7 @@ export interface NpmTreeRead {
   host: NpmHost
   vfs?: Vfs
   metadata?: boolean
+  cache?: CacheStore | false
 }
 
 // What buildNpmTree counts, all of it plain numbers: `packages` the
