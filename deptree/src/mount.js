@@ -21,6 +21,16 @@ export function checkNoModules(vfs, folded) {
   }
 }
 
+// The same for a directory of `name` at the root alone, as Soldeer's
+// dependencies and cargo's vendor: `what` it is called.
+export const checkNoDir = (name, what) => (vfs, folded) => {
+  for (const there of vfs.readdir('/')) {
+    if (there === name || (folded && fold(there) === name)) {
+      throw new DeptreeError(`${what} is there already, which is neither kept beside the tree nor removed`, where(`/${there}`))
+    }
+  }
+}
+
 function checkCollisions(vfs) {
   const [clash] = vfs.collisions(fold)
   if (clash !== undefined) throw new DeptreeError(`${quote(clash.names[0])} and ${quote(clash.names[1])} are one name on macOS`, quote(clash.path))

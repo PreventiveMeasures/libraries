@@ -6,7 +6,7 @@ import { getZip } from '@preventive/upstream/soldeer.js'
 import { Vfs } from '@preventive/vfs'
 import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote } from '../error.js'
-import { fold, makeDirs, mount, writeFiles } from '../mount.js'
+import { checkNoDir, fold, makeDirs, mount, writeFiles } from '../mount.js'
 import { configOf } from './config.js'
 import { checkoutOf, githubRepoOf } from './git.js'
 import { checkHost, inputsOf } from './inputs.js'
@@ -22,13 +22,7 @@ const isKept = (folder) => !/[/?<>\\:*|"\p{Cc}]/u.test(folder) && utf8fromString
 
 const GITHUB = 'github must be a GitHub client from createClient, which a git dependency is fetched through'
 
-function checkNoDependencies(vfs, folded) {
-  for (const name of vfs.readdir('/')) {
-    if (name === 'dependencies' || (folded && fold(name) === 'dependencies')) {
-      throw new DeptreeError('a dependencies folder is there already, which is neither kept beside the tree nor removed', `vfs[${quote(`/${name}`)}]`)
-    }
-  }
-}
+const checkNoDependencies = checkNoDir('dependencies', 'a dependencies folder')
 
 const about = (name) => `dependencies[${quote(name)}]`
 

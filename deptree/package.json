@@ -19,11 +19,17 @@
     "./soldeer.js": {
       "types": "./soldeer.d.ts",
       "default": "./soldeer.js"
+    },
+    "./cargo.js": {
+      "types": "./cargo.d.ts",
+      "default": "./cargo.js"
     }
   },
   "files": [
     "LICENSE-APACHE",
     "LICENSE-MIT",
+    "cargo.d.ts",
+    "cargo.js",
     "npm.d.ts",
     "npm.js",
     "pnpm.d.ts",
@@ -32,6 +38,12 @@
     "soldeer.js",
     "yarn1.d.ts",
     "yarn1.js",
+    "src/cargo/crate.js",
+    "src/cargo/inputs.js",
+    "src/cargo/members.js",
+    "src/cargo/registry.js",
+    "src/cargo/tree.js",
+    "src/cargo/workspace.js",
     "src/concurrent.js",
     "src/error.js",
     "src/glob.js",
