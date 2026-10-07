@@ -6,6 +6,7 @@
 // all read alike. Refused are a link the walk comes on, which they treat
 // differently, and a mode a checkout does not have under umask 022 or 002.
 
+import { utf8toString } from '@exodus/bytes/utf8.js'
 import { compareVersions, valid } from '@preventive/upstream/semver.js'
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
@@ -13,7 +14,6 @@ import { readBytes } from '../project.js'
 import { bytesOf, gitignoreGlob, matched, matchedOrParents } from './gitignore.js'
 import { pack10, pack11 } from './npm-packlist.js'
 
-const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 
 const MODES = new Set([0o644, 0o664, 0o755, 0o775])
 
@@ -58,7 +58,7 @@ function viewOf(project, dir, where) {
     text(rel, here) {
       if (view.type(rel) !== 'file') throw new DeptreeError('it is not a file, which pnpm fails to read', here)
       try {
-        return decoder.decode(readBytes(project, absolute(rel)))
+        return utf8toString(readBytes(project, absolute(rel)))
       } catch {
         throw new DeptreeError('it is not UTF-8, which is not supported', here)
       }

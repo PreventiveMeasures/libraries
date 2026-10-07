@@ -5,6 +5,7 @@
 // inserts after a line with no context a line early; a patch that needs any
 // of that is refused, so one applied here leaves the file as pnpm would.
 
+import { utf8fromString } from '@exodus/bytes/utf8.js'
 import { applyChangeSet, parseDiff } from '@preventive/diff'
 import { DeptreeError, quote } from './error.js'
 import { UNSAFE, isInside } from './mount.js'
@@ -96,11 +97,9 @@ function applyTo(text, { hunks, blocks, where }) {
   return applyChangeSet(text, blocks)
 }
 
-const encoder = new TextEncoder()
-
 function bytesOf(text, where) {
   if (!text.isWellFormed()) throw new DeptreeError('makes a file that is not well-formed text', where)
-  return encoder.encode(text)
+  return utf8fromString(text)
 }
 
 const parentsOf = (path) => path.split('/').slice(0, -1).map((_, index, names) => names.slice(0, index + 1).join('/'))

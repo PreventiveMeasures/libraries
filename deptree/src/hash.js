@@ -1,19 +1,19 @@
+import { toBase32 } from '@exodus/bytes/base32.js'
+import { toBase64 } from '@exodus/bytes/base64.js'
+import { toHex } from '@exodus/bytes/hex.js'
+import { utf8fromString } from '@exodus/bytes/utf8.js'
 import { DeptreeError } from './error.js'
 
-const encoder = new TextEncoder()
-
 const digest = async (algorithm, bytes) => new Uint8Array(await crypto.subtle.digest(algorithm, bytes))
-const hex = (bytes) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
-const base64 = (bytes) => btoa(String.fromCodePoint(...bytes))
 
-// Only well-formed text is hashed: TextEncoder writes a lone surrogate as
-// U+FFFD, so two different strings would hash the same.
+// Only well-formed text is hashed: a lone surrogate written as U+FFFD would
+// hash two different strings the same.
 function utf8(text, where) {
   if (typeof text !== 'string' || !text.isWellFormed()) throw new DeptreeError('expected well-formed text to hash', where)
-  return encoder.encode(text)
+  return utf8fromString(text)
 }
 
-export const sha256Hex = async (text, where) => hex(await digest('SHA-256', utf8(text, where)))
+export const sha256Hex = async (text, where) => toHex(await digest('SHA-256', utf8(text, where)))
 
 // MD5, which Web Crypto has not, as RFC 1321 has it.
 const SHIFTS = [7, 12, 17, 22, 5, 9, 14, 20, 4, 11, 16, 23, 6, 10, 15, 21]
@@ -45,30 +45,14 @@ function md5(input) {
   return bytes
 }
 
-// RFC 4648's base32, lowercased and unpadded.
-const BASE32 = 'abcdefghijklmnopqrstuvwxyz234567'
-function base32(bytes) {
-  let text = ''
-  let bits = 0
-  let value = 0
-  for (const byte of bytes) {
-    value = (value << 8) | byte
-    bits += 8
-    while (bits >= 5) {
-      bits -= 5
-      text += BASE32[(value >>> bits) & 31]
-    }
-  }
-  return bits > 0 ? text + BASE32[(value << (5 - bits)) & 31] : text
-}
+// pnpm 9's createBase32Hash: the MD5 of the text's UTF-8, in RFC 4648's
+// base32, lowercased and unpadded.
+export const md5Base32 = (text, where) => toBase32(md5(utf8(text, where)), { padding: false }).toLowerCase()
 
-// pnpm 9's createBase32Hash: the MD5 of the text's UTF-8, in base32.
-export const md5Base32 = (text, where) => base32(md5(utf8(text, where)))
-
-export const matchesIntegrity = async (bytes, integrity) => integrity === `sha512-${base64(await digest('SHA-512', bytes))}`
+export const matchesIntegrity = async (bytes, integrity) => integrity === `sha512-${toBase64(await digest('SHA-512', bytes))}`
 
 // As yarn 1 records a tarball's after the `#` of its URL.
-export const sha1Hex = async (bytes) => hex(await digest('SHA-1', bytes))
+export const sha1Hex = async (bytes) => toHex(await digest('SHA-1', bytes))
 
 // As soldeer.lock records a zip's checksum.
-export const bytesSha256Hex = async (bytes) => hex(await digest('SHA-256', bytes))
+export const bytesSha256Hex = async (bytes) => toHex(await digest('SHA-256', bytes))

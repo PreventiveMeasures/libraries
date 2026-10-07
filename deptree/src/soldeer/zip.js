@@ -4,6 +4,7 @@
 // every directory is 0o755, and a file's mode its Unix mode as the zip crate
 // reads it, or 0o644 where it reads none; a symlink is a file of its target.
 
+import { utf8fromStringLoose, utf8toStringLoose } from '@exodus/bytes/utf8.js'
 import { ArchiveError, unzip } from '@preventive/archive/zip.js'
 import { DeptreeError, quote } from '../error.js'
 import { bytesSha256Hex } from '../hash.js'
@@ -16,8 +17,6 @@ const S_IFLNK = 0o120000
 const [NTFS, TIMESTAMP, UNICODE_COMMENT, AES] = [0x000a, 0x5455, 0x6375, 0x9901]
 
 // As the archive reader decodes a name: a leading U+FEFF is part of it.
-const decoder = new TextDecoder('utf-8', { ignoreBOM: true })
-const encoder = new TextEncoder()
 
 const ones = (byte) => [...byte.toString(2)].filter((bit) => bit === '1').length
 
@@ -93,7 +92,7 @@ export async function extractZip(bytes, checksum, where) {
   const last = new Map()
   for (const [index, entry] of entries.entries()) {
     const record = records[index]
-    if (decoder.decode(record.name) !== entry.storedName) throw new Error('unreachable: unzip lists entries out of the central directory\'s order')
+    if (utf8toStringLoose(record.name) !== entry.storedName) throw new Error('unreachable: unzip lists entries out of the central directory\'s order')
     const here = `${where}: ${quote(entry.storedName)}`
     if (record.extra !== undefined) throw new DeptreeError(`${record.extra}, which Soldeer fails on`, here)
     if (!(record.flags & UTF8) && record.name.some((byte) => byte >= 0x80)) throw new DeptreeError('a name not flagged UTF-8, which Soldeer reads as CP437, is not supported', here)
@@ -113,7 +112,7 @@ export async function extractZip(bytes, checksum, where) {
       continue
     }
     const mode = unixMode(records[index])
-    const data = entry.type === 'symlink' ? encoder.encode(entry.linkname) : entry.data
+    const data = entry.type === 'symlink' ? utf8fromStringLoose(entry.linkname) : entry.data
     // A file written again keeps its mode where the zip crate reads none.
     const kept = mode === undefined || (mode & S_IFLNK) === S_IFLNK ? files.get(entry.name)?.mode ?? 0o644 : mode & 0o777 & ~0o022
     files.set(entry.name, { data, mode: kept })
