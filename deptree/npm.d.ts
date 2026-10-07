@@ -1,5 +1,6 @@
 // Hand-written against npm.js; a change to either belongs with the other.
 
+import type { CacheOptions, PackageBugs, PackageRepository } from '@preventive/upstream/npm.js'
 import type { NodeType, Vfs } from '@preventive/vfs'
 
 export { LockfileError } from '@preventive/lockfile/npm.js'
@@ -110,6 +111,23 @@ export interface NpmProject {
 // or is made, and every file and link is written where nothing is. The
 // tree is built, and held to every check below, before any of it is
 // written, so a refusal leaves the Vfs as it was.
+//
+// `metadata`, true unless given false, has each registry package's version
+// document asked for beside its tarball, through getMeta of
+// @preventive/upstream given the lockfile's dist: the one `cache` keeps,
+// where its dist is that one, else the registry's, a request for each name
+// and version. Its dist has to be the lockfile's, the tarball
+// the registry's own URL and the integrity the lockfile's sha512, compared
+// as text, with nothing hashed again, as the lockfile copies the
+// registry's; and its gitHead, repository, homepage and bugs are the
+// package's. False fetches none, and gives none of them.
+//
+// `cache` is where each registry package's tarball and version document
+// are kept, as @preventive/upstream's CacheOptions take it: in setCacheDir's
+// cache where it is left out; in a store of the caller's, with `read` and
+// `write`, in place of it; or with false, nowhere, though setCacheDir's
+// cache is read all the same. Other tools' caches are read for tarballs
+// whatever it is. A TypeError is thrown for anything else.
 export type NpmTreeOptions = NpmTreeGiven | NpmTreeRead
 
 export interface NpmTreeGiven {
@@ -119,6 +137,8 @@ export interface NpmTreeGiven {
   project?: undefined
   host: NpmHost
   vfs?: Vfs
+  metadata?: boolean
+  cache?: CacheOptions['cache']
 }
 
 export interface NpmTreeRead {
@@ -128,6 +148,8 @@ export interface NpmTreeRead {
   project: NpmProject
   host: NpmHost
   vfs?: Vfs
+  metadata?: boolean
+  cache?: CacheOptions['cache']
 }
 
 // What buildNpmTree counts, all of it plain numbers: `packages` the
@@ -150,7 +172,13 @@ export interface NpmTreeStats {
 // which is `/` of the Vfs — node_modules/<name>, beneath another package's
 // node_modules, or beneath a workspace's. `name` and `version` are the
 // package's own, whatever alias it is installed as, as the lockfile has
-// them; `integrity` the sha512 its tarball is held to. The flags are those
+// them; `integrity` the sha512 its tarball is held to. `commit` is the
+// gitHead of the registry's version document, where `metadata` has it
+// fetched and it is a full commit id, the commit npm read off the checkout
+// it published from; `repository`, `homepage` and `bugs` the document's,
+// as getMeta of @preventive/upstream reads them; each undefined elsewhere,
+// and all of it the publisher's word, held to no repository. The flags are
+// those
 // npm installs by, the lockfile's as npm 10 takes them and as npm 11 works
 // them out again: `dev` is whether dev dependencies alone reach it, which
 // --omit=dev leaves out; `optional` whether optional dependencies alone
@@ -163,6 +191,10 @@ export interface NpmInstalled {
   name: string
   version: string
   integrity: string
+  commit: string | undefined
+  repository: string | PackageRepository | undefined
+  homepage: string | undefined
+  bugs: string | PackageBugs | undefined
   dev: boolean
   optional: boolean
   devOptional: boolean

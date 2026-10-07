@@ -45,6 +45,8 @@ dependency with GITHUB_TOKEN or GH_TOKEN, else anonymously.
                      packageManager pins, or Soldeer 0.12.0; npm's and
                      cargo's are needed
   --node <version>   the Node it installed with; by default this one
+  --metadata         fetch each package's version document from npm's
+                     registry too, and hold its tarball's dist to it
   --all              list what is left out too
   --diff             follow each file of other content with a unified diff,
                      for patch -p1 in <dir>
@@ -58,6 +60,7 @@ const OPTIONS = {
   soldeer: { type: 'string' },
   cargo: { type: 'string' },
   node: { type: 'string' },
+  metadata: { type: 'boolean', default: false },
   all: { type: 'boolean' },
   diff: { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
@@ -103,7 +106,7 @@ async function main(argv) {
   const disk = readSide(project, dirs)
   const files = [...disk.values()].filter((entry) => entry.type === 'file')
   note(`${manager.folder} on disk: ${files.length} files, ${size(files.reduce((sum, file) => sum + file.data.length, 0))}`)
-  const tree = await manager.build({ project, host })
+  const tree = await manager.build({ project, host, metadata: values.metadata })
   note(`${manager.lockfile}: ${tree.stats.files} files, ${size(tree.stats.bytes)} built`)
   const built = readSide(tree.vfs, dirs)
   const changes = difference(disk, built)

@@ -4,7 +4,7 @@ import { afterEach, describe, it } from 'node:test'
 import { compress, decompress } from '@preventive/archive/compression.js'
 import { createVfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, buildYarn1Tree, findYarn1Workspaces } from '../yarn1.js'
-import { paths, sri, stubFailingRegistry, stubRegistry, tarball } from './registry.js'
+import { memoryStore, paths, sri, stubFailingRegistry, stubRegistry, tarball } from './registry.js'
 
 // Small projects whose yarn.lock real yarn 1.22.22 wrote, and whose trees
 // it installed as the first tests expect, from the tarballs made here;
@@ -123,7 +123,8 @@ describe('buildYarn1Tree', () => {
   it('builds the tree yarn 1.22 installs', async () => {
     const calls = stubRegistry(TARBALLS)
     const { vfs, stats } = await build()
-    assert.equal(calls.length, 7, 'every package, the one the host cannot run among them, as yarn fetches all before it checks any')
+    assert.equal(calls.filter((url) => url.endsWith('.tgz')).length, 7, 'every package, the one the host cannot run among them, as yarn fetches all before it checks any')
+    assert.equal(calls.length, 14, 'and the version document of each')
     assert.deepEqual(vfs.readdir('/node_modules'), ['a', 'b', 'd', 'my-c', 'p'])
     assert.deepEqual(vfs.readdir('/node_modules/a'), ['bin', 'node_modules', 'package.json', 'x.sh'])
     assert.deepEqual(vfs.readdir('/node_modules/a/node_modules'), ['b'])
@@ -137,13 +138,25 @@ describe('buildYarn1Tree', () => {
     assert.deepEqual({ ...stats, bytes: 0 }, { packages: 7, skipped: 1, installed: 6, files: 11, bytes: 0, links: 0 })
   })
 
+  it('keeps each tarball and version document in a cache store given, and asks the registry for none it keeps', async () => {
+    const store = memoryStore()
+    const calls = stubRegistry(TARBALLS)
+    const { installed } = await buildYarn1Tree({ project: project(), host: HOST, cache: store })
+    assert.equal(store.kept.size, calls.length)
+    assert.ok(calls.length > 0)
+    const again = stubRegistry(TARBALLS)
+    assert.deepEqual((await buildYarn1Tree({ project: project(), host: HOST, cache: store })).installed, installed)
+    assert.deepEqual(again, [])
+  })
+
   it('lists what it installs, as an SBOM would take it', async () => {
-    stubRegistry(TARBALLS)
-    const listed = (path, id, { dev = false, optional = false } = {}) => ({ path, name: T[id].name, version: T[id].version, integrity: T[id].integrity, dev, optional })
+    const b = { gitHead: 'd'.repeat(64), homepage: 'https://example.com/b', bugs: { email: 'b@example.com' } }
+    stubRegistry(TARBALLS.map((t) => (`${t.name}@${t.version}` === 'b@1.0.0' ? { ...t, document: b } : t)))
+    const listed = (path, id, { dev = false, optional = false, about = {} } = {}) => ({ path, name: T[id].name, version: T[id].version, integrity: T[id].integrity, ...about, dev, optional })
     const { installed } = await build()
     assert.deepEqual(installed, [
       listed('node_modules/a', 'a@1.0.0'),
-      listed('node_modules/a/node_modules/b', 'b@1.0.0'),
+      listed('node_modules/a/node_modules/b', 'b@1.0.0', { about: { commit: b.gitHead, homepage: b.homepage, bugs: { url: undefined, email: 'b@example.com' } } }),
       listed('node_modules/b', 'b@2.0.0'),
       listed('node_modules/d', 'd@1.0.0', { dev: true }),
       listed('node_modules/my-c', 'c@1.0.0'),
@@ -291,6 +304,11 @@ describe('buildYarn1Tree', () => {
       assert.equal(installed.find(({ path }) => path === 'node_modules/b').integrity, T['b@2.0.0'].integrity)
     }
     assert.ok(calls.includes('https://registry.npmjs.org/b/2.0.0'), 'the registry\'s document, for its sha512')
+    const G = 'e'.repeat(40)
+    const documentsOnly = stubRegistry(TARBALLS.map((t) => (`${t.name}@${t.version}` === 'b@2.0.0' ? { ...t, document: { gitHead: G } } : t)))
+    const { installed } = await buildYarn1Tree({ ...asked, host: HOST, metadata: false })
+    assert.equal(installed.find(({ path }) => path === 'node_modules/b').commit, G, 'its commit, as its document is fetched all the same')
+    assert.deepEqual(documentsOnly.filter((url) => !url.endsWith('.tgz')), ['https://registry.npmjs.org/b/2.0.0'])
     const wrong = lockfile(byUrl(`"b@${b2}"`, 'b@2.0.0').replace(sha1(T['b@2.0.0'].bytes), sha1(T['b@1.0.0'].bytes)))
     await assert.rejects(buildYarn1Tree({ project: projectOf({ 'yarn.lock': wrong, 'package.json': { name: 'root', version: '1.0.0', dependencies: { b: b2 } } }), host: HOST }), /^DeptreeError: "b@https:\/\/registry\.yarnpkg\.com\/b\/-\/b-2\.0\.0\.tgz": the tarball's sha1 is not [\da-f]{40}$/u)
   })
@@ -631,6 +649,8 @@ describe('buildYarn1Tree refuses', () => {
     await refuses({ project: project(), host: { ...HOST, os: 'win32' } }, /^DeptreeError: host\.os: Windows is not supported/u)
     await refuses({ project: project({ 'package.json': { ...ROOT, packageManager: 'yarn@1.22.19' } }) }, /^DeptreeError: manifests\["\."\]\.packageManager: the project is installed by yarn 1\.22\.19, which corepack runs, not 1\.22\.22$/u)
     await assert.rejects(buildYarn1Tree({ project: project(), host: { ...HOST, yarn: undefined } }), TypeError)
+    await assert.rejects(buildYarn1Tree({ project: project(), host: HOST, metadata: 1 }), { name: 'TypeError', message: 'metadata must be a boolean, or left out' })
+    await assert.rejects(buildYarn1Tree({ project: project(), host: HOST, cache: 'store' }), { name: 'TypeError', message: 'cache must be false, or a store with read and write, or left out' })
   })
 
   it('a lockfile the lockfile reader refuses', async () => {

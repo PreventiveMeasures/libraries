@@ -112,7 +112,7 @@ export interface SoldeerTreeStats {
 // the registry has them, or for a git dependency, the config's. From the
 // registry, `checksum` is the hex sha256 its zip is held to; from git,
 // `git` is the repository's URL and `rev` the commit, as the lockfile has
-// them.
+// them, and `commit` that commit again, as the other trees name one.
 export type SoldeerInstalled = SoldeerInstalledZip | SoldeerInstalledGit
 
 export interface SoldeerInstalledZip {
@@ -128,6 +128,7 @@ export interface SoldeerInstalledGit {
   version: string
   git: string
   rev: string
+  commit: string
 }
 
 // `vfs` is the one given, the tree mounted into it, or a new one.

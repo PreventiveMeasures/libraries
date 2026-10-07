@@ -48,11 +48,13 @@ export function rawTar(entries) {
 }
 
 // The registry: each tarball at its URL, npm's unless `urlOf` gives another,
-// its version's document, with the dist it is served by, and its package's,
-// with `time` of each version given a `published` one.
+// its version's document, with the dist it is served by, `t.dist` over it,
+// and `t.document`'s fields beside, and its package's, with `time` of each
+// version given a `published` one.
 export function stubRegistry(tarballs, urlOf = url) {
   const served = new Map(tarballs.map((t) => [urlOf(t.name, t.version), t.served ?? t.bytes]))
-  const documents = new Map(tarballs.map((t) => [`https://registry.npmjs.org/${t.name}/${t.version}`, { name: t.name, version: t.version, dist: { tarball: url(t.name, t.version), integrity: t.integrity } }]))
+  const documentOf = (t) => ({ name: t.name, version: t.version, dist: { tarball: url(t.name, t.version), integrity: t.integrity, ...t.dist }, ...t.document })
+  const documents = new Map(tarballs.map((t) => [`https://registry.npmjs.org/${t.name}/${t.version}`, documentOf(t)]))
   for (const [name, versions] of Map.groupBy(tarballs, (t) => t.name)) {
     const time = Object.fromEntries(versions.map((t) => [t.version, t.published]))
     documents.set(`https://registry.npmjs.org/${name}`, { name, versions: Object.fromEntries(versions.map((t) => [t.version, {}])), time })
@@ -66,6 +68,24 @@ export function stubRegistry(tarballs, urlOf = url) {
     return Promise.resolve(bytes === undefined ? Response.json({ error: 'Not found' }, { status: 404 }) : new Response(bytes))
   }
   return calls
+}
+
+// What a version document says of where a package comes from, of one that
+// says nothing, or is not fetched.
+export const ABOUT = Object.freeze({ commit: undefined, repository: undefined, homepage: undefined, bugs: undefined })
+
+// A cache store in memory, as upstream's CacheOptions take one: what is
+// written is `kept` by `<type> <key>`.
+export function memoryStore() {
+  const kept = new Map()
+  return {
+    kept,
+    read: (type, key) => Promise.resolve(kept.get(`${type} ${key}`)),
+    write: (type, key, value) => {
+      kept.set(`${type} ${key}`, value)
+      return Promise.resolve()
+    },
+  }
 }
 
 // The stubbed fetch, each answer `ms` late unless `now` gives one; counts

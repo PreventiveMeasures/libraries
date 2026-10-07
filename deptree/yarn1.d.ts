@@ -1,5 +1,6 @@
 // Hand-written against yarn1.js; a change to either belongs with the other.
 
+import type { CacheOptions, PackageBugs, PackageRepository } from '@preventive/upstream/npm.js'
 import type { NodeType, Vfs } from '@preventive/vfs'
 
 export { LockfileError } from '@preventive/lockfile/yarn1.js'
@@ -126,6 +127,25 @@ export interface Yarn1Project {
 // tree is built, and held to every check below, before any of it is
 // written, so a refusal leaves the Vfs as it was.
 //
+// `metadata`, true unless given false, has each registry package's version
+// document asked for beside its tarball, through getMeta of
+// @preventive/upstream given the lockfile's dist: the one `cache` keeps,
+// where its dist is that one, else the registry's, a request for each name
+// and version. Its dist has to be the lockfile's, the tarball
+// the registry's own URL and the integrity the lockfile's sha512, compared
+// as text, with nothing hashed again, as the lockfile copies the
+// registry's; and its gitHead, repository, homepage and bugs are the
+// package's. False fetches none, and gives none of them, but for a package
+// whose sha512 the lockfile does not record, whose document is fetched for
+// the registry's either way, and gives them.
+//
+// `cache` is where each registry package's tarball and version document
+// are kept, as @preventive/upstream's CacheOptions take it: in setCacheDir's
+// cache where it is left out; in a store of the caller's, with `read` and
+// `write`, in place of it; or with false, nowhere, though setCacheDir's
+// cache is read all the same. Other tools' caches are read for tarballs
+// whatever it is. A TypeError is thrown for anything else.
+//
 // The two ways the files come, one or the other: given, with `lockfile`
 // and `manifests`; or read, with `project` and none of them. `project`
 // given with `lockfile` is read only to tell whether a tag a top-level
@@ -140,6 +160,8 @@ export interface Yarn1TreeGiven {
   project?: Yarn1Project
   host: Yarn1Host
   vfs?: Vfs
+  metadata?: boolean
+  cache?: CacheOptions['cache']
 }
 
 export interface Yarn1TreeRead {
@@ -150,6 +172,8 @@ export interface Yarn1TreeRead {
   project: Yarn1Project
   host: Yarn1Host
   vfs?: Vfs
+  metadata?: boolean
+  cache?: CacheOptions['cache']
 }
 
 // What buildYarn1Tree counts, all of it plain numbers: `packages` the
@@ -174,7 +198,13 @@ export interface Yarn1TreeStats {
 // own, which its package.json is held to, whatever alias it is installed
 // as; `integrity` the sha512 its tarball is held to, for a registry
 // package, and `directory` the directory of the project it is copied
-// from, for one by `file:`, in place of an integrity. `dev` is
+// from, for one by `file:`, in place of an integrity. For a registry
+// package alone, where its version document is fetched: `commit` is its
+// gitHead, where that is a full commit id, the commit npm read off the
+// checkout it published from; `repository`, `homepage` and `bugs` the
+// document's, as getMeta of @preventive/upstream reads them; each left out
+// where there is none, and all of it the publisher's word, held to no
+// repository. `dev` is
 // whether dev dependencies alone reach this copy, the root's and the
 // workspaces' devDependencies: nothing else does, each dependency, and
 // each peer yarn finds, looked for from where what asks for it is, as Node
@@ -188,6 +218,10 @@ export interface Yarn1Installed {
   version: string
   integrity?: string
   directory?: string
+  commit?: string
+  repository?: string | PackageRepository
+  homepage?: string
+  bugs?: string | PackageBugs
   dev: boolean
   optional: boolean
 }

@@ -1,5 +1,6 @@
 // Hand-written against pnpm.js; a change to either belongs with the other.
 
+import type { CacheOptions, PackageBugs, PackageRepository } from '@preventive/upstream/npm.js'
 import type { NodeType, Vfs } from '@preventive/vfs'
 
 // What the lockfile reader and the YAML parser refuse with: the cause of
@@ -221,6 +222,23 @@ export interface PnpmProject {
 // node_modules is written, though pnpm 9 and 10 make the files a linked
 // directory's bins run executable too.
 //
+// `metadata`, true unless given false, has each registry package's version
+// document asked for beside its tarball, through getMeta of
+// @preventive/upstream given the lockfile's dist: the one `cache` keeps,
+// where its dist is that one, else the registry's, a request for each name
+// and version. Its dist has to be the lockfile's, the tarball
+// the registry's own URL and the integrity the lockfile's sha512, compared
+// as text, with nothing hashed again, as the lockfile copies the
+// registry's; and its gitHead, repository, homepage and bugs are the
+// package's. False fetches none, and gives none of them.
+//
+// `cache` is where each registry package's tarball and version document
+// are kept, as @preventive/upstream's CacheOptions take it: in setCacheDir's
+// cache where it is left out; in a store of the caller's, with `read` and
+// `write`, in place of it; or with false, nowhere, though setCacheDir's
+// cache is read all the same. Other tools' caches are read for tarballs
+// whatever it is. A TypeError is thrown for anything else.
+//
 // The two ways the files come, one or the other: given, with `lockfile`
 // and `manifests`, `project` read only for directories; or read, with
 // `project` and none of them.
@@ -235,6 +253,8 @@ export interface PnpmTreeGiven {
   project?: PnpmProject
   host: PnpmHost
   vfs?: Vfs
+  metadata?: boolean
+  cache?: CacheOptions['cache']
 }
 
 export interface PnpmTreeRead {
@@ -246,6 +266,8 @@ export interface PnpmTreeRead {
   project: PnpmProject
   host: PnpmHost
   vfs?: Vfs
+  metadata?: boolean
+  cache?: CacheOptions['cache']
 }
 
 // What buildPnpmTree counts, all of it plain numbers: `projects` the
@@ -276,7 +298,12 @@ export interface PnpmTreeStats {
 // the sha512 its tarball is held to; one a `file:` override has pnpm
 // install from a directory has `directory`, from the lockfile's, `.` for
 // its own, and neither a version nor an integrity, as the lockfile records
-// none.
+// none. `commit` is the gitHead of a registry package's version document,
+// where `metadata` has it fetched and it is a full commit id, the commit
+// npm read off the checkout it published from; `repository`, `homepage`
+// and `bugs` the document's, as getMeta of @preventive/upstream reads
+// them; each undefined elsewhere, and all of it the publisher's word, held
+// to no repository.
 // `dev` is whether devDependencies alone reach it: no project's
 // dependencies or optionalDependencies do, through what is installed, so
 // `pnpm install --prod` would leave it out. `optional` is whether optional
@@ -290,6 +317,10 @@ export interface PnpmInstalled {
   version: string | undefined
   integrity: string | undefined
   directory: string | undefined
+  commit: string | undefined
+  repository: string | PackageRepository | undefined
+  homepage: string | undefined
+  bugs: string | PackageBugs | undefined
   dev: boolean
   optional: boolean
   patch: { hash: string, path: string } | undefined

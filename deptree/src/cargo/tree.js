@@ -4,6 +4,7 @@ import { linkCargo, parseCargoConfig, parseCargoLock, parseCargoManifest, readCa
 import { parseToml } from '@preventive/lockfile/toml.js'
 import { Vfs } from '@preventive/vfs'
 import { DeptreeError, quote } from '../error.js'
+import { own } from '../manifest.js'
 import { checkNoDir, mount, writeFiles } from '../mount.js'
 import { decodeUtf8 } from '../project.js'
 import { checkHost, inputsOf } from './inputs.js'
@@ -54,16 +55,23 @@ function checkPaths(graph, packages, keys) {
   }
 }
 
+// `links` are the repository and homepage the Cargo.toml cargo packed gives
+// in [package], or [project] as cargo reads it too: strings, as
+// parseCargoManifest holds them to, or undefined.
 function manifestOf(crate, vendored) {
   const where = `${about(crate.key)}: Cargo.toml`
   const file = vendored.files.get('Cargo.toml')
   if (file === undefined) throw new DeptreeError('its .crate has no Cargo.toml', about(crate.key))
   const text = decodeUtf8(file.data, 'not UTF-8, which cargo fails on', where)
-  return { text, manifest: parseAs(where, () => parseCargoManifest(text)) }
+  const manifest = parseAs(where, () => parseCargoManifest(text))
+  const doc = parseToml(text)
+  const pkg = own(doc, 'package') ?? own(doc, 'project')
+  return { text, manifest, links: { repository: own(pkg, 'repository'), homepage: own(pkg, 'homepage') } }
 }
 
 // The lockfile laid over every manifest, as linkCargo holds it to them; then
 // the vendored copies read back as cargo's directory source reads them.
+// Gives back each crate's links, by its key.
 function checkLock(lock, inputs, crates, vendored) {
   const { keys } = inputs
   const manifests = Object.create(null)
@@ -74,6 +82,7 @@ function checkLock(lock, inputs, crates, vendored) {
   checkPaths(linkCargo(lock, manifests, { workspace: inputs.root, members, config: inputs.config }), inputs.packages, keys)
   const read = readCargoVendor(lock, Object.fromEntries(crates.map((crate) => [crate.directory, { manifest: texts.get(crate.key).text, checksum: vendored.get(crate.key).checksumText }])))
   for (const crate of crates) if (read[crate.key].directory !== crate.directory) throw new Error(`unreachable: ${crate.key} read back from ${read[crate.key].directory}`)
+  return new Map([...texts].map(([key, { links }]) => [key, links]))
 }
 
 // Each crate's bytes are let go once its files are written, which copies them.
@@ -107,9 +116,10 @@ export async function buildCargoTree(options) {
   const crates = vendoredPackages(lock)
   const keys = pathKeys(lock, packages)
   const vendored = await fetchCrates(crates, host.comment)
-  checkLock(lock, { root, packages, config, keys }, crates, vendored)
+  const links = checkLock(lock, { root, packages, config, keys }, crates, vendored)
   const stats = { packages: Object.keys(lock.packages).length, vendored: crates.length, files: 0, bytes: 0 }
+  // Before writeTree lets each crate go.
+  const installed = crates.map(({ key, directory, name, version, checksum }) => ({ path: `vendor/${directory}`, name, version, source: lock.packages[key].source, checksum, commit: vendored.get(key).commit, ...links.get(key) }))
   const vfs = writeTree(crates, vendored, stats)
-  const installed = crates.map(({ key, directory, name, version, checksum }) => ({ path: `vendor/${directory}`, name, version, source: lock.packages[key].source, checksum }))
   return { vfs: mount(vfs, into, folded, checkNoVendor), stats, installed }
 }

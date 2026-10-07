@@ -5,12 +5,13 @@
 // each file its mode within 0o777, both without group and other write bits.
 
 import { crc32 } from '@exodus/bytes/crc.js'
-import { utf8fromString } from '@exodus/bytes/utf8.js'
+import { utf8fromString, utf8toString } from '@exodus/bytes/utf8.js'
 import { CompressionError, decompress } from '@preventive/archive/compression.js'
 import { ArchiveError, unpack } from '@preventive/archive/tar.js'
 import { compareNames } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { bytesSha256Hex } from '../hash.js'
+import { own } from '../manifest.js'
 
 // Cargo's bound on what a .crate unpacks to: 512 MiB, or twenty times the
 // .crate where that is more.
@@ -148,13 +149,35 @@ async function checksumFile(files, checksum, comment) {
   return `{${comment ? `"$comment":${JSON.stringify(COMMENT)},` : ''}"files":{${listed}},"package":${JSON.stringify(checksum)}}`
 }
 
+// A full commit id, as git writes one: 40 lowercase hex digits, or 64 in a
+// repository of SHA-256 objects.
+const COMMIT = /^(?:[\da-f]{40}|[\da-f]{64})$/u
+
+// The commit .cargo_vcs_info.json names, which `cargo package` writes where
+// it packs from a git checkout: none where it found the checkout dirty, as
+// the files are then not that commit's, nor where it names anything but a
+// full id. Cargo reads none of it, so one that is not JSON names none, and
+// is vendored all the same.
+function vcsCommitOf(file) {
+  if (file === undefined) return undefined
+  try {
+    const git = own(JSON.parse(utf8toString(file.data)), 'git')
+    if (![undefined, false].includes(own(git, 'dirty'))) return undefined
+    const sha1 = own(git, 'sha1')
+    return typeof sha1 === 'string' && COMMIT.test(sha1) ? sha1 : undefined
+  } catch {
+    return undefined
+  }
+}
+
 // What vendor/<directory> holds of a package, `.cargo-checksum.json` among
 // its files. getCrate has held the .crate to its checksum; it is held to it
 // again where it is unpacked.
 export async function vendorCrate(bytes, { name, version, checksum }, comment, where) {
   if (await bytesSha256Hex(bytes) !== checksum) throw new DeptreeError(`its .crate's sha256 is not ${checksum}`, where)
   const { root, dirs, files } = vendorEntries(entriesOf(await gunzip(bytes, where), where), `${name}-${version}`, where)
+  const commit = vcsCommitOf(files.get('.cargo_vcs_info.json'))
   const text = await checksumFile(files, checksum, comment)
   files.set('.cargo-checksum.json', { data: utf8fromString(text), mode: 0o644 })
-  return { root, dirs, files, checksumText: text }
+  return { root, dirs, files, checksumText: text, commit }
 }

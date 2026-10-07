@@ -78,6 +78,6 @@ export async function buildSoldeerTree(options) {
   for (const { folder } of dependencies) {
     writeFiles(vfs, `dependencies/${folder}`, extracted.get(folder), stats)
   }
-  const installed = dependencies.map(({ type, name, version, checksum, git, rev, folder }) => ({ path: `dependencies/${folder}`, name, version, ...(type === 'git' ? { git, rev } : { checksum }) }))
+  const installed = dependencies.map(({ type, name, version, checksum, git, rev, folder }) => ({ path: `dependencies/${folder}`, name, version, ...(type === 'git' ? { git, rev, commit: rev } : { checksum }) }))
   return { vfs: mount(vfs, into, folded, checkNoDependencies), stats, installed }
 }

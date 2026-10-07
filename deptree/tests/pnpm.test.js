@@ -5,7 +5,7 @@ import { compress } from '@preventive/archive/compression.js'
 import { pack } from '@preventive/archive/tar.js'
 import { createVfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, YamlError, buildPnpmTree, findPnpmProjects } from '../pnpm.js'
-import { HOST, paths, rawTar, sri, stubFailingRegistry, stubRegistry, tarball } from './registry.js'
+import { ABOUT, HOST, memoryStore, paths, rawTar, sri, stubFailingRegistry, stubRegistry, tarball } from './registry.js'
 
 // A lockfile with a package of every kind this builds, from tarballs made
 // here; then one change at a time, each refused with where and why.
@@ -182,7 +182,8 @@ describe('buildPnpmTree', () => {
   it('builds the tree pnpm 10 installs', async () => {
     const calls = stubRegistry(TARBALLS)
     const vfs = await build()
-    assert.equal(calls.length, 8, 'every package but the optional one the host cannot run')
+    assert.equal(calls.filter((url) => url.endsWith('.tgz')).length, 8, 'every package but the optional one the host cannot run')
+    assert.equal(calls.length, 16, 'and the version document of each')
     assert.deepEqual(vfs.readdir('/node_modules'), ['.pnpm', 'Up', 'a', 'e', 'l', 'my-lodash', 'p'])
     assert.deepEqual(vfs.readdir('/node_modules/.pnpm'), [UP, 'a@1.0.0_c@2.0.0', 'b@1.0.0', 'c@2.0.0', 'd@1.0.0', 'e@1.0.0', 'lodash@4.17.21', 'node_modules', P])
     assert.equal(vfs.readlink('/node_modules/a'), '.pnpm/a@1.0.0_c@2.0.0/node_modules/a')
@@ -241,10 +242,22 @@ describe('buildPnpmTree', () => {
     assert.deepEqual({ ...stats, bytes: 0 }, { projects: 1, snapshots: 9, installed: 8, skipped: 1, incompatible: 0, tarballs: 8, patched: 1, files: 12, bytes: 0, links: 13 })
   })
 
+  it('keeps each tarball and version document in a cache store given, and asks the registry for none it keeps', async () => {
+    const store = memoryStore()
+    const calls = stubRegistry(TARBALLS)
+    const { installed } = await buildResult({ cache: store })
+    assert.equal(store.kept.size, calls.length)
+    assert.ok(calls.length > 0)
+    const again = stubRegistry(TARBALLS)
+    assert.deepEqual((await buildResult({ cache: store })).installed, installed)
+    assert.deepEqual(again, [])
+  })
+
   it('lists what it installs, as an SBOM would take it', async () => {
-    stubRegistry(TARBALLS)
-    const listed = (name, version, { key = `${name}@${version}`, dir = key, dev = false, optional = false, patch } = {}) => ({
-      path: `node_modules/.pnpm/${dir}/node_modules/${name}`, key, name, version, integrity: I[name], directory: undefined, dev, optional, patch,
+    const lodash = { gitHead: 'a'.repeat(40), repository: { type: 'git', url: 'git+https://github.com/lodash/lodash.git' }, homepage: 'https://lodash.com/' }
+    stubRegistry(TARBALLS.map((t) => (t.name === 'lodash' ? { ...t, document: lodash } : t)))
+    const listed = (name, version, { key = `${name}@${version}`, dir = key, dev = false, optional = false, patch, about = {} } = {}) => ({
+      path: `node_modules/.pnpm/${dir}/node_modules/${name}`, key, name, version, integrity: I[name], directory: undefined, ...ABOUT, ...about, dev, optional, patch,
     })
     const { installed, stats } = await buildResult()
     assert.deepEqual(installed, [
@@ -254,10 +267,14 @@ describe('buildPnpmTree', () => {
       listed('c', '2.0.0'),
       listed('d', '1.0.0'),
       listed('e', '1.0.0', { dev: true }),
-      listed('lodash', '4.17.21'),
+      listed('lodash', '4.17.21', { about: { commit: lodash.gitHead, repository: { ...lodash.repository, directory: undefined }, homepage: lodash.homepage } }),
       listed('p', '1.0.0', { key: `p@1.0.0(patch_hash=${H})`, dir: P, patch: { hash: H, path: 'patches/p.patch' } }),
     ])
     assert.equal(installed.length, stats.installed)
+    const tarballsOnly = stubRegistry(TARBALLS)
+    const { installed: without } = await buildResult({ metadata: false })
+    assert.ok(tarballsOnly.every((url) => url.endsWith('.tgz')), tarballsOnly.join(', '))
+    assert.deepEqual(without, installed.map((copy) => ({ ...copy, ...ABOUT })))
     const { installed: wider } = await buildResult({ workspace: 'supportedArchitectures:\n  os: [current, darwin]\n' })
     assert.deepEqual(wider.find(({ name }) => name === 'mac'), listed('mac', '1.0.0', { optional: true }))
   })
@@ -338,7 +355,8 @@ ${['c@2.0.0', 'c@2.1.0', 'x@1.0.0', 'y@1.0.0'].map((id) => `  ${id}:\n    resolu
 `)
     const { vfs, stats } = await buildPnpmTree({ lockfile: peers, manifests: { '.': manifest({ x: '1.0.0', y: '1.0.0' }) }, host: HOST })
     assert.equal(calls.filter((url) => url.endsWith('/a-1.0.0.tgz')).length, 1)
-    assert.equal(calls.length, 5)
+    assert.equal(calls.filter((url) => url.endsWith('.tgz')).length, 5)
+    assert.equal(calls.length, 10, 'and the version document of each')
     assert.equal(stats.tarballs, 5)
     assert.equal(stats.installed, 6)
     assert.equal(vfs.readText('/node_modules/.pnpm/a@1.0.0_c@2.0.0/node_modules/a/index.js'), 'a')
@@ -577,7 +595,7 @@ describe('buildPnpmTree refuses', () => {
   }
   // `packed` is a tarball of entries as they are, not as npm packs one.
   const serving = (served) => {
-    stubRegistry([...TARBALLS.filter((t) => t.name !== served.name), served])
+    stubRegistry([...TARBALLS.filter((t) => t.name !== served.name), { ...served, integrity: sri(served.bytes) }])
     return lockfile().replace(I[served.name], sri(served.bytes))
   }
   const packed = async (name, version, entries, gzip = true) => ({ name, version, bytes: gzip ? await compress(pack(entries), 'gzip') : pack(entries) })
@@ -585,6 +603,12 @@ describe('buildPnpmTree refuses', () => {
   it('a tarball that is not the one the lockfile pins', async () => {
     stubRegistry(TARBALLS.map((t) => (t.name === 'b' ? { ...t, served: new Uint8Array([...t.bytes, 0]) } : t)))
     await refuses({}, /^"b@1\.0\.0": getTarball: integrity mismatch/u)
+  })
+
+  it('a version document whose dist is not the lockfile\'s, unless none is fetched', async () => {
+    stubRegistry(TARBALLS.map((t) => (t.name === 'b' ? { ...t, dist: { integrity: I.c } } : t)))
+    await refuses({}, new RegExp(`^"b@1\\.0\\.0": getMeta: b@1\\.0\\.0 is ${RegExp.escape(I.c)} on the registry, not ${RegExp.escape(I.b)}$`, 'u'))
+    assert.equal((await buildResult({ metadata: false })).stats.installed, 8)
   })
 
   it('a tarball whose package.json is for another package', async () => {
@@ -717,6 +741,8 @@ describe('buildPnpmTree refuses', () => {
     await refuses({ manifest: '[]' }, /^manifests\["\."\]: expected an object$/u)
     await assert.rejects(build({ manifests: undefined }), TypeError)
     await assert.rejects(build({ manifest: 7 }), TypeError)
+    await assert.rejects(build({ metadata: 'no' }), { name: 'TypeError', message: 'metadata must be a boolean, or left out' })
+    await assert.rejects(build({ cache: {} }), { name: 'TypeError', message: 'cache must be false, or a store with read and write, or left out' })
   })
 
   it('a lockfile resolved with other settings', async () => {
@@ -855,14 +881,15 @@ describe('buildPnpmTree for pnpm 11', () => {
   })
 
   // pnpm 11 checks a lockfile against the registry before it installs,
-  // unless trustLockfile; this asks the registry for nothing but tarballs.
+  // unless trustLockfile; this asks the registry for nothing but tarballs
+  // and their versions' documents, no package's list of every version.
   it('follows the lockfile, whatever minimumReleaseAge says', async () => {
     const calls = stubRegistry(TARBALLS)
     const elsewhere = flatLockfile().replace(`  mac@1.0.0:\n    resolution: {integrity: ${I.mac}}`, `  mac@1.0.0:\n    resolution: {integrity: ${I.mac}, tarball: https://example.com/mac.tgz}`)
     const workspace = `${PATCHED_IN_YAML}minimumReleaseAge: 100000\nminimumReleaseAgeStrict: true\ntrustLockfile: false\n`
     const { vfs } = await buildResult({ lockfile: elsewhere, manifest: UNPATCHED, workspace, host: HOST_11 })
     assert.equal(vfs.readText('/node_modules/p/index.js'), 'module.exports = 2\n')
-    assert.ok(calls.every((url) => url.endsWith('.tgz')), calls.join(', '))
+    assert.ok(calls.every((url) => url.endsWith('.tgz') || /^https:\/\/registry\.npmjs\.org\/[^/]+\/\d[^/]*$/u.test(url)), calls.join(', '))
   })
 
   // With engineStrict, pnpm 11 passes over the engines the lockfile
@@ -1332,7 +1359,7 @@ describe('buildPnpmTree into a given Vfs', () => {
       stubRegistry([await app])
       const { installed } = await buildPnpmTree({ lockfile: await copied(), manifests: { '.': v10 }, host: HOST, ...both({ 'package.json': v10, ...vendored }) })
       assert.deepEqual(installed.find(({ name }) => name === 'foo'), {
-        path: FOO.slice(1), key: 'foo@file:vendor/foo', name: 'foo', version: undefined, integrity: undefined, directory: 'vendor/foo', dev: false, optional: false, patch: undefined,
+        path: FOO.slice(1), key: 'foo@file:vendor/foo', name: 'foo', version: undefined, integrity: undefined, directory: 'vendor/foo', ...ABOUT, dev: false, optional: false, patch: undefined,
       })
     })
 
@@ -1459,7 +1486,7 @@ describe('buildPnpmTree into a given Vfs', () => {
         assert.equal(vfs.realpath('/node_modules/.pnpm/app@1.0.0/node_modules/foo'), self)
         assert.equal(vfs.realpath(`/node_modules/.pnpm/${dir}/node_modules/app`), '/node_modules/.pnpm/app@1.0.0/node_modules/app')
         assert.deepEqual(installed.find(({ name }) => name === 'foo'), {
-          path: self.slice(1), key: `foo@file:${path}`, name: 'foo', version: undefined, integrity: undefined, directory: '.', dev: false, optional: false, patch: undefined,
+          path: self.slice(1), key: `foo@file:${path}`, name: 'foo', version: undefined, integrity: undefined, directory: '.', ...ABOUT, dev: false, optional: false, patch: undefined,
         })
       }
       const v12 = { lockfile: own(''), manifests: { '.': rootOf() }, workspace: 'overrides:\n  app>foo: file:.\n', host: HOST_12, project: createVfs({ 'package.json': rootOf() }) }

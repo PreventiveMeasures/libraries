@@ -1,9 +1,12 @@
 // A registry tarball, fetched through @preventive/upstream, which checks the
-// integrity it is given, and checked again here, as that is the lockfile's.
+// integrity it is given, and checked again here, as that is the lockfile's;
+// and its version's document from the registry, where asked for, for what
+// it says of where the package comes from.
 
 import { CompressionError, decompress } from '@preventive/archive/compression.js'
 import { unpack } from '@preventive/archive/tar.js'
 import { getMeta, getTarball } from '@preventive/upstream/npm.js'
+import { settled } from './concurrent.js'
 import { DeptreeError, quote } from './error.js'
 import { matchesIntegrity } from './hash.js'
 import { fold } from './mount.js'
@@ -107,19 +110,41 @@ async function gunzip(bytes) {
   }
 }
 
-// The registry's sha512 of a version, for a tarball ownTarball let through
-// unpinned.
-export async function registryIntegrity(name, version, where) {
-  checkId(name, version, where)
-  return (await getMeta(name, version)).dist.integrity
+// What a version document says of where a package comes from, each
+// undefined where it says nothing: `commit` is its gitHead.
+const aboutOf = ({ gitHead, repository, homepage, bugs }) => ({ commit: gitHead, repository, homepage, bugs })
+export const NO_ABOUT = Object.freeze(aboutOf({}))
+
+// What a tree's options say of what it fetches from npm's registry:
+// `metadata`, true unless given false, and `cache`, as upstream's
+// CacheOptions take it, which keeps each version's document and tarball.
+export function fetchingOf({ metadata = true, cache }) {
+  if (typeof metadata !== 'boolean') throw new TypeError('metadata must be a boolean, or left out')
+  if (cache !== undefined && cache !== false && (typeof cache?.read !== 'function' || typeof cache?.write !== 'function')) {
+    throw new TypeError('cache must be false, or a store with read and write, or left out')
+  }
+  return { metadata, cache }
 }
 
-export async function fetchTarball(name, version, integrity, where) {
+// Kept as `cache` says. Without a `given` integrity, as ownTarball lets one
+// through unpinned, the registry's is taken from the version document, which
+// getMeta holds to the registry's own tarball, and `about` is what that
+// says, whatever `metadata` is. Else, with `metadata`, the document is asked
+// for beside the tarball, given the dist the tarball is fetched by, which
+// getMeta holds the document's to as text, the registry's being the one a
+// lockfile copies, so nothing is hashed again. Else NO_ABOUT.
+export async function fetchTarball(name, version, given, where, { metadata, cache }) {
   checkId(name, version, where)
+  const meta = given === undefined ? await getMeta(name, version, { cache }) : undefined
+  const integrity = given ?? meta.dist.integrity
   if (!/^sha512-[\d+/A-Za-z]{86}==$/u.test(integrity)) throw new DeptreeError('a tarball with no sha512 integrity is not supported', where)
-  const bytes = await getTarball(name, version, { tarball: tarballUrl(name, version), integrity })
+  const dist = { tarball: tarballUrl(name, version), integrity }
+  let about = NO_ABOUT
+  if (meta !== undefined) about = aboutOf(meta)
+  else if (metadata) about = getMeta(name, version, { dist, cache }).then(aboutOf)
+  const [bytes, said] = await settled([getTarball(name, version, dist, { cache }), about])
   if (!await matchesIntegrity(bytes, integrity)) throw new DeptreeError(`the tarball is not ${integrity}`, where)
   if (bytes[0] !== 0x1f || bytes[1] !== 0x8b || bytes[2] !== 0x08) throw new DeptreeError('the tarball is not gzipped', where)
   const tar = await gunzip(bytes)
-  return { bytes, entries: unpack(tar), inflated: tar.length, integrity }
+  return { bytes, entries: unpack(tar), inflated: tar.length, integrity, about: said }
 }

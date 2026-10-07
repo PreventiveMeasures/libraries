@@ -220,7 +220,7 @@ describe('buildSoldeerTree', () => {
     })
     assert.deepEqual(stats, { dependencies: 2, files: 4, bytes: 28, links: 1 })
     assert.deepEqual(installed, [
-      { path: 'dependencies/acme-lib-1.0.0', name: 'acme-lib', version: '1.0.0', git, rev: LIB.commit },
+      { path: 'dependencies/acme-lib-1.0.0', name: 'acme-lib', version: '1.0.0', git, rev: LIB.commit, commit: LIB.commit },
       { path: 'dependencies/forge-std-1.9.4', name: 'forge-std', version: '1.9.4', checksum: sha256(zip.bytes) },
     ])
     assert.equal(calls[0], `acme/lib/git/commits/${LIB.commit}`)

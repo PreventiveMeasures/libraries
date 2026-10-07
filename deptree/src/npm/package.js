@@ -50,8 +50,8 @@ function unpack(entries, where) {
   return withDirs(files, where)
 }
 
-export async function fetchNpmPackage({ name, version, integrity }, where, check) {
-  const { bytes, entries, inflated } = await fetchTarball(name, version, integrity, where)
+export async function fetchNpmPackage({ name, version, integrity }, where, check, fetching) {
+  const { bytes, entries, inflated, about } = await fetchTarball(name, version, integrity, where, fetching)
   await check?.(bytes, inflated, where)
-  return unpack(entries, where)
+  return { ...unpack(entries, where), about }
 }
