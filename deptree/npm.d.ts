@@ -271,8 +271,12 @@ export interface NpmTree {
 // entry under one directory, named as tar reads it, with no `\` and no
 // more than 1024 segments, none in the package's own node_modules, where
 // npm installs its dependencies, no setuid, setgid or sticky bit, no link
-// name on a file, no global pax header nor a pax size, which tar's releases
-// read otherwise; each with the sha512 integrity the lockfile records. On
+// name on a file, no global pax header, and no pax size with a long name, a
+// long link or a global header between it and its entry, which tar's
+// releases read otherwise; each with the sha512 integrity the lockfile
+// records. A pax size is taken over the header's, as every tar release
+// takes it; npm's tar writes one into each pax header it packs, as for a
+// name ustar cannot hold. On
 // macOS, two names in one directory that differ only in case or
 // normalization are refused, as they would be one name there.
 //
