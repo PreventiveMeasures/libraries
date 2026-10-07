@@ -25,8 +25,9 @@ export const assertCacheStore = assertion('a store with read and write', (value)
 
 // What rows are made from, and all that is kept of a listing: each advisory
 // not withdrawn, with its CVSS vector GitHub prefers, and each vulnerable
-// range with the package it names. A listing that is malformed anywhere is
-// refused whole, and never kept.
+// range with the package it names. A listing that is malformed is refused
+// whole, and never kept; one whose only fault is a description (isDigest)
+// is answered, but not kept either.
 function digest(repo, list) {
   return list.flatMap((advisory) => {
     assert.ok(isRepoAdvisory(advisory), `advisories: malformed advisory from ${repo}`)
@@ -48,7 +49,10 @@ function digest(repo, list) {
   })
 }
 
+// A description is checked only for `details` (detailsOf), so a malformed
+// one leaves the listing usable, but not kept.
 const isDigest = (advisory) => advisory && typeof advisory === 'object' && isGhsa(advisory.ghsa) && isText(advisory.title)
+  && (advisory.description === undefined || isText(advisory.description))
   && Array.isArray(advisory.ranges) && advisory.ranges.every((entry) => typeof entry?.range === 'string')
 
 // A repository's listing, digested, through the cache: GitHub's names are
@@ -61,7 +65,7 @@ async function listAdvisories(github, repo, store) {
   const list = await github.listRepoAdvisories({ repo }).catch(recover(isGone, null))
   if (list === null) return []
   const advisories = digest(repo, list)
-  await writeRecord(DIR, name, { v: VERSION, advisories }, { store })
+  if (advisories.every(isDigest)) await writeRecord(DIR, name, { v: VERSION, advisories }, { store })
   return advisories
 }
 

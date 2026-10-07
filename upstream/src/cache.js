@@ -3,12 +3,20 @@ import { constants } from 'node:fs'
 import { mkdir, open, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { promisify } from 'node:util'
+import { brotliCompress, brotliDecompress, constants as zlib } from 'node:zlib'
 
 import { assertCacheName, assertDirectoryPath, isRepo } from './args.js'
 import { MAX_BYTES, decode } from './http.js'
 
 const DIRS = new Set(['npm/repos', 'npm/tarballs', 'cargo/repos', 'cargo/crates', 'composer/repos', 'soldeer/repos', 'soldeer/zips', 'github/trees', 'github/advisories'])
 const RECORD_TTL_MS = 30 * 24 * 60 * 60 * 1000 // A link only moves on a transfer or rename, and GitHub redirects those.
+// Records filed brotli'd, at quality 9, as `<name>.json.br`: a listing
+// carries each advisory's full text, Markdown that compresses well.
+const BROTLI_DIRS = new Set(['github/advisories'])
+const BROTLI = { params: { [zlib.BROTLI_PARAM_QUALITY]: 9 } }
+const compress = promisify(brotliCompress)
+const decompress = promisify(brotliDecompress)
 
 // An environment variable may hold anything: only an absolute path is one.
 const absolute = (path) => (typeof path === 'string' && isAbsolute(path) ? path : undefined)
@@ -95,10 +103,12 @@ export async function readCache(dir, key) {
   return path && await readRegularFile(path)
 }
 
-export async function readCacheJSON(dir, key) {
+// With `brotli`, the file is decompressed first, to no more than a file
+// read; one that is not brotli, or runs past that, is a miss.
+export async function readCacheJSON(dir, key, { brotli = false } = {}) {
   const bytes = await readCache(dir, key)
   try {
-    return bytes && JSON.parse(decode(bytes, key))
+    return bytes && JSON.parse(decode(brotli ? await decompress(bytes, { maxOutputLength: MAX_BYTES }) : bytes, key))
   } catch {
     return null
   }
@@ -119,15 +129,19 @@ export async function writeCache(dir, key, data) {
   }
 }
 
-export async function writeCacheJSON(dir, key, value) {
-  return await writeCache(dir, key, JSON.stringify(value))
+export async function writeCacheJSON(dir, key, value, { brotli = false } = {}) {
+  const json = JSON.stringify(value)
+  return await writeCache(dir, key, brotli ? await compress(json, BROTLI) : json)
 }
 
 // A record is kept for `ttl`, in the cache set, or with `store`, in the
-// caller's store instead, under `<dir>/<name>`.
+// caller's store instead, under `<dir>/<name>`, as it is: only the files
+// are compressed.
+const recordFile = (dir, name) => (BROTLI_DIRS.has(dir) ? `${name}.json.br` : `${name}.json`)
+
 export async function readRecord(dir, name, { ttl = RECORD_TTL_MS, store } = {}) {
   assert.ok(DIRS.has(dir), `Unexpected cache entry: ${dir}`)
-  const record = store ? await store.read(`${dir}/${name}`) : await readCacheJSON(dir, `${name}.json`)
+  const record = store ? await store.read(`${dir}/${name}`) : await readCacheJSON(dir, recordFile(dir, name), { brotli: BROTLI_DIRS.has(dir) })
   const age = typeof record?.at === 'number' ? Date.now() - record.at : Number.NaN
   const fresh = age >= 0 && age <= ttl // An entry from the future is not fresh forever.
   return fresh && record.name === name ? record : null
@@ -136,7 +150,7 @@ export async function readRecord(dir, name, { ttl = RECORD_TTL_MS, store } = {})
 export async function writeRecord(dir, name, value, { store } = {}) {
   assert.ok(DIRS.has(dir), `Unexpected cache entry: ${dir}`)
   const record = { at: Date.now(), name, ...value }
-  if (!store) return await writeCacheJSON(dir, `${name}.json`, record)
+  if (!store) return await writeCacheJSON(dir, recordFile(dir, name), record, { brotli: BROTLI_DIRS.has(dir) })
   await store.write(`${dir}/${name}`, record)
   return true
 }

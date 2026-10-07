@@ -3,6 +3,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, beforeEach, describe, it } from 'node:test'
+import { brotliCompressSync, brotliDecompressSync, constants as zlib } from 'node:zlib'
 
 import { advisories } from '../advisories.js'
 import { createClient } from '../github.js'
@@ -12,6 +13,9 @@ import { setCacheDir } from '../npm.js'
 
 const dir = await mkdtemp(join(tmpdir(), 'upstream-advisories-cache-'))
 const LISTINGS = join(dir, 'github', 'advisories')
+const FILE = join(LISTINGS, 'openzeppelin+openzeppelin-contracts.json.br')
+const QUALITY_9 = { params: { [zlib.BROTLI_PARAM_QUALITY]: 9 } }
+const readEntry = async () => JSON.parse(brotliDecompressSync(await readFile(FILE)))
 const HOUR = 60 * 60 * 1000
 const realFetch = globalThis.fetch
 
@@ -75,8 +79,10 @@ describe("a repository's listing, through the cache", () => {
     assert.deepEqual(calls, [])
     assert.equal(fresh[0].details, 'Details of GHSA-aaaa-aaaa-aaaa.')
     // Only what rows are made from: no withdrawn advisory, no author.
-    assert.deepEqual(await readdir(LISTINGS), ['openzeppelin+openzeppelin-contracts.json'])
-    const entry = JSON.parse(await readFile(join(LISTINGS, 'openzeppelin+openzeppelin-contracts.json'), 'utf8'))
+    assert.deepEqual(await readdir(LISTINGS), ['openzeppelin+openzeppelin-contracts.json.br'])
+    const entry = await readEntry()
+    // Brotli's output is deterministic: these are the bytes of quality 9.
+    assert.deepEqual(await readFile(FILE), brotliCompressSync(JSON.stringify(entry), QUALITY_9))
     assert.deepEqual({ ...entry, at: 0 }, {
       at: 0,
       name: 'openzeppelin/openzeppelin-contracts',
@@ -98,22 +104,25 @@ describe("a repository's listing, through the cache", () => {
     assert.equal(found[0].url, 'https://github.com/openzeppelin/OpenZeppelin-Contracts/security/advisories/GHSA-aaaa-aaaa-aaaa')
   })
 
-  it('asks again past an hour, for an entry dated in the future, or one kept differently', async () => {
+  it('asks again past an hour, for an entry dated in the future, kept differently, or not brotli', async () => {
     stubUrls({ [OZ]: LIST })
     await audit()
-    const path = join(LISTINGS, 'openzeppelin+openzeppelin-contracts.json')
-    const entry = JSON.parse(await readFile(path, 'utf8'))
-    for (const stale of [
-      { ...entry, at: Date.now() - HOUR - 60_000 },
-      { ...entry, at: Date.now() + 60_000 },
-      { ...entry, v: 0 },
-      { ...entry, name: 'acme/other' },
-      { ...entry, advisories: [{ ...entry.advisories[0], ranges: [{ range: 42 }] }] },
-      { ...entry, advisories: {} },
-    ]) {
-      await writeFile(path, JSON.stringify(stale))
+    const entry = await readEntry()
+    const brotli = (value) => brotliCompressSync(JSON.stringify(value), QUALITY_9)
+    for (const [i, stale] of [
+      brotli({ ...entry, at: Date.now() - HOUR - 60_000 }),
+      brotli({ ...entry, at: Date.now() + 60_000 }),
+      brotli({ ...entry, v: 0 }),
+      brotli({ ...entry, name: 'acme/other' }),
+      brotli({ ...entry, advisories: [{ ...entry.advisories[0], ranges: [{ range: 42 }] }] }),
+      brotli({ ...entry, advisories: [{ ...entry.advisories[0], description: 42 }] }),
+      brotli({ ...entry, advisories: {} }),
+      JSON.stringify(entry),
+      brotli(entry).subarray(0, 20),
+    ].entries()) {
+      await writeFile(FILE, stale)
       const calls = stubUrls({ [OZ]: [] })
-      assert.deepEqual(await audit(), [], JSON.stringify(stale))
+      assert.deepEqual(await audit(), [], String(i))
       assert.deepEqual(calls, [OZ])
     }
   })
@@ -127,6 +136,12 @@ describe("a repository's listing, through the cache", () => {
     await assert.rejects(audit(), /advisories: malformed range in GHSA-aaaa-aaaa-aaaa/u)
     stubUrls({ [OZ]: Response.json({ message: 'rate limited' }, { status: 403 }) })
     await assert.rejects(audit(), { name: 'HttpError', status: 403 })
+    // Text is checked only for `details`: the listing answers without it,
+    // and is asked again for it.
+    const calls = stubUrls({ [OZ]: [{ ...LIST[0], description: 'a\uD800b' }] })
+    assert.equal((await audit()).length, 2)
+    await assert.rejects(audit(undefined, { details: true }), /advisories: malformed details in GHSA-aaaa-aaaa-aaaa/u)
+    assert.deepEqual(calls, [OZ, OZ])
     assert.deepEqual(await readdir(dir).catch(() => []), [])
   })
 
@@ -181,7 +196,9 @@ describe("a caller's store", () => {
   it('takes what the store does not have, or has stale or malformed, as a miss', async () => {
     const store = mapStore()
     const key = 'github/advisories/openzeppelin/openzeppelin-contracts'
-    for (const stored of [null, 'text', { at: Date.now() - 2 * HOUR, name: 'openzeppelin/openzeppelin-contracts', v: 1, advisories: [] }]) {
+    const kept = { ghsa: 'GHSA-aaaa-aaaa-aaaa', title: 'Advisory', ranges: [] }
+    const entry = (at, list) => ({ at, name: 'openzeppelin/openzeppelin-contracts', v: 1, advisories: list })
+    for (const stored of [null, 'text', entry(Date.now() - 2 * HOUR, []), entry(Date.now(), [{ ...kept, description: 42 }])]) {
       store.entries.set(key, JSON.stringify(stored))
       const calls = stubUrls({ [OZ]: [] })
       assert.deepEqual(await audit(undefined, { cache: store }), [])

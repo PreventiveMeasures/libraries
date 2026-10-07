@@ -124,11 +124,11 @@ export interface Advisory {
 // nothing, and a GHSA OSV does not have adds no `details`. Any other
 // failure, a malformed answer, or one about something not asked, throws:
 // nothing is left out quietly.
-// A repository's listing is kept for an hour, in setCacheDir's cache or
-// `cache`, as one entry for every spelling of its name, and holding only
-// what rows are made from, `details` included: an hour is how late an
-// advisory its maintainer publishes can be seen. One gone or malformed is
-// not kept.
+// A repository's listing is kept for an hour, as one entry for every
+// spelling of its name, holding only what rows are made from, `details`
+// included: in setCacheDir's cache brotli-compressed at quality 9, or in
+// `cache` as it is. An hour is how late an advisory its maintainer
+// publishes can be seen. One gone or malformed is not kept.
 // Sorted by ecosystem and name. Versions are matched by npm's semver, from
 // the npm beside node, or by the semver peer where there is no npm.
 export function advisories(packages: Iterable<Package>, options?: AdvisoryOptions): Promise<Advisory[]>
