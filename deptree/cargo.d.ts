@@ -127,13 +127,18 @@ export interface CargoTreeStats {
 // directory, from the project's root, which is `/` of the Vfs —
 // vendor/<name>, or vendor/<name>-<version> for all but the greatest
 // version of a name; `name`, `version` and `source` the lockfile's;
-// `checksum` the hex sha256 its .crate is held to.
+// `checksum` the hex sha256 its .crate is held to; `commit` the commit its
+// .cargo_vcs_info.json names, as `cargo package` writes one where it packs
+// from a git checkout, where that is a full commit id and the checkout was
+// not dirty, and undefined elsewhere. It is the publisher's word, held to
+// no repository.
 export interface CargoInstalled {
   path: string
   name: string
   version: string
   source: string
   checksum: string
+  commit: string | undefined
 }
 
 // `vfs` is the one given, the tree mounted into it, or a new one.

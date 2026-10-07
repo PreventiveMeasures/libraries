@@ -221,6 +221,14 @@ export interface PnpmProject {
 // node_modules is written, though pnpm 9 and 10 make the files a linked
 // directory's bins run executable too.
 //
+// `metadata`, true unless given false, has each registry package's version
+// document fetched from the registry beside its tarball, a request for each
+// name and version that no cache answers: its dist has to be the
+// lockfile's, the tarball the registry's own URL and the integrity the
+// lockfile's sha512, compared as text, with nothing hashed again, as the
+// lockfile copies the registry's; and its gitHead is the package's
+// `commit`. False fetches none, and gives no commit.
+//
 // The two ways the files come, one or the other: given, with `lockfile`
 // and `manifests`, `project` read only for directories; or read, with
 // `project` and none of them.
@@ -235,6 +243,7 @@ export interface PnpmTreeGiven {
   project?: PnpmProject
   host: PnpmHost
   vfs?: Vfs
+  metadata?: boolean
 }
 
 export interface PnpmTreeRead {
@@ -246,6 +255,7 @@ export interface PnpmTreeRead {
   project: PnpmProject
   host: PnpmHost
   vfs?: Vfs
+  metadata?: boolean
 }
 
 // What buildPnpmTree counts, all of it plain numbers: `projects` the
@@ -276,7 +286,10 @@ export interface PnpmTreeStats {
 // the sha512 its tarball is held to; one a `file:` override has pnpm
 // install from a directory has `directory`, from the lockfile's, `.` for
 // its own, and neither a version nor an integrity, as the lockfile records
-// none.
+// none. `commit` is the gitHead of a registry package's version document,
+// where `metadata` has it fetched and it is a full commit id, and
+// undefined elsewhere: the commit npm read off the checkout it published
+// from, the publisher's word, held to no repository.
 // `dev` is whether devDependencies alone reach it: no project's
 // dependencies or optionalDependencies do, through what is installed, so
 // `pnpm install --prod` would leave it out. `optional` is whether optional
@@ -290,6 +303,7 @@ export interface PnpmInstalled {
   version: string | undefined
   integrity: string | undefined
   directory: string | undefined
+  commit: string | undefined
   dev: boolean
   optional: boolean
   patch: { hash: string, path: string } | undefined

@@ -1,5 +1,7 @@
 // A registry tarball, fetched through @preventive/upstream, which checks the
-// integrity it is given, and checked again here, as that is the lockfile's.
+// integrity it is given, and checked again here, as that is the lockfile's;
+// and its version's document from the registry, where asked for, for the
+// commit it names.
 
 import { CompressionError, decompress } from '@preventive/archive/compression.js'
 import { unpack } from '@preventive/archive/tar.js'
@@ -107,19 +109,45 @@ async function gunzip(bytes) {
   }
 }
 
-// The registry's sha512 of a version, for a tarball ownTarball let through
-// unpinned.
-export async function registryIntegrity(name, version, where) {
+// The registry's version document: the sha512 it gives the version, as for a
+// tarball ownTarball let through unpinned, and the commit it names as its
+// gitHead. Its tarball has to be the registry's own URL, which fetchTarball
+// fetches; getMeta holds it to that too.
+export async function registryMeta(name, version, where) {
   checkId(name, version, where)
-  return (await getMeta(name, version)).dist.integrity
+  const { dist, gitHead } = await getMeta(name, version)
+  if (dist.tarball !== tarballUrl(name, version)) throw new DeptreeError(`the registry serves its tarball from ${quote(dist.tarball)}`, where)
+  return { integrity: dist.integrity, commit: gitHead }
 }
 
-export async function fetchTarball(name, version, integrity, where) {
+// Held to `integrity` as text: the registry's is the one npm, pnpm and yarn
+// copy into a lockfile, so nothing is hashed again.
+async function registryCommit(name, version, integrity, where) {
+  const meta = await registryMeta(name, version, where)
+  if (meta.integrity !== integrity) throw new DeptreeError(`the registry has its integrity as ${meta.integrity}, not ${integrity}`, where)
+  return meta.commit
+}
+
+// Both at once, the first failure thrown once both have ended, so that
+// neither goes on fetching or writing a cache after the call returns.
+async function settled(promises) {
+  const results = await Promise.allSettled(promises)
+  const failed = results.find(({ status }) => status === 'rejected')
+  if (failed !== undefined) throw failed.reason
+  return results.map(({ value }) => value)
+}
+
+// With `metadata`, the version's document is fetched beside the tarball, and
+// its commit is the one given back.
+export async function fetchTarball(name, version, integrity, where, metadata = false) {
   checkId(name, version, where)
   if (!/^sha512-[\d+/A-Za-z]{86}==$/u.test(integrity)) throw new DeptreeError('a tarball with no sha512 integrity is not supported', where)
-  const bytes = await getTarball(name, version, { tarball: tarballUrl(name, version), integrity })
+  const [bytes, commit] = await settled([
+    getTarball(name, version, { tarball: tarballUrl(name, version), integrity }),
+    metadata ? registryCommit(name, version, integrity, where) : undefined,
+  ])
   if (!await matchesIntegrity(bytes, integrity)) throw new DeptreeError(`the tarball is not ${integrity}`, where)
   if (bytes[0] !== 0x1f || bytes[1] !== 0x8b || bytes[2] !== 0x08) throw new DeptreeError('the tarball is not gzipped', where)
   const tar = await gunzip(bytes)
-  return { bytes, entries: unpack(tar), inflated: tar.length, integrity }
+  return { bytes, entries: unpack(tar), inflated: tar.length, integrity, commit }
 }

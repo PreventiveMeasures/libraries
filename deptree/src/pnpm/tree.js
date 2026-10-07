@@ -67,17 +67,17 @@ function checkSource(node, installed) {
 
 // By name@version, as the lockfile reader gives a package's snapshots one
 // resolution and manifest.
-async function fetchAll(nodes, project, host) {
+async function fetchAll(nodes, project, host, metadata) {
   const packages = new Map([...nodes.values()].map(({ key, pkg }) => [packageKeyOf(key), pkg]))
   const fetched = new Map()
   await eachConcurrently(packages, async ([id, pkg]) => {
-    fetched.set(id, pkg.resolution.type === 'directory' ? readDirectoryPackage(project, pkg, quote(id), host) : await fetchPackage(pkg, quote(id), host.major))
+    fetched.set(id, pkg.resolution.type === 'directory' ? readDirectoryPackage(project, pkg, quote(id), host) : await fetchPackage(pkg, quote(id), host.major, metadata))
   }, ([id]) => quote(id))
   return fetched
 }
 
-async function fetchNodes(nodes, lockfile, hook, project, host) {
-  const fetched = await fetchAll(nodes, project, host)
+async function fetchNodes(nodes, lockfile, hook, project, host, metadata) {
+  const fetched = await fetchAll(nodes, project, host, metadata)
   const fresh = createFreshnessCheck(lockfile, host.major)
   const byDir = new Map()
   for (const node of nodes.values()) {
@@ -86,7 +86,7 @@ async function fetchNodes(nodes, lockfile, hook, project, host) {
     got.read ??= hook(got.manifest, `${quote(id)}: package.json`)
     checkDependencies(got.manifest, got.read, node.pkg, lockfile.packages, quote(node.key))
     fresh?.(node, got.read)
-    byDir.set(node.dir, { ...node, files: got.files, manifest: got.manifest })
+    byDir.set(node.dir, { ...node, files: got.files, manifest: got.manifest, commit: got.commit })
   }
   return { byDir, tarballs: [...fetched.values()].filter((got) => !got.local).length }
 }
@@ -185,7 +185,7 @@ function reachedInProd(importers, nodes, byDir) {
 }
 
 function installedOf(node, dev, patches) {
-  const { key, name, dir, pkg: { version, resolution, optional, patchHash } } = node
+  const { key, name, dir, commit, pkg: { version, resolution, optional, patchHash } } = node
   return {
     path: dir,
     key,
@@ -193,6 +193,7 @@ function installedOf(node, dev, patches) {
     version,
     integrity: resolution.integrity,
     directory: resolution.directory,
+    commit,
     dev,
     optional,
     patch: patchHash === undefined ? undefined : { hash: patchHash, path: patches.get(patchHash).path },
@@ -221,7 +222,7 @@ const COPYING = new Set(['copy', 'clone', 'clone-or-copy'])
 // The hoisted layout of pnpm 10 and 11 (hoisted.js): nothing but the packages
 // and links, each copy a parent before what lands in its node_modules, as
 // pnpm keeps only its state in node_modules/.pnpm.
-async function buildHoisted({ lockfile, settings, host, project, hook, installed, manifests, names, patched, skipped }) {
+async function buildHoisted({ lockfile, settings, host, project, hook, installed, manifests, names, patched, skipped, metadata }) {
   const { major } = host
   const since = (version) => compareVersions(host.pnpm, version) >= 0
   if (!COPYING.has(settings.packageImportMethod)) {
@@ -231,7 +232,7 @@ async function buildHoisted({ lockfile, settings, host, project, hook, installed
   const { placed, links, projects } = hoistedLayout(lockfile, { autoInstallPeers: settings.autoInstallPeers, skipped, directories, rootLinks: since('11.28.1') })
   if (since('11.28.0')) for (const [path, id] of workspaceHoists(placed, lockfile, settings, names)) links.set(path, id)
   for (const node of placed.values()) checkSource(node, installed)
-  const { byDir, tarballs } = await fetchNodes(placed, lockfile, hook, project, host)
+  const { byDir, tarballs } = await fetchNodes(placed, lockfile, hook, project, host, metadata)
   const linked = readLinked(links, byDir, manifests, project)
   // pnpm builds where any patch is configured, though scripts are ignored.
   const building = Object.keys(settings.patchedDependencies ?? {}).length > 0
@@ -247,11 +248,11 @@ async function buildHoisted({ lockfile, settings, host, project, hook, installed
 
 // The isolated layout: each package in node_modules/.pnpm, linked from what
 // needs it and where it is hoisted.
-async function buildIsolated({ lockfile, settings, host, project, hook, installed, manifests, names, skipped }) {
+async function buildIsolated({ lockfile, settings, host, project, hook, installed, manifests, names, skipped, metadata }) {
   const { major } = host
   const { nodes, direct, hoisting } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, major)
   for (const node of nodes.values()) checkSource(node, installed)
-  const { byDir, tarballs } = await fetchNodes(nodes, lockfile, hook, project, host)
+  const { byDir, tarballs } = await fetchNodes(nodes, lockfile, hook, project, host, metadata)
   const links = linksOf(byDir, direct, settings, names, major, hoisting)
   const linked = readLinked(links, byDir, manifests, project)
   const targets = binTargets({
@@ -269,8 +270,9 @@ async function buildIsolated({ lockfile, settings, host, project, hook, installe
 }
 
 export async function buildPnpmTree(options) {
-  const { project, host: given, vfs: into } = options ?? {}
+  const { project, host: given, vfs: into, metadata = true } = options ?? {}
   if (into !== undefined && !(into instanceof Vfs)) throw new TypeError('vfs must be a Vfs, or left out')
+  if (typeof metadata !== 'boolean') throw new TypeError('metadata must be a boolean, or left out')
   if (project !== undefined) checkProject(project)
   const machine = checkHost(given)
   const folded = machine.os === 'darwin'
@@ -303,7 +305,7 @@ export async function buildPnpmTree(options) {
   const names = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
   const { skipped, incompatible } = skippedSnapshots(lockfile, { host, settings })
   const hoisted = settings.nodeLinker === 'hoisted'
-  const { byDir, links, targets, executable, tarballs, dev } = await (hoisted ? buildHoisted : buildIsolated)({ lockfile, settings, host, project, hook, installed, manifests, names, patched, skipped })
+  const { byDir, links, targets, executable, tarballs, dev } = await (hoisted ? buildHoisted : buildIsolated)({ lockfile, settings, host, project, hook, installed, manifests, names, patched, skipped, metadata })
 
   const vfs = new Vfs()
   if (!hoisted) makeDirs(vfs, 'node_modules/.pnpm')

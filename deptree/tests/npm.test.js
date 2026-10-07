@@ -139,6 +139,37 @@ describe('the tree npm installs', () => {
     assert.equal(installed.find(({ path }) => path === 'node_modules/a').integrity, T['a@1.0.0'].integrity)
   })
 
+  it('lists the commit each version document names, with the document fetched beside each tarball', async () => {
+    const G = 'c'.repeat(40)
+    const served = TARBALLS.map((t) => (t.name === 'b' ? { ...t, gitHead: G } : t))
+    const calls = stubRegistry(served)
+    const { installed } = await buildNpmTree(given())
+    const documents = calls.filter((call) => !call.endsWith('.tgz')).sort()
+    assert.deepEqual(documents, [...new Set(installed.map(({ name, version }) => `https://registry.npmjs.org/${name}/${version}`))].sort())
+    assert.deepEqual(installed.map(({ path, commit }) => [path, commit]), [
+      ['node_modules/@s/same', undefined],
+      ['node_modules/a', undefined],
+      ['node_modules/b', G],
+      ['node_modules/d', undefined],
+      ['node_modules/x', undefined],
+      ['packages/w/node_modules/a', undefined],
+    ])
+    const tarballsOnly = stubRegistry(served)
+    const without = await buildNpmTree(given({ metadata: false }))
+    assert.ok(tarballsOnly.every((call) => call.endsWith('.tgz')), tarballsOnly.join(', '))
+    assert.ok(without.installed.every(({ commit }) => commit === undefined))
+  })
+
+  it('refused: a version document whose dist is not the lockfile\'s, unless none is fetched', async () => {
+    const otherwise = (dist) => stubRegistry(TARBALLS.map((t) => (t.name === 'b' ? { ...t, dist } : t)))
+    otherwise({ integrity: T['c@1.0.0'].integrity })
+    await refuses(given(), `the registry has its integrity as ${T['c@1.0.0'].integrity}, not ${T['b@1.0.0'].integrity}`, 'packages["node_modules/b"]')
+    otherwise({ tarball: url('c', '1.0.0') })
+    await assert.rejects(buildNpmTree(given()), /^DeptreeError: packages\["node_modules\/b"\]: getMeta: dist\.tarball must be https:\/\/registry\.npmjs\.org\/b\/-\/b-1\.0\.0\.tgz/u)
+    otherwise({ integrity: T['c@1.0.0'].integrity })
+    assert.equal((await buildNpmTree(given({ metadata: false }))).stats.installed, 6)
+  })
+
   it('as npm 10.9.9 installs it, the scope of what it left out made', async () => {
     stubRegistry(TARBALLS)
     const { vfs } = await buildNpmTree(given({ host: NPM10 }))
@@ -187,6 +218,7 @@ describe('read from a project', () => {
     await assert.rejects(buildNpmTree({ project: project(), lockfile: write(LOCK()), host: HOST }), { name: 'TypeError', message: 'project must be left out where lockfile is given' })
     await assert.rejects(buildNpmTree({ project: project(), npmrc: '', host: HOST }), { name: 'TypeError', message: 'npmrc must be left out where lockfile is: both are read from project' })
     await assert.rejects(buildNpmTree({ host: HOST }), { name: 'TypeError', message: 'lockfile must be the text of package-lock.json, or left out with a project given to read it from' })
+    await assert.rejects(buildNpmTree(given({ metadata: 'no' })), { name: 'TypeError', message: 'metadata must be a boolean, or left out' })
   })
 })
 
@@ -367,7 +399,7 @@ describe('the packages', () => {
     const split = await compress(pack([{ name: 'package/package.json', data: new TextEncoder().encode('{}') }, { name: 'other/x', data: new Uint8Array(1) }]), 'gzip')
     const lock = LOCK()
     lock.packages['node_modules/b'].integrity = sri(split)
-    stubRegistry([...TARBALLS.filter(({ name }) => name !== 'b'), { name: 'b', version: '1.0.0', bytes: split }])
+    stubRegistry([...TARBALLS.filter(({ name }) => name !== 'b'), { name: 'b', version: '1.0.0', bytes: split, integrity: sri(split) }])
     await refuses(given({ lock }), 'the tarball has entries under more than one directory', 'packages["node_modules/b"]')
   })
 

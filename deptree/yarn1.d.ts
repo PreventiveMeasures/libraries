@@ -126,6 +126,16 @@ export interface Yarn1Project {
 // tree is built, and held to every check below, before any of it is
 // written, so a refusal leaves the Vfs as it was.
 //
+// `metadata`, true unless given false, has each registry package's version
+// document fetched from the registry beside its tarball, a request for each
+// name and version that no cache answers: its dist has to be the
+// lockfile's, the tarball the registry's own URL and the integrity the
+// lockfile's sha512, compared as text, with nothing hashed again, as the
+// lockfile copies the registry's; and its gitHead is the package's
+// `commit`. False fetches none, and gives no commit, but for a package
+// whose sha512 the lockfile does not record, whose document is fetched for
+// the registry's either way, and gives its commit.
+//
 // The two ways the files come, one or the other: given, with `lockfile`
 // and `manifests`; or read, with `project` and none of them. `project`
 // given with `lockfile` is read only to tell whether a tag a top-level
@@ -140,6 +150,7 @@ export interface Yarn1TreeGiven {
   project?: Yarn1Project
   host: Yarn1Host
   vfs?: Vfs
+  metadata?: boolean
 }
 
 export interface Yarn1TreeRead {
@@ -150,6 +161,7 @@ export interface Yarn1TreeRead {
   project: Yarn1Project
   host: Yarn1Host
   vfs?: Vfs
+  metadata?: boolean
 }
 
 // What buildYarn1Tree counts, all of it plain numbers: `packages` the
@@ -174,7 +186,11 @@ export interface Yarn1TreeStats {
 // own, which its package.json is held to, whatever alias it is installed
 // as; `integrity` the sha512 its tarball is held to, for a registry
 // package, and `directory` the directory of the project it is copied
-// from, for one by `file:`, in place of an integrity. `dev` is
+// from, for one by `file:`, in place of an integrity. `commit`, for a
+// registry package alone, is the gitHead of its version document, where
+// one is fetched and it is a full commit id: the commit npm read off the
+// checkout it published from, the publisher's word, held to no repository.
+// `dev` is
 // whether dev dependencies alone reach this copy, the root's and the
 // workspaces' devDependencies: nothing else does, each dependency, and
 // each peer yarn finds, looked for from where what asks for it is, as Node
@@ -188,6 +204,7 @@ export interface Yarn1Installed {
   version: string
   integrity?: string
   directory?: string
+  commit?: string
   dev: boolean
   optional: boolean
 }

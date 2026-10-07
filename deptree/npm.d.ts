@@ -110,6 +110,14 @@ export interface NpmProject {
 // or is made, and every file and link is written where nothing is. The
 // tree is built, and held to every check below, before any of it is
 // written, so a refusal leaves the Vfs as it was.
+//
+// `metadata`, true unless given false, has each registry package's version
+// document fetched from the registry beside its tarball, a request for each
+// name and version that no cache answers: its dist has to be the
+// lockfile's, the tarball the registry's own URL and the integrity the
+// lockfile's sha512, compared as text, with nothing hashed again, as the
+// lockfile copies the registry's; and its gitHead is the package's
+// `commit`. False fetches none, and gives no commit.
 export type NpmTreeOptions = NpmTreeGiven | NpmTreeRead
 
 export interface NpmTreeGiven {
@@ -119,6 +127,7 @@ export interface NpmTreeGiven {
   project?: undefined
   host: NpmHost
   vfs?: Vfs
+  metadata?: boolean
 }
 
 export interface NpmTreeRead {
@@ -128,6 +137,7 @@ export interface NpmTreeRead {
   project: NpmProject
   host: NpmHost
   vfs?: Vfs
+  metadata?: boolean
 }
 
 // What buildNpmTree counts, all of it plain numbers: `packages` the
@@ -150,7 +160,11 @@ export interface NpmTreeStats {
 // which is `/` of the Vfs — node_modules/<name>, beneath another package's
 // node_modules, or beneath a workspace's. `name` and `version` are the
 // package's own, whatever alias it is installed as, as the lockfile has
-// them; `integrity` the sha512 its tarball is held to. The flags are those
+// them; `integrity` the sha512 its tarball is held to; `commit` the gitHead
+// of the registry's version document, where `metadata` has it fetched and
+// it is a full commit id, and undefined elsewhere: the commit npm read off
+// the checkout it published from, the publisher's word, held to no
+// repository. The flags are those
 // npm installs by, the lockfile's as npm 10 takes them and as npm 11 works
 // them out again: `dev` is whether dev dependencies alone reach it, which
 // --omit=dev leaves out; `optional` whether optional dependencies alone
@@ -163,6 +177,7 @@ export interface NpmInstalled {
   name: string
   version: string
   integrity: string
+  commit: string | undefined
   dev: boolean
   optional: boolean
   devOptional: boolean

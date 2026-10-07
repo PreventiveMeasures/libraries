@@ -154,7 +154,16 @@ describe('buildCargoTree', () => {
     const { vfs, installed } = await build(crates)
     assert.deepEqual(vfs.readdir('/vendor').sort(), ['dup', 'dup-0.1.0', 'dup-0.2.0', 'leaf'])
     assert.equal(vfs.readText('/vendor/dup/Cargo.toml'), published('dup', '0.10.0-rc.1'))
-    assert.deepEqual(installed, crates.map((c, i) => ({ path: `vendor/${['dup-0.1.0', 'dup-0.2.0', 'dup', 'leaf'][i]}`, name: c.name, version: c.version, source: CRATES_IO, checksum: c.checksum })))
+    assert.deepEqual(installed, crates.map((c, i) => ({ path: `vendor/${['dup-0.1.0', 'dup-0.2.0', 'dup', 'leaf'][i]}`, name: c.name, version: c.version, source: CRATES_IO, checksum: c.checksum, commit: undefined })))
+  })
+
+  it('lists the commit its .cargo_vcs_info.json names, where cargo found the checkout clean', async () => {
+    const sha = 'a'.repeat(40)
+    const commitOf = async (text) => (await build([await crate('leaf', '1.0.0', { '.cargo_vcs_info.json': text })])).installed[0].commit
+    assert.equal(await commitOf(`{\n  "git": {\n    "sha1": "${sha}"\n  },\n  "path_in_vcs": "leaf"\n}`), sha)
+    assert.equal(await commitOf(JSON.stringify({ git: { sha1: 'b'.repeat(64), dirty: false } })), 'b'.repeat(64))
+    const none = [{ git: { sha1: sha, dirty: true } }, { git: { sha1: sha, dirty: 'no' } }, { git: { sha1: sha.slice(1) } }, { git: { sha1: sha.toUpperCase() } }, { git: { sha1: [sha] } }, { git: sha }, { sha1: sha }, {}, null]
+    for (const text of [...none.map((info) => JSON.stringify(info)), `{"git":{"sha1":"${sha}"`, '']) assert.equal(await commitOf(text), undefined, text)
   })
 
   it('refuses a package from git or another registry, before anything is fetched', async () => {

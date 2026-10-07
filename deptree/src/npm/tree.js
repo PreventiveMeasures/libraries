@@ -48,7 +48,7 @@ function checkSpecs(lockfile, host) {
 }
 
 // Every URL is checked before any is fetched.
-async function fetchAll(nodes, host) {
+async function fetchAll(nodes, host, metadata) {
   const tarballs = new Map()
   for (const node of nodes) {
     const tarball = registryTarball(node.pkg, whereOf(node))
@@ -58,7 +58,7 @@ async function fetchAll(nodes, host) {
   }
   const fetched = new Map()
   await eachConcurrently(tarballs.values(), async ({ tarball, where, nodes: copies }) => {
-    const pkg = { ...await fetchNpmPackage(tarball, where, host.ratio ? checkRatio : undefined), integrity: tarball.integrity }
+    const pkg = { ...await fetchNpmPackage(tarball, where, host.ratio ? checkRatio : undefined, metadata), integrity: tarball.integrity }
     for (const node of copies) fetched.set(node, pkg)
   }, ({ where }) => where)
   return { fetched, tarballs: tarballs.size }
@@ -104,8 +104,9 @@ function rootListsOf(text) {
 }
 
 export async function buildNpmTree(options) {
-  const { host: given, vfs: into } = options ?? {}
+  const { host: given, vfs: into, metadata = true } = options ?? {}
   if (into !== undefined && !(into instanceof Vfs)) throw new TypeError('vfs must be a Vfs, or left out')
+  if (typeof metadata !== 'boolean') throw new TypeError('metadata must be a boolean, or left out')
   const host = checkHost(given)
   const folded = host.os === 'darwin'
   const inputs = inputsOf(options ?? {}, folded)
@@ -122,7 +123,7 @@ export async function buildNpmTree(options) {
   const nodes = graphOf(lockfile, manifests)
   const skipped = skippedOf(nodes, host, settings)
   const kept = [...nodes.values()].filter((node) => node.kind === 'package' && !skipped.has(node))
-  const { fetched, tarballs } = await fetchAll(kept, host)
+  const { fetched, tarballs } = await fetchAll(kept, host, metadata)
   const changed = settings.binLinks ? fixBins(kept, fetched) : new Map()
   const residue = host.reuse ? residueOf(nodes, skipped) : new Set()
   const { vfs, stats: written } = writeTree({ lockfile, kept, fetched, changed, residue })
@@ -130,7 +131,8 @@ export async function buildNpmTree(options) {
   const stats = { packages, installed: kept.length, skipped: packages - kept.length, tarballs, ...written }
   const installed = kept.map((node) => {
     const { name, version, dev, optional, devOptional, peer } = node.pkg
-    return { path: node.location, name, version, integrity: fetched.get(node).integrity, dev, optional, devOptional, peer }
+    const { integrity, commit } = fetched.get(node)
+    return { path: node.location, name, version, integrity, commit, dev, optional, devOptional, peer }
   })
   return { vfs: mount(vfs, into, folded), stats, installed }
 }

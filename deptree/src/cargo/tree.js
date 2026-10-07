@@ -109,7 +109,9 @@ export async function buildCargoTree(options) {
   const vendored = await fetchCrates(crates, host.comment)
   checkLock(lock, { root, packages, config, keys }, crates, vendored)
   const stats = { packages: Object.keys(lock.packages).length, vendored: crates.length, files: 0, bytes: 0 }
+  // writeTree lets each crate go.
+  const commits = new Map([...vendored].map(([key, { commit }]) => [key, commit]))
   const vfs = writeTree(crates, vendored, stats)
-  const installed = crates.map(({ key, directory, name, version, checksum }) => ({ path: `vendor/${directory}`, name, version, source: lock.packages[key].source, checksum }))
+  const installed = crates.map(({ key, directory, name, version, checksum }) => ({ path: `vendor/${directory}`, name, version, source: lock.packages[key].source, checksum, commit: commits.get(key) }))
   return { vfs: mount(vfs, into, folded, checkNoVendor), stats, installed }
 }
