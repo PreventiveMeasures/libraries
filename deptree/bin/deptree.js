@@ -175,11 +175,12 @@ function size(bytes) {
   return unit === 0 ? `${bytes} B` : `${(bytes / 1024 ** unit).toFixed(1)} ${UNITS[unit]}`
 }
 
-// A refusal says what and where: deptree's or its lockfile reader's, a
-// filesystem's or an option's, or a host deptree takes no version of from
-// what is there. Anything else is a bug, and shows its stack.
+// A refusal says what and where: deptree's or its lockfile reader's, the
+// system's on a call it names, parseArgs's of an option, or a host deptree
+// takes no version of from what is there. Anything else is a bug, and shows
+// its stack, though Node gave it a code.
 const REFUSALS = [DeptreeError, LockfileError, TomlError]
-const refused = (error) => REFUSALS.some((type) => error instanceof type) || typeof error?.code === 'string' || (error instanceof TypeError && error.message.startsWith('host.'))
+const refused = (error) => REFUSALS.some((type) => error instanceof type) || typeof error?.syscall === 'string' || String(error?.code).startsWith('ERR_PARSE_ARGS_') || (error instanceof TypeError && error.message.startsWith('host.'))
 function describe(error) {
   if (!refused(error)) return error?.stack ?? String(error)
   const lines = [error.message]

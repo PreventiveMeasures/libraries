@@ -298,6 +298,20 @@ describe('bin/deptree.js compare', async () => {
     }
     assert.equal(run('frobnicate', project).status, 2)
   })
+
+  it("shows a bug's stack, though Node gave it a code, and no stack of the disk's refusal", () => {
+    // readdir made to fail as a bug would, on an option Node refuses, or as
+    // the disk would, on a directory gone.
+    writeDisk(home, side({ 'fault.mjs': file("import fs from 'node:fs'\nimport { syncBuiltinESMExports } from 'node:module'\nconst { readdirSync } = fs\nfs.readdirSync = (path) => (process.env.FAULT === 'bug' ? readdirSync(path, { encoding: 'bogus' }) : readdirSync(`${path}/gone`))\nsyncBuiltinESMExports()\n") }))
+    const fault = (FAULT) => cli(home, ['compare', '--npm', '11.12.1', project], { node: ['--import', pathToFileURL(join(home, 'fault.mjs')).href], env: { FAULT } })
+    const bug = fault('bug')
+    assert.match(bug.stderr, /^deptree\.js: TypeError \[ERR_INVALID_ARG_VALUE\]: .*\n\s+at /mu)
+    assert.equal(bug.status, 2)
+    const gone = fault('gone')
+    assert.match(gone.stderr, /^deptree\.js: ENOENT: no such file or directory, scandir '.*\/gone'$/mu)
+    assert.doesNotMatch(gone.stderr, /\n\s+at /u)
+    assert.equal(gone.status, 2)
+  })
 })
 
 describe('bin/deptree.js compare, with Soldeer', () => {
