@@ -70,6 +70,10 @@ export function stubRegistry(tarballs, urlOf = url) {
   return calls
 }
 
+// What a version document says of where a package comes from, of one that
+// says nothing, or is not fetched.
+export const ABOUT = Object.freeze({ commit: undefined, repository: undefined, homepage: undefined, bugs: undefined })
+
 // A cache store in memory, as upstream's CacheOptions take one: what is
 // written is `kept` by `<type> <key>`.
 export function memoryStore() {

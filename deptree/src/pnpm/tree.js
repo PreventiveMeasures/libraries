@@ -12,7 +12,7 @@ import { DeptreeError, quote, refusalOf } from '../error.js'
 import { checkNoModules, checkWrite, fold, isInside, makeDirs, mount, writeLink } from '../mount.js'
 import { applyPatch, parsePatch } from '../patch.js'
 import { checkProject, typeOf } from '../project.js'
-import { REGISTRY, UNKNOWN, fetchingOf, tarballUrl } from '../tarball.js'
+import { NO_ABOUT, REGISTRY, fetchingOf, tarballUrl } from '../tarball.js'
 import { binTargets, checkPatchOfBins, executableMode, fixBin, hoistedBinTargets, requiresBuild } from './bins.js'
 import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
@@ -86,7 +86,7 @@ async function fetchNodes(nodes, lockfile, hook, project, host, fetching) {
     got.read ??= hook(got.manifest, `${quote(id)}: package.json`)
     checkDependencies(got.manifest, got.read, node.pkg, lockfile.packages, quote(node.key))
     fresh?.(node, got.read)
-    byDir.set(node.dir, { ...node, files: got.files, manifest: got.manifest, about: got.about ?? UNKNOWN })
+    byDir.set(node.dir, { ...node, files: got.files, manifest: got.manifest, about: got.about ?? NO_ABOUT })
   }
   return { byDir, tarballs: [...fetched.values()].filter((got) => !got.local).length }
 }

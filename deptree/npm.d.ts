@@ -1,6 +1,6 @@
 // Hand-written against npm.js; a change to either belongs with the other.
 
-import type { CacheStore, PackageBugs, PackageRepository } from '@preventive/upstream/npm.js'
+import type { CacheOptions, PackageBugs, PackageRepository } from '@preventive/upstream/npm.js'
 import type { NodeType, Vfs } from '@preventive/vfs'
 
 export { LockfileError } from '@preventive/lockfile/npm.js'
@@ -13,10 +13,8 @@ export { LockfileError } from '@preventive/lockfile/npm.js'
 // lockfile's integrity, and writes none of them; then from its own cache,
 // where one is set, which is where it writes each tarball it fetches:
 // setCacheDir() sets the default one, and setCacheDir(false) unsets it.
-// Unset, which it is until set, it writes nothing. A build's `cache`, below,
-// keeps them in a store of the caller's in place of it, or nowhere. The
-// project is read only through the view given as `project`, and the tree
-// built in a Vfs.
+// Unset, which it is until set, it writes nothing. The project is read
+// only through the view given as `project`, and the tree built in a Vfs.
 export { setCacheDir } from '@preventive/upstream/npm.js'
 
 // The machine npm would install on, which a tree depends on. `npm` is the
@@ -140,7 +138,7 @@ export interface NpmTreeGiven {
   host: NpmHost
   vfs?: Vfs
   metadata?: boolean
-  cache?: CacheStore | false
+  cache?: CacheOptions['cache']
 }
 
 export interface NpmTreeRead {
@@ -151,7 +149,7 @@ export interface NpmTreeRead {
   host: NpmHost
   vfs?: Vfs
   metadata?: boolean
-  cache?: CacheStore | false
+  cache?: CacheOptions['cache']
 }
 
 // What buildNpmTree counts, all of it plain numbers: `packages` the

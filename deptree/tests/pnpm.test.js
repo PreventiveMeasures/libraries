@@ -5,7 +5,7 @@ import { compress } from '@preventive/archive/compression.js'
 import { pack } from '@preventive/archive/tar.js'
 import { createVfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, YamlError, buildPnpmTree, findPnpmProjects } from '../pnpm.js'
-import { HOST, memoryStore, paths, rawTar, sri, stubFailingRegistry, stubRegistry, tarball } from './registry.js'
+import { ABOUT, HOST, memoryStore, paths, rawTar, sri, stubFailingRegistry, stubRegistry, tarball } from './registry.js'
 
 // A lockfile with a package of every kind this builds, from tarballs made
 // here; then one change at a time, each refused with where and why.
@@ -37,9 +37,6 @@ const TARBALLS = await Promise.all([
   tarball('p', '1.0.0', { 'index.js': 'module.exports = 1\n' }),
 ])
 const I = Object.fromEntries(TARBALLS.map((t) => [t.name, t.integrity]))
-// What a package's version document says of where it comes from, of one
-// that says nothing, or is not fetched.
-const ABOUT = { commit: undefined, repository: undefined, homepage: undefined, bugs: undefined }
 
 const lockfile = ({ patchHash = H, mac = '[darwin]', overrides = '' } = {}) => `lockfileVersion: '9.0'
 

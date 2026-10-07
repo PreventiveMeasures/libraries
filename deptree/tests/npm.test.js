@@ -5,7 +5,7 @@ import { pack } from '@preventive/archive/tar.js'
 import { Vfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, buildNpmTree, findNpmWorkspaces } from '../npm.js'
 import { recalculates } from '../src/npm/manifests.js'
-import { memoryStore, sri, stubRegistry, tarball, url } from './registry.js'
+import { ABOUT, memoryStore, sri, stubRegistry, tarball, url } from './registry.js'
 
 // A small project whose lockfile npm's own Arborist wrote, and whose tree
 // real npm 11.12.1 and 10.9.9 installed with `npm ci --ignore-scripts` as
@@ -146,20 +146,19 @@ describe('the tree npm installs', () => {
     const { installed } = await buildNpmTree(given())
     const documents = calls.filter((call) => !call.endsWith('.tgz')).sort()
     assert.deepEqual(documents, [...new Set(installed.map(({ name, version }) => `https://registry.npmjs.org/${name}/${version}`))].sort())
-    const none = { commit: undefined, repository: undefined, homepage: undefined, bugs: undefined }
     const about = ({ commit, repository, homepage, bugs }) => ({ commit, repository, homepage, bugs })
     assert.deepEqual(installed.map((copy) => [copy.path, about(copy)]), [
-      ['node_modules/@s/same', none],
-      ['node_modules/a', none],
+      ['node_modules/@s/same', ABOUT],
+      ['node_modules/a', ABOUT],
       ['node_modules/b', { commit: b.gitHead, repository: { ...b.repository, directory: undefined }, homepage: b.homepage, bugs: { url: b.bugs.url, email: undefined } }],
-      ['node_modules/d', { ...none, repository: 'o/d', bugs: 'https://example.com/d' }],
-      ['node_modules/x', none],
-      ['packages/w/node_modules/a', none],
+      ['node_modules/d', { ...ABOUT, repository: 'o/d', bugs: 'https://example.com/d' }],
+      ['node_modules/x', ABOUT],
+      ['packages/w/node_modules/a', ABOUT],
     ])
     const tarballsOnly = stubRegistry(served)
     const without = await buildNpmTree(given({ metadata: false }))
     assert.ok(tarballsOnly.every((call) => call.endsWith('.tgz')), tarballsOnly.join(', '))
-    for (const copy of without.installed) assert.deepEqual(about(copy), none, copy.path)
+    for (const copy of without.installed) assert.deepEqual(about(copy), ABOUT, copy.path)
   })
 
   it('keeps each tarball and version document in a cache store given, and asks the registry for none it keeps', async () => {

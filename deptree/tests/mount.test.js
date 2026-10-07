@@ -86,9 +86,9 @@ describe('the registry\'s tarball', () => {
 
   it('fetched by its name and version as such, and its sha512 alone, before anything is fetched', async () => {
     const calls = stubRegistry([])
-    await assert.rejects(fetchTarball('../x', '1.0.0', I, 'w'), /^DeptreeError: w: "\.\.\/x@1\.0\.0" is no package the registry's URL names as it is$/u)
-    for (const integrity of ['sha1-2jmj7l5rSw0yVb/vlWAYkK/YBwk=', `${I} sha1-2jmj7l5rSw0yVb/vlWAYkK/YBwk=`, undefined, `sha512-${'A'.repeat(85)}==`]) {
-      await assert.rejects(fetchTarball('a', '1.0.0', integrity, 'w'), /^DeptreeError: w: a tarball with no sha512 integrity is not supported$/u)
+    await assert.rejects(fetchTarball('../x', '1.0.0', I, 'w', {}), /^DeptreeError: w: "\.\.\/x@1\.0\.0" is no package the registry's URL names as it is$/u)
+    for (const integrity of ['sha1-2jmj7l5rSw0yVb/vlWAYkK/YBwk=', `${I} sha1-2jmj7l5rSw0yVb/vlWAYkK/YBwk=`, `sha512-${'A'.repeat(85)}==`]) {
+      await assert.rejects(fetchTarball('a', '1.0.0', integrity, 'w', {}), /^DeptreeError: w: a tarball with no sha512 integrity is not supported$/u)
     }
     assert.deepEqual(calls, [])
   })
@@ -100,7 +100,7 @@ describe('the registry\'s tarball', () => {
     const served = (tail, head = bytes) => {
       const padded = new Uint8Array([...head, ...tail])
       stubRegistry([{ name: 'a', version: '1.0.0', bytes: padded }])
-      return fetchTarball('a', '1.0.0', sri(padded), 'w')
+      return fetchTarball('a', '1.0.0', sri(padded), 'w', {})
     }
     const { entries } = await served([])
     assert.deepEqual((await served(new Uint8Array(10240 - bytes.length))).entries, entries)

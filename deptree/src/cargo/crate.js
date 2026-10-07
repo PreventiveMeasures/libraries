@@ -162,8 +162,9 @@ function vcsCommitOf(file) {
   if (file === undefined) return undefined
   try {
     const git = own(JSON.parse(utf8toString(file.data)), 'git')
-    const [sha1, dirty] = [own(git, 'sha1'), own(git, 'dirty')]
-    return (dirty === undefined || dirty === false) && typeof sha1 === 'string' && COMMIT.test(sha1) ? sha1 : undefined
+    if (![undefined, false].includes(own(git, 'dirty'))) return undefined
+    const sha1 = own(git, 'sha1')
+    return typeof sha1 === 'string' && COMMIT.test(sha1) ? sha1 : undefined
   } catch {
     return undefined
   }

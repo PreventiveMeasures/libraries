@@ -6,6 +6,7 @@
 import { CompressionError, decompress } from '@preventive/archive/compression.js'
 import { unpack } from '@preventive/archive/tar.js'
 import { getMeta, getTarball } from '@preventive/upstream/npm.js'
+import { settled } from './concurrent.js'
 import { DeptreeError, quote } from './error.js'
 import { matchesIntegrity } from './hash.js'
 import { fold } from './mount.js'
@@ -112,26 +113,7 @@ async function gunzip(bytes) {
 // What a version document says of where a package comes from, each
 // undefined where it says nothing: `commit` is its gitHead.
 const aboutOf = ({ gitHead, repository, homepage, bugs }) => ({ commit: gitHead, repository, homepage, bugs })
-export const UNKNOWN = Object.freeze(aboutOf({}))
-
-// The registry's version document: the sha512 it gives the version, as for a
-// tarball ownTarball let through unpinned, and what it says of where the
-// package comes from. getMeta holds its tarball to the registry's own URL,
-// which fetchTarball fetches.
-export async function registryMeta(name, version, where, { cache }) {
-  checkId(name, version, where)
-  const meta = await getMeta(name, version, { cache })
-  return { integrity: meta.dist.integrity, about: aboutOf(meta) }
-}
-
-// Both at once, the first failure thrown once both have ended, so that
-// neither goes on fetching or writing a cache after the call returns.
-async function settled(promises) {
-  const results = await Promise.allSettled(promises)
-  const failed = results.find(({ status }) => status === 'rejected')
-  if (failed !== undefined) throw failed.reason
-  return results.map(({ value }) => value)
-}
+export const NO_ABOUT = Object.freeze(aboutOf({}))
 
 // What a tree's options say of what it fetches from npm's registry:
 // `metadata`, true unless given false, and `cache`, as upstream's
@@ -144,21 +126,25 @@ export function fetchingOf({ metadata = true, cache }) {
   return { metadata, cache }
 }
 
-// Kept as `cache` says. With `metadata`, the version's document is asked for
-// beside the tarball, given the dist the tarball is fetched by, which
+// Kept as `cache` says. Without a `given` integrity, as ownTarball lets one
+// through unpinned, the registry's is taken from the version document, which
+// getMeta holds to the registry's own tarball, and `about` is what that
+// says, whatever `metadata` is. Else, with `metadata`, the document is asked
+// for beside the tarball, given the dist the tarball is fetched by, which
 // getMeta holds the document's to as text, the registry's being the one a
-// lockfile copies, so nothing is hashed again; `about` is what it says.
-// Else UNKNOWN.
-export async function fetchTarball(name, version, integrity, where, { metadata = false, cache } = {}) {
+// lockfile copies, so nothing is hashed again. Else NO_ABOUT.
+export async function fetchTarball(name, version, given, where, { metadata, cache }) {
   checkId(name, version, where)
+  const meta = given === undefined ? await getMeta(name, version, { cache }) : undefined
+  const integrity = given ?? meta.dist.integrity
   if (!/^sha512-[\d+/A-Za-z]{86}==$/u.test(integrity)) throw new DeptreeError('a tarball with no sha512 integrity is not supported', where)
   const dist = { tarball: tarballUrl(name, version), integrity }
-  const [bytes, about] = await settled([
-    getTarball(name, version, dist, { cache }),
-    metadata ? getMeta(name, version, { dist, cache }).then(aboutOf) : UNKNOWN,
-  ])
+  let about = NO_ABOUT
+  if (meta !== undefined) about = aboutOf(meta)
+  else if (metadata) about = getMeta(name, version, { dist, cache }).then(aboutOf)
+  const [bytes, said] = await settled([getTarball(name, version, dist, { cache }), about])
   if (!await matchesIntegrity(bytes, integrity)) throw new DeptreeError(`the tarball is not ${integrity}`, where)
   if (bytes[0] !== 0x1f || bytes[1] !== 0x8b || bytes[2] !== 0x08) throw new DeptreeError('the tarball is not gzipped', where)
   const tar = await gunzip(bytes)
-  return { bytes, entries: unpack(tar), inflated: tar.length, integrity, about }
+  return { bytes, entries: unpack(tar), inflated: tar.length, integrity, about: said }
 }

@@ -177,13 +177,16 @@ function writeTree(placed, fetched) {
   return { vfs, links, locations, copies, ...counted }
 }
 
+// What a version document says, but what it does not.
+const said = (about) => Object.fromEntries(Object.entries(about).filter(([, value]) => value !== undefined))
+
 function listInstalled(copies, fetched, asked, hoister) {
   const prod = hoister.reachedBut('dev', asked)
   const required = hoister.reachedBut('optional', asked)
   return [...copies].map(([path, places]) => {
     const { ref } = places[0]
     const { manifest, integrity, about } = fetched.get(ref)
-    const from = ref.kind === 'directory' ? { directory: ref.dir } : { integrity, ...Object.fromEntries(Object.entries(about).filter(([, value]) => value !== undefined)) }
+    const from = ref.kind === 'directory' ? { directory: ref.dir } : { integrity, ...said(about) }
     return { path, name: manifest.name, version: manifest.version, ...from, dev: !places.some((info) => prod.has(info)), optional: !places.some((info) => required.has(info)) }
   }).sort((a, b) => compareNames(a.path, b.path))
 }

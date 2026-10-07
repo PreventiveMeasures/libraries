@@ -21,3 +21,12 @@ export async function eachConcurrently(items, job, whereOf) {
   }))
   if (failure !== undefined) throw failure.error
 }
+
+// Each of `values` awaited at once, the first failure by position thrown once
+// all have ended, as eachConcurrently throws one.
+export async function settled(values) {
+  const results = await Promise.allSettled(values)
+  const failed = results.find(({ status }) => status === 'rejected')
+  if (failed !== undefined) throw failed.reason
+  return results.map(({ value }) => value)
+}

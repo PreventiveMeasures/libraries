@@ -1,6 +1,6 @@
 // Hand-written against yarn1.js; a change to either belongs with the other.
 
-import type { CacheStore, PackageBugs, PackageRepository } from '@preventive/upstream/npm.js'
+import type { CacheOptions, PackageBugs, PackageRepository } from '@preventive/upstream/npm.js'
 import type { NodeType, Vfs } from '@preventive/vfs'
 
 export { LockfileError } from '@preventive/lockfile/yarn1.js'
@@ -13,10 +13,9 @@ export { LockfileError } from '@preventive/lockfile/yarn1.js'
 // lockfile's integrity, and writes none of them; then from its own cache,
 // where one is set, which is where it writes each tarball it fetches:
 // setCacheDir() sets the default one, and setCacheDir(false) unsets it.
-// Unset, which it is until set, it writes nothing. A build's `cache`, below,
-// keeps them in a store of the caller's in place of it, or nowhere. yarn's
-// own cache is never read. The project is read only through the view given
-// as `project`, and the tree built in a Vfs.
+// Unset, which it is until set, it writes nothing. yarn's own cache is
+// never read. The project is read only through the view given as
+// `project`, and the tree built in a Vfs.
 export { setCacheDir } from '@preventive/upstream/npm.js'
 
 // The machine yarn would install on, which a tree depends on: `yarn` is
@@ -162,7 +161,7 @@ export interface Yarn1TreeGiven {
   host: Yarn1Host
   vfs?: Vfs
   metadata?: boolean
-  cache?: CacheStore | false
+  cache?: CacheOptions['cache']
 }
 
 export interface Yarn1TreeRead {
@@ -174,7 +173,7 @@ export interface Yarn1TreeRead {
   host: Yarn1Host
   vfs?: Vfs
   metadata?: boolean
-  cache?: CacheStore | false
+  cache?: CacheOptions['cache']
 }
 
 // What buildYarn1Tree counts, all of it plain numbers: `packages` the

@@ -1,6 +1,6 @@
 // Hand-written against pnpm.js; a change to either belongs with the other.
 
-import type { CacheStore, PackageBugs, PackageRepository } from '@preventive/upstream/npm.js'
+import type { CacheOptions, PackageBugs, PackageRepository } from '@preventive/upstream/npm.js'
 import type { NodeType, Vfs } from '@preventive/vfs'
 
 // What the lockfile reader and the YAML parser refuse with: the cause of
@@ -18,9 +18,8 @@ export { LockfileError, YamlError } from '@preventive/lockfile/pnpm.js'
 // setCacheDir() sets the default one, and setCacheDir(false) unsets it.
 // Unset, which it is until set, it writes nothing: a tarball in none of
 // the others is fetched every time, each once for however many snapshots
-// it has. A build's `cache`, below, keeps them in a store of the caller's
-// in place of it, or nowhere. The project is read only through the view
-// given as `project`, and the tree built in a Vfs.
+// it has. The project is read only through the view given as `project`,
+// and the tree built in a Vfs.
 export { setCacheDir } from '@preventive/upstream/npm.js'
 
 // The machine pnpm would install on, which a tree depends on: `pnpm` is
@@ -255,7 +254,7 @@ export interface PnpmTreeGiven {
   host: PnpmHost
   vfs?: Vfs
   metadata?: boolean
-  cache?: CacheStore | false
+  cache?: CacheOptions['cache']
 }
 
 export interface PnpmTreeRead {
@@ -268,7 +267,7 @@ export interface PnpmTreeRead {
   host: PnpmHost
   vfs?: Vfs
   metadata?: boolean
-  cache?: CacheStore | false
+  cache?: CacheOptions['cache']
 }
 
 // What buildPnpmTree counts, all of it plain numbers: `projects` the

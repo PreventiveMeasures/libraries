@@ -13,7 +13,7 @@ import { DeptreeError, quote } from '../error.js'
 import { sha1Hex } from '../hash.js'
 import { readManifest } from '../manifest.js'
 import { decodeUtf8, readBytes, typeOf } from '../project.js'
-import { fetchTarball, fromMirror, isModules, ownTarball, registryMeta, sameFile, withDirs } from '../tarball.js'
+import { fetchTarball, fromMirror, isModules, ownTarball, sameFile, withDirs } from '../tarball.js'
 import { fixLists } from './manifest.js'
 import { kindOf, splitPattern } from './resolve.js'
 
@@ -96,12 +96,11 @@ export async function checkShared({ name, version, integrity, sha1: pinned }, he
   if (integrity !== undefined && integrity !== head.integrity) throw new DeptreeError(`the tarball is not ${integrity}`, where)
 }
 
-// A tarball the lockfile gives no sha512 is fetched by the registry's, and
-// `about` is that document's, whatever `fetching.metadata` is.
+// One the lockfile gives no sha512 is fetched by the registry's, as
+// fetchTarball takes it unpinned.
 export async function fetchYarnPackage({ name, version, integrity, sha1: pinned }, where, times, fetching) {
   if (pinned !== undefined) await checkPublished({ name, version }, where, times)
-  const meta = integrity === undefined ? await registryMeta(name, version, where, fetching) : undefined
-  const fetched = await fetchTarball(name, version, integrity ?? meta.integrity, where, { ...fetching, metadata: fetching.metadata && meta === undefined })
+  const fetched = await fetchTarball(name, version, integrity, where, fetching)
   const sha1 = await sha1Hex(fetched.bytes)
   checkSha1(pinned, sha1, where)
   const { files, dirs } = entriesOf(fetched.entries, where)
@@ -115,7 +114,7 @@ export async function fetchYarnPackage({ name, version, integrity, sha1: pinned 
   }
   const manifest = readManifest(text, `${where}: package.json`)
   if (manifest.name !== name || manifest.version !== version) throw new DeptreeError(`package.json is for ${quote(`${manifest.name}@${manifest.version}`)}`, where)
-  return { ...withBins({ files, dirs }, manifest, where), sha1, integrity: fetched.integrity, about: meta?.about ?? fetched.about }
+  return { ...withBins({ files, dirs }, manifest, where), sha1, integrity: fetched.integrity, about: fetched.about }
 }
 
 // A directory by `file:`, as yarn's copy fetcher installs it: all in it, each
