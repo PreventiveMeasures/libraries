@@ -112,9 +112,20 @@ function textOf(bytes) {
   }
 }
 
-// A unified diff from disk to the tree, labelled for `patch -p1`.
+// A name as git writes one in a diff, for patch to read back whole: in C
+// quotes where it holds a control character, a quote or a backslash, each
+// such byte escaped.
+const UNQUOTED = /[\p{Cc}"\\]/gu
+const ESCAPES = { '\t': '\\t', '\n': '\\n', '"': '\\"', '\\': '\\\\' }
+const octets = (char) => [...Buffer.from(char)].map((byte) => `\\${byte.toString(8).padStart(3, '0')}`).join('')
+const cQuoted = (name) => (/[\p{Cc}"\\]/u.test(name) ? `"${name.replaceAll(UNQUOTED, (char) => ESCAPES[char] ?? octets(char))}"` : name)
+
+// A unified diff from disk to the tree, labelled for `patch -p1`. An unquoted
+// name with a space ends in a tab, as patch otherwise ends it at the space.
 export function patchOf(path, disk, tree) {
+  const [from, to] = [cQuoted(`a/${path}`), cQuoted(`b/${path}`)]
   const [a, b] = [textOf(disk), textOf(tree)]
-  if (a === undefined || b === undefined) return `Binary files a/${path} and b/${path} differ\n`
-  return `--- a/${path}\n+++ b/${path}\n${diff(a, b)}`
+  if (a === undefined || b === undefined) return `Binary files ${from} and ${to} differ\n`
+  const end = path.includes(' ') && !from.startsWith('"') ? '\t' : ''
+  return `--- ${from}${end}\n+++ ${to}${end}\n${diff(a, b)}`
 }

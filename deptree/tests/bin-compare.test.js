@@ -167,6 +167,17 @@ describe('patchOf', () => {
     assert.equal(patchOf('node_modules/a/x.node', Buffer.from('a\0'), Buffer.from('a')), binary)
     assert.equal(patchOf('node_modules/a/x.node', Buffer.from('a'), Uint8Array.of(0xff, 0xfe)), binary)
   })
+
+  it('spells a name as git does, for patch to read it back whole', () => {
+    const headers = (path) => patchOf(path, Buffer.from('a\n'), Buffer.from('b\n')).split('\n').slice(0, 2)
+    assert.deepEqual(headers('node_modules/a/x y.js'), ['--- a/node_modules/a/x y.js\t', '+++ b/node_modules/a/x y.js\t'])
+    assert.deepEqual(headers('node_modules/a/é.js'), ['--- a/node_modules/a/é.js', '+++ b/node_modules/a/é.js'])
+    assert.deepEqual(headers('node_modules/a/x y\t"\\\n\u0001\u007F\u0085.js'), [
+      '--- "a/node_modules/a/x y\\t\\"\\\\\\n\\001\\177\\302\\205.js"',
+      '+++ "b/node_modules/a/x y\\t\\"\\\\\\n\\001\\177\\302\\205.js"',
+    ])
+    assert.equal(patchOf('node_modules/a/"x".node', Buffer.from('a\0'), Buffer.from('a')), 'Binary files "a/node_modules/a/\\"x\\".node" and "b/node_modules/a/\\"x\\".node" differ\n')
+  })
 })
 
 describe('the token in ~/.npmrc', () => {
