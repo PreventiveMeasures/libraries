@@ -6,7 +6,7 @@ import { assertArgs, assertPackage, assertPackageName, isPlainObject, isSha, opt
 import { assertCache } from '../cache.js'
 import { verifiedDownload } from '../download.js'
 import { getDocument, withNpmToken } from './registry.js'
-import { checkedDist, fetchVersion, getDist } from './versions.js'
+import { checkedDist, getVersion } from './versions.js'
 
 const DIR = 'npm/tarballs' // No expiry: the registry never takes a version twice.
 
@@ -28,7 +28,7 @@ function localPaths(name, version, integrity) {
   return [...npm, join(homedir(), '.audit/cache/tgz', `${name.replace(/^@/u, '').replace('/', ':')}-${version}.tgz`)]
 }
 
-// A call's options: `cache` alone.
+// verifyDist's and getTarball's options: `cache` alone.
 const assertOptions = (method, options) => assertArgs(method, options, { cache: optional(assertCache) })
 
 const own = (object, key) => (Object.hasOwn(object, key) ? object[key] : undefined)
@@ -43,14 +43,15 @@ function linkOf(value, keys) {
   return keys.some((key) => link[key] !== undefined) ? link : undefined
 }
 
-// Fetched, as getDist fetches without an integrity: beside its dist, the
-// document's gitHead where that is a full commit id, and its repository,
-// homepage and bugs, in the shapes a package.json gives them. Each but dist
-// is left out where there is none.
+// The version's document as getVersion has it, kept where the caller gives
+// the `dist` it has: beside its dist, the document's gitHead where that is
+// a full commit id, and its repository, homepage and bugs, in the shapes a
+// package.json gives them. Each but dist is left out where there is none.
 export async function getMeta(name, version, options = {}) {
   assertPackage('getMeta', name, version)
-  assertOptions('getMeta', options)
-  const { dist, json } = await fetchVersion('getMeta', name, version, options.cache)
+  assertArgs('getMeta', options, { dist: null, cache: optional(assertCache) })
+  const given = options.dist === undefined ? undefined : checkedDist('getMeta', name, version, options.dist)
+  const { dist, json } = await getVersion('getMeta', name, version, given, options.cache)
   const about = {
     gitHead: isSha(own(json, 'gitHead')) ? json.gitHead : undefined,
     repository: linkOf(own(json, 'repository'), ['type', 'url', 'directory']),
@@ -89,7 +90,7 @@ export async function getPublishTimes(name) {
 export async function verifyDist(name, version, dist, options = {}) {
   assertPackage('verifyDist', name, version)
   assertOptions('verifyDist', options)
-  await getDist('verifyDist', name, version, checkedDist('verifyDist', name, version, dist).integrity, options.cache)
+  await getVersion('verifyDist', name, version, checkedDist('verifyDist', name, version, dist), options.cache)
 }
 
 // Without `dist`, the version document is read every time, cache or not:
@@ -99,6 +100,6 @@ export async function getTarball(name, version, dist, options = {}) {
   assertPackage('getTarball', name, version)
   assertOptions('getTarball', options)
   const { cache } = options
-  const { tarball, integrity } = dist === undefined ? await getDist('getTarball', name, version, undefined, cache) : checkedDist('getTarball', name, version, dist)
+  const { tarball, integrity } = dist === undefined ? (await getVersion('getTarball', name, version, undefined, cache)).dist : checkedDist('getTarball', name, version, dist)
   return await verifiedDownload({ method: 'getTarball', dir: DIR, what: `${name}@${version}`, ext: 'tgz', algorithm: 'sha512', expected: integrity, local: localPaths(name, version, integrity), ours: true, cache, locate: () => tarball, options: withNpmToken(name, tarball) })
 }

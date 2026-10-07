@@ -41,7 +41,7 @@ export const defaultCacheDir: string | undefined
 // (soldeer.js) and tree tarballs (github.js) don't rely on this, since
 // they are checked against their integrity on every call; and the version
 // documents kept here (getMeta) never supply an integrity, only confirm
-// one a caller gives (verifyDist). A call's `cache` option, where it has
+// one a caller gives (verifyDist, and getMeta with a `dist`). A call's `cache` option, where it has
 // one, keeps what it caches elsewhere, or writes none of it here.
 export function setCacheDir(dir?: string | false): void
 
@@ -148,12 +148,21 @@ export interface PackageBugs {
   email: string | undefined
 }
 
-// The registry's version document, fetched on every call, refused unless
-// it is for that name and version and its dist is held to the rules above.
-// Kept whole, as `cache` says, and for good once it passes, as the registry
-// never takes a version twice: in setCacheDir's cache, compressed, where
-// `cache` is left out. One refused is not kept.
-export function getMeta(name: string, version: string, options?: CacheOptions): Promise<PackageMeta>
+// getMeta's options: `cache`, and the `dist` a caller already has of that
+// version, as a lockfile gives it, held to the rules above.
+export interface MetaOptions extends CacheOptions {
+  dist?: Dist
+}
+
+// The registry's version document, refused unless it is for that name and
+// version and its dist is held to the rules above. With `dist`, the one
+// `cache` keeps answers with no request where its tarball and integrity are
+// the given dist's; else the registry's is asked for, and throws where they
+// are not. Without `dist`, the registry is asked on every call: a cache
+// never supplies a dist. Kept whole, as `cache` says, and for good once it
+// passes, as the registry never takes a version twice: in setCacheDir's
+// cache, compressed, where `cache` is left out. One refused is not kept.
+export function getMeta(name: string, version: string, options?: MetaOptions): Promise<PackageMeta>
 
 // When the registry says each version of a package it lists was published,
 // by version, as Date#toISOString writes it: from the whole package's
@@ -164,9 +173,9 @@ export function getPublishTimes(name: string): Promise<Map<string, string>>
 
 // Throws unless the integrity of that version is the one given, as for a
 // dist read off a lockfile: by the version document `cache` keeps, with no
-// request, else by the registry's, kept then as getMeta keeps it. Either
-// with another integrity throws; one kept that is refused, or is for
-// another name or version, is passed over for the registry's.
+// request, else by the registry's, kept then as getMeta keeps it. One kept
+// with another integrity, refused, or for another name or version, is
+// passed over for the registry's, which throws where it has another.
 export function verifyDist(name: string, version: string, dist: Dist, options?: CacheOptions): Promise<void>
 
 // A published version's gzipped tarball, whole, in memory. Without `dist`,
