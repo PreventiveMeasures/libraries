@@ -556,6 +556,31 @@ describe('buildYarn1Tree refuses', () => {
     }
   })
 
+  // q asks for d@next before the root's devDependencies are resolved, so it
+  // is the one fetched; d@latest, in the same place, is held to its tarball:
+  // its integrity, and for a sha1 alone when its version was published.
+  it('an entry in one place with another whose integrity is not the tarball\'s, or a sha1 alone of a version published since', async () => {
+    const q = await tarball('q', '1.0.0', {}, { manifest: { dependencies: { d: 'next' } } })
+    const D = T['d@1.0.0']
+    const sha1Integrity = (t) => `sha1-${createHash('sha1').update(t.bytes).digest('base64')}`
+    const at = (keys, integrity, hash = '') => `${keys}:\n  version "1.0.0"\n  uid "1.0.0-u"\n  resolved "${yarnpkg('d', '1.0.0')}${hash}"\n  integrity ${integrity}\n`
+    const qEntry = `q@1.0.0:\n  version "1.0.0"\n  resolved "${yarnpkg('q', '1.0.0')}#${sha1(q.bytes)}"\n  integrity ${q.integrity}\n  dependencies:\n    d next\n`
+    const root = { ...ROOT, dependencies: { ...ROOT.dependencies, q: '1.0.0' } }
+    const options = (next, latest, published) => {
+      stubRegistry([...TARBALLS.map((t) => (t === D ? { ...t, published } : t)), q])
+      return { project: project({ 'yarn.lock': LOCKFILE.replace(entry('d@latest', 'd@1.0.0'), [at('d@latest', ...latest), at('d@next', ...next), qEntry].join('\n')), 'package.json': root }) }
+    }
+    const pinned = [D.integrity, `#${sha1(D.bytes)}`]
+    const { vfs } = await buildYarn1Tree({ ...options(pinned, [sha1Integrity(D)], '2017-09-12T19:21:59.050Z'), host: HOST })
+    assert.equal(vfs.isDirectory('/node_modules/d'), true)
+    const cases = [
+      [pinned, [sha1Integrity(D)], '2021-03-04T05:06:07.890Z', 'a sha1 integrity alone, which yarn does not write for d@1\\.0\\.0, published at 2021-03-04T05:06:07\\.890Z: the registry has given every version a sha512 since 2018-08-05T14:58:16\\.253Z'],
+      [pinned, [sha1Integrity(T['p@1.0.0'])], '2017-09-12T19:21:59.050Z', `the tarball's sha1 is not ${sha1(T['p@1.0.0'].bytes)}`],
+      [[sha1Integrity(D)], [T['p@1.0.0'].integrity, `#${sha1(D.bytes)}`], '2017-09-12T19:21:59.050Z', `the tarball is not ${T['p@1.0.0'].integrity.replaceAll(/[+/]/gu, '\\$&')}`],
+    ]
+    for (const [next, latest, published, detail] of cases) await refuses({ ...options(next, latest, published) }, new RegExp(`^DeptreeError: "d@latest": ${detail}$`, 'u'))
+  })
+
   it('a package with bins and a .bin file, or a bin in its own node_modules', async () => {
     stubRegistry(TARBALLS)
     const at = (name, lock) => ({ project: projectOf({ 'yarn.lock': lockfile(...lock), 'package.json': { name: 'root', version: '1.0.0', dependencies: { [name]: '1.0.0' } } }) })

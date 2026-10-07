@@ -16,7 +16,7 @@ import { incompatibility } from './compat.js'
 import { Hoister } from './hoist.js'
 import { checkHost, inputsOf } from './inputs.js'
 import { checkRoot, fixLists } from './manifest.js'
-import { fetchYarnPackage, readYarnDirectory, registryTarball } from './package.js'
+import { checkShared, fetchYarnPackage, readYarnDirectory, registryTarball } from './package.js'
 import { resolvePeers } from './peers.js'
 import { AGGREGATOR, aggregatorOf, rulesOf, topRequests, workspacesOf } from './requests.js'
 import { resolve, splitPattern } from './resolve.js'
@@ -32,19 +32,24 @@ function fetchedName(ref) {
   return range.startsWith('npm:') ? splitPattern(range.slice(4)).name : ref.name
 }
 
-// The registry's publish times are fetched once for each name a tarball with
-// a sha1 integrity alone is of.
-async function fetchAll(refs) {
+// The first of each place in `first` is fetched, and every entry held to
+// it. The registry's publish times are fetched once for each name a tarball
+// with a sha1 integrity alone is of.
+async function fetchAll(refs, first) {
   const fetched = new Map()
   const times = new Map()
   const timesOf = (name) => {
     if (!times.has(name)) times.set(name, getPublishTimes(name))
     return times.get(name)
   }
-  const tarballs = refs.map((ref) => ({ ref, tarball: registryTarball(ref.entry, fetchedName(ref), whereOf(ref)) }))
-  await eachConcurrently(tarballs, async ({ ref, tarball }) => {
-    fetched.set(ref, await fetchYarnPackage(tarball, whereOf(ref), timesOf))
-  }, ({ ref }) => whereOf(ref))
+  const tarballs = new Map(refs.map((ref) => [ref, registryTarball(ref.entry, fetchedName(ref), whereOf(ref))]))
+  await eachConcurrently([...first.values()], async (ref) => {
+    fetched.set(ref, await fetchYarnPackage(tarballs.get(ref), whereOf(ref), timesOf))
+  }, whereOf)
+  for (const ref of refs) {
+    const head = first.get(ref.loc)
+    if (head !== ref) await checkShared(tarballs.get(ref), fetched.get(head), whereOf(ref), timesOf)
+  }
   return fetched
 }
 
@@ -87,12 +92,12 @@ function resolveProject(inputs, host) {
 // its resolver hands them over. Of two its cache keeps in one place, only the
 // first is fetched; the rest keep their lockfile entry as package.json, with
 // no peers, bins, platforms or engines, and the first's files, and their
-// URL's sha1 is held to the first's tarball.
+// hashes are held to the first's tarball.
 async function fetchChecked(resolved, host, settings, project) {
   const order = [...new Set(resolved.patterns.values())]
   const first = new Map()
   for (const ref of order) if (ref.kind === 'registry' && !first.has(ref.loc)) first.set(ref.loc, ref)
-  const fetched = await fetchAll([...first.values()])
+  const fetched = await fetchAll(order.filter((ref) => ref.kind === 'registry'), first)
   const directories = readDirectories(order, project, fetched)
   const manifestOf = new Map()
   for (const ref of order) {

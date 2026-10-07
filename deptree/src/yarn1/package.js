@@ -82,6 +82,17 @@ async function checkPublished({ name, version }, where, timesOf) {
   if (published >= SHA512_SINCE) throw new DeptreeError(`a sha1 integrity alone, which yarn does not write for ${name}@${version}, published at ${published}: the registry has given every version a sha512 since ${SHA512_SINCE}`, where)
 }
 
+// Another entry of a package yarn's cache keeps in one place, held to the
+// first's, `head`, as fetchYarnPackage holds that one: yarn fetches it once.
+export async function checkShared({ name, version, integrity, sha1: pinned }, head, where, timesOf) {
+  if (pinned !== undefined) {
+    await checkPublished({ name, version }, where, timesOf)
+    if (head.sha1 !== pinned) throw new DeptreeError(`the tarball's sha1 is not ${pinned}`, where)
+  } else if (integrity !== undefined && integrity !== head.integrity) {
+    throw new DeptreeError(`the tarball is not ${integrity}`, where)
+  }
+}
+
 export async function fetchYarnPackage({ name, version, integrity, sha1: pinned }, where, timesOf) {
   if (pinned !== undefined) await checkPublished({ name, version }, where, timesOf)
   const fetched = await fetchTarball(name, version, integrity ?? await registryIntegrity(name, version, where), where)
