@@ -41,6 +41,7 @@
     "soldeer.js",
     "yarn1.d.ts",
     "yarn1.js",
+    "bin/cargo-version.js",
     "bin/compare.js",
     "bin/deptree.js",
     "bin/npmrc.js",

@@ -16,6 +16,7 @@ import { TomlError, buildSoldeerTree } from '../soldeer.js'
 import { buildYarn1Tree, findYarn1Workspaces } from '../yarn1.js'
 import { escaped } from '../src/error.js'
 import { typeOf } from '../src/project.js'
+import { cargoVersions } from './cargo-version.js'
 import { difference, leftBehind, leftOut, patchOf, projectView, readSide } from './compare.js'
 import { userToken } from './npmrc.js'
 
@@ -42,9 +43,11 @@ STASIS_NPM_TOKEN or NPM_TOKEN, else with a ~/.npmrc line of nothing but
 GITHUB_TOKEN or GH_TOKEN, else anonymously.
 
   --pnpm, --yarn, --npm, --soldeer, --cargo <version>
-                     the one that installed: by default the one
-                     packageManager pins, or Soldeer 0.12.0; npm's and
-                     cargo's are needed
+                     the one that installed, which is said first: by
+                     default the one packageManager pins, Soldeer
+                     0.12.0, or the cargo rustup picks in <dir> and the
+                     one target/.rustc_info.json last built with, as
+                     either tells it and the two agree; npm's is needed
   --node <version>   the Node it installed with; by default this one
   --metadata         fetch each package's version document from npm's
                      registry too, and hold its tarball's dist to it
@@ -81,7 +84,7 @@ const MANAGERS = {
     projects: () => ['.'],
     build: (options) => buildSoldeerTree({ ...options, github: createClient({ token: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || null }) }),
   },
-  cargo: { lockfile: 'Cargo.lock', folder: 'vendor', unpinned: true, projects: () => ['.'], build: buildCargoTree },
+  cargo: { lockfile: 'Cargo.lock', folder: 'vendor', projects: () => ['.'], build: buildCargoTree },
 }
 
 async function main(argv) {
@@ -95,13 +98,15 @@ async function main(argv) {
   const project = projectView(resolve(dir))
   const name = managerOf(project, dir, values)
   const manager = MANAGERS[name]
+  const { version, from } = versionOf(name, values, resolve(dir))
+  if (version !== undefined) note(`${name} ${version} (${from})`)
   if (defaultCacheDir !== undefined) setCacheDir()
   // upstream reads it for each request, and sends it for a scoped package.
   process.env.NPM_TOKEN ||= userToken() ?? ''
   // This machine, which installed what is on disk; npm takes no libc where
   // there is none to find.
   const libc = libcOf()
-  const host = { [name]: values[name] ?? manager.version, node: values.node ?? process.versions.node, os: process.platform, cpu: process.arch, ...(name === 'npm' && libc === 'unknown' ? {} : { libc }) }
+  const host = { [name]: version, node: values.node ?? process.versions.node, os: process.platform, cpu: process.arch, ...(name === 'npm' && libc === 'unknown' ? {} : { libc }) }
   // The disk first, as it is before anything is fetched.
   const dirs = manager.projects({ project, host, os: host.os }).map((at) => join(at, manager.folder))
   const disk = readSide(project, dirs)
@@ -129,6 +134,19 @@ function managerOf(project, dir, values) {
   if (others.length > 0) fail(`deptree: ${dir}: give one of --${[name, ...others].join(', --')}, for the package manager that installed\n`)
   if (MANAGERS[name].unpinned && values[name] === undefined) fail(`deptree: ${MANAGERS[name].lockfile}: give --${name} <version>, the ${name} that installed, which no file pins\n`)
   return name
+}
+
+// The version built for, and where it comes from: the flag, else the
+// default, or for cargo, what the files tell; undefined where the project
+// pins one, which the build reads.
+function versionOf(name, values, dir) {
+  if (values[name] !== undefined) return { version: values[name], from: `--${name}` }
+  if (name !== 'cargo') return { version: MANAGERS[name].version, from: 'by default' }
+  const found = cargoVersions(dir)
+  const give = 'deptree: Cargo.lock: give --cargo <version>, the cargo that vendored'
+  if (found.length === 0) fail(`${give}: neither rustup's files nor target/.rustc_info.json tell it\n`)
+  if (new Set(found.map((one) => one.version)).size > 1) fail(`${give}: ${found.map((one) => `${one.version} is ${one.from}`).join(', but ')}\n`)
+  return { version: found[0].version, from: found.map((one) => one.from).join('; ') }
 }
 
 // As pnpm's detect-libc tells it, from Node's report, which leaves out the
