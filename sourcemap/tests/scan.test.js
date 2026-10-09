@@ -67,6 +67,6 @@ describe('a source\'s module requests, read with no parser', () => {
   })
 
   it('no request where no module is named: a call with nothing, a declaration, a regex after a statement\'s head', () => {
-    assert.deepEqual(scanned("require(); function require(name) {}\nif (ready) /require('phantom')/.test(text)\nwhile (x) /import('ghost')/u.exec(y)\nif (ready) {} /require('after-a-block')/.test(text)\nconst g = () => {}\n/require('after-an-arrow')/.test(text)\nimport type T = require('a-type')\nfunction* h() { return\n{}\n/require('after-return')/.test(text); yield\n{}\n/import('after-yield')/u }"), [])
+    assert.deepEqual(scanned("require(); function require(name) {}\nif (ready) /require('phantom')/.test(text)\nwhile (x) /import('ghost')/u.exec(y)\nfor await (const x of xs) /require('phantom')/.test(x)\nif (ready) {} /require('after-a-block')/.test(text)\nconst g = () => {}\n/require('after-an-arrow')/.test(text)\nimport type T = require('a-type')\nfunction* h() { return\n{}\n/require('after-return')/.test(text); yield\n{}\n/import('after-yield')/u }"), [])
   })
 })

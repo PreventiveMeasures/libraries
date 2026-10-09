@@ -27,6 +27,12 @@ function opensObject(previous, lineBefore) {
   return OPERATORS.has(previous.value) && !['do', 'else'].includes(previous.value)
 }
 
+// `if (`, and `for await (`.
+function opensHead(tokens) {
+  const previous = tokens.at(-1)
+  return previous?.type === 'word' && (CONTROL.has(previous.value) || (previous.value === 'await' && tokens.at(-2)?.value === 'for'))
+}
+
 function regexAllowed(previous) {
   if (!previous) return true
   if (previous.type === 'word') return OPERATORS.has(previous.value)
@@ -112,7 +118,7 @@ function lex(text) {
     } else {
       if (c === '{') braces.push(opensObject(tokens.at(-1), LINE_BREAK.test(text.slice(lastEnd, i))) ? 'object' : 'block')
       const closed = c === '}' ? braces.pop() : undefined
-      if (c === '(') parens.push(tokens.at(-1)?.type === 'word' && CONTROL.has(tokens.at(-1).value))
+      if (c === '(') parens.push(opensHead(tokens))
       // `a++ / b`: a postfix update ends an operand; `=> {` opens a block.
       const value = ((c === '+' || c === '-') && next === c) || (c === '=' && next === '>') ? c + next : c
       tokens.push({ type: 'punctuator', value, ...(c === ')' && { control: parens.pop() === true }), ...(c === '}' && { object: closed === 'object' }) })
