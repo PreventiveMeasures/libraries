@@ -36,7 +36,8 @@ export function resolvePath(from, relative) {
 export function sourcePath(source, mapPath) {
   const path = source.replaceAll('\\', '/')
   if (WEBPACK.test(path)) return normalize(path.replace(WEBPACK, ''))
-  const file = /^file:\/\/([^/]*)(.*)$/isu.exec(path)
+  // A file's own `#` is %23 in its URL: a `#` there starts a fragment.
+  const file = /^file:\/\/([^/#]*)([^#]*)/isu.exec(path)
   if (file) {
     // A host other than this one's is a UNC path's server.
     const [, host, rest] = file

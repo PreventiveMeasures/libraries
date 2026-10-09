@@ -21,6 +21,8 @@ describe('a source becomes a path', () => {
     assert.equal(sourcePath('file:///C:/work/a.js'), 'C:/work/a.js')
     assert.equal(sourcePath('file://localhost/home/u/a.js'), '/home/u/a.js')
     assert.equal(sourcePath('FILE://LocalHost/home/u/a.js'), '/home/u/a.js')
+    assert.equal(sourcePath('file:///app/a.js#v1'), '/app/a.js')
+    assert.equal(sourcePath('file:///app/a%23b.js'), '/app/a#b.js')
     // Another host's is a UNC path, under its server, which no `..` climbs above.
     assert.equal(sourcePath('file://server/share/a.js'), '//server/share/a.js')
     assert.equal(sourcePath('file://server/share/../../a.js'), '//server/a.js')
