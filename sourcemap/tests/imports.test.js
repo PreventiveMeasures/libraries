@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { readSourceMap } from '@preventive/sourcemap'
 import { importEdges } from '@preventive/sourcemap/edges.js'
+import { bundle } from './fixtures.js'
 
 // importEdges reads the sources a map carries, not the bundle: what each
 // file asks for as written, so a file the bundler dropped is still asked
 // for, and every bundler's map reads the same way.
 
-const fixture = (name) => readSourceMap(readFileSync(new URL(`fixtures/${name}/index.js.map`, import.meta.url)))
+const fixture = (name) => bundle(name)[1]
 
 // An edge as a line: `from -> to [kind]`, or what is known of a target that
 // is no file of the map.
@@ -18,16 +18,9 @@ const show = (edge) => {
 }
 const shown = (result) => result.edges.map(show).toSorted()
 
-// The fixtures are one project bundled five ways, every file of it carried
-// in the maps' sourcesContent: src/index.js imports ./a.js (which imports
-// ./b.js), ./side.js for its side effects, ./dead.js whose export it never
-// uses, `dep` (ESM, importing ./util.js), `cjsdep` (CommonJS, requiring
-// ./inner.js), and `ext`, which esbuild and rollup were told to leave out.
-// Built from out/<name>/ beside src/ and node_modules/, by:
-//   esbuild 0.28.2   src/index.js --bundle --format=esm --external:ext --sourcemap [--minify]
-//   rollup 4.64.3    output.format es, sourcemap, external ext; node-resolve 16.0.3, commonjs 29.0.3
-//   metro 0.87.1     runBuild, dev true (unminified) and dev false (minified), platform ios,
-//                    experimentalImportSupport; absolute paths then rewritten to /app/.
+// The fixture project (see fixtures.js), as its sources import: dead.js
+// is in no map but Metro's, its code tree-shaken whole, and ext was left
+// out of esbuild's and rollup's bundles.
 const PROJECT = [
   'node_modules/cjsdep/index.js -> node_modules/cjsdep/inner.js [require]',
   'node_modules/dep/index.js -> node_modules/dep/util.js [import]',

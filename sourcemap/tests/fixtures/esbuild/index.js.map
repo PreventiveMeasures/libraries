@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../src/side.js", "../../node_modules/cjsdep/inner.js", "../../node_modules/cjsdep/index.js", "../../src/b.js", "../../src/a.js", "../../src/index.js", "../../node_modules/dep/util.js", "../../node_modules/dep/index.js"],
-  "sourcesContent": ["globalThis.sideEffect = true\n", "exports.n = 7\n", "const inner = require('./inner.js')\nmodule.exports = { value: inner.n }\n", "export const b = () => 2\nexport const unused = 3\n", "import { b } from './b.js'\nexport const a = () => b() + 1\n", "import { a } from './a.js'\nimport './side.js'\nimport { dead } from './dead.js'\nimport { fromDep } from 'dep'\nimport cjs from 'cjsdep'\nimport { ext } from 'ext'\n\nexport function main() {\n  return a() + fromDep() + cjs.value + ext()\n}\n", "export const helper = () => 21\n", "import { helper } from './util.js'\nexport const fromDep = () => helper() * 2\n"],
-  "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;AAAA;AAAA;AAAA,eAAW,aAAa;AAAA;AAAA;;;ACAxB;AAAA;AAAA,YAAQ,IAAI;AAAA;AAAA;;;ACAZ;AAAA;AAAA,QAAM,QAAQ;AACd,WAAO,UAAU,EAAE,OAAO,MAAM,EAAE;AAAA;AAAA;;;ACD3B,IAAM,IAAI,MAAM;;;ACChB,IAAM,IAAI,MAAM,EAAE,IAAI;;;ACA7B,kBAAO;;;ACDA,IAAM,SAAS,MAAM;;;ACCrB,IAAM,UAAU,MAAM,OAAO,IAAI;;;AFGxC,oBAAgB;AAChB,SAAS,WAAW;AAEb,SAAS,OAAO;AACrB,SAAO,EAAE,IAAI,QAAQ,IAAI,cAAAA,QAAI,QAAQ,IAAI;AAC3C;",
-  "names": ["cjs"]
-}

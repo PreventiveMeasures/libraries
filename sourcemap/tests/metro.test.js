@@ -1,22 +1,17 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { readSourceMap } from '@preventive/sourcemap'
 import { metroEdges } from '@preventive/sourcemap/edges.js'
+import { bundle as fixture } from './fixtures.js'
 import { lineMap } from './line-map.js'
 
 // A Metro bundle keeps, minified or not, the dependency ids its resolver
 // picked for each module; the map's sections say which file each module
 // is. Together they are the import graph as Metro built it, exactly.
 
-const fixture = (name) => [
-  readFileSync(new URL(`fixtures/${name}/index.js`, import.meta.url), 'utf8'),
-  readSourceMap(readFileSync(new URL(`fixtures/${name}/index.js.map`, import.meta.url))),
-]
-
 const show = (edge) => `${edge.from.path} -> ${edge.to.path}`.replaceAll('/app/', '')
 
-// The fixture project (see imports.test.js), every import of it, ext
+// The fixture project (see fixtures.js), every import of it, ext
 // included: Metro bundles what it resolves and leaves nothing out.
 const PROJECT = [
   'node_modules/cjsdep/index.js -> node_modules/cjsdep/inner.js',

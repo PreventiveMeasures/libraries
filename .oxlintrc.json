@@ -1,7 +1,4 @@
 {
-  "ignorePatterns": [
-    "sourcemap/tests/fixtures/**"
-  ],
   "env": {
     "node": true
   },

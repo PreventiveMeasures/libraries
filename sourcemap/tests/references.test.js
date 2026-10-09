@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { readSourceMap } from '@preventive/sourcemap'
 import { referenceEdges } from '@preventive/sourcemap/edges.js'
+import { bundle as fixture } from './fixtures.js'
 import { lineMap } from './line-map.js'
 
 // A scope-hoisted bundle has no imports left between the files it holds,
@@ -11,18 +11,13 @@ import { lineMap } from './line-map.js'
 // a name is, which a minifier reusing names in every function makes the
 // whole question.
 
-const fixture = (name) => [
-  readFileSync(new URL(`fixtures/${name}/index.js`, import.meta.url), 'utf8'),
-  readSourceMap(readFileSync(new URL(`fixtures/${name}/index.js.map`, import.meta.url))),
-]
-
 const show = (edge) => {
   const target = edge.to?.path ?? `(${[edge.specifier, edge.package && `package ${edge.package}`, edge.builtin && 'builtin'].filter(Boolean).join(', ')})`
   return `${edge.from.path} -> ${target} [${edge.kind}]`.replaceAll('../../', '')
 }
 const shown = (result) => result.edges.map(show).toSorted()
 
-describe('the fixture project (see imports.test.js), as bundled', () => {
+describe('the fixture project (see fixtures.js), as bundled', () => {
   // esbuild wraps a file with no import or export in a CommonJS shim, so
   // side.js is named, as require_side(); dead.js is gone.
   const ESBUILD = [
