@@ -21,8 +21,10 @@ function normalize(path) {
   return root ? root.replace(/\/?$/u, '/') + out.join('/') : out.join('/') || '.'
 }
 
-// `relative` from the file `from`; a `/`-led one from the root of `from`'s.
+// `relative` from the file `from`; a `/`-led one from the root of `from`'s,
+// a `//`-led one, from a URL, under its scheme.
 export function resolvePath(from, relative) {
+  if (relative.startsWith('//') && isUrl(from)) return normalize(from.slice(0, from.indexOf(':') + 1) + relative)
   const root = rootOf(relative)
   if (root === '/') return normalize(rootOf(from).replace(/\/?$/u, '') + relative)
   return normalize(root ? relative : `${from}/../${relative}`)

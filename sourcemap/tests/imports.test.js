@@ -144,6 +144,11 @@ describe('a specifier is resolved as a resolver would try it', () => {
     assert.deepEqual(shown(importEdges(map).edges), ['src/a.js -> node_modules/p/src/x.ts [import]', 'src/a.js -> node_modules/p/y.ts [import]', 'src/a.js -> node_modules/q/src/z.tsx [import]'])
   })
 
+  it('takes a `//`-led specifier from a URL as a URL under its scheme', () => {
+    const map = sources({ 'https://origin.example/src/a.js': "import '//cdn.example/lib/b.js'", 'https://cdn.example/lib/b.js': '' })
+    assert.deepEqual(shown(importEdges(map).edges), ['https://origin.example/src/a.js -> https://cdn.example/lib/b.js [import]'])
+  })
+
   it('reads a file whose name a bundler gave a query, by its extension', () => {
     const map = readSourceMap({ version: 3, sources: ['webpack:///./src/a.js?1a2b', 'webpack:///./src/b.js'], sourcesContent: ["import './b.js'", ''], mappings: '' })
     assert.deepEqual(shown(importEdges(map).edges), ['src/a.js?1a2b -> src/b.js [import]'])
@@ -166,6 +171,11 @@ describe('what counts as an import', () => {
       'flow.js -> (fs, builtin) [require] internalBinding', 'lib/a.js -> (crypto, builtin) [require] internalBinding', 'lib/a.js -> lib/b.js [require] load',
     ])
     assert.deepEqual(importEdges(map).edges, [])
+  })
+
+  it('keeps a computed specifier apart from the one spelled null', () => {
+    const map = sources({ 'a.js': "require(name)\nrequire('null')", 'node_modules/null/index.js': '' })
+    assert.deepEqual(shown(importEdges(map).edges), ['a.js -> () [require]', 'a.js -> node_modules/null/index.js [require]'])
   })
 
   it('reads every kind once per file, a template literal with nothing in it too', () => {

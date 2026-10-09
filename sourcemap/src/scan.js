@@ -5,6 +5,10 @@
 // taken for a string's start, ends with its line.
 
 const SPACE = /\s+/uy
+// JavaScript's line terminators, which end a line comment, a string, a
+// regular expression.
+const LINE_ENDS = '\n\r\u2028\u2029'
+const LINE_END = /[\n\r\u2028\u2029]/gu
 const WORD = /[\w$\u0080-￿]+/uy
 // After these a `/` starts a regular expression, not a division.
 const OPERATORS = new Set(['return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw', 'case', 'do', 'else', 'yield', 'await'])
@@ -19,7 +23,7 @@ function regexAllowed(previous) {
 function quoted(text, at) {
   const quote = text[at]
   let i = at + 1
-  while (i < text.length && text[i] !== quote && text[i] !== '\n') i += text[i] === '\\' ? 2 : 1
+  while (i < text.length && text[i] !== quote && !LINE_ENDS.includes(text[i])) i += text[i] === '\\' ? 2 : 1
   const value = text.slice(at + 1, i)
   return [text[i] === quote && !value.includes('\\') ? value : null, i + 1]
 }
@@ -27,7 +31,7 @@ function quoted(text, at) {
 function regexEnd(text, at) {
   let i = at + 1
   let inClass = false
-  while (i < text.length && text[i] !== '\n' && (inClass || text[i] !== '/')) {
+  while (i < text.length && !LINE_ENDS.includes(text[i]) && (inClass || text[i] !== '/')) {
     if (text[i] === '\\') i++
     else if (text[i] === '[') inClass = true
     else if (text[i] === ']') inClass = false
@@ -61,9 +65,12 @@ function lex(text) {
     const c = text[i]
     const next = text[i + 1]
     WORD.lastIndex = i
-    if (c === '/' && (next === '/' || next === '*')) {
-      const end = text.indexOf(next === '/' ? '\n' : '*/', i + 2)
-      i = end < 0 ? text.length : end + (next === '*' ? 2 : 0)
+    if (c === '/' && next === '/') {
+      LINE_END.lastIndex = i + 2
+      i = LINE_END.test(text) ? LINE_END.lastIndex - 1 : text.length
+    } else if (c === '/' && next === '*') {
+      const end = text.indexOf('*/', i + 2)
+      i = end < 0 ? text.length : end + 2
     } else if (c === '"' || c === "'") {
       const [value, end] = quoted(text, i)
       tokens.push({ type: 'string', value })

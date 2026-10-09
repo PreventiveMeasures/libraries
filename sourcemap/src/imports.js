@@ -29,7 +29,7 @@ export function importEdges(map, { callees = [] } = {}) {
     if (!program) failed.push({ file: from, error })
     const keys = new Set()
     for (const found of program ? specifiersOf(program, named) : scanSpecifiers(from.content, named)) {
-      const key = `${found.kind}\0${found.callee ?? ''}\0${found.specifier}`
+      const key = `${found.kind}\0${found.callee ?? ''}\0${JSON.stringify(found.specifier)}`
       if (keys.has(key)) continue
       keys.add(key)
       const edge = edgeOf(from, found, index)

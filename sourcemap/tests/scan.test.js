@@ -50,6 +50,12 @@ describe('a source\'s module requests, read with no parser', () => {
     assert.deepEqual(scanned("const e = <Text>Don't</Text>\nconst m = require('after-jsx')"), ['require after-jsx'])
   })
 
+  it('with a line ended by any of JavaScript\'s line terminators', () => {
+    for (const end of ['\r', '\u2028', '\u2029', '\r\n']) {
+      assert.deepEqual(scanned(`// a comment${end}require('a')${end}<Text>Don't</Text>${end}require('b')`), ['require a', 'require b'], JSON.stringify(end))
+    }
+  })
+
   it('no specifier that is computed, escaped, or cut off', () => {
     assert.deepEqual(scanned("require(name); require('a' + b); import(`t${x}`); require('\\x61'); require('cut"), [])
   })
