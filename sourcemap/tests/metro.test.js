@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { readSourceMap } from '@preventive/sourcemap'
 import { bundleEdges, importEdges } from '@preventive/sourcemap/edges.js'
 import { bundleEdges as liteEdges } from '@preventive/sourcemap/edges-lite.js'
 import { bundle as fixture } from './fixtures.js'
-import { handWritten as bundle } from './helpers.js'
+import { handWritten as bundle, lineMap } from './helpers.js'
 
 // A Metro bundle keeps, minified or not, the dependency ids its resolver
 // picked for each module; the map says which file each module's code came
@@ -73,6 +74,12 @@ for (const [door, read] of DOORS) {
         ['dep.js', '__d(function(){},1);'],
       ])
       assert.deepEqual(shown(read, map, code), ['m.js -> dep.js'])
+    })
+
+    it('names a module with no code mapped, JSON or a bare re-export, by the file its map lists between its neighbours\'', () => {
+      const map = readSourceMap(lineMap(['a.js', 'b.json', 'c.js'], [0, null, 2]))
+      const code = ['__d(function(g,r,i,a,m,e,d){r(d[0]);r(d[1])},0,[1,2]);', '__d(function(g,r,i,a,m,e,d){m.exports={}},1);', '__d(function(g,r,i,a,m,e,d){r(d[0])},2,[1]);']
+      assert.deepEqual(shown(read, map, code.join('\n')), ['a.js -> b.json', 'a.js -> c.js', 'c.js -> b.json'])
     })
 
     it('leaves no edge to an id the bundle does not define, or to a module with no file', () => {
