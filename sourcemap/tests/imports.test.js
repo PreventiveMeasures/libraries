@@ -179,6 +179,11 @@ describe('a specifier is resolved as a resolver would try it', () => {
     assert.deepEqual(shown(importEdges(map).edges), ['/app/a.js -> //server/share/c.js [import]', '/app/a.js -> /app/b.js [import]'])
   })
 
+  it('takes a specifier naming a source the map keeps under an opaque scheme', () => {
+    const map = sources({ 'src/a.js': "import 'virtual:dep.js'\nimport 'virtual:missing'\nimport 'node:fs'", 'virtual:dep.js': '' })
+    assert.deepEqual(shown(importEdges(map).edges), ['src/a.js -> (node:fs, builtin) [import]', 'src/a.js -> (virtual:missing) [import]', 'src/a.js -> virtual:dep.js [import]'])
+  })
+
   it('reads a URL whose name has a fragment, by its extension', () => {
     const map = sources({ 'https://cdn.example/entry.js#v1': "import './b.js'", 'https://cdn.example/b.js': '' })
     assert.deepEqual(shown(importEdges(map).edges), ['https://cdn.example/entry.js#v1 -> https://cdn.example/b.js [import]'])

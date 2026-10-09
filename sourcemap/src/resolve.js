@@ -143,6 +143,8 @@ export function resolveSpecifier(index, from, specifier, entry = entryOf) {
     const to = find(index, path)
     return to ? { to } : { to: null, path }
   }
+  // A source the map keeps under an opaque scheme, `virtual:a`, by that name.
+  if (/^[a-z][\d+.a-z-]*:/iu.test(request) && index.byPath.has(request)) return { to: index.byPath.get(request) }
   const name = packageName(specifier)
   const root = name === null ? null : packageRoot(index, from, name)
   if (root === null) return { to: null, ...bareTarget(specifier) }
