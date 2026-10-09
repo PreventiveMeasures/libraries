@@ -1,0 +1,80 @@
+import assert from 'node:assert/strict'
+import { describe, it } from 'node:test'
+import { readSourceMap } from '@preventive/sourcemap'
+import { packageOf, sourcePath } from '../src/files.js'
+
+// A `sources` entry is whatever its bundler wrote: a path relative to the
+// map, a webpack:// name, a file:// URL, an absolute path off the build
+// machine. Each becomes a path, and a path through node_modules names the
+// package it lies in, its version too where a store spells it.
+
+describe('a source becomes a path', () => {
+  it('drops webpack\'s scheme and namespace, and does not resolve it against the map', () => {
+    assert.equal(sourcePath('webpack://fx/./src/a.js'), 'src/a.js')
+    assert.equal(sourcePath('webpack:///./node_modules/x/i.js', 'dist/main.js.map'), 'node_modules/x/i.js')
+    assert.equal(sourcePath('webpack-internal:///./src/a.js'), 'src/a.js')
+    assert.equal(sourcePath('webpack://fx/external module "ext"'), 'external module "ext"')
+  })
+
+  it('reads a file:// URL as the path it is', () => {
+    assert.equal(sourcePath('file:///home/u/a%20b.js', 'dist/x.map'), '/home/u/a b.js')
+    assert.equal(sourcePath('file:///C:/work/a.js'), 'C:/work/a.js')
+    assert.equal(sourcePath('file://host/share/a.js'), '/share/a.js')
+  })
+
+  it('keeps another URL, or a name that is no path, as it is', () => {
+    assert.equal(sourcePath('https://cdn.example/x.js', 'dist/x.map'), 'https://cdn.example/x.js')
+    assert.equal(sourcePath('ng://core/a.ts'), 'ng://core/a.ts')
+  })
+
+  it('resolves a relative path against the map\'s own, and keeps an absolute one', () => {
+    assert.equal(sourcePath('../../src/a.js', 'dist/esm/index.js.map'), 'src/a.js')
+    assert.equal(sourcePath('../../src/a.js'), '../../src/a.js')
+    assert.equal(sourcePath('../../../src/a.js', 'dist/index.js.map'), '../../src/a.js')
+    assert.equal(sourcePath('/app/src/./a.js', 'dist/index.js.map'), '/app/src/a.js')
+    assert.equal(sourcePath('C:\\app\\src\\a.js', 'dist\\index.js.map'), 'C:/app/src/a.js')
+    assert.equal(sourcePath('..\\src\\a.js', 'dist\\index.js.map'), 'src/a.js')
+  })
+})
+
+describe('a path through node_modules names its package', () => {
+  const pkg = (path) => packageOf(path) && Object.values(packageOf(path))
+
+  it('by the last node_modules on it', () => {
+    assert.deepEqual(pkg('node_modules/dep/index.js'), ['dep', null, 'node_modules/dep', 'index.js'])
+    assert.deepEqual(pkg('../node_modules/@scope/dep/lib/a.js'), ['@scope/dep', null, '../node_modules/@scope/dep', 'lib/a.js'])
+    assert.deepEqual(pkg('/app/node_modules/a/node_modules/b/x/y.js'), ['b', null, '/app/node_modules/a/node_modules/b', 'x/y.js'])
+  })
+
+  it('with the version a store keeps it under', () => {
+    // pnpm 9, peers in parentheses; pnpm 8, after `_`; a scope as `+`; bun and deno's stores alike.
+    assert.deepEqual(pkg('../node_modules/.pnpm/@kurkle+color@0.3.2/node_modules/@kurkle/color/dist/color.esm.js'), ['@kurkle/color', '0.3.2', '../node_modules/.pnpm/@kurkle+color@0.3.2/node_modules/@kurkle/color', 'dist/color.esm.js'])
+    assert.equal(packageOf('node_modules/.pnpm/react-dom@18.2.0(react@18.2.0)/node_modules/react-dom/index.js').version, '18.2.0')
+    assert.equal(packageOf('node_modules/.pnpm/react-dom@18.2.0_react@18.2.0/node_modules/react-dom/index.js').version, '18.2.0')
+    assert.equal(packageOf('node_modules/.pnpm/a@1.0.0-beta.1+build.5/node_modules/a/index.js').version, '1.0.0-beta.1+build.5')
+    assert.equal(packageOf('node_modules/.bun/is-number@7.0.0/node_modules/is-number/index.js').version, '7.0.0')
+    assert.equal(packageOf('node_modules/.deno/is-number@7.0.0/node_modules/is-number/index.js').version, '7.0.0')
+  })
+
+  it('without a version where the path does not spell one', () => {
+    // A store directory for another package, a git dependency, pnpm's hoisted node_modules, a plain install.
+    assert.equal(packageOf('node_modules/.pnpm/other@1.0.0/node_modules/dep/index.js').version, null)
+    assert.equal(packageOf('node_modules/.pnpm/dep@https+++codeload.github.com+a+b+tar.gz+abc/node_modules/dep/index.js').version, null)
+    assert.equal(packageOf('node_modules/.pnpm/node_modules/dep/index.js').version, null)
+    assert.equal(packageOf('node_modules/dep/index.js').version, null)
+  })
+
+  it('and none for a tool\'s own directory, a bare package directory, or no node_modules', () => {
+    for (const path of ['node_modules/.vite/deps/react.js', 'node_modules/.bin/tsc', 'node_modules/dep', 'node_modules/@scope', 'src/node_modules.js', 'src/a.js', 'node_modules/dep/']) {
+      assert.equal(packageOf(path), null, path)
+    }
+  })
+})
+
+it('a map\'s files carry both', () => {
+  const map = readSourceMap({ version: 3, sources: ['../src/a.js', '../node_modules/.pnpm/ms@2.1.3/node_modules/ms/index.js'], mappings: '' }, { path: 'dist/a.js.map' })
+  assert.deepEqual(map.files.map((f) => [f.path, f.package?.name ?? null, f.package?.version ?? null, f.package?.path ?? null]), [
+    ['src/a.js', null, null, null],
+    ['node_modules/.pnpm/ms@2.1.3/node_modules/ms/index.js', 'ms', '2.1.3', 'index.js'],
+  ])
+})

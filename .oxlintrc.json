@@ -1,4 +1,7 @@
 {
+  "ignorePatterns": [
+    "sourcemap/tests/fixtures/**"
+  ],
   "env": {
     "node": true
   },
@@ -84,7 +87,8 @@
         "lockfile/tests/**",
         "upstream/tests/**",
         "vfs/tests/**",
-        "report/tests/**"
+        "report/tests/**",
+        "sourcemap/tests/**"
       ],
       "rules": {
         "max-lines-per-function": "off",
