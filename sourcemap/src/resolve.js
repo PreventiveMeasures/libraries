@@ -1,4 +1,3 @@
-import { isBuiltin } from 'node:module'
 import { dirname, isUrl, join, packageName } from './files.js'
 
 // A specifier resolved among the files one map lists, as far as those can
@@ -62,10 +61,15 @@ function packageRoot(index, from, name) {
   return dirs.size === 1 ? [...dirs][0] : null
 }
 
+// Node's own modules a bare name reaches (those under `node:` alone are
+// reached by it), and their subpaths, as fs/promises: a fixed list, so what
+// a map says does not hang on the Node that reads it.
+const BUILTINS = new Set(['assert', 'async_hooks', 'buffer', 'child_process', 'cluster', 'console', 'constants', 'crypto', 'dgram', 'diagnostics_channel', 'dns', 'domain', 'events', 'fs', 'http', 'http2', 'https', 'inspector', 'module', 'net', 'os', 'path', 'perf_hooks', 'process', 'punycode', 'querystring', 'readline', 'repl', 'stream', 'string_decoder', 'sys', 'timers', 'tls', 'trace_events', 'tty', 'url', 'util', 'v8', 'vm', 'wasi', 'worker_threads', 'zlib'])
+
 // What a specifier no file of the map answers names: `builtin` for one of
 // Node's own modules, `package` for one naming a package, else nothing.
 export function bareTarget(specifier) {
-  if (specifier.startsWith('node:') || isBuiltin(specifier)) return { builtin: true }
+  if (specifier.startsWith('node:') || BUILTINS.has(specifier.split('/')[0])) return { builtin: true }
   const name = packageName(specifier)
   return name === null ? {} : { package: name }
 }

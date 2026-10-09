@@ -1,19 +1,4 @@
-import { createRequire } from 'node:module'
-
-// oxc-parser, an optional peer dependency, required lazily as stasis does:
-// reading a map never loads the native parser, only finding edges does. A
-// missing one is the environment's error, not a file's, so it is thrown with
-// an install hint rather than recorded as a file that would not parse.
-let parser
-function getParser() {
-  if (parser) return parser
-  try {
-    parser = createRequire(import.meta.url)('oxc-parser')
-  } catch (cause) {
-    throw new Error("@preventive/sourcemap/edges.js needs the optional 'oxc-parser' peer dependency; install it (e.g. `npm i oxc-parser`)", { cause })
-  }
-  return parser
-}
+import { getParser } from './oxc.js'
 
 // The errors oxc reports for a parse, but its warnings and advice.
 const syntaxErrors = (parsed) => (parsed.errors ?? []).filter((e) => e.severity !== 'Warning' && e.severity !== 'Advice')

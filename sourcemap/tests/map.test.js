@@ -3,7 +3,6 @@ import { describe, it } from 'node:test'
 import { SourceMapError, readSourceMap } from '@preventive/sourcemap'
 import { segmentsOf } from '../src/map.js'
 import { fileAt, lineStarts } from '../src/positions.js'
-import { decodeMappings } from '../src/vlq.js'
 import { vlq } from './helpers.js'
 
 // Reading a map: the mappings decoded as the format writes them, the
@@ -16,7 +15,7 @@ const lines = ({ starts, columns, sources }) => Array.from({ length: starts.leng
   for (let k = starts[l]; k < starts[l + 1]; k++) pairs.push([columns[k], sources[k]])
   return pairs
 })
-const decode = (mappings, sourceCount) => lines(decodeMappings(mappings, sourceCount))
+const decode = (mappings, sourceCount) => lines(segmentsOf(readSourceMap({ version: 3, sources: Array.from({ length: sourceCount }, (_, i) => `${i}.js`), mappings })))
 
 describe('mappings decode as the format writes them', () => {
   it('reads 1-, 4- and 5-field segments, the first field restarting each line', () => {
@@ -43,9 +42,9 @@ describe('mappings decode as the format writes them', () => {
 
   it('refuses what is not a mapping', () => {
     for (const [mappings, why] of [['AA', '2 fields'], ['AAA', '3 fields'], ['AAAAAA', '6 fields'], ['AA!A', 'not base64'], ['g', 'cut off'], ['ACAA', 'past sources'], ['D', 'negative column'], ['gggggggB', 'past 32 bits']]) {
-      assert.throws(() => decodeMappings(mappings, 1), SourceMapError, why)
+      assert.throws(() => decode(mappings, 1), SourceMapError, why)
     }
-    assert.throws(() => decodeMappings(null, 1), SourceMapError)
+    assert.throws(() => decode(null, 1), SourceMapError)
   })
 })
 

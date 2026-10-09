@@ -19,6 +19,9 @@
       "default": "./edges.js"
     }
   },
+  "browser": {
+    "./src/oxc.js": "./src/oxc.browser.js"
+  },
   "files": [
     "LICENSE-APACHE",
     "LICENSE-MIT",
@@ -31,6 +34,9 @@
     "src/imports.js",
     "src/map.js",
     "src/metro.js",
+    "src/oxc.browser.js",
+    "src/oxc.js",
+    "src/oxc.node.js",
     "src/parser.js",
     "src/positions.js",
     "src/references.js",

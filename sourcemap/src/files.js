@@ -1,5 +1,3 @@
-import { posix } from 'node:path'
-
 // A `sources` entry as a path, and the package it lies in where the path
 // runs through node_modules. Paths are /-separated whatever wrote them.
 
@@ -15,14 +13,27 @@ function split(path) {
   return [origin, path.slice(origin.length) || (origin ? '/' : '')]
 }
 
-export function normalize(path) {
-  const [origin, rest] = split(path)
-  return origin + posix.normalize(rest)
+// `.` and `..` folded by spelling alone, as node:path.posix folds them, the
+// `..` that climbs above a relative path kept.
+function fold(path) {
+  const out = []
+  for (const part of path.split('/')) {
+    if (part === '..' && out.length > 0 && out.at(-1) !== '..') out.pop()
+    else if (part === '..' ? !path.startsWith('/') : part !== '' && part !== '.') out.push(part)
+  }
+  return (path.startsWith('/') ? '/' : '') + out.join('/') || '.'
 }
 
+export function normalize(path) {
+  const [origin, rest] = split(path)
+  return origin + fold(rest)
+}
+
+// The directory of a normalized path: `.` and `/` are their own.
 export function dirname(path) {
   const [origin, rest] = split(path)
-  return origin + posix.dirname(rest)
+  const at = rest.lastIndexOf('/')
+  return origin + (at > 0 ? rest.slice(0, at) : at === 0 ? '/' : '.')
 }
 
 export const isUrl = (path) => ORIGIN.test(path)
@@ -32,7 +43,7 @@ export const isUrl = (path) => ORIGIN.test(path)
 export function join(dir, relative) {
   if (isUrl(relative)) return normalize(relative)
   const [origin, rest] = split(dir)
-  return origin + (relative.startsWith('/') ? posix.normalize(relative) : posix.join(rest, relative))
+  return origin + fold(relative.startsWith('/') ? relative : `${rest}/${relative}`)
 }
 
 const absolute = (path) => path.startsWith('/') || DRIVE.test(path) || isUrl(path)

@@ -8,12 +8,6 @@ import { specifierOf } from './specifiers.js'
 // called before it is written) resolves like any other: the first declares,
 // the second resolves.
 
-function newScope(parent, isFunction) {
-  const scope = { parent, names: new Map(), fn: null }
-  scope.fn = isFunction || parent === null ? scope : parent.fn
-  return scope
-}
-
 function lookup(scope, name) {
   for (let s = scope; s !== null; s = s.parent) {
     const binding = s.names.get(name)
@@ -24,43 +18,32 @@ function lookup(scope, name) {
 
 // The identifiers a binding pattern declares.
 function patternNames(pattern, out = []) {
-  switch (pattern?.type) {
-    case 'Identifier':
-      out.push(pattern)
-      break
-    case 'ObjectPattern':
-      for (const property of pattern.properties) patternNames(property.type === 'RestElement' ? property.argument : property.value, out)
-      break
-    case 'ArrayPattern':
-      for (const element of pattern.elements) patternNames(element, out)
-      break
-    case 'AssignmentPattern':
-      patternNames(pattern.left, out)
-      break
-    case 'RestElement':
-      patternNames(pattern.argument, out)
-      break
-    default:
-      break
-  }
+  const type = pattern?.type
+  if (type === 'Identifier') out.push(pattern)
+  else if (type === 'ObjectPattern') for (const p of pattern.properties) patternNames(p.type === 'RestElement' ? p.argument : p.value, out)
+  else if (type === 'ArrayPattern') for (const p of pattern.elements) patternNames(p, out)
+  else if (type === 'AssignmentPattern' || type === 'RestElement') patternNames(pattern.left ?? pattern.argument, out)
   return out
 }
 
 // Types say nothing about what runs.
 const TYPES = new Set(['TSTypeAnnotation', 'TSTypeParameterDeclaration', 'TSTypeParameterInstantiation', 'TSInterfaceDeclaration', 'TSTypeAliasDeclaration', 'TSDeclareFunction'])
 
+// The scope `node` opens: made in the declaring pass, found in the other.
 function scopeFor(node, parent, isFunction, pass) {
   if (!pass.declaring) return pass.scopes.get(node)
-  const scope = newScope(parent, isFunction)
+  const scope = { parent, names: new Map() }
+  scope.fn = isFunction || parent === null ? scope : parent.fn
   pass.scopes.set(node, scope)
   return scope
 }
 
-// Called in the declaring pass alone: the resolving pass does not so much
-// as work out the names.
-function declare(scope, pass, identifiers) {
+// Called in the declaring pass alone, the resolving pass not so much as
+// working out the names: each identifier, with the module it imports where
+// it is an import binding.
+function declare(scope, pass, identifiers, imported) {
   for (const id of identifiers) {
-    pass.declared.add(id)
+    pass.declared.set(id, imported)
     if (!scope.names.has(id.name)) scope.names.set(id.name, id)
   }
 }
@@ -96,24 +79,6 @@ function external(node, scope, pass) {
   pass.external(node, named.kind, named.specifier)
 }
 
-function visitModule(node, scope, pass) {
-  switch (node.type) {
-    case 'ImportDeclaration':
-      if (pass.declaring) {
-        declare(scope, pass, node.specifiers.map((specifier) => specifier.local))
-        for (const specifier of node.specifiers) pass.imports.set(specifier.local, node.source.value)
-      }
-      return external(node, scope, pass)
-    // Re-exported from another module, its specifiers name nothing here.
-    case 'ExportNamedDeclaration':
-      return node.source === null ? children(node, scope, pass) : external(node, scope, pass)
-    case 'ExportSpecifier':
-      return visit(node.local, scope, pass)
-    default:
-      return external(node, scope, pass)
-  }
-}
-
 // The keys of these that are names, not references: visited only where a
 // computed key makes them an expression.
 const KEYED = new Set(['Property', 'MethodDefinition', 'PropertyDefinition', 'AccessorProperty'])
@@ -124,14 +89,19 @@ function visit(node, scope, pass) {
     case 'Identifier':
       if (!pass.declaring && !pass.declared.has(node)) {
         const binding = lookup(scope, node.name)
-        pass.reference(node, binding, binding === null ? undefined : pass.imports.get(binding))
+        pass.reference(node, binding, pass.declared.get(binding))
       }
       return
     case 'ImportDeclaration':
+      if (pass.declaring) declare(scope, pass, node.specifiers.map((specifier) => specifier.local), node.source.value)
+      return external(node, scope, pass)
     case 'ExportAllDeclaration':
+      return external(node, scope, pass)
+    // Re-exported from another module, its specifiers name nothing here.
     case 'ExportNamedDeclaration':
+      return node.source === null ? children(node, scope, pass) : external(node, scope, pass)
     case 'ExportSpecifier':
-      return visitModule(node, scope, pass)
+      return visit(node.local, scope, pass)
     case 'ImportExpression':
     case 'CallExpression':
       external(node, scope, pass)
@@ -181,10 +151,9 @@ function visit(node, scope, pass) {
 // the binding the declaring identifier or null for a global, the specifier
 // the module it imports where it is an import. And `external(node, kind,
 // specifier)` for every module the program leaves to the runtime.
-export function resolveReferences(program, { reference, external: onExternal }) {
-  const shared = { scopes: new Map(), declared: new Set(), imports: new Map() }
-  const root = newScope(null, true)
-  shared.scopes.set(program, root)
-  children(program, root, { ...shared, declaring: true })
-  children(program, root, { ...shared, declaring: false, reference, external: onExternal })
+export function resolveReferences(program, callbacks) {
+  const shared = { scopes: new Map(), declared: new Map() }
+  for (const pass of [{ ...shared, declaring: true }, { ...shared, ...callbacks, declaring: false }]) {
+    children(program, scopeFor(program, null, true, pass), pass)
+  }
 }

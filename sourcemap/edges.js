@@ -1,6 +1,7 @@
 // Import edges between the files a map lists, three ways, each as exact as
 // what it reads allows. All three parse with oxc-parser, an optional peer
-// dependency, loaded on the first call; without it each throws, saying so.
+// dependency: on Node loaded on the first call, and without it each throws
+// saying so; a browser bundle takes its WASM build (src/oxc.*.js).
 
 // From the sources themselves (sourcesContent): what each file imports, as
 // written, resolved among the map's files. Any bundler, a flat map for

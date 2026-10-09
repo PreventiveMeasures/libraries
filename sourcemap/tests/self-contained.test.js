@@ -4,9 +4,11 @@ import { sep } from 'node:path'
 import { describe, it } from 'node:test'
 
 // `sourcemap/` is a package of its own, and minimal: nothing in it may
-// reach outside itself but node: builtins, and it declares no dependencies.
-// Its one optional peer, oxc-parser, is required only behind the edges.js
-// door, by the one module that parses; reading a map needs no parser.
+// reach outside itself, and it declares no dependencies. It runs where
+// JavaScript does, so no node: builtin either, but in a .node.js file: the
+// one way of loading its one optional peer, oxc-parser, on Node, behind
+// the edges.js door; a browser bundle takes oxc.browser.js instead (see
+// `browser` in package.json). Reading a map needs no parser.
 //
 // Enforced here rather than left to review because a single `../` is all it
 // takes to undo, and it reads as harmless in a diff.
@@ -36,8 +38,8 @@ const files = [
 const SPECIFIER_RE = /(?<!['"-])(?:\bfrom|\bimport|\brequire|\bcreateRequire\([^()]*\)\s*\()\s*\(?\s*(?<quote>['"])(?<spec>[^'"\n]+)\k<quote>/gu
 const TEMPLATE_RE = /(?:\bimport|\brequire)\s*\(\s*`(?<spec>[^`$\n]+)`/gu
 
-// The bare specifiers a module may require, each an optional peer dependency.
-const PEERS = { 'src/parser.js': ['oxc-parser'] }
+// The bare specifiers a module may import, each an optional peer dependency.
+const PEERS = { 'src/oxc.node.js': ['oxc-parser'], 'src/oxc.browser.js': ['oxc-parser'] }
 
 const specifiersOf = (source) => [SPECIFIER_RE, TEMPLATE_RE].flatMap((re) => [...source.matchAll(re)].map((m) => m.groups.spec))
 
@@ -66,7 +68,7 @@ describe('sourcemap/ ships every module it has', () => {
   }
 })
 
-describe('sourcemap/ imports nothing from outside but node: and its peer', () => {
+describe('sourcemap/ imports nothing from outside but its peer, and node: on Node alone', () => {
   it('has files to check', () => {
     assert.ok(files.length >= 12, `expected the sourcemap/ modules, found ${files.length}`)
   })
@@ -80,10 +82,10 @@ describe('sourcemap/ imports nothing from outside but node: and its peer', () =>
 
   for (const file of files) {
     const name = file.href.slice(PKG_DIR.href.length)
-    it(`${name} imports only node: and within sourcemap/`, () => {
+    it(`${name} imports only within sourcemap/`, () => {
       for (const spec of specifiersOf(readFileSync(file, 'utf8'))) {
-        if (spec.startsWith('node:') || PEERS[name]?.includes(spec)) continue
-        assert.ok(spec.startsWith('.'), `${name} imports ${spec} — sourcemap/ may only import node: and its own modules`)
+        if ((spec.startsWith('node:') && name.endsWith('.node.js')) || PEERS[name]?.includes(spec)) continue
+        assert.ok(spec.startsWith('.'), `${name} imports ${spec} — sourcemap/ may only import its own modules, and node: in a .node.js file`)
         assert.ok(new URL(spec, file).href.startsWith(PKG_DIR.href), `${name} imports ${spec}, which is outside sourcemap/`)
       }
     })
