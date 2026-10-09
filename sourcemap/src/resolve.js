@@ -1,5 +1,5 @@
 import { isBuiltin } from 'node:module'
-import { posix } from 'node:path'
+import { dirname, isUrl, join, packageName } from './files.js'
 
 // A specifier resolved among the files one map lists, as far as those can
 // tell it: the map holds no package.json, no tsconfig and no resolver
@@ -45,17 +45,6 @@ function find(index, base) {
   return null
 }
 
-const RELATIVE = /^\.\.?(?:\/|$)/u
-// An npm name, scoped or not: URL-safe characters, not `.`- or `_`-led.
-const PACKAGE = /^(?:@[\da-z~-][\w.~-]*\/)?[\da-z~-][\w.~-]*$/iu
-
-// The package a bare specifier names, or null for one that names none
-// (a tsconfig alias such as `@/x`, a `#subpath` import).
-export function packageName(specifier) {
-  const name = specifier.split('/').slice(0, specifier.startsWith('@') ? 2 : 1).join('/')
-  return PACKAGE.test(name) ? name : null
-}
-
 // The directory `name` resolves to from `from`, as Node walks up from a
 // file; or, where the store keeps packages away from their importers (a
 // pnpm path is a real path, not the link beside the importer), the one
@@ -63,22 +52,30 @@ export function packageName(specifier) {
 function packageRoot(index, from, name) {
   const dirs = index.roots.get(name)
   if (!dirs) return null
-  for (let dir = posix.dirname(from.path); ; ) {
-    const root = posix.join(dir, 'node_modules', name)
+  for (let dir = dirname(from.path); ; ) {
+    const root = join(dir, `node_modules/${name}`)
     if (dirs.has(root)) return root
-    const up = posix.dirname(dir)
+    const up = dirname(dir)
     if (up === dir) break
     dir = up
   }
   return dirs.size === 1 ? [...dirs][0] : null
 }
 
+// What a specifier no file of the map answers names: `builtin` for one of
+// Node's own modules, `package` for one naming a package, else nothing.
+export function bareTarget(specifier) {
+  if (specifier.startsWith('node:') || isBuiltin(specifier)) return { builtin: true }
+  const name = packageName(specifier)
+  return name === null ? {} : { package: name }
+}
+
 // Where `specifier`, imported from `from`, leads: { to } a file of the map,
-// else { to: null } with what the specifier names — `path` for a relative
-// one, `package` for a bare one, `builtin` for one of Node's own modules.
+// else { to: null } with what the specifier names — `path` for a path
+// (relative, `/`-led, or a URL), as bareTarget says for the rest.
 export function resolveSpecifier(index, from, specifier) {
-  if (RELATIVE.test(specifier) || specifier.startsWith('/')) {
-    const base = specifier.startsWith('/') ? posix.normalize(specifier) : posix.join(posix.dirname(from.path), specifier)
+  if (/^\.\.?(?:\/|$)/u.test(specifier) || specifier.startsWith('/') || isUrl(specifier)) {
+    const base = join(dirname(from.path), specifier)
     const to = find(index, base)
     return to ? { to } : { to: null, path: base }
   }
@@ -88,6 +85,5 @@ export function resolveSpecifier(index, from, specifier) {
     const to = find(index, root + specifier.slice(name.length))
     return to ? { to } : { to: null, package: name }
   }
-  if (specifier.startsWith('node:') || isBuiltin(specifier)) return { to: null, builtin: true }
-  return name === null ? { to: null } : { to: null, package: name }
+  return { to: null, ...bareTarget(specifier) }
 }

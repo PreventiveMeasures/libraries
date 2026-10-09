@@ -2,20 +2,18 @@ import { SourceMapError } from './error.js'
 import { packageOf, sourcePath } from './files.js'
 import { decodeMappings } from './vlq.js'
 
-// A map's decoded segments, kept off the object a caller holds: each
-// generated line's [column, file index, line, column] or [column].
+// A map's decoded segments (vlq.js), kept off the object a caller holds,
+// each segment's source index turned into an index into its `files`.
 const decoded = new WeakMap()
 
 export const segmentsOf = (map) => decoded.get(map)
 
 const isObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value)
 
-function stringArray(value, field, nullable) {
+function stringArray(value, field) {
   if (value === undefined) return []
   if (!Array.isArray(value)) throw new SourceMapError(`${field} is not an array`)
-  for (const item of value) {
-    if (!(typeof item === 'string' || (nullable && item === null))) throw new SourceMapError(`${field} holds ${JSON.stringify(item)}`)
-  }
+  for (const item of value) if (typeof item !== 'string' && item !== null) throw new SourceMapError(`${field} holds ${JSON.stringify(item)}`)
   return value
 }
 
@@ -28,53 +26,92 @@ function ignoredOf(json, count) {
   return new Set(list)
 }
 
-// One plain (non-index) map: its files, and its segments with each source
-// index turned into an index into `files`, which `intern` grows.
-function readPlain(json, options, intern) {
+const checkVersion = (json) => {
   if (json.version !== 3) throw new SourceMapError(`version ${JSON.stringify(json.version)} is not 3`)
+}
+
+// The files read so far, one per distinct source string however many
+// sections or entries list it.
+class Files {
+  list = []
+  #bySource = new Map()
+
+  constructor(mapPath) {
+    this.mapPath = mapPath
+  }
+
+  intern(source, content, ignored) {
+    const known = source === null ? undefined : this.#bySource.get(source)
+    if (known !== undefined) {
+      this.list[known].content ??= content
+      this.list[known].ignored ||= ignored
+      return known
+    }
+    const path = source === null ? null : sourcePath(source, this.mapPath)
+    this.list.push({ source, path, package: path === null ? null : packageOf(path), content, ignored })
+    if (source !== null) this.#bySource.set(source, this.list.length - 1)
+    return this.list.length - 1
+  }
+}
+
+// One plain (non-index) map: its segments, their sources made indices
+// into `files`, and which of those it lists.
+function readPlain(json, files) {
+  checkVersion(json)
   if (json.sourceRoot !== undefined && typeof json.sourceRoot !== 'string') throw new SourceMapError('sourceRoot is not a string')
-  const sources = stringArray(json.sources, 'sources', true)
-  const contents = stringArray(json.sourcesContent, 'sourcesContent', true)
+  const sources = stringArray(json.sources, 'sources')
+  const contents = stringArray(json.sourcesContent, 'sourcesContent')
   const ignored = ignoredOf(json, sources.length)
   const root = json.sourceRoot ? json.sourceRoot.replace(/\/?$/u, '/') : ''
-  const indices = sources.map((source, i) => intern(source === null ? null : root + source, contents[i] ?? null, ignored.has(i), options))
-  const lines = decodeMappings(json.mappings, sources.length)
-  for (const line of lines) for (const segment of line) if (segment.length > 1) segment[1] = indices[segment[1]]
-  return { lines, files: [...new Set(indices)] }
+  const indices = sources.map((source, i) => files.intern(source === null ? null : root + source, contents[i] ?? null, ignored.has(i)))
+  const segments = decodeMappings(json.mappings, sources.length)
+  for (let k = 0; k < segments.sources.length; k++) if (segments.sources[k] >= 0) segments.sources[k] = indices[segments.sources[k]]
+  return { segments, indices: [...new Set(indices)] }
 }
 
-function makeFile(source, content, ignored, options) {
-  if (source === null) return { source, path: null, package: null, content, ignored }
-  const path = sourcePath(source, options.path)
-  return { source, path, package: packageOf(path), content, ignored }
+// Sections, in order and apart, laid over one another into one set of
+// segments: a section's first line shifted by its column, the rest as they are.
+function merge(parts) {
+  let lineCount = 1
+  let count = 0
+  for (const { line, segments } of parts) {
+    lineCount = Math.max(lineCount, line + segments.starts.length - 1)
+    count += segments.columns.length
+  }
+  const merged = { starts: new Int32Array(lineCount + 1), columns: new Int32Array(count), sources: new Int32Array(count) }
+  let at = 0
+  let next = 0
+  for (const { line, column, segments } of parts) {
+    for (let l = 0; l < segments.starts.length - 1; l++) {
+      while (next <= line + l) merged.starts[next++] = at
+      for (let k = segments.starts[l]; k < segments.starts[l + 1]; k++, at++) {
+        merged.columns[at] = segments.columns[k] + (l === 0 ? column : 0)
+        merged.sources[at] = segments.sources[k]
+      }
+    }
+  }
+  while (next <= lineCount) merged.starts[next++] = at
+  return merged
 }
 
-// An index map's sections laid over one another into a single set of lines.
-function readSections(json, options, intern) {
-  if (json.version !== 3) throw new SourceMapError(`version ${JSON.stringify(json.version)} is not 3`)
+function readSections(json, files) {
+  checkVersion(json)
   if (!Array.isArray(json.sections)) throw new SourceMapError('sections is not an array')
-  const lines = []
-  const sections = []
+  const parts = []
   for (const [i, section] of json.sections.entries()) {
     const { offset, map } = isObject(section) ? section : {}
     if (!isObject(offset) || !Number.isInteger(offset.line) || !Number.isInteger(offset.column) || offset.line < 0 || offset.column < 0) throw new SourceMapError(`sections[${i}].offset is not a line and a column`)
     if (!isObject(map)) throw new SourceMapError(`sections[${i}].map is not a source map`)
     if (map.sections !== undefined) throw new SourceMapError(`sections[${i}].map is an index map itself`)
-    const previous = sections.at(-1)
+    const previous = parts.at(-1)
     if (previous && (offset.line < previous.line || (offset.line === previous.line && offset.column < previous.column))) throw new SourceMapError(`sections[${i}] starts before sections[${i - 1}]`)
-    const plain = readPlain(map, options, intern)
-    for (const [l, line] of plain.lines.entries()) {
-      const shift = l === 0 ? offset.column : 0
-      const target = (lines[offset.line + l] ??= [])
-      for (const segment of line) target.push([segment[0] + shift, ...segment.slice(1)])
-    }
-    sections.push({ line: offset.line, column: offset.column, files: plain.files })
+    const { segments, indices } = readPlain(map, files)
+    parts.push({ line: offset.line, column: offset.column, files: indices.map((k) => files.list[k]), segments })
   }
-  for (let l = 0; l < lines.length; l++) lines[l] ??= []
-  return { lines, sections }
+  return { segments: merge(parts), sections: parts.map(({ line, column, files: listed }) => ({ line, column, files: listed })) }
 }
 
-// The map as `text` (JSON) or as the object JSON.parse made of it, with
+// The map as JSON text, its bytes, or the object JSON.parse made of it, with
 // `options.path` where the map file is, to resolve its sources against.
 export function readSourceMap(input, options = {}) {
   if (!isObject(options)) throw new TypeError('readSourceMap: options is not an object')
@@ -89,22 +126,9 @@ export function readSourceMap(input, options = {}) {
     }
   }
   if (!isObject(json)) throw new SourceMapError('not a JSON object')
-  const files = []
-  const bySource = new Map()
-  // One file a source string, however many sections or entries list it.
-  const intern = (source, content, ignored, opts) => {
-    const known = source === null ? undefined : bySource.get(source)
-    if (known !== undefined) {
-      files[known].content ??= content
-      files[known].ignored ||= ignored
-      return known
-    }
-    files.push(makeFile(source, content, ignored, opts))
-    if (source !== null) bySource.set(source, files.length - 1)
-    return files.length - 1
-  }
-  const read = json.sections === undefined ? { ...readPlain(json, options, intern), sections: null } : readSections(json, options, intern)
-  const map = { files, sections: read.sections && read.sections.map((s) => ({ ...s, files: s.files.map((i) => files[i]) })) }
-  decoded.set(map, read.lines)
+  const files = new Files(options.path)
+  const read = json.sections === undefined ? { segments: readPlain(json, files).segments, sections: null } : readSections(json, files)
+  const map = { files: files.list, sections: read.sections }
+  decoded.set(map, read.segments)
   return map
 }

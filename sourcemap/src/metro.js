@@ -1,5 +1,6 @@
 import { parse, walk } from './parser.js'
-import { fileAt, fileWithin, lineStarts, positionOf } from './positions.js'
+import { fileWithin, lineStarts, positionOf } from './positions.js'
+import { literalSpecifier } from './specifiers.js'
 
 // Metro writes every module as __d(factory, id, dependencies, name), the
 // dependencies the ids its resolver picked, minified or not. A section of
@@ -16,7 +17,7 @@ const isFunction = (node) => node?.type === 'FunctionExpression' || node?.type =
 
 // The module ids an argument lists: an array of ids (null for an optional
 // one that did not resolve), or the object Metro writes instead to carry
-// `paths` for lazy imports, keyed by position.
+// `paths` for lazy imports, keyed by position; null for no list.
 function dependencyIds(node) {
   if (node?.type === 'ArrayExpression') return node.elements.map((element) => literal(element))
   if (node?.type !== 'ObjectExpression') return null
@@ -43,15 +44,6 @@ function inlinedIds(factory) {
   return ids
 }
 
-function moduleFile(map, starts, call, factory) {
-  if (map.sections) {
-    const [line, column] = positionOf(starts, call.start)
-    const section = map.sections.findLast((s) => s.line < line || (s.line === line && s.column <= column))
-    if (section?.files.length === 1) return section.files[0]
-  }
-  return fileWithin(map, starts, factory.body.start, factory.body.end) ?? fileAt(map, starts, factory.body.start)
-}
-
 function defineCall(statement) {
   const call = statement.type === 'ExpressionStatement' ? statement.expression : null
   if (call?.type !== 'CallExpression' || call.callee.type !== 'Identifier' || !DEFINE.test(call.callee.name)) return null
@@ -59,30 +51,43 @@ function defineCall(statement) {
   return isFunction(factory) && literal(id) !== null ? call : null
 }
 
+// Each module's file: the section its __d starts in, where that section
+// lists one file. Sections come in order and so do the modules, so one
+// cursor walks the sections once for the whole bundle.
+function fileFinder(map, starts) {
+  const sections = map.sections ?? []
+  let k = -1
+  return (call, factory) => {
+    const [line, column] = positionOf(starts, call.start)
+    while (k + 1 < sections.length && (sections[k + 1].line < line || (sections[k + 1].line === line && sections[k + 1].column <= column))) k++
+    if (sections[k]?.files.length === 1) return sections[k].files[0]
+    return fileWithin(map, starts, factory.body.start, factory.body.end)
+  }
+}
+
 // { modules, edges }: every module the bundle defines, as { id, file, name,
 // dependencies } (`name` the path a development bundle spells, else null),
 // and an edge for each dependency between two modules whose files the map
 // names.
 export function metroEdges(code, map) {
-  const { program, error } = parse('bundle.js', code)
+  const { program, error } = parse(code, 'js')
   if (!program) throw new Error(`metroEdges: the bundle does not parse: ${error}`)
-  const starts = lineStarts(code)
+  const fileOf = fileFinder(map, lineStarts(code))
   const modules = new Map()
   for (const statement of program.body) {
     const call = defineCall(statement)
     if (!call) continue
     const [factory, id, list, verbose] = call.arguments
-    const listed = dependencyIds(list)
-    const dependencies = listed ?? inlinedIds(factory)
-    const name = verbose?.type === 'Literal' && typeof verbose.value === 'string' ? verbose.value : null
-    modules.set(literal(id), { id: literal(id), file: moduleFile(map, starts, call, factory), name, dependencies })
+    const module = { id: literal(id), file: fileOf(call, factory), name: literalSpecifier(verbose), dependencies: dependencyIds(list) ?? inlinedIds(factory) }
+    modules.set(module.id, module)
   }
   const edges = []
   for (const module of modules.values()) {
+    if (!module.file) continue
     const targets = new Set()
     for (const id of module.dependencies) {
       const to = modules.get(id)?.file
-      if (!module.file || !to || to === module.file || targets.has(to)) continue
+      if (!to || to === module.file || targets.has(to)) continue
       targets.add(to)
       edges.push({ from: module.file, to, kind: 'dependency' })
     }

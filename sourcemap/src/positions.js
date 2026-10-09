@@ -14,53 +14,60 @@ export function lineStarts(code) {
   return starts
 }
 
-// [line, column] of `offset`, both from zero.
-export function positionOf(starts, offset) {
-  let lo = 0
-  let hi = starts.length - 1
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1
-    if (starts[mid] <= offset) lo = mid
-    else hi = mid - 1
+// The index of the last of sorted `array[lo..hi)` at or before `value`, or
+// lo - 1 where there is none.
+function lastAtOrBefore(array, lo, hi, value) {
+  let found = lo - 1
+  let low = lo
+  let high = hi - 1
+  while (low <= high) {
+    const mid = (low + high) >> 1
+    if (array[mid] <= value) {
+      found = mid
+      low = mid + 1
+    } else {
+      high = mid - 1
+    }
   }
-  return [lo, offset - starts[lo]]
+  return found
 }
 
-// The segment a position falls under: the last on its line that starts at
-// or before it, as a debugger reads a frame.
-function segmentAt(lines, line, column) {
-  const segments = lines[line]
-  if (!segments || segments.length === 0 || segments[0][0] > column) return undefined
-  let lo = 0
-  let hi = segments.length - 1
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1
-    if (segments[mid][0] <= column) lo = mid
-    else hi = mid - 1
-  }
-  return segments[lo]
+// [line, column] of `offset`, both from zero.
+export function positionOf(starts, offset) {
+  const line = lastAtOrBefore(starts, 0, starts.length, offset)
+  return [line, offset - starts[line]]
+}
+
+// The segment a position falls under, or -1: the last on its line that
+// starts at or before it, as a debugger reads a frame.
+function segmentAt(segments, [line, column]) {
+  if (line >= segments.starts.length - 1) return -1
+  const from = segments.starts[line]
+  const found = lastAtOrBefore(segments.columns, from, segments.starts[line + 1], column)
+  return found < from ? -1 : found
 }
 
 // The file the code at `offset` came from, or null where the map says
 // nothing or says it came from nowhere.
 export function fileAt(map, starts, offset) {
-  const [line, column] = positionOf(starts, offset)
-  const segment = segmentAt(segmentsOf(map), line, column)
-  return segment && segment.length > 1 ? map.files[segment[1]] : null
+  const segments = segmentsOf(map)
+  const found = segmentAt(segments, positionOf(starts, offset))
+  return found < 0 || segments.sources[found] < 0 ? null : map.files[segments.sources[found]]
 }
 
-// The file most of the segments in [start, end) came from, or null where
-// none of them came from a file.
+// The file most of the segments over [start, end) came from, the one the
+// code at `start` falls under among them; null where none came from a file.
 export function fileWithin(map, starts, start, end) {
-  const lines = segmentsOf(map)
-  const [first, firstColumn] = positionOf(starts, start)
+  const segments = segmentsOf(map)
+  const first = positionOf(starts, start)
   const [last, lastColumn] = positionOf(starts, end)
   const counts = new Map()
-  for (let line = first; line <= last && line < lines.length; line++) {
-    for (const segment of lines[line]) {
-      if (segment.length === 1) continue
-      if ((line === first && segment[0] < firstColumn) || (line === last && segment[0] >= lastColumn)) continue
-      counts.set(segment[1], (counts.get(segment[1]) ?? 0) + 1)
+  const covering = segmentAt(segments, first)
+  for (let line = first[0]; line <= last && line < segments.starts.length - 1; line++) {
+    const from = line === first[0] && covering >= 0 ? covering : segments.starts[line]
+    for (let k = from; k < segments.starts[line + 1]; k++) {
+      if (line === last && segments.columns[k] >= lastColumn) break
+      if (segments.sources[k] >= 0) counts.set(segments.sources[k], (counts.get(segments.sources[k]) ?? 0) + 1)
     }
   }
   let best = null

@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { readSourceMap } from '@preventive/sourcemap'
 import { metroEdges } from '@preventive/sourcemap/edges.js'
 import { bundle as fixture } from './fixtures.js'
-import { lineMap } from './line-map.js'
+import { handWritten as bundle } from './helpers.js'
 
 // A Metro bundle keeps, minified or not, the dependency ids its resolver
 // picked for each module; the map's sections say which file each module
@@ -41,14 +40,8 @@ describe('a Metro bundle\'s own dependency lists', () => {
   })
 })
 
-// A bundle written out by hand, one module a line, with a flat map giving
-// each line to the file named alongside.
-function bundle(lines) {
-  const sources = [...new Set(lines.map(([file]) => file).filter(Boolean))]
-  const map = readSourceMap(lineMap(sources, lines.map(([file]) => (file ? sources.indexOf(file) : null))))
-  return [lines.map(([, code]) => code).join('\n'), map]
-}
-
+// Below, bundles written out by hand, one module a line, with a flat map
+// giving each line to the file named alongside.
 describe('every shape Metro writes a define call in', () => {
   it('a list with an unresolved optional dependency, none, and the object a lazy import makes', () => {
     const [code, map] = bundle([

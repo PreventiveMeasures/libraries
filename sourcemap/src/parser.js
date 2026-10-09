@@ -18,24 +18,24 @@ function getParser() {
 // The errors oxc reports for a parse, but its warnings and advice.
 const syntaxErrors = (parsed) => (parsed.errors ?? []).filter((e) => e.severity !== 'Warning' && e.severity !== 'Advice')
 
-const JS_FAMILY = /\.[cm]?js$/u
+// What oxc reads a file as, by its extension, a bundler's `?query` after it
+// aside: the .js family with JSX, React Native's custom, which plain
+// JavaScript parses the same under; 'json' for JSON; null for no script.
+const LANGUAGES = new Map([['js', 'jsx'], ['mjs', 'jsx'], ['cjs', 'jsx'], ['jsx', 'jsx'], ['ts', 'ts'], ['mts', 'ts'], ['cts', 'ts'], ['tsx', 'tsx'], ['json', 'json']])
 
-// `text` parsed as `name`, oxc reading JS, TS, JSX or TSX from its
-// extension: { program } from the first parse with no errors, or { error }
-// with the first parse's. `unambiguous` takes a module by its syntax, as
-// Node does a typeless file; then JSX in a .js file, React Native's custom;
-// then `commonjs`, which takes the top-level `return` CommonJS's wrapper
-// allows. Flow it cannot read.
-export function parse(name, text) {
+export const languageOf = (path) => LANGUAGES.get(/\.([a-z]+)(?:\?.*)?$/iu.exec(path)?.[1].toLowerCase()) ?? null
+
+// `text` parsed in `lang` (languageOf's): { program } from the first parse
+// with no errors, or { error } with the first parse's. `unambiguous` takes a
+// module by its syntax, as Node does a typeless file; then `commonjs`, which
+// takes the top-level `return` CommonJS's wrapper allows. Flow it cannot read.
+export function parse(text, lang) {
   const { parseSync } = getParser()
-  const attempts = [{ sourceType: 'unambiguous' }]
-  if (JS_FAMILY.test(name)) attempts.push({ sourceType: 'unambiguous', lang: 'jsx' })
-  attempts.push({ sourceType: 'commonjs' })
   let error
-  for (const options of attempts) {
+  for (const sourceType of ['unambiguous', 'commonjs']) {
     let parsed
     try {
-      parsed = parseSync(name, text, options)
+      parsed = parseSync(`source.${lang}`, text, { sourceType, lang })
     } catch (cause) {
       error ??= cause.message
       continue
@@ -47,17 +47,22 @@ export function parse(name, text) {
   return { error }
 }
 
-// Every node under `node`, depth first, with its parent and the key it
-// sits under: `enter` returns false to skip a node's children.
-export function walk(node, enter, parent = null, key = null) {
-  if (enter(node, parent, key) === false) return
+// Calls `visit(child, a, b)` on each node directly under `node`, what the
+// caller carries down passed along rather than closed over.
+export function forEachChild(node, visit, a, b) {
   for (const field of Object.keys(node)) {
     if (field === 'type' || field === 'start' || field === 'end' || field === 'range' || field === 'loc') continue
     const value = node[field]
     if (Array.isArray(value)) {
-      for (const item of value) if (item !== null && typeof item?.type === 'string') walk(item, enter, node, field)
-    } else if (value !== null && typeof value?.type === 'string') {
-      walk(value, enter, node, field)
+      for (const item of value) if (typeof item?.type === 'string') visit(item, a, b)
+    } else if (typeof value?.type === 'string') {
+      visit(value, a, b)
     }
   }
+}
+
+// Every node under `node`, depth first, `node` included.
+export function walk(node, enter) {
+  enter(node)
+  forEachChild(node, walk, enter)
 }

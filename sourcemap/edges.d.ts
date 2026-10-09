@@ -8,9 +8,9 @@ export type ImportKind = 'import' | 'export-from' | 'require' | 'dynamic-import'
 
 // An edge from one file of a map. `to` is the file it leads to, or null
 // where no file of the map is that target; then what is known of it:
-// `path` for a relative specifier (resolved from the importing file, as
-// written), `package` for a bare one naming a package, `builtin` for one
-// of Node's own modules.
+// `path` for a path specifier, relative, `/`-led or a URL (resolved from
+// the importing file, as written), `package` for a bare one naming a
+// package, `builtin` for one of Node's own modules.
 export interface Edge {
   from: SourceFile
   to: SourceFile | null
@@ -34,11 +34,12 @@ export interface ImportEdges {
 }
 
 // Each file's sourcesContent parsed (oxc reads JS, TS and JSX by the
-// extension, and JSX in a .js file too), each specifier resolved among the
-// map's files by the names a resolver would try: extensions, index files,
-// React Native's platform files, TypeScript's output names; a package by
-// the node_modules Node would walk up to, or by the one copy of it the map
-// has. Without package.json or tsconfig: no `exports`, `main`, or aliases.
+// extension, a bundler's `?query` after it aside, and JSX in a .js file
+// too), each specifier resolved among the map's files by the names a
+// resolver would try: extensions, index files, React Native's platform
+// files, TypeScript's output names; a package by the node_modules Node
+// would walk up to, or by the one copy of it the map has. Without
+// package.json or tsconfig: no `exports`, `main`, or aliases.
 export function importEdges(map: SourceMap): ImportEdges
 
 export interface MetroModule {

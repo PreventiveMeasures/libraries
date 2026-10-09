@@ -21,8 +21,9 @@ export interface SourceFile {
   // The entry as a /-separated path: webpack:// (named from webpack's
   // context) and file:// dropped, then, unless absolute, resolved against
   // the map's own path where one was given, and normalized; `../` above
-  // that is kept. Any other URL, or a bundler's name for something that is
-  // no file, as it is. Null for a null entry.
+  // that is kept. A URL is a path under its scheme and host, which nothing
+  // climbs above. A name with any other scheme (data:, a bundler's virtual
+  // module) is no file, and is kept as it is. Null for a null entry.
   path: string | null
   package: SourcePackage | null
   // Its sourcesContent entry.

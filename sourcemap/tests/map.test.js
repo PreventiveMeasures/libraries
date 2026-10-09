@@ -4,32 +4,41 @@ import { SourceMapError, readSourceMap } from '@preventive/sourcemap'
 import { segmentsOf } from '../src/map.js'
 import { fileAt, lineStarts } from '../src/positions.js'
 import { decodeMappings } from '../src/vlq.js'
-import { vlq } from './line-map.js'
+import { vlq } from './helpers.js'
 
 // Reading a map: the mappings decoded as the format writes them, the
 // sources turned into files, and an index map's sections laid over one
 // another. Edges are read off all three, so each is pinned here alone.
 
+// Decoded segments as each line's [column, source] pairs, -1 for none.
+const lines = ({ starts, columns, sources }) => Array.from({ length: starts.length - 1 }, (_, l) => {
+  const pairs = []
+  for (let k = starts[l]; k < starts[l + 1]; k++) pairs.push([columns[k], sources[k]])
+  return pairs
+})
+const decode = (mappings, sourceCount) => lines(decodeMappings(mappings, sourceCount))
+
 describe('mappings decode as the format writes them', () => {
   it('reads 1-, 4- and 5-field segments, the first field restarting each line', () => {
-    assert.deepEqual(decodeMappings('AAAA,IAAI;AACA', 1), [[[0, 0, 0, 0], [4, 0, 0, 4]], [[0, 0, 1, 4]]])
-    assert.deepEqual(decodeMappings('A,EAAAC', 1), [[[0], [2, 0, 0, 0]]])
-    assert.deepEqual(decodeMappings(';;AAAA', 1), [[], [], [[0, 0, 0, 0]]])
+    assert.deepEqual(decode('AAAA,IAAI;AACA', 1), [[[0, 0], [4, 0]], [[0, 0]]])
+    assert.deepEqual(decode('A,EAAAC', 1), [[[0, -1], [2, 0]]])
+    assert.deepEqual(decode(';;AAAA', 1), [[], [], [[0, 0]]])
+    assert.deepEqual(decode('', 0), [[]])
   })
 
   it('reads signs and continuation digits', () => {
-    for (const n of [0, 1, -1, 15, 16, -16, 1000, -123_456, 2 ** 31 - 1]) {
-      assert.deepEqual(decodeMappings(`${vlq(Math.max(0, n))}AA${vlq(n)}`, 1), [[[Math.max(0, n), 0, 0, n]]], String(n))
-    }
+    for (const n of [0, 1, 15, 16, 1000, 123_456, 2 ** 31 - 1]) assert.deepEqual(decode(vlq(n), 0), [[[n, -1]]], String(n))
+    // A column back by 16 from 1000, and a source back by one.
+    assert.deepEqual(decode(`${vlq(1000)}CAA,${vlq(-16)}DAA`, 2), [[[984, 0], [1000, 1]]])
   })
 
-  it('carries the source, line and column on across lines and segments', () => {
+  it('carries the source on across lines and segments, and reads past where in it', () => {
     // Second source, two lines down, three columns left, then back.
-    assert.deepEqual(decodeMappings('AAAG;ACEF,ADAA', 2), [[[0, 0, 0, 3]], [[0, 1, 2, 1], [0, 0, 2, 1]]])
+    assert.deepEqual(decode('AAAG;ACEF,ADAA', 2), [[[0, 0]], [[0, 1], [0, 0]]])
   })
 
   it('sorts a line its generator left out of order', () => {
-    assert.deepEqual(decodeMappings('IAAA,DAAC', 1), [[[3, 0, 0, 1], [4, 0, 0, 0]]])
+    assert.deepEqual(decode('IAAA,DCAC;CAAA,DAAA', 2), [[[3, 1], [4, 0]], [[0, 1], [1, 1]]])
   })
 
   it('refuses what is not a mapping', () => {
@@ -94,9 +103,9 @@ describe('an index map is its sections laid over one another', () => {
   })
 
   it('shifts only a section\'s first line by its column', () => {
-    assert.deepEqual(segmentsOf(readSourceMap(indexed)), [[[0, 0, 0, 0]], [[0, 0, 1, 0], [5, 1, 0, 0], [9, 0, 0, 0]]])
+    assert.deepEqual(lines(segmentsOf(readSourceMap(indexed))), [[[0, 0]], [[0, 0], [5, 1], [9, 0]]])
     const map = readSourceMap({ version: 3, sections: [{ offset: { line: 2, column: 3 }, map: { version: 3, sources: ['c.js'], mappings: 'AAAA;CAAA' } }] })
-    assert.deepEqual(segmentsOf(map), [[], [], [[3, 0, 0, 0]], [[1, 0, 0, 0]]])
+    assert.deepEqual(lines(segmentsOf(map)), [[], [], [[3, 0]], [[1, 0]]])
   })
 
   it('finds the file a position came from across the seam', () => {

@@ -15,14 +15,15 @@ import { readFileSync } from 'node:fs'
 import { brotliDecompressSync } from 'node:zlib'
 import { readSourceMap } from '@preventive/sourcemap'
 
-export const ARCHIVE = new URL('fixtures.json.br', import.meta.url)
+const ARCHIVE = new URL('fixtures.json.br', import.meta.url)
 
 const FILES = JSON.parse(brotliDecompressSync(readFileSync(ARCHIVE)).toString('utf8'))
 
-export function fixture(name) {
+function fixture(name) {
   if (!Object.hasOwn(FILES, name)) throw new Error(`no fixture ${name}`)
   return FILES[name]
 }
 
-// A bundle's code, and its map read.
-export const bundle = (name) => [fixture(`${name}/index.js`), readSourceMap(fixture(`${name}/index.js.map`))]
+// A bundle's code, and its map read from where the build wrote it, so its
+// sources come out as the project's own paths.
+export const bundle = (name) => [fixture(`${name}/index.js`), readSourceMap(fixture(`${name}/index.js.map`), { path: `out/${name}/index.js.map` })]

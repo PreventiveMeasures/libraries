@@ -22,9 +22,18 @@ describe('a source becomes a path', () => {
     assert.equal(sourcePath('file://host/share/a.js'), '/share/a.js')
   })
 
-  it('keeps another URL, or a name that is no path, as it is', () => {
+  it('reads a URL as a path under its scheme and host, with nothing above them', () => {
     assert.equal(sourcePath('https://cdn.example/x.js', 'dist/x.map'), 'https://cdn.example/x.js')
+    assert.equal(sourcePath('https://cdn.example/src/./b/../a.js'), 'https://cdn.example/src/a.js')
     assert.equal(sourcePath('ng://core/a.ts'), 'ng://core/a.ts')
+    assert.equal(sourcePath('../src/a.js', 'https://cdn.example/dist/x.js.map'), 'https://cdn.example/src/a.js')
+    assert.equal(sourcePath('../../../a.js', 'https://cdn.example/dist/x.js.map'), 'https://cdn.example/a.js')
+    assert.equal(sourcePath('/src/a.js', 'https://cdn.example/dist/x.js.map'), '/src/a.js')
+  })
+
+  it('keeps a name that is no path as it is', () => {
+    assert.equal(sourcePath('data:text/javascript,1', 'dist/x.map'), 'data:text/javascript,1')
+    assert.equal(sourcePath('virtual:entry', 'dist/x.map'), 'virtual:entry')
   })
 
   it('resolves a relative path against the map\'s own, and keeps an absolute one', () => {
@@ -65,7 +74,8 @@ describe('a path through node_modules names its package', () => {
   })
 
   it('and none for a tool\'s own directory, a bare package directory, or no node_modules', () => {
-    for (const path of ['node_modules/.vite/deps/react.js', 'node_modules/.bin/tsc', 'node_modules/dep', 'node_modules/@scope', 'src/node_modules.js', 'src/a.js', 'node_modules/dep/']) {
+    // npm's own rule, ASCII alone: no `_`-led name, no Kelvin sign for a `k`.
+    for (const path of ['node_modules/.vite/deps/react.js', 'node_modules/.bin/tsc', 'node_modules/dep', 'node_modules/@scope', 'src/node_modules.js', 'src/a.js', 'node_modules/dep/', 'node_modules/_x/a.js', 'node_modules/\u212Aoa/a.js']) {
       assert.equal(packageOf(path), null, path)
     }
   })

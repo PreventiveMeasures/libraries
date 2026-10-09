@@ -1,4 +1,5 @@
-import { literalSpecifier } from './specifiers.js'
+import { forEachChild } from './parser.js'
+import { specifierOf } from './specifiers.js'
 
 // Every identifier reference in a program, resolved to the identifier that
 // declares it: enough of JavaScript's scoping to follow a name in a bundle,
@@ -55,30 +56,23 @@ function scopeFor(node, parent, isFunction, pass) {
   return scope
 }
 
-function declare(identifiers, scope, pass) {
-  if (!pass.declaring) return
+// Called in the declaring pass alone: the resolving pass does not so much
+// as work out the names.
+function declare(scope, pass, identifiers) {
   for (const id of identifiers) {
     pass.declared.add(id)
     if (!scope.names.has(id.name)) scope.names.set(id.name, id)
   }
 }
 
-function children(node, scope, pass) {
-  for (const field of Object.keys(node)) {
-    if (field === 'type' || field === 'start' || field === 'end' || field === 'range' || field === 'loc') continue
-    const value = node[field]
-    if (Array.isArray(value)) {
-      for (const item of value) if (item !== null && typeof item?.type === 'string') visit(item, scope, pass)
-    } else if (value !== null && typeof value?.type === 'string') {
-      visit(value, scope, pass)
-    }
-  }
-}
+const children = (node, scope, pass) => forEachChild(node, visit, scope, pass)
 
 function visitFunction(node, scope, pass) {
   const inner = scopeFor(node, scope, true, pass)
-  if (node.type === 'FunctionExpression' && node.id) declare([node.id], inner, pass)
-  declare(node.params.flatMap((param) => patternNames(param.type === 'TSParameterProperty' ? param.parameter : param)), inner, pass)
+  if (pass.declaring) {
+    if (node.type === 'FunctionExpression' && node.id) declare(inner, pass, [node.id])
+    declare(inner, pass, node.params.flatMap((param) => patternNames(param.type === 'TSParameterProperty' ? param.parameter : param)))
+  }
   for (const param of node.params) visit(param, inner, pass)
   // The body's block is the function's own scope, not one inside it.
   if (node.body?.type === 'BlockStatement') children(node.body, inner, pass)
@@ -87,45 +81,45 @@ function visitFunction(node, scope, pass) {
 
 function visitClass(node, scope, pass) {
   const inner = scopeFor(node, scope, false, pass)
-  if (node.type === 'ClassExpression' && node.id) declare([node.id], inner, pass)
+  if (pass.declaring && node.type === 'ClassExpression' && node.id) declare(inner, pass, [node.id])
   if (node.superClass) visit(node.superClass, inner, pass)
   visit(node.body, inner, pass)
 }
 
-// A module named in the generated code: what it keeps of the imports the
-// bundler left to the runtime.
-function external(node, kind, specifier, pass) {
-  if (!pass.declaring && specifier !== null) pass.external(node, kind, specifier)
+// A module the generated code names, which the bundler left to the runtime;
+// but a require() of a `require` the bundle declares is the bundle's own.
+function external(node, scope, pass) {
+  if (pass.declaring) return
+  const named = specifierOf(node)
+  if (named === null || named.specifier === null) return
+  if (named.kind === 'require' && lookup(scope, 'require') !== null) return
+  pass.external(node, named.kind, named.specifier)
+}
+
+function visitModule(node, scope, pass) {
+  switch (node.type) {
+    case 'ImportDeclaration':
+      if (pass.declaring) {
+        declare(scope, pass, node.specifiers.map((specifier) => specifier.local))
+        for (const specifier of node.specifiers) pass.imports.set(specifier.local, node.source.value)
+      }
+      return external(node, scope, pass)
+    // Re-exported from another module, its specifiers name nothing here.
+    case 'ExportNamedDeclaration':
+      return node.source === null ? children(node, scope, pass) : external(node, scope, pass)
+    case 'ExportSpecifier':
+      return visit(node.local, scope, pass)
+    default:
+      return external(node, scope, pass)
+  }
 }
 
 // The keys of these that are names, not references: visited only where a
 // computed key makes them an expression.
 const KEYED = new Set(['Property', 'MethodDefinition', 'PropertyDefinition', 'AccessorProperty'])
 
-function visitModule(node, scope, pass) {
-  switch (node.type) {
-    case 'ImportDeclaration':
-      declare(node.specifiers.map((specifier) => specifier.local), scope, pass)
-      if (pass.declaring) for (const specifier of node.specifiers) pass.imports.set(specifier.local, node.source.value)
-      if (node.importKind !== 'type') external(node, 'import', node.source.value, pass)
-      return true
-    case 'ExportAllDeclaration':
-      external(node, 'export-from', node.source.value, pass)
-      return true
-    case 'ExportNamedDeclaration':
-      if (node.source === null) return false
-      external(node, 'export-from', node.source.value, pass)
-      return true
-    case 'ExportSpecifier':
-      visit(node.local, scope, pass)
-      return true
-    default:
-      return false
-  }
-}
-
 function visit(node, scope, pass) {
-  if (TYPES.has(node.type) || visitModule(node, scope, pass)) return
+  if (TYPES.has(node.type)) return
   switch (node.type) {
     case 'Identifier':
       if (!pass.declaring && !pass.declared.has(node)) {
@@ -133,23 +127,30 @@ function visit(node, scope, pass) {
         pass.reference(node, binding, binding === null ? undefined : pass.imports.get(binding))
       }
       return
+    case 'ImportDeclaration':
+    case 'ExportAllDeclaration':
+    case 'ExportNamedDeclaration':
+    case 'ExportSpecifier':
+      return visitModule(node, scope, pass)
+    case 'ImportExpression':
+    case 'CallExpression':
+      external(node, scope, pass)
+      return children(node, scope, pass)
     case 'FunctionDeclaration':
-      if (node.id) declare([node.id], scope, pass)
-      return visitFunction(node, scope, pass)
+    case 'ClassDeclaration':
+      if (pass.declaring && node.id) declare(scope, pass, [node.id])
+      return node.type === 'FunctionDeclaration' ? visitFunction(node, scope, pass) : visitClass(node, scope, pass)
     case 'FunctionExpression':
     case 'ArrowFunctionExpression':
       return visitFunction(node, scope, pass)
-    case 'ClassDeclaration':
-      if (node.id) declare([node.id], scope, pass)
-      return visitClass(node, scope, pass)
     case 'ClassExpression':
       return visitClass(node, scope, pass)
     case 'VariableDeclaration':
-      declare(node.declarations.flatMap((declarator) => patternNames(declarator.id)), node.kind === 'var' ? scope.fn : scope, pass)
+      if (pass.declaring) declare(node.kind === 'var' ? scope.fn : scope, pass, node.declarations.flatMap((declarator) => patternNames(declarator.id)))
       return children(node, scope, pass)
     case 'CatchClause': {
       const inner = scopeFor(node, scope, false, pass)
-      if (node.param) declare(patternNames(node.param), inner, pass)
+      if (pass.declaring && node.param) declare(inner, pass, patternNames(node.param))
       return children(node, inner, pass)
     }
     case 'BlockStatement':
@@ -169,22 +170,10 @@ function visit(node, scope, pass) {
     case 'ContinueStatement':
     case 'MetaProperty':
       return
-    case 'ImportExpression':
-      external(node, 'dynamic-import', literalSpecifier(node.source), pass)
-      return children(node, scope, pass)
-    case 'CallExpression':
-      // A require() of nothing the bundle declares is one left to the runtime.
-      if (node.callee.type === 'Identifier' && node.callee.name === 'require' && lookup(scope, 'require') === null) {
-        external(node, 'require', literalSpecifier(node.arguments[0]), pass)
-      }
-      return children(node, scope, pass)
     default:
-      if (KEYED.has(node.type)) {
-        if (node.computed) visit(node.key, scope, pass)
-        if (node.value) visit(node.value, scope, pass)
-        return
-      }
-      return children(node, scope, pass)
+      if (!KEYED.has(node.type)) return children(node, scope, pass)
+      if (node.computed) visit(node.key, scope, pass)
+      if (node.value) visit(node.value, scope, pass)
   }
 }
 
