@@ -139,7 +139,7 @@ export function resolveSpecifier(index, from, specifier, entry = entryOf) {
   const request = /^(?:\.{1,2}|[a-z]:)?\\/iu.test(specifier) ? specifier.replaceAll('\\', '/') : specifier
   if (/^(?:\.{1,2}(?:\/|$)|\/|[a-z]:\/)/iu.test(request) || isUrl(request)) {
     // A file:// URL as the map's own sources are: a path.
-    const path = request.startsWith('file://') ? sourcePath(request) : resolvePath(from.path, request)
+    const path = /^file:\/\//iu.test(request) ? sourcePath(request) : resolvePath(from.path, request)
     const to = find(index, path)
     return to ? { to } : { to: null, path }
   }

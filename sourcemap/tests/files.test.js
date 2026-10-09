@@ -20,6 +20,7 @@ describe('a source becomes a path', () => {
     assert.equal(sourcePath('file:///home/u/a%20b.js', 'dist/x.map'), '/home/u/a b.js')
     assert.equal(sourcePath('file:///C:/work/a.js'), 'C:/work/a.js')
     assert.equal(sourcePath('file://localhost/home/u/a.js'), '/home/u/a.js')
+    assert.equal(sourcePath('FILE://LocalHost/home/u/a.js'), '/home/u/a.js')
     // Another host's is a UNC path, under its server, which no `..` climbs above.
     assert.equal(sourcePath('file://server/share/a.js'), '//server/share/a.js')
     assert.equal(sourcePath('file://server/share/../../a.js'), '//server/a.js')
@@ -31,7 +32,10 @@ describe('a source becomes a path', () => {
     assert.equal(sourcePath('ng://core/a.ts'), 'ng://core/a.ts')
     assert.equal(sourcePath('../src/a.js', 'https://cdn.example/dist/x.js.map'), 'https://cdn.example/src/a.js')
     assert.equal(sourcePath('../../../a.js', 'https://cdn.example/dist/x.js.map'), 'https://cdn.example/a.js')
-    assert.equal(sourcePath('/src/a.js', 'https://cdn.example/dist/x.js.map'), '/src/a.js')
+    // A rooted source is resolved against a URL map path as any other is.
+    assert.equal(sourcePath('/src/a.js', 'https://cdn.example/dist/x.js.map'), 'https://cdn.example/src/a.js')
+    assert.equal(sourcePath('//other.example/a.js', 'https://cdn.example/dist/x.js.map'), 'https://other.example/a.js')
+    assert.equal(sourcePath('file:///app/a.js', 'https://cdn.example/dist/x.js.map'), '/app/a.js')
   })
 
   it('keeps a name that is no path as it is', () => {

@@ -34,14 +34,19 @@ export function resolvePath(from, relative) {
 // webpack:// paths are from webpack's context, not from the map. A scheme
 // with no root (data:, a virtual module) names no file.
 export function sourcePath(source, mapPath) {
-  let path = source.replaceAll('\\', '/')
+  const path = source.replaceAll('\\', '/')
   if (WEBPACK.test(path)) return normalize(path.replace(WEBPACK, ''))
-  if (path.startsWith('file://')) {
+  const file = /^file:\/\/([^/]*)(.*)$/isu.exec(path)
+  if (file) {
     // A host other than this one's is a UNC path's server.
-    const [, host, rest] = /^file:\/\/([^/]*)(.*)$/su.exec(path)
-    path = decodeURIComponent(host && host !== 'localhost' ? `//${host}${rest}` : rest).replace(/^\/(?=[a-z]:\/)/iu, '')
-  } else if (SCHEME.test(path) && !rootOf(path).includes(':')) return path
-  return mapPath === undefined || rootOf(path) ? normalize(path) : resolvePath(mapPath.replaceAll('\\', '/'), path)
+    const [, host, rest] = file
+    return normalize(decodeURIComponent(host && host.toLowerCase() !== 'localhost' ? `//${host}${rest}` : rest).replace(/^\/(?=[a-z]:\/)/iu, ''))
+  }
+  if (SCHEME.test(path) && !rootOf(path).includes(':')) return path
+  if (mapPath === undefined) return normalize(path)
+  // A rooted source is a URL's, under a map at one.
+  const base = mapPath.replaceAll('\\', '/')
+  return rootOf(path) && !isUrl(base) ? normalize(path) : resolvePath(base, path)
 }
 
 // npm's rule, as lockfile holds it: ASCII, and never `.`- or `_`-led, which

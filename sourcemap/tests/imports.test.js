@@ -175,8 +175,8 @@ describe('a specifier is resolved as a resolver would try it', () => {
   })
 
   it('takes a file:// specifier as the path the map\'s own sources are', () => {
-    const map = sources({ '/app/a.js': "import 'file:///app/b.js'\nimport 'file://server/share/c.js'", '/app/b.js': '', 'file://server/share/c.js': '' })
-    assert.deepEqual(shown(importEdges(map).edges), ['/app/a.js -> //server/share/c.js [import]', '/app/a.js -> /app/b.js [import]'])
+    const map = sources({ '/app/a.js': "import 'file:///app/b.js'\nimport 'file://server/share/c.js'\nimport 'FILE://LOCALHOST/app/d.js'", '/app/b.js': '', 'file://server/share/c.js': '', '/app/d.js': '' })
+    assert.deepEqual(shown(importEdges(map).edges), ['/app/a.js -> //server/share/c.js [import]', '/app/a.js -> /app/b.js [import]', '/app/a.js -> /app/d.js [import]'])
   })
 
   it('takes a specifier naming a source the map keeps under an opaque scheme', () => {
