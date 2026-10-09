@@ -9,6 +9,7 @@ const SPACE = /\s+/uy
 // regular expression.
 const LINE_ENDS = '\n\r\u2028\u2029'
 const LINE_END = /[\n\r\u2028\u2029]/gu
+const LINE_BREAK = /[\n\r\u2028\u2029]/u
 const WORD = /[\w$\u0080-￿]+/uy
 // After these a `/` starts a regular expression, not a division; and
 // after the `)` that closes the head of these, `if (a) /re/.test(b)`, and
@@ -19,7 +20,12 @@ const CONTROL = new Set(['if', 'while', 'for', 'with'])
 // anything else (`)`, `=>`, a statement's end, `else`), a block.
 const EXPRESSION_BEFORE = new Set(['(', '[', ',', '=', ':', '?', '!', '~', '+', '-', '*', '/', '%', '&', '|', '^', '<', '>'])
 
-const opensObject = (previous) => (previous?.type === 'word' ? OPERATORS.has(previous.value) && !['do', 'else'].includes(previous.value) : EXPRESSION_BEFORE.has(previous?.value))
+function opensObject(previous, lineBefore) {
+  if (previous?.type !== 'word') return EXPRESSION_BEFORE.has(previous?.value)
+  // A line's end after `return` or `yield` ends the statement there.
+  if (lineBefore && ['return', 'yield'].includes(previous.value)) return false
+  return OPERATORS.has(previous.value) && !['do', 'else'].includes(previous.value)
+}
 
 function regexAllowed(previous) {
   if (!previous) return true
@@ -69,7 +75,9 @@ function lex(text) {
   const braces = []
   const parens = []
   let i = 0
+  let lastEnd = 0
   while (i < text.length) {
+    const count = tokens.length
     SPACE.lastIndex = i
     if (SPACE.test(text)) i = SPACE.lastIndex
     if (i >= text.length) break
@@ -102,7 +110,7 @@ function lex(text) {
       tokens.push({ type: 'word', value: text.slice(i, WORD.lastIndex) })
       i = WORD.lastIndex
     } else {
-      if (c === '{') braces.push(opensObject(tokens.at(-1)) ? 'object' : 'block')
+      if (c === '{') braces.push(opensObject(tokens.at(-1), LINE_BREAK.test(text.slice(lastEnd, i))) ? 'object' : 'block')
       const closed = c === '}' ? braces.pop() : undefined
       if (c === '(') parens.push(tokens.at(-1)?.type === 'word' && CONTROL.has(tokens.at(-1).value))
       // `a++ / b`: a postfix update ends an operand; `=> {` opens a block.
@@ -110,6 +118,7 @@ function lex(text) {
       tokens.push({ type: 'punctuator', value, ...(c === ')' && { control: parens.pop() === true }), ...(c === '}' && { object: closed === 'object' }) })
       i += value.length
     }
+    if (tokens.length > count) lastEnd = i
   }
   return tokens
 }

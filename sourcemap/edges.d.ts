@@ -45,8 +45,9 @@ export interface ImportOptions {
 // Each file's sourcesContent parsed (oxc reads JS, TS and JSX by the
 // extension, a bundler's `?query` after it aside, and JSX in a .js file
 // too), each specifier resolved among the map's files by the names a
-// resolver would try: extensions, index files, platform files (React
-// Native's, a browser or Node build, in place of a written extension too),
+// resolver would try: extensions, index files, platform files (those of
+// the React Native platform the map's files show, a browser or Node
+// build, in place of a written extension too),
 // TypeScript's output names; a package by the node_modules Node would walk
 // up to, or by the one copy of it the map has. With no package.json, a
 // package's entry where no index file is is guessed: index, main, browser

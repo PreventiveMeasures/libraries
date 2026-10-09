@@ -145,6 +145,10 @@ describe('a specifier is resolved as a resolver would try it', () => {
     // As many of one as of another: none taken over the plain file.
     const tied = sources({ 'src/a.js': "import './view'", 'src/view.js': '', 'src/view.android.js': '', 'src/view.ios.js': '' })
     assert.deepEqual(shown(importEdges(tied).edges), ['src/a.js -> src/view.js [import]'])
+    // Never another platform's file, which Metro does not try.
+    const elsewhere = sources({ 'src/a.js': "import './view'\nimport './list'", 'src/view.android.js': '', 'src/view.ios.js': '', 'src/list.ios.js': '', 'src/x.android.js': '', 'src/y.android.js': '' })
+    assert.deepEqual(shown(importEdges(elsewhere).edges), ['src/a.js -> (./list, path src/list) [import]', 'src/a.js -> src/view.android.js [import]'])
+    assert.deepEqual(shown(importEdges(sources({ 'src/a.js': "import './view'", 'src/view.android.js': '', 'src/view.ios.js': '' })).edges), ['src/a.js -> (./view, path src/view) [import]'])
     // With none of a platform's files, .native, then the plain one before a browser build.
     const web = sources({ 'lib/a.js': "import './encode'\nimport './view'", 'lib/encode.js': '', 'lib/encode.browser.js': '', 'lib/view.js': '', 'lib/view.native.js': '' })
     assert.deepEqual(shown(importEdges(web).edges), ['lib/a.js -> lib/encode.js [import]', 'lib/a.js -> lib/view.native.js [import]'])
@@ -163,6 +167,11 @@ describe('a specifier is resolved as a resolver would try it', () => {
   it('takes a `//`-led specifier from a URL as a URL under its scheme', () => {
     const map = sources({ 'https://origin.example/src/a.js': "import '//cdn.example/lib/b.js'", 'https://cdn.example/lib/b.js': '' })
     assert.deepEqual(shown(importEdges(map).edges), ['https://origin.example/src/a.js -> https://cdn.example/lib/b.js [import]'])
+  })
+
+  it('takes a Windows path as Node on Windows does', () => {
+    const map = sources({ 'C:/app/a.js': "require('.\\\\b')\nrequire('..\\\\lib\\\\c.js')\nrequire('C:\\\\app\\\\d.js')\nrequire('C:/app/e.js')", 'C:/app/b.js': '', 'C:/lib/c.js': '', 'C:/app/d.js': '', 'C:/app/e.js': '' })
+    assert.deepEqual(shown(importEdges(map).edges), ['C:/app/a.js -> C:/app/b.js [require]', 'C:/app/a.js -> C:/app/d.js [require]', 'C:/app/a.js -> C:/app/e.js [require]', 'C:/app/a.js -> C:/lib/c.js [require]'])
   })
 
   it('takes a file:// specifier as the path the map\'s own sources are', () => {

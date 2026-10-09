@@ -6,17 +6,16 @@ import { isUrl, packageName, resolvePath, sourcePath } from './files.js'
 
 const EXTENSIONS = ['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.mts', '.cts', '.json']
 // React Native's platforms: Metro tries the bundle's own, then `.native`,
-// then the plain file. A map's platform is the one its files show more of
-// than any other; a map that shows none, or two as much, tries `.native`,
-// then the plain file. A browser or Node build a package ships beside the
-// plain file comes after it.
+// then the plain file, and never another platform's. A map's platform is
+// the one its files show more of than any other; a map that shows none, or
+// two as much, tries `.native`, then the plain file. A browser or Node
+// build a package ships beside the plain file comes after it.
 const RN_PLATFORMS = ['.ios', '.android', '.web']
 
 function platformsOf(files) {
   const counts = RN_PLATFORMS.map((platform) => [platform, files.filter((file) => file.path?.includes(`${platform}.`)).length]).toSorted((a, b) => b[1] - a[1])
   const [[active, count], [, next]] = counts
-  if (count === next) return ['.native', '', '.browser', '.node', ...RN_PLATFORMS]
-  return [active, '.native', '', '.browser', '.node', ...RN_PLATFORMS.filter((platform) => platform !== active)]
+  return [...(count === next ? [] : [active]), '.native', '', '.browser', '.node']
 }
 // TypeScript's sources, imported by the names they compile to.
 const OUTPUT_NAMES = new Map([['.js', ['.ts', '.tsx']], ['.jsx', ['.tsx']], ['.mjs', ['.mts']], ['.cjs', ['.cts']]])
@@ -136,9 +135,11 @@ function packageFile(index, root, subpath, entry) {
 
 // `entry` finds a package's entry where no index file at its root is.
 export function resolveSpecifier(index, from, specifier, entry = entryOf) {
-  if (/^(?:\.{1,2}(?:\/|$)|\/)/u.test(specifier) || isUrl(specifier)) {
+  // Node on Windows takes `.\a` and `C:\a` as paths, written as the map's own are.
+  const request = /^(?:\.{1,2}|[a-z]:)?\\/iu.test(specifier) ? specifier.replaceAll('\\', '/') : specifier
+  if (/^(?:\.{1,2}(?:\/|$)|\/|[a-z]:\/)/iu.test(request) || isUrl(request)) {
     // A file:// URL as the map's own sources are: a path.
-    const path = specifier.startsWith('file://') ? sourcePath(specifier) : resolvePath(from.path, specifier)
+    const path = request.startsWith('file://') ? sourcePath(request) : resolvePath(from.path, request)
     const to = find(index, path)
     return to ? { to } : { to: null, path }
   }
