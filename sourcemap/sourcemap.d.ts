@@ -21,8 +21,8 @@ export interface SourceFile {
   // The entry as a /-separated path: webpack:// (named from webpack's
   // context) and file:// dropped, then, unless absolute, resolved against
   // the map's own path where one was given, and normalized; `../` above
-  // that is kept. A URL is a path under its scheme and host, which nothing
-  // climbs above. A name with any other scheme (data:, a bundler's virtual
+  // that is kept. A URL is a path under its scheme and host, which no `..`
+  // climbs above, as no `..` climbs above a drive or `/`. A name with any other scheme (data:, a bundler's virtual
   // module) is no file, and is kept as it is. Null for a null entry.
   path: string | null
   package: SourcePackage | null
@@ -32,20 +32,10 @@ export interface SourceFile {
   ignored: boolean
 }
 
-// Where a section of an index map starts in the generated code, from zero,
-// and the files it lists.
-export interface SourceMapSection {
-  line: number
-  column: number
-  files: SourceFile[]
-}
-
 export interface SourceMap {
-  // One per distinct `sources` string, across every section, in the order
-  // first listed.
+  // One per distinct `sources` string, across an index map's sections too,
+  // in the order first listed.
   files: SourceFile[]
-  // An index map's sections, in order; null for a plain map.
-  sections: SourceMapSection[] | null
 }
 
 export interface ReadOptions {

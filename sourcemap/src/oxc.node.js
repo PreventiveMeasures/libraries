@@ -4,11 +4,9 @@ import { createRequire } from 'node:module'
 // environment's error, not a file's that would not parse.
 let oxc
 export function getParser() {
-  if (oxc) return oxc
   try {
-    oxc = createRequire(import.meta.url)('oxc-parser')
+    return (oxc ??= createRequire(import.meta.url)('oxc-parser'))
   } catch (cause) {
     throw new Error("@preventive/sourcemap/edges.js needs the optional 'oxc-parser' peer dependency; install it (e.g. `npm i oxc-parser`)", { cause })
   }
-  return oxc
 }

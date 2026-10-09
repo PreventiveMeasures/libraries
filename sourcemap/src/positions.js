@@ -14,19 +14,13 @@ export function lineStarts(code) {
 
 // The last index of sorted `array[lo..hi)` at or before `value`, or lo - 1.
 function lastAtOrBefore(array, lo, hi, value) {
-  let found = lo - 1
-  let low = lo
-  let high = hi - 1
-  while (low <= high) {
+  let [low, high] = [lo, hi]
+  while (low < high) {
     const mid = (low + high) >> 1
-    if (array[mid] <= value) {
-      found = mid
-      low = mid + 1
-    } else {
-      high = mid - 1
-    }
+    if (array[mid] <= value) low = mid + 1
+    else high = mid
   }
-  return found
+  return low - 1
 }
 
 export function positionOf(starts, offset) {
@@ -60,11 +54,11 @@ export function fileWithin(map, starts, start, end) {
   for (let line = first[0]; line <= last && line < segments.starts.length - 1; line++) {
     const from = line === first[0] && covering >= 0 ? covering : segments.starts[line]
     for (let k = from; k < segments.starts[line + 1]; k++) {
+      const source = segments.sources[k]
       if (line === last && segments.columns[k] >= lastColumn) break
-      if (segments.sources[k] >= 0) counts.set(segments.sources[k], (counts.get(segments.sources[k]) ?? 0) + 1)
+      if (source >= 0) counts.set(source, (counts.get(source) ?? 0) + 1)
     }
   }
-  let best = null
-  for (const [file, count] of counts) if (best === null || count > counts.get(best)) best = file
-  return best === null ? null : map.files[best]
+  const [best] = [...counts].reduce((top, entry) => (entry[1] > top[1] ? entry : top), [-1, 0])
+  return best < 0 ? null : map.files[best]
 }

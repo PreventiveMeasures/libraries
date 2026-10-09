@@ -94,11 +94,8 @@ describe('an index map is its sections laid over one another', () => {
   const b = { version: 3, sources: ['b.js', 'a.js'], mappings: 'AAAA,ICAA' }
   const indexed = { version: 3, sections: [{ offset: { line: 0, column: 0 }, map: a }, { offset: { line: 1, column: 5 }, map: b }] }
 
-  it('keeps each section where it starts, with its own files', () => {
-    const map = readSourceMap(indexed)
-    assert.deepEqual(map.files.map((f) => f.path), ['a.js', 'b.js'])
-    assert.deepEqual(map.sections.map((s) => [s.line, s.column, s.files.map((f) => f.path)]), [[0, 0, ['a.js']], [1, 5, ['b.js', 'a.js']]])
-    assert.equal(readSourceMap(a).sections, null)
+  it('makes one list of files of every section\'s', () => {
+    assert.deepEqual(readSourceMap(indexed).files.map((f) => f.path), ['a.js', 'b.js'])
   })
 
   it('shifts only a section\'s first line by its column', () => {

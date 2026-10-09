@@ -5,8 +5,8 @@ import { bundle as fixture } from './fixtures.js'
 import { handWritten as bundle } from './helpers.js'
 
 // A Metro bundle keeps, minified or not, the dependency ids its resolver
-// picked for each module; the map's sections say which file each module
-// is. Together they are the import graph as Metro built it, exactly.
+// picked for each module; the map says which file each module's code came
+// from. Together they are the import graph as Metro built it, exactly.
 
 const show = (edge) => `${edge.from.path} -> ${edge.to.path}`.replaceAll('/app/', '')
 
@@ -70,7 +70,7 @@ describe('every shape Metro writes a define call in', () => {
     assert.deepEqual(edges.map(show), ['a.js -> b.js', 'a.js -> c.js'])
   })
 
-  it('names a module by most of its factory where the map has no sections', () => {
+  it('names a module by the file most of its code maps to, in a flat map too', () => {
     // The factory's first line maps to a helper's file; most of it, to m.js.
     const [code, map] = bundle([
       ['helper.js', '__d(function(g,r,i,a,m,e,d){'],

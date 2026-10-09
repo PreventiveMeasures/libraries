@@ -26,9 +26,7 @@ export function parse(text, lang) {
 
 // `a` and `b` passed along rather than closed over: no closure per node.
 export function forEachChild(node, visit, a, b) {
-  for (const field of Object.keys(node)) {
-    if (field === 'type' || field === 'start' || field === 'end' || field === 'range' || field === 'loc') continue
-    const value = node[field]
+  for (const value of Object.values(node)) {
     if (Array.isArray(value)) {
       for (const item of value) if (typeof item?.type === 'string') visit(item, a, b)
     } else if (typeof value?.type === 'string') {

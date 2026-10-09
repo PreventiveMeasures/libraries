@@ -36,6 +36,12 @@ describe('a source becomes a path', () => {
     assert.equal(sourcePath('virtual:entry', 'dist/x.map'), 'virtual:entry')
   })
 
+  it('climbs above no drive', () => {
+    assert.equal(sourcePath('C:\\a\\..\\..\\b.js'), 'C:/b.js')
+    assert.equal(sourcePath('../../../x.js', 'C:/proj/out/m.map'), 'C:/x.js')
+    assert.equal(sourcePath('/x.js', 'C:/proj/out/m.map'), '/x.js')
+  })
+
   it('resolves a relative path against the map\'s own, and keeps an absolute one', () => {
     assert.equal(sourcePath('../../src/a.js', 'dist/esm/index.js.map'), 'src/a.js')
     assert.equal(sourcePath('../../src/a.js'), '../../src/a.js')

@@ -44,8 +44,7 @@ export function importEdges(map: SourceMap): ImportEdges
 
 export interface MetroModule {
   id: number | string
-  // The map's file for it: the section its __d starts in, else the file
-  // most of its factory maps to.
+  // The file most of its code maps to.
   file: SourceFile | null
   // The path a development bundle passes as the fourth argument.
   name: string | null

@@ -34,8 +34,9 @@ function scopeFor(node, parent, isFunction, pass) {
   return scope
 }
 
-// In the declaring pass alone. `imported`: the module of an import binding.
+// `imported`: the module of an import binding.
 function declare(scope, pass, identifiers, imported) {
+  if (!pass.declaring) return
   for (const id of identifiers) {
     pass.declared.set(id, imported)
     if (!scope.names.has(id.name)) scope.names.set(id.name, id)
@@ -46,10 +47,8 @@ const children = (node, scope, pass) => forEachChild(node, visit, scope, pass)
 
 function visitFunction(node, scope, pass) {
   const inner = scopeFor(node, scope, true, pass)
-  if (pass.declaring) {
-    if (node.type === 'FunctionExpression' && node.id) declare(inner, pass, [node.id])
-    declare(inner, pass, node.params.flatMap((param) => patternNames(param.type === 'TSParameterProperty' ? param.parameter : param)))
-  }
+  if (node.id) declare(node.type === 'FunctionDeclaration' ? scope : inner, pass, [node.id])
+  declare(inner, pass, node.params.flatMap((param) => patternNames(param.type === 'TSParameterProperty' ? param.parameter : param)))
   for (const param of node.params) visit(param, inner, pass)
   // The body's block is the function's own scope, not one inside it.
   if (node.body?.type === 'BlockStatement') children(node.body, inner, pass)
@@ -58,7 +57,7 @@ function visitFunction(node, scope, pass) {
 
 function visitClass(node, scope, pass) {
   const inner = scopeFor(node, scope, false, pass)
-  if (pass.declaring && node.type === 'ClassExpression' && node.id) declare(inner, pass, [node.id])
+  if (node.id) declare(node.type === 'ClassDeclaration' ? scope : inner, pass, [node.id])
   if (node.superClass) visit(node.superClass, inner, pass)
   visit(node.body, inner, pass)
 }
@@ -86,7 +85,7 @@ function visit(node, scope, pass) {
       }
       return
     case 'ImportDeclaration':
-      if (pass.declaring) declare(scope, pass, node.specifiers.map((specifier) => specifier.local), node.source.value)
+      declare(scope, pass, node.specifiers.map((specifier) => specifier.local), node.source.value)
       return external(node, scope, pass)
     case 'ExportAllDeclaration':
       return external(node, scope, pass)
@@ -100,20 +99,18 @@ function visit(node, scope, pass) {
       external(node, scope, pass)
       return children(node, scope, pass)
     case 'FunctionDeclaration':
-    case 'ClassDeclaration':
-      if (pass.declaring && node.id) declare(scope, pass, [node.id])
-      return node.type === 'FunctionDeclaration' ? visitFunction(node, scope, pass) : visitClass(node, scope, pass)
     case 'FunctionExpression':
     case 'ArrowFunctionExpression':
       return visitFunction(node, scope, pass)
+    case 'ClassDeclaration':
     case 'ClassExpression':
       return visitClass(node, scope, pass)
     case 'VariableDeclaration':
-      if (pass.declaring) declare(node.kind === 'var' ? scope.fn : scope, pass, node.declarations.flatMap((declarator) => patternNames(declarator.id)))
+      declare(node.kind === 'var' ? scope.fn : scope, pass, node.declarations.flatMap((declarator) => patternNames(declarator.id)))
       return children(node, scope, pass)
     case 'CatchClause': {
       const inner = scopeFor(node, scope, false, pass)
-      if (pass.declaring && node.param) declare(inner, pass, patternNames(node.param))
+      if (node.param) declare(inner, pass, patternNames(node.param))
       return children(node, inner, pass)
     }
     case 'BlockStatement':

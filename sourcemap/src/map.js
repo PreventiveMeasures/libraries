@@ -1,6 +1,6 @@
 import { SourceMapError } from './error.js'
 import { packageOf, sourcePath } from './files.js'
-import { decodeInto, seal } from './vlq.js'
+import { decodeMappings } from './vlq.js'
 
 // Kept off the object a caller holds.
 const decoded = new WeakMap()
@@ -22,7 +22,7 @@ function stringArray(value, field) {
 
 // One file a source string, however many sections or entries list it.
 function intern(read, source, content, ignored) {
-  const known = source === null ? undefined : read.bySource.get(source)
+  const known = read.bySource.get(source)
   if (known !== undefined) {
     read.files[known].content ??= content
     read.files[known].ignored ||= ignored
@@ -35,7 +35,7 @@ function intern(read, source, content, ignored) {
 }
 
 // x_google_ignoreList is what Chrome read before ignoreList was standard.
-function readPlain(json, read, line = 0, column = 0) {
+function readPlain(json, read, line, column) {
   check(json.version === 3, `version ${JSON.stringify(json.version)} is not 3`)
   check(json.sourceRoot === undefined || typeof json.sourceRoot === 'string', 'sourceRoot is not a string')
   const sources = stringArray(json.sources, 'sources')
@@ -45,22 +45,20 @@ function readPlain(json, read, line = 0, column = 0) {
   const ignored = new Set(ignoreList)
   const root = json.sourceRoot ? json.sourceRoot.replace(/\/?$/u, '/') : ''
   const files = sources.map((source, i) => intern(read, source === null ? null : root + source, contents[i] ?? null, ignored.has(i)))
-  decodeInto(read.segments, json.mappings, files, line, column)
-  return files
+  read.parts.push([json.mappings, files, line, column])
 }
 
 function readSections(json, read) {
   check(json.version === 3, `version ${JSON.stringify(json.version)} is not 3`)
   check(Array.isArray(json.sections), 'sections is not an array')
-  return json.sections.map((section, i) => {
+  for (const [i, section] of json.sections.entries()) {
     const { offset, map } = isObject(section) ? section : {}
     check(isObject(offset) && [offset.line, offset.column].every((n) => Number.isInteger(n) && n >= 0), `sections[${i}].offset is not a line and a column`)
     check(isObject(map) && map.sections === undefined, `sections[${i}].map is not a plain source map`)
     const previous = json.sections[i - 1]?.offset
     check(!previous || previous.line < offset.line || (previous.line === offset.line && previous.column <= offset.column), `sections[${i}] starts before sections[${i - 1}]`)
-    const files = readPlain(map, read, offset.line, offset.column)
-    return { line: offset.line, column: offset.column, files: [...new Set(files)].map((k) => read.files[k]) }
-  })
+    readPlain(map, read, offset.line, offset.column)
+  }
 }
 
 export function readSourceMap(input, options = {}) {
@@ -77,11 +75,10 @@ export function readSourceMap(input, options = {}) {
     }
   }
   check(isObject(json), 'not a JSON object')
-  const read = { files: [], bySource: new Map(), mapPath: options.path, segments: { starts: [0], columns: [], sources: [] } }
-  let sections = null
-  if (json.sections === undefined) readPlain(json, read)
-  else sections = readSections(json, read)
-  const map = { files: read.files, sections }
-  decoded.set(map, seal(read.segments))
+  const read = { files: [], bySource: new Map(), mapPath: options.path, parts: [] }
+  if (json.sections === undefined) readPlain(json, read, 0, 0)
+  else readSections(json, read)
+  const map = { files: read.files }
+  decoded.set(map, decodeMappings(read.parts))
   return map
 }

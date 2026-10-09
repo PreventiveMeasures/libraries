@@ -21,7 +21,8 @@ function* candidates(base) {
 }
 
 // Each package's directories by name: copies of different versions can lie
-// in several.
+// in several. `found`: what each path a specifier named resolved to, as
+// many files name the same.
 export function indexFiles(files) {
   const byPath = new Map()
   const roots = new Map()
@@ -29,12 +30,12 @@ export function indexFiles(files) {
     if (file.path !== null) byPath.set(file.path, file)
     if (file.package) roots.set(file.package.name, (roots.get(file.package.name) ?? new Set()).add(file.package.root))
   }
-  return { byPath, roots }
+  return { byPath, roots, found: new Map() }
 }
 
 function find(index, base) {
-  for (const candidate of candidates(base)) if (index.byPath.has(candidate)) return index.byPath.get(candidate)
-  return null
+  if (!index.found.has(base)) index.found.set(base, index.byPath.get(candidates(base).find((candidate) => index.byPath.has(candidate))) ?? null)
+  return index.found.get(base)
 }
 
 // As Node walks up from a file; else, as a store keeps packages away from
