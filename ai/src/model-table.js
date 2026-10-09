@@ -24,9 +24,11 @@ const EFFORTS_THROUGH_XHIGH = ['low', 'medium', 'high', 'xhigh']
 // trio, gpt-6.1-sol, the gpt-5.6 trio, gpt-5.5 and gpt-5.4, and every -pro row of those. The
 // minis, nano and codex have none.
 //
-// No Anthropic row takes one, and that is the published price rather than a gap: Claude 4.6 and
-// later bill the full 1M window at standard rates, and every older row here either has a 200k
-// window, with nothing past it to charge more for, or has been retired from the first-party API.
+// Of the Anthropic rows only haiku-5.5 takes one, inline: its two rate cards are 5x apart on every
+// leg past a 100K prompt. For the rest that is the published price rather than a gap: Opus, Sonnet
+// and Fable from 4.6 on bill the full 1M window at standard rates, and every older row here either
+// has a 200k window, with nothing past it to charge more for, or has been retired from the
+// first-party API.
 const OPENAI_LONG_CONTEXT = { above: 272_000, input: 2, output: 1.5 }
 
 // Prices in dollars per million tokens. The main list is every paid model OpenRouter serves; its free
@@ -37,8 +39,8 @@ export const MAIN_MODELS = [
   // input rather than the usual 0.10x, so the row names them.
   ['anthropic/claude-opus-5.5', { input: 4, output: 20, cacheReadPrice: 0.2, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported' }],
   ['anthropic/claude-fable-5.1', { input: 10, output: 50, cacheReadPrice: 0.25, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported' }],
-  ['anthropic/claude-sonnet-5.5', { input: 2, output: 10, maxTokens: 128_000, canThink: 'adaptive', noThink: 'between_tools' }],
-  ['anthropic/claude-haiku-4.5', { input: 1, output: 5, maxTokens: 64_000 }],
+  ['anthropic/claude-sonnet-5.5', { input: 2, output: 10, cacheReadPrice: 0.1, maxTokens: 128_000, canThink: 'adaptive', noThink: 'between_tools' }],
+  ['anthropic/claude-haiku-5.5', { input: 0.1, output: 0.5, longContext: { above: 100_000, input: 5, output: 5 }, maxTokens: 128_000, canThink: 'adaptive', noThink: 'explicit' }],
   ['anthropic/claude-fable-5', { input: 10, output: 50, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported' }],
   ['anthropic/claude-opus-5', { input: 5, output: 25, maxTokens: 128_000, canThink: 'adaptive', noThink: 'explicit' }],
   ['anthropic/claude-sonnet-5', { input: 2, output: 10, maxTokens: 128_000, canThink: 'adaptive', noThink: 'explicit' }],
@@ -48,6 +50,7 @@ export const MAIN_MODELS = [
   ['anthropic/claude-sonnet-4.6', { input: 3, output: 15, maxTokens: 128_000, canThink: 'adaptive', efforts: ['low', 'medium', 'high', 'max', 'manual'] }],
   ['anthropic/claude-opus-4.5', { input: 5, output: 25, maxTokens: 64 * 1024 }],
   ['anthropic/claude-sonnet-4.5', { input: 3, output: 15, maxTokens: 64 * 1024 }],
+  ['anthropic/claude-haiku-4.5', { input: 1, output: 5, maxTokens: 64_000 }],
   // Two unrelated things wear `-pro` here. A row carrying wireModel is an OPENROUTER ALIAS for
   // reasoning.mode=pro on the model it names: same weights, same rate, more tokens spent. A row
   // without one — gpt-5.5-pro, gpt-5.4-pro — is an OPENAI MODEL NAME, priced six times its namesake
