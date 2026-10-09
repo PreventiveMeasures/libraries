@@ -1,4 +1,5 @@
-import { languageOf, parse } from './parser.js'
+import { languageOf } from './files.js'
+import { parse } from './parser.js'
 import { indexFiles, resolveSpecifier } from './resolve.js'
 import { scanSpecifiers } from './scan.js'
 import { specifiersOf } from './specifiers.js'

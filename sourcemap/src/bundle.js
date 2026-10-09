@@ -13,9 +13,7 @@ export function bundleEdges(map, code) {
   const { program, error } = parse(code, 'jsx')
   if (!program) throw new Error(`bundleEdges: the bundle does not parse: ${error}`)
   const starts = lineStarts(code)
-  if (!isWebpack(map)) return { edges: referenceEdges(program, map, starts) }
-  // webpack's table holds its modules apart; those it concatenated into one
-  // scope read as any scope-hoisted bundle does.
-  const scoped = referenceEdges(program, map, starts).filter((edge) => !isWebpackOwn(edge.from) && !isWebpackOwn(edge.to))
-  return { edges: [...webpackEdges(program, map, starts), ...scoped] }
+  // webpack's runtime, and its stand-ins for externals, are no files.
+  const references = referenceEdges(program, map, starts, new Set(map.files.filter(isWebpackOwn)))
+  return { edges: isWebpack(map) ? [...webpackEdges(program, map, starts), ...references] : references }
 }

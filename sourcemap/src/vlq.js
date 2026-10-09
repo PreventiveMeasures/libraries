@@ -32,15 +32,16 @@ function sortLines(segments) {
 
 // Each part's segments, from its generated `line` and `column` on, as an
 // index map places a section: their generated columns, files (`files[source]`,
-// -1 for none) and names (`ids[name]`, -1 for none), line l's at
-// [starts[l], starts[l + 1]). Where in a source a segment points is read past.
+// -1 for none) and names (`names + name`, of its `nameCount`; -1 for none),
+// line l's at [starts[l], starts[l + 1]). Where in a source a segment
+// points is read past.
 export function decodeMappings(parts) {
   const starts = [0]
   let columns = new Int32Array(1024)
   let sources = new Int32Array(1024)
   let names = new Int32Array(1024)
   let count = 0
-  for (const [mappings, files, line, column, ids] of parts) {
+  for (const { mappings, files, line, column, names: nameBase, nameCount } of parts) {
     if (typeof mappings !== 'string') throw new SourceMapError('mappings is not a string')
     while (starts.length <= line) starts.push(count)
     const state = [0, 0, 0, 0, 0]
@@ -74,7 +75,7 @@ export function decodeMappings(parts) {
         if (count === columns.length) [columns, sources, names] = [grown(columns), grown(sources), grown(names)]
         columns[count] = state[0] + shift
         sources[count] = file
-        names[count++] = field === 5 ? (ids[state[4]] ?? -1) : -1
+        names[count++] = field === 5 && state[4] >= 0 && state[4] < nameCount ? nameBase + state[4] : -1
         field = 0
       }
       if (code === 65) {

@@ -1,15 +1,15 @@
 import { isUrl, packageName, resolvePath } from './files.js'
 
 // A map holds no package.json, tsconfig or resolver settings, so a file is
-// found by the names a resolver would try for it: no `exports`, `main` or
-// aliases.
+// found by the names a resolver would try for it, and a package's entry by
+// where packages keep it: no `exports`, and no aliases.
 
 const EXTENSIONS = ['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.mts', '.cts', '.json']
 // Platform files a bundler picks over the plain one: React Native's, and
 // the browser and Node builds a package ships side by side.
 const PLATFORMS = ['', '.native', '.ios', '.android', '.web', '.browser', '.node']
 // TypeScript's sources, imported by the names they compile to.
-const OUTPUT_NAMES = [['.js', ['.ts', '.tsx']], ['.jsx', ['.tsx']], ['.mjs', ['.mts']], ['.cjs', ['.cts']]]
+const OUTPUT_NAMES = new Map([['.js', ['.ts', '.tsx']], ['.jsx', ['.tsx']], ['.mjs', ['.mts']], ['.cjs', ['.cts']]])
 // Where a package keeps the entry its package.json, which no map carries,
 // names.
 const ENTRY_NAMES = ['index', 'main', 'browser', 'node']
@@ -20,9 +20,7 @@ const BUILD_DIRS = new Set(['lib', 'dist', 'build', 'out', 'esm', 'cjs'])
 function* candidates(base) {
   yield base
   const written = /\.[^./]+$/u.exec(base)?.[0]
-  for (const [output, inputs] of OUTPUT_NAMES) {
-    if (written === output) for (const input of inputs) yield base.slice(0, -output.length) + input
-  }
+  for (const input of OUTPUT_NAMES.get(written) ?? []) yield base.slice(0, -written.length) + input
   for (const stem of [base, `${base}/index`]) {
     for (const platform of PLATFORMS) for (const extension of EXTENSIONS) yield stem + platform + extension
   }
@@ -89,9 +87,24 @@ export function bareTarget(specifier) {
   return name === null ? {} : { package: name }
 }
 
+export const externalEdge = (from, kind, specifier) => ({ from, to: null, kind, specifier, ...bareTarget(specifier) })
+
+// Edges kept once per file they lead from and `key`.
+export function edgeList() {
+  const edges = []
+  const seen = new Map()
+  const add = (from, key, edge) => {
+    const keys = seen.get(from) ?? seen.set(from, new Set()).get(from)
+    if (keys.has(key)) return
+    keys.add(key)
+    edges.push(edge)
+  }
+  return { edges, add }
+}
+
 // A package's entry, where no index file at its root is: index, main,
 // browser or node, at its root or in a build directory; else its one file.
-export function entryOf(index, root) {
+function entryOf(index, root) {
   for (const name of ENTRY_NAMES) {
     for (const dir of ENTRY_DIRS) {
       const to = find(index, `${root}/${dir}${name}`)
@@ -102,12 +115,16 @@ export function entryOf(index, root) {
   return files?.length === 1 ? files[0] : null
 }
 
+// Where a map lists files in the order a bundler reached them, a package's
+// first is its entry.
+export const entryInOrder = (index, root) => index.byRoot.get(root)[0]
+
 function packageFile(index, root, subpath, entry) {
   if (!subpath) return find(index, root) ?? entry(index, root)
-  return find(index, `${root}/${subpath}`) ?? sourcePaths(subpath).map((path) => find(index, `${root}/${path}`)).find(Boolean) ?? null
+  return find(index, `${root}/${subpath}`) ?? sourcePaths(subpath).map((path) => find(index, `${root}/${path}`)).find(Boolean)
 }
 
-// `entry` finds a package's entry where no index file is it.
+// `entry` finds a package's entry where no index file at its root is.
 export function resolveSpecifier(index, from, specifier, entry = entryOf) {
   if (/^(?:\.{1,2}(?:\/|$)|\/)/u.test(specifier) || isUrl(specifier)) {
     const path = resolvePath(from.path, specifier)

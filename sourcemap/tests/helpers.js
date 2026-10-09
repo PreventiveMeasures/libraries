@@ -17,15 +17,16 @@ export function vlq(n) {
 }
 
 // A map giving each generated line whole to one file: `owners[i]` the index
-// into `sources` line i came from, or null for a line it says nothing about.
+// into `sources` line i came from, or [that, an index into `extra.names`]
+// for a line that carries a name, or null for a line it says nothing about.
 export function lineMap(sources, owners, extra = {}) {
-  let source = 0
-  let line = 0
+  let [source, line, name] = [0, 0, 0]
   const lines = owners.map((owner, i) => {
     if (owner === null) return ''
-    const segment = vlq(0) + vlq(owner - source) + vlq(i - line) + vlq(0)
-    source = owner
-    line = i
+    const [file, named] = [owner].flat()
+    let segment = vlq(0) + vlq(file - source) + vlq(i - line) + vlq(0)
+    if (named !== undefined) segment += vlq(named - name)
+    ;[source, line, name] = [file, i, named ?? name]
     return segment
   })
   return { version: 3, sources, mappings: lines.join(';'), ...extra }

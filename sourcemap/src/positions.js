@@ -48,11 +48,11 @@ export function fileAt(map, starts, offset) {
 export function fileAfter(map, starts, offset, skip) {
   const segments = segmentsOf(map)
   const [first, column] = positionOf(starts, offset)
-  for (let line = first; line < segments.starts.length - 1; line++) {
-    for (let k = segments.starts[line]; k < segments.starts[line + 1]; k++) {
-      const file = map.files[segments.sources[k]]
-      if ((line > first || segments.columns[k] >= column) && file && !skip(file)) return file
-    }
+  if (first >= segments.starts.length - 1) return null
+  const from = lastAtOrBefore(segments.columns, segments.starts[first], segments.starts[first + 1], column - 1) + 1
+  for (let k = from; k < segments.columns.length; k++) {
+    const file = map.files[segments.sources[k]]
+    if (file && !skip(file)) return file
   }
   return null
 }

@@ -4,7 +4,7 @@ import { readSourceMap } from '@preventive/sourcemap'
 import { bundleEdges, importEdges } from '@preventive/sourcemap/edges.js'
 import { bundleEdges as liteEdges } from '@preventive/sourcemap/edges-lite.js'
 import { bundle as fixture } from './fixtures.js'
-import { handWritten as bundle, lineMap, vlq } from './helpers.js'
+import { handWritten as bundle, lineMap } from './helpers.js'
 
 // A Metro bundle keeps, minified or not, the dependency ids its resolver
 // picked for each module; the map says which file each module's code came
@@ -19,17 +19,8 @@ const shown = (read, map, code) => read(map, code).edges.map(show)
 // segments carry, a segment a line.
 function metroMap(files) {
   const names = [...new Set(files.flatMap(([, , carried = []]) => carried))]
-  let [source, name] = [0, 0]
-  const lines = files.flatMap(([, , carried = []], i) => (carried.length > 0 ? carried : [null]).map((carriedName) => {
-    let segment = vlq(0) + vlq(i - source) + vlq(0) + vlq(0)
-    source = i
-    if (carriedName !== null) {
-      segment += vlq(names.indexOf(carriedName) - name)
-      name = names.indexOf(carriedName)
-    }
-    return segment
-  }))
-  return readSourceMap({ version: 3, sources: files.map(([path]) => path), sourcesContent: files.map(([, content]) => content), names, mappings: lines.join(';') })
+  const owners = files.flatMap(([, , carried = []], i) => (carried.length > 0 ? carried.map((name) => [i, names.indexOf(name)]) : [i]))
+  return readSourceMap(lineMap(files.map(([path]) => path), owners, { sourcesContent: files.map(([, content]) => content), names }))
 }
 
 // The fixture project (see fixtures.js), every import of it, ext

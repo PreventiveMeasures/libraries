@@ -90,6 +90,16 @@ describe('every shape webpack writes its table in', () => {
   })
 })
 
+it('takes no table inside a module for webpack\'s: an array of functions there is the module\'s own', () => {
+  assert.deepEqual(generated([
+    [RUNTIME, '(()=>{var e={'],
+    ['webpack://p/./a.js', '0(e,t,o){o(1)},'],
+    ['webpack://p/./b.js', '1(e,t,o){var handlers=[function(){},function(){}];o(0)}};'],
+    [RUNTIME, 'function o(r){var n={exports:{}};return e[r](n,n.exports,o),n.exports}'],
+    [RUNTIME, '})();'],
+  ]), ['a.js -> b.js [dependency]', 'b.js -> a.js [dependency]'])
+})
+
 it('a table of functions in a bundle no webpack:// source names is read for names alone', () => {
   assert.deepEqual(generated([
     ['a.js', 'var t={1(e,n,o){o(2)},2(){}};'],

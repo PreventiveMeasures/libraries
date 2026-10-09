@@ -1,6 +1,6 @@
-import { walk } from './parser.js'
+import { forEachChild } from './parser.js'
 import { fileAfter, fileAt, fileWithin } from './positions.js'
-import { bareTarget } from './resolve.js'
+import { edgeList, externalEdge } from './resolve.js'
 
 // webpack keeps each module apart, as a factory in a table keyed by its id
 // (a path in development, a number in production), handed `require` as its
@@ -18,69 +18,75 @@ export const isWebpackOwn = (file) => OWN.test(file?.source ?? '')
 const isFunction = (node) => node?.type === 'FunctionExpression' || node?.type === 'ArrowFunctionExpression'
 const idOf = (node) => (node?.type === 'Literal' && ['number', 'string'].includes(typeof node.value) ? String(node.value) : undefined)
 
-// Tables of nothing but factories: objects by id (webpack 5, and 4 by
-// path), or arrays by index (webpack 4).
-function factoriesOf(program) {
-  const factories = new Map()
-  walk(program, (node) => {
-    if (node.type === 'ObjectExpression' && node.properties.length > 0 && node.properties.every((p) => isFunction(p.value) && idOf(p.key) !== undefined)) {
-      for (const property of node.properties) factories.set(idOf(property.key), property.value)
-    } else if (node.type === 'ArrayExpression' && node.elements.some(Boolean) && node.elements.every((e) => e === null || isFunction(e))) {
-      for (const [i, element] of node.elements.entries()) if (element) factories.set(String(i), element)
-    }
-  })
-  return factories
+// A table of nothing but factories: an object by id (webpack 5, and 4 by
+// path), or an array by index (webpack 4); none for any other node.
+function tableOf(node) {
+  if (node.type === 'ObjectExpression' && node.properties.length > 0 && node.properties.every((p) => isFunction(p.value) && idOf(p.key) !== undefined)) {
+    return node.properties.map((property) => [idOf(property.key), property.value])
+  }
+  if (node.type === 'ArrayExpression' && node.elements.some(Boolean) && node.elements.every((e) => e === null || isFunction(e))) {
+    return node.elements.flatMap((element, i) => (element ? [[String(i), element]] : []))
+  }
+  return []
 }
 
-// `__webpack_require__`, by any name a minifier gave it: the function that
-// passes itself to a factory it looks up, `table[id](…, itself)` or, in
-// webpack 4, `table[id].call(…, itself)`.
-function requireNames(program) {
-  const names = new Set(['__webpack_require__'])
-  const isLookup = (callee) => callee.type === 'MemberExpression' && (callee.computed || (callee.property.name === 'call' && callee.object.computed))
-  walk(program, (node) => {
-    if (node.type !== 'FunctionDeclaration' || !node.id) return
-    walk(node.body, (call) => {
-      if (call.type === 'CallExpression' && isLookup(call.callee) && call.arguments.some((arg) => arg.name === node.id.name)) names.add(node.id.name)
-    })
-  })
-  return names
+const isLookup = (callee) => callee.type === 'MemberExpression' && (callee.computed || (callee.property.name === 'call' && callee.object.computed))
+
+// One walk: the tables outside any module (a table in one is the module's
+// own), every call with the factory it is in, and `__webpack_require__` by
+// any name a minifier gave it: the function that passes itself to a
+// factory it looks up, `table[id](…, itself)` or, in webpack 4,
+// `table[id].call(…, itself)`.
+function read(program) {
+  const ids = new Map()
+  const factories = new Map()
+  const calls = []
+  const requires = new Set(['__webpack_require__'])
+  const declared = []
+  const visit = (node, factory) => {
+    for (const [id, fn] of factory ? [] : tableOf(node)) {
+      if (ids.has(id)) continue
+      ids.set(id, fn)
+      factories.set(fn, id)
+    }
+    if (node.type === 'CallExpression') {
+      calls.push([node, factory])
+      if (isLookup(node.callee)) for (const argument of node.arguments) if (declared.includes(argument.name)) requires.add(argument.name)
+    }
+    const name = node.type === 'FunctionDeclaration' ? node.id?.name : undefined
+    if (name) declared.push(name)
+    forEachChild(node, visit, factories.has(node) ? node : factory)
+    if (name) declared.pop()
+  }
+  visit(program, null)
+  return { ids, factories, calls, requires }
 }
 
 export function webpackEdges(program, map, starts) {
-  const factories = factoriesOf(program)
-  const files = new Map([...factories].map(([id, factory]) => [id, fileWithin(map, starts, factory.body.start, factory.body.end)]))
-  const edges = []
-  const seen = new Map()
+  const { ids, factories, calls, requires } = read(program)
+  const files = new Map([...ids].map(([id, factory]) => [id, fileWithin(map, starts, factory.body.start, factory.body.end)]))
+  const { edges, add } = edgeList()
   // `to` a module's file, or webpack's stand-in for an external.
   const link = (from, to) => {
     const external = EXTERNAL.exec(to?.source ?? '')?.[1]
     if (!from || !to || to === from || isWebpackOwn(from) || (isWebpackOwn(to) && !external)) return
-    const keys = seen.get(from) ?? seen.set(from, new Set()).get(from)
-    if (keys.has(external ?? to)) return
-    keys.add(external ?? to)
-    edges.push(external ? { from, to: null, kind: 'dependency', specifier: external, ...bareTarget(external) } : { from, to, kind: 'dependency' })
+    add(from, external ?? to, external ? externalEdge(from, 'dependency', external) : { from, to, kind: 'dependency' })
   }
-  const inside = new Set()
-  for (const [id, factory] of factories) {
-    const param = factory.params[2]?.name
-    walk(factory.body, (node) => {
-      if (node.type !== 'CallExpression') return
-      inside.add(node)
-      if (param && node.callee.name === param && files.has(idOf(node.arguments[0]))) link(files.get(id), files.get(idOf(node.arguments[0])))
-    })
+  // A call outside the table is a concatenated module's, which webpack
+  // writes unmapped, ahead of the module's own code; an external's inlined
+  // require it maps to its stand-in.
+  const after = (call) => fileAfter(map, starts, call.end, isWebpackOwn)
+  for (const [call, factory] of calls) {
+    const id = idOf(call.arguments[0])
+    if (factory) {
+      const param = factory.params[2]?.name
+      if (param && call.callee.name === param) link(files.get(factories.get(factory)), files.get(id))
+    } else if (requires.has(call.callee.name) && files.has(id)) {
+      link(after(call), files.get(id))
+    } else {
+      const at = fileAt(map, starts, call.start)
+      if (EXTERNAL.test(at?.source ?? '')) link(after(call), at)
+    }
   }
-  // Calls outside the table, from the modules webpack concatenated, which
-  // it writes unmapped, ahead of the module's own code; an external's
-  // inlined require it maps to its stand-in.
-  const requires = requireNames(program)
-  walk(program, (node) => {
-    if (node.type !== 'CallExpression' || inside.has(node)) return
-    const from = () => fileAfter(map, starts, node.end, isWebpackOwn)
-    const id = requires.has(node.callee.name) ? idOf(node.arguments[0]) : undefined
-    if (files.has(id)) return link(from(), files.get(id))
-    const at = fileAt(map, starts, node.start)
-    if (EXTERNAL.test(at?.source ?? '')) link(from(), at)
-  })
   return edges
 }

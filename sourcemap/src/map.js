@@ -34,16 +34,6 @@ function intern(read, source, content, ignored) {
   return read.files.length - 1
 }
 
-// One id a name, across sections.
-function nameIds(read, names) {
-  if (!Array.isArray(names)) return []
-  return names.map((name) => {
-    if (typeof name !== 'string') return -1
-    if (!read.nameIds.has(name)) read.nameIds.set(name, read.names.push(name) - 1)
-    return read.nameIds.get(name)
-  })
-}
-
 // x_google_ignoreList is what Chrome read before ignoreList was standard.
 function readPlain(json, read, line, column) {
   check(json.version === 3, `version ${JSON.stringify(json.version)} is not 3`)
@@ -55,7 +45,9 @@ function readPlain(json, read, line, column) {
   const ignored = new Set(ignoreList)
   const root = json.sourceRoot ? json.sourceRoot.replace(/\/?$/u, '/') : ''
   const files = sources.map((source, i) => intern(read, source === null ? null : root + source, contents[i] ?? null, ignored.has(i)))
-  read.parts.push([json.mappings, files, line, column, nameIds(read, json.names)])
+  const names = Array.isArray(json.names) ? json.names : []
+  read.parts.push({ mappings: json.mappings, files, line, column, names: read.names.length, nameCount: names.length })
+  read.names.push(...names)
 }
 
 function readSections(json, read) {
@@ -85,7 +77,7 @@ export function readSourceMap(input, options = {}) {
     }
   }
   check(isObject(json), 'not a JSON object')
-  const read = { files: [], bySource: new Map(), mapPath: options.path, parts: [], names: [], nameIds: new Map() }
+  const read = { files: [], bySource: new Map(), mapPath: options.path, parts: [], names: [] }
   if (json.sections === undefined) readPlain(json, read, 0, 0)
   else readSections(json, read)
   const map = { files: read.files }

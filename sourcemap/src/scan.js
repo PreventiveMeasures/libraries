@@ -89,24 +89,23 @@ function lex(text) {
 }
 
 const isString = (token) => token?.type === 'string' && token.value !== null
-const valueOf = (token) => token?.value
+const TYPE_WORDS = new Set(['type', 'typeof'])
 
 // `{ type A, typeof B }`: names a type erasure takes with the statement.
 function onlyTypes(tokens, open) {
-  let all = 0
-  let types = 0
-  for (let j = open + 1; j < tokens.length && valueOf(tokens[j]) !== '}'; j++) {
-    if (j > open + 1 && valueOf(tokens[j - 1]) !== ',') continue
-    all++
-    if (['type', 'typeof'].includes(valueOf(tokens[j]))) types++
+  let any = false
+  for (let j = open + 1; j < tokens.length && tokens[j].value !== '}'; j++) {
+    if (j > open + 1 && tokens[j - 1].value !== ',') continue
+    if (!TYPE_WORDS.has(tokens[j].value)) return false
+    any = true
   }
-  return all > 0 && all === types
+  return any
 }
 
 // The string after the statement's `from`, before its end.
 function fromOf(tokens, at) {
   for (let j = at; j < tokens.length; j++) {
-    const value = valueOf(tokens[j])
+    const { value } = tokens[j]
     if (value === ';' || (j > at && (value === 'import' || value === 'export'))) return null
     if (value === 'from' && isString(tokens[j + 1])) return tokens[j + 1].value
   }
@@ -116,10 +115,10 @@ function fromOf(tokens, at) {
 // What `import` or `export` at `k` requests, as importEdges' kinds; null
 // for none, or for one that requests only types.
 function declared(tokens, k) {
-  const [keyword, next, after] = [valueOf(tokens[k]), tokens[k + 1], tokens[k + 2]]
+  const [keyword, next, after] = [tokens[k].value, tokens[k + 1], tokens[k + 2]]
   const kind = keyword === 'import' ? 'import' : 'export-from'
   if (keyword === 'import' && isString(next)) return { kind, specifier: next.value }
-  if (['type', 'typeof'].includes(next?.value) && ![',', 'from'].includes(valueOf(after))) return null
+  if (TYPE_WORDS.has(next?.value) && ![',', 'from'].includes(after?.value)) return null
   if (next?.value === '{' && onlyTypes(tokens, k + 1)) return null
   if (keyword === 'export' && !['{', '*'].includes(next?.value)) return null
   if (keyword === 'import' && next?.type !== 'word' && !['{', '*'].includes(next?.value)) return null
@@ -132,11 +131,11 @@ export function scanSpecifiers(text, callees = new Set()) {
   const tokens = lex(text)
   const found = []
   for (const [k, token] of tokens.entries()) {
-    if (token.type !== 'word' || valueOf(tokens[k - 1]) === '.') continue
+    if (token.type !== 'word' || tokens[k - 1]?.value === '.') continue
     const [open, argument, close] = [tokens[k + 1], tokens[k + 2], tokens[k + 3]]
-    if ((token.value === 'require' || callees.has(token.value)) && valueOf(open) === '(' && isString(argument) && valueOf(close) === ')') {
+    if ((token.value === 'require' || callees.has(token.value)) && open?.value === '(' && isString(argument) && close?.value === ')') {
       found.push({ kind: 'require', specifier: argument.value, ...(token.value !== 'require' && { callee: token.value }) })
-    } else if (token.value === 'import' && valueOf(open) === '(') {
+    } else if (token.value === 'import' && open?.value === '(') {
       if (isString(argument)) found.push({ kind: 'dynamic-import', specifier: argument.value })
     } else if (token.value === 'import' || token.value === 'export') {
       const request = declared(tokens, k)

@@ -11,7 +11,9 @@ function literalSpecifier(node) {
   return null
 }
 
-export function specifierOf(node) {
+// `callees`: functions taking a module's name, as require does:
+// `internalBinding('crypto')`.
+export function specifierOf(node, callees = new Set()) {
   switch (node.type) {
     case 'ImportDeclaration':
       return node.importKind === 'type' ? null : { kind: 'import', specifier: node.source.value }
@@ -20,8 +22,11 @@ export function specifierOf(node) {
       return node.source === null || node.exportKind === 'type' ? null : { kind: 'export-from', specifier: node.source.value }
     case 'ImportExpression':
       return { kind: 'dynamic-import', specifier: literalSpecifier(node.source) }
-    case 'CallExpression':
-      return node.callee.type === 'Identifier' && node.callee.name === 'require' && node.arguments.length > 0 ? { kind: 'require', specifier: literalSpecifier(node.arguments[0]) } : null
+    case 'CallExpression': {
+      const { name } = node.callee.type === 'Identifier' ? node.callee : {}
+      if ((name !== 'require' && !callees.has(name)) || node.arguments.length === 0) return null
+      return { kind: 'require', specifier: literalSpecifier(node.arguments[0]), ...(name !== 'require' && { callee: name }) }
+    }
     // TypeScript's `import a = require(…)`; `import a = A.b` names no module.
     case 'TSImportEqualsDeclaration':
       return node.moduleReference.type === 'TSExternalModuleReference' ? { kind: 'require', specifier: literalSpecifier(node.moduleReference.expression) } : null
@@ -30,17 +35,10 @@ export function specifierOf(node) {
   }
 }
 
-// A call of a function `callees` names as taking a module's name, as
-// require does: `internalBinding('crypto')`.
-function calleeOf(node, callees) {
-  if (node.type !== 'CallExpression' || node.callee.type !== 'Identifier' || !callees.has(node.callee.name) || node.arguments.length === 0) return null
-  return { kind: 'require', specifier: literalSpecifier(node.arguments[0]), callee: node.callee.name }
-}
-
-export function specifiersOf(program, callees = new Set()) {
+export function specifiersOf(program, callees) {
   const found = []
   walk(program, (node) => {
-    const named = specifierOf(node) ?? calleeOf(node, callees)
+    const named = specifierOf(node, callees)
     if (named) found.push(named)
   })
   return found

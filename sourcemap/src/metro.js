@@ -1,4 +1,5 @@
 import { fileWithin, lineStarts, positionOf } from './positions.js'
+import { edgeList } from './resolve.js'
 
 // No parser: Metro writes each module on lines of its own, starting `__d(`
 // (behind the bundle's global prefix, if any), and appends the define
@@ -51,10 +52,11 @@ function dependencyIds(list, text) {
 // the file between its neighbours': Metro lists a file a module, in order.
 function fillGaps(list, map) {
   const index = new Map(map.files.map((file, i) => [file, i]))
-  const known = list.flatMap((module, k) => (module.file ? [[k, index.get(module.file)]] : []))
-  for (const [n, [k, at]] of known.entries()) {
-    const [next, nextAt] = known[n + 1] ?? [list.length, at + list.length - k]
-    if (nextAt - at === next - k) for (let i = k + 1; i < next; i++) list[i].file = map.files[at + i - k] ?? null
+  const known = list.flatMap((module, k) => (module.file ? [{ k, at: index.get(module.file) }] : []))
+  for (const [n, { k, at }] of known.entries()) {
+    const next = known[n + 1]
+    if (next && next.at - at !== next.k - k) continue
+    for (let i = k + 1; i < (next?.k ?? list.length); i++) list[i].file = map.files[at + i - k] ?? null
   }
 }
 
@@ -78,15 +80,11 @@ export function metroEdges(code, map) {
   }
   fillGaps(list, map)
   const modules = new Map(list.map((module) => [module.id, module]))
-  const edges = []
-  for (const module of modules.values()) {
-    if (!module.file) continue
-    const targets = new Set([module.file])
-    for (const id of module.dependencies) {
+  const { edges, add } = edgeList()
+  for (const { file: from, dependencies } of list) {
+    for (const id of from ? dependencies : []) {
       const to = modules.get(id)?.file
-      if (!to || targets.has(to)) continue
-      targets.add(to)
-      edges.push({ from: module.file, to, kind: 'dependency' })
+      if (to && to !== from) add(from, to, { from, to, kind: 'dependency' })
     }
   }
   return edges
