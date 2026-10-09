@@ -17,6 +17,10 @@
     "./edges.js": {
       "types": "./edges.d.ts",
       "default": "./edges.js"
+    },
+    "./edges-lite.js": {
+      "types": "./edges-lite.d.ts",
+      "default": "./edges-lite.js"
     }
   },
   "browser": {
@@ -25,6 +29,8 @@
   "files": [
     "LICENSE-APACHE",
     "LICENSE-MIT",
+    "edges-lite.d.ts",
+    "edges-lite.js",
     "edges.d.ts",
     "edges.js",
     "sourcemap.d.ts",

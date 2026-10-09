@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { metroEdges } from '@preventive/sourcemap/edges.js'
+import { metroEdges } from '@preventive/sourcemap/edges-lite.js'
 import { bundle as fixture } from './fixtures.js'
 import { handWritten as bundle } from './helpers.js'
 

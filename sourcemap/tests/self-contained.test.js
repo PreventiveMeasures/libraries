@@ -91,18 +91,20 @@ describe('sourcemap/ imports nothing from outside but its peer, and node: on Nod
     })
   }
 
-  // The map door must not load the parser: reading a map is for anyone,
-  // parsing for those who installed it.
-  it('sourcemap.js reaches no module that requires the parser', () => {
-    const reached = new Set()
-    const visit = (url) => {
-      const name = url.href.slice(PKG_DIR.href.length)
-      if (reached.has(name)) return
-      reached.add(name)
-      for (const spec of specifiersOf(readFileSync(url, 'utf8'))) if (spec.startsWith('.')) visit(new URL(spec, url))
-    }
-    visit(new URL('sourcemap.js', PKG_DIR))
-    assert.ok(reached.has('src/map.js'))
-    for (const module of Object.keys(PEERS)) assert.ok(!reached.has(module), `sourcemap.js reaches ${module}`)
-  })
+  // These doors must not load the parser, nor bring it into a browser
+  // bundle: reading a map, and Metro's edges, are for anyone.
+  for (const [door, needs] of [['sourcemap.js', 'src/map.js'], ['edges-lite.js', 'src/metro.js']]) {
+    it(`${door} reaches no module that loads the parser`, () => {
+      const reached = new Set()
+      const visit = (url) => {
+        const name = url.href.slice(PKG_DIR.href.length)
+        if (reached.has(name)) return
+        reached.add(name)
+        for (const spec of specifiersOf(readFileSync(url, 'utf8'))) if (spec.startsWith('.')) visit(new URL(spec, url))
+      }
+      visit(new URL(door, PKG_DIR))
+      assert.ok(reached.has(needs))
+      for (const module of ['src/parser.js', 'src/oxc.js', ...Object.keys(PEERS)]) assert.ok(!reached.has(module), `${door} reaches ${module}`)
+    })
+  }
 })
