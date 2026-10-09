@@ -184,6 +184,7 @@ describe('canTaskBudget', () => {
   it('true for the models on the task-budgets-2026-03-13 beta', () => {
     assert.equal(canTaskBudget('anthropic/claude-fable-5.1'), true)
     assert.equal(canTaskBudget('anthropic/claude-sonnet-5.5'), true)
+    assert.equal(canTaskBudget('anthropic/claude-haiku-5.5'), true)
     assert.equal(canTaskBudget('anthropic/claude-fable-5'), true)
     assert.equal(canTaskBudget('anthropic/claude-opus-5'), true)
     assert.equal(canTaskBudget('anthropic/claude-sonnet-5'), true)
@@ -299,6 +300,52 @@ describe('claude opus 5.5', () => {
   })
 })
 
+describe('claude haiku 5.5', () => {
+  const HAIKU55 = 'anthropic/claude-haiku-5.5'
+  const bill = (legs) => calculateCost(HAIKU55, { ...emptyUsage(), ...legs })
+
+  it('prices a prompt of 100K or less at the published $0.10 / $0.50 per Mtok, cache legs at the usual multiples', () => {
+    // Read off 100K tokens a leg: baseRate's quarter million is already past this row's line.
+    assert.equal(bill({ input: 100_000 }) * 10, 0.1)
+    assert.equal(bill({ output: 100_000 }) * 10, 0.5)
+    assert.equal(bill({ cacheRead: 100_000 }) * 10, 0.01)
+    assert.equal(bill({ cacheWrite5m: 100_000 }) * 10, 0.125)
+    assert.equal(bill({ cacheWrite1h: 100_000 }) * 10, 0.2)
+  })
+
+  it('bills the whole request at 5x on every leg once the prompt is past 100K', () => {
+    assert.equal(bill({ input: 1_000_000, output: 1_000_000 }), 0.5 + 2.5)
+    assert.equal(bill({ cacheRead: 1_000_000 }), 0.05)
+    assert.equal(bill({ cacheWrite5m: 1_000_000 }), 0.625)
+    assert.equal(bill({ cacheWrite1h: 1_000_000 }), 1)
+  })
+
+  it('draws the line after 100,000 prompt tokens, counting the cache legs toward it', () => {
+    assert.equal(bill({ input: 100_000 }), 0.01)
+    assert.equal(bill({ input: 100_001 }), 0.0500005)
+    // 60K fresh and 50K cached: neither leg is past the line on its own.
+    assert.equal(bill({ input: 60_000, cacheRead: 50_000 }), 0.0325)
+    // A long answer to a short prompt stays on the base card.
+    assert.equal(bill({ input: 1000, output: 1_000_000 }), 0.5001)
+  })
+
+  it('registers a 128,000 max_tokens', () => {
+    assert.equal(getMaxTokens(HAIKU55), 128_000)
+  })
+
+  it('thinks adaptively by default, takes every effort level but manual, and turns off with the disabled form', () => {
+    assert.equal(canAdaptive(HAIKU55), true)
+    assert.deepEqual(effortsFor(HAIKU55), ['low', 'medium', 'high', 'xhigh', 'max'])
+    assert.equal(canDisableThink(HAIKU55), true)
+    assert.equal(needsExplicitNoThink(HAIKU55), true)
+    assert.equal(needsBetweenToolsNoThink(HAIKU55), false)
+  })
+
+  it('accepts the Anthropic task-budgets beta', () => {
+    assert.equal(canTaskBudget(HAIKU55), true)
+  })
+})
+
 describe('claude sonnet 5.5', () => {
   const SONNET55 = 'anthropic/claude-sonnet-5.5'
 
@@ -350,6 +397,7 @@ describe('no-think wire form', () => {
     // OpenRouter marks its reasoning mandatory.
     ['anthropic/claude-sonnet-5.5', false, true],
     ['anthropic/claude-sonnet-5', true, true],
+    ['anthropic/claude-haiku-5.5', true, true],
     ['anthropic/claude-opus-4.8', false, true],
     ['anthropic/claude-sonnet-4.6', false, true],
     ['openai/gpt-6-sol', true, true],

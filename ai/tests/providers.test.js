@@ -542,9 +542,10 @@ describe('buildRequestBody — provider-specific shapes', () => {
     })
   })
 
-  it('opus 5 and sonnet 5 + think=false emit an explicit {thinking: {type: "disabled"}} — they think by default otherwise', () => {
+  it('opus 5, sonnet 5 and haiku 5.5 + think=false emit an explicit {thinking: {type: "disabled"}} — they think by default otherwise', () => {
     withProvider('anthropic', 'ANTHROPIC_API_KEY', () => {
-      for (const model of ['anthropic/claude-opus-5', 'anthropic/claude-sonnet-5']) {
+      assert.equal(buildRequestBody('anthropic/claude-haiku-5.5', 1000, 'sys', messages).model, 'claude-haiku-5-5')
+      for (const model of ['anthropic/claude-opus-5', 'anthropic/claude-sonnet-5', 'anthropic/claude-haiku-5.5']) {
         const body = buildRequestBody(model, 1000, 'sys', messages)
         assert.deepEqual(body.thinking, { type: 'disabled' }, model)
         // No effort alongside it — the disabled form 400s at xhigh / max.
