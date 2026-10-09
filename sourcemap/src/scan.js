@@ -16,6 +16,8 @@ const WORD = /[\w$\u0080-￿]+/uy
 // the `}` that closes a block, not an object.
 const OPERATORS = new Set(['return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw', 'case', 'do', 'else', 'yield', 'await'])
 const CONTROL = new Set(['if', 'while', 'for', 'with'])
+// And after these, the end of their statement.
+const ENDING = new Set(['break', 'continue', 'debugger'])
 // A `{` after these opens an object, where an expression goes; after
 // anything else (`)`, `=>`, a statement's end, `else`), a block.
 const EXPRESSION_BEFORE = new Set(['(', '[', ',', '=', ':', '?', '!', '~', '+', '-', '*', '/', '%', '&', '|', '^', '<', '>'])
@@ -35,7 +37,7 @@ function opensHead(tokens) {
 
 function regexAllowed(previous) {
   if (!previous) return true
-  if (previous.type === 'word') return OPERATORS.has(previous.value)
+  if (previous.type === 'word') return OPERATORS.has(previous.value) || ENDING.has(previous.value)
   if (previous.value === ')') return previous.control
   if (previous.value === '}') return !previous.object
   return previous.type === 'punctuator' && !['++', '--', ']'].includes(previous.value)
