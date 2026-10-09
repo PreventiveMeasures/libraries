@@ -1,93 +1,77 @@
-import { parse, walk } from './parser.js'
 import { fileWithin, lineStarts, positionOf } from './positions.js'
-import { literalSpecifier } from './specifiers.js'
 
-// Metro writes every module as __d(factory, id, dependencies, name), the
-// dependencies the ids its resolver picked, minified or not. A section of
-// the map starts where each __d does and names the module's one file; with
-// no sections (a map composed for Hermes is flat), the file most of the
-// factory maps to stands in.
+// No parser: Metro writes each module on lines of its own, starting `__d(`
+// (behind the bundle's global prefix, if any), and appends the define
+// call's params to its code as JSON: `},id[,dependencies[,name]])`, the
+// dependencies the ids its resolver picked, or, to carry lazy imports'
+// `paths`, an object keyed by position.
 
-// The define call, by Metro's name or with the global prefix a bundle can
-// be given ahead of it.
-const DEFINE = /__d$/u
+const START = /^[\w$]*__d\(/gmu
 
-const literal = (node) => (node?.type === 'Literal' && (typeof node.value === 'number' || typeof node.value === 'string') ? node.value : null)
-const isFunction = (node) => node?.type === 'FunctionExpression' || node?.type === 'ArrowFunctionExpression'
+const isParams = ([id, dependencies, name, ...rest]) => (typeof id === 'number' || typeof id === 'string')
+  && (dependencies === undefined || typeof dependencies === 'object') && (name === undefined || typeof name === 'string') && rest.length === 0
 
-// The module ids an argument lists: an array of ids (null for an optional
-// one that did not resolve), or the object Metro writes instead to carry
-// `paths` for lazy imports, keyed by position; null for no list.
-function dependencyIds(node) {
-  if (node?.type === 'ArrayExpression') return node.elements.map((element) => literal(element))
-  if (node?.type !== 'ObjectExpression') return null
-  const ids = []
-  for (const property of node.properties) {
-    const key = property.type === 'Property' ? (property.key.type === 'Identifier' ? property.key.name : String(property.key.value)) : null
-    if (key !== null && /^\d+$/u.test(key)) ids[Number(key)] = literal(property.value)
+// The longest run of JSON params the line ends with, back to the factory's
+// closing brace.
+function paramsOf(line) {
+  const end = /\);?\s*$/u.exec(line)?.index
+  let found = null
+  for (let at = end === undefined ? -1 : line.lastIndexOf('},', end); at >= 0; at = at > 0 ? line.lastIndexOf('},', at - 1) : -1) {
+    try {
+      const params = JSON.parse(`[${line.slice(at + 2, end)}]`)
+      if (!isParams(params)) break
+      found = params
+    } catch {
+      break
+    }
   }
-  // `paths` alone: the ids were inlined, and only the lazy paths are left.
-  return ids.length === 0 ? null : Array.from(ids, (id) => id ?? null)
+  return found
 }
 
-// With unstable_inlineDependencyMap the list is gone and each id stands in
-// the code, as the argument to the factory's require-shaped parameters
-// (require, importDefault, importAll).
-function inlinedIds(factory) {
-  const callees = new Set(factory.params.slice(1, 4).filter((param) => param.type === 'Identifier').map((param) => param.name))
-  const ids = []
-  walk(factory.body, (node) => {
-    if (node.type !== 'CallExpression' || node.callee.type !== 'Identifier' || !callees.has(node.callee.name)) return
-    const id = literal(node.arguments[0])
-    if (id !== null && !ids.includes(id)) ids.push(id)
-  })
-  return ids
+// With unstable_inlineDependencyMap, each id stands in the factory's code
+// instead, as the argument to its require-shaped parameters.
+function inlinedIds(text) {
+  const names = /^[\w$]*__d\(\s*(?:function\s*[\w$]*\s*)?\(([^)]*)\)/u.exec(text)?.[1].split(',').slice(1, 4).map((name) => name.trim().replaceAll('$', '\\$'))
+  if (!names?.length) return []
+  const calls = text.matchAll(new RegExp(`(?<![\\w$.])(?:${names.join('|')})\\((\\d+|"(?:[^"\\\\]|\\\\.)*")[,)]`, 'gu'))
+  return [...new Set([...calls].map((call) => JSON.parse(call[1])))]
 }
 
-function defineCall(statement) {
-  const call = statement.type === 'ExpressionStatement' ? statement.expression : null
-  if (call?.type !== 'CallExpression' || call.callee.type !== 'Identifier' || !DEFINE.test(call.callee.name)) return null
-  const [factory, id] = call.arguments
-  return isFunction(factory) && literal(id) !== null ? call : null
+function dependencyIds(list, text) {
+  if (Array.isArray(list)) return list
+  const ids = Object.entries(list ?? {}).filter(([key]) => /^\d+$/u.test(key)).map(([, id]) => id)
+  return ids.length > 0 ? ids : inlinedIds(text)
 }
 
-// Each module's file: the section its __d starts in, where that section
-// lists one file. Sections come in order and so do the modules, so one
-// cursor walks the sections once for the whole bundle.
-function fileFinder(map, starts) {
-  const sections = map.sections ?? []
-  let k = -1
-  return (call, factory) => {
-    const [line, column] = positionOf(starts, call.start)
-    while (k + 1 < sections.length && (sections[k + 1].line < line || (sections[k + 1].line === line && sections[k + 1].column <= column))) k++
-    if (sections[k]?.files.length === 1) return sections[k].files[0]
-    return fileWithin(map, starts, factory.body.start, factory.body.end)
-  }
-}
-
-// { modules, edges }: every module the bundle defines, as { id, file, name,
-// dependencies } (`name` the path a development bundle spells, else null),
-// and an edge for each dependency between two modules whose files the map
-// names.
 export function metroEdges(code, map) {
-  const { program, error } = parse(code, 'js')
-  if (!program) throw new Error(`metroEdges: the bundle does not parse: ${error}`)
-  const fileOf = fileFinder(map, lineStarts(code))
+  const starts = lineStarts(code)
+  const sections = map.sections ?? []
+  let section = -1
+  const begins = [...code.matchAll(START)].map((match) => match.index)
   const modules = new Map()
-  for (const statement of program.body) {
-    const call = defineCall(statement)
-    if (!call) continue
-    const [factory, id, list, verbose] = call.arguments
-    const module = { id: literal(id), file: fileOf(call, factory), name: literalSpecifier(verbose), dependencies: dependencyIds(list) ?? inlinedIds(factory) }
-    modules.set(module.id, module)
+  for (const [k, begin] of begins.entries()) {
+    const text = code.slice(begin, begins[k + 1])
+    let end = text.length
+    let params = null
+    while (!params && end > 0) {
+      const from = text.lastIndexOf('\n', end - 1) + 1
+      params = paramsOf(text.slice(from, end))
+      if (!params) end = from - 1
+    }
+    const [line, column] = positionOf(starts, begin)
+    if (!params) throw new Error(`metroEdges: the module at line ${line + 1} ends in no define params`)
+    // Sections come in order, as the modules do: one cursor walks them once.
+    while (sections[section + 1] && (sections[section + 1].line < line || (sections[section + 1].line === line && sections[section + 1].column <= column))) section++
+    const file = sections[section]?.files.length === 1 ? sections[section].files[0] : fileWithin(map, starts, begin, begin + end)
+    modules.set(params[0], { id: params[0], file, name: params[2] ?? null, dependencies: dependencyIds(params[1], text.slice(0, end)) })
   }
   const edges = []
   for (const module of modules.values()) {
     if (!module.file) continue
-    const targets = new Set()
+    const targets = new Set([module.file])
     for (const id of module.dependencies) {
       const to = modules.get(id)?.file
-      if (!to || to === module.file || targets.has(to)) continue
+      if (!to || targets.has(to)) continue
       targets.add(to)
       edges.push({ from: module.file, to, kind: 'dependency' })
     }

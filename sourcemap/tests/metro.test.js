@@ -76,7 +76,8 @@ describe('every shape Metro writes a define call in', () => {
       ['helper.js', '__d(function(g,r,i,a,m,e,d){'],
       ['m.js', 'r(d[0]);'],
       ['m.js', 'm.exports=1'],
-      ['dep.js', '},0,[1]);__d(function(){},1);'],
+      ['dep.js', '},0,[1]);'],
+      ['dep.js', '__d(function(){},1);'],
     ])
     assert.deepEqual(metroEdges(code, map).modules.map((m) => m.file.path), ['m.js', 'dep.js'])
   })
@@ -88,9 +89,11 @@ describe('every shape Metro writes a define call in', () => {
     assert.deepEqual(edges, [])
   })
 
-  it('is no Metro bundle, and says so, where nothing defines a module or nothing parses', () => {
-    const [code, map] = bundle([['a.js', 'define(function(){},0,[1]);__d(notAFunction,1,[]);__d(function(){},x,[])']])
+  it('finds no module where no line starts one, and says which module it cannot read', () => {
+    const [code, map] = bundle([['a.js', 'define(function(){},0,[1]);__d(function(){},1,[])']])
     assert.deepEqual(metroEdges(code, map), { modules: [], edges: [] })
-    assert.throws(() => metroEdges('__d(function(){', map), /metroEdges: the bundle does not parse/u)
+    for (const broken of ['__d(function(){', '__d(function(){},x,[])', '__d(function(){},0,[1],"a",2)']) {
+      assert.throws(() => metroEdges(`var a\n${broken}`, map), /metroEdges: the module at line 2 ends in no define params/u, broken)
+    }
   })
 })

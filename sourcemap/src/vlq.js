@@ -1,20 +1,18 @@
 import { SourceMapError } from './error.js'
 
-// The `mappings` string: lines split by `;`, segments by `,`, each segment
-// 1, 4 or 5 base64 VLQs: digits whose bit 32 says another follows, the
-// first's lowest bit the sign. A segment's first field restarts at zero on
-// every line; the rest run on across lines.
+// `mappings`: lines split by `;`, segments by `,`, each 1, 4 or 5 base64
+// VLQs (bit 32 continues a value, the lowest bit of its first digit is the
+// sign), the first field relative to the line's previous segment, the rest
+// to the map's.
 
-// Each base64 digit's value, `,` 64, `;` 65, anything else 255.
+// A digit's value, `,` 64, `;` 65, anything else 255.
 const CODES = new Uint8Array(128).fill(255)
 for (const [i, c] of [...'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/,;'].entries()) CODES[c.codePointAt(0)] = i
 
-// Appends what `mappings` holds to `segments` ({ starts, columns, sources }):
-// each segment's generated column, and its file, `files[source]`, or -1 for
-// one that maps to nothing. Its first line goes at generated line `line`,
-// shifted by `column`, as an index map places a section. Where in a source
-// a segment points, and its name, are read past: what is asked of a map
-// here is which file, never where in it.
+// Appends each segment's generated column and file (`files[source]`, -1 for
+// none) to `segments`, from generated `line` and `column` on, as an index
+// map places a section. Where in a source a segment points, and its name,
+// are read past: nothing here asks.
 export function decodeInto(segments, mappings, files, line = 0, column = 0) {
   if (typeof mappings !== 'string') throw new SourceMapError('mappings is not a string')
   const { starts, columns, sources } = segments
@@ -59,9 +57,9 @@ export function decodeInto(segments, mappings, files, line = 0, column = 0) {
   return segments
 }
 
-// The segments as typed arrays, a large map having millions, line l's at
-// [starts[l], starts[l + 1]) and in column order, which neither a
-// generator nor sections laid side by side need have kept.
+// Typed arrays, as a large map has millions of segments, line l's at
+// [starts[l], starts[l + 1]) and in column order, which neither a generator
+// nor sections laid side by side need have kept.
 export function seal({ starts, columns, sources }) {
   starts.push(columns.length)
   for (let l = 0; l + 1 < starts.length; l++) {

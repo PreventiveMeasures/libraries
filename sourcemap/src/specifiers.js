@@ -1,21 +1,16 @@
 import { walk } from './parser.js'
 
-// The modules a program names, read as stasis reads them: { kind,
-// specifier }, the specifier null for a computed one. Type-ness is the
-// statement's, as type erasure decides it: `import type` and `export type`
-// go, `import { type A }` still loads its module and stays. A `require`
-// is one by its name alone: a UMD or AMD factory is handed the real one as
-// a parameter.
+// Read as stasis reads them. Type-ness is the statement's, as type erasure
+// decides it: `import type` goes, `import { type A }` still loads its
+// module. A `require` is one by its name alone: a UMD or AMD factory is
+// handed the real one as a parameter.
 
-// A string a call names its module by: a string literal, or a template
-// literal with nothing interpolated.
 export function literalSpecifier(node) {
   if (node?.type === 'Literal' && typeof node.value === 'string') return node.value
   if (node?.type === 'TemplateLiteral' && node.expressions.length === 0 && node.quasis.length === 1) return node.quasis[0].value.cooked ?? null
   return null
 }
 
-// The module `node` names, or null where it names none.
 export function specifierOf(node) {
   switch (node.type) {
     case 'ImportDeclaration':

@@ -56,7 +56,9 @@ export interface MetroModule {
 
 // Every module a Metro bundle defines (`code`, the JavaScript, not Hermes
 // bytecode), and an edge for each of its dependencies between two modules
-// whose files the map names. Throws where the bundle does not parse.
+// whose files the map names. Read without a parser, off the lines Metro
+// writes each module on; throws for a module whose define call it cannot
+// read.
 export function metroEdges(code: string, map: SourceMap): { modules: MetroModule[]; edges: (Edge & { kind: 'dependency'; to: SourceFile })[] }
 
 // From a scope-hoisted bundle: `reference` edges, code mapped to one file

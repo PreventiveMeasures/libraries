@@ -2,7 +2,7 @@ import { SourceMapError } from './error.js'
 import { packageOf, sourcePath } from './files.js'
 import { decodeInto, seal } from './vlq.js'
 
-// A map's decoded segments (vlq.js), kept off the object a caller holds.
+// Kept off the object a caller holds.
 const decoded = new WeakMap()
 
 export const segmentsOf = (map) => decoded.get(map)
@@ -20,8 +20,7 @@ function stringArray(value, field) {
   return value
 }
 
-// One file a distinct source string, however many sections or entries
-// list it: its index in `read.files`.
+// One file a source string, however many sections or entries list it.
 function intern(read, source, content, ignored) {
   const known = source === null ? undefined : read.bySource.get(source)
   if (known !== undefined) {
@@ -35,9 +34,7 @@ function intern(read, source, content, ignored) {
   return read.files.length - 1
 }
 
-// A plain (non-index) map, its segments from generated `line` and `column`
-// on: the indices of the files it lists. `ignoreList` was Chrome's
-// x_google_ignoreList before the field had its standard name.
+// x_google_ignoreList is what Chrome read before ignoreList was standard.
 function readPlain(json, read, line = 0, column = 0) {
   check(json.version === 3, `version ${JSON.stringify(json.version)} is not 3`)
   check(json.sourceRoot === undefined || typeof json.sourceRoot === 'string', 'sourceRoot is not a string')
@@ -52,8 +49,6 @@ function readPlain(json, read, line = 0, column = 0) {
   return files
 }
 
-// An index map's sections, each laid where its offset puts it: in order,
-// and no nesting.
 function readSections(json, read) {
   check(json.version === 3, `version ${JSON.stringify(json.version)} is not 3`)
   check(Array.isArray(json.sections), 'sections is not an array')
@@ -68,8 +63,6 @@ function readSections(json, read) {
   })
 }
 
-// The map as JSON text, its bytes, or the object JSON.parse made of it, with
-// `options.path` where the map file is, to resolve its sources against.
 export function readSourceMap(input, options = {}) {
   if (!isObject(options)) throw new TypeError('readSourceMap: options is not an object')
   if (options.path !== undefined && typeof options.path !== 'string') throw new TypeError('readSourceMap: options.path is not a string')
@@ -77,6 +70,7 @@ export function readSourceMap(input, options = {}) {
   if (typeof input === 'string' || input instanceof Uint8Array) {
     try {
       const text = typeof input === 'string' ? input : new TextDecoder('utf-8', { fatal: true }).decode(input)
+      // A leading `)]}'` line guards a map against being run as a script.
       json = JSON.parse(text.replace(/^\)\]\}'[^\n]*\n/u, ''))
     } catch (cause) {
       throw new SourceMapError(`not JSON: ${cause.message}`, { cause })

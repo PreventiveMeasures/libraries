@@ -1,12 +1,9 @@
 import { forEachChild } from './parser.js'
 import { specifierOf } from './specifiers.js'
 
-// Every identifier reference in a program, resolved to the identifier that
-// declares it: enough of JavaScript's scoping to follow a name in a bundle,
-// where a minifier reuses the same short names in scope after scope. Two
-// passes, so a reference ahead of its declaration (hoisting, a function
-// called before it is written) resolves like any other: the first declares,
-// the second resolves.
+// Enough of JavaScript's scoping to follow a name in a bundle, where a
+// minifier reuses short names in scope after scope. Two passes, the first
+// declaring, so that a use ahead of its declaration resolves too.
 
 function lookup(scope, name) {
   for (let s = scope; s !== null; s = s.parent) {
@@ -16,7 +13,6 @@ function lookup(scope, name) {
   return null
 }
 
-// The identifiers a binding pattern declares.
 function patternNames(pattern, out = []) {
   const type = pattern?.type
   if (type === 'Identifier') out.push(pattern)
@@ -29,7 +25,7 @@ function patternNames(pattern, out = []) {
 // Types say nothing about what runs.
 const TYPES = new Set(['TSTypeAnnotation', 'TSTypeParameterDeclaration', 'TSTypeParameterInstantiation', 'TSInterfaceDeclaration', 'TSTypeAliasDeclaration', 'TSDeclareFunction'])
 
-// The scope `node` opens: made in the declaring pass, found in the other.
+// Made in the declaring pass, found in the other.
 function scopeFor(node, parent, isFunction, pass) {
   if (!pass.declaring) return pass.scopes.get(node)
   const scope = { parent, names: new Map() }
@@ -38,9 +34,7 @@ function scopeFor(node, parent, isFunction, pass) {
   return scope
 }
 
-// Called in the declaring pass alone, the resolving pass not so much as
-// working out the names: each identifier, with the module it imports where
-// it is an import binding.
+// In the declaring pass alone. `imported`: the module of an import binding.
 function declare(scope, pass, identifiers, imported) {
   for (const id of identifiers) {
     pass.declared.set(id, imported)
@@ -79,8 +73,7 @@ function external(node, scope, pass) {
   pass.external(node, named.kind, named.specifier)
 }
 
-// The keys of these that are names, not references: visited only where a
-// computed key makes them an expression.
+// Their keys are names, but where computed.
 const KEYED = new Set(['Property', 'MethodDefinition', 'PropertyDefinition', 'AccessorProperty'])
 
 function visit(node, scope, pass) {
@@ -147,10 +140,8 @@ function visit(node, scope, pass) {
   }
 }
 
-// Calls `reference(identifier, binding, specifier)` for every reference:
-// the binding the declaring identifier or null for a global, the specifier
-// the module it imports where it is an import. And `external(node, kind,
-// specifier)` for every module the program leaves to the runtime.
+// `reference(identifier, binding, imported)`, binding null for a global;
+// `external(node, kind, specifier)` for a module left to the runtime.
 export function resolveReferences(program, callbacks) {
   const shared = { scopes: new Map(), declared: new Map() }
   for (const pass of [{ ...shared, declaring: true }, { ...shared, ...callbacks, declaring: false }]) {

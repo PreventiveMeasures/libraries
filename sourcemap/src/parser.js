@@ -1,39 +1,30 @@
 import { getParser } from './oxc.js'
 
-// The errors oxc reports for a parse, but its warnings and advice.
-const syntaxErrors = (parsed) => (parsed.errors ?? []).filter((e) => e.severity !== 'Warning' && e.severity !== 'Advice')
-
-// What oxc reads a file as, by its extension, a bundler's `?query` after it
-// aside: the .js family with JSX, React Native's custom, which plain
-// JavaScript parses the same under; 'json' for JSON; null for no script.
+// The .js family with JSX, as React Native writes it, which plain
+// JavaScript parses the same under.
 const LANGUAGES = new Map([['js', 'jsx'], ['mjs', 'jsx'], ['cjs', 'jsx'], ['jsx', 'jsx'], ['ts', 'ts'], ['mts', 'ts'], ['cts', 'ts'], ['tsx', 'tsx'], ['json', 'json']])
 
 export const languageOf = (path) => LANGUAGES.get(/\.([a-z]+)(?:\?.*)?$/iu.exec(path)?.[1].toLowerCase()) ?? null
 
-// `text` parsed in `lang` (languageOf's): { program } from the first parse
-// with no errors, or { error } with the first parse's. `unambiguous` takes a
-// module by its syntax, as Node does a typeless file; then `commonjs`, which
-// takes the top-level `return` CommonJS's wrapper allows. Flow it cannot read.
+// `unambiguous` takes a module by its syntax, as Node does a typeless file;
+// `commonjs` takes the top-level `return` CommonJS's wrapper allows.
 export function parse(text, lang) {
   const { parseSync } = getParser()
   let error
   for (const sourceType of ['unambiguous', 'commonjs']) {
-    let parsed
     try {
-      parsed = parseSync(`source.${lang}`, text, { sourceType, lang })
+      const parsed = parseSync(`source.${lang}`, text, { sourceType, lang })
+      const errors = parsed.errors.filter((e) => e.severity !== 'Warning' && e.severity !== 'Advice')
+      if (errors.length === 0) return { program: parsed.program }
+      error ??= errors[0].message
     } catch (cause) {
       error ??= cause.message
-      continue
     }
-    const errors = syntaxErrors(parsed)
-    if (errors.length === 0) return { program: parsed.program }
-    error ??= errors[0].message
   }
   return { error }
 }
 
-// Calls `visit(child, a, b)` on each node directly under `node`, what the
-// caller carries down passed along rather than closed over.
+// `a` and `b` passed along rather than closed over: no closure per node.
 export function forEachChild(node, visit, a, b) {
   for (const field of Object.keys(node)) {
     if (field === 'type' || field === 'start' || field === 'end' || field === 'range' || field === 'loc') continue
@@ -46,7 +37,6 @@ export function forEachChild(node, visit, a, b) {
   }
 }
 
-// Every node under `node`, depth first, `node` included.
 export function walk(node, enter) {
   enter(node)
   forEachChild(node, walk, enter)

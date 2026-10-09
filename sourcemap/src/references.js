@@ -3,16 +3,9 @@ import { fileAt, lineStarts } from './positions.js'
 import { bareTarget } from './resolve.js'
 import { resolveReferences } from './scope.js'
 
-// Edges as a scope-hoisted bundle (esbuild, rollup) still shows them: the
-// bundler drops the imports and leaves one scope where every module's names
-// meet, so code from one file naming a declaration from another is that
-// file using the other. What is used, not what is imported: an import kept
-// only for its side effects shows nothing, and a re-exporting index file
-// none of whose own code is left is passed straight through.
-
-// { edges }: `reference` edges between files of the map, and the modules the
-// bundle leaves to the runtime as `import`, `export-from`, `require` and
-// `dynamic-import` edges to no file, from the file whose code names them.
+// A scope-hoisted bundle (esbuild, rollup) drops the imports and leaves one
+// scope where every module's names meet: code from one file naming a
+// declaration from another is that file using the other.
 export function referenceEdges(code, map) {
   const { program, error } = parse(code, 'js')
   if (!program) throw new Error(`referenceEdges: the bundle does not parse: ${error}`)

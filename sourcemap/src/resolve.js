@@ -1,8 +1,8 @@
-import { dirname, isUrl, join, packageName } from './files.js'
+import { isUrl, packageName, resolvePath } from './files.js'
 
-// A specifier resolved among the files one map lists, as far as those can
-// tell it: the map holds no package.json, no tsconfig and no resolver
-// settings, so a file is found by the names a resolver would try for it.
+// A map holds no package.json, tsconfig or resolver settings, so a file is
+// found by the names a resolver would try for it: no `exports`, `main` or
+// aliases.
 
 const EXTENSIONS = ['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.mts', '.cts', '.json']
 // React Native's platform files, which Metro picks over the plain one.
@@ -20,74 +20,56 @@ function* candidates(base) {
   }
 }
 
-// The files of one map by path, and each package's directories by name:
-// one package can lie in several, as copies of different versions.
+// Each package's directories by name: copies of different versions can lie
+// in several.
 export function indexFiles(files) {
   const byPath = new Map()
   const roots = new Map()
   for (const file of files) {
-    if (file.path === null) continue
-    byPath.set(file.path, file)
-    if (file.package) {
-      const dirs = roots.get(file.package.name) ?? roots.set(file.package.name, new Set()).get(file.package.name)
-      dirs.add(file.package.root)
-    }
+    if (file.path !== null) byPath.set(file.path, file)
+    if (file.package) roots.set(file.package.name, (roots.get(file.package.name) ?? new Set()).add(file.package.root))
   }
   return { byPath, roots }
 }
 
 function find(index, base) {
-  for (const candidate of candidates(base)) {
-    const file = index.byPath.get(candidate)
-    if (file) return file
-  }
+  for (const candidate of candidates(base)) if (index.byPath.has(candidate)) return index.byPath.get(candidate)
   return null
 }
 
-// The directory `name` resolves to from `from`, as Node walks up from a
-// file; or, where the store keeps packages away from their importers (a
-// pnpm path is a real path, not the link beside the importer), the one
-// directory the map has for it.
+// As Node walks up from a file; else, as a store keeps packages away from
+// their importers (pnpm's paths are real paths, not the links beside
+// them), the one copy the map has.
 function packageRoot(index, from, name) {
   const dirs = index.roots.get(name)
   if (!dirs) return null
-  for (let dir = dirname(from.path); ; ) {
-    const root = join(dir, `node_modules/${name}`)
+  const parts = from.path.split('/')
+  for (let k = parts.length - 1; k >= 0; k--) {
+    const root = [...parts.slice(0, k), 'node_modules', name].join('/')
     if (dirs.has(root)) return root
-    const up = dirname(dir)
-    if (up === dir) break
-    dir = up
   }
   return dirs.size === 1 ? [...dirs][0] : null
 }
 
-// Node's own modules a bare name reaches (those under `node:` alone are
-// reached by it), and their subpaths, as fs/promises: a fixed list, so what
-// a map says does not hang on the Node that reads it.
+// Node's own, under their bare names; a fixed list, so that what a map says
+// does not hang on the Node that reads it.
 const BUILTINS = new Set(['assert', 'async_hooks', 'buffer', 'child_process', 'cluster', 'console', 'constants', 'crypto', 'dgram', 'diagnostics_channel', 'dns', 'domain', 'events', 'fs', 'http', 'http2', 'https', 'inspector', 'module', 'net', 'os', 'path', 'perf_hooks', 'process', 'punycode', 'querystring', 'readline', 'repl', 'stream', 'string_decoder', 'sys', 'timers', 'tls', 'trace_events', 'tty', 'url', 'util', 'v8', 'vm', 'wasi', 'worker_threads', 'zlib'])
 
-// What a specifier no file of the map answers names: `builtin` for one of
-// Node's own modules, `package` for one naming a package, else nothing.
 export function bareTarget(specifier) {
   if (specifier.startsWith('node:') || BUILTINS.has(specifier.split('/')[0])) return { builtin: true }
   const name = packageName(specifier)
   return name === null ? {} : { package: name }
 }
 
-// Where `specifier`, imported from `from`, leads: { to } a file of the map,
-// else { to: null } with what the specifier names — `path` for a path
-// (relative, `/`-led, or a URL), as bareTarget says for the rest.
 export function resolveSpecifier(index, from, specifier) {
-  if (/^\.\.?(?:\/|$)/u.test(specifier) || specifier.startsWith('/') || isUrl(specifier)) {
-    const base = join(dirname(from.path), specifier)
-    const to = find(index, base)
-    return to ? { to } : { to: null, path: base }
+  if (/^(?:\.{1,2}(?:\/|$)|\/)/u.test(specifier) || isUrl(specifier)) {
+    const path = resolvePath(from.path, specifier)
+    const to = find(index, path)
+    return to ? { to } : { to: null, path }
   }
   const name = packageName(specifier)
   const root = name === null ? null : packageRoot(index, from, name)
-  if (root !== null) {
-    const to = find(index, root + specifier.slice(name.length))
-    return to ? { to } : { to: null, package: name }
-  }
-  return { to: null, ...bareTarget(specifier) }
+  if (root === null) return { to: null, ...bareTarget(specifier) }
+  const to = find(index, root + specifier.slice(name.length))
+  return to ? { to } : { to: null, package: name }
 }
