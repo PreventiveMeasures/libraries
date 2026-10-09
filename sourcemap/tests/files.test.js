@@ -32,6 +32,10 @@ describe('a source becomes a path', () => {
     assert.equal(sourcePath('https://cdn.example/x.js', 'dist/x.map'), 'https://cdn.example/x.js')
     assert.equal(sourcePath('https://cdn.example/src/./b/../a.js'), 'https://cdn.example/src/a.js')
     assert.equal(sourcePath('ng://core/a.ts'), 'ng://core/a.ts')
+    // As the URL Standard parses it: a host in one case, no default port,
+    // a query as it is.
+    assert.equal(sourcePath('HTTPS://CDN.Example:443/src/a.js'), 'https://cdn.example/src/a.js')
+    assert.equal(sourcePath('https://cdn.example/src/a.js?redirect=/x/../y'), 'https://cdn.example/src/a.js?redirect=/x/../y')
     assert.equal(sourcePath('../src/a.js', 'https://cdn.example/dist/x.js.map'), 'https://cdn.example/src/a.js')
     assert.equal(sourcePath('../../../a.js', 'https://cdn.example/dist/x.js.map'), 'https://cdn.example/a.js')
     // A rooted source is resolved against a URL map path as any other is.

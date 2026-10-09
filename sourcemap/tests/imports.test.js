@@ -164,6 +164,13 @@ describe('a specifier is resolved as a resolver would try it', () => {
     assert.deepEqual(shown(importEdges(map).edges), ['src/a.js -> node_modules/p/src/x.ts [import]', 'src/a.js -> node_modules/p/y.ts [import]', 'src/a.js -> node_modules/q/src/z.tsx [import]'])
   })
 
+  it('takes URLs as the URL Standard does: one origin however spelled, a query not a path', () => {
+    const map = sources({ 'https://cdn.example/src/a.js?redirect=/x/../y': "import './b.js'\nimport 'https://cdn.example/lib/c.js'", 'https://cdn.example/src/b.js': '', 'HTTPS://CDN.Example:443/lib/c.js': '' })
+    assert.deepEqual(shown(importEdges(map).edges), [
+      'https://cdn.example/src/a.js?redirect=/x/../y -> https://cdn.example/lib/c.js [import]', 'https://cdn.example/src/a.js?redirect=/x/../y -> https://cdn.example/src/b.js [import]',
+    ])
+  })
+
   it('takes a `//`-led specifier from a URL as a URL under its scheme', () => {
     const map = sources({ 'https://origin.example/src/a.js': "import '//cdn.example/lib/b.js'", 'https://cdn.example/lib/b.js': '' })
     assert.deepEqual(shown(importEdges(map).edges), ['https://origin.example/src/a.js -> https://cdn.example/lib/b.js [import]'])

@@ -8,10 +8,22 @@ const rootOf = (path) => ROOT.exec(path)[0]
 
 export const isUrl = (path) => rootOf(path).includes('://')
 
-// By spelling alone, as node:path.posix normalizes: a `..` above a relative
-// path is kept.
+// A URL as the URL Standard parses one: its scheme and host in one case, no
+// default port, its query and fragment as they are. null where it fails.
+function parsed(url, base) {
+  try {
+    return new URL(url, base).href
+  } catch {
+    return null
+  }
+}
+
+// A URL as parsed; anything else by spelling alone, as node:path.posix
+// normalizes: a `..` above a relative path is kept.
 function normalize(path) {
   const root = rootOf(path)
+  const url = root.includes('://') && parsed(path)
+  if (url) return url
   const out = []
   for (const part of path.slice(root.length).split('/')) {
     if (part === '' || part === '.') continue
@@ -22,11 +34,11 @@ function normalize(path) {
   return root ? root.replace(/\/?$/u, '/') + out.join('/') : out.join('/') || '.'
 }
 
-// `relative` from the file `from`; a `/`-led one from the root of `from`'s,
-// a `//`-led one, from a URL, under its scheme.
+// `relative` from the file `from`, a URL's as the URL Standard resolves it;
+// a `/`-led one from the root of `from`'s.
 export function resolvePath(from, relative) {
-  if (relative.startsWith('//') && isUrl(from)) return normalize(from.slice(0, from.indexOf(':') + 1) + relative)
   const root = rootOf(relative)
+  if (isUrl(from) && !root.includes(':')) return parsed(relative, from) ?? normalize(`${from}/../${relative}`)
   if (root === '/') return normalize(rootOf(from).replace(/\/?$/u, '') + relative)
   return normalize(root ? relative : `${from}/../${relative}`)
 }
