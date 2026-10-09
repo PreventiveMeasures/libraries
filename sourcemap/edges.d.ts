@@ -44,9 +44,12 @@ export function importEdges(map: SourceMap): ImportEdges
 
 // The edges a bundle shows between the files its map lists. For Metro's
 // output (`code`, the JavaScript, not Hermes bytecode), each module's
-// dependencies, as Metro resolved them: `dependency` edges. For any other,
-// a scope-hoisted bundle (esbuild, rollup): code of one file naming a
-// declaration of another, `reference` edges, and the modules the bundle
-// leaves to the runtime, as import-kind edges to no file. Throws where the
-// bundle does not parse, or a Metro module's define call cannot be read.
+// dependencies, as Metro resolved them: `dependency` edges. For webpack's
+// (4 and 5, by its webpack:// sources), each module's require calls by
+// id: `dependency` edges, an external's to no file. Otherwise, and for the
+// modules webpack concatenates, a scope-hoisted bundle (esbuild, rollup):
+// code of one file naming a declaration of another, `reference` edges, and
+// the modules the bundle leaves to the runtime, as import-kind edges to no
+// file. Throws where the bundle does not parse, or a Metro module's define
+// call cannot be read.
 export function bundleEdges(code: string, map: SourceMap): { edges: Edge[] }

@@ -7,13 +7,14 @@ const LANGUAGES = new Map([['js', 'jsx'], ['mjs', 'jsx'], ['cjs', 'jsx'], ['jsx'
 export const languageOf = (path) => LANGUAGES.get(/\.([a-z]+)(?:\?.*)?$/iu.exec(path)?.[1].toLowerCase()) ?? null
 
 // `unambiguous` takes a module by its syntax, as Node does a typeless file;
-// `commonjs` takes the top-level `return` CommonJS's wrapper allows.
+// `commonjs` takes the top-level `return` CommonJS's wrapper allows. No
+// node for parentheses: `(function () {})` is a function.
 export function parse(text, lang) {
   const { parseSync } = getParser()
   let error
   for (const sourceType of ['unambiguous', 'commonjs']) {
     try {
-      const parsed = parseSync(`source.${lang}`, text, { sourceType, lang })
+      const parsed = parseSync(`source.${lang}`, text, { sourceType, lang, preserveParens: false })
       const errors = parsed.errors.filter((e) => e.severity !== 'Warning' && e.severity !== 'Advice')
       if (errors.length === 0) return { program: parsed.program }
       error ??= errors[0].message

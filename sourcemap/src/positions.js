@@ -43,6 +43,20 @@ export function fileAt(map, starts, offset) {
   return found < 0 || segments.sources[found] < 0 ? null : map.files[segments.sources[found]]
 }
 
+// The file of the first segment from `offset` on that names one `skip`
+// does not pass over.
+export function fileAfter(map, starts, offset, skip) {
+  const segments = segmentsOf(map)
+  const [first, column] = positionOf(starts, offset)
+  for (let line = first; line < segments.starts.length - 1; line++) {
+    for (let k = segments.starts[line]; k < segments.starts[line + 1]; k++) {
+      const file = map.files[segments.sources[k]]
+      if ((line > first || segments.columns[k] >= column) && file && !skip(file)) return file
+    }
+  }
+  return null
+}
+
 // The file most segments over [start, end) name, counting the one `start`
 // falls under.
 export function fileWithin(map, starts, start, end) {

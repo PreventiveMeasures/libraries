@@ -51,7 +51,8 @@
     "src/resolve.js",
     "src/scope.js",
     "src/specifiers.js",
-    "src/vlq.js"
+    "src/vlq.js",
+    "src/webpack.js"
   ],
   "engines": {
     "node": ">=24.14.0"
