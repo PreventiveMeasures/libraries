@@ -142,6 +142,9 @@ describe('a specifier is resolved as a resolver would try it', () => {
   it('takes the platform the map\'s files show, not another one\'s file it also holds', () => {
     const android = sources({ 'src/a.js': "import './view'", 'src/view.js': '', 'src/view.ios.js': '', 'src/view.android.js': '', 'src/list.android.js': '' })
     assert.deepEqual(shown(importEdges(android).edges), ['src/a.js -> src/view.android.js [import]'])
+    // As many of one as of another: none taken over the plain file.
+    const tied = sources({ 'src/a.js': "import './view'", 'src/view.js': '', 'src/view.android.js': '', 'src/view.ios.js': '' })
+    assert.deepEqual(shown(importEdges(tied).edges), ['src/a.js -> src/view.js [import]'])
     // With none of a platform's files, .native, then the plain one before a browser build.
     const web = sources({ 'lib/a.js': "import './encode'\nimport './view'", 'lib/encode.js': '', 'lib/encode.browser.js': '', 'lib/view.js': '', 'lib/view.native.js': '' })
     assert.deepEqual(shown(importEdges(web).edges), ['lib/a.js -> lib/encode.js [import]', 'lib/a.js -> lib/view.native.js [import]'])
@@ -160,6 +163,11 @@ describe('a specifier is resolved as a resolver would try it', () => {
   it('takes a `//`-led specifier from a URL as a URL under its scheme', () => {
     const map = sources({ 'https://origin.example/src/a.js': "import '//cdn.example/lib/b.js'", 'https://cdn.example/lib/b.js': '' })
     assert.deepEqual(shown(importEdges(map).edges), ['https://origin.example/src/a.js -> https://cdn.example/lib/b.js [import]'])
+  })
+
+  it('takes a file:// specifier as the path the map\'s own sources are', () => {
+    const map = sources({ '/app/a.js': "import 'file:///app/b.js'\nimport 'file://server/share/c.js'", '/app/b.js': '', 'file://server/share/c.js': '' })
+    assert.deepEqual(shown(importEdges(map).edges), ['/app/a.js -> //server/share/c.js [import]', '/app/a.js -> /app/b.js [import]'])
   })
 
   it('reads a URL whose name has a fragment, by its extension', () => {

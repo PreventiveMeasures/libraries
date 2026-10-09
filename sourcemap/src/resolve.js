@@ -1,4 +1,4 @@
-import { isUrl, packageName, resolvePath } from './files.js'
+import { isUrl, packageName, resolvePath, sourcePath } from './files.js'
 
 // A map holds no package.json, tsconfig or resolver settings, so a file is
 // found by the names a resolver would try for it, and a package's entry by
@@ -6,15 +6,16 @@ import { isUrl, packageName, resolvePath } from './files.js'
 
 const EXTENSIONS = ['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.mts', '.cts', '.json']
 // React Native's platforms: Metro tries the bundle's own, then `.native`,
-// then the plain file. A map's platform is the one its files show most; a
-// map that shows none tries `.native`, then the plain file. A browser or
-// Node build a package ships beside the plain file comes after it.
+// then the plain file. A map's platform is the one its files show more of
+// than any other; a map that shows none, or two as much, tries `.native`,
+// then the plain file. A browser or Node build a package ships beside the
+// plain file comes after it.
 const RN_PLATFORMS = ['.ios', '.android', '.web']
 
 function platformsOf(files) {
-  const counts = RN_PLATFORMS.map((platform) => [platform, files.filter((file) => file.path?.includes(`${platform}.`)).length])
-  const [active, count] = counts.reduce((top, entry) => (entry[1] > top[1] ? entry : top))
-  if (count === 0) return ['.native', '', '.browser', '.node', ...RN_PLATFORMS]
+  const counts = RN_PLATFORMS.map((platform) => [platform, files.filter((file) => file.path?.includes(`${platform}.`)).length]).toSorted((a, b) => b[1] - a[1])
+  const [[active, count], [, next]] = counts
+  if (count === next) return ['.native', '', '.browser', '.node', ...RN_PLATFORMS]
   return [active, '.native', '', '.browser', '.node', ...RN_PLATFORMS.filter((platform) => platform !== active)]
 }
 // TypeScript's sources, imported by the names they compile to.
@@ -136,7 +137,8 @@ function packageFile(index, root, subpath, entry) {
 // `entry` finds a package's entry where no index file at its root is.
 export function resolveSpecifier(index, from, specifier, entry = entryOf) {
   if (/^(?:\.{1,2}(?:\/|$)|\/)/u.test(specifier) || isUrl(specifier)) {
-    const path = resolvePath(from.path, specifier)
+    // A file:// URL as the map's own sources are: a path.
+    const path = specifier.startsWith('file://') ? sourcePath(specifier) : resolvePath(from.path, specifier)
     const to = find(index, path)
     return to ? { to } : { to: null, path }
   }
