@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { bundleEdges } from '@preventive/sourcemap/edges.js'
+import { bundleEdges, importEdges } from '@preventive/sourcemap/edges.js'
 import { bundleEdges as liteEdges } from '@preventive/sourcemap/edges-lite.js'
 import { bundle as fixture } from './fixtures.js'
 import { handWritten as bundle } from './helpers.js'
@@ -12,7 +12,7 @@ import { handWritten as bundle } from './helpers.js'
 
 const DOORS = [['edges.js', bundleEdges], ['edges-lite.js', liteEdges]]
 const show = (edge) => `${edge.from.path} -> ${edge.to.path}`.replaceAll('/app/', '')
-const shown = (read, code, map) => read(code, map).edges.map(show)
+const shown = (read, map, code) => read(map, code).edges.map(show)
 
 // The fixture project (see fixtures.js), every import of it, ext
 // included: Metro bundles what it resolves and leaves nothing out.
@@ -43,7 +43,7 @@ for (const [door, read] of DOORS) {
   // each line to the file named alongside.
   describe(`${door}: every shape Metro writes a define call in`, () => {
     it('a list with an unresolved optional dependency, none, and the object a lazy import makes', () => {
-      const [code, map] = bundle([
+      const [map, code] = bundle([
         [null, 'var __BUNDLE_START_TIME__=0;'],
         ['a.js', '__d(function(g,r,i,a,m,e,d){r(d[0]);r(d[1]);r(d[2])},0,[1,null,2]);'],
         ['b.js', '__d(function(g,r,i,a,m,e,d){},1);'],
@@ -51,39 +51,39 @@ for (const [door, read] of DOORS) {
         ['d.js', '__d(function(g,r,i,a,m,e,d){},3,null,"d.js");'],
         [null, '__r(0);'],
       ])
-      assert.deepEqual(shown(read, code, map), ['a.js -> b.js', 'a.js -> c.js', 'c.js -> d.js', 'c.js -> b.js'])
+      assert.deepEqual(shown(read, map, code), ['a.js -> b.js', 'a.js -> c.js', 'c.js -> d.js', 'c.js -> b.js'])
     })
 
     it('ids inlined into the code, a global prefix, string ids, an arrow factory', () => {
-      const [code, map] = bundle([
+      const [map, code] = bundle([
         ['a.js', 'p__d(function(g,req,def,all,m,e){req(1);def("b");all(1);req(x)},0,{"paths":{}});'],
         ['b.js', 'p__d((g,r)=>{},1);'],
         ['c.js', 'p__d(function(){},"b");'],
       ])
-      assert.deepEqual(shown(read, code, map), ['a.js -> b.js', 'a.js -> c.js'])
+      assert.deepEqual(shown(read, map, code), ['a.js -> b.js', 'a.js -> c.js'])
     })
 
     it('names a module by the file most of its code maps to, in a flat map too', () => {
       // The factory's first line maps to a helper's file; most of it, to m.js.
-      const [code, map] = bundle([
+      const [map, code] = bundle([
         ['helper.js', '__d(function(g,r,i,a,m,e,d){'],
         ['m.js', 'r(d[0]);'],
         ['m.js', 'm.exports=1'],
         ['dep.js', '},0,[1]);'],
         ['dep.js', '__d(function(){},1);'],
       ])
-      assert.deepEqual(shown(read, code, map), ['m.js -> dep.js'])
+      assert.deepEqual(shown(read, map, code), ['m.js -> dep.js'])
     })
 
     it('leaves no edge to an id the bundle does not define, or to a module with no file', () => {
-      const [code, map] = bundle([['a.js', '__d(function(){},0,[1,3,0]);'], [null, '__d(function(){},1);'], ['b.js', '__d(function(){},2,[1]);']])
-      assert.deepEqual(shown(read, code, map), [])
+      const [map, code] = bundle([['a.js', '__d(function(){},0,[1,3,0]);'], [null, '__d(function(){},1);'], ['b.js', '__d(function(){},2,[1]);']])
+      assert.deepEqual(shown(read, map, code), [])
     })
 
     it('says which module it cannot read', () => {
-      const [, map] = bundle([['a.js', '']])
+      const [map] = bundle([['a.js', '']])
       for (const broken of ['__d(function(){', '__d(function(){},x,[])', '__d(function(){},0,[1],"a",2)']) {
-        assert.throws(() => read(`var a\n${broken}`, map), /bundleEdges: the Metro module at line 2 ends in no define params/u, broken)
+        assert.throws(() => read(map, `var a\n${broken}`), /bundleEdges: the Metro module at line 2 ends in no define params/u, broken)
       }
     })
   })
@@ -95,8 +95,18 @@ describe('edges-lite.js reads Metro\'s output alone', () => {
       assert.throws(() => liteEdges(...fixture(name)), /bundleEdges: not a Metro bundle/u, name)
       assert.ok(bundleEdges(...fixture(name)).edges.length > 0, name)
     }
-    const [code, map] = bundle([['a.js', 'define(function(){},0,[1]);__d(function(){},1,[])']])
-    assert.throws(() => liteEdges(code, map), /not a Metro bundle/u)
-    assert.deepEqual(bundleEdges(code, map), { edges: [] })
+    const [map, code] = bundle([['a.js', 'define(function(){},0,[1]);__d(function(){},1,[])']])
+    assert.throws(() => liteEdges(map, code), /not a Metro bundle/u)
+    assert.deepEqual(bundleEdges(map, code), { edges: [] })
+  })
+})
+
+describe('with the map alone, no code', () => {
+  it('edges.js reads the map\'s sources, as importEdges does; edges-lite.js has nothing to read', () => {
+    for (const name of ['metro-prod', 'esbuild', 'webpack-production']) {
+      const [map] = fixture(name)
+      assert.deepEqual(bundleEdges(map), { edges: importEdges(map).edges }, name)
+      assert.throws(() => liteEdges(map), /edges-lite\.js reads a Metro bundle's code/u, name)
+    }
   })
 })

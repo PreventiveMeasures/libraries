@@ -9,7 +9,7 @@ import { shown } from './helpers.js'
 // file asks for as written, so a file the bundler dropped is still asked
 // for, and every bundler's map reads the same way.
 
-const fixture = (name) => bundle(name)[1]
+const fixture = (name) => bundle(name)[0]
 
 // The fixture project (see fixtures.js), as its sources import: dead.js
 // is in no map but Metro's, its code tree-shaken whole, and ext was left

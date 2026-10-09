@@ -42,7 +42,8 @@ export interface ImportEdges {
 // package.json or tsconfig: no `exports`, `main`, or aliases.
 export function importEdges(map: SourceMap): ImportEdges
 
-// The edges a bundle shows between the files its map lists. For Metro's
+// The edges a bundle shows between the files its map lists; with no `code`,
+// the edges importEdges reads from the map's sources. For Metro's
 // output (`code`, the JavaScript, not Hermes bytecode), each module's
 // dependencies, as Metro resolved them: `dependency` edges. For webpack's
 // (4 and 5, by its webpack:// sources), each module's require calls by
@@ -52,4 +53,4 @@ export function importEdges(map: SourceMap): ImportEdges
 // the modules the bundle leaves to the runtime, as import-kind edges to no
 // file. Throws where the bundle does not parse, or a Metro module's define
 // call cannot be read.
-export function bundleEdges(code: string, map: SourceMap): { edges: Edge[] }
+export function bundleEdges(map: SourceMap, code?: string | null): { edges: Edge[] }

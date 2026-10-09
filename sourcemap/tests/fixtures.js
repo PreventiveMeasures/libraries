@@ -27,6 +27,6 @@ function fixture(name) {
   return FILES[name]
 }
 
-// A bundle's code, and its map read from where the build wrote it, so its
-// sources come out as the project's own paths.
-export const bundle = (name) => [fixture(`${name}/index.js`), readSourceMap(fixture(`${name}/index.js.map`), { path: `out/${name}/index.js.map` })]
+// A bundle's map, read from where the build wrote it so its sources come
+// out as the project's own paths, and its code.
+export const bundle = (name) => [readSourceMap(fixture(`${name}/index.js.map`), { path: `out/${name}/index.js.map` }), fixture(`${name}/index.js`)]

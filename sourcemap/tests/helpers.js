@@ -32,11 +32,11 @@ export function lineMap(sources, owners, extra = {}) {
 }
 
 // Generated code written out as [file, code] lines, each line given to the
-// file named with it (null for none): [code, its map read].
+// file named with it (null for none): [its map read, code].
 export function handWritten(lines) {
   const sources = [...new Set(lines.map(([file]) => file).filter(Boolean))]
   const map = readSourceMap(lineMap(sources, lines.map(([file]) => (file ? sources.indexOf(file) : null))))
-  return [lines.map(([, code]) => code).join('\n'), map]
+  return [map, lines.map(([, code]) => code).join('\n')]
 }
 
 // An edge as a line: `from -> to [kind]`, or for a target that is no file
