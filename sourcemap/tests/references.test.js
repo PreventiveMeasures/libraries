@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { referenceEdges } from '@preventive/sourcemap/edges.js'
+import { bundleEdges } from '@preventive/sourcemap/edges.js'
 import { bundle as fixture } from './fixtures.js'
 import { handWritten, shown } from './helpers.js'
 
@@ -26,14 +26,14 @@ describe('the fixture project (see fixtures.js), as bundled', () => {
 
   for (const name of ['esbuild', 'esbuild-min']) {
     it(`by ${name}: every edge to code it kept`, () => {
-      assert.deepEqual(shown(referenceEdges(...fixture(name)).edges), ESBUILD)
+      assert.deepEqual(shown(bundleEdges(...fixture(name)).edges), ESBUILD)
     })
   }
 
   it('by rollup: what is named, which a side-effect import and its CommonJS shims are not', () => {
     // rollup inlines side.js's statement with no name to it, and maps
     // nothing of the shims its commonjs plugin writes around cjsdep.
-    assert.deepEqual(shown(referenceEdges(...fixture('rollup')).edges), [
+    assert.deepEqual(shown(bundleEdges(...fixture('rollup')).edges), [
       'node_modules/dep/index.js -> node_modules/dep/util.js [reference]',
       'src/a.js -> src/b.js [reference]',
       'src/index.js -> (ext, package ext) [import]',
@@ -44,7 +44,7 @@ describe('the fixture project (see fixtures.js), as bundled', () => {
 })
 
 // Generated code written by hand, each line given to the file named with it.
-const generated = (lines) => referenceEdges(...handWritten(lines))
+const generated = (lines) => bundleEdges(...handWritten(lines))
 
 describe('a name is the declaration its scope makes it', () => {
   it('a parameter, a block\'s let, a catch\'s binding, a function\'s own name shadow what is outside', () => {
@@ -109,6 +109,6 @@ describe('what a bundle leaves to the runtime is an edge from the file naming it
   })
 
   it('throws for a bundle that does not parse', () => {
-    assert.throws(() => generated([['a.js', 'var = 1']]), /referenceEdges: the bundle does not parse/u)
+    assert.throws(() => generated([['a.js', 'var = 1']]), /bundleEdges: the bundle does not parse/u)
   })
 })

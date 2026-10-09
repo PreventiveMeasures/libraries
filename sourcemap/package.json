@@ -35,6 +35,8 @@
     "edges.js",
     "sourcemap.d.ts",
     "sourcemap.js",
+    "src/bundle-lite.js",
+    "src/bundle.js",
     "src/error.js",
     "src/files.js",
     "src/imports.js",

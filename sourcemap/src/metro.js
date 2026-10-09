@@ -47,10 +47,12 @@ function dependencyIds(list, text) {
   return ids.length > 0 ? ids : inlinedIds(text)
 }
 
+// Null for a bundle with no line that starts a Metro module.
 export function metroEdges(code, map) {
+  const begins = [...code.matchAll(START)].map((match) => match.index)
+  if (begins.length === 0) return null
   const starts = lineStarts(code)
   const lineAt = (line) => code.slice(starts[line], starts[line + 1])
-  const begins = [...code.matchAll(START)].map((match) => match.index)
   const modules = new Map()
   for (const [k, begin] of begins.entries()) {
     // Back from the next module's start, past the run statements after the
@@ -59,10 +61,9 @@ export function metroEdges(code, map) {
     let [line] = positionOf(starts, (begins[k + 1] ?? code.length) - 1)
     let params = paramsOf(lineAt(line))
     while (!params && line > first) params = paramsOf(lineAt(--line))
-    if (!params) throw new Error(`metroEdges: the module at line ${first + 1} ends in no define params`)
+    if (!params) throw new Error(`bundleEdges: the Metro module at line ${first + 1} ends in no define params`)
     const end = starts[line + 1] ?? code.length
-    const text = code.slice(begin, end)
-    modules.set(params[0], { id: params[0], file: fileWithin(map, starts, begin, end), name: params[2] ?? null, dependencies: dependencyIds(params[1], text) })
+    modules.set(params[0], { file: fileWithin(map, starts, begin, end), dependencies: dependencyIds(params[1], code.slice(begin, end)) })
   }
   const edges = []
   for (const module of modules.values()) {
@@ -75,5 +76,5 @@ export function metroEdges(code, map) {
       edges.push({ from: module.file, to, kind: 'dependency' })
     }
   }
-  return { modules: [...modules.values()], edges }
+  return edges
 }

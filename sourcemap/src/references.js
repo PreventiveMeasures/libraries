@@ -8,7 +8,7 @@ import { resolveReferences } from './scope.js'
 // declaration from another is that file using the other.
 export function referenceEdges(code, map) {
   const { program, error } = parse(code, 'js')
-  if (!program) throw new Error(`referenceEdges: the bundle does not parse: ${error}`)
+  if (!program) throw new Error(`bundleEdges: the bundle does not parse: ${error}`)
   const starts = lineStarts(code)
   const at = (node) => fileAt(map, starts, node.start)
   const edges = []
@@ -32,5 +32,5 @@ export function referenceEdges(code, map) {
     },
     external: (node, kind, specifier) => external(at(node), kind, specifier),
   })
-  return { edges }
+  return edges
 }

@@ -42,26 +42,11 @@ export interface ImportEdges {
 // package.json or tsconfig: no `exports`, `main`, or aliases.
 export function importEdges(map: SourceMap): ImportEdges
 
-export interface MetroModule {
-  id: number | string
-  // The file most of its code maps to.
-  file: SourceFile | null
-  // The path a development bundle passes as the fourth argument.
-  name: string | null
-  // The ids it depends on, in order; null for an optional one that did not
-  // resolve.
-  dependencies: (number | string | null)[]
-}
-
-// Every module a Metro bundle defines (`code`, the JavaScript, not Hermes
-// bytecode), and an edge for each of its dependencies between two modules
-// whose files the map names. Read without a parser, off the lines Metro
-// writes each module on; throws for a module whose define call it cannot
-// read.
-export function metroEdges(code: string, map: SourceMap): { modules: MetroModule[]; edges: (Edge & { kind: 'dependency'; to: SourceFile })[] }
-
-// From a scope-hoisted bundle: `reference` edges, code mapped to one file
-// naming a declaration mapped to another; and, as import-kind edges to no
-// file, the modules the bundle leaves to the runtime (externals), from the
-// file whose code names them. Throws where the bundle does not parse.
-export function referenceEdges(code: string, map: SourceMap): { edges: Edge[] }
+// The edges a bundle shows between the files its map lists. For Metro's
+// output (`code`, the JavaScript, not Hermes bytecode), each module's
+// dependencies, as Metro resolved them: `dependency` edges. For any other,
+// a scope-hoisted bundle (esbuild, rollup): code of one file naming a
+// declaration of another, `reference` edges, and the modules the bundle
+// leaves to the runtime, as import-kind edges to no file. Throws where the
+// bundle does not parse, or a Metro module's define call cannot be read.
+export function bundleEdges(code: string, map: SourceMap): { edges: Edge[] }
