@@ -1,5 +1,5 @@
 import { segmentsOf } from './map.js'
-import { indexFiles, packageRoot, resolveSpecifier } from './resolve.js'
+import { entryOf, indexFiles, resolveSpecifier } from './resolve.js'
 import { scanSpecifiers } from './scan.js'
 
 // A Metro map with no bundle still says most of what the bundle would. Its
@@ -51,8 +51,8 @@ function helperRequests(map) {
   return helpers
 }
 
-// A package's entry, where no index file is it: its first file in module
-// order, which the walk reached before what the entry imports.
+// A package's entry, where no index file at its root is: its first file in
+// module order, which the walk reached before what the entry imports.
 function firstFiles(map) {
   const first = new Map()
   for (const file of map.files) if (file.package && !first.has(file.package.root)) first.set(file.package.root, file)
@@ -75,11 +75,8 @@ export function metroMapEdges(map) {
     targets.add(to)
     edges.push({ from, to, kind: 'dependency' })
   }
-  const resolve = (from, specifier) => {
-    const target = resolveSpecifier(index, from, specifier)
-    if (target.to || target.package !== specifier) return target.to
-    return first.get(packageRoot(index, from, specifier)) ?? null
-  }
+  const entry = (_, root) => first.get(root) ?? entryOf(index, root)
+  const resolve = (from, specifier) => resolveSpecifier(index, from, specifier, entry).to
   const helpers = helperRequests(map)
   for (const from of map.files) {
     if (isAsset(from)) link(from, registry)

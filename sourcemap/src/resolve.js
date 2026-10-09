@@ -5,18 +5,41 @@ import { isUrl, packageName, resolvePath } from './files.js'
 // aliases.
 
 const EXTENSIONS = ['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.mts', '.cts', '.json']
-// React Native's platform files, which Metro picks over the plain one.
-const PLATFORMS = ['', '.native', '.ios', '.android', '.web']
+// Platform files a bundler picks over the plain one: React Native's, and
+// the browser and Node builds a package ships side by side.
+const PLATFORMS = ['', '.native', '.ios', '.android', '.web', '.browser', '.node']
 // TypeScript's sources, imported by the names they compile to.
 const OUTPUT_NAMES = [['.js', ['.ts', '.tsx']], ['.jsx', ['.tsx']], ['.mjs', ['.mts']], ['.cjs', ['.cts']]]
+// Where a package keeps the entry its package.json, which no map carries,
+// names.
+const ENTRY_NAMES = ['index', 'main', 'browser', 'node']
+const ENTRY_DIRS = ['', 'src/', 'lib/', 'dist/', 'build/']
+// What a package publishes compiled out of src/, or out of its root.
+const BUILD_DIRS = new Set(['lib', 'dist', 'build', 'out', 'esm', 'cjs'])
 
 function* candidates(base) {
   yield base
+  const written = /\.[^./]+$/u.exec(base)?.[0]
   for (const [output, inputs] of OUTPUT_NAMES) {
-    if (base.endsWith(output)) for (const input of inputs) yield base.slice(0, -output.length) + input
+    if (written === output) for (const input of inputs) yield base.slice(0, -output.length) + input
   }
   for (const stem of [base, `${base}/index`]) {
     for (const platform of PLATFORMS) for (const extension of EXTENSIONS) yield stem + platform + extension
+  }
+  // `./a.js` as a platform's own: ./a.browser.js.
+  if (written) for (const platform of PLATFORMS.slice(1)) yield base.slice(0, -written.length) + platform + written
+}
+
+// A compiled package's subpath where the map holds its sources instead:
+// lib/a.js as src/a.ts, dist/esm/a.js as src/a.ts or a.ts.
+function* sourcePaths(subpath) {
+  let rest = subpath
+  for (;;) {
+    if (!rest.startsWith('src/')) yield `src/${rest}`
+    if (rest !== subpath) yield rest
+    const slash = rest.indexOf('/')
+    if (slash < 0 || !BUILD_DIRS.has(rest.slice(0, slash))) return
+    rest = rest.slice(slash + 1)
   }
 }
 
@@ -26,11 +49,15 @@ function* candidates(base) {
 export function indexFiles(files) {
   const byPath = new Map()
   const roots = new Map()
+  const byRoot = new Map()
   for (const file of files) {
     if (file.path !== null) byPath.set(file.path, file)
-    if (file.package) roots.set(file.package.name, (roots.get(file.package.name) ?? new Set()).add(file.package.root))
+    if (!file.package) continue
+    roots.set(file.package.name, (roots.get(file.package.name) ?? new Set()).add(file.package.root))
+    const inRoot = byRoot.get(file.package.root) ?? byRoot.set(file.package.root, []).get(file.package.root)
+    inRoot.push(file)
   }
-  return { byPath, roots, found: new Map() }
+  return { byPath, roots, byRoot, found: new Map() }
 }
 
 function find(index, base) {
@@ -41,7 +68,7 @@ function find(index, base) {
 // As Node walks up from a file; else, as a store keeps packages away from
 // their importers (pnpm's paths are real paths, not the links beside
 // them), the one copy the map has.
-export function packageRoot(index, from, name) {
+function packageRoot(index, from, name) {
   const dirs = index.roots.get(name)
   if (!dirs) return null
   const parts = from.path.split('/')
@@ -62,7 +89,26 @@ export function bareTarget(specifier) {
   return name === null ? {} : { package: name }
 }
 
-export function resolveSpecifier(index, from, specifier) {
+// A package's entry, where no index file at its root is: index, main,
+// browser or node, at its root or in a build directory; else its one file.
+export function entryOf(index, root) {
+  for (const name of ENTRY_NAMES) {
+    for (const dir of ENTRY_DIRS) {
+      const to = find(index, `${root}/${dir}${name}`)
+      if (to) return to
+    }
+  }
+  const files = index.byRoot.get(root)
+  return files?.length === 1 ? files[0] : null
+}
+
+function packageFile(index, root, subpath, entry) {
+  if (!subpath) return find(index, root) ?? entry(index, root)
+  return find(index, `${root}/${subpath}`) ?? sourcePaths(subpath).map((path) => find(index, `${root}/${path}`)).find(Boolean) ?? null
+}
+
+// `entry` finds a package's entry where no index file is it.
+export function resolveSpecifier(index, from, specifier, entry = entryOf) {
   if (/^(?:\.{1,2}(?:\/|$)|\/)/u.test(specifier) || isUrl(specifier)) {
     const path = resolvePath(from.path, specifier)
     const to = find(index, path)
@@ -71,6 +117,6 @@ export function resolveSpecifier(index, from, specifier) {
   const name = packageName(specifier)
   const root = name === null ? null : packageRoot(index, from, name)
   if (root === null) return { to: null, ...bareTarget(specifier) }
-  const to = find(index, root + specifier.slice(name.length))
+  const to = packageFile(index, root, specifier.slice(name.length + 1), entry)
   return to ? { to } : { to: null, package: name }
 }

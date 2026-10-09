@@ -17,6 +17,8 @@ export interface Edge {
   kind: ImportKind | 'dependency' | 'reference'
   // The specifier as written; null for a computed one.
   specifier?: string | null
+  // For a call of a function importEdges' `callees` names, its name.
+  callee?: string
   path?: string
   package?: string
   builtin?: true
@@ -26,21 +28,32 @@ export interface ImportEdges {
   // The specifiers each file's own source names, statements typed away
   // (`import type`, `export type`) left out, each once per kind.
   edges: (Edge & { kind: ImportKind; specifier: string | null })[]
-  // Files whose content did not parse, oxc's error with each: Flow, or a
-  // language oxc does not read.
+  // Files whose content oxc did not parse, its error with each: Flow,
+  // mostly. Their imports are read with no parser instead.
   failed: { file: SourceFile; error: string }[]
-  // Files with no sourcesContent, or not a script by their extension.
+  // Files with no sourcesContent, or not a script by their extension; one
+  // named with none, a bin script, is read as one.
   unscanned: SourceFile[]
+}
+
+export interface ImportOptions {
+  // Functions that take a module's name as require does, whose calls are
+  // read as `require` edges with a `callee`: `internalBinding`.
+  callees?: string[]
 }
 
 // Each file's sourcesContent parsed (oxc reads JS, TS and JSX by the
 // extension, a bundler's `?query` after it aside, and JSX in a .js file
 // too), each specifier resolved among the map's files by the names a
-// resolver would try: extensions, index files, React Native's platform
-// files, TypeScript's output names; a package by the node_modules Node
-// would walk up to, or by the one copy of it the map has. Without
-// package.json or tsconfig: no `exports`, `main`, or aliases.
-export function importEdges(map: SourceMap): ImportEdges
+// resolver would try: extensions, index files, platform files (React
+// Native's, a browser or Node build, in place of a written extension too),
+// TypeScript's output names; a package by the node_modules Node would walk
+// up to, or by the one copy of it the map has. With no package.json, a
+// package's entry where no index file is is guessed: index, main, browser
+// or node, at its root or in src/, lib/, dist/ or build/, else its one
+// file; and a compiled package's subpath, lib/a.js, is its source where
+// the map holds that, src/a.ts. No `exports`, and no aliases.
+export function importEdges(map: SourceMap, options?: ImportOptions): ImportEdges
 
 // The edges a bundle shows between the files its map lists. With no `code`,
 // a Metro map's own: each file's imports, read from its source with no

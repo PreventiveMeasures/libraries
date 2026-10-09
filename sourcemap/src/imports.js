@@ -1,15 +1,19 @@
 import { languageOf, parse } from './parser.js'
 import { indexFiles, resolveSpecifier } from './resolve.js'
+import { scanSpecifiers } from './scan.js'
 import { specifiersOf } from './specifiers.js'
 
-function edgeOf(from, { kind, specifier }, index) {
-  if (specifier === null) return { from, to: null, kind, specifier }
+function edgeOf(from, { kind, specifier, callee }, index) {
+  const named = { from, kind, specifier, ...(callee && { callee }) }
+  if (specifier === null) return { ...named, to: null }
   const target = resolveSpecifier(index, from, specifier)
-  return target.to === from ? null : { from, kind, specifier, ...target }
+  return target.to === from ? null : { ...named, ...target }
 }
 
-export function importEdges(map) {
+// A file oxc does not parse, Flow mostly, is read by the scanner instead.
+export function importEdges(map, { callees = [] } = {}) {
   const index = indexFiles(map.files)
+  const named = new Set(callees)
   const edges = []
   const failed = []
   const unscanned = []
@@ -21,13 +25,10 @@ export function importEdges(map) {
       continue
     }
     const { program, error } = parse(from.content, lang)
-    if (!program) {
-      failed.push({ file: from, error })
-      continue
-    }
+    if (!program) failed.push({ file: from, error })
     const keys = new Set()
-    for (const found of specifiersOf(program)) {
-      const key = `${found.kind}\0${found.specifier}`
+    for (const found of program ? specifiersOf(program, named) : scanSpecifiers(from.content, named)) {
+      const key = `${found.kind}\0${found.callee ?? ''}\0${found.specifier}`
       if (keys.has(key)) continue
       keys.add(key)
       const edge = edgeOf(from, found, index)

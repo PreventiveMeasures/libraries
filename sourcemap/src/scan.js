@@ -127,14 +127,15 @@ function declared(tokens, k) {
   return specifier === null ? null : { kind, specifier }
 }
 
-export function scanSpecifiers(text) {
+// `callees`: functions taking a module's name, as require does.
+export function scanSpecifiers(text, callees = new Set()) {
   const tokens = lex(text)
   const found = []
   for (const [k, token] of tokens.entries()) {
     if (token.type !== 'word' || valueOf(tokens[k - 1]) === '.') continue
     const [open, argument, close] = [tokens[k + 1], tokens[k + 2], tokens[k + 3]]
-    if (token.value === 'require' && valueOf(open) === '(' && isString(argument) && valueOf(close) === ')') {
-      found.push({ kind: 'require', specifier: argument.value })
+    if ((token.value === 'require' || callees.has(token.value)) && valueOf(open) === '(' && isString(argument) && valueOf(close) === ')') {
+      found.push({ kind: 'require', specifier: argument.value, ...(token.value !== 'require' && { callee: token.value }) })
     } else if (token.value === 'import' && valueOf(open) === '(') {
       if (isString(argument)) found.push({ kind: 'dynamic-import', specifier: argument.value })
     } else if (token.value === 'import' || token.value === 'export') {

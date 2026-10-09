@@ -40,8 +40,8 @@ describe('the sources\' own imports, whatever bundled them', () => {
     const result = importEdges(fixture('metro-prod'))
     const local = PROJECT.map((line) => line.replace('(./dead.js, path src/dead.js)', 'src/dead.js').replace('(ext, package ext)', 'node_modules/ext/index.js'))
     assert.deepEqual(shown(result.edges).map((line) => line.replaceAll('/app/', '')), local.toSorted())
-    // Metro's own prelude has no source to read.
-    assert.deepEqual(result.unscanned.map((file) => file.source), ['__prelude__'])
+    // Metro's own prelude, named with no extension, reads as a script, and requests nothing.
+    assert.deepEqual(result.unscanned, [])
   })
 })
 
@@ -116,6 +116,34 @@ describe('a specifier is resolved as a resolver would try it', () => {
     ])
   })
 
+  it('takes a package\'s entry its package.json would name from where packages keep it, or its one file', () => {
+    const map = sources({
+      'src/a.js': "import 'm'\nimport 'b'\nimport 'debug'\nimport 'one'\nimport 'two'",
+      'node_modules/m/lib/index.mjs': '', 'node_modules/m/lib/other.mjs': '',
+      'node_modules/b/build/index.js': '',
+      'node_modules/debug/src/browser.js': '', 'node_modules/debug/src/common.js': '',
+      'node_modules/one/dist/one.umd.js': '',
+      'node_modules/two/dist/x.js': '', 'node_modules/two/dist/y.js': '',
+    })
+    assert.deepEqual(shown(importEdges(map).edges), [
+      'src/a.js -> (two, package two) [import]',
+      'src/a.js -> node_modules/b/build/index.js [import]',
+      'src/a.js -> node_modules/debug/src/browser.js [import]',
+      'src/a.js -> node_modules/m/lib/index.mjs [import]',
+      'src/a.js -> node_modules/one/dist/one.umd.js [import]',
+    ])
+  })
+
+  it('takes a browser or Node build in place of the file a specifier writes', () => {
+    const map = sources({ 'lib/index.js': "import './encode.js'\nimport './decode.js'", 'lib/encode.browser.js': '', 'lib/decode.node.js': '' })
+    assert.deepEqual(shown(importEdges(map).edges), ['lib/index.js -> lib/decode.node.js [import]', 'lib/index.js -> lib/encode.browser.js [import]'])
+  })
+
+  it('takes a compiled package\'s sources where the map holds them in place of what it publishes', () => {
+    const map = sources({ 'src/a.js': "import 'p/lib/x.js'\nimport 'p/dist/esm/y.js'\nimport 'q/build/z'", 'node_modules/p/src/x.ts': '', 'node_modules/p/y.ts': '', 'node_modules/q/src/z.tsx': '' })
+    assert.deepEqual(shown(importEdges(map).edges), ['src/a.js -> node_modules/p/src/x.ts [import]', 'src/a.js -> node_modules/p/y.ts [import]', 'src/a.js -> node_modules/q/src/z.tsx [import]'])
+  })
+
   it('reads a file whose name a bundler gave a query, by its extension', () => {
     const map = readSourceMap({ version: 3, sources: ['webpack:///./src/a.js?1a2b', 'webpack:///./src/b.js'], sourcesContent: ["import './b.js'", ''], mappings: '' })
     assert.deepEqual(shown(importEdges(map).edges), ['src/a.js?1a2b -> src/b.js [import]'])
@@ -131,6 +159,15 @@ describe('what counts as an import', () => {
     assert.deepEqual(shown(importEdges(map).edges), ['a.ts -> w.ts [import]', 'a.ts -> x.ts [export-from]', 'a.ts -> y.ts [require]'])
   })
 
+  it('reads a call of a function the caller names as taking a module, as require does', () => {
+    const map = sources({ 'lib/a.js': "const c = internalBinding('crypto')\nconst b = load('./b.js')", 'flow.js': "// @flow\nconst x: ?number = internalBinding('fs')", 'lib/b.js': '' })
+    const { edges } = importEdges(map, { callees: ['internalBinding', 'load'] })
+    assert.deepEqual(edges.map((edge) => `${shown([edge])} ${edge.callee}`).toSorted(), [
+      'flow.js -> (fs, builtin) [require] internalBinding', 'lib/a.js -> (crypto, builtin) [require] internalBinding', 'lib/a.js -> lib/b.js [require] load',
+    ])
+    assert.deepEqual(importEdges(map).edges, [])
+  })
+
   it('reads every kind once per file, a template literal with nothing in it too', () => {
     const map = sources({ 'a.js': "import './b.js'\nimport './b.js'\nexport { x } from './b.js'\nrequire(`./b.js`)\nconst f = () => import('./b.js')", 'b.js': '' })
     assert.deepEqual(shown(importEdges(map).edges), ['a.js -> b.js [dynamic-import]', 'a.js -> b.js [export-from]', 'a.js -> b.js [import]', 'a.js -> b.js [require]'])
@@ -144,17 +181,22 @@ describe('what counts as an import', () => {
 
 describe('what is not read', () => {
   it('lists a file with no content, or no script, as unscanned, and skips JSON', () => {
-    const map = readSourceMap({ version: 3, sources: ['a.js', 'b.vue', 'c.json', null, 'webpack/bootstrap'], sourcesContent: [null, '<template/>', null, null, ''], mappings: '' })
+    const map = readSourceMap({ version: 3, sources: ['a.js', 'b.vue', 'c.json', null, 'webpack/runtime/define property getters'], sourcesContent: [null, '<template/>', null, null, ''], mappings: '' })
     const result = importEdges(map)
-    assert.deepEqual(result.unscanned.map((file) => file.source), ['a.js', 'b.vue', null, 'webpack/bootstrap'])
+    assert.deepEqual(result.unscanned.map((file) => file.source), ['a.js', 'b.vue', null, 'webpack/runtime/define property getters'])
     assert.deepEqual([result.edges, result.failed], [[], []])
   })
 
-  it('lists a file that does not parse with the parser\'s error: Flow, here', () => {
-    const map = sources({ 'flow.js': "// @flow\nimport type { T } from './t'\nfunction f(x: ?T): %checks { return !!x }", 'ok.js': "import './flow.js'" })
+  it('reads a file named with no extension, a bin script, or with .es6, as JavaScript', () => {
+    const map = sources({ 'bin/cli': "#!/usr/bin/env node\nrequire('../lib/a.es6')", 'lib/a.es6': "import './b'", 'lib/b.js': '' })
+    assert.deepEqual(shown(importEdges(map).edges), ['bin/cli -> lib/a.es6 [require]', 'lib/a.es6 -> lib/b.js [import]'])
+  })
+
+  it('lists a file that does not parse with the parser\'s error, and reads its imports with no parser: Flow, here', () => {
+    const map = sources({ 'flow.js': "// @flow\nimport type { T } from './t'\nconst ok = require('./ok.js')\nfunction f(x: ?T): %checks { return !!x }", 'ok.js': "import './flow.js'", 't.js': '' })
     const result = importEdges(map)
     assert.deepEqual(result.failed.map(({ file }) => file.path), ['flow.js'])
     assert.equal(typeof result.failed[0].error, 'string')
-    assert.deepEqual(shown(result.edges), ['ok.js -> flow.js [import]'])
+    assert.deepEqual(shown(result.edges), ['flow.js -> ok.js [require]', 'ok.js -> flow.js [import]'])
   })
 })

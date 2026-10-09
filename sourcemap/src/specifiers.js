@@ -30,10 +30,17 @@ export function specifierOf(node) {
   }
 }
 
-export function specifiersOf(program) {
+// A call of a function `callees` names as taking a module's name, as
+// require does: `internalBinding('crypto')`.
+function calleeOf(node, callees) {
+  if (node.type !== 'CallExpression' || node.callee.type !== 'Identifier' || !callees.has(node.callee.name) || node.arguments.length === 0) return null
+  return { kind: 'require', specifier: literalSpecifier(node.arguments[0]), callee: node.callee.name }
+}
+
+export function specifiersOf(program, callees = new Set()) {
   const found = []
   walk(program, (node) => {
-    const named = specifierOf(node)
+    const named = specifierOf(node) ?? calleeOf(node, callees)
     if (named) found.push(named)
   })
   return found

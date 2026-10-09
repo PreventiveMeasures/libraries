@@ -2,9 +2,15 @@ import { getParser } from './oxc.js'
 
 // The .js family with JSX, as React Native writes it, which plain
 // JavaScript parses the same under.
-const LANGUAGES = new Map([['js', 'jsx'], ['mjs', 'jsx'], ['cjs', 'jsx'], ['jsx', 'jsx'], ['ts', 'ts'], ['mts', 'ts'], ['cts', 'ts'], ['tsx', 'tsx'], ['json', 'json']])
+const LANGUAGES = new Map([['js', 'jsx'], ['mjs', 'jsx'], ['cjs', 'jsx'], ['jsx', 'jsx'], ['es', 'jsx'], ['es6', 'jsx'], ['ts', 'ts'], ['mts', 'ts'], ['cts', 'ts'], ['tsx', 'tsx'], ['json', 'json']])
 
-export const languageOf = (path) => LANGUAGES.get(/\.([a-z]+)(?:\?.*)?$/iu.exec(path)?.[1].toLowerCase()) ?? null
+// By the extension, a bundler's `?query` after it aside; a file named with
+// none, a bin script, as JavaScript.
+export function languageOf(path) {
+  const name = path.slice(path.lastIndexOf('/') + 1).replace(/\?.*$/su, '')
+  if (/^[\w-]+$/u.test(name)) return 'jsx'
+  return LANGUAGES.get(/\.([\da-z]+)$/iu.exec(name)?.[1].toLowerCase()) ?? null
+}
 
 // `unambiguous` takes a module by its syntax, as Node does a typeless file;
 // `commonjs` takes the top-level `return` CommonJS's wrapper allows. No
