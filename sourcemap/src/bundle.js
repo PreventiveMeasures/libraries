@@ -7,7 +7,7 @@ import { isWebpack, isWebpackOwn, webpackEdges } from './webpack.js'
 export function bundleEdges(code, map) {
   const metro = metroEdges(code, map)
   if (metro) return { edges: metro }
-  const { program, error } = parse(code, 'js')
+  const { program, error } = parse(code, 'jsx')
   if (!program) throw new Error(`bundleEdges: the bundle does not parse: ${error}`)
   const starts = lineStarts(code)
   if (!isWebpack(map)) return { edges: referenceEdges(program, map, starts) }

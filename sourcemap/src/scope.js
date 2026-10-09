@@ -75,15 +75,26 @@ function external(node, scope, pass) {
 // Their keys are names, but where computed.
 const KEYED = new Set(['Property', 'MethodDefinition', 'PropertyDefinition', 'AccessorProperty'])
 
+function reference(node, scope, pass) {
+  if (pass.declaring || pass.declared.has(node)) return
+  const binding = lookup(scope, node.name)
+  pass.reference(node, binding, pass.declared.get(binding))
+}
+
 function visit(node, scope, pass) {
   if (TYPES.has(node.type)) return
   switch (node.type) {
     case 'Identifier':
-      if (!pass.declaring && !pass.declared.has(node)) {
-        const binding = lookup(scope, node.name)
-        pass.reference(node, binding, pass.declared.get(binding))
-      }
+      return reference(node, scope, pass)
+    // A component JSX names, `<Button>`, or `<ui.Card>`'s `ui`; a lowercase
+    // `<div>` is the host's own element.
+    case 'JSXOpeningElement': {
+      let name = node.name
+      while (name.type === 'JSXMemberExpression') name = name.object
+      if (name.type === 'JSXIdentifier' && (name !== node.name || !/^[a-z]/u.test(name.name))) reference(name, scope, pass)
+      for (const attribute of node.attributes) visit(attribute, scope, pass)
       return
+    }
     case 'ImportDeclaration':
       declare(scope, pass, node.specifiers.map((specifier) => specifier.local), node.source.value)
       return external(node, scope, pass)

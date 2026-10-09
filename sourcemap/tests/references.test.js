@@ -90,6 +90,15 @@ describe('a name is the declaration its scope makes it', () => {
     assert.deepEqual(shown(generated([['decl.js', 'var p, q;'], ['a.js', '({ p });'], ['b.js', '[q] = [1]']]).edges), ['a.js -> decl.js [reference]', 'b.js -> decl.js [reference]'])
   })
 
+  it('in JSX a bundle kept, a component\'s name is one, and a host element\'s or an attribute\'s is not', () => {
+    assert.deepEqual(shown(generated([
+      ['button.js', 'function Button() {}'],
+      ['ui.js', 'var ui = { Card: 1 };'],
+      ['host.js', 'var div = 1, title = 2;'],
+      ['app.js', 'var el = <div title="t"><Button /><ui.Card /></div>;'],
+    ]).edges), ['app.js -> button.js [reference]', 'app.js -> ui.js [reference]'])
+  })
+
   it('skips a declaration the map gives no file, and a global', () => {
     assert.deepEqual(shown(generated([[null, 'var helper = 1;'], ['use.js', 'helper; window; undefinedName']]).edges), [])
   })
