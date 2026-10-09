@@ -354,8 +354,8 @@ describe('claude sonnet 5.5', () => {
     assert.equal(baseRate(SONNET55, 'output'), 10)
   })
 
-  it('bills the cache legs at the usual multiples of input, with no override', () => {
-    assert.equal(baseRate(SONNET55, 'cacheRead'), 0.2)
+  it('bills cache reads at the row\'s flat $0.10 per Mtok, 0.05x input like opus 5.5, and writes at the usual 1.25x and 2x', () => {
+    assert.equal(baseRate(SONNET55, 'cacheRead'), 0.1)
     assert.equal(baseRate(SONNET55, 'cacheWrite5m'), 2.5)
     assert.equal(baseRate(SONNET55, 'cacheWrite1h'), 4)
   })
