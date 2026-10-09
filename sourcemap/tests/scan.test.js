@@ -46,8 +46,14 @@ describe('a source\'s module requests, read with no parser', () => {
     ].join('\n')), ['require in-its-expression', 'require nested', 'require after-a-division'])
   })
 
-  it('dividing after a postfix update or an object, whose `/` starts no regular expression', () => {
-    assert.deepEqual(scanned("const a = value++ / require('one') / 2\nconst b = value-- / require('two') / 2\nconst c = {} / require('three') / 2\nfunction f() { return { x } / require('four') }"), ['require one', 'require two', 'require three', 'require four'])
+  it('a string continued past an escaped line\'s end, `\\r\\n` too', () => {
+    for (const end of ['\n', '\r', '\r\n', '\u2028']) {
+      assert.deepEqual(scanned(`const s = "a\\${end}require('in-a-string')"; require('real')`), ['require real'], JSON.stringify(end))
+    }
+  })
+
+  it('dividing after a postfix update, an object, or a word on the line after break, whose `/` starts no regular expression', () => {
+    assert.deepEqual(scanned("const a = value++ / require('one') / 2\nconst b = value-- / require('two') / 2\nconst c = {} / require('three') / 2\nfunction f() { return { x } / require('four') }\nfor (;;) { break\nx / require('five') }"), ['require one', 'require two', 'require three', 'require four', 'require five'])
   })
 
   it('past a quote in JSX text, which ends with its line', () => {
@@ -67,6 +73,6 @@ describe('a source\'s module requests, read with no parser', () => {
   })
 
   it('no request where no module is named: a call with nothing, a declaration, a regex after a statement\'s head', () => {
-    assert.deepEqual(scanned("require(); function require(name) {}\nif (ready) /require('phantom')/.test(text)\nwhile (x) /import('ghost')/u.exec(y)\nfor await (const x of xs) /require('phantom')/.test(x)\nfor (;;) { if (a) break\n/require('after-break')/.test(x); continue\n/require('after-continue')/.test(x) }\ndebugger\n/require('after-debugger')/.test(x)\nif (ready) {} /require('after-a-block')/.test(text)\nconst g = () => {}\n/require('after-an-arrow')/.test(text)\nimport type T = require('a-type')\nfunction* h() { return\n{}\n/require('after-return')/.test(text); yield\n{}\n/import('after-yield')/u }"), [])
+    assert.deepEqual(scanned("require(); function require(name) {}\nif (ready) /require('phantom')/.test(text)\nwhile (x) /import('ghost')/u.exec(y)\nfor await (const x of xs) /require('phantom')/.test(x)\nfor (;;) { if (a) break\n/require('after-break')/.test(x); continue\n/require('after-continue')/.test(x) }\ndebugger\n/require('after-debugger')/.test(x)\nouter: for (;;) { break outer\n/require('after-a-label')/.test(x) }\nif (ready) {} /require('after-a-block')/.test(text)\nconst g = () => {}\n/require('after-an-arrow')/.test(text)\nimport type T = require('a-type')\nfunction* h() { return\n{}\n/require('after-return')/.test(text); yield\n{}\n/import('after-yield')/u }"), [])
   })
 })

@@ -37,17 +37,20 @@ function opensHead(tokens) {
 
 function regexAllowed(previous) {
   if (!previous) return true
-  if (previous.type === 'word') return OPERATORS.has(previous.value) || ENDING.has(previous.value)
+  if (previous.type === 'word') return OPERATORS.has(previous.value) || ENDING.has(previous.value) || previous.label === true
   if (previous.value === ')') return previous.control
   if (previous.value === '}') return !previous.object
   return previous.type === 'punctuator' && !['++', '--', ']'].includes(previous.value)
 }
 
+// An escaped line's end, `\r\n` too, continues a string.
+const escapeLength = (text, at) => (text.startsWith('\r\n', at + 1) ? 3 : 2)
+
 // A string's value, or null for one cut off by its line, or escaped.
 function quoted(text, at) {
   const quote = text[at]
   let i = at + 1
-  while (i < text.length && text[i] !== quote && !LINE_ENDS.includes(text[i])) i += text[i] === '\\' ? 2 : 1
+  while (i < text.length && text[i] !== quote && !LINE_ENDS.includes(text[i])) i += text[i] === '\\' ? escapeLength(text, i) : 1
   const value = text.slice(at + 1, i)
   return [text[i] === quote && !value.includes('\\') ? value : null, i + 1]
 }
@@ -115,7 +118,9 @@ function lex(text) {
       i = regexEnd(text, i)
       tokens.push({ type: 'regex' })
     } else if (WORD.test(text)) {
-      tokens.push({ type: 'word', value: text.slice(i, WORD.lastIndex) })
+      // `break label`'s label, on its line, ends the statement as `break` does.
+      const label = ENDING.has(tokens.at(-1)?.value) && !LINE_BREAK.test(text.slice(lastEnd, i))
+      tokens.push({ type: 'word', value: text.slice(i, WORD.lastIndex), ...(label && { label }) })
       i = WORD.lastIndex
     } else {
       if (c === '{') braces.push(opensObject(tokens.at(-1), LINE_BREAK.test(text.slice(lastEnd, i))) ? 'object' : 'block')
