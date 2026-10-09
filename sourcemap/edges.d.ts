@@ -42,8 +42,14 @@ export interface ImportEdges {
 // package.json or tsconfig: no `exports`, `main`, or aliases.
 export function importEdges(map: SourceMap): ImportEdges
 
-// The edges a bundle shows between the files its map lists; with no `code`,
-// the edges importEdges reads from the map's sources. For Metro's
+// The edges a bundle shows between the files its map lists. With no `code`,
+// a Metro map's own: each file's imports, read from its source with no
+// parser (Flow too), and what Babel adds, its helpers and JSX runtime, by
+// the names Metro mapped; the files' order, Metro's walk from the entry,
+// gives a package's entry and an asset's registry. That misses what a
+// transform alone adds or drops: React Native's codegen imports, an
+// import of Platform Metro inlined away. Any other map's, as importEdges
+// reads them. For Metro's
 // output (`code`, the JavaScript, not Hermes bytecode), each module's
 // dependencies, as Metro resolved them: `dependency` edges. For webpack's
 // (4 and 5, by its webpack:// sources), each module's require calls by

@@ -18,28 +18,29 @@ function grown(array) {
 // Neither a generator nor sections laid side by side need have kept a line
 // in column order.
 function sortLines(segments) {
-  const { starts, columns, sources } = segments
+  const { starts, columns, sources, names } = segments
   for (let l = 0; l + 1 < starts.length; l++) {
     const [from, to] = [starts[l], starts[l + 1]]
     let k = from + 1
     while (k < to && columns[k - 1] <= columns[k]) k++
     if (k >= to) continue
-    const sorted = Array.from(columns.subarray(from, to), (c, n) => [c, sources[from + n]]).sort((a, b) => a[0] - b[0])
-    for (const [n, [c, s]] of sorted.entries()) [columns[from + n], sources[from + n]] = [c, s]
+    const sorted = Array.from(columns.subarray(from, to), (c, n) => [c, sources[from + n], names[from + n]]).sort((a, b) => a[0] - b[0])
+    for (const [n, [c, s, m]] of sorted.entries()) [columns[from + n], sources[from + n], names[from + n]] = [c, s, m]
   }
   return segments
 }
 
 // Each part's segments, from its generated `line` and `column` on, as an
-// index map places a section: their generated columns, and files
-// (`files[source]`, -1 for none), line l's at [starts[l], starts[l + 1]).
-// Where in a source a segment points, and its name, are read past.
+// index map places a section: their generated columns, files (`files[source]`,
+// -1 for none) and names (`ids[name]`, -1 for none), line l's at
+// [starts[l], starts[l + 1]). Where in a source a segment points is read past.
 export function decodeMappings(parts) {
   const starts = [0]
   let columns = new Int32Array(1024)
   let sources = new Int32Array(1024)
+  let names = new Int32Array(1024)
   let count = 0
-  for (const [mappings, files, line, column] of parts) {
+  for (const [mappings, files, line, column, ids] of parts) {
     if (typeof mappings !== 'string') throw new SourceMapError('mappings is not a string')
     while (starts.length <= line) starts.push(count)
     const state = [0, 0, 0, 0, 0]
@@ -70,9 +71,10 @@ export function decodeMappings(parts) {
         const file = field === 1 ? -1 : files[state[1]]
         if (file === undefined) throw new SourceMapError(`mappings: source ${state[1]} before ${i} is not in sources`)
         if (state[0] < 0) throw new SourceMapError(`mappings: a negative generated column before ${i}`)
-        if (count === columns.length) [columns, sources] = [grown(columns), grown(sources)]
+        if (count === columns.length) [columns, sources, names] = [grown(columns), grown(sources), grown(names)]
         columns[count] = state[0] + shift
-        sources[count++] = file
+        sources[count] = file
+        names[count++] = field === 5 ? (ids[state[4]] ?? -1) : -1
         field = 0
       }
       if (code === 65) {
@@ -83,5 +85,5 @@ export function decodeMappings(parts) {
     }
   }
   starts.push(count)
-  return sortLines({ starts: Int32Array.from(starts), columns: columns.slice(0, count), sources: sources.slice(0, count) })
+  return sortLines({ starts: Int32Array.from(starts), columns: columns.slice(0, count), sources: sources.slice(0, count), names: names.slice(0, count) })
 }

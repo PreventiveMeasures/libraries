@@ -41,7 +41,7 @@ function find(index, base) {
 // As Node walks up from a file; else, as a store keeps packages away from
 // their importers (pnpm's paths are real paths, not the links beside
 // them), the one copy the map has.
-function packageRoot(index, from, name) {
+export function packageRoot(index, from, name) {
   const dirs = index.roots.get(name)
   if (!dirs) return null
   const parts = from.path.split('/')

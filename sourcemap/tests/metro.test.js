@@ -4,7 +4,7 @@ import { readSourceMap } from '@preventive/sourcemap'
 import { bundleEdges, importEdges } from '@preventive/sourcemap/edges.js'
 import { bundleEdges as liteEdges } from '@preventive/sourcemap/edges-lite.js'
 import { bundle as fixture } from './fixtures.js'
-import { handWritten as bundle, lineMap } from './helpers.js'
+import { handWritten as bundle, lineMap, vlq } from './helpers.js'
 
 // A Metro bundle keeps, minified or not, the dependency ids its resolver
 // picked for each module; the map says which file each module's code came
@@ -14,6 +14,23 @@ import { handWritten as bundle, lineMap } from './helpers.js'
 const DOORS = [['edges.js', bundleEdges], ['edges-lite.js', liteEdges]]
 const show = (edge) => `${edge.from.path} -> ${edge.to.path}`.replaceAll('/app/', '')
 const shown = (read, map, code) => read(map, code).edges.map(show)
+
+// A Metro map written by hand: each file's source, and the names its
+// segments carry, a segment a line.
+function metroMap(files) {
+  const names = [...new Set(files.flatMap(([, , carried = []]) => carried))]
+  let [source, name] = [0, 0]
+  const lines = files.flatMap(([, , carried = []], i) => (carried.length > 0 ? carried : [null]).map((carriedName) => {
+    let segment = vlq(0) + vlq(i - source) + vlq(0) + vlq(0)
+    source = i
+    if (carriedName !== null) {
+      segment += vlq(names.indexOf(carriedName) - name)
+      name = names.indexOf(carriedName)
+    }
+    return segment
+  }))
+  return readSourceMap({ version: 3, sources: files.map(([path]) => path), sourcesContent: files.map(([, content]) => content), names, mappings: lines.join(';') })
+}
 
 // The fixture project (see fixtures.js), every import of it, ext
 // included: Metro bundles what it resolves and leaves nothing out.
@@ -94,6 +111,47 @@ for (const [door, read] of DOORS) {
       }
     })
   })
+
+  // With no bundle: each file's own imports, read with no parser, and what
+  // Babel adds by the names Metro mapped; the files' order, the walk Metro
+  // made, places what no file says.
+  describe(`${door}: a Metro map alone`, () => {
+    it('gives the fixture project\'s every edge, minified or not', () => {
+      for (const name of ['metro-prod', 'metro-dev']) assert.deepEqual(shown(read, fixture(name)[0]).toSorted(), PROJECT, name)
+    })
+
+    it('Babel\'s helpers and JSX runtime by name, an asset\'s registry and a package\'s entry by order, an import()\'s asyncRequire', () => {
+      const map = metroMap([
+        ['__prelude__', ''],
+        ['/app/index.js', "import App from './App'\nimport('./lazy')", ['_interopRequireDefault', '_jsxRuntime']],
+        ['/app/App.js', "import { View } from 'pkg'\nconst logo = require('./logo.png')", ['_classCallCheck2']],
+        ['/app/node_modules/@babel/runtime/helpers/interopRequireDefault.js', ''],
+        ['/app/node_modules/react/jsx-runtime.js', ''],
+        ['/app/node_modules/pkg/lib/module/index.js', "export * from './View'"],
+        ['/app/node_modules/pkg/lib/module/View.js', ''],
+        ['/app/logo.png', ''],
+        ['/app/node_modules/react-native/Libraries/Image/AssetRegistry.js', ''],
+        ['/app/node_modules/@babel/runtime/helpers/classCallCheck.js', ''],
+        ['/app/node_modules/metro-runtime/src/modules/asyncRequire.js', ''],
+        ['/app/lazy.js', ''],
+        // A prebuilt file's own helper, not Babel's import of one.
+        ['/app/node_modules/prebuilt/index.js', 'function _interopRequireDefault(o) { return o }', ['_interopRequireDefault']],
+      ])
+      assert.deepEqual(shown(read, map).toSorted(), [
+        'App.js -> logo.png',
+        'App.js -> node_modules/@babel/runtime/helpers/classCallCheck.js',
+        'App.js -> node_modules/@babel/runtime/helpers/interopRequireDefault.js',
+        'App.js -> node_modules/pkg/lib/module/index.js',
+        'index.js -> App.js',
+        'index.js -> lazy.js',
+        'index.js -> node_modules/@babel/runtime/helpers/interopRequireDefault.js',
+        'index.js -> node_modules/metro-runtime/src/modules/asyncRequire.js',
+        'index.js -> node_modules/react/jsx-runtime.js',
+        'logo.png -> node_modules/react-native/Libraries/Image/AssetRegistry.js',
+        'node_modules/pkg/lib/module/index.js -> node_modules/pkg/lib/module/View.js',
+      ])
+    })
+  })
 }
 
 describe('edges-lite.js reads Metro\'s output alone', () => {
@@ -108,12 +166,12 @@ describe('edges-lite.js reads Metro\'s output alone', () => {
   })
 })
 
-describe('with the map alone, no code', () => {
-  it('edges.js reads the map\'s sources, as importEdges does; edges-lite.js has nothing to read', () => {
-    for (const name of ['metro-prod', 'esbuild', 'webpack-production']) {
+describe('a map alone, with no Metro prelude, is no Metro map', () => {
+  it('edges.js reads its sources, as importEdges does; edges-lite.js has nothing to read', () => {
+    for (const name of ['esbuild', 'webpack-production']) {
       const [map] = fixture(name)
       assert.deepEqual(bundleEdges(map), { edges: importEdges(map).edges }, name)
-      assert.throws(() => liteEdges(map), /edges-lite\.js reads a Metro bundle's code/u, name)
+      assert.throws(() => liteEdges(map), /bundleEdges: not a Metro map/u, name)
     }
   })
 })
