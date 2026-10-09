@@ -50,9 +50,15 @@ function visitFunction(node, scope, pass) {
   if (node.id) declare(node.type === 'FunctionDeclaration' ? scope : inner, pass, [node.id])
   declare(inner, pass, node.params.flatMap((param) => patternNames(param.type === 'TSParameterProperty' ? param.parameter : param)))
   for (const param of node.params) visit(param, inner, pass)
-  // The body's block is the function's own scope, not one inside it.
-  if (node.body?.type === 'BlockStatement') children(node.body, inner, pass)
-  else if (node.body) visit(node.body, inner, pass)
+  // The body's block is the function's own scope, not one inside it; but
+  // with parameters more than names, which may hold initializers, the
+  // body's declarations are a scope those do not see.
+  if (node.body?.type !== 'BlockStatement') {
+    if (node.body) visit(node.body, inner, pass)
+    return
+  }
+  const body = node.params.every((param) => param.type === 'Identifier') ? inner : scopeFor(node.body, inner, true, pass)
+  children(node.body, body, pass)
 }
 
 function visitClass(node, scope, pass) {

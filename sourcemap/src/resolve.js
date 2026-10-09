@@ -5,10 +5,18 @@ import { isUrl, packageName, resolvePath } from './files.js'
 // where packages keep it: no `exports`, and no aliases.
 
 const EXTENSIONS = ['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.mts', '.cts', '.json']
-// Platform files a bundler picks over the plain one, which comes last, as
-// Metro tries them: React Native's, and the browser and Node builds a
-// package ships side by side.
-const PLATFORMS = ['.ios', '.android', '.web', '.native', '.browser', '.node', '']
+// React Native's platforms: Metro tries the bundle's own, then `.native`,
+// then the plain file. A map's platform is the one its files show most; in
+// a map that shows none the plain file comes first. A browser or Node build
+// a package ships beside the plain file comes after it.
+const RN_PLATFORMS = ['.ios', '.android', '.web']
+
+function platformsOf(files) {
+  const counts = RN_PLATFORMS.map((platform) => [platform, files.filter((file) => file.path?.includes(`${platform}.`)).length])
+  const [active, count] = counts.reduce((top, entry) => (entry[1] > top[1] ? entry : top))
+  if (count === 0) return ['', '.native', '.browser', '.node', ...RN_PLATFORMS]
+  return [active, '.native', '', '.browser', '.node', ...RN_PLATFORMS.filter((platform) => platform !== active)]
+}
 // TypeScript's sources, imported by the names they compile to.
 const OUTPUT_NAMES = new Map([['.js', ['.ts', '.tsx']], ['.jsx', ['.tsx']], ['.mjs', ['.mts']], ['.cjs', ['.cts']]])
 // Where a package keeps the entry its package.json, which no map carries,
@@ -18,15 +26,15 @@ const ENTRY_DIRS = ['', 'src/', 'lib/', 'dist/', 'build/']
 // What a package publishes compiled out of src/, or out of its root.
 const BUILD_DIRS = new Set(['lib', 'dist', 'build', 'out', 'esm', 'cjs'])
 
-function* candidates(base) {
+function* candidates(base, platforms) {
   yield base
   const written = /\.[^./]+$/u.exec(base)?.[0]
   for (const input of OUTPUT_NAMES.get(written) ?? []) yield base.slice(0, -written.length) + input
   for (const stem of [base, `${base}/index`]) {
-    for (const platform of PLATFORMS) for (const extension of EXTENSIONS) yield stem + platform + extension
+    for (const platform of platforms) for (const extension of EXTENSIONS) yield stem + platform + extension
   }
   // `./a.js` as a platform's own: ./a.browser.js.
-  if (written) for (const platform of PLATFORMS.filter(Boolean)) yield base.slice(0, -written.length) + platform + written
+  if (written) for (const platform of platforms.filter(Boolean)) yield base.slice(0, -written.length) + platform + written
 }
 
 // A compiled package's subpath where the map holds its sources instead:
@@ -56,11 +64,11 @@ export function indexFiles(files) {
     const inRoot = byRoot.get(file.package.root) ?? byRoot.set(file.package.root, []).get(file.package.root)
     inRoot.push(file)
   }
-  return { byPath, roots, byRoot, found: new Map() }
+  return { byPath, roots, byRoot, platforms: platformsOf(files), found: new Map() }
 }
 
 function find(index, base) {
-  if (!index.found.has(base)) index.found.set(base, index.byPath.get(candidates(base).find((candidate) => index.byPath.has(candidate))) ?? null)
+  if (!index.found.has(base)) index.found.set(base, index.byPath.get(candidates(base, index.platforms).find((candidate) => index.byPath.has(candidate))) ?? null)
   return index.found.get(base)
 }
 

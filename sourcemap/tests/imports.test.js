@@ -139,6 +139,14 @@ describe('a specifier is resolved as a resolver would try it', () => {
     assert.deepEqual(shown(importEdges(map).edges), ['src/a.js -> src/view.ios.js [import]', 'src/a.js -> src/view.js [import]'])
   })
 
+  it('takes the platform the map\'s files show, not another one\'s file it also holds', () => {
+    const android = sources({ 'src/a.js': "import './view'", 'src/view.js': '', 'src/view.ios.js': '', 'src/view.android.js': '', 'src/list.android.js': '' })
+    assert.deepEqual(shown(importEdges(android).edges), ['src/a.js -> src/view.android.js [import]'])
+    // With no React Native platform's files, the plain one before a browser build.
+    const web = sources({ 'lib/a.js': "import './encode'", 'lib/encode.js': '', 'lib/encode.browser.js': '' })
+    assert.deepEqual(shown(importEdges(web).edges), ['lib/a.js -> lib/encode.js [import]'])
+  })
+
   it('takes a browser or Node build in place of the file a specifier writes', () => {
     const map = sources({ 'lib/index.js': "import './encode.js'\nimport './decode.js'", 'lib/encode.browser.js': '', 'lib/decode.node.js': '' })
     assert.deepEqual(shown(importEdges(map).edges), ['lib/index.js -> lib/decode.node.js [import]', 'lib/index.js -> lib/encode.browser.js [import]'])
@@ -152,6 +160,11 @@ describe('a specifier is resolved as a resolver would try it', () => {
   it('takes a `//`-led specifier from a URL as a URL under its scheme', () => {
     const map = sources({ 'https://origin.example/src/a.js': "import '//cdn.example/lib/b.js'", 'https://cdn.example/lib/b.js': '' })
     assert.deepEqual(shown(importEdges(map).edges), ['https://origin.example/src/a.js -> https://cdn.example/lib/b.js [import]'])
+  })
+
+  it('reads a URL whose name has a fragment, by its extension', () => {
+    const map = sources({ 'https://cdn.example/entry.js#v1': "import './b.js'", 'https://cdn.example/b.js': '' })
+    assert.deepEqual(shown(importEdges(map).edges), ['https://cdn.example/entry.js#v1 -> https://cdn.example/b.js [import]'])
   })
 
   it('reads a file whose name a bundler gave a query, by its extension', () => {

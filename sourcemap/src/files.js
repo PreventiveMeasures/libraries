@@ -83,10 +83,10 @@ export function packageOf(path) {
 // JavaScript parses the same under.
 const LANGUAGES = new Map([['js', 'jsx'], ['mjs', 'jsx'], ['cjs', 'jsx'], ['jsx', 'jsx'], ['es', 'jsx'], ['es6', 'jsx'], ['ts', 'ts'], ['mts', 'ts'], ['cts', 'ts'], ['tsx', 'tsx'], ['json', 'json']])
 
-// By the extension, a bundler's `?query` after it aside; a file named with
-// none, a bin script, as JavaScript.
+// By the extension, a bundler's `?query` after it aside, and a URL's
+// `#fragment`; a file named with none, a bin script, as JavaScript.
 export function languageOf(path) {
-  const name = path.slice(path.lastIndexOf('/') + 1).replace(/\?.*$/su, '')
+  const name = path.slice(path.lastIndexOf('/') + 1).replace(isUrl(path) ? /[#?].*$/su : /\?.*$/su, '')
   if (/^[\w-]+$/u.test(name)) return 'jsx'
   return LANGUAGES.get(/\.([\da-z]+)$/iu.exec(name)?.[1].toLowerCase()) ?? null
 }

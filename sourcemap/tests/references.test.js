@@ -90,6 +90,14 @@ describe('a name is the declaration its scope makes it', () => {
     assert.deepEqual(shown(generated([['decl.js', 'var p, q;'], ['a.js', '({ p });'], ['b.js', '[q] = [1]']]).edges), ['a.js -> decl.js [reference]', 'b.js -> decl.js [reference]'])
   })
 
+  it('a parameter\'s initializer sees no declaration of the body\'s', () => {
+    assert.deepEqual(shown(generated([
+      ['outer.js', 'var shared = 1;'],
+      ['f.js', 'function f(x = shared) {'],
+      ['body.js', '  var shared = 2; return shared }'],
+    ]).edges), ['f.js -> outer.js [reference]'])
+  })
+
   it('in JSX a bundle kept, a component\'s name is one, and a host element\'s or an attribute\'s is not', () => {
     assert.deepEqual(shown(generated([
       ['button.js', 'function Button() {}'],

@@ -21,7 +21,7 @@ function regexAllowed(previous) {
   if (!previous) return true
   if (previous.type === 'word') return OPERATORS.has(previous.value)
   if (previous.value === ')') return previous.control
-  return previous.type === 'punctuator' && previous.value !== ']'
+  return previous.type === 'punctuator' && !['++', '--', ']'].includes(previous.value)
 }
 
 // A string's value, or null for one cut off by its line, or escaped.
@@ -100,8 +100,10 @@ function lex(text) {
       if (c === '{') braces.push('block')
       else if (c === '}') braces.pop()
       else if (c === '(') parens.push(tokens.at(-1)?.type === 'word' && CONTROL.has(tokens.at(-1).value))
-      tokens.push({ type: 'punctuator', value: c, ...(c === ')' && { control: parens.pop() === true }) })
-      i++
+      // `a++ / b`: a postfix update ends an operand.
+      const value = (c === '+' || c === '-') && next === c ? c + c : c
+      tokens.push({ type: 'punctuator', value, ...(c === ')' && { control: parens.pop() === true }) })
+      i += value.length
     }
   }
   return tokens
