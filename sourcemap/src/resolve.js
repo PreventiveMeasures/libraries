@@ -96,7 +96,7 @@ export function bareTarget(specifier) {
   return name === null ? {} : { package: name }
 }
 
-export const externalEdge = (from, kind, specifier) => ({ from, to: null, kind, specifier, ...bareTarget(specifier) })
+export const externalEdge = (from, kind, specifier) => ({ from, to: null, kind, specifier, ...(specifier !== null && bareTarget(specifier)) })
 
 // Edges kept once per file they lead from and `key`.
 export function edgeList() {

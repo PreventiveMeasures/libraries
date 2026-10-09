@@ -68,12 +68,13 @@ function visitClass(node, scope, pass) {
   visit(node.body, inner, pass)
 }
 
-// A module the generated code names, which the bundler left to the runtime;
-// but a require() of a `require` the bundle declares is the bundle's own.
+// A module the generated code names, or computes, which the bundler left to
+// the runtime; but a require() of a `require` the bundle declares is the
+// bundle's own.
 function external(node, scope, pass) {
   if (pass.declaring) return
   const named = specifierOf(node)
-  if (named === null || named.specifier === null) return
+  if (named === null) return
   if (named.kind === 'require' && lookup(scope, 'require') !== null) return
   pass.external(node, named.kind, named.specifier)
 }

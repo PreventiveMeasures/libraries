@@ -36,6 +36,10 @@ describe('a source becomes a path', () => {
     assert.equal(sourcePath('/src/a.js', 'https://cdn.example/dist/x.js.map'), 'https://cdn.example/src/a.js')
     assert.equal(sourcePath('//other.example/a.js', 'https://cdn.example/dist/x.js.map'), 'https://other.example/a.js')
     assert.equal(sourcePath('file:///app/a.js', 'https://cdn.example/dist/x.js.map'), '/app/a.js')
+    // Under a map at a file:// URL, the path it is.
+    assert.equal(sourcePath('src/a.js', 'file:///app/out.js.map'), '/app/src/a.js')
+    assert.equal(sourcePath('../a.js', 'file:///C:/app/out.js.map'), 'C:/a.js')
+    assert.equal(sourcePath('/src/a.js', 'file:///app/out.js.map'), '/src/a.js')
   })
 
   it('keeps a name that is no path as it is', () => {

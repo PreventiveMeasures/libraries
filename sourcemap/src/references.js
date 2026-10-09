@@ -13,7 +13,7 @@ export function referenceEdges(program, map, starts, skip = new Set()) {
   }
   const { edges, add } = edgeList()
   const external = (from, kind, specifier) => {
-    if (from) add(from, `${kind}\0${specifier}`, externalEdge(from, kind, specifier))
+    if (from) add(from, `${kind}\0${JSON.stringify(specifier)}`, externalEdge(from, kind, specifier))
   }
   resolveReferences(program, {
     reference(identifier, binding, imported) {

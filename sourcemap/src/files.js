@@ -45,7 +45,7 @@ export function sourcePath(source, mapPath) {
   if (SCHEME.test(path) && !rootOf(path).includes(':')) return path
   if (mapPath === undefined) return normalize(path)
   // A rooted source is a URL's, under a map at one.
-  const base = mapPath.replaceAll('\\', '/')
+  const base = sourcePath(mapPath)
   return rootOf(path) && !isUrl(base) ? normalize(path) : resolvePath(base, path)
 }
 

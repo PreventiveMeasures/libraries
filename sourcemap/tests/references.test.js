@@ -113,15 +113,15 @@ describe('a name is the declaration its scope makes it', () => {
 })
 
 describe('what a bundle leaves to the runtime is an edge from the file naming it', () => {
-  it('kept imports, by their bindings or their own place; require() and import() of no declared require', () => {
+  it('kept imports, by their bindings or their own place; require() and import() of no declared require, a computed one\'s too', () => {
     assert.deepEqual(shown(generated([
       ['top.js', "import { x } from 'kept'; import 'side-effect'; export * from 'reexported'; export { y } from './chunk.js'"],
-      ['use.js', "x(); require('node:fs'); import('lazy'); require(computed)"],
+      ['use.js', "x(); require('node:fs'); import('lazy'); require(computed); import(name); require('null')"],
       ['own.js', "function g(require) { require('not-external') }"],
     ]).edges), [
       'top.js -> (./chunk.js) [export-from]', 'top.js -> (kept, package kept) [import]', 'top.js -> (reexported, package reexported) [export-from]',
-      'top.js -> (side-effect, package side-effect) [import]', 'use.js -> (kept, package kept) [import]', 'use.js -> (lazy, package lazy) [dynamic-import]',
-      'use.js -> (node:fs, builtin) [require]',
+      'top.js -> (side-effect, package side-effect) [import]', 'use.js -> () [dynamic-import]', 'use.js -> () [require]', 'use.js -> (kept, package kept) [import]',
+      'use.js -> (lazy, package lazy) [dynamic-import]', 'use.js -> (node:fs, builtin) [require]', 'use.js -> (null, package null) [require]',
     ])
   })
 
