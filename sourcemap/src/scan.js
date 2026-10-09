@@ -10,13 +10,16 @@ const SPACE = /\s+/uy
 const LINE_ENDS = '\n\r\u2028\u2029'
 const LINE_END = /[\n\r\u2028\u2029]/gu
 const WORD = /[\w$\u0080-￿]+/uy
-// After these a `/` starts a regular expression, not a division.
+// After these a `/` starts a regular expression, not a division; and
+// after the `)` that closes the head of these, `if (a) /re/.test(b)`.
 const OPERATORS = new Set(['return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw', 'case', 'do', 'else', 'yield', 'await'])
+const CONTROL = new Set(['if', 'while', 'for', 'with'])
 
 function regexAllowed(previous) {
   if (!previous) return true
   if (previous.type === 'word') return OPERATORS.has(previous.value)
-  return previous.type === 'punctuator' && !')]}'.includes(previous.value)
+  if (previous.value === ')') return previous.control
+  return previous.type === 'punctuator' && !']}'.includes(previous.value)
 }
 
 // A string's value, or null for one cut off by its line, or escaped.
@@ -57,6 +60,7 @@ function templateEnd(text, at, braces) {
 function lex(text) {
   const tokens = []
   const braces = []
+  const parens = []
   let i = 0
   while (i < text.length) {
     SPACE.lastIndex = i
@@ -77,8 +81,13 @@ function lex(text) {
       i = end
     } else if (c === '`' || (c === '}' && braces.at(-1) === 'template')) {
       if (c === '}') braces.pop()
-      i = templateEnd(text, i + 1, braces)
-      tokens.push({ type: 'string', value: null })
+      const depth = braces.length
+      const end = templateEnd(text, i + 1, braces)
+      // A template with nothing put in it, or escaped, is the string it spells.
+      const raw = text.slice(i + 1, end - 1)
+      const whole = c === '`' && braces.length === depth && text[end - 1] === '`' && !raw.includes('\\')
+      tokens.push({ type: 'string', value: whole ? raw : null })
+      i = end
     } else if (c === '/' && regexAllowed(tokens.at(-1))) {
       i = regexEnd(text, i)
       tokens.push({ type: 'regex' })
@@ -88,7 +97,8 @@ function lex(text) {
     } else {
       if (c === '{') braces.push('block')
       else if (c === '}') braces.pop()
-      tokens.push({ type: 'punctuator', value: c })
+      else if (c === '(') parens.push(tokens.at(-1)?.type === 'word' && CONTROL.has(tokens.at(-1).value))
+      tokens.push({ type: 'punctuator', value: c, ...(c === ')' && { control: parens.pop() === true }) })
       i++
     }
   }
@@ -133,17 +143,26 @@ function declared(tokens, k) {
   return specifier === null ? null : { kind, specifier }
 }
 
+// What a call's first argument names, as the parser reads it: its string,
+// or null for one computed; undefined for a call with none.
+function argumentOf(tokens, k) {
+  const [argument, after] = [tokens[k + 2], tokens[k + 3]]
+  if (argument?.value === ')') return undefined
+  return isString(argument) && [')', ','].includes(after?.value) ? argument.value : null
+}
+
 // `callees`: functions taking a module's name, as require does.
 export function scanSpecifiers(text, callees = new Set()) {
   const tokens = lex(text)
   const found = []
   for (const [k, token] of tokens.entries()) {
-    if (token.type !== 'word' || tokens[k - 1]?.value === '.') continue
-    const [open, argument, close] = [tokens[k + 1], tokens[k + 2], tokens[k + 3]]
-    if ((token.value === 'require' || callees.has(token.value)) && open?.value === '(' && isString(argument) && close?.value === ')') {
-      found.push({ kind: 'require', specifier: argument.value, ...(token.value !== 'require' && { callee: token.value }) })
-    } else if (token.value === 'import' && open?.value === '(') {
-      if (isString(argument)) found.push({ kind: 'dynamic-import', specifier: argument.value })
+    if (token.type !== 'word' || ['.', 'function'].includes(tokens[k - 1]?.value)) continue
+    const called = tokens[k + 1]?.value === '('
+    const specifier = called ? argumentOf(tokens, k) : undefined
+    if ((token.value === 'require' || callees.has(token.value)) && specifier !== undefined) {
+      found.push({ kind: 'require', specifier, ...(token.value !== 'require' && { callee: token.value }) })
+    } else if (token.value === 'import' && called) {
+      if (specifier !== undefined) found.push({ kind: 'dynamic-import', specifier })
     } else if (token.value === 'import' || token.value === 'export') {
       const request = declared(tokens, k)
       if (request) found.push(request)

@@ -64,7 +64,8 @@ export function metroMapEdges(map) {
   for (const from of map.files) {
     if (isAsset(from)) link(from, registry)
     if (!from.content || !isScript(from)) continue
-    for (const { kind, specifier } of scanSpecifiers(from.content)) {
+    // Metro records no module for a computed request.
+    for (const { kind, specifier } of scanSpecifiers(from.content).filter((found) => found.specifier !== null)) {
       link(from, resolve(from, specifier))
       if (kind === 'dynamic-import') link(from, asyncRequire)
     }

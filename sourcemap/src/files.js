@@ -1,7 +1,8 @@
 export const WEBPACK = /^webpack(?:-internal)?:\/\/[^/]*\//u
 const SCHEME = /^[a-z][\d+.a-z-]*:/iu
-// What no `..` climbs above: a URL's scheme and host, a drive, `/`.
-const ROOT = /^(?:[a-z][\d+.a-z-]*:\/\/[^/]*\/?|[a-z]:\/|\/)?/iu
+// What no `..` climbs above: a URL's scheme and host, a UNC path's
+// server, a drive, `/`.
+const ROOT = /^(?:[a-z][\d+.a-z-]*:\/\/[^/]*\/?|\/\/[^/]+\/|[a-z]:\/|\/)?/iu
 
 const rootOf = (path) => ROOT.exec(path)[0]
 
@@ -35,8 +36,11 @@ export function resolvePath(from, relative) {
 export function sourcePath(source, mapPath) {
   let path = source.replaceAll('\\', '/')
   if (WEBPACK.test(path)) return normalize(path.replace(WEBPACK, ''))
-  if (path.startsWith('file://')) path = decodeURIComponent(path.slice(7).replace(/^[^/]*/u, '')).replace(/^\/(?=[a-z]:\/)/iu, '')
-  else if (SCHEME.test(path) && !rootOf(path).includes(':')) return path
+  if (path.startsWith('file://')) {
+    // A host other than this one's is a UNC path's server.
+    const [, host, rest] = /^file:\/\/([^/]*)(.*)$/su.exec(path)
+    path = decodeURIComponent(host && host !== 'localhost' ? `//${host}${rest}` : rest).replace(/^\/(?=[a-z]:\/)/iu, '')
+  } else if (SCHEME.test(path) && !rootOf(path).includes(':')) return path
   return mapPath === undefined || rootOf(path) ? normalize(path) : resolvePath(mapPath.replaceAll('\\', '/'), path)
 }
 

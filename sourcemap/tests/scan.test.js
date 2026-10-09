@@ -56,7 +56,13 @@ describe('a source\'s module requests, read with no parser', () => {
     }
   })
 
-  it('no specifier that is computed, escaped, or cut off', () => {
-    assert.deepEqual(scanned("require(name); require('a' + b); import(`t${x}`); require('\\x61'); require('cut"), [])
+  it('a computed specifier as null, as the parser reads one, and one escaped or cut off too', () => {
+    assert.deepEqual(scanned("require(name); require('a' + b); import(`t${x}`); require(`./t`, 1); require('\\x61'); require('cut"), [
+      'require null', 'require null', 'dynamic-import null', 'require ./t', 'require null', 'require null',
+    ])
+  })
+
+  it('no request where no module is named: a call with nothing, a declaration, a regex after a statement\'s head', () => {
+    assert.deepEqual(scanned("require(); function require(name) {}\nif (ready) /require('phantom')/.test(text)\nwhile (x) /import('ghost')/u.exec(y)"), [])
   })
 })

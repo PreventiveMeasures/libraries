@@ -19,7 +19,10 @@ describe('a source becomes a path', () => {
   it('reads a file:// URL as the path it is', () => {
     assert.equal(sourcePath('file:///home/u/a%20b.js', 'dist/x.map'), '/home/u/a b.js')
     assert.equal(sourcePath('file:///C:/work/a.js'), 'C:/work/a.js')
-    assert.equal(sourcePath('file://host/share/a.js'), '/share/a.js')
+    assert.equal(sourcePath('file://localhost/home/u/a.js'), '/home/u/a.js')
+    // Another host's is a UNC path, under its server, which no `..` climbs above.
+    assert.equal(sourcePath('file://server/share/a.js'), '//server/share/a.js')
+    assert.equal(sourcePath('file://server/share/../../a.js'), '//server/a.js')
   })
 
   it('reads a URL as a path under its scheme and host, with nothing above them', () => {
