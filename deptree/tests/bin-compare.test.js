@@ -224,24 +224,31 @@ describe('the token in ~/.npmrc', () => {
 })
 
 // What rustup's files and the last build tell, laid out as rustup 1.28 and
-// cargo write them; each pick here is the one `rustup show
-// active-toolchain` makes.
+// cargo write them, the cargo crate's version in the manifest beside the
+// release; each pick here is the one `rustup show active-toolchain` makes.
+const HOST = 'x86_64-unknown-linux-gnu'
 const rustup = (settings, toolchains = {}) => side({
   '.rustup/settings.toml': file(`version = "12"\n${settings}`),
   ...Object.fromEntries(Object.entries(toolchains).map(([name, release]) => [
     `.rustup/toolchains/${name}/lib/rustlib/multirust-channel-manifest.toml`,
-    file(`manifest-version = "2"\n\n[pkg.cargo]\nversion = "0.${Number(release.split('.')[1]) + 1}.0 (c980f4866 2026-06-30)"\n\n[pkg.rust]\nversion = "${release} (2d8144b78 2026-07-07)"\n`),
+    file(`manifest-version = "2"\n\n[pkg.cargo]\nversion = "0.98.0 (c980f4866 2026-06-30)"\n\n[pkg.rust]\nversion = "${release} (2d8144b78 2026-07-07)"\n\n[pkg.rust.target.${HOST}]\navailable = true\n`),
   ])),
 })
-const rustcInfo = (release) => file(JSON.stringify({ rustc_fingerprint: 1, outputs: { 1: { success: true, status: '', code: 0, stdout: `rustc ${release} (2d8144b78 2026-07-07)\nbinary: rustc\nhost: x86_64-unknown-linux-gnu\nrelease: ${release}\n`, stderr: '' } }, successes: {} }))
+const rustcInfo = (release) => file(JSON.stringify({ rustc_fingerprint: 1, outputs: { 1: { success: true, status: '', code: 0, stdout: `rustc ${release} (2d8144b78 2026-07-07)\nbinary: rustc\nhost: ${HOST}\nrelease: ${release}\n`, stderr: '' } }, successes: {} }))
 
 describe('the cargo that vendored', () => {
-  const HOST = 'x86_64-unknown-linux-gnu'
   // As rustup keys an override, by the directory's real path.
   const home = realpathSync(temp('deptree-bin-rustup-'))
-  writeDisk(home, rustup(`default_toolchain = "stable-${HOST}"\n\n[overrides]\n"${join(home, 'p', 'over')}" = "1.94.0-${HOST}"\n`, { [`stable-${HOST}`]: '1.97.0', [`1.96-${HOST}`]: '1.96.2' }))
-  const versions = (path, env = {}) => cargoVersions(join(home, 'p', path), env, home).map(({ version }) => version)
+  writeDisk(home, rustup(`default_toolchain = "stable-${HOST}"\n\n[overrides]\n"${join(home, 'p', 'over')}" = "1.94.0-${HOST}"\n`, {
+    [`stable-${HOST}`]: '1.97.0',
+    [`1.96-${HOST}`]: '1.96.2',
+    [`nightly-2026-07-01-${HOST}`]: '1.99.0-nightly',
+    [`1.98.0-beta.2-${HOST}`]: '1.98.0-beta.2',
+  }))
+  const at = (path, env = {}) => cargoVersions(join(home, 'p', path), env, home)
+  const versions = (path, env) => at(path, env).map(({ version }) => version)
   writeDisk(join(home, 'p'), side({
+    plain: dir,
     'pinned/rust-toolchain.toml': file('[toolchain]\nchannel = "1.95.0"\ncomponents = ["clippy"]\n'),
     'pinned/below/Cargo.toml': file(''),
     'minor/rust-toolchain': file('1.96\n'),
@@ -253,14 +260,13 @@ describe('the cargo that vendored', () => {
     'built/target/.rustc_info.json': rustcInfo('1.97.0'),
     'older/target/.rustc_info.json': rustcInfo('1.96.0'),
   }))
-  mkdirSync(join(home, 'p', 'plain'))
 
   it("as rustup picks it: the default toolchain's release, not cargo's own version", () => {
-    assert.deepEqual(cargoVersions(join(home, 'p', 'plain'), {}, home), [{ version: '1.97.0', from: `rustup's stable-${HOST}, the default toolchain` }])
+    assert.deepEqual(at('plain'), [{ version: '1.97.0', from: `rustup's stable-${HOST}, the default toolchain` }])
   })
 
   it('by the closest toolchain file, a rust-toolchain before a .toml, an override before either, RUSTUP_TOOLCHAIN before all', () => {
-    assert.deepEqual(cargoVersions(join(home, 'p', 'pinned', 'below'), {}, home), [{ version: '1.95.0', from: `rustup's 1.95.0, by ${join(home, 'p', 'pinned', 'rust-toolchain.toml')}` }])
+    assert.deepEqual(at('pinned/below'), [{ version: '1.95.0', from: `rustup's 1.95.0, by ${join(home, 'p', 'pinned', 'rust-toolchain.toml')}` }])
     assert.deepEqual(versions('minor'), ['1.96.2'])
     assert.deepEqual(versions('both'), ['1.96.0'])
     assert.deepEqual(versions('over'), ['1.94.0'])
@@ -268,14 +274,21 @@ describe('the cargo that vendored', () => {
     assert.deepEqual(versions('plain', { RUSTUP_HOME: join(home, 'nowhere') }), [])
   })
 
+  // As RUSTUP_TOOLCHAIN may give it: rustup fills in the rest of the host.
+  it('by a date, and by a host in part', () => {
+    for (const name of ['stable-gnu', 'stable-x86_64-gnu', 'stable-unknown-linux-gnu']) assert.deepEqual(versions('plain', { RUSTUP_TOOLCHAIN: name }), ['1.97.0'], name)
+    assert.deepEqual(versions('plain', { RUSTUP_TOOLCHAIN: 'nightly-2026-07-01-gnu' }), ['1.99.0-nightly'])
+    assert.deepEqual(versions('plain', { RUSTUP_TOOLCHAIN: '1.98.0-beta.2' }), ['1.98.0-beta.2'])
+  })
+
   it('none from rustup for a toolchain by path, or one not installed', () => {
     assert.deepEqual(versions('path'), [])
     assert.deepEqual(versions('beta'), [])
-    assert.deepEqual(versions('plain', { RUSTUP_TOOLCHAIN: 'nightly' }), [])
+    for (const name of ['nightly', 'nightly-2026-07-02', 'stable-musl', 'my-linked']) assert.deepEqual(versions('plain', { RUSTUP_TOOLCHAIN: name }), [], name)
   })
 
   it('and as the last build in the directory ran rustc, beside what rustup tells', () => {
-    assert.deepEqual(cargoVersions(join(home, 'p', 'built'), { RUSTUP_HOME: join(home, 'nowhere') }, home), [{ version: '1.97.0', from: 'the rustc target/.rustc_info.json last built with' }])
+    assert.deepEqual(at('built', { RUSTUP_HOME: join(home, 'nowhere') }), [{ version: '1.97.0', from: 'the rustc target/.rustc_info.json last built with' }])
     assert.deepEqual(versions('older'), ['1.97.0', '1.96.0'])
   })
 })
@@ -467,23 +480,22 @@ describe('deptree compare, with Cargo', async () => {
     assert.equal(r.status, 1)
     assert.match(r.stderr, /^cargo 1\.97\.0 \(--cargo\)$/mu)
     const unpinned = cli(home, ['compare', project])
-    assert.match(unpinned.stderr, /^deptree: Cargo\.lock: give --cargo <version>, the cargo that vendored: neither rustup's files nor target\/\.rustc_info\.json tell it$/mu)
+    assert.match(unpinned.stderr, /^deptree: Cargo\.lock: give --cargo <version>, the cargo that installed, which no file here tells$/mu)
     assert.equal(unpinned.status, 2)
   })
 
   it('takes the cargo rustup and the last build tell, where they agree', () => {
     const elsewhere = temp('deptree-bin-cargo-built-')
-    writeDisk(elsewhere, side({ 'target/.rustc_info.json': rustcInfo('1.97.0') }))
-    for (const path of ['Cargo.toml', 'Cargo.lock']) writeFileSync(join(elsewhere, path), path === 'Cargo.lock' ? lockfile : manifest)
+    writeDisk(elsewhere, side({ 'Cargo.toml': file(manifest), 'Cargo.lock': file(lockfile), 'target/.rustc_info.json': rustcInfo('1.97.0') }))
     writeDisk(elsewhere, readSide(vfs, ['vendor']))
     const r = cli(home, ['compare', elsewhere])
     assert.match(r.stderr, /^cargo 1\.97\.0 \(the rustc target\/\.rustc_info\.json last built with\)$/mu)
     assert.equal(r.stdout, '')
     assert.equal(r.status, 0, r.stderr)
     const rustupHome = temp('deptree-bin-cargo-rustup-')
-    writeDisk(rustupHome, rustup('default_toolchain = "stable-x86_64-unknown-linux-gnu"\n', { 'stable-x86_64-unknown-linux-gnu': '1.96.0' }))
+    writeDisk(rustupHome, rustup(`default_toolchain = "stable-${HOST}"\n`, { [`stable-${HOST}`]: '1.96.0' }))
     const split = cli(home, ['compare', elsewhere], { env: { RUSTUP_HOME: join(rustupHome, '.rustup') } })
-    assert.match(split.stderr, /^deptree: Cargo\.lock: give --cargo <version>, the cargo that vendored: 1\.96\.0 is rustup's stable-x86_64-unknown-linux-gnu, the default toolchain, but 1\.97\.0 is the rustc target\/\.rustc_info\.json last built with$/mu)
+    assert.match(split.stderr, /^deptree: Cargo\.lock: give --cargo <version>, the cargo that installed: 1\.96\.0 is rustup's stable-x86_64-unknown-linux-gnu, the default toolchain, but 1\.97\.0 is the rustc target\/\.rustc_info\.json last built with$/mu)
     assert.equal(split.status, 2)
   })
 })
