@@ -6,15 +6,15 @@ import { isUrl, packageName, resolvePath } from './files.js'
 
 const EXTENSIONS = ['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.mts', '.cts', '.json']
 // React Native's platforms: Metro tries the bundle's own, then `.native`,
-// then the plain file. A map's platform is the one its files show most; in
-// a map that shows none the plain file comes first. A browser or Node build
-// a package ships beside the plain file comes after it.
+// then the plain file. A map's platform is the one its files show most; a
+// map that shows none tries `.native`, then the plain file. A browser or
+// Node build a package ships beside the plain file comes after it.
 const RN_PLATFORMS = ['.ios', '.android', '.web']
 
 function platformsOf(files) {
   const counts = RN_PLATFORMS.map((platform) => [platform, files.filter((file) => file.path?.includes(`${platform}.`)).length])
   const [active, count] = counts.reduce((top, entry) => (entry[1] > top[1] ? entry : top))
-  if (count === 0) return ['', '.native', '.browser', '.node', ...RN_PLATFORMS]
+  if (count === 0) return ['.native', '', '.browser', '.node', ...RN_PLATFORMS]
   return [active, '.native', '', '.browser', '.node', ...RN_PLATFORMS.filter((platform) => platform !== active)]
 }
 // TypeScript's sources, imported by the names they compile to.

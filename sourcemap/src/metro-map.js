@@ -49,7 +49,7 @@ function helperRequests(map) {
 }
 
 export function metroMapEdges(map) {
-  if (!map.files.some((file) => file.source === '__prelude__')) return null
+  if (!map.files.some((file) => /(?:^|\/)__prelude__$/u.test(file.source ?? ''))) return null
   const index = indexFiles(map.files)
   // An asset's one import, the registry, the walk reached right after the
   // first asset; an import() also imports Metro's asyncRequire.

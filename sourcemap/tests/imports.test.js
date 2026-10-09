@@ -142,9 +142,9 @@ describe('a specifier is resolved as a resolver would try it', () => {
   it('takes the platform the map\'s files show, not another one\'s file it also holds', () => {
     const android = sources({ 'src/a.js': "import './view'", 'src/view.js': '', 'src/view.ios.js': '', 'src/view.android.js': '', 'src/list.android.js': '' })
     assert.deepEqual(shown(importEdges(android).edges), ['src/a.js -> src/view.android.js [import]'])
-    // With no React Native platform's files, the plain one before a browser build.
-    const web = sources({ 'lib/a.js': "import './encode'", 'lib/encode.js': '', 'lib/encode.browser.js': '' })
-    assert.deepEqual(shown(importEdges(web).edges), ['lib/a.js -> lib/encode.js [import]'])
+    // With none of a platform's files, .native, then the plain one before a browser build.
+    const web = sources({ 'lib/a.js': "import './encode'\nimport './view'", 'lib/encode.js': '', 'lib/encode.browser.js': '', 'lib/view.js': '', 'lib/view.native.js': '' })
+    assert.deepEqual(shown(importEdges(web).edges), ['lib/a.js -> lib/encode.js [import]', 'lib/a.js -> lib/view.native.js [import]'])
   })
 
   it('takes a browser or Node build in place of the file a specifier writes', () => {

@@ -116,6 +116,11 @@ for (const [door, read] of DOORS) {
       for (const name of ['metro-prod', 'metro-dev']) assert.deepEqual(shown(read, fixture(name)[0]).toSorted(), PROJECT, name)
     })
 
+    it('knows the prelude beneath a sourceRoot', () => {
+      const map = readSourceMap({ version: 3, sourceRoot: '/app/', sources: ['__prelude__', 'a.js', 'b.js'], sourcesContent: ['', "require('./b')", ''], mappings: '' })
+      assert.deepEqual(shown(read, map), ['a.js -> b.js'])
+    })
+
     it('Babel\'s helpers and JSX runtime by name, an asset\'s registry and a package\'s entry by order, an import()\'s asyncRequire', () => {
       const map = metroMap([
         ['__prelude__', ''],
