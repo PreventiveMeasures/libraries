@@ -184,7 +184,7 @@ describe('a specifier is resolved as a resolver would try it', () => {
 describe('what counts as an import', () => {
   it('leaves out statements types erase, and keeps one that only lists a type', () => {
     const map = sources({
-      'a.ts': "import type { T } from './t'\nexport type { U } from './u'\nexport type * from './v'\nimport { type W } from './w'\nexport {} from './x'\nimport y = require('./y')\nimport z = Z.z",
+      'a.ts': "import type { T } from './t'\nexport type { U } from './u'\nexport type * from './v'\nimport { type W } from './w'\nexport {} from './x'\nimport y = require('./y')\nimport z = Z.z\nimport type q = require('./t')",
       't.ts': '', 'u.ts': '', 'v.ts': '', 'w.ts': '', 'x.ts': '', 'y.ts': '',
     })
     assert.deepEqual(shown(importEdges(map).edges), ['a.ts -> w.ts [import]', 'a.ts -> x.ts [export-from]', 'a.ts -> y.ts [require]'])

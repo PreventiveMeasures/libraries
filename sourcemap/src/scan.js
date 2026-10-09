@@ -11,16 +11,21 @@ const LINE_ENDS = '\n\r\u2028\u2029'
 const LINE_END = /[\n\r\u2028\u2029]/gu
 const WORD = /[\w$\u0080-￿]+/uy
 // After these a `/` starts a regular expression, not a division; and
-// after the `)` that closes the head of these, `if (a) /re/.test(b)`, and a
-// `}`, whose block ends where a statement starts (an object a `/` would
-// divide is no code anyone writes).
+// after the `)` that closes the head of these, `if (a) /re/.test(b)`, and
+// the `}` that closes a block, not an object.
 const OPERATORS = new Set(['return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw', 'case', 'do', 'else', 'yield', 'await'])
 const CONTROL = new Set(['if', 'while', 'for', 'with'])
+// A `{` after these opens an object, where an expression goes; after
+// anything else (`)`, `=>`, a statement's end, `else`), a block.
+const EXPRESSION_BEFORE = new Set(['(', '[', ',', '=', ':', '?', '!', '~', '+', '-', '*', '/', '%', '&', '|', '^', '<', '>'])
+
+const opensObject = (previous) => (previous?.type === 'word' ? OPERATORS.has(previous.value) && !['do', 'else'].includes(previous.value) : EXPRESSION_BEFORE.has(previous?.value))
 
 function regexAllowed(previous) {
   if (!previous) return true
   if (previous.type === 'word') return OPERATORS.has(previous.value)
   if (previous.value === ')') return previous.control
+  if (previous.value === '}') return !previous.object
   return previous.type === 'punctuator' && !['++', '--', ']'].includes(previous.value)
 }
 
@@ -97,12 +102,12 @@ function lex(text) {
       tokens.push({ type: 'word', value: text.slice(i, WORD.lastIndex) })
       i = WORD.lastIndex
     } else {
-      if (c === '{') braces.push('block')
-      else if (c === '}') braces.pop()
-      else if (c === '(') parens.push(tokens.at(-1)?.type === 'word' && CONTROL.has(tokens.at(-1).value))
-      // `a++ / b`: a postfix update ends an operand.
-      const value = (c === '+' || c === '-') && next === c ? c + c : c
-      tokens.push({ type: 'punctuator', value, ...(c === ')' && { control: parens.pop() === true }) })
+      if (c === '{') braces.push(opensObject(tokens.at(-1)) ? 'object' : 'block')
+      const closed = c === '}' ? braces.pop() : undefined
+      if (c === '(') parens.push(tokens.at(-1)?.type === 'word' && CONTROL.has(tokens.at(-1).value))
+      // `a++ / b`: a postfix update ends an operand; `=> {` opens a block.
+      const value = ((c === '+' || c === '-') && next === c) || (c === '=' && next === '>') ? c + next : c
+      tokens.push({ type: 'punctuator', value, ...(c === ')' && { control: parens.pop() === true }), ...(c === '}' && { object: closed === 'object' }) })
       i += value.length
     }
   }
@@ -161,6 +166,8 @@ export function scanSpecifiers(text, callees = new Set()) {
   const found = []
   for (const [k, token] of tokens.entries()) {
     if (token.type !== 'word' || ['.', 'function'].includes(tokens[k - 1]?.value)) continue
+    // TypeScript's `import type a = require(…)`, which type erasure takes.
+    if (tokens[k - 1]?.value === '=' && tokens[k - 3]?.value === 'type' && tokens[k - 4]?.value === 'import') continue
     const called = tokens[k + 1]?.value === '('
     const specifier = called ? argumentOf(tokens, k) : undefined
     if ((token.value === 'require' || callees.has(token.value)) && specifier !== undefined) {
