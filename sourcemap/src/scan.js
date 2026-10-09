@@ -11,7 +11,9 @@ const LINE_ENDS = '\n\r\u2028\u2029'
 const LINE_END = /[\n\r\u2028\u2029]/gu
 const WORD = /[\w$\u0080-￿]+/uy
 // After these a `/` starts a regular expression, not a division; and
-// after the `)` that closes the head of these, `if (a) /re/.test(b)`.
+// after the `)` that closes the head of these, `if (a) /re/.test(b)`, and a
+// `}`, whose block ends where a statement starts (an object a `/` would
+// divide is no code anyone writes).
 const OPERATORS = new Set(['return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw', 'case', 'do', 'else', 'yield', 'await'])
 const CONTROL = new Set(['if', 'while', 'for', 'with'])
 
@@ -19,7 +21,7 @@ function regexAllowed(previous) {
   if (!previous) return true
   if (previous.type === 'word') return OPERATORS.has(previous.value)
   if (previous.value === ')') return previous.control
-  return previous.type === 'punctuator' && !']}'.includes(previous.value)
+  return previous.type === 'punctuator' && previous.value !== ']'
 }
 
 // A string's value, or null for one cut off by its line, or escaped.

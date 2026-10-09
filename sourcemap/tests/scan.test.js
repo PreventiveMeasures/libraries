@@ -63,6 +63,6 @@ describe('a source\'s module requests, read with no parser', () => {
   })
 
   it('no request where no module is named: a call with nothing, a declaration, a regex after a statement\'s head', () => {
-    assert.deepEqual(scanned("require(); function require(name) {}\nif (ready) /require('phantom')/.test(text)\nwhile (x) /import('ghost')/u.exec(y)"), [])
+    assert.deepEqual(scanned("require(); function require(name) {}\nif (ready) /require('phantom')/.test(text)\nwhile (x) /import('ghost')/u.exec(y)\nif (ready) {} /require('after-a-block')/.test(text)"), [])
   })
 })

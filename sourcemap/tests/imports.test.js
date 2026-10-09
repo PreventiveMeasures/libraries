@@ -134,6 +134,11 @@ describe('a specifier is resolved as a resolver would try it', () => {
     ])
   })
 
+  it('takes a platform\'s file over the plain one, as Metro does, where the map holds both', () => {
+    const map = sources({ 'src/a.js': "import './view'\nimport './view.js'", 'src/view.js': '', 'src/view.ios.js': '' })
+    assert.deepEqual(shown(importEdges(map).edges), ['src/a.js -> src/view.ios.js [import]', 'src/a.js -> src/view.js [import]'])
+  })
+
   it('takes a browser or Node build in place of the file a specifier writes', () => {
     const map = sources({ 'lib/index.js': "import './encode.js'\nimport './decode.js'", 'lib/encode.browser.js': '', 'lib/decode.node.js': '' })
     assert.deepEqual(shown(importEdges(map).edges), ['lib/index.js -> lib/decode.node.js [import]', 'lib/index.js -> lib/encode.browser.js [import]'])

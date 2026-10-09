@@ -5,9 +5,10 @@ import { isUrl, packageName, resolvePath } from './files.js'
 // where packages keep it: no `exports`, and no aliases.
 
 const EXTENSIONS = ['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.mts', '.cts', '.json']
-// Platform files a bundler picks over the plain one: React Native's, and
-// the browser and Node builds a package ships side by side.
-const PLATFORMS = ['', '.native', '.ios', '.android', '.web', '.browser', '.node']
+// Platform files a bundler picks over the plain one, which comes last, as
+// Metro tries them: React Native's, and the browser and Node builds a
+// package ships side by side.
+const PLATFORMS = ['.ios', '.android', '.web', '.native', '.browser', '.node', '']
 // TypeScript's sources, imported by the names they compile to.
 const OUTPUT_NAMES = new Map([['.js', ['.ts', '.tsx']], ['.jsx', ['.tsx']], ['.mjs', ['.mts']], ['.cjs', ['.cts']]])
 // Where a package keeps the entry its package.json, which no map carries,
@@ -25,7 +26,7 @@ function* candidates(base) {
     for (const platform of PLATFORMS) for (const extension of EXTENSIONS) yield stem + platform + extension
   }
   // `./a.js` as a platform's own: ./a.browser.js.
-  if (written) for (const platform of PLATFORMS.slice(1)) yield base.slice(0, -written.length) + platform + written
+  if (written) for (const platform of PLATFORMS.filter(Boolean)) yield base.slice(0, -written.length) + platform + written
 }
 
 // A compiled package's subpath where the map holds its sources instead:
