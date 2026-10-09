@@ -88,6 +88,11 @@ for (const [door, read] of DOORS) {
       const map = readSourceMap(lineMap(['a.js', 'b.json', 'c.js'], [0, null, 2]))
       const code = ['__d(function(g,r,i,a,m,e,d){r(d[0]);r(d[1])},0,[1,2]);', '__d(function(g,r,i,a,m,e,d){m.exports={}},1);', '__d(function(g,r,i,a,m,e,d){r(d[0])},2,[1]);']
       assert.deepEqual(shown(read, map, code.join('\n')), ['a.js -> b.json', 'a.js -> c.js', 'c.js -> b.json'])
+      // An entry with none, ahead of the first module that has: by the
+      // prelude's place before it.
+      const entry = readSourceMap(lineMap(['__prelude__', 'index.json', 'a.js'], [0, null, 2]))
+      const bundled = ['var __BUNDLE_START_TIME__=0;', '__d(function(g,r,i,a,m,e,d){m.exports={}},0,[1]);', '__d(function(g,r,i,a,m,e,d){r(d[0])},1,[0]);']
+      assert.deepEqual(shown(read, entry, bundled.join('\n')), ['index.json -> a.js', 'a.js -> index.json'])
     })
 
     it('leaves no edge to an id the bundle does not define, or to a module with no file', () => {

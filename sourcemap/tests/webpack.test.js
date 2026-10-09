@@ -67,6 +67,16 @@ describe('every shape webpack writes its table in', () => {
     ]), ['a.js -> b.js [dependency]', 'a.js -> c.js [dependency]', 'c.js -> a.js [dependency]'])
   })
 
+  it('under eval devtools\' webpack-internal://, as under webpack://', () => {
+    assert.deepEqual(generated([
+      ['webpack-internal:///webpack/bootstrap', '(()=>{var e={'],
+      ['webpack-internal:///./a.js', '1(e,t,o){o(2);o(3)},'],
+      ['webpack-internal:///./b.js', '2(e,t,o){},'],
+      ['webpack-internal:///external commonjs "ext"', '3(e){e.exports=require("ext")}};'],
+      ['webpack-internal:///webpack/bootstrap', 'function o(r){var n={exports:{}};return e[r](n,n.exports,o),n.exports}o(1)})();'],
+    ]), ['a.js -> (ext, package ext) [dependency]', 'a.js -> b.js [dependency]'])
+  })
+
   it('by path, as in development', () => {
     assert.deepEqual(generated([
       [RUNTIME, 'var __webpack_modules__=({'],

@@ -1,3 +1,4 @@
+import { WEBPACK } from './files.js'
 import { forEachChild } from './parser.js'
 import { fileAfter, fileAt, fileWithin } from './positions.js'
 import { edgeList, externalEdge } from './resolve.js'
@@ -8,12 +9,14 @@ import { edgeList, externalEdge } from './resolve.js'
 // itself on to it. An id names its module exactly. ES modules webpack
 // concatenates into one scope are left to the scope-hoisted reading.
 
-// webpack's runtime, and its stand-ins for externals, which are no files.
-const OWN = /^webpack:\/\/[^/]*\/(?:webpack\/|external )/u
-const EXTERNAL = /^webpack:\/\/[^/]*\/external (?:[\w-]+ )?"(.+)"$/u
+// A webpack:// (or eval devtools' webpack-internal://) source, after its
+// namespace; webpack's runtime, and its stand-ins for externals, which are
+// no files.
+const inWebpack = (file) => (WEBPACK.test(file?.source ?? '') ? file.source.replace(WEBPACK, '') : '')
+const externalOf = (file) => /^external (?:[\w-]+ )?"(.+)"$/u.exec(inWebpack(file))?.[1]
 
-export const isWebpack = (map) => map.files.some((file) => file.source?.startsWith('webpack://'))
-export const isWebpackOwn = (file) => OWN.test(file?.source ?? '')
+export const isWebpack = (map) => map.files.some((file) => WEBPACK.test(file.source ?? ''))
+export const isWebpackOwn = (file) => /^(?:webpack\/|external )/u.test(inWebpack(file))
 
 const isFunction = (node) => node?.type === 'FunctionExpression' || node?.type === 'ArrowFunctionExpression'
 const idOf = (node) => (node?.type === 'Literal' && ['number', 'string'].includes(typeof node.value) ? String(node.value) : undefined)
@@ -68,7 +71,7 @@ export function webpackEdges(program, map, starts) {
   const { edges, add } = edgeList()
   // `to` a module's file, or webpack's stand-in for an external.
   const link = (from, to) => {
-    const external = EXTERNAL.exec(to?.source ?? '')?.[1]
+    const external = externalOf(to)
     if (!from || !to || to === from || isWebpackOwn(from) || (isWebpackOwn(to) && !external)) return
     add(from, external ?? to, external ? externalEdge(from, 'dependency', external) : { from, to, kind: 'dependency' })
   }
@@ -85,7 +88,7 @@ export function webpackEdges(program, map, starts) {
       link(after(call), files.get(id))
     } else {
       const at = fileAt(map, starts, call.start)
-      if (EXTERNAL.test(at?.source ?? '')) link(after(call), at)
+      if (externalOf(at)) link(after(call), at)
     }
   }
   return edges

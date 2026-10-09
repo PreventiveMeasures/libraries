@@ -1,4 +1,4 @@
-const WEBPACK = /^webpack(?:-internal)?:\/\/[^/]*\//u
+export const WEBPACK = /^webpack(?:-internal)?:\/\/[^/]*\//u
 const SCHEME = /^[a-z][\d+.a-z-]*:/iu
 // What no `..` climbs above: a URL's scheme and host, a drive, `/`.
 const ROOT = /^(?:[a-z][\d+.a-z-]*:\/\/[^/]*\/?|[a-z]:\/|\/)?/iu

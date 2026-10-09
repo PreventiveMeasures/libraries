@@ -53,6 +53,7 @@ function dependencyIds(list, text) {
 function fillGaps(list, map) {
   const index = new Map(map.files.map((file, i) => [file, i]))
   const known = list.flatMap((module, k) => (module.file ? [{ k, at: index.get(module.file) }] : []))
+  for (let i = 0; i < (known[0]?.k ?? 0); i++) list[i].file = map.files[known[0].at - known[0].k + i] ?? null
   for (const [n, { k, at }] of known.entries()) {
     const next = known[n + 1]
     if (next && next.at - at !== next.k - k) continue
