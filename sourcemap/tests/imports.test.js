@@ -152,6 +152,10 @@ describe('a specifier is resolved as a resolver would try it', () => {
   it('takes the platform the map\'s files show, not another one\'s file it also holds', () => {
     const android = sources({ 'src/a.js': "import './view'", 'src/view.js': '', 'src/view.ios.js': '', 'src/view.android.js': '', 'src/list.android.js': '' })
     assert.deepEqual(shown(importEdges(android).edges), ['src/a.js -> src/view.android.js [import]'])
+    // An extension's platform's, .native and plain files before the next
+    // extension's, as Metro tries them.
+    const native = sources({ 'src/a.js': "import './view'", 'src/view.native.js': '', 'src/view.android.ts': '', 'src/list.android.js': '' })
+    assert.deepEqual(shown(importEdges(native).edges), ['src/a.js -> src/view.native.js [import]'])
     // As many of one as of another: none taken over the plain file. A test's
     // name, a.android.test.js, marks no platform.
     const tied = sources({ 'src/a.js': "import './view'", 'src/view.js': '', 'src/view.android.js': '', 'src/view.ios.js': '', 'src/x.android.test.js': '' })

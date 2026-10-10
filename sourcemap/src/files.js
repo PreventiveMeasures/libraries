@@ -135,8 +135,9 @@ export function languageOf(path) {
 // where packages keep it: no `exports`, and no aliases.
 
 const EXTENSIONS = ['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.mts', '.cts', '.json']
-// React Native's platforms: Metro tries the bundle's own, then `.native`,
-// then the plain file, and never another platform's. A map's platform is
+// React Native's platforms: for each extension in turn, Metro tries the
+// bundle's own, then `.native`, then the plain file, and never another
+// platform's. A map's platform is
 // the one its files' names show more of than any other; a map that shows
 // none, or two as much, tries `.native`, then the plain file. A browser or
 // Node build a package ships beside the plain file comes after it.
@@ -165,7 +166,7 @@ function* candidates(base, platforms) {
   for (const input of OUTPUT_NAMES.get(written) ?? []) yield base.slice(0, -written.length) + input
   // A directory's, `pkg/`, its index alone.
   for (const stem of base.endsWith('/') ? [`${base}index`] : [base, `${base}/index`]) {
-    for (const platform of platforms) for (const extension of EXTENSIONS) yield stem + platform + extension
+    for (const extension of EXTENSIONS) for (const platform of platforms) yield stem + platform + extension
   }
   // `./a.js` as a platform's own: ./a.browser.js.
   if (written) for (const platform of platforms.filter(Boolean)) yield base.slice(0, -written.length) + platform + written
