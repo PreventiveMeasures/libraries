@@ -4,8 +4,8 @@
 // case belongs to parse-deepview-md.js; this module knows how
 // write-md-finding.js spelt each value.
 //
-// Every reader is the inverse of a writer — `readLocation` of
-// locationText, `readSeverity` of severityText, and so on — and
+// Every reader is the inverse of a writer -- `readLocation` of
+// locationText, `readSeverity` of severityText, and so on -- and
 // `narrativeSplit` undoes the one thing the writer folds: a `**Label:**`
 // paragraph and a field of the same name both became a section, and
 // only their position says which was which.
@@ -16,17 +16,17 @@ import { FILE_LINE_RE, fenceRanges, findMdLink, inFence, isCommitHash } from './
 import { isHttpUrl, unescapeHeadings } from './md-text.js'
 import { CODE_FIELDS, PLAIN_FIELDS, NARRATIVE as WRITTEN_NARRATIVE } from './write-md-finding.js'
 
-// label (case-folded) → key, for the words the writer spells the app's
+// label (case-folded) -> key, for the words the writer spells the app's
 // enumerations with (labels.js).
 const SEVERITY_KEYS = new Map(Object.entries(SEVERITY_LABELS).map(([k, v]) => [v.toLowerCase(), k]))
 const SOURCE_KEYS = new Map(Object.entries(SOURCE_LABELS).map(([k, v]) => [v.toLowerCase(), k]))
 
-// ── Inline forms ─────────────────────────────────────────────────────
+// -- Inline forms -----------------------------------------------------
 
 // The content of the first code span in `s`, or null when it has none.
 // The fence is as many backticks as the writer needed to quote the
-// content (md-text.js code) — always more than any run inside it, so
-// the first closing run of that length is the fence — and a space of
+// content (md-text.js code) -- always more than any run inside it, so
+// the first closing run of that length is the fence -- and a space of
 // padding on each side when the content itself starts or ends on one.
 function codeSpan(s) {
   const m = /(`+)(.+?)\1(?!`)/u.exec(String(s ?? ''))
@@ -39,7 +39,7 @@ function codeSpan(s) {
   return inner
 }
 
-// A markdown link at the START of `s` — `[label](url)`, the URL in
+// A markdown link at the START of `s` -- `[label](url)`, the URL in
 // angle brackets when the writer had to (md-text.js link). The reading
 // itself is md-structure.js's, which is the whole library's; a link
 // found further along belongs to something else in the value, so only
@@ -55,7 +55,7 @@ function autolinkUrl(s) {
   return m ? m[1] : null
 }
 
-// `file:line` back into its two fields — the line a number or a
+// `file:line` back into its two fields -- the line a number or a
 // `10-20` range, `?` when the label carried none (finding.js
 // locationLabel).
 function fileLine(label) {
@@ -77,9 +77,9 @@ export function tierOf(label) {
   return SEVERITY_KEYS.get(t.toLowerCase()) ?? t
 }
 
-// ── The facts ────────────────────────────────────────────────────────
+// -- The facts --------------------------------------------------------
 
-// `[`src/a.js:7`](url) · `Foo.bar`` — the reference, linked or not,
+// `[`src/a.js:7`](url) \u00B7 `Foo.bar`` -- the reference, linked or not,
 // then the export it sits in (write-md-finding.js locationText). The
 // link is the report's own location link (finding.js: `location`),
 // which the card links to in preference to anything reconstructed.
@@ -101,12 +101,12 @@ function readLocation(value) {
 const CRITICAL_FLAG = ' · flagged critical by the analyzer'
 const VARIES = ' (varies across reports — '
 
-// `High — corrected from Medium (varies across reports — …) · flagged
-// critical by the analyzer` back into severity / correctedSeverity /
-// critical (write-md-finding.js severityText). Under the original lens
-// the line reads `Medium — corrected to High`; either way it says which
-// is which. The per-report variants are the viewer's own bookkeeping
-// of a workspace merge, not a finding's field.
+// `High \u2014 corrected from Medium (varies across reports \u2014 ...)
+// \u00B7 flagged critical by the analyzer` back into severity /
+// correctedSeverity / critical (write-md-finding.js severityText). Under
+// the original lens the line reads `Medium \u2014 corrected to High`;
+// either way it says which is which. The per-report variants are the
+// viewer's own bookkeeping of a workspace merge, not a finding's field.
 function readSeverity(value) {
   const out = {}
   let s = value.trim()
@@ -122,14 +122,14 @@ function readSeverity(value) {
   return out
 }
 
-// The effort ladder and import modes a run is described with — closed
+// The effort ladder and import modes a run is described with -- closed
 // vocabularies, which is what lets a run's line be read back by
-// position: `<type> · [revalidate] · <model> · <effort> · <mode>`, an
-// absent part elided (finding.js runMetaLine).
+// position: `<type> [revalidate] <model> <effort> <mode>`, joined by
+// middle dots (U+00B7), an absent part elided (finding.js runMetaLine).
 const EFFORTS = new Set(['max', 'xhigh', 'high', 'medium', 'low', 'minimal'])
 const IMPORT_MODES = new Set(['list', 'isolate'])
 
-// A model's pretty name carries a version — `opus 5`, `gpt 5.5` — or at
+// A model's pretty name carries a version -- `opus 5`, `gpt 5.5` -- or at
 // least a family, where a mode (`security`) carries neither. Consulted
 // only when the line leaves one free word, whose slot is ambiguous.
 function looksLikeModel(word) {
@@ -137,7 +137,7 @@ function looksLikeModel(word) {
 }
 
 // What produced a finding (write-md-finding.js analyzerText): a
-// product's name, back into its `source` key — or the run's meta line,
+// product's name, back into its `source` key -- or the run's meta line,
 // back into the run's fields.
 export function readAnalyzer(value) {
   const s = value.trim()
@@ -198,7 +198,7 @@ function readRevalidation(value) {
 // Not here: `Analyzer`, which the document settles for every finding at
 // once; `Triage` / `Fix` and the `Comment` section, the reader's
 // annotations, which live in the viewer's triage store and follow the
-// id; and `Report`, which names the file a case came from — now this one.
+// id; and `Report`, which names the file a case came from -- now this one.
 // The plain and code facts read back as the writer spelt them
 // (write-md-finding.js PLAIN_FIELDS, CODE_FIELDS), `priority`'s reader
 // below replacing the plain one.
@@ -221,13 +221,13 @@ export function applyFact(f, label, value) {
   if (read) read(f, value.trim())
 }
 
-// ── The shape under a heading ────────────────────────────────────────
+// -- The shape under a heading ----------------------------------------
 
 const FACT_RE = /^- \*\*([^*\n]+?):\*\* ?(.*)$/u
 
 // The fact list at the top of a case: consecutive `- **Label:** value`
 // lines. A paragraph BEFORE the list is the case's own title, written
-// where a case is named differently from its group — but only when a
+// where a case is named differently from its group -- but only when a
 // list follows, since a case with no facts keeps its opening paragraph
 // as prose. Prose comes back with the writer's heading escape off, here
 // and wherever unescapeHeadings is used, so `\## Internal detail` is the
@@ -256,7 +256,7 @@ const ITEM_RE = /^(\d+)\. (.*)$/u
 
 // The evidence list (write-md-finding.js evidenceList): a loose
 // numbered list, each item's note on the lines under it, indented to
-// the item's text. Back into rows of `{ file, line, url, text }` — the
+// the item's text. Back into rows of `{ file, line, url, text }` -- the
 // note under the name parse-md.js gives it, whatever a native dump
 // called it (finding.js evidenceNote reads both).
 export function readEvidence(text) {
@@ -285,17 +285,17 @@ function evidenceRow({ ref, indent, note }) {
   return row
 }
 
-// ── The narrative ────────────────────────────────────────────────────
+// -- The narrative ----------------------------------------------------
 
 // The narrative fields the writer gives their own sections, in the
-// order it writes them (write-md-finding.js NARRATIVE) — AFTER the
+// order it writes them (write-md-finding.js NARRATIVE) -- AFTER the
 // sections the description's own `**Label:**` paragraphs became.
 const NARRATIVE = new Map(WRITTEN_NARRATIVE.map(([label, field]) => [label.toLowerCase(), field]))
 const NARRATIVE_ORDER = [...NARRATIVE.keys()]
 
 // Which sections were fields and which the description's own. The writer
 // prints the description's labelled paragraphs first, whatever they are
-// called, then the fields in NARRATIVE order — so the fields are the
+// called, then the fields in NARRATIVE order -- so the fields are the
 // longest run of narrative labels in that order at the END, and
 // everything before goes back into the description as the `**Label:**`
 // paragraph it was. A report that wrote `**Impact:**` into its prose
@@ -318,8 +318,8 @@ export function narrativeSplit(sections) {
 }
 
 // The description back from its parts: the heading's text as the first
-// line — unless the lead already opens with it, which is how a name too
-// long for a heading travels — then the lead, then the description's own
+// line -- unless the lead already opens with it, which is how a name too
+// long for a heading travels -- then the lead, then the description's own
 // labelled paragraphs, as every parser writes them. No heading text
 // leaves the lead to speak for itself.
 export function buildDescription(title, lead, paragraphs) {

@@ -4,36 +4,36 @@
 // read here is the CONSOLIDATED run report,
 // `piolium/final-audit-report.md`; the per-finding
 // `piolium/findings/<id>-<slug>/report.md` files are deliberately not
-// an input — one file per finding doesn't fit the one-file-per-report
+// an input -- one file per finding doesn't fit the one-file-per-report
 // model, and the consolidated report already inlines or links each one.
 //
 // The report is COMPOSED BY AN AGENT, so its structure varies by mode
 // and by run. Three observed layouts anchor the parser; everything else
 // is handled by being liberal within them.
 //
-// Layout A — the pentest template: a `## Summary of Findings` index
+// Layout A -- the pentest template: a `## Summary of Findings` index
 // table (`| [C1] | Title | CRITICAL | executed | -- |`) plus
 // `## Technical Findings Detail` with `### [C1] Title` blocks of
 // `- **Severity:** / **Summary:** / **Impact:** / **Root Cause:** /
 // **Key Code Reference:** / **PoC Status:**` bullets and an optional
 // `#### Variants` sub-table.
 //
-// Layout B — the mode task outline (modes/balanced.ts L6c,
+// Layout B -- the mode task outline (modes/balanced.ts L6c,
 // modes/deep.ts P15): `## Findings by Severity` with severity groups
 // (`### Critical`, counted `### HIGH (2)`, or promoted to
 // `## Critical Findings`) whose findings are `#### ` blocks, an
-// id/title table, or a `- [<id>-<slug>](…/report.md): summary` list.
+// id/title table, or a `- [<id>-<slug>](.../report.md): summary` list.
 //
-// Layout C — real assembler output: anchored draft-phase ids and
+// Layout C -- real assembler output: anchored draft-phase ids and
 // per-variant entries,
 //
 //   <a id="p10-011"></a>
-//   ### p10-011 — Title
+//   ### p10-011 -- Title
 //
 //   - **Severity:** HIGH
-//   - **Key code:** `src/a.js:20` (`fnA`) → `src/b.js:600` → `src/c.js`
-//   - **PoC:** executed (…)
-//   - **Files:** …reproduction attachments, ignored…
+//   - **Key code:** `src/a.js:20` (`fnA`) -> `src/b.js:600` -> `src/c.js`
+//   - **PoC:** executed (...)
+//   - **Files:** ...reproduction attachments, ignored...
 //
 //   #### Variants
 //   | ID | Title | Severity | Location | PoC |
@@ -41,12 +41,12 @@
 //   | [p12-001](#p12-001) | Variant title | MEDIUM | `src/d.js:50-60` | executed |
 //
 //   <a id="p12-001"></a>
-//   #### p12-001 — Variant title
-//   - **Variant of** [p10-011](#p10-011) · **Pattern** `pattern-id`
+//   #### p12-001 -- Variant title
+//   - **Variant of** [p10-011](#p10-011) - **Pattern** `pattern-id`
 //
 // Variants exist BOTH as table rows and as their own full entries; the
 // entry carries the narrative and wins, so rows are deferred and
-// emitted only for ids no entry covered — never twice, and never as a
+// emitted only for ids no entry covered -- never twice, and never as a
 // finding titled "Variants". Rows are also registered as index rows, so
 // an entry adopts its row's severity / PoC / parent.
 //
@@ -58,7 +58,7 @@
 // Summary` and `## Coverage Gaps` (link lists about the audit), and
 // `## Deferred Findings (triage skip)` (drafts triage did not promote).
 // Only findings-labelled sections, severity groups and the index are
-// read — and structural markdown only OUTSIDE fenced code, since
+// read -- and structural markdown only OUTSIDE fenced code, since
 // piolium inlines PoC snippets and a fenced `## step 2` must not end a
 // section (md-structure.js).
 
@@ -83,7 +83,7 @@ const DETAIL_HEADERS = new Set([
 // Never mined for findings, even carrying id-shaped headings or tables.
 const EXCLUDED_HEADERS = /^(?:summary of findings\b|deferred|methodolog|executive|conclusion|attack surface|coverage|discoveries|scope\b|table of contents|contents\b|appendix|recommendation|remediation)/u
 
-// Section names vary run to run ('## HIGH — 3 findings', '## Confirmed
+// Section names vary run to run ('## HIGH -- 3 findings', '## Confirmed
 // Findings', emoji prefixes), so a non-excluded section whose headings
 // carry id-shaped tokens holds findings whatever it is called.
 function headingHasId(heading) {
@@ -108,7 +108,7 @@ export function parsePioliumFindings(content) {
 
   const { head, subs } = splitLeading(text, H2_RE)
   const sections = parseSections(subs)
-  // `## Summary of Findings` → id → row: both the gap-filler for a sparse
+  // `## Summary of Findings` -> id -> row: both the gap-filler for a sparse
   // block (PoC status, parent, verdict) and the source of last resort.
   const index = new Map(tableObjects(sections['summary of findings'] || '').map(indexRowOf).filter((row) => row.id).map((row) => [row.id, row]))
   const meta = preambleMeta(head)
@@ -154,7 +154,7 @@ export function parsePioliumFindings(content) {
   // per finding (repo.github is per-finding downstream) with its own
   // object copy. The H1 title alone is not trusted: its <project> holds
   // a monorepo path as easily as a slug, and a wrong `repo.github` is
-  // worse than none — format.js's fileUrl prefers it over the editable
+  // worse than none -- format.js's fileUrl prefers it over the editable
   // repo chip, so a bad guess yields dead links the user can't correct.
   // `**Commit audited**` lands as `auditedCommit`, NOT `commitHash`,
   // which the card renders as "introduced in <commit>": the scan commit
@@ -165,9 +165,9 @@ export function parsePioliumFindings(content) {
   }
 
   // Report-level 'security' for the document.title fallback. No
-  // per-finding `type` — piolium categorizes by severity, so a
+  // per-finding `type` -- piolium categorizes by severity, so a
   // synthetic one would print the same word on every run-meta line, the
-  // call parse-deepsec.js and parse-codex.js also make — and ingest.js's
+  // call parse-deepsec.js and parse-codex.js also make -- and ingest.js's
   // `data.source` gate keeps the report-level one off the findings.
   return { type: 'security', source: 'piolium', findings }
 }
@@ -221,7 +221,7 @@ function parseVariantsBlock(body, index, parentId, pending, sev) {
 }
 
 // The `#### ` entries of a finding block, a `### Variants` block or a
-// severity group — each a finding, except a `#### Variants` table, whose
+// severity group -- each a finding, except a `#### Variants` table, whose
 // rows defer to `pending` under `parentId`, or under the entry before
 // the table when they are siblings at group level.
 function parseEntries(subs, index, pending, sev, parentId) {
@@ -254,9 +254,9 @@ function parseFindingsBody(body, sev, index, pending) {
   const out = parseEntries(splitByHeading(body, H4_RE), index, pending, sev, null)
   if (out.length > 0) return out
 
-  // An id/title table here is the INDEX in another position — the real
+  // An id/title table here is the INDEX in another position -- the real
   // reports put the overview under `## Findings by Severity` and the
-  // blocks under per-severity sections — so emitting rows eagerly would
+  // blocks under per-severity sections -- so emitting rows eagerly would
   // double-report every finding. They merge into the index instead, and
   // the gated fallback emits only ids no block claimed. A row with no id
   // can't be index-keyed and defers via pending, as list items do.
@@ -288,7 +288,7 @@ function parseBlock(heading, body, index, groupSeverity = '') {
   const { fields, labels, prose } = parseLabelledFields(body)
 
   // Precedence: the block's own bullet, the index row, the enclosing
-  // group, the id's prefix, then medium — where an unrecognized tier
+  // group, the id's prefix, then medium -- where an unrecognized tier
   // stays visible rather than dropping out.
   const { severity, identitySeverity } = resolveSeverity(
     mapSeverity(fields.severity), mapSeverity(row?.severity), groupSeverity, severityFromId(id),
@@ -298,7 +298,7 @@ function parseBlock(heading, body, index, groupSeverity = '') {
   // reference itself carries none.
   const lineBullet = /\d+/u.exec(fields.line || fields.lines || '')?.[0] ?? ''
 
-  // `- **Variant of** [p10-011](#p10-011) · …` names the parent, with or
+  // `- **Variant of** [p10-011](#p10-011) ...` names the parent, with or
   // without the colon that would make it a labelled field; read off the
   // raw body either way, and kept out of the description along with
   // `<a id>` anchor chrome.
@@ -312,7 +312,7 @@ function parseBlock(heading, body, index, groupSeverity = '') {
     description: buildDescription(title || id, fields, labels, proseClean),
   })
   // Auxiliary provenance, kept as plain strings so an export can cite
-  // the audit's own artifacts — as parse-md.js keeps branch / status.
+  // the audit's own artifacts -- as parse-md.js keeps branch / status.
   const pocStatus = fields['poc status'] || fields.poc || row?.pocStatus
   if (pocStatus) finding.pocStatus = pocStatus
   const reportPath = fields['detailed report'] || (link.endsWith('report.md') ? link : '')
@@ -341,8 +341,8 @@ function parseSections(subs) {
 
 // Mechanical fields, which must not repeat into the description:
 // severity / code-reference / PoC plumbing, attachments, cross-links.
-// Everything ELSE a report labels — `Impact`, `Root cause`, or an
-// invented `Residual risk` — is narrative and belongs in the story.
+// Everything ELSE a report labels -- `Impact`, `Root cause`, or an
+// invented `Residual risk` -- is narrative and belongs in the story.
 const NON_NARRATIVE_FIELDS = new Set([
   ...CODE_REF_FIELDS, 'severity', 'summary', 'files', 'poc',
   'poc status', 'line', 'lines', 'detailed report', 'proof of concept',
@@ -350,8 +350,8 @@ const NON_NARRATIVE_FIELDS = new Set([
 ])
 
 // Heading + narrative in document order: the Summary, from a label or
-// from unlabelled prose — both contribute, since a block often carries
-// its labels first and its narrative in the paragraph under them — then
+// from unlabelled prose -- both contribute, since a block often carries
+// its labels first and its narrative in the paragraph under them -- then
 // every narrative label in its ORIGINAL casing, kept `**bold**`, which
 // the card renders as real <strong> and the export re-emits as markdown.
 function buildDescription(title, fields, labels, prose) {

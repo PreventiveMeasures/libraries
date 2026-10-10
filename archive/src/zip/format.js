@@ -53,7 +53,7 @@ export async function inflate(bytes, size, at) {
   return out
 }
 
-// DOS time is two seconds and a year from 1980, in the maker's local time —
+// DOS time is two seconds and a year from 1980, in the maker's local time --
 // read and written here as UTC.
 function dos(seconds) {
   const date = new Date(seconds * 1000)

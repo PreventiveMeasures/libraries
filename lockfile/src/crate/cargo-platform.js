@@ -7,7 +7,7 @@
 import { text } from './semver.js'
 
 const TOKEN = / *(?:([(),=])|"([^"]*)"|(r#)?([A-Z_a-z]\w*)|(.|$))/gsuy
-// Deeper than any cfg(…) is written, and shallow enough to read and match
+// Deeper than any cfg(...) is written, and shallow enough to read and match
 // without running out of stack, as the PEP 508 marker reader holds one.
 const MAX_DEPTH = 64
 
@@ -45,7 +45,7 @@ function parser(source) {
     if (value === undefined) refuse()
     return { name: token.ident, value, key: `${token.ident}="${value}"` }
   }
-  // all(…) and any(…) of any number, a comma after each; not(…) of one.
+  // all(...) and any(...) of any number, a comma after each; not(...) of one.
   const expr = (depth = 0) => {
     const token = peek()
     if (token?.raw === false && ['all', 'any', 'not'].includes(token.ident)) {
@@ -80,7 +80,7 @@ function parse(source, read) {
   }
 }
 
-// `{ name }` for a target, `{ expr }` for cfg(…); undefined where the crate errs.
+// `{ name }` for a target, `{ expr }` for cfg(...); undefined where the crate errs.
 export function parsePlatform(source) {
   const inner = /^cfg\((.*)\)$/su.exec(text(source))?.[1]
   if (inner === undefined) return /^[\w.-]+$/u.test(source) ? { name: source, expr: undefined } : undefined

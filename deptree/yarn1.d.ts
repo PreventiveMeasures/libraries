@@ -8,7 +8,7 @@ export { LockfileError } from '@preventive/lockfile/yarn1.js'
 // Where @preventive/upstream caches what it fetches, tarballs among them.
 // Tarballs are fetched through it, and that is the one place anything here
 // touches a filesystem. Before the network, it takes a tarball from npm's
-// cache — under $npm_config_cache, or ~/.npm — from ~/.audit/cache/tgz, or
+// cache -- under $npm_config_cache, or ~/.npm -- from ~/.audit/cache/tgz, or
 // from its own default cache directory or stasis's, where one there has the
 // lockfile's integrity, and writes none of them; then from its own cache,
 // where one is set, which is where it writes each tarball it fetches:
@@ -23,7 +23,7 @@ export { setCacheDir } from '@preventive/upstream/npm.js'
 // one the root package.json's packageManager pins, which corepack runs,
 // and has to be given where that pins none, and to be that one where it
 // does. `node` is the Node yarn runs on, an exact version; `os` and `cpu`
-// as Node names them — `linux`, `x64`. Windows is refused: yarn links bins
+// as Node names them -- `linux`, `x64`. Windows is refused: yarn links bins
 // there with shims, and workspaces with junctions.
 // A package whose os, cpu or engines the machine does not take is left
 // out where it is optional, and refused where it is not, as yarn fails
@@ -83,8 +83,8 @@ export interface Yarn1Project {
 // reads as a manifest too; and a .yarnrc.yml, whose yarnPath yarn 1.22
 // runs in its stead.
 //
-// Settings from anywhere else — a .yarnrc or .npmrc above the project or
-// in the home directory, the environment, the command line — are not read,
+// Settings from anywhere else -- a .yarnrc or .npmrc above the project or
+// in the home directory, the environment, the command line -- are not read,
 // and are taken to be at their defaults.
 //
 // Of the .yarnrc and the .npmrc, as yarn 1.22 reads them: yarn reads an
@@ -92,18 +92,18 @@ export interface Yarn1Project {
 // a `--` line of the .yarnrc as a flag on its command line. Two settings
 // are followed as yarn follows them: ignore-engines, by the flag
 // `--ignore-engines true` or `--install.ignore-engines true`, or by the
-// option where it is truthy as yarn reads it — a quoted "false" is; and
+// option where it is truthy as yarn reads it -- a quoted "false" is; and
 // ignore-platform, by its flag alone, as yarn does not act on the option.
-// Options yarn reads that change what it installs are refused —
+// Options yarn reads that change what it installs are refused --
 // ignore-optional, production, bin-links, workspaces-experimental and the
-// like — and so is yarn-path, which has another yarn run, and
+// like -- and so is yarn-path, which has another yarn run, and
 // global-folder, which, where it is the project's own directory, has yarn
 // read its package.json files otherwise; any other option
 // is passed over, as yarn reads it only for where it fetches from, how,
 // and what it keeps, which the tree is held to the lockfile's integrities
 // against whatever serves it, or for no install at all, as with most of
-// npm's own. A flag is passed over where it does not change the tree —
-// --registry, --frozen-lockfile, --network-timeout and the like — and
+// npm's own. A flag is passed over where it does not change the tree --
+// --registry, --frozen-lockfile, --network-timeout and the like -- and
 // refused where it may or is not known here: --production, --flat,
 // --modules-folder, --ignore-optional, --no-bin-links, --no-lockfile,
 // which has yarn read no yarn.lock, --global-folder, --cwd and the rest. A .yarnrc line indented under another, which yarn reads into it,
@@ -111,13 +111,13 @@ export interface Yarn1Project {
 // or false, or for the .yarnrc's option a quoted string.
 //
 // A workspace project is the root, marked private, and every directory its
-// `workspaces` globs take — `*`, `?` and `**`, as the lockfile reader takes
-// them — with a package.json that has a name and a version. `nohoist`,
+// `workspaces` globs take -- `*`, `?` and `**`, as the lockfile reader takes
+// them -- with a package.json that has a name and a version. `nohoist`,
 // Plug'n'Play, and a root package.json's `flat` are refused.
 //
 // `vfs` is a Vfs to mount the tree into, at its root, which is taken to
 // be the lockfile's directory, beside whatever it holds, such as the
-// projects themselves — it may be `project` too; without one, a new Vfs
+// projects themselves -- it may be `project` too; without one, a new Vfs
 // holds the tree alone. Nothing the tree is built from is read from it. A
 // Vfs that holds a node_modules anywhere, or on macOS a name that is one
 // there, is refused before anything is fetched: kept beside the tree, Node
@@ -193,7 +193,7 @@ export interface Yarn1TreeStats {
 
 // A copy of a package in the tree, as an SBOM would list it: `path` is
 // where its files really are, from the lockfile's directory, which is `/`
-// of the Vfs — node_modules/<alias>, or beneath a workspace, in that
+// of the Vfs -- node_modules/<alias>, or beneath a workspace, in that
 // workspace's own node_modules. `name` and `version` are the package's
 // own, which its package.json is held to, whatever alias it is installed
 // as; `integrity` the sha512 its tarball is held to, for a registry
@@ -299,7 +299,7 @@ export interface Yarn1Tree {
 // sha1 after it aside), or that same URL on yarn's mirror,
 // https://registry.yarnpkg.com/, which is taken for npm's; it is fetched
 // from npm's through @preventive/upstream. Each is asked for by a semver
-// range, an `npm:` alias, or a tag — the last only where the project is
+// range, an `npm:` alias, or a tag -- the last only where the project is
 // given, and a directory of the project of that name is not there, which
 // yarn would install instead. A request of a tag waits on the filesystem,
 // which answers in no set order, and each it answers resolves all beneath
@@ -338,10 +338,10 @@ export interface Yarn1Tree {
 //
 // Nothing is left to a guess: a lockfile the lockfile reader refuses, a
 // setting this does not know or does not build for, a package from
-// anywhere but those above — git, another tarball URL, a tarball on disk,
-// a directory by `link:` — a range that is none of those above, a package
+// anywhere but those above -- git, another tarball URL, a tarball on disk,
+// a directory by `link:` -- a range that is none of those above, a package
 // with bundled dependencies, another package manager, a check above that
-// fails — each is refused with a DeptreeError or a LockfileError that says
+// fails -- each is refused with a DeptreeError or a LockfileError that says
 // where. A TypeError is thrown for options of the wrong type.
 export function buildYarn1Tree(options: Yarn1TreeOptions): Promise<Yarn1Tree>
 
@@ -358,8 +358,8 @@ export interface Yarn1WorkspacesOptions {
 
 export function findYarn1Workspaces(options: Yarn1WorkspacesOptions): string[]
 
-// `where` is what a refusal is about — `.yarnrc:3`, `manifests["."]`, a
-// package's pattern — or undefined for the call as a whole; the message
+// `where` is what a refusal is about -- `.yarnrc:3`, `manifests["."]`, a
+// package's pattern -- or undefined for the call as a whole; the message
 // leads with it. `cause` is what a package beneath refused with, where one
 // did.
 export class DeptreeError extends Error {

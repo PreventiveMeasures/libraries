@@ -206,7 +206,7 @@ export function scanSpecifiers(text, callees = new Set()) {
   const found = []
   for (const [k, token] of tokens.entries()) {
     if (token.type !== 'word' || ['.', '#', 'function'].includes(tokens[k - 1]?.value)) continue
-    // TypeScript's `import type a = require(…)`, which type erasure takes.
+    // TypeScript's `import type a = require(...)`, which type erasure takes.
     if (tokens[k - 1]?.value === '=' && tokens[k - 3]?.value === 'type' && tokens[k - 4]?.value === 'import') continue
     const called = tokens[k + 1]?.value === '('
     const specifier = called ? argumentOf(tokens, k) : undefined

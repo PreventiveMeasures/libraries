@@ -85,7 +85,7 @@ export function graftPlanIn(userDataDir, modelDir) {
 
 // All a scratch profile inherits, named rather than arrived at by deleting the rest. Each
 // manifest_asset_ledger entry is a standing REQUEST, and the one for the linked model is what makes
-// the browser load it — carry the others and Chrome fetches models this profile does not have.
+// the browser load it -- carry the others and Chrome fetches models this profile does not have.
 function optimizationGuidePrefs(modelDir, baseModel) {
   const dir = activeUserDataDir(modelDir)
   if (!dir) return {}
@@ -96,7 +96,7 @@ function optimizationGuidePrefs(modelDir, baseModel) {
 
 // Which ledger entry is the launched model's, in the order the three answers can be trusted: the
 // row's component id, then the hash the path sits under (OptGuideManifestModel/<hash>/<version>),
-// then the version a flat path stops at — weakest, since versions are dates two components can
+// then the version a flat path stops at -- weakest, since versions are dates two components can
 // share. Each only if the one before found nothing, so a renamed id or a request pointing past what
 // is installed costs precision rather than the entry.
 function findLedgerEntry(ledger, modelDir, baseModel) {
@@ -110,7 +110,7 @@ function findLedgerEntry(ledger, modelDir, baseModel) {
 }
 
 // No ledger entry found means no ledger: that is a CHROME_MODEL_DIR outside the component tree,
-// where the real profile's ledger would claim components this one does not have — the fetch all of
+// where the real profile's ledger would claim components this one does not have -- the fetch all of
 // this exists to prevent.
 export function portableGuide(guide, modelDir, baseModel) {
   const found = findLedgerEntry(guide?.model_execution?.manifest_asset_ledger, modelDir, baseModel)
@@ -155,8 +155,8 @@ function candidateModelDirs(root, depth = 2) {
 }
 
 // The same model carries three names and no two match: gemma-4-E2B-it as published,
-// gemma4_gpu_high_tier_model in Chrome, gemma4-2b-it in the manifest. Nor is it computable —
-// anything relating gemma4_2b to gemma4-2b-it relates it to gemma-4-E4B-it too — so the row carries
+// gemma4_gpu_high_tier_model in Chrome, gemma4-2b-it in the manifest. Nor is it computable --
+// anything relating gemma4_2b to gemma4-2b-it relates it to gemma-4-E4B-it too -- so the row carries
 // the names to accept.
 function normalizeSpec(name) {
   return String(name).toLowerCase().replaceAll(/[^a-z0-9]+/gu, '')

@@ -3,7 +3,7 @@ export interface TomlTable {
   [key: string]: TomlValue
 }
 
-// An integer is a number, or a bigint past ±(2^53 − 1); a float is a
+// An integer is a number, or a bigint past +/-(2^53 - 1); a float is a
 // TomlFloat, so that `1.0` is not the integer `1`.
 export type TomlValue = string | number | bigint | boolean | TomlFloat | TomlDateTime | TomlValue[] | TomlTable
 

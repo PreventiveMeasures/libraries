@@ -9,10 +9,10 @@
 //
 // Display name per scan: `${repository}:${configured_scan_id stripped
 // of its `<prefix>:` head}`. Each scan must contain exactly one
-// repository — asserted, not silently merged.
+// repository -- asserted, not silently merged.
 //
 // Only the first path in `relevant_paths` becomes `f.file` (some
-// findings list several, as `path1 | path2 | …`); the rest are dropped.
+// findings list several, as `path1 | path2 | ...`); the rest are dropped.
 
 import { normalizeFindingSeverity } from './severity.js'
 
@@ -23,7 +23,7 @@ const REQUIRED_COLUMNS = [
 
 // RFC 4180-ish CSV parser: handles quoted fields containing commas,
 // embedded newlines, and `""` escaped quotes. Returns rows as arrays
-// of strings (no header / object conversion — caller picks columns by
+// of strings (no header / object conversion -- caller picks columns by
 // index from the header row).
 function parseCsvRows(text) {
   const rows = []
@@ -87,7 +87,7 @@ export function parseCodexCsvToScans(text) {
 
   const scans = []
   for (const [scanId, records] of byScan) {
-    // Each scan must belong to a single repository — surface a real
+    // Each scan must belong to a single repository -- surface a real
     // error if upstream ever merges scans across repos rather than
     // silently lumping them under one display name.
     const repos = new Set(records.map((r) => r.repository).filter(Boolean))
@@ -96,7 +96,7 @@ export function parseCodexCsvToScans(text) {
     }
     const repo = [...repos][0] || 'unknown-repo'
     // `${repo}:${suffix}`, the suffix being whatever follows the first
-    // `:` in configured_scan_id (`uuid:<github-id>`) — the
+    // `:` in configured_scan_id (`uuid:<github-id>`) -- the
     // human-meaningful half.
     const displayName = `${repo}:${scanId.replace(/^[^:]+:/u, '')}`
     scans.push({
@@ -108,7 +108,7 @@ export function parseCodexCsvToScans(text) {
 }
 
 function rowToFinding(r) {
-  // First non-empty path only; the siblings of a `path1 | path2 | …`
+  // First non-empty path only; the siblings of a `path1 | path2 | ...`
   // list are dropped.
   const file = r.relevant_paths.split(' | ').map((s) => s.trim()).find(Boolean) || 'unknown'
 
@@ -123,7 +123,7 @@ function rowToFinding(r) {
     // included (triage's client/triage.js).
     id: r.finding_url,
     file,
-    // Codex CSVs lack line numbers — '?' is the same placeholder
+    // Codex CSVs lack line numbers -- '?' is the same placeholder
     // markdown findings use when the source has no `#L<n>` anchor.
     line: '?',
     severity: (r.severity || 'medium').toLowerCase(),

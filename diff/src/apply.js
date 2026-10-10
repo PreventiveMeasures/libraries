@@ -1,6 +1,6 @@
 // A change set applied: what the diff describes, carried out. Keep the lines
 // between the blocks, and put each block's replacement where its old lines
-// were. That is the whole of it — positions here are exact, because a change
+// were. That is the whole of it -- positions here are exact, because a change
 // set is only ever paired with the file it was computed against.
 //
 // Applying a patch to a file that has since moved on is a different problem
@@ -30,7 +30,7 @@ export function applyRecords(a, blocks, b = null) {
 // What a block puts in: the lines it carries, when it was read out of a
 // diff, and otherwise the second file's. A block naming a range the second
 // file does not have comes from somewhere this package cannot vouch for, so
-// it is refused — `slice` would quietly clip it and hand back a plausible
+// it is refused -- `slice` would quietly clip it and hand back a plausible
 // wrong answer instead.
 function replacement({ b0, b1, insert }, b) {
   if (insert !== undefined) return insert

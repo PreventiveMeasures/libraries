@@ -2,9 +2,9 @@
 // untouched, and deliberately partial: only the surface a TypeScript caller
 // imports today (triage's server-managed/ and common/managed/) is declared
 // here. An export missing from this file is one no TS caller has needed
-// yet, not one that is gone — declare it here when one does.
+// yet, not one that is gone -- declare it here when one does.
 
-// Recognise, flatten, and give every finding an id — the whole read path in
+// Recognise, flatten, and give every finding an id -- the whole read path in
 // one call. `findings` are the parser's own objects; null when nothing
 // recognises the text.
 export function loadFindings(content: string): Promise<{ format: string, data: unknown, findings: unknown[] } | null>

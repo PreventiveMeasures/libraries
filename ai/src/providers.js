@@ -14,7 +14,7 @@ import { cachesConversation, chatCompletionsInitialUserMessage, chatCompletionsS
 const functionTool = (tool) => ({ name: tool.name, description: tool.description, parameters: tool.input_schema })
 
 // Resolve the effort level a non-Anthropic request carries, or undefined for one that carries none.
-// Centralises the policy all three non-Anthropic adapters share — an effort without thinking is a
+// Centralises the policy all three non-Anthropic adapters share -- an effort without thinking is a
 // caller error, thinking defaults to 'high', and none of them understand the Anthropic-specific
 // 'manual' value (which means "use a fixed budget_tokens number"). `model` is optional and only
 // used to narrow the accepted set: a model that takes fewer levels than the CLI offers (see
@@ -41,8 +41,8 @@ function resolveEffort({ think, effort, model }) {
 // system message in the shape that route wants. `max_completion_tokens` rather than `max_tokens`:
 // OpenAI's schema deprecated the latter and OpenRouter's followed, so the newer name is the one a
 // compatible backend is likeliest to accept. The effort is the OpenAI-compatible flat string, not
-// OpenRouter's own `reasoning: { effort }` object — the flat one is what any chat-completions
-// backend understands — and its narrowing keys on the registry `model`, not the wire id or the
+// OpenRouter's own `reasoning: { effort }` object -- the flat one is what any chat-completions
+// backend understands -- and its narrowing keys on the registry `model`, not the wire id or the
 // adapter: a gateway can route moonshotai/kimi-k3, whose three levels are the model's own.
 function chatCompletionsBody(wireModel, system, model, maxTokens, messages, { think = false, effort, tools } = {}) {
   const body = { model: wireModel, max_completion_tokens: maxTokens, messages: [system, ...messages] }
@@ -59,15 +59,15 @@ const endpoint = (url, keyEnv, authHeader = bearerAuth) => ({ url, authHeader, a
 // The OpenAI Responses wire format, parameterised by how the route names models. Two routes speak
 // it and differ only in the namespace: the direct adapter strips it for a bare name the API must
 // know, a gateway keeps it as the operator's routing key. Both resolve `wireModelFor` first,
-// because that is not a namespace question — a `-pro` id is OpenRouter's way of asking for a mode
+// because that is not a namespace question -- a `-pro` id is OpenRouter's way of asking for a mode
 // on chat completions, which has no field for one, so on Responses it has to become the base model
-// plus `reasoning.mode`. Everything else — body, parsing, tool replay — is identical, so it lives
+// plus `reasoning.mode`. Everything else -- body, parsing, tool replay -- is identical, so it lives
 // here once.
 function openaiResponsesShape(modelId) {
   return {
     buildRequestBody(model, maxTokens, systemPrompt, messages, { think = false, effort, tools } = {}) {
       // Responses: system prompt goes top-level as `instructions`, chat history goes in `input`,
-      // output cap is `max_output_tokens`. No cache_control — Responses handles caching server-side
+      // output cap is `max_output_tokens`. No cache_control -- Responses handles caching server-side
       // via the input fingerprint.
       const body = {
         model: modelId(model),
@@ -77,18 +77,18 @@ function openaiResponsesShape(modelId) {
         // Stateless. The default retains every request and response on OpenAI's servers, which for
         // a tool that uploads someone else's source code is a data-retention decision worth making
         // on purpose. appendToolResults replays every output item into the next `input`, so no
-        // `previous_response_id` is ever needed — but see `include` below for what that replay
+        // `previous_response_id` is ever needed -- but see `include` below for what that replay
         // takes on a model that reasons.
         store: false,
       }
       // A reasoning item comes back as an id plus a summary, and the reasoning itself stays on
       // OpenAI's side under that id. With `store: false` nothing is kept there, so replaying the
-      // item verbatim — which the next tool turn does — 400s with "Item with id 'rs_…' not found".
+      // item verbatim -- which the next tool turn does -- 400s with "Item with id 'rs_...' not found".
       // Asking for the encrypted reasoning puts it in the item itself, which is what lets a
       // stateless replay carry the chain of thought forward instead.
       //
       // Keyed on the row rather than this request's `think`: astra reasons with thinking off too,
-      // and its items need replaying all the same. A row that cannot reason must not get it —
+      // and its items need replaying all the same. A row that cannot reason must not get it --
       // gpt-4o-mini and gpt-4.1-mini reject the field outright with "Encrypted content is not
       // supported with this model", on the first turn of every run.
       if (canThink(resolveModel(model))) body.include = ['reasoning.encrypted_content']
@@ -98,7 +98,7 @@ function openaiResponsesShape(modelId) {
       const level = resolveEffort({ think, effort, model }) ?? (needsExplicitNoThink(model) ? 'none' : undefined)
       // Independent knobs on one object: mode picks the standard or pro execution path, effort how
       // much reasoning happens within it. Emitted whenever the row names a mode, including with no
-      // effort — a pro row is `noThink: 'unsupported'` so --no-think is refused up front, and this
+      // effort -- a pro row is `noThink: 'unsupported'` so --no-think is refused up front, and this
       // is the backstop: naming pro anyway beats quietly serving the base model under the pro row's
       // cache dir and price.
       const mode = reasoningModeFor(model)
@@ -154,13 +154,13 @@ function openaiResponsesShape(modelId) {
 const isResponsesResponse = (json) => Array.isArray(json?.output) || typeof json?.status === 'string'
 
 
-// Which wire format a response came back in. The two are self-identifying — Messages replies carry
-// a `content` block array (or `type: 'error'`), chat-completions replies carry `choices` — so the
+// Which wire format a response came back in. The two are self-identifying -- Messages replies carry
+// a `content` block array (or `type: 'error'`), chat-completions replies carry `choices` -- so the
 // parsing side dispatches on the response itself and needs no model threaded through it.
 const isAnthropicResponse = (json) => json?.type === 'error' || Array.isArray(json?.content)
 
 // A gateway fronting more than one upstream: the model's namespace picks which provider serves it,
-// and each route gets the endpoint, body, headers and parsing that provider itself documents —
+// and each route gets the endpoint, body, headers and parsing that provider itself documents --
 // never one shape the gateway is trusted to translate.
 //
 // Serving anthropic/* over /v1/chat/completions is such a translation, and not something a gateway
@@ -174,16 +174,16 @@ function gatewayAdapter({ origin, apiUrlEnv, apiKeyEnv }) {
   // model name the upstream API resolves.
   const messages = anthropicShape((model) => model)
   // Namespace kept for the same reason, but a row served as a mode on another model still resolves
-  // to that base — see openaiResponsesShape.
+  // to that base -- see openaiResponsesShape.
   const responses = openaiResponsesShape(wireModelFor)
   const chat = CHAT_COMPLETIONS_SHAPE
   const shapes = { messages, responses, chat }
-  // Tolerates a missing model — buildRequestHeaders is public, and a caller that omits it should
+  // Tolerates a missing model -- buildRequestHeaders is public, and a caller that omits it should
   // get the chat route rather than a TypeError.
   //
   // OpenAI gets its own API too, not the compatible chat one: chat completions caps
   // `reasoning_effort` below `max` and has no `reasoning.mode` at all, so routing an openai/ model
-  // through it silently costs capabilities the model has. Same rule as the Messages route — the
+  // through it silently costs capabilities the model has. Same rule as the Messages route -- the
   // namespace names the provider whose own shape the route speaks.
   const routeOf = (model) => (isAnthropicRoute(model ?? '') ? 'messages' : isOpenAIRoute(model ?? '') ? 'responses' : 'chat')
   const routesMessages = (model) => routeOf(model) === 'messages'
@@ -228,7 +228,7 @@ const CHAT_COMPLETIONS_SHAPE = {
 
   buildRequestBody(model, maxTokens, systemPrompt, messages, opts = {}) {
     const body = chatCompletionsBody(model, chatCompletionsSystemMessage(model, systemPrompt), model, maxTokens, messages, opts)
-    // Same request-level field the Anthropic adapter sends, gated the same way — a gateway forwards
+    // Same request-level field the Anthropic adapter sends, gated the same way -- a gateway forwards
     // it verbatim, so an Anthropic model caches its conversation identically either way it is
     // reached. Anthropic-backed routes only: no other provider we route reads this field.
     if (isAnthropicRoute(model) && cachesConversation({ turn: opts.turn })) body.cache_control = { type: 'ephemeral' }
@@ -243,7 +243,7 @@ const CHAT_COMPLETIONS_SHAPE = {
 
 // Per-provider adapter. Each entry bundles the wire-format details (url, auth, env-var name) and
 // the dispatch methods (request/response shape, tool-call extraction, follow-up-message format).
-// Adding a new provider is one new entry plus a setProvider() lookup — no scattered edits.
+// Adding a new provider is one new entry plus a setProvider() lookup -- no scattered edits.
 const ADAPTERS = {
   anthropic: {
     ...endpoint('https://api.anthropic.com/v1/messages', 'ANTHROPIC_API_KEY', anthropicAuthHeader),
@@ -251,7 +251,7 @@ const ADAPTERS = {
   },
 
   openai: {
-    // Responses API rather than chat completions — chat-completions doesn't pair `reasoning_effort`
+    // Responses API rather than chat completions -- chat-completions doesn't pair `reasoning_effort`
     // with tool calls cleanly on the gpt-5 family, it caps effort below `max`, and Responses is
     // what OpenAI's migration guide points new integrations at.
     // OPENAI_API_URL replaces the origin, same split as OPENROUTER_API_URL: the variable holds
@@ -265,7 +265,7 @@ const ADAPTERS = {
   },
 
   // OpenRouter normalizes every model onto /v1/chat/completions and exposes no /v1/messages, so
-  // unlike a general gateway it speaks exactly one wire format — Anthropic included, translated on
+  // unlike a general gateway it speaks exactly one wire format -- Anthropic included, translated on
   // their side.
   openrouter: {
     ...CHAT_COMPLETIONS_SHAPE,
@@ -284,7 +284,7 @@ const ADAPTERS = {
     },
   },
 
-  // The same wire format pointed at a gateway of your own — LiteLLM, Portkey, a self-hosted proxy.
+  // The same wire format pointed at a gateway of your own -- LiteLLM, Portkey, a self-hosted proxy.
   // No default origin: AI_GATEWAY_API_URL names it, and setProvider refuses the provider until it
   // does.
   gateway: gatewayAdapter({
@@ -333,14 +333,14 @@ const ADAPTERS = {
     },
   },
 
-  // Chrome's built-in on-device model — the one adapter with no endpoint at all, and like ollama
+  // Chrome's built-in on-device model -- the one adapter with no endpoint at all, and like ollama
   // above, no key. Its `preflight` checks for a browser and resident weights in place of a URL and a
   // key, and `send` routes a turn through the browser instead of fetchJSON. Taken whole from
   // src/chrome/, which owns everything about reaching that model.
   chrome: CHROME_ADAPTER,
 
   // Moonshot's own platform (platform.kimi.ai / api.moonshot.ai), the direct route to Kimi K3.
-  // OpenAI-compatible chat completions, so the whole response side is shared — see
+  // OpenAI-compatible chat completions, so the whole response side is shared -- see
   // chatCompletionsBase.
   moonshot: {
     ...chatCompletionsBase('max_completion_tokens'),
@@ -348,11 +348,11 @@ const ADAPTERS = {
 
     // Same shared system-message rule as the OpenRouter body above, keyed on the namespaced id
     // rather than the stripped one. It resolves to a plain string for everything this endpoint
-    // serves — moonshotai/* caches context automatically, so there is no breakpoint to mark — but
+    // serves -- moonshotai/* caches context automatically, so there is no breakpoint to mark -- but
     // going through the one helper keeps that decision in a single place instead of restating it as
     // a special case here.
     //
-    // kimi-k3 reasons unconditionally — there is no off switch, so a think=false request simply
+    // kimi-k3 reasons unconditionally -- there is no off switch, so a think=false request simply
     // omits `reasoning_effort` (the registry marks it `noThink: 'unsupported'`, which is what makes
     // the CLI reject --no-think against it up front rather than promise a non-thinking run it can't
     // deliver).
@@ -369,7 +369,7 @@ let provider
 function httpPreflight(name, adapter) {
   const key = adapter.apiKey()
   assert(key, `Missing API key for ${name}`)
-  // Only a gateway entry can be missing one, and only when its origin env var is unset — every
+  // Only a gateway entry can be missing one, and only when its origin env var is unset -- every
   // other adapter hardcodes its endpoint.
   assert(adapter.url, `Missing API URL for ${name}. Set ${adapter.apiUrlEnv}.`)
   return key
@@ -386,8 +386,8 @@ export function setProvider(name) {
   provider = { ...adapter, name, apiKeyValue }
 }
 
-// Release whatever any adapter is holding open. Today only `chrome` holds anything — a browser
-// process, which keeps the event loop alive until it is closed — so for every other provider this
+// Release whatever any adapter is holding open. Today only `chrome` holds anything -- a browser
+// process, which keeps the event loop alive until it is closed -- so for every other provider this
 // is a no-op and a caller can end a run with it unconditionally.
 //
 // EVERY adapter, not the selected one. A caller that ran chrome and then switched to a hosted
@@ -403,7 +403,7 @@ export async function closeProvider() {
 
 // What a turn cost. The price table prices the MODEL, so it cannot answer this alone: an adapter
 // running the weights on this machine charges nothing, whatever the table says the hosted route
-// would have cost. Off one, an unpriced row stays null — unknown is not free, and the caller says
+// would have cost. Off one, an unpriced row stays null -- unknown is not free, and the caller says
 // what to show for it.
 export function turnCost(model, usage) {
   if (provider?.runsLocally) return 0
@@ -425,7 +425,7 @@ export function getProvider() {
   return provider
 }
 
-// Public dispatch surface — each call delegates to the active adapter. Keeping these as thin
+// Public dispatch surface -- each call delegates to the active adapter. Keeping these as thin
 // re-exports lets callers stay agnostic of the adapter shape; swapping providers is
 // `setProvider(name)` and the rest of the pipeline keeps working.
 const delegate = (method) => (...args) => provider[method](...args)
@@ -470,7 +470,7 @@ export const checkResponse = delegate('checkResponse')
 export const extractResponseText = delegate('extractResponseText')
 
 // Tool-call shape: `{ id, name, args }` on success, or `{ id, name, argsError }` when the model
-// produced malformed JSON args. `id` is whatever the provider needs back to match the tool result —
+// produced malformed JSON args. `id` is whatever the provider needs back to match the tool result --
 // `tool_use_id` for Anthropic, `call_id` for OpenAI Responses, `tool_call_id` for chat-completions
 // / OpenRouter.
 export const extractToolCalls = delegate('extractToolCalls')
@@ -495,7 +495,7 @@ export function normalizeOneUsage(data) {
     // The two vendors sharing this branch mean different things by the sibling `input_tokens`:
     // Anthropic EXCLUDES cache reads and writes from it (each is a separate bucket), while OpenAI
     // folds both in and `input_tokens_details` just details the subsets. So subtract for the
-    // OpenAI spelling only — otherwise a Responses cache read is charged twice, at full price
+    // OpenAI spelling only -- otherwise a Responses cache read is charged twice, at full price
     // inside input_tokens and again at 0.1x as cacheRead, which on a cache-heavy turn overstates
     // the cost several-fold with no provider-supplied `cost` to fall back on.
     const anthropic = u.cache_read_input_tokens !== undefined
@@ -518,11 +518,11 @@ export function normalizeOneUsage(data) {
     }
   }
   // Chat-completions format (OpenRouter, Moonshot). OpenRouter ships its own `cost` and wins over
-  // the price table; Moonshot reports no cost at all, so its tokens get priced locally — which is
+  // the price table; Moonshot reports no cost at all, so its tokens get priced locally -- which is
   // what makes the cached-token split matter. Both spell the hit count the OpenAI-compatible way,
   // where `prompt_tokens` is the TOTAL with cache reads already folded in, so subtract to get the
-  // fresh input calculateCost should charge full price for. Moonshot bills a cache hit at 0.1x —
-  // exactly the cacheRead multiplier — so the split reproduces their published cost formula.
+  // fresh input calculateCost should charge full price for. Moonshot bills a cache hit at 0.1x --
+  // exactly the cacheRead multiplier -- so the split reproduces their published cost formula.
   if ('prompt_tokens' in u) {
     // Capped at the prompt itself: a backend that ever reported the two as disjoint counts would
     // otherwise claim more cache reads than there were prompt tokens (and drive the fresh-input

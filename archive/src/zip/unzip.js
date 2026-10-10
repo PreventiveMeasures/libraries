@@ -1,11 +1,11 @@
 // A zip archive in, its entries out, in the order of the central directory,
 // which is what a zip is read from. Strict throughout: the end record has to
 // sit at the very end, the central directory right before it, and the
-// entries have to tile everything before that from byte 0 — no bytes belong
+// entries have to tile everything before that from byte 0 -- no bytes belong
 // to nothing, no two entries share any. Each local header has to agree with
 // the central directory, the data has to inflate to exactly the declared
-// size and match its CRC-32, and what this package does not model — zip64,
-// encryption, any method but stored and deflate, several disks — is refused.
+// size and match its CRC-32, and what this package does not model -- zip64,
+// encryption, any method but stored and deflate, several disks -- is refused.
 // Given a limit, the sizes the entries declare may not add up to more than
 // it; since each has to come out at exactly its own, that bounds everything
 // unzip() puts out, and it is known from the central directory alone,
@@ -13,7 +13,7 @@
 //
 // One reader serves both calls. It asks for the archive a range at a time:
 // views of it when it is in memory, and reads of just those bytes when it
-// is a Blob — a File, or a file opened with fs.openAsBlob — so a stream
+// is a Blob -- a File, or a file opened with fs.openAsBlob -- so a stream
 // over one holds no more of it than the entries' names and the entry it is
 // on. Everything about the layout is checked before the first entry is
 // handed over; what an entry's own data holds is checked as it is reached.
@@ -71,7 +71,7 @@ function sourceOf(archive) {
 
 // A walk forward through records too small to be worth a read each: a
 // window over [at, at + width), cut short only where the archive ends,
-// and over what else the read it came from holds — up to CHUNK bytes past
+// and over what else the read it came from holds -- up to CHUNK bytes past
 // `at`, and short of `stop`, so that the records after it come in the same
 // read and nothing past them is read to no purpose.
 const CHUNK = 1 << 16
@@ -116,7 +116,7 @@ function extras(raw, at) {
     if (pos + 4 + size > raw.length) throw new ArchiveError('an extra field runs past its room', at)
     if (id === ZIP64_EXTRA) throw new ArchiveError('zip64 is not supported', at)
     // Every name here is UTF-8 already, so this field can only disagree with
-    // the name checked above — and unzip would extract the name it carries.
+    // the name checked above -- and unzip would extract the name it carries.
     if (id === UNICODE_PATH_EXTRA) throw new ArchiveError('an entry carries a second name in a Unicode path extra field', at)
     if (!fields.has(id)) fields.set(id, raw.subarray(pos + 4, pos + 4 + size))
     pos += 4 + size
@@ -165,8 +165,8 @@ async function readCentral(read, at) {
 // The local header checked against the central entry; returns where the
 // entry's bytes end, which has to be `boundary`, the next record's start,
 // and notes where its data starts. The two records have to agree on
-// everything both carry — flags included, since a descriptor bit set in
-// one and not the other is read two ways by two readers — and the local
+// everything both carry -- flags included, since a descriptor bit set in
+// one and not the other is read two ways by two readers -- and the local
 // sizes and CRC may be 0 only where a descriptor carries them. `stop` is
 // as far as the header is read ahead of itself.
 async function readLocal(read, entry, boundary, stop) {
@@ -201,7 +201,7 @@ async function readLocal(read, entry, boundary, stop) {
   return end
 }
 
-// A directory marker anywhere — the Unix type bits, the DOS bit — needs
+// A directory marker anywhere -- the Unix type bits, the DOS bit -- needs
 // the slash; the slash needs no marker, since Java writes no attributes at
 // all and every JAR has directories.
 function typeOf(entry, rawName, mode) {

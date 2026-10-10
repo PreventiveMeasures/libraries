@@ -13,12 +13,12 @@ const QUERIES_PER_REQUEST = 1000
 export const RECORDS_AT_ONCE = 8
 const isOsvId = matches(/^(?=.{1,128}$)[A-Z][\dA-Z]*(?:-[\dA-Za-z]+)+$/u)
 // osv.dev's page for one of its records. An id that is only another's
-// alias (PKSA-…) has none, and redirects to a search.
+// alias (PKSA-...) has none, and redirects to a search.
 const osvPage = (id) => `https://osv.dev/vulnerability/${id}`
 const INFORMATIONAL = new Set(['unmaintained', 'unsound', 'notice'])
 // Of the records that publish one advisory, the first answered for a
 // version stands for the rest on it: RustSec's, what `cargo audit` reads
-// and GitHub mirrors, then the GHSA, then any other (MAL-…), then by id.
+// and GitHub mirrors, then the GHSA, then any other (MAL-...), then by id.
 const rank = (id) => (id.startsWith('RUSTSEC-') ? 0 : (isGhsa(id) ? 1 : 2))
 const first = (a, b) => rank(a.id) - rank(b.id) || order(a.id, b.id)
 const named = (a, b) => a.aliases.includes(b.id) || b.aliases.includes(a.id)
@@ -88,7 +88,7 @@ function toAdvisory(ecosystem, name, versions, record, details) {
 async function osvAdvisories(ecosystem, asked, options) {
   const { osv, github, lookUp, covers } = ecosystem
   const list = [...asked].flatMap(([name, versions]) => versions.map((version) => ({ name, version })))
-  const hits = new Map() // id → name → versions, in `list` order
+  const hits = new Map() // id -> name -> versions, in `list` order
   for (const chunk of chunks(list, QUERIES_PER_REQUEST)) {
     const body = { queries: chunk.map(({ name, version }) => ({ package: { name, ecosystem: osv }, version })) }
     const answer = await request(QUERY_URL, { method: 'POST', body, as: 'json' })

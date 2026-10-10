@@ -1,5 +1,5 @@
 // A Vfs from a description of its tree, in either of two shapes: a flat map
-// of paths to contents, or tar entries — the shape `Vfs.entries()` yields,
+// of paths to contents, or tar entries -- the shape `Vfs.entries()` yields,
 // so an archive unpacks into a Vfs and a Vfs packs into one.
 //
 // A description is untrusted, and is read by tar's rules for a name: a
@@ -7,7 +7,7 @@
 // and no empty or `..` segment, no control, line separator or bidirectional
 // character, no backslash, no drive letter in front, and at most PATH_MAX
 // bytes of UTF-8 in all, as spelled and as stored with a directory's slash
-// — what a tar entry may carry, so the names of a tree built here pack back
+// -- what a tar entry may carry, so the names of a tree built here pack back
 // as they are. A symlink's target is any spelling the Vfs takes, and tar's
 // to judge when packing. `.` names the root, which only a directory may.
 // Every spelling of one path is one name, and a name may repeat only as the

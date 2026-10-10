@@ -1,6 +1,6 @@
 // How diff decides two lines are the same. Each line reduces to a key under
 // the options in force, and two lines are the same line when their keys are
-// equal — which is the whole of what the comparison options mean. Records
+// equal -- which is the whole of what the comparison options mean. Records
 // keep their terminator: a last line without one is a different line from a
 // complete one, except under the whitespace options, where the newline is
 // whitespace like any other.

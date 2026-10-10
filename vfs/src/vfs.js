@@ -1,6 +1,6 @@
-// An in-memory filesystem: a tree of inodes under one root — files holding
+// An in-memory filesystem: a tree of inodes under one root -- files holding
 // bytes, directories holding named entries, symbolic links holding a target
-// — reached by POSIX's rules. A path is resolved from the root, component by
+// -- reached by POSIX's rules. A path is resolved from the root, component by
 // component: a link on the way is replaced by its target as read from the
 // directory the link sits in, `..` steps up the real path, and forty links
 // in one resolution is a loop. A relative path is resolved from `/`; a caller
@@ -42,7 +42,7 @@ export class Vfs {
   #directory(mode, mtime) { return this.#inode('directory', { entries: new Map() }, mode, mtime) }
 
   // Where `path` leads: `dir`, the directory its last name is in; `name`; and
-  // `node`, the inode there — undefined when the name is not taken, so a
+  // `node`, the inode there -- undefined when the name is not taken, so a
   // creation knows where to go. A spelling that ends on `.` or `..` names a
   // place and no entry, so `dir` is undefined for it as for the root. The
   // last link is followed unless `follow` is false, as lstat does not; a

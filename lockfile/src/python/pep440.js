@@ -21,8 +21,8 @@ const int = (digits) => digits.replace(/^0+(?=\d)/u, '')
 
 // The parts of a version, or undefined for what packaging does not read,
 // and for any that is not ASCII, which uv does not read: VERSION's
-// case-insensitive letters would take `ſ` for `s` and the Kelvin sign for
-// `k`.
+// case-insensitive letters would take the long s for `s` and the Kelvin
+// sign for `k`.
 export function parseVersion(text) {
   const m = /^[\0-\u007F]*$/u.test(text) ? VERSION.exec(text) : null
   if (m === null) return undefined

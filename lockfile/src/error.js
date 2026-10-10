@@ -1,7 +1,7 @@
 import { cut, quoted } from './excerpt.js'
 
 // `where` is the place in the lockfile a refusal is about, as a property
-// path from its top — `packages["q@1.5.1"].resolution` — or undefined for
+// path from its top -- `packages["q@1.5.1"].resolution` -- or undefined for
 // the file as a whole; the message leads with it.
 export class LockfileError extends Error {
   constructor(detail, where) {
@@ -26,7 +26,7 @@ export function attempt(run, otherwise) {
 }
 
 // A piece of the lockfile for a message, as excerpt.js shows one: at most
-// 200 code units, and `…` within the quote where cut.
+// 200 code units, and an ellipsis, U+2026, within the quote where cut.
 export function quote(text) {
   const short = cut(text, 200)
   return quoted(short === text ? text : `${short}…`)

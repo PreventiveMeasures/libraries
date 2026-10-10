@@ -2,7 +2,7 @@ import { env } from '#env'
 import { modelVersionFor } from '../models.js'
 import { chatCompletionsBase } from '../wire-formats.js'
 
-// What goes to the browser and what comes back — index.js is the transport, this is the shape.
+// What goes to the browser and what comes back -- index.js is the transport, this is the shape.
 // Chat-completions, so the usage, the cache and a partial history read back like any other
 // provider's.
 
@@ -94,7 +94,7 @@ export function toChatCompletions(result, constrained) {
 // rather than using the `tool` role a chat-completions backend would take.
 export const CHROME_SHAPE = {
   // The shared chat-completions parsing, which is why toChatCompletions emits that envelope. Its
-  // truncation branch never fires — no output cap exists to hit — and `maxTokens` names the field a
+  // truncation branch never fires -- no output cap exists to hit -- and `maxTokens` names the field a
   // caller would change if one did.
   ...chatCompletionsBase('maxTokens'),
 
@@ -133,7 +133,7 @@ export const CHROME_SHAPE = {
 
 
 // Chrome says only "The device is unable to create a session to run the model. Please check the
-// result of availability() first" — neither the row nor the variant, and a check the page has
+// result of availability() first" -- neither the row nor the variant, and a check the page has
 // already made.
 export function explainCreateFailure(error, model, baseModel) {
   // That failure and no other: every create() failure carries an availability reading, so gating on

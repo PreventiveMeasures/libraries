@@ -8,7 +8,7 @@ export { LockfileError } from '@preventive/lockfile/npm.js'
 // Where @preventive/upstream caches what it fetches, tarballs among them.
 // Tarballs are fetched through it, and that is the one place anything here
 // touches a filesystem. Before the network, it takes a tarball from npm's
-// cache — under $npm_config_cache, or ~/.npm — from ~/.audit/cache/tgz, or
+// cache -- under $npm_config_cache, or ~/.npm -- from ~/.audit/cache/tgz, or
 // from its own default cache directory or stasis's, where one there has the
 // lockfile's integrity, and writes none of them; then from its own cache,
 // where one is set, which is where it writes each tarball it fetches:
@@ -23,7 +23,7 @@ export { setCacheDir } from '@preventive/upstream/npm.js'
 // here); npm reads no packageManager field, so the root package.json's is
 // not read. `node` is
 // the Node npm runs on, an exact version; `os` and `cpu` as Node names
-// them — `linux`, `x64`; and `libc` the C library npm finds on Linux,
+// them -- `linux`, `x64`; and `libc` the C library npm finds on Linux,
 // `glibc` or `musl`, and left out elsewhere, where npm finds none. Windows
 // is refused: npm links bins there with shims, and workspaces with
 // junctions.
@@ -76,8 +76,8 @@ export interface NpmProject {
 // npm-shrinkwrap.json, which npm reads in the lockfile's stead; and a link
 // anywhere the globs reach, which glob follows or not by where it is.
 //
-// Settings from anywhere else — an .npmrc in the home directory or npm's
-// own, the environment, NODE_ENV among it, the command line — are not
+// Settings from anywhere else -- an .npmrc in the home directory or npm's
+// own, the environment, NODE_ENV among it, the command line -- are not
 // read, and are taken to be at their defaults; so is the directory npm is
 // run in, taken to be the lockfile's, with no workspace above it.
 //
@@ -102,7 +102,7 @@ export interface NpmProject {
 //
 // `vfs` is a Vfs to mount the tree into, at its root, which is taken to
 // be the lockfile's directory, beside whatever it holds, such as the
-// projects themselves — it may be `project` too; without one, a new Vfs
+// projects themselves -- it may be `project` too; without one, a new Vfs
 // holds the tree alone. Nothing the tree is built from is read from it. A
 // Vfs that holds a node_modules anywhere, or on macOS a name that is one
 // there, is refused before anything is fetched: kept beside the tree, Node
@@ -169,7 +169,7 @@ export interface NpmTreeStats {
 
 // A package in the tree, as an SBOM would list it: `path` is where its
 // files are, the lockfile's key of it, from the lockfile's directory,
-// which is `/` of the Vfs — node_modules/<name>, beneath another package's
+// which is `/` of the Vfs -- node_modules/<name>, beneath another package's
 // node_modules, or beneath a workspace's. `name` and `version` are the
 // package's own, whatever alias it is installed as, as the lockfile has
 // them; `integrity` the sha512 its tarball is held to. `commit` is the
@@ -293,10 +293,10 @@ export interface NpmTree {
 //
 // Nothing is left to a guess: a lockfile the lockfile reader refuses, a
 // setting this does not know or does not build for, a package from
-// anywhere but the registry — git, a tarball's URL or one on disk, a
-// directory by `file:` — or with no resolved URL, which npm fetches by the
+// anywhere but the registry -- git, a tarball's URL or one on disk, a
+// directory by `file:` -- or with no resolved URL, which npm fetches by the
 // registry's packument, a package bundled in another, a link but to a
-// workspace, overrides, acceptDependencies, a check above that fails —
+// workspace, overrides, acceptDependencies, a check above that fails --
 // each is refused with a DeptreeError or a LockfileError that says where.
 // A TypeError is thrown for options of the wrong type.
 export function buildNpmTree(options: NpmTreeOptions): Promise<NpmTree>
@@ -315,8 +315,8 @@ export interface NpmWorkspacesOptions {
 
 export function findNpmWorkspaces(options: NpmWorkspacesOptions): string[]
 
-// `where` is what a refusal is about — `.npmrc:3`, `manifests["."]`, a
-// lockfile entry, `packages["node_modules/a"]` — or undefined for the call
+// `where` is what a refusal is about -- `.npmrc:3`, `manifests["."]`, a
+// lockfile entry, `packages["node_modules/a"]` -- or undefined for the call
 // as a whole; the message leads with it. `cause` is what a package beneath
 // refused with, where one did.
 export class DeptreeError extends Error {

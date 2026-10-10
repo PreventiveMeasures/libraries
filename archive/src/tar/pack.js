@@ -1,7 +1,7 @@
 // Writes what GNU tar 1.35 writes for the same entries under `--owner=0
 // --group=0 --numeric-owner` and, for pax, `--pax-option=delete=atime,
-// delete=ctime`. Where GNU would cut or substitute — a name too long for
-// ustar, a number out of range — this refuses instead.
+// delete=ctime`. Where GNU would cut or substitute -- a name too long for
+// ustar, a number out of range -- this refuses instead.
 
 import { EMPTY, concat, isAscii } from '../bytes.js'
 import { DEFAULT_MODE, checkEntry, wireName } from '../entry.js'

@@ -5,7 +5,7 @@ import { assert } from '#assert'
 import { localStateFor } from './model.js'
 
 // The scratch profile a browser is pointed at: where it goes, what it starts with, and making sure
-// it is gone again — including when nothing gets to ask politely. index.js drives the browser
+// it is gone again -- including when nothing gets to ask politely. index.js drives the browser
 // inside it.
 
 // Scratch profiles, so they can be removed again. Removing one never touches the model: the
@@ -50,8 +50,8 @@ export function removeProfileDir(dir) {
   rmSync(dir, { recursive: true, force: true })
 }
 
-// Take the shared directory too, once it is empty. Non-recursive, so a profile still in it — this
-// process's or another's — is ENOTEMPTY and stays.
+// Take the shared directory too, once it is empty. Non-recursive, so a profile still in it -- this
+// process's or another's -- is ENOTEMPTY and stays.
 export function pruneProfileRoot() {
   try { rmdirSync(profileRoot()) } catch { /* still in use, or already gone */ }
 }
@@ -74,7 +74,7 @@ function owner(dir) {
 }
 
 // Best effort, on launch: clear what earlier runs left behind. A marker whose process is gone
-// settles it outright — that profile is nobody's, however recent. Age only decides for a directory
+// settles it outright -- that profile is nobody's, however recent. Age only decides for a directory
 // with no marker to go on, which is also the one made moments ago by a process still writing it.
 export function sweepStaleProfiles() {
   const now = Date.now()
@@ -106,7 +106,7 @@ const EXIT_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP']
 
 // Ctrl+C reaches no 'exit' handler on its own: with nothing listening, the default disposition ends
 // the process and 'exit' is never emitted. Listening suppresses that, so the signal is handed back
-// once the profiles are gone — an application listener then decides, and with none the default ends
+// once the profiles are gone -- an application listener then decides, and with none the default ends
 // the process as it always would. Registered only while a profile of ours exists; owning a
 // process's signals past that is not a library's to do.
 function onSignal(signal) {
@@ -133,7 +133,7 @@ function setExitCleanup(install) {
 // The root, once it is certainly ours. The mode on mkdir only lands when this creates the
 // directory, and the name is predictable: in a shared temp dir another account can get there first,
 // with one it can write to or a symlink pointing at something else of ours. Refused rather than
-// repaired — it is not ours to chmod, and the profile inside links to a real model store.
+// repaired -- it is not ours to chmod, and the profile inside links to a real model store.
 function ourProfileRoot() {
   const root = profileRoot()
   mkdirSync(root, { recursive: true, mode: 0o700 })

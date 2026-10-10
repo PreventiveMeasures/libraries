@@ -1,4 +1,4 @@
-// Where fenced code is in a markdown text, as CommonMark reads it — the
+// Where fenced code is in a markdown text, as CommonMark reads it -- the
 // question every structural splitter asks before taking a line for a
 // `## ` heading or a `| ` row. Its own module because answering it
 // means following what holds a fence: list items, and the HTML blocks
@@ -8,26 +8,26 @@
 // once per text so no structural splitter takes a code line for a `## `
 // heading or a `| ` row. A fence is a run of three or more of one
 // character, and only a run of that character at least as long, with
-// nothing after it, closes it (closesFence) — so a ```` block holds a
+// nothing after it, closes it (closesFence) -- so a ```` block holds a
 // ``` example whole, and a ```js line inside a ``` block is code. A
 // backtick fence's info string holds no backtick, so a line opening on
 // ```x``` is inline code, not a fence. A dangling fence runs to end of
-// input — the reading markdown gives.
+// input -- the reading markdown gives.
 //
 // A fence may be INDENTED: three spaces at the top level (markdown's
 // own limit, past which a line is indented code), and three past the
 // text of the list item it sits in, which is how a snippet under a
 // numbered step is written. So the open items are tracked, each by the
-// column its text starts at — a `10.` or a nested bullet pushes it out
-// — and a line is in every item whose text it starts at or past. That
+// column its text starts at -- a `10.` or a nested bullet pushes it out
+// -- and a line is in every item whose text it starts at or past. That
 // keeps a block indented FURTHER than its item's text an indented code
 // block, with its ``` lines content, and ends a fence with its item.
 //
 // Nor is anything inside an HTML block markdown: a ``` in a comment or
 // a <div> opens no fence. Those are tracked too, by how they end.
 const FENCE_RE = /^( *)(`{3,}|~{3,})(.*)$/u
-// A line that interrupts a paragraph — an ATX heading, a quote, a
-// thematic break — and so can't continue one lazily (fences, HTML
+// A line that interrupts a paragraph -- an ATX heading, a quote, a
+// thematic break -- and so can't continue one lazily (fences, HTML
 // blocks and list markers are asked about apart).
 const INTERRUPT_RE = /^ {0,3}(?:#{1,6}(?:[ \t]|$)|>|([-*_])(?:[ \t]*\1){2,}[ \t]*$)/u
 const THEMATIC_RE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/u
@@ -36,20 +36,20 @@ const SETEXT_RE = /^ {0,3}(?:=+|-+)[ \t]*$/u
 // A list marker and the gap to its text; `m[0].length` is the column
 // the item's continuation lines are indented to.
 export const LIST_MARKER_RE = /^( *)(?:[-*+]|\d{1,9}[.)]) +(?=\S)/u
-// A list marker with nothing after it: an empty item, whose text — on
-// the lines below — starts a column past the marker.
+// A list marker with nothing after it: an empty item, whose text -- on
+// the lines below -- starts a column past the marker.
 const EMPTY_ITEM_RE = /^ *(?:[-*+]|\d{1,9}[.)])[ \t]*$/u
 
 // CommonMark's HTML blocks, each opener with what ends it and the text
 // that would: the first five end on a line holding their closer (which
-// may be the opening line), the sixth at a blank line. The seventh — a
-// lone complete tag — also ends at a blank line, but can't interrupt a
+// may be the opening line), the sixth at a blank line. The seventh -- a
+// lone complete tag -- also ends at a blank line, but can't interrupt a
 // paragraph.
 //
 // A declaration opens on `<!` and any letter since CommonMark 0.30; GFM,
 // which GitHub renders, keeps 0.29's capital. So one is closed with a
 // comment, not a bare `>`: the comment holds the `>` that ends it where
-// it is open, and is nothing where `<!doctype` was text — where a `>`
+// it is open, and is nothing where `<!doctype` was text -- where a `>`
 // line would be an empty quote.
 const BLANK_RE = /^\s*$/u
 const HTML_BLOCKS = [
@@ -62,7 +62,7 @@ const HTML_BLOCKS = [
 ]
 const HTML_TAG_LINE_RE = /^(?:<[A-Za-z][\dA-Za-z-]*(?:\s+[:A-Z_a-z][\w.:-]*(?:\s*=\s*(?:[^\s"'<=>`]+|'[^']*'|"[^"]*"))?)*\s*\/?>|<\/[A-Za-z][\dA-Za-z-]*\s*>)\s*$/u
 
-// What `rest` — a line read from its block's margin — opens: a fence
+// What `rest` -- a line read from its block's margin -- opens: a fence
 // (its run), an HTML block (what ends it, and the closing text if a
 // line can close it rather than a blank one), a list item (the width of
 // its marker, to where its text starts) or another block that ends a
@@ -70,7 +70,7 @@ const HTML_TAG_LINE_RE = /^(?:<[A-Za-z][\dA-Za-z-]*(?:\s+[:A-Z_a-z][\w.:-]*(?:\s
 // may interrupt one counts: a lone tag is then the paragraph's text,
 // lazily or not; and when the line is in the paragraph's own block
 // (`within`), not short of it, an ordered item has to start at 1, and a
-// setext underline ends the paragraph as a heading — lazily, it's text.
+// setext underline ends the paragraph as a heading -- lazily, it's text.
 function opener(rest, paragraph, within = paragraph) {
   const lead = /^ */u.exec(rest)[0].length
   if (lead > 3) return null
@@ -100,7 +100,7 @@ export function fenceRanges(text) {
 }
 
 // Whether a quoted line holds paragraph text, past its `>`s and any
-// list markers inside — `paragraph` if one is already open there.
+// list markers inside -- `paragraph` if one is already open there.
 function quotedText(line, paragraph) {
   let text = line.replace(/^(?: {0,3}> ?)+/u, '')
   let opens = opener(text, paragraph)
@@ -112,7 +112,7 @@ function quotedText(line, paragraph) {
 }
 
 // fenceRanges, and the line that would close what the text leaves open
-// at its end — a fence, or an HTML block a line can end — at the margin
+// at its end -- a fence, or an HTML block a line can end -- at the margin
 // of the item it sits in; null when nothing such is open.
 export function readFences(text) {
   const ranges = []
@@ -143,15 +143,15 @@ export function readFences(text) {
     const indent = /^ */u.exec(line)[0].length
     if (open !== -1 || html) {
       // A fence or HTML block in a list item ends with the item, closed
-      // or not: a line starting LEFT of the item's text has left it — a
-      // fence line too, which can't close what is no longer open — and
+      // or not: a line starting LEFT of the item's text has left it -- a
+      // fence line too, which can't close what is no longer open -- and
       // only a paragraph continues lazily. That line is read afresh
       // below, so a step whose snippet lost its closing fence doesn't
       // take the headings after it with it.
       const left = inside > 0 && line.trim() !== '' && indent < inside
       // A closing fence sits within three columns of the fence's
       // margin, as an opening one does, and needn't match the opening
-      // one's indent — but its RUN has to, so a ``` inside a ~~~ or a
+      // one's indent -- but its RUN has to, so a ``` inside a ~~~ or a
       // ```` block stays content.
       const closes = !left && (html ? html.ends.test(line) : indent <= inside + 3 && closesFence(marker, line))
       if (left || closes) {
@@ -175,8 +175,8 @@ export function readFences(text) {
     while (depth > 0 && indent < items[depth - 1]) depth--
     let margin = depth > 0 ? items[depth - 1] : 0
     let rest = line.slice(margin)
-    // Plain text straight under a paragraph continues it — lazily if it
-    // starts short of the paragraph's item — and every item stands.
+    // Plain text straight under a paragraph continues it -- lazily if it
+    // starts short of the paragraph's item -- and every item stands.
     // Anything else leaves the items it starts short of.
     let opens = opener(rest, lazy, depth === items.length && !quoted)
     if (lazy && !opens) continue
@@ -193,13 +193,13 @@ export function readFences(text) {
     if (opens?.fence) [open, marker, inside] = [start, opens.fence, margin]
     else if (opens?.html) [html, inside] = [opens.html.test(rest) ? null : { ends: opens.html, close: opens.close }, margin]
     // Paragraph text or not: not a heading, rule or anything opened
-    // above, and not four columns in, which is indented code — and for a
+    // above, and not four columns in, which is indented code -- and for a
     // quote, what it holds past its `>` and any markers, whose paragraph
     // continues lazily too. That is all a quote is read for: its own
     // fences aren't followed (a quoted line is never one of the
     // document's, and the quote's end ends them), nor the items inside
     // it, so whether a line short of such an item still reaches its
-    // paragraph — to underline it, or start a list — is taken as yes.
+    // paragraph -- to underline it, or start a list -- is taken as yes.
     const inQuote = lazy && quoted
     quoted = /^ {0,3}>/u.test(rest)
     lazy = quoted ? quotedText(rest, inQuote) : !opens && !fresh && /^ */u.exec(rest)[0].length < 4
@@ -210,7 +210,7 @@ export function readFences(text) {
 }
 
 // Whether `line` closes a fence opened with the run `marker`: the same
-// character, a run at least as long, and nothing after it but spaces —
+// character, a run at least as long, and nothing after it but spaces --
 // a closing fence carries no info string. Indentation is the caller's.
 export function closesFence(marker, line) {
   const fence = FENCE_RE.exec(line)

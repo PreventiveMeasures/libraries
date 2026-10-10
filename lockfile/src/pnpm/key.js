@@ -4,8 +4,8 @@
 //
 // A package key is `name@version`, or `name@` and where the package comes
 // from when that is not a registry (`file:dir`, a tarball URL, a git URL).
-// A snapshot key is a package key and a suffix: `(patch_hash=…)` when the
-// package is patched, then a `(…)` for each peer it was resolved with,
+// A snapshot key is a package key and a suffix: `(patch_hash=...)` when the
+// package is patched, then a `(...)` for each peer it was resolved with,
 // which nest (`(react-dom@18.2.0(react@18.2.0))`), or one hash in their
 // place where they would run past `peersSuffixMaxLength`.
 

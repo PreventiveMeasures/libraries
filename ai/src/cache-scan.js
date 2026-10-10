@@ -7,11 +7,11 @@ import { canAdaptive } from './models.js'
 // The two scans that walk what a cache has accumulated, rather than addressing one entry: listing a
 // config's entries, and recomputing every key after the way keys are built has changed. Split from
 // cache.js, which owns the entry layout and the read/write paths, because these read the STORED
-// REQUEST back — a different problem, with the provider shapes in it.
+// REQUEST back -- a different problem, with the provider shapes in it.
 
 // The inverse, for the one caller that walks a model's cache instead of addressing an entry:
 // recover the request type from a subdirectory name. The prompt hash is a fixed 8 hex chars, so the
-// type is everything before the last dash — dashes inside a type (`null-low`) survive. Returns null
+// type is everything before the last dash -- dashes inside a type (`null-low`) survive. Returns null
 // for a name modelSubdir didn't write, which a caller leaves alone rather than guessing about.
 const SUBDIR_RE = /^(?<type>.+)-[0-9a-f]{8}$/u
 
@@ -32,7 +32,7 @@ function anthropicRequestKey(req, model) {
   const userContent = flattenContent(firstMsg.content)
   if (!userContent) return null
   // `{ type: 'disabled' }` and `{ type: 'between_tools' }` are explicit no-thinks, so the field's
-  // presence alone doesn't mean thinking was on — reading it that way would rehash those entries to
+  // presence alone doesn't mean thinking was on -- reading it that way would rehash those entries to
   // a key no lookup generates.
   const think = Boolean(req.thinking) && !['disabled', 'between_tools'].includes(req.thinking.type)
   let effort
@@ -64,7 +64,7 @@ function requestUserContent(req) {
 
 // The request a cache entry was keyed from. Cache JSON is either a single { request, response } or
 // an array of turns, and serializeHistory nulls `request` on every entry but the first, so only
-// json[0].request is reliable — fine, the key was hashed from the first turn's request.
+// json[0].request is reliable -- fine, the key was hashed from the first turn's request.
 function storedRequest(json) {
   const firstTurn = Array.isArray(json) ? json[0] : json
   return firstTurn?.request ?? firstTurn
@@ -73,16 +73,16 @@ function storedRequest(json) {
 // Enumerate cached request/response entries for one request config (type + model + systemPrompt +
 // think/effort), returning each entry's on-disk key alongside the userContent recovered from its
 // stored request. Only entries whose stored key reproduces from their own userContent under the
-// requested think/effort are returned — the filename IS the cache key, so this gate drops
+// requested think/effort are returned -- the filename IS the cache key, so this gate drops
 // mismatched think/effort AND, for free, entries written with a bundleId or under a foreign
 // unique-rerun key (both fold extra fields into the stored key that the recompute here omits). Runs
 // the same type migrations getCached does so a legacy (pre-rename) dir is still found. Returns []
-// when the directory doesn't exist. The .md result text is NOT read here — callers that match an
-// entry fetch it via getCached(userContent, …), which recomputes the same key and reads the
+// when the directory doesn't exist. The .md result text is NOT read here -- callers that match an
+// entry fetch it via getCached(userContent, ...), which recomputes the same key and reads the
 // companion .md.
 //
 // The per-entry read + parse + key-recompute is the dominant cost (a cache worth searching has
-// accreted across many runs), so the scan fans out under `concurrency` — overlapping the disk I/O
+// accreted across many runs), so the scan fans out under `concurrency` -- overlapping the disk I/O
 // the way a caller's own fan-out does. `out` is pushed from parallel tasks so its order is
 // nondeterministic; callers that care re-sort it.
 export async function listCacheEntries(type, model, systemPrompt, { think = false, effort, concurrency = 20 } = {}) {
@@ -92,7 +92,7 @@ export async function listCacheEntries(type, model, systemPrompt, { think = fals
   const queue = new Queue(concurrency)
   const out = []
   await Promise.all(dirents.map(async (dirent) => {
-    // `.invalid.json` is a dump of a response that never parsed, not an entry — reading it here
+    // `.invalid.json` is a dump of a response that never parsed, not an entry -- reading it here
     // would cost a parse only to reject it.
     if (!dirent.isFile() || !dirent.name.endsWith('.json') || isInvalidEntry(dirent.name)) return
     await queue.claim()
@@ -118,8 +118,8 @@ export async function listCacheEntries(type, model, systemPrompt, { think = fals
 // `skipType` names the request types whose entries must NOT be touched, and is the caller's to
 // supply: this directory answers for model requests and the cache they land in, and which types
 // exist is the caller's own business. It defaults to skipping nothing, so a caller whose cache
-// holds entries this can't rehash — anything keyed on a bundleId, whose key cannot be recomputed
-// from the stored request — has to say so.
+// holds entries this can't rehash -- anything keyed on a bundleId, whose key cannot be recomputed
+// from the stored request -- has to say so.
 export async function rehashCache(model, { skipType = () => false } = {}) {
   const safeModel = modelDirName(model)
   const modelDir = join(cacheDir(), safeModel)

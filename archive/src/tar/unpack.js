@@ -12,7 +12,7 @@ import { Names, cleanNames } from '../names.js'
 import { Records, decodePax } from './pax.js'
 import { decodeUtf8, hasUnsafe, quote } from '../text.js'
 
-// Type flag → name. NUL is the pre-POSIX regular file.
+// Type flag -> name. NUL is the pre-POSIX regular file.
 const byFlag = (flags) => Object.entries(flags).map(([name, flag]) => [flag, name])
 const TYPES = new Map([...byFlag(TYPEFLAGS), [0, 'file']])
 const EXTENDED = new Map(byFlag(EXTENDED_TYPEFLAGS))

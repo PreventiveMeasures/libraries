@@ -7,8 +7,8 @@ import { isCommitHash, stripBrackets } from './md-structure.js'
 import { isRepoSlug } from './meta.js'
 import { SEVERITY_WORDS } from './severity.js'
 
-// Piolium grades findings CRITICAL / HIGH / MEDIUM — its assembler
-// rejects Low-severity leakage into `findings/` — but drafts and
+// Piolium grades findings CRITICAL / HIGH / MEDIUM -- its assembler
+// rejects Low-severity leakage into `findings/` -- but drafts and
 // deferred entries can carry LOW or INFO, so the full ladder is mapped.
 // The call sites fall back to medium, keeping an odd tier visible.
 //
@@ -30,8 +30,8 @@ export function resolveSeverity(...tiers) {
   }
 }
 
-// Final-report ids are severity-prefixed and sequential — `C1`, `H2`,
-// `H-001` in lite consolidation — so the prefix is a second source for
+// Final-report ids are severity-prefixed and sequential -- `C1`, `H2`,
+// `H-001` in lite consolidation -- so the prefix is a second source for
 // the tier. Only that exact scheme counts: a bare leading letter would
 // read `CVE-2024-1234` as critical, and a draft id carries no tier.
 export function severityFromId(id) {
@@ -40,8 +40,8 @@ export function severityFromId(id) {
   return { C: 'critical', H: 'high', M: 'medium', L: 'low' }[m[1].toUpperCase()]
 }
 
-// A heading that IS a severity — `Critical`, `HIGH (2)`, `Critical
-// Severity`, `Medium-Risk Findings (3)` — marks a GROUP of that tier's
+// A heading that IS a severity -- `Critical`, `HIGH (2)`, `Critical
+// Severity`, `Medium-Risk Findings (3)` -- marks a GROUP of that tier's
 // findings. Anchored to the whole heading, so "High memory usage in
 // parser" is never mistaken for one.
 export function severityGroupOf(heading) {
@@ -49,15 +49,15 @@ export function severityGroupOf(heading) {
     .exec((heading || '').trim())?.[1])
 }
 
-// A leading severity word on a free-form header — `HIGH — 3 findings`,
-// `High: remaining` — for sections recognized by their CONTENT rather
+// A leading severity word on a free-form header -- `HIGH -- 3 findings`,
+// `High: remaining` -- for sections recognized by their CONTENT rather
 // than the anchored severityGroupOf shape.
 export function headerSeverity(header) {
   return mapSeverity(/^(critical|high|medium|low|informational|informative|info)\b/iu.exec((header || '').trim())?.[1])
 }
 
 // A variants heading (`#### Variants`, `### Variants (2)`), not a
-// finding — matched wherever finding headings are read.
+// finding -- matched wherever finding headings are read.
 export function isVariantsHeading(heading) {
   return /^variants?\s*(?:\(\d+\))?\s*:?$/iu.test((heading || '').trim())
 }
@@ -74,22 +74,22 @@ export function idFromToken(token) {
   return m ? { id: m[1].toUpperCase(), slug: m[2] || '' } : null
 }
 
-// `command-injection` → `command injection` — the human-readable title
+// `command-injection` -> `command injection` -- the human-readable title
 // recovered from an <id>-<slug> directory-name reference.
 export function slugTitle(slug) {
   return (slug || '').replaceAll('-', ' ')
 }
 
-// An id cell in any of its spellings — `C1`, `[C1]`,
-// `[p12-001](#p12-001)` — as the upper-case id.
+// An id cell in any of its spellings -- `C1`, `[C1]`,
+// `[p12-001](#p12-001)` -- as the upper-case id.
 export function idCell(s) {
   const v = (s || '').trim()
   const link = /^\[([^\]]+)\]\([^)]*\)$/u.exec(v)
   return stripBrackets(link ? link[1] : v).toUpperCase()
 }
 
-// A heading or item leading with a link —
-// `[C1-command-injection](…/report.md): Title` — as plain text with the
+// A heading or item leading with a link --
+// `[C1-command-injection](.../report.md): Title` -- as plain text with the
 // url apart: `{ text: 'C1-command-injection Title', link }`.
 export function leadingLink(value) {
   const m = /^\[([^\]]+)\]\(([^)]+)\)\s*[:—–-]*\s*(.*)$/u.exec(value)
@@ -97,9 +97,10 @@ export function leadingLink(value) {
   return { text: m[3] ? `${m[1].trim()} ${m[3].trim()}` : m[1].trim(), link: m[2].trim() }
 }
 
-// `text` split at its first whitespace when the leading token is an id —
-// `p10-011 — Title`, `C1: Title` — as `{ id, slug, rest }`, trailing
-// punctuation shed from the token and the separator from the rest.
+// `text` split at its first whitespace when the leading token is an id --
+// `p10-011 - Title` (or an en or em dash), `C1: Title` -- as
+// `{ id, slug, rest }`, trailing punctuation shed from the token and the
+// separator from the rest.
 export function leadingId(text) {
   const space = text.search(/\s/u)
   const first = (space === -1 ? text : text.slice(0, space)).replace(/[:.,—–-]+$/u, '')
@@ -113,9 +114,9 @@ export function leadingId(text) {
 //   `[C1] Title`                       (pentest template)
 //   `[C1-command-injection](url)`      (mode outline: linked dir name)
 //   `C1-command-injection`             (bare dir name)
-//   `p10-011 — Title` / `C1: Title`    (id + separator + title)
+//   `p10-011 - Title` / `C1: Title`    (id + separator + title)
 //   `Title`                            (bare title)
-// Returns { id, title, link } — id '' when the heading carries none,
+// Returns { id, title, link } -- id '' when the heading carries none,
 // link '' unless the heading's leading token is a markdown link.
 export function parseHeading(headingText) {
   const { text, link } = leadingLink(headingText) ?? { text: headingText, link: '' }
@@ -138,7 +139,7 @@ export function parseHeading(headingText) {
 //   # Security Audit Report: owner/repo
 //   **Target** `owner/repo` (description)
 //   **Commit audited** `<sha>` (prose)
-//   **Audit ID** `…` · **Mode** deep (17-phase) · **Report assembled** …
+//   **Audit ID** `...` - **Mode** deep (17-phase) - **Report assembled** ...
 //
 // `**Target**` declares the audited repository, where the H1 title's
 // bare <project> may be a monorepo path and isn't trusted. The value is

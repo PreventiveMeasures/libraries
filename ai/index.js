@@ -1,11 +1,11 @@
 // The model layer's public surface: everything outside `ai/` goes through
 // this file, and nothing outside it reaches for a module by name. What is
-// listed here is what the rest of the repo actually uses — a name absent
+// listed here is what the rest of the repo actually uses -- a name absent
 // from it is internal, free to move between the modules below without a
 // single edit elsewhere. Adding to the surface is deliberate: an export
 // belongs here once a caller genuinely needs it, not in advance.
 //
-// Inside, `ai/` stands alone — node: builtins and npm packages only, no
+// Inside, `ai/` stands alone -- node: builtins and npm packages only, no
 // import reaching back out (self-contained.test.js enforces it).
 // So the layer can be read, tested, and lifted out whole.
 
@@ -26,7 +26,7 @@ export { ask, logTurnCost, normalizeUsage } from './src/chat.js'
 // Which provider the requests go to, and the two pieces of its response
 // shape a caller has to see: what a stored turn's text was, and which wire
 // format wrote it. `closeProvider` releases whatever the active one holds
-// open — only `chrome` holds anything, a browser, but a caller ending a run
+// open -- only `chrome` holds anything, a browser, but a caller ending a run
 // can call it without knowing which provider it picked.
 export { setProvider, closeProvider, providerStamp, extractResponseText, turnCost } from './src/providers.js'
 
@@ -34,8 +34,8 @@ export { setProvider, closeProvider, providerStamp, extractResponseText, turnCos
 // how often a failed one is re-asked unless ask() is told otherwise.
 export { RETRIES, setFetchConcurrency } from './src/fetch-json.js'
 
-// The response cache on disk: where it lives — which the caller sets,
-// there being no default — how an entry is addressed, and the reads and
+// The response cache on disk: where it lives -- which the caller sets,
+// there being no default -- how an entry is addressed, and the reads and
 // writes over it: final entries, rejected responses kept for a person to
 // read, and the retiring of one no run should pick up again...
 export {

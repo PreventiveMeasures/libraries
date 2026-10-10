@@ -10,7 +10,7 @@ import { readConfig } from './config.js'
 const FIELDS = ['path', 'url', 'branch', 'update', 'shallow', 'ignore', 'fetchrecursesubmodules']
 
 // git's git_parse_int: strtoimax's integer in any base it reads, and a unit
-// of k, m or g after it, within ±(2^31 − 1) once multiplied out. Past eleven
+// of k, m or g after it, within +/-(2^31 - 1) once multiplied out. Past eleven
 // digits no base is within it. A `0b`, which glibc 2.38 and later read in
 // base 0 and other C libraries do not, is refused, as git reads it two ways.
 const INT = /^[\t\n\v\f\r ]*[+-]?(0[Xx][\dA-Fa-f]+|0[0-7]*|[1-9]\d*)([GKMgkm]?)$/u
@@ -28,7 +28,7 @@ function isInt(value) {
 // git's git_parse_maybe_bool: true, false and their like in any case, an
 // empty one false, or an integer; git dies on anything else. A key alone is
 // true. Its case is ASCII's, where a case-insensitive Unicode match would
-// take `ſ` for `s`: no other letter lowercases into these.
+// take the long s for `s`: no other letter lowercases into these.
 const isBoolean = (value) => value === null || /^(?:true|false|yes|no|on|off)?$/u.test(value.toLowerCase()) || isInt(value)
 const VALUES = {
   __proto__: null,

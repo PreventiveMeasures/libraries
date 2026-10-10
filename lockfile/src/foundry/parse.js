@@ -30,7 +30,7 @@ function readRev(value, where) {
   return value
 }
 
-// serde's: `{ "rev": … }` alone, or a tag or branch with the commit it was
+// serde's: `{ "rev": ... }` alone, or a tag or branch with the commit it was
 // at. forge checks a submodule out by the name of either, and a rev by itself.
 function readDependency(value, where) {
   const types = Object.keys(record(value, where, TYPES))

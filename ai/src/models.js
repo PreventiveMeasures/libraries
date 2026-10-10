@@ -6,8 +6,8 @@ const DEFAULT_MAX_TOKENS = 64 * 1024
 const MODELS = new Map([...MAIN_MODELS, ...LOCAL_MODELS, ...FREE_MODELS])
 
 // The names the price table knows, in its own order: the main list, the local models, then the free
-// endpoints. Not a closed set — `--model` takes any string, and an unknown one simply costs nothing
-// the table can price — so this is what to OFFER, never what to allow. The server's console builds
+// endpoints. Not a closed set -- `--model` takes any string, and an unknown one simply costs nothing
+// the table can price -- so this is what to OFFER, never what to allow. The server's console builds
 // its model suggestions from it.
 export const KNOWN_MODELS = [...MODELS.keys()]
 
@@ -58,7 +58,7 @@ const BLOCKED = new Set([
 // off the tier it points at rather than splitting across alias and target.
 //
 // Bare `kimi-k3` gets the same treatment for a different reason: it's the id Moonshot's own docs
-// use — and the one the adapter puts on the wire — so operators reach for it, but unresolved it
+// use -- and the one the adapter puts on the wire -- so operators reach for it, but unresolved it
 // matches no registry row. Every lookup would then quietly take its default: canThink false (so
 // thinking switches OFF on a model that always reasons and bills for it), a 64k output cap instead
 // of 131k, no price, and a cache dir that never shares with the namespaced id.
@@ -73,7 +73,7 @@ export function resolveModel(model) {
 
 // Whether the registry recognises the id at all (aliases resolved first, so the bare `kimi-k3`
 // counts). Every other lookup in this module answers for an id it has never seen with a silent
-// default — canThink false, no narrowed effort ladder, the fallback output cap, a null cost — and
+// default -- canThink false, no narrowed effort ladder, the fallback output cap, a null cost -- and
 // that tolerance is deliberate: a model the table doesn't carry still routes through OpenRouter or
 // a gateway and works. What it costs is that a typo'd id is indistinguishable from a real model
 // that simply cannot reason, so every caller about to report a capability as missing asks this
@@ -110,10 +110,10 @@ export function getMaxTokens(model) {
   return MODELS.get(model)?.maxTokens ?? DEFAULT_MAX_TOKENS
 }
 
-// canThink entries — a row thinks unless it says otherwise, and an id with no row does not:
-//   (absent)    — supports extended thinking ({ type: 'enabled', budget_tokens })
-//   'adaptive'  — supports adaptive thinking ({ type: 'adaptive' })
-//   false       — cannot think
+// canThink entries -- a row thinks unless it says otherwise, and an id with no row does not:
+//   (absent)    -- supports extended thinking ({ type: 'enabled', budget_tokens })
+//   'adaptive'  -- supports adaptive thinking ({ type: 'adaptive' })
+//   false       -- cannot think
 export function canThink(model) {
   const row = MODELS.get(model)
   return row !== undefined && row.canThink !== false
@@ -123,7 +123,7 @@ export function canAdaptive(model) {
   return MODELS.get(model)?.canThink === 'adaptive'
 }
 
-// `noThink` — how a think=false request turns thinking off. One field with four states rather than
+// `noThink` -- how a think=false request turns thinking off. One field with four states rather than
 // a set of booleans, so a row can't claim a contradictory pair:
 //
 //   (absent)        omit the field; that already means no thinking.
@@ -140,7 +140,7 @@ export function canAdaptive(model) {
 //                   under the same effort limit (sonnet 5.5). OpenRouter
 //                   marks the model reasoning-mandatory, so the chat routes
 //                   send nothing and it thinks there anyway.
-//   'unsupported'   no opt-out exists — either the disabled form 400s at
+//   'unsupported'   no opt-out exists -- either the disabled form 400s at
 //                   any effort (the fable 5 family) or the API has no off
 //                   switch at all (kimi-k3, the gpt-6 astra rows, which
 //                   reject `reasoning_effort: 'none'` and floor at `low`,
@@ -164,7 +164,7 @@ export function canDisableThink(model) {
 // per-request so a global `--task-budget=always` against a mixed-model run silently no-ops on
 // unsupported passes instead of 400ing the API.
 //
-// Exported because a caller's --help text renders it — one set to read, rather than prose about
+// Exported because a caller's --help text renders it -- one set to read, rather than prose about
 // the membership that has to be kept in step with this table.
 //
 // Fable 5.1 is here on the strength of the docs listing it, which hedge the entry pending launch.
@@ -191,7 +191,7 @@ export function canTaskBudget(model) {
 export const TASK_BUDGET_MODES = ['never', 'always', 'error']
 
 // Every effort level the CLI accepts. 'manual' is Anthropic's fixed-budget marker rather than a
-// rung on the ladder — the non-Anthropic adapters reject it. Exported so the CLI's option check and
+// rung on the ladder -- the non-Anthropic adapters reject it. Exported so the CLI's option check and
 // the server's request validation read one array instead of mirroring a literal that can drift.
 export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max', 'manual']
 
@@ -209,13 +209,13 @@ export function effortsFor(model) {
   return row && (row.efforts ?? EFFORTS_THROUGH_MAX)
 }
 
-// `wireModel` / `reasoningMode` — a row the direct API serves as a MODE on another model rather
+// `wireModel` / `reasoningMode` -- a row the direct API serves as a MODE on another model rather
 // than as a model of its own. Astra Pro is astra run with `reasoning.mode: 'pro'`; the two
 // spellings are the same thing, so which one a route needs depends on how it names models:
 //
 //   Responses (the openai adapter)  resolves the id to a bare name the API
 //                                   must know, and `reasoning.mode` exists
-//                                   only here — so it sends the BASE model
+//                                   only here -- so it sends the BASE model
 //                                   plus the mode.
 //   chat completions (openrouter,   pass the registry id through untouched,
 //   a gateway)                      where it is OpenRouter's own slug or the
@@ -258,14 +258,14 @@ export function componentFor(baseModel) {
 // differs.
 //
 // A bare id is the hosted model, so on Ollama it maps to the build closest to what the hosted route
-// actually runs — which is not the same answer per family. Gemma-4 is served bf16, so a bare gemma
+// actually runs -- which is not the same answer per family. Gemma-4 is served bf16, so a bare gemma
 // id takes bf16 and the two match. Every qwen endpoint that names a quantization serves fp8, and no
-// GGUF build is fp8 — q8_0 is int8 with a scale per block, the same width in a different number
-// system — so a bare qwen id takes q8_0 as the closest thing that runs anywhere, and is near rather
+// GGUF build is fp8 -- q8_0 is int8 with a scale per block, the same width in a different number
+// system -- so a bare qwen id takes q8_0 as the closest thing that runs anywhere, and is near rather
 // than equal to its hosted route. Every other build is its own id, since a 4-bit answer is not an
 // 8-bit one and a run should not have to guess which it got.
 //
-// Tag names are Ollama's own and not always literal — several `-bf16` tags hold F16. Ours follow
+// Tag names are Ollama's own and not always literal -- several `-bf16` tags hold F16. Ours follow
 // the tag, since the tag is what gets pulled.
 const OLLAMA_TAGS = new Map([
   ['google/gemma-4-31b-it', 'gemma4:31b-it-bf16'], // 63GB
@@ -325,7 +325,7 @@ export function ollamaTagFor(model) {
 // answer alike, which is what lets them share one id and one cache entry.
 //
 // `:latest` is deliberately absent everywhere. Every tag here can be re-pointed at a new build, but
-// that one is re-pointed across model SIZES — gemma4:latest is e4b today — so trusting it would
+// that one is re-pointed across model SIZES -- gemma4:latest is e4b today -- so trusting it would
 // eventually serve a different model rather than a different build.
 const BY_TAG = new Map([...OLLAMA_TAGS.values()].map((names) => [namesOf(names)[0], namesOf(names)]))
 
@@ -349,7 +349,7 @@ export function readsCacheBreakpoint(model) {
 }
 
 // Whether the model exposes an effort knob. All thinking-capable models EXCEPT non-adaptive
-// Anthropic — that branch takes a fixed budget_tokens instead of an effort string, so passing
+// Anthropic -- that branch takes a fixed budget_tokens instead of an effort string, so passing
 // 'high' / 'low' / etc. there is meaningless. Adaptive Anthropic, OpenAI Responses, OpenRouter,
 // Google, etc. all read effort verbatim.
 export function canEffort(model) {
@@ -359,7 +359,7 @@ export function canEffort(model) {
 }
 
 // Resolve the actual think/effort values that will hit the wire for a given model + user request.
-// Folding the defaults in here means every cache key reflects the request shape — a no-effort run
+// Folding the defaults in here means every cache key reflects the request shape -- a no-effort run
 // and an effort=high run can't accidentally share a slot just because one path applied the default
 // later than the other.
 export function normalizeThinkEffort(model, think, effort) {
@@ -375,7 +375,7 @@ export function normalizeThinkEffort(model, think, effort) {
 // The unknown-model branch is why that wording is worth centralising: for an id with no row,
 // normalizeThinkEffort drops think and effort exactly as it does for a registered model that
 // genuinely cannot reason, so without it a mistyped --model surfaces as
-// `--effort is not supported by model or --think is not enabled` — a sentence that sends you
+// `--effort is not supported by model or --think is not enabled` -- a sentence that sends you
 // reading a model's capabilities instead of the id you typed.
 export function resolveThinkEffort(model, think, effort) {
   const { useThink, useEffort } = normalizeThinkEffort(model, think, effort)
@@ -393,7 +393,7 @@ export function resolveThinkEffort(model, think, effort) {
   return { useThink, useEffort }
 }
 
-// Canonical usage-accumulator shape — what the provider adapters' normalizeOneUsage emits and
+// Canonical usage-accumulator shape -- what the provider adapters' normalizeOneUsage emits and
 // calculateCost consumes. They live here, next to the price table, so a caller can sum usage
 // without pulling in the conversation loop.
 const USAGE_FIELDS = ['input', 'output', 'cacheRead', 'cacheWrite5m', 'cacheWrite1h', 'cost']
@@ -411,8 +411,8 @@ export function addUsage(total, usage) {
 //   read:        0.10x
 //   write 5m:    1.25x
 //   write 1h:    2.00x
-// The read multiplier is not universal — a row can name a flat `cacheReadPrice` in dollars per Mtok
-// instead — and nor is the 5m write's: a row can name a flat `cacheWritePrice` for that leg.
+// The read multiplier is not universal -- a row can name a flat `cacheReadPrice` in dollars per Mtok
+// instead -- and nor is the 5m write's: a row can name a flat `cacheWritePrice` for that leg.
 //
 // Prices ONE request. The long-context tier is chosen from the prompt `usage` itself carries, so
 // handed a sum of several requests it would read their combined prompt as one long one and bill

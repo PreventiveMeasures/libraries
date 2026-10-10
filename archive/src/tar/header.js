@@ -42,9 +42,9 @@ const DEVMAJOR = 329
 const DEVMINOR = 337
 const PREFIX = 345
 // Under the gnu magic: the old GNU sparse map, its isextended flag and the
-// file's real size. libarchive reads them whatever the type flag says —
+// file's real size. libarchive reads them whatever the type flag says --
 // taking the real size as the file's, and the map and any extension blocks
-// after the header as its layout — where GNU tar and the rest read them for
+// after the header as its layout -- where GNU tar and the rest read them for
 // a sparse entry alone.
 const OLD_SPARSE = 386
 const OLD_SPARSE_END = 495
@@ -80,7 +80,7 @@ export function writeNumber(block, offset, size, value, gnu) {
 // Older tars wrote leading spaces, and either spaces or NULs after; a field
 // left blank (npm's packer wrote uid and gid so for years) is 0, as GNU tar,
 // libarchive and the rest read it. A NUL ends the number wherever it sits, so
-// a field that opens with one is 0 however it goes on — GNU stops there, and
+// a field that opens with one is 0 however it goes on -- GNU stops there, and
 // reading the digits past it instead would give a size, and so an archive,
 // that only this package sees. Only a time may be negative.
 export function readNumber(block, offset, size, what, at, signed = false) {

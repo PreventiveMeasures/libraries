@@ -59,8 +59,8 @@ export function specifierOf(node, callees = new Set()) {
       if ((name !== 'require' && !callees.has(name)) || node.arguments.length === 0) return null
       return { kind: 'require', specifier: literalSpecifier(node.arguments[0]), ...(name !== 'require' && { callee: name }) }
     }
-    // TypeScript's `import a = require(…)`; `import a = A.b` names no module,
-    // and `import type a = require(…)` is erased.
+    // TypeScript's `import a = require(...)`; `import a = A.b` names no module,
+    // and `import type a = require(...)` is erased.
     case 'TSImportEqualsDeclaration':
       return node.moduleReference.type === 'TSExternalModuleReference' && node.importKind !== 'type' ? { kind: 'require', specifier: literalSpecifier(node.moduleReference.expression) } : null
     default:

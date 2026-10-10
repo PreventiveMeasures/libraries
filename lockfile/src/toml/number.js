@@ -1,4 +1,4 @@
-// An integer is a number within ±(2^53 − 1) and a bigint past that, up to
+// An integer is a number within +/-(2^53 - 1) and a bigint past that, up to
 // TOML's 64 bits, so none is rounded. A float is a TomlFloat, so that `1.0`
 // is not the integer `1`; one that would be Infinity or 0 is refused.
 
@@ -10,7 +10,7 @@ const FLOAT = /^[+-]?(?:inf|nan|(?:0|[1-9](?:_?\d)*)(?:\.\d(?:_?\d)*(?:[Ee][+-]?
 
 const I64 = 2n ** 63n
 const SAFE = BigInt(Number.MAX_SAFE_INTEGER)
-// The digits of 2^63 − 1 in each base: more, past leading zeros, is out of
+// The digits of 2^63 - 1 in each base: more, past leading zeros, is out of
 // range, and is not handed to BigInt, which is slow on a long string.
 const DIGITS = { __proto__: null, x: 16, o: 21, b: 63 }
 

@@ -101,7 +101,7 @@ export function readConstraint(value, where, version) {
 // package, capitals let be, as Composer goes by the name in lowercase.
 // Composer's caseless regexes are of ASCII alone, as PCRE's without /u:
 // here, of the name as strtolower lowers it, as JavaScript's `iu` would
-// take ſ for s, and the Kelvin sign for k.
+// take the long s for s, and the Kelvin sign for k.
 const NAME = /^[a-z0-9](?:[_.-]?[a-z0-9]+)*\/[a-z0-9](?:(?:[_.]|-{1,2})?[a-z0-9]+)*$/u
 const RESERVED = new Set(['nul', 'con', 'prn', 'aux', ...['com', 'lpt'].flatMap((device) => Array.from({ length: 9 }, (_, i) => `${device}${i + 1}`))])
 

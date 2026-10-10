@@ -2,26 +2,26 @@
 // from parse-md.js (Claude Security):
 //
 //   # Vulnerability Scan Report
-//   …project metadata table… / ## Summary …summary table…
+//   ...project metadata table... / ## Summary ...summary table...
 //
 //   ## HIGH (2)
 //
 //   ### Finding title 1
 //
 //   - **File:** `path/file.js`
-//   - **Recent committers:** … (ignored)
+//   - **Recent committers:** ... (ignored)
 //   - **Lines:** 26, 28
 //   - **Slug:** rule-slug
 //   - **Confidence:** high
 //   - **Revalidation:** confirmed       (only where the pass ran)
 //   - **Reasoning:** what it concluded  (only where the pass ran)
 //
-//   prose body…
+//   prose body...
 //
 //   **Recommendation:** recommendation text
 //
 //   ---
-//   ### Finding title 2 …  ## MEDIUM (5) …
+//   ### Finding title 2 ...  ## MEDIUM (5) ...
 //
 // The writer is `packages/deepsec/src/commands/report.ts` in
 // vercel-labs/deepsec; the shape above is settled there.
@@ -35,18 +35,18 @@ import { SEVERITY_WORDS, normalizeFindingSeverity } from './severity.js'
 
 // The `## SEVERITY (n)` header that marks a DeepSec document. Splitting
 // on it with the tier captured interleaves tiers and content:
-// [preamble, sevA, contentA, sevB, …].
+// [preamble, sevA, contentA, sevB, ...].
 const SECTION_RE = /^## ([A-Z][A-Z_]*)\s*\(\d+\)\s*\n/mu
 
 // DeepSec's tiers onto the internal ladder. It separates vulnerabilities
-// (CRITICAL … LOW) from non-vuln defects (HIGH_BUG, BUG), and
+// (CRITICAL ... LOW) from non-vuln defects (HIGH_BUG, BUG), and
 // `high_bug` / `bug` keep that apart so the chips count them
 // separately. Anything else falls back to medium, where a renamed or
 // new tier stays visible instead of vanishing.
 const TIERS = new Map([...SEVERITY_WORDS, ['HIGH_BUG', 'high_bug'], ['BUG', 'bug']])
 
 // A field's value as the word it names, whatever punctuation it arrived
-// in — the writer's `~~false positive~~`, or a hand-edited document's
+// in -- the writer's `~~false positive~~`, or a hand-edited document's
 // backticks and emphasis.
 const word = (s) => String(s ?? '').toLowerCase().replaceAll(/[^a-z]+/gu, '')
 
@@ -55,7 +55,7 @@ const word = (s) => String(s ?? '').toLowerCase().replaceAll(/[^a-z]+/gu, '')
 // asks for one of the three without saying what separates them, the docs
 // call it "the agent's self-rated confidence", and nothing in DeepSec
 // reads it back. So there is no probability to convert, only three rungs
-// to place on the app's 0—10 scale — where 0 is a claim the revalidation
+// to place on the app's 0--10 scale -- where 0 is a claim the revalidation
 // pass withdrew, 10 the no-doubt an unscored import rides at, and a
 // fresh load opens on a floor of 6, 7 or 8 by volume, then walks down
 // through any gap that reveals nothing new (ui filters.js).
@@ -64,7 +64,7 @@ const word = (s) => String(s ?? '').toLowerCase().replaceAll(/[^a-z]+/gu, '')
 // app's no-doubt 10; `medium` is the lowest of those floors, surviving a
 // small report's opening view and dropping out of a big one's; `low`
 // sits under every floor but clear of the 0 that means refuted, since
-// the agent still chose to report it. The even spacing carries as much —
+// the agent still chose to report it. The even spacing carries as much --
 // the walk settles in the GAPS, one step under the lowest rung it keeps,
 // so a rung packed tighter leaves it nowhere to stop and a rung moved
 // without its gap puts that tier off screen at open.
@@ -72,8 +72,8 @@ const CONFIDENCE = new Map([['high', 8], ['medium', 6], ['low', 4]])
 
 // An unknown word reads as the middle rung, for the reason an
 // unrecognized severity falls back to medium: a level DeepSec adds later
-// should neither vanish under the floor nor — as scoring it nothing
-// would — ride the unscored stand-in at 10, above every `high`. A block
+// should neither vanish under the floor nor -- as scoring it nothing
+// would -- ride the unscored stand-in at 10, above every `high`. A block
 // with no `Confidence:` line rated nothing, and there that stand-in is
 // the honest answer.
 function mapConfidence(s) {
@@ -81,15 +81,15 @@ function mapConfidence(s) {
   return CONFIDENCE.get(word(s)) ?? CONFIDENCE.get('medium')
 }
 
-// The verdict of DeepSec's revalidation pass as its writer spells it —
+// The verdict of DeepSec's revalidation pass as its writer spells it --
 // `confirmed`, `~~false positive~~` struck through, `uncertain` for
-// everything else it can answer — onto the app's own outcomes
+// everything else it can answer -- onto the app's own outcomes
 // (finding.js REVALIDATE_KINDS).
 //
 // It belongs with the confidence question rather than beside it:
 // `Confidence:` is the INVESTIGATE pass's self-rating, written before
 // the adversarial pass looked at the finding, and `refuted` is the
-// outcome that acts on the number — the range reads a ruled-out row as
+// outcome that acts on the number -- the range reads a ruled-out row as
 // 0 whatever it claims. A report saying `high` on one line and
 // `~~false positive~~` on the next is not a finding to show at 8/10.
 const REVALIDATION = new Map([
@@ -100,7 +100,7 @@ const REVALIDATION = new Map([
 
 export function parseDeepsecFindings(content) {
   const text = normalizeNewlines(content).trim()
-  // Format guard — without a single `## SEVERITY (n)` header this isn't
+  // Format guard -- without a single `## SEVERITY (n)` header this isn't
   // a DeepSec doc; bail out so the chain moves on to
   // parseMarkdownFindings.
   const parts = text.split(SECTION_RE)
@@ -146,12 +146,12 @@ function parseBlock(block, severity) {
   const fields = Object.fromEntries([...body.matchAll(/^- \*\*([^:*]+):\*\*\s*(.+)$/gmu)].map((m) => [m[1].trim().toLowerCase(), m[2].trim()]))
 
   // A bold inline label in the body, not a `## Recommended fix` H2 as
-  // Claude Security writes — so the split is there.
+  // Claude Security writes -- so the split is there.
   const recMatch = /^\*\*Recommendation:\*\*\s*/mu.exec(body)
   const prose = recMatch ? body.slice(0, recMatch.index) : body
   const recommendation = recMatch ? body.slice(recMatch.index + recMatch[0].length).trim() : ''
 
-  // Prose minus the bullet metadata, with `**bold**` stripped — the
+  // Prose minus the bullet metadata, with `**bold**` stripped -- the
   // renderer escapes HTML, so the markers would print literally.
   const description = prose
     .split('\n')
@@ -167,7 +167,7 @@ function parseBlock(block, severity) {
   // The path arrives backticked (`path/file.js`); the backticks are
   // notation, not part of it.
   const file = (fields.file || 'unknown').replace(/^`(.*)`$/u, '$1')
-  // First non-empty line only — the renderer takes a single `f.line`,
+  // First non-empty line only -- the renderer takes a single `f.line`,
   // and lineLink wraps it as a `#L<n>` anchor when a fileUrl is
   // available. The siblings of a `26, 28` list are dropped.
   const line = (fields.lines || '').split(',').map((s) => s.trim()).find(Boolean) || '?'
@@ -179,7 +179,7 @@ function parseBlock(block, severity) {
   // What the pass concluded, where the report has been through it: the
   // verdict as one of the app's outcomes, the reasoning under it as the
   // pass's remark, DeepSec named as whose pass said so. The two are read
-  // as a pair because the document writes them as one — a `Reasoning:`
+  // as a pair because the document writes them as one -- a `Reasoning:`
   // line is the pass's, not the finding's. First line only, like every
   // field here; a wrapped remainder stays in the prose where it was.
   const revalidate = REVALIDATION.get(word(fields.revalidation))
