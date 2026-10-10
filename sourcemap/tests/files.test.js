@@ -49,6 +49,7 @@ describe('a source becomes a path', () => {
     assert.equal(sourcePath('src/a.js', 'file:///app/out.js.map'), '/app/src/a.js')
     assert.equal(sourcePath('../a.js', 'file:///C:/app/out.js.map'), 'C:/a.js')
     assert.equal(sourcePath('/src/a.js', 'file:///app/out.js.map'), '/src/a.js')
+    assert.equal(sourcePath('a%20b.js', 'file:///app/out.js.map'), '/app/a b.js')
   })
 
   it('keeps a name that is no path as it is', () => {
@@ -58,6 +59,8 @@ describe('a source becomes a path', () => {
 
   it('climbs above no drive', () => {
     assert.equal(sourcePath('C:\\a\\..\\..\\b.js'), 'C:/b.js')
+    // A drive's letter in one case, as Windows takes it.
+    assert.equal(sourcePath('c:/app/a.js'), 'C:/app/a.js')
     assert.equal(sourcePath('../../../x.js', 'C:/proj/out/m.map'), 'C:/x.js')
     assert.equal(sourcePath('/x.js', 'C:/proj/out/m.map'), '/x.js')
   })

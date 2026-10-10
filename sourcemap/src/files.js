@@ -31,8 +31,9 @@ function normalize(path) {
     else if (out.length > 0 && out.at(-1) !== '..') out.pop()
     else if (!root) out.push('..')
   }
-  // A UNC server's name in one case, as Windows takes it.
-  const base = root.startsWith('//') ? root.toLowerCase() : root
+  // A drive's letter and a UNC server's name in one case, as Windows takes
+  // them.
+  const base = /^[a-z]:\/$/iu.test(root) ? root.toUpperCase() : (root.startsWith('//') ? root.toLowerCase() : root)
   return base ? base.replace(/\/?$/u, '/') + out.join('/') : out.join('/') || '.'
 }
 
@@ -59,6 +60,9 @@ export function sourcePath(source, mapPath) {
   }
   if (SCHEME.test(path) && !rootOf(path).includes(':')) return path
   if (mapPath === undefined) return normalize(path)
+  // Under a map at a file:// URL, a relative source is a URL relative to it,
+  // escaped as one.
+  if (/^file:\/\//iu.test(mapPath) && !rootOf(path)) return sourcePath(parsed(path, mapPath) ?? path)
   // A rooted source is a URL's, under a map at one.
   const base = sourcePath(mapPath)
   return rootOf(path) && !isUrl(base) ? normalize(path) : resolvePath(base, path)

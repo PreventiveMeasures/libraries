@@ -20,7 +20,7 @@ const CONTROL = new Set(['if', 'while', 'for', 'with'])
 const ENDING = new Set(['break', 'continue', 'debugger'])
 // A `{` after these opens an object, where an expression goes; after
 // anything else (`)`, `=>`, a statement's end, `else`), a block.
-const EXPRESSION_BEFORE = new Set(['(', '[', ',', '=', ':', '?', '!', '~', '+', '-', '*', '/', '%', '&', '|', '^', '<', '>'])
+const EXPRESSION_BEFORE = new Set(['(', '[', '${', ',', '=', ':', '?', '!', '~', '+', '-', '*', '/', '%', '&', '|', '^', '<', '>'])
 
 function opensObject(previous, lineBefore) {
   if (previous?.type !== 'word') return EXPRESSION_BEFORE.has(previous?.value)
@@ -125,6 +125,7 @@ function lex(text) {
       // A template with nothing put in it is the string it spells.
       const whole = c === '`' && braces.length === depth && text[end - 1] === '`'
       tokens.push({ type: 'string', value: whole ? cooked(text.slice(i + 1, end - 1)) : null })
+      if (braces.length > depth) tokens.push({ type: 'punctuator', value: '${' })
       i = end
     } else if (c === '/' && regexAllowed(tokens.at(-1))) {
       i = regexEnd(text, i)
