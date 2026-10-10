@@ -58,9 +58,12 @@ export function importEdges(map: SourceMap, options?: ImportOptions): ImportEdge
 
 // The edges a bundle shows between the files its map lists. With no `code`,
 // a Metro map's own: each file's imports, read from its source with no
-// parser (Flow too), and what Babel adds, its helpers and JSX runtime, by
-// the names Metro mapped; the files' order, Metro's walk from the entry,
-// gives a package's entry and an asset's registry. That misses what a
+// parser (Flow too), by kind and specifier as importEdges gives them, to
+// no file where none resolves; and as `dependency` edges, what Babel adds,
+// its helpers and JSX runtime, by the names Metro mapped, an asset's
+// registry and an import()'s asyncRequire. The files' order, Metro's walk
+// from the entry, gives a package's entry, its first file no request names
+// outright, and an asset's registry. That misses what a
 // transform alone adds or drops: React Native's codegen imports, an
 // import of Platform Metro inlined away. Any other map's, as importEdges
 // reads them. For Metro's
@@ -71,6 +74,6 @@ export function importEdges(map: SourceMap, options?: ImportOptions): ImportEdge
 // modules webpack concatenates, a scope-hoisted bundle (esbuild, rollup):
 // code of one file naming a declaration of another, `reference` edges, and
 // the modules the bundle leaves to the runtime, as import-kind edges to no
-// file. Throws where the bundle does not parse, or a Metro module's define
-// call cannot be read.
+// file. Throws where the bundle does not parse, a Metro module's define
+// call cannot be read, or a Metro map carries no sourcesContent to read.
 export function bundleEdges(map: SourceMap, code?: string | null): { edges: Edge[] }
