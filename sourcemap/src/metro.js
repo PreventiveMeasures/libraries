@@ -35,11 +35,12 @@ function paramsOf(line) {
 }
 
 // With unstable_inlineDependencyMap, each id stands in the factory's code
-// instead, as the argument to its require-shaped parameters.
+// instead, as the argument to its require-shaped parameters: called, or
+// spread, `...r(5)`, but no method `x.r(5)`.
 function inlinedIds(text) {
   const names = /^[^(]*\(\s*(?:function\s*[\w$]*\s*)?\(([^)]*)\)/u.exec(text)?.[1].split(',').slice(1, 4).map((name) => name.trim().replaceAll('$', '\\$'))
   if (!names?.length) return []
-  const calls = text.matchAll(new RegExp(`(?<![\\w$.])(?:${names.join('|')})\\((\\d+|"(?:[^"\\\\]|\\\\.)*")[,)]`, 'gu'))
+  const calls = text.matchAll(new RegExp(`(?<=[^\\w$.]|\\.\\.\\.)(?:${names.join('|')})\\((\\d+|"(?:[^"\\\\]|\\\\.)*")[,)]`, 'gu'))
   return [...new Set([...calls].map((call) => JSON.parse(call[1])))]
 }
 
