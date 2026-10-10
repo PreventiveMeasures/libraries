@@ -14,6 +14,12 @@ import { handWritten as bundle, lineMap } from './helpers.js'
 const DOORS = [['edges.js', bundleEdges], ['edges-lite.js', liteEdges]]
 const show = (edge) => `${edge.from.path} -> ${edge.to.path}`.replaceAll('/app/', '')
 const shown = (read, map, code) => read(map, code).edges.map(show)
+// A map's edge with what names it: its request's kind and specifier, or
+// for a target that is no file, what is known of it.
+const named = (read, map) => read(map).edges.map((edge) => {
+  const target = edge.to?.path ?? `(${edge.path ?? edge.package ?? 'computed'})`
+  return `${edge.from.path} -> ${target} [${[edge.kind, ...('specifier' in edge ? [String(edge.specifier)] : [])].join(' ')}]`.replaceAll('/app/', '')
+}).toSorted()
 
 // A Metro map written by hand: each file's source, and the names its
 // segments carry, a segment a line.
@@ -118,8 +124,60 @@ for (const [door, read] of DOORS) {
       for (const name of ['metro-prod', 'metro-dev']) assert.deepEqual(shown(read, fixture(name)[0]).toSorted(), PROJECT, name)
     })
 
+    it('names each request by its kind and specifier, as importEdges does, one no file answers too', () => {
+      const map = metroMap([
+        ['__prelude__', ''],
+        ['/app/index.js', "import './dir'\nconst h = require('./hash')\nimport('./lazy')\nrequire(name)\nimport 'missing'\nimport './gone'"],
+        ['/app/dir/index.js', ''],
+        ['/app/hash.js', ''],
+        ['/app/lazy.js', ''],
+        ['/app/node_modules/metro-runtime/src/modules/asyncRequire.js', ''],
+      ])
+      assert.deepEqual(named(read, map), [
+        'index.js -> (computed) [require null]',
+        'index.js -> (gone) [import ./gone]',
+        'index.js -> (missing) [import missing]',
+        'index.js -> dir/index.js [import ./dir]',
+        'index.js -> hash.js [require ./hash]',
+        'index.js -> lazy.js [dynamic-import ./lazy]',
+        'index.js -> node_modules/metro-runtime/src/modules/asyncRequire.js [dependency]',
+      ])
+    })
+
+    it('takes a package\'s entry as its first file no request names outright', () => {
+      // lodash/debounce, and what it requires, reached before lodash itself.
+      const map = metroMap([
+        ['__prelude__', ''],
+        ['/app/index.js', "import debounce from 'lodash/debounce'\nimport lodash from 'lodash'"],
+        ['/app/node_modules/lodash/debounce.js', "var isObject = require('./isObject')"],
+        ['/app/node_modules/lodash/isObject.js', ''],
+        ['/app/node_modules/lodash/lodash.js', ''],
+      ])
+      assert.deepEqual(named(read, map), [
+        'index.js -> node_modules/lodash/debounce.js [import lodash/debounce]',
+        'index.js -> node_modules/lodash/lodash.js [import lodash]',
+        'node_modules/lodash/debounce.js -> node_modules/lodash/isObject.js [require ./isObject]',
+      ])
+    })
+
+    it('throws for a map with no sourcesContent, whose edges it cannot read', () => {
+      const map = readSourceMap({ version: 3, sources: ['__prelude__', 'a.js', 'b.js'], mappings: '' })
+      assert.throws(() => read(map), /bundleEdges: the Metro map carries no sourcesContent/u)
+      // Its prelude's empty one alone says nothing either.
+      const prelude = readSourceMap({ version: 3, sources: ['__prelude__', 'a.js'], sourcesContent: ['', null], mappings: '' })
+      assert.throws(() => read(prelude), /bundleEdges: the Metro map carries no sourcesContent/u)
+      // Sources it carries empty are sources still, with no requests.
+      assert.deepEqual(read(readSourceMap({ version: 3, sources: ['__prelude__', 'a.js'], sourcesContent: ['', ''], mappings: '' })), { edges: [] })
+      assert.deepEqual(read(readSourceMap({ version: 3, sources: ['__prelude__', 'data.json'], sourcesContent: ['', '{"x":1}'], mappings: '' })), { edges: [] })
+    })
+
     it('knows the prelude beneath a sourceRoot', () => {
       const map = readSourceMap({ version: 3, sourceRoot: '/app/', sources: ['__prelude__', 'a.js', 'b.js'], sourcesContent: ['', "require('./b')", ''], mappings: '' })
+      assert.deepEqual(shown(read, map), ['a.js -> b.js'])
+    })
+
+    it('knows a map composed with Hermes\' by Metro\'s module system, its prelude compiled away', () => {
+      const map = readSourceMap({ version: 3, sources: ['/app/node_modules/metro-runtime/src/polyfills/require.js', '/app/a.js', '/app/b.js'], sourcesContent: ['', "require('./b')", ''], mappings: '' })
       assert.deepEqual(shown(read, map), ['a.js -> b.js'])
     })
 
@@ -177,5 +235,9 @@ describe('a map alone, with no Metro prelude, is no Metro map', () => {
       assert.deepEqual(bundleEdges(map), { edges: importEdges(map).edges }, name)
       assert.throws(() => liteEdges(map), /bundleEdges: not a Metro map/u, name)
     }
+    // Nor one that bundles Metro's module system among its files, where a
+    // map composed with Hermes' has it first.
+    const bundled = readSourceMap({ version: 3, sources: ['/app/a.js', '/app/node_modules/metro-runtime/src/polyfills/require.js', '/app/logo.png', '/app/b.js'], sourcesContent: ['', '', null, ''], mappings: '' })
+    assert.throws(() => liteEdges(bundled), /bundleEdges: not a Metro map/u)
   })
 })

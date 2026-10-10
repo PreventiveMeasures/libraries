@@ -1,4 +1,4 @@
-import { edgeList, entryInOrder, indexFiles, languageOf, resolveSpecifier } from './files.js'
+import { edgeList, indexFiles, languageOf, resolveSpecifier } from './files.js'
 import { fileWithin, lineStarts, positionOf, segmentsOf } from './map.js'
 import { scanSpecifiers } from './scan.js'
 
@@ -135,25 +135,52 @@ function helperRequests(map) {
   return helpers
 }
 
+// Each request's target. Where no index file is, a package's entry is the
+// first of its files, in the walk's order, that no request names
+// outright: lodash, reached after lodash/debounce and the files that one
+// requires. So a request is resolved first with no entry guessed, and
+// again with one only where that found no file.
+function resolverFor(requests, index) {
+  const first = new Map()
+  for (const [from, specifiers] of requests) {
+    const targets = first.get(from) ?? first.set(from, new Map()).get(from)
+    for (const specifier of specifiers) targets.set(specifier, resolveSpecifier(index, from, specifier, () => null))
+  }
+  const reached = new Set([...first.values()].flatMap((targets) => [...targets.values()].map((target) => target.to)))
+  const entry = (_, root) => index.byRoot.get(root).find((file) => !reached.has(file)) ?? index.byRoot.get(root)[0]
+  return (from, specifier) => {
+    const target = first.get(from)?.get(specifier)
+    return target?.to ? target : resolveSpecifier(index, from, specifier, entry)
+  }
+}
+
+const isPrelude = (file) => /(?:^|\/)__prelude__$/u.test(file.source ?? '')
+const isModuleSystem = (file) => file?.package?.name === 'metro-runtime' && file.package.path === 'src/polyfills/require.js'
+
 function fromMap(map) {
-  if (!map.files.some((file) => /(?:^|\/)__prelude__$/u.test(file.source ?? ''))) return null
+  // Metro's prelude; in a map composed with Hermes', which compiles the
+  // prelude to nothing, its module system, written right after it.
+  if (!map.files.some(isPrelude) && !isModuleSystem(map.files[0])) return null
+  // Sources carried empty are sources still; Metro's own alone say nothing.
+  if (!map.files.some((file) => file.content !== null && !isPrelude(file) && !isModuleSystem(file))) throw new Error('bundleEdges: the Metro map carries no sourcesContent, which its edges are read from; pass the bundle as `code`')
   const index = indexFiles(map.files)
   // An asset's one import, the registry, the walk reached right after the
   // first asset; an import() also imports Metro's asyncRequire.
   const registry = map.files[map.files.findIndex(isAsset) + 1]
   const asyncRequire = map.files.find((file) => file.package?.name === 'metro-runtime' && file.package.path === 'src/modules/asyncRequire.js')
-  const { edges, link } = edgeList()
-  const resolve = (from, specifier) => resolveSpecifier(index, from, specifier, entryInOrder).to
+  const scanned = new Map(map.files.filter((file) => file.content !== null && isScript(file)).map((from) => [from, scanSpecifiers(from.content)]))
   const helpers = helperRequests(map)
+  const named = [...scanned].map(([from, found]) => [from, found.flatMap(({ specifier }) => (specifier === null ? [] : [specifier]))])
+  const resolve = resolverFor([...named, ...helpers], index)
+  const { edges, add, link } = edgeList()
   for (const from of map.files) {
     if (isAsset(from)) link(from, registry, 'dependency')
-    if (!from.content || !isScript(from)) continue
-    // Metro records no module for a computed request.
-    for (const { kind, specifier } of scanSpecifiers(from.content).filter((found) => found.specifier !== null)) {
-      link(from, resolve(from, specifier), 'dependency')
+    for (const { kind, specifier } of scanned.get(from) ?? []) {
+      const target = specifier === null ? { to: null } : resolve(from, specifier)
+      if (target.to !== from) add(from, `${kind}\0${JSON.stringify(specifier)}`, { from, kind, specifier, ...target })
       if (kind === 'dynamic-import') link(from, asyncRequire, 'dependency')
     }
-    for (const specifier of helpers.get(from) ?? []) link(from, resolve(from, specifier), 'dependency')
+    for (const specifier of helpers.get(from) ?? []) link(from, resolve(from, specifier).to, 'dependency')
   }
   return edges
 }

@@ -270,10 +270,6 @@ function entryOf(index, root) {
   return files?.length === 1 ? files[0] : null
 }
 
-// Where a map lists files in the order a bundler reached them, a package's
-// first is its entry.
-export const entryInOrder = (index, root) => index.byRoot.get(root)[0]
-
 // `rest`: what the request names after the package's name, a subpath or a
 // loader's query; with none, `pkg/` too, the package itself.
 function packageFile(index, root, rest, entry) {
