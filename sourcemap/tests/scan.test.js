@@ -77,8 +77,8 @@ describe('a source\'s module requests, read with no parser', () => {
   })
 
   it('a specifier with escapes by the value they spell, as the parser cooks it', () => {
-    assert.deepEqual(scanned("require('\\x61'); import './b\\u002ejs'; require('.\\\\c'); require(`./\\u{64}`); require('e\\\nf'); require('\\'g')"), [
-      'require a', 'import ./b.js', 'require .\\c', 'require ./d', 'require ef', "require 'g",
+    assert.deepEqual(scanned("require('\\x61'); import './b\\u002ejs'; require('.\\\\c'); require(`./\\u{64}`); require('e\\\nf'); require('\\'g'); require('./\\141.js'); require('\\1010')"), [
+      'require a', 'import ./b.js', 'require .\\c', 'require ./d', 'require ef', "require 'g", 'require ./a.js', 'require A0',
     ])
   })
 

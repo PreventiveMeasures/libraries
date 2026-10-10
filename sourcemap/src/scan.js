@@ -46,14 +46,15 @@ function regexAllowed(previous) {
 // An escaped line's end, `\r\n` too, continues a string.
 const escapeLength = (text, at) => (text.startsWith('\r\n', at + 1) ? 3 : 2)
 
-const ESCAPE = /\\(?:u\{([\da-f]+)\}|u([\da-f]{4})|x([\da-f]{2})|(\r\n|[\n\r\u2028\u2029])|(.))/giu
-const ESCAPES = { b: '\b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v', 0: '\0' }
+const ESCAPE = /\\(?:u\{([\da-f]+)\}|u([\da-f]{4})|x([\da-f]{2})|([0-3][0-7]{0,2}|[4-7][0-7]?)|(\r\n|[\n\r\u2028\u2029])|(.))/giu
+const ESCAPES = { b: '\b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v' }
 
-// A literal's value, as the parser cooks it.
+// A literal's value, as the parser cooks it; sloppy code's octal escapes too.
 function cooked(raw) {
   if (!raw.includes('\\')) return raw
-  return raw.replace(ESCAPE, (_, braced, unicode, hex, line, other) => {
+  return raw.replace(ESCAPE, (_, braced, unicode, hex, octal, line, other) => {
     if (line !== undefined) return ''
+    if (octal !== undefined) return String.fromCodePoint(Number.parseInt(octal, 8))
     const point = Number.parseInt(braced ?? unicode ?? hex, 16)
     if (!Number.isNaN(point)) return String.fromCodePoint(Math.min(point, 0x10ffff))
     return ESCAPES[other] ?? other

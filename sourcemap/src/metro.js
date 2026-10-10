@@ -127,8 +127,8 @@ function helperRequests(map) {
   for (const [i, named] of bindings.entries()) {
     if (named.size === 0) continue
     const file = map.files[i]
-    const declared = new Set(Array.from((file.content ?? '').matchAll(/(?:function|var|let|const)\s+(_[A-Za-z]+)\b/gu), (match) => match[1]))
-    const modules = [...named].filter((name) => !declared.has(name.replace(/\d+$/u, ''))).flatMap(helpersOf)
+    const declared = new Set(Array.from((file.content ?? '').matchAll(/(?:function|var|let|const)\s+(_[A-Za-z]+\d*)\b/gu), (match) => match[1]))
+    const modules = [...named].filter((name) => !declared.has(name) && !declared.has(name.replace(/\d+$/u, ''))).flatMap(helpersOf)
     if (modules.length > 0) helpers.set(file, modules.map((module) => HELPER_MODULES[module] ?? `@babel/runtime/helpers/${module}`))
   }
   return helpers

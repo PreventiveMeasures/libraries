@@ -137,6 +137,7 @@ for (const [door, read] of DOORS) {
         ['/app/lazy.js', ''],
         // A prebuilt file's own helper, not Babel's import of one.
         ['/app/node_modules/prebuilt/index.js', 'function _interopRequireDefault(o) { return o }', ['_interopRequireDefault']],
+        ['/app/node_modules/prebuilt/class.js', 'function _classCallCheck2(a, b) {}', ['_classCallCheck2']],
       ])
       assert.deepEqual(shown(read, map).toSorted(), [
         'App.js -> logo.png',
