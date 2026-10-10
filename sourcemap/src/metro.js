@@ -161,7 +161,8 @@ const isMetroOwn = (file) => /(?:^|\/)__prelude__$/u.test(file.source ?? '') || 
 function fromMap(map) {
   if (!map.files.some(isMetroOwn)) return null
   const scripts = map.files.filter((file) => file.content !== null && isScript(file))
-  if (!scripts.some((file) => file.content)) throw new Error('bundleEdges: the Metro map carries no sourcesContent, which its edges are read from; pass the bundle as `code`')
+  // Sources carried empty are sources still; Metro's own alone say nothing.
+  if (scripts.every(isMetroOwn)) throw new Error('bundleEdges: the Metro map carries no sourcesContent, which its edges are read from; pass the bundle as `code`')
   const index = indexFiles(map.files)
   // An asset's one import, the registry, the walk reached right after the
   // first asset; an import() also imports Metro's asyncRequire.

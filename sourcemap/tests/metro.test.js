@@ -166,6 +166,8 @@ for (const [door, read] of DOORS) {
       // Its prelude's empty one alone says nothing either.
       const prelude = readSourceMap({ version: 3, sources: ['__prelude__', 'a.js'], sourcesContent: ['', null], mappings: '' })
       assert.throws(() => read(prelude), /bundleEdges: the Metro map carries no sourcesContent/u)
+      // Sources it carries empty are sources still, with no requests.
+      assert.deepEqual(read(readSourceMap({ version: 3, sources: ['__prelude__', 'a.js'], sourcesContent: ['', ''], mappings: '' })), { edges: [] })
     })
 
     it('knows the prelude beneath a sourceRoot', () => {
