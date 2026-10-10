@@ -5,7 +5,7 @@
 import { LockfileError, quote } from './error.js'
 
 // Whether the code points of `name` match those of `pattern`, `*` any run
-// and `?` any one: the last `*` taken one further at a time, in O(n·m).
+// and `?` any one: the last `*` taken one further at a time, in O(n*m).
 function wildcard(pattern, name) {
   let [i, j, star, mark] = [0, 0, -1, 0]
   while (j < name.length) {

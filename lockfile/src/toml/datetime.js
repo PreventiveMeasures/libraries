@@ -65,5 +65,5 @@ export function readDateTime(token, src) {
   assert(!LOCAL.test(token), src, () => `local dates and times are not supported: ${excerpt(token)}`)
   assert(!NO_SECONDS.test(token), src, () => `a date-time or a time without seconds is not supported: ${excerpt(token)}`)
   assert(parts?.unsupported.length !== 1, src, () => `${parts.unsupported[0]}: ${excerpt(token)}`)
-  throw new TomlError(`${excerpt(token)} is not a date-time of the form YYYY-MM-DDTHH:MM:SS[.fraction](Z|±HH:MM)`, src.line)
+  throw new TomlError(`${excerpt(token)} is not a date-time of the form YYYY-MM-DDTHH:MM:SS[.fraction](Z|\u00B1HH:MM)`, src.line)
 }

@@ -190,7 +190,7 @@ export async function readRecord(dir, name, cache, ttl = RECORD_TTL_MS) {
 
 export const writeRecord = (dir, name, value, cache) => writeJSON(dir, name, { at: Date.now(), name, ...value }, cache)
 
-// Name → the GitHub repo kept for it (readRecord), for those of `names`
+// Name -> the GitHub repo kept for it (readRecord), for those of `names`
 // that have one.
 export async function readRepos(dir, names, cache) {
   const entries = await pool(names, RECORDS_AT_ONCE, (name) => readRecord(dir, name, cache))

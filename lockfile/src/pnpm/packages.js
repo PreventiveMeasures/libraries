@@ -1,7 +1,7 @@
 // The packages a lockfile holds: one for each of its `snapshots`, with the
 // `packages` entry it is a snapshot of folded in, as pnpm itself reads them.
-// A snapshot is a package as resolved in one place in the tree — its peers
-// and its patch are in its key — and the entry is what the package is
+// A snapshot is a package as resolved in one place in the tree -- its peers
+// and its patch are in its key -- and the entry is what the package is
 // wherever it is. Every snapshot has its entry and every entry a snapshot.
 
 import { LockfileError, at, quote } from '../error.js'

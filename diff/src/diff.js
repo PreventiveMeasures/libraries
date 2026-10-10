@@ -2,7 +2,7 @@
 // both files, search, render. It does what the pieces behind it do, in the
 // order they are meant to be used, and keeps nothing back: `label` goes
 // straight to the formatter. The two label lines a diff opens with are the
-// caller's to write in front of what comes back — they are a constant, and
+// caller's to write in front of what comes back -- they are a constant, and
 // two files that match are no diff at all rather than a header with nothing
 // under it.
 //
@@ -18,7 +18,7 @@ const FORMAT = { unified: formatUnified, context: formatContext, normal: formatN
 
 // -q: whether the two differ at all, which is a question the search does not
 // have to be asked. Identical text settles it without looking at lines, and
-// anything else by one pass that stops at the first line that differs —
+// anything else by one pass that stops at the first line that differs --
 // where a diff would go on to find the shortest way to describe them all.
 // Which files they were is not said, because this was never told their names.
 const DIFFER = 'Files differ\n'

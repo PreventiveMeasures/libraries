@@ -7,8 +7,8 @@ export { LockfileError, TomlError } from '@preventive/lockfile/cargo.js'
 // Where @preventive/upstream caches what it fetches, .crate files among
 // them. Each .crate is fetched through it, and that is the one place
 // anything here touches a filesystem. Before the network, it takes one from
-// cargo's own cache — each registry's under $CARGO_HOME/registry/cache, or
-// ~/.cargo where that is unset — where one there has the lockfile's
+// cargo's own cache -- each registry's under $CARGO_HOME/registry/cache, or
+// ~/.cargo where that is unset -- where one there has the lockfile's
 // checksum, and writes none of it; then from its own cache, where one is
 // set, which is where it writes each .crate it fetches: setCacheDir() sets
 // the default one, and setCacheDir(false) unsets it. Unset, which it is
@@ -19,7 +19,7 @@ export { setCacheDir } from '@preventive/upstream/npm.js'
 // The machine cargo would vendor on: `cargo` is the version that vendors,
 // exact, 1.94.0 to 1.99.x, which unpack a .crate alike, those from 1.97 on
 // writing a `$comment` in each .cargo-checksum.json that those before do
-// not; `os` as Node names it — `linux`, `darwin`. Windows is refused:
+// not; `os` as Node names it -- `linux`, `darwin`. Windows is refused:
 // cargo unpacks and names files otherwise there.
 export interface CargoHost {
   cargo: string
@@ -33,8 +33,8 @@ export interface CargoHost {
 // the root, as cargo looks there for a workspace's root; the directories
 // workspace.members takes; and .cargo/config, or else .cargo/config.toml.
 // Each is read as UTF-8, and refused where it is not. A link where cargo
-// looks for members, or at or on the way to any file it reads — Cargo.lock,
-// the config, a Cargo.toml — is refused, so that nothing is read from
+// looks for members, or at or on the way to any file it reads -- Cargo.lock,
+// the config, a Cargo.toml -- is refused, so that nothing is read from
 // outside the view. Each throws an error
 // whose `code` is ENOENT, ENOTDIR or ELOOP for a path that leads nowhere.
 // Nothing is written to it.
@@ -50,9 +50,9 @@ export interface CargoProject {
 // Cargo.toml of the root and of every other path package cargo reads; and
 // the project's .cargo/config.toml, where there is one.
 //
-// The path packages are the members — the root's package, each directory
+// The path packages are the members -- the root's package, each directory
 // workspace.members takes and workspace.exclude does not, and each path
-// dependency of a member that is in the root and not excluded — and every
+// dependency of a member that is in the root and not excluded -- and every
 // other package cargo reads from a path: each path dependency of a member
 // that is not one, each [patch] from a path, and each normal or build path
 // dependency of those, which cargo resolves where it resolves their
@@ -77,8 +77,8 @@ export interface CargoProject {
 // that takes nothing, a member with no Cargo.toml or with a [workspace] of
 // its own, a root excluded from its own workspace, a default member that is
 // no member, a path dependency or [patch] that leads to no package or to
-// another of the name. Settings from anywhere else — a config above the
-// project or in cargo's home, the environment, the command line — are not
+// another of the name. Settings from anywhere else -- a config above the
+// project or in cargo's home, the environment, the command line -- are not
 // read, and are taken to be at their defaults. Of the config, [patch] is
 // read, as cargo resolves with it; `paths` and `include` are refused; the
 // rest is passed over, as it bears on where packages are fetched from and
@@ -86,7 +86,7 @@ export interface CargoProject {
 // to with --respect-source-config.
 //
 // `vfs` is a Vfs to mount the tree into, at its root, which is taken to be
-// the project's — it may be `project` too; without one, a new Vfs holds
+// the project's -- it may be `project` too; without one, a new Vfs holds
 // the tree alone. A Vfs that holds a `vendor` at its root, or on macOS a
 // name that is one there, is refused before anything is fetched: cargo
 // would remove what is in it. Nothing there is written over: each
@@ -124,7 +124,7 @@ export interface CargoTreeStats {
 }
 
 // A package in the tree, as an SBOM would list it: `path` is its
-// directory, from the project's root, which is `/` of the Vfs —
+// directory, from the project's root, which is `/` of the Vfs --
 // vendor/<name>, or vendor/<name>-<version> for all but the greatest
 // version of a name; `name`, `version` and `source` the lockfile's;
 // `checksum` the hex sha256 its .crate is held to; `commit` the commit its
@@ -159,7 +159,7 @@ export interface CargoTree {
 // none at all where every package is a path one. Each package's directory
 // is its name, or `<name>-<version>` for all but the greatest version of
 // that name, by the semver crate's order. What cargo writes or prints
-// beside it — the config that reads from it, the lockfile again — is not
+// beside it -- the config that reads from it, the lockfile again -- is not
 // written.
 //
 // The lockfile is held to the manifests, as cargo would resolve anew one
@@ -185,7 +185,7 @@ export interface CargoTree {
 // compression.js and tar.js refuse a name with a backslash, a control or
 // formatting character, an empty or `..` segment, or a drive letter, two
 // entries of one name that differ, an entry inside one that is not a
-// directory, a sparse entry — where cargo would take some of it. What cargo
+// directory, a sparse entry -- where cargo would take some of it. What cargo
 // reads otherwise than the readers is refused:
 // a .crate of more than one gzip member, of which cargo reads the first
 // alone; a gzip header CRC or reserved flag; a pax size, which cargo 1.94.0
@@ -208,13 +208,13 @@ export interface CargoTree {
 //
 // Nothing is left to a guess: a lockfile or manifest the lockfile reader
 // refuses, a workspace this does not read as cargo reads it, a package from
-// anywhere but crates.io, a check above that fails — each is refused with a
+// anywhere but crates.io, a check above that fails -- each is refused with a
 // DeptreeError, a LockfileError or a TomlError that says where. A TypeError
 // is thrown for options of the wrong type.
 export function buildCargoTree(options: CargoTreeOptions): Promise<CargoTree>
 
-// `where` is what a refusal is about — `crates/a/Cargo.toml`,
-// `packages["serde 1.0.0 (registry+…)"]`, an entry of a .crate — or
+// `where` is what a refusal is about -- `crates/a/Cargo.toml`,
+// `packages["serde 1.0.0 (registry+...)"]`, an entry of a .crate -- or
 // undefined for the call as a whole; the message leads with it. `cause` is
 // what a package beneath refused with, where one did.
 export class DeptreeError extends Error {

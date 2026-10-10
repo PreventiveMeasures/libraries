@@ -1,7 +1,7 @@
 // The cache's filesystem over OPFS, the origin's private storage. Handle-based rather than
 // path-based, so the paths cache.js builds are walked a segment at a time; absence is a
 // NotFoundError; `..` is rejected outright and there is nothing above the root; and
-// `FileSystemHandle.move()` is not in every engine that ships OPFS — see writeAtomic and move.
+// `FileSystemHandle.move()` is not in every engine that ships OPFS -- see writeAtomic and move.
 // Needs a secure context, as the digest in cache.js does.
 
 const segments = (path) => String(path).split('/').filter((part) => part && part !== '.')
@@ -69,7 +69,7 @@ let canMove
 
 // With `move()`, the Node half's temp-then-rename. Without it, `createWritable()` stands in: it stages
 // into a swap file and commits at close(), so an abandoned write leaves the previous contents rather
-// than a truncated file — an engine's promise rather than a filesystem's, hence the fallback.
+// than a truncated file -- an engine's promise rather than a filesystem's, hence the fallback.
 let tmpSeq = 0
 
 export async function writeAtomic(path, data) {

@@ -6,7 +6,7 @@
 //
 // Kept together because they had drifted apart. The colouriser's fence was
 // anchored to exactly fifteen stars and nothing after them, so a context
-// diff made with -p — which writes the function name on the fence — was not
+// diff made with -p -- which writes the function name on the fence -- was not
 // recognised as a diff at all, and came out unpainted.
 //
 // A line may or may not carry its terminator: text split for display has

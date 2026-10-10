@@ -1,5 +1,5 @@
-// POSIX paths as node:path.posix reads them — the same names, the same
-// answers — without node. There is no working directory: `resolve` starts
+// POSIX paths as node:path.posix reads them -- the same names, the same
+// answers -- without node. There is no working directory: `resolve` starts
 // from `/`. Everything here is lexical; `normalize` and what builds on it
 // fold `.` and `..` by spelling alone, which is right for a declaration and
 // wrong for a lookup, where a link on the way changes what `..` means. A Vfs

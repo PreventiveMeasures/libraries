@@ -1,8 +1,8 @@
 // Where a package's files come from. pnpm writes three kinds of resolution
 // into a v9 lockfile for what an install fetches, and each is read here
-// with every field it may carry; a field or a `type` beyond those —
+// with every field it may carry; a field or a `type` beyond those --
 // `revision`, a `binary`, the `variations` of a runtime, a `custom:`
-// resolver's — is refused, since what it would fetch is not read here.
+// resolver's -- is refused, since what it would fetch is not read here.
 
 import { LockfileError, at, quote } from '../error.js'
 import { checkIntegrity, checkRelative, checkRepo, checkWithin, isCommit, isHttpUrl } from '../names.js'

@@ -3,7 +3,7 @@
 // edit wherever it sits along them: in `b b b` becoming `b b`, deleting the
 // first line and deleting the last are one deletion described two ways, and
 // a search is free to report either. Left alone, two searches that found the
-// same edit print different diffs and neither is wrong — so every run is
+// same edit print different diffs and neither is wrong -- so every run is
 // moved to one agreed place.
 //
 // A run [start, end) may move one line later when the line leaving its front

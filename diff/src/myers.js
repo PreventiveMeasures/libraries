@@ -2,14 +2,14 @@
 // (Eugene W. Myers, "An O(ND) Difference Algorithm and Its Variations",
 // Algorithmica 1, 1986): a middle snake found by searching forward from the
 // start and backward from the end at once, then the two halves either side
-// of it, so the work is O((N+M)·D) in time and O(N+M) in space. Lines are
+// of it, so the work is O((N+M)*D) in time and O(N+M) in space. Lines are
 // interned to integers first, so the inner loops compare numbers, never
 // strings.
 //
 // What comes out is a change set: blocks of `a` replaced by blocks of `b`.
 // Before any caller sees it, the change set is replayed against `a` and the
 // result compared with `b`, line by line. A change set that fails that check
-// is never returned, whatever the search did — the guarantee is on the data,
+// is never returned, whatever the search did -- the guarantee is on the data,
 // not on how it was found.
 
 import { lineComparisonKey } from './compare.js'
@@ -25,15 +25,15 @@ function costLimit(total) {
   return Math.max(256, limit)
 }
 
-// `ignoreCase` and `whitespace` are diff's comparison options — -i, and
-// -w / -b / -Z as 'all' / 'change' / 'trailing' — which decide when two
+// `ignoreCase` and `whitespace` are diff's comparison options -- -i, and
+// -w / -b / -Z as 'all' / 'change' / 'trailing' -- which decide when two
 // lines count as the same line. What they come to is a function mapping a
 // line to the string it is compared by, and that stays inside: a caller
 // says what it wants compared, not how to compare it.
 // `slide` settles a run that could sit in more than one place (slide.js).
 // It is what diff does for the output styles that print context lines, and
 // not what it does for the normal style, which prints the placement the
-// search itself reached — so the two styles describe different change sets
+// search itself reached -- so the two styles describe different change sets
 // wherever a run is free to move, and a caller rendering normal output asks
 // for `slide: false`.
 export function diffLines(a, b, { ignoreCase = false, whitespace = 'none', minimal = false, slide = true } = {}) {
@@ -105,8 +105,8 @@ function compareSequences(A, B, changedA, changedB, minimal) {
   }
 }
 
-// The middle snake: a point on some shortest path — or, past the cost
-// limit, the furthest point either search has reached — splitting the
+// The middle snake: a point on some shortest path -- or, past the cost
+// limit, the furthest point either search has reached -- splitting the
 // problem in two. Diagonals are numbered absolutely rather than per
 // subproblem, so a subproblem needs no coordinate shift.
 function middleSnake(search, xoff, xlim, yoff, ylim, findMinimal, part) {
@@ -199,8 +199,8 @@ function collectBlocks(changedA, changedB) {
   return blocks
 }
 
-// The guarantee. Apply the change set to `a` the way patch would — keep what
-// is between the blocks, take each block's replacement from `b` — and the
+// The guarantee. Apply the change set to `a` the way patch would -- keep what
+// is between the blocks, take each block's replacement from `b` -- and the
 // result has to be `b`, line for line under the comparison in force. The
 // original strings are compared, not the interned ids, so the interning is
 // checked along with the search.

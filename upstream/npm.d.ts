@@ -79,7 +79,7 @@ export class HttpError extends Error {
   status: number
 }
 
-// A package's GitHub repo as its registry metadata names it — getRepo
+// A package's GitHub repo as its registry metadata names it -- getRepo
 // (package.js) over its `latest` document: `github` is `owner/name`, and
 // `directory` is where in the repo the package sits, `''` at the repo
 // root, absent where it declares none. Throws when the package cannot be

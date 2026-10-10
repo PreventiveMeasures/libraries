@@ -1,7 +1,7 @@
 // Finding ids, stamped by the analyzer onto its JSON output and filled
 // in by the viewer for findings that arrive without one. Web Crypto is
-// the common surface — `crypto.subtle` exists in modern Node and in
-// secure browser contexts — so one implementation runs in both.
+// the common surface -- `crypto.subtle` exists in modern Node and in
+// secure browser contexts -- so one implementation runs in both.
 //
 // Two reports from the same source give a finding the same id; an edit
 // to its description or its source invalidates it.
@@ -33,7 +33,7 @@ async function fingerprintToId(fingerprint) {
 }
 
 // Stable per-finding id from the (severity, description, fileHash) triple
-// the analyzer emits. fileHash being undefined is fine — JSON.stringify
+// the analyzer emits. fileHash being undefined is fine -- JSON.stringify
 // drops undefined keys, so a finding with no hash keys off the pair and
 // re-runs over the same source yield the same ids.
 export function findingId(severity, description, fileHash) {
@@ -42,16 +42,16 @@ export function findingId(severity, description, fileHash) {
 
 // An id derived from a finding, on the first discriminator it carries.
 // null when `crypto.subtle` is unavailable (some `file://` setups), so
-// the caller can fall back to a session-local id — the UI still works,
+// the caller can fall back to a session-local id -- the UI still works,
 // without persistent triage on those findings.
 //
 // In order:
-//   - _idBasis  — a FROZEN fingerprint a parser stamped, used verbatim;
+//   - _idBasis  -- a FROZEN fingerprint a parser stamped, used verbatim;
 //                 it exists so a change to the rendered description
 //                 can't re-key stored triage (parse-md-id.js).
-//   - fileHash  — as `findingId` above.
-//   - location  — a markdown import's url, also stable.
-//   - file/line — last resort for a JSON finding with neither: not what
+//   - fileHash  -- as `findingId` above.
+//   - location  -- a markdown import's url, also stable.
+//   - file/line -- last resort for a JSON finding with neither: not what
 //                 the spec prescribes, but better than collapsing two
 //                 unrelated findings onto one id.
 export async function deriveFindingId(f) {
@@ -65,7 +65,7 @@ export async function deriveFindingId(f) {
 }
 
 // The choice above as the object that gets hashed. Key order is part of
-// the id — JSON.stringify keeps insertion order — so every shape lists
+// the id -- JSON.stringify keeps insertion order -- so every shape lists
 // severity and description first.
 export function fingerprintOf(f) {
   if (f._idBasis) return f._idBasis

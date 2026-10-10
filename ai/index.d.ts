@@ -4,7 +4,7 @@
 // surface, so the declarations below should read against it name for name,
 // in the same order and under the same headings.
 //
-// Keep it honest. Nothing checks these against the implementation — a
+// Keep it honest. Nothing checks these against the implementation -- a
 // declaration that drifts is a silent lie to every caller that trusts it,
 // so a change to an exported signature belongs in the same commit as the
 // change here.
@@ -87,7 +87,7 @@ interface CacheOpts {
 // it is even a string.
 export declare const DEFAULT_MODEL: string
 export declare const EFFORT_LEVELS: readonly string[]
-// The price table's model names — what the console OFFERS, never what the
+// The price table's model names -- what the console OFFERS, never what the
 // API allows: `model` is free text and an unknown one is simply unpriced.
 export declare const KNOWN_MODELS: readonly string[]
 export declare const TASK_BUDGET_MODELS: ReadonlySet<string>
@@ -142,7 +142,7 @@ interface AskOptions {
   // partial once, so a retry of a rejected answer starts fresh.
   partial?: CacheOpts | undefined
   // The turns being resumed, `[]` on a fresh run, before the first request
-  // goes out — for a caller whose tools carry state those turns rebuild.
+  // goes out -- for a caller whose tools carry state those turns rebuild.
   onStart?: ((history: HistoryEntry[]) => void | Promise<void>) | undefined
   debug?: boolean | undefined
   debugRequests?: boolean | undefined
@@ -152,11 +152,11 @@ interface AskOptions {
   // (429, 5xx, an upstream-unavailable body), up to min(retries, RETRIES)
   // for anything else, so 0 turns retries off. RETRIES when omitted; any
   // other value but a non-negative integer throws before a request is sent.
-  // Only an HTTP provider retries — chrome has no upstream to re-ask.
+  // Only an HTTP provider retries -- chrome has no upstream to re-ask.
   retries?: number | undefined
 }
 
-// `text` is null exactly when `error` is set — a failed request, malformed
+// `text` is null exactly when `error` is set -- a failed request, malformed
 // tool args, or the turn cap. `usage` and `history` are whole either way,
 // so the caller can account for and cache what it did spend.
 interface AskResult {
@@ -170,7 +170,7 @@ export declare function ask(options: AskOptions): Promise<AskResult>
 export declare function logTurnCost(label: string, model: string, usage: Usage, pass?: string | undefined): void
 // Sums a stored history, or reads a single stored response. Null when
 // nothing in it carried usage. Given the model, each response is priced
-// into `cost` as it is read — the only way to price a sum, since a
+// into `cost` as it is read -- the only way to price a sum, since a
 // long-context tier is chosen per request.
 export declare function normalizeUsage(data: unknown, model?: string | undefined): Usage | null
 
@@ -201,7 +201,7 @@ export declare const RETRIES: number
 export declare function setFetchConcurrency(limit: number): void
 
 // The response cache on disk: where it lives, how an entry is addressed,
-// and the reads and writes over it — final entries, rejected responses kept
+// and the reads and writes over it -- final entries, rejected responses kept
 // for a person to read, the retiring of one no run should pick up again,
 // and the two scans that walk what has accumulated.
 //
@@ -224,7 +224,7 @@ export declare function cacheKey(systemPrompt: string, userContent: string, opts
   bundleId?: string | undefined
 }): Promise<string>
 // Takes the entry at this key out of service, for a caller holding an answer no later run should
-// serve or resume onto — one that failed its format check, say. The answer goes; its turn history
+// serve or resume onto -- one that failed its format check, say. The answer goes; its turn history
 // moves to `.invalid.json`, over any dump already there, where a person can still read it.
 export declare function invalidateCacheEntry(userContent: string, opts: CacheOpts): Promise<void>
 // Monotonic for the process lifetime: snapshot and diff for a per-run window.
@@ -232,20 +232,20 @@ export declare function getCacheStats(): { hits: number, misses: number }
 // `json` is the stored turn history, `key` the entry's on-disk basename,
 // `userContent` the candidate this entry was found under.
 //
-// `validate` judges the entry — returning what the caller needs out of it,
-// or anything falsy for one this run cannot use — and declares the lookup a
+// `validate` judges the entry -- returning what the caller needs out of it,
+// or anything falsy for one this run cannot use -- and declares the lookup a
 // request of the run, so exactly one hit or miss is counted for it. What it
 // returned comes back as `value`. Without it nothing is counted.
 //
 // `userContent` may be a list of candidate keys, tried in order: still one
 // request, counted once. The opposite of what a list means to ask(), which
-// joins its blocks into one key — so join them before looking one up here.
+// joins its blocks into one key -- so join them before looking one up here.
 export declare function getCached<T>(userContent: string | string[], opts: CacheOpts, options: {
   validate: (entry: CacheEntry) => T | Promise<T>
 }): Promise<(CacheEntry & { value: Awaited<T> }) | null>
 export declare function getCached(userContent: string | string[], opts: CacheOpts): Promise<CacheEntry | null>
 // Keeps the rejected response for inspection, then hands back the Error to
-// throw — for a call site that gives up rather than returns.
+// throw -- for a call site that gives up rather than returns.
 export declare function invalidResponseError(error: string, userContent: string, history: HistoryEntry[], opts: CacheOpts): Promise<Error>
 export declare function listCacheEntries(type: string, model: string, systemPrompt: string, opts?: {
   think?: boolean | undefined
@@ -254,7 +254,7 @@ export declare function listCacheEntries(type: string, model: string, systemProm
 }): Promise<{ key: string, userContent: string }[]>
 export declare function recordCacheHit(): void
 export declare function recordCacheMiss(): void
-// `skipType` names the request types whose entries must not be touched —
+// `skipType` names the request types whose entries must not be touched --
 // see index.js. Never throws on a cache it cannot read: the counts say what
 // happened.
 export declare function rehashCache(model: string, opts?: {

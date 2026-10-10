@@ -1,4 +1,4 @@
-// UTF-8 encoding for the id hashing — a copy of triage's
+// UTF-8 encoding for the id hashing -- a copy of triage's
 // `common/utf8.js` minus its decoding half, since nothing under
 // `report/` imports from outside it. Both copies' tests assert the same
 // cases byte for byte.

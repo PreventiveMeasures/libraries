@@ -9,7 +9,7 @@ import { checkName, resolvePath } from '../names.js'
 import { fromHostedUrl } from './hosted.js'
 
 // npm-package-arg's, whose case-insensitive [a-z] is ASCII alone, where
-// a Unicode one would take `ſ` and the Kelvin sign too.
+// a Unicode one would take the long s and the Kelvin sign too.
 const URL_SPEC = /^(?:[Gg][Ii][Tt]\+)?[A-Za-z]+:/u
 const SCP = /^[^@]+@[^.:]+\.[^:]+:.+$/iu
 const FILE_TYPE = /\.(?:tgz|tar\.gz|tar)$/iu

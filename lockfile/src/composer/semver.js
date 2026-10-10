@@ -17,9 +17,9 @@ const WORD = '[^,\\t\\n\\v\\f\\r ]'
 export const DEFAULT_BRANCH_ALIAS = '9999999-dev'
 
 // Caseless as PCRE is without /u, of ASCII alone: JavaScript's `iu` takes
-// ſ for s and the Kelvin sign for k, as `i` alone does not. The ones
-// written out below have no s, k or class of letters, which alone ſ and
-// the Kelvin sign fold into.
+// the long s for s and the Kelvin sign for k, as `i` alone does not. The
+// ones written out below have no s, k or class of letters, which alone the
+// long s and the Kelvin sign fold into.
 const regex = (source, flags = '') => new RegExp(source, flags || 'u')
 
 const AS = regex(`^(${WORD}+) +as +(${WORD}+)$`)
@@ -243,7 +243,7 @@ export function parseConstraints(text) {
   return create(groups.map((parts) => parts.flat()).map((list) => (list.length === 1 ? list[0] : { multi: list, conjunctive: true })))
 }
 
-// Constraint::versionCompare: a branch, `dev-…`, is equal to itself alone,
+// Constraint::versionCompare: a branch, `dev-...`, is equal to itself alone,
 // and comparable to no other version.
 function compareBranches(a, b, operator) {
   const aBranch = a.startsWith('dev-')

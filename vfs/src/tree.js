@@ -1,5 +1,5 @@
 // A tree of inodes taken whole: walked depth first, siblings in code point
-// order, and merged into another as Vfs.mount does it — copied, then judged
+// order, and merged into another as Vfs.mount does it -- copied, then judged
 // entry by entry in that order, a directory into one there under the same
 // name and anything else beside what is there, and put in place once all
 // is judged, so a refusal changes nothing. Links are names here like any

@@ -11,7 +11,7 @@ import { githubRepoOfUrl } from '../remote.js'
 
 const PACKAGES_AT_ONCE = 8
 
-// Name → its GitHub repo, or null where the registry has no such package
+// Name -> its GitHub repo, or null where the registry has no such package
 // or it names no GitHub repo; any other failure throws. Only a repo found
 // is cached, for a month, in the cache set or `cache` (readRecord).
 async function cachedRepos(dir, names, fetchMissing, cache) {

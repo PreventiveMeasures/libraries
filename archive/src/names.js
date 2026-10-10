@@ -1,8 +1,8 @@
 // Name safety, applied before writing an entry and before handing one out
 // of an archive. A name is a relative path: `.` segments and a directory's
 // trailing slash are dropped, and what is left has no empty or `..`
-// segment, no control character and no backslash — a separator on
-// Windows, where `..\` would get past the check on `..` — and does not
+// segment, no control character and no backslash -- a separator on
+// Windows, where `..\` would get past the check on `..` -- and does not
 // start with a drive letter and colon, which Windows resolves from that
 // drive rather than from the archive. A symlink target may use `..`, but
 // is followed from where the link sits and refused if it climbs above the
@@ -17,7 +17,7 @@
 // A name may repeat only as the same entry again, field for field and byte
 // for byte (some npm packagers write `d/f` and `d/./f` both): two different
 // entries under one name would leave the winner to extraction order.
-// Collisions a filesystem might add — case, Unicode normalisation — are
+// Collisions a filesystem might add -- case, Unicode normalisation -- are
 // the filesystem's, not the archive's, and are not looked for.
 
 import { sameBytes } from './bytes.js'
@@ -121,7 +121,7 @@ const FIELDS = ['type', 'mode', 'uid', 'gid', 'mtime', 'uname', 'gname', 'linkna
 // Each name seen is an entry, a directory entry, or a directory implied by
 // an entry inside it or by a symlink target walking through it; an implied
 // directory may still be named as one. An entry inside a non-directory is
-// refused — that is the shape of a path through a symlink — and so is a
+// refused -- that is the shape of a path through a symlink -- and so is a
 // symlink target that walks through one, in either order, so no chain of
 // links leads out of the archive. Whether entries are kept with their data
 // decides what a repeat can be compared with: the in-memory calls keep
@@ -184,7 +184,7 @@ export class Names {
   }
 
   // A target followed from `at`: it has to stay inside the archive, and every
-  // path it walks through has to be a directory — each one it stands on short
+  // path it walks through has to be a directory -- each one it stands on short
   // of the last step, the archive root aside. `what` names it in a refusal.
   #symlink(at, target, what) {
     const steps = checkSymlinkTarget(at, target)

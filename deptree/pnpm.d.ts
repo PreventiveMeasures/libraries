@@ -11,7 +11,7 @@ export { LockfileError, YamlError } from '@preventive/lockfile/pnpm.js'
 // Where @preventive/upstream caches what it fetches, tarballs among them.
 // Tarballs are fetched through it, and that is the one place anything here
 // touches a filesystem. Before the network, it takes a tarball from npm's
-// cache — under $npm_config_cache, or ~/.npm — from ~/.audit/cache/tgz, or
+// cache -- under $npm_config_cache, or ~/.npm -- from ~/.audit/cache/tgz, or
 // from its own default cache directory or stasis's, where one there has the
 // lockfile's integrity, and writes none of them; then from its own cache,
 // where one is set, which is where it writes each tarball it fetches:
@@ -31,7 +31,7 @@ export { setCacheDir } from '@preventive/upstream/npm.js'
 // that pins none. `node` is the Node it runs on,
 // unless the settings name a nodeVersion or, for pnpm 11, the root
 // package.json's engines.runtime pins one; `os`, `cpu` and `libc` as Node
-// and pnpm name them — `linux`, `x64`, `glibc` — with `unknown` for a libc
+// and pnpm name them -- `linux`, `x64`, `glibc` -- with `unknown` for a libc
 // outside Linux, as pnpm has it.
 // Windows is refused: pnpm links there with junctions to absolute paths.
 // An optional package the machine cannot run is left out, as pnpm leaves
@@ -79,14 +79,14 @@ export interface PnpmProject {
 // text given; a refusal names each as it would given:
 // `manifests["packages/x"]`, `patches["patches/p.patch"]`.
 //
-// Settings from anywhere else — another .npmrc, the environment, the
-// command line — are not read, and are taken to be at their defaults; so
+// Settings from anywhere else -- another .npmrc, the environment, the
+// command line -- are not read, and are taken to be at their defaults; so
 // is pnpm taken to run as itself, not under corepack, and free to switch
 // to the version a project pins.
 //
 // A workspace is one lockfile for several projects, each a package.json:
 // the root, and every directory pnpm-workspace.yaml's `packages` globs
-// take, as pnpm globs for them — `*` and `**`, a leading `!` to leave out,
+// take, as pnpm globs for them -- `*` and `**`, a leading `!` to leave out,
 // and no other glob syntax. Without `packages` the root is the only
 // project. Every importer has to have its package.json, and be a project
 // those globs take; and every project pnpm would find has to be given,
@@ -111,12 +111,12 @@ export interface PnpmProject {
 // those name none are pnpm-workspace.yaml's `overrides` read. `$name` in
 // one is the root package.json's own specifier for `name`, and
 // `catalog:` what the workspace's catalog gives the package. One to a
-// directory — a path alone, such as `./vendor/foo`, `link:` or `file:` —
+// directory -- a path alone, such as `./vendor/foo`, `link:` or `file:` --
 // is read only with `project` given, and only where the directory is
 // under the lockfile's and holds a package.json there. pnpm links to it by a
 // path alone or `link:`. By `file:` it installs it as a package, of the
-// files its packlist picks — npm-packlist 5.1.3 for pnpm 9 and 10, 10.0.4
-// for pnpm 11, and pnpm 12's own port of it — which each is followed here
+// files its packlist picks -- npm-packlist 5.1.3 for pnpm 9 and 10, 10.0.4
+// for pnpm 11, and pnpm 12's own port of it -- which each is followed here
 // as that version runs: by package.json's `files`, `main`, `bin` and, but
 // for pnpm 12, `browser`; by the .npmignore and .gitignore files where it
 // reads them; and by its own rules, case and all, odd steps among them,
@@ -136,12 +136,12 @@ export interface PnpmProject {
 // time linear in the path and the pattern. pnpm hardlinks those files from
 // the directory into each snapshot of the package, in their modes, which
 // are refused but for a checkout's under umask 022 or 002: 0o644, 0o664,
-// 0o755 and 0o775. So a file linking a bin makes executable — 0o755 for
-// pnpm 9 and 10, its mode with 0o111 added for 11 and 12 — is made so in
+// 0o755 and 0o775. So a file linking a bin makes executable -- 0o755 for
+// pnpm 9 and 10, its mode with 0o111 added for 11 and 12 -- is made so in
 // every snapshot and in the directory, which is not written here; a CRLF
-// `#!` line it rewrites is rewritten as a file of that snapshot's own. Where it builds the package — an install script, a
+// `#!` line it rewrites is rewritten as a file of that snapshot's own. Where it builds the package -- an install script, a
 // binding.gyp, which pnpm 11 and 12 pass over with `gypfile: false`, or a
-// .hooks directory — or, with pnpm 11 and 12, where packageImportMethod is
+// .hooks directory -- or, with pnpm 11 and 12, where packageImportMethod is
 // other than auto or hardlink, each snapshot has a copy of its own
 // instead. One by `file:` to a tarball is refused, and so is a `file:`
 // dependency no override names. One to the lockfile's own directory that
@@ -159,8 +159,8 @@ export interface PnpmProject {
 //
 // Of the .npmrc, only what pnpm reads for an install is read: its settings
 // by their kebab-case names, those that can change the tree held to what
-// is built here, and all else — npm's own settings, publishing's,
-// credentials, other names — passed over. A `${VAR}` pnpm would fill in is
+// is built here, and all else -- npm's own settings, publishing's,
+// credentials, other names -- passed over. A `${VAR}` pnpm would fill in is
 // taken in a line passed over where the rest of the file would not change
 // the tree, as pnpm drops the whole file where the variable is unset; but
 // `//registry.npmjs.org/:_authToken=${NPM_TOKEN}`, the registry's token as
@@ -174,8 +174,8 @@ export interface PnpmProject {
 // its packageManager, devEngines.packageManager and engines.runtime
 // checks do. The tree follows the lockfile, as pnpm 11's does with
 // trustLockfile: minimumReleaseAge, and the rest of what pnpm 11 checks the
-// lockfile against the registry by before it installs — each package's
-// publish time, its tarball URL, its trust — are passed over.
+// lockfile against the registry by before it installs -- each package's
+// publish time, its tarball URL, its trust -- are passed over.
 //
 // pnpm 12 reads them so too. Where the root package.json pins a pnpm that
 // host.pnpm is, it fails on a key of pnpm-workspace.yaml it does not know,
@@ -210,7 +210,7 @@ export interface PnpmProject {
 //
 // `vfs` is a Vfs to mount the tree into, at its root, which is taken to
 // be the lockfile's directory, beside whatever it holds, such as the
-// projects themselves — it may be `project` too; without one, a new Vfs
+// projects themselves -- it may be `project` too; without one, a new Vfs
 // holds the tree alone. Nothing the tree is built from is read from it. A
 // Vfs that holds a node_modules anywhere, or on macOS a name that is one
 // there, is refused before anything is fetched: kept beside the tree, Node
@@ -291,7 +291,7 @@ export interface PnpmTreeStats {
 }
 
 // A snapshot in the tree, as an SBOM would list it: `path` is where its
-// files are, from the lockfile's directory, which is `/` of the Vfs —
+// files are, from the lockfile's directory, which is `/` of the Vfs --
 // node_modules/.pnpm/<dir>/node_modules/<name>; `key` the lockfile's
 // snapshot key, its peers and patch hash in it. `name` and `version` are
 // the package's own, which its package.json is held to, and `integrity`
@@ -371,9 +371,9 @@ export interface PnpmTree {
 // out of the package, which is refused; it fails on a bin that is a
 // directory, which is refused, where pnpm 10 passes over it.
 //
-// pnpm 11 links bins otherwise in places — npm owns `npx` and pnpm its
+// pnpm 11 links bins otherwise in places -- npm owns `npx` and pnpm its
 // aliases, a project's .bin takes the bins of the peers its dependencies
-// require — and each is built as the one given links them.
+// require -- and each is built as the one given links them.
 //
 // pnpm 12, a rewrite of pnpm, makes its tree otherwise again, and it is
 // built as pnpm 12 makes it. It links each package's own bins into its own
@@ -430,9 +430,9 @@ export interface PnpmTree {
 // steps, weighted by the work each does, or a tree of 100,000 packages.
 //
 // The lockfile is held to what a frozen install holds it to, and refused
-// where pnpm would refuse it: the settings that shaped its resolution —
+// where pnpm would refuse it: the settings that shaped its resolution --
 // catalogs, overrides, package extensions, optional dependencies left out,
-// patches, autoInstallPeers, dedupePeers, peersSuffixMaxLength — and each
+// patches, autoInstallPeers, dedupePeers, peersSuffixMaxLength -- and each
 // project's package.json, read through pnpm's read-package hook as pnpm
 // reads it. The root package.json's packageManager, where it has one, has
 // to be `pnpm@` host.pnpm exactly, as pnpm would switch to the one it
@@ -519,7 +519,7 @@ export interface PnpmTree {
 // name, a patch that does not hash or apply, a check above that fails,
 // text that is not well-formed where it is hashed, a patch that would
 // change a bin's file between two times pnpm links it, a file whose mode
-// would turn on the order a directory is read in — each is refused with a
+// would turn on the order a directory is read in -- each is refused with a
 // DeptreeError that says where: where the lockfile reader or the YAML
 // parser refused pnpm-lock.yaml or pnpm-workspace.yaml, it names the file,
 // and its cause is their LockfileError or YamlError. A TypeError is thrown
@@ -578,8 +578,8 @@ export interface PnpmProjectsOptions {
 
 export function findPnpmProjects(options: PnpmProjectsOptions): string[]
 
-// `where` is what a refusal is about — `pnpm-workspace.yaml: nodeLinker`,
-// `.npmrc:3: node-linker`, `pnpm-lock.yaml`, a package's key — or
+// `where` is what a refusal is about -- `pnpm-workspace.yaml: nodeLinker`,
+// `.npmrc:3: node-linker`, `pnpm-lock.yaml`, a package's key -- or
 // undefined for the call as a whole; the message leads with it. `cause` is
 // what a package beneath refused with, where one did: the lockfile
 // reader's LockfileError, its YamlError, a fetch's failure.

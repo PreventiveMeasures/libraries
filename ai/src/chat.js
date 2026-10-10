@@ -11,7 +11,7 @@ import { issueTurn, resolveTaskBudget } from './task-budget.js'
 
 // One conversation with a model, end to end: the first message, a turn per request, the caller's
 // tool calls handed back and their results threaded into the next turn, and what the whole thing
-// cost. What to ask and how to read the answer belong to the caller — nothing here inspects the
+// cost. What to ask and how to read the answer belong to the caller -- nothing here inspects the
 // text.
 const DEFAULT_MAX_TOOL_TURNS = 30
 
@@ -41,9 +41,9 @@ function price(usage, model) {
 // Run one conversation to completion and return `{ text, error, usage, history }`. With no `tools`
 // it is a single request; with them, the loop keeps going as long as the model keeps calling them.
 //
-// `maxToolTurns` caps the assistant↔tool round-trips: each turn is one API request whose response
+// `maxToolTurns` caps the assistant<->tool round-trips: each turn is one API request whose response
 // can include zero or more tool calls (the provider may batch). It is NOT a hard ceiling on total
-// tool calls — the model can fan out N calls in a single turn — so callers that need a per-call
+// tool calls -- the model can fan out N calls in a single turn -- so callers that need a per-call
 // budget have to enforce that separately. The "Max tool call turns reached" exit message matches
 // the variable's semantics.
 //
@@ -52,15 +52,15 @@ function price(usage, model) {
 // its first request. A long tool session killed at turn 20 picks up there instead of paying for 20
 // turns again. Without it a conversation starts and ends in one go.
 //
-// `onStart` (optional) is handed the turns being resumed — `[]` on a fresh run — before the first
+// `onStart` (optional) is handed the turns being resumed -- `[]` on a fresh run -- before the first
 // request goes out, for a caller whose tools carry state those turns have to rebuild.
 //
 // `retries` (optional) overrides how many times each of this conversation's requests is re-asked
-// when it fails — RETRIES when omitted, 0 for none; fetchJSON says which failures get how many.
+// when it fails -- RETRIES when omitted, 0 for none; fetchJSON says which failures get how many.
 // Checked here, before anything is sent: a budget of NaN or -1 compares false against every
 // attempt and quietly means zero, the opposite of what a caller passing one through expected.
 export async function ask({ model, maxTokens, systemPrompt, userContent, think = false, effort, tools, handleToolCall, maxToolTurns = DEFAULT_MAX_TOOL_TURNS, partial, onStart, debug, debugRequests, label, taskBudget = 'never', retries, ...rest }) {
-  assert(!('userContentSuffix' in rest), 'userContentSuffix is gone — pass userContent as [preamble, suffix] instead')
+  assert(!('userContentSuffix' in rest), 'userContentSuffix is gone \u2014 pass userContent as [preamble, suffix] instead')
   assert(Boolean(tools) === Boolean(handleToolCall), 'tools and handleToolCall must be both provided or both omitted')
   assert(retries === undefined || (Number.isSafeInteger(retries) && retries >= 0), 'retries must be a non-negative integer')
   const totalUsage = emptyUsage()
@@ -76,7 +76,7 @@ export async function ask({ model, maxTokens, systemPrompt, userContent, think =
   // tail as separate blocks still resumes under the key its final result will be cached at.
   const keyContent = flattenUserContent(userContent)
   // Per-turn partial writes are best-effort resilience: a disk error (permissions, ENOSPC) must not
-  // abort a conversation in progress, so log and carry on — the final write still gets its chance.
+  // abort a conversation in progress, so log and carry on -- the final write still gets its chance.
   // setPartial recovers an oversized history's JSON.stringify overflow internally.
   const savePartial = async () => {
     if (!partial) return
@@ -92,13 +92,13 @@ export async function ask({ model, maxTokens, systemPrompt, userContent, think =
 
   let messages
   // Replay the cached turns: history and texts are repopulated, and `messages` is rebuilt from the
-  // last entry's snapshot. Note we deliberately do NOT add cached-entry usage into `totalUsage` —
+  // last entry's snapshot. Note we deliberately do NOT add cached-entry usage into `totalUsage` --
   // those tokens were paid in the prior (interrupted) invocation and are already reflected in that
   // run's cost line; counting them here would inflate the "new" cost reported for this invocation.
   // The `messages` snapshot is stored per-entry (not reconstructed from request.messages) because
   // requests are provider-shaped (OpenAI Responses uses `request.input`; OpenRouter prepends its
   // own system message); the provider check in resumeFrom already gated us into a matching shape.
-  // Tail `appendToolResults` is only applied when the last entry actually had tool calls — a
+  // Tail `appendToolResults` is only applied when the last entry actually had tool calls -- a
   // terminal-turn entry has nothing to append.
   if (previous) {
     for (const entry of previous) {
@@ -106,7 +106,7 @@ export async function ask({ model, maxTokens, systemPrompt, userContent, think =
       texts.push(extractResponseText(entry.response))
     }
     const last = previous.at(-1)
-    // Last cached turn produced no tool calls — the previous run had already issued its final
+    // Last cached turn produced no tool calls -- the previous run had already issued its final
     // assistant message and would have returned at this point. Short-circuit to avoid a redundant
     // API round-trip (and the cost / nondeterministic re-roll that would come with it) when the
     // partial got persisted but the final setCache write didn't make it (process killed
@@ -120,12 +120,12 @@ export async function ask({ model, maxTokens, systemPrompt, userContent, think =
 
   const gateKey = prefixKey(model, tools, systemPrompt)
   for (let turn = history.length; turn < maxToolTurns; turn++) {
-    // Snapshot the pre-turn messages array before buildRequestBody — appendToolResults mutates it
+    // Snapshot the pre-turn messages array before buildRequestBody -- appendToolResults mutates it
     // in place, so a post-hoc capture would leak the next turn's state into this entry.
     const preMessages = [...messages]
     // Head turn only: hold siblings sharing this prefix until the first one replies, so they read
     // the cache entry it writes instead of racing to write their own. Released the moment the reply
-    // lands, not held for the rest of the chain — later turns of this conversation are sequential
+    // lands, not held for the rest of the chain -- later turns of this conversation are sequential
     // and extend a prefix nobody else shares.
     const release = turn === history.length ? await claimPrefix(gateKey) : null
     const { request, response, error, failedAttemptResponse } = await issueTurn({
@@ -181,7 +181,7 @@ async function resumeFrom(keyContent, partial, stamp, { debug, label }) {
 
 // Validate a cached partial history is safe to replay. Resume needs every entry to be an object
 // with both a `response` (extractResponseText reads it) and a `messages` array (the pre-turn
-// snapshot chat rebuilds the loop state from). One bad entry invalidates the whole partial —
+// snapshot chat rebuilds the loop state from). One bad entry invalidates the whole partial --
 // resumeFrom invalidates it and starts fresh rather than risking a mid-replay crash.
 //
 // `provider` (optional): require every entry's `provider` stamp to match. `messages` content blocks
@@ -212,9 +212,9 @@ export function isResumableHistory(history, { provider } = {}) {
 // `usage.cost` is already the answer whenever it is set. `?? 0` is the unknown-model fallback so
 // logging doesn't crash when calculateCost returns null.
 //
-// `pass` (optional) names the caller in the line — `[debug] Post-process tokens for …` — so several
+// `pass` (optional) names the caller in the line -- `[debug] Post-process tokens for ...` -- so several
 // passes over the same `label` stay legible apart from each other and from the plain
-// `[debug] Tokens for …`.
+// `[debug] Tokens for ...`.
 export function logTurnCost(label, model, usage, pass) {
   const cost = usage.cost > 0 ? usage.cost : (turnCost(model, usage) ?? 0)
   const what = pass ? `${pass} tokens` : 'Tokens'

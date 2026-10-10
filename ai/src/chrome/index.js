@@ -9,7 +9,7 @@ import { claimProfile, dropProfile, pruneProfileRoot } from './profile.js'
 import { CHROME_SHAPE, explainCreateFailure, toChatCompletions } from './wire.js'
 
 // One entry point for the provider: CHROME_ADAPTER at the foot of this file, which providers.js takes
-// whole. model.js, profile.js and wire.js are not re-exported — a caller that wants one reaches for
+// whole. model.js, profile.js and wire.js are not re-exported -- a caller that wants one reaches for
 // it by name.
 
 // Chrome's built-in Prompt API (developer.chrome.com/docs/ai/prompt-api) over CDP, via
@@ -64,7 +64,7 @@ export function chromeTarget() {
 
 
 // `LanguageModel` needs a secure context, and about:blank and data: URLs are opaque origins where
-// it is absent — but file:// is potentially trustworthy. /dev/null is not a thing on Windows, so
+// it is absent -- but file:// is potentially trustworthy. /dev/null is not a thing on Windows, so
 // there the profile gets a page.
 function blankPage(profile) {
   if (process.platform !== 'win32') return 'file:///dev/null'
@@ -97,8 +97,8 @@ async function launch(baseModel, debug) {
   // A persistent context rather than launch(): the profile has to exist before Chrome starts so the
   // component tree can be grafted into it.
   const profile = claimProfile(modelDir, baseModel)
-  // Everything below can throw — a missing peer, a browser that will not start, a page that will
-  // not navigate — and the profile goes with it.
+  // Everything below can throw -- a missing peer, a browser that will not start, a page that will
+  // not navigate -- and the profile goes with it.
   try {
     return await openBrowser(profile, modelDir, baseModel, debug)
   } catch (err) {
@@ -125,8 +125,8 @@ export function launchArgs(modelDir, baseModel) {
     // VeryHigh (0 Unknown, 1 Error, 2 VeryLow, 3 Low, 4 Medium, 5 High, 6 VeryHigh).
     `--optimization-guide-performance-class=${env('CHROME_PERFORMANCE_CLASS') || '6'}`,
     // Never fetch a model: the manifest broker would pull gigabytes through the grafted symlinks
-    // into the user's REAL component tree. --disable-component-update misses it — it registers at
-    // runtime — but every fetch goes through the configurator, and port 1 is restricted.
+    // into the user's REAL component tree. --disable-component-update misses it -- it registers at
+    // runtime -- but every fetch goes through the configurator, and port 1 is restricted.
     '--component-updater=url-source=http://127.0.0.1:1/no-downloads',
   ]
 }
@@ -143,11 +143,11 @@ export function launchOptions(modelDir, baseModel) {
     ignoreDefaultArgs: IGNORED_DEFAULT_ARGS,
     args: launchArgs(modelDir, baseModel),
     // Playwright turns the process sandbox OFF by default, which lands a renderer compromise in the
-    // caller's own account. On, unless there is nowhere to put it — as root, or in a container
+    // caller's own account. On, unless there is nowhere to put it -- as root, or in a container
     // without user namespaces, Chrome refuses to start and CHROME_SANDBOX=0 is the way out.
     chromiumSandbox: env('CHROME_SANDBOX') !== '0',
     // Nothing here needs the network: a file:// page and a model on disk, so a socket is a symptom.
-    // Does NOT cover the component updater, which is a browser-process fetch — see
+    // Does NOT cover the component updater, which is a browser-process fetch -- see
     // --component-updater in launchArgs.
     offline: true,
   }
@@ -203,7 +203,7 @@ const turns = new Set()
 
 // How long the browser sits with nothing in flight or pending before closing itself. A caller that
 // never reaches closeProvider stops paying for one, and node can exit, which an open browser
-// otherwise prevents. Read per arm, so a caller can set its own — 0 keeps the browser until
+// otherwise prevents. Read per arm, so a caller can set its own -- 0 keeps the browser until
 // closeProvider says so.
 let idleClose
 function armIdleClose() {
@@ -270,7 +270,7 @@ const BOILERPLATE = /uses Chrome's Built-In AI features/u
 /* eslint-disable no-undef */
 export async function turnInPage(req) {
   if (typeof LanguageModel === 'undefined') {
-    return { error: { message: 'LanguageModel is not exposed — this is not a branded Chrome' } }
+    return { error: { message: 'LanguageModel is not exposed \u2014 this is not a branded Chrome' } }
   }
   // No availability() gate: it reports `unavailable` for a model that is merely unloaded, which
   // would refuse turns the browser can serve. A create() that cannot work fails below with the

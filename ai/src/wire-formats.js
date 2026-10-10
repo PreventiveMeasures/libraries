@@ -3,7 +3,7 @@ import { ANTHROPIC_SYSTEM_CACHE, cachesConversation, chatCompletionsInitialUserM
 
 // Wire formats the adapters are assembled from, kept out of providers.js so that file stays the
 // provider registry and dispatch surface. The Anthropic Messages format lives here because two
-// adapters build it — the direct one and a gateway routing an anthropic/* model — and the
+// adapters build it -- the direct one and a gateway routing an anthropic/* model -- and the
 // truncation contract lives here because every format reports it the same way.
 
 // Truncation error shape shared by every adapter: same sentence, differing only in the output-cap
@@ -13,7 +13,7 @@ const TRUNCATION_PREFIX = 'Response truncated: hit '
 export const truncationError = (maxTokensField) => `${TRUNCATION_PREFIX}${maxTokensField} limit`
 export const isMaxTokensTruncation = (error) => typeof error === 'string' && error.startsWith(TRUNCATION_PREFIX)
 // JSON-parse a model-supplied tool-call args string. A malformed string is a model hallucination,
-// not our bug — surface it via `argsError` instead of throwing so the caller's retry loop can
+// not our bug -- surface it via `argsError` instead of throwing so the caller's retry loop can
 // handle it gracefully. Shared: every adapter that carries tool args as a string parses them this
 // way.
 export function parseArgs(raw, name) {
@@ -30,7 +30,7 @@ export function stripNamespace(model, prefix) {
 export function toAnthropicModel(model) {
   return stripNamespace(model, 'anthropic/').replaceAll(/(\d+)\.(\d+)/gu, '$1-$2')
 }
-// The Anthropic Messages wire format — body, headers and parsing — shared by the direct adapter and
+// The Anthropic Messages wire format -- body, headers and parsing -- shared by the direct adapter and
 // by a gateway routing an anthropic/* model. Only the endpoint differs between them, so nothing
 // here may assume api.anthropic.com.
 export const anthropicAuthHeader = (key) => ({ 'x-api-key': key, 'anthropic-version': '2023-06-01' })
@@ -46,7 +46,7 @@ export function anthropicShape(modelId) {
       const body = { model: modelId(model), max_tokens: maxTokens, system: systemContent, messages: [...messages] }
       if (tools) body.tools = tools
       // The conversation tail, at the default 5-minute TTL. One rule for both routes that reach
-      // this code — direct and gateway — so the same model caches the same way whichever way it is
+      // this code -- direct and gateway -- so the same model caches the same way whichever way it is
       // reached.
       if (cachesConversation({ turn })) body.cache_control = { type: 'ephemeral' }
       if (think) {
@@ -109,15 +109,15 @@ export function anthropicShape(modelId) {
 
     // Given blocks, mark the one before the last so multiple variants that share everything ahead
     // of the per-request tail read a single cache entry for it. Same rule, and the same `text`
-    // blocks, the gateway route applies — see prompt-cache.js.
+    // blocks, the gateway route applies -- see prompt-cache.js.
     buildInitialUserMessage: chatCompletionsInitialUserMessage,
   }
 }
 
 
 // Wire-format pieces shared by the OpenAI-style chat-completions backends (OpenRouter, Moonshot).
-// Only the endpoint, the auth header, and the request body differ between them — response parsing
-// and message threading are identical — so both adapters spread this in and override just the parts
+// Only the endpoint, the auth header, and the request body differ between them -- response parsing
+// and message threading are identical -- so both adapters spread this in and override just the parts
 // that are genuinely their own. `maxTokensField` names the request field that adapter caps output
 // with, so a truncation message points at a field actually present in the body it sent.
 export function chatCompletionsBase(maxTokensField) {
@@ -146,7 +146,7 @@ export function chatCompletionsBase(maxTokensField) {
 
     // The initial-message shape for a backend with nothing for us to mark up: Moonshot caches
     // context automatically, and a local model (ollama, the on-device one) caches nothing across
-    // requests at all. A block split buys nothing there — concat and let the server do it.
+    // requests at all. A block split buys nothing there -- concat and let the server do it.
     // CHAT_COMPLETIONS_SHAPE overrides this for the routes whose vendors read a breakpoint.
     buildInitialUserMessage(model, userContent) {
       return { role: 'user', content: flattenUserContent(userContent) }

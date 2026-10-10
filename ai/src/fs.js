@@ -46,7 +46,7 @@ export async function ensureDir(dir) {
   await mkdir(dir, { recursive: true })
 }
 
-// Plain writeFile truncates then streams, so a killed process — or two writers on one key — can leave
+// Plain writeFile truncates then streams, so a killed process -- or two writers on one key -- can leave
 // a torn file that a later run happily LOADS (a truncated `.md` still reads as text). The pid
 // separates processes, the counter two writes racing inside one.
 let tmpSeq = 0

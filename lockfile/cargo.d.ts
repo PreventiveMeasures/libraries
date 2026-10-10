@@ -63,8 +63,8 @@ export interface CargoLockPackage {
 // cargo does not take, a `rust-version` its edition rules out, a library's
 // name that is blank or has a `-`, a build script's path that names no
 // file, on Windows or elsewhere, which cargo crashes on. Sections that bear
-// on no dependency or feature — [badges], [lints], [profile], [[bin]],
-// metadata — are not looked into, nor [lib] but for its name, path and
+// on no dependency or feature -- [badges], [lints], [profile], [[bin]],
+// metadata -- are not looked into, nor [lib] but for its name, path and
 // whether it is a proc-macro.
 export function parseCargoManifest(text: string, workspace?: CargoManifest): CargoManifest
 
@@ -324,7 +324,7 @@ export interface CargoCommand {
 // undefined where it is not known, and `decides` the names of the cfgs of
 // which `cfg` lists every value that holds, every name's where not given. A
 // cfg of another name is undecided, and so is a table for a platform by name
-// where `name` is undefined, or by a cfg(…) that what is undecided could
+// where `name` is undefined, or by a cfg(...) that what is undecided could
 // turn either way, as Kleene's logic takes all, any and not.
 export interface CargoPlatform {
   name: string | undefined

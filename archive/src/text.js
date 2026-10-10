@@ -5,13 +5,13 @@ import { ArchiveError } from './error.js'
 // short of a surrogate pair, so a long one cannot flood it.
 export function quote(text) {
   if (text.length <= 200) return JSON.stringify(text)
-  return JSON.stringify(`${text.slice(0, text.codePointAt(199) > 0xffff ? 199 : 200)}…`)
+  return JSON.stringify(`${text.slice(0, text.codePointAt(199) > 0xffff ? 199 : 200)}\u2026`)
 }
 
 // A C0, DEL or C1 control (Cc is those three and nothing else); a line or
 // paragraph separator (Zl, Zp: one each); and every bidirectional control
-// Unicode names — embeddings, overrides and isolates, and the three marks
-// that shift neutral characters about them unseen — since each breaks or
+// Unicode names -- embeddings, overrides and isolates, and the three marks
+// that shift neutral characters about them unseen -- since each breaks or
 // reorders a name as shown. A backslash too, if asked.
 const UNSAFE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]/u
 const UNSAFE_OR_BACKSLASH = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}\\]/u

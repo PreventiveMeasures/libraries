@@ -1,23 +1,23 @@
-// The findings document — what the "Download" button writes: one
+// The findings document -- what the "Download" button writes: one
 // markdown file a person can read top to bottom or jump around in.
 //
 // The shape, top to bottom:
 //
 //   <!-- DeepView findings export -->
 //   # <title>
-//   - **Source:** … / **Report:** … / **Repository:** … / **Analyzer:** …
-//   - **Exported:** … / **View:** … / **Filters:** … / **Included:** N of M findings
+//   - **Source:** ... / **Report:** ... / **Repository:** ... / **Analyzer:** ...
+//   - **Exported:** ... / **View:** ... / **Filters:** ... / **Included:** N of M findings
 //
 //   ## Summary
 //   <severity counts>  <annotation counts>  <index of findings, linked>
 //
 //   ## Critical (2)
-//   ### 1. <finding>              ← write-md-finding.js from here down
-//   - **Location:** …             the facts
-//   <description>  #### Evidence  #### Impact  …
+//   ### 1. <finding>              <- write-md-finding.js from here down
+//   - **Location:** ...             the facts
+//   <description>  #### Evidence  #### Impact  ...
 //
-// The header is the honest part. An export is a SELECTION — the triage
-// view narrowed by the toolbar filters — and a reader who wasn't at the
+// The header is the honest part. An export is a SELECTION -- the triage
+// view narrowed by the toolbar filters -- and a reader who wasn't at the
 // screen has to be told that a file of 12 findings is 12 of 40, and
 // which 28 are missing and why. So the filters ride in the header, in
 // the confirmation dialog's own words and counts.
@@ -26,13 +26,13 @@
 // (parse-deepview-md.js): the first line marks it, every finding carries
 // its id, and what the facts and sections say is what comes back,
 // whichever format the findings first arrived in. So a value goes on the
-// page in a shape the reader can take back off it — a fact on one line,
+// page in a shape the reader can take back off it -- a fact on one line,
 // a location in a code span, a line of prose that would read as a
 // heading escaped.
 //
 // `doc` is plain data the caller assembles (triage's
 // ui/view/markdown-export.js, or anything else holding findings out of
-// index.js); `hooks` are the few answers only the caller has — where a
+// index.js); `hooks` are the few answers only the caller has -- where a
 // location links, what a reader wrote on a finding, which report a case
 // came from. All optional: the defaults link what the report linked and
 // annotate nothing.
@@ -41,7 +41,7 @@
 //     title, workspace, reports: [{ name, source }], repo, generatedAt,
 //     view: { bucket, severityMode, revalidation, revalidationDetail },
 //     filters: [{ label, value }], counts: { included, total },
-//     groups: [ [finding, …], … ],       // display order, primary case first
+//     groups: [ [finding, ...], ... ],       // display order, primary case first
 //   }, { annotation, location, evidence, commit, report })
 
 import { SEVERITIES, displayedSeverity, locationLabel } from './finding.js'
@@ -66,7 +66,7 @@ const DEFAULT_HOOKS = {
   report: () => null,
 }
 
-// Which producer a finding came from — a `source` marker, null for the
+// Which producer a finding came from -- a `source` marker, null for the
 // analyzer's own dump. Its own when it carries one: a re-imported
 // document that mixed products stamps each product's findings, and a
 // finding stays that product's whatever report it now sits in.
@@ -81,7 +81,7 @@ function sourceReader(reports, hooks) {
 
 // The per-document decisions, made once: the severity lens, whether the
 // revalidation layer is applied, and whether the per-finding analyzer
-// and report lines say anything — written only where they vary, so a
+// and report lines say anything -- written only where they vary, so a
 // single-run report isn't told forty times which run it was.
 function buildContext(doc, hooks, cases) {
   const revalidation = doc.view?.revalidation !== false
@@ -109,17 +109,17 @@ function viewText(view) {
   const parts = [view.bucket ? `${view.bucket} findings` : 'Live findings']
   if (view.severityMode === 'original') parts.push('original analyzer severities')
   else if (view.severityMode === 'corrected') parts.push('corrected severities')
-  if (view.revalidation === false) parts.push('code view — the revalidation pass is not applied')
+  if (view.revalidation === false) parts.push('code view \u2014 the revalidation pass is not applied')
   else if (view.revalidation === true) {
     // Which app view: the verdict standing in for the rows it re-rated
     // (the default on screen, folded here as there), or the detailed one
     // that lists them. A caller that doesn't track the detail says the
     // layer is applied and no more.
-    if (view.revalidationDetail === true) parts.push('detailed app view — the revalidation pass is applied, with the rows it re-rated')
-    else if (view.revalidationDetail === false) parts.push('app view — the revalidation pass is applied, standing in for the rows it re-rated')
-    else parts.push('app view — the revalidation pass is applied')
+    if (view.revalidationDetail === true) parts.push('detailed app view \u2014 the revalidation pass is applied, with the rows it re-rated')
+    else if (view.revalidationDetail === false) parts.push('app view \u2014 the revalidation pass is applied, standing in for the rows it re-rated')
+    else parts.push('app view \u2014 the revalidation pass is applied')
   }
-  return parts.join(' · ')
+  return parts.join(' \u00B7 ')
 }
 
 function includedText(counts) {
@@ -138,7 +138,7 @@ function includedText(counts) {
 //
 // `Source` names the products the loaded reports came from, `Analyzer`
 // what produced the included findings. For one product they are the same
-// word and the analyzer line is left out — but only when it would say
+// word and the analyzer line is left out -- but only when it would say
 // exactly what Source says, the same products and no fewer: two products
 // filtered down to one name the one, and a document holding the
 // analyzer's own runs lists every analyzer. The reader takes a single
@@ -159,14 +159,14 @@ function headerList(doc, ctx, cases) {
   if (doc.generatedAt) add('Exported', formatTimestamp(doc.generatedAt))
   add('View', viewText(doc.view))
   if (Array.isArray(doc.filters)) {
-    add('Filters', doc.filters.length > 0 ? doc.filters.map((f) => `${f.label}: ${f.value}`).join(' · ') : 'none')
+    add('Filters', doc.filters.length > 0 ? doc.filters.map((f) => `${f.label}: ${f.value}`).join(' \u00B7 ') : 'none')
   }
   add('Included', includedText(doc.counts))
   return rows.join('\n')
 }
 
 // The groups bucketed by the severity their primary case displays under,
-// in ladder order — an unknown tier last, as the report spelt it —
+// in ladder order -- an unknown tier last, as the report spelt it --
 // numbered through the document, each with its heading and anchor.
 function documentEntries(groups, ctx) {
   const buckets = Map.groupBy(groups, (g) => displayedSeverity(g[0], ctx.severityMode) ?? 'informational')
@@ -184,7 +184,7 @@ function documentEntries(groups, ctx) {
   return entries
 }
 
-// Findings per tier, in entry order — which is ladder order, since the
+// Findings per tier, in entry order -- which is ladder order, since the
 // entries were bucketed that way.
 function severityCounts(entries) {
   const counts = new Map()
@@ -238,7 +238,7 @@ function summaryBlocks(entries, ctx) {
 }
 
 // One `## <Severity> (n)` section per tier present, the findings under
-// it in the order they arrived — the caller's sort.
+// it in the order they arrived -- the caller's sort.
 function severitySections(entries, ctx) {
   const counts = severityCounts(entries)
   const blocks = []

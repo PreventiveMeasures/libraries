@@ -4,12 +4,12 @@
 // finding CARRIES is read here, off the parser's object through
 // finding.js.
 //
-// Nothing is dropped for being unfamiliar to the viewer — a report's
+// Nothing is dropped for being unfamiliar to the viewer -- a report's
 // status and branch, an audit's PoC state and commit land on the list
 // beside the facts every card shows, and each narrative field gets a
 // section rather than a bold label buried in a paragraph.
 //
-// A dedup group — one finding reported several times — is one heading
+// A dedup group -- one finding reported several times -- is one heading
 // with a case under it per member, so the reader meets the finding once
 // and its reports as its cases.
 
@@ -26,10 +26,10 @@ const HEADING_MAX = 120
 
 export function findingHeading(f) {
   const title = findingTitle(f) || locationLabel(f) || 'Untitled finding'
-  return title.length > HEADING_MAX ? `${title.slice(0, HEADING_MAX - 1).trimEnd()}…` : title
+  return title.length > HEADING_MAX ? `${title.slice(0, HEADING_MAX - 1).trimEnd()}\u2026` : title
 }
 
-// A repository as a link — a github.com slug points at github.com, a
+// A repository as a link -- a github.com slug points at github.com, a
 // URL at itself, anything else stays the text it is.
 export function repoRef(repo) {
   const s = String(repo ?? '').trim()
@@ -39,7 +39,7 @@ export function repoRef(repo) {
 
 // What produced the finding, as the document names it: a product, which
 // is one analyzer with no runs to tell apart, so its name is the whole
-// answer — or, out of the analyzer's own dump, the run itself (finding.js
+// answer -- or, out of the analyzer's own dump, the run itself (finding.js
 // runMetaLine). What a report filed a finding UNDER, Claude Security's
 // `**Category:**`, is not its analyzer and gets its own line.
 export function analyzerText(f, source, revalidation) {
@@ -64,7 +64,7 @@ export const NARRATIVE = [
 // written and under the name the report used, so a reader of the
 // original recognises each: Claude Security's `Status` / `Branch` /
 // `Date created`, Codex's `detected_at`, Piolium's `PoC status` /
-// `Variant of`, DeepSec's `Slug`. Strings and numbers only — an object
+// `Variant of`, DeepSec's `Slug`. Strings and numbers only -- an object
 // has no line to print on.
 export const PLAIN_FIELDS = [
   ['Status', 'status'], ['Branch', 'branch'], ['Date created', 'dateCreated'],
@@ -72,11 +72,11 @@ export const PLAIN_FIELDS = [
   ['PoC status', 'pocStatus'], ['Variant of', 'parent'], ['Slug', 'slug'],
   ['Priority', 'priority'],
 ]
-// …and the ones that are paths or hashes, set in code, the id last.
+// ...and the ones that are paths or hashes, set in code, the id last.
 export const CODE_FIELDS = [['Detailed report', 'reportPath'], ['Commit audited', 'auditedCommit'], ['ID', 'id']]
 
 // A fact is one line of the list, so a value that arrived with line
-// breaks (a wrapped Piolium bullet) is reflowed onto one — the break
+// breaks (a wrapped Piolium bullet) is reflowed onto one -- the break
 // would end the list. Prose keeps its lines (proseValue).
 function plainValue(v) {
   if (typeof v === 'number') return Number.isFinite(v) ? String(v) : ''
@@ -88,22 +88,22 @@ function proseValue(v) {
 }
 
 // The severity under the reader's lens, with a corrected finding's other
-// value beside it — the document has no toggle, so both are on the page —
+// value beside it -- the document has no toggle, so both are on the page --
 // and the per-report divergence a workspace merge can carry.
 function severityText(f, ctx) {
   const original = ctx.severityMode === 'original'
   let text = severityLabel(displayedSeverity(f, ctx.severityMode))
   if (hasSeverityCorrection(f)) {
     text += original
-      ? ` — corrected to ${severityLabel(effectiveSeverity(f))}`
-      : ` — corrected from ${severityLabel(f.severity)}`
+      ? ` \u2014 corrected to ${severityLabel(effectiveSeverity(f))}`
+      : ` \u2014 corrected from ${severityLabel(f.severity)}`
   }
   const variants = correctedVariants(f)
   if (variants) {
     const list = Object.entries(variants).map(([r, v]) => `${r || 'this report'}: ${severityLabel(v?.severity)}`)
-    text += ` (varies across reports — ${list.join('; ')})`
+    text += ` (varies across reports \u2014 ${list.join('; ')})`
   }
-  if (f.critical === true) text += ' · flagged critical by the analyzer'
+  if (f.critical === true) text += ' \u00B7 flagged critical by the analyzer'
   return text
 }
 
@@ -113,11 +113,11 @@ function locationText(f, ctx) {
   const url = ctx.hooks.location(f)
   const ref = isHttpUrl(url) ? link(code(label), url) : code(label)
   const name = findingDisplayName(f)
-  return name ? `${ref} · ${code(name)}` : ref
+  return name ? `${ref} \u00B7 ${code(name)}` : ref
 }
 
 // What the reader did with the finding: its triage bucket (or the
-// per-report ignore), its colour mark, its flag — one line.
+// per-report ignore), its colour mark, its flag -- one line.
 function triageText(a) {
   if (!a) return ''
   const parts = []
@@ -125,7 +125,7 @@ function triageText(a) {
   if (bucket) parts.push(bucket)
   if (a.color) parts.push(`${COLOR_LABELS[a.color] ?? a.color} mark`)
   if (a.flagged === true) parts.push('Flagged')
-  return parts.join(' · ')
+  return parts.join(' \u00B7 ')
 }
 
 function commitText(f, ctx) {
@@ -137,7 +137,7 @@ function commitText(f, ctx) {
 
 // The labelled list under a finding's heading: every fact that isn't
 // prose, in the order the card's rail reads them, then the provenance
-// the report attached, then the id — the one fact that means nothing to
+// the report attached, then the id -- the one fact that means nothing to
 // a reader and everything to the reader of the file, which keys stored
 // triage off it. A line is written only when its fact is there.
 function metaList(f, ctx, annotation) {
@@ -179,7 +179,7 @@ function section(depth, label, text) {
 
 // The `## Evidence` rows as a loose numbered list: the reference, linked
 // where the caller can, and the report's note as its own paragraph under
-// it — loose, or a note sharing the reference's line would be reflowed
+// it -- loose, or a note sharing the reference's line would be reflowed
 // onto it.
 function evidenceList(f, ctx) {
   const rows = Array.isArray(f.evidence) ? f.evidence : []
@@ -197,7 +197,7 @@ function evidenceList(f, ctx) {
 }
 
 // The description's lead, its evidence, then the labelled sections the
-// report wrote — the order a claude-security report writes and the card
+// report wrote -- the order a claude-security report writes and the card
 // reads. A `**Label:**` paragraph becomes a section with a heading, as
 // the finding's own impact / reproduction fields do, so a report that
 // wrote those as fields and one that wrote them into its prose read
@@ -208,7 +208,7 @@ function descriptionBlocks(f, ctx, depth) {
   // and a `\r\n\r\n` a JSON report wrote is not one to it.
   const body = normalizeNewlines(split.body)
   // A one-line description IS the heading, and printing it again is a
-  // stutter — unless the heading could not carry the whole name
+  // stutter -- unless the heading could not carry the whole name
   // (HEADING_MAX), where the body opens on it instead, the only place
   // the whole name appears and where the file's reader finds it.
   const title = findingTitle(f)
@@ -227,7 +227,7 @@ function descriptionBlocks(f, ctx, depth) {
 }
 
 // Everything under one case's heading: the facts, the description, the
-// narrative sections, then the reader's comment — about the finding
+// narrative sections, then the reader's comment -- about the finding
 // rather than part of it.
 function caseBlocks(f, ctx, depth) {
   const annotation = ctx.hooks.annotation(f)
@@ -254,12 +254,12 @@ export function groupSection(group, ctx, { headingText, depth }) {
   const blocks = [heading(depth, headingText)]
   if (group.length === 1) return joinBlocks([...blocks, ...caseBlocks(group[0], ctx, depth + 1)])
   const reports = [...new Set(group.map((f) => ctx.hooks.report(f)).filter(Boolean))]
-  const from = reports.length > 1 ? ` — reported in ${reports.map((r) => code(r)).join(', ')}` : ''
+  const from = reports.length > 1 ? ` \u2014 reported in ${reports.map((r) => code(r)).join(', ')}` : ''
   blocks.push(`${plural(group.length, 'case')} of this finding${from}.`)
   const groupTitle = findingTitle(group[0])
   group.forEach((f, i) => {
     const loc = locationLabel(f)
-    blocks.push(heading(depth + 1, `Case ${i + 1} of ${group.length}${loc ? ` — ${code(loc)}` : ''}`))
+    blocks.push(heading(depth + 1, `Case ${i + 1} of ${group.length}${loc ? ` \u2014 ${code(loc)}` : ''}`))
     const own = findingTitle(f)
     if (own && own !== groupTitle) blocks.push(prose(own))
     blocks.push(...caseBlocks(f, ctx, depth + 2))

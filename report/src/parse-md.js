@@ -1,4 +1,4 @@
-// Claude Security's markdown findings — a secondary input format,
+// Claude Security's markdown findings -- a secondary input format,
 // supported but deliberately not advertised in the README. Returns what
 // ingest.js expects from JSON, `{ type, source, findings }`, or null when
 // the text isn't this format, so the caller can surface the JSON parse
@@ -26,7 +26,7 @@
 //
 // A report cites its site as a one-line `## Location` or as an
 // `## Evidence` list; both are read, `## Location` winning. Every
-// `## …` section is optional — only the title and the metadata block
+// `## ...` section is optional -- only the title and the metadata block
 // carry anything mandatory.
 
 import { frozenIdBasis } from './parse-md-id.js'
@@ -44,14 +44,14 @@ export function parseMarkdownFindings(content) {
   if (!text.startsWith('# ')) return null
 
   // Each finding starts at a line beginning with `# ` outside fenced
-  // code — a `# comment` in a shell or Python snippet is the snippet's,
+  // code -- a `# comment` in a shell or Python snippet is the snippet's,
   // not a finding of its own. Empty chunks drop out.
   const blocks = splitUnfenced(text, /^# /gmu).slice(1).filter((b) => b.trim().length > 0)
   const findings = blocks.map((block) => parseBlock(block)).filter(Boolean)
   if (findings.length === 0) return null
 
-  // `source` is what the renderer recognises the product by — the page
-  // header reads `Claude Security results` — rather than sniffing the
+  // `source` is what the renderer recognises the product by -- the page
+  // header reads `Claude Security results` -- rather than sniffing the
   // extension, which a rename defeats. The report-level `type` is the
   // product's category as for every source-marked producer: this is ONE
   // analyzer, and the per-finding `**Category:**` says what kind of
@@ -68,7 +68,7 @@ function parseBlock(block) {
   // `**Label:** value` per line, keyed case-folded.
   const meta = Object.fromEntries([...metaText.matchAll(/\*\*([^:]+):\*\*\s*(.+)/gu)].map((m) => [m[1].trim().toLowerCase(), m[2].trim()]))
   const evidence = evidenceRows(sections.evidence || '')
-  // `## Location`, else the FIRST `## Evidence` row — the primary site
+  // `## Location`, else the FIRST `## Evidence` row -- the primary site
   // by the format's convention. Every row, this one included, also
   // lands on `finding.evidence` below.
   const { file, line, locationLink } = parseLocation(
@@ -85,7 +85,7 @@ function parseBlock(block) {
   const finding = { file: file || 'unknown', line, severity, description }
   if (locationLink) finding.location = locationLink
   if (evidence.length > 0) finding.evidence = evidence.map(evidenceEntry)
-  // Narrative FIELDS, not description — the same two slots a native
+  // Narrative FIELDS, not description -- the same two slots a native
   // dump fills, so a report that names them here and one that carries
   // them as fields read alike. The field is also what render-finding.js
   // can collapse into a `<details>`, where a `**Label:**` paragraph in
@@ -104,7 +104,7 @@ function parseBlock(block) {
   if (meta.status) finding.status = meta.status
   // The issue class the report filed the finding under ("insufficient
   // verification of data authenticity"), as written. NOT the finding's
-  // `type`, which is the analyzer run a native dump names — this report
+  // `type`, which is the analyzer run a native dump names -- this report
   // has one analyzer, and `source` above says which.
   if (meta.category) finding.category = meta.category
   // The fingerprint is parse-md-id.js's own parse of this same block,
@@ -115,7 +115,7 @@ function parseBlock(block) {
   // It reads the block as the fence-blind split cut it, which ended a
   // finding at any `# ` line, a snippet's comment included. For a block
   // with no such line that is the whole block; for one it cut short, it
-  // is the part that split kept — so the finding keeps the id its
+  // is the part that split kept -- so the finding keeps the id its
   // triage was stored under. The block's own first line is the title,
   // never a cut, whatever it starts with.
   const cut = block.indexOf('\n# ')
@@ -158,7 +158,7 @@ function parseLocation(loc) {
   let file = '', line = '?', locationLink = ''
   // Brackets and parens and all: `app/(main)/[id]/page.ts` is an
   // ordinary Next.js path, and a reading that stops at the first `]`
-  // finds no link in it — leaving the whole `[…](…)` as the file name,
+  // finds no link in it -- leaving the whole `[...](...)` as the file name,
   // the line `?`, and an evidence row with no url.
   const link = findMdLink(loc)
   if (link) {
@@ -173,16 +173,16 @@ function parseLocation(loc) {
   // Backticks are notation and a `\_` is the report escaping markdown;
   // the path is the unescaped name, which is what the displays print
   // and what a rebuilt blob URL must address. The url is left exactly
-  // as written — reports don't escape there, and it keys the id.
+  // as written -- reports don't escape there, and it keys the id.
   file = unescapeMd(file.replaceAll('`', '')).trim()
-  // A `:42` / `:10–20` suffix: taken only when the anchor gave no line,
-  // but shed from the path either way.
-  const colonMatch = file.match(/^(.+):(\d+)(?:\s*[-–—]\s*L?(\d+))?$/u)
+  // A `:42` / `:10-20` suffix (or with an en or em dash): taken only when
+  // the anchor gave no line, but shed from the path either way.
+  const colonMatch = file.match(/^(.+):(\d+)(?:\s*[-\u2013\u2014]\s*L?(\d+))?$/u)
   if (colonMatch) {
     file = colonMatch[1]
     if (line === '?') line = colonMatch[3] ? `${colonMatch[2]}-${colonMatch[3]}` : colonMatch[2]
   }
-  // `linked` says how the row came in, which `locationLink` can't —
+  // `linked` says how the row came in, which `locationLink` can't --
   // the fallback puts raw text there, and that is an id discriminator,
   // not an href.
   return { file, line, locationLink, linked: link !== null }
@@ -192,8 +192,8 @@ function parseLocation(loc) {
 // report sometimes writes a whole sequence as ONE list item, in two
 // shapes, and neither reads as a list:
 //
-//   * a RUN-IN enumeration — `1. 1) Save 2) Restart 3) Watch`, which
-//     markdown reads as one step whose text holds all the others —
+//   * a RUN-IN enumeration -- `1. 1) Save 2) Restart 3) Watch`, which
+//     markdown reads as one step whose text holds all the others --
 //     becomes a line per step;
 //   * a list of ONE step stops being a list, its marker numbering the
 //     single thing the section says.
@@ -202,9 +202,9 @@ function parseLocation(loc) {
 // text is printed as written, so a `6)` behind a `4)` is the report's
 // own count rather than something to renumber.
 //
-// Only a section that IS one item is touched — no other line may open a
-// list of its own — and the run-in reading is tried behind the outer
-// marker (`1. 1) …`) and at the line's own start (`1) … 2) …`), since
+// Only a section that IS one item is touched -- no other line may open a
+// list of its own -- and the run-in reading is tried behind the outer
+// marker (`1. 1) ...`) and at the line's own start (`1) ... 2) ...`), since
 // either can carry the enumeration. The id comes from the RAW block
 // (parse-md-id.js), so reading the section better moves nothing.
 function normalizeStepList(text) {
@@ -231,12 +231,12 @@ function normalizeStepList(text) {
   return lines.join('\n')
 }
 
-// `1) Save 2) Restart` → a step per marker, or null when the text is no
+// `1) Save 2) Restart` -> a step per marker, or null when the text is no
 // run-in list: the first marker has to open it and the numbers have to
-// ascend, or a step that merely cites `RFC 2616) …` would split the
-// prose around it. A number in parens — `curl(1)`, `(2) results` — is
-// not a marker, and a marker with NOTHING behind it — a truncated
-// `1) Save 2)` — is a sequence this can't read, not a step of its own.
+// ascend, or a step that merely cites `RFC 2616) ...` would split the
+// prose around it. A number in parens -- `curl(1)`, `(2) results` -- is
+// not a marker, and a marker with NOTHING behind it -- a truncated
+// `1) Save 2)` -- is a sequence this can't read, not a step of its own.
 const RUN_IN_STEP_RE = /(?:^|[ \t])(\d{1,9})\)(?=[ \t]|$)/gu
 // The same marker, asked of a text's own start.
 const RUN_IN_HEAD_RE = /^\d{1,9}\)(?=[ \t]|$)/u
@@ -257,10 +257,10 @@ function runInSteps(text) {
 
 // Rows of an `## Evidence` section, in document order:
 //
-//   1. [libs/a.ts:10–20](https://github.com/o/r/blob/<sha>/libs/a.ts#L10-L20)
+//   1. [libs/a.ts:10-20](https://github.com/o/r/blob/<sha>/libs/a.ts#L10-L20)
 //      Why this line matters.
 //
-// Only a marker line is a reference — numbered or bulleted — and the
+// Only a marker line is a reference -- numbered or bulleted -- and the
 // prose under it is that row's note, left-trimmed, since the renderer
 // indents the row itself.
 //
@@ -287,7 +287,7 @@ function evidenceRows(text) {
 }
 
 // One row as it lands on the finding. `url` only where the row carried
-// a real link — the raw-text fallback is an id discriminator, not an
+// a real link -- the raw-text fallback is an id discriminator, not an
 // href to hand a renderer.
 function evidenceEntry({ ref, note }) {
   const { file, line, locationLink, linked } = parseLocation(ref)
@@ -298,7 +298,7 @@ function evidenceEntry({ ref, note }) {
   return entry
 }
 
-// Title + body sections, section labels emitted as `**Label:**` — the
+// Title + body sections, section labels emitted as `**Label:**` -- the
 // shape parse-piolium gives its fields, which render-finding.js turns
 // into real `<strong>` emphasis and the markdown export re-emits as the
 // markdown it is. Everything else survives verbatim, `pre-wrap` on

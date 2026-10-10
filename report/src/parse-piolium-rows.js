@@ -1,4 +1,4 @@
-// Table rows and list items → findings for the Piolium parser: the
+// Table rows and list items -> findings for the Piolium parser: the
 // index, overview and variants tables and the link-list rendering all
 // reduce to one row shape and one construction. parse-piolium.js owns
 // the document structure and the finding BLOCKS.
@@ -11,7 +11,7 @@ import {
 } from './parse-piolium-tokens.js'
 
 // Normalize a table-row object to the shared row shape used by the
-// index, variant tables, group tables, and the row→finding conversion.
+// index, variant tables, group tables, and the row->finding conversion.
 // The PoC column appears both as `PoC Status` and plain `PoC`.
 export function indexRowOf(obj) {
   return {
@@ -29,8 +29,8 @@ export function indexRowOf(obj) {
 // they land on the same `unknown` / `?` placeholders, and two rows
 // sharing a title and tier would derive the SAME uuid for ingest's
 // dedupe to swallow one of. The report id is the only discriminator such
-// a row has, so it goes in the `location` fingerprint field — which
-// deriveFindingId prefers over file/line and nothing renders —
+// a row has, so it goes in the `location` fingerprint field -- which
+// deriveFindingId prefers over file/line and nothing renders --
 // namespaced to read as an opaque token rather than a URL. A Location
 // column, where a table has one, is parsed like any code reference.
 export function fromIndexRow(row, sevFallback = '') {
@@ -40,7 +40,7 @@ export function fromIndexRow(row, sevFallback = '') {
   return normalizeFindingSeverity(finding)
 }
 
-// A finding at the code reference `ref` (`piolium:<id>` where it has no place — see fromIndexRow), its line from
+// A finding at the code reference `ref` (`piolium:<id>` where it has no place -- see fromIndexRow), its line from
 // `lineBullet` where `ref` has none. `_idBasis` is parse-piolium-id.js's own, frozen reading of `ref`, not
 // parseCodeRef's, which is presentation and free to improve: read that module's header before touching either.
 export function locatedFinding({ ref, lineBullet = '', id, severity, identitySeverity, description }) {
@@ -54,7 +54,7 @@ export function locatedFinding({ ref, lineBullet = '', id, severity, identitySev
 
 // Findings rendered as a list: the mode outline asks for "links to
 // per-finding report.md", so an item leads with a
-// `[<id>-<slug>](…/report.md)` link or a bold id, then a summary. Label
+// `[<id>-<slug>](.../report.md)` link or a bold id, then a summary. Label
 // bullets and "none found" placeholders are not findings.
 export function listFindings(body, sev, index) {
   const out = []
@@ -71,7 +71,7 @@ export function listFindings(body, sev, index) {
     if (linked) {
       text = linked.text
     } else {
-      const bold = /^\*\*([^*]+)\*\*\s*[:—–-]*\s*(.*)$/u.exec(text)
+      const bold = /^\*\*([^*]+)\*\*\s*[:\u2014\u2013-]*\s*(.*)$/u.exec(text)
       if (bold) text = bold[2] ? `${bold[1].trim()} ${bold[2].trim()}` : bold[1].trim()
     }
     if (/^(?:none\b|no |n\/a\b)/iu.test(text)) continue
@@ -98,7 +98,7 @@ export function listFindings(body, sev, index) {
   return out
 }
 
-// Variant rows → findings, parented to the enclosing block where the row
+// Variant rows -> findings, parented to the enclosing block where the row
 // names none. They are also REGISTERED as index rows, so a variant's own
 // `#### <id>` entry adopts their severity / PoC / parent even with no
 // `## Summary of Findings` in the report. No table falls back to a

@@ -4,7 +4,7 @@ import { ensureDir, join, move, moveIfExists, readTextOrNull, removeBestEffort, 
 
 // Where entries live, which is the caller's to decide and nobody else's: this layer has no idea
 // what the host is, what it calls its cache, or where a deployment wants one. So there is no
-// default and no environment variable read here — a default would put a run's entries somewhere
+// default and no environment variable read here -- a default would put a run's entries somewhere
 // nobody chose, and every entry the last run wrote would read as a miss.
 //
 // Required, therefore: every path below resolves through cacheDir(), so a caller that forgets gets
@@ -18,11 +18,11 @@ export function setCacheDir(dir) {
 }
 
 export function cacheDir() {
-  assert(root, 'Cache directory is not set — call setCacheDir() before using the cache')
+  assert(root, 'Cache directory is not set \u2014 call setCacheDir() before using the cache')
   return root
 }
 
-// A few helpers below are exported for cache-scan.js alone — the entry layout is this file's, and
+// A few helpers below are exported for cache-scan.js alone -- the entry layout is this file's, and
 // the scans that walk it need to address an entry the same way. They are not on the ai/ surface.
 //
 // Re-exported for the callers and tests that have always imported the history helpers from here;
@@ -36,11 +36,11 @@ export function setUniqueRerun(key) {
 }
 
 // Process-wide tally of model-request cache lookups, counted at the caller's request sites rather
-// than inside getCached — getCached also serves searches of the cache that are not requests of the
+// than inside getCached -- getCached also serves searches of the cache that are not requests of the
 // run at all (looking for an entry written under a different context, say). A hit is a cached
 // result the caller actually used; an entry rejected by the caller's format checks counts as a miss
 // alongside plain not-in-cache (the run couldn't use it either way). Counters are monotonic for the
-// process lifetime — consumers snapshot getCacheStats() and diff (see printCacheStats) so
+// process lifetime -- consumers snapshot getCacheStats() and diff (see printCacheStats) so
 // multi-input invocations report per-run windows without a reset API.
 const cacheStats = { hits: 0, misses: 0 }
 
@@ -58,7 +58,7 @@ export function getCacheStats() {
 
 // Web Crypto, which a page has and node:crypto is not. Byte-identical to
 // `createHash('sha256').update(str).digest('hex')`, so every key in every existing cache still
-// resolves — one byte's difference would orphan all of them. Async only because `subtle.digest` is,
+// resolves -- one byte's difference would orphan all of them. Async only because `subtle.digest` is,
 // which is what makes cacheKey, modelSubdir and resolveCachePaths async too.
 const utf8 = new TextEncoder()
 
@@ -77,7 +77,7 @@ export function modelDirName(model) {
 
 export async function modelSubdir(type, model, systemPrompt) {
   const safeModel = modelDirName(model)
-  // `.` and `..` clear modelDirName's charset — dots are legitimate inside a name — but as a whole
+  // `.` and `..` clear modelDirName's charset -- dots are legitimate inside a name -- but as a whole
   // segment they are not a directory, they are a move. `..` would put this run's cache one level
   // ABOVE the cache root it was given, which for the server means outside the per-token directory
   // that isolates one caller's cache from another's. `/` is already folded to `-` there, so these
@@ -89,7 +89,7 @@ export async function modelSubdir(type, model, systemPrompt) {
 
 // One-shot migrations for cache-dir layout changes: a type a caller has since renamed, whose
 // entries were written under the old name. The prompt content is unchanged across such a rename, so
-// the hash and the per-entry filenames are identical — we rename the dir as a whole and let any
+// the hash and the per-entry filenames are identical -- we rename the dir as a whole and let any
 // failure surface. Compatibility data, not a rule about any one caller: a `new -> old` row here is
 // what keeps a rename from orphaning a cache.
 const TYPE_RENAMES = new Map([
@@ -112,25 +112,25 @@ export async function runTypeMigrations(type, model, systemPrompt) {
   }
 }
 
-// Degrading an unreadable entry to a miss is right — a run should not die over one — but silently is
+// Degrading an unreadable entry to a miss is right -- a run should not die over one -- but silently is
 // not: each phantom miss re-spends a model request and overwrites the entry, so consecutive warm runs
 // report different hit/miss totals. Hence the warning before the null.
 async function tryRead(path) {
   try {
     return await readTextOrNull(path)
   } catch (err) {
-    console.warn(`[cache] read failed (${err.code ?? err.message}) for ${path} — treating as a miss`)
+    console.warn(`[cache] read failed (${err.code ?? err.message}) for ${path} \u2014 treating as a miss`)
     return null
   }
 }
 
 // Cache-key shape used by every model-call site. Accepts the resolved useThink/useEffort values
-// from normalizeThinkEffort() so the cache key reflects exactly what hits the wire — folding the
+// from normalizeThinkEffort() so the cache key reflects exactly what hits the wire -- folding the
 // defaults in at resolution time is what stops a no-effort request and an effort=high one from
 // sharing a slot because one path applied the default later.
 //
 // `bundleId` (optional) is an extra id folded into the key by a caller whose requests vary on
-// something the model message does NOT carry — a whole workspace reached through tools, say, rather
+// something the model message does NOT carry -- a whole workspace reached through tools, say, rather
 // than sent. Only such callers pass it; for everyone else it is undefined and omitted, so their
 // keys (and the returned opts shape) are unchanged by its existence.
 export function buildCacheOpts(type, { model, systemPrompt, useThink, useEffort, bundleId }) {
@@ -191,18 +191,18 @@ async function readEntry(userContent, opts) {
 // Read the entry for this request, or null.
 //
 // `validate` (optional) does two things at once, because they are the same question. It JUDGES the
-// entry — an answer that no longer parses, one written under a format since changed, one carrying a
-// hallucinated tool call — by returning what the caller needs out of it, or anything falsy for an
+// entry -- an answer that no longer parses, one written under a format since changed, one carrying a
+// hallucinated tool call -- by returning what the caller needs out of it, or anything falsy for an
 // entry this run cannot use. And passing it declares the lookup a REQUEST of the run, which is what
 // gets counted: exactly one hit or miss per call, an unusable entry counting as a miss because the
-// request has to be made either way. A lookup that passes none counts nothing — getCached also
+// request has to be made either way. A lookup that passes none counts nothing -- getCached also
 // serves searches of what the cache happens to hold, which are nobody's request.
 //
 // Counting here rather than at the call sites is what keeps the two in step: every way a lookup can
 // fail runs through this one return.
 //
 // `userContent` may be a LIST of candidates, tried in order. A request that could be sitting under
-// more than one key — a prompt whose shape changed, a listing rendered two ways — is still one
+// more than one key -- a prompt whose shape changed, a listing rendered two ways -- is still one
 // request, counted once. The entry that wins says which `userContent` it was found under, and
 // carries `value`, whatever `validate` returned, so the work of judging it is not repeated by the
 // caller.
@@ -222,21 +222,21 @@ export async function getCached(userContent, opts, { validate } = {}) {
 }
 
 // Returns the entry's cache key (the on-disk basename), mirroring the `key` getCached stamps on a
-// hit — so a caller can name the entry it just wrote, so a caller that later scans the cache can
-// recognise its own requests by exact key — fresh writes as well as hits).
+// hit -- so a caller can name the entry it just wrote, so a caller that later scans the cache can
+// recognise its own requests by exact key -- fresh writes as well as hits).
 export async function setCache(userContent, result, history, opts) {
   // Serialise (same slimming + overflow recovery as the partial) before touching disk, so an
-  // unrecoverable overflow throws before we write a dangling `.md` — preserving the all-or-nothing
+  // unrecoverable overflow throws before we write a dangling `.md` -- preserving the all-or-nothing
   // behaviour from when the caller stringified the history itself.
   const json = serializeHistory(history)
   const { dir, key } = await resolveCachePaths(userContent, opts)
   await ensureDir(dir)
   // `.json` before `.md`: the `.md` is the entry's existence marker (getCached and getPartial both
-  // gate on it), so it must land last — otherwise a crash between the two writes leaves an `.md`
+  // gate on it), so it must land last -- otherwise a crash between the two writes leaves an `.md`
   // whose companion history is missing or stale.
   await writeAtomic(join(dir, `${key}.json`), json)
   await writeAtomic(join(dir, `${key}.md`), result)
-  // This key's last word is now a usable response, so the failure record beside it is stale — and a
+  // This key's last word is now a usable response, so the failure record beside it is stale -- and a
   // stale one is worse than none, since it invites debugging something already fixed. Best-effort:
   // the entry above is written and valid either way.
   await removeBestEffort(join(dir, `${key}${INVALID_SUFFIX}`))
@@ -246,9 +246,9 @@ export async function setCache(userContent, result, history, opts) {
 // Partial cache: the JSON history alone, without a `.md` companion. Written per-turn by
 // long-running chats so an interrupted run can resume from the last completed turn. The final
 // `setCache` writes both `.md` and `.json` and naturally supersedes any partial that lives under
-// the same key — no separate finalise step needed.
+// the same key -- no separate finalise step needed.
 async function readPartial(dir, key) {
-  // A `.md` companion means the cache is final — defer to getCached.
+  // A `.md` companion means the cache is final -- defer to getCached.
   if (await tryRead(join(dir, `${key}.md`))) return null
   const json = await readCachedJSON(dir, key)
   return Array.isArray(json) ? json : null
@@ -262,7 +262,7 @@ export async function getPartial(userContent, opts) {
 const taken = new Set()
 
 // One process resumes a given partial once. The run that takes it goes on to overwrite it turn by
-// turn, so a caller that asks the same thing again — retrying after an answer it rejected — must
+// turn, so a caller that asks the same thing again -- retrying after an answer it rejected -- must
 // start fresh instead of being handed back the answer it just threw away.
 export async function takePartial(userContent, opts) {
   const { subdir, dir, key } = await resolveCachePaths(userContent, opts)
@@ -280,7 +280,7 @@ export async function setPartial(userContent, history, opts) {
 
 // Rejected responses land under this suffix and are NEVER read back. The loaders can't reach one by
 // construction (they gate on `<key>.md` / `<key>.json`), but the two directory scanners below have
-// to skip it explicitly — rehashCache especially, since it renames `<key>.json` to a recomputed key
+// to skip it explicitly -- rehashCache especially, since it renames `<key>.json` to a recomputed key
 // and would otherwise promote a response the run REJECTED into a live entry that every later run
 // serves.
 const INVALID_SUFFIX = '.invalid.json'
@@ -290,17 +290,17 @@ export function isInvalidEntry(fileName) {
 }
 
 // Keep a response the run couldn't use, for a person to read: a truncation that stopped mid-answer,
-// output that didn't parse, a format check the text failed. Purely diagnostic — "what did the model
+// output that didn't parse, a format check the text failed. Purely diagnostic -- "what did the model
 // actually send?" is otherwise unanswerable once the pass has skipped the file, because nothing
 // about a rejected response is written anywhere.
 //
 // One case is deliberately NOT kept: an empty response. There is nothing in it to read, and the run
-// already records those as `censored`. `text` is how that is told apart — null/undefined means the
+// already records those as `censored`. `text` is how that is told apart -- null/undefined means the
 // REQUEST failed (truncation, transport), where the history holds exactly what we want, while an
 // empty string means the model answered with nothing.
 //
 // Overwrites whatever sits at the key: the newest rejection is the one describing this run, and a
-// stale one would be read as evidence for it. setCache deletes it outright — a valid entry means
+// stale one would be read as evidence for it. setCache deletes it outright -- a valid entry means
 // the key's last word was a good response, and leaving the old failure beside it invites debugging
 // a problem that is already fixed.
 //
@@ -309,7 +309,7 @@ export function isInvalidEntry(fileName) {
 //
 // invalidResponseError below is the same thing for a call site that ends in a throw rather than a
 // return: keep the response, then hand back the Error to raise. A caller that aborts on a bad
-// response needs it — the response is gone the moment it does.
+// response needs it -- the response is gone the moment it does.
 let announcedInvalid = false
 export async function setInvalid(userContent, history, opts, { reason, text }) {
   if (typeof text === 'string' && text.trim() === '') return
@@ -338,7 +338,7 @@ export async function invalidResponseError(error, userContent, history, opts) {
 
 // Take the entry at one key out of service without throwing away what it held: the answer goes, and
 // the turn history moves to `.invalid.json`, which nothing reads back and a person still can. For a
-// caller that will not stand behind what it got — a response that failed its format check, say — so
+// caller that will not stand behind what it got -- a response that failed its format check, say -- so
 // no later run serves it or resumes onto it. What lands there is the bare history, not the
 // `{ reason, history }` setInvalid writes: a rename costs one syscall whatever the history weighs,
 // and one too big to re-serialise is exactly the kind that gets rejected.

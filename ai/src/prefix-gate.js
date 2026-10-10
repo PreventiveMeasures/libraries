@@ -1,7 +1,7 @@
 // Serializes the first request through each distinct cache prefix.
 //
 // A prompt-cache entry only becomes readable once the request that wrote it has replied. Fire N
-// requests sharing a prefix at once and none of them can read what the others are still writing —
+// requests sharing a prefix at once and none of them can read what the others are still writing --
 // every one pays the write premium instead of one write and N-1 reads at 0.1x. The runner fans out
 // at `--concurrency` (20 by default), so a scan pays that on the first batch of every pass.
 //
@@ -10,7 +10,7 @@
 // loop is sequential anyway, and the lock is released as soon as the head replies rather than held
 // for the whole chain.
 //
-// Requests served from the local disk cache never reach here — the caller returns before issuing —
+// Requests served from the local disk cache never reach here -- the caller returns before issuing --
 // so a local hit neither waits nor becomes the head. That matters: a local hit writes nothing
 // server-side, so treating one as the head would release the others against a prefix nobody had
 // warmed.

@@ -1,20 +1,20 @@
 // FROZEN. The id fingerprint of a Claude Security (markdown) finding.
 //
 // A finding's uuid (finding-id.js) is the key every piece of stored
-// triage hangs off — markers, buckets, comments, fixes — so it has to
+// triage hangs off -- markers, buckets, comments, fixes -- so it has to
 // be a function of the source document alone, and it has to stay that
 // function. `parse-md.js` is not that: what it produces is
 // presentation, and it changes whenever the card does.
 //
 // So the fingerprint comes from a second parse of the same block, the
-// one in this file. It reads a fixed subset of the format — the title,
+// one in this file. It reads a fixed subset of the format -- the title,
 // `## Details`, `## Location`, `## Impact`, `## Reproduction steps` and
-// the severity — into severity, description and location of a fixed
+// the severity -- into severity, description and location of a fixed
 // shape. That is what the uuid hashes: parse-md.js stamps it on the
 // finding as `_idBasis`, and deriveFindingId uses it in place of the
 // finding's own fields.
 //
-// DO NOT change the behaviour of anything in this file — not to fix a
+// DO NOT change the behaviour of anything in this file -- not to fix a
 // bug in it, not to share code with parse-md.js, not to make it read
 // better, not to widen the subset it reads. Every byte it emits is
 // baked into uuids in users' browsers; the golden values in
@@ -33,7 +33,7 @@ const VALID_SEVERITIES = new Set(['critical', 'high', 'medium', 'low', 'high_bug
 // The fingerprint object `deriveFindingId` hashes for one finding
 // block, in a fixed key order (JSON.stringify is order-sensitive, so
 // the order IS part of the id). The discriminator is the location when
-// the source carries a `## Location`, and file / line otherwise — the
+// the source carries a `## Location`, and file / line otherwise -- the
 // same two branches deriveFindingId takes for a finding that carries
 // no basis.
 export function frozenIdBasis(block) {
@@ -70,7 +70,7 @@ function frozenParse(block) {
   }
 }
 
-// ── The frozen readers ───────────────────────────────────────────────
+// -- The frozen readers -----------------------------------------------
 
 function splitBody(body) {
   const dashRe = /^---\s*$/mu
@@ -116,7 +116,7 @@ function parseLocation(loc) {
     file = loc.trim()
     locationLink = loc.trim()
   }
-  // `:42` suffix on the file path — common shorthand. Only consume
+  // `:42` suffix on the file path -- common shorthand. Only consume
   // if we don't already have a line from a `#L<n>` anchor.
   const colonMatch = file.match(/^(.+):(\d+)$/u)
   if (colonMatch) {

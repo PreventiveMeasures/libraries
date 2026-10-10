@@ -23,14 +23,14 @@ export type EntryType =
 //
 // Beside those, what the archive itself says. `storedName` and
 // `storedLinkname` are the name and link target as stored, before any
-// cleaning — `./a` where `name` is `a`, `dir/` where it is `dir`, a ustar
-// prefix joined on — and passed every check the cleaned ones did; only a
+// cleaning -- `./a` where `name` is `a`, `dir/` where it is `dir`, a ustar
+// prefix joined on -- and passed every check the cleaned ones did; only a
 // hard link's target is ever cleaned, so a symlink's is its `linkname`.
 // `pax` is the records of the entry's own pax header and `globalPax` those
 // of the global header it is under, each in the order stored, those read
 // into the fields above among them; the fields take an entry's own record
-// over the global one. A Map is shared — every entry under one global
-// header has its, every entry without a header the one empty Map — so it
+// over the global one. A Map is shared -- every entry under one global
+// header has its, every entry without a header the one empty Map -- so it
 // cannot be changed. A value this package does not read is as stored,
 // unchecked, and may hold any character, a control one included.
 export interface Entry {
@@ -84,8 +84,8 @@ export interface PackOptions {
   blocking?: number
 }
 
-// Both refuse a name that repeats as a different entry — anything but the
-// same fields and the same bytes again, however either was stored — an
+// Both refuse a name that repeats as a different entry -- anything but the
+// same fields and the same bytes again, however either was stored -- an
 // entry inside something that is not a directory, a symlink whose target
 // climbs out of the archive or passes through anything but a directory, and
 // a hard link to no earlier entry. A hard link to a symlink, directly or

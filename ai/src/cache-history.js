@@ -11,16 +11,16 @@ export function isMaxStringLengthError(err) {
 }
 
 // Serialise a chat history for disk (used by BOTH setPartial and the final setCache), with two size
-// reductions since long sessions — a tool loop that runs for tens of turns especially — get huge:
+// reductions since long sessions -- a tool loop that runs for tens of turns especially -- get huge:
 //   1. ALWAYS null `request` on every entry but the first. A turn's `request` re-embeds the whole
-//      conversation-so-far plus the (repeated) system prompt and tool schemas — the biggest
-//      redundant term — yet the resume path reads no requests at all, and only the FIRST entry's
+//      conversation-so-far plus the (repeated) system prompt and tool schemas -- the biggest
+//      redundant term -- yet the resume path reads no requests at all, and only the FIRST entry's
 //      request is ever consumed (cache-key recovery via listCacheEntries / rehashCache). So
 //      everything past the first is dead weight on disk.
 //   2. If the slimmed history STILL overflows V8's max string length, drop thinking-block
 //      signatures from all but the last 10 entries. The per-entry `messages` snapshots re-embed
 //      every prior turn's (large) signature, so that's the dominant residual term once requests are
-//      gone — but this removes only the signatures, NOT the thinking text or tool output those
+//      gone -- but this removes only the signatures, NOT the thinking text or tool output those
 //      snapshots also carry, so an extremely long session can still overflow and rethrow (see
 //      dropping interior snapshots, deferred).
 // A still-too-large result rethrows, and the caller deals with it. Only the failed-stringify
@@ -55,13 +55,13 @@ export function dropRequestsAfterFirst(history) {
 }
 
 // Return a copy of a chat history with Anthropic thinking-block signatures removed from every
-// top-level entry EXCEPT the last `keepLast` — they live in both the replayed request messages and
+// top-level entry EXCEPT the last `keepLast` -- they live in both the replayed request messages and
 // the raw response, and both are dropped. The kept tail is the slice a resume actually replays to
 // the API (ask() rebuilds from the last entry's snapshot + response), so its signatures must
 // survive or Anthropic rejects the replayed thinking blocks; keeping 10 rather than just the final
 // entry is a safety margin. Stripped entries are deep-cloned via a JSON round-trip, so the live
-// in-memory history — whose content blocks are shared by reference with the active `messages` array
-// — is never mutated.
+// in-memory history -- whose content blocks are shared by reference with the active `messages` array
+// -- is never mutated.
 export function stripThinkingSignatures(history, keepLast = 10) {
   const cut = Math.max(0, history.length - keepLast)
   return history.map((entry, i) => (i < cut ? stripSignatures(entry) : entry))

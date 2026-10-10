@@ -100,7 +100,7 @@ function unmatched(items, slots, fits) {
 // tables offer it. So two matchings: each patch to a package of its own, per
 // table, or an unused entry; and each unused entry, and each package a
 // dependency reaches through a patch, to a patch. Where both exist, one
-// matching does both (Mendelsohn–Dulmage). Path patches are told apart by
+// matching does both (Mendelsohn-Dulmage). Path patches are told apart by
 // version and table alone, and two directories may hold one version, so a
 // path package may be both used and unused.
 export function checkPatches(locked, unusedPatches, patches, patched) {

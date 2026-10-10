@@ -14,8 +14,8 @@ export type EntryType = 'file' | 'directory' | 'symlink'
 // `linkname` is '' for anything but a symlink; `data` is empty for
 // anything but a file, and a view over the archive bytes where the entry
 // was stored and the archive is in memory rather than a Blob.
-// `storedName` is the name as the archive stores it, before any cleaning —
-// `./a` where `name` is `a`, `dir/` where it is `dir` — and passed every
+// `storedName` is the name as the archive stores it, before any cleaning --
+// `./a` where `name` is `a`, `dir/` where it is `dir` -- and passed every
 // check the cleaned one did. A symlink's target is never rewritten, only
 // checked, so `linkname` is as stored.
 export interface Entry {
@@ -50,7 +50,7 @@ export interface ZipOptions {
   method?: 'deflate' | 'store'
 }
 
-// `limit` bounds the entries' sizes, all of them together, in bytes —
+// `limit` bounds the entries' sizes, all of them together, in bytes --
 // stored and deflated alike, a symlink's target included. Each entry has to
 // come out at exactly the size it declares, so the sum is checked against
 // the central directory before anything is inflated, and past the limit
@@ -59,8 +59,8 @@ export interface UnzipOptions {
   limit?: number
 }
 
-// Both refuse a name that repeats as a different entry — anything but the
-// same fields and the same bytes again, however either was stored — an
+// Both refuse a name that repeats as a different entry -- anything but the
+// same fields and the same bytes again, however either was stored -- an
 // entry inside something that is not a directory, and a symlink whose
 // target climbs out of the archive or passes through anything but a
 // directory. unzip() also refuses an entry carrying a Unicode path extra
@@ -71,7 +71,7 @@ export function zip(entries: Iterable<EntryInput>, options?: ZipOptions): Promis
 export function unzip(bytes: Uint8Array, options?: UnzipOptions): Promise<Entry[]>
 
 // The same one entry at a time, as an async generator: over the archive in
-// memory, or over a Blob — a File, or a file opened with fs.openAsBlob —
+// memory, or over a Blob -- a File, or a file opened with fs.openAsBlob --
 // read a range at a time, so that no more of it is held than the entries'
 // names and the entry it is on, whose data is then its own rather than a
 // view of the archive.

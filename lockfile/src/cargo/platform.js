@@ -29,7 +29,7 @@ export function matchCargoPlatform(platform) {
   return (target) => {
     if (typeof target !== 'string') throw new TypeError('expected a platform as a [target] table names it')
     if (!parsed.has(target)) parsed.set(target, parsePlatform(target))
-    const spec = parsed.get(target) ?? raise(`${quote(target)} is neither a target's name nor a cfg(…) cargo reads`)
+    const spec = parsed.get(target) ?? raise(`${quote(target)} is neither a target's name nor a cfg(\u2026) cargo reads`)
     return platformMatches(spec, read)
   }
 }

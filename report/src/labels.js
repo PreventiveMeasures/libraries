@@ -1,6 +1,6 @@
 // The words the markdown writer uses for the app's enumerations, one
-// table per dimension. The viewer's prose surfaces read them too — the
-// export dialog, the analyzer dropdown, the page header — so a filter
+// table per dimension. The viewer's prose surfaces read them too -- the
+// export dialog, the analyzer dropdown, the page header -- so a filter
 // the dialog lists and the header line in the file can't disagree.
 
 import { canonicalSeverity } from './severity.js'

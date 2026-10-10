@@ -2,8 +2,8 @@
 // this package prints are the three it reads, and a file's worth of diff
 // comes back as the hunks it is written in and the change set they describe.
 //
-// What a hunk says is kept as it is written — every line with its tag, `-`
-// and `+` and the context between them — because that is what a patch
+// What a hunk says is kept as it is written -- every line with its tag, `-`
+// and `+` and the context between them -- because that is what a patch
 // carries and what applying one to a file that has moved on would need. The
 // change set is derived from it, and is the same shape `diffLines` returns,
 // with each block also holding the lines it removes and inserts, since a
@@ -147,7 +147,7 @@ function parseNormal(lines, at) {
 }
 
 // A context hunk lists each side separately, and leaves a side out entirely
-// when it has no changes of its own — the lines it would have shown are the
+// when it has no changes of its own -- the lines it would have shown are the
 // other side's context lines.
 function parseContext(lines, at) {
   const fence = CONTEXT_FENCE.exec(lines[at] ?? '')
@@ -167,7 +167,7 @@ function parseContext(lines, at) {
   const rhs = fresh.lines.length === 0 ? old.lines.filter((l) => l.tag === ' ') : fresh.lines
   // `*** 3,5 ****` is first and last inclusive and `*** 3 ****` one line,
   // but a range covering nothing prints the line before it in that same
-  // bare form — so which one it is comes from how many lines the hunk
+  // bare form -- so which one it is comes from how many lines the hunk
   // holds, not from the range line, which cannot say.
   const oldStart = rangeStart(oldHead[1], lhs.length)
   const newStart = rangeStart(newHead[1], rhs.length)

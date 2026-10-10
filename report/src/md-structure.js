@@ -2,7 +2,7 @@
 // table reading, labelled fields. parse-piolium.js reads through all of
 // them; parse-md.js and parse-deepsec.js share only the fence-aware
 // heading match and the heading-line split, and keep their own, subtly
-// different, section and label readers — fold those in only with their
+// different, section and label readers -- fold those in only with their
 // behavior pinned by tests first, since ids derive from parser output
 // and a drift in parsing silently re-keys stored triage.
 
@@ -12,7 +12,7 @@ import { fenceRanges, inFence } from './md-fence.js'
 
 export { LIST_MARKER_RE, closesFence, fenceRanges, inFence, readFences } from './md-fence.js'
 
-// Line endings normalised — what every parser does before reading a
+// Line endings normalised -- what every parser does before reading a
 // line, and the writer before putting prose on the page.
 export function normalizeNewlines(text) {
   return String(text ?? '').replaceAll(/\r\n?/gu, '\n')
@@ -20,7 +20,7 @@ export function normalizeNewlines(text) {
 
 // The headings the parsers split on: global and multiline, heading text
 // in capture 1, as splitByHeading and splitLeading want them. Shared
-// instances — they only ever reach `matchAll`, which doesn't advance a
+// instances -- they only ever reach `matchAll`, which doesn't advance a
 // regex.
 export const H2_RE = /^## +(.*)$/gmu
 export const H3_RE = /^### +(.*)$/gmu
@@ -50,7 +50,7 @@ export function splitUnfenced(text, re) {
 }
 
 // `text` split at every line matching `re` outside a fence: the content
-// before the first heading — the enclosing block's own body — as `head`,
+// before the first heading -- the enclosing block's own body -- as `head`,
 // and each heading line over the text up to the next as `subs`.
 export function splitLeading(body, re) {
   const marks = unfencedMatches(body, re)
@@ -74,7 +74,7 @@ export function splitHeadingLine(block) {
 
 // A table as `{ <column>: value }` objects keyed by its own case-folded
 // headers, so callers match columns by name rather than position. A
-// re-stated header row — how a concatenated section arrives — is chrome.
+// re-stated header row -- how a concatenated section arrives -- is chrome.
 //
 // Rows are arrays of trimmed cells; the `|---|---|` delimiter and any
 // non-row line are skipped, so prose around the table is ignored. The
@@ -94,11 +94,12 @@ export function tableObjects(text) {
 
 // `**Field:** value` labels, with or without a `- ` bullet, keyed
 // case-folded with the original spelling in `labels`; first occurrence
-// wins, and several joined by ` · ` on one line are peeled apart.
+// wins, and several joined by a middle dot or a bullet (U+00B7, U+2022)
+// on one line are peeled apart.
 //
 // A value runs to the next label, heading, table row, rule, or BLANK
 // LINE: a wrapped one-liner keeps its continuation lines, while the
-// paragraph under a label block is body prose — a `**Key code:** …` line
+// paragraph under a label block is body prose -- a `**Key code:** ...` line
 // must not swallow the summary under it. Fenced code in a value is all
 // content. Unlabelled text is collected as `prose`, for reports that
 // narrate without labels. Null-prototype, so "Constructor" aliases
@@ -145,7 +146,7 @@ export function parseLabelledFields(body) {
       let k = label[1].trim()
       let rest = label[2]
       let seg
-      while ((seg = /\s+[·•]\s+\*\*([^:*]+):\*\*\s*/u.exec(rest)) !== null) {
+      while ((seg = /\s+[\u00B7\u2022]\s+\*\*([^:*]+):\*\*\s*/u.exec(rest)) !== null) {
         setField(k.toLowerCase(), k, rest.slice(0, seg.index))
         k = seg[1].trim()
         rest = rest.slice(seg.index + seg[0].length)
@@ -155,7 +156,7 @@ export function parseLabelledFields(body) {
       buf = [rest]
       continue
     }
-    // Structural line — ends the current value without starting one.
+    // Structural line -- ends the current value without starting one.
     if (/^\s*(?:#{1,6} |\||[-=*_]{3,}\s*$)/u.test(line)) { flush(); continue }
     keep(line)
   }
@@ -165,17 +166,17 @@ export function parseLabelledFields(body) {
 
 // A code reference is prose-ish: `src/a.js:142 in runHook()`, a
 // backticked path, or a markdown link to the line on GitHub. Out come
-// the path, the line, and the URL when there is one — which
+// the path, the line, and the URL when there is one -- which
 // finding-id.js keys off when no fileHash is available, so two imports
 // of a report derive the same uuid and share triage. A trailing
 // function qualifier is shed from the path.
 export function parseCodeRef(raw) {
   let text = (raw || '').trim()
   let locationLink = ''
-  // Read the link the way findMdLink reads one — brackets, parens and
+  // Read the link the way findMdLink reads one -- brackets, parens and
   // all. Piolium cites paths a Next.js tree is full of
   // (`app/(main)/[id]/page.ts`), and an expression whose label stops at
-  // the first `]` finds none of them: the whole `[…](…)` text is left
+  // the first `]` finds none of them: the whole `[...](...)` text is left
   // as the file name, or the path comes back off its code span with the
   // url dropped. What the FINGERPRINT reads is that expression, frozen
   // in parse-piolium-id.js, so fixing this moves no ids.
@@ -190,13 +191,13 @@ export function parseCodeRef(raw) {
   let line = /#L(\d+)/u.exec(locationLink)?.[1] ?? ''
 
   // The first PATH-SHAPED backtick span wins when there is one: a value
-  // citing a call chain — "see `src/a.js:42` and `src/b.js:9`" — locates
+  // citing a call chain -- "see `src/a.js:42` and `src/b.js:9`" -- locates
   // the finding at the first quoted path, the rest being prose. Path-
   // shaped means a separator or an extension and no call parens, so a
-  // quoted qualifier (`… in \`runHook()\``) never beats a bare path, and
-  // a chosen span is the WHOLE path — backticks are what delimit one
+  // quoted qualifier (`... in \`runHook()\``) never beats a bare path, and
+  // a chosen span is the WHOLE path -- backticks are what delimit one
   // with spaces in it. The unquoted fallback takes the first whitespace
-  // token instead, since the template appends `… in runHook()`. Either
+  // token instead, since the template appends `... in runHook()`. Either
   // way a trailing `#L42` or `:88-95` yields the line, a RANGE keeping
   // its start and shedding the rest from the path.
   const spans = [...text.matchAll(/`([^`]+)`/gu)].map((m) => m[1].trim())
@@ -217,25 +218,25 @@ export function parseCodeRef(raw) {
 
 export function stripBold(text) { return text.replaceAll('**', '') }
 
-// An inline link — `[label](destination)` — the first one in `s`, or
+// An inline link -- `[label](destination)` -- the first one in `s`, or
 // null. Scanned rather than matched with one expression: both halves
 // nest, and an expression permissive enough for the nesting can no
-// longer tell where a link STARTS (`[context] see [src/a.ts:7](…)` opens
+// longer tell where a link STARTS (`[context] see [src/a.ts:7](...)` opens
 // on a bracket pair that is not a link).
 //
 // At each `[` the LABEL is read up to the first `]`, then
 // bracket-balanced. The first reading is all a path with an UNMATCHED
-// bracket has — `[`src/[id.ts:7`](…)` is what this library's own writer
+// bracket has -- `[`src/[id.ts:7`](...)` is what this library's own writer
 // emits for one. The second is markdown's rule and what a path carrying
-// brackets needs (`[app/(main)/[id]/page.ts:12](…)`), code spans skipped
+// brackets needs (`[app/(main)/[id]/page.ts:12](...)`), code spans skipped
 // whole, since backticks make their content literal. Either reading
 // counts only when a `(` follows, so `[context]` is no label.
 //
-// The DESTINATION is `<…>` — what md-text.js `link` writes when a url
-// holds a space, a paren or an angle bracket — else a bare run read the
+// The DESTINATION is `<...>` -- what md-text.js `link` writes when a url
+// holds a space, a paren or an angle bracket -- else a bare run read the
 // same two ways for the same reasons: balanced parens first, or a url
 // the writer never percent-encoded comes back cut
-// (`…/app/(main)/page.ts` → `…/app/(main`), then up to the first `)`,
+// (`.../app/(main)/page.ts` -> `.../app/(main`), then up to the first `)`,
 // all an unmatched paren leaves. Whitespace disqualifies a bare
 // destination either way, where markdown would read a title.
 //
@@ -270,7 +271,7 @@ export function findMdLink(s) {
 
 // Every `[` paired with the `]` that closes it once its brackets
 // balance, in one pass with a stack. Escapes and code spans are passed
-// over whole — neither one's brackets are structure, the reading
+// over whole -- neither one's brackets are structure, the reading
 // markdown gives them too.
 function balancedLabelEnds(text, spans) {
   const ends = new Map()
@@ -286,13 +287,13 @@ function balancedLabelEnds(text, spans) {
 }
 
 // Every backtick RUN that opens a code span, paired with the last
-// backtick of the run that closes it — the next run of exactly the same
+// backtick of the run that closes it -- the next run of exactly the same
 // length, which is how markdown fences one (md-text.js code writes
 // these). A run nothing matches is absent; its backticks are text.
 //
 // Read backwards, each run remembering the nearest one of its own
-// length ahead of it, so a line of unmatched runs of growing lengths —
-// `` `x``x```x… `` — costs one pass, not a scan per run.
+// length ahead of it, so a line of unmatched runs of growing lengths --
+// `` `x``x```x... `` -- costs one pass, not a scan per run.
 function codeSpanEnds(text) {
   const runs = []
   for (let i = text.indexOf('`'); i !== -1; i = text.indexOf('`', i)) {
@@ -313,14 +314,14 @@ function codeSpanEnds(text) {
 }
 
 // What a bare destination can close on, at every position: the `)` that
-// balances each `(`, and — for the reading that needs no balance — the
+// balances each `(`, and -- for the reading that needs no balance -- the
 // next `)` and the next whitespace. Whitespace ends a bare destination
 // either way, so a run of it abandons every open `(`.
 function destinationEnds(text) {
   const n = text.length
   const nextClose = new Int32Array(n + 1).fill(-1)
   const nextSpace = new Int32Array(n + 1).fill(-1)
-  // …and what ends an angle-bracket one, for the same reason.
+  // ...and what ends an angle-bracket one, for the same reason.
   const nextAngle = new Int32Array(n + 1).fill(-1)
   const nextLine = new Int32Array(n + 1).fill(-1)
   for (let i = n - 1; i >= 0; i--) {
@@ -335,7 +336,7 @@ function destinationEnds(text) {
     const c = text[i]
     // A backslash hides only a character it can actually escape.
     // `not\ a-url` is a backslash and a SPACE, and that space ends a
-    // bare destination — read as an escape, `[badge](not\ a-url)` would
+    // bare destination -- read as an escape, `[badge](not\ a-url)` would
     // be a link, and a reference behind it never reached.
     if (escapes(text, i)) i++
     else if (nextSpace[i] === i) open.length = 0
@@ -347,15 +348,15 @@ function destinationEnds(text) {
 
 // The destination opened at `open`, as its url, or null: an
 // angle-bracket form, else the bare run its own parens close, else the
-// one the first `)` closes. An EMPTY destination is none of them —
-// `[a]()` is not a link — while an empty `<>` falls through to the bare
+// one the first `)` closes. An EMPTY destination is none of them --
+// `[a]()` is not a link -- while an empty `<>` falls through to the bare
 // readings, which take the angle brackets themselves as the url.
 function destination(text, open, dests) {
   const angled = angleDestination(text, open, dests)
   if (angled) return angled
   const balanced = dests.balanced.get(open)
   if (balanced !== undefined) return balanced > open + 1 ? text.slice(open + 1, balanced) : null
-  // Failing that, up to the first `)` — all an unmatched paren leaves.
+  // Failing that, up to the first `)` -- all an unmatched paren leaves.
   // Whitespace before it disqualifies the candidate.
   const flat = dests.nextClose[open + 1]
   const space = dests.nextSpace[open + 1]
@@ -363,7 +364,7 @@ function destination(text, open, dests) {
   return text.slice(open + 1, flat)
 }
 
-// The `<…>` form md-text.js `link` writes when a url can't sit bare,
+// The `<...>` form md-text.js `link` writes when a url can't sit bare,
 // or '' when this destination isn't one.
 function angleDestination(text, open, dests) {
   if (text[open + 1] !== '<') return ''
@@ -373,7 +374,7 @@ function angleDestination(text, open, dests) {
   return text.slice(open + 2, close)
 }
 
-// Markdown backslash escapes — `a/b/\_cc\_cc/index.js` is a report
+// Markdown backslash escapes -- `a/b/\_cc\_cc/index.js` is a report
 // escaping underscores that would open emphasis, not a path with
 // backslashes. Undone wherever a value is a NAME rather than prose: a
 // file path, a link's label. Only ASCII punctuation can be escaped
@@ -393,16 +394,16 @@ export function unescapeMd(s) {
   return typeof s === 'string' ? s.replace(MD_ESCAPE_RE, '$1') : s
 }
 
-// `[X]` → `X`, where the brackets are notation. Ids only — a title can
+// `[X]` -> `X`, where the brackets are notation. Ids only -- a title can
 // legitimately carry square brackets.
 export function stripBrackets(s) {
   const m = /^\[(.+)\]$/u.exec(s.trim())
   return m ? m[1].trim() : s.trim()
 }
 
-// Table cells use `--` / `-` — or a typographic `—` / `–` — for
+// Table cells use `--` / `-` -- or a typographic em or en dash -- for
 // "not applicable".
 export function cellValue(s) {
   const v = (s || '').trim()
-  return /^[-–—]+$/u.test(v) ? '' : v
+  return /^[-\u2013\u2014]+$/u.test(v) ? '' : v
 }

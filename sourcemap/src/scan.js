@@ -10,7 +10,7 @@ const SPACE = /\s+/uy
 const LINE_ENDS = '\n\r\u2028\u2029'
 const LINE_END = /[\n\r\u2028\u2029]/gu
 const LINE_BREAK = /[\n\r\u2028\u2029]/u
-const WORD = /[\w$\u0080-￿]+/uy
+const WORD = /[\w$\u0080-\uFFFF]+/uy
 // After these a `/` starts a regular expression, not a division; and
 // after the `)` that closes the head of these, `if (a) /re/.test(b)`, and
 // the `}` that closes a block, not an object.
@@ -206,7 +206,7 @@ export function scanSpecifiers(text, callees = new Set()) {
   const found = []
   for (const [k, token] of tokens.entries()) {
     if (token.type !== 'word' || ['.', '#', 'function'].includes(tokens[k - 1]?.value)) continue
-    // TypeScript's `import type a = require(…)`, which type erasure takes.
+    // TypeScript's `import type a = require(...)`, which type erasure takes.
     if (tokens[k - 1]?.value === '=' && tokens[k - 3]?.value === 'type' && tokens[k - 4]?.value === 'import') continue
     const called = tokens[k + 1]?.value === '('
     const specifier = called ? argumentOf(tokens, k) : undefined

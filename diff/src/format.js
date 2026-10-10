@@ -1,4 +1,4 @@
-// The three output styles — normal, unified and context — rendered from a
+// The three output styles -- normal, unified and context -- rendered from a
 // change set. The formats are the ones every diff and patch already agree
 // on, and the rules below are those formats, so the same change set gives
 // the same bytes as any other implementation; that the change set is the
@@ -20,7 +20,7 @@ export class FormatError extends Error {
 
 // Read back, and held to the change set and to the two files. Every line
 // printed is one of their lines: a context or removed line is the first
-// file's, an added line the second's — which is true whatever comparison
+// file's, an added line the second's -- which is true whatever comparison
 // was in force, so this holds under the whitespace and case options too,
 // where the two files' "equal" lines differ in text and rebuilding the
 // second file from the diff would not give it back.
@@ -53,7 +53,7 @@ function verifyRendering(a, b, blocks, body) {
 // From a change set to what the context formats print: hunks, each a run of
 // changes close enough to share context lines. Two changes belong to one
 // hunk when the unchanged lines between them number at most twice the
-// context — exactly when their context lines would touch or overlap.
+// context -- exactly when their context lines would touch or overlap.
 
 function groupHunks(blocks, context, aLength, bLength) {
   const hunks = []
@@ -111,7 +111,7 @@ function unifiedRange(start, end) {
 }
 
 // `label(index)` is what each hunk's own header line carries after its
-// ranges — under -p, the function the hunk starts inside — or null for none.
+// ranges -- under -p, the function the hunk starts inside -- or null for none.
 // The two label lines a whole diff opens with are not taken here: they are a
 // constant the caller writes in front of this, and accepting them would mean
 // handing back bytes this cannot vouch for, since a label reading like diff

@@ -2,7 +2,7 @@
 // Podfile.lock has to be, byte for byte, but for line ends: YAMLHelper's
 // convert_hash and what it calls, with the quoting of strings of the
 // CocoaPods release that wrote the file. What it would lay out otherwise
-// — another order, another quoting, another spacing — is refused, which
+// -- another order, another quoting, another spacing -- is refused, which
 // leaves each value one way to be written.
 
 import { LockfileError, quote } from '../error.js'
@@ -55,8 +55,9 @@ function processString(text, rules) {
 // YAMLHelper's sorting_string: what an entry sorts by, its case folded as
 // Ruby's String#downcase folds it, a character at a time. Of JS's case
 // mappings only a final sigma's depends on what is around it, and Ruby's
-// does not: Σ is σ, wherever it is.
-const downcase = (text) => text.replaceAll('Σ', 'σ').toLowerCase()
+// does not: a capital sigma is U+03C3, never the final U+03C2, wherever
+// it is.
+const downcase = (text) => text.replaceAll('\u03A3', '\u03C3').toLowerCase()
 
 function sortingString(node) {
   if (node.kind === 'seq') return node.items.length === 0 ? '' : sortingString(node.items[0])

@@ -1,9 +1,9 @@
 import { isRepo } from './args.js'
 
 // `user:token@` is skipped, never returned. It is held to the characters
-// RFC 3986 allows there — a `#`, `?` or `\` before the `@` ends the
+// RFC 3986 allows there -- a `#`, `?` or `\` before the `@` ends the
 // authority early, so `https://evil.example#@github.com/a/b` goes to
-// evil.example — and URL parsing has to agree the host is github.com.
+// evil.example -- and URL parsing has to agree the host is github.com.
 const gitUrlRegex = /^(?i:(?:git\+)?(?:https?|git|ssh)):\/\/(?:[\w.~%!$&'()*+,;=:-]*@)?(?i:github\.com)(?::\d{1,5})?\/(?<repo>[\w-]+\/[\w.-]+?)(?:\.git)?\/?$/u
 const scpRegex = /^(?i:git\+ssh:\/\/)?git@(?i:github\.com):(?<repo>[\w-]+\/[\w.-]+?)(?:\.git)?$/u
 

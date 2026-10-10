@@ -28,7 +28,7 @@ export function readManifest(text, where) {
   if (typeof text !== 'string') throw new TypeError(`${where} must be the text of a package.json`)
   let manifest
   try {
-    manifest = JSON.parse(text.replace(/^﻿/u, ''))
+    manifest = JSON.parse(text.replace(/^\uFEFF/u, ''))
   } catch (error) {
     throw new DeptreeError(`not JSON: ${error.message}`, where, { cause: error })
   }

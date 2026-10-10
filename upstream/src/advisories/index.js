@@ -12,7 +12,7 @@ const byNumbers = new Intl.Collator('en', { numeric: true }).compare
 const assertEcosystem = assertion(`one of ${Object.keys(ECOSYSTEMS).join(', ')}`, (value) => typeof value === 'string' && Object.hasOwn(ECOSYSTEMS, value))
 const assertVersions = assertion('a non-empty array', (value) => Array.isArray(value) && value.length > 0)
 
-// Ecosystem → name → { versions, github? }, a name given twice merged.
+// Ecosystem -> name -> { versions, github? }, a name given twice merged.
 // Every package is checked before any is used.
 function collect(packages) {
   assert.ok(isIterable(packages), 'advisories: packages must be an iterable of { ecosystem, name, github?, versions }')

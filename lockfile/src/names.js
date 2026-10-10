@@ -12,9 +12,9 @@ const checker = checkerOf(text)
 // taking in new names: parentheses in particular would read as the start of
 // a peer suffix in a pnpm key. Capitals stay, since old names have them.
 // No name starts with `.` or `_`, so none is `..` or `__proto__`. ASCII
-// alone, as npm takes: a case-insensitive Unicode class would take `ſ` for
-// `s` and the Kelvin sign for `k`, and the second is `K` to a file system
-// that normalizes names.
+// alone, as npm takes: a case-insensitive Unicode class would take the long
+// s for `s` and the Kelvin sign for `k`, and the second is `K` to a file
+// system that normalizes names.
 const NAME = /^(?:@[\dA-Za-z~-][\w.~-]*\/)?[\dA-Za-z~-][\w.~-]*$/u
 
 export const isName = (name) => name.length <= 214 && NAME.test(name)
@@ -120,7 +120,7 @@ export const checkRefName = checker((ref) => !BAD_REF.test(ref), 'a branch or ta
 
 // A `-` that leads a repository, the user before its host or the host, which
 // git, or the ssh it runs, would read as an option where it does not refuse
-// one first: `-oProxyCommand=…` runs a command.
+// one first: `-oProxyCommand=...` runs a command.
 const AS_OPTION = /^(?:[^/:]*:\/\/)?(?:[^/@]*@)?-/u
 // `transport::address`, which git hands to the remote helper of the name;
 // `ext::` runs a command.

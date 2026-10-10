@@ -12,7 +12,7 @@ const PER_REQUEST = 100
 const PACE_MS = 1000 // crates.io asks for a request a second at most, and a user agent.
 const USER_AGENT = '@preventive/upstream (https://github.com/PreventiveMeasures/libraries)'
 
-// One request for up to a hundred crates: each name → the GitHub repo its
+// One request for up to a hundred crates: each name -> the GitHub repo its
 // `repository` names, or null where it names none. A crate crates.io
 // leaves out of its answer is one it does not have, null too.
 async function askCrates(method, names) {
@@ -27,7 +27,7 @@ async function askCrates(method, names) {
   return found
 }
 
-// Name → its GitHub repo, or null where crates.io has no such crate or it
+// Name -> its GitHub repo, or null where crates.io has no such crate or it
 // names no GitHub repo, through the cache, or a `cache` store (readRecord):
 // only a repo found is kept, for a month. A failed request throws, or with
 // `soft` leaves its names out; `cachedOnly` asks nothing.

@@ -19,13 +19,13 @@ export function isHttpUrl(s) {
 }
 
 // One line of a table cell: newlines collapse to spaces, and the `|`
-// that would end the cell is escaped — inside a code span too, which is
+// that would end the cell is escaped -- inside a code span too, which is
 // where GitHub still reads it as a column break.
 export function cell(text) {
   return String(text ?? '').replaceAll(/\s*\n\s*/gu, ' ').replaceAll('|', '\\|').trim()
 }
 
-// Inline code — a path, a hash, a package name. Fenced with one more
+// Inline code -- a path, a hash, a package name. Fenced with one more
 // backtick than the longest run inside it, which is how markdown quotes
 // a backtick; padded when the content itself starts or ends on one, so
 // the content can't merge with its fence.
@@ -39,8 +39,8 @@ export function code(text) {
 }
 
 // Square brackets in a link's TEXT would open a nested link; escape
-// them. Code spans inside the text need no escaping — they bind tighter
-// than the brackets — so this is for plain-text labels only.
+// them. Code spans inside the text need no escaping -- they bind tighter
+// than the brackets -- so this is for plain-text labels only.
 export function escapeBrackets(text) {
   return String(text ?? '').replaceAll(/[[\]]/gu, '\\$&')
 }
@@ -53,13 +53,13 @@ export function link(label, url) {
 }
 
 // A bare URL as an autolink (`<url>`), which every renderer links;
-// anything else — a ticket number, a note — as the text it is.
+// anything else -- a ticket number, a note -- as the text it is.
 export function autolink(s) {
   return isHttpUrl(s) ? `<${s}>` : String(s ?? '')
 }
 
 // GitHub's heading anchor: lower-cased, punctuation dropped, spaces to
-// hyphens, `-N` on a repeat — what GitHub, GitLab and most editors read.
+// hyphens, `-N` on a repeat -- what GitHub, GitLab and most editors read.
 // `taken` is the document's registry of anchors handed out.
 export function anchorSlug(text, taken) {
   const base = String(text ?? '').toLowerCase()
@@ -84,7 +84,7 @@ export function table(headers, rows, align = []) {
   return [headers, delim, ...rows].map((r) => `| ${r.join(' | ')} |`).join('\n')
 }
 
-// `2026-09-05 14:02 UTC` — a moment a reader can compare with the
+// `2026-09-05 14:02 UTC` -- a moment a reader can compare with the
 // report's own dates without knowing the exporting machine's zone.
 export function formatTimestamp(date) {
   const d = date instanceof Date ? date : new Date(date)
@@ -97,7 +97,7 @@ export function plural(n, noun, many = `${noun}s`) {
   return `${n} ${n === 1 ? noun : many}`
 }
 
-// Blocks joined by one blank line — the paragraph break — with empty
+// Blocks joined by one blank line -- the paragraph break -- with empty
 // blocks dropped and each block's trailing whitespace trimmed, so no
 // block can add a second break of its own.
 export function joinBlocks(blocks) {
@@ -106,12 +106,12 @@ export function joinBlocks(blocks) {
 
 // A run of a report's own markdown as it lands in the document: line
 // endings normalised, edges trimmed, a line that would read as a
-// heading escaped, an open fence closed — in that order, since the
+// heading escaped, an open fence closed -- in that order, since the
 // closer is the page's: an escaped heading is text, which a lone tag
 // after it continues where it would have opened a block.
 //
-// A dangling fence runs to the end of the FINDING for every parser — a
-// card's reader sees the snippet, not a problem — but in a document it
+// A dangling fence runs to the end of the FINDING for every parser -- a
+// card's reader sees the snippet, not a problem -- but in a document it
 // would swallow every finding after it, so it is closed with the marker
 // that opened it, at its item's margin: a fence in a list item closes
 // inside the item, where a closer at the page's margin would end the
@@ -124,7 +124,7 @@ export function joinBlocks(blocks) {
 // goes on the page as `\## Internal detail` and is stripped back
 // (unescapeHeadings), with a line already opening on a backslash getting
 // one more, so that strip is exact whatever the prose held. Fenced code
-// is left alone — a `#` there is code.
+// is left alone -- a `#` there is code.
 const HEADING_LINE_RE = /^( {0,3})(\\*#)/u
 
 export function prose(text) {

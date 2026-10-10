@@ -4,13 +4,13 @@
 // in the same order and under the same headings. The second entry point has
 // its own, src/color.d.ts.
 //
-// Keep it honest. Nothing checks these against the implementation — a
+// Keep it honest. Nothing checks these against the implementation -- a
 // declaration that drifts is a silent lie to every caller that trusts it,
 // so a change to an exported signature belongs in the same commit as the
 // change here.
 
 // One block of a change set: `a[a0..a1)` is replaced by `b[b0..b1)`, counting
-// lines from zero. Either side may be empty — an insertion or a deletion —
+// lines from zero. Either side may be empty -- an insertion or a deletion --
 // never both, and the blocks of a change set are disjoint and in order. A
 // block read out of a diff also holds the lines it names, since a diff is
 // the only place those exist.
@@ -31,7 +31,7 @@ export interface HunkLine {
 
 // A hunk as it stands in the diff, its lines in the order they are printed
 // and its starting lines counting from zero. `label` is what its header line
-// carried after the ranges — under -p, the function it starts inside.
+// carried after the ranges -- under -p, the function it starts inside.
 export interface Hunk {
   oldStart: number
   newStart: number

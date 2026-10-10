@@ -1,5 +1,5 @@
 // Reasoning ladders a model row can point `efforts` at. Named by their top rung, since the levels
-// below it come along: OpenAI gates the high end per model — `max` is gpt-5.6 and gpt-6, `xhigh`
+// below it come along: OpenAI gates the high end per model -- `max` is gpt-5.6 and gpt-6, `xhigh`
 // reaches back through 5.5, 5.4 and 5.3-codex.
 //
 // A ladder is the model's, not the route's. OpenRouter lists `max` for gpt-6-astra just as OpenAI
@@ -14,8 +14,8 @@
 export const EFFORTS_THROUGH_MAX = ['low', 'medium', 'high', 'xhigh', 'max']
 const EFFORTS_THROUGH_XHIGH = ['low', 'medium', 'high', 'xhigh']
 
-// Long-context tiers a row can point `longContext` at. A request whose prompt — fresh input plus
-// every cache leg, since OpenAI's input count takes in the cached tokens too — runs past `above`
+// Long-context tiers a row can point `longContext` at. A request whose prompt -- fresh input plus
+// every cache leg, since OpenAI's input count takes in the cached tokens too -- runs past `above`
 // tokens is billed at `input` times the row's input and cache rates and `output` times its output
 // rate, on the WHOLE request rather than only the tokens past the line. A row with no
 // `longContext` bills every request at its base rates.
@@ -53,7 +53,7 @@ export const MAIN_MODELS = [
   ['anthropic/claude-haiku-4.5', { input: 1, output: 5, maxTokens: 64_000 }],
   // Two unrelated things wear `-pro` here. A row carrying wireModel is an OPENROUTER ALIAS for
   // reasoning.mode=pro on the model it names: same weights, same rate, more tokens spent. A row
-  // without one — gpt-5.5-pro, gpt-5.4-pro — is an OPENAI MODEL NAME, priced six times its namesake
+  // without one -- gpt-5.5-pro, gpt-5.4-pro -- is an OPENAI MODEL NAME, priced six times its namesake
   // because it is a different model. Adding a new `-pro` means deciding which, and the rate says
   // it: same as its base, or not.
   ['openai/gpt-6-astra', { input: 10, output: 50, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true }],
@@ -65,7 +65,7 @@ export const MAIN_MODELS = [
   ['openai/gpt-6-luna', { input: 0.1, output: 0.5, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'explicit', cacheBreakpoint: true }],
   ['openai/gpt-6-luna-pro', { input: 0.1, output: 0.5, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, wireModel: 'openai/gpt-6-luna', reasoningMode: 'pro' }],
   // 4 / 20 is Sol's PROMOTIONAL rate, which OpenAI's pricing page publishes as its table price and
-  // says holds at least through 2026-11-21 — the one promotion in the openai rows. Recheck after
+  // says holds at least through 2026-11-21 -- the one promotion in the openai rows. Recheck after
   // that date: the rate it reverts to is not published, so a lapse cannot be priced in advance.
   ['openai/gpt-5.6-sol', { input: 4, output: 20, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'explicit', cacheBreakpoint: true }],
   ['openai/gpt-5.6-sol-pro', { input: 4, output: 20, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, wireModel: 'openai/gpt-5.6-sol', reasoningMode: 'pro' }],
@@ -73,8 +73,8 @@ export const MAIN_MODELS = [
   ['openai/gpt-5.6-terra-pro', { input: 2, output: 12, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, wireModel: 'openai/gpt-5.6-terra', reasoningMode: 'pro' }],
   ['openai/gpt-5.6-luna', { input: 0.2, output: 1.2, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'explicit', cacheBreakpoint: true }],
   ['openai/gpt-5.6-luna-pro', { input: 0.2, output: 1.2, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, wireModel: 'openai/gpt-5.6-luna', reasoningMode: 'pro' }],
-  // From gpt-5.5 down to gpt-4o-mini, OpenAI bills a cache write as ordinary input — the 1.25x
-  // write arrived with GPT-5.6 — so each of these rows names its input rate as `cacheWritePrice`.
+  // From gpt-5.5 down to gpt-4o-mini, OpenAI bills a cache write as ordinary input -- the 1.25x
+  // write arrived with GPT-5.6 -- so each of these rows names its input rate as `cacheWritePrice`.
   ['openai/gpt-5.5', { input: 5, output: 30, cacheWritePrice: 5, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128 * 1024, noThink: 'explicit', efforts: EFFORTS_THROUGH_XHIGH }],
   ['openai/gpt-5.5-pro', { input: 30, output: 180, cacheWritePrice: 30, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128 * 1024, noThink: 'unsupported', efforts: ['medium', 'high', 'xhigh'] }],
   ['openai/gpt-5.4', { input: 2.5, output: 15, cacheWritePrice: 2.5, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128 * 1024, efforts: EFFORTS_THROUGH_XHIGH }],
@@ -155,7 +155,7 @@ export const LOCAL_MODELS = [
   ['nvidia/nemotron-3.5-lightning-q4_k_m', { maxTokens: 128 * 1024 }],
 ]
 
-// OpenRouter's free endpoints — may log/store/use your data.
+// OpenRouter's free endpoints -- may log/store/use your data.
 export const FREE_MODELS = [
   ['openai/gpt-oss-120b:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: false, free: true }],
   ['openai/gpt-oss-20b:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: false, free: true }],

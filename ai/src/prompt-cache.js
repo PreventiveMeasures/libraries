@@ -2,7 +2,7 @@ import { readsCacheBreakpoint } from './models.js'
 
 // Prompt-cache markup: which routes read an explicit cache breakpoint out of the request body, and
 // how each message shape carries one. Lives apart from the adapters because the same model gets the
-// same caching either way it is reached — Anthropic direct or through a chat-completions gateway —
+// same caching either way it is reached -- Anthropic direct or through a chat-completions gateway --
 // and only the wire format differs.
 //
 // Two placements are explicit because the API cannot infer them:
@@ -28,8 +28,8 @@ export const isOpenAIRoute = (model) => model.startsWith('openai/')
 // on its own.
 //
 // The marker each route gets is the one its own upstream provider documents, rather than one shape
-// the gateway is trusted to translate. OpenRouter does translate — an Anthropic-style
-// `cache_control` block becomes OpenAI's `prompt_cache_breakpoint` on an OpenAI-backed route — but
+// the gateway is trusted to translate. OpenRouter does translate -- an Anthropic-style
+// `cache_control` block becomes OpenAI's `prompt_cache_breakpoint` on an OpenAI-backed route -- but
 // that behaviour is OpenRouter's own, and this client has to keep working against any
 // OpenAI-compatible gateway (see OPENROUTER_API_URL). Emitting the marker only where the provider
 // defines it means nothing needs translating at all, and gpt-5.6 gets its own dialect below rather
@@ -49,7 +49,7 @@ export const readsExplicitBreakpoint = (model) => isAnthropicRoute(model) || mod
 // file matches none of it. Marking the system prompt gives a run one entry every request reads.
 // Sending it costs nothing where it cannot pay: a prefix under the ~1024-token minimum simply
 // doesn't cache, reporting zero written rather than erroring. That is the common case, not a rare
-// tail — measured over one caller's 20 system prompts, 12 sat under the floor, the short per-item
+// tail -- measured over one caller's 20 system prompts, 12 sat under the floor, the short per-item
 // ones among them (~223, ~680 and ~807 est. tokens). The eight larger prompts that dominated
 // request volume cleared it comfortably (~1857 through ~3022), and those are the ones a run repeats
 // most.
@@ -57,7 +57,7 @@ export const readsExplicitBreakpoint = (model) => isAnthropicRoute(model) || mod
 // routes cannot drift apart on it.
 export const ANTHROPIC_SYSTEM_CACHE = { type: 'ephemeral', ttl: '1h' }
 
-// Every route but Anthropic wants exactly what the prefix gets — Qwen's bare ephemeral block,
+// Every route but Anthropic wants exactly what the prefix gets -- Qwen's bare ephemeral block,
 // gpt-5.6's breakpoint, or nothing. Deferring rather than restating the list keeps a newly added
 // provider from being marked on the isolate prefix and silently skipped here.
 export function chatCompletionsSystemMessage(model, systemPrompt) {
@@ -66,7 +66,7 @@ export function chatCompletionsSystemMessage(model, systemPrompt) {
   return { role: 'system', content: [{ type: 'text', text: systemPrompt, ...marker }] }
 }
 
-// The marker that closes a reusable prefix, in whichever dialect the model reads — or null for one
+// The marker that closes a reusable prefix, in whichever dialect the model reads -- or null for one
 // that caches on its own, where a split would only add a block boundary no cache acts on. Both
 // dialects mean the same thing: the block carrying it, and everything before it, is the reusable
 // part.
@@ -83,7 +83,7 @@ function prefixMarker(model) {
 export const flattenUserContent = (userContent) => (Array.isArray(userContent) ? userContent.join('') : userContent)
 
 // `userContent` is one string, or a list of blocks whose LAST one is the part that varies. The
-// marker goes immediately before it — everything up to there is the shared part, so variants that
+// marker goes immediately before it -- everything up to there is the shared part, so variants that
 // differ only in their tail read one cache entry for the whole preamble instead of each writing its
 // own. That is the case this grew from: a preamble many per-export variants share, and the
 // per-variant tail.
@@ -107,11 +107,11 @@ export const flattenUserContent = (userContent) => (Array.isArray(userContent) ?
 //
 // Chat-completions names its text blocks `text`, Responses names them `input_text`; the split and
 // the marker are the same decision either way, so the two exported shapes differ only in that name.
-// Anthropic's Messages API names its blocks `text` too, so it takes the chat-completions shape —
+// Anthropic's Messages API names its blocks `text` too, so it takes the chat-completions shape --
 // which is the point: one place decides where the prefix ends, and the adapter it is reached
 // through only picks the spelling.
 const splitInitialUserMessage = (textType) => (model, userContent) => {
-  // An empty block is not a cache boundary, it is a 400 on Anthropic — and dropping it keeps
+  // An empty block is not a cache boundary, it is a 400 on Anthropic -- and dropping it keeps
   // `(content, '')` meaning what it always did, a message with nothing to split.
   const blocks = (Array.isArray(userContent) ? userContent : [userContent]).filter(Boolean)
   const marker = blocks.length < 2 ? null : prefixMarker(model)
@@ -127,25 +127,25 @@ export const responsesInitialUserMessage = splitInitialUserMessage('input_text')
 // request has no reader yet, and measured against real runs, most never get one.
 //
 // Declaring tools does not predict a second turn. A census of two prompts' cached entries found
-// 1392 of 10476 tool-carrying requests ever called a tool — 13.3%, against a break-even of 27.8%,
+// 1392 of 10476 tool-carrying requests ever called a tool -- 13.3%, against a break-even of 27.8%,
 // since a 1.25x write only pays off by turning a later 1.0x re-read into a 0.1x one. Those prompts
 // ask the model to reach for their source-fetch tool sparingly, so that rate is the design working
 // rather than a symptom to fix. Gating on tools meant 9084 of those requests wrote a tail entry
 // nothing ever read.
 //
-// `turn > 0` is only reachable when tools were declared — a response with no tool calls ends the
-// loop — so this writes exactly when a conversation has continued, and never on the one-shots that
+// `turn > 0` is only reachable when tools were declared -- a response with no tool calls ends the
+// loop -- so this writes exactly when a conversation has continued, and never on the one-shots that
 // dominate. A cache entry holding two request/response pairs with no tools in sight is not a
 // counterexample: that is a caller's format retry, and a retry calls ask() again, so the second
 // attempt is a fresh conversation starting at turn 0 whose history is concatenated onto the first.
 // It re-sends a byte-identical prefix, which is the one case a turn-0 write would be read back
-// verbatim — but measured at 1 entry in 6313, three orders of magnitude under the rate that would
+// verbatim -- but measured at 1 entry in 6313, three orders of magnitude under the rate that would
 // justify writing for it. The cost is that a conversation's first two turns no longer share an
 // entry, which is why this stays a win only while the rate is under 21.7%: at 13.3% it is ~7.7%
 // cheaper across tool-carrying requests.
 //
-// Not writing the tail at all would be a hair cheaper still on those two — the same census puts
-// them at a mean of 2.24 turns when they do loop, just under the 2.28 crossover — but a
+// Not writing the tail at all would be a hair cheaper still on those two -- the same census puts
+// them at a mean of 2.24 turns when they do loop, just under the 2.28 crossover -- but a
 // conversation that explores through tools inverts the shape: nearly every one loops, for tens of
 // turns. Skipping the write there would re-process the whole accumulated transcript every turn,
 // ~30x the head against ~5x. Writing from turn 1 is the one rule that suits both, and it costs the

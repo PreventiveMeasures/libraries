@@ -37,8 +37,8 @@ const isLookup = (callee) => callee.type === 'MemberExpression' && (callee.compu
 // One walk: the tables outside any module (a table in one is the module's
 // own), every call with the factory it is in, and `__webpack_require__` by
 // any name a minifier gave it: the function that passes itself to a
-// factory it looks up, `table[id](…, itself)` or, in webpack 4,
-// `table[id].call(…, itself)`.
+// factory it looks up, `table[id](..., itself)` or, in webpack 4,
+// `table[id].call(..., itself)`.
 function read(program) {
   const ids = new Map()
   const factories = new Map()

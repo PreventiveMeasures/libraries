@@ -17,7 +17,7 @@ export function setFetchConcurrency(limit) {
 }
 
 // The failure that ends a long run when the model is fine and the road to it is not: a gateway that
-// cannot reach its upstream right now. It arrives under more than one status — 429 from a rate
+// cannot reach its upstream right now. It arrives under more than one status -- 429 from a rate
 // limiter, 5xx from a proxy, and (seen from the Moonshot route on kimi-k3) a plain 400 whose BODY
 // carries the real reason:
 //
@@ -29,16 +29,16 @@ export function setFetchConcurrency(limit) {
 //
 // The code is read out of the PARSED envelope, never matched as a substring of the body. This tool
 // posts source code, gateways echo the offending request back in a permanent 4xx, and this file now
-// contains the token itself — a substring match hands a request that can never succeed the full
+// contains the token itself -- a substring match hands a request that can never succeed the full
 // backoff budget, on every file that mentions it.
 //
-// Codes are matched literally rather than by prefix — a set that grows when a new one is SEEN, not
+// Codes are matched literally rather than by prefix -- a set that grows when a new one is SEEN, not
 // when one is imagined.
 const TRANSIENT_CODES = ['upstream_unavailable']
 
 function namesTransientCode(body) {
   // Cheap gate first: an echoed request body runs to megabytes and there is nothing to parse unless
-  // the token is somewhere in it. The parse is what actually decides — the gate only avoids paying
+  // the token is somewhere in it. The parse is what actually decides -- the gate only avoids paying
   // for it.
   if (!TRANSIENT_CODES.some((code) => body.includes(code))) return false
   let json
@@ -58,7 +58,7 @@ export function isTransientHttpFailure(status, body = '') {
 // delta-seconds is matched as `1*DIGIT` rather than handed to Number(), which also accepts what is
 // not a delta at all: `0x10` as 16s, `1e3` as an hour, ` 5` and `+5` and `-5`. The list form is
 // matched with it because a proxy chain leaving TWO Retry-After headers on one response comes back
-// from undici comma-joined (`5, 10`), and that string is neither a number nor a date — it reaches
+// from undici comma-joined (`5, 10`), and that string is neither a number nor a date -- it reaches
 // Date.parse, which reads it as 2001-05-10 and clamps a wait of ZERO out of a server asking for
 // five seconds. The first value is the origin's own.
 const MAX_RETRY_AFTER = 60_000
@@ -74,7 +74,7 @@ export function parseRetryAfter(value, now = Date.now()) {
 }
 
 // Exponential and jittered: 1s, 2s, 4s, 8s, 16s, then capped. A flat delay retries into the same
-// wall three times in three seconds — and, because a whole concurrency window is usually rejected
+// wall three times in three seconds -- and, because a whole concurrency window is usually rejected
 // together, retries in lockstep, which is the shape an overloaded upstream least wants to see. The
 // jitter spreads that window out.
 const BASE_DELAY = 1000
@@ -86,7 +86,7 @@ export function retryDelayMs(attempt, retryAfter = null) {
   // A server-sent wait wins, but never downwards past the flat second the old loop always took.
   // `Retry-After: 0` is legal, a negative delta and an HTTP date already past under a second of
   // clock skew both clamp to 0, and honouring that verbatim spends the entire budget in
-  // milliseconds — a tighter hammer on an upstream that just said stop than the one this backoff
+  // milliseconds -- a tighter hammer on an upstream that just said stop than the one this backoff
   // exists to replace.
   if (after !== null) return Math.max(after, BASE_DELAY)
   const base = Math.min(BASE_DELAY * 2 ** attempt, MAX_DELAY)
@@ -95,7 +95,7 @@ export function retryDelayMs(attempt, retryAfter = null) {
 
 // Carries what the retry loop needs to classify and pace a failure. The message is byte-for-byte
 // what it always was (`API <status>: <body>`), and the three fields are non-enumerable so that
-// every log line, cached invalid-response reason and `Fatal: …` report reads the same as before —
+// every log line, cached invalid-response reason and `Fatal: ...` report reads the same as before --
 // left enumerable, util.inspect appends them to the console dump and JSON.stringify starts emitting
 // them, printing the whole response body a second time where a plain Error printed it once.
 //
@@ -116,13 +116,13 @@ class UpstreamError extends Error {
 
 // Retry lines carry the reason, not the whole page. A gateway that echoes the offending request
 // answers with the whole request back, and a caller capturing this process's stderr may keep only
-// its first chunk, so an unbounded line repeated once per attempt evicts the `Fatal: …` that
+// its first chunk, so an unbounded line repeated once per attempt evicts the `Fatal: ...` that
 // explains why the run actually died. The full body still rides the throw.
 const LOG_BODY_LIMIT = 200
 
 function retryReason(err) {
   if (!(err instanceof UpstreamError) || err.body.length <= LOG_BODY_LIMIT) return err.message
-  return `API ${err.status}: ${err.body.slice(0, LOG_BODY_LIMIT)}…`
+  return `API ${err.status}: ${err.body.slice(0, LOG_BODY_LIMIT)}\u2026`
 }
 
 // `retries` is how many times a failed request is re-asked, per request rather than per process:
@@ -150,8 +150,8 @@ export async function fetchJSON(url, options, { debug, label, retries = RETRIES 
         }
         return await res.json()
       } catch (err) {
-        // A transient upstream failure gets the `retries` budget and backs off; everything else —
-        // a malformed request, a bad key, a dropped socket — keeps the flat second and the two
+        // A transient upstream failure gets the `retries` budget and backs off; everything else --
+        // a malformed request, a bad key, a dropped socket -- keeps the flat second and the two
         // tries RETRIES gives it. A larger budget buys only the transient class more; a smaller
         // one caps both, so `retries: 0` retries nothing at all.
         const transient = err instanceof UpstreamError && isTransientHttpFailure(err.status, err.body)

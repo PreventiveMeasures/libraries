@@ -10,8 +10,8 @@ import { isSpecifiers, trimBlanks } from './pep440.js'
 
 // What a distribution's name may be, and the form PEP 503 makes of it, in
 // which an extra's and a group's name are written too. ASCII alone, as uv
-// and PyPI take: a case-insensitive Unicode class would take `ſ` and the
-// Kelvin sign, which lowercases to `k`, and so to another's normal form.
+// and PyPI take: a case-insensitive Unicode class would take the long s and
+// the Kelvin sign, which lowercases to `k`, and so to another's normal form.
 const NAME = /^(?:[\dA-Za-z]|[\dA-Za-z][\w.-]*[\dA-Za-z])$/u
 const NORMAL = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
 

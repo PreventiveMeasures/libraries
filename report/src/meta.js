@@ -1,4 +1,4 @@
-// Run-level meta — the fields at the top of a report describing the run
+// Run-level meta -- the fields at the top of a report describing the run
 // that produced it. Both triage's report view (ui/view/ingest.js) and
 // its OPFS-wide index (client/bundle-finding-index.js) project the header
 // onto the findings, so every consumer reads run meta off a finding
@@ -9,7 +9,7 @@ export const META_FIELDS = ['type', 'model', 'think', 'effort', 'exportsMode']
 // the report header. Per-field, not all-or-nothing: `deduplicate` stamps
 // `model` per finding while the rest stay run-level, so a finding
 // carrying only its own `model` still needs the header's `type`. Null
-// counts as unspecified — a report is JSON, where `"type": null` can't be
+// counts as unspecified -- a report is JSON, where `"type": null` can't be
 // told from an omitted key. Source-marked reports opt out wholesale:
 // each is one analyzer, and its report-level `type` is the product's
 // category rather than a run descriptor.
@@ -23,7 +23,7 @@ export function inheritReportMeta(finding, data) {
 // `"repo": { "github": "owner/name" }` at the top of a native dump, the
 // repository the run covered. NOT inherited onto findings the way
 // META_FIELDS are: a finding's own `repo.github` names the upstream of
-// the file IT sits in — a dependency's repo under `node_modules/` — so
+// the file IT sits in -- a dependency's repo under `node_modules/` -- so
 // stamping the report's over it would mislabel every dependency finding.
 //
 // Takes the slug or a github.com URL, with or without scheme, `.git` or
@@ -50,19 +50,19 @@ export function reportRepoGithub(data) {
   return isRepoSlug(slug) ? slug : null
 }
 
-// `"directory": "packages/babel-core"` beside that `github` — where
+// `"directory": "packages/babel-core"` beside that `github` -- where
 // inside the repository the tree the report describes sits, the same
 // field npm's `repository` object carries for a package in a monorepo
 // (`{ "github": "babel/babel", "directory": "packages/babel-core" }`).
 // The paths a report writes are relative to that tree, so a link is
 // the repo, then this, then the path: `babel/babel` +
 // `packages/babel-core` + `src/index.js`. Declared in both the places
-// `repo` is — the report header and a finding's own — and read off
+// `repo` is -- the report header and a finding's own -- and read off
 // whichever of the two answered for the repo, never mixed.
 //
 // Normalised to a bare relative path: no leading `./` or `/`, no
-// trailing one, no repeated separators, and `''` — same as declaring
-// none — for the repo root. `''` too for anything a link builder
+// trailing one, no repeated separators, and `''` -- same as declaring
+// none -- for the repo root. `''` too for anything a link builder
 // would splice into a broken URL, the rule `reportRepoGithub` follows
 // above: a non-string, a `?` or `#` (either cuts the path short of the
 // file, and swallows the `#L42` anchor a line link puts after it), or
