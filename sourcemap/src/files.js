@@ -180,7 +180,9 @@ export function indexFiles(files) {
 // ./b.js?raw.
 function find(index, path) {
   if (!index.found.has(path)) {
-    const at = path.includes('?') ? path.indexOf('?') : path.length
+    // A URL's `#fragment` too; a path's `#` may be its file's own.
+    const found = path.search(isUrl(path) ? /[#?]/u : /\?/u)
+    const at = found < 0 ? path.length : found
     const names = candidates(path.slice(0, at), index.platforms).map((name) => name + path.slice(at))
     index.found.set(path, index.byPath.get(names.find((name) => index.byPath.has(name))) ?? null)
   }

@@ -201,9 +201,14 @@ describe('a specifier is resolved as a resolver would try it', () => {
     assert.deepEqual(shown(importEdges(map).edges), ['src/a.js?1a2b -> src/b.js [import]'])
   })
 
-  it('tries a name\'s extensions before a loader\'s query, which stays after them', () => {
+  it('tries a name\'s extensions before a loader\'s query, or a URL\'s fragment, which stays after them', () => {
     const map = sources({ 'src/a.js': "import './b?raw'\nimport './c?worker'", 'src/b.js?raw': '', 'src/c.ts?worker': '' })
     assert.deepEqual(shown(importEdges(map).edges), ['src/a.js -> src/b.js?raw [import]', 'src/a.js -> src/c.ts?worker [import]'])
+    const urls = sources({ 'https://cdn.example/a.js': "import './b#raw'", 'https://cdn.example/b.js#raw': '' })
+    assert.deepEqual(shown(importEdges(urls).edges), ['https://cdn.example/a.js -> https://cdn.example/b.js#raw [import]'])
+    // A path's `#` is its own.
+    const paths = sources({ 'src/a.js': "import './c#/d'", 'src/c#/d.js': '' })
+    assert.deepEqual(shown(importEdges(paths).edges), ['src/a.js -> src/c#/d.js [import]'])
   })
 })
 

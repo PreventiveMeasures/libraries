@@ -46,13 +46,26 @@ function regexAllowed(previous) {
 // An escaped line's end, `\r\n` too, continues a string.
 const escapeLength = (text, at) => (text.startsWith('\r\n', at + 1) ? 3 : 2)
 
-// A string's value, or null for one cut off by its line, or escaped.
+const ESCAPE = /\\(?:u\{([\da-f]+)\}|u([\da-f]{4})|x([\da-f]{2})|(\r\n|[\n\r\u2028\u2029])|(.))/giu
+const ESCAPES = { b: '\b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v', 0: '\0' }
+
+// A literal's value, as the parser cooks it.
+function cooked(raw) {
+  if (!raw.includes('\\')) return raw
+  return raw.replace(ESCAPE, (_, braced, unicode, hex, line, other) => {
+    if (line !== undefined) return ''
+    const point = Number.parseInt(braced ?? unicode ?? hex, 16)
+    if (!Number.isNaN(point)) return String.fromCodePoint(Math.min(point, 0x10ffff))
+    return ESCAPES[other] ?? other
+  })
+}
+
+// A string's value, or null for one cut off by its line.
 function quoted(text, at) {
   const quote = text[at]
   let i = at + 1
   while (i < text.length && text[i] !== quote && !LINE_ENDS.includes(text[i])) i += text[i] === '\\' ? escapeLength(text, i) : 1
-  const value = text.slice(at + 1, i)
-  return [text[i] === quote && !value.includes('\\') ? value : null, i + 1]
+  return [text[i] === quote ? cooked(text.slice(at + 1, i)) : null, i + 1]
 }
 
 function regexEnd(text, at) {
@@ -109,10 +122,9 @@ function lex(text) {
       if (c === '}') braces.pop()
       const depth = braces.length
       const end = templateEnd(text, i + 1, braces)
-      // A template with nothing put in it, or escaped, is the string it spells.
-      const raw = text.slice(i + 1, end - 1)
-      const whole = c === '`' && braces.length === depth && text[end - 1] === '`' && !raw.includes('\\')
-      tokens.push({ type: 'string', value: whole ? raw : null })
+      // A template with nothing put in it is the string it spells.
+      const whole = c === '`' && braces.length === depth && text[end - 1] === '`'
+      tokens.push({ type: 'string', value: whole ? cooked(text.slice(i + 1, end - 1)) : null })
       i = end
     } else if (c === '/' && regexAllowed(tokens.at(-1))) {
       i = regexEnd(text, i)
