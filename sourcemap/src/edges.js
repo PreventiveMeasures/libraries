@@ -36,8 +36,7 @@ export function importEdges(map, { callees = [] } = {}) {
 
 function lookup(scope, name) {
   for (let s = scope; s !== null; s = s.parent) {
-    const binding = s.names.get(name)
-    if (binding) return binding
+    if (s.names.has(name)) return s.names.get(name)
   }
   return null
 }
@@ -76,6 +75,8 @@ const children = (node, scope, pass) => forEachChild(node, visit, scope, pass)
 
 function visitFunction(node, scope, pass) {
   const inner = scopeFor(node, scope, true, pass)
+  // An ordinary function's own `arguments`, no file's declaration.
+  if (pass.declaring && node.type !== 'ArrowFunctionExpression') inner.names.set('arguments', null)
   if (node.id) declare(node.type === 'FunctionDeclaration' ? scope : inner, pass, [node.id])
   declare(inner, pass, node.params.flatMap((param) => patternNames(param.type === 'TSParameterProperty' ? param.parameter : param)))
   for (const param of node.params) visit(param, inner, pass)

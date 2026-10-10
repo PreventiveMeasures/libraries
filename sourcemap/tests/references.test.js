@@ -90,6 +90,16 @@ describe('a name is the declaration its scope makes it', () => {
     assert.deepEqual(shown(generated([['decl.js', 'var p, q;'], ['a.js', '({ p });'], ['b.js', '[q] = [1]']]).edges), ['a.js -> decl.js [reference]', 'b.js -> decl.js [reference]'])
   })
 
+  it('`arguments` in a function is its own; in an arrow, the scope\'s around it', () => {
+    assert.deepEqual(shown(generated([
+      ['outer.js', 'var arguments = 1;'],
+      ['f.js', 'function f() {'],
+      ['in-function.js', '  return arguments }'],
+      ['g.js', 'var g = () =>'],
+      ['in-arrow.js', '  arguments;'],
+    ]).edges), ['in-arrow.js -> outer.js [reference]'])
+  })
+
   it('a parameter\'s initializer sees no declaration of the body\'s', () => {
     assert.deepEqual(shown(generated([
       ['outer.js', 'var shared = 1;'],
