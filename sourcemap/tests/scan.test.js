@@ -31,8 +31,12 @@ describe('a source\'s module requests, read with no parser', () => {
       "import { type E, f } from 'mixed'",
       "import type, { g } from 'default-named-type'",
       "export type { H } from 'type-export'",
+      "import { type } from 'value-named-type'",
+      "import { type as t } from 'value-renamed'",
+      "export { type, typeof } from 'values-reexported'",
+      "import { type as as a } from 'type-named-as'",
       "function f(x: ?string, y: {| a: 'quoted' |}): Array<'b'> { return require('flow') }",
-    ].join('\n')), ['import mixed', 'import default-named-type', 'require flow'])
+    ].join('\n')), ['import mixed', 'import default-named-type', 'import value-named-type', 'import value-renamed', 'export-from values-reexported', 'require flow'])
   })
 
   it('nothing in a comment, string, template, or regular expression', () => {

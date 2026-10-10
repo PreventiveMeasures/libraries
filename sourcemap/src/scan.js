@@ -152,12 +152,16 @@ function lex(text) {
 const isString = (token) => token?.type === 'string' && token.value !== null
 const TYPE_WORDS = new Set(['type', 'typeof'])
 
+// `type` before a name, `type A`, `type as as a`, is a modifier; alone or
+// renamed, `{ type }` or `{ type as t }`, it names a value.
+const modifies = (tokens, j) => tokens[j + 1]?.type === 'word' && !(tokens[j + 1].value === 'as' && tokens[j + 2]?.type === 'word' && tokens[j + 2].value !== 'as')
+
 // `{ type A, typeof B }`: names a type erasure takes with the statement.
 function onlyTypes(tokens, open) {
   let any = false
   for (let j = open + 1; j < tokens.length && tokens[j].value !== '}'; j++) {
     if (j > open + 1 && tokens[j - 1].value !== ',') continue
-    if (!TYPE_WORDS.has(tokens[j].value)) return false
+    if (!TYPE_WORDS.has(tokens[j].value) || !modifies(tokens, j)) return false
     any = true
   }
   return any
