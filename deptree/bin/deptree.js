@@ -16,6 +16,7 @@ import { TomlError, buildSoldeerTree } from '../soldeer.js'
 import { buildYarn1Tree, findYarn1Workspaces } from '../yarn1.js'
 import { escaped } from '../src/error.js'
 import { typeOf } from '../src/project.js'
+import { cargoVersions } from './cargo-version.js'
 import { difference, leftBehind, leftOut, patchOf, projectView, readSide } from './compare.js'
 import { userToken } from './npmrc.js'
 
@@ -42,9 +43,11 @@ STASIS_NPM_TOKEN or NPM_TOKEN, else with a ~/.npmrc line of nothing but
 GITHUB_TOKEN or GH_TOKEN, else anonymously.
 
   --pnpm, --yarn, --npm, --soldeer, --cargo <version>
-                     the one that installed: by default the one
-                     packageManager pins, or Soldeer 0.12.0; npm's and
-                     cargo's are needed
+                     the one that installed, said first unless
+                     packageManager pins it: by default that one,
+                     Soldeer 0.12.0, or the cargo rustup picks in <dir>
+                     and target/.rustc_info.json last built with, as
+                     either tells and the two agree; npm's is needed
   --node <version>   the Node it installed with; by default this one
   --metadata         fetch each package's version document from npm's
                      registry too, and hold its tarball's dist to it
@@ -68,20 +71,21 @@ const OPTIONS = {
 }
 
 // Each package manager by its version flag: its lockfile, the folder it
-// installs into in each project it finds, and the version where the flag is
-// left out and nothing pins one, or, `unpinned`, that the flag is needed.
+// installs into in each project it finds, and, where no file in the project
+// pins its version, `versions`, each this machine tells for `dir`, with
+// where from: where it tells none, the flag is needed.
 const MANAGERS = {
   pnpm: { lockfile: 'pnpm-lock.yaml', folder: 'node_modules', projects: findPnpmProjects, build: buildPnpmTree },
   yarn: { lockfile: 'yarn.lock', folder: 'node_modules', projects: findYarn1Workspaces, build: buildYarn1Tree },
-  npm: { lockfile: 'package-lock.json', folder: 'node_modules', unpinned: true, projects: findNpmWorkspaces, build: buildNpmTree },
+  npm: { lockfile: 'package-lock.json', folder: 'node_modules', versions: () => [], projects: findNpmWorkspaces, build: buildNpmTree },
   soldeer: {
     lockfile: 'soldeer.lock',
     folder: 'dependencies',
-    version: '0.12.0',
+    versions: () => [{ version: '0.12.0', from: 'by default' }],
     projects: () => ['.'],
     build: (options) => buildSoldeerTree({ ...options, github: createClient({ token: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || null }) }),
   },
-  cargo: { lockfile: 'Cargo.lock', folder: 'vendor', unpinned: true, projects: () => ['.'], build: buildCargoTree },
+  cargo: { lockfile: 'Cargo.lock', folder: 'vendor', versions: cargoVersions, projects: () => ['.'], build: buildCargoTree },
 }
 
 async function main(argv) {
@@ -92,16 +96,19 @@ async function main(argv) {
   }
   const [command, dir = '.', ...rest] = positionals
   if (command !== 'compare' || rest.length > 0) return fail(USAGE)
-  const project = projectView(resolve(dir))
+  const root = resolve(dir)
+  const project = projectView(root)
   const name = managerOf(project, dir, values)
   const manager = MANAGERS[name]
+  const { version, from } = versionOf(name, values, root)
+  if (version !== undefined) note(`${name} ${version} (${from})`)
   if (defaultCacheDir !== undefined) setCacheDir()
   // upstream reads it for each request, and sends it for a scoped package.
   process.env.NPM_TOKEN ||= userToken() ?? ''
   // This machine, which installed what is on disk; npm takes no libc where
   // there is none to find.
   const libc = libcOf()
-  const host = { [name]: values[name] ?? manager.version, node: values.node ?? process.versions.node, os: process.platform, cpu: process.arch, ...(name === 'npm' && libc === 'unknown' ? {} : { libc }) }
+  const host = { [name]: version, node: values.node ?? process.versions.node, os: process.platform, cpu: process.arch, ...(name === 'npm' && libc === 'unknown' ? {} : { libc }) }
   // The disk first, as it is before anything is fetched.
   const dirs = manager.projects({ project, host, os: host.os }).map((at) => join(at, manager.folder))
   const disk = readSide(project, dirs)
@@ -127,8 +134,21 @@ function managerOf(project, dir, values) {
   const [name, ...others] = named.length > 0 ? named : names.filter((n) => typeOf(project, MANAGERS[n].lockfile) === 'file')
   if (name === undefined) fail(`deptree: ${dir}: no ${names.map((n) => MANAGERS[n].lockfile).join(', ')}\n`)
   if (others.length > 0) fail(`deptree: ${dir}: give one of --${[name, ...others].join(', --')}, for the package manager that installed\n`)
-  if (MANAGERS[name].unpinned && values[name] === undefined) fail(`deptree: ${MANAGERS[name].lockfile}: give --${name} <version>, the ${name} that installed, which no file pins\n`)
   return name
+}
+
+// The version built for, and where it comes from: the flag, else what this
+// machine tells, where all it tells agree; none where the project pins one,
+// which the build reads.
+function versionOf(name, values, dir) {
+  if (values[name] !== undefined) return { version: values[name], from: `--${name}` }
+  const { lockfile, versions } = MANAGERS[name]
+  if (versions === undefined) return {}
+  const found = versions(dir)
+  const give = `deptree: ${lockfile}: give --${name} <version>, the ${name} that installed`
+  if (found.length === 0) fail(`${give}, which no file here tells\n`)
+  if (found.some((one) => one.version !== found[0].version)) fail(`${give}: ${found.map((one) => `${one.version} is ${one.from}`).join(', but ')}\n`)
+  return { version: found[0].version, from: found.map((one) => one.from).join('; ') }
 }
 
 // As pnpm's detect-libc tells it, from Node's report, which leaves out the
