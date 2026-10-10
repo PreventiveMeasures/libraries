@@ -31,7 +31,9 @@ function normalize(path) {
     else if (out.length > 0 && out.at(-1) !== '..') out.pop()
     else if (!root) out.push('..')
   }
-  return root ? root.replace(/\/?$/u, '/') + out.join('/') : out.join('/') || '.'
+  // A UNC server's name in one case, as Windows takes it.
+  const base = root.startsWith('//') ? root.toLowerCase() : root
+  return base ? base.replace(/\/?$/u, '/') + out.join('/') : out.join('/') || '.'
 }
 
 // `relative` from the file `from`, a URL's as the URL Standard resolves it;
@@ -104,7 +106,8 @@ const LANGUAGES = new Map([['js', 'jsx'], ['mjs', 'jsx'], ['cjs', 'jsx'], ['jsx'
 // By the extension, a bundler's `?query` after it aside, and a URL's
 // `#fragment`; a file named with none, a bin script, as JavaScript.
 export function languageOf(path) {
-  const name = path.slice(path.lastIndexOf('/') + 1).replace(isUrl(path) ? /[#?].*$/su : /\?.*$/su, '')
+  const bare = path.replace(isUrl(path) ? /[#?].*$/su : /\?.*$/su, '')
+  const name = bare.slice(bare.lastIndexOf('/') + 1)
   if (/^[\w-]+$/u.test(name)) return 'jsx'
   return LANGUAGES.get(/\.([\da-z]+)$/iu.exec(name)?.[1].toLowerCase()) ?? null
 }

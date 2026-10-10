@@ -191,9 +191,9 @@ describe('a specifier is resolved as a resolver would try it', () => {
     assert.deepEqual(shown(importEdges(map).edges), ['src/a.js -> (node:fs, builtin) [import]', 'src/a.js -> (virtual:missing) [import]', 'src/a.js -> virtual:dep.js [import]'])
   })
 
-  it('reads a URL whose name has a fragment, by its extension', () => {
-    const map = sources({ 'https://cdn.example/entry.js#v1': "import './b.js'", 'https://cdn.example/b.js': '' })
-    assert.deepEqual(shown(importEdges(map).edges), ['https://cdn.example/entry.js#v1 -> https://cdn.example/b.js [import]'])
+  it('reads a URL whose name has a fragment, or a query with a `/` in it, by its extension', () => {
+    const map = sources({ 'https://cdn.example/entry.js#v1': "import './b.js'", 'https://cdn.example/b.js': '', 'https://cdn.example/c.js?redirect=/asset.css': "import './b.js'" })
+    assert.deepEqual(shown(importEdges(map).edges), ['https://cdn.example/c.js?redirect=/asset.css -> https://cdn.example/b.js [import]', 'https://cdn.example/entry.js#v1 -> https://cdn.example/b.js [import]'])
   })
 
   it('reads a file whose name a bundler gave a query, by its extension', () => {
