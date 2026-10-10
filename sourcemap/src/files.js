@@ -1,6 +1,9 @@
 export const WEBPACK = /^webpack(?:-internal)?:\/\/[^/]*\//u
 const SCHEME = /^[a-z][\d+.a-z-]*:/iu
 const FILE = /^file:/iu
+// The URL Standard's special schemes, whose URLs have a host however
+// their slashes are spelled: https:/a is https://a.
+const SPECIAL = /^(?:file|ftp|https?|wss?):/iu
 // What no `..` climbs above: a URL's scheme and host, a UNC path's
 // server, a drive, `/`.
 const ROOT = /^(?:[a-z][\d+.a-z-]*:\/\/[^/]*\/?|\/\/[^/]+\/|[a-z]:\/|\/)?/iu
@@ -58,11 +61,11 @@ function unescaped(text) {
 // webpack:// paths are from webpack's context, not from the map. A scheme
 // with no root (data:, a virtual module) names no file.
 export function sourcePath(source, mapPath) {
-  const path = source.replaceAll('\\', '/')
-  if (WEBPACK.test(path)) return normalize(path.replace(WEBPACK, ''))
-  // A file: URL however spelled, file:/a too, as the URL Standard parses it.
-  // A file's own `#` is %23 in it: a `#` there starts a fragment.
-  const file = FILE.test(path) && /^file:\/\/([^/#]*)([^#]*)/isu.exec(parsed(path) ?? path)
+  const slashed = source.replaceAll('\\', '/')
+  if (WEBPACK.test(slashed)) return normalize(slashed.replace(WEBPACK, ''))
+  const path = SPECIAL.test(slashed) ? (parsed(slashed) ?? slashed) : slashed
+  // A file's own `#` is %23 in its URL: a `#` there starts a fragment.
+  const file = /^file:\/\/([^/#]*)([^#]*)/isu.exec(path)
   if (file) {
     // A host other than this one's is a UNC path's server.
     const [, host, rest] = file
@@ -281,10 +284,10 @@ function packageFile(index, root, rest, entry) {
 export function resolveSpecifier(index, from, specifier, entry = entryOf) {
   // Node on Windows takes `.\a` and `C:\a` as paths, written as the map's own are.
   const request = /^(?:\.{1,2}|[a-z]:)?\\/iu.test(specifier) ? specifier.replaceAll('\\', '/') : specifier
-  const fileUrl = FILE.test(request)
-  if (fileUrl || /^(?:\.{1,2}(?:\/|$)|\/|[a-z]:\/)/iu.test(request) || isUrl(request)) {
-    // A file: URL as the map's own sources are: a path.
-    const path = fileUrl ? sourcePath(request) : resolvePath(from.path, request)
+  const special = SPECIAL.test(request)
+  if (special || /^(?:\.{1,2}(?:\/|$)|\/|[a-z]:\/)/iu.test(request) || isUrl(request)) {
+    // A special scheme's URL as the map's own sources are; a file: URL, a path.
+    const path = special ? sourcePath(request) : resolvePath(from.path, request)
     const to = find(index, path)
     return to ? { to } : { to: null, path }
   }

@@ -185,6 +185,11 @@ describe('a specifier is resolved as a resolver would try it', () => {
     ])
   })
 
+  it('takes a special scheme\'s URL however its slashes are spelled', () => {
+    const map = sources({ 'https://cdn.example/a.js': "import './b.js'\nimport 'https:/cdn.example/c.js'", 'https:/cdn.example/b.js': '', 'https://cdn.example/c.js': '' })
+    assert.deepEqual(shown(importEdges(map).edges), ['https://cdn.example/a.js -> https://cdn.example/b.js [import]', 'https://cdn.example/a.js -> https://cdn.example/c.js [import]'])
+  })
+
   it('takes a `//`-led specifier from a URL as a URL under its scheme', () => {
     const map = sources({ 'https://origin.example/src/a.js': "import '//cdn.example/lib/b.js'", 'https://cdn.example/lib/b.js': '' })
     assert.deepEqual(shown(importEdges(map).edges), ['https://origin.example/src/a.js -> https://cdn.example/lib/b.js [import]'])

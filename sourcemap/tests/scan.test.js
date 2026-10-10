@@ -46,7 +46,7 @@ describe('a source\'s module requests, read with no parser', () => {
       "const s = \"require('in-a-string')\"",
       "const t = `import('in-a-template') ${require('in-its-expression')} ${{ a: `${require('nested')}` }.a}`",
       "const r = /require\\('in-a-regex'\\)|['\"]/u, q = a / require('after-a-division') / 2",
-      "x.require('a-method'); import.meta.url",
+      "x.require('a-method'); import.meta.url; this.#require('a-private-method')",
     ].join('\n')), ['require in-its-expression', 'require nested', 'require after-a-division'])
   })
 

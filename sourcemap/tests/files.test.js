@@ -37,6 +37,7 @@ describe('a source becomes a path', () => {
     assert.equal(sourcePath('https://cdn.example/x.js', 'dist/x.map'), 'https://cdn.example/x.js')
     assert.equal(sourcePath('https://cdn.example/src/./b/../a.js'), 'https://cdn.example/src/a.js')
     assert.equal(sourcePath('ng://core/a.ts'), 'ng://core/a.ts')
+    assert.equal(sourcePath('https:/cdn.example/a.js'), 'https://cdn.example/a.js')
     // As the URL Standard parses it: a host in one case, no default port,
     // a query as it is.
     assert.equal(sourcePath('HTTPS://CDN.Example:443/src/a.js'), 'https://cdn.example/src/a.js')
