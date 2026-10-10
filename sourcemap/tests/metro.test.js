@@ -65,7 +65,7 @@ for (const [door, read] of DOORS) {
 
     it('ids inlined into the code, a global prefix, string ids, an arrow factory', () => {
       const [map, code] = bundle([
-        ['a.js', 'p__d(function(g,req,def,all,m,e){req(1);def("b");all(1);req(x);x={...req(2)};x.req(3)},0,{"paths":{}});'],
+        ['a.js', 'p__d(function(g,req,def,all,m,e){req(1);def("b");all(1);req(x);x={...req(2)};x.req(3);this.#req(3)},0,{"paths":{}});'],
         ['b.js', 'p__d((g,r)=>{},1);'],
         ['c.js', 'p__d(function(){},"b");'],
         ['d.js', 'p__d(function(){},2);'],
