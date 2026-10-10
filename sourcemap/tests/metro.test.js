@@ -168,6 +168,7 @@ for (const [door, read] of DOORS) {
       assert.throws(() => read(prelude), /bundleEdges: the Metro map carries no sourcesContent/u)
       // Sources it carries empty are sources still, with no requests.
       assert.deepEqual(read(readSourceMap({ version: 3, sources: ['__prelude__', 'a.js'], sourcesContent: ['', ''], mappings: '' })), { edges: [] })
+      assert.deepEqual(read(readSourceMap({ version: 3, sources: ['__prelude__', 'data.json'], sourcesContent: ['', '{"x":1}'], mappings: '' })), { edges: [] })
     })
 
     it('knows the prelude beneath a sourceRoot', () => {
@@ -234,5 +235,9 @@ describe('a map alone, with no Metro prelude, is no Metro map', () => {
       assert.deepEqual(bundleEdges(map), { edges: importEdges(map).edges }, name)
       assert.throws(() => liteEdges(map), /bundleEdges: not a Metro map/u, name)
     }
+    // Nor one that bundles Metro's module system among its files, where a
+    // map composed with Hermes' has it first.
+    const bundled = readSourceMap({ version: 3, sources: ['/app/a.js', '/app/node_modules/metro-runtime/src/polyfills/require.js', '/app/logo.png', '/app/b.js'], sourcesContent: ['', '', null, ''], mappings: '' })
+    assert.throws(() => liteEdges(bundled), /bundleEdges: not a Metro map/u)
   })
 })

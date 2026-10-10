@@ -154,21 +154,21 @@ function resolverFor(requests, index) {
   }
 }
 
-// Metro's prelude, or, in a map composed with Hermes', which compiles the
-// prelude to nothing, its module system.
-const isMetroOwn = (file) => /(?:^|\/)__prelude__$/u.test(file.source ?? '') || (file.package?.name === 'metro-runtime' && file.package.path === 'src/polyfills/require.js')
+const isPrelude = (file) => /(?:^|\/)__prelude__$/u.test(file.source ?? '')
+const isModuleSystem = (file) => file?.package?.name === 'metro-runtime' && file.package.path === 'src/polyfills/require.js'
 
 function fromMap(map) {
-  if (!map.files.some(isMetroOwn)) return null
-  const scripts = map.files.filter((file) => file.content !== null && isScript(file))
+  // Metro's prelude; in a map composed with Hermes', which compiles the
+  // prelude to nothing, its module system, written right after it.
+  if (!map.files.some(isPrelude) && !isModuleSystem(map.files[0])) return null
   // Sources carried empty are sources still; Metro's own alone say nothing.
-  if (scripts.every(isMetroOwn)) throw new Error('bundleEdges: the Metro map carries no sourcesContent, which its edges are read from; pass the bundle as `code`')
+  if (!map.files.some((file) => file.content !== null && !isPrelude(file) && !isModuleSystem(file))) throw new Error('bundleEdges: the Metro map carries no sourcesContent, which its edges are read from; pass the bundle as `code`')
   const index = indexFiles(map.files)
   // An asset's one import, the registry, the walk reached right after the
   // first asset; an import() also imports Metro's asyncRequire.
   const registry = map.files[map.files.findIndex(isAsset) + 1]
   const asyncRequire = map.files.find((file) => file.package?.name === 'metro-runtime' && file.package.path === 'src/modules/asyncRequire.js')
-  const scanned = new Map(scripts.map((from) => [from, scanSpecifiers(from.content)]))
+  const scanned = new Map(map.files.filter((file) => file.content !== null && isScript(file)).map((from) => [from, scanSpecifiers(from.content)]))
   const helpers = helperRequests(map)
   const named = [...scanned].map(([from, found]) => [from, found.flatMap(({ specifier }) => (specifier === null ? [] : [specifier]))])
   const resolve = resolverFor([...named, ...helpers], index)
