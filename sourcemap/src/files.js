@@ -1,5 +1,6 @@
 export const WEBPACK = /^webpack(?:-internal)?:\/\/[^/]*\//u
 const SCHEME = /^[a-z][\d+.a-z-]*:/iu
+const FILE = /^file:/iu
 // What no `..` climbs above: a URL's scheme and host, a UNC path's
 // server, a drive, `/`.
 const ROOT = /^(?:[a-z][\d+.a-z-]*:\/\/[^/]*\/?|\/\/[^/]+\/|[a-z]:\/|\/)?/iu
@@ -8,15 +9,14 @@ const rootOf = (path) => ROOT.exec(path)[0]
 
 const isUrl = (path) => rootOf(path).includes('://')
 
+// A path before a loader's `?query`, or a URL's `#fragment`; a path's `#`
+// may be its file's own.
+const bareOf = (path) => path.replace(isUrl(path) ? /[#?].*$/su : /\?.*$/su, '')
+const nameOf = (path) => path.slice(path.lastIndexOf('/') + 1)
+
 // A URL as the URL Standard parses one: its scheme and host in one case, no
 // default port, its query and fragment as they are. null where it fails.
-function parsed(url, base) {
-  try {
-    return new URL(url, base).href
-  } catch {
-    return null
-  }
-}
+const parsed = (url, base) => URL.parse(url, base)?.href ?? null
 
 // A URL as parsed; anything else by spelling alone, as node:path.posix
 // normalizes: a `..` above a relative path is kept.
@@ -62,7 +62,7 @@ export function sourcePath(source, mapPath) {
   if (WEBPACK.test(path)) return normalize(path.replace(WEBPACK, ''))
   // A file: URL however spelled, file:/a too, as the URL Standard parses it.
   // A file's own `#` is %23 in it: a `#` there starts a fragment.
-  const file = /^file:/iu.test(path) && /^file:\/\/([^/#]*)([^#]*)/isu.exec(parsed(path) ?? path)
+  const file = FILE.test(path) && /^file:\/\/([^/#]*)([^#]*)/isu.exec(parsed(path) ?? path)
   if (file) {
     // A host other than this one's is a UNC path's server.
     const [, host, rest] = file
@@ -70,9 +70,9 @@ export function sourcePath(source, mapPath) {
   }
   if (SCHEME.test(path) && !rootOf(path).includes(':')) return path
   if (mapPath === undefined) return normalize(path)
-  // Under a map at a file:// URL, a relative source is a URL relative to it,
+  // Under a map at a file: URL, a relative source is a URL relative to it,
   // escaped as one.
-  if (/^file:/iu.test(mapPath) && !rootOf(path)) return sourcePath(parsed(path, mapPath) ?? path)
+  if (FILE.test(mapPath) && !rootOf(path)) return sourcePath(parsed(path, mapPath) ?? path)
   // A rooted source is a URL's, under a map at one.
   const base = sourcePath(mapPath)
   return rootOf(path) && !isUrl(base) ? normalize(path) : resolvePath(base, path)
@@ -98,9 +98,9 @@ function storeVersion(dir, name) {
   return SEMVER.test(version) ? version : null
 }
 
-// By a URL's path alone: its query and fragment name no directory.
+// By a path alone: a query or fragment names no directory.
 export function packageOf(path) {
-  const parts = (isUrl(path) ? path.replace(/[#?].*$/su, '') : path).split('/')
+  const parts = bareOf(path).split('/')
   const at = parts.lastIndexOf('node_modules')
   const name = at < 0 ? null : packageName(parts.slice(at + 1).join('/'))
   if (name === null) return null
@@ -122,8 +122,7 @@ const LANGUAGES = new Map([['js', 'jsx'], ['mjs', 'jsx'], ['cjs', 'jsx'], ['jsx'
 // By the extension, a bundler's `?query` after it aside, and a URL's
 // `#fragment`; a file named with none, a bin script, as JavaScript.
 export function languageOf(path) {
-  const bare = path.replace(isUrl(path) ? /[#?].*$/su : /\?.*$/su, '')
-  const name = bare.slice(bare.lastIndexOf('/') + 1)
+  const name = nameOf(bareOf(path))
   if (/^[\w-]+$/u.test(name)) return 'jsx'
   return LANGUAGES.get(/\.([\da-z]+)$/iu.exec(name)?.[1].toLowerCase()) ?? null
 }
@@ -135,13 +134,13 @@ export function languageOf(path) {
 const EXTENSIONS = ['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.mts', '.cts', '.json']
 // React Native's platforms: Metro tries the bundle's own, then `.native`,
 // then the plain file, and never another platform's. A map's platform is
-// the one its files' names show more of than any other; a map that shows none, or
-// two as much, tries `.native`, then the plain file. A browser or Node
-// build a package ships beside the plain file comes after it.
+// the one its files' names show more of than any other; a map that shows
+// none, or two as much, tries `.native`, then the plain file. A browser or
+// Node build a package ships beside the plain file comes after it.
 const RN_PLATFORMS = ['.ios', '.android', '.web']
 
 function platformsOf(files) {
-  const names = files.map((file) => file.path?.slice(file.path.lastIndexOf('/') + 1) ?? '')
+  const names = files.map((file) => nameOf(file.path ?? ''))
   const counts = RN_PLATFORMS.map((platform) => [platform, names.filter((name) => name.includes(`${platform}.`)).length]).toSorted((a, b) => b[1] - a[1])
   const [[active, count], [, next]] = counts
   return [...(count === next ? [] : [active]), '.native', '', '.browser', '.node']
@@ -196,14 +195,12 @@ export function indexFiles(files) {
   return { byPath, roots, byRoot, platforms: platformsOf(files), found: new Map() }
 }
 
-// A loader's `?query` stays after the name a resolver tries: ./b?raw as
+// A path's suffix stays after the name a resolver tries: ./b?raw as
 // ./b.js?raw.
 function find(index, path) {
   if (!index.found.has(path)) {
-    // A URL's `#fragment` too; a path's `#` may be its file's own.
-    const found = path.search(isUrl(path) ? /[#?]/u : /\?/u)
-    const at = found < 0 ? path.length : found
-    const names = candidates(path.slice(0, at), index.platforms).map((name) => name + path.slice(at))
+    const bare = bareOf(path)
+    const names = candidates(bare, index.platforms).map((name) => name + path.slice(bare.length))
     index.found.set(path, index.byPath.get(names.find((name) => index.byPath.has(name))) ?? null)
   }
   return index.found.get(path)
@@ -279,7 +276,7 @@ function packageFile(index, root, subpath, entry) {
 export function resolveSpecifier(index, from, specifier, entry = entryOf) {
   // Node on Windows takes `.\a` and `C:\a` as paths, written as the map's own are.
   const request = /^(?:\.{1,2}|[a-z]:)?\\/iu.test(specifier) ? specifier.replaceAll('\\', '/') : specifier
-  const fileUrl = /^file:/iu.test(request)
+  const fileUrl = FILE.test(request)
   if (fileUrl || /^(?:\.{1,2}(?:\/|$)|\/|[a-z]:\/)/iu.test(request) || isUrl(request)) {
     // A file: URL as the map's own sources are: a path.
     const path = fileUrl ? sourcePath(request) : resolvePath(from.path, request)
@@ -287,7 +284,7 @@ export function resolveSpecifier(index, from, specifier, entry = entryOf) {
     return to ? { to } : { to: null, path }
   }
   // A source the map keeps under an opaque scheme, `virtual:a`, by that name.
-  if (/^[a-z][\d+.a-z-]*:/iu.test(request) && index.byPath.has(request)) return { to: index.byPath.get(request) }
+  if (SCHEME.test(request) && index.byPath.has(request)) return { to: index.byPath.get(request) }
   const name = packageName(specifier)
   const root = name === null ? null : packageRoot(index, from, name)
   if (root === null) return { to: null, ...bareTarget(specifier) }
