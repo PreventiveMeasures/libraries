@@ -139,9 +139,11 @@ const EXTENSIONS = ['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.mts', '.cts'
 // Node build a package ships beside the plain file comes after it.
 const RN_PLATFORMS = ['.ios', '.android', '.web']
 
+// A platform's mark right before the extension, as Metro reads one:
+// a.ios.js, not a.ios.test.js.
 function platformsOf(files) {
-  const names = files.map((file) => nameOf(bareOf(file.path ?? '')))
-  const counts = RN_PLATFORMS.map((platform) => [platform, names.filter((name) => name.includes(`${platform}.`)).length]).toSorted((a, b) => b[1] - a[1])
+  const marks = files.map((file) => /\.[a-z]+(?=\.\w+$)/u.exec(nameOf(bareOf(file.path ?? '')))?.[0])
+  const counts = RN_PLATFORMS.map((platform) => [platform, marks.filter((mark) => mark === platform).length]).toSorted((a, b) => b[1] - a[1])
   const [[active, count], [, next]] = counts
   return [...(count === next ? [] : [active]), '.native', '', '.browser', '.node']
 }
@@ -227,7 +229,7 @@ const BUILTINS = new Set(['assert', 'async_hooks', 'buffer', 'child_process', 'c
 
 function bareTarget(specifier) {
   if (specifier.startsWith('node:') || BUILTINS.has(specifier)) return { builtin: true }
-  const name = packageName(specifier)
+  const name = packageName(bareOf(specifier))
   return name === null ? {} : { package: name }
 }
 
@@ -267,9 +269,11 @@ function entryOf(index, root) {
 // first is its entry.
 export const entryInOrder = (index, root) => index.byRoot.get(root)[0]
 
-function packageFile(index, root, subpath, entry) {
-  if (!subpath) return find(index, root) ?? entry(index, root)
-  return find(index, `${root}/${subpath}`) ?? sourcePaths(subpath).map((path) => find(index, `${root}/${path}`)).find(Boolean)
+// `rest`: what the request names after the package's name, a subpath or a
+// loader's query.
+function packageFile(index, root, rest, entry) {
+  if (!rest.startsWith('/')) return find(index, root + rest) ?? entry(index, root)
+  return find(index, root + rest) ?? sourcePaths(rest.slice(1)).map((path) => find(index, `${root}/${path}`)).find(Boolean)
 }
 
 // `entry` finds a package's entry where no index file at its root is.
@@ -285,9 +289,9 @@ export function resolveSpecifier(index, from, specifier, entry = entryOf) {
   }
   // A source the map keeps under an opaque scheme, `virtual:a`, by that name.
   if (SCHEME.test(request) && index.byPath.has(request)) return { to: index.byPath.get(request) }
-  const name = packageName(specifier)
+  const name = packageName(bareOf(specifier))
   const root = name === null ? null : packageRoot(index, from, name)
   if (root === null) return { to: null, ...bareTarget(specifier) }
-  const to = packageFile(index, root, specifier.slice(name.length + 1), entry)
+  const to = packageFile(index, root, specifier.slice(name.length), entry)
   return to ? { to } : { to: null, package: name }
 }

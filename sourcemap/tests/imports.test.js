@@ -65,6 +65,11 @@ describe('a specifier is resolved as a resolver would try it', () => {
     ])
   })
 
+  it('takes a package\'s own request with a loader\'s query, as a subpath\'s', () => {
+    const map = sources({ 'src/a.js': "import 'pkg?raw'\nimport 'pkg/sub?raw'\nimport 'gone?raw'", 'node_modules/pkg/index.js?raw': '', 'node_modules/pkg/sub.js?raw': '' })
+    assert.deepEqual(shown(importEdges(map).edges), ['src/a.js -> (gone?raw, package gone) [import]', 'src/a.js -> node_modules/pkg/index.js?raw [import]', 'src/a.js -> node_modules/pkg/sub.js?raw [import]'])
+  })
+
   it('takes a package from the node_modules Node walks up to', () => {
     const map = sources({
       'src/a.js': "import 'b'\nimport 'b/sub'",
@@ -142,8 +147,9 @@ describe('a specifier is resolved as a resolver would try it', () => {
   it('takes the platform the map\'s files show, not another one\'s file it also holds', () => {
     const android = sources({ 'src/a.js': "import './view'", 'src/view.js': '', 'src/view.ios.js': '', 'src/view.android.js': '', 'src/list.android.js': '' })
     assert.deepEqual(shown(importEdges(android).edges), ['src/a.js -> src/view.android.js [import]'])
-    // As many of one as of another: none taken over the plain file.
-    const tied = sources({ 'src/a.js': "import './view'", 'src/view.js': '', 'src/view.android.js': '', 'src/view.ios.js': '' })
+    // As many of one as of another: none taken over the plain file. A test's
+    // name, a.android.test.js, marks no platform.
+    const tied = sources({ 'src/a.js': "import './view'", 'src/view.js': '', 'src/view.android.js': '', 'src/view.ios.js': '', 'src/x.android.test.js': '' })
     assert.deepEqual(shown(importEdges(tied).edges), ['src/a.js -> src/view.js [import]'])
     // Never another platform's file, which Metro does not try.
     const elsewhere = sources({ 'src/a.js': "import './view'\nimport './list'", 'src/view.android.js': '', 'src/view.ios.js': '', 'src/list.ios.js': '', 'src/x.android.js': '', 'src/y.android.js': '' })
