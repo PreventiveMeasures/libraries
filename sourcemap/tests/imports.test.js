@@ -65,6 +65,11 @@ describe('a specifier is resolved as a resolver would try it', () => {
     ])
   })
 
+  it('takes a request ending in `/` for its directory\'s index', () => {
+    const map = sources({ 'src/a.js': "require('pkg/')\nrequire('pkg/sub/')", 'node_modules/pkg/index.js': '', 'node_modules/pkg/sub.js': '', 'node_modules/pkg/sub/index.js': '' })
+    assert.deepEqual(shown(importEdges(map).edges), ['src/a.js -> node_modules/pkg/index.js [require]', 'src/a.js -> node_modules/pkg/sub/index.js [require]'])
+  })
+
   it('takes a package\'s own request with a loader\'s query, as a subpath\'s', () => {
     const map = sources({ 'src/a.js': "import 'pkg?raw'\nimport 'pkg/sub?raw'\nimport 'gone?raw'", 'node_modules/pkg/index.js?raw': '', 'node_modules/pkg/sub.js?raw': '' })
     assert.deepEqual(shown(importEdges(map).edges), ['src/a.js -> (gone?raw, package gone) [import]', 'src/a.js -> node_modules/pkg/index.js?raw [import]', 'src/a.js -> node_modules/pkg/sub.js?raw [import]'])

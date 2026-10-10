@@ -170,8 +170,14 @@ function visit(node, scope, pass) {
     case 'ForStatement':
     case 'ForInStatement':
     case 'ForOfStatement':
-    case 'SwitchStatement':
       return children(node, scopeFor(node, scope, node.type === 'StaticBlock', pass), pass)
+    // Its discriminant is read before its cases' block is a scope.
+    case 'SwitchStatement': {
+      visit(node.discriminant, scope, pass)
+      const inner = scopeFor(node, scope, false, pass)
+      for (const branch of node.cases) visit(branch, inner, pass)
+      return
+    }
     case 'MemberExpression':
       visit(node.object, scope, pass)
       if (node.computed) visit(node.property, scope, pass)

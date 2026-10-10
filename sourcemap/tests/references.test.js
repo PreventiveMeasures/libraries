@@ -100,6 +100,14 @@ describe('a name is the declaration its scope makes it', () => {
     ]).edges), ['in-arrow.js -> outer.js [reference]'])
   })
 
+  it('a switch\'s discriminant is read outside its cases\' block', () => {
+    assert.deepEqual(shown(generated([
+      ['outer.js', 'var key = 1;'],
+      ['switch.js', 'switch (key) {'],
+      ['case.js', '  case 1: let key = 2; key }'],
+    ]).edges), ['switch.js -> outer.js [reference]'])
+  })
+
   it('a parameter\'s initializer sees no declaration of the body\'s', () => {
     assert.deepEqual(shown(generated([
       ['outer.js', 'var shared = 1;'],

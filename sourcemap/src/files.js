@@ -160,7 +160,8 @@ function* candidates(base, platforms) {
   yield base
   const written = /\.[^./]+$/u.exec(base)?.[0]
   for (const input of OUTPUT_NAMES.get(written) ?? []) yield base.slice(0, -written.length) + input
-  for (const stem of [base, `${base}/index`]) {
+  // A directory's, `pkg/`, its index alone.
+  for (const stem of base.endsWith('/') ? [`${base}index`] : [base, `${base}/index`]) {
     for (const platform of platforms) for (const extension of EXTENSIONS) yield stem + platform + extension
   }
   // `./a.js` as a platform's own: ./a.browser.js.
@@ -270,9 +271,9 @@ function entryOf(index, root) {
 export const entryInOrder = (index, root) => index.byRoot.get(root)[0]
 
 // `rest`: what the request names after the package's name, a subpath or a
-// loader's query.
+// loader's query; with none, `pkg/` too, the package itself.
 function packageFile(index, root, rest, entry) {
-  if (!rest.startsWith('/')) return find(index, root + rest) ?? entry(index, root)
+  if (!/^\/[^?]/u.test(rest)) return find(index, root + rest) ?? entry(index, root)
   return find(index, root + rest) ?? sourcePaths(rest.slice(1)).map((path) => find(index, `${root}/${path}`)).find(Boolean)
 }
 
