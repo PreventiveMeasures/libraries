@@ -201,12 +201,13 @@ function packageRoot(index, from, name) {
   return dirs.size === 1 ? [...dirs][0] : null
 }
 
-// Node's own, under their bare names; a fixed list, so that what a map says
-// does not hang on the Node that reads it.
-const BUILTINS = new Set(['assert', 'async_hooks', 'buffer', 'child_process', 'cluster', 'console', 'constants', 'crypto', 'dgram', 'diagnostics_channel', 'dns', 'domain', 'events', 'fs', 'http', 'http2', 'https', 'inspector', 'module', 'net', 'os', 'path', 'perf_hooks', 'process', 'punycode', 'querystring', 'readline', 'repl', 'stream', 'string_decoder', 'sys', 'timers', 'tls', 'trace_events', 'tty', 'url', 'util', 'v8', 'vm', 'wasi', 'worker_threads', 'zlib', '_http_agent', '_http_client', '_http_common', '_http_incoming', '_http_outgoing', '_http_server', '_stream_duplex', '_stream_passthrough', '_stream_readable', '_stream_transform', '_stream_wrap', '_stream_writable', '_tls_common', '_tls_wrap'])
+// Node's own, by the exact names it takes bare, subpaths too: `buffer/`
+// is the npm package. A fixed list, so that what a map says does not hang
+// on the Node that reads it.
+const BUILTINS = new Set(['assert', 'async_hooks', 'buffer', 'child_process', 'cluster', 'console', 'constants', 'crypto', 'dgram', 'diagnostics_channel', 'dns', 'domain', 'events', 'fs', 'http', 'http2', 'https', 'inspector', 'module', 'net', 'os', 'path', 'perf_hooks', 'process', 'punycode', 'querystring', 'readline', 'repl', 'stream', 'string_decoder', 'sys', 'timers', 'tls', 'trace_events', 'tty', 'url', 'util', 'v8', 'vm', 'wasi', 'worker_threads', 'zlib', '_http_agent', '_http_client', '_http_common', '_http_incoming', '_http_outgoing', '_http_server', '_stream_duplex', '_stream_passthrough', '_stream_readable', '_stream_transform', '_stream_wrap', '_stream_writable', '_tls_common', '_tls_wrap', 'assert/strict', 'dns/promises', 'fs/promises', 'inspector/promises', 'path/posix', 'path/win32', 'readline/promises', 'stream/consumers', 'stream/promises', 'stream/web', 'timers/promises', 'util/types'])
 
 function bareTarget(specifier) {
-  if (specifier.startsWith('node:') || BUILTINS.has(specifier.split('/')[0])) return { builtin: true }
+  if (specifier.startsWith('node:') || BUILTINS.has(specifier)) return { builtin: true }
   const name = packageName(specifier)
   return name === null ? {} : { package: name }
 }

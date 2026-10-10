@@ -14,7 +14,7 @@ const WORD = /[\w$\u0080-￿]+/uy
 // After these a `/` starts a regular expression, not a division; and
 // after the `)` that closes the head of these, `if (a) /re/.test(b)`, and
 // the `}` that closes a block, not an object.
-const OPERATORS = new Set(['return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw', 'case', 'do', 'else', 'yield', 'await'])
+const OPERATORS = new Set(['return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw', 'case', 'default', 'extends', 'do', 'else', 'yield', 'await'])
 const CONTROL = new Set(['if', 'while', 'for', 'with'])
 // And after these, the end of their statement.
 const ENDING = new Set(['break', 'continue', 'debugger'])

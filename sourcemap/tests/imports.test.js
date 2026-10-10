@@ -95,11 +95,11 @@ describe('a specifier is resolved as a resolver would try it', () => {
   })
 
   it('says what a target outside the map is: a path, a package, a builtin, or nothing it can tell', () => {
-    const map = sources({ 'src/a.js': "import './gone.js'\nimport 'react'\nimport '@scope/x/sub'\nimport 'node:fs'\nrequire('path')\nrequire('_stream_readable')\nimport '#internal'\nimport '@/alias'\nrequire(name)\nimport(`./${x}`)" })
+    const map = sources({ 'src/a.js': "import './gone.js'\nimport 'react'\nimport '@scope/x/sub'\nimport 'node:fs'\nrequire('path')\nrequire('_stream_readable')\nimport 'fs/promises'\nrequire('buffer/')\nimport '#internal'\nimport '@/alias'\nrequire(name)\nimport(`./${x}`)" })
     assert.deepEqual(shown(importEdges(map).edges), [
       'src/a.js -> (#internal) [import]', 'src/a.js -> () [dynamic-import]', 'src/a.js -> () [require]',
       'src/a.js -> (./gone.js, path src/gone.js) [import]', 'src/a.js -> (@/alias) [import]', 'src/a.js -> (@scope/x/sub, package @scope/x) [import]',
-      'src/a.js -> (_stream_readable, builtin) [require]', 'src/a.js -> (node:fs, builtin) [import]', 'src/a.js -> (path, builtin) [require]', 'src/a.js -> (react, package react) [import]',
+      'src/a.js -> (_stream_readable, builtin) [require]', 'src/a.js -> (buffer/, package buffer) [require]', 'src/a.js -> (fs/promises, builtin) [import]', 'src/a.js -> (node:fs, builtin) [import]', 'src/a.js -> (path, builtin) [require]', 'src/a.js -> (react, package react) [import]',
     ])
     assert.equal(importEdges(map).edges.find((edge) => edge.kind === 'dynamic-import').specifier, null)
   })
