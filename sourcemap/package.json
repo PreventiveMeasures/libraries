@@ -24,7 +24,7 @@
     }
   },
   "browser": {
-    "./src/oxc.js": "./src/oxc.browser.js"
+    "./src/oxc.node.js": "./src/oxc.browser.js"
   },
   "files": [
     "LICENSE-APACHE",
@@ -35,25 +35,14 @@
     "edges.js",
     "sourcemap.d.ts",
     "sourcemap.js",
-    "src/bundle-lite.js",
-    "src/bundle.js",
-    "src/error.js",
+    "src/edges.js",
     "src/files.js",
-    "src/imports.js",
     "src/map.js",
-    "src/metro-map.js",
     "src/metro.js",
     "src/oxc.browser.js",
-    "src/oxc.js",
     "src/oxc.node.js",
     "src/parser.js",
-    "src/positions.js",
-    "src/references.js",
-    "src/resolve.js",
     "src/scan.js",
-    "src/scope.js",
-    "src/specifiers.js",
-    "src/vlq.js",
     "src/webpack.js"
   ],
   "engines": {

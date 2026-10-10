@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { SourceMapError, readSourceMap } from '@preventive/sourcemap'
-import { segmentsOf } from '../src/map.js'
-import { fileAt, lineStarts } from '../src/positions.js'
+import { fileAt, lineStarts, segmentsOf } from '../src/map.js'
 import { vlq } from './helpers.js'
 
 // Reading a map: the mappings decoded as the format writes them, the

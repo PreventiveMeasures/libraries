@@ -104,7 +104,7 @@ describe('sourcemap/ imports nothing from outside but its peer, and node: on Nod
       }
       visit(new URL(door, PKG_DIR))
       assert.ok(reached.has(needs))
-      for (const module of ['src/parser.js', 'src/oxc.js', ...Object.keys(PEERS)]) assert.ok(!reached.has(module), `${door} reaches ${module}`)
+      for (const module of ['src/parser.js', ...Object.keys(PEERS)]) assert.ok(!reached.has(module), `${door} reaches ${module}`)
     })
   }
 })

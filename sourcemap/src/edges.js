@@ -1,5 +1,34 @@
-import { forEachChild } from './parser.js'
-import { specifierOf } from './specifiers.js'
+import { edgeList, externalEdge, indexFiles, languageOf, resolveSpecifier } from './files.js'
+import { fileAt, lineStarts } from './map.js'
+import { metroEdges } from './metro.js'
+import { forEachChild, parse, specifierOf, specifiersOf } from './parser.js'
+import { scanSpecifiers } from './scan.js'
+import { isWebpack, isWebpackOwn, webpackEdges } from './webpack.js'
+
+// A file oxc does not parse, Flow mostly, is read by the scanner instead.
+export function importEdges(map, { callees = [] } = {}) {
+  const index = indexFiles(map.files)
+  const named = new Set(callees)
+  const { edges, add } = edgeList()
+  const failed = []
+  const unscanned = []
+  for (const from of map.files) {
+    const lang = from.path === null ? null : languageOf(from.path)
+    if (lang === 'json') continue
+    if (lang === null || from.content === null) {
+      unscanned.push(from)
+      continue
+    }
+    const { program, error } = parse(from.content, lang)
+    if (!program) failed.push({ file: from, error })
+    for (const { kind, specifier, callee } of program ? specifiersOf(program, named) : scanSpecifiers(from.content, named)) {
+      const target = specifier === null ? { to: null } : resolveSpecifier(index, from, specifier)
+      const key = `${kind}\0${callee ?? ''}\0${JSON.stringify(specifier)}`
+      if (target.to !== from) add(from, key, { from, kind, specifier, ...(callee && { callee }), ...target })
+    }
+  }
+  return { edges, failed, unscanned }
+}
 
 // Enough of JavaScript's scoping to follow a name in a bundle, where a
 // minifier reuses short names in scope after scope. Two passes, the first
@@ -76,16 +105,20 @@ function external(node, scope, pass) {
   const named = specifierOf(node)
   if (named === null) return
   if (named.kind === 'require' && lookup(scope, 'require') !== null) return
-  pass.external(node, named.kind, named.specifier)
+  pass.addExternal(node, named.kind, named.specifier)
 }
 
 // Their keys are names, but where computed.
 const KEYED = new Set(['Property', 'MethodDefinition', 'PropertyDefinition', 'AccessorProperty'])
 
+// A name in one file for a declaration in another; a global is no file's.
 function reference(node, scope, pass) {
   if (pass.declaring || pass.declared.has(node)) return
   const binding = lookup(scope, node.name)
-  pass.reference(node, binding, pass.declared.get(binding))
+  if (binding === null) return
+  const imported = pass.declared.get(binding)
+  if (imported === undefined) pass.link(pass.at(node), pass.at(binding), 'reference')
+  else pass.addExternal(node, 'import', imported)
 }
 
 function visit(node, scope, pass) {
@@ -155,11 +188,35 @@ function visit(node, scope, pass) {
   }
 }
 
-// `reference(identifier, binding, imported)`, binding null for a global;
-// `external(node, kind, specifier)` for a module left to the runtime.
-export function resolveReferences(program, callbacks) {
+// A scope-hoisted bundle (esbuild, rollup) drops the imports and leaves one
+// scope where every module's names meet: code from one file naming a
+// declaration from another is that file using the other. Code in a file of
+// `skip` is no file's.
+function referenceEdges(program, map, starts, skip) {
+  const at = (node) => {
+    const file = fileAt(map, starts, node.start)
+    return skip.has(file) ? null : file
+  }
+  const { edges, add, link } = edgeList()
+  const addExternal = (node, kind, specifier) => {
+    const from = at(node)
+    if (from) add(from, `${kind}\0${JSON.stringify(specifier)}`, externalEdge(from, kind, specifier))
+  }
   const shared = { scopes: new Map(), declared: new Map() }
-  for (const pass of [{ ...shared, declaring: true }, { ...shared, ...callbacks, declaring: false }]) {
+  for (const pass of [{ ...shared, declaring: true }, { ...shared, at, link, addExternal }]) {
     children(program, scopeFor(program, null, true, pass), pass)
   }
+  return edges
+}
+
+export function bundleEdges(map, code) {
+  const metro = metroEdges(map, code)
+  if (metro) return { edges: metro }
+  if (code == null) return { edges: importEdges(map).edges }
+  const { program, error } = parse(code, 'jsx')
+  if (!program) throw new Error(`bundleEdges: the bundle does not parse: ${error}`)
+  const starts = lineStarts(code)
+  // webpack's runtime, and its stand-ins for externals, are no files.
+  const references = referenceEdges(program, map, starts, new Set(map.files.filter(isWebpackOwn)))
+  return { edges: isWebpack(map) ? [...webpackEdges(program, map, starts), ...references] : references }
 }

@@ -1,7 +1,6 @@
-import { WEBPACK } from './files.js'
+import { WEBPACK, edgeList, externalEdge } from './files.js'
+import { fileAfter, fileAt, fileWithin } from './map.js'
 import { forEachChild } from './parser.js'
-import { fileAfter, fileAt, fileWithin } from './positions.js'
-import { edgeList, externalEdge } from './resolve.js'
 
 // webpack keeps each module apart, as a factory in a table keyed by its id
 // (a path in development, a number in production), handed `require` as its

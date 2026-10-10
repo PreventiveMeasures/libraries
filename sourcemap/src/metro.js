@@ -1,11 +1,12 @@
-import { fileWithin, lineStarts, positionOf } from './positions.js'
-import { edgeList } from './resolve.js'
+import { edgeList, entryInOrder, indexFiles, languageOf, resolveSpecifier } from './files.js'
+import { fileWithin, lineStarts, positionOf, segmentsOf } from './map.js'
+import { scanSpecifiers } from './scan.js'
 
-// No parser: Metro writes each module on lines of its own, starting `__d(`
-// (behind the bundle's global prefix, if any), and appends the define
-// call's params to its code as JSON: `},id[,dependencies[,name]])`, the
-// dependencies the ids its resolver picked, or, to carry lazy imports'
-// `paths`, an object keyed by position.
+// A Metro bundle, read with no parser: Metro writes each module on lines
+// of its own, starting `__d(` (behind the bundle's global prefix, if any),
+// and appends the define call's params to its code as JSON:
+// `},id[,dependencies[,name]])`, the dependencies the ids its resolver
+// picked, or, to carry lazy imports' `paths`, an object keyed by position.
 
 const START = /^[\w$]*__d\(/gmu
 
@@ -62,7 +63,7 @@ function fillGaps(list, map) {
 }
 
 // Null for a bundle with no line that starts a Metro module.
-export function metroEdges(code, map) {
+function fromBundle(code, map) {
   const begins = [...code.matchAll(START)].map((match) => match.index)
   if (begins.length === 0) return null
   const starts = lineStarts(code)
@@ -81,12 +82,87 @@ export function metroEdges(code, map) {
   }
   fillGaps(list, map)
   const modules = new Map(list.map((module) => [module.id, module]))
-  const { edges, add } = edgeList()
+  const { edges, link } = edgeList()
   for (const { file: from, dependencies } of list) {
-    for (const id of from ? dependencies : []) {
-      const to = modules.get(id)?.file
-      if (to && to !== from) add(from, to, { from, to, kind: 'dependency' })
-    }
+    for (const id of dependencies) link(from, modules.get(id)?.file, 'dependency')
   }
   return edges
+}
+
+// A Metro map with no bundle still says most of what the bundle would. Its
+// files come in module order, Metro's depth-first walk from the entry, and
+// each one's source names its imports; what Babel adds, its helpers and the
+// JSX runtime, shows in the names Metro mapped. What a transform adds or
+// drops out of sight of both (React Native's codegen, an inlined
+// Platform.OS) is not seen.
+
+const isScript = (file) => file.path !== null && !['json', null].includes(languageOf(file.path))
+const isAsset = (file) => file.path !== null && languageOf(file.path) === null
+
+// The helper modules Babel's binding `name` stands for: `_classCallCheck2`
+// for one it imports, or one its module transform or JSX imports; the
+// `_callSuper` it writes in place calls two it imports.
+function helpersOf(name) {
+  const imported = /^_([A-Za-z]+)\d+$/u.exec(name)?.[1]
+  if (imported) return [imported, 'interopRequireDefault']
+  const own = /^_(interopRequire(?:Default|Wildcard)|jsx(?:Dev)?Runtime|callSuper)$/u.exec(name)?.[1]
+  if (own === 'callSuper') return ['getPrototypeOf', 'possibleConstructorReturn', 'interopRequireDefault']
+  return own ? [own] : []
+}
+
+const HELPER_MODULES = { jsxRuntime: 'react/jsx-runtime', jsxDevRuntime: 'react/jsx-dev-runtime' }
+
+// Each file's helper modules, by the names its segments carry; not one a
+// prebuilt file declares for itself.
+function helperRequests(map) {
+  const { sources, names, nameList } = segmentsOf(map)
+  const helpers = new Map()
+  const shapes = new Map()
+  const bindings = map.files.map(() => new Set())
+  for (let k = 0; k < names.length; k++) {
+    if (names[k] < 0 || sources[k] < 0) continue
+    if (!shapes.has(names[k])) shapes.set(names[k], helpersOf(nameList[names[k]]).length > 0)
+    if (shapes.get(names[k])) bindings[sources[k]].add(nameList[names[k]])
+  }
+  for (const [i, named] of bindings.entries()) {
+    if (named.size === 0) continue
+    const file = map.files[i]
+    const declared = new Set(Array.from((file.content ?? '').matchAll(/(?:function|var|let|const)\s+(_[A-Za-z]+)\b/gu), (match) => match[1]))
+    const modules = [...named].filter((name) => !declared.has(name.replace(/\d+$/u, ''))).flatMap(helpersOf)
+    if (modules.length > 0) helpers.set(file, modules.map((module) => HELPER_MODULES[module] ?? `@babel/runtime/helpers/${module}`))
+  }
+  return helpers
+}
+
+function fromMap(map) {
+  if (!map.files.some((file) => /(?:^|\/)__prelude__$/u.test(file.source ?? ''))) return null
+  const index = indexFiles(map.files)
+  // An asset's one import, the registry, the walk reached right after the
+  // first asset; an import() also imports Metro's asyncRequire.
+  const registry = map.files[map.files.findIndex(isAsset) + 1]
+  const asyncRequire = map.files.find((file) => file.package?.name === 'metro-runtime' && file.package.path === 'src/modules/asyncRequire.js')
+  const { edges, link } = edgeList()
+  const resolve = (from, specifier) => resolveSpecifier(index, from, specifier, entryInOrder).to
+  const helpers = helperRequests(map)
+  for (const from of map.files) {
+    if (isAsset(from)) link(from, registry, 'dependency')
+    if (!from.content || !isScript(from)) continue
+    // Metro records no module for a computed request.
+    for (const { kind, specifier } of scanSpecifiers(from.content).filter((found) => found.specifier !== null)) {
+      link(from, resolve(from, specifier), 'dependency')
+      if (kind === 'dynamic-import') link(from, asyncRequire, 'dependency')
+    }
+    for (const specifier of helpers.get(from) ?? []) link(from, resolve(from, specifier), 'dependency')
+  }
+  return edges
+}
+
+// Metro's edges, from its bundle, or from its map alone where there is no
+// `code`; null for neither's.
+export const metroEdges = (map, code) => (code == null ? fromMap(map) : fromBundle(code, map))
+
+export function bundleEdges(map, code) {
+  const edges = metroEdges(map, code)
+  if (!edges) throw new Error(`bundleEdges: not a Metro ${code == null ? 'map' : 'bundle'}; edges-lite.js reads only those, edges.js reads others`)
+  return { edges }
 }
