@@ -331,6 +331,30 @@ describe('npm, with a GitHub client', () => {
     ])
   })
 
+  it('ends a range with no end of its own below the one version GitHub names as patched', async () => {
+    const patched = (name, range, patchedVersions) => ({ ...vuln(name, range), patched_versions: patchedVersions })
+    stubAll({
+      repos: { 'mono-a': 'acme/mono' },
+      github: {
+        [REPO_ADVISORIES]: [
+          // As vitest's GHSA-82fw-gwwq-j7x9 gives them: one range ended, one
+          // only begun, its fix named apart.
+          repoAdvisory('GHSA-aaaa-aaaa-aaaa', [patched('mono-a', '>= 2.1.0, < 4.1.11', '4.1.11'), patched('mono-a', '>= 5.0.0-beta.1', '5.0.0-rc.2')]),
+          // No range at all, but a fix; and a fix in more than one version.
+          repoAdvisory('GHSA-bbbb-bbbb-bbbb', [patched('mono-a', '', '5.0.0')]),
+          repoAdvisory('GHSA-cccc-cccc-cccc', [patched('mono-a', '>= 5.0.0', '5.0.1, 6.0.0')]),
+        ],
+      },
+    })
+    const found = await npm(['4.1.10', '4.1.11', '5.0.0-beta.3', '5.0.0-rc.2', '5.0.3'].map((version) => ({ name: 'mono-a', version })), { github, repoAdvisories: true })
+    assert.deepEqual(found.map(({ id, range, versions }) => [id, range, versions]), [
+      ['GHSA-aaaa-aaaa-aaaa', '>= 2.1.0, < 4.1.11', ['4.1.10']],
+      ['GHSA-aaaa-aaaa-aaaa', '>= 5.0.0-beta.1, < 5.0.0-rc.2', ['5.0.0-beta.3']],
+      ['GHSA-bbbb-bbbb-bbbb', '< 5.0.0', ['4.1.10', '4.1.11', '5.0.0-beta.3', '5.0.0-rc.2']],
+      ['GHSA-cccc-cccc-cccc', '>= 5.0.0', ['5.0.3']],
+    ])
+  })
+
   it('asks no repository without repoAdvisories, and with it, one given as is and the rest looked up, each once', async () => {
     const answers = { repos: { 'mono-a': 'acme/mono', 'mono-b': 'acme/mono' }, github: { [REPO_ADVISORIES]: [], [GIVEN]: [] } }
     const packages = [{ name: 'mono-a', version: '1.0.0' }, { name: 'mono-b', version: '1.0.0' }, { name: 'given', version: '1.0.0', github: 'acme/given' }]

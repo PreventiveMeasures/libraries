@@ -5,6 +5,7 @@ import { readRecord, writeRecord } from '../cache.js'
 import { isGone } from '../github/client.js'
 import { recover } from '../http.js'
 import { pool } from '../pool.js'
+import { isExactVersion } from '../semver.js'
 import { advisoryUrl, covered, detailsOf, isText, mayBeInRange, metrics } from './common.js'
 import { soldeerRepos } from './repos.js'
 
@@ -14,7 +15,7 @@ const DIR = 'github/advisories'
 // GitHub reviews it is what a repository is asked for: 90 minutes, not a month.
 const LISTING_TTL_MS = 90 * 60 * 1000
 // Stamped on each entry, and raised when a listing is kept differently.
-const VERSION = 1
+const VERSION = 2
 
 const isRepoAdvisory = (advisory) => advisory && typeof advisory === 'object' && isGhsa(advisory.ghsa_id)
   && advisory.state === 'published' && isText(advisory.summary)
@@ -22,11 +23,23 @@ const isRepoAdvisory = (advisory) => advisory && typeof advisory === 'object' &&
 
 export const assertClient = assertion('a GitHub client from createClient', (value) => typeof value?.listRepoAdvisories === 'function')
 
+// A maintainer may give a vulnerable range only its lower bound, and the
+// version that fixed it apart (`>= 5.0.0-beta.1`, patched in `5.0.0-rc.2`),
+// as GitHub's page shows them side by side: such a range ends below its one
+// patched version. A range bounded above, or patched in more than one
+// version, is as given.
+function boundedRange(range, patched) {
+  const fixed = typeof patched === 'string' ? patched.trim() : null
+  if (!isExactVersion(fixed) || range.includes('<')) return range
+  return range.trim() === '' ? `< ${fixed}` : `${range.trim()}, < ${fixed}`
+}
+
 // What rows are made from, and all that is kept of a listing: each advisory
 // not withdrawn, with its CVSS vector GitHub prefers, and each vulnerable
-// range with the package it names. A listing that is malformed is refused
-// whole, and never kept; one whose only fault is a description (isDigest)
-// is answered, but not kept either.
+// range with the package it names, ended below its patched version where it
+// has no end of its own (boundedRange). A listing that is malformed is
+// refused whole, and never kept; one whose only fault is a description
+// (isDigest) is answered, but not kept either.
 function digest(repo, list) {
   return list.flatMap((advisory) => {
     assert.ok(isRepoAdvisory(advisory), `advisories: malformed advisory from ${repo}`)
@@ -36,7 +49,7 @@ function digest(repo, list) {
       const range = vulnerability?.vulnerable_version_range ?? ''
       assert.ok(typeof range === 'string', `advisories: malformed range in ${advisory.ghsa_id}`)
       const { ecosystem, name } = vulnerability?.package ?? {}
-      return { range, ...(typeof ecosystem === 'string' && { ecosystem }), ...(typeof name === 'string' && { name }) }
+      return { range: boundedRange(range, vulnerability?.patched_versions), ...(typeof ecosystem === 'string' && { ecosystem }), ...(typeof name === 'string' && { name }) }
     })
     return [{
       ghsa: advisory.ghsa_id,
