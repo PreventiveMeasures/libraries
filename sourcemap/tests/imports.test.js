@@ -149,6 +149,9 @@ describe('a specifier is resolved as a resolver would try it', () => {
     const elsewhere = sources({ 'src/a.js': "import './view'\nimport './list'", 'src/view.android.js': '', 'src/view.ios.js': '', 'src/list.ios.js': '', 'src/x.android.js': '', 'src/y.android.js': '' })
     assert.deepEqual(shown(importEdges(elsewhere).edges), ['src/a.js -> (./list, path src/list) [import]', 'src/a.js -> src/view.android.js [import]'])
     assert.deepEqual(shown(importEdges(sources({ 'src/a.js': "import './view'", 'src/view.android.js': '', 'src/view.ios.js': '' })).edges), ['src/a.js -> (./view, path src/view) [import]'])
+    // By the files' names alone, not a host or directory that spells one.
+    const host = sources({ 'https://cdn.web.example/a.js': "import './b'", 'https://cdn.web.example/b.js': '', 'https://cdn.web.example/b.ios.js': '', 'https://cdn.web.example/b.web.js': '' })
+    assert.deepEqual(shown(importEdges(host).edges), ['https://cdn.web.example/a.js -> https://cdn.web.example/b.js [import]'])
     // With none of a platform's files, .native, then the plain one before a browser build.
     const web = sources({ 'lib/a.js': "import './encode'\nimport './view'", 'lib/encode.js': '', 'lib/encode.browser.js': '', 'lib/view.js': '', 'lib/view.native.js': '' })
     assert.deepEqual(shown(importEdges(web).edges), ['lib/a.js -> lib/encode.js [import]', 'lib/a.js -> lib/view.native.js [import]'])
@@ -182,8 +185,8 @@ describe('a specifier is resolved as a resolver would try it', () => {
   })
 
   it('takes a file:// specifier as the path the map\'s own sources are', () => {
-    const map = sources({ '/app/a.js': "import 'file:///app/b.js'\nimport 'file://server/share/c.js'\nimport 'FILE://LOCALHOST/app/d.js'", '/app/b.js': '', 'file://server/share/c.js': '', '/app/d.js': '' })
-    assert.deepEqual(shown(importEdges(map).edges), ['/app/a.js -> //server/share/c.js [import]', '/app/a.js -> /app/b.js [import]', '/app/a.js -> /app/d.js [import]'])
+    const map = sources({ '/app/a.js': "import 'file:///app/b.js'\nimport 'file://server/share/c.js'\nimport 'FILE://LOCALHOST/app/d.js'\nimport 'file:/app/e.js'", '/app/b.js': '', 'file://server/share/c.js': '', '/app/d.js': '', '/app/e.js': '' })
+    assert.deepEqual(shown(importEdges(map).edges), ['/app/a.js -> //server/share/c.js [import]', '/app/a.js -> /app/b.js [import]', '/app/a.js -> /app/d.js [import]', '/app/a.js -> /app/e.js [import]'])
   })
 
   it('takes a specifier naming a source the map keeps under an opaque scheme', () => {

@@ -46,23 +46,33 @@ function resolvePath(from, relative) {
   return normalize(root ? relative : `${from}/../${relative}`)
 }
 
+// A URL's escapes decoded; a malformed one, `%zz`, kept as it is.
+function unescaped(text) {
+  try {
+    return decodeURIComponent(text)
+  } catch {
+    return text
+  }
+}
+
 // webpack:// paths are from webpack's context, not from the map. A scheme
 // with no root (data:, a virtual module) names no file.
 export function sourcePath(source, mapPath) {
   const path = source.replaceAll('\\', '/')
   if (WEBPACK.test(path)) return normalize(path.replace(WEBPACK, ''))
-  // A file's own `#` is %23 in its URL: a `#` there starts a fragment.
-  const file = /^file:\/\/([^/#]*)([^#]*)/isu.exec(path)
+  // A file: URL however spelled, file:/a too, as the URL Standard parses it.
+  // A file's own `#` is %23 in it: a `#` there starts a fragment.
+  const file = /^file:/iu.test(path) && /^file:\/\/([^/#]*)([^#]*)/isu.exec(parsed(path) ?? path)
   if (file) {
     // A host other than this one's is a UNC path's server.
     const [, host, rest] = file
-    return normalize(decodeURIComponent(host && host.toLowerCase() !== 'localhost' ? `//${host}${rest}` : rest).replace(/^\/(?=[a-z]:\/)/iu, ''))
+    return normalize(unescaped(host && host.toLowerCase() !== 'localhost' ? `//${host}${rest}` : rest).replace(/^\/(?=[a-z]:\/)/iu, ''))
   }
   if (SCHEME.test(path) && !rootOf(path).includes(':')) return path
   if (mapPath === undefined) return normalize(path)
   // Under a map at a file:// URL, a relative source is a URL relative to it,
   // escaped as one.
-  if (/^file:\/\//iu.test(mapPath) && !rootOf(path)) return sourcePath(parsed(path, mapPath) ?? path)
+  if (/^file:/iu.test(mapPath) && !rootOf(path)) return sourcePath(parsed(path, mapPath) ?? path)
   // A rooted source is a URL's, under a map at one.
   const base = sourcePath(mapPath)
   return rootOf(path) && !isUrl(base) ? normalize(path) : resolvePath(base, path)
@@ -125,13 +135,14 @@ export function languageOf(path) {
 const EXTENSIONS = ['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.mts', '.cts', '.json']
 // React Native's platforms: Metro tries the bundle's own, then `.native`,
 // then the plain file, and never another platform's. A map's platform is
-// the one its files show more of than any other; a map that shows none, or
+// the one its files' names show more of than any other; a map that shows none, or
 // two as much, tries `.native`, then the plain file. A browser or Node
 // build a package ships beside the plain file comes after it.
 const RN_PLATFORMS = ['.ios', '.android', '.web']
 
 function platformsOf(files) {
-  const counts = RN_PLATFORMS.map((platform) => [platform, files.filter((file) => file.path?.includes(`${platform}.`)).length]).toSorted((a, b) => b[1] - a[1])
+  const names = files.map((file) => file.path?.slice(file.path.lastIndexOf('/') + 1) ?? '')
+  const counts = RN_PLATFORMS.map((platform) => [platform, names.filter((name) => name.includes(`${platform}.`)).length]).toSorted((a, b) => b[1] - a[1])
   const [[active, count], [, next]] = counts
   return [...(count === next ? [] : [active]), '.native', '', '.browser', '.node']
 }
@@ -268,9 +279,10 @@ function packageFile(index, root, subpath, entry) {
 export function resolveSpecifier(index, from, specifier, entry = entryOf) {
   // Node on Windows takes `.\a` and `C:\a` as paths, written as the map's own are.
   const request = /^(?:\.{1,2}|[a-z]:)?\\/iu.test(specifier) ? specifier.replaceAll('\\', '/') : specifier
-  if (/^(?:\.{1,2}(?:\/|$)|\/|[a-z]:\/)/iu.test(request) || isUrl(request)) {
-    // A file:// URL as the map's own sources are: a path.
-    const path = /^file:\/\//iu.test(request) ? sourcePath(request) : resolvePath(from.path, request)
+  const fileUrl = /^file:/iu.test(request)
+  if (fileUrl || /^(?:\.{1,2}(?:\/|$)|\/|[a-z]:\/)/iu.test(request) || isUrl(request)) {
+    // A file: URL as the map's own sources are: a path.
+    const path = fileUrl ? sourcePath(request) : resolvePath(from.path, request)
     const to = find(index, path)
     return to ? { to } : { to: null, path }
   }
