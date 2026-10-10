@@ -146,7 +146,7 @@ export function parseLabelledFields(body) {
       let k = label[1].trim()
       let rest = label[2]
       let seg
-      while ((seg = /\s+[·•]\s+\*\*([^:*]+):\*\*\s*/u.exec(rest)) !== null) {
+      while ((seg = /\s+[\u00B7\u2022]\s+\*\*([^:*]+):\*\*\s*/u.exec(rest)) !== null) {
         setField(k.toLowerCase(), k, rest.slice(0, seg.index))
         k = seg[1].trim()
         rest = rest.slice(seg.index + seg[0].length)
@@ -405,5 +405,5 @@ export function stripBrackets(s) {
 // "not applicable".
 export function cellValue(s) {
   const v = (s || '').trim()
-  return /^[-–—]+$/u.test(v) ? '' : v
+  return /^[-\u2013\u2014]+$/u.test(v) ? '' : v
 }

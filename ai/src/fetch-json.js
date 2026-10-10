@@ -122,7 +122,7 @@ const LOG_BODY_LIMIT = 200
 
 function retryReason(err) {
   if (!(err instanceof UpstreamError) || err.body.length <= LOG_BODY_LIMIT) return err.message
-  return `API ${err.status}: ${err.body.slice(0, LOG_BODY_LIMIT)}…`
+  return `API ${err.status}: ${err.body.slice(0, LOG_BODY_LIMIT)}\u2026`
 }
 
 // `retries` is how many times a failed request is re-asked, per request rather than per process:

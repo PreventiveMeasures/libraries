@@ -92,7 +92,7 @@ export function idCell(s) {
 // `[C1-command-injection](.../report.md): Title` -- as plain text with the
 // url apart: `{ text: 'C1-command-injection Title', link }`.
 export function leadingLink(value) {
-  const m = /^\[([^\]]+)\]\(([^)]+)\)\s*[:—–-]*\s*(.*)$/u.exec(value)
+  const m = /^\[([^\]]+)\]\(([^)]+)\)\s*[:\u2014\u2013-]*\s*(.*)$/u.exec(value)
   if (!m) return null
   return { text: m[3] ? `${m[1].trim()} ${m[3].trim()}` : m[1].trim(), link: m[2].trim() }
 }
@@ -103,10 +103,10 @@ export function leadingLink(value) {
 // separator from the rest.
 export function leadingId(text) {
   const space = text.search(/\s/u)
-  const first = (space === -1 ? text : text.slice(0, space)).replace(/[:.,—–-]+$/u, '')
+  const first = (space === -1 ? text : text.slice(0, space)).replace(/[:.,\u2014\u2013-]+$/u, '')
   const tok = idFromToken(first)
   if (!tok) return null
-  const rest = (space === -1 ? '' : text.slice(space + 1)).replace(/^[:—–-]+\s*/u, '').trim()
+  const rest = (space === -1 ? '' : text.slice(space + 1)).replace(/^[:\u2014\u2013-]+\s*/u, '').trim()
   return { id: tok.id, slug: tok.slug, rest }
 }
 

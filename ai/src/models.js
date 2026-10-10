@@ -92,7 +92,7 @@ export function isRecognizedModel(model) {
 // is the part of the request that was refused, since that is the half of the command line to change
 // if the id is right.
 export function unknownModelMessage(model, flag) {
-  return `Unknown model ${model} — it is not in the model registry, so ${flag} cannot be applied to it. Check the spelling, or add a row for it to the model table in \`ai/src/model-table.js\`.`
+  return `Unknown model ${model} \u2014 it is not in the model registry, so ${flag} cannot be applied to it. Check the spelling, or add a row for it to the model table in \`ai/src/model-table.js\`.`
 }
 
 export function validateModel(model, { free = false } = {}) {

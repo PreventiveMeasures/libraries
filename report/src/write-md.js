@@ -109,17 +109,17 @@ function viewText(view) {
   const parts = [view.bucket ? `${view.bucket} findings` : 'Live findings']
   if (view.severityMode === 'original') parts.push('original analyzer severities')
   else if (view.severityMode === 'corrected') parts.push('corrected severities')
-  if (view.revalidation === false) parts.push('code view — the revalidation pass is not applied')
+  if (view.revalidation === false) parts.push('code view \u2014 the revalidation pass is not applied')
   else if (view.revalidation === true) {
     // Which app view: the verdict standing in for the rows it re-rated
     // (the default on screen, folded here as there), or the detailed one
     // that lists them. A caller that doesn't track the detail says the
     // layer is applied and no more.
-    if (view.revalidationDetail === true) parts.push('detailed app view — the revalidation pass is applied, with the rows it re-rated')
-    else if (view.revalidationDetail === false) parts.push('app view — the revalidation pass is applied, standing in for the rows it re-rated')
-    else parts.push('app view — the revalidation pass is applied')
+    if (view.revalidationDetail === true) parts.push('detailed app view \u2014 the revalidation pass is applied, with the rows it re-rated')
+    else if (view.revalidationDetail === false) parts.push('app view \u2014 the revalidation pass is applied, standing in for the rows it re-rated')
+    else parts.push('app view \u2014 the revalidation pass is applied')
   }
-  return parts.join(' · ')
+  return parts.join(' \u00B7 ')
 }
 
 function includedText(counts) {
@@ -159,7 +159,7 @@ function headerList(doc, ctx, cases) {
   if (doc.generatedAt) add('Exported', formatTimestamp(doc.generatedAt))
   add('View', viewText(doc.view))
   if (Array.isArray(doc.filters)) {
-    add('Filters', doc.filters.length > 0 ? doc.filters.map((f) => `${f.label}: ${f.value}`).join(' · ') : 'none')
+    add('Filters', doc.filters.length > 0 ? doc.filters.map((f) => `${f.label}: ${f.value}`).join(' \u00B7 ') : 'none')
   }
   add('Included', includedText(doc.counts))
   return rows.join('\n')

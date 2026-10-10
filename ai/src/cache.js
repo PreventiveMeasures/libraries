@@ -18,7 +18,7 @@ export function setCacheDir(dir) {
 }
 
 export function cacheDir() {
-  assert(root, 'Cache directory is not set — call setCacheDir() before using the cache')
+  assert(root, 'Cache directory is not set \u2014 call setCacheDir() before using the cache')
   return root
 }
 
@@ -119,7 +119,7 @@ async function tryRead(path) {
   try {
     return await readTextOrNull(path)
   } catch (err) {
-    console.warn(`[cache] read failed (${err.code ?? err.message}) for ${path} — treating as a miss`)
+    console.warn(`[cache] read failed (${err.code ?? err.message}) for ${path} \u2014 treating as a miss`)
     return null
   }
 }

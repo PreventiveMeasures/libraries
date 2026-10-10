@@ -270,7 +270,7 @@ const BOILERPLATE = /uses Chrome's Built-In AI features/u
 /* eslint-disable no-undef */
 export async function turnInPage(req) {
   if (typeof LanguageModel === 'undefined') {
-    return { error: { message: 'LanguageModel is not exposed — this is not a branded Chrome' } }
+    return { error: { message: 'LanguageModel is not exposed \u2014 this is not a branded Chrome' } }
   }
   // No availability() gate: it reports `unavailable` for a model that is merely unloaded, which
   // would refuse turns the browser can serve. A create() that cannot work fails below with the

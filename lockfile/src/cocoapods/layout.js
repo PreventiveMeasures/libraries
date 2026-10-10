@@ -57,7 +57,7 @@ function processString(text, rules) {
 // mappings only a final sigma's depends on what is around it, and Ruby's
 // does not: a capital sigma is U+03C3, never the final U+03C2, wherever
 // it is.
-const downcase = (text) => text.replaceAll('Σ', 'σ').toLowerCase()
+const downcase = (text) => text.replaceAll('\u03A3', '\u03C3').toLowerCase()
 
 function sortingString(node) {
   if (node.kind === 'seq') return node.items.length === 0 ? '' : sortingString(node.items[0])

@@ -38,7 +38,7 @@ they differ, 2 on trouble.
 Tarballs, zips and crates are kept in ${defaultCacheDir ?? 'no cache, as no home directory is known'}.
 A scoped package is fetched with PREVENTIVE_MEASURES_NPM_TOKEN,
 STASIS_NPM_TOKEN or NPM_TOKEN, else with a ~/.npmrc line of nothing but
-//registry.npmjs.org/:_authToken=npm_…; a Soldeer git dependency with
+//registry.npmjs.org/:_authToken=npm_\u2026; a Soldeer git dependency with
 GITHUB_TOKEN or GH_TOKEN, else anonymously.
 
   --pnpm, --yarn, --npm, --soldeer, --cargo <version>

@@ -218,7 +218,7 @@ function missingModelMessage(baseModel, all) {
     `Chrome has no on-device model for ${baseModel}. Open chrome://on-device-internals in Chrome ` +
     `and request it there. Installed instead: ${found}. ` +
     `If one of those IS ${baseModel}, it has been renamed: expected ` +
-    `${wanted.map((n) => `"${n}"`).join(' or ')} — add the new name to specNames in models.js, ` +
+    `${wanted.map((n) => `"${n}"`).join(' or ')} \u2014 add the new name to specNames in models.js, ` +
     'or point CHROME_MODEL_DIR at the directory.'
   )
 }

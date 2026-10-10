@@ -177,7 +177,7 @@ function parseLocation(loc) {
   file = unescapeMd(file.replaceAll('`', '')).trim()
   // A `:42` / `:10-20` suffix (or with an en or em dash): taken only when
   // the anchor gave no line, but shed from the path either way.
-  const colonMatch = file.match(/^(.+):(\d+)(?:\s*[-–—]\s*L?(\d+))?$/u)
+  const colonMatch = file.match(/^(.+):(\d+)(?:\s*[-\u2013\u2014]\s*L?(\d+))?$/u)
   if (colonMatch) {
     file = colonMatch[1]
     if (line === '?') line = colonMatch[3] ? `${colonMatch[2]}-${colonMatch[3]}` : colonMatch[2]

@@ -71,7 +71,7 @@ export function listFindings(body, sev, index) {
     if (linked) {
       text = linked.text
     } else {
-      const bold = /^\*\*([^*]+)\*\*\s*[:—–-]*\s*(.*)$/u.exec(text)
+      const bold = /^\*\*([^*]+)\*\*\s*[:\u2014\u2013-]*\s*(.*)$/u.exec(text)
       if (bold) text = bold[2] ? `${bold[1].trim()} ${bold[2].trim()}` : bold[1].trim()
     }
     if (/^(?:none\b|no |n\/a\b)/iu.test(text)) continue

@@ -26,7 +26,7 @@ const HEADING_MAX = 120
 
 export function findingHeading(f) {
   const title = findingTitle(f) || locationLabel(f) || 'Untitled finding'
-  return title.length > HEADING_MAX ? `${title.slice(0, HEADING_MAX - 1).trimEnd()}…` : title
+  return title.length > HEADING_MAX ? `${title.slice(0, HEADING_MAX - 1).trimEnd()}\u2026` : title
 }
 
 // A repository as a link -- a github.com slug points at github.com, a
@@ -95,15 +95,15 @@ function severityText(f, ctx) {
   let text = severityLabel(displayedSeverity(f, ctx.severityMode))
   if (hasSeverityCorrection(f)) {
     text += original
-      ? ` — corrected to ${severityLabel(effectiveSeverity(f))}`
-      : ` — corrected from ${severityLabel(f.severity)}`
+      ? ` \u2014 corrected to ${severityLabel(effectiveSeverity(f))}`
+      : ` \u2014 corrected from ${severityLabel(f.severity)}`
   }
   const variants = correctedVariants(f)
   if (variants) {
     const list = Object.entries(variants).map(([r, v]) => `${r || 'this report'}: ${severityLabel(v?.severity)}`)
-    text += ` (varies across reports — ${list.join('; ')})`
+    text += ` (varies across reports \u2014 ${list.join('; ')})`
   }
-  if (f.critical === true) text += ' · flagged critical by the analyzer'
+  if (f.critical === true) text += ' \u00B7 flagged critical by the analyzer'
   return text
 }
 
@@ -113,7 +113,7 @@ function locationText(f, ctx) {
   const url = ctx.hooks.location(f)
   const ref = isHttpUrl(url) ? link(code(label), url) : code(label)
   const name = findingDisplayName(f)
-  return name ? `${ref} · ${code(name)}` : ref
+  return name ? `${ref} \u00B7 ${code(name)}` : ref
 }
 
 // What the reader did with the finding: its triage bucket (or the
@@ -125,7 +125,7 @@ function triageText(a) {
   if (bucket) parts.push(bucket)
   if (a.color) parts.push(`${COLOR_LABELS[a.color] ?? a.color} mark`)
   if (a.flagged === true) parts.push('Flagged')
-  return parts.join(' · ')
+  return parts.join(' \u00B7 ')
 }
 
 function commitText(f, ctx) {
@@ -254,12 +254,12 @@ export function groupSection(group, ctx, { headingText, depth }) {
   const blocks = [heading(depth, headingText)]
   if (group.length === 1) return joinBlocks([...blocks, ...caseBlocks(group[0], ctx, depth + 1)])
   const reports = [...new Set(group.map((f) => ctx.hooks.report(f)).filter(Boolean))]
-  const from = reports.length > 1 ? ` — reported in ${reports.map((r) => code(r)).join(', ')}` : ''
+  const from = reports.length > 1 ? ` \u2014 reported in ${reports.map((r) => code(r)).join(', ')}` : ''
   blocks.push(`${plural(group.length, 'case')} of this finding${from}.`)
   const groupTitle = findingTitle(group[0])
   group.forEach((f, i) => {
     const loc = locationLabel(f)
-    blocks.push(heading(depth + 1, `Case ${i + 1} of ${group.length}${loc ? ` — ${code(loc)}` : ''}`))
+    blocks.push(heading(depth + 1, `Case ${i + 1} of ${group.length}${loc ? ` \u2014 ${code(loc)}` : ''}`))
     const own = findingTitle(f)
     if (own && own !== groupTitle) blocks.push(prose(own))
     blocks.push(...caseBlocks(f, ctx, depth + 2))

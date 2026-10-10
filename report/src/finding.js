@@ -138,7 +138,7 @@ export function prettyModel(model) {
 export function runMetaLine(f, revalidation = true) {
   const pass = revalidation && revalidateKindOf(f) === 'revalidation' ? 'revalidate' : ''
   return [f?.type, pass, prettyModel(f?.model), f?.effort, f?.exportsMode]
-    .filter(Boolean).join(' · ')
+    .filter(Boolean).join(' \u00B7 ')
 }
 
 // -- Export markers ---------------------------------------------------

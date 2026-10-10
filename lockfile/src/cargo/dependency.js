@@ -140,7 +140,7 @@ export function gatherDependencies(doc, workspace, edition) {
   }
   gather(doc, undefined, undefined)
   for (const [platform, value, here] of entries(orEmpty(doc.target), 'target')) {
-    if (parsePlatform(platform) === undefined) throw new LockfileError(`${quote(platform)} is neither a target's name nor a cfg(…) cargo reads`, here)
+    if (parsePlatform(platform) === undefined) throw new LockfileError(`${quote(platform)} is neither a target's name nor a cfg(\u2026) cargo reads`, here)
     table(value, here, KINDS.flatMap(([key]) => [key, key.replaceAll('-', '_')]))
     gather(value, here, platform)
   }

@@ -60,7 +60,7 @@ function price(usage, model) {
 // Checked here, before anything is sent: a budget of NaN or -1 compares false against every
 // attempt and quietly means zero, the opposite of what a caller passing one through expected.
 export async function ask({ model, maxTokens, systemPrompt, userContent, think = false, effort, tools, handleToolCall, maxToolTurns = DEFAULT_MAX_TOOL_TURNS, partial, onStart, debug, debugRequests, label, taskBudget = 'never', retries, ...rest }) {
-  assert(!('userContentSuffix' in rest), 'userContentSuffix is gone — pass userContent as [preamble, suffix] instead')
+  assert(!('userContentSuffix' in rest), 'userContentSuffix is gone \u2014 pass userContent as [preamble, suffix] instead')
   assert(Boolean(tools) === Boolean(handleToolCall), 'tools and handleToolCall must be both provided or both omitted')
   assert(retries === undefined || (Number.isSafeInteger(retries) && retries >= 0), 'retries must be a non-negative integer')
   const totalUsage = emptyUsage()

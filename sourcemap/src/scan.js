@@ -10,7 +10,7 @@ const SPACE = /\s+/uy
 const LINE_ENDS = '\n\r\u2028\u2029'
 const LINE_END = /[\n\r\u2028\u2029]/gu
 const LINE_BREAK = /[\n\r\u2028\u2029]/u
-const WORD = /[\w$\u0080-￿]+/uy
+const WORD = /[\w$\u0080-\uFFFF]+/uy
 // After these a `/` starts a regular expression, not a division; and
 // after the `)` that closes the head of these, `if (a) /re/.test(b)`, and
 // the `}` that closes a block, not an object.

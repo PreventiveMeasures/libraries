@@ -29,7 +29,7 @@ export function attempt(run, otherwise) {
 // 200 code units, and an ellipsis, U+2026, within the quote where cut.
 export function quote(text) {
   const short = cut(text, 200)
-  return quoted(short === text ? text : `${short}…`)
+  return quoted(short === text ? text : `${short}\u2026`)
 }
 
 // One step down a property path: `.key` where the key reads as one, `['k']`

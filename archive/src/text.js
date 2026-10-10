@@ -5,7 +5,7 @@ import { ArchiveError } from './error.js'
 // short of a surrogate pair, so a long one cannot flood it.
 export function quote(text) {
   if (text.length <= 200) return JSON.stringify(text)
-  return JSON.stringify(`${text.slice(0, text.codePointAt(199) > 0xffff ? 199 : 200)}…`)
+  return JSON.stringify(`${text.slice(0, text.codePointAt(199) > 0xffff ? 199 : 200)}\u2026`)
 }
 
 // A C0, DEL or C1 control (Cc is those three and nothing else); a line or

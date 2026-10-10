@@ -144,7 +144,7 @@ export function explainCreateFailure(error, model, baseModel) {
   // Raised both for a session Chrome declines and for a service that dies starting one; only the
   // second leaves a "Session crashed" behind.
   const verdict = error.availability === 'available'
-    ? 'availability() reports "available", so nothing is missing — what failed is running the ' +
+    ? 'availability() reports "available", so nothing is missing \u2014 what failed is running the ' +
       'weights, which is what a model too large for this device looks like'
     : `availability() reports "${error.availability}", so this device will not run the variant`
   error.message =

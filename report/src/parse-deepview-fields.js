@@ -86,7 +86,7 @@ export function tierOf(label) {
 function readLocation(value) {
   const out = {}
   let s = value.trim()
-  const named = / · (`+)(.+?)\1$/u.exec(s)
+  const named = / \u00B7 (`+)(.+?)\1$/u.exec(s)
   if (named) {
     Object.assign(out, exportNames(codeSpan(named[0])))
     s = s.slice(0, named.index)
@@ -98,8 +98,8 @@ function readLocation(value) {
   return out
 }
 
-const CRITICAL_FLAG = ' · flagged critical by the analyzer'
-const VARIES = ' (varies across reports — '
+const CRITICAL_FLAG = ' \u00B7 flagged critical by the analyzer'
+const VARIES = ' (varies across reports \u2014 '
 
 // `High \u2014 corrected from Medium (varies across reports \u2014 ...)
 // \u00B7 flagged critical by the analyzer` back into severity /
@@ -116,7 +116,7 @@ function readSeverity(value) {
   }
   const varies = s.indexOf(VARIES)
   if (varies !== -1) s = s.slice(0, varies)
-  const m = /^(.*?) — corrected (from|to) (.*)$/u.exec(s)
+  const m = /^(.*?) \u2014 corrected (from|to) (.*)$/u.exec(s)
   if (m) [out.severity, out.correctedSeverity] = (m[2] === 'from' ? [m[3], m[1]] : [m[1], m[3]]).map(tierOf)
   else out.severity = tierOf(s)
   return out
@@ -145,7 +145,7 @@ export function readAnalyzer(value) {
   if (source) return { source }
   const run = {}
   const free = []
-  for (const word of s.split(' · ').map((w) => w.trim()).filter(Boolean)) {
+  for (const word of s.split(' \u00B7 ').map((w) => w.trim()).filter(Boolean)) {
     if (word === 'revalidate' && !run.revalidate) run.revalidate = 'revalidation'
     else if (IMPORT_MODES.has(word) && !run.exportsMode) run.exportsMode = word
     else if (EFFORTS.has(word) && !run.effort) run.effort = word
@@ -325,7 +325,7 @@ export function narrativeSplit(sections) {
 export function buildDescription(title, lead, paragraphs) {
   const parts = []
   const first = firstLine(lead)
-  const cut = title.endsWith('…') ? title.slice(0, -1).trimEnd() : ''
+  const cut = title.endsWith('\u2026') ? title.slice(0, -1).trimEnd() : ''
   if (!title || first === title || (cut && first.startsWith(cut))) parts.push(lead)
   else parts.push(title, lead)
   for (const { label, body } of paragraphs) parts.push(body ? `**${label}:** ${body}` : `**${label}:**`)
