@@ -95,11 +95,11 @@ describe('a specifier is resolved as a resolver would try it', () => {
   })
 
   it('says what a target outside the map is: a path, a package, a builtin, or nothing it can tell', () => {
-    const map = sources({ 'src/a.js': "import './gone.js'\nimport 'react'\nimport '@scope/x/sub'\nimport 'node:fs'\nrequire('path')\nimport '#internal'\nimport '@/alias'\nrequire(name)\nimport(`./${x}`)" })
+    const map = sources({ 'src/a.js': "import './gone.js'\nimport 'react'\nimport '@scope/x/sub'\nimport 'node:fs'\nrequire('path')\nrequire('_stream_readable')\nimport '#internal'\nimport '@/alias'\nrequire(name)\nimport(`./${x}`)" })
     assert.deepEqual(shown(importEdges(map).edges), [
       'src/a.js -> (#internal) [import]', 'src/a.js -> () [dynamic-import]', 'src/a.js -> () [require]',
       'src/a.js -> (./gone.js, path src/gone.js) [import]', 'src/a.js -> (@/alias) [import]', 'src/a.js -> (@scope/x/sub, package @scope/x) [import]',
-      'src/a.js -> (node:fs, builtin) [import]', 'src/a.js -> (path, builtin) [require]', 'src/a.js -> (react, package react) [import]',
+      'src/a.js -> (_stream_readable, builtin) [require]', 'src/a.js -> (node:fs, builtin) [import]', 'src/a.js -> (path, builtin) [require]', 'src/a.js -> (react, package react) [import]',
     ])
     assert.equal(importEdges(map).edges.find((edge) => edge.kind === 'dynamic-import').specifier, null)
   })
@@ -199,6 +199,11 @@ describe('a specifier is resolved as a resolver would try it', () => {
   it('reads a file whose name a bundler gave a query, by its extension', () => {
     const map = readSourceMap({ version: 3, sources: ['webpack:///./src/a.js?1a2b', 'webpack:///./src/b.js'], sourcesContent: ["import './b.js'", ''], mappings: '' })
     assert.deepEqual(shown(importEdges(map).edges), ['src/a.js?1a2b -> src/b.js [import]'])
+  })
+
+  it('tries a name\'s extensions before a loader\'s query, which stays after them', () => {
+    const map = sources({ 'src/a.js': "import './b?raw'\nimport './c?worker'", 'src/b.js?raw': '', 'src/c.ts?worker': '' })
+    assert.deepEqual(shown(importEdges(map).edges), ['src/a.js -> src/b.js?raw [import]', 'src/a.js -> src/c.ts?worker [import]'])
   })
 })
 

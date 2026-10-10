@@ -176,9 +176,15 @@ export function indexFiles(files) {
   return { byPath, roots, byRoot, platforms: platformsOf(files), found: new Map() }
 }
 
-function find(index, base) {
-  if (!index.found.has(base)) index.found.set(base, index.byPath.get(candidates(base, index.platforms).find((candidate) => index.byPath.has(candidate))) ?? null)
-  return index.found.get(base)
+// A loader's `?query` stays after the name a resolver tries: ./b?raw as
+// ./b.js?raw.
+function find(index, path) {
+  if (!index.found.has(path)) {
+    const at = path.includes('?') ? path.indexOf('?') : path.length
+    const names = candidates(path.slice(0, at), index.platforms).map((name) => name + path.slice(at))
+    index.found.set(path, index.byPath.get(names.find((name) => index.byPath.has(name))) ?? null)
+  }
+  return index.found.get(path)
 }
 
 // As Node walks up from a file; else, as a store keeps packages away from
@@ -197,7 +203,7 @@ function packageRoot(index, from, name) {
 
 // Node's own, under their bare names; a fixed list, so that what a map says
 // does not hang on the Node that reads it.
-const BUILTINS = new Set(['assert', 'async_hooks', 'buffer', 'child_process', 'cluster', 'console', 'constants', 'crypto', 'dgram', 'diagnostics_channel', 'dns', 'domain', 'events', 'fs', 'http', 'http2', 'https', 'inspector', 'module', 'net', 'os', 'path', 'perf_hooks', 'process', 'punycode', 'querystring', 'readline', 'repl', 'stream', 'string_decoder', 'sys', 'timers', 'tls', 'trace_events', 'tty', 'url', 'util', 'v8', 'vm', 'wasi', 'worker_threads', 'zlib'])
+const BUILTINS = new Set(['assert', 'async_hooks', 'buffer', 'child_process', 'cluster', 'console', 'constants', 'crypto', 'dgram', 'diagnostics_channel', 'dns', 'domain', 'events', 'fs', 'http', 'http2', 'https', 'inspector', 'module', 'net', 'os', 'path', 'perf_hooks', 'process', 'punycode', 'querystring', 'readline', 'repl', 'stream', 'string_decoder', 'sys', 'timers', 'tls', 'trace_events', 'tty', 'url', 'util', 'v8', 'vm', 'wasi', 'worker_threads', 'zlib', '_http_agent', '_http_client', '_http_common', '_http_incoming', '_http_outgoing', '_http_server', '_stream_duplex', '_stream_passthrough', '_stream_readable', '_stream_transform', '_stream_wrap', '_stream_writable', '_tls_common', '_tls_wrap'])
 
 function bareTarget(specifier) {
   if (specifier.startsWith('node:') || BUILTINS.has(specifier.split('/')[0])) return { builtin: true }
