@@ -82,6 +82,9 @@ describe('a path through node_modules names its package', () => {
     assert.deepEqual(pkg('node_modules/dep/index.js'), ['dep', null, 'node_modules/dep', 'index.js'])
     assert.deepEqual(pkg('../node_modules/@scope/dep/lib/a.js'), ['@scope/dep', null, '../node_modules/@scope/dep', 'lib/a.js'])
     assert.deepEqual(pkg('/app/node_modules/a/node_modules/b/x/y.js'), ['b', null, '/app/node_modules/a/node_modules/b', 'x/y.js'])
+    // A URL's by its path, a query its file's own.
+    assert.deepEqual(pkg('https://cdn.example/node_modules/dep/a.js?v=1'), ['dep', null, 'https://cdn.example/node_modules/dep', 'a.js?v=1'])
+    assert.equal(packageOf('https://cdn.example/app.js?redirect=/node_modules/evil/index.js'), null)
   })
 
   it('with the version a store keeps it under', () => {

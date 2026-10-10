@@ -88,18 +88,20 @@ function storeVersion(dir, name) {
   return SEMVER.test(version) ? version : null
 }
 
+// By a URL's path alone: its query and fragment name no directory.
 export function packageOf(path) {
-  const parts = path.split('/')
+  const parts = (isUrl(path) ? path.replace(/[#?].*$/su, '') : path).split('/')
   const at = parts.lastIndexOf('node_modules')
   const name = at < 0 ? null : packageName(parts.slice(at + 1).join('/'))
   if (name === null) return null
   const end = at + 1 + name.split('/').length
   if (end >= parts.length || parts.slice(end).includes('')) return null
+  const root = parts.slice(0, end).join('/')
   return {
     name,
     version: STORES.has(parts[at - 2]) ? storeVersion(parts[at - 1], name) : null,
-    root: parts.slice(0, end).join('/'),
-    path: parts.slice(end).join('/'),
+    root,
+    path: path.slice(root.length + 1),
   }
 }
 
