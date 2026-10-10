@@ -1,0 +1,83 @@
+{
+  "name": "@preventive/sourcemap",
+  "version": "0.0.0",
+  "description": "Source map reader: the files a generated file was built from, the packages they lie in, and the import edges between them",
+  "type": "module",
+  "main": "./sourcemap.js",
+  "types": "./sourcemap.d.ts",
+  "exports": {
+    ".": {
+      "types": "./sourcemap.d.ts",
+      "default": "./sourcemap.js"
+    },
+    "./sourcemap.js": {
+      "types": "./sourcemap.d.ts",
+      "default": "./sourcemap.js"
+    },
+    "./edges.js": {
+      "types": "./edges.d.ts",
+      "default": "./edges.js"
+    },
+    "./edges-lite.js": {
+      "types": "./edges-lite.d.ts",
+      "default": "./edges-lite.js"
+    }
+  },
+  "browser": {
+    "./src/oxc.node.js": "./src/oxc.browser.js"
+  },
+  "files": [
+    "LICENSE-APACHE",
+    "LICENSE-MIT",
+    "edges-lite.d.ts",
+    "edges-lite.js",
+    "edges.d.ts",
+    "edges.js",
+    "sourcemap.d.ts",
+    "sourcemap.js",
+    "src/edges.js",
+    "src/files.js",
+    "src/map.js",
+    "src/metro.js",
+    "src/oxc.browser.js",
+    "src/oxc.node.js",
+    "src/parser.js",
+    "src/scan.js",
+    "src/webpack.js"
+  ],
+  "engines": {
+    "node": ">=24.14.0"
+  },
+  "scripts": {
+    "test": "node --test ./tests/*.test.js"
+  },
+  "license": "MIT OR Apache-2.0",
+  "author": {
+    "name": "Nikita Skovoroda",
+    "email": "chalkerx@gmail.com",
+    "url": "https://github.com/ChALkeR"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PreventiveMeasures/libraries.git",
+    "directory": "sourcemap"
+  },
+  "bugs": {
+    "url": "https://github.com/PreventiveMeasures/libraries/issues"
+  },
+  "homepage": "https://github.com/PreventiveMeasures/libraries/tree/main/sourcemap",
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "oxc-parser": ">=0.152.0"
+  },
+  "peerDependenciesMeta": {
+    "oxc-parser": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "oxc-parser": "^0.152.0"
+  }
+}
