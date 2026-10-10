@@ -1,6 +1,6 @@
 {
   "name": "@preventive/sourcemap",
-  "version": "1.0.0-alpha.0",
+  "version": "1.0.0-alpha.1",
   "description": "Source map reader: the files a generated file was built from, the packages they lie in, and the import edges between them",
   "type": "module",
   "main": "./sourcemap.js",
