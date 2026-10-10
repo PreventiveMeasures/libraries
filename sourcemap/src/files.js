@@ -140,7 +140,7 @@ const EXTENSIONS = ['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.mts', '.cts'
 const RN_PLATFORMS = ['.ios', '.android', '.web']
 
 function platformsOf(files) {
-  const names = files.map((file) => nameOf(file.path ?? ''))
+  const names = files.map((file) => nameOf(bareOf(file.path ?? '')))
   const counts = RN_PLATFORMS.map((platform) => [platform, names.filter((name) => name.includes(`${platform}.`)).length]).toSorted((a, b) => b[1] - a[1])
   const [[active, count], [, next]] = counts
   return [...(count === next ? [] : [active]), '.native', '', '.browser', '.node']
