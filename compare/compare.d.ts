@@ -106,9 +106,11 @@ export interface CompareOptions extends LineOptions {
 // Every path the trees do not have the same, in git's order: by path in code
 // point order, a rename at its new one. A file is the same when its content
 // and its mode are, a link when its target is. Throws a CompareError for a
-// tree that does not hold together, naming the path and which tree.
+// tree that does not hold together, naming the path and which tree. A
+// `lines` not known to be true or false types the result as either.
 export function compareTrees(a: Iterable<TreeEntry>, b: Iterable<TreeEntry>, options: CompareOptions & { lines: false }): FileStatus[]
-export function compareTrees(a: Iterable<TreeEntry>, b: Iterable<TreeEntry>, options?: CompareOptions): FileChange[]
+export function compareTrees(a: Iterable<TreeEntry>, b: Iterable<TreeEntry>, options?: CompareOptions & { lines?: true }): FileChange[]
+export function compareTrees(a: Iterable<TreeEntry>, b: Iterable<TreeEntry>, options?: CompareOptions): FileStatus[] | FileChange[]
 
 // A change, as compareTrees gives it with `lines: false`, with its lines.
 export function compareLines(change: FileStatus, options?: LineOptions): FileChange

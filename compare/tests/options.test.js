@@ -13,7 +13,7 @@ const tree = (files) => Object.entries(files).map(([name, data]) => ({ name, dat
 const summary = (changes) => changes.map(({ status, old, new: fresh }) => (status === 'renamed' ? `${old.path} -> ${fresh.path}` : `${status} ${(fresh ?? old).path}`))
 
 describe("paths: 'keys'", () => {
-  const KEYS = ['webpack://app/src/a.js', '../node_modules/x/a.js', '/abs/a.js', './a.js', 'a', 'a/b']
+  const KEYS = ['webpack://app/src/a.js', '../node_modules/x/a.js', '/abs/a.js', './a.js', '.', 'a', 'a/b']
 
   it('takes names as they are, which a tree would refuse', () => {
     assert.throws(() => compareTrees(tree({ [KEYS[0]]: 'x' }), []), CompareError)

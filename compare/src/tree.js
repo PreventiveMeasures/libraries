@@ -14,7 +14,7 @@ function checkMode(mode) {
 }
 
 // `.` is the root, which only a directory may name. A lone surrogate has no
-// UTF-8, so no name git could hold. A key may be any other name.
+// UTF-8, so no name git could hold. A key may be any non-empty name, `.` too.
 function checkName(name, type, tree, keys) {
   if (typeof name !== 'string') throw new TypeError(`an entry's name must be a string, not ${typeof name}`)
   if (name === '.' && type === 'directory') return
@@ -83,7 +83,7 @@ export function readTree(entries, tree, keys) {
   const held = new Map()
   for (const entry of entries) {
     const read = readEntry(entry, tree, keys)
-    if (read.path === '.') continue
+    if (read.type === 'directory' && read.path === '.') continue
     if (held.has(read.path)) throw new CompareError('a name is given twice', read.path, tree)
     held.set(read.path, read)
   }
