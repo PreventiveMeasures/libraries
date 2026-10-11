@@ -30,13 +30,14 @@ function costLimit(total) {
 // lines count as the same line. What they come to is a function mapping a
 // line to the string it is compared by, and that stays inside: a caller
 // says what it wants compared, not how to compare it.
-// `slide` settles a run that could sit in more than one place (slide.js).
-// It is what diff does for the output styles that print context lines, and
-// not what it does for the normal style, which prints the placement the
-// search itself reached -- so the two styles describe different change sets
-// wherever a run is free to move, and a caller rendering normal output asks
-// for `slide: false`.
-export function diffLines(a, b, { ignoreCase = false, whitespace = 'none', minimal = false, slide = true } = {}) {
+// `slide` settles a run that could sit in more than one place (slide.js),
+// as diff does for every output style; `slide: false` leaves the placement
+// the search reached, which no style prints. `horizon` is how many of the
+// lines the two files share at each end the search and the slide may use
+// (inView, below): diff uses as many as it prints context lines, so its
+// normal output and its -u output differ where a run is free to move into
+// the shared end of the files. Left unbounded, a run goes as far as it can.
+export function diffLines(a, b, { ignoreCase = false, whitespace = 'none', minimal = false, slide = true, horizon = Infinity } = {}) {
   const key = lineComparisonKey({ ignoreCase, whitespace })
   // Two files that are the same have no change set, and finding that out
   // should not cost a pass of interning: the search trims what the two share
@@ -51,14 +52,37 @@ export function diffLines(a, b, { ignoreCase = false, whitespace = 'none', minim
   const { A, B } = intern(a, b, key)
   const changedA = new Uint8Array(A.length)
   const changedB = new Uint8Array(B.length)
-  compareSequences(A, B, changedA, changedB, minimal)
+  const view = inView(a, b, horizon)
+  compareSequences(A, B, changedA, changedB, minimal, view)
   if (slide) {
-    slideRuns(A, changedA, changedB)
-    slideRuns(B, changedB, changedA)
+    // Both files keep every line before `lo`, so kept lines counted from
+    // there pair the runs up as counted from the start.
+    const { lo, hiA, hiB } = view
+    slideRuns(A.subarray(lo, hiA), changedA.subarray(lo, hiA), changedB.subarray(lo, hiB))
+    slideRuns(B.subarray(lo, hiB), changedB.subarray(lo, hiB), changedA.subarray(lo, hiA))
   }
   const blocks = collectBlocks(changedA, changedB)
   verifyChangeSet(a, b, blocks, key)
   return blocks
+}
+
+// What the search and the slide see of the two files: a[lo..hiA) and
+// b[lo..hiB). Before anything else, diff sets aside the lines the two files
+// share at the start, and then those they share at the end short of what it
+// set aside at the start, keeping `horizon` lines of each in view (GNU's
+// find_identical_ends, and its --horizon-lines). Shared means the same text,
+// whatever the comparison options -- text that is the same is the same line
+// under any of them -- so under -w a line differing only in its blanks is
+// in view, and a line set aside is kept, never searched.
+function inView(a, b, horizon) {
+  const shorter = Math.min(a.length, b.length)
+  let start = 0
+  while (start < shorter && a[start] === b[start]) start++
+  const lo = Math.max(0, start - horizon)
+  let end = 0
+  while (end < shorter - lo && a[a.length - 1 - end] === b[b.length - 1 - end]) end++
+  const cut = Math.max(0, end - horizon)
+  return { lo, hiA: a.length - cut, hiB: b.length - cut }
 }
 
 // Whether two line arrays are equal under the comparison, without a search.
@@ -85,11 +109,11 @@ function intern(a, b, key) {
 
 // Explicit stack rather than recursion: the cutoff can split unevenly, and
 // nothing about the depth should depend on the input.
-function compareSequences(A, B, changedA, changedB, minimal) {
+function compareSequences(A, B, changedA, changedB, minimal, { lo, hiA, hiB }) {
   const diagonals = A.length + B.length + 3
   // Diagonal d = x - y ranges over [-M-1, N+1]; offset it into the arrays.
   const search = { A, B, fd: new Int32Array(diagonals), bd: new Int32Array(diagonals), base: B.length + 1, limit: costLimit(A.length + B.length) }
-  const stack = [{ xoff: 0, xlim: A.length, yoff: 0, ylim: B.length, minimal }]
+  const stack = [{ xoff: lo, xlim: hiA, yoff: lo, ylim: hiB, minimal }]
   const part = { xmid: 0, ymid: 0, loMinimal: false, hiMinimal: false }
   while (stack.length) {
     let { xoff, xlim, yoff, ylim, minimal: findMinimal } = stack.pop()

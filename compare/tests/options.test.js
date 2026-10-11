@@ -66,6 +66,34 @@ describe('slide', () => {
   })
 })
 
+describe('horizon', () => {
+  // Two blank lines go, the second free to be any of the five the old file
+  // ends with, four of which both files end with.
+  const after = { f: 'a\n\n\n\n\n' }, before = { f: '\na\n\n\n\n\n\n' }
+  const at = (options) => compareTrees(tree(before), tree(after), options)[0].blocks.map(({ a0, a1 }) => [a0, a1])
+
+  it('lets the run go to the end, as git does, unless told how far', () => {
+    assert.deepEqual(at(), [[0, 1], [6, 7]])
+    // diff -u, and diff -U0 or a normal diff.
+    assert.deepEqual(at({ horizon: 3 }), [[0, 1], [5, 6]])
+    assert.deepEqual(at({ horizon: 0 }), [[0, 1], [2, 3]])
+  })
+
+  it('reaches compareLines and formatPatch', () => {
+    const [change] = compareTrees(tree(before), tree(after), { lines: false })
+    assert.deepEqual(compareLines(change, { horizon: 0 }).blocks.map(({ a0 }) => a0), [0, 2])
+    const hunks = formatPatch([change], { context: 0, horizon: 0 }).split('\n').filter((line) => line.startsWith('@@'))
+    assert.deepEqual(hunks, ['@@ -1 +0,0 @@', '@@ -3 +1,0 @@ a'])
+  })
+
+  it('takes a whole number of lines, or Infinity', () => {
+    for (const horizon of [-1, 1.5, NaN, '1']) {
+      assert.throws(() => compareTrees([], [], { horizon }), RangeError, String(horizon))
+      assert.throws(() => formatPatch([], { horizon }), RangeError, String(horizon))
+    }
+  })
+})
+
 describe('lines: false, and compareLines', () => {
   it('gives statuses alone, and the same lines later', () => {
     for (let seed = 1; seed <= 30; seed++) {

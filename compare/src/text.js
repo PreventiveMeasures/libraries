@@ -20,13 +20,17 @@ export function textOf(file) {
 
 const WHITESPACE = new Set(['none', 'all', 'change', 'trailing'])
 
-// diff's options for a change set: where a run free to move sits (`slide`, as
-// -u has it), and which lines are the same (-w, -b, -Z as `whitespace`; -i).
-export function checkLineOptions({ slide = true, whitespace = 'none', ignoreCase = false } = {}) {
+// diff's options for a change set: where a run free to move sits (`slide`),
+// and how far into the lines the two files share at either end it may go
+// (`horizon`: without limit, as git has it, unless given -- 0 as diff -U0
+// has it, the context as -u does); and which lines are the same (-w, -b, -Z
+// as `whitespace`; -i).
+export function checkLineOptions({ slide = true, horizon = Infinity, whitespace = 'none', ignoreCase = false } = {}) {
   if (typeof slide !== 'boolean') throw new TypeError(`slide must be a boolean, not ${typeof slide}`)
+  if (horizon !== Infinity && !(Number.isSafeInteger(horizon) && horizon >= 0)) throw new RangeError(`horizon must be a whole number or Infinity, not ${horizon}`)
   if (!WHITESPACE.has(whitespace)) throw new RangeError(`whitespace must be 'none', 'all', 'change' or 'trailing', not ${whitespace}`)
   if (typeof ignoreCase !== 'boolean') throw new TypeError(`ignoreCase must be a boolean, not ${typeof ignoreCase}`)
-  return { slide, whitespace, ignoreCase }
+  return { slide, horizon, whitespace, ignoreCase }
 }
 
 // Binary content has no blocks and no counts, as --numstat prints `-` for it.

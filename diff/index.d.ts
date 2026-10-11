@@ -61,25 +61,31 @@ export interface CompareOptions {
 // compare the same. `label` names each hunk the way -p does; the two label
 // lines a diff opens with are the caller's to write in front of the result.
 // 'brief' is -q: whether they differ at all, without searching for how.
-// `minimal` turns off the search's cutoff. `slide` settles a run that could
-// sit in more than one place, and defaults to what diff does: on where
-// context lines are printed, off for 'normal' and for a context format asked
-// for none, which is why `diff` and `-U0` agree and `-u` does not.
+// `minimal` turns off the search's cutoff. A run that could sit in more than
+// one place is settled in every format, as diff settles it; `slide: false`
+// leaves where the search put it instead. Such a run moves into the lines
+// the two files share at either end only as far as the context printed
+// there, or `horizon` (--horizon-lines) if that is more, which is why `diff`
+// and `-U0` can agree where `-u` does not.
 export function diff(a: string, b: string, options?: CompareOptions & {
   format?: 'unified' | 'context' | 'normal' | 'brief'
   context?: number
   label?: ((index: number) => string | null) | null
   minimal?: boolean
   slide?: boolean
+  horizon?: number
 }): string
 
 // The change set `diff` prints, unprinted: the same blocks a unified diff of
-// the two shows, each with the lines it removes and inserts, as `parseDiff`
-// reads them. `slide` defaults to on, where a unified diff with context has
-// it. With no comparison option, `applyChangeSet(a, changeSet(a, b))` is `b`.
+// the two shows with three lines of context, each with the lines it removes
+// and inserts, as `parseDiff` reads them. `horizon` is the context to match
+// instead (0 for the normal format), or Infinity to let a run go as far into
+// the shared ends as it can, as git does. With no comparison option,
+// `applyChangeSet(a, changeSet(a, b))` is `b`.
 export function changeSet(a: string, b: string, options?: CompareOptions & {
   minimal?: boolean
   slide?: boolean
+  horizon?: number
 }): Block[]
 
 // A change set in hand printed as `diff` prints the one it finds, with no

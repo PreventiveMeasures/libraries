@@ -55,9 +55,10 @@ describe('a run comes back to sit opposite a run in the other file', () => {
   })
 })
 
-// The strings are what GNU diff 3.10 prints for each pair. They are the
-// cases where the raw search picks a placement of its own, so each of them
-// fails without the slide.
+// The strings are what GNU diff 3.10 prints for each pair, in the normal
+// format, which settles runs as the others do. They are the cases where the
+// raw search picks a placement of its own, so each of them fails without the
+// slide.
 describe('a run of changes is placed where GNU places it', () => {
   for (const [a, b, expected] of [
     ['b\nc\n', 'c\nc\nb\nb\n', '1d0\n< b\n2a2,4\n> c\n> b\n> b\n'],
@@ -77,28 +78,29 @@ describe('a run of changes is placed where GNU places it', () => {
   ]) {
     it(JSON.stringify([a, b]), () => {
       const x = splitRecords(a), y = splitRecords(b)
-      assert.equal(formatNormal(x, y, diffLines(x, y)), expected)
+      assert.equal(formatNormal(x, y, diffLines(x, y, { horizon: 0 })), expected)
     })
   }
 })
 
-// diff itself only settles runs for the styles that print context lines, so
-// its normal output and its `-u` output describe different change sets
-// wherever a run is free to move. Neither is wrong and both are reproduced,
-// from the same pair, by asking for the placement the style calls for.
+// diff settles runs for every output style, but lets a run into the lines the
+// two files share at either end only as far as the context it prints there.
+// So where a run is free to move into the shared end, its normal output and
+// its `-u` output describe different change sets, and both are reproduced,
+// from the same pair, by the horizon the style calls for.
 describe('the placement each output style calls for', () => {
   // Blank lines are ordinary lines to diff, and because they repeat they are
   // where a free run turns up most in real code: here either of the two
-  // trailing blanks can go.
+  // trailing blanks can go, and the second is the blank both files end with.
   const a = splitRecords('\na\n\n\n'), b = splitRecords('a\n\n')
-  it('normal prints the placement the search reached', () => {
-    assert.equal(formatNormal(a, b, diffLines(a, b, { slide: false })), '1d0\n< \n3d1\n< \n')
+  it('normal keeps the run out of the shared end', () => {
+    assert.equal(formatNormal(a, b, diffLines(a, b, { horizon: 0 })), '1d0\n< \n3d1\n< \n')
   })
-  it('unified prints the settled one', () => {
-    assert.equal(formatUnified(a, b, diffLines(a, b), { context: 3 }), '@@ -1,4 +1,2 @@\n-\n a\n \n-\n')
+  it('unified lets it in as far as its context', () => {
+    assert.equal(formatUnified(a, b, diffLines(a, b, { horizon: 3 }), { context: 3 }), '@@ -1,4 +1,2 @@\n-\n a\n \n-\n')
   })
-  it('settling is the default, since the context styles are what a diff is read in', () => {
-    assert.deepEqual(diffLines(a, b), diffLines(a, b, { slide: true }))
+  it('settling is the default, as far as the run can go', () => {
+    assert.deepEqual(diffLines(a, b), diffLines(a, b, { slide: true, horizon: Infinity }))
     assert.notDeepEqual(diffLines(a, b), diffLines(a, b, { slide: false }))
   })
   it('leaves a run that was never free alone either way', () => {
