@@ -606,7 +606,7 @@ describe('buildRequestBody — provider-specific shapes', () => {
 
   it('think=false on openrouter switches off a model that reasons by default', () => {
     withProvider('openrouter', 'OPENROUTER_API_KEY', () => {
-      for (const model of ['deepseek/deepseek-v4.1-flash', 'qwen/qwen3.6-27b', 'anthropic/claude-opus-5', 'openai/gpt-5.5', 'xiaomi/mimo-v2.6-flash']) {
+      for (const model of ['deepseek/deepseek-v4.1-flash', 'qwen/qwen3.6-27b', 'anthropic/claude-opus-5', 'openai/gpt-5.5', 'xiaomi/mimo-v2.6-flash', 'mistralai/mistral-large-4-0']) {
         const body = buildRequestBody(model, 1000, 'sys', messages)
         assert.deepEqual(body.reasoning, { enabled: false }, model)
         assert.equal(body.reasoning_effort, undefined, model)

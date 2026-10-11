@@ -427,6 +427,7 @@ describe('no-think wire form', () => {
     ['deepseek/deepseek-v4-pro', true, true],
     ['xiaomi/mimo-v2.6-pro', true, true],
     ['xiaomi/mimo-v2.6-flash', true, true],
+    ['mistralai/mistral-large-4-0', true, true],
     ['deepseek/deepseek-v4.1-flash', true, true],
     ['x-ai/grok-4.7', false, false],
     ['z-ai/glm-5.3', false, false],
@@ -1160,6 +1161,29 @@ describe('deepseek v4', () => {
   it('takes low, high or max on flash, and high or xhigh on pro, as OpenRouter serves each id', () => {
     assert.deepEqual(effortsFor(FLASH), ['low', 'high', 'max'])
     assert.deepEqual(effortsFor(PRO), ['high', 'xhigh'])
+  })
+})
+
+describe('mistral large 4', () => {
+  // Mistral's public-preview sale price, half the $1.36 / $0.14 / $4.18 its
+  // docs list as the original. Mistral gives no end date, so recheck it.
+  const LARGE4 = 'mistralai/mistral-large-4-0'
+
+  it('prices at the sale $0.68 / $2.09 per Mtok, with cached input at $0.07', () => {
+    assert.equal(baseRate(LARGE4, 'input', 'output'), 0.68 + 2.09)
+    assert.equal(baseRate(LARGE4, 'cacheRead'), 0.07)
+  })
+
+  it('registers its 256K of output', () => {
+    assert.equal(getMaxTokens(LARGE4), 256 * 1024)
+  })
+
+  it('reasons by default, takes only high, and switches off with none', () => {
+    assert.equal(canThink(LARGE4), true)
+    assert.deepEqual(effortsFor(LARGE4), ['high'])
+    assert.deepEqual(normalizeThinkEffort(LARGE4, true), { useThink: true, useEffort: 'high' })
+    assert.equal(canDisableThink(LARGE4), true)
+    assert.equal(needsExplicitNoThink(LARGE4), true)
   })
 })
 
