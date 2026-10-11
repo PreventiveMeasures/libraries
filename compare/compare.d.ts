@@ -58,12 +58,16 @@ export interface FileChange extends FileStatus {
 }
 
 // How a change's lines are found, as diff's options: `slide`, unless false,
-// settles a run of lines free to move where `diff -u` prints it, and false
-// leaves it where the search found it; `whitespace` (-w as 'all', -b as
-// 'change', -Z as 'trailing') and `ignoreCase` (-i) say which lines are the
-// same, so that a file changed in nothing else has no blocks.
+// settles a run of lines free to move, and false leaves it where the search
+// found it; `horizon` is how far such a run may go into the lines the two
+// files share at either end -- without limit unless given, as git has it, or
+// 0 to match `diff -U0` and the normal format, the context to match `diff -u`
+// (diff's --horizon-lines); `whitespace` (-w as 'all', -b as 'change', -Z as
+// 'trailing') and `ignoreCase` (-i) say which lines are the same, so that a
+// file changed in nothing else has no blocks.
 export interface LineOptions {
   slide?: boolean
+  horizon?: number
   whitespace?: 'none' | 'all' | 'change' | 'trailing'
   ignoreCase?: boolean
 }

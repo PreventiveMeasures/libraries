@@ -35,6 +35,14 @@ export const PAIRS = {
     ' x\ny\ny\n',
     'x\ny\n',
   ],
+  // Under -w, an `A` with no match in the other file. Without --minimal, GNU
+  // sets such lines aside before it searches (discard_confusing_lines), which
+  // can settle on another shortest change set; diff never does, so this is
+  // recorded with --minimal, which turns that off.
+  unmatched: [
+    'a\na\nb\n',
+    ' a\nA\nb\na\n a\nb\nb\n',
+  ],
 }
 
 export const RECORDINGS = [
@@ -142,5 +150,10 @@ export const RECORDINGS = [
     command: 'diff -w -u a b',
     pair: 'shared-end', options: { whitespace: 'all' },
     body: '@@ -1,3 +1,2 @@\n  x\n y\n-y\n',
+  },
+  {
+    command: 'diff -w --horizon-lines=1 --minimal a b',
+    pair: 'unmatched', options: { format: 'normal', whitespace: 'all', horizon: 1, minimal: true },
+    body: '1a2,3\n> A\n> b\n2a5,6\n>  a\n> b\n',
   },
 ]
