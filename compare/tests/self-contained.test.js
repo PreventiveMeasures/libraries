@@ -105,6 +105,22 @@ describe('compare/ is self-contained', () => {
     })
   }
 
+  // A browser bundle of compare.js alone needs no oxc peer installed: only
+  // names.js leads to #oxc, whose portable module imports both as it loads.
+  it('compare.js reaches no #oxc module', () => {
+    const queue = [new URL('compare.js', PKG_DIR)], seen = new Set()
+    while (queue.length > 0) {
+      const file = queue.pop()
+      if (seen.has(file.href)) continue
+      seen.add(file.href)
+      for (const spec of specifiersOf(readFileSync(file, 'utf8'))) {
+        assert.notEqual(spec, '#oxc', `${nameOf(file)}, which compare.js loads, imports #oxc`)
+        if (spec.startsWith('.')) queue.push(new URL(spec, file))
+      }
+    }
+    assert.ok(seen.size >= 10, `compare.js loads ${seen.size} modules`)
+  })
+
   for (const [spec, target] of Object.entries(imports)) {
     it(`${spec} leads to a .node.js module on Node alone, and a portable one elsewhere`, () => {
       assert.deepEqual(Object.keys(target), ['node', 'default'])

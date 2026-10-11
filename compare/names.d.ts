@@ -1,8 +1,5 @@
 // Hand-written against names.js; a change to either belongs with the other.
 
-import type { Block } from '@preventive/diff'
-import type { LineOptions } from './compare.js'
-
 // How each text is parsed, by the extension of the file it is: `mjs` a
 // module, `cjs` a CommonJS module, any other (`js` unless given) a module
 // where it says so (`import`, `export`) and a script where not.
@@ -59,11 +56,3 @@ export function renameMap(before: string, after: string, options?: RenameOptions
 // both mangled, every variable named by its place alone, they read the same.
 // The top level read as `kind` says, a script's (none given) left as it is.
 export function bindsAlike(before: string, renamed: string, kind?: Partial<TextKind>): boolean
-
-// The blocks of the change set from `before` to `after` under the line
-// options (horizon without limit unless given, as compareLines has it) whose
-// old lines, as `given` has them -- the old text renamed, line for line, as
-// renameMap gives it -- are their new lines, alike as the change set has
-// lines alike: what differs in renamed names alone. null where `given` has
-// another number of lines than `before`.
-export function markedBlocks(before: string, given: string, after: string, options?: LineOptions): Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[] | null

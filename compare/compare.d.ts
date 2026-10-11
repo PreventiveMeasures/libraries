@@ -136,6 +136,14 @@ export function formatPatch(changes: Iterable<FileStatus | FileChange>, options?
 // Anything that is not a list of such ranges is refused: false, never thrown.
 export function blocksHold(before: string, after: string, blocks: unknown, options?: LineOptions): boolean
 
+// The blocks of the change set from `before` to `after` under the line
+// options (horizon without limit unless given, as compareLines has it) whose
+// old lines, as `given` has them -- the old text renamed, line for line, as
+// names.js's renameMap gives it -- are their new lines, alike as the change
+// set has lines alike: what differs in renamed names alone. null where
+// `given` has another number of lines than `before`. Loads no parser.
+export function markedBlocks(before: string, given: string, after: string, options?: LineOptions): Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[] | null
+
 // `path` is the name at fault as its entry spelled it, and `tree` which tree
 // holds it.
 export class CompareError extends Error {

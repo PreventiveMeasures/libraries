@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { changeSet } from '@preventive/diff'
 import { minifySync } from 'oxc-minify'
-import { bindsAlike, markedBlocks, renameMap } from '../names.js'
+import { bindsAlike, renameMap } from '../names.js'
 import { compiles, program, run } from './programs.js'
 import { random } from './random.js'
 
@@ -192,18 +192,5 @@ describe('renameMap', () => {
       const [hidden, raw] = [shown(mapped.text, after), shown(before, after)]
       assert.ok(hidden >= 4 && hidden <= 10 && hidden < raw, `${file}: its 4 lines shown, ${hidden} in all, of ${raw} raw`)
     }
-  })
-})
-
-describe('markedBlocks', () => {
-  it('marks the blocks whose lines differ in renamed names alone, as the given text has them', () => {
-    const after = 'f(b);\nh();\ng(2);\n', before = 'f(a);\nh();\ng(1);\n'
-    assert.deepEqual(markedBlocks(before, 'f(b);\nh();\ng(1);\n', after, { horizon: 0 }), [{ a0: 0, a1: 1, b0: 0, b1: 1 }])
-    assert.deepEqual(markedBlocks('f(a);\ng(a);\n', 'f(b);\ng(b);\n', 'f(b);\ng(b);'), [], 'none where a newline was dropped after the last line')
-    assert.deepEqual(markedBlocks('f(a);\ng(a);\n', 'f(b);\ng(b);\n', 'f(b);\ng(b);', { whitespace: 'all' }), [{ a0: 0, a1: 2, b0: 0, b1: 2 }], 'but under -w, which takes the newline for whitespace')
-    assert.deepEqual(markedBlocks('f(a ,x);\n', 'f(b ,x);\n', 'f(b, x);\n', { whitespace: 'all' }), [{ a0: 0, a1: 1, b0: 0, b1: 1 }], 'under -w, spacing changed besides')
-    assert.deepEqual(markedBlocks('f(a ,x);\nq;\n', 'f(b ,x);\nq;\n', 'f(b, x);\nr;\n', { whitespace: 'all', horizon: 0 }), [], 'one alike under -w in a block with a change')
-    assert.deepEqual(markedBlocks('f(a ,x);\nq;\n', 'f(b ,x);\nq;\n', 'f(b, x);\nq;\n', { horizon: 0 }), [], 'and no whitespace ignored unasked')
-    assert.equal(markedBlocks('f(a);\n', 'f(b);\ng();\n', 'f(b);\n'), null, 'a renamed text of other lines')
   })
 })

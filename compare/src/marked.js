@@ -5,8 +5,8 @@
 // other lines than the old text.
 
 import { changeSet } from '@preventive/diff'
-import { blocksHold } from '../blocks.js'
-import { checkLineOptions } from '../text.js'
+import { blocksHold } from './blocks.js'
+import { checkLineOptions } from './text.js'
 
 // Records as the diff has them, each with its terminator.
 const records = (text) => (text === '' ? [] : text.split(/(?<=\n)/u))

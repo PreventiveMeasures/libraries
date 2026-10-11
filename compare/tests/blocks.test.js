@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { changeSet } from '@preventive/diff'
-import { blocksHold } from '../compare.js'
+import { blocksHold, markedBlocks } from '../compare.js'
 import { random } from './random.js'
 
 const ranges = (blocks) => blocks.map(({ a0, a1, b0, b1 }) => ({ a0, a1, b0, b1 }))
@@ -57,5 +57,18 @@ describe('blocksHold', () => {
         assert.ok(blocksHold(before, after, blocksOf(before, after, { whitespace }), { whitespace }), JSON.stringify({ before, after, whitespace }))
       }
     }
+  })
+})
+
+describe('markedBlocks', () => {
+  it('marks the blocks whose lines differ in renamed names alone, as the given text has them', () => {
+    const after = 'f(b);\nh();\ng(2);\n', before = 'f(a);\nh();\ng(1);\n'
+    assert.deepEqual(markedBlocks(before, 'f(b);\nh();\ng(1);\n', after, { horizon: 0 }), [{ a0: 0, a1: 1, b0: 0, b1: 1 }])
+    assert.deepEqual(markedBlocks('f(a);\ng(a);\n', 'f(b);\ng(b);\n', 'f(b);\ng(b);'), [], 'none where a newline was dropped after the last line')
+    assert.deepEqual(markedBlocks('f(a);\ng(a);\n', 'f(b);\ng(b);\n', 'f(b);\ng(b);', { whitespace: 'all' }), [{ a0: 0, a1: 2, b0: 0, b1: 2 }], 'but under -w, which takes the newline for whitespace')
+    assert.deepEqual(markedBlocks('f(a ,x);\n', 'f(b ,x);\n', 'f(b, x);\n', { whitespace: 'all' }), [{ a0: 0, a1: 1, b0: 0, b1: 1 }], 'under -w, spacing changed besides')
+    assert.deepEqual(markedBlocks('f(a ,x);\nq;\n', 'f(b ,x);\nq;\n', 'f(b, x);\nr;\n', { whitespace: 'all', horizon: 0 }), [], 'one alike under -w in a block with a change')
+    assert.deepEqual(markedBlocks('f(a ,x);\nq;\n', 'f(b ,x);\nq;\n', 'f(b, x);\nq;\n', { horizon: 0 }), [], 'and no whitespace ignored unasked')
+    assert.equal(markedBlocks('f(a);\n', 'f(b);\ng();\n', 'f(b);\n'), null, 'a renamed text of other lines')
   })
 })
