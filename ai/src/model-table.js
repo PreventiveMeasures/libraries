@@ -109,6 +109,7 @@ export const MAIN_MODELS = [
   ['moonshotai/kimi-k3', { input: 3, output: 15, maxTokens: 131_072, noThink: 'unsupported', efforts: ['low', 'high', 'max'] }],
   ['xiaomi/mimo-v2.6-pro', { input: 0.435, output: 0.87, cacheReadPrice: 0.0036, maxTokens: 128 * 1024, noThink: 'explicit' }],
   ['xiaomi/mimo-v2.6-flash', { input: 0.14, output: 0.28, cacheReadPrice: 0.0028, maxTokens: 128 * 1024, noThink: 'explicit' }],
+  ['mistralai/mistral-large-4-0', { input: 0.68, output: 2.09, cacheReadPrice: 0.07, maxTokens: 256 * 1024, noThink: 'explicit', efforts: ['high'] }],
 ]
 
 // Models that run on this machine, which OpenRouter has no endpoint for: Chrome's on-device models,
