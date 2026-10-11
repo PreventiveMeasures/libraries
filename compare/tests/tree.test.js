@@ -25,11 +25,17 @@ describe('a tree is read from entries as tar and a Vfs give them', () => {
     assert.deepEqual([change.status, change.old.path, change.new.path, change.new.mode], ['renamed', 'pkg/index.js', 'pkg/main.js', 0o755])
   })
 
-  it('reads text as UTF-8 and a file with no mode as 644, and keeps bytes given as they are', () => {
+  it('keeps text as text and bytes as given, and reads a file with no mode as 644', () => {
     const bytes = utf8('\u{E9}\n')
     const [change] = compareTrees([], [{ name: 'b', data: '\u{E9}\n', type: 'contiguous-file' }])
-    assert.deepEqual(change.new, { path: 'b', type: 'file', mode: 0o644, data: bytes })
+    assert.deepEqual(change.new, { path: 'b', type: 'file', mode: 0o644, data: '\u{E9}\n' })
     assert.equal(compareTrees([], [{ name: 'a', data: bytes }])[0].new.data, bytes, 'the same bytes, not a copy')
+  })
+
+  it('takes text and the bytes of its UTF-8 for the same content', () => {
+    assert.deepEqual(compareTrees([{ name: 'a', data: '\u{E9}\n' }], [{ name: 'a', data: utf8('\u{E9}\n') }]), [])
+    const [moved] = compareTrees([{ name: 'a', data: '\u{E9}\n' }], [{ name: 'b', data: utf8('\u{E9}\n') }])
+    assert.deepEqual([moved.status, moved.similarity], ['renamed', 100])
   })
 
   it('takes a directory to add nothing, and an empty one to be no change', () => {

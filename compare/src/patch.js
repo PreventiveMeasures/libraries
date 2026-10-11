@@ -5,7 +5,7 @@
 import { utf8fromString, utf8toString } from '@exodus/bytes/utf8.js'
 import { changeSet, formatChangeSet } from '@preventive/diff'
 import { quote } from './quote.js'
-import { textOf } from './text.js'
+import { checkLineOptions, textOf } from './text.js'
 import { sameContent } from './tree.js'
 
 const gitMode = (file) => (file.type === 'symlink' ? '120000' : (0o100000 | file.mode).toString(8))
@@ -42,45 +42,48 @@ function hunkNames(text) {
   }
 }
 
-// `blocks` are the change's, or null for the halves of a type change.
-function body(one, two, blocks, from, to, context) {
+// `blocks` are the change's, found under `options`, or are found here.
+function body(one, two, blocks, from, to, { context, ...options }) {
   const newText = textOf(two), oldText = textOf(one)
   if (oldText === undefined || newText === undefined) {
     return one !== null && two !== null && sameContent(one, two) ? '' : `Binary files ${from} and ${to} differ\n`
   }
-  const hunks = formatChangeSet(oldText, newText, blocks ?? changeSet(oldText, newText), { context, label: hunkNames(oldText) })
+  const hunks = formatChangeSet(oldText, newText, blocks ?? changeSet(oldText, newText, options), { ...options, context, label: hunkNames(oldText) })
   return hunks === '' ? '' : `--- ${label(from)}\n+++ ${label(to)}\n${hunks}`
 }
 
 // One `diff --git` section; `similarity` is a rename's. As git does, a header
 // with nothing under it is left out.
-function section(one, two, similarity, blocks, context) {
+function section(one, two, similarity, blocks, options) {
   const a = quote((one ?? two).path, 'a/'), b = quote((two ?? one).path, 'b/')
   let meta = ''
   if (one === null) meta += `new file mode ${gitMode(two)}\n`
   else if (two === null) meta += `deleted file mode ${gitMode(one)}\n`
   else if (gitMode(one) !== gitMode(two)) meta += `old mode ${gitMode(one)}\nnew mode ${gitMode(two)}\n`
   if (similarity !== null) meta += `similarity index ${similarity}%\nrename from ${quote(one.path)}\nrename to ${quote(two.path)}\n`
-  const rest = meta + body(one, two, blocks, one === null ? '/dev/null' : a, two === null ? '/dev/null' : b, context)
+  const rest = meta + body(one, two, blocks, one === null ? '/dev/null' : a, two === null ? '/dev/null' : b, options)
   return rest === '' ? '' : `diff --git ${a} ${b}\n${rest}`
 }
 
-export function formatPatch(changes, { context = 3 } = {}) {
+// The changes were found under the line options given (text.js), as their blocks
+// are held to them; a change found without lines has them found here.
+export function formatPatch(changes, { context = 3, ...lineOptions } = {}) {
   if (!(Number.isInteger(context) && context >= 0)) throw new RangeError(`context must be a whole number of lines, not ${context}`)
+  const options = { context, ...checkLineOptions(lineOptions) }
   let out = ''
   for (const { status, old, new: fresh, similarity, blocks } of changes) {
     switch (status) {
       // git writes a type change as a deletion and a creation.
       case 'type-changed':
-        out += section(old, null, null, null, context) + section(null, fresh, null, null, context)
+        out += section(old, null, null, null, options) + section(null, fresh, null, null, options)
         break
       case 'renamed':
-        out += section(old, fresh, similarity, blocks, context)
+        out += section(old, fresh, similarity, blocks, options)
         break
       case 'added':
       case 'deleted':
       case 'modified':
-        out += section(old, fresh, null, blocks, context)
+        out += section(old, fresh, null, blocks, options)
         break
       default:
         throw new TypeError(`${JSON.stringify(status)} is not a change's status`)

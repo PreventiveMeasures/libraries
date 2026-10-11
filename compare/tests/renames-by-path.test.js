@@ -3,8 +3,9 @@ import { describe, it } from 'node:test'
 import { compareTrees, formatPatch } from '../compare.js'
 
 // Renames told by path, which git does not look for: `lib` for `src` and a
-// TypeScript extension for its JavaScript one, however little the content
-// says, unless a candidate is far better. Lines of 20 bytes make each kept
+// TypeScript extension for its JavaScript one, and triage's extension families
+// with one directory swapped, however little the content says, unless a
+// candidate is far better. Lines of 20 bytes make each kept
 // line 5% of a 20-line file; they differ at their ends, as git's span hash
 // keeps only a span's last few bytes.
 
@@ -28,11 +29,24 @@ describe('renames by path', () => {
     ]) assert.deepEqual(renames({ [from]: SOURCE }, { [to]: FIFTH }), [`${from} -> ${to} 20%`], `${from} -> ${to}`)
   })
 
+  it("pairs as triage's Compare does: a stem's extension family, one directory swapped, each the other's only partner", () => {
+    for (const [from, to] of [
+      ['lib/a.js', 'dist/a.js'], ['library/a.js', 'src/a.js'], ['a.ts', 'a.tsx'], ['src/a.js', 'src/a.mjs'], ['esm/a.jsx', 'cjs/a.ts'],
+      ['src/a.css', 'src/a.scss'], ['styles/a.less', 'css/a.css'], ['node_modules/x/esm/a.js', 'node_modules/x/cjs/a.mjs'], ['docs/README', 'notes/README'],
+    ]) assert.deepEqual(renames({ [from]: SOURCE }, { [to]: FIFTH }), [`${from} -> ${to} 20%`], `${from} -> ${to}`)
+  })
+
   it('pairs nothing else by path', () => {
-    for (const [from, to] of [['lib/a.js', 'src/b.ts'], ['lib/a.js', 'dist/a.js'], ['a.ts', 'a.json'], ['a.ts', 'a.tsx'], ['lib/a.js', 'src/x/a.js'], ['library/a.js', 'src/a.js']]) {
-      assert.deepEqual(renames({ [from]: SOURCE }, { [to]: FIFTH }).toSorted(), [`added ${to}`, `deleted ${from}`], `${from} -> ${to}`)
-    }
+    for (const [from, to] of [
+      ['lib/a.js', 'src/b.ts'], ['a.ts', 'a.json'], ['a.css', 'a.js'], ['lib/a.js', 'src/x/a.js'], ['a/b/x.js', 'c/d/x.js'], ['a.JS', 'a.js'],
+      ['node_modules/left-pad/index.js', 'node_modules/pad-left/index.js'], ['node_modules/@s/a/x.js', 'node_modules/@s/b/x.js'],
+    ]) assert.deepEqual(renames({ [from]: SOURCE }, { [to]: FIFTH }).toSorted(), [`added ${to}`, `deleted ${from}`], `${from} -> ${to}`)
     assert.deepEqual(renames({ 'lib/a.js': { type: 'symlink', linkname: 'x' } }, { 'src/a.js': { type: 'symlink', linkname: 'y' } }), ['deleted lib/a.js', 'added src/a.js'])
+  })
+
+  it('pairs nothing by family where a file has two partners', () => {
+    assert.deepEqual(renames({ 'src/a.js': SOURCE }, { 'dist/a.js': FIFTH, 'esm/a.js': FIFTH }), ['added dist/a.js', 'added esm/a.js', 'deleted src/a.js'])
+    assert.deepEqual(renames({ 'dist/a.js': SOURCE, 'esm/a.js': SOURCE }, { 'out/a.js': FIFTH }), ['deleted dist/a.js', 'deleted esm/a.js', 'added out/a.js'])
   })
 
   it('gives way to a candidate halfway closer to 100% than the pair, on either side', () => {

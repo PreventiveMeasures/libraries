@@ -8,7 +8,6 @@ import { treePair } from './random.js'
 // What each change holds. Which files git calls changed or renamed, and the
 // patch it writes, are git.test.js's; this is the rest of the record.
 
-const bytes = (text) => new TextEncoder().encode(text)
 const decode = (data) => new TextDecoder().decode(data)
 
 describe('each change says what became of one file', () => {
@@ -22,8 +21,8 @@ describe('each change says what became of one file', () => {
     const [change] = compareTrees([{ name: 'src/a.js', data: 'one\ntwo\nthree\nfour\nfive\n' }], [{ name: 'lib/a.js', data: 'one\nTWO\nthree\nfour\nfive\nsix\n' }])
     assert.deepEqual(change, {
       status: 'renamed',
-      old: { path: 'src/a.js', type: 'file', mode: 0o644, data: bytes('one\ntwo\nthree\nfour\nfive\n') },
-      new: { path: 'lib/a.js', type: 'file', mode: 0o644, data: bytes('one\nTWO\nthree\nfour\nfive\nsix\n') },
+      old: { path: 'src/a.js', type: 'file', mode: 0o644, data: 'one\ntwo\nthree\nfour\nfive\n' },
+      new: { path: 'lib/a.js', type: 'file', mode: 0o644, data: 'one\nTWO\nthree\nfour\nfive\nsix\n' },
       similarity: 71,
       binary: false,
       blocks: [
@@ -51,7 +50,7 @@ describe('each change says what became of one file', () => {
     )
     assert.deepEqual(changes.map(({ status, old, new: fresh, blocks }) => ({ status, old, new: fresh, blocks })), [
       { status: 'modified', old: { path: 'l', type: 'symlink', target: 'a' }, new: { path: 'l', type: 'symlink', target: 'b' }, blocks: [{ a0: 0, a1: 1, b0: 0, b1: 1, remove: ['a'], insert: ['b'] }] },
-      { status: 'type-changed', old: { path: 't', type: 'file', mode: 0o644, data: bytes('text\n') }, new: { path: 't', type: 'symlink', target: 'elsewhere' }, blocks: [{ a0: 0, a1: 1, b0: 0, b1: 1, remove: ['text\n'], insert: ['elsewhere'] }] },
+      { status: 'type-changed', old: { path: 't', type: 'file', mode: 0o644, data: 'text\n' }, new: { path: 't', type: 'symlink', target: 'elsewhere' }, blocks: [{ a0: 0, a1: 1, b0: 0, b1: 1, remove: ['text\n'], insert: ['elsewhere'] }] },
     ])
   })
 
@@ -90,7 +89,7 @@ describe('the change set is the one that rebuilds the new file', () => {
       const pair = treePair(seed)
       for (const change of compareTrees(entriesOf(pair.old), entriesOf(pair.new))) {
         if (change.binary) continue
-        const text = (side) => (side === null ? '' : side.type === 'symlink' ? side.target : decode(side.data))
+        const text = (side) => (side === null ? '' : side.type === 'symlink' ? side.target : typeof side.data === 'string' ? side.data : decode(side.data))
         assert.equal(applyChangeSet(text(change.old), change.blocks), text(change.new))
         if (change.status === 'type-changed') continue
         const read = parseDiff(formatPatch([change]))

@@ -1,6 +1,6 @@
 // A tree as git sees one: files and links by path, read from tar-shaped entries
-// (archive's unpack, Vfs.entries). Directories add nothing, and a hard link is
-// a copy of its target. A tree that cannot be one is refused, not guessed at.
+// (archive's unpack, Vfs.entries), or by names taken as keys. Directories add
+// nothing, and a hard link is a copy of its target.
 
 import { utf8fromString } from '@exodus/bytes/utf8.js'
 import { CompareError } from './error.js'
@@ -14,11 +14,11 @@ function checkMode(mode) {
 }
 
 // `.` is the root, which only a directory may name. A lone surrogate has no
-// UTF-8, so no name git could hold.
-function checkName(name, type, tree) {
+// UTF-8, so no name git could hold. A key may be any other name.
+function checkName(name, type, tree, keys) {
   if (typeof name !== 'string') throw new TypeError(`an entry's name must be a string, not ${typeof name}`)
   if (name === '.' && type === 'directory') return
-  if (BAD_SEGMENT.test(name)) throw new CompareError('a name must be a relative path with no empty, `.` or `..` segment', name, tree)
+  if (keys ? name === '' : BAD_SEGMENT.test(name)) throw new CompareError(keys ? 'a name must not be empty' : 'a name must be a relative path with no empty, `.` or `..` segment', name, tree)
   if (!name.isWellFormed()) throw new CompareError('a name must be well-formed Unicode', name, tree)
 }
 
@@ -28,19 +28,24 @@ function checkLinkname(linkname, name, tree) {
   return linkname
 }
 
-function bytesOf(data) {
+// Text is kept as text, to be compared as it is; it must have UTF-8 to stand for.
+function dataOf(data) {
   if (data === undefined) return new Uint8Array(0)
-  if (typeof data === 'string') return utf8fromString(data)
   if (data instanceof Uint8Array) return data
-  throw new TypeError(`a file's data must be a string or a Uint8Array, not ${typeof data}`)
+  if (typeof data !== 'string') throw new TypeError(`a file's data must be a string or a Uint8Array, not ${typeof data}`)
+  if (!data.isWellFormed()) throw new TypeError("a file's text must be well-formed Unicode")
+  return data
 }
 
-function readEntry(entry, tree) {
+// The bytes a file's data stands for: its text as UTF-8.
+export const bytesOf = (data) => (typeof data === 'string' ? utf8fromString(data) : data)
+
+function readEntry(entry, tree, keys) {
   if (typeof entry !== 'object' || entry === null) throw new TypeError(`an entry must be an object, not ${entry === null ? 'null' : typeof entry}`)
   const { name, type = 'file', mode, linkname, data } = entry
-  checkName(name, type, tree)
+  checkName(name, type, tree, keys)
   if (mode !== undefined) checkMode(mode)
-  if (FILE.has(type)) return { path: name, type: 'file', mode: mode ?? 0o644, data: bytesOf(data) }
+  if (FILE.has(type)) return { path: name, type: 'file', mode: mode ?? 0o644, data: dataOf(data) }
   if (type === 'symlink' || type === 'hardlink') return { path: name, type, target: checkLinkname(linkname, name, tree) }
   if (type === 'directory') return { path: name, type }
   if (OTHER.has(type)) throw new CompareError(`a ${type} is neither a file nor a link`, name, tree)
@@ -52,8 +57,10 @@ export function sameContent(a, b) {
   if (a.type !== b.type) return false
   if (a.type === 'symlink') return a.target === b.target
   if (a.data === b.data) return true
-  if (a.data.length !== b.data.length) return false
-  for (let i = 0; i < a.data.length; i++) if (a.data[i] !== b.data[i]) return false
+  if (typeof a.data === 'string' && typeof b.data === 'string') return false
+  const x = bytesOf(a.data), y = bytesOf(b.data)
+  if (x.length !== y.length) return false
+  for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false
   return true
 }
 
@@ -70,19 +77,19 @@ function resolveLink(link, held, tree) {
   return { ...target, path: link.path }
 }
 
-// Nothing may lie under a file or a link: under a link, a tar extracting it
-// would write through the link.
-export function readTree(entries, tree) {
+// Nothing may lie under a file or a link, where a tar extracting it would
+// write through the link -- unless names are keys, and no tree's paths.
+export function readTree(entries, tree, keys) {
   const held = new Map()
   for (const entry of entries) {
-    const read = readEntry(entry, tree)
+    const read = readEntry(entry, tree, keys)
     if (read.path === '.') continue
     if (held.has(read.path)) throw new CompareError('a name is given twice', read.path, tree)
     held.set(read.path, read)
   }
   const files = new Map()
   for (const [path, read] of held) {
-    for (let at = path.lastIndexOf('/'); at > 0; at = path.lastIndexOf('/', at - 1)) {
+    for (let at = keys ? -1 : path.lastIndexOf('/'); at > 0; at = path.lastIndexOf('/', at - 1)) {
       const above = held.get(path.slice(0, at))
       if (above !== undefined && above.type !== 'directory') throw new CompareError(`a path lies under a ${above.type === 'symlink' ? 'link' : 'file'}`, path, tree)
     }

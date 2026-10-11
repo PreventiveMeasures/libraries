@@ -1,9 +1,9 @@
 // git's -M pairing (diffcore_rename_extended): identical content, then a
 // basename unique among both sides' leftovers at a stricter score, then every
-// pair left scored; between the first two, ours, paths a build moves (pathRenames).
+// pair left scored; between the first two, ours, renames told by path.
 
 import { MAX_SCORE, similarity, spanCounts } from './similarity.js'
-import { sameContent } from './tree.js'
+import { bytesOf, sameContent } from './tree.js'
 
 // git's limits: identical files weighed per destination, scores kept per one.
 const SAME_CONTENT_CANDIDATES = 100
@@ -12,9 +12,9 @@ const CANDIDATES = 4
 const basename = (path) => path.slice(path.lastIndexOf('/') + 1)
 
 // FNV-1a, to bucket files of equal bytes; sameContent still decides.
-function contentKey(file) {
+function contentKey(file, bytes) {
   if (file.type === 'symlink') return `l${file.target}`
-  const { data } = file
+  const data = bytes(file)
   let hash = 0x811C9DC5
   for (let i = 0; i < data.length; i++) hash = Math.imul(hash ^ data[i], 0x01000193)
   return `f${data.length}:${hash >>> 0}`
@@ -22,11 +22,11 @@ function contentKey(file) {
 
 // git's find_identical_files: the first unused identical source of the same
 // basename among the first 100, or else the first of them.
-function exactRenames({ sources, dests, sourceNames, destNames, used, record }) {
-  const byContent = Map.groupBy(sources.keys(), (s) => contentKey(sources[s]))
+function exactRenames({ sources, dests, sourceNames, destNames, used, record, bytes }) {
+  const byContent = Map.groupBy(sources.keys(), (s) => contentKey(sources[s], bytes))
   for (let d = 0; d < dests.length; d++) {
     let best = -1, left = SAME_CONTENT_CANDIDATES
-    for (const s of byContent.get(contentKey(dests[d])) ?? []) {
+    for (const s of byContent.get(contentKey(dests[d], bytes)) ?? []) {
       if (used.has(s) || !sameContent(sources[s], dests[d])) continue
       if (best === -1 || sourceNames[s] === destNames[d]) best = s
       if (sourceNames[s] === destNames[d] || --left === 0) break
@@ -37,35 +37,98 @@ function exactRenames({ sources, dests, sourceNames, destNames, used, record }) 
 
 // A TypeScript extension and the JavaScript one it compiles to.
 const SCRIPTS = new Map([['.ts', '.js'], ['.mts', '.mjs'], ['.cts', '.cjs'], ['.tsx', '.jsx']])
+// Extensions a file keeps its kind across, as triage's Compare groups them.
+const FAMILIES = new Map([
+  ...['.js', '.mjs', '.cjs', '.jsx', '.ts', '.mts', '.cts', '.tsx'].map((extension) => [extension, 'script']),
+  ...['.css', '.scss', '.sass', '.less'].map((extension) => [extension, 'style']),
+])
 
-// A path less what a build changes: `lib` and `src` alike ('', as no segment
-// is empty), and a TypeScript extension as its JavaScript one.
-function buildKey(path) {
-  const segments = path.split('/')
-  const name = segments.pop()
+function splitPath(path) {
+  const dirs = path.split('/')
+  const name = dirs.pop()
   const dot = name.lastIndexOf('.')
-  const base = dot > 0 ? name.slice(0, dot) + (SCRIPTS.get(name.slice(dot)) ?? name.slice(dot)) : name
-  return [...segments.map((segment) => (segment === 'lib' || segment === 'src' ? '' : segment)), base].join('/')
+  return dot > 0 ? { dirs, stem: name.slice(0, dot), extension: name.slice(dot) } : { dirs, stem: name, extension: '' }
 }
 
-// Files whose paths differ by what a build changes are a rename, however they
-// score, unless either has a candidate that is a rename by itself and scores
-// at least halfway from the pair's score to 100%, as git's basename pass asks.
-function pathRenames(context, minimum, limit) {
+// A path less what a build changes: `lib` and `src` alike, and a TypeScript
+// extension as its JavaScript one.
+function buildKey(path) {
+  const { dirs, stem, extension } = splitPath(path)
+  return JSON.stringify([dirs.map((dir) => (dir === 'lib' || dir === 'src' ? null : dir)), stem, SCRIPTS.get(extension) ?? extension])
+}
+
+// The keys a path meets a partner on, as triage's Compare has them: its stem,
+// its extension's family, and its directories, as they are or with one open --
+// past the last node_modules and its package's name, which a group keeps.
+function familyKeys(path) {
+  const { dirs, stem, extension } = splitPath(path)
+  const head = [stem, FAMILIES.get(extension) ?? extension]
+  const modules = dirs.lastIndexOf('node_modules')
+  const first = modules === -1 ? 0 : modules + (dirs[modules + 1]?.startsWith('@') ? 3 : 2)
+  const keys = [JSON.stringify([...head, dirs])]
+  for (let i = first; i < dirs.length; i++) keys.push(JSON.stringify([...head, dirs.toSpliced(i, 1, null)]))
+  return keys
+}
+
+// Whether either file of a pair by path has a candidate that is a rename by
+// itself and scores at least halfway from the pair's score to 100%.
+function outdone({ pairs, used, scoreOf }, { remaining, open }, { s, d, score }, minimum) {
+  const better = Math.max(minimum, score + Math.trunc((MAX_SCORE - score) / 2))
+  return open.some((o) => o !== d && !pairs.has(o) && scoreOf(s, o, minimum) >= better)
+    || remaining.some((r) => r !== s && !used.has(r) && scoreOf(r, d, minimum) >= better)
+}
+
+// Paths a build changes: however a pair scores, the best of a file's partners.
+function buildRenames(context, left, weigh, minimum) {
   const { sources, dests, pairs, used, record, scoreOf } = context
-  const { remaining, open } = unpaired(context)
-  const byKey = Map.groupBy(remaining.filter((s) => sources[s].type === 'file'), (s) => buildKey(sources[s].path))
-  const candidates = open.filter((d) => dests[d].type === 'file')
+  const byKey = Map.groupBy(left.remaining.filter((s) => sources[s].type === 'file'), (s) => buildKey(sources[s].path))
+  const candidates = left.open.filter((d) => dests[d].type === 'file')
     .flatMap((d) => (byKey.get(buildKey(dests[d].path)) ?? []).map((s) => ({ s, d, score: scoreOf(s, d, 0) })))
-  // Past the rename limit no other candidate is scored, so none can be better.
-  const weigh = remaining.length * open.length <= limit * limit
-  for (const { s, d, score } of candidates.sort((x, y) => y.score - x.score)) {
-    if (pairs.has(d) || used.has(s)) continue
-    const better = Math.max(minimum, score + Math.trunc((MAX_SCORE - score) / 2))
-    const outdone = weigh && (open.some((o) => o !== d && !pairs.has(o) && scoreOf(s, o, minimum) >= better)
-      || remaining.some((r) => r !== s && !used.has(r) && scoreOf(r, d, minimum) >= better))
-    if (!outdone) record(d, s, score)
+  for (const pair of candidates.sort((x, y) => y.score - x.score)) {
+    if (!pairs.has(pair.d) && !used.has(pair.s) && !(weigh && outdone(context, left, pair, minimum))) record(pair.d, pair.s, pair.score)
   }
+}
+
+// Paths triage's Compare pairs: one file each other's only partner by family
+// and directory (its detectRenames), however the pair scores.
+function familyRenames(context, left, weigh, minimum) {
+  const { sources, dests, pairs, used, record, scoreOf } = context
+  const buckets = new Map()
+  const keyed = (files, indices, side) => new Map(indices.filter((i) => files[i].type === 'file').map((i) => {
+    const keys = familyKeys(files[i].path)
+    for (const key of keys) {
+      if (!buckets.has(key)) buckets.set(key, { sources: [], dests: [] })
+      buckets.get(key)[side].push(i)
+    }
+    return [i, keys]
+  }))
+  const destKeys = keyed(dests, left.open.filter((d) => !pairs.has(d)), 'dests')
+  const sourceKeys = keyed(sources, left.remaining.filter((s) => !used.has(s)), 'sources')
+  // The one file of `side` the keys meet, or -1 for none or several.
+  const partner = (keys, side) => {
+    let found = -1
+    for (const key of keys) {
+      const list = buckets.get(key)[side]
+      if (list.length > 1 || (list.length === 1 && found !== -1 && found !== list[0])) return -1
+      if (list.length === 1) found = list[0]
+    }
+    return found
+  }
+  for (const [s, keys] of sourceKeys) {
+    const d = partner(keys, 'dests')
+    if (d === -1 || partner(destKeys.get(d), 'sources') !== s) continue
+    const pair = { s, d, score: scoreOf(s, d, 0) }
+    if (!(weigh && outdone(context, left, pair, minimum))) record(d, s, pair.score)
+  }
+}
+
+// Renames told by path, which git does not look for. Past the rename limit no
+// other candidate is scored, so none can be better.
+function pathRenames(context, minimum, limit) {
+  const left = unpaired(context)
+  const weigh = left.remaining.length * left.open.length <= limit * limit
+  buildRenames(context, left, weigh, minimum)
+  familyRenames(context, left, weigh, minimum)
 }
 
 // Each index by its basename, or -1 where two share one.
@@ -124,10 +187,16 @@ const unpaired = ({ sources, dests, pairs, used }) => ({
 export function findRenames(sources, dests, { minimum, limit, byPath }) {
   const pairs = new Map(), used = new Set()
   if (sources.length === 0 || dests.length === 0) return pairs
-  const counted = new Map()
-  const counts = (file) => {
-    if (!counted.has(file)) counted.set(file, spanCounts(file.data))
-    return counted.get(file)
+  // A file's bytes, its text encoded once, and their span counts once.
+  const counted = new Map(), encoded = new Map()
+  const bytes = (file) => {
+    if (file.type !== 'file') return null
+    if (!encoded.has(file)) encoded.set(file, bytesOf(file.data))
+    return encoded.get(file)
+  }
+  const counts = (data) => {
+    if (!counted.has(data)) counted.set(data, spanCounts(data))
+    return counted.get(data)
   }
   const context = {
     sources, dests, pairs, used,
@@ -137,7 +206,8 @@ export function findRenames(sources, dests, { minimum, limit, byPath }) {
       pairs.set(d, { source: s, score })
       used.add(s)
     },
-    scoreOf: (s, d, least) => similarity(sources[s], dests[d], least, counts),
+    bytes,
+    scoreOf: (s, d, least) => similarity(bytes(sources[s]), bytes(dests[d]), least, counts),
   }
   exactRenames(context)
   if (byPath) pathRenames(context, minimum, limit)

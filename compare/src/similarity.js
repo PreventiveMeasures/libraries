@@ -36,11 +36,11 @@ export function spanCounts(data) {
   return { hashes, bytes: Float64Array.from(hashes, (hash) => counts.get(hash)) }
 }
 
-// Links score 0, as do sizes too far apart for `minimum`, without being read.
-// `counts` gives a file's span counts, cached, since one file meets many.
+// Two files' bytes, null for a link, which scores 0, as do sizes too far apart
+// for `minimum`, unread. `counts` gives span counts, cached: one file meets many.
 export function similarity(src, dst, minimum, counts) {
-  if (src.type !== 'file' || dst.type !== 'file') return 0
-  const dstSize = dst.data.length, srcSize = src.data.length
+  if (src === null || dst === null) return 0
+  const dstSize = dst.length, srcSize = src.length
   const max = Math.max(srcSize, dstSize)
   const delta = max - Math.min(srcSize, dstSize)
   if (max * (MAX_SCORE - minimum) < delta * MAX_SCORE) return 0
