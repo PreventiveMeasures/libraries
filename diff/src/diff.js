@@ -7,8 +7,8 @@
 // under it.
 //
 // What it cannot give is the change set itself, to count what changed or to
-// render it twice. That is what splitRecords, diffLines and the formatters
-// are still for. Everything else is one call.
+// render it twice. `changeSet` gives that, in the shape parseDiff reads one
+// out of a diff. Everything else is one call.
 
 import { lineComparisonKey, splitRecords } from './compare.js'
 import { formatContext, formatNormal, formatUnified } from './format.js'
@@ -30,6 +30,18 @@ function brief(a, b, compare) {
   // differ, and the answer is already in hand.
   if (key === null) return DIFFER
   return sameLines(splitRecords(a), splitRecords(b), key) ? '' : DIFFER
+}
+
+// The change set `diff` prints, without printing it: the blocks of the first
+// file replaced by blocks of the second, each holding the lines it removes
+// and inserts, as a block read out of a diff does. A run free to sit in more
+// than one place sits where a unified diff prints it, unless `slide` says
+// otherwise, so this and `diff` with context lines describe one change set.
+// With nothing asked of the comparison, applyChangeSet over the first file
+// gives back the second.
+export function changeSet(a, b, { slide = true, ...comparison } = {}) {
+  const from = splitRecords(a), to = splitRecords(b)
+  return diffLines(from, to, { ...comparison, slide }).map(({ a0, a1, b0, b1 }) => ({ a0, a1, b0, b1, remove: from.slice(a0, a1), insert: to.slice(b0, b1) }))
 }
 
 export function diff(a, b, { format = 'unified', context = 3, label = null, ...compare } = {}) {

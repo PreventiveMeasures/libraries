@@ -21,6 +21,11 @@
 // returned here be read back.
 export { diff } from './src/diff.js'
 
+// The change set itself, for a caller that counts what changed or renders it
+// more than once: the blocks `diff` would print, each with the lines it
+// removes and inserts, as `parseDiff` reads them back out of a diff.
+export { changeSet } from './src/diff.js'
+
 // The other direction. `parseDiff` reads a diff -- any of the three formats,
 // at any width -- into the files it names and, for each, the hunks it is
 // written in and the change set they describe. `applyChangeSet` carries one
