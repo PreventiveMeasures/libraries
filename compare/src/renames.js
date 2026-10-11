@@ -2,6 +2,7 @@
 // basename unique among both sides' leftovers at a stricter score, then every
 // pair left scored; between the first two, ours, renames told by path.
 
+import { crc32 } from '@exodus/bytes/crc.js'
 import { MAX_SCORE, similarity, spanCounts } from './similarity.js'
 import { bytesOf, sameContent } from './tree.js'
 
@@ -11,13 +12,11 @@ const CANDIDATES = 4
 
 const basename = (path) => path.slice(path.lastIndexOf('/') + 1)
 
-// FNV-1a, to bucket files of equal bytes; sameContent still decides.
+// A CRC-32, to bucket files of equal bytes; sameContent still decides.
 function contentKey(file, bytes) {
   if (file.type === 'symlink') return `l${file.target}`
   const data = bytes(file)
-  let hash = 0x811C9DC5
-  for (let i = 0; i < data.length; i++) hash = Math.imul(hash ^ data[i], 0x01000193)
-  return `f${data.length}:${hash >>> 0}`
+  return `f${data.length}:${crc32(data)}`
 }
 
 // git's find_identical_files: the first unused identical source of the same
