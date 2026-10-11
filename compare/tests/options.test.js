@@ -48,24 +48,6 @@ describe('renameGroup', () => {
   })
 })
 
-describe('slide', () => {
-  // Two trailing blank lines, one of which goes: diff -u and the search put it apart.
-  const after = { f: 'a\n\n' }, before = { f: '\na\n\n\n' }
-  const at = (options) => compareTrees(tree(before), tree(after), options)[0].blocks.map(({ a0, a1 }) => [a0, a1])
-
-  it('settles a free run where -u does, or leaves it where the search found it', () => {
-    assert.deepEqual(at(), [[0, 1], [3, 4]])
-    assert.deepEqual(at({ slide: false }), [[0, 1], [2, 3]])
-    assert.throws(() => compareTrees([], [], { slide: 'no' }), TypeError)
-  })
-
-  it('prints either in a patch', () => {
-    const hunks = (options) => formatPatch(compareTrees(tree(before), tree(after), options), { context: 0 }).split('\n').slice(3).join('\n')
-    assert.equal(hunks(), '@@ -1 +0,0 @@\n-\n@@ -4 +2,0 @@ a\n-\n')
-    assert.equal(hunks({ slide: false }), '@@ -1 +0,0 @@\n-\n@@ -3 +1,0 @@ a\n-\n')
-  })
-})
-
 describe('horizon', () => {
   // Two blank lines go, the second free to be any of the five the old file
   // ends with, four of which both files end with.
@@ -108,7 +90,7 @@ describe('lines: false, and compareLines', () => {
 
   it('finds lines under the options it is given', () => {
     const [change] = compareTrees(tree({ f: '\na\n\n\n' }), tree({ f: 'a\n\n' }), { lines: false })
-    assert.deepEqual(compareLines(change, { slide: false }).blocks.map(({ a0 }) => a0), [0, 2])
+    assert.deepEqual(compareLines(change, { horizon: 0 }).blocks.map(({ a0 }) => a0), [0, 2])
     assert.throws(() => compareLines(change, { whitespace: 'some' }), RangeError)
     assert.throws(() => compareTrees([], [], { lines: 'no' }), TypeError)
   })
