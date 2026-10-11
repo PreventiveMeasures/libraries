@@ -9,6 +9,7 @@ import { changeSet } from '@preventive/diff'
 export function textOf(file) {
   if (file === null) return ''
   if (file.type === 'symlink') return file.target.includes('\0') ? undefined : file.target
+  if (typeof file.data === 'string') return file.data.includes('\0') ? undefined : file.data
   if (file.data.includes(0)) return undefined
   try {
     return utf8toString(file.data)
@@ -17,11 +18,22 @@ export function textOf(file) {
   }
 }
 
+const WHITESPACE = new Set(['none', 'all', 'change', 'trailing'])
+
+// diff's options for a change set: where a run free to move sits (`slide`, as
+// -u has it), and which lines are the same (-w, -b, -Z as `whitespace`; -i).
+export function checkLineOptions({ slide = true, whitespace = 'none', ignoreCase = false } = {}) {
+  if (typeof slide !== 'boolean') throw new TypeError(`slide must be a boolean, not ${typeof slide}`)
+  if (!WHITESPACE.has(whitespace)) throw new RangeError(`whitespace must be 'none', 'all', 'change' or 'trailing', not ${whitespace}`)
+  if (typeof ignoreCase !== 'boolean') throw new TypeError(`ignoreCase must be a boolean, not ${typeof ignoreCase}`)
+  return { slide, whitespace, ignoreCase }
+}
+
 // Binary content has no blocks and no counts, as --numstat prints `-` for it.
-export function contentOf(old, fresh) {
+export function contentOf(old, fresh, options) {
   const a = textOf(old), b = textOf(fresh)
   if (a === undefined || b === undefined) return { binary: true, blocks: [], insertions: null, deletions: null }
-  const blocks = a === b ? [] : changeSet(a, b)
+  const blocks = a === b ? [] : changeSet(a, b, options)
   let deletions = 0, insertions = 0
   for (const { a0, a1, b0, b1 } of blocks) {
     deletions += a1 - a0

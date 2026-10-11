@@ -5,8 +5,9 @@
 // The trees in, every file that differs out, with what became of it --
 // added, deleted, modified, renamed, or changed in type -- and its line
 // change set. A tree is tar's entries, as @preventive/archive unpacks them
-// or a Vfs yields them.
-export { compareTrees } from './src/changes.js'
+// or a Vfs yields them, or names taken as keys. compareLines finds one
+// change's line change set later, for changes compared without lines.
+export { compareLines, compareTrees } from './src/changes.js'
 
 // Those changes as the patch git writes, for git apply or patch to carry out.
 export { formatPatch } from './src/patch.js'
