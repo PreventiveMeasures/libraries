@@ -101,6 +101,11 @@ describe('a tree that does not hold together is refused', () => {
     refuses([{ name: 'h', type: 'hardlink' }], /must name its target/u, 'h')
   })
 
+  it('takes a name and a link target with UTF-8 to them alone', () => {
+    refuses([{ name: 'a\u{D800}' }], /well-formed Unicode/u, 'a\u{D800}')
+    refuses([{ name: 'l', type: 'symlink', linkname: '\u{DC00}x' }], /link target must be well-formed/u, 'l')
+  })
+
   it('has nothing for a fifo or a device, which git cannot hold', () => {
     for (const type of ['fifo', 'character-device', 'block-device']) refuses([{ name: 'dev', type }], new RegExp(`a ${type} is neither`, 'u'), 'dev')
   })
@@ -115,6 +120,7 @@ describe('an entry of the wrong shape is a TypeError or a RangeError', () => {
     assert.throws(() => compareTrees([{ name: 'a', type: 1 }], []), TypeError)
     assert.throws(() => compareTrees([{ name: 'a', data: 1 }], []), TypeError)
     assert.throws(() => compareTrees([{ name: 'a', data: [1] }], []), TypeError)
+    assert.throws(() => compareTrees([{ name: 'a', data: 'x\u{D800}' }], []), TypeError, 'text with no UTF-8')
     for (const mode of [-1, 0o10000, 1.5, '644', null]) assert.throws(() => compareTrees([{ name: 'a', mode }], []), RangeError, String(mode))
   })
 

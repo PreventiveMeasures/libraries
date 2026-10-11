@@ -33,6 +33,9 @@ importers:
 
   compare:
     dependencies:
+      '@exodus/bytes':
+        specifier: ^1.16.0
+        version: 1.16.0
       '@preventive/diff':
         specifier: workspace:^
         version: link:../diff

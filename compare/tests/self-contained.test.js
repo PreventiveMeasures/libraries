@@ -3,8 +3,8 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { sep } from 'node:path'
 import { describe, it } from 'node:test'
 
-// `compare/` is a package of its own, standing on one other: nothing in it
-// may reach outside itself but for @preventive/diff, its one dependency. It
+// `compare/` is a package of its own, standing on two others: nothing in it
+// may reach outside itself but for @preventive/diff and @exodus/bytes. It
 // reads no disk and runs where JavaScript does, so no node: builtin either;
 // tests/ and scripts/ are git's side of things, and may.
 //
@@ -62,8 +62,8 @@ describe('compare/ is self-contained', () => {
 
   const declared = new Set(Object.keys(manifest.dependencies ?? {}))
 
-  it('declares @preventive/diff alone', () => {
-    assert.deepEqual([...declared], ['@preventive/diff'])
+  it('declares @preventive/diff and @exodus/bytes alone', () => {
+    assert.deepEqual([...declared], ['@exodus/bytes', '@preventive/diff'])
   })
 
   for (const file of files) {
