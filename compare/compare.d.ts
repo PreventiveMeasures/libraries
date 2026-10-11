@@ -56,12 +56,19 @@ export interface FileChange {
 // `renames` is git's -M: the least similarity, as a percentage above 0, at
 // which a deleted file and an added one are one file renamed; `true` is
 // git's default of 50, `false` finds none, and 100 only those whose content
-// is unchanged. `renameLimit` is git's diff.renameLimit: when more deleted
-// files times added files are left after the renames that need no scoring
-// than its square, the rest are not looked for. 1000 unless given; Infinity
-// for no limit.
+// is unchanged. `renamesByPath`, unless false, also takes a deleted file and
+// an added one for a rename however little alike, where their paths differ
+// only by `lib` for `src` or a TypeScript extension for its JavaScript one
+// (`.ts`, `.mts`, `.cts`, `.tsx` for `.js`, `.mjs`, `.cjs`, `.jsx`), or both:
+// `lib/a.js` and `src/a.ts`. That gives way only to a candidate that is a
+// rename by itself and scores at least halfway from the pair's score to 100%;
+// git has no such pass, so false is git's own -M. `renameLimit` is git's
+// diff.renameLimit: when more deleted files times added files are left after
+// the renames that need no scoring than its square, the rest are not looked
+// for. 1000 unless given; Infinity for no limit.
 export interface CompareOptions {
   renames?: boolean | number
+  renamesByPath?: boolean
   renameLimit?: number
 }
 

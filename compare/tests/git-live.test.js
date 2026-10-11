@@ -32,7 +32,7 @@ describe('git agrees', { skip: recent ? false : 'git 2.44 or later is not on the
     it(`applies the patch for: ${name}`, (t) => {
       const repo = repository(old, fresh)
       t.after(repo.close)
-      const patch = formatPatch(compareTrees(entriesOf(old), entriesOf(fresh), options))
+      const patch = formatPatch(compareTrees(entriesOf(old), entriesOf(fresh), { renamesByPath: false, ...options }))
       if (appliable(patch)) assert.ok(repo.applies(patch))
     })
   }
@@ -45,12 +45,15 @@ describe('git agrees', { skip: recent ? false : 'git 2.44 or later is not on the
       const repo = repository(pair.old, pair.new)
       t.after(repo.close)
       const flags = diffFlags(options)
-      const changes = compareTrees(entriesOf(pair.old), entriesOf(pair.new), options)
+      const changes = compareTrees(entriesOf(pair.old), entriesOf(pair.new), { renamesByPath: false, ...options })
       assert.deepEqual(rawOf(changes), readRaw(repo.diff([...flags, '--raw', '-z'])))
       assert.deepEqual(numstatOf(changes), readNumstat(repo.diff([...flags, '--numstat', '-z'])))
       const patch = formatPatch(changes)
       assert.deepEqual(headers(patch), headers(withoutIndex(repo.diff(flags))))
       if (appliable(patch)) assert.ok(repo.applies(patch), 'git apply carries the old tree to the new one')
+      // Renames by path are no git's, but a patch naming them is one git applies.
+      const byPath = formatPatch(compareTrees(entriesOf(pair.old), entriesOf(pair.new), options))
+      if (appliable(byPath)) assert.ok(repo.applies(byPath), 'and with renames by path')
     })
   }
 })
