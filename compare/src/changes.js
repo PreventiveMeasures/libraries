@@ -1,5 +1,6 @@
 // compareTrees: a path in both trees is modified or type-changed, a path in one
-// added or deleted unless renames.js pairs it with another, as git diff -M does.
+// added or deleted unless renames.js pairs it with another, as git diff -M does
+// and, unless `renamesByPath` is false, by the paths a build moves files to.
 
 import { MAX_SCORE } from './similarity.js'
 import { findRenames } from './renames.js'
@@ -29,6 +30,10 @@ function minimumScore(renames) {
   return Math.max(1, Math.trunc(MAX_SCORE * percent / 100))
 }
 
+function checkByPath(value) {
+  if (typeof value !== 'boolean') throw new TypeError(`renamesByPath must be a boolean, not ${typeof value}`)
+}
+
 function checkLimit(limit) {
   if (limit !== Infinity && !(Number.isSafeInteger(limit) && limit >= 0)) throw new RangeError(`renameLimit must be a whole number or Infinity, not ${limit}`)
 }
@@ -51,11 +56,12 @@ function pathChanges(old, fresh) {
   return { changes, deleted, added }
 }
 
-export function compareTrees(a, b, { renames = true, renameLimit = DEFAULT_RENAME_LIMIT } = {}) {
+export function compareTrees(a, b, { renames = true, renamesByPath = true, renameLimit = DEFAULT_RENAME_LIMIT } = {}) {
   const minimum = minimumScore(renames)
+  checkByPath(renamesByPath)
   checkLimit(renameLimit)
   const { changes, deleted, added } = pathChanges(readTree(a, 'old'), readTree(b, 'new'))
-  const pairs = minimum === null ? new Map() : findRenames(deleted, added, { minimum, limit: renameLimit })
+  const pairs = minimum === null ? new Map() : findRenames(deleted, added, { minimum, limit: renameLimit, byPath: renamesByPath })
   for (const [d, file] of added.entries()) {
     const pair = pairs.get(d)
     changes.push(pair === undefined ? change('added', null, file) : change('renamed', deleted[pair.source], file, Math.trunc(pair.score * 100 / MAX_SCORE)))

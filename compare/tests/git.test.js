@@ -19,7 +19,8 @@ describe('compare says what git says', () => {
   for (const { name, options, old, new: fresh } of CASES) {
     const recorded = RECORDINGS.find((recording) => recording.name === name)
     describe(name, () => {
-      const changes = compareTrees(entriesOf(old), entriesOf(fresh), options)
+      // Renames by path are compare's own, which git does not look for.
+      const changes = compareTrees(entriesOf(old), entriesOf(fresh), { renamesByPath: false, ...options })
       it('finds the same changes, renames and scores', () => assert.deepEqual(rawOf(changes), readRaw(recorded.raw)))
       it('counts the same lines', () => assert.deepEqual(numstatOf(changes), readNumstat(recorded.numstat)))
       it('writes the same patch', () => assert.equal(formatPatch(changes), withoutIndex(recorded.patch)))
