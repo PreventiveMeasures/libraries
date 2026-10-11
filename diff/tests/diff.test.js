@@ -78,6 +78,16 @@ describe('a free run goes into the shared end as far as diff lets it', () => {
       assert.throws(() => changeSet(a, b, { horizon }), RangeError, String(horizon))
     }
   })
+  it('takes a context of whole lines, since the horizon comes from it', () => {
+    // A fraction or NaN would reach the search's bounds, which would never close.
+    for (const context of [-1, 1.5, NaN, '1', null]) {
+      assert.throws(() => diff(a, b, { context }), RangeError, String(context))
+      assert.throws(() => diff(a, b, { format: 'context', context }), RangeError, String(context))
+    }
+    assert.equal(diff(a, b, { context: Infinity }), diff(a, b, { context: 4 }))
+    // The normal format prints none, and does not read it.
+    assert.equal(diff(a, b, { format: 'normal', context: NaN }), '1d0\n< \n3d1\n< \n')
+  })
 })
 
 // Every format settles a free run as GNU does, diff and -U0 included and under

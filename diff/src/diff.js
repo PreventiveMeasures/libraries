@@ -32,10 +32,11 @@ function brief(a, b, compare) {
   return sameLines(splitRecords(a), splitRecords(b), key) ? '' : DIFFER
 }
 
-// A horizon is a number of lines, or Infinity for all there are.
-function lineCount(horizon) {
-  if (!(Number.isInteger(horizon) && horizon >= 0) && horizon !== Infinity) throw new RangeError(`horizon is a number of lines, not ${horizon}`)
-  return horizon
+// A number of lines: a whole one, or Infinity for all there are. The search
+// is bounded by it, so anything else is refused before it gets there.
+function lineCount(value, name) {
+  if (!(Number.isInteger(value) && value >= 0) && value !== Infinity) throw new RangeError(`${name} is a number of lines, not ${value}`)
+  return value
 }
 
 // The change set `diff` prints, without printing it: the blocks of the first
@@ -48,7 +49,7 @@ function lineCount(horizon) {
 // gives back the second.
 export function changeSet(a, b, { slide = true, horizon = 3, ...comparison } = {}) {
   const from = splitRecords(a), to = splitRecords(b)
-  return diffLines(from, to, { ...comparison, slide, horizon: lineCount(horizon) }).map(({ a0, a1, b0, b1 }) => ({ a0, a1, b0, b1, remove: from.slice(a0, a1), insert: to.slice(b0, b1) }))
+  return diffLines(from, to, { ...comparison, slide, horizon: lineCount(horizon, 'horizon') }).map(({ a0, a1, b0, b1 }) => ({ a0, a1, b0, b1, remove: from.slice(a0, a1), insert: to.slice(b0, b1) }))
 }
 
 // A change set already in hand, printed as `diff` prints the one it finds,
@@ -72,8 +73,8 @@ export function diff(a, b, { format = 'unified', context = 3, label = null, ...c
   // more -- as diff does, which is why `diff` and `-U0` can agree with each
   // other and not with `-u`. The normal format prints no context.
   const { slide = true, horizon = 0, ...comparison } = compare
-  const reach = lineCount(horizon)
-  const blocks = diffLines(from, to, { ...comparison, slide, horizon: format === 'normal' ? reach : Math.max(reach, context) })
+  const reach = lineCount(horizon, 'horizon')
+  const blocks = diffLines(from, to, { ...comparison, slide, horizon: format === 'normal' ? reach : Math.max(reach, lineCount(context, 'context')) })
   // Two files the comparison calls the same have no diff.
   if (blocks.length === 0) return ''
   return FORMAT[format](from, to, blocks, { context, label })
