@@ -12,8 +12,9 @@
 // One block of a change set: `a[a0..a1)` is replaced by `b[b0..b1)`, counting
 // lines from zero. Either side may be empty -- an insertion or a deletion --
 // never both, and the blocks of a change set are disjoint and in order. A
-// block read out of a diff also holds the lines it names, since a diff is
-// the only place those exist.
+// block holds the lines it removes and inserts, records with their
+// terminators: read out of a diff, as the diff wrote them; from changeSet,
+// as the two files have them.
 export interface Block {
   a0: number
   a1: number
@@ -71,6 +72,15 @@ export function diff(a: string, b: string, options?: CompareOptions & {
   minimal?: boolean
   slide?: boolean
 }): string
+
+// The change set `diff` prints, unprinted: the same blocks a unified diff of
+// the two shows, each with the lines it removes and inserts, as `parseDiff`
+// reads them. `slide` defaults to on, where a unified diff with context has
+// it. With no comparison option, `applyChangeSet(a, changeSet(a, b))` is `b`.
+export function changeSet(a: string, b: string, options?: CompareOptions & {
+  minimal?: boolean
+  slide?: boolean
+}): Block[]
 
 // A diff read back into the files it names and what it says about each.
 export function parseDiff(text: string): ParsedFile[]

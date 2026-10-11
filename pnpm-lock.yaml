@@ -31,6 +31,19 @@ importers:
         specifier: ^1.16.0
         version: 1.16.0
 
+  compare:
+    dependencies:
+      '@preventive/diff':
+        specifier: workspace:^
+        version: link:../diff
+    devDependencies:
+      '@preventive/archive':
+        specifier: workspace:*
+        version: link:../archive
+      '@preventive/vfs':
+        specifier: workspace:*
+        version: link:../vfs
+
   deptree:
     dependencies:
       '@chalker/queue':

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { applyChangeSet } from '../src/apply.js'
-import { diff } from '../src/diff.js'
+import { changeSet, diff } from '../src/diff.js'
 import { parseDiff } from '../src/parse.js'
 import { FILES, RECORDINGS } from './fixtures/gnu-diff.js'
 
@@ -124,4 +124,37 @@ describe('a diff describes what it takes to get from one file to the other', () 
       })
     }
   }
+})
+
+// The change set unprinted is the one a unified diff prints: whatever parseDiff
+// reads back out of GNU's recorded -u output, changeSet gives without the
+// text, and carrying it out over the first file gives the second.
+describe('changeSet is the change set a unified diff prints', () => {
+  for (const recording of RECORDINGS) {
+    if (recording.format !== 'unified' || recording.context === 0) continue
+    it(recording.command, () => {
+      const [from, to] = recording.names.map((name) => FILES[name])
+      assert.deepEqual(changeSet(from, to), parseDiff(recording.stdout)[0]?.blocks ?? [])
+      assert.equal(applyChangeSet(from, changeSet(from, to)), to)
+    })
+  }
+
+  it('holds the lines each block removes and inserts, terminators and all', () => {
+    assert.deepEqual(changeSet('a\nb\nc', 'a\nB\nc\nd\n'), [
+      { a0: 1, a1: 3, b0: 1, b1: 4, remove: ['b\n', 'c'], insert: ['B\n', 'c\n', 'd\n'] },
+    ])
+    assert.deepEqual(changeSet('', 'x\n'), [{ a0: 0, a1: 0, b0: 0, b1: 1, remove: [], insert: ['x\n'] }])
+    assert.deepEqual(changeSet('same\n', 'same\n'), [])
+  })
+
+  it('settles a free run where -u does, or where the search left it on request', () => {
+    const a = '\na\n\n\n', b = 'a\n\n'
+    assert.deepEqual(changeSet(a, b).map(({ a0, a1 }) => [a0, a1]), [[0, 1], [3, 4]])
+    assert.deepEqual(changeSet(a, b, { slide: false }).map(({ a0, a1 }) => [a0, a1]), [[0, 1], [2, 3]])
+  })
+
+  it('carries the comparison options to the search', () => {
+    assert.deepEqual(changeSet('A  b\n', 'a b\n', { ignoreCase: true, whitespace: 'all' }), [])
+    assert.equal(changeSet('A  b\n', 'a b\n').length, 1)
+  })
 })
