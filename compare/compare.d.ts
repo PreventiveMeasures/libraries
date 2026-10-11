@@ -73,7 +73,9 @@ export function compareTrees(a: Iterable<TreeEntry>, b: Iterable<TreeEntry>, opt
 
 // The changes as `git diff` writes them, without its `index` lines, with
 // `context` lines around each change, 3 unless given. A file's mode is
-// written in full, where git would only have 644 or 755.
+// written in full, where git would only have 644 or 755. The hunks are each
+// change's own blocks, which must carry its old content to its new, or
+// @preventive/diff's DiffError is thrown.
 export function formatPatch(changes: Iterable<FileChange>, options?: { context?: number }): string
 
 // `path` is the name at fault as its entry spelled it, and `tree` which tree
