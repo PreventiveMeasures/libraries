@@ -12,5 +12,9 @@ export { compareLines, compareTrees } from './src/changes.js'
 // Those changes as the patch git writes, for git apply or patch to carry out.
 export { formatPatch } from './src/patch.js'
 
+// Whether a change set found elsewhere, a server's for one, takes one text to
+// another, so that a diff drawn from it hides no change.
+export { blocksHold } from './src/blocks.js'
+
 // What a tree that does not hold together is refused with.
 export { CompareError } from './src/error.js'

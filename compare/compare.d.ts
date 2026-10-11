@@ -127,6 +127,15 @@ export function compareLines(change: FileStatus, options?: LineOptions): FileCha
 // DiffError is thrown; a change without blocks has them found here.
 export function formatPatch(changes: Iterable<FileStatus | FileChange>, options?: LineOptions & { context?: number }): string
 
+// Whether `blocks`, a change set in hand rather than found here (another
+// process's, a server's), take `before` to `after` under the comparison
+// options, as @preventive/diff holds its own search's change set to: each
+// block in order, within both texts and changing a line, and every line
+// between them alike, its terminator with it -- a newline added or dropped
+// after the last line is that line changed, but under the whitespace options.
+// Anything that is not a list of such ranges is refused: false, never thrown.
+export function blocksHold(before: string, after: string, blocks: unknown, options?: LineOptions): boolean
+
 // `path` is the name at fault as its entry spelled it, and `tree` which tree
 // holds it.
 export class CompareError extends Error {
