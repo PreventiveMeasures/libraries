@@ -5,8 +5,10 @@ import { describe, it } from 'node:test'
 
 // `compare/` is a package of its own, standing on two others: nothing in it
 // may reach outside itself but for @preventive/diff and @exodus/bytes. It
-// reads no disk and runs where JavaScript does, so no node: builtin either;
-// tests/ and scripts/ are git's side of things, and may.
+// reads no disk and runs where JavaScript does, so no node: builtin or Node
+// global either -- but in a .node.js module, which package.json imports
+// gives Node alone, in place of a portable twin. tests/ and scripts/ are
+// git's side of things, and may.
 //
 // Enforced here rather than left to review because a single `../` is all it
 // takes to undo, and it reads as harmless in a diff.
@@ -19,6 +21,7 @@ const manifest = JSON.parse(readFileSync(new URL('package.json', PKG_DIR), 'utf8
 // src/, recursively, so a module that moves into a subdirectory goes on
 // being checked rather than silently stopping.
 const doors = [...new Set(Object.values(manifest.exports).flatMap((target) => Object.values(target)))]
+const imports = manifest.imports ?? {}
 const files = [
   ...doors.map((door) => new URL(door, PKG_DIR)),
   ...readdirSync(SRC_DIR, { recursive: true })
@@ -35,10 +38,11 @@ const TEMPLATE_RE = /(?:\bimport|\brequire)\s*\(\s*`(?<spec>[^`$\n]+)`/gu
 
 const specifiersOf = (source) => [SPECIFIER_RE, TEMPLATE_RE].flatMap((re) => [...source.matchAll(re)].map((m) => m.groups.spec))
 const nameOf = (file) => file.href.slice(PKG_DIR.href.length)
+const forNode = (name) => name.endsWith('.node.js')
+const NODE_GLOBALS = /\b(?:Buffer|process)\s*\.|\brequire\s*\(|\b__(?:dirname|filename)\b/u
+const shipped = new Set(manifest.files)
 
 describe('compare/ ships every module it has', () => {
-  const shipped = new Set(manifest.files)
-
   it('lists a plausible set of files', () => {
     assert.ok(shipped.size >= 10, `expected a files allowlist, found ${shipped.size}`)
   })
@@ -68,14 +72,34 @@ describe('compare/ is self-contained', () => {
 
   for (const file of files) {
     it(`${nameOf(file)} imports nothing outside compare/ but what it declares`, () => {
-      for (const spec of specifiersOf(readFileSync(file, 'utf8'))) {
+      const source = readFileSync(file, 'utf8')
+      for (const spec of specifiersOf(source)) {
         if (spec.startsWith('.')) {
-          assert.ok(new URL(spec, file).href.startsWith(PKG_DIR.href), `${nameOf(file)} imports ${spec}, outside compare/`)
+          const target = new URL(spec, file)
+          assert.ok(target.href.startsWith(PKG_DIR.href), `${nameOf(file)} imports ${spec}, outside compare/`)
+          assert.ok(forNode(nameOf(file)) || !forNode(nameOf(target)), `${nameOf(file)} imports ${spec}, which Node alone runs`)
+          continue
+        }
+        if (spec.startsWith('#')) {
+          assert.ok(Object.hasOwn(imports, spec), `${nameOf(file)} imports ${spec}, which package.json imports lacks`)
+          continue
+        }
+        if (spec.startsWith('node:')) {
+          assert.ok(forNode(nameOf(file)), `${nameOf(file)} imports ${spec}, which only a .node.js module may`)
           continue
         }
         const bare = spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0]
         assert.ok(declared.has(bare), `${nameOf(file)} imports ${spec}, which is no dependency of compare/`)
       }
+      if (!forNode(nameOf(file)) && file.href.endsWith('.js')) assert.doesNotMatch(source, NODE_GLOBALS, `${nameOf(file)} names a Node global`)
+    })
+  }
+
+  for (const [spec, target] of Object.entries(imports)) {
+    it(`${spec} leads to a .node.js module on Node alone, and a portable one elsewhere`, () => {
+      assert.deepEqual(Object.keys(target), ['node', 'default'])
+      assert.ok(forNode(target.node) && !forNode(target.default), `${spec}: ${target.node}, ${target.default}`)
+      for (const path of Object.values(target)) assert.ok(path.startsWith('./') && shipped.has(path.slice(2)), `${spec}: ${path} is not a shipped file of compare/`)
     })
   }
 })

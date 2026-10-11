@@ -3,6 +3,7 @@
 // nothing, and a hard link is a copy of its target.
 
 import { utf8fromString } from '@exodus/bytes/utf8.js'
+import { sameBytes } from '#same-bytes'
 import { CompareError } from './error.js'
 
 const FILE = new Set(['file', 'contiguous-file'])
@@ -58,10 +59,7 @@ export function sameContent(a, b) {
   if (a.type === 'symlink') return a.target === b.target
   if (a.data === b.data) return true
   if (typeof a.data === 'string' && typeof b.data === 'string') return false
-  const x = bytesOf(a.data), y = bytesOf(b.data)
-  if (x.length !== y.length) return false
-  for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false
-  return true
+  return sameBytes(bytesOf(a.data), bytesOf(b.data))
 }
 
 // Through any chain of hard links, to a file or a link of the tree.
