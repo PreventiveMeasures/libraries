@@ -11,10 +11,11 @@ import type { Block } from '@preventive/diff'
 // nothing, as git keeps none; what is not given a directory entry is implied.
 // `data` and `linkname` are read only where the type uses them; a mode given
 // is checked on any entry, but only a file's is compared, as only a file's is
-// kept by git.
+// kept by git. A fifo or a device is refused, as is a name or link target
+// that is not well-formed Unicode, since git could hold neither.
 export interface TreeEntry {
   name: string
-  type?: 'file' | 'contiguous-file' | 'directory' | 'symlink' | 'hardlink'
+  type?: 'file' | 'contiguous-file' | 'directory' | 'symlink' | 'hardlink' | 'fifo' | 'character-device' | 'block-device'
   mode?: number
   linkname?: string
   data?: string | Uint8Array

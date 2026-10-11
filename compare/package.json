@@ -54,6 +54,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@exodus/bytes": "^1.16.0",
     "@preventive/diff": "workspace:^"
   },
   "devDependencies": {

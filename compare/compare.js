@@ -1,6 +1,6 @@
 // Two file trees compared the way `git diff -M` compares two commits, built
-// on @preventive/diff for what changed inside each file. It needs that
-// package alone, and nothing here reads a disk.
+// on @preventive/diff for what changed inside each file and @exodus/bytes for
+// UTF-8. Nothing here reads a disk.
 
 // The trees in, every file that differs out, with what became of it --
 // added, deleted, modified, renamed, or changed in type -- and its line
