@@ -5,6 +5,7 @@ import { changeSet, diff, formatChangeSet } from '../src/diff.js'
 import { DiffError } from '../src/myers.js'
 import { parseDiff } from '../src/parse.js'
 import { FILES, RECORDINGS } from './fixtures/gnu-diff.js'
+import { PAIRS, RECORDINGS as PLACEMENT } from './fixtures/gnu-placement.js'
 
 // The one call, held to the same recordings the pieces are: whatever the
 // parts produce in the order they are meant to be used, this produces in
@@ -47,28 +48,51 @@ describe('what it does with the options', () => {
   })
 })
 
-// diff settles a run that could sit in more than one place only where it
-// prints context lines for it to sit among, so its normal output and its -u
-// output describe different change sets — and -U0, printing no context,
-// agrees with normal rather than with -u. These are the strings GNU diff
-// 3.10 prints for one pair where a run is free: two trailing blank lines,
-// one of which goes.
-describe('a free run is settled where diff settles it, and not otherwise', () => {
+// diff settles a run that could sit in more than one place in every format,
+// but lets it into the lines the two files share at either end only as far as
+// the context it prints there. So where a run is free to move into the shared
+// end, its normal output and its -u output describe different change sets,
+// and -U0, printing no context, agrees with normal rather than with -u. These
+// are the strings GNU diff 3.10 prints for one pair where a run is free: two
+// trailing blank lines, one of which goes, and the last of which both files
+// end with.
+describe('a free run goes into the shared end as far as diff lets it', () => {
   const a = '\na\n\n\n', b = 'a\n\n'
   for (const [name, options, expected] of [
-    ['normal prints no context, so it takes the search\'s placement', { format: 'normal' }, '1d0\n< \n3d1\n< \n'],
+    ['normal prints no context, so the run stays out', { format: 'normal' }, '1d0\n< \n3d1\n< \n'],
     ['-U0 prints none either, and agrees with normal', { context: 0 }, '@@ -1 +0,0 @@\n-\n@@ -3 +1,0 @@\n-\n'],
     ['-C0 likewise', { format: 'context', context: 0 }, '***************\n*** 1 ****\n- \n--- 0 ----\n***************\n*** 3 ****\n- \n--- 1 ----\n'],
-    ['-U1 prints one, and settles', { context: 1 }, '@@ -1,4 +1,2 @@\n-\n a\n \n-\n'],
-    ['-u settles', {}, '@@ -1,4 +1,2 @@\n-\n a\n \n-\n'],
-    ['-c settles', { format: 'context' }, '***************\n*** 1,4 ****\n- \n  a\n  \n- \n--- 1,2 ----\n'],
+    ['-U1 prints one, and the run goes into it', { context: 1 }, '@@ -1,4 +1,2 @@\n-\n a\n \n-\n'],
+    ['-u likewise', {}, '@@ -1,4 +1,2 @@\n-\n a\n \n-\n'],
+    ['-c likewise', { format: 'context' }, '***************\n*** 1,4 ****\n- \n  a\n  \n- \n--- 1,2 ----\n'],
+    ['--horizon-lines lets it in with no context printed', { format: 'normal', horizon: 1 }, '1d0\n< \n4d2\n< \n'],
   ]) {
     it(name, () => assert.equal(diff(a, b, options), expected))
   }
-  it('takes an explicit slide over the default, either way', () => {
-    assert.equal(diff(a, b, { format: 'normal', slide: true }), '1d0\n< \n4d2\n< \n')
+  it('leaves the search\'s placement when told not to slide', () => {
     assert.equal(diff(a, b, { slide: false }), '@@ -1,4 +1,2 @@\n-\n a\n-\n \n')
   })
+  it('takes a horizon of whole lines', () => {
+    for (const horizon of [-1, 1.5, NaN, '1']) {
+      assert.throws(() => diff(a, b, { horizon }), RangeError, String(horizon))
+      assert.throws(() => changeSet(a, b, { horizon }), RangeError, String(horizon))
+    }
+  })
+})
+
+// Every format settles a free run as GNU does, diff and -U0 included and under
+// -w and -b too, and lets it into the shared end as far as its horizon.
+describe('a free run sits where GNU puts it, in every format', () => {
+  for (const { command, pair, options, body } of PLACEMENT) {
+    it(command + ' # ' + pair, () => {
+      const [a, b] = PAIRS[pair]
+      assert.equal(diff(a, b, options), body)
+      // changeSet finds the same blocks, given the horizon the format has.
+      const { format = 'unified', context = 3, horizon = 0, ...comparison } = options
+      const blocks = changeSet(a, b, { ...comparison, horizon: format === 'normal' ? horizon : Math.max(horizon, context) })
+      assert.equal(formatChangeSet(a, b, blocks, { format, context, ...comparison }), body)
+    })
+  }
 })
 
 describe('brief answers whether they differ, and stops there', () => {
@@ -154,6 +178,14 @@ describe('changeSet is the change set a unified diff prints', () => {
     assert.deepEqual(changeSet(a, b, { slide: false }).map(({ a0, a1 }) => [a0, a1]), [[0, 1], [2, 3]])
   })
 
+  it('lets a run into the shared end as far as its horizon, three lines unless told', () => {
+    const [a, b] = PAIRS['trailing-blanks']
+    const deleted = (options) => changeSet(a, b, options).map(({ a0, a1 }) => [a0, a1])
+    assert.deepEqual(deleted(), [[0, 1], [5, 6]])
+    assert.deepEqual(deleted({ horizon: 0 }), [[0, 1], [2, 3]])
+    assert.deepEqual(deleted({ horizon: Infinity }), [[0, 1], [6, 7]])
+  })
+
   it('carries the comparison options to the search', () => {
     assert.deepEqual(changeSet('A  b\n', 'a b\n', { ignoreCase: true, whitespace: 'all' }), [])
     assert.equal(changeSet('A  b\n', 'a b\n').length, 1)
@@ -169,7 +201,7 @@ describe('formatChangeSet prints a change set as diff prints it', () => {
     it(recording.command, () => {
       const [from, to] = recording.names.map((name) => FILES[name])
       const { format, context } = recording
-      const blocks = changeSet(from, to, { slide: format !== 'normal' && context > 0 })
+      const blocks = changeSet(from, to, { horizon: format === 'normal' ? 0 : context })
       assert.equal(formatChangeSet(from, to, blocks, { format, context }), diff(from, to, { format, context }))
       const body = format === 'normal' ? recording.stdout : recording.stdout.split('\n').slice(2).join('\n')
       if (body !== '') assert.equal(formatChangeSet(from, to, parseDiff(body)[0].blocks, { format, context }), body)

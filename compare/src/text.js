@@ -29,11 +29,16 @@ export function checkLineOptions({ slide = true, whitespace = 'none', ignoreCase
   return { slide, whitespace, ignoreCase }
 }
 
+// The change set of two texts under the line options. A run of lines free to
+// move goes as far into what the two files share at either end as it can, as
+// git lets it, where diff stops it at its context lines.
+export const changeSetOf = (a, b, options) => changeSet(a, b, { ...options, horizon: Infinity })
+
 // Binary content has no blocks and no counts, as --numstat prints `-` for it.
 export function contentOf(old, fresh, options) {
   const a = textOf(old), b = textOf(fresh)
   if (a === undefined || b === undefined) return { binary: true, blocks: [], insertions: null, deletions: null }
-  const blocks = a === b ? [] : changeSet(a, b, options)
+  const blocks = a === b ? [] : changeSetOf(a, b, options)
   let deletions = 0, insertions = 0
   for (const { a0, a1, b0, b1 } of blocks) {
     deletions += a1 - a0

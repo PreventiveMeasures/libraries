@@ -29,6 +29,18 @@ describe('the patch', () => {
     assert.deepEqual(patch.split('\n').filter((line) => line.startsWith('@@')), ['@@ -3,7 +3,7 @@ top', '@@ -16,6 +16,6 @@ top'])
   })
 
+  it('lets a run into the lines both files end with as far as git does, past the context', () => {
+    // Two blanks go, the second free to be any of the five the old file ends
+    // with. diff -u would stop it three lines into the four both files end
+    // with; git 2.43 takes it to the last, whatever the context.
+    const hunks = (context) => {
+      const patch = patchOf([{ name: 'f', data: '\na\n\n\n\n\n\n' }], [{ name: 'f', data: 'a\n\n\n\n\n' }], { context })
+      return patch.slice(patch.indexOf('@@'))
+    }
+    assert.equal(hunks(3), '@@ -1,7 +1,5 @@\n-\n a\n \n \n \n \n-\n')
+    assert.equal(hunks(0), '@@ -1 +0,0 @@\n-\n@@ -7 +5,0 @@ a\n-\n')
+  })
+
   it('takes the context it is given', () => {
     // Lines of digits, which no hunk is named by.
     const after = '1\n2\n3!\n4\n5\n', before = '1\n2\n3\n4\n5\n'

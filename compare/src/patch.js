@@ -3,9 +3,9 @@
 // blocks, so a run of lines free to move may sit elsewhere than git puts it.
 
 import { utf8fromString, utf8toString } from '@exodus/bytes/utf8.js'
-import { changeSet, formatChangeSet } from '@preventive/diff'
+import { formatChangeSet } from '@preventive/diff'
 import { quote } from './quote.js'
-import { checkLineOptions, textOf } from './text.js'
+import { changeSetOf, checkLineOptions, textOf } from './text.js'
 import { sameContent } from './tree.js'
 
 const gitMode = (file) => (file.type === 'symlink' ? '120000' : (0o100000 | file.mode).toString(8))
@@ -48,7 +48,7 @@ function body(one, two, blocks, from, to, { context, ...options }) {
   if (oldText === undefined || newText === undefined) {
     return one !== null && two !== null && sameContent(one, two) ? '' : `Binary files ${from} and ${to} differ\n`
   }
-  const hunks = formatChangeSet(oldText, newText, blocks ?? changeSet(oldText, newText, options), { ...options, context, label: hunkNames(oldText) })
+  const hunks = formatChangeSet(oldText, newText, blocks ?? changeSetOf(oldText, newText, options), { ...options, context, label: hunkNames(oldText) })
   return hunks === '' ? '' : `--- ${label(from)}\n+++ ${label(to)}\n${hunks}`
 }
 

@@ -32,16 +32,23 @@ function brief(a, b, compare) {
   return sameLines(splitRecords(a), splitRecords(b), key) ? '' : DIFFER
 }
 
+// A horizon is a number of lines, or Infinity for all there are.
+function lineCount(horizon) {
+  if (!(Number.isInteger(horizon) && horizon >= 0) && horizon !== Infinity) throw new RangeError(`horizon is a number of lines, not ${horizon}`)
+  return horizon
+}
+
 // The change set `diff` prints, without printing it: the blocks of the first
 // file replaced by blocks of the second, each holding the lines it removes
 // and inserts, as a block read out of a diff does. A run free to sit in more
-// than one place sits where a unified diff prints it, unless `slide` says
-// otherwise, so this and `diff` with context lines describe one change set.
+// than one place sits where `diff` puts it with three lines of context;
+// `horizon` is the context to match instead (0 for the normal format), or
+// Infinity to let every run go as far as it can, as git does.
 // With nothing asked of the comparison, applyChangeSet over the first file
 // gives back the second.
-export function changeSet(a, b, { slide = true, ...comparison } = {}) {
+export function changeSet(a, b, { slide = true, horizon = 3, ...comparison } = {}) {
   const from = splitRecords(a), to = splitRecords(b)
-  return diffLines(from, to, { ...comparison, slide }).map(({ a0, a1, b0, b1 }) => ({ a0, a1, b0, b1, remove: from.slice(a0, a1), insert: to.slice(b0, b1) }))
+  return diffLines(from, to, { ...comparison, slide, horizon: lineCount(horizon) }).map(({ a0, a1, b0, b1 }) => ({ a0, a1, b0, b1, remove: from.slice(a0, a1), insert: to.slice(b0, b1) }))
 }
 
 // A change set already in hand, printed as `diff` prints the one it finds,
@@ -59,14 +66,14 @@ export function formatChangeSet(a, b, blocks, { format = 'unified', context = 3,
 export function diff(a, b, { format = 'unified', context = 3, label = null, ...compare } = {}) {
   if (format === 'brief') return brief(a, b, compare)
   const from = splitRecords(a), to = splitRecords(b)
-  // A run of changes that could sit in more than one place is settled only
-  // where there are context lines for it to sit among. diff does the same:
-  // the normal format prints none and takes the placement the search
-  // reached, and a context format asked for no context takes it too, which
-  // is why `diff` and `-U0` agree with each other and not with `-u`. An
-  // explicit `slide` is the caller's word and wins.
-  const { slide = format !== 'normal' && context > 0, ...comparison } = compare
-  const blocks = diffLines(from, to, { ...comparison, slide })
+  // A run of changes that could sit in more than one place is settled in
+  // every format, but may move into what the two files share at either end
+  // only as far as the context lines printed there, or `horizon` if that is
+  // more -- as diff does, which is why `diff` and `-U0` can agree with each
+  // other and not with `-u`. The normal format prints no context.
+  const { slide = true, horizon = 0, ...comparison } = compare
+  const reach = lineCount(horizon)
+  const blocks = diffLines(from, to, { ...comparison, slide, horizon: format === 'normal' ? reach : Math.max(reach, context) })
   // Two files the comparison calls the same have no diff.
   if (blocks.length === 0) return ''
   return FORMAT[format](from, to, blocks, { context, label })
