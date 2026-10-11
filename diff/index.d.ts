@@ -82,6 +82,16 @@ export function changeSet(a: string, b: string, options?: CompareOptions & {
   slide?: boolean
 }): Block[]
 
+// A change set in hand printed as `diff` prints the one it finds, with no
+// search: `formatChangeSet(a, b, changeSet(a, b))` is `diff(a, b)`. Only the
+// ranges of a block are read. It has to rebuild `b` from `a` under the
+// comparison options given, or a DiffError is thrown before anything prints.
+export function formatChangeSet(a: string, b: string, blocks: Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[], options?: CompareOptions & {
+  format?: 'unified' | 'context' | 'normal'
+  context?: number
+  label?: ((index: number) => string | null) | null
+}): string
+
 // A diff read back into the files it names and what it says about each.
 export function parseDiff(text: string): ParsedFile[]
 

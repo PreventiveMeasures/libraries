@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { DiffError } from '@preventive/diff'
 import { compareTrees, formatPatch } from '../compare.js'
 
 // The patch, where git.test.js cannot say it: where git writes what a string
@@ -40,6 +41,13 @@ describe('the patch', () => {
   it('writes a binary file added, or renamed and unchanged, as git does', () => {
     assert.equal(patchOf([], [{ name: 'x.bin', data: '\0' }]), 'diff --git a/x.bin b/x.bin\nnew file mode 100644\nBinary files /dev/null and b/x.bin differ\n')
     assert.equal(patchOf([{ name: 'x.bin', data: '\0' }], [{ name: 'y.bin', data: '\0' }]), 'diff --git a/x.bin b/y.bin\nsimilarity index 100%\nrename from x.bin\nrename to y.bin\n')
+  })
+
+  it("prints each change's own blocks, and refuses blocks that do not carry old to new", () => {
+    const [change] = compareTrees([{ name: 'f', data: 'a\nb\n' }], [{ name: 'f', data: 'a\nB\n' }])
+    assert.match(formatPatch([change]), /^-b\n\+B\n$/mu)
+    assert.throws(() => formatPatch([{ ...change, blocks: [] }]), DiffError)
+    assert.throws(() => formatPatch([{ ...change, blocks: [{ a0: 0, a1: 1, b0: 0, b1: 1 }] }]), DiffError)
   })
 
   it('writes nothing for no changes', () => {

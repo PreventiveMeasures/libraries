@@ -8,11 +8,11 @@
 //
 // What it cannot give is the change set itself, to count what changed or to
 // render it twice. `changeSet` gives that, in the shape parseDiff reads one
-// out of a diff. Everything else is one call.
+// out of a diff, and `formatChangeSet` prints one. Everything else is one call.
 
 import { lineComparisonKey, splitRecords } from './compare.js'
 import { formatContext, formatNormal, formatUnified } from './format.js'
-import { diffLines, sameLines } from './myers.js'
+import { diffLines, sameLines, verifyChangeSet } from './myers.js'
 
 const FORMAT = { unified: formatUnified, context: formatContext, normal: formatNormal }
 
@@ -42,6 +42,18 @@ function brief(a, b, compare) {
 export function changeSet(a, b, { slide = true, ...comparison } = {}) {
   const from = splitRecords(a), to = splitRecords(b)
   return diffLines(from, to, { ...comparison, slide }).map(({ a0, a1, b0, b1 }) => ({ a0, a1, b0, b1, remove: from.slice(a0, a1), insert: to.slice(b0, b1) }))
+}
+
+// A change set already in hand, printed as `diff` prints the one it finds,
+// with no search. It comes from the caller, so it is held to what the
+// search's own is held to before a line is printed: carried out over the
+// first file, under the comparison given, it has to give the second.
+export function formatChangeSet(a, b, blocks, { format = 'unified', context = 3, label = null, ...comparison } = {}) {
+  if (!Object.hasOwn(FORMAT, format)) throw new RangeError(`a change set prints as unified, context or normal, not ${format}`)
+  const from = splitRecords(a), to = splitRecords(b)
+  verifyChangeSet(from, to, blocks, lineComparisonKey(comparison))
+  if (blocks.length === 0) return ''
+  return FORMAT[format](from, to, blocks, { context, label })
 }
 
 export function diff(a, b, { format = 'unified', context = 3, label = null, ...compare } = {}) {

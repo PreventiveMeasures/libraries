@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { applyChangeSet } from '../src/apply.js'
-import { changeSet, diff } from '../src/diff.js'
+import { changeSet, diff, formatChangeSet } from '../src/diff.js'
+import { DiffError } from '../src/myers.js'
 import { parseDiff } from '../src/parse.js'
 import { FILES, RECORDINGS } from './fixtures/gnu-diff.js'
 
@@ -156,5 +157,45 @@ describe('changeSet is the change set a unified diff prints', () => {
   it('carries the comparison options to the search', () => {
     assert.deepEqual(changeSet('A  b\n', 'a b\n', { ignoreCase: true, whitespace: 'all' }), [])
     assert.equal(changeSet('A  b\n', 'a b\n').length, 1)
+  })
+})
+
+// The change set in hand, printed: what `diff` prints of the two files is what
+// formatChangeSet prints of the change set `diff` finds, recording for
+// recording, and a change set read back out of a diff prints as that diff.
+describe('formatChangeSet prints a change set as diff prints it', () => {
+  for (const recording of RECORDINGS) {
+    if (recording.showFunction) continue
+    it(recording.command, () => {
+      const [from, to] = recording.names.map((name) => FILES[name])
+      const { format, context } = recording
+      const blocks = changeSet(from, to, { slide: format !== 'normal' && context > 0 })
+      assert.equal(formatChangeSet(from, to, blocks, { format, context }), diff(from, to, { format, context }))
+      const body = format === 'normal' ? recording.stdout : recording.stdout.split('\n').slice(2).join('\n')
+      if (body !== '') assert.equal(formatChangeSet(from, to, parseDiff(body)[0].blocks, { format, context }), body)
+    })
+  }
+
+  it('prints nothing for no changes, and names hunks as it is told', () => {
+    assert.equal(formatChangeSet('a\n', 'a\n', []), '')
+    assert.equal(formatChangeSet('a\nb\n', 'a\nX\n', changeSet('a\nb\n', 'a\nX\n'), { label: () => 'here' }), '@@ -1,2 +1,2 @@ here\n a\n-b\n+X\n')
+  })
+
+  it('refuses a change set that does not carry the first file to the second', () => {
+    const a = 'one\ntwo\nthree\n', b = 'one\nTWO\nthree\n'
+    assert.throws(() => formatChangeSet(a, b, []), DiffError)
+    assert.throws(() => formatChangeSet(a, b, [{ a0: 0, a1: 1, b0: 0, b1: 1 }]), DiffError)
+    assert.throws(() => formatChangeSet(a, b + 'four\n', changeSet(a, b)), DiffError)
+  })
+
+  it('holds the change set to the comparison it was found under', () => {
+    const a = 'A  b\nc\n', b = 'a b\nC\n'
+    const blocks = changeSet(a, b, { ignoreCase: true, whitespace: 'all' })
+    assert.equal(formatChangeSet(a, b, blocks, { ignoreCase: true, whitespace: 'all' }), '')
+    assert.throws(() => formatChangeSet(a, b, blocks), DiffError)
+  })
+
+  it('prints as unified, context or normal alone', () => {
+    for (const format of ['brief', 'git', 'toString']) assert.throws(() => formatChangeSet('a\n', 'b\n', changeSet('a\n', 'b\n'), { format }), RangeError, format)
   })
 })

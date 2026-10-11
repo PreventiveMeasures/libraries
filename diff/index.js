@@ -26,6 +26,10 @@ export { diff } from './src/diff.js'
 // removes and inserts, as `parseDiff` reads them back out of a diff.
 export { changeSet } from './src/diff.js'
 
+// The other way round: a change set in hand -- changeSet's, or one read out
+// of a diff -- printed as `diff` would print it, without searching again.
+export { formatChangeSet } from './src/diff.js'
+
 // The other direction. `parseDiff` reads a diff -- any of the three formats,
 // at any width -- into the files it names and, for each, the hunks it is
 // written in and the change set they describe. `applyChangeSet` carries one
