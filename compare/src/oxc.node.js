@@ -1,8 +1,7 @@
 import { createRequire } from 'node:module'
 
-// oxc-parser and oxc-minify, optional peers of names.js, required on first
-// use: compare.js loads neither. One missing is the environment's error,
-// thrown as such rather than taken for a text that does not parse.
+// oxc-parser and oxc-minify, optional peers, required on first use; one missing
+// is thrown as the environment's error, not taken for a text that won't parse.
 const require = createRequire(import.meta.url)
 let oxc
 
@@ -14,7 +13,4 @@ function load(name) {
   }
 }
 
-export function getOxc() {
-  oxc ??= { parseSync: load('oxc-parser').parseSync, minifySync: load('oxc-minify').minifySync }
-  return oxc
-}
+export const getOxc = () => (oxc ??= { parseSync: load('oxc-parser').parseSync, minifySync: load('oxc-minify').minifySync })

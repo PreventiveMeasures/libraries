@@ -1,13 +1,12 @@
-// Checks that should never fail, standing between the steps of renaming: each
-// throws a Broken naming what failed, and renameMap then gives no names.
+// Checks that should never fail, between the steps of renaming: each throws a
+// Broken naming what failed, and renameMap then gives no names.
 
 import { analyze } from './analyze.js'
-import { APART, IDENTIFIER, MINIFIED, RESERVED, holds } from './syntax.js'
+import { APART, MINIFIED, RESERVED, holds } from './syntax.js'
 
-// A text's analysis checked to hang together: each name it would rename
-// written as that name where it is, read once and in order, none both a
-// variable's and a global's, each variable declared and read by its own name,
-// standing in its scopes by that name.
+// Each name to rename written as that name where it is, read once and in
+// order, none a variable's and a global's both, each variable declared, read
+// and standing in its scopes by its own name.
 export function checkAnalysis(text, { scopes, variables, occurrences, globals }) {
   const known = new Set(variables), read = new Set()
   let end = 0
@@ -25,8 +24,7 @@ export function checkAnalysis(text, { scopes, variables, occurrences, globals })
   for (const at of scopes) for (const [name, variable] of at.names) holds(known.has(variable) && variable.name === name, `a scope's ${name} no variable of its name`)
 }
 
-// Which old variable became which new one, checked: renamable variables
-// alone, each new one taken once, the weak among those paired.
+// Renamable variables alone paired, each new one once, the weak among them.
 export function checkPairing(a, b, { map, weak }) {
   const news = new Set(b.variables), taken = new Set()
   for (const [variable, to] of map) {
@@ -37,22 +35,21 @@ export function checkPairing(a, b, { map, weak }) {
   for (const variable of weak) holds(map.has(variable), `${variable.name} weak, and paired with none`)
 }
 
-// The names given, checked: each changed one a renamable variable's, a name a
-// variable may have, and either its counterpart's or one apart no side holds.
+// Each name changed a renamable variable's, one a minifier gives and no
+// keyword, and its counterpart's or one apart that neither side holds.
 export function checkGiven(a, b, map, given) {
   for (const variable of a.variables) {
     const name = given.get(variable)
     if (name === variable.name) continue
     holds(variable.aside, `${variable.name}, which keeps its name, named ${name}`)
-    holds(IDENTIFIER.test(name) && MINIFIED.test(name) && !RESERVED.has(name), `${variable.name} named ${name}, which no variable may be`)
+    holds(MINIFIED.test(name) && !RESERVED.has(name), `${variable.name} named ${name}, which no variable may be`)
     holds(map.has(variable) ? map.get(variable).name === name : name.startsWith(variable.name + APART) && !a.names.has(name) && !b.names.has(name),
       `${variable.name} named ${name}, neither its counterpart's name nor one apart`)
   }
 }
 
-// The renamed text read again as the old one was: each name where it was,
-// written as given, the names of one variable still one variable's and those
-// of two still two's, and the same globals read.
+// The renamed text read again: each name where it was, written as given, one
+// variable's names still one variable's and two's two, the same globals read.
 export function checkRenamed(a, given, text, extension) {
   const r = analyze(text, extension)
   holds(!r.reason, `the renamed text read again: ${r.reason}`)

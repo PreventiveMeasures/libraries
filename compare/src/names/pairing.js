@@ -1,22 +1,13 @@
-// Which old variable became which new one. Every pair of lines counts each
-// variable as standing for the other in it, and an old variable and a new one
-// pair where each is the other's most counted of those not yet paired, a tie
-// pairing neither, until none more do: a stray pair of lines (`e = a;` beside
-// another function's `e = n;`) outweighed, and one paired leaving the next
-// its due (`var a, b; f(a); g(b)` -> `var c, d; f(c); g(c)` pairs a with c,
-// then b with d). Lines pair as the diff of their keys has them unchanged;
-// then, for variables those say nothing of, the lines of a change of as many
-// lines on each side, in order (`n => n * 2` -> `n => n * 3`), which can so
-// never undo what unchanged lines say: those so paired are `weak`, the first
-// to give way where names would read wrongly.
+// Which old variable became which new one: each pair of lines, as the diff of
+// their keys (names set aside) pairs them, counts its variables as standing for
+// each other, and two each the other's most counted pair, a tie pairing neither.
 
 import { changeSet } from '@preventive/diff'
 
-// The fewest unchanged lines in a row between changes whose pairs count as
-// unchanged lines do in pairing variables.
+// Unchanged lines between changes that pair as unchanged ones, not as changed.
 const ANCHORED_RUN = 3
 
-// Lines differing in whitespace alone pair too: it never tells a name apart.
+// Whitespace alone never tells a name apart.
 const changes = (a, b) => changeSet(a, b, { horizon: 0, whitespace: 'all' })
 
 // A text's lines with its renamable variables' names set aside (`key`), and
@@ -42,17 +33,12 @@ function count(map, from, to) {
   map.get(from).set(to, (map.get(from).get(to) ?? 0) + 1)
 }
 
-// Each pair of lines counted, unchanged ones apart from changed ones. A short
-// run of unchanged lines between changes may pair two alike lines of
-// different places (`function K(t, e) {` with an added `function ls(t, e) {`,
-// their names set aside): told as a changed line is. In a change of unlike
-// lengths, its lines that read alike but for a final `;` or `,` (a
-// declaration others now follow: `let t = ...;` -> `let t = ...,`) pair as
-// their own diff has them, in order.
+// Pairs of lines counted, a long run of unchanged ones apart from the rest. In
+// a change of unlike lengths, lines alike but for a final `;` or `,` pair (a
+// declaration others now follow: `let t = ...;` -> `let t = ...,`).
 function tallied(ka, kb) {
   const changed = tallies(), unchanged = tallies()
-  // A pair reading variables on one side its other does not (`{ a }`
-  // declared on one alone) says nothing of which became which.
+  // Lines reading variables one side has and the other not say nothing.
   const tally = ({ backward, forward }, pa, pb) => {
     const news = kb.lines[pb], olds = ka.lines[pa]
     if (olds.length !== news.length) return
@@ -96,7 +82,7 @@ function best(counts, taken) {
   return found
 }
 
-// Pairs from counts, into `map`, until none more pair; those paired.
+// Pairs each the other's best, into `map`, until none more pair.
 function matched({ backward, forward }, { map, paired }, eligible = () => true) {
   const chosen = []
   for (let more = true; more;) {
@@ -114,6 +100,8 @@ function matched({ backward, forward }, { map, paired }, eligible = () => true) 
   return chosen
 }
 
+// Unchanged lines pair first; changed ones then pair only what those say
+// nothing of, as `weak` pairs, the first to give way where names read wrongly.
 export function pairing(before, after, a, b) {
   const { changed, unchanged } = tallied(keyed(before, a), keyed(after, b))
   const found = { map: new Map(), paired: new Set() }

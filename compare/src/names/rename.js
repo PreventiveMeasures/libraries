@@ -1,21 +1,6 @@
-// The old side of a JavaScript file minified on both sides given the new
-// side's names, wherever a minifier renamed a variable alike throughout, so
-// that the two then diff as they are.
-//
-// Both sides are parsed (oxc-parser) and each name resolved, by JavaScript's
-// scopes, to the variable it stands for (analyze). Lines pair up as they are
-// with their variables' short names set aside, and every pair tells which
-// variable became which (pairing): an old one and a new one each the other's
-// most told of is renamed to the new one's name, on every line, removed ones
-// too. Any other old variable whose name the new side uses is renamed apart
-// (`r_old`), as it is none of the new side's: a line reading it never reads
-// as one reading the new side's. The names so given must leave each name read
-// where it was resolving to the same variable, a global's to none (misread),
-// and those that would not are renamed apart instead. The renamed text must
-// then bind as the old one did by oxc's minifier, whose scope analysis is
-// apart from this one (bindsAlike), else it is not used: a mistake here costs
-// a file its names, never its sense. Checks that should never fail stand
-// between the steps (check.js).
+// The old side of a file minified on both sides given the new side's names:
+// both analyzed, variables paired by their lines, the names given checked not
+// to read wrongly, and the result checked again by oxc (bindsAlike).
 
 import { getOxc } from '#oxc'
 import { analyze } from './analyze.js'
@@ -25,10 +10,9 @@ import { misread } from './misread.js'
 import { pairing } from './pairing.js'
 import { APART, Broken, holds } from './syntax.js'
 
-// Each old variable's name: its counterpart's, its own, or, where the new
-// side uses its own for another, one apart. Those the names would read
-// wrongly are renamed apart instead, a changed line's pairing first; null
-// where some can't be.
+// Each old variable's name: its counterpart's, else its own, or one apart where
+// the new side has its own. Those misread yield, weak pairs first; null where
+// none can.
 function givenNames(a, b, { map, weak }) {
   const apart = (name) => {
     let named = name + APART
@@ -44,8 +28,7 @@ function givenNames(a, b, { map, weak }) {
     const wrong = [...misread(a, given)]
     if (wrong.length === 0) return given
     const yielding = wrong.some((variable) => weak.has(variable) && map.has(variable)) ? wrong.filter((variable) => weak.has(variable)) : wrong
-    const dropped = yielding.filter((variable) => map.delete(variable))
-    if (dropped.length === 0) return null
+    if (yielding.filter((variable) => map.delete(variable)).length === 0) return null
   }
 }
 
@@ -68,24 +51,19 @@ function renamedNames(before, after, { extension = 'js', otherExtension = extens
   holds(before !== after || text === before, 'a text renamed as itself changed')
   checkRenamed(a, given, text, extension)
   if (!bindsAlike(before, text, a)) return { reason: 'unverified' }
-  let renamed = 0, separated = 0
-  for (const variable of a.variables) {
-    if (given.get(variable) === variable.name) continue
-    if (paired.map.has(variable)) renamed++
-    else separated++
-  }
+  const changed = a.variables.filter((variable) => given.get(variable) !== variable.name)
+  const renamed = changed.filter((variable) => paired.map.has(variable)).length
   const reads = [...new Set([...a.reads, ...b.reads])].toSorted()
-  return { text, renamed, apart: separated, kind: { module: a.module, commonjs: a.commonjs, own: a.own }, reads }
+  return { text, renamed, apart: changed.length - renamed, kind: { module: a.module, commonjs: a.commonjs, own: a.own }, reads }
 }
 
-// Any failure, a check's or anything else's, gives no names and tells what
-// failed: a mistake here shows a file with its names, never with names it
-// does not have. oxc is had first, outside: one missing is thrown.
+// Any failure gives no names, and tells what failed. oxc is loaded first, out
+// of the try: one missing is thrown, not taken for a text it could not read.
 export function renameMap(before, after, options = {}) {
   getOxc()
   try {
     return renamedNames(before, after, options)
-  } catch (err) {
-    return { reason: 'unverified', invariant: err instanceof Broken ? err.message : `${err?.name ?? 'Error'}: ${err?.message ?? err}` }
+  } catch (error) {
+    return { reason: 'unverified', invariant: error instanceof Broken ? error.message : String(error) }
   }
 }

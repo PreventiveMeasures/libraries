@@ -1,32 +1,18 @@
-// A text's scopes and variables, each name in it a variable's (`occurrences`,
-// with the scope it is read from, in order) or a global's (`globals`), or
-// `{ reason }` where names can't all be followed: a text that does not parse
-// (`unparsed`), reads a name by its spelling (`eval`, `with`: `dynamic`) or
-// holds JSX (`jsx`), or, outside strict code, declares a function in a block,
-// which there sets its function's variable of that name too (`block-function`).
-// Parsed as its `extension` has it: an `.mjs` file a module, a `.cjs` one a
-// CommonJS module, any other a module where it says so (`import`, `export`).
-// A variable is renamable (`aside`) where its name is short and a declaration
-// stands for it (`var`, `let`, `const`, `function`, `class`, `import`,
-// `catch`, parameters), but not at a script's top level, where it is a global
-// another script may read, nor where its name is part of what the file says:
-// exported by that name (`export { a }`, `export const a`), imported by it
-// (`import { a }`), or a shorthand property's (`{ a }`, `const { a } = o`).
-// Properties, keys, labels and strings are no variable's.
+// A text's scopes and variables, each name read a variable's or a global's, or
+// `{ reason }` where names can't all be followed. Renamable (`aside`): short and
+// declared, and no script's global, export's or import's own name, or shorthand.
 
 import { getOxc } from '#oxc'
 import { MINIFIED, NAME_READS, RENAMED_MAX_LENGTH, declared, hoistedPast, holds, resolve, saysStrict } from './syntax.js'
 
 const FUNCTIONS = new Set(['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression'])
-// What holds `let`, `const`, `class` and functions declared in it as its own.
+// Statements whose `let`, `const`, `class` and functions are their own.
 const BLOCKS = new Set(['BlockStatement', 'ForStatement', 'ForInStatement', 'ForOfStatement', 'SwitchStatement'])
-// A CommonJS module's own names, read where no declaration stands for them:
-// its top level is a function's, not every script's.
+// Globals that make a script a CommonJS module, its top level its own.
 const COMMONJS = new Set(['exports', 'module', 'require'])
 
-// The parser is had outside the try: one missing is the environment's error,
-// not a text's that would not parse. With oxc's semantic errors too: a text it
-// finds one in it can't vouch for.
+// oxc is loaded outside the try: one missing is no text that won't parse. A text
+// oxc's semantic check finds an error in is one it can't vouch for.
 function parsed(text, extension) {
   const sourceType = extension === 'mjs' ? 'module' : extension === 'cjs' ? 'commonjs' : 'unambiguous'
   const { parseSync } = getOxc()
@@ -38,21 +24,19 @@ function parsed(text, extension) {
   }
 }
 
-// Strict code is a module's, a class's, and a function's or a script's that
-// says so (`"use strict"`), with all within it.
 function scope(s, parent, fn) {
   const made = { parent, fn, names: new Map(), strict: parent?.strict ?? false }
   s.scopes.push(made)
   return made
 }
 
-// A function body's `var` or function named as one of its parameters is
-// that parameter (`function f(a) { var a; return a }` returns its argument).
+// A body's `var` or function named as one of its parameters is that parameter:
+// `function f(a) { var a; return a }` returns its argument.
 function declare(s, where, node) {
   const at = where.parameters?.names.has(node.name) ? where.parameters : where
   let variable = at.names.get(node.name)
   if (!variable) {
-    variable = { id: s.variables.length, name: node.name, scope: at, kept: false, aside: false }
+    variable = { name: node.name, scope: at }
     at.names.set(node.name, variable)
     s.variables.push(variable)
   }
@@ -71,10 +55,8 @@ function join(s, kept, gone) {
   s.variables.splice(s.variables.indexOf(gone), 1)
 }
 
-// A `var` written within blocks passes through each to its function's scope,
-// innermost first. One named as a `catch`'s parameter it is in declares its
-// function's, its value going to the nearest such parameter (`catch (a) { var
-// a = 2 }`): the two keep one name.
+// A `var` is its function's, passing the blocks it is in on the way (`through`);
+// one named as a `catch` parameter it is in keeps one name with it.
 function declareVariables(node, where, s) {
   for (const declarator of node.declarations) {
     for (const id of declared(declarator.id)) {
@@ -89,9 +71,8 @@ function declareVariables(node, where, s) {
   }
 }
 
-// What a module's import or export says of its names: an imported or
-// exported name is no variable's, and a variable imported or exported by its
-// own name keeps it.
+// An imported or exported name is no variable's; a variable imported or
+// exported by its own name keeps it.
 function moduleNames(node, s) {
   if (node.type === 'ImportDeclaration') {
     for (const specifier of node.specifiers) {
@@ -111,8 +92,8 @@ function moduleNames(node, s) {
   else if (node.declaration?.id) s.keeping.add(node.declaration.id)
 }
 
-// Names a node says are no variable's, those whose variable keeps its name,
-// and the properties through which names are read (NAME_READS).
+// Names that are no variable's (keys, labels), names kept, and the properties
+// names are read through.
 function otherNames(node, s) {
   switch (node.type) {
     case 'ExportDefaultDeclaration': if (node.declaration.id) s.keeping.add(node.declaration.id); break
@@ -138,8 +119,7 @@ function otherNames(node, s) {
   }
 }
 
-// What a node declares or names, as it is met, or why names can't all be
-// followed.
+// What a node declares, or why its names can't all be followed.
 function visit(node, where, s) {
   switch (node.type) {
     case 'JSXElement': case 'JSXFragment': return 'jsx'
@@ -158,9 +138,8 @@ function visit(node, where, s) {
   }
 }
 
-// A function's parameters are a scope, its body's declarations one apart (a
-// default reads none of them: `(a = b) => { var b }`), and a function or class
-// expression's own name one around both.
+// Parameters are a scope, the body's declarations one apart (a default reads
+// none: `(a = b) => { var b }`), and an expression's own name one around both.
 function enterFunction(node, where, s) {
   const named = node.type !== 'FunctionDeclaration' && node.id ? scope(s, where, false) : where
   if (named !== where) declare(s, named, node.id)
@@ -202,8 +181,7 @@ function enter(node, where, s) {
   }
 }
 
-// Every node with the scope it is read in, a work list rather than a
-// recursion, as a minified file's expressions can nest deeply.
+// A work list rather than a recursion: a minified file's expressions nest deeply.
 function walk(program) {
   const s = { declarations: new Map(), scopes: [], variables: [], keeping: new Set(), others: new Set(), reads: new Set(), references: [], work: [] }
   s.root = Object.assign(scope(s, null, true), { strict: program.sourceType === 'module' || saysStrict(program.body) })
@@ -221,9 +199,8 @@ function walk(program) {
   return s
 }
 
-// Every name read resolved, from where it is read outward; one no declaration
-// stands for is a global's. `eval(...)` reads names by their spelling wherever
-// `eval` is declared: a variable holding the real one calls it as itself.
+// Each name read resolved outward from where it is read, else a global's.
+// `eval(...)` reads names by their spelling, wherever `eval` is declared.
 function resolved(program, s) {
   let commonjs = false
   const globals = [], occurrences = [...s.declarations].map(([node, [variable, where]]) => [node, variable, where])
@@ -249,8 +226,7 @@ function resolved(program, s) {
   }
   const deduplicated = occurrences.filter((entry, i) => i === 0 || entry[0].start !== occurrences[i - 1][0].start)
   const names = new Set([...s.variables.map(({ name }) => name), ...globals.map(([node]) => node.name)])
-  const { scopes, variables, reads } = s
-  return { scopes, variables, occurrences: deduplicated, globals, names, reads, module: program.sourceType === 'module', commonjs: program.sourceType === 'commonjs', own }
+  return { scopes: s.scopes, variables: s.variables, occurrences: deduplicated, globals, names, reads: s.reads, module: program.sourceType === 'module', commonjs: program.sourceType === 'commonjs', own }
 }
 
 export function analyze(text, extension) {
@@ -258,10 +234,8 @@ export function analyze(text, extension) {
   if (!program) return { reason: 'unparsed' }
   const s = walk(program)
   if (s.reason) return s
-  // A `var` named as a name a block it hoists past declares does not compile:
-  // a redeclaration oxc's semantic check misses beside a `catch`, told here as
-  // one it finds.
-  const named = (at) => at.names
-  for (const variable of s.variables) for (const path of variable.through ?? []) if (hoistedPast(variable, path, variable.name, named).length > 0) return { reason: 'unparsed' }
+  // A `var` named as a block's it hoists past does not compile, which oxc's
+  // semantic check misses beside a `catch`.
+  for (const variable of s.variables) for (const path of variable.through ?? []) if (hoistedPast(variable, path, variable.name, (at) => at.names).length > 0) return { reason: 'unparsed' }
   return resolved(program, s)
 }
