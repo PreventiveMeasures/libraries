@@ -18,6 +18,7 @@ modulesCacheMaxAge: 0
 
 packages:
   - "ai"
+  - "compare"
   - "diff"
   - "archive"
   - "deptree"

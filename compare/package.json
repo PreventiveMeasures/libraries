@@ -1,0 +1,63 @@
+{
+  "name": "@preventive/compare",
+  "version": "0.0.0",
+  "description": "Two file trees compared as git diff compares them: every file added, deleted, modified, renamed or changed in type, with its line change set, and the patch git writes",
+  "type": "module",
+  "main": "./compare.js",
+  "types": "./compare.d.ts",
+  "exports": {
+    ".": {
+      "types": "./compare.d.ts",
+      "default": "./compare.js"
+    },
+    "./compare.js": {
+      "types": "./compare.d.ts",
+      "default": "./compare.js"
+    }
+  },
+  "files": [
+    "LICENSE-APACHE",
+    "LICENSE-MIT",
+    "compare.d.ts",
+    "compare.js",
+    "src/changes.js",
+    "src/error.js",
+    "src/patch.js",
+    "src/quote.js",
+    "src/renames.js",
+    "src/similarity.js",
+    "src/text.js",
+    "src/tree.js"
+  ],
+  "engines": {
+    "node": ">=24.14.0"
+  },
+  "scripts": {
+    "test": "node --test ./tests/*.test.js"
+  },
+  "license": "MIT OR Apache-2.0",
+  "author": {
+    "name": "Nikita Skovoroda",
+    "email": "chalkerx@gmail.com",
+    "url": "https://github.com/ChALkeR"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PreventiveMeasures/libraries.git",
+    "directory": "compare"
+  },
+  "bugs": {
+    "url": "https://github.com/PreventiveMeasures/libraries/issues"
+  },
+  "homepage": "https://github.com/PreventiveMeasures/libraries/tree/main/compare",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@preventive/diff": "workspace:^"
+  },
+  "devDependencies": {
+    "@preventive/archive": "workspace:*",
+    "@preventive/vfs": "workspace:*"
+  }
+}
