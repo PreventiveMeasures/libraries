@@ -29,6 +29,8 @@ describe("paths: 'keys'", () => {
   it('tells renames by path in keys with empty segments', () => {
     const changes = compareTrees(tree({ 'webpack://app/lib/a.js': 'one\ntwo\nthree\n' }), tree({ 'webpack://app/src/a.ts': 'uno\ndos\ntres\n' }), { paths: 'keys' })
     assert.deepEqual(summary(changes), ['webpack://app/lib/a.js -> webpack://app/src/a.ts'])
+    const styles = compareTrees(tree({ 'webpack://app/a.css': 'one\n' }), tree({ 'webpack://app/a.scss': 'uno\n' }), { paths: 'keys' })
+    assert.deepEqual(summary(styles), ['webpack://app/a.css -> webpack://app/a.scss'], 'and by family, the directory kept')
   })
 })
 

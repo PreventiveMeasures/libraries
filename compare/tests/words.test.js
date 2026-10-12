@@ -19,6 +19,8 @@ describe('wordRanges', () => {
     assert.equal(wordRanges('x'.repeat(5000), 'y'), null)
     assert.deepEqual(wordRanges('same', 'same'), { a: [], b: [] }, 'lines the same have none, not null')
     assert.deepEqual(wordRanges('a = b', 'a =  b'), { a: [[3, 4]], b: [[3, 5]] }, 'blanks changed are marked')
+    assert.equal(wordRanges('', 'new code'), null, 'lines that share nothing are no line edited')
+    assert.deepEqual(wordRanges('f(a)', 'f(a, b)'), { a: [], b: [[3, 6]] }, 'but a line added to is')
   })
 
   it('marks every character that changed, for lines made at random', () => {
@@ -44,6 +46,7 @@ describe('pairLines', () => {
       'the second added line, not the first')
     assert.deepEqual(pairLines(['b', 'c'], ['B', 'C2', 'C3']), [], 'unrelated lines pair with none')
     assert.deepEqual(pairLines(['f(a)', 'g(b)'], ['f(c)', 'g(b)!']), [[0, 0], [1, 1]], 'in order')
+    assert.deepEqual(pairLines(['', 'f(a)'], ['f(b)']), [[1, 0]], 'a blank line takes no line from the one edited into it')
     assert.deepEqual(pairLines(Array.from({ length: 201 }, () => 'f(a)'), ['f(b)']), [], 'past 200 lines, none')
   })
 

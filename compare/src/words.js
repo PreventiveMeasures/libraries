@@ -26,8 +26,9 @@ function mergeRanges(ranges, text) {
 }
 
 // The ranges `[from, to)` that changed on each side, those split by whitespace
-// alone merged, and the smaller share of either line they cover; null past the
-// size limits. Each distinct token is one line of the diff, named by number.
+// alone merged, and the smaller share of either line they cover, all of it where
+// the lines share no token; null past the size limits. Each distinct token is
+// one line of the diff, named by number.
 function wordChanges(left, right) {
   if (left.length > MAX_CHARS || right.length > MAX_CHARS) return null
   const lt = left.match(TOKEN) ?? [], rt = right.match(TOKEN) ?? []
@@ -45,7 +46,8 @@ function wordChanges(left, right) {
   }
   const a = ranges('a', lt, left), b = ranges('b', rt, right)
   const share = (list, line) => list.reduce((sum, [from, to]) => sum + to - from, 0) / Math.max(1, line.length)
-  return { a, b, share: Math.min(share(a, left), share(b, right)) }
+  const shared = lt.length > blocks.reduce((sum, { a0, a1 }) => sum + a1 - a0, 0)
+  return { a, b, share: shared ? Math.min(share(a, left), share(b, right)) : 1 }
 }
 
 // Lines the same have no ranges, not null: null is a line with no word view.
