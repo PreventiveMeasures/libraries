@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 
-import { assertRepo, assertSoldeerName, assertSoldeerVersion, assertion, isGhsa, isRefName, isStrings } from '../args.js'
+import { assertRepo, assertSoldeerName, assertSoldeerVersion, assertion, isGhsa, isRefName, isRepo, isStrings } from '../args.js'
 import { readRecord, writeRecord } from '../cache.js'
 import { isGone } from '../github/client.js'
-import { recover } from '../http.js'
+import { HttpError, recover } from '../http.js'
 import { pool } from '../pool.js'
 import { isExactVersion } from '../semver.js'
 import { advisoryUrl, covered, detailsOf, isText, mayBeInRange, metrics } from './common.js'
@@ -21,7 +21,7 @@ const isRepoAdvisory = (advisory) => advisory && typeof advisory === 'object' &&
   && advisory.state === 'published' && isText(advisory.summary)
   && (advisory.vulnerabilities == null || Array.isArray(advisory.vulnerabilities)) && (advisory.cwe_ids == null || isStrings(advisory.cwe_ids))
 
-export const assertClient = assertion('a GitHub client from createClient', (value) => typeof value?.listRepoAdvisories === 'function')
+export const assertClient = assertion('a GitHub client from createClient', (value) => typeof value?.listRepoAdvisories === 'function' && typeof value.getRepo === 'function')
 
 // A maintainer may give a vulnerable range only its lower bound, and the
 // version that fixed it apart (`>= 5.0.0-beta.1`, patched in `5.0.0-rc.2`),
@@ -67,18 +67,37 @@ const isDigest = (advisory) => advisory && typeof advisory === 'object' && isGhs
   && (advisory.description === undefined || isText(advisory.description))
   && Array.isArray(advisory.ranges) && advisory.ranges.every((entry) => typeof entry?.range === 'string')
 
-// A repository's listing, digested, through the cache: GitHub's names are
-// case-insensitive, so one entry answers every spelling. A repository gone,
-// renamed or blocked has none, and that is not kept.
+// GitHub answers for a repository renamed or transferred with a redirect,
+// which getRepo follows to the repository it is now, listed by that name.
+const isRedirect = (err) => err instanceof HttpError && err.status >= 300 && err.status < 400
+
+async function listingOf(github, repo) {
+  try {
+    return { repo, list: await github.listRepoAdvisories({ repo }) }
+  } catch (err) {
+    if (!isRedirect(err)) throw err
+  }
+  const moved = (await github.getRepo({ repo, followRedirect: true })).full_name
+  return { repo: moved, list: await github.listRepoAdvisories({ repo: moved }) }
+}
+
+// A repository's listing, digested, through the cache, and the repository
+// it is of: GitHub's names are case-insensitive, so one entry answers every
+// spelling, and one renamed or transferred is kept under the name asked,
+// with `repo` the one it has now. A repository gone or blocked, or
+// redirected anywhere getRepo does not follow, has none, and that is not
+// kept.
 async function listAdvisories(github, repo, cache) {
   const name = repo.toLowerCase()
   const entry = await readRecord(DIR, name, cache, LISTING_TTL_MS)
-  if (entry?.v === VERSION && Array.isArray(entry.advisories) && entry.advisories.every(isDigest)) return entry.advisories
-  const list = await github.listRepoAdvisories({ repo }).catch(recover(isGone, null))
-  if (list === null) return []
-  const advisories = digest(repo, list)
-  if (advisories.every(isDigest)) await writeRecord(DIR, name, { v: VERSION, advisories }, cache)
-  return advisories
+  if (entry?.v === VERSION && (entry.repo === undefined || isRepo(entry.repo)) && Array.isArray(entry.advisories) && entry.advisories.every(isDigest)) {
+    return { repo: entry.repo ?? repo, advisories: entry.advisories }
+  }
+  const found = await listingOf(github, repo).catch(recover((err) => isGone(err) || isRedirect(err), null))
+  if (found === null) return { repo, advisories: [] }
+  const advisories = digest(found.repo, found.list)
+  if (advisories.every(isDigest)) await writeRecord(DIR, name, { v: VERSION, ...(found.repo !== repo && { repo: found.repo }), advisories }, cache)
+  return { repo: found.repo, advisories }
 }
 
 // GitHub's `>= 1.0.0, < 1.2.6` is npm's with the commas dropped.
@@ -109,10 +128,10 @@ function fromRepository(repo, name, advisory, range, asked, { covers, details })
 async function repositoryAdvisories(github, asked, { repoOf, takes = () => true, covers, details, cache }) {
   // GitHub's names are case-insensitive: one spelling asks for all.
   const namesOf = Map.groupBy([...asked.keys()].filter(repoOf), (name) => repoOf(name).toLowerCase())
-  const listed = await pool([...namesOf.values()], REPOS_AT_ONCE, async (names) => ({ repo: repoOf(names[0]), names, list: await listAdvisories(github, repoOf(names[0]), cache) }))
+  const listed = await pool([...namesOf.values()], REPOS_AT_ONCE, async (names) => ({ names, ...(await listAdvisories(github, repoOf(names[0]), cache)) }))
   const rows = new Map()
-  for (const { repo, names, list } of listed) {
-    for (const advisory of list) {
+  for (const { repo, names, advisories } of listed) {
+    for (const advisory of advisories) {
       for (const { range, ...pkg } of advisory.ranges) {
         for (const name of names.filter((candidate) => takes(candidate, pkg))) {
           rows.set(`${name} ${advisory.ghsa} ${range}`, fromRepository(repo, name, advisory, range, asked.get(name), { covers, details }))

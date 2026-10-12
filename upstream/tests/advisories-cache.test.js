@@ -258,7 +258,27 @@ describe("a caller's store", () => {
     assert.deepEqual(await readdir(dir).catch(() => []), [], 'nothing on disk')
   })
 
-  it('takes what the store does not have, or has stale or malformed, as a miss', async () => {
+  it('keeps the listing of a repository renamed or transferred under the name asked, with the one it has now', async () => {
+    const store = mapStore()
+    const moved = new Response('', { status: 301, headers: { location: 'https://api.github.com/repositories/9' } })
+    const BY_ID = 'https://api.github.com/repositories/9'
+    let calls = stubUrls({ [OZ]: moved, 'https://api.github.com/repos/OpenZeppelin/openzeppelin-contracts': moved, [BY_ID]: { id: 9, full_name: 'OpenZeppelin/contracts' }, [listing('OpenZeppelin/contracts')]: LIST })
+    const fresh = await audit(undefined, { cache: store })
+    assert.deepEqual(calls, [OZ, 'https://api.github.com/repos/OpenZeppelin/openzeppelin-contracts', BY_ID, listing('OpenZeppelin/contracts')])
+    assert.ok(fresh.length > 0 && fresh.every((row) => row.url === 'https://github.com/OpenZeppelin/contracts/security/advisories/GHSA-aaaa-aaaa-aaaa'))
+    const entry = store.get(TYPE, KEY)
+    assert.deepEqual([entry.name, entry.repo, entry.advisories.map(({ ghsa }) => ghsa)], [KEY, 'OpenZeppelin/contracts', ['GHSA-aaaa-aaaa-aaaa']])
+    calls = stubUrls({})
+    assert.deepEqual(await audit('openzeppelin/OpenZeppelin-Contracts', { cache: store }), fresh.map((row) => ({ ...row, name: 'openzeppelin/OpenZeppelin-Contracts' })))
+    assert.deepEqual(calls, [], 'answered from the store, its rows still on the page by its name now')
+    // A name kept that is no `owner/name` is a miss.
+    store.set(TYPE, KEY, { ...entry, repo: '../x' })
+    calls = stubUrls({ [OZ]: [] })
+    assert.deepEqual(await audit(undefined, { cache: store }), [])
+    assert.deepEqual(calls, [OZ])
+  })
+
+    it('takes what the store does not have, or has stale or malformed, as a miss', async () => {
     const store = mapStore()
     const kept = { ghsa: 'GHSA-aaaa-aaaa-aaaa', title: 'Advisory', ranges: [] }
     const entry = (at, list) => ({ at, name: 'openzeppelin/openzeppelin-contracts', v: 2, advisories: list })
