@@ -35,6 +35,10 @@ describe('renamedAlone', () => {
     assert.equal(renamedAlone('f(a ,b)', 'f(c, d)', { whitespace: 'all' }), true, 'whitespace ignored under -w')
     assert.equal(renamedAlone('f(a ,b)', 'f(c, d)', { whitespace: 'change' }), false, 'and compared otherwise')
     for (const [before, after] of [['f(a / b, c[0] / 2);', 'f(d / e, g[0] / 2);'], ['x = this.n / a;', 'x = this.n / b;']]) assert.equal(renamedAlone(before, after), true, `${before} -> ${after}: a division`)
+    assert.equal(renamedAlone('f(a) /* x', 'f(b) /* y'), false, 'a comment unclosed runs to the end')
+    const line = `a${'/*a'.repeat(50_000)}`, start = performance.now()
+    renamedAlone(line, `b${line.slice(1)}`)
+    assert.ok(performance.now() - start < 2000, 'in time linear in its length')
   })
 })
 

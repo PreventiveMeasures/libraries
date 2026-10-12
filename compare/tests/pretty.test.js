@@ -54,7 +54,20 @@ describe('sameCode', () => {
       ['a{content:"a b"}', 'a {\n  content: "ab";\n}\n', 'a string\'s spaces'], ['a{content:"A"}', 'a {\n  content: "a";\n}\n', 'its case'],
       ['a{b:c;d:e}', 'a {\n  b: cd: e;\n}\n', 'two declarations made one'], [':root{--Brand:red}', ':root {\n  --brand: red;\n}\n', 'a custom property\'s case'],
       ['.Foo{a:b}', '.foo {\n  a: b;\n}\n', 'a class\'s'], ['.col-2XL{a:b}', '.col-2xl {\n  a: b;\n}\n', 'one that looks like a unit'], ['#Face{a:b}', '#face {\n  a: b;\n}\n', 'an id\'s'], ['a{animation:Spin}', 'a {\n  animation: spin;\n}\n', 'a value\'s'],
-      ['a{b:url(A.png)}', 'a {\n  b: url(a.png);\n}\n', 'a URL\'s'], ['clipPath{a:b}', 'clippath {\n  a: b;\n}\n', 'an element\'s']]) assert.equal(sameCode(before, after, 'css'), false, what)
+      ['a{b:url(A.png)}', 'a {\n  b: url(a.png);\n}\n', 'a URL\'s'], ['clipPath{a:b}', 'clippath {\n  a: b;\n}\n', 'an element\'s'],
+      ['#ABC[x=";"]{a:b}', '#abc[x=";"] {\n  a: b;\n}\n', 'an id\'s, a string read past'], ['@media /* KEEP */ screen{a{x:y}}', '@media /* keep */ screen {\n  a {\n    x: y;\n  }\n}\n', 'a comment\'s in a query'],
+      ['@supports (--Foo:1){a{x:y}}', '@supports (--foo: 1) {\n  a {\n    x: y;\n  }\n}\n', 'a custom property\'s in one'],
+      ['a{x:calc(1px + 2px)}', 'a {\n  x: calc(1px+2px);\n}\n', 'the spaces calc() needs']]) assert.equal(sameCode(before, after, 'css'), false, what)
+    assert.equal(sameCode('a+b,a:NTH-CHILD(2N+1){x:calc(1px + 2px)}', 'a + b,\na:nth-child(2n + 1) {\n  x: calc(1px + 2px);\n}\n', 'css'), true, 'a selector\'s `+` spaced')
+  })
+
+  it('reads text in time linear in its length', () => {
+    const start = performance.now()
+    for (const text of ['a:b'.repeat(100_000) + '{c:d}', `a{${'b:c'.repeat(100_000)}}`, '/*'.repeat(100_000), `a${' '.repeat(300_000)}b{}`, `[a=${' '.repeat(300_000)}b]{}`, `/*${' '.repeat(300_000)}*/`]) {
+      sameCode(text, text, 'css')
+    }
+    sameCode('/*'.repeat(100_000), '/*'.repeat(100_000), 'json')
+    assert.ok(performance.now() - start < 5000)
   })
 
   it('takes no other kind of file', () => {

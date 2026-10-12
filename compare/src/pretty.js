@@ -10,18 +10,22 @@ export const PRETTY_OPTIONS = { quoteProps: 'preserve', trailingComma: 'none', a
 const SCRIPTS = new Set(['js', 'mjs', 'cjs', 'jsx', 'ts', 'mts', 'cts', 'tsx'])
 const NUMBER = /(?<![\p{L}\p{N}_$])(?:0[box][\d_a-f]+n?|\d[\d_]*(?:\.[\d_]*)?(?:e[+-]?\d+)?n?)|(?<![\p{N}.])\.\d[\d_]*(?:e[+-]?\d+)?/giu
 const POSITION = new Set(['start', 'end', 'range', 'loc'])
-// Strings and comments, which are compared as written, split from the rest. CSS's
-// unquoted attribute values count as strings, as formatting quotes them.
+// Strings and comments, compared as written, split from the rest; one unclosed runs
+// to the end. CSS's unquoted attribute values count as strings, as formatting quotes them.
 const LITERAL = {
-  css: /("(?:[^"\\\n]|\\[^])*"|'(?:[^'\\\n]|\\[^])*'|\/\*[^]*?\*\/|(?<==\s*)-?[_a-z\u00A0-\uFFFF][-\w\u00A0-\uFFFF]*(?=\s*(?:[is]\s*)?\]))/iu,
-  json: /("(?:[^"\\\n]|\\[^])*"|\/\*[^]*?\*\/|\/\/.*)/u,
+  css: /("(?:[^"\\\n]|\\[^])*"|'(?:[^'\\\n]|\\[^])*'|\/\*[^]*?(?:\*\/|$)|(?=-?[_a-z\u00A0-\uFFFF])(?<==\s*)-?[_a-z\u00A0-\uFFFF][-\w\u00A0-\uFFFF]*(?=\s*(?:[is]\s*)?\]))/iu,
+  json: /("(?:[^"\\\n]|\\[^])*"|\/\*[^]*?(?:\*\/|$)|\/\/.*)/u,
 }
-// What formatting lowercases in CSS, strings aside: at-rule names, media and
-// supports queries, `!important`, units, a declaration's property and hex colors,
-// and a selector's pseudo-classes. Classes, custom properties and values keep their case.
-const CSS_CASE = new RegExp(String.raw`${LITERAL.css.source}|@(?:media|supports)\b[^{;"']*|@[-\w]+|![a-z]+|(?<![-\w.#\\])-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?[a-z]+|#[\da-f]{3,8}(?![-\w])(?![^;{}]*\{)|(?<![-\w.#\\])[a-z][-\w]*(?=\s*:)(?![^;{}]*\{)|(?<=:)-?[a-z][-\w]*(?=[^;{}]*\{)`, 'giu')
-// A space in CSS is kept between two characters a selector may hold, as in `.a .b`.
-const CSS_SPACE = /(?<![-\w\u00A0-\uFFFF%)\]*\\]) | (?![-\w\u00A0-\uFFFF.#:[(*&\\])|(?<=@[-\w]+) (?=\()|(?<=[)\]]) (?=[-\w]+\()/gu
+const UNIT = String.raw`(?<![-\w.#\\])-?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?[a-z]+`
+// What formatting changes in CSS but layout, strings and comments aside: it lowercases
+// at-rule names, queries, `!important`, units, a declaration's property and hex colors and a
+// selector's pseudo-classes, and spaces a selector's `+` (a value's is kept, as `calc()` needs).
+const CSS_FORM = new RegExp(String.raw`${LITERAL.css.source}|(?<query>@(?:media|supports)\b(?:[^{};/"']|\/(?!\*))*)|@[-\w]+|![a-z]+|${UNIT}`
+  + String.raw`|(?<declared>#[\da-f]{3,8}(?![-\w])|(?<![-\w.#\\])[a-z][-\w]*(?=\s*:))|(?<selected>(?<=:)-?[a-z][-\w]*|(?<!\s)\s*\+\s*)`, 'giu')
+// A query's words but its values (`(prefers-color-scheme: DARK)`) and custom properties.
+const QUERY_WORD = new RegExp(String.raw`${UNIT}|(?=[a-z])(?<![-\w.#\\]|:\s*)[a-z][-\w]*`, 'giu')
+// A space in CSS is kept between two characters a selector may hold, as in `.a .b`, and around `+`.
+const CSS_SPACE = /(?<![-\w\u00A0-\uFFFF%)\]*+\\]) | (?![-\w\u00A0-\uFFFF.#:[(*+&\\])| (?=\()(?<=@[-\w]+ )|(?<=[)\]]) (?=[-\w]+\()/gu
 
 // A number as the formatter spells it (`.50E+3` as `0.5e3`).
 function numberSpelling(text) {
@@ -39,12 +43,26 @@ const scriptForm = (text) => text.replaceAll(NUMBER, numberSpelling).replaceAll(
   .replaceAll(/(?<=\/)[dgimsuvy]{2,}(?![\p{L}\p{N}_$])/gu, (flags) => [...flags].toSorted().join(''))
 
 const squash = (text) => text.replaceAll(/\s+/gu, ' ').trim()
-const indentless = (text) => text.replaceAll(/[ \t]*\r?\n[ \t]*/gu, '\n')
+const indentless = (text) => text.replaceAll(/(?<![ \t])[ \t]*\r?\n[ \t]*/gu, '\n')
 
 // Formatting may change a string's quotes and a comment's indentation alone.
 function literal(token) {
   if (token.startsWith('/')) return indentless(token)
   return /^["']/u.test(token) ? `"${token.slice(1, -1).replaceAll(/\\(?=["'])/gu, '')}"` : `"${token}"`
+}
+
+// CSS as formatting would write it but for layout: what is in a selector or query (whose
+// next `{`, `;` or `}`, strings and comments aside, is a `{`) told from what is declared.
+function cssCase(text) {
+  const blank = text.replaceAll(new RegExp(LITERAL.css.source, 'giu'), (token) => ' '.repeat(token.length))
+  const selector = new Uint8Array(text.length + 1)
+  for (let i = text.length - 1; i >= 0; i--) selector[i] = '{;}'.includes(blank[i]) ? Number(blank[i] === '{') : selector[i + 1]
+  return text.replaceAll(CSS_FORM, (token, string, ...rest) => {
+    const { query, declared, selected } = rest.at(-1), inSelector = selector[rest.at(-3)] === 1
+    if (string !== undefined || (declared !== undefined && inSelector) || (selected !== undefined && !inSelector)) return token
+    if (query !== undefined) return token.replaceAll(QUERY_WORD, (word) => word.toLowerCase())
+    return token.includes('+') ? '+' : token.toLowerCase()
+  })
 }
 
 // Formatting ends a CSS block's last declaration with `;`.
@@ -54,11 +72,7 @@ function code(part, css) {
 }
 
 const sameList = (a, b) => a.length === b.length && a.every((item, i) => item === b[i])
-function textForm(text, extension) {
-  const css = extension === 'css'
-  const cased = css ? text.replaceAll(CSS_CASE, (token, string) => string ?? token.toLowerCase()) : text
-  return cased.split(LITERAL[extension]).map((part, i) => (i % 2 ? literal(part) : code(part, css)))
-}
+const textForm = (text, extension) => (extension === 'css' ? cssCase(text) : text).split(LITERAL[extension]).map((part, i) => (i % 2 ? literal(part) : code(part, extension === 'css')))
 
 function parsed(text, extension) {
   const lang = extension === 'tsx' ? 'tsx' : /^[cm]?ts$/u.test(extension) ? 'ts' : 'jsx'
