@@ -110,14 +110,18 @@ export interface Advisory {
 // merged, and must not name two repositories. npm is asked 250 names a
 // request, OSV 1000 versions, Soldeer one project, and with `details`, OSV
 // one GHSA among npm's rows; a project Soldeer does not have or that names
-// no GitHub repository, and a repository gone, renamed or blocked, add
-// nothing, and a GHSA OSV does not have adds no `details`. Any other
-// failure, a malformed answer, or one about something not asked, throws:
-// nothing is left out quietly.
+// no GitHub repository, a repository gone or blocked, and one GitHub
+// redirects anywhere but to a repository by its id, add nothing, and a
+// GHSA OSV does not have adds no `details`. A repository renamed or
+// transferred, which GitHub redirects to it by its id, is listed by the
+// name it has now, as getRepo's `followRedirect` (github.js) finds it, its
+// rows' `url` on it. Any other failure, a malformed answer, or one about
+// something not asked, throws: nothing is left out quietly.
 // A repository's listing is kept for 90 minutes, as one entry for every
-// spelling of its name, holding only what rows are made from, `details`
-// included: in setCacheDir's cache gzipped, in a `cache` store as it is,
-// or with `cache` false, nowhere. 90 minutes is how late an advisory its
+// spelling of the name it is asked by, one renamed or transferred too,
+// holding only what rows are made from, `details` included: in
+// setCacheDir's cache gzipped, in a `cache` store as it is, or with
+// `cache` false, nowhere. 90 minutes is how late an advisory its
 // maintainer publishes can be seen. One gone or malformed is not kept.
 // Sorted by ecosystem and name. Versions are matched by npm's semver, from
 // the npm beside node, or by the semver peer where there is no npm.

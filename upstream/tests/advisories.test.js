@@ -79,6 +79,7 @@ describe('advisories', () => {
     await assert.rejects(advisories([ok], { repoAdvisories: true }), /advisories: repoAdvisories needs a github client/u)
     await assert.rejects(advisories([{ ecosystem: 'github', name: 'acme/app', versions: ['1.0.0'] }]), /advisories: github packages need a github client/u)
     await assert.rejects(advisories([ok], { github: {} }), /advisories: github must be a GitHub client from createClient/u)
+    await assert.rejects(advisories([ok], { github: { listRepoAdvisories: github.listRepoAdvisories } }), /advisories: github must be a GitHub client from createClient/u)
     await assert.rejects(advisories([ok], { gitHub: {} }), /advisories: unknown option gitHub/u)
     await assert.rejects(advisories([ok], { details: 'yes' }), /advisories: details must be a boolean/u)
     assert.deepEqual(calls, [])
@@ -254,6 +255,7 @@ describe('npm', () => {
 
 describe('npm, with a GitHub client', () => {
   const REPO_ADVISORIES = listing('acme/mono')
+  const REPO = 'https://api.github.com/repos/acme/mono'
   const GIVEN = listing('acme/given')
   const repoAdvisory = (ghsa, vulnerabilities, overrides = {}) => ({
     ghsa_id: ghsa,
@@ -379,20 +381,36 @@ describe('npm, with a GitHub client', () => {
     assert.deepEqual(calls.filter((url) => url.startsWith('https://api.github.com/')), [REPO_ADVISORIES])
   })
 
-  it('skips a repository gone, renamed or blocked, and throws on any other failure', async () => {
+  it('skips a repository gone or blocked, or redirected anywhere but to a repository by its id, and throws on any other failure', async () => {
     const one = [{ name: 'mono-a', version: '1.0.0', github: 'acme/mono' }]
     const options = { github, repoAdvisories: true }
-    for (const status of [301, 404, 410, 451]) {
-      const answer = status === 301 ? new Response('', { status, headers: { location: 'https://api.github.com/repositories/1' } }) : Response.json({ message: 'x' }, { status })
-      stubAll({ github: { [REPO_ADVISORIES]: answer } })
+    for (const status of [404, 410, 451]) {
+      stubAll({ github: { [REPO_ADVISORIES]: Response.json({ message: 'x' }, { status }) } })
       assert.deepEqual(await npm(one, options), [], String(status))
     }
+    // getRepo asked where it leads, and refusing it.
+    const elsewhere = new Response('', { status: 301, headers: { location: 'https://example.com/repositories/1' } })
+    const calls = stubAll({ github: { [REPO_ADVISORIES]: elsewhere, [REPO]: elsewhere } })
+    assert.deepEqual(await npm(one, options), [])
+    assert.deepEqual(calls.filter((url) => url.startsWith('https://api.github.com/')), [REPO_ADVISORIES, REPO])
     for (const status of [403, 500]) {
       stubAll({ github: { [REPO_ADVISORIES]: Response.json({ message: 'x' }, { status }) } })
       await assert.rejects(npm(one, options), (err) => err instanceof HttpError && err.status === status, String(status))
     }
     stubAll({ github: { [REPO_ADVISORIES]: [{ ghsa_id: 'GHSA-aaaa-aaaa-aaaa', state: 'draft', summary: 'x' }] } })
     await assert.rejects(npm(one, options), /advisories: malformed advisory from acme\/mono/u)
+  })
+
+  it('lists a repository renamed or transferred by the name GitHub gives it now, its rows on its page there', async () => {
+    const moved = new Response('', { status: 301, headers: { location: 'https://api.github.com/repositories/9' } })
+    const BY_ID = 'https://api.github.com/repositories/9'
+    const calls = stubAll({
+      repos: { 'mono-a': 'acme/mono' },
+      github: { [REPO_ADVISORIES]: moved, [REPO]: moved, [BY_ID]: { id: 9, full_name: 'other/renamed' }, [listing('other/renamed')]: [repoAdvisory('GHSA-aaaa-aaaa-aaaa', [vuln('mono-a', '< 3.0.0')])] },
+    })
+    const found = await npm([{ name: 'mono-a', version: '1.0.0' }], { github, repoAdvisories: true })
+    assert.deepEqual(found.map(({ source, id, url, versions }) => [source, id, url, versions]), [['repository', 'GHSA-aaaa-aaaa-aaaa', 'https://github.com/other/renamed/security/advisories/GHSA-aaaa-aaaa-aaaa', ['1.0.0']]])
+    assert.deepEqual(calls.filter((url) => url.startsWith('https://api.github.com/')), [REPO_ADVISORIES, REPO, BY_ID, listing('other/renamed')])
   })
 
   it("with details, takes a repository advisory's text from the listing, asking nothing more", async () => {
