@@ -122,7 +122,7 @@ describe('send and request', () => {
     await assert.rejects(request(`${GITHUB_API}/x`, { as: 'json' }), { name: 'HttpError', status: 500, message: `GET ${GITHUB_API}/x 500: ${'x'.repeat(4095)}` })
   })
 
-  it('throws an HttpError for anything but a 2xx, a redirect included, with the start of the body', async () => {
+  it('throws an HttpError for anything but a 2xx, a redirect included, with the start of the body and the headers', async () => {
     stub(() => new Response('x'.repeat(10_000), { status: 500 }))
     await assert.rejects(request(`${GITHUB_API}/x`, { as: 'json' }), (err) => {
       assert.ok(err instanceof HttpError)
@@ -131,7 +131,10 @@ describe('send and request', () => {
       return true
     })
     stub(() => new Response('', { status: 302, headers: { location: 'https://evil.example/' } }))
-    await assert.rejects(request(`${GITHUB_API}/x`, { as: 'json' }), { name: 'HttpError', status: 302 })
+    await assert.rejects(request(`${GITHUB_API}/x`, { as: 'json' }), (err) => {
+      assert.deepEqual([err.name, err.status, err.headers.get('location')], ['HttpError', 302, 'https://evil.example/'])
+      return true
+    })
   })
 })
 

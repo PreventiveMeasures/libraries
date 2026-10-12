@@ -113,6 +113,60 @@ describe('getRepo', () => {
     stubGitHub(() => json({ full_name: 'other/app' }))
     await assert.rejects(client().getRepo({ repo: 'acme/app' }), /getRepo: answered for "other\/app", not acme\/app/u)
   })
+
+  const moved = (location, status = 301) => new Response('', { status, headers: { location } })
+
+  it('follows a repository renamed or transferred to it by its id, once, where asked', async () => {
+    const calls = stubGitHub(({ url }) => (url.endsWith('/repos/acme/old-name') ? moved('https://api.github.com/repositories/42') : json({ id: 42, full_name: 'other/new-name' })))
+    assert.deepEqual(await client().getRepo({ repo: 'acme/old-name', followRedirect: true }), { id: 42, full_name: 'other/new-name' })
+    assert.deepEqual(calls.map(({ url, redirect, headers }) => [url, redirect, headers.Authorization]), [
+      ['https://api.github.com/repos/acme/old-name', 'manual', 'Bearer t0ken'],
+      ['https://api.github.com/repositories/42', 'manual', 'Bearer t0ken'],
+    ])
+    stubGitHub(({ url }) => (url.endsWith('/repos/acme/old-name') ? moved('https://api.github.com/repositories/42', 307) : json({ id: 42, full_name: 'other/new-name' })))
+    assert.equal((await client().getRepo({ repo: 'acme/old-name', followRedirect: true })).full_name, 'other/new-name')
+  })
+
+  it('holds a repository not moved to the name asked, with followRedirect too', async () => {
+    stubGitHub(() => json({ id: 42, full_name: 'other/app' }))
+    await assert.rejects(client().getRepo({ repo: 'acme/app', followRedirect: true }), /getRepo: answered for "other\/app", not acme\/app/u)
+  })
+
+  it('refuses a redirect anywhere but to a repository by its id, asking nothing more', async () => {
+    const elsewhere = ['https://example.com/repositories/42', 'http://api.github.com/repositories/42', 'https://api.github.com/repos/other/new-name', 'https://api.github.com/repositories/42/pulls',
+      'https://api.github.com/repositories/42?x=1', 'https://api.github.com/repositories/042', 'https://api.github.com/repositories/', '/repositories/42', '']
+    for (const location of elsewhere) {
+      const calls = stubGitHub(() => moved(location))
+      await assert.rejects(client().getRepo({ repo: 'acme/old-name', followRedirect: true }), { name: 'HttpError', status: 301 }, location)
+      assert.equal(calls.length, 1, location)
+    }
+    const calls = stubGitHub(() => new Response('', { status: 301 }))
+    await assert.rejects(client().getRepo({ repo: 'acme/old-name', followRedirect: true }), { name: 'HttpError', status: 301 })
+    assert.equal(calls.length, 1)
+  })
+
+  it('refuses a second redirect, and the old name where it is gone', async () => {
+    const calls = stubGitHub(({ url }) => moved(url.endsWith('/42') ? 'https://api.github.com/repositories/43' : 'https://api.github.com/repositories/42'))
+    await assert.rejects(client().getRepo({ repo: 'acme/old-name', followRedirect: true }), { name: 'HttpError', status: 301, message: /^GET https:\/\/api\.github\.com\/repositories\/42 301/u })
+    assert.deepEqual(calls.map(({ url }) => url), ['https://api.github.com/repos/acme/old-name', 'https://api.github.com/repositories/42'])
+    stubGitHub(() => json({ message: 'Not Found' }, 404))
+    await assert.rejects(client().getRepo({ repo: 'acme/old-name', followRedirect: true }), { name: 'HttpError', status: 404 })
+  })
+
+  it('refuses an answer for another id, or with no `owner/name`, where it followed one', async () => {
+    for (const answer of [{ id: 43, full_name: 'other/new-name' }, { id: '42', full_name: 'other/new-name' }, { id: 42 }, { id: 42, full_name: 'other/new/name' }, { id: 42, full_name: '../x' }]) {
+      stubGitHub(({ url }) => (url.endsWith('/repos/acme/old-name') ? moved('https://api.github.com/repositories/42') : json(answer)))
+      await assert.rejects(client().getRepo({ repo: 'acme/old-name', followRedirect: true }), /getRepo: acme\/old-name redirected to repository 42, answered for /u, JSON.stringify(answer))
+    }
+  })
+
+  it('takes followRedirect as a boolean only', async () => {
+    const calls = forbidRequests()
+    for (const followRedirect of ['yes', 1, null]) {
+      await assert.rejects(client().getRepo({ repo: 'acme/app', followRedirect }), /getRepo: followRedirect must be a boolean/u, String(followRedirect))
+    }
+    assert.deepEqual(calls, [])
+  })
 })
 
 describe('getRepoHead', () => {
