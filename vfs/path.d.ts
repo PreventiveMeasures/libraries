@@ -1,5 +1,3 @@
-// Hand-written against path.js; a change to either belongs with the other.
-//
 // POSIX paths as node:path.posix reads them, with the same names and the
 // same answers, and no working directory: `resolve` starts from `/`. The one
 // difference is `basename` with a suffix, which answers the name less the

@@ -1,5 +1,3 @@
-// Hand-written against names.js; a change to either belongs with the other.
-
 import type { Block } from '@preventive/diff'
 
 // How each text is parsed, by the extension of the file it is: `mjs` a

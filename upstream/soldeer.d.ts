@@ -1,6 +1,3 @@
-// Hand-written against soldeer.js; a change to either belongs with the
-// other.
-//
 // The name is asserted to be one Soldeer takes, the version a string of
 // letters, digits, `.`, `_`, `+` and `-`, and the checksum 64 lowercase hex
 // digits, before any request or cache path. The cache is setCacheDir's

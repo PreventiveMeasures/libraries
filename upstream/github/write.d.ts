@@ -1,5 +1,4 @@
-// Hand-written against github/write.js; a change to either belongs with
-// the other. Arguments are checked as github.d.ts describes.
+// Arguments are checked as github.d.ts describes.
 
 import type { Client, RepoName } from '../github.js'
 

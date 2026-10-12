@@ -1,5 +1,3 @@
-// Hand-written against pretty.js; a change to either belongs with the other.
-
 // `text` formatted by oxfmt as a file with `extension`, changing what is written
 // no more than layout needs (keys keep their quotes, no trailing commas or arrow
 // parentheses are added, template literals stay), the copy used only where checks

@@ -27,5 +27,6 @@ packages:
   - "vfs"
   - "report"
   - "sourcemap"
+  - "publishers"
 
 preferWorkspacePackages: true

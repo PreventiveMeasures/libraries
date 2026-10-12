@@ -1,5 +1,3 @@
-// Hand-written against bundler.js; a change to either belongs with the other.
-
 export { LockfileError } from './pnpm.js'
 
 // Reads a Gemfile.lock, or a gems.locked, as Bundler 2.2 to 4.0 write it.

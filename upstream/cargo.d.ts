@@ -1,5 +1,3 @@
-// Hand-written against cargo.js; a change to either belongs with the other.
-//
 // A name is asserted to be a crate name, a version an exact semver
 // version, and a checksum 64 lowercase hex digits, before any request or
 // cache path. The cache is setCacheDir's (npm.js).

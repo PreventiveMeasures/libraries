@@ -1,5 +1,3 @@
-// Hand-written against cocoapods.js; a change to either belongs with the other.
-
 // Reads a Podfile.lock as CocoaPods 1.5 to 1.17 write it, laid out as they
 // lay it out, with the quoting of the release COCOAPODS names: from 1.10,
 // `yes`, `no`, `on` and `off` quoted, and from 1.13 what reads as a date.
