@@ -1,22 +1,27 @@
-// A file formatted by oxfmt, its copy used only where two checks apart from
-// oxfmt find it differs from the file in layout alone: the text in one form,
-// comments and all, and for scripts the syntax tree, as oxc parses it.
+// A file formatted by oxfmt, used only where checks apart from oxfmt find it
+// differs in layout alone: strings and comments as written, the rest as
+// formatting may respell it, and a script's syntax tree as oxc parses it.
 
 import { getOxc } from '#oxc'
 import { loadFormatter } from './oxfmt.js'
 
-// What is written changed no more than layout needs: keys keep their quotes,
-// no trailing commas or arrow parentheses are added, template literals stay.
 export const PRETTY_OPTIONS = { quoteProps: 'preserve', trailingComma: 'none', arrowParens: 'avoid', embeddedLanguageFormatting: 'off' }
 
 const SCRIPTS = new Set(['js', 'mjs', 'cjs', 'jsx', 'ts', 'mts', 'cts', 'tsx'])
 const NUMBER = /(?<![\p{L}\p{N}_$])(?:0[box][\d_a-f]+n?|\d[\d_]*(?:\.[\d_]*)?(?:e[+-]?\d+)?n?)|(?<![\p{N}.])\.\d[\d_]*(?:e[+-]?\d+)?/giu
 const POSITION = new Set(['start', 'end', 'range', 'loc'])
+// Strings and comments, which are compared as written, split from the rest. CSS's
+// unquoted attribute values count as strings, as formatting quotes them.
+const LITERAL = {
+  css: /("(?:[^"\\\n]|\\[^])*"|'(?:[^'\\\n]|\\[^])*'|\/\*[^]*?\*\/|(?<==\s*)-?[_a-z\u00A0-\uFFFF][-\w\u00A0-\uFFFF]*(?=\s*(?:[is]\s*)?\]))/iu,
+  json: /("(?:[^"\\\n]|\\[^])*"|\/\*[^]*?\*\/|\/\/.*)/u,
+}
+// A space in CSS is kept between two characters a selector may hold, as in `.a .b`.
+const CSS_SPACE = /(?<![-\w\u00A0-\uFFFF%)\]*\\]) | (?![-\w\u00A0-\uFFFF.#:[(*&\\])|(?<=@[-\w]+) (?=\()|(?<=[)\]]) (?=[-\w]+\()/gu
 
-// A number literal as the formatter spells it: lowercase, a leading zero, no
-// `+`, leading zeros or zero exponent, nor trailing zeros or dot in a fraction.
-function numberSpelling(literal) {
-  const number = literal.toLowerCase()
+// A number as the formatter spells it (`.50E+3` as `0.5e3`).
+function numberSpelling(text) {
+  const number = text.toLowerCase()
   const parts = /^0[box]|n$/u.test(number) ? null : /^([^e]*)(?:e([+-]?)0*(\d+))?$/u.exec(number)
   if (!parts) return number
   const [, mantissa = '', sign = '', exponent = ''] = parts
@@ -24,29 +29,41 @@ function numberSpelling(literal) {
   return exponent === '' || /^0+$/u.test(exponent) ? fraction : `${fraction}e${sign === '-' ? '-' : ''}${exponent}`
 }
 
-// The text with what formatting may respell made alike: numbers, quotes,
-// regular expressions' flags in order, no whitespace, parentheses or semicolons.
-// CSS goes without quotes, which formatting adds to attribute selectors, and in lowercase.
-function codeForm(text, css) {
-  const form = text.replaceAll(NUMBER, numberSpelling).replaceAll(/\\(?=["'])|[\s();]/gu, '').replaceAll("'", '"')
-    .replaceAll(/(?<=\/)[dgimsuvy]{2,}(?![\p{L}\p{N}_$])/gu, (flags) => [...flags].toSorted().join(''))
-  return css ? form.replaceAll('"', '').toLowerCase() : form
+// A script's text without what formatting may respell, comments and all; its
+// strings and comments are compared exactly in the syntax tree and comment list.
+const scriptForm = (text) => text.replaceAll(NUMBER, numberSpelling).replaceAll(/\\(?=["'])|[\s();]/gu, '').replaceAll("'", '"')
+  .replaceAll(/(?<=\/)[dgimsuvy]{2,}(?![\p{L}\p{N}_$])/gu, (flags) => [...flags].toSorted().join(''))
+
+const squash = (text) => text.replaceAll(/\s+/gu, ' ').trim()
+
+// Formatting may change a string's quotes and a comment's indentation alone.
+function literal(token) {
+  if (token.startsWith('/')) return squash(token)
+  return /^["']/u.test(token) ? `"${token.slice(1, -1).replaceAll(/\\(?=["'])/gu, '')}"` : `"${token}"`
 }
 
-function program(text, extension) {
+// Formatting lowercases CSS's keywords and ends a block's last declaration with `;`.
+function code(part, css) {
+  const form = (css ? squash(part).replaceAll(CSS_SPACE, '').replaceAll(/;(?=\})/gu, '') : part.replaceAll(/\s/gu, '')).replaceAll(NUMBER, numberSpelling)
+  return css ? form.toLowerCase() : form
+}
+
+const sameList = (a, b) => a.length === b.length && a.every((item, i) => item === b[i])
+const textForm = (text, extension) => text.split(LITERAL[extension]).map((part, i) => (i % 2 ? literal(part) : code(part, extension === 'css')))
+
+function parsed(text, extension) {
   const lang = extension === 'tsx' ? 'tsx' : /^[cm]?ts$/u.test(extension) ? 'ts' : 'jsx'
   const sourceType = extension.startsWith('m') ? 'module' : extension.startsWith('c') ? 'commonjs' : 'unambiguous'
   const result = getOxc().parseSync(`file.${extension}`, text, { lang, sourceType, preserveParens: false })
-  return result.errors.length > 0 ? null : result.program
+  return result.errors.length > 0 ? null : result
 }
 
+const comments = ({ comments: list }) => list.map(({ type, value }) => `${type} ${squash(value)}`)
 // `a && (b && c)` and `(a && b) && c` read alike, as do `||` and `??` chains.
 const chain = (node, operator) => (node?.type === 'LogicalExpression' && node.operator === operator ? [...chain(node.left, operator), ...chain(node.right, operator)] : [node])
-const fields = (node) => Object.keys(node).filter((key) => !POSITION.has(key) && !(node.type === 'Literal' && (key === 'raw' || (key === 'value' && node.regex))))
+const fields = (node) => Object.keys(node).filter((key) => !POSITION.has(key) && !(node.type === 'Literal' && (key === 'raw' || key === 'regex' || (key === 'value' && node.regex))))
 const flags = (regex) => [...regex.flags].toSorted().join('')
 
-// Whether two syntax trees are one but for positions, how literals are
-// spelled, same-operator chains' grouping and empty statements.
 function sameTree(a, b) {
   const work = [[a, b]]
   while (work.length > 0) {
@@ -60,7 +77,7 @@ function sameTree(a, b) {
       const [keys, others] = [fields(x), fields(y)]
       if (keys.join() !== others.join()) return false
       if (x.type === 'Literal' && x.regex && (x.regex.pattern !== y.regex?.pattern || flags(x.regex) !== flags(y.regex))) return false
-      pairs = [keys.filter((key) => key !== 'regex').map((key) => x[key]), keys.filter((key) => key !== 'regex').map((key) => y[key])]
+      pairs = [keys.map((key) => x[key]), keys.map((key) => y[key])]
     }
     if (pairs[0].length !== pairs[1].length) return false
     pairs[0].forEach((node, i) => work.push([node, pairs[1][i]]))
@@ -69,11 +86,10 @@ function sameTree(a, b) {
 }
 
 export function sameCode(text, formatted, extension = 'js') {
-  const css = extension === 'css'
-  if (codeForm(text, css) !== codeForm(formatted, css)) return false
-  if (!SCRIPTS.has(extension)) return true
-  const [before, after] = [program(text, extension), program(formatted, extension)]
-  return before !== null && after !== null && sameTree(before, after)
+  if (!SCRIPTS.has(extension)) return Object.hasOwn(LITERAL, extension) && sameList(textForm(text, extension), textForm(formatted, extension))
+  if (scriptForm(text) !== scriptForm(formatted)) return false
+  const [before, after] = [parsed(text, extension), parsed(formatted, extension)]
+  return before !== null && after !== null && sameList(comments(before), comments(after)) && sameTree(before.program, after.program)
 }
 
 // oxfmt is loaded outside the try: one missing is thrown, not taken for a file

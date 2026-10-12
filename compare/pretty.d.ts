@@ -10,14 +10,12 @@ export const PRETTY_OPTIONS: {
   embeddedLanguageFormatting: 'off'
 }
 
-// Whether `formatted` is `text` but for its layout, by two checks apart from
-// the formatter: the text with what formatting may respell made alike
-// (whitespace, quotes, parentheses, semicolons, numbers, regular expressions'
-// flags; comments kept), and for a script (`js`, `mjs`, `cjs`, `jsx`, `ts`,
-// `mts`, `cts`, `tsx`) both syntax trees, as oxc parses them, one but for
-// positions, literals' spellings, same-operator chains' grouping and empty
-// statements. `css` compares without quotes or case. Text either check can't
-// read is not the same.
+// Whether `formatted` is `text` but for its layout, by checks apart from the
+// formatter: strings and comments as written but for quotes and a comment's
+// indentation, the rest as formatting may respell it, and for a script (`js`,
+// `mjs`, `cjs`, `jsx`, `ts`, `mts`, `cts`, `tsx`) both syntax trees as oxc
+// parses them. Only scripts, `css` and `json` compare; anything else, or text
+// a check can't read, is not the same.
 export function sameCode(text: string, formatted: string, extension?: string): boolean
 
 // `text` formatted by oxfmt as a file with `extension`, used only where

@@ -33,10 +33,27 @@ describe('sameCode', () => {
     assert.equal(sameCode('f(', 'f(\n'), false, 'text that does not parse')
   })
 
-  it('compares CSS without quotes or case, and other text as it is', () => {
+  it('compares strings and comments as written, but for quotes and a comment\'s indentation', () => {
+    assert.equal(sameCode('/**\n     * a  b\n     */\nf()//x(y)', '/**\n * a  b\n */\nf(); //x(y)\n'), true)
+    for (const [text, formatted, what] of [['a()/* a b */', 'a(); /* ab */\n', 'whitespace in a comment'], ['a()// x(y)', 'a(); // xy\n', 'parentheses in one'],
+      ["a()// 'x'", 'a(); // "x"\n', 'quotes in one']]) assert.equal(sameCode(text, formatted), false, what)
+    assert.equal(sameCode('{"x":"a b","y":1.50}', '{ "x": "a b", "y": 1.5 }\n', 'json'), true)
+    for (const [text, formatted] of [['{"x":"a b"}', '{ "x": "ab" }\n'], ['{"x":"1.50"}', '{ "x": "1.5" }\n'], ['{"x":1}', '{ "x": 1 } // c\n']]) assert.equal(sameCode(text, formatted, 'json'), false, text)
+  })
+
+  it('compares CSS but for its keywords\' case and spaces no selector needs', () => {
     assert.equal(sameCode('A[class*=x]{COLOR:RED}', 'a[class*="x"] {\n  color: red;\n}\n'), false)
     assert.equal(sameCode('A[class*=x]{COLOR:RED}', 'a[class*="x"] {\n  color: red;\n}\n', 'css'), true)
-    assert.equal(sameCode('{"a":[1,2]}', '{ "a": [1, 2] }\n', 'json'), true)
+    assert.equal(sameCode("@media(min-width:1px){a>b,.c .d{src:url(x)format('woff');margin:0 .5EM}}",
+      '@media (min-width: 1px) {\n  a > b,\n  .c .d {\n    src: url(x) format("woff");\n    margin: 0 0.5em;\n  }\n}\n', 'css'), true)
+    for (const [text, formatted, what] of [['.a .b{}', '.a.b {\n}\n', 'a descendant made a compound'], ['* .a{}', '*.a {\n}\n', 'and after `*`'],
+      ['a{content:"a b"}', 'a {\n  content: "ab";\n}\n', 'a string\'s spaces'], ['a{content:"A"}', 'a {\n  content: "a";\n}\n', 'its case'],
+      ['a{b:c;d:e}', 'a {\n  b: cd: e;\n}\n', 'two declarations made one']]) assert.equal(sameCode(text, formatted, 'css'), false, what)
+  })
+
+  it('takes no other kind of file', () => {
+    assert.equal(sameCode('a', 'a', 'md'), false)
+    assert.equal(sameCode('a: 1', 'a: 1', 'yaml'), false)
   })
 })
 

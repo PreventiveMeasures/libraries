@@ -1,8 +1,6 @@
 // Two trees taken from different roots lined up: the directory one's files sit
 // under in the other (`root`), and each old path as the new tree lays it out.
 
-// An old path through `root` as the new tree lays it out, or null for one
-// outside an old root.
 export function throughRoot(root, path) {
   if (!root) return path
   if (root.base === '') return `${root.other}${path}`
@@ -38,9 +36,6 @@ function rootPaths(base, other, root) {
   return { paths, paired, moved }
 }
 
-// `{ base: '', other: 'src/' }` where the old tree's `a.js` is the new one's
-// `src/a.js`, the other way round, or null: a move pairing more files than none,
-// and half the side it moves at least. A tie either way is no answer.
 export function detectRoot(basePaths, otherPaths) {
   const base = new Set(basePaths), other = new Set(otherPaths)
   const likeliest = (within, from) => {
@@ -66,15 +61,12 @@ export function detectRoot(basePaths, otherPaths) {
   return found.toSorted((a, b) => b.paired - a.paired)[0]?.root ?? null
 }
 
-// The root between two trees and each old path through it.
 export function treeLayout(basePaths, otherPaths) {
   const base = [...basePaths], other = new Set(otherPaths)
   const root = detectRoot(base, other)
   return { root, paths: rootPaths(base, other, root).paths }
 }
 
-// An old directory moved with the root: the root itself `.`, one outside it a
-// `../` for each level of the root, `.` as it is.
 export function rootDir(root, dir) {
   if (!root || dir === '.') return dir
   const to = throughRoot(root, `${dir}/`)
@@ -82,8 +74,6 @@ export function rootDir(root, dir) {
   return to.slice(0, -1) || '.'
 }
 
-// An old module's directory where the layout placed one of its `files` (paths
-// within it), else moved with the root.
 export function layoutDir({ root, paths }, dir, files) {
   if (!root || dir === '.') return dir
   for (const file of files) {
@@ -93,8 +83,6 @@ export function layoutDir({ root, paths }, dir, files) {
   return rootDir(root, dir)
 }
 
-// Both trees' package directories by path (either map may be null) as the new
-// tree lays out its files, the old ones moved with the root.
 export function layoutPackageDirs(baseDirs, otherDirs, layout) {
   if (!baseDirs && !otherDirs) return null
   const files = Map.groupBy([...baseDirs ?? []], ([, dir]) => dir)
@@ -102,8 +90,6 @@ export function layoutPackageDirs(baseDirs, otherDirs, layout) {
   return new Map([...[...baseDirs ?? []].map(([path, dir]) => [layout.paths.get(path) ?? path, dirs.get(dir)]), ...otherDirs ?? []])
 }
 
-// A view's directory `prefix` with where the root puts it on each side:
-// `{ prefix, from: './dir/', to: './src/dir/' }`; one the root doesn't lead is dropped.
 export function rootLabel(root, prefix) {
   if (!root) return { prefix, from: null, to: null }
   const kept = prefix.startsWith(root.other) ? prefix : ''

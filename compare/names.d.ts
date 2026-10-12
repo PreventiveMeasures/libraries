@@ -60,15 +60,12 @@ export function renameMap(before: string, after: string, options?: RenameOptions
 export function bindsAlike(before: string, renamed: string, kind?: Partial<TextKind>): boolean
 
 // The diff of two JavaScript files minified on both sides with renamed names
-// set aside, as a server works it out for a view: the old side given the new
-// side's names (renameMap), formatted again by oxfmt where that changes its
-// layout alone and it still binds alike (bindsAlike), else as renamed, then
-// diffed as diff -U0 has it (`whitespace` as diff's), its blocks checked to take
-// the old side as drawn (`before`) to the new; thrown should they not. Where
-// names can't be given, `before` is the old side as it is and `reason` says
-// why. `reads` as renameMap's, `marks` the blocks of the plain diff that
-// differ in renamed names alone (markedBlocks), and `warnings` what a check
-// that should never fail found, for the caller to log.
+// set aside: the old side given the new side's names (renameMap), formatted
+// again where that changes its layout alone and still binds alike, diffed as
+// diff -U0 has it, and the blocks checked to take `before` to the new side
+// (thrown should they not). `reason` says why no names were given, `marks`
+// are the plain diff's blocks that differ in renamed names alone
+// (markedBlocks), and `warnings` what a check that should never fail found.
 export function renamedDiff(before: string, after: string, options?: RenameOptions & { whitespace?: 'none' | 'all' | 'change' | 'trailing' }): Promise<{
   before: string
   blocks: Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[]

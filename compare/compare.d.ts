@@ -155,12 +155,10 @@ export function wordRanges(left: string, right: string): { a: [number, number][]
 // where either holds more than 200 lines.
 export function pairLines(olds: readonly string[], news: readonly string[]): [number, number][]
 
-// Whether two lines differ in short names alone, as a minifier renames them,
-// by a reading of its own: the same words otherwise, in order, each name
-// changed three characters at most, no keyword, and no property's (after `.`
-// or `#`) or key's (before `:`). Strings, comments and regular expressions
-// read whole, a `/` taken for one wherever it could start one. Whitespace is
-// ignored under `whitespace: 'all'` and compared otherwise.
+// Whether two lines differ in short names alone, as a minifier renames them:
+// the same words otherwise, each name changed three characters at most and no
+// keyword, property (after `.` or `#`) or key (before `:`); strings, comments
+// and regular expressions read whole. Whitespace counts unless `whitespace` is 'all'.
 export function renamedAlone(before: string, after: string, options?: LineOptions): boolean
 
 // Whether diff -w, as `blocks` were found with it, keeps as unchanged a line
@@ -171,8 +169,8 @@ export function hidesMixedWhitespace(before: string, after: string, blocks: read
 // The removed paths renamed to added ones by their paths alone, as triage's
 // Compare pairs a bundle's files: a name kept less its extension, the
 // extension's family (scripts, styles) and the directories but for one past
-// the last node_modules, within the group `group` gives (one unless given),
-// each the other's one candidate. `Map<removed, added>`.
+// the last node_modules and its package, within the group `group` gives (one
+// unless given), each the other's one candidate. `Map<removed, added>`.
 export function pathRenames(removed: Iterable<string>, added: Iterable<string>, group?: (path: string) => unknown): Map<string, string>
 
 // A rename as `git diff --stat` writes one, in parts for a view to color: the

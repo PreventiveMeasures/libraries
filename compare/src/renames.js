@@ -3,7 +3,7 @@
 // pair left scored; between the first two, ours, renames told by path.
 
 import { crc32 } from '@exodus/bytes/crc.js'
-import { FAMILIES, onlyPartners } from './paths.js'
+import { onlyPartners, renameKeys } from './paths.js'
 import { MAX_SCORE, similarity, spanCounts } from './similarity.js'
 import { bytesOf, sameContent } from './tree.js'
 
@@ -52,19 +52,6 @@ function buildKey(path) {
   return JSON.stringify([dirs.map((dir) => (dir === 'lib' || dir === 'src' ? null : dir)), stem, SCRIPTS.get(extension) ?? extension])
 }
 
-// The keys a path meets a partner on, as triage's Compare has them: its stem,
-// its extension's family, and its directories, as they are or with one open --
-// past the last node_modules and its package's name, which a group keeps.
-function familyKeys(path) {
-  const { dirs, stem, extension } = splitPath(path)
-  const head = [stem, FAMILIES.get(extension) ?? extension]
-  const modules = dirs.lastIndexOf('node_modules')
-  const first = modules === -1 ? 0 : modules + (dirs[modules + 1]?.startsWith('@') ? 3 : 2)
-  const keys = [JSON.stringify([...head, dirs])]
-  for (let i = first; i < dirs.length; i++) keys.push(JSON.stringify([...head, dirs.toSpliced(i, 1, null)]))
-  return keys
-}
-
 // Whether either file of a pair by path has a candidate that is a rename by
 // itself and scores at least halfway from the pair's score to 100%.
 function outdone({ pairs, used, scoreOf }, { remaining, open }, { s, d, score }, minimum) {
@@ -88,7 +75,7 @@ function buildRenames(context, left, weigh, minimum) {
 // and directory (its pathRenames), however the pair scores.
 function familyRenames(context, left, weigh, minimum) {
   const { sources, dests, pairs, used, record, scoreOf } = context
-  const keyed = (files, indices) => new Map(indices.filter((i) => files[i].type === 'file').map((i) => [i, familyKeys(files[i].path)]))
+  const keyed = (files, indices) => new Map(indices.filter((i) => files[i].type === 'file').map((i) => [i, renameKeys(files[i].path)]))
   for (const [s, d] of onlyPartners(keyed(sources, left.remaining.filter((r) => !used.has(r))), keyed(dests, left.open.filter((o) => !pairs.has(o))))) {
     const pair = { s, d, score: scoreOf(s, d, 0) }
     if (!(weigh && outdone(context, left, pair, minimum))) record(d, s, pair.score)

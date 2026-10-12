@@ -30,7 +30,9 @@ describe('pathRenames', () => {
     assert.deepEqual(renames(['node_modules/left-pad/index.js'], ['node_modules/zod/index.js']), {})
     assert.deepEqual(renames(['a/node_modules/b/x.js'], ['c/node_modules/b/x.js']), {})
     assert.deepEqual(renames(['node_modules/a/index.js'], ['src/index.js']), {})
-    assert.deepEqual(Object.fromEntries(pathRenames(['node_modules/a/index.js'], ['src/index.js'])), {}, 'no group given, still not past node_modules')
+    assert.deepEqual(Object.fromEntries(pathRenames(['node_modules/a/index.js', 'node_modules/b/x.js'], ['src/index.js', 'node_modules/c/x.js'])), {}, 'no group given, still not past a package')
+    const groups = new Map([['a/x.js', 1], ['b/x.js', '1'], ['c/y.js', {}], ['d/y.js', {}]])
+    assert.deepEqual(Object.fromEntries(pathRenames(['a/x.js', 'c/y.js'], ['b/x.js', 'd/y.js'], (path) => groups.get(path))), {}, 'groups told apart as Map keys are')
   })
 })
 

@@ -40,28 +40,22 @@ function wordChanges(left, right) {
     return `${ids.get(token)}\n`
   }).join('')
   const blocks = changeSet(encode(lt), encode(rt), { horizon: 0 })
-  const offsets = (tokens) => {
+  const ranges = (side, tokens, line) => {
     const at = [0]
     for (const token of tokens) at.push(at.at(-1) + token.length)
-    return at
+    return mergeRanges(blocks.filter((block) => block[`${side}1`] > block[`${side}0`]).map((block) => [at[block[`${side}0`]], at[block[`${side}1`]]]), line)
   }
-  const lo = offsets(lt), ro = offsets(rt)
-  const ranges = (side, at, line) => mergeRanges(blocks.filter((block) => block[`${side}1`] > block[`${side}0`]).map((block) => [at[block[`${side}0`]], at[block[`${side}1`]]]), line)
-  const a = ranges('a', lo, left), b = ranges('b', ro, right)
+  const a = ranges('a', lt, left), b = ranges('b', rt, right)
   const share = (list, line) => list.reduce((sum, [from, to]) => sum + to - from, 0) / Math.max(1, line.length)
   return { a, b, share: Math.min(share(a, left), share(b, right)) }
 }
 
-// The ranges to mark in a removed line and the added line it pairs with, or
-// null where marking them would not help.
 export function wordRanges(left, right) {
   if (left === right) return null
   const words = wordChanges(left, right)
   return words && words.share <= MAX_CHANGED ? { a: words.a, b: words.b } : null
 }
 
-// Each removed line paired, in order, with the most alike of the next few
-// added lines, where alike enough to be one line edited: `[i, j]` indices.
 export function pairLines(olds, news) {
   const pairs = []
   if (olds.length > MAX_LINES || news.length > MAX_LINES) return pairs
@@ -112,9 +106,6 @@ function lineWords(line, blanks) {
   return words
 }
 
-// Whether two lines differ in short names alone: the same words otherwise,
-// each name changed no property's (after `.` or `#`), key's (before `:`) or
-// keyword. Whitespace is ignored under -w alone, and compared otherwise.
 export function renamedAlone(before, after, options) {
   const blanks = checkLineOptions(options).whitespace !== 'all'
   const [x, y] = [lineWords(before, blanks), lineWords(after, blanks)]

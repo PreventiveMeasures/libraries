@@ -2,7 +2,7 @@
 // and a rename written as `git diff --stat` writes one.
 
 // Extensions a file keeps its kind across (`a.js` -> `a.ts`, `a.css` -> `a.scss`).
-export const FAMILIES = new Map([
+const FAMILIES = new Map([
   ...['.js', '.mjs', '.cjs', '.jsx', '.ts', '.mts', '.cts', '.tsx'].map((extension) => [extension, 'script']),
   ...['.css', '.scss', '.sass', '.less'].map((extension) => [extension, 'style']),
 ])
@@ -37,30 +37,28 @@ export function onlyPartners(left, right) {
   return pairs
 }
 
-// The keys a file meets a partner on: its group, its name less the extension,
-// the extension's family, and its directories as they are or with one past the
-// last node_modules open (`src/a.js` -> `lib/a.js`).
-function renameKeys(path, group) {
+// The keys a path meets a partner on: its name less the extension, the
+// extension's family, and its directories as they are or with one open
+// (`src/a.js` -> `lib/a.js`) past the last node_modules and its package's name.
+export function renameKeys(path) {
   const dirs = path.split('/')
   const name = dirs.pop()
   const dot = name.lastIndexOf('.')
   const extension = dot > 0 ? name.slice(dot) : ''
-  const head = [group, dot > 0 ? name.slice(0, dot) : name, FAMILIES.get(extension) ?? extension].join('\0')
+  const head = [dot > 0 ? name.slice(0, dot) : name, FAMILIES.get(extension) ?? extension].join('\0')
+  const modules = dirs.lastIndexOf('node_modules')
+  const first = modules === -1 ? 0 : modules + (dirs[modules + 1]?.startsWith('@') ? 3 : 2)
   const keys = [`${head}\0${dirs.join('/')}`]
-  for (let i = dirs.lastIndexOf('node_modules') + 1; i < dirs.length; i++) keys.push(`${head}\0${i}\0${dirs.toSpliced(i, 1, '').join('/')}`)
+  for (let i = first; i < dirs.length; i++) keys.push(`${head}\0${i}\0${dirs.toSpliced(i, 1, '').join('/')}`)
   return keys
 }
 
-// The removed paths renamed to added ones, where clear: each the other's one
-// candidate within its group. `src/a.js` with `lib/a.js` and `src/a.ts` added stays.
 export function pathRenames(removed, added, group = () => '') {
-  const keyed = (paths) => new Map([...paths].map((path) => [path, renameKeys(path, group(path))]))
-  return new Map(onlyPartners(keyed(removed), keyed(added)))
+  const keyed = (paths = []) => new Map(paths.map((path) => [path, renameKeys(path)]))
+  const [from, to] = [removed, added].map((paths) => Map.groupBy(paths, (path) => group(path)))
+  return new Map([...from].flatMap(([key, paths]) => onlyPartners(keyed(paths), keyed(to.get(key)))))
 }
 
-// The directories both paths share, then what changed (`{src -> lib}/a.js`),
-// down to the extension where that is all (`src/a{.js -> .ts}`), unless
-// `extension` is false: `{ head, from, to, tail }`.
 export function renameParts(from, to, { extension = true } = {}) {
   const a = from.split('/'), b = to.split('/')
   let head = 0
