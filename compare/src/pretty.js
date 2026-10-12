@@ -21,11 +21,12 @@ const UNIT = String.raw`(?<![-\w.#\\])-?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?[a-
 // at-rule names, queries, `!important`, units, a declaration's property and hex colors and a
 // selector's pseudo-classes, and spaces a selector's `+` (a value's is kept, as `calc()` needs).
 const CSS_FORM = new RegExp(String.raw`${LITERAL.css.source}|(?<query>@(?:media|supports)\b(?:[^{};/"']|\/(?!\*))*)|@[-\w]+|![a-z]+|${UNIT}`
-  + String.raw`|(?<declared>#[\da-f]{3,8}(?![-\w])|(?<![-\w.#\\])[a-z][-\w]*(?=\s*:))|(?<selected>(?<=:)-?[a-z][-\w]*|(?<!\s)\s*\+\s*)`, 'giu')
+  + String.raw`|(?<declared>#[\da-f]{3,8}(?![-\w])|(?<![-\w.#\\])[a-z][-\w]*(?=\s*:))|(?<selected>(?<=:)-?[a-z][-\w]*|(?<!\s)\s*\+\s*)|(?<semi>;)(?=\s*\})`, 'giu')
 // A query's words but its values (`(prefers-color-scheme: DARK)`) and custom properties.
 const QUERY_WORD = new RegExp(String.raw`${UNIT}|(?=[a-z])(?<![-\w.#\\]|:\s*)[a-z][-\w]*`, 'giu')
-// A space in CSS is kept between two characters a selector may hold, as in `.a .b`, and around `+`.
-const CSS_SPACE = /(?<![-\w\u00A0-\uFFFF%)\]*+\\]) | (?![-\w\u00A0-\uFFFF.#:[(*+&\\])| (?=\()(?<=@[-\w]+ )|(?<=[)\]]) (?=[-\w]+\()/gu
+// A space in CSS is kept between two characters a selector may hold, as in `.a .b`, around
+// `+`, and where dropping it would make one token of two (`# fff`, `5 %`).
+const CSS_SPACE = /(?<![-\w\u00A0-\uFFFF%)\]*+#.@\\]) | (?![-\w\u00A0-\uFFFF.#:[(*+&%\\])| (?=\()(?<=@[-\w]+ )|(?<=[)\]]) (?=[-\w]+\()/gu
 
 // A number as the formatter spells it (`.50E+3` as `0.5e3`).
 function numberSpelling(text) {
@@ -51,25 +52,29 @@ function literal(token) {
   return /^["']/u.test(token) ? `"${token.slice(1, -1).replaceAll(/\\(?=["'])/gu, '')}"` : `"${token}"`
 }
 
-// CSS as formatting would write it but for layout: what is in a selector or query (whose
-// next `{`, `;` or `}`, strings and comments aside, is a `{`) told from what is declared.
+// CSS as formatting would write it but for layout. What is in a selector or query (whose next
+// `{`, `;` or `}`, strings and comments aside, is a `{`) is told from what is declared, and a
+// rule's last `;` dropped, not one closing a block in a custom property's value (`--x: {a;}`).
 function cssCase(text) {
   const blank = text.replaceAll(new RegExp(LITERAL.css.source, 'giu'), (token) => ' '.repeat(token.length))
-  const selector = new Uint8Array(text.length + 1)
-  for (let i = text.length - 1; i >= 0; i--) selector[i] = '{;}'.includes(blank[i]) ? Number(blank[i] === '{') : selector[i + 1]
+  const blocks = [], next = new Uint8Array(text.length + 1)
+  for (let i = 0, start = 0; i < blank.length; i++) {
+    if (blank[i] === '{') blocks.push(blocks.at(-1) === 3 || /^\s*--[^:]*:/u.test(blank.slice(start, i)) ? 3 : 2)
+    if (blank[i] === '}') next[i] = blocks.pop() ?? 2
+    if ('{;}'.includes(blank[i])) start = i + 1
+  }
+  for (let i = text.length - 1; i >= 0; i--) if (blank[i] !== '}') next[i] = blank[i] === '{' ? 1 : blank[i] === ';' ? 0 : next[i + 1]
   return text.replaceAll(CSS_FORM, (token, string, ...rest) => {
-    const { query, declared, selected } = rest.at(-1), inSelector = selector[rest.at(-3)] === 1
+    const { query, declared, selected, semi } = rest.at(-1), offset = rest.at(-3)
+    const inSelector = next[offset] === 1
+    if (semi !== undefined) return next[offset + 1] === 2 ? '' : token
     if (string !== undefined || (declared !== undefined && inSelector) || (selected !== undefined && !inSelector)) return token
     if (query !== undefined) return token.replaceAll(QUERY_WORD, (word) => word.toLowerCase())
     return token.includes('+') ? '+' : token.toLowerCase()
   })
 }
 
-// Formatting ends a CSS block's last declaration with `;`.
-function code(part, css) {
-  const form = css ? squash(part).replaceAll(CSS_SPACE, '').replaceAll(/;(?=\})/gu, '') : part.replaceAll(/\s/gu, '')
-  return form.replaceAll(NUMBER, numberSpelling)
-}
+const code = (part, css) => (css ? squash(part).replaceAll(CSS_SPACE, '') : part.replaceAll(/\s/gu, '')).replaceAll(NUMBER, numberSpelling)
 
 const sameList = (a, b) => a.length === b.length && a.every((item, i) => item === b[i])
 const textForm = (text, extension) => (extension === 'css' ? cssCase(text) : text).split(LITERAL[extension]).map((part, i) => (i % 2 ? literal(part) : code(part, extension === 'css')))

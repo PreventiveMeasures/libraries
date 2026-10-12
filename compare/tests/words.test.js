@@ -36,6 +36,10 @@ describe('renamedAlone', () => {
     assert.equal(renamedAlone('f(a ,b)', 'f(c, d)', { whitespace: 'change' }), false, 'and compared otherwise')
     for (const [before, after] of [['f(a / b, c[0] / 2);', 'f(d / e, g[0] / 2);'], ['x = this.n / a;', 'x = this.n / b;']]) assert.equal(renamedAlone(before, after), true, `${before} -> ${after}: a division`)
     assert.equal(renamedAlone('f(a) /* x', 'f(b) /* y'), false, 'a comment unclosed runs to the end')
+    for (const [before, after] of [['class X{a(){}}', 'class X{b(){}}'], ['x={a(c){return c}}', 'x={b(c){return c}}'], ['class X{get a(){}}', 'class X{get b(){}}'], ['class X{*a(){}}', 'class X{*b(){}}']]) {
+      assert.equal(renamedAlone(before, after), false, `${before} -> ${after}: a method`)
+    }
+    for (const [before, after] of [['function a(){}', 'function b(){}'], ['function*a(c){}', 'function*b(c){}'], ['if(a(c)){d()}', 'if(b(c)){d()}']]) assert.equal(renamedAlone(before, after), true, `${before} -> ${after}`)
     const line = `a${'/*a'.repeat(50_000)}`, start = performance.now()
     renamedAlone(line, `b${line.slice(1)}`)
     assert.ok(performance.now() - start < 2000, 'in time linear in its length')

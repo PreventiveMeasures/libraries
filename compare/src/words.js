@@ -106,19 +106,37 @@ function lineWords(line, blanks) {
   return words
 }
 
+// Each `(`'s index to its `)`'s.
+function closers(list) {
+  const close = new Map(), open = []
+  list.forEach((word, k) => {
+    if (word === '(') open.push(k)
+    else if (word === ')' && open.length > 0) close.set(open.pop(), k)
+  })
+  return close
+}
+
 export function renamedAlone(before, after, options) {
   const blanks = checkLineOptions(options).whitespace !== 'all'
   const [x, y] = [lineWords(before, blanks), lineWords(after, blanks)]
   if (x.length !== y.length) return false
-  const near = (list, from, step) => {
-    for (let k = from; k >= 0 && k < list.length; k += step) if (/\S/u.test(list[k])) return list[k]
-    return ''
+  const at = (list, from, step) => {
+    let k = from
+    while (k >= 0 && k < list.length && !/\S/u.test(list[k])) k += step
+    return k
+  }
+  const near = (list, from, step) => list[at(list, from, step)] ?? ''
+  const close = new Map([x, y].map((list) => [list, closers(list)]))
+  // A method's name, as a class's or an object's: `(`, its parameters and `{` after it, no `function` before.
+  const method = (list, i) => {
+    const open = at(list, i + 1, 1), prior = at(list, i - 1, -1)
+    return list[open] === '(' && near(list, (close.get(list).get(open) ?? list.length) + 1, 1) === '{' && near(list, list[prior] === '*' ? prior - 1 : prior, -1) !== 'function'
   }
   let changed = false
   for (let i = 0; i < x.length; i++) {
     if (x[i] === y[i]) continue
     if (![x[i], y[i]].every((word) => SHORT_NAME.test(word) && !SHORT_KEYWORDS.has(word))) return false
-    if ([x, y].some((list) => ['.', '#'].includes(near(list, i - 1, -1)) || near(list, i + 1, 1) === ':')) return false
+    if ([x, y].some((list) => ['.', '#'].includes(near(list, i - 1, -1)) || near(list, i + 1, 1) === ':' || method(list, i))) return false
     changed = true
   }
   return changed
