@@ -77,7 +77,7 @@ export function pairLines(olds, news) {
       if (share(i, j) < least) [best, least] = [j, share(i, j)]
     }
     if (best === null) continue
-    const closer = least > 0 && olds.slice(i + 1, i + LOOKAHEAD).some((_, at) => share(i + 1 + at, best) < least)
+    const closer = least > 0 && olds.slice(i + 1, i + 1 + LOOKAHEAD).some((_, at) => share(i + 1 + at, best) < least)
     if (!closer) {
       pairs.push([i, best])
       next = best + 1
