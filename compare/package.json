@@ -1,6 +1,6 @@
 {
   "name": "@preventive/compare",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Two file trees compared as git diff compares them, with their line change sets and the patch git writes; and minified JavaScript compared with its layout and its renamed names set aside, each step checked to hide no change",
   "type": "module",
   "main": "./compare.js",
