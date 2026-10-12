@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { layoutDir, layoutPackageDirs, renameParts, rootLabel, treeLayout } from '../compare.js'
-import { detectRoot, rootDir } from '../src/layout.js'
+import { detectRoot } from '../src/layout.js'
 import { random } from './random.js'
 
 // Two trees of paths made at random, some under a directory the other lacks.
@@ -80,6 +80,8 @@ describe('trees taken from different roots', () => {
   })
 
   it('moves directories and package directories with the root', () => {
+    // A directory none of whose files are laid out, moved as the root moves it.
+    const rootDir = (root, dir) => layoutDir({ root, paths: new Map() }, dir, [])
     assert.equal(rootDir(null, 'crates/foo'), 'crates/foo')
     assert.equal(rootDir({ base: '', other: 'src/' }, 'crates/foo'), 'src/crates/foo')
     assert.equal(rootDir({ base: '', other: 'src/' }, '.'), '.')

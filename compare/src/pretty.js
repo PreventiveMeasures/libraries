@@ -95,13 +95,8 @@ export async function format(text, extension) {
   const csstree = extension === 'css' ? await loadCssTree() : null
   if (!(SCRIPTS.has(extension) || extension === 'json' || csstree)) return { error: 'unsupported' }
   const oxfmt = await loadFormatter()
-  let result
-  try {
-    result = await oxfmt(`pretty.${extension}`, text, PRETTY_OPTIONS)
-  } catch {
-    return { error: 'unformattable' }
-  }
-  if (result.errors.length > 0) return { error: 'unformattable' }
+  const result = await oxfmt(`pretty.${extension}`, text, PRETTY_OPTIONS).catch(() => null)
+  if (result === null || result.errors.length > 0) return { error: 'unformattable' }
   // A check that fails in itself, its stack say, refuses the copy as one that finds it changed would.
   try {
     return sameCode(text, result.code, extension, csstree) ? { code: result.code } : { error: 'pretty-mismatch' }

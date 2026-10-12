@@ -63,11 +63,8 @@ function read(csstree, text) {
   })
 }
 
+// What css-tree throws on is format's to refuse.
 export function sameCss(csstree, text, formatted) {
-  try {
-    const before = read(csstree, text)
-    return before !== null && before === read(csstree, formatted)
-  } catch {
-    return false
-  }
+  const before = read(csstree, text)
+  return before !== null && before === read(csstree, formatted)
 }

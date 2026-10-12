@@ -70,20 +70,14 @@ export function treeLayout(basePaths, otherPaths) {
   return { root, paths: rootPaths(base, other, root).paths }
 }
 
-export function rootDir(root, dir) {
-  if (!root || dir === '.') return dir
-  const to = throughRoot(root, `${dir}/`)
-  if (to === null) return outside(root, dir)
-  return to.slice(0, -1) || '.'
-}
-
 export function layoutDir({ root, paths }, dir, files) {
   if (!root || dir === '.') return dir
   for (const file of files) {
     const to = paths.get(`${dir}/${file}`)
     if (to?.endsWith(`/${file}`)) return to.slice(0, -file.length - 1)
   }
-  return rootDir(root, dir)
+  const to = throughRoot(root, `${dir}/`)
+  return to === null ? outside(root, dir) : to.slice(0, -1) || '.'
 }
 
 export function layoutPackageDirs(baseDirs, otherDirs, layout) {
