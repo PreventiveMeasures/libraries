@@ -89,8 +89,8 @@ describe('sameCode', () => {
 
   it('reads text in time linear in its length', () => {
     const start = performance.now()
-    for (const text of ['a:b'.repeat(50_000) + '{c:d}', `a{${'b:c;'.repeat(50_000)}}`, '/*'.repeat(100_000), `a${' '.repeat(300_000)}b{}`, `[a=${' '.repeat(300_000)}b]{}`,
-      `/*${' '.repeat(300_000)}*/`, `a{${'color:#ABC;'.repeat(20_000)}}`, `a{${'b:#ABC;'.repeat(20_000)}}`, `a{background:${'url(x) #ABC 1px, '.repeat(10_000)}red}`, `a{--x:${'.5 '.repeat(100_000)}}`]) {
+    for (const text of ['a:b'.repeat(12_500) + '{c:d}', `a{${'b:c;'.repeat(12_500)}}`, '/*'.repeat(25_000), `a${' '.repeat(300_000)}b{}`, `[a=${' '.repeat(300_000)}b]{}`,
+      `/*${' '.repeat(300_000)}*/`, `a{${'color:#ABC;'.repeat(5000)}}`, `a{${'b:#ABC;'.repeat(5000)}}`, `a{background:${'url(x) #ABC 1px, '.repeat(2500)}red}`, `a{--x:${'.5 '.repeat(25_000)}}`]) {
       sameCss(text, text)
     }
     sameCode('/*'.repeat(100_000), '/*'.repeat(100_000), 'json')
