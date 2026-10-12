@@ -57,16 +57,14 @@ export interface FileChange extends FileStatus {
   deletions: number | null
 }
 
-// How a change's lines are found, as diff's options: `slide`, unless false,
-// settles a run of lines free to move, and false leaves it where the search
-// found it; `horizon` is how far such a run may go into the lines the two
-// files share at either end -- without limit unless given, as git has it, or
-// 0 to match `diff -U0` and the normal format, the context to match `diff -u`
-// (diff's --horizon-lines); `whitespace` (-w as 'all', -b as 'change', -Z as
+// How a change's lines are found, as diff's options: `horizon` is how far a
+// run of lines free to move may go into the lines the two files share at
+// either end -- without limit unless given, as git has it, or 0 to match
+// `diff -U0` and the normal format, the context to match `diff -u` (diff's
+// --horizon-lines); `whitespace` (-w as 'all', -b as 'change', -Z as
 // 'trailing') and `ignoreCase` (-i) say which lines are the same, so that a
 // file changed in nothing else has no blocks.
 export interface LineOptions {
-  slide?: boolean
   horizon?: number
   whitespace?: 'none' | 'all' | 'change' | 'trailing'
   ignoreCase?: boolean
@@ -128,13 +126,14 @@ export function compareLines(change: FileStatus, options?: LineOptions): FileCha
 export function formatPatch(changes: Iterable<FileStatus | FileChange>, options?: LineOptions & { context?: number }): string
 
 // Whether `blocks`, a change set in hand rather than found here (another
-// process's, a server's), take `before` to `after` under the comparison
-// options, as @preventive/diff holds its own search's change set to: each
-// block in order, within both texts and changing a line, and every line
-// between them alike, its terminator with it -- a newline added or dropped
-// after the last line is that line changed, but under the whitespace options.
-// Anything that is not a list of such ranges is refused: false, never thrown.
-export function blocksHold(before: string, after: string, blocks: unknown, options?: LineOptions): boolean
+// process's, a server's), take `before` to `after` with lines the same as
+// `whitespace` and `ignoreCase` say, as @preventive/diff holds its own
+// search's change set to: each block in order, within both texts and
+// changing a line, and every line between them alike, its terminator with it
+// -- a newline added or dropped after the last line is that line changed,
+// but under the whitespace options. Anything that is not a list of such
+// ranges is refused: false, never thrown.
+export function blocksHold(before: string, after: string, blocks: unknown, options?: Pick<LineOptions, 'whitespace' | 'ignoreCase'>): boolean
 
 // The blocks of the change set from `before` to `after` under the line
 // options (horizon without limit unless given, as compareLines has it) whose

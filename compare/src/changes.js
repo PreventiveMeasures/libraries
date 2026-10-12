@@ -74,10 +74,10 @@ function renamePairs(deleted, added, { group, ...options }) {
 // A change with what it did to the content (text.js), found under `options`.
 export const compareLines = (change, options) => ({ ...change, ...contentOf(change.old, change.new, checkLineOptions(options)) })
 
-export function compareTrees(a, b, { renames = true, renamesByPath = true, renameLimit = DEFAULT_RENAME_LIMIT, renameGroup = null, paths = 'tree', lines = true, slide, horizon, whitespace, ignoreCase } = {}) {
+export function compareTrees(a, b, { renames = true, renamesByPath = true, renameLimit = DEFAULT_RENAME_LIMIT, renameGroup = null, paths = 'tree', lines = true, horizon, whitespace, ignoreCase } = {}) {
   const minimum = minimumScore(renames)
   checkOptions({ renamesByPath, renameLimit, renameGroup, paths, lines })
-  const lineOptions = checkLineOptions({ slide, horizon, whitespace, ignoreCase })
+  const lineOptions = checkLineOptions({ horizon, whitespace, ignoreCase })
   const keys = paths === 'keys'
   const { changes, deleted, added } = pathChanges(readTree(a, 'old', keys), readTree(b, 'new', keys))
   const pairs = minimum === null ? new Map() : renamePairs(deleted, added, { minimum, limit: renameLimit, byPath: renamesByPath, group: renameGroup })
