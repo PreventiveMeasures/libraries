@@ -181,7 +181,8 @@ export function renameParts(from: string, to: string, options?: { extension?: bo
 // The directory one tree's files sit under in the other: `base: ''` and
 // `other` the directory where the old tree's `a.js` is the new one's
 // `src/a.js`, the other way round, or null. Taken where it pairs more files
-// than none, and at least half the side it moves; a tie either way is null.
+// than none, and at least half the files of the side without the directory
+// (the old tree's in the first case, the new one's in the other); a tie either way is null.
 export interface Root { base: string; other: string }
 export function detectRoot(basePaths: Iterable<string>, otherPaths: Iterable<string>): Root | null
 

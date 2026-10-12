@@ -35,20 +35,26 @@ describe('sameCode', () => {
 
   it('compares strings and comments as written, but for quotes and a comment\'s indentation', () => {
     assert.equal(sameCode('/**\n     * a  b\n     */\nf()//x(y)', '/**\n * a  b\n */\nf(); //x(y)\n'), true)
-    for (const [text, formatted, what] of [['a()/* a b */', 'a(); /* ab */\n', 'whitespace in a comment'], ['a()// x(y)', 'a(); // xy\n', 'parentheses in one'],
-      ["a()// 'x'", 'a(); // "x"\n', 'quotes in one']]) assert.equal(sameCode(text, formatted), false, what)
+    for (const [text, formatted, what] of [['a()/* a b */', 'a(); /* ab */\n', 'a space in a comment'], ['a()/* A  B */', 'a(); /* A B */\n', 'spaces within one of its lines'],
+      ['a()// x(y)', 'a(); // xy\n', 'parentheses in one'], ["a()// 'x'", 'a(); // "x"\n', 'quotes in one']]) assert.equal(sameCode(text, formatted), false, what)
+    assert.equal(sameCode('a{/* columns: A  B */x:y}', 'a {\n  /* columns: A B */\n  x: y;\n}\n', 'css'), false)
     assert.equal(sameCode('{"x":"a b","y":1.50}', '{ "x": "a b", "y": 1.5 }\n', 'json'), true)
     for (const [text, formatted] of [['{"x":"a b"}', '{ "x": "ab" }\n'], ['{"x":"1.50"}', '{ "x": "1.5" }\n'], ['{"x":1}', '{ "x": 1 } // c\n']]) assert.equal(sameCode(text, formatted, 'json'), false, text)
   })
 
-  it('compares CSS but for its keywords\' case and spaces no selector needs', () => {
-    assert.equal(sameCode('A[class*=x]{COLOR:RED}', 'a[class*="x"] {\n  color: red;\n}\n'), false)
-    assert.equal(sameCode('A[class*=x]{COLOR:RED}', 'a[class*="x"] {\n  color: red;\n}\n', 'css'), true)
+  it('compares CSS but for the case formatting lowers and spaces no selector needs', () => {
+    const text = 'A:HOVER,.Foo:NOT(.Bar)[class*=x]{COLOR:RED;--Brand:#ABC;background:#ABC;margin:.5EM!IMPORTANT}@MEDIA SCREEN AND (MAX-WIDTH:10PX){a{b:c}}'
+    const formatted = 'A:hover,\n.Foo:not(.Bar)[class*="x"] {\n  color: RED;\n  --Brand: #abc;\n  background: #abc;\n  margin: 0.5em !important;\n}\n'
+      + '@media screen and (max-width: 10px) {\n  a {\n    b: c;\n  }\n}\n'
+    assert.equal(sameCode(text, formatted, 'css'), true, "oxfmt's own output")
+    assert.equal(sameCode(text, formatted), false, 'not as a script')
     assert.equal(sameCode("@media(min-width:1px){a>b,.c .d{src:url(x)format('woff');margin:0 .5EM}}",
       '@media (min-width: 1px) {\n  a > b,\n  .c .d {\n    src: url(x) format("woff");\n    margin: 0 0.5em;\n  }\n}\n', 'css'), true)
-    for (const [text, formatted, what] of [['.a .b{}', '.a.b {\n}\n', 'a descendant made a compound'], ['* .a{}', '*.a {\n}\n', 'and after `*`'],
+    for (const [before, after, what] of [['.a .b{}', '.a.b {\n}\n', 'a descendant made a compound'], ['* .a{}', '*.a {\n}\n', 'and after `*`'],
       ['a{content:"a b"}', 'a {\n  content: "ab";\n}\n', 'a string\'s spaces'], ['a{content:"A"}', 'a {\n  content: "a";\n}\n', 'its case'],
-      ['a{b:c;d:e}', 'a {\n  b: cd: e;\n}\n', 'two declarations made one']]) assert.equal(sameCode(text, formatted, 'css'), false, what)
+      ['a{b:c;d:e}', 'a {\n  b: cd: e;\n}\n', 'two declarations made one'], [':root{--Brand:red}', ':root {\n  --brand: red;\n}\n', 'a custom property\'s case'],
+      ['.Foo{a:b}', '.foo {\n  a: b;\n}\n', 'a class\'s'], ['.col-2XL{a:b}', '.col-2xl {\n  a: b;\n}\n', 'one that looks like a unit'], ['#Face{a:b}', '#face {\n  a: b;\n}\n', 'an id\'s'], ['a{animation:Spin}', 'a {\n  animation: spin;\n}\n', 'a value\'s'],
+      ['a{b:url(A.png)}', 'a {\n  b: url(a.png);\n}\n', 'a URL\'s'], ['clipPath{a:b}', 'clippath {\n  a: b;\n}\n', 'an element\'s']]) assert.equal(sameCode(before, after, 'css'), false, what)
   })
 
   it('takes no other kind of file', () => {

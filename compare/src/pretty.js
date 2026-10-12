@@ -16,6 +16,10 @@ const LITERAL = {
   css: /("(?:[^"\\\n]|\\[^])*"|'(?:[^'\\\n]|\\[^])*'|\/\*[^]*?\*\/|(?<==\s*)-?[_a-z\u00A0-\uFFFF][-\w\u00A0-\uFFFF]*(?=\s*(?:[is]\s*)?\]))/iu,
   json: /("(?:[^"\\\n]|\\[^])*"|\/\*[^]*?\*\/|\/\/.*)/u,
 }
+// What formatting lowercases in CSS, strings aside: at-rule names, media and
+// supports queries, `!important`, units, a declaration's property and hex colors,
+// and a selector's pseudo-classes. Classes, custom properties and values keep their case.
+const CSS_CASE = new RegExp(String.raw`${LITERAL.css.source}|@(?:media|supports)\b[^{;"']*|@[-\w]+|![a-z]+|(?<![-\w.#\\])-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?[a-z]+|#[\da-f]{3,8}(?![-\w])(?![^;{}]*\{)|(?<![-\w.#\\])[a-z][-\w]*(?=\s*:)(?![^;{}]*\{)|(?<=:)-?[a-z][-\w]*(?=[^;{}]*\{)`, 'giu')
 // A space in CSS is kept between two characters a selector may hold, as in `.a .b`.
 const CSS_SPACE = /(?<![-\w\u00A0-\uFFFF%)\]*\\]) | (?![-\w\u00A0-\uFFFF.#:[(*&\\])|(?<=@[-\w]+) (?=\()|(?<=[)\]]) (?=[-\w]+\()/gu
 
@@ -35,21 +39,26 @@ const scriptForm = (text) => text.replaceAll(NUMBER, numberSpelling).replaceAll(
   .replaceAll(/(?<=\/)[dgimsuvy]{2,}(?![\p{L}\p{N}_$])/gu, (flags) => [...flags].toSorted().join(''))
 
 const squash = (text) => text.replaceAll(/\s+/gu, ' ').trim()
+const indentless = (text) => text.replaceAll(/[ \t]*\r?\n[ \t]*/gu, '\n')
 
 // Formatting may change a string's quotes and a comment's indentation alone.
 function literal(token) {
-  if (token.startsWith('/')) return squash(token)
+  if (token.startsWith('/')) return indentless(token)
   return /^["']/u.test(token) ? `"${token.slice(1, -1).replaceAll(/\\(?=["'])/gu, '')}"` : `"${token}"`
 }
 
-// Formatting lowercases CSS's keywords and ends a block's last declaration with `;`.
+// Formatting ends a CSS block's last declaration with `;`.
 function code(part, css) {
-  const form = (css ? squash(part).replaceAll(CSS_SPACE, '').replaceAll(/;(?=\})/gu, '') : part.replaceAll(/\s/gu, '')).replaceAll(NUMBER, numberSpelling)
-  return css ? form.toLowerCase() : form
+  const form = css ? squash(part).replaceAll(CSS_SPACE, '').replaceAll(/;(?=\})/gu, '') : part.replaceAll(/\s/gu, '')
+  return form.replaceAll(NUMBER, numberSpelling)
 }
 
 const sameList = (a, b) => a.length === b.length && a.every((item, i) => item === b[i])
-const textForm = (text, extension) => text.split(LITERAL[extension]).map((part, i) => (i % 2 ? literal(part) : code(part, extension === 'css')))
+function textForm(text, extension) {
+  const css = extension === 'css'
+  const cased = css ? text.replaceAll(CSS_CASE, (token, string) => string ?? token.toLowerCase()) : text
+  return cased.split(LITERAL[extension]).map((part, i) => (i % 2 ? literal(part) : code(part, css)))
+}
 
 function parsed(text, extension) {
   const lang = extension === 'tsx' ? 'tsx' : /^[cm]?ts$/u.test(extension) ? 'ts' : 'jsx'
@@ -58,7 +67,7 @@ function parsed(text, extension) {
   return result.errors.length > 0 ? null : result
 }
 
-const comments = ({ comments: list }) => list.map(({ type, value }) => `${type} ${squash(value)}`)
+const comments = ({ comments: list }) => list.map(({ type, value }) => `${type} ${indentless(value)}`)
 // `a && (b && c)` and `(a && b) && c` read alike, as do `||` and `??` chains.
 const chain = (node, operator) => (node?.type === 'LogicalExpression' && node.operator === operator ? [...chain(node.left, operator), ...chain(node.right, operator)] : [node])
 const fields = (node) => Object.keys(node).filter((key) => !POSITION.has(key) && !(node.type === 'Literal' && (key === 'raw' || key === 'regex' || (key === 'value' && node.regex))))

@@ -61,6 +61,7 @@ describe('trees taken from different roots', () => {
     const back = treeLayout(nested, flat)
     assert.deepEqual(back.root, { base: 'src/', other: '' })
     assert.equal(back.paths.get('__prelude__'), '../__prelude__', 'a file outside the root above it')
+    assert.deepEqual(detectRoot(['src/a.js', 'src/b.js', 'x.js', 'y.js', 'z.js'], ['a.js', 'b.js']), { base: 'src/', other: '' }, 'half the side without it, however many files the other holds')
   })
 
   it('pairs a file both keep at their own root as it is, and gives every old file a path of its own', () => {
