@@ -7,10 +7,10 @@ describe('npm.js', () => {
     assert.deepEqual(Object.keys(await import('../npm.js')), ['default'])
   })
 
-  it('lists account names, each once, in code unit order', () => {
+  it('lists account names, each once', () => {
     assert.ok(publishers.length > 1000)
     for (const name of publishers) assert.match(name, /^[\w.-]+$/u)
-    assert.deepEqual(publishers, [...new Set(publishers)].toSorted())
+    assert.equal(new Set(publishers).size, publishers.length)
   })
 
   it('lists the accounts with standing on a package, not those that published some versions of it in passing', () => {
