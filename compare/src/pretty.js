@@ -1,8 +1,10 @@
-// A file formatted by oxfmt, used only where checks apart from oxfmt find it
-// differs in layout alone: strings and comments as written, the rest as
-// formatting may respell it, and a script's syntax tree as oxc parses it.
+// A file formatted by oxfmt, used only where checks apart from oxfmt find it differs in layout
+// alone: a script's syntax tree as oxc parses it, a style sheet's as css-tree does (an optional peer,
+// CSS refused without it), JSON's strings and comments as written.
 
 import { getOxc } from '#oxc'
+import { indentless, sameCss } from './css.js'
+import { loadCssTree } from './csstree.js'
 import { loadFormatter } from './oxfmt.js'
 
 const PRETTY_OPTIONS = { quoteProps: 'preserve', trailingComma: 'none', arrowParens: 'avoid', embeddedLanguageFormatting: 'off' }
@@ -10,24 +12,8 @@ const PRETTY_OPTIONS = { quoteProps: 'preserve', trailingComma: 'none', arrowPar
 const SCRIPTS = new Set(['js', 'mjs', 'cjs', 'jsx', 'ts', 'mts', 'cts', 'tsx'])
 const NUMBER = /(?<![\p{L}\p{N}_$])(?:0[box][\d_a-f]+n?|\d[\d_]*(?:\.[\d_]*)?(?:e[+-]?\d+)?n?)|(?<![\p{N}.])\.\d[\d_]*(?:e[+-]?\d+)?/giu
 const POSITION = new Set(['start', 'end', 'range', 'loc'])
-// Strings and comments, compared as written, split from the rest; one unclosed runs
-// to the end. CSS's unquoted URLs and element() references count as strings, as do attribute
-// values formatting quotes.
-const LITERAL = {
-  css: /("(?:[^"\\\n]|\\[^])*"|'(?:[^'\\\n]|\\[^])*'|\/\*[^]*?(?:\*\/|$)|(?<![-\w])(?:url|(?:-moz-)?element)\(\s*(?:[^"'()\s\\]|\\[^])*\s*\)|(?=-?[_a-z\u00A0-\uFFFF])(?<==\s*)-?[_a-z\u00A0-\uFFFF][-\w\u00A0-\uFFFF]*(?=\s*(?:[is]\s*)?\]))/iu,
-  json: /("(?:[^"\\\n]|\\[^])*"|\/\*[^]*?(?:\*\/|$)|\/\/.*)/u,
-}
-const UNIT = String.raw`(?<![-\w.#\\])-?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?[a-z]+`
-// What formatting changes in CSS but layout, strings and comments aside: it lowercases
-// at-rule names, queries, `!important`, units, a declaration's property and hex colors and a
-// selector's pseudo-classes, and spaces a selector's `+` (a value's is kept, as `calc()` needs).
-const CSS_FORM = new RegExp(String.raw`${LITERAL.css.source}|(?<query>@(?:media|supports)\b(?:[^{};/"']|\/(?!\*))*)|@[-\w]+|![a-z]+|${UNIT}`
-  + String.raw`|(?<declared>#[\da-f]{3,8}(?![-\w])|(?<![-\w.#\\])[a-z][-\w]*(?=\s*:))|(?<selected>(?<=:)-?[a-z][-\w]*|(?<!\s)\s*\+\s*)|(?<semi>;)(?=\s*\})`, 'giu')
-// A query's words but its values (`(prefers-color-scheme: DARK)`) and custom properties.
-const QUERY_WORD = new RegExp(String.raw`${UNIT}|(?=[a-z])(?<![-\w.#\\]|:\s*)[a-z][-\w]*`, 'giu')
-// A space in CSS is kept between two characters a selector may hold, as in `.a .b`, around
-// `+`, and where dropping it would make one token of two (`# fff`, `5 %`).
-const CSS_SPACE = /(?<![-\w\u00A0-\uFFFF%)\]*+#.@\\]) | (?![-\w\u00A0-\uFFFF.#:[(*+&%\\])| (?=\()(?<=@[-\w]+ )|(?<=[)\]]) (?=[-\w]+\()/gu
+// JSON's strings and comments, compared as written, split from the rest; one unclosed runs to the end.
+const LITERAL = /("(?:[^"\\\n]|\\[^])*"|\/\*[^]*?(?:\*\/|$)|\/\/.*)/u
 
 // A number as the formatter spells it (`.50E+3` as `0.5e3`).
 function numberSpelling(text) {
@@ -44,64 +30,8 @@ function numberSpelling(text) {
 const scriptForm = (text) => text.replaceAll(NUMBER, numberSpelling).replaceAll(/\\(?=["'])|[\s();]/gu, '').replaceAll("'", '"')
   .replaceAll(/(?<=\/)[dgimsuvy]{2,}(?![\p{L}\p{N}_$])/gu, (flags) => [...flags].toSorted().join(''))
 
-const squash = (text) => text.replaceAll(/\s+/gu, ' ').trim()
-const indentless = (text) => text.replaceAll(/(?<![ \t])[ \t]*\r?\n[ \t]*/gu, '\n')
-
-// Formatting may change a string's quotes and a comment's indentation alone.
-function literal(token) {
-  if (token.startsWith('/')) return indentless(token)
-  return /^["']/u.test(token) ? `"${token.slice(1, -1).replaceAll(/\\(?=["'])/gu, '')}"` : `"${token}"`
-}
-
-// CSS as formatting would write it but for layout. What is in a selector or query (whose next
-// `{`, `;` or `}`, strings and comments aside, is a `{`) is told from what is declared; a custom
-// property's value (`--x: #ABC`, `--x: {a;}`) keeps its case and its last `;`, a rule drops its.
-function cssCase(text) {
-  const blank = text.replaceAll(new RegExp(LITERAL.css.source, 'giu'), (token) => ' '.repeat(token.length))
-  const blocks = [], custom = new Uint8Array(text.length), next = new Uint8Array(text.length + 1)
-  for (let i = 0, named = null, valued = false; i < blank.length; i++) {
-    named ??= /\s/u.test(blank[i]) ? null : blank.startsWith('--', i)
-    valued ||= named === true && blank[i] === ':'
-    custom[i] = Number(blocks.at(-1) === 3 || valued)
-    if (blank[i] === '{') blocks.push(custom[i] ? 3 : 2)
-    if (blank[i] === '}') next[i] = blocks.pop() ?? 2
-    if ('{;}'.includes(blank[i])) [named, valued] = [null, false]
-  }
-  for (let i = text.length - 1; i >= 0; i--) if (blank[i] !== '}') next[i] = blank[i] === '{' ? 1 : blank[i] === ';' ? 0 : next[i + 1]
-  return text.replaceAll(CSS_FORM, (token, string, ...rest) => {
-    const { query, declared, selected, semi } = rest.at(-1), offset = rest.at(-3)
-    const inSelector = next[offset] === 1
-    if (semi !== undefined) return next[offset + 1] === 2 ? '' : token
-    if (string !== undefined || (custom[offset] && !token.startsWith('!')) || (declared !== undefined && inSelector) || (selected !== undefined && !inSelector)) return token
-    if (query !== undefined) return token.replaceAll(QUERY_WORD, (word) => word.toLowerCase())
-    return token.includes('+') ? '+' : token.toLowerCase()
-  })
-}
-
-// CSS with what it splits out marked in place: a comment, a string or an attribute's value,
-// and a URL (a name before, a `)` after); a space kept beside comments marked too.
-const [COMMENT, STRING, URL, KEPT] = ['\u{F0001}', '\u{F0002}', '\uE000)', '\u{F0003}']
-
-// A comment parts no tokens: the spaces beside a run of them count as one, kept where
-// a space between the run's neighbours would be. Text holding a mark is not read.
-function cssForm(text) {
-  if (/[\u{F0001}-\u{F0003}\uE000]/u.test(text)) return null
-  const literals = []
-  const marked = squash(cssCase(text).replaceAll(new RegExp(LITERAL.css.source, 'giu'), (token) => {
-    literals.push(literal(token))
-    return token.startsWith('/') ? COMMENT : /^(?:url|(?:-moz-)?element)\(/iu.test(token) ? URL : STRING
-  }))
-  const form = marked.replaceAll(/ ?\u{F0001}(?: ?\u{F0001})* ?/gu, (run, at) => {
-    const before = /(?:@?[-\w]+|[^ ])?$/u.exec(marked.slice(Math.max(0, at - 64), at))[0]
-    const after = /^(?:[-\w]+\(|[^ ])?/u.exec(marked.slice(at + run.length, at + run.length + 64))[0]
-    return (run.includes(' ') && `${before} ${after}`.replaceAll(CSS_SPACE, '').includes(' ') ? KEPT : '') + run.replaceAll(' ', '')
-  })
-  return [form.replaceAll(CSS_SPACE, '').replaceAll(NUMBER, numberSpelling), ...literals]
-}
-
-const sameList = (a, b) => a !== null && b !== null && a.length === b.length && a.every((item, i) => item === b[i])
-const textForm = (text, extension) => (extension === 'css' ? cssForm(text)
-  : text.split(LITERAL.json).map((part, i) => (i % 2 ? literal(part) : part.replaceAll(/\s/gu, '').replaceAll(NUMBER, numberSpelling))))
+const jsonForm = (text) => text.split(LITERAL).map((part, i) => (i % 2 ? (part.startsWith('/') ? indentless(part) : part) : part.replaceAll(/\s/gu, '').replaceAll(NUMBER, numberSpelling)))
+const sameList = (a, b) => a.length === b.length && a.every((item, i) => item === b[i])
 
 function parsed(text, extension) {
   const lang = extension === 'tsx' ? 'tsx' : /^[cm]?ts$/u.test(extension) ? 'ts' : 'jsx'
@@ -138,17 +68,20 @@ function sameTree(a, b) {
 }
 
 // A safeguard on oxfmt's own output, not a comparison of any two texts: exported
-// for tests alone, not by the package.
-export function sameCode(text, formatted, extension = 'js') {
-  if (!SCRIPTS.has(extension)) return Object.hasOwn(LITERAL, extension) && sameList(textForm(text, extension), textForm(formatted, extension))
-  if (scriptForm(text) !== scriptForm(formatted)) return false
+// for tests alone, not by the package. CSS is read by `csstree` where given.
+export function sameCode(text, formatted, extension = 'js', csstree = null) {
+  if (extension === 'css') return csstree !== null && sameCss(csstree, text, formatted)
+  if (extension === 'json') return sameList(jsonForm(text), jsonForm(formatted))
+  if (!SCRIPTS.has(extension) || scriptForm(text) !== scriptForm(formatted)) return false
   const [before, after] = [parsed(text, extension), parsed(formatted, extension)]
   return before !== null && after !== null && sameList(comments(before), comments(after)) && sameTree(before.program, after.program)
 }
 
-// oxfmt is loaded outside the try: one missing is thrown, not taken for a file
-// that won't format.
+// Only what can be checked is formatted: scripts, JSON, and CSS where css-tree is there to read it.
+// oxfmt is loaded outside the try: one missing is thrown, not taken for a file that won't format.
 export async function format(text, extension) {
+  const csstree = extension === 'css' ? await loadCssTree() : null
+  if (!(SCRIPTS.has(extension) || extension === 'json' || csstree)) return { error: 'unsupported' }
   const oxfmt = await loadFormatter()
   let result
   try {
@@ -157,5 +90,5 @@ export async function format(text, extension) {
     return { error: 'unformattable' }
   }
   if (result.errors.length > 0) return { error: 'unformattable' }
-  return sameCode(text, result.code, extension) ? { code: result.code } : { error: 'pretty-mismatch' }
+  return sameCode(text, result.code, extension, csstree) ? { code: result.code } : { error: 'pretty-mismatch' }
 }

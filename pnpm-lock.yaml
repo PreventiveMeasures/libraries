@@ -46,6 +46,9 @@ importers:
       '@preventive/vfs':
         specifier: workspace:*
         version: link:../vfs
+      css-tree:
+        specifier: ^3.2.1
+        version: 3.2.1
       oxc-minify:
         specifier: ^0.152.0
         version: 0.152.0
@@ -618,6 +621,13 @@ packages:
       semver:
         optional: true
 
+  css-tree@3.2.1:
+    resolution: {integrity: sha512-X7sjQzceUhu1u7Y/ylrRZFU2FS6LRiFVp6rKLPg23y3x3c3DOKAwuXGDp+PAGjh6CSnCjYeAul8pcT8bAl+lSA==, tarball: https://registry.npmjs.org/css-tree/-/css-tree-3.2.1.tgz}
+    engines: {node: ^10 || ^12.20.0 || ^14.13.0 || >=15.0.0}
+
+  mdn-data@2.27.1:
+    resolution: {integrity: sha512-9Yubnt3e8A0OKwxYSXyhLymGW4sCufcLG6VdiDdUGVkPhpqLxlvP5vl1983gQjJl3tqbrM731mjaZaP68AgosQ==, tarball: https://registry.npmjs.org/mdn-data/-/mdn-data-2.27.1.tgz}
+
   oxc-minify@0.152.0:
     resolution: {integrity: sha512-xp5WpI9+QAQBHW74FSi85gDeLczz0WzHfxOmbJUa4gCnChRMgO7qX2tn2IhmrZRnxoYD1P06o7zXYgJYCGvHNA==, tarball: https://registry.npmjs.org/oxc-minify/-/oxc-minify-0.152.0.tgz}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -656,6 +666,10 @@ packages:
     resolution: {integrity: sha512-rYCsBF/M5HjUch52bbtVONEFjv6Xu8sm8h72dNlR5bzIE1fvC/bxgspzkjSfU+MweEMmPM8KJebG6nnyxo5mCg==, tarball: https://registry.npmjs.org/playwright-core/-/playwright-core-1.63.0.tgz}
     engines: {node: '>=20'}
     hasBin: true
+
+  source-map-js@1.2.2:
+    resolution: {integrity: sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==, tarball: https://registry.npmjs.org/source-map-js/-/source-map-js-1.2.2.tgz}
+    engines: {node: '>=0.10.0'}
 
   tinypool@2.2.0:
     resolution: {integrity: sha512-jBrmx4lYmaC9k/mgPbylxs7kBUxHtD8256up+HjLaDFfXScKJQyil+SWXSvhAtT7XHo+yTVlpB81PGmHP8oLSQ==, tarball: https://registry.npmjs.org/tinypool/-/tinypool-2.2.0.tgz}
@@ -903,6 +917,13 @@ snapshots:
 
   '@preventive/upstream@1.0.0-alpha.12': {}
 
+  css-tree@3.2.1:
+    dependencies:
+      mdn-data: 2.27.1
+      source-map-js: 1.2.2
+
+  mdn-data@2.27.1: {}
+
   oxc-minify@0.152.0:
     optionalDependencies:
       '@oxc-minify/binding-android-arm-eabi': 0.152.0
@@ -996,6 +1017,8 @@ snapshots:
       '@oxlint/binding-win32-x64-msvc': 1.82.0
 
   playwright-core@1.63.0: {}
+
+  source-map-js@1.2.2: {}
 
   tinypool@2.2.0: {}
 

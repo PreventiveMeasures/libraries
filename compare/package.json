@@ -44,6 +44,8 @@
     "pretty.js",
     "src/blocks.js",
     "src/changes.js",
+    "src/css.js",
+    "src/csstree.js",
     "src/error.js",
     "src/layout.js",
     "src/marked.js",
@@ -100,11 +102,15 @@
     "@preventive/diff": "^1.0.2"
   },
   "peerDependencies": {
+    "css-tree": ">=3.2.1",
     "oxc-minify": ">=0.152.0",
     "oxc-parser": ">=0.152.0",
     "oxfmt": ">=0.72.0"
   },
   "peerDependenciesMeta": {
+    "css-tree": {
+      "optional": true
+    },
     "oxc-minify": {
       "optional": true
     },
@@ -118,6 +124,7 @@
   "devDependencies": {
     "@preventive/archive": "workspace:*",
     "@preventive/vfs": "workspace:*",
+    "css-tree": "^3.2.1",
     "oxc-minify": "^0.152.0",
     "oxc-parser": "^0.152.0",
     "oxfmt": "^0.72.0"

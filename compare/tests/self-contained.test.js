@@ -5,8 +5,9 @@ import { describe, it } from 'node:test'
 
 // `compare/` is a package of its own, standing on two others: nothing in it
 // may reach outside itself but for @preventive/diff and @exodus/bytes, and
-// oxc-parser, oxc-minify and oxfmt, optional peers names.js and pretty.js load,
-// in the modules that load them alone (#oxc, src/oxfmt.js). It
+// oxc-parser, oxc-minify, oxfmt and css-tree, optional peers names.js and
+// pretty.js load, in the modules that load them alone (#oxc, src/oxfmt.js,
+// src/csstree.js). It
 // reads no disk and runs where JavaScript does, so no node: builtin or Node
 // global either -- but in a .node.js module, which package.json imports
 // gives Node alone, in place of a portable twin. tests/ and scripts/ are
@@ -69,14 +70,15 @@ describe('compare/ is self-contained', () => {
   const declared = new Set(Object.keys(manifest.dependencies ?? {}))
   const peers = new Set(Object.keys(manifest.peerDependencies ?? {}))
   const loaders = new Set(Object.values(imports['#oxc'] ?? {}).map((path) => path.slice(2)))
-  const loads = (file, peer) => (peer === 'oxfmt' ? file === 'src/oxfmt.js' : loaders.has(file))
+  const LOADER = { 'css-tree': 'src/csstree.js', oxfmt: 'src/oxfmt.js' }
+  const loads = (file, peer) => (Object.hasOwn(LOADER, peer) ? file === LOADER[peer] : loaders.has(file))
 
   it('declares @preventive/diff and @exodus/bytes alone', () => {
     assert.deepEqual([...declared], ['@exodus/bytes', '@preventive/diff'])
   })
 
-  it('takes oxc-minify, oxc-parser and oxfmt as optional peers alone, loaded by #oxc and src/oxfmt.js', () => {
-    assert.deepEqual([...peers], ['oxc-minify', 'oxc-parser', 'oxfmt'])
+  it('takes css-tree, oxc-minify, oxc-parser and oxfmt as optional peers alone, loaded by #oxc, src/oxfmt.js and src/csstree.js', () => {
+    assert.deepEqual([...peers], ['css-tree', 'oxc-minify', 'oxc-parser', 'oxfmt'])
     for (const peer of peers) assert.equal(manifest.peerDependenciesMeta?.[peer]?.optional, true, `${peer} is optional`)
     assert.deepEqual([...loaders], ['src/oxc.node.js', 'src/oxc.js'])
   })
@@ -108,7 +110,7 @@ describe('compare/ is self-contained', () => {
 
   // A browser bundle of compare.js alone needs no peer installed: only names.js
   // and pretty.js lead to #oxc, whose portable module imports both as it loads.
-  it('compare.js reaches no #oxc module, nor oxfmt', () => {
+  it('compare.js reaches no #oxc module, nor oxfmt or css-tree', () => {
     const queue = [new URL('compare.js', PKG_DIR)], seen = new Set()
     while (queue.length > 0) {
       const file = queue.pop()
@@ -116,7 +118,7 @@ describe('compare/ is self-contained', () => {
       seen.add(file.href)
       for (const spec of specifiersOf(readFileSync(file, 'utf8'))) {
         assert.notEqual(spec, '#oxc', `${nameOf(file)}, which compare.js loads, imports #oxc`)
-        assert.notEqual(nameOf(new URL(spec, file)), 'src/oxfmt.js', `${nameOf(file)}, which compare.js loads, imports oxfmt`)
+        assert.ok(!Object.values(LOADER).includes(nameOf(new URL(spec, file))), `${nameOf(file)}, which compare.js loads, imports ${spec}`)
         if (spec.startsWith('.')) queue.push(new URL(spec, file))
       }
     }

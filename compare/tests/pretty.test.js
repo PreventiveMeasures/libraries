@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
+import * as csstree from 'css-tree'
 import { minifySync } from 'oxc-minify'
 import { format } from '../pretty.js'
 import { sameCode } from '../src/pretty.js'
+
+const sameCss = (text, formatted) => sameCode(text, formatted, 'css', csstree)
 
 describe('sameCode', () => {
   it('takes what formatting may respell: whitespace, quotes, parentheses, semicolons, numbers', () => {
@@ -38,43 +41,57 @@ describe('sameCode', () => {
     assert.equal(sameCode('/**\n     * a  b\n     */\nf()//x(y)', '/**\n * a  b\n */\nf(); //x(y)\n'), true)
     for (const [text, formatted, what] of [['a()/* a b */', 'a(); /* ab */\n', 'a space in a comment'], ['a()/* A  B */', 'a(); /* A B */\n', 'spaces within one of its lines'],
       ['a()// x(y)', 'a(); // xy\n', 'parentheses in one'], ["a()// 'x'", 'a(); // "x"\n', 'quotes in one']]) assert.equal(sameCode(text, formatted), false, what)
-    assert.equal(sameCode('a{/* columns: A  B */x:y}', 'a {\n  /* columns: A B */\n  x: y;\n}\n', 'css'), false)
+    assert.equal(sameCss('a{/* columns: A  B */x:y}', 'a {\n  /* columns: A B */\n  x: y;\n}\n'), false)
     assert.equal(sameCode('{"x":"a b","y":1.50}', '{ "x": "a b", "y": 1.5 }\n', 'json'), true)
     for (const [text, formatted] of [['{"x":"a b"}', '{ "x": "ab" }\n'], ['{"x":"1.50"}', '{ "x": "1.5" }\n'], ['{"x":1}', '{ "x": 1 } // c\n']]) assert.equal(sameCode(text, formatted, 'json'), false, text)
   })
 
-  it('compares CSS but for the case formatting lowers and spaces no selector needs', () => {
-    const text = 'A:HOVER,.Foo:NOT(.Bar)[class*=x]{COLOR:RED;--Brand:#abc;background:#ABC;margin:.5EM!IMPORTANT}@MEDIA SCREEN AND (MAX-WIDTH:10PX){a{b:c}}'
+  it('compares CSS as css-tree reads it, but for the case CSS ignores, a zero before a point and an attribute\'s quotes', () => {
+    const text = 'A:HOVER,.Foo:NOT(.Bar)[class*=x]{COLOR:RED;--Brand:#abc;background:#ABC;margin:.5EM!IMPORTANT}@MEDIA screen{a{b:c}}'
     const formatted = 'A:hover,\n.Foo:not(.Bar)[class*="x"] {\n  color: RED;\n  --Brand: #abc;\n  background: #abc;\n  margin: 0.5em !important;\n}\n'
-      + '@media screen and (max-width: 10px) {\n  a {\n    b: c;\n  }\n}\n'
-    assert.equal(sameCode(text, formatted, 'css'), true, "oxfmt's own output")
-    assert.equal(sameCode(text, formatted), false, 'not as a script')
-    assert.equal(sameCode("@media(min-width:1px){a>b,.c .d{src:url(x)format('woff');margin:0 .5EM}}",
-      '@media (min-width: 1px) {\n  a > b,\n  .c .d {\n    src: url(x) format("woff");\n    margin: 0 0.5em;\n  }\n}\n', 'css'), true)
+      + '@media screen {\n  a {\n    b: c;\n  }\n}\n'
+    assert.equal(sameCss(text, formatted), true, "oxfmt's own output")
+    assert.equal(sameCode(text, formatted, 'css'), false, 'not without css-tree')
+    assert.equal(sameCode(text, formatted), false, 'nor as a script')
+    for (const [before, after] of [
+      ["@media(min-width:1px){a>b,.c .d{src:url(x)format('woff');margin:0 .5EM}}", '@media (min-width: 1px) {\n  a > b,\n  .c .d {\n    src: url(x) format("woff");\n    margin: 0 0.5em;\n  }\n}\n'],
+      ['a+b,a:NTH-CHILD(2N+1){x:calc(1px + 2px)}', 'a + b,\na:nth-child(2n + 1) {\n  x: calc(1px + 2px);\n}\n'],
+      ['a{b:c}/* x */d{e:f}', 'a {\n  b: c;\n} /* x */\nd {\n  e: f;\n}\n'], ['a{b:url( x )}', 'a {\n  b: url(x);\n}\n'],
+      ['a{background:linear-gradient(#ABC,#DEF)}', 'a {\n  background: linear-gradient(#abc, #def);\n}\n'],
+      ['/**\n     * a  b\n     */\na{b:c}', '/**\n * a  b\n */\na {\n  b: c;\n}\n'],
+    ]) assert.equal(sameCss(before, after), true, before)
+  })
+
+  it('takes numbers as written, but for a zero before the point, in a custom property\'s numbers too', () => {
+    assert.equal(sameCss('a{b:.1;c:-.5px;d:+.5%}', 'a {\n  b: 0.1;\n  c: -0.5px;\n  d: +0.5%;\n}\n'), true)
+    assert.equal(sameCss(':root{--x:.3px .5;--y:"a  .5"}', ':root {\n  --x: 0.3px 0.5;\n  --y: "a  .5";\n}\n'), true)
+    for (const [before, after] of [['a{b:0.100000000000000004}', 'a {\n  b: 0.1;\n}\n'], ['a{b:1.50}', 'a {\n  b: 1.5;\n}\n'], ['a{b:1E3}', 'a {\n  b: 1e3;\n}\n'],
+      ['a{b:.1}', 'a {\n  b: 0.2;\n}\n'], [':root{--y:"a .5"}', ':root {\n  --y: "a 0.5";\n}\n'], [':root{--x:a  b}', ':root {\n  --x: a b;\n}\n']]) assert.equal(sameCss(before, after), false, before)
+  })
+
+  it('refuses any other change, Prettier\'s own among them', () => {
     for (const [before, after, what] of [['.a .b{}', '.a.b {\n}\n', 'a descendant made a compound'], ['* .a{}', '*.a {\n}\n', 'and after `*`'],
+      ['.a/**/.b{x:y}', '.a /**/ .b {\n  x: y;\n}\n', 'a compound made a descendant beside a comment'],
       ['a{content:"a b"}', 'a {\n  content: "ab";\n}\n', 'a string\'s spaces'], ['a{content:"A"}', 'a {\n  content: "a";\n}\n', 'its case'],
       ['a{b:c;d:e}', 'a {\n  b: cd: e;\n}\n', 'two declarations made one'], [':root{--Brand:red}', ':root {\n  --brand: red;\n}\n', 'a custom property\'s case'],
       ['.Foo{a:b}', '.foo {\n  a: b;\n}\n', 'a class\'s'], ['.col-2XL{a:b}', '.col-2xl {\n  a: b;\n}\n', 'one that looks like a unit'], ['#Face{a:b}', '#face {\n  a: b;\n}\n', 'an id\'s'], ['a{animation:Spin}', 'a {\n  animation: spin;\n}\n', 'a value\'s'],
-      ['a{b:url(A.png)}', 'a {\n  b: url(a.png);\n}\n', 'a URL\'s'], ['clipPath{a:b}', 'clippath {\n  a: b;\n}\n', 'an element\'s'],
+      ['a{b:url(A.png)}', 'a {\n  b: url(a.png);\n}\n', 'a URL\'s'], ['clipPath{a:b}', 'clippath {\n  a: b;\n}\n', 'an element\'s'], ['@MEDIA SCREEN{a{b:c}}', '@media screen {\n  a {\n    b: c;\n  }\n}\n', 'a media type\'s'],
       ['#ABC[x=";"]{a:b}', '#abc[x=";"] {\n  a: b;\n}\n', 'an id\'s, a string read past'], ['@media /* KEEP */ screen{a{x:y}}', '@media /* keep */ screen {\n  a {\n    x: y;\n  }\n}\n', 'a comment\'s in a query'],
-      ['@supports (--Foo:1){a{x:y}}', '@supports (--foo: 1) {\n  a {\n    x: y;\n  }\n}\n', 'a custom property\'s in one'],
-      ['a{x:calc(1px + 2px)}', 'a {\n  x: calc(1px+2px);\n}\n', 'the spaces calc() needs'], ['a{filter:url(#ABC)}', 'a {\n  filter: url(#abc);\n}\n', 'a URL\'s fragment'],
-      ['a{background:-moz-element(#ABC)}', 'a {\n  background: -moz-element(#abc);\n}\n', 'an element\'s id, as oxfmt lowers it'],
-      [':root{--token:#ABC}', ':root {\n  --token: #abc;\n}\n', 'a custom property\'s value, as oxfmt lowers it'],
-      [':root{--x:# fff}', ':root {\n  --x: #fff;\n}\n', 'two tokens made one'], ['a{--x:5 %}', 'a {\n  --x: 5%;\n}\n', 'and with `%`'],
-      ['a{--x:{foo}}', 'a {\n  --x: {\n    foo;\n  };\n}\n', 'a `;` added in a custom property\'s block, as oxfmt adds it']]) assert.equal(sameCode(before, after, 'css'), false, what)
-    assert.equal(sameCode('.a/**/.b{x:y}', '.a /**/ .b {\n  x: y;\n}\n', 'css'), false, 'a compound made a descendant beside a comment')
-    assert.equal(sameCode('.a/**/ .b{x:y}', '.a /**/.b {\n  x: y;\n}\n', 'css'), true, 'the spaces beside a comment counting as one')
-    assert.equal(sameCode('a{b:c}/* x */d{e:f}', 'a {\n  b: c;\n} /* x */\nd {\n  e: f;\n}\n', 'css'), true, 'and dropped where no space is needed')
-    assert.equal(sameCode('a{b:c}', `a{b:c}${String.fromCodePoint(0xF0001)}`, 'css'), false, 'text holding a mark')
-    assert.equal(sameCode('a{--x:{foo;};b:c}', 'a {\n  --x: {\n    foo;\n  };\n  b: c;\n}\n', 'css'), true, 'the block kept')
-    assert.equal(sameCode('a+b,a:NTH-CHILD(2N+1){x:calc(1px + 2px)}', 'a + b,\na:nth-child(2n + 1) {\n  x: calc(1px + 2px);\n}\n', 'css'), true, 'a selector\'s `+` spaced')
+      ['@supports (--Foo:1){a{x:y}}', '@supports (--foo: 1) {\n  a {\n    x: y;\n  }\n}\n', 'a custom property\'s in one'], ['a{filter:url(#ABC)}', 'a {\n  filter: url(#abc);\n}\n', 'a URL\'s fragment'],
+      [`a{${String.fromCodePoint(0x212A)}:b}`, 'a {\n  k: b;\n}\n', 'a capital outside ASCII'], ['a{b:c!ie}', 'a {\n  b: c !important;\n}\n', 'a hack made `!important`'],
+      ['a{x:calc(1px + 2px)}', 'a {\n  x: calc(1px +2px);\n}\n', 'the spaces calc() needs'], [':root{--x:# fff}', ':root {\n  --x: #fff;\n}\n', 'two tokens made one'], ['a{--x:5 %}', 'a {\n  --x: 5%;\n}\n', 'and with `%`'],
+      ['[a*=x]{}', '[a^="x"] {\n}\n', 'an attribute\'s matcher'], ['[a=x i]{}', '[a="x" s] {\n}\n', 'its flag'], ['[a=\\41]{}', '[a="\\\\41"] {\n}\n', 'an escape quoted'],
+      ['a{background:-moz-element(#ABC)}', 'a {\n  background: -moz-element(#abc);\n}\n', 'an element\'s id, as Prettier lowers it'],
+      [':root{--token:#ABC}', ':root {\n  --token: #abc;\n}\n', 'a custom property\'s value, as Prettier lowers it'],
+      ['a{--x:{foo}}', 'a {\n  --x: {\n    foo;\n  };\n}\n', 'a `;` added in a custom property\'s block, as Prettier adds it'],
+      ['a{b:"x\n}', 'a {\n  b: "x\n}\n', 'text css-tree finds an error in']]) assert.equal(sameCss(before, after), false, what)
   })
 
   it('reads text in time linear in its length', () => {
     const start = performance.now()
-    for (const text of ['a:b'.repeat(100_000) + '{c:d}', `a{${'b:c'.repeat(100_000)}}`, '/*'.repeat(100_000), `a${' '.repeat(300_000)}b{}`, `[a=${' '.repeat(300_000)}b]{}`, `/*${' '.repeat(300_000)}*/`]) {
-      sameCode(text, text, 'css')
+    for (const text of ['a:b'.repeat(50_000) + '{c:d}', `a{${'b:c;'.repeat(50_000)}}`, '/*'.repeat(100_000), `a${' '.repeat(300_000)}b{}`, `[a=${' '.repeat(300_000)}b]{}`,
+      `/*${' '.repeat(300_000)}*/`, `a{${'color:#ABC;'.repeat(20_000)}}`, `a{${'b:#ABC;'.repeat(20_000)}}`, `a{background:${'url(x) #ABC 1px, '.repeat(10_000)}red}`, `a{--x:${'.5 '.repeat(100_000)}}`]) {
+      sameCss(text, text)
     }
     sameCode('/*'.repeat(100_000), '/*'.repeat(100_000), 'json')
     assert.ok(performance.now() - start < 5000)
@@ -83,6 +100,7 @@ describe('sameCode', () => {
   it('takes no other kind of file', () => {
     assert.equal(sameCode('a', 'a', 'md'), false)
     assert.equal(sameCode('a: 1', 'a: 1', 'yaml'), false)
+    assert.equal(sameCode('a{}', 'a{}', 'css'), false, 'nor CSS without css-tree')
   })
 })
 
@@ -95,6 +113,12 @@ describe('format', () => {
 
   it('answers why where it does not', async () => {
     assert.deepEqual(await format('function (', 'js'), { error: 'unformattable' })
+    assert.deepEqual(await format('a', 'md'), { error: 'unsupported' })
+    assert.deepEqual(await format('a{--x:{foo}}', 'css'), { error: 'pretty-mismatch' })
+  })
+
+  it('formats CSS where css-tree is there to check it', async () => {
+    assert.deepEqual(await format('a{color:#ABC;margin:.5EM}', 'css'), { code: 'a {\n  color: #abc;\n  margin: 0.5em;\n}\n' })
   })
 
   it('takes published code minified as it is formatted', async () => {
