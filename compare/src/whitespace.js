@@ -25,10 +25,14 @@ function mixesBlanks(x, y) {
   }
 }
 
-// Blocks that don't carry `before` to `after` under -w may hide anything, and
-// would line up the wrong lines here, so they count as hiding.
+// Blocks that don't carry `before` to `after` under -w, or are not blocks at
+// all, may hide anything and would line up the wrong lines here: they count as hiding.
 export function hidesMixedWhitespace(before, after, blocks) {
-  if (!blocksHold(before, after, blocks, { whitespace: 'all' })) return true
+  try {
+    if (!blocksHold(before, after, blocks, { whitespace: 'all' })) return true
+  } catch {
+    return true
+  }
   const a = lines(before), b = lines(after)
   let ai = 0, bi = 0
   for (let run = 0; run <= blocks.length; run++) {

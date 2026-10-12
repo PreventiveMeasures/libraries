@@ -36,12 +36,15 @@ function rootPaths(base, other, root) {
   return { paths, paired, moved }
 }
 
+// The most directories a root may be: deeper, every path's every suffix would be looked up.
+const ROOT_DEPTH = 16
+
 export function detectRoot(basePaths, otherPaths) {
   const base = new Set(basePaths), other = new Set(otherPaths)
   const likeliest = (within, from) => {
     const counts = new Map()
     for (const path of within) {
-      for (let at = path.indexOf('/'); at !== -1; at = path.indexOf('/', at + 1)) {
+      for (let at = path.indexOf('/'), level = 0; at !== -1 && level < ROOT_DEPTH; at = path.indexOf('/', at + 1), level++) {
         if (from.has(path.slice(at + 1))) counts.set(path.slice(0, at + 1), (counts.get(path.slice(0, at + 1)) ?? 0) + 1)
       }
     }

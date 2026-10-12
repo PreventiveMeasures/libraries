@@ -3,7 +3,7 @@
 // CSS refused without it), JSON's strings and comments as written.
 
 import { getOxc } from '#oxc'
-import { indentless, sameCss } from './css.js'
+import { cssDepth, indentless, sameCss } from './css.js'
 import { loadCssTree, loadFormatter } from './peers.js'
 
 const PRETTY_OPTIONS = { quoteProps: 'preserve', trailingComma: 'none', arrowParens: 'avoid', embeddedLanguageFormatting: 'off' }
@@ -11,8 +11,11 @@ const PRETTY_OPTIONS = { quoteProps: 'preserve', trailingComma: 'none', arrowPar
 const SCRIPTS = new Set(['js', 'mjs', 'cjs', 'jsx', 'ts', 'mts', 'cts', 'tsx'])
 const NUMBER = /(?<![\p{L}\p{N}_$])(?:0[box][\d_a-f]+n?|\d[\d_]*(?:\.[\d_]*)?(?:e[+-]?\d+)?n?)|(?<![\p{N}.])\.\d[\d_]*(?:e[+-]?\d+)?/giu
 const POSITION = new Set(['start', 'end', 'range', 'loc'])
-// JSON's strings and comments, compared as written, split from the rest; one unclosed runs to the end.
-const LITERAL = /("(?:[^"\\\n]|\\[^])*"|\/\*[^]*?(?:\*\/|$)|\/\/.*)/u
+// JSON's strings, quoted either way or in backticks as its kin may have them, and its comments, compared
+// as written, split from the rest; one unclosed runs to its line's end, or the end, never searched again.
+const LITERAL = /("(?:[^"\\\n]|\\(?:\r\n|[^]))*(?:"|(?=\n)|$)|'(?:[^'\\\n]|\\(?:\r\n|[^]))*(?:'|(?=\n)|$)|`(?:[^`\\]|\\[^])*(?:`|$)|\/\*[^]*?(?:\*\/|$)|\/\/.*)/u
+// How deep JSON and CSS may nest: some way past, oxfmt's own stack gives out, taking the process with it.
+const MOST_DEPTH = { json: 256, css: 32 }
 
 // A number as the formatter spells it (`.50E+3` as `0.5e3`), but for what JSON may read as another
 // type: a point keeps a digit after it, a whole number its zero exponent (`1.0`, `1e0`).
@@ -29,7 +32,21 @@ function numberSpelling(text) {
 const scriptForm = (text) => text.replaceAll(NUMBER, numberSpelling).replaceAll(/\\(?=["'])|[\s();]/gu, '').replaceAll("'", '"')
   .replaceAll(/(?<=\/)[dgimsuvy]{2,}(?![\p{L}\p{N}_$])/gu, (flags) => [...flags].toSorted().join(''))
 
-const jsonForm = (text) => text.split(LITERAL).map((part, i) => (i % 2 ? (part.startsWith('/') ? indentless(part) : part) : part.replaceAll(/\s/gu, '').replaceAll(NUMBER, numberSpelling)))
+// JSON has no point without a digit either side: such a number is kept as written, or a copy would read as valid.
+const jsonNumber = (text) => (/^\.|\.(?!\d)/u.test(text) ? text.toLowerCase() : numberSpelling(text))
+const jsonForm = (text) => text.split(LITERAL).map((part, i) => (i % 2 ? (part.startsWith('/') ? indentless(part) : part) : part.replaceAll(/\s/gu, '').replaceAll(NUMBER, jsonNumber)))
+
+// How deep JSON's brackets nest, strings and comments aside; a closer more than were opened counts for none.
+function jsonDepth(text) {
+  let depth = 0, most = 0
+  for (const [i, part] of text.split(LITERAL).entries()) {
+    for (const char of i % 2 ? '' : part) {
+      depth = char === '[' || char === '{' ? depth + 1 : char === ']' || char === '}' ? Math.max(0, depth - 1) : depth
+      most = Math.max(most, depth)
+    }
+  }
+  return most
+}
 const sameList = (a, b) => a.length === b.length && a.every((item, i) => item === b[i])
 
 function parsed(text, extension) {
@@ -41,7 +58,15 @@ function parsed(text, extension) {
 
 const comments = ({ comments: list }) => list.map(({ type, value }) => `${type} ${indentless(value)}`)
 // `a && (b && c)` and `(a && b) && c` read alike, as do `||` and `??` chains.
-const chain = (node, operator) => (node?.type === 'LogicalExpression' && node.operator === operator ? [...chain(node.left, operator), ...chain(node.right, operator)] : [node])
+function chain(node, operator) {
+  const operands = [], rest = [node]
+  while (rest.length > 0) {
+    const next = rest.pop()
+    if (next?.type === 'LogicalExpression' && next.operator === operator) rest.push(next.right, next.left)
+    else operands.push(next)
+  }
+  return operands
+}
 const fields = (node) => Object.keys(node).filter((key) => !POSITION.has(key) && !(node.type === 'Literal' && (key === 'raw' || key === 'regex' || (key === 'value' && node.regex))))
 const flags = (regex) => [...regex.flags].toSorted().join('')
 
@@ -81,6 +106,8 @@ export function sameCode(text, formatted, extension = 'js', csstree = null) {
 export async function format(text, extension) {
   const csstree = extension === 'css' ? await loadCssTree() : null
   if (!(SCRIPTS.has(extension) || extension === 'json' || csstree)) return { error: 'unsupported' }
+  const depth = extension === 'json' ? jsonDepth(text) : extension === 'css' ? cssDepth(csstree, text) : 0
+  if (depth > (MOST_DEPTH[extension] ?? Infinity)) return { error: 'unformattable' }
   const oxfmt = await loadFormatter()
   let result
   try {
@@ -89,5 +116,10 @@ export async function format(text, extension) {
     return { error: 'unformattable' }
   }
   if (result.errors.length > 0) return { error: 'unformattable' }
-  return sameCode(text, result.code, extension, csstree) ? { code: result.code } : { error: 'pretty-mismatch' }
+  // A check that fails in itself, its stack say, refuses the copy as one that finds it changed would.
+  try {
+    return sameCode(text, result.code, extension, csstree) ? { code: result.code } : { error: 'pretty-mismatch' }
+  } catch {
+    return { error: 'pretty-mismatch' }
+  }
 }

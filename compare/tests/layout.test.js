@@ -69,6 +69,14 @@ describe('trees taken from different roots', () => {
     }
   })
 
+  it('looks for a root no more than 16 directories down, in time linear in the paths however deep', () => {
+    const deep = Array.from({ length: 400 }, (_, k) => `${'a/'.repeat(2000)}f${k}.js`)
+    const start = performance.now()
+    assert.equal(treeLayout(deep, deep.map((path) => `z/${path}`)).root.other, 'z/')
+    assert.equal(treeLayout(deep, deep.map((path) => path.split('/').slice(17).join('/'))).root, null, 'a root 17 deep is none')
+    assert.ok(performance.now() - start < 3000)
+  })
+
   it('takes no root where two would pair as many, or only a few files would move', () => {
     const one = ['a.js', 'b.js', 'x/c.js', 'x/d.js'], two = ['x/a.js', 'x/b.js', 'c.js', 'd.js']
     assert.equal(detectRoot(one, two), null, 'x/ either way')

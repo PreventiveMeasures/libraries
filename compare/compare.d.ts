@@ -160,8 +160,9 @@ export interface Root { base: string; other: string }
 // The root between two trees, or null, and each old path as the new tree lays
 // it out: through the root where the new tree has it there, else as it is where
 // it has that, else through the root clear of every path taken, a `../` further
-// out. A root is taken where it pairs more files than none, and at least half
-// the files of the side without the directory; a tie either way is none.
+// out. A root, at most 16 directories, is taken where it pairs more files than
+// none, and at least half the files of the side without the directory; a tie
+// either way is none.
 export interface Layout { root: Root | null; paths: Map<string, string> }
 export function treeLayout(basePaths: Iterable<string>, otherPaths: Iterable<string>): Layout
 

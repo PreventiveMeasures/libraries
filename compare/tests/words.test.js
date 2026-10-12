@@ -133,5 +133,6 @@ describe('hidesMixedWhitespace', () => {
     assert.equal(hidesMixedWhitespace('a\nb\n', 'a\nc\n', []), true, 'a change left out')
     assert.equal(hidesMixedWhitespace('  a\nb\n', '\ta\nb\n', [{ a0: 1, a1: 2, b0: 1, b1: 2 }]), true, 'and a block that changes nothing')
     assert.equal(hidesMixedWhitespace('    a\nb\n', '\ta\nb\n', changeSet('    a\nb\n', '\ta\nb\n', { horizon: 0 })), false, 'but blocks found without -w, which hide nothing')
+    assert.equal(hidesMixedWhitespace('p\n  a\nq\n', 'p\n\ta\nq\n', [{ a0: 1, a1: 1.5, b0: 1, b1: 1.5 }]), true, 'and what are no blocks at all')
   })
 })

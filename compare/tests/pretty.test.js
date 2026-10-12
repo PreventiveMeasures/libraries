@@ -42,9 +42,13 @@ describe('sameCode', () => {
     for (const [text, formatted, what] of [['a()/* a b */', 'a(); /* ab */\n', 'a space in a comment'], ['a()/* A  B */', 'a(); /* A B */\n', 'spaces within one of its lines'],
       ['a()// x(y)', 'a(); // xy\n', 'parentheses in one'], ["a()// 'x'", 'a(); // "x"\n', 'quotes in one']]) assert.equal(sameCode(text, formatted), false, what)
     assert.equal(sameCss('a{/* columns: A  B */x:y}', 'a {\n  /* columns: A B */\n  x: y;\n}\n'), false)
-    assert.equal(sameCode('{"x":"a b","y":1.50,"z":[.5,1.00,1E+03,1.5e0]}', '{ "x": "a b", "y": 1.5, "z": [0.5, 1.0, 1e3, 1.5] }\n', 'json'), true)
+    assert.equal(sameCode('{"x":"a b","y":1.50,"z":[1.00,1E+03,1.5e0]}', '{ "x": "a b", "y": 1.5, "z": [1.0, 1e3, 1.5] }\n', 'json'), true)
     for (const [text, formatted] of [['{"x":"a b"}', '{ "x": "ab" }\n'], ['{"x":"1.50"}', '{ "x": "1.5" }\n'], ['{"x":1}', '{ "x": 1 } // c\n'],
-      ['{"x":0.100000000000000004}', '{ "x": 0.1 }\n'], ['{"x":1.0}', '{ "x": 1 }\n'], ['{"x":1e0}', '{ "x": 1 }\n']]) assert.equal(sameCode(text, formatted, 'json'), false, text)
+      ['{"x":0.100000000000000004}', '{ "x": 0.1 }\n'], ['{"x":1.0}', '{ "x": 1 }\n'], ['{"x":1e0}', '{ "x": 1 }\n'],
+      // Numbers JSON does not have, which a copy would show as valid.
+      ['{"x":.5}', '{ "x": 0.5 }\n'], ['{"x":1.}', '{ "x": 1 }\n'], ['{"x":1.e5}', '{ "x": 1e5 }\n'],
+      // A double quote in a string quoted otherwise, and a line carried on by a backslash, keep the strings after it strings.
+      [`['a"b', "c  d"]`, `['a"b', "c d"]\n`], ['["x\\\r\n  1.50 y"]', '["x\\\r\n1.5y"]\n']]) assert.equal(sameCode(text, formatted, 'json'), false, text)
   })
 
   it('compares CSS as css-tree reads it, but for the case CSS ignores, a number\'s needless zeros and an attribute\'s quotes', () => {
@@ -96,7 +100,7 @@ describe('sameCode', () => {
       `/*${' '.repeat(300_000)}*/`, `a{${'color:#ABC;'.repeat(5000)}}`, `a{${'b:#ABC;'.repeat(5000)}}`, `a{background:${'url(x) #ABC 1px, '.repeat(2500)}red}`, `a{--x:${'.5 '.repeat(25_000)}}`]) {
       sameCss(text, text)
     }
-    sameCode('/*'.repeat(100_000), '/*'.repeat(100_000), 'json')
+    for (const text of ['/*'.repeat(100_000), `['"${'\\"'.repeat(100_000)}']`, '"'.repeat(100_000)]) sameCode(text, text, 'json')
     assert.ok(performance.now() - start < 5000)
   })
 
@@ -118,6 +122,17 @@ describe('format', () => {
     assert.deepEqual(await format('function (', 'js'), { error: 'unformattable' })
     assert.deepEqual(await format('a', 'md'), { error: 'unsupported' })
     assert.deepEqual(await format('a{--x:{foo}}', 'css'), { error: 'pretty-mismatch' })
+  })
+
+  it('refuses what nests deeper than oxfmt can format before it is asked, its stack giving out with the process', async () => {
+    assert.deepEqual(await format('['.repeat(1500) + ']'.repeat(1500), 'json'), { error: 'unformattable' })
+    assert.deepEqual(await format(`a{width:${'calc('.repeat(300)}1px${')'.repeat(300)}}`, 'css'), { error: 'unformattable' })
+    assert.deepEqual(await format('a{'.repeat(300) + '}'.repeat(300), 'css'), { error: 'unformattable' })
+    assert.ok('code' in await format(`{"a":${'['.repeat(100)}1${']'.repeat(100)}}`, 'json'), 'but not what nests as deep as data does')
+  })
+
+  it('answers rather than throws where its own check gives out', async () => {
+    assert.ok('code' in await format(`x = ${Array.from({ length: 10_000 }, () => 'a').join(' || ')}`, 'js'))
   })
 
   it('formats CSS where css-tree is there to check it', async () => {
