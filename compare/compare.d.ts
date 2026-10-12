@@ -143,6 +143,75 @@ export function blocksHold(before: string, after: string, blocks: unknown, optio
 // `given` has another number of lines than `before`. Loads no parser.
 export function markedBlocks(before: string, given: string, after: string, options?: LineOptions): Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[] | null
 
+// The ranges `[from, to)` that changed within a removed line and the added
+// line it pairs with, word by word (runs of letters and digits, whitespace,
+// any other character), ranges split by whitespace alone merged; null where
+// the lines are the same, mostly replaced, or past 2000 characters or 800 words.
+export function wordRanges(left: string, right: string): { a: [number, number][]; b: [number, number][] } | null
+
+// Each of a change's removed lines paired, in order, with the most alike of
+// the next six added lines, where alike enough to be one line edited (at most
+// six in ten of its words replaced): `[i, j]` indices into the two lists. None
+// where either holds more than 200 lines.
+export function pairLines(olds: readonly string[], news: readonly string[]): [number, number][]
+
+// Whether two lines differ in short names alone, as a minifier renames them,
+// by a reading of its own: the same words otherwise, in order, each name
+// changed three characters at most, no keyword, and no property's (after `.`
+// or `#`) or key's (before `:`). Strings, comments and regular expressions
+// read whole, a `/` taken for one wherever it could start one. Whitespace is
+// ignored under `whitespace: 'all'` and compared otherwise.
+export function renamedAlone(before: string, after: string, options?: LineOptions): boolean
+
+// Whether diff -w, as `blocks` were found with it, keeps as unchanged a line
+// whose blanks between the same two characters (or before the first or after
+// the last) changed and mix more than one kind, as spaces turned to tabs.
+export function hidesMixedWhitespace(before: string, after: string, blocks: readonly Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[]): boolean
+
+// The removed paths renamed to added ones by their paths alone, as triage's
+// Compare pairs a bundle's files: a name kept less its extension, the
+// extension's family (scripts, styles) and the directories but for one past
+// the last node_modules, within the group `group` gives (one unless given),
+// each the other's one candidate. `Map<removed, added>`.
+export function pathRenames(removed: Iterable<string>, added: Iterable<string>, group?: (path: string) => unknown): Map<string, string>
+
+// A rename as `git diff --stat` writes one, in parts for a view to color: the
+// directories both share (`head`), what changed (`from`, `to`), down to the
+// extension where that is all unless `extension` is false, and the rest (`tail`).
+export function renameParts(from: string, to: string, options?: { extension?: boolean }): { head: string; from: string; to: string; tail: string }
+
+// The directory one tree's files sit under in the other: `base: ''` and
+// `other` the directory where the old tree's `a.js` is the new one's
+// `src/a.js`, the other way round, or null. Taken where it pairs more files
+// than none, and at least half the side it moves; a tie either way is null.
+export interface Root { base: string; other: string }
+export function detectRoot(basePaths: Iterable<string>, otherPaths: Iterable<string>): Root | null
+
+// The root between two trees and each old path as the new tree lays it out:
+// through the root where the new tree has it there, else as it is where it has
+// that, else through the root clear of every path taken, a `../` further out.
+export interface Layout { root: Root | null; paths: Map<string, string> }
+export function treeLayout(basePaths: Iterable<string>, otherPaths: Iterable<string>): Layout
+
+// An old path through `root`, or null for one outside an old root.
+export function throughRoot(root: Root | null, path: string): string | null
+
+// An old directory moved with the root: the root itself `.`, one outside it a
+// `../` for each level of the root above it, `.` as it is.
+export function rootDir(root: Root | null, dir: string): string
+
+// An old module's directory where the layout placed one of its `files`
+// (paths within it), else moved with the root.
+export function layoutDir(layout: Layout, dir: string, files: Iterable<string>): string
+
+// Both trees' package directories by path, either map null, as the new tree
+// lays out its files: the old ones moved with the root, the new ones kept.
+export function layoutPackageDirs(baseDirs: Map<string, string> | null, otherDirs: Map<string, string> | null, layout: Layout): Map<string, string> | null
+
+// A view's directory `prefix` with where the root puts it on each side
+// (`./dir/`, `./src/dir/`); a prefix the root doesn't lead is dropped.
+export function rootLabel(root: Root | null, prefix: string): { prefix: string; from: string | null; to: string | null }
+
 // `path` is the name at fault as its entry spelled it, and `tree` which tree
 // holds it.
 export class CompareError extends Error {

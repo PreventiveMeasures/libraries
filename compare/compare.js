@@ -21,5 +21,19 @@ export { blocksHold } from './src/blocks.js'
 // view as much as a server.
 export { markedBlocks } from './src/marked.js'
 
+// Changed lines read word by word: what changed within a line, which removed
+// line was edited into which added one, and whether two differ in short names
+// alone; and whether diff -w hides blanks of more than one kind changing.
+export { pairLines, renamedAlone, wordRanges } from './src/words.js'
+export { hidesMixedWhitespace } from './src/whitespace.js'
+
+// Files paired by path alone, as triage's Compare pairs a bundle's, and a
+// rename written as `git diff --stat` writes one.
+export { pathRenames, renameParts } from './src/paths.js'
+
+// Two trees taken from different roots lined up: the root between them and
+// each old path, directory and package directory as the new tree lays it out.
+export { detectRoot, layoutDir, layoutPackageDirs, rootDir, rootLabel, throughRoot, treeLayout } from './src/layout.js'
+
 // What a tree that does not hold together is refused with.
 export { CompareError } from './src/error.js'

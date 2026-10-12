@@ -1,5 +1,7 @@
 // Hand-written against names.js; a change to either belongs with the other.
 
+import type { Block } from '@preventive/diff'
+
 // How each text is parsed, by the extension of the file it is: `mjs` a
 // module, `cjs` a CommonJS module, any other (`js` unless given) a module
 // where it says so (`import`, `export`) and a script where not.
@@ -56,3 +58,23 @@ export function renameMap(before: string, after: string, options?: RenameOptions
 // both mangled, every variable named by its place alone, they read the same.
 // The top level read as `kind` says, a script's (none given) left as it is.
 export function bindsAlike(before: string, renamed: string, kind?: Partial<TextKind>): boolean
+
+// The diff of two JavaScript files minified on both sides with renamed names
+// set aside, as a server works it out for a view: the old side given the new
+// side's names (renameMap), formatted again by oxfmt where that changes its
+// layout alone and it still binds alike (bindsAlike), else as renamed, then
+// diffed as diff -U0 has it (`whitespace` as diff's), its blocks checked to take
+// the old side as drawn (`before`) to the new; thrown should they not. Where
+// names can't be given, `before` is the old side as it is and `reason` says
+// why. `reads` as renameMap's, `marks` the blocks of the plain diff that
+// differ in renamed names alone (markedBlocks), and `warnings` what a check
+// that should never fail found, for the caller to log.
+export function renamedDiff(before: string, after: string, options?: RenameOptions & { whitespace?: 'none' | 'all' | 'change' | 'trailing' }): Promise<{
+  before: string
+  blocks: Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[]
+  reason: RenameReason | null
+  reads: string[]
+  marks: Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[]
+  warnings: string[]
+}>
+

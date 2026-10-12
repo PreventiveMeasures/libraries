@@ -8,7 +8,9 @@ import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { changeSet } from '@preventive/diff'
 import { minifySync } from 'oxc-minify'
-import { bindsAlike, renameMap } from '../names.js'
+import { blocksHold } from '../compare.js'
+import { formatChecked } from '../pretty.js'
+import { bindsAlike, renameMap, renamedDiff } from '../names.js'
 import { compiles, program, run } from './programs.js'
 import { random } from './random.js'
 
@@ -192,5 +194,33 @@ describe('renameMap', () => {
       const [hidden, raw] = [shown(mapped.text, after), shown(before, after)]
       assert.ok(hidden >= 4 && hidden <= 10 && hidden < raw, `${file}: its 4 lines shown, ${hidden} in all, of ${raw} raw`)
     }
+  })
+})
+
+describe('renamedDiff', () => {
+  const formatted = async (text) => (await formatChecked(text, 'mjs')).code
+  const minify = (text) => minifySync('file.mjs', text, { compress: false, mangle: { toplevel: true }, codegen: { removeWhitespace: true } }).code
+
+  it('diffs two minified files with their renamed names set aside, and checks the diff', async () => {
+    const source = readFileSync(new URL('../src/layout.js', import.meta.url), 'utf8')
+    const helper = 'function addedHelper(value, other) {\n  const sum = value + other\n  return sum * 2\n}\n'
+    const at = source.search(/^(?:export )?function /mu)
+    const after = await formatted(minify(source.slice(0, at) + helper + source.slice(at))), before = await formatted(minify(source))
+    const diff = await renamedDiff(before, after, { extension: 'mjs' })
+    assert.equal(diff.reason, null)
+    assert.deepEqual(diff.warnings, [])
+    assert.ok(blocksHold(diff.before, after, diff.blocks), 'the blocks take the old side, renamed, to the new')
+    const shownLines = diff.blocks.reduce((n, block) => n + block.a1 - block.a0 + block.b1 - block.b0, 0)
+    assert.ok(shownLines >= 4 && shownLines <= 12, `the helper shown, ${shownLines} lines`)
+    assert.ok(diff.marks.length > 0, 'the plain diff\'s renamed lines marked')
+    const plain = changeSet(before, after, { horizon: 0 })
+    for (const mark of diff.marks) assert.ok(plain.some((block) => ['a0', 'a1', 'b0', 'b1'].every((end) => block[end] === mark[end])), 'each mark a block of the plain diff')
+  })
+
+  it('keeps the old side as it is where names can not be given, and says why', async () => {
+    const diff = await renamedDiff('var a = 1;\nwith (o) f(a);\n', 'var b = 1;\nwith (o) f(b);\n')
+    assert.deepEqual([diff.reason, diff.before, diff.marks], ['dynamic', 'var a = 1;\nwith (o) f(a);\n', []])
+    assert.deepEqual(diff.blocks, [{ a0: 0, a1: 2, b0: 0, b1: 2 }])
+    assert.deepEqual((await renamedDiff('f(a ,b);\n', 'f(a, b);\n', { whitespace: 'all' })).blocks, [], 'whitespace ignored as asked')
   })
 })
