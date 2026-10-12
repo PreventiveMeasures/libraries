@@ -62,7 +62,7 @@ async function fetchAll(dependencies, github) {
 export async function buildSoldeerTree(options) {
   const { host: given, vfs: into, github } = options ?? {}
   if (into !== undefined && !(into instanceof Vfs)) throw new TypeError('vfs must be a Vfs, or left out')
-  if (github !== undefined && typeof github?.getRepoTarball !== 'function') throw new TypeError(GITHUB)
+  if (github !== undefined && (typeof github?.getRepoTarball !== 'function' || typeof github.getRepo !== 'function')) throw new TypeError(GITHUB)
   const inputs = inputsOf(options ?? {})
   const folded = checkHost(given).os === 'darwin'
   // Refused before anything is fetched; mount checks again.

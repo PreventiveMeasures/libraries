@@ -174,23 +174,33 @@ export function stubSoldeer(zips) {
 }
 
 const GITHUB_REPOS = 'https://api.github.com/repos/'
+const GITHUB_REPO_BY_ID = /^https:\/\/api\.github\.com\/(repositories\/(\d+))$/u
 
 // Beside the fetch stubbed already, GitHub's API for `repos`, each by
-// `owner/name`: { commit, tree, tarball, listings }, the listings each
-// tree's entries by its id. Returns what was asked of it, from the repo on.
+// `owner/name`: { id, commit, tree, tarball, listings }, the listings each
+// tree's entries by its id, or { location } for one renamed or transferred,
+// which GitHub redirects there, as it does to the repository by its `id`.
+// Returns what was asked of it, from the repo on.
 export function stubGitHub(repos) {
   const served = globalThis.fetch
   const calls = []
   globalThis.fetch = (input, init) => {
     const asked = String(input)
+    const notFound = () => Promise.resolve(Response.json({ message: 'Not Found' }, { status: 404 }))
+    const byId = GITHUB_REPO_BY_ID.exec(asked)
+    if (byId !== null) {
+      calls.push(byId[1])
+      const found = Object.entries(repos).find(([, repo]) => repo.id === Number(byId[2]))
+      return found === undefined ? notFound() : Promise.resolve(Response.json({ id: found[1].id, full_name: found[0] }))
+    }
     if (!asked.startsWith(GITHUB_REPOS)) return served(input, init)
     const path = asked.slice(GITHUB_REPOS.length)
     calls.push(path)
     const [owner, name, ...rest] = path.split('/')
     const repo = repos[`${owner}/${name}`]
     const [kind, id] = [rest.slice(0, -1).join('/'), rest.at(-1)]
-    const notFound = () => Promise.resolve(Response.json({ message: 'Not Found' }, { status: 404 }))
     if (repo === undefined) return notFound()
+    if (repo.location !== undefined) return Promise.resolve(new Response('', { status: 301, headers: { location: repo.location } }))
     if (kind === 'git/commits' && id === repo.commit) return Promise.resolve(Response.json({ sha: repo.commit, tree: { sha: repo.tree } }))
     if (kind === 'tarball' && id === repo.tree) return Promise.resolve(new Response(repo.tarball))
     if (kind === 'git/trees' && Object.hasOwn(repo.listings, id)) return Promise.resolve(Response.json({ sha: id, tree: repo.listings[id], truncated: false }))

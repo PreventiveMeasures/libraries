@@ -148,7 +148,7 @@
     "@preventive/compare": "^1.0.0",
     "@preventive/diff": "^1.0.2",
     "@preventive/lockfile": "1.0.0-alpha.7",
-    "@preventive/upstream": "^1.0.0",
+    "@preventive/upstream": "^1.0.1",
     "@preventive/vfs": "1.0.0-beta.4"
   }
 }
