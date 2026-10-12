@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { DiffError } from '@preventive/diff'
-import { CompareError, compareLines, compareTrees, formatPatch } from '../compare.js'
+import { CompareError, compareTrees, formatPatch } from '../compare.js'
 import { entriesOf } from './git.js'
 import { treePair } from './random.js'
 
@@ -29,6 +29,8 @@ describe("paths: 'keys'", () => {
   it('tells renames by path in keys with empty segments', () => {
     const changes = compareTrees(tree({ 'webpack://app/lib/a.js': 'one\ntwo\nthree\n' }), tree({ 'webpack://app/src/a.ts': 'uno\ndos\ntres\n' }), { paths: 'keys' })
     assert.deepEqual(summary(changes), ['webpack://app/lib/a.js -> webpack://app/src/a.ts'])
+    const styles = compareTrees(tree({ 'webpack://app/a.css': 'one\n' }), tree({ 'webpack://app/a.scss': 'uno\n' }), { paths: 'keys' })
+    assert.deepEqual(summary(styles), ['webpack://app/a.css -> webpack://app/a.scss'], 'and by family, the directory kept')
   })
 })
 
@@ -41,6 +43,9 @@ describe('renameGroup', () => {
     const after = tree({ 'node_modules/pad-left/LICENSE': MIT, 'node_modules/left-pad/b.js': 'x\n' })
     assert.deepEqual(summary(compareTrees(before, after)), ['node_modules/left-pad/a.js -> node_modules/left-pad/b.js', 'node_modules/left-pad/LICENSE -> node_modules/pad-left/LICENSE'])
     assert.deepEqual(summary(compareTrees(before, after, { renameGroup: pkg })), ['deleted node_modules/left-pad/LICENSE', 'node_modules/left-pad/a.js -> node_modules/left-pad/b.js', 'added node_modules/pad-left/LICENSE'])
+    const groups = new Map([['a/x.js', 1], ['b/x.js', '1'], ['c/y.js', {}], ['d/y.js', {}]])
+    assert.deepEqual(summary(compareTrees(tree({ 'a/x.js': 'x\n', 'c/y.js': 'y\n' }), tree({ 'b/x.js': 'x\n', 'd/y.js': 'y\n' }), { renameGroup: (path) => groups.get(path) })),
+      ['deleted a/x.js', 'added b/x.js', 'deleted c/y.js', 'added d/y.js'], 'groups told apart as Map keys are')
   })
 
   it('takes a function', () => {
@@ -61,9 +66,8 @@ describe('horizon', () => {
     assert.deepEqual(at({ horizon: 0 }), [[0, 1], [2, 3]])
   })
 
-  it('reaches compareLines and formatPatch', () => {
+  it('reaches formatPatch', () => {
     const [change] = compareTrees(tree(before), tree(after), { lines: false })
-    assert.deepEqual(compareLines(change, { horizon: 0 }).blocks.map(({ a0 }) => a0), [0, 2])
     const hunks = formatPatch([change], { context: 0, horizon: 0 }).split('\n').filter((line) => line.startsWith('@@'))
     assert.deepEqual(hunks, ['@@ -1 +0,0 @@', '@@ -3 +1,0 @@ a'])
   })
@@ -76,22 +80,21 @@ describe('horizon', () => {
   })
 })
 
-describe('lines: false, and compareLines', () => {
-  it('gives statuses alone, and the same lines later', () => {
+describe('lines: false', () => {
+  it('gives statuses alone, and the same patch from them', () => {
     for (let seed = 1; seed <= 30; seed++) {
       const { old, new: fresh } = treePair(seed)
       const full = compareTrees(entriesOf(old), entriesOf(fresh))
       const statuses = compareTrees(entriesOf(old), entriesOf(fresh), { lines: false })
       assert.deepEqual(statuses, full.map(({ status, old: from, new: to, similarity }) => ({ status, old: from, new: to, similarity })), `seed ${seed}`)
-      assert.deepEqual(statuses.map((change) => compareLines(change)), full, `seed ${seed}`)
       assert.equal(formatPatch(statuses), formatPatch(full), `seed ${seed}`)
     }
   })
 
-  it('finds lines under the options it is given', () => {
+  it('has formatPatch find lines under the options it is given', () => {
     const [change] = compareTrees(tree({ f: '\na\n\n\n' }), tree({ f: 'a\n\n' }), { lines: false })
-    assert.deepEqual(compareLines(change, { horizon: 0 }).blocks.map(({ a0 }) => a0), [0, 2])
-    assert.throws(() => compareLines(change, { whitespace: 'some' }), RangeError)
+    assert.deepEqual(formatPatch([change], { context: 0, horizon: 0 }).split('\n').filter((line) => line.startsWith('@@')), ['@@ -1 +0,0 @@', '@@ -3 +1,0 @@ a'])
+    assert.throws(() => formatPatch([change], { whitespace: 'some' }), RangeError)
     assert.throws(() => compareTrees([], [], { lines: 'no' }), TypeError)
   })
 })

@@ -1,7 +1,7 @@
 {
   "name": "@preventive/compare",
   "version": "0.0.0",
-  "description": "Two file trees compared as git diff compares them: every file added, deleted, modified, renamed or changed in type, with its line change set, and the patch git writes; and JavaScript minified on both sides diffed with its renamed names set aside",
+  "description": "Two file trees compared as git diff compares them, with their line change sets and the patch git writes; and minified JavaScript compared with its layout and its renamed names set aside, each step checked to hide no change",
   "type": "module",
   "main": "./compare.js",
   "types": "./compare.d.ts",
@@ -17,6 +17,10 @@
     "./names.js": {
       "types": "./names.d.ts",
       "default": "./names.js"
+    },
+    "./pretty.js": {
+      "types": "./pretty.d.ts",
+      "default": "./pretty.js"
     }
   },
   "imports": {
@@ -36,13 +40,18 @@
     "compare.js",
     "names.d.ts",
     "names.js",
+    "pretty.d.ts",
+    "pretty.js",
     "src/blocks.js",
     "src/changes.js",
+    "src/css.js",
     "src/error.js",
+    "src/layout.js",
     "src/marked.js",
     "src/names/analyze.js",
     "src/names/binds.js",
     "src/names/check.js",
+    "src/names/diff.js",
     "src/names/misread.js",
     "src/names/pairing.js",
     "src/names/rename.js",
@@ -50,13 +59,20 @@
     "src/oxc.js",
     "src/oxc.node.js",
     "src/patch.js",
+    "src/pairs.js",
+    "src/paths.js",
+    "src/peers.js",
+    "src/pretty.js",
     "src/quote.js",
     "src/renames.js",
     "src/same-bytes.js",
     "src/same-bytes.node.js",
+    "src/script.js",
     "src/similarity.js",
     "src/text.js",
-    "src/tree.js"
+    "src/tree.js",
+    "src/whitespace.js",
+    "src/words.js"
   ],
   "engines": {
     "node": ">=24.14.0"
@@ -84,24 +100,34 @@
   },
   "dependencies": {
     "@exodus/bytes": "^1.16.0",
-    "@preventive/diff": "workspace:^"
+    "@preventive/diff": "^1.0.2"
   },
   "peerDependencies": {
+    "css-tree": ">=3.2.1",
     "oxc-minify": ">=0.152.0",
-    "oxc-parser": ">=0.152.0"
+    "oxc-parser": ">=0.152.0",
+    "oxfmt": ">=0.72.0"
   },
   "peerDependenciesMeta": {
+    "css-tree": {
+      "optional": true
+    },
     "oxc-minify": {
       "optional": true
     },
     "oxc-parser": {
+      "optional": true
+    },
+    "oxfmt": {
       "optional": true
     }
   },
   "devDependencies": {
     "@preventive/archive": "workspace:*",
     "@preventive/vfs": "workspace:*",
+    "css-tree": "^3.2.1",
     "oxc-minify": "^0.152.0",
-    "oxc-parser": "^0.152.0"
+    "oxc-parser": "^0.152.0",
+    "oxfmt": "^0.72.0"
   }
 }

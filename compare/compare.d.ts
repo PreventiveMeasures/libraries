@@ -95,7 +95,7 @@ export interface LineOptions {
 // files are left, in a group, after the renames that need no scoring than its
 // square, the rest are not looked for. 1000 unless given; Infinity for no
 // limit. `lines: false` gives statuses alone, their lines found by
-// compareLines when wanted.
+// formatPatch when wanted.
 export interface CompareOptions extends LineOptions {
   paths?: 'tree' | 'keys'
   renames?: boolean | number
@@ -114,9 +114,6 @@ export function compareTrees(a: Iterable<TreeEntry>, b: Iterable<TreeEntry>, opt
 export function compareTrees(a: Iterable<TreeEntry>, b: Iterable<TreeEntry>, options?: CompareOptions & { lines?: true }): FileChange[]
 export function compareTrees(a: Iterable<TreeEntry>, b: Iterable<TreeEntry>, options?: CompareOptions): FileStatus[] | FileChange[]
 
-// A change, as compareTrees gives it with `lines: false`, with its lines.
-export function compareLines(change: FileStatus, options?: LineOptions): FileChange
-
 // The changes as `git diff` writes them, without its `index` lines, with
 // `context` lines around each change, 3 unless given. A file's mode is
 // written in full, where git would only have 644 or 755. The hunks are each
@@ -125,23 +122,61 @@ export function compareLines(change: FileStatus, options?: LineOptions): FileCha
 // DiffError is thrown; a change without blocks has them found here.
 export function formatPatch(changes: Iterable<FileStatus | FileChange>, options?: LineOptions & { context?: number }): string
 
-// Whether `blocks`, a change set in hand rather than found here (another
-// process's, a server's), take `before` to `after` with lines the same as
-// `whitespace` and `ignoreCase` say, as @preventive/diff holds its own
-// search's change set to: each block in order, within both texts and
-// changing a line, and every line between them alike, its terminator with it
-// -- a newline added or dropped after the last line is that line changed,
-// but under the whitespace options. Anything that is not a list of such
-// ranges is refused: false, never thrown.
-export function blocksHold(before: string, after: string, blocks: unknown, options?: Pick<LineOptions, 'whitespace' | 'ignoreCase'>): boolean
+// The ranges `[from, to)` that changed within a removed line and the added
+// line it pairs with, word by word (runs of letters and digits, whitespace,
+// any other character), as the shortest edit script pairLines weighs lines by
+// finds them: every character that changed is in one, and two split by
+// whitespace alone are merged, taking it in. None where the lines are the
+// same; null, no word view, where they are mostly replaced, or past 2000
+// characters or 800 words, so that all of either line is taken as changed.
+export function wordRanges(left: string, right: string): { a: [number, number][]; b: [number, number][] } | null
 
-// The blocks of the change set from `before` to `after` under the line
-// options (horizon without limit unless given, as compareLines has it) whose
-// old lines, as `given` has them -- the old text renamed, line for line, as
-// names.js's renameMap gives it -- are their new lines, alike as the change
-// set has lines alike: what differs in renamed names alone. null where
-// `given` has another number of lines than `before`. Loads no parser.
-export function markedBlocks(before: string, given: string, after: string, options?: LineOptions): Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[] | null
+// A change's removed lines paired with its added lines, in order: two lines
+// pair only where wordRanges gives them ranges (a word in common, at most six
+// in ten of either changed), the most such pairs, and of those the most alike.
+// Where weighing every pair takes too long (many long lines alike), each
+// removed line in turn takes the most alike of the next six added lines.
+// `[i, j]` indices into the two lists; none where either holds more than 200
+// lines.
+export function pairLines(olds: readonly string[], news: readonly string[]): [number, number][]
+
+// Whether diff -w, as `blocks` were found with it, keeps as unchanged a line
+// whose blanks between the same two characters (or before the first or after
+// the last) changed and mix more than one kind, as spaces turned to tabs. True
+// too where `blocks` don't carry `before` to `after` under -w, as such blocks
+// may hide anything.
+export function hidesMixedWhitespace(before: string, after: string, blocks: readonly Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[]): boolean
+
+// A rename as `git diff --stat` writes one, in parts for a view to color: the
+// directories both share (`head`), what changed (`from`, `to`), down to the
+// extension where that is all unless `extension` is false, and the rest (`tail`).
+export function renameParts(from: string, to: string, options?: { extension?: boolean }): { head: string; from: string; to: string; tail: string }
+
+// The directory one tree's files sit under in the other: `base: ''` and
+// `other` the directory where the old tree's `a.js` is the new one's
+// `src/a.js`, or the other way round.
+export interface Root { base: string; other: string }
+
+// The root between two trees, or null, and each old path as the new tree lays
+// it out: through the root where the new tree has it there, else as it is where
+// it has that, else through the root clear of every path taken, a `../` further
+// out. A root is taken where it pairs more files than none, and at least half
+// the files of the side without the directory; a tie either way is none.
+export interface Layout { root: Root | null; paths: Map<string, string> }
+export function treeLayout(basePaths: Iterable<string>, otherPaths: Iterable<string>): Layout
+
+// An old module's directory where the layout placed one of its `files` (paths
+// within it), else moved with the root: one outside it a `../` further out for
+// each level of the root, `.` as it is.
+export function layoutDir(layout: Layout, dir: string, files: Iterable<string>): string
+
+// Both trees' package directories by path, either map null, as the new tree
+// lays out its files: the old ones moved with the root, the new ones kept.
+export function layoutPackageDirs(baseDirs: Map<string, string> | null, otherDirs: Map<string, string> | null, layout: Layout): Map<string, string> | null
+
+// A view's directory `prefix` with where the root puts it on each side
+// (`./dir/`, `./src/dir/`); a prefix the root doesn't lead is dropped.
+export function rootLabel(root: Root | null, prefix: string): { prefix: string; from: string | null; to: string | null }
 
 // `path` is the name at fault as its entry spelled it, and `tree` which tree
 // holds it.

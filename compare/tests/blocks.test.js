@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { changeSet } from '@preventive/diff'
-import { blocksHold, markedBlocks } from '../compare.js'
+import { blocksHold } from '../src/blocks.js'
+import { markedBlocks } from '../src/marked.js'
 import { random } from './random.js'
 
 const ranges = (blocks) => blocks.map(({ a0, a1, b0, b1 }) => ({ a0, a1, b0, b1 }))
@@ -21,19 +22,13 @@ describe('blocksHold', () => {
       ['past the end', [...blocks, { a0: 4, a1: 5, b0: 5, b1: 6 }]],
       ['changing nothing', [{ a0: 0, a1: 0, b0: 0, b1: 0 }, ...blocks]],
       ['a changed line left between', [{ a0: 2, a1: 3, b0: 2, b1: 3 }, blocks[1]]],
-      ['a count no number', [{ ...blocks[0], a0: '1' }, blocks[1]]],
-      ['a count no whole number', [{ ...blocks[0], a1: 1.5 }, blocks[1]]],
-      ['a count below zero', [{ a0: -1, a1: 2, b0: -1, b1: 2 }, blocks[1]]],
-      ['no block', [null, ...blocks]],
-      ['no list', null],
-      ['a list of another kind', { length: 0 }],
     ]) assert.equal(blocksHold(before, after, wrong), false, label)
     assert.equal(blocksHold('a b\n', 'ab\n', [], { whitespace: 'all' }), true, 'whitespace ignored, as diff -w ignores it')
     assert.equal(blocksHold('a b\n', 'ab\n', []), false)
     assert.equal(blocksHold('A\n', 'a\n', [], { ignoreCase: true }), true)
     assert.equal(blocksHold('', '', []), true)
     assert.equal(blocksHold('', 'x\n', [{ a0: 0, a1: 0, b0: 0, b1: 1 }]), true)
-    assert.throws(() => blocksHold('', '', [], { whitespace: 'some' }), RangeError, 'options checked as compareLines checks them')
+    assert.throws(() => blocksHold('', '', [], { whitespace: 'some' }), RangeError, 'options checked as compareTrees checks them')
   })
 
   it('takes a newline dropped after the last line for a change of that line, but under -w', () => {

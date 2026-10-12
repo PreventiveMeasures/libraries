@@ -71,9 +71,6 @@ function renamePairs(deleted, added, { group, ...options }) {
   return pairs
 }
 
-// A change with what it did to the content (text.js), found under `options`.
-export const compareLines = (change, options) => ({ ...change, ...contentOf(change.old, change.new, checkLineOptions(options)) })
-
 export function compareTrees(a, b, { renames = true, renamesByPath = true, renameLimit = DEFAULT_RENAME_LIMIT, renameGroup = null, paths = 'tree', lines = true, horizon, whitespace, ignoreCase } = {}) {
   const minimum = minimumScore(renames)
   checkOptions({ renamesByPath, renameLimit, renameGroup, paths, lines })
