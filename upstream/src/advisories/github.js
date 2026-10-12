@@ -93,7 +93,7 @@ async function listAdvisories(github, repo, cache) {
   if (entry?.v === VERSION && (entry.repo === undefined || isRepo(entry.repo)) && Array.isArray(entry.advisories) && entry.advisories.every(isDigest)) {
     return { repo: entry.repo ?? repo, advisories: entry.advisories }
   }
-  const found = await listingOf(github, repo).catch(recover(isGone, null))
+  const found = await listingOf(github, repo).catch(recover((err) => isGone(err) || isRedirect(err), null))
   if (found === null) return { repo, advisories: [] }
   const advisories = digest(found.repo, found.list)
   if (advisories.every(isDigest)) await writeRecord(DIR, name, { v: VERSION, ...(found.repo !== repo && { repo: found.repo }), advisories }, cache)

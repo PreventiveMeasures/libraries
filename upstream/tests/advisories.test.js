@@ -388,11 +388,18 @@ describe('npm, with a GitHub client', () => {
       stubAll({ github: { [REPO_ADVISORIES]: Response.json({ message: 'x' }, { status }) } })
       assert.deepEqual(await npm(one, options), [], String(status))
     }
-    // getRepo asked where it leads, and refusing it.
-    const elsewhere = new Response('', { status: 301, headers: { location: 'https://example.com/repositories/1' } })
-    const calls = stubAll({ github: { [REPO_ADVISORIES]: elsewhere, [REPO]: elsewhere } })
+    // getRepo asked where it leads, and refusing it, whichever redirect it is.
+    for (const status of [301, 302, 307, 308]) {
+      const elsewhere = new Response('', { status, headers: { location: 'https://example.com/repositories/1' } })
+      const calls = stubAll({ github: { [REPO_ADVISORIES]: elsewhere, [REPO]: elsewhere } })
+      assert.deepEqual(await npm(one, options), [], String(status))
+      assert.deepEqual(calls.filter((url) => url.startsWith('https://api.github.com/')), [REPO_ADVISORIES, REPO], String(status))
+    }
+    // Or followed to the repository by its id, which redirects again.
+    const moved = new Response('', { status: 301, headers: { location: 'https://api.github.com/repositories/1' } })
+    const again = new Response('', { status: 307, headers: { location: 'https://api.github.com/repositories/2' } })
+    stubAll({ github: { [REPO_ADVISORIES]: moved, [REPO]: moved, 'https://api.github.com/repositories/1': again } })
     assert.deepEqual(await npm(one, options), [])
-    assert.deepEqual(calls.filter((url) => url.startsWith('https://api.github.com/')), [REPO_ADVISORIES, REPO])
     for (const status of [403, 500]) {
       stubAll({ github: { [REPO_ADVISORIES]: Response.json({ message: 'x' }, { status }) } })
       await assert.rejects(npm(one, options), (err) => err instanceof HttpError && err.status === status, String(status))
