@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
-import { createHash } from 'node:crypto'
+import { Buffer } from 'node:buffer'
 import { readFileSync } from 'node:fs'
 import { afterEach, describe, it } from 'node:test'
 
 import { createClient } from '../github.js'
-import { lockfileFormat, projectFormats } from '../src/lockfiles.js'
-import { gitTreeOfListing } from '../src/tree.js'
+import { FORMATS, lockfileFormat, projectFormats } from '../src/lockfiles.js'
+import { gitTreeOfListing, objectId } from '../src/tree.js'
 import { SHA, forbidRequests, json, stubGitHub } from './github-stub.js'
 
 const realFetch = globalThis.fetch
@@ -15,30 +15,29 @@ afterEach(() => {
 
 const client = () => createClient({ token: 't0ken' })
 const API = 'https://api.github.com/repos/acme/app'
-const blob = (text) => ({ mode: '100644', type: 'blob', sha: createHash('sha1').update(`blob ${text.length}\0${text}`).digest('hex') })
+const blob = (text) => ({ mode: '100644', type: 'blob', sha: objectId('blob', Buffer.from(text)).toString('hex') })
 const FILE = blob('{}\n')
 const LINK = { mode: '120000', type: 'blob', sha: blob('../pnpm-lock.yaml').sha }
 const SUBMODULE = { mode: '160000', type: 'commit', sha: '89e6c98d92887913cadf06b2adb97f26cde4849b' }
 
-// The tree of `files`, by path, and GitHub's listings of each tree in it
-// by id: `flat`, its own entries, and `deep`, with every tree's under it,
-// by paths from it.
+// The tree of `files`, by path, and GitHub's listing of each tree in it,
+// by id.
 function treeOf(files) {
   const listings = {}
   const build = (paths) => {
     const entries = [...Map.groupBy(Object.entries(paths), ([path]) => path.split('/')[0])].map(([name, group]) => {
-      if (group.length === 1 && group[0][0] === name) return { path: name, ...group[0][1], below: [] }
-      const sub = build(Object.fromEntries(group.map(([path, entry]) => [path.slice(name.length + 1), entry])))
-      return { path: name, mode: '040000', type: 'tree', sha: sub.sha, below: sub.deep }
+      if (group.length === 1 && group[0][0] === name) return { path: name, ...group[0][1] }
+      return { path: name, mode: '040000', type: 'tree', sha: build(Object.fromEntries(group.map(([path, entry]) => [path.slice(name.length + 1), entry]))) }
     })
-    const flat = entries.map(({ below: _below, ...entry }) => entry)
-    const deep = entries.flatMap(({ below, ...entry }) => [entry, ...below.map((under) => ({ ...under, path: `${entry.path}/${under.path}` }))])
-    const sha = gitTreeOfListing(flat)
-    listings[sha] = { flat, deep }
-    return { sha, deep }
+    const sha = gitTreeOfListing(entries)
+    listings[sha] = entries
+    return sha
   }
-  return { tree: build(files).sha, listings }
+  return { tree: build(files), listings }
 }
+
+// A tree's listing with every tree's under it, by paths from it.
+const deepOf = (listings, id) => listings[id].flatMap((entry) => [entry, ...(entry.type === 'tree' ? deepOf(listings, entry.sha).map((under) => ({ ...under, path: `${entry.path}/${under.path}` })) : [])])
 
 // GitHub, for acme/app at SHA: its commit of `tree`, and a listing of each
 // tree, `?recursive=1` asked, cut short for each in `truncated`, with a
@@ -51,7 +50,7 @@ function stub({ tree, listings }, { truncated = [], deep = {} } = {}) {
     if (!Object.hasOwn(listings, id) || !['', '?recursive=1'].includes(search)) return json({ message: 'Not Found' }, 404)
     const recursive = search !== ''
     const cut = recursive && truncated.includes(id)
-    const entries = recursive ? (Object.hasOwn(deep, id) ? deep[id] : listings[id].deep) : listings[id].flat
+    const entries = recursive ? (Object.hasOwn(deep, id) ? deep[id] : deepOf(listings, id)) : listings[id]
     const answered = entries && (cut ? entries.slice(0, 2) : entries).map((entry) => ({ ...entry, ...(entry.type === 'blob' && { size: 3 }), url: `${API}/git/${entry.type}s/${entry.sha}` }))
     return json({ sha: id, url: `${API}/git/trees/${id}`, tree: answered, truncated: cut })
   })
@@ -106,7 +105,7 @@ const REPO = treeOf({
   'node_modules/a/pnpm-lock.yaml': FILE,
   'node_modules/a/package.json': FILE,
 })
-const at = (path) => REPO.listings[REPO.tree].deep.find((entry) => entry.path === path).sha
+const at = (path) => deepOf(REPO.listings, REPO.tree).find((entry) => entry.path === path).sha
 const JS = ['pnpm', 'npm', 'yarn', 'bun', 'deno']
 const LOCKFILES = [
   ['apps/bun/bun.lockb', 'bun'],
@@ -142,26 +141,22 @@ const PROJECTS = [
 ].map(([path, formats]) => ({ path, formats, sha: at(path) }))
 const FOUND = { lockfiles: LOCKFILES, projects: PROJECTS }
 
-// The formats github.d.ts lists, each with the names of its lockfiles and
-// its project files, a pattern's with a name it takes in place of it.
-const DOCUMENTED = [...readFileSync(new URL('../github.d.ts', import.meta.url), 'utf8').matchAll(/^ {2}\| '(?<format>[\w-]+)' \/\/ (?<names>.+)$/gmu)]
-  .map(({ groups }) => {
-    const [lockfiles, projects = []] = groups.names.split(' <- ').map((list) => list.split(', ').filter(Boolean).map((name) => name.replace('<name>', 'dev').replace('<x.y>', '1.11').replace('*', 'App')))
-    return { format: groups.format, lockfiles, projects }
-  })
-
 describe('lockfileFormat and projectFormats', () => {
-  it('know every name github.d.ts lists, and in its order', () => {
-    assert.ok(DOCUMENTED.length >= 39, `found ${DOCUMENTED.length} formats in github.d.ts`)
-    for (const { format, lockfiles } of DOCUMENTED) for (const name of lockfiles) assert.equal(lockfileFormat(name), format, name)
-    const projects = new Set(DOCUMENTED.flatMap(({ projects: names }) => names))
-    for (const name of projects) assert.deepEqual(projectFormats(name), DOCUMENTED.filter((documented) => documented.projects.includes(name)).map(({ format }) => format), name)
+  it('know each name FORMATS lists as the one format it gives, a project file as each in order', () => {
+    for (const [format, { lockfiles, projects }] of Object.entries(FORMATS)) {
+      for (const name of lockfiles.filter((known) => typeof known === 'string')) assert.equal(lockfileFormat(name), format, name)
+      for (const name of projects.filter((known) => typeof known === 'string')) assert.ok(projectFormats(name).includes(format), name)
+    }
+    assert.deepEqual(projectFormats('package.json'), JS)
+    assert.deepEqual(projectFormats('pyproject.toml'), ['uv', 'poetry', 'pylock', 'pdm', 'pixi'])
+    for (const [name, format] of [['pylock.prod-2.toml', 'pylock'], ['Manifest-v1.11.toml', 'julia'], ['JuliaManifest-v1.11.toml', 'julia'], ['app.opam.locked', 'opam']]) assert.equal(lockfileFormat(name), format, name)
+    for (const [name, format] of [['App.csproj', 'nuget'], ['Lib.fsproj', 'nuget'], ['lib.cabal', 'cabal'], ['app.opam', 'opam']]) assert.deepEqual(projectFormats(name), [format], name)
   })
 
-  it('know the formats @preventive/lockfile reads, by the names of its modules', () => {
-    const formats = new Set(DOCUMENTED.map(({ format }) => format))
-    for (const format of ['bundler', 'cargo', 'cocoapods', 'composer', 'foundry', 'npm', 'pnpm', 'poetry', 'pylock', 'soldeer', 'uv']) assert.ok(formats.has(format), format)
-    assert.equal(lockfileFormat('yarn.lock'), 'yarn')
+  it('are the formats github.d.ts lists, those @preventive/lockfile reads among them', () => {
+    const union = /export type LockfileFormat =(?<members>[^;]+?)\n\n/u.exec(readFileSync(new URL('../github.d.ts', import.meta.url), 'utf8')).groups.members
+    assert.deepEqual([...union.matchAll(/'(?<format>[\w-]+)'/gu)].map(({ groups }) => groups.format), Object.keys(FORMATS))
+    for (const format of ['bundler', 'cargo', 'cocoapods', 'composer', 'foundry', 'npm', 'pnpm', 'poetry', 'pylock', 'soldeer', 'uv', 'yarn']) assert.ok(Object.hasOwn(FORMATS, format), format)
   })
 
   it('know a file by its name as git has it, and by nothing else', () => {
@@ -201,7 +196,7 @@ describe('findRepoLockfiles', () => {
   })
 
   it("refuses a listing that is not the tree's: an entry changed, left out, added, listed twice, or under no tree listed", async () => {
-    const { deep } = REPO.listings[REPO.tree]
+    const deep = deepOf(REPO.listings, REPO.tree)
     const lock = deep.findIndex(({ path }) => path === 'crates/core/Cargo.lock')
     const extra = { path: 'py/yarn.lock', ...FILE }
     for (const changed of [
@@ -223,7 +218,7 @@ describe('findRepoLockfiles', () => {
   })
 
   it('refuses a listing GitHub cuts short that is not the tree either', async () => {
-    stub({ ...REPO, listings: { ...REPO.listings, [REPO.tree]: { ...REPO.listings[REPO.tree], flat: REPO.listings[REPO.tree].flat.slice(1) } } }, { truncated: [REPO.tree] })
+    stub({ ...REPO, listings: { ...REPO.listings, [REPO.tree]: REPO.listings[REPO.tree].slice(1) } }, { truncated: [REPO.tree] })
     await assert.rejects(find(), new RegExp(`findRepoLockfiles: GitHub's listing of tree ${REPO.tree} in acme/app is not that tree$`, 'u'))
   })
 

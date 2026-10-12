@@ -33,51 +33,18 @@ export interface RepoDirEntry {
   sha: string
 }
 
-// A lockfile's format, by the tool that writes it: each below with the
-// names it writes one under, and then, after `<-`, those of the project
-// files it locks. Those @preventive/lockfile reads are as it names the
-// modules that do, yarn as yarn1.js, which reads Yarn 1's alone; only the
-// text tells a later Yarn's apart.
+// A lockfile's format, by the tool that writes it, with the names it
+// writes one under and those of the project files it locks as
+// src/lockfiles.js lists them. Those @preventive/lockfile reads are as it
+// names the modules that do, yarn as yarn1.js, which reads Yarn 1's alone:
+// only the text tells a later Yarn's apart.
 export type LockfileFormat =
-  | 'pnpm' // pnpm-lock.yaml <- package.json, pnpm-workspace.yaml
-  | 'npm' // package-lock.json, npm-shrinkwrap.json <- package.json
-  | 'yarn' // yarn.lock <- package.json
-  | 'bun' // bun.lock, bun.lockb <- package.json
-  | 'deno' // deno.lock <- deno.json, deno.jsonc, package.json
-  | 'uv' // uv.lock <- pyproject.toml
-  | 'poetry' // poetry.lock <- pyproject.toml
-  | 'pylock' // pylock.toml, pylock.<name>.toml <- pyproject.toml
-  | 'pipenv' // Pipfile.lock <- Pipfile
-  | 'pdm' // pdm.lock <- pyproject.toml
-  | 'pixi' // pixi.lock <- pixi.toml, pyproject.toml
-  | 'conda-lock' // conda-lock.yml <- environment.yml, environment.yaml
-  | 'bundler' // Gemfile.lock, gems.locked <- Gemfile, gems.rb
-  | 'composer' // composer.lock <- composer.json
-  | 'cargo' // Cargo.lock <- Cargo.toml
-  | 'soldeer' // soldeer.lock <- soldeer.toml, foundry.toml
-  | 'foundry' // foundry.lock <- foundry.toml
-  | 'cocoapods' // Podfile.lock <- Podfile
-  | 'swiftpm' // Package.resolved <- Package.swift
-  | 'carthage' // Cartfile.resolved <- Cartfile, Cartfile.private
-  | 'go' // go.sum <- go.mod
-  | 'dep' // Gopkg.lock <- Gopkg.toml
-  | 'nuget' // packages.lock.json <- *.csproj, *.fsproj, *.vbproj
-  | 'paket' // paket.lock <- paket.dependencies
-  | 'gradle' // gradle.lockfile, buildscript-gradle.lockfile, settings-gradle.lockfile <- build.gradle, build.gradle.kts, settings.gradle, settings.gradle.kts
-  | 'pub' // pubspec.lock <- pubspec.yaml
-  | 'mix' // mix.lock <- mix.exs
-  | 'rebar' // rebar.lock <- rebar.config
-  | 'julia' // Manifest.toml, JuliaManifest.toml, Manifest-v<x.y>.toml, JuliaManifest-v<x.y>.toml <- Project.toml, JuliaProject.toml
-  | 'stack' // stack.yaml.lock <- stack.yaml
-  | 'cabal' // cabal.project.freeze <- cabal.project, *.cabal
-  | 'shards' // shard.lock <- shard.yml
-  | 'opam' // opam.locked, *.opam.locked <- opam, *.opam
-  | 'nix' // flake.lock <- flake.nix
-  | 'conan' // conan.lock <- conanfile.txt, conanfile.py
-  | 'bazel' // MODULE.bazel.lock <- MODULE.bazel
-  | 'helm' // Chart.lock <- Chart.yaml
-  | 'renv' // renv.lock
-  | 'terraform' // .terraform.lock.hcl
+  | 'pnpm' | 'npm' | 'yarn' | 'bun' | 'deno'
+  | 'uv' | 'poetry' | 'pylock' | 'pipenv' | 'pdm' | 'pixi' | 'conda-lock'
+  | 'bundler' | 'composer' | 'cargo' | 'soldeer' | 'foundry'
+  | 'cocoapods' | 'swiftpm' | 'carthage'
+  | 'go' | 'dep' | 'nuget' | 'paket' | 'gradle' | 'pub' | 'mix' | 'rebar' | 'julia'
+  | 'stack' | 'cabal' | 'shards' | 'opam' | 'nix' | 'conan' | 'bazel' | 'helm' | 'renv' | 'terraform'
 
 // A file by a lockfile's name: `path` from the repo's root, as getRepoFile
 // takes it, and `sha` its blob's id.
@@ -88,8 +55,9 @@ export interface RepoLockfile {
 }
 
 // A file by a project file's name, as RepoLockfile is, and the formats of
-// the lockfiles that may lock its project, in the order above: whether one
-// does, and where, is the tool's to say, a workspace's at its root.
+// the lockfiles that may lock its project, in src/lockfiles.js' order:
+// whether one does, and where, is the tool's to say, a workspace's at its
+// root.
 export interface RepoProjectFile {
   path: string
   formats: LockfileFormat[]

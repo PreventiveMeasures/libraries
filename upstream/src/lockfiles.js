@@ -2,7 +2,7 @@
 // writes one under, and those of the project files it locks, each a name
 // as git has it, `cargo.lock` not Cargo's, or a pattern. The formats
 // @preventive/lockfile reads go by the names of the modules that do.
-const FORMATS = {
+export const FORMATS = {
   pnpm: { lockfiles: ['pnpm-lock.yaml'], projects: ['package.json', 'pnpm-workspace.yaml'] },
   // npm-shrinkwrap.json is npm's own format, which npm reads before a
   // package-lock.json beside it.
@@ -51,24 +51,14 @@ const FORMATS = {
   terraform: { lockfiles: ['.terraform.lock.hcl'], projects: [] },
 }
 
-// Each format a name is of, those of the names first, in FORMATS' order.
-function indexOf(kind) {
-  const names = new Map()
-  const patterns = []
-  for (const [format, { [kind]: matching }] of Object.entries(FORMATS)) {
-    for (const name of matching) {
-      if (typeof name === 'string') names.set(name, [...names.get(name) ?? [], format])
-      else patterns.push([name, format])
-    }
-  }
-  return (name) => [...names.get(name) ?? [], ...patterns.filter(([pattern]) => pattern.test(name)).map(([, format]) => format)]
-}
+const TOOLS = Object.entries(FORMATS)
 
-const lockfileFormats = indexOf('lockfiles')
+// Whether `name` is one of `names`, each a name or a pattern.
+const isOf = (names, name) => names.some((known) => (typeof known === 'string' ? known === name : known.test(name)))
 
 // The format a file of this name is a lockfile of, or undefined.
-export const lockfileFormat = (name) => lockfileFormats(name)[0]
+export const lockfileFormat = (name) => TOOLS.find(([, { lockfiles }]) => isOf(lockfiles, name))?.[0]
 
 // The formats of the lockfiles that lock a project of a file of this name,
-// none where it is no project file.
-export const projectFormats = indexOf('projects')
+// in FORMATS' order, none where it is no project file.
+export const projectFormats = (name) => TOOLS.filter(([, { projects }]) => isOf(projects, name)).map(([format]) => format)

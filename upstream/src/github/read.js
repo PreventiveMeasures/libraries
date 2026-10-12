@@ -189,27 +189,26 @@ async function listTreeDeep(method, headers, repo, tree) {
   const dirs = new Map([['', { sha: tree, listed: [] }], ...entries.filter((entry) => entry.type === 'tree').map((entry) => [`${entry.path}/`, { sha: entry.sha, listed: [] }])])
   const filed = entries.every(({ path, mode, type, sha }) => {
     const at = path.lastIndexOf('/') + 1
-    return dirs.get(path.slice(0, at))?.listed.push({ path: path.slice(at), mode, type, sha }) !== undefined
+    const dir = dirs.get(path.slice(0, at))
+    dir?.listed.push({ path: path.slice(at), mode, type, sha })
+    return dir !== undefined
   })
   assert.ok(filed && [...dirs.values()].every(({ sha, listed }) => gitTreeOfListing(listed) === sha), `${method}: GitHub's listing of tree ${tree} in ${repo}, with the trees under it, is not that tree`)
-  return entries.map(({ path, mode, type, sha }) => ({ path, mode, type, sha }))
+  return entries
 }
 
-// Installed packages, not the repo's own.
-const NOT_LOOKED_IN = 'node_modules'
-
-// Each file in `tree`, which is at `base` in the repo, to `visit`, by its
-// path and name and its blob's id: from the tree's listing with every tree
-// under it, or, where GitHub cuts that short, from its own and then each
-// subtree's in turn, as GitHub advises for a large tree.
-async function visitFiles(method, headers, repo, tree, base, visit) {
+// Each file in `tree`, which is at `base` in the repo, by its path, its
+// name and its blob's id: from the tree's listing with every tree under
+// it, or, where GitHub cuts that short, from its own and then each
+// subtree's in turn, as GitHub advises for a large tree. A node_modules,
+// of packages installed, is not the repo's own.
+async function* filesIn(method, headers, repo, tree, base) {
   const deep = await listTreeDeep(method, headers, repo, tree)
   for (const { path, mode, type, sha } of deep ?? await listTree(method, headers, repo, tree)) {
-    const dirs = path.split('/')
-    const name = dirs.pop()
-    if (dirs.includes(NOT_LOOKED_IN)) continue
-    if (type === 'blob' && mode !== '120000') visit(`${base}${path}`, name, sha)
-    if (deep === null && type === 'tree' && name !== NOT_LOOKED_IN) await visitFiles(method, headers, repo, sha, `${base}${path}/`, visit)
+    const names = path.split('/')
+    if (names.includes('node_modules')) continue
+    if (type === 'blob' && mode !== '120000') yield { path: `${base}${path}`, name: names.at(-1), sha }
+    else if (deep === null && type === 'tree') yield* filesIn(method, headers, repo, sha, `${base}${path}/`)
   }
 }
 
@@ -221,14 +220,14 @@ async function findRepoLockfiles(headers, options) {
   const tree = await treeAt('findRepoLockfiles', headers, options)
   const lockfiles = []
   const projects = []
-  await visitFiles('findRepoLockfiles', headers, repo, tree, directory === undefined ? '' : `${directory}/`, (path, name, blob) => {
+  for await (const { path, name, sha: blob } of filesIn('findRepoLockfiles', headers, repo, tree, directory === undefined ? '' : `${directory}/`)) {
     const format = lockfileFormat(name)
     const formats = projectFormats(name)
-    if (format === undefined && formats.length === 0) return
+    if (format === undefined && formats.length === 0) continue
     assert.ok(isRepoPath(path), `findRepoLockfiles: ${repo}@${sha} has ${format === undefined ? 'a project file' : 'a lockfile'} at ${show(path)}, which getRepoFile does not take`)
     if (format !== undefined) lockfiles.push({ path, format, sha: blob })
     if (formats.length > 0) projects.push({ path, formats, sha: blob })
-  })
+  }
   return { lockfiles: lockfiles.toSorted(byPath), projects: projects.toSorted(byPath) }
 }
 
