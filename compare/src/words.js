@@ -153,7 +153,7 @@ export function renamedAlone(before, after, options) {
     for (let k = opener - 1; k >= 0 && !['{', '}', ';'].includes(list[k]); k--) if (list[k] === 'class') return true
     return false
   }
-  // After another name or a string (a JSX attribute), or beside `as` (an import's or export's alias).
+  // After another name or a string (a JSX attribute), or beside `as` (an alias a module imports or exports by).
   const aside = (list, i) => {
     const prior = near(list, i - 1, -1)
     return (/^[A-Za-z_$][\w$]*$/u.test(prior) && !BEFORE_NAME.has(prior)) || /^["'`]/u.test(prior) || near(list, i + 1, 1) === 'as'
