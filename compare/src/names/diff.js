@@ -5,7 +5,7 @@
 import { changeSet } from '@preventive/diff'
 import { blocksHold } from '../blocks.js'
 import { markedBlocks } from '../marked.js'
-import { formatChecked } from '../pretty.js'
+import { format } from '../pretty.js'
 import { bindsAlike } from './binds.js'
 import { renameMap } from './rename.js'
 
@@ -18,7 +18,7 @@ export async function renamedDiff(before, after, { extension = 'js', otherExtens
   let renamed = before
   if (!mapped.reason) {
     // A name's new length may move the lines it is on.
-    const formatted = await formatChecked(mapped.text, extension)
+    const formatted = await format(mapped.text, extension)
     const read = 'code' in formatted && bindsAlike(before, formatted.code, mapped.kind)
     if ('code' in formatted && !read) warnings.push("the renamed old side, formatted, read otherwise")
     renamed = read ? formatted.code : mapped.text

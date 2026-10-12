@@ -8,4 +8,4 @@
 // strings and comments as written, the rest as formatting may respell it.
 // Otherwise an error: it does not parse (`unformattable`) or would change more
 // (`pretty-mismatch`). Rejects only where the optional oxfmt peer is missing.
-export function formatChecked(text: string, extension: string): Promise<{ code: string } | { error: 'unformattable' | 'pretty-mismatch' }>
+export function format(text: string, extension: string): Promise<{ code: string } | { error: 'unformattable' | 'pretty-mismatch' }>

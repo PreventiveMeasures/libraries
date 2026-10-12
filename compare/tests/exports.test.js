@@ -10,6 +10,6 @@ describe('entry points', () => {
     assert.deepEqual(await names('compare.js'), ['CompareError', 'compareTrees', 'formatPatch', 'hidesMixedWhitespace', 'layoutDir',
       'layoutPackageDirs', 'pairLines', 'renameParts', 'rootLabel', 'treeLayout', 'wordRanges'])
     assert.deepEqual(await names('names.js'), ['renamedDiff'])
-    assert.deepEqual(await names('pretty.js'), ['formatChecked'])
+    assert.deepEqual(await names('pretty.js'), ['format'])
   })
 })

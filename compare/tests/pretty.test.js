@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { minifySync } from 'oxc-minify'
-import { formatChecked } from '../pretty.js'
+import { format } from '../pretty.js'
 import { sameCode } from '../src/pretty.js'
 
 describe('sameCode', () => {
@@ -86,15 +86,15 @@ describe('sameCode', () => {
   })
 })
 
-describe('formatChecked', () => {
+describe('format', () => {
   it('formats a minified file, leaving template literals as they are', async () => {
-    const { code } = await formatChecked('const a=css`a{color:red}`;function f(x){return x+1}', 'js')
+    const { code } = await format('const a=css`a{color:red}`;function f(x){return x+1}', 'js')
     assert.ok(code.split('\n').length > 3)
     assert.match(code, /css`a\{color:red\}`/u)
   })
 
   it('answers why where it does not', async () => {
-    assert.deepEqual(await formatChecked('function (', 'js'), { error: 'unformattable' })
+    assert.deepEqual(await format('function (', 'js'), { error: 'unformattable' })
   })
 
   it('takes published code minified as it is formatted', async () => {
@@ -102,7 +102,7 @@ describe('formatChecked', () => {
       const source = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8')
       const { code, errors } = minifySync('file.mjs', source, { compress: false, mangle: { toplevel: true }, codegen: { removeWhitespace: true } })
       assert.deepEqual(errors, [])
-      const formatted = await formatChecked(code, 'mjs')
+      const formatted = await format(code, 'mjs')
       assert.ok('code' in formatted, file)
       assert.ok(formatted.code.split('\n').length > 50, file)
     }

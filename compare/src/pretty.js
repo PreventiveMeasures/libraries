@@ -148,11 +148,11 @@ export function sameCode(text, formatted, extension = 'js') {
 
 // oxfmt is loaded outside the try: one missing is thrown, not taken for a file
 // that won't format.
-export async function formatChecked(text, extension) {
-  const format = await loadFormatter()
+export async function format(text, extension) {
+  const oxfmt = await loadFormatter()
   let result
   try {
-    result = await format(`pretty.${extension}`, text, PRETTY_OPTIONS)
+    result = await oxfmt(`pretty.${extension}`, text, PRETTY_OPTIONS)
   } catch {
     return { error: 'unformattable' }
   }

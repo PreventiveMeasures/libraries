@@ -9,7 +9,7 @@ import { describe, it } from 'node:test'
 import { changeSet } from '@preventive/diff'
 import { minifySync } from 'oxc-minify'
 import { blocksHold } from '../src/blocks.js'
-import { formatChecked } from '../pretty.js'
+import { format } from '../pretty.js'
 import { renamedDiff } from '../names.js'
 import { bindsAlike } from '../src/names/binds.js'
 import { renameMap } from '../src/names/rename.js'
@@ -200,7 +200,7 @@ describe('renameMap', () => {
 })
 
 describe('renamedDiff', () => {
-  const formatted = async (text) => (await formatChecked(text, 'mjs')).code
+  const formatted = async (text) => (await format(text, 'mjs')).code
   const minify = (text) => minifySync('file.mjs', text, { compress: false, mangle: { toplevel: true }, codegen: { removeWhitespace: true } }).code
 
   it('diffs two minified files with their renamed names set aside, and checks the diff', async () => {
