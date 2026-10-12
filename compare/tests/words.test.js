@@ -53,6 +53,7 @@ describe('pairLines', () => {
     assert.deepEqual(pairLines(['f(b)', ...Array.from({ length: 50 }, (_, k) => `u${k}`)], [...Array.from({ length: 50 }, (_, k) => `w${k}`), 'f(b)']), [[0, 50]], 'however far apart')
     assert.deepEqual(pairLines(['foo          bar'], ['one          two']), [], 'blanks between two changes being no more kept than a word view keeps them')
     assert.deepEqual(pairLines(['  foo'], ['  bar']), [[0, 0]], 'but blanks before the first')
+    assert.deepEqual(pairLines(['x,two,o'], ['two(x,']), [[0, 0]], 'and as wordRanges finds the words kept, of scripts as short')
   })
 
   it('looks ahead alone where weighing every pair would take too long, still pairing in order', () => {
@@ -64,13 +65,17 @@ describe('pairLines', () => {
     assert.ok(performance.now() - start < 2000)
   })
 
-  it('pairs each line once, in order, and only lines a word view marks, for lines made at random', () => {
+  it('pairs each line once, in order, and two lines just where a word view marks them, for lines made at random', () => {
     const line = lines(5)
     for (let i = 0; i < 300; i++) {
       const news = Array.from({ length: (i * 7) % 9 }, line), olds = Array.from({ length: i % 9 }, line)
       const pairs = pairLines(olds, news)
       assert.ok(pairs.every(([a, b], at) => a < olds.length && b < news.length && (at === 0 || (pairs[at - 1][0] < a && pairs[at - 1][1] < b))), JSON.stringify({ olds, news, pairs }))
       assert.ok(pairs.every(([a, b]) => wordRanges(olds[a], news[b]) !== null), JSON.stringify({ olds, news, pairs }))
+    }
+    for (let i = 0; i < 3000; i++) {
+      const [old, fresh] = [line(), line()]
+      assert.equal(pairLines([old], [fresh]).length, Number(wordRanges(old, fresh) !== null), JSON.stringify([old, fresh]))
     }
   })
 })

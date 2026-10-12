@@ -9,9 +9,11 @@ import { MAX_CHANGED, tokenized, wordChanges } from './words.js'
 const MAX_LINES = 200
 const BUDGET = 5_000_000
 const LOOKAHEAD = 6
-// What a pair weighed and a word's count compared cost, in steps of a script.
+// What a pair weighed, a word's count compared and a word of @preventive/diff's
+// diff cost, in steps of a script.
 const PAIR = 60
 const VISIT = 3
+const EXACT = 35
 
 function counted(read) {
   const counts = new Map()
@@ -116,8 +118,21 @@ function weigher(olds, news) {
     if (floor(i, j, MAX_CHANGED) > MAX_CHANGED) return Infinity
     const { kept, seen, steps } = common(reads[0][i].words, reads[1][j].words)
     work += steps
+    if (!seen) return Infinity
     const share = Math.min(1 - kept[0] / Math.max(1, olds[i].length), 1 - kept[1] / Math.max(1, news[j].length))
-    return seen && share <= MAX_CHANGED ? share : Infinity
+    return share <= MAX_CHANGED ? share : viewed([i, j]) ? exact.get(i * news.length + j) : Infinity
+  }
+  // The share as wordRanges finds it, through @preventive/diff: the script above may keep other words of the
+  // same count, so what it rejects is asked here, and what is chosen is confirmed here.
+  const exact = new Map()
+  const viewed = ([i, j]) => {
+    const key = i * news.length + j
+    if (olds[i] === news[j]) return true
+    if (!exact.has(key)) {
+      work += EXACT * (reads[0][i].words.length + reads[1][j].words.length)
+      exact.set(key, wordChanges(reads[0][i], reads[1][j]).share)
+    }
+    return exact.get(key) <= MAX_CHANGED
   }
   const shares = new Float64Array(olds.length * news.length).fill(Number.NaN)
   const share = (i, j) => {
@@ -125,8 +140,6 @@ function weigher(olds, news) {
     if (Number.isNaN(shares[key])) shares[key] = olds[i] === news[j] ? 0 : weighed(i, j)
     return shares[key]
   }
-  // A pair a word view marks as @preventive/diff finds its words, as a script of the same length may keep others.
-  const viewed = ([i, j]) => olds[i] === news[j] || wordChanges(reads[0][i], reads[1][j]).share <= MAX_CHANGED
   return { share, floor, viewed, spent: () => work }
 }
 
