@@ -1,5 +1,3 @@
-// Hand-written against github.js; a change to either belongs with the other.
-//
 // Every method checks its arguments hard before any request is built: an
 // options object holding only the keys listed here, a repo that is
 // `owner/name` by GitHub's rules, branches and tags that git would take,

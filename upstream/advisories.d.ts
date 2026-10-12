@@ -1,6 +1,3 @@
-// Hand-written against advisories.js; a change to either belongs with the
-// other.
-
 import type { Client, RepoName } from './github.js'
 import type { CacheStore } from './npm.js'
 

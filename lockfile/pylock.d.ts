@@ -1,5 +1,3 @@
-// Hand-written against pylock.js; a change to either belongs with the other.
-
 import type { TomlTable } from './toml.js'
 
 export { LockfileError } from './pnpm.js'

@@ -1,5 +1,3 @@
-// Hand-written against cargo.js; a change to either belongs with the other.
-
 export { LockfileError } from './pnpm.js'
 export { TomlError } from './toml.js'
 

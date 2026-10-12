@@ -1,5 +1,3 @@
-// Hand-written against git.js; a change to either belongs with the other.
-
 // The shape getRepo (package.js) answers in, and HEAD's commit. Each
 // field best-effort: left out where it cannot be read.
 export interface GitCheckout {

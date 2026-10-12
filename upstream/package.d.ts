@@ -1,5 +1,3 @@
-// Hand-written against package.js; a change to either belongs with the other.
-
 export interface PackageRepoLink {
   // `owner/name`, by GitHub's own rules.
   github?: string

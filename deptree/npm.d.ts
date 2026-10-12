@@ -1,5 +1,3 @@
-// Hand-written against npm.js; a change to either belongs with the other.
-
 import type { CacheOptions, PackageBugs, PackageRepository } from '@preventive/upstream/npm.js'
 import type { NodeType, Vfs } from '@preventive/vfs'
 

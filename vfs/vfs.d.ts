@@ -1,5 +1,3 @@
-// Hand-written against vfs.js; a change to either belongs with the other.
-
 export type NodeType = 'file' | 'directory' | 'symlink'
 
 // `ino` identifies the inode: two names of one hard-linked file share it.

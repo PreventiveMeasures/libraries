@@ -1,5 +1,3 @@
-// Hand-written against compare.js; a change to either belongs with the other.
-
 import type { Block } from '@preventive/diff'
 
 // An entry of a tree, in the shape tar has it: what @preventive/archive's

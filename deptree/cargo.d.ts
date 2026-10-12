@@ -1,5 +1,3 @@
-// Hand-written against cargo.js; a change to either belongs with the other.
-
 import type { NodeType, Vfs } from '@preventive/vfs'
 
 export { LockfileError, TomlError } from '@preventive/lockfile/cargo.js'

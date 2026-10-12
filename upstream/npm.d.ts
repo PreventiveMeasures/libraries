@@ -1,5 +1,3 @@
-// Hand-written against npm.js; a change to either belongs with the other.
-//
 // Every call that reaches the registry first asserts that the name is a
 // string of the shape npm takes, and a version a string that npm's
 // semver.valid answers with unchanged; neither goes near a request, or a

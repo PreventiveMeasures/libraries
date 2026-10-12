@@ -1,5 +1,3 @@
-// Hand-written against soldeer.js; a change to either belongs with the other.
-
 import type { Client } from '@preventive/upstream/github.js'
 import type { NodeType, Vfs } from '@preventive/vfs'
 
