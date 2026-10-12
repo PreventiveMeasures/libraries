@@ -11,9 +11,9 @@ const SCRIPTS = new Set(['js', 'mjs', 'cjs', 'jsx', 'ts', 'mts', 'cts', 'tsx'])
 const NUMBER = /(?<![\p{L}\p{N}_$])(?:0[box][\d_a-f]+n?|\d[\d_]*(?:\.[\d_]*)?(?:e[+-]?\d+)?n?)|(?<![\p{N}.])\.\d[\d_]*(?:e[+-]?\d+)?/giu
 const POSITION = new Set(['start', 'end', 'range', 'loc'])
 // Strings and comments, compared as written, split from the rest; one unclosed runs
-// to the end. CSS's unquoted attribute values count as strings, as formatting quotes them.
+// to the end. CSS's unquoted URLs count as strings, as do attribute values formatting quotes.
 const LITERAL = {
-  css: /("(?:[^"\\\n]|\\[^])*"|'(?:[^'\\\n]|\\[^])*'|\/\*[^]*?(?:\*\/|$)|(?=-?[_a-z\u00A0-\uFFFF])(?<==\s*)-?[_a-z\u00A0-\uFFFF][-\w\u00A0-\uFFFF]*(?=\s*(?:[is]\s*)?\]))/iu,
+  css: /("(?:[^"\\\n]|\\[^])*"|'(?:[^'\\\n]|\\[^])*'|\/\*[^]*?(?:\*\/|$)|url\(\s*(?:[^"'()\s\\]|\\[^])*\s*\)|(?=-?[_a-z\u00A0-\uFFFF])(?<==\s*)-?[_a-z\u00A0-\uFFFF][-\w\u00A0-\uFFFF]*(?=\s*(?:[is]\s*)?\]))/iu,
   json: /("(?:[^"\\\n]|\\[^])*"|\/\*[^]*?(?:\*\/|$)|\/\/.*)/u,
 }
 const UNIT = String.raw`(?<![-\w.#\\])-?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?[a-z]+`
