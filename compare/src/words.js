@@ -1,9 +1,7 @@
-// Changed lines read word by word: what changed within a line, which removed
-// line was edited into which added one, and whether two lines differ in
-// short names alone, as a minifier renames them.
+// Changed lines read word by word: what changed within a line, and which
+// removed line was edited into which added one.
 
 import { changeSet } from '@preventive/diff'
-import { checkLineOptions } from './text.js'
 
 // Words as a word diff compares them, so `foo(a)` -> `foo(b)` marks `a` alone.
 const TOKEN = /[\p{L}\p{N}_$]+|\s+|[^\p{L}\p{N}_$\s]/gu
@@ -75,95 +73,4 @@ export function pairLines(olds, news) {
     }
   }
   return pairs
-}
-
-// A line's words for renamedAlone: a comment, string or template to the
-// line's end at most, a name, whitespace, a regular expression, or a character.
-const LINE_WORD = /\/\/.*|\/\*.*?(?:\*\/|$)|"(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?|`(?:[^`\\]|\\.)*`?|[A-Za-z_$][\w$]*|\s+|[^]/uy
-const REGEX_WORD = /\/(?:[^/\\[]|\\.|\[(?:[^\]\\]|\\.)*\]?)*\/?[A-Za-z]*/uy
-// Words after which an expression starts, so a `/` starts a regular expression.
-const BEFORE_EXPRESSION = new Set(['await', 'case', 'delete', 'do', 'else', 'in', 'instanceof', 'new', 'of', 'return', 'throw', 'typeof', 'void', 'yield'])
-const SHORT_NAME = /^[A-Za-z_$][\w$]{0,2}$/u
-const SHORT_KEYWORDS = new Set(['as', 'do', 'for', 'get', 'if', 'in', 'let', 'new', 'of', 'set', 'try', 'var'])
-
-// A `/` divides only after a name (none of BEFORE_EXPRESSION), a number or a
-// `]`; anywhere else it is read as a regular expression's, whole, so that no
-// name in one is read as a variable's: a division so read keeps the rest whole.
-function lineWords(line, blanks) {
-  const words = []
-  LINE_WORD.lastIndex = 0
-  for (let prior = ''; LINE_WORD.lastIndex < line.length;) {
-    const at = LINE_WORD.lastIndex
-    let [word] = LINE_WORD.exec(line)
-    if (word === '/' && prior !== ']' && !(/^[\w$]+$/u.test(prior) && !BEFORE_EXPRESSION.has(prior))) {
-      REGEX_WORD.lastIndex = at;
-      [word] = REGEX_WORD.exec(line)
-      LINE_WORD.lastIndex = at + word.length
-    }
-    if (/\S/u.test(word)) prior = word
-    if (blanks || /\S/u.test(word)) words.push(word)
-  }
-  return words
-}
-
-// Words a name may follow in a script (`var a`, `return a`): one after any other name or a string is
-// a JSX tag's or attribute's.
-const BEFORE_NAME = new Set('var let const function class import return typeof void delete new in of instanceof case else do throw yield await export default extends async break continue'.split(' '))
-// Words after which a `{` opens an object or a pattern, not a block or a class's body.
-const OBJECT_AFTER = new Set('return = ( , : [ ? | & ! const let var export import of in yield await'.split(' '))
-
-// Each bracket's index to its closing one's, and each word's innermost open bracket.
-function brackets(list) {
-  const close = new Map(), open = [], opener = new Int32Array(list.length)
-  list.forEach((word, k) => {
-    opener[k] = open.at(-1) ?? -1
-    if (word.length === 1 && '([{'.includes(word)) open.push(k)
-    else if (word.length === 1 && ')]}'.includes(word) && open.length > 0) close.set(open.pop(), k)
-  })
-  return { close, opener }
-}
-
-export function renamedAlone(before, after, options) {
-  const blanks = checkLineOptions(options).whitespace !== 'all'
-  const [x, y] = [lineWords(before, blanks), lineWords(after, blanks)]
-  if (x.length !== y.length) return false
-  const at = (list, from, step) => {
-    let k = from
-    while (k >= 0 && k < list.length && !/\S/u.test(list[k])) k += step
-    return k
-  }
-  const near = (list, from, step) => list[at(list, from, step)] ?? ''
-  const read = new Map([x, y].map((list) => [list, brackets(list)]))
-  // A method's name, as a class's or an object's: `(`, its parameters and `{` after it, no `function` before.
-  const method = (list, i) => {
-    const open = at(list, i + 1, 1), prior = at(list, i - 1, -1)
-    return list[open] === '(' && near(list, (read.get(list).close.get(open) ?? list.length) + 1, 1) === '{' && near(list, list[prior] === '*' ? prior - 1 : prior, -1) !== 'function'
-  }
-  const assigned = (list, k) => list[k] === '=' && !['=', '>'].includes(near(list, k + 1, 1))
-  // A shorthand property's name (`{a}`, `const {a = 1} = x`), its key's too.
-  const shorthand = (list, i) => {
-    const next = at(list, i + 1, 1), opener = read.get(list).opener[i]
-    return list[opener] === '{' && ['{', ','].includes(near(list, i - 1, -1)) && OBJECT_AFTER.has(near(list, opener - 1, -1))
-      && (['}', ','].includes(list[next]) || assigned(list, next))
-  }
-  // A public field's name (`class X{a=1}`): in a body whose `{` has `class` before it, back to a `{`, `}` or `;`.
-  const field = (list, i) => {
-    const next = at(list, i + 1, 1), opener = read.get(list).opener[i]
-    if (list[opener] !== '{' || !['{', ';', '}', 'static'].includes(near(list, i - 1, -1)) || !(['}', ';'].includes(list[next]) || assigned(list, next))) return false
-    for (let k = opener - 1; k >= 0 && !['{', '}', ';'].includes(list[k]); k--) if (list[k] === 'class') return true
-    return false
-  }
-  // After another name or a string (a JSX attribute), or beside `as` (an alias a module imports or exports by).
-  const aside = (list, i) => {
-    const prior = near(list, i - 1, -1)
-    return (/^[A-Za-z_$][\w$]*$/u.test(prior) && !BEFORE_NAME.has(prior)) || /^["'`]/u.test(prior) || near(list, i + 1, 1) === 'as'
-  }
-  let changed = false
-  for (let i = 0; i < x.length; i++) {
-    if (x[i] === y[i]) continue
-    if (![x[i], y[i]].every((word) => SHORT_NAME.test(word) && !SHORT_KEYWORDS.has(word))) return false
-    if ([x, y].some((list) => ['.', '#'].includes(near(list, i - 1, -1)) || near(list, i + 1, 1) === ':' || method(list, i) || shorthand(list, i) || field(list, i) || aside(list, i))) return false
-    changed = true
-  }
-  return changed
 }

@@ -122,16 +122,6 @@ export function compareTrees(a: Iterable<TreeEntry>, b: Iterable<TreeEntry>, opt
 // DiffError is thrown; a change without blocks has them found here.
 export function formatPatch(changes: Iterable<FileStatus | FileChange>, options?: LineOptions & { context?: number }): string
 
-// Whether `blocks`, a change set in hand rather than found here (another
-// process's, a server's), take `before` to `after` with lines the same as
-// `whitespace` and `ignoreCase` say, as @preventive/diff holds its own
-// search's change set to: each block in order, within both texts and
-// changing a line, and every line between them alike, its terminator with it
-// -- a newline added or dropped after the last line is that line changed,
-// but under the whitespace options. Anything that is not a list of such
-// ranges is refused: false, never thrown.
-export function blocksHold(before: string, after: string, blocks: unknown, options?: Pick<LineOptions, 'whitespace' | 'ignoreCase'>): boolean
-
 // The ranges `[from, to)` that changed within a removed line and the added
 // line it pairs with, word by word (runs of letters and digits, whitespace,
 // any other character), ranges split by whitespace alone merged; null where
@@ -143,14 +133,6 @@ export function wordRanges(left: string, right: string): { a: [number, number][]
 // six in ten of its words replaced): `[i, j]` indices into the two lists. None
 // where either holds more than 200 lines.
 export function pairLines(olds: readonly string[], news: readonly string[]): [number, number][]
-
-// Whether two lines differ in short names alone, as a minifier renames them:
-// the same words otherwise, each name changed three characters at most and no
-// keyword, property (after `.` or `#`), key (before `:`), method (`a(){`),
-// shorthand property (`{a}`), class field (`class X{a=1}`), alias (beside `as`)
-// or JSX attribute (after another name); strings, comments and regular
-// expressions read whole. Whitespace counts unless `whitespace` is 'all'.
-export function renamedAlone(before: string, after: string, options?: LineOptions): boolean
 
 // Whether diff -w, as `blocks` were found with it, keeps as unchanged a line
 // whose blanks between the same two characters (or before the first or after

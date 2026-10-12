@@ -11,14 +11,10 @@ export { compareTrees } from './src/changes.js'
 // Those changes as the patch git writes, for git apply or patch to carry out.
 export { formatPatch } from './src/patch.js'
 
-// Whether a change set found elsewhere, a server's for one, takes one text to
-// another, so that a diff drawn from it hides no change.
-export { blocksHold } from './src/blocks.js'
-
-// Changed lines read word by word: what changed within a line, which removed
-// line was edited into which added one, and whether two differ in short names
-// alone; and whether diff -w hides blanks of more than one kind changing.
-export { pairLines, renamedAlone, wordRanges } from './src/words.js'
+// Changed lines read word by word: what changed within a line and which removed
+// line was edited into which added one; and whether diff -w hides blanks of
+// more than one kind changing.
+export { pairLines, wordRanges } from './src/words.js'
 export { hidesMixedWhitespace } from './src/whitespace.js'
 
 // A rename written as `git diff --stat` writes one.
