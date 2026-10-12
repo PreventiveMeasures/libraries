@@ -70,6 +70,9 @@ importers:
       '@preventive/archive':
         specifier: 1.0.0-beta.4
         version: link:../archive
+      '@preventive/compare':
+        specifier: ^1.0.0
+        version: link:../compare
       '@preventive/diff':
         specifier: ^1.0.2
         version: link:../diff
@@ -77,8 +80,8 @@ importers:
         specifier: 1.0.0-alpha.7
         version: link:../lockfile
       '@preventive/upstream':
-        specifier: 1.0.0-alpha.12
-        version: 1.0.0-alpha.12
+        specifier: ^1.0.0
+        version: link:../upstream
       '@preventive/vfs':
         specifier: 1.0.0-beta.4
         version: link:../vfs
@@ -612,15 +615,6 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@preventive/upstream@1.0.0-alpha.12':
-    resolution: {integrity: sha512-0g2f5PzIxI7czs67G9hM2uvJ7M7uzhVWuHprtxHzr1RmTCR910px1InZPVutH/IaQ0MKNY9znBmxS4BrUFoq8A==, tarball: https://registry.npmjs.org/@preventive/upstream/-/upstream-1.0.0-alpha.12.tgz}
-    engines: {node: '>=24.14.0'}
-    peerDependencies:
-      semver: ^7.5.2
-    peerDependenciesMeta:
-      semver:
-        optional: true
-
   css-tree@3.2.1:
     resolution: {integrity: sha512-X7sjQzceUhu1u7Y/ylrRZFU2FS6LRiFVp6rKLPg23y3x3c3DOKAwuXGDp+PAGjh6CSnCjYeAul8pcT8bAl+lSA==, tarball: https://registry.npmjs.org/css-tree/-/css-tree-3.2.1.tgz}
     engines: {node: ^10 || ^12.20.0 || ^14.13.0 || >=15.0.0}
@@ -914,8 +908,6 @@ snapshots:
 
   '@oxlint/binding-win32-x64-msvc@1.82.0':
     optional: true
-
-  '@preventive/upstream@1.0.0-alpha.12': {}
 
   css-tree@3.2.1:
     dependencies:

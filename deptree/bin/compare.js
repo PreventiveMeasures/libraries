@@ -1,12 +1,12 @@
 // The two sides `deptree compare` sets beside each other, what is on disk
 // and what deptree builds, each a map from a path under the folders an
 // install makes to its type, mode, and bytes or link target; and how they
-// differ.
+// differ: files and links as @preventive/compare tells them, the rest here.
 
 import { Buffer } from 'node:buffer'
 import { lstatSync, readFileSync, readdirSync, readlinkSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { diff } from '@preventive/diff'
+import { compareTrees } from '@preventive/compare'
 import { compareNames, dirname, normalize } from '@preventive/vfs/path.js'
 import { typeOf } from '../src/project.js'
 
@@ -78,55 +78,46 @@ export const byPath = (a, b) => compareNames(a.replaceAll('/', '\0'), b.replaceA
 
 const octal = (mode) => mode.toString(8).padStart(3, '0')
 
-function changeOf(disk, tree) {
-  if (disk === undefined) return { mark: '+', type: tree.type }
-  if (tree === undefined) return { mark: '-', type: disk.type }
-  if (disk.type !== tree.type) return { mark: '~', type: tree.type, what: `${disk.type} on disk, ${tree.type} in the tree` }
-  const what = []
-  const content = disk.type === 'file' && Buffer.compare(disk.data, tree.data) !== 0
-  if (disk.type === 'symlink' && disk.target !== tree.target) what.push(`link to ${disk.target} on disk, to ${tree.target} in the tree`)
-  if (content) what.push('content')
-  if (disk.type === 'file' && disk.mode !== tree.mode) what.push(`mode ${octal(disk.mode)} on disk, ${octal(tree.mode)} in the tree`)
-  return what.length === 0 ? undefined : { mark: '~', type: tree.type, what: what.join('; '), content }
+// What compare compares: files and links, whose directories it implies.
+const compared = (entry) => entry === undefined || entry.type === 'file' || entry.type === 'symlink'
+function entriesOf(side) {
+  const entries = []
+  for (const [name, { type, mode, data, target }] of side) {
+    if (type === 'file') entries.push({ name, mode, data })
+    if (type === 'symlink') entries.push({ name, type, linkname: target })
+  }
+  return entries
 }
 
-// How the disk differs from the tree, in walk order. Nothing is listed under
+// A file or a link compare finds differs, in deptree's words, and whether a
+// file's bytes do, as its mode alone may.
+function changeOf({ status, old: disk, new: tree }) {
+  if (status === 'added') return { mark: '+', type: tree.type }
+  if (status === 'deleted') return { mark: '-', type: disk.type }
+  if (status === 'type-changed') return { mark: '~', type: tree.type, what: `${disk.type} on disk, ${tree.type} in the tree` }
+  if (tree.type === 'symlink') return { mark: '~', type: tree.type, what: `link to ${disk.target} on disk, to ${tree.target} in the tree` }
+  const content = disk.mode === tree.mode || Buffer.compare(disk.data, tree.data) !== 0
+  const what = content ? ['content'] : []
+  if (disk.mode !== tree.mode) what.push(`mode ${octal(disk.mode)} on disk, ${octal(tree.mode)} in the tree`)
+  return { mark: '~', type: tree.type, what: what.join('; '), content }
+}
+
+// How the disk differs from the tree, in walk order, each file or link with
+// compare's `status` of it, as formatPatch takes it. Nothing is listed under
 // a path only one side has, or of another type on each, as only a directory
 // has anything in it; a directory's own mode is the umask's, not compared.
 export function difference(disk, tree) {
+  const shown = (path) => disk.get(dirname(path))?.type === tree.get(dirname(path))?.type
   const changes = []
   for (const path of new Set([...disk.keys(), ...tree.keys()])) {
-    if (disk.get(dirname(path))?.type !== tree.get(dirname(path))?.type) continue
-    const change = changeOf(disk.get(path), tree.get(path))
-    if (change !== undefined) changes.push({ path, ...change })
+    const [one, two] = [disk.get(path), tree.get(path)]
+    if ((compared(one) && compared(two)) || !shown(path) || one?.type === two?.type) continue
+    const mark = one === undefined ? '+' : two === undefined ? '-' : '~'
+    changes.push({ path, mark, type: (two ?? one).type, ...(mark === '~' && { what: `${one.type} on disk, ${two.type} in the tree` }) })
+  }
+  for (const status of compareTrees(entriesOf(disk), entriesOf(tree), { renames: false, lines: false })) {
+    const { path } = status.new ?? status.old
+    if (compared(disk.get(path)) && compared(tree.get(path)) && shown(path)) changes.push({ path, ...changeOf(status), status })
   }
   return changes.sort((a, b) => byPath(a.path, b.path))
-}
-
-// Text is UTF-8 with no NUL in it, as diff takes a NUL for a binary file's.
-const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
-function textOf(bytes) {
-  if (bytes.includes(0)) return undefined
-  try {
-    return decoder.decode(bytes)
-  } catch {
-    return undefined
-  }
-}
-
-// A name for patch and git apply to read back whole: in C quotes, as git
-// writes one, where it holds a control character, a quote or a backslash,
-// each such byte escaped; and, unlike git, where it holds a space, as patch
-// strips one that ends a name from before the tab git puts after it.
-const UNQUOTED = /[\p{Cc}"\\]/gu
-const ESCAPES = { '\t': '\\t', '\n': '\\n', '"': '\\"', '\\': '\\\\' }
-const octets = (char) => [...Buffer.from(char)].map((byte) => `\\${byte.toString(8).padStart(3, '0')}`).join('')
-const cQuoted = (name) => (/[\p{Cc}"\\ ]/u.test(name) ? `"${name.replaceAll(UNQUOTED, (char) => ESCAPES[char] ?? octets(char))}"` : name)
-
-// A unified diff from disk to the tree, labelled for `patch -p1`.
-export function patchOf(path, disk, tree) {
-  const [from, to] = [cQuoted(`a/${path}`), cQuoted(`b/${path}`)]
-  const [a, b] = [textOf(disk), textOf(tree)]
-  if (a === undefined || b === undefined) return `Binary files ${from} and ${to} differ\n`
-  return `--- ${from}\n+++ ${to}\n${diff(a, b)}`
 }

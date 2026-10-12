@@ -5,6 +5,7 @@
 import { resolve } from 'node:path'
 import process from 'node:process'
 import { parseArgs, styleText } from 'node:util'
+import { CompareError, formatPatch } from '@preventive/compare'
 import { diffLineStyles } from '@preventive/diff/color.js'
 import { createClient } from '@preventive/upstream/github.js'
 import { defaultCacheDir, setCacheDir } from '@preventive/upstream/npm.js'
@@ -16,7 +17,7 @@ import { TomlError, buildSoldeerTree } from '../soldeer.js'
 import { buildYarn1Tree, findYarn1Workspaces } from '../yarn1.js'
 import { escaped } from '../src/error.js'
 import { typeOf } from '../src/project.js'
-import { difference, leftBehind, leftOut, patchOf, projectView, readSide } from './compare.js'
+import { difference, leftBehind, leftOut, projectView, readSide } from './compare.js'
 import { userToken } from './npmrc.js'
 
 const USAGE = `Usage: deptree compare [options] [<dir>]
@@ -49,8 +50,8 @@ GITHUB_TOKEN or GH_TOKEN, else anonymously.
   --metadata         fetch each package's version document from npm's
                      registry too, and hold its tarball's dist to it
   --all              list what is left out too
-  --diff             follow each file of other content with a unified diff,
-                     for patch -p1 in <dir>
+  --diff             follow each file of other content with its patch, as
+                     git diff writes it, for patch -p1 or git apply in <dir>
   -h, --help         show this message
 `
 
@@ -113,7 +114,10 @@ async function main(argv) {
   const changes = difference(disk, built)
   const left = values.all ? new Set() : leftOut(changes, disk)
   const listed = changes.filter((change) => !left.has(change.path))
-  const patch = ({ path, content }) => (values.diff && content ? painted(patchOf(path, disk.get(path).data, built.get(path).data)) : '')
+  // A file of other content, with its mode lines where those differ too, as
+  // patch -p1 carries out no link's. A name that ends in a space git apply
+  // reads, and patch does not.
+  const patch = ({ content, status }) => (values.diff && content ? painted(formatPatch([status])) : '')
   process.stdout.write(listed.map((change) => line(change) + patch(change)).join(''))
   note(summary(listed, left.size))
   if (name === 'pnpm') pruneHint(listed)
@@ -183,11 +187,12 @@ function size(bytes) {
   return unit === 0 ? `${bytes} B` : `${(bytes / 1024 ** unit).toFixed(1)} ${UNITS[unit]}`
 }
 
-// A refusal says what and where: deptree's or its lockfile reader's, the
-// system's on a call it names, parseArgs's of an option, or a host deptree
-// takes no version of from what is there. Anything else is a bug, and shows
-// its stack, though Node gave it a code.
-const REFUSALS = [DeptreeError, LockfileError, TomlError]
+// A refusal says what and where: deptree's or its lockfile reader's,
+// compare's of a side that is no tree it can hold (a link to nothing, say),
+// the system's on a call it names, parseArgs's of an option, or a host
+// deptree takes no version of from what is there. Anything else is a bug,
+// and shows its stack, though Node gave it a code.
+const REFUSALS = [DeptreeError, LockfileError, TomlError, CompareError]
 const refused = (error) => REFUSALS.some((type) => error instanceof type) || typeof error?.syscall === 'string' || String(error?.code).startsWith('ERR_PARSE_ARGS_') || (error instanceof TypeError && error.message.startsWith('host.'))
 function describe(error) {
   if (!refused(error)) return error?.stack ?? String(error)

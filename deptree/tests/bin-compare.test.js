@@ -8,9 +8,10 @@ import process from 'node:process'
 import { after, describe, it } from 'node:test'
 import { compress } from '@preventive/archive/compression.js'
 import { pack } from '@preventive/archive/tar.js'
+import { CompareError, formatPatch } from '@preventive/compare'
 import { createVfs } from '@preventive/vfs'
 import { buildCargoTree } from '../cargo.js'
-import { byPath, difference, leftBehind, leftOut, patchOf, projectView, readSide } from '../bin/compare.js'
+import { byPath, difference, leftBehind, leftOut, projectView, readSide } from '../bin/compare.js'
 import { tokenIn, userToken } from '../bin/npmrc.js'
 import { rawZip, sha256, stubRegistry, tarball, url } from './registry.js'
 
@@ -84,6 +85,26 @@ describe('difference', () => {
     ])
   })
 
+  it('lists a file or a link one side has alone, or a file on one and a link on the other', () => {
+    const disk = new Map([...tree, ['node_modules/a/extra.js', file('x')], ['node_modules/b', file('a')]])
+    disk.delete('node_modules/a/cli.js')
+    assert.deepEqual(marks(difference(disk, tree)), [
+      '+ node_modules/a/cli.js',
+      '- node_modules/a/extra.js',
+      '~ node_modules/b (file on disk, symlink in the tree)',
+    ])
+  })
+
+  it('lists what is neither a file, a link nor a directory as a kind of its own', () => {
+    const other = { type: 'other', mode: 0o644 }
+    assert.deepEqual(marks(difference(new Map([...tree, ['node_modules/s', other]]), tree)), ['- node_modules/s'])
+    assert.deepEqual(marks(difference(new Map([...tree, ['node_modules/b', other]]), tree)), ['~ node_modules/b (other on disk, symlink in the tree)'])
+  })
+
+  it('refuses a side that is no tree compare holds: a link to nothing', () => {
+    assert.throws(() => difference(new Map([...tree, ['node_modules/b', link('')]]), tree), CompareError)
+  })
+
   it('lists a node_modules one side has alone, whatever is above it', () => {
     const built = side({ 'packages/w/node_modules': dir, 'packages/w/node_modules/x': file('x') })
     assert.deepEqual(marks(difference(new Map(), built)), ['+ packages/w/node_modules'])
@@ -150,37 +171,34 @@ describe('leftBehind', () => {
   })
 })
 
-describe('patchOf', () => {
-  it('writes a unified diff from disk to the tree, labelled for patch -p1', () => {
-    assert.equal(patchOf('node_modules/a/x.js', Buffer.from('one\r\ntwo\n'), Buffer.from('one\ntwo')), [
-      '--- a/node_modules/a/x.js',
-      '+++ b/node_modules/a/x.js',
+describe("a file's patch", () => {
+  it('is what git diff writes from disk to the tree, its mode lines with it', () => {
+    const tree = side({ node_modules: dir, 'node_modules/x.js': file('one\ntwo', 0o755), 'node_modules/x.node': file('a') })
+    const disk = side({ node_modules: dir, 'node_modules/x.js': file('one\r\ntwo\n'), 'node_modules/x.node': file('a\0') })
+    const changes = difference(disk, tree)
+    assert.deepEqual(changes.map(({ content }) => content), [true, true])
+    assert.equal(formatPatch(changes.map(({ status }) => status)), [
+      'diff --git a/node_modules/x.js b/node_modules/x.js',
+      'old mode 100644',
+      'new mode 100755',
+      '--- a/node_modules/x.js',
+      '+++ b/node_modules/x.js',
       '@@ -1,2 +1,2 @@',
       '-one\r',
       '-two',
       '+one',
       '+two',
       '\\ No newline at end of file',
+      'diff --git a/node_modules/x.node b/node_modules/x.node',
+      'Binary files a/node_modules/x.node and b/node_modules/x.node differ',
       '',
     ].join('\n'))
   })
 
-  it('says only that they differ where either is no UTF-8 text, or holds a NUL', () => {
-    const binary = 'Binary files a/node_modules/a/x.node and b/node_modules/a/x.node differ\n'
-    assert.equal(patchOf('node_modules/a/x.node', Buffer.from('a\0'), Buffer.from('a')), binary)
-    assert.equal(patchOf('node_modules/a/x.node', Buffer.from('a'), Uint8Array.of(0xff, 0xfe)), binary)
-  })
-
-  it('spells a name for patch and git apply to read it back whole', () => {
-    const headers = (path) => patchOf(path, Buffer.from('a\n'), Buffer.from('b\n')).split('\n').slice(0, 2)
-    assert.deepEqual(headers('node_modules/a/x y.js'), ['--- "a/node_modules/a/x y.js"', '+++ "b/node_modules/a/x y.js"'])
-    assert.deepEqual(headers('node_modules/a/x '), ['--- "a/node_modules/a/x "', '+++ "b/node_modules/a/x "'], 'a space that ends it too')
-    assert.deepEqual(headers('node_modules/a/é.js'), ['--- a/node_modules/a/é.js', '+++ b/node_modules/a/é.js'])
-    assert.deepEqual(headers('node_modules/a/x y\t"\\\n\u0001\u007F\u0085.js'), [
-      '--- "a/node_modules/a/x y\\t\\"\\\\\\n\\001\\177\\302\\205.js"',
-      '+++ "b/node_modules/a/x y\\t\\"\\\\\\n\\001\\177\\302\\205.js"',
-    ])
-    assert.equal(patchOf('node_modules/a/"x".node', Buffer.from('a\0'), Buffer.from('a')), 'Binary files "a/node_modules/a/\\"x\\".node" and "b/node_modules/a/\\"x\\".node" differ\n')
+  it('is none for a mode alone or a link, as patch -p1 carries out neither', () => {
+    const tree = side({ node_modules: dir, 'node_modules/x.sh': file('a\n', 0o755), 'node_modules/l': link('a') })
+    const disk = side({ node_modules: dir, 'node_modules/x.sh': file('a\n'), 'node_modules/l': link('b') })
+    assert.deepEqual(difference(disk, tree).map(({ path, content }) => [path, content]), [['node_modules/l', undefined], ['node_modules/x.sh', false]])
   })
 })
 
@@ -293,6 +311,7 @@ describe('deptree compare', async () => {
     assert.equal(r.stdout, [
       '- node_modules/.package-lock.json',
       '~ node_modules/a/index.js  (content)',
+      'diff --git a/node_modules/a/index.js b/node_modules/a/index.js',
       '--- a/node_modules/a/index.js',
       '+++ b/node_modules/a/index.js',
       '@@ -1,2 +1 @@',
