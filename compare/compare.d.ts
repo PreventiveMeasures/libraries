@@ -147,8 +147,9 @@ export function pairLines(olds: readonly string[], news: readonly string[]): [nu
 // Whether two lines differ in short names alone, as a minifier renames them:
 // the same words otherwise, each name changed three characters at most and no
 // keyword, property (after `.` or `#`), key (before `:`), method (`a(){`),
-// shorthand property (`{a}`) or class field (`class X{a=1}`); strings, comments
-// and regular expressions read whole. Whitespace counts unless `whitespace` is 'all'.
+// shorthand property (`{a}`), class field (`class X{a=1}`), alias (beside `as`)
+// or JSX attribute (after another name); strings, comments and regular
+// expressions read whole. Whitespace counts unless `whitespace` is 'all'.
 export function renamedAlone(before: string, after: string, options?: LineOptions): boolean
 
 // Whether diff -w, as `blocks` were found with it, keeps as unchanged a line

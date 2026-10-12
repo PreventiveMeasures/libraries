@@ -106,6 +106,9 @@ function lineWords(line, blanks) {
   return words
 }
 
+// Words a name may follow in a script (`var a`, `return a`): one after any other name or a string is
+// a JSX tag's or attribute's.
+const BEFORE_NAME = new Set('var let const function class import return typeof void delete new in of instanceof case else do throw yield await export default extends async break continue'.split(' '))
 // Words after which a `{` opens an object or a pattern, not a block or a class's body.
 const OBJECT_AFTER = new Set('return = ( , : [ ? | & ! const let var export import of in yield await'.split(' '))
 
@@ -150,11 +153,16 @@ export function renamedAlone(before, after, options) {
     for (let k = opener - 1; k >= 0 && !['{', '}', ';'].includes(list[k]); k--) if (list[k] === 'class') return true
     return false
   }
+  // After another name or a string (a JSX attribute), or beside `as` (an import's or export's alias).
+  const aside = (list, i) => {
+    const prior = near(list, i - 1, -1)
+    return (/^[A-Za-z_$][\w$]*$/u.test(prior) && !BEFORE_NAME.has(prior)) || /^["'`]/u.test(prior) || near(list, i + 1, 1) === 'as'
+  }
   let changed = false
   for (let i = 0; i < x.length; i++) {
     if (x[i] === y[i]) continue
     if (![x[i], y[i]].every((word) => SHORT_NAME.test(word) && !SHORT_KEYWORDS.has(word))) return false
-    if ([x, y].some((list) => ['.', '#'].includes(near(list, i - 1, -1)) || near(list, i + 1, 1) === ':' || method(list, i) || shorthand(list, i) || field(list, i))) return false
+    if ([x, y].some((list) => ['.', '#'].includes(near(list, i - 1, -1)) || near(list, i + 1, 1) === ':' || method(list, i) || shorthand(list, i) || field(list, i) || aside(list, i))) return false
     changed = true
   }
   return changed

@@ -54,22 +54,25 @@ function literal(token) {
 }
 
 // CSS as formatting would write it but for layout. What is in a selector or query (whose next
-// `{`, `;` or `}`, strings and comments aside, is a `{`) is told from what is declared, and a
-// rule's last `;` dropped, not one closing a block in a custom property's value (`--x: {a;}`).
+// `{`, `;` or `}`, strings and comments aside, is a `{`) is told from what is declared; a custom
+// property's value (`--x: #ABC`, `--x: {a;}`) keeps its case and its last `;`, a rule drops its.
 function cssCase(text) {
   const blank = text.replaceAll(new RegExp(LITERAL.css.source, 'giu'), (token) => ' '.repeat(token.length))
-  const blocks = [], next = new Uint8Array(text.length + 1)
-  for (let i = 0, start = 0; i < blank.length; i++) {
-    if (blank[i] === '{') blocks.push(blocks.at(-1) === 3 || /^\s*--[^:]*:/u.test(blank.slice(start, i)) ? 3 : 2)
+  const blocks = [], custom = new Uint8Array(text.length), next = new Uint8Array(text.length + 1)
+  for (let i = 0, named = null, valued = false; i < blank.length; i++) {
+    named ??= /\s/u.test(blank[i]) ? null : blank.startsWith('--', i)
+    valued ||= named === true && blank[i] === ':'
+    custom[i] = Number(blocks.at(-1) === 3 || valued)
+    if (blank[i] === '{') blocks.push(custom[i] ? 3 : 2)
     if (blank[i] === '}') next[i] = blocks.pop() ?? 2
-    if ('{;}'.includes(blank[i])) start = i + 1
+    if ('{;}'.includes(blank[i])) [named, valued] = [null, false]
   }
   for (let i = text.length - 1; i >= 0; i--) if (blank[i] !== '}') next[i] = blank[i] === '{' ? 1 : blank[i] === ';' ? 0 : next[i + 1]
   return text.replaceAll(CSS_FORM, (token, string, ...rest) => {
     const { query, declared, selected, semi } = rest.at(-1), offset = rest.at(-3)
     const inSelector = next[offset] === 1
     if (semi !== undefined) return next[offset + 1] === 2 ? '' : token
-    if (string !== undefined || (declared !== undefined && inSelector) || (selected !== undefined && !inSelector)) return token
+    if (string !== undefined || (custom[offset] && !token.startsWith('!')) || (declared !== undefined && inSelector) || (selected !== undefined && !inSelector)) return token
     if (query !== undefined) return token.replaceAll(QUERY_WORD, (word) => word.toLowerCase())
     return token.includes('+') ? '+' : token.toLowerCase()
   })

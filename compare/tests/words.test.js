@@ -42,6 +42,10 @@ describe('renamedAlone', () => {
     for (const [before, after] of [['return {a}', 'return {b}'], ['const {a}=x', 'const {b}=x'], ['f({a,c})', 'f({b,c})'], ['const{a=1}=x', 'const{b=1}=x'], ['export{a}', 'export{b}']]) {
       assert.equal(renamedAlone(before, after), false, `${before} -> ${after}: a shorthand property`)
     }
+    for (const [before, after] of [['export{a as b}', 'export{a as c}'], ['import{x as a}from"y"', 'import{x as b}from"y"'], ['<X a={v}/>', '<X b={v}/>'], ['<X s="t" a={v}/>', '<X s="t" b={v}/>']]) {
+      assert.equal(renamedAlone(before, after), false, `${before} -> ${after}: an alias or a JSX attribute`)
+    }
+    for (const [before, after] of [['var a=1', 'var b=1'], ['x instanceof a', 'x instanceof b'], ['for(let a of c)', 'for(let b of c)'], ['async a=>a', 'async b=>b']]) assert.equal(renamedAlone(before, after), true, `${before} -> ${after}`)
     for (const [before, after] of [['class X{a=1}', 'class X{b=1}'], ['x=class extends Y{m(){}a;c=2}', 'x=class extends Y{m(){}b;c=2}'], ['class X{static a=1}', 'class X{static b=1}']]) {
       assert.equal(renamedAlone(before, after), false, `${before} -> ${after}: a public field`)
     }

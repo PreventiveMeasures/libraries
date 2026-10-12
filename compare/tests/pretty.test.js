@@ -44,7 +44,7 @@ describe('sameCode', () => {
   })
 
   it('compares CSS but for the case formatting lowers and spaces no selector needs', () => {
-    const text = 'A:HOVER,.Foo:NOT(.Bar)[class*=x]{COLOR:RED;--Brand:#ABC;background:#ABC;margin:.5EM!IMPORTANT}@MEDIA SCREEN AND (MAX-WIDTH:10PX){a{b:c}}'
+    const text = 'A:HOVER,.Foo:NOT(.Bar)[class*=x]{COLOR:RED;--Brand:#abc;background:#ABC;margin:.5EM!IMPORTANT}@MEDIA SCREEN AND (MAX-WIDTH:10PX){a{b:c}}'
     const formatted = 'A:hover,\n.Foo:not(.Bar)[class*="x"] {\n  color: RED;\n  --Brand: #abc;\n  background: #abc;\n  margin: 0.5em !important;\n}\n'
       + '@media screen and (max-width: 10px) {\n  a {\n    b: c;\n  }\n}\n'
     assert.equal(sameCode(text, formatted, 'css'), true, "oxfmt's own output")
@@ -60,6 +60,7 @@ describe('sameCode', () => {
       ['@supports (--Foo:1){a{x:y}}', '@supports (--foo: 1) {\n  a {\n    x: y;\n  }\n}\n', 'a custom property\'s in one'],
       ['a{x:calc(1px + 2px)}', 'a {\n  x: calc(1px+2px);\n}\n', 'the spaces calc() needs'], ['a{filter:url(#ABC)}', 'a {\n  filter: url(#abc);\n}\n', 'a URL\'s fragment'],
       ['a{background:-moz-element(#ABC)}', 'a {\n  background: -moz-element(#abc);\n}\n', 'an element\'s id, as oxfmt lowers it'],
+      [':root{--token:#ABC}', ':root {\n  --token: #abc;\n}\n', 'a custom property\'s value, as oxfmt lowers it'],
       [':root{--x:# fff}', ':root {\n  --x: #fff;\n}\n', 'two tokens made one'], ['a{--x:5 %}', 'a {\n  --x: 5%;\n}\n', 'and with `%`'],
       ['a{--x:{foo}}', 'a {\n  --x: {\n    foo;\n  };\n}\n', 'a `;` added in a custom property\'s block, as oxfmt adds it']]) assert.equal(sameCode(before, after, 'css'), false, what)
     assert.equal(sameCode('.a/**/.b{x:y}', '.a /**/ .b {\n  x: y;\n}\n', 'css'), false, 'a compound made a descendant beside a comment')
