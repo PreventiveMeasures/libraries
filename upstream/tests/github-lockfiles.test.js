@@ -87,6 +87,7 @@ const REPO = treeOf({
   'py/pylock.toml': FILE,
   'py/pylock.dev.toml': FILE,
   'py/pylock.a.b.toml': FILE,
+  'py/env/dev.conda-lock.yml': FILE,
   'ruby/Gemfile': FILE,
   'ruby/Gemfile.lock': FILE,
   'ios/Podfile': FILE,
@@ -121,6 +122,7 @@ const LOCKFILES = [
   ['ios/Podfile.lock', 'cocoapods'],
   ['php/composer.lock', 'composer'],
   ['pnpm-lock.yaml', 'pnpm'],
+  ['py/env/dev.conda-lock.yml', 'conda-lock'],
   ['py/pylock.dev.toml', 'pylock'],
   ['py/pylock.toml', 'pylock'],
   ['py/uv.lock', 'uv'],
@@ -149,7 +151,7 @@ describe('lockfileFormat and projectFormats', () => {
     }
     assert.deepEqual(projectFormats('package.json'), JS)
     assert.deepEqual(projectFormats('pyproject.toml'), ['uv', 'poetry', 'pylock', 'pdm', 'pixi'])
-    for (const [name, format] of [['pylock.prod-2.toml', 'pylock'], ['Manifest-v1.11.toml', 'julia'], ['JuliaManifest-v1.11.toml', 'julia'], ['app.opam.locked', 'opam']]) assert.equal(lockfileFormat(name), format, name)
+    for (const [name, format] of [['pylock.prod-2.toml', 'pylock'], ['Manifest-v1.11.toml', 'julia'], ['JuliaManifest-v1.11.toml', 'julia'], ['app.opam.locked', 'opam'], ['dev.conda-lock.yml', 'conda-lock']]) assert.equal(lockfileFormat(name), format, name)
     for (const [name, format] of [['App.csproj', 'nuget'], ['Lib.fsproj', 'nuget'], ['lib.cabal', 'cabal'], ['app.opam', 'opam']]) assert.deepEqual(projectFormats(name), [format], name)
   })
 
@@ -160,7 +162,7 @@ describe('lockfileFormat and projectFormats', () => {
   })
 
   it('know a file by its name as git has it, and by nothing else', () => {
-    for (const name of ['cargo.lock', 'podfile.lock', 'Yarn.lock', 'Package.json', 'pylock..toml', 'pylock.a.b.toml', 'pylock.toml.bak', 'Manifest-v1.toml', '.csproj', '.cabal', 'constructor', '__proto__', 'toString', '']) {
+    for (const name of ['cargo.lock', 'podfile.lock', 'Yarn.lock', 'Package.json', 'pylock..toml', 'pylock.a.b.toml', 'pylock.toml.bak', 'Manifest-v1.toml', '.csproj', '.cabal', '.conda-lock.yml', 'dev.conda-lock.yaml', 'constructor', '__proto__', 'toString', '']) {
       assert.equal(lockfileFormat(name), undefined, name)
       assert.deepEqual(projectFormats(name), [], name)
     }

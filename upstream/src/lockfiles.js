@@ -19,7 +19,8 @@ export const FORMATS = {
   pipenv: { lockfiles: ['Pipfile.lock'], projects: ['Pipfile'] },
   pdm: { lockfiles: ['pdm.lock'], projects: ['pyproject.toml'] },
   pixi: { lockfiles: ['pixi.lock'], projects: ['pixi.toml', 'pyproject.toml'] },
-  'conda-lock': { lockfiles: ['conda-lock.yml'], projects: ['environment.yml', 'environment.yaml'] },
+  // A unified lockfile of another name has to end in `.conda-lock.yml`.
+  'conda-lock': { lockfiles: ['conda-lock.yml', 'conda-lock.yaml', /^.+\.conda-lock\.yml$/u], projects: ['environment.yml', 'environment.yaml'] },
   bundler: { lockfiles: ['Gemfile.lock', 'gems.locked'], projects: ['Gemfile', 'gems.rb'] },
   composer: { lockfiles: ['composer.lock'], projects: ['composer.json'] },
   cargo: { lockfiles: ['Cargo.lock'], projects: ['Cargo.toml'] },
