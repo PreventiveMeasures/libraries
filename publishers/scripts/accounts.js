@@ -12,7 +12,7 @@
 
 // The popularity bar, in download-counts' monthly downloads.
 export const MIN_DOWNLOADS = 10_000_000
-const STANDING_DAYS = 90
+export const STANDING_DAYS = 90
 
 const standing = (p, user) =>
   p.publishers.filter((u) => !u.trusted).length === 1 ||

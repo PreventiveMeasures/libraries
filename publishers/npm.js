@@ -1,9 +1,6 @@
-// The npm accounts known to publish, 2,044: each with standing on one of
-// npm's packages with 10,000,000 or more downloads a month, as its only
-// publisher (trusted publishing's CI aside) or the publisher of two of its
-// versions 90 days or more apart; by the monthly downloads of those packages,
-// summed, the most first. From download-counts@2.20260301.0 and the packuments
-// as of 2026-10-12, by scripts/build.js; typed in npm.d.ts.
+// npm accounts with standing on a package with 10M+ downloads a month (its only publisher but CI,
+// or of two versions 90+ days apart), most downloads first. From download-counts@2.20260301.0 and
+// packuments of 2026-10-12, by scripts/build.js.
 
 export default '\
 sindresorhus,ljharb,nicolo-ribaudo,isaacs,hzoo,types,dougwilson,qix,simenb,jonschlinkert,cpojer,\

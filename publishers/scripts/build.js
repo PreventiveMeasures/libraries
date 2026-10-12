@@ -15,7 +15,7 @@
 
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { LISTS, MIN_DOWNLOADS, accountsOf, ranked } from './accounts.js'
+import { LISTS, MIN_DOWNLOADS, STANDING_DAYS, accountsOf, ranked } from './accounts.js'
 
 const [dataDir] = process.argv.slice(2)
 if (!dataDir) throw new Error('usage: build.js <data dir>')
@@ -32,25 +32,28 @@ const names = ranked(accountsOf(packages), list).map(({ name }) => name)
 // would end the literal or the split.
 for (const name of names) if (!/^[\w.-]+$/u.test(name)) throw new Error(`An account name to quote: ${name}`)
 
-// The names packed into lines of MAX_LINE or less, each ended by `,\` but the
-// last, which END ends: its last name on a line of its own, where it would not
-// fit there.
-const lines = []
-for (const name of names) {
-  if (lines.length && `${lines.at(-1)},${name},\\`.length <= MAX_LINE) lines[lines.length - 1] += `,${name}`
-  else lines.push(name)
+// Items joined by sep into lines, as many to each as fit.
+function pack(items, sep, fits) {
+  const out = []
+  for (const item of items) {
+    if (out.length && fits(`${out.at(-1)}${sep}${item}`)) out[out.length - 1] += `${sep}${item}`
+    else out.push(item)
+  }
+  return out
 }
+
+const about = `npm accounts with standing on a package with ${MIN_DOWNLOADS / 1e6}M+ downloads a month (its only publisher but CI, or of two versions ${STANDING_DAYS}+ days apart), most downloads first. From ${source.counts} and packuments of ${source.fetched}, by scripts/build.js.`
+const header = pack(about.split(' '), ' ', (line) => `// ${line}`.length <= MAX_LINE).map((line) => `// ${line}`)
+
+// The names in lines of MAX_LINE or less, each ended by `,\` but the last,
+// which END ends: its last name on a line of its own, where it would not fit.
+const lines = pack(names, ',', (line) => `${line},\\`.length <= MAX_LINE)
 if (`${lines.at(-1)}${END}`.length > MAX_LINE) {
   const last = lines.pop()
   const cut = last.lastIndexOf(',')
   lines.push(last.slice(0, cut), last.slice(cut + 1))
 }
-await writeFile(OUT, `// The npm accounts known to publish, ${names.length.toLocaleString('en-US')}: each with standing on one of
-// npm's packages with ${MIN_DOWNLOADS.toLocaleString('en-US')} or more downloads a month, as its only
-// publisher (trusted publishing's CI aside) or the publisher of two of its
-// versions 90 days or more apart; by the monthly downloads of those packages,
-// summed, the most first. From ${source.counts} and the packuments
-// as of ${source.fetched}, by scripts/build.js; typed in npm.d.ts.
+await writeFile(OUT, `${header.join('\n')}
 
 export default '\\
 ${lines.join(',\\\n')}${END}
