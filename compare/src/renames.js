@@ -70,11 +70,12 @@ function familyKeys(path) {
 }
 
 // Whether either file of a pair by path has a candidate that is a rename by
-// itself and scores at least halfway from the pair's score to 100%.
+// itself and scores at least halfway from the pair's score to 100%: sizes too
+// far apart for that go unread.
 function outdone({ pairs, used, scoreOf }, { remaining, open }, { s, d, score }, minimum) {
   const better = Math.max(minimum, score + Math.trunc((MAX_SCORE - score) / 2))
-  return open.some((o) => o !== d && !pairs.has(o) && scoreOf(s, o, minimum) >= better)
-    || remaining.some((r) => r !== s && !used.has(r) && scoreOf(r, d, minimum) >= better)
+  return open.some((o) => o !== d && !pairs.has(o) && scoreOf(s, o, better) >= better)
+    || remaining.some((r) => r !== s && !used.has(r) && scoreOf(r, d, better) >= better)
 }
 
 // Paths a build changes: however a pair scores, the best of a file's partners.
@@ -115,11 +116,11 @@ function familyRenames(context, left, weigh, minimum) {
   }
 }
 
-// Renames told by path, which git does not look for. Past the rename limit no
-// other candidate is scored, so none can be better.
+// Renames told by path, which git does not look for. Under -M100%, or past the
+// rename limit, no other candidate is scored, so none can be better.
 function pathRenames(context, minimum, limit) {
   const left = unpaired(context)
-  const weigh = left.remaining.length * left.open.length <= limit * limit
+  const weigh = minimum < MAX_SCORE && left.remaining.length * left.open.length <= limit * limit
   buildRenames(context, left, weigh, minimum)
   familyRenames(context, left, weigh, minimum)
 }
