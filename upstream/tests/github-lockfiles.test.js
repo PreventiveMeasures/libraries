@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { afterEach, describe, it } from 'node:test'
 
 import { createClient } from '../github.js'
-import { FORMATS, lockfileFormat, projectFormats } from '../src/lockfiles.js'
+import { FORMATS, lockfileOf, projectFormats } from '../src/lockfiles.js'
 import { gitTreeOfListing, objectId } from '../src/tree.js'
 import { SHA, forbidRequests, json, stubGitHub } from './github-stub.js'
 
@@ -14,6 +14,7 @@ afterEach(() => {
 })
 
 const client = () => createClient({ token: 't0ken' })
+const lockfileFormat = (name) => lockfileOf(name)?.format
 const API = 'https://api.github.com/repos/acme/app'
 const blob = (text) => ({ mode: '100644', type: 'blob', sha: objectId('blob', Buffer.from(text)).toString('hex') })
 const FILE = blob('{}\n')
@@ -91,6 +92,8 @@ const REPO = treeOf({
   'py/scripts/job.py.lock': FILE,
   'py/scripts/other.py': FILE,
   'py/scripts/orphan.py.lock': FILE,
+  'tools/conanfile.py': FILE,
+  'tools/conanfile.py.lock': FILE,
   'py/env/dev.conda-lock.yml': FILE,
   'ruby/Gemfile': FILE,
   'ruby/Gemfile.lock': FILE,
@@ -149,6 +152,7 @@ const LOCKFILES = [
   ['py/scripts/orphan.py.lock', 'uv'],
   ['py/uv.lock', 'uv'],
   ['ruby/Gemfile.lock', 'bundler'],
+  ['tools/conanfile.py.lock', 'uv'],
 ].map(([path, format]) => ({ path, format, sha: at(path) }))
 const PROJECTS = [
   ['android/build.gradle.kts', ['gradle']],
@@ -169,6 +173,7 @@ const PROJECTS = [
   ['py/pyproject.toml', ['uv', 'poetry', 'pylock', 'pdm', 'pixi', 'conda-lock']],
   ['py/scripts/job.py', ['uv']],
   ['ruby/Gemfile', ['bundler']],
+  ['tools/conanfile.py', ['uv', 'conan']],
 ].map(([path, formats]) => ({ path, formats, sha: at(path) }))
 const FOUND = { lockfiles: LOCKFILES, projects: PROJECTS }
 
@@ -178,6 +183,8 @@ describe('lockfileFormat and projectFormats', () => {
       for (const name of lockfiles.filter((known) => typeof known === 'string')) assert.equal(lockfileFormat(name), format, name)
       for (const name of projects.filter((known) => typeof known === 'string')) assert.ok(projectFormats(name).includes(format), name)
     }
+    assert.deepEqual(lockfileOf('job.py.lock'), { format: 'uv', locks: 'job.py' })
+    assert.deepEqual(lockfileOf('uv.lock'), { format: 'uv', locks: undefined })
     assert.deepEqual(projectFormats('package.json'), JS)
     assert.deepEqual(projectFormats('pyproject.toml'), ['uv', 'poetry', 'pylock', 'pdm', 'pixi', 'conda-lock'])
     for (const [name, format] of [
@@ -270,9 +277,9 @@ describe('findRepoLockfiles', () => {
 
   it('refuses a lockfile or a project file at a path getRepoFile does not take', async () => {
     stub(treeOf({ 'a\nb/yarn.lock': FILE, 'x\u0007/README': FILE }))
-    await assert.rejects(find(), /findRepoLockfiles: acme\/app@\w+ has a lockfile at "a\\nb\/yarn\.lock", which getRepoFile does not take$/u)
+    await assert.rejects(find(), /findRepoLockfiles: acme\/app@\w+'s lockfile must be a path inside a repository, got "a\\nb\/yarn\.lock"$/u)
     stub(treeOf({ 'a\u0085b/package.json': FILE }))
-    await assert.rejects(find(), /findRepoLockfiles: acme\/app@\w+ has a project file at "a\\u0085b\/package\.json", which getRepoFile does not take$/u)
+    await assert.rejects(find(), /findRepoLockfiles: acme\/app@\w+'s project file must be a path inside a repository, got "a\\u0085b\/package\.json"$/u)
     stub(treeOf({ 'x\u0007/README': FILE, 'yarn.lock': FILE }))
     assert.deepEqual(await find(), { lockfiles: [{ path: 'yarn.lock', format: 'yarn', sha: FILE.sha }], projects: [] })
   })

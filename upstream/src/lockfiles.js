@@ -1,7 +1,8 @@
 // Each tool that writes a lockfile, by the format of it: the names it
 // writes one under, and those of the project files it locks, each a name
-// as git has it, `cargo.lock` not Cargo's, or a pattern. The formats
-// @preventive/lockfile reads go by the names of the modules that do.
+// as git has it, `cargo.lock` not Cargo's, or a pattern. A lockfile's
+// pattern names in a `locks` group the file beside it that it locks, where
+// no name of that file's own tells it is one.
 export const FORMATS = {
   // pnpm-lock.<branch>.yaml with git-branch-lockfile; shrinkwrap.yaml before
   // pnpm 3. package.yaml and package.json5 in place of package.json, and
@@ -19,10 +20,10 @@ export const FORMATS = {
   // bun.lockb is Bun's binary one, before Bun 1.2.
   bun: { lockfiles: ['bun.lock', 'bun.lockb'], projects: ['package.json'] },
   deno: { lockfiles: ['deno.lock'], projects: ['deno.json', 'deno.jsonc', 'package.json'] },
-  // <script>.py.lock, of `uv lock --script`.
-  uv: { lockfiles: ['uv.lock', /^.+\.py\.lock$/u], projects: ['pyproject.toml'] },
+  // <script>.py.lock, of `uv lock --script`, which locks the script.
+  uv: { lockfiles: ['uv.lock', /^(?<locks>.+\.py)\.lock$/u], projects: ['pyproject.toml'] },
   poetry: { lockfiles: ['poetry.lock'], projects: ['pyproject.toml'] },
-  // PEP 751's: `pylock.toml`, or `pylock.<name>.toml`, the name with no dot.
+  // PEP 751's.
   pylock: { lockfiles: ['pylock.toml', /^pylock\.[^.]+\.toml$/u], projects: ['pyproject.toml'] },
   pipenv: { lockfiles: ['Pipfile.lock'], projects: ['Pipfile'] },
   pdm: { lockfiles: ['pdm.lock'], projects: ['pyproject.toml'] },
@@ -43,7 +44,6 @@ export const FORMATS = {
   // Each name CocoaPods reads a Podfile under, and a podspec, whose
   // dependencies a Podfile's `podspec` takes.
   cocoapods: { lockfiles: ['Podfile.lock'], projects: ['Podfile', 'Podfile.rb', 'CocoaPods.podfile', 'CocoaPods.podfile.yaml', /^.+\.podspec(?:\.json)?$/u] },
-  // Package@swift-<version>.swift, for a version of Swift.
   swiftpm: { lockfiles: ['Package.resolved'], projects: ['Package.swift', /^Package@swift-\d+(?:\.\d+){0,2}\.swift$/u] },
   carthage: { lockfiles: ['Cartfile.resolved'], projects: ['Cartfile', 'Cartfile.private'] },
   // go.sum has the checksums; go.mod, the versions, is locked as it is. A
@@ -55,11 +55,8 @@ export const FORMATS = {
   // Package Management, which the project files then leave out.
   nuget: { lockfiles: ['packages.lock.json', /^packages\..+\.lock\.json$/u], projects: [/^.+\.(?:cs|fs|vb)proj$/u, 'Directory.Packages.props'] },
   paket: { lockfiles: ['paket.lock'], projects: ['paket.dependencies'] },
-  // gradle.lockfile, buildscript-gradle.lockfile and settings-gradle.lockfile;
-  // the legacy one of each configuration, `<configuration>.lockfile`; and
-  // one of the name and the place a build gives it, by its ending.
-  // A version catalog: libs.versions.toml, which Gradle imports, or another
-  // named so.
+  // Any *.lockfile: Gradle's own, the legacy one of each configuration, or
+  // one a build names. Version catalogs, libs.versions.toml and the like.
   gradle: { lockfiles: [/^.+\.lockfile$/u], projects: ['build.gradle', 'build.gradle.kts', 'settings.gradle', 'settings.gradle.kts', /^.+\.versions\.toml$/u] },
   // pubspec_overrides.yaml overrides pubspec.yaml's dependency_overrides,
   // workspace and resolution.
@@ -82,17 +79,33 @@ export const FORMATS = {
   // Of the configuration in the directory, each of its .tf files, a child
   // module's too, of which there is none; OpenTofu's .tofu files, and a
   // Stack's components.
-  terraform: { lockfiles: ['.terraform.lock.hcl'], projects: [/^.+\.tf$/u, /^.+\.tf\.json$/u, /^.+\.tofu$/u, /^.+\.tofu\.json$/u, /^.+\.tfcomponent\.hcl$/u] },
+  terraform: { lockfiles: ['.terraform.lock.hcl'], projects: [/^.+\.(?:tf|tofu)(?:\.json)?$/u, /^.+\.tfcomponent\.hcl$/u] },
 }
 
 const TOOLS = Object.entries(FORMATS)
+const KNOWN = TOOLS.flatMap(([, { lockfiles, projects }]) => [...lockfiles, ...projects])
+
+// A name of none of them, as most in a repository are, is passed over at
+// once, by a set of the names and one pattern of all the patterns.
+const NAMES = new Set(KNOWN.filter((known) => typeof known === 'string'))
+const PATTERN = new RegExp(KNOWN.filter((known) => typeof known !== 'string').map(({ source }) => `(?:${source})`).join('|'), 'u')
+const isKnown = (name) => NAMES.has(name) || PATTERN.test(name)
 
 // Whether `name` is one of `names`, each a name or a pattern.
 const isOf = (names, name) => names.some((known) => (typeof known === 'string' ? known === name : known.test(name)))
 
-// The format a file of this name is a lockfile of, or undefined.
-export const lockfileFormat = (name) => TOOLS.find(([, { lockfiles }]) => isOf(lockfiles, name))?.[0]
+// The lockfile a file of this name is, `{ format, locks }`, `locks` the name
+// of the file beside it that it locks where its pattern names one; or
+// undefined.
+export function lockfileOf(name) {
+  for (const [format, { lockfiles }] of isKnown(name) ? TOOLS : []) {
+    for (const known of lockfiles) {
+      const match = typeof known === 'string' ? known === name && {} : known.exec(name)
+      if (match) return { format, locks: match.groups?.locks }
+    }
+  }
+}
 
 // The formats of the lockfiles that lock a project of a file of this name,
 // in FORMATS' order, none where it is no project file.
-export const projectFormats = (name) => TOOLS.filter(([, { projects }]) => isOf(projects, name)).map(([format]) => format)
+export const projectFormats = (name) => (isKnown(name) ? TOOLS.filter(([, { projects }]) => isOf(projects, name)).map(([format]) => format) : [])

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 
-import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTagName, assertTreeId, isRepoPath, isSha, isSha1, isTagName, optional, sameName, show } from '../args.js'
+import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTagName, assertTreeId, isSha, isSha1, isTagName, optional, sameName, show } from '../args.js'
 import { verifiedDownload } from '../download.js'
 import { decode, encodeSegment, requestWithHeaders } from '../http.js'
-import { lockfileFormat, projectFormats } from '../lockfiles.js'
+import { FORMATS, lockfileOf, projectFormats } from '../lockfiles.js'
 import { gitTreeOfListing, objectId } from '../tree.js'
 import { api, bindMethods, call, clientHeaders, isGone, repoApi } from './client.js'
 
@@ -219,24 +219,26 @@ async function findRepoLockfiles(headers, options) {
   const { repo, sha, directory } = options
   const tree = await treeAt('findRepoLockfiles', headers, options)
   const lockfiles = []
-  const projects = []
-  const scripts = new Map()
+  const projects = new Map()
+  const files = new Map()
+  const locked = []
   for await (const { path, name, sha: blob } of filesIn('findRepoLockfiles', headers, repo, tree, directory === undefined ? '' : `${directory}/`)) {
-    if (name.endsWith('.py')) scripts.set(path, blob)
-    const format = lockfileFormat(name)
+    files.set(path, blob)
+    const lockfile = lockfileOf(name)
     const formats = projectFormats(name)
-    if (format === undefined && formats.length === 0) continue
-    assert.ok(isRepoPath(path), `findRepoLockfiles: ${repo}@${sha} has ${format === undefined ? 'a project file' : 'a lockfile'} at ${show(path)}, which getRepoFile does not take`)
-    if (format !== undefined) lockfiles.push({ path, format, sha: blob })
-    if (formats.length > 0) projects.push({ path, formats, sha: blob })
+    if (lockfile === undefined && formats.length === 0) continue
+    assertPath('findRepoLockfiles', `${repo}@${sha}'s ${lockfile === undefined ? 'project file' : 'lockfile'}`, path)
+    if (lockfile !== undefined) lockfiles.push({ path, format: lockfile.format, sha: blob })
+    if (lockfile?.locks !== undefined) locked.push({ path: `${path.slice(0, -name.length)}${lockfile.locks}`, format: lockfile.format })
+    if (formats.length > 0) projects.set(path, { path, formats, sha: blob })
   }
-  // A script `uv lock --script` locks, which no name tells: the one its
-  // lockfile, <script>.lock, is named after.
-  for (const { path, format } of lockfiles) {
-    const script = path.slice(0, -'.lock'.length)
-    if (format === 'uv' && scripts.has(script)) projects.push({ path: script, formats: ['uv'], sha: scripts.get(script) })
+  // A file a lockfile beside it locks is a project file of that format too.
+  for (const { path, format } of locked) {
+    if (!files.has(path)) continue
+    const formats = projects.get(path)?.formats ?? []
+    projects.set(path, { path, formats: Object.keys(FORMATS).filter((known) => known === format || formats.includes(known)), sha: files.get(path) })
   }
-  return { lockfiles: lockfiles.toSorted(byPath), projects: projects.toSorted(byPath) }
+  return { lockfiles: lockfiles.toSorted(byPath), projects: [...projects.values()].toSorted(byPath) }
 }
 
 async function getPullRequest(headers, options) {
