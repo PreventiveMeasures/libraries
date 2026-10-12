@@ -62,6 +62,10 @@ describe('sameCode', () => {
       ['a{background:-moz-element(#ABC)}', 'a {\n  background: -moz-element(#abc);\n}\n', 'an element\'s id, as oxfmt lowers it'],
       [':root{--x:# fff}', ':root {\n  --x: #fff;\n}\n', 'two tokens made one'], ['a{--x:5 %}', 'a {\n  --x: 5%;\n}\n', 'and with `%`'],
       ['a{--x:{foo}}', 'a {\n  --x: {\n    foo;\n  };\n}\n', 'a `;` added in a custom property\'s block, as oxfmt adds it']]) assert.equal(sameCode(before, after, 'css'), false, what)
+    assert.equal(sameCode('.a/**/.b{x:y}', '.a /**/ .b {\n  x: y;\n}\n', 'css'), false, 'a compound made a descendant beside a comment')
+    assert.equal(sameCode('.a/**/ .b{x:y}', '.a /**/.b {\n  x: y;\n}\n', 'css'), true, 'the spaces beside a comment counting as one')
+    assert.equal(sameCode('a{b:c}/* x */d{e:f}', 'a {\n  b: c;\n} /* x */\nd {\n  e: f;\n}\n', 'css'), true, 'and dropped where no space is needed')
+    assert.equal(sameCode('a{b:c}', `a{b:c}${String.fromCodePoint(0xF0001)}`, 'css'), false, 'text holding a mark')
     assert.equal(sameCode('a{--x:{foo;};b:c}', 'a {\n  --x: {\n    foo;\n  };\n  b: c;\n}\n', 'css'), true, 'the block kept')
     assert.equal(sameCode('a+b,a:NTH-CHILD(2N+1){x:calc(1px + 2px)}', 'a + b,\na:nth-child(2n + 1) {\n  x: calc(1px + 2px);\n}\n', 'css'), true, 'a selector\'s `+` spaced')
   })

@@ -75,10 +75,30 @@ function cssCase(text) {
   })
 }
 
-const code = (part, css) => (css ? squash(part).replaceAll(CSS_SPACE, '') : part.replaceAll(/\s/gu, '')).replaceAll(NUMBER, numberSpelling)
+// CSS with what it splits out marked in place: a comment, a string or an attribute's value,
+// and a URL (a name before, a `)` after); a space kept beside comments marked too.
+const [COMMENT, STRING, URL, KEPT] = ['\u{F0001}', '\u{F0002}', '\uE000)', '\u{F0003}']
 
-const sameList = (a, b) => a.length === b.length && a.every((item, i) => item === b[i])
-const textForm = (text, extension) => (extension === 'css' ? cssCase(text) : text).split(LITERAL[extension]).map((part, i) => (i % 2 ? literal(part) : code(part, extension === 'css')))
+// A comment parts no tokens: the spaces beside a run of them count as one, kept where
+// a space between the run's neighbours would be. Text holding a mark is not read.
+function cssForm(text) {
+  if (/[\u{F0001}-\u{F0003}\uE000]/u.test(text)) return null
+  const literals = []
+  const marked = squash(cssCase(text).replaceAll(new RegExp(LITERAL.css.source, 'giu'), (token) => {
+    literals.push(literal(token))
+    return token.startsWith('/') ? COMMENT : /^(?:url|(?:-moz-)?element)\(/iu.test(token) ? URL : STRING
+  }))
+  const form = marked.replaceAll(/ ?\u{F0001}(?: ?\u{F0001})* ?/gu, (run, at) => {
+    const before = /(?:@?[-\w]+|[^ ])?$/u.exec(marked.slice(Math.max(0, at - 64), at))[0]
+    const after = /^(?:[-\w]+\(|[^ ])?/u.exec(marked.slice(at + run.length, at + run.length + 64))[0]
+    return (run.includes(' ') && `${before} ${after}`.replaceAll(CSS_SPACE, '').includes(' ') ? KEPT : '') + run.replaceAll(' ', '')
+  })
+  return [form.replaceAll(CSS_SPACE, '').replaceAll(NUMBER, numberSpelling), ...literals]
+}
+
+const sameList = (a, b) => a !== null && b !== null && a.length === b.length && a.every((item, i) => item === b[i])
+const textForm = (text, extension) => (extension === 'css' ? cssForm(text)
+  : text.split(LITERAL.json).map((part, i) => (i % 2 ? literal(part) : part.replaceAll(/\s/gu, '').replaceAll(NUMBER, numberSpelling))))
 
 function parsed(text, extension) {
   const lang = extension === 'tsx' ? 'tsx' : /^[cm]?ts$/u.test(extension) ? 'ts' : 'jsx'

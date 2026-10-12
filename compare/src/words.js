@@ -136,17 +136,25 @@ export function renamedAlone(before, after, options) {
     const open = at(list, i + 1, 1), prior = at(list, i - 1, -1)
     return list[open] === '(' && near(list, (read.get(list).close.get(open) ?? list.length) + 1, 1) === '{' && near(list, list[prior] === '*' ? prior - 1 : prior, -1) !== 'function'
   }
+  const assigned = (list, k) => list[k] === '=' && !['=', '>'].includes(near(list, k + 1, 1))
   // A shorthand property's name (`{a}`, `const {a = 1} = x`), its key's too.
   const shorthand = (list, i) => {
     const next = at(list, i + 1, 1), opener = read.get(list).opener[i]
     return list[opener] === '{' && ['{', ','].includes(near(list, i - 1, -1)) && OBJECT_AFTER.has(near(list, opener - 1, -1))
-      && (['}', ','].includes(list[next]) || (list[next] === '=' && !['=', '>'].includes(near(list, next + 1, 1))))
+      && (['}', ','].includes(list[next]) || assigned(list, next))
+  }
+  // A public field's name (`class X{a=1}`): in a body whose `{` has `class` before it, back to a `{`, `}` or `;`.
+  const field = (list, i) => {
+    const next = at(list, i + 1, 1), opener = read.get(list).opener[i]
+    if (list[opener] !== '{' || !['{', ';', '}', 'static'].includes(near(list, i - 1, -1)) || !(['}', ';'].includes(list[next]) || assigned(list, next))) return false
+    for (let k = opener - 1; k >= 0 && !['{', '}', ';'].includes(list[k]); k--) if (list[k] === 'class') return true
+    return false
   }
   let changed = false
   for (let i = 0; i < x.length; i++) {
     if (x[i] === y[i]) continue
     if (![x[i], y[i]].every((word) => SHORT_NAME.test(word) && !SHORT_KEYWORDS.has(word))) return false
-    if ([x, y].some((list) => ['.', '#'].includes(near(list, i - 1, -1)) || near(list, i + 1, 1) === ':' || method(list, i) || shorthand(list, i))) return false
+    if ([x, y].some((list) => ['.', '#'].includes(near(list, i - 1, -1)) || near(list, i + 1, 1) === ':' || method(list, i) || shorthand(list, i) || field(list, i))) return false
     changed = true
   }
   return changed

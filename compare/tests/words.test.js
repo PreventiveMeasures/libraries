@@ -42,6 +42,9 @@ describe('renamedAlone', () => {
     for (const [before, after] of [['return {a}', 'return {b}'], ['const {a}=x', 'const {b}=x'], ['f({a,c})', 'f({b,c})'], ['const{a=1}=x', 'const{b=1}=x'], ['export{a}', 'export{b}']]) {
       assert.equal(renamedAlone(before, after), false, `${before} -> ${after}: a shorthand property`)
     }
+    for (const [before, after] of [['class X{a=1}', 'class X{b=1}'], ['x=class extends Y{m(){}a;c=2}', 'x=class extends Y{m(){}b;c=2}'], ['class X{static a=1}', 'class X{static b=1}']]) {
+      assert.equal(renamedAlone(before, after), false, `${before} -> ${after}: a public field`)
+    }
     for (const [before, after] of [['if(x){a}', 'if(x){b}'], ['if(x){a=1}', 'if(x){b=1}'], ['y=>{a,c}', 'y=>{b,c}'], ['x={c:a}', 'x={c:b}'], ['function a(){}', 'function b(){}'], ['function*a(c){}', 'function*b(c){}'], ['if(a(c)){d()}', 'if(b(c)){d()}']]) assert.equal(renamedAlone(before, after), true, `${before} -> ${after}`)
     const line = `a${'/*a'.repeat(50_000)}`, start = performance.now()
     renamedAlone(line, `b${line.slice(1)}`)
