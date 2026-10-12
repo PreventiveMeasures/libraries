@@ -67,6 +67,7 @@
     "src/renames.js",
     "src/same-bytes.js",
     "src/same-bytes.node.js",
+    "src/script.js",
     "src/similarity.js",
     "src/text.js",
     "src/tree.js",

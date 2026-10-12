@@ -1,7 +1,7 @@
 // Changed lines read word by word: what changed within a line and the one it
-// pairs with.
+// pairs with, as one shortest edit script between their words finds it.
 
-import { changeSet } from '@preventive/diff'
+import { scripter } from './script.js'
 
 // Words as a word diff compares them, so `foo(a)` -> `foo(b)` marks `a` alone.
 const TOKEN = /[\p{L}\p{N}_$]+|\s+|[^\p{L}\p{N}_$\s]/gu
@@ -21,41 +21,49 @@ function mergeRanges(ranges, text) {
   return merged
 }
 
-// A line as a word diff reads it, each distinct word numbered in `known` (one
-// for the lines compared) and written as one line of a diff; null past the
-// size limits.
-export function tokenized(line, known) {
+// The words of the lines compared, numbered as first met, with each one's
+// length and whether it is blank.
+export const lexicon = () => ({ numbers: new Map(), lengths: [], blanks: [] })
+
+// A line as a word diff reads it, each distinct word numbered in `words`; null
+// past the size limits.
+export function tokenized(line, words) {
   if (line.length > MAX_CHARS) return null
   const tokens = line.match(TOKEN) ?? []
   if (tokens.length > MAX_TOKENS) return null
-  const words = tokens.map((token) => {
-    if (!known.has(token)) known.set(token, known.size)
-    return known.get(token)
-  })
-  return { line, tokens, words, encoded: words.map((word) => `${word}\n`).join('') }
+  return { line, tokens, words: tokens.map((token) => {
+    if (!words.numbers.has(token)) {
+      words.numbers.set(token, words.lengths.length)
+      words.lengths.push(token.length)
+      words.blanks.push(/^\s/u.test(token))
+    }
+    return words.numbers.get(token)
+  }) }
 }
 
-// The ranges `[from, to)` that changed on each side of two tokenized lines,
-// those split by whitespace alone merged, and the smaller share of either line
-// they cover, all of it where the lines share no word.
-export function wordChanges(left, right) {
-  const blocks = changeSet(left.encoded, right.encoded, { horizon: 0 })
-  const ranges = (side, { tokens, line }) => {
-    const at = [0]
-    for (const token of tokens) at.push(at.at(-1) + token.length)
-    return mergeRanges(blocks.filter((block) => block[`${side}1`] > block[`${side}0`]).map((block) => [at[block[`${side}0`]], at[block[`${side}1`]]]), line)
+// The smaller share of either line a script changed, as a word view marks it;
+// all of it where they share no word.
+export const changedShare = ({ kept, seen }, left, right) => (seen
+  ? Math.min(1 - kept[0] / Math.max(1, left.line.length), 1 - kept[1] / Math.max(1, right.line.length)) : 1)
+
+// A line's changes as ranges `[from, to)`, those split by blanks alone merged.
+function changedRanges({ tokens, line }, kept) {
+  const ranges = []
+  for (let at = 0, i = 0; i < tokens.length; at += tokens[i++].length) {
+    if (kept[i]) continue
+    if (ranges.at(-1)?.[1] === at) ranges.at(-1)[1] = at + tokens[i].length
+    else ranges.push([at, at + tokens[i].length])
   }
-  const a = ranges('a', left), b = ranges('b', right)
-  const share = (list, line) => list.reduce((sum, [from, to]) => sum + to - from, 0) / Math.max(1, line.length)
-  const shared = left.tokens.length > blocks.reduce((sum, { a0, a1 }) => sum + a1 - a0, 0)
-  return { a, b, share: shared ? Math.min(share(a, left.line), share(b, right.line)) : 1 }
+  return mergeRanges(ranges, line)
 }
 
 // Lines the same have no ranges, not null: null is a line with no word view.
 export function wordRanges(left, right) {
   if (left === right) return { a: [], b: [] }
-  const known = new Map()
-  const a = tokenized(left, known), b = tokenized(right, known)
-  const words = a && b ? wordChanges(a, b) : null
-  return words && words.share <= MAX_CHANGED ? { a: words.a, b: words.b } : null
+  const words = lexicon()
+  const a = tokenized(left, words), b = tokenized(right, words)
+  if (a === null || b === null) return null
+  const kept = { a: new Uint8Array(a.words.length), b: new Uint8Array(b.words.length) }
+  const script = scripter(Math.max(a.words.length, b.words.length), words.lengths, words.blanks)(a.words, b.words, kept)
+  return changedShare(script, a, b) <= MAX_CHANGED ? { a: changedRanges(a, kept.a), b: changedRanges(b, kept.b) } : null
 }

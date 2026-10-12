@@ -53,9 +53,6 @@ describe('pairLines', () => {
     assert.deepEqual(pairLines(['f(b)', ...Array.from({ length: 50 }, (_, k) => `u${k}`)], [...Array.from({ length: 50 }, (_, k) => `w${k}`), 'f(b)']), [[0, 50]], 'however far apart')
     assert.deepEqual(pairLines(['foo          bar'], ['one          two']), [], 'blanks between two changes being no more kept than a word view keeps them')
     assert.deepEqual(pairLines(['  foo'], ['  bar']), [[0, 0]], 'but blanks before the first')
-    assert.deepEqual(pairLines(['x,two,o'], ['two(x,']), [[0, 0]], 'and as wordRanges finds the words kept, of scripts as short')
-    assert.deepEqual(pairLines(['bb((bb,', 'bb two '], ['cccxxbbtwo(ccctwoccco', 'x bb accc(']), [[0, 1]], 'pairs it does not mark giving way to one it does')
-    assert.deepEqual(pairLines(['a + a', '  a(a)'], ['if (a) a()']), [[1, 0]], 'and weighed as it marks them')
   })
 
   it('looks ahead alone where weighing every pair would take too long, still pairing in order', () => {
@@ -77,6 +74,35 @@ describe('pairLines', () => {
     const pairs = pairLines(olds, news)
     assert.ok(performance.now() - start < 5000)
     assert.ok(pairs.every(([a, b]) => wordRanges(olds[a], news[b]) !== null))
+  })
+
+  it('pairs as many lines as can be, and of those the most alike, as wordRanges marks them, for blocks made at random', () => {
+    const line = lines(23)
+    // The share of the lines wordRanges marks as changed, Infinity where it gives no word view.
+    const share = (old, fresh) => {
+      const words = wordRanges(old, fresh)
+      const part = (ranges, text) => ranges.reduce((sum, [from, to]) => sum + to - from, 0) / Math.max(1, text.length)
+      return words === null ? Infinity : Math.min(part(words.a, old), part(words.b, fresh))
+    }
+    // The best of every pairing in order: the most pairs, then the least changed.
+    const best = (olds, news, i = 0, j = 0) => {
+      if (i >= olds.length || j >= news.length) return [0, 0]
+      const [skipOld, skipNew] = [best(olds, news, i + 1, j), best(olds, news, i, j + 1)]
+      let top = skipOld[0] > skipNew[0] || (skipOld[0] === skipNew[0] && skipOld[1] <= skipNew[1]) ? skipOld : skipNew
+      const here = share(olds[i], news[j])
+      if (here < Infinity) {
+        const rest = best(olds, news, i + 1, j + 1)
+        if (rest[0] + 1 > top[0] || (rest[0] + 1 === top[0] && rest[1] + here < top[1] - 1e-9)) top = [rest[0] + 1, rest[1] + here]
+      }
+      return top
+    }
+    for (let i = 0; i < 400; i++) {
+      const news = Array.from({ length: 1 + (i % 4) }, line), olds = Array.from({ length: 1 + ((i * 3) % 4) }, line)
+      const pairs = pairLines(olds, news)
+      const [count, changed] = best(olds, news)
+      assert.equal(pairs.length, count, JSON.stringify({ olds, news, pairs }))
+      assert.ok(Math.abs(pairs.reduce((sum, [a, b]) => sum + share(olds[a], news[b]), 0) - changed) < 1e-9, JSON.stringify({ olds, news, pairs }))
+    }
   })
 
   it('pairs each line once, in order, and two lines just where a word view marks them, for lines made at random', () => {

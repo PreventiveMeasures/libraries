@@ -124,8 +124,9 @@ export function formatPatch(changes: Iterable<FileStatus | FileChange>, options?
 
 // The ranges `[from, to)` that changed within a removed line and the added
 // line it pairs with, word by word (runs of letters and digits, whitespace,
-// any other character): every character that changed is in one, and two split
-// by whitespace alone are merged, taking it in. None where the lines are the
+// any other character), as the shortest edit script pairLines weighs lines by
+// finds them: every character that changed is in one, and two split by
+// whitespace alone are merged, taking it in. None where the lines are the
 // same; null, no word view, where they are mostly replaced, or past 2000
 // characters or 800 words, so that all of either line is taken as changed.
 export function wordRanges(left: string, right: string): { a: [number, number][]; b: [number, number][] } | null
