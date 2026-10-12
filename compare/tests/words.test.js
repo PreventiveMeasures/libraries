@@ -55,6 +55,7 @@ describe('pairLines', () => {
     assert.deepEqual(pairLines(['  foo'], ['  bar']), [[0, 0]], 'but blanks before the first')
     assert.deepEqual(pairLines(['x,two,o'], ['two(x,']), [[0, 0]], 'and as wordRanges finds the words kept, of scripts as short')
     assert.deepEqual(pairLines(['bb((bb,', 'bb two '], ['cccxxbbtwo(ccctwoccco', 'x bb accc(']), [[0, 1]], 'pairs it does not mark giving way to one it does')
+    assert.deepEqual(pairLines(['a + a', '  a(a)'], ['if (a) a()']), [[1, 0]], 'and weighed as it marks them')
   })
 
   it('looks ahead alone where weighing every pair would take too long, still pairing in order', () => {

@@ -131,21 +131,19 @@ function weigher(olds, news) {
     // Any script as short keeps as many words, at most this many characters of them: too few, and no diff marks the pair.
     const most = ((a.length + b.length - edits) / 2) * Math.min(longest[0][i], longest[1][j])
     if (most < (1 - MAX_CHANGED) * Math.min(Math.max(1, olds[i].length), Math.max(1, news[j].length))) return Infinity
-    return viewed([i, j]) ? exact.get(i * news.length + j) : Infinity
+    return exactly(i, j)
   }
-  // The share as wordRanges finds it, through @preventive/diff: the script above may keep other words of the
-  // same count, so what it rejects is asked here, and what is chosen is confirmed here; past the limit, only
-  // what has been asked already is known.
+  // The share as wordRanges finds it, through @preventive/diff, Infinity where it gives no ranges: the script
+  // above may keep other words of the same count, so what it rejects is asked here, and what is chosen.
   const exact = new Map()
-  const viewed = ([i, j]) => {
+  const exactly = (i, j) => {
     const key = i * news.length + j
-    if (olds[i] === news[j]) return true
-    if (!exact.has(key) && work > LIMIT) return false
     if (!exact.has(key)) {
       work += EXACT * (reads[0][i].words.length + reads[1][j].words.length) + (scripts.get(key) ?? 0)
-      exact.set(key, wordChanges(reads[0][i], reads[1][j]).share)
+      const { share } = wordChanges(reads[0][i], reads[1][j])
+      exact.set(key, share <= MAX_CHANGED ? share : Infinity)
     }
-    return exact.get(key) <= MAX_CHANGED
+    return exact.get(key)
   }
   const shares = new Float64Array(olds.length * news.length).fill(Number.NaN)
   const share = (i, j) => {
@@ -153,11 +151,17 @@ function weigher(olds, news) {
     if (Number.isNaN(shares[key])) shares[key] = olds[i] === news[j] ? 0 : weighed(i, j)
     return shares[key]
   }
-  // A pair the diff does not confirm, weighed no more.
-  const reject = ([i, j]) => {
-    shares[i * news.length + j] = Infinity
+  // A chosen pair weighed again as wordRanges has it: whether its share changed, or, past the limit, whether
+  // it was not weighed so already; and whether a pair is one wordRanges marks, as far as it has been asked.
+  const settle = ([i, j]) => {
+    const key = i * news.length + j
+    if (olds[i] === news[j] || exact.has(key)) return false
+    if (work > LIMIT) return true
+    const was = shares[key]
+    return (shares[key] = exactly(i, j)) !== was
   }
-  return { share, floor, viewed, reject, spent: () => work, charge: (steps) => (work += steps) }
+  const confirmed = ([i, j]) => olds[i] === news[j] || exact.get(i * news.length + j) < Infinity
+  return { share, floor, settle, confirmed, spent: () => work, charge: (steps) => (work += steps) }
 }
 
 // The pairs in order that are the most, and of those the most alike, a pair
@@ -200,16 +204,15 @@ function lookedAhead(n, m, { share, floor, spent }) {
   return pairs
 }
 
-// Pairs the diff does not confirm are weighed no more, and the lines paired
-// again, till every pair is one wordRanges marks; past the limit, the pairs not
-// yet confirmed are left out instead.
+// The chosen pairs weighed again as wordRanges has them, and the lines paired
+// again where that changed any, till every pair is as wordRanges weighs it;
+// past the limit, the pairs it has not confirmed are left out instead.
 export function pairLines(olds, news) {
   if (olds.length > MAX_LINES || news.length > MAX_LINES) return []
   const weigh = weigher(olds, news)
   for (;;) {
     const pairs = aligned(olds.length, news.length, weigh) ?? lookedAhead(olds.length, news.length, weigh)
-    const confirmed = pairs.filter(weigh.viewed)
-    if (confirmed.length === pairs.length || weigh.spent() > LIMIT) return confirmed
-    pairs.filter((pair) => !confirmed.includes(pair)).forEach(weigh.reject)
+    if (pairs.filter(weigh.settle).length === 0) return pairs
+    if (weigh.spent() > LIMIT) return pairs.filter(weigh.confirmed)
   }
 }
