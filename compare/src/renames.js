@@ -96,8 +96,7 @@ function familyRenames(context, left, weigh, minimum) {
   const keyed = (files, indices, side) => new Map(indices.filter((i) => files[i].type === 'file').map((i) => {
     const keys = familyKeys(files[i].path)
     for (const key of keys) {
-      if (!buckets.has(key)) buckets.set(key, { sources: [], dests: [] })
-      buckets.get(key)[side].push(i)
+      (buckets.get(key) ?? buckets.set(key, { sources: [], dests: [] }).get(key))[side].push(i)
     }
     return [i, keys]
   }))
@@ -105,13 +104,8 @@ function familyRenames(context, left, weigh, minimum) {
   const sourceKeys = keyed(sources, left.remaining.filter((s) => !used.has(s)), 'sources')
   // The one file of `side` the keys meet, or -1 for none or several.
   const partner = (keys, side) => {
-    let found = -1
-    for (const key of keys) {
-      const list = buckets.get(key)[side]
-      if (list.length > 1 || (list.length === 1 && found !== -1 && found !== list[0])) return -1
-      if (list.length === 1) found = list[0]
-    }
-    return found
+    const met = new Set(keys.flatMap((key) => buckets.get(key)[side]))
+    return met.size === 1 ? [...met][0] : -1
   }
   for (const [s, keys] of sourceKeys) {
     const d = partner(keys, 'dests')
@@ -188,15 +182,8 @@ export function findRenames(sources, dests, { minimum, limit, byPath }) {
   if (sources.length === 0 || dests.length === 0) return pairs
   // A file's bytes, its text encoded once, and their span counts once.
   const counted = new Map(), encoded = new Map()
-  const bytes = (file) => {
-    if (file.type !== 'file') return null
-    if (!encoded.has(file)) encoded.set(file, bytesOf(file.data))
-    return encoded.get(file)
-  }
-  const counts = (data) => {
-    if (!counted.has(data)) counted.set(data, spanCounts(data))
-    return counted.get(data)
-  }
+  const bytes = (file) => (file.type === 'file' ? encoded.get(file) ?? encoded.set(file, bytesOf(file.data)).get(file) : null)
+  const counts = (data) => counted.get(data) ?? counted.set(data, spanCounts(data)).get(data)
   const context = {
     sources, dests, pairs, used,
     sourceNames: sources.map((file) => basename(file.path)),

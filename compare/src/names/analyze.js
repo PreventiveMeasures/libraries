@@ -58,16 +58,14 @@ function join(s, kept, gone) {
 // A `var` is its function's, passing the blocks it is in on the way (`through`);
 // one named as a `catch` parameter it is in keeps one name with it.
 function declareVariables(node, where, s) {
-  for (const declarator of node.declarations) {
-    for (const id of declared(declarator.id)) {
-      const variable = declare(s, node.kind === 'var' ? fnOf(where) : where, id)
-      if (node.kind !== 'var') continue
-      const path = []
-      for (let at = where; !at.fn; at = at.parent) path.push(at)
-      if (path.length > 0) (variable.through ??= []).push(path)
-      const caught = path.find((at) => at.caught && at.names.has(id.name))
-      if (caught) join(s, caught.names.get(id.name), variable)
-    }
+  for (const id of node.declarations.flatMap((declarator) => declared(declarator.id))) {
+    const variable = declare(s, node.kind === 'var' ? fnOf(where) : where, id)
+    if (node.kind !== 'var') continue
+    const path = []
+    for (let at = where; !at.fn; at = at.parent) path.push(at)
+    if (path.length > 0) (variable.through ??= []).push(path)
+    const caught = path.find((at) => at.caught && at.names.has(id.name))
+    if (caught) join(s, caught.names.get(id.name), variable)
   }
 }
 
@@ -202,19 +200,15 @@ function walk(program) {
 // Each name read resolved outward from where it is read, else a global's.
 // `eval(...)` reads names by their spelling, wherever `eval` is declared.
 function resolved(program, s) {
-  let commonjs = false
   const globals = [], occurrences = [...s.declarations].map(([node, [variable, where]]) => [node, variable, where])
   for (const [node, where] of s.references) {
     if (node.name === 'eval') return { reason: 'dynamic' }
     const variable = resolve(node.name, where)
     if (variable) occurrences.push([node, variable, where])
-    else {
-      globals.push([node, where])
-      if (COMMONJS.has(node.name)) commonjs = true
-    }
+    else globals.push([node, where])
   }
   for (const [node, variable] of occurrences) if (s.keeping.has(node)) variable.kept = true
-  const own = program.sourceType === 'module' || program.sourceType === 'commonjs' || commonjs
+  const own = program.sourceType === 'module' || program.sourceType === 'commonjs' || globals.some(([node]) => COMMONJS.has(node.name))
   for (const variable of s.variables) variable.aside = variable.name.length <= RENAMED_MAX_LENGTH && MINIFIED.test(variable.name) && !variable.kept && (own || variable.scope !== s.root)
   // A shorthand property's two names are one, at one place.
   const byStart = (x, y) => x[0].start - y[0].start
